@@ -145,6 +145,7 @@ type ExecuteRequest struct {
 	Model                string
 	Payload              []byte
 	Format               string
+	RequestPath          string
 	Headers              http.Header
 	OriginalRequest      []byte
 	ContinuityKey        string
@@ -377,10 +378,7 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
 	response, err := e.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
-	}, cliproxyexecutor.Options{
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		SourceFormat: format, ResponseFormat: format,
-	})
+	}, codexExecutionOptions(request, format, false))
 	if err != nil {
 		return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
 	}
@@ -398,10 +396,7 @@ func (e *CodexHTTPExecutor) CountTokensCanonical(ctx context.Context, credential
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
 	response, err := e.inner.CountTokens(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
-	}, cliproxyexecutor.Options{
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		SourceFormat: format, ResponseFormat: format,
-	})
+	}, codexExecutionOptions(request, format, false))
 	if err != nil {
 		return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
 	}
@@ -449,10 +444,7 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
 	response, err := e.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
-	}, cliproxyexecutor.Options{
-		Stream: true, Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		SourceFormat: format, ResponseFormat: format,
-	})
+	}, codexExecutionOptions(request, format, true))
 	if err != nil {
 		return &ExecuteStreamResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
 	}
@@ -471,6 +463,24 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 		Headers: response.Headers.Clone(), Chunks: chunks,
 		AppliedReasoningEffort: observation.reasoningEffort(),
 	}, nil
+}
+
+func codexExecutionOptions(
+	request ExecuteRequest,
+	format sdktranslator.Format,
+	stream bool,
+) cliproxyexecutor.Options {
+	options := cliproxyexecutor.Options{
+		Stream: stream, Headers: request.Headers.Clone(),
+		OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		SourceFormat:    format, ResponseFormat: format,
+	}
+	if request.RequestPath != "" {
+		options.Metadata = map[string]any{
+			cliproxyexecutor.RequestPathMetadataKey: request.RequestPath,
+		}
+	}
+	return options
 }
 
 func (e *CodexHTTPExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {

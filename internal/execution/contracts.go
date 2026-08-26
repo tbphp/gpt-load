@@ -40,6 +40,8 @@ const (
 	OperationResponsesInputTokens Operation = "responses_input_tokens"
 	OperationCountTokens          Operation = "count_tokens"
 	OperationResponsesPassthrough Operation = "responses_passthrough"
+	OperationImagesGenerate       Operation = "images_generate"
+	OperationImagesEdit           Operation = "images_edit"
 	OperationListModels           Operation = "list_models"
 	OperationProbe                Operation = "probe"
 )
@@ -57,11 +59,37 @@ func (o Operation) Valid() bool {
 		OperationResponsesInputTokens,
 		OperationCountTokens,
 		OperationResponsesPassthrough,
+		OperationImagesGenerate,
+		OperationImagesEdit,
 		OperationListModels,
 		OperationProbe:
 		return true
 	default:
 		return false
+	}
+}
+
+// ReplayPolicy describes the proof required before GPT-Load may dispatch the
+// same logical request to another upstream candidate after a request may have
+// reached an upstream.
+type ReplayPolicy uint8
+
+const (
+	// ReplayPolicyLegacy preserves the established behavior of existing
+	// operations. Individual health rules still decide whether retry is safe.
+	ReplayPolicyLegacy ReplayPolicy = iota
+	// ReplayPolicyRequireRejectedBeforeProcessing permits another dispatch only
+	// when the provider explicitly proves that processing never started.
+	ReplayPolicyRequireRejectedBeforeProcessing
+)
+
+// ReplayPolicy returns the operation-level replay contract.
+func (o Operation) ReplayPolicy() ReplayPolicy {
+	switch o {
+	case OperationImagesGenerate, OperationImagesEdit:
+		return ReplayPolicyRequireRejectedBeforeProcessing
+	default:
+		return ReplayPolicyLegacy
 	}
 }
 

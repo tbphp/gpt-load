@@ -395,7 +395,7 @@ func compileRoutes(
 func validProtocolOperation(clientProtocol protocol.Protocol, operation execution.Operation) bool {
 	switch operation {
 	case execution.OperationChatCompletion:
-		return clientProtocol != protocol.OpenAIResponses
+		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.OpenAIImages
 	case execution.OperationCountTokens:
 		return clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini
 	case execution.OperationResponsesCreate,
@@ -407,10 +407,13 @@ func validProtocolOperation(clientProtocol protocol.Protocol, operation executio
 		execution.OperationResponsesInputTokens,
 		execution.OperationResponsesPassthrough:
 		return clientProtocol == protocol.OpenAIResponses
+	case execution.OperationImagesGenerate,
+		execution.OperationImagesEdit:
+		return clientProtocol == protocol.OpenAIImages
 	case execution.OperationListModels:
-		return clientProtocol != protocol.OpenAIResponses
+		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.OpenAIImages
 	case execution.OperationProbe:
-		return true
+		return clientProtocol != protocol.OpenAIImages
 	default:
 		return false
 	}

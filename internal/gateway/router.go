@@ -8,13 +8,15 @@ import (
 )
 
 const (
-	openAICompletionsPath    = "/v1/chat/completions"
-	anthropicMessagesPath    = "/v1/messages"
-	geminiModelsPath         = "/v1beta/models"
-	geminiGenerationPattern  = geminiModelsPath + "/:model_action"
-	modelsPath               = "/v1/models"
-	openAIResponsesPath      = "/v1/responses"
-	responsesResourcePattern = openAIResponsesPath + "/*resource_path"
+	openAICompletionsPath       = "/v1/chat/completions"
+	anthropicMessagesPath       = "/v1/messages"
+	geminiModelsPath            = "/v1beta/models"
+	geminiGenerationPattern     = geminiModelsPath + "/:model_action"
+	modelsPath                  = "/v1/models"
+	openAIResponsesPath         = "/v1/responses"
+	responsesResourcePattern    = openAIResponsesPath + "/*resource_path"
+	openAIImagesGenerationsPath = "/v1/images/generations"
+	openAIImagesEditsPath       = "/v1/images/edits"
 )
 
 type endpointKind uint8
@@ -90,6 +92,18 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			path:            responsesResourcePattern,
 			rejectAfterAuth: rejectResponsesAfterAuthentication,
 			resolve:         staticRoute(protocol.OpenAIResponses, endpointForward),
+		},
+		{
+			name:    "data.openai.images.generations",
+			methods: []string{http.MethodPost},
+			path:    openAIImagesGenerationsPath,
+			resolve: staticRoute(protocol.OpenAIImages, endpointForward),
+		},
+		{
+			name:    "data.openai.images.edits",
+			methods: []string{http.MethodPost},
+			path:    openAIImagesEditsPath,
+			resolve: staticRoute(protocol.OpenAIImages, endpointForward),
 		},
 	}
 }

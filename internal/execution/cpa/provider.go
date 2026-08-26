@@ -94,6 +94,7 @@ type providerRequest struct {
 	Model           string
 	Payload         []byte
 	Format          string
+	RequestPath     string
 	Headers         http.Header
 	OriginalRequest []byte
 	// ContinuityKey is a private, tenant-scoped key used only by providers

@@ -36,6 +36,10 @@ func standardRequest(
 		selected = NewOpenAIResponses()
 		request.Path = "/v1/responses"
 		body = map[string]any{"model": model, "input": []any{}, "store": false}
+	case protocol.OpenAIImages:
+		selected = NewOpenAIImages()
+		request.Path = openAIImagesGenerationsPath
+		body = map[string]any{"model": model, "prompt": ""}
 	case protocol.Anthropic:
 		selected = NewAnthropic()
 		request.Path = "/v1/messages"

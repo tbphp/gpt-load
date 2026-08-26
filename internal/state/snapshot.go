@@ -328,7 +328,9 @@ func appendExecutionTargets(
 				execution.OperationResponsesCreate,
 				execution.OperationResponsesCompact,
 				execution.OperationResponsesInputTokens,
-				execution.OperationCountTokens:
+				execution.OperationCountTokens,
+				execution.OperationImagesGenerate,
+				execution.OperationImagesEdit:
 				for _, model := range group.Models {
 					modelMode, supported := target.ModeForModel(clientProtocol, operation, model.ID)
 					if !supported {

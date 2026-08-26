@@ -681,6 +681,18 @@ func TestIteratorExhaustsForNilOrEmptyDependencies(t *testing.T) {
 	}
 }
 
+func TestNormalizeQueryDoesNotDefaultOpenAIImagesOperation(t *testing.T) {
+	t.Parallel()
+
+	normalized := normalizeQuery(Query{
+		ClientProtocol: protocol.OpenAIImages,
+		ExternalModel:  modelPointer("gpt-image-2"),
+	})
+	if normalized.operation != "" {
+		t.Fatalf("operation = %q, want empty", normalized.operation)
+	}
+}
+
 func schedulerSnapshot() *state.ConfigSnapshot {
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),

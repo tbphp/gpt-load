@@ -75,6 +75,27 @@ func TestParseCodexCredentialJSONRejectsMalformedCPAControlMetadata(t *testing.T
 	}
 }
 
+func TestCodexExecutionOptionsCarryOnlyExplicitRequestPath(t *testing.T) {
+	t.Parallel()
+
+	format := sdktranslator.FromString("openai-image")
+	options := codexExecutionOptions(ExecuteRequest{
+		RequestPath: "/v1/images/generations",
+		Headers:     http.Header{"Content-Type": {"application/json"}},
+	}, format, true)
+	if options.SourceFormat != format || options.ResponseFormat != format || !options.Stream {
+		t.Fatalf("options formats/stream = %#v", options)
+	}
+	if got := options.Metadata[cliproxyexecutor.RequestPathMetadataKey]; got != "/v1/images/generations" {
+		t.Fatalf("request path metadata = %#v", options.Metadata)
+	}
+
+	withoutPath := codexExecutionOptions(ExecuteRequest{}, format, false)
+	if _, exists := withoutPath.Metadata[cliproxyexecutor.RequestPathMetadataKey]; exists {
+		t.Fatalf("empty request path produced metadata: %#v", withoutPath.Metadata)
+	}
+}
+
 func TestParseCodexCredentialJSONRejectsInvalidOrDangerousInput(t *testing.T) {
 	t.Parallel()
 

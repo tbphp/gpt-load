@@ -101,6 +101,26 @@ func TestCompilerRejectsOpenAIResponsesModelListRoute(t *testing.T) {
 	}
 }
 
+func TestValidProtocolOperationOpenAIImagesMatrix(t *testing.T) {
+	t.Parallel()
+
+	for _, operation := range []execution.Operation{
+		execution.OperationImagesGenerate,
+		execution.OperationImagesEdit,
+	} {
+		if !validProtocolOperation(protocol.OpenAIImages, operation) {
+			t.Fatalf("openai-images/%s must be valid", operation)
+		}
+		if validProtocolOperation(protocol.OpenAIResponses, operation) {
+			t.Fatalf("openai-responses/%s must be invalid", operation)
+		}
+	}
+	if validProtocolOperation(protocol.OpenAIImages, execution.OperationChatCompletion) ||
+		validProtocolOperation(protocol.OpenAIImages, execution.OperationResponsesCreate) {
+		t.Fatal("openai-images accepted a non-images operation")
+	}
+}
+
 func TestCompilerDefaultsEmptyIconToChannelID(t *testing.T) {
 	t.Parallel()
 

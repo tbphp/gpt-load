@@ -6,22 +6,29 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/platform/httproute"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -270,6 +277,268 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAdapterExecutesCodexImagesWithFixedCanonicalPath(t *testing.T) {
+	t.Parallel()
+
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	fake := &fakeExecutor{result: codex.ExecuteResponse{
+		Payload: []byte(`{"created":1,"data":[{"b64_json":"AA=="}],"usage":{"input_tokens":9}}`),
+	}}
+	setCodexExecutor(t, adapter, fake)
+	spec := validSpec(t, row, keyService)
+	spec.ClientProtocol = protocol.OpenAIImages
+	spec.Operation = execution.OperationImagesGenerate
+	spec.RouteMode = execution.RouteNative
+	spec.RouteRequirement = execution.RouteRequirementNative
+	spec.ClientModel = "public-image"
+	spec.UpstreamModel = "provider-image"
+	spec.Path = "/v1/images/generations"
+	spec.Header = http.Header{"Content-Type": {"application/json"}}
+	spec.Body = []byte(`{"model":"public-image","stream":true,"prompt":"draw","provider":"client","api_key":"client","future":{"keep":true}}`)
+
+	result := adapter.Execute(t.Context(), spec)
+	if err := result.Validate(); err != nil || result.Error != nil || fake.calls != 1 {
+		t.Fatalf("result/calls = %+v/%d, validation=%v", result, fake.calls, err)
+	}
+	if fake.request.Format != "openai-image" || fake.request.RequestPath != "/v1/images/generations" {
+		t.Fatalf("CPA Images request = %#v", fake.request)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(fake.request.Payload, &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body["model"]) != `"provider-image"` || string(body["stream"]) != "false" ||
+		string(body["future"]) != `{"keep":true}` {
+		t.Fatalf("sanitized payload = %s", fake.request.Payload)
+	}
+	for _, field := range []string{"provider", "api_key"} {
+		if _, exists := body[field]; exists {
+			t.Fatalf("control field %q reached CPA: %s", field, fake.request.Payload)
+		}
+	}
+	if !bytes.Equal(fake.request.OriginalRequest, fake.request.Payload) {
+		t.Fatalf("CPA original request retained unsanitized body: %s / %s", fake.request.OriginalRequest, fake.request.Payload)
+	}
+	if result.Usage != nil {
+		t.Fatalf("Images usage = %#v, want nil", result.Usage)
+	}
+}
+
+func TestAdapterExecutesCodexImagesMultipartAndStream(t *testing.T) {
+	t.Parallel()
+
+	t.Run("multipart edit", func(t *testing.T) {
+		adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+		fake := &fakeExecutor{result: codex.ExecuteResponse{Payload: []byte(`{"created":1,"data":[{"b64_json":"AA=="}]}`)}}
+		setCodexExecutor(t, adapter, fake)
+		body, contentType := cpaImagesMultipart(t)
+		spec := validSpec(t, row, keyService)
+		spec.ClientProtocol = protocol.OpenAIImages
+		spec.Operation = execution.OperationImagesEdit
+		spec.RouteRequirement = execution.RouteRequirementNative
+		spec.ClientModel = "public-image"
+		spec.UpstreamModel = "provider-image"
+		spec.Path = "/v1/images/edits"
+		spec.Header = http.Header{"Content-Type": {contentType}}
+		spec.Body = body
+
+		result := adapter.Execute(t.Context(), spec)
+		if err := result.Validate(); err != nil || result.Error != nil || fake.calls != 1 {
+			t.Fatalf("result/calls = %+v/%d, validation=%v", result, fake.calls, err)
+		}
+		if fake.request.Format != "openai-image" || fake.request.RequestPath != "/v1/images/edits" {
+			t.Fatalf("CPA multipart request = %#v", fake.request)
+		}
+		mediaType, params, err := mime.ParseMediaType(fake.request.Headers.Get("Content-Type"))
+		if err != nil || mediaType != "multipart/form-data" {
+			t.Fatalf("Content-Type = %q: %v", fake.request.Headers.Get("Content-Type"), err)
+		}
+		reader := multipart.NewReader(bytes.NewReader(fake.request.Payload), params["boundary"])
+		seen := map[string][]byte{}
+		for {
+			part, err := reader.NextRawPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, disposition, _ := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+			seen[disposition["name"]], _ = io.ReadAll(part)
+		}
+		if string(seen["model"]) != "provider-image" || string(seen["stream"]) != "false" ||
+			string(seen["image[]"]) != "png-data" || seen["api_key"] != nil {
+			t.Fatalf("multipart fields = %#v", seen)
+		}
+	})
+
+	t.Run("stream generation", func(t *testing.T) {
+		adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+		chunks := make(chan codex.ExecuteStreamChunk, 2)
+		chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: image_generation.partial_image\ndata: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"AA==\"}\n")}
+		chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: image_generation.completed\ndata: {\"type\":\"image_generation.completed\",\"b64_json\":\"BB==\"}\n")}
+		close(chunks)
+		fake := &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
+		setCodexExecutor(t, adapter, fake)
+		spec := validSpec(t, row, keyService)
+		spec.ClientProtocol = protocol.OpenAIImages
+		spec.Operation = execution.OperationImagesGenerate
+		spec.RouteRequirement = execution.RouteRequirementNative
+		spec.ClientModel = "public-image"
+		spec.UpstreamModel = "provider-image"
+		spec.Path = "/v1/images/generations"
+		spec.Header = http.Header{"Content-Type": {"application/json"}}
+		spec.Body = []byte(`{"model":"public-image","prompt":"draw"}`)
+		var events []execution.StreamEvent
+		result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+			events = append(events, event.Clone())
+			return nil
+		})
+		if err := result.Validate(); err != nil || result.Error != nil || fake.calls != 1 {
+			t.Fatalf("result/calls = %+v/%d, validation=%v", result, fake.calls, err)
+		}
+		if fake.request.RequestPath != "/v1/images/generations" || fake.request.Format != "openai-image" ||
+			!bytes.Contains(fake.request.Payload, []byte(`"stream":true`)) {
+			t.Fatalf("stream CPA request = %#v", fake.request)
+		}
+		for _, event := range events {
+			if event.Kind == execution.StreamEventUsage {
+				t.Fatalf("unexpected Images usage event: %+v", event)
+			}
+		}
+	})
+}
+
+func TestAdapterRejectsInvalidCodexImagesTuplesBeforeDispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*execution.AttemptSpec)
+	}{
+		{name: "wrong method", mutate: func(spec *execution.AttemptSpec) { spec.Method = http.MethodGet }},
+		{name: "arbitrary path", mutate: func(spec *execution.AttemptSpec) { spec.Path = "/v1/images/variations" }},
+		{name: "operation path mismatch", mutate: func(spec *execution.AttemptSpec) { spec.Operation = execution.OperationImagesEdit }},
+		{name: "converted mode", mutate: func(spec *execution.AttemptSpec) { spec.RouteMode = execution.RouteConverted }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			fake := &fakeExecutor{}
+			setCodexExecutor(t, adapter, fake)
+			spec := validSpec(t, row, keyService)
+			spec.ClientProtocol = protocol.OpenAIImages
+			spec.Operation = execution.OperationImagesGenerate
+			spec.RouteRequirement = execution.RouteRequirementNative
+			spec.Path = "/v1/images/generations"
+			spec.Header = http.Header{"Content-Type": {"application/json"}}
+			spec.Body = []byte(`{"model":"gpt-5","prompt":"draw"}`)
+			test.mutate(&spec)
+			result := adapter.Execute(t.Context(), spec)
+			if result.DispatchState != execution.DispatchNotSent || result.Error == nil || fake.calls != 0 {
+				t.Fatalf("result/calls = %+v/%d", result, fake.calls)
+			}
+		})
+	}
+}
+
+func TestCodexClientImageGenerationReachesSubscriptionExecutor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adapter, _, credentialRegistry, keyService, row := newAdapterFixture(
+		t,
+		credentialJSON("access", "refresh", time.Now().Add(time.Hour)),
+	)
+	fake := &fakeExecutor{result: codex.ExecuteResponse{
+		Payload: []byte(`{"created":1713833628,"data":[{"b64_json":"VEVTVA=="}]}`),
+	}}
+	setCodexExecutor(t, adapter, fake)
+	credentialRef, ok := credentialRegistry.CredentialRef(row.ID)
+	if !ok {
+		t.Fatal("credential ref is unavailable")
+	}
+	manager := state.NewManager()
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: row.GroupID, Name: "codex", ChannelID: channel.Codex,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-image-2"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: row.ID, GroupID: row.GroupID, Status: state.CredentialStatusActive,
+			Version: credentialRef.Version, IdentityGeneration: credentialRef.IdentityGeneration,
+			Fingerprint: credentialRef.Fingerprint,
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "codex-client", KeyHash: keyService.Hash("gl-codex-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	handler := gateway.NewHandler(
+		manager,
+		credentialRegistry,
+		keyService,
+		gateway.NewExecutionForwarder(adapter),
+		dialect.NewSet(dialect.NewOpenAIImages()),
+		health.NewStatsStore(),
+		health.NewMutationCoordinator(),
+		nil,
+		nil,
+		nil,
+	)
+	engine := gin.New()
+	routes, err := httproute.NewRegistry(handler.HTTPModule())
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	if err := routes.Bind(engine); err != nil {
+		t.Fatalf("Bind() error = %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/images/generations",
+		strings.NewReader(`{"model":"gpt-image-2","prompt":"生成一张 T 字母图片","background":"auto","quality":"auto","size":"auto"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-codex-client")
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Body.String() != `{"created":1713833628,"data":[{"b64_json":"VEVTVA=="}]}` {
+		t.Fatalf("response = %d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+	if fake.calls != 1 || fake.request.Format != "openai-image" ||
+		fake.request.RequestPath != "/v1/images/generations" ||
+		!bytes.Contains(fake.request.Payload, []byte(`"model":"gpt-image-2"`)) {
+		t.Fatalf("Codex executor request = calls=%d %#v", fake.calls, fake.request)
+	}
+}
+
+func cpaImagesMultipart(t *testing.T) ([]byte, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for name, value := range map[string]string{
+		"model": "public-image", "prompt": "edit", "stream": "true", "api_key": "client",
+	} {
+		if err := writer.WriteField(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	part, err := writer.CreateFormFile("image[]", "source.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(part, "png-data")
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return bytes.Clone(body.Bytes()), writer.FormDataContentType()
 }
 
 func TestSubscriptionResponseHeadersUseAllowlist(t *testing.T) {

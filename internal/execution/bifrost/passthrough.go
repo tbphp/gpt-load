@@ -12,6 +12,7 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
@@ -163,6 +164,28 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		stripNativeControlFields(object)
 		return encodeNativeJSONObject(object)
 	}
+}
+
+func sanitizeNativePassthroughRequest(
+	spec execution.AttemptSpec,
+	stream bool,
+) ([]byte, http.Header, error) {
+	if spec.ClientProtocol == protocol.OpenAIImages &&
+		(spec.Operation == execution.OperationImagesGenerate || spec.Operation == execution.OperationImagesEdit) {
+		request, err := dialect.NewOpenAIImages().SanitizeRequestForAttempt(&dialect.ParsedRequest{
+			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,
+			Header: spec.Header.Clone(), Body: bytes.Clone(spec.Body),
+		}, spec.UpstreamModel, stream)
+		if err != nil {
+			return nil, nil, err
+		}
+		return bytes.Clone(request.Body), request.Header.Clone(), nil
+	}
+	body, err := sanitizeNativeRequestBody(spec, stream)
+	if err != nil {
+		return nil, nil, err
+	}
+	return body, spec.Header.Clone(), nil
 }
 
 func decodeNativeJSONObject(body []byte) (map[string]json.RawMessage, error) {
@@ -331,7 +354,7 @@ func (r *Runtime) executeNative(
 			}
 			_, _ = body.Write(response.Body)
 			if response.PassthroughUsage != nil {
-				chunkUsage, err := usageEvidenceFromPassthrough(response.PassthroughUsage)
+				chunkUsage, err := usageEvidenceFromPassthroughForSpec(spec, response.PassthroughUsage)
 				if err != nil {
 					cancelCall()
 					return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "normalize upstream usage")
@@ -616,7 +639,7 @@ func (r *Runtime) executeNativeStream(
 				}
 			}
 			if response.PassthroughUsage != nil {
-				chunkUsage, err := usageEvidenceFromPassthrough(response.PassthroughUsage)
+				chunkUsage, err := usageEvidenceFromPassthroughForSpec(spec, response.PassthroughUsage)
 				if err != nil {
 					cancelCall()
 					return nativeStreamRuntimeFailure(bifrostContext, prepared.secrets, started, status, headers, model, usageEvidence)
@@ -641,6 +664,16 @@ func (r *Runtime) executeNativeStream(
 			idleTimer.resume()
 		}
 	}
+}
+
+func usageEvidenceFromPassthroughForSpec(
+	spec execution.AttemptSpec,
+	source *schemas.BifrostPassthroughUsage,
+) (*execution.UsageEvidence, error) {
+	if spec.ClientProtocol == protocol.OpenAIImages {
+		return nil, nil
+	}
+	return usageEvidenceFromPassthrough(source)
 }
 
 func nativeStreamRuntimeFailure(

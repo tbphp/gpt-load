@@ -372,7 +372,7 @@ export default {
       title: '路由检查',
       description: '按协议、模型与访问密钥检查当前候选分组和凭据。',
       boundary:
-        '按所选协议模拟不含会话内容与亲和命中的标准无状态请求；Responses 使用 store:false。只读检查，不会发送上游请求或消耗 Token。',
+        '按所选协议模拟不含会话内容与亲和命中的标准无状态请求；Responses 使用 store:false，Images 只检查图片生成。只读检查，不会发送上游请求或消耗 Token。',
       routeModes: {
         native: '原生',
         converted: '协议转换',
@@ -388,6 +388,8 @@ export default {
         responses_input_tokens: '计算输入 Token',
         count_tokens: '计算 Token',
         responses_passthrough: 'Responses 扩展操作',
+        images_generate: '生成图片',
+        images_edit: '编辑图片',
       },
       routeRequirements: {
         any: '允许协议转换（可有损）',
@@ -764,6 +766,8 @@ export default {
         responses_input_tokens: '计算输入 Tokens',
         count_tokens: '计算 Tokens',
         responses_passthrough: 'Responses 资源透传',
+        images_generate: '生成图片',
+        images_edit: '编辑图片',
         list_models: '列出模型',
         probe: '健康探测',
       },

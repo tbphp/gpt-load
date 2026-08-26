@@ -305,6 +305,8 @@ func operationRequiresModel(operation Operation) bool {
 		operation == OperationResponsesCompact ||
 		operation == OperationResponsesInputTokens ||
 		operation == OperationCountTokens ||
+		operation == OperationImagesGenerate ||
+		operation == OperationImagesEdit ||
 		operation == OperationProbe
 }
 

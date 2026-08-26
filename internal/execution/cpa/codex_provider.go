@@ -58,6 +58,11 @@ func (*codexProviderBridge) ValidateRouteCapability(route channel.RouteDescripto
 				route.RouteMode == execution.RouteConverted)
 		}
 	}
+	if route.ClientProtocol == protocol.OpenAIImages {
+		valid = (route.Operation == execution.OperationImagesGenerate ||
+			route.Operation == execution.OperationImagesEdit) &&
+			route.RouteMode == execution.RouteNative
+	}
 	if !valid {
 		return fmt.Errorf("route is not implemented by Codex")
 	}
@@ -73,7 +78,8 @@ func (bridge *codexProviderBridge) CountTokensLocal(
 	}
 	response, err := bridge.executor.CountTokens(ctx, "local-token-count", codex.Credential{}, codex.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		RequestPath: request.RequestPath,
+		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	headers := response.Headers.Clone()
@@ -274,7 +280,8 @@ func (bridge *codexProviderBridge) Execute(
 	}
 	response, err := bridge.executor.Execute(ctx, credentialID, codexCredential.value, codex.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		RequestPath: request.RequestPath,
+		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	return providerResponse{
@@ -295,7 +302,8 @@ func (bridge *codexProviderBridge) ExecuteStream(
 	}
 	response, err := bridge.executor.ExecuteStream(ctx, credentialID, codexCredential.value, codex.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		RequestPath: request.RequestPath,
+		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	if response == nil {

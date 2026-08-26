@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/protocol"
 )
 
 type preparedSuccessRepresentation struct {
@@ -63,20 +64,30 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	modelTracker := newResponseModelTracker(input.Dialect, input.UpstreamModelID)
 	modelTracker.observe(originalPlain)
 
-	patternSafePlain := forwarder.redactor.Bytes(originalPlain)
-	if int64(len(patternSafePlain)) > maxNonStreamingResponseBodyBytes {
-		return preparedSuccessRepresentation{}, successRepresentationProtocolError("redacted response body exceeds limit")
-	}
-	safePlain, residualCredential, ok := redactCredentialLiterals(
-		patternSafePlain,
-		secrets,
-		maxNonStreamingResponseBodyBytes,
-	)
-	if !ok {
-		return preparedSuccessRepresentation{}, successRepresentationProtocolError("redact response body")
-	}
-	if residualCredential {
-		return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
+	var safePlain []byte
+	if input.ClientProtocol == protocol.OpenAIImages {
+		if credentialLiteralsRemain(originalPlain, secrets) {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
+		}
+		safePlain = bytes.Clone(originalPlain)
+	} else {
+		patternSafePlain := forwarder.redactor.Bytes(originalPlain)
+		if int64(len(patternSafePlain)) > maxNonStreamingResponseBodyBytes {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("redacted response body exceeds limit")
+		}
+		var residualCredential bool
+		var ok bool
+		safePlain, residualCredential, ok = redactCredentialLiterals(
+			patternSafePlain,
+			secrets,
+			maxNonStreamingResponseBodyBytes,
+		)
+		if !ok {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("redact response body")
+		}
+		if residualCredential {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
+		}
 	}
 
 	inspectablePlain := bytes.Clone(safePlain)

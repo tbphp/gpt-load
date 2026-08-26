@@ -79,8 +79,11 @@ func (a *Adapter) ValidateRouteCapability(
 	return provider.ValidateRouteCapability(route)
 }
 
-func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execution.AttemptResult {
+func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (result execution.AttemptResult) {
 	spec = execution.NewAttemptSpec(spec)
+	defer func() {
+		normalizeCPAImagesAttemptResult(spec, &result)
+	}()
 	provider, err := a.validateSpec(spec)
 	if err != nil {
 		return unaryNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "", err)
@@ -99,7 +102,15 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) execu
 			Proxy: spec.Proxy, Fingerprint: spec.ProxyFingerprint,
 		})
 	}
-	request := bridgeRequest(spec, proxySettings)
+	request, err := bridgeRequest(spec, proxySettings, false)
+	if err != nil {
+		return unaryNotSent(
+			execution.ErrorKindInvalidRequest,
+			"subscription request input is not supported",
+			"unsupported_subscription_input",
+			err,
+		)
+	}
 	if validator, ok := provider.(providerRequestValidator); ok {
 		if err := validator.ValidateRequest(request); err != nil {
 			return unaryNotSent(
@@ -211,8 +222,15 @@ func unaryProviderSuccess(
 	}
 }
 
-func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec, sink execution.StreamSink) execution.StreamResult {
+func (a *Adapter) ExecuteStream(
+	ctx context.Context,
+	spec execution.AttemptSpec,
+	sink execution.StreamSink,
+) (result execution.StreamResult) {
 	spec = execution.NewAttemptSpec(spec)
+	defer func() {
+		normalizeCPAImagesStreamResult(spec, &result)
+	}()
 	if sink == nil {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "stream sink is required", "")
 	}
@@ -236,7 +254,14 @@ func (a *Adapter) ExecuteStream(ctx context.Context, spec execution.AttemptSpec,
 			Proxy: spec.Proxy, Fingerprint: spec.ProxyFingerprint,
 		})
 	}
-	request := bridgeRequest(spec, proxySettings)
+	request, err := bridgeRequest(spec, proxySettings, true)
+	if err != nil {
+		return streamNotSent(
+			execution.ErrorKindInvalidRequest,
+			"subscription request input is not supported",
+			"unsupported_subscription_input",
+		)
+	}
 	if validator, ok := provider.(providerRequestValidator); ok {
 		if err := validator.ValidateRequest(request); err != nil {
 			return streamNotSent(execution.ErrorKindInvalidRequest, "subscription request input is not supported", "unsupported_subscription_input")
@@ -383,7 +408,7 @@ func countTokensOperation(operation execution.Operation) bool {
 }
 
 func responseUsage(spec execution.AttemptSpec, body []byte) *execution.UsageEvidence {
-	if countTokensOperation(spec.Operation) {
+	if countTokensOperation(spec.Operation) || spec.ClientProtocol == protocol.OpenAIImages {
 		return nil
 	}
 	return usageEvidence(spec.ClientProtocol, body)
@@ -416,33 +441,108 @@ func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, erro
 	if !ok || execution.RouteMode(mode) != spec.RouteMode {
 		return nil, fmt.Errorf("subscription route is not declared by the channel")
 	}
-	if !json.Valid(spec.Body) {
+	if spec.ClientProtocol == protocol.OpenAIImages {
+		if _, err := canonicalCPAImagesRequestPath(spec); err != nil {
+			return nil, err
+		}
+		if _, err := dialect.NewOpenAIImages().InspectRequest(&dialect.ParsedRequest{
+			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,
+			Header: spec.Header.Clone(), Body: append([]byte(nil), spec.Body...),
+		}); err != nil {
+			return nil, fmt.Errorf("invalid Images request: %w", err)
+		}
+	} else if !json.Valid(spec.Body) {
 		return nil, fmt.Errorf("subscription request body must be JSON")
 	}
 	return provider, nil
 }
 
-func bridgeRequest(spec execution.AttemptSpec, proxySettings cpaProxySettings) providerRequest {
+func bridgeRequest(
+	spec execution.AttemptSpec,
+	proxySettings cpaProxySettings,
+	stream bool,
+) (providerRequest, error) {
+	payload := append([]byte(nil), spec.Body...)
+	headers := spec.Header.Clone()
+	requestPath := ""
+	if spec.ClientProtocol == protocol.OpenAIImages {
+		var err error
+		requestPath, err = canonicalCPAImagesRequestPath(spec)
+		if err != nil {
+			return providerRequest{}, err
+		}
+		rebuilt, err := dialect.NewOpenAIImages().SanitizeRequestForAttempt(&dialect.ParsedRequest{
+			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,
+			Header: headers, Body: payload,
+		}, spec.UpstreamModel, stream)
+		if err != nil {
+			return providerRequest{}, err
+		}
+		payload = append([]byte(nil), rebuilt.Body...)
+		headers = rebuilt.Header.Clone()
+	}
 	return providerRequest{
-		AttemptID: spec.AttemptID, Model: spec.UpstreamModel, Payload: append([]byte(nil), spec.Body...),
-		Format: formatFor(spec.ClientProtocol), Headers: spec.Header.Clone(),
-		OriginalRequest:      append([]byte(nil), spec.Body...),
+		AttemptID: spec.AttemptID, Model: spec.UpstreamModel, Payload: payload,
+		Format: formatFor(spec.ClientProtocol), RequestPath: requestPath, Headers: headers,
+		OriginalRequest:      append([]byte(nil), payload...),
 		ContinuityKey:        spec.ContinuityKey,
 		ProxyURL:             proxySettings.URL,
 		ProxyFromEnvironment: proxySettings.FromEnvironment,
-	}
+	}, nil
 }
 
 func formatFor(clientProtocol protocol.Protocol) string {
 	switch clientProtocol {
 	case protocol.OpenAIResponses:
 		return "openai-response"
+	case protocol.OpenAIImages:
+		return "openai-image"
 	case protocol.Anthropic:
 		return "claude"
 	case protocol.Gemini:
 		return "gemini"
 	default:
 		return "openai"
+	}
+}
+
+func canonicalCPAImagesRequestPath(spec execution.AttemptSpec) (string, error) {
+	if spec.ClientProtocol != protocol.OpenAIImages || spec.RouteMode != execution.RouteNative ||
+		spec.Method != http.MethodPost {
+		return "", fmt.Errorf("unsupported Images route tuple")
+	}
+	expected := ""
+	switch spec.Operation {
+	case execution.OperationImagesGenerate:
+		expected = "/v1/images/generations"
+	case execution.OperationImagesEdit:
+		expected = "/v1/images/edits"
+	default:
+		return "", fmt.Errorf("unsupported Images operation")
+	}
+	if spec.Path != expected {
+		return "", fmt.Errorf("Images path does not match operation")
+	}
+	return expected, nil
+}
+
+func normalizeCPAImagesAttemptResult(spec execution.AttemptSpec, result *execution.AttemptResult) {
+	if result == nil || spec.ClientProtocol != protocol.OpenAIImages {
+		return
+	}
+	result.Usage = nil
+	if result.Error != nil && result.Error.ReplaySafety == "" {
+		result.Error.ReplaySafety = execution.ReplaySafetyUnknown
+	}
+}
+
+func normalizeCPAImagesStreamResult(spec execution.AttemptSpec, result *execution.StreamResult) {
+	if result == nil || spec.ClientProtocol != protocol.OpenAIImages {
+		return
+	}
+	result.Usage = nil
+	if result.Error != nil && result.Error.ReplaySafety == "" {
+		result.Error.ReplaySafety = execution.ReplaySafetyUnknown
 	}
 }
 

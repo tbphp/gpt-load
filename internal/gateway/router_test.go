@@ -66,6 +66,16 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 			methods: registeredResponsesMethods,
 			path:    "/v1/responses/*resource_path",
 		},
+		{
+			name:    "data.openai.images.generations",
+			methods: []string{http.MethodPost},
+			path:    "/v1/images/generations",
+		},
+		{
+			name:    "data.openai.images.edits",
+			methods: []string{http.MethodPost},
+			path:    "/v1/images/edits",
+		},
 	}
 
 	catalog := dataPlaneEndpointCatalog()
@@ -188,6 +198,18 @@ func TestDataPlaneEndpointCatalogResolvesProtocolAndKind(t *testing.T) {
 			name: "Responses nested extension", endpoint: "data.openai.responses.resource",
 			method: http.MethodPatch, path: "/v1/responses/vendor-extension/nested",
 			want:      route{Protocol: protocol.OpenAIResponses, Kind: endpointForward},
+			validPath: true,
+		},
+		{
+			name: "Images generation", endpoint: "data.openai.images.generations",
+			method: http.MethodPost, path: "/v1/images/generations",
+			want:      route{Protocol: protocol.OpenAIImages, Kind: endpointForward},
+			validPath: true,
+		},
+		{
+			name: "Images edit", endpoint: "data.openai.images.edits",
+			method: http.MethodPost, path: "/v1/images/edits",
+			want:      route{Protocol: protocol.OpenAIImages, Kind: endpointForward},
 			validPath: true,
 		},
 	}

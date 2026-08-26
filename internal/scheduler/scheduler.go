@@ -283,7 +283,10 @@ func normalizeQuery(query Query) normalizedQuery {
 	clientProtocol := query.ClientProtocol
 	operation := query.Operation
 	if operation == "" {
-		if clientProtocol == protocol.OpenAIResponses {
+		if clientProtocol == protocol.OpenAIImages {
+			// Images endpoints always select generate or edit explicitly. Keep an
+			// omitted operation invalid instead of silently changing the action.
+		} else if clientProtocol == protocol.OpenAIResponses {
 			if query.ExternalModel == nil {
 				operation = execution.OperationResponsesRetrieve
 			} else {
