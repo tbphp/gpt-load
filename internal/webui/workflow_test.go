@@ -1962,6 +1962,32 @@ func TestDockerfilePinsBuildAndRuntimeImagesByVersionAndDigest(t *testing.T) {
 	}
 }
 
+func TestDockerfileRuntimePinsPatchedOpenSSLPackages(t *testing.T) {
+	content := readRepositoryFile(t, "Dockerfile")
+	runtimeStart := strings.Index(content, "\nFROM alpine:")
+	if runtimeStart < 0 {
+		t.Fatal("Dockerfile does not contain the shared runtime stage")
+	}
+	runtimeEnd := strings.Index(content[runtimeStart+1:], "\nFROM ")
+	if runtimeEnd < 0 {
+		t.Fatal("Dockerfile runtime stage has no following stage")
+	}
+	runtimeStage := content[runtimeStart : runtimeStart+1+runtimeEnd]
+
+	upgrade := "apk add --no-cache libcrypto3=3.5.8-r0 libssl3=3.5.8-r0"
+	upgradeIndex := strings.Index(runtimeStage, upgrade)
+	if upgradeIndex < 0 {
+		t.Fatalf("Dockerfile runtime stage does not pin patched OpenSSL packages via %q", upgrade)
+	}
+	packageInstallIndex := strings.Index(runtimeStage, "apk add --no-cache ca-certificates tzdata")
+	if packageInstallIndex < 0 {
+		t.Fatal("Dockerfile runtime stage does not install certificate and timezone packages")
+	}
+	if upgradeIndex >= packageInstallIndex {
+		t.Fatal("Dockerfile upgrades OpenSSL after installing certificate and timezone packages")
+	}
+}
+
 func readRepositoryFile(t *testing.T, name string) string {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join("..", "..", name))
