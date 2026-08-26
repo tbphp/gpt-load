@@ -2124,6 +2124,10 @@ func TestHandlerCapturesKeyIdentityOnlyAfterDecodedInspection(t *testing.T) {
 			contentLength: maxRequestBodyBytes + 1, wantStatus: http.StatusRequestEntityTooLarge,
 		},
 		{
+			name: "request within expanded limit", body: []byte(`{"model":"gpt-4o"}`),
+			contentLength: 64 << 20, wantStatus: http.StatusOK, wantCapture: 1,
+		},
+		{
 			name: "invalid JSON", body: []byte(`{"model":`),
 			wantStatus: http.StatusBadRequest,
 		},
@@ -2574,8 +2578,8 @@ func assertGatewayReasonTest(
 }
 
 func TestHandlerRejectsOversizedRequestBody(t *testing.T) {
-	if maxRequestBodyBytes != 32<<20 {
-		t.Fatalf("maxRequestBodyBytes = %d, want %d", maxRequestBodyBytes, 32<<20)
+	if maxRequestBodyBytes != 128<<20 {
+		t.Fatalf("maxRequestBodyBytes = %d, want %d", maxRequestBodyBytes, 128<<20)
 	}
 	forwarder := &scriptedForwarder{}
 	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-unused")

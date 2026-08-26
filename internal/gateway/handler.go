@@ -38,7 +38,7 @@ import (
 
 const (
 	maxAttempts               = 3
-	maxRequestBodyBytes       = int64(32 << 20)
+	maxRequestBodyBytes       = int64(128 << 20)
 	maxDataPlaneModelBytes    = 255
 	fixedCooldown             = time.Minute
 	subscriptionFixedCooldown = 10 * time.Minute
