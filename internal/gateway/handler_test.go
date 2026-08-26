@@ -2124,7 +2124,7 @@ func TestHandlerCapturesKeyIdentityOnlyAfterDecodedInspection(t *testing.T) {
 			contentLength: maxRequestBodyBytes + 1, wantStatus: http.StatusRequestEntityTooLarge,
 		},
 		{
-			name: "request within expanded limit", body: []byte(`{"model":"gpt-4o"}`),
+			name: "content length within expanded limit", body: []byte(`{"model":"gpt-4o"}`),
 			contentLength: 64 << 20, wantStatus: http.StatusOK, wantCapture: 1,
 		},
 		{
