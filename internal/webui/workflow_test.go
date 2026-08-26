@@ -1955,6 +1955,7 @@ func TestDockerfilePinsBuildAndRuntimeImagesByVersionAndDigest(t *testing.T) {
 		"pnpm@11.17.0",
 		"golang:1.26.6-alpine3.24@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df",
 		"alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",
+		"apk upgrade --no-cache libcrypto3 libssl3",
 	} {
 		if !strings.Contains(content, required) {
 			t.Errorf("Dockerfile does not contain %q", required)
