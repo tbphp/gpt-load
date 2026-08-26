@@ -73,7 +73,6 @@ const filterErrors = ref<UsageFilterErrors>({})
 
 const groupsQuery = useQuery({
   ...groupOptionsQueryOptions(client, () => !isAccessKey.value),
-  refetchOnMount: false,
 })
 const channelsQuery = useQuery({
   queryKey: controlQueryKeys.channels.list(''),

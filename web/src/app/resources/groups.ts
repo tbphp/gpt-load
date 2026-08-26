@@ -654,6 +654,8 @@ export function groupOptionsQueryOptions(
     queryKey: controlQueryKeys.groups.options(),
     queryFn: ({ signal }) => listGroupOptions(client, signal),
     enabled: computed(() => toValue(enabled)),
+    // Group 选项目录可能由其他页面或标签页修改，进入消费者页面时必须重新校验。
+    refetchOnMount: 'always',
   })
 }
 
