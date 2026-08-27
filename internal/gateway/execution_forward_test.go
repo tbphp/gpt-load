@@ -351,6 +351,106 @@ func TestExecutionForwarderAllowsImagesEventAboveDefaultLimit(t *testing.T) {
 	}
 }
 
+func TestExecutionForwarderChecksImagesStreamCredentialsBeforeForwarding(t *testing.T) {
+	const (
+		partial = "event: image_generation.partial_image\n" +
+			"data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"AAAA\",\"A\":1}\n\n"
+		completed = "event: image_generation.completed\n" +
+			"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AAAA\",\"A\":1}\n\n"
+		apiKeyLeak = "event: image_generation.completed\n" +
+			"data: {\"type\":\"image_generation.completed\",\"revised_prompt\":\"A\"}\n\n"
+		credentialLeak = "event: image_generation.completed\n" +
+			"data: {\"type\":\"image_generation.completed\",\"metadata\":{\"token\":\"oauth-secret\"}}\n\n"
+	)
+	tests := []struct {
+		name          string
+		frames        []string
+		wantSinkError bool
+		wantCommitted bool
+		wantEndReason StreamEndReason
+		wantBody      string
+	}{
+		{
+			name:          "media and structure collisions remain valid",
+			frames:        []string{completed},
+			wantCommitted: true,
+			wantEndReason: StreamEndCleanEOF,
+			wantBody:      completed,
+		},
+		{
+			name:          "credential leak before commit fails closed",
+			frames:        []string{credentialLeak},
+			wantSinkError: true,
+		},
+		{
+			name:          "credential leak after commit drops offending event",
+			frames:        []string{partial, apiKeyLeak},
+			wantSinkError: true,
+			wantCommitted: true,
+			wantEndReason: StreamEndUpstreamProtocolError,
+			wantBody:      partial,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var sinkErr error
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				for index, frame := range test.frames {
+					sinkErr = sink(execution.StreamEvent{
+						Sequence: uint64(index + 2), Kind: execution.StreamEventData, Data: []byte(frame),
+					})
+					if sinkErr != nil {
+						break
+					}
+				}
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}
+			}}
+			input := executionForwardInput()
+			input.Dialect = dialect.NewOpenAIImages()
+			input.ClientProtocol = protocol.OpenAIImages
+			input.Operation = execution.OperationImagesGenerate
+			input.Request.Path = "/v1/images/generations"
+			input.Request.RawQuery = ""
+			input.Request.Body = []byte(`{"model":"public","stream":true}`)
+			input.APIKey = "A"
+			input.CredentialSecrets = []string{"oauth-secret"}
+			recorder := httptest.NewRecorder()
+
+			result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
+			if test.wantSinkError {
+				if !errors.Is(sinkErr, ErrUpstreamProtocol) || !errors.Is(result.Err, ErrUpstreamProtocol) {
+					t.Fatalf("sink/result errors = %v / %v, want upstream protocol errors", sinkErr, result.Err)
+				}
+			} else if sinkErr != nil || result.Err != nil {
+				t.Fatalf("sink/result errors = %v / %v", sinkErr, result.Err)
+			}
+			if result.Committed != test.wantCommitted {
+				t.Fatalf("Committed = %t, want %t", result.Committed, test.wantCommitted)
+			}
+			if test.wantCommitted && result.Stream.EndReason != test.wantEndReason {
+				t.Fatalf("EndReason = %q, want %q", result.Stream.EndReason, test.wantEndReason)
+			}
+			if got := recorder.Body.String(); got != test.wantBody {
+				t.Fatalf("response body = %q, want %q", got, test.wantBody)
+			}
+		})
+	}
+}
+
 func TestExecutionForwarderClassifiesImagesCompletedErrorObject(t *testing.T) {
 	tests := []struct {
 		name          string

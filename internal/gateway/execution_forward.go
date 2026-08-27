@@ -108,10 +108,18 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		input.Group.HeaderRules,
 		input.CredentialSecrets...,
 	)
+	credentialSecrets := append([]string(nil), input.CredentialSecrets...)
+	if input.APIKey != "" {
+		credentialSecrets = append(credentialSecrets, input.APIKey)
+	}
 	streamBuffer := newSSEEventObservationBuffer(execution.SSEEventLimit(input.ClientProtocol), func(
 		event dialect.StreamEvent,
 		genericProviderError bool,
 	) (bool, error) {
+		if input.ClientProtocol == protocol.OpenAIImages &&
+			imagesCredentialLiteralsRemain(event.Payload, credentialSecrets) {
+			return false, fmt.Errorf("%w: credential remains in response event", ErrUpstreamProtocol)
+		}
 		wasTerminal := streamEvents.sawTerminal
 		providerError, err := streamEvents.classify(event, genericProviderError)
 		if err != nil {
