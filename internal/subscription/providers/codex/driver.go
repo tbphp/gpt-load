@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+
 	"gpt-load/internal/channel/modules"
 	"gpt-load/internal/channel/spec"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -142,7 +144,7 @@ func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionr
 	for _, model := range models {
 		result = append(result, model.ID)
 	}
-	return result, nil
+	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderCodex, result), nil
 }
 
 func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {

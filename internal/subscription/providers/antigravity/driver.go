@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+
 	"gpt-load/internal/channel/modules"
 	"gpt-load/internal/channel/spec"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -130,7 +132,7 @@ func (*antigravityDriver) DiscoverModels(ctx context.Context, credential subscri
 	for _, model := range models {
 		result = append(result, model.ID)
 	}
-	return result, nil
+	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderAntigravity, result), nil
 }
 
 func (*antigravityDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
