@@ -72,3 +72,12 @@ func TestExecuteRequestToBridgePreservesEnvironmentProxyPolicy(t *testing.T) {
 		t.Fatalf("bridge proxy request = %#v", request)
 	}
 }
+
+func TestExecuteRequestToBridgePreservesFixedRequestPath(t *testing.T) {
+	t.Parallel()
+
+	request := executeRequestToBridge(ExecuteRequest{RequestPath: "/v1/images/generations"})
+	if request.RequestPath != "/v1/images/generations" {
+		t.Fatalf("bridge request path = %q", request.RequestPath)
+	}
+}

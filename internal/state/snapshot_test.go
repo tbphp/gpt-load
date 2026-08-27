@@ -55,6 +55,31 @@ func TestCompileIndexesExternalModelsAndPreservesUpstreamIDs(t *testing.T) {
 	}
 }
 
+func TestCompileIndexesOpenAIImagesOperationsForAllConfiguredModels(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := Compile(CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []GroupConfig{
+			{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []ModelConfig{{ID: "official-image", Alias: "public"}}, Enabled: true},
+			{ConnectionType: "api_key", ID: 2, ChannelID: channel.OpenAICompatible,
+				Params: json.RawMessage(`{"base_url":"https://proxy.example/api/v4"}`),
+				Models: []ModelConfig{{ID: "compatible-image", Alias: "public"}}, Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	for _, operation := range []execution.Operation{execution.OperationImagesGenerate, execution.OperationImagesEdit} {
+		got := snapshot.ExecutionCandidates[protocol.OpenAIImages][operation]["public"]
+		if len(got) != 2 || got[0].GroupID != 1 || got[1].GroupID != 2 ||
+			got[0].Mode != channel.RouteNative || got[1].Mode != channel.RouteNative {
+			t.Errorf("Images candidates for %q = %#v", operation, got)
+		}
+	}
+}
+
 func TestCompileSubscriptionPublishesOnlyVerifiedCodexOperations(t *testing.T) {
 	t.Parallel()
 	snapshot, err := Compile(CompileInput{

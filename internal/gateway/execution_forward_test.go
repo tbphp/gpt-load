@@ -306,6 +306,227 @@ func TestExecutionForwarderCommitsSuccessfulStreamOnlyOnFirstData(t *testing.T) 
 	}
 }
 
+func TestExecutionForwarderAllowsImagesEventAboveDefaultLimit(t *testing.T) {
+	partial := "event: image_generation.partial_image\n" +
+		"data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"" +
+		strings.Repeat("A", maxSSEEventBytes+1) + "\"}\n\n"
+	completed := "event: image_generation.completed\n" +
+		"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AA==\"}\n\n"
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		for _, event := range []execution.StreamEvent{
+			{
+				Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+				Header: http.Header{"Content-Type": {"text/event-stream"}},
+			},
+			{Sequence: 2, Kind: execution.StreamEventData, Data: []byte(partial)},
+			{Sequence: 3, Kind: execution.StreamEventData, Data: []byte(completed)},
+		} {
+			if err := sink(event); err != nil {
+				t.Fatalf("stream sink: %v", err)
+			}
+		}
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}
+	}}
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIImages()
+	input.ClientProtocol = protocol.OpenAIImages
+	input.Operation = execution.OperationImagesGenerate
+	input.Request.Path = "/v1/images/generations"
+	input.Request.RawQuery = ""
+	input.Request.Body = []byte(`{"model":"public","stream":true}`)
+	recorder := httptest.NewRecorder()
+	result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
+	if result.Err != nil || !result.Committed || result.Stream.EndReason != StreamEndCleanEOF {
+		t.Fatalf("ForwardStream() = %#v", result)
+	}
+	if !bytes.Equal(recorder.Body.Bytes(), []byte(partial+completed)) {
+		t.Fatalf("stream body length = %d, want %d", recorder.Body.Len(), len(partial)+len(completed))
+	}
+}
+
+func TestExecutionForwarderChecksImagesStreamCredentialsBeforeForwarding(t *testing.T) {
+	const (
+		partial = "event: image_generation.partial_image\n" +
+			"data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"AAAA\",\"A\":1}\n\n"
+		completedStart = "event: image_generation.completed\n" +
+			"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AA"
+		completedEnd    = "AA\",\"A\":1}\n\n"
+		completed       = completedStart + completedEnd
+		apiKeyLeakStart = "event: image_generation.completed\n" +
+			"data: {\"type\":\"image_generation.completed\",\"revised_prompt\":\"A"
+		credentialLeakStart = "event: image_generation.completed\n" +
+			"data: {\"type\":\"image_generation.completed\",\"metadata\":{\"token\":\"oauth-secret"
+		leakEnd = "\"}}\n\n"
+	)
+	tests := []struct {
+		name          string
+		chunks        []string
+		wantSinkError bool
+		wantCommitted bool
+		wantEndReason StreamEndReason
+		wantBodies    []string
+	}{
+		{
+			name:          "split media and structure collisions remain valid",
+			chunks:        []string{completedStart, completedEnd},
+			wantCommitted: true,
+			wantEndReason: StreamEndCleanEOF,
+			wantBodies:    []string{"", completed},
+		},
+		{
+			name:          "split credential leak before commit fails closed",
+			chunks:        []string{credentialLeakStart, leakEnd},
+			wantSinkError: true,
+			wantBodies:    []string{"", ""},
+		},
+		{
+			name:          "split credential leak after commit drops offending event",
+			chunks:        []string{partial, apiKeyLeakStart, "\"}\n\n"},
+			wantSinkError: true,
+			wantCommitted: true,
+			wantEndReason: StreamEndUpstreamProtocolError,
+			wantBodies:    []string{partial, partial, partial},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var sinkErr error
+			recorder := httptest.NewRecorder()
+			bodies := make([]string, 0, len(test.chunks))
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				for index, chunk := range test.chunks {
+					sinkErr = sink(execution.StreamEvent{
+						Sequence: uint64(index + 2), Kind: execution.StreamEventData, Data: []byte(chunk),
+					})
+					bodies = append(bodies, recorder.Body.String())
+					if sinkErr != nil {
+						break
+					}
+				}
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}
+			}}
+			input := executionForwardInput()
+			input.Dialect = dialect.NewOpenAIImages()
+			input.ClientProtocol = protocol.OpenAIImages
+			input.Operation = execution.OperationImagesGenerate
+			input.Request.Path = "/v1/images/generations"
+			input.Request.RawQuery = ""
+			input.Request.Body = []byte(`{"model":"public","stream":true}`)
+			input.APIKey = "A"
+			input.CredentialSecrets = []string{"oauth-secret"}
+
+			result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
+			if test.wantSinkError {
+				if !errors.Is(sinkErr, ErrUpstreamProtocol) || !errors.Is(result.Err, ErrUpstreamProtocol) {
+					t.Fatalf("sink/result errors = %v / %v, want upstream protocol errors", sinkErr, result.Err)
+				}
+			} else if sinkErr != nil || result.Err != nil {
+				t.Fatalf("sink/result errors = %v / %v", sinkErr, result.Err)
+			}
+			if result.Committed != test.wantCommitted {
+				t.Fatalf("Committed = %t, want %t", result.Committed, test.wantCommitted)
+			}
+			if test.wantCommitted && result.Stream.EndReason != test.wantEndReason {
+				t.Fatalf("EndReason = %q, want %q", result.Stream.EndReason, test.wantEndReason)
+			}
+			if !reflect.DeepEqual(bodies, test.wantBodies) {
+				t.Fatalf("response bodies = %#v, want %#v", bodies, test.wantBodies)
+			}
+		})
+	}
+}
+
+func TestExecutionForwarderClassifiesImagesCompletedErrorObject(t *testing.T) {
+	tests := []struct {
+		name          string
+		frames        []string
+		wantEndReason StreamEndReason
+	}{
+		{
+			name: "empty error completes",
+			frames: []string{
+				"event: image_generation.completed\n" +
+					"data: {\"type\":\"image_generation.completed\",\"error\":{}}\n\n",
+			},
+			wantEndReason: StreamEndCleanEOF,
+		},
+		{
+			name: "non-empty error fails",
+			frames: []string{
+				"event: image_generation.partial_image\n" +
+					"data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"AA==\"}\n\n",
+				"event: image_generation.completed\n" +
+					"data: {\"type\":\"image_generation.completed\",\"error\":{\"message\":\"failed\"}}\n\n",
+			},
+			wantEndReason: StreamEndSSEError,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				for index, frame := range test.frames {
+					if err := sink(execution.StreamEvent{
+						Sequence: uint64(index + 2), Kind: execution.StreamEventData, Data: []byte(frame),
+					}); err != nil {
+						t.Fatalf("data sink: %v", err)
+					}
+				}
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}
+			}}
+			input := executionForwardInput()
+			input.Dialect = dialect.NewOpenAIImages()
+			input.ClientProtocol = protocol.OpenAIImages
+			input.Operation = execution.OperationImagesGenerate
+			input.Request.Path = "/v1/images/generations"
+			input.Request.RawQuery = ""
+			input.Request.Body = []byte(`{"model":"public","stream":true}`)
+			recorder := httptest.NewRecorder()
+
+			result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
+			if result.Err != nil || !result.Committed || result.Stream.EndReason != test.wantEndReason {
+				t.Fatalf("ForwardStream() = %#v", result)
+			}
+			if recorder.Body.String() != strings.Join(test.frames, "") {
+				t.Fatalf("response body = %q", recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestExecutionForwarderIgnoresOpenAIDoneForUsageCapture(t *testing.T) {
 	executor := fakeExecutionExecutor{stream: func(
 		_ context.Context,

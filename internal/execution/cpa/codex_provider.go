@@ -43,6 +43,19 @@ func (*codexProviderBridge) UpstreamProtocol() protocol.Protocol {
 	return protocol.OpenAIResponses
 }
 
+func codexUpstreamProtocol(requestPath string) protocol.Protocol {
+	requestPath = strings.TrimSpace(requestPath)
+	switch {
+	case strings.HasSuffix(requestPath, "/images/generations"),
+		strings.HasSuffix(requestPath, "/images/edits"):
+		return protocol.OpenAIImages
+	case strings.HasSuffix(requestPath, "/responses"):
+		return protocol.OpenAIResponses
+	default:
+		return ""
+	}
+}
+
 func (*codexProviderBridge) ValidateRouteCapability(route channel.RouteDescriptor) error {
 	valid := route.ClientProtocol == protocol.OpenAIResponses &&
 		(route.Operation == execution.OperationResponsesCreate ||
@@ -57,6 +70,11 @@ func (*codexProviderBridge) ValidateRouteCapability(route channel.RouteDescripto
 			valid = valid || (route.Operation == execution.OperationCountTokens &&
 				route.RouteMode == execution.RouteConverted)
 		}
+	}
+	if route.ClientProtocol == protocol.OpenAIImages {
+		valid = (route.Operation == execution.OperationImagesGenerate ||
+			route.Operation == execution.OperationImagesEdit) &&
+			route.RouteMode == execution.RouteNative
 	}
 	if !valid {
 		return fmt.Errorf("route is not implemented by Codex")
@@ -73,7 +91,8 @@ func (bridge *codexProviderBridge) CountTokensLocal(
 	}
 	response, err := bridge.executor.CountTokens(ctx, "local-token-count", codex.Credential{}, codex.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		RequestPath: request.RequestPath,
+		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	headers := response.Headers.Clone()
@@ -274,12 +293,14 @@ func (bridge *codexProviderBridge) Execute(
 	}
 	response, err := bridge.executor.Execute(ctx, credentialID, codexCredential.value, codex.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		RequestPath: request.RequestPath,
+		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamProtocol:       codexUpstreamProtocol(response.UpstreamRequestPath),
 	}, err
 }
 
@@ -295,7 +316,8 @@ func (bridge *codexProviderBridge) ExecuteStream(
 	}
 	response, err := bridge.executor.ExecuteStream(ctx, credentialID, codexCredential.value, codex.ExecuteRequest{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		RequestPath: request.RequestPath,
+		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	if response == nil {
@@ -316,6 +338,7 @@ func (bridge *codexProviderBridge) ExecuteStream(
 	return &providerStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks,
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamProtocol:       codexUpstreamProtocol(response.UpstreamRequestPath),
 	}, err
 }
 

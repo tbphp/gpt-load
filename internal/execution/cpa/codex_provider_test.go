@@ -7,12 +7,32 @@ import (
 	"time"
 
 	"gpt-load/internal/execution"
+	"gpt-load/internal/protocol"
 )
 
 type codexClassifiedTestError struct {
 	status     int
 	payload    string
 	retryAfter time.Duration
+}
+
+func TestCodexUpstreamProtocolUsesObservedRequestPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path string
+		want protocol.Protocol
+	}{
+		{path: "/backend-api/codex/images/generations", want: protocol.OpenAIImages},
+		{path: "/backend-api/codex/images/edits", want: protocol.OpenAIImages},
+		{path: "/backend-api/codex/responses", want: protocol.OpenAIResponses},
+		{path: "/unknown"},
+	}
+	for _, test := range tests {
+		if got := codexUpstreamProtocol(test.path); got != test.want {
+			t.Errorf("codexUpstreamProtocol(%q) = %q, want %q", test.path, got, test.want)
+		}
+	}
 }
 
 func (err *codexClassifiedTestError) Error() string   { return err.payload }

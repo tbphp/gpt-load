@@ -183,7 +183,7 @@ export default {
         remove: 'Remove cost limit rule',
       },
       allGroupsAllowed: 'Currently allows routing to all Groups',
-      allProtocolsAllowed: 'Currently allows all four canonical protocols',
+      allProtocolsAllowed: 'Currently allows all five canonical protocols',
       allModelsAllowed: 'Currently allows every model routable by the target Groups',
       scopeExpansionWarning:
         'Changing Specified to All expands client permissions. Confirm that the current scope is intended.',

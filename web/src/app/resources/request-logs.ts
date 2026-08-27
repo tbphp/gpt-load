@@ -50,6 +50,8 @@ export type RequestLogOperation =
   | 'responses_input_tokens'
   | 'count_tokens'
   | 'responses_passthrough'
+  | 'images_generate'
+  | 'images_edit'
   | 'list_models'
   | 'probe'
 export type RequestLogRouteMode = 'native' | 'converted'
@@ -234,6 +236,8 @@ const operations = [
   'responses_input_tokens',
   'count_tokens',
   'responses_passthrough',
+  'images_generate',
+  'images_edit',
   'list_models',
   'probe',
 ] as const

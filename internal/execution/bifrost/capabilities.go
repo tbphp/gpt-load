@@ -61,12 +61,18 @@ func nativeRouteImplemented(
 ) bool {
 	switch providerKind {
 	case channel.ProviderOpenAI:
+		if clientProtocol == protocol.OpenAIImages {
+			return operation == execution.OperationImagesGenerate || operation == execution.OperationImagesEdit
+		}
 		return nativeOpenAIProtocolOperation(clientProtocol, operation, true)
 	case channel.ProviderAnthropic:
 		return clientProtocol == protocol.Anthropic && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderGemini:
 		return clientProtocol == protocol.Gemini && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderOpenAICompatible:
+		if clientProtocol == protocol.OpenAIImages {
+			return operation == execution.OperationImagesGenerate || operation == execution.OperationImagesEdit
+		}
 		return clientProtocol == protocol.OpenAICompletions && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderDeepSeek:
 		switch clientProtocol {

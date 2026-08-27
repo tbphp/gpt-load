@@ -412,6 +412,90 @@ func TestJudgeExecutionStableFallbackRuleMatrix(t *testing.T) {
 	}
 }
 
+func TestJudgeExecutionImagesRequireExplicitReplaySafety(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	imageOperation := execution.Operation("images_generate")
+	tests := []struct {
+		name         string
+		status       int
+		evidence     execution.ErrorEvidence
+		wantRetry    RetryDirective
+		wantEffect   Effect
+		wantCooldown bool
+	}{
+		{
+			name:   "model unavailable without rejection proof",
+			status: http.StatusNotFound,
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintModelUnavailable,
+				ScopeHint: execution.ErrorScopeModel, StatusCode: http.StatusNotFound,
+				Summary: "model unavailable",
+			},
+			wantRetry: RetryNone, wantEffect: EffectNone,
+		},
+		{
+			name:   "candidate unavailable without rejection proof",
+			status: http.StatusBadRequest,
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintCandidateUnavailable,
+				ScopeHint: execution.ErrorScopeModel, StatusCode: http.StatusBadRequest,
+				Summary: "operation unsupported",
+			},
+			wantRetry: RetryNone, wantEffect: EffectNone,
+		},
+		{
+			name:   "rate limit without rejection proof",
+			status: http.StatusTooManyRequests,
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRateLimited,
+				StatusCode: http.StatusTooManyRequests, Summary: "rate limited",
+			},
+			wantRetry: RetryNone, wantEffect: EffectCooldownCredential, wantCooldown: true,
+		},
+		{
+			name:   "invalid credential without rejection proof",
+			status: http.StatusUnauthorized,
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintInvalidCredential,
+				ScopeHint: execution.ErrorScopeCredential, StatusCode: http.StatusUnauthorized,
+				Summary: "credential rejected",
+			},
+			wantRetry: RetryNone, wantEffect: EffectRecordCredentialFailure,
+		},
+		{
+			name:   "explicit pre-processing rejection may advance",
+			status: http.StatusTooManyRequests,
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRateLimited,
+				StatusCode: http.StatusTooManyRequests, Summary: "request rejected",
+				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+			},
+			wantRetry: RetryNextCandidate, wantEffect: EffectCooldownCredential, wantCooldown: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := JudgeExecution(ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    test.status, Evidence: &test.evidence, Now: now,
+			}, DecisionContext{
+				Operation:                imageOperation,
+				Method:                   http.MethodPost,
+				DefaultRateLimitCooldown: time.Minute,
+			})
+			if result.Retry != test.wantRetry || result.Effect != test.wantEffect {
+				t.Fatalf("JudgeExecution() = %#v, want retry=%q effect=%q", result, test.wantRetry, test.wantEffect)
+			}
+			if result.CooldownUntil.IsZero() == test.wantCooldown {
+				t.Fatalf("cooldown = %v, want present=%t", result.CooldownUntil, test.wantCooldown)
+			}
+		})
+	}
+}
+
 func TestJudgeExecutionRejectsFinalInformationalStatusRange(t *testing.T) {
 	for _, status := range []int{http.StatusSwitchingProtocols, 199} {
 		t.Run(http.StatusText(status), func(t *testing.T) {

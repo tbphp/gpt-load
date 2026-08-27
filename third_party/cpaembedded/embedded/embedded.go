@@ -145,6 +145,7 @@ type ExecuteRequest struct {
 	Model                string
 	Payload              []byte
 	Format               string
+	RequestPath          string
 	Headers              http.Header
 	OriginalRequest      []byte
 	ContinuityKey        string
@@ -156,12 +157,14 @@ type ExecuteResponse struct {
 	Payload                []byte
 	Headers                http.Header
 	AppliedReasoningEffort string
+	UpstreamRequestPath    string
 }
 
 type ExecuteStreamResponse struct {
 	Headers                http.Header
 	Chunks                 <-chan ExecuteStreamChunk
 	AppliedReasoningEffort string
+	UpstreamRequestPath    string
 }
 
 type ExecuteStreamChunk struct {
@@ -377,16 +380,17 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
 	response, err := e.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
-	}, cliproxyexecutor.Options{
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		SourceFormat: format, ResponseFormat: format,
-	})
+	}, codexExecutionOptions(request, format, false))
 	if err != nil {
-		return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
+		return ExecuteResponse{
+			AppliedReasoningEffort: observation.reasoningEffort(),
+			UpstreamRequestPath:    observation.upstreamRequestPath(),
+		}, err
 	}
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: observation.reasoningEffort(),
+		UpstreamRequestPath:    observation.upstreamRequestPath(),
 	}, nil
 }
 
@@ -398,23 +402,27 @@ func (e *CodexHTTPExecutor) CountTokensCanonical(ctx context.Context, credential
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
 	response, err := e.inner.CountTokens(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
-	}, cliproxyexecutor.Options{
-		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		SourceFormat: format, ResponseFormat: format,
-	})
+	}, codexExecutionOptions(request, format, false))
 	if err != nil {
-		return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
+		return ExecuteResponse{
+			AppliedReasoningEffort: observation.reasoningEffort(),
+			UpstreamRequestPath:    observation.upstreamRequestPath(),
+		}, err
 	}
 	payload := append([]byte(nil), response.Payload...)
 	if format == sdktranslator.FormatOpenAIResponse {
 		payload, err = normalizeCodexResponsesTokenCount(payload)
 		if err != nil {
-			return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
+			return ExecuteResponse{
+				AppliedReasoningEffort: observation.reasoningEffort(),
+				UpstreamRequestPath:    observation.upstreamRequestPath(),
+			}, err
 		}
 	}
 	return ExecuteResponse{
 		Payload: payload, Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: observation.reasoningEffort(),
+		UpstreamRequestPath:    observation.upstreamRequestPath(),
 	}, nil
 }
 
@@ -449,12 +457,12 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
 	response, err := e.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
-	}, cliproxyexecutor.Options{
-		Stream: true, Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		SourceFormat: format, ResponseFormat: format,
-	})
+	}, codexExecutionOptions(request, format, true))
 	if err != nil {
-		return &ExecuteStreamResponse{AppliedReasoningEffort: observation.reasoningEffort()}, err
+		return &ExecuteStreamResponse{
+			AppliedReasoningEffort: observation.reasoningEffort(),
+			UpstreamRequestPath:    observation.upstreamRequestPath(),
+		}, err
 	}
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {
@@ -470,7 +478,26 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 	return &ExecuteStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks,
 		AppliedReasoningEffort: observation.reasoningEffort(),
+		UpstreamRequestPath:    observation.upstreamRequestPath(),
 	}, nil
+}
+
+func codexExecutionOptions(
+	request ExecuteRequest,
+	format sdktranslator.Format,
+	stream bool,
+) cliproxyexecutor.Options {
+	options := cliproxyexecutor.Options{
+		Stream: stream, Headers: request.Headers.Clone(),
+		OriginalRequest: append([]byte(nil), request.OriginalRequest...),
+		SourceFormat:    format, ResponseFormat: format,
+	}
+	if request.RequestPath != "" {
+		options.Metadata = map[string]any{
+			cliproxyexecutor.RequestPathMetadataKey: request.RequestPath,
+		}
+	}
+	return options
 }
 
 func (e *CodexHTTPExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
@@ -720,14 +747,18 @@ func (t noRedirectRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 }
 
 type executionObservation struct {
-	capture  bool
-	provider string
-	mu       sync.RWMutex
-	effort   string
+	capture             bool
+	captureRequestPath  bool
+	provider            string
+	mu                  sync.RWMutex
+	effort              string
+	observedRequestPath string
 }
 
 func newExecutionObservation(request ExecuteRequest) *executionObservation {
-	return newProviderExecutionObservation(request, ProviderCodex)
+	observation := newProviderExecutionObservation(request, ProviderCodex)
+	observation.captureRequestPath = true
+	return observation
 }
 
 func newProviderExecutionObservation(request ExecuteRequest, provider string) *executionObservation {
@@ -742,7 +773,19 @@ func newProviderExecutionObservation(request ExecuteRequest, provider string) *e
 }
 
 func (o *executionObservation) observe(request *http.Request) {
-	if o == nil || !o.capture || request == nil || request.GetBody == nil || request.ContentLength > maxObservedBodyBytes {
+	if o == nil || request == nil {
+		return
+	}
+	if o.captureRequestPath {
+		requestPath := ""
+		if request.URL != nil {
+			requestPath = request.URL.Path
+		}
+		o.mu.Lock()
+		o.observedRequestPath = requestPath
+		o.mu.Unlock()
+	}
+	if !o.capture || request.GetBody == nil || request.ContentLength > maxObservedBodyBytes {
 		return
 	}
 	bodyReader, err := request.GetBody()
@@ -772,6 +815,15 @@ func (o *executionObservation) reasoningEffort() string {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.effort
+}
+
+func (o *executionObservation) upstreamRequestPath() string {
+	if o == nil {
+		return ""
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.observedRequestPath
 }
 
 func exchangeToken(ctx context.Context, values url.Values, options Options) (CodexCredential, error) {

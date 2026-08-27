@@ -27,6 +27,8 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 		OperationResponsesCompact,
 		OperationResponsesInputTokens,
 		OperationResponsesPassthrough,
+		OperationImagesGenerate,
+		OperationImagesEdit,
 		OperationListModels,
 		OperationProbe,
 	}
@@ -37,6 +39,14 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 	}
 	if Operation("unknown").Valid() {
 		t.Fatal("expected unknown operation to be invalid")
+	}
+	for _, operation := range []Operation{OperationImagesGenerate, OperationImagesEdit} {
+		if !operationRequiresModel(operation) {
+			t.Fatalf("operation %q must require a model", operation)
+		}
+		if operation.ReplayPolicy() != ReplayPolicyRequireRejectedBeforeProcessing {
+			t.Fatalf("operation %q replay policy = %v", operation, operation.ReplayPolicy())
+		}
 	}
 	for _, mode := range []RouteMode{RouteNative, RouteConverted} {
 		if !mode.Valid() {

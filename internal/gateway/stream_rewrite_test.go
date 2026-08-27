@@ -16,10 +16,11 @@ func newSSERewriteStream(
 	rewrite func([]byte, bool) ([]byte, error),
 ) io.ReadCloser {
 	if rewrite == nil {
-		return newSSEEventRewriteStream(body, nil)
+		return newSSEEventRewriteStream(body, maxSSEEventBytes, nil)
 	}
 	return newSSEEventRewriteStream(
 		body,
+		maxSSEEventBytes,
 		func(event dialect.StreamEvent, providerError bool) (sseEventRewriteResult, error) {
 			body, err := rewrite(event.Payload, providerError)
 			return sseEventRewriteResult{body: body}, err

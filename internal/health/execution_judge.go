@@ -183,6 +183,7 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 		result.RuleID == "fallback.ambiguous" {
 		result.RuleID = "safety.replay_unknown"
 	}
+	result = constrainOperationReplay(result, attempt, decisionContext)
 	return constrainCommittedDecision(result, attempt)
 }
 
@@ -322,6 +323,16 @@ func decisionForExecutionCategory(
 		return rateLimitDecision(attempt, decisionContext)
 	case FailureCategoryModelUnavailable:
 		retry := retryUnlessExplicitlyUnknown(attempt.Evidence)
+		if decisionContext.Operation.ReplayPolicy() == execution.ReplayPolicyRequireRejectedBeforeProcessing {
+			return decision(
+				category,
+				origin,
+				scopeOrDefault(scope, execution.ErrorScopeModel),
+				retry,
+				EffectNone,
+				"images.model_unavailable",
+			)
+		}
 		result := decision(
 			category,
 			origin,
@@ -385,6 +396,25 @@ func decisionForExecutionCategory(
 	default:
 		return decision(category, origin, scope, RetryNone, EffectNone, ambiguousRuleID(attempt.Evidence))
 	}
+}
+
+func constrainOperationReplay(
+	result Decision,
+	attempt ExecutionAttempt,
+	decisionContext DecisionContext,
+) Decision {
+	if result.Retry == RetryNone ||
+		attempt.DispatchState != execution.DispatchMaybeSent ||
+		decisionContext.Operation.ReplayPolicy() != execution.ReplayPolicyRequireRejectedBeforeProcessing {
+		return result
+	}
+	if attempt.Evidence != nil &&
+		attempt.Evidence.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing {
+		return result
+	}
+	result.Retry = RetryNone
+	result.RuleID = "safety.operation_replay_unsafe"
+	return result
 }
 
 func ambiguousRuleID(evidence *execution.ErrorEvidence) RuleID {

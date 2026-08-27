@@ -135,6 +135,7 @@ func modelListProtocols(value protocol.Protocol) []protocol.Protocol {
 		return []protocol.Protocol{
 			protocol.OpenAICompletions,
 			protocol.OpenAIResponses,
+			protocol.OpenAIImages,
 		}
 	}
 	return []protocol.Protocol{value}

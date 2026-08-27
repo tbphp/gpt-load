@@ -63,36 +63,44 @@ type streamEventObserver struct {
 }
 
 // sseEventObservationBuffer frames arbitrary executor data chunks without
-// changing their wire bytes. A terminal boundary returned by push belongs to
-// the supplied chunk, so callers may mark it forwarded only after that chunk
-// has been written and flushed successfully.
+// changing their wire bytes. push returns the complete, successfully observed
+// wire prefix; callers that use it may mark a returned terminal boundary
+// forwarded only after that prefix has been written and flushed successfully.
 type sseEventObservationBuffer struct {
 	pending         []byte
 	pendingTerminal bool
+	maxEventBytes   int
 	scanner         sseRewriteBoundaryScanner
 	observe         func(dialect.StreamEvent, bool) (bool, error)
 }
 
 func newSSEEventObservationBuffer(
+	maxEventBytes int,
 	observe func(dialect.StreamEvent, bool) (bool, error),
 ) *sseEventObservationBuffer {
-	return &sseEventObservationBuffer{observe: observe}
+	return &sseEventObservationBuffer{
+		maxEventBytes: normalizedSSEEventLimit(maxEventBytes),
+		observe:       observe,
+	}
 }
 
-func (buffer *sseEventObservationBuffer) push(chunk []byte) (bool, error) {
+func (buffer *sseEventObservationBuffer) push(chunk []byte) ([]byte, bool, error) {
 	if buffer == nil || buffer.observe == nil {
-		return false, fmt.Errorf("SSE observation callback is required")
+		return nil, false, fmt.Errorf("SSE observation callback is required")
 	}
 	buffer.pending = append(buffer.pending, chunk...)
+	wire := buffer.pending
+	consumed := 0
 	terminal := false
 	for {
 		waitingTerminal := buffer.pendingTerminal
 		optionalLF, overflow := buffer.scanner.ConsumeOptionalLineFeed(
 			buffer.pending,
 			false,
+			buffer.maxEventBytes,
 		)
 		if overflow {
-			return false, errSSEEventTooLarge
+			return nil, false, errSSEEventTooLarge
 		}
 		if waitingTerminal && !buffer.scanner.optionalLineFeed {
 			buffer.pendingTerminal = false
@@ -100,25 +108,27 @@ func (buffer *sseEventObservationBuffer) push(chunk []byte) (bool, error) {
 		}
 		if optionalLF > 0 {
 			buffer.discard(optionalLF)
+			consumed += optionalLF
 			continue
 		}
 
 		eventEnd, complete := buffer.scanner.Find(buffer.pending)
 		if !complete {
-			if len(buffer.pending) > maxSSEEventBytes {
-				return false, errSSEEventTooLarge
+			if len(buffer.pending) > buffer.maxEventBytes {
+				return nil, false, errSSEEventTooLarge
 			}
-			return terminal, nil
+			return wire[:consumed], terminal, nil
 		}
-		if eventEnd > maxSSEEventBytes {
-			return false, errSSEEventTooLarge
+		if eventEnd > buffer.maxEventBytes {
+			return nil, false, errSSEEventTooLarge
 		}
 
 		terminalEvent, err := buffer.observeEvent(buffer.pending[:eventEnd])
 		if err != nil {
-			return false, err
+			return nil, false, err
 		}
 		buffer.discard(eventEnd)
+		consumed += eventEnd
 		buffer.scanner.AfterEvent(eventEnd, eventEnd)
 		if terminalEvent && buffer.scanner.optionalLineFeed {
 			buffer.pendingTerminal = true
@@ -160,6 +170,7 @@ func (buffer *sseEventObservationBuffer) finish() error {
 	optionalLF, overflow := buffer.scanner.ConsumeOptionalLineFeed(
 		buffer.pending,
 		true,
+		buffer.maxEventBytes,
 	)
 	if overflow {
 		return errSSEEventTooLarge

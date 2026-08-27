@@ -54,6 +54,8 @@ export type ChannelOperation =
   | 'responses_input_tokens'
   | 'count_tokens'
   | 'responses_passthrough'
+  | 'images_generate'
+  | 'images_edit'
   | 'list_models'
   | 'probe'
 
@@ -154,6 +156,8 @@ const operations = [
   'responses_input_tokens',
   'count_tokens',
   'responses_passthrough',
+  'images_generate',
+  'images_edit',
   'list_models',
   'probe',
 ] as const

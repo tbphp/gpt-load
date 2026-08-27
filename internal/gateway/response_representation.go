@@ -12,8 +12,10 @@ import (
 	"strings"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/protocol"
 )
 
 type preparedSuccessRepresentation struct {
@@ -42,7 +44,8 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	wire []byte,
 	secrets []string,
 ) (preparedSuccessRepresentation, error) {
-	if int64(len(wire)) > maxNonStreamingResponseBodyBytes {
+	bodyLimit := execution.UnaryResponseBodyLimit(input.ClientProtocol)
+	if int64(len(wire)) > bodyLimit {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("wire body exceeds limit")
 	}
 
@@ -52,34 +55,56 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	if err != nil {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("unsupported or malformed Content-Encoding")
 	}
-	originalPlain, err := contentcoding.DecodeLimited(
-		encoding,
-		wire,
-		maxNonStreamingResponseBodyBytes,
-	)
-	if err != nil {
-		return preparedSuccessRepresentation{}, successRepresentationProtocolError("decompress response body")
+	imagesRepresentation := input.ClientProtocol == protocol.OpenAIImages
+	var originalPlain []byte
+	if imagesRepresentation && encoding == contentcoding.Identity {
+		// The buffered attempt result owns wire for the duration of this terminal
+		// representation step. Keep the identity bytes instead of copying a large
+		// base64 payload before exact credential inspection.
+		originalPlain = wire
+	} else {
+		originalPlain, err = contentcoding.DecodeLimited(
+			encoding,
+			wire,
+			bodyLimit,
+		)
+		if err != nil {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("decompress response body")
+		}
 	}
 	modelTracker := newResponseModelTracker(input.Dialect, input.UpstreamModelID)
 	modelTracker.observe(originalPlain)
 
-	patternSafePlain := forwarder.redactor.Bytes(originalPlain)
-	if int64(len(patternSafePlain)) > maxNonStreamingResponseBodyBytes {
-		return preparedSuccessRepresentation{}, successRepresentationProtocolError("redacted response body exceeds limit")
-	}
-	safePlain, residualCredential, ok := redactCredentialLiterals(
-		patternSafePlain,
-		secrets,
-		maxNonStreamingResponseBodyBytes,
-	)
-	if !ok {
-		return preparedSuccessRepresentation{}, successRepresentationProtocolError("redact response body")
-	}
-	if residualCredential {
-		return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
+	var safePlain []byte
+	if imagesRepresentation {
+		if imagesCredentialLiteralsRemain(originalPlain, secrets) {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
+		}
+		safePlain = originalPlain
+	} else {
+		patternSafePlain := forwarder.redactor.Bytes(originalPlain)
+		if int64(len(patternSafePlain)) > bodyLimit {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("redacted response body exceeds limit")
+		}
+		var residualCredential bool
+		var ok bool
+		safePlain, residualCredential, ok = redactCredentialLiterals(
+			patternSafePlain,
+			secrets,
+			bodyLimit,
+		)
+		if !ok {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("redact response body")
+		}
+		if residualCredential {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
+		}
 	}
 
-	inspectablePlain := bytes.Clone(safePlain)
+	inspectablePlain := safePlain
+	if !imagesRepresentation {
+		inspectablePlain = bytes.Clone(safePlain)
+	}
 	downstreamPlain := safePlain
 	if needsModelRewrite(input) {
 		rewriter, supported := input.Dialect.(dialect.ModelRewriter)
@@ -90,10 +115,16 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		if err != nil {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("rewrite response model")
 		}
-		if int64(len(downstreamPlain)) > maxNonStreamingResponseBodyBytes {
+		if int64(len(downstreamPlain)) > bodyLimit {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("rewritten response body exceeds limit")
 		}
-		if credentialLiteralsRemain(downstreamPlain, secrets) {
+		var credentialRemains bool
+		if imagesRepresentation {
+			credentialRemains = imagesCredentialLiteralsRemain(downstreamPlain, secrets)
+		} else {
+			credentialRemains = credentialLiteralsRemain(downstreamPlain, secrets)
+		}
+		if credentialRemains {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains after model rewrite")
 		}
 	}
@@ -567,6 +598,50 @@ func credentialLiteralsRemain(body []byte, secrets []string) bool {
 		return credentialLiteralRemains(string(body), replacers.residual)
 	}
 	return jsonCredentialLiteralsRemain(value, replacers.residual)
+}
+
+func imagesCredentialLiteralsRemain(body []byte, secrets []string) bool {
+	replacers, exists := newCredentialLiteralReplacers(secrets)
+	if !exists {
+		return false
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return credentialLiteralRemains(string(body), replacers.residual)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return credentialLiteralRemains(string(body), replacers.residual)
+	}
+	return imagesJSONCredentialLiteralsRemain(value, replacers.residual)
+}
+
+func imagesJSONCredentialLiteralsRemain(value any, residual *strings.Replacer) bool {
+	switch typed := value.(type) {
+	case string:
+		return credentialLiteralRemains(typed, residual)
+	case []any:
+		for _, item := range typed {
+			if imagesJSONCredentialLiteralsRemain(item, residual) {
+				return true
+			}
+		}
+	case map[string]any:
+		for key, item := range typed {
+			if key == "b64_json" {
+				if _, isString := item.(string); isString {
+					continue
+				}
+			}
+			if imagesJSONCredentialLiteralsRemain(item, residual) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func jsonCredentialLiteralsRemain(value any, residual *strings.Replacer) bool {

@@ -57,6 +57,9 @@ type streamSDKResult struct {
 
 // Execute executes one non-streaming attempt.
 func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (result execution.AttemptResult) {
+	defer func() {
+		normalizeImagesAttemptResult(spec, &result)
+	}()
 	prepared, preflightError := r.prepare(spec, false)
 	if preflightError != nil {
 		return *preflightError
@@ -164,6 +167,9 @@ func (r *Runtime) ExecuteStream(
 	spec execution.AttemptSpec,
 	sink execution.StreamSink,
 ) (result execution.StreamResult) {
+	defer func() {
+		normalizeImagesStreamResult(spec, &result)
+	}()
 	if sink == nil {
 		return notSentStreamFailure(execution.ErrorKindInvalidRequest, "stream sink is required")
 	}
@@ -258,6 +264,10 @@ func (r *Runtime) ExecuteStream(
 			return streamContextFailure(requestContext, true, true, headers, requestID, model, usageEvidence)
 		case chunk, open := <-outcome.stream:
 			idleTimer.pause()
+			if requestContext.Err() != nil {
+				callCancel()
+				return streamContextFailure(requestContext, false, true, headers, requestID, model, usageEvidence)
+			}
 			if !open {
 				if !sdkStreamEndedNormally(bifrostContext) {
 					return terminatedStreamFailure(headers, requestID, model, usageEvidence)
@@ -418,9 +428,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return preparedAttempt{}, &failure
 	}
 	provider := r.fixedConfig.provider
-	targetBaseURL := ""
+	customTargetBaseURL := ""
 	if r.fixedConfig.custom {
-		targetBaseURL = r.fixedConfig.targetBaseURL
+		customTargetBaseURL = r.fixedConfig.targetBaseURL
 	}
 	if mode == channel.RouteNative && spec.Operation == execution.OperationListModels &&
 		!providerKindNativeForClient(providerKind, spec.ClientProtocol) {
@@ -481,14 +491,14 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		responses := spec.ClientProtocol == protocol.OpenAIResponses
 		typedURL, upstreamProtocol, targetErr := convertedTypedTarget(
 			providerKind,
-			targetBaseURL,
+			customTargetBaseURL,
 			spec.UpstreamModel,
 			responses,
 			false,
 			"",
 		)
 		if targetErr == nil && mode == channel.RouteNative && providerKind == channel.ProviderDeepSeek {
-			typedURL, upstreamProtocol, targetErr = deepSeekNativeTypedTarget(targetBaseURL, spec.ClientProtocol, "")
+			typedURL, upstreamProtocol, targetErr = deepSeekNativeTypedTarget(customTargetBaseURL, spec.ClientProtocol, "")
 		}
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid channel probe target")
@@ -505,10 +515,15 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}
 		return prepared, nil
 	}
-	if mode == channel.RouteNative && providerSupportsPassthrough(providerKind, targetBaseURL) {
-		body, err := sanitizeNativeRequestBody(spec, stream)
+	if mode == channel.RouteNative && providerSupportsPassthrough(providerKind, customTargetBaseURL, spec.ClientProtocol) {
+		body, sanitizedHeaders, err := sanitizeNativePassthroughRequest(spec, stream)
 		if err != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request body")
+			if spec.ClientProtocol == protocol.OpenAIImages {
+				failure.Error.OriginHint = execution.ErrorOriginClient
+				failure.Error.ScopeHint = execution.ErrorScopeRequest
+				failure.Error.ReplaySafety = execution.ReplaySafetyUnknown
+			}
 			return preparedAttempt{}, &failure
 		}
 		passthroughPath, err := nativePassthroughPath(spec, providerKind)
@@ -516,7 +531,26 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request path")
 			return preparedAttempt{}, &failure
 		}
-		passthroughHeaders := safePassthroughHeaders(spec.Header)
+		passthroughHeaders := safePassthroughHeaders(sanitizedHeaders)
+		passthroughUpstreamURL := ""
+		if spec.ClientProtocol == protocol.OpenAIImages {
+			explicitPrefix, configured, prefixErr := targetBaseURL(resolved.TargetConfig)
+			if prefixErr != nil {
+				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request prefix")
+				failure.Error.OriginHint = execution.ErrorOriginClient
+				failure.Error.ScopeHint = execution.ErrorScopeRequest
+				failure.Error.ReplaySafety = execution.ReplaySafetyUnknown
+				return preparedAttempt{}, &failure
+			}
+			if providerKind == channel.ProviderOpenAICompatible || (providerKind == channel.ProviderOpenAI && configured) {
+				passthroughUpstreamURL = explicitPrefix
+				passthroughPath, err = openAIImagesPrefixPath(spec.Path)
+				if err != nil {
+					failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request path")
+					return preparedAttempt{}, &failure
+				}
+			}
+		}
 		if providerKind == channel.ProviderGoogleVertex {
 			if passthroughHeaders == nil {
 				passthroughHeaders = make(map[string]string, 1)
@@ -536,6 +570,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				Method:      spec.Method,
 				Path:        passthroughPath,
 				RawQuery:    safeQuery,
+				UpstreamURL: passthroughUpstreamURL,
 				Body:        body,
 				SafeHeaders: passthroughHeaders,
 			},
@@ -544,7 +579,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}, nil
 	}
 	if spec.Operation == execution.OperationListModels {
-		typedURL, upstreamProtocol, targetErr := convertedListModelsTarget(providerKind, targetBaseURL, safeQuery)
+		typedURL, upstreamProtocol, targetErr := convertedListModelsTarget(providerKind, customTargetBaseURL, safeQuery)
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 			return preparedAttempt{}, &failure
@@ -574,7 +609,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}
 		typedURL, upstreamProtocol, targetErr := countTokensTypedTarget(
 			providerKind,
-			targetBaseURL,
+			customTargetBaseURL,
 			spec.UpstreamModel,
 			safeQuery,
 		)
@@ -604,9 +639,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, conversionErr.Error())
 			return preparedAttempt{}, &failure
 		}
-		typedURL, upstreamProtocol, targetErr := convertedTypedTarget(providerKind, targetBaseURL, spec.UpstreamModel, true, stream, safeQuery)
+		typedURL, upstreamProtocol, targetErr := convertedTypedTarget(providerKind, customTargetBaseURL, spec.UpstreamModel, true, stream, safeQuery)
 		if targetErr == nil && mode == channel.RouteNative && providerKind == channel.ProviderDeepSeek {
-			typedURL, upstreamProtocol, targetErr = deepSeekNativeTypedTarget(targetBaseURL, spec.ClientProtocol, safeQuery)
+			typedURL, upstreamProtocol, targetErr = deepSeekNativeTypedTarget(customTargetBaseURL, spec.ClientProtocol, safeQuery)
 		}
 		if targetErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
@@ -645,7 +680,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		delete(request.Params.ExtraParams, "fallback")
 		delete(request.Params.ExtraParams, "fallbacks")
 	}
-	typedURL, upstreamProtocol, err := convertedTypedTarget(providerKind, targetBaseURL, spec.UpstreamModel, false, stream, safeQuery)
+	typedURL, upstreamProtocol, err := convertedTypedTarget(providerKind, customTargetBaseURL, spec.UpstreamModel, false, stream, safeQuery)
 	if err != nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 		return preparedAttempt{}, &failure
@@ -680,11 +715,18 @@ func newProbeRequest(
 	}
 }
 
-func providerSupportsPassthrough(providerKind channel.ProviderKind, baseURL string) bool {
+func providerSupportsPassthrough(
+	providerKind channel.ProviderKind,
+	baseURL string,
+	clientProtocol protocol.Protocol,
+) bool {
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini, channel.ProviderGoogleVertex:
 		return true
 	case channel.ProviderOpenAICompatible:
+		if clientProtocol == protocol.OpenAIImages {
+			return true
+		}
 		// Bifrost v1.7.7's OpenAI passthrough always inserts /v1. A compatible
 		// full API prefix with another suffix must use the typed custom path,
 		// without changing the frozen route mode or channel capability.
@@ -697,7 +739,8 @@ func providerSupportsPassthrough(providerKind channel.ProviderKind, baseURL stri
 func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtocol protocol.Protocol) bool {
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible:
-		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses
+		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses ||
+			clientProtocol == protocol.OpenAIImages
 	case channel.ProviderAnthropic:
 		return clientProtocol == protocol.Anthropic
 	case channel.ProviderGemini:
@@ -760,6 +803,18 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		case execution.OperationResponsesPassthrough:
 			return validResponsesPassthroughShape(spec, stream)
 		}
+	case protocol.OpenAIImages:
+		if spec.RouteMode != execution.RouteNative || spec.Method != http.MethodPost {
+			return false
+		}
+		switch spec.Operation {
+		case execution.OperationImagesGenerate:
+			return spec.Path == "/v1/images/generations"
+		case execution.OperationImagesEdit:
+			return spec.Path == "/v1/images/edits"
+		default:
+			return false
+		}
 	case protocol.Anthropic:
 		return spec.Method == http.MethodPost &&
 			((spec.Operation == execution.OperationChatCompletion && spec.Path == "/v1/messages") ||
@@ -781,6 +836,38 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		return validGeminiGeneratePath(spec.Path, action)
 	}
 	return false
+}
+
+func openAIImagesPrefixPath(path string) (string, error) {
+	result, ok := strings.CutPrefix(path, "/v1")
+	if !ok || (result != "/images/generations" && result != "/images/edits") {
+		return "", fmt.Errorf("invalid OpenAI Images path")
+	}
+	return result, nil
+}
+
+func normalizeImagesAttemptResult(spec execution.AttemptSpec, result *execution.AttemptResult) {
+	if result == nil || spec.ClientProtocol != protocol.OpenAIImages {
+		return
+	}
+	result.Usage = nil
+	if openAIResponseModel(result.Body, "") == "" {
+		result.Model = ""
+	}
+	if result.Error != nil && result.Error.ReplaySafety == "" {
+		result.Error.ReplaySafety = execution.ReplaySafetyUnknown
+	}
+}
+
+func normalizeImagesStreamResult(spec execution.AttemptSpec, result *execution.StreamResult) {
+	if result == nil || spec.ClientProtocol != protocol.OpenAIImages {
+		return
+	}
+	result.Usage = nil
+	result.Model = ""
+	if result.Error != nil && result.Error.ReplaySafety == "" {
+		result.Error.ReplaySafety = execution.ReplaySafetyUnknown
+	}
 }
 
 func validResponsesPassthroughShape(spec execution.AttemptSpec, stream bool) bool {
@@ -1081,7 +1168,10 @@ func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSp
 	bifrostContext := schemas.NewBifrostContext(parent, schemas.NoDeadline)
 	bifrostContext.SetValue(schemas.BifrostContextKeyRequestID, spec.RequestID)
 	bifrostContext.SetValue(schemas.BifrostContextKeyDirectKey, directKey)
-	bifrostContext.SetValue(schemas.BifrostContextKeyLargeResponseThreshold, r.maxUnaryResponseBodyBytes)
+	bifrostContext.SetValue(
+		schemas.BifrostContextKeyLargeResponseThreshold,
+		r.unaryResponseBodyLimit(spec),
+	)
 	if spec.Operation == execution.OperationChatCompletion &&
 		r.providerKind(spec) == channel.ProviderDeepSeek &&
 		spec.ClientProtocol == protocol.Anthropic {

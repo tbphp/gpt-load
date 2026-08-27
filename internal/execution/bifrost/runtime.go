@@ -22,7 +22,7 @@ const (
 	// Keep the SDK transport timeout at the largest whole-second value that
 	// fits time.Duration so each attempt context remains the effective owner.
 	providerTimeoutSecs              = 9_223_372_036
-	defaultMaxUnaryResponseBodyBytes = int64(32 << 20)
+	defaultMaxUnaryResponseBodyBytes = execution.DefaultUnaryResponseBodyLimitBytes
 )
 
 var errKeyPoolDisabled = errors.New("Bifrost key pool is disabled; DirectKey is required")
@@ -40,6 +40,13 @@ type Runtime struct {
 	closed                    atomic.Bool
 	fixedConfig               *effectiveProviderConfig
 	logger                    schemas.Logger
+}
+
+func (r *Runtime) unaryResponseBodyLimit(spec execution.AttemptSpec) int64 {
+	if r != nil && r.maxUnaryResponseBodyBytes > 0 {
+		return r.maxUnaryResponseBodyBytes
+	}
+	return execution.UnaryResponseBodyLimit(spec.ClientProtocol)
 }
 
 func newConfiguredRuntime(
@@ -99,15 +106,11 @@ func newRuntimeShell(options runtimeOptions, registry *channel.Registry) (*Runti
 	if registry == nil {
 		return nil, fmt.Errorf("initialize execution runtime: channel registry is required")
 	}
-	maxUnaryResponseBodyBytes := options.maxUnaryResponseBodyBytes
-	if maxUnaryResponseBodyBytes <= 0 {
-		maxUnaryResponseBodyBytes = defaultMaxUnaryResponseBodyBytes
-	}
 	return &Runtime{
 		account:                   newDirectAccount(),
 		registry:                  registry,
 		allowPrivate:              options.allowPrivateNetwork,
-		maxUnaryResponseBodyBytes: maxUnaryResponseBodyBytes,
+		maxUnaryResponseBodyBytes: options.maxUnaryResponseBodyBytes,
 		shutdownDone:              make(chan struct{}),
 		logger:                    options.logger,
 	}, nil

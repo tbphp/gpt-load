@@ -9,14 +9,28 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-const maxNativeAliasSSEEventBytes = 10 << 20
+const maxNativeAliasSSEEventBytes = execution.DefaultSSEEventLimitBytes
 
 const maxNativeFirstSSEEventBytes = maxNativeAliasSSEEventBytes
 
 type nativeFirstSSEEventGate struct {
-	pending   []byte
-	scanStart int
-	ready     bool
+	pending       []byte
+	scanStart     int
+	ready         bool
+	maxEventBytes int
+}
+
+func newNativeFirstSSEEventGate(spec execution.AttemptSpec) *nativeFirstSSEEventGate {
+	return &nativeFirstSSEEventGate{
+		maxEventBytes: execution.SSEEventLimit(spec.ClientProtocol),
+	}
+}
+
+func (g *nativeFirstSSEEventGate) eventLimit() int {
+	if g != nil && g.maxEventBytes > 0 {
+		return g.maxEventBytes
+	}
+	return maxNativeFirstSSEEventBytes
 }
 
 func (g *nativeFirstSSEEventGate) push(chunk []byte) ([]byte, error) {
@@ -24,7 +38,7 @@ func (g *nativeFirstSSEEventGate) push(chunk []byte) ([]byte, error) {
 		return append([]byte(nil), chunk...), nil
 	}
 	g.pending = append(g.pending, chunk...)
-	if len(g.pending) > maxNativeFirstSSEEventBytes {
+	if len(g.pending) > g.eventLimit() {
 		return nil, fmt.Errorf("first native SSE event exceeds limit")
 	}
 	for {
@@ -97,6 +111,7 @@ type nativeAliasSSERewriter struct {
 	clientProtocol protocol.Protocol
 	clientModel    string
 	pending        []byte
+	maxEventBytes  int
 }
 
 func newNativeAliasSSERewriter(spec execution.AttemptSpec) *nativeAliasSSERewriter {
@@ -106,7 +121,15 @@ func newNativeAliasSSERewriter(spec execution.AttemptSpec) *nativeAliasSSERewrit
 	return &nativeAliasSSERewriter{
 		clientProtocol: spec.ClientProtocol,
 		clientModel:    spec.ClientModel,
+		maxEventBytes:  execution.SSEEventLimit(spec.ClientProtocol),
 	}
+}
+
+func (r *nativeAliasSSERewriter) eventLimit() int {
+	if r != nil && r.maxEventBytes > 0 {
+		return r.maxEventBytes
+	}
+	return maxNativeAliasSSEEventBytes
 }
 
 func (r *nativeAliasSSERewriter) push(chunk []byte) ([]byte, error) {
@@ -118,13 +141,13 @@ func (r *nativeAliasSSERewriter) push(chunk []byte) ([]byte, error) {
 	for {
 		index, delimiterLength := firstNativeSSEDelimiter(r.pending)
 		if index < 0 {
-			if len(r.pending) > maxNativeAliasSSEEventBytes {
+			if len(r.pending) > r.eventLimit() {
 				return nil, fmt.Errorf("native SSE event exceeds limit")
 			}
 			return output.Bytes(), nil
 		}
 		eventEnd := index + delimiterLength
-		if eventEnd > maxNativeAliasSSEEventBytes {
+		if eventEnd > r.eventLimit() {
 			return nil, fmt.Errorf("native SSE event exceeds limit")
 		}
 		event := append([]byte(nil), r.pending[:eventEnd]...)
@@ -141,7 +164,7 @@ func (r *nativeAliasSSERewriter) finish() ([]byte, error) {
 	if r == nil || len(r.pending) == 0 {
 		return nil, nil
 	}
-	if len(r.pending) > maxNativeAliasSSEEventBytes {
+	if len(r.pending) > r.eventLimit() {
 		return nil, fmt.Errorf("native SSE event exceeds limit")
 	}
 	event := append([]byte(nil), r.pending...)

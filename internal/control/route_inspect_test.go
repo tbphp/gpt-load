@@ -232,14 +232,16 @@ func TestRouteInspectDerivesStandardRequestMetadataFromProtocol(t *testing.T) {
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
 	tests := []struct {
-		protocol  protocol.Protocol
-		operation execution.Operation
-		routeMode execution.RouteMode
+		protocol         protocol.Protocol
+		operation        execution.Operation
+		routeMode        execution.RouteMode
+		routeRequirement execution.RouteRequirement
 	}{
-		{protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, routeMode: execution.RouteNative},
-		{protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, routeMode: execution.RouteNative},
-		{protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted},
-		{protocol: protocol.Gemini, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted},
+		{protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
+		{protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
+		{protocol: protocol.OpenAIImages, operation: execution.OperationImagesGenerate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementNative},
+		{protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted, routeRequirement: execution.RouteRequirementAny},
+		{protocol: protocol.Gemini, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted, routeRequirement: execution.RouteRequirementAny},
 	}
 	for _, test := range tests {
 		t.Run(string(test.protocol), func(t *testing.T) {
@@ -250,7 +252,7 @@ func TestRouteInspectDerivesStandardRequestMetadataFromProtocol(t *testing.T) {
 			)
 			got := decodeRouteInspectSuccess(t, recorder)
 			if got.Protocol != test.protocol || got.Operation != test.operation ||
-				got.RouteRequirement != execution.RouteRequirementAny ||
+				got.RouteRequirement != test.routeRequirement ||
 				routeModelValue(got.ExternalModel) != "public" ||
 				len(got.Groups) != 1 || got.Groups[0].RouteMode != test.routeMode {
 				t.Fatalf("route inspection = %#v", got)

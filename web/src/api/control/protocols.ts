@@ -8,6 +8,10 @@ export const protocolCatalog = [
     supportsProtocolOnlyRouting: true,
   },
   {
+    value: 'openai-images',
+    supportsProtocolOnlyRouting: false,
+  },
+  {
     value: 'anthropic',
     supportsProtocolOnlyRouting: false,
   },

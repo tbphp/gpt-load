@@ -75,6 +75,48 @@ func TestParseCodexCredentialJSONRejectsMalformedCPAControlMetadata(t *testing.T
 	}
 }
 
+func TestCodexExecutionOptionsCarryOnlyExplicitRequestPath(t *testing.T) {
+	t.Parallel()
+
+	format := sdktranslator.FromString("openai-image")
+	options := codexExecutionOptions(ExecuteRequest{
+		RequestPath: "/v1/images/generations",
+		Headers:     http.Header{"Content-Type": {"application/json"}},
+	}, format, true)
+	if options.SourceFormat != format || options.ResponseFormat != format || !options.Stream {
+		t.Fatalf("options formats/stream = %#v", options)
+	}
+	if got := options.Metadata[cliproxyexecutor.RequestPathMetadataKey]; got != "/v1/images/generations" {
+		t.Fatalf("request path metadata = %#v", options.Metadata)
+	}
+
+	withoutPath := codexExecutionOptions(ExecuteRequest{}, format, false)
+	if _, exists := withoutPath.Metadata[cliproxyexecutor.RequestPathMetadataKey]; exists {
+		t.Fatalf("empty request path produced metadata: %#v", withoutPath.Metadata)
+	}
+}
+
+func TestExecutionObservationCapturesRequestPathWithoutReasoning(t *testing.T) {
+	t.Parallel()
+
+	observation := newExecutionObservation(ExecuteRequest{
+		Format:  "openai-image",
+		Payload: []byte(`{"model":"gpt-image-2","prompt":"draw"}`),
+	})
+	if observation.capture {
+		t.Fatal("image request unexpectedly enabled reasoning observation")
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"https://chatgpt.com/backend-api/codex/images/generations",
+		strings.NewReader(`{"model":"gpt-image-2"}`),
+	)
+	observation.observe(request)
+	if got := observation.upstreamRequestPath(); got != "/backend-api/codex/images/generations" {
+		t.Fatalf("upstream request path = %q", got)
+	}
+}
+
 func TestParseCodexCredentialJSONRejectsInvalidOrDangerousInput(t *testing.T) {
 	t.Parallel()
 

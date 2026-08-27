@@ -611,6 +611,103 @@ func TestRequestRecorderNon2xxKeepsAttributionButNotApplicable(t *testing.T) {
 	}
 }
 
+func TestOpenAIImagesRequestLogUsesFixedErrorsAndMissingUnpricedUsage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("provider diagnostics are never persisted", func(t *testing.T) {
+		sink := &recordingRequestLogSink{}
+		recorder := newRequestRecorder(
+			sink,
+			"req-images-error",
+			time.Unix(100, 0),
+			9,
+			protocol.OpenAIImages,
+			func() time.Time { return time.Unix(101, 0) },
+		)
+		recorder.setOperation(execution.OperationImagesGenerate)
+		selection := requestLogSelection(12, 22, "images")
+		providerSummary := "prompt=private prompt url=https://cdn.example/private.png filename=secret.png"
+		index := recorder.appendAttempt(
+			selection,
+			UpstreamResult{StatusCode: http.StatusBadRequest},
+			telemetry.FailureCategoryClientError,
+			telemetry.ActionTerminate,
+			"upstream_client_error",
+			providerSummary,
+			time.Unix(100, 0),
+			time.Unix(100, 0),
+		)
+		recorder.completeResponse(
+			UpstreamResult{StatusCode: http.StatusBadRequest, ErrorSummary: providerSummary},
+			health.Decision{Category: health.FailureCategoryClientError},
+			"provider-image",
+			index,
+		)
+		recorder.emit()
+
+		if len(sink.events) != 1 {
+			t.Fatalf("events = %#v", sink.events)
+		}
+		event := sink.events[0]
+		want := fixedErrorSummary("upstream_client_error")
+		if event.ErrorSummary != want || len(event.Attempts) != 1 ||
+			event.Attempts[0].ErrorSummary != want {
+			t.Fatalf("Images summaries = %q / %#v", event.ErrorSummary, event.Attempts)
+		}
+		encoded, _ := json.Marshal(event)
+		for _, forbidden := range []string{"private prompt", "cdn.example", "secret.png"} {
+			if bytes.Contains(encoded, []byte(forbidden)) {
+				t.Fatalf("request log retained %q: %s", forbidden, encoded)
+			}
+		}
+	})
+
+	t.Run("successful request is missing and unpriced", func(t *testing.T) {
+		sink := &recordingRequestLogSink{}
+		recorder := newRequestRecorder(
+			sink,
+			"req-images-success",
+			time.Unix(100, 0),
+			9,
+			protocol.OpenAIImages,
+			func() time.Time { return time.Unix(101, 0) },
+		)
+		recorder.setOperation(execution.OperationImagesGenerate)
+		model := "provider-image"
+		recorder.freezeNextAttemptPricing(frozenAttemptPricing{
+			channelID: string(channel.OpenAI), groupID: 12,
+			upstreamModel: model, applicable: true,
+		})
+		selection := requestLogSelection(12, 22, "images")
+		selection.UpstreamModelID = &model
+		index := recorder.appendAttempt(
+			selection,
+			UpstreamResult{StatusCode: http.StatusOK},
+			telemetry.FailureCategoryOK,
+			telemetry.ActionTerminate,
+			"",
+			"",
+			time.Unix(100, 0),
+			time.Unix(100, 0),
+		)
+		recorder.completeResponse(
+			UpstreamResult{StatusCode: http.StatusOK, Usage: usage.Result{State: usage.StateMissing}},
+			health.Decision{},
+			model,
+			index,
+		)
+		recorder.emit()
+
+		event := sink.events[0]
+		if event.Usage.Result.State != usage.StateMissing ||
+			event.Usage.Pricing.CostState != string(pricing.CostStateUnpriced) ||
+			event.Usage.Pricing.PricingCompleteness != string(pricing.CompletenessUnavailable) ||
+			event.Usage.Pricing.EstimatedCostNanoUSD != 0 || event.Usage.Pricing.ReceiptJSON != "" {
+			t.Fatalf("Images usage/pricing = %#v", event.Usage)
+		}
+	})
+}
+
 func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testing.T) {
 	for _, index := range []int{-1, 1} {
 		t.Run(fmt.Sprintf("index_%d", index), func(t *testing.T) {

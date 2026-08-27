@@ -116,6 +116,7 @@ func (recorder *requestRecorder) emit() {
 		return
 	}
 	recorder.emitted = true
+	recorder.freezeImagesErrorSummaries()
 	completedAt := recorder.now()
 	duration := completedAt.Sub(recorder.startedAt)
 	if duration < 0 {
@@ -144,6 +145,22 @@ func (recorder *requestRecorder) emit() {
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:                 recorder.usage,
 	})
+}
+
+func (recorder *requestRecorder) freezeImagesErrorSummaries() {
+	if recorder == nil || recorder.protocol != protocol.OpenAIImages {
+		return
+	}
+	if recorder.outcome.errorCode != "" {
+		recorder.outcome.errorSummary = fixedErrorSummary(recorder.outcome.errorCode)
+	}
+	for index := range recorder.attempts {
+		if recorder.attempts[index].ErrorCode != "" {
+			recorder.attempts[index].ErrorSummary = fixedErrorSummary(
+				recorder.attempts[index].ErrorCode,
+			)
+		}
+	}
 }
 
 func (recorder *requestRecorder) estimatedCostNanoUSD() int64 {

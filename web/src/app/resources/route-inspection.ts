@@ -53,6 +53,8 @@ export type RouteInspectOperation =
   | 'responses_input_tokens'
   | 'count_tokens'
   | 'responses_passthrough'
+  | 'images_generate'
+  | 'images_edit'
 export type RouteInspectRequirement = 'any' | 'native'
 export type RouteInspectMode = 'native' | 'converted'
 
@@ -109,6 +111,8 @@ export const routeInspectOperations = [
   'responses_input_tokens',
   'count_tokens',
   'responses_passthrough',
+  'images_generate',
+  'images_edit',
 ] as const
 export const routeInspectRequirements = ['any', 'native'] as const
 const routeModes = ['native', 'converted'] as const

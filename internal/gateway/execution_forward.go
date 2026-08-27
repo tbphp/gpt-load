@@ -108,10 +108,18 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		input.Group.HeaderRules,
 		input.CredentialSecrets...,
 	)
-	streamBuffer := newSSEEventObservationBuffer(func(
+	credentialSecrets := append([]string(nil), input.CredentialSecrets...)
+	if input.APIKey != "" {
+		credentialSecrets = append(credentialSecrets, input.APIKey)
+	}
+	streamBuffer := newSSEEventObservationBuffer(execution.SSEEventLimit(input.ClientProtocol), func(
 		event dialect.StreamEvent,
 		genericProviderError bool,
 	) (bool, error) {
+		if input.ClientProtocol == protocol.OpenAIImages &&
+			imagesCredentialLiteralsRemain(event.Payload, credentialSecrets) {
+			return false, fmt.Errorf("%w: credential remains in response event", ErrUpstreamProtocol)
+		}
 		wasTerminal := streamEvents.sawTerminal
 		providerError, err := streamEvents.classify(event, genericProviderError)
 		if err != nil {
@@ -176,10 +184,17 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				errorBody = appendExecutionErrorBody(errorBody, event.Data)
 				return nil
 			}
-			terminalInChunk, err := streamBuffer.push(event.Data)
+			completeData, terminalInChunk, err := streamBuffer.push(event.Data)
 			if err != nil {
 				downstreamErr = executionStreamProtocolFailure(err)
 				return downstreamErr
+			}
+			forwardData := event.Data
+			if input.ClientProtocol == protocol.OpenAIImages {
+				forwardData = completeData
+				if len(forwardData) == 0 {
+					return nil
+				}
 			}
 			if !committed {
 				if !firstResponse {
@@ -189,11 +204,11 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 					}
 				}
 				if streamEvents.firstEventWasProviderError() {
-					errorBody = appendExecutionErrorBody(errorBody, event.Data)
+					errorBody = appendExecutionErrorBody(errorBody, forwardData)
 					return nil
 				}
 				committed = true
-				if err := commitStream(controller, ready.StatusCode, ready.Header, event.Data); err != nil {
+				if err := commitStream(controller, ready.StatusCode, ready.Header, forwardData); err != nil {
 					downstreamErr = err
 					return err
 				}
@@ -205,7 +220,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				return nil
 			}
-			written, err := controller.write(event.Data)
+			written, err := controller.write(forwardData)
 			if err != nil {
 				downstreamErr = &streamFailure{
 					kind: streamFailureDownstreamWrite,
@@ -213,7 +228,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				return downstreamErr
 			}
-			if written != len(event.Data) {
+			if written != len(forwardData) {
 				downstreamErr = &streamFailure{
 					kind: streamFailureDownstreamWrite,
 					err:  fmt.Errorf("write execution stream: %w", io.ErrShortWrite),
@@ -703,8 +718,16 @@ func upstreamFromExecutionResult(
 		upstream.AppliedReasoning = result.AppliedReasoning.Clone()
 	}
 	upstream.UpstreamProtocol = result.UpstreamProtocol
-	upstream.Body = append([]byte(nil), result.Body...)
-	upstream.ClassificationBody = append([]byte(nil), result.Body...)
+	if input.ClientProtocol == protocol.OpenAIImages {
+		// AttemptResult owns Body after the executor returns. The buffered Images
+		// representation consumes it synchronously, so move that ownership across
+		// the internal boundary instead of cloning a large base64 payload twice.
+		upstream.Body = result.Body
+		upstream.ClassificationBody = result.Body
+	} else {
+		upstream.Body = append([]byte(nil), result.Body...)
+		upstream.ClassificationBody = append([]byte(nil), result.Body...)
+	}
 	if !result.ResponseStarted && result.Error != nil {
 		upstream.Err = executionFailureError(ctx, result.Error)
 	}

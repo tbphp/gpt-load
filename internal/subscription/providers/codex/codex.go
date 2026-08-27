@@ -253,6 +253,7 @@ type ExecuteRequest struct {
 	Model                string
 	Payload              []byte
 	Format               string
+	RequestPath          string
 	Headers              http.Header
 	OriginalRequest      []byte
 	ProxyURL             string
@@ -264,6 +265,7 @@ type ExecuteResponse struct {
 	Payload                []byte
 	Headers                http.Header
 	AppliedReasoningEffort string
+	UpstreamRequestPath    string
 }
 
 // ExecuteStreamResponse contains converted streaming chunks and response metadata.
@@ -271,6 +273,7 @@ type ExecuteStreamResponse struct {
 	Headers                http.Header
 	Chunks                 <-chan ExecuteStreamChunk
 	AppliedReasoningEffort string
+	UpstreamRequestPath    string
 }
 
 // ExecuteStreamChunk contains one converted payload or terminal bridge error.
@@ -311,6 +314,7 @@ func (e *executor) Execute(
 		Payload:                append([]byte(nil), response.Payload...),
 		Headers:                response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamRequestPath:    response.UpstreamRequestPath,
 	}, err
 }
 
@@ -330,6 +334,7 @@ func (e *executor) CountTokens(
 		Payload:                append([]byte(nil), response.Payload...),
 		Headers:                response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamRequestPath:    response.UpstreamRequestPath,
 	}, err
 }
 
@@ -364,6 +369,7 @@ func (e *executor) ExecuteStream(
 		Headers:                response.Headers.Clone(),
 		Chunks:                 chunks,
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamRequestPath:    response.UpstreamRequestPath,
 	}, err
 }
 
@@ -372,6 +378,7 @@ func executeRequestToBridge(value ExecuteRequest) cpaembedded.ExecuteRequest {
 		Model:                value.Model,
 		Payload:              append([]byte(nil), value.Payload...),
 		Format:               value.Format,
+		RequestPath:          value.RequestPath,
 		Headers:              value.Headers.Clone(),
 		OriginalRequest:      append([]byte(nil), value.OriginalRequest...),
 		ProxyURL:             value.ProxyURL,

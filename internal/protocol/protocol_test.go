@@ -49,6 +49,7 @@ func TestProtocolKnownAndDataPlaneEnabled(t *testing.T) {
 	}{
 		{value: OpenAICompletions, known: true, enabled: true},
 		{value: OpenAIResponses, known: true, enabled: true},
+		{value: OpenAIImages, known: true, enabled: true},
 		{value: Anthropic, known: true, enabled: true},
 		{value: Gemini, known: true, enabled: true},
 		{value: Protocol("openai"), known: false, enabled: false},
@@ -106,6 +107,7 @@ func TestDataPlaneProtocolsReturnsCanonicalOrderAndIndependentCopies(t *testing.
 	want := []Protocol{
 		OpenAICompletions,
 		OpenAIResponses,
+		OpenAIImages,
 		Anthropic,
 		Gemini,
 	}

@@ -9,9 +9,10 @@ import (
 	"sync"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 )
 
-const maxSSEEventBytes = 10 << 20
+const maxSSEEventBytes = execution.DefaultSSEEventLimitBytes
 
 var (
 	errSSEEventTooLarge   = errors.New("SSE event exceeds size limit")
@@ -32,8 +33,9 @@ type sseRewriteStream struct {
 	readMu sync.Mutex
 	mu     sync.Mutex
 
-	body    io.ReadCloser
-	rewrite sseEventPayloadRewriter
+	body          io.ReadCloser
+	rewrite       sseEventPayloadRewriter
+	maxEventBytes int
 
 	pending            []byte
 	output             []byte
@@ -49,12 +51,21 @@ type sseRewriteStream struct {
 
 func newSSEEventRewriteStream(
 	body io.ReadCloser,
+	maxEventBytes int,
 	rewrite sseEventPayloadRewriter,
 ) *sseRewriteStream {
 	return &sseRewriteStream{
 		body: body, rewrite: rewrite,
-		scratch: make([]byte, streamReadBufferSize),
+		maxEventBytes: normalizedSSEEventLimit(maxEventBytes),
+		scratch:       make([]byte, streamReadBufferSize),
 	}
+}
+
+func normalizedSSEEventLimit(limit int) int {
+	if limit > 0 {
+		return limit
+	}
+	return maxSSEEventBytes
 }
 
 func (stream *sseRewriteStream) Read(target []byte) (int, error) {
@@ -95,6 +106,7 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 		optionalLF, overflow := stream.scanner.ConsumeOptionalLineFeed(
 			stream.pending,
 			stream.deferredErr != nil,
+			stream.maxEventBytes,
 		)
 		if overflow {
 			stream.finishLocked()
@@ -115,7 +127,7 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 
 		eventEnd, complete := stream.scanner.Find(stream.pending)
 		if complete {
-			if eventEnd > maxSSEEventBytes {
+			if eventEnd > stream.maxEventBytes {
 				stream.finishLocked()
 				stream.mu.Unlock()
 				return 0, errSSEEventTooLarge
@@ -135,7 +147,7 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 				stream.mu.Unlock()
 				return 0, err
 			}
-			if len(rewritten.body) > maxSSEEventBytes {
+			if len(rewritten.body) > stream.maxEventBytes {
 				stream.mu.Lock()
 				stream.finishLocked()
 				stream.mu.Unlock()
@@ -153,7 +165,7 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 			stream.mu.Unlock()
 			continue
 		}
-		if len(stream.pending) > maxSSEEventBytes {
+		if len(stream.pending) > stream.maxEventBytes {
 			stream.finishLocked()
 			stream.mu.Unlock()
 			return 0, errSSEEventTooLarge
@@ -181,7 +193,7 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 			return 0, err
 		}
 		body := stream.body
-		readLimit := min(streamReadBufferSize, maxSSEEventBytes+1-len(stream.pending))
+		readLimit := min(streamReadBufferSize, stream.maxEventBytes+1-len(stream.pending))
 		chunk := stream.scratch[:readLimit]
 		stream.mu.Unlock()
 
@@ -320,7 +332,11 @@ func (scanner *sseRewriteBoundaryScanner) AfterEvent(inputBytes, outputBytes int
 	scanner.skipLineFeed = false
 }
 
-func (scanner *sseRewriteBoundaryScanner) ConsumeOptionalLineFeed(data []byte, final bool) (int, bool) {
+func (scanner *sseRewriteBoundaryScanner) ConsumeOptionalLineFeed(
+	data []byte,
+	final bool,
+	maxEventBytes int,
+) (int, bool) {
 	if !scanner.optionalLineFeed {
 		return 0, false
 	}
@@ -336,8 +352,8 @@ func (scanner *sseRewriteBoundaryScanner) ConsumeOptionalLineFeed(data []byte, f
 		scanner.previousOutputBytes = 0
 		return 0, false
 	}
-	overflow := scanner.previousInputBytes >= maxSSEEventBytes ||
-		scanner.previousOutputBytes >= maxSSEEventBytes
+	overflow := scanner.previousInputBytes >= maxEventBytes ||
+		scanner.previousOutputBytes >= maxEventBytes
 	scanner.previousInputBytes = 0
 	scanner.previousOutputBytes = 0
 	return 1, overflow
@@ -449,7 +465,8 @@ func isSSEErrorPayload(payload []byte) bool {
 	}
 	errorValue := bytes.TrimSpace(envelope.Error)
 	return envelope.Type == "error" ||
-		(len(errorValue) > 0 && !bytes.Equal(errorValue, []byte("null")))
+		(len(errorValue) > 0 && !bytes.Equal(errorValue, []byte("null")) &&
+			!bytes.Equal(errorValue, []byte("{}")))
 }
 
 func splitSSEEventLines(event []byte) []sseEventLine {

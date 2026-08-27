@@ -119,6 +119,15 @@ func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 			}},
 			want: []string{"both", "chat-only", "responses-only", "shared"},
 		},
+		{
+			name: "Images protocol filter",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{
+				Protocols: map[protocol.Protocol]struct{}{
+					protocol.OpenAIImages: {},
+				},
+			}},
+			want: []string{"chat-only", "shared"},
+		},
 	}
 
 	for _, test := range tests {

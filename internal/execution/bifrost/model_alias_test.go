@@ -27,6 +27,32 @@ func TestNativeFirstSSEEventGateAcceptsTwoMiBEventAcrossChunks(t *testing.T) {
 	}
 }
 
+func TestNativeSSEBoundariesUseImagesEventLimit(t *testing.T) {
+	payload := `{"type":"image_generation.partial_image","model":"provider-model","b64_json":"` +
+		strings.Repeat("A", maxNativeFirstSSEEventBytes+1) + `"}`
+	wire := []byte("event: image_generation.partial_image\ndata: " + payload + "\n\n")
+	spec := execution.AttemptSpec{
+		ClientProtocol: protocol.OpenAIImages,
+		ClientModel:    "public-model",
+		UpstreamModel:  "provider-model",
+	}
+
+	gate := newNativeFirstSSEEventGate(spec)
+	output, err := gate.push(wire)
+	if err != nil || !bytes.Equal(output, wire) {
+		t.Fatalf("first-event gate output/error = %d bytes / %v", len(output), err)
+	}
+
+	rewriter := newNativeAliasSSERewriter(spec)
+	rewritten, err := rewriter.push(wire)
+	if err != nil {
+		t.Fatalf("alias rewriter error = %v", err)
+	}
+	if !bytes.Contains(rewritten, []byte(`"model":"public-model"`)) {
+		t.Fatal("alias rewriter did not preserve the oversized Images event")
+	}
+}
+
 func TestRewriteNativeResponseModelCoversNativeProtocolShapes(t *testing.T) {
 	t.Parallel()
 

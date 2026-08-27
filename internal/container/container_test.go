@@ -445,6 +445,7 @@ func TestBuildContainerResolvesAllDialects(t *testing.T) {
 	err = dependencyContainer.Invoke(func(
 		openAI *dialect.OpenAI,
 		openAIResponses *dialect.OpenAIResponses,
+		openAIImages *dialect.OpenAIImages,
 		anthropic *dialect.Anthropic,
 		gemini *dialect.Gemini,
 		values dialect.Set,
@@ -458,8 +459,9 @@ func TestBuildContainerResolvesAllDialects(t *testing.T) {
 		})
 		if values[protocol.OpenAICompletions] != openAI ||
 			values[protocol.OpenAIResponses] != openAIResponses ||
+			values[protocol.OpenAIImages] != openAIImages ||
 			values[protocol.Anthropic] != anthropic ||
-			values[protocol.Gemini] != gemini || len(values) != 4 {
+			values[protocol.Gemini] != gemini || len(values) != 5 {
 			t.Fatalf("dialect Set = %#v", values)
 		}
 	})
