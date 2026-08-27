@@ -86,6 +86,42 @@ func TestExecutionForwarderBuildsFrozenAttemptAndMapsUnaryResult(t *testing.T) {
 	}
 }
 
+func TestExecutionForwarderCapturesImagesUsageFromUnaryBody(t *testing.T) {
+	t.Parallel()
+
+	const responseBody = `{"created":123,"model":"upstream-image","data":[{"b64_json":"AA=="}],"usage":{"input_tokens":100,"input_tokens_details":{"text_tokens":4,"image_tokens":96},"output_tokens":30,"total_tokens":130}}`
+	executor := fakeExecutionExecutor{unary: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+	) execution.AttemptResult {
+		return execution.AttemptResult{
+			DispatchState:   execution.DispatchMaybeSent,
+			ResponseStarted: true,
+			StatusCode:      http.StatusOK,
+			Header:          http.Header{"Content-Type": {"application/json"}},
+			Body:            []byte(responseBody),
+			Model:           "upstream-image",
+		}
+	}}
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIImages()
+	input.ClientProtocol = protocol.OpenAIImages
+	input.ObserveUsage = true
+	input.Operation = execution.OperationImagesGenerate
+	input.RouteRequirement = execution.RouteRequirementNative
+	input.Request.Path = "/v1/images/generations"
+	input.Request.Body = []byte(`{"model":"public-image","prompt":"draw"}`)
+
+	result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+	want := usage.Result{
+		State:  usage.StateComplete,
+		Tokens: usage.Tokens{UncachedInput: 100, Output: 30},
+	}
+	if result.Err != nil || result.Usage != want {
+		t.Fatalf("Forward() usage = %#v, want %#v; result=%#v", result.Usage, want, result)
+	}
+}
+
 func TestExecutionForwarderKeepsHTTPFailureAsUncommittedResponse(t *testing.T) {
 	t.Parallel()
 
@@ -311,7 +347,7 @@ func TestExecutionForwarderAllowsImagesEventAboveDefaultLimit(t *testing.T) {
 		"data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"" +
 		strings.Repeat("A", maxSSEEventBytes+1) + "\"}\n\n"
 	completed := "event: image_generation.completed\n" +
-		"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AA==\"}\n\n"
+		"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AA==\",\"usage\":{\"input_tokens\":100,\"input_tokens_details\":{\"text_tokens\":4,\"image_tokens\":96},\"output_tokens\":30,\"total_tokens\":130}}\n\n"
 	executor := fakeExecutionExecutor{stream: func(
 		_ context.Context,
 		_ execution.AttemptSpec,
@@ -337,13 +373,16 @@ func TestExecutionForwarderAllowsImagesEventAboveDefaultLimit(t *testing.T) {
 	input := executionForwardInput()
 	input.Dialect = dialect.NewOpenAIImages()
 	input.ClientProtocol = protocol.OpenAIImages
+	input.ObserveUsage = true
 	input.Operation = execution.OperationImagesGenerate
 	input.Request.Path = "/v1/images/generations"
 	input.Request.RawQuery = ""
 	input.Request.Body = []byte(`{"model":"public","stream":true}`)
 	recorder := httptest.NewRecorder()
 	result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
-	if result.Err != nil || !result.Committed || result.Stream.EndReason != StreamEndCleanEOF {
+	if result.Err != nil || !result.Committed || result.Stream.EndReason != StreamEndCleanEOF ||
+		result.Usage.State != usage.StateComplete ||
+		result.Usage.Tokens != (usage.Tokens{UncachedInput: 100, Output: 30}) {
 		t.Fatalf("ForwardStream() = %#v", result)
 	}
 	if !bytes.Equal(recorder.Body.Bytes(), []byte(partial+completed)) {

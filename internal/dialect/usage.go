@@ -22,6 +22,7 @@ type StreamUsageInjector interface {
 
 var _ UsageExtractor = (*OpenAI)(nil)
 var _ UsageExtractor = (*OpenAIResponses)(nil)
+var _ UsageExtractor = (*OpenAIImages)(nil)
 var _ UsageExtractor = (*Anthropic)(nil)
 var _ UsageExtractor = (*Gemini)(nil)
 var _ StreamUsageInjector = (*OpenAI)(nil)
