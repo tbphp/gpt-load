@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/state"
@@ -25,6 +26,48 @@ import (
 type fakeExecutionExecutor struct {
 	unary  func(context.Context, execution.AttemptSpec) execution.AttemptResult
 	stream func(context.Context, execution.AttemptSpec, execution.StreamSink) execution.StreamResult
+}
+
+type observingUsageDialect struct {
+	expectedBody []byte
+	matchedBody  bool
+}
+
+type observingUsageStreamExtractor struct {
+	expectedBody []byte
+	matchedBody  bool
+}
+
+func (*observingUsageDialect) Protocol() protocol.Protocol {
+	return protocol.OpenAIImages
+}
+
+func (*observingUsageDialect) InspectRequest(
+	*dialect.ParsedRequest,
+) (dialect.RequestMetadata, error) {
+	return dialect.RequestMetadata{}, nil
+}
+
+func (d *observingUsageDialect) ExtractUsage(
+	body []byte,
+) (usage.Result, error) {
+	d.matchedBody = len(body) == len(d.expectedBody) &&
+		len(body) > 0 && &body[0] == &d.expectedBody[0]
+	return usage.Result{State: usage.StateComplete}, nil
+}
+
+func (*observingUsageDialect) NewUsageStreamExtractor() dialect.UsageStreamExtractor {
+	return nil
+}
+
+func (e *observingUsageStreamExtractor) Observe(body []byte) error {
+	e.matchedBody = len(body) == len(e.expectedBody) &&
+		len(body) > 0 && &body[0] == &e.expectedBody[0]
+	return nil
+}
+
+func (*observingUsageStreamExtractor) Finalize() (usage.Result, bool) {
+	return usage.Result{State: usage.StateComplete}, true
 }
 
 func (value fakeExecutionExecutor) Execute(
@@ -83,6 +126,120 @@ func TestExecutionForwarderBuildsFrozenAttemptAndMapsUnaryResult(t *testing.T) {
 		result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted ||
 		result.UpstreamRequestID != "upstream-1" || result.UpstreamReportedModel != "upstream" {
 		t.Fatalf("Forward() = %#v", result)
+	}
+}
+
+func TestExecutionForwarderCapturesImagesUsageFromUnaryBody(t *testing.T) {
+	t.Parallel()
+
+	const responseBody = `{"created":123,"model":"upstream-image","data":[{"b64_json":"AA=="}],"usage":{"input_tokens":100,"input_tokens_details":{"text_tokens":4,"image_tokens":96},"output_tokens":30,"total_tokens":130}}`
+	executor := fakeExecutionExecutor{unary: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+	) execution.AttemptResult {
+		return execution.AttemptResult{
+			DispatchState:   execution.DispatchMaybeSent,
+			ResponseStarted: true,
+			StatusCode:      http.StatusOK,
+			Header:          http.Header{"Content-Type": {"application/json"}},
+			Body:            []byte(responseBody),
+			Model:           "upstream-image",
+		}
+	}}
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIImages()
+	input.ClientProtocol = protocol.OpenAIImages
+	input.ObserveUsage = true
+	input.Operation = execution.OperationImagesGenerate
+	input.RouteRequirement = execution.RouteRequirementNative
+	input.Request.Path = "/v1/images/generations"
+	input.Request.Body = []byte(`{"model":"public-image","prompt":"draw"}`)
+
+	result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+	want := usage.Result{
+		State:  usage.StateComplete,
+		Tokens: usage.Tokens{UncachedInput: 100, Output: 30},
+	}
+	if result.Err != nil || result.Usage != want {
+		t.Fatalf("Forward() usage = %#v, want %#v; result=%#v", result.Usage, want, result)
+	}
+}
+
+func TestExecutionForwarderCapturesCompressedImagesUsageAfterDecoding(t *testing.T) {
+	t.Parallel()
+
+	plain := []byte(`{"created":123,"model":"upstream-image","data":[{"b64_json":"AA=="}],"usage":{"input_tokens":100,"input_tokens_details":{"text_tokens":4,"image_tokens":96},"output_tokens":30,"total_tokens":130}}`)
+	for _, encoding := range []contentcoding.Encoding{
+		contentcoding.Gzip,
+		contentcoding.Brotli,
+	} {
+		t.Run(string(encoding), func(t *testing.T) {
+			compressed := encodeContentCodingForGatewayTest(t, encoding, plain)
+			executor := fakeExecutionExecutor{unary: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+			) execution.AttemptResult {
+				return execution.AttemptResult{
+					DispatchState:   execution.DispatchMaybeSent,
+					ResponseStarted: true,
+					StatusCode:      http.StatusOK,
+					Header: http.Header{
+						"Content-Type":     {"application/json"},
+						"Content-Encoding": {string(encoding)},
+					},
+					Body: compressed,
+				}
+			}}
+			input := executionForwardInput()
+			input.Dialect = dialect.NewOpenAIImages()
+			input.ClientProtocol = protocol.OpenAIImages
+			input.ObserveUsage = true
+			input.Operation = execution.OperationImagesGenerate
+			input.RouteRequirement = execution.RouteRequirementNative
+			input.ExternalModel = "upstream-image"
+			input.UpstreamModelID = "upstream-image"
+			input.Request.Path = "/v1/images/generations"
+			input.Request.Body = []byte(`{"model":"upstream-image","prompt":"draw"}`)
+
+			result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+			want := usage.Result{
+				State:  usage.StateComplete,
+				Tokens: usage.Tokens{UncachedInput: 100, Output: 30},
+			}
+			if result.Err != nil || result.Usage != want ||
+				!bytes.Equal(result.Body, plain) ||
+				result.Header.Get("Content-Encoding") != "" {
+				t.Fatalf("Forward() = %#v", result)
+			}
+		})
+	}
+}
+
+func TestUsageCaptureNonStreamingPlainDoesNotCloneBody(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"usage":{"input_tokens":1,"output_tokens":1}}`)
+	selected := &observingUsageDialect{expectedBody: body}
+	result := newUsageCaptureBoundary().extractNonStreamingPlain(selected, body)
+	if result.State != usage.StateComplete || !selected.matchedBody {
+		t.Fatal("extractNonStreamingPlain() did not borrow the original body")
+	}
+}
+
+func TestUsageCaptureStreamEventDoesNotCloneBody(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"type":"image_generation.partial_image","b64_json":"AA=="}`)
+	extractor := &observingUsageStreamExtractor{expectedBody: body}
+	capture := &streamUsageCapture{
+		boundary:  newUsageCaptureBoundary(),
+		protocol:  protocol.OpenAIImages,
+		extractor: extractor,
+		active:    true,
+	}
+	capture.observeEvent(dialect.StreamEvent{Payload: body})
+	if !capture.active || !extractor.matchedBody {
+		t.Fatal("observeEvent() did not borrow the original body")
 	}
 }
 
@@ -311,7 +468,7 @@ func TestExecutionForwarderAllowsImagesEventAboveDefaultLimit(t *testing.T) {
 		"data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"" +
 		strings.Repeat("A", maxSSEEventBytes+1) + "\"}\n\n"
 	completed := "event: image_generation.completed\n" +
-		"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AA==\"}\n\n"
+		"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AA==\",\"usage\":{\"input_tokens\":100,\"input_tokens_details\":{\"text_tokens\":4,\"image_tokens\":96},\"output_tokens\":30,\"total_tokens\":130}}\n\n"
 	executor := fakeExecutionExecutor{stream: func(
 		_ context.Context,
 		_ execution.AttemptSpec,
@@ -337,13 +494,16 @@ func TestExecutionForwarderAllowsImagesEventAboveDefaultLimit(t *testing.T) {
 	input := executionForwardInput()
 	input.Dialect = dialect.NewOpenAIImages()
 	input.ClientProtocol = protocol.OpenAIImages
+	input.ObserveUsage = true
 	input.Operation = execution.OperationImagesGenerate
 	input.Request.Path = "/v1/images/generations"
 	input.Request.RawQuery = ""
 	input.Request.Body = []byte(`{"model":"public","stream":true}`)
 	recorder := httptest.NewRecorder()
 	result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
-	if result.Err != nil || !result.Committed || result.Stream.EndReason != StreamEndCleanEOF {
+	if result.Err != nil || !result.Committed || result.Stream.EndReason != StreamEndCleanEOF ||
+		result.Usage.State != usage.StateComplete ||
+		result.Usage.Tokens != (usage.Tokens{UncachedInput: 100, Output: 30}) {
 		t.Fatalf("ForwardStream() = %#v", result)
 	}
 	if !bytes.Equal(recorder.Body.Bytes(), []byte(partial+completed)) {

@@ -252,11 +252,7 @@ func (capture *streamUsageCapture) observeEvent(event dialect.StreamEvent) {
 	if capture == nil || !capture.active || capture.finalized {
 		return
 	}
-	safeEvent := dialect.StreamEvent{
-		Name:    event.Name,
-		Payload: bytes.Clone(event.Payload),
-	}
-	err, panicked := safeObserveUsage(capture.extractor, safeEvent)
+	err, panicked := safeObserveUsage(capture.extractor, event)
 	if panicked {
 		capture.boundary.recordFailure("stream_observe", capture.protocol)
 		capture.active = false
@@ -296,7 +292,7 @@ func (boundary *usageCaptureBoundary) extractNonStreamingPlain(
 	if !ok {
 		return missingUsage(false)
 	}
-	result, err, panicked := safeExtractUsage(extractor, bytes.Clone(plain))
+	result, err, panicked := safeExtractUsage(extractor, plain)
 	if err != nil || panicked || !validCapturedUsage(result) {
 		boundary.recordFailure("extract", selected.Protocol())
 		return missingUsage(true)
