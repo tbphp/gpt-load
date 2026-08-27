@@ -465,7 +465,8 @@ func isSSEErrorPayload(payload []byte) bool {
 	}
 	errorValue := bytes.TrimSpace(envelope.Error)
 	return envelope.Type == "error" ||
-		(len(errorValue) > 0 && !bytes.Equal(errorValue, []byte("null")))
+		(len(errorValue) > 0 && !bytes.Equal(errorValue, []byte("null")) &&
+			!bytes.Equal(errorValue, []byte("{}")))
 }
 
 func splitSSEEventLines(event []byte) []sseEventLine {
