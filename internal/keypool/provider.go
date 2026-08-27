@@ -190,36 +190,47 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 	if err != nil {
 		return fmt.Errorf("failed to get key details from store: %w", err)
 	}
+	if keyDetails["id"] == "" {
+		return nil
+	}
 
 	if keyDetails["status"] == models.KeyStatusInvalid {
 		return nil
 	}
 
-	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
+	newFailureCount, err := p.store.HIncrBy(keyHashKey, "failure_count", 1)
+	if err != nil {
+		return fmt.Errorf("failed to increment failure count in store: %w", err)
+	}
 
-	// 获取该分组的有效配置
 	blacklistThreshold := group.EffectiveConfig.BlacklistThreshold
-
+	shouldBlacklist := blacklistThreshold > 0 && newFailureCount >= int64(blacklistThreshold)
+	updates := map[string]any{
+		"failure_count": gorm.Expr(
+			"CASE WHEN failure_count < ? THEN ? ELSE failure_count END",
+			newFailureCount,
+			newFailureCount,
+		),
+	}
+	if shouldBlacklist {
+		updates["status"] = models.KeyStatusInvalid
+	}
 	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
-		var key models.APIKey
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, apiKey.ID).Error; err != nil {
-			return fmt.Errorf("failed to lock key %d for update: %w", apiKey.ID, err)
+		result := tx.Model(&models.APIKey{}).Where("id = ?", apiKey.ID).Updates(updates)
+		if result.Error != nil {
+			return fmt.Errorf("failed to persist key failure state in DB: %w", result.Error)
 		}
-
-		newFailureCount := failureCount + 1
-
-		updates := map[string]any{"failure_count": newFailureCount}
-		shouldBlacklist := blacklistThreshold > 0 && newFailureCount >= int64(blacklistThreshold)
-		if shouldBlacklist {
-			updates["status"] = models.KeyStatusInvalid
-		}
-
-		if err := tx.Model(&key).Updates(updates).Error; err != nil {
-			return fmt.Errorf("failed to update key stats in DB: %w", err)
-		}
-
-		if _, err := p.store.HIncrBy(keyHashKey, "failure_count", 1); err != nil {
-			return fmt.Errorf("failed to increment failure count in store: %w", err)
+		if result.RowsAffected == 0 {
+			var existingKeyCount int64
+			if err := tx.Model(&models.APIKey{}).Where("id = ?", apiKey.ID).Count(&existingKeyCount).Error; err != nil {
+				return fmt.Errorf("failed to verify key %d after empty update: %w", apiKey.ID, err)
+			}
+			if existingKeyCount == 0 {
+				if err := p.store.Delete(keyHashKey); err != nil {
+					return fmt.Errorf("failed to clean up deleted key %d from store: %w", apiKey.ID, err)
+				}
+				return nil
+			}
 		}
 
 		if shouldBlacklist {
