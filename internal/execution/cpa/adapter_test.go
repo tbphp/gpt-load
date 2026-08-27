@@ -326,6 +326,34 @@ func TestAdapterExecutesCodexImagesWithFixedCanonicalPath(t *testing.T) {
 	}
 }
 
+func TestNormalizeCPAImagesResultsKeepOnlyObservedModel(t *testing.T) {
+	spec := execution.AttemptSpec{ClientProtocol: protocol.OpenAIImages}
+
+	missing := execution.AttemptResult{
+		Model: "provider-image",
+		Body:  []byte(`{"created":1,"data":[{"b64_json":"AA=="}]}`),
+	}
+	normalizeCPAImagesAttemptResult(spec, &missing)
+	if missing.Model != "" {
+		t.Fatalf("missing response model = %q, want empty", missing.Model)
+	}
+
+	observed := execution.AttemptResult{
+		Model: "provider-image",
+		Body:  []byte(`{"model":"public-image","data":[{"b64_json":"AA=="}]}`),
+	}
+	normalizeCPAImagesAttemptResult(spec, &observed)
+	if observed.Model != "provider-image" {
+		t.Fatalf("observed response model = %q, want provider-image", observed.Model)
+	}
+
+	stream := execution.StreamResult{Model: "provider-image"}
+	normalizeCPAImagesStreamResult(spec, &stream)
+	if stream.Model != "" {
+		t.Fatalf("unobserved stream model = %q, want empty", stream.Model)
+	}
+}
+
 func TestAdapterReportsDirectCodexImagesUpstreamProtocol(t *testing.T) {
 	t.Parallel()
 

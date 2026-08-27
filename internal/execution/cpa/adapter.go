@@ -542,6 +542,9 @@ func normalizeCPAImagesAttemptResult(spec execution.AttemptSpec, result *executi
 		return
 	}
 	result.Usage = nil
+	if responseModel(result.Body, "") == "" {
+		result.Model = ""
+	}
 	if result.Error != nil && result.Error.ReplaySafety == "" {
 		result.Error.ReplaySafety = execution.ReplaySafetyUnknown
 	}
@@ -552,6 +555,7 @@ func normalizeCPAImagesStreamResult(spec execution.AttemptSpec, result *executio
 		return
 	}
 	result.Usage = nil
+	result.Model = ""
 	if result.Error != nil && result.Error.ReplaySafety == "" {
 		result.Error.ReplaySafety = execution.ReplaySafetyUnknown
 	}

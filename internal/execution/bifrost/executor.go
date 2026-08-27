@@ -851,6 +851,9 @@ func normalizeImagesAttemptResult(spec execution.AttemptSpec, result *execution.
 		return
 	}
 	result.Usage = nil
+	if openAIResponseModel(result.Body, "") == "" {
+		result.Model = ""
+	}
 	if result.Error != nil && result.Error.ReplaySafety == "" {
 		result.Error.ReplaySafety = execution.ReplaySafetyUnknown
 	}
@@ -861,6 +864,7 @@ func normalizeImagesStreamResult(spec execution.AttemptSpec, result *execution.S
 		return
 	}
 	result.Usage = nil
+	result.Model = ""
 	if result.Error != nil && result.Error.ReplaySafety == "" {
 		result.Error.ReplaySafety = execution.ReplaySafetyUnknown
 	}
