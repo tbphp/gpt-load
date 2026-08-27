@@ -1303,6 +1303,13 @@ func TestReleaseWorkflowKeepsReleaseNotesConciseAndWarnsAboutDataIncompatibility
 	releaseJob := workflowJobBlock(t, content, "publish-github")
 	draftStep := workflowStepBlock(t, releaseJob, "Create or update GitHub Release draft")
 
+	if !strings.Contains(draftStep, "name: ${{ github.ref_name }}") {
+		t.Fatalf("release draft title must be the tag version only:\n%s", draftStep)
+	}
+	if strings.Contains(draftStep, "name: GPT-Load ${{ github.ref_name }}") {
+		t.Fatalf("release draft title must not include the product prefix:\n%s", draftStep)
+	}
+
 	// generate_release_notes 已经从 commit 历史生成"本次变更"部分，手写 body
 	// 只需要保留一次性读不到就可能造成数据损坏的警告，其余标准运维信息
 	// （备份、tag 语义、usage 是 estimate 等）都是跨版本不变的事实，交给 README
