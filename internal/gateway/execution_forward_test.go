@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/state"
@@ -25,6 +26,31 @@ import (
 type fakeExecutionExecutor struct {
 	unary  func(context.Context, execution.AttemptSpec) execution.AttemptResult
 	stream func(context.Context, execution.AttemptSpec, execution.StreamSink) execution.StreamResult
+}
+
+type observingUsageDialect struct {
+	body []byte
+}
+
+func (*observingUsageDialect) Protocol() protocol.Protocol {
+	return protocol.OpenAIImages
+}
+
+func (*observingUsageDialect) InspectRequest(
+	*dialect.ParsedRequest,
+) (dialect.RequestMetadata, error) {
+	return dialect.RequestMetadata{}, nil
+}
+
+func (d *observingUsageDialect) ExtractUsage(
+	body []byte,
+) (usage.Result, error) {
+	d.body = body
+	return usage.Result{State: usage.StateComplete}, nil
+}
+
+func (*observingUsageDialect) NewUsageStreamExtractor() dialect.UsageStreamExtractor {
+	return nil
 }
 
 func (value fakeExecutionExecutor) Execute(
@@ -119,6 +145,68 @@ func TestExecutionForwarderCapturesImagesUsageFromUnaryBody(t *testing.T) {
 	}
 	if result.Err != nil || result.Usage != want {
 		t.Fatalf("Forward() usage = %#v, want %#v; result=%#v", result.Usage, want, result)
+	}
+}
+
+func TestExecutionForwarderCapturesCompressedImagesUsageAfterDecoding(t *testing.T) {
+	t.Parallel()
+
+	plain := []byte(`{"created":123,"model":"upstream-image","data":[{"b64_json":"AA=="}],"usage":{"input_tokens":100,"input_tokens_details":{"text_tokens":4,"image_tokens":96},"output_tokens":30,"total_tokens":130}}`)
+	for _, encoding := range []contentcoding.Encoding{
+		contentcoding.Gzip,
+		contentcoding.Brotli,
+	} {
+		t.Run(string(encoding), func(t *testing.T) {
+			compressed := encodeContentCodingForGatewayTest(t, encoding, plain)
+			executor := fakeExecutionExecutor{unary: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+			) execution.AttemptResult {
+				return execution.AttemptResult{
+					DispatchState:   execution.DispatchMaybeSent,
+					ResponseStarted: true,
+					StatusCode:      http.StatusOK,
+					Header: http.Header{
+						"Content-Type":     {"application/json"},
+						"Content-Encoding": {string(encoding)},
+					},
+					Body: compressed,
+				}
+			}}
+			input := executionForwardInput()
+			input.Dialect = dialect.NewOpenAIImages()
+			input.ClientProtocol = protocol.OpenAIImages
+			input.ObserveUsage = true
+			input.Operation = execution.OperationImagesGenerate
+			input.RouteRequirement = execution.RouteRequirementNative
+			input.ExternalModel = "upstream-image"
+			input.UpstreamModelID = "upstream-image"
+			input.Request.Path = "/v1/images/generations"
+			input.Request.Body = []byte(`{"model":"upstream-image","prompt":"draw"}`)
+
+			result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+			want := usage.Result{
+				State:  usage.StateComplete,
+				Tokens: usage.Tokens{UncachedInput: 100, Output: 30},
+			}
+			if result.Err != nil || result.Usage != want ||
+				!bytes.Equal(result.Body, plain) ||
+				result.Header.Get("Content-Encoding") != "" {
+				t.Fatalf("Forward() = %#v", result)
+			}
+		})
+	}
+}
+
+func TestUsageCaptureNonStreamingPlainDoesNotCloneBody(t *testing.T) {
+	t.Parallel()
+
+	selected := &observingUsageDialect{}
+	body := []byte(`{"usage":{"input_tokens":1,"output_tokens":1}}`)
+	result := newUsageCaptureBoundary().extractNonStreamingPlain(selected, body)
+	if result.State != usage.StateComplete || len(selected.body) != len(body) ||
+		&selected.body[0] != &body[0] {
+		t.Fatalf("extractNonStreamingPlain() body = %p/%d, want original %p/%d", selected.body, len(selected.body), body, len(body))
 	}
 }
 

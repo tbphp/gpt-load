@@ -46,16 +46,17 @@ func (forwarder *ExecutionForwarder) Forward(
 		return invalidExecutionAttemptResult(executionResult)
 	}
 	result := upstreamFromExecutionResult(ctx, input, executionResult)
+	result = forwarder.prepareBufferedResult(input, result)
 	if input.ClientProtocol == protocol.OpenAIImages && input.ObserveUsage &&
-		result.StatusCode >= http.StatusOK &&
+		result.HasResponse() && result.StatusCode >= http.StatusOK &&
 		result.StatusCode < http.StatusMultipleChoices &&
 		result.Usage.State == usage.StateMissing && forwarder.usageCapture != nil {
 		result.Usage = forwarder.usageCapture.extractNonStreamingPlain(
 			input.Dialect,
-			result.Body,
+			result.ClassificationBody,
 		)
 	}
-	return forwarder.prepareBufferedResult(input, result)
+	return result
 }
 
 func invalidExecutionAttemptResult(result execution.AttemptResult) UpstreamResult {
