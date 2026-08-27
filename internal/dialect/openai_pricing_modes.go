@@ -15,6 +15,11 @@ func openAIRequestPricing(body []byte) (pricing.Mode, usage.Diagnostics, error) 
 	if err != nil {
 		return "", diagnostics, nil
 	}
+	for field := range root {
+		if strings.EqualFold(field, "service_tier") && field != "service_tier" {
+			return "", diagnostics, fmt.Errorf("service_tier field must use lowercase service_tier")
+		}
+	}
 	if value, ok := jsonString(root, "service_tier"); ok &&
 		strings.EqualFold(strings.TrimSpace(value), "ultrafast") {
 		return "", diagnostics, fmt.Errorf("service_tier ultrafast is not supported")

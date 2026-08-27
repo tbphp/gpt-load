@@ -1426,9 +1426,14 @@ func TestHandlerRejectsUltrafastServiceTierBeforeAttempt(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		path string
+		body string
 	}{
-		{name: "chat completions", path: "/v1/chat/completions"},
-		{name: "responses", path: "/v1/responses"},
+		{name: "chat completions", path: "/v1/chat/completions", body: `{"model":"gpt-4o","service_tier":"ultrafast"}`},
+		{name: "chat completions uppercase", path: "/v1/chat/completions", body: `{"model":"gpt-4o","SERVICE_TIER":"ultrafast"}`},
+		{name: "chat completions collision", path: "/v1/chat/completions", body: `{"model":"gpt-4o","service_tier":"default","SERVICE_TIER":"ultrafast"}`},
+		{name: "responses", path: "/v1/responses", body: `{"model":"gpt-4o","service_tier":"ultrafast"}`},
+		{name: "responses uppercase", path: "/v1/responses", body: `{"model":"gpt-4o","SERVICE_TIER":"ultrafast"}`},
+		{name: "responses collision", path: "/v1/responses", body: `{"model":"gpt-4o","service_tier":"default","SERVICE_TIER":"ultrafast"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			forwarder := &scriptedForwarder{}
@@ -1443,7 +1448,7 @@ func TestHandlerRejectsUltrafastServiceTierBeforeAttempt(t *testing.T) {
 			request := httptest.NewRequest(
 				http.MethodPost,
 				test.path,
-				bytes.NewBufferString(`{"model":"gpt-4o","service_tier":"ultrafast"}`),
+				bytes.NewBufferString(test.body),
 			)
 			request.Header.Set("Authorization", "Bearer gl-client")
 			recorder := httptest.NewRecorder()
