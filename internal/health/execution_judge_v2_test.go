@@ -299,6 +299,100 @@ func TestJudgeExecutionPreservesReplayCompatibilityRules(t *testing.T) {
 	}
 }
 
+func TestJudgeExecutionRetriesSafeBootstrapCapacityRejectionsWithoutEffects(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		typeValue string
+		code      string
+		category  FailureCategory
+		scope     execution.ErrorScope
+	}{
+		{
+			name: "server overload", typeValue: "service_unavailable_error",
+			code: "server_is_overloaded", category: FailureCategoryUpstreamHostError,
+			scope: execution.ErrorScopeGroup,
+		},
+		{
+			name: "transient rate limit", typeValue: "rate_limit_error",
+			code: "rate_limit_exceeded", category: FailureCategoryRateLimited,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			decision := JudgeExecution(ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent,
+				StatusCode:    http.StatusServiceUnavailable,
+				Evidence: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindHTTP, OriginHint: execution.ErrorOriginUpstream,
+					ScopeHint: test.scope, StatusCode: http.StatusServiceUnavailable,
+					Type: test.typeValue, Code: test.code, Summary: "rejected before generation",
+					ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				},
+			}, DecisionContext{Method: http.MethodPost, Operation: execution.OperationChatCompletion})
+			if decision.Category != test.category || decision.Scope != test.scope ||
+				decision.Retry != RetryNextCandidate || decision.Effect != EffectNone ||
+				decision.RuleID != RuleID("candidate.transient_capacity") {
+				t.Fatalf("JudgeExecution() = %#v", decision)
+			}
+		})
+	}
+}
+
+func TestJudgeExecutionDoesNotBroadenBootstrapCapacityRetry(t *testing.T) {
+	tests := []struct {
+		name       string
+		evidence   execution.ErrorEvidence
+		committed  bool
+		wantRetry  RetryDirective
+		wantEffect Effect
+		wantRule   RuleID
+	}{
+		{
+			name: "unknown replay safety",
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, OriginHint: execution.ErrorOriginUpstream,
+				StatusCode: http.StatusServiceUnavailable, Code: "server_is_overloaded",
+				Summary: "replay is unknown", ReplaySafety: execution.ReplaySafetyUnknown,
+			},
+			wantRetry: RetryNone, wantEffect: EffectSkipGroup,
+			wantRule: "upstream.host_error.replay_unsafe",
+		},
+		{
+			name: "similar code",
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, OriginHint: execution.ErrorOriginUpstream,
+				StatusCode: http.StatusServiceUnavailable, Code: "server_is_overloaded_later",
+				Summary: "different failure", ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+			},
+			wantRetry: RetryNextCandidate, wantEffect: EffectSkipGroup,
+			wantRule: "upstream.host_error.rejected_before_processing",
+		},
+		{
+			name: "downstream already committed",
+			evidence: execution.ErrorEvidence{
+				Kind: execution.ErrorKindProvider, OriginHint: execution.ErrorOriginUpstream,
+				ScopeHint: execution.ErrorScopeCredential, Code: "server_is_overloaded",
+				Summary: "too late to retry", ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+			},
+			committed: true, wantRetry: RetryNone, wantEffect: EffectNone,
+			wantRule: "safety.committed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decision := JudgeExecution(ExecutionAttempt{
+				DispatchState:       execution.DispatchMaybeSent,
+				StatusCode:          test.evidence.StatusCode,
+				Evidence:            &test.evidence,
+				DownstreamCommitted: test.committed,
+			}, DecisionContext{Method: http.MethodPost, Operation: execution.OperationChatCompletion})
+			if decision.Retry != test.wantRetry || decision.Effect != test.wantEffect || decision.RuleID != test.wantRule {
+				t.Fatalf("JudgeExecution() = %#v", decision)
+			}
+		})
+	}
+}
+
 func TestJudgeExecutionReplayUnknownKeepsUnaffectedRuleID(t *testing.T) {
 	tests := []struct {
 		name     string

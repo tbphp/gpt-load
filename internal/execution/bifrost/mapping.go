@@ -527,6 +527,19 @@ func streamErrorResult(
 	return result
 }
 
+func markPromotedStreamRejectionReplaySafe(result *execution.StreamResult) {
+	if result == nil || result.Error == nil ||
+		!streamCapacityRejection(result.Error.Code) {
+		return
+	}
+	result.Error.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+}
+
+func streamCapacityRejection(codeValue string) bool {
+	codeValue = strings.ToLower(strings.TrimSpace(codeValue))
+	return codeValue == "server_is_overloaded" || codeValue == "rate_limit_exceeded"
+}
+
 func convertedStreamErrorResult(
 	bifrostError *schemas.BifrostError,
 	bifrostContext *schemas.BifrostContext,

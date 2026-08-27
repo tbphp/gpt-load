@@ -1313,6 +1313,54 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 	}
 }
 
+func TestHandlerBootstrapCapacityRetryRequestLogContract(t *testing.T) {
+	forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusServiceUnavailable,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, OriginHint: execution.ErrorOriginUpstream,
+				ScopeHint: execution.ErrorScopeGroup, StatusCode: http.StatusServiceUnavailable,
+				Type: "service_unavailable_error", Code: "server_is_overloaded",
+				Summary:      "rejected before generation",
+				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+			},
+		},
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Committed: true,
+			Stream: StreamObservation{EndReason: StreamEndCleanEOF},
+		},
+	}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second",
+	)
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","stream":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if response.Code != http.StatusOK || len(events) != 1 || len(events[0].Attempts) != 2 {
+		t.Fatalf("response/events = %d/%#v", response.Code, events)
+	}
+	first := events[0].Attempts[0]
+	if first.FailureCategory != telemetry.FailureCategoryUpstreamHost ||
+		first.FailureOrigin != execution.ErrorOriginUpstream ||
+		first.FailureScope != execution.ErrorScopeGroup ||
+		first.RetryDirective != telemetry.RetryNextCandidate || first.Effect != telemetry.EffectNone ||
+		first.RuleID != "candidate.transient_capacity" || !first.WillRetry ||
+		first.Action != telemetry.ActionRetry || first.ErrorCode != "server_is_overloaded" {
+		t.Fatalf("first attempt = %#v", first)
+	}
+}
+
 func TestHandlerRetryExhaustionUsesProviderErrorAttemptAndItsFrozenPrice(t *testing.T) {
 	firstTable := mustGatewayPriceTable(t, 2_000_000_000, true)
 	secondTable := mustGatewayPriceTable(t, 9_000_000_000, true)

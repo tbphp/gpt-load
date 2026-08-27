@@ -303,6 +303,9 @@ func decisionForExecutionCategory(
 	attempt ExecutionAttempt,
 	decisionContext DecisionContext,
 ) Decision {
+	if transientCapacity, ok := transientCapacityDecision(attempt); ok {
+		return transientCapacity
+	}
 	origin := originForEvidence(attempt.Evidence)
 	scope := attempt.Evidence.ScopeHint
 	if attempt.Evidence != nil && attempt.Evidence.Hint == execution.FailureHintCandidateUnavailable {
@@ -396,6 +399,33 @@ func decisionForExecutionCategory(
 	default:
 		return decision(category, origin, scope, RetryNone, EffectNone, ambiguousRuleID(attempt.Evidence))
 	}
+}
+
+func transientCapacityDecision(attempt ExecutionAttempt) (Decision, bool) {
+	evidence := attempt.Evidence
+	if evidence == nil || evidence.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing ||
+		originForEvidence(evidence) != execution.ErrorOriginUpstream ||
+		(evidence.Kind != execution.ErrorKindHTTP && evidence.Kind != execution.ErrorKindProvider) {
+		return Decision{}, false
+	}
+	codeValue := strings.ToLower(strings.TrimSpace(evidence.Code))
+	overloaded := codeValue == "server_is_overloaded"
+	rateLimited := codeValue == "rate_limit_exceeded"
+	if overloaded == rateLimited {
+		return Decision{}, false
+	}
+	category := FailureCategoryUpstreamHostError
+	if rateLimited {
+		category = FailureCategoryRateLimited
+	}
+	return decision(
+		category,
+		execution.ErrorOriginUpstream,
+		evidence.ScopeHint,
+		RetryNextCandidate,
+		EffectNone,
+		"candidate.transient_capacity",
+	), true
 }
 
 func constrainOperationReplay(

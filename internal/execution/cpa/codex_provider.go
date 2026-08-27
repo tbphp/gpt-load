@@ -29,6 +29,13 @@ type codexProviderBridge struct {
 	executor codex.Executor
 }
 
+type codexBootstrapRejectionError struct {
+	cause error
+}
+
+func (err *codexBootstrapRejectionError) Error() string { return err.cause.Error() }
+func (err *codexBootstrapRejectionError) Unwrap() error { return err.cause }
+
 const localTokenCountHeader = "X-GPT-Load-Token-Count"
 
 func newCodexProviderBridge() *codexProviderBridge {
@@ -323,6 +330,17 @@ func (bridge *codexProviderBridge) ExecuteStream(
 	if response == nil {
 		return nil, err
 	}
+	convertedResponse := &providerStreamResponse{
+		Headers:                response.Headers.Clone(),
+		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamProtocol:       codexUpstreamProtocol(response.UpstreamRequestPath),
+	}
+	if err != nil {
+		if codexBootstrapCapacityRejection(err) {
+			err = &codexBootstrapRejectionError{cause: err}
+		}
+		return convertedResponse, err
+	}
 	chunks := make(chan providerStreamChunk)
 	go func() {
 		defer close(chunks)
@@ -335,11 +353,8 @@ func (bridge *codexProviderBridge) ExecuteStream(
 			}
 		}
 	}()
-	return &providerStreamResponse{
-		Headers: response.Headers.Clone(), Chunks: chunks,
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		UpstreamProtocol:       codexUpstreamProtocol(response.UpstreamRequestPath),
-	}, err
+	convertedResponse.Chunks = chunks
+	return convertedResponse, nil
 }
 
 func (*codexProviderBridge) ClassifyError(
@@ -369,6 +384,8 @@ func (*codexProviderBridge) ClassifyError(
 		}
 	}
 	typeValue, codeValue := codexErrorTypeCode(err)
+	var bootstrapRejection *codexBootstrapRejectionError
+	isBootstrapRejection := errors.As(err, &bootstrapRejection)
 	evidence := &execution.ErrorEvidence{
 		Kind: kind, StatusCode: status, Type: typeValue, Code: codeValue,
 		Summary: safeErrorSummary(err, credential.redactionValues()),
@@ -392,6 +409,8 @@ func (*codexProviderBridge) ClassifyError(
 		evidence.ScopeHint = execution.ErrorScopeModel
 		evidence.Code = "selected_model_at_capacity"
 		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+	case isBootstrapRejection && codexBootstrapRateLimit(codeValue):
+		evidence.Hint = execution.FailureHintRateLimited
 	case status == http.StatusTooManyRequests:
 		evidence.Hint = execution.FailureHintRateLimited
 	default:
@@ -400,7 +419,23 @@ func (*codexProviderBridge) ClassifyError(
 		}
 	}
 	annotateProviderErrorEvidence(evidence, err)
+	if isBootstrapRejection {
+		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+	}
 	return status, evidence
+}
+
+func codexBootstrapCapacityRejection(err error) bool {
+	_, codeValue := codexErrorTypeCode(err)
+	return codexBootstrapOverload(codeValue) || codexBootstrapRateLimit(codeValue)
+}
+
+func codexBootstrapOverload(codeValue string) bool {
+	return strings.EqualFold(strings.TrimSpace(codeValue), "server_is_overloaded")
+}
+
+func codexBootstrapRateLimit(codeValue string) bool {
+	return strings.EqualFold(strings.TrimSpace(codeValue), "rate_limit_exceeded")
 }
 
 func codexErrorTypeCode(err error) (string, string) {

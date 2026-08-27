@@ -391,6 +391,88 @@ func TestCodexHTTPExecutorDoesNotFollowRedirects(t *testing.T) {
 	}
 }
 
+func TestCodexHTTPExecutorPromotesBootstrapCapacityErrors(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		errorType string
+		errorCode string
+	}{
+		{name: "server overload", errorType: "service_unavailable_error", errorCode: "server_is_overloaded"},
+		{name: "transient rate limit", errorType: "rate_limit_error", errorCode: "rate_limit_exceeded"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w,
+					"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n"+
+						"data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n"+
+						"data: {\"type\":\"error\",\"error\":{\"type\":\""+test.errorType+"\",\"code\":\""+test.errorCode+"\",\"message\":\"try another credential\"}}\n\n",
+				)
+			}))
+			defer server.Close()
+
+			executor := NewCodexHTTPExecutor()
+			credential := CodexCredential{
+				Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+			}
+			result, err := executor.ExecuteStream(
+				t.Context(),
+				NewCodexAuth("credential-1", credential, server.URL),
+				cliproxyexecutor.Request{
+					Model: "gpt-5.2", Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`), Format: sdktranslator.FormatOpenAIResponse,
+				},
+				cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse},
+			)
+			var statusError interface{ StatusCode() int }
+			if result != nil || !errors.As(err, &statusError) || statusError.StatusCode() != http.StatusServiceUnavailable ||
+				!strings.Contains(err.Error(), test.errorCode) {
+				t.Fatalf("ExecuteStream() = %#v, %v", result, err)
+			}
+			if requests.Load() != 1 {
+				t.Fatalf("upstream requests = %d, want 1", requests.Load())
+			}
+		})
+	}
+}
+
+func TestCodexHTTPExecutorKeepsOtherBootstrapErrorsInStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w,
+			"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n"+
+				"data: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"code\":\"bad_request\",\"message\":\"invalid input\"}}\n\n",
+		)
+	}))
+	defer server.Close()
+
+	executor := NewCodexHTTPExecutor()
+	credential := CodexCredential{
+		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+	}
+	result, err := executor.ExecuteStream(
+		t.Context(),
+		NewCodexAuth("credential-1", credential, server.URL),
+		cliproxyexecutor.Request{
+			Model: "gpt-5.2", Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`), Format: sdktranslator.FormatOpenAIResponse,
+		},
+		cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse},
+	)
+	if err != nil || result == nil {
+		t.Fatalf("ExecuteStream() = %#v, %v", result, err)
+	}
+	var streamErr error
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			streamErr = chunk.Err
+		}
+	}
+	if streamErr == nil || !strings.Contains(streamErr.Error(), "bad_request") {
+		t.Fatalf("stream error = %v", streamErr)
+	}
+}
+
 func TestCodexHTTPExecutorCanonicalFacadeExecutesOnce(t *testing.T) {
 	t.Parallel()
 	var requests atomic.Int32

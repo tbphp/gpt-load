@@ -996,7 +996,8 @@ func TestExecutionForwarderPreservesFirstProviderErrorEvidence(t *testing.T) {
 	}
 	if result.ExecutionError.Type != "rate_limit_error" ||
 		result.ExecutionError.Code != "rate_limit" ||
-		result.ExecutionError.Hint != execution.FailureHintRateLimited {
+		result.ExecutionError.Hint != execution.FailureHintRateLimited ||
+		result.ExecutionError.ReplaySafety != "" {
 		t.Fatalf("error evidence = %#v", result.ExecutionError)
 	}
 	now := time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC)
@@ -1005,6 +1006,96 @@ func TestExecutionForwarderPreservesFirstProviderErrorEvidence(t *testing.T) {
 		decision.Effect != health.EffectCooldownCredential ||
 		!decision.CooldownUntil.Equal(now.Add(3*time.Second)) {
 		t.Fatalf("health decision = %#v", decision)
+	}
+}
+
+func TestExecutionForwarderMarksFirstCapacityErrorReplaySafe(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		errorType string
+		errorCode string
+	}{
+		{name: "server overload", errorType: "service_unavailable_error", errorCode: "server_is_overloaded"},
+		{name: "transient rate limit", errorType: "rate_limit_error", errorCode: "rate_limit_exceeded"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			failedEvent := "event: error\n" +
+				"data: {\"type\":\"error\",\"error\":{\"type\":\"" + test.errorType + "\",\"code\":\"" + test.errorCode + "\",\"message\":\"try another credential\"}}\n\n"
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady,
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				if err := sink(execution.StreamEvent{
+					Sequence: 2, Kind: execution.StreamEventData, Data: []byte(failedEvent),
+				}); err != nil {
+					t.Fatalf("data sink: %v", err)
+				}
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+				}
+			}}
+			input := executionForwardInput()
+			input.Dialect = dialect.NewOpenAIResponses()
+			result := NewExecutionForwarder(executor).ForwardStream(
+				context.Background(), input, httptest.NewRecorder(),
+			)
+			if result.Committed || !result.ProviderErrorBeforeCommit || result.ExecutionError == nil ||
+				result.ExecutionError.Type != test.errorType || result.ExecutionError.Code != test.errorCode ||
+				result.ExecutionError.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing {
+				t.Fatalf("ForwardStream() result = %#v", result)
+			}
+		})
+	}
+}
+
+func TestExecutionForwarderDoesNotPromoteCapacityErrorAfterCommit(t *testing.T) {
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		emit := func(event execution.StreamEvent) {
+			if err := sink(event); err != nil {
+				t.Fatalf("stream sink: %v", err)
+			}
+		}
+		emit(execution.StreamEvent{
+			Sequence: 1, Kind: execution.StreamEventReady,
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		})
+		emit(execution.StreamEvent{
+			Sequence: 2, Kind: execution.StreamEventData,
+			Data: []byte("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\",\"output\":[]}}\n\n"),
+		})
+		emit(execution.StreamEvent{
+			Sequence: 3, Kind: execution.StreamEventData,
+			Data: []byte("event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"too late\"}}\n\n"),
+		})
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+		}
+	}}
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIResponses()
+	result := NewExecutionForwarder(executor).ForwardStream(
+		context.Background(), input, httptest.NewRecorder(),
+	)
+	if !result.Committed || result.ProviderErrorBeforeCommit ||
+		result.ExecutionError != nil && result.ExecutionError.ReplaySafety != "" {
+		t.Fatalf("ForwardStream() result = %#v", result)
 	}
 }
 

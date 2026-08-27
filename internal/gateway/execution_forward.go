@@ -443,7 +443,15 @@ func firstStreamErrorEvidence(
 	case execution.FailureHintHostError:
 		evidence.ScopeHint = execution.ErrorScopeGroup
 	}
+	if streamBootstrapCapacityRejection(evidence.Code) {
+		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+	}
 	return &evidence
+}
+
+func streamBootstrapCapacityRejection(codeValue string) bool {
+	codeValue = strings.ToLower(strings.TrimSpace(codeValue))
+	return codeValue == "server_is_overloaded" || codeValue == "rate_limit_exceeded"
 }
 
 func streamErrorEvidenceScalar(value json.RawMessage) string {
