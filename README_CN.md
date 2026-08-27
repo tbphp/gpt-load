@@ -189,8 +189,6 @@ Anthropic 客户端使用 `/v1/messages`，Gemini 客户端使用 `/v1beta/model
 
 Docker Compose 默认使用应用管理的 SQLite，数据存放在宿主机的 `DATA_DIR`（默认 `./data`）中，并挂载到容器 `/app/data`，包含数据库、`auth.key` 和 `encryption.key`。服务会在启动时创建并校验该目录。
 
-> 如果此前使用 `gpt-load-data` 具名卷，请在更新前把其中内容迁移到 `DATA_DIR`；数据库与 `encryption.key` 必须一起迁移。
-
 > [!IMPORTANT]
 > `encryption.key` 用于解密渠道凭据。备份或迁移时，数据库和密钥**必须一起保存**；密钥丢失或被替换后，已有加密凭据无法恢复，且当前版本不支持主密钥轮换。
 
