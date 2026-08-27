@@ -256,6 +256,8 @@ func TestLoadRejectsUnsafeDataDirForExternalDatabaseWithExplicitSecrets(t *testi
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want unsafe DATA_DIR rejection")
+	} else if !strings.Contains(err.Error(), "prepare DATA_DIR") {
+		t.Fatalf("Load() error = %q, want DATA_DIR preparation context", err)
 	}
 }
 

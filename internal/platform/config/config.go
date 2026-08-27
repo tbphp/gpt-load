@@ -137,7 +137,7 @@ func Load() (*Config, error) {
 
 	dataDir := valueOrDefault("DATA_DIR", defaultDataDir)
 	if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("prepare DATA_DIR: %w", err)
 	}
 	rawDatabaseDSN := strings.TrimSpace(os.Getenv("DATABASE_DSN"))
 	databaseSource := DatabaseSourceExternal
