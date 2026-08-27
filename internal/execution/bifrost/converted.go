@@ -647,6 +647,10 @@ func (r *Runtime) executeConvertedResponsesStream(
 			return streamContextFailure(requestContext, true, true, headers, requestID, model, usageEvidence)
 		case chunk, open := <-outcome.stream:
 			idleTimer.pause()
+			if requestContext.Err() != nil {
+				callCancel()
+				return streamContextFailure(requestContext, false, true, headers, requestID, model, usageEvidence)
+			}
 			if !open {
 				if !sdkStreamEndedNormally(bifrostContext) {
 					return terminatedStreamFailure(headers, requestID, model, usageEvidence)
