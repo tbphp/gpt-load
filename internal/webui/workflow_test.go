@@ -90,7 +90,7 @@ func TestBranchAndReleaseWorkflowsRunRaceInParallelGates(t *testing.T) {
 		run  string
 	}{
 		{name: "Check module graph", run: "go mod tidy -diff"},
-		{name: "Audit Go dependencies", run: "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./..."},
+		{name: "Audit Go dependencies", run: "go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./..."},
 		{name: "Run Go vet", run: "go vet ./..."},
 		{name: "Check repository invariants", run: "git diff --check"},
 	} {
