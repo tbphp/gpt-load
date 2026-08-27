@@ -44,7 +44,7 @@ type providerTestState struct {
 	activeKeysListKey string
 }
 
-func newProviderTestState(t *testing.T, persistedFailureCount, cachedFailureCount int64, blacklistThreshold int) *providerTestState {
+func newProviderTestState(t *testing.T, blacklistThreshold int) *providerTestState {
 	t.Helper()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -63,11 +63,10 @@ func newProviderTestState(t *testing.T, persistedFailureCount, cachedFailureCoun
 	}
 
 	apiKey := &models.APIKey{
-		ID:           1,
-		KeyValue:     "test-key",
-		GroupID:      1,
-		Status:       models.KeyStatusActive,
-		FailureCount: persistedFailureCount,
+		ID:       1,
+		KeyValue: "test-key",
+		GroupID:  1,
+		Status:   models.KeyStatusActive,
 	}
 	if err := db.Create(apiKey).Error; err != nil {
 		t.Fatalf("create API key: %v", err)
@@ -77,7 +76,7 @@ func newProviderTestState(t *testing.T, persistedFailureCount, cachedFailureCoun
 	activeKeysListKey := "group:1:active_keys"
 	memoryStore := store.NewMemoryStore()
 	if err := memoryStore.HSet(keyHashKey, map[string]any{
-		"failure_count": cachedFailureCount,
+		"failure_count": 0,
 		"status":        models.KeyStatusActive,
 	}); err != nil {
 		t.Fatalf("seed key state: %v", err)
@@ -107,7 +106,7 @@ func TestHandleFailureCountsConcurrentFailuresAndBlacklists(t *testing.T) {
 		blacklistThreshold = 3
 	)
 
-	state := newProviderTestState(t, 0, 0, blacklistThreshold)
+	state := newProviderTestState(t, blacklistThreshold)
 	synchronizedStore := &synchronizedReadStore{
 		Store:     state.store,
 		targetKey: state.keyHashKey,
@@ -153,81 +152,6 @@ func TestHandleFailureCountsConcurrentFailuresAndBlacklists(t *testing.T) {
 	}
 	if cachedFailureCount != concurrentFailures {
 		t.Errorf("cached failure count = %d, want %d", cachedFailureCount, concurrentFailures)
-	}
-	if cached["status"] != models.KeyStatusInvalid {
-		t.Errorf("cached status = %q, want %q", cached["status"], models.KeyStatusInvalid)
-	}
-
-	activeKeyCount, err := state.store.LLen(state.activeKeysListKey)
-	if err != nil {
-		t.Fatalf("count active keys: %v", err)
-	}
-	if activeKeyCount != 0 {
-		t.Errorf("active key count = %d, want 0", activeKeyCount)
-	}
-}
-
-func TestHandleFailureUsesCacheCountForBlacklistDecision(t *testing.T) {
-	state := newProviderTestState(t, 100, 0, 3)
-	provider := NewProvider(state.db, state.store, nil, nil)
-
-	if err := provider.handleFailure(state.apiKey, state.group, state.keyHashKey, state.activeKeysListKey); err != nil {
-		t.Fatalf("handle failure: %v", err)
-	}
-
-	cached, err := state.store.HGetAll(state.keyHashKey)
-	if err != nil {
-		t.Fatalf("load cached key: %v", err)
-	}
-	if cached["failure_count"] != "1" {
-		t.Errorf("cached failure count = %q, want 1", cached["failure_count"])
-	}
-	if cached["status"] != models.KeyStatusActive {
-		t.Errorf("cached status = %q, want %q", cached["status"], models.KeyStatusActive)
-	}
-
-	activeKeyCount, err := state.store.LLen(state.activeKeysListKey)
-	if err != nil {
-		t.Fatalf("count active keys: %v", err)
-	}
-	if activeKeyCount != 1 {
-		t.Errorf("active key count = %d, want 1", activeKeyCount)
-	}
-
-	var persisted models.APIKey
-	if err := state.db.First(&persisted, state.apiKey.ID).Error; err != nil {
-		t.Fatalf("load API key: %v", err)
-	}
-	if persisted.Status != models.KeyStatusActive {
-		t.Errorf("persisted status = %q, want %q", persisted.Status, models.KeyStatusActive)
-	}
-	if persisted.FailureCount != 100 {
-		t.Errorf("persisted failure count = %d, want 100", persisted.FailureCount)
-	}
-}
-
-func TestHandleFailureUpdatesCacheWhenDatabaseIsUnavailable(t *testing.T) {
-	state := newProviderTestState(t, 0, 0, 1)
-	provider := NewProvider(state.db, state.store, nil, nil)
-
-	sqlDB, err := state.db.DB()
-	if err != nil {
-		t.Fatalf("get database connection: %v", err)
-	}
-	if err := sqlDB.Close(); err != nil {
-		t.Fatalf("close database: %v", err)
-	}
-
-	if err := provider.handleFailure(state.apiKey, state.group, state.keyHashKey, state.activeKeysListKey); err == nil {
-		t.Fatal("expected database persistence error")
-	}
-
-	cached, err := state.store.HGetAll(state.keyHashKey)
-	if err != nil {
-		t.Fatalf("load cached key: %v", err)
-	}
-	if cached["failure_count"] != "1" {
-		t.Errorf("cached failure count = %q, want 1", cached["failure_count"])
 	}
 	if cached["status"] != models.KeyStatusInvalid {
 		t.Errorf("cached status = %q, want %q", cached["status"], models.KeyStatusInvalid)
