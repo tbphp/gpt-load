@@ -57,7 +57,12 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 		(req.Path == openAIResponsesPath || req.Path == openAIResponsesCompactPath)
 	if len(req.Body) > 0 {
 		metadata.AffinityPrefix = inspectPromptAffinityPrefix(d.Protocol(), req.Body)
-		metadata.PricingMode, metadata.UsageDiagnostics = openAIRequestPricing(req.Body)
+		pricingMode, diagnostics, err := openAIRequestPricing(req.Body)
+		if err != nil {
+			return RequestMetadata{}, fmt.Errorf("inspect %s request pricing: %w", d.Protocol(), err)
+		}
+		metadata.PricingMode = pricingMode
+		metadata.UsageDiagnostics = diagnostics
 		metadata.Reasoning = inspectOpenAIResponsesReasoning(req.Body)
 	}
 	metadata.Operation, metadata.RouteRequirement = responsesExecutionMetadata(req)

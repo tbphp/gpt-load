@@ -103,10 +103,31 @@ func sanitizeListModelsResponse(provider schemas.ModelProvider, response *schema
 	clone := *response
 	clone.Data = append([]schemas.Model(nil), response.Data...)
 	prefix := string(provider) + "/"
-	for index := range clone.Data {
-		clone.Data[index].ID = strings.TrimPrefix(clone.Data[index].ID, prefix)
+	filtered := clone.Data[:0]
+	for _, model := range clone.Data {
+		if provider == schemas.OpenRouter && embeddingOnlyOutputModel(model) {
+			continue
+		}
+		model.ID = strings.TrimPrefix(model.ID, prefix)
+		filtered = append(filtered, model)
 	}
+	clear(clone.Data[len(filtered):])
+	clone.Data = filtered
 	clone.ExtraFields = schemas.BifrostResponseExtraFields{}
 	clone.KeyStatuses = nil
 	return &clone
+}
+
+func embeddingOnlyOutputModel(model schemas.Model) bool {
+	if model.Architecture == nil || len(model.Architecture.OutputModalities) == 0 {
+		return false
+	}
+	for _, modality := range model.Architecture.OutputModalities {
+		switch strings.ToLower(strings.TrimSpace(modality)) {
+		case "embedding", "embeddings":
+		default:
+			return false
+		}
+	}
+	return true
 }

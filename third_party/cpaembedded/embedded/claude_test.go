@@ -328,8 +328,9 @@ func TestClaudeHTTPExecutorPreservesRichOpenAIChatSemantics(t *testing.T) {
 	var downstream struct {
 		Choices []struct {
 			Message struct {
-				Reasoning string `json:"reasoning"`
-				ToolCalls []struct {
+				ReasoningContent string          `json:"reasoning_content"`
+				LegacyReasoning  json.RawMessage `json:"reasoning"`
+				ToolCalls        []struct {
 					Function struct {
 						Name      string `json:"name"`
 						Arguments string `json:"arguments"`
@@ -346,7 +347,8 @@ func TestClaudeHTTPExecutorPreservesRichOpenAIChatSemantics(t *testing.T) {
 	if err := json.Unmarshal(response.Payload, &downstream); err != nil {
 		t.Fatalf("decode downstream response: %v; body=%s", err, response.Payload)
 	}
-	if len(downstream.Choices) != 1 || downstream.Choices[0].Message.Reasoning != "considering" ||
+	if len(downstream.Choices) != 1 || downstream.Choices[0].Message.ReasoningContent != "considering" ||
+		len(downstream.Choices[0].Message.LegacyReasoning) != 0 ||
 		len(downstream.Choices[0].Message.ToolCalls) != 1 ||
 		downstream.Choices[0].Message.ToolCalls[0].Function.Name != "inspect_image" ||
 		downstream.Choices[0].Message.ToolCalls[0].Function.Arguments != `{"detail":"ok"}` ||
@@ -388,7 +390,9 @@ func TestClaudeHTTPExecutorHonorsRequestCancellation(t *testing.T) {
 
 func TestClaudeHTTPExecutorSanitizesAndClassifiesFastModeEntitlement429(t *testing.T) {
 	const providerSecret = "provider-secret-body"
+	var requests atomic.Int32
 	transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		requests.Add(1)
 		return &http.Response{
 			StatusCode: http.StatusTooManyRequests,
 			Header:     http.Header{"Content-Type": {"application/json"}, "Retry-After": {"17"}},
@@ -408,7 +412,7 @@ func TestClaudeHTTPExecutorSanitizesAndClassifiesFastModeEntitlement429(t *testi
 		!executionErr.IsRequestScoped() || executionErr.ErrorType() != "rate_limit_error" ||
 		executionErr.ErrorCode() != "fast_mode_credits" || executionErr.RetryAfter() == nil ||
 		*executionErr.RetryAfter() < 17*time.Second || *executionErr.RetryAfter() > 2*time.Minute ||
-		strings.Contains(err.Error(), providerSecret) {
+		strings.Contains(err.Error(), providerSecret) || requests.Load() != 1 {
 		t.Fatalf("Claude execution error = %#v / %v", executionErr, err)
 	}
 }

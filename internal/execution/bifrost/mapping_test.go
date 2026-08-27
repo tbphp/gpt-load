@@ -97,6 +97,57 @@ func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
 	}
 }
 
+func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
+	tests := []struct {
+		name       string
+		errorType  string
+		code       string
+		wantHint   execution.FailureHint
+		wantOrigin execution.ErrorOrigin
+		wantScope  execution.ErrorScope
+	}{
+		{
+			name:       "request rejected",
+			errorType:  "invalid_request_error",
+			code:       "context_length_exceeded",
+			wantHint:   execution.FailureHintRequestRejected,
+			wantOrigin: execution.ErrorOriginClient,
+			wantScope:  execution.ErrorScopeRequest,
+		},
+		{
+			name:       "server overloaded",
+			errorType:  "server_error",
+			code:       "server_is_overloaded",
+			wantHint:   execution.FailureHintHostError,
+			wantOrigin: execution.ErrorOriginUpstream,
+			wantScope:  execution.ErrorScopeGroup,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := streamErrorResult(
+				&schemas.BifrostError{Error: &schemas.ErrorField{
+					Type: schemas.Ptr(test.errorType), Code: schemas.Ptr(test.code), Message: "safe provider error",
+				}},
+				schemas.NewBifrostContext(context.Background(), schemas.NoDeadline),
+				nil,
+				true,
+				http.StatusOK,
+				nil,
+				"model",
+				nil,
+			)
+			if result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted ||
+				result.StatusCode != http.StatusOK || result.Error == nil ||
+				result.Error.Type != test.errorType || result.Error.Code != test.code ||
+				result.Error.Hint != test.wantHint || result.Error.OriginHint != test.wantOrigin ||
+				result.Error.ScopeHint != test.wantScope {
+				t.Fatalf("stream error result = %+v", result)
+			}
+		})
+	}
+}
+
 func TestPassthroughHTTPErrorRetainsSanitizedErrorMessage(t *testing.T) {
 	const secret = "provider-secret-value"
 	evidence := passthroughHTTPError(

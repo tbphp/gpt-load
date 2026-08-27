@@ -1422,6 +1422,49 @@ func TestHandlerRejectsCaseCollidingModelBeforeAttempt(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsUltrafastServiceTierBeforeAttempt(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		path string
+		body string
+	}{
+		{name: "chat completions", path: "/v1/chat/completions", body: `{"model":"gpt-4o","service_tier":"ultrafast"}`},
+		{name: "chat completions uppercase", path: "/v1/chat/completions", body: `{"model":"gpt-4o","SERVICE_TIER":"ultrafast"}`},
+		{name: "chat completions collision", path: "/v1/chat/completions", body: `{"model":"gpt-4o","service_tier":"default","SERVICE_TIER":"ultrafast"}`},
+		{name: "responses", path: "/v1/responses", body: `{"model":"gpt-4o","service_tier":"ultrafast"}`},
+		{name: "responses uppercase", path: "/v1/responses", body: `{"model":"gpt-4o","SERVICE_TIER":"ultrafast"}`},
+		{name: "responses collision", path: "/v1/responses", body: `{"model":"gpt-4o","service_tier":"default","SERVICE_TIER":"ultrafast"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{}
+			handler, _, _ := newHandlerForTest(t, forwarder, "sk-one")
+			handler.dialects = dialect.NewSet(
+				dialect.NewOpenAI(),
+				dialect.NewOpenAIResponses(),
+			)
+			engine := gin.New()
+			bindGatewayRoutesForTest(t, engine, handler)
+
+			request := httptest.NewRequest(
+				http.MethodPost,
+				test.path,
+				bytes.NewBufferString(test.body),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest ||
+				!strings.Contains(recorder.Body.String(), `"code":"invalid_protocol_request"`) {
+				t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+			}
+			if len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
+				t.Fatal("ultrafast request reached upstream")
+			}
+		})
+	}
+}
+
 func TestHandlerEnforcesModelUTF8ByteLimitBeforeAttempt(t *testing.T) {
 	tests := []struct {
 		name       string

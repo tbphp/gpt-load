@@ -48,22 +48,22 @@ func (testBrowserDriver) LocalCallback() (LocalCallbackSpec, bool)  { return Loc
 
 func completeTestRuntimeImplementations() ([]Driver, []ModelDiscovery, []QuotaObservation, []ResetCreditAction) {
 	return []Driver{
-			testBrowserDriver{duplicateDriver{id: modules.CodexSubscriptionDriver}},
-			testBrowserDriver{duplicateDriver{id: modules.ClaudeSubscriptionDriver}},
-			testBrowserDriver{duplicateDriver{id: modules.AntigravitySubscriptionDriver}},
-			duplicateDriver{id: modules.GrokSubscriptionDriver},
-		}, []ModelDiscovery{
-			testDiscovery{id: modules.CodexModelDiscovery},
-			testDiscovery{id: modules.ClaudeModelDiscovery},
-			testDiscovery{id: modules.AntigravityModelDiscovery},
-			testDiscovery{id: modules.GrokModelDiscovery},
-		}, []QuotaObservation{
-			testObservation{id: modules.CodexQuotaObservation},
-			testObservation{id: modules.ClaudeQuotaObservation},
-			testObservation{id: modules.AntigravityQuotaObservation},
-		}, []ResetCreditAction{
-			testResetCredit{id: modules.CodexResetCreditAction},
-		}
+		testBrowserDriver{duplicateDriver{id: modules.CodexSubscriptionDriver}},
+		testBrowserDriver{duplicateDriver{id: modules.ClaudeSubscriptionDriver}},
+		testBrowserDriver{duplicateDriver{id: modules.AntigravitySubscriptionDriver}},
+		duplicateDriver{id: modules.GrokSubscriptionDriver},
+	}, []ModelDiscovery{
+		testDiscovery{id: modules.CodexModelDiscovery},
+		testDiscovery{id: modules.ClaudeModelDiscovery},
+		testDiscovery{id: modules.AntigravityModelDiscovery},
+		testDiscovery{id: modules.GrokModelDiscovery},
+	}, []QuotaObservation{
+		testObservation{id: modules.CodexQuotaObservation},
+		testObservation{id: modules.ClaudeQuotaObservation},
+		testObservation{id: modules.AntigravityQuotaObservation},
+	}, []ResetCreditAction{
+		testResetCredit{id: modules.CodexResetCreditAction},
+	}
 }
 
 func TestRuntimeRejectsDeviceOAuthWithoutDriverSupport(t *testing.T) {

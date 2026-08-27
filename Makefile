@@ -31,7 +31,7 @@ test: ## Run Go unit tests
 
 .PHONY: check
 check: _web-deps ## Run source checks and build
-	@formatted_files="$$(gofmt -l .)"; test -z "$${formatted_files}"
+	@go_root="$$($(GO) env GOROOT)"; formatted_files="$$("$${go_root}/bin/gofmt" -l .)"; test -z "$${formatted_files}"
 	$(GO) mod tidy -diff
 	$(GO) vet ./...
 	$(PNPM) --dir $(WEB_DIR) run lint
