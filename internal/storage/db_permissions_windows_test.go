@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/securefile"
 	"gpt-load/internal/storage"
 )
 
@@ -45,6 +46,9 @@ func TestOpenWithSourceManagedWindowsProtectsSQLiteRecoverySet(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dataDir := filepath.Join(t.TempDir(), "managed")
+			if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
+				t.Fatalf("prepare managed directory at startup: %v", err)
+			}
 			databasePath := filepath.Join(dataDir, "gpt-load.db")
 
 			db, err := storage.OpenWithSource(

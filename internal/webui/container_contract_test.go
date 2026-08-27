@@ -403,13 +403,19 @@ func TestComposeBindsLoopbackAndConfiguresContainerAllInterfaces(t *testing.T) {
 	}
 }
 
-func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testing.T) {
+func TestComposeProjectsKeepIndependentNamesAndUseProjectDataDirectories(t *testing.T) {
 	t.Setenv("HOST", "")
 	t.Setenv("BIND_ADDRESS", "")
 	t.Setenv("OAUTH_CALLBACK_BIND_ADDRESS", "")
 	t.Setenv("PORT", "")
+	t.Setenv("DATA_DIR", "")
 
 	projectDir := t.TempDir()
+	resolvedProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		t.Fatalf("resolve temporary Compose project directory: %v", err)
+	}
+	projectDataDir := filepath.Join(resolvedProjectDir, "data")
 	if err := os.WriteFile(
 		filepath.Join(projectDir, "docker-compose.yml"),
 		[]byte(readRepositoryFile(t, "docker-compose.yml")),
@@ -430,10 +436,12 @@ func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testin
 				Published string `json:"published"`
 				HostIP    string `json:"host_ip"`
 			} `json:"ports"`
+			Volumes []struct {
+				Type   string `json:"type"`
+				Source string `json:"source"`
+				Target string `json:"target"`
+			} `json:"volumes"`
 		} `json:"services"`
-		Volumes map[string]struct {
-			Name string `json:"name"`
-		} `json:"volumes"`
 	}
 
 	render := func(projectName, publishedPort string) composeConfig {
@@ -489,18 +497,19 @@ func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testin
 			service.Ports[3].HostIP != "127.0.0.1" {
 			t.Fatalf("resolved project %s ports = %#v", item.projectName, service.Ports)
 		}
-		wantVolume := item.projectName + "_gpt-load-data"
-		if got := item.config.Volumes["gpt-load-data"].Name; got != wantVolume {
-			t.Fatalf("resolved project %s volume = %q, want %q", item.projectName, got, wantVolume)
+		if len(service.Volumes) != 1 {
+			t.Fatalf("resolved project %s volume count = %d, want 1", item.projectName, len(service.Volumes))
 		}
-	}
-	if first.Volumes["gpt-load-data"].Name == second.Volumes["gpt-load-data"].Name {
-		t.Fatal("different Compose projects resolve the same named volume")
+		volume := service.Volumes[0]
+		if volume.Type != "bind" || volume.Source != projectDataDir || volume.Target != "/app/data" {
+			t.Fatalf("resolved project %s volume = %#v, want project data bind mount", item.projectName, volume)
+		}
 	}
 }
 
-func TestComposeResolvesNamedVolumeContainerPathsAndBetaChannelImage(t *testing.T) {
-	t.Setenv("DATA_DIR", "/host/path/must-not-reach-container")
+func TestComposeResolvesConfiguredDataDirBindMountAndBetaChannelImage(t *testing.T) {
+	hostDataDir := filepath.Join(t.TempDir(), "data")
+	t.Setenv("DATA_DIR", hostDataDir)
 	t.Setenv("DATABASE_DSN", "/host/database/must-not-reach-container.db")
 
 	projectDir := t.TempDir()
@@ -527,11 +536,17 @@ func TestComposeResolvesNamedVolumeContainerPathsAndBetaChannelImage(t *testing.
 	var resolved struct {
 		Services map[string]struct {
 			Image           string            `json:"image"`
+			User            string            `json:"user"`
+			Restart         string            `json:"restart"`
+			Entrypoint      []string          `json:"entrypoint"`
 			Environment     map[string]string `json:"environment"`
 			Privileged      bool              `json:"privileged"`
 			StopGracePeriod string            `json:"stop_grace_period"`
 			Healthcheck     map[string]any    `json:"healthcheck"`
-			Volumes         []struct {
+			DependsOn       map[string]struct {
+				Condition string `json:"condition"`
+			} `json:"depends_on"`
+			Volumes []struct {
 				Type   string `json:"type"`
 				Source string `json:"source"`
 				Target string `json:"target"`
@@ -549,6 +564,10 @@ func TestComposeResolvesNamedVolumeContainerPathsAndBetaChannelImage(t *testing.
 	}
 	if service.Image != "ghcr.io/tbphp/gpt-load:v2beta" {
 		t.Fatalf("resolved image = %q, want ghcr.io/tbphp/gpt-load:v2beta", service.Image)
+	}
+	dependency, ok := service.DependsOn["gpt-load-data-init"]
+	if !ok || dependency.Condition != "service_completed_successfully" {
+		t.Fatalf("resolved gpt-load depends_on = %#v, want successful data initializer", service.DependsOn)
 	}
 	if service.Environment["DATA_DIR"] != "/app/data" {
 		t.Fatalf("resolved DATA_DIR = %q, want /app/data", service.Environment["DATA_DIR"])
@@ -569,11 +588,42 @@ func TestComposeResolvesNamedVolumeContainerPathsAndBetaChannelImage(t *testing.
 		t.Fatalf("resolved volume count = %d, want 1", len(service.Volumes))
 	}
 	volume := service.Volumes[0]
-	if volume.Type != "volume" || volume.Source != "gpt-load-data" || volume.Target != "/app/data" {
-		t.Fatalf("resolved volume = %#v, want named gpt-load-data mounted at /app/data", volume)
+	if volume.Type != "bind" || volume.Source != hostDataDir || volume.Target != "/app/data" {
+		t.Fatalf("resolved volume = %#v, want configured DATA_DIR bind-mounted at /app/data", volume)
 	}
-	if _, ok := resolved.Volumes["gpt-load-data"]; !ok {
-		t.Fatal("resolved Compose lacks top-level gpt-load-data volume")
+	if len(resolved.Volumes) != 0 {
+		t.Fatalf("resolved Compose top-level volumes = %#v, want none", resolved.Volumes)
+	}
+	initializer, ok := resolved.Services["gpt-load-data-init"]
+	if !ok {
+		t.Fatal("resolved Compose lacks gpt-load-data-init")
+	}
+	if initializer.Image != service.Image || initializer.User != "0:0" || initializer.Restart != "no" || initializer.Privileged {
+		t.Fatalf("resolved data initializer = %#v, want root one-shot service using application image", initializer)
+	}
+	if len(initializer.Environment) != 0 {
+		t.Fatalf("resolved data initializer environment = %#v, want no process secrets", initializer.Environment)
+	}
+	wantInitializerScript := `data_owner="$$(stat -c '%u' /app/data)"
+if [ "$$data_owner" = "10001" ]; then
+  exit 0
+fi
+if [ -n "$$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+  echo "DATA_DIR is non-empty and not owned by UID 10001; refusing to change permissions" >&2
+  exit 1
+fi
+chown 10001:10001 /app/data
+chmod 0700 /app/data`
+	if len(initializer.Entrypoint) != 3 || initializer.Entrypoint[0] != "/bin/sh" ||
+		initializer.Entrypoint[1] != "-ec" ||
+		strings.TrimSpace(initializer.Entrypoint[2]) != wantInitializerScript {
+		t.Fatalf("resolved data initializer entrypoint = %#v", initializer.Entrypoint)
+	}
+	if len(initializer.Volumes) != 1 ||
+		initializer.Volumes[0].Type != "bind" ||
+		initializer.Volumes[0].Source != hostDataDir ||
+		initializer.Volumes[0].Target != "/app/data" {
+		t.Fatalf("resolved data initializer volumes = %#v, want configured DATA_DIR bind mount", initializer.Volumes)
 	}
 	for _, volume := range service.Volumes {
 		if strings.Contains(volume.Source, "docker.sock") ||

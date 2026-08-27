@@ -108,8 +108,9 @@ type Config struct {
 // and scalar values. Concrete fields are introduced with their consumers.
 type Settings = map[string]any
 
-// Load reads process configuration from the environment. A local .env file is
-// loaded when present, but existing environment variables always win.
+// Load reads process configuration from the environment and prepares the
+// application-managed DATA_DIR before any dependent resources resolve. A local
+// .env file is loaded when present, but existing environment variables always win.
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
@@ -135,14 +136,14 @@ func Load() (*Config, error) {
 	}
 
 	dataDir := valueOrDefault("DATA_DIR", defaultDataDir)
+	if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
+		return nil, fmt.Errorf("prepare DATA_DIR: %w", err)
+	}
 	rawDatabaseDSN := strings.TrimSpace(os.Getenv("DATABASE_DSN"))
 	databaseSource := DatabaseSourceExternal
 	databaseDSN := rawDatabaseDSN
 	if rawDatabaseDSN == "" {
 		databaseSource = DatabaseSourceManaged
-		if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
-			return nil, err
-		}
 		databaseDSN = filepath.Join(dataDir, "gpt-load.db")
 	}
 	database, err := ParseDatabaseDSN(databaseDSN)

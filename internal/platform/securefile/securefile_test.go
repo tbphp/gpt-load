@@ -38,6 +38,17 @@ func TestLoadOrCreateHexCreatesAndReusesMaterial(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateHexRequiresExistingDataDirectory(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "missing")
+
+	if _, err := LoadOrCreateHex(dataDir, "auth.key"); err == nil {
+		t.Fatal("LoadOrCreateHex() error = nil, want missing data directory error")
+	}
+	if _, err := os.Stat(dataDir); !os.IsNotExist(err) {
+		t.Fatalf("DATA_DIR stat error = %v, want not exist", err)
+	}
+}
+
 func TestLoadOrCreateHexUsesRestrictivePlatformPermissions(t *testing.T) {
 	dataDir := t.TempDir()
 

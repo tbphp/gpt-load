@@ -188,7 +188,7 @@ Anthropic クライアントは `/v1/messages`、Gemini クライアントは `/
 
 ## デプロイとデータ
 
-Docker Compose は既定でアプリケーション管理の SQLite を使用します。データは `gpt-load-data` という名前付きボリュームに保存され、データベース、`auth.key`、`encryption.key` を含みます。
+Docker Compose は既定でアプリケーション管理の SQLite を使用します。データはホストの `DATA_DIR`（既定は `./data`）に保存され、コンテナの `/app/data` にマウントされます。データにはデータベース、`auth.key`、`encryption.key` が含まれます。サービスは起動時にこのディレクトリを作成し、安全性を検証します。
 
 > [!IMPORTANT]
 > `encryption.key` はチャネル認証情報の復号に使われます。バックアップや移行の際は、データベースと鍵を**必ず一緒に保管**してください。鍵を失ったり置き換えたりすると、既存の暗号化済み認証情報は復元できません。また現行バージョンはマスターキーのローテーションに対応していません。
@@ -219,7 +219,6 @@ docker compose stop         # サービスを停止
 
 ```bash
 chmod +x ./gpt-load-linux-amd64
-mkdir -p ./data
 
 HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 ```

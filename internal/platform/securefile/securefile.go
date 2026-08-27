@@ -25,6 +25,7 @@ type Result struct {
 	Created bool
 }
 
+// LoadOrCreateHex loads or creates material in an already prepared data directory.
 func LoadOrCreateHex(dataDir, fileName string) (Result, error) {
 	loadOrCreateHexMu.Lock()
 	defer loadOrCreateHexMu.Unlock()
@@ -45,10 +46,6 @@ func loadOrCreateHex(
 		filepath.Base(fileName) != fileName {
 		return Result{}, fmt.Errorf("secure filename must be a basename")
 	}
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return Result{}, fmt.Errorf("create data directory: %w", err)
-	}
-
 	path := filepath.Join(dataDir, fileName)
 	if material, err := loadDurableHex(path, syncDirectory); err == nil {
 		return Result{Value: material, Path: path}, nil

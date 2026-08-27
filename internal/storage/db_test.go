@@ -179,7 +179,11 @@ func TestOpenRejectsInvalidDSN(t *testing.T) {
 func TestOpenCreatesSQLiteDatabase(t *testing.T) {
 	t.Parallel()
 
-	dsn := filepath.Join(t.TempDir(), "nested", "gpt-load.db")
+	dataDir := filepath.Join(t.TempDir(), "nested")
+	if err := os.Mkdir(dataDir, 0o700); err != nil {
+		t.Fatalf("create managed database directory: %v", err)
+	}
+	dsn := filepath.Join(dataDir, "gpt-load.db")
 	db, err := storage.OpenWithSource(dsn, config.DatabaseSourceManaged)
 	if err != nil {
 		t.Fatalf("OpenWithSource(%q, managed) error = %v", dsn, err)
@@ -197,6 +201,26 @@ func TestOpenCreatesSQLiteDatabase(t *testing.T) {
 
 	if err := sqlDB.Ping(); err != nil {
 		t.Fatalf("Ping() error = %v", err)
+	}
+}
+
+func TestOpenWithSourceManagedRejectsMissingParentWithoutCreation(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, "startup-must-create")
+	dsn := filepath.Join(parent, "managed.db")
+
+	db, err := storage.OpenWithSource(dsn, config.DatabaseSourceManaged)
+	if db != nil {
+		sqlDB, sqlErr := db.DB()
+		if sqlErr == nil {
+			_ = sqlDB.Close()
+		}
+	}
+	if err == nil {
+		t.Fatal("OpenWithSource(managed) error = nil, want missing-parent rejection")
+	}
+	if _, statErr := os.Stat(parent); !os.IsNotExist(statErr) {
+		t.Fatalf("managed parent stat error = %v, want not exist", statErr)
 	}
 }
 
