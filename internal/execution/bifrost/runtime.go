@@ -43,8 +43,7 @@ type Runtime struct {
 }
 
 func (r *Runtime) unaryResponseBodyLimit(spec execution.AttemptSpec) int64 {
-	if r != nil && r.maxUnaryResponseBodyBytes > 0 &&
-		r.maxUnaryResponseBodyBytes != defaultMaxUnaryResponseBodyBytes {
+	if r != nil && r.maxUnaryResponseBodyBytes > 0 {
 		return r.maxUnaryResponseBodyBytes
 	}
 	return execution.UnaryResponseBodyLimit(spec.ClientProtocol)
@@ -107,15 +106,11 @@ func newRuntimeShell(options runtimeOptions, registry *channel.Registry) (*Runti
 	if registry == nil {
 		return nil, fmt.Errorf("initialize execution runtime: channel registry is required")
 	}
-	maxUnaryResponseBodyBytes := options.maxUnaryResponseBodyBytes
-	if maxUnaryResponseBodyBytes <= 0 {
-		maxUnaryResponseBodyBytes = defaultMaxUnaryResponseBodyBytes
-	}
 	return &Runtime{
 		account:                   newDirectAccount(),
 		registry:                  registry,
 		allowPrivate:              options.allowPrivateNetwork,
-		maxUnaryResponseBodyBytes: maxUnaryResponseBodyBytes,
+		maxUnaryResponseBodyBytes: options.maxUnaryResponseBodyBytes,
 		shutdownDone:              make(chan struct{}),
 		logger:                    options.logger,
 	}, nil

@@ -326,6 +326,48 @@ func TestAdapterExecutesCodexImagesWithFixedCanonicalPath(t *testing.T) {
 	}
 }
 
+func TestAdapterReportsDirectCodexImagesUpstreamProtocol(t *testing.T) {
+	t.Parallel()
+
+	adapter, _, _, keyService, row := newAdapterFixture(
+		t,
+		credentialJSON("access", "refresh", time.Now().Add(time.Hour)),
+	)
+	var upstreamPath string
+	transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		upstreamPath = request.URL.Path
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"created":1,"data":[{"b64_json":"AA=="}]}`)),
+			Request:    request,
+		}, nil
+	})
+	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+	spec := validSpec(t, row, keyService)
+	spec.ClientProtocol = protocol.OpenAIImages
+	spec.Operation = execution.OperationImagesGenerate
+	spec.RouteMode = execution.RouteNative
+	spec.RouteRequirement = execution.RouteRequirementNative
+	spec.ClientModel = "gpt-image-2"
+	spec.UpstreamModel = "gpt-image-2"
+	spec.Path = "/v1/images/generations"
+	spec.Header = http.Header{"Content-Type": {"application/json"}}
+	spec.Body = []byte(`{"model":"gpt-image-2","prompt":"draw"}`)
+
+	result := adapter.Execute(ctx, spec)
+	if err := result.Validate(); err != nil || result.Error != nil {
+		t.Fatalf("result = %+v, validation=%v", result, err)
+	}
+	if upstreamPath != "/backend-api/codex/images/generations" {
+		t.Fatalf("upstream path = %q, want Codex Images endpoint", upstreamPath)
+	}
+	if result.UpstreamProtocol != protocol.OpenAIImages {
+		t.Fatalf("upstream protocol = %q, want %q", result.UpstreamProtocol, protocol.OpenAIImages)
+	}
+}
+
 func TestAdapterExecutesCodexImagesMultipartAndStream(t *testing.T) {
 	t.Parallel()
 
@@ -380,7 +422,10 @@ func TestAdapterExecutesCodexImagesMultipartAndStream(t *testing.T) {
 		chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: image_generation.partial_image\ndata: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"AA==\"}\n")}
 		chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: image_generation.completed\ndata: {\"type\":\"image_generation.completed\",\"b64_json\":\"BB==\"}\n")}
 		close(chunks)
-		fake := &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
+		fake := &fakeExecutor{stream: &codex.ExecuteStreamResponse{
+			Chunks:              chunks,
+			UpstreamRequestPath: "/backend-api/codex/images/generations",
+		}}
 		setCodexExecutor(t, adapter, fake)
 		spec := validSpec(t, row, keyService)
 		spec.ClientProtocol = protocol.OpenAIImages
@@ -398,6 +443,9 @@ func TestAdapterExecutesCodexImagesMultipartAndStream(t *testing.T) {
 		})
 		if err := result.Validate(); err != nil || result.Error != nil || fake.calls != 1 {
 			t.Fatalf("result/calls = %+v/%d, validation=%v", result, fake.calls, err)
+		}
+		if result.UpstreamProtocol != protocol.OpenAIImages {
+			t.Fatalf("upstream protocol = %q, want %q", result.UpstreamProtocol, protocol.OpenAIImages)
 		}
 		if fake.request.RequestPath != "/v1/images/generations" || fake.request.Format != "openai-image" ||
 			!bytes.Contains(fake.request.Payload, []byte(`"stream":true`)) {

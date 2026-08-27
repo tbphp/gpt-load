@@ -139,6 +139,7 @@ type providerResponse struct {
 	Payload                []byte
 	Headers                http.Header
 	AppliedReasoningEffort string
+	UpstreamProtocol       protocol.Protocol
 	Local                  bool
 }
 
@@ -146,6 +147,7 @@ type providerStreamResponse struct {
 	Headers                http.Header
 	Chunks                 <-chan providerStreamChunk
 	AppliedReasoningEffort string
+	UpstreamProtocol       protocol.Protocol
 }
 
 type providerStreamChunk struct {

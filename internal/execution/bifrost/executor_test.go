@@ -26,6 +26,17 @@ import (
 
 const testAPIKey = "sk-test-do-not-leak"
 
+func TestRuntimeUnaryResponseBodyLimitHonorsExplicitDefaultSizedOverride(t *testing.T) {
+	spec := execution.AttemptSpec{ClientProtocol: protocol.OpenAIImages}
+
+	if got := (&Runtime{}).unaryResponseBodyLimit(spec); got != execution.OpenAIImagesUnaryResponseBodyLimitBytes {
+		t.Fatalf("unset Images unary limit = %d, want %d", got, execution.OpenAIImagesUnaryResponseBodyLimitBytes)
+	}
+	if got := (&Runtime{maxUnaryResponseBodyBytes: defaultMaxUnaryResponseBodyBytes}).unaryResponseBodyLimit(spec); got != defaultMaxUnaryResponseBodyBytes {
+		t.Fatalf("explicit Images unary limit = %d, want %d", got, defaultMaxUnaryResponseBodyBytes)
+	}
+}
+
 func TestStreamingSDKContextUsesLaterIdleGuard(t *testing.T) {
 	runtime := &Runtime{}
 	maximum := time.Duration(math.MaxInt64)

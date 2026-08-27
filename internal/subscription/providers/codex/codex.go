@@ -265,6 +265,7 @@ type ExecuteResponse struct {
 	Payload                []byte
 	Headers                http.Header
 	AppliedReasoningEffort string
+	UpstreamRequestPath    string
 }
 
 // ExecuteStreamResponse contains converted streaming chunks and response metadata.
@@ -272,6 +273,7 @@ type ExecuteStreamResponse struct {
 	Headers                http.Header
 	Chunks                 <-chan ExecuteStreamChunk
 	AppliedReasoningEffort string
+	UpstreamRequestPath    string
 }
 
 // ExecuteStreamChunk contains one converted payload or terminal bridge error.
@@ -312,6 +314,7 @@ func (e *executor) Execute(
 		Payload:                append([]byte(nil), response.Payload...),
 		Headers:                response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamRequestPath:    response.UpstreamRequestPath,
 	}, err
 }
 
@@ -331,6 +334,7 @@ func (e *executor) CountTokens(
 		Payload:                append([]byte(nil), response.Payload...),
 		Headers:                response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamRequestPath:    response.UpstreamRequestPath,
 	}, err
 }
 
@@ -365,6 +369,7 @@ func (e *executor) ExecuteStream(
 		Headers:                response.Headers.Clone(),
 		Chunks:                 chunks,
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamRequestPath:    response.UpstreamRequestPath,
 	}, err
 }
 

@@ -96,6 +96,27 @@ func TestCodexExecutionOptionsCarryOnlyExplicitRequestPath(t *testing.T) {
 	}
 }
 
+func TestExecutionObservationCapturesRequestPathWithoutReasoning(t *testing.T) {
+	t.Parallel()
+
+	observation := newExecutionObservation(ExecuteRequest{
+		Format:  "openai-image",
+		Payload: []byte(`{"model":"gpt-image-2","prompt":"draw"}`),
+	})
+	if observation.capture {
+		t.Fatal("image request unexpectedly enabled reasoning observation")
+	}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"https://chatgpt.com/backend-api/codex/images/generations",
+		strings.NewReader(`{"model":"gpt-image-2"}`),
+	)
+	observation.observe(request)
+	if got := observation.upstreamRequestPath(); got != "/backend-api/codex/images/generations" {
+		t.Fatalf("upstream request path = %q", got)
+	}
+}
+
 func TestParseCodexCredentialJSONRejectsInvalidOrDangerousInput(t *testing.T) {
 	t.Parallel()
 

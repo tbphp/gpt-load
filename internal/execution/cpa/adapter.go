@@ -193,7 +193,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 		) {
 			result.Error.Hint = execution.FailureHintRequestRejected
 		}
-		result.UpstreamProtocol = provider.UpstreamProtocol()
+		result.UpstreamProtocol = effectiveUpstreamProtocol(provider, response.UpstreamProtocol)
 		result.AppliedReasoning = appliedReasoning(response.AppliedReasoningEffort)
 		return result
 	}
@@ -216,10 +216,17 @@ func unaryProviderSuccess(
 	}
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-		UpstreamProtocol: provider.UpstreamProtocol(), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
+		UpstreamProtocol: effectiveUpstreamProtocol(provider, response.UpstreamProtocol), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
 		Header: headers, Body: body, Model: responseModel(body, spec.UpstreamModel),
 		UpstreamRequestID: upstreamRequestID(headers), Usage: responseUsage(spec, body),
 	}
+}
+
+func effectiveUpstreamProtocol(provider providerBridge, observed protocol.Protocol) protocol.Protocol {
+	if observed != "" {
+		return observed
+	}
+	return provider.UpstreamProtocol()
 }
 
 func (a *Adapter) ExecuteStream(
@@ -284,6 +291,10 @@ func (a *Adapter) ExecuteStream(
 	firstByte := startFirstByteGate(spec.Timeouts.FirstByte, cancelStream)
 	defer firstByte.stop()
 	response, err := provider.ExecuteStream(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, request)
+	upstreamProtocol := provider.UpstreamProtocol()
+	if response != nil {
+		upstreamProtocol = effectiveUpstreamProtocol(provider, response.UpstreamProtocol)
+	}
 	if err != nil {
 		result := unaryExecutionError(streamCtx, provider, err, credential)
 		var applied *reasoning.Config
@@ -292,7 +303,7 @@ func (a *Adapter) ExecuteStream(
 		}
 		return execution.StreamResult{
 			DispatchState: result.DispatchState, ResponseStarted: result.ResponseStarted,
-			UpstreamProtocol: provider.UpstreamProtocol(), AppliedReasoning: applied,
+			UpstreamProtocol: upstreamProtocol, AppliedReasoning: applied,
 			StatusCode: result.StatusCode, Header: result.Header,
 			UpstreamRequestID: result.UpstreamRequestID, Error: result.Error,
 		}
@@ -313,7 +324,7 @@ func (a *Adapter) ExecuteStream(
 			payload := frameSSE(spec.ClientProtocol, unframed)
 			payload, rewriteErr := rewriteStreamModelAlias(spec, payload)
 			if rewriteErr != nil {
-				failure := streamInternalError(provider.UpstreamProtocol(), headers, applied, "rewrite subscription response model", ready)
+				failure := streamInternalError(upstreamProtocol, headers, applied, "rewrite subscription response model", ready)
 				return &failure
 			}
 			if spec.ClientProtocol == protocol.OpenAICompletions && isOpenAIDone(payload) {
@@ -324,14 +335,14 @@ func (a *Adapter) ExecuteStream(
 			}
 			if !ready {
 				if err := sink(execution.StreamEvent{Kind: execution.StreamEventReady, Sequence: sequence, StatusCode: http.StatusOK, Header: headers}); err != nil {
-					failure := streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, false)
+					failure := streamConsumerStopped(upstreamProtocol, headers, applied, false)
 					return &failure
 				}
 				ready = true
 			}
 			sequence++
 			if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: payload}); err != nil {
-				failure := streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, ready)
+				failure := streamConsumerStopped(upstreamProtocol, headers, applied, ready)
 				return &failure
 			}
 		}
@@ -344,40 +355,40 @@ func (a *Adapter) ExecuteStream(
 		}
 		chunk, ok, idleErr := nextChunk(streamCtx, response.Chunks, idleTimeout)
 		if idleErr != nil {
-			return streamExecutionError(streamCtx, provider, headers, idleErr, credential, applied, ready)
+			return streamExecutionError(streamCtx, provider, upstreamProtocol, headers, idleErr, credential, applied, ready)
 		}
 		if !ok {
 			if err := context.Cause(streamCtx); err != nil {
-				return streamExecutionError(streamCtx, provider, headers, err, credential, applied, ready)
+				return streamExecutionError(streamCtx, provider, upstreamProtocol, headers, err, credential, applied, ready)
 			}
 			if nativeResponsesAssembler != nil {
 				payloads, finishErr := nativeResponsesAssembler.finish()
 				if finishErr != nil {
-					return streamInternalError(provider.UpstreamProtocol(), headers, applied, "invalid subscription SSE stream", ready)
+					return streamInternalError(upstreamProtocol, headers, applied, "invalid subscription SSE stream", ready)
 				}
 				if failure := emitPayloads(payloads); failure != nil {
 					return *failure
 				}
 			}
 			if !ready {
-				return streamInternalError(provider.UpstreamProtocol(), headers, applied, "subscription upstream stream ended without data", false)
+				return streamInternalError(upstreamProtocol, headers, applied, "subscription upstream stream ended without data", false)
 			}
 			if spec.ClientProtocol == protocol.OpenAICompletions && !openAIDone {
 				sequence++
 				if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: []byte("data: [DONE]\n\n")}); err != nil {
-					return streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, ready)
+					return streamConsumerStopped(upstreamProtocol, headers, applied, ready)
 				}
 			}
 			if spec.ClientProtocol == protocol.Gemini && !geminiTerminal {
 				sequence++
 				if err := sink(execution.StreamEvent{Kind: execution.StreamEventData, Sequence: sequence, Data: []byte("data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n")}); err != nil {
-					return streamConsumerStopped(provider.UpstreamProtocol(), headers, applied, ready)
+					return streamConsumerStopped(upstreamProtocol, headers, applied, ready)
 				}
 			}
-			return successfulStreamTerminal(provider.UpstreamProtocol(), spec, headers, applied)
+			return successfulStreamTerminal(upstreamProtocol, spec, headers, applied)
 		}
 		if chunk.Err != nil {
-			return streamExecutionError(streamCtx, provider, headers, chunk.Err, credential, applied, ready)
+			return streamExecutionError(streamCtx, provider, upstreamProtocol, headers, chunk.Err, credential, applied, ready)
 		}
 		if len(chunk.Payload) == 0 && nativeResponsesAssembler == nil {
 			continue
@@ -387,13 +398,13 @@ func (a *Adapter) ExecuteStream(
 			upstreamStarted = true
 		}
 		if err := context.Cause(streamCtx); err != nil {
-			return streamExecutionError(streamCtx, provider, headers, err, credential, applied, false)
+			return streamExecutionError(streamCtx, provider, upstreamProtocol, headers, err, credential, applied, false)
 		}
 		payloads := [][]byte{chunk.Payload}
 		if nativeResponsesAssembler != nil {
 			payloads, err = nativeResponsesAssembler.push(chunk.Payload)
 			if err != nil {
-				return streamInternalError(provider.UpstreamProtocol(), headers, applied, "invalid subscription SSE stream", ready)
+				return streamInternalError(upstreamProtocol, headers, applied, "invalid subscription SSE stream", ready)
 			}
 		}
 		if failure := emitPayloads(payloads); failure != nil {
@@ -608,6 +619,7 @@ func definitelyNotSentNetworkError(err error) bool {
 func streamExecutionError(
 	ctx context.Context,
 	provider providerBridge,
+	upstreamProtocol protocol.Protocol,
 	headers http.Header,
 	err error,
 	credential providerCredential,
@@ -621,7 +633,7 @@ func streamExecutionError(
 	}
 	return execution.StreamResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: responseStarted,
-		UpstreamProtocol: provider.UpstreamProtocol(), AppliedReasoning: applied, StatusCode: status,
+		UpstreamProtocol: upstreamProtocol, AppliedReasoning: applied, StatusCode: status,
 		Header: headers, UpstreamRequestID: upstreamRequestID(headers), Error: evidence,
 	}
 }

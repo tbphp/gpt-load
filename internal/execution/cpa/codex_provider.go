@@ -43,6 +43,19 @@ func (*codexProviderBridge) UpstreamProtocol() protocol.Protocol {
 	return protocol.OpenAIResponses
 }
 
+func codexUpstreamProtocol(requestPath string) protocol.Protocol {
+	requestPath = strings.TrimSpace(requestPath)
+	switch {
+	case strings.HasSuffix(requestPath, "/images/generations"),
+		strings.HasSuffix(requestPath, "/images/edits"):
+		return protocol.OpenAIImages
+	case strings.HasSuffix(requestPath, "/responses"):
+		return protocol.OpenAIResponses
+	default:
+		return ""
+	}
+}
+
 func (*codexProviderBridge) ValidateRouteCapability(route channel.RouteDescriptor) error {
 	valid := route.ClientProtocol == protocol.OpenAIResponses &&
 		(route.Operation == execution.OperationResponsesCreate ||
@@ -287,6 +300,7 @@ func (bridge *codexProviderBridge) Execute(
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamProtocol:       codexUpstreamProtocol(response.UpstreamRequestPath),
 	}, err
 }
 
@@ -324,6 +338,7 @@ func (bridge *codexProviderBridge) ExecuteStream(
 	return &providerStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks,
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamProtocol:       codexUpstreamProtocol(response.UpstreamRequestPath),
 	}, err
 }
 
