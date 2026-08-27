@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+
 	"gpt-load/internal/channel/modules"
 	"gpt-load/internal/channel/spec"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -141,7 +143,7 @@ func (*grokDriver) DiscoverModels(ctx context.Context, credential subscriptionru
 		}
 		return nil, err
 	}
-	return models, nil
+	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderGrok, models), nil
 }
 
 func (*grokDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
