@@ -190,6 +190,9 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 	if err != nil {
 		return fmt.Errorf("failed to get key details from store: %w", err)
 	}
+	if keyDetails["id"] == "" {
+		return nil
+	}
 
 	if keyDetails["status"] == models.KeyStatusInvalid {
 		return nil
