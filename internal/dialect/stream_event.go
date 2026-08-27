@@ -43,5 +43,7 @@ type StreamEventClassifier interface {
 // UsageStreamEventObserver optionally lets a usage extractor observe the
 // explicit SSE event name in addition to its JSON payload.
 type UsageStreamEventObserver interface {
+	// ObserveStreamEvent consumes a borrowed payload valid only for this call.
+	// Implementations must not mutate or retain it.
 	ObserveStreamEvent(event StreamEvent) error
 }

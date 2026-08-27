@@ -9,11 +9,14 @@ import (
 )
 
 func (d *OpenAIImages) ExtractUsage(body []byte) (usage.Result, error) {
-	object, err := decodeJSONObject(body)
+	envelope, err := decodeOpenAIImagesUsageEnvelope(body)
 	if err != nil {
 		return usage.Result{}, fmt.Errorf("decode OpenAI Images usage response")
 	}
-	patch, found := openAIImagesUsagePatch(object, true)
+	patch, found := openAIImagesUsagePatch(
+		openAIImagesUsageRoot(envelope.Usage),
+		true,
+	)
 	var accumulator usage.Accumulator
 	if found {
 		if err := accumulator.ReplaceSnapshot(patch); err != nil {
@@ -36,7 +39,7 @@ type openAIImagesUsageStreamExtractor struct {
 	terminal       bool
 }
 
-type openAIImagesUsageStreamEnvelope struct {
+type openAIImagesUsageEnvelope struct {
 	Type  json.RawMessage `json:"type"`
 	Usage json.RawMessage `json:"usage"`
 }
@@ -48,7 +51,7 @@ func (e *openAIImagesUsageStreamExtractor) Observe(payload []byte) error {
 func (e *openAIImagesUsageStreamExtractor) ObserveStreamEvent(
 	event StreamEvent,
 ) error {
-	envelope, err := decodeOpenAIImagesUsageStreamEnvelope(event.Payload)
+	envelope, err := decodeOpenAIImagesUsageEnvelope(event.Payload)
 	if err != nil {
 		e.invalidPayload = true
 		return e.accumulator.MergePatch(usage.Patch{
@@ -80,11 +83,10 @@ func (e *openAIImagesUsageStreamExtractor) ObserveStreamEvent(
 	}
 
 	terminal := openAIImagesUsageTerminal(eventType)
-	root := make(map[string]json.RawMessage, 1)
-	if len(envelope.Usage) > 0 {
-		root["usage"] = envelope.Usage
-	}
-	patch, found := openAIImagesUsagePatch(root, terminal)
+	patch, found := openAIImagesUsagePatch(
+		openAIImagesUsageRoot(envelope.Usage),
+		terminal,
+	)
 
 	if terminal || found {
 		if err := e.accumulator.ReplaceSnapshot(patch); err != nil {
@@ -96,17 +98,25 @@ func (e *openAIImagesUsageStreamExtractor) ObserveStreamEvent(
 	return e.accumulator.MergePatch(patch)
 }
 
-func decodeOpenAIImagesUsageStreamEnvelope(
+func decodeOpenAIImagesUsageEnvelope(
 	payload []byte,
-) (openAIImagesUsageStreamEnvelope, error) {
+) (openAIImagesUsageEnvelope, error) {
 	if trimmed := bytes.TrimSpace(payload); len(trimmed) == 0 || trimmed[0] != '{' {
-		return openAIImagesUsageStreamEnvelope{}, fmt.Errorf("decode JSON object")
+		return openAIImagesUsageEnvelope{}, fmt.Errorf("decode JSON object")
 	}
-	var envelope openAIImagesUsageStreamEnvelope
+	var envelope openAIImagesUsageEnvelope
 	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return openAIImagesUsageStreamEnvelope{}, fmt.Errorf("decode JSON object")
+		return openAIImagesUsageEnvelope{}, fmt.Errorf("decode JSON object")
 	}
 	return envelope, nil
+}
+
+func openAIImagesUsageRoot(raw json.RawMessage) map[string]json.RawMessage {
+	root := make(map[string]json.RawMessage, 1)
+	if len(raw) > 0 {
+		root["usage"] = raw
+	}
+	return root
 }
 
 func openAIImagesUsageStreamEventType(raw json.RawMessage) (string, bool) {
@@ -156,9 +166,6 @@ func openAIImagesUsagePatch(
 	diagnostics.Merge(outputDiagnostics)
 	total, totalDiagnostics := usageInteger(usageObject, "total_tokens", false)
 	diagnostics.Merge(totalDiagnostics)
-
-	_, detailDiagnostics := usageOptionalObject(usageObject, "input_tokens_details")
-	diagnostics.Merge(detailDiagnostics)
 
 	patch := usage.Patch{Final: final, Diagnostics: diagnostics}
 	if input != nil {

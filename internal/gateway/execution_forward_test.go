@@ -29,7 +29,13 @@ type fakeExecutionExecutor struct {
 }
 
 type observingUsageDialect struct {
-	body []byte
+	expectedBody []byte
+	matchedBody  bool
+}
+
+type observingUsageStreamExtractor struct {
+	expectedBody []byte
+	matchedBody  bool
 }
 
 func (*observingUsageDialect) Protocol() protocol.Protocol {
@@ -45,12 +51,23 @@ func (*observingUsageDialect) InspectRequest(
 func (d *observingUsageDialect) ExtractUsage(
 	body []byte,
 ) (usage.Result, error) {
-	d.body = body
+	d.matchedBody = len(body) == len(d.expectedBody) &&
+		len(body) > 0 && &body[0] == &d.expectedBody[0]
 	return usage.Result{State: usage.StateComplete}, nil
 }
 
 func (*observingUsageDialect) NewUsageStreamExtractor() dialect.UsageStreamExtractor {
 	return nil
+}
+
+func (e *observingUsageStreamExtractor) Observe(body []byte) error {
+	e.matchedBody = len(body) == len(e.expectedBody) &&
+		len(body) > 0 && &body[0] == &e.expectedBody[0]
+	return nil
+}
+
+func (*observingUsageStreamExtractor) Finalize() (usage.Result, bool) {
+	return usage.Result{State: usage.StateComplete}, true
 }
 
 func (value fakeExecutionExecutor) Execute(
@@ -201,12 +218,28 @@ func TestExecutionForwarderCapturesCompressedImagesUsageAfterDecoding(t *testing
 func TestUsageCaptureNonStreamingPlainDoesNotCloneBody(t *testing.T) {
 	t.Parallel()
 
-	selected := &observingUsageDialect{}
 	body := []byte(`{"usage":{"input_tokens":1,"output_tokens":1}}`)
+	selected := &observingUsageDialect{expectedBody: body}
 	result := newUsageCaptureBoundary().extractNonStreamingPlain(selected, body)
-	if result.State != usage.StateComplete || len(selected.body) != len(body) ||
-		&selected.body[0] != &body[0] {
-		t.Fatalf("extractNonStreamingPlain() body = %p/%d, want original %p/%d", selected.body, len(selected.body), body, len(body))
+	if result.State != usage.StateComplete || !selected.matchedBody {
+		t.Fatal("extractNonStreamingPlain() did not borrow the original body")
+	}
+}
+
+func TestUsageCaptureStreamEventDoesNotCloneBody(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"type":"image_generation.partial_image","b64_json":"AA=="}`)
+	extractor := &observingUsageStreamExtractor{expectedBody: body}
+	capture := &streamUsageCapture{
+		boundary:  newUsageCaptureBoundary(),
+		protocol:  protocol.OpenAIImages,
+		extractor: extractor,
+		active:    true,
+	}
+	capture.observeEvent(dialect.StreamEvent{Payload: body})
+	if !capture.active || !extractor.matchedBody {
+		t.Fatal("observeEvent() did not borrow the original body")
 	}
 }
 

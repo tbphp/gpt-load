@@ -45,6 +45,18 @@ func TestOpenAIImagesUsageNonStreaming(t *testing.T) {
 			want: usage.Tokens{UncachedInput: 100, Output: 30},
 		},
 		{
+			name: "input token details are ignored",
+			body: `{
+				"usage": {
+					"input_tokens": 100,
+					"input_tokens_details": "ignored",
+					"output_tokens": 30,
+					"total_tokens": 130
+				}
+			}`,
+			want: usage.Tokens{UncachedInput: 100, Output: 30},
+		},
+		{
 			name:        "negative input is diagnosed",
 			body:        `{"usage":{"input_tokens":-1,"output_tokens":30,"total_tokens":30}}`,
 			want:        usage.Tokens{Output: 30},
@@ -204,19 +216,31 @@ func TestOpenAIImagesUsageStreamingRejectsEventNameConflict(t *testing.T) {
 	}
 }
 
-func TestOpenAIImagesUsageStreamEnvelopeSkipsImageData(t *testing.T) {
+func TestOpenAIImagesUsageEnvelopeSkipsImageData(t *testing.T) {
 	t.Parallel()
 
 	imageData := strings.Repeat("A", 1<<20)
-	payload := []byte(`{"type":"image_generation.completed","b64_json":"` + imageData + `","usage":{"input_tokens":100,"output_tokens":30,"total_tokens":130}}`)
-	envelope, err := decodeOpenAIImagesUsageStreamEnvelope(payload)
+	usageJSON := `{"input_tokens":100,"output_tokens":30,"total_tokens":130}`
+	unaryPayload := []byte(`{"data":[{"b64_json":"` + imageData + `"}],"usage":` + usageJSON + `}`)
+	envelope, err := decodeOpenAIImagesUsageEnvelope(unaryPayload)
+	if err != nil || len(envelope.Type) != 0 || string(envelope.Usage) != usageJSON {
+		t.Fatalf("decodeOpenAIImagesUsageEnvelope(unary) = %#v, %v", envelope, err)
+	}
+	unaryResult, err := NewOpenAIImages().ExtractUsage(unaryPayload)
+	if err != nil || unaryResult.State != usage.StateComplete ||
+		unaryResult.Tokens != (usage.Tokens{UncachedInput: 100, Output: 30}) {
+		t.Fatalf("ExtractUsage() = %#v, %v", unaryResult, err)
+	}
+
+	streamPayload := []byte(`{"type":"image_generation.completed","b64_json":"` + imageData + `","usage":` + usageJSON + `}`)
+	envelope, err = decodeOpenAIImagesUsageEnvelope(streamPayload)
 	if err != nil || string(envelope.Type) != `"image_generation.completed"` ||
-		string(envelope.Usage) != `{"input_tokens":100,"output_tokens":30,"total_tokens":130}` {
-		t.Fatalf("decodeOpenAIImagesUsageStreamEnvelope() = %#v, %v", envelope, err)
+		string(envelope.Usage) != usageJSON {
+		t.Fatalf("decodeOpenAIImagesUsageEnvelope(stream) = %#v, %v", envelope, err)
 	}
 
 	stream := NewOpenAIImages().NewUsageStreamExtractor()
-	if err := stream.Observe(payload); err != nil {
+	if err := stream.Observe(streamPayload); err != nil {
 		t.Fatalf("Observe() error = %v", err)
 	}
 	result, finalized := stream.Finalize()
