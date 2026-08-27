@@ -17,7 +17,7 @@ require (
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/sirupsen/logrus v1.9.3
 	go.uber.org/dig v1.19.0
-	golang.org/x/crypto v0.51.0
+	golang.org/x/crypto v0.52.0
 	golang.org/x/text v0.39.0
 	gorm.io/datatypes v1.2.1
 	gorm.io/driver/mysql v1.6.0
