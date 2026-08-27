@@ -1,25 +1,4 @@
 services:
-  gpt-load-data-init:
-    image: ghcr.io/tbphp/gpt-load:v2beta
-    user: "0:0"
-    entrypoint:
-      - /bin/sh
-      - -ec
-      - |
-        data_owner="$$(stat -c '%u' /app/data)"
-        if [ "$$data_owner" = "10001" ]; then
-          exit 0
-        fi
-        if [ -n "$$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ]; then
-          echo "DATA_DIR is non-empty and not owned by UID 10001; refusing to change permissions" >&2
-          exit 1
-        fi
-        chown 10001:10001 /app/data
-        chmod 0700 /app/data
-    restart: "no"
-    volumes:
-      - ${DATA_DIR:-./data}:/app/data
-
   gpt-load:
     image: ghcr.io/tbphp/gpt-load:v2beta
     # build:
@@ -36,12 +15,9 @@ services:
       HOST: 0.0.0.0
       PORT: ${PORT:-3001}
       DATA_DIR: /app/data
-    depends_on:
-      gpt-load-data-init:
-        condition: service_completed_successfully
     restart: always
     volumes:
-      - ${DATA_DIR:-./data}:/app/data
+      - gpt-load-data:/app/data
     stop_grace_period: ${CONTAINER_STOP_GRACE_PERIOD:-15s}
     healthcheck:
       test: wget -q --spider -T 10 -O /dev/null http://localhost:${PORT:-3001}/health
@@ -49,3 +25,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+volumes:
+  gpt-load-data:
