@@ -184,10 +184,17 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				errorBody = appendExecutionErrorBody(errorBody, event.Data)
 				return nil
 			}
-			terminalInChunk, err := streamBuffer.push(event.Data)
+			completeData, terminalInChunk, err := streamBuffer.push(event.Data)
 			if err != nil {
 				downstreamErr = executionStreamProtocolFailure(err)
 				return downstreamErr
+			}
+			forwardData := event.Data
+			if input.ClientProtocol == protocol.OpenAIImages {
+				forwardData = completeData
+				if len(forwardData) == 0 {
+					return nil
+				}
 			}
 			if !committed {
 				if !firstResponse {
@@ -197,11 +204,11 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 					}
 				}
 				if streamEvents.firstEventWasProviderError() {
-					errorBody = appendExecutionErrorBody(errorBody, event.Data)
+					errorBody = appendExecutionErrorBody(errorBody, forwardData)
 					return nil
 				}
 				committed = true
-				if err := commitStream(controller, ready.StatusCode, ready.Header, event.Data); err != nil {
+				if err := commitStream(controller, ready.StatusCode, ready.Header, forwardData); err != nil {
 					downstreamErr = err
 					return err
 				}
@@ -213,7 +220,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				return nil
 			}
-			written, err := controller.write(event.Data)
+			written, err := controller.write(forwardData)
 			if err != nil {
 				downstreamErr = &streamFailure{
 					kind: streamFailureDownstreamWrite,
@@ -221,7 +228,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				return downstreamErr
 			}
-			if written != len(event.Data) {
+			if written != len(forwardData) {
 				downstreamErr = &streamFailure{
 					kind: streamFailureDownstreamWrite,
 					err:  fmt.Errorf("write execution stream: %w", io.ErrShortWrite),

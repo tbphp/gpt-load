@@ -355,46 +355,52 @@ func TestExecutionForwarderChecksImagesStreamCredentialsBeforeForwarding(t *test
 	const (
 		partial = "event: image_generation.partial_image\n" +
 			"data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"AAAA\",\"A\":1}\n\n"
-		completed = "event: image_generation.completed\n" +
-			"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AAAA\",\"A\":1}\n\n"
-		apiKeyLeak = "event: image_generation.completed\n" +
-			"data: {\"type\":\"image_generation.completed\",\"revised_prompt\":\"A\"}\n\n"
-		credentialLeak = "event: image_generation.completed\n" +
-			"data: {\"type\":\"image_generation.completed\",\"metadata\":{\"token\":\"oauth-secret\"}}\n\n"
+		completedStart = "event: image_generation.completed\n" +
+			"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AA"
+		completedEnd    = "AA\",\"A\":1}\n\n"
+		completed       = completedStart + completedEnd
+		apiKeyLeakStart = "event: image_generation.completed\n" +
+			"data: {\"type\":\"image_generation.completed\",\"revised_prompt\":\"A"
+		credentialLeakStart = "event: image_generation.completed\n" +
+			"data: {\"type\":\"image_generation.completed\",\"metadata\":{\"token\":\"oauth-secret"
+		leakEnd = "\"}}\n\n"
 	)
 	tests := []struct {
 		name          string
-		frames        []string
+		chunks        []string
 		wantSinkError bool
 		wantCommitted bool
 		wantEndReason StreamEndReason
-		wantBody      string
+		wantBodies    []string
 	}{
 		{
-			name:          "media and structure collisions remain valid",
-			frames:        []string{completed},
+			name:          "split media and structure collisions remain valid",
+			chunks:        []string{completedStart, completedEnd},
 			wantCommitted: true,
 			wantEndReason: StreamEndCleanEOF,
-			wantBody:      completed,
+			wantBodies:    []string{"", completed},
 		},
 		{
-			name:          "credential leak before commit fails closed",
-			frames:        []string{credentialLeak},
+			name:          "split credential leak before commit fails closed",
+			chunks:        []string{credentialLeakStart, leakEnd},
 			wantSinkError: true,
+			wantBodies:    []string{"", ""},
 		},
 		{
-			name:          "credential leak after commit drops offending event",
-			frames:        []string{partial, apiKeyLeak},
+			name:          "split credential leak after commit drops offending event",
+			chunks:        []string{partial, apiKeyLeakStart, "\"}\n\n"},
 			wantSinkError: true,
 			wantCommitted: true,
 			wantEndReason: StreamEndUpstreamProtocolError,
-			wantBody:      partial,
+			wantBodies:    []string{partial, partial, partial},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var sinkErr error
+			recorder := httptest.NewRecorder()
+			bodies := make([]string, 0, len(test.chunks))
 			executor := fakeExecutionExecutor{stream: func(
 				_ context.Context,
 				_ execution.AttemptSpec,
@@ -406,10 +412,11 @@ func TestExecutionForwarderChecksImagesStreamCredentialsBeforeForwarding(t *test
 				}); err != nil {
 					t.Fatalf("ready sink: %v", err)
 				}
-				for index, frame := range test.frames {
+				for index, chunk := range test.chunks {
 					sinkErr = sink(execution.StreamEvent{
-						Sequence: uint64(index + 2), Kind: execution.StreamEventData, Data: []byte(frame),
+						Sequence: uint64(index + 2), Kind: execution.StreamEventData, Data: []byte(chunk),
 					})
+					bodies = append(bodies, recorder.Body.String())
 					if sinkErr != nil {
 						break
 					}
@@ -428,7 +435,6 @@ func TestExecutionForwarderChecksImagesStreamCredentialsBeforeForwarding(t *test
 			input.Request.Body = []byte(`{"model":"public","stream":true}`)
 			input.APIKey = "A"
 			input.CredentialSecrets = []string{"oauth-secret"}
-			recorder := httptest.NewRecorder()
 
 			result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
 			if test.wantSinkError {
@@ -444,8 +450,8 @@ func TestExecutionForwarderChecksImagesStreamCredentialsBeforeForwarding(t *test
 			if test.wantCommitted && result.Stream.EndReason != test.wantEndReason {
 				t.Fatalf("EndReason = %q, want %q", result.Stream.EndReason, test.wantEndReason)
 			}
-			if got := recorder.Body.String(); got != test.wantBody {
-				t.Fatalf("response body = %q, want %q", got, test.wantBody)
+			if !reflect.DeepEqual(bodies, test.wantBodies) {
+				t.Fatalf("response bodies = %#v, want %#v", bodies, test.wantBodies)
 			}
 		})
 	}

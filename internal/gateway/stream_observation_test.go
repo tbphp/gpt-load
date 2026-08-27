@@ -18,7 +18,7 @@ func TestSSEObservationRejectsEventAboveImagesLimit(t *testing.T) {
 		limit,
 		func(dialect.StreamEvent, bool) (bool, error) { return false, nil },
 	)
-	_, err := buffer.push(bytes.Repeat([]byte{'x'}, limit+1))
+	_, _, err := buffer.push(bytes.Repeat([]byte{'x'}, limit+1))
 	if !errors.Is(err, errSSEEventTooLarge) {
 		t.Fatalf("push() error = %v, want %v", err, errSSEEventTooLarge)
 	}
