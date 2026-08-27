@@ -604,11 +604,19 @@ func TestComposeResolvesConfiguredDataDirBindMountAndBetaChannelImage(t *testing
 	if len(initializer.Environment) != 0 {
 		t.Fatalf("resolved data initializer environment = %#v, want no process secrets", initializer.Environment)
 	}
+	wantInitializerScript := `data_owner="$$(stat -c '%u' /app/data)"
+if [ "$$data_owner" = "10001" ]; then
+  exit 0
+fi
+if [ -n "$$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+  echo "DATA_DIR is non-empty and not owned by UID 10001; refusing to change permissions" >&2
+  exit 1
+fi
+chown 10001:10001 /app/data
+chmod 0700 /app/data`
 	if len(initializer.Entrypoint) != 3 || initializer.Entrypoint[0] != "/bin/sh" ||
 		initializer.Entrypoint[1] != "-ec" ||
-		!strings.Contains(initializer.Entrypoint[2], "chown 10001:10001 /app/data") ||
-		!strings.Contains(initializer.Entrypoint[2], "chmod 0700 /app/data") ||
-		!strings.Contains(initializer.Entrypoint[2], "find /app/data -maxdepth 1 -type f -exec chown 10001:10001 {} +") {
+		strings.TrimSpace(initializer.Entrypoint[2]) != wantInitializerScript {
 		t.Fatalf("resolved data initializer entrypoint = %#v", initializer.Entrypoint)
 	}
 	if len(initializer.Volumes) != 1 ||

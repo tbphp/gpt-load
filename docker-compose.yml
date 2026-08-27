@@ -6,9 +6,16 @@ services:
       - /bin/sh
       - -ec
       - |
+        data_owner="$$(stat -c '%u' /app/data)"
+        if [ "$$data_owner" = "10001" ]; then
+          exit 0
+        fi
+        if [ -n "$$(find /app/data -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+          echo "DATA_DIR is non-empty and not owned by UID 10001; refusing to change permissions" >&2
+          exit 1
+        fi
         chown 10001:10001 /app/data
         chmod 0700 /app/data
-        find /app/data -maxdepth 1 -type f -exec chown 10001:10001 {} +
     restart: "no"
     volumes:
       - ${DATA_DIR:-./data}:/app/data
