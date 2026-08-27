@@ -1,6 +1,7 @@
 package dialect
 
 import (
+	"strings"
 	"testing"
 
 	"gpt-load/internal/usage"
@@ -200,5 +201,27 @@ func TestOpenAIImagesUsageStreamingRejectsEventNameConflict(t *testing.T) {
 	if !finalized || result.State != usage.StateMissing ||
 		!result.Diagnostics.Has(usage.DiagnosticInvalidPayload) {
 		t.Fatalf("Finalize() = %#v, %t, want missing invalid-payload result", result, finalized)
+	}
+}
+
+func TestOpenAIImagesUsageStreamEnvelopeSkipsImageData(t *testing.T) {
+	t.Parallel()
+
+	imageData := strings.Repeat("A", 1<<20)
+	payload := []byte(`{"type":"image_generation.completed","b64_json":"` + imageData + `","usage":{"input_tokens":100,"output_tokens":30,"total_tokens":130}}`)
+	envelope, err := decodeOpenAIImagesUsageStreamEnvelope(payload)
+	if err != nil || string(envelope.Type) != `"image_generation.completed"` ||
+		string(envelope.Usage) != `{"input_tokens":100,"output_tokens":30,"total_tokens":130}` {
+		t.Fatalf("decodeOpenAIImagesUsageStreamEnvelope() = %#v, %v", envelope, err)
+	}
+
+	stream := NewOpenAIImages().NewUsageStreamExtractor()
+	if err := stream.Observe(payload); err != nil {
+		t.Fatalf("Observe() error = %v", err)
+	}
+	result, finalized := stream.Finalize()
+	if !finalized || result.State != usage.StateComplete ||
+		result.Tokens != (usage.Tokens{UncachedInput: 100, Output: 30}) {
+		t.Fatalf("Finalize() = %#v, %t", result, finalized)
 	}
 }
