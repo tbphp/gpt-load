@@ -912,6 +912,49 @@ func TestConvertedResponsesStreamHonorsCancellationAndUpstreamError(t *testing.T
 		}
 		assertNoPrivateLeak(t, result, testAPIKey, "gptload-custom-")
 	})
+
+	t.Run("HTTP 200 response failed event", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path != "/v1/responses" {
+				t.Errorf("request path = %q, want /v1/responses", request.URL.Path)
+			}
+			_, _ = io.Copy(io.Discard, request.Body)
+			writer.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(writer,
+				"data: {\"type\":\"response.in_progress\",\"sequence_number\":0,\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"created_at\":123,\"status\":\"in_progress\",\"model\":\"gpt-upstream\",\"output\":[]}}\n\n"+
+					"data: {\"type\":\"response.failed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"created_at\":123,\"status\":\"failed\",\"model\":\"gpt-upstream\",\"output\":[],\"error\":{\"type\":\"invalid_request_error\",\"code\":\"context_length_exceeded\",\"message\":\"input is too large\"}}}\n\n",
+			)
+		}))
+		defer server.Close()
+
+		runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: server.URL})
+		spec := convertedSpec(
+			channel.OpenAI,
+			protocol.Anthropic,
+			execution.OperationChatCompletion,
+			"/v1/messages",
+			[]byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
+		)
+		var events []execution.StreamEvent
+		result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
+			events = append(events, event.Clone())
+			return nil
+		})
+
+		if result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted ||
+			result.StatusCode != http.StatusOK || result.Error == nil ||
+			result.Error.Type != "invalid_request_error" ||
+			result.Error.Code != "context_length_exceeded" ||
+			result.Error.Summary != "input is too large" ||
+			result.Error.Hint != execution.FailureHintRequestRejected ||
+			result.Error.OriginHint != execution.ErrorOriginClient ||
+			result.Error.ScopeHint != execution.ErrorScopeRequest {
+			t.Fatalf("response.failed result = %+v evidence=%+v events=%+v", result, result.Error, events)
+		}
+		if len(events) != 1 || events[0].Kind != execution.StreamEventReady {
+			t.Fatalf("response.failed events = %+v, want ready metadata only", events)
+		}
+	})
 }
 
 func convertedSpec(channelID channel.ID, clientProtocol protocol.Protocol, operation execution.Operation, path string, body []byte) execution.AttemptSpec {

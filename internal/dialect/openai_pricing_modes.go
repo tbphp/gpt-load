@@ -2,24 +2,29 @@ package dialect
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/usage"
 )
 
-func openAIRequestPricing(body []byte) (pricing.Mode, usage.Diagnostics) {
+func openAIRequestPricing(body []byte) (pricing.Mode, usage.Diagnostics, error) {
 	diagnostics := usage.Diagnostics{}
 	root, err := decodeJSONObject(body)
 	if err != nil {
-		return "", diagnostics
+		return "", diagnostics, nil
+	}
+	if value, ok := jsonString(root, "service_tier"); ok &&
+		strings.EqualFold(strings.TrimSpace(value), "ultrafast") {
+		return "", diagnostics, fmt.Errorf("service_tier ultrafast is not supported")
 	}
 	mode, supported := openAIRequestedPricingMode(root)
 	if !supported || jsonStringEquals(root, "speed", "fast") ||
 		openAIUnsupportedReasoningMode(root) {
 		diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
 	}
-	return mode, diagnostics
+	return mode, diagnostics, nil
 }
 
 func openAIRequestedPricingMode(root map[string]json.RawMessage) (pricing.Mode, bool) {

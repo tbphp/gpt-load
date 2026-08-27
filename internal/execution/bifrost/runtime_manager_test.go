@@ -1161,13 +1161,20 @@ func TestProductionRuntimeManagerUsesNativeProviderListModelsPaths(t *testing.T)
 			var calls atomic.Int64
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				calls.Add(1)
+				writer.Header().Set("Content-Type", "application/json")
+				if test.channelID == channel.OpenRouter && request.URL.Path == "/v1/embeddings/models" {
+					if request.URL.RawQuery != "" {
+						t.Errorf("embedding models query = %q, want empty", request.URL.RawQuery)
+					}
+					_, _ = io.WriteString(writer, `{"object":"list","data":[{"id":"embedding-only","architecture":{"output_modalities":["embeddings"]}}]}`)
+					return
+				}
 				if request.URL.Path != test.wantPath {
 					t.Errorf("path = %q, want %q", request.URL.Path, test.wantPath)
 				}
 				if request.URL.RawQuery != "cursor=%2F&limit=10" {
 					t.Errorf("query = %q", request.URL.RawQuery)
 				}
-				writer.Header().Set("Content-Type", "application/json")
 				_, _ = io.WriteString(writer, `{"object":"list","data":[{"id":"model-one","object":"model"}]}`)
 			}))
 			defer server.Close()
@@ -1187,7 +1194,12 @@ func TestProductionRuntimeManagerUsesNativeProviderListModelsPaths(t *testing.T)
 			if validationErr := result.Validate(); validationErr != nil || result.Error != nil {
 				t.Fatalf("Execute() = %+v validation=%v", result, validationErr)
 			}
-			if calls.Load() != 1 || !bytes.Contains(result.Body, []byte(`"id":"model-one"`)) {
+			wantCalls := int64(1)
+			if test.channelID == channel.OpenRouter {
+				wantCalls = 2
+			}
+			if calls.Load() != wantCalls || !bytes.Contains(result.Body, []byte(`"id":"model-one"`)) ||
+				bytes.Contains(result.Body, []byte(`"id":"embedding-only"`)) {
 				t.Fatalf("calls/body = %d/%s", calls.Load(), result.Body)
 			}
 		})

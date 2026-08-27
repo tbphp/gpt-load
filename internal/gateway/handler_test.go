@@ -1422,6 +1422,44 @@ func TestHandlerRejectsCaseCollidingModelBeforeAttempt(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsUltrafastServiceTierBeforeAttempt(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		path string
+	}{
+		{name: "chat completions", path: "/v1/chat/completions"},
+		{name: "responses", path: "/v1/responses"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{}
+			handler, _, _ := newHandlerForTest(t, forwarder, "sk-one")
+			handler.dialects = dialect.NewSet(
+				dialect.NewOpenAI(),
+				dialect.NewOpenAIResponses(),
+			)
+			engine := gin.New()
+			bindGatewayRoutesForTest(t, engine, handler)
+
+			request := httptest.NewRequest(
+				http.MethodPost,
+				test.path,
+				bytes.NewBufferString(`{"model":"gpt-4o","service_tier":"ultrafast"}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest ||
+				!strings.Contains(recorder.Body.String(), `"code":"invalid_protocol_request"`) {
+				t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+			}
+			if len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
+				t.Fatal("ultrafast request reached upstream")
+			}
+		})
+	}
+}
+
 func TestHandlerEnforcesModelUTF8ByteLimitBeforeAttempt(t *testing.T) {
 	tests := []struct {
 		name       string

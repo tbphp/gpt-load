@@ -12,7 +12,7 @@ COPY web ./web
 RUN pnpm --dir web run build
 
 
-FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine3.24@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27.0-alpine3.24@sha256:4c9fe60190a2a3350ddc51de80d0224b8a6698d12bdfc999fee45ea9d6c46dbc AS go-builder
 
 ARG VERSION=2.0.0-dev
 ARG TARGETOS

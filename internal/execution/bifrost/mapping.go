@@ -311,6 +311,12 @@ func neutralFailureHint(status int, values ...string) execution.FailureHint {
 		"authentication failed",
 		"invalid credential", "api key not valid"):
 		return execution.FailureHintInvalidCredential
+	case containsAnyMarker(markers,
+		"invalid_request_error", "context_length_exceeded"):
+		return execution.FailureHintRequestRejected
+	case containsAnyMarker(markers,
+		"server_is_overloaded", "service_unavailable", "server overloaded"):
+		return execution.FailureHintHostError
 	case status >= http.StatusInternalServerError && status <= 599:
 		return execution.FailureHintHostError
 	default:
@@ -339,6 +345,7 @@ func annotateBifrostErrorEvidence(evidence *execution.ErrorEvidence) {
 		execution.FailureHintReauthorizationRequired:
 		evidence.ScopeHint = execution.ErrorScopeCredential
 	case execution.FailureHintRequestRejected:
+		evidence.OriginHint = execution.ErrorOriginClient
 		evidence.ScopeHint = execution.ErrorScopeRequest
 	case execution.FailureHintCandidateUnavailable,
 		execution.FailureHintModelUnavailable:
