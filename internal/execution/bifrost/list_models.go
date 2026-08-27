@@ -111,6 +111,7 @@ func sanitizeListModelsResponse(provider schemas.ModelProvider, response *schema
 		model.ID = strings.TrimPrefix(model.ID, prefix)
 		filtered = append(filtered, model)
 	}
+	clear(clone.Data[len(filtered):])
 	clone.Data = filtered
 	clone.ExtraFields = schemas.BifrostResponseExtraFields{}
 	clone.KeyStatuses = nil

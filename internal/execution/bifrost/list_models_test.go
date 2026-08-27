@@ -29,6 +29,11 @@ func TestSanitizeListModelsResponseFiltersOnlyOpenRouterEmbeddingOnlyModels(t *t
 	if response.Data[0].ID != "openrouter/text" || len(response.Data) != 5 {
 		t.Fatalf("sanitize mutated source response: %#v", response.Data)
 	}
+	for index, model := range got.Data[len(got.Data):cap(got.Data)] {
+		if !reflect.DeepEqual(model, schemas.Model{}) {
+			t.Fatalf("filtered model tail at index %d was retained: %#v", index, model)
+		}
+	}
 
 	other := sanitizeListModelsResponse(schemas.OpenAI, &schemas.BifrostListModelsResponse{Data: []schemas.Model{{
 		ID: "openai/embedding-only", Architecture: &schemas.Architecture{OutputModalities: []string{"embeddings"}},
