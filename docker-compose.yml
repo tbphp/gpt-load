@@ -17,7 +17,7 @@ services:
       DATA_DIR: /app/data
     restart: always
     volumes:
-      - gpt-load-data:/app/data
+      - ${DATA_DIR:-./data}:/app/data
     stop_grace_period: ${CONTAINER_STOP_GRACE_PERIOD:-15s}
     healthcheck:
       test: wget -q --spider -T 10 -O /dev/null http://localhost:${PORT:-3001}/health
@@ -25,6 +25,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
-volumes:
-  gpt-load-data:

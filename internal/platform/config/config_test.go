@@ -222,6 +222,43 @@ func TestLoadClassifiesNonEmptyDatabaseDSNAsExternal(t *testing.T) {
 	}
 }
 
+func TestLoadPreparesDataDirForExternalDatabaseWithExplicitSecrets(t *testing.T) {
+	clearEnvironment(t)
+	dataDir := filepath.Join(t.TempDir(), "data")
+	t.Setenv("DATA_DIR", dataDir)
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("AUTH_KEY", "explicit-auth-key")
+	t.Setenv("ENCRYPTION_KEY", "explicit-encryption-key")
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	info, err := os.Stat(dataDir)
+	if err != nil {
+		t.Fatalf("stat DATA_DIR: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("DATA_DIR mode = %v, want directory", info.Mode())
+	}
+}
+
+func TestLoadRejectsUnsafeDataDirForExternalDatabaseWithExplicitSecrets(t *testing.T) {
+	clearEnvironment(t)
+	targetDir := t.TempDir()
+	dataDirLink := filepath.Join(t.TempDir(), "unsafe-data-dir")
+	if err := os.Symlink(targetDir, dataDirLink); err != nil {
+		t.Skipf("create DATA_DIR symlink: %v", err)
+	}
+	t.Setenv("DATA_DIR", dataDirLink)
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("AUTH_KEY", "explicit-auth-key")
+	t.Setenv("ENCRYPTION_KEY", "explicit-encryption-key")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want unsafe DATA_DIR rejection")
+	}
+}
+
 func TestLoadExplicitDefaultDatabaseDSNRemainsExternal(t *testing.T) {
 	clearEnvironment(t)
 	t.Setenv("AUTH_KEY", "test-auth-key")

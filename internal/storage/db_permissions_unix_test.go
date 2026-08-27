@@ -13,15 +13,13 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/securefile"
 )
 
 func TestOpenWithSourceManagedHardensSQLiteRecoverySet(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "managed")
-	if err := os.Mkdir(dataDir, 0o777); err != nil {
-		t.Fatalf("create managed directory: %v", err)
-	}
-	if err := os.Chmod(dataDir, 0o777); err != nil {
-		t.Fatalf("widen managed directory: %v", err)
+	if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
+		t.Fatalf("prepare managed directory at startup: %v", err)
 	}
 	databasePath := filepath.Join(dataDir, "ordinary.db")
 	if err := os.WriteFile(databasePath, nil, 0o666); err != nil {
@@ -44,6 +42,9 @@ func TestOpenWithSourceManagedHardensSQLiteRecoverySet(t *testing.T) {
 
 func TestOpenWithSourceManagedLocatesFileURIAndQueryRecoverySet(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "managed uri")
+	if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
+		t.Fatalf("prepare managed directory at startup: %v", err)
+	}
 	databasePath := filepath.Join(dataDir, "uri database.db")
 	dsn := (&url.URL{Scheme: "file", Path: databasePath}).String() +
 		"?cache=shared&_pragma=synchronous(NORMAL)"
@@ -57,11 +58,8 @@ func TestOpenWithSourceManagedLocatesFileURIAndQueryRecoverySet(t *testing.T) {
 
 func TestOpenWithSourceManagedTreatsOrdinaryModeMemoryQueryAsFileBacked(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "ordinary-mode-memory")
-	if err := os.Mkdir(dataDir, 0o777); err != nil {
-		t.Fatalf("create managed directory: %v", err)
-	}
-	if err := os.Chmod(dataDir, 0o777); err != nil {
-		t.Fatalf("widen managed directory: %v", err)
+	if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
+		t.Fatalf("prepare managed directory at startup: %v", err)
 	}
 	databasePath := filepath.Join(dataDir, "ordinary.db")
 

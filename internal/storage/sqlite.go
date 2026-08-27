@@ -36,7 +36,7 @@ func openSQLite(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
 	switch source {
 	case config.DatabaseSourceManaged:
 		if target.fileBacked {
-			if err := secureManagedSQLiteTarget(target); err != nil {
+			if err := hardenSQLiteRecoverySet(target); err != nil {
 				return nil, err
 			}
 		}
@@ -246,13 +246,6 @@ func parseSQLiteTarget(dsn string) (sqliteTarget, error) {
 		databasePath: databasePath,
 		directory:    directory,
 	}, nil
-}
-
-func secureManagedSQLiteTarget(target sqliteTarget) error {
-	if err := securefile.PrepareManagedDataDir(target.directory); err != nil {
-		return fmt.Errorf("secure managed SQLite directory: %w", err)
-	}
-	return hardenSQLiteRecoverySet(target)
 }
 
 func hardenSQLiteRecoverySet(target sqliteTarget) error {

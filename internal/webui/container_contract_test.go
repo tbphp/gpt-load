@@ -403,13 +403,19 @@ func TestComposeBindsLoopbackAndConfiguresContainerAllInterfaces(t *testing.T) {
 	}
 }
 
-func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testing.T) {
+func TestComposeProjectsKeepIndependentNamesAndUseProjectDataDirectories(t *testing.T) {
 	t.Setenv("HOST", "")
 	t.Setenv("BIND_ADDRESS", "")
 	t.Setenv("OAUTH_CALLBACK_BIND_ADDRESS", "")
 	t.Setenv("PORT", "")
+	t.Setenv("DATA_DIR", "")
 
 	projectDir := t.TempDir()
+	resolvedProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		t.Fatalf("resolve temporary Compose project directory: %v", err)
+	}
+	projectDataDir := filepath.Join(resolvedProjectDir, "data")
 	if err := os.WriteFile(
 		filepath.Join(projectDir, "docker-compose.yml"),
 		[]byte(readRepositoryFile(t, "docker-compose.yml")),
@@ -430,10 +436,12 @@ func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testin
 				Published string `json:"published"`
 				HostIP    string `json:"host_ip"`
 			} `json:"ports"`
+			Volumes []struct {
+				Type   string `json:"type"`
+				Source string `json:"source"`
+				Target string `json:"target"`
+			} `json:"volumes"`
 		} `json:"services"`
-		Volumes map[string]struct {
-			Name string `json:"name"`
-		} `json:"volumes"`
 	}
 
 	render := func(projectName, publishedPort string) composeConfig {
@@ -489,18 +497,19 @@ func TestComposeProjectsHaveIndependentNamesApplicationPortsAndVolumes(t *testin
 			service.Ports[3].HostIP != "127.0.0.1" {
 			t.Fatalf("resolved project %s ports = %#v", item.projectName, service.Ports)
 		}
-		wantVolume := item.projectName + "_gpt-load-data"
-		if got := item.config.Volumes["gpt-load-data"].Name; got != wantVolume {
-			t.Fatalf("resolved project %s volume = %q, want %q", item.projectName, got, wantVolume)
+		if len(service.Volumes) != 1 {
+			t.Fatalf("resolved project %s volume count = %d, want 1", item.projectName, len(service.Volumes))
 		}
-	}
-	if first.Volumes["gpt-load-data"].Name == second.Volumes["gpt-load-data"].Name {
-		t.Fatal("different Compose projects resolve the same named volume")
+		volume := service.Volumes[0]
+		if volume.Type != "bind" || volume.Source != projectDataDir || volume.Target != "/app/data" {
+			t.Fatalf("resolved project %s volume = %#v, want project data bind mount", item.projectName, volume)
+		}
 	}
 }
 
-func TestComposeResolvesNamedVolumeContainerPathsAndBetaChannelImage(t *testing.T) {
-	t.Setenv("DATA_DIR", "/host/path/must-not-reach-container")
+func TestComposeResolvesConfiguredDataDirBindMountAndBetaChannelImage(t *testing.T) {
+	hostDataDir := filepath.Join(t.TempDir(), "data")
+	t.Setenv("DATA_DIR", hostDataDir)
 	t.Setenv("DATABASE_DSN", "/host/database/must-not-reach-container.db")
 
 	projectDir := t.TempDir()
@@ -569,11 +578,11 @@ func TestComposeResolvesNamedVolumeContainerPathsAndBetaChannelImage(t *testing.
 		t.Fatalf("resolved volume count = %d, want 1", len(service.Volumes))
 	}
 	volume := service.Volumes[0]
-	if volume.Type != "volume" || volume.Source != "gpt-load-data" || volume.Target != "/app/data" {
-		t.Fatalf("resolved volume = %#v, want named gpt-load-data mounted at /app/data", volume)
+	if volume.Type != "bind" || volume.Source != hostDataDir || volume.Target != "/app/data" {
+		t.Fatalf("resolved volume = %#v, want configured DATA_DIR bind-mounted at /app/data", volume)
 	}
-	if _, ok := resolved.Volumes["gpt-load-data"]; !ok {
-		t.Fatal("resolved Compose lacks top-level gpt-load-data volume")
+	if len(resolved.Volumes) != 0 {
+		t.Fatalf("resolved Compose top-level volumes = %#v, want none", resolved.Volumes)
 	}
 	for _, volume := range service.Volumes {
 		if strings.Contains(volume.Source, "docker.sock") ||

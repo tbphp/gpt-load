@@ -188,7 +188,9 @@ Anthropic clients use `/v1/messages` and Gemini clients use `/v1beta/models/...`
 
 ## Deployment and data
 
-Docker Compose uses application-managed SQLite by default. Data lives in the `gpt-load-data` named volume and includes the database, `auth.key`, and `encryption.key`.
+Docker Compose uses application-managed SQLite by default. Data lives in the host `DATA_DIR` (default `./data`), mounted at `/app/data`, and includes the database, `auth.key`, and `encryption.key`. The service creates and validates this directory during startup.
+
+> If you previously used the `gpt-load-data` named volume, migrate its contents into `DATA_DIR` before updating. Keep the database and `encryption.key` together.
 
 > [!IMPORTANT]
 > `encryption.key` decrypts channel credentials. When backing up or migrating, the database and the key **must be kept together**. Once the key is lost or replaced, existing encrypted credentials cannot be recovered, and this version does not support master key rotation.
@@ -219,7 +221,6 @@ Download the build for your platform from [GitHub Releases](https://github.com/t
 
 ```bash
 chmod +x ./gpt-load-linux-amd64
-mkdir -p ./data
 
 HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 ```
