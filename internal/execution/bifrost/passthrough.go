@@ -344,7 +344,7 @@ func (r *Runtime) executeNative(
 				cancelCall()
 				return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "execution runtime changed response status")
 			}
-			limit := r.maxUnaryResponseBodyBytes
+			limit := r.unaryResponseBodyLimit(spec)
 			if status < http.StatusOK || status >= http.StatusMultipleChoices {
 				limit = min(limit, int64(maxStreamErrorEvidenceBytes))
 			}
@@ -365,7 +365,10 @@ func (r *Runtime) executeNative(
 	}
 
 complete:
-	bodyBytes := bytes.Clone(body.Bytes())
+	bodyBytes := body.Bytes()
+	if spec.ClientProtocol != protocol.OpenAIImages {
+		bodyBytes = bytes.Clone(bodyBytes)
+	}
 	if headers.Get("Content-Encoding") == "" && looksLikeEncodedResponse(bodyBytes) {
 		return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "encoded upstream response cannot be safely forwarded")
 	}
@@ -513,7 +516,7 @@ func (r *Runtime) executeNativeStream(
 	model := spec.UpstreamModel
 	var usageEvidence *execution.UsageEvidence
 	var errorBody bytes.Buffer
-	firstEventGate := &nativeFirstSSEEventGate{}
+	firstEventGate := newNativeFirstSSEEventGate(spec)
 	aliasRewriter := newNativeAliasSSERewriter(spec)
 	idleTimer := newIdleTimer(spec.Timeouts.StreamIdle)
 	defer idleTimer.stop()

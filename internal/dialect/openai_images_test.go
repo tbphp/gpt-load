@@ -140,7 +140,11 @@ func TestOpenAIImagesStreamLifecycle(t *testing.T) {
 		{name: "edit partial", event: StreamEvent{Payload: []byte(`{"type":"image_edit.partial_image","b64_json":"AA=="}`)}},
 		{name: "generation completed", event: StreamEvent{Name: "image_generation.completed", Payload: []byte(`{"type":"image_generation.completed","b64_json":"AA=="}`)}, disposition: StreamEventCompleted},
 		{name: "edit completed", event: StreamEvent{Payload: []byte(`{"type":"image_edit.completed","b64_json":"AA=="}`)}, disposition: StreamEventCompleted},
+		{name: "completed with error", event: StreamEvent{Payload: []byte(`{"type":"image_generation.completed","error":{"message":"failed"}}`)}, disposition: StreamEventFailed},
+		{name: "completed with null error", event: StreamEvent{Payload: []byte(`{"type":"image_generation.completed","error":null}`)}, disposition: StreamEventCompleted},
+		{name: "completed with empty error", event: StreamEvent{Payload: []byte(`{"type":"image_generation.completed","error":{}}`)}, disposition: StreamEventCompleted},
 		{name: "error event", event: StreamEvent{Payload: []byte(`{"type":"error","error":{"message":"failed"}}`)}, disposition: StreamEventFailed},
+		{name: "null event", event: StreamEvent{Payload: []byte(`null`)}, wantError: true},
 		{name: "name conflict", event: StreamEvent{Name: "image_generation.completed", Payload: []byte(`{"type":"image_edit.completed"}`)}, wantError: true},
 	}
 	for _, test := range tests {

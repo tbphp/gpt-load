@@ -160,6 +160,12 @@ func (d *OpenAIImages) SanitizeRequestForAttempt(
 		return nil, err
 	}
 	clone.Body = body
+	if clone.Header == nil {
+		clone.Header = make(http.Header)
+	}
+	if strings.TrimSpace(clone.Header.Get("Content-Type")) == "" {
+		clone.Header.Set("Content-Type", "application/json")
+	}
 	return clone, nil
 }
 
@@ -175,14 +181,21 @@ func (*OpenAIImages) RequiresTerminalEvent() bool {
 }
 
 func (*OpenAIImages) ClassifyStreamEvent(event StreamEvent) (StreamEventClassification, error) {
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &object); err != nil || object == nil {
+	payload := bytes.TrimSpace(event.Payload)
+	if bytes.Equal(payload, []byte("null")) {
+		return StreamEventClassification{}, fmt.Errorf("decode OpenAI Images stream event")
+	}
+	var object struct {
+		Type  json.RawMessage `json:"type"`
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(payload, &object); err != nil {
 		return StreamEventClassification{}, fmt.Errorf("decode OpenAI Images stream event")
 	}
 
 	payloadType := ""
-	if raw, exists := object["type"]; exists {
-		if err := json.Unmarshal(raw, &payloadType); err != nil || payloadType == "" {
+	if len(bytes.TrimSpace(object.Type)) > 0 {
+		if err := json.Unmarshal(object.Type, &payloadType); err != nil || payloadType == "" {
 			return StreamEventClassification{}, fmt.Errorf("decode OpenAI Images stream event type")
 		}
 	}
@@ -197,17 +210,14 @@ func (*OpenAIImages) ClassifyStreamEvent(event StreamEvent) (StreamEventClassifi
 	if eventType == "" {
 		eventType = payloadType
 	}
+	if meaningfulJSONValue(object.Error) {
+		return StreamEventClassification{Disposition: StreamEventFailed}, nil
+	}
 	switch eventType {
 	case "image_generation.completed", "image_edit.completed":
 		return StreamEventClassification{Disposition: StreamEventCompleted}, nil
 	case "image_generation.failed", "image_edit.failed", "error":
 		return StreamEventClassification{Disposition: StreamEventFailed}, nil
-	}
-	if raw, exists := object["error"]; exists {
-		value := bytes.TrimSpace(raw)
-		if len(value) > 0 && !bytes.Equal(value, []byte("null")) {
-			return StreamEventClassification{Disposition: StreamEventFailed}, nil
-		}
 	}
 	return StreamEventClassification{Disposition: StreamEventContinue}, nil
 }

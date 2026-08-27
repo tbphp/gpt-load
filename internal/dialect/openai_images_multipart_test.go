@@ -120,6 +120,34 @@ func TestOpenAIImagesMultipartInspectAndRewrite(t *testing.T) {
 	}
 }
 
+func TestOpenAIImagesMultipartRejectsRebuiltBodyAboveLimit(t *testing.T) {
+	body, contentType := buildMultipartForTest(t, []multipartTestPart{
+		{
+			header: textproto.MIMEHeader{
+				"Content-Disposition": {`form-data; name="model"`},
+			},
+			body: "public-image",
+		},
+		{
+			header: textproto.MIMEHeader{
+				"Content-Disposition": {`form-data; name="image"; filename="source.png"`},
+				"Content-Type":        {"image/png"},
+			},
+			body: "image-bytes",
+		},
+	})
+	forceStream := true
+	_, err := processOpenAIImagesMultipartWithOptionsAndLimit(
+		body,
+		contentType,
+		openAIImagesMultipartOptions{forceStream: &forceStream},
+		len(body)+1,
+	)
+	if err == nil || !strings.Contains(err.Error(), "rebuilt multipart body exceeds limit") {
+		t.Fatalf("processOpenAIImagesMultipartWithOptionsAndLimit() error = %v", err)
+	}
+}
+
 func TestOpenAIImagesMultipartValidation(t *testing.T) {
 	t.Parallel()
 

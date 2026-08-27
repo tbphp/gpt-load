@@ -1160,7 +1160,10 @@ func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSp
 	bifrostContext := schemas.NewBifrostContext(parent, schemas.NoDeadline)
 	bifrostContext.SetValue(schemas.BifrostContextKeyRequestID, spec.RequestID)
 	bifrostContext.SetValue(schemas.BifrostContextKeyDirectKey, directKey)
-	bifrostContext.SetValue(schemas.BifrostContextKeyLargeResponseThreshold, r.maxUnaryResponseBodyBytes)
+	bifrostContext.SetValue(
+		schemas.BifrostContextKeyLargeResponseThreshold,
+		r.unaryResponseBodyLimit(spec),
+	)
 	if spec.Operation == execution.OperationChatCompletion &&
 		r.providerKind(spec) == channel.ProviderDeepSeek &&
 		spec.ClientProtocol == protocol.Anthropic {

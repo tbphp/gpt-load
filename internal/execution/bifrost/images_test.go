@@ -95,6 +95,69 @@ func TestOpenAIImagesCompatibleUsesCompletePrefixAndSanitizesGeneration(t *testi
 	}
 }
 
+func TestOpenAIImagesJSONAddsMissingContentType(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("Content-Type = %q, want application/json", got)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"created":1,"data":[{"b64_json":"AA=="}]}`)
+	}))
+	defer server.Close()
+
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
+	spec := openAIImagesSpec(
+		channel.OpenAICompatible,
+		server.URL+"/v1",
+		execution.OperationImagesGenerate,
+		"/v1/images/generations",
+		"",
+		[]byte(`{"model":"public-image","prompt":"draw"}`),
+	)
+	result := runtime.Execute(context.Background(), spec)
+	if err := result.Validate(); err != nil || result.Error != nil || result.StatusCode != http.StatusOK {
+		t.Fatalf("result = %+v, validation=%v", result, err)
+	}
+}
+
+func TestOpenAIImagesUnaryAllowsBodyAboveDefaultLimit(t *testing.T) {
+	prefix := []byte(`{"created":1,"data":[{"b64_json":"`)
+	suffix := []byte(`"}]}`)
+	body := make([]byte, 0, int(defaultMaxUnaryResponseBodyBytes)+1+len(prefix)+len(suffix))
+	body = append(body, prefix...)
+	body = append(body, bytes.Repeat([]byte{'A'}, int(defaultMaxUnaryResponseBodyBytes)+1)...)
+	body = append(body, suffix...)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write(body)
+	}))
+	defer server.Close()
+
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
+	spec := openAIImagesSpec(
+		channel.OpenAICompatible,
+		server.URL+"/v1",
+		execution.OperationImagesGenerate,
+		"/v1/images/generations",
+		"application/json",
+		[]byte(`{"model":"public-image","prompt":"draw"}`),
+	)
+	spec.Timeouts = execution.AttemptTimeouts{
+		FirstByte:  10 * time.Second,
+		Request:    30 * time.Second,
+		StreamIdle: 10 * time.Second,
+	}
+	result := runtime.Execute(context.Background(), spec)
+	if err := result.Validate(); err != nil || result.Error != nil || result.StatusCode != http.StatusOK {
+		t.Fatalf("result = %+v, validation=%v", result, err)
+	}
+	if !bytes.Equal(result.Body, body) {
+		t.Fatalf("result body length = %d, want %d", len(result.Body), len(body))
+	}
+}
+
 func TestOpenAIImagesMultipartEditPreservesDataAndRemovesControlParts(t *testing.T) {
 	t.Parallel()
 

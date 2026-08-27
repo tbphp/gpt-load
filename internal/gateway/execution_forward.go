@@ -108,7 +108,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		input.Group.HeaderRules,
 		input.CredentialSecrets...,
 	)
-	streamBuffer := newSSEEventObservationBuffer(func(
+	streamBuffer := newSSEEventObservationBuffer(execution.SSEEventLimit(input.ClientProtocol), func(
 		event dialect.StreamEvent,
 		genericProviderError bool,
 	) (bool, error) {
@@ -703,8 +703,16 @@ func upstreamFromExecutionResult(
 		upstream.AppliedReasoning = result.AppliedReasoning.Clone()
 	}
 	upstream.UpstreamProtocol = result.UpstreamProtocol
-	upstream.Body = append([]byte(nil), result.Body...)
-	upstream.ClassificationBody = append([]byte(nil), result.Body...)
+	if input.ClientProtocol == protocol.OpenAIImages {
+		// AttemptResult owns Body after the executor returns. The buffered Images
+		// representation consumes it synchronously, so move that ownership across
+		// the internal boundary instead of cloning a large base64 payload twice.
+		upstream.Body = result.Body
+		upstream.ClassificationBody = result.Body
+	} else {
+		upstream.Body = append([]byte(nil), result.Body...)
+		upstream.ClassificationBody = append([]byte(nil), result.Body...)
+	}
 	if !result.ResponseStarted && result.Error != nil {
 		upstream.Err = executionFailureError(ctx, result.Error)
 	}

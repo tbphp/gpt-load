@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
@@ -43,7 +44,8 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	wire []byte,
 	secrets []string,
 ) (preparedSuccessRepresentation, error) {
-	if int64(len(wire)) > maxNonStreamingResponseBodyBytes {
+	bodyLimit := execution.UnaryResponseBodyLimit(input.ClientProtocol)
+	if int64(len(wire)) > bodyLimit {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("wire body exceeds limit")
 	}
 
@@ -53,26 +55,35 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	if err != nil {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("unsupported or malformed Content-Encoding")
 	}
-	originalPlain, err := contentcoding.DecodeLimited(
-		encoding,
-		wire,
-		maxNonStreamingResponseBodyBytes,
-	)
-	if err != nil {
-		return preparedSuccessRepresentation{}, successRepresentationProtocolError("decompress response body")
+	imagesRepresentation := input.ClientProtocol == protocol.OpenAIImages
+	var originalPlain []byte
+	if imagesRepresentation && encoding == contentcoding.Identity {
+		// The buffered attempt result owns wire for the duration of this terminal
+		// representation step. Keep the identity bytes instead of copying a large
+		// base64 payload before exact credential inspection.
+		originalPlain = wire
+	} else {
+		originalPlain, err = contentcoding.DecodeLimited(
+			encoding,
+			wire,
+			bodyLimit,
+		)
+		if err != nil {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError("decompress response body")
+		}
 	}
 	modelTracker := newResponseModelTracker(input.Dialect, input.UpstreamModelID)
 	modelTracker.observe(originalPlain)
 
 	var safePlain []byte
-	if input.ClientProtocol == protocol.OpenAIImages {
+	if imagesRepresentation {
 		if credentialLiteralsRemain(originalPlain, secrets) {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
 		}
-		safePlain = bytes.Clone(originalPlain)
+		safePlain = originalPlain
 	} else {
 		patternSafePlain := forwarder.redactor.Bytes(originalPlain)
-		if int64(len(patternSafePlain)) > maxNonStreamingResponseBodyBytes {
+		if int64(len(patternSafePlain)) > bodyLimit {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("redacted response body exceeds limit")
 		}
 		var residualCredential bool
@@ -80,7 +91,7 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		safePlain, residualCredential, ok = redactCredentialLiterals(
 			patternSafePlain,
 			secrets,
-			maxNonStreamingResponseBodyBytes,
+			bodyLimit,
 		)
 		if !ok {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("redact response body")
@@ -90,7 +101,10 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		}
 	}
 
-	inspectablePlain := bytes.Clone(safePlain)
+	inspectablePlain := safePlain
+	if !imagesRepresentation {
+		inspectablePlain = bytes.Clone(safePlain)
+	}
 	downstreamPlain := safePlain
 	if needsModelRewrite(input) {
 		rewriter, supported := input.Dialect.(dialect.ModelRewriter)
@@ -101,7 +115,7 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		if err != nil {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("rewrite response model")
 		}
-		if int64(len(downstreamPlain)) > maxNonStreamingResponseBodyBytes {
+		if int64(len(downstreamPlain)) > bodyLimit {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("rewritten response body exceeds limit")
 		}
 		if credentialLiteralsRemain(downstreamPlain, secrets) {

@@ -306,6 +306,51 @@ func TestExecutionForwarderCommitsSuccessfulStreamOnlyOnFirstData(t *testing.T) 
 	}
 }
 
+func TestExecutionForwarderAllowsImagesEventAboveDefaultLimit(t *testing.T) {
+	partial := "event: image_generation.partial_image\n" +
+		"data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"" +
+		strings.Repeat("A", maxSSEEventBytes+1) + "\"}\n\n"
+	completed := "event: image_generation.completed\n" +
+		"data: {\"type\":\"image_generation.completed\",\"b64_json\":\"AA==\"}\n\n"
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		for _, event := range []execution.StreamEvent{
+			{
+				Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+				Header: http.Header{"Content-Type": {"text/event-stream"}},
+			},
+			{Sequence: 2, Kind: execution.StreamEventData, Data: []byte(partial)},
+			{Sequence: 3, Kind: execution.StreamEventData, Data: []byte(completed)},
+		} {
+			if err := sink(event); err != nil {
+				t.Fatalf("stream sink: %v", err)
+			}
+		}
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}
+	}}
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIImages()
+	input.ClientProtocol = protocol.OpenAIImages
+	input.Operation = execution.OperationImagesGenerate
+	input.Request.Path = "/v1/images/generations"
+	input.Request.RawQuery = ""
+	input.Request.Body = []byte(`{"model":"public","stream":true}`)
+	recorder := httptest.NewRecorder()
+	result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
+	if result.Err != nil || !result.Committed || result.Stream.EndReason != StreamEndCleanEOF {
+		t.Fatalf("ForwardStream() = %#v", result)
+	}
+	if !bytes.Equal(recorder.Body.Bytes(), []byte(partial+completed)) {
+		t.Fatalf("stream body length = %d, want %d", recorder.Body.Len(), len(partial)+len(completed))
+	}
+}
+
 func TestExecutionForwarderIgnoresOpenAIDoneForUsageCapture(t *testing.T) {
 	executor := fakeExecutionExecutor{stream: func(
 		_ context.Context,

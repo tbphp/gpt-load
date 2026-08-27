@@ -64,7 +64,24 @@ func processOpenAIImagesMultipartWithOptions(
 	contentType string,
 	options openAIImagesMultipartOptions,
 ) (openAIImagesMultipartResult, error) {
-	if len(body) > maxOpenAIImagesMultipartBodyBytes {
+	return processOpenAIImagesMultipartWithOptionsAndLimit(
+		body,
+		contentType,
+		options,
+		maxOpenAIImagesMultipartBodyBytes,
+	)
+}
+
+func processOpenAIImagesMultipartWithOptionsAndLimit(
+	body []byte,
+	contentType string,
+	options openAIImagesMultipartOptions,
+	maxBodyBytes int,
+) (openAIImagesMultipartResult, error) {
+	if maxBodyBytes <= 0 {
+		return openAIImagesMultipartResult{}, fmt.Errorf("multipart body limit must be positive")
+	}
+	if len(body) > maxBodyBytes {
 		return openAIImagesMultipartResult{}, fmt.Errorf("multipart body exceeds limit")
 	}
 	mediaType, parameters, err := mime.ParseMediaType(contentType)
@@ -208,7 +225,10 @@ func processOpenAIImagesMultipartWithOptions(
 		if err := writer.Close(); err != nil {
 			return openAIImagesMultipartResult{}, fmt.Errorf("close rebuilt multipart body: %w", err)
 		}
-		result.body = bytes.Clone(output.Bytes())
+		if output.Len() > maxBodyBytes {
+			return openAIImagesMultipartResult{}, fmt.Errorf("rebuilt multipart body exceeds limit")
+		}
+		result.body = output.Bytes()
 		result.contentType = writer.FormDataContentType()
 	}
 	return result, nil
@@ -281,11 +301,12 @@ func cloneImagesMIMEHeader(source textproto.MIMEHeader) textproto.MIMEHeader {
 }
 
 func applyRebuiltImagesMultipart(request *ParsedRequest, result openAIImagesMultipartResult) (*ParsedRequest, error) {
-	clone, err := cloneParsedRequest(request)
-	if err != nil {
-		return nil, err
+	if request == nil {
+		return nil, fmt.Errorf("parsed request is required")
 	}
-	clone.Body = bytes.Clone(result.body)
+	clone := *request
+	clone.Header = request.Header.Clone()
+	clone.Body = result.body
 	if clone.Header == nil {
 		clone.Header = make(http.Header)
 	}
@@ -294,5 +315,5 @@ func applyRebuiltImagesMultipart(request *ParsedRequest, result openAIImagesMult
 	}
 	clone.Header.Set("Content-Type", result.contentType)
 	clone.Header.Set("Content-Length", strconv.Itoa(len(clone.Body)))
-	return clone, nil
+	return &clone, nil
 }

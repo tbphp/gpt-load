@@ -69,14 +69,19 @@ type streamEventObserver struct {
 type sseEventObservationBuffer struct {
 	pending         []byte
 	pendingTerminal bool
+	maxEventBytes   int
 	scanner         sseRewriteBoundaryScanner
 	observe         func(dialect.StreamEvent, bool) (bool, error)
 }
 
 func newSSEEventObservationBuffer(
+	maxEventBytes int,
 	observe func(dialect.StreamEvent, bool) (bool, error),
 ) *sseEventObservationBuffer {
-	return &sseEventObservationBuffer{observe: observe}
+	return &sseEventObservationBuffer{
+		maxEventBytes: normalizedSSEEventLimit(maxEventBytes),
+		observe:       observe,
+	}
 }
 
 func (buffer *sseEventObservationBuffer) push(chunk []byte) (bool, error) {
@@ -90,6 +95,7 @@ func (buffer *sseEventObservationBuffer) push(chunk []byte) (bool, error) {
 		optionalLF, overflow := buffer.scanner.ConsumeOptionalLineFeed(
 			buffer.pending,
 			false,
+			buffer.maxEventBytes,
 		)
 		if overflow {
 			return false, errSSEEventTooLarge
@@ -105,12 +111,12 @@ func (buffer *sseEventObservationBuffer) push(chunk []byte) (bool, error) {
 
 		eventEnd, complete := buffer.scanner.Find(buffer.pending)
 		if !complete {
-			if len(buffer.pending) > maxSSEEventBytes {
+			if len(buffer.pending) > buffer.maxEventBytes {
 				return false, errSSEEventTooLarge
 			}
 			return terminal, nil
 		}
-		if eventEnd > maxSSEEventBytes {
+		if eventEnd > buffer.maxEventBytes {
 			return false, errSSEEventTooLarge
 		}
 
@@ -160,6 +166,7 @@ func (buffer *sseEventObservationBuffer) finish() error {
 	optionalLF, overflow := buffer.scanner.ConsumeOptionalLineFeed(
 		buffer.pending,
 		true,
+		buffer.maxEventBytes,
 	)
 	if overflow {
 		return errSSEEventTooLarge
