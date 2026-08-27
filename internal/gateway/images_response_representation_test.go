@@ -44,7 +44,7 @@ func TestImagesSuccessRepresentationPreservesSignedURL(t *testing.T) {
 func TestImagesSuccessRepresentationFailsClosedOnKnownCredential(t *testing.T) {
 	t.Parallel()
 
-	const secret = "sk-image-upstream-secret"
+	const secret = "A"
 	body := []byte(`{"created":1,"data":[{"revised_prompt":"` + secret + `"}]}`)
 	_, err := (&responseProcessor{redactor: redact.New()}).prepareSuccessRepresentation(
 		ForwardInput{
@@ -61,6 +61,38 @@ func TestImagesSuccessRepresentationFailsClosedOnKnownCredential(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("prepareSuccessRepresentation() error = nil, want fail closed")
+	}
+}
+
+func TestImagesSuccessRepresentationIgnoresCredentialCollisionInMediaAndStructure(t *testing.T) {
+	t.Parallel()
+
+	secrets := []string{"A", "data", "1"}
+	body := []byte(`{"created":1,"model":"provider","data":[{"b64_json":"AAAA","url":"https://cdn.example/image"}]}`)
+	prepared, err := (&responseProcessor{redactor: redact.New()}).prepareSuccessRepresentation(
+		ForwardInput{
+			Dialect:         dialect.NewOpenAIImages(),
+			ClientProtocol:  protocol.OpenAIImages,
+			Operation:       execution.OperationImagesGenerate,
+			ExternalModel:   "public",
+			UpstreamModelID: "provider",
+		},
+		http.StatusOK,
+		http.Header{"Content-Type": {"application/json"}},
+		body,
+		secrets,
+	)
+	if err != nil {
+		t.Fatalf("prepareSuccessRepresentation() error = %v", err)
+	}
+	for _, value := range [][]byte{
+		[]byte(`"model":"public"`),
+		[]byte(`"b64_json":"AAAA"`),
+		[]byte(`"url":"https://cdn.example/image"`),
+	} {
+		if !bytes.Contains(prepared.downstream, value) {
+			t.Fatalf("downstream body = %s, want %s", prepared.downstream, value)
+		}
 	}
 }
 

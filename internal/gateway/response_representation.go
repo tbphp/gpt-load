@@ -77,7 +77,7 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 
 	var safePlain []byte
 	if imagesRepresentation {
-		if credentialLiteralsRemain(originalPlain, secrets) {
+		if imagesCredentialLiteralsRemain(originalPlain, secrets) {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
 		}
 		safePlain = originalPlain
@@ -118,7 +118,13 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		if int64(len(downstreamPlain)) > bodyLimit {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("rewritten response body exceeds limit")
 		}
-		if credentialLiteralsRemain(downstreamPlain, secrets) {
+		var credentialRemains bool
+		if imagesRepresentation {
+			credentialRemains = imagesCredentialLiteralsRemain(downstreamPlain, secrets)
+		} else {
+			credentialRemains = credentialLiteralsRemain(downstreamPlain, secrets)
+		}
+		if credentialRemains {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains after model rewrite")
 		}
 	}
@@ -592,6 +598,50 @@ func credentialLiteralsRemain(body []byte, secrets []string) bool {
 		return credentialLiteralRemains(string(body), replacers.residual)
 	}
 	return jsonCredentialLiteralsRemain(value, replacers.residual)
+}
+
+func imagesCredentialLiteralsRemain(body []byte, secrets []string) bool {
+	replacers, exists := newCredentialLiteralReplacers(secrets)
+	if !exists {
+		return false
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return credentialLiteralRemains(string(body), replacers.residual)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return credentialLiteralRemains(string(body), replacers.residual)
+	}
+	return imagesJSONCredentialLiteralsRemain(value, replacers.residual)
+}
+
+func imagesJSONCredentialLiteralsRemain(value any, residual *strings.Replacer) bool {
+	switch typed := value.(type) {
+	case string:
+		return credentialLiteralRemains(typed, residual)
+	case []any:
+		for _, item := range typed {
+			if imagesJSONCredentialLiteralsRemain(item, residual) {
+				return true
+			}
+		}
+	case map[string]any:
+		for key, item := range typed {
+			if key == "b64_json" {
+				if _, isString := item.(string); isString {
+					continue
+				}
+			}
+			if imagesJSONCredentialLiteralsRemain(item, residual) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func jsonCredentialLiteralsRemain(value any, residual *strings.Replacer) bool {
