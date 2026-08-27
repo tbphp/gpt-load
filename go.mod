@@ -18,7 +18,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	go.uber.org/dig v1.19.0
 	golang.org/x/crypto v0.51.0
-	golang.org/x/text v0.37.0
+	golang.org/x/text v0.39.0
 	gorm.io/datatypes v1.2.1
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.0
@@ -58,7 +58,7 @@ require (
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	golang.org/x/arch v0.16.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
