@@ -216,8 +216,21 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 		updates["status"] = models.KeyStatusInvalid
 	}
 	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
-		if err := tx.Model(&models.APIKey{}).Where("id = ?", apiKey.ID).Updates(updates).Error; err != nil {
-			return fmt.Errorf("failed to persist key failure state in DB: %w", err)
+		result := tx.Model(&models.APIKey{}).Where("id = ?", apiKey.ID).Updates(updates)
+		if result.Error != nil {
+			return fmt.Errorf("failed to persist key failure state in DB: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			var existingKeyCount int64
+			if err := tx.Model(&models.APIKey{}).Where("id = ?", apiKey.ID).Count(&existingKeyCount).Error; err != nil {
+				return fmt.Errorf("failed to verify key %d after empty update: %w", apiKey.ID, err)
+			}
+			if existingKeyCount == 0 {
+				if err := p.store.Delete(keyHashKey); err != nil {
+					return fmt.Errorf("failed to clean up deleted key %d from store: %w", apiKey.ID, err)
+				}
+				return nil
+			}
 		}
 
 		if shouldBlacklist {
