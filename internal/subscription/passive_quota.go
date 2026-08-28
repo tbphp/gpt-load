@@ -146,6 +146,10 @@ func (pending *passiveQuotaPending) dirtyObservations(limit int) []PassiveQuotaO
 	return result
 }
 
+// ack clears the dirty flag and drops the cached windows for an exactly
+// matching version. The cache must not survive its own flush: once a field
+// has been persisted, a future response that omits it must not have that
+// stale value merged back in and rewritten over a newer active refresh.
 func (pending *passiveQuotaPending) ack(credentialID uint, version uint64) {
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
@@ -154,6 +158,7 @@ func (pending *passiveQuotaPending) ack(credentialID uint, version uint64) {
 		return
 	}
 	entry.dirty = false
+	entry.windows = nil
 }
 
 // mergeQuotaWindowsByID overlays patches onto previous by window ID, keeping
