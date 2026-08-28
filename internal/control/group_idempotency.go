@@ -137,13 +137,15 @@ func (s *Service) CreateGroupIdempotent(
 			added := 0
 			duplicated := 0
 			if normalized.connectionType == models.ConnectionTypeSubscription {
-				added, err = s.consumeCredentialStages(
+				var duplicatedStageIDs []string
+				added, duplicatedStageIDs, err = s.consumeCredentialStages(
 					tx,
 					group.ID,
 					normalized.channelID,
 					normalized.connectionType,
 					normalized.stagedCredentialIDs,
 				)
+				duplicated = len(duplicatedStageIDs)
 			} else {
 				added, duplicated, err = s.persistCredentials(tx, group.ID, normalized.credentials)
 			}

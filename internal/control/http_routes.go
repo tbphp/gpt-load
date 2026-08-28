@@ -372,6 +372,12 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleImportGroupCredentials,
 			),
 			controlRoute(
+				"control.group-credentials.connect.inspect",
+				http.MethodPost,
+				"/groups/:group_id/credentials/connect/inspect",
+				s.handleInspectGroupCredentialConnection,
+			),
+			controlRoute(
 				"control.group-credentials.connect",
 				http.MethodPost,
 				"/groups/:group_id/credentials/connect",

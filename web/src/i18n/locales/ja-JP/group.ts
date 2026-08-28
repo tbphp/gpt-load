@@ -386,6 +386,8 @@ export default {
         connectSucceeded: '{added} 件のアカウントを接続しました',
         connectDuplicated:
           '{added} 件のアカウントを接続し、既存の {duplicated} 件をスキップしました',
+        connectDuplicatedAccounts:
+          '{added} 件を接続し、次の既存アカウントをスキップしました：{accounts}',
         sync: '同期',
         syncingQuota: 'クォータ情報を同期中',
         searchPlaceholder: 'アカウント、メール、またはマスク',

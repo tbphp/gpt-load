@@ -1316,95 +1316,161 @@ func normalizeCredentialStageIDs(values []string) ([]string, error) {
 	return normalized, nil
 }
 
-// consumeCredentialStages promotes ready subscription credentials and consumes
-// their short-lived stages in the caller's Group-create transaction.
+func (s *Service) loadConsumableCredentialStages(
+	tx *gorm.DB,
+	channelID channel.ID,
+	connectionType models.ConnectionType,
+	stageIDs []string,
+	lock bool,
+) ([]models.CredentialStage, error) {
+	if s == nil || tx == nil || channelID == "" ||
+		connectionType != models.ConnectionTypeSubscription || len(stageIDs) == 0 {
+		return nil, app_errors.ErrValidation
+	}
+	query := tx
+	if lock {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	var stages []models.CredentialStage
+	if err := query.Where("id IN ?", stageIDs).Order("id ASC").Find(&stages).Error; err != nil {
+		return nil, app_errors.ParseDBError(err)
+	}
+	if len(stages) != len(stageIDs) {
+		return nil, app_errors.ErrStagedCredentialNotReady
+	}
+	nowMS := s.now().UnixMilli()
+	for _, stage := range stages {
+		if stage.ChannelID != string(channelID) || stage.ConnectionType != connectionType {
+			return nil, app_errors.ErrStagedCredentialMismatch
+		}
+		switch stage.Status {
+		case models.CredentialStageConsumed:
+			return nil, app_errors.ErrStagedCredentialConsumed
+		case models.CredentialStageReady:
+		default:
+			return nil, app_errors.ErrStagedCredentialNotReady
+		}
+		if nowMS >= stage.ExpiresAtMS {
+			return nil, app_errors.ErrStagedCredentialExpired
+		}
+		if stage.IdentityFingerprint == "" {
+			return nil, app_errors.ErrStagedCredentialMismatch
+		}
+	}
+	return stages, nil
+}
+
+func duplicateCredentialStageIDs(
+	tx *gorm.DB,
+	groupID uint,
+	stages []models.CredentialStage,
+) ([]string, error) {
+	if tx == nil || groupID == 0 || len(stages) == 0 {
+		return nil, app_errors.ErrValidation
+	}
+	identities := make([]string, 0, len(stages))
+	for _, stage := range stages {
+		identities = append(identities, stage.IdentityFingerprint)
+	}
+	var existingIdentities []string
+	if err := tx.Model(&models.Credential{}).
+		Where("group_id = ? AND identity_fingerprint IN ?", groupID, identities).
+		Pluck("identity_fingerprint", &existingIdentities).Error; err != nil {
+		return nil, app_errors.ParseDBError(err)
+	}
+	seen := make(map[string]struct{}, len(existingIdentities)+len(stages))
+	for _, identity := range existingIdentities {
+		seen[identity] = struct{}{}
+	}
+	duplicatedStageIDs := make([]string, 0)
+	for _, stage := range stages {
+		if _, duplicate := seen[stage.IdentityFingerprint]; duplicate {
+			duplicatedStageIDs = append(duplicatedStageIDs, stage.ID)
+			continue
+		}
+		seen[stage.IdentityFingerprint] = struct{}{}
+	}
+	return duplicatedStageIDs, nil
+}
+
+// consumeCredentialStages promotes unique ready subscription credentials and
+// consumes every supplied stage in the caller's transaction. Existing or
+// repeated identities are reported as skipped instead of rejecting the batch.
 func (s *Service) consumeCredentialStages(
 	tx *gorm.DB,
 	groupID uint,
 	channelID channel.ID,
 	connectionType models.ConnectionType,
 	stageIDs []string,
-) (int, error) {
-	if s == nil || s.encryption == nil || tx == nil || groupID == 0 ||
-		connectionType != models.ConnectionTypeSubscription || len(stageIDs) == 0 {
-		return 0, app_errors.ErrValidation
+) (int, []string, error) {
+	if s == nil || s.encryption == nil || tx == nil || groupID == 0 {
+		return 0, nil, app_errors.ErrValidation
 	}
-	var stages []models.CredentialStage
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("id IN ?", stageIDs).Order("id ASC").Find(&stages).Error; err != nil {
-		return 0, app_errors.ParseDBError(err)
+	stages, err := s.loadConsumableCredentialStages(
+		tx, channelID, connectionType, stageIDs, true,
+	)
+	if err != nil {
+		return 0, nil, err
 	}
-	if len(stages) != len(stageIDs) {
-		return 0, app_errors.ErrStagedCredentialNotReady
+	duplicatedStageIDs, err := duplicateCredentialStageIDs(tx, groupID, stages)
+	if err != nil {
+		return 0, nil, err
 	}
-	nowMS := s.now().UnixMilli()
-	identities := make(map[string]struct{}, len(stages))
-	for _, stage := range stages {
-		if stage.ChannelID != string(channelID) || stage.ConnectionType != connectionType {
-			return 0, app_errors.ErrStagedCredentialMismatch
-		}
-		switch stage.Status {
-		case models.CredentialStageConsumed:
-			return 0, app_errors.ErrStagedCredentialConsumed
-		case models.CredentialStageReady:
-		default:
-			return 0, app_errors.ErrStagedCredentialNotReady
-		}
-		if nowMS >= stage.ExpiresAtMS {
-			return 0, app_errors.ErrStagedCredentialExpired
-		}
-		if stage.IdentityFingerprint == "" {
-			return 0, app_errors.ErrStagedCredentialMismatch
-		}
-		if _, duplicate := identities[stage.IdentityFingerprint]; duplicate {
-			return 0, app_errors.ErrDuplicateCredentialIdentity
-		}
-		identities[stage.IdentityFingerprint] = struct{}{}
+	duplicated := make(map[string]struct{}, len(duplicatedStageIDs))
+	for _, stageID := range duplicatedStageIDs {
+		duplicated[stageID] = struct{}{}
 	}
 
+	nowMS := s.now().UnixMilli()
+	added := 0
 	for _, stage := range stages {
 		plaintext, err := s.encryption.Decrypt(stage.EncryptedPayload)
 		if err != nil {
-			return 0, app_errors.ErrStagedCredentialMismatch
+			return 0, nil, app_errors.ErrStagedCredentialMismatch
 		}
 		var payload stagedSubscriptionPayload
 		if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
 			plaintext = ""
-			return 0, app_errors.ErrStagedCredentialMismatch
+			return 0, nil, app_errors.ErrStagedCredentialMismatch
 		}
 		plaintext = ""
 		driver, driverOK := subscriptionsDriver(s.subscriptions, channelID)
 		if !driverOK {
-			return 0, app_errors.ErrStagedCredentialMismatch
+			return 0, nil, app_errors.ErrStagedCredentialMismatch
 		}
 		credential, err := driver.Parse(payload.Credential)
 		if err != nil {
-			return 0, app_errors.ErrStagedCredentialMismatch
+			return 0, nil, app_errors.ErrStagedCredentialMismatch
 		}
 		canonical := credential.Canonical()
 		identity := s.subscriptionIdentityFingerprint(channelID, credential.Identity())
 		if identity != stage.IdentityFingerprint {
 			clear(canonical)
-			return 0, app_errors.ErrStagedCredentialMismatch
+			return 0, nil, app_errors.ErrStagedCredentialMismatch
 		}
-		fingerprint := s.encryption.Hash(string(canonical))
-		ciphertext, err := s.encryption.Encrypt(string(canonical))
-		clear(canonical)
-		if err != nil {
-			return 0, app_errors.ErrInternalServer
-		}
-		row := models.Credential{
-			GroupID: groupID, Data: ciphertext, Fingerprint: fingerprint,
-			IdentityFingerprint: identity, SecretVersion: 1,
-			AuthState: models.CredentialAuthStateReady, Status: models.CredentialStatusActive,
-			CreatedAtMS: nowMS, UpdatedAtMS: nowMS,
-		}
-		if err := tx.Create(&row).Error; err != nil {
-			if app_errors.ParseDBError(err) == app_errors.ErrDuplicateResource {
-				return 0, app_errors.ErrDuplicateCredentialIdentity
+		if _, skip := duplicated[stage.ID]; !skip {
+			fingerprint := s.encryption.Hash(string(canonical))
+			ciphertext, encryptErr := s.encryption.Encrypt(string(canonical))
+			if encryptErr != nil {
+				clear(canonical)
+				return 0, nil, app_errors.ErrInternalServer
 			}
-			return 0, app_errors.ParseDBError(err)
+			row := models.Credential{
+				GroupID: groupID, Data: ciphertext, Fingerprint: fingerprint,
+				IdentityFingerprint: identity, SecretVersion: 1,
+				AuthState: models.CredentialAuthStateReady, Status: models.CredentialStatusActive,
+				CreatedAtMS: nowMS, UpdatedAtMS: nowMS,
+			}
+			if err := tx.Create(&row).Error; err != nil {
+				clear(canonical)
+				if app_errors.ParseDBError(err) == app_errors.ErrDuplicateResource {
+					return 0, nil, app_errors.ErrDuplicateCredentialIdentity
+				}
+				return 0, nil, app_errors.ParseDBError(err)
+			}
+			added++
 		}
+		clear(canonical)
 		result := tx.Model(&models.CredentialStage{}).
 			Where("id = ? AND status = ?", stage.ID, models.CredentialStageReady).
 			Updates(map[string]any{
@@ -1413,13 +1479,13 @@ func (s *Service) consumeCredentialStages(
 				"consumed_group_id": groupID, "updated_at_ms": nowMS,
 			})
 		if result.Error != nil {
-			return 0, app_errors.ParseDBError(result.Error)
+			return 0, nil, app_errors.ParseDBError(result.Error)
 		}
 		if result.RowsAffected != 1 {
-			return 0, app_errors.ErrStagedCredentialConsumed
+			return 0, nil, app_errors.ErrStagedCredentialConsumed
 		}
 	}
-	return len(stages), nil
+	return added, duplicatedStageIDs, nil
 }
 
 func (s *Service) loadCredentialStage(ctx context.Context, stageID string) (models.CredentialStage, error) {

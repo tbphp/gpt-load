@@ -373,6 +373,7 @@ export default {
         connectFailed: '无法将账号添加到当前分组',
         connectSucceeded: '已连接 {added} 个账号',
         connectDuplicated: '已连接 {added} 个账号，跳过 {duplicated} 个已存在的账号',
+        connectDuplicatedAccounts: '已连接 {added} 个账号，已跳过：{accounts}',
         sync: '同步',
         syncingQuota: '正在同步额度信息',
         searchPlaceholder: '账号、邮箱或掩码',

@@ -130,6 +130,8 @@ export default {
         create: 'グループ作成時に書き込まれます',
         connect: '準備完了 — このグループに追加されます',
       },
+      duplicateNotice: 'このグループに既に存在するため、今回はスキップされます',
+      duplicateStatus: '追加済み',
       manualHint:
         'ローカル配置では自動的に完了します。リモート配置でブラウザーから {redirectUri} に到達できない場合は、下のリンクで認証し、ブラウザーが最後に表示した完全な URL を貼り付けてください。',
       deviceInstructions:

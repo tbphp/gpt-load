@@ -133,6 +133,8 @@ export default {
         create: 'Written in when the group is created',
         connect: 'Ready — will join this group',
       },
+      duplicateNotice: 'Already in this group and will be skipped',
+      duplicateStatus: 'Already added',
       manualHint:
         'A local deployment finishes on its own. For a remote deployment where the browser cannot reach {redirectUri}, authorize with the link below and paste back the final browser URL.',
       deviceInstructions:

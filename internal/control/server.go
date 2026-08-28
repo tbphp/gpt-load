@@ -728,6 +728,26 @@ func (s *Server) handleConnectGroupCredentials(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleInspectGroupCredentialConnection(c *gin.Context) {
+	id, ok := groupID(c, "inspect_group_credential_connection")
+	if !ok {
+		return
+	}
+	var request CredentialConnectRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "inspect_group_credential_connection", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.InspectGroupCredentialConnection(
+		c.Request.Context(), id, request.StagedCredentialIDs,
+	)
+	if err != nil {
+		writeServiceError(c, "inspect_group_credential_connection", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleDiscoverGroupModels(c *gin.Context) {
 	id, ok := groupID(c, "discover_group_models")
 	if !ok {
