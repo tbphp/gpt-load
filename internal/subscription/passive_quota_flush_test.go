@@ -77,6 +77,75 @@ func TestFlushPassiveQuotaObservationsUpdatesExistingWindowAndProjectsFreshToReg
 	}
 }
 
+func TestFlushPassiveQuotaObservationsDiscardsSampleOlderThanStoredObservation(t *testing.T) {
+	manager, db, registry, _, row := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	// A newer active observation is already stored: observed at 5000, used 90.
+	if err := manager.db.AutoMigrate(&models.CredentialObservation{}); err != nil {
+		t.Fatal(err)
+	}
+	newer := int64(5000)
+	stored := models.CredentialObservation{
+		CredentialID: row.ID, IdentityFingerprint: "identity", SchemaVersion: 1, ObservationVersion: 2,
+		SnapshotJSON: models.JSON(
+			`{"plan_summary":{},"quota_windows":[{"id":"primary","label":"5h","scope":"account","unit":"percent","state":"available","used":90,"utilization":0.9,"reset_at_ms":1800000000000}]}`,
+		),
+		State: models.CredentialObservationFresh, ObservedAtMS: &newer, UpdatedAtMS: 5000,
+	}
+	if err := manager.db.Create(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := registry.CredentialRef(row.ID)
+	// A passive sample captured before that active refresh completed.
+	oldUsed, oldUtilization := 10.0, 0.1
+	manager.RecordPassiveQuotaObservation(row.ID, ref.IdentityGeneration, 2000, []providerobservation.QuotaWindow{
+		{ID: "primary", Label: "5h", Scope: "account", Unit: "percent", State: "available",
+			Used: &oldUsed, Utilization: &oldUtilization},
+	})
+
+	if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
+		t.Fatalf("FlushPassiveQuotaObservations() error = %v", err)
+	}
+	if dirty := manager.DirtyPassiveQuotaObservations(1); len(dirty) != 0 {
+		t.Fatalf("stale sample was not acknowledged and will retry forever: %#v", dirty)
+	}
+
+	var persisted models.CredentialObservation
+	if err := db.Take(&persisted, "credential_id = ?", row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.ObservedAtMS == nil || *persisted.ObservedAtMS != 5000 {
+		t.Fatalf("observed_at_ms = %#v, want the newer 5000 preserved", persisted.ObservedAtMS)
+	}
+	if !strings.Contains(string(persisted.SnapshotJSON), `"used":90`) {
+		t.Fatalf("snapshot_json = %s, want the newer used:90 preserved", persisted.SnapshotJSON)
+	}
+}
+
+func TestFlushPassiveQuotaObservationsAppliesSampleAtSameObservationTime(t *testing.T) {
+	manager, db, registry, _, row := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	newFlushableCredentialObservation(t, manager, row.ID, models.CredentialObservationFresh,
+		`{"plan_summary":{},"quota_windows":[{"id":"primary","label":"5h","scope":"account","unit":"percent","state":"available","reset_at_ms":1800000000000}]}`,
+	)
+	ref, _ := registry.CredentialRef(row.ID)
+	used, utilization := 42.0, 0.42
+	// newFlushableCredentialObservation stores observed_at_ms = 1000.
+	manager.RecordPassiveQuotaObservation(row.ID, ref.IdentityGeneration, 1000, []providerobservation.QuotaWindow{
+		{ID: "primary", Label: "5h", Scope: "account", Unit: "percent", State: "available",
+			Used: &used, Utilization: &utilization},
+	})
+
+	if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
+		t.Fatalf("FlushPassiveQuotaObservations() error = %v", err)
+	}
+	var persisted models.CredentialObservation
+	if err := db.Take(&persisted, "credential_id = ?", row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(persisted.SnapshotJSON), `"used":42`) {
+		t.Fatalf("snapshot_json = %s, want an equally-timed sample to still merge", persisted.SnapshotJSON)
+	}
+}
+
 func TestFlushPassiveQuotaObservationsSkipsUnknownWindowID(t *testing.T) {
 	manager, db, registry, _, row := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	newFlushableCredentialObservation(t, manager, row.ID, models.CredentialObservationFresh,

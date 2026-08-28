@@ -63,6 +63,15 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 			}
 			return fmt.Errorf("read credential observation %d: %w", observation.CredentialID, err)
 		}
+		if row.ObservedAtMS != nil && observation.ObservedAtMS < *row.ObservedAtMS {
+			// A newer observation -- typically a manual refresh -- was persisted
+			// while this sample sat in the pending map. Writing it now would both
+			// rewind observed_at_ms and overwrite newer quota values with older
+			// ones, so the sample is dropped instead. The updated_at_ms guard
+			// below only catches writes that land after this read.
+			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
+			return nil
+		}
 		encoded, merged, changed, mergeErr := mergePassiveQuotaSnapshot(row.SnapshotJSON, observation.Windows)
 		if mergeErr != nil {
 			// A snapshot this malformed cannot be repaired by retrying the
@@ -98,9 +107,11 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 }
 
 // mergePassiveQuotaSnapshot overlays patches onto the quota_windows array
-// inside a stored snapshot, leaving every other field byte-identical. Only
-// window IDs the snapshot already tracks are updated; an unmatched patch ID
-// is silently ignored so a passive signal never creates a window.
+// inside a stored snapshot, carrying every other field through unchanged by
+// value. The snapshot is decoded and re-encoded, so key order and formatting
+// are not preserved byte-for-byte. Only window IDs the snapshot already
+// tracks are updated; an unmatched patch ID is silently ignored so a passive
+// signal never creates a window.
 func mergePassiveQuotaSnapshot(
 	raw []byte,
 	patches []providerobservation.QuotaWindow,

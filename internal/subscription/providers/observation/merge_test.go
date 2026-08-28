@@ -53,6 +53,36 @@ func TestMergeQuotaWindowAppliesPatchResetAndState(t *testing.T) {
 	}
 }
 
+func TestMergeQuotaWindowKeepsPreviousMetadataWhenPatchOmitsIt(t *testing.T) {
+	previous := QuotaWindow{
+		ID: "primary", Label: "5h", LabelKey: "session", Scope: "account", Unit: "percent",
+		State: "available",
+	}
+	patch := QuotaWindow{ID: "primary", Used: floatPtr(10), Utilization: floatPtr(0.1)}
+
+	merged := MergeQuotaWindow(previous, patch)
+
+	if merged.Label != "5h" || merged.LabelKey != "session" ||
+		merged.Scope != "account" || merged.Unit != "percent" {
+		t.Fatalf("merged metadata = %#v, want previous label/label_key/scope/unit preserved", merged)
+	}
+	if merged.Used == nil || *merged.Used != 10 {
+		t.Fatalf("merged usage = %#v, want the patch value applied", merged.Used)
+	}
+}
+
+func TestMergeQuotaWindowAppliesPatchMetadataWhenPresent(t *testing.T) {
+	previous := QuotaWindow{ID: "primary", Label: "old", LabelKey: "old-key", Scope: "model", Unit: "credits"}
+	patch := QuotaWindow{ID: "primary", Label: "5h", LabelKey: "session", Scope: "account", Unit: "percent"}
+
+	merged := MergeQuotaWindow(previous, patch)
+
+	if merged.Label != "5h" || merged.LabelKey != "session" ||
+		merged.Scope != "account" || merged.Unit != "percent" {
+		t.Fatalf("merged metadata = %#v, want the patch values applied", merged)
+	}
+}
+
 func TestMergeQuotaWindowIgnoresUnknownPatchState(t *testing.T) {
 	previous := QuotaWindow{ID: "primary", State: "exhausted"}
 	patch := QuotaWindow{ID: "primary", State: "unknown"}
