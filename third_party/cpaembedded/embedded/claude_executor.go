@@ -168,11 +168,15 @@ func (e *claudeHTTPExecutor) ExecuteCanonical(
 		SourceFormat: format, ResponseFormat: format,
 	})
 	if err != nil {
-		return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, normalizeClaudeExecutionError(err)
+		return ExecuteResponse{
+			AppliedReasoningEffort: observation.reasoningEffort(),
+			QuotaSignals:           observation.quotaSignalObservation(),
+		}, normalizeClaudeExecutionError(err)
 	}
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: observation.reasoningEffort(),
+		QuotaSignals:           observation.quotaSignalObservation(),
 	}, nil
 }
 
@@ -231,7 +235,10 @@ func (e *claudeHTTPExecutor) ExecuteStreamCanonical(
 		SourceFormat: format, ResponseFormat: format,
 	})
 	if err != nil {
-		return &ExecuteStreamResponse{AppliedReasoningEffort: observation.reasoningEffort()}, normalizeClaudeExecutionError(err)
+		return &ExecuteStreamResponse{
+			AppliedReasoningEffort: observation.reasoningEffort(),
+			QuotaSignals:           observation.quotaSignalObservation(),
+		}, normalizeClaudeExecutionError(err)
 	}
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {
@@ -251,6 +258,7 @@ func (e *claudeHTTPExecutor) ExecuteStreamCanonical(
 	return &ExecuteStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks,
 		AppliedReasoningEffort: observation.reasoningEffort(),
+		QuotaSignals:           observation.quotaSignalObservation(),
 	}, nil
 }
 

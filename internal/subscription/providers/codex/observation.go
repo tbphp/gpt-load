@@ -101,6 +101,93 @@ func NormalizeQuota(primary, details []byte) ([]byte, error) {
 	return json.Marshal(result)
 }
 
+// NormalizePassiveQuotaWindows converts one response's passive quota Header
+// signals into the same account-scope windows NormalizeQuota produces from
+// the active JSON payload, reusing normalizeRateWindows so Label, LabelKey,
+// and State follow one rule regardless of source. Only window IDs with at
+// least one recognized Header are returned; the Header not mentioning a
+// window is not evidence that window disappeared.
+func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Time) []quotaWindow {
+	if len(signals) == 0 {
+		return nil
+	}
+	rate := map[string]any{}
+	if allowed, ok := passiveQuotaBool(signals, "X-Codex-Allowed"); ok {
+		rate["allowed"] = allowed
+	}
+	if reached, ok := passiveQuotaBool(signals, "X-Codex-Limit-Reached"); ok {
+		rate["limit_reached"] = reached
+	}
+	windowPresent := false
+	for _, entry := range []struct{ name, prefix string }{
+		{"primary", "X-Codex-Primary-"},
+		{"secondary", "X-Codex-Secondary-"},
+	} {
+		window := passiveQuotaWindowFields(signals, entry.prefix, observedAt)
+		if len(window) == 0 {
+			continue
+		}
+		rate[entry.name+"_window"] = window
+		windowPresent = true
+	}
+	if !windowPresent {
+		return nil
+	}
+	return normalizeRateWindows(rate, "", "account")
+}
+
+func passiveQuotaWindowFields(signals map[string]string, prefix string, observedAt time.Time) map[string]any {
+	window := map[string]any{}
+	if used, ok := passiveQuotaFloat(signals, prefix+"Used-Percent"); ok {
+		window["used_percent"] = used
+	}
+	if minutes, ok := passiveQuotaInt(signals, prefix+"Window-Minutes"); ok {
+		window["limit_window_seconds"] = float64(minutes * 60)
+	}
+	if resetAt, ok := passiveQuotaInt(signals, prefix+"Reset-At"); ok {
+		window["reset_at"] = float64(resetAt)
+	} else if resetAfter, ok := passiveQuotaInt(signals, prefix+"Reset-After-Seconds"); ok {
+		window["reset_at"] = float64(observedAt.Unix() + resetAfter)
+	}
+	return window
+}
+
+func passiveQuotaFloat(signals map[string]string, key string) (float64, bool) {
+	value, ok := signals[key]
+	if !ok {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return 0, false
+	}
+	return parsed, true
+}
+
+func passiveQuotaInt(signals map[string]string, key string) (int64, bool) {
+	value, ok := signals[key]
+	if !ok {
+		return 0, false
+	}
+	parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
+}
+
+func passiveQuotaBool(signals map[string]string, key string) (bool, bool) {
+	value, ok := signals[key]
+	if !ok {
+		return false, false
+	}
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return false, false
+	}
+	return parsed, true
+}
+
 func normalizeRateWindows(rate map[string]any, prefix, scope string) []quotaWindow {
 	result := make([]quotaWindow, 0, 2)
 	for _, name := range []string{"primary", "secondary"} {

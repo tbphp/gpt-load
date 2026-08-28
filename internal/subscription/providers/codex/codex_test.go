@@ -7,9 +7,42 @@ import (
 	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 )
+
+type fakeQuotaBridge struct {
+	unary  cpaembedded.ExecuteResponse
+	stream *cpaembedded.ExecuteStreamResponse
+}
+
+func (bridge fakeQuotaBridge) ExecuteCanonical(
+	context.Context,
+	string,
+	cpaembedded.CodexCredential,
+	cpaembedded.ExecuteRequest,
+) (cpaembedded.ExecuteResponse, error) {
+	return bridge.unary, nil
+}
+
+func (bridge fakeQuotaBridge) CountTokensCanonical(
+	context.Context,
+	string,
+	cpaembedded.CodexCredential,
+	cpaembedded.ExecuteRequest,
+) (cpaembedded.ExecuteResponse, error) {
+	return bridge.unary, nil
+}
+
+func (bridge fakeQuotaBridge) ExecuteStreamCanonical(
+	context.Context,
+	string,
+	cpaembedded.CodexCredential,
+	cpaembedded.ExecuteRequest,
+) (*cpaembedded.ExecuteStreamResponse, error) {
+	return bridge.stream, nil
+}
 
 type streamErrorBridge struct {
 	response *cpaembedded.ExecuteStreamResponse
@@ -112,6 +145,47 @@ func TestExecutorDoesNotFanOutNilChunksAfterSynchronousStreamError(t *testing.T)
 	if !errors.Is(err, wantErr) || response == nil || response.Chunks != nil ||
 		response.UpstreamRequestPath != "/backend-api/codex/responses" {
 		t.Fatalf("ExecuteStream() = %#v, %v", response, err)
+	}
+}
+
+func TestExecutorPropagatesQuotaSignalsButNotForCountTokens(t *testing.T) {
+	observedAt := time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC)
+	bridge := fakeQuotaBridge{unary: cpaembedded.ExecuteResponse{
+		QuotaSignals: cpaembedded.QuotaSignalObservation{
+			ObservedAt: observedAt,
+			Signals:    map[string]string{"X-Codex-Primary-Used-Percent": "55"},
+		},
+	}}
+	executor := &executor{bridge: bridge}
+
+	execResponse, err := executor.Execute(t.Context(), "credential-1", Credential{}, ExecuteRequest{})
+	if err != nil || !execResponse.QuotaObservedAt.Equal(observedAt) ||
+		execResponse.QuotaSignals["X-Codex-Primary-Used-Percent"] != "55" {
+		t.Fatalf("Execute() quota propagation = %#v, %v", execResponse, err)
+	}
+
+	countResponse, err := executor.CountTokens(t.Context(), "credential-1", Credential{}, ExecuteRequest{})
+	if err != nil || !countResponse.QuotaObservedAt.IsZero() || countResponse.QuotaSignals != nil {
+		t.Fatalf("CountTokens() unexpectedly propagated quota = %#v, %v", countResponse, err)
+	}
+}
+
+func TestExecutorStreamPropagatesQuotaSignals(t *testing.T) {
+	observedAt := time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC)
+	chunks := make(chan cpaembedded.ExecuteStreamChunk)
+	close(chunks)
+	bridge := fakeQuotaBridge{stream: &cpaembedded.ExecuteStreamResponse{
+		Chunks: chunks,
+		QuotaSignals: cpaembedded.QuotaSignalObservation{
+			ObservedAt: observedAt,
+			Signals:    map[string]string{"X-Codex-Primary-Used-Percent": "55"},
+		},
+	}}
+	executor := &executor{bridge: bridge}
+	response, err := executor.ExecuteStream(t.Context(), "credential-1", Credential{}, ExecuteRequest{})
+	if err != nil || response == nil || !response.QuotaObservedAt.Equal(observedAt) ||
+		response.QuotaSignals["X-Codex-Primary-Used-Percent"] != "55" {
+		t.Fatalf("ExecuteStream() quota propagation = %#v, %v", response, err)
 	}
 }
 

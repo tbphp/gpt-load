@@ -178,7 +178,13 @@ func (s *Service) invalidateCredentialObservationAfterReset(
 	previous.NextAllowedAtMS = nil
 	previous.LastErrorCode = ""
 	previous.UpdatedAtMS = s.now().UTC().UnixMilli()
-	if err := s.upsertCredentialObservation(ctx, *previous); err != nil {
+	updates := map[string]any{
+		"state":              previous.State,
+		"next_allowed_at_ms": previous.NextAllowedAtMS,
+		"last_error_code":    previous.LastErrorCode,
+		"updated_at_ms":      previous.UpdatedAtMS,
+	}
+	if err := s.upsertCredentialObservationMetadataOnly(ctx, credential.ID, *previous, updates); err != nil {
 		return nil, err
 	}
 	response := mapCredentialObservation(*previous)

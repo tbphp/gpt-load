@@ -1,0 +1,179 @@
+package subscription
+
+import (
+	"sort"
+	"sync"
+
+	providerobservation "gpt-load/internal/subscription/providers/observation"
+)
+
+// PassiveQuotaObservation is one credential's merged, not-yet-persisted
+// passive quota snapshot, captured from upstream response headers.
+type PassiveQuotaObservation struct {
+	CredentialID       uint
+	IdentityGeneration uint64
+	ObservedAtMS       int64
+	Windows            []providerobservation.QuotaWindow
+	Version            uint64
+}
+
+type passiveQuotaEntry struct {
+	identityGeneration uint64
+	observedAtMS       int64
+	windows            []providerobservation.QuotaWindow
+	version            uint64
+	dirty              bool
+}
+
+// passiveQuotaPending is the process-local, credential-keyed dirty set for
+// passive quota observations. It holds at most one entry per credential and
+// never grows with request volume, only with the number of accounts that
+// have produced a valid quota signal.
+type passiveQuotaPending struct {
+	mu            sync.Mutex
+	entries       map[uint]*passiveQuotaEntry
+	nextVersion   uint64
+	dirtyNotifier func()
+}
+
+func newPassiveQuotaPending() *passiveQuotaPending {
+	return &passiveQuotaPending{entries: make(map[uint]*passiveQuotaEntry)}
+}
+
+// RecordPassiveQuotaObservation merges one response's passive quota windows
+// into the pending snapshot for credentialID. A response with no windows is
+// a no-op: it must not advance the pending observation time. An
+// identityGeneration different from the currently pending entry replaces it
+// instead of merging, since the windows would belong to a different secret.
+// An observedAtMS older than the pending entry is dropped.
+func (manager *CredentialManager) RecordPassiveQuotaObservation(
+	credentialID uint,
+	identityGeneration uint64,
+	observedAtMS int64,
+	windows []providerobservation.QuotaWindow,
+) {
+	if manager == nil || manager.passiveQuota == nil || credentialID == 0 || len(windows) == 0 {
+		return
+	}
+	manager.passiveQuota.record(credentialID, identityGeneration, observedAtMS, windows)
+}
+
+// DirtyPassiveQuotaObservations returns up to limit pending observations that
+// have not yet been acknowledged, ordered by credential ID for determinism.
+func (manager *CredentialManager) DirtyPassiveQuotaObservations(limit int) []PassiveQuotaObservation {
+	if manager == nil || manager.passiveQuota == nil {
+		return nil
+	}
+	return manager.passiveQuota.dirtyObservations(limit)
+}
+
+// AckPassiveQuotaObservation clears the dirty flag for credentialID only when
+// version exactly matches the currently pending version, so a write that
+// landed after this version was read is never dropped by a stale ACK.
+func (manager *CredentialManager) AckPassiveQuotaObservation(credentialID uint, version uint64) {
+	if manager == nil || manager.passiveQuota == nil {
+		return
+	}
+	manager.passiveQuota.ack(credentialID, version)
+}
+
+// SetPassiveQuotaDirtyNotifier installs the process-owned non-blocking wake-up
+// invoked after a record introduces a new dirty version.
+func (manager *CredentialManager) SetPassiveQuotaDirtyNotifier(notifier func()) {
+	if manager == nil || manager.passiveQuota == nil {
+		return
+	}
+	manager.passiveQuota.mu.Lock()
+	manager.passiveQuota.dirtyNotifier = notifier
+	manager.passiveQuota.mu.Unlock()
+}
+
+func (pending *passiveQuotaPending) record(
+	credentialID uint,
+	identityGeneration uint64,
+	observedAtMS int64,
+	windows []providerobservation.QuotaWindow,
+) {
+	pending.mu.Lock()
+	entry, exists := pending.entries[credentialID]
+	if !exists || entry.identityGeneration != identityGeneration {
+		entry = &passiveQuotaEntry{identityGeneration: identityGeneration}
+		pending.entries[credentialID] = entry
+	} else if observedAtMS < entry.observedAtMS {
+		pending.mu.Unlock()
+		return
+	}
+	entry.windows = mergeQuotaWindowsByID(entry.windows, windows)
+	entry.observedAtMS = observedAtMS
+	pending.nextVersion++
+	entry.version = pending.nextVersion
+	entry.dirty = true
+	notifier := pending.dirtyNotifier
+	pending.mu.Unlock()
+	if notifier != nil {
+		notifier()
+	}
+}
+
+func (pending *passiveQuotaPending) dirtyObservations(limit int) []PassiveQuotaObservation {
+	if pending == nil || limit <= 0 {
+		return nil
+	}
+	pending.mu.Lock()
+	defer pending.mu.Unlock()
+	ids := make([]uint, 0, len(pending.entries))
+	for credentialID := range pending.entries {
+		ids = append(ids, credentialID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	result := make([]PassiveQuotaObservation, 0, limit)
+	for _, credentialID := range ids {
+		entry := pending.entries[credentialID]
+		if entry == nil || !entry.dirty {
+			continue
+		}
+		result = append(result, PassiveQuotaObservation{
+			CredentialID:       credentialID,
+			IdentityGeneration: entry.identityGeneration,
+			ObservedAtMS:       entry.observedAtMS,
+			Windows:            append([]providerobservation.QuotaWindow(nil), entry.windows...),
+			Version:            entry.version,
+		})
+		if len(result) >= limit {
+			break
+		}
+	}
+	return result
+}
+
+func (pending *passiveQuotaPending) ack(credentialID uint, version uint64) {
+	pending.mu.Lock()
+	defer pending.mu.Unlock()
+	entry, ok := pending.entries[credentialID]
+	if !ok || entry.version != version {
+		return
+	}
+	entry.dirty = false
+}
+
+// mergeQuotaWindowsByID overlays patches onto previous by window ID, keeping
+// any previous window a patch did not touch.
+func mergeQuotaWindowsByID(
+	previous []providerobservation.QuotaWindow,
+	patches []providerobservation.QuotaWindow,
+) []providerobservation.QuotaWindow {
+	merged := append([]providerobservation.QuotaWindow(nil), previous...)
+	index := make(map[string]int, len(merged))
+	for position, window := range merged {
+		index[window.ID] = position
+	}
+	for _, patch := range patches {
+		if position, ok := index[patch.ID]; ok {
+			merged[position] = providerobservation.MergeQuotaWindow(merged[position], patch)
+			continue
+		}
+		index[patch.ID] = len(merged)
+		merged = append(merged, patch)
+	}
+	return merged
+}

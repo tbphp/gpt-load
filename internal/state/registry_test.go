@@ -2,11 +2,14 @@ package state
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
 func TestKeyRegistryReplaceAndEncryptedValue(t *testing.T) {
@@ -156,6 +159,49 @@ func TestCredentialRegistryQuotaObservationDoesNotAffectCandidates(t *testing.T)
 	got := registry.CollectCredentialCandidates([]uint{10}, nil, now)
 	if len(got) != 1 {
 		t.Fatalf("available quota candidates = %#v", got)
+	}
+}
+
+func TestCredentialRegistryApplyQuotaWindowsPublishesTightestAccountBottleneck(t *testing.T) {
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
+		Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
+	}})
+	resetAt := int64(1800000000000)
+	utilizationTight := 0.9
+	utilizationLoose := 0.1
+	if !registry.ApplyQuotaWindows(1, []providerobservation.QuotaWindow{
+		{ID: "primary", Scope: "account", State: "available", Utilization: &utilizationTight, ResetAtMS: &resetAt},
+		{ID: "secondary", Scope: "account", State: "available", Utilization: &utilizationLoose, ResetAtMS: &resetAt},
+		{ID: "extra", Scope: "extra_usage", State: "available", Utilization: &utilizationLoose, ResetAtMS: &resetAt},
+	}) {
+		t.Fatal("ApplyQuotaWindows() = false")
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || views[0].ObservedQuotaRemaining() == nil ||
+		math.Abs(*views[0].ObservedQuotaRemaining()-0.1) > 1e-9 {
+		t.Fatalf("observed quota remaining = %#v, want the tighter account-scope bottleneck 0.1", views)
+	}
+}
+
+func TestCredentialRegistryApplyQuotaWindowsClearsWhenNoUsableWindow(t *testing.T) {
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
+		Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
+	}})
+	remaining := 0.5
+	registry.SetCredentialQuotaObservation(1, &remaining, time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC))
+
+	if !registry.ApplyQuotaWindows(1, []providerobservation.QuotaWindow{
+		{ID: "model-scope", Scope: "model", State: "available"},
+	}) {
+		t.Fatal("ApplyQuotaWindows() = false")
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || views[0].ObservedQuotaRemaining() != nil {
+		t.Fatalf("observed quota remaining = %#v, want cleared", views)
 	}
 }
 

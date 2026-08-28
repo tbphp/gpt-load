@@ -16,6 +16,7 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/storage/models"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/usage"
 )
@@ -462,7 +463,19 @@ func (s *Service) recordCredentialObservationFailure(
 	if len(failed.SnapshotJSON) == 0 {
 		failed.SnapshotJSON = models.JSON(`{}`)
 	}
-	if err := s.upsertCredentialObservation(ctx, failed); err != nil {
+	updates := map[string]any{
+		"identity_fingerprint": failed.IdentityFingerprint,
+		"schema_version":       failed.SchemaVersion,
+		"state":                failed.State,
+		"last_attempt_at_ms":   failed.LastAttemptAtMS,
+		"next_allowed_at_ms":   failed.NextAllowedAtMS,
+		"last_error_code":      failed.LastErrorCode,
+		"updated_at_ms":        failed.UpdatedAtMS,
+	}
+	if authRefreshSecretVersion != nil {
+		updates["last_auth_refresh_secret_version"] = failed.LastAuthRefreshSecretVersion
+	}
+	if err := s.upsertCredentialObservationMetadataOnly(ctx, credential.ID, failed, updates); err != nil {
 		return CredentialObservationResponse{}, err
 	}
 	response := mapCredentialObservation(failed)
@@ -538,6 +551,30 @@ func (s *Service) upsertCredentialObservation(ctx context.Context, row models.Cr
 			return err
 		}
 		return tx.Save(&row).Error
+	})
+}
+
+// upsertCredentialObservationMetadataOnly creates a new row when none exists
+// for credentialID, or otherwise updates only the given columns. It never
+// touches snapshot_json, so an active failure or reset invalidation can never
+// clobber a concurrent passive quota write with the snapshot it read before
+// that write landed.
+func (s *Service) upsertCredentialObservationMetadataOnly(
+	ctx context.Context,
+	credentialID uint,
+	fallback models.CredentialObservation,
+	updates map[string]any,
+) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing models.CredentialObservation
+		err := tx.Take(&existing, "credential_id = ?", credentialID).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return tx.Create(&fallback).Error
+		}
+		if err != nil {
+			return err
+		}
+		return tx.Model(&models.CredentialObservation{}).Where("credential_id = ?", credentialID).Updates(updates).Error
 	})
 }
 
@@ -617,47 +654,24 @@ func (s *Service) applyCredentialQuotaObservation(
 		}
 		return
 	}
-	var remaining *float64
-	var resetAtMS int64
-	for _, window := range response.Snapshot.QuotaWindows {
-		if window.Scope != "account" || window.ResetAtMS == nil {
-			continue
-		}
-		value, known := observationWindowRemainingRatio(window)
-		if !known {
-			continue
-		}
-		if remaining == nil || value < *remaining {
-			cloned := value
-			remaining = &cloned
-			resetAtMS = *window.ResetAtMS
-		} else if value == *remaining && *window.ResetAtMS > resetAtMS {
-			// Equal bottlenecks must all recover before this credential is usable.
-			resetAtMS = *window.ResetAtMS
-		}
-	}
-	if remaining == nil || resetAtMS == 0 {
-		s.registry.SetCredentialQuotaObservation(credentialID, nil, time.Time{})
-		return
-	}
-	s.registry.SetCredentialQuotaObservation(
-		credentialID,
-		remaining,
-		time.UnixMilli(resetAtMS).UTC(),
-	)
+	s.registry.ApplyQuotaWindows(credentialID, providerQuotaWindows(response.Snapshot.QuotaWindows))
 }
 
-func observationWindowRemainingRatio(window ObservationQuotaWindow) (float64, bool) {
-	if window.State == "exhausted" {
-		return 0, true
+// providerQuotaWindows narrows the API-facing snapshot windows to the fields
+// the shared registry bottleneck projection reads. ObservedUsage is a
+// read-time-only annotation and is intentionally not carried across.
+func providerQuotaWindows(windows []ObservationQuotaWindow) []providerobservation.QuotaWindow {
+	result := make([]providerobservation.QuotaWindow, 0, len(windows))
+	for _, window := range windows {
+		result = append(result, providerobservation.QuotaWindow{
+			ID: window.ID, Label: window.Label, LabelKey: window.LabelKey,
+			Scope: window.Scope, Unit: window.Unit,
+			Used: window.Used, Limit: window.Limit, Remaining: window.Remaining, Utilization: window.Utilization,
+			ResetAtMS: window.ResetAtMS, WindowSeconds: window.WindowSeconds, ModelIDs: window.ModelIDs,
+			State: window.State, IsPrimary: window.IsPrimary,
+		})
 	}
-	if window.Utilization != nil {
-		return math.Max(0, math.Min(1, 1-*window.Utilization)), true
-	}
-	if window.Remaining != nil && window.Limit != nil && *window.Limit > 0 {
-		return math.Max(0, math.Min(1, *window.Remaining / *window.Limit)), true
-	}
-	return 0, false
+	return result
 }
 
 // credentialDailyUsageWindow 是账号卡上「近 24 小时成功/失败」的窗口长度。

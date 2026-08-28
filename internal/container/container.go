@@ -87,8 +87,11 @@ func BuildContainer() (*dig.Container, error) {
 			redactor *redact.Redactor,
 			retention requestlog.RetentionPolicyProvider,
 			quotaRuntime *accessquota.Runtime,
+			subscriptionCredentials *subscription.CredentialManager,
 		) *requestlog.Service {
-			return requestlog.NewService(db, redactor, retention, quotaRuntime)
+			service := requestlog.NewService(db, redactor, retention, quotaRuntime)
+			service.SetPassiveQuotaFlusher(subscriptionCredentials)
+			return service
 		},
 		func(service *requestlog.Service) telemetry.RequestLogSink {
 			return service

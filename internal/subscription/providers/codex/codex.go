@@ -266,6 +266,8 @@ type ExecuteResponse struct {
 	Headers                http.Header
 	AppliedReasoningEffort string
 	UpstreamRequestPath    string
+	QuotaObservedAt        time.Time
+	QuotaSignals           map[string]string
 }
 
 // ExecuteStreamResponse contains converted streaming chunks and response metadata.
@@ -274,6 +276,8 @@ type ExecuteStreamResponse struct {
 	Chunks                 <-chan ExecuteStreamChunk
 	AppliedReasoningEffort string
 	UpstreamRequestPath    string
+	QuotaObservedAt        time.Time
+	QuotaSignals           map[string]string
 }
 
 // ExecuteStreamChunk contains one converted payload or terminal bridge error.
@@ -315,6 +319,8 @@ func (e *executor) Execute(
 		Headers:                response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
 		UpstreamRequestPath:    response.UpstreamRequestPath,
+		QuotaObservedAt:        response.QuotaSignals.ObservedAt,
+		QuotaSignals:           response.QuotaSignals.Signals,
 	}, err
 }
 
@@ -357,6 +363,8 @@ func (e *executor) ExecuteStream(
 		Headers:                response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
 		UpstreamRequestPath:    response.UpstreamRequestPath,
+		QuotaObservedAt:        response.QuotaSignals.ObservedAt,
+		QuotaSignals:           response.QuotaSignals.Signals,
 	}
 	if err != nil {
 		return convertedResponse, err

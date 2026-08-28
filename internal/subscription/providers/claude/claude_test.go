@@ -120,9 +120,14 @@ func TestExecutorMapsResponsesAndPreservesBoundedClassification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	observedAt := time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC)
 	bridge := &fakeClaudeBridgeExecutor{response: cpaembedded.ExecuteResponse{
 		Payload: []byte(`{"ok":true}`), Headers: http.Header{"X-Request-Id": {"request-one"}},
 		AppliedReasoningEffort: "high",
+		QuotaSignals: cpaembedded.QuotaSignalObservation{
+			ObservedAt: observedAt,
+			Signals:    map[string]string{"Anthropic-Ratelimit-Unified-5h-Utilization": "0.4"},
+		},
 	}}
 	executor := &executor{bridge: bridge}
 	response, err := executor.Execute(t.Context(), "1", credential, ExecuteRequest{
@@ -131,6 +136,10 @@ func TestExecutorMapsResponsesAndPreservesBoundedClassification(t *testing.T) {
 	if err != nil || string(response.Payload) != `{"ok":true}` ||
 		response.Headers.Get("X-Request-Id") != "request-one" || response.AppliedReasoningEffort != "high" {
 		t.Fatalf("response/error = %#v / %v", response, err)
+	}
+	if !response.QuotaObservedAt.Equal(observedAt) ||
+		response.QuotaSignals["Anthropic-Ratelimit-Unified-5h-Utilization"] != "0.4" {
+		t.Fatalf("response quota signals = %#v", response)
 	}
 
 	bridge.err = &fakeBridgeExecutionError{

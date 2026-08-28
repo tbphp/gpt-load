@@ -117,6 +117,49 @@ func TestExecutionObservationCapturesRequestPathWithoutReasoning(t *testing.T) {
 	}
 }
 
+func TestExecutionObservationCapturesCodexQuotaSignalsAndKeepsLastNonEmpty(t *testing.T) {
+	t.Parallel()
+
+	observation := newProviderExecutionObservation(ExecuteRequest{}, ProviderCodex)
+	first := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+	observation.observeQuotaSignals(http.Header{
+		"X-Codex-Primary-Used-Percent": {"42"},
+		"X-Ignored-Header":             {"anything"},
+	}, first)
+	got := observation.quotaSignalObservation()
+	if !got.ObservedAt.Equal(first) || got.Signals["X-Codex-Primary-Used-Percent"] != "42" {
+		t.Fatalf("quotaSignalObservation() = %#v", got)
+	}
+	if _, exists := got.Signals["X-Ignored-Header"]; exists {
+		t.Fatalf("quotaSignalObservation() leaked non-whitelisted header: %#v", got.Signals)
+	}
+
+	// A later response with no quota headers must not clear the prior observation.
+	observation.observeQuotaSignals(http.Header{"Content-Type": {"application/json"}}, first.Add(time.Minute))
+	unchanged := observation.quotaSignalObservation()
+	if !unchanged.ObservedAt.Equal(first) || unchanged.Signals["X-Codex-Primary-Used-Percent"] != "42" {
+		t.Fatalf("empty response cleared observation: %#v", unchanged)
+	}
+
+	// A later response with a fresh signal replaces the snapshot and advances the time.
+	second := first.Add(2 * time.Minute)
+	observation.observeQuotaSignals(http.Header{"X-Codex-Primary-Used-Percent": {"70"}}, second)
+	replaced := observation.quotaSignalObservation()
+	if !replaced.ObservedAt.Equal(second) || replaced.Signals["X-Codex-Primary-Used-Percent"] != "70" {
+		t.Fatalf("newer signal did not replace snapshot: %#v", replaced)
+	}
+}
+
+func TestExecutionObservationIgnoresQuotaSignalsForUnsupportedProvider(t *testing.T) {
+	t.Parallel()
+
+	observation := newProviderExecutionObservation(ExecuteRequest{}, "grok")
+	observation.observeQuotaSignals(http.Header{"X-Codex-Primary-Used-Percent": {"42"}}, time.Now())
+	if got := observation.quotaSignalObservation(); got.Signals != nil {
+		t.Fatalf("unsupported provider captured signals: %#v", got)
+	}
+}
+
 func TestParseCodexCredentialJSONRejectsInvalidOrDangerousInput(t *testing.T) {
 	t.Parallel()
 
@@ -470,6 +513,84 @@ func TestCodexHTTPExecutorKeepsOtherBootstrapErrorsInStream(t *testing.T) {
 	}
 	if streamErr == nil || !strings.Contains(streamErr.Error(), "bad_request") {
 		t.Fatalf("stream error = %v", streamErr)
+	}
+}
+
+func TestCodexHTTPExecutorCanonicalFacadeCapturesQuotaSignalsOnSuccessAndError(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantErr    bool
+	}{
+		{
+			name:       "success",
+			statusCode: http.StatusOK,
+			body:       "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.2\",\"output\":[]}}\n\n",
+		},
+		{
+			name:       "bootstrap error",
+			statusCode: http.StatusOK,
+			body: "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n" +
+				"data: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"try another credential\"}}\n\n",
+			wantErr: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: test.statusCode,
+					Header: http.Header{
+						"Content-Type":                   {"text/event-stream"},
+						"X-Codex-Primary-Used-Percent":   {"55"},
+						"X-Codex-Primary-Window-Minutes": {"10080"},
+					},
+					Body:    io.NopCloser(strings.NewReader(test.body)),
+					Request: request,
+				}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			response, err := NewCodexHTTPExecutor().ExecuteCanonical(ctx, "credential-one", CodexCredential{
+				Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+			}, ExecuteRequest{
+				Model: "gpt-5.2", Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`), Format: "openai-response",
+			})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ExecuteCanonical() error = %v, wantErr %v", err, test.wantErr)
+			}
+			if response.QuotaSignals.Signals["X-Codex-Primary-Used-Percent"] != "55" || response.QuotaSignals.ObservedAt.IsZero() {
+				t.Fatalf("ExecuteCanonical() QuotaSignals = %#v", response.QuotaSignals)
+			}
+		})
+	}
+}
+
+func TestCodexHTTPExecutorStreamCanonicalFacadeCapturesQuotaSignalsOnHandshake(t *testing.T) {
+	transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type":                 {"text/event-stream"},
+				"X-Codex-Primary-Used-Percent": {"12"},
+			},
+			Body:    io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.2\",\"output\":[]}}\n\n")),
+			Request: request,
+		}, nil
+	})
+	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+	stream, err := NewCodexHTTPExecutor().ExecuteStreamCanonical(ctx, "credential-one", CodexCredential{
+		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
+	}, ExecuteRequest{
+		Model: "gpt-5.2", Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`), Format: "openai-response",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStreamCanonical() error = %v", err)
+	}
+	for range stream.Chunks {
+	}
+	if stream.QuotaSignals.Signals["X-Codex-Primary-Used-Percent"] != "12" {
+		t.Fatalf("ExecuteStreamCanonical() QuotaSignals = %#v", stream.QuotaSignals)
 	}
 }
 

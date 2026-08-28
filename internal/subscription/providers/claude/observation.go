@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -345,6 +346,79 @@ func claudeScopedLimitLabel(group, displayName string) string {
 		return displayName
 	}
 	return providerobservation.DisplayName(group)
+}
+
+// NormalizePassiveQuotaWindows converts one response's passive quota Header
+// signals into the same account-scope windows NormalizeObservation produces
+// from the active usage payload, reusing normalizeClaudePercentageWindow so
+// Label, LabelKey, and the numeric fields follow one rule regardless of
+// source. observedAt is accepted for symmetry with the Codex normalizer;
+// Claude's reset header is always an absolute timestamp.
+func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Time) []quotaWindow {
+	windows := make([]quotaWindow, 0, 2)
+	for _, entry := range []struct {
+		id, label, statusKey, utilizationKey, resetKey string
+		windowSeconds                                  int64
+		primary                                        bool
+	}{
+		{
+			id: "five_hour", label: "Session", windowSeconds: 5 * 60 * 60, primary: true,
+			statusKey: "Anthropic-Ratelimit-Unified-5h-Status", utilizationKey: "Anthropic-Ratelimit-Unified-5h-Utilization",
+			resetKey: "Anthropic-Ratelimit-Unified-5h-Reset",
+		},
+		{
+			id: "seven_day", label: "Weekly", windowSeconds: 7 * 24 * 60 * 60,
+			statusKey: "Anthropic-Ratelimit-Unified-7d-Status", utilizationKey: "Anthropic-Ratelimit-Unified-7d-Utilization",
+			resetKey: "Anthropic-Ratelimit-Unified-7d-Reset",
+		},
+	} {
+		status, hasStatus := signals[entry.statusKey]
+		percent, hasUtilization := passiveClaudeUtilizationPercent(signals[entry.utilizationKey])
+		reset, hasReset := passiveClaudeResetRFC3339(signals[entry.resetKey])
+		if !hasStatus && !hasUtilization && !hasReset {
+			continue
+		}
+		window, err := normalizeClaudePercentageWindow(entry.id, entry.label, "account", entry.windowSeconds, entry.primary, percent, reset)
+		if err != nil {
+			continue
+		}
+		if hasStatus {
+			switch strings.ToLower(strings.TrimSpace(status)) {
+			case "allowed":
+				if window.State != "exhausted" {
+					window.State = "available"
+				}
+			case "rejected":
+				window.State = "exhausted"
+			}
+		}
+		windows = append(windows, window)
+	}
+	return windows
+}
+
+func passiveClaudeUtilizationPercent(raw string) (*float64, bool) {
+	if raw == "" {
+		return nil, false
+	}
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed < 0 || parsed > 1 {
+		return nil, false
+	}
+	percent := parsed * 100
+	return &percent, true
+}
+
+func passiveClaudeResetRFC3339(raw string) (*string, bool) {
+	if raw == "" {
+		return nil, false
+	}
+	seconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || seconds <= 0 {
+		return nil, false
+	}
+	formatted := time.Unix(seconds, 0).UTC().Format(time.RFC3339)
+	return &formatted, true
 }
 
 func claudeOptionalResetMilliseconds(field string, value *string) (*int64, error) {

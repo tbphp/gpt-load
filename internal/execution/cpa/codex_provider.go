@@ -308,6 +308,8 @@ func (bridge *codexProviderBridge) Execute(
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
 		UpstreamProtocol:       codexUpstreamProtocol(response.UpstreamRequestPath),
+		QuotaObservedAt:        response.QuotaObservedAt,
+		QuotaWindows:           codex.NormalizePassiveQuotaWindows(response.QuotaSignals, response.QuotaObservedAt),
 	}, err
 }
 
@@ -334,6 +336,8 @@ func (bridge *codexProviderBridge) ExecuteStream(
 		Headers:                response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
 		UpstreamProtocol:       codexUpstreamProtocol(response.UpstreamRequestPath),
+		QuotaObservedAt:        response.QuotaObservedAt,
+		QuotaWindows:           codex.NormalizePassiveQuotaWindows(response.QuotaSignals, response.QuotaObservedAt),
 	}
 	if err != nil {
 		if codexBootstrapCapacityRejection(err) {

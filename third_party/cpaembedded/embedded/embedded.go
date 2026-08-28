@@ -153,11 +153,20 @@ type ExecuteRequest struct {
 	ProxyFromEnvironment bool
 }
 
+// QuotaSignalObservation is the bounded, provider-filtered quota watermark
+// captured from one execution's upstream response headers. Signals is nil
+// when no supported provider quota header was present.
+type QuotaSignalObservation struct {
+	ObservedAt time.Time
+	Signals    map[string]string
+}
+
 type ExecuteResponse struct {
 	Payload                []byte
 	Headers                http.Header
 	AppliedReasoningEffort string
 	UpstreamRequestPath    string
+	QuotaSignals           QuotaSignalObservation
 }
 
 type ExecuteStreamResponse struct {
@@ -165,6 +174,7 @@ type ExecuteStreamResponse struct {
 	Chunks                 <-chan ExecuteStreamChunk
 	AppliedReasoningEffort string
 	UpstreamRequestPath    string
+	QuotaSignals           QuotaSignalObservation
 }
 
 type ExecuteStreamChunk struct {
@@ -385,12 +395,14 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 		return ExecuteResponse{
 			AppliedReasoningEffort: observation.reasoningEffort(),
 			UpstreamRequestPath:    observation.upstreamRequestPath(),
+			QuotaSignals:           observation.quotaSignalObservation(),
 		}, err
 	}
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: observation.reasoningEffort(),
 		UpstreamRequestPath:    observation.upstreamRequestPath(),
+		QuotaSignals:           observation.quotaSignalObservation(),
 	}, nil
 }
 
@@ -462,6 +474,7 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 		return &ExecuteStreamResponse{
 			AppliedReasoningEffort: observation.reasoningEffort(),
 			UpstreamRequestPath:    observation.upstreamRequestPath(),
+			QuotaSignals:           observation.quotaSignalObservation(),
 		}, err
 	}
 	chunks := make(chan ExecuteStreamChunk)
@@ -479,6 +492,7 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 		Headers: response.Headers.Clone(), Chunks: chunks,
 		AppliedReasoningEffort: observation.reasoningEffort(),
 		UpstreamRequestPath:    observation.upstreamRequestPath(),
+		QuotaSignals:           observation.quotaSignalObservation(),
 	}, nil
 }
 
@@ -739,6 +753,9 @@ func (t noRedirectRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 	if err != nil {
 		return nil, err
 	}
+	if t.observation != nil {
+		t.observation.observeQuotaSignals(resp.Header, time.Now())
+	}
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 && resp.Header.Get("Location") != "" {
 		_ = resp.Body.Close()
 		return nil, ErrRedirectNotAllowed
@@ -753,6 +770,7 @@ type executionObservation struct {
 	mu                  sync.RWMutex
 	effort              string
 	observedRequestPath string
+	quota               cliproxyauth.QuotaState
 }
 
 func newExecutionObservation(request ExecuteRequest) *executionObservation {
@@ -824,6 +842,33 @@ func (o *executionObservation) upstreamRequestPath() string {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.observedRequestPath
+}
+
+// observeQuotaSignals replaces the captured quota snapshot with the signals
+// carried by one upstream response, using CPA SDK's own provider whitelist,
+// size limits, and control-character filter. A response with no quota signal
+// leaves the previous snapshot untouched, so the last non-empty response
+// within one execution always wins.
+func (o *executionObservation) observeQuotaSignals(header http.Header, observedAt time.Time) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	o.quota.ObserveResponseHeadersForProvider(o.provider, header, observedAt)
+	o.mu.Unlock()
+}
+
+func (o *executionObservation) quotaSignalObservation() QuotaSignalObservation {
+	if o == nil {
+		return QuotaSignalObservation{}
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if len(o.quota.Signals) == 0 {
+		return QuotaSignalObservation{}
+	}
+	clone := o.quota.Clone()
+	return QuotaSignalObservation{ObservedAt: clone.ObservedAt, Signals: clone.Signals}
 }
 
 func exchangeToken(ctx context.Context, values url.Values, options Options) (CodexCredential, error) {
