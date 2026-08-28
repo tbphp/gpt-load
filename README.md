@@ -15,82 +15,56 @@ English · [中文](README_CN.md) · [日本語](README_JP.md)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
-<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
-
 </div>
 
 ---
 
 Your application only needs one base URL and one AccessKey. Providers, accounts, credentials, models, and routing policy are all configured in the management UI.
 
-```mermaid
-flowchart LR
-    C["Application / AI client"]
-    G["GPT-Load<br/>————————<br/>Native protocol entry<br/>Scheduling · Retry · Health isolation<br/>Logs · Usage · Cost estimates"]
-    U1["Official APIs"]
-    U2["Cloud platforms"]
-    U3["Compatible relays"]
-    U4["Subscription accounts"]
+<img src="./screenshot/architecture-overview.png" alt="GPT-Load unified access and upstream routing architecture" width="860">
 
-    C -->|"One base URL<br/>One AccessKey"| G
-    G --> U1
-    G --> U2
-    G --> U3
-    G --> U4
-```
+## Sponsors and support
+
+<table>
+<tbody>
+<tr>
+<td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
+<td>Thanks to APIMart for sponsoring this project! APIMart is a low-cost API platform for AI image &amp; video generation — GPT-Image-2 from $0.006/image, 160+ images per dollar. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — <a href="https://go.apimart.ai/gh-gpt-load">sign up here</a> to get started.</td>
+</tr>
+<tr>
+<td width="180">
+<a href="https://openai.com/">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="./screenshot/sponsor-openai-lockup-white.svg">
+<source media="(prefers-color-scheme: light)" srcset="./screenshot/sponsor-openai-lockup-black.svg">
+<img src="./screenshot/sponsor-openai-lockup-black.svg" alt="OpenAI" width="150">
+</picture>
+</a>
+</td>
+<td>Thanks to OpenAI for sponsoring this project.</td>
+</tr>
+<tr>
+<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
+<td>Thanks to the LINUX DO community for their support.</td>
+</tr>
+<tr>
+<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
+<td>This project is supported by DigitalOcean.</td>
+</tr>
+</tbody>
+</table>
 
 ## Why GPT-Load
 
-- **One gateway for many upstreams** — Official APIs, cloud platforms, popular model services, and OpenAI-compatible relays are all managed in one place.
-- **API keys and subscription accounts share one mechanism** — Subscription channels like Codex, Claude, Antigravity, and Grok use the same credential management, scheduling, and health system as API key channels.
-- **Get the most out of a credential pool** — Multi-credential scheduling, automatic weighting, retries, cooldown, blacklisting, and session affinity reduce the impact of a single overloaded or failing credential.
-- **Clients keep their native protocol** — Applications keep using OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, or the Gemini native API without code changes.
-- **Every call is visible** — Health state, route inspection, request logs, usage rollups, and per-model cost estimates make problems and consumption easy to trace.
-- **Simple to deploy, your data stays yours** — The management UI is embedded in a single Go binary; SQLite by default, MySQL or PostgreSQL optional; channel credentials are encrypted at rest locally.
-
-## Screenshots
-
-**Home** — Groups and credentials at a glance, one-click client setup, 30-day cost estimate
-
-<img src="./screenshot/screenshot1.png" alt="GPT-Load home">
-
-**Monitoring** — Request volume, cache rate, token breakdown, cost estimates, usage quality
-
-<img src="./screenshot/screenshot2.png" alt="GPT-Load monitoring">
-
-<!-- 【TODO: subscription channel screenshot】
-     screenshot3.png shows subscription quota windows and diagnostics, a core
-     selling point, but the account card contains a real email address in plain
-     text. Replace it with a sample address and re-shoot, or redact it.
-     Insert here once handled; keep all three languages in sync. -->
-
-## Scope
-
-### Client protocols
-
-| Protocol | Main entry |
-|---|---|
-| OpenAI Chat Completions | `POST /v1/chat/completions` |
-| OpenAI Responses | `/v1/responses` and its resource paths |
-| Anthropic Messages | `POST /v1/messages` |
-| Gemini | `/v1beta/models/...` |
-
-Each channel declares exactly which protocols and capabilities it can execute. GPT-Load converts between supported capabilities, but it is not a general-purpose any-protocol, any-JSON translator.
-
-### Built-in channels
-
-<details>
-<summary>Show all 20 built-in channels</summary>
-
-- **Official and cloud** — OpenAI, Anthropic, Gemini, xAI, Azure OpenAI, AWS Bedrock, Google Vertex AI
-- **Model services** — DeepSeek, Moonshot AI, SiliconFlow, Zhipu AI, Alibaba, Volcengine, OpenRouter, Groq
-- **Subscription** — Codex, Claude, Antigravity, Grok
-- **Custom** — OpenAI Compatible (any compatible relay)
-
-</details>
+- **One gateway, native protocols** — Manage official APIs, cloud platforms, model services, and compatible relays together while clients keep their OpenAI, Anthropic, or Gemini native interfaces.
+- **One mechanism for API keys and subscriptions** — Codex, Claude, Antigravity, Grok, and API-key channels share credential management, scheduling, and health handling.
+- **Scheduling and failure isolation built in** — Multi-credential scheduling, automatic weighting, retries, cooldown, blacklisting, and session affinity reduce the impact of overloaded or failing credentials.
+- **Observable, self-hosted, and simple to deploy** — Inspect health, routes, logs, usage, and cost estimates in an embedded UI backed by SQLite, MySQL, or PostgreSQL with local credential encryption.
 
 ## Quick start
+
+> [!WARNING]
+> If you are using 1.x, read [Moving from 1.x](#moving-from-1x) first. 2.0 cannot open, import, or migrate 1.x data in place.
 
 ### 1. Start the service
 
@@ -122,12 +96,7 @@ Open <http://127.0.0.1:3001> and sign in to the console with that key.
 
 ### 2. Initial configuration
 
-The console has three configuration layers:
-
-```mermaid
-flowchart LR
-    A["① Channel<br/>Add API keys<br/>or complete OAuth"] --> B["② Group<br/>Pick a channel<br/>Set models and policy"] --> C["③ AccessKey<br/>Pick groups and protocols<br/>Hand it to your app"]
-```
+Initial setup takes three steps:
 
 1. **Add a channel** — Choose an upstream service and add one or more API keys. For subscription channels, complete the OAuth flow or import credentials as prompted.
 2. **Create a group** — Pick a channel, then configure available models and runtime policy.
@@ -142,49 +111,35 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 
 </details>
 
-### 3. Send your first request
+## Screenshots
 
-Replace the AccessKey and model ID with the real values from your console:
+**Home** — Groups and credentials at a glance, one-click client setup, 30-day cost estimate
 
-```bash
-export GPT_LOAD_ACCESS_KEY="your-access-key"
+<img src="./screenshot/screenshot1.png" alt="GPT-Load home" width="860">
 
-curl http://127.0.0.1:3001/v1/chat/completions \
-  -H "Authorization: Bearer ${GPT_LOAD_ACCESS_KEY}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "your-model-id",
-    "messages": [{ "role": "user", "content": "Hello, introduce yourself." }]
-  }'
-```
+**Monitoring** — Request volume, cache rate, token breakdown, cost estimates, usage quality
 
-## Using existing clients
+<img src="./screenshot/screenshot2.png" alt="GPT-Load monitoring" width="860">
 
-For the OpenAI SDK or any OpenAI-compatible client, two settings usually change:
+## Scope
 
-```text
-Base URL: http://127.0.0.1:3001/v1
-API Key:  the AccessKey created in GPT-Load
-```
+### Client protocols
 
-```python
-from openai import OpenAI
+| Protocol                | Main entry                             |
+| ----------------------- | -------------------------------------- |
+| OpenAI Chat Completions | `POST /v1/chat/completions`            |
+| OpenAI Responses        | `/v1/responses` and its resource paths |
+| Anthropic Messages      | `POST /v1/messages`                    |
+| Gemini                  | `/v1beta/models/...`                   |
 
-client = OpenAI(
-    base_url="http://127.0.0.1:3001/v1",
-    api_key="your-access-key",
-)
+Each channel declares exactly which protocols and capabilities it can execute. GPT-Load converts between supported capabilities, but it is not a general-purpose any-protocol, any-JSON translator.
 
-response = client.responses.create(
-    model="your-model-id",
-    input="Hello",
-    store=False,
-)
+### Built-in channels
 
-print(response.output_text)
-```
-
-Anthropic clients use `/v1/messages` and Gemini clients use `/v1beta/models/...`. Authenticate the way each client normally does: `Authorization: Bearer`, `x-api-key`, `x-goog-api-key`, or Gemini's `key` query parameter.
+- **Official and cloud** — OpenAI, Anthropic, Gemini, xAI, Azure OpenAI, AWS Bedrock, Google Vertex AI
+- **Model services** — DeepSeek, Moonshot AI, SiliconFlow, Zhipu AI, Alibaba, Volcengine, OpenRouter, Groq
+- **Subscription** — Codex, Claude, Antigravity, Grok
+- **Custom** — OpenAI Compatible (any compatible relay)
 
 ## Deployment and data
 
@@ -193,14 +148,17 @@ Docker Compose uses application-managed SQLite by default. Data lives in the `gp
 > [!IMPORTANT]
 > `encryption.key` decrypts channel credentials. When backing up or migrating, the database and the key **must be kept together**. Once the key is lost or replaced, existing encrypted credentials cannot be recovered, and this version does not support master key rotation.
 
-For an external database, use the unified `DATABASE_DSN` to connect SQLite, MySQL, or PostgreSQL:
+<details>
+<summary>Using an external database</summary>
+
+Use the unified `DATABASE_DSN` to connect SQLite, MySQL, or PostgreSQL:
 
 ```text
 mysql://user:password@db.example:3306/gpt_load?charset=utf8mb4&collation=utf8mb4_bin
 postgres://user:password@db.example:5432/gpt_load?sslmode=require
 ```
 
-See [`.env.example`](.env.example) for the full configuration reference.
+</details>
 
 Common operations:
 
@@ -227,7 +185,39 @@ Then open <http://127.0.0.1:3001>. Builds are provided for five targets across L
 
 </details>
 
-## Before you go to production
+### Environment configuration
+
+At startup, the application reads `.env` in the current directory; existing process environment variables take precedence. Unless noted otherwise, changes require restarting the process or container; see [`.env.example`](.env.example) for the common configuration template.
+
+<details>
+<summary>Show all environment variables</summary>
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `HOST` | `127.0.0.1` | Native listening address, and the default host address for Compose's main port and OAuth callback ports; Compose always listens on `0.0.0.0` inside the container. |
+| `PORT` | `3001` | HTTP service port, must be `1–65535`; Compose also uses it for the container port, host publishing, and health check. |
+| `BIND_ADDRESS` | Empty, inherits `HOST` | Compose only; overrides the host publishing address for the main service port without changing OAuth callback ports. |
+| `OAUTH_CALLBACK_BIND_ADDRESS` | Empty, inherits `HOST` | Compose only; overrides the host publishing address for the fixed OAuth callback ports `1455`, `54545`, and `51121`. |
+| `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | Maximum time to wait for requests after a stop signal, positive integer in seconds. |
+| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Docker duration to wait before Compose force-stops the container; should be longer than `GRACEFUL_SHUTDOWN_TIMEOUT`. |
+| `READ_TIMEOUT` | `60` | HTTP request read timeout, positive integer in seconds. |
+| `IDLE_TIMEOUT` | `120` | HTTP keep-alive idle connection timeout, positive integer in seconds. |
+| `DATA_DIR` | `./data` | Directory for the managed database, `auth.key`, `encryption.key`, and runtime state; official Compose uses `/app/data`. |
+| `DATABASE_DSN` | Empty, uses `${DATA_DIR}/gpt-load.db` | Empty uses application-managed SQLite; non-empty values support SQLite paths or URLs, MySQL URLs, and PostgreSQL URLs, and are treated as operator-managed external databases. Container file paths must be inside a mounted directory. |
+| `AUTH_KEY` | Empty, reads or generates `${DATA_DIR}/auth.key` | Bearer key for the management UI and `/api` management API, not a data-plane AccessKey. |
+| `ENCRYPTION_KEY` | Empty, reads or generates `${DATA_DIR}/encryption.key` | Encrypts channel credentials; changing or losing it makes existing credentials undecryptable, so back it up with the database. |
+| `HTTP_PROXY` | Empty | Environment proxy for HTTP upstream requests. |
+| `HTTPS_PROXY` | Empty | Environment proxy for HTTPS upstream requests. |
+| `NO_PROXY` | Empty | Comma-separated hosts, domains, or IPs that bypass the environment proxy. |
+| `LOG_LEVEL` | `info` | Supports `panic`, `fatal`, `error`, `warn`, `warning`, `info`, `debug`, and `trace`; invalid values warn and fall back to `info`. |
+| `LOG_FORMAT` | `text` | Supports `text` and `json`; any other value fails startup. |
+| `MODELS_DEV_AUTO_SYNC_ENABLED` | Unset, initial default `true` | When unset, uses the persisted management UI setting; when set, forces Models.dev auto-sync on or off and makes the same UI option read-only. |
+
+Environment proxies apply only when no proxy is specified on the credential, group, or global settings.
+
+</details>
+
+## Production considerations
 
 - The service listens on `127.0.0.1` only by default. For remote access, expose it through a controlled network or a TLS reverse proxy, and configure ACLs and firewall rules.
 - Manage `AUTH_KEY` and `ENCRYPTION_KEY` carefully. Never commit real keys to a repository, log, screenshot, or public issue.
@@ -247,11 +237,11 @@ Deploy 2.0 with its own database, `DATA_DIR`, port, and Docker volume. Cut traff
 
 Some of GPT-Load's capabilities build on these projects, with thanks:
 
-| Project | Role | License |
-|---|---|---|
-| [Bifrost Core](https://github.com/maximhq/bifrost) | Provider authentication, request/response conversion, streaming, usage normalization | Apache-2.0 |
-| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | OAuth and execution adapter for subscription channels | MIT |
-| [Lobe Icons](https://github.com/lobehub/lobe-icons) | Channel brand icons in the management UI | MIT |
+| Project                                                     | Role                                                                                 | License    |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------- |
+| [Bifrost Core](https://github.com/maximhq/bifrost)          | Provider authentication, request/response conversion, streaming, usage normalization | Apache-2.0 |
+| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | OAuth and execution adapter for subscription channels                                | MIT        |
+| [Lobe Icons](https://github.com/lobehub/lobe-icons)         | Channel brand icons in the management UI                                             | MIT        |
 
 GPT-Load owns credential storage, account selection, scheduling, retry, health, affinity, logging, and usage policy. Third-party notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), full license texts in [`LICENSES/`](LICENSES/), and each release ships a CycloneDX SBOM covering the Go dependency graph.
 
@@ -263,30 +253,10 @@ For problems or feature ideas, open a [GitHub Issue](https://github.com/tbphp/gp
 
 For community chat and usage discussion, join the [Telegram group](https://t.me/+GHpy5SwEllg3MTUx).
 
+<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
+<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
+
 If GPT-Load is useful to you, a star is appreciated.
-
-## Sponsors and support
-
-<table>
-<tbody>
-<tr>
-<td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
-<td>Thanks to APIMart for sponsoring this project! APIMart is a low-cost API platform for AI image &amp; video generation — GPT-Image-2 from $0.006/image, 160+ images per dollar. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — <a href="https://go.apimart.ai/gh-gpt-load">sign up here</a> to get started.</td>
-</tr>
-<tr>
-<td width="180" align="center"><a href="https://openai.com/"><img src="./screenshot/sponsor-openai.svg" alt="OpenAI" width="56"></a></td>
-<td>Thanks to OpenAI for sponsoring this project.</td>
-</tr>
-<tr>
-<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
-<td>Thanks to the LINUX DO community for their support.</td>
-</tr>
-<tr>
-<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
-<td>This project is supported by DigitalOcean.</td>
-</tr>
-</tbody>
-</table>
 
 ## License
 

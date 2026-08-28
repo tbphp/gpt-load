@@ -15,82 +15,56 @@ API キー、サブスクリプションアカウント、トラフィック制�
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
-<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
-
 </div>
 
 ---
 
 アプリケーション側で必要なのは、一つの Base URL と一つの AccessKey だけです。プロバイダー、アカウント、認証情報、モデル、ルーティングポリシーはすべて管理画面で設定します。
 
-```mermaid
-flowchart LR
-    C["アプリ / AI クライアント"]
-    G["GPT-Load<br/>————————<br/>ネイティブプロトコル入口<br/>スケジューリング · リトライ · 健全性隔離<br/>ログ · 使用量 · コスト概算"]
-    U1["公式 API"]
-    U2["クラウド基盤"]
-    U3["互換中継"]
-    U4["サブスクリプション"]
+<img src="./screenshot/architecture-overview.png" alt="GPT-Load の統合アクセスとアップストリームルーティング構成図" width="860">
 
-    C -->|"一つの Base URL<br/>一つの AccessKey"| G
-    G --> U1
-    G --> U2
-    G --> U3
-    G --> U4
-```
+## スポンサーと支援
+
+<table>
+<tbody>
+<tr>
+<td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
+<td>APIMartによる本プロジェクトへのスポンサー支援に感謝します！APIMartはAI画像・動画生成に特化した低価格APIプラットフォームで、GPT-Image-2は1枚$0.006から、1ドルで160枚以上の画像を生成できます。画像と動画の両方に対応する1つの非同期APIで、タスクを送信してIDを取得し、ポーリングまたはコールバックで結果を取得できます。数万枚規模の一括処理でもタイムアウトせず、モデルを切り替えてもコードを変更する必要はありません。従量課金制で月額料金は不要です。<a href="https://go.apimart.ai/gh-gpt-load">こちらの登録リンク</a>から登録して、すぐにご利用いただけます。</td>
+</tr>
+<tr>
+<td width="180">
+<a href="https://openai.com/">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="./screenshot/sponsor-openai-lockup-white.svg">
+<source media="(prefers-color-scheme: light)" srcset="./screenshot/sponsor-openai-lockup-black.svg">
+<img src="./screenshot/sponsor-openai-lockup-black.svg" alt="OpenAI" width="150">
+</picture>
+</a>
+</td>
+<td>本プロジェクトへのスポンサー支援に感謝します（OpenAI）。</td>
+</tr>
+<tr>
+<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
+<td>LINUX DO コミュニティの支援に感謝します。</td>
+</tr>
+<tr>
+<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
+<td>本プロジェクトは DigitalOcean の支援を受けています。</td>
+</tr>
+</tbody>
+</table>
 
 ## GPT-Load を選ぶ理由
 
-- **複数のアップストリームを一元管理** — 公式 API、クラウド基盤、主要なモデルサービス、OpenAI 互換中継を同じゲートウェイで管理できます。
-- **API キーとサブスクリプションを同じ仕組みで扱う** — Codex、Claude、Antigravity、Grok などのサブスクリプションチャネルも、API キーチャネルと同じ認証情報管理・スケジューリング・健全性管理を使います。
-- **認証情報プールを使い切る** — 複数認証情報のスケジューリング、自動ウェイト、リトライ、クールダウン、ブラックリスト、セッションアフィニティにより、単一の認証情報の過負荷や失効による影響を抑えます。
-- **クライアントのネイティブプロトコルを維持** — OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Gemini ネイティブ API をそのまま利用でき、コード変更は不要です。
-- **すべての呼び出しを可視化** — 健全性状態、ルート検査、リクエストログ、使用量集計、モデル別コスト概算により、問題の特定と消費量の把握が容易になります。
-- **導入が簡単でデータは自己管理** — 管理画面は単一の Go バイナリに組み込み済み。既定は SQLite で、MySQL や PostgreSQL にも接続できます。チャネル認証情報はローカルで暗号化して保存されます。
-
-## 画面プレビュー
-
-**ホーム** — グループと認証情報の概要、クライアントへのワンクリック接続、直近 30 日のコスト概算
-
-<img src="./screenshot/screenshot1.png" alt="GPT-Load ホーム">
-
-**モニタリング** — リクエスト数、キャッシュ率、トークン分類、コスト概算、使用量の品質
-
-<img src="./screenshot/screenshot2.png" alt="GPT-Load モニタリング">
-
-<!-- 【TODO: サブスクリプションチャネルのスクリーンショット】
-     screenshot3.png はサブスクリプションのクォータウィンドウと診断情報を示す重要な
-     訴求ポイントだが、アカウントカードに実際のメールアドレスが平文で含まれている。
-     サンプルアドレスに差し替えて撮り直すか、マスクすること。
-     対応後ここに挿入し、3 言語を同期する。 -->
-
-## サポート範囲
-
-### クライアントプロトコル
-
-| プロトコル | 主なエンドポイント |
-|---|---|
-| OpenAI Chat Completions | `POST /v1/chat/completions` |
-| OpenAI Responses | `/v1/responses` およびそのリソースパス |
-| Anthropic Messages | `POST /v1/messages` |
-| Gemini | `/v1beta/models/...` |
-
-各チャネルは実行可能なプロトコルと機能を明示的に宣言します。GPT-Load はサポート対象の機能間で変換を行いますが、任意のプロトコル・任意の JSON を扱う汎用コンバーターではありません。
-
-### 組み込みチャネル
-
-<details>
-<summary>組み込みチャネル 20 種すべてを表示</summary>
-
-- **公式・クラウド**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
-- **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq
-- **サブスクリプション**：Codex、Claude、Antigravity、Grok
-- **カスタム**：OpenAI Compatible（任意の互換中継）
-
-</details>
+- **単一ゲートウェイでネイティブプロトコルを維持** — 公式 API、クラウド基盤、モデルサービス、互換中継を一元管理しながら、クライアントは OpenAI、Anthropic、Gemini のネイティブインターフェイスをそのまま使えます。
+- **API キーとサブスクリプションを統一管理** — Codex、Claude、Antigravity、Grok と API キーチャネルで、認証情報管理・スケジューリング・健全性管理を共通化します。
+- **スケジューリングと障害分離を内蔵** — 複数認証情報のスケジューリング、自動ウェイト、リトライ、クールダウン、ブラックリスト、セッションアフィニティにより、過負荷や失効の影響を抑えます。
+- **可観測で導入しやすく、データを自己管理** — 健全性、ルート、ログ、使用量、コスト概算を確認でき、SQLite、MySQL、PostgreSQL とローカル認証情報暗号化を単一バイナリで利用できます。
 
 ## クイックスタート
+
+> [!WARNING]
+> 1.x を使用している場合は、先に[「1.x からの移行」](#1x-からの移行)を確認してください。2.0 は 1.x データを開く・インポートする・その場で移行することはできません。
 
 ### 1. サービスを起動する
 
@@ -122,12 +96,7 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 ### 2. 初期設定を行う
 
-コンソールの設定は 3 層構造です：
-
-```mermaid
-flowchart LR
-    A["① チャネル<br/>API キー登録<br/>または OAuth 認可"] --> B["② Group<br/>チャネル選択<br/>モデルとポリシー設定"] --> C["③ AccessKey<br/>Group とプロトコル選択<br/>アプリへ渡す"]
-```
+初期設定は 3 ステップです：
 
 1. **チャネルを追加** — アップストリームサービスを選び、API キーを 1 つ以上登録します。サブスクリプションチャネルは画面の案内に従って OAuth 認可または認証情報のインポートを行います。
 2. **Group を作成** — チャネルを選び、利用可能なモデルと実行ポリシーを設定します。
@@ -142,49 +111,35 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 
 </details>
 
-### 3. 最初のリクエストを送る
+## 画面プレビュー
 
-AccessKey とモデル ID はコンソールの実際の値に置き換えてください：
+**ホーム** — グループと認証情報の概要、クライアントへのワンクリック接続、直近 30 日のコスト概算
 
-```bash
-export GPT_LOAD_ACCESS_KEY="your-access-key"
+<img src="./screenshot/screenshot1.png" alt="GPT-Load ホーム" width="860">
 
-curl http://127.0.0.1:3001/v1/chat/completions \
-  -H "Authorization: Bearer ${GPT_LOAD_ACCESS_KEY}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "your-model-id",
-    "messages": [{ "role": "user", "content": "こんにちは、自己紹介をお願いします。" }]
-  }'
-```
+**モニタリング** — リクエスト数、キャッシュ率、トークン分類、コスト概算、使用量の品質
 
-## 既存クライアントからの利用
+<img src="./screenshot/screenshot2.png" alt="GPT-Load モニタリング" width="860">
 
-OpenAI SDK や OpenAI 互換クライアントでは、通常 2 か所を変更するだけです：
+## サポート範囲
 
-```text
-Base URL: http://127.0.0.1:3001/v1
-API Key:  GPT-Load で作成した AccessKey
-```
+### クライアントプロトコル
 
-```python
-from openai import OpenAI
+| プロトコル              | 主なエンドポイント                     |
+| ----------------------- | -------------------------------------- |
+| OpenAI Chat Completions | `POST /v1/chat/completions`            |
+| OpenAI Responses        | `/v1/responses` およびそのリソースパス |
+| Anthropic Messages      | `POST /v1/messages`                    |
+| Gemini                  | `/v1beta/models/...`                   |
 
-client = OpenAI(
-    base_url="http://127.0.0.1:3001/v1",
-    api_key="your-access-key",
-)
+各チャネルは実行可能なプロトコルと機能を明示的に宣言します。GPT-Load はサポート対象の機能間で変換を行いますが、任意のプロトコル・任意の JSON を扱う汎用コンバーターではありません。
 
-response = client.responses.create(
-    model="your-model-id",
-    input="こんにちは",
-    store=False,
-)
+### 組み込みチャネル
 
-print(response.output_text)
-```
-
-Anthropic クライアントは `/v1/messages`、Gemini クライアントは `/v1beta/models/...` を使います。認証は各クライアントの慣習どおり、`Authorization: Bearer`、`x-api-key`、`x-goog-api-key`、または Gemini の `key` クエリパラメータで行えます。
+- **公式・クラウド**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
+- **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq
+- **サブスクリプション**：Codex、Claude、Antigravity、Grok
+- **カスタム**：OpenAI Compatible（任意の互換中継）
 
 ## デプロイとデータ
 
@@ -193,14 +148,17 @@ Docker Compose は既定でアプリケーション管理の SQLite を使用し
 > [!IMPORTANT]
 > `encryption.key` はチャネル認証情報の復号に使われます。バックアップや移行の際は、データベースと鍵を**必ず一緒に保管**してください。鍵を失ったり置き換えたりすると、既存の暗号化済み認証情報は復元できません。また現行バージョンはマスターキーのローテーションに対応していません。
 
-外部データベースを使う場合は、統一された `DATABASE_DSN` で SQLite、MySQL、PostgreSQL に接続します：
+<details>
+<summary>外部データベースを使う</summary>
+
+統一された `DATABASE_DSN` で SQLite、MySQL、PostgreSQL に接続します：
 
 ```text
 mysql://user:password@db.example:3306/gpt_load?charset=utf8mb4&collation=utf8mb4_bin
 postgres://user:password@db.example:5432/gpt_load?sslmode=require
 ```
 
-設定項目の詳細は [`.env.example`](.env.example) を参照してください。
+</details>
 
 よく使う運用コマンド：
 
@@ -227,7 +185,39 @@ HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 
 </details>
 
-## 利用前の注意
+### 環境設定
+
+アプリケーションは起動時にカレントディレクトリの `.env` を読み込み、既存のプロセス環境変数を優先します。特記がない限り、変更後はプロセスまたはコンテナを再起動してください。一般的な設定テンプレートは [`.env.example`](.env.example) を参照してください。
+
+<details>
+<summary>すべての環境変数を表示</summary>
+
+| 変数 | 既定値 | 説明 |
+| --- | --- | --- |
+| `HOST` | `127.0.0.1` | Native モードの待受アドレスであり、Compose のメインポートと OAuth コールバックポートをホストに公開する既定アドレスです。Compose コンテナ内部では常に `0.0.0.0` で待ち受けます。 |
+| `PORT` | `3001` | HTTP サービスポート。`1–65535` である必要があり、Compose はコンテナポート、ホスト公開ポート、ヘルスチェックにも使用します。 |
+| `BIND_ADDRESS` | 空、`HOST` を継承 | Compose のみ。OAuth コールバックポートを変更せず、メインサービスポートのホスト公開アドレスを上書きします。 |
+| `OAUTH_CALLBACK_BIND_ADDRESS` | 空、`HOST` を継承 | Compose のみ。固定 OAuth コールバックポート `1455`、`54545`、`51121` のホスト公開アドレスを上書きします。 |
+| `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | 停止シグナル後にリクエストの完了を待つ最大時間。正の整数、単位は秒です。 |
+| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Compose がコンテナを強制停止する前に待つ Docker duration。`GRACEFUL_SHUTDOWN_TIMEOUT` より長くすることを推奨します。 |
+| `READ_TIMEOUT` | `60` | HTTP リクエストの読み取りタイムアウト。正の整数、単位は秒です。 |
+| `IDLE_TIMEOUT` | `120` | HTTP keep-alive アイドル接続のタイムアウト。正の整数、単位は秒です。 |
+| `DATA_DIR` | `./data` | 管理対象データベース、`auth.key`、`encryption.key`、実行状態ファイルのディレクトリ。公式 Compose では `/app/data` を使用します。 |
+| `DATABASE_DSN` | 空、`${DATA_DIR}/gpt-load.db` を使用 | 空の場合はアプリケーション管理の SQLite を使用します。空でない場合は SQLite のパスまたは URL、MySQL URL、PostgreSQL URL に対応し、運用者管理の外部データベースとして扱います。コンテナ内のファイルパスはマウント済みディレクトリ内である必要があります。 |
+| `AUTH_KEY` | 空、`${DATA_DIR}/auth.key` を読み込むか生成 | 管理画面と `/api` 管理 API の Bearer キー。データプレーンの AccessKey とは異なります。 |
+| `ENCRYPTION_KEY` | 空、`${DATA_DIR}/encryption.key` を読み込むか生成 | チャネル認証情報を暗号化します。変更または紛失すると既存の認証情報を復号できないため、データベースと一緒にバックアップしてください。 |
+| `HTTP_PROXY` | 空 | HTTP アップストリームリクエストの環境プロキシ。 |
+| `HTTPS_PROXY` | 空 | HTTPS アップストリームリクエストの環境プロキシ。 |
+| `NO_PROXY` | 空 | 環境プロキシをバイパスするホスト、ドメイン、IP のカンマ区切りリスト。 |
+| `LOG_LEVEL` | `info` | `panic`、`fatal`、`error`、`warn`、`warning`、`info`、`debug`、`trace` に対応します。無効な値は警告を出して `info` に戻ります。 |
+| `LOG_FORMAT` | `text` | `text` と `json` に対応します。それ以外の値では起動に失敗します。 |
+| `MODELS_DEV_AUTO_SYNC_ENABLED` | 未設定、初期既定値 `true` | 未設定時は管理画面に保存された設定を使用します。設定時は Models.dev の自動同期を強制的に有効または無効にし、管理画面の同名オプションを読み取り専用にします。 |
+
+環境プロキシは、認証情報、Group、グローバル設定のいずれにもプロキシが指定されていない場合にのみ適用されます。
+
+</details>
+
+## 本番運用の注意事項
 
 - 既定では `127.0.0.1` のみを待ち受けます。リモートアクセスが必要な場合は、管理されたネットワークまたは TLS 対応のリバースプロキシ経由で公開し、ACL とファイアウォールを設定してください。
 - `AUTH_KEY` と `ENCRYPTION_KEY` は厳重に管理し、実際のキーをリポジトリ、ログ、スクリーンショット、公開 Issue に含めないでください。
@@ -247,11 +237,11 @@ HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 
 GPT-Load の一部機能は以下のプロジェクトを基盤としています。感謝いたします：
 
-| プロジェクト | 役割 | ライセンス |
-|---|---|---|
-| [Bifrost Core](https://github.com/maximhq/bifrost) | 各プロバイダーの認証、リクエスト/レスポンス変換、ストリーミング、使用量の正規化 | Apache-2.0 |
-| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | サブスクリプションチャネルの OAuth と実行アダプター | MIT |
-| [Lobe Icons](https://github.com/lobehub/lobe-icons) | 管理画面のチャネルブランドアイコン | MIT |
+| プロジェクト                                                | 役割                                                                            | ライセンス |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------- |
+| [Bifrost Core](https://github.com/maximhq/bifrost)          | 各プロバイダーの認証、リクエスト/レスポンス変換、ストリーミング、使用量の正規化 | Apache-2.0 |
+| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | サブスクリプションチャネルの OAuth と実行アダプター                             | MIT        |
+| [Lobe Icons](https://github.com/lobehub/lobe-icons)         | 管理画面のチャネルブランドアイコン                                              | MIT        |
 
 認証情報の保存、アカウント選択、スケジューリング、リトライ、健全性、アフィニティ、ログ、使用量ポリシーは GPT-Load が担います。サードパーティ表記は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、ライセンス全文は [`LICENSES/`](LICENSES/) にあり、各リリースには Go 依存関係を対象とした CycloneDX SBOM が付属します。
 
@@ -263,30 +253,10 @@ GPT-Load の一部機能は以下のプロジェクトを基盤としていま�
 
 コミュニティでの交流や利用方法の相談は、[Telegram グループ](https://t.me/+GHpy5SwEllg3MTUx) にご参加ください。
 
+<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
+<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
+
 GPT-Load が役に立ったら、Star をいただけると嬉しいです。
-
-## スポンサーと支援
-
-<table>
-<tbody>
-<tr>
-<td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
-<td>APIMartによる本プロジェクトへのスポンサー支援に感謝します！APIMartはAI画像・動画生成に特化した低価格APIプラットフォームで、GPT-Image-2は1枚$0.006から、1ドルで160枚以上の画像を生成できます。画像と動画の両方に対応する1つの非同期APIで、タスクを送信してIDを取得し、ポーリングまたはコールバックで結果を取得できます。数万枚規模の一括処理でもタイムアウトせず、モデルを切り替えてもコードを変更する必要はありません。従量課金制で月額料金は不要です。<a href="https://go.apimart.ai/gh-gpt-load">こちらの登録リンク</a>から登録して、すぐにご利用いただけます。</td>
-</tr>
-<tr>
-<td width="180" align="center"><a href="https://openai.com/"><img src="./screenshot/sponsor-openai.svg" alt="OpenAI" width="56"></a></td>
-<td>本プロジェクトへのスポンサー支援に感謝します（OpenAI）。</td>
-</tr>
-<tr>
-<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
-<td>LINUX DO コミュニティの支援に感謝します。</td>
-</tr>
-<tr>
-<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
-<td>本プロジェクトは DigitalOcean の支援を受けています。</td>
-</tr>
-</tbody>
-</table>
 
 ## ライセンス
 
