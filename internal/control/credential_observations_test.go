@@ -162,6 +162,41 @@ func TestNormalizeCodexObservationDoesNotTreatMeterNameAsModelID(t *testing.T) {
 	}
 }
 
+func TestRefreshCredentialObservationTimestampsUseResponseCompletionNotAttemptStart(t *testing.T) {
+	t.Parallel()
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	start := time.UnixMilli(1_800_000_000_000)
+	// The clock advances while the upstream request is in flight, exactly as a
+	// slow manual refresh does in production.
+	current := start
+	fixture.service.now = func() time.Time { return current }
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		current = start.Add(3 * time.Second)
+		return codex.AccountObservation{Payload: []byte(`{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":25,"limit_window_seconds":18000,"reset_at":1800000600}}}`)}, nil
+	})
+
+	response, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil {
+		t.Fatalf("RefreshCredentialObservation() error = %v", err)
+	}
+	if response.ObservedAtMS == nil || *response.ObservedAtMS != start.Add(3*time.Second).UnixMilli() {
+		t.Fatalf("observed_at_ms = %#v, want the response completion time %d",
+			response.ObservedAtMS, start.Add(3*time.Second).UnixMilli())
+	}
+	if response.LastAttemptAtMS == nil || *response.LastAttemptAtMS != start.UnixMilli() {
+		t.Fatalf("last_attempt_at_ms = %#v, want the attempt start time %d",
+			response.LastAttemptAtMS, start.UnixMilli())
+	}
+	var stored models.CredentialObservation
+	if err := fixture.db.Take(&stored, "credential_id = ?", credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.UpdatedAtMS != start.Add(3*time.Second).UnixMilli() {
+		t.Fatalf("updated_at_ms = %d, want the completion time so the passive CAS token actually changes",
+			stored.UpdatedAtMS)
+	}
+}
+
 func TestRecordCredentialObservationFailureDoesNotClobberConcurrentSnapshotWrite(t *testing.T) {
 	t.Parallel()
 	fixture, _, credentialID := newSubscriptionCredentialFixture(t)

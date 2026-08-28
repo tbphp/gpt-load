@@ -198,6 +198,35 @@ func TestFlushPassiveQuotaObservationsAppliesSampleAtSameObservationTime(t *test
 	}
 }
 
+func TestFlushPassiveQuotaObservationsAdvancesObservedAtWhenValuesAreUnchanged(t *testing.T) {
+	manager, db, registry, _, row := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	newFlushableCredentialObservation(t, manager, row.ID, models.CredentialObservationFresh,
+		`{"plan_summary":{},"quota_windows":[{"id":"primary","label":"5h","scope":"account","unit":"percent","state":"available","used":50,"limit":100,"remaining":50,"utilization":0.5,"reset_at_ms":1800000000000}]}`,
+	)
+	ref, _ := registry.CredentialRef(row.ID)
+	// A quota percentage that has not moved is still proof the credential was
+	// observed just now, which is what the account card's sync time shows.
+	used, limit, remaining, utilization := 50.0, 100.0, 50.0, 0.5
+	manager.RecordPassiveQuotaObservation(row.ID, ref.IdentityGeneration, 99999, []providerobservation.QuotaWindow{
+		{ID: "primary", Scope: "account", Unit: "percent", State: "available",
+			Used: &used, Limit: &limit, Remaining: &remaining, Utilization: &utilization},
+	})
+
+	if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
+		t.Fatalf("FlushPassiveQuotaObservations() error = %v", err)
+	}
+	if dirty := manager.DirtyPassiveQuotaObservations(1); len(dirty) != 0 {
+		t.Fatalf("unchanged sample was not acknowledged: %#v", dirty)
+	}
+	var persisted models.CredentialObservation
+	if err := db.Take(&persisted, "credential_id = ?", row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.ObservedAtMS == nil || *persisted.ObservedAtMS != 99999 {
+		t.Fatalf("observed_at_ms = %#v, want it advanced to 99999 even though the values did not change", persisted.ObservedAtMS)
+	}
+}
+
 func TestFlushPassiveQuotaObservationsSkipsUnknownWindowID(t *testing.T) {
 	manager, db, registry, _, row := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	newFlushableCredentialObservation(t, manager, row.ID, models.CredentialObservationFresh,

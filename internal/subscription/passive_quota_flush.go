@@ -72,31 +72,41 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}
-		encoded, merged, changed, mergeErr := mergePassiveQuotaSnapshot(row.SnapshotJSON, observation.Windows)
+		merge, mergeErr := mergePassiveQuotaSnapshot(row.SnapshotJSON, observation.Windows)
 		if mergeErr != nil {
 			// A snapshot this malformed cannot be repaired by retrying the
 			// same merge; drop the observation instead of retrying forever.
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}
-		if !changed {
+		alreadyObservedAt := row.ObservedAtMS != nil && *row.ObservedAtMS == observation.ObservedAtMS
+		if !merge.Matched || (!merge.Changed && alreadyObservedAt) {
+			// Nothing this response says is new: either it named no window the
+			// snapshot tracks, or it repeated values already stored at this
+			// very instant.
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}
+		// A matched window whose values did not move is still evidence the
+		// credential was observed just now, so the sync time advances even
+		// when the snapshot itself stays byte-identical.
+		updates := map[string]any{
+			"observed_at_ms": observation.ObservedAtMS,
+			"updated_at_ms":  manager.now().UnixMilli(),
+		}
+		if merge.Changed {
+			updates["snapshot_json"] = models.JSON(merge.Encoded)
+		}
 		result := manager.db.WithContext(ctx).Model(&models.CredentialObservation{}).
 			Where("credential_id = ? AND updated_at_ms = ?", observation.CredentialID, row.UpdatedAtMS).
-			Updates(map[string]any{
-				"snapshot_json":  models.JSON(encoded),
-				"observed_at_ms": observation.ObservedAtMS,
-				"updated_at_ms":  manager.now().UnixMilli(),
-			})
+			Updates(updates)
 		if result.Error != nil {
 			return fmt.Errorf("update credential observation %d: %w", observation.CredentialID, result.Error)
 		}
 		if result.RowsAffected == 1 {
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			if row.State == models.CredentialObservationFresh {
-				manager.registry.ApplyQuotaWindows(observation.CredentialID, merged)
+				manager.registry.ApplyQuotaWindows(observation.CredentialID, merge.Windows)
 			}
 			return nil
 		}
@@ -104,6 +114,18 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 		// write. Retry once against the row it left behind.
 	}
 	return fmt.Errorf("passive quota observation for credential %d conflicted with a concurrent write", observation.CredentialID)
+}
+
+// passiveQuotaMerge is the outcome of overlaying one response's windows onto
+// a stored snapshot. Matched and Changed are distinct on purpose: a response
+// that names a tracked window but repeats its values is still a fresh
+// observation of that credential, while a response naming no tracked window
+// is no observation of this snapshot at all.
+type passiveQuotaMerge struct {
+	Encoded []byte
+	Windows []providerobservation.QuotaWindow
+	Matched bool
+	Changed bool
 }
 
 // mergePassiveQuotaSnapshot overlays patches onto the quota_windows array
@@ -115,47 +137,49 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 func mergePassiveQuotaSnapshot(
 	raw []byte,
 	patches []providerobservation.QuotaWindow,
-) (encoded []byte, windows []providerobservation.QuotaWindow, changed bool, err error) {
+) (result passiveQuotaMerge, err error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return nil, nil, false, fmt.Errorf("decode credential observation snapshot: %w", err)
+		return passiveQuotaMerge{}, fmt.Errorf("decode credential observation snapshot: %w", err)
 	}
 	windowsRaw, ok := fields["quota_windows"]
 	if !ok {
-		return nil, nil, false, errors.New("credential observation snapshot has no quota_windows field")
+		return passiveQuotaMerge{}, errors.New("credential observation snapshot has no quota_windows field")
 	}
 	var existing []providerobservation.QuotaWindow
 	if err := json.Unmarshal(windowsRaw, &existing); err != nil {
-		return nil, nil, false, fmt.Errorf("decode credential observation quota windows: %w", err)
+		return passiveQuotaMerge{}, fmt.Errorf("decode credential observation quota windows: %w", err)
 	}
 	merged := append([]providerobservation.QuotaWindow(nil), existing...)
 	index := make(map[string]int, len(merged))
 	for position, window := range merged {
 		index[window.ID] = position
 	}
-	changedAny := false
+	outcome := passiveQuotaMerge{Encoded: raw, Windows: existing}
 	for _, patch := range patches {
 		position, exists := index[patch.ID]
 		if !exists {
 			continue
 		}
+		outcome.Matched = true
 		next := providerobservation.MergeQuotaWindow(merged[position], patch)
 		if !reflect.DeepEqual(next, merged[position]) {
-			changedAny = true
+			outcome.Changed = true
 		}
 		merged[position] = next
 	}
-	if !changedAny {
-		return raw, existing, false, nil
+	if !outcome.Changed {
+		return outcome, nil
 	}
 	encodedWindows, err := json.Marshal(merged)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("encode credential observation quota windows: %w", err)
+		return passiveQuotaMerge{}, fmt.Errorf("encode credential observation quota windows: %w", err)
 	}
 	fields["quota_windows"] = encodedWindows
-	result, err := json.Marshal(fields)
+	encoded, err := json.Marshal(fields)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("encode credential observation snapshot: %w", err)
+		return passiveQuotaMerge{}, fmt.Errorf("encode credential observation snapshot: %w", err)
 	}
-	return result, merged, true, nil
+	outcome.Encoded, outcome.Windows = encoded, merged
+	return outcome, nil
 }

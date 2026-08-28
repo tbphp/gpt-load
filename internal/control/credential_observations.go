@@ -319,12 +319,21 @@ func (s *Service) refreshCredentialObservationOnce(
 	if err != nil {
 		return CredentialObservationResponse{}, app_errors.ErrInternalServer
 	}
+	// The observation time is when this result was actually obtained, not when
+	// the attempt started: a slow refresh would otherwise be stamped older
+	// than passive samples captured while it was still in flight, letting them
+	// overwrite it. Keeping updated_at_ms on the same instant also guarantees
+	// the passive writer's compare-and-set token changes on every active write.
+	completedMS := s.now().UTC().UnixMilli()
+	if completedMS < attemptMS {
+		completedMS = attemptMS
+	}
 	row := models.CredentialObservation{
 		CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,
 		SchemaVersion: 1, ObservationVersion: version, SnapshotJSON: models.JSON(encoded),
-		State: state, ObservedAtMS: &attemptMS,
+		State: state, ObservedAtMS: &completedMS,
 		LastAttemptAtMS: &attemptMS,
-		LastErrorCode:   lastErrorCode, UpdatedAtMS: attemptMS,
+		LastErrorCode:   lastErrorCode, UpdatedAtMS: completedMS,
 	}
 	if err := s.upsertCredentialObservation(ctx, row); err != nil {
 		return CredentialObservationResponse{}, err
