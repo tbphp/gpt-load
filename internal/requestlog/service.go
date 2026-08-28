@@ -29,6 +29,15 @@ type batchWriter interface {
 	WriteBatch(context.Context, []models.RequestLog) error
 }
 
+// passiveQuotaFlusher is the narrow, package-local view of
+// subscription.CredentialManager's passive quota pending store. RequestLog
+// depends on this shape only -- it never imports the subscription package or
+// its Provider, Observation, or window models.
+type passiveQuotaFlusher interface {
+	FlushPassiveQuotaObservations(ctx context.Context) (bool, error)
+	SetPassiveQuotaDirtyNotifier(notifier func())
+}
+
 type workerTimer interface {
 	C() <-chan time.Time
 	Stop() bool
@@ -51,6 +60,7 @@ type Service struct {
 	accessQuota     *accessquota.Runtime
 	quotaWriter     accessQuotaCheckpointWriter
 	quotaWake       chan struct{}
+	passiveQuota    passiveQuotaFlusher
 
 	stateMu       sync.Mutex
 	state         lifecycleState
@@ -79,6 +89,9 @@ type Service struct {
 
 	warningMu     sync.Mutex
 	lastWarningAt time.Time
+
+	passiveQuotaWarningMu     sync.Mutex
+	lastPassiveQuotaWarningAt time.Time
 }
 
 func NewService(
@@ -121,6 +134,45 @@ func (service *Service) wakeAccessQuotaCheckpoint() {
 	case service.quotaWake <- struct{}{}:
 	default:
 	}
+}
+
+// SetPassiveQuotaFlusher installs the passive credential-quota observation
+// flusher and shares this worker's existing quotaWake with it, so a dirty
+// passive observation and a dirty AccessQuota checkpoint wake the same
+// worker cycle. Call it before Start; a nil flusher is a no-op.
+func (service *Service) SetPassiveQuotaFlusher(flusher passiveQuotaFlusher) {
+	if service == nil || flusher == nil {
+		return
+	}
+	service.passiveQuota = flusher
+	if service.quotaWake == nil {
+		service.quotaWake = make(chan struct{}, 1)
+	}
+	flusher.SetPassiveQuotaDirtyNotifier(service.wakeAccessQuotaCheckpoint)
+}
+
+func (service *Service) warnPassiveQuotaFlushFailure(cause error) {
+	if service == nil || cause == nil {
+		return
+	}
+	now := service.now()
+	service.passiveQuotaWarningMu.Lock()
+	if !service.lastPassiveQuotaWarningAt.IsZero() && now.Before(service.lastPassiveQuotaWarningAt.Add(warningInterval)) {
+		service.passiveQuotaWarningMu.Unlock()
+		return
+	}
+	service.lastPassiveQuotaWarningAt = now
+	service.passiveQuotaWarningMu.Unlock()
+	utils.LogPlaneBestEffort(
+		service.logger,
+		logrus.WarnLevel,
+		utils.LogPlaneData,
+		logrus.Fields{
+			"event": "credential_observation.passive_persist_failed",
+			"error": cause.Error(),
+		},
+		"passive credential quota observation persistence failed",
+	)
 }
 
 func newService(

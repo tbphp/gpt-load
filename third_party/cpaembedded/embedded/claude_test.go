@@ -189,6 +189,33 @@ func TestClaudeHTTPExecutorCountsTokensThroughAnthropicUpstream(t *testing.T) {
 	}
 }
 
+func TestClaudeHTTPExecutorStreamCanonicalFacadeCapturesQuotaSignalsOnHandshake(t *testing.T) {
+	transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type": {"text/event-stream"},
+				"Anthropic-Ratelimit-Unified-5h-Utilization": {"0.4"},
+			},
+			Body:    io.NopCloser(strings.NewReader(claudeExecutionSSE)),
+			Request: request,
+		}, nil
+	})
+	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+	stream, err := NewClaudeHTTPExecutor().ExecuteStreamCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+		Model: "claude-sonnet-4-5", Format: "claude",
+		Payload: []byte(`{"model":"claude-sonnet-4-5","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":true}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream.Chunks {
+	}
+	if stream.QuotaSignals.Signals["Anthropic-Ratelimit-Unified-5h-Utilization"] != "0.4" {
+		t.Fatalf("ExecuteStreamCanonical() QuotaSignals = %#v", stream.QuotaSignals)
+	}
+}
+
 func TestClaudeHTTPExecutorStreamsAllSupportedFormats(t *testing.T) {
 	tests := []struct {
 		format  string
@@ -385,6 +412,80 @@ func TestClaudeHTTPExecutorHonorsRequestCancellation(t *testing.T) {
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("upstream requests = %d, want 1", requests.Load())
+	}
+}
+
+func TestClaudeHTTPExecutorCanonicalFacadeCapturesQuotaSignalsOnSuccessAndError(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantErr    bool
+	}{
+		{
+			name:       "success",
+			statusCode: http.StatusOK,
+			body:       `{"id":"msg-one","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}}`,
+		},
+		{
+			name:       "rate limited",
+			statusCode: http.StatusTooManyRequests,
+			body:       `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`,
+			wantErr:    true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: test.statusCode,
+					Header: http.Header{
+						"Content-Type":                               {"application/json"},
+						"Anthropic-Ratelimit-Unified-5h-Status":      {"allowed"},
+						"Anthropic-Ratelimit-Unified-5h-Utilization": {"0.4"},
+					},
+					Body:    io.NopCloser(strings.NewReader(test.body)),
+					Request: request,
+				}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			response, err := NewClaudeHTTPExecutor().ExecuteCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+				Model: "claude-sonnet-4-5", Format: "claude",
+				Payload: []byte(`{"model":"claude-sonnet-4-5","max_tokens":32,"messages":[{"role":"user","content":"hello"}]}`),
+			})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ExecuteCanonical() error = %v, wantErr %v", err, test.wantErr)
+			}
+			if response.QuotaSignals.Signals["Anthropic-Ratelimit-Unified-5h-Utilization"] != "0.4" ||
+				response.QuotaSignals.ObservedAt.IsZero() {
+				t.Fatalf("ExecuteCanonical() QuotaSignals = %#v", response.QuotaSignals)
+			}
+		})
+	}
+}
+
+func TestClaudeHTTPExecutorCanonicalFacadeSkipsQuotaSignalsForCountTokens(t *testing.T) {
+	transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type": {"application/json"},
+				"Anthropic-Ratelimit-Unified-5h-Utilization": {"0.4"},
+			},
+			Body:    io.NopCloser(strings.NewReader(`{"input_tokens":7}`)),
+			Request: request,
+		}, nil
+	})
+	ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+	response, err := NewClaudeHTTPExecutor().CountTokensCanonical(ctx, "credential-one", testClaudeExecutionCredential(), ExecuteRequest{
+		Model: "claude-sonnet-4-5", Format: "claude",
+		Payload: []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.QuotaSignals.Signals != nil || !response.QuotaSignals.ObservedAt.IsZero() {
+		t.Fatalf("CountTokensCanonical() unexpectedly captured QuotaSignals = %#v", response.QuotaSignals)
 	}
 }
 

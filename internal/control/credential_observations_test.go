@@ -162,6 +162,138 @@ func TestNormalizeCodexObservationDoesNotTreatMeterNameAsModelID(t *testing.T) {
 	}
 }
 
+func TestRefreshCredentialObservationTimestampsUseResponseCompletionNotAttemptStart(t *testing.T) {
+	t.Parallel()
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	start := time.UnixMilli(1_800_000_000_000)
+	// The clock advances while the upstream request is in flight, exactly as a
+	// slow manual refresh does in production.
+	current := start
+	fixture.service.now = func() time.Time { return current }
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		current = start.Add(3 * time.Second)
+		return codex.AccountObservation{Payload: []byte(`{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":25,"limit_window_seconds":18000,"reset_at":1800000600}}}`)}, nil
+	})
+
+	response, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil {
+		t.Fatalf("RefreshCredentialObservation() error = %v", err)
+	}
+	if response.ObservedAtMS == nil || *response.ObservedAtMS != start.Add(3*time.Second).UnixMilli() {
+		t.Fatalf("observed_at_ms = %#v, want the response completion time %d",
+			response.ObservedAtMS, start.Add(3*time.Second).UnixMilli())
+	}
+	if response.LastAttemptAtMS == nil || *response.LastAttemptAtMS != start.UnixMilli() {
+		t.Fatalf("last_attempt_at_ms = %#v, want the attempt start time %d",
+			response.LastAttemptAtMS, start.UnixMilli())
+	}
+	var stored models.CredentialObservation
+	if err := fixture.db.Take(&stored, "credential_id = ?", credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.UpdatedAtMS != start.Add(3*time.Second).UnixMilli() {
+		t.Fatalf("updated_at_ms = %d, want the completion time so the passive CAS token actually changes",
+			stored.UpdatedAtMS)
+	}
+}
+
+func TestRecordCredentialObservationFailureDoesNotClobberConcurrentSnapshotWrite(t *testing.T) {
+	t.Parallel()
+	fixture, _, credentialID := newSubscriptionCredentialFixture(t)
+	var credentialRow models.Credential
+	if err := fixture.db.Take(&credentialRow, credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+	staleSnapshot := `{"plan_summary":{},"quota_windows":[{"id":"primary","scope":"account","unit":"percent","state":"available"}]}`
+	freshSnapshot := `{"plan_summary":{},"quota_windows":[{"id":"primary","scope":"account","unit":"percent","state":"available","used":77}]}`
+	observedAt := int64(1000)
+	previous := models.CredentialObservation{
+		CredentialID: credentialID, IdentityFingerprint: credentialRow.IdentityFingerprint,
+		SchemaVersion: 1, ObservationVersion: 1, SnapshotJSON: models.JSON(staleSnapshot),
+		State: models.CredentialObservationFresh, ObservedAtMS: &observedAt, UpdatedAtMS: 1000,
+	}
+	if err := fixture.db.Create(&previous).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a passive quota write landing after `previous` was read by the
+	// caller but before this failure gets persisted.
+	if err := fixture.db.Model(&models.CredentialObservation{}).
+		Where("credential_id = ?", credentialID).
+		Updates(map[string]any{
+			"snapshot_json": models.JSON(freshSnapshot), "observed_at_ms": int64(2000), "updated_at_ms": int64(2000),
+		}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.recordCredentialObservationFailure(
+		t.Context(), credentialRow, previous, 3000, "observation_upstream_failed", "refresh subscription information", nil,
+	); err == nil {
+		t.Fatal("recordCredentialObservationFailure() error = nil")
+	}
+
+	var stored models.CredentialObservation
+	if err := fixture.db.Take(&stored, "credential_id = ?", credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if string(stored.SnapshotJSON) != freshSnapshot {
+		t.Fatalf("snapshot_json = %s, want the concurrently-written fresh snapshot preserved", stored.SnapshotJSON)
+	}
+	// A previously fresh observation keeps showing its last-known-good state
+	// across a failed refresh; only the error code advances.
+	if stored.State != models.CredentialObservationFresh || stored.LastErrorCode != "observation_upstream_failed" {
+		t.Fatalf("stored observation = %#v, want fresh state preserved and error code updated", stored)
+	}
+	if stored.ObservedAtMS == nil || *stored.ObservedAtMS != 2000 {
+		t.Fatalf("observed_at_ms = %#v, want the concurrent write's 2000 preserved", stored.ObservedAtMS)
+	}
+}
+
+func TestInvalidateCredentialObservationAfterResetDoesNotClobberConcurrentSnapshotWrite(t *testing.T) {
+	t.Parallel()
+	fixture, _, credentialID := newSubscriptionCredentialFixture(t)
+	var credentialRow models.Credential
+	if err := fixture.db.Take(&credentialRow, credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+	staleSnapshot := `{"plan_summary":{},"quota_windows":[{"id":"primary","scope":"account","unit":"percent","state":"available"}]}`
+	freshSnapshot := `{"plan_summary":{},"quota_windows":[{"id":"primary","scope":"account","unit":"percent","state":"available","used":77}]}`
+	observedAt := int64(1000)
+	previous := models.CredentialObservation{
+		CredentialID: credentialID, IdentityFingerprint: credentialRow.IdentityFingerprint,
+		SchemaVersion: 1, ObservationVersion: 1, SnapshotJSON: models.JSON(staleSnapshot),
+		State: models.CredentialObservationFresh, LastErrorCode: "previous_error",
+		ObservedAtMS: &observedAt, UpdatedAtMS: 1000,
+	}
+	if err := fixture.db.Create(&previous).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.db.Model(&models.CredentialObservation{}).
+		Where("credential_id = ?", credentialID).
+		Updates(map[string]any{
+			"snapshot_json": models.JSON(freshSnapshot), "observed_at_ms": int64(2000), "updated_at_ms": int64(2000),
+		}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.invalidateCredentialObservationAfterReset(t.Context(), credentialRow, &previous); err != nil {
+		t.Fatal(err)
+	}
+
+	var stored models.CredentialObservation
+	if err := fixture.db.Take(&stored, "credential_id = ?", credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if string(stored.SnapshotJSON) != freshSnapshot {
+		t.Fatalf("snapshot_json = %s, want the concurrently-written fresh snapshot preserved", stored.SnapshotJSON)
+	}
+	if stored.State != models.CredentialObservationStale || stored.LastErrorCode != "" {
+		t.Fatalf("stored observation = %#v, want state stale and error cleared", stored)
+	}
+	if stored.ObservedAtMS == nil || *stored.ObservedAtMS != 2000 {
+		t.Fatalf("observed_at_ms = %#v, want the concurrent write's 2000 preserved", stored.ObservedAtMS)
+	}
+}
+
 func TestRefreshCredentialObservationPersistsLKGAndAllowsImmediateManualRefresh(t *testing.T) {
 	t.Parallel()
 

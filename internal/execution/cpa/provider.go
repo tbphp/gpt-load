@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
 // providerCredential is deliberately opaque to the shared CPA adapter. Each
@@ -141,6 +143,8 @@ type providerResponse struct {
 	AppliedReasoningEffort string
 	UpstreamProtocol       protocol.Protocol
 	Local                  bool
+	QuotaObservedAt        time.Time
+	QuotaWindows           []providerobservation.QuotaWindow
 }
 
 type providerStreamResponse struct {
@@ -148,6 +152,8 @@ type providerStreamResponse struct {
 	Chunks                 <-chan providerStreamChunk
 	AppliedReasoningEffort string
 	UpstreamProtocol       protocol.Protocol
+	QuotaObservedAt        time.Time
+	QuotaWindows           []providerobservation.QuotaWindow
 }
 
 type providerStreamChunk struct {

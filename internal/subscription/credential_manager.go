@@ -37,6 +37,7 @@ type CredentialManager struct {
 	replaceSecret  func(uint, uint64, uint64, string, string) bool
 	reconcileGroup func(uint, []state.CredentialEntry) (bool, error)
 	now            func() time.Time
+	passiveQuota   *passiveQuotaPending
 }
 
 // Runtime returns the immutable capability registry used by this manager.
@@ -61,7 +62,7 @@ func NewCredentialManager(
 	}
 	return &CredentialManager{
 		db: db, encryption: encryptionService, registry: registry, mutations: mutations,
-		runtime: runtime,
+		runtime: runtime, passiveQuota: newPassiveQuotaPending(),
 		refresh: func(ctx context.Context, driver subscriptionruntime.Driver, credential subscriptionruntime.Credential) (subscriptionruntime.Credential, error) {
 			return driver.Refresh(ctx, credential)
 		},

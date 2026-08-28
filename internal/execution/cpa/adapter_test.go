@@ -37,6 +37,7 @@ import (
 	subscriptionproviders "gpt-load/internal/subscription/providers"
 	"gpt-load/internal/subscription/providers/antigravity"
 	"gpt-load/internal/subscription/providers/codex"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/testutil/encryptiontest"
 )
@@ -73,6 +74,17 @@ func (f *fakeCredentialPreparer) Prepare(
 		return f.delegate.Prepare(ctx, channelID, credential, force)
 	}
 	return f.credential, f.evidence
+}
+
+func (f *fakeCredentialPreparer) RecordPassiveQuotaObservation(
+	credentialID uint,
+	identityGeneration uint64,
+	observedAtMS int64,
+	windows []providerobservation.QuotaWindow,
+) {
+	if f.delegate != nil {
+		f.delegate.RecordPassiveQuotaObservation(credentialID, identityGeneration, observedAtMS, windows)
+	}
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -115,6 +127,69 @@ func setCodexExecutor(t *testing.T, adapter *Adapter, executor codex.Executor) {
 		t.Fatal("Codex provider bridge is unavailable")
 	}
 	bridge.executor = executor
+}
+
+func TestAdapterExecuteRecordsPassiveQuotaObservationOnSuccessAndHTTPError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "success"},
+		{name: "HTTP error", err: &codex.UpstreamHTTPError{Operation: "responses", StatusCode: 429}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			manager, ok := adapter.credentials.(*subscription.CredentialManager)
+			if !ok {
+				t.Fatal("adapter credentials is not a *subscription.CredentialManager")
+			}
+			observedAt := time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC)
+			setCodexExecutor(t, adapter, &fakeExecutor{
+				result: codex.ExecuteResponse{
+					Payload:         []byte(`{"id":"resp_1","model":"gpt-5","output":[]}`),
+					QuotaObservedAt: observedAt,
+					QuotaSignals:    map[string]string{"X-Codex-Primary-Used-Percent": "55"},
+				},
+				err: test.err,
+			})
+			spec := validSpec(t, row, keyService)
+
+			adapter.Execute(t.Context(), spec)
+
+			dirty := manager.DirtyPassiveQuotaObservations(1)
+			if len(dirty) != 1 || dirty[0].CredentialID != spec.Credential.ID ||
+				dirty[0].ObservedAtMS != observedAt.UnixMilli() || len(dirty[0].Windows) != 1 ||
+				dirty[0].Windows[0].ID != "primary" {
+				t.Fatalf("dirty observations = %#v", dirty)
+			}
+		})
+	}
+}
+
+func TestAdapterExecuteStreamRecordsPassiveQuotaObservationOnHandshake(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	manager, ok := adapter.credentials.(*subscription.CredentialManager)
+	if !ok {
+		t.Fatal("adapter credentials is not a *subscription.CredentialManager")
+	}
+	chunks := make(chan codex.ExecuteStreamChunk, 1)
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5"}}`)}
+	close(chunks)
+	observedAt := time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC)
+	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{
+		Headers:         http.Header{"X-Oai-Request-Id": {"oai-request-1"}},
+		Chunks:          chunks,
+		QuotaObservedAt: observedAt,
+		QuotaSignals:    map[string]string{"X-Codex-Primary-Used-Percent": "55"},
+	}})
+
+	adapter.ExecuteStream(t.Context(), validSpec(t, row, keyService), func(execution.StreamEvent) error { return nil })
+
+	dirty := manager.DirtyPassiveQuotaObservations(1)
+	if len(dirty) != 1 || dirty[0].ObservedAtMS != observedAt.UnixMilli() || len(dirty[0].Windows) != 1 {
+		t.Fatalf("dirty observations = %#v", dirty)
+	}
 }
 
 func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) {

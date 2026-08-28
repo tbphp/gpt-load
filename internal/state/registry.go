@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
 type CredentialStatus string
@@ -698,6 +700,53 @@ func (r *CredentialRegistry) SetCredentialQuotaObservation(
 	}
 	entry.quotaResetAt = resetAt
 	return true
+}
+
+// ApplyQuotaWindows publishes the tightest account-scope remaining ratio
+// derived from windows to the management-plane health display, or clears it
+// when no account-scope window carries both a usable ratio and a reset time.
+// It is shared by the active and passive credential observation writers so
+// both pick the same bottleneck window using one rule.
+func (r *CredentialRegistry) ApplyQuotaWindows(credentialID uint, windows []providerobservation.QuotaWindow) bool {
+	if r == nil || credentialID == 0 {
+		return false
+	}
+	var remaining *float64
+	var resetAtMS int64
+	for _, window := range windows {
+		if window.Scope != "account" || window.ResetAtMS == nil {
+			continue
+		}
+		value, known := quotaWindowRemainingRatio(window)
+		if !known {
+			continue
+		}
+		if remaining == nil || value < *remaining {
+			cloned := value
+			remaining = &cloned
+			resetAtMS = *window.ResetAtMS
+		} else if value == *remaining && *window.ResetAtMS > resetAtMS {
+			// Equal bottlenecks must all recover before this credential is usable.
+			resetAtMS = *window.ResetAtMS
+		}
+	}
+	if remaining == nil || resetAtMS == 0 {
+		return r.SetCredentialQuotaObservation(credentialID, nil, time.Time{})
+	}
+	return r.SetCredentialQuotaObservation(credentialID, remaining, time.UnixMilli(resetAtMS).UTC())
+}
+
+func quotaWindowRemainingRatio(window providerobservation.QuotaWindow) (float64, bool) {
+	if window.State == "exhausted" {
+		return 0, true
+	}
+	if window.Utilization != nil {
+		return math.Max(0, math.Min(1, 1-*window.Utilization)), true
+	}
+	if window.Remaining != nil && window.Limit != nil && *window.Limit > 0 {
+		return math.Max(0, math.Min(1, *window.Remaining / *window.Limit)), true
+	}
+	return 0, false
 }
 
 func (r *CredentialRegistry) SetCooldown(credentialID uint, until time.Time) bool {

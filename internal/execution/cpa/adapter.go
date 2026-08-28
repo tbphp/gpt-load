@@ -24,6 +24,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/subscription"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/usage"
 )
@@ -47,6 +48,26 @@ type Adapter struct {
 
 type credentialPreparer interface {
 	Prepare(context.Context, channel.ID, execution.CredentialSnapshot, bool) (subscriptionruntime.Credential, *execution.ErrorEvidence)
+	RecordPassiveQuotaObservation(credentialID uint, identityGeneration uint64, observedAtMS int64, windows []providerobservation.QuotaWindow)
+}
+
+// recordPassiveQuotaObservation forwards one execution's passive quota
+// windows, if any, to the credential's pending observation. It is a no-op
+// for providers that never populate a response's QuotaWindows.
+func (a *Adapter) recordPassiveQuotaObservation(
+	spec execution.AttemptSpec,
+	observedAt time.Time,
+	windows []providerobservation.QuotaWindow,
+) {
+	if a == nil || a.credentials == nil || len(windows) == 0 {
+		return
+	}
+	a.credentials.RecordPassiveQuotaObservation(
+		spec.Credential.ID,
+		spec.Credential.IdentityGeneration,
+		observedAt.UnixMilli(),
+		windows,
+	)
 }
 
 // NewAdapter creates the shared CPA subscription execution adapter.
@@ -182,6 +203,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 			credential,
 			request,
 		)
+		a.recordPassiveQuotaObservation(spec, response.QuotaObservedAt, response.QuotaWindows)
 	}
 	if err != nil {
 		result := unaryExecutionError(execCtx, provider, err, credential)
@@ -294,6 +316,7 @@ func (a *Adapter) ExecuteStream(
 	upstreamProtocol := provider.UpstreamProtocol()
 	if response != nil {
 		upstreamProtocol = effectiveUpstreamProtocol(provider, response.UpstreamProtocol)
+		a.recordPassiveQuotaObservation(spec, response.QuotaObservedAt, response.QuotaWindows)
 	}
 	if err != nil {
 		result := unaryExecutionError(streamCtx, provider, err, credential)

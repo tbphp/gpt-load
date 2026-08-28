@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func floatPointer(value float64) *float64 { return &value }
@@ -73,6 +74,77 @@ func TestNormalizeObservationIncludesAccountAndQuotaWindows(t *testing.T) {
 		byID["weekly_opus"].Label != "Opus · 7d" ||
 		byID["weekly_opus"].Utilization == nil || *byID["weekly_opus"].Utilization != 0.8 {
 		t.Fatalf("quota windows = %#v", byID)
+	}
+}
+
+func TestNormalizePassiveQuotaWindowsMapsFiveHourAndSevenDay(t *testing.T) {
+	windows := NormalizePassiveQuotaWindows(map[string]string{
+		"Anthropic-Ratelimit-Unified-5h-Status":      "allowed",
+		"Anthropic-Ratelimit-Unified-5h-Utilization": "0.4",
+		"Anthropic-Ratelimit-Unified-5h-Reset":       "1787296800",
+		"Anthropic-Ratelimit-Unified-7d-Status":      "rejected",
+		"Anthropic-Ratelimit-Unified-7d-Utilization": "0.1",
+	}, time.Now())
+	if len(windows) != 2 {
+		t.Fatalf("windows = %#v, want 2 entries", windows)
+	}
+	byID := map[string]quotaWindow{}
+	for _, window := range windows {
+		byID[window.ID] = window
+	}
+	// Display metadata is deliberately empty: a passive response only updates
+	// quota numbers and state on windows the active observation already owns.
+	fiveHour, ok := byID["five_hour"]
+	if !ok || fiveHour.Utilization == nil || *fiveHour.Utilization != 0.4 ||
+		fiveHour.State != "available" || fiveHour.ResetAtMS == nil || *fiveHour.ResetAtMS != 1787296800*1000 {
+		t.Fatalf("five_hour window = %#v", fiveHour)
+	}
+	if fiveHour.Label != "" || fiveHour.LabelKey != "" || fiveHour.Scope != "" ||
+		fiveHour.Unit != "" || fiveHour.IsPrimary {
+		t.Fatalf("five_hour window = %#v, want empty display metadata", fiveHour)
+	}
+	sevenDay, ok := byID["seven_day"]
+	if !ok || sevenDay.Utilization == nil || *sevenDay.Utilization != 0.1 || sevenDay.State != "exhausted" {
+		t.Fatalf("seven_day window = %#v, want rejected status forcing exhausted", sevenDay)
+	}
+}
+
+func TestNormalizePassiveQuotaWindowsIgnoresUnknownStatusAndOutOfRangeUtilization(t *testing.T) {
+	windows := NormalizePassiveQuotaWindows(map[string]string{
+		"Anthropic-Ratelimit-Unified-5h-Status":      "unknown",
+		"Anthropic-Ratelimit-Unified-5h-Utilization": "1.5",
+	}, time.Now())
+	if len(windows) != 1 || windows[0].Utilization != nil || windows[0].State != "unknown" {
+		t.Fatalf("windows = %#v, want state unknown and no utilization", windows)
+	}
+}
+
+func TestNormalizePassiveQuotaWindowsRejectsNaNUtilization(t *testing.T) {
+	windows := NormalizePassiveQuotaWindows(map[string]string{
+		"Anthropic-Ratelimit-Unified-5h-Status":      "allowed",
+		"Anthropic-Ratelimit-Unified-5h-Utilization": "NaN",
+	}, time.Now())
+	if len(windows) != 1 || windows[0].Utilization != nil || windows[0].State != "available" {
+		t.Fatalf("windows = %#v, want status-derived state without a NaN utilization", windows)
+	}
+}
+
+func TestNormalizePassiveQuotaWindowsOmitsWindowWithNoValidEvidence(t *testing.T) {
+	windows := NormalizePassiveQuotaWindows(map[string]string{
+		"Anthropic-Ratelimit-Unified-5h-Utilization": "NaN",
+	}, time.Now())
+	if len(windows) != 0 {
+		t.Fatalf("windows = %#v, want none when the only signal is invalid", windows)
+	}
+}
+
+func TestNormalizePassiveQuotaWindowsIgnoresUnrelatedHeaders(t *testing.T) {
+	windows := NormalizePassiveQuotaWindows(map[string]string{
+		"Anthropic-Ratelimit-Unified-Overage-Status": "rejected",
+		"Retry-After": "30",
+	}, time.Now())
+	if len(windows) != 0 {
+		t.Fatalf("windows = %#v, want none", windows)
 	}
 }
 
