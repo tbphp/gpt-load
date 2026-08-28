@@ -77,6 +77,108 @@ func TestConnectSubscriptionGroupSkipsExistingAndBatchDuplicateStages(t *testing
 	}
 }
 
+func TestConnectSubscriptionGroupReplacesCredentialThatNeedsReauthorization(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		authState      models.CredentialAuthState
+		authErrorCode  string
+		idempotencyKey string
+	}{
+		{
+			name: "reauthorization required", authState: models.CredentialAuthStateReauthorizationRequired,
+			authErrorCode: "refresh_rejected", idempotencyKey: "00000000-0000-4000-8000-00000000d103",
+		},
+		{
+			name: "outcome unknown", authState: models.CredentialAuthStateOutcomeUnknown,
+			authErrorCode: "refresh_outcome_unknown", idempotencyKey: "00000000-0000-4000-8000-00000000d104",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+			var before models.Credential
+			if err := fixture.db.First(&before, credentialID).Error; err != nil {
+				t.Fatal(err)
+			}
+			const weight = 37
+			if err := fixture.db.Model(&models.Credential{}).Where("id = ?", credentialID).Updates(map[string]any{
+				"auth_state": test.authState, "auth_error_code": test.authErrorCode,
+				"status": models.CredentialStatusDisabled, "weight_manual": weight,
+			}).Error; err != nil {
+				t.Fatal(err)
+			}
+			stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(fmt.Sprintf(
+				`{"type":"codex","access_token":"replacement-access-%s","refresh_token":"replacement-refresh-%s","account_id":"account-observation","email":%q}`,
+				test.authState,
+				test.authState,
+				fmt.Sprintf("replacement-%s@example.com", test.authState),
+			)))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			inspection, err := fixture.service.InspectGroupCredentialConnection(
+				t.Context(), groupID, []string{stage.StageID},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(inspection.DuplicatedStageIDs) != 0 {
+				t.Errorf("inspection duplicates = %v, want none", inspection.DuplicatedStageIDs)
+			}
+
+			result, err := fixture.service.ConnectGroupCredentialsIdempotent(
+				t.Context(), test.idempotencyKey, groupID, []string{stage.StageID},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.CredentialsAdded != 1 || result.CredentialsDuplicated != 0 {
+				t.Errorf("result = %#v", result)
+			}
+			var after models.Credential
+			if err := fixture.db.First(&after, credentialID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if after.Fingerprint == before.Fingerprint || after.Data == before.Data ||
+				after.IdentityFingerprint != before.IdentityFingerprint ||
+				after.SecretVersion != before.SecretVersion+1 ||
+				after.AuthState != models.CredentialAuthStateReady || after.AuthErrorCode != "" {
+				t.Errorf(
+					"replacement state = fingerprint_changed:%t data_changed:%t identity_preserved:%t version:%d auth:%q error:%q",
+					after.Fingerprint != before.Fingerprint,
+					after.Data != before.Data,
+					after.IdentityFingerprint == before.IdentityFingerprint,
+					after.SecretVersion,
+					after.AuthState,
+					after.AuthErrorCode,
+				)
+			}
+			if after.Status != models.CredentialStatusDisabled ||
+				after.WeightManual == nil || *after.WeightManual != weight {
+				t.Errorf("operator settings changed: status=%q weight=%v", after.Status, after.WeightManual)
+			}
+			var credentialCount int64
+			if err := fixture.db.Model(&models.Credential{}).
+				Where("group_id = ?", groupID).Count(&credentialCount).Error; err != nil {
+				t.Fatal(err)
+			}
+			if credentialCount != 1 {
+				t.Errorf("credential count = %d, want 1", credentialCount)
+			}
+			var consumed models.CredentialStage
+			if err := fixture.db.Take(&consumed, "id = ?", stage.StageID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if consumed.Status != models.CredentialStageConsumed || consumed.EncryptedPayload != "" {
+				t.Errorf("stage was not consumed after replacement: %#v", consumed)
+			}
+		})
+	}
+}
+
 func TestInspectSubscriptionConnectionIdentifiesExactDuplicateStages(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)

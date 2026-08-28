@@ -52,7 +52,7 @@ func (s *Service) InspectGroupCredentialConnection(
 	if err != nil {
 		return CredentialConnectInspection{}, err
 	}
-	duplicatedStageIDs, err := duplicateCredentialStageIDs(db, groupID, stages)
+	duplicatedStageIDs, _, err := classifyCredentialStages(db, groupID, stages)
 	if err != nil {
 		return CredentialConnectInspection{}, err
 	}

@@ -1360,42 +1360,53 @@ func (s *Service) loadConsumableCredentialStages(
 	return stages, nil
 }
 
-func duplicateCredentialStageIDs(
+func classifyCredentialStages(
 	tx *gorm.DB,
 	groupID uint,
 	stages []models.CredentialStage,
-) ([]string, error) {
+) ([]string, map[string]models.Credential, error) {
 	if tx == nil || groupID == 0 || len(stages) == 0 {
-		return nil, app_errors.ErrValidation
+		return nil, nil, app_errors.ErrValidation
 	}
 	identities := make([]string, 0, len(stages))
 	for _, stage := range stages {
 		identities = append(identities, stage.IdentityFingerprint)
 	}
-	var existingIdentities []string
-	if err := tx.Model(&models.Credential{}).
+	var existingRows []models.Credential
+	if err := tx.Select("id", "identity_fingerprint", "secret_version", "auth_state").
 		Where("group_id = ? AND identity_fingerprint IN ?", groupID, identities).
-		Pluck("identity_fingerprint", &existingIdentities).Error; err != nil {
-		return nil, app_errors.ParseDBError(err)
+		Find(&existingRows).Error; err != nil {
+		return nil, nil, app_errors.ParseDBError(err)
 	}
-	seen := make(map[string]struct{}, len(existingIdentities)+len(stages))
-	for _, identity := range existingIdentities {
-		seen[identity] = struct{}{}
+	seen := make(map[string]struct{}, len(existingRows)+len(stages))
+	replaceable := make(map[string]models.Credential)
+	for _, row := range existingRows {
+		switch row.AuthState {
+		case models.CredentialAuthStateReauthorizationRequired,
+			models.CredentialAuthStateOutcomeUnknown:
+			replaceable[row.IdentityFingerprint] = row
+		default:
+			seen[row.IdentityFingerprint] = struct{}{}
+		}
 	}
 	duplicatedStageIDs := make([]string, 0)
+	replacements := make(map[string]models.Credential)
 	for _, stage := range stages {
 		if _, duplicate := seen[stage.IdentityFingerprint]; duplicate {
 			duplicatedStageIDs = append(duplicatedStageIDs, stage.ID)
 			continue
 		}
 		seen[stage.IdentityFingerprint] = struct{}{}
+		if row, ok := replaceable[stage.IdentityFingerprint]; ok {
+			replacements[stage.ID] = row
+		}
 	}
-	return duplicatedStageIDs, nil
+	return duplicatedStageIDs, replacements, nil
 }
 
-// consumeCredentialStages promotes unique ready subscription credentials and
-// consumes every supplied stage in the caller's transaction. Existing or
-// repeated identities are reported as skipped instead of rejecting the batch.
+// consumeCredentialStages creates new credentials, repairs credentials that
+// require reauthorization, and consumes every supplied stage in the caller's
+// transaction. Existing healthy or repeated identities are reported as skipped.
 func (s *Service) consumeCredentialStages(
 	tx *gorm.DB,
 	groupID uint,
@@ -1412,7 +1423,7 @@ func (s *Service) consumeCredentialStages(
 	if err != nil {
 		return 0, nil, err
 	}
-	duplicatedStageIDs, err := duplicateCredentialStageIDs(tx, groupID, stages)
+	duplicatedStageIDs, replacements, err := classifyCredentialStages(tx, groupID, stages)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -1455,18 +1466,44 @@ func (s *Service) consumeCredentialStages(
 				clear(canonical)
 				return 0, nil, app_errors.ErrInternalServer
 			}
-			row := models.Credential{
-				GroupID: groupID, Data: ciphertext, Fingerprint: fingerprint,
-				IdentityFingerprint: identity, SecretVersion: 1,
-				AuthState: models.CredentialAuthStateReady, Status: models.CredentialStatusActive,
-				CreatedAtMS: nowMS, UpdatedAtMS: nowMS,
-			}
-			if err := tx.Create(&row).Error; err != nil {
-				clear(canonical)
-				if app_errors.ParseDBError(err) == app_errors.ErrDuplicateResource {
-					return 0, nil, app_errors.ErrDuplicateCredentialIdentity
+			if existing, replace := replacements[stage.ID]; replace {
+				updated := tx.Model(&models.Credential{}).
+					Where(
+						"id = ? AND group_id = ? AND identity_fingerprint = ? AND secret_version = ? AND auth_state IN ?",
+						existing.ID, groupID, identity, existing.SecretVersion,
+						[]models.CredentialAuthState{
+							models.CredentialAuthStateReauthorizationRequired,
+							models.CredentialAuthStateOutcomeUnknown,
+						},
+					).
+					Updates(map[string]any{
+						"data": ciphertext, "fingerprint": fingerprint,
+						"secret_version": existing.SecretVersion + 1,
+						"auth_state":     models.CredentialAuthStateReady, "auth_error_code": "",
+						"updated_at_ms": nowMS,
+					})
+				if updated.Error != nil {
+					clear(canonical)
+					return 0, nil, app_errors.ParseDBError(updated.Error)
 				}
-				return 0, nil, app_errors.ParseDBError(err)
+				if updated.RowsAffected != 1 {
+					clear(canonical)
+					return 0, nil, app_errors.ErrCredentialVersionConflict
+				}
+			} else {
+				row := models.Credential{
+					GroupID: groupID, Data: ciphertext, Fingerprint: fingerprint,
+					IdentityFingerprint: identity, SecretVersion: 1,
+					AuthState: models.CredentialAuthStateReady, Status: models.CredentialStatusActive,
+					CreatedAtMS: nowMS, UpdatedAtMS: nowMS,
+				}
+				if err := tx.Create(&row).Error; err != nil {
+					clear(canonical)
+					if app_errors.ParseDBError(err) == app_errors.ErrDuplicateResource {
+						return 0, nil, app_errors.ErrDuplicateCredentialIdentity
+					}
+					return 0, nil, app_errors.ParseDBError(err)
+				}
 			}
 			added++
 		}
