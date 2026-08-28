@@ -97,8 +97,17 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 		if merge.Changed {
 			updates["snapshot_json"] = models.JSON(merge.Encoded)
 		}
+		// observation_version is the concurrency token: every successful active
+		// observation increments it. A timestamp cannot serve here because two
+		// writes can land in the same millisecond, leaving updated_at_ms
+		// numerically unchanged and letting this update slip past. updated_at_ms
+		// stays in the predicate to also catch the metadata-only writes from the
+		// active failure and reset paths, which do not move the version.
 		result := manager.db.WithContext(ctx).Model(&models.CredentialObservation{}).
-			Where("credential_id = ? AND updated_at_ms = ?", observation.CredentialID, row.UpdatedAtMS).
+			Where(
+				"credential_id = ? AND observation_version = ? AND updated_at_ms = ?",
+				observation.CredentialID, row.ObservationVersion, row.UpdatedAtMS,
+			).
 			Updates(updates)
 		if result.Error != nil {
 			return fmt.Errorf("update credential observation %d: %w", observation.CredentialID, result.Error)

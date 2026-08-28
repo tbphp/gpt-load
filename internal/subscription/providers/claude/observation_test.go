@@ -92,10 +92,16 @@ func TestNormalizePassiveQuotaWindowsMapsFiveHourAndSevenDay(t *testing.T) {
 	for _, window := range windows {
 		byID[window.ID] = window
 	}
+	// Display metadata is deliberately empty: a passive response only updates
+	// quota numbers and state on windows the active observation already owns.
 	fiveHour, ok := byID["five_hour"]
-	if !ok || fiveHour.Scope != "account" || fiveHour.Utilization == nil || *fiveHour.Utilization != 0.4 ||
+	if !ok || fiveHour.Utilization == nil || *fiveHour.Utilization != 0.4 ||
 		fiveHour.State != "available" || fiveHour.ResetAtMS == nil || *fiveHour.ResetAtMS != 1787296800*1000 {
 		t.Fatalf("five_hour window = %#v", fiveHour)
+	}
+	if fiveHour.Label != "" || fiveHour.LabelKey != "" || fiveHour.Scope != "" ||
+		fiveHour.Unit != "" || fiveHour.IsPrimary {
+		t.Fatalf("five_hour window = %#v, want empty display metadata", fiveHour)
 	}
 	sevenDay, ok := byID["seven_day"]
 	if !ok || sevenDay.Utilization == nil || *sevenDay.Utilization != 0.1 || sevenDay.State != "exhausted" {

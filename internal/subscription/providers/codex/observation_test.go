@@ -71,9 +71,10 @@ func TestNormalizePassiveQuotaWindowsMapsAdditionalLimitNamespaces(t *testing.T)
 	if _, ok := byID["primary"]; !ok {
 		t.Fatalf("windows = %#v, want the account-scope primary window", windows)
 	}
+	// The Limit-Name only has to produce the matching window ID; Scope, like
+	// the other display metadata, stays owned by the active observation.
 	spark, ok := byID["gpt-5-3-codex-spark-primary"]
-	if !ok || spark.Scope != "GPT 5.3 Codex Spark" ||
-		spark.Used == nil || *spark.Used != 33 {
+	if !ok || spark.Used == nil || *spark.Used != 33 {
 		t.Fatalf("additional primary window = %#v (all=%#v)", spark, windows)
 	}
 	sparkWeekly, ok := byID["gpt-5-3-codex-spark-secondary"]
@@ -125,14 +126,37 @@ func TestNormalizePassiveQuotaWindowsSkipsNamespaceWithoutLimitName(t *testing.T
 	}
 }
 
-func TestNormalizePassiveQuotaWindowsOmitsLabelMetadata(t *testing.T) {
-	// Labels are derived from the window period, which a partial response may
-	// not carry. Leaving them empty keeps the active observation's metadata.
+func TestNormalizePassiveQuotaWindowsOmitsAllDisplayMetadata(t *testing.T) {
+	// A passive response only ever updates quota numbers and state on windows
+	// an active observation already created. Every identity/display field is
+	// left empty so the merge cannot overwrite what that observation owns --
+	// Label in particular is derived from the window period, which a partial
+	// response may not carry.
 	windows := NormalizePassiveQuotaWindows(map[string]string{
 		"X-Codex-Primary-Used-Percent": "50",
 	}, time.Now())
-	if len(windows) != 1 || windows[0].Label != "" || windows[0].LabelKey != "" {
-		t.Fatalf("windows = %#v, want empty Label/LabelKey", windows)
+	if len(windows) != 1 {
+		t.Fatalf("windows = %#v, want one", windows)
+	}
+	window := windows[0]
+	if window.Label != "" || window.LabelKey != "" || window.Scope != "" || window.Unit != "" {
+		t.Fatalf("window = %#v, want empty Label/LabelKey/Scope/Unit", window)
+	}
+	if window.ID != "primary" || window.Used == nil || *window.Used != 50 || window.State != "available" {
+		t.Fatalf("window = %#v, want the ID, usage and state still populated", window)
+	}
+}
+
+func TestNormalizePassiveQuotaWindowsFallsBackToRelativeResetWhenAbsoluteIsInvalid(t *testing.T) {
+	// A response carrying a broken absolute reset plus a usable relative one
+	// should still refresh the reset time rather than dropping both.
+	windows := NormalizePassiveQuotaWindows(map[string]string{
+		"X-Codex-Primary-Used-Percent":        "50",
+		"X-Codex-Primary-Reset-At":            "0",
+		"X-Codex-Primary-Reset-After-Seconds": "60",
+	}, time.Unix(1000, 0).UTC())
+	if len(windows) != 1 || windows[0].ResetAtMS == nil || *windows[0].ResetAtMS != 1060*1000 {
+		t.Fatalf("windows = %#v, want the relative reset applied as 1060000", windows)
 	}
 }
 
@@ -197,7 +221,7 @@ func TestNormalizePassiveQuotaWindowsMapsPrimaryAndSecondary(t *testing.T) {
 		byID[window.ID] = window
 	}
 	primary, ok := byID["primary"]
-	if !ok || primary.Scope != "account" || primary.Used == nil || *primary.Used != 55 ||
+	if !ok || primary.Used == nil || *primary.Used != 55 ||
 		primary.Utilization == nil || *primary.Utilization != 0.55 || primary.State != "available" ||
 		primary.WindowSeconds == nil || *primary.WindowSeconds != 300*60 ||
 		primary.ResetAtMS == nil || *primary.ResetAtMS != 1800000000*1000 {

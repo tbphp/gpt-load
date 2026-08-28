@@ -50,13 +50,29 @@ func TestRecordPassiveQuotaObservationReplacesRatherThanCombiningResponses(t *te
 
 func TestRecordPassiveQuotaObservationCopiesCallerWindows(t *testing.T) {
 	manager := testCredentialManagerForPassiveQuota()
-	windows := []providerobservation.QuotaWindow{{ID: "primary", Used: floatPointer(10)}}
+	resetAt := int64(4242)
+	windows := []providerobservation.QuotaWindow{
+		{ID: "primary", Used: floatPointer(10), Utilization: floatPointer(0.1), ResetAtMS: &resetAt},
+	}
 	manager.RecordPassiveQuotaObservation(7, 100, 1000, windows)
+
+	// Both the struct fields and the values behind its pointers must be
+	// detached: sharing them would let a caller change what is about to be
+	// persisted, under an observation time captured before the change.
 	windows[0].ID = "mutated"
+	*windows[0].Used = 999
+	*windows[0].Utilization = 9.99
+	*windows[0].ResetAtMS = 999999
 
 	dirty := manager.DirtyPassiveQuotaObservations(10)
-	if len(dirty) != 1 || dirty[0].Windows[0].ID != "primary" {
-		t.Fatalf("dirty observations = %#v, want the pending entry unaffected by caller mutation", dirty)
+	if len(dirty) != 1 {
+		t.Fatalf("dirty observations = %#v", dirty)
+	}
+	stored := dirty[0].Windows[0]
+	if stored.ID != "primary" || stored.Used == nil || *stored.Used != 10 ||
+		stored.Utilization == nil || *stored.Utilization != 0.1 ||
+		stored.ResetAtMS == nil || *stored.ResetAtMS != 4242 {
+		t.Fatalf("pending window = %#v, want it unaffected by caller mutation", stored)
 	}
 }
 

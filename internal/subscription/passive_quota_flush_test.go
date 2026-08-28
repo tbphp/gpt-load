@@ -2,8 +2,11 @@ package subscription
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 
 	"gpt-load/internal/storage/models"
 	providerobservation "gpt-load/internal/subscription/providers/observation"
@@ -195,6 +198,76 @@ func TestFlushPassiveQuotaObservationsAppliesSampleAtSameObservationTime(t *test
 	}
 	if !strings.Contains(string(persisted.SnapshotJSON), `"used":42`) {
 		t.Fatalf("snapshot_json = %s, want an equally-timed sample to still merge", persisted.SnapshotJSON)
+	}
+}
+
+func TestFlushPassiveQuotaObservationsDetectsActiveWriteSharingTheSameMillisecond(t *testing.T) {
+	manager, db, registry, _, row := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	if err := manager.db.AutoMigrate(&models.CredentialObservation{}); err != nil {
+		t.Fatal(err)
+	}
+	observedAt := int64(5000)
+	if err := manager.db.Create(&models.CredentialObservation{
+		CredentialID: row.ID, IdentityFingerprint: "identity", SchemaVersion: 1, ObservationVersion: 1,
+		SnapshotJSON: models.JSON(
+			`{"plan_summary":{},"quota_windows":[{"id":"primary","label":"5h","scope":"account","unit":"percent","state":"available","used":5,"utilization":0.05,"reset_at_ms":1000}]}`,
+		),
+		State: models.CredentialObservationFresh, ObservedAtMS: &observedAt, UpdatedAtMS: 5000,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := registry.CredentialRef(row.ID)
+	staleUsed, staleUtilization := 10.0, 0.10
+	manager.RecordPassiveQuotaObservation(row.ID, ref.IdentityGeneration, 6000, []providerobservation.QuotaWindow{
+		{ID: "primary", Scope: "account", Unit: "percent", State: "available",
+			Used: &staleUsed, Utilization: &staleUtilization},
+	})
+	// Pin the passive writer's clock to the row's existing updated_at_ms so a
+	// timestamp cannot serve as the concurrency token.
+	manager.now = func() time.Time { return time.UnixMilli(5000) }
+
+	// An active refresh commits after the flusher has read the row but before
+	// it writes: it observes at 7000, bumps observation_version, and lands in
+	// the same millisecond so updated_at_ms stays numerically unchanged.
+	var injectActiveRefresh sync.Once
+	if err := manager.db.Callback().Query().After("gorm:query").
+		Register("test:inject_active_refresh", func(tx *gorm.DB) {
+			if tx.Statement == nil || tx.Statement.Table != "credential_observations" {
+				return
+			}
+			injectActiveRefresh.Do(func() {
+				if err := db.Model(&models.CredentialObservation{}).Where("credential_id = ?", row.ID).
+					Updates(map[string]any{
+						"snapshot_json": models.JSON(
+							`{"plan_summary":{},"quota_windows":[{"id":"primary","label":"5h","scope":"account","unit":"percent","state":"available","used":90,"utilization":0.9,"reset_at_ms":1000}]}`,
+						),
+						"observation_version": 2,
+						"observed_at_ms":      int64(7000),
+						"updated_at_ms":       int64(5000),
+					}).Error; err != nil {
+					t.Error(err)
+				}
+			})
+		}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = manager.db.Callback().Query().Remove("test:inject_active_refresh")
+	})
+
+	if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
+		t.Fatalf("FlushPassiveQuotaObservations() error = %v", err)
+	}
+	var persisted models.CredentialObservation
+	if err := db.Take(&persisted, "credential_id = ?", row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(persisted.SnapshotJSON), `"used":10`) {
+		t.Fatalf("snapshot_json = %s, the passive write slipped past the CAS and overwrote the active refresh",
+			persisted.SnapshotJSON)
+	}
+	if !strings.Contains(string(persisted.SnapshotJSON), `"used":90`) {
+		t.Fatalf("snapshot_json = %s, want the active refresh's used:90 preserved", persisted.SnapshotJSON)
 	}
 }
 

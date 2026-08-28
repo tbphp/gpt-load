@@ -155,7 +155,10 @@ func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Tim
 			continue
 		}
 		for _, window := range normalizeRateWindows(rate, prefix, scope) {
-			window.Label, window.LabelKey = "", ""
+			// Scope and Unit only served to build the ID and pick the label
+			// rules above; they are cleared, like Label, so the merge updates
+			// nothing but the quota numbers and state.
+			window.Label, window.LabelKey, window.Scope, window.Unit = "", "", "", ""
 			result = append(result, window)
 		}
 	}
@@ -285,13 +288,13 @@ func passiveQuotaWindowFields(fields map[string]string, observedAt time.Time) ma
 }
 
 // passiveQuotaResetAt prefers the absolute reset instant and falls back to the
-// relative one. Both must land on a positive, non-overflowing second so the
+// relative one, including when the absolute value is present but unusable --
+// a broken header should not suppress a valid alternative in the same
+// response. Both must land on a positive, non-overflowing second so the
 // stored window keeps a usable timestamp.
 func passiveQuotaResetAt(fields map[string]string, observedAt time.Time) (int64, bool) {
-	if absolute, ok := passiveQuotaInt(fields["reset-at"]); ok {
-		if absolute <= 0 || absolute > passiveQuotaMaxResetAtSeconds {
-			return 0, false
-		}
+	if absolute, ok := passiveQuotaInt(fields["reset-at"]); ok &&
+		absolute > 0 && absolute <= passiveQuotaMaxResetAtSeconds {
 		return absolute, true
 	}
 	relative, ok := passiveQuotaInt(fields["reset-after-seconds"])

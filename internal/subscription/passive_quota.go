@@ -110,7 +110,7 @@ func (pending *passiveQuotaPending) record(
 		pending.mu.Unlock()
 		return
 	}
-	entry.windows = append([]providerobservation.QuotaWindow(nil), windows...)
+	entry.windows = cloneQuotaWindows(windows)
 	entry.observedAtMS = observedAtMS
 	pending.nextVersion++
 	entry.version = pending.nextVersion
@@ -143,7 +143,7 @@ func (pending *passiveQuotaPending) dirtyObservations(limit int) []PassiveQuotaO
 			CredentialID:       credentialID,
 			IdentityGeneration: entry.identityGeneration,
 			ObservedAtMS:       entry.observedAtMS,
-			Windows:            append([]providerobservation.QuotaWindow(nil), entry.windows...),
+			Windows:            cloneQuotaWindows(entry.windows),
 			Version:            entry.version,
 		})
 		if len(result) >= limit {
@@ -151,6 +151,44 @@ func (pending *passiveQuotaPending) dirtyObservations(limit int) []PassiveQuotaO
 		}
 	}
 	return result
+}
+
+// cloneQuotaWindows detaches a window slice from its caller, including the
+// values behind its optional numeric fields. Sharing those pointers would let
+// a later mutation change what is about to be persisted, under an observation
+// time captured before that change.
+func cloneQuotaWindows(windows []providerobservation.QuotaWindow) []providerobservation.QuotaWindow {
+	if len(windows) == 0 {
+		return nil
+	}
+	cloned := make([]providerobservation.QuotaWindow, 0, len(windows))
+	for _, window := range windows {
+		window.Used = cloneFloat(window.Used)
+		window.Limit = cloneFloat(window.Limit)
+		window.Remaining = cloneFloat(window.Remaining)
+		window.Utilization = cloneFloat(window.Utilization)
+		window.ResetAtMS = cloneInt64(window.ResetAtMS)
+		window.WindowSeconds = cloneInt64(window.WindowSeconds)
+		window.ModelIDs = append([]string(nil), window.ModelIDs...)
+		cloned = append(cloned, window)
+	}
+	return cloned
+}
+
+func cloneFloat(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 // ack clears the dirty flag for an exactly matching version.

@@ -392,6 +392,11 @@ func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Tim
 				window.State = "exhausted"
 			}
 		}
+		// Identity and display metadata stay owned by the active observation:
+		// this output only ever updates windows it already created, and only
+		// their quota numbers and state.
+		window.Label, window.LabelKey, window.Scope, window.Unit = "", "", "", ""
+		window.IsPrimary = false
 		windows = append(windows, window)
 	}
 	return windows
