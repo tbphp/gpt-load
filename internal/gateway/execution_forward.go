@@ -443,7 +443,7 @@ func firstStreamErrorEvidence(
 	case execution.FailureHintHostError:
 		evidence.ScopeHint = execution.ErrorScopeGroup
 	}
-	if streamBootstrapCapacityRejection(evidence.Code) {
+	if evidence.ReplaySafety == "" && streamBootstrapCapacityRejection(evidence.Code) {
 		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 	}
 	return &evidence

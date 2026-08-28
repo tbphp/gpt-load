@@ -1009,14 +1009,28 @@ func TestExecutionForwarderPreservesFirstProviderErrorEvidence(t *testing.T) {
 	}
 }
 
-func TestExecutionForwarderMarksFirstCapacityErrorReplaySafe(t *testing.T) {
+func TestExecutionForwarderClassifiesFirstCapacityErrorReplaySafety(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		errorType string
 		errorCode string
+		existing  execution.ReplaySafety
+		want      execution.ReplaySafety
+		images    bool
 	}{
-		{name: "server overload", errorType: "service_unavailable_error", errorCode: "server_is_overloaded"},
-		{name: "transient rate limit", errorType: "rate_limit_error", errorCode: "rate_limit_exceeded"},
+		{
+			name: "server overload", errorType: "service_unavailable_error",
+			errorCode: "server_is_overloaded", want: execution.ReplaySafetyRejectedBeforeProcessing,
+		},
+		{
+			name: "transient rate limit", errorType: "rate_limit_error",
+			errorCode: "rate_limit_exceeded", want: execution.ReplaySafetyRejectedBeforeProcessing,
+		},
+		{
+			name: "images explicit unknown remains unsafe", errorType: "service_unavailable_error",
+			errorCode: "server_is_overloaded", existing: execution.ReplaySafetyUnknown,
+			want: execution.ReplaySafetyUnknown, images: true,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			failedEvent := "event: error\n" +
@@ -1038,21 +1052,43 @@ func TestExecutionForwarderMarksFirstCapacityErrorReplaySafe(t *testing.T) {
 				}); err != nil {
 					t.Fatalf("data sink: %v", err)
 				}
-				return execution.StreamResult{
+				result := execution.StreamResult{
 					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 					StatusCode: http.StatusOK,
 					Header:     http.Header{"Content-Type": {"text/event-stream"}},
 				}
+				if test.existing != "" {
+					result.Error = &execution.ErrorEvidence{
+						Kind: execution.ErrorKindProvider, Summary: "explicit replay safety evidence",
+						ReplaySafety: test.existing,
+					}
+				}
+				return result
 			}}
 			input := executionForwardInput()
-			input.Dialect = dialect.NewOpenAIResponses()
+			if test.images {
+				input.Dialect = dialect.NewOpenAIImages()
+				input.ClientProtocol = protocol.OpenAIImages
+				input.Operation = execution.OperationImagesGenerate
+				input.Request.Path = "/v1/images/generations"
+			} else {
+				input.Dialect = dialect.NewOpenAIResponses()
+			}
 			result := NewExecutionForwarder(executor).ForwardStream(
 				context.Background(), input, httptest.NewRecorder(),
 			)
 			if result.Committed || !result.ProviderErrorBeforeCommit || result.ExecutionError == nil ||
 				result.ExecutionError.Type != test.errorType || result.ExecutionError.Code != test.errorCode ||
-				result.ExecutionError.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing {
+				result.ExecutionError.ReplaySafety != test.want {
 				t.Fatalf("ForwardStream() result = %#v", result)
+			}
+			if test.images {
+				decision := judgeUpstreamResult(result, time.Now(), health.DecisionContext{
+					Method: http.MethodPost, Operation: execution.OperationImagesGenerate,
+				})
+				if decision.Retry != health.RetryNone {
+					t.Fatalf("JudgeExecution() = %#v", decision)
+				}
 			}
 		})
 	}
