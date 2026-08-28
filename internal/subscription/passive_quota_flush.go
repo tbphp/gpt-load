@@ -63,12 +63,15 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 			}
 			return fmt.Errorf("read credential observation %d: %w", observation.CredentialID, err)
 		}
-		if row.ObservedAtMS != nil && observation.ObservedAtMS < *row.ObservedAtMS {
-			// A newer observation -- typically a manual refresh -- was persisted
-			// while this sample sat in the pending map. Writing it now would both
+		if row.ObservedAtMS != nil && observation.ObservedAtMS <= *row.ObservedAtMS {
+			// An observation at least as new -- typically a manual refresh --
+			// was persisted while this sample sat pending. Writing it now would
 			// rewind observed_at_ms and overwrite newer quota values with older
-			// ones, so the sample is dropped instead. The updated_at_ms guard
-			// below only catches writes that land after this read.
+			// ones. The tie is included on purpose: a passive header captured
+			// just before an active refresh that finished within the same
+			// millisecond truncates to the same value, and the active result is
+			// the authoritative one. The CAS below only catches writes that land
+			// after this read.
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}
@@ -79,11 +82,10 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}
-		alreadyObservedAt := row.ObservedAtMS != nil && *row.ObservedAtMS == observation.ObservedAtMS
-		if !merge.Matched || (!merge.Changed && alreadyObservedAt) {
-			// Nothing this response says is new: either it named no window the
-			// snapshot tracks, or it repeated values already stored at this
-			// very instant.
+		if !merge.Matched {
+			// The response named no window this snapshot tracks, so it is no
+			// observation of this credential's quota at all. Creating windows
+			// is the active observation's job.
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}

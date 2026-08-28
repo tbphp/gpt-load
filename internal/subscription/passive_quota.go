@@ -74,16 +74,6 @@ func (manager *CredentialManager) DirtyPassiveQuotaObservations(limit int) []Pas
 	return manager.passiveQuota.dirtyObservations(limit)
 }
 
-// AckPassiveQuotaObservation clears the dirty flag for credentialID only when
-// version exactly matches the currently pending version, so a write that
-// landed after this version was read is never dropped by a stale ACK.
-func (manager *CredentialManager) AckPassiveQuotaObservation(credentialID uint, version uint64) {
-	if manager == nil || manager.passiveQuota == nil {
-		return
-	}
-	manager.passiveQuota.ack(credentialID, version)
-}
-
 // SetPassiveQuotaDirtyNotifier installs the process-owned non-blocking wake-up
 // invoked after a record introduces a new dirty version.
 func (manager *CredentialManager) SetPassiveQuotaDirtyNotifier(notifier func()) {
@@ -191,7 +181,12 @@ func cloneInt64(value *int64) *int64 {
 	return &cloned
 }
 
-// ack clears the dirty flag for an exactly matching version.
+// ack drops the pending entry for an exactly matching version. Evicting
+// rather than just clearing a flag is what keeps the map bounded: a
+// credential that is deleted after producing quota headers would otherwise
+// retain its cloned windows for the life of the process, so an instance with
+// credential churn would grow without bound. A version mismatch means a newer
+// response arrived while this one was being written, so that entry stays.
 func (pending *passiveQuotaPending) ack(credentialID uint, version uint64) {
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
@@ -199,5 +194,5 @@ func (pending *passiveQuotaPending) ack(credentialID uint, version uint64) {
 	if !ok || entry.version != version {
 		return
 	}
-	entry.dirty = false
+	delete(pending.entries, credentialID)
 }

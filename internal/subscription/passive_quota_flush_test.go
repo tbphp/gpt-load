@@ -176,17 +176,19 @@ func TestFlushPassiveQuotaObservationsDoesNotResurrectStaleCachedFieldsAfterAck(
 	}
 }
 
-func TestFlushPassiveQuotaObservationsAppliesSampleAtSameObservationTime(t *testing.T) {
+func TestFlushPassiveQuotaObservationsYieldsToStoredObservationAtTheSameMillisecond(t *testing.T) {
 	manager, db, registry, _, row := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	newFlushableCredentialObservation(t, manager, row.ID, models.CredentialObservationFresh,
-		`{"plan_summary":{},"quota_windows":[{"id":"primary","label":"5h","scope":"account","unit":"percent","state":"available","reset_at_ms":1800000000000}]}`,
+		`{"plan_summary":{},"quota_windows":[{"id":"primary","label":"5h","scope":"account","unit":"percent","state":"available","used":90,"utilization":0.9,"reset_at_ms":1800000000000}]}`,
 	)
 	ref, _ := registry.CredentialRef(row.ID)
 	used, utilization := 42.0, 0.42
-	// newFlushableCredentialObservation stores observed_at_ms = 1000.
+	// newFlushableCredentialObservation stores observed_at_ms = 1000. A passive
+	// header captured just before an active refresh that completed within the
+	// same millisecond truncates to the same value; the active result is the
+	// authoritative one, so the tie goes to what is already stored.
 	manager.RecordPassiveQuotaObservation(row.ID, ref.IdentityGeneration, 1000, []providerobservation.QuotaWindow{
-		{ID: "primary", Label: "5h", Scope: "account", Unit: "percent", State: "available",
-			Used: &used, Utilization: &utilization},
+		{ID: "primary", Used: &used, Utilization: &utilization},
 	})
 
 	if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
@@ -196,8 +198,8 @@ func TestFlushPassiveQuotaObservationsAppliesSampleAtSameObservationTime(t *test
 	if err := db.Take(&persisted, "credential_id = ?", row.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(persisted.SnapshotJSON), `"used":42`) {
-		t.Fatalf("snapshot_json = %s, want an equally-timed sample to still merge", persisted.SnapshotJSON)
+	if !strings.Contains(string(persisted.SnapshotJSON), `"used":90`) {
+		t.Fatalf("snapshot_json = %s, want the stored observation to win the tie", persisted.SnapshotJSON)
 	}
 }
 

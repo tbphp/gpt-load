@@ -116,6 +116,30 @@ func TestRecordPassiveQuotaObservationReplacesOnIdentityGenerationChange(t *test
 	}
 }
 
+func TestAckPassiveQuotaObservationEvictsTheEntry(t *testing.T) {
+	manager := testCredentialManagerForPassiveQuota()
+	manager.RecordPassiveQuotaObservation(7, 100, 1000, []providerobservation.QuotaWindow{
+		{ID: "primary", Used: floatPointer(10)},
+	})
+	dirty := manager.DirtyPassiveQuotaObservations(10)
+	if len(dirty) != 1 {
+		t.Fatalf("dirty observations = %#v", dirty)
+	}
+
+	manager.passiveQuota.ack(7, dirty[0].Version)
+
+	// Keeping an acknowledged entry around would retain its cloned windows for
+	// the life of the process; a credential that is later deleted would never
+	// release them, so a long-running instance with credential churn grows
+	// without bound.
+	manager.passiveQuota.mu.Lock()
+	remaining := len(manager.passiveQuota.entries)
+	manager.passiveQuota.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("pending entries after ack = %d, want the entry evicted", remaining)
+	}
+}
+
 func TestAckPassiveQuotaObservationClearsOnlyMatchingVersion(t *testing.T) {
 	manager := testCredentialManagerForPassiveQuota()
 	manager.RecordPassiveQuotaObservation(7, 100, 1000, []providerobservation.QuotaWindow{
@@ -130,13 +154,13 @@ func TestAckPassiveQuotaObservationClearsOnlyMatchingVersion(t *testing.T) {
 	manager.RecordPassiveQuotaObservation(7, 100, 2000, []providerobservation.QuotaWindow{
 		{ID: "primary", Used: floatPointer(20)},
 	})
-	manager.AckPassiveQuotaObservation(7, staleVersion)
+	manager.passiveQuota.ack(7, staleVersion)
 	if stillDirty := manager.DirtyPassiveQuotaObservations(10); len(stillDirty) != 1 {
 		t.Fatalf("a stale ACK cleared a newer pending version: %#v", stillDirty)
 	}
 
 	current := manager.DirtyPassiveQuotaObservations(10)[0].Version
-	manager.AckPassiveQuotaObservation(7, current)
+	manager.passiveQuota.ack(7, current)
 	if stillDirty := manager.DirtyPassiveQuotaObservations(10); len(stillDirty) != 0 {
 		t.Fatalf("matching ACK did not clear the pending entry: %#v", stillDirty)
 	}
