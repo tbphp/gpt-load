@@ -446,7 +446,7 @@ async function removeStage(stage: CredentialStage): Promise<void> {
 }
 
 function statusTone(stage: CredentialStage): 'success' | 'warning' | 'danger' | 'neutral' {
-  if (stage.duplicate) return 'warning'
+  if (stage.status === 'ready' && stage.duplicate) return 'warning'
   if (stage.status === 'ready') return 'success'
   if (stage.status === 'pending_authorization' || stage.status === 'exchanging') return 'warning'
   if (stage.status === 'consumed') return 'neutral'
@@ -611,7 +611,7 @@ onBeforeUnmount(() => {
           </div>
           <StatusBadge :tone="statusTone(stage)" size="compact">
             {{
-              stage.duplicate
+              stage.status === 'ready' && stage.duplicate
                 ? t('import.subscription.duplicateStatus')
                 : t(`import.subscription.status.${stage.status}`)
             }}

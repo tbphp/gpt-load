@@ -978,19 +978,23 @@ async function inspectConnectionStages(signature: string, stageIDs: string[]): P
       stageIDs,
       controller.signal,
     )
+    const inspectedStageIDs = new Set(stageIDs)
     if (
       controller.signal.aborted ||
       owner !== connectionInspectionOwner ||
-      readyConnectionSignature(connectionStages.value) !== signature
+      readyConnectionSignature(
+        connectionStages.value.filter(({ stage_id }) => inspectedStageIDs.has(stage_id)),
+      ) !== signature
     ) {
       return
     }
     const duplicated = new Set(result.duplicated_stage_ids)
     inspectedConnectionSignature.value = signature
-    connectionStages.value = connectionStages.value.map((stage) => ({
-      ...stage,
-      duplicate: duplicated.has(stage.stage_id),
-    }))
+    connectionStages.value = connectionStages.value.map((stage) =>
+      inspectedStageIDs.has(stage.stage_id)
+        ? { ...stage, duplicate: duplicated.has(stage.stage_id) }
+        : stage,
+    )
   } catch (cause) {
     if (controller.signal.aborted || owner !== connectionInspectionOwner) return
     connectFeedback.value = t(
@@ -1057,7 +1061,7 @@ async function saveConnectedAccounts(): Promise<void> {
   const ready = connectionStages.value.filter(
     ({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > now,
   )
-  const signature = readyConnectionSignature(connectionStages.value)
+  const signature = readyConnectionSignature(ready)
   if (ready.length === 0 || signature === undefined) {
     if (connectionStages.value.some(({ status }) => status === 'ready')) {
       connectionStages.value = connectionStages.value.map((stage) =>
