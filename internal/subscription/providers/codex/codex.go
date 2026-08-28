@@ -353,6 +353,14 @@ func (e *executor) ExecuteStream(
 	if response == nil {
 		return nil, err
 	}
+	convertedResponse := &ExecuteStreamResponse{
+		Headers:                response.Headers.Clone(),
+		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		UpstreamRequestPath:    response.UpstreamRequestPath,
+	}
+	if err != nil {
+		return convertedResponse, err
+	}
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {
 		defer close(chunks)
@@ -365,12 +373,8 @@ func (e *executor) ExecuteStream(
 			}
 		}
 	}()
-	return &ExecuteStreamResponse{
-		Headers:                response.Headers.Clone(),
-		Chunks:                 chunks,
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		UpstreamRequestPath:    response.UpstreamRequestPath,
-	}, err
+	convertedResponse.Chunks = chunks
+	return convertedResponse, nil
 }
 
 func executeRequestToBridge(value ExecuteRequest) cpaembedded.ExecuteRequest {

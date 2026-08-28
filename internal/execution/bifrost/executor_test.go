@@ -1066,6 +1066,75 @@ func TestRuntimeStreamCancellationAndHTTPErrorDoNotEmitDone(t *testing.T) {
 	})
 }
 
+func TestRuntimeMarksPromotedFirstStreamCapacityErrorReplaySafe(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		errorType string
+		errorCode string
+	}{
+		{name: "server overload", errorType: "service_unavailable_error", errorCode: "server_is_overloaded"},
+		{name: "transient rate limit", errorType: "rate_limit_error", errorCode: "rate_limit_exceeded"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(writer,
+					`data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"type":"`+test.errorType+`","code":"`+test.errorCode+`","message":"try another credential"}}}`+"\n\n",
+				)
+			}))
+			defer server.Close()
+
+			runtime := newProtocolTestRuntime(t, testRuntimeOptions{
+				allowPrivateNetwork: true,
+				openAIBaseURL:       server.URL,
+			})
+			spec := convertedSpec(
+				channel.OpenAI,
+				protocol.Anthropic,
+				execution.OperationChatCompletion,
+				"/v1/messages",
+				[]byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
+			)
+			var events []execution.StreamEvent
+			result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
+				events = append(events, event.Clone())
+				return nil
+			})
+			if result.Error == nil || result.Error.Type != test.errorType || result.Error.Code != test.errorCode ||
+				result.Error.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing || len(events) != 0 {
+				t.Fatalf("result = %#v, events = %#v", result, events)
+			}
+		})
+	}
+}
+
+func TestRuntimeMarksPromotedFirstChatStreamCapacityErrorReplaySafe(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/tenant/openai/chat/completions" {
+			t.Errorf("request path = %q", request.URL.Path)
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer,
+			"data: {\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"try another credential\"}}\n\n",
+		)
+	}))
+	defer server.Close()
+
+	runtime := newTestRuntime(t)
+	spec := compatibleSpec(server.URL)
+	spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/tenant/openai"}`)
+	spec = freezeTestAttempt(spec)
+	var events []execution.StreamEvent
+	result := runtime.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+		events = append(events, event.Clone())
+		return nil
+	})
+	if result.Error == nil || result.Error.Code != "server_is_overloaded" ||
+		result.Error.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing || len(events) != 0 {
+		t.Fatalf("result = %#v, events = %#v", result, events)
+	}
+}
+
 func TestRuntimeFirstByteAndStreamIdleTimeouts(t *testing.T) {
 	t.Parallel()
 

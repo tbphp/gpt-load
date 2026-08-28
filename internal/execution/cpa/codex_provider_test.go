@@ -105,3 +105,49 @@ func TestCodexProviderClassifiesStructuredRateLimitEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexProviderClassifiesBootstrapRejections(t *testing.T) {
+	bridge := newCodexProviderBridge()
+	credential := codexProviderCredential{}
+	for _, test := range []struct {
+		name      string
+		payload   string
+		wantType  string
+		wantCode  string
+		wantHint  execution.FailureHint
+		wantScope execution.ErrorScope
+	}{
+		{
+			name:     "server overload",
+			payload:  `{"error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"overloaded"}}`,
+			wantType: "service_unavailable_error", wantCode: "server_is_overloaded",
+			wantHint: execution.FailureHintHostError, wantScope: execution.ErrorScopeGroup,
+		},
+		{
+			name:     "transient rate limit",
+			payload:  `{"error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"slow down"}}`,
+			wantType: "rate_limit_error", wantCode: "rate_limit_exceeded",
+			wantHint: execution.FailureHintRateLimited,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cause := &codexClassifiedTestError{status: http.StatusServiceUnavailable, payload: test.payload}
+			status, evidence := bridge.ClassifyError(
+				t.Context(),
+				&codexBootstrapRejectionError{cause: cause},
+				credential,
+			)
+			if status != http.StatusServiceUnavailable || evidence == nil ||
+				evidence.Type != test.wantType || evidence.Code != test.wantCode ||
+				evidence.Hint != test.wantHint || evidence.ScopeHint != test.wantScope ||
+				evidence.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing {
+				t.Fatalf("ClassifyError() = %d / %#v", status, evidence)
+			}
+
+			_, ordinary := bridge.ClassifyError(t.Context(), cause, credential)
+			if ordinary == nil || ordinary.ReplaySafety != "" {
+				t.Fatalf("ordinary ClassifyError() = %#v", ordinary)
+			}
+		})
+	}
+}

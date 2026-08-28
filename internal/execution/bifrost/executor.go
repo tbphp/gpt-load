@@ -225,10 +225,14 @@ func (r *Runtime) ExecuteStream(
 	preResponse.stop()
 	if outcome.err != nil {
 		captureAppliedReasoning(&outcome.err.ExtraFields.RawRequest, &appliedReasoning)
+		var result execution.StreamResult
 		if prepared.mode == channel.RouteConverted {
-			return convertedStreamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
+			result = convertedStreamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
+		} else {
+			result = streamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
 		}
-		return streamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
+		markPromotedStreamRejectionReplaySafe(&result)
+		return result
 	}
 	if outcome.stream == nil {
 		return attemptedStreamFailure(execution.ErrorKindInternal, "execution runtime returned no stream")

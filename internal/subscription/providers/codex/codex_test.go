@@ -1,13 +1,47 @@
 package codex
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"reflect"
 	"testing"
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 )
+
+type streamErrorBridge struct {
+	response *cpaembedded.ExecuteStreamResponse
+	err      error
+}
+
+func (bridge streamErrorBridge) ExecuteCanonical(
+	context.Context,
+	string,
+	cpaembedded.CodexCredential,
+	cpaembedded.ExecuteRequest,
+) (cpaembedded.ExecuteResponse, error) {
+	return cpaembedded.ExecuteResponse{}, errors.New("unexpected unary execution")
+}
+
+func (bridge streamErrorBridge) CountTokensCanonical(
+	context.Context,
+	string,
+	cpaembedded.CodexCredential,
+	cpaembedded.ExecuteRequest,
+) (cpaembedded.ExecuteResponse, error) {
+	return cpaembedded.ExecuteResponse{}, errors.New("unexpected token count")
+}
+
+func (bridge streamErrorBridge) ExecuteStreamCanonical(
+	context.Context,
+	string,
+	cpaembedded.CodexCredential,
+	cpaembedded.ExecuteRequest,
+) (*cpaembedded.ExecuteStreamResponse, error) {
+	return bridge.response, bridge.err
+}
 
 func TestCredentialRoundTripKeepsCPACompatibleSchema(t *testing.T) {
 	raw := []byte(`{
@@ -61,6 +95,23 @@ func TestExecutorCountsTokensWithoutCredential(t *testing.T) {
 	}
 	if err := json.Unmarshal(response.Payload, &result); err != nil || result.InputTokens <= 0 {
 		t.Fatalf("token count = %s / %v", response.Payload, err)
+	}
+}
+
+func TestExecutorDoesNotFanOutNilChunksAfterSynchronousStreamError(t *testing.T) {
+	wantErr := errors.New("bootstrap rejected")
+	executor := &executor{bridge: streamErrorBridge{
+		response: &cpaembedded.ExecuteStreamResponse{
+			Headers:             http.Header{"X-Request-Id": {"request-1"}},
+			UpstreamRequestPath: "/backend-api/codex/responses",
+		},
+		err: wantErr,
+	}}
+
+	response, err := executor.ExecuteStream(t.Context(), "credential-1", Credential{}, ExecuteRequest{})
+	if !errors.Is(err, wantErr) || response == nil || response.Chunks != nil ||
+		response.UpstreamRequestPath != "/backend-api/codex/responses" {
+		t.Fatalf("ExecuteStream() = %#v, %v", response, err)
 	}
 }
 

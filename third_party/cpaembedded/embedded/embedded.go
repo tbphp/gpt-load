@@ -366,7 +366,7 @@ type CodexHTTPExecutor struct {
 
 // NewCodexHTTPExecutor constructs an HTTP-only executor with no CPA manager.
 func NewCodexHTTPExecutor() *CodexHTTPExecutor {
-	cfg := &internalconfig.Config{}
+	cfg := &internalconfig.Config{Codex: internalconfig.CodexConfig{StreamBootstrapBuffering: true}}
 	return &CodexHTTPExecutor{cfg: cfg, inner: internalexecutor.NewCodexExecutor(cfg)}
 }
 

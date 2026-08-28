@@ -611,7 +611,9 @@ func (r *Runtime) executeConvertedResponsesStream(
 	preResponse.stop()
 	if outcome.err != nil {
 		captureAppliedReasoning(&outcome.err.ExtraFields.RawRequest, &appliedReasoning)
-		return convertedStreamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
+		result := convertedStreamErrorResult(outcome.err, bifrostContext, prepared.secrets, false, 0, nil, "", nil)
+		markPromotedStreamRejectionReplaySafe(&result)
+		return result
 	}
 	if outcome.stream == nil {
 		return attemptedStreamFailure(execution.ErrorKindInternal, "execution runtime returned no stream")

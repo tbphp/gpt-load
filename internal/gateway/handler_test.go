@@ -1103,6 +1103,60 @@ func TestHandlerRetriesCandidateUnavailableWithoutCredentialPenalty(t *testing.T
 	}
 }
 
+func TestHandlerRetriesSafeBootstrapCapacityErrorWithoutCredentialPenalty(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		typeValue string
+		code      string
+		scope     execution.ErrorScope
+	}{
+		{name: "server overload", typeValue: "service_unavailable_error", code: "server_is_overloaded", scope: execution.ErrorScopeGroup},
+		{name: "transient rate limit", typeValue: "rate_limit_error", code: "rate_limit_exceeded"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
+				{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusServiceUnavailable,
+					ExecutionError: &execution.ErrorEvidence{
+						Kind: execution.ErrorKindHTTP, OriginHint: execution.ErrorOriginUpstream,
+						ScopeHint: test.scope, StatusCode: http.StatusServiceUnavailable,
+						Type: test.typeValue, Code: test.code, Summary: "rejected before generation",
+						ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+					},
+				},
+				{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK, Committed: true,
+					Stream: StreamObservation{EndReason: StreamEndCleanEOF},
+				},
+			}}
+			engine, handler, registry, _ := newStatsHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
+			recording := &recordingRuntimeRegistry{CredentialRegistry: registry}
+			handler.registry = recording
+			handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusOK || len(forwarder.streamInputs) != 2 ||
+				forwarder.streamInputs[0].APIKey == forwarder.streamInputs[1].APIKey {
+				t.Fatalf("response/attempts = %d/%d inputs=%#v", recorder.Code, len(forwarder.streamInputs), forwarder.streamInputs)
+			}
+			if recording.cooldownCalls != 0 || recording.incrFailureCalls != 0 || recording.blacklistCalls != 0 {
+				t.Fatalf("credential mutations = cooldown:%d failure:%d blacklist:%d, want none",
+					recording.cooldownCalls, recording.incrFailureCalls, recording.blacklistCalls)
+			}
+		})
+	}
+}
+
 func TestHandlerRecordsStreamSuccessOnlyAfterCleanTerminal(t *testing.T) {
 	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
 	tests := []struct {

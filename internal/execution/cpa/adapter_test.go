@@ -1078,7 +1078,8 @@ func TestAdapterReturnsFirstStreamErrorBeforeReady(t *testing.T) {
 		events = append(events, event.Clone())
 		return nil
 	})
-	if result.Error == nil || result.StatusCode != http.StatusBadRequest || len(events) != 0 {
+	if result.Error == nil || result.StatusCode != http.StatusBadRequest ||
+		result.Error.ReplaySafety != "" || len(events) != 0 {
 		t.Fatalf("result = %#v, events = %#v", result, events)
 	}
 }
@@ -1301,6 +1302,28 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 				t.Fatalf("Responses terminal event is incomplete: %q", wire.String())
 			}
 		})
+	}
+}
+
+func TestAdapterReturnsCodexBootstrapRejectionBeforeReady(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	setCodexExecutor(t, adapter, &fakeExecutor{
+		stream: &codex.ExecuteStreamResponse{UpstreamRequestPath: "/backend-api/codex/responses"},
+		err: statusError{
+			status:  http.StatusServiceUnavailable,
+			message: `{"error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"try another credential"}}`,
+		},
+	})
+
+	var events []execution.StreamEvent
+	result := adapter.ExecuteStream(t.Context(), validSpec(t, row, keyService), func(event execution.StreamEvent) error {
+		events = append(events, event.Clone())
+		return nil
+	})
+	if result.Error == nil || result.StatusCode != http.StatusServiceUnavailable ||
+		result.Error.Type != "service_unavailable_error" || result.Error.Code != "server_is_overloaded" ||
+		result.Error.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing || len(events) != 0 {
+		t.Fatalf("result = %#v, events = %#v", result, events)
 	}
 }
 
