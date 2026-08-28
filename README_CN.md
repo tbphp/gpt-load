@@ -15,81 +15,56 @@
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
-<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
-
 </div>
 
 ---
 
 应用只需要配置一个地址和一个 AccessKey。后面的服务商、账号、凭据、模型与路由策略，全部在管理界面里完成。
 
-```mermaid
-flowchart LR
-    C["应用 / AI 客户端"]
-    G["GPT-Load<br/>————————<br/>原生协议入口<br/>凭据调度 · 重试 · 健康隔离<br/>日志 · 用量 · 成本估算"]
-    U1["官方 API"]
-    U2["云平台"]
-    U3["兼容中转"]
-    U4["订阅账号"]
+<img src="./screenshot/architecture-overview.png" alt="GPT-Load 统一接入与上游分流架构图" width="860">
 
-    C -->|"一个 Base URL<br/>一个 AccessKey"| G
-    G --> U1
-    G --> U2
-    G --> U3
-    G --> U4
-```
+## 赞助与支持
+
+<table>
+<tbody>
+<tr>
+<td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
+<td>感谢 APIMart 赞助了本项目！APIMart 是专注 AI 图片/视频生成的低价 API 平台，GPT-Image-2 低至 $0.006/张，1 美元可出图 160+ 张。图片、视频一套异步 API 通吃，提交任务拿 ID、回调取结果，跑批万张不超时、换模型不改代码。按量付费、无月费，通过<a href="https://go.apimart.ai/gh-gpt-load">此注册链接</a>注册即可开用。</td>
+</tr>
+<tr>
+<td width="180">
+<a href="https://openai.com/">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="./screenshot/sponsor-openai-lockup-white.svg">
+<source media="(prefers-color-scheme: light)" srcset="./screenshot/sponsor-openai-lockup-black.svg">
+<img src="./screenshot/sponsor-openai-lockup-black.svg" alt="OpenAI" width="150">
+</picture>
+</a>
+</td>
+<td>感谢 OpenAI 对本项目的赞助支持。</td>
+</tr>
+<tr>
+<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
+<td>感谢 LINUX DO 社区的支持。</td>
+</tr>
+<tr>
+<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
+<td>本项目由 DigitalOcean 支持。</td>
+</tr>
+</tbody>
+</table>
 
 ## 为什么选择 GPT-Load
 
-- **统一接入多个上游** — 官方 API、云平台、常用模型服务和 OpenAI 兼容中转，都在同一个网关里管理。
-- **API Key 与订阅账号同一套机制** — Codex、Claude、Antigravity、Grok 等订阅渠道，与 API Key 渠道共享同样的凭据管理、调度与健康体系。
-- **把凭据池用满** — 多凭据调度、自动权重、重试、冷却、黑名单与会话亲和，降低单个凭据过载或失效对业务的影响。
-- **保留客户端原生协议** — 客户端继续使用 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 或 Gemini 原生接口，不需要改造代码。
-- **每一次调用都看得见** — 健康状态、路由检查、请求日志、用量汇总与模型成本估算，便于定位问题和评估消耗。
-- **部署简单、数据自持** — 管理界面内嵌在单个 Go 二进制中；默认 SQLite，也可连接 MySQL 或 PostgreSQL；渠道凭据本地加密保存。
-
-## 界面预览
-
-**首页** — 分组与凭据概览、客户端一键接入、近 30 天成本估算
-
-<img src="./screenshot/screenshot1.png" alt="GPT-Load 首页">
-
-**监控** — 请求量、缓存率、Token 分类、成本估算与用量质量
-
-<img src="./screenshot/screenshot2.png" alt="GPT-Load 监控">
-
-<!-- 【待补：订阅渠道详情截图】
-     screenshot3.png 展示订阅账号的配额窗口与诊断信息，是订阅渠道的核心卖点，
-     但账号卡片上有真实邮箱明文，需替换为示例邮箱后重截或打码。
-     处理好后在此处插入，三语 README 同步。 -->
-
-## 支持范围
-
-### 客户端协议
-
-| 协议 | 主要入口 |
-|---|---|
-| OpenAI Chat Completions | `POST /v1/chat/completions` |
-| OpenAI Responses | `/v1/responses` 及其资源路径 |
-| Anthropic Messages | `POST /v1/messages` |
-| Gemini | `/v1beta/models/...` |
-
-每个渠道会明确声明自己可执行的协议与能力。GPT-Load 在受支持的能力之间做转换，但不是任意协议、任意 JSON 的通用转换器。
-
-### 内置渠道
-
-<details>
-<summary>展开查看全部 20 个内置渠道</summary>
-
-- **官方与云平台**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
-- **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq
-- **订阅渠道**：Codex、Claude、Antigravity、Grok
-- **自定义**：OpenAI Compatible（任意兼容中转）
-
-</details>
+- **统一入口，保留原生协议** — 官方 API、云平台、模型服务和兼容中转统一管理；客户端继续使用 OpenAI、Anthropic 或 Gemini 原生接口，无需改造代码。
+- **统一管理 API Key 与订阅账号** — Codex、Claude、Antigravity、Grok 等订阅渠道与 API Key 渠道共享凭据管理、调度和健康体系。
+- **内置调度与故障隔离** — 多凭据调度、自动权重、重试、冷却、黑名单与会话亲和，降低单个凭据过载或失效的影响。
+- **可观测、易部署、数据自持** — 提供健康、路由、日志、用量与成本估算；单个 Go 二进制内嵌管理界面，支持 SQLite、MySQL、PostgreSQL 和本地凭据加密。
 
 ## 快速开始
+
+> [!WARNING]
+> 如果你正在使用 1.x，请先阅读[从 1.x 切换](#从-1x-切换)。2.0 不能打开、导入或原地迁移 1.x 数据。
 
 ### 1. 启动服务
 
@@ -121,12 +96,7 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 ### 2. 完成首次配置
 
-控制台里的配置关系是三层：
-
-```mermaid
-flowchart LR
-    A["① 渠道<br/>填 API Key<br/>或 OAuth 授权"] --> B["② Group<br/>选渠道<br/>配模型与策略"] --> C["③ AccessKey<br/>选 Group 与协议<br/>交给应用"]
-```
+首次配置只需三步：
 
 1. **添加渠道** — 选择上游服务，填入一个或多个 API Key；订阅渠道按界面提示完成 OAuth 授权或导入凭据。
 2. **创建 Group** — 选择渠道，配置可用模型与运行策略。
@@ -141,49 +111,35 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 
 </details>
 
-### 3. 发送第一个请求
+## 界面预览
 
-把 AccessKey 和模型 ID 换成控制台里的实际值：
+**首页** — 分组与凭据概览、客户端一键接入、近 30 天成本估算
 
-```bash
-export GPT_LOAD_ACCESS_KEY="your-access-key"
+<img src="./screenshot/screenshot1.png" alt="GPT-Load 首页" width="860">
 
-curl http://127.0.0.1:3001/v1/chat/completions \
-  -H "Authorization: Bearer ${GPT_LOAD_ACCESS_KEY}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "your-model-id",
-    "messages": [{ "role": "user", "content": "你好，请介绍一下你自己。" }]
-  }'
-```
+**监控** — 请求量、缓存率、Token 分类、成本估算与用量质量
 
-## 接入现有客户端
+<img src="./screenshot/screenshot2.png" alt="GPT-Load 监控" width="860">
 
-对 OpenAI SDK 或任何 OpenAI 兼容客户端，通常只改两项：
+## 支持范围
 
-```text
-Base URL: http://127.0.0.1:3001/v1
-API Key:  GPT-Load 中创建的 AccessKey
-```
+### 客户端协议
 
-```python
-from openai import OpenAI
+| 协议                    | 主要入口                     |
+| ----------------------- | ---------------------------- |
+| OpenAI Chat Completions | `POST /v1/chat/completions`  |
+| OpenAI Responses        | `/v1/responses` 及其资源路径 |
+| Anthropic Messages      | `POST /v1/messages`          |
+| Gemini                  | `/v1beta/models/...`         |
 
-client = OpenAI(
-    base_url="http://127.0.0.1:3001/v1",
-    api_key="your-access-key",
-)
+每个渠道会明确声明自己可执行的协议与能力。GPT-Load 在受支持的能力之间做转换，但不是任意协议、任意 JSON 的通用转换器。
 
-response = client.responses.create(
-    model="your-model-id",
-    input="你好",
-    store=False,
-)
+### 内置渠道
 
-print(response.output_text)
-```
-
-Anthropic 客户端使用 `/v1/messages`，Gemini 客户端使用 `/v1beta/models/...`。认证方式沿用各客户端习惯即可：`Authorization: Bearer`、`x-api-key`、`x-goog-api-key` 或 Gemini 的 `key` 查询参数。
+- **官方与云平台**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
+- **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq
+- **订阅渠道**：Codex、Claude、Antigravity、Grok
+- **自定义**：OpenAI Compatible（任意兼容中转）
 
 ## 部署与数据
 
@@ -192,14 +148,17 @@ Docker Compose 默认使用应用管理的 SQLite，数据存放在 `gpt-load-da
 > [!IMPORTANT]
 > `encryption.key` 用于解密渠道凭据。备份或迁移时，数据库和密钥**必须一起保存**；密钥丢失或被替换后，已有加密凭据无法恢复，且当前版本不支持主密钥轮换。
 
-需要外部数据库时，通过统一的 `DATABASE_DSN` 连接 SQLite、MySQL 或 PostgreSQL：
+<details>
+<summary>使用外部数据库</summary>
+
+通过统一的 `DATABASE_DSN` 连接 SQLite、MySQL 或 PostgreSQL：
 
 ```text
 mysql://user:password@db.example:3306/gpt_load?charset=utf8mb4&collation=utf8mb4_bin
 postgres://user:password@db.example:5432/gpt_load?sslmode=require
 ```
 
-完整配置说明见 [`.env.example`](.env.example)。
+</details>
 
 常用运维命令：
 
@@ -226,7 +185,39 @@ HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 
 </details>
 
-## 使用前请注意
+### 环境配置
+
+应用启动时读取当前目录的 `.env`，已有的进程环境变量优先。除特别说明外，修改后需要重启进程或容器；常用配置模板见 [`.env.example`](.env.example)。
+
+<details>
+<summary>查看全部环境变量</summary>
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `HOST` | `127.0.0.1` | Native 模式的监听地址，也是 Compose 主端口和 OAuth 回调端口的默认宿主机发布地址；Compose 容器内部固定监听 `0.0.0.0`。 |
+| `PORT` | `3001` | HTTP 服务端口，必须为 `1–65535`；Compose 同时用于容器端口、宿主机发布端口和健康检查。 |
+| `BIND_ADDRESS` | 空，继承 `HOST` | 仅用于 Compose，单独覆盖主服务端口的宿主机发布地址，不改变 OAuth 回调端口。 |
+| `OAUTH_CALLBACK_BIND_ADDRESS` | 空，继承 `HOST` | 仅用于 Compose，单独覆盖 OAuth 固定回调端口 `1455`、`54545`、`51121` 的宿主机发布地址。 |
+| `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | 收到停止信号后等待请求结束的最长时间，正整数，单位秒。 |
+| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Compose 强制停止容器前的等待时间，使用 Docker duration，建议大于 `GRACEFUL_SHUTDOWN_TIMEOUT`。 |
+| `READ_TIMEOUT` | `60` | HTTP 请求读取超时，正整数，单位秒。 |
+| `IDLE_TIMEOUT` | `120` | HTTP keep-alive 空闲连接超时，正整数，单位秒。 |
+| `DATA_DIR` | `./data` | 托管数据库、`auth.key`、`encryption.key` 和运行状态文件的目录；官方 Compose 固定为 `/app/data`。 |
+| `DATABASE_DSN` | 空，使用 `${DATA_DIR}/gpt-load.db` | 空值使用应用托管的 SQLite；非空值支持 SQLite 路径或 URL、MySQL URL、PostgreSQL URL，并视为运维方管理的外部数据库。容器内文件路径必须位于已挂载目录。 |
+| `AUTH_KEY` | 空，读取或生成 `${DATA_DIR}/auth.key` | 管理界面和 `/api` 管理接口的 Bearer 密钥，不是数据面 AccessKey。 |
+| `ENCRYPTION_KEY` | 空，读取或生成 `${DATA_DIR}/encryption.key` | 用于加密渠道凭据；更换或丢失后无法解密已有凭据，必须与数据库一起备份。 |
+| `HTTP_PROXY` | 空 | HTTP 上游请求的环境代理。 |
+| `HTTPS_PROXY` | 空 | HTTPS 上游请求的环境代理。 |
+| `NO_PROXY` | 空 | 逗号分隔的不经过环境代理的主机、域名或 IP。 |
+| `LOG_LEVEL` | `info` | 支持 `panic`、`fatal`、`error`、`warn`、`warning`、`info`、`debug`、`trace`；无效值会告警并回退到 `info`。 |
+| `LOG_FORMAT` | `text` | 支持 `text`、`json`；其他值会导致启动失败。 |
+| `MODELS_DEV_AUTO_SYNC_ENABLED` | 未设置，初始默认 `true` | 未设置时使用管理界面的持久化设置；设置后强制开启或关闭 Models.dev 自动同步，并使管理界面中的同名选项变为只读。 |
+
+环境代理仅在凭据、Group 和全局设置都未指定代理时生效。
+
+</details>
+
+## 生产使用注意事项
 
 - 默认只监听 `127.0.0.1`。需要远程访问时，应通过受控网络或带 TLS 的反向代理暴露，并配置 ACL 与防火墙。
 - 妥善管理 `AUTH_KEY` 与 `ENCRYPTION_KEY`，不要把真实密钥提交到仓库、日志、截图或公开 Issue。
@@ -246,11 +237,11 @@ HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 
 GPT-Load 的部分能力构建在这些开源项目之上，在此致谢：
 
-| 项目 | 作用 | 许可证 |
-|---|---|---|
-| [Bifrost Core](https://github.com/maximhq/bifrost) | 各服务商的认证、请求响应转换、流式与用量归一化 | Apache-2.0 |
-| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | 订阅渠道的 OAuth 与执行适配 | MIT |
-| [Lobe Icons](https://github.com/lobehub/lobe-icons) | 管理界面中的渠道品牌图标 | MIT |
+| 项目                                                        | 作用                                           | 许可证     |
+| ----------------------------------------------------------- | ---------------------------------------------- | ---------- |
+| [Bifrost Core](https://github.com/maximhq/bifrost)          | 各服务商的认证、请求响应转换、流式与用量归一化 | Apache-2.0 |
+| [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | 订阅渠道的 OAuth 与执行适配                    | MIT        |
+| [Lobe Icons](https://github.com/lobehub/lobe-icons)         | 管理界面中的渠道品牌图标                       | MIT        |
 
 GPT-Load 自身负责凭据存储、账号选择、调度、重试、健康、亲和、日志与用量策略。第三方声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，许可证全文位于 [`LICENSES/`](LICENSES/)，每个 Release 另附覆盖 Go 依赖的 CycloneDX SBOM。
 
@@ -262,30 +253,10 @@ GPT-Load 自身负责凭据存储、账号选择、调度、重试、健康、�
 
 社区交流与使用讨论可加入 [Telegram 群组](https://t.me/+GHpy5SwEllg3MTUx)。
 
+<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
+<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
+
 如果 GPT-Load 对你有帮助，欢迎点个 Star。
-
-## 赞助与支持
-
-<table>
-<tbody>
-<tr>
-<td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
-<td>感谢 APIMart 赞助了本项目！APIMart 是专注 AI 图片/视频生成的低价 API 平台，GPT-Image-2 低至 $0.006/张，1 美元可出图 160+ 张。图片、视频一套异步 API 通吃，提交任务拿 ID、回调取结果，跑批万张不超时、换模型不改代码。按量付费、无月费，通过<a href="https://go.apimart.ai/gh-gpt-load">此注册链接</a>注册即可开用。</td>
-</tr>
-<tr>
-<td width="180" align="center"><a href="https://openai.com/"><img src="./screenshot/sponsor-openai.svg" alt="OpenAI" width="56"></a></td>
-<td>感谢 OpenAI 对本项目的赞助支持。</td>
-</tr>
-<tr>
-<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
-<td>感谢 LINUX DO 社区的支持。</td>
-</tr>
-<tr>
-<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
-<td>本项目由 DigitalOcean 支持。</td>
-</tr>
-</tbody>
-</table>
 
 ## 许可证
 

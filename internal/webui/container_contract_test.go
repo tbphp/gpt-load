@@ -184,7 +184,7 @@ func TestComposeHostBindingsInheritHostAndAllowIndependentOverrides(t *testing.T
 	}
 }
 
-func TestOrdinaryNetworkConfigurationExposesOnlyHostAndPort(t *testing.T) {
+func TestNetworkConfigurationKeepsExampleSimpleAndDocumentsAdvancedOverrides(t *testing.T) {
 	environmentExample := readRepositoryFile(t, ".env.example")
 	for _, required := range []string{"HOST=127.0.0.1", "PORT=3001"} {
 		if !strings.Contains(environmentExample, required) {
@@ -192,11 +192,14 @@ func TestOrdinaryNetworkConfigurationExposesOnlyHostAndPort(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{".env.example", "README.md", "README_CN.md", "README_JP.md"} {
-		content := readRepositoryFile(t, name)
-		for _, advanced := range []string{"BIND_ADDRESS", "OAUTH_CALLBACK_BIND_ADDRESS"} {
-			if strings.Contains(content, advanced) {
-				t.Fatalf("%s exposes advanced Compose override %s", name, advanced)
+	readmes := []string{"README.md", "README_CN.md", "README_JP.md"}
+	for _, advanced := range []string{"BIND_ADDRESS", "OAUTH_CALLBACK_BIND_ADDRESS"} {
+		if strings.Contains(environmentExample, advanced) {
+			t.Fatalf(".env.example exposes advanced Compose override %s", advanced)
+		}
+		for _, readme := range readmes {
+			if !strings.Contains(readRepositoryFile(t, readme), advanced) {
+				t.Fatalf("%s does not document advanced Compose override %s", readme, advanced)
 			}
 		}
 	}
