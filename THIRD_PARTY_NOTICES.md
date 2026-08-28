@@ -38,7 +38,7 @@ The complete MIT License text is distributed in `LICENSES/MIT.txt`.
 ## fasthttp
 
 - Module: `github.com/valyala/fasthttp`
-- Replaced by: `github.com/tbphp/fasthttp v1.73.1-0.20260816133733-575fecb86459`
+- Replaced by: `github.com/tbphp/fasthttp v1.73.1-0.20260828150536-1c6c09a6f6bc`
 - Copyright: 2015-present Aliaksandr Valialkin, VertaMedia, Kirill Danshin, Erik
   Dubbelboer, FastHTTP Authors
 - License: MIT License

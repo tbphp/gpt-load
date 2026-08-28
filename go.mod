@@ -129,6 +129,6 @@ require (
 )
 
 // Temporary stream lifecycle fix: https://github.com/valyala/fasthttp/pull/2353
-replace github.com/valyala/fasthttp => github.com/tbphp/fasthttp v1.73.1-0.20260816133733-575fecb86459
+replace github.com/valyala/fasthttp => github.com/tbphp/fasthttp v1.73.1-0.20260828150536-1c6c09a6f6bc
 
 replace github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded => ./third_party/cpaembedded
