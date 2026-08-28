@@ -19,8 +19,44 @@ type CredentialConnectRequest struct {
 	StagedCredentialIDs []string `json:"staged_credential_ids"`
 }
 
+type CredentialConnectInspection struct {
+	DuplicatedStageIDs []string `json:"duplicated_stage_ids"`
+}
+
 type credentialConnectDigestBody struct {
 	StagedCredentialIDs []string `json:"staged_credential_ids"`
+}
+
+// InspectGroupCredentialConnection identifies ready stages that the final
+// connection will skip because their subscription identity is already present.
+func (s *Service) InspectGroupCredentialConnection(
+	ctx context.Context,
+	groupID uint,
+	stageIDs []string,
+) (CredentialConnectInspection, error) {
+	normalized, err := normalizeCredentialStageIDs(stageIDs)
+	if groupID == 0 || err != nil {
+		return CredentialConnectInspection{}, app_errors.ErrValidation
+	}
+	db := s.db.WithContext(ctx)
+	group, err := loadGroupRow(db, groupID)
+	if err != nil {
+		return CredentialConnectInspection{}, err
+	}
+	if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeSubscription {
+		return CredentialConnectInspection{}, app_errors.ErrValidation
+	}
+	stages, err := s.loadConsumableCredentialStages(
+		db, channel.ID(group.ChannelID), group.ConnectionType, normalized, false,
+	)
+	if err != nil {
+		return CredentialConnectInspection{}, err
+	}
+	duplicatedStageIDs, _, err := classifyCredentialStages(db, groupID, stages)
+	if err != nil {
+		return CredentialConnectInspection{}, err
+	}
+	return CredentialConnectInspection{DuplicatedStageIDs: duplicatedStageIDs}, nil
 }
 
 // ConnectGroupCredentialsIdempotent consumes subscription stages exactly once
@@ -124,7 +160,7 @@ func (s *Service) connectGroupCredentialsMutation(
 	if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeSubscription {
 		return CredentialImportResult{}, nil, app_errors.ErrValidation
 	}
-	added, err := s.consumeCredentialStages(
+	added, duplicatedStageIDs, err := s.consumeCredentialStages(
 		tx, group.ID, channel.ID(group.ChannelID), group.ConnectionType, stageIDs,
 	)
 	if err != nil {
@@ -134,5 +170,8 @@ func (s *Service) connectGroupCredentialsMutation(
 	if err != nil {
 		return CredentialImportResult{}, nil, err
 	}
-	return CredentialImportResult{GroupID: groupID, CredentialsAdded: added}, entries, nil
+	return CredentialImportResult{
+		GroupID: groupID, CredentialsAdded: added,
+		CredentialsDuplicated: len(duplicatedStageIDs),
+	}, entries, nil
 }

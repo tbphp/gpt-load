@@ -123,6 +123,8 @@ export default {
         create: '创建分组时写入',
         connect: '已就绪，将加入当前分组',
       },
+      duplicateNotice: '已存在于当前分组，本次将跳过',
+      duplicateStatus: '已存在',
       manualHint:
         '本机部署会自动完成。远程部署若浏览器无法访问 {redirectUri}，请打开下面的链接授权，再粘贴浏览器最终停留的完整网址。',
       deviceInstructions: '打开授权链接并输入用户码；请保持此页面开启，授权完成后会自动继续。',

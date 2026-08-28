@@ -10,7 +10,7 @@ import {
   Search,
 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -41,7 +41,11 @@ import {
   refreshCredentialObservation,
   updateCredential,
 } from '@/app/resources/credentials'
-import { connectGroupCredentials, type CredentialStage } from '@/app/resources/credential-stages'
+import {
+  connectGroupCredentials,
+  inspectGroupCredentialConnection,
+  type CredentialStage,
+} from '@/app/resources/credential-stages'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useToast } from '@/app/toast'
@@ -132,6 +136,11 @@ const connectionStages = ref<CredentialStage[]>([])
 const connectOperationKey = ref<string>()
 // 抽屉打开时列表区被遮住，连接失败的提示必须落在抽屉内部才看得见。
 const connectFeedback = ref('')
+const connectionInspectionPending = ref(false)
+const inspectedConnectionSignature = ref('')
+const inspectingConnectionSignature = ref('')
+let connectionInspectionController: AbortController | undefined
+let connectionInspectionOwner = 0
 const copyControllers = useAbortControllerPool()
 const searchDebounce = useDebouncedAction(250)
 const collection = computed(() => credentialsQuery.data.value)
@@ -931,18 +940,93 @@ const readyConnectionStages = computed(() =>
   connectionStages.value.filter(({ status }) => status === 'ready'),
 )
 
+function readyConnectionSignature(stages: CredentialStage[]): string | undefined {
+  const now = Date.now()
+  if (
+    stages.length === 0 ||
+    !stages.every(({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > now)
+  ) {
+    return undefined
+  }
+  return stages
+    .map(({ stage_id }) => stage_id)
+    .sort()
+    .join(',')
+}
+
+function resetConnectionInspection(): void {
+  connectionInspectionOwner += 1
+  connectionInspectionController?.abort()
+  connectionInspectionController = undefined
+  connectionInspectionPending.value = false
+  inspectedConnectionSignature.value = ''
+  inspectingConnectionSignature.value = ''
+}
+
+async function inspectConnectionStages(signature: string, stageIDs: string[]): Promise<void> {
+  connectionInspectionController?.abort()
+  const controller = new AbortController()
+  const owner = ++connectionInspectionOwner
+  connectionInspectionController = controller
+  connectionInspectionPending.value = true
+  inspectingConnectionSignature.value = signature
+  connectFeedback.value = ''
+  try {
+    const result = await inspectGroupCredentialConnection(
+      client,
+      props.groupId,
+      stageIDs,
+      controller.signal,
+    )
+    const inspectedStageIDs = new Set(stageIDs)
+    if (
+      controller.signal.aborted ||
+      owner !== connectionInspectionOwner ||
+      readyConnectionSignature(
+        connectionStages.value.filter(({ stage_id }) => inspectedStageIDs.has(stage_id)),
+      ) !== signature
+    ) {
+      return
+    }
+    const duplicated = new Set(result.duplicated_stage_ids)
+    inspectedConnectionSignature.value = signature
+    connectionStages.value = connectionStages.value.map((stage) =>
+      inspectedStageIDs.has(stage.stage_id)
+        ? { ...stage, duplicate: duplicated.has(stage.stage_id) }
+        : stage,
+    )
+  } catch (cause) {
+    if (controller.signal.aborted || owner !== connectionInspectionOwner) return
+    connectFeedback.value = t(
+      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.connectFailed'),
+    )
+  } finally {
+    if (owner === connectionInspectionOwner) {
+      connectionInspectionController = undefined
+      connectionInspectionPending.value = false
+      inspectingConnectionSignature.value = ''
+    }
+  }
+}
+
 // 授权就绪即写入，省掉一次多余的确认点击。同时发起多个授权时等全部落定
-// 再一次性写入，避免第一个完成就把抽屉关掉；有失败的暂存时不自动写入，
-// 让用户先处理那一条。
+// 再一次性写入，避免第一个完成就把抽屉关掉。写入前先标出将跳过的重复账号；
+// 有失败的暂存时不自动写入，让用户先处理那一条。
 watch(
   connectionStages,
   (stages) => {
     if (!connectionWorkspaceOpen.value || connectBusy.value || stages.length === 0) return
-    const now = Date.now()
-    if (!stages.every(({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > now)) {
+    const signature = readyConnectionSignature(stages)
+    if (!signature) return
+    if (inspectedConnectionSignature.value !== signature) {
+      if (inspectingConnectionSignature.value !== signature) {
+        void inspectConnectionStages(
+          signature,
+          stages.map(({ stage_id }) => stage_id),
+        )
+      }
       return
     }
-    const signature = stages.map(({ stage_id }) => stage_id).join(',')
     if (autoWrittenSignatures.has(signature)) return
     autoWrittenSignatures.add(signature)
     void saveConnectedAccounts()
@@ -952,6 +1036,7 @@ watch(
 
 // 抽屉自己管理焦点与滚动，这里只负责重置暂存状态。
 function openConnectionWorkspace(): void {
+  resetConnectionInspection()
   connectionStages.value = []
   connectOperationKey.value = undefined
   connectFeedback.value = ''
@@ -963,6 +1048,7 @@ function setConnectionWorkspace(open: boolean): void {
   if (!open && connectBusy.value) return
   connectionWorkspaceOpen.value = open
   if (!open) {
+    resetConnectionInspection()
     connectionStages.value = []
     connectOperationKey.value = undefined
     connectFeedback.value = ''
@@ -975,8 +1061,9 @@ async function saveConnectedAccounts(): Promise<void> {
   const ready = connectionStages.value.filter(
     ({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > now,
   )
-  if (ready.length === 0 || connectBusy.value) {
-    if (!connectBusy.value && connectionStages.value.some(({ status }) => status === 'ready')) {
+  const signature = readyConnectionSignature(ready)
+  if (ready.length === 0 || signature === undefined) {
+    if (connectionStages.value.some(({ status }) => status === 'ready')) {
       connectionStages.value = connectionStages.value.map((stage) =>
         stage.status === 'ready' && stage.expires_at_ms <= now
           ? { ...stage, status: 'expired' }
@@ -986,6 +1073,17 @@ async function saveConnectedAccounts(): Promise<void> {
     }
     return
   }
+  if (connectBusy.value || connectionInspectionPending.value) return
+  if (inspectedConnectionSignature.value !== signature) {
+    void inspectConnectionStages(
+      signature,
+      ready.map(({ stage_id }) => stage_id),
+    )
+    return
+  }
+  const duplicatedAccounts = ready
+    .filter(({ duplicate }) => duplicate)
+    .map(({ account }) => account.email_mask || t('import.subscription.pendingAccount'))
   connectFeedback.value = ''
   let succeeded = false
   setPending(0, 'connect', true)
@@ -1006,11 +1104,14 @@ async function saveConnectedAccounts(): Promise<void> {
     toast.show({
       message: t(
         result.credentials_duplicated > 0
-          ? 'group.credentials.subscription.connectDuplicated'
+          ? duplicatedAccounts.length === result.credentials_duplicated
+            ? 'group.credentials.subscription.connectDuplicatedAccounts'
+            : 'group.credentials.subscription.connectDuplicated'
           : 'group.credentials.subscription.connectSucceeded',
         {
           added: n(result.credentials_added),
           duplicated: n(result.credentials_duplicated),
+          accounts: duplicatedAccounts.join(', '),
         },
       ),
       tone: result.credentials_added === 0 ? 'warning' : 'success',
@@ -1026,6 +1127,8 @@ async function saveConnectedAccounts(): Promise<void> {
     if (succeeded) setConnectionWorkspace(false)
   }
 }
+
+onBeforeUnmount(resetConnectionInspection)
 
 async function reconcileBatch(
   action: 'enable' | 'disable' | 'delete',
@@ -1273,8 +1376,8 @@ async function runBatch(
         </AppButton>
         <AppButton
           size="compact"
-          :busy="connectBusy"
-          :disabled="readyConnectionStages.length === 0"
+          :busy="connectBusy || connectionInspectionPending"
+          :disabled="readyConnectionStages.length === 0 || connectionInspectionPending"
           @click="saveConnectedAccounts"
         >
           {{

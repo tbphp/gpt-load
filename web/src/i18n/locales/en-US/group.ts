@@ -384,6 +384,7 @@ export default {
         connectFailed: 'Unable to add the account to this group',
         connectSucceeded: 'Connected {added} account(s)',
         connectDuplicated: 'Connected {added} account(s), skipped {duplicated} already present',
+        connectDuplicatedAccounts: 'Connected {added} account(s); skipped: {accounts}',
         sync: 'Sync',
         syncingQuota: 'Syncing quota information',
         searchPlaceholder: 'Account, email, or mask',

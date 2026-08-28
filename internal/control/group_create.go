@@ -121,13 +121,15 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 		result.GroupID = group.ID
 		result.GroupName = group.Name
 		if normalized.connectionType == models.ConnectionTypeSubscription {
-			result.CredentialsAdded, err = s.consumeCredentialStages(
+			var duplicatedStageIDs []string
+			result.CredentialsAdded, duplicatedStageIDs, err = s.consumeCredentialStages(
 				tx,
 				group.ID,
 				normalized.channelID,
 				normalized.connectionType,
 				normalized.stagedCredentialIDs,
 			)
+			result.CredentialsDuplicated = len(duplicatedStageIDs)
 		} else {
 			result.CredentialsAdded, result.CredentialsDuplicated, err =
 				s.persistCredentials(tx, group.ID, normalized.credentials)

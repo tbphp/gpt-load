@@ -110,6 +110,7 @@ function replaceStage(stage: CredentialStage): void {
         authorization_method: stage.authorization_method ?? existing.authorization_method,
         user_code: stage.user_code ?? existing.user_code,
         next_poll_at_ms: stage.next_poll_at_ms ?? existing.next_poll_at_ms,
+        duplicate: stage.duplicate ?? existing.duplicate,
       }
     : stage
   const index = props.modelValue.findIndex((item) => item.stage_id === stage.stage_id)
@@ -445,6 +446,7 @@ async function removeStage(stage: CredentialStage): Promise<void> {
 }
 
 function statusTone(stage: CredentialStage): 'success' | 'warning' | 'danger' | 'neutral' {
+  if (stage.status === 'ready' && stage.duplicate) return 'warning'
   if (stage.status === 'ready') return 'success'
   if (stage.status === 'pending_authorization' || stage.status === 'exchanging') return 'warning'
   if (stage.status === 'consumed') return 'neutral'
@@ -592,18 +594,27 @@ onBeforeUnmount(() => {
               stage.account.email_mask || t('import.subscription.pendingAccount')
             }}</strong>
             <span v-if="stage.status === 'ready'">
-              {{ t(`import.subscription.readyNotice.${context}`) }} ·
-              {{ t('import.subscription.expires') }}
-              <AppRelativeTime
-                :instant="stage.expires_at_ms"
-                :locale="locale"
-                :empty-label="t('import.subscription.unknown')"
-                hint
-              />
+              <template v-if="stage.duplicate">
+                {{ t('import.subscription.duplicateNotice') }}
+              </template>
+              <template v-else>
+                {{ t(`import.subscription.readyNotice.${context}`) }} ·
+                {{ t('import.subscription.expires') }}
+                <AppRelativeTime
+                  :instant="stage.expires_at_ms"
+                  :locale="locale"
+                  :empty-label="t('import.subscription.unknown')"
+                  hint
+                />
+              </template>
             </span>
           </div>
           <StatusBadge :tone="statusTone(stage)" size="compact">
-            {{ t(`import.subscription.status.${stage.status}`) }}
+            {{
+              stage.status === 'ready' && stage.duplicate
+                ? t('import.subscription.duplicateStatus')
+                : t(`import.subscription.status.${stage.status}`)
+            }}
           </StatusBadge>
           <AppButton
             variant="ghost"
