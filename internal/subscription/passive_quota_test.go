@@ -26,7 +26,7 @@ func TestRecordPassiveQuotaObservationIsVisibleAsDirty(t *testing.T) {
 	}
 }
 
-func TestRecordPassiveQuotaObservationMergesByWindowID(t *testing.T) {
+func TestRecordPassiveQuotaObservationReplacesRatherThanCombiningResponses(t *testing.T) {
 	manager := testCredentialManagerForPassiveQuota()
 	manager.RecordPassiveQuotaObservation(7, 100, 1000, []providerobservation.QuotaWindow{
 		{ID: "primary", Used: floatPointer(10)},
@@ -35,9 +35,28 @@ func TestRecordPassiveQuotaObservationMergesByWindowID(t *testing.T) {
 		{ID: "secondary", Used: floatPointer(20)},
 	})
 
+	// A pending entry carries exactly one response, so its windows and its
+	// observation time always describe the same instant. Combining responses
+	// would let a field observed at 1000 be persisted stamped as 2000, which
+	// can then outrank -- and overwrite -- an active refresh committed in
+	// between. The window dropped here is not lost data: the stored snapshot
+	// keeps its current value and the next full response refreshes it.
 	dirty := manager.DirtyPassiveQuotaObservations(10)
-	if len(dirty) != 1 || len(dirty[0].Windows) != 2 || dirty[0].ObservedAtMS != 2000 {
-		t.Fatalf("dirty observations = %#v, want both windows merged", dirty)
+	if len(dirty) != 1 || len(dirty[0].Windows) != 1 ||
+		dirty[0].Windows[0].ID != "secondary" || dirty[0].ObservedAtMS != 2000 {
+		t.Fatalf("dirty observations = %#v, want only the newest response's window", dirty)
+	}
+}
+
+func TestRecordPassiveQuotaObservationCopiesCallerWindows(t *testing.T) {
+	manager := testCredentialManagerForPassiveQuota()
+	windows := []providerobservation.QuotaWindow{{ID: "primary", Used: floatPointer(10)}}
+	manager.RecordPassiveQuotaObservation(7, 100, 1000, windows)
+	windows[0].ID = "mutated"
+
+	dirty := manager.DirtyPassiveQuotaObservations(10)
+	if len(dirty) != 1 || dirty[0].Windows[0].ID != "primary" {
+		t.Fatalf("dirty observations = %#v, want the pending entry unaffected by caller mutation", dirty)
 	}
 }
 

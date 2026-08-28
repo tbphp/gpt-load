@@ -7,8 +7,8 @@ import (
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
-// PassiveQuotaObservation is one credential's merged, not-yet-persisted
-// passive quota snapshot, captured from upstream response headers.
+// PassiveQuotaObservation is one credential's not-yet-persisted passive quota
+// snapshot, captured from a single upstream response's headers.
 type PassiveQuotaObservation struct {
 	CredentialID       uint
 	IdentityGeneration uint64
@@ -40,12 +40,19 @@ func newPassiveQuotaPending() *passiveQuotaPending {
 	return &passiveQuotaPending{entries: make(map[uint]*passiveQuotaEntry)}
 }
 
-// RecordPassiveQuotaObservation merges one response's passive quota windows
-// into the pending snapshot for credentialID. A response with no windows is
-// a no-op: it must not advance the pending observation time. An
-// identityGeneration different from the currently pending entry replaces it
-// instead of merging, since the windows would belong to a different secret.
-// An observedAtMS older than the pending entry is dropped.
+// RecordPassiveQuotaObservation stores one response's passive quota windows
+// as the pending snapshot for credentialID, replacing whatever the previous
+// response left there.
+//
+// Responses are deliberately never combined. A pending entry carries a single
+// observation time, so mixing fields captured at different instants would let
+// an older value be persisted under a newer timestamp and outrank an active
+// refresh committed in between. Dropping the older response loses nothing:
+// the stored snapshot keeps its current value for any window this response
+// omits, and the next response carrying that window refreshes it.
+//
+// A response with no windows is a no-op: it must not advance the pending
+// observation time. An observedAtMS older than the pending entry is dropped.
 func (manager *CredentialManager) RecordPassiveQuotaObservation(
 	credentialID uint,
 	identityGeneration uint64,
@@ -103,7 +110,7 @@ func (pending *passiveQuotaPending) record(
 		pending.mu.Unlock()
 		return
 	}
-	entry.windows = mergeQuotaWindowsByID(entry.windows, windows)
+	entry.windows = append([]providerobservation.QuotaWindow(nil), windows...)
 	entry.observedAtMS = observedAtMS
 	pending.nextVersion++
 	entry.version = pending.nextVersion
@@ -146,10 +153,7 @@ func (pending *passiveQuotaPending) dirtyObservations(limit int) []PassiveQuotaO
 	return result
 }
 
-// ack clears the dirty flag and drops the cached windows for an exactly
-// matching version. The cache must not survive its own flush: once a field
-// has been persisted, a future response that omits it must not have that
-// stale value merged back in and rewritten over a newer active refresh.
+// ack clears the dirty flag for an exactly matching version.
 func (pending *passiveQuotaPending) ack(credentialID uint, version uint64) {
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
@@ -158,27 +162,4 @@ func (pending *passiveQuotaPending) ack(credentialID uint, version uint64) {
 		return
 	}
 	entry.dirty = false
-	entry.windows = nil
-}
-
-// mergeQuotaWindowsByID overlays patches onto previous by window ID, keeping
-// any previous window a patch did not touch.
-func mergeQuotaWindowsByID(
-	previous []providerobservation.QuotaWindow,
-	patches []providerobservation.QuotaWindow,
-) []providerobservation.QuotaWindow {
-	merged := append([]providerobservation.QuotaWindow(nil), previous...)
-	index := make(map[string]int, len(merged))
-	for position, window := range merged {
-		index[window.ID] = position
-	}
-	for _, patch := range patches {
-		if position, ok := index[patch.ID]; ok {
-			merged[position] = providerobservation.MergeQuotaWindow(merged[position], patch)
-			continue
-		}
-		index[patch.ID] = len(merged)
-		merged = append(merged, patch)
-	}
-	return merged
 }
