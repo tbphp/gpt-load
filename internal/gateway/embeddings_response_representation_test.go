@@ -82,6 +82,27 @@ func TestEmbeddingsSuccessRepresentationFailsClosedOnCredentialOutsideVector(t *
 	}
 }
 
+func TestEmbeddingsSuccessRepresentationScansObjectVectorsForCredentials(t *testing.T) {
+	t.Parallel()
+
+	for _, body := range [][]byte{
+		[]byte(`{"object":"list","data":[{"embedding":{"vendor":"sk-secret"}}]}`),
+		[]byte(`{"object":"list","data":[{"embedding":{"sk-secret":1}}]}`),
+		[]byte(`{"object":"list","data":[{"embedding":[1,{"vendor":"sk-secret"}]}]}`),
+	} {
+		_, err := (&responseProcessor{redactor: redact.New()}).prepareSuccessRepresentation(
+			embeddingsForwardInput("model", "model"),
+			http.StatusOK,
+			http.Header{"Content-Type": {"application/json"}},
+			body,
+			[]string{"sk-secret"},
+		)
+		if err == nil {
+			t.Fatalf("prepareSuccessRepresentation(%s) error = nil, want fail closed", body)
+		}
+	}
+}
+
 func TestEmbeddingsSuccessRepresentationFailsClosedOnDuplicateOpaqueKeys(t *testing.T) {
 	t.Parallel()
 

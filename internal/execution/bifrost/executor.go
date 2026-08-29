@@ -478,7 +478,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}
 	if spec.Operation == execution.OperationProbe {
 		if spec.ClientProtocol == protocol.OpenAIEmbeddings {
-			typedURL, targetErr := embeddingTypedTarget(providerKind, spec.TargetConfig, "")
+			typedURL, targetErr := embeddingTypedTarget(providerKind, resolved.TargetConfig, "")
 			if targetErr != nil {
 				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid Embeddings probe target")
 				return preparedAttempt{}, &failure

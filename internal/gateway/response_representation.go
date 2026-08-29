@@ -702,8 +702,9 @@ const (
 )
 
 // scanEmbeddingsCredentialValue walks one JSON value without materializing the
-// potentially large vector. Only root data[*].embedding is opaque; same-named
-// extension fields remain subject to exact credential inspection.
+// potentially large vector. Root data[*].embedding stays opaque across scalar
+// and array tokens; object subtrees and same-named extension fields remain
+// subject to exact credential inspection.
 func scanEmbeddingsCredentialValue(
 	decoder *json.Decoder,
 	residual *strings.Replacer,
@@ -717,6 +718,9 @@ func scanEmbeddingsCredentialValue(
 	case json.Delim:
 		switch typed {
 		case '{':
+			if location == embeddingsJSONOpaqueVector {
+				location = embeddingsJSONOther
+			}
 			dataSeen := false
 			embeddingSeen := false
 			for decoder.More() {

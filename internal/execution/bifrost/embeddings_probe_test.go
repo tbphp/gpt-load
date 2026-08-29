@@ -14,7 +14,7 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-func TestOpenAIEmbeddingsProbeUsesMinimalNativeWire(t *testing.T) {
+func TestOpenAIEmbeddingsProbeUsesMinimalNativeWireAndResolvedTarget(t *testing.T) {
 	t.Parallel()
 
 	for _, responseBody := range []string{
@@ -55,7 +55,7 @@ func TestOpenAIEmbeddingsProbeUsesMinimalNativeWire(t *testing.T) {
 
 			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
 			result := runtime.Execute(context.Background(), embeddingsProbeSpec(
-				t, channel.OpenAICompatible, server.URL+"/tenant/api/v4",
+				t, channel.OpenAICompatible, " "+server.URL+"/tenant/api/v4/ ",
 			))
 			if err := result.Validate(); err != nil {
 				t.Fatalf("result validation: %v; result=%+v", err, result)
