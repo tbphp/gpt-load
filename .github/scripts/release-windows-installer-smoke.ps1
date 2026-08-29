@@ -23,12 +23,13 @@ if ($beforeHash -ne $expectedHash) { throw "Windows setup checksum mismatch befo
 $serviceName = "gpt-load"
 $suffix = [guid]::NewGuid().ToString("N")
 $installDir = Join-Path $env:ProgramFiles "GPT-Load"
-$installOwnerMarker = Join-Path $installDir ".installer-smoke-owner"
+$installOwnerMarker = Join-Path $env:RUNNER_TEMP "gpt-load-installer-smoke-$suffix.owner"
 $installOwnerToken = $suffix
 $programData = [Environment]::GetFolderPath("CommonApplicationData")
 $configDir = Join-Path $programData "GPT-Load"
 $dataDir = Join-Path $configDir "data"
 $dataOwnerMarker = Join-Path $configDir ".installer-smoke-owner"
+$failureDataMarker = Join-Path $dataDir "installer-smoke-failure.txt"
 $upgradeMarker = Join-Path $dataDir "installer-smoke-upgrade.txt"
 $installedBinary = Join-Path $installDir "gpt-load.exe"
 $uninstaller = Join-Path $installDir "unins000.exe"
@@ -36,6 +37,7 @@ $commonDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
 $commonPrograms = [Environment]::GetFolderPath("CommonPrograms")
 $desktopShortcut = Join-Path $commonDesktop "GPT-Load.url"
 $startMenuShortcut = Join-Path $commonPrograms "GPT-Load\GPT-Load.url"
+$uninstallKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{E5A127DE-2676-4F6C-B763-CF53C6271883}_is1"
 
 if ([System.IO.Path]::GetFullPath($configDir) -ne
     [System.IO.Path]::GetFullPath((Join-Path $programData "GPT-Load"))) {
@@ -50,7 +52,7 @@ if (Test-Path $installDir) {
 if (Test-Path $configDir) {
   throw "refusing pre-existing ProgramData directory: $configDir"
 }
-foreach ($path in @($desktopShortcut, $startMenuShortcut)) {
+foreach ($path in @($desktopShortcut, $startMenuShortcut, $uninstallKey)) {
   if (Test-Path $path) {
     throw "refusing pre-existing installer smoke path: $path"
   }
@@ -59,15 +61,16 @@ foreach ($path in @($desktopShortcut, $startMenuShortcut)) {
 function Invoke-CheckedProcess {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string[]]$Arguments
+    [Parameter(Mandatory = $true)][string[]]$Arguments,
+    [int]$ExpectedExitCode = 0
   )
   $process = Start-Process `
     -FilePath $Path `
     -ArgumentList $Arguments `
     -Wait `
     -PassThru
-  if ($process.ExitCode -ne 0) {
-    throw "$Path exited with code $($process.ExitCode)"
+  if ($process.ExitCode -ne $ExpectedExitCode) {
+    throw "$Path exited with code $($process.ExitCode), expected $ExpectedExitCode"
   }
 }
 
@@ -108,10 +111,44 @@ function Assert-ServiceAcl {
 }
 
 try {
-  New-Item -ItemType Directory -Path $installDir | Out-Null
   [System.IO.File]::WriteAllText($installOwnerMarker, $installOwnerToken)
   New-Item -ItemType Directory -Path $configDir | Out-Null
   [System.IO.File]::WriteAllText($dataOwnerMarker, $installOwnerToken)
+  New-Item -ItemType Directory -Path $dataDir | Out-Null
+  [System.IO.File]::WriteAllText($failureDataMarker, $installOwnerToken)
+
+  $listener = [System.Net.Sockets.TcpListener]::new(
+    [System.Net.IPAddress]::Loopback,
+    3001
+  )
+  $listener.Start()
+  try {
+    Invoke-CheckedProcess -Path $setup -Arguments @(
+      "/VERYSILENT",
+      "/SUPPRESSMSGBOXES",
+      "/NORESTART"
+    ) -ExpectedExitCode 10
+  } finally {
+    $listener.Stop()
+  }
+
+  if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+    throw "failed installation left Windows service"
+  }
+  foreach ($path in @(
+      $installDir,
+      $desktopShortcut,
+      $startMenuShortcut,
+      $uninstallKey
+    )) {
+    if (Test-Path $path) {
+      throw "failed installation left artifact: $path"
+    }
+  }
+  if ((-not (Test-Path $failureDataMarker)) -or
+      ((Get-Content $failureDataMarker -Raw).Trim() -ne $installOwnerToken)) {
+    throw "failed installation removed ProgramData"
+  }
 
   Invoke-CheckedProcess -Path $setup -Arguments @(
     "/VERYSILENT",
@@ -215,5 +252,9 @@ try {
   if ((Test-Path $dataOwnerMarker) -and
       ((Get-Content $dataOwnerMarker -Raw).Trim() -eq $installOwnerToken)) {
     Remove-Item -Recurse -Force $configDir -ErrorAction SilentlyContinue
+  }
+  if ((Test-Path $installOwnerMarker) -and
+      ((Get-Content $installOwnerMarker -Raw).Trim() -eq $installOwnerToken)) {
+    Remove-Item -Force $installOwnerMarker -ErrorAction SilentlyContinue
   }
 }

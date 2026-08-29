@@ -127,6 +127,51 @@ func TestWindowsInstallerFailsClosedAndRestoresInterruptedUpgrade(t *testing.T) 
 	}
 }
 
+func TestWindowsInstallerCleansFreshInstallFailureWithoutDeletingProgramData(t *testing.T) {
+	installer := readRepositoryFile(t, "packaging/windows/gpt-load.iss")
+	for _, required := range []string{
+		"CleanupFailedFreshInstallation",
+		"FreshInstallCleanupEligible",
+		"not PreviousBinaryBackedUp",
+		"not PreviousServiceExisted",
+		"HKLM64",
+		"RegDeleteKeyIncludingSubkeys",
+		"DelTree(AppDir, True, True, True)",
+		`{commondesktop}\GPT-Load.url`,
+		`{group}\GPT-Load.url`,
+	} {
+		if !strings.Contains(installer, required) {
+			t.Fatalf("Windows installer fresh-failure cleanup does not contain %q", required)
+		}
+	}
+	cleanup, remainder, found := strings.Cut(installer, "function CleanupFailedFreshInstallation")
+	if !found {
+		t.Fatal("Windows installer does not declare fresh-failure cleanup")
+	}
+	cleanup, _, found = strings.Cut(remainder, "function RestorePreviousInstallation")
+	if !found {
+		t.Fatal("Windows installer fresh-failure cleanup is not scoped before recovery")
+	}
+	if strings.Contains(cleanup, `{commonappdata}\GPT-Load`) {
+		t.Fatal("Windows installer fresh-failure cleanup deletes persistent ProgramData")
+	}
+
+	smoke := readRepositoryFile(t, ".github/scripts/release-windows-installer-smoke.ps1")
+	for _, required := range []string{
+		"-ExpectedExitCode 10",
+		"[System.Net.Sockets.TcpListener]",
+		"[System.Net.IPAddress]::Loopback",
+		"failed installation left Windows service",
+		"failed installation left artifact",
+		"failed installation removed ProgramData",
+		"$uninstallKey",
+	} {
+		if !strings.Contains(smoke, required) {
+			t.Fatalf("Windows installer smoke does not cover fresh failure contract %q", required)
+		}
+	}
+}
+
 func TestPullRequestWindowsCIBuildsAndSmokesInstaller(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/ci.yml")
 	windowsJob := workflowJobBlock(t, workflow, "windows-encryption-acl")

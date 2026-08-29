@@ -65,6 +65,9 @@ Name: "{commondesktop}\GPT-Load"; Filename: "http://127.0.0.1:3001"; IconFilenam
 Filename: "http://127.0.0.1:3001"; Description: "{cm:LaunchProgram,GPT-Load}"; Flags: postinstall shellexec skipifsilent; Check: CanLaunchManagementPage
 
 [Code]
+const
+  WindowsUninstallKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{E5A127DE-2676-4F6C-B763-CF53C6271883}_is1';
+
 var
   AuthKeyPage: TOutputMsgMemoWizardPage;
   ShowAuthKeyPage: Boolean;
@@ -77,6 +80,7 @@ var
   PreviousServiceExisted: Boolean;
   PreviousServiceWasRunning: Boolean;
   PreviousInstallationRestored: Boolean;
+  FreshInstallCleanupEligible: Boolean;
 
 function InitializeSetup(): Boolean;
 begin
@@ -132,6 +136,48 @@ begin
   Result := TryRunServiceCommand(BinaryPath, Arguments, ErrorMessage);
   if not Result then
     Log('GPT-Load recovery warning: ' + ErrorMessage);
+end;
+
+function CleanupFailedFreshInstallation(): Boolean;
+var
+  AppDir: String;
+  DesktopShortcut: String;
+  GroupDir: String;
+  GroupShortcut: String;
+begin
+  Result := True;
+
+  if RegKeyExists(HKLM64, WindowsUninstallKey) then
+    if not RegDeleteKeyIncludingSubkeys(HKLM64, WindowsUninstallKey) then
+    begin
+      Log('GPT-Load recovery warning: could not remove the uninstall registration');
+      Result := False;
+    end;
+
+  DesktopShortcut := ExpandConstant('{commondesktop}\GPT-Load.url');
+  if FileExists(DesktopShortcut) then
+    if not DeleteFile(DesktopShortcut) then
+    begin
+      Log('GPT-Load recovery warning: could not remove the desktop shortcut');
+      Result := False;
+    end;
+
+  GroupDir := ExpandConstant('{group}');
+  GroupShortcut := ExpandConstant('{group}\GPT-Load.url');
+  if FileExists(GroupShortcut) then
+    if not DeleteFile(GroupShortcut) then
+    begin
+      Log('GPT-Load recovery warning: could not remove the Start Menu shortcut');
+      Result := False;
+    end;
+  RemoveDir(GroupDir);
+
+  AppDir := ExpandConstant('{app}');
+  if DirExists(AppDir) and not DelTree(AppDir, True, True, True) then
+  begin
+    Log('GPT-Load recovery warning: could not remove the installation directory');
+    Result := False;
+  end;
 end;
 
 procedure QueryPreviousServiceState(const BinaryPath: String);
@@ -202,6 +248,10 @@ begin
        (not BestEffortServiceCommand(AppBinary, 'service start')) then
       Result := False;
   end;
+
+  if Result and FreshInstallCleanupEligible and
+     (not PreviousBinaryBackedUp) and (not PreviousServiceExisted) then
+    Result := CleanupFailedFreshInstallation();
 end;
 
 procedure MarkInstallationFailed(const ErrorMessage: String);
@@ -226,6 +276,9 @@ begin
   if InstallPrepared then
     Exit;
 
+  FreshInstallCleanupEligible :=
+    (not DirExists(ExpandConstant('{app}'))) and
+    (not RegKeyExists(HKLM64, WindowsUninstallKey));
   AppBinary := ExpandConstant('{app}\gpt-load.exe');
   if FileExists(AppBinary) then
   begin
