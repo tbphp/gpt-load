@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strconv"
 	"strings"
 	"testing"
@@ -615,6 +616,116 @@ func TestAuthSessionEndpointRejectsCredentialMatchingAdminAndAccessKey(t *testin
 	)
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("colliding credential session = %d %s, want 401", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAuthSessionRejectsExpiredAccessKeyWithoutChangingAdminFailureCount(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	const accessKey = "expired-access-key"
+	expiresAtMS := now.Add(-time.Millisecond).UnixMilli()
+	publishControlAuthAccessKey(t, fixture, accessKey, &expiresAtMS, nil)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+	const peer = "192.0.2.90:1234"
+
+	for range authFailureLimit - 1 {
+		recorder := serveAuthRequest(engine, "/api/auth/session", peer, "Bearer wrong-key", nil)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("wrong-key response = %d %s, want 401", recorder.Code, recorder.Body.String())
+		}
+	}
+	expired := serveAuthRequest(engine, "/api/auth/session", peer, "Bearer "+accessKey, nil)
+	if expired.Code != http.StatusUnauthorized {
+		t.Fatalf("expired response = %d %s, want 401 without admin lock", expired.Code, expired.Body.String())
+	}
+	locked := serveAuthRequest(engine, "/api/auth/session", peer, "Bearer wrong-key", nil)
+	if locked.Code != http.StatusTooManyRequests {
+		t.Fatalf("post-expired wrong-key response = %d %s, want 429", locked.Code, locked.Body.String())
+	}
+}
+
+func TestAuthSessionExpiredAccessKeyCollisionCannotBecomeAdmin(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	expiresAtMS := now.Add(-time.Millisecond).UnixMilli()
+	publishControlAuthAccessKey(t, fixture, authTestKey, &expiresAtMS, nil)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+
+	recorder := serveAuthRequest(
+		engine,
+		"/api/auth/session",
+		"192.0.2.91:1234",
+		"Bearer "+authTestKey,
+		nil,
+	)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expired collision response = %d %s, want 401", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAuthSessionEnforcesAccessKeyDirectPeerCIDRs(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	const accessKey = "peer-limited-access-key"
+	publishControlAuthAccessKey(
+		t,
+		fixture,
+		accessKey,
+		nil,
+		[]netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")},
+	)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+
+	allowed := serveAuthRequest(
+		engine,
+		"/api/auth/session",
+		"192.0.2.92:1234",
+		"Bearer "+accessKey,
+		nil,
+	)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("allowed response = %d %s, want 200", allowed.Code, allowed.Body.String())
+	}
+	denied := serveAuthRequest(
+		engine,
+		"/api/auth/session",
+		"198.51.100.92:1234",
+		"Bearer "+accessKey,
+		map[string]string{"X-Forwarded-For": "192.0.2.92", "X-Real-IP": "192.0.2.92"},
+	)
+	if denied.Code != http.StatusUnauthorized {
+		t.Fatalf("forwarded peer response = %d %s, want 401", denied.Code, denied.Body.String())
+	}
+}
+
+func publishControlAuthAccessKey(
+	t *testing.T,
+	fixture serviceFixture,
+	plaintext string,
+	expiresAtMS *int64,
+	allowedPeerCIDRs []netip.Prefix,
+) {
+	t.Helper()
+	_, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "auth-policy", KeyHash: fixture.encryption.Hash(plaintext),
+			Status: state.AccessKeyStatusActive, ExpiresAtMS: expiresAtMS,
+			AllowedPeerCIDRs: allowedPeerCIDRs,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Publish(access key policy) error = %v", err)
 	}
 }
 

@@ -4,6 +4,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 )
+
+const maxSafeAccessKeyEpochMS = int64(9_007_199_254_740_991)
 
 type CompileInput struct {
 	SystemSettings   config.Settings
@@ -66,14 +69,16 @@ func externalModelName(model ModelConfig) string {
 }
 
 type AccessKeyConfig struct {
-	ID             uint
-	Name           string
-	KeyHash        string
-	KeySuffix      string
-	Status         AccessKeyStatus
-	Filters        FilterSet
-	RPMLimit       int64
-	CostLimitRules []accessquota.Rule
+	ID               uint
+	Name             string
+	KeyHash          string
+	KeySuffix        string
+	Status           AccessKeyStatus
+	Filters          FilterSet
+	ExpiresAtMS      *int64
+	AllowedPeerCIDRs []netip.Prefix
+	RPMLimit         int64
+	CostLimitRules   []accessquota.Rule
 }
 
 type AccessKeyStatus string
@@ -143,13 +148,15 @@ type GroupCatalogView struct {
 }
 
 type AccessKeyView struct {
-	ID             uint
-	Name           string
-	KeySuffix      string
-	Status         AccessKeyStatus
-	Filters        FilterSet
-	RPMLimit       int64
-	CostLimitRules []accessquota.Rule
+	ID               uint
+	Name             string
+	KeySuffix        string
+	Status           AccessKeyStatus
+	Filters          FilterSet
+	ExpiresAtMS      *int64
+	AllowedPeerCIDRs []netip.Prefix
+	RPMLimit         int64
+	CostLimitRules   []accessquota.Rule
 }
 
 type ConfigSnapshot struct {
@@ -268,9 +275,12 @@ func newAccessKeyView(input AccessKeyConfig) AccessKeyView {
 	})
 	return AccessKeyView{
 		ID: input.ID, Name: input.Name, Status: input.Status,
-		KeySuffix: input.KeySuffix,
-		Filters:   cloneFilterSet(input.Filters), RPMLimit: input.RPMLimit,
-		CostLimitRules: rules,
+		KeySuffix:        input.KeySuffix,
+		Filters:          cloneFilterSet(input.Filters),
+		ExpiresAtMS:      cloneAccessKeyExpiry(input.ExpiresAtMS),
+		AllowedPeerCIDRs: cloneAllowedPeerCIDRs(input.AllowedPeerCIDRs),
+		RPMLimit:         input.RPMLimit,
+		CostLimitRules:   rules,
 	}
 }
 
@@ -486,6 +496,13 @@ func validateCompileInput(input CompileInput) error {
 		if accessKey.RPMLimit < 0 {
 			return fmt.Errorf("access key %d rpm limit must not be negative", accessKey.ID)
 		}
+		if accessKey.ExpiresAtMS != nil &&
+			(*accessKey.ExpiresAtMS < 0 || *accessKey.ExpiresAtMS > maxSafeAccessKeyEpochMS) {
+			return fmt.Errorf("access key %d expiry must be a safe millisecond value", accessKey.ID)
+		}
+		if err := validateAllowedPeerCIDRs(accessKey.ID, accessKey.AllowedPeerCIDRs); err != nil {
+			return err
+		}
 		switch accessKey.Status {
 		case AccessKeyStatusActive, AccessKeyStatusDisabled:
 		default:
@@ -546,4 +563,36 @@ func cloneFilterSet(source FilterSet) FilterSet {
 		}
 	}
 	return cloned
+}
+
+func validateAllowedPeerCIDRs(accessKeyID uint, prefixes []netip.Prefix) error {
+	if len(prefixes) > 64 {
+		return fmt.Errorf("access key %d allowed peer CIDR count exceeds limit", accessKeyID)
+	}
+	seen := make(map[netip.Prefix]struct{}, len(prefixes))
+	for _, prefix := range prefixes {
+		if !prefix.IsValid() || prefix.Addr().Zone() != "" || prefix.Addr().Is4In6() || prefix != prefix.Masked() {
+			return fmt.Errorf("access key %d has invalid allowed peer CIDR", accessKeyID)
+		}
+		if _, duplicate := seen[prefix]; duplicate {
+			return fmt.Errorf("access key %d has duplicate allowed peer CIDR", accessKeyID)
+		}
+		seen[prefix] = struct{}{}
+	}
+	return nil
+}
+
+func cloneAccessKeyExpiry(source *int64) *int64 {
+	if source == nil {
+		return nil
+	}
+	cloned := *source
+	return &cloned
+}
+
+func cloneAllowedPeerCIDRs(source []netip.Prefix) []netip.Prefix {
+	if source == nil {
+		return nil
+	}
+	return append(make([]netip.Prefix, 0, len(source)), source...)
 }

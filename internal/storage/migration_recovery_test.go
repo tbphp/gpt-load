@@ -110,6 +110,41 @@ func TestApplyMySQLMigrationRecoversObservationFreshnessRemoval(t *testing.T) {
 	}
 }
 
+func TestApplyMySQLMigrationRecoversAccessKeyLifecycleAddition(t *testing.T) {
+	for _, columnAlreadyAdded := range []bool{false, true} {
+		t.Run(fmt.Sprintf("column_already_added_%t", columnAlreadyAdded), func(t *testing.T) {
+			db := openInternalMigrationTestDatabase(t)
+			if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+				t.Fatalf("create migration ledger: %v", err)
+			}
+			for index := 0; index < 6; index++ {
+				if err := migrations[index].Up(db); err != nil {
+					t.Fatalf("apply migration %d: %v", index+1, err)
+				}
+				if err := migrations[index].Validate(db); err != nil {
+					t.Fatalf("validate migration %d: %v", index+1, err)
+				}
+				if err := db.Create(&schemaMigration{ID: migrations[index].ID}).Error; err != nil {
+					t.Fatalf("record migration %d: %v", index+1, err)
+				}
+			}
+			if err := db.Create(&schemaMigration{ID: migrationResumeMarker(migrations[6].ID)}).Error; err != nil {
+				t.Fatalf("create lifecycle recovery marker: %v", err)
+			}
+			if columnAlreadyAdded {
+				if err := migrations[6].Up(db); err != nil {
+					t.Fatalf("apply interrupted lifecycle migration: %v", err)
+				}
+			}
+
+			if err := applyMySQLMigration(db, migrations[6]); err != nil {
+				t.Fatalf("resume lifecycle migration: %v", err)
+			}
+			assertInternalMigrationComplete(t, db, registeredMigrationIDs())
+		})
+	}
+}
+
 func TestApplyMySQLMigrationRejectsUnsafeResumeState(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -534,6 +569,9 @@ func assertInternalMigrationComplete(t *testing.T, db *gorm.DB, wantIDs []string
 				t.Errorf("request_log_attempts.%s is missing after migration 0006", column)
 			}
 		}
+	}
+	if len(wantIDs) >= 7 && !db.Migrator().HasColumn("access_keys", "expires_at_ms") {
+		t.Error("access_keys.expires_at_ms is missing after migration 0007")
 	}
 	var ids []string
 	if err := db.Table(migrationLedgerTable).Order("id").Pluck("id", &ids).Error; err != nil {

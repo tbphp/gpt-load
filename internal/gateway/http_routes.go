@@ -99,13 +99,14 @@ func (handler *Handler) authenticateDataPlaneRequest(ginContext *gin.Context) {
 
 	snapshot := handler.manager.Current()
 	initializeDebugHeaders(ginContext.Writer.Header())
-	accessKey, authenticated := authenticate(
+	accessKey, authenticated, failureReason := authenticate(
 		ginContext.Request,
 		snapshot,
 		handler.encryption,
+		requestContext.requestStarted,
 	)
 	if !authenticated {
-		handler.logDataPlaneAuthFailed(ginContext.Request)
+		handler.logDataPlaneAuthFailed(ginContext.Request, accessKey.ID, failureReason)
 		_ = handler.writeReason(ginContext, reasonInvalidAccessKey)
 		ginContext.Abort()
 		return

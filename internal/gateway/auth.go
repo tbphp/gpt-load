@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
 )
 
@@ -12,16 +14,41 @@ type keyHasher interface {
 	Hash(string) string
 }
 
-func authenticate(request *http.Request, snapshot *state.ConfigSnapshot, hasher keyHasher) (state.AccessKeyView, bool) {
+type accessKeyAuthFailureReason string
+
+const (
+	accessKeyAuthFailureInvalid        accessKeyAuthFailureReason = "invalid_access_key"
+	accessKeyAuthFailureExpired        accessKeyAuthFailureReason = "access_key_expired"
+	accessKeyAuthFailurePeerNotAllowed accessKeyAuthFailureReason = "peer_not_allowed"
+)
+
+func authenticate(
+	request *http.Request,
+	snapshot *state.ConfigSnapshot,
+	hasher keyHasher,
+	requestStarted time.Time,
+) (state.AccessKeyView, bool, accessKeyAuthFailureReason) {
 	if request == nil || snapshot == nil || hasher == nil {
-		return state.AccessKeyView{}, false
+		return state.AccessKeyView{}, false, accessKeyAuthFailureInvalid
 	}
 	plaintext := extractClientKey(request)
 	if plaintext == "" {
-		return state.AccessKeyView{}, false
+		return state.AccessKeyView{}, false, accessKeyAuthFailureInvalid
 	}
 	accessKey, ok := snapshot.AccessKeysByHash[hasher.Hash(plaintext)]
-	return accessKey, ok
+	if !ok {
+		return state.AccessKeyView{}, false, accessKeyAuthFailureInvalid
+	}
+	if accessKey.ExpiresAtMS != nil && requestStarted.UnixMilli() >= *accessKey.ExpiresAtMS {
+		return accessKey, false, accessKeyAuthFailureExpired
+	}
+	if len(accessKey.AllowedPeerCIDRs) > 0 {
+		peer, err := utils.NormalizePeerIP(request.RemoteAddr)
+		if err != nil || !utils.AllowedCIDRsContain(accessKey.AllowedPeerCIDRs, peer) {
+			return accessKey, false, accessKeyAuthFailurePeerNotAllowed
+		}
+	}
+	return accessKey, true, ""
 }
 
 func extractClientKey(request *http.Request) string {

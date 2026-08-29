@@ -829,6 +829,33 @@ func (s *Server) handleRevealAccessKey(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleRotateAccessKey(c *gin.Context) {
+	id, ok := accessKeyID(c)
+	if !ok {
+		return
+	}
+	idempotencyKey, ok := requiredIdempotencyKey(c, "rotate_access_key")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "rotate_access_key", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.RotateAccessKeyIdempotent(
+		c.Request.Context(),
+		idempotencyKey,
+		id,
+	)
+	if err != nil {
+		writeServiceError(c, "rotate_access_key", err)
+		return
+	}
+	setMutationResourceLocator(c, fmt.Sprintf("access-key:%d", result.ID))
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleUpdateAccessKey(c *gin.Context) {
 	id, ok := accessKeyID(c)
 	if !ok {

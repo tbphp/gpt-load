@@ -525,6 +525,7 @@ export default {
       reasons: {
         none: '无排除原因',
         access_key_disabled: '访问密钥已停用',
+        access_key_expired: '访问密钥已过期',
         protocol_filtered: '访问密钥筛选排除了该协议',
         model_filtered: '访问密钥筛选排除了该模型',
         model_required_by_filter: '访问密钥模型筛选要求请求提供模型',

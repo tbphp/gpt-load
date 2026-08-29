@@ -31,6 +31,13 @@ type controlPrincipal struct {
 	AccessKeyID uint
 }
 
+type accessKeyAuthMatch struct {
+	AccessKeyID   uint
+	HashMatched   bool
+	PolicyAllowed bool
+	RejectReason  string
+}
+
 type authLockedData struct {
 	RetryAfterSeconds int64 `json:"retry_after_seconds"`
 }
@@ -81,26 +88,36 @@ func (s *Server) authenticate() gin.HandlerFunc {
 		}
 		requestDigest := sha256.Sum256([]byte(token))
 		adminMatches := s.compareDigest(requestDigest[:], s.authDigest[:]) == 1
-		accessKeyID, accessKeyMatches := s.matchAccessKey(token)
-		credentialValid := formatValid && adminMatches != accessKeyMatches
+		requestNow := time.Now
+		if s != nil && s.service != nil && s.service.now != nil {
+			requestNow = s.service.now
+		}
+		accessKeyMatch := s.matchAccessKey(token, requestNow(), peer)
+		collision := adminMatches && accessKeyMatch.HashMatched
+		credentialValid := formatValid && !collision &&
+			(adminMatches || accessKeyMatch.PolicyAllowed)
 		principal := controlPrincipal{}
 		if credentialValid {
 			if adminMatches {
 				principal.Type = controlPrincipalAdmin
 			} else {
 				principal.Type = controlPrincipalAccessKey
-				principal.AccessKeyID = accessKeyID
+				principal.AccessKeyID = accessKeyMatch.AccessKeyID
 			}
 		}
 		var decision authDecision
-		if principal.Type == controlPrincipalAccessKey {
+		policyRejectedAccessKey := formatValid &&
+			accessKeyMatch.HashMatched &&
+			!adminMatches &&
+			!accessKeyMatch.PolicyAllowed
+		if principal.Type == controlPrincipalAccessKey || policyRejectedAccessKey {
 			// AccessKey 成功只授权本次请求，不清除同一来源的管理密钥失败记录。
-			decision = authDecision{authorized: true}
+			decision = authDecision{authorized: principal.Type == controlPrincipalAccessKey}
 		} else {
 			decision = s.authFailures.evaluate(peer, credentialValid)
 		}
 		if !credentialValid {
-			s.logControlAuthFailed(peer)
+			s.logControlAuthFailed(peer, accessKeyMatch)
 		}
 		if decision.newlyLocked {
 			s.logControlPeerLocked(peer, decision.retryAfter)
@@ -144,24 +161,39 @@ func (s *Server) authenticate() gin.HandlerFunc {
 	}
 }
 
-func (s *Server) matchAccessKey(token string) (uint, bool) {
+func (s *Server) matchAccessKey(
+	token string,
+	requestStarted time.Time,
+	peer string,
+) accessKeyAuthMatch {
 	if s == nil || s.service == nil || s.service.encryption == nil ||
 		s.service.manager == nil {
-		return 0, false
+		return accessKeyAuthMatch{}
 	}
 	fingerprint := s.service.encryption.Hash(token)
 	if fingerprint == "" {
-		return 0, false
+		return accessKeyAuthMatch{}
 	}
 	snapshot := s.service.manager.Current()
 	if snapshot == nil {
-		return 0, false
+		return accessKeyAuthMatch{}
 	}
 	accessKey, ok := snapshot.AccessKeysByHash[fingerprint]
 	if !ok || accessKey.ID == 0 {
-		return 0, false
+		return accessKeyAuthMatch{}
 	}
-	return accessKey.ID, true
+	result := accessKeyAuthMatch{AccessKeyID: accessKey.ID, HashMatched: true}
+	if accessKey.ExpiresAtMS != nil && requestStarted.UnixMilli() >= *accessKey.ExpiresAtMS {
+		result.RejectReason = "access_key_expired"
+		return result
+	}
+	if len(accessKey.AllowedPeerCIDRs) > 0 &&
+		!utils.AllowedCIDRsContain(accessKey.AllowedPeerCIDRs, peer) {
+		result.RejectReason = "peer_not_allowed"
+		return result
+	}
+	result.PolicyAllowed = true
+	return result
 }
 
 func principalCanAccessControlRoute(
@@ -200,20 +232,29 @@ func currentAccessKeyID(c *gin.Context) (uint, bool) {
 	return principal.AccessKeyID, true
 }
 
-func (s *Server) logControlAuthFailed(peer string) {
+func (s *Server) logControlAuthFailed(peer string, match accessKeyAuthMatch) {
 	total, shouldLog := s.authFailureEvents.Observe()
 	if !shouldLog {
 		return
+	}
+	reason := match.RejectReason
+	if reason == "" {
+		reason = "invalid_access_key"
+	}
+	fields := logrus.Fields{
+		"event":   "auth_failed",
+		"peer_ip": peer,
+		"reason":  reason,
+		"total":   total,
+	}
+	if match.AccessKeyID != 0 {
+		fields["access_key_id"] = match.AccessKeyID
 	}
 	utils.LogPlaneBestEffort(
 		s.logger,
 		logrus.WarnLevel,
 		utils.LogPlaneControl,
-		logrus.Fields{
-			"event":   "auth_failed",
-			"peer_ip": peer,
-			"total":   total,
-		},
+		fields,
 		"Authentication failed",
 	)
 }

@@ -104,6 +104,22 @@ func (service *Service) InspectRoute(
 	if !exists {
 		return routeInspectResponse{}, app_errors.ErrResourceNotFound
 	}
+	if accessKey.ExpiresAtMS != nil &&
+		observation.observedAt.UnixMilli() >= *accessKey.ExpiresAtMS {
+		return mapRouteInspectResponse(
+			observation,
+			request,
+			accessKey,
+			scheduler.Inspection{
+				ClientProtocol:   request.Protocol,
+				Operation:        metadata.Operation,
+				RouteRequirement: metadata.RouteRequirement,
+				ExternalModel:    cloneRouteModel(metadata.Model),
+				Reason:           scheduler.ReasonAccessKeyExpired,
+				Groups:           []scheduler.GroupInspection{},
+			},
+		)
+	}
 	explanation, err := scheduler.Inspect(
 		observation.snapshot,
 		observation.keys,

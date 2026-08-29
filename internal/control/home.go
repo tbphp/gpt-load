@@ -64,6 +64,7 @@ type homeAccessKeyRow struct {
 	Status          string
 	Filters         models.JSON
 	RPMLimit        int64
+	ExpiresAtMS     *int64
 	CreatedAtMS     int64
 	UpdatedAtMS     int64
 	LastRequestAtMS *int64
@@ -185,7 +186,7 @@ func (s *Service) readHomeBase(
 		AccessKeys: accessKeys,
 	}
 	if accessKeyID != nil {
-		current, err := mapHomeCurrentAccessKey(accessKeyRows[0])
+		current, err := mapHomeCurrentAccessKey(accessKeyRows[0], nowMS)
 		if err != nil {
 			return HomeBase{}, err
 		}
@@ -259,6 +260,7 @@ func (s *Service) readHomeRows(
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
 				"id", "name", "key_suffix", "status", "filters", "rpm_limit",
+				"expires_at_ms",
 				"created_at_ms", "updated_at_ms",
 				"(SELECT MAX(request_logs.completed_at_ms) FROM request_logs WHERE request_logs.access_key_id = access_keys.id) AS last_request_at_ms",
 			).
@@ -532,10 +534,14 @@ func filterHomeAccessKeyRows(rows []homeAccessKeyRow, accessKeyID uint) []homeAc
 	return result
 }
 
-func mapHomeCurrentAccessKey(row homeAccessKeyRow) (AccessKeyCollectionItem, error) {
+func mapHomeCurrentAccessKey(
+	row homeAccessKeyRow,
+	observedAtMS int64,
+) (AccessKeyCollectionItem, error) {
 	metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
 		ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
 		Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
+		ExpiresAtMS: row.ExpiresAtMS,
 		CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
 	})
 	if err != nil {
@@ -552,6 +558,8 @@ func mapHomeCurrentAccessKey(row homeAccessKeyRow) (AccessKeyCollectionItem, err
 	return AccessKeyCollectionItem{
 		AccessKeyMetadata: metadata,
 		LastRequestAtMS:   row.LastRequestAtMS,
+		Expired: metadata.ExpiresAtMS != nil &&
+			observedAtMS >= *metadata.ExpiresAtMS,
 	}, nil
 }
 

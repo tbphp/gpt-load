@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"net/http"
+	"net/netip"
 	"net/url"
 	"testing"
+	"time"
 
 	"gpt-load/internal/state"
 )
@@ -129,12 +131,12 @@ func TestAuthenticateUsesFirstCredentialWithoutFallback(t *testing.T) {
 		URL:    &url.URL{},
 	}
 
-	if _, ok := authenticate(request, snapshot, testHasher{}); ok {
+	if _, ok, _ := authenticate(request, snapshot, testHasher{}, time.Now()); ok {
 		t.Fatal("authenticate() accepted lower-priority credential after invalid Bearer")
 	}
 
 	request.Header.Del("Authorization")
-	got, ok := authenticate(request, snapshot, testHasher{})
+	got, ok, _ := authenticate(request, snapshot, testHasher{}, time.Now())
 	if !ok || got.ID != 7 {
 		t.Fatalf("authenticate() = (%#v, %t), want access key 7", got, ok)
 	}
@@ -157,7 +159,7 @@ func TestAuthenticateAcceptsEverySupportedCarrier(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			request := &http.Request{Header: tt.header, URL: &url.URL{RawQuery: tt.query}}
-			got, ok := authenticate(request, snapshot, testHasher{})
+			got, ok, _ := authenticate(request, snapshot, testHasher{}, time.Now())
 			if !ok || got.ID != 7 {
 				t.Fatalf("authenticate() = (%#v, %t), want access key 7", got, ok)
 			}
@@ -171,16 +173,87 @@ func TestAuthenticateAcceptsEverySupportedCarrier(t *testing.T) {
 func TestAuthenticateRejectsMissingDependenciesAndCredentials(t *testing.T) {
 	request := &http.Request{Header: make(http.Header), URL: &url.URL{}}
 	snapshot := &state.ConfigSnapshot{AccessKeysByHash: map[string]state.AccessKeyView{}}
-	if _, ok := authenticate(nil, snapshot, testHasher{}); ok {
+	if _, ok, _ := authenticate(nil, snapshot, testHasher{}, time.Now()); ok {
 		t.Fatal("authenticate(nil request) succeeded")
 	}
-	if _, ok := authenticate(request, nil, testHasher{}); ok {
+	if _, ok, _ := authenticate(request, nil, testHasher{}, time.Now()); ok {
 		t.Fatal("authenticate(nil snapshot) succeeded")
 	}
-	if _, ok := authenticate(request, snapshot, nil); ok {
+	if _, ok, _ := authenticate(request, snapshot, nil, time.Now()); ok {
 		t.Fatal("authenticate(nil hasher) succeeded")
 	}
-	if _, ok := authenticate(request, snapshot, testHasher{}); ok {
+	if _, ok, _ := authenticate(request, snapshot, testHasher{}, time.Now()); ok {
 		t.Fatal("authenticate() succeeded without a credential")
+	}
+}
+
+func TestAuthenticateUsesRequestStartForExpiration(t *testing.T) {
+	deadline := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	expiresAtMS := deadline.UnixMilli()
+	snapshot := &state.ConfigSnapshot{AccessKeysByHash: map[string]state.AccessKeyView{
+		"hash:valid": {ID: 7, Name: "valid", ExpiresAtMS: &expiresAtMS},
+	}}
+	request := &http.Request{
+		Header:     http.Header{"Authorization": {"Bearer valid"}},
+		URL:        &url.URL{},
+		RemoteAddr: "192.0.2.10:1234",
+	}
+
+	if _, ok, reason := authenticate(request, snapshot, testHasher{}, deadline.Add(-time.Millisecond)); !ok || reason != "" {
+		t.Fatal("authenticate() rejected request started before expiration")
+	}
+	if got, ok, reason := authenticate(request, snapshot, testHasher{}, deadline); ok ||
+		reason != accessKeyAuthFailureExpired || got.ID != 7 {
+		t.Fatalf("authenticate() at expiration = (%#v, %t, %q)", got, ok, reason)
+	}
+	if _, ok, _ := authenticate(request, snapshot, testHasher{}, deadline.Add(time.Millisecond)); ok {
+		t.Fatal("authenticate() accepted request started after expiration")
+	}
+}
+
+func TestAuthenticateEnforcesDirectPeerCIDRsAndIgnoresForwardedHeaders(t *testing.T) {
+	snapshot := &state.ConfigSnapshot{AccessKeysByHash: map[string]state.AccessKeyView{
+		"hash:valid": {
+			ID:               7,
+			Name:             "valid",
+			AllowedPeerCIDRs: []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")},
+		},
+	}}
+	request := &http.Request{
+		Header: http.Header{
+			"Authorization":   {"Bearer valid"},
+			"X-Forwarded-For": {"192.0.2.10"},
+			"X-Real-Ip":       {"192.0.2.10"},
+		},
+		URL:        &url.URL{},
+		RemoteAddr: "198.51.100.10:1234",
+	}
+
+	if got, ok, reason := authenticate(request, snapshot, testHasher{}, time.Now()); ok ||
+		reason != accessKeyAuthFailurePeerNotAllowed || got.ID != 7 {
+		t.Fatal("authenticate() trusted forwarded peer headers")
+	}
+	request.RemoteAddr = "192.0.2.20:1234"
+	if _, ok, _ := authenticate(request, snapshot, testHasher{}, time.Now()); !ok {
+		t.Fatal("authenticate() rejected allowed direct peer")
+	}
+	request.RemoteAddr = "malformed"
+	if _, ok, _ := authenticate(request, snapshot, testHasher{}, time.Now()); ok {
+		t.Fatal("authenticate() accepted malformed direct peer with CIDR policy")
+	}
+}
+
+func TestAuthenticateDoesNotRequirePeerWithoutCIDRPolicy(t *testing.T) {
+	snapshot := &state.ConfigSnapshot{AccessKeysByHash: map[string]state.AccessKeyView{
+		"hash:valid": {ID: 7, Name: "valid"},
+	}}
+	request := &http.Request{
+		Header:     http.Header{"Authorization": {"Bearer valid"}},
+		URL:        &url.URL{},
+		RemoteAddr: "malformed",
+	}
+
+	if _, ok, _ := authenticate(request, snapshot, testHasher{}, time.Now()); !ok {
+		t.Fatal("authenticate() required direct peer without CIDR policy")
 	}
 }

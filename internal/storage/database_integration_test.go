@@ -99,6 +99,7 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	for table, columns := range map[string][]string{
 		"groups":      {"connection_type", "proxy_config"},
 		"credentials": {"identity_fingerprint", "secret_version", "auth_state", "auth_error_code", "proxy_config"},
+		"access_keys": {"expires_at_ms"},
 		"request_log_attempts": {
 			"upstream_protocol", "failure_origin", "failure_scope",
 			"retry_directive", "effect", "rule_id",
@@ -122,25 +123,35 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read migration ledger: %v", err)
 	}
-	if len(migrationIDs) != 6 || migrationIDs[0] != "0001_initial" ||
+	if len(migrationIDs) != 7 || migrationIDs[0] != "0001_initial" ||
 		migrationIDs[1] != "0002_access_key_cost_limits" ||
 		migrationIDs[2] != "0003_remove_observation_fresh_until" ||
 		migrationIDs[3] != "0004_usage_stats_group_activity_index" ||
 		migrationIDs[4] != "0005_proxy_config" ||
-		migrationIDs[5] != "0006_error_decision" {
-		t.Fatalf("migration ledger = %v, want complete 0001-0006 chain", migrationIDs)
+		migrationIDs[5] != "0006_error_decision" ||
+		migrationIDs[6] != "0007_access_key_lifecycle" {
+		t.Fatalf("migration ledger = %v, want complete 0001-0007 chain", migrationIDs)
 	}
 	if !db.Migrator().HasIndex("usage_stats", "idx_usage_stats_group_bucket") {
 		t.Fatal("usage_stats group activity index is missing")
 	}
 
+	expiresAtMS := time.Now().Add(24 * time.Hour).UnixMilli()
 	accessKey := models.AccessKey{
 		Name:     fmt.Sprintf("integration-cost-limit-%d", time.Now().UnixNano()),
 		KeyValue: "encrypted-access-key", KeyHash: fmt.Sprintf("integration-access-%d", time.Now().UnixNano()),
-		KeySuffix: "cafe", Status: "active", Filters: models.JSON(`{}`),
+		KeySuffix: "cafe", Status: "active", Filters: models.JSON(`{}`), ExpiresAtMS: &expiresAtMS,
 	}
 	if err := db.Create(&accessKey).Error; err != nil {
 		t.Fatalf("create cost-limited access key: %v", err)
+	}
+	var persistedExpiry *int64
+	if err := db.Table("access_keys").Select("expires_at_ms").Where("id = ?", accessKey.ID).
+		Scan(&persistedExpiry).Error; err != nil {
+		t.Fatalf("read access key expiry: %v", err)
+	}
+	if persistedExpiry == nil || *persistedExpiry != expiresAtMS {
+		t.Fatalf("access key expiry = %#v, want %d", persistedExpiry, expiresAtMS)
 	}
 	costRule := models.AccessKeyCostLimitRule{
 		AccessKeyID: accessKey.ID, Kind: models.AccessKeyCostLimitKindPeriodic,

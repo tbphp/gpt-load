@@ -12,7 +12,10 @@ import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppTypedConfirmation from '@/components/ui/AppTypedConfirmation.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
-const props = defineProps<{ accessKey: AccessKeyDto; total: number }>()
+const props = withDefaults(
+  defineProps<{ accessKey: AccessKeyDto; total: number; disabled?: boolean }>(),
+  { disabled: false },
+)
 const emit = defineEmits<{ deleted: [name: string] }>()
 const client = useApiClient()
 const { t } = useI18n()
@@ -44,6 +47,7 @@ function setOpen(value: boolean): void {
 }
 
 function openDialog(): void {
+  if (props.disabled) return
   setOpen(true)
 }
 
@@ -85,7 +89,7 @@ onBeforeUnmount(() => controller?.abort())
   >
     <template #trigger>
       <slot name="trigger" :open="openDialog">
-        <AppButton variant="danger" size="compact" @click="openDialog">
+        <AppButton variant="danger" size="compact" :disabled="disabled" @click="openDialog">
           <Trash2 :size="16" aria-hidden="true" />
           {{ t('accessKeys.delete.open') }}
         </AppButton>

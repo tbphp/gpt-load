@@ -10,6 +10,8 @@ export interface AccessKeyPresentation {
   name: string
   maskedKey: string
   status: AccessKeyDto['status']
+  expired: boolean
+  ipRestricted: boolean
   scopeRows: ReadonlyArray<{ label: string; value: string }>
   limits: readonly string[]
   quotaExhausted: boolean
@@ -62,6 +64,8 @@ function presentAccessKeyWithGroupNames(
     name: accessKey.name,
     maskedKey: accessKey.masked_key,
     status: accessKey.status,
+    expired: accessKey.expired,
+    ipRestricted: accessKey.filters.allowed_cidrs.length > 0,
     scopeRows,
     limits: [
       accessKey.rpm_limit === 0

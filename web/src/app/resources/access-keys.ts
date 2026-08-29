@@ -17,6 +17,7 @@ import type {
   AccessKeyFiltersDto,
   AccessKeyOptionDto,
   AccessKeyRevealDto,
+  AccessKeyRotateResultDto,
 } from '@/api/control/types'
 import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
@@ -45,6 +46,7 @@ export type {
   AccessKeyFiltersDto,
   AccessKeyOptionDto,
   AccessKeyRevealDto,
+  AccessKeyRotateResultDto,
   AccessProtocol,
 } from '@/api/control/types'
 
@@ -52,6 +54,7 @@ export interface CreateAccessKeyRequest {
   name: string
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
+  expires_at_ms: number | null
   rpm_limit: number
   cost_limit_rules: AccessKeyCostLimitRuleInput[]
 }
@@ -67,6 +70,7 @@ export type UpdateAccessKeyRequest = Partial<{
   name: string
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
+  expires_at_ms: number | null
   rpm_limit: number
   cost_limit_rules: AccessKeyCostLimitRuleInput[]
 }>
@@ -77,6 +81,7 @@ const metadataFields = [
   'masked_key',
   'status',
   'filters',
+  'expires_at_ms',
   'rpm_limit',
   'cost_limit_rules',
   'cost_limit_status',
@@ -87,7 +92,7 @@ const optionFields = ['id', 'name', 'status'] as const
 const collectionFields = ['summary', 'items', 'pagination'] as const
 const collectionSummaryFields = ['total', 'active', 'disabled'] as const
 const collectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
-const collectionItemFields = [...metadataFields, 'last_request_at_ms'] as const
+const collectionItemFields = [...metadataFields, 'expired', 'last_request_at_ms'] as const
 const costLimitRuleFields = ['id', 'kind', 'limit_usd', 'period_seconds'] as const
 const costLimitRuleStatusFields = [
   ...costLimitRuleFields,
@@ -117,20 +122,23 @@ function projectNonBlankTrimmedString(value: unknown): string {
 
 function projectFilters(value: unknown): AccessKeyFiltersDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, ['groups', 'protocols', 'models'])
+  assertNoSecretLikeFields(record, ['groups', 'protocols', 'models', 'allowed_cidrs'])
   const groups = projectArray(record.groups, (id) => projectSafeInteger(id, { minimum: 1 }))
   const protocols = projectArray(record.protocols, (protocol) =>
     projectEnum(protocol, knownAccessProtocols),
   )
   const models = projectArray(record.models, projectNonBlankTrimmedString)
+  const allowedCIDRs = projectArray(record.allowed_cidrs, projectNonBlankTrimmedString)
   if (
     new Set(groups).size !== groups.length ||
     new Set(protocols).size !== protocols.length ||
-    new Set(models).size !== models.length
+    new Set(models).size !== models.length ||
+    new Set(allowedCIDRs).size !== allowedCIDRs.length ||
+    allowedCIDRs.length > 64
   ) {
     invalidResponse()
   }
-  return { groups, protocols, models }
+  return { groups, protocols, models, allowed_cidrs: allowedCIDRs }
 }
 
 function projectUSD(value: unknown, positive = false): string {
@@ -271,6 +279,7 @@ export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
     masked_key: maskedKey,
     status: projectEnum(record.status, ['active', 'disabled'] as const),
     filters: projectFilters(record.filters),
+    expires_at_ms: projectNullableEpochMilliseconds(record.expires_at_ms),
     rpm_limit: projectSafeInteger(record.rpm_limit, { minimum: 0 }),
     cost_limit_rules: costLimitRules,
     cost_limit_status: costLimitStatus,
@@ -321,6 +330,7 @@ export function projectAccessKeyCollectionItem(value: unknown): AccessKeyCollect
   )
   return {
     ...metadata,
+    expired: projectBoolean(record.expired),
     last_request_at_ms: projectNullableEpochMilliseconds(record.last_request_at_ms),
   }
 }
@@ -449,6 +459,32 @@ export async function revealAccessKey(
     id,
     key: projectString(record.key),
     revealed_at_ms: projectEpochMilliseconds(record.revealed_at_ms),
+  }
+}
+
+export async function rotateAccessKey(
+  client: ApiClient,
+  id: number,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<AccessKeyRotateResultDto> {
+  const record = projectRecord(
+    await client.request(`/api/access-keys/${id}/rotate`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      signal,
+    }),
+  )
+  assertNoSecretLikeFields(record, [...metadataFields, 'key', 'replayed'])
+  const key = record.key === undefined ? undefined : projectString(record.key)
+  if (typeof record.replayed !== 'boolean' || record.replayed === (key !== undefined)) {
+    invalidResponse()
+  }
+  const metadata = Object.fromEntries(metadataFields.map((field) => [field, record[field]]))
+  return {
+    ...projectAccessKeyMetadata(metadata),
+    ...(key === undefined ? {} : { key }),
+    replayed: record.replayed,
   }
 }
 

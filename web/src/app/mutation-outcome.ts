@@ -1,6 +1,7 @@
 import { ApiError, InvalidResponseError, NetworkError, RequestCancelledError } from '@/api/errors'
 
-type OperationKind = 'access_key_create' | 'group_create' | 'credential_import'
+type OperationKind =
+  'access_key_create' | 'access_key_rotate' | 'group_create' | 'credential_import'
 
 interface IncompleteOperation {
   operation_id: string
@@ -36,7 +37,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isOperationKind(value: unknown): value is OperationKind {
-  return ['access_key_create', 'group_create', 'credential_import'].includes(String(value))
+  return ['access_key_create', 'access_key_rotate', 'group_create', 'credential_import'].includes(
+    String(value),
+  )
 }
 
 function incompleteOperation(data: unknown): IncompleteOperation | undefined {

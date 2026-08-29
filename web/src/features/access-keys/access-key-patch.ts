@@ -19,6 +19,9 @@ export interface AccessKeyDraft {
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
   scopeModes: AccessKeyScopeModes
+  sourceMode: 'all' | 'restricted'
+  expirationMode: 'never' | 'specified'
+  expires_at_ms: number | null
   rpm_limit: number
   costLimitRules: AccessKeyCostLimitRuleDraft[]
 }
@@ -43,18 +46,34 @@ export function normalizeAccessKeyFilters(filters: AccessKeyFiltersDto): AccessK
     groups: unique(filters.groups),
     protocols: unique(filters.protocols),
     models: unique(filters.models.map((value) => value.trim()).filter(Boolean)),
+    allowed_cidrs: unique(filters.allowed_cidrs.map((value) => value.trim()).filter(Boolean)),
   }
+}
+
+function materializeDraftFilters(draft: AccessKeyDraft): AccessKeyFiltersDto {
+  const filters = materializeAccessKeyFilters(draft.filters, draft.scopeModes)
+  return normalizeAccessKeyFilters({
+    ...filters,
+    allowed_cidrs: draft.sourceMode === 'all' ? [] : filters.allowed_cidrs,
+  })
+}
+
+function expirationValue(draft: AccessKeyDraft): number | null {
+  return draft.expirationMode === 'never' ? null : draft.expires_at_ms
 }
 
 export function createAccessKeyDraft(accessKey?: AccessKeyDto | null): AccessKeyDraft {
   const filters = normalizeAccessKeyFilters(
-    accessKey?.filters ?? { groups: [], protocols: [], models: [] },
+    accessKey?.filters ?? { groups: [], protocols: [], models: [], allowed_cidrs: [] },
   )
   return {
     name: accessKey?.name ?? '',
     status: accessKey?.status ?? 'active',
     filters,
     scopeModes: createAccessKeyScopeModes(filters),
+    sourceMode: filters.allowed_cidrs.length === 0 ? 'all' : 'restricted',
+    expirationMode: accessKey?.expires_at_ms == null ? 'never' : 'specified',
+    expires_at_ms: accessKey?.expires_at_ms ?? null,
     rpm_limit: accessKey?.rpm_limit ?? 0,
     costLimitRules: (accessKey?.cost_limit_rules ?? []).map(costLimitRuleDraft),
   }
@@ -67,6 +86,9 @@ export function createAccessKeyDraftFromCreateInput(input: CreateAccessKeyReques
     status: input.status,
     filters,
     scopeModes: createAccessKeyScopeModes(filters),
+    sourceMode: filters.allowed_cidrs.length === 0 ? 'all' : 'restricted',
+    expirationMode: input.expires_at_ms === null ? 'never' : 'specified',
+    expires_at_ms: input.expires_at_ms,
     rpm_limit: input.rpm_limit,
     costLimitRules: input.cost_limit_rules.map(costLimitRuleDraft),
   }
@@ -77,11 +99,15 @@ export function createAccessKeyDraftFromUpdate(
   patch: UpdateAccessKeyRequest,
 ): AccessKeyDraft {
   const filters = normalizeAccessKeyFilters(patch.filters ?? base.filters)
+  const expiresAt = patch.expires_at_ms !== undefined ? patch.expires_at_ms : base.expires_at_ms
   return {
     name: patch.name ?? base.name,
     status: patch.status ?? base.status,
     filters,
     scopeModes: createAccessKeyScopeModes(filters),
+    sourceMode: filters.allowed_cidrs.length === 0 ? 'all' : 'restricted',
+    expirationMode: expiresAt === null ? 'never' : 'specified',
+    expires_at_ms: expiresAt,
     rpm_limit: patch.rpm_limit ?? base.rpm_limit,
     costLimitRules: (patch.cost_limit_rules ?? base.cost_limit_rules).map(costLimitRuleDraft),
   }
@@ -95,10 +121,21 @@ export function isAccessKeyDraftValid(
     ids: [...new Set([...(base?.filters.groups ?? []), ...draft.filters.groups])],
   },
 ): boolean {
+  const expiresAt = expirationValue(draft)
+  const expirationValid =
+    draft.expirationMode === 'never'
+      ? expiresAt === null
+      : expiresAt !== null &&
+        Number.isSafeInteger(expiresAt) &&
+        expiresAt >= 0 &&
+        (expiresAt === base?.expires_at_ms || expiresAt > Date.now())
+  const allowedCIDRs = normalizeAccessKeyFilters(draft.filters).allowed_cidrs
   return (
     draft.name.trim().length > 0 &&
     Number.isSafeInteger(draft.rpm_limit) &&
     draft.rpm_limit >= 0 &&
+    expirationValid &&
+    (draft.sourceMode === 'all' || (allowedCIDRs.length > 0 && allowedCIDRs.length <= 64)) &&
     areAccessKeyCostLimitRulesValid(draft.costLimitRules) &&
     validateAccessKeyScope({
       base: base?.filters ?? null,
@@ -113,9 +150,8 @@ export function buildCreateAccessKeyInput(draft: AccessKeyDraft): CreateAccessKe
   return {
     name: draft.name.trim(),
     status: draft.status,
-    filters: normalizeAccessKeyFilters(
-      materializeAccessKeyFilters(draft.filters, draft.scopeModes),
-    ),
+    filters: materializeDraftFilters(draft),
+    expires_at_ms: expirationValue(draft),
     rpm_limit: draft.rpm_limit,
     cost_limit_rules: costLimitInputs(draft.costLimitRules, false),
   }
@@ -133,6 +169,7 @@ function canonicalFilters(filters: AccessKeyFiltersDto): AccessKeyFiltersDto {
     groups: [...normalized.groups].sort((left, right) => left - right),
     protocols: [...normalized.protocols].sort(compareStrings),
     models: [...normalized.models].sort(compareStrings),
+    allowed_cidrs: [...normalized.allowed_cidrs].sort(compareStrings),
   }
 }
 
@@ -227,10 +264,14 @@ export function isAccessKeyDraftDirty(draft: AccessKeyDraft, base?: AccessKeyDto
   ) {
     return true
   }
+  if (draft.sourceMode !== initial.sourceMode || draft.expirationMode !== initial.expirationMode) {
+    return true
+  }
   if (base) return Object.keys(buildAccessKeyUpdatePatch(base, draft)).length > 0
   return (
     draft.name !== initial.name ||
     draft.status !== initial.status ||
+    draft.expires_at_ms !== initial.expires_at_ms ||
     draft.rpm_limit !== initial.rpm_limit ||
     !equalFilters(draft.filters, initial.filters) ||
     !equalCostLimitRules(
@@ -249,6 +290,7 @@ export function accessKeyMatchesUpdatePatch(
     (patch.name === undefined || patch.name === accessKey.name) &&
     (patch.status === undefined || patch.status === accessKey.status) &&
     (patch.filters === undefined || equalFilters(patch.filters, accessKey.filters)) &&
+    (patch.expires_at_ms === undefined || patch.expires_at_ms === accessKey.expires_at_ms) &&
     (patch.rpm_limit === undefined || patch.rpm_limit === accessKey.rpm_limit) &&
     (patch.cost_limit_rules === undefined ||
       costLimitRulesMatchReconciliation(
@@ -317,12 +359,12 @@ export function buildAccessKeyUpdatePatch(
 ): UpdateAccessKeyRequest {
   const patch: UpdateAccessKeyRequest = {}
   const name = draft.name.trim()
-  const filters = normalizeAccessKeyFilters(
-    materializeAccessKeyFilters(draft.filters, draft.scopeModes),
-  )
+  const filters = materializeDraftFilters(draft)
+  const expiresAt = expirationValue(draft)
   if (name !== base.name) patch.name = name
   if (draft.status !== base.status) patch.status = draft.status
   if (!equalFilters(filters, base.filters)) patch.filters = filters
+  if (expiresAt !== base.expires_at_ms) patch.expires_at_ms = expiresAt
   if (draft.rpm_limit !== base.rpm_limit) patch.rpm_limit = draft.rpm_limit
   const desiredCostLimits = costLimitInputs(draft.costLimitRules, true)
   if (!equalCostLimitRules(desiredCostLimits, base.cost_limit_rules)) {

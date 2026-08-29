@@ -34,10 +34,13 @@ import {
   findAccessKeyForReconciliation,
   type PendingAccessKeyEditOperation,
 } from './access-key-edit-operation'
+import type { PendingAccessKeyRotateOperation } from './access-key-rotate-operation'
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import AccessKeyCostLimitEditor from './AccessKeyCostLimitEditor.vue'
 import AccessKeyFormFields from './AccessKeyFormFields.vue'
 import AccessKeyOperationFeedback from './AccessKeyOperationFeedback.vue'
+import AccessKeyPolicyFields from './AccessKeyPolicyFields.vue'
+import AccessKeyRotateDialog from './AccessKeyRotateDialog.vue'
 import AccessKeyScopeEditor from './AccessKeyScopeEditor.vue'
 import {
   materializeAccessKeyFilters,
@@ -69,14 +72,22 @@ const props = withDefaults(
     groupCatalogState?: GroupCatalogState
     createOperation?: PendingAccessKeyCreateOperation | null
     editOperation?: PendingAccessKeyEditOperation | null
+    rotateOperation?: PendingAccessKeyRotateOperation | null
   }>(),
-  { createOperation: null, editOperation: null, groupCatalogState: 'ready' },
+  {
+    createOperation: null,
+    editOperation: null,
+    rotateOperation: null,
+    groupCatalogState: 'ready',
+  },
 )
 const emit = defineEmits<{
   'update:open': [open: boolean]
   'update:createOperation': [operation: PendingAccessKeyCreateOperation | null]
   'update:editOperation': [operation: PendingAccessKeyEditOperation | null]
+  'update:rotateOperation': [operation: PendingAccessKeyRotateOperation | null]
   saved: [kind: 'created' | 'updated', name: string]
+  rotated: [name: string]
   deleted: [name: string]
 }>()
 const client = useApiClient()
@@ -90,6 +101,7 @@ const createPayload = ref<CreateAccessKeyRequest | null>(null)
 const createOperationRetained = ref(false)
 const editOperationRetained = ref(false)
 const pending = ref(false)
+const rotationPending = ref(false)
 const failed = ref(false)
 const mutationState = ref<'idle' | 'indeterminate' | 'reconciling'>('idle')
 const editReconciliation = ref<PendingAccessKeyEditOperation | null>(null)
@@ -105,9 +117,14 @@ const createOperationActive = computed(
     (mutationState.value !== 'idle' || failed.value),
 )
 const formLocked = computed(
-  () => pending.value || createOperationActive.value || editReconciliation.value !== null,
+  () =>
+    pending.value ||
+    rotationPending.value ||
+    createOperationActive.value ||
+    editReconciliation.value !== null ||
+    props.rotateOperation !== null,
 )
-const closeBlocked = computed(() => pending.value)
+const closeBlocked = computed(() => pending.value || rotationPending.value)
 const protocolOptions = computed(() => accessKeyProtocolOptions())
 const selectedGroupIDs = computed(() =>
   draft.value.scopeModes.groups === 'restricted' ? draft.value.filters.groups : [],
@@ -146,6 +163,14 @@ const modelMismatch = computed(
     draft.value.filters.models.some((model) => !catalogModelOptions.value.includes(model)),
 )
 const dirty = computed(() => isAccessKeyDraftDirty(draft.value, base.value))
+const rotateActionDisabled = computed(
+  () =>
+    pending.value ||
+    rotationPending.value ||
+    createOperationActive.value ||
+    editReconciliation.value !== null ||
+    dirty.value,
+)
 const unsavedDirty = computed(
   () =>
     dirty.value &&
@@ -260,6 +285,7 @@ function clearLocalState(): void {
   createOperationRetained.value = false
   editOperationRetained.value = false
   pending.value = false
+  rotationPending.value = false
   failed.value = false
   mutationState.value = 'idle'
   editReconciliation.value = null
@@ -307,6 +333,12 @@ function handleDeleted(name: string): void {
   clearLocalState()
   emit('update:editOperation', null)
   emit('deleted', name)
+}
+
+function handleRotated(accessKey: AccessKeyDto): void {
+  base.value = accessKey
+  draft.value = createAccessKeyDraft(accessKey)
+  emit('rotated', accessKey.name)
 }
 
 watch(
@@ -675,6 +707,23 @@ onBeforeUnmount(clearLocalState)
       </section>
 
       <section class="drawer-section">
+        <h3>{{ t('accessKeys.drawer.accessPolicy') }}</h3>
+        <p>{{ t('accessKeys.drawer.accessPolicyDescription') }}</p>
+        <AccessKeyPolicyFields
+          :expiration-mode="draft.expirationMode"
+          :expires-at="draft.expires_at_ms"
+          :base-expires-at="base?.expires_at_ms"
+          :source-mode="draft.sourceMode"
+          :allowed-cidrs="draft.filters.allowed_cidrs"
+          :disabled="formLocked"
+          @update:expiration-mode="draft.expirationMode = $event"
+          @update:expires-at="draft.expires_at_ms = $event"
+          @update:source-mode="draft.sourceMode = $event"
+          @update:allowed-cidrs="draft.filters.allowed_cidrs = $event"
+        />
+      </section>
+
+      <section class="drawer-section">
         <h3>{{ t('accessKeys.drawer.permissionScope') }}</h3>
         <p>{{ t('accessKeys.drawer.permissionScopeDescription') }}</p>
         <div class="access-key-scope-logic" :aria-label="t('accessKeys.drawer.scopeLogic')">
@@ -710,8 +759,21 @@ onBeforeUnmount(clearLocalState)
     </form>
 
     <template #footer>
-      <div v-if="editing && base" class="access-key-drawer__delete">
-        <AccessKeyDeleteDialog :access-key="base" :total="total" @deleted="handleDeleted" />
+      <div v-if="editing && base" class="access-key-drawer__management">
+        <AccessKeyRotateDialog
+          :access-key="base"
+          :disabled="rotateActionDisabled"
+          :operation="rotateOperation"
+          @update:pending="rotationPending = $event"
+          @update:operation="emit('update:rotateOperation', $event)"
+          @rotated="handleRotated"
+        />
+        <AccessKeyDeleteDialog
+          :access-key="base"
+          :total="total"
+          :disabled="formLocked"
+          @deleted="handleDeleted"
+        />
       </div>
       <p
         id="access-key-save-blocker"
@@ -757,8 +819,10 @@ onBeforeUnmount(clearLocalState)
   display: block;
   font-size: var(--text-body);
 }
-.access-key-drawer__delete {
+.access-key-drawer__management {
+  display: flex;
   flex: none;
+  gap: var(--space-2);
 }
 .access-key-drawer__save-blocker {
   min-width: 0;

@@ -16,7 +16,9 @@ export function cloneAccessKeyCreatePayload(
       groups: [...payload.filters.groups],
       protocols: [...payload.filters.protocols],
       models: [...payload.filters.models],
+      allowed_cidrs: [...payload.filters.allowed_cidrs],
     },
+    expires_at_ms: payload.expires_at_ms,
     rpm_limit: payload.rpm_limit,
     cost_limit_rules: payload.cost_limit_rules.map((rule) => ({ ...rule })),
   }

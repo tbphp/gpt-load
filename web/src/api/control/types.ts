@@ -448,6 +448,7 @@ export interface AccessKeyFiltersDto {
   groups: number[]
   protocols: AccessProtocol[]
   models: string[]
+  allowed_cidrs: string[]
 }
 
 export type AccessKeyCostLimitKind = 'total' | 'periodic'
@@ -491,6 +492,7 @@ export interface AccessKeyDto {
   masked_key: string
   status: 'active' | 'disabled'
   filters: AccessKeyFiltersDto
+  expires_at_ms: number | null
   rpm_limit: number
   cost_limit_rules: AccessKeyCostLimitRuleDto[]
   cost_limit_status: AccessKeyCostLimitStatusDto | null
@@ -514,6 +516,7 @@ export interface AccessKeyCollectionSummaryDto {
 }
 
 export interface AccessKeyCollectionItemDto extends AccessKeyDto {
+  expired: boolean
   last_request_at_ms: number | null
 }
 
@@ -537,6 +540,11 @@ export interface AccessKeyOptionDto {
 }
 
 export interface AccessKeyCreateResultDto extends AccessKeyDto {
+  key?: string
+  replayed: boolean
+}
+
+export interface AccessKeyRotateResultDto extends AccessKeyDto {
   key?: string
   replayed: boolean
 }
