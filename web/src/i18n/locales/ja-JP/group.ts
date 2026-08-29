@@ -335,6 +335,52 @@ export default {
       collapse: '認証情報の詳細を折りたたむ',
       restore: 'すぐに回復',
       restoreFailed: 'チャネル認証情報をすぐに回復できません',
+      test: {
+        action: '接続をテスト',
+        title: '接続をテスト',
+        description:
+          'このキーで最小限の実リクエストを上流へ 1 回送信するため、少額の料金が発生する場合があります。テストはスケジューリングやブラックリスト状態を変更しません。',
+        loading: '{mask} をテスト中…',
+        outcome: {
+          passed: 'テストに成功しました',
+          failed: 'テストに成功しませんでした',
+          inconclusive: '現在は判断できません',
+        },
+        fields: {
+          credential: 'API キー',
+          model: 'テストモデル',
+          protocol: 'プロトコル',
+          latency: '所要時間',
+          reason: '結果の詳細',
+          testedAt: 'テスト日時',
+        },
+        latency: '{value} ミリ秒',
+        reason: {
+          passed: '問題は検出されませんでした',
+          invalid_credential: 'API キーが無効です',
+          model_unavailable: 'テストモデルを利用できません',
+          rate_limited: '上流のレート制限に達しました',
+          timeout: 'リクエストがタイムアウトしました',
+          upstream_error: '上流サービスでエラーが発生しました',
+          probe_incompatible: 'このチャネルまたはモデルではプローブを実行できません',
+          unknown: '理由を特定できませんでした',
+        },
+        restorePrompt:
+          'この API キーはブラックリストに登録されています。回復すると再びスケジューリングに参加します。',
+        keepBlocked: '今は回復しない',
+        restore: '利用を回復',
+        restoring: '回復中…',
+        close: '閉じる',
+        requestFailed: 'テストを完了できませんでした。しばらくしてから再試行してください。',
+        restoreSucceeded: 'API キーを回復し、再びスケジューリングに参加します',
+        restoreError: {
+          failed: 'API キーを回復できませんでした。しばらくしてから再試行してください。',
+          conflict:
+            'API キーの状態が変わったため一覧を更新しました。回復する前にもう一度テストしてください。',
+          conflict_refresh_failed:
+            'API キーの状態が変わりましたが一覧を更新できませんでした。手動で更新してから再試行してください。',
+        },
+      },
       recovery: {
         none: '回復は不要',
         cooldown: 'クールダウン終了時に回復',

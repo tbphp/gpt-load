@@ -862,6 +862,24 @@ func (r *CredentialRegistry) Recover(credentialID uint) bool {
 }
 
 func (r *CredentialRegistry) RecoverIfMatch(ref CredentialRef, weight int) bool {
+	return r.restoreRuntimeStateIfMatch(ref, nil, weight)
+}
+
+// RestoreRuntimeStateIfMatch restores a tested blacklisted credential only
+// when both its credential identity and cooldown still match the tested state.
+func (r *CredentialRegistry) RestoreRuntimeStateIfMatch(
+	ref CredentialRef,
+	cooldownUntil time.Time,
+	weight int,
+) bool {
+	return r.restoreRuntimeStateIfMatch(ref, &cooldownUntil, weight)
+}
+
+func (r *CredentialRegistry) restoreRuntimeStateIfMatch(
+	ref CredentialRef,
+	cooldownUntil *time.Time,
+	weight int,
+) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if weight < 1 || weight > MaxWeight {
@@ -877,10 +895,14 @@ func (r *CredentialRegistry) RecoverIfMatch(ref CredentialRef, weight int) bool 
 		entry.IdentityGeneration != ref.IdentityGeneration ||
 		entry.Fingerprint != ref.Fingerprint || entry.EncryptedValue != ref.EncryptedValue ||
 		entry.EncryptedProxy != ref.EncryptedProxy || entry.ProxyFingerprint != ref.ProxyFingerprint ||
-		entry.FailureGeneration != ref.FailureGeneration {
+		entry.FailureGeneration != ref.FailureGeneration ||
+		cooldownUntil != nil && !entry.CooldownUntil.Equal(*cooldownUntil) {
 		return false
 	}
 	entry.WeightAuto = weight
+	if cooldownUntil != nil {
+		entry.CooldownUntil = time.Time{}
+	}
 	entry.Blacklisted = false
 	entry.FailureCount = 0
 	entry.FailureGeneration++

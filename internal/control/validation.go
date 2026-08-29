@@ -2,12 +2,10 @@ package control
 
 import (
 	"context"
-	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/binary"
 	"hash"
-	"net/http"
 	"net/textproto"
 	"sort"
 	"strings"
@@ -175,76 +173,22 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		logValidationFailure(ref, string(target.protocol), "conditional_recover")
 		return
 	}
-	plaintext, err := worker.decryptor.Decrypt(ref.EncryptedValue)
-	if err != nil {
-		if ctx.Err() == nil {
-			logValidationFailure(ref, string(target.protocol), "decrypt")
-		}
-		return
-	}
-	credential, err := normalizeStoredCredential(worker.channels, group.ChannelID, plaintext)
-	if err != nil {
-		if ctx.Err() == nil {
-			logValidationFailure(ref, string(target.protocol), "credential")
-		}
-		return
-	}
-	apiKey, _ := credential.Value("api_key")
-	proxy, proxyFingerprint, err := validationAttemptProxy(worker.decryptor, group.Proxy, ref)
-	if err != nil {
-		logValidationFailure(ref, string(target.protocol), "proxy")
-		return
-	}
-	routeMode, supported := group.ResolvedTarget.ModeForModel(
-		target.protocol,
-		execution.OperationProbe,
-		target.model,
+	probe := newCredentialProbeExecutor(
+		worker.decryptor,
+		worker.channels,
+		worker.executor,
 	)
-	if !supported {
-		logValidationFailure(ref, string(target.protocol), "request")
-		return
-	}
-	requestID, err := newOperationID(cryptorand.Reader)
+	executed, err := probe.Probe(ctx, group, target, ref)
 	if err != nil {
-		logValidationFailure(ref, string(target.protocol), "request_identity")
+		if ctx.Err() == nil {
+			logValidationFailure(ref, string(target.protocol), credentialProbeFailureStage(err))
+		}
 		return
 	}
-	attemptID, err := newOperationID(cryptorand.Reader)
-	if err != nil {
-		logValidationFailure(ref, string(target.protocol), "attempt_identity")
-		return
-	}
-	version := ref.Version
-	if version == 0 {
-		version = 1
-	}
-	generation := ref.IdentityGeneration
-	if generation == 0 {
-		generation = 1
-	}
-	spec := execution.NewAttemptSpec(execution.AttemptSpec{
-		RequestID: requestID, AttemptID: attemptID, Sequence: 1,
-		ChannelID: string(group.ChannelID),
-		RouteMode: execution.RouteMode(routeMode), ClientProtocol: target.protocol,
-		Operation: execution.OperationProbe, ClientModel: target.model, UpstreamModel: target.model,
-		Header:       applyControlHeaderRules(group.HeaderRules, apiKey),
-		TargetConfig: group.ResolvedTarget.TargetConfig,
-		Timeouts:     executionTimeouts(group.Timeouts),
-		Credential: execution.NewCredentialSnapshot(
-			ref.ID, version, generation, credential.CanonicalJSON(),
-		),
-		Proxy: proxy, ProxyFingerprint: proxyFingerprint,
-	})
-	if err := spec.Validate(); err != nil {
-		logValidationFailure(ref, string(target.protocol), "request")
-		return
-	}
-	result := worker.executor.Execute(ctx, spec)
 	if ctx.Err() != nil {
 		return
 	}
-	if result.Validate() != nil || result.Error != nil ||
-		result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusMultipleChoices {
+	if !credentialProbePassed(executed.result) {
 		if ctx.Err() == nil {
 			logValidationFailure(ref, string(target.protocol), "probe")
 		}

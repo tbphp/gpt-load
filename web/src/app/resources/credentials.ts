@@ -7,6 +7,7 @@ import {
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type {
   CredentialBatchResultDto,
   CredentialCollectionDto,
@@ -26,6 +27,7 @@ import type {
   CredentialRevealDto,
   CredentialStatus,
   CredentialSummaryDto,
+  CredentialTestResultDto,
   ProxyMutation,
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
@@ -60,6 +62,9 @@ export type {
   CredentialRevealDto,
   CredentialStatus,
   CredentialSummaryDto,
+  CredentialTestOutcome,
+  CredentialTestReason,
+  CredentialTestResultDto,
   CredentialWeightMode,
 } from '@/api/control/types'
 
@@ -125,6 +130,25 @@ const credentialDailyUsageFields = [
 const credentialRecoveryFields = ['mode', 'automatic', 'at_ms'] as const
 const credentialPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
 const credentialBatchFields = ['affected_credential_ids', 'summary'] as const
+const credentialTestResultFields = [
+  'outcome',
+  'model',
+  'protocol',
+  'latency_ms',
+  'reason',
+  'can_restore',
+  'restore_proof',
+  'tested_at_ms',
+] as const
+const credentialTestOutcomes = ['passed', 'failed', 'inconclusive'] as const
+const failedCredentialTestReasons = ['invalid_credential', 'model_unavailable'] as const
+const inconclusiveCredentialTestReasons = [
+  'rate_limited',
+  'timeout',
+  'upstream_error',
+  'probe_incompatible',
+  'unknown',
+] as const
 const configuredStatuses = ['active', 'disabled'] as const
 const effectiveStatuses = ['available', 'cooldown', 'blacklisted', 'disabled'] as const
 const weightModes = ['auto', 'manual'] as const
@@ -837,6 +861,70 @@ export async function restoreCredential(
     await client.request(`/api/groups/${groupId}/credentials/${credentialId}/restore`, {
       method: 'POST',
       json: {},
+      signal,
+    }),
+  )
+}
+
+export function projectCredentialTestResult(value: unknown): CredentialTestResultDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, credentialTestResultFields)
+  const outcome = projectEnum(record.outcome, credentialTestOutcomes)
+  const reason =
+    record.reason === null
+      ? null
+      : outcome === 'failed'
+        ? projectEnum(record.reason, failedCredentialTestReasons)
+        : outcome === 'inconclusive'
+          ? projectEnum(record.reason, inconclusiveCredentialTestReasons)
+          : invalidResponse()
+  const canRestore = projectBoolean(record.can_restore)
+  const restoreProof = record.restore_proof === null ? null : projectString(record.restore_proof)
+  if (
+    (outcome === 'passed') !== (reason === null) ||
+    (canRestore && outcome !== 'passed') ||
+    canRestore !== (restoreProof !== null)
+  ) {
+    invalidResponse()
+  }
+  return {
+    outcome,
+    model: projectString(record.model),
+    protocol: projectEnum(record.protocol, enabledDataProtocols),
+    latency_ms: projectSafeInteger(record.latency_ms, { minimum: 0 }),
+    reason,
+    can_restore: canRestore,
+    restore_proof: restoreProof,
+    tested_at_ms: projectEpochMilliseconds(record.tested_at_ms),
+  }
+}
+
+export async function testCredentialConnection(
+  client: ApiClient,
+  groupId: number,
+  credentialId: number,
+  signal?: AbortSignal,
+): Promise<CredentialTestResultDto> {
+  return projectCredentialTestResult(
+    await client.request(`/api/groups/${groupId}/credentials/${credentialId}/test`, {
+      method: 'POST',
+      json: {},
+      signal,
+    }),
+  )
+}
+
+export async function restoreTestedCredential(
+  client: ApiClient,
+  groupId: number,
+  credentialId: number,
+  restoreProof: string,
+  signal?: AbortSignal,
+): Promise<CredentialItemDto> {
+  return projectCredentialItem(
+    await client.request(`/api/groups/${groupId}/credentials/${credentialId}/test/restore`, {
+      method: 'POST',
+      json: { restore_proof: restoreProof },
       signal,
     }),
   )

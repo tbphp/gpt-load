@@ -266,6 +266,15 @@ func (s *Service) RestoreGroupCredential(
 	groupID uint,
 	credentialID uint,
 ) (CredentialItemResponse, error) {
+	return s.restoreGroupCredential(ctx, groupID, credentialID, "")
+}
+
+func (s *Service) restoreGroupCredential(
+	ctx context.Context,
+	groupID uint,
+	credentialID uint,
+	restoreProof string,
+) (CredentialItemResponse, error) {
 	if groupID == 0 || credentialID == 0 {
 		return CredentialItemResponse{}, app_errors.ErrBadRequest
 	}
@@ -277,6 +286,10 @@ func (s *Service) RestoreGroupCredential(
 	}
 	if group.ChannelID == "" {
 		return CredentialItemResponse{}, app_errors.ErrValidation
+	}
+	if restoreProof != "" &&
+		normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
+		return CredentialItemResponse{}, app_errors.ErrForbidden
 	}
 	var row models.Credential
 	if err := s.db.WithContext(ctx).Where("id = ? AND group_id = ?", credentialID, groupID).Take(&row).Error; err != nil {
@@ -291,35 +304,95 @@ func (s *Service) RestoreGroupCredential(
 	}
 	groupView := state.GroupCatalogView{ID: group.ID, Name: group.Name, Enabled: group.Enabled,
 		WeightManual: cloneInt(group.WeightManual)}
-	var observedAt time.Time
-	var restoreErr error
-	restore := func() {
+	var (
+		observedAt time.Time
+		restoreErr error
+	)
+	restore := func(targetSignature *groupValidationSignature) {
 		observedAt = s.now().UTC()
+		var testedCredential *credentialProbeCredential
 		current, exists := findRuntimeCredential(s.registry.Snapshot(), credentialID)
 		if !exists {
 			restoreErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
 			return
 		}
-		bucket := classifyHealthKey(groupView, current, observedAt)
-		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
-			restoreErr = app_errors.ErrInvalidCredentialState
-			return
+		if targetSignature == nil {
+			bucket := classifyHealthKey(groupView, current, observedAt)
+			if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
+				restoreErr = app_errors.ErrInvalidCredentialState
+				return
+			}
+		} else {
+			entries, snapshotErr := s.registry.SnapshotGroupCredentialEntriesExact(
+				groupID,
+				[]uint{credentialID},
+			)
+			if snapshotErr != nil || len(entries) != 1 {
+				restoreErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
+				return
+			}
+			if !s.credentialProbeRestoreProofMatches(entries[0], *targetSignature, restoreProof) {
+				restoreErr = app_errors.ErrCredentialVersionConflict
+				return
+			}
+			credential := credentialProbeCredentialFromEntry(entries[0])
+			testedCredential = &credential
 		}
 		stats := s.stats.Snapshot(credentialID, observedAt)
 		stats.ConsecutiveFailure = 0
 		stats.ConsecutiveProblem = 0
 		stats.LastFailureCategory = 0
 		stats.LastStatusCode = 0
-		if !s.registry.RestoreRuntimeState(credentialID, calculateAutoWeight(stats)) {
-			restoreErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
-			return
+		if targetSignature == nil {
+			if !s.registry.RestoreRuntimeState(credentialID, calculateAutoWeight(stats)) {
+				restoreErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
+				return
+			}
+		} else {
+			if testedCredential == nil || !s.registry.RestoreRuntimeStateIfMatch(
+				testedCredential.ref,
+				testedCredential.cooldownUntil,
+				calculateAutoWeight(stats),
+			) {
+				restoreErr = app_errors.ErrCredentialVersionConflict
+				return
+			}
 		}
 		s.stats.ClearProblemState(credentialID)
 	}
-	if s.mutations == nil {
-		restore()
+	coordinateRestore := func(targetSignature *groupValidationSignature) {
+		if s.mutations == nil {
+			restore(targetSignature)
+		} else {
+			s.mutations.Do(credentialID, func() { restore(targetSignature) })
+		}
+	}
+	if restoreProof == "" {
+		coordinateRestore(nil)
 	} else {
-		s.mutations.Do(credentialID, restore)
+		if s.manager == nil || s.mutations == nil {
+			return CredentialItemResponse{}, app_errors.ErrInternalServer
+		}
+		matched := s.manager.WithCurrentSnapshot(func(snapshot *state.ConfigSnapshot) bool {
+			if snapshot == nil {
+				return false
+			}
+			currentGroup, exists := snapshot.Groups[groupID]
+			if !exists {
+				restoreErr = app_errors.ErrCredentialVersionConflict
+				return false
+			}
+			currentTarget, valid := buildGroupValidationTarget(currentGroup)
+			if !valid {
+				restoreErr = app_errors.ErrCredentialVersionConflict
+				return false
+			}
+			coordinateRestore(&currentTarget.signature)
+			return restoreErr == nil
+		})
+		if !matched && restoreErr == nil {
+			return CredentialItemResponse{}, app_errors.ErrInternalServer
+		}
 	}
 	if restoreErr != nil {
 		return CredentialItemResponse{}, restoreErr

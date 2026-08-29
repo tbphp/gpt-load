@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  Activity,
   ChevronDown,
   CircleCheck,
   CircleOff,
@@ -43,6 +44,7 @@ const emit = defineEmits<{
   'open-weight': [item: CredentialItemDto]
   weight: [payload: { item: CredentialItemDto; value: string }]
   toggle: [item: CredentialItemDto]
+  test: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
 }>()
@@ -117,9 +119,10 @@ function openWeightFromColumn(): void {
   emit('open-weight', props.item)
 }
 
-function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
+function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   menuOpen.value = false
-  if (action === 'toggle') emit('toggle', props.item)
+  if (action === 'test') emit('test', props.item)
+  else if (action === 'toggle') emit('toggle', props.item)
   else if (action === 'restore') emit('restore', props.item)
   else emit('remove', props.item)
 }
@@ -215,6 +218,9 @@ function runMenuAction(action: 'toggle' | 'restore' | 'remove'): void {
             </IconButton>
           </template>
           <div class="group-credential-record__menu">
+            <button type="button" :disabled="busy" @click="runMenuAction('test')">
+              <Activity :size="15" aria-hidden="true" />{{ t('group.credentials.test.action') }}
+            </button>
             <button type="button" :disabled="busy" @click="runMenuAction('toggle')">
               <CircleOff v-if="item.configured_status === 'active'" :size="15" aria-hidden="true" />
               <CircleCheck v-else :size="15" aria-hidden="true" />
