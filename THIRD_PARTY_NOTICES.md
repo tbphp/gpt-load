@@ -35,6 +35,21 @@ file store, WebSocket executor, fallback, or automatic retry.
 
 The complete MIT License text is distributed in `LICENSES/MIT.txt`.
 
+## Inno Setup Simplified Chinese Messages
+
+- Source: `jrsoftware/issrc` `Files/Languages/ChineseSimplified.isl`
+- Revision: `6ef32198ef1f7b7b375cd4b6b90896c2a58eb4c2`
+- Maintainer: Zhenghan Yang (Kira)
+- License: Inno Setup License
+
+GPT-Load vendors the Simplified Chinese message file used to compile the
+Windows installer. Its message content is unchanged; line endings are
+normalized to the repository's LF convention. The compiler installed on
+GitHub-hosted Windows runners does not include this language file.
+
+The complete Inno Setup License text is distributed in
+`LICENSES/Inno-Setup.txt`.
+
 ## fasthttp
 
 - Module: `github.com/valyala/fasthttp`

@@ -11,7 +11,7 @@ import (
 )
 
 func createSecureFile(path string) (*os.File, error) {
-	descriptor, err := currentUserSecurityDescriptor()
+	descriptor, err := managedFileSecurityDescriptor()
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func openExistingSecureFile(path string) (*os.File, error) {
 }
 
 func secureOpenedFile(file *os.File) error {
-	descriptor, err := currentUserSecurityDescriptor()
+	descriptor, err := managedFileSecurityDescriptor()
 	if err != nil {
 		return err
 	}

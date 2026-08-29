@@ -189,7 +189,11 @@ chmod +x ./gpt-load-linux-amd64
 HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 ```
 
-起動後 <http://127.0.0.1:3001> にアクセスします。Linux、macOS（amd64 / arm64）、Windows の計 5 種類のビルドを提供しています。
+起動後 <http://127.0.0.1:3001> にアクセスします。Linux、macOS（amd64 / arm64）、Windows の計 5 種類のポータブルビルドを提供し、`gpt-load-windows-amd64.exe` は従来どおりフォアグラウンドで動作します。
+
+Windows の一般ユーザーは代わりに `gpt-load-windows-setup.exe` を利用できます。管理者権限を一度承認すると、低権限の Windows サービスをインストールして起動し、自動起動を設定したうえで、デスクトップとスタートメニューに GPT-Load 管理画面へのショートカットを作成します。インストール中に生成された管理キーが表示されるため、画面を閉じる前に保存してください。保護されたキーは `%ProgramData%\GPT-Load\data\auth.key` に残ります。サービス設定と `.env` は `%ProgramData%\GPT-Load`、永続データは `%ProgramData%\GPT-Load\data` に保存されます。
+
+新しい Setup による上書きインストールでは、サービスを安全に停止してから更新します。Windows のアンインストールはプログラムとサービスを削除しますが、データは保持します。上級ユーザーは `gpt-load-windows-amd64.exe service start|stop|restart|status` でもサービスを管理できます。
 
 </details>
 
@@ -210,7 +214,7 @@ HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 | `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Compose がコンテナを強制停止する前に待つ Docker duration。`GRACEFUL_SHUTDOWN_TIMEOUT` より長くすることを推奨します。 |
 | `READ_TIMEOUT` | `60` | HTTP リクエストの読み取りタイムアウト。正の整数、単位は秒です。 |
 | `IDLE_TIMEOUT` | `120` | HTTP keep-alive アイドル接続のタイムアウト。正の整数、単位は秒です。 |
-| `DATA_DIR` | `./data` | 管理対象データベース、`auth.key`、`encryption.key`、実行状態ファイルのディレクトリ。公式 Compose では `/app/data` を使用します。 |
+| `DATA_DIR` | `./data` | 管理対象データベース、`auth.key`、`encryption.key`、実行状態ファイルのディレクトリ。公式 Compose では `/app/data`、Windows Setup サービスでは `%ProgramData%\GPT-Load\data` を使用します。 |
 | `DATABASE_DSN` | 空、`${DATA_DIR}/gpt-load.db` を使用 | 空の場合はアプリケーション管理の SQLite を使用します。空でない場合は SQLite のパスまたは URL、MySQL URL、PostgreSQL URL に対応し、運用者管理の外部データベースとして扱います。コンテナ内のファイルパスはマウント済みディレクトリ内である必要があります。 |
 | `DATABASE_MAX_OPEN_CONNECTIONS` | `10` | MySQL と PostgreSQL の最大オープン接続数。正の整数である必要があります。SQLite は常に単一接続を使用します。 |
 | `DATABASE_MAX_IDLE_CONNECTIONS` | `5` | MySQL と PostgreSQL の最大アイドル接続数。正の整数かつ `DATABASE_MAX_OPEN_CONNECTIONS` 以下である必要があります。SQLite は常に単一接続を使用します。 |

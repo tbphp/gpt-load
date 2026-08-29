@@ -335,6 +335,7 @@ func TestDockerfileDistributesDeclaredThirdPartyLicenseTexts(t *testing.T) {
 	content := readRepositoryFile(t, "Dockerfile")
 	for _, required := range []string{
 		"COPY LICENSES/Apache-2.0.txt /app/licenses/Apache-2.0.txt",
+		"COPY LICENSES/Inno-Setup.txt /app/licenses/Inno-Setup.txt",
 		"COPY LICENSES/MIT.txt /app/licenses/MIT.txt",
 		"COPY LICENSES/MPL-2.0.txt /app/licenses/MPL-2.0.txt",
 	} {

@@ -173,7 +173,7 @@ jobs:
 
   windows-encryption-acl:
     runs-on: windows-2025
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -188,3 +188,60 @@ jobs:
 
       - name: Test Windows secure file and storage ACLs
         run: go test -v -count=1 ./internal/platform/securefile ./internal/platform/encryption ./internal/storage
+
+      - name: Test Windows service lifecycle
+        run: go test -v -count=1 .
+
+      - name: Smoke Windows service lifecycle
+        shell: pwsh
+        run: |
+          $binary = Join-Path $env:RUNNER_TEMP "gpt-load-service-smoke.exe"
+          go build -trimpath -o $binary .
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows service smoke build failed with exit code $LASTEXITCODE"
+          }
+          $env:CI_WINDOWS_SERVICE_BINARY = $binary
+          & .github/scripts/ci-windows-service-smoke.ps1
+          exit $LASTEXITCODE
+
+      - name: Build and smoke Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $artifactDir = Join-Path $env:RUNNER_TEMP "gpt-load installer artifacts"
+          New-Item -ItemType Directory -Path $artifactDir | Out-Null
+          $binary = Join-Path $artifactDir "gpt-load-windows-amd64.exe"
+          go build -trimpath `
+            -ldflags "-X gpt-load/internal/platform/version.Version=ci" `
+            -o $binary .
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows installer binary build failed with exit code $LASTEXITCODE"
+          }
+
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) {
+            throw "Inno Setup compiler is unavailable: $compiler"
+          }
+          & $compiler `
+            "/DAppVersion=ci" `
+            "/DSourceBinary=$binary" `
+            "/DOutputDir=$artifactDir" `
+            "packaging/windows/gpt-load.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE"
+          }
+
+          $setup = Join-Path $artifactDir "gpt-load-windows-setup.exe"
+          if (-not (Test-Path $setup)) {
+            throw "Windows setup was not generated"
+          }
+          $checksumFile = Join-Path $artifactDir "SHA256SUMS"
+          $setupHash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
+          "$setupHash  gpt-load-windows-setup.exe" |
+            Set-Content -Path $checksumFile -Encoding utf8NoBOM
+          $env:RELEASE_VERSION = "ci"
+          $env:RELEASE_WINDOWS_SETUP = $setup
+          $env:RELEASE_WINDOWS_BINARY = $binary
+          $env:RELEASE_SMOKE_CHECKSUM_FILE = $checksumFile
+          & .github/scripts/release-windows-installer-smoke.ps1
+          exit $LASTEXITCODE

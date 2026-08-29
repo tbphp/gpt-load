@@ -359,6 +359,50 @@ jobs:
           # 一致，否则失败的 run 在超过较短保留期后重试会因产物过期而无法下载。
           retention-days: 14
 
+  build-windows-setup:
+    needs: build-binaries
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download verified Windows binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: binary-gpt-load-windows-amd64.exe
+          path: release
+
+      - name: Build Windows setup
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) {
+            throw "Inno Setup compiler is unavailable: $compiler"
+          }
+          & $compiler `
+            "/DAppVersion=$env:RELEASE_VERSION" `
+            "packaging/windows/gpt-load.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE"
+          }
+          if (-not (Test-Path "release/gpt-load-windows-setup.exe")) {
+            throw "Windows setup was not generated"
+          }
+
+      - name: Upload Windows setup
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: binary-gpt-load-windows-setup.exe
+          path: release/gpt-load-windows-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
   package-metadata:
     needs: validate-tag
     runs-on: ubuntu-24.04
@@ -381,6 +425,7 @@ jobs:
           cp LICENSE release/LICENSE
           cp THIRD_PARTY_NOTICES.md release/THIRD_PARTY_NOTICES.md
           cp LICENSES/Apache-2.0.txt release/Apache-2.0.txt
+          cp LICENSES/Inno-Setup.txt release/Inno-Setup.txt
           cp LICENSES/MIT.txt release/MIT.txt
           cp LICENSES/MPL-2.0.txt release/MPL-2.0.txt
           go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0 \
@@ -398,6 +443,7 @@ jobs:
   package-checksums:
     needs:
       - build-binaries
+      - build-windows-setup
       - package-metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -508,6 +554,45 @@ jobs:
           & .github/scripts/release-native-smoke.ps1
           exit $LASTEXITCODE
 
+  windows-installer-smoke:
+    needs: package-checksums
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download Windows setup
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: binary-gpt-load-windows-setup.exe
+          path: installer-smoke
+
+      - name: Download portable Windows binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: binary-gpt-load-windows-amd64.exe
+          path: installer-smoke
+
+      - name: Download release checksums
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-checksums
+          path: installer-smoke
+
+      - name: Smoke Windows installer
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_WINDOWS_SETUP: ${{ github.workspace }}\installer-smoke\gpt-load-windows-setup.exe
+          RELEASE_WINDOWS_BINARY: ${{ github.workspace }}\installer-smoke\gpt-load-windows-amd64.exe
+          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}\installer-smoke\SHA256SUMS
+        run: |
+          & .github/scripts/release-windows-installer-smoke.ps1
+          exit $LASTEXITCODE
+
   docker-smoke:
     needs: validate-tag
     runs-on: ubuntu-24.04
@@ -577,8 +662,10 @@ jobs:
       - race-tests
       - race-cpa
       - build-binaries
+      - build-windows-setup
       - package-checksums
       - native-artifact-smoke
+      - windows-installer-smoke
       - docker-smoke
       - prebuilt-image-smoke
       - database-contract

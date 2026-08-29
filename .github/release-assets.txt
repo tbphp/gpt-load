@@ -1,4 +1,5 @@
 Apache-2.0.txt
+Inno-Setup.txt
 LICENSE
 MIT.txt
 MPL-2.0.txt
@@ -10,3 +11,4 @@ gpt-load-linux-arm64
 gpt-load-macos-amd64
 gpt-load-macos-arm64
 gpt-load-windows-amd64.exe
+gpt-load-windows-setup.exe
