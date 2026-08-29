@@ -61,9 +61,13 @@ function Invoke-CheckedProcess {
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][string[]]$Arguments
   )
-  & $Path @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "$Path exited with code $LASTEXITCODE"
+  $process = Start-Process `
+    -FilePath $Path `
+    -ArgumentList $Arguments `
+    -Wait `
+    -PassThru
+  if ($process.ExitCode -ne 0) {
+    throw "$Path exited with code $($process.ExitCode)"
   }
 }
 

@@ -186,6 +186,25 @@ func TestWindowsInstallerSmokeCoversInstallHealthStopAndUninstall(t *testing.T) 
 	}
 }
 
+func TestWindowsInstallerSmokeWaitsForGUIProcesses(t *testing.T) {
+	script := readRepositoryFile(t, ".github/scripts/release-windows-installer-smoke.ps1")
+	for _, required := range []string{
+		"Start-Process",
+		"-FilePath $Path",
+		"-ArgumentList $Arguments",
+		"-Wait",
+		"-PassThru",
+		"$process.ExitCode",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("Windows installer smoke process helper does not contain %q", required)
+		}
+	}
+	if strings.Contains(script, "& $Path @Arguments") {
+		t.Fatal("Windows installer smoke launches GUI processes without waiting")
+	}
+}
+
 func TestWindowsSmokesOwnTheirFixedInstallationDirectory(t *testing.T) {
 	for _, path := range []string{
 		".github/scripts/ci-windows-service-smoke.ps1",
