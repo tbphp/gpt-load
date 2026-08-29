@@ -22,11 +22,6 @@ import (
 	"gpt-load/internal/platform/config"
 )
 
-const (
-	databaseMaxOpenConnections = 10
-	databaseMaxIdleConnections = 5
-)
-
 var databaseLogger = newDatabaseLogger(os.Stdout)
 
 func newDatabaseLogger(output io.Writer) logger.Interface {
@@ -82,6 +77,27 @@ func Open(dsn string) (*gorm.DB, error) {
 // OpenWithSource opens a database and applies file controls only when the
 // application owns the managed SQLite location.
 func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
+	return openWithSourceAndPool(dsn, source, config.DefaultDatabasePoolConfig())
+}
+
+// OpenConfigured opens the database using the process configuration resolved
+// by platform/config. Storage never reads environment variables directly.
+func OpenConfigured(cfg *config.Config) (*gorm.DB, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("open database: configuration is unavailable")
+	}
+	return openWithSourceAndPool(
+		cfg.DatabaseDSN,
+		cfg.DatabaseMetadata.Source,
+		cfg.DatabasePool,
+	)
+}
+
+func openWithSourceAndPool(
+	dsn string,
+	source config.DatabaseSource,
+	pool config.DatabasePoolConfig,
+) (*gorm.DB, error) {
 	database, err := config.ParseDatabaseDSN(dsn)
 	if err != nil {
 		return nil, err
@@ -97,7 +113,7 @@ func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) 
 		if source == config.DatabaseSourceExternal {
 			logExternalDatabaseSource(database.Driver)
 		}
-		return openSQLite(database.DSN, source)
+		return openSQLite(database.DSN, source, pool)
 	}
 	if source == config.DatabaseSourceManaged {
 		return nil, fmt.Errorf("open %s database: managed source is only supported by SQLite", databaseDisplayName(database.Driver))
@@ -107,13 +123,17 @@ func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) 
 	if err != nil {
 		return nil, err
 	}
-	return openDatabase(database.Driver, dialector)
+	return openDatabase(database.Driver, dialector, pool)
 }
 
 // openDatabase is the shared GORM/SQL lifecycle for every supported driver.
 // Driver-specific behavior is limited to dialector construction and the
 // SQLite runtime hook in sqlite.go.
-func openDatabase(driver config.DatabaseDriver, dialector gorm.Dialector) (*gorm.DB, error) {
+func openDatabase(
+	driver config.DatabaseDriver,
+	dialector gorm.Dialector,
+	pool config.DatabasePoolConfig,
+) (*gorm.DB, error) {
 	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger:         databaseLogger,
 		TranslateError: true,
@@ -126,7 +146,7 @@ func openDatabase(driver config.DatabaseDriver, dialector gorm.Dialector) (*gorm
 	if err != nil {
 		return nil, fmt.Errorf("get %s connection pool: %w", databaseDisplayName(driver), err)
 	}
-	configureDatabasePool(sqlDB, driver)
+	configureDatabasePool(sqlDB, driver, pool)
 	if err := sqlDB.PingContext(context.Background()); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("ping %s database: %w", databaseDisplayName(driver), err)
@@ -134,17 +154,26 @@ func openDatabase(driver config.DatabaseDriver, dialector gorm.Dialector) (*gorm
 	return db, nil
 }
 
-func configureDatabasePool(sqlDB *sql.DB, driver config.DatabaseDriver) {
-	maxOpenConnections := databaseMaxOpenConnections
-	maxIdleConnections := databaseMaxIdleConnections
+func configureDatabasePool(
+	sqlDB *sql.DB,
+	driver config.DatabaseDriver,
+	pool config.DatabasePoolConfig,
+) {
+	maxOpenConnections, maxIdleConnections := databasePoolLimits(driver, pool)
+	sqlDB.SetMaxOpenConns(maxOpenConnections)
+	sqlDB.SetMaxIdleConns(maxIdleConnections)
+}
+
+func databasePoolLimits(
+	driver config.DatabaseDriver,
+	pool config.DatabasePoolConfig,
+) (int, int) {
 	if driver == config.DatabaseDriverSQLite {
 		// SQLite's single-writer runtime and shared :memory: compatibility both
 		// require one physical connection.
-		maxOpenConnections = 1
-		maxIdleConnections = 1
+		return 1, 1
 	}
-	sqlDB.SetMaxOpenConns(maxOpenConnections)
-	sqlDB.SetMaxIdleConns(maxIdleConnections)
+	return pool.MaxOpenConnections, pool.MaxIdleConnections
 }
 
 func newDatabaseDialector(database config.DatabaseConfig) (gorm.Dialector, error) {

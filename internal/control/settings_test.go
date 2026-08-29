@@ -166,6 +166,61 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	}
 }
 
+func TestUpdateSettingsResolvesRetryAndBlacklistPolicies(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+
+	defaults, err := fixture.service.GetSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSettingsPolicyJSON(t, defaults.Values, 2, 3)
+
+	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingRetryCount:         json.RawMessage("0"),
+			state.SettingBlacklistThreshold: json.RawMessage("0"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSettingsPolicyJSON(t, updated.Values, 0, 0)
+	wantOverrides := []string{
+		state.SettingBlacklistThreshold,
+		state.SettingRetryCount,
+	}
+	if !reflect.DeepEqual(updated.Overrides, wantOverrides) {
+		t.Fatalf("overrides = %#v, want %#v", updated.Overrides, wantOverrides)
+	}
+}
+
+func assertSettingsPolicyJSON(
+	t *testing.T,
+	values SettingsValuesResponse,
+	retryCount int,
+	blacklistThreshold int,
+) {
+	t.Helper()
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		state.SettingRetryCount:         float64(retryCount),
+		state.SettingBlacklistThreshold: float64(blacklistThreshold),
+	}
+	for key, expected := range want {
+		if got[key] != expected {
+			t.Errorf("%s = %#v, want %#v; values=%s", key, got[key], expected, encoded)
+		}
+	}
+}
+
 func TestUpdateSettingsChangesAndResetsValidationInterval(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
@@ -629,6 +684,8 @@ func TestUpdateSettingsRejectsInvalidChangesWithoutPublishing(t *testing.T) {
 		{name: "unknown", updates: map[string]json.RawMessage{"unknown": json.RawMessage("true")}, wantErr: app_errors.ErrValidation},
 		{name: "internal", updates: map[string]json.RawMessage{models.InternalSystemSettingPrefix + "marker": json.RawMessage("true")}, wantErr: app_errors.ErrValidation},
 		{name: "fractional timeout", updates: map[string]json.RawMessage{state.SettingRequestTimeout: json.RawMessage("1.5")}, wantErr: app_errors.ErrValidation},
+		{name: "negative retry count", updates: map[string]json.RawMessage{state.SettingRetryCount: json.RawMessage("-1")}, wantErr: app_errors.ErrValidation},
+		{name: "fractional blacklist threshold", updates: map[string]json.RawMessage{state.SettingBlacklistThreshold: json.RawMessage("1.5")}, wantErr: app_errors.ErrValidation},
 		{name: "zero retention", updates: map[string]json.RawMessage{state.SettingRequestLogRetentionDays: json.RawMessage("0")}, wantErr: app_errors.ErrValidation},
 		{name: "excess retention", updates: map[string]json.RawMessage{state.SettingRequestLogRetentionDays: json.RawMessage("366")}, wantErr: app_errors.ErrValidation},
 		{name: "unknown header rule", updates: map[string]json.RawMessage{state.SettingHeaderRules: json.RawMessage(`{"append":{}}`)}, wantErr: app_errors.ErrValidation},

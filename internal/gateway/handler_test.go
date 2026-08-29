@@ -425,7 +425,8 @@ func TestHandlerLogsCredentialStateChanges(t *testing.T) {
 
 	handler.applyDecisionEffect(1, cooldown, http.StatusTooManyRequests, now)
 	handler.applyDecisionEffect(1, cooldown, http.StatusTooManyRequests, now)
-	for range blacklistFailureThreshold + 1 {
+	blacklistThreshold := state.DefaultRuntimeSettings().BlacklistThreshold
+	for range blacklistThreshold + 1 {
 		handler.applyDecisionEffect(1, health.Decision{
 			Category: health.FailureCategoryInvalidKey,
 			Effect:   health.EffectRecordCredentialFailure,
@@ -445,7 +446,7 @@ func TestHandlerLogsCredentialStateChanges(t *testing.T) {
 	if got := gatewayEventsNamed(events, "credential_blacklisted"); len(got) != 1 {
 		t.Fatalf("credential_blacklisted events = %#v, want one", got)
 	} else if event := got[0]; event["credential_id"] != float64(1) ||
-		event["failures"] != float64(blacklistFailureThreshold) ||
+		event["failures"] != float64(blacklistThreshold) ||
 		event["category"] != "invalid_key" ||
 		event["status_code"] != float64(http.StatusUnauthorized) ||
 		event["level"] != "warning" ||
@@ -3533,6 +3534,93 @@ func TestHandlerBlacklistsKeyOnThirdInvalidFailure(t *testing.T) {
 	}
 }
 
+func TestHandlerAppliesSystemAndGroupBlacklistSettings(t *testing.T) {
+	invalid := UpstreamResult{
+		StatusCode: http.StatusUnauthorized, Header: make(http.Header),
+		Body:               []byte(`{"error":"invalid_api_key"}`),
+		ClassificationBody: []byte(`{"error":"invalid_api_key"}`),
+		RequestWritten:     true,
+	}
+	tests := []struct {
+		name            string
+		systemSettings  config.Settings
+		groupSettings   config.Settings
+		requests        int
+		wantBlacklisted bool
+	}{
+		{
+			name: "system threshold",
+			systemSettings: config.Settings{
+				state.SettingBlacklistThreshold: 2,
+			},
+			requests:        2,
+			wantBlacklisted: true,
+		},
+		{
+			name: "group threshold enables blacklisting over disabled system policy",
+			systemSettings: config.Settings{
+				state.SettingBlacklistThreshold: 0,
+			},
+			groupSettings: config.Settings{
+				state.SettingBlacklistThreshold: 2,
+			},
+			requests:        2,
+			wantBlacklisted: true,
+		},
+		{
+			name: "zero group threshold disables blacklisting",
+			systemSettings: config.Settings{
+				state.SettingBlacklistThreshold: 1,
+			},
+			groupSettings: config.Settings{
+				state.SettingBlacklistThreshold: 0,
+			},
+			requests:        3,
+			wantBlacklisted: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results := make([]UpstreamResult, test.requests)
+			for index := range results {
+				results[index] = invalid
+			}
+			forwarder := &scriptedForwarder{results: results}
+			handler, manager, registry := newHandlerForTest(t, forwarder, "sk-one")
+			publishHandlerPolicySettings(
+				t,
+				handler,
+				manager,
+				1,
+				test.systemSettings,
+				test.groupSettings,
+			)
+			engine := gin.New()
+			bindGatewayRoutesForTest(t, engine, handler)
+
+			for attempt := 0; attempt < test.requests; attempt++ {
+				request := httptest.NewRequest(
+					http.MethodPost,
+					"/v1/chat/completions",
+					bytes.NewBufferString(`{"model":"gpt-4o"}`),
+				)
+				request.Header.Set("Authorization", "Bearer gl-client")
+				engine.ServeHTTP(httptest.NewRecorder(), request)
+			}
+
+			blacklisted := registry.BlacklistedCredentials()
+			if got := len(blacklisted) != 0; got != test.wantBlacklisted {
+				t.Fatalf(
+					"blacklisted = %#v after %d requests, want blacklisted=%t",
+					blacklisted,
+					test.requests,
+					test.wantBlacklisted,
+				)
+			}
+		})
+	}
+}
+
 func TestHandlerClearsFailureOnlyForNonStreamingSuccess(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -4080,6 +4168,89 @@ func TestHandlerRetries401WithAnotherKeyThenReturnsSuccess(t *testing.T) {
 	}
 }
 
+func TestHandlerAppliesSystemAndGroupRetrySettings(t *testing.T) {
+	invalid := UpstreamResult{
+		StatusCode: http.StatusUnauthorized, Header: make(http.Header),
+		Body:               []byte(`{"error":"invalid_api_key"}`),
+		ClassificationBody: []byte(`{"error":"invalid_api_key"}`),
+		RequestWritten:     true,
+	}
+	tests := []struct {
+		name           string
+		systemSettings config.Settings
+		groupSettings  config.Settings
+		wantAttempts   int
+	}{
+		{
+			name: "zero system count disables retries",
+			systemSettings: config.Settings{
+				state.SettingRetryCount: 0,
+			},
+			wantAttempts: 1,
+		},
+		{
+			name: "group count enables four retries over disabled system policy",
+			systemSettings: config.Settings{
+				state.SettingRetryCount: 0,
+			},
+			groupSettings: config.Settings{
+				state.SettingRetryCount: 4,
+			},
+			wantAttempts: 5,
+		},
+		{
+			name: "group retry count overrides system count",
+			systemSettings: config.Settings{
+				state.SettingRetryCount: 4,
+			},
+			groupSettings: config.Settings{
+				state.SettingRetryCount: 1,
+			},
+			wantAttempts: 2,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			keys := []string{"sk-one", "sk-two", "sk-three", "sk-four", "sk-five"}
+			results := make([]UpstreamResult, len(keys))
+			for index := range results {
+				results[index] = invalid
+			}
+			forwarder := &scriptedForwarder{results: results}
+			handler, manager, _ := newHandlerForTest(t, forwarder, keys...)
+			publishHandlerPolicySettings(
+				t,
+				handler,
+				manager,
+				len(keys),
+				test.systemSettings,
+				test.groupSettings,
+			)
+			engine := gin.New()
+			bindGatewayRoutesForTest(t, engine, handler)
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o"}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			response := httptest.NewRecorder()
+
+			engine.ServeHTTP(response, request)
+
+			if len(forwarder.inputs) != test.wantAttempts {
+				t.Fatalf(
+					"upstream attempts = %d, want %d; response=%d %s",
+					len(forwarder.inputs),
+					test.wantAttempts,
+					response.Code,
+					response.Body.String(),
+				)
+			}
+		})
+	}
+}
+
 func TestHandlerReturnsLastUpstreamResponseWhenBudgetIsExhausted(t *testing.T) {
 	upstream := fakeupstream.New(
 		fakeupstream.Step{Status: http.StatusUnauthorized, Fixture: "openai/401.json"},
@@ -4094,8 +4265,9 @@ func TestHandlerReturnsLastUpstreamResponseWhenBudgetIsExhausted(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusInternalServerError || len(upstream.Requests()) != maxAttempts {
-		t.Fatalf("response/attempts = %d/%d, want 500/%d", recorder.Code, len(upstream.Requests()), maxAttempts)
+	wantAttempts := state.DefaultRuntimeSettings().RetryCount + 1
+	if recorder.Code != http.StatusInternalServerError || len(upstream.Requests()) != wantAttempts {
+		t.Fatalf("response/attempts = %d/%d, want 500/%d", recorder.Code, len(upstream.Requests()), wantAttempts)
 	}
 	if !bytes.Contains(recorder.Body.Bytes(), []byte("internal_error")) {
 		t.Fatalf("body = %s, want final upstream fixture", recorder.Body.String())
@@ -4612,6 +4784,51 @@ func newHandlerTestRuntime(
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, manager, registry
+}
+
+func publishHandlerPolicySettings(
+	t *testing.T,
+	handler *Handler,
+	manager *state.Manager,
+	credentialCount int,
+	systemSettings config.Settings,
+	groupSettings config.Settings,
+) {
+	t.Helper()
+	credentials := make([]state.CredentialConfig, 0, credentialCount)
+	for index := 0; index < credentialCount; index++ {
+		credentials = append(credentials, state.CredentialConfig{
+			ID:                 uint(index + 1),
+			GroupID:            1,
+			Status:             state.CredentialStatusActive,
+			Version:            1,
+			IdentityGeneration: uint64(index + 1),
+			Fingerprint:        fmt.Sprintf("credential-%d", index+1),
+		})
+	}
+	if _, err := manager.Publish(state.CompileInput{
+		SystemSettings:  systemSettings,
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ConnectionType: "api_key",
+			ID:             1,
+			Name:           "openai",
+			ChannelID:      channel.OpenAI,
+			Params:         json.RawMessage(`{}`),
+			Models:         []state.ModelConfig{{ID: "gpt-4o"}},
+			Settings:       groupSettings,
+			Enabled:        true,
+		}},
+		Credentials: credentials,
+		AccessKeys: []state.AccessKeyConfig{{
+			ID:      1,
+			Name:    "client",
+			KeyHash: handler.encryption.Hash("gl-client"),
+			Status:  state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() policy settings error = %v", err)
+	}
 }
 
 func newStatsHandlerTestRuntime(

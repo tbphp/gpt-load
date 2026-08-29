@@ -6,6 +6,7 @@ import { computed } from 'vue'
 import type { ProxyConfiguredMode, ProxyViewDto } from '@/api/control/types'
 import { proxyOverrideToggleMode } from '@/app/resources/proxy'
 import type {
+  PolicyCountSettingKey,
   RuntimeSettingKey,
   SettingsResource,
   TimeoutSettingKey,
@@ -19,6 +20,7 @@ import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 
 import {
   createSettingsDraft,
+  isValidNonNegativeInteger,
   isValidTimeout,
   setSettingsOverride,
   type SettingsDraft,
@@ -64,6 +66,16 @@ const timeoutKeys: TimeoutSettingKey[] = [
   'stream_idle_timeout',
   'validation_interval',
 ]
+const policyRows = [
+  {
+    key: 'retry_count',
+    helpKey: 'retryCountHelp',
+  },
+  {
+    key: 'blacklist_threshold',
+    helpKey: 'blacklistThresholdHelp',
+  },
+] as const
 function cloneDraft(): SettingsDraft {
   return createSettingsDraft({
     values: props.draft.values,
@@ -100,6 +112,12 @@ function setInjectUsage(value: boolean): void {
   publish('inject_usage_options', draft)
 }
 
+function setPolicyCount(key: PolicyCountSettingKey, value: string): void {
+  const draft = cloneDraft()
+  draft.values[key] = Number(value)
+  publish(key, draft)
+}
+
 function setModelsDevAutoSync(value: boolean): void {
   const draft = cloneDraft()
   draft.values.models_dev_auto_sync_enabled = value
@@ -116,6 +134,12 @@ function timeoutError(key: TimeoutSettingKey): string | undefined {
     : undefined
 }
 
+function policyCountError(key: PolicyCountSettingKey): string | undefined {
+  return hasOverride(key) && !isValidNonNegativeInteger(props.draft.values[key])
+    ? t('settings.runtime.nonNegativeIntegerError')
+    : undefined
+}
+
 function conflictFor(key: RuntimeSettingKey): SettingsMergeConflict | undefined {
   return props.conflicts.find((conflict) => conflict.key === key)
 }
@@ -125,6 +149,8 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
   if (!value.is_override) return t('settings.runtime.defaultSource')
   if (conflict.key === 'inject_usage_options' || conflict.key === 'models_dev_auto_sync_enabled')
     return value.normalized_value ? t('settings.runtime.enabled') : t('settings.runtime.disabled')
+  if (conflict.key === 'retry_count' || conflict.key === 'blacklist_threshold')
+    return t('settings.runtime.effectiveCount', { value: value.normalized_value })
   return `${value.normalized_value} ${t('settings.runtime.seconds')}`
 }
 </script>
@@ -253,6 +279,91 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
               {{ t('settings.conflict.useMine') }}
             </AppButton>
             <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', key)">
+              {{ t('settings.conflict.useLatest') }}
+            </AppButton>
+          </div>
+        </article>
+      </div>
+
+      <div v-for="policy in policyRows" :key="policy.key" class="settings-runtime__entry">
+        <RuntimeOverrideRow
+          appearance="ledger"
+          :label="t(`settings.runtime.${policy.key}`)"
+          :detail="
+            hasOverride(policy.key)
+              ? t('settings.runtime.overrideValue')
+              : isPendingRestore(policy.key)
+                ? t('settings.runtime.resetPending')
+                : t('settings.runtime.effectiveCount', {
+                    value: base.settings.values[policy.key],
+                  })
+          "
+          :value-label="t(`settings.runtime.${policy.helpKey}`)"
+          :source-label="
+            hasOverride(policy.key)
+              ? t('settings.runtime.overrideSource')
+              : isPendingRestore(policy.key)
+                ? t('settings.runtime.pendingRestoreSource')
+                : t('settings.runtime.defaultSource')
+          "
+          :action-label="
+            hasOverride(policy.key)
+              ? t('settings.runtime.restoreDefault')
+              : t('settings.runtime.override')
+          "
+          :overridden="hasOverride(policy.key)"
+          :pending-restore="isPendingRestore(policy.key)"
+          :disabled="disabled"
+          @toggle="toggleOverride(policy.key)"
+        >
+          <template v-if="hasOverride(policy.key)" #value>
+            <div class="settings-runtime__input">
+              <CompactFieldError
+                :id="`settings-value-${policy.key}`"
+                :error="policyCountError(policy.key)"
+              >
+                <template #default="{ invalid, describedBy }">
+                  <AppTextInput
+                    :id="`settings-value-${policy.key}`"
+                    type="number"
+                    :model-value="String(draft.values[policy.key])"
+                    :label="
+                      t('settings.runtime.valueFor', {
+                        field: t(`settings.runtime.${policy.key}`),
+                      })
+                    "
+                    appearance="surface"
+                    size="compact"
+                    monospace
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    :disabled="disabled"
+                    :invalid="invalid"
+                    :described-by="describedBy"
+                    @update:model-value="setPolicyCount(policy.key, $event)"
+                  />
+                </template>
+              </CompactFieldError>
+              <span aria-hidden="true">{{ t('settings.runtime.countUnit') }}</span>
+            </div>
+          </template>
+        </RuntimeOverrideRow>
+        <article v-if="conflictFor(policy.key)" class="settings-runtime__conflict" role="alert">
+          <strong>{{ t(`settings.runtime.${policy.key}`) }}</strong>
+          <span>
+            {{ t('settings.conflict.mine') }}:
+            {{ conflictValue(conflictFor(policy.key)!, 'mine') }}
+          </span>
+          <span>
+            {{ t('settings.conflict.latest') }}:
+            {{ conflictValue(conflictFor(policy.key)!, 'latest') }}
+          </span>
+          <div>
+            <AppButton variant="secondary" size="compact" @click="emit('chooseMine', policy.key)">
+              {{ t('settings.conflict.useMine') }}
+            </AppButton>
+            <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', policy.key)">
               {{ t('settings.conflict.useLatest') }}
             </AppButton>
           </div>

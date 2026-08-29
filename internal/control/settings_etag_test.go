@@ -32,12 +32,14 @@ func TestSettingsWireETagMatchesCheckedInFixture(t *testing.T) {
 
 	representation, err := newSettingsWireRepresentation("Success", SettingsDTO{
 		Values: SettingsValuesResponse{
-			AffinityEnabled:   true,
-			AffinityTTL:       3600,
-			AffinityCapacity:  10_000,
-			FirstByteTimeout:  120,
-			RequestTimeout:    600,
-			StreamIdleTimeout: 300,
+			AffinityEnabled:    true,
+			AffinityTTL:        3600,
+			AffinityCapacity:   10_000,
+			RetryCount:         2,
+			BlacklistThreshold: 3,
+			FirstByteTimeout:   120,
+			RequestTimeout:     600,
+			StreamIdleTimeout:  300,
 			HeaderRules: HeaderRulesResponse{
 				Set:    map[string]string{},
 				Remove: []string{},

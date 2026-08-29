@@ -146,6 +146,62 @@ func TestUpdateGroupSettingsOverridesAffinityParticipation(t *testing.T) {
 	}
 }
 
+func TestUpdateGroupSettingsOverridesRetryAndBlacklistPolicies(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-policies")
+
+	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingRetryCount:         json.RawMessage("0"),
+			state.SettingBlacklistThreshold: json.RawMessage("0"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := fixture.manager.Current()
+	for _, invalid := range []config.Settings{
+		{state.SettingRetryCount: json.Number("-1")},
+		{state.SettingBlacklistThreshold: json.Number("1.5")},
+	} {
+		_, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
+			Overrides: optionalField[config.Settings]{Set: true, Value: invalid},
+		})
+		if !errors.Is(err, app_errors.ErrValidation) {
+			t.Fatalf("invalid group policy %#v error = %v, want validation", invalid, err)
+		}
+		if fixture.manager.Current() != before {
+			t.Fatal("invalid group policy published a snapshot")
+		}
+	}
+
+	got, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{
+			state.SettingRetryCount:         json.Number("4"),
+			state.SettingBlacklistThreshold: json.Number("5"),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(got.Effective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		`"retry_count":4`,
+		`"blacklist_threshold":5`,
+	} {
+		if !strings.Contains(string(encoded), fragment) {
+			t.Errorf("effective settings %s missing %s", encoded, fragment)
+		}
+	}
+	view := fixture.manager.Current().Groups[groupID]
+	if view.RetryCount != 4 || view.BlacklistThreshold != 5 {
+		t.Fatalf("snapshot group policies = %#v", view)
+	}
+}
+
 func TestUpdateGroupSettingsAllowsDuplicateUpstreamURLWithoutConfirmation(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)

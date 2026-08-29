@@ -43,6 +43,9 @@ func TestLoadUsesDefaultConfiguration(t *testing.T) {
 	if cfg.DatabaseMetadata.Driver != DatabaseDriverSQLite {
 		t.Fatalf("DatabaseMetadata.Driver = %q, want %q", cfg.DatabaseMetadata.Driver, DatabaseDriverSQLite)
 	}
+	if cfg.DatabasePool.MaxOpenConnections != 10 || cfg.DatabasePool.MaxIdleConnections != 5 {
+		t.Fatalf("DatabasePool = %#v, want max open/idle 10/5", cfg.DatabasePool)
+	}
 	if cfg.Log.Level != "info" || cfg.Log.Format != "text" {
 		t.Fatalf("Log = %#v, want info/text", cfg.Log)
 	}
@@ -76,6 +79,8 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	t.Setenv("GRACEFUL_SHUTDOWN_TIMEOUT", "25")
 	t.Setenv("READ_TIMEOUT", "45")
 	t.Setenv("IDLE_TIMEOUT", "90")
+	t.Setenv("DATABASE_MAX_OPEN_CONNECTIONS", "24")
+	t.Setenv("DATABASE_MAX_IDLE_CONNECTIONS", "12")
 
 	cfg, err := Load()
 	if err != nil {
@@ -96,6 +101,9 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.DatabaseMetadata.Driver != DatabaseDriverSQLite {
 		t.Fatalf("DatabaseMetadata.Driver = %q, want %q", cfg.DatabaseMetadata.Driver, DatabaseDriverSQLite)
+	}
+	if cfg.DatabasePool.MaxOpenConnections != 24 || cfg.DatabasePool.MaxIdleConnections != 12 {
+		t.Fatalf("DatabasePool = %#v, want max open/idle 24/12", cfg.DatabasePool)
 	}
 	if cfg.Log.Level != "debug" || cfg.Log.Format != "json" {
 		t.Fatalf("Log = %#v", cfg.Log)
@@ -441,6 +449,11 @@ func TestLoadRejectsInvalidRequiredAndNumericValues(t *testing.T) {
 		{name: "invalid shutdown timeout", env: map[string]string{"AUTH_KEY": "x", "GRACEFUL_SHUTDOWN_TIMEOUT": "0"}},
 		{name: "invalid read timeout", env: map[string]string{"AUTH_KEY": "x", "READ_TIMEOUT": "0"}},
 		{name: "invalid idle timeout", env: map[string]string{"AUTH_KEY": "x", "IDLE_TIMEOUT": "nope"}},
+		{name: "invalid database max open connections", env: map[string]string{"AUTH_KEY": "x", "DATABASE_MAX_OPEN_CONNECTIONS": "0"}},
+		{name: "invalid database max idle connections", env: map[string]string{"AUTH_KEY": "x", "DATABASE_MAX_IDLE_CONNECTIONS": "nope"}},
+		{name: "database max idle connections exceed max open", env: map[string]string{
+			"AUTH_KEY": "x", "DATABASE_MAX_OPEN_CONNECTIONS": "4", "DATABASE_MAX_IDLE_CONNECTIONS": "5",
+		}},
 	}
 
 	for _, tt := range tests {
@@ -463,6 +476,7 @@ func clearEnvironment(t *testing.T) {
 		"HOST", "PORT", "DATA_DIR", "DATABASE_DSN", "ENCRYPTION_KEY", "AUTH_KEY",
 		"LOG_LEVEL", "LOG_FORMAT", "GRACEFUL_SHUTDOWN_TIMEOUT",
 		"READ_TIMEOUT", "IDLE_TIMEOUT", "MODELS_DEV_AUTO_SYNC_ENABLED",
+		"DATABASE_MAX_OPEN_CONNECTIONS", "DATABASE_MAX_IDLE_CONNECTIONS",
 	} {
 		t.Setenv(key, "")
 	}

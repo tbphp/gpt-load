@@ -220,9 +220,18 @@ export default {
         first_byte_timeout: 'Native response / stream first-event timeout',
         request_timeout: 'Request timeout',
         stream_idle_timeout: 'Stream-idle timeout',
+        retry_count: 'Extra retry count',
+        retryCountHelp:
+          'Maximum extra retries after the initial upstream attempt; 0 disables retries.',
+        blacklist_threshold: 'Consecutive-failure blacklist threshold',
+        blacklistThresholdHelp:
+          'A credential is blacklisted after this many consecutive failures; 0 disables automatic blacklisting.',
         effective: '{value} seconds',
+        effectiveCount: '{value} times',
         currentValue: 'Current effective value',
         seconds: 's',
+        countUnit: 'times',
+        nonNegativeIntegerError: 'Enter 0 or a positive whole number.',
         override: 'Overridden by this Group',
         inherited: 'Inherited from global settings',
         useOverride: 'Override',

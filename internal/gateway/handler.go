@@ -37,12 +37,10 @@ import (
 )
 
 const (
-	maxAttempts               = 3
 	maxRequestBodyBytes       = int64(128 << 20)
 	maxDataPlaneModelBytes    = 255
 	fixedCooldown             = time.Minute
 	subscriptionFixedCooldown = 10 * time.Minute
-	blacklistFailureThreshold = 3
 	debugHeaderGroup          = "X-GPTLoad-Group"
 	// debugHeaderKey remains reserved so an upstream cannot inject it downstream.
 	debugHeaderKey      = "X-GPTLoad-Key"
@@ -242,6 +240,39 @@ func (handler *Handler) applyDecisionEffect(
 	statusCode int,
 	attemptNow time.Time,
 ) {
+	defaults := state.DefaultRuntimeSettings()
+	handler.applyDecisionEffectWithBlacklistPolicy(
+		credentialID,
+		decision,
+		statusCode,
+		attemptNow,
+		defaults.BlacklistThreshold,
+	)
+}
+
+func (handler *Handler) applyGroupDecisionEffect(
+	group state.GroupView,
+	credentialID uint,
+	decision health.Decision,
+	statusCode int,
+	attemptNow time.Time,
+) {
+	handler.applyDecisionEffectWithBlacklistPolicy(
+		credentialID,
+		decision,
+		statusCode,
+		attemptNow,
+		group.BlacklistThreshold,
+	)
+}
+
+func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
+	credentialID uint,
+	decision health.Decision,
+	statusCode int,
+	attemptNow time.Time,
+	blacklistThreshold int,
+) {
 	switch decision.Effect {
 	case health.EffectCooldownCredential:
 		mutate := func() {
@@ -267,7 +298,7 @@ func (handler *Handler) applyDecisionEffect(
 				return
 			}
 			becameBlacklisted := false
-			if count >= blacklistFailureThreshold {
+			if blacklistThreshold > 0 && count >= blacklistThreshold {
 				var exists bool
 				exists, becameBlacklisted = handler.registry.SetBlacklistedWithChange(credentialID)
 				if !exists {
@@ -288,6 +319,17 @@ func (handler *Handler) recordCredentialSuccess(credentialID uint, at time.Time)
 			handler.stats.RecordSuccess(credentialID, at)
 		}
 	})
+}
+
+func retryAttemptLimit(group state.GroupView) int {
+	if group.RetryCount <= 0 {
+		return 1
+	}
+	maximum := int(^uint(0) >> 1)
+	if group.RetryCount >= maximum {
+		return maximum
+	}
+	return group.RetryCount + 1
 }
 
 func (handler *Handler) Handle(ginContext *gin.Context) {
@@ -712,6 +754,8 @@ func (handler *Handler) executeAttempts(
 	lastAttemptIndex := -1
 	attemptSequence := 0
 	forwardAttempts := 0
+	forwardAttemptLimit := 1
+	retryPolicyResolved := false
 	type credentialRefreshRetry struct {
 		selection scheduler.Selection
 		ref       state.CredentialRef
@@ -777,7 +821,7 @@ func (handler *Handler) executeAttempts(
 			selection, nil, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
-		handler.applyDecisionEffect(selection.CredentialID, decision, 0, attemptNow)
+		handler.applyGroupDecisionEffect(selection.Group, selection.CredentialID, decision, 0, attemptNow)
 		if decision.Effect == health.EffectSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}
@@ -791,7 +835,7 @@ func (handler *Handler) executeAttempts(
 		}
 		return decision.Retry != health.RetryNone
 	}
-	for forwardAttempts < maxAttempts {
+	for forwardAttempts < forwardAttemptLimit {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
 			return
@@ -831,6 +875,12 @@ func (handler *Handler) executeAttempts(
 		encrypted, active := handler.registry.ActiveEncryptedCredentialDataIfMatch(ref)
 		if !active {
 			continue
+		}
+		if !retryPolicyResolved {
+			// A request can fail over across Groups. Freeze the first active
+			// candidate's effective Group policy for the whole retry chain.
+			forwardAttemptLimit = retryAttemptLimit(selection.Group)
+			retryPolicyResolved = true
 		}
 		decryptedCredential, err := handler.encryption.Decrypt(encrypted)
 		if err != nil {
@@ -991,7 +1041,13 @@ func (handler *Handler) executeAttempts(
 				)
 				recorder.completeStream(result, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
 			}
-			handler.applyDecisionEffect(selection.CredentialID, decision, result.StatusCode, attemptNow)
+			handler.applyGroupDecisionEffect(
+				selection.Group,
+				selection.CredentialID,
+				decision,
+				result.StatusCode,
+				attemptNow,
+			)
 			if stream && result.Stream.EndReason == StreamEndCleanEOF {
 				handler.recordCredentialSuccess(selection.CredentialID, attemptNow)
 				handler.recordAffinitySuccess(requestAffinity, selection, ref)
@@ -1022,9 +1078,15 @@ func (handler *Handler) executeAttempts(
 			selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
-		handler.applyDecisionEffect(selection.CredentialID, decision, result.StatusCode, attemptNow)
+		handler.applyGroupDecisionEffect(
+			selection.Group,
+			selection.CredentialID,
+			decision,
+			result.StatusCode,
+			attemptNow,
+		)
 		if decision.Retry == health.RetryRefreshCredential &&
-			!authRefreshReplayUsed && forwardAttempts < maxAttempts {
+			!authRefreshReplayUsed && forwardAttempts < forwardAttemptLimit {
 			refreshRetry = &credentialRefreshRetry{selection: selection, ref: ref}
 		}
 		if decision.Effect == health.EffectSkipGroup {
