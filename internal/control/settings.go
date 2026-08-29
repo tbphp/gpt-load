@@ -243,9 +243,10 @@ func (s *Service) UpdateSettingsIfMatch(
 	if err != nil {
 		return settingsWireRepresentation{}, err
 	}
-	if _, err := s.manager.Publish(input); err != nil {
-		return settingsWireRepresentation{}, newControlOperationError(
-			stagePublishCommittedSnapshot,
+	if _, err := s.publishSnapshot(input); err != nil {
+		return settingsWireRepresentation{}, joinCommittedRuntimeRecovery(
+			newControlOperationError(stagePublishCommittedSnapshot),
+			s.recoverCommittedRuntime(ctx, false),
 		)
 	}
 	s.requestCatalogSyncOnEnable(

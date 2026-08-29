@@ -3,6 +3,7 @@ package control
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -176,6 +177,41 @@ func TestSettingsHTTPMatchingWriteReturnsCurrentGETAndAllowsABA(t *testing.T) {
 		t.Fatalf("A-B-A response = %d %q %s, want %q %s",
 			reset.Code, reset.Header().Get("ETag"), reset.Body.String(),
 			initial.Header().Get("ETag"), initial.Body.String())
+	}
+}
+
+func TestSettingsHTTPPublicationFailureReloadsCommittedDatabaseTruth(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	initial := serveSettingsOCCRequest(
+		t, engine, http.MethodGet, "test-auth-key", "en-US", "", "",
+	)
+	before := fixture.manager.Current()
+	fixture.service.publishSnapshot = func(state.CompileInput) (*state.ConfigSnapshot, error) {
+		return nil, errors.New("forced settings snapshot publication failure")
+	}
+
+	failed := serveSettingsOCCRequest(
+		t,
+		engine,
+		http.MethodPut,
+		"test-auth-key",
+		"en-US",
+		initial.Header().Get("ETag"),
+		`{"settings":{"retry_count":4}}`,
+	)
+	if failed.Code != http.StatusInternalServerError ||
+		!strings.Contains(failed.Body.String(), `"code":"INTERNAL_SERVER_ERROR"`) {
+		t.Fatalf("failed update = %d %s, want internal error", failed.Code, failed.Body.String())
+	}
+
+	after := fixture.manager.Current()
+	if after.Revision != before.Revision+1 || after.Settings.RetryCount != 4 {
+		t.Fatalf("recovered snapshot = %#v, want committed retry_count 4", after)
 	}
 }
 
