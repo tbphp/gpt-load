@@ -22,10 +22,12 @@ if ($beforeHash -ne $expectedHash) { throw "Windows setup checksum mismatch befo
 
 $serviceName = "gpt-load"
 $suffix = [guid]::NewGuid().ToString("N")
-$installDir = Join-Path $env:RUNNER_TEMP "gpt-load-installer-smoke-$suffix"
+$installDir = Join-Path $env:RUNNER_TEMP "gpt load installer smoke $suffix"
 $programData = [Environment]::GetFolderPath("CommonApplicationData")
 $configDir = Join-Path $programData "GPT-Load"
 $dataDir = Join-Path $configDir "data"
+$ownerMarker = Join-Path $configDir ".installer-smoke-owner"
+$upgradeMarker = Join-Path $dataDir "installer-smoke-upgrade.txt"
 $installedBinary = Join-Path $installDir "gpt-load.exe"
 $uninstaller = Join-Path $installDir "unins000.exe"
 $commonDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
@@ -37,15 +39,26 @@ if ([System.IO.Path]::GetFullPath($configDir) -ne
     [System.IO.Path]::GetFullPath((Join-Path $programData "GPT-Load"))) {
   throw "refusing unexpected ProgramData cleanup target: $configDir"
 }
+if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+  throw "refusing pre-existing Windows service: $serviceName"
+}
+if (Test-Path $configDir) {
+  throw "refusing pre-existing ProgramData directory: $configDir"
+}
+foreach ($path in @($installDir, $desktopShortcut, $startMenuShortcut)) {
+  if (Test-Path $path) {
+    throw "refusing pre-existing installer smoke path: $path"
+  }
+}
 
 function Invoke-CheckedProcess {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][string[]]$Arguments
   )
-  $process = Start-Process -FilePath $Path -ArgumentList $Arguments -Wait -PassThru
-  if ($process.ExitCode -ne 0) {
-    throw "$Path exited with code $($process.ExitCode)"
+  & $Path @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Path exited with code $LASTEXITCODE"
   }
 }
 
@@ -86,6 +99,9 @@ function Assert-ServiceAcl {
 }
 
 try {
+  New-Item -ItemType Directory -Path $configDir | Out-Null
+  [System.IO.File]::WriteAllText($ownerMarker, $suffix)
+
   Invoke-CheckedProcess -Path $setup -Arguments @(
     "/VERYSILENT",
     "/SUPPRESSMSGBOXES",
@@ -135,10 +151,19 @@ try {
   $headers = @{ Authorization = "Bearer $authKey" }
   Invoke-RestMethod "http://127.0.0.1:3001/api/system/info" -Headers $headers | Out-Null
 
-  & $installedBinary service stop
-  if ($LASTEXITCODE -ne 0) { throw "service stop failed with code $LASTEXITCODE" }
-  if ((Get-Service -Name $serviceName).Status -ne "Stopped") {
-    throw "service did not stop cleanly"
+  [System.IO.File]::WriteAllText($upgradeMarker, $suffix)
+  Invoke-CheckedProcess -Path $setup -Arguments @(
+    "/VERYSILENT",
+    "/SUPPRESSMSGBOXES",
+    "/NORESTART",
+    "/DIR=$installDir"
+  )
+  if ((Get-Service -Name $serviceName).Status -ne "Running") {
+    throw "service is not running after overwrite install"
+  }
+  if ((-not (Test-Path $upgradeMarker)) -or
+      ((Get-Content $upgradeMarker -Raw).Trim() -ne $suffix)) {
+    throw "upgrade did not preserve persistent data"
   }
 
   Invoke-CheckedProcess -Path $uninstaller -Arguments @(
@@ -160,7 +185,8 @@ try {
     if (Test-Path $installedBinary) {
       & $installedBinary service stop 2>$null
       & $installedBinary service uninstall 2>$null
-    } else {
+    }
+    if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
       & sc.exe stop $serviceName 2>$null | Out-Null
       & sc.exe delete $serviceName 2>$null | Out-Null
     }
@@ -171,5 +197,8 @@ try {
     ) -Wait -ErrorAction SilentlyContinue | Out-Null
   }
   Remove-Item -Recurse -Force $installDir -ErrorAction SilentlyContinue
-  Remove-Item -Recurse -Force $configDir -ErrorAction SilentlyContinue
+  if ((Test-Path $ownerMarker) -and
+      ((Get-Content $ownerMarker -Raw).Trim() -eq $suffix)) {
+    Remove-Item -Recurse -Force $configDir -ErrorAction SilentlyContinue
+  }
 }

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -12,11 +13,7 @@ import (
 )
 
 func TestDesiredWindowsServiceConfigUsesLowPrivilegeIsolatedIdentity(t *testing.T) {
-	arguments := []string{
-		"service", "run",
-		"--config-dir", `C:\ProgramData\GPT-Load`,
-		"--data-dir", `C:\ProgramData\GPT-Load\data`,
-	}
+	arguments := []string{"service", "run"}
 	config := desiredWindowsServiceConfig(`C:\Program Files\GPT-Load\gpt-load.exe`, arguments)
 	if config.ServiceStartName != `NT AUTHORITY\LocalService` {
 		t.Fatalf("service account = %q", config.ServiceStartName)
@@ -32,7 +29,13 @@ func TestDesiredWindowsServiceConfigUsesLowPrivilegeIsolatedIdentity(t *testing.
 			t.Fatalf("binary path does not contain %q: %s", required, config.BinaryPathName)
 		}
 	}
-	for _, forbidden := range []string{"AUTH_KEY", "ENCRYPTION_KEY", "DATABASE_DSN"} {
+	for _, forbidden := range []string{
+		"--config-dir",
+		"--data-dir",
+		"AUTH_KEY",
+		"ENCRYPTION_KEY",
+		"DATABASE_DSN",
+	} {
 		if strings.Contains(config.BinaryPathName, forbidden) {
 			t.Fatalf("binary path contains secret configuration name %q", forbidden)
 		}
@@ -60,17 +63,125 @@ func TestWindowsServiceRecoveryUsesBoundedBackoff(t *testing.T) {
 	}
 }
 
-func TestNormalizeWindowsServiceDirectoriesRejectsRelativeAndSharedPaths(t *testing.T) {
-	for _, test := range []struct {
-		config string
-		data   string
-	}{
-		{config: `relative`, data: `C:\ProgramData\GPT-Load\data`},
-		{config: `C:\ProgramData\GPT-Load`, data: `relative`},
-		{config: `C:\ProgramData\GPT-Load`, data: `c:\programdata\gpt-load`},
+func TestOwnedWindowsServiceConfigAcceptsOnlyOfficialCommandShape(t *testing.T) {
+	official := desiredWindowsServiceConfig(
+		`C:\Program Files\GPT-Load\gpt-load.exe`,
+		[]string{"service", "run"},
+	)
+	if !isOwnedWindowsServiceConfig(official) {
+		t.Fatal("official service configuration is not recognized")
+	}
+
+	portable := desiredWindowsServiceConfig(
+		`C:\Downloads\gpt-load-windows-amd64.exe`,
+		[]string{"service", "run"},
+	)
+	if !isOwnedWindowsServiceConfig(portable) {
+		t.Fatal("portable-installed service configuration is not recognized")
+	}
+
+	for name, mutate := range map[string]func(*mgr.Config){
+		"foreign display name": func(config *mgr.Config) {
+			config.DisplayName = "Another Service"
+		},
+		"foreign description": func(config *mgr.Config) {
+			config.Description = "Another service"
+		},
+		"foreign account": func(config *mgr.Config) {
+			config.ServiceStartName = `LocalSystem`
+		},
+		"foreign SID policy": func(config *mgr.Config) {
+			config.SidType = windows.SERVICE_SID_TYPE_NONE
+		},
+		"foreign command": func(config *mgr.Config) {
+			config.BinaryPathName = windowsServiceCommandLine(
+				`C:\Program Files\GPT-Load\gpt-load.exe`,
+				"other",
+				"run",
+			)
+		},
+		"relative executable": func(config *mgr.Config) {
+			config.BinaryPathName = windowsServiceCommandLine("gpt-load.exe", "service", "run")
+		},
+		"custom directories": func(config *mgr.Config) {
+			config.BinaryPathName = windowsServiceCommandLine(
+				`C:\Program Files\GPT-Load\gpt-load.exe`,
+				"service", "run",
+				"--config-dir", `C:\`,
+				"--data-dir", `C:\data`,
+			)
+		},
 	} {
-		if _, _, err := normalizeWindowsServiceDirectories(test.config, test.data); err == nil {
-			t.Fatalf("normalizeWindowsServiceDirectories(%q, %q) error = nil", test.config, test.data)
+		t.Run(name, func(t *testing.T) {
+			config := official
+			mutate(&config)
+			if isOwnedWindowsServiceConfig(config) {
+				t.Fatal("foreign service configuration is recognized as owned")
+			}
+		})
+	}
+}
+
+func TestApplyWindowsServiceUpdateCommitsConfigLast(t *testing.T) {
+	desired := mgr.Config{DisplayName: "desired"}
+	service := &fakeWindowsServiceUpdater{}
+
+	if err := applyWindowsServiceUpdate(service, desired); err != nil {
+		t.Fatalf("applyWindowsServiceUpdate() error = %v", err)
+	}
+	if service.config.DisplayName != desired.DisplayName {
+		t.Fatalf("service config = %#v, want %#v", service.config, desired)
+	}
+	if got := service.calls[len(service.calls)-1]; got != "update_config" {
+		t.Fatalf("last service call = %q, want update_config", got)
+	}
+}
+
+func TestApplyWindowsServiceUpdateDoesNotCommitConfigAfterPreparationFailure(t *testing.T) {
+	desired := mgr.Config{DisplayName: "desired"}
+	service := &fakeWindowsServiceUpdater{recoveryErr: errors.New("recovery failed")}
+
+	err := applyWindowsServiceUpdate(service, desired)
+	if err == nil || !strings.Contains(err.Error(), "recovery failed") {
+		t.Fatalf("applyWindowsServiceUpdate() error = %v", err)
+	}
+	for _, call := range service.calls {
+		if call == "update_config" {
+			t.Fatal("service config was updated after recovery preparation failed")
 		}
 	}
+}
+
+type fakeWindowsServiceUpdater struct {
+	config      mgr.Config
+	recoveryErr error
+	updateErr   error
+	calls       []string
+}
+
+func (service *fakeWindowsServiceUpdater) Config() (mgr.Config, error) {
+	service.calls = append(service.calls, "config")
+	return service.config, nil
+}
+
+func (service *fakeWindowsServiceUpdater) UpdateConfig(config mgr.Config) error {
+	service.calls = append(service.calls, "update_config")
+	if service.updateErr != nil {
+		return service.updateErr
+	}
+	service.config = config
+	return nil
+}
+
+func (service *fakeWindowsServiceUpdater) SetRecoveryActions(
+	_ []mgr.RecoveryAction,
+	_ uint32,
+) error {
+	service.calls = append(service.calls, "set_recovery")
+	return service.recoveryErr
+}
+
+func (service *fakeWindowsServiceUpdater) SetRecoveryActionsOnNonCrashFailures(_ bool) error {
+	service.calls = append(service.calls, "set_non_crash")
+	return nil
 }

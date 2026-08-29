@@ -8,9 +8,20 @@ $binary = [System.IO.Path]::GetFullPath($binary)
 $serviceName = "gpt-load"
 $port = 39114
 $root = Join-Path $env:RUNNER_TEMP "gpt-load-service-smoke-$([guid]::NewGuid().ToString('N'))"
-$configDir = Join-Path $root "config"
-$dataDir = Join-Path $root "data"
+$serviceBinary = Join-Path $root "gpt-load.exe"
+$programData = [Environment]::GetFolderPath("CommonApplicationData")
+$configDir = Join-Path $programData "GPT-Load"
+$dataDir = Join-Path $configDir "data"
 $envFile = Join-Path $configDir ".env"
+$ownerMarker = Join-Path $configDir ".service-smoke-owner"
+$ownerToken = [guid]::NewGuid().ToString("N")
+
+if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+  throw "refusing pre-existing Windows service: $serviceName"
+}
+if (Test-Path $configDir) {
+  throw "refusing pre-existing ProgramData directory: $configDir"
+}
 
 function Assert-ServiceAcl {
   param([Parameter(Mandatory = $true)][string]$Path)
@@ -45,15 +56,20 @@ function Assert-ServiceAcl {
 }
 
 try {
-  & $binary service install --config-dir $configDir --data-dir $dataDir
-  if ($LASTEXITCODE -ne 0) { throw "service install failed with code $LASTEXITCODE" }
+  New-Item -ItemType Directory -Path $root | Out-Null
+  Copy-Item -Path $binary -Destination $serviceBinary
+  New-Item -ItemType Directory -Path $configDir | Out-Null
+  [System.IO.File]::WriteAllText($ownerMarker, $ownerToken)
   @(
     "HOST=127.0.0.1",
     "PORT=$port",
     "LOG_FORMAT=json"
   ) | Set-Content -Path $envFile -Encoding utf8NoBOM
 
-  & $binary service start
+  & $serviceBinary service install
+  if ($LASTEXITCODE -ne 0) { throw "service install failed with code $LASTEXITCODE" }
+
+  & $serviceBinary service start
   if ($LASTEXITCODE -ne 0) { throw "service start failed with code $LASTEXITCODE" }
 
   $health = $null
@@ -78,20 +94,30 @@ try {
     Authorization = "Bearer $authKey"
   } | Out-Null
 
-  & $binary service stop
+  & $serviceBinary service stop
   if ($LASTEXITCODE -ne 0) { throw "service stop failed with code $LASTEXITCODE" }
   if ((Get-Service -Name $serviceName).Status -ne "Stopped") {
     throw "Windows service did not stop cleanly"
   }
-  & $binary service uninstall
+  & $serviceBinary service uninstall
   if ($LASTEXITCODE -ne 0) { throw "service uninstall failed with code $LASTEXITCODE" }
   if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
     throw "Windows service remains installed"
   }
 } finally {
   if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-    & $binary service stop 2>$null
-    & $binary service uninstall 2>$null
+    if (Test-Path $serviceBinary) {
+      & $serviceBinary service stop 2>$null
+      & $serviceBinary service uninstall 2>$null
+    }
+    if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+      & sc.exe stop $serviceName 2>$null | Out-Null
+      & sc.exe delete $serviceName 2>$null | Out-Null
+    }
   }
   Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
+  if ((Test-Path $ownerMarker) -and
+      ((Get-Content $ownerMarker -Raw).Trim() -eq $ownerToken)) {
+    Remove-Item -Recurse -Force $configDir -ErrorAction SilentlyContinue
+  }
 }

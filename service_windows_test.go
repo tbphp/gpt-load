@@ -14,7 +14,6 @@ import (
 func TestWindowsServiceReportsPendingRunningAndGracefulStop(t *testing.T) {
 	application := &fakeManagedApplication{serveErrors: make(chan error)}
 	handler := &windowsServiceHandler{
-		pendingInterval: time.Second,
 		newRuntime: func() (*managedRuntime, error) {
 			return &managedRuntime{application: application, shutdownTimeout: 2 * time.Second}, nil
 		},
@@ -57,7 +56,6 @@ func TestWindowsServiceAcceptsShutdownAndPreShutdown(t *testing.T) {
 		t.Run(commandName(command), func(t *testing.T) {
 			application := &fakeManagedApplication{serveErrors: make(chan error)}
 			handler := &windowsServiceHandler{
-				pendingInterval: time.Second,
 				newRuntime: func() (*managedRuntime, error) {
 					return &managedRuntime{application: application, shutdownTimeout: time.Second}, nil
 				},
@@ -82,8 +80,9 @@ func TestWindowsServiceAcceptsShutdownAndPreShutdown(t *testing.T) {
 	}
 }
 
-func TestWindowsServiceAdvancesStartPendingCheckpoint(t *testing.T) {
+func TestWindowsServiceStartTimeoutReportsFailureWithoutSyntheticProgress(t *testing.T) {
 	releaseStart := make(chan struct{})
+	reported := make(chan error, 1)
 	application := &fakeManagedApplication{
 		start: func() error {
 			<-releaseStart
@@ -92,30 +91,145 @@ func TestWindowsServiceAdvancesStartPendingCheckpoint(t *testing.T) {
 		serveErrors: make(chan error),
 	}
 	handler := &windowsServiceHandler{
-		pendingInterval: 5 * time.Millisecond,
+		startupTimeout: 20 * time.Millisecond,
+		reportFailure:  func(err error) { reported <- err },
 		newRuntime: func() (*managedRuntime, error) {
 			return &managedRuntime{application: application, shutdownTimeout: time.Second}, nil
 		},
 	}
 	requests := make(chan svc.ChangeRequest, 1)
 	changes := make(chan svc.Status, 8)
+	type handlerResult struct {
+		specific bool
+		code     uint32
+	}
+	result := make(chan handlerResult, 1)
+	go func() {
+		specific, code := handler.Execute(nil, requests, changes)
+		result <- handlerResult{specific: specific, code: code}
+	}()
+	defer func() {
+		close(releaseStart)
+		requests <- svc.ChangeRequest{Cmd: svc.Stop}
+	}()
+
+	startPending := readWindowsServiceStatus(t, changes)
+	if startPending.State != svc.StartPending {
+		t.Fatalf("start status = %#v", startPending)
+	}
+	if got, want := startPending.WaitHint, durationMilliseconds(
+		handler.startupTimeout+windowsServiceStartWaitBuffer,
+	); got != want {
+		t.Fatalf("start wait hint = %d, want %d", got, want)
+	}
+	select {
+	case got := <-result:
+		if !got.specific || got.code == 0 {
+			t.Fatalf("handler result = %#v, want service-specific startup failure", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Windows service startup did not time out")
+	}
+	select {
+	case status := <-changes:
+		t.Fatalf("unexpected synthetic startup progress = %#v", status)
+	default:
+	}
+	select {
+	case err := <-reported:
+		if err == nil {
+			t.Fatal("reported startup timeout error = nil")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("startup timeout was not reported")
+	}
+}
+
+func TestWindowsServiceExpectedStopReportsCleanupErrorWithoutFailureExit(t *testing.T) {
+	stopErr := errors.New("shutdown cleanup failed")
+	reported := make(chan error, 1)
+	application := &fakeManagedApplication{
+		stop:        func(context.Context) error { return stopErr },
+		serveErrors: make(chan error),
+	}
+	handler := &windowsServiceHandler{
+		reportFailure: func(err error) { reported <- err },
+		newRuntime: func() (*managedRuntime, error) {
+			return &managedRuntime{application: application, shutdownTimeout: time.Second}, nil
+		},
+	}
+	requests := make(chan svc.ChangeRequest, 1)
+	changes := make(chan svc.Status, 4)
+	type handlerResult struct {
+		specific bool
+		code     uint32
+	}
+	result := make(chan handlerResult, 1)
+	go func() {
+		specific, code := handler.Execute(nil, requests, changes)
+		result <- handlerResult{specific: specific, code: code}
+	}()
+
+	_ = readWindowsServiceState(t, changes, svc.Running)
+	requests <- svc.ChangeRequest{Cmd: svc.Stop}
+	_ = readWindowsServiceState(t, changes, svc.StopPending)
+	if got := <-result; got != (handlerResult{}) {
+		t.Fatalf("handler result = %#v, want clean service exit", got)
+	}
+	select {
+	case err := <-reported:
+		if !errors.Is(err, stopErr) {
+			t.Fatalf("reported shutdown error = %v, want %v", err, stopErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("shutdown cleanup error was not reported")
+	}
+	if err := handler.result(); err != nil {
+		t.Fatalf("handler result error = %v, want nil for an expected stop", err)
+	}
+}
+
+func TestWindowsServiceDoesNotReportSyntheticStopProgress(t *testing.T) {
+	releaseStop := make(chan struct{})
+	application := &fakeManagedApplication{
+		stop: func(context.Context) error {
+			<-releaseStop
+			return nil
+		},
+		serveErrors: make(chan error),
+	}
+	handler := &windowsServiceHandler{
+		newRuntime: func() (*managedRuntime, error) {
+			return &managedRuntime{application: application, shutdownTimeout: 5 * time.Second}, nil
+		},
+	}
+	requests := make(chan svc.ChangeRequest, 1)
+	changes := make(chan svc.Status, 4)
 	done := make(chan struct{})
 	go func() {
 		handler.Execute(nil, requests, changes)
 		close(done)
 	}()
-	first := readWindowsServiceStatus(t, changes)
-	second := readWindowsServiceStatus(t, changes)
-	if second.State != svc.StartPending || second.CheckPoint <= first.CheckPoint {
-		t.Fatalf("pending checkpoints = %d then %d", first.CheckPoint, second.CheckPoint)
-	}
-	close(releaseStart)
-	running := readWindowsServiceState(t, changes, svc.Running)
-	requests <- svc.ChangeRequest{Cmd: svc.Stop, CurrentStatus: running}
+	defer func() {
+		select {
+		case <-releaseStop:
+		default:
+			close(releaseStop)
+		}
+	}()
+
+	_ = readWindowsServiceState(t, changes, svc.Running)
+	requests <- svc.ChangeRequest{Cmd: svc.Stop}
 	_ = readWindowsServiceState(t, changes, svc.StopPending)
 	select {
+	case status := <-changes:
+		t.Fatalf("unexpected synthetic stop progress = %#v", status)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseStop)
+	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(time.Second):
 		t.Fatal("Windows service handler did not stop")
 	}
 }
@@ -125,7 +239,6 @@ func TestWindowsServiceStopsAndReturnsUnexpectedServeError(t *testing.T) {
 	stopCalls := make(chan context.Context, 1)
 	application := &fakeManagedApplication{serveErrors: serveErrors, stopCalls: stopCalls}
 	handler := &windowsServiceHandler{
-		pendingInterval: time.Second,
 		newRuntime: func() (*managedRuntime, error) {
 			return &managedRuntime{application: application, shutdownTimeout: time.Second}, nil
 		},

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,9 @@ func TestDispatchCommandDoesNotRunLegacyKeyMigration(t *testing.T) {
 }
 
 func TestDispatchCommandRecognizesWindowsServiceNamespace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("non-Windows boundary test")
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 

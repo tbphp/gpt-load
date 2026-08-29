@@ -75,6 +75,44 @@ func TestWindowsInstallerInstallsServiceWithoutAResidentWrapper(t *testing.T) {
 	}
 }
 
+func TestWindowsInstallerFailsClosedAndRestoresInterruptedUpgrade(t *testing.T) {
+	installer := readRepositoryFile(t, "packaging/windows/gpt-load.iss")
+	for _, required := range []string{
+		"GetCustomSetupExitCode",
+		"InstallationFailed",
+		"InstallCompleted",
+		"PreviousBinaryPath",
+		"PreviousServiceWasRunning",
+		"FileCopy",
+		"RestorePreviousInstallation",
+		"DeinitializeSetup",
+		"ssDone",
+		"CanLaunchManagementPage",
+	} {
+		if !strings.Contains(installer, required) {
+			t.Fatalf("Windows installer does not contain failure recovery contract %q", required)
+		}
+	}
+	if strings.Contains(installer, "if CurStep = ssPostInstall then\n  begin\n    RunRequiredServiceCommand") {
+		t.Fatal("Windows installer still raises a swallowed ssPostInstall service exception")
+	}
+}
+
+func TestPullRequestWindowsCIBuildsAndSmokesInstaller(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/ci.yml")
+	windowsJob := workflowJobBlock(t, workflow, "windows-encryption-acl")
+	for _, required := range []string{
+		"ISCC.exe",
+		"packaging/windows/gpt-load.iss",
+		"gpt-load-windows-setup.exe",
+		"release-windows-installer-smoke.ps1",
+	} {
+		if !strings.Contains(windowsJob, required) {
+			t.Fatalf("pull-request Windows CI does not contain %q:\n%s", required, windowsJob)
+		}
+	}
+}
+
 func TestWindowsInstallerSmokeCoversInstallHealthStopAndUninstall(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/release.yml")
 	job := workflowJobBlock(t, workflow, "windows-installer-smoke")
@@ -98,9 +136,23 @@ func TestWindowsInstallerSmokeCoversInstallHealthStopAndUninstall(t *testing.T) 
 		"Get-Acl",
 		"NT SERVICE\\gpt-load",
 		"installed binary differs from the portable release binary",
+		"installer-smoke-owner",
+		"refusing pre-existing Windows service",
+		"refusing pre-existing ProgramData directory",
+		"upgrade did not preserve persistent data",
 	} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("Windows installer smoke does not contain %q", required)
 		}
+	}
+	if strings.Count(script, "Invoke-CheckedProcess -Path $setup") < 2 {
+		t.Fatal("Windows installer smoke does not exercise an overwrite install")
+	}
+	installBody, _, found := strings.Cut(script, "Invoke-CheckedProcess -Path $uninstaller")
+	if !found {
+		t.Fatal("Windows installer smoke does not invoke the uninstaller")
+	}
+	if strings.Contains(installBody, "$installedBinary service stop") {
+		t.Fatal("Windows installer smoke stops the service before testing the uninstaller")
 	}
 }

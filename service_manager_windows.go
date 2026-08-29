@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -24,11 +25,13 @@ const (
 	windowsServiceDisplayName = "GPT-Load"
 	windowsServiceDescription = "GPT-Load self-hosted AI API gateway"
 	windowsServiceAccount     = `NT AUTHORITY\LocalService`
-	windowsServicePollDelay   = 200 * time.Millisecond
-	windowsServiceWaitTimeout = 2 * time.Minute
+	windowsRecoveryResetSecs  = 24 * 60 * 60
 )
 
-var errWindowsServiceNotInstalled = errors.New("Windows service is not installed")
+var (
+	errWindowsServiceNotInstalled = errors.New("Windows service is not installed")
+	errWindowsServiceNameConflict = errors.New("Windows service name gpt-load belongs to another service")
+)
 
 func defaultWindowsServiceDirectories() (string, string, error) {
 	programData, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, windows.KF_FLAG_DEFAULT)
@@ -39,35 +42,8 @@ func defaultWindowsServiceDirectories() (string, string, error) {
 	return configDir, filepath.Join(configDir, "data"), nil
 }
 
-func normalizeWindowsServiceDirectories(
-	configDir string,
-	dataDir string,
-) (string, string, error) {
-	if configDir == "" || dataDir == "" {
-		defaultConfigDir, _, err := defaultWindowsServiceDirectories()
-		if err != nil {
-			return "", "", err
-		}
-		if configDir == "" {
-			configDir = defaultConfigDir
-		}
-		if dataDir == "" {
-			dataDir = filepath.Join(configDir, "data")
-		}
-	}
-	configDir = filepath.Clean(configDir)
-	dataDir = filepath.Clean(dataDir)
-	if !filepath.IsAbs(configDir) || !filepath.IsAbs(dataDir) {
-		return "", "", fmt.Errorf("Windows service directories must be absolute")
-	}
-	if strings.EqualFold(configDir, dataDir) {
-		return "", "", fmt.Errorf("Windows service DATA_DIR must differ from its configuration directory")
-	}
-	return configDir, dataDir, nil
-}
-
-func installWindowsService(configDir string, dataDir string) error {
-	configDir, dataDir, err := normalizeWindowsServiceDirectories(configDir, dataDir)
+func installWindowsService() error {
+	configDir, dataDir, err := defaultWindowsServiceDirectories()
 	if err != nil {
 		return err
 	}
@@ -79,11 +55,7 @@ func installWindowsService(configDir string, dataDir string) error {
 	if err != nil {
 		return fmt.Errorf("resolve absolute service executable: %w", err)
 	}
-	arguments := []string{
-		"service", "run",
-		"--config-dir", configDir,
-		"--data-dir", dataDir,
-	}
+	arguments := []string{"service", "run"}
 	serviceConfig := desiredWindowsServiceConfig(executable, arguments)
 
 	manager, err := mgr.Connect()
@@ -93,7 +65,6 @@ func installWindowsService(configDir string, dataDir string) error {
 	defer manager.Disconnect()
 
 	service, err := manager.OpenService(windowsServiceName)
-	created := false
 	if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 		service, err = manager.CreateService(
 			windowsServiceName,
@@ -101,9 +72,9 @@ func installWindowsService(configDir string, dataDir string) error {
 			serviceConfig,
 			arguments...,
 		)
-		created = err == nil
 	} else if err == nil {
-		err = service.UpdateConfig(serviceConfig)
+		defer service.Close()
+		return updateExistingWindowsService(service, serviceConfig, configDir, dataDir)
 	}
 	if service != nil {
 		defer service.Close()
@@ -111,11 +82,7 @@ func installWindowsService(configDir string, dataDir string) error {
 	if err != nil {
 		return fmt.Errorf("install Windows service: %w", err)
 	}
-	rollback := func() {
-		if created {
-			_ = service.Delete()
-		}
-	}
+	rollback := func() { _ = service.Delete() }
 
 	if err := securefile.PrepareWindowsServiceDirectories(
 		windowsServiceName,
@@ -125,7 +92,7 @@ func installWindowsService(configDir string, dataDir string) error {
 		rollback()
 		return fmt.Errorf("prepare Windows service directories: %w", err)
 	}
-	if err := service.SetRecoveryActions(windowsServiceRecoveryActions(), 24*60*60); err != nil {
+	if err := service.SetRecoveryActions(windowsServiceRecoveryActions(), windowsRecoveryResetSecs); err != nil {
 		rollback()
 		return fmt.Errorf("configure Windows service recovery: %w", err)
 	}
@@ -136,6 +103,59 @@ func installWindowsService(configDir string, dataDir string) error {
 	if err := installWindowsEventLogSource(); err != nil {
 		rollback()
 		return err
+	}
+	return nil
+}
+
+type windowsServiceUpdater interface {
+	Config() (mgr.Config, error)
+	UpdateConfig(mgr.Config) error
+	SetRecoveryActions([]mgr.RecoveryAction, uint32) error
+	SetRecoveryActionsOnNonCrashFailures(bool) error
+}
+
+func updateExistingWindowsService(
+	service windowsServiceUpdater,
+	desiredConfig mgr.Config,
+	configDir string,
+	dataDir string,
+) error {
+	currentConfig, err := service.Config()
+	if err != nil {
+		return fmt.Errorf("query existing Windows service configuration: %w", err)
+	}
+	if !isOwnedWindowsServiceConfig(currentConfig) {
+		return errWindowsServiceNameConflict
+	}
+
+	if err := securefile.PrepareWindowsServiceDirectories(
+		windowsServiceName,
+		configDir,
+		dataDir,
+	); err != nil {
+		return fmt.Errorf("prepare Windows service directories: %w", err)
+	}
+	if err := installWindowsEventLogSource(); err != nil {
+		return err
+	}
+	return applyWindowsServiceUpdate(service, desiredConfig)
+}
+
+func applyWindowsServiceUpdate(
+	service windowsServiceUpdater,
+	desiredConfig mgr.Config,
+) error {
+	if err := service.SetRecoveryActions(
+		windowsServiceRecoveryActions(),
+		windowsRecoveryResetSecs,
+	); err != nil {
+		return fmt.Errorf("configure Windows service recovery: %w", err)
+	}
+	if err := service.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+		return fmt.Errorf("configure Windows non-crash recovery: %w", err)
+	}
+	if err := service.UpdateConfig(desiredConfig); err != nil {
+		return fmt.Errorf("update Windows service configuration: %w", err)
 	}
 	return nil
 }
@@ -152,6 +172,34 @@ func desiredWindowsServiceConfig(executable string, arguments []string) mgr.Conf
 		SidType:          windows.SERVICE_SID_TYPE_UNRESTRICTED,
 		DelayedAutoStart: true,
 	}
+}
+
+func isOwnedWindowsServiceConfig(config mgr.Config) bool {
+	if config.ServiceType != windows.SERVICE_WIN32_OWN_PROCESS ||
+		!strings.EqualFold(config.DisplayName, windowsServiceDisplayName) ||
+		config.Description != windowsServiceDescription ||
+		!strings.EqualFold(config.ServiceStartName, windowsServiceAccount) ||
+		config.SidType != windows.SERVICE_SID_TYPE_UNRESTRICTED {
+		return false
+	}
+	arguments, err := windows.DecomposeCommandLine(config.BinaryPathName)
+	if err != nil || len(arguments) < 3 ||
+		!filepath.IsAbs(arguments[0]) ||
+		arguments[1] != "service" || arguments[2] != "run" {
+		return false
+	}
+	return len(arguments) == 3
+}
+
+func validateOwnedWindowsService(service *mgr.Service) error {
+	config, err := service.Config()
+	if err != nil {
+		return fmt.Errorf("query Windows service configuration: %w", err)
+	}
+	if !isOwnedWindowsServiceConfig(config) {
+		return errWindowsServiceNameConflict
+	}
+	return nil
 }
 
 func windowsServiceRecoveryActions() []mgr.RecoveryAction {
@@ -258,19 +306,14 @@ func restartWindowsService() error {
 }
 
 func uninstallWindowsService() error {
-	manager, err := mgr.Connect()
-	if err != nil {
-		return fmt.Errorf("connect to Windows service manager: %w", err)
-	}
-	defer manager.Disconnect()
-	service, err := manager.OpenService(windowsServiceName)
-	if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+	service, closeService, err := openWindowsService()
+	if errors.Is(err, errWindowsServiceNotInstalled) {
 		return removeWindowsEventLogSource()
 	}
 	if err != nil {
-		return fmt.Errorf("open Windows service: %w", err)
+		return err
 	}
-	defer service.Close()
+	defer closeService()
 	if err := stopOpenedWindowsService(service); err != nil {
 		return err
 	}
@@ -331,6 +374,11 @@ func openWindowsService() (*mgr.Service, func(), error) {
 		}
 		return nil, func() {}, fmt.Errorf("open Windows service: %w", err)
 	}
+	if err := validateOwnedWindowsService(service); err != nil {
+		service.Close()
+		manager.Disconnect()
+		return nil, func() {}, err
+	}
 	return service, func() {
 		service.Close()
 		manager.Disconnect()
@@ -338,25 +386,34 @@ func openWindowsService() (*mgr.Service, func(), error) {
 }
 
 func waitWindowsServiceState(service *mgr.Service, wanted svc.State) error {
-	deadline := time.Now().Add(windowsServiceWaitTimeout)
-	for {
-		status, err := service.Query()
-		if err != nil {
-			return fmt.Errorf("query Windows service state: %w", err)
-		}
-		if status.State == wanted {
-			return nil
-		}
-		if wanted == svc.Running && status.State == svc.Stopped {
-			return fmt.Errorf(
-				"Windows service stopped during startup with exit code %d/%d",
-				status.Win32ExitCode,
-				status.ServiceSpecificExitCode,
-			)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for Windows service state %d", wanted)
-		}
-		time.Sleep(windowsServicePollDelay)
+	return waitForServiceState(
+		func() (serviceWaitStatus, error) {
+			return queryWindowsServiceWaitStatus(service)
+		},
+		uint32(wanted),
+		uint32(svc.Stopped),
+		time.Now,
+		time.Sleep,
+	)
+}
+
+func queryWindowsServiceWaitStatus(service *mgr.Service) (serviceWaitStatus, error) {
+	var status windows.SERVICE_STATUS_PROCESS
+	var bytesNeeded uint32
+	if err := windows.QueryServiceStatusEx(
+		service.Handle,
+		windows.SC_STATUS_PROCESS_INFO,
+		(*byte)(unsafe.Pointer(&status)),
+		uint32(unsafe.Sizeof(status)),
+		&bytesNeeded,
+	); err != nil {
+		return serviceWaitStatus{}, err
 	}
+	return serviceWaitStatus{
+		state:                   status.CurrentState,
+		checkPoint:              status.CheckPoint,
+		waitHint:                status.WaitHint,
+		win32ExitCode:           status.Win32ExitCode,
+		serviceSpecificExitCode: status.ServiceSpecificExitCode,
+	}, nil
 }

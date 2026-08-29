@@ -16,24 +16,27 @@ func TestParseServiceCommandAcceptsPublicActions(t *testing.T) {
 	}
 }
 
-func TestParseServiceCommandAcceptsExplicitInstallDirectories(t *testing.T) {
-	command, err := parseServiceCommand([]string{
-		"install",
-		"--config-dir", `C:\ProgramData\GPT-Load`,
-		"--data-dir", `C:\ProgramData\GPT-Load\data`,
-	})
+func TestParseServiceCommandAcceptsHiddenRunWithoutOptions(t *testing.T) {
+	command, err := parseServiceCommand([]string{"run"})
 	if err != nil {
-		t.Fatalf("parseServiceCommand() error = %v", err)
+		t.Fatalf("parseServiceCommand(run) error = %v", err)
 	}
-	if command.configDir != `C:\ProgramData\GPT-Load` ||
-		command.dataDir != `C:\ProgramData\GPT-Load\data` {
-		t.Fatalf("directories = %#v", command)
+	if command.action != "run" {
+		t.Fatalf("action = %q, want run", command.action)
 	}
 }
 
-func TestParseServiceCommandRejectsHiddenRunWithoutDirectories(t *testing.T) {
-	if _, err := parseServiceCommand([]string{"run"}); err == nil {
-		t.Fatal("parseServiceCommand(run) error = nil, want explicit directory requirement")
+func TestParseServiceCommandRejectsCustomServiceDirectories(t *testing.T) {
+	for _, action := range []string{"install", "run"} {
+		t.Run(action, func(t *testing.T) {
+			if _, err := parseServiceCommand([]string{
+				action,
+				"--config-dir", `C:\ProgramData\GPT-Load`,
+				"--data-dir", `C:\ProgramData\GPT-Load\data`,
+			}); err == nil {
+				t.Fatal("parseServiceCommand() error = nil, want fixed-directory enforcement")
+			}
+		})
 	}
 }
 

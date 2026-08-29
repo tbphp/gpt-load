@@ -20,16 +20,16 @@ import (
 )
 
 const (
-	windowsServicePendingInterval = 2 * time.Second
-	windowsServiceStartWaitHint   = 30 * time.Second
+	windowsServiceStartTimeout    = 2 * time.Minute
+	windowsServiceStartWaitBuffer = 5 * time.Second
 	windowsServiceStopWaitBuffer  = 5 * time.Second
 	windowsServiceMinStopWaitHint = 10 * time.Second
 )
 
 type windowsServiceHandler struct {
-	newRuntime      func() (*managedRuntime, error)
-	pendingInterval time.Duration
-	reportFailure   func(error)
+	newRuntime     func() (*managedRuntime, error)
+	startupTimeout time.Duration
+	reportFailure  func(error)
 
 	mu     sync.Mutex
 	runErr error
@@ -49,9 +49,9 @@ func dispatchServiceCommand(args []string, stdout, stderr io.Writer) int {
 
 	switch command.action {
 	case "run":
-		err = runWindowsService(command.configDir, command.dataDir)
+		err = runWindowsService()
 	case "install":
-		err = installWindowsService(command.configDir, command.dataDir)
+		err = installWindowsService()
 	case "start":
 		err = startWindowsService()
 	case "stop":
@@ -77,14 +77,14 @@ func dispatchServiceCommand(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runWindowsService(configDir string, dataDir string) error {
-	configDir, dataDir, err := normalizeWindowsServiceDirectories(configDir, dataDir)
+func runWindowsService() error {
+	configDir, dataDir, err := defaultWindowsServiceDirectories()
 	if err != nil {
 		return err
 	}
 	handler := &windowsServiceHandler{
-		pendingInterval: windowsServicePendingInterval,
-		reportFailure:   reportWindowsServiceFailure,
+		startupTimeout: windowsServiceStartTimeout,
+		reportFailure:  reportWindowsServiceFailure,
 		newRuntime: func() (*managedRuntime, error) {
 			if err := securefile.UseWindowsServiceACL(windowsServiceName); err != nil {
 				return nil, fmt.Errorf("configure Windows service ACL: %w", err)
@@ -116,14 +116,14 @@ func (handler *windowsServiceHandler) Execute(
 	requests <-chan svc.ChangeRequest,
 	changes chan<- svc.Status,
 ) (bool, uint32) {
-	interval := handler.pendingInterval
-	if interval <= 0 {
-		interval = windowsServicePendingInterval
+	startupTimeout := handler.startupTimeout
+	if startupTimeout <= 0 {
+		startupTimeout = windowsServiceStartTimeout
 	}
 	current := svc.Status{
 		State:      svc.StartPending,
 		CheckPoint: 1,
-		WaitHint:   durationMilliseconds(windowsServiceStartWaitHint),
+		WaitHint:   durationMilliseconds(startupTimeout + windowsServiceStartWaitBuffer),
 	}
 	changes <- current
 
@@ -136,14 +136,22 @@ func (handler *windowsServiceHandler) Execute(
 		started <- windowsRuntimeStartResult{runtime: runtime, err: err}
 	}()
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	startupTimer := time.NewTimer(startupTimeout)
+	stopStartupTimer := func() {
+		if !startupTimer.Stop() {
+			select {
+			case <-startupTimer.C:
+			default:
+			}
+		}
+	}
 	stopAfterStart := false
 	var runtime *managedRuntime
 	for runtime == nil {
 		select {
 		case result := <-started:
 			if result.err != nil {
+				stopStartupTimer()
 				handler.fail(result.err)
 				return true, 1
 			}
@@ -155,11 +163,13 @@ func (handler *windowsServiceHandler) Execute(
 			case svc.Stop, svc.Shutdown, svc.PreShutdown:
 				stopAfterStart = true
 			}
-		case <-ticker.C:
-			current.CheckPoint++
-			changes <- current
+		case <-startupTimer.C:
+			err := fmt.Errorf("Windows service startup timed out after %s", startupTimeout)
+			handler.fail(err)
+			return true, 1
 		}
 	}
+	stopStartupTimer()
 
 	current = svc.Status{
 		State:   svc.Running,
@@ -202,6 +212,12 @@ func (handler *windowsServiceHandler) Execute(
 	for {
 		select {
 		case stopErr := <-stopped:
+			if stopAfterStart {
+				if stopErr != nil {
+					handler.report(stopErr)
+				}
+				return false, 0
+			}
 			terminalErr = errors.Join(terminalErr, stopErr)
 			if terminalErr != nil {
 				handler.fail(terminalErr)
@@ -212,9 +228,6 @@ func (handler *windowsServiceHandler) Execute(
 			if request.Cmd == svc.Interrogate {
 				changes <- current
 			}
-		case <-ticker.C:
-			current.CheckPoint++
-			changes <- current
 		}
 	}
 }
@@ -223,6 +236,10 @@ func (handler *windowsServiceHandler) fail(err error) {
 	handler.mu.Lock()
 	handler.runErr = err
 	handler.mu.Unlock()
+	handler.report(err)
+}
+
+func (handler *windowsServiceHandler) report(err error) {
 	if handler.reportFailure != nil {
 		handler.reportFailure(err)
 	}
