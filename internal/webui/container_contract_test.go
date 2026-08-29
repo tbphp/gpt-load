@@ -331,6 +331,16 @@ func TestDockerfileCopiesLocalCPAEmbeddedModuleBeforeGoModuleDownload(t *testing
 	}
 }
 
+func TestDockerfileSourceBuildCopiesAllRootGoSources(t *testing.T) {
+	content := readRepositoryFile(t, "Dockerfile")
+	if !strings.Contains(content, "COPY *.go ./") {
+		t.Fatal("Dockerfile source build does not copy all root Go sources")
+	}
+	if strings.Contains(content, "COPY main.go ./") {
+		t.Fatal("Dockerfile source build still copies only main.go")
+	}
+}
+
 func TestDockerfileDistributesDeclaredThirdPartyLicenseTexts(t *testing.T) {
 	content := readRepositoryFile(t, "Dockerfile")
 	for _, required := range []string{

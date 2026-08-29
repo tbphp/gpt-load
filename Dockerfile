@@ -29,7 +29,7 @@ COPY go.mod go.sum ./
 COPY third_party/cpaembedded/go.mod third_party/cpaembedded/go.sum ./third_party/cpaembedded/
 RUN go mod download
 
-COPY main.go ./
+COPY *.go ./
 COPY internal ./internal
 COPY third_party/cpaembedded ./third_party/cpaembedded
 COPY --from=web-builder /build/internal/webui/dist ./internal/webui/dist
