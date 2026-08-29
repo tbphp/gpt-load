@@ -52,6 +52,225 @@ func TestValidationWorkerUsesExplicitModelAndCanonicalRepresentativeProtocol(t *
 	}
 }
 
+func TestValidationWorkerFallsBackToEmbeddingsAfterExplicitModelRejection(t *testing.T) {
+	t.Parallel()
+
+	worker := newValidationWorkerForTest(
+		validationSnapshot(map[uint]state.GroupView{
+			1: validationGroup(
+				[]protocol.Protocol{protocol.OpenAICompletions},
+				"embedding-only-model",
+				nil,
+			),
+		}),
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		&validationProbeRecorder{},
+	)
+	var attempts []execution.AttemptSpec
+	worker.executor = scriptedDiscoveryExecutor{execute: func(
+		_ context.Context,
+		spec execution.AttemptSpec,
+	) execution.AttemptResult {
+		attempts = append(attempts, spec.Clone())
+		if spec.ClientProtocol == protocol.OpenAICompletions {
+			return validationStartedProbeFailure(
+				http.StatusBadRequest,
+				execution.FailureHintModelUnavailable,
+				execution.ErrorScopeModel,
+				"model_not_found",
+				"not a chat model",
+			)
+		}
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{},
+		}
+	}}
+
+	worker.Validate(context.Background())
+
+	if len(attempts) != 2 ||
+		attempts[0].ClientProtocol != protocol.OpenAICompletions ||
+		attempts[1].ClientProtocol != protocol.OpenAIEmbeddings ||
+		attempts[0].Operation != execution.OperationProbe ||
+		attempts[1].Operation != execution.OperationProbe ||
+		attempts[0].UpstreamModel != "embedding-only-model" ||
+		attempts[1].UpstreamModel != "embedding-only-model" ||
+		attempts[0].RequestID != attempts[1].RequestID ||
+		attempts[0].AttemptID == attempts[1].AttemptID ||
+		attempts[0].Sequence != 1 || attempts[1].Sequence != 2 {
+		t.Fatalf("probe attempts = %#v", attempts)
+	}
+	for _, attempt := range attempts {
+		if attempt.Method != "" || attempt.Path != "" || len(attempt.Body) != 0 {
+			t.Fatalf("semantic probe contains provider wire shape: %#v", attempt)
+		}
+	}
+	if got, want := worker.recorder.events(), []string{
+		fmt.Sprintf("registry.weight:7:%d", state.DefaultWeight),
+		"registry.recover:7",
+		"stats.reset:7",
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("recovery events = %#v, want %#v", got, want)
+	}
+}
+
+func TestValidationWorkerKeepsCredentialBlacklistedWhenEmbeddingsFallbackFails(t *testing.T) {
+	t.Parallel()
+
+	worker := newValidationWorkerForTest(
+		validationSnapshot(map[uint]state.GroupView{
+			1: validationGroup(
+				[]protocol.Protocol{protocol.OpenAICompletions},
+				"embedding-only-model",
+				nil,
+			),
+		}),
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		&validationProbeRecorder{},
+	)
+	var protocols []protocol.Protocol
+	worker.executor = scriptedDiscoveryExecutor{execute: func(
+		_ context.Context,
+		spec execution.AttemptSpec,
+	) execution.AttemptResult {
+		protocols = append(protocols, spec.ClientProtocol)
+		if spec.ClientProtocol == protocol.OpenAICompletions {
+			return validationStartedProbeFailure(
+				http.StatusBadRequest,
+				execution.FailureHintModelUnavailable,
+				execution.ErrorScopeModel,
+				"model_not_found",
+				"not a chat model",
+			)
+		}
+		return validationStartedProbeFailure(
+			http.StatusTooManyRequests,
+			execution.FailureHintRateLimited,
+			execution.ErrorScopeCredential,
+			"rate_limit",
+			"rate limited",
+		)
+	}}
+
+	worker.Validate(context.Background())
+
+	if !reflect.DeepEqual(protocols, []protocol.Protocol{
+		protocol.OpenAICompletions,
+		protocol.OpenAIEmbeddings,
+	}) {
+		t.Fatalf("probe protocols = %#v", protocols)
+	}
+	if events := worker.recorder.events(); len(events) != 0 {
+		t.Fatalf("recovery events = %#v, want none", events)
+	}
+}
+
+func TestValidationProbeEmbeddingsFallbackEvidenceIsNarrow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		result execution.AttemptResult
+		want   bool
+	}{
+		{name: "model unavailable", result: validationStartedProbeFailure(
+			http.StatusBadRequest, execution.FailureHintModelUnavailable,
+			execution.ErrorScopeModel, "model_not_found", "not a chat model",
+		), want: true},
+		{name: "unsupported operation code", result: validationStartedProbeFailure(
+			http.StatusBadRequest, execution.FailureHintRequestRejected,
+			execution.ErrorScopeRequest, "unsupported_operation", "operation is not supported",
+		), want: true},
+		{name: "method not allowed", result: validationStartedProbeFailure(
+			http.StatusMethodNotAllowed, "", execution.ErrorScopeRequest, "", "method not allowed",
+		), want: true},
+		{name: "not implemented", result: validationStartedProbeFailure(
+			http.StatusNotImplemented, "", execution.ErrorScopeRequest, "", "not implemented",
+		), want: true},
+		{name: "generic invalid request", result: validationStartedProbeFailure(
+			http.StatusBadRequest, execution.FailureHintRequestRejected,
+			execution.ErrorScopeRequest, "invalid_request", "invalid request",
+		)},
+		{name: "unsupported operation without trusted origin", result: validationProbeFailureWithOrigin(
+			validationStartedProbeFailure(
+				http.StatusBadRequest, execution.FailureHintRequestRejected,
+				execution.ErrorScopeRequest, "unsupported_operation", "operation is not supported",
+			), "",
+		)},
+		{name: "generic not found", result: validationStartedProbeFailure(
+			http.StatusNotFound, "", execution.ErrorScopeRequest, "", "endpoint not found",
+		)},
+		{name: "candidate unavailable", result: validationStartedProbeFailure(
+			http.StatusForbidden, execution.FailureHintCandidateUnavailable,
+			execution.ErrorScopeModel, "", "candidate unavailable",
+		)},
+		{name: "authentication", result: validationStartedProbeFailure(
+			http.StatusUnauthorized, execution.FailureHintInvalidCredential,
+			execution.ErrorScopeCredential, "invalid_api_key", "invalid key",
+		)},
+		{name: "rate limited", result: validationStartedProbeFailure(
+			http.StatusTooManyRequests, execution.FailureHintRateLimited,
+			execution.ErrorScopeCredential, "rate_limit", "rate limited",
+		)},
+		{name: "host error", result: validationStartedProbeFailure(
+			http.StatusServiceUnavailable, execution.FailureHintHostError,
+			execution.ErrorScopeGroup, "service_unavailable", "unavailable",
+		)},
+		{name: "transport before response", result: execution.AttemptResult{
+			DispatchState: execution.DispatchMaybeSent,
+			Error: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindTransport, OriginHint: execution.ErrorOriginUpstream,
+				ScopeHint: execution.ErrorScopeGroup, Summary: "connection reset",
+			},
+		}},
+		{name: "invalid result", result: execution.AttemptResult{
+			DispatchState: execution.DispatchNotSent, ResponseStarted: true,
+			StatusCode: http.StatusBadRequest,
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := validationProbeNeedsEmbeddingsFallback(test.result); got != test.want {
+				t.Fatalf("validationProbeNeedsEmbeddingsFallback() = %t, want %t; result=%#v", got, test.want, test.result)
+			}
+		})
+	}
+}
+
+func validationStartedProbeFailure(
+	status int,
+	hint execution.FailureHint,
+	scope execution.ErrorScope,
+	code string,
+	summary string,
+) execution.AttemptResult {
+	origin := execution.ErrorOriginUpstream
+	if hint == execution.FailureHintRequestRejected {
+		origin = execution.ErrorOriginClient
+	}
+	return execution.AttemptResult{
+		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		StatusCode: status, Header: http.Header{},
+		Error: &execution.ErrorEvidence{
+			Kind: execution.ErrorKindHTTP, Hint: hint,
+			OriginHint: origin, ScopeHint: scope,
+			StatusCode: status, Code: code, Summary: summary,
+			ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+		},
+	}
+}
+
+func validationProbeFailureWithOrigin(
+	result execution.AttemptResult,
+	origin execution.ErrorOrigin,
+) execution.AttemptResult {
+	result.Error.OriginHint = origin
+	return result
+}
+
 func TestBuildGroupValidationTargetSkipsSubscriptionGroups(t *testing.T) {
 	t.Parallel()
 

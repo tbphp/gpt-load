@@ -388,7 +388,7 @@ export default {
       title: 'Route inspector',
       description: 'Inspect candidate Groups and credentials by protocol, model, and access key.',
       boundary:
-        'Simulates a standard stateless request without conversation content or an affinity hit; Responses uses store:false, while Images checks generation only. Read-only, with no upstream request or token usage.',
+        'Simulates a standard stateless request without conversation content or an affinity hit; Responses uses store:false, Images checks generation only, and Embeddings checks creation only. Read-only, with no upstream request or token usage.',
       routeModes: {
         native: 'Native',
         converted: 'Protocol conversion',
@@ -406,6 +406,7 @@ export default {
         responses_passthrough: 'Responses extension operation',
         images_generate: 'Generate image',
         images_edit: 'Edit image',
+        embeddings_create: 'Create embeddings',
       },
       routeRequirements: {
         any: 'Allow protocol conversion (possibly lossy)',
@@ -788,6 +789,7 @@ export default {
         responses_passthrough: 'Responses resource passthrough',
         images_generate: 'Generate image',
         images_edit: 'Edit image',
+        embeddings_create: 'Create embeddings',
         list_models: 'List models',
         probe: 'Health probe',
       },

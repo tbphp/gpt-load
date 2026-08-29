@@ -17,7 +17,7 @@ interface CatalogSpec {
 }
 
 const metadata = computed(() => props.reference.model)
-const knownModalities = new Set(['audio', 'image', 'pdf', 'text', 'video'])
+const knownModalities = new Set(['audio', 'embedding', 'image', 'pdf', 'text', 'video'])
 const knownStatuses = new Set(['alpha', 'beta', 'deprecated'])
 
 const sourceLabel = computed(() =>

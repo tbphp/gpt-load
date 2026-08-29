@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/binary"
 	"hash"
+	"net/http"
 	"net/textproto"
 	"sort"
 	"strings"
@@ -62,9 +63,10 @@ type validationWorker struct {
 type groupValidationSignature [sha256.Size]byte
 
 type groupValidationTarget struct {
-	protocol  protocol.Protocol
-	model     string
-	signature groupValidationSignature
+	protocol         protocol.Protocol
+	fallbackProtocol protocol.Protocol
+	model            string
+	signature        groupValidationSignature
 }
 
 var _ validationSweep = (*validationWorker)(nil)
@@ -190,14 +192,14 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 	}
 	if !credentialProbePassed(executed.result) {
 		if ctx.Err() == nil {
-			logValidationFailure(ref, string(target.protocol), "probe")
+			logValidationFailure(ref, string(executed.protocol), "probe")
 		}
 		return
 	}
 
 	if worker.mutations == nil {
 		if ctx.Err() == nil {
-			logValidationFailure(ref, string(target.protocol), "conditional_recover")
+			logValidationFailure(ref, string(executed.protocol), "conditional_recover")
 		}
 		return
 	}
@@ -229,11 +231,11 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		return matched
 	})
 	if !recovered && ctx.Err() == nil {
-		logValidationFailure(ref, string(target.protocol), "conditional_recover")
+		logValidationFailure(ref, string(executed.protocol), "conditional_recover")
 		return
 	}
 	if recovered {
-		logValidationRecovery(ref, string(target.protocol))
+		logValidationRecovery(ref, string(executed.protocol))
 	}
 }
 
@@ -304,8 +306,18 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 	if !ok {
 		return groupValidationTarget{}, false
 	}
+	fallbackProtocol := protocol.Protocol("")
+	if selectedProtocol != protocol.OpenAIEmbeddings {
+		if mode, supported := group.ResolvedTarget.ModeForModel(
+			protocol.OpenAIEmbeddings,
+			execution.OperationProbe,
+			probeModel,
+		); supported && mode == channel.RouteNative {
+			fallbackProtocol = protocol.OpenAIEmbeddings
+		}
+	}
 	return groupValidationTarget{
-		protocol:  selectedProtocol,
+		protocol: selectedProtocol, fallbackProtocol: fallbackProtocol,
 		model:     probeModel,
 		signature: computeGroupValidationSignature(group, selectedProtocol, probeModel),
 	}, true
@@ -313,6 +325,66 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 
 func validationProtocol(target channel.ResolvedTarget, model string) (protocol.Protocol, bool) {
 	return target.PreferredProtocol(execution.OperationProbe, model)
+}
+
+func validationProbeNeedsEmbeddingsFallback(result execution.AttemptResult) bool {
+	if result.Validate() != nil || result.Error == nil ||
+		result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted {
+		return false
+	}
+	if result.Error.OriginHint != execution.ErrorOriginUpstream &&
+		result.Error.OriginHint != execution.ErrorOriginClient {
+		return false
+	}
+	evidence := result.Error
+	status := result.StatusCode
+	if status == 0 {
+		status = evidence.StatusCode
+	}
+	switch status {
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden,
+		http.StatusRequestTimeout, http.StatusConflict, http.StatusTooEarly,
+		http.StatusTooManyRequests:
+		return false
+	case http.StatusMethodNotAllowed, http.StatusNotImplemented:
+		return true
+	}
+	if status >= http.StatusInternalServerError ||
+		evidence.Hint == execution.FailureHintInvalidCredential ||
+		evidence.Hint == execution.FailureHintRefreshRequired ||
+		evidence.Hint == execution.FailureHintReauthorizationRequired ||
+		evidence.Hint == execution.FailureHintRateLimited ||
+		evidence.Hint == execution.FailureHintCandidateUnavailable ||
+		evidence.Hint == execution.FailureHintHostError {
+		return false
+	}
+	if evidence.Hint == execution.FailureHintModelUnavailable {
+		return true
+	}
+	for _, value := range []string{evidence.Type, evidence.Code} {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "model_not_found", "model_not_available", "deployment_not_found",
+			"unsupported_model", "unsupported_operation", "operation_not_supported",
+			"not_implemented":
+			return true
+		}
+	}
+	if evidence.Hint != execution.FailureHintRequestRejected {
+		return false
+	}
+	summary := strings.ToLower(evidence.Summary)
+	for _, marker := range []string{
+		"not a chat model",
+		"does not support chat completions",
+		"chat completions are not supported",
+		"not supported in the v1/chat/completions endpoint",
+		"operation is not supported",
+	} {
+		if strings.Contains(summary, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func computeGroupValidationSignature(

@@ -17,6 +17,7 @@ const (
 	responsesResourcePattern    = openAIResponsesPath + "/*resource_path"
 	openAIImagesGenerationsPath = "/v1/images/generations"
 	openAIImagesEditsPath       = "/v1/images/edits"
+	openAIEmbeddingsPath        = "/v1/embeddings"
 )
 
 type endpointKind uint8
@@ -104,6 +105,12 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			methods: []string{http.MethodPost},
 			path:    openAIImagesEditsPath,
 			resolve: staticRoute(protocol.OpenAIImages, endpointForward),
+		},
+		{
+			name:    "data.openai.embeddings",
+			methods: []string{http.MethodPost},
+			path:    openAIEmbeddingsPath,
+			resolve: staticRoute(protocol.OpenAIEmbeddings, endpointForward),
 		},
 	}
 }

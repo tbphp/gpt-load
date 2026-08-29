@@ -199,7 +199,7 @@ export default {
         remove: '删除费用规则',
       },
       allGroupsAllowed: '当前允许路由到全部分组',
-      allProtocolsAllowed: '当前允许全部 5 种规范协议',
+      allProtocolsAllowed: '当前允许全部 6 种规范协议',
       allModelsAllowed: '当前允许目标分组可路由的全部模型',
       scopeExpansionWarning: '把“指定”改为“全部”会扩大客户端权限，请确认当前范围符合预期。',
       save: '保存访问密钥',

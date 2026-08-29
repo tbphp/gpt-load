@@ -45,6 +45,91 @@ func TestJudgeExecutionProducesIndependentRetryAndEffect(t *testing.T) {
 	}
 }
 
+func TestEmbeddingsExecutionJudgePreservesUnifiedHealthAndReplayRules(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(100, 0)
+	tests := []struct {
+		name      string
+		attempt   ExecutionAttempt
+		category  FailureCategory
+		retry     RetryDirective
+		effect    Effect
+		wantScope execution.ErrorScope
+		wantRule  RuleID
+	}{
+		{
+			name: "model rejection does not hurt credential",
+			attempt: ExecutionAttempt{DispatchState: execution.DispatchMaybeSent,
+				StatusCode: http.StatusNotFound, Now: now,
+				Evidence: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintModelUnavailable,
+					OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeModel,
+					StatusCode: http.StatusNotFound, Code: "model_not_found",
+					Summary:      "model does not support embeddings",
+					ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				}},
+			category: FailureCategoryModelUnavailable, retry: RetryNextCandidate,
+			effect: EffectNone, wantScope: execution.ErrorScopeModel,
+			wantRule: "embeddings.model_unavailable",
+		},
+		{
+			name: "unsupported operation terminates without credential effect",
+			attempt: ExecutionAttempt{DispatchState: execution.DispatchMaybeSent,
+				StatusCode: http.StatusNotImplemented, Now: now,
+				Evidence: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRequestRejected,
+					OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeRequest,
+					StatusCode: http.StatusNotImplemented, Code: "unsupported_operation",
+					Summary: "operation is not supported",
+				}},
+			category: FailureCategoryClientError, retry: RetryNone,
+			effect: EffectNone, wantScope: execution.ErrorScopeRequest,
+			wantRule: "fallback.http_client_error",
+		},
+		{
+			name: "invalid credential keeps existing failure effect",
+			attempt: ExecutionAttempt{DispatchState: execution.DispatchMaybeSent,
+				StatusCode: http.StatusUnauthorized, Now: now,
+				Evidence: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintInvalidCredential,
+					OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeCredential,
+					StatusCode: http.StatusUnauthorized, Summary: "invalid credential",
+					ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				}},
+			category: FailureCategoryInvalidKey, retry: RetryNextCandidate,
+			effect: EffectRecordCredentialFailure, wantScope: execution.ErrorScopeCredential,
+			wantRule: "auth.invalid_credential",
+		},
+		{
+			name: "unknown timeout does not replay",
+			attempt: ExecutionAttempt{DispatchState: execution.DispatchMaybeSent, Now: now,
+				Evidence: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindTimeout, OriginHint: execution.ErrorOriginUpstream,
+					ScopeHint: execution.ErrorScopeGroup, Summary: "request timed out",
+					ReplaySafety: execution.ReplaySafetyUnknown,
+				}},
+			category: FailureCategoryAmbiguous, retry: RetryNone,
+			effect: EffectNone, wantScope: execution.ErrorScopeGroup,
+			wantRule: "transport.outcome_unknown",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			decision := JudgeExecution(test.attempt, DecisionContext{
+				Method: http.MethodPost, Operation: execution.OperationEmbeddingsCreate,
+			})
+			if decision.Category != test.category || decision.Retry != test.retry ||
+				decision.Effect != test.effect || decision.Scope != test.wantScope ||
+				decision.RuleID != test.wantRule {
+				t.Fatalf("JudgeExecution() = %#v", decision)
+			}
+		})
+	}
+}
+
 func TestJudgeExecutionCommittedKeepsOnlyTrustedCredentialEffect(t *testing.T) {
 	now := time.Date(2026, time.August, 24, 8, 0, 0, 0, time.UTC)
 	context := DecisionContext{DefaultRateLimitCooldown: time.Minute}

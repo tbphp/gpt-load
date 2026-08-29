@@ -118,6 +118,7 @@ export default {
       },
       modalities: {
         audio: '音声',
+        embedding: '埋め込み',
         image: '画像',
         pdf: 'PDF',
         text: 'テキスト',

@@ -13,6 +13,9 @@ func TestProtocolResourceLimits(t *testing.T) {
 	if got := UnaryResponseBodyLimit(protocol.OpenAIImages); got != 64<<20 {
 		t.Fatalf("Images unary response body limit = %d", got)
 	}
+	if got := UnaryResponseBodyLimit(protocol.OpenAIEmbeddings); got != 64<<20 {
+		t.Fatalf("Embeddings unary response body limit = %d", got)
+	}
 	if got := SSEEventLimit(protocol.OpenAICompletions); got != 10<<20 {
 		t.Fatalf("default SSE event limit = %d", got)
 	}

@@ -50,6 +50,7 @@ func TestProtocolKnownAndDataPlaneEnabled(t *testing.T) {
 		{value: OpenAICompletions, known: true, enabled: true},
 		{value: OpenAIResponses, known: true, enabled: true},
 		{value: OpenAIImages, known: true, enabled: true},
+		{value: OpenAIEmbeddings, known: true, enabled: true},
 		{value: Anthropic, known: true, enabled: true},
 		{value: Gemini, known: true, enabled: true},
 		{value: Protocol("openai"), known: false, enabled: false},
@@ -81,6 +82,7 @@ func TestProtocolModelOptionalRequestsAreLimitedToOpenAIResponses(t *testing.T) 
 	}{
 		{protocol: Protocol("openai-completions"), want: false},
 		{protocol: Protocol("openai-responses"), want: true},
+		{protocol: Protocol("openai-embeddings"), want: false},
 		{protocol: Protocol("anthropic"), want: false},
 		{protocol: Protocol("gemini"), want: false},
 	}
@@ -108,6 +110,7 @@ func TestDataPlaneProtocolsReturnsCanonicalOrderAndIndependentCopies(t *testing.
 		OpenAICompletions,
 		OpenAIResponses,
 		OpenAIImages,
+		OpenAIEmbeddings,
 		Anthropic,
 		Gemini,
 	}

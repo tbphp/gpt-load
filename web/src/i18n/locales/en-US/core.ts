@@ -1,6 +1,12 @@
 export default {
   common: {
     appName: 'GPT-Load',
+    protocols: {
+      openaiEmbeddings: {
+        label: 'OpenAI Embeddings',
+        description: 'OpenAI-compatible text embeddings · POST /v1/embeddings',
+      },
+    },
     retry: 'Retry',
     modelDiscoveryFailed: 'Discovery failed; draft unchanged',
     changeKey: 'Change sign-in key',

@@ -98,8 +98,16 @@ const groupOptionsQuery = useQuery(groupOptionsQueryOptions(client))
 const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const protocolOptions = computed(() => [
   { value: '', label: t('monitor.inspector.form.selectProtocol') },
-  ...enabledDataProtocols.map((value) => ({ value, label: value })),
+  ...enabledDataProtocols.map((value) => ({
+    value,
+    label: value === 'openai-embeddings' ? t('common.protocols.openaiEmbeddings.label') : value,
+  })),
 ])
+const protocolDescription = computed(() =>
+  draftProtocol.value === 'openai-embeddings'
+    ? t('common.protocols.openaiEmbeddings.description')
+    : undefined,
+)
 const configuredModels = computed(() =>
   [...new Set((groupOptionsQuery.data.value ?? []).flatMap((group) => group.models))].sort(
     (left, right) => left.localeCompare(right),
@@ -425,7 +433,7 @@ function modelLabel(value: string | null): string {
 }
 
 function protocolLabel(value: AccessProtocol): string {
-  return value
+  return value === 'openai-embeddings' ? t('common.protocols.openaiEmbeddings.label') : value
 }
 
 function formattedInteger(value: number): string {
@@ -544,6 +552,7 @@ onBeforeUnmount(() => {
   <div class="inspector-tab">
     <InspectorForm
       :protocol="draftProtocol"
+      :protocol-description="protocolDescription"
       :model="draftModel"
       :access-key-id="draftAccessKeyID"
       :protocol-options="protocolOptions"

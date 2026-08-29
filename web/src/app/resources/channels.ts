@@ -56,6 +56,7 @@ export type ChannelOperation =
   | 'responses_passthrough'
   | 'images_generate'
   | 'images_edit'
+  | 'embeddings_create'
   | 'list_models'
   | 'probe'
 
@@ -158,6 +159,7 @@ const operations = [
   'responses_passthrough',
   'images_generate',
   'images_edit',
+  'embeddings_create',
   'list_models',
   'probe',
 ] as const

@@ -65,6 +65,8 @@ func modelRewriter(clientProtocol protocol.Protocol) (dialect.ModelRewriter, err
 		return dialect.NewOpenAIResponses(), nil
 	case protocol.OpenAIImages:
 		return dialect.NewOpenAIImages(), nil
+	case protocol.OpenAIEmbeddings:
+		return dialect.NewOpenAIEmbeddings(), nil
 	case protocol.Anthropic:
 		return dialect.NewAnthropic(), nil
 	case protocol.Gemini:

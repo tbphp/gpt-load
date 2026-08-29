@@ -137,10 +137,14 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 | ----------------------- | -------------------------------------- |
 | OpenAI Chat Completions | `POST /v1/chat/completions`            |
 | OpenAI Responses        | `/v1/responses` and its resource paths |
+| OpenAI Images           | `POST /v1/images/...`                  |
+| OpenAI Embeddings       | `POST /v1/embeddings`                  |
 | Anthropic Messages      | `POST /v1/messages`                    |
 | Gemini                  | `/v1beta/models/...`                   |
 
 Each channel declares exactly which protocols and capabilities it can execute. GPT-Load converts between supported capabilities, but it is not a general-purpose any-protocol, any-JSON translator.
+
+Embeddings initially uses the native OpenAI-compatible wire only on the OpenAI, OpenRouter, and OpenAI Compatible API-key channels; subscription channels and protocol conversion are not supported. An AccessKey without a protocol filter keeps its existing “all enabled protocols” behavior and therefore gains Embeddings access after upgrade. Least-privilege deployments should configure an explicit protocol filter.
 
 ### Built-in channels
 
