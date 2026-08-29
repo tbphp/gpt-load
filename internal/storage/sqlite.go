@@ -25,7 +25,11 @@ type sqliteTarget struct {
 
 var hardenManagedFileIfExists = securefile.HardenManagedFileIfExists
 
-func openSQLite(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
+func openSQLite(
+	dsn string,
+	source config.DatabaseSource,
+	pool config.DatabasePoolConfig,
+) (*gorm.DB, error) {
 	target, err := parseSQLiteTarget(dsn)
 	if err != nil {
 		return nil, err
@@ -56,7 +60,7 @@ func openSQLite(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := openDatabase(config.DatabaseDriverSQLite, dialector)
+	db, err := openDatabase(config.DatabaseDriverSQLite, dialector, pool)
 	if err != nil {
 		return nil, err
 	}

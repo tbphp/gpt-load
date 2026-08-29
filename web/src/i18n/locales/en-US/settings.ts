@@ -63,6 +63,12 @@ export default {
       first_byte_timeout: 'Native response / stream first-event timeout',
       request_timeout: 'Total request timeout',
       stream_idle_timeout: 'Stream idle timeout',
+      retry_count: 'Extra retry count',
+      retryCountHelp:
+        'Maximum extra retries after the initial upstream attempt; 0 disables retries.',
+      blacklist_threshold: 'Consecutive-failure blacklist threshold',
+      blacklistThresholdHelp:
+        'A credential is blacklisted after this many consecutive failures; 0 disables automatic blacklisting.',
       validation_interval: 'Credential validation interval',
       inject_usage_options: 'Inject usage options for streaming responses',
       injectUsageHelp:
@@ -74,9 +80,12 @@ export default {
       environmentManaged:
         'This setting is managed by an environment variable and cannot be changed here.',
       seconds: 'seconds',
+      countUnit: 'times',
       timeoutError: 'Enter a positive safe integer no greater than 9,223,372,036.',
+      nonNegativeIntegerError: 'Enter 0 or a positive whole number.',
       valueFor: 'Value for {field}',
       effectiveValue: '{value} seconds',
+      effectiveCount: '{value} times',
       currentEffective: 'Current effective value',
       overrideValue: 'Explicit override value',
       defaultSource: 'Built-in default',

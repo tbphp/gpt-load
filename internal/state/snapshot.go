@@ -128,6 +128,8 @@ type GroupView struct {
 	Timeouts           TimeoutConfig
 	HeaderRules        HeaderRules
 	InjectUsageOptions bool
+	RetryCount         int
+	BlacklistThreshold int
 	AffinityEnabled    bool
 	WeightManual       *int
 	Proxy              outboundproxy.Effective
@@ -215,6 +217,8 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			Timeouts:           resolved.Timeouts,
 			HeaderRules:        resolved.HeaderRules,
 			InjectUsageOptions: resolved.InjectUsageOptions,
+			RetryCount:         resolved.RetryCount,
+			BlacklistThreshold: resolved.BlacklistThreshold,
 			AffinityEnabled:    resolved.AffinityEnabled,
 			WeightManual:       cloneWeight(group.WeightManual),
 			ConnectionType:     connection.Normalize(group.ConnectionType),

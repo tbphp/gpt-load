@@ -441,6 +441,8 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 			Remove: []string{"X-System-Remove"},
 		},
 		InjectUsageOptions:       true,
+		RetryCount:               2,
+		BlacklistThreshold:       3,
 		AffinityEnabled:          true,
 		AffinityTTL:              time.Hour,
 		AffinityCapacity:         10_000,

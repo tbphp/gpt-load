@@ -21,6 +21,8 @@ export const runtimeSettingKeys = [
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
+  'retry_count',
+  'blacklist_threshold',
   'header_rules',
   'inject_usage_options',
   'affinity_enabled',
@@ -34,6 +36,8 @@ export const runtimeSettingKeys = [
 export type RuntimeSettingKey = (typeof runtimeSettingKeys)[number]
 export type TimeoutSettingKey = Exclude<
   RuntimeSettingKey,
+  | 'retry_count'
+  | 'blacklist_threshold'
   | 'header_rules'
   | 'inject_usage_options'
   | 'affinity_enabled'
@@ -41,11 +45,14 @@ export type TimeoutSettingKey = Exclude<
   | 'request_log_retention_days'
   | 'models_dev_auto_sync_enabled'
 >
+export type PolicyCountSettingKey = 'retry_count' | 'blacklist_threshold'
 
 export interface SettingsValues {
   first_byte_timeout: number
   request_timeout: number
   stream_idle_timeout: number
+  retry_count: number
+  blacklist_threshold: number
   header_rules: HeaderRulesDto
   inject_usage_options: boolean
   affinity_enabled: boolean
@@ -67,6 +74,8 @@ export type SettingsPatch = Partial<{
   first_byte_timeout: number | null
   request_timeout: number | null
   stream_idle_timeout: number | null
+  retry_count: number | null
+  blacklist_threshold: number | null
   header_rules: HeaderRulesDto | null
   inject_usage_options: boolean | null
   affinity_enabled: boolean | null
@@ -137,6 +146,8 @@ export function projectSettings(value: unknown): SettingsDto {
       first_byte_timeout: projectSafeInteger(values.first_byte_timeout, { minimum: 1 }),
       request_timeout: projectSafeInteger(values.request_timeout, { minimum: 1 }),
       stream_idle_timeout: projectSafeInteger(values.stream_idle_timeout, { minimum: 1 }),
+      retry_count: projectSafeInteger(values.retry_count, { minimum: 0 }),
+      blacklist_threshold: projectSafeInteger(values.blacklist_threshold, { minimum: 0 }),
       header_rules: projectHeaderRules(values.header_rules),
       inject_usage_options: projectBoolean(values.inject_usage_options),
       affinity_enabled: projectBoolean(values.affinity_enabled),

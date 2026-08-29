@@ -36,7 +36,12 @@ import AffinitySettingsSection from './AffinitySettingsSection.vue'
 import LogsMaintenanceSection from './LogsMaintenanceSection.vue'
 import RuntimeSettingsSection from './RuntimeSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
-import { isValidAffinityCapacity, isValidRetention, isValidTimeout } from './settings-patch'
+import {
+  isValidAffinityCapacity,
+  isValidNonNegativeInteger,
+  isValidRetention,
+  isValidTimeout,
+} from './settings-patch'
 import { useSettingsController } from './use-settings-controller'
 import {
   isCanonicalSettingsRouteQuery,
@@ -170,6 +175,8 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
       return !isValidRetention(current.values.request_log_retention_days)
     if (key === 'affinity_capacity')
       return !isValidAffinityCapacity(current.values.affinity_capacity)
+    if (key === 'retry_count' || key === 'blacklist_threshold')
+      return !isValidNonNegativeInteger(current.values[key])
     return false
   })
 })

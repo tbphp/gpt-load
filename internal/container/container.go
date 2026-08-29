@@ -55,7 +55,7 @@ func BuildContainer() (*dig.Container, error) {
 			return encryption.NewServiceWithKeyFile(cfg.EncryptionKey, cfg.DataDir)
 		},
 		func(cfg *config.Config) (*gorm.DB, error) {
-			db, err := storage.OpenWithSource(cfg.DatabaseDSN, cfg.DatabaseMetadata.Source)
+			db, err := storage.OpenConfigured(cfg)
 			if err == nil {
 				logrus.WithField("event", "startup.database_open").Info("database opened")
 			}

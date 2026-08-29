@@ -7,6 +7,33 @@ import (
 	"gpt-load/internal/platform/config"
 )
 
+func TestDatabasePoolLimitsUseConfiguredValuesForNetworkDatabases(t *testing.T) {
+	pool := config.DatabasePoolConfig{
+		MaxOpenConnections: 24,
+		MaxIdleConnections: 12,
+	}
+
+	for _, driver := range []config.DatabaseDriver{
+		config.DatabaseDriverMySQL,
+		config.DatabaseDriverPostgreSQL,
+	} {
+		maxOpen, maxIdle := databasePoolLimits(driver, pool)
+		if maxOpen != 24 || maxIdle != 12 {
+			t.Fatalf("databasePoolLimits(%q) = %d/%d, want 24/12", driver, maxOpen, maxIdle)
+		}
+	}
+}
+
+func TestDatabasePoolLimitsForceSQLiteSingleConnection(t *testing.T) {
+	maxOpen, maxIdle := databasePoolLimits(config.DatabaseDriverSQLite, config.DatabasePoolConfig{
+		MaxOpenConnections: 24,
+		MaxIdleConnections: 12,
+	})
+	if maxOpen != 1 || maxIdle != 1 {
+		t.Fatalf("databasePoolLimits(SQLite) = %d/%d, want 1/1", maxOpen, maxIdle)
+	}
+}
+
 func TestNewDatabaseDialectorSelectsAllSupportedDrivers(t *testing.T) {
 	for _, test := range []struct {
 		name       string

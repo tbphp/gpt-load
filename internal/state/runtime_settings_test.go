@@ -22,6 +22,8 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 		StreamIdleTimeout:        300 * time.Second,
 		HeaderRules:              HeaderRules{Set: map[string]string{}},
 		InjectUsageOptions:       true,
+		RetryCount:               2,
+		BlacklistThreshold:       3,
 		AffinityEnabled:          true,
 		AffinityTTL:              time.Hour,
 		AffinityCapacity:         10_000,
@@ -31,6 +33,57 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 	}
 	if !reflect.DeepEqual(snapshot.Settings, want) {
 		t.Fatalf("Settings = %#v, want %#v", snapshot.Settings, want)
+	}
+}
+
+func TestRetryAndBlacklistCountsArePublicAndResolveByGroupPrecedence(t *testing.T) {
+	for key, value := range map[string]any{
+		SettingRetryCount:         json.Number("9007199254740991"),
+		SettingBlacklistThreshold: json.Number("0"),
+	} {
+		if !IsRuntimeSettingKey(key) {
+			t.Errorf("IsRuntimeSettingKey(%q) = false", key)
+		}
+		if err := ValidateRuntimeSetting(key, value); err != nil {
+			t.Errorf("ValidateRuntimeSetting(%q) error = %v", key, err)
+		}
+	}
+
+	system, err := ResolveRuntimeSettings(config.Settings{
+		SettingRetryCount:         json.Number("0"),
+		SettingBlacklistThreshold: json.Number("0"),
+	})
+	if err != nil {
+		t.Fatalf("ResolveRuntimeSettings() error = %v", err)
+	}
+	if system.RetryCount != 0 || system.BlacklistThreshold != 0 {
+		t.Fatalf("system policies = %#v", system)
+	}
+	resolved, err := ResolveGroupRuntimeSettings(system, config.Settings{
+		SettingRetryCount:         json.Number("4"),
+		SettingBlacklistThreshold: json.Number("5"),
+	})
+	if err != nil {
+		t.Fatalf("ResolveGroupRuntimeSettings() error = %v", err)
+	}
+	if resolved.RetryCount != 4 || resolved.BlacklistThreshold != 5 {
+		t.Fatalf("group policies = %#v", resolved)
+	}
+}
+
+func TestRetryAndBlacklistCountsRejectNegativeOrNonIntegralValues(t *testing.T) {
+	for _, key := range []string{SettingRetryCount, SettingBlacklistThreshold} {
+		for _, value := range []any{
+			nil,
+			json.Number("-1"),
+			json.Number("1.5"),
+			json.Number("9007199254740992"),
+			"3",
+		} {
+			if err := ValidateRuntimeSetting(key, value); err == nil {
+				t.Errorf("ValidateRuntimeSetting(%q, %#v) accepted invalid value", key, value)
+			}
+		}
 	}
 }
 
@@ -409,6 +462,8 @@ func TestIsRuntimeSettingKeyRecognizesOnlyPublicRuntimeKeys(t *testing.T) {
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
 		SettingInjectUsageOptions,
+		SettingRetryCount,
+		SettingBlacklistThreshold,
 		SettingAffinityEnabled,
 		SettingAffinityTTL,
 		SettingAffinityCapacity,
@@ -419,7 +474,7 @@ func TestIsRuntimeSettingKeyRecognizesOnlyPublicRuntimeKeys(t *testing.T) {
 			t.Errorf("IsRuntimeSettingKey(%q) = false", key)
 		}
 	}
-	for _, key := range []string{"", "retry_count", "_internal.bootstrap"} {
+	for _, key := range []string{"", "retry_enabled", "blacklist_enabled", "_internal.bootstrap"} {
 		if IsRuntimeSettingKey(key) {
 			t.Errorf("IsRuntimeSettingKey(%q) = true", key)
 		}
