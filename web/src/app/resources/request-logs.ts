@@ -52,6 +52,7 @@ export type RequestLogOperation =
   | 'responses_passthrough'
   | 'images_generate'
   | 'images_edit'
+  | 'embeddings_create'
   | 'list_models'
   | 'probe'
 export type RequestLogRouteMode = 'native' | 'converted'
@@ -238,6 +239,7 @@ const operations = [
   'responses_passthrough',
   'images_generate',
   'images_edit',
+  'embeddings_create',
   'list_models',
   'probe',
 ] as const

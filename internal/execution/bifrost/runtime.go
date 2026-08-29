@@ -209,6 +209,7 @@ func providerConfig(baseURL string, custom bool, baseProvider schemas.ModelProvi
 				ListModels:           true,
 				ChatCompletion:       true,
 				ChatCompletionStream: true,
+				Embedding:            true,
 				Passthrough:          true,
 				PassthroughStream:    true,
 			},
@@ -219,6 +220,7 @@ func providerConfig(baseURL string, custom bool, baseProvider schemas.ModelProvi
 			customConfig.RequestPathOverrides = map[schemas.RequestType]string{
 				schemas.ChatCompletionRequest:       baseURL + "/chat/completions",
 				schemas.ChatCompletionStreamRequest: baseURL + "/chat/completions",
+				schemas.EmbeddingRequest:            baseURL + "/embeddings",
 			}
 		}
 		config.CustomProviderConfig = customConfig

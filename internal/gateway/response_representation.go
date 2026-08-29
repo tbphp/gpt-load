@@ -55,9 +55,10 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	if err != nil {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("unsupported or malformed Content-Encoding")
 	}
-	imagesRepresentation := input.ClientProtocol == protocol.OpenAIImages
+	opaqueRepresentation := input.ClientProtocol == protocol.OpenAIImages ||
+		input.ClientProtocol == protocol.OpenAIEmbeddings
 	var originalPlain []byte
-	if imagesRepresentation && encoding == contentcoding.Identity {
+	if opaqueRepresentation && encoding == contentcoding.Identity {
 		// The buffered attempt result owns wire for the duration of this terminal
 		// representation step. Keep the identity bytes instead of copying a large
 		// base64 payload before exact credential inspection.
@@ -76,8 +77,8 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	modelTracker.observe(originalPlain)
 
 	var safePlain []byte
-	if imagesRepresentation {
-		if imagesCredentialLiteralsRemain(originalPlain, secrets) {
+	if opaqueRepresentation {
+		if opaqueCredentialLiteralsRemain(input.ClientProtocol, originalPlain, secrets) {
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
 		}
 		safePlain = originalPlain
@@ -102,30 +103,45 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	}
 
 	inspectablePlain := safePlain
-	if !imagesRepresentation {
+	if !opaqueRepresentation {
 		inspectablePlain = bytes.Clone(safePlain)
 	}
 	downstreamPlain := safePlain
 	if needsModelRewrite(input) {
-		rewriter, supported := input.Dialect.(dialect.ModelRewriter)
-		if !supported {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("dialect does not support model rewrite")
+		rewriteModel := true
+		if input.ClientProtocol == protocol.OpenAIEmbeddings {
+			if required, valid := embeddingsResponseModelRewriteRequired(
+				safePlain,
+				input.ExternalModel,
+			); valid {
+				rewriteModel = required
+			}
 		}
-		downstreamPlain, err = rewriter.RewriteResponseModel(safePlain, input.ExternalModel)
-		if err != nil {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("rewrite response model")
-		}
-		if int64(len(downstreamPlain)) > bodyLimit {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("rewritten response body exceeds limit")
-		}
-		var credentialRemains bool
-		if imagesRepresentation {
-			credentialRemains = imagesCredentialLiteralsRemain(downstreamPlain, secrets)
-		} else {
-			credentialRemains = credentialLiteralsRemain(downstreamPlain, secrets)
-		}
-		if credentialRemains {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains after model rewrite")
+		if rewriteModel {
+			rewriter, supported := input.Dialect.(dialect.ModelRewriter)
+			if !supported {
+				return preparedSuccessRepresentation{}, successRepresentationProtocolError("dialect does not support model rewrite")
+			}
+			downstreamPlain, err = rewriter.RewriteResponseModel(safePlain, input.ExternalModel)
+			if err != nil {
+				return preparedSuccessRepresentation{}, successRepresentationProtocolError("rewrite response model")
+			}
+			if int64(len(downstreamPlain)) > bodyLimit {
+				return preparedSuccessRepresentation{}, successRepresentationProtocolError("rewritten response body exceeds limit")
+			}
+			var credentialRemains bool
+			if opaqueRepresentation {
+				credentialRemains = opaqueCredentialLiteralsRemain(
+					input.ClientProtocol,
+					downstreamPlain,
+					secrets,
+				)
+			} else {
+				credentialRemains = credentialLiteralsRemain(downstreamPlain, secrets)
+			}
+			if credentialRemains {
+				return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains after model rewrite")
+			}
 		}
 	}
 
@@ -171,13 +187,35 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("partial response lacks safe Content-Range")
 	}
 
+	downstream := downstreamPlain
+	if input.ClientProtocol != protocol.OpenAIEmbeddings {
+		downstream = bytes.Clone(downstreamPlain)
+	}
 	return preparedSuccessRepresentation{
 		headers:          preparedHeaders,
-		downstream:       bytes.Clone(downstreamPlain),
+		downstream:       downstream,
 		inspectable:      inspectablePlain,
 		modelObservation: modelTracker.observation(),
 		changed:          changed,
 	}, nil
+}
+
+func embeddingsResponseModelRewriteRequired(body []byte, model string) (bool, bool) {
+	var envelope struct {
+		Model json.RawMessage `json:"model"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return false, false
+	}
+	raw := bytes.TrimSpace(envelope.Model)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return false, true
+	}
+	var current string
+	if err := json.Unmarshal(raw, &current); err != nil {
+		return false, false
+	}
+	return current != model, true
 }
 
 func (forwarder *responseProcessor) prepareErrorRepresentation(
@@ -617,6 +655,153 @@ func imagesCredentialLiteralsRemain(body []byte, secrets []string) bool {
 		return credentialLiteralRemains(string(body), replacers.residual)
 	}
 	return imagesJSONCredentialLiteralsRemain(value, replacers.residual)
+}
+
+func embeddingsCredentialLiteralsRemain(body []byte, secrets []string) bool {
+	replacers, exists := newCredentialLiteralReplacers(secrets)
+	if !exists {
+		return false
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	remains, err := scanEmbeddingsCredentialValue(
+		decoder,
+		replacers.residual,
+		embeddingsJSONRoot,
+	)
+	if err != nil || remains {
+		return true
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return true
+	}
+	return false
+}
+
+func opaqueCredentialLiteralsRemain(
+	clientProtocol protocol.Protocol,
+	body []byte,
+	secrets []string,
+) bool {
+	if clientProtocol == protocol.OpenAIEmbeddings {
+		return embeddingsCredentialLiteralsRemain(body, secrets)
+	}
+	return imagesCredentialLiteralsRemain(body, secrets)
+}
+
+type embeddingsJSONLocation uint8
+
+const (
+	embeddingsJSONRoot embeddingsJSONLocation = iota
+	embeddingsJSONDataArray
+	embeddingsJSONDataItem
+	embeddingsJSONOpaqueVector
+	embeddingsJSONOther
+)
+
+// scanEmbeddingsCredentialValue walks one JSON value without materializing the
+// potentially large vector. Root data[*].embedding stays opaque across scalar
+// and array tokens; object subtrees and same-named extension fields remain
+// subject to exact credential inspection.
+func scanEmbeddingsCredentialValue(
+	decoder *json.Decoder,
+	residual *strings.Replacer,
+	location embeddingsJSONLocation,
+) (bool, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return false, err
+	}
+	switch typed := token.(type) {
+	case json.Delim:
+		switch typed {
+		case '{':
+			if location == embeddingsJSONOpaqueVector {
+				location = embeddingsJSONOther
+			}
+			dataSeen := false
+			embeddingSeen := false
+			for decoder.More() {
+				keyToken, keyErr := decoder.Token()
+				if keyErr != nil {
+					return false, keyErr
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return false, fmt.Errorf("JSON object key is not a string")
+				}
+				if location == embeddingsJSONRoot && key == "data" {
+					if dataSeen {
+						return false, fmt.Errorf("duplicate root data field")
+					}
+					dataSeen = true
+				}
+				valueIsVector := location == embeddingsJSONDataItem && key == "embedding"
+				if valueIsVector {
+					if embeddingSeen {
+						return false, fmt.Errorf("duplicate embedding field")
+					}
+					embeddingSeen = true
+				}
+				if location != embeddingsJSONOpaqueVector && !valueIsVector &&
+					credentialLiteralRemains(key, residual) {
+					return true, nil
+				}
+				nextLocation := embeddingsJSONOther
+				switch {
+				case location == embeddingsJSONRoot && key == "data":
+					nextLocation = embeddingsJSONDataArray
+				case valueIsVector:
+					nextLocation = embeddingsJSONOpaqueVector
+				case location == embeddingsJSONOpaqueVector:
+					nextLocation = embeddingsJSONOpaqueVector
+				}
+				remains, valueErr := scanEmbeddingsCredentialValue(
+					decoder,
+					residual,
+					nextLocation,
+				)
+				if valueErr != nil || remains {
+					return remains, valueErr
+				}
+			}
+			end, endErr := decoder.Token()
+			if endErr != nil || end != json.Delim('}') {
+				return false, fmt.Errorf("close JSON object")
+			}
+		case '[':
+			for decoder.More() {
+				nextLocation := embeddingsJSONOther
+				if location == embeddingsJSONDataArray {
+					nextLocation = embeddingsJSONDataItem
+				} else if location == embeddingsJSONOpaqueVector {
+					nextLocation = embeddingsJSONOpaqueVector
+				}
+				remains, valueErr := scanEmbeddingsCredentialValue(decoder, residual, nextLocation)
+				if valueErr != nil || remains {
+					return remains, valueErr
+				}
+			}
+			end, endErr := decoder.Token()
+			if endErr != nil || end != json.Delim(']') {
+				return false, fmt.Errorf("close JSON array")
+			}
+		default:
+			return false, fmt.Errorf("unexpected JSON delimiter")
+		}
+	case string:
+		if location != embeddingsJSONOpaqueVector && credentialLiteralRemains(typed, residual) {
+			return true, nil
+		}
+	case json.Number, bool, nil:
+		// Credentials are JSON strings. Numeric vector and usage values must not
+		// collide with short compatible-provider secrets such as "1".
+	default:
+		return false, fmt.Errorf("unexpected JSON token")
+	}
+	return false, nil
 }
 
 func imagesJSONCredentialLiteralsRemain(value any, residual *strings.Replacer) bool {

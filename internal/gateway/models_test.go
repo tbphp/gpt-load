@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -137,6 +138,75 @@ func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 				test.accessKey,
 				protocol.OpenAICompletions,
 			)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("visibleModelIDs() = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestVisibleOpenAIModelIDsIncludesEmbeddingRoutes(t *testing.T) {
+	t.Parallel()
+
+	snapshot := &state.ConfigSnapshot{ExecutionCandidates: state.ExecutionCandidateIndex{
+		protocol.OpenAICompletions: {
+			execution.OperationChatCompletion: {
+				"chat-only": {{GroupID: 1}},
+				"shared":    {{GroupID: 1}},
+			},
+		},
+		protocol.OpenAIEmbeddings: {
+			execution.OperationEmbeddingsCreate: {
+				"embedding-only": {{GroupID: 2}},
+				"shared":         {{GroupID: 2}},
+			},
+		},
+	}}
+
+	tests := []struct {
+		name      string
+		accessKey state.AccessKeyView
+		want      []string
+	}{
+		{
+			name: "unrestricted union",
+			want: []string{"chat-only", "embedding-only", "shared"},
+		},
+		{
+			name: "embedding protocol filter",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{
+				protocol.OpenAIEmbeddings: {},
+			}}},
+			want: []string{"embedding-only", "shared"},
+		},
+		{
+			name: "embedding protocol and matching group filters",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{
+				Protocols: map[protocol.Protocol]struct{}{protocol.OpenAIEmbeddings: {}},
+				Groups:    map[uint]struct{}{2: {}},
+			}},
+			want: []string{"embedding-only", "shared"},
+		},
+		{
+			name: "embedding protocol and nonmatching group filters",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{
+				Protocols: map[protocol.Protocol]struct{}{protocol.OpenAIEmbeddings: {}},
+				Groups:    map[uint]struct{}{1: {}},
+			}},
+			want: []string{},
+		},
+		{
+			name: "chat protocol filter excludes embedding-only routes",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{
+				protocol.OpenAICompletions: {},
+			}}},
+			want: []string{"chat-only", "shared"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := visibleModelIDs(snapshot, test.accessKey, protocol.OpenAICompletions)
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("visibleModelIDs() = %#v, want %#v", got, test.want)
 			}

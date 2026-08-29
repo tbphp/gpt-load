@@ -81,6 +81,36 @@ func TestCompileIndexesOpenAIImagesOperationsForAllConfiguredModels(t *testing.T
 	}
 }
 
+func TestCompileIndexesOpenAIEmbeddingsForAllConfiguredModels(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := Compile(CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []GroupConfig{
+			{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
+				Models: []ModelConfig{{ID: "text-embedding-3-small", Alias: "public"}}, Enabled: true},
+			{ConnectionType: "api_key", ID: 2, ChannelID: channel.OpenAICompatible,
+				Params: json.RawMessage(`{"base_url":"https://proxy.example/api/v4"}`),
+				Models: []ModelConfig{{ID: "Qwen/Qwen3-Embedding-8B", Alias: "public"}}, Enabled: true},
+			{ConnectionType: "api_key", ID: 3, ChannelID: channel.OpenRouter, Params: json.RawMessage(`{}`),
+				Models: []ModelConfig{{ID: "openai/text-embedding-3-small", Alias: "public"}}, Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	got := snapshot.ExecutionCandidates[protocol.OpenAIEmbeddings][execution.OperationEmbeddingsCreate]["public"]
+	if len(got) != 3 || got[0].GroupID != 1 || got[1].GroupID != 2 || got[2].GroupID != 3 {
+		t.Fatalf("Embeddings candidates = %#v", got)
+	}
+	for _, target := range got {
+		if target.Mode != channel.RouteNative {
+			t.Fatalf("Embeddings target = %#v, want native", target)
+		}
+	}
+}
+
 func TestCompileSubscriptionPublishesOnlyVerifiedCodexOperations(t *testing.T) {
 	t.Parallel()
 	snapshot, err := Compile(CompileInput{
@@ -107,6 +137,9 @@ func TestCompileSubscriptionPublishesOnlyVerifiedCodexOperations(t *testing.T) {
 	}
 	if got := snapshot.ExecutionCandidates[protocol.Gemini][execution.OperationCountTokens]["public"]; len(got) != 1 {
 		t.Fatalf("Gemini count token targets = %#v", got)
+	}
+	if got := snapshot.ExecutionCandidates[protocol.OpenAIEmbeddings]; len(got) != 0 {
+		t.Fatalf("subscription Embeddings targets = %#v, want none", got)
 	}
 	for _, operation := range []execution.Operation{
 		execution.OperationResponsesRetrieve, execution.OperationResponsesDelete,

@@ -61,6 +61,9 @@ func nativeRouteImplemented(
 ) bool {
 	switch providerKind {
 	case channel.ProviderOpenAI:
+		if clientProtocol == protocol.OpenAIEmbeddings {
+			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
+		}
 		if clientProtocol == protocol.OpenAIImages {
 			return operation == execution.OperationImagesGenerate || operation == execution.OperationImagesEdit
 		}
@@ -70,6 +73,9 @@ func nativeRouteImplemented(
 	case channel.ProviderGemini:
 		return clientProtocol == protocol.Gemini && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderOpenAICompatible:
+		if clientProtocol == protocol.OpenAIEmbeddings {
+			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
+		}
 		if clientProtocol == protocol.OpenAIImages {
 			return operation == execution.OperationImagesGenerate || operation == execution.OperationImagesEdit
 		}
@@ -83,7 +89,12 @@ func nativeRouteImplemented(
 		default:
 			return false
 		}
-	case channel.ProviderOpenRouter, channel.ProviderXAI:
+	case channel.ProviderOpenRouter:
+		if clientProtocol == protocol.OpenAIEmbeddings {
+			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
+		}
+		return nativeOpenAIProtocolOperation(clientProtocol, operation, false)
+	case channel.ProviderXAI:
 		return nativeOpenAIProtocolOperation(clientProtocol, operation, false)
 	case channel.ProviderGroq:
 		return clientProtocol == protocol.OpenAICompletions && standardProtocolOperation(clientProtocol, operation)

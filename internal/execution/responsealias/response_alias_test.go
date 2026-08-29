@@ -17,6 +17,7 @@ func TestRewriteJSONCoversClientProtocolShapes(t *testing.T) {
 	}{
 		{name: "OpenAI chat", clientProtocol: protocol.OpenAICompletions, body: `{"model":"provider-model","choices":[]}`},
 		{name: "OpenAI Responses", clientProtocol: protocol.OpenAIResponses, body: `{"type":"response.completed","response":{"model":"provider-model"}}`},
+		{name: "OpenAI Embeddings", clientProtocol: protocol.OpenAIEmbeddings, body: `{"object":"list","model":"provider-model","data":[]}`},
 		{name: "Anthropic", clientProtocol: protocol.Anthropic, body: `{"type":"message_start","message":{"model":"provider-model"}}`},
 		{name: "Gemini", clientProtocol: protocol.Gemini, body: `{"modelVersion":"provider-model","candidates":[]}`},
 	} {

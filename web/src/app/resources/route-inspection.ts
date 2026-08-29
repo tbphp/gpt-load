@@ -56,6 +56,7 @@ export type RouteInspectOperation =
   | 'responses_passthrough'
   | 'images_generate'
   | 'images_edit'
+  | 'embeddings_create'
 export type RouteInspectRequirement = 'any' | 'native'
 export type RouteInspectMode = 'native' | 'converted'
 
@@ -114,6 +115,7 @@ export const routeInspectOperations = [
   'responses_passthrough',
   'images_generate',
   'images_edit',
+  'embeddings_create',
 ] as const
 export const routeInspectRequirements = ['any', 'native'] as const
 const routeModes = ['native', 'converted'] as const

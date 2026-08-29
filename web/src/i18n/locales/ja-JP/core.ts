@@ -1,6 +1,12 @@
 export default {
   common: {
     appName: 'GPT-Load',
+    protocols: {
+      openaiEmbeddings: {
+        label: 'OpenAI Embeddings',
+        description: 'OpenAI 互換 Wire でテキスト埋め込みを作成 · POST /v1/embeddings',
+      },
+    },
     retry: '再試行',
     modelDiscoveryFailed: 'モデル取得に失敗しました。下書きは未変更です',
     changeKey: 'ログインキーを変更',

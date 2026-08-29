@@ -171,6 +171,47 @@ func TestGroupCredentialProbeUsesExplicitValidationModel(t *testing.T) {
 	}
 }
 
+func TestGroupCredentialProbeFallsBackToEmbeddingsAndReportsProtocol(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "probe-embeddings-secret")
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	executor := &credentialProbeTestExecutor{execute: func(spec execution.AttemptSpec) execution.AttemptResult {
+		if spec.ClientProtocol == protocol.OpenAIEmbeddings {
+			return successfulCredentialProbeResult()
+		}
+		result := failedCredentialProbeResult(
+			http.StatusNotFound,
+			execution.ErrorKindHTTP,
+			execution.FailureHintModelUnavailable,
+		)
+		result.Error.OriginHint = execution.ErrorOriginUpstream
+		return result
+	}}
+	fixture.service.executor = executor
+
+	response, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Outcome != CredentialProbeOutcomePassed ||
+		response.Protocol != protocol.OpenAIEmbeddings {
+		t.Fatalf("probe response = %#v", response)
+	}
+	calls := executor.recordedCalls()
+	if len(calls) != 2 ||
+		calls[0].ClientProtocol != protocol.OpenAICompletions ||
+		calls[1].ClientProtocol != protocol.OpenAIEmbeddings ||
+		calls[0].RequestID != calls[1].RequestID ||
+		calls[0].AttemptID == calls[1].AttemptID ||
+		calls[0].Sequence != 1 || calls[1].Sequence != 2 {
+		t.Fatalf("probe calls = %#v", calls)
+	}
+}
+
 func TestGroupCredentialProbeHTTPReturnsCompletedUpstreamFailureAsData(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)

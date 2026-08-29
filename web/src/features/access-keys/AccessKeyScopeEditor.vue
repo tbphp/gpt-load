@@ -41,7 +41,12 @@ const { t } = useI18n()
 const protocolMultiSelectOptions = computed<SearchableMultiSelectOption[]>(() =>
   props.protocolOptions.map((protocol) => ({
     value: protocol,
-    label: protocol,
+    label:
+      protocol === 'openai-embeddings' ? t('common.protocols.openaiEmbeddings.label') : protocol,
+    description:
+      protocol === 'openai-embeddings'
+        ? t('common.protocols.openaiEmbeddings.description')
+        : undefined,
   })),
 )
 

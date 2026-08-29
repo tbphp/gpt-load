@@ -29,6 +29,7 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 		OperationResponsesPassthrough,
 		OperationImagesGenerate,
 		OperationImagesEdit,
+		OperationEmbeddingsCreate,
 		OperationListModels,
 		OperationProbe,
 	}
@@ -40,7 +41,11 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 	if Operation("unknown").Valid() {
 		t.Fatal("expected unknown operation to be invalid")
 	}
-	for _, operation := range []Operation{OperationImagesGenerate, OperationImagesEdit} {
+	for _, operation := range []Operation{
+		OperationImagesGenerate,
+		OperationImagesEdit,
+		OperationEmbeddingsCreate,
+	} {
 		if !operationRequiresModel(operation) {
 			t.Fatalf("operation %q must require a model", operation)
 		}
@@ -439,6 +444,7 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		OperationResponsesCompact,
 		OperationResponsesInputTokens,
 		OperationCountTokens,
+		OperationEmbeddingsCreate,
 		OperationProbe,
 	} {
 		modelRequired := spec.Clone()

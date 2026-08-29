@@ -568,6 +568,117 @@ func TestHandlerBillableResponsesUsageWithoutPriceIsUnpriced(t *testing.T) {
 	}
 }
 
+func TestHandlerRecordsEmbeddingsUsageAndPricing(t *testing.T) {
+	t.Parallel()
+
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       []byte(`{"object":"list","data":[{"index":0,"embedding":"VkVDVE9SX1NFTlRJTkVM"}]}`),
+		Usage: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 1_000_000},
+		},
+		RequestWritten: true,
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
+	)
+	handler.dialects = dialect.NewSet(dialect.NewOpenAIEmbeddings())
+	handler.priceTables = &mutableGatewayPriceTableProvider{
+		table: mustGatewayPriceTable(t, 2_000_000_000, false),
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/embeddings",
+		strings.NewReader(`{"model":"gpt-4o","input":"input-sentinel"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if response.Code != http.StatusOK || len(events) != 1 {
+		t.Fatalf("response/events = %d/%#v", response.Code, events)
+	}
+	event := events[0]
+	wantPricing := telemetry.PricingObservation{
+		UpstreamModel:        "gpt-4o",
+		CostState:            string(pricing.CostStatePriced),
+		PricingCompleteness:  string(pricing.CompletenessComplete),
+		EstimatedCostNanoUSD: 2_000_000_000,
+	}
+	if event.Protocol != protocol.OpenAIEmbeddings ||
+		event.Operation != execution.OperationEmbeddingsCreate ||
+		event.Usage.Result != (usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 1_000_000},
+		}) || withoutPricingReceipt(event.Usage.Pricing) != wantPricing {
+		t.Fatalf("Embeddings event = %#v", event)
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"input-sentinel", "VkVDVE9SX1NFTlRJTkVM", "sk-first"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("Embeddings request log retained %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestHandlerRecordsMissingEmbeddingsUsageAsUnpriced(t *testing.T) {
+	t.Parallel()
+
+	forwarder := NewExecutionForwarder(fakeExecutionExecutor{unary: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+	) execution.AttemptResult {
+		return execution.AttemptResult{
+			DispatchState:   execution.DispatchMaybeSent,
+			ResponseStarted: true,
+			StatusCode:      http.StatusOK,
+			Header:          http.Header{"Content-Type": {"application/json"}},
+			Body: []byte(
+				`{"object":"list","model":"gpt-4o","data":[{"index":0,"embedding":"AAAA"}],` +
+					`"usage":{"prompt_tokens":-1,"total_tokens":0}}`,
+			),
+			Model: "gpt-4o",
+		}
+	}})
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
+	)
+	handler.dialects = dialect.NewSet(dialect.NewOpenAIEmbeddings())
+	handler.priceTables = &mutableGatewayPriceTableProvider{
+		table: mustGatewayPriceTable(t, 2_000_000_000, false),
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/embeddings",
+		strings.NewReader(`{"model":"gpt-4o","input":"hello"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if response.Code != http.StatusOK || len(events) != 1 ||
+		events[0].Protocol != protocol.OpenAIEmbeddings ||
+		events[0].Operation != execution.OperationEmbeddingsCreate ||
+		events[0].Usage.Result.State != usage.StateMissing ||
+		withoutPricingReceipt(events[0].Usage.Pricing) != (telemetry.PricingObservation{
+			UpstreamModel: "gpt-4o", CostState: string(pricing.CostStateUnpriced),
+			PricingCompleteness: string(pricing.CompletenessUnavailable),
+		}) {
+		t.Fatalf("response/events = %d/%#v", response.Code, events)
+	}
+}
+
 func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -706,6 +817,55 @@ func TestOpenAIImagesRequestLogUsesFixedErrorsAndMissingUnpricedUsage(t *testing
 			t.Fatalf("Images usage/pricing = %#v", event.Usage)
 		}
 	})
+}
+
+func TestOpenAIEmbeddingsRequestLogFreezesProviderInputEcho(t *testing.T) {
+	t.Parallel()
+
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(
+		sink,
+		"req-embeddings-error",
+		time.Unix(100, 0),
+		9,
+		protocol.OpenAIEmbeddings,
+		func() time.Time { return time.Unix(101, 0) },
+	)
+	recorder.setOperation(execution.OperationEmbeddingsCreate)
+	providerSummary := "invalid input=input-sentinel vector=VkVDVE9SX1NFTlRJTkVM"
+	index := recorder.appendAttempt(
+		requestLogSelection(12, 22, "embeddings"),
+		UpstreamResult{StatusCode: http.StatusBadRequest},
+		telemetry.FailureCategoryClientError,
+		telemetry.ActionTerminate,
+		"upstream_client_error",
+		providerSummary,
+		time.Unix(100, 0),
+		time.Unix(100, 0),
+	)
+	recorder.completeResponse(
+		UpstreamResult{StatusCode: http.StatusBadRequest, ErrorSummary: providerSummary},
+		health.Decision{Category: health.FailureCategoryClientError},
+		"provider-embedding",
+		index,
+	)
+	recorder.emit()
+
+	if len(sink.events) != 1 {
+		t.Fatalf("events = %#v", sink.events)
+	}
+	event := sink.events[0]
+	want := fixedErrorSummary("upstream_client_error")
+	if event.ErrorSummary != want || len(event.Attempts) != 1 ||
+		event.Attempts[0].ErrorSummary != want {
+		t.Fatalf("Embeddings summaries = %q / %#v", event.ErrorSummary, event.Attempts)
+	}
+	encoded, _ := json.Marshal(event)
+	for _, forbidden := range []string{"input-sentinel", "VkVDVE9SX1NFTlRJTkVM"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("Embeddings request log retained %q: %s", forbidden, encoded)
+		}
+	}
 }
 
 func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testing.T) {

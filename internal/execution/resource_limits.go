@@ -3,10 +3,11 @@ package execution
 import "gpt-load/internal/protocol"
 
 const (
-	DefaultUnaryResponseBodyLimitBytes      = int64(32 << 20)
-	OpenAIImagesUnaryResponseBodyLimitBytes = int64(64 << 20)
-	DefaultSSEEventLimitBytes               = 10 << 20
-	OpenAIImagesSSEEventLimitBytes          = 32 << 20
+	DefaultUnaryResponseBodyLimitBytes          = int64(32 << 20)
+	OpenAIImagesUnaryResponseBodyLimitBytes     = int64(64 << 20)
+	OpenAIEmbeddingsUnaryResponseBodyLimitBytes = int64(64 << 20)
+	DefaultSSEEventLimitBytes                   = 10 << 20
+	OpenAIImagesSSEEventLimitBytes              = 32 << 20
 )
 
 // UnaryResponseBodyLimit returns the internal buffered success-response limit
@@ -14,6 +15,9 @@ const (
 func UnaryResponseBodyLimit(clientProtocol protocol.Protocol) int64 {
 	if clientProtocol == protocol.OpenAIImages {
 		return OpenAIImagesUnaryResponseBodyLimitBytes
+	}
+	if clientProtocol == protocol.OpenAIEmbeddings {
+		return OpenAIEmbeddingsUnaryResponseBodyLimitBytes
 	}
 	return DefaultUnaryResponseBodyLimitBytes
 }

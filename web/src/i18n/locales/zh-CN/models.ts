@@ -117,6 +117,7 @@ export default {
       },
       modalities: {
         audio: '音频',
+        embedding: '向量',
         image: '图像',
         pdf: 'PDF',
         text: '文本',

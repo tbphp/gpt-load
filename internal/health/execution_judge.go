@@ -327,13 +327,17 @@ func decisionForExecutionCategory(
 	case FailureCategoryModelUnavailable:
 		retry := retryUnlessExplicitlyUnknown(attempt.Evidence)
 		if decisionContext.Operation.ReplayPolicy() == execution.ReplayPolicyRequireRejectedBeforeProcessing {
+			ruleID := RuleID("images.model_unavailable")
+			if decisionContext.Operation == execution.OperationEmbeddingsCreate {
+				ruleID = "embeddings.model_unavailable"
+			}
 			return decision(
 				category,
 				origin,
 				scopeOrDefault(scope, execution.ErrorScopeModel),
 				retry,
 				EffectNone,
-				"images.model_unavailable",
+				ruleID,
 			)
 		}
 		result := decision(

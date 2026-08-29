@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
@@ -161,6 +162,45 @@ func TestExecutionForwarderCapturesImagesUsageFromUnaryBody(t *testing.T) {
 		Tokens: usage.Tokens{UncachedInput: 100, Output: 30},
 	}
 	if result.Err != nil || result.Usage != want {
+		t.Fatalf("Forward() usage = %#v, want %#v; result=%#v", result.Usage, want, result)
+	}
+}
+
+func TestExecutionForwarderCapturesEmbeddingsUsageFromUnaryBody(t *testing.T) {
+	t.Parallel()
+
+	responseBody := []byte(`{"object":"list","model":"upstream-embedding","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":7,"total_tokens":7}}`)
+	executor := fakeExecutionExecutor{unary: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+	) execution.AttemptResult {
+		return execution.AttemptResult{
+			DispatchState:   execution.DispatchMaybeSent,
+			ResponseStarted: true,
+			StatusCode:      http.StatusOK,
+			Header:          http.Header{"Content-Type": {"application/json"}},
+			Body:            responseBody,
+			Model:           "upstream-embedding",
+		}
+	}}
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIEmbeddings()
+	input.ClientProtocol = protocol.OpenAIEmbeddings
+	input.ObserveUsage = true
+	input.Operation = execution.OperationEmbeddingsCreate
+	input.RouteRequirement = execution.RouteRequirementNative
+	input.ExternalModel = "upstream-embedding"
+	input.UpstreamModelID = "upstream-embedding"
+	input.Request.Path = "/v1/embeddings"
+	input.Request.Body = []byte(`{"model":"upstream-embedding","input":"hello"}`)
+
+	result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+	want := usage.Result{
+		State:  usage.StateComplete,
+		Tokens: usage.Tokens{UncachedInput: 7},
+	}
+	if result.Err != nil || result.Usage != want || result.ClassificationBody != nil ||
+		len(result.Body) == 0 || unsafe.SliceData(result.Body) != unsafe.SliceData(responseBody) {
 		t.Fatalf("Forward() usage = %#v, want %#v; result=%#v", result.Usage, want, result)
 	}
 }

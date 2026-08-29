@@ -1198,8 +1198,9 @@ func TestProductionRuntimeManagerUsesNativeProviderListModelsPaths(t *testing.T)
 			if test.channelID == channel.OpenRouter {
 				wantCalls = 2
 			}
+			wantEmbeddingModel := test.channelID == channel.OpenRouter
 			if calls.Load() != wantCalls || !bytes.Contains(result.Body, []byte(`"id":"model-one"`)) ||
-				bytes.Contains(result.Body, []byte(`"id":"embedding-only"`)) {
+				bytes.Contains(result.Body, []byte(`"id":"embedding-only"`)) != wantEmbeddingModel {
 				t.Fatalf("calls/body = %d/%s", calls.Load(), result.Body)
 			}
 		})

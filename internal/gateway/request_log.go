@@ -116,7 +116,7 @@ func (recorder *requestRecorder) emit() {
 		return
 	}
 	recorder.emitted = true
-	recorder.freezeImagesErrorSummaries()
+	recorder.freezeSensitiveInputErrorSummaries()
 	completedAt := recorder.now()
 	duration := completedAt.Sub(recorder.startedAt)
 	if duration < 0 {
@@ -147,8 +147,10 @@ func (recorder *requestRecorder) emit() {
 	})
 }
 
-func (recorder *requestRecorder) freezeImagesErrorSummaries() {
-	if recorder == nil || recorder.protocol != protocol.OpenAIImages {
+func (recorder *requestRecorder) freezeSensitiveInputErrorSummaries() {
+	if recorder == nil ||
+		(recorder.protocol != protocol.OpenAIImages &&
+			recorder.protocol != protocol.OpenAIEmbeddings) {
 		return
 	}
 	if recorder.outcome.errorCode != "" {

@@ -83,8 +83,9 @@ type credentialProbeCredential struct {
 }
 
 type credentialProbeExecution struct {
-	result  execution.AttemptResult
-	latency time.Duration
+	result   execution.AttemptResult
+	latency  time.Duration
+	protocol protocol.Protocol
 }
 
 type credentialProbeExecutor struct {
@@ -164,28 +165,10 @@ func (probe *credentialProbeExecutor) Probe(
 			app_errors.ErrInternalServer,
 		)
 	}
-	routeMode, supported := group.ResolvedTarget.ModeForModel(
-		target.protocol,
-		execution.OperationProbe,
-		target.model,
-	)
-	if !supported {
-		return credentialProbeExecution{}, newCredentialProbeFailure(
-			"request",
-			app_errors.ErrValidation,
-		)
-	}
 	requestID, err := newOperationID(cryptorand.Reader)
 	if err != nil {
 		return credentialProbeExecution{}, newCredentialProbeFailure(
 			"request_identity",
-			app_errors.ErrInternalServer,
-		)
-	}
-	attemptID, err := newOperationID(cryptorand.Reader)
-	if err != nil {
-		return credentialProbeExecution{}, newCredentialProbeFailure(
-			"attempt_identity",
 			app_errors.ErrInternalServer,
 		)
 	}
@@ -197,38 +180,69 @@ func (probe *credentialProbeExecutor) Probe(
 	if generation == 0 {
 		generation = 1
 	}
-	spec := execution.NewAttemptSpec(execution.AttemptSpec{
-		RequestID: requestID, AttemptID: attemptID, Sequence: 1,
-		ChannelID: string(group.ChannelID),
-		RouteMode: execution.RouteMode(routeMode), ClientProtocol: target.protocol,
-		Operation: execution.OperationProbe, ClientModel: target.model, UpstreamModel: target.model,
-		Header:       applyControlHeaderRules(group.HeaderRules, apiKey),
-		TargetConfig: group.ResolvedTarget.TargetConfig,
-		Timeouts:     executionTimeouts(group.Timeouts),
-		Credential: execution.NewCredentialSnapshot(
-			ref.ID,
-			version,
-			generation,
-			credential.CanonicalJSON(),
-		),
-		Proxy: proxy, ProxyFingerprint: proxyFingerprint,
-	})
-	if err := spec.Validate(); err != nil {
-		return credentialProbeExecution{}, newCredentialProbeFailure(
-			"request",
-			app_errors.ErrValidation,
-		)
+	probeProtocols := []protocol.Protocol{target.protocol}
+	if target.fallbackProtocol != "" {
+		probeProtocols = append(probeProtocols, target.fallbackProtocol)
 	}
 	startedAt := probe.now()
-	result := probe.executor.Execute(ctx, spec)
-	latency := probe.now().Sub(startedAt)
-	if latency < 0 {
-		latency = 0
+	for index, probeProtocol := range probeProtocols {
+		routeMode, supported := group.ResolvedTarget.ModeForModel(
+			probeProtocol,
+			execution.OperationProbe,
+			target.model,
+		)
+		if !supported {
+			return credentialProbeExecution{}, newCredentialProbeFailure(
+				"request",
+				app_errors.ErrValidation,
+			)
+		}
+		attemptID, attemptErr := newOperationID(cryptorand.Reader)
+		if attemptErr != nil {
+			return credentialProbeExecution{}, newCredentialProbeFailure(
+				"attempt_identity",
+				app_errors.ErrInternalServer,
+			)
+		}
+		spec := execution.NewAttemptSpec(execution.AttemptSpec{
+			RequestID: requestID, AttemptID: attemptID, Sequence: uint32(index + 1),
+			ChannelID: string(group.ChannelID),
+			RouteMode: execution.RouteMode(routeMode), ClientProtocol: probeProtocol,
+			Operation: execution.OperationProbe, ClientModel: target.model, UpstreamModel: target.model,
+			Header:       applyControlHeaderRules(group.HeaderRules, apiKey),
+			TargetConfig: group.ResolvedTarget.TargetConfig,
+			Timeouts:     executionTimeouts(group.Timeouts),
+			Credential: execution.NewCredentialSnapshot(
+				ref.ID,
+				version,
+				generation,
+				credential.CanonicalJSON(),
+			),
+			Proxy: proxy, ProxyFingerprint: proxyFingerprint,
+		})
+		if err := spec.Validate(); err != nil {
+			return credentialProbeExecution{}, newCredentialProbeFailure(
+				"request",
+				app_errors.ErrValidation,
+			)
+		}
+		result := probe.executor.Execute(ctx, spec)
+		if err := ctx.Err(); err != nil {
+			return credentialProbeExecution{}, err
+		}
+		latency := max(probe.now().Sub(startedAt), 0)
+		executed := credentialProbeExecution{
+			result: result, latency: latency, protocol: probeProtocol,
+		}
+		if credentialProbePassed(result) || index+1 == len(probeProtocols) ||
+			!validationProbeNeedsEmbeddingsFallback(result) {
+			return executed, nil
+		}
 	}
-	if err := ctx.Err(); err != nil {
-		return credentialProbeExecution{}, err
-	}
-	return credentialProbeExecution{result: result, latency: latency}, nil
+	return credentialProbeExecution{}, newCredentialProbeFailure(
+		"probe",
+		app_errors.ErrInternalServer,
+	)
 }
 
 func newCredentialProbeFailure(stage string, cause error) error {
@@ -353,7 +367,7 @@ func (s *Service) TestGroupCredential(
 		)
 	}
 	response := CredentialProbeResponse{
-		Outcome: outcome, Model: target.model, Protocol: target.protocol,
+		Outcome: outcome, Model: target.model, Protocol: executed.protocol,
 		LatencyMS:  max(executed.latency.Milliseconds(), 0),
 		Reason:     reason,
 		TestedAtMS: testedAt,

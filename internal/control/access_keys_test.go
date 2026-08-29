@@ -154,6 +154,7 @@ func TestAccessKeyCreateAcceptsAllEnabledProtocolsInCanonicalOrder(t *testing.T)
 			Protocols: []protocol.Protocol{
 				protocol.Gemini,
 				protocol.OpenAIImages,
+				protocol.OpenAIEmbeddings,
 				protocol.OpenAIResponses,
 				protocol.Anthropic,
 				protocol.OpenAICompletions,

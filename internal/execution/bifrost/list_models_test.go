@@ -7,7 +7,7 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 )
 
-func TestSanitizeListModelsResponseFiltersOnlyOpenRouterEmbeddingOnlyModels(t *testing.T) {
+func TestSanitizeListModelsResponsePreservesOpenRouterEmbeddingModels(t *testing.T) {
 	t.Parallel()
 
 	response := &schemas.BifrostListModelsResponse{Data: []schemas.Model{
@@ -23,16 +23,21 @@ func TestSanitizeListModelsResponseFiltersOnlyOpenRouterEmbeddingOnlyModels(t *t
 	for _, model := range got.Data {
 		gotIDs = append(gotIDs, model.ID)
 	}
-	if want := []string{"text", "mixed", "unknown"}; !reflect.DeepEqual(gotIDs, want) {
+	if want := []string{"text", "embedding-singular", "embedding-plural", "mixed", "unknown"}; !reflect.DeepEqual(gotIDs, want) {
 		t.Fatalf("sanitized OpenRouter models = %v, want %v", gotIDs, want)
 	}
-	if response.Data[0].ID != "openrouter/text" || len(response.Data) != 5 {
-		t.Fatalf("sanitize mutated source response: %#v", response.Data)
+	originalIDs := make([]string, 0, len(response.Data))
+	for _, model := range response.Data {
+		originalIDs = append(originalIDs, model.ID)
 	}
-	for index, model := range got.Data[len(got.Data):cap(got.Data)] {
-		if !reflect.DeepEqual(model, schemas.Model{}) {
-			t.Fatalf("filtered model tail at index %d was retained: %#v", index, model)
-		}
+	if want := []string{
+		"openrouter/text",
+		"openrouter/embedding-singular",
+		"openrouter/embedding-plural",
+		"openrouter/mixed",
+		"openrouter/unknown",
+	}; !reflect.DeepEqual(originalIDs, want) {
+		t.Fatalf("sanitize mutated source response: %#v", response.Data)
 	}
 
 	other := sanitizeListModelsResponse(schemas.OpenAI, &schemas.BifrostListModelsResponse{Data: []schemas.Model{{

@@ -117,6 +117,7 @@ export default {
       },
       modalities: {
         audio: 'Audio',
+        embedding: 'Embedding',
         image: 'Image',
         pdf: 'PDF',
         text: 'Text',

@@ -210,7 +210,7 @@ export default {
         remove: '費用上限ルールを削除',
       },
       allGroupsAllowed: '現在はすべてのグループへのルーティングを許可',
-      allProtocolsAllowed: '現在は 5 つの正規プロトコルをすべて許可',
+      allProtocolsAllowed: '現在は 6 つの正規プロトコルをすべて許可',
       allModelsAllowed: '現在は対象グループがルーティングできるすべてのモデルを許可',
       scopeExpansionWarning:
         '「指定」から「すべて」への変更はクライアント権限を拡大します。現在の範囲が意図どおりか確認してください。',
