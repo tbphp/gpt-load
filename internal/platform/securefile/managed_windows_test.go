@@ -47,6 +47,46 @@ func TestPrepareManagedDataDirWindowsUsesProtectedInheritableCurrentUserDACL(t *
 	}
 }
 
+func TestPrepareManagedDataDirWindowsServiceACLIsProtectedAndInheritable(t *testing.T) {
+	serviceSID, administratorsSID := useTestWindowsServiceACL(t)
+	dataDir := filepath.Join(t.TempDir(), "service-managed")
+
+	if err := PrepareManagedDataDir(dataDir); err != nil {
+		t.Fatalf("PrepareManagedDataDir() error = %v", err)
+	}
+	assertACLPrincipals(t, dataDir, serviceSID, administratorsSID)
+
+	descriptor, err := windows.GetNamedSecurityInfo(
+		dataDir,
+		windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION,
+	)
+	if err != nil {
+		t.Fatalf("GetNamedSecurityInfo() error = %v", err)
+	}
+	control, _, err := descriptor.Control()
+	if err != nil {
+		t.Fatalf("Security descriptor Control() error = %v", err)
+	}
+	if control&windows.SE_DACL_PROTECTED == 0 {
+		t.Fatalf("security descriptor control = %#x, want SE_DACL_PROTECTED", control)
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil {
+		t.Fatalf("DACL() error = %v", err)
+	}
+	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, index, &ace); err != nil {
+			t.Fatalf("GetAce(%d) error = %v", index, err)
+		}
+		wantFlags := byte(windows.OBJECT_INHERIT_ACE | windows.CONTAINER_INHERIT_ACE)
+		if ace.Header.AceFlags&wantFlags != wantFlags {
+			t.Fatalf("ACE %d flags = %#x, want object/container inheritance %#x", index, ace.Header.AceFlags, wantFlags)
+		}
+	}
+}
+
 func TestPrepareManagedDataDirWindowsRejectsReparsePointAndNonDirectory(t *testing.T) {
 	t.Run("reparse point", func(t *testing.T) {
 		target := t.TempDir()

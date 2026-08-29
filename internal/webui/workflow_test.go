@@ -161,6 +161,21 @@ func TestWindowsCIExecutesManagedStorageACLTests(t *testing.T) {
 		"Test Windows secure file and storage ACLs",
 		"go test -v -count=1 ./internal/platform/securefile ./internal/platform/encryption ./internal/storage",
 	)
+	assertWorkflowGateStep(
+		t,
+		job,
+		"Test Windows service lifecycle",
+		"go test -v -count=1 .",
+	)
+	serviceSmoke := workflowStepBlock(t, job, "Smoke Windows service lifecycle")
+	for _, required := range []string{
+		"go build",
+		".github/scripts/ci-windows-service-smoke.ps1",
+	} {
+		if !strings.Contains(serviceSmoke, required) {
+			t.Fatalf("Windows service smoke does not contain %q:\n%s", required, serviceSmoke)
+		}
+	}
 }
 
 func TestWorkflowsPinExternalActionsAndHostedRunners(t *testing.T) {
@@ -2316,8 +2331,8 @@ func TestReleaseAssetManifestIsTheSingleSourceOfTruth(t *testing.T) {
 			assets = append(assets, name)
 		}
 	}
-	if len(assets) != 12 {
-		t.Fatalf("release asset manifest lists %d assets, want 12", len(assets))
+	if len(assets) != 13 {
+		t.Fatalf("release asset manifest lists %d assets, want 13", len(assets))
 	}
 	sorted := append([]string(nil), assets...)
 	sort.Strings(sorted)

@@ -2,22 +2,14 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/sirupsen/logrus"
-
-	"gpt-load/internal/app"
-	"gpt-load/internal/container"
-	"gpt-load/internal/platform/config"
-	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/platform/utils"
 )
 
 func main() {
@@ -43,6 +35,8 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) int {
 	case "migrate-keys":
 		fmt.Fprintln(stderr, "migrate-keys will be available in a later release")
 		return 1
+	case "service":
+		return dispatchServiceCommand(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown command: %s\n", args[0])
 		fmt.Fprintln(stderr, "Run 'gpt-load help' for usage.")
@@ -54,46 +48,32 @@ func printHelp(output io.Writer) {
 	fmt.Fprintln(output, "GPT-Load - self-hosted AI API key gateway")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Usage:")
-	fmt.Fprintln(output, "  gpt-load          Start the gateway")
-	fmt.Fprintln(output, "  gpt-load help     Display this help message")
+	fmt.Fprintln(output, "  gpt-load                    Start the gateway")
+	fmt.Fprintln(output, "  gpt-load help               Display this help message")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "Windows Service Commands:")
+	fmt.Fprintln(output, "  gpt-load service install    Install the Windows service")
+	fmt.Fprintln(output, "  gpt-load service start      Start the Windows service")
+	fmt.Fprintln(output, "  gpt-load service stop       Stop the Windows service")
+	fmt.Fprintln(output, "  gpt-load service restart    Restart the Windows service")
+	fmt.Fprintln(output, "  gpt-load service status     Display the Windows service status")
+	fmt.Fprintln(output, "  gpt-load service uninstall  Uninstall the Windows service")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Deferred Commands:")
 	fmt.Fprintln(output, "  migrate-keys      Key rotation support will be available in a later release")
 }
 
 func runServer() error {
-	dependencyContainer, err := container.BuildContainer()
+	runtime, err := buildManagedRuntime()
 	if err != nil {
-		return fmt.Errorf("build dependency container: %w", err)
-	}
-
-	if err := dependencyContainer.Invoke(func(cfg *config.Config, runtimeRedactor *redact.Redactor) {
-		utils.SetupLogger(utils.LogConfig{
-			Level:  cfg.Log.Level,
-			Format: cfg.Log.Format,
-		})
-		logrus.AddHook(redact.NewHook(runtimeRedactor))
-	}); err != nil {
-		return fmt.Errorf("configure logger: %w", err)
-	}
-
-	var application *app.App
-	var cfg *config.Config
-	if err := dependencyContainer.Invoke(func(resolvedApp *app.App, resolvedConfig *config.Config) {
-		application = resolvedApp
-		cfg = resolvedConfig
-	}); err != nil {
-		return fmt.Errorf("resolve application: %w", err)
+		return err
 	}
 	quit := make(chan os.Signal, 2)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(quit)
 
-	if err := application.Start(); err != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_ = application.Stop(cleanupCtx)
-		return fmt.Errorf("start application: %w", err)
+	if err := runtime.start(); err != nil {
+		return err
 	}
 
 	var serveErr error
@@ -104,16 +84,12 @@ func runServer() error {
 			"event":  "shutdown.requested",
 			"signal": firstSignal.String(),
 		}).Info("shutdown requested by signal")
-	case serveErr = <-application.ServeErrors():
+	case serveErr = <-runtime.serveErrors():
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(
-		context.Background(),
-		time.Duration(cfg.Server.GracefulShutdownTimeout)*time.Second,
-	)
-	defer cancel()
+	force := make(chan struct{})
 	stopResult := make(chan error, 1)
-	go func() { stopResult <- application.Stop(shutdownCtx) }()
+	go func() { stopResult <- runtime.stop(force) }()
 	forceReason := "signal_during_shutdown"
 	if firstSignal != nil {
 		forceReason = "second_signal"
@@ -125,7 +101,7 @@ func runServer() error {
 			"signal": secondSignal.String(),
 			"reason": forceReason,
 		}).Warn("additional shutdown signal received; forcing shutdown")
-		cancel()
+		close(force)
 		if err := <-stopResult; err != nil {
 			return errors.Join(serveErr, fmt.Errorf("stop application: %w", err))
 		}

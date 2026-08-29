@@ -189,7 +189,11 @@ chmod +x ./gpt-load-linux-amd64
 HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 ```
 
-启动后访问 <http://127.0.0.1:3001>。提供 Linux、macOS（amd64 / arm64）与 Windows 共五个平台的构建。
+启动后访问 <http://127.0.0.1:3001>。提供 Linux、macOS（amd64 / arm64）与 Windows 共五个平台的便携构建；`gpt-load-windows-amd64.exe` 继续以前台模式运行。
+
+Windows 普通用户可改为下载 `gpt-load-windows-setup.exe`。双击并确认管理员权限后，安装器会注册并启动低权限 Windows 服务、设置开机启动，并创建桌面和开始菜单中的 GPT-Load 管理页面快捷方式。安装过程中会显示首次生成的管理密钥，请在关闭页面前保存；密钥仍保存在 `%ProgramData%\GPT-Load\data\auth.key`。服务配置目录为 `%ProgramData%\GPT-Load` 并从其中读取 `.env`，数据目录为 `%ProgramData%\GPT-Load\data`。
+
+覆盖安装会先优雅停止服务再更新，Windows 卸载会移除程序和服务但保留数据。高级用户仍可使用 `gpt-load-windows-amd64.exe service start|stop|restart|status` 管理已安装服务。
 
 </details>
 
@@ -210,7 +214,7 @@ HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 | `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Compose 强制停止容器前的等待时间，使用 Docker duration，建议大于 `GRACEFUL_SHUTDOWN_TIMEOUT`。 |
 | `READ_TIMEOUT` | `60` | HTTP 请求读取超时，正整数，单位秒。 |
 | `IDLE_TIMEOUT` | `120` | HTTP keep-alive 空闲连接超时，正整数，单位秒。 |
-| `DATA_DIR` | `./data` | 托管数据库、`auth.key`、`encryption.key` 和运行状态文件的目录；官方 Compose 固定为 `/app/data`。 |
+| `DATA_DIR` | `./data` | 托管数据库、`auth.key`、`encryption.key` 和运行状态文件的目录；官方 Compose 固定为 `/app/data`，Windows Setup 服务固定为 `%ProgramData%\GPT-Load\data`。 |
 | `DATABASE_DSN` | 空，使用 `${DATA_DIR}/gpt-load.db` | 空值使用应用托管的 SQLite；非空值支持 SQLite 路径或 URL、MySQL URL、PostgreSQL URL，并视为运维方管理的外部数据库。容器内文件路径必须位于已挂载目录。 |
 | `AUTH_KEY` | 空，读取或生成 `${DATA_DIR}/auth.key` | 管理界面和 `/api` 管理接口的 Bearer 密钥，不是数据面 AccessKey。 |
 | `ENCRYPTION_KEY` | 空，读取或生成 `${DATA_DIR}/encryption.key` | 用于加密渠道凭据；更换或丢失后无法解密已有凭据，必须与数据库一起备份。 |

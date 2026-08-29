@@ -173,7 +173,7 @@ jobs:
 
   windows-encryption-acl:
     runs-on: windows-2025
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -188,3 +188,18 @@ jobs:
 
       - name: Test Windows secure file and storage ACLs
         run: go test -v -count=1 ./internal/platform/securefile ./internal/platform/encryption ./internal/storage
+
+      - name: Test Windows service lifecycle
+        run: go test -v -count=1 .
+
+      - name: Smoke Windows service lifecycle
+        shell: pwsh
+        run: |
+          $binary = Join-Path $env:RUNNER_TEMP "gpt-load-service-smoke.exe"
+          go build -trimpath -o $binary .
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows service smoke build failed with exit code $LASTEXITCODE"
+          }
+          $env:CI_WINDOWS_SERVICE_BINARY = $binary
+          & .github/scripts/ci-windows-service-smoke.ps1
+          exit $LASTEXITCODE

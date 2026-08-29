@@ -10,6 +10,17 @@ import (
 )
 
 func prepareManagedDataDir(path string) error {
+	descriptor, err := managedDirectorySecurityDescriptor()
+	if err != nil {
+		return err
+	}
+	return prepareManagedDataDirWithDescriptor(path, descriptor)
+}
+
+func prepareManagedDataDirWithDescriptor(
+	path string,
+	descriptor *windows.SECURITY_DESCRIPTOR,
+) error {
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
 	}
@@ -29,10 +40,6 @@ func prepareManagedDataDir(path string) error {
 		return windows.ERROR_INVALID_DATA
 	}
 
-	descriptor, err := currentUserInheritableSecurityDescriptor()
-	if err != nil {
-		return err
-	}
 	return setManagedDACL(handle, descriptor)
 }
 
@@ -53,7 +60,7 @@ func hardenManagedFileIfExists(path string) error {
 		return windows.ERROR_INVALID_DATA
 	}
 
-	descriptor, err := currentUserSecurityDescriptor()
+	descriptor, err := managedFileSecurityDescriptor()
 	if err != nil {
 		return err
 	}

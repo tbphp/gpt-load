@@ -10,3 +10,4 @@ gpt-load-linux-arm64
 gpt-load-macos-amd64
 gpt-load-macos-arm64
 gpt-load-windows-amd64.exe
+gpt-load-windows-setup.exe
