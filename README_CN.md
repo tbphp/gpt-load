@@ -113,13 +113,21 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 
 ## 界面预览
 
-**首页** — 分组与凭据概览、客户端一键接入、近 30 天成本估算
+**分组总览** — 统一查看渠道、模型、凭据数量与健康状态
 
-<img src="./screenshot/screenshot1.png" alt="GPT-Load 首页" width="860">
+<img src="./screenshot/groups-overview.png" alt="GPT-Load 分组总览" width="860">
 
-**监控** — 请求量、缓存率、Token 分类、成本估算与用量质量
+**订阅账号** — 查看账号可用性、额度窗口、重置时间与运行诊断
 
-<img src="./screenshot/screenshot2.png" alt="GPT-Load 监控" width="860">
+<img src="./screenshot/subscription-accounts.png" alt="GPT-Load 订阅账号与额度状态" width="860">
+
+**访问密钥只读首页** — 使用 AccessKey 登录，只查看该密钥自己的分组、模型、请求、用量与费用额度
+
+<img src="./screenshot/access-key-home.png" alt="GPT-Load 访问密钥只读首页" width="860">
+
+**用量与成本** — 查看请求趋势、缓存命中率、Token 分类与成本估算
+
+<img src="./screenshot/usage-cost.png" alt="GPT-Load 用量与成本监控" width="860">
 
 ## 支持范围
 
