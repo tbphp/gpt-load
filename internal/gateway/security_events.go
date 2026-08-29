@@ -20,20 +20,29 @@ func requestPeerIP(request *http.Request) string {
 	return peer
 }
 
-func (handler *Handler) logDataPlaneAuthFailed(request *http.Request) {
+func (handler *Handler) logDataPlaneAuthFailed(
+	request *http.Request,
+	accessKeyID uint,
+	reason accessKeyAuthFailureReason,
+) {
 	total, shouldLog := handler.authFailureEvents.Observe()
 	if !shouldLog {
 		return
+	}
+	fields := logrus.Fields{
+		"event":   "auth_failed",
+		"peer_ip": requestPeerIP(request),
+		"reason":  string(reason),
+		"total":   total,
+	}
+	if accessKeyID != 0 {
+		fields["access_key_id"] = accessKeyID
 	}
 	utils.LogPlaneBestEffort(
 		handler.logger,
 		logrus.WarnLevel,
 		utils.LogPlaneData,
-		logrus.Fields{
-			"event":   "auth_failed",
-			"peer_ip": requestPeerIP(request),
-			"total":   total,
-		},
+		fields,
 		"Authentication failed",
 	)
 }

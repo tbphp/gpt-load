@@ -21,6 +21,7 @@ import (
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -81,9 +82,10 @@ type modelDTO struct {
 }
 
 type filterDTO struct {
-	Groups    []uint              `json:"groups"`
-	Protocols []protocol.Protocol `json:"protocols"`
-	Models    []string            `json:"models"`
+	Groups       []uint              `json:"groups"`
+	Protocols    []protocol.Protocol `json:"protocols"`
+	Models       []string            `json:"models"`
+	AllowedCIDRs []string            `json:"allowed_cidrs"`
 }
 
 func (f filterDTO) toState() state.FilterSet {
@@ -251,7 +253,7 @@ func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 		return compileRows{}, fmt.Errorf("query credential metadata: %w", err)
 	}
 	if err := db.
-		Select("id", "name", "key_hash", "key_suffix", "status", "filters", "rpm_limit").
+		Select("id", "name", "key_hash", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms").
 		Order("id ASC").
 		Find(&rows.accessKeys).Error; err != nil {
 		return compileRows{}, fmt.Errorf("query access keys: %w", err)
@@ -688,9 +690,14 @@ func mapAccessKeys(
 		if err := decodeFilterJSON(row.Filters, &filters); err != nil {
 			return nil, fmt.Errorf("decode access key %d filters: %w", row.ID, err)
 		}
+		_, allowedPeerCIDRs, err := utils.NormalizeAllowedCIDRs(filters.AllowedCIDRs)
+		if err != nil {
+			return nil, fmt.Errorf("compile access key %d allowed CIDRs: %w", row.ID, err)
+		}
 		result = append(result, state.AccessKeyConfig{
 			ID: row.ID, Name: row.Name, KeyHash: row.KeyHash, KeySuffix: row.KeySuffix,
 			Status: state.AccessKeyStatus(row.Status), Filters: filters.toState(), RPMLimit: row.RPMLimit,
+			ExpiresAtMS: cloneInt64Pointer(row.ExpiresAtMS), AllowedPeerCIDRs: allowedPeerCIDRs,
 			CostLimitRules: append([]accessquota.Rule(nil), rulesByAccessKey[row.ID]...),
 		})
 	}

@@ -425,6 +425,17 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleRevealAccessKey,
 			),
 			controlRoute(
+				"control.access-keys.rotate",
+				http.MethodPost,
+				"/access-keys/:id/rotate",
+				s.auditMutation(newMutationDescriptor(
+					"access_key_rotate",
+					"access_key",
+					accessKeyMutationLocator,
+				)),
+				s.handleRotateAccessKey,
+			),
+			controlRoute(
 				"control.access-keys.list",
 				http.MethodGet,
 				"/access-keys",

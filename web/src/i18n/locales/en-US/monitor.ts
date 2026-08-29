@@ -547,6 +547,7 @@ export default {
       reasons: {
         none: 'No exclusion reason',
         access_key_disabled: 'Access key is disabled',
+        access_key_expired: 'Access key is expired',
         protocol_filtered: 'Access key filters exclude this protocol',
         model_filtered: 'Access key filters exclude this model',
         model_required_by_filter: 'A model is required by the access key model filter',

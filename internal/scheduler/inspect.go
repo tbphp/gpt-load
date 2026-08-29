@@ -18,6 +18,7 @@ type ReasonCode string
 
 const (
 	ReasonAccessKeyDisabled         ReasonCode = "access_key_disabled"
+	ReasonAccessKeyExpired          ReasonCode = "access_key_expired"
 	ReasonProtocolFiltered          ReasonCode = "protocol_filtered"
 	ReasonModelFiltered             ReasonCode = "model_filtered"
 	ReasonModelRequiredByFilter     ReasonCode = "model_required_by_filter"

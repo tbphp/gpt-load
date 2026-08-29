@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -15,12 +16,20 @@ import (
 	stateloader "gpt-load/internal/state/loader"
 )
 
+type accessKeyFilterDigestBody struct {
+	Groups       []uint              `json:"groups"`
+	Protocols    []protocol.Protocol `json:"protocols"`
+	Models       []string            `json:"models"`
+	AllowedCIDRs []string            `json:"allowed_cidrs,omitempty"`
+}
+
 type accessKeyCreateDigestBody struct {
 	Name           string                          `json:"name"`
 	Status         *state.AccessKeyStatus          `json:"status,omitempty"`
-	Filters        AccessKeyFilters                `json:"filters"`
+	Filters        accessKeyFilterDigestBody       `json:"filters"`
 	RPMLimit       int64                           `json:"rpm_limit"`
 	CostLimitRules []AccessKeyCostLimitRuleRequest `json:"cost_limit_rules,omitempty"`
+	ExpiresAtMS    *int64                          `json:"expires_at_ms,omitempty"`
 }
 
 func (s *Service) CreateAccessKeyIdempotent(
@@ -51,6 +60,9 @@ func (s *Service) CreateAccessKeyIdempotent(
 	if status != state.AccessKeyStatusActive && status != state.AccessKeyStatusDisabled {
 		return AccessKeyCreateResult{}, app_errors.ErrValidation
 	}
+	if err := validateOptionalExpiresAtMS(request.ExpiresAtMS); err != nil {
+		return AccessKeyCreateResult{}, err
+	}
 	var digestStatus *state.AccessKeyStatus
 	if status != state.AccessKeyStatusActive {
 		digestStatus = &status
@@ -59,6 +71,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 	canonicalBody, err := canonicalIdempotencyBody(accessKeyCreateDigestBody{
 		Name: name, Status: digestStatus, Filters: digestFilters, RPMLimit: rpmLimit,
 		CostLimitRules: costLimitRuleRequestsForDigest(costLimitRules),
+		ExpiresAtMS:    request.ExpiresAtMS,
 	})
 	if err != nil {
 		return AccessKeyCreateResult{}, app_errors.ErrInternalServer
@@ -76,12 +89,19 @@ func (s *Service) CreateAccessKeyIdempotent(
 		return AccessKeyCreateResult{}, app_errors.ErrInternalServer
 	}
 
+	var operationStartedAt time.Time
 	operationResult, err := s.executeIdempotentOperation(ctx, idempotentOperationInput{
 		IdempotencyKey: idempotencyKey,
 		DigestVersion:  1,
 		RequestDigest:  digest.Digest,
 		Kind:           operationKindAccessKeyCreate,
+		PrepareMutation: func() {
+			operationStartedAt = s.now()
+		},
 		Mutate: func(tx *gorm.DB) (idempotentMutationResult, error) {
+			if err := validateFutureExpiresAtMS(request.ExpiresAtMS, operationStartedAt); err != nil {
+				return idempotentMutationResult{}, err
+			}
 			if err := validateFilterGroupReferences(tx, filters.Groups); err != nil {
 				return idempotentMutationResult{}, err
 			}
@@ -90,6 +110,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 				return idempotentMutationResult{}, err
 			}
 			row.Status = string(status)
+			row.ExpiresAtMS = cloneOptionalInt64(request.ExpiresAtMS)
 			if err := tx.Create(&row).Error; err != nil {
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)
 			}
@@ -100,6 +121,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 			metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
 				ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
 				Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
+				ExpiresAtMS: row.ExpiresAtMS,
 				CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
 			})
 			if err != nil {
@@ -141,6 +163,11 @@ func (s *Service) CreateAccessKeyIdempotent(
 		// replay compatibility while keeping the current wire contract array-shaped.
 		metadata.CostLimitRules = []AccessKeyCostLimitRule{}
 	}
+	if metadata.Filters.AllowedCIDRs == nil {
+		// Pre-0007 operation results did not carry this additive field. Preserve
+		// replay compatibility while keeping the current wire contract array-shaped.
+		metadata.Filters.AllowedCIDRs = []string{}
+	}
 	result := AccessKeyCreateResult{
 		AccessKeyMetadata: metadata,
 		Replayed:          operationResult.Replayed,
@@ -152,11 +179,12 @@ func (s *Service) CreateAccessKeyIdempotent(
 	return result, nil
 }
 
-func canonicalAccessKeyFilterSet(filters AccessKeyFilters) AccessKeyFilters {
-	result := AccessKeyFilters{
-		Groups:    append([]uint(nil), filters.Groups...),
-		Protocols: append([]protocol.Protocol(nil), filters.Protocols...),
-		Models:    append([]string(nil), filters.Models...),
+func canonicalAccessKeyFilterSet(filters AccessKeyFilters) accessKeyFilterDigestBody {
+	result := accessKeyFilterDigestBody{
+		Groups:       append([]uint(nil), filters.Groups...),
+		Protocols:    append([]protocol.Protocol(nil), filters.Protocols...),
+		Models:       append([]string(nil), filters.Models...),
+		AllowedCIDRs: append([]string(nil), filters.AllowedCIDRs...),
 	}
 	sort.Slice(result.Groups, func(left, right int) bool {
 		return result.Groups[left] < result.Groups[right]
@@ -165,5 +193,6 @@ func canonicalAccessKeyFilterSet(filters AccessKeyFilters) AccessKeyFilters {
 		return string(result.Protocols[left]) < string(result.Protocols[right])
 	})
 	sort.Strings(result.Models)
+	sort.Strings(result.AllowedCIDRs)
 	return result
 }

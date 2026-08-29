@@ -17,6 +17,7 @@ import {
 
 export type RouteInspectReasonCode =
   | 'access_key_disabled'
+  | 'access_key_expired'
   | 'protocol_filtered'
   | 'model_filtered'
   | 'model_required_by_filter'
@@ -118,6 +119,7 @@ export const routeInspectRequirements = ['any', 'native'] as const
 const routeModes = ['native', 'converted'] as const
 const reasonCodes = [
   'access_key_disabled',
+  'access_key_expired',
   'protocol_filtered',
   'model_filtered',
   'model_required_by_filter',

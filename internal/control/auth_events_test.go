@@ -144,6 +144,45 @@ func TestAuthenticateEventsCountLockedRequestsWithoutRepeatingTransition(
 	}
 }
 
+func TestAuthenticateExpiredAccessKeyLogsSafePolicyReason(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	const accessKey = "expired-policy-log-key"
+	expiresAtMS := now.Add(-time.Millisecond).UnixMilli()
+	publishControlAuthAccessKey(t, fixture, accessKey, &expiresAtMS, nil)
+
+	var logs bytes.Buffer
+	server := NewServer(&config.Config{AuthKey: authTestKey}, fixture.service)
+	server.logger = newControlJSONLogger(&logs)
+	server.authFailureEvents = utils.NewRateLimitedEventCounter(
+		time.Minute,
+		func() time.Time { return now },
+	)
+	engine := gin.New()
+	server.RegisterRoutes(engine)
+
+	recorder := serveAuthRequest(
+		engine,
+		"/api/auth/session",
+		"192.0.2.80:1234",
+		"Bearer "+accessKey,
+		nil,
+	)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("response = %d %s, want 401", recorder.Code, recorder.Body.String())
+	}
+	events := controlEventsNamed(decodeControlJSONLogs(t, logs.Bytes()), "auth_failed")
+	if len(events) != 1 ||
+		events[0]["reason"] != "access_key_expired" ||
+		events[0]["access_key_id"] != float64(1) {
+		t.Fatalf("auth events = %#v, want safe AccessKey policy reason", events)
+	}
+	assertControlLogExcludes(t, logs.String(), accessKey)
+}
+
 func TestAuthenticateLockRequestCanEmitBothEventsWhenGateOpens(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)

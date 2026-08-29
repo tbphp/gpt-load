@@ -16,6 +16,7 @@ export default {
       reset: 'Cost allowances reset for access key “{name}”',
       enabled: 'Access key “{name}” enabled',
       disabled: 'Access key “{name}” disabled',
+      rotated: 'Access key “{name}” rotated',
     },
     loading: 'Loading access keys…',
     loadFailed: 'Unable to load access keys.',
@@ -84,11 +85,17 @@ export default {
         'The update to access key “{name}” has an unknown outcome. Check current metadata before editing another access key.',
       editReconciling:
         'The update to access key “{name}” was committed and still needs metadata reconciliation.',
+      rotateIndeterminate:
+        'The rotation outcome for access key “{name}” is unknown. Check it using the original operation.',
+      rotateReconciling:
+        'The rotation for access key “{name}” was committed and runtime recovery is still in progress.',
       checkResult: 'Check result',
     },
     status: {
       active: 'Active',
       disabled: 'Disabled',
+      expired: 'Expired',
+      ipRestricted: 'IP restricted',
     },
     columns: {
       name: 'Name',
@@ -110,13 +117,35 @@ export default {
       createTitle: 'Create access key',
       editTitle: 'Edit access key',
       createDescription: 'Permissions can be narrowed later; expanding them requires confirmation.',
-      editDescription: 'Adjust the name, status, rate limit, and permission scope.',
+      editDescription:
+        'Adjust the name, status, expiration, connection source, rate limit, and permission scope.',
       description:
         'Edit routing filters and the RPM limit. Plaintext is masked unless explicitly revealed.',
       close: 'Close access key editor',
       basicInformation: 'Basic information',
       basicInformationDescription:
         'The name identifies the client and is not used for authentication.',
+      accessPolicy: 'Access policy',
+      accessPolicyDescription:
+        'Limit key lifetime and connection source without changing routing permissions.',
+      expiration: 'Expiration',
+      expirationDescription: 'New requests using this key are rejected after it expires.',
+      expirationNever: 'Never expires',
+      expirationSpecified: 'Specific time',
+      expirationTime: 'Expiration time',
+      expirationTimezone: 'Enter a time in the current time zone, {timezone}.',
+      expirationRequired: 'Choose an expiration time',
+      expirationFuture: 'Expiration must be later than the current time',
+      sourceIP: 'Connection source IP',
+      sourceIPDescription: 'Restrict the address that connects directly to GPT-Load.',
+      sourceAll: 'Any source',
+      sourceRestricted: 'Specified IP/CIDR',
+      allowedCIDRs: 'Allowed IP/CIDR',
+      allowedCIDRsDescription: 'Enter one per line, up to 64. IPv4, IPv6, and CIDR are supported.',
+      allowedCIDRsPlaceholder: '192.0.2.10\n2001:db8::/32',
+      proxyIPWarning: 'Behind a reverse proxy, the connection source is usually the proxy IP.',
+      sourceRequired: 'Enter at least one IP or CIDR',
+      sourceLimit: 'Up to 64 IP/CIDR entries are allowed',
       permissionScope: 'Permission scope',
       permissionScopeDescription: 'Values within a dimension use OR; all three dimensions use AND.',
       scopeLogic: 'Permission logic',
@@ -232,6 +261,28 @@ export default {
       confirm: 'Delete access key',
       failed: 'Unable to delete the access key.',
       deletedAnnouncement: 'Deleted access key “{name}”.',
+    },
+    rotate: {
+      open: 'Rotate key',
+      title: 'Rotate this access key now?',
+      description: 'Generate a new access key for “{name}”.',
+      close: 'Close access key rotation confirmation',
+      impact:
+        'The old key becomes invalid as soon as rotation succeeds. Requests already in progress are unaffected.',
+      confirm: 'Rotate now',
+      checkResult: 'Check result',
+      done: 'Done',
+      failed: 'Unable to rotate the access key.',
+      indeterminate: 'The rotation outcome is unknown. Check it using the same operation.',
+      reconciling:
+        'The rotation was committed and runtime recovery is still in progress. Check again.',
+      refreshFailed:
+        'Rotation completed, but current metadata could not be refreshed. Close and refresh the list.',
+      newKey: 'New access key',
+      currentKey: 'Current access key',
+      newKeyHint: 'The new key is active. Update client configuration now.',
+      replayedHint:
+        'This is an idempotent replay. Copy uses the existing Reveal endpoint to read the current key.',
     },
     reset: {
       open: 'Reset allowances',

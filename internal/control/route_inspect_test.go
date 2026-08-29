@@ -755,6 +755,34 @@ func TestRouteInspectReturnsDisabledAccessKeyAsExplanation(t *testing.T) {
 	}
 }
 
+func TestRouteInspectReturnsExpiredAccessKeyAsExplanation(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	expiresAtMS := now.UnixMilli()
+	if _, err := fixture.manager.Publish(state.CompileInput{
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 13, Name: "expired", KeyHash: "expired-hash",
+			Status: state.AccessKeyStatusActive, ExpiresAtMS: &expiresAtMS,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	result, err := fixture.service.InspectRoute(routeInspectRequest{
+		Protocol: protocol.OpenAICompletions, ExternalModel: "model", AccessKeyID: 13,
+	})
+	if err != nil {
+		t.Fatalf("InspectRoute() error = %v", err)
+	}
+	if result.Routable || result.ReasonCode == nil ||
+		*result.ReasonCode != scheduler.ReasonAccessKeyExpired ||
+		result.Groups == nil || len(result.Groups) != 0 {
+		t.Fatalf("expired result = %#v", result)
+	}
+}
+
 func TestRouteInspectMissingAccessKeyReturnsNotFound(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)

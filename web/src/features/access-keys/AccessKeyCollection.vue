@@ -27,6 +27,7 @@ const props = defineProps<{
   page: number
   pageSize: number
   busyIds: ReadonlySet<number>
+  lockedIds: ReadonlySet<number>
 }>()
 const emit = defineEmits<{
   open: [accessKey: AccessKeyCollectionItemDto, trigger: HTMLElement]
@@ -128,6 +129,12 @@ watch(
         <StatusBadge :tone="record.status === 'active' ? 'success' : 'neutral'">
           {{ t(`accessKeys.status.${record.status}`) }}
         </StatusBadge>
+        <StatusBadge v-if="record.expired" tone="danger" size="compact">
+          {{ t('accessKeys.status.expired') }}
+        </StatusBadge>
+        <StatusBadge v-if="record.ipRestricted" tone="neutral" size="compact">
+          {{ t('accessKeys.status.ipRestricted') }}
+        </StatusBadge>
         <StatusBadge v-if="record.quotaExhausted" tone="danger" size="compact">
           {{ t('accessKeys.costLimits.exhausted') }}
         </StatusBadge>
@@ -163,6 +170,7 @@ watch(
           :tone="record.status === 'active' ? 'warning' : 'success'"
           size="compact"
           :busy="busyIds.has(record.id)"
+          :disabled="lockedIds.has(record.id)"
           @click="emit('toggle', source(record.id))"
         >
           {{
@@ -181,7 +189,7 @@ watch(
               variant="ghost"
               size="compact"
               :label="t('accessKeys.reset.open')"
-              :disabled="busyIds.has(record.id)"
+              :disabled="busyIds.has(record.id) || lockedIds.has(record.id)"
               @click="open"
             >
               <RotateCcw :size="15" aria-hidden="true" />
@@ -199,7 +207,7 @@ watch(
               tone="danger"
               size="compact"
               :label="t('accessKeys.delete.open')"
-              :disabled="busyIds.has(record.id)"
+              :disabled="busyIds.has(record.id) || lockedIds.has(record.id)"
               @click="open"
             >
               <Trash2 :size="15" aria-hidden="true" />
@@ -210,7 +218,7 @@ watch(
           variant="ghost"
           size="compact"
           :label="t('accessKeys.collection.openDetailsFor', { name: record.name })"
-          :disabled="busyIds.has(record.id)"
+          :disabled="busyIds.has(record.id) || lockedIds.has(record.id)"
           @click="emit('open', source(record.id), $event.currentTarget as HTMLElement)"
         >
           <ArrowRight :size="15" aria-hidden="true" />

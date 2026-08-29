@@ -2,7 +2,7 @@ import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessKeyFiltersDto } from '@/api/control/types'
 
 export type AccessKeyScopeMode = 'all' | 'restricted'
-export type AccessKeyScopeDimension = keyof AccessKeyFiltersDto
+export type AccessKeyScopeDimension = 'groups' | 'protocols' | 'models'
 export type AccessKeyScopeModes = Record<AccessKeyScopeDimension, AccessKeyScopeMode>
 export type GroupCatalogState = 'loading' | 'ready' | 'stale' | 'error'
 
@@ -35,6 +35,7 @@ export function materializeAccessKeyFilters(
       modes.models === 'all'
         ? []
         : [...new Set(filters.models.map((model) => model.trim()).filter(Boolean))],
+    allowed_cidrs: [...filters.allowed_cidrs],
   }
 }
 

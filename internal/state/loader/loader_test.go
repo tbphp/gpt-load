@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"reflect"
 	"strings"
 	"testing"
@@ -598,9 +599,9 @@ func TestLoaderMapsAccessAndCredentials(t *testing.T) {
 
 	activeAccess := models.AccessKey{
 		Name: "active access", KeyValue: "access-cipher-active", KeyHash: "active-hash",
-		KeySuffix: "0003", Status: "active",
+		KeySuffix: "0003", Status: "active", ExpiresAtMS: int64Pointer(1_900_000_000_000),
 		Filters: models.JSON(fmt.Sprintf(
-			`{"groups":[%d,9999],"protocols":["openai-completions"],"models":["Primary"]}`,
+			`{"groups":[%d,9999],"protocols":["openai-completions"],"models":["Primary"],"allowed_cidrs":["192.0.2.99/24","2001:db8::1"]}`,
 			firstGroup.ID,
 		)),
 	}
@@ -668,6 +669,19 @@ func TestLoaderMapsAccessAndCredentials(t *testing.T) {
 	if _, ok := access.Filters.Models["gpt-4o"]; ok {
 		t.Errorf("access filters models = %#v, must not expose hidden upstream id", access.Filters.Models)
 	}
+	if access.ExpiresAtMS == nil || *access.ExpiresAtMS != 1_900_000_000_000 {
+		t.Errorf("access expiry = %#v", access.ExpiresAtMS)
+	}
+	wantCIDRs := []netip.Prefix{
+		netip.MustParsePrefix("192.0.2.0/24"),
+		netip.MustParsePrefix("2001:db8::1/128"),
+	}
+	if !reflect.DeepEqual(access.AllowedPeerCIDRs, wantCIDRs) {
+		t.Errorf("access allowed peer CIDRs = %#v, want %#v", access.AllowedPeerCIDRs, wantCIDRs)
+	}
+	if got := snapshot.AccessKeysByID[disabledAccess.ID].AllowedPeerCIDRs; got == nil || len(got) != 0 {
+		t.Errorf("legacy missing allowed_cidrs = %#v, want empty slice", got)
+	}
 
 	candidates := registry.CollectCredentialCandidates([]uint{firstGroup.ID, secondGroup.ID}, nil, time.Time{})
 	if len(candidates) != 2 {
@@ -694,6 +708,24 @@ func TestLoaderMapsAccessAndCredentials(t *testing.T) {
 		if strings.Contains(snapshotText, secret) {
 			t.Errorf("snapshot exposes credential material %q", secret)
 		}
+	}
+}
+
+func TestLoaderRejectsInvalidAccessKeyAllowedCIDR(t *testing.T) {
+	db := openMigratedDatabase(t)
+	mustCreate(t, db, &models.AccessKey{
+		Name: "invalid CIDR", KeyValue: "ciphertext", KeyHash: "invalid-cidr-hash",
+		KeySuffix: "cafe", Status: "active",
+		Filters: models.JSON(`{"groups":[],"protocols":[],"models":[],"allowed_cidrs":["invalid.example"]}`),
+	})
+
+	manager := state.NewManager()
+	err := loader.New(db, manager, state.NewCredentialRegistry()).Load(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "allowed CIDR") {
+		t.Fatalf("Load() error = %v, want invalid allowed CIDR", err)
+	}
+	if manager.Current() != nil {
+		t.Fatalf("Current() = %#v after failed load, want nil", manager.Current())
 	}
 }
 

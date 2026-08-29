@@ -545,6 +545,7 @@ export default {
       reasons: {
         none: '除外理由なし',
         access_key_disabled: 'アクセスキーは無効です',
+        access_key_expired: 'アクセスキーは期限切れです',
         protocol_filtered: 'アクセスキーフィルターがこのプロトコルを除外しました',
         model_filtered: 'アクセスキーフィルターがこのモデルを除外しました',
         model_required_by_filter: 'アクセスキーのモデルフィルターによりモデルの指定が必要です',

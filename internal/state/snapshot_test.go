@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"net/netip"
 	"reflect"
 	"strings"
 	"testing"
@@ -190,6 +191,7 @@ func TestCompileOwnsInputData(t *testing.T) {
 	t.Parallel()
 
 	weight := 25
+	expiresAtMS := int64(1_900_000_000_000)
 	filters := FilterSet{
 		Groups:    map[uint]struct{}{1: {}},
 		Protocols: map[protocol.Protocol]struct{}{protocol.OpenAICompletions: {}},
@@ -202,6 +204,10 @@ func TestCompileOwnsInputData(t *testing.T) {
 		}},
 		AccessKeys: []AccessKeyConfig{{
 			ID: 1, KeyHash: "hash", Status: AccessKeyStatusActive, Filters: filters,
+			ExpiresAtMS: &expiresAtMS,
+			AllowedPeerCIDRs: []netip.Prefix{
+				netip.MustParsePrefix("192.0.2.0/24"),
+			},
 			CostLimitRules: []accessquota.Rule{{
 				ID: 7, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 100,
 			}},
@@ -216,6 +222,8 @@ func TestCompileOwnsInputData(t *testing.T) {
 	filters.Groups[2] = struct{}{}
 	filters.Protocols[protocol.Gemini] = struct{}{}
 	filters.Models["changed"] = struct{}{}
+	expiresAtMS = 1
+	input.AccessKeys[0].AllowedPeerCIDRs[0] = netip.MustParsePrefix("198.51.100.0/24")
 	input.AccessKeys[0].CostLimitRules[0].LimitNanoUSD = 1
 
 	view := snapshot.Groups[1]
@@ -234,6 +242,13 @@ func TestCompileOwnsInputData(t *testing.T) {
 	}
 	if got := snapshot.AccessKeysByID[1].CostLimitRules; len(got) != 1 || got[0].LimitNanoUSD != 100 {
 		t.Fatalf("cost limit rules changed with input = %#v", got)
+	}
+	accessKey := snapshot.AccessKeysByID[1]
+	if accessKey.ExpiresAtMS == nil || *accessKey.ExpiresAtMS != 1_900_000_000_000 {
+		t.Fatalf("access key expiry changed with input = %#v", accessKey.ExpiresAtMS)
+	}
+	if !reflect.DeepEqual(accessKey.AllowedPeerCIDRs, []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")}) {
+		t.Fatalf("access key CIDRs changed with input = %#v", accessKey.AllowedPeerCIDRs)
 	}
 }
 
@@ -277,6 +292,38 @@ func TestCompileRejectsInvalidCoreConfiguration(t *testing.T) {
 			}}},
 			wantErr: "cost limit",
 		},
+		{
+			name: "negative access key expiry",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{{
+				ID: 1, KeyHash: "hash", Status: AccessKeyStatusActive,
+				ExpiresAtMS: int64Pointer(-1),
+			}}},
+			wantErr: "expiry",
+		},
+		{
+			name: "unsafe access key expiry",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{{
+				ID: 1, KeyHash: "hash", Status: AccessKeyStatusActive,
+				ExpiresAtMS: int64Pointer(9_007_199_254_740_992),
+			}}},
+			wantErr: "expiry",
+		},
+		{
+			name: "invalid allowed peer cidr",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{{
+				ID: 1, KeyHash: "hash", Status: AccessKeyStatusActive,
+				AllowedPeerCIDRs: []netip.Prefix{{}},
+			}}},
+			wantErr: "CIDR",
+		},
+		{
+			name: "non canonical allowed peer cidr",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{{
+				ID: 1, KeyHash: "hash", Status: AccessKeyStatusActive,
+				AllowedPeerCIDRs: []netip.Prefix{netip.MustParsePrefix("192.0.2.99/24")},
+			}}},
+			wantErr: "CIDR",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -288,3 +335,5 @@ func TestCompileRejectsInvalidCoreConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func int64Pointer(value int64) *int64 { return &value }

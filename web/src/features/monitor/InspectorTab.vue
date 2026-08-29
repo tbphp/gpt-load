@@ -49,6 +49,7 @@ type StatusTone = 'success' | 'warning' | 'danger' | 'neutral'
 
 const knownReasons = new Set<RouteInspectReasonCode>([
   'access_key_disabled',
+  'access_key_expired',
   'protocol_filtered',
   'model_filtered',
   'model_required_by_filter',
