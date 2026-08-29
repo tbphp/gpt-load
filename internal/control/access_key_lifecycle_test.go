@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/platform/config"
+	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
 
@@ -115,13 +116,27 @@ func TestAccessKeyLifecycleCreateValidatesSafeFutureTimeWithoutBreakingReplay(t 
 	engine := newAccessKeyLifecycleEngine(t, fixture)
 
 	for _, test := range []struct {
-		name  string
-		value string
+		name     string
+		value    string
+		key      string
+		wantCode string
 	}{
-		{name: "equal to operation time", value: strconv.FormatInt(operationNow.UnixMilli(), 10)},
-		{name: "before operation time", value: strconv.FormatInt(operationNow.Add(-time.Millisecond).UnixMilli(), 10)},
-		{name: "outside JavaScript safe range", value: "9007199254740992"},
-		{name: "fractional milliseconds", value: "1788000000000.5"},
+		{
+			name: "equal to operation time", value: strconv.FormatInt(operationNow.UnixMilli(), 10),
+			key: "00000000-0000-4000-8000-000000007011", wantCode: app_errors.ErrValidation.Code,
+		},
+		{
+			name: "before operation time", value: strconv.FormatInt(operationNow.Add(-time.Millisecond).UnixMilli(), 10),
+			key: "00000000-0000-4000-8000-000000007012", wantCode: app_errors.ErrValidation.Code,
+		},
+		{
+			name: "outside JavaScript safe range", value: "9007199254740992",
+			key: "00000000-0000-4000-8000-000000007013", wantCode: app_errors.ErrValidation.Code,
+		},
+		{
+			name: "fractional milliseconds", value: "1788000000000.5",
+			key: "00000000-0000-4000-8000-000000007014", wantCode: app_errors.ErrInvalidJSON.Code,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			beforeRevision := fixture.manager.Current().Revision
@@ -131,10 +146,10 @@ func TestAccessKeyLifecycleCreateValidatesSafeFutureTimeWithoutBreakingReplay(t 
 				http.MethodPost,
 				"/api/access-keys",
 				`{"name":"invalid-expiry","expires_at_ms":`+test.value+`}`,
-				"00000000-0000-4000-8000-00000000701"+strconv.Itoa(len(test.name)%10),
+				test.key,
 			)
 			if recorder.Code != http.StatusBadRequest ||
-				test.name != "fractional milliseconds" && !strings.Contains(recorder.Body.String(), "VALIDATION_FAILED") {
+				!strings.Contains(recorder.Body.String(), test.wantCode) {
 				t.Fatalf("create invalid expiry = %d %s", recorder.Code, recorder.Body.String())
 			}
 			if fixture.manager.Current().Revision != beforeRevision {

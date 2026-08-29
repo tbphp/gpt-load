@@ -189,11 +189,13 @@ const scopeValid = computed(() =>
     groupCatalog: groupCatalog.value,
   }),
 )
-const valid = computed(
-  () =>
+function isDraftCurrentlyValid(): boolean {
+  return (
     isAccessKeyDraftValid(draft.value, base.value, groupCatalog.value) &&
-    !groupProtocolMismatch.value,
-)
+    !groupProtocolMismatch.value
+  )
+}
+const valid = computed(isDraftCurrentlyValid)
 const mutationFeedbackKey = computed(() => {
   if (mutationState.value === 'idle') return ''
   if (editReconciliation.value) {
@@ -438,7 +440,7 @@ async function save(): Promise<void> {
     await reconcileEdit()
     return
   }
-  if (!createOperationActive.value && (!valid.value || !dirty.value)) return
+  if (!createOperationActive.value && (!isDraftCurrentlyValid() || !dirty.value)) return
   const currentBase = base.value
   const updateBody = currentBase ? buildAccessKeyUpdatePatch(currentBase, draft.value) : null
   const activeCreatePayload = currentBase
