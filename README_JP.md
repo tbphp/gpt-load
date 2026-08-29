@@ -113,13 +113,21 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 
 ## 画面プレビュー
 
-**ホーム** — グループと認証情報の概要、クライアントへのワンクリック接続、直近 30 日のコスト概算
+**グループ概要** — チャネル、モデル、認証情報数、健全性をまとめて確認
 
-<img src="./screenshot/screenshot1.png" alt="GPT-Load ホーム" width="860">
+<img src="./screenshot/groups-overview.png" alt="GPT-Load グループ概要" width="860">
 
-**モニタリング** — リクエスト数、キャッシュ率、トークン分類、コスト概算、使用量の品質
+**サブスクリプションアカウント** — アカウントの可用性、クォータ期間、リセット時刻、実行診断を確認
 
-<img src="./screenshot/screenshot2.png" alt="GPT-Load モニタリング" width="860">
+<img src="./screenshot/subscription-accounts.png" alt="GPT-Load サブスクリプションアカウントとクォータ状態" width="860">
+
+**AccessKey 読み取り専用ホーム** — AccessKey でログインし、そのキーに限定されたグループ、モデル、リクエスト、使用量、費用上限を表示
+
+<img src="./screenshot/access-key-home.png" alt="GPT-Load AccessKey 読み取り専用ホーム" width="860">
+
+**使用量とコスト** — リクエスト傾向、キャッシュヒット率、Token 分類、コスト概算を確認
+
+<img src="./screenshot/usage-cost.png" alt="GPT-Load 使用量とコストのモニタリング" width="860">
 
 ## サポート範囲
 

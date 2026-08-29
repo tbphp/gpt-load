@@ -113,13 +113,21 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 
 ## Screenshots
 
-**Home** — Groups and credentials at a glance, one-click client setup, 30-day cost estimate
+**Groups** — View channels, models, credential counts, and health in one place
 
-<img src="./screenshot/screenshot1.png" alt="GPT-Load home" width="860">
+<img src="./screenshot/groups-overview.png" alt="GPT-Load groups overview" width="860">
 
-**Monitoring** — Request volume, cache rate, token breakdown, cost estimates, usage quality
+**Subscription accounts** — Track account availability, quota windows, reset times, and runtime diagnostics
 
-<img src="./screenshot/screenshot2.png" alt="GPT-Load monitoring" width="860">
+<img src="./screenshot/subscription-accounts.png" alt="GPT-Load subscription accounts and quota status" width="860">
+
+**AccessKey read-only home** — Sign in with an AccessKey to view only its own groups, models, requests, usage, and cost allowance
+
+<img src="./screenshot/access-key-home.png" alt="GPT-Load AccessKey read-only home" width="860">
+
+**Usage and cost** — Review request trends, cache hit rate, token categories, and cost estimates
+
+<img src="./screenshot/usage-cost.png" alt="GPT-Load usage and cost monitoring" width="860">
 
 ## Scope
 
