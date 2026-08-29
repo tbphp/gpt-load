@@ -2331,8 +2331,8 @@ func TestReleaseAssetManifestIsTheSingleSourceOfTruth(t *testing.T) {
 			assets = append(assets, name)
 		}
 	}
-	if len(assets) != 13 {
-		t.Fatalf("release asset manifest lists %d assets, want 13", len(assets))
+	if len(assets) != 14 {
+		t.Fatalf("release asset manifest lists %d assets, want 14", len(assets))
 	}
 	sorted := append([]string(nil), assets...)
 	sort.Strings(sorted)
@@ -2347,6 +2347,7 @@ func TestReleaseAssetManifestIsTheSingleSourceOfTruth(t *testing.T) {
 	// 清单与校验和一律从 .github/release-assets.txt 派生。
 	for _, name := range []string{
 		"Apache-2.0.txt",
+		"Inno-Setup.txt",
 		"MIT.txt",
 		"MPL-2.0.txt",
 		"THIRD_PARTY_NOTICES.md",

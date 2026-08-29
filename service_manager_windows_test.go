@@ -64,8 +64,12 @@ func TestWindowsServiceRecoveryUsesBoundedBackoff(t *testing.T) {
 }
 
 func TestOwnedWindowsServiceConfigAcceptsOnlyOfficialCommandShape(t *testing.T) {
+	officialExecutable, err := expectedWindowsServiceExecutable()
+	if err != nil {
+		t.Fatalf("expectedWindowsServiceExecutable() error = %v", err)
+	}
 	official := desiredWindowsServiceConfig(
-		`C:\Program Files\GPT-Load\gpt-load.exe`,
+		officialExecutable,
 		[]string{"service", "run"},
 	)
 	if !isOwnedWindowsServiceConfig(official) {
@@ -76,8 +80,8 @@ func TestOwnedWindowsServiceConfigAcceptsOnlyOfficialCommandShape(t *testing.T) 
 		`C:\Downloads\gpt-load-windows-amd64.exe`,
 		[]string{"service", "run"},
 	)
-	if !isOwnedWindowsServiceConfig(portable) {
-		t.Fatal("portable-installed service configuration is not recognized")
+	if isOwnedWindowsServiceConfig(portable) {
+		t.Fatal("portable-installed service configuration is recognized")
 	}
 
 	for name, mutate := range map[string]func(*mgr.Config){
@@ -119,6 +123,21 @@ func TestOwnedWindowsServiceConfigAcceptsOnlyOfficialCommandShape(t *testing.T) 
 				t.Fatal("foreign service configuration is recognized as owned")
 			}
 		})
+	}
+}
+
+func TestValidateWindowsServiceInstallExecutableRequiresProgramFiles(t *testing.T) {
+	officialExecutable, err := expectedWindowsServiceExecutable()
+	if err != nil {
+		t.Fatalf("expectedWindowsServiceExecutable() error = %v", err)
+	}
+	if err := validateWindowsServiceInstallExecutable(officialExecutable); err != nil {
+		t.Fatalf("validateWindowsServiceInstallExecutable(official) error = %v", err)
+	}
+	if err := validateWindowsServiceInstallExecutable(
+		`C:\Downloads\gpt-load-windows-amd64.exe`,
+	); !errors.Is(err, errWindowsServiceInstallPath) {
+		t.Fatalf("validateWindowsServiceInstallExecutable(portable) error = %v", err)
 	}
 }
 

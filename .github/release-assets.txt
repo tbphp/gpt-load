@@ -1,4 +1,5 @@
 Apache-2.0.txt
+Inno-Setup.txt
 LICENSE
 MIT.txt
 MPL-2.0.txt

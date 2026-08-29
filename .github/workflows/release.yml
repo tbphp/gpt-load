@@ -425,6 +425,7 @@ jobs:
           cp LICENSE release/LICENSE
           cp THIRD_PARTY_NOTICES.md release/THIRD_PARTY_NOTICES.md
           cp LICENSES/Apache-2.0.txt release/Apache-2.0.txt
+          cp LICENSES/Inno-Setup.txt release/Inno-Setup.txt
           cp LICENSES/MIT.txt release/MIT.txt
           cp LICENSES/MPL-2.0.txt release/MPL-2.0.txt
           go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0 \

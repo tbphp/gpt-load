@@ -16,6 +16,8 @@ AppPublisher=GPT-Load
 AppPublisherURL=https://github.com/tbphp/gpt-load
 AppSupportURL=https://github.com/tbphp/gpt-load/issues
 DefaultDirName={autopf}\GPT-Load
+DisableDirPage=yes
+UsePreviousAppDir=no
 DefaultGroupName=GPT-Load
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -32,7 +34,7 @@ RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [CustomMessages]
 english.AuthKeyCaption=Management key

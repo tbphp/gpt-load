@@ -7,17 +7,21 @@ if ([string]::IsNullOrWhiteSpace($binary) -or -not (Test-Path $binary)) {
 $binary = [System.IO.Path]::GetFullPath($binary)
 $serviceName = "gpt-load"
 $port = 39114
-$root = Join-Path $env:RUNNER_TEMP "gpt-load-service-smoke-$([guid]::NewGuid().ToString('N'))"
-$serviceBinary = Join-Path $root "gpt-load.exe"
+$installDir = Join-Path $env:ProgramFiles "GPT-Load"
+$serviceBinary = Join-Path $installDir "gpt-load.exe"
+$installOwnerMarker = Join-Path $installDir ".service-smoke-owner"
+$installOwnerToken = [guid]::NewGuid().ToString("N")
 $programData = [Environment]::GetFolderPath("CommonApplicationData")
 $configDir = Join-Path $programData "GPT-Load"
 $dataDir = Join-Path $configDir "data"
 $envFile = Join-Path $configDir ".env"
-$ownerMarker = Join-Path $configDir ".service-smoke-owner"
-$ownerToken = [guid]::NewGuid().ToString("N")
+$dataOwnerMarker = Join-Path $configDir ".service-smoke-owner"
 
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
   throw "refusing pre-existing Windows service: $serviceName"
+}
+if (Test-Path $installDir) {
+  throw "refusing pre-existing installation directory: $installDir"
 }
 if (Test-Path $configDir) {
   throw "refusing pre-existing ProgramData directory: $configDir"
@@ -56,10 +60,11 @@ function Assert-ServiceAcl {
 }
 
 try {
-  New-Item -ItemType Directory -Path $root | Out-Null
+  New-Item -ItemType Directory -Path $installDir | Out-Null
+  [System.IO.File]::WriteAllText($installOwnerMarker, $installOwnerToken)
   Copy-Item -Path $binary -Destination $serviceBinary
   New-Item -ItemType Directory -Path $configDir | Out-Null
-  [System.IO.File]::WriteAllText($ownerMarker, $ownerToken)
+  [System.IO.File]::WriteAllText($dataOwnerMarker, $installOwnerToken)
   @(
     "HOST=127.0.0.1",
     "PORT=$port",
@@ -106,18 +111,24 @@ try {
   }
 } finally {
   if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-    if (Test-Path $serviceBinary) {
+    $ownsInstall = (Test-Path $installOwnerMarker) -and
+      ((Get-Content $installOwnerMarker -Raw).Trim() -eq $installOwnerToken)
+    if ($ownsInstall -and (Test-Path $serviceBinary)) {
       & $serviceBinary service stop 2>$null
       & $serviceBinary service uninstall 2>$null
     }
-    if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+    if ($ownsInstall -and
+        (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)) {
       & sc.exe stop $serviceName 2>$null | Out-Null
       & sc.exe delete $serviceName 2>$null | Out-Null
     }
   }
-  Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
-  if ((Test-Path $ownerMarker) -and
-      ((Get-Content $ownerMarker -Raw).Trim() -eq $ownerToken)) {
+  if ((Test-Path $installOwnerMarker) -and
+      ((Get-Content $installOwnerMarker -Raw).Trim() -eq $installOwnerToken)) {
+    Remove-Item -Recurse -Force $installDir -ErrorAction SilentlyContinue
+  }
+  if ((Test-Path $dataOwnerMarker) -and
+      ((Get-Content $dataOwnerMarker -Raw).Trim() -eq $installOwnerToken)) {
     Remove-Item -Recurse -Force $configDir -ErrorAction SilentlyContinue
   }
 }

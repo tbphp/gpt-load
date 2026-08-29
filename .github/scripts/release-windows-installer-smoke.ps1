@@ -22,11 +22,13 @@ if ($beforeHash -ne $expectedHash) { throw "Windows setup checksum mismatch befo
 
 $serviceName = "gpt-load"
 $suffix = [guid]::NewGuid().ToString("N")
-$installDir = Join-Path $env:RUNNER_TEMP "gpt load installer smoke $suffix"
+$installDir = Join-Path $env:ProgramFiles "GPT-Load"
+$installOwnerMarker = Join-Path $installDir ".installer-smoke-owner"
+$installOwnerToken = $suffix
 $programData = [Environment]::GetFolderPath("CommonApplicationData")
 $configDir = Join-Path $programData "GPT-Load"
 $dataDir = Join-Path $configDir "data"
-$ownerMarker = Join-Path $configDir ".installer-smoke-owner"
+$dataOwnerMarker = Join-Path $configDir ".installer-smoke-owner"
 $upgradeMarker = Join-Path $dataDir "installer-smoke-upgrade.txt"
 $installedBinary = Join-Path $installDir "gpt-load.exe"
 $uninstaller = Join-Path $installDir "unins000.exe"
@@ -42,10 +44,13 @@ if ([System.IO.Path]::GetFullPath($configDir) -ne
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
   throw "refusing pre-existing Windows service: $serviceName"
 }
+if (Test-Path $installDir) {
+  throw "refusing pre-existing installation directory: $installDir"
+}
 if (Test-Path $configDir) {
   throw "refusing pre-existing ProgramData directory: $configDir"
 }
-foreach ($path in @($installDir, $desktopShortcut, $startMenuShortcut)) {
+foreach ($path in @($desktopShortcut, $startMenuShortcut)) {
   if (Test-Path $path) {
     throw "refusing pre-existing installer smoke path: $path"
   }
@@ -99,14 +104,15 @@ function Assert-ServiceAcl {
 }
 
 try {
+  New-Item -ItemType Directory -Path $installDir | Out-Null
+  [System.IO.File]::WriteAllText($installOwnerMarker, $installOwnerToken)
   New-Item -ItemType Directory -Path $configDir | Out-Null
-  [System.IO.File]::WriteAllText($ownerMarker, $suffix)
+  [System.IO.File]::WriteAllText($dataOwnerMarker, $installOwnerToken)
 
   Invoke-CheckedProcess -Path $setup -Arguments @(
     "/VERYSILENT",
     "/SUPPRESSMSGBOXES",
-    "/NORESTART",
-    "/DIR=$installDir"
+    "/NORESTART"
   )
 
   if (-not (Test-Path $installedBinary)) { throw "installed binary is missing" }
@@ -155,8 +161,7 @@ try {
   Invoke-CheckedProcess -Path $setup -Arguments @(
     "/VERYSILENT",
     "/SUPPRESSMSGBOXES",
-    "/NORESTART",
-    "/DIR=$installDir"
+    "/NORESTART"
   )
   if ((Get-Service -Name $serviceName).Status -ne "Running") {
     throw "service is not running after overwrite install"
@@ -181,24 +186,30 @@ try {
   $afterHash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
   if ($afterHash -ne $expectedHash) { throw "Windows setup checksum mismatch after execution" }
 } finally {
+  $ownsInstall = (Test-Path $installOwnerMarker) -and
+    ((Get-Content $installOwnerMarker -Raw).Trim() -eq $installOwnerToken)
   if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-    if (Test-Path $installedBinary) {
+    if ($ownsInstall -and (Test-Path $installedBinary)) {
       & $installedBinary service stop 2>$null
       & $installedBinary service uninstall 2>$null
     }
-    if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+    if ($ownsInstall -and
+        (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)) {
       & sc.exe stop $serviceName 2>$null | Out-Null
       & sc.exe delete $serviceName 2>$null | Out-Null
     }
   }
-  if (Test-Path $uninstaller) {
+  if ($ownsInstall -and (Test-Path $uninstaller)) {
     Start-Process -FilePath $uninstaller -ArgumentList @(
       "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
     ) -Wait -ErrorAction SilentlyContinue | Out-Null
   }
-  Remove-Item -Recurse -Force $installDir -ErrorAction SilentlyContinue
-  if ((Test-Path $ownerMarker) -and
-      ((Get-Content $ownerMarker -Raw).Trim() -eq $suffix)) {
+  if ((Test-Path $installOwnerMarker) -and
+      ((Get-Content $installOwnerMarker -Raw).Trim() -eq $installOwnerToken)) {
+    Remove-Item -Recurse -Force $installDir -ErrorAction SilentlyContinue
+  }
+  if ((Test-Path $dataOwnerMarker) -and
+      ((Get-Content $dataOwnerMarker -Raw).Trim() -eq $installOwnerToken)) {
     Remove-Item -Recurse -Force $configDir -ErrorAction SilentlyContinue
   }
 }

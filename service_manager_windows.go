@@ -31,6 +31,7 @@ const (
 var (
 	errWindowsServiceNotInstalled = errors.New("Windows service is not installed")
 	errWindowsServiceNameConflict = errors.New("Windows service name gpt-load belongs to another service")
+	errWindowsServiceInstallPath  = errors.New("Windows service can only be installed by the GPT-Load installer")
 )
 
 func defaultWindowsServiceDirectories() (string, string, error) {
@@ -40,6 +41,28 @@ func defaultWindowsServiceDirectories() (string, string, error) {
 	}
 	configDir := filepath.Join(programData, "GPT-Load")
 	return configDir, filepath.Join(configDir, "data"), nil
+}
+
+func expectedWindowsServiceExecutable() (string, error) {
+	programFiles, err := windows.KnownFolderPath(
+		windows.FOLDERID_ProgramFiles,
+		windows.KF_FLAG_DEFAULT,
+	)
+	if err != nil {
+		return "", fmt.Errorf("resolve Program Files: %w", err)
+	}
+	return filepath.Join(programFiles, "GPT-Load", "gpt-load.exe"), nil
+}
+
+func validateWindowsServiceInstallExecutable(executable string) error {
+	expected, err := expectedWindowsServiceExecutable()
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(filepath.Clean(executable), filepath.Clean(expected)) {
+		return fmt.Errorf("%w; expected %s", errWindowsServiceInstallPath, expected)
+	}
+	return nil
 }
 
 func installWindowsService() error {
@@ -54,6 +77,9 @@ func installWindowsService() error {
 	executable, err = filepath.Abs(executable)
 	if err != nil {
 		return fmt.Errorf("resolve absolute service executable: %w", err)
+	}
+	if err := validateWindowsServiceInstallExecutable(executable); err != nil {
+		return err
 	}
 	arguments := []string{"service", "run"}
 	serviceConfig := desiredWindowsServiceConfig(executable, arguments)
@@ -175,6 +201,10 @@ func desiredWindowsServiceConfig(executable string, arguments []string) mgr.Conf
 }
 
 func isOwnedWindowsServiceConfig(config mgr.Config) bool {
+	expectedExecutable, err := expectedWindowsServiceExecutable()
+	if err != nil {
+		return false
+	}
 	if config.ServiceType != windows.SERVICE_WIN32_OWN_PROCESS ||
 		!strings.EqualFold(config.DisplayName, windowsServiceDisplayName) ||
 		config.Description != windowsServiceDescription ||
@@ -184,7 +214,7 @@ func isOwnedWindowsServiceConfig(config mgr.Config) bool {
 	}
 	arguments, err := windows.DecomposeCommandLine(config.BinaryPathName)
 	if err != nil || len(arguments) < 3 ||
-		!filepath.IsAbs(arguments[0]) ||
+		!strings.EqualFold(filepath.Clean(arguments[0]), filepath.Clean(expectedExecutable)) ||
 		arguments[1] != "service" || arguments[2] != "run" {
 		return false
 	}

@@ -17,22 +17,25 @@ func TestPrintHelpMarksKeyMigrationAsDeferred(t *testing.T) {
 	}
 }
 
-func TestPrintHelpDocumentsWindowsServiceManagement(t *testing.T) {
+func TestPrintHelpDocumentsOnlyPublicWindowsServiceManagement(t *testing.T) {
 	var output bytes.Buffer
 	printHelp(&output)
 
 	help := output.String()
 	for _, required := range []string{
-		"service install",
 		"service start",
 		"service stop",
 		"service restart",
 		"service status",
-		"service uninstall",
 		"Windows",
 	} {
 		if !strings.Contains(help, required) {
 			t.Fatalf("help does not document %q:\n%s", required, help)
+		}
+	}
+	for _, internal := range []string{"service install", "service uninstall"} {
+		if strings.Contains(help, internal) {
+			t.Fatalf("help exposes internal command %q:\n%s", internal, help)
 		}
 	}
 }

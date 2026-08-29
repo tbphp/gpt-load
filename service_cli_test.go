@@ -3,7 +3,21 @@ package main
 import "testing"
 
 func TestParseServiceCommandAcceptsPublicActions(t *testing.T) {
-	for _, action := range []string{"install", "start", "stop", "restart", "status", "uninstall"} {
+	for _, action := range []string{"start", "stop", "restart", "status"} {
+		t.Run(action, func(t *testing.T) {
+			command, err := parseServiceCommand([]string{action})
+			if err != nil {
+				t.Fatalf("parseServiceCommand(%q) error = %v", action, err)
+			}
+			if command.action != action {
+				t.Fatalf("action = %q, want %q", command.action, action)
+			}
+		})
+	}
+}
+
+func TestParseServiceCommandAcceptsHiddenInstallerActions(t *testing.T) {
+	for _, action := range []string{"install", "uninstall"} {
 		t.Run(action, func(t *testing.T) {
 			command, err := parseServiceCommand([]string{action})
 			if err != nil {
