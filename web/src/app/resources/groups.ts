@@ -99,6 +99,8 @@ const runtimeSettingFields = [
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
+  'retry_count',
+  'blacklist_threshold',
   'header_rules',
   'inject_usage_options',
   'affinity_enabled',
@@ -113,6 +115,8 @@ export interface GroupRuntimeConfigDto {
   first_byte_timeout?: number
   request_timeout?: number
   stream_idle_timeout?: number
+  retry_count?: number
+  blacklist_threshold?: number
   header_rules?: HeaderRulesDto
   inject_usage_options?: boolean
   affinity_enabled?: boolean
@@ -122,6 +126,8 @@ export interface GroupEffectiveConfigDto {
   first_byte_timeout: number
   request_timeout: number
   stream_idle_timeout: number
+  retry_count: number
+  blacklist_threshold: number
   header_rules: HeaderRulesDto
   inject_usage_options: boolean
   affinity_enabled: boolean
@@ -284,6 +290,11 @@ function projectRuntimeConfig(
   for (const field of ['first_byte_timeout', 'request_timeout', 'stream_idle_timeout'] as const) {
     if (complete || Object.prototype.hasOwnProperty.call(record, field)) {
       result[field] = projectSafeInteger(record[field], { minimum: 1 })
+    }
+  }
+  for (const field of ['retry_count', 'blacklist_threshold'] as const) {
+    if (complete || Object.prototype.hasOwnProperty.call(record, field)) {
+      result[field] = projectSafeInteger(record[field], { minimum: 0 })
     }
   }
   if (complete || Object.prototype.hasOwnProperty.call(record, 'header_rules')) {

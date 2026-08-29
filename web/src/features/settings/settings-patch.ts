@@ -1,6 +1,7 @@
 import type { HeaderRulesDto } from '@/app/resources/groups'
 import type {
   RuntimeSettingKey,
+  PolicyCountSettingKey,
   SettingsDto,
   SettingsPatch,
   SettingsValues,
@@ -28,6 +29,8 @@ const requestForwardingKeys: RuntimeSettingKey[] = [
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
+  'retry_count',
+  'blacklist_threshold',
   'header_rules',
   'inject_usage_options',
   'validation_interval',
@@ -271,6 +274,10 @@ export function isValidAffinityCapacity(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 1 && value <= 1_000_000
 }
 
+export function isValidNonNegativeInteger(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0
+}
+
 function asciiLower(value: string): string {
   return value.replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32))
 }
@@ -296,5 +303,11 @@ export function validateSettingsSection(draft: SettingsDraft, section: SettingsS
     'stream_idle_timeout',
     'validation_interval',
   ]
-  return timeouts.every((key) => !draft.overrides.has(key) || isValidTimeout(draft.values[key]))
+  const policyCounts: PolicyCountSettingKey[] = ['retry_count', 'blacklist_threshold']
+  return (
+    timeouts.every((key) => !draft.overrides.has(key) || isValidTimeout(draft.values[key])) &&
+    policyCounts.every(
+      (key) => !draft.overrides.has(key) || isValidNonNegativeInteger(draft.values[key]),
+    )
+  )
 }

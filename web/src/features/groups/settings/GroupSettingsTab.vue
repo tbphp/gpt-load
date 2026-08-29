@@ -28,6 +28,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
+import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -43,9 +44,12 @@ import GroupSettingsBaseForm from './GroupSettingsBaseForm.vue'
 import {
   buildGroupSettingsPatch,
   createGroupSettingsDraft,
+  groupPolicyCountKeys,
   groupTimeoutKeys,
   setGroupConfigOverride,
+  setGroupPolicyCountOverride,
   type GroupSettingsDraft,
+  type GroupPolicyCountKey,
   type GroupTimeoutKey,
 } from './group-settings-patch'
 import {
@@ -86,6 +90,17 @@ const {
   show: showSavedFeedback,
 } = useTransientFlag(1_600)
 const timeoutKeys = groupTimeoutKeys
+const policyCountKeys = groupPolicyCountKeys
+const policyRows = [
+  {
+    key: 'retry_count',
+    helpKey: 'retryCountHelp',
+  },
+  {
+    key: 'blacklist_threshold',
+    helpKey: 'blacklistThresholdHelp',
+  },
+] as const
 const selectedChannel = computed(() =>
   channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === draft.value?.channel_id),
 )
@@ -166,12 +181,19 @@ const timeoutValid = computed(() =>
     return value === undefined || (Number.isSafeInteger(value) && value > 0)
   }),
 )
+const policyCountsValid = computed(() =>
+  policyCountKeys.every((key) => {
+    const value = draft.value?.overrides[key]
+    return value === undefined || (Number.isSafeInteger(value) && value >= 0)
+  }),
+)
 const valid = computed(
   () =>
     !nameError.value &&
     Object.keys(paramErrors.value).length === 0 &&
     weightValid.value &&
     timeoutValid.value &&
+    policyCountsValid.value &&
     headerRulesValid.value &&
     !proxyState.value.invalid,
 )
@@ -306,6 +328,26 @@ function setTimeoutValue(key: GroupTimeoutKey, value: string): void {
     [key]: Number(value),
   }
   draft.value = { ...draft.value, overrides }
+}
+
+function setPolicyCountOverride(key: GroupPolicyCountKey, enabled: boolean): void {
+  if (!draft.value || !saved.value) return
+  draft.value = setGroupPolicyCountOverride(draft.value, key, enabled, saved.value.effective[key])
+}
+
+function setPolicyCountValue(key: GroupPolicyCountKey, value: string): void {
+  if (!draft.value) return
+  draft.value = {
+    ...draft.value,
+    overrides: { ...draft.value.overrides, [key]: Number(value) },
+  }
+}
+
+function policyCountError(key: GroupPolicyCountKey): string | undefined {
+  const value = draft.value?.overrides[key]
+  return value !== undefined && (!Number.isSafeInteger(value) || value < 0)
+    ? t('group.settings.runtime.nonNegativeIntegerError')
+    : undefined
 }
 
 function updateHeaderRules(value: HeaderRulesDto): void {
@@ -568,6 +610,70 @@ onBeforeUnmount(() => {
                         @update:model-value="setTimeoutValue(key, $event)"
                       />
                       <span aria-hidden="true">{{ t('group.settings.runtime.seconds') }}</span>
+                    </div>
+                  </template>
+                </RuntimeOverrideRow>
+              </div>
+              <div
+                v-for="policy in policyRows"
+                :key="policy.key"
+                class="group-settings__runtime-row"
+              >
+                <RuntimeOverrideRow
+                  appearance="ledger"
+                  :label="t(`group.settings.runtime.${policy.key}`)"
+                  :detail="
+                    t('group.settings.runtime.effectiveCount', {
+                      value: saved.effective[policy.key],
+                    })
+                  "
+                  :value-label="t(`group.settings.runtime.${policy.helpKey}`)"
+                  :source-label="
+                    draft.overrides[policy.key] === undefined
+                      ? t('group.settings.runtime.inherited')
+                      : t('group.settings.runtime.override')
+                  "
+                  :action-label="
+                    draft.overrides[policy.key] === undefined
+                      ? t('group.settings.runtime.useOverride')
+                      : t('group.settings.runtime.useInherited')
+                  "
+                  :overridden="draft.overrides[policy.key] !== undefined"
+                  :disabled="mutationPending"
+                  @toggle="
+                    setPolicyCountOverride(policy.key, draft.overrides[policy.key] === undefined)
+                  "
+                >
+                  <template v-if="draft.overrides[policy.key] !== undefined" #value>
+                    <div class="group-settings__runtime-input">
+                      <CompactFieldError
+                        :id="`group-settings-${policy.key}`"
+                        :error="policyCountError(policy.key)"
+                      >
+                        <template #default="{ invalid, describedBy }">
+                          <AppTextInput
+                            :id="`group-settings-${policy.key}`"
+                            type="number"
+                            min="0"
+                            step="1"
+                            inputmode="numeric"
+                            :model-value="String(draft.overrides[policy.key])"
+                            :label="
+                              t('group.settings.runtime.valueFor', {
+                                field: t(`group.settings.runtime.${policy.key}`),
+                              })
+                            "
+                            appearance="surface"
+                            size="compact"
+                            monospace
+                            :disabled="mutationPending"
+                            :invalid="invalid"
+                            :described-by="describedBy"
+                            @update:model-value="setPolicyCountValue(policy.key, $event)"
+                          />
+                        </template>
+                      </CompactFieldError>
+                      <span aria-hidden="true">{{ t('group.settings.runtime.countUnit') }}</span>
                     </div>
                   </template>
                 </RuntimeOverrideRow>

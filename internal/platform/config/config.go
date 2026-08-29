@@ -22,6 +22,8 @@ const (
 	defaultGracefulShutdownSeconds = 10
 	defaultReadTimeoutSeconds      = 60
 	defaultIdleTimeoutSeconds      = 120
+	defaultDatabaseMaxOpenConns    = 10
+	defaultDatabaseMaxIdleConns    = 5
 )
 
 // ServerConfig contains process-level HTTP server settings.
@@ -82,6 +84,21 @@ type DatabaseConfig struct {
 	DSN    string
 }
 
+// DatabasePoolConfig contains connection-pool limits for network databases.
+// SQLite always uses one open and one idle connection regardless of these values.
+type DatabasePoolConfig struct {
+	MaxOpenConnections int
+	MaxIdleConnections int
+}
+
+// DefaultDatabasePoolConfig returns the default network database pool limits.
+func DefaultDatabasePoolConfig() DatabasePoolConfig {
+	return DatabasePoolConfig{
+		MaxOpenConnections: defaultDatabaseMaxOpenConns,
+		MaxIdleConnections: defaultDatabaseMaxIdleConns,
+	}
+}
+
 // DatabaseMetadata describes database ownership without retaining its DSN or
 // path.
 type DatabaseMetadata struct {
@@ -95,6 +112,7 @@ type Config struct {
 	DataDir                   string
 	DatabaseDSN               string
 	DatabaseMetadata          DatabaseMetadata
+	DatabasePool              DatabasePoolConfig
 	EncryptionKey             string
 	AuthKey                   string
 	AuthKeyMetadata           SecretMetadata
@@ -133,6 +151,25 @@ func Load() (*Config, error) {
 	idleTimeout, err := parsePositiveInt("IDLE_TIMEOUT", defaultIdleTimeoutSeconds)
 	if err != nil {
 		return nil, err
+	}
+	databaseMaxOpenConnections, err := parsePositiveInt(
+		"DATABASE_MAX_OPEN_CONNECTIONS",
+		defaultDatabaseMaxOpenConns,
+	)
+	if err != nil {
+		return nil, err
+	}
+	databaseMaxIdleConnections, err := parsePositiveInt(
+		"DATABASE_MAX_IDLE_CONNECTIONS",
+		defaultDatabaseMaxIdleConns,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if databaseMaxIdleConnections > databaseMaxOpenConnections {
+		return nil, fmt.Errorf(
+			"DATABASE_MAX_IDLE_CONNECTIONS must be less than or equal to DATABASE_MAX_OPEN_CONNECTIONS",
+		)
 	}
 
 	dataDir := valueOrDefault("DATA_DIR", defaultDataDir)
@@ -213,9 +250,13 @@ func Load() (*Config, error) {
 			ReadTimeout:             readTimeout,
 			IdleTimeout:             idleTimeout,
 		},
-		DataDir:               dataDir,
-		DatabaseDSN:           databaseDSN,
-		DatabaseMetadata:      databaseMetadata,
+		DataDir:          dataDir,
+		DatabaseDSN:      databaseDSN,
+		DatabaseMetadata: databaseMetadata,
+		DatabasePool: DatabasePoolConfig{
+			MaxOpenConnections: databaseMaxOpenConnections,
+			MaxIdleConnections: databaseMaxIdleConnections,
+		},
 		EncryptionKey:         explicitEncryptionKey,
 		AuthKey:               authKey,
 		AuthKeyMetadata:       authKeyMetadata,

@@ -33,6 +33,8 @@ type SettingsValuesResponse struct {
 	StreamIdleTimeout        int64               `json:"stream_idle_timeout"`
 	HeaderRules              HeaderRulesResponse `json:"header_rules"`
 	InjectUsageOptions       bool                `json:"inject_usage_options"`
+	RetryCount               int                 `json:"retry_count"`
+	BlacklistThreshold       int                 `json:"blacklist_threshold"`
 	AffinityEnabled          bool                `json:"affinity_enabled"`
 	AffinityTTL              int64               `json:"affinity_ttl"`
 	AffinityCapacity         int                 `json:"affinity_capacity"`
@@ -431,6 +433,8 @@ func mapSettingsResponse(
 				Remove: remove,
 			},
 			InjectUsageOptions:       settings.InjectUsageOptions,
+			RetryCount:               settings.RetryCount,
+			BlacklistThreshold:       settings.BlacklistThreshold,
 			AffinityEnabled:          settings.AffinityEnabled,
 			AffinityTTL:              durationSeconds(settings.AffinityTTL),
 			AffinityCapacity:         settings.AffinityCapacity,

@@ -6,6 +6,7 @@ import type {
 } from '@/app/resources/groups'
 
 export type GroupTimeoutKey = 'first_byte_timeout' | 'request_timeout' | 'stream_idle_timeout'
+export type GroupPolicyCountKey = 'retry_count' | 'blacklist_threshold'
 
 export interface GroupSettingsDraft {
   channel_id: string
@@ -23,6 +24,10 @@ export const groupTimeoutKeys: readonly GroupTimeoutKey[] = [
   'request_timeout',
   'stream_idle_timeout',
 ]
+export const groupPolicyCountKeys: readonly GroupPolicyCountKey[] = [
+  'retry_count',
+  'blacklist_threshold',
+]
 
 function cloneHeaders(value: HeaderRulesDto): HeaderRulesDto {
   return { set: { ...value.set }, remove: [...value.remove] }
@@ -31,6 +36,7 @@ function cloneHeaders(value: HeaderRulesDto): HeaderRulesDto {
 function cloneOverrides(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
   const next: GroupRuntimeConfigDto = {}
   for (const key of groupTimeoutKeys) if (value[key] !== undefined) next[key] = value[key]
+  for (const key of groupPolicyCountKeys) if (value[key] !== undefined) next[key] = value[key]
   if (value.header_rules) next.header_rules = cloneHeaders(value.header_rules)
   if (value.inject_usage_options !== undefined)
     next.inject_usage_options = value.inject_usage_options
@@ -60,6 +66,18 @@ export function createGroupSettingsDraft(group: GroupSettingsDto): GroupSettings
 export function setGroupConfigOverride(
   draft: GroupSettingsDraft,
   key: GroupTimeoutKey,
+  enabled: boolean,
+  effective: number,
+): GroupSettingsDraft {
+  const overrides = cloneOverrides(draft.overrides)
+  if (enabled) overrides[key] = effective
+  else delete overrides[key]
+  return { ...draft, overrides }
+}
+
+export function setGroupPolicyCountOverride(
+  draft: GroupSettingsDraft,
+  key: GroupPolicyCountKey,
   enabled: boolean,
   effective: number,
 ): GroupSettingsDraft {
