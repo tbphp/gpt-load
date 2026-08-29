@@ -86,6 +86,8 @@ func TestCredentialRoutesReplaceLegacyGroupKeyRoutes(t *testing.T) {
 		"control.group-credentials.download":     "/groups/:group_id/credentials/:credential_id/download",
 		"control.group-credentials.update":       "/groups/:group_id/credentials/:credential_id",
 		"control.group-credentials.restore":      "/groups/:group_id/credentials/:credential_id/restore",
+		"control.group-credentials.test":         "/groups/:group_id/credentials/:credential_id/test",
+		"control.group-credentials.test-restore": "/groups/:group_id/credentials/:credential_id/test/restore",
 		"control.group-credentials.batch":        "/groups/:group_id/credentials/batch",
 		"control.group-credentials.delete":       "/groups/:group_id/credentials/:credential_id",
 		"control.group-credentials.import":       "/groups/:group_id/credentials/import",

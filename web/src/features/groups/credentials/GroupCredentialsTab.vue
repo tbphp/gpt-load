@@ -21,6 +21,7 @@ import type {
   CredentialCollectionFilters,
   CredentialItemDto,
   CredentialObservationDto,
+  CredentialTestResultDto,
   ProxyMutation,
   CredentialStatus,
 } from '@/api/control/types'
@@ -38,7 +39,9 @@ import {
   revealCredential,
   refreshCredential as refreshCredentialRequest,
   restoreCredential,
+  restoreTestedCredential,
   refreshCredentialObservation,
+  testCredentialConnection,
   updateCredential,
 } from '@/app/resources/credentials'
 import {
@@ -71,6 +74,7 @@ import { createUUID } from '@/lib/uuid'
 
 import CredentialBatchBar from './GroupCredentialBatchBar.vue'
 import CredentialRecord from './GroupCredentialRecord.vue'
+import CredentialTestDialog from './CredentialTestDialog.vue'
 import SubscriptionAccountCard from './SubscriptionAccountCard.vue'
 import {
   constrainCredentialSearch,
@@ -83,6 +87,7 @@ import {
 
 const batchCredentialConcurrency = 4
 type FullCredentialAction = 'enable' | 'disable' | 'download'
+type CredentialTestRestoreError = 'failed' | 'conflict' | 'conflict_refresh_failed'
 
 const props = defineProps<{
   groupId: number
@@ -128,6 +133,11 @@ const batchObservationPending = ref(new Set<number>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | undefined>()
+const credentialTestTarget = ref<CredentialItemDto>()
+const credentialTestResult = ref<CredentialTestResultDto>()
+const credentialTestRequestFailed = ref(false)
+const credentialTestRestoreBlocked = ref(false)
+const credentialTestRestoreError = ref<CredentialTestRestoreError>()
 const resetOperationKeys = new Map<number, string>()
 const connectionWorkspaceOpen = ref(false)
 const fullActionsOpen = ref(false)
@@ -141,6 +151,8 @@ const inspectedConnectionSignature = ref('')
 const inspectingConnectionSignature = ref('')
 let connectionInspectionController: AbortController | undefined
 let connectionInspectionOwner = 0
+let credentialTestController: AbortController | undefined
+let credentialTestOwner = 0
 const copyControllers = useAbortControllerPool()
 const searchDebounce = useDebouncedAction(250)
 const collection = computed(() => credentialsQuery.data.value)
@@ -215,6 +227,32 @@ const dialogBusy = computed(() => {
 const resetDialogBusy = computed(() =>
   resetTarget.value === undefined ? false : pending(resetTarget.value.item.credential_id),
 )
+const credentialTestPending = computed(() =>
+  credentialTestTarget.value === undefined
+    ? false
+    : pendingOperations.value.has(operation(credentialTestTarget.value.credential_id, 'test')),
+)
+const credentialTestRestorePending = computed(() =>
+  credentialTestTarget.value === undefined
+    ? false
+    : pendingOperations.value.has(
+        operation(credentialTestTarget.value.credential_id, 'test-restore'),
+      ),
+)
+// restore_proof 仅在父级请求状态中持有，不传给展示组件或渲染到 DOM。
+const credentialTestDialogResult = computed(() => {
+  const result = credentialTestResult.value
+  if (result === undefined) return undefined
+  return {
+    outcome: result.outcome,
+    model: result.model,
+    protocol: result.protocol,
+    latency_ms: result.latency_ms,
+    reason: result.reason,
+    can_restore: result.can_restore,
+    tested_at_ms: result.tested_at_ms,
+  }
+})
 const hasChangedConditions = computed(
   () => filters.value.q !== undefined || filters.value.status !== undefined,
 )
@@ -281,6 +319,7 @@ watch(
 watch(
   () => props.groupId,
   () => {
+    resetCredentialTestState()
     connectionWorkspaceOpen.value = false
     fullActionsOpen.value = false
     fullActionTarget.value = undefined
@@ -1129,6 +1168,7 @@ async function saveConnectedAccounts(): Promise<void> {
 }
 
 onBeforeUnmount(resetConnectionInspection)
+onBeforeUnmount(resetCredentialTestState)
 
 async function reconcileBatch(
   action: 'enable' | 'disable' | 'delete',
@@ -1190,6 +1230,117 @@ async function mutateItem(
   } finally {
     setPending(item.credential_id, action, false)
   }
+}
+
+function resetCredentialTestState(): void {
+  const credentialID = credentialTestTarget.value?.credential_id
+  credentialTestOwner += 1
+  credentialTestController?.abort()
+  credentialTestController = undefined
+  if (credentialID !== undefined) {
+    setPending(credentialID, 'test', false)
+    setPending(credentialID, 'test-restore', false)
+  }
+  credentialTestTarget.value = undefined
+  credentialTestResult.value = undefined
+  credentialTestRequestFailed.value = false
+  credentialTestRestoreBlocked.value = false
+  credentialTestRestoreError.value = undefined
+}
+
+function setCredentialTestOpen(open: boolean): void {
+  if (open || credentialTestPending.value || credentialTestRestorePending.value) return
+  resetCredentialTestState()
+}
+
+async function openCredentialTest(item: CredentialItemDto): Promise<void> {
+  if (props.connectionType !== 'api_key' || batchBusy.value || pending(item.credential_id)) return
+
+  credentialTestController?.abort()
+  const controller = new AbortController()
+  const owner = ++credentialTestOwner
+  const groupID = props.groupId
+  credentialTestController = controller
+  credentialTestTarget.value = item
+  credentialTestResult.value = undefined
+  credentialTestRequestFailed.value = false
+  credentialTestRestoreBlocked.value = false
+  credentialTestRestoreError.value = undefined
+  setPending(item.credential_id, 'test', true)
+  try {
+    const result = await testCredentialConnection(
+      client,
+      groupID,
+      item.credential_id,
+      controller.signal,
+    )
+    if (owner !== credentialTestOwner || groupID !== props.groupId) return
+    credentialTestResult.value = result
+  } catch {
+    if (owner !== credentialTestOwner || groupID !== props.groupId) return
+    credentialTestRequestFailed.value = true
+  } finally {
+    if (owner === credentialTestOwner && groupID === props.groupId) {
+      credentialTestController = undefined
+      setPending(item.credential_id, 'test', false)
+    }
+  }
+}
+
+async function confirmTestedCredentialRestore(): Promise<void> {
+  const item = credentialTestTarget.value
+  const result = credentialTestResult.value
+  if (
+    item === undefined ||
+    result?.outcome !== 'passed' ||
+    !result.can_restore ||
+    result.restore_proof === null ||
+    credentialTestRestoreBlocked.value ||
+    pending(item.credential_id)
+  ) {
+    return
+  }
+
+  const owner = credentialTestOwner
+  const groupID = props.groupId
+  credentialTestRestoreError.value = undefined
+  setPending(item.credential_id, 'test-restore', true)
+  let restored = false
+  try {
+    const restoredItem = await restoreTestedCredential(
+      client,
+      groupID,
+      item.credential_id,
+      result.restore_proof,
+    )
+    if (owner !== credentialTestOwner || groupID !== props.groupId) return
+    await reconcileItem(restoredItem, true)
+    restored = true
+  } catch (cause) {
+    if (owner !== credentialTestOwner || groupID !== props.groupId) return
+    if (cause instanceof ApiError && cause.status === 409) {
+      credentialTestRestoreBlocked.value = true
+      const [credentialPageRefresh] = await Promise.allSettled([
+        refetchActiveCredentialPage(),
+        refetchGroupSummary(),
+      ])
+      if (owner !== credentialTestOwner || groupID !== props.groupId) return
+      credentialTestRestoreError.value =
+        credentialPageRefresh.status === 'fulfilled' ? 'conflict' : 'conflict_refresh_failed'
+    } else {
+      credentialTestRestoreError.value = 'failed'
+    }
+  } finally {
+    if (owner === credentialTestOwner && groupID === props.groupId) {
+      setPending(item.credential_id, 'test-restore', false)
+    }
+  }
+  if (!restored || owner !== credentialTestOwner || groupID !== props.groupId) return
+  toast.show({
+    message: t('group.credentials.test.restoreSucceeded'),
+    tone: 'success',
+  })
+  resetCredentialTestState()
 }
 
 async function saveCredentialProxy(item: CredentialItemDto, value: ProxyMutation): Promise<void> {
@@ -1600,6 +1751,7 @@ async function runBatch(
             @update:weight-editor-open="setWeightEditor(item.credential_id, $event)"
             @open-weight="openWeightEditor($event.credential_id)"
             @weight="mutateItem($event.item, 'weight', $event.value)"
+            @test="openCredentialTest"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
             @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.mask }"
@@ -1619,6 +1771,18 @@ async function runBatch(
         />
       </template>
     </template>
+    <CredentialTestDialog
+      :open="credentialTestTarget !== undefined"
+      :mask="credentialTestTarget?.mask ?? ''"
+      :pending="credentialTestPending"
+      :request-failed="credentialTestRequestFailed"
+      :result="credentialTestDialogResult"
+      :restore-pending="credentialTestRestorePending"
+      :restore-blocked="credentialTestRestoreBlocked"
+      :restore-error="credentialTestRestoreError"
+      @update:open="setCredentialTestOpen"
+      @restore="confirmTestedCredentialRestore"
+    />
     <AppConfirmDialog
       appearance="ledger"
       :open="fullActionTarget !== undefined"

@@ -301,6 +301,28 @@ export interface CredentialDownloadAllDto {
   files: CredentialDownloadDto[]
 }
 
+export type CredentialTestOutcome = 'passed' | 'failed' | 'inconclusive'
+
+export type CredentialTestReason =
+  | 'invalid_credential'
+  | 'model_unavailable'
+  | 'rate_limited'
+  | 'timeout'
+  | 'upstream_error'
+  | 'probe_incompatible'
+  | 'unknown'
+
+export interface CredentialTestResultDto {
+  outcome: CredentialTestOutcome
+  model: string
+  protocol: ProtocolValue
+  latency_ms: number
+  reason: CredentialTestReason | null
+  can_restore: boolean
+  restore_proof: string | null
+  tested_at_ms: number
+}
+
 export interface CredentialSummaryDto {
   total: number
   available: number

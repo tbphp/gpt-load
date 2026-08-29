@@ -336,6 +336,51 @@ export default {
       collapse: 'Collapse credential details',
       restore: 'Restore now',
       restoreFailed: 'Unable to restore the channel credential now',
+      test: {
+        action: 'Test connection',
+        title: 'Test connection',
+        description:
+          'This sends one minimal real upstream request and may incur a small charge. Testing does not change scheduling or blacklist state.',
+        loading: 'Testing {mask}…',
+        outcome: {
+          passed: 'Test passed',
+          failed: 'Test did not pass',
+          inconclusive: 'Unable to determine',
+        },
+        fields: {
+          credential: 'API key',
+          model: 'Test model',
+          protocol: 'Protocol',
+          latency: 'Latency',
+          reason: 'Result details',
+          testedAt: 'Tested at',
+        },
+        latency: '{value} ms',
+        reason: {
+          passed: 'No issue detected',
+          invalid_credential: 'The API key is invalid',
+          model_unavailable: 'The test model is unavailable',
+          rate_limited: 'The upstream rate limit was reached',
+          timeout: 'The request timed out',
+          upstream_error: 'The upstream service returned an error',
+          probe_incompatible: 'This channel or model cannot run the probe',
+          unknown: 'The reason could not be determined',
+        },
+        restorePrompt: 'This API key is blacklisted. Restoring it returns it to scheduling.',
+        keepBlocked: 'Not now',
+        restore: 'Restore API key',
+        restoring: 'Restoring…',
+        close: 'Close',
+        requestFailed: 'Unable to complete the test. Try again later.',
+        restoreSucceeded: 'The API key was restored and will return to scheduling',
+        restoreError: {
+          failed: 'Unable to restore the API key. Try again later.',
+          conflict:
+            'The API key state changed. The list was refreshed; test again before restoring.',
+          conflict_refresh_failed:
+            'The API key state changed, but the list could not be refreshed. Refresh manually and try again.',
+        },
+      },
       recovery: {
         none: 'No recovery needed',
         cooldown: 'Recovers when cooldown ends',

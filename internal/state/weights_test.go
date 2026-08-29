@@ -272,6 +272,39 @@ func TestKeyRegistryRecoverIfMatchRestoresMatchingBlacklistedActiveKey(t *testin
 	}
 }
 
+func TestKeyRegistryRestoreRuntimeStateIfMatchRequiresAndClearsCooldown(t *testing.T) {
+	registry := NewCredentialRegistry()
+	cooldownUntil := time.Now().UTC().Add(time.Hour)
+	entry := CredentialEntry{
+		ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true,
+		FailureCount: 3, CooldownUntil: cooldownUntil,
+		WeightAuto: 17, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
+	}
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{entry})
+	before := registryEntry(t, registry, 1)
+	ref := CredentialRef{
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
+		FailureGeneration: before.FailureGeneration,
+	}
+
+	if registry.RestoreRuntimeStateIfMatch(ref, cooldownUntil.Add(time.Second), DefaultWeight) {
+		t.Fatal("RestoreRuntimeStateIfMatch(stale cooldown) = true, want false")
+	}
+	if got := registryEntry(t, registry, 1); !reflect.DeepEqual(got, before) {
+		t.Fatalf("entry after rejected restore = %#v, want %#v", got, before)
+	}
+	if !registry.RestoreRuntimeStateIfMatch(ref, cooldownUntil, DefaultWeight) {
+		t.Fatal("RestoreRuntimeStateIfMatch() = false, want true")
+	}
+	got := registryEntry(t, registry, 1)
+	if got.Blacklisted || got.FailureCount != 0 || !got.CooldownUntil.IsZero() ||
+		got.WeightAuto != DefaultWeight || got.FailureGeneration != before.FailureGeneration+1 {
+		t.Fatalf("entry after restore = %#v", got)
+	}
+}
+
 func TestKeyRegistryRecoverIfMatchRejectsStaleGeneration(t *testing.T) {
 	registry := NewCredentialRegistry()
 	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
