@@ -1,12 +1,6 @@
 export default {
   common: {
     appName: 'GPT-Load',
-    protocols: {
-      openaiEmbeddings: {
-        label: 'OpenAI Embeddings',
-        description: '使用 OpenAI-compatible Wire 创建文本向量 · POST /v1/embeddings',
-      },
-    },
     retry: '重试',
     modelDiscoveryFailed: '模型发现失败，草稿未变',
     changeKey: '更换登录密钥',

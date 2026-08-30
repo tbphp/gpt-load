@@ -55,8 +55,7 @@ const presentations = computed(() =>
       unlimited: t('accessKeys.unlimited'),
       costRules: (count) => t('accessKeys.costLimits.ruleCount', { count }),
     },
-    protocolLabel: (protocol) =>
-      protocol === 'openai-embeddings' ? t('common.protocols.openaiEmbeddings.label') : protocol,
+    protocolLabel: (protocol) => protocol,
   }),
 )
 function source(id: number): AccessKeyCollectionItemDto {

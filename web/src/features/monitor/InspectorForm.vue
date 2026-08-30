@@ -20,7 +20,6 @@ interface SelectOption {
 
 const props = defineProps<{
   protocol: string
-  protocolDescription?: string
   model: string
   accessKeyId: string
   protocolOptions: SelectOption[]
@@ -95,7 +94,6 @@ function error(field: InspectorField): string | undefined {
           id="inspector-protocol"
           size="compact"
           :label="t('monitor.inspector.form.protocol')"
-          :description="protocolDescription"
           :error="error('protocol')"
           required
         >

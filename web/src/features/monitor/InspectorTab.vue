@@ -98,16 +98,8 @@ const groupOptionsQuery = useQuery(groupOptionsQueryOptions(client))
 const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const protocolOptions = computed(() => [
   { value: '', label: t('monitor.inspector.form.selectProtocol') },
-  ...enabledDataProtocols.map((value) => ({
-    value,
-    label: value === 'openai-embeddings' ? t('common.protocols.openaiEmbeddings.label') : value,
-  })),
+  ...enabledDataProtocols.map((value) => ({ value, label: value })),
 ])
-const protocolDescription = computed(() =>
-  draftProtocol.value === 'openai-embeddings'
-    ? t('common.protocols.openaiEmbeddings.description')
-    : undefined,
-)
 const configuredModels = computed(() =>
   [...new Set((groupOptionsQuery.data.value ?? []).flatMap((group) => group.models))].sort(
     (left, right) => left.localeCompare(right),
@@ -432,10 +424,6 @@ function modelLabel(value: string | null): string {
   return value ?? t('monitor.inspector.result.modelNotSpecified')
 }
 
-function protocolLabel(value: AccessProtocol): string {
-  return value === 'openai-embeddings' ? t('common.protocols.openaiEmbeddings.label') : value
-}
-
 function formattedInteger(value: number): string {
   return formatInteger(value, locale.value)
 }
@@ -552,7 +540,6 @@ onBeforeUnmount(() => {
   <div class="inspector-tab">
     <InspectorForm
       :protocol="draftProtocol"
-      :protocol-description="protocolDescription"
       :model="draftModel"
       :access-key-id="draftAccessKeyID"
       :protocol-options="protocolOptions"
@@ -696,9 +683,9 @@ onBeforeUnmount(() => {
               <OverflowTooltip
                 as="dd"
                 class="route-fact__mono"
-                :content="`${protocolLabel(observation.protocol)} · ${observation.operation}`"
+                :content="`${observation.protocol} · ${observation.operation}`"
               >
-                {{ protocolLabel(observation.protocol) }} · {{ observation.operation }}
+                {{ observation.protocol }} · {{ observation.operation }}
               </OverflowTooltip>
             </div>
             <div class="route-fact">
