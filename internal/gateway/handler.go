@@ -269,6 +269,14 @@ func (handler *Handler) applyGroupDecisionEffect(
 	)
 }
 
+func refreshCooldownCredentialVersion(result UpstreamResult, credentialVersion uint64) uint64 {
+	if result.DispatchState == execution.DispatchNotSent && result.ExecutionError != nil &&
+		result.ExecutionError.Hint == execution.FailureHintRefreshUnavailable {
+		return credentialVersion
+	}
+	return 0
+}
+
 func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 	credentialID uint,
 	credentialVersion uint64,
@@ -1057,7 +1065,7 @@ func (handler *Handler) executeAttempts(
 			handler.applyGroupDecisionEffect(
 				selection.Group,
 				selection.CredentialID,
-				ref.Version,
+				0,
 				decision,
 				result.StatusCode,
 				attemptNow,
@@ -1095,7 +1103,7 @@ func (handler *Handler) executeAttempts(
 		handler.applyGroupDecisionEffect(
 			selection.Group,
 			selection.CredentialID,
-			ref.Version,
+			refreshCooldownCredentialVersion(result, ref.Version),
 			decision,
 			result.StatusCode,
 			attemptNow,

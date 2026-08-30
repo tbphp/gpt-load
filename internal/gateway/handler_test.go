@@ -311,6 +311,43 @@ func TestHandlerSkipsCooldownFromStaleCredentialVersion(t *testing.T) {
 	}
 }
 
+func TestRefreshCooldownCredentialVersion(t *testing.T) {
+	tests := []struct {
+		name   string
+		result UpstreamResult
+		want   uint64
+	}{
+		{
+			name: "refresh unavailable",
+			result: UpstreamResult{
+				DispatchState: execution.DispatchNotSent,
+				ExecutionError: &execution.ErrorEvidence{
+					Hint: execution.FailureHintRefreshUnavailable,
+				},
+			},
+			want: 7,
+		},
+		{
+			name: "model rate limited",
+			result: UpstreamResult{
+				DispatchState: execution.DispatchMaybeSent,
+				ExecutionError: &execution.ErrorEvidence{
+					Hint: execution.FailureHintRateLimited,
+				},
+			},
+			want: 0,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := refreshCooldownCredentialVersion(test.result, 7); got != test.want {
+				t.Fatalf("refreshCooldownCredentialVersion() = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
 type barrierGatewayMutationCoordinator struct {
 	entered      chan struct{}
 	releaseEntry chan struct{}
