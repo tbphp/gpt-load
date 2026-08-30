@@ -80,7 +80,10 @@ export default {
       duplicateAccount: 'このサブスクリプションアカウントはグループに既に存在します',
       reauthorizationRequired:
         'このサブスクリプションアカウントは再接続または再インポートが必要です',
-      outcomeUnknown: '認証情報の結果を確認できません。先にアカウント状態を再読み込みしてください',
+      outcomeUnknown:
+        '認証情報の更新結果を確認できません。このアカウントを再接続または再インポートしてください',
+      refreshTemporarilyUnavailable:
+        '認証情報を一時的に更新できません。しばらくしてから再試行してください',
       versionConflict: '認証が別の操作で更新されました。再読み込みしてから再試行してください',
       resetCreditUnavailable: '利用可能なリセットクレジットがありません。先に同期してください',
       resetCreditRejected:

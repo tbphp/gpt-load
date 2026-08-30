@@ -69,6 +69,12 @@ var (
 	ErrResetCreditOutcomeUnknown              = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "RESET_CREDIT_OUTCOME_UNKNOWN", Message: "The reset credit outcome is unknown; retry with the same idempotency key"}
 )
 
+var ErrCredentialRefreshTemporarilyUnavailable = &APIError{
+	HTTPStatus: http.StatusServiceUnavailable,
+	Code:       "CREDENTIAL_REFRESH_TEMPORARILY_UNAVAILABLE",
+	Message:    "Credential refresh is temporarily unavailable",
+}
+
 // NewAPIErrorWithData creates a copy of an APIError with response data.
 func NewAPIErrorWithData(base *APIError, data any) *APIError {
 	return &APIError{

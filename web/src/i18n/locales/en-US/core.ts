@@ -80,7 +80,10 @@ export default {
       stageMismatch: 'The temporary subscription account does not match this target',
       duplicateAccount: 'This subscription account already exists in the Group',
       reauthorizationRequired: 'This subscription account must be reconnected or re-imported',
-      outcomeUnknown: 'The credential outcome is unknown; reload the account state first',
+      outcomeUnknown:
+        'The credential refresh outcome is unknown; reconnect or re-import this account',
+      refreshTemporarilyUnavailable:
+        'Credential refresh is temporarily unavailable; try again later',
       versionConflict: 'The authorization changed elsewhere; reload and try again',
       resetCreditUnavailable: 'No reset credit is available; sync the account first',
       resetCreditRejected: 'The upstream did not accept the reset credit; sync and try again',

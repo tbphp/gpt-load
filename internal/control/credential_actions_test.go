@@ -208,3 +208,31 @@ func TestRefreshGroupCredentialOnlyRefreshesToken(t *testing.T) {
 		t.Fatalf("prepare force calls = %#v, observation calls = %d", forces, observationCalls)
 	}
 }
+
+func TestRefreshGroupCredentialCanRetryAfterTemporaryFailure(t *testing.T) {
+	t.Parallel()
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	calls := 0
+	fixture.service.prepareSubscriptionCredential = func(
+		context.Context,
+		channel.ID,
+		execution.CredentialSnapshot,
+		bool,
+	) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+		calls++
+		if calls == 1 {
+			return subscriptionruntime.Credential{}, &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRefreshUnavailable,
+				StatusCode: http.StatusTooManyRequests, Code: "refresh_temporarily_unavailable",
+			}
+		}
+		return subscriptionruntime.Credential{}, nil
+	}
+
+	if _, err := fixture.service.RefreshGroupCredential(t.Context(), groupID, credentialID); !errors.Is(err, app_errors.ErrCredentialRefreshTemporarilyUnavailable) {
+		t.Fatalf("first RefreshGroupCredential() error = %v", err)
+	}
+	if _, err := fixture.service.RefreshGroupCredential(t.Context(), groupID, credentialID); err != nil || calls != 2 {
+		t.Fatalf("second RefreshGroupCredential() error/calls = %v/%d", err, calls)
+	}
+}

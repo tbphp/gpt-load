@@ -57,15 +57,22 @@ func (*grokDriver) Refresh(ctx context.Context, current subscriptionruntime.Cred
 	return grokRuntimeCredential(refreshed, canonical), nil
 }
 
-func (*grokDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailure {
+func (*grokDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailureDecision {
 	if errors.Is(err, ErrCredentialIdentityChanged) {
-		return subscriptionruntime.RefreshFailureIdentityChanged
+		return subscriptionruntime.RefreshFailureDecision{Kind: subscriptionruntime.RefreshFailureIdentityChanged}
 	}
 	var tokenErr *TokenEndpointError
-	if errors.As(err, &tokenErr) && IsDefinitiveRefreshRejection(tokenErr.Code) {
-		return subscriptionruntime.RefreshFailureReauthorizationRequired
+	if errors.As(err, &tokenErr) {
+		decision := subscriptionruntime.RefreshFailureDecision{
+			Kind: subscriptionruntime.RefreshFailureRetryable, StatusCode: tokenErr.StatusCode,
+			OAuthCode: strings.TrimSpace(tokenErr.Code),
+		}
+		if IsDefinitiveRefreshRejection(tokenErr.Code) {
+			decision.Kind = subscriptionruntime.RefreshFailureReauthorizationRequired
+		}
+		return decision
 	}
-	return subscriptionruntime.RefreshFailureOutcomeUnknown
+	return subscriptionruntime.RefreshFailureDecision{Kind: subscriptionruntime.RefreshFailureOutcomeUnknown}
 }
 
 func (*grokDriver) BeginDeviceAuthorization(ctx context.Context) (subscriptionruntime.DeviceAuthorization, error) {

@@ -312,11 +312,12 @@ func refreshGrokTokensOnly(ctx context.Context, current GrokCredential, options 
 	}
 	defer clear(body)
 	var token grokTokenResponse
+	if status != http.StatusOK {
+		_ = json.Unmarshal(body, &token)
+		return GrokCredential{}, &GrokTokenEndpointError{StatusCode: status, Code: boundedGrokOAuthCode(token.Error)}
+	}
 	if err := json.Unmarshal(body, &token); err != nil {
 		return GrokCredential{}, fmt.Errorf("decode Grok refresh response: %w", err)
-	}
-	if status != http.StatusOK {
-		return GrokCredential{}, &GrokTokenEndpointError{StatusCode: status, Code: boundedGrokOAuthCode(token.Error)}
 	}
 	if strings.TrimSpace(token.AccessToken) == "" {
 		return GrokCredential{}, fmt.Errorf("Grok refresh response has no access token")

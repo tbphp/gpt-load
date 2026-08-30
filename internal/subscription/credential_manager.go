@@ -6,8 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
@@ -37,6 +40,7 @@ type CredentialManager struct {
 	replaceSecret  func(uint, uint64, uint64, string, string) bool
 	reconcileGroup func(uint, []state.CredentialEntry) (bool, error)
 	now            func() time.Time
+	logger         *logrus.Logger
 	passiveQuota   *passiveQuotaPending
 }
 
@@ -67,6 +71,7 @@ func NewCredentialManager(
 			return driver.Refresh(ctx, credential)
 		},
 		now:            time.Now,
+		logger:         logrus.StandardLogger(),
 		replaceSecret:  registry.ReplaceCredentialSecretIfMatch,
 		reconcileGroup: registry.ReconcileGroup,
 	}
@@ -151,10 +156,36 @@ func (manager *CredentialManager) refreshCredentialLocked(
 		}
 		return subscriptionruntime.Credential{}, localEvidence("refresh_start_failed", "subscription credential refresh could not start")
 	}
+	refreshStarted := time.Now()
 	refreshed, refreshErr := manager.refresh(ctx, driver, current)
 	if refreshErr != nil {
+		failure := driver.ClassifyRefreshFailure(refreshErr)
+		manager.logRefreshFailure(
+			row,
+			channelID,
+			forceRefresh,
+			failure,
+			refreshErr,
+			time.Since(refreshStarted),
+		)
+		if failure.Kind == subscriptionruntime.RefreshFailureRetryable {
+			if err := manager.transitionAuthState(
+				ctx,
+				row,
+				row.SecretVersion,
+				models.CredentialAuthStateReady,
+				"",
+			); err != nil {
+				manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
+				return subscriptionruntime.Credential{}, localEvidence(
+					"refresh_state_commit_failed",
+					"subscription credential state could not be saved",
+				)
+			}
+			return subscriptionruntime.Credential{}, refreshTemporarilyUnavailableEvidence(failure)
+		}
 		stateValue, code := models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown"
-		switch driver.ClassifyRefreshFailure(refreshErr) {
+		switch failure.Kind {
 		case subscriptionruntime.RefreshFailureIdentityChanged:
 			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"
 		case subscriptionruntime.RefreshFailureReauthorizationRequired:
@@ -304,11 +335,99 @@ func refreshFinalizeContext(ctx context.Context) (context.Context, context.Cance
 }
 
 func authEvidence(code string) *execution.ErrorEvidence {
+	summary := "subscription account requires reauthorization"
+	switch code {
+	case "outcome_unknown", "refreshing", "refresh_outcome_unknown", "refresh_persist_failed",
+		"refresh_commit_failed", "refresh_registry_mismatch", "refresh_state_commit_failed":
+		summary = "subscription credential refresh outcome is unknown"
+	}
 	return &execution.ErrorEvidence{
 		Kind: execution.ErrorKindProvider, Hint: execution.FailureHintReauthorizationRequired,
 		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeCredential,
-		Code: code, Summary: "subscription account requires reauthorization",
+		Code: code, Summary: summary,
 	}
+}
+
+func refreshTemporarilyUnavailableEvidence(
+	failure subscriptionruntime.RefreshFailureDecision,
+) *execution.ErrorEvidence {
+	statusCode := failure.StatusCode
+	if statusCode < 100 || statusCode > 599 {
+		statusCode = 0
+	}
+	return &execution.ErrorEvidence{
+		Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRefreshUnavailable,
+		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeCredential,
+		StatusCode: statusCode, Type: safeRefreshDiagnosticCode(failure.OAuthCode),
+		Code:         "refresh_temporarily_unavailable",
+		Summary:      "subscription credential refresh is temporarily unavailable",
+		ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+	}
+}
+
+func (manager *CredentialManager) logRefreshFailure(
+	row models.Credential,
+	channelID channel.ID,
+	forceRefresh bool,
+	failure subscriptionruntime.RefreshFailureDecision,
+	err error,
+	duration time.Duration,
+) {
+	if manager == nil || manager.logger == nil {
+		return
+	}
+	fields := logrus.Fields{
+		"event":          "subscription.credential_refresh_failed",
+		"credential_id":  row.ID,
+		"group_id":       row.GroupID,
+		"channel":        channelID,
+		"secret_version": row.SecretVersion,
+		"force_refresh":  forceRefresh,
+		"classification": failure.Kind.String(),
+		"stage":          "provider_refresh",
+		"error_kind":     refreshErrorKind(err, failure),
+		"duration_ms":    duration.Milliseconds(),
+	}
+	if failure.StatusCode >= 100 && failure.StatusCode <= 599 {
+		fields["http_status"] = failure.StatusCode
+	}
+	if code := safeRefreshDiagnosticCode(failure.OAuthCode); code != "" {
+		fields["oauth_error_code"] = code
+	}
+	manager.logger.WithFields(fields).Warn("Subscription credential refresh failed")
+}
+
+func refreshErrorKind(err error, failure subscriptionruntime.RefreshFailureDecision) string {
+	if failure.StatusCode != 0 {
+		return "token_endpoint"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) {
+		return "transport"
+	}
+	return "provider"
+}
+
+func safeRefreshDiagnosticCode(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" || len(value) > 64 {
+		return ""
+	}
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' ||
+			character >= '0' && character <= '9' ||
+			character == '.' || character == '_' || character == '-' {
+			continue
+		}
+		return ""
+	}
+	return value
 }
 
 func localEvidence(code, summary string) *execution.ErrorEvidence {

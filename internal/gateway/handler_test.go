@@ -3900,13 +3900,48 @@ func TestSubscriptionExplicit401UsesNewerCredentialVersionFromConcurrentRefresh(
 }
 
 func TestSubscriptionRefreshFailureBeforeDispatchRetriesAnotherCredential(t *testing.T) {
-	forwarder := &scriptedForwarder{results: []UpstreamResult{
+	tests := []struct {
+		name         string
+		evidence     *execution.ErrorEvidence
+		wantCooldown bool
+	}{
 		{
-			DispatchState: execution.DispatchNotSent,
-			ExecutionError: &execution.ErrorEvidence{
+			name: "reauthorization required",
+			evidence: &execution.ErrorEvidence{
 				Kind: execution.ErrorKindProvider, Code: "refresh_rejected",
 				Hint: execution.FailureHintReauthorizationRequired,
 			},
+		},
+		{
+			name: "temporarily unavailable",
+			evidence: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Code: "refresh_temporarily_unavailable",
+				Hint: execution.FailureHintRefreshUnavailable, StatusCode: http.StatusTooManyRequests,
+			},
+			wantCooldown: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertSubscriptionRefreshFailureRetriesAnotherCredential(
+				t,
+				test.evidence,
+				test.wantCooldown,
+			)
+		})
+	}
+}
+
+func assertSubscriptionRefreshFailureRetriesAnotherCredential(
+	t *testing.T,
+	evidence *execution.ErrorEvidence,
+	wantCooldown bool,
+) {
+	t.Helper()
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState:  execution.DispatchNotSent,
+			ExecutionError: evidence,
 		},
 		{
 			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
@@ -3963,6 +3998,12 @@ func TestSubscriptionRefreshFailureBeforeDispatchRetriesAnotherCredential(t *tes
 	}
 	if forwarder.inputs[0].Credential.ID == forwarder.inputs[1].Credential.ID {
 		t.Fatalf("credential ids = %d, %d", forwarder.inputs[0].Credential.ID, forwarder.inputs[1].Credential.ID)
+	}
+	failedCredentialID := forwarder.inputs[0].Credential.ID
+	for _, view := range registry.Snapshot() {
+		if view.ID == failedCredentialID && view.CooldownUntil.IsZero() == wantCooldown {
+			t.Fatalf("failed credential runtime view = %#v, want cooldown=%t", view, wantCooldown)
+		}
 	}
 }
 

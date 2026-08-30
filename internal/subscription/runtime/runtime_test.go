@@ -88,8 +88,8 @@ func (duplicateDriver) Parse([]byte) (Credential, error)     { return Credential
 func (duplicateDriver) Refresh(context.Context, Credential) (Credential, error) {
 	return Credential{}, nil
 }
-func (duplicateDriver) ClassifyRefreshFailure(error) RefreshFailure {
-	return RefreshFailureOutcomeUnknown
+func (duplicateDriver) ClassifyRefreshFailure(error) RefreshFailureDecision {
+	return RefreshFailureDecision{Kind: RefreshFailureOutcomeUnknown}
 }
 
 func TestRuntimeRejectsDuplicateImplementationIDs(t *testing.T) {

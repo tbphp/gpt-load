@@ -61,15 +61,22 @@ func (*antigravityDriver) Refresh(ctx context.Context, current subscriptionrunti
 	return antigravityRuntimeCredential(refreshed, canonical), nil
 }
 
-func (*antigravityDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailure {
+func (*antigravityDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailureDecision {
 	if errors.Is(err, ErrCredentialIdentityChanged) {
-		return subscriptionruntime.RefreshFailureIdentityChanged
+		return subscriptionruntime.RefreshFailureDecision{Kind: subscriptionruntime.RefreshFailureIdentityChanged}
 	}
 	var tokenErr *TokenEndpointError
-	if errors.As(err, &tokenErr) && IsDefinitiveRefreshRejection(tokenErr.Code) {
-		return subscriptionruntime.RefreshFailureReauthorizationRequired
+	if errors.As(err, &tokenErr) {
+		decision := subscriptionruntime.RefreshFailureDecision{
+			Kind: subscriptionruntime.RefreshFailureRetryable, StatusCode: tokenErr.StatusCode,
+			OAuthCode: strings.TrimSpace(tokenErr.Code),
+		}
+		if IsDefinitiveRefreshRejection(tokenErr.Code) {
+			decision.Kind = subscriptionruntime.RefreshFailureReauthorizationRequired
+		}
+		return decision
 	}
-	return subscriptionruntime.RefreshFailureOutcomeUnknown
+	return subscriptionruntime.RefreshFailureDecision{Kind: subscriptionruntime.RefreshFailureOutcomeUnknown}
 }
 
 func (*antigravityDriver) BeginAuthorization() (subscriptionruntime.Authorization, error) {

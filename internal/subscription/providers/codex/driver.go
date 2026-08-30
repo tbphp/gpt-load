@@ -61,15 +61,22 @@ func (*codexDriver) Refresh(ctx context.Context, current subscriptionruntime.Cre
 	return codexRuntimeCredential(refreshed, canonical), nil
 }
 
-func (*codexDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailure {
+func (*codexDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailureDecision {
 	var tokenErr *TokenEndpointError
 	if errors.Is(err, ErrCredentialIdentityChanged) {
-		return subscriptionruntime.RefreshFailureIdentityChanged
+		return subscriptionruntime.RefreshFailureDecision{Kind: subscriptionruntime.RefreshFailureIdentityChanged}
 	}
-	if errors.As(err, &tokenErr) && IsDefinitiveRefreshRejection(tokenErr.Code) {
-		return subscriptionruntime.RefreshFailureReauthorizationRequired
+	if errors.As(err, &tokenErr) {
+		decision := subscriptionruntime.RefreshFailureDecision{
+			Kind: subscriptionruntime.RefreshFailureRetryable, StatusCode: tokenErr.StatusCode,
+			OAuthCode: strings.TrimSpace(tokenErr.Code),
+		}
+		if IsDefinitiveRefreshRejection(tokenErr.Code) {
+			decision.Kind = subscriptionruntime.RefreshFailureReauthorizationRequired
+		}
+		return decision
 	}
-	return subscriptionruntime.RefreshFailureOutcomeUnknown
+	return subscriptionruntime.RefreshFailureDecision{Kind: subscriptionruntime.RefreshFailureOutcomeUnknown}
 }
 
 type codexAuthorizationState struct {

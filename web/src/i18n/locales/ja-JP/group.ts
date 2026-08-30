@@ -547,7 +547,7 @@ export default {
           ready: '認証済み',
           refreshing: '認証情報を更新中',
           reauthorization_required: '再接続または再インポートが必要',
-          outcome_unknown: '認証情報の結果不明',
+          outcome_unknown: '認証情報の更新結果不明です。再接続または再インポートしてください',
         },
         authError: {
           refreshRejected:
@@ -555,11 +555,11 @@ export default {
           identityChanged:
             '更新した認証情報は別のアカウントに属します。元のアカウントを再接続または再インポートしてください。',
           outcomeUnknown:
-            '最新の認証情報更新を確認できません。使用前にアカウント状態を再読み込みしてください。',
+            '最新の認証情報更新を確認できません。このアカウントを再接続または再インポートしてください。',
           persistFailed:
-            '新しい認証情報を安全に反映できませんでした。再読み込みしてから再試行してください。',
+            '新しい認証情報を安全に保存できませんでした。このアカウントを再接続または再インポートしてください。',
           runtimeMismatch:
-            '認証情報は更新されましたが、ランタイムが未同期です。しばらくしてから再読み込みしてください。',
+            'ランタイムの認証情報状態を確認できません。このアカウントを再接続または再インポートしてください。',
           refreshStartFailed:
             '認証情報の更新を開始できません。しばらくしてから再試行してください。',
         },
@@ -578,7 +578,8 @@ export default {
           cooldown: 'クールダウン中',
           blacklisted: 'ブラックリスト',
           refreshing: '更新中',
-          needs_reauth: '再ログインが必要',
+          needs_reauth: '再接続が必要',
+          outcome_unknown: '認証情報の結果不明',
           disabled: '無効',
         },
       },

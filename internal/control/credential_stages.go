@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -271,9 +272,16 @@ func (s *Service) prepareTransientSubscriptionCredential(
 	}
 	refreshContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancel()
+	refreshStarted := time.Now()
 	refreshed, err := s.refreshSubscriptionCredential(refreshContext, channelID, credential)
 	if err != nil {
-		if driver.ClassifyRefreshFailure(err) != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		failure := driver.ClassifyRefreshFailure(err)
+		logCredentialStageRefreshFailure(channelID, "transient_import", "", failure, time.Since(refreshStarted))
+		switch failure.Kind {
+		case subscriptionruntime.RefreshFailureRetryable:
+			return subscriptionruntime.Credential{}, app_errors.ErrCredentialRefreshTemporarilyUnavailable
+		case subscriptionruntime.RefreshFailureReauthorizationRequired,
+			subscriptionruntime.RefreshFailureIdentityChanged:
 			return subscriptionruntime.Credential{}, app_errors.ErrCredentialReauthorizationRequired
 		}
 		return subscriptionruntime.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
@@ -338,13 +346,28 @@ func (s *Service) prepareReadySubscriptionStageCredential(
 		context.WithoutCancel(ctx),
 		defaultSubscriptionControlTimeout,
 	)
+	refreshStarted := time.Now()
 	refreshed, refreshErr := s.refreshSubscriptionCredential(refreshContext, channel.ID(row.ChannelID), credential)
 	cancel()
 	if refreshErr != nil {
+		failure := driver.ClassifyRefreshFailure(refreshErr)
+		logCredentialStageRefreshFailure(
+			channel.ID(row.ChannelID),
+			"ready_stage",
+			row.ID,
+			failure,
+			time.Since(refreshStarted),
+		)
+		if failure.Kind == subscriptionruntime.RefreshFailureRetryable {
+			if err := s.finishCredentialStageRefreshRetryable(ctx, row); err != nil {
+				return subscriptionruntime.Credential{}, err
+			}
+			return subscriptionruntime.Credential{}, app_errors.ErrCredentialRefreshTemporarilyUnavailable
+		}
 		status := models.CredentialStageOutcomeUnknown
 		code := "credential_refresh_outcome_unknown"
 		apiErr := app_errors.ErrCredentialAuthOutcomeUnknown
-		switch driver.ClassifyRefreshFailure(refreshErr) {
+		switch failure.Kind {
 		case subscriptionruntime.RefreshFailureIdentityChanged:
 			status = models.CredentialStageFailed
 			code = "credential_refresh_identity_changed"
@@ -383,6 +406,51 @@ func (s *Service) prepareReadySubscriptionStageCredential(
 		return subscriptionruntime.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
 	}
 	return refreshed, nil
+}
+
+func (s *Service) finishCredentialStageRefreshRetryable(
+	ctx context.Context,
+	row models.CredentialStage,
+) error {
+	finalizeContext, cancel := credentialStageFinalizeContext(ctx)
+	defer cancel()
+	result := s.db.WithContext(finalizeContext).Model(&models.CredentialStage{}).
+		Where("id = ? AND status = ?", row.ID, models.CredentialStageExchanging).
+		Updates(map[string]any{
+			"status": models.CredentialStageReady, "expires_at_ms": row.ExpiresAtMS,
+			"error_code": "", "updated_at_ms": s.now().UnixMilli(),
+		})
+	if result.Error != nil {
+		return app_errors.ParseDBError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return app_errors.ErrCredentialAuthOutcomeUnknown
+	}
+	return nil
+}
+
+func logCredentialStageRefreshFailure(
+	channelID channel.ID,
+	stage string,
+	stageID string,
+	failure subscriptionruntime.RefreshFailureDecision,
+	duration time.Duration,
+) {
+	fields := logrus.Fields{
+		"event": "subscription.credential_refresh_failed", "channel": channelID,
+		"classification": failure.Kind.String(), "stage": stage,
+		"duration_ms": duration.Milliseconds(),
+	}
+	if stageID != "" {
+		fields["credential_stage_id"] = stageID
+	}
+	if failure.StatusCode >= 100 && failure.StatusCode <= 599 {
+		fields["http_status"] = failure.StatusCode
+	}
+	if code := safeInternalErrorCode(failure.OAuthCode); code != "" {
+		fields["oauth_error_code"] = code
+	}
+	logrus.WithFields(fields).Warn("Subscription credential refresh failed")
 }
 
 func (s *Service) finishCredentialStageRefresh(

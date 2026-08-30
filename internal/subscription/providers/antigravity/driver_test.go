@@ -3,6 +3,7 @@ package antigravity
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"reflect"
 	"testing"
 
@@ -48,14 +49,18 @@ func TestAntigravityDriverDeclaresCallbackAndImporter(t *testing.T) {
 
 func TestAntigravityDriverClassifiesRefreshFailures(t *testing.T) {
 	driver := newAntigravityDriver()
-	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got != subscriptionruntime.RefreshFailureIdentityChanged {
-		t.Fatalf("identity changed classification = %v", got)
+	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got.Kind != subscriptionruntime.RefreshFailureIdentityChanged {
+		t.Fatalf("identity changed classification = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got != subscriptionruntime.RefreshFailureReauthorizationRequired {
-		t.Fatalf("invalid_grant classification = %v", got)
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got.Kind != subscriptionruntime.RefreshFailureReauthorizationRequired {
+		t.Fatalf("invalid_grant classification = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got != subscriptionruntime.RefreshFailureOutcomeUnknown {
-		t.Fatalf("network classification = %v", got)
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: http.StatusServiceUnavailable, Code: "temporarily_unavailable"}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusServiceUnavailable ||
+		got.OAuthCode != "temporarily_unavailable" {
+		t.Fatalf("temporary token endpoint classification = %#v", got)
+	}
+	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		t.Fatalf("network classification = %#v", got)
 	}
 }
 

@@ -66,9 +66,31 @@ type RefreshFailure uint8
 
 const (
 	RefreshFailureOutcomeUnknown RefreshFailure = iota
+	RefreshFailureRetryable
 	RefreshFailureReauthorizationRequired
 	RefreshFailureIdentityChanged
 )
+
+// RefreshFailureDecision contains only bounded, provider-neutral diagnostics.
+// Raw errors and token endpoint response bodies must not cross this boundary.
+type RefreshFailureDecision struct {
+	Kind       RefreshFailure
+	StatusCode int
+	OAuthCode  string
+}
+
+func (failure RefreshFailure) String() string {
+	switch failure {
+	case RefreshFailureRetryable:
+		return "retryable"
+	case RefreshFailureReauthorizationRequired:
+		return "reauthorization_required"
+	case RefreshFailureIdentityChanged:
+		return "identity_changed"
+	default:
+		return "outcome_unknown"
+	}
+}
 
 // Authorization describes one short-lived browser authorization challenge.
 type Authorization struct {
@@ -99,7 +121,7 @@ type Driver interface {
 	ID() spec.SubscriptionDriverID
 	Parse([]byte) (Credential, error)
 	Refresh(context.Context, Credential) (Credential, error)
-	ClassifyRefreshFailure(error) RefreshFailure
+	ClassifyRefreshFailure(error) RefreshFailureDecision
 }
 
 // CredentialFileImporter is an optional, narrow preprocessing capability for

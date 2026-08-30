@@ -622,6 +622,19 @@ func TestCodexPreparationAPIErrorTreatsStateCommitFailureAsUnknown(t *testing.T)
 	}
 }
 
+func TestSubscriptionPreparationAPIErrorTreatsRetryableRefreshAsTemporary(t *testing.T) {
+	t.Parallel()
+	err := subscriptionPreparationAPIError(&execution.ErrorEvidence{
+		Kind: execution.ErrorKindHTTP,
+		Code: "refresh_temporarily_unavailable",
+	})
+	var apiErr *app_errors.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "CREDENTIAL_REFRESH_TEMPORARILY_UNAVAILABLE" ||
+		apiErr.HTTPStatus != http.StatusServiceUnavailable {
+		t.Fatalf("subscriptionPreparationAPIError() = %#v", err)
+	}
+}
+
 func TestDiscoverGroupModelsDecryptsEveryKeyBeforeHTTP(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)

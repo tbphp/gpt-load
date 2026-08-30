@@ -3,6 +3,7 @@ package embedded
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -240,6 +241,31 @@ func TestRefreshGrokCredentialOncePreservesRotatingTokensAndIdentity(t *testing.
 	if refreshed.AccessToken != "new-access" || refreshed.RefreshToken != "new-refresh" ||
 		refreshed.IDToken != "old-id" || refreshed.AccountID != "account-1" || refreshed.Email != "new@example.com" {
 		t.Fatalf("refreshed = %#v", refreshed)
+	}
+}
+
+func TestRefreshGrokCredentialOncePreservesNonJSONTokenEndpointFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/token" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("temporarily unavailable"))
+	}))
+	defer server.Close()
+	current := GrokCredential{
+		Type: ProviderGrok, AccessToken: "old-access", RefreshToken: "old-refresh",
+		AccountID: "account-1", Email: "owner@example.com", Expire: "2026-08-18T07:00:00Z",
+		TokenEndpoint: server.URL + "/token",
+	}
+
+	_, err := RefreshGrokCredentialOnce(t.Context(), current, GrokOptions{
+		UserInfoURL: server.URL + "/userinfo", HTTPClient: server.Client(),
+	})
+	var tokenErr *GrokTokenEndpointError
+	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusServiceUnavailable || tokenErr.Code != "" {
+		t.Fatalf("RefreshGrokCredentialOnce() error = %#v", err)
 	}
 }
 

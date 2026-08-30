@@ -96,6 +96,9 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 		if attempt.Evidence.Hint == execution.FailureHintRefreshRequired {
 			return authenticationDecision(attempt, decisionContext)
 		}
+		if attempt.Evidence.Hint == execution.FailureHintRefreshUnavailable {
+			return refreshTemporarilyUnavailableDecision(attempt, decisionContext)
+		}
 		if attempt.Evidence.Hint == execution.FailureHintReauthorizationRequired {
 			return decision(
 				FailureCategoryAuthenticationRequired,
@@ -185,6 +188,32 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 	}
 	result = constrainOperationReplay(result, attempt, decisionContext)
 	return constrainCommittedDecision(result, attempt)
+}
+
+func refreshTemporarilyUnavailableDecision(attempt ExecutionAttempt, decisionContext DecisionContext) Decision {
+	category := FailureCategoryUpstreamHostError
+	ruleID := RuleID("auth.refresh_temporarily_unavailable")
+	if attempt.Evidence.StatusCode == http.StatusTooManyRequests {
+		category = FailureCategoryRateLimited
+		ruleID = "auth.refresh_rate_limited"
+	}
+	cooldown := decisionContext.DefaultRateLimitCooldown
+	if cooldown <= 0 {
+		cooldown = time.Minute
+	}
+	if attempt.Evidence.RetryAfter > 0 {
+		cooldown = attempt.Evidence.RetryAfter
+	}
+	result := decision(
+		category,
+		execution.ErrorOriginUpstream,
+		execution.ErrorScopeCredential,
+		RetryNextCandidate,
+		EffectCooldownCredential,
+		ruleID,
+	)
+	result.CooldownUntil = attempt.Now.Add(cooldown)
+	return result
 }
 
 func candidatePreparationDecision(evidence *execution.ErrorEvidence) (Decision, bool) {

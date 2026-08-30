@@ -2,6 +2,7 @@ package claude
 
 import (
 	"errors"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -53,17 +54,21 @@ func TestClaudeDriverDeclaresFixedCallbackAndEncryptedPKCEState(t *testing.T) {
 
 func TestClaudeDriverClassifiesRefreshFailures(t *testing.T) {
 	driver := newClaudeDriver()
-	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got != subscriptionruntime.RefreshFailureIdentityChanged {
-		t.Fatalf("identity failure = %v", got)
+	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got.Kind != subscriptionruntime.RefreshFailureIdentityChanged {
+		t.Fatalf("identity failure = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(ErrOrganizationIdentityChanged); got != subscriptionruntime.RefreshFailureIdentityChanged {
-		t.Fatalf("organization failure = %v", got)
+	if got := driver.ClassifyRefreshFailure(ErrOrganizationIdentityChanged); got.Kind != subscriptionruntime.RefreshFailureIdentityChanged {
+		t.Fatalf("organization failure = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got != subscriptionruntime.RefreshFailureReauthorizationRequired {
-		t.Fatalf("invalid grant = %v", got)
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got.Kind != subscriptionruntime.RefreshFailureReauthorizationRequired {
+		t.Fatalf("invalid grant = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(errors.New("temporary failure")); got != subscriptionruntime.RefreshFailureOutcomeUnknown {
-		t.Fatalf("temporary failure = %v", got)
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: http.StatusServiceUnavailable, Code: "temporarily_unavailable"}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusServiceUnavailable ||
+		got.OAuthCode != "temporarily_unavailable" {
+		t.Fatalf("temporary token endpoint failure = %#v", got)
+	}
+	if got := driver.ClassifyRefreshFailure(errors.New("temporary failure")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		t.Fatalf("ambiguous failure = %#v", got)
 	}
 }
 

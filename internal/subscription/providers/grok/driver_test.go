@@ -2,6 +2,7 @@ package grok
 
 import (
 	"errors"
+	"net/http"
 	"reflect"
 	"testing"
 
@@ -49,14 +50,18 @@ func TestGrokDriverDeclaresDeviceOAuthImporterModelAndQuotaDiscovery(t *testing.
 
 func TestGrokDriverClassifiesRefreshFailures(t *testing.T) {
 	driver := newGrokDriver()
-	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got != subscriptionruntime.RefreshFailureIdentityChanged {
-		t.Fatalf("identity classification = %v", got)
+	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got.Kind != subscriptionruntime.RefreshFailureIdentityChanged {
+		t.Fatalf("identity classification = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got != subscriptionruntime.RefreshFailureReauthorizationRequired {
-		t.Fatalf("invalid_grant classification = %v", got)
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got.Kind != subscriptionruntime.RefreshFailureReauthorizationRequired {
+		t.Fatalf("invalid_grant classification = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got != subscriptionruntime.RefreshFailureOutcomeUnknown {
-		t.Fatalf("network classification = %v", got)
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusTooManyRequests ||
+		got.OAuthCode != "rate_limit_exceeded" {
+		t.Fatalf("temporary token endpoint classification = %#v", got)
+	}
+	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		t.Fatalf("network classification = %#v", got)
 	}
 }
 

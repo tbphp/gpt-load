@@ -1,15 +1,18 @@
 package subscription
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
@@ -229,7 +232,8 @@ func TestCredentialManagerDefinitiveRejectionRequiresReauthorization(t *testing.
 		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
 	})
 	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
-	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired {
+	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired ||
+		evidence.Summary != "subscription account requires reauthorization" {
 		t.Fatalf("evidence = %#v", evidence)
 	}
 	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateReauthorizationRequired, "refresh_rejected")
@@ -247,16 +251,53 @@ func TestCredentialManagerIdentityChangeRequiresReauthorization(t *testing.T) {
 	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed")
 }
 
-func TestCredentialManagerTransientFailureMarksOutcomeUnknown(t *testing.T) {
-	manager, db, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
+func TestCredentialManagerRetryableTokenEndpointFailureRestoresReady(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 8, 0, 0, 0, time.UTC)
+	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", now.Add(time.Minute)))
+	manager.now = func() time.Time { return now }
 	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
 		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}
 	})
+	logger := logrus.StandardLogger()
+	previousOutput, previousFormatter, previousLevel := logger.Out, logger.Formatter, logger.Level
+	var logs bytes.Buffer
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.WarnLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	})
+
 	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
-	if evidence == nil || evidence.Code != "refresh_outcome_unknown" {
+	if evidence == nil || evidence.Kind != execution.ErrorKindHTTP ||
+		evidence.Code != "refresh_temporarily_unavailable" || evidence.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("evidence = %#v", evidence)
 	}
-	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown")
+	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateReady, "")
+	views := registry.Snapshot()
+	if len(views) != 1 || views[0].AuthState != state.CredentialAuthStateReady ||
+		!views[0].CooldownUntil.IsZero() {
+		t.Fatalf("runtime views = %#v", views)
+	}
+	logged := logs.String()
+	for _, expected := range []string{
+		`"event":"subscription.credential_refresh_failed"`,
+		`"classification":"retryable"`,
+		`"stage":"provider_refresh"`,
+		`"http_status":429`,
+		`"oauth_error_code":"rate_limit_exceeded"`,
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("refresh log missing %s: %s", expected, logged)
+		}
+	}
+	for _, secret := range []string{"old-access", "old-refresh"} {
+		if strings.Contains(logged, secret) {
+			t.Fatalf("refresh log exposed credential secret: %s", logged)
+		}
+	}
 }
 
 func TestCredentialManagerAmbiguousFailureStopsWithoutReplay(t *testing.T) {
@@ -265,7 +306,8 @@ func TestCredentialManagerAmbiguousFailureStopsWithoutReplay(t *testing.T) {
 		return codex.Credential{}, errors.New("connection reset")
 	})
 	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
-	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired {
+	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired ||
+		evidence.Summary != "subscription credential refresh outcome is unknown" {
 		t.Fatalf("evidence = %#v", evidence)
 	}
 	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown")
