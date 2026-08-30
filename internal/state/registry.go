@@ -766,6 +766,22 @@ func (r *CredentialRegistry) CredentialCooldownUntil(credentialID uint) (time.Ti
 	return entry.CooldownUntil, true
 }
 
+// ClearCooldownIfMatch clears only the runtime cooldown observed by a caller.
+// A newer concurrent cooldown is preserved.
+func (r *CredentialRegistry) ClearCooldownIfMatch(credentialID uint, expected time.Time) bool {
+	if expected.IsZero() {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok || !entry.CooldownUntil.Equal(expected) {
+		return false
+	}
+	entry.CooldownUntil = time.Time{}
+	return true
+}
+
 func (r *CredentialRegistry) SetCooldownWithChange(credentialID uint, until time.Time) (bool, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -175,10 +175,13 @@ func (manager *CredentialManager) refreshCredentialLocked(
 			return current, nil
 		}
 	}
+	var bypassedCooldown time.Time
 	if respectCooldown {
 		if evidence := manager.activeCredentialCooldownEvidence(row.ID); evidence != nil {
 			return subscriptionruntime.Credential{}, evidence
 		}
+	} else {
+		bypassedCooldown, _ = manager.registry.CredentialCooldownUntil(row.ID)
 	}
 	if err := manager.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateRefreshing, ""); err != nil {
 		finalizeContext, cancel := refreshFinalizeContext(ctx)
@@ -316,6 +319,9 @@ func (manager *CredentialManager) refreshCredentialLocked(
 			}
 			return subscriptionruntime.Credential{}, authEvidence("refresh_registry_mismatch")
 		}
+	}
+	if !bypassedCooldown.IsZero() {
+		manager.registry.ClearCooldownIfMatch(row.ID, bypassedCooldown)
 	}
 	return refreshed, nil
 }

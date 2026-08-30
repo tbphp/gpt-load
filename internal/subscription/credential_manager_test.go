@@ -207,7 +207,7 @@ func testCredentialManagerSuppressesConcurrentRetryableRefresh(t *testing.T, for
 
 func TestCredentialManagerControlRefreshBypassesDataPlaneCooldown(t *testing.T) {
 	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
-	manager, _, _, keyService, row := newCredentialManagerFixture(
+	manager, _, registry, keyService, row := newCredentialManagerFixture(
 		t,
 		credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
 	)
@@ -235,6 +235,51 @@ func TestCredentialManagerControlRefreshBypassesDataPlaneCooldown(t *testing.T) 
 	credential, evidence := manager.PrepareForControl(t.Context(), channel.Codex, snapshot, true)
 	if evidence != nil || refreshCalls != 2 || mustCodexCredential(t, credential).AccessToken != "new-access" {
 		t.Fatalf("credential/evidence/refresh calls = %#v / %#v / %d", credential, evidence, refreshCalls)
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.IsZero() ||
+		len(registry.CollectCredentialCandidates([]uint{row.GroupID}, nil, now)) != 1 {
+		t.Fatalf("runtime views = %#v", views)
+	}
+}
+
+func TestCredentialManagerControlRefreshPreservesNewerCooldown(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	manager, _, registry, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
+	)
+	manager.now = func() time.Time { return now }
+	refreshCalls := 0
+	manager.refresh = adaptCodexRefresh(func(_ context.Context, current codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		if refreshCalls == 1 {
+			return codex.Credential{}, &codex.TokenEndpointError{
+				StatusCode: http.StatusTooManyRequests,
+				Code:       "rate_limit_exceeded",
+				RetryAfter: 30 * time.Minute,
+			}
+		}
+		if !registry.SetCooldown(row.ID, now.Add(time.Hour)) {
+			t.Fatal("SetCooldown() = false")
+		}
+		current.AccessToken = "new-access"
+		current.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return current, nil
+	})
+	snapshot := credentialSnapshot(t, row, keyService)
+
+	if _, evidence := manager.Prepare(t.Context(), channel.Codex, snapshot, false); evidence == nil ||
+		evidence.Code != "refresh_temporarily_unavailable" {
+		t.Fatalf("data-plane evidence = %#v", evidence)
+	}
+	credential, evidence := manager.PrepareForControl(t.Context(), channel.Codex, snapshot, true)
+	if evidence != nil || refreshCalls != 2 || mustCodexCredential(t, credential).AccessToken != "new-access" {
+		t.Fatalf("credential/evidence/refresh calls = %#v / %#v / %d", credential, evidence, refreshCalls)
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.Equal(now.Add(time.Hour)) {
+		t.Fatalf("runtime views = %#v", views)
 	}
 }
 
