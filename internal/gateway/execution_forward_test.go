@@ -311,6 +311,39 @@ func TestExecutionForwarderKeepsHTTPFailureAsUncommittedResponse(t *testing.T) {
 	}
 }
 
+func TestExecutionForwarderPreservesNotSentRefreshFailure(t *testing.T) {
+	t.Parallel()
+
+	evidence := execution.ErrorEvidence{
+		Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRefreshUnavailable,
+		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeCredential,
+		Code: "refresh_temporarily_unavailable", Summary: "credential refresh is unavailable",
+		RetryAfter: 30 * time.Minute, ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+	}
+	executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+		return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: &evidence}
+	}}
+
+	result := NewExecutionForwarder(executor).Forward(context.Background(), executionForwardInput())
+	if result.DispatchState != execution.DispatchNotSent || result.ExecutionError == nil ||
+		result.ExecutionError.Code != "refresh_temporarily_unavailable" ||
+		result.ExecutionError.RetryAfter != 30*time.Minute {
+		t.Fatalf("Forward() = %#v", result)
+	}
+	now := time.Date(2026, time.August, 30, 8, 0, 0, 0, time.UTC)
+	decision := judgeUpstreamResult(
+		result,
+		now,
+		health.DecisionContext{DefaultRateLimitCooldown: 10 * time.Minute},
+	)
+	if decision.Category != health.FailureCategoryUpstreamHostError ||
+		decision.Retry != health.RetryNextCandidate ||
+		decision.Effect != health.EffectCooldownCredential ||
+		!decision.CooldownUntil.Equal(now.Add(30*time.Minute)) {
+		t.Fatalf("health decision = %#v", decision)
+	}
+}
+
 func TestExecutionForwarderRejectsInvalidUnaryTerminalContract(t *testing.T) {
 	t.Parallel()
 

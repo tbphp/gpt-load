@@ -195,8 +195,11 @@ func TestAdapterExecuteStreamRecordsPassiveQuotaObservationOnHandshake(t *testin
 func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	preparer := &fakeCredentialPreparer{evidence: &execution.ErrorEvidence{
-		Kind: execution.ErrorKindProvider, Hint: execution.FailureHintReauthorizationRequired,
-		Code: "refresh_rejected", Summary: "subscription account requires reauthorization",
+		Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRefreshUnavailable,
+		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeCredential,
+		StatusCode: http.StatusTooManyRequests, Code: "refresh_temporarily_unavailable",
+		Summary:    "subscription credential refresh is temporarily unavailable",
+		RetryAfter: 30 * time.Minute, ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
 	}}
 	executor := &fakeExecutor{}
 	adapter.credentials = preparer
@@ -204,11 +207,27 @@ func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) 
 	spec := validSpec(t, row, keyService)
 	spec.ForceCredentialRefresh = true
 
-	result := adapter.Execute(t.Context(), spec)
-	if result.DispatchState != execution.DispatchNotSent || result.Error != preparer.evidence {
-		t.Fatalf("result = %#v", result)
+	unary := adapter.Execute(t.Context(), spec)
+	if err := unary.Validate(); err != nil || unary.DispatchState != execution.DispatchNotSent ||
+		unary.Error == nil || unary.Error == preparer.evidence || unary.Error.StatusCode != 0 ||
+		unary.Error.Hint != execution.FailureHintRefreshUnavailable ||
+		unary.Error.RetryAfter != 30*time.Minute {
+		t.Fatalf("unary result/error = %#v / %v", unary, err)
 	}
-	if preparer.calls != 1 || !preparer.force || executor.calls != 0 {
+	stream := adapter.ExecuteStream(t.Context(), spec, func(execution.StreamEvent) error {
+		t.Fatal("stream sink called before credential preparation succeeded")
+		return nil
+	})
+	if err := stream.Validate(); err != nil || stream.DispatchState != execution.DispatchNotSent ||
+		stream.Error == nil || stream.Error == preparer.evidence || stream.Error.StatusCode != 0 ||
+		stream.Error.Hint != execution.FailureHintRefreshUnavailable ||
+		stream.Error.RetryAfter != 30*time.Minute {
+		t.Fatalf("stream result/error = %#v / %v", stream, err)
+	}
+	if preparer.evidence.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("preparation evidence was mutated: %#v", preparer.evidence)
+	}
+	if preparer.calls != 2 || !preparer.force || executor.calls != 0 {
 		t.Fatalf("prepare calls = %d, force = %t, execute calls = %d", preparer.calls, preparer.force, executor.calls)
 	}
 }

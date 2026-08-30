@@ -62,6 +62,11 @@ func TestAntigravityDriverClassifiesRefreshFailures(t *testing.T) {
 		got.OAuthCode != "temporarily_unavailable" || got.RetryAfter != 30*time.Minute {
 		t.Fatalf("temporary token endpoint classification = %#v", got)
 	}
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{
+		StatusCode: http.StatusBadRequest, Code: "invalid_client",
+	}); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		t.Fatalf("invalid client classification = %#v", got)
+	}
 	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
 		t.Fatalf("network classification = %#v", got)
 	}

@@ -177,7 +177,10 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 	}
 	preparedCredential, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
-		return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: evidence}
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchNotSent,
+			Error:         modelAttemptPreparationEvidence(evidence),
+		}
 	}
 	canonical := preparedCredential.Canonical()
 	credential, err := provider.ParseCredential(canonical)
@@ -298,7 +301,10 @@ func (a *Adapter) ExecuteStream(
 	}
 	preparedCredential, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
-		return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: evidence}
+		return execution.StreamResult{
+			DispatchState: execution.DispatchNotSent,
+			Error:         modelAttemptPreparationEvidence(evidence),
+		}
 	}
 	canonical := preparedCredential.Canonical()
 	credential, err := provider.ParseCredential(canonical)
@@ -751,6 +757,17 @@ func unaryNotSent(kind execution.ErrorKind, summary, code string, _ error) execu
 func streamNotSent(kind execution.ErrorKind, summary, code string) execution.StreamResult {
 	evidence := notSentEvidence(kind, summary, code)
 	return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: evidence}
+}
+
+// modelAttemptPreparationEvidence removes nested HTTP response metadata before
+// the evidence enters a model attempt that was never dispatched.
+func modelAttemptPreparationEvidence(evidence *execution.ErrorEvidence) *execution.ErrorEvidence {
+	if evidence == nil {
+		return nil
+	}
+	projected := evidence.Clone()
+	projected.StatusCode = 0
+	return &projected
 }
 
 func notSentEvidence(kind execution.ErrorKind, summary, code string) *execution.ErrorEvidence {

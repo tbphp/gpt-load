@@ -80,6 +80,22 @@ type RefreshFailureDecision struct {
 	RetryAfter time.Duration
 }
 
+// TokenEndpointFailureRetryable reports whether an explicit token-endpoint
+// rejection is safe and useful to retry without changing the credential.
+func TokenEndpointFailureRetryable(statusCode int, oauthCode string) bool {
+	switch strings.ToLower(strings.TrimSpace(oauthCode)) {
+	case "temporarily_unavailable", "server_error", "rate_limit_exceeded":
+		return true
+	case "invalid_client", "invalid_request", "invalid_grant", "invalid_scope",
+		"invalid_token", "unauthorized_client", "unsupported_grant_type",
+		"access_denied", "expired_token", "refresh_token_expired",
+		"refresh_token_revoked", "refresh_token_reused":
+		return false
+	}
+	return statusCode == http.StatusTooManyRequests ||
+		statusCode >= http.StatusInternalServerError && statusCode <= 599
+}
+
 func (failure RefreshFailure) String() string {
 	switch failure {
 	case RefreshFailureRetryable:

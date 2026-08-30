@@ -3916,7 +3916,7 @@ func TestSubscriptionRefreshFailureBeforeDispatchRetriesAnotherCredential(t *tes
 			name: "temporarily unavailable",
 			evidence: &execution.ErrorEvidence{
 				Kind: execution.ErrorKindHTTP, Code: "refresh_temporarily_unavailable",
-				Hint: execution.FailureHintRefreshUnavailable, StatusCode: http.StatusTooManyRequests,
+				Hint: execution.FailureHintRefreshUnavailable,
 			},
 			wantCooldown: true,
 		},

@@ -70,6 +70,11 @@ func TestClaudeDriverClassifiesRefreshFailures(t *testing.T) {
 		got.OAuthCode != "temporarily_unavailable" || got.RetryAfter != 30*time.Minute {
 		t.Fatalf("temporary token endpoint failure = %#v", got)
 	}
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{
+		StatusCode: http.StatusBadRequest, Code: "invalid_client",
+	}); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		t.Fatalf("invalid client classification = %#v", got)
+	}
 	if got := driver.ClassifyRefreshFailure(errors.New("temporary failure")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
 		t.Fatalf("ambiguous failure = %#v", got)
 	}

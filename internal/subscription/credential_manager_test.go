@@ -327,6 +327,35 @@ func TestRefreshTemporarilyUnavailableEvidenceBoundsRetryAfter(t *testing.T) {
 	}
 }
 
+func TestCredentialManagerPersistentTokenEndpointFailureFailsClosed(t *testing.T) {
+	manager, db, _, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)),
+	)
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
+		return codex.Credential{}, &codex.TokenEndpointError{
+			StatusCode: http.StatusBadRequest, Code: "invalid_client",
+		}
+	})
+
+	_, evidence := manager.Prepare(
+		t.Context(),
+		channel.Codex,
+		credentialSnapshot(t, row, keyService),
+		false,
+	)
+	if evidence == nil || evidence.Code != "refresh_outcome_unknown" {
+		t.Fatalf("evidence = %#v", evidence)
+	}
+	assertStoredAuthState(
+		t,
+		db,
+		row.ID,
+		models.CredentialAuthStateOutcomeUnknown,
+		"refresh_outcome_unknown",
+	)
+}
+
 func TestCredentialManagerAmbiguousFailureStopsWithoutReplay(t *testing.T) {
 	manager, db, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
 	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {

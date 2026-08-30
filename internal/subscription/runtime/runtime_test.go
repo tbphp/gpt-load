@@ -2,6 +2,7 @@ package subscriptionruntime
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -9,6 +10,34 @@ import (
 	"gpt-load/internal/channel/modules"
 	"gpt-load/internal/channel/spec"
 )
+
+func TestTokenEndpointFailureRetryable(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		oauthCode  string
+		want       bool
+	}{
+		{name: "rate limited", statusCode: http.StatusTooManyRequests, want: true},
+		{name: "server unavailable", statusCode: http.StatusServiceUnavailable, want: true},
+		{name: "temporary OAuth code", statusCode: http.StatusBadRequest, oauthCode: "temporarily_unavailable", want: true},
+		{name: "server OAuth code", statusCode: http.StatusBadRequest, oauthCode: "server_error", want: true},
+		{name: "rate-limit OAuth code", statusCode: http.StatusBadRequest, oauthCode: "rate_limit_exceeded", want: true},
+		{name: "invalid client", statusCode: http.StatusBadRequest, oauthCode: "invalid_client"},
+		{name: "invalid client overrides server status", statusCode: http.StatusServiceUnavailable, oauthCode: "invalid_client"},
+		{name: "invalid grant overrides server status", statusCode: http.StatusServiceUnavailable, oauthCode: "invalid_grant"},
+		{name: "unsupported grant", statusCode: http.StatusBadRequest, oauthCode: "unsupported_grant_type"},
+		{name: "invalid scope", statusCode: http.StatusBadRequest, oauthCode: "invalid_scope"},
+		{name: "unknown client failure", statusCode: http.StatusBadRequest, oauthCode: "provider_specific"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := TokenEndpointFailureRetryable(test.statusCode, test.oauthCode); got != test.want {
+				t.Fatalf("TokenEndpointFailureRetryable() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
 
 func TestRuntimeRequiresExplicitImplementations(t *testing.T) {
 	if _, err := NewRuntime(channel.NewRegistry()); err == nil {
