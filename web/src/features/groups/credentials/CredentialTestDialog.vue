@@ -40,11 +40,6 @@ const resultTone = computed(() => {
 const reasonLabel = computed(() =>
   props.result ? t(`group.credentials.test.reason.${props.result.reason ?? 'passed'}`) : '',
 )
-const protocolLabel = computed(() =>
-  props.result?.protocol === 'openai-embeddings'
-    ? t('common.protocols.openaiEmbeddings.label')
-    : (props.result?.protocol ?? ''),
-)
 
 function setOpen(open: boolean): void {
   if (!open && busy.value) return
@@ -84,7 +79,7 @@ function setOpen(open: boolean): void {
             <dt>{{ t('group.credentials.test.fields.model') }}</dt>
             <dd>{{ result.model }}</dd>
             <dt>{{ t('group.credentials.test.fields.protocol') }}</dt>
-            <dd>{{ protocolLabel }}</dd>
+            <dd>{{ result.protocol }}</dd>
             <dt>{{ t('group.credentials.test.fields.latency') }}</dt>
             <dd>{{ t('group.credentials.test.latency', { value: n(result.latency_ms) }) }}</dd>
             <dt>{{ t('group.credentials.test.fields.reason') }}</dt>

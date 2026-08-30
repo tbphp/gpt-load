@@ -45,12 +45,7 @@ const booleanOptions = () => [
 ]
 const protocolOptions = () => [
   option('', t('monitor.logs.filters.anyProtocol')),
-  ...enabledDataProtocols.map((value) =>
-    option(
-      value,
-      value === 'openai-embeddings' ? t('common.protocols.openaiEmbeddings.label') : value,
-    ),
-  ),
+  ...enabledDataProtocols.map((value) => option(value, value)),
 ]
 const usageOptions = () => [
   option('', t('monitor.logs.filters.any')),
