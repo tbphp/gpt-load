@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
 	"gpt-load/internal/channel/modules"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -56,8 +57,10 @@ func TestCodexDriverClassifiesRefreshFailures(t *testing.T) {
 	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}); got.Kind != subscriptionruntime.RefreshFailureReauthorizationRequired {
 		t.Fatalf("invalid grant = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusTooManyRequests ||
-		got.OAuthCode != "rate_limit_exceeded" {
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{
+		StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded", RetryAfter: 30 * time.Minute,
+	}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusTooManyRequests ||
+		got.OAuthCode != "rate_limit_exceeded" || got.RetryAfter != 30*time.Minute {
 		t.Fatalf("temporary token endpoint failure = %#v", got)
 	}
 	if got := driver.ClassifyRefreshFailure(errors.New("connection reset")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {

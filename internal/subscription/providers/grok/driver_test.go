@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"reflect"
 	"testing"
+	"time"
+
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 
 	"gpt-load/internal/channel/modules"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -56,12 +59,26 @@ func TestGrokDriverClassifiesRefreshFailures(t *testing.T) {
 	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got.Kind != subscriptionruntime.RefreshFailureReauthorizationRequired {
 		t.Fatalf("invalid_grant classification = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusTooManyRequests ||
-		got.OAuthCode != "rate_limit_exceeded" {
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{
+		StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded", RetryAfter: 30 * time.Minute,
+	}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusTooManyRequests ||
+		got.OAuthCode != "rate_limit_exceeded" || got.RetryAfter != 30*time.Minute {
 		t.Fatalf("temporary token endpoint classification = %#v", got)
 	}
 	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
 		t.Fatalf("network classification = %#v", got)
+	}
+}
+
+func TestNormalizeErrorPreservesTokenRetryAfter(t *testing.T) {
+	err := normalizeError(&cpaembedded.GrokTokenEndpointError{
+		StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded",
+		RetryAfter: 30 * time.Minute,
+	})
+	var tokenErr *TokenEndpointError
+	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusTooManyRequests ||
+		tokenErr.Code != "rate_limit_exceeded" || tokenErr.RetryAfter != 30*time.Minute {
+		t.Fatalf("normalized error = %#v / %v", tokenErr, err)
 	}
 }
 

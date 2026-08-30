@@ -85,11 +85,12 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 					ScopeHint:  execution.ErrorScopeCredential,
 					StatusCode: http.StatusTooManyRequests,
 					Code:       "refresh_temporarily_unavailable",
+					RetryAfter: 30 * time.Minute,
 				},
 			},
 			want: Result{
 				Category: FailureCategoryRateLimited, Action: ActionCooldownCredential,
-				CooldownUntil: now.Add(time.Minute),
+				CooldownUntil: now.Add(30 * time.Minute),
 			},
 		},
 		{

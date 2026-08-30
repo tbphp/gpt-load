@@ -77,6 +77,7 @@ type RefreshFailureDecision struct {
 	Kind       RefreshFailure
 	StatusCode int
 	OAuthCode  string
+	RetryAfter time.Duration
 }
 
 func (failure RefreshFailure) String() string {

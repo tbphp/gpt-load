@@ -115,6 +115,18 @@ func TestNormalizeUpstreamErrorPreservesObservationStatus(t *testing.T) {
 	}
 }
 
+func TestNormalizeAuthorizationErrorPreservesTokenRetryAfter(t *testing.T) {
+	err := normalizeAuthorizationError(&cpaembedded.TokenEndpointError{
+		StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded",
+		RetryAfter: 30 * time.Minute,
+	})
+	var tokenErr *TokenEndpointError
+	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusTooManyRequests ||
+		tokenErr.Code != "rate_limit_exceeded" || tokenErr.RetryAfter != 30*time.Minute {
+		t.Fatalf("normalized error = %#v / %v", tokenErr, err)
+	}
+}
+
 func TestExecutorCountsTokensWithoutCredential(t *testing.T) {
 	response, err := NewExecutor().CountTokens(t.Context(), "local-token-count", Credential{}, ExecuteRequest{
 		Model: "gpt-5", Format: "openai-response",

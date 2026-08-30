@@ -256,7 +256,10 @@ func TestCredentialManagerRetryableTokenEndpointFailureRestoresReady(t *testing.
 	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", now.Add(time.Minute)))
 	manager.now = func() time.Time { return now }
 	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
-		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}
+		return codex.Credential{}, &codex.TokenEndpointError{
+			StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded",
+			RetryAfter: 30 * time.Minute,
+		}
 	})
 	logger := logrus.StandardLogger()
 	previousOutput, previousFormatter, previousLevel := logger.Out, logger.Formatter, logger.Level
@@ -272,7 +275,8 @@ func TestCredentialManagerRetryableTokenEndpointFailureRestoresReady(t *testing.
 
 	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
 	if evidence == nil || evidence.Kind != execution.ErrorKindHTTP ||
-		evidence.Code != "refresh_temporarily_unavailable" || evidence.StatusCode != http.StatusTooManyRequests {
+		evidence.Code != "refresh_temporarily_unavailable" ||
+		evidence.StatusCode != http.StatusTooManyRequests || evidence.RetryAfter != 30*time.Minute {
 		t.Fatalf("evidence = %#v", evidence)
 	}
 	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateReady, "")
@@ -297,6 +301,29 @@ func TestCredentialManagerRetryableTokenEndpointFailureRestoresReady(t *testing.
 		if strings.Contains(logged, secret) {
 			t.Fatalf("refresh log exposed credential secret: %s", logged)
 		}
+	}
+}
+
+func TestRefreshTemporarilyUnavailableEvidenceBoundsRetryAfter(t *testing.T) {
+	tests := []struct {
+		name string
+		give time.Duration
+		want time.Duration
+	}{
+		{name: "valid", give: 30 * time.Minute, want: 30 * time.Minute},
+		{name: "negative", give: -time.Second},
+		{name: "exact limit", give: time.Hour, want: time.Hour},
+		{name: "over limit", give: time.Hour + time.Second, want: time.Hour},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			evidence := refreshTemporarilyUnavailableEvidence(
+				subscriptionruntime.RefreshFailureDecision{RetryAfter: test.give},
+			)
+			if evidence.RetryAfter != test.want {
+				t.Fatalf("RetryAfter = %s, want %s", evidence.RetryAfter, test.want)
+			}
+		})
 	}
 }
 

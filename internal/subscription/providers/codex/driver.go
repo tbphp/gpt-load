@@ -69,7 +69,7 @@ func (*codexDriver) ClassifyRefreshFailure(err error) subscriptionruntime.Refres
 	if errors.As(err, &tokenErr) {
 		decision := subscriptionruntime.RefreshFailureDecision{
 			Kind: subscriptionruntime.RefreshFailureRetryable, StatusCode: tokenErr.StatusCode,
-			OAuthCode: strings.TrimSpace(tokenErr.Code),
+			OAuthCode: strings.TrimSpace(tokenErr.Code), RetryAfter: tokenErr.RetryAfter,
 		}
 		if IsDefinitiveRefreshRejection(tokenErr.Code) {
 			decision.Kind = subscriptionruntime.RefreshFailureReauthorizationRequired

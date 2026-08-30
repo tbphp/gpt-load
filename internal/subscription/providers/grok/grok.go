@@ -73,6 +73,7 @@ type DeviceAuthorizationPoll struct {
 type TokenEndpointError struct {
 	StatusCode int
 	Code       string
+	RetryAfter time.Duration
 }
 
 func (err *TokenEndpointError) Error() string {
@@ -315,7 +316,10 @@ func normalizeError(err error) error {
 	}
 	var tokenErr *cpaembedded.GrokTokenEndpointError
 	if errors.As(err, &tokenErr) {
-		return &TokenEndpointError{StatusCode: tokenErr.StatusCode, Code: strings.TrimSpace(tokenErr.Code)}
+		return &TokenEndpointError{
+			StatusCode: tokenErr.StatusCode, Code: strings.TrimSpace(tokenErr.Code),
+			RetryAfter: tokenErr.RetryAfter,
+		}
 	}
 	var upstream *cpaembedded.GrokUpstreamHTTPError
 	if errors.As(err, &upstream) {

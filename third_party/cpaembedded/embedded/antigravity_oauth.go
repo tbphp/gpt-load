@@ -21,11 +21,12 @@ var (
 	ErrAntigravityCredentialIdentityChanged = errors.New("refreshed antigravity credential identity changed")
 )
 
-// AntigravityTokenEndpointError retains only the bounded error code needed by
-// the subscription lifecycle. Provider response bodies never leave this package.
+// AntigravityTokenEndpointError retains only the bounded error code and retry
+// delay needed by the subscription lifecycle. Response bodies never leave this package.
 type AntigravityTokenEndpointError struct {
 	StatusCode int
 	Code       string
+	RetryAfter time.Duration
 }
 
 func (err *AntigravityTokenEndpointError) Error() string {
@@ -336,6 +337,7 @@ func requestAntigravityToken(
 		return antigravityTokenResponse{}, &AntigravityTokenEndpointError{
 			StatusCode: response.StatusCode,
 			Code:       antigravityTokenEndpointErrorCode(body),
+			RetryAfter: boundedOAuthRetryAfter(response.Header, antigravityNow(options)),
 		}
 	}
 	var token antigravityTokenResponse

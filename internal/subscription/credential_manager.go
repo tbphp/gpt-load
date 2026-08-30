@@ -26,6 +26,7 @@ import (
 const (
 	refreshLeadTime        = 5 * time.Minute
 	refreshFinalizeTimeout = 5 * time.Second
+	maxRefreshRetryAfter   = time.Hour
 )
 
 // CredentialManager serializes subscription refreshes and keeps the database
@@ -360,9 +361,20 @@ func refreshTemporarilyUnavailableEvidence(
 		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeCredential,
 		StatusCode: statusCode, Type: safeRefreshDiagnosticCode(failure.OAuthCode),
 		Code:         "refresh_temporarily_unavailable",
+		RetryAfter:   boundedRefreshRetryAfter(failure.RetryAfter),
 		Summary:      "subscription credential refresh is temporarily unavailable",
 		ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
 	}
+}
+
+func boundedRefreshRetryAfter(value time.Duration) time.Duration {
+	if value <= 0 {
+		return 0
+	}
+	if value > maxRefreshRetryAfter {
+		return maxRefreshRetryAfter
+	}
+	return value
 }
 
 func (manager *CredentialManager) logRefreshFailure(

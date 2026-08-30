@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"gpt-load/internal/channel/modules"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -63,8 +64,10 @@ func TestClaudeDriverClassifiesRefreshFailures(t *testing.T) {
 	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got.Kind != subscriptionruntime.RefreshFailureReauthorizationRequired {
 		t.Fatalf("invalid grant = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: http.StatusServiceUnavailable, Code: "temporarily_unavailable"}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusServiceUnavailable ||
-		got.OAuthCode != "temporarily_unavailable" {
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{
+		StatusCode: http.StatusServiceUnavailable, Code: "temporarily_unavailable", RetryAfter: 30 * time.Minute,
+	}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusServiceUnavailable ||
+		got.OAuthCode != "temporarily_unavailable" || got.RetryAfter != 30*time.Minute {
 		t.Fatalf("temporary token endpoint failure = %#v", got)
 	}
 	if got := driver.ClassifyRefreshFailure(errors.New("temporary failure")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {

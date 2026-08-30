@@ -218,6 +218,28 @@ func TestRefreshAntigravityCredentialOnceKeepsIdentityAndExistingProject(t *test
 	}
 }
 
+func TestRefreshAntigravityCredentialOncePreservesTokenRetryAfter(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Retry-After", "1800")
+		writer.WriteHeader(http.StatusTooManyRequests)
+		_, _ = writer.Write([]byte(`{"error":"temporarily_unavailable"}`))
+	}))
+	defer server.Close()
+
+	_, err := RefreshAntigravityCredentialOnce(context.Background(), AntigravityCredential{
+		Type: ProviderAntigravity, AccessToken: "old-access-secret", RefreshToken: "refresh-secret",
+		AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
+		Expire: "2026-08-17T10:00:00Z",
+	}, AntigravityOptions{TokenURL: server.URL, HTTPClient: server.Client()})
+	var tokenErr *AntigravityTokenEndpointError
+	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusTooManyRequests ||
+		tokenErr.Code != "temporarily_unavailable" || tokenErr.RetryAfter != 30*time.Minute {
+		t.Fatalf("RefreshAntigravityCredentialOnce() error = %#v", err)
+	}
+}
+
 func TestImportAntigravityCredentialEnrichesNativeCPAFile(t *testing.T) {
 	t.Parallel()
 

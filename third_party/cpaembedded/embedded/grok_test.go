@@ -250,6 +250,7 @@ func TestRefreshGrokCredentialOncePreservesNonJSONTokenEndpointFailure(t *testin
 			http.NotFound(w, r)
 			return
 		}
+		w.Header().Set("Retry-After", "1800")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("temporarily unavailable"))
 	}))
@@ -264,7 +265,8 @@ func TestRefreshGrokCredentialOncePreservesNonJSONTokenEndpointFailure(t *testin
 		UserInfoURL: server.URL + "/userinfo", HTTPClient: server.Client(),
 	})
 	var tokenErr *GrokTokenEndpointError
-	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusServiceUnavailable || tokenErr.Code != "" {
+	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusServiceUnavailable ||
+		tokenErr.Code != "" || tokenErr.RetryAfter != 30*time.Minute {
 		t.Fatalf("RefreshGrokCredentialOnce() error = %#v", err)
 	}
 }

@@ -373,6 +373,7 @@ func TestRefreshCodexCredentialOnceClassifiesTokenEndpointError(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "1800")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, `{"error":"invalid_grant","error_description":"refresh token expired","refresh_token":"must-not-escape"}`)
 	}))
@@ -385,7 +386,8 @@ func TestRefreshCodexCredentialOnceClassifiesTokenEndpointError(t *testing.T) {
 		AccountID:    "account-123",
 	}, Options{TokenURL: server.URL, HTTPClient: server.Client()})
 	var tokenErr *TokenEndpointError
-	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusBadRequest || tokenErr.Code != "invalid_grant" {
+	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusBadRequest ||
+		tokenErr.Code != "invalid_grant" || tokenErr.RetryAfter != 30*time.Minute {
 		t.Fatalf("error = %#v, want sanitized invalid_grant", err)
 	}
 	if strings.Contains(err.Error(), "refresh token expired") || strings.Contains(err.Error(), "must-not-escape") {

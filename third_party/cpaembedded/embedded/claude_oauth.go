@@ -213,6 +213,7 @@ func requestClaudeTokens(ctx context.Context, options ClaudeOptions, payload any
 		return claudeTokenResponse{}, &TokenEndpointError{
 			StatusCode: response.StatusCode,
 			Code:       claudeTokenEndpointErrorCode(responseBody),
+			RetryAfter: boundedOAuthRetryAfter(response.Header, claudeNow(options)),
 		}
 	}
 	var token claudeTokenResponse
