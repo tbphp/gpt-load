@@ -79,6 +79,7 @@ type runtimeCredentialRegistry interface {
 	CredentialRef(credentialID uint) (state.CredentialRef, bool)
 	ActiveEncryptedCredentialDataIfMatch(ref state.CredentialRef) (string, bool)
 	SetCooldownWithChange(credentialID uint, until time.Time) (exists bool, changed bool)
+	SetCooldownWithChangeIfVersion(credentialID uint, expectedVersion uint64, until time.Time) (matched bool, changed bool)
 	IncrFailure(credentialID uint) (int, bool)
 	SetBlacklistedWithChange(credentialID uint) (exists bool, changed bool)
 	ClearFailure(credentialID uint) bool
@@ -242,6 +243,7 @@ func (handler *Handler) applyDecisionEffect(
 	defaults := state.DefaultRuntimeSettings()
 	handler.applyDecisionEffectWithBlacklistPolicy(
 		credentialID,
+		0,
 		decision,
 		statusCode,
 		attemptNow,
@@ -252,12 +254,14 @@ func (handler *Handler) applyDecisionEffect(
 func (handler *Handler) applyGroupDecisionEffect(
 	group state.GroupView,
 	credentialID uint,
+	credentialVersion uint64,
 	decision health.Decision,
 	statusCode int,
 	attemptNow time.Time,
 ) {
 	handler.applyDecisionEffectWithBlacklistPolicy(
 		credentialID,
+		credentialVersion,
 		decision,
 		statusCode,
 		attemptNow,
@@ -267,6 +271,7 @@ func (handler *Handler) applyGroupDecisionEffect(
 
 func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 	credentialID uint,
+	credentialVersion uint64,
 	decision health.Decision,
 	statusCode int,
 	attemptNow time.Time,
@@ -276,7 +281,16 @@ func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 	case health.EffectCooldownCredential:
 		mutate := func() {
 			until := decision.CooldownUntil
-			exists, changed := handler.registry.SetCooldownWithChange(credentialID, until)
+			exists, changed := false, false
+			if credentialVersion == 0 {
+				exists, changed = handler.registry.SetCooldownWithChange(credentialID, until)
+			} else {
+				exists, changed = handler.registry.SetCooldownWithChangeIfVersion(
+					credentialID,
+					credentialVersion,
+					until,
+				)
+			}
 			if !exists {
 				return
 			}
@@ -820,7 +834,7 @@ func (handler *Handler) executeAttempts(
 			selection, nil, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
-		handler.applyGroupDecisionEffect(selection.Group, selection.CredentialID, decision, 0, attemptNow)
+		handler.applyGroupDecisionEffect(selection.Group, selection.CredentialID, 0, decision, 0, attemptNow)
 		if decision.Effect == health.EffectSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}
@@ -1043,6 +1057,7 @@ func (handler *Handler) executeAttempts(
 			handler.applyGroupDecisionEffect(
 				selection.Group,
 				selection.CredentialID,
+				ref.Version,
 				decision,
 				result.StatusCode,
 				attemptNow,
@@ -1080,6 +1095,7 @@ func (handler *Handler) executeAttempts(
 		handler.applyGroupDecisionEffect(
 			selection.Group,
 			selection.CredentialID,
+			ref.Version,
 			decision,
 			result.StatusCode,
 			attemptNow,

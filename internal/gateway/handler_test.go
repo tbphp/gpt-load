@@ -268,6 +268,49 @@ func TestHandlerCoordinatesCooldownMutation(t *testing.T) {
 	receiveTestSignal(t, done, "cooldown mutation completion")
 }
 
+func TestHandlerSkipsCooldownFromStaleCredentialVersion(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "credential-v1", Status: state.CredentialStatusActive,
+		EncryptedValue: "cipher-v1",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	ref, ok := registry.CredentialRef(1)
+	if !ok {
+		t.Fatal("CredentialRef() = false")
+	}
+	if !registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "credential-v2", "cipher-v2") {
+		t.Fatal("ReplaceCredentialSecretIfMatch() = false")
+	}
+	stats := health.NewStatsStore()
+	handler := &Handler{
+		registry: registry, stats: stats, mutations: health.NewMutationCoordinator(),
+	}
+	handler.applyGroupDecisionEffect(
+		state.GroupView{},
+		ref.ID,
+		ref.Version,
+		health.Decision{
+			Category:      health.FailureCategoryRateLimited,
+			Effect:        health.EffectCooldownCredential,
+			CooldownUntil: now.Add(30 * time.Minute),
+		},
+		http.StatusTooManyRequests,
+		now,
+	)
+
+	views := registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.IsZero() {
+		t.Fatalf("runtime views = %#v", views)
+	}
+	if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
+		t.Fatalf("stale credential stats = %#v", got)
+	}
+}
+
 type barrierGatewayMutationCoordinator struct {
 	entered      chan struct{}
 	releaseEntry chan struct{}
@@ -336,6 +379,21 @@ func (registry *recordingRuntimeRegistry) SetCooldownWithChange(
 	registry.cooldownUntil = until
 	registry.cooldownCalls++
 	return registry.CredentialRegistry.SetCooldownWithChange(credentialID, until)
+}
+
+func (registry *recordingRuntimeRegistry) SetCooldownWithChangeIfVersion(
+	credentialID uint,
+	expectedVersion uint64,
+	until time.Time,
+) (bool, bool) {
+	registry.cooldownCredentialID = credentialID
+	registry.cooldownUntil = until
+	registry.cooldownCalls++
+	return registry.CredentialRegistry.SetCooldownWithChangeIfVersion(
+		credentialID,
+		expectedVersion,
+		until,
+	)
 }
 
 func (registry *recordingRuntimeRegistry) IncrFailure(credentialID uint) (int, bool) {
@@ -1867,6 +1925,10 @@ func (panicRuntimeRegistry) SetCooldown(uint, time.Time) bool {
 }
 
 func (panicRuntimeRegistry) SetCooldownWithChange(uint, time.Time) (bool, bool) {
+	panic("model endpoint set cooldown")
+}
+
+func (panicRuntimeRegistry) SetCooldownWithChangeIfVersion(uint, uint64, time.Time) (bool, bool) {
 	panic("model endpoint set cooldown")
 }
 

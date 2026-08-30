@@ -796,6 +796,26 @@ func (r *CredentialRegistry) SetCooldownWithChange(credentialID uint, until time
 	return true, true
 }
 
+// SetCooldownWithChangeIfVersion updates cooldown only while the credential
+// still uses the version that produced the health decision.
+func (r *CredentialRegistry) SetCooldownWithChangeIfVersion(
+	credentialID uint,
+	expectedVersion uint64,
+	until time.Time,
+) (bool, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok || entry.Version != expectedVersion {
+		return false, false
+	}
+	if !until.After(entry.CooldownUntil) {
+		return true, false
+	}
+	entry.CooldownUntil = until
+	return true, true
+}
+
 func (r *CredentialRegistry) SetBlacklistedWithChange(credentialID uint) (bool, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
