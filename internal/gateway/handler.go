@@ -37,11 +37,10 @@ import (
 )
 
 const (
-	maxRequestBodyBytes       = int64(128 << 20)
-	maxDataPlaneModelBytes    = 255
-	fixedCooldown             = time.Minute
-	subscriptionFixedCooldown = 10 * time.Minute
-	debugHeaderGroup          = "X-GPTLoad-Group"
+	maxRequestBodyBytes    = int64(128 << 20)
+	maxDataPlaneModelBytes = 255
+	fixedCooldown          = time.Minute
+	debugHeaderGroup       = "X-GPTLoad-Group"
 	// debugHeaderKey remains reserved so an upstream cannot inject it downstream.
 	debugHeaderKey      = "X-GPTLoad-Key"
 	debugHeaderAttempts = "X-GPTLoad-Attempts"
@@ -80,6 +79,7 @@ type runtimeCredentialRegistry interface {
 	CredentialRef(credentialID uint) (state.CredentialRef, bool)
 	ActiveEncryptedCredentialDataIfMatch(ref state.CredentialRef) (string, bool)
 	SetCooldownWithChange(credentialID uint, until time.Time) (exists bool, changed bool)
+	SetCooldownWithChangeIfVersion(credentialID uint, expectedVersion uint64, until time.Time) (matched bool, changed bool)
 	IncrFailure(credentialID uint) (int, bool)
 	SetBlacklistedWithChange(credentialID uint) (exists bool, changed bool)
 	ClearFailure(credentialID uint) bool
@@ -243,6 +243,7 @@ func (handler *Handler) applyDecisionEffect(
 	defaults := state.DefaultRuntimeSettings()
 	handler.applyDecisionEffectWithBlacklistPolicy(
 		credentialID,
+		0,
 		decision,
 		statusCode,
 		attemptNow,
@@ -253,12 +254,14 @@ func (handler *Handler) applyDecisionEffect(
 func (handler *Handler) applyGroupDecisionEffect(
 	group state.GroupView,
 	credentialID uint,
+	credentialVersion uint64,
 	decision health.Decision,
 	statusCode int,
 	attemptNow time.Time,
 ) {
 	handler.applyDecisionEffectWithBlacklistPolicy(
 		credentialID,
+		credentialVersion,
 		decision,
 		statusCode,
 		attemptNow,
@@ -266,8 +269,17 @@ func (handler *Handler) applyGroupDecisionEffect(
 	)
 }
 
+func refreshCooldownCredentialVersion(result UpstreamResult, credentialVersion uint64) uint64 {
+	if result.DispatchState == execution.DispatchNotSent && result.ExecutionError != nil &&
+		result.ExecutionError.Hint == execution.FailureHintRefreshUnavailable {
+		return credentialVersion
+	}
+	return 0
+}
+
 func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 	credentialID uint,
+	credentialVersion uint64,
 	decision health.Decision,
 	statusCode int,
 	attemptNow time.Time,
@@ -277,7 +289,16 @@ func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 	case health.EffectCooldownCredential:
 		mutate := func() {
 			until := decision.CooldownUntil
-			exists, changed := handler.registry.SetCooldownWithChange(credentialID, until)
+			exists, changed := false, false
+			if credentialVersion == 0 {
+				exists, changed = handler.registry.SetCooldownWithChange(credentialID, until)
+			} else {
+				exists, changed = handler.registry.SetCooldownWithChangeIfVersion(
+					credentialID,
+					credentialVersion,
+					until,
+				)
+			}
 			if !exists {
 				return
 			}
@@ -766,7 +787,7 @@ func (handler *Handler) executeAttempts(
 		defaultRateLimitCooldown := fixedCooldown
 		credentialRefreshable := false
 		if connection.Normalize(selection.Group.ConnectionType) == connection.Subscription {
-			defaultRateLimitCooldown = subscriptionFixedCooldown
+			defaultRateLimitCooldown = subscriptionruntime.DefaultRefreshFailureCooldown
 			credentialRefreshable = true
 		}
 		method := ""
@@ -821,7 +842,7 @@ func (handler *Handler) executeAttempts(
 			selection, nil, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
-		handler.applyGroupDecisionEffect(selection.Group, selection.CredentialID, decision, 0, attemptNow)
+		handler.applyGroupDecisionEffect(selection.Group, selection.CredentialID, 0, decision, 0, attemptNow)
 		if decision.Effect == health.EffectSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}
@@ -1044,6 +1065,7 @@ func (handler *Handler) executeAttempts(
 			handler.applyGroupDecisionEffect(
 				selection.Group,
 				selection.CredentialID,
+				0,
 				decision,
 				result.StatusCode,
 				attemptNow,
@@ -1081,6 +1103,7 @@ func (handler *Handler) executeAttempts(
 		handler.applyGroupDecisionEffect(
 			selection.Group,
 			selection.CredentialID,
+			refreshCooldownCredentialVersion(result, ref.Version),
 			decision,
 			result.StatusCode,
 			attemptNow,

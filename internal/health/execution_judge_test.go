@@ -74,6 +74,25 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryAuthenticationRequired, Action: ActionRetry},
 		},
 		{
+			name: "not sent retryable credential refresh retries another credential",
+			attempt: ExecutionAttempt{
+				DispatchState: execution.DispatchNotSent,
+				Now:           now,
+				Evidence: &execution.ErrorEvidence{
+					Kind:       execution.ErrorKindHTTP,
+					Hint:       execution.FailureHintRefreshUnavailable,
+					OriginHint: execution.ErrorOriginUpstream,
+					ScopeHint:  execution.ErrorScopeCredential,
+					Code:       "refresh_temporarily_unavailable",
+					RetryAfter: 30 * time.Minute,
+				},
+			},
+			want: Result{
+				Category: FailureCategoryUpstreamHostError, Action: ActionCooldownCredential,
+				CooldownUntil: now.Add(30 * time.Minute),
+			},
+		},
+		{
 			name: "maybe sent transport error is ambiguous",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,

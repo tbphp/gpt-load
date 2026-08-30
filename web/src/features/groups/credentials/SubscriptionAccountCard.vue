@@ -352,17 +352,14 @@ type UnifiedStatus =
   | 'blacklisted'
   | 'refreshing'
   | 'needs_reauth'
+  | 'outcome_unknown'
   | 'disabled'
 
 const unifiedStatus = computed<UnifiedStatus>(() => {
   if (props.item.configured_status === 'disabled') return 'disabled'
   if (props.item.auth_state === 'refreshing') return 'refreshing'
-  if (
-    props.item.auth_state === 'reauthorization_required' ||
-    props.item.auth_state === 'outcome_unknown'
-  ) {
-    return 'needs_reauth'
-  }
+  if (props.item.auth_state === 'reauthorization_required') return 'needs_reauth'
+  if (props.item.auth_state === 'outcome_unknown') return 'outcome_unknown'
   if (props.item.effective_status === 'blacklisted') return 'blacklisted'
   if (props.item.effective_status === 'cooldown') return 'cooldown'
   if (
@@ -381,6 +378,7 @@ const statusTone = computed<'success' | 'warning' | 'danger' | 'neutral'>(() => 
     blacklisted: 'danger',
     refreshing: 'neutral',
     needs_reauth: 'danger',
+    outcome_unknown: 'danger',
     disabled: 'neutral',
   }
   return tones[unifiedStatus.value]
@@ -405,6 +403,7 @@ const authIssue = computed(() => {
   const key = props.item.auth_error_code ? authErrorKeys[props.item.auth_error_code] : undefined
   return key ? t(key) : t(`group.credentials.subscription.auth.${props.item.auth_state}`)
 })
+const credentialRefreshBlocked = computed(() => props.item.auth_state !== 'ready')
 const dailyUsage = computed(() => props.item.daily_usage)
 const dailyIncompleteHint = computed(() =>
   dailyUsage.value && !dailyUsage.value.data_complete
@@ -724,7 +723,7 @@ function runMenuAction(
                 variant="ghost"
                 :label="t('group.credentials.subscription.sync')"
                 :busy="refreshingObservation"
-                :disabled="busy"
+                :disabled="busy || credentialRefreshBlocked"
                 @click="emit('refresh', item)"
               >
                 <RefreshCw
@@ -757,7 +756,9 @@ function runMenuAction(
                 </button>
                 <button
                   type="button"
-                  :disabled="busy || item.configured_status === 'disabled'"
+                  :disabled="
+                    busy || item.configured_status === 'disabled' || credentialRefreshBlocked
+                  "
                   @click="runMenuAction('refresh-credential')"
                 >
                   <KeyRound :size="15" aria-hidden="true" />{{

@@ -172,6 +172,11 @@ const {
   { fallbackRows: 20 },
 )
 const selectedCount = computed(() => selectedIds.value.size)
+const selectedSubscriptionCredentialsReady = computed(() =>
+  (collection.value?.items ?? [])
+    .filter(({ credential_id }) => selectedIds.value.has(credential_id))
+    .every(({ auth_state }) => auth_state === 'ready'),
+)
 const allVisibleSelected = computed(() => {
   const items = collection.value?.items ?? []
   return (
@@ -710,6 +715,7 @@ async function refreshCredentialToken(item: CredentialItemDto): Promise<void> {
     feedback.value = t(
       presentSubscriptionErrorKey(cause, 'group.credentials.subscription.refreshCredentialFailed'),
     )
+    await Promise.allSettled([refetchActiveCredentialPage(), refetchGroupSummary()])
   } finally {
     setPending(item.credential_id, 'refresh-credential', false)
   }
@@ -797,7 +803,12 @@ async function syncSelectedObservations(): Promise<void> {
   const items = (collection.value?.items ?? []).filter(({ credential_id }) =>
     selected.has(credential_id),
   )
-  if (items.length === 0 || bulkActionsBusy.value || !channelCapabilities.value.quota_observation) {
+  if (
+    items.length === 0 ||
+    items.some(({ auth_state }) => auth_state !== 'ready') ||
+    bulkActionsBusy.value ||
+    !channelCapabilities.value.quota_observation
+  ) {
     return
   }
   const selectionContext = currentSelectionContext()
@@ -1615,7 +1626,11 @@ async function runBatch(
           :all-visible-selected="allVisibleSelected"
           :pending="batchBusy || singleBusy"
           :can-select-all="collection.items.length > 0"
-          :can-sync="connectionType === 'subscription' && channelCapabilities.quota_observation"
+          :can-sync="
+            connectionType === 'subscription' &&
+            channelCapabilities.quota_observation &&
+            selectedSubscriptionCredentialsReady
+          "
           :can-download="connectionType === 'subscription'"
           @toggle-select="setAllVisible(!allVisibleSelected)"
           @enable="runBatch('enable')"

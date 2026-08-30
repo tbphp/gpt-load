@@ -58,16 +58,25 @@ func (*claudeDriver) Refresh(ctx context.Context, current subscriptionruntime.Cr
 	return claudeRuntimeCredential(refreshed, canonical), nil
 }
 
-func (*claudeDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailure {
+func (*claudeDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailureDecision {
 	var tokenErr *TokenEndpointError
 	if errors.Is(err, ErrCredentialIdentityChanged) ||
 		errors.Is(err, ErrOrganizationIdentityChanged) {
-		return subscriptionruntime.RefreshFailureIdentityChanged
+		return subscriptionruntime.RefreshFailureDecision{Kind: subscriptionruntime.RefreshFailureIdentityChanged}
 	}
-	if errors.As(err, &tokenErr) && IsDefinitiveRefreshRejection(tokenErr.Code) {
-		return subscriptionruntime.RefreshFailureReauthorizationRequired
+	if errors.As(err, &tokenErr) {
+		decision := subscriptionruntime.RefreshFailureDecision{
+			Kind: subscriptionruntime.RefreshFailureOutcomeUnknown, StatusCode: tokenErr.StatusCode,
+			OAuthCode: strings.TrimSpace(tokenErr.Code), RetryAfter: tokenErr.RetryAfter,
+		}
+		if subscriptionruntime.TokenEndpointFailureRetryable(tokenErr.StatusCode, tokenErr.Code) {
+			decision.Kind = subscriptionruntime.RefreshFailureRetryable
+		} else if IsDefinitiveRefreshRejection(tokenErr.Code) {
+			decision.Kind = subscriptionruntime.RefreshFailureReauthorizationRequired
+		}
+		return decision
 	}
-	return subscriptionruntime.RefreshFailureOutcomeUnknown
+	return subscriptionruntime.RefreshFailureDecision{Kind: subscriptionruntime.RefreshFailureOutcomeUnknown}
 }
 
 type claudeAuthorizationState struct {

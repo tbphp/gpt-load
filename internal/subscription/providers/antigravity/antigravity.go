@@ -77,6 +77,7 @@ type BrowserAuthorizationCompletion struct {
 type TokenEndpointError struct {
 	StatusCode int
 	Code       string
+	RetryAfter time.Duration
 }
 
 func (err *TokenEndpointError) Error() string {
@@ -301,7 +302,10 @@ func normalizeError(err error) error {
 	}
 	var tokenErr *cpaembedded.AntigravityTokenEndpointError
 	if errors.As(err, &tokenErr) {
-		return &TokenEndpointError{StatusCode: tokenErr.StatusCode, Code: strings.TrimSpace(tokenErr.Code)}
+		return &TokenEndpointError{
+			StatusCode: tokenErr.StatusCode, Code: strings.TrimSpace(tokenErr.Code),
+			RetryAfter: tokenErr.RetryAfter,
+		}
 	}
 	var upstream *cpaembedded.AntigravityUpstreamHTTPError
 	if errors.As(err, &upstream) {

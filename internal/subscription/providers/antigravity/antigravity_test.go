@@ -3,8 +3,10 @@ package antigravity
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 )
@@ -38,5 +40,17 @@ func TestNormalizeExecutionErrorRecognizesWrappedBridgeError(t *testing.T) {
 	var executionError *ExecutionError
 	if !errors.As(normalized, &executionError) {
 		t.Fatalf("normalizeExecutionError() = %T, want *ExecutionError", normalized)
+	}
+}
+
+func TestNormalizeErrorPreservesTokenRetryAfter(t *testing.T) {
+	err := normalizeError(&cpaembedded.AntigravityTokenEndpointError{
+		StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded",
+		RetryAfter: 30 * time.Minute,
+	})
+	var tokenErr *TokenEndpointError
+	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusTooManyRequests ||
+		tokenErr.Code != "rate_limit_exceeded" || tokenErr.RetryAfter != 30*time.Minute {
+		t.Fatalf("normalized error = %#v / %v", tokenErr, err)
 	}
 }

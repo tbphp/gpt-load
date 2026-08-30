@@ -253,7 +253,7 @@ func NewService(
 		service.environmentProxy = outboundproxy.Environment()
 	}
 	if subscriptionCredentials != nil {
-		service.prepareSubscriptionCredential = subscriptionCredentials.Prepare
+		service.prepareSubscriptionCredential = subscriptionCredentials.PrepareForControl
 		service.subscriptions = subscriptionCredentials.Runtime()
 	}
 	if reader, ok := usageStats.(credentialWindowUsageReader); ok {

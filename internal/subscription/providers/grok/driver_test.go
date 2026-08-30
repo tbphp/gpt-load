@@ -2,8 +2,12 @@ package grok
 
 import (
 	"errors"
+	"net/http"
 	"reflect"
 	"testing"
+	"time"
+
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
 
 	"gpt-load/internal/channel/modules"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -49,14 +53,37 @@ func TestGrokDriverDeclaresDeviceOAuthImporterModelAndQuotaDiscovery(t *testing.
 
 func TestGrokDriverClassifiesRefreshFailures(t *testing.T) {
 	driver := newGrokDriver()
-	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got != subscriptionruntime.RefreshFailureIdentityChanged {
-		t.Fatalf("identity classification = %v", got)
+	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got.Kind != subscriptionruntime.RefreshFailureIdentityChanged {
+		t.Fatalf("identity classification = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got != subscriptionruntime.RefreshFailureReauthorizationRequired {
-		t.Fatalf("invalid_grant classification = %v", got)
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}); got.Kind != subscriptionruntime.RefreshFailureReauthorizationRequired {
+		t.Fatalf("invalid_grant classification = %#v", got)
 	}
-	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got != subscriptionruntime.RefreshFailureOutcomeUnknown {
-		t.Fatalf("network classification = %v", got)
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{
+		StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded", RetryAfter: 30 * time.Minute,
+	}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusTooManyRequests ||
+		got.OAuthCode != "rate_limit_exceeded" || got.RetryAfter != 30*time.Minute {
+		t.Fatalf("temporary token endpoint classification = %#v", got)
+	}
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{
+		StatusCode: http.StatusBadRequest, Code: "invalid_client",
+	}); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		t.Fatalf("invalid client classification = %#v", got)
+	}
+	if got := driver.ClassifyRefreshFailure(errors.New("network unavailable")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		t.Fatalf("network classification = %#v", got)
+	}
+}
+
+func TestNormalizeErrorPreservesTokenRetryAfter(t *testing.T) {
+	err := normalizeError(&cpaembedded.GrokTokenEndpointError{
+		StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded",
+		RetryAfter: 30 * time.Minute,
+	})
+	var tokenErr *TokenEndpointError
+	if !errors.As(err, &tokenErr) || tokenErr.StatusCode != http.StatusTooManyRequests ||
+		tokenErr.Code != "rate_limit_exceeded" || tokenErr.RetryAfter != 30*time.Minute {
+		t.Fatalf("normalized error = %#v / %v", tokenErr, err)
 	}
 }
 

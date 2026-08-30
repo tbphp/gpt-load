@@ -1,10 +1,14 @@
 package codex
 
 import (
+	"errors"
+	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
 	"gpt-load/internal/channel/modules"
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestCodexDriverProducesProviderNeutralCredential(t *testing.T) {
@@ -42,5 +46,29 @@ func TestCodexImplementationsExposeCompleteCapabilities(t *testing.T) {
 		len(implementations.ResetCreditActions) != 1 ||
 		implementations.ResetCreditActions[0].ID() != modules.CodexResetCreditAction {
 		t.Fatalf("implementations = %#v", implementations)
+	}
+}
+
+func TestCodexDriverClassifiesRefreshFailures(t *testing.T) {
+	driver := newCodexDriver()
+	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got.Kind != subscriptionruntime.RefreshFailureIdentityChanged {
+		t.Fatalf("identity failure = %#v", got)
+	}
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}); got.Kind != subscriptionruntime.RefreshFailureReauthorizationRequired {
+		t.Fatalf("invalid grant = %#v", got)
+	}
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{
+		StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded", RetryAfter: 30 * time.Minute,
+	}); got.Kind != subscriptionruntime.RefreshFailureRetryable || got.StatusCode != http.StatusTooManyRequests ||
+		got.OAuthCode != "rate_limit_exceeded" || got.RetryAfter != 30*time.Minute {
+		t.Fatalf("temporary token endpoint failure = %#v", got)
+	}
+	if got := driver.ClassifyRefreshFailure(&TokenEndpointError{
+		StatusCode: http.StatusBadRequest, Code: "invalid_client",
+	}); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		t.Fatalf("invalid client classification = %#v", got)
+	}
+	if got := driver.ClassifyRefreshFailure(errors.New("connection reset")); got.Kind != subscriptionruntime.RefreshFailureOutcomeUnknown {
+		t.Fatalf("ambiguous failure = %#v", got)
 	}
 }

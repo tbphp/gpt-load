@@ -66,9 +66,52 @@ type RefreshFailure uint8
 
 const (
 	RefreshFailureOutcomeUnknown RefreshFailure = iota
+	RefreshFailureRetryable
 	RefreshFailureReauthorizationRequired
 	RefreshFailureIdentityChanged
 )
+
+// DefaultRefreshFailureCooldown is the shared backoff used when a retryable
+// token-endpoint failure does not provide Retry-After.
+const DefaultRefreshFailureCooldown = 10 * time.Minute
+
+// RefreshFailureDecision contains only bounded, provider-neutral diagnostics.
+// Raw errors and token endpoint response bodies must not cross this boundary.
+type RefreshFailureDecision struct {
+	Kind       RefreshFailure
+	StatusCode int
+	OAuthCode  string
+	RetryAfter time.Duration
+}
+
+// TokenEndpointFailureRetryable reports whether an explicit token-endpoint
+// rejection is safe and useful to retry without changing the credential.
+func TokenEndpointFailureRetryable(statusCode int, oauthCode string) bool {
+	switch strings.ToLower(strings.TrimSpace(oauthCode)) {
+	case "temporarily_unavailable", "server_error", "rate_limit_exceeded":
+		return true
+	case "invalid_client", "invalid_request", "invalid_grant", "invalid_scope",
+		"invalid_token", "unauthorized_client", "unsupported_grant_type",
+		"access_denied", "expired_token", "refresh_token_expired",
+		"refresh_token_revoked", "refresh_token_reused":
+		return false
+	}
+	return statusCode == http.StatusTooManyRequests ||
+		statusCode >= http.StatusInternalServerError && statusCode <= 599
+}
+
+func (failure RefreshFailure) String() string {
+	switch failure {
+	case RefreshFailureRetryable:
+		return "retryable"
+	case RefreshFailureReauthorizationRequired:
+		return "reauthorization_required"
+	case RefreshFailureIdentityChanged:
+		return "identity_changed"
+	default:
+		return "outcome_unknown"
+	}
+}
 
 // Authorization describes one short-lived browser authorization challenge.
 type Authorization struct {
@@ -99,7 +142,7 @@ type Driver interface {
 	ID() spec.SubscriptionDriverID
 	Parse([]byte) (Credential, error)
 	Refresh(context.Context, Credential) (Credential, error)
-	ClassifyRefreshFailure(error) RefreshFailure
+	ClassifyRefreshFailure(error) RefreshFailureDecision
 }
 
 // CredentialFileImporter is an optional, narrow preprocessing capability for

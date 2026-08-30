@@ -782,6 +782,7 @@ func TestCompleteClaudeBrowserAuthorizationReturnsCanonicalCredential(t *testing
 
 func TestClaudeTokenEndpointErrorDoesNotExposeResponseBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Retry-After", "1800")
 		writer.WriteHeader(http.StatusBadRequest)
 		_, _ = writer.Write([]byte(`{"error":"invalid_grant","message":"provider-secret-body"}`))
 	}))
@@ -791,7 +792,8 @@ func TestClaudeTokenEndpointErrorDoesNotExposeResponseBody(t *testing.T) {
 		ExpectedState: "state-one", ReturnedState: "state-one", Code: "authorization-code", CodeVerifier: "verifier-one",
 	}, ClaudeOptions{TokenURL: server.URL, HTTPClient: server.Client()})
 	var tokenErr *TokenEndpointError
-	if !errors.As(err, &tokenErr) || tokenErr.Code != "invalid_grant" || strings.Contains(err.Error(), "provider-secret-body") {
+	if !errors.As(err, &tokenErr) || tokenErr.Code != "invalid_grant" ||
+		tokenErr.RetryAfter != 30*time.Minute || strings.Contains(err.Error(), "provider-secret-body") {
 		t.Fatalf("token error = %#v, %v", tokenErr, err)
 	}
 }

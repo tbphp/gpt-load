@@ -47,11 +47,12 @@ var (
 	ErrCredentialIdentityChanged = errors.New("refreshed codex credential identity changed")
 )
 
-// TokenEndpointError retains only the bounded OAuth error code needed to
-// distinguish definitive token rejection from transient endpoint failures.
+// TokenEndpointError retains only the bounded OAuth error code and retry delay
+// needed to distinguish definitive rejection from transient endpoint failures.
 type TokenEndpointError struct {
 	StatusCode int
 	Code       string
+	RetryAfter time.Duration
 }
 
 func (e *TokenEndpointError) Error() string {
@@ -902,6 +903,7 @@ func exchangeToken(ctx context.Context, values url.Values, options Options) (Cod
 		return CodexCredential{}, &TokenEndpointError{
 			StatusCode: resp.StatusCode,
 			Code:       tokenEndpointErrorCode(body),
+			RetryAfter: boundedOAuthRetryAfter(resp.Header, time.Now().UTC()),
 		}
 	}
 	var tokenResponse struct {

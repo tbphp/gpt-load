@@ -62,7 +62,7 @@ func beginGrokDeviceAuthorization(ctx context.Context, options GrokOptions) (Gro
 		return GrokDeviceAuthorization{}, err
 	}
 	form := url.Values{"client_id": {xaiauth.ClientID}, "scope": {xaiauth.Scope}}
-	body, status, err := doGrokForm(ctx, options, discovery.DeviceAuthorizationEndpoint, form)
+	body, status, _, err := doGrokForm(ctx, options, discovery.DeviceAuthorizationEndpoint, form)
 	if err != nil {
 		return GrokDeviceAuthorization{}, fmt.Errorf("begin Grok device authorization: %w", err)
 	}
@@ -124,7 +124,7 @@ func pollGrokDeviceAuthorizationOnce(ctx context.Context, state GrokDeviceState,
 	form := url.Values{
 		"grant_type": {xaiauth.DeviceCodeGrantType}, "device_code": {state.DeviceCode}, "client_id": {xaiauth.ClientID},
 	}
-	body, status, err := doGrokForm(ctx, options, state.TokenEndpoint, form)
+	body, status, retryAfter, err := doGrokForm(ctx, options, state.TokenEndpoint, form)
 	if err != nil {
 		return GrokDevicePoll{}, fmt.Errorf("poll Grok device authorization: %w", err)
 	}
@@ -151,11 +151,13 @@ func pollGrokDeviceAuthorizationOnce(ctx context.Context, state GrokDeviceState,
 		case "expired_token":
 			return GrokDevicePoll{Status: GrokDeviceExpired, State: state}, nil
 		default:
-			return GrokDevicePoll{}, &GrokTokenEndpointError{StatusCode: status, Code: code}
+			return GrokDevicePoll{}, &GrokTokenEndpointError{
+				StatusCode: status, Code: code, RetryAfter: retryAfter,
+			}
 		}
 	}
 	if status != http.StatusOK {
-		return GrokDevicePoll{}, &GrokTokenEndpointError{StatusCode: status}
+		return GrokDevicePoll{}, &GrokTokenEndpointError{StatusCode: status, RetryAfter: retryAfter}
 	}
 	credential, err := grokCredentialFromToken(ctx, token, "", state.TokenEndpoint, state.UserInfoEndpoint, options, true)
 	if err != nil {
@@ -306,17 +308,20 @@ func refreshGrokTokensOnly(ctx context.Context, current GrokCredential, options 
 	form := url.Values{
 		"grant_type": {"refresh_token"}, "client_id": {xaiauth.ClientID}, "refresh_token": {strings.TrimSpace(current.RefreshToken)},
 	}
-	body, status, err := doGrokForm(ctx, options, discovery.TokenEndpoint, form)
+	body, status, retryAfter, err := doGrokForm(ctx, options, discovery.TokenEndpoint, form)
 	if err != nil {
 		return GrokCredential{}, fmt.Errorf("refresh Grok credential: %w", err)
 	}
 	defer clear(body)
 	var token grokTokenResponse
+	if status != http.StatusOK {
+		_ = json.Unmarshal(body, &token)
+		return GrokCredential{}, &GrokTokenEndpointError{
+			StatusCode: status, Code: boundedGrokOAuthCode(token.Error), RetryAfter: retryAfter,
+		}
+	}
 	if err := json.Unmarshal(body, &token); err != nil {
 		return GrokCredential{}, fmt.Errorf("decode Grok refresh response: %w", err)
-	}
-	if status != http.StatusOK {
-		return GrokCredential{}, &GrokTokenEndpointError{StatusCode: status, Code: boundedGrokOAuthCode(token.Error)}
 	}
 	if strings.TrimSpace(token.AccessToken) == "" {
 		return GrokCredential{}, fmt.Errorf("Grok refresh response has no access token")
@@ -517,27 +522,36 @@ func fetchGrokUserInfo(ctx context.Context, endpoint, accessToken string, option
 	return profile, nil
 }
 
-func doGrokForm(ctx context.Context, options GrokOptions, endpoint string, form url.Values) ([]byte, int, error) {
+func doGrokForm(
+	ctx context.Context,
+	options GrokOptions,
+	endpoint string,
+	form url.Values,
+) ([]byte, int, time.Duration, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSpace(endpoint), strings.NewReader(form.Encode()))
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept", "application/json")
 	response, err := grokHTTPClient(options).Do(request)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxTokenResponse+1))
 	if err != nil {
-		return nil, response.StatusCode, err
+		return nil, response.StatusCode, 0, err
 	}
 	if len(body) > maxTokenResponse {
 		clear(body)
-		return nil, response.StatusCode, fmt.Errorf("Grok OAuth response is too large")
+		return nil, response.StatusCode, 0, fmt.Errorf("Grok OAuth response is too large")
 	}
-	return body, response.StatusCode, nil
+	retryAfter := time.Duration(0)
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		retryAfter = boundedOAuthRetryAfter(response.Header, grokNow(options))
+	}
+	return body, response.StatusCode, retryAfter, nil
 }
 
 func grokJWTSubject(token string) string {

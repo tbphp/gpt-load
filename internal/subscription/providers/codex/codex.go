@@ -110,11 +110,12 @@ func (e *UpstreamHTTPError) Error() string {
 	return fmt.Sprintf("codex %s upstream returned status %d", e.Operation, e.StatusCode)
 }
 
-// TokenEndpointError retains only the bounded OAuth classification needed by
-// the credential lifecycle. Provider response bodies are never exposed.
+// TokenEndpointError retains only the bounded OAuth classification and retry
+// delay needed by the credential lifecycle. Provider response bodies are never exposed.
 type TokenEndpointError struct {
 	StatusCode int
 	Code       string
+	RetryAfter time.Duration
 }
 
 func (e *TokenEndpointError) Error() string {
@@ -436,7 +437,10 @@ func normalizeAuthorizationError(err error) error {
 	}
 	var tokenErr *cpaembedded.TokenEndpointError
 	if errors.As(err, &tokenErr) {
-		return &TokenEndpointError{StatusCode: tokenErr.StatusCode, Code: strings.TrimSpace(tokenErr.Code)}
+		return &TokenEndpointError{
+			StatusCode: tokenErr.StatusCode, Code: strings.TrimSpace(tokenErr.Code),
+			RetryAfter: tokenErr.RetryAfter,
+		}
 	}
 	return err
 }

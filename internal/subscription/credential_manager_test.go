@@ -1,15 +1,18 @@
 package subscription
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
@@ -129,6 +132,157 @@ func TestCredentialManagerSerializesConcurrentRefresh(t *testing.T) {
 	}
 }
 
+func TestCredentialManagerSuppressesConcurrentRetryableRefresh(t *testing.T) {
+	testCredentialManagerSuppressesConcurrentRetryableRefresh(t, false)
+}
+
+func TestCredentialManagerSuppressesConcurrentForcedRetryableRefresh(t *testing.T) {
+	testCredentialManagerSuppressesConcurrentRetryableRefresh(t, true)
+}
+
+func testCredentialManagerSuppressesConcurrentRetryableRefresh(t *testing.T, forceRefresh bool) {
+	t.Helper()
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	manager, _, registry, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
+	)
+	manager.now = func() time.Time { return now }
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	refreshCalls := 0
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
+		mu.Lock()
+		refreshCalls++
+		call := refreshCalls
+		mu.Unlock()
+		if call == 1 {
+			close(entered)
+			<-release
+		}
+		return codex.Credential{}, &codex.TokenEndpointError{
+			StatusCode: http.StatusTooManyRequests,
+			Code:       "rate_limit_exceeded",
+			RetryAfter: 30 * time.Minute,
+		}
+	})
+	snapshot := credentialSnapshot(t, row, keyService)
+	type prepareResult struct {
+		evidence *execution.ErrorEvidence
+	}
+	results := make(chan prepareResult, 2)
+	prepare := func() {
+		_, evidence := manager.Prepare(context.Background(), channel.Codex, snapshot, forceRefresh)
+		results <- prepareResult{evidence: evidence}
+	}
+	go prepare()
+	<-entered
+	secondStarted := make(chan struct{})
+	go func() {
+		close(secondStarted)
+		prepare()
+	}()
+	<-secondStarted
+	close(release)
+
+	for range 2 {
+		result := <-results
+		if result.evidence == nil || result.evidence.Code != "refresh_temporarily_unavailable" ||
+			result.evidence.RetryAfter != 30*time.Minute {
+			t.Fatalf("evidence = %#v", result.evidence)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if refreshCalls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refreshCalls)
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || views[0].AuthState != state.CredentialAuthStateReady ||
+		!views[0].CooldownUntil.Equal(now.Add(30*time.Minute)) {
+		t.Fatalf("runtime views = %#v", views)
+	}
+}
+
+func TestCredentialManagerControlRefreshBypassesDataPlaneCooldown(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	manager, _, registry, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
+	)
+	manager.now = func() time.Time { return now }
+	refreshCalls := 0
+	manager.refresh = adaptCodexRefresh(func(_ context.Context, current codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		if refreshCalls == 1 {
+			return codex.Credential{}, &codex.TokenEndpointError{
+				StatusCode: http.StatusTooManyRequests,
+				Code:       "rate_limit_exceeded",
+				RetryAfter: 30 * time.Minute,
+			}
+		}
+		current.AccessToken = "new-access"
+		current.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return current, nil
+	})
+	snapshot := credentialSnapshot(t, row, keyService)
+
+	if _, evidence := manager.Prepare(t.Context(), channel.Codex, snapshot, false); evidence == nil ||
+		evidence.Code != "refresh_temporarily_unavailable" {
+		t.Fatalf("data-plane evidence = %#v", evidence)
+	}
+	credential, evidence := manager.PrepareForControl(t.Context(), channel.Codex, snapshot, true)
+	if evidence != nil || refreshCalls != 2 || mustCodexCredential(t, credential).AccessToken != "new-access" {
+		t.Fatalf("credential/evidence/refresh calls = %#v / %#v / %d", credential, evidence, refreshCalls)
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.IsZero() ||
+		len(registry.CollectCredentialCandidates([]uint{row.GroupID}, nil, now)) != 1 {
+		t.Fatalf("runtime views = %#v", views)
+	}
+}
+
+func TestCredentialManagerControlRefreshPreservesNewerCooldown(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	manager, _, registry, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
+	)
+	manager.now = func() time.Time { return now }
+	refreshCalls := 0
+	manager.refresh = adaptCodexRefresh(func(_ context.Context, current codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		if refreshCalls == 1 {
+			return codex.Credential{}, &codex.TokenEndpointError{
+				StatusCode: http.StatusTooManyRequests,
+				Code:       "rate_limit_exceeded",
+				RetryAfter: 30 * time.Minute,
+			}
+		}
+		if !registry.SetCooldown(row.ID, now.Add(time.Hour)) {
+			t.Fatal("SetCooldown() = false")
+		}
+		current.AccessToken = "new-access"
+		current.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return current, nil
+	})
+	snapshot := credentialSnapshot(t, row, keyService)
+
+	if _, evidence := manager.Prepare(t.Context(), channel.Codex, snapshot, false); evidence == nil ||
+		evidence.Code != "refresh_temporarily_unavailable" {
+		t.Fatalf("data-plane evidence = %#v", evidence)
+	}
+	credential, evidence := manager.PrepareForControl(t.Context(), channel.Codex, snapshot, true)
+	if evidence != nil || refreshCalls != 2 || mustCodexCredential(t, credential).AccessToken != "new-access" {
+		t.Fatalf("credential/evidence/refresh calls = %#v / %#v / %d", credential, evidence, refreshCalls)
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.Equal(now.Add(time.Hour)) {
+		t.Fatalf("runtime views = %#v", views)
+	}
+}
+
 func TestCredentialManagerReconcilesRegistryAfterIncrementalPublicationMiss(t *testing.T) {
 	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
 	encodedProxy, err := outboundproxy.Encode(outboundproxy.Config{
@@ -229,7 +383,8 @@ func TestCredentialManagerDefinitiveRejectionRequiresReauthorization(t *testing.
 		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusBadRequest, Code: "invalid_grant"}
 	})
 	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
-	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired {
+	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired ||
+		evidence.Summary != "subscription account requires reauthorization" {
 		t.Fatalf("evidence = %#v", evidence)
 	}
 	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateReauthorizationRequired, "refresh_rejected")
@@ -247,16 +402,132 @@ func TestCredentialManagerIdentityChangeRequiresReauthorization(t *testing.T) {
 	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed")
 }
 
-func TestCredentialManagerTransientFailureMarksOutcomeUnknown(t *testing.T) {
-	manager, db, _, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
+func TestCredentialManagerRetryableTokenEndpointFailureRestoresReady(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 8, 0, 0, 0, time.UTC)
+	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", now.Add(time.Minute)))
+	manager.now = func() time.Time { return now }
 	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
-		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded"}
+		return codex.Credential{}, &codex.TokenEndpointError{
+			StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded",
+			RetryAfter: 30 * time.Minute,
+		}
 	})
+	logger := logrus.StandardLogger()
+	previousOutput, previousFormatter, previousLevel := logger.Out, logger.Formatter, logger.Level
+	var logs bytes.Buffer
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.WarnLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	})
+
 	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
+	if evidence == nil || evidence.Kind != execution.ErrorKindHTTP ||
+		evidence.Code != "refresh_temporarily_unavailable" ||
+		evidence.StatusCode != http.StatusTooManyRequests || evidence.RetryAfter != 30*time.Minute {
+		t.Fatalf("evidence = %#v", evidence)
+	}
+	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateReady, "")
+	views := registry.Snapshot()
+	if len(views) != 1 || views[0].AuthState != state.CredentialAuthStateReady ||
+		!views[0].CooldownUntil.Equal(now.Add(30*time.Minute)) {
+		t.Fatalf("runtime views = %#v", views)
+	}
+	logged := logs.String()
+	for _, expected := range []string{
+		`"event":"subscription.credential_refresh_failed"`,
+		`"classification":"retryable"`,
+		`"stage":"provider_refresh"`,
+		`"http_status":429`,
+		`"oauth_error_code":"rate_limit_exceeded"`,
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("refresh log missing %s: %s", expected, logged)
+		}
+	}
+	for _, secret := range []string{"old-access", "old-refresh"} {
+		if strings.Contains(logged, secret) {
+			t.Fatalf("refresh log exposed credential secret: %s", logged)
+		}
+	}
+}
+
+func TestCredentialManagerRetryableTokenEndpointFailureUsesDefaultCooldown(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 8, 0, 0, 0, time.UTC)
+	manager, _, registry, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
+	)
+	manager.now = func() time.Time { return now }
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
+		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusServiceUnavailable}
+	})
+
+	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
+	if evidence == nil || evidence.Code != "refresh_temporarily_unavailable" || evidence.RetryAfter != 0 {
+		t.Fatalf("evidence = %#v", evidence)
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.Equal(
+		now.Add(subscriptionruntime.DefaultRefreshFailureCooldown),
+	) {
+		t.Fatalf("runtime views = %#v", views)
+	}
+}
+
+func TestRefreshTemporarilyUnavailableEvidenceBoundsRetryAfter(t *testing.T) {
+	tests := []struct {
+		name string
+		give time.Duration
+		want time.Duration
+	}{
+		{name: "valid", give: 30 * time.Minute, want: 30 * time.Minute},
+		{name: "negative", give: -time.Second},
+		{name: "exact limit", give: time.Hour, want: time.Hour},
+		{name: "over limit", give: time.Hour + time.Second, want: time.Hour},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			evidence := refreshTemporarilyUnavailableEvidence(
+				subscriptionruntime.RefreshFailureDecision{RetryAfter: test.give},
+			)
+			if evidence.RetryAfter != test.want {
+				t.Fatalf("RetryAfter = %s, want %s", evidence.RetryAfter, test.want)
+			}
+		})
+	}
+}
+
+func TestCredentialManagerPersistentTokenEndpointFailureFailsClosed(t *testing.T) {
+	manager, db, _, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)),
+	)
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
+		return codex.Credential{}, &codex.TokenEndpointError{
+			StatusCode: http.StatusBadRequest, Code: "invalid_client",
+		}
+	})
+
+	_, evidence := manager.Prepare(
+		t.Context(),
+		channel.Codex,
+		credentialSnapshot(t, row, keyService),
+		false,
+	)
 	if evidence == nil || evidence.Code != "refresh_outcome_unknown" {
 		t.Fatalf("evidence = %#v", evidence)
 	}
-	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown")
+	assertStoredAuthState(
+		t,
+		db,
+		row.ID,
+		models.CredentialAuthStateOutcomeUnknown,
+		"refresh_outcome_unknown",
+	)
 }
 
 func TestCredentialManagerAmbiguousFailureStopsWithoutReplay(t *testing.T) {
@@ -265,7 +536,8 @@ func TestCredentialManagerAmbiguousFailureStopsWithoutReplay(t *testing.T) {
 		return codex.Credential{}, errors.New("connection reset")
 	})
 	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
-	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired {
+	if evidence == nil || evidence.Hint != execution.FailureHintReauthorizationRequired ||
+		evidence.Summary != "subscription credential refresh outcome is unknown" {
 		t.Fatalf("evidence = %#v", evidence)
 	}
 	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown")

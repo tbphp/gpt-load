@@ -200,6 +200,8 @@ func subscriptionPreparationAPIError(evidence *execution.ErrorEvidence) error {
 		return nil
 	}
 	switch strings.ToLower(strings.TrimSpace(evidence.Code)) {
+	case "refresh_temporarily_unavailable":
+		return app_errors.ErrCredentialRefreshTemporarilyUnavailable
 	case "outcome_unknown", "refreshing", "refresh_outcome_unknown", "refresh_persist_failed",
 		"refresh_commit_failed", "refresh_registry_mismatch", "refresh_state_commit_failed":
 		return app_errors.ErrCredentialAuthOutcomeUnknown

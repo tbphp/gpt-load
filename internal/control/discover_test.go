@@ -373,6 +373,61 @@ func TestDiscoverModelsMarksReadyStageOutcomeUnknownAfterAmbiguousRefresh(t *tes
 	}
 }
 
+func TestDiscoverModelsKeepsReadyStageAfterExplicitTemporaryRefreshFailure(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 30, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	refreshCalls := 0
+	setCodexCredentialRefresh(t, fixture.service, func(_ context.Context, credential codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		if refreshCalls == 1 {
+			return codex.Credential{}, &codex.TokenEndpointError{
+				StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded",
+			}
+		}
+		credential.AccessToken = "fresh-access"
+		credential.RefreshToken = "fresh-refresh"
+		credential.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return credential, nil
+	})
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, []byte(
+		`{"type":"codex","access_token":"aging-access","refresh_token":"refresh-token","account_id":"account-retryable","expired":"2026-08-30T08:10:00Z"}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(6 * time.Minute)
+	setCodexModelDiscovery(t, fixture.service, func(context.Context, codex.Credential) ([]codex.Model, error) {
+		return []codex.Model{{ID: "gpt-5.2"}}, nil
+	})
+
+	_, err = fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID,
+	})
+	var apiErr *app_errors.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "CREDENTIAL_REFRESH_TEMPORARILY_UNAVAILABLE" {
+		t.Fatalf("first DiscoverModels() error = %#v", err)
+	}
+	afterFailure, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
+	if err != nil || afterFailure.Status != models.CredentialStageReady ||
+		afterFailure.EncryptedPayload != before.EncryptedPayload || afterFailure.ExpiresAtMS != before.ExpiresAtMS {
+		t.Fatalf("stage after retryable refresh = %#v, %v", afterFailure, err)
+	}
+	result, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
+		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
+		StagedCredentialID: stage.StageID,
+	})
+	if err != nil || refreshCalls != 2 || len(result.Models) != 1 {
+		t.Fatalf("second DiscoverModels() result/error/calls = %#v/%v/%d", result, err, refreshCalls)
+	}
+}
+
 func TestReadyStageRefreshExcludesConcurrentConsume(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)

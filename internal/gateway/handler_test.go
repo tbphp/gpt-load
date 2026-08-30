@@ -268,6 +268,86 @@ func TestHandlerCoordinatesCooldownMutation(t *testing.T) {
 	receiveTestSignal(t, done, "cooldown mutation completion")
 }
 
+func TestHandlerSkipsCooldownFromStaleCredentialVersion(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "credential-v1", Status: state.CredentialStatusActive,
+		EncryptedValue: "cipher-v1",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	ref, ok := registry.CredentialRef(1)
+	if !ok {
+		t.Fatal("CredentialRef() = false")
+	}
+	if !registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "credential-v2", "cipher-v2") {
+		t.Fatal("ReplaceCredentialSecretIfMatch() = false")
+	}
+	stats := health.NewStatsStore()
+	handler := &Handler{
+		registry: registry, stats: stats, mutations: health.NewMutationCoordinator(),
+	}
+	handler.applyGroupDecisionEffect(
+		state.GroupView{},
+		ref.ID,
+		ref.Version,
+		health.Decision{
+			Category:      health.FailureCategoryRateLimited,
+			Effect:        health.EffectCooldownCredential,
+			CooldownUntil: now.Add(30 * time.Minute),
+		},
+		http.StatusTooManyRequests,
+		now,
+	)
+
+	views := registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.IsZero() {
+		t.Fatalf("runtime views = %#v", views)
+	}
+	if got := stats.Snapshot(1, now); got != (health.CredentialStats{}) {
+		t.Fatalf("stale credential stats = %#v", got)
+	}
+}
+
+func TestRefreshCooldownCredentialVersion(t *testing.T) {
+	tests := []struct {
+		name   string
+		result UpstreamResult
+		want   uint64
+	}{
+		{
+			name: "refresh unavailable",
+			result: UpstreamResult{
+				DispatchState: execution.DispatchNotSent,
+				ExecutionError: &execution.ErrorEvidence{
+					Hint: execution.FailureHintRefreshUnavailable,
+				},
+			},
+			want: 7,
+		},
+		{
+			name: "model rate limited",
+			result: UpstreamResult{
+				DispatchState: execution.DispatchMaybeSent,
+				ExecutionError: &execution.ErrorEvidence{
+					Hint: execution.FailureHintRateLimited,
+				},
+			},
+			want: 0,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := refreshCooldownCredentialVersion(test.result, 7); got != test.want {
+				t.Fatalf("refreshCooldownCredentialVersion() = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
 type barrierGatewayMutationCoordinator struct {
 	entered      chan struct{}
 	releaseEntry chan struct{}
@@ -336,6 +416,21 @@ func (registry *recordingRuntimeRegistry) SetCooldownWithChange(
 	registry.cooldownUntil = until
 	registry.cooldownCalls++
 	return registry.CredentialRegistry.SetCooldownWithChange(credentialID, until)
+}
+
+func (registry *recordingRuntimeRegistry) SetCooldownWithChangeIfVersion(
+	credentialID uint,
+	expectedVersion uint64,
+	until time.Time,
+) (bool, bool) {
+	registry.cooldownCredentialID = credentialID
+	registry.cooldownUntil = until
+	registry.cooldownCalls++
+	return registry.CredentialRegistry.SetCooldownWithChangeIfVersion(
+		credentialID,
+		expectedVersion,
+		until,
+	)
 }
 
 func (registry *recordingRuntimeRegistry) IncrFailure(credentialID uint) (int, bool) {
@@ -1867,6 +1962,10 @@ func (panicRuntimeRegistry) SetCooldown(uint, time.Time) bool {
 }
 
 func (panicRuntimeRegistry) SetCooldownWithChange(uint, time.Time) (bool, bool) {
+	panic("model endpoint set cooldown")
+}
+
+func (panicRuntimeRegistry) SetCooldownWithChangeIfVersion(uint, uint64, time.Time) (bool, bool) {
 	panic("model endpoint set cooldown")
 }
 
@@ -3900,13 +3999,48 @@ func TestSubscriptionExplicit401UsesNewerCredentialVersionFromConcurrentRefresh(
 }
 
 func TestSubscriptionRefreshFailureBeforeDispatchRetriesAnotherCredential(t *testing.T) {
-	forwarder := &scriptedForwarder{results: []UpstreamResult{
+	tests := []struct {
+		name         string
+		evidence     *execution.ErrorEvidence
+		wantCooldown bool
+	}{
 		{
-			DispatchState: execution.DispatchNotSent,
-			ExecutionError: &execution.ErrorEvidence{
+			name: "reauthorization required",
+			evidence: &execution.ErrorEvidence{
 				Kind: execution.ErrorKindProvider, Code: "refresh_rejected",
 				Hint: execution.FailureHintReauthorizationRequired,
 			},
+		},
+		{
+			name: "temporarily unavailable",
+			evidence: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, Code: "refresh_temporarily_unavailable",
+				Hint: execution.FailureHintRefreshUnavailable,
+			},
+			wantCooldown: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertSubscriptionRefreshFailureRetriesAnotherCredential(
+				t,
+				test.evidence,
+				test.wantCooldown,
+			)
+		})
+	}
+}
+
+func assertSubscriptionRefreshFailureRetriesAnotherCredential(
+	t *testing.T,
+	evidence *execution.ErrorEvidence,
+	wantCooldown bool,
+) {
+	t.Helper()
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState:  execution.DispatchNotSent,
+			ExecutionError: evidence,
 		},
 		{
 			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
@@ -3963,6 +4097,12 @@ func TestSubscriptionRefreshFailureBeforeDispatchRetriesAnotherCredential(t *tes
 	}
 	if forwarder.inputs[0].Credential.ID == forwarder.inputs[1].Credential.ID {
 		t.Fatalf("credential ids = %d, %d", forwarder.inputs[0].Credential.ID, forwarder.inputs[1].Credential.ID)
+	}
+	failedCredentialID := forwarder.inputs[0].Credential.ID
+	for _, view := range registry.Snapshot() {
+		if view.ID == failedCredentialID && view.CooldownUntil.IsZero() == wantCooldown {
+			t.Fatalf("failed credential runtime view = %#v, want cooldown=%t", view, wantCooldown)
+		}
 	}
 }
 

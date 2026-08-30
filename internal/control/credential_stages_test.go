@@ -135,6 +135,39 @@ func TestImportCodexOAuthJSONRefreshesExpiredCredentialBeforeReady(t *testing.T)
 	}
 }
 
+func TestImportCodexOAuthJSONAllowsRetryAfterExplicitTemporaryRefreshFailure(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 30, 8, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	refreshCalls := 0
+	setCodexCredentialRefresh(t, fixture.service, func(_ context.Context, credential codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		if refreshCalls == 1 {
+			return codex.Credential{}, &codex.TokenEndpointError{
+				StatusCode: http.StatusServiceUnavailable, Code: "temporarily_unavailable",
+			}
+		}
+		credential.AccessToken = "fresh-access"
+		credential.RefreshToken = "fresh-refresh"
+		credential.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return credential, nil
+	})
+	raw := []byte(
+		`{"type":"codex","access_token":"expired-access","refresh_token":"expired-refresh","account_id":"account-retryable","expired":"2026-08-30T07:00:00Z"}`,
+	)
+
+	_, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, raw)
+	var apiErr *app_errors.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "CREDENTIAL_REFRESH_TEMPORARILY_UNAVAILABLE" {
+		t.Fatalf("first ImportCredentialStage() error = %#v", err)
+	}
+	stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, raw)
+	if err != nil || stage.Status != string(models.CredentialStageReady) || refreshCalls != 2 {
+		t.Fatalf("second ImportCredentialStage() result/error/calls = %#v/%v/%d", stage, err, refreshCalls)
+	}
+}
+
 func TestImportCodexOAuthJSONRejectsInvalidInput(t *testing.T) {
 	t.Parallel()
 

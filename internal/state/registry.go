@@ -754,11 +754,59 @@ func (r *CredentialRegistry) SetCooldown(credentialID uint, until time.Time) boo
 	return exists
 }
 
+// CredentialCooldownUntil returns the current runtime cooldown deadline for a
+// credential without exposing its secret-bearing registry entry.
+func (r *CredentialRegistry) CredentialCooldownUntil(credentialID uint) (time.Time, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok {
+		return time.Time{}, false
+	}
+	return entry.CooldownUntil, true
+}
+
+// ClearCooldownIfMatch clears only the runtime cooldown observed by a caller.
+// A newer concurrent cooldown is preserved.
+func (r *CredentialRegistry) ClearCooldownIfMatch(credentialID uint, expected time.Time) bool {
+	if expected.IsZero() {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok || !entry.CooldownUntil.Equal(expected) {
+		return false
+	}
+	entry.CooldownUntil = time.Time{}
+	return true
+}
+
 func (r *CredentialRegistry) SetCooldownWithChange(credentialID uint, until time.Time) (bool, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry, ok := r.entryLocked(credentialID)
 	if !ok {
+		return false, false
+	}
+	if !until.After(entry.CooldownUntil) {
+		return true, false
+	}
+	entry.CooldownUntil = until
+	return true, true
+}
+
+// SetCooldownWithChangeIfVersion updates cooldown only while the credential
+// still uses the version that produced the health decision.
+func (r *CredentialRegistry) SetCooldownWithChangeIfVersion(
+	credentialID uint,
+	expectedVersion uint64,
+	until time.Time,
+) (bool, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok || entry.Version != expectedVersion {
 		return false, false
 	}
 	if !until.After(entry.CooldownUntil) {

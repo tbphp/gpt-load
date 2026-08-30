@@ -76,6 +76,7 @@ type GrokDevicePoll struct {
 type GrokTokenEndpointError struct {
 	StatusCode int
 	Code       string
+	RetryAfter time.Duration
 }
 
 func (err *GrokTokenEndpointError) Error() string {
