@@ -715,6 +715,7 @@ async function refreshCredentialToken(item: CredentialItemDto): Promise<void> {
     feedback.value = t(
       presentSubscriptionErrorKey(cause, 'group.credentials.subscription.refreshCredentialFailed'),
     )
+    await Promise.allSettled([refetchActiveCredentialPage(), refetchGroupSummary()])
   } finally {
     setPending(item.credential_id, 'refresh-credential', false)
   }

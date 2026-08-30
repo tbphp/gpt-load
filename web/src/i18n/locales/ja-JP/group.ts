@@ -547,7 +547,7 @@ export default {
           ready: '認証済み',
           refreshing: '認証情報を更新中',
           reauthorization_required: '再接続または再インポートが必要',
-          outcome_unknown: '認証情報の更新結果不明です。再接続または再インポートしてください',
+          outcome_unknown: '認証情報の更新結果が不明です。再接続または再インポートしてください',
         },
         authError: {
           refreshRejected:
@@ -579,7 +579,7 @@ export default {
           blacklisted: 'ブラックリスト',
           refreshing: '更新中',
           needs_reauth: '再接続が必要',
-          outcome_unknown: '認証情報の結果不明',
+          outcome_unknown: '認証情報の更新結果が不明',
           disabled: '無効',
         },
       },
