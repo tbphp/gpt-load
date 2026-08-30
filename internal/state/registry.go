@@ -754,6 +754,18 @@ func (r *CredentialRegistry) SetCooldown(credentialID uint, until time.Time) boo
 	return exists
 }
 
+// CredentialCooldownUntil returns the current runtime cooldown deadline for a
+// credential without exposing its secret-bearing registry entry.
+func (r *CredentialRegistry) CredentialCooldownUntil(credentialID uint) (time.Time, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok {
+		return time.Time{}, false
+	}
+	return entry.CooldownUntil, true
+}
+
 func (r *CredentialRegistry) SetCooldownWithChange(credentialID uint, until time.Time) (bool, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

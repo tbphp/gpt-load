@@ -71,6 +71,10 @@ const (
 	RefreshFailureIdentityChanged
 )
 
+// DefaultRefreshFailureCooldown is the shared backoff used when a retryable
+// token-endpoint failure does not provide Retry-After.
+const DefaultRefreshFailureCooldown = 10 * time.Minute
+
 // RefreshFailureDecision contains only bounded, provider-neutral diagnostics.
 // Raw errors and token endpoint response bodies must not cross this boundary.
 type RefreshFailureDecision struct {

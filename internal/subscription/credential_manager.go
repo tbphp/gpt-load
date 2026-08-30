@@ -86,6 +86,28 @@ func (manager *CredentialManager) Prepare(
 	snapshot execution.CredentialSnapshot,
 	forceRefresh bool,
 ) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+	return manager.prepare(ctx, channelID, snapshot, forceRefresh, true)
+}
+
+// PrepareForControl prepares a credential for an explicit control-plane
+// operation. Explicit operator actions may retry while data-plane requests are
+// held behind a refresh cooldown.
+func (manager *CredentialManager) PrepareForControl(
+	ctx context.Context,
+	channelID channel.ID,
+	snapshot execution.CredentialSnapshot,
+	forceRefresh bool,
+) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+	return manager.prepare(ctx, channelID, snapshot, forceRefresh, false)
+}
+
+func (manager *CredentialManager) prepare(
+	ctx context.Context,
+	channelID channel.ID,
+	snapshot execution.CredentialSnapshot,
+	forceRefresh bool,
+	respectCooldown bool,
+) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
 	driver, ok := manager.runtime.Driver(channelID)
 	if !ok {
 		return subscriptionruntime.Credential{}, localEvidence("credential_driver_unavailable", "subscription credential driver is unavailable")
@@ -102,7 +124,15 @@ func (manager *CredentialManager) Prepare(
 	var prepared subscriptionruntime.Credential
 	var prepareErr *execution.ErrorEvidence
 	manager.mutations.Do(snapshot.ID, func() {
-		prepared, prepareErr = manager.refreshCredentialLocked(ctx, channelID, driver, snapshot.ID, snapshot.Version, forceRefresh)
+		prepared, prepareErr = manager.refreshCredentialLocked(
+			ctx,
+			channelID,
+			driver,
+			snapshot.ID,
+			snapshot.Version,
+			forceRefresh,
+			respectCooldown,
+		)
 	})
 	return prepared, prepareErr
 }
@@ -114,6 +144,7 @@ func (manager *CredentialManager) refreshCredentialLocked(
 	credentialID uint,
 	expectedVersion uint64,
 	forceRefresh bool,
+	respectCooldown bool,
 ) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
 	var row models.Credential
 	if err := manager.db.WithContext(ctx).First(&row, credentialID).Error; err != nil {
@@ -144,6 +175,11 @@ func (manager *CredentialManager) refreshCredentialLocked(
 			return current, nil
 		}
 	}
+	if respectCooldown {
+		if evidence := manager.activeCredentialCooldownEvidence(row.ID); evidence != nil {
+			return subscriptionruntime.Credential{}, evidence
+		}
+	}
 	if err := manager.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateRefreshing, ""); err != nil {
 		finalizeContext, cancel := refreshFinalizeContext(ctx)
 		restoreErr := manager.setAuthState(finalizeContext, row.ID, row.SecretVersion, models.CredentialAuthStateReady, "")
@@ -170,6 +206,26 @@ func (manager *CredentialManager) refreshCredentialLocked(
 			time.Since(refreshStarted),
 		)
 		if failure.Kind == subscriptionruntime.RefreshFailureRetryable {
+			evidence := refreshTemporarilyUnavailableEvidence(failure)
+			cooldown := evidence.RetryAfter
+			if cooldown <= 0 {
+				cooldown = subscriptionruntime.DefaultRefreshFailureCooldown
+			}
+			if !manager.registry.SetCooldown(row.ID, manager.now().Add(cooldown)) {
+				if markErr := manager.markRefreshOutcomeUnknown(
+					ctx,
+					row,
+					row.SecretVersion,
+					"refresh_registry_mismatch",
+				); markErr != nil {
+					manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
+					return subscriptionruntime.Credential{}, localEvidence(
+						"refresh_state_commit_failed",
+						"subscription credential state could not be saved",
+					)
+				}
+				return subscriptionruntime.Credential{}, authEvidence("refresh_registry_mismatch")
+			}
 			if err := manager.transitionAuthState(
 				ctx,
 				row,
@@ -183,7 +239,7 @@ func (manager *CredentialManager) refreshCredentialLocked(
 					"subscription credential state could not be saved",
 				)
 			}
-			return subscriptionruntime.Credential{}, refreshTemporarilyUnavailableEvidence(failure)
+			return subscriptionruntime.Credential{}, evidence
 		}
 		stateValue, code := models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown"
 		switch failure.Kind {
@@ -262,6 +318,22 @@ func (manager *CredentialManager) refreshCredentialLocked(
 		}
 	}
 	return refreshed, nil
+}
+
+func (manager *CredentialManager) activeCredentialCooldownEvidence(
+	credentialID uint,
+) *execution.ErrorEvidence {
+	until, ok := manager.registry.CredentialCooldownUntil(credentialID)
+	if !ok {
+		return nil
+	}
+	remaining := until.Sub(manager.now())
+	if remaining <= 0 {
+		return nil
+	}
+	return refreshTemporarilyUnavailableEvidence(
+		subscriptionruntime.RefreshFailureDecision{RetryAfter: remaining},
+	)
 }
 
 func (manager *CredentialManager) markRefreshOutcomeUnknown(

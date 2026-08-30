@@ -37,11 +37,10 @@ import (
 )
 
 const (
-	maxRequestBodyBytes       = int64(128 << 20)
-	maxDataPlaneModelBytes    = 255
-	fixedCooldown             = time.Minute
-	subscriptionFixedCooldown = 10 * time.Minute
-	debugHeaderGroup          = "X-GPTLoad-Group"
+	maxRequestBodyBytes    = int64(128 << 20)
+	maxDataPlaneModelBytes = 255
+	fixedCooldown          = time.Minute
+	debugHeaderGroup       = "X-GPTLoad-Group"
 	// debugHeaderKey remains reserved so an upstream cannot inject it downstream.
 	debugHeaderKey      = "X-GPTLoad-Key"
 	debugHeaderAttempts = "X-GPTLoad-Attempts"
@@ -766,7 +765,7 @@ func (handler *Handler) executeAttempts(
 		defaultRateLimitCooldown := fixedCooldown
 		credentialRefreshable := false
 		if connection.Normalize(selection.Group.ConnectionType) == connection.Subscription {
-			defaultRateLimitCooldown = subscriptionFixedCooldown
+			defaultRateLimitCooldown = subscriptionruntime.DefaultRefreshFailureCooldown
 			credentialRefreshable = true
 		}
 		method := ""

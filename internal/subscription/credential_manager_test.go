@@ -132,6 +132,112 @@ func TestCredentialManagerSerializesConcurrentRefresh(t *testing.T) {
 	}
 }
 
+func TestCredentialManagerSuppressesConcurrentRetryableRefresh(t *testing.T) {
+	testCredentialManagerSuppressesConcurrentRetryableRefresh(t, false)
+}
+
+func TestCredentialManagerSuppressesConcurrentForcedRetryableRefresh(t *testing.T) {
+	testCredentialManagerSuppressesConcurrentRetryableRefresh(t, true)
+}
+
+func testCredentialManagerSuppressesConcurrentRetryableRefresh(t *testing.T, forceRefresh bool) {
+	t.Helper()
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	manager, _, registry, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
+	)
+	manager.now = func() time.Time { return now }
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	refreshCalls := 0
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
+		mu.Lock()
+		refreshCalls++
+		call := refreshCalls
+		mu.Unlock()
+		if call == 1 {
+			close(entered)
+			<-release
+		}
+		return codex.Credential{}, &codex.TokenEndpointError{
+			StatusCode: http.StatusTooManyRequests,
+			Code:       "rate_limit_exceeded",
+			RetryAfter: 30 * time.Minute,
+		}
+	})
+	snapshot := credentialSnapshot(t, row, keyService)
+	type prepareResult struct {
+		evidence *execution.ErrorEvidence
+	}
+	results := make(chan prepareResult, 2)
+	prepare := func() {
+		_, evidence := manager.Prepare(context.Background(), channel.Codex, snapshot, forceRefresh)
+		results <- prepareResult{evidence: evidence}
+	}
+	go prepare()
+	<-entered
+	secondStarted := make(chan struct{})
+	go func() {
+		close(secondStarted)
+		prepare()
+	}()
+	<-secondStarted
+	close(release)
+
+	for range 2 {
+		result := <-results
+		if result.evidence == nil || result.evidence.Code != "refresh_temporarily_unavailable" ||
+			result.evidence.RetryAfter != 30*time.Minute {
+			t.Fatalf("evidence = %#v", result.evidence)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if refreshCalls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refreshCalls)
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || views[0].AuthState != state.CredentialAuthStateReady ||
+		!views[0].CooldownUntil.Equal(now.Add(30*time.Minute)) {
+		t.Fatalf("runtime views = %#v", views)
+	}
+}
+
+func TestCredentialManagerControlRefreshBypassesDataPlaneCooldown(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	manager, _, _, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
+	)
+	manager.now = func() time.Time { return now }
+	refreshCalls := 0
+	manager.refresh = adaptCodexRefresh(func(_ context.Context, current codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		if refreshCalls == 1 {
+			return codex.Credential{}, &codex.TokenEndpointError{
+				StatusCode: http.StatusTooManyRequests,
+				Code:       "rate_limit_exceeded",
+				RetryAfter: 30 * time.Minute,
+			}
+		}
+		current.AccessToken = "new-access"
+		current.Expire = now.Add(time.Hour).Format(time.RFC3339)
+		return current, nil
+	})
+	snapshot := credentialSnapshot(t, row, keyService)
+
+	if _, evidence := manager.Prepare(t.Context(), channel.Codex, snapshot, false); evidence == nil ||
+		evidence.Code != "refresh_temporarily_unavailable" {
+		t.Fatalf("data-plane evidence = %#v", evidence)
+	}
+	credential, evidence := manager.PrepareForControl(t.Context(), channel.Codex, snapshot, true)
+	if evidence != nil || refreshCalls != 2 || mustCodexCredential(t, credential).AccessToken != "new-access" {
+		t.Fatalf("credential/evidence/refresh calls = %#v / %#v / %d", credential, evidence, refreshCalls)
+	}
+}
+
 func TestCredentialManagerReconcilesRegistryAfterIncrementalPublicationMiss(t *testing.T) {
 	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Minute)))
 	encodedProxy, err := outboundproxy.Encode(outboundproxy.Config{
@@ -282,7 +388,7 @@ func TestCredentialManagerRetryableTokenEndpointFailureRestoresReady(t *testing.
 	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateReady, "")
 	views := registry.Snapshot()
 	if len(views) != 1 || views[0].AuthState != state.CredentialAuthStateReady ||
-		!views[0].CooldownUntil.IsZero() {
+		!views[0].CooldownUntil.Equal(now.Add(30*time.Minute)) {
 		t.Fatalf("runtime views = %#v", views)
 	}
 	logged := logs.String()
@@ -301,6 +407,29 @@ func TestCredentialManagerRetryableTokenEndpointFailureRestoresReady(t *testing.
 		if strings.Contains(logged, secret) {
 			t.Fatalf("refresh log exposed credential secret: %s", logged)
 		}
+	}
+}
+
+func TestCredentialManagerRetryableTokenEndpointFailureUsesDefaultCooldown(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 8, 0, 0, 0, time.UTC)
+	manager, _, registry, keyService, row := newCredentialManagerFixture(
+		t,
+		credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
+	)
+	manager.now = func() time.Time { return now }
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
+		return codex.Credential{}, &codex.TokenEndpointError{StatusCode: http.StatusServiceUnavailable}
+	})
+
+	_, evidence := manager.Prepare(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
+	if evidence == nil || evidence.Code != "refresh_temporarily_unavailable" || evidence.RetryAfter != 0 {
+		t.Fatalf("evidence = %#v", evidence)
+	}
+	views := registry.Snapshot()
+	if len(views) != 1 || !views[0].CooldownUntil.Equal(
+		now.Add(subscriptionruntime.DefaultRefreshFailureCooldown),
+	) {
+		t.Fatalf("runtime views = %#v", views)
 	}
 }
 
