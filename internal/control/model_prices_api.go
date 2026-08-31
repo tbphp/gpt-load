@@ -335,11 +335,11 @@ func parseModelPriceListQuery(
 }
 
 func parseModelPriceRowID(value string) (uint, error) {
-	parsed, err := parseCanonicalSafeUint(value)
-	if err != nil || parsed == 0 || parsed > uint64(^uint(0)) {
+	parsed, err := parseCanonicalSafePlatformUint(value)
+	if err != nil || parsed == 0 {
 		return 0, fmt.Errorf("model price ID must be a canonical positive safe integer")
 	}
-	return uint(parsed), nil
+	return parsed, nil
 }
 
 func (s *Server) handleListModelPrices(c *gin.Context) {

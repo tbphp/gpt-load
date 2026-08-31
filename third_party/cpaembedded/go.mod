@@ -1,6 +1,6 @@
 module github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded
 
-go 1.26.0
+go 1.26.6
 
 require (
 	github.com/andybalholm/brotli v1.2.3

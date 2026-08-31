@@ -588,17 +588,17 @@ func singleQueryValue(values url.Values, key string) (string, bool) {
 }
 
 func parseRequestLogID(value string) (uint, *app_errors.APIError) {
-	parsed, err := parseCanonicalSafeUint(value)
+	parsed, err := parseCanonicalSafePlatformUint(value)
 	if err != nil {
 		if errors.Is(err, errUnsafeCanonicalUint) {
 			return 0, app_errors.ErrValidation
 		}
 		return 0, app_errors.ErrBadRequest
 	}
-	if parsed == 0 || uint64(uint(parsed)) != parsed {
+	if parsed == 0 {
 		return 0, app_errors.ErrValidation
 	}
-	return uint(parsed), nil
+	return parsed, nil
 }
 
 func parseRequestLogChannelID(value string) (channel.ID, *app_errors.APIError) {

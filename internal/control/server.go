@@ -242,13 +242,13 @@ func (s *Server) handleImportCredentialStage(c *gin.Context) {
 			groupCount++
 			value, readErr := io.ReadAll(io.LimitReader(part, maxCredentialStageGroupIDBytes+1))
 			_ = part.Close()
-			parsed, parseErr := strconv.ParseUint(strings.TrimSpace(string(value)), 10, 64)
+			parsed, parseErr := parseCanonicalSafePlatformUint(strings.TrimSpace(string(value)))
 			if readErr != nil || int64(len(value)) > maxCredentialStageGroupIDBytes ||
-				groupCount != 1 || parseErr != nil || parsed == 0 || uint64(uint(parsed)) != parsed {
+				groupCount != 1 || parseErr != nil || parsed == 0 {
 				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
 				return
 			}
-			groupID = uint(parsed)
+			groupID = parsed
 		default:
 			_ = part.Close()
 			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
