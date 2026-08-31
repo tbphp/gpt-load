@@ -2,12 +2,18 @@ import { queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
-import type { AccessKeyCollectionItemDto, AccessProtocol } from '@/api/control/types'
+import type {
+  AccessKeyCollectionItemDto,
+  AccessProtocol,
+  CredentialItemDto,
+} from '@/api/control/types'
 import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 
 import { projectAccessKeyCollectionItem } from './access-keys'
+import type { ChannelCapabilitiesDto } from './channels'
+import { projectCredentialItem } from './credentials'
 
 import {
   assertNoSecretLikeFields,
@@ -109,6 +115,21 @@ export interface HomeStatisticsDto {
   rankings: HomeRankings
 }
 
+export interface HomeSubscriptionAccountDto {
+  channel_id: string
+  channel_mark: string
+  channel_icon: string
+  capabilities: ChannelCapabilitiesDto
+  group_count: number
+  available_group_count: number
+  credential: CredentialItemDto
+}
+
+export interface HomeSubscriptionAccountsDto {
+  observed_at_ms: number
+  items: HomeSubscriptionAccountDto[]
+}
+
 const homeBaseFields = [
   'server_now_ms',
   'started_at_ms',
@@ -160,6 +181,22 @@ const rankingMetricFields = ['request_count', 'total_tokens', 'estimated_cost_na
 const modelRankingFields = ['model', ...rankingMetricFields] as const
 const groupRankingFields = ['group', ...rankingMetricFields] as const
 const accessKeyRankingFields = ['access_key', ...rankingMetricFields] as const
+const subscriptionAccountsFields = ['observed_at_ms', 'items'] as const
+const subscriptionAccountFields = [
+  'channel_id',
+  'channel_mark',
+  'channel_icon',
+  'capabilities',
+  'group_count',
+  'available_group_count',
+  'credential',
+] as const
+const subscriptionCapabilitiesFields = [
+  'model_discovery',
+  'quota_observation',
+  'credential_actions',
+  'outbound_proxy',
+] as const
 const hourMilliseconds = 3_600_000
 const dayMilliseconds = 86_400_000
 const rankingLimit = 5
@@ -228,6 +265,57 @@ export function projectHomeBase(value: unknown): HomeBaseDto {
       record.current_access_key === null
         ? null
         : projectAccessKeyCollectionItem(record.current_access_key),
+  }
+}
+
+function projectHomeSubscriptionCapabilities(value: unknown): ChannelCapabilitiesDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, subscriptionCapabilitiesFields)
+  const actions = projectArray(record.credential_actions, (action) =>
+    projectEnum(action, ['reset_credit'] as const),
+  )
+  if (new Set(actions).size !== actions.length) invalidResponse()
+  return {
+    model_discovery: projectBoolean(record.model_discovery),
+    quota_observation: projectBoolean(record.quota_observation),
+    credential_actions: actions,
+    outbound_proxy: projectBoolean(record.outbound_proxy),
+  }
+}
+
+function projectHomeSubscriptionAccount(value: unknown): HomeSubscriptionAccountDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, subscriptionAccountFields)
+  const groupCount = projectSafeInteger(record.group_count, { minimum: 1 })
+  const availableGroupCount = projectSafeInteger(record.available_group_count, { minimum: 0 })
+  const credential = projectCredentialItem(record.credential)
+  if (availableGroupCount > groupCount || credential.connection_type !== 'subscription') {
+    invalidResponse()
+  }
+  return {
+    channel_id: projectNonBlankTrimmedString(record.channel_id),
+    channel_mark: projectNonBlankTrimmedString(record.channel_mark),
+    channel_icon: projectNonBlankTrimmedString(record.channel_icon),
+    capabilities: projectHomeSubscriptionCapabilities(record.capabilities),
+    group_count: groupCount,
+    available_group_count: availableGroupCount,
+    credential,
+  }
+}
+
+export function projectHomeSubscriptionAccounts(value: unknown): HomeSubscriptionAccountsDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, subscriptionAccountsFields)
+  const items = projectArray(record.items, projectHomeSubscriptionAccount)
+  if (
+    items.length > 4 ||
+    new Set(items.map((item) => item.credential.credential_id)).size !== items.length
+  ) {
+    invalidResponse()
+  }
+  return {
+    observed_at_ms: projectEpochMilliseconds(record.observed_at_ms),
+    items,
   }
 }
 
@@ -549,11 +637,33 @@ export async function getHomeStatistics(
   )
 }
 
+export async function getHomeSubscriptionAccounts(
+  client: ApiClient,
+  signal?: AbortSignal,
+): Promise<HomeSubscriptionAccountsDto> {
+  return projectHomeSubscriptionAccounts(
+    await client.request('/api/home/subscription-accounts', { method: 'GET', signal }),
+  )
+}
+
 export function homeBaseQueryOptions(client: ApiClient) {
   return queryOptions({
     queryKey: controlQueryKeys.home.base(),
     queryFn: ({ signal }) => getHomeBase(client, signal),
     staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: 'always',
+  })
+}
+
+export function homeSubscriptionAccountsQueryOptions(
+  client: ApiClient,
+  enabled: MaybeRefOrGetter<boolean>,
+) {
+  return queryOptions({
+    queryKey: controlQueryKeys.home.subscriptionAccounts(),
+    queryFn: ({ signal }) => getHomeSubscriptionAccounts(client, signal),
+    enabled: computed(() => toValue(enabled)),
+    staleTime: 60_000,
     refetchOnMount: 'always',
   })
 }

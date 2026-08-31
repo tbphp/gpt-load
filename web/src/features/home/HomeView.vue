@@ -7,7 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import { useStableLoading } from '@/app/loading-state'
 import { healthQueryOptions } from '@/app/resources/health'
-import { homeBaseQueryOptions } from '@/app/resources/home'
+import { homeBaseQueryOptions, homeSubscriptionAccountsQueryOptions } from '@/app/resources/home'
 import { systemUpdateQueryOptions } from '@/app/resources/system-update'
 import { homeLocation } from '@/app/route-locations'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
@@ -21,6 +21,7 @@ import CurrentAccessKeyCard from './CurrentAccessKeyCard.vue'
 import GatewayConnection from './GatewayConnection.vue'
 import HomeAttention from './HomeAttention.vue'
 import HomeSpend from './HomeSpend.vue'
+import HomeSubscriptionAccounts from './HomeSubscriptionAccounts.vue'
 import HomeSummary from './HomeSummary.vue'
 import HomeWelcome from './HomeWelcome.vue'
 import { useHomeStatisticsPresenter } from './home-presenter'
@@ -38,7 +39,11 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
+const isAdmin = computed(() => session.state.principalType === 'admin')
 const baseQuery = useQuery(homeBaseQueryOptions(client))
+// 订阅账号包含完整管理身份和额度，只允许管理员发起查询；模板仍二次 gate，
+// 防止会话切换时短暂复用旧 Query 缓存。
+const subscriptionAccountsQuery = useQuery(homeSubscriptionAccountsQueryOptions(client, isAdmin))
 // 更新检查与首页数据解耦，仅由管理员进入首页时按需触发一次。
 const updateQuery = useQuery(
   systemUpdateQueryOptions(client, () => session.state.principalType === 'admin'),
@@ -188,6 +193,11 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 
         <!-- 紧贴事实行：它是那句「X/Y 个凭据可用」的注解，隔开就变成孤立的红条。 -->
         <HomeAttention v-if="!isAccessKey" :health="healthQuery.data.value ?? null" />
+
+        <HomeSubscriptionAccounts
+          v-if="isAdmin && subscriptionAccountsQuery.data.value?.items.length"
+          :accounts="subscriptionAccountsQuery.data.value"
+        />
 
         <CurrentAccessKeyCard
           v-if="baseQuery.data.value.current_access_key"

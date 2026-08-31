@@ -274,6 +274,11 @@ export default {
         summary: '共有 {count} 项需要你处理',
         action: '处理',
       },
+      subscriptionAccounts: {
+        title: '最近常用订阅账号',
+        groupCount: '{count} 个分组',
+        availableGroups: '{available}/{total} 可用',
+      },
       spend: {
         title: '近 30 天估算',
         viewDetail: '查看明细 →',

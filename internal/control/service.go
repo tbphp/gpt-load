@@ -88,6 +88,8 @@ type Service struct {
 	observationMu         sync.Mutex
 	observationFlights    map[observationFlightKey]*observationFlight
 	observationSemaphore  chan struct{}
+	homeSubscriptionMu    sync.Mutex
+	homeSubscriptionCache *homeSubscriptionAccountsCache
 }
 
 type credentialRuntimeRetirer interface {

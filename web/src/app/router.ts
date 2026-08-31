@@ -29,7 +29,7 @@ const routes: RouteRecordRaw[] = [
       titleKey: 'home.ledger.title',
       requiresAuth: true,
       primaryNav: 'home',
-      messageNamespaces: ['access-keys'],
+      messageNamespaces: ['access-keys', 'group'],
     },
   }),
   pageRoute(pageRouteNames.login, {

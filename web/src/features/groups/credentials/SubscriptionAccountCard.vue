@@ -37,20 +37,32 @@ import { quotaProgressTone } from '@/lib/quota-progress'
 
 import { presentCredentialFailureCategory } from './credential-failure-presenter'
 
-const props = defineProps<{
-  item: CredentialItemDto
-  selected: boolean
-  busy: boolean
-  refreshingObservation: boolean
-  observationError: string
-  detailBusy: boolean
-  detailLoaded: boolean
-  detailError: string
-  channelIcon?: string
-  channelMark?: string
-  capabilities: ChannelCapabilitiesDto
-  saveProxy: (value: ProxyMutation) => Promise<void>
-}>()
+const props = withDefaults(
+  defineProps<{
+    item: CredentialItemDto
+    selected: boolean
+    busy: boolean
+    refreshingObservation: boolean
+    observationError: string
+    detailBusy: boolean
+    detailLoaded: boolean
+    detailError: string
+    channelIcon?: string
+    channelMark?: string
+    capabilities: ChannelCapabilitiesDto
+    saveProxy: (value: ProxyMutation) => Promise<void>
+    readonly?: boolean
+    groupCount?: number
+    availableGroupCount?: number
+  }>(),
+  {
+    channelIcon: undefined,
+    channelMark: undefined,
+    readonly: false,
+    groupCount: 1,
+    availableGroupCount: 1,
+  },
+)
 const emit = defineEmits<{
   'update:selected': [selected: boolean]
   toggle: [item: CredentialItemDto]
@@ -87,7 +99,7 @@ watch(
       props.busy,
     ] as const,
   ([expanded, loaded, detailBusy, error, busy]) => {
-    if (expanded && !loaded && !detailBusy && !error && !busy) {
+    if (!props.readonly && expanded && !loaded && !detailBusy && !error && !busy) {
       emit('load-details', props.item)
     }
   },
@@ -370,7 +382,17 @@ const unifiedStatus = computed<UnifiedStatus>(() => {
   }
   return 'available'
 })
+const showAggregateAvailability = computed(
+  () =>
+    props.readonly &&
+    props.groupCount > 1 &&
+    (props.availableGroupCount < props.groupCount || unifiedStatus.value === 'available'),
+)
 const statusTone = computed<'success' | 'warning' | 'danger' | 'neutral'>(() => {
+  if (showAggregateAvailability.value) {
+    if (props.availableGroupCount === props.groupCount) return 'success'
+    return props.availableGroupCount > 0 ? 'warning' : 'danger'
+  }
   const tones: Record<UnifiedStatus, 'success' | 'warning' | 'danger' | 'neutral'> = {
     available: 'success',
     quota_exhausted: 'warning',
@@ -383,6 +405,20 @@ const statusTone = computed<'success' | 'warning' | 'danger' | 'neutral'>(() => 
   }
   return tones[unifiedStatus.value]
 })
+const statusLabel = computed(() =>
+  showAggregateAvailability.value
+    ? t('home.ledger.subscriptionAccounts.availableGroups', {
+        available: n(props.availableGroupCount),
+        total: n(props.groupCount),
+      })
+    : t(`group.credentials.subscription.status.${unifiedStatus.value}`),
+)
+const groupCountLabel = computed(() =>
+  t('home.ledger.subscriptionAccounts.groupCount', { count: n(props.groupCount) }),
+)
+const displayDisabled = computed(
+  () => !showAggregateAvailability.value && unifiedStatus.value === 'disabled',
+)
 const authErrorKeys: Readonly<Record<string, string>> = {
   refresh_rejected: 'group.credentials.subscription.authError.refreshRejected',
   refresh_identity_changed: 'group.credentials.subscription.authError.identityChanged',
@@ -521,7 +557,7 @@ function quotaFillStyle(window: CredentialQuotaWindowDto): Record<string, string
 }
 
 function toggleDetails(): void {
-  if (props.detailBusy) return
+  if (props.readonly || props.detailBusy) return
   detailsExpanded.value = !detailsExpanded.value
 }
 
@@ -558,8 +594,9 @@ function runMenuAction(
     :class="[
       `subscription-account--${statusTone}`,
       {
-        'subscription-account--disabled': unifiedStatus === 'disabled',
+        'subscription-account--disabled': displayDisabled,
         'subscription-account--refreshing': refreshingObservation,
+        'subscription-account--readonly': readonly,
       },
     ]"
     :aria-busy="refreshingObservation ? 'true' : undefined"
@@ -662,7 +699,7 @@ function runMenuAction(
     <div class="subscription-account__main">
       <header class="subscription-account__top">
         <div class="subscription-account__top-row">
-          <label class="subscription-account__select">
+          <label v-if="!readonly" class="subscription-account__select">
             <span class="sr-only">{{
               t('group.credentials.subscription.selectAccount', { account: accountName })
             }}</span>
@@ -693,14 +730,23 @@ function runMenuAction(
             <StatusBadge
               class="subscription-account__status"
               :tone="statusTone"
-              :icon="unifiedStatus === 'disabled' ? 'off' : undefined"
+              :icon="displayDisabled ? 'off' : undefined"
               size="compact"
             >
-              {{ t(`group.credentials.subscription.status.${unifiedStatus}`) }}
+              {{ statusLabel }}
             </StatusBadge>
-            <ProxyScopeIndicator v-if="capabilities.outbound_proxy" :view="item.proxy" />
+            <span v-if="readonly" class="subscription-account__group-count">
+              {{ groupCountLabel }}
+            </span>
+            <ProxyScopeIndicator
+              v-if="!readonly && capabilities.outbound_proxy"
+              :view="item.proxy"
+            />
           </div>
-          <div class="subscription-account__actions">
+          <div
+            v-if="!readonly || (supportsQuotaObservation && observation?.observed_at_ms != null)"
+            class="subscription-account__actions"
+          >
             <span
               v-if="supportsQuotaObservation && observation?.observed_at_ms != null"
               class="subscription-account__sync-age"
@@ -714,7 +760,7 @@ function runMenuAction(
               />
             </span>
             <AppTooltip
-              v-if="supportsQuotaObservation"
+              v-if="supportsQuotaObservation && !readonly"
               :content="t('group.credentials.subscription.sync')"
             >
               <IconButton
@@ -734,6 +780,7 @@ function runMenuAction(
               </IconButton>
             </AppTooltip>
             <AppPopover
+              v-if="!readonly"
               v-model:open="menuOpen"
               align="end"
               content-class="app-popover__content--account-menu"
@@ -922,8 +969,11 @@ function runMenuAction(
             hint
           />
         </span>
-        <span class="subscription-account__spacer"></span>
-        <AppTooltip :content="t('group.credentials.subscription.resetCreditsActionTooltip')">
+        <span v-if="!readonly" class="subscription-account__spacer"></span>
+        <AppTooltip
+          v-if="!readonly"
+          :content="t('group.credentials.subscription.resetCreditsActionTooltip')"
+        >
           <AppButton
             class="subscription-account__credits-action"
             variant="ghost"
@@ -937,7 +987,7 @@ function runMenuAction(
         </AppTooltip>
       </div>
 
-      <div class="subscription-account__detail-control">
+      <div v-if="!readonly" class="subscription-account__detail-control">
         <AppTooltip
           :content="
             t(
@@ -993,7 +1043,7 @@ function runMenuAction(
     </div>
 
     <section
-      v-if="detailsExpanded"
+      v-if="!readonly && detailsExpanded"
       :id="`credential-detail-${item.credential_id}`"
       class="subscription-account__detail"
       aria-live="polite"
@@ -1343,6 +1393,9 @@ function runMenuAction(
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4) 0;
 }
+.subscription-account--readonly .subscription-account__main {
+  padding-bottom: var(--space-3);
+}
 .subscription-account__top {
   display: grid;
   gap: var(--space-2);
@@ -1460,6 +1513,16 @@ function runMenuAction(
 }
 .subscription-account__status {
   flex: none;
+  white-space: nowrap;
+}
+.subscription-account__group-count {
+  flex: none;
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  padding: 3px 7px;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  line-height: 1;
   white-space: nowrap;
 }
 .subscription-account__actions {

@@ -287,6 +287,11 @@ export default {
         summary: '{count} 件の対応が必要です',
         action: '対応',
       },
+      subscriptionAccounts: {
+        title: '最近使用したサブスクリプションアカウント',
+        groupCount: '{count} グループ',
+        availableGroups: '{available}/{total} 利用可能',
+      },
       spend: {
         title: '直近 30 日間の概算',
         viewDetail: '詳細を見る →',
