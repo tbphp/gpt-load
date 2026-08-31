@@ -139,10 +139,14 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 | ----------------------- | -------------------------------------- |
 | OpenAI Chat Completions | `POST /v1/chat/completions`            |
 | OpenAI Responses        | `/v1/responses` およびそのリソースパス |
+| OpenAI Images           | `POST /v1/images/...`                  |
+| OpenAI Embeddings       | `POST /v1/embeddings`                  |
 | Anthropic Messages      | `POST /v1/messages`                    |
 | Gemini                  | `/v1beta/models/...`                   |
 
 各チャネルは実行可能なプロトコルと機能を明示的に宣言します。GPT-Load はサポート対象の機能間で変換を行いますが、任意のプロトコル・任意の JSON を扱う汎用コンバーターではありません。
+
+Embeddings は初期段階では OpenAI、OpenRouter、OpenAI Compatible の API Key チャネルでのみネイティブな OpenAI 互換ワイヤーを提供し、サブスクリプションチャネルとプロトコル変換には対応していません。プロトコルフィルターを設定していない AccessKey は既存の「有効なプロトコルをすべて許可する」動作を維持するため、アップグレード後に Embeddings へのアクセス権も得ます。最小権限で運用する場合は、プロトコルフィルターを明示的に設定してください。
 
 ### 組み込みチャネル
 

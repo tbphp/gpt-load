@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 部署与配置文档 / Documentation
+    url: https://www.gpt-load.com/docs
+    about: 部署、配置和常见问题请先查阅官方文档。/ Check the official docs for deployment, configuration, and FAQs first.
+  - name: 使用交流 / Community chat
+    url: https://t.me/+GHpy5SwEllg3MTUx
+    about: 使用问题、配置咨询和经验交流请到 Telegram 群。/ Ask usage questions and share experience in the Telegram group.
+  - name: 安全漏洞报告 / Report a security vulnerability
+    url: https://github.com/tbphp/gpt-load/security/advisories/new
+    about: 请勿公开提交安全问题，务必使用私有漏洞报告。/ Never open a public issue for a vulnerability; always use private reporting.
