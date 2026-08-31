@@ -385,7 +385,7 @@ const resetCreditsTooltip = computed(() => {
 <template>
   <article
     class="home-subscription-mini"
-    :class="{ 'home-subscription-mini--off': unifiedStatus === 'disabled' }"
+    :class="{ 'home-subscription-mini--off': displayDisabled }"
     :aria-label="`${accountName} · ${statusLabel}`"
   >
     <span class="sr-only">{{ statusLabel }}</span>
@@ -417,6 +417,13 @@ const resetCreditsTooltip = computed(() => {
       >
         <strong>{{ n(lead.percent) }}</strong
         ><span aria-hidden="true">%</span>
+      </span>
+      <span
+        v-else-if="lead && lead.window.remaining !== undefined"
+        class="home-subscription-mini__num home-subscription-mini__num--amount"
+        :class="`home-subscription-mini__num--${leadTone ?? 'unknown'}`"
+      >
+        {{ quotaValueLabel(lead.window) }}
       </span>
       <span v-else class="home-subscription-mini__num home-subscription-mini__num--empty">—</span>
 
@@ -603,6 +610,15 @@ const resetCreditsTooltip = computed(() => {
 .home-subscription-mini__num span {
   font-size: 12px;
   font-weight: 600;
+}
+
+.home-subscription-mini__num--amount {
+  max-width: 9em;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 与分组详情页 SubscriptionAccountCard 的配额条同一套强调色（oklch，单值适配明暗），
