@@ -17,9 +17,8 @@ import (
 )
 
 const (
-	homeSubscriptionAccountLimit    = 4
-	homeSubscriptionAccountWindow   = 24 * time.Hour
-	homeSubscriptionAccountCacheTTL = time.Minute
+	homeSubscriptionAccountLimit  = 4
+	homeSubscriptionAccountWindow = 24 * time.Hour
 )
 
 type HomeSubscriptionAccountsResponse struct {
@@ -35,11 +34,6 @@ type HomeSubscriptionAccountResponse struct {
 	GroupCount          int                          `json:"group_count"`
 	AvailableGroupCount int                          `json:"available_group_count"`
 	Credential          CredentialItemResponse       `json:"credential"`
-}
-
-type homeSubscriptionAccountsCache struct {
-	expiresAt time.Time
-	response  HomeSubscriptionAccountsResponse
 }
 
 type homeSubscriptionActivityRow struct {
@@ -75,25 +69,7 @@ func (s *Service) ReadHomeSubscriptionAccounts(
 	if err := ctx.Err(); err != nil {
 		return HomeSubscriptionAccountsResponse{}, err
 	}
-	s.homeSubscriptionMu.Lock()
-	defer s.homeSubscriptionMu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return HomeSubscriptionAccountsResponse{}, err
-	}
-	now := s.now().UTC()
-	if cached := s.homeSubscriptionCache; cached != nil && now.Before(cached.expiresAt) {
-		return cloneHomeSubscriptionAccountsResponse(cached.response), nil
-	}
-
-	response, err := s.readHomeSubscriptionAccounts(ctx, now)
-	if err != nil {
-		return HomeSubscriptionAccountsResponse{}, err
-	}
-	s.homeSubscriptionCache = &homeSubscriptionAccountsCache{
-		expiresAt: now.Add(homeSubscriptionAccountCacheTTL),
-		response:  cloneHomeSubscriptionAccountsResponse(response),
-	}
-	return response, nil
+	return s.readHomeSubscriptionAccounts(ctx, s.now().UTC())
 }
 
 func (s *Server) handleHomeSubscriptionAccounts(c *gin.Context) {
@@ -366,11 +342,4 @@ func homeSubscriptionRepresentativeLess(
 
 func homeSubscriptionIdentityKey(channelID, identityFingerprint string) string {
 	return channelID + "\x00" + identityFingerprint
-}
-
-func cloneHomeSubscriptionAccountsResponse(
-	value HomeSubscriptionAccountsResponse,
-) HomeSubscriptionAccountsResponse {
-	value.Items = append([]HomeSubscriptionAccountResponse(nil), value.Items...)
-	return value
 }
