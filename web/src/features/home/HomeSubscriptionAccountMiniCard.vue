@@ -65,18 +65,28 @@ function quotaWindowDuration(window: CredentialQuotaWindowDto): number {
     : Number.MAX_SAFE_INTEGER
 }
 
-// 首页摘要只展示上游返回的至多四个额度窗口；完整窗口信息保留在分组卡片中。
-const quotaWindows = computed(() =>
-  [...(snapshot.value?.quota_windows ?? [])]
-    .sort((left, right) => {
-      const scopeDifference =
-        Number(!isAccountWideQuotaWindow(left)) - Number(!isAccountWideQuotaWindow(right))
-      return scopeDifference !== 0
-        ? scopeDifference
-        : quotaWindowDuration(left) - quotaWindowDuration(right)
-    })
-    .slice(0, 4),
+// 按 scope + 周期排序全部窗口；焦点数字与状态判断都必须看完整列表，
+// 只有底部分段带需要限制展示数量（见下方 quotaWindows）。
+const sortedQuotaWindows = computed(() =>
+  [...(snapshot.value?.quota_windows ?? [])].sort((left, right) => {
+    const scopeDifference =
+      Number(!isAccountWideQuotaWindow(left)) - Number(!isAccountWideQuotaWindow(right))
+    return scopeDifference !== 0
+      ? scopeDifference
+      : quotaWindowDuration(left) - quotaWindowDuration(right)
+  }),
 )
+
+// 分段带最多展示 4 条；若焦点窗口（见下方 lead）因排序被挤到第 5 位之后，
+// 仍强制并入前排，保证大号数字与分段带指向同一个窗口，而不是各说各话。
+const quotaWindows = computed(() => {
+  const capped = sortedQuotaWindows.value.slice(0, 4)
+  const leadWindow = lead.value?.window
+  if (leadWindow && !capped.some((window) => window.id === leadWindow.id)) {
+    return [leadWindow, ...capped.slice(0, 3)]
+  }
+  return capped
+})
 
 const unifiedStatus = computed<UnifiedStatus>(() => {
   const item = credential.value
@@ -88,7 +98,9 @@ const unifiedStatus = computed<UnifiedStatus>(() => {
   if (item.effective_status === 'cooldown') return 'cooldown'
   if (
     props.account.capabilities.quota_observation &&
-    quotaWindows.value.some((window) => window.scope === 'account' && window.state === 'exhausted')
+    sortedQuotaWindows.value.some(
+      (window) => window.scope === 'account' && window.state === 'exhausted',
+    )
   ) {
     return 'quota_exhausted'
   }
@@ -160,13 +172,17 @@ function quotaFillStyle(window: CredentialQuotaWindowDto): Record<string, string
   return value === undefined ? {} : { width: `${value}%` }
 }
 
-function quotaPeriodLabel(seconds: number | undefined): string {
+// 与分组详情页 quotaWindowPeriodLabel 完全一致：日/时之外还兜底分钟与秒，
+// 避免非整日整时的窗口（例如 30 分钟）拿不到任何周期文案。
+function quotaWindowPeriodLabel(seconds: number | undefined): string {
   if (seconds === undefined || !Number.isSafeInteger(seconds) || seconds <= 0) return ''
   const day = 24 * 60 * 60
   const hour = 60 * 60
+  const minute = 60
   if (seconds % day === 0) return `${seconds / day}d`
   if (seconds % hour === 0) return `${seconds / hour}h`
-  return ''
+  if (seconds % minute === 0) return `${seconds / minute}min`
+  return `${seconds}s`
 }
 
 const quotaSubjectKeys: Readonly<Record<string, CredentialQuotaLabelKey>> = {
@@ -182,23 +198,35 @@ function normalizedQuotaLabelPart(value: string): string {
   return value.trim().toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ')
 }
 
+function translatedQuotaLabel(labelKey: CredentialQuotaLabelKey, fallback: string): string {
+  const key = `group.credentials.subscription.quotaLabels.${labelKey}`
+  return te(key) ? t(key) : fallback
+}
+
+// 与分组详情页 quotaWindowLabel 完全一致：label_key 为 oauth_apps 时保留周期后缀
+// （例如「OAuth 应用 · 7d」），否则不同周期的同类窗口会显示成完全相同的文案。
 function quotaWindowLabel(window: CredentialQuotaWindowDto): string {
-  const period = quotaPeriodLabel(window.window_seconds)
+  const period = quotaWindowPeriodLabel(window.window_seconds)
   if (period && window.scope === 'account') return period
+
   if (window.label_key) {
-    const key = `group.credentials.subscription.quotaLabels.${window.label_key}`
-    return te(key) ? t(key) : window.label
+    const subject = translatedQuotaLabel(window.label_key, window.label)
+    return window.label_key === 'oauth_apps' && period ? `${subject} · ${period}` : subject
   }
+
   const parts = window.label
     .split('·')
     .map((part) => part.trim())
     .filter(Boolean)
-  if (parts.length === 0) return period || window.id
+  if (parts.length === 0) return period
+
+  const firstPart = normalizedQuotaLabelPart(parts[0] ?? '')
+  if (period && (firstPart === 'session' || firstPart === 'weekly')) return period
+
   return parts
     .map((part) => {
-      const key = quotaSubjectKeys[normalizedQuotaLabelPart(part)]
-      const translationKey = key ? `group.credentials.subscription.quotaLabels.${key}` : ''
-      return translationKey && te(translationKey) ? t(translationKey) : part
+      const labelKey = quotaSubjectKeys[normalizedQuotaLabelPart(part)]
+      return labelKey ? translatedQuotaLabel(labelKey, part) : part
     })
     .join(' · ')
 }
@@ -274,15 +302,22 @@ function quotaTooltip(window: CredentialQuotaWindowDto): string {
 const quotaResetPrefix = computed(() => t('group.credentials.subscription.quotaResetPrefix'))
 const quotaResetSuffix = computed(() => t('group.credentials.subscription.quotaResetSuffix'))
 
-// 焦点数字：取当前最紧张的窗口，作为「这个账号现在最该关心的一件事」。
-const lead = computed<{ window: CredentialQuotaWindowDto; percent: number } | undefined>(() => {
+// 焦点窗口：额度百分比已知的窗口里剩余最少的那个，在全部窗口（而非展示截断后
+// 的 quotaWindows）中查找，避免真正最紧张的窗口因排序被截断而漏判。上游只给出
+// state、没有具体数值的窗口（Codex/Claude 都存在）仍要退回展示，只是百分比留空，
+// 不能因为找不到数值就当成完全没有额度窗口。
+const lead = computed<
+  { window: CredentialQuotaWindowDto; percent: number | undefined } | undefined
+>(() => {
   let best: { window: CredentialQuotaWindowDto; percent: number } | undefined
-  for (const window of quotaWindows.value) {
+  for (const window of sortedQuotaWindows.value) {
     const percent = remainingPercent(window)
     if (percent === undefined) continue
     if (best === undefined || percent < best.percent) best = { window, percent }
   }
-  return best
+  if (best) return best
+  const [first] = sortedQuotaWindows.value
+  return first ? { window: first, percent: undefined } : undefined
 })
 const leadTone = computed(() => (lead.value ? quotaTone(lead.value.window) : undefined))
 
@@ -376,7 +411,7 @@ const resetCreditsTooltip = computed(() => {
         {{ statusLabel }}
       </StatusBadge>
       <span
-        v-else-if="lead"
+        v-else-if="lead && lead.percent !== undefined"
         class="home-subscription-mini__num"
         :class="`home-subscription-mini__num--${leadTone ?? 'unknown'}`"
       >
