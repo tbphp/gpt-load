@@ -50,6 +50,7 @@ const credential = computed<CredentialItemDto>(() => props.account.credential)
 const snapshot = computed(() => credential.value.observation?.snapshot)
 const accountName = computed(() => credential.value.account.email ?? credential.value.mask)
 const planLabel = computed(() => snapshot.value?.plan_summary.name?.trim() ?? '')
+const planLevel = computed(() => snapshot.value?.plan_summary.level ?? 'unknown')
 const channelTooltip = computed(() =>
   [props.account.channel_name, planLabel.value].filter(Boolean).join(' · '),
 )
@@ -399,7 +400,13 @@ const resetCreditsTooltip = computed(() => {
       <OverflowTooltip class="home-subscription-mini__account" :content="accountName">
         {{ accountName }}
       </OverflowTooltip>
-      <span v-if="planLabel" class="home-subscription-mini__plan">{{ planLabel }}</span>
+      <span
+        v-if="planLabel"
+        class="home-subscription-mini__plan"
+        :class="`home-subscription-mini__plan--${planLevel}`"
+      >
+        {{ planLabel }}
+      </span>
     </div>
 
     <div class="home-subscription-mini__lead">
@@ -580,12 +587,32 @@ const resetCreditsTooltip = computed(() => {
 .home-subscription-mini__plan {
   flex: none;
   border-radius: 5px;
-  background: var(--color-tag);
+  background: var(--color-neutral-bg);
   padding: 1px 6px;
-  color: var(--color-text-muted);
+  color: var(--color-neutral);
   font-size: var(--text-label-xs);
   font-weight: 600;
   white-space: nowrap;
+}
+
+.home-subscription-mini__plan--free {
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral);
+}
+
+.home-subscription-mini__plan--standard {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.home-subscription-mini__plan--premium {
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+
+.home-subscription-mini__plan--elite {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 
 .home-subscription-mini__lead {
