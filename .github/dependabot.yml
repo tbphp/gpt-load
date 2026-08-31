@@ -49,6 +49,26 @@ updates:
           - minor
           - patch
 
+  # third_party/cpaembedded 是独立 module，Dependabot 不会从根目录递归发现，
+  # 需显式声明；它经 replace 编译进主二进制，其依赖属于实际攻击面。
+  - package-ecosystem: gomod
+    directory: /third_party/cpaembedded
+    target-branch: v2
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(deps)
+    labels:
+      - dependencies
+    groups:
+      cpaembedded-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: npm
     directory: /web
     target-branch: v2

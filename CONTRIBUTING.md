@@ -40,6 +40,20 @@ make check   # 完整验收门禁 / the full acceptance gate
 
 `make check` covers gofmt, `go mod tidy -diff`, `go vet`, web lint / format / build, the Go build, and the full unit test suite.
 
+`third_party/cpaembedded` 是独立 Go module，**不在 `make check` 覆盖范围内**。改动该目录时请额外执行：
+
+`third_party/cpaembedded` is a separate Go module and is **not covered by `make check`**. When changing it, also run:
+
+```bash
+cd third_party/cpaembedded
+go mod tidy -diff
+go vet ./...
+```
+
+该 module 的 race 测试由 CI 负责，按仓库约定不在本地运行。
+
+Race tests for that module run in CI; per repository convention they are not run locally.
+
 ## 提交 PR / Submitting a pull request
 
 1. 从 `v2` 切出分支，保持改动聚焦，不要夹带无关重构或格式化。
