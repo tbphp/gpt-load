@@ -32,6 +32,7 @@ jobs:
       image_minor: ${{ steps.tag.outputs.image_minor }}
       image_major: ${{ steps.tag.outputs.image_major }}
       beta: ${{ steps.tag.outputs.beta }}
+      channel_beta: ${{ steps.tag.outputs.channel_beta }}
       ci_verified: ${{ steps.ci.outputs.ci_verified }}
     steps:
       - name: Checkout tag commit
@@ -56,6 +57,7 @@ jobs:
           core="${version%%-*}"
           prerelease=false
           beta=false
+          channel_beta=false
           if [[ "${version}" == *-* ]]; then
             prerelease=true
             prerelease_value="${version#*-}"
@@ -74,6 +76,11 @@ jobs:
             done
           fi
 
+          channel_beta_regex='^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-beta\.(0|[1-9][0-9]*)$'
+          if [[ "${tag}" =~ ${channel_beta_regex} ]]; then
+            channel_beta=true
+          fi
+
           IFS='.' read -r major minor _ <<<"${core}"
           {
             printf 'version=%s\n' "${tag}"
@@ -82,6 +89,7 @@ jobs:
             printf 'image_minor=%s.%s\n' "${major}" "${minor}"
             printf 'image_major=%s\n' "${major}"
             printf 'beta=%s\n' "${beta}"
+            printf 'channel_beta=%s\n' "${channel_beta}"
           } >>"${GITHUB_OUTPUT}"
           # release-tag-validation:end
 
@@ -1031,7 +1039,7 @@ jobs:
           test "${ghcr_exact_digest}" = "${dockerhub_exact_digest}"
 
       - name: Update beta channel alias
-        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' && needs.validate-tag.outputs.beta == 'true' }}
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' && needs.validate-tag.outputs.channel_beta == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1289,7 +1297,7 @@ jobs:
             test "${latest_digest}" = "${expected_latest_digest}"
             test "${latest_digest}" != "${exact_digest}"
 
-            if [[ "${{ needs.validate-tag.outputs.beta }}" == "true" ]]; then
+            if [[ "${{ needs.validate-tag.outputs.channel_beta }}" == "true" ]]; then
               beta_digest="$(
                 .github/scripts/release-image-digest.sh \
                   "${repository}:v2beta"
@@ -1324,6 +1332,125 @@ jobs:
           test "$(
             docker image inspect -f '{{.Config.User}}' "${DOCKERHUB_EXACT_IMAGE}"
           )" = "10001:10001"
+
+  deploy-render:
+    name: Deploy Render
+    needs:
+      - validate-tag
+      - post-publish-image-smoke
+      - post-publish-verify
+    if: >-
+      ${{
+        !cancelled() &&
+        needs.validate-tag.result == 'success' &&
+        needs.post-publish-image-smoke.result == 'success' &&
+        needs.post-publish-verify.result == 'success' &&
+        needs.validate-tag.outputs.channel_beta == 'true'
+      }}
+    concurrency:
+      group: gpt-load-render
+      cancel-in-progress: false
+    environment:
+      name: render
+      url: ${{ vars.RENDER_SERVICE_URL }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+      RENDER_SERVICE_URL: ${{ vars.RENDER_SERVICE_URL }}
+      RELEASE_VERSION: ${{ needs.validate-tag.outputs.image_exact }}
+      IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}
+      RENDER_CLI_VERSION: "2.25.0"
+      RENDER_CLI_SHA256: "3b3f1f839ef36b81f12d84ac7288f1c96f9f7519b39c53fe6f866612f704e7cd"
+    steps:
+      - name: Validate deployment inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${RENDER_SERVICE_ID}" =~ ^srv-[a-z0-9]+$ ]]
+          [[ "${RENDER_SERVICE_URL}" =~ ^https://[^/?#]+/?$ ]]
+          [[ "${RELEASE_VERSION}" =~ ^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-beta\.(0|[1-9][0-9]*)$ ]]
+          [[ "${IMAGE}" == "ghcr.io/tbphp/gpt-load:${RELEASE_VERSION}" ]]
+
+      - name: Install pinned Render CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="cli_${RENDER_CLI_VERSION}_linux_amd64.zip"
+          archive_path="${RUNNER_TEMP}/${archive}"
+          extract_dir="${RUNNER_TEMP}/render-cli-${RENDER_CLI_VERSION}"
+          url="https://github.com/render-oss/cli/releases/download/v${RENDER_CLI_VERSION}/${archive}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --retry 3 \
+            --retry-all-errors \
+            "${url}" \
+            --output "${archive_path}"
+          printf '%s  %s\n' \
+            "${RENDER_CLI_SHA256}" \
+            "${archive_path}" | sha256sum --check
+          mkdir -p "${extract_dir}"
+          unzip -q "${archive_path}" -d "${extract_dir}"
+          install \
+            -m 0755 \
+            "${extract_dir}/cli_v${RENDER_CLI_VERSION}" \
+            "${RUNNER_TEMP}/render"
+          printf '%s\n' "${RUNNER_TEMP}" >>"${GITHUB_PATH}"
+          "${RUNNER_TEMP}/render" --version
+
+      - name: Deploy exact image and wait until live
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          CI: "true"
+        run: |
+          set -euo pipefail
+          test -n "${RENDER_API_KEY}"
+          render deploys create \
+            "${RENDER_SERVICE_ID}" \
+            --image "${IMAGE}" \
+            --wait \
+            --confirm \
+            --output text
+
+      - name: Verify public health endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_response="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --retry 12 \
+              --retry-all-errors \
+              --retry-delay 5 \
+              --retry-max-time 180 \
+              --connect-timeout 5 \
+              --max-time 15 \
+              "${RENDER_SERVICE_URL%/}/health"
+          )"
+          jq -e \
+            --arg version "${RELEASE_VERSION}" \
+            '.status == "ok" and .version == $version' \
+            <<<"${health_response}" \
+            >/dev/null
+
+      - name: Summarize deployment
+        shell: bash
+        run: |
+          {
+            printf '## Render deployment\n\n'
+            printf -- '- Image: `%s`\n' "${IMAGE}"
+            printf -- '- Service: `%s`\n' "${RENDER_SERVICE_ID}"
+            printf -- '- URL: %s\n' "${RENDER_SERVICE_URL}"
+          } >>"${GITHUB_STEP_SUMMARY}"
 
   reconcile-publication:
     if: ${{ always() }}
