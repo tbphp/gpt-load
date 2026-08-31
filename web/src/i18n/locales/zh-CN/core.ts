@@ -275,8 +275,7 @@ export default {
         action: '处理',
       },
       subscriptionAccounts: {
-        title: '最近常用订阅账号',
-        groupCount: '{count} 个分组',
+        title: '最近常用',
         availableGroups: '{available}/{total} 可用',
       },
       spend: {

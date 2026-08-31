@@ -290,8 +290,7 @@ export default {
         action: 'Resolve',
       },
       subscriptionAccounts: {
-        title: 'Recently used subscription accounts',
-        groupCount: 'Groups: {count}',
+        title: 'Recently used',
         availableGroups: '{available}/{total} available',
       },
       spend: {

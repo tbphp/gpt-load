@@ -288,8 +288,7 @@ export default {
         action: '対応',
       },
       subscriptionAccounts: {
-        title: '最近使用したサブスクリプションアカウント',
-        groupCount: '{count} グループ',
+        title: '最近よく使う',
         availableGroups: '{available}/{total} 利用可能',
       },
       spend: {
