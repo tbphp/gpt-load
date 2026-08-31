@@ -107,7 +107,11 @@ func TestParseModelPriceListQueryRejectsAmbiguousOrUnsafeInput(t *testing.T) {
 
 func TestParseModelPriceRowIDRequiresCanonicalPositiveSafeUint(t *testing.T) {
 	t.Parallel()
-	for _, value := range []string{"1", "9007199254740991"} {
+	valid := []string{"1"}
+	if uint64(math.MaxUint) >= uint64(maxSafeInteger) {
+		valid = append(valid, "9007199254740991")
+	}
+	for _, value := range valid {
 		got, err := parseModelPriceRowID(value)
 		if err != nil {
 			t.Fatalf("parseModelPriceRowID(%q) error = %v", value, err)

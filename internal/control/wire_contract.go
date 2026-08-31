@@ -3,6 +3,7 @@ package control
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -64,4 +65,15 @@ func parseCanonicalSafeUint(value string) (uint64, error) {
 		return 0, errUnsafeCanonicalUint
 	}
 	return parsed, nil
+}
+
+func parseCanonicalSafePlatformUint(value string) (uint, error) {
+	parsed, err := parseCanonicalSafeUint(value)
+	if err != nil {
+		return 0, err
+	}
+	if parsed > math.MaxUint {
+		return 0, errUnsafeCanonicalUint
+	}
+	return uint(parsed), nil
 }

@@ -12,6 +12,24 @@ import (
 	"time"
 )
 
+type grokRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn grokRoundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func grokTestClient(server *httptest.Server) *http.Client {
+	host := strings.TrimPrefix(server.URL, "http://")
+	transport := server.Client().Transport
+	return &http.Client{Transport: grokRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		request = request.Clone(request.Context())
+		request.URL.Scheme = "http"
+		request.URL.Host = host
+		request.Host = host
+		return transport.RoundTrip(request)
+	})}
+}
+
 func TestBeginGrokDeviceAuthorizationUsesDiscoveryAndReturnsOneChallenge(t *testing.T) {
 	now := time.Date(2026, time.August, 18, 8, 0, 0, 0, time.UTC)
 	var deviceCalls atomic.Int32
@@ -77,15 +95,75 @@ func TestPollGrokDeviceAuthorizationPerformsExactlyOneRequest(t *testing.T) {
 	defer server.Close()
 
 	result, err := PollGrokDeviceAuthorizationOnce(t.Context(), GrokDeviceState{
-		DeviceCode: "device-secret", TokenEndpoint: server.URL, UserInfoEndpoint: server.URL + "/userinfo",
+		DeviceCode: "device-secret", TokenEndpoint: server.URL + "/token",
+		UserInfoEndpoint:    server.URL + "/userinfo",
 		PollIntervalSeconds: 5,
-	}, GrokOptions{HTTPClient: server.Client()})
+	}, GrokOptions{DiscoveryURL: server.URL + "/discovery", HTTPClient: server.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Status != GrokDevicePending || result.PollInterval != 10*time.Second ||
 		result.State.PollIntervalSeconds != 10 || calls.Load() != 1 {
 		t.Fatalf("poll = %#v, calls = %d", result, calls.Load())
+	}
+}
+
+func TestPollGrokDeviceAuthorizationRejectsUntrustedEndpointsBeforeRequest(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		tokenEndpoint    string
+		userInfoEndpoint string
+	}{
+		{
+			name:             "token endpoint",
+			tokenEndpoint:    "http://127.0.0.1/token",
+			userInfoEndpoint: "https://auth.x.ai/userinfo",
+		},
+		{
+			name:             "userinfo endpoint",
+			tokenEndpoint:    "https://auth.x.ai/token",
+			userInfoEndpoint: "http://127.0.0.1/userinfo",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			client := &http.Client{Transport: grokRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+				calls.Add(1)
+				return nil, errors.New("unexpected request")
+			})}
+
+			_, err := PollGrokDeviceAuthorizationOnce(t.Context(), GrokDeviceState{
+				DeviceCode: "device-secret", TokenEndpoint: test.tokenEndpoint,
+				UserInfoEndpoint: test.userInfoEndpoint, PollIntervalSeconds: 5,
+			}, GrokOptions{HTTPClient: client})
+			if err == nil {
+				t.Fatal("untrusted endpoint was accepted")
+			}
+			if calls.Load() != 0 {
+				t.Fatalf("requests = %d, want 0", calls.Load())
+			}
+		})
+	}
+}
+
+func TestDoGrokFormRejectsUntrustedEndpointBeforeRequest(t *testing.T) {
+	var calls atomic.Int32
+	client := &http.Client{Transport: grokRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return nil, errors.New("unexpected request")
+	})}
+
+	_, _, _, err := doGrokForm(
+		t.Context(),
+		GrokOptions{HTTPClient: client},
+		"http://127.0.0.1/token",
+		nil,
+	)
+	if err == nil {
+		t.Fatal("untrusted endpoint was accepted")
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("requests = %d, want 0", calls.Load())
 	}
 }
 
@@ -106,9 +184,9 @@ func TestPollGrokDeviceAuthorizationMapsTerminalDeviceStates(t *testing.T) {
 			defer server.Close()
 
 			result, err := PollGrokDeviceAuthorizationOnce(t.Context(), GrokDeviceState{
-				DeviceCode: "device-secret", TokenEndpoint: server.URL,
-				UserInfoEndpoint: server.URL + "/userinfo", PollIntervalSeconds: 5,
-			}, GrokOptions{HTTPClient: server.Client()})
+				DeviceCode: "device-secret", TokenEndpoint: "https://auth.x.ai/token",
+				UserInfoEndpoint: "https://auth.x.ai/userinfo", PollIntervalSeconds: 5,
+			}, GrokOptions{HTTPClient: grokTestClient(server)})
 			if err != nil || result.Status != test.status {
 				t.Fatalf("poll = %#v, %v", result, err)
 			}
@@ -140,9 +218,9 @@ func TestPollGrokDeviceAuthorizationVerifiesUserInfoIdentity(t *testing.T) {
 	defer server.Close()
 
 	result, err := PollGrokDeviceAuthorizationOnce(t.Context(), GrokDeviceState{
-		DeviceCode: "device-secret", TokenEndpoint: server.URL + "/token",
-		UserInfoEndpoint: server.URL + "/userinfo", PollIntervalSeconds: 5,
-	}, GrokOptions{HTTPClient: server.Client(), Now: func() time.Time { return now }})
+		DeviceCode: "device-secret", TokenEndpoint: "https://auth.x.ai/token",
+		UserInfoEndpoint: "https://auth.x.ai/userinfo", PollIntervalSeconds: 5,
+	}, GrokOptions{HTTPClient: grokTestClient(server), Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
 	}

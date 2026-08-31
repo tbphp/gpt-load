@@ -116,7 +116,7 @@ func pollGrokDeviceAuthorizationOnce(ctx context.Context, state GrokDeviceState,
 	if err != nil {
 		return GrokDevicePoll{}, err
 	}
-	state, err = decodeGrokDeviceState(raw)
+	state, err = decodeGrokDeviceState(raw, grokAllowsOAuthTestEndpoints(options))
 	clear(raw)
 	if err != nil {
 		return GrokDevicePoll{}, err
@@ -441,7 +441,7 @@ func discoverGrokOAuth(ctx context.Context, options GrokOptions) (grokDiscovery,
 
 func resolveGrokTokenAndUserInfo(ctx context.Context, tokenEndpoint string, options GrokOptions) (grokDiscovery, error) {
 	userInfo := strings.TrimSpace(options.UserInfoURL)
-	allowTestEndpoint := strings.TrimSpace(options.DiscoveryURL) != "" || userInfo != ""
+	allowTestEndpoint := grokAllowsOAuthTestEndpoints(options)
 	if strings.TrimSpace(tokenEndpoint) != "" && userInfo != "" {
 		validatedToken, err := validateGrokOAuthEndpoint(tokenEndpoint, "token_endpoint", allowTestEndpoint)
 		if err != nil {
@@ -528,7 +528,11 @@ func doGrokForm(
 	endpoint string,
 	form url.Values,
 ) ([]byte, int, time.Duration, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSpace(endpoint), strings.NewReader(form.Encode()))
+	endpoint, err := validateGrokOAuthEndpoint(endpoint, "oauth_endpoint", grokAllowsOAuthTestEndpoints(options))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, 0, 0, err
 	}

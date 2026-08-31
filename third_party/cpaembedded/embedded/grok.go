@@ -212,20 +212,16 @@ func validateGrokCredentialWithOptions(credential GrokCredential, options GrokOp
 	if _, err := validateGrokOAuthEndpoint(
 		credential.TokenEndpoint,
 		"token_endpoint",
-		grokAllowsTestEndpoints(options),
+		grokAllowsOAuthTestEndpoints(options),
 	); err != nil {
 		return err
 	}
 	return nil
 }
 
-func grokAllowsTestEndpoints(options GrokOptions) bool {
+func grokAllowsOAuthTestEndpoints(options GrokOptions) bool {
 	return strings.TrimSpace(options.DiscoveryURL) != "" ||
-		strings.TrimSpace(options.UserInfoURL) != "" ||
-		strings.TrimSpace(options.ModelsURL) != "" ||
-		strings.TrimSpace(options.BillingWeeklyURL) != "" ||
-		strings.TrimSpace(options.BillingMonthlyURL) != "" ||
-		options.HTTPClient != nil
+		strings.TrimSpace(options.UserInfoURL) != ""
 }
 
 func GrokCredentialExpiresAt(credential GrokCredential) (time.Time, bool) {
@@ -270,7 +266,7 @@ func grokHTTPClient(options GrokOptions) *http.Client {
 	return clientWithoutRedirects(http.DefaultClient)
 }
 
-func decodeGrokDeviceState(raw []byte) (GrokDeviceState, error) {
+func decodeGrokDeviceState(raw []byte, allowTestEndpoint bool) (GrokDeviceState, error) {
 	var state GrokDeviceState
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -281,5 +277,15 @@ func decodeGrokDeviceState(raw []byte) (GrokDeviceState, error) {
 		strings.TrimSpace(state.UserInfoEndpoint) == "" || state.PollIntervalSeconds < 1 || state.PollIntervalSeconds > 60 {
 		return GrokDeviceState{}, fmt.Errorf("Grok device authorization state is invalid")
 	}
+	tokenEndpoint, err := validateGrokOAuthEndpoint(state.TokenEndpoint, "token_endpoint", allowTestEndpoint)
+	if err != nil {
+		return GrokDeviceState{}, err
+	}
+	userInfoEndpoint, err := validateGrokOAuthEndpoint(state.UserInfoEndpoint, "userinfo_endpoint", allowTestEndpoint)
+	if err != nil {
+		return GrokDeviceState{}, err
+	}
+	state.TokenEndpoint = tokenEndpoint
+	state.UserInfoEndpoint = userInfoEndpoint
 	return state, nil
 }
