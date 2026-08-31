@@ -99,7 +99,7 @@ func TestReadHomeSubscriptionAccountsUsesBoundedHourlyActivityAndDeduplicates(t 
 	}
 }
 
-func TestReadHomeSubscriptionAccountsCachesRankingForOneMinute(t *testing.T) {
+func TestReadHomeSubscriptionAccountsReflectsLatestRankingOnEveryRead(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 31, 12, 30, 0, 0, time.UTC)
@@ -124,14 +124,9 @@ func TestReadHomeSubscriptionAccountsCachesRankingForOneMinute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cached, err := fixture.service.ReadHomeSubscriptionAccounts(t.Context())
-	if err != nil || cached.Items[0].Credential.Account.Email != "first@example.com" {
-		t.Fatalf("cached read = %#v, %v", cached, err)
-	}
-	now = now.Add(time.Minute)
-	refreshed, err := fixture.service.ReadHomeSubscriptionAccounts(t.Context())
-	if err != nil || refreshed.Items[0].Credential.Account.Email != "second@example.com" {
-		t.Fatalf("refreshed read = %#v, %v", refreshed, err)
+	latest, err := fixture.service.ReadHomeSubscriptionAccounts(t.Context())
+	if err != nil || latest.Items[0].Credential.Account.Email != "second@example.com" {
+		t.Fatalf("latest read = %#v, %v", latest, err)
 	}
 }
 

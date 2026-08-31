@@ -663,7 +663,6 @@ export function homeSubscriptionAccountsQueryOptions(
     queryKey: controlQueryKeys.home.subscriptionAccounts(),
     queryFn: ({ signal }) => getHomeSubscriptionAccounts(client, signal),
     enabled: computed(() => toValue(enabled)),
-    staleTime: 60_000,
     refetchOnMount: 'always',
   })
 }

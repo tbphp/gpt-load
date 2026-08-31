@@ -53,6 +53,9 @@ function ignoreReadonlyProxyMutation(): Promise<void> {
 .home-subscription-accounts {
   display: grid;
   gap: var(--space-3);
+  margin-top: 36px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 20px;
 }
 
 .home-subscription-accounts__grid {
