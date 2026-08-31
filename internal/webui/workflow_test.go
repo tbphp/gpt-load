@@ -1167,6 +1167,7 @@ func TestReleaseWorkflowPromotesVerifiedImageChannelsMonotonically(t *testing.T)
 		"- post-publish-verify",
 		"group: gpt-load-v2-image-channels",
 		"cancel-in-progress: false",
+		"queue: max",
 		"packages: write",
 		"major_current: ${{ steps.promote.outputs.major_current }}",
 		".github/scripts/release-image-version.sh",
@@ -1187,6 +1188,9 @@ func TestReleaseWorkflowPromotesVerifiedImageChannelsMonotonically(t *testing.T)
 		if !strings.Contains(promotionContract, required) {
 			t.Fatalf("image channel promotion does not contain %q:\n%s", required, promotionContract)
 		}
+	}
+	if count := strings.Count(promotion, "uses: "+dockerLoginActionRef); count != 2 {
+		t.Fatalf("image channel promotion uses the pinned Docker login action %d times, want 2:\n%s", count, promotion)
 	}
 
 	for _, forbidden := range []string{"v2beta", "image_minor", `:${GITHUB_REF_NAME}`} {
