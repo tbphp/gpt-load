@@ -289,6 +289,11 @@ export default {
         summary: '{count} items need your attention',
         action: 'Resolve',
       },
+      subscriptionAccounts: {
+        title: 'Recently used subscription accounts',
+        groupCount: 'Groups: {count}',
+        availableGroups: '{available}/{total} available',
+      },
       spend: {
         title: 'Estimated over 30 days',
         viewDetail: 'View details →',
