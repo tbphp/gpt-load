@@ -29,10 +29,11 @@ jobs:
       version: ${{ steps.tag.outputs.version }}
       prerelease: ${{ steps.tag.outputs.prerelease }}
       image_exact: ${{ steps.tag.outputs.image_exact }}
-      image_minor: ${{ steps.tag.outputs.image_minor }}
+      image_beta: ${{ steps.tag.outputs.image_beta }}
       image_major: ${{ steps.tag.outputs.image_major }}
-      beta: ${{ steps.tag.outputs.beta }}
+      release_kind: ${{ steps.tag.outputs.release_kind }}
       channel_beta: ${{ steps.tag.outputs.channel_beta }}
+      promote_major: ${{ steps.tag.outputs.promote_major }}
       ci_verified: ${{ steps.ci.outputs.ci_verified }}
     steps:
       - name: Checkout tag commit
@@ -56,15 +57,14 @@ jobs:
           version="${tag#v}"
           core="${version%%-*}"
           prerelease=false
-          beta=false
+          release_kind=stable
           channel_beta=false
+          promote_major=true
           if [[ "${version}" == *-* ]]; then
             prerelease=true
             prerelease_value="${version#*-}"
-            if [[ "${prerelease_value}" == "beta" ||
-              "${prerelease_value}" == beta.* ]]; then
-              beta=true
-            fi
+            release_kind=other
+            promote_major=false
             IFS='.' read -r -a identifiers <<<"${prerelease_value}"
             for identifier in "${identifiers[@]}"; do
               if [[ "${identifier}" =~ ^[0-9]+$ ]] &&
@@ -79,17 +79,29 @@ jobs:
           channel_beta_regex='^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-beta\.(0|[1-9][0-9]*)$'
           if [[ "${tag}" =~ ${channel_beta_regex} ]]; then
             channel_beta=true
+            release_kind=beta
+          elif [[ "${tag}" =~ ^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.(0|[1-9][0-9]*)$ ]]; then
+            release_kind=rc
           fi
 
           IFS='.' read -r major minor _ <<<"${core}"
+          image_beta=
+          if [[ "${channel_beta}" == "true" ]]; then
+            image_beta="${major}.${minor}-beta"
+          fi
+          if [[ "${core}" == "2.0.0" ]] &&
+            [[ "${release_kind}" == "beta" || "${release_kind}" == "rc" ]]; then
+            promote_major=true
+          fi
           {
             printf 'version=%s\n' "${tag}"
             printf 'prerelease=%s\n' "${prerelease}"
-            printf 'image_exact=%s\n' "${tag}"
-            printf 'image_minor=%s.%s\n' "${major}" "${minor}"
+            printf 'image_exact=%s\n' "${version}"
+            printf 'image_beta=%s\n' "${image_beta}"
             printf 'image_major=%s\n' "${major}"
-            printf 'beta=%s\n' "${beta}"
+            printf 'release_kind=%s\n' "${release_kind}"
             printf 'channel_beta=%s\n' "${channel_beta}"
+            printf 'promote_major=%s\n' "${promote_major}"
           } >>"${GITHUB_OUTPUT}"
           # release-tag-validation:end
 
@@ -1038,33 +1050,6 @@ jobs:
           test -n "${ghcr_exact_digest}"
           test "${ghcr_exact_digest}" = "${dockerhub_exact_digest}"
 
-      - name: Update beta channel alias
-        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' && needs.validate-tag.outputs.channel_beta == 'true' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for repository in ghcr.io/tbphp/gpt-load tbphp/gpt-load; do
-            exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"
-            docker buildx imagetools create \
-              --tag "${repository}:v2beta" \
-              "${exact}"
-          done
-
-      - name: Update stable major and minor aliases
-        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' && needs.validate-tag.outputs.prerelease == 'false' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for repository in ghcr.io/tbphp/gpt-load tbphp/gpt-load; do
-            exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"
-            docker buildx imagetools create \
-              --tag "${repository}:${{ needs.validate-tag.outputs.image_minor }}" \
-              "${exact}"
-            docker buildx imagetools create \
-              --tag "${repository}:${{ needs.validate-tag.outputs.image_major }}" \
-              "${exact}"
-          done
-
   publish-github:
     needs:
       - validate-tag
@@ -1297,26 +1282,6 @@ jobs:
             test "${latest_digest}" = "${expected_latest_digest}"
             test "${latest_digest}" != "${exact_digest}"
 
-            if [[ "${{ needs.validate-tag.outputs.channel_beta }}" == "true" ]]; then
-              beta_digest="$(
-                .github/scripts/release-image-digest.sh \
-                  "${repository}:v2beta"
-              )"
-              test "${beta_digest}" = "${exact_digest}"
-            fi
-
-            if [[ "${{ needs.validate-tag.outputs.prerelease }}" == "false" ]]; then
-              for alias in \
-                "${{ needs.validate-tag.outputs.image_minor }}" \
-                "${{ needs.validate-tag.outputs.image_major }}"; do
-                alias_digest="$(
-                  docker buildx imagetools inspect \
-                    "${repository}:${alias}" \
-                    --format '{{.Manifest.Digest}}'
-                )"
-                test "${alias_digest}" = "${exact_digest}"
-              done
-            fi
           done
           test "${ghcr_exact_digest}" = "${dockerhub_exact_digest}"
 
@@ -1333,19 +1298,79 @@ jobs:
             docker image inspect -f '{{.Config.User}}' "${DOCKERHUB_EXACT_IMAGE}"
           )" = "10001:10001"
 
-  deploy-render:
-    name: Deploy Render
+  promote-image-channels:
     needs:
       - validate-tag
+      - publication-preflight
       - post-publish-image-smoke
       - post-publish-verify
     if: >-
       ${{
         !cancelled() &&
         needs.validate-tag.result == 'success' &&
+        needs.publication-preflight.result == 'success' &&
         needs.post-publish-image-smoke.result == 'success' &&
-        needs.post-publish-verify.result == 'success' &&
-        needs.validate-tag.outputs.channel_beta == 'true'
+        needs.post-publish-verify.result == 'success'
+      }}
+    concurrency:
+      group: gpt-load-v2-image-channels
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      beta_current: ${{ steps.promote.outputs.beta_current }}
+      major_current: ${{ steps.promote.outputs.major_current }}
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR for channel promotion
+        uses: docker/login-action@371161bbe7024a29a25b5e19bfcbc0804fe9ad2c # v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub for channel promotion
+        uses: docker/login-action@371161bbe7024a29a25b5e19bfcbc0804fe9ad2c # v4.5.2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Promote verified image channels
+        id: promote
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
+          IMAGE_EXACT: ${{ needs.validate-tag.outputs.image_exact }}
+          IMAGE_BETA: ${{ needs.validate-tag.outputs.image_beta }}
+          IMAGE_MAJOR: ${{ needs.validate-tag.outputs.image_major }}
+          PROMOTE_BETA: ${{ needs.validate-tag.outputs.channel_beta }}
+          PROMOTE_MAJOR: ${{ needs.validate-tag.outputs.promote_major }}
+          EXPECTED_REVISION: ${{ github.sha }}
+          EXPECTED_GHCR_LATEST: ${{ needs.publication-preflight.outputs.ghcr_latest_digest }}
+          EXPECTED_DOCKERHUB_LATEST: ${{ needs.publication-preflight.outputs.dockerhub_latest_digest }}
+        run: .github/scripts/release-promote-image-channels.sh
+
+  deploy-render:
+    name: Deploy Render
+    needs:
+      - validate-tag
+      - promote-image-channels
+    if: >-
+      ${{
+        !cancelled() &&
+        needs.validate-tag.result == 'success' &&
+        needs.promote-image-channels.result == 'success' &&
+        needs.promote-image-channels.outputs.major_current == 'true'
       }}
     concurrency:
       group: gpt-load-render
@@ -1360,7 +1385,7 @@ jobs:
     env:
       RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
       RENDER_SERVICE_URL: ${{ vars.RENDER_SERVICE_URL }}
-      RELEASE_VERSION: ${{ needs.validate-tag.outputs.image_exact }}
+      RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
       IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}
       RENDER_CLI_VERSION: "2.25.0"
       RENDER_CLI_SHA256: "3b3f1f839ef36b81f12d84ac7288f1c96f9f7519b39c53fe6f866612f704e7cd"
@@ -1371,8 +1396,8 @@ jobs:
           set -euo pipefail
           [[ "${RENDER_SERVICE_ID}" =~ ^srv-[a-z0-9]+$ ]]
           [[ "${RENDER_SERVICE_URL}" =~ ^https://[^/?#]+/?$ ]]
-          [[ "${RELEASE_VERSION}" =~ ^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-beta\.(0|[1-9][0-9]*)$ ]]
-          [[ "${IMAGE}" == "ghcr.io/tbphp/gpt-load:${RELEASE_VERSION}" ]]
+          [[ "${RELEASE_VERSION}" =~ ^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]
+          [[ "${IMAGE}" == "ghcr.io/tbphp/gpt-load:${RELEASE_VERSION#v}" ]]
 
       - name: Install pinned Render CLI
         shell: bash
@@ -1466,11 +1491,13 @@ jobs:
   reconcile-publication:
     if: ${{ always() }}
     needs:
+      - validate-tag
       - publication-preflight
       - publish-images
       - publish-github
       - post-publish-image-smoke
       - post-publish-verify
+      - promote-image-channels
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -1512,6 +1539,10 @@ jobs:
           GITHUB_WRITER_RESULT: ${{ needs.publish-github.result }}
           IMAGE_SMOKE_RESULT: ${{ needs.post-publish-image-smoke.result }}
           VERIFY_POST_RESULT: ${{ needs.post-publish-verify.result }}
+          PROMOTION_RESULT: ${{ needs.promote-image-channels.result }}
+          IMAGE_EXACT: ${{ needs.validate-tag.outputs.image_exact }}
+          IMAGE_BETA: ${{ needs.validate-tag.outputs.image_beta }}
+          IMAGE_MAJOR: ${{ needs.validate-tag.outputs.image_major }}
         shell: bash
         run: |
           set +e
@@ -1558,17 +1589,27 @@ jobs:
 
           ghcr_inventory="$(
             read_image_inventory \
-              "ghcr.io/tbphp/gpt-load:${GITHUB_REF_NAME}"
+              "ghcr.io/tbphp/gpt-load:${IMAGE_EXACT}"
           )"
           dockerhub_inventory="$(
             read_image_inventory \
-              "tbphp/gpt-load:${GITHUB_REF_NAME}"
+              "tbphp/gpt-load:${IMAGE_EXACT}"
           )"
-          ghcr_beta_inventory="$(
-            read_image_inventory ghcr.io/tbphp/gpt-load:v2beta
+          ghcr_beta_inventory=not-applicable
+          dockerhub_beta_inventory=not-applicable
+          if [[ -n "${IMAGE_BETA}" ]]; then
+            ghcr_beta_inventory="$(
+              read_image_inventory "ghcr.io/tbphp/gpt-load:${IMAGE_BETA}"
+            )"
+            dockerhub_beta_inventory="$(
+              read_image_inventory "tbphp/gpt-load:${IMAGE_BETA}"
+            )"
+          fi
+          ghcr_major_inventory="$(
+            read_image_inventory "ghcr.io/tbphp/gpt-load:${IMAGE_MAJOR}"
           )"
-          dockerhub_beta_inventory="$(
-            read_image_inventory tbphp/gpt-load:v2beta
+          dockerhub_major_inventory="$(
+            read_image_inventory "tbphp/gpt-load:${IMAGE_MAJOR}"
           )"
 
           {
@@ -1578,14 +1619,19 @@ jobs:
             printf -- '- GitHub writer: `%s`\n' "${GITHUB_WRITER_RESULT}"
             printf -- '- published image smoke: `%s`\n' "${IMAGE_SMOKE_RESULT}"
             printf -- '- draft and image verification: `%s`\n' "${VERIFY_POST_RESULT}"
+            printf -- '- image channel promotion: `%s`\n' "${PROMOTION_RESULT}"
             printf -- '- GitHub exact inventory: `%s`\n' "${github_inventory}"
             printf -- '- GHCR exact inventory: `%s`\n' "${ghcr_inventory}"
             printf -- '- Docker Hub exact inventory: `%s`\n' \
               "${dockerhub_inventory}"
-            printf -- '- GHCR v2beta inventory: `%s`\n' \
+            printf -- '- GHCR %s inventory: `%s`\n' "${IMAGE_BETA:-beta-not-applicable}" \
               "${ghcr_beta_inventory}"
-            printf -- '- Docker Hub v2beta inventory: `%s`\n' \
+            printf -- '- Docker Hub %s inventory: `%s`\n' "${IMAGE_BETA:-beta-not-applicable}" \
               "${dockerhub_beta_inventory}"
+            printf -- '- GHCR %s inventory: `%s`\n' "${IMAGE_MAJOR}" \
+              "${ghcr_major_inventory}"
+            printf -- '- Docker Hub %s inventory: `%s`\n' "${IMAGE_MAJOR}" \
+              "${dockerhub_major_inventory}"
             printf '\nmanual recovery: inspect the exact inventories and job logs; '
             printf 'do not assume cross-system atomic rollback.\n'
           } >>"${GITHUB_STEP_SUMMARY}"
