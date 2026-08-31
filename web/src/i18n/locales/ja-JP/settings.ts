@@ -88,6 +88,7 @@ export default {
       overrideValue: '明示的な上書き値',
       defaultSource: '組み込み既定値',
       overrideSource: '明示的な上書き',
+      pendingRestoreSource: '復元待ち',
       override: '上書き',
       restoreDefault: '既定値に戻す',
       resetPending: '保存すると現在のバージョンの既定値に戻ります',

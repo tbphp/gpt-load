@@ -38,7 +38,7 @@ watcher, WebSocket/Auto executors, fallback, and internal retry loops.
 ## Pinned upstream
 
 - Module: `github.com/router-for-me/CLIProxyAPI/v7`
-- Version: `v7.2.143`
+- Version: `v7.2.144`
 
 The root module consumes this bridge through a local `replace`; releases still
 resolve CPA itself at the exact version recorded in both `go.mod` files and
