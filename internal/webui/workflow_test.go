@@ -336,7 +336,7 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			valid: true,
 			wantOutput: []string{
 				"version=v2.0.0", "prerelease=false", "image_exact=v2.0.0",
-				"image_minor=2.0", "image_major=2", "beta=false",
+				"image_minor=2.0", "image_major=2", "beta=false", "channel_beta=false",
 			},
 		},
 		{
@@ -344,7 +344,7 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			valid: true,
 			wantOutput: []string{
 				"version=v2.0.0-rc.1", "prerelease=true", "image_exact=v2.0.0-rc.1",
-				"image_minor=2.0", "image_major=2", "beta=false",
+				"image_minor=2.0", "image_major=2", "beta=false", "channel_beta=false",
 			},
 		},
 		{
@@ -352,7 +352,37 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			valid: true,
 			wantOutput: []string{
 				"version=v2.0.0-beta.1", "prerelease=true", "image_exact=v2.0.0-beta.1",
-				"image_minor=2.0", "image_major=2", "beta=true",
+				"image_minor=2.0", "image_major=2", "beta=true", "channel_beta=true",
+			},
+		},
+		{
+			tag:   "v2.0.0-beta.0",
+			valid: true,
+			wantOutput: []string{
+				"beta=true", "channel_beta=true",
+			},
+		},
+		{
+			tag:   "v2.0.0-beta",
+			valid: true,
+			wantOutput: []string{
+				"beta=true", "channel_beta=false",
+			},
+		},
+		{
+			tag:   "v2.0.0-beta.test-build-1",
+			valid: true,
+			wantOutput: []string{
+				"version=v2.0.0-beta.test-build-1", "prerelease=true",
+				"image_exact=v2.0.0-beta.test-build-1", "image_minor=2.0", "image_major=2",
+				"beta=true", "channel_beta=false",
+			},
+		},
+		{
+			tag:   "v2.0.0-beta.1.extra",
+			valid: true,
+			wantOutput: []string{
+				"beta=true", "channel_beta=false",
 			},
 		},
 		{
@@ -361,7 +391,7 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			wantOutput: []string{
 				"version=v2.10.3-alpha-1.0", "prerelease=true",
 				"image_exact=v2.10.3-alpha-1.0", "image_minor=2.10", "image_major=2",
-				"beta=false",
+				"beta=false", "channel_beta=false",
 			},
 		},
 		{tag: "v2.0.0.1", valid: false},
@@ -393,9 +423,28 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 				if readErr != nil {
 					t.Fatalf("read tag outputs: %v", readErr)
 				}
+				gotOutput := make(map[string]string)
+				for _, line := range strings.Split(strings.TrimSpace(string(githubOutput)), "\n") {
+					key, value, found := strings.Cut(line, "=")
+					if !found {
+						t.Fatalf("tag %s emitted malformed output %q", test.tag, line)
+					}
+					gotOutput[key] = value
+				}
 				for _, expected := range test.wantOutput {
-					if !strings.Contains(string(githubOutput), expected+"\n") {
-						t.Fatalf("tag %s outputs do not contain %q:\n%s", test.tag, expected, githubOutput)
+					key, value, found := strings.Cut(expected, "=")
+					if !found {
+						t.Fatalf("test expectation %q is malformed", expected)
+					}
+					if gotOutput[key] != value {
+						t.Fatalf(
+							"tag %s output %s = %q, want %q:\n%s",
+							test.tag,
+							key,
+							gotOutput[key],
+							value,
+							githubOutput,
+						)
 					}
 				}
 			}
@@ -1055,7 +1104,7 @@ func TestReleaseWorkflowUpdatesAliasesOnlyAfterExactVerification(t *testing.T) {
 func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	validateJob := workflowJobBlock(t, content, "validate-tag")
-	if !strings.Contains(validateJob, "beta: ${{ steps.tag.outputs.beta }}") {
+	if !strings.Contains(validateJob, "channel_beta: ${{ steps.tag.outputs.channel_beta }}") {
 		t.Fatalf("tag validation does not expose the beta channel decision:\n%s", validateJob)
 	}
 
@@ -1073,7 +1122,7 @@ func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
 	betaStep := workflowStepBlock(t, imageJob, "Update beta channel alias")
 	for _, required := range []string{
 		"needs.publication-preflight.outputs.write_mode == 'publish'",
-		"needs.validate-tag.outputs.beta == 'true'",
+		"needs.validate-tag.outputs.channel_beta == 'true'",
 		"docker buildx imagetools create",
 		`exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"`,
 		`--tag "${repository}:v2beta"`,
@@ -1082,6 +1131,9 @@ func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
 			t.Fatalf("beta alias update does not contain %q:\n%s", required, betaStep)
 		}
 	}
+	if strings.Contains(betaStep, "needs.validate-tag.outputs.beta") {
+		t.Fatalf("beta alias update still uses the broad beta classification:\n%s", betaStep)
+	}
 
 	verification := workflowStepBlock(
 		t,
@@ -1089,7 +1141,7 @@ func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
 		"Verify published image manifests",
 	)
 	for _, required := range []string{
-		`needs.validate-tag.outputs.beta`,
+		`needs.validate-tag.outputs.channel_beta`,
 		`"${repository}:v2beta"`,
 		"beta_digest",
 		`test "${beta_digest}" = "${exact_digest}"`,
@@ -1097,6 +1149,9 @@ func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
 		if !strings.Contains(verification, required) {
 			t.Fatalf("beta alias verification does not contain %q:\n%s", required, verification)
 		}
+	}
+	if strings.Contains(verification, "needs.validate-tag.outputs.beta") {
+		t.Fatalf("beta alias verification still uses the broad beta classification:\n%s", verification)
 	}
 
 	reconciliation := workflowStepBlock(
@@ -1113,6 +1168,165 @@ func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
 		if !strings.Contains(reconciliation, required) {
 			t.Fatalf("publication reconciliation does not contain %q:\n%s", required, reconciliation)
 		}
+	}
+}
+
+func TestReleaseWorkflowDeploysFormalBetaToRenderAfterPublishedImageGates(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	job := workflowJobBlock(t, content, "deploy-render")
+
+	for _, required := range []string{
+		"- validate-tag",
+		"- post-publish-image-smoke",
+		"- post-publish-verify",
+		"needs.validate-tag.outputs.channel_beta == 'true'",
+		"needs.post-publish-image-smoke.result == 'success'",
+		"needs.post-publish-verify.result == 'success'",
+		"group: gpt-load-render",
+		"cancel-in-progress: false",
+		"name: render",
+		"url: ${{ vars.RENDER_SERVICE_URL }}",
+		"RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}",
+		"RENDER_SERVICE_URL: ${{ vars.RENDER_SERVICE_URL }}",
+		"RELEASE_VERSION: ${{ needs.validate-tag.outputs.image_exact }}",
+		"IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}",
+		`RENDER_CLI_VERSION: "2.25.0"`,
+		`RENDER_CLI_SHA256: "3b3f1f839ef36b81f12d84ac7288f1c96f9f7519b39c53fe6f866612f704e7cd"`,
+	} {
+		if !strings.Contains(job, required) {
+			t.Fatalf("Render deployment job does not contain %q:\n%s", required, job)
+		}
+	}
+	for _, forbidden := range []string{"v2beta", "RENDER_DEPLOY_HOOK_URL"} {
+		if strings.Contains(job, forbidden) {
+			t.Fatalf("Render deployment job contains forbidden %q:\n%s", forbidden, job)
+		}
+	}
+
+	install := workflowStepBlock(t, job, "Install pinned Render CLI")
+	for _, required := range []string{
+		"RENDER_CLI_VERSION",
+		"RENDER_CLI_SHA256",
+		"sha256sum --check",
+		"cli_${RENDER_CLI_VERSION}_linux_amd64.zip",
+		"--retry-all-errors",
+	} {
+		if !strings.Contains(install, required) {
+			t.Fatalf("Render CLI installation does not contain %q:\n%s", required, install)
+		}
+	}
+
+	deploy := workflowStepBlock(t, job, "Deploy exact image and wait until live")
+	for _, required := range []string{
+		"RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}",
+		"render deploys create",
+		`"${RENDER_SERVICE_ID}"`,
+		`--image "${IMAGE}"`,
+		"--wait",
+		"--confirm",
+		"--output text",
+	} {
+		if !strings.Contains(deploy, required) {
+			t.Fatalf("Render deployment step does not contain %q:\n%s", required, deploy)
+		}
+	}
+
+	health := workflowStepBlock(t, job, "Verify public health endpoint")
+	for _, required := range []string{
+		`"${RENDER_SERVICE_URL%/}/health"`,
+		"--fail",
+		"deadline=$((SECONDS + 180))",
+		"while true",
+		"sleep 5",
+		"health_response",
+		`--arg version "${RELEASE_VERSION}"`,
+		`.status == "ok" and .version == $version`,
+	} {
+		if !strings.Contains(health, required) {
+			t.Fatalf("Render health verification does not contain %q:\n%s", required, health)
+		}
+	}
+}
+
+func TestReleaseWorkflowRetriesStaleRenderHealthVersion(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	health := workflowStepBlock(
+		t,
+		workflowJobBlock(t, content, "deploy-render"),
+		"Verify public health endpoint",
+	)
+	script := workflowMarkedScript(t, health, "render-health-verification")
+	scriptPath := filepath.Join(t.TempDir(), "verify-render-health.sh")
+	if err := os.WriteFile(
+		scriptPath,
+		[]byte("#!/usr/bin/env bash\nset -euo pipefail\n"+script),
+		0o700,
+	); err != nil {
+		t.Fatalf("write Render health verification script: %v", err)
+	}
+
+	fakeBin := t.TempDir()
+	statePath := filepath.Join(t.TempDir(), "curl-count")
+	fakeCurl := `#!/usr/bin/env bash
+set -euo pipefail
+count=0
+if [[ -f "${RENDER_HEALTH_TEST_STATE}" ]]; then
+  count="$(<"${RENDER_HEALTH_TEST_STATE}")"
+fi
+count=$((count + 1))
+printf '%s\n' "${count}" >"${RENDER_HEALTH_TEST_STATE}"
+if ((count == 1)); then
+  printf '{"status":"ok","version":"v2.0.0-beta.24"}\n'
+else
+  printf '{"status":"ok","version":"v2.0.0-beta.25"}\n'
+fi
+`
+	if err := os.WriteFile(filepath.Join(fakeBin, "curl"), []byte(fakeCurl), 0o700); err != nil {
+		t.Fatalf("write fake curl: %v", err)
+	}
+	fakeJQ := `#!/usr/bin/env bash
+set -euo pipefail
+expected=
+while (($# > 0)); do
+  if [[ "$1" == "--arg" && "$2" == "version" ]]; then
+    expected="$3"
+    shift 3
+    continue
+  fi
+  shift
+done
+body="$(cat)"
+[[ "${body}" == *'"status":"ok"'* ]]
+[[ "${body}" == *"\"version\":\"${expected}\""* ]]
+`
+	if err := os.WriteFile(filepath.Join(fakeBin, "jq"), []byte(fakeJQ), 0o700); err != nil {
+		t.Fatalf("write fake jq: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(fakeBin, "sleep"),
+		[]byte("#!/usr/bin/env bash\nexit 0\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fake sleep: %v", err)
+	}
+
+	command := exec.Command("bash", scriptPath)
+	command.Env = append(
+		os.Environ(),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"RENDER_HEALTH_TEST_STATE="+statePath,
+		"RENDER_SERVICE_URL=https://gpt-load-example.onrender.com",
+		"RELEASE_VERSION=v2.0.0-beta.25",
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("Render health verification failed: %v\n%s", err, output)
+	}
+	count, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read curl attempt count: %v", err)
+	}
+	if got := strings.TrimSpace(string(count)); got != "2" {
+		t.Fatalf("curl attempts = %s, want 2", got)
 	}
 }
 
