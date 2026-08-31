@@ -142,10 +142,14 @@ func Validate0003(db *gorm.DB) error {
 	return validateInitialSchemaAfter0003(db)
 }
 
-// ValidateCurrent0001 preserves the frozen 0001 validator before 0003 and
-// validates the same schema minus the column owned by 0003 afterward.
+// ValidateCurrent0001 preserves the frozen 0001 validator before 0003 removes
+// the freshness check constraint, and validates the same schema without it
+// once removed. MySQL drops the constraint and the column as two separate,
+// non-transactional statements, so a crash can leave the column present with
+// the constraint already gone; the constraint's absence, not the column's,
+// is therefore the correct signal that 0003 has progressed past this point.
 func ValidateCurrent0001(db *gorm.DB) error {
-	if db.Migrator().HasColumn(&credentialObservation0003{}, credentialObservationFreshUntil0003) {
+	if db.Migrator().HasConstraint(&credentialObservation0003{}, credentialObservationFreshCheck0003) {
 		return Validate0001(db)
 	}
 	return validateInitialSchemaAfter0003(db)
