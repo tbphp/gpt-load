@@ -1,0 +1,60 @@
+# 仓库已对所有 action 强制 SHA pin，上游补丁不会自动到达；由 Dependabot 提 PR
+# 更新 SHA 并同步刷新其后的版本注释，保持"可审计"与"能更新"同时成立。
+#
+# 注意：Dependabot 只从仓库默认分支读取本文件。默认分支切换到 v2 之前，
+# 需要在默认分支上同样保留一份本配置，否则下面的规则不会生效。
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: v2
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(ci)
+    labels:
+      - dependencies
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: /
+    target-branch: v2
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(deps)
+    labels:
+      - dependencies
+    groups:
+      # major 升级单独成 PR，便于评估破坏性变更。
+      go-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /web
+    target-branch: v2
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(web)
+    labels:
+      - dependencies
+      - javascript
+    groups:
+      web-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
