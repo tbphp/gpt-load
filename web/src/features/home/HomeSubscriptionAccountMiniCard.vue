@@ -302,13 +302,15 @@ function quotaTooltip(window: CredentialQuotaWindowDto): string {
 const quotaResetPrefix = computed(() => t('group.credentials.subscription.quotaResetPrefix'))
 const quotaResetSuffix = computed(() => t('group.credentials.subscription.quotaResetSuffix'))
 
-// 焦点窗口：额度百分比已知的窗口里剩余最少的那个，在全部窗口（而非展示截断后
-// 的 quotaWindows）中查找，避免真正最紧张的窗口因排序被截断而漏判。上游只给出
-// state、没有具体数值的窗口（Codex/Claude 都存在）仍要退回展示，只是百分比留空，
-// 不能因为找不到数值就当成完全没有额度窗口。
+// 焦点窗口：明确耗尽的窗口优先，即使上游没有提供百分比；否则在全部窗口（而非
+// 展示截断后的 quotaWindows）中选择剩余百分比最低者。这样状态角标、窗口名称与
+// 重置时间始终指向同一条真正受限的额度窗口。
 const lead = computed<
   { window: CredentialQuotaWindowDto; percent: number | undefined } | undefined
 >(() => {
+  const exhausted = sortedQuotaWindows.value.find((window) => window.state === 'exhausted')
+  if (exhausted) return { window: exhausted, percent: remainingPercent(exhausted) }
+
   let best: { window: CredentialQuotaWindowDto; percent: number } | undefined
   for (const window of sortedQuotaWindows.value) {
     const percent = remainingPercent(window)
