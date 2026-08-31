@@ -291,7 +291,7 @@ export default {
       },
       subscriptionAccounts: {
         title: 'Recently used subscription accounts',
-        groupCount: '{count} Groups',
+        groupCount: 'Groups: {count}',
         availableGroups: '{available}/{total} available',
       },
       spend: {
