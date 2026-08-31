@@ -13,7 +13,7 @@ API キー、サブスクリプションアカウント、トラフィック制�
 [公式サイト](https://www.gpt-load.com)
 
 [![Release](https://img.shields.io/github/v/tag/tbphp/gpt-load?filter=v2.*)](https://github.com/tbphp/gpt-load/releases)
-[![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3Av2beta-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3A2-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -182,7 +182,7 @@ docker compose pull && docker compose up -d   # 最新の 2.x イメージへ更
 docker compose stop         # サービスを停止
 ```
 
-公式の 2.x Compose は `ghcr.io/tbphp/gpt-load:v2beta` を使用し、`latest` タグには依存しません。
+公式 Compose は `ghcr.io/tbphp/gpt-load:2` を使用します。GA 前の `2` は検証済みの 2.0 Beta / RC を追跡し、GA 後は安定版 2.x のみを追跡します。イメージの完全なタグからは Git tag の `v` 接頭辞を除き（例：`2.0.0-beta.25`）、`2.0-beta` は 2.0 Beta チャネルとして残します。`latest` は引き続き 1.x を指します。
 
 <details>
 <summary>ネイティブバイナリを使う</summary>

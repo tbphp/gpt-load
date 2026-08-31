@@ -335,38 +335,43 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			tag:   "v2.0.0",
 			valid: true,
 			wantOutput: []string{
-				"version=v2.0.0", "prerelease=false", "image_exact=v2.0.0",
-				"image_minor=2.0", "image_major=2", "beta=false", "channel_beta=false",
+				"version=v2.0.0", "prerelease=false", "image_exact=2.0.0",
+				"image_beta=", "image_major=2", "release_kind=stable",
+				"channel_beta=false", "promote_major=true",
 			},
 		},
 		{
 			tag:   "v2.0.0-rc.1",
 			valid: true,
 			wantOutput: []string{
-				"version=v2.0.0-rc.1", "prerelease=true", "image_exact=v2.0.0-rc.1",
-				"image_minor=2.0", "image_major=2", "beta=false", "channel_beta=false",
+				"version=v2.0.0-rc.1", "prerelease=true", "image_exact=2.0.0-rc.1",
+				"image_beta=", "image_major=2", "release_kind=rc",
+				"channel_beta=false", "promote_major=true",
 			},
 		},
 		{
 			tag:   "v2.0.0-beta.1",
 			valid: true,
 			wantOutput: []string{
-				"version=v2.0.0-beta.1", "prerelease=true", "image_exact=v2.0.0-beta.1",
-				"image_minor=2.0", "image_major=2", "beta=true", "channel_beta=true",
+				"version=v2.0.0-beta.1", "prerelease=true", "image_exact=2.0.0-beta.1",
+				"image_beta=2.0-beta", "image_major=2", "release_kind=beta",
+				"channel_beta=true", "promote_major=true",
 			},
 		},
 		{
 			tag:   "v2.0.0-beta.0",
 			valid: true,
 			wantOutput: []string{
-				"beta=true", "channel_beta=true",
+				"image_exact=2.0.0-beta.0", "image_beta=2.0-beta",
+				"release_kind=beta", "channel_beta=true", "promote_major=true",
 			},
 		},
 		{
 			tag:   "v2.0.0-beta",
 			valid: true,
 			wantOutput: []string{
-				"beta=true", "channel_beta=false",
+				"image_exact=2.0.0-beta", "image_beta=", "release_kind=other",
+				"channel_beta=false", "promote_major=false",
 			},
 		},
 		{
@@ -374,15 +379,43 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			valid: true,
 			wantOutput: []string{
 				"version=v2.0.0-beta.test-build-1", "prerelease=true",
-				"image_exact=v2.0.0-beta.test-build-1", "image_minor=2.0", "image_major=2",
-				"beta=true", "channel_beta=false",
+				"image_exact=2.0.0-beta.test-build-1", "image_beta=", "image_major=2",
+				"release_kind=other", "channel_beta=false", "promote_major=false",
 			},
 		},
 		{
 			tag:   "v2.0.0-beta.1.extra",
 			valid: true,
 			wantOutput: []string{
-				"beta=true", "channel_beta=false",
+				"image_exact=2.0.0-beta.1.extra", "image_beta=", "release_kind=other",
+				"channel_beta=false", "promote_major=false",
+			},
+		},
+		{
+			tag:   "v2.1.0-beta.1",
+			valid: true,
+			wantOutput: []string{
+				"version=v2.1.0-beta.1", "image_exact=2.1.0-beta.1",
+				"image_beta=2.1-beta", "release_kind=beta",
+				"channel_beta=true", "promote_major=false",
+			},
+		},
+		{
+			tag:   "v2.1.0-rc.1",
+			valid: true,
+			wantOutput: []string{
+				"version=v2.1.0-rc.1", "image_exact=2.1.0-rc.1",
+				"image_beta=", "release_kind=rc",
+				"channel_beta=false", "promote_major=false",
+			},
+		},
+		{
+			tag:   "v2.1.0",
+			valid: true,
+			wantOutput: []string{
+				"version=v2.1.0", "image_exact=2.1.0",
+				"image_beta=", "release_kind=stable",
+				"channel_beta=false", "promote_major=true",
 			},
 		},
 		{
@@ -390,8 +423,8 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			valid: true,
 			wantOutput: []string{
 				"version=v2.10.3-alpha-1.0", "prerelease=true",
-				"image_exact=v2.10.3-alpha-1.0", "image_minor=2.10", "image_major=2",
-				"beta=false", "channel_beta=false",
+				"image_exact=2.10.3-alpha-1.0", "image_beta=", "image_major=2",
+				"release_kind=other", "channel_beta=false", "promote_major=false",
 			},
 		},
 		{tag: "v2.0.0.1", valid: false},
@@ -1032,6 +1065,69 @@ func TestReleaseWorkflowKeepsUntrustedImageRevisionInsideJQComparison(t *testing
 	}
 }
 
+func TestReleaseImageVersionAcceptsOnlyMatchingStrictSemverLabels(t *testing.T) {
+	script := filepath.Join("..", "..", ".github", "scripts", "release-image-version.sh")
+	fakeBin := t.TempDir()
+	fakeDocker := filepath.Join(fakeBin, "docker")
+	if err := os.WriteFile(
+		fakeDocker,
+		[]byte("#!/usr/bin/env sh\nprintf '%s' \"${RELEASE_TEST_INSPECTION}\"\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fake docker: %v", err)
+	}
+	inspection := func(amd64, arm64 any) string {
+		value := map[string]any{
+			"image": map[string]any{
+				"linux/amd64": map[string]any{
+					"config": map[string]any{"Labels": map[string]any{
+						"org.opencontainers.image.version": amd64,
+					}},
+				},
+				"linux/arm64": map[string]any{
+					"config": map[string]any{"Labels": map[string]any{
+						"org.opencontainers.image.version": arm64,
+					}},
+				},
+			},
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("marshal image inspection: %v", err)
+		}
+		return string(encoded)
+	}
+
+	for _, test := range []struct {
+		name       string
+		inspection string
+		want       string
+		wantErr    bool
+	}{
+		{name: "prefixed", inspection: inspection("v2.0.0-beta.25", "v2.0.0-beta.25"), want: "v2.0.0-beta.25"},
+		{name: "unprefixed", inspection: inspection("2.1.0", "2.1.0"), want: "2.1.0"},
+		{name: "different architectures", inspection: inspection("v2.0.0", "v2.0.1"), wantErr: true},
+		{name: "invalid semver", inspection: inspection("v2.01.0", "v2.01.0"), wantErr: true},
+		{name: "shell payload", inspection: inspection("$(touch pwned)", "$(touch pwned)"), wantErr: true},
+		{name: "missing", inspection: `{}`, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.Command("bash", script, "example.test/gpt-load:2")
+			command.Env = []string{
+				"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+				"RELEASE_TEST_INSPECTION=" + test.inspection,
+			}
+			output, err := command.CombinedOutput()
+			if (err != nil) != test.wantErr {
+				t.Fatalf("version inspection error = %v, want error %t\n%s", err, test.wantErr, output)
+			}
+			if !test.wantErr && strings.TrimSpace(string(output)) != test.want {
+				t.Fatalf("version = %q, want %q", output, test.want)
+			}
+		})
+	}
+}
+
 func TestReleaseWorkflowPublishesImagesBeforeGitHubRelease(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	imageJob := workflowJobBlock(t, content, "publish-images")
@@ -1046,19 +1142,79 @@ func TestReleaseWorkflowPublishesImagesBeforeGitHubRelease(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowUpdatesAliasesOnlyAfterExactVerification(t *testing.T) {
+func TestReleaseWorkflowPromotesVerifiedImageChannelsMonotonically(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	imageJob := workflowJobBlock(t, content, "publish-images")
-	exactVerification := strings.Index(imageJob, "name: Verify exact published images")
-	aliasUpdate := strings.Index(imageJob, "name: Update stable major and minor aliases")
-	if exactVerification < 0 || aliasUpdate < 0 || exactVerification >= aliasUpdate {
-		t.Fatalf(
-			"alias update is not ordered after exact verification: exact=%d alias=%d\n%s",
-			exactVerification,
-			aliasUpdate,
-			imageJob,
-		)
+	for _, forbidden := range []string{
+		"Update beta channel alias",
+		"Update stable major and minor aliases",
+		"docker buildx imagetools create",
+	} {
+		if strings.Contains(imageJob, forbidden) {
+			t.Fatalf("exact image publication still mutates shared channels via %q:\n%s", forbidden, imageJob)
+		}
 	}
+
+	promotion := workflowJobBlock(t, content, "promote-image-channels")
+	promotionScript := readRepositoryFile(
+		t, ".github/scripts/release-promote-image-channels.sh",
+	)
+	promotionContract := promotion + "\n" + promotionScript
+	for _, required := range []string{
+		"- validate-tag",
+		"- publication-preflight",
+		"- post-publish-image-smoke",
+		"- post-publish-verify",
+		"group: gpt-load-v2-image-channels",
+		"cancel-in-progress: false",
+		"queue: max",
+		"packages: write",
+		"major_current: ${{ steps.promote.outputs.major_current }}",
+		".github/scripts/release-image-version.sh",
+		".github/scripts/release-compare-semver.py",
+		"needs.validate-tag.outputs.image_beta",
+		"needs.validate-tag.outputs.image_major",
+		"needs.validate-tag.outputs.channel_beta",
+		"needs.validate-tag.outputs.promote_major",
+		".github/scripts/release-promote-image-channels.sh",
+		`source="${repository}@${expected_digest}"`,
+		"docker buildx imagetools create",
+		`test "${promoted_digest}" = "${expected_digest}"`,
+		"ghcr.io/tbphp/gpt-load:latest",
+		"tbphp/gpt-load:latest",
+		"ghcr_latest_digest",
+		"dockerhub_latest_digest",
+	} {
+		if !strings.Contains(promotionContract, required) {
+			t.Fatalf("image channel promotion does not contain %q:\n%s", required, promotionContract)
+		}
+	}
+	if count := strings.Count(promotion, "uses: "+dockerLoginActionRef); count != 2 {
+		t.Fatalf("image channel promotion uses the pinned Docker login action %d times, want 2:\n%s", count, promotion)
+	}
+
+	for _, forbidden := range []string{"v2beta", "image_minor", `:${GITHUB_REF_NAME}`} {
+		if strings.Contains(promotionContract, forbidden) {
+			t.Fatalf("image channel promotion contains retired contract %q:\n%s", forbidden, promotionContract)
+		}
+	}
+
+	render := workflowJobBlock(t, content, "deploy-render")
+	for _, required := range []string{
+		"- promote-image-channels",
+		"needs.promote-image-channels.outputs.major_current == 'true'",
+		"RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}",
+		"IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}",
+	} {
+		if !strings.Contains(render, required) {
+			t.Fatalf("Render deployment does not follow the verified major channel via %q:\n%s", required, render)
+		}
+	}
+}
+
+func TestReleaseWorkflowKeepsExactImagePublicationImmutable(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	imageJob := workflowJobBlock(t, content, "publish-images")
 	exactStep := workflowStepBlock(t, imageJob, "Verify exact published images")
 	for _, required := range []string{
 		".github/scripts/release-verify-image-revision.sh",
@@ -1076,82 +1232,40 @@ func TestReleaseWorkflowUpdatesAliasesOnlyAfterExactVerification(t *testing.T) {
 		t.Fatalf("exact image metadata does not contain the exact tag:\n%s", metadataStep)
 	}
 	for _, forbidden := range []string{
-		"needs.validate-tag.outputs.image_minor",
+		"needs.validate-tag.outputs.image_beta",
 		"needs.validate-tag.outputs.image_major",
+		"imagetools create",
 		"latest",
 	} {
 		if strings.Contains(metadataStep, forbidden) {
 			t.Fatalf("exact image metadata contains non-exact tag %q:\n%s", forbidden, metadataStep)
 		}
 	}
-	aliasStep := workflowStepBlock(t, imageJob, "Update stable major and minor aliases")
-	for _, required := range []string{
-		"needs.publication-preflight.outputs.write_mode == 'publish'",
-		"needs.validate-tag.outputs.prerelease == 'false'",
-		"docker buildx imagetools create",
-		"image_minor",
-		"image_major",
-	} {
-		if !strings.Contains(aliasStep, required) {
-			t.Fatalf("alias update does not contain %q:\n%s", required, aliasStep)
-		}
-	}
-	if strings.Contains(strings.ToLower(aliasStep), "latest") {
-		t.Fatalf("alias update writes latest:\n%s", aliasStep)
-	}
 }
 
-func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
+func TestReleaseWorkflowMaintainsVersionedBetaChannelAlias(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	validateJob := workflowJobBlock(t, content, "validate-tag")
-	if !strings.Contains(validateJob, "channel_beta: ${{ steps.tag.outputs.channel_beta }}") {
-		t.Fatalf("tag validation does not expose the beta channel decision:\n%s", validateJob)
-	}
-
-	imageJob := workflowJobBlock(t, content, "publish-images")
-	exactVerification := strings.Index(imageJob, "name: Verify exact published images")
-	betaUpdate := strings.Index(imageJob, "name: Update beta channel alias")
-	if exactVerification < 0 || betaUpdate < 0 || exactVerification >= betaUpdate {
-		t.Fatalf(
-			"beta alias update is not ordered after exact verification: exact=%d beta=%d\n%s",
-			exactVerification,
-			betaUpdate,
-			imageJob,
-		)
-	}
-	betaStep := workflowStepBlock(t, imageJob, "Update beta channel alias")
 	for _, required := range []string{
-		"needs.publication-preflight.outputs.write_mode == 'publish'",
-		"needs.validate-tag.outputs.channel_beta == 'true'",
-		"docker buildx imagetools create",
-		`exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"`,
-		`--tag "${repository}:v2beta"`,
+		"image_beta: ${{ steps.tag.outputs.image_beta }}",
+		"channel_beta: ${{ steps.tag.outputs.channel_beta }}",
+		"promote_major: ${{ steps.tag.outputs.promote_major }}",
 	} {
-		if !strings.Contains(betaStep, required) {
-			t.Fatalf("beta alias update does not contain %q:\n%s", required, betaStep)
+		if !strings.Contains(validateJob, required) {
+			t.Fatalf("tag validation does not expose %q:\n%s", required, validateJob)
 		}
 	}
-	if strings.Contains(betaStep, "needs.validate-tag.outputs.beta") {
-		t.Fatalf("beta alias update still uses the broad beta classification:\n%s", betaStep)
-	}
-
-	verification := workflowStepBlock(
-		t,
-		workflowJobBlock(t, content, "post-publish-verify"),
-		"Verify published image manifests",
+	promotion := readRepositoryFile(
+		t, ".github/scripts/release-promote-image-channels.sh",
 	)
 	for _, required := range []string{
-		`needs.validate-tag.outputs.channel_beta`,
-		`"${repository}:v2beta"`,
-		"beta_digest",
-		`test "${beta_digest}" = "${exact_digest}"`,
+		`promote_channel "${image_beta}" "${promote_beta}"`,
+		`promote_channel "${image_major}" "${promote_major}"`,
+		"release-compare-semver.py",
 	} {
-		if !strings.Contains(verification, required) {
-			t.Fatalf("beta alias verification does not contain %q:\n%s", required, verification)
+		if !strings.Contains(promotion, required) {
+			t.Fatalf("channel promotion does not contain %q:\n%s", required, promotion)
 		}
-	}
-	if strings.Contains(verification, "needs.validate-tag.outputs.beta") {
-		t.Fatalf("beta alias verification still uses the broad beta classification:\n%s", verification)
 	}
 
 	reconciliation := workflowStepBlock(
@@ -1160,10 +1274,10 @@ func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
 		"Summarize exact publication inventory and job results",
 	)
 	for _, required := range []string{
-		"ghcr.io/tbphp/gpt-load:v2beta",
-		"tbphp/gpt-load:v2beta",
-		"GHCR v2beta inventory",
-		"Docker Hub v2beta inventory",
+		"IMAGE_BETA: ${{ needs.validate-tag.outputs.image_beta }}",
+		"IMAGE_MAJOR: ${{ needs.validate-tag.outputs.image_major }}",
+		`"ghcr.io/tbphp/gpt-load:${IMAGE_BETA}"`,
+		`"tbphp/gpt-load:${IMAGE_MAJOR}"`,
 	} {
 		if !strings.Contains(reconciliation, required) {
 			t.Fatalf("publication reconciliation does not contain %q:\n%s", required, reconciliation)
@@ -1171,24 +1285,21 @@ func TestReleaseWorkflowMaintainsBetaChannelAlias(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowDeploysFormalBetaToRenderAfterPublishedImageGates(t *testing.T) {
+func TestReleaseWorkflowDeploysCurrentMajorChannelToRender(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	job := workflowJobBlock(t, content, "deploy-render")
 
 	for _, required := range []string{
 		"- validate-tag",
-		"- post-publish-image-smoke",
-		"- post-publish-verify",
-		"needs.validate-tag.outputs.channel_beta == 'true'",
-		"needs.post-publish-image-smoke.result == 'success'",
-		"needs.post-publish-verify.result == 'success'",
+		"- promote-image-channels",
+		"needs.promote-image-channels.outputs.major_current == 'true'",
 		"group: gpt-load-render",
 		"cancel-in-progress: false",
 		"name: render",
 		"url: ${{ vars.RENDER_SERVICE_URL }}",
 		"RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}",
 		"RENDER_SERVICE_URL: ${{ vars.RENDER_SERVICE_URL }}",
-		"RELEASE_VERSION: ${{ needs.validate-tag.outputs.image_exact }}",
+		"RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}",
 		"IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}",
 		`RENDER_CLI_VERSION: "2.25.0"`,
 		`RENDER_CLI_SHA256: "3b3f1f839ef36b81f12d84ac7288f1c96f9f7519b39c53fe6f866612f704e7cd"`,
@@ -1197,7 +1308,7 @@ func TestReleaseWorkflowDeploysFormalBetaToRenderAfterPublishedImageGates(t *tes
 			t.Fatalf("Render deployment job does not contain %q:\n%s", required, job)
 		}
 	}
-	for _, forbidden := range []string{"v2beta", "RENDER_DEPLOY_HOOK_URL"} {
+	for _, forbidden := range []string{"v2beta", "image_minor", "RENDER_DEPLOY_HOOK_URL"} {
 		if strings.Contains(job, forbidden) {
 			t.Fatalf("Render deployment job contains forbidden %q:\n%s", forbidden, job)
 		}
@@ -1451,9 +1562,8 @@ func TestReleaseWorkflowPreparesDraftsWithoutLatest(t *testing.T) {
 		dockerBuildActionRef,
 		"linux/amd64,linux/arm64",
 		`value=${{ needs.validate-tag.outputs.image_exact }}`,
-		"docker buildx imagetools create",
-		`needs.validate-tag.outputs.image_minor`,
-		`needs.validate-tag.outputs.image_major`,
+		`org.opencontainers.image.version=${{ github.ref_name }}`,
+		`VERSION=${{ github.ref_name }}`,
 	} {
 		if !strings.Contains(imageJob, required) {
 			t.Fatalf("image publication job does not contain %q:\n%s", required, imageJob)
@@ -1461,6 +1571,11 @@ func TestReleaseWorkflowPreparesDraftsWithoutLatest(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(imageJob), "latest") {
 		t.Fatalf("image publication job contains latest:\n%s", imageJob)
+	}
+	for _, forbidden := range []string{"imagetools create", "image_minor", "image_major"} {
+		if strings.Contains(imageJob, forbidden) {
+			t.Fatalf("exact image publication contains shared channel %q:\n%s", forbidden, imageJob)
+		}
 	}
 
 	githubJob := workflowJobBlock(t, content, "publish-github")
@@ -1890,22 +2005,24 @@ func TestReleaseDockerSmokeDefersOwnedResourceCleanupUntilAfterConflictChecks(t 
 	}
 }
 
-func TestReleaseWorkflowPostPublishVerifiesAliasesAndExactDigests(t *testing.T) {
+func TestReleaseWorkflowPostPublishVerifiesExactDigestsBeforePromotion(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	job := workflowJobBlock(t, content, "post-publish-verify")
 	for _, required := range []string{
 		"packages: read",
 		dockerLoginActionRef,
 		"registry: ghcr.io",
-		"image_minor",
-		"image_major",
 		"exact_digest",
-		"alias_digest",
 		"ghcr.io/tbphp/gpt-load",
 		"tbphp/gpt-load",
 	} {
 		if !strings.Contains(job, required) {
 			t.Fatalf("post-publish verification does not contain %q:\n%s", required, job)
+		}
+	}
+	for _, forbidden := range []string{"image_minor", "image_major", "alias_digest", "v2beta"} {
+		if strings.Contains(job, forbidden) {
+			t.Fatalf("exact post-publication verification contains channel %q:\n%s", forbidden, job)
 		}
 	}
 }
@@ -2082,6 +2199,236 @@ func TestReleaseImageDigestFailsClosedOnOperationalInspectionErrors(t *testing.T
 				t.Fatalf("operational inspect failure output = %q", output)
 			}
 		})
+	}
+}
+
+func TestReleaseSemverComparatorOrdersChannelCandidates(t *testing.T) {
+	script := filepath.Join("..", "..", ".github", "scripts", "release-compare-semver.py")
+	for _, test := range []struct {
+		name  string
+		left  string
+		right string
+		want  string
+	}{
+		{name: "beta sequence", left: "v2.0.0-beta.24", right: "v2.0.0-beta.25", want: "-1"},
+		{name: "beta before rc", left: "v2.0.0-beta.25", right: "v2.0.0-rc.1", want: "-1"},
+		{name: "rc before stable", left: "v2.0.0-rc.2", right: "v2.0.0", want: "-1"},
+		{name: "stable after rc", left: "v2.0.0", right: "v2.0.0-rc.99", want: "1"},
+		{name: "next minor", left: "v2.0.9", right: "2.1.0", want: "-1"},
+		{name: "equal with optional prefix", left: "v2.1.0", right: "2.1.0", want: "0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.Command("python3", script, test.left, test.right)
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("compare %s and %s: %v\n%s", test.left, test.right, err, output)
+			}
+			if got := strings.TrimSpace(string(output)); got != test.want {
+				t.Fatalf("compare %s and %s = %q, want %q", test.left, test.right, got, test.want)
+			}
+		})
+	}
+
+	for _, invalid := range []string{"2.01.0", "v2.0", "2.0.0-rc.01", "$(touch pwned)"} {
+		t.Run("invalid/"+invalid, func(t *testing.T) {
+			command := exec.Command("python3", script, invalid, "2.0.0")
+			if output, err := command.CombinedOutput(); err == nil {
+				t.Fatalf("invalid version %q accepted: %s", invalid, output)
+			}
+		})
+	}
+}
+
+func TestReleaseImageChannelPromotionIsMonotonicAndPreservesLatest(t *testing.T) {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	statePath := filepath.Join(t.TempDir(), "registry.json")
+	fakeBin := t.TempDir()
+	fakeDocker := filepath.Join(fakeBin, "docker")
+	fakeDockerBody := `#!/usr/bin/env python3
+import json
+import os
+import sys
+
+state_path = os.environ["FAKE_REGISTRY_STATE"]
+with open(state_path, encoding="utf-8") as source:
+    state = json.load(source)
+
+args = sys.argv[1:]
+if args[:3] == ["buildx", "imagetools", "inspect"]:
+    image = args[3]
+    record = state.get(image)
+    if record is None:
+        print(f"ERROR: {image}: not found", file=sys.stderr)
+        raise SystemExit(1)
+    output_format = args[args.index("--format") + 1]
+    if output_format == "{{.Manifest.Digest}}":
+        print(record["digest"], end="")
+    else:
+        labels = {
+            "org.opencontainers.image.revision": record["revision"],
+            "org.opencontainers.image.version": record["version"],
+        }
+        print(json.dumps({"image": {
+            "linux/amd64": {"config": {"Labels": labels}},
+            "linux/arm64": {"config": {"Labels": labels}},
+        }}), end="")
+elif args[:3] == ["buildx", "imagetools", "create"]:
+    target = args[args.index("--tag") + 1]
+    source = args[-1]
+    repository, digest = source.rsplit("@", 1)
+    matches = [
+        record for image, record in state.items()
+        if image.startswith(repository + ":") and record["digest"] == digest
+    ]
+    if not matches:
+        print(f"source not found: {source}", file=sys.stderr)
+        raise SystemExit(1)
+    state[target] = dict(matches[0])
+    with open(state_path, "w", encoding="utf-8") as destination:
+        json.dump(state, destination, sort_keys=True)
+else:
+    print(f"unsupported docker invocation: {args}", file=sys.stderr)
+    raise SystemExit(2)
+`
+	if err := os.WriteFile(fakeDocker, []byte(fakeDockerBody), 0o700); err != nil {
+		t.Fatalf("write fake docker: %v", err)
+	}
+
+	type imageRecord struct {
+		Digest   string `json:"digest"`
+		Revision string `json:"revision"`
+		Version  string `json:"version"`
+	}
+	writeState := func(state map[string]imageRecord) {
+		t.Helper()
+		encoded, marshalErr := json.Marshal(state)
+		if marshalErr != nil {
+			t.Fatalf("marshal registry state: %v", marshalErr)
+		}
+		if writeErr := os.WriteFile(statePath, encoded, 0o600); writeErr != nil {
+			t.Fatalf("write registry state: %v", writeErr)
+		}
+	}
+	readState := func() map[string]imageRecord {
+		t.Helper()
+		encoded, readErr := os.ReadFile(statePath)
+		if readErr != nil {
+			t.Fatalf("read registry state: %v", readErr)
+		}
+		var state map[string]imageRecord
+		if unmarshalErr := json.Unmarshal(encoded, &state); unmarshalErr != nil {
+			t.Fatalf("decode registry state: %v", unmarshalErr)
+		}
+		return state
+	}
+
+	candidateDigest := "sha256:" + strings.Repeat("a", 64)
+	previousDigest := "sha256:" + strings.Repeat("b", 64)
+	latestDigest := "sha256:" + strings.Repeat("c", 64)
+	candidateRevision := strings.Repeat("1", 40)
+	previousRevision := strings.Repeat("2", 40)
+	state := map[string]imageRecord{}
+	for _, repository := range []string{"ghcr.io/tbphp/gpt-load", "tbphp/gpt-load"} {
+		state[repository+":2.0.0-beta.25"] = imageRecord{
+			Digest: candidateDigest, Revision: candidateRevision, Version: "v2.0.0-beta.25",
+		}
+		state[repository+":2.0-beta"] = imageRecord{
+			Digest: previousDigest, Revision: previousRevision, Version: "v2.0.0-beta.24",
+		}
+		state[repository+":latest"] = imageRecord{
+			Digest: latestDigest, Revision: previousRevision, Version: "v1.4.10",
+		}
+	}
+	writeState(state)
+
+	runPromotion := func(version, exact, revision string) map[string]string {
+		t.Helper()
+		outputPath := filepath.Join(t.TempDir(), "github-output")
+		command := exec.Command(
+			"bash", ".github/scripts/release-promote-image-channels.sh",
+		)
+		command.Dir = repositoryRoot
+		command.Env = append(os.Environ(),
+			"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"FAKE_REGISTRY_STATE="+statePath,
+			"RELEASE_VERSION="+version,
+			"IMAGE_EXACT="+exact,
+			"IMAGE_BETA=2.0-beta",
+			"IMAGE_MAJOR=2",
+			"PROMOTE_BETA=true",
+			"PROMOTE_MAJOR=true",
+			"EXPECTED_REVISION="+revision,
+			"EXPECTED_GHCR_LATEST="+latestDigest,
+			"EXPECTED_DOCKERHUB_LATEST="+latestDigest,
+			"GITHUB_OUTPUT="+outputPath,
+		)
+		if output, runErr := command.CombinedOutput(); runErr != nil {
+			t.Fatalf("promote %s: %v\n%s", version, runErr, output)
+		}
+		encoded, readErr := os.ReadFile(outputPath)
+		if readErr != nil {
+			t.Fatalf("read promotion outputs: %v", readErr)
+		}
+		outputs := map[string]string{}
+		for _, line := range strings.Split(strings.TrimSpace(string(encoded)), "\n") {
+			key, value, found := strings.Cut(line, "=")
+			if !found {
+				t.Fatalf("malformed promotion output %q", line)
+			}
+			outputs[key] = value
+		}
+		return outputs
+	}
+
+	outputs := runPromotion("v2.0.0-beta.25", "2.0.0-beta.25", candidateRevision)
+	if outputs["beta_current"] != "true" || outputs["major_current"] != "true" {
+		t.Fatalf("promotion outputs = %#v, want both channels current", outputs)
+	}
+	state = readState()
+	for _, repository := range []string{"ghcr.io/tbphp/gpt-load", "tbphp/gpt-load"} {
+		for _, alias := range []string{"2.0-beta", "2"} {
+			if got := state[repository+":"+alias].Digest; got != candidateDigest {
+				t.Fatalf("%s:%s digest = %q, want %q", repository, alias, got, candidateDigest)
+			}
+		}
+		if got := state[repository+":latest"].Digest; got != latestDigest {
+			t.Fatalf("%s:latest digest = %q, want preserved %q", repository, got, latestDigest)
+		}
+	}
+
+	delete(state, "tbphp/gpt-load:2")
+	writeState(state)
+	outputs = runPromotion("v2.0.0-beta.25", "2.0.0-beta.25", candidateRevision)
+	if outputs["major_current"] != "true" {
+		t.Fatalf("repair outputs = %#v, want major channel current", outputs)
+	}
+	state = readState()
+	if got := state["tbphp/gpt-load:2"].Digest; got != candidateDigest {
+		t.Fatalf("partial Docker Hub channel repair digest = %q, want %q", got, candidateDigest)
+	}
+
+	olderDigest := "sha256:" + strings.Repeat("d", 64)
+	olderRevision := strings.Repeat("3", 40)
+	for _, repository := range []string{"ghcr.io/tbphp/gpt-load", "tbphp/gpt-load"} {
+		state[repository+":2.0.0-beta.24"] = imageRecord{
+			Digest: olderDigest, Revision: olderRevision, Version: "v2.0.0-beta.24",
+		}
+	}
+	writeState(state)
+	outputs = runPromotion("v2.0.0-beta.24", "2.0.0-beta.24", olderRevision)
+	if outputs["beta_current"] != "false" || outputs["major_current"] != "false" {
+		t.Fatalf("older promotion outputs = %#v, want both channels skipped", outputs)
+	}
+	state = readState()
+	for _, repository := range []string{"ghcr.io/tbphp/gpt-load", "tbphp/gpt-load"} {
+		for _, alias := range []string{"2.0-beta", "2"} {
+			if got := state[repository+":"+alias].Digest; got != candidateDigest {
+				t.Fatalf("older run rolled back %s:%s to %q", repository, alias, got)
+			}
+		}
 	}
 }
 

@@ -13,7 +13,7 @@
 [官方网站](https://www.gpt-load.com)
 
 [![Release](https://img.shields.io/github/v/tag/tbphp/gpt-load?filter=v2.*)](https://github.com/tbphp/gpt-load/releases)
-[![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3Av2beta-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3A2-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -182,7 +182,7 @@ docker compose pull && docker compose up -d   # 更新到最新 2.x 镜像
 docker compose stop         # 停止服务
 ```
 
-官方 2.x Compose 使用 `ghcr.io/tbphp/gpt-load:v2beta`，不依赖 `latest` 标签。
+官方 Compose 使用 `ghcr.io/tbphp/gpt-load:2`。GA 前，`2` 跟随已验证的 2.0 Beta 和 RC；GA 后只跟随稳定的 2.x。镜像精确标签会去掉 Git tag 的 `v` 前缀（例如 `2.0.0-beta.25`），`2.0-beta` 则保留为 2.0 Beta 通道；`latest` 继续留在 1.x。
 
 <details>
 <summary>使用原生二进制</summary>
