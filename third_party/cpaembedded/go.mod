@@ -3,10 +3,10 @@ module github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded
 go 1.26.0
 
 require (
-	github.com/andybalholm/brotli v1.0.6
+	github.com/andybalholm/brotli v1.2.3
 	github.com/google/uuid v1.6.0
-	github.com/router-for-me/CLIProxyAPI/v7 v7.2.143
-	github.com/tidwall/gjson v1.18.0
+	github.com/router-for-me/CLIProxyAPI/v7 v7.2.144
+	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
 )
 
