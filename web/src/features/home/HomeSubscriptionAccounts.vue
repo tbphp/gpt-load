@@ -41,22 +41,16 @@ const { t } = useI18n()
 }
 
 /*
- * 桌面端只占一行：卡片给定基准宽度而非等分整行宽度，够 4 张时都拉伸到舒适宽度，
- * 超过时横向滚动，绝不换成第二行。窄视口下基准宽度撑不满屏，天然退化为可滚动的
- * 横向列表，无需为移动端单独处理。
+ * 不做横向滚动：每列至少 232px，页面满宽时正好排出 4 列；宽度不够（含移动端）时
+ * auto-fill 自动减少列数并换行，同一份规则覆盖桌面到移动端，无需单独断点。
  */
 .home-subscription-accounts__row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
   gap: 10px;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  padding-bottom: 2px;
-  scroll-snap-type: x proximity;
 }
 
 .home-subscription-accounts__row > * {
-  min-width: 208px;
-  flex: 1 1 232px;
-  scroll-snap-align: start;
+  min-width: 0;
 }
 </style>
