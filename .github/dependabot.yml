@@ -1,19 +1,15 @@
 # 仓库已对所有 action 强制 SHA pin，上游补丁不会自动到达；由 Dependabot 提 PR
 # 更新 SHA 并同步刷新其后的版本注释，保持"可审计"与"能更新"同时成立。
 #
-# 生效前提是 GitHub 的两条硬限制，二者都只能靠切换默认分支根治：
-#   1. Dependabot 只从默认分支读取本文件。本文件位于 v2 而默认分支为 main 时，
-#      下面的 version update 规则不生效。
-#   2. security update 永远只针对默认分支，且一旦声明 target-branch，本文件对该
-#      ecosystem 的配置就不再作用于 security update。即只要默认分支还是 main，
-#      v2 的依赖漏洞就拿不到 Dependabot 的安全更新 PR，需要人工跟进。
-#      https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+# 不要声明 target-branch。Dependabot 默认就针对默认分支（当前为 v2），而一旦声明
+# target-branch，本文件对该 ecosystem 的配置就不再作用于 security update，
+# groups、labels 与 commit-message 会对安全更新 PR 全部失效。
+# https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
 version: 2
 
 updates:
   - package-ecosystem: github-actions
     directory: /
-    target-branch: v2
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -32,7 +28,6 @@ updates:
 
   - package-ecosystem: gomod
     directory: /
-    target-branch: v2
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -53,7 +48,6 @@ updates:
   # 需显式声明；它经 replace 编译进主二进制，其依赖属于实际攻击面。
   - package-ecosystem: gomod
     directory: /third_party/cpaembedded
-    target-branch: v2
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -71,7 +65,6 @@ updates:
 
   - package-ecosystem: npm
     directory: /web
-    target-branch: v2
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
