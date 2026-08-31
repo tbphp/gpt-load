@@ -1423,24 +1423,35 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          health_response="$(
-            curl \
-              --fail \
-              --silent \
-              --show-error \
-              --retry 12 \
-              --retry-all-errors \
-              --retry-delay 5 \
-              --retry-max-time 180 \
-              --connect-timeout 5 \
-              --max-time 15 \
-              "${RENDER_SERVICE_URL%/}/health"
-          )"
-          jq -e \
-            --arg version "${RELEASE_VERSION}" \
-            '.status == "ok" and .version == $version' \
-            <<<"${health_response}" \
-            >/dev/null
+          # render-health-verification:start
+          health_url="${RENDER_SERVICE_URL%/}/health"
+          deadline=$((SECONDS + 180))
+          while true; do
+            health_response=
+            if health_response="$(
+              curl \
+                --fail \
+                --silent \
+                --show-error \
+                --connect-timeout 5 \
+                --max-time 15 \
+                "${health_url}"
+            )" &&
+              jq -e \
+                --arg version "${RELEASE_VERSION}" \
+                '.status == "ok" and .version == $version' \
+                <<<"${health_response}" \
+                >/dev/null; then
+              break
+            fi
+            if ((SECONDS >= deadline)); then
+              printf 'Render health did not report version %s within 180 seconds\n' \
+                "${RELEASE_VERSION}" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          # render-health-verification:end
 
       - name: Summarize deployment
         shell: bash

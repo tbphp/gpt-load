@@ -1235,7 +1235,9 @@ func TestReleaseWorkflowDeploysFormalBetaToRenderAfterPublishedImageGates(t *tes
 	for _, required := range []string{
 		`"${RENDER_SERVICE_URL%/}/health"`,
 		"--fail",
-		"--retry-all-errors",
+		"deadline=$((SECONDS + 180))",
+		"while true",
+		"sleep 5",
 		"health_response",
 		`--arg version "${RELEASE_VERSION}"`,
 		`.status == "ok" and .version == $version`,
@@ -1243,6 +1245,88 @@ func TestReleaseWorkflowDeploysFormalBetaToRenderAfterPublishedImageGates(t *tes
 		if !strings.Contains(health, required) {
 			t.Fatalf("Render health verification does not contain %q:\n%s", required, health)
 		}
+	}
+}
+
+func TestReleaseWorkflowRetriesStaleRenderHealthVersion(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	health := workflowStepBlock(
+		t,
+		workflowJobBlock(t, content, "deploy-render"),
+		"Verify public health endpoint",
+	)
+	script := workflowMarkedScript(t, health, "render-health-verification")
+	scriptPath := filepath.Join(t.TempDir(), "verify-render-health.sh")
+	if err := os.WriteFile(
+		scriptPath,
+		[]byte("#!/usr/bin/env bash\nset -euo pipefail\n"+script),
+		0o700,
+	); err != nil {
+		t.Fatalf("write Render health verification script: %v", err)
+	}
+
+	fakeBin := t.TempDir()
+	statePath := filepath.Join(t.TempDir(), "curl-count")
+	fakeCurl := `#!/usr/bin/env bash
+set -euo pipefail
+count=0
+if [[ -f "${RENDER_HEALTH_TEST_STATE}" ]]; then
+  count="$(<"${RENDER_HEALTH_TEST_STATE}")"
+fi
+count=$((count + 1))
+printf '%s\n' "${count}" >"${RENDER_HEALTH_TEST_STATE}"
+if ((count == 1)); then
+  printf '{"status":"ok","version":"v2.0.0-beta.24"}\n'
+else
+  printf '{"status":"ok","version":"v2.0.0-beta.25"}\n'
+fi
+`
+	if err := os.WriteFile(filepath.Join(fakeBin, "curl"), []byte(fakeCurl), 0o700); err != nil {
+		t.Fatalf("write fake curl: %v", err)
+	}
+	fakeJQ := `#!/usr/bin/env bash
+set -euo pipefail
+expected=
+while (($# > 0)); do
+  if [[ "$1" == "--arg" && "$2" == "version" ]]; then
+    expected="$3"
+    shift 3
+    continue
+  fi
+  shift
+done
+body="$(cat)"
+[[ "${body}" == *'"status":"ok"'* ]]
+[[ "${body}" == *"\"version\":\"${expected}\""* ]]
+`
+	if err := os.WriteFile(filepath.Join(fakeBin, "jq"), []byte(fakeJQ), 0o700); err != nil {
+		t.Fatalf("write fake jq: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(fakeBin, "sleep"),
+		[]byte("#!/usr/bin/env bash\nexit 0\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fake sleep: %v", err)
+	}
+
+	command := exec.Command("bash", scriptPath)
+	command.Env = append(
+		os.Environ(),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"RENDER_HEALTH_TEST_STATE="+statePath,
+		"RENDER_SERVICE_URL=https://gpt-load-example.onrender.com",
+		"RELEASE_VERSION=v2.0.0-beta.25",
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("Render health verification failed: %v\n%s", err, output)
+	}
+	count, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read curl attempt count: %v", err)
+	}
+	if got := strings.TrimSpace(string(count)); got != "2" {
+		t.Fatalf("curl attempts = %s, want 2", got)
 	}
 }
 
