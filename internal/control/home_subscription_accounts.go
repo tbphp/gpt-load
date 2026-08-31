@@ -28,6 +28,7 @@ type HomeSubscriptionAccountsResponse struct {
 
 type HomeSubscriptionAccountResponse struct {
 	ChannelID           string                       `json:"channel_id"`
+	ChannelName         string                       `json:"channel_name"`
 	ChannelMark         string                       `json:"channel_mark"`
 	ChannelIcon         string                       `json:"channel_icon"`
 	Capabilities        channel.CapabilityDescriptor `json:"capabilities"`
@@ -171,6 +172,7 @@ func (s *Service) readHomeSubscriptionAccounts(
 			return HomeSubscriptionAccountsResponse{}, app_errors.ErrInternalServer
 		}
 		item.ChannelID = activity.ChannelID
+		item.ChannelName = descriptor.Name
 		item.ChannelMark = descriptor.Mark
 		item.ChannelIcon = descriptor.Icon
 		item.Capabilities = descriptor.Capabilities

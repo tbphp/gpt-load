@@ -117,6 +117,7 @@ export interface HomeStatisticsDto {
 
 export interface HomeSubscriptionAccountDto {
   channel_id: string
+  channel_name: string
   channel_mark: string
   channel_icon: string
   capabilities: ChannelCapabilitiesDto
@@ -184,6 +185,7 @@ const accessKeyRankingFields = ['access_key', ...rankingMetricFields] as const
 const subscriptionAccountsFields = ['observed_at_ms', 'items'] as const
 const subscriptionAccountFields = [
   'channel_id',
+  'channel_name',
   'channel_mark',
   'channel_icon',
   'capabilities',
@@ -294,6 +296,7 @@ function projectHomeSubscriptionAccount(value: unknown): HomeSubscriptionAccount
   }
   return {
     channel_id: projectNonBlankTrimmedString(record.channel_id),
+    channel_name: projectNonBlankTrimmedString(record.channel_name),
     channel_mark: projectNonBlankTrimmedString(record.channel_mark),
     channel_icon: projectNonBlankTrimmedString(record.channel_icon),
     capabilities: projectHomeSubscriptionCapabilities(record.capabilities),

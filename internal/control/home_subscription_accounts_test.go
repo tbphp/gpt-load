@@ -160,6 +160,9 @@ func TestReadHomeSubscriptionAccountsLimitsTheHomepageToFourCards(t *testing.T) 
 		if item.Credential.Account.Email != want {
 			t.Fatalf("item %d email = %q, want %q", index, item.Credential.Account.Email, want)
 		}
+		if item.ChannelName != "Codex" {
+			t.Fatalf("item %d channel name = %q, want Codex", index, item.ChannelName)
+		}
 	}
 }
 
