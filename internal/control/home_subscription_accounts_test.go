@@ -130,13 +130,13 @@ func TestReadHomeSubscriptionAccountsReflectsLatestRankingOnEveryRead(t *testing
 	}
 }
 
-func TestReadHomeSubscriptionAccountsLimitsTheHomepageToSixCards(t *testing.T) {
+func TestReadHomeSubscriptionAccountsLimitsTheHomepageToFourCards(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.August, 31, 12, 30, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
 	bucket := now.Truncate(time.Hour).UnixMilli()
-	for index := 0; index < 7; index++ {
+	for index := 0; index < 5; index++ {
 		_, credential := createHomeSubscriptionCredential(
 			t,
 			fixture,
@@ -152,7 +152,7 @@ func TestReadHomeSubscriptionAccountsLimitsTheHomepageToSixCards(t *testing.T) {
 	}
 
 	result, err := fixture.service.ReadHomeSubscriptionAccounts(t.Context())
-	if err != nil || len(result.Items) != 6 {
+	if err != nil || len(result.Items) != 4 {
 		t.Fatalf("ReadHomeSubscriptionAccounts() = %#v, %v", result, err)
 	}
 	for index, item := range result.Items {

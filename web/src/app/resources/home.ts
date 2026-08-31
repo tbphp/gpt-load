@@ -311,7 +311,7 @@ export function projectHomeSubscriptionAccounts(value: unknown): HomeSubscriptio
   assertNoSecretLikeFields(record, subscriptionAccountsFields)
   const items = projectArray(record.items, projectHomeSubscriptionAccount)
   if (
-    items.length > 6 ||
+    items.length > 4 ||
     new Set(items.map((item) => item.credential.credential_id)).size !== items.length
   ) {
     invalidResponse()

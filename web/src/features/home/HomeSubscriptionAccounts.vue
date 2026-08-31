@@ -41,8 +41,9 @@ const { t } = useI18n()
 }
 
 /*
- * 不做横向滚动：每列至少 232px，页面满宽时正好排出 4 列；宽度不够（含移动端）时
- * auto-fill 自动减少列数并换行，同一份规则覆盖桌面到移动端，无需单独断点。
+ * 后端最多返回 4 个账号（homeSubscriptionAccountLimit），配合每列至少 232px：
+ * 桌面宽度下正好排出 4 列，4 个账号天然一行放完，不会换行也不需要横向滚动；
+ * 宽度不够（含移动端）时 auto-fill 自动减少列数，多出的账号才换到下一行。
  */
 .home-subscription-accounts__row {
   display: grid;

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	homeSubscriptionAccountLimit  = 6
+	homeSubscriptionAccountLimit  = 4
 	homeSubscriptionAccountWindow = 24 * time.Hour
 )
 
