@@ -31,6 +31,7 @@ const (
 	AzureOpenAI      = spec.AzureOpenAI
 	AWSBedrock       = spec.AWSBedrock
 	GoogleVertex     = spec.GoogleVertex
+	NewAPI           = spec.NewAPI
 	OpenAICompatible = spec.OpenAICompatible
 	DeepSeek         = spec.DeepSeek
 	MoonshotAI       = spec.MoonshotAI
@@ -191,6 +192,7 @@ const (
 	ProviderGrok             = spec.ProviderGrok
 	ProviderAnthropic        = spec.ProviderAnthropic
 	ProviderGemini           = spec.ProviderGemini
+	ProviderNewAPI           = spec.ProviderNewAPI
 	ProviderOpenAICompatible = spec.ProviderOpenAICompatible
 	ProviderAzureOpenAI      = spec.ProviderAzureOpenAI
 	ProviderAWSBedrock       = spec.ProviderAWSBedrock

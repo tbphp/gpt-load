@@ -270,6 +270,7 @@ func newProviderAdapterRegistry(
 		{ProviderKind: channel.ProviderOpenAI, Adapter: bifrost},
 		{ProviderKind: channel.ProviderAnthropic, Adapter: bifrost},
 		{ProviderKind: channel.ProviderGemini, Adapter: bifrost},
+		{ProviderKind: channel.ProviderNewAPI, Adapter: bifrost},
 		{ProviderKind: channel.ProviderOpenAICompatible, Adapter: bifrost},
 		{ProviderKind: channel.ProviderAzureOpenAI, Adapter: bifrost},
 		{ProviderKind: channel.ProviderAWSBedrock, Adapter: bifrost},

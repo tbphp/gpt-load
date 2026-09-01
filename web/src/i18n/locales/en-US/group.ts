@@ -225,6 +225,8 @@ export default {
         upstreamUrl: 'Upstream URL',
         upstreamUrlError: 'Enter a valid HTTP or HTTPS Base URL.',
         urlWarning: 'Changing the Base URL changes where future Group requests are sent.',
+        newApiUrlDescription:
+          'Enter the New API gateway root or deployment prefix. Do not include standard protocol paths such as /v1 or /v1beta.',
         customUrl: 'Custom upstream URL',
         customUrlHelp: 'Uses the channel preset or SDK official address by default.',
         paramRequired: 'Enter {field}.',

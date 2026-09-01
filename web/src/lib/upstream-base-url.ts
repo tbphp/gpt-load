@@ -6,6 +6,8 @@ export function isValidUpstreamBaseURL(value: string): boolean {
       parsed.hostname !== '' &&
       parsed.username === '' &&
       parsed.password === '' &&
+      parsed.search === '' &&
+      !value.trim().endsWith('?') &&
       parsed.hash === ''
     )
   } catch {
