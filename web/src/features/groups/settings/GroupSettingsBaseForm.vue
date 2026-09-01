@@ -78,6 +78,13 @@ function updateParam(field: ChannelFieldDto, value: string): void {
   emit('update:param', field.key, value)
 }
 
+function parameterHelp(field: ChannelFieldDto): string {
+  if (field.key === 'base_url' && props.channelId === 'newapi') {
+    return t('group.settings.base.newApiUrlDescription')
+  }
+  return t('group.settings.base.urlWarning')
+}
+
 function setWeightMode(value: string): void {
   if (props.pending) return
   emit('update:weightManual', value === 'auto' ? null : (props.weightManual ?? 50))
@@ -153,9 +160,7 @@ function setWeightMode(value: string): void {
             @input="updateParam(field, ($event.target as HTMLInputElement).value)"
           />
           <small v-if="paramErrors[field.key]" role="alert">{{ paramErrors[field.key] }}</small>
-          <small v-else-if="field.input_kind === 'url'">{{
-            t('group.settings.base.urlWarning')
-          }}</small>
+          <small v-else-if="field.input_kind === 'url'">{{ parameterHelp(field) }}</small>
         </label>
       </template>
     </div>

@@ -197,12 +197,16 @@ func parseDiscoveredModelsPage(
 	switch clientProtocol {
 	case protocol.OpenAICompletions:
 		var payload struct {
-			Data []struct {
+			Success *bool `json:"success"`
+			Data    []struct {
 				ID string `json:"id"`
 			} `json:"data"`
 		}
 		if err := decodeSingleJSON(body, &payload); err != nil {
 			return discoveredModelsPage{}, err
+		}
+		if payload.Success != nil && !*payload.Success {
+			return discoveredModelsPage{}, fmt.Errorf("upstream model discovery reported failure")
 		}
 		models := make([]string, 0, len(payload.Data))
 		for _, item := range payload.Data {

@@ -43,6 +43,9 @@ func buildEffectiveProviderConfig(
 	resolved channel.ResolvedTarget,
 	allowPrivateNetwork bool,
 ) (effectiveProviderConfig, error) {
+	if resolved.ProviderKind == channel.ProviderNewAPI {
+		return buildNewAPIProviderConfig(resolved, schemas.OpenAI, allowPrivateNetwork)
+	}
 	provider, baseURL, custom, err := resolveSDKProviderConfig(resolved)
 	if err != nil {
 		return effectiveProviderConfig{}, err
@@ -95,7 +98,17 @@ func buildEffectiveProviderConfigForAttempt(
 	spec execution.AttemptSpec,
 	allowPrivateNetwork bool,
 ) (effectiveProviderConfig, error) {
-	base, err := buildEffectiveProviderConfig(resolved, allowPrivateNetwork)
+	var base effectiveProviderConfig
+	var err error
+	if resolved.ProviderKind == channel.ProviderNewAPI {
+		provider, profileErr := newAPIProviderProfile(spec.ClientProtocol)
+		if profileErr != nil {
+			return effectiveProviderConfig{}, profileErr
+		}
+		base, err = buildNewAPIProviderConfig(resolved, provider, allowPrivateNetwork)
+	} else {
+		base, err = buildEffectiveProviderConfig(resolved, allowPrivateNetwork)
+	}
 	if err != nil {
 		return base, err
 	}
@@ -123,6 +136,33 @@ func buildEffectiveProviderConfigForAttempt(
 		return effectiveProviderConfig{}, err
 	}
 	return applyAttemptProxy(base, spec.Proxy)
+}
+
+func newAPIProviderProfile(clientProtocol protocol.Protocol) (schemas.ModelProvider, error) {
+	switch clientProtocol {
+	case "", protocol.OpenAICompletions, protocol.OpenAIResponses,
+		protocol.OpenAIImages, protocol.OpenAIEmbeddings:
+		return schemas.OpenAI, nil
+	case protocol.Anthropic:
+		return schemas.Anthropic, nil
+	case protocol.Gemini:
+		return schemas.Gemini, nil
+	default:
+		return "", fmt.Errorf("unsupported New API client protocol %q", clientProtocol)
+	}
+}
+
+func buildNewAPIProviderConfig(
+	resolved channel.ResolvedTarget,
+	provider schemas.ModelProvider,
+	allowPrivateNetwork bool,
+) (effectiveProviderConfig, error) {
+	baseURL, configured, err := targetBaseURL(resolved.TargetConfig)
+	if err != nil || !configured {
+		return effectiveProviderConfig{}, fmt.Errorf("New API gateway root is required")
+	}
+	config := buildProviderConfig(provider, baseURL, false, provider, allowPrivateNetwork)
+	return newEffectiveProviderConfig(provider, baseURL, false, config)
 }
 
 func applyAttemptProxy(
@@ -685,9 +725,41 @@ func (manager *RuntimeManager) Reconcile(targets []provideradapter.RuntimeTarget
 	if manager == nil || manager.pool == nil {
 		return fmt.Errorf("reconcile provider runtimes: manager is unavailable")
 	}
-	configs := make([]effectiveProviderConfig, 0, len(targets)*4)
+	configs := make([]effectiveProviderConfig, 0, len(targets)*6)
 	for _, runtimeTarget := range targets {
 		target := runtimeTarget.Target
+		if target.ProviderKind == channel.ProviderNewAPI {
+			for _, clientProtocol := range []protocol.Protocol{
+				protocol.OpenAICompletions,
+				protocol.Anthropic,
+				protocol.Gemini,
+			} {
+				baseSpec := execution.AttemptSpec{
+					ClientProtocol: clientProtocol,
+					RouteMode:      execution.RouteNative,
+				}
+				baseConfig, baseErr := buildEffectiveProviderConfigForAttempt(
+					target,
+					baseSpec,
+					manager.options.allowPrivateNetwork,
+				)
+				if baseErr != nil {
+					return fmt.Errorf("reconcile provider runtime %q profile %q: %w", target.ChannelID, clientProtocol, baseErr)
+				}
+				configs = append(configs, baseConfig)
+				baseSpec.Proxy = runtimeTarget.Proxy
+				effectiveConfig, effectiveErr := buildEffectiveProviderConfigForAttempt(
+					target,
+					baseSpec,
+					manager.options.allowPrivateNetwork,
+				)
+				if effectiveErr != nil {
+					return fmt.Errorf("reconcile provider runtime %q profile %q proxy: %w", target.ChannelID, clientProtocol, effectiveErr)
+				}
+				configs = append(configs, effectiveConfig)
+			}
+			continue
+		}
 		config, err := buildEffectiveProviderConfig(target, manager.options.allowPrivateNetwork)
 		if err != nil {
 			return fmt.Errorf("reconcile provider runtime %q: %w", target.ChannelID, err)

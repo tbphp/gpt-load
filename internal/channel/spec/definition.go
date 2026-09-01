@@ -23,6 +23,7 @@ const (
 	AzureOpenAI      ID = "azure_openai"
 	AWSBedrock       ID = "aws_bedrock"
 	GoogleVertex     ID = "google_vertex"
+	NewAPI           ID = "newapi"
 	OpenAICompatible ID = "openai_compatible"
 	DeepSeek         ID = "deepseek"
 	MoonshotAI       ID = "moonshotai"
@@ -46,6 +47,7 @@ const (
 	ProviderGrok             ProviderKind = "grok"
 	ProviderAnthropic        ProviderKind = "anthropic"
 	ProviderGemini           ProviderKind = "gemini"
+	ProviderNewAPI           ProviderKind = "newapi"
 	ProviderOpenAICompatible ProviderKind = "openai_compatible"
 	ProviderAzureOpenAI      ProviderKind = "azure_openai"
 	ProviderAWSBedrock       ProviderKind = "aws_bedrock"
@@ -95,6 +97,7 @@ func (kind ProviderKind) Valid() bool {
 		ProviderGrok,
 		ProviderAnthropic,
 		ProviderGemini,
+		ProviderNewAPI,
 		ProviderOpenAICompatible,
 		ProviderAzureOpenAI,
 		ProviderAWSBedrock,

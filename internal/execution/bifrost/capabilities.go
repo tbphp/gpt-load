@@ -18,7 +18,8 @@ func (manager *RuntimeManager) ValidateRouteCapability(
 	if manager == nil {
 		return fmt.Errorf("runtime manager is unavailable")
 	}
-	if _, sdkBacked := sdkProviderSpecFor(providerKind); !sdkBacked && providerKind != channel.ProviderOpenAICompatible {
+	if _, sdkBacked := sdkProviderSpecFor(providerKind); !sdkBacked &&
+		providerKind != channel.ProviderOpenAICompatible && providerKind != channel.ProviderNewAPI {
 		return fmt.Errorf("provider is not implemented by Bifrost")
 	}
 	if route.RouteMode == execution.RouteConverted {
@@ -72,6 +73,26 @@ func nativeRouteImplemented(
 		return clientProtocol == protocol.Anthropic && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderGemini:
 		return clientProtocol == protocol.Gemini && standardProtocolOperation(clientProtocol, operation)
+	case channel.ProviderNewAPI:
+		switch clientProtocol {
+		case protocol.OpenAICompletions:
+			return operation == execution.OperationChatCompletion ||
+				operation == execution.OperationListModels ||
+				operation == execution.OperationProbe
+		case protocol.OpenAIResponses:
+			return operation == execution.OperationResponsesCreate ||
+				operation == execution.OperationResponsesCompact
+		case protocol.OpenAIImages:
+			return operation == execution.OperationImagesGenerate ||
+				operation == execution.OperationImagesEdit
+		case protocol.OpenAIEmbeddings:
+			return operation == execution.OperationEmbeddingsCreate ||
+				operation == execution.OperationProbe
+		case protocol.Anthropic, protocol.Gemini:
+			return operation == execution.OperationChatCompletion
+		default:
+			return false
+		}
 	case channel.ProviderOpenAICompatible:
 		if clientProtocol == protocol.OpenAIEmbeddings {
 			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe

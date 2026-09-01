@@ -156,6 +156,26 @@ func TestUtilityRequestShapeUsesSelectedProtocol(t *testing.T) {
 	}
 }
 
+func TestOpenAIModelDiscoveryRejectsExplicitNewAPIFailureEnvelope(t *testing.T) {
+	t.Parallel()
+
+	if _, err := parseDiscoveredModelsPage(
+		protocol.OpenAICompletions,
+		[]byte(`{"success":false,"message":"get user group failed"}`),
+	); err == nil {
+		t.Fatal("New API success:false model response was accepted")
+	}
+	for _, body := range []string{
+		`{"object":"list","data":[{"id":"standard-model"}]}`,
+		`{"success":true,"object":"list","data":[{"id":"newapi-model"}]}`,
+	} {
+		page, err := parseDiscoveredModelsPage(protocol.OpenAICompletions, []byte(body))
+		if err != nil || len(page.models) != 1 {
+			t.Fatalf("model response = %#v, err=%v", page, err)
+		}
+	}
+}
+
 func discoveryTargetForTest(
 	t *testing.T,
 	channelID channel.ID,

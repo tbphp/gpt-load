@@ -31,6 +31,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 		OpenRouter,
 		Groq,
 		XAI,
+		NewAPI,
 		OpenAICompatible,
 	}
 	if got := descriptorIDs(registry.List()); !reflect.DeepEqual(got, want) {
