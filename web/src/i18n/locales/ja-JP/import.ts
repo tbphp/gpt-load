@@ -96,10 +96,12 @@ export default {
       urlDescription: 'アップストリームサービスが要求する Base URL を入力してください',
       compatibleUrlDescription:
         'https://api.example.com/v1 のように完全な API プレフィックスを入力してください',
+      gptLoadUrlDescription:
+        'GPT-Load ゲートウェイのルートまたはデプロイ接頭辞を入力します（例: https://gpt-load.example.com）。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
       newApiUrlDescription:
-        'New API ゲートウェイのルートまたはデプロイ接頭辞を入力します（例: https://relay.example.com/team-a）。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
+        'New API ゲートウェイのルートまたはデプロイ接頭辞を入力します（例: https://new-api.example.com）。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
       cpaUrlDescription:
-        'CLIProxyAPI ゲートウェイのルートまたはデプロイ接頭辞を入力します（例: https://relay.example.com/team-a）。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
+        'CLIProxyAPI ゲートウェイのルートまたはデプロイ接頭辞を入力します（例: https://cpa.example.com）。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
       urlDescriptionWithDefault: '既定の URL：{url}',
       urlVersionWarning: 'バージョンパスが異なる可能性があります。確認してください',
       customUrl: 'カスタム上流 URL',

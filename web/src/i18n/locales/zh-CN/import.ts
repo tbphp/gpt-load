@@ -92,10 +92,12 @@ export default {
       url: '上游基础地址',
       urlDescription: '请按上游服务要求填写 Base URL',
       compatibleUrlDescription: '填写完整 API 前缀，例如 https://api.example.com/v1',
+      gptLoadUrlDescription:
+        '填写 GPT-Load 网关根地址或部署前缀，例如 https://gpt-load.example.com；不要填写 /v1 或 /v1beta 等标准协议路径',
       newApiUrlDescription:
-        '填写 New API 网关根地址或部署前缀，例如 https://relay.example.com/team-a；不要填写 /v1 或 /v1beta 等标准协议路径',
+        '填写 New API 网关根地址或部署前缀，例如 https://new-api.example.com；不要填写 /v1 或 /v1beta 等标准协议路径',
       cpaUrlDescription:
-        '填写 CLIProxyAPI 网关根地址或部署前缀，例如 https://relay.example.com/team-a；不要填写 /v1 或 /v1beta 等标准协议路径',
+        '填写 CLIProxyAPI 网关根地址或部署前缀，例如 https://cpa.example.com；不要填写 /v1 或 /v1beta 等标准协议路径',
       urlDescriptionWithDefault: '默认地址：{url}',
       urlVersionWarning: '版本路径可能不一致，请确认',
       customUrl: '自定义上游地址',

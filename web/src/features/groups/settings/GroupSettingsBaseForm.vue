@@ -79,6 +79,9 @@ function updateParam(field: ChannelFieldDto, value: string): void {
 }
 
 function parameterHelp(field: ChannelFieldDto): string {
+  if (field.key === 'base_url' && props.channelId === 'gpt_load') {
+    return t('group.settings.base.gptLoadUrlDescription')
+  }
   if (field.key === 'base_url' && props.channelId === 'newapi') {
     return t('group.settings.base.newApiUrlDescription')
   }

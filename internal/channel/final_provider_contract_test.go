@@ -31,6 +31,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 		OpenRouter,
 		Groq,
 		XAI,
+		GPTLoad,
 		NewAPI,
 		CLIProxyAPI,
 		OpenAICompatible,

@@ -434,7 +434,8 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}
 	if spec.Operation == execution.OperationResponsesPassthrough &&
 		providerKind != channel.ProviderOpenAI &&
-		providerKind != channel.ProviderOpenAICompatible {
+		providerKind != channel.ProviderOpenAICompatible &&
+		providerKind != channel.ProviderMultiProtocolGateway {
 		failure := notSentConversionFailure(
 			execution.ErrorCodeTargetConversionNotSupported,
 			"Responses passthrough requires an OpenAI provider",
@@ -993,6 +994,9 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 		return spec.Path, nil
 	case channel.ProviderMultiProtocolGateway:
 		if spec.ClientProtocol != protocol.Gemini {
+			return spec.Path, nil
+		}
+		if spec.Operation == execution.OperationListModels {
 			return spec.Path, nil
 		}
 		marker := "/models/"

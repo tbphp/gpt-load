@@ -3,6 +3,7 @@ package channel
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -33,6 +34,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 		OpenRouter,
 		Groq,
 		XAI,
+		GPTLoad,
 		NewAPI,
 		CLIProxyAPI,
 		OpenAICompatible,
@@ -66,6 +68,12 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	}
 	if got := descriptorIDs(registry.Search("cpa")); !reflect.DeepEqual(got, []ID{CLIProxyAPI}) {
 		t.Fatalf("Search(cpa) IDs = %v", got)
+	}
+	if got := descriptorIDs(registry.Search("gptload")); !reflect.DeepEqual(got, []ID{GPTLoad}) {
+		t.Fatalf("Search(gptload) IDs = %v", got)
+	}
+	if got := descriptorIDs(registry.Search("gl")); !slices.Contains(got, GPTLoad) {
+		t.Fatalf("Search(gl) IDs = %v", got)
 	}
 
 	first := registry.List()

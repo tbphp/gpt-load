@@ -224,6 +224,8 @@ export default {
         upstreamUrl: 'アップストリーム URL',
         upstreamUrlError: '有効な HTTP または HTTPS の Base URL を入力してください。',
         urlWarning: 'Base URL を変更すると、今後のグループリクエストの送信先が変わります。',
+        gptLoadUrlDescription:
+          'GPT-Load ゲートウェイのルートまたはデプロイ接頭辞を入力してください。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
         newApiUrlDescription:
           'New API ゲートウェイのルートまたはデプロイ接頭辞を入力してください。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
         cpaUrlDescription:

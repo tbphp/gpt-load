@@ -31,6 +31,7 @@ const (
 	AzureOpenAI      = spec.AzureOpenAI
 	AWSBedrock       = spec.AWSBedrock
 	GoogleVertex     = spec.GoogleVertex
+	GPTLoad          = spec.GPTLoad
 	NewAPI           = spec.NewAPI
 	CLIProxyAPI      = spec.CLIProxyAPI
 	OpenAICompatible = spec.OpenAICompatible
