@@ -127,11 +127,11 @@ func embeddingTypedTarget(
 	}
 	switch providerKind {
 	case channel.ProviderOpenAI:
-	case channel.ProviderNewAPI:
+	case channel.ProviderMultiProtocolGateway:
 		if !configured {
-			return "", fmt.Errorf("New API Embeddings target is required")
+			return "", fmt.Errorf("multi-protocol gateway Embeddings target is required")
 		}
-		return resolveNewAPITargetURL(baseURL, resourcePath, rawQuery)
+		return resolveMultiProtocolGatewayTargetURL(baseURL, resourcePath, rawQuery)
 	case channel.ProviderOpenRouter:
 		// OpenRouter concatenates the configured provider base URL with the
 		// context path, so the per-request override must remain relative.

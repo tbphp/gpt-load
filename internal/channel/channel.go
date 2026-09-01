@@ -32,6 +32,7 @@ const (
 	AWSBedrock       = spec.AWSBedrock
 	GoogleVertex     = spec.GoogleVertex
 	NewAPI           = spec.NewAPI
+	CLIProxyAPI      = spec.CLIProxyAPI
 	OpenAICompatible = spec.OpenAICompatible
 	DeepSeek         = spec.DeepSeek
 	MoonshotAI       = spec.MoonshotAI
@@ -185,22 +186,22 @@ const (
 type ProviderKind = spec.ProviderKind
 
 const (
-	ProviderOpenAI           = spec.ProviderOpenAI
-	ProviderCodex            = spec.ProviderCodex
-	ProviderClaude           = spec.ProviderClaude
-	ProviderAntigravity      = spec.ProviderAntigravity
-	ProviderGrok             = spec.ProviderGrok
-	ProviderAnthropic        = spec.ProviderAnthropic
-	ProviderGemini           = spec.ProviderGemini
-	ProviderNewAPI           = spec.ProviderNewAPI
-	ProviderOpenAICompatible = spec.ProviderOpenAICompatible
-	ProviderAzureOpenAI      = spec.ProviderAzureOpenAI
-	ProviderAWSBedrock       = spec.ProviderAWSBedrock
-	ProviderGoogleVertex     = spec.ProviderGoogleVertex
-	ProviderDeepSeek         = spec.ProviderDeepSeek
-	ProviderOpenRouter       = spec.ProviderOpenRouter
-	ProviderGroq             = spec.ProviderGroq
-	ProviderXAI              = spec.ProviderXAI
+	ProviderOpenAI               = spec.ProviderOpenAI
+	ProviderCodex                = spec.ProviderCodex
+	ProviderClaude               = spec.ProviderClaude
+	ProviderAntigravity          = spec.ProviderAntigravity
+	ProviderGrok                 = spec.ProviderGrok
+	ProviderAnthropic            = spec.ProviderAnthropic
+	ProviderGemini               = spec.ProviderGemini
+	ProviderMultiProtocolGateway = spec.ProviderMultiProtocolGateway
+	ProviderOpenAICompatible     = spec.ProviderOpenAICompatible
+	ProviderAzureOpenAI          = spec.ProviderAzureOpenAI
+	ProviderAWSBedrock           = spec.ProviderAWSBedrock
+	ProviderGoogleVertex         = spec.ProviderGoogleVertex
+	ProviderDeepSeek             = spec.ProviderDeepSeek
+	ProviderOpenRouter           = spec.ProviderOpenRouter
+	ProviderGroq                 = spec.ProviderGroq
+	ProviderXAI                  = spec.ProviderXAI
 )
 
 // ResolvedTarget is the provider-neutral execution target derived from a channel preset.

@@ -19,7 +19,7 @@ func (manager *RuntimeManager) ValidateRouteCapability(
 		return fmt.Errorf("runtime manager is unavailable")
 	}
 	if _, sdkBacked := sdkProviderSpecFor(providerKind); !sdkBacked &&
-		providerKind != channel.ProviderOpenAICompatible && providerKind != channel.ProviderNewAPI {
+		providerKind != channel.ProviderOpenAICompatible && providerKind != channel.ProviderMultiProtocolGateway {
 		return fmt.Errorf("provider is not implemented by Bifrost")
 	}
 	if route.RouteMode == execution.RouteConverted {
@@ -73,7 +73,7 @@ func nativeRouteImplemented(
 		return clientProtocol == protocol.Anthropic && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderGemini:
 		return clientProtocol == protocol.Gemini && standardProtocolOperation(clientProtocol, operation)
-	case channel.ProviderNewAPI:
+	case channel.ProviderMultiProtocolGateway:
 		switch clientProtocol {
 		case protocol.OpenAICompletions:
 			return operation == execution.OperationChatCompletion ||
@@ -89,7 +89,7 @@ func nativeRouteImplemented(
 			return operation == execution.OperationEmbeddingsCreate ||
 				operation == execution.OperationProbe
 		case protocol.Anthropic, protocol.Gemini:
-			return operation == execution.OperationChatCompletion
+			return operation == execution.OperationChatCompletion || operation == execution.OperationCountTokens
 		default:
 			return false
 		}

@@ -29,6 +29,7 @@ func builtInModules() []spec.Module {
 		modules.Groq(),
 		modules.XAI(),
 		modules.NewAPI(),
+		modules.CLIProxyAPI(),
 		modules.OpenAICompatible(),
 	}
 }

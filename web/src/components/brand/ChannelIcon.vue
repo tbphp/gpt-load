@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import { namespacedChannelIconMarkup, nextChannelIconInstanceId } from './channel-icons'
+import {
+  channelIconRasterURL,
+  namespacedChannelIconMarkup,
+  nextChannelIconInstanceId,
+} from './channel-icons'
 
 const props = defineProps<{
   // Always pass channel-definition metadata. Mapping a ChannelID to an asset
@@ -13,11 +17,16 @@ const props = defineProps<{
 const instanceId = nextChannelIconInstanceId()
 
 const markup = computed(() => namespacedChannelIconMarkup(props.icon, instanceId))
+const rasterURL = computed(() => channelIconRasterURL(props.icon))
 </script>
 
 <template>
   <!-- eslint-disable-next-line vue/no-v-html -- markup is our own vendored, build-time SVG asset, not user input -->
   <span v-if="markup" class="channel-icon" aria-hidden="true" v-html="markup" />
+
+  <span v-else-if="rasterURL" class="channel-icon" aria-hidden="true">
+    <img :src="rasterURL" alt="" />
+  </span>
 
   <span v-else class="channel-icon channel-icon--fallback" aria-hidden="true">{{ mark }}</span>
 </template>
@@ -31,10 +40,16 @@ const markup = computed(() => namespacedChannelIconMarkup(props.icon, instanceId
   line-height: 1;
 }
 
-.channel-icon svg {
+.channel-icon svg,
+.channel-icon img {
   display: block;
   width: 1em;
   height: 1em;
+}
+
+.channel-icon img {
+  border-radius: 0.2em;
+  object-fit: contain;
 }
 
 .channel-icon--fallback {

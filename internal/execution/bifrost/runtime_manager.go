@@ -43,8 +43,8 @@ func buildEffectiveProviderConfig(
 	resolved channel.ResolvedTarget,
 	allowPrivateNetwork bool,
 ) (effectiveProviderConfig, error) {
-	if resolved.ProviderKind == channel.ProviderNewAPI {
-		return buildNewAPIProviderConfig(resolved, schemas.OpenAI, allowPrivateNetwork)
+	if resolved.ProviderKind == channel.ProviderMultiProtocolGateway {
+		return buildMultiProtocolGatewayProviderConfig(resolved, schemas.OpenAI, allowPrivateNetwork)
 	}
 	provider, baseURL, custom, err := resolveSDKProviderConfig(resolved)
 	if err != nil {
@@ -100,12 +100,12 @@ func buildEffectiveProviderConfigForAttempt(
 ) (effectiveProviderConfig, error) {
 	var base effectiveProviderConfig
 	var err error
-	if resolved.ProviderKind == channel.ProviderNewAPI {
-		provider, profileErr := newAPIProviderProfile(spec.ClientProtocol)
+	if resolved.ProviderKind == channel.ProviderMultiProtocolGateway {
+		provider, profileErr := multiProtocolGatewayProviderProfile(spec.ClientProtocol)
 		if profileErr != nil {
 			return effectiveProviderConfig{}, profileErr
 		}
-		base, err = buildNewAPIProviderConfig(resolved, provider, allowPrivateNetwork)
+		base, err = buildMultiProtocolGatewayProviderConfig(resolved, provider, allowPrivateNetwork)
 	} else {
 		base, err = buildEffectiveProviderConfig(resolved, allowPrivateNetwork)
 	}
@@ -138,7 +138,7 @@ func buildEffectiveProviderConfigForAttempt(
 	return applyAttemptProxy(base, spec.Proxy)
 }
 
-func newAPIProviderProfile(clientProtocol protocol.Protocol) (schemas.ModelProvider, error) {
+func multiProtocolGatewayProviderProfile(clientProtocol protocol.Protocol) (schemas.ModelProvider, error) {
 	switch clientProtocol {
 	case "", protocol.OpenAICompletions, protocol.OpenAIResponses,
 		protocol.OpenAIImages, protocol.OpenAIEmbeddings:
@@ -148,18 +148,18 @@ func newAPIProviderProfile(clientProtocol protocol.Protocol) (schemas.ModelProvi
 	case protocol.Gemini:
 		return schemas.Gemini, nil
 	default:
-		return "", fmt.Errorf("unsupported New API client protocol %q", clientProtocol)
+		return "", fmt.Errorf("unsupported multi-protocol gateway client protocol %q", clientProtocol)
 	}
 }
 
-func buildNewAPIProviderConfig(
+func buildMultiProtocolGatewayProviderConfig(
 	resolved channel.ResolvedTarget,
 	provider schemas.ModelProvider,
 	allowPrivateNetwork bool,
 ) (effectiveProviderConfig, error) {
 	baseURL, configured, err := targetBaseURL(resolved.TargetConfig)
 	if err != nil || !configured {
-		return effectiveProviderConfig{}, fmt.Errorf("New API gateway root is required")
+		return effectiveProviderConfig{}, fmt.Errorf("multi-protocol gateway root is required")
 	}
 	config := buildProviderConfig(provider, baseURL, false, provider, allowPrivateNetwork)
 	return newEffectiveProviderConfig(provider, baseURL, false, config)
@@ -728,7 +728,7 @@ func (manager *RuntimeManager) Reconcile(targets []provideradapter.RuntimeTarget
 	configs := make([]effectiveProviderConfig, 0, len(targets)*6)
 	for _, runtimeTarget := range targets {
 		target := runtimeTarget.Target
-		if target.ProviderKind == channel.ProviderNewAPI {
+		if target.ProviderKind == channel.ProviderMultiProtocolGateway {
 			for _, clientProtocol := range []protocol.Protocol{
 				protocol.OpenAICompletions,
 				protocol.Anthropic,

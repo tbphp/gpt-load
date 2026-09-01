@@ -24,6 +24,7 @@ const (
 	AWSBedrock       ID = "aws_bedrock"
 	GoogleVertex     ID = "google_vertex"
 	NewAPI           ID = "newapi"
+	CLIProxyAPI      ID = "cliproxyapi"
 	OpenAICompatible ID = "openai_compatible"
 	DeepSeek         ID = "deepseek"
 	MoonshotAI       ID = "moonshotai"
@@ -40,22 +41,22 @@ const (
 type ProviderKind string
 
 const (
-	ProviderOpenAI           ProviderKind = "openai"
-	ProviderCodex            ProviderKind = "codex"
-	ProviderClaude           ProviderKind = "claude"
-	ProviderAntigravity      ProviderKind = "antigravity"
-	ProviderGrok             ProviderKind = "grok"
-	ProviderAnthropic        ProviderKind = "anthropic"
-	ProviderGemini           ProviderKind = "gemini"
-	ProviderNewAPI           ProviderKind = "newapi"
-	ProviderOpenAICompatible ProviderKind = "openai_compatible"
-	ProviderAzureOpenAI      ProviderKind = "azure_openai"
-	ProviderAWSBedrock       ProviderKind = "aws_bedrock"
-	ProviderGoogleVertex     ProviderKind = "google_vertex"
-	ProviderDeepSeek         ProviderKind = "deepseek"
-	ProviderOpenRouter       ProviderKind = "openrouter"
-	ProviderGroq             ProviderKind = "groq"
-	ProviderXAI              ProviderKind = "xai"
+	ProviderOpenAI               ProviderKind = "openai"
+	ProviderCodex                ProviderKind = "codex"
+	ProviderClaude               ProviderKind = "claude"
+	ProviderAntigravity          ProviderKind = "antigravity"
+	ProviderGrok                 ProviderKind = "grok"
+	ProviderAnthropic            ProviderKind = "anthropic"
+	ProviderGemini               ProviderKind = "gemini"
+	ProviderMultiProtocolGateway ProviderKind = "multi_protocol_gateway"
+	ProviderOpenAICompatible     ProviderKind = "openai_compatible"
+	ProviderAzureOpenAI          ProviderKind = "azure_openai"
+	ProviderAWSBedrock           ProviderKind = "aws_bedrock"
+	ProviderGoogleVertex         ProviderKind = "google_vertex"
+	ProviderDeepSeek             ProviderKind = "deepseek"
+	ProviderOpenRouter           ProviderKind = "openrouter"
+	ProviderGroq                 ProviderKind = "groq"
+	ProviderXAI                  ProviderKind = "xai"
 )
 
 // NoticeID identifies one code-owned, frontend-localized channel notice.
@@ -97,7 +98,7 @@ func (kind ProviderKind) Valid() bool {
 		ProviderGrok,
 		ProviderAnthropic,
 		ProviderGemini,
-		ProviderNewAPI,
+		ProviderMultiProtocolGateway,
 		ProviderOpenAICompatible,
 		ProviderAzureOpenAI,
 		ProviderAWSBedrock,

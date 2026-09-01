@@ -291,10 +291,10 @@ func TestNewAPIGeminiAcceptsOpenAIStyleErrorEnvelope(t *testing.T) {
 	}
 }
 
-func TestResolveNewAPITargetURLPreservesEncodedDeploymentPrefix(t *testing.T) {
+func TestResolveMultiProtocolGatewayTargetURLPreservesEncodedDeploymentPrefix(t *testing.T) {
 	t.Parallel()
 
-	got, err := resolveNewAPITargetURL(
+	got, err := resolveMultiProtocolGatewayTargetURL(
 		"https://relay.example/team%2Fone/",
 		"/v1/models",
 		"cursor=next%2Fpage",
@@ -665,16 +665,14 @@ func TestNewAPIRouteCapabilityMatchesDeclaredOperations(t *testing.T) {
 		t.Fatal("New API channel is missing")
 	}
 	for _, route := range descriptor.Routes {
-		if err := manager.ValidateRouteCapability(channel.ProviderNewAPI, route); err != nil {
+		if err := manager.ValidateRouteCapability(channel.ProviderMultiProtocolGateway, route); err != nil {
 			t.Errorf("route %s/%s/%s rejected: %v", route.ClientProtocol, route.Operation, route.RouteMode, err)
 		}
 	}
 	for _, unsupported := range []channel.RouteDescriptor{
-		{ClientProtocol: protocol.Anthropic, Operation: execution.OperationCountTokens, RouteMode: execution.RouteNative},
-		{ClientProtocol: protocol.Gemini, Operation: execution.OperationCountTokens, RouteMode: execution.RouteNative},
 		{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesRetrieve, RouteMode: execution.RouteNative},
 	} {
-		if err := manager.ValidateRouteCapability(channel.ProviderNewAPI, unsupported); err == nil {
+		if err := manager.ValidateRouteCapability(channel.ProviderMultiProtocolGateway, unsupported); err == nil {
 			t.Errorf("unsupported route accepted: %#v", unsupported)
 		}
 	}
