@@ -30,6 +30,10 @@ API キー、サブスクリプションアカウント、トラフィック制�
 <table>
 <tbody>
 <tr>
+<td width="180"><a href="https://www.axisnow.io/zh"><img src="./screenshot/axisnow.jpg" alt="AxisNow" width="150"></a></td>
+<td>ウェブサイトと API を保護・高速化し、<strong>中国本土</strong>および世界各地のアクセス体験にも配慮し、クライアント SDK を通じて高速化とセキュリティの機能をネイティブ／モバイルアプリにまで拡張します — 自社構築・プライベート運用 CDN｜サブスクリプション型高防御 CDN｜自主的に制御でき、柔軟に組み合わせられる CDN ネットワーク。</td>
+</tr>
+<tr>
 <td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
 <td>APIMartによる本プロジェクトへのスポンサー支援に感謝します！APIMartはAI画像・動画生成に特化した低価格APIプラットフォームで、GPT-Image-2は1枚$0.006から、1ドルで160枚以上の画像を生成できます。画像と動画の両方に対応する1つの非同期APIで、タスクを送信してIDを取得し、ポーリングまたはコールバックで結果を取得できます。数万枚規模の一括処理でもタイムアウトせず、モデルを切り替えてもコードを変更する必要はありません。従量課金制で月額料金は不要です。<a href="https://go.apimart.ai/gh-gpt-load">こちらの登録リンク</a>から登録して、すぐにご利用いただけます。</td>
 </tr>
