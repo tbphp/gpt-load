@@ -150,11 +150,17 @@ const rankedMatches = computed<ChannelMatch[]>(() => {
   if (!normalizedQuery) {
     return otherChannels.value.map((channel) => ({ channel, rank: 0, reason: '' }))
   }
-  return activeChannels.value
+  const matches = activeChannels.value
     .map((channel, index) => ({ index, match: matchChannel(channel, normalizedQuery) }))
     .filter((row): row is { index: number; match: ChannelMatch } => row.match !== null)
     .sort((a, b) => b.match.rank - a.match.rank || a.index - b.index)
     .map((row) => row.match)
+  if (matches.length > 0) return matches
+
+  const compatible = activeChannels.value.find(
+    (channel) => channel.channel_id === 'openai_compatible',
+  )
+  return compatible ? [{ channel: compatible, rank: 0, reason: '' }] : []
 })
 
 watch(rankedMatches, () => {
