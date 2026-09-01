@@ -281,6 +281,7 @@ function confirm(): void {
           <span aria-live="polite">{{ labels.selected(selectedCandidates.length) }}</span>
         </div>
         <div class="model-discovery-drawer__actions">
+          <slot name="footer-actions" />
           <AppButton
             variant="secondary"
             size="compact"

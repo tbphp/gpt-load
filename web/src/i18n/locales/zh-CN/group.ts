@@ -145,6 +145,28 @@ export default {
         empty: '上游未返回可添加模型',
         confirm: '添加到当前列表',
       },
+      sync: {
+        action: '同步',
+        title: '同步模型',
+        description:
+          '模型列表包含上游发现和价格目录；同步只以上游发现结果为准。仅存在于价格目录的模型不会被识别为上游模型，可能出现在移除清单。',
+        close: '关闭模型同步',
+        modeLabel: '同步方式',
+        mode: {
+          cleanup: '清理',
+          add: '添加',
+          full: '完全同步',
+        },
+        additions: '新增 {count} 个',
+        removals: '移除 {count} 个',
+        noAdditions: '没有新增模型',
+        noRemovals: '没有需要移除的模型',
+        more: '另有 {count} 个',
+        conflict: '新增模型与现有对外别名冲突：{names}',
+        dirty: '请先保存或放弃当前修改。',
+        confirm: '确认',
+        saveFailed: '无法同步分组模型列表。',
+      },
       saveFailed: '无法替换分组模型列表。',
       noActiveCredential: {
         title: '没有可用于发现的活跃渠道凭据。',
