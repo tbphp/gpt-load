@@ -34,6 +34,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 		Groq,
 		XAI,
 		NewAPI,
+		CLIProxyAPI,
 		OpenAICompatible,
 	}
 	if got := descriptorIDs(registry.List()); !reflect.DeepEqual(got, wantIDs) {
@@ -62,6 +63,9 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	}
 	if got := descriptorIDs(registry.Search("vertex")); !reflect.DeepEqual(got, []ID{ID("google_vertex")}) {
 		t.Fatalf("Search(vertex) IDs = %v", got)
+	}
+	if got := descriptorIDs(registry.Search("cpa")); !reflect.DeepEqual(got, []ID{CLIProxyAPI}) {
+		t.Fatalf("Search(cpa) IDs = %v", got)
 	}
 
 	first := registry.List()

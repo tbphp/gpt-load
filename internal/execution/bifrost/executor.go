@@ -457,7 +457,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	safeQuery := safeAttemptQuery(spec)
 	if mode == channel.RouteNative && spec.ClientProtocol == protocol.Gemini &&
 		(providerKind == channel.ProviderGemini || providerKind == channel.ProviderGoogleVertex ||
-			providerKind == channel.ProviderNewAPI) {
+			providerKind == channel.ProviderMultiProtocolGateway) {
 		safeQuery = removeRawQueryValue(safeQuery, "alt")
 		if stream {
 			safeQuery = setRawQueryValue(safeQuery, "alt", "sse")
@@ -516,19 +516,19 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			}, nil
 		}
 		request := newProbeRequest(provider, providerKind, spec.UpstreamModel)
-		if providerKind == channel.ProviderNewAPI {
+		if providerKind == channel.ProviderMultiProtocolGateway {
 			if spec.ClientProtocol != protocol.OpenAICompletions {
-				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported New API probe protocol")
+				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported multi-protocol gateway probe protocol")
 				return preparedAttempt{}, &failure
 			}
 			baseURL, configured, targetErr := targetBaseURL(resolved.TargetConfig)
 			if targetErr != nil || !configured {
-				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid New API probe target")
+				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")
 				return preparedAttempt{}, &failure
 			}
-			typedURL, targetErr := resolveNewAPITargetURL(baseURL, "/v1/chat/completions", "")
+			typedURL, targetErr := resolveMultiProtocolGatewayTargetURL(baseURL, "/v1/chat/completions", "")
 			if targetErr != nil {
-				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid New API probe target")
+				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")
 				return preparedAttempt{}, &failure
 			}
 			return preparedAttempt{
@@ -602,13 +602,13 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}
 		passthroughHeaders := safePassthroughHeaders(sanitizedHeaders)
 		passthroughUpstreamURL := ""
-		if providerKind == channel.ProviderNewAPI &&
+		if providerKind == channel.ProviderMultiProtocolGateway &&
 			(spec.ClientProtocol == protocol.OpenAICompletions ||
 				spec.ClientProtocol == protocol.OpenAIResponses ||
 				spec.ClientProtocol == protocol.OpenAIImages) {
 			explicitPrefix, configured, prefixErr := targetBaseURL(resolved.TargetConfig)
 			if prefixErr != nil || !configured {
-				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid New API gateway root")
+				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway root")
 				return preparedAttempt{}, &failure
 			}
 			passthroughUpstreamURL = explicitPrefix
@@ -803,7 +803,7 @@ func providerSupportsPassthrough(
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini, channel.ProviderGoogleVertex:
 		return true
-	case channel.ProviderNewAPI:
+	case channel.ProviderMultiProtocolGateway:
 		return true
 	case channel.ProviderOpenAICompatible:
 		if clientProtocol == protocol.OpenAIImages {
@@ -820,10 +820,10 @@ func providerSupportsPassthrough(
 
 func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtocol protocol.Protocol) bool {
 	switch providerKind {
-	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible, channel.ProviderNewAPI:
+	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible, channel.ProviderMultiProtocolGateway:
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses ||
 			clientProtocol == protocol.OpenAIImages || clientProtocol == protocol.OpenAIEmbeddings ||
-			(providerKind == channel.ProviderNewAPI &&
+			(providerKind == channel.ProviderMultiProtocolGateway &&
 				(clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini))
 	case channel.ProviderAnthropic:
 		return clientProtocol == protocol.Anthropic
@@ -991,7 +991,7 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible:
 		return spec.Path, nil
-	case channel.ProviderNewAPI:
+	case channel.ProviderMultiProtocolGateway:
 		if spec.ClientProtocol != protocol.Gemini {
 			return spec.Path, nil
 		}
@@ -999,7 +999,7 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 		modelStart := strings.Index(spec.Path, marker)
 		colon := strings.LastIndex(spec.Path, ":")
 		if modelStart < 0 || colon <= modelStart+len(marker) {
-			return "", fmt.Errorf("invalid New API Gemini model path")
+			return "", fmt.Errorf("invalid multi-protocol gateway Gemini model path")
 		}
 		return spec.Path[:modelStart+len(marker)] + url.PathEscape(spec.UpstreamModel) + spec.Path[colon:], nil
 	case channel.ProviderAnthropic:
@@ -1092,7 +1092,7 @@ func directKeyForAttempt(
 	secrets := credentialSecrets(credential)
 	apiKey, _ := credential.Value("api_key")
 	switch providerKind {
-	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini, channel.ProviderNewAPI,
+	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini, channel.ProviderMultiProtocolGateway,
 		channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI,
 		channel.ProviderOpenAICompatible:
 		if apiKey == "" {
@@ -1439,12 +1439,12 @@ func resolveTypedTargetURL(baseURL, resourcePath, rawQuery string) (string, erro
 	return parsed.String(), nil
 }
 
-func resolveNewAPITargetURL(baseURL, requestPath, rawQuery string) (string, error) {
+func resolveMultiProtocolGatewayTargetURL(baseURL, requestPath, rawQuery string) (string, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil || parsed == nil || !parsed.IsAbs() || parsed.Host == "" || parsed.User != nil ||
 		parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" ||
 		!strings.HasPrefix(requestPath, "/") || strings.HasPrefix(requestPath, "//") {
-		return "", fmt.Errorf("invalid New API target URL")
+		return "", fmt.Errorf("invalid multi-protocol gateway target URL")
 	}
 	target := strings.TrimRight(baseURL, "/") + requestPath
 	if rawQuery != "" {

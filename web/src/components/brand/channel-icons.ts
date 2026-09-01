@@ -14,6 +14,12 @@ const rawIcons = {
   }),
 }
 
+const rasterIcons = import.meta.glob<string>('../../assets/channels/*.webp', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+})
+
 // Keep the whole <svg> tag, not just its children: presentation attributes
 // such as fill="currentColor" often live on the root element, not on each
 // <path>, so extracting only the inner markup silently drops them.
@@ -28,6 +34,15 @@ for (const [path, source] of Object.entries(rawIcons)) {
     .pop()
     ?.replace(/\.svg$/u, '')
   if (name) iconsByName.set(name, stripTitle(source))
+}
+
+const rasterIconsByName = new Map<string, string>()
+for (const [path, source] of Object.entries(rasterIcons)) {
+  const name = path
+    .split('/')
+    .pop()
+    ?.replace(/\.webp$/u, '')
+  if (name) rasterIconsByName.set(name, source)
 }
 
 // SVG element IDs (gradient defs, etc.) must be unique per rendered instance,
@@ -48,6 +63,10 @@ export function namespacedChannelIconMarkup(icon: string, instanceId: string): s
       .replaceAll(new RegExp(`url\\(#${escaped}\\)`, 'gu'), `url(#${instanceId}-${id})`)
   }
   return namespaced
+}
+
+export function channelIconRasterURL(icon: string): string | null {
+  return rasterIconsByName.get(icon) ?? null
 }
 
 let instanceCounter = 0

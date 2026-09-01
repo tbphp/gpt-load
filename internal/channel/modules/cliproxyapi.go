@@ -6,14 +6,15 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-func NewAPI() spec.Module {
+func CLIProxyAPI() spec.Module {
 	return spec.Module{
 		Definition: spec.Definition{
-			ID:          spec.NewAPI,
-			Name:        "New API",
-			Mark:        "NA",
-			Icon:        "new-api",
-			Description: "New API multi-protocol gateway",
+			ID:          spec.CLIProxyAPI,
+			Name:        "CLIProxyAPI",
+			Mark:        "CPA",
+			Icon:        "cpa",
+			SearchTerms: []string{"cpa", "cli proxy api"},
+			Description: "CLIProxyAPI multi-protocol gateway",
 			Connection: spec.Connection{
 				Type:            spec.ConnectionAPIKey,
 				CredentialInput: "batch_text",
@@ -38,10 +39,10 @@ func NewAPI() spec.Module {
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCompact, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesGenerate, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesEdit, execution.RouteNative),
-				spec.NewRoute(protocol.OpenAIEmbeddings, execution.OperationEmbeddingsCreate, execution.RouteNative),
-				spec.NewRoute(protocol.OpenAIEmbeddings, execution.OperationProbe, execution.RouteNative),
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteNative),
+				spec.NewRoute(protocol.Anthropic, execution.OperationCountTokens, execution.RouteNative),
 				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteNative),
+				spec.NewRoute(protocol.Gemini, execution.OperationCountTokens, execution.RouteNative),
 			},
 		},
 	}

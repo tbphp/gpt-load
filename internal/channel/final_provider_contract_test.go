@@ -32,6 +32,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 		Groq,
 		XAI,
 		NewAPI,
+		CLIProxyAPI,
 		OpenAICompatible,
 	}
 	if got := descriptorIDs(registry.List()); !reflect.DeepEqual(got, want) {
