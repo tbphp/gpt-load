@@ -146,6 +146,28 @@ export default {
         empty: '追加できるモデルが返されませんでした',
         confirm: '現在の一覧に追加',
       },
+      sync: {
+        action: '同期',
+        title: 'モデルを同期',
+        description:
+          'モデル一覧にはアップストリーム検出と価格カタログが含まれます。同期はアップストリーム検出結果のみを使用するため、価格カタログだけのモデルは削除一覧に表示される場合があります。',
+        close: 'モデル同期を閉じる',
+        modeLabel: '同期方法',
+        mode: {
+          cleanup: '整理',
+          add: '追加',
+          full: '完全同期',
+        },
+        additions: '{count} 件を追加',
+        removals: '{count} 件を削除',
+        noAdditions: '追加するモデルはありません',
+        noRemovals: '削除するモデルはありません',
+        more: 'ほか {count} 件',
+        conflict: '新しいモデルが既存のクライアント別名と競合しています：{names}',
+        dirty: '現在の変更を保存または破棄してください。',
+        confirm: '確認',
+        saveFailed: 'グループのモデル一覧を同期できません。',
+      },
       saveFailed: 'グループのモデル一覧を置き換えられません。',
       noActiveCredential: {
         title: '検出に使用できる有効なチャネル認証情報がありません。',

@@ -146,6 +146,28 @@ export default {
         empty: 'The upstream returned no models to add',
         confirm: 'Add to current list',
       },
+      sync: {
+        action: 'Sync',
+        title: 'Sync models',
+        description:
+          'The list combines live discovery and the pricing catalog. Sync uses only live discovery, so catalog-only models may appear in the removal list.',
+        close: 'Close model sync',
+        modeLabel: 'Sync mode',
+        mode: {
+          cleanup: 'Clean up',
+          add: 'Add',
+          full: 'Full sync',
+        },
+        additions: 'Add {count}',
+        removals: 'Remove {count}',
+        noAdditions: 'No models to add',
+        noRemovals: 'No models to remove',
+        more: '{count} more',
+        conflict: 'New models conflict with existing client aliases: {names}',
+        dirty: 'Save or discard the current changes first.',
+        confirm: 'Confirm',
+        saveFailed: 'Unable to sync the Group model list.',
+      },
       saveFailed: 'Unable to replace the Group model list.',
       noActiveCredential: {
         title: 'No active channel credential is available for discovery.',

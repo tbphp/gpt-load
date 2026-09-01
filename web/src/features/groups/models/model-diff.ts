@@ -1,4 +1,5 @@
 import type { GroupModelItemDto } from '@/api/control/types'
+import type { ModelCandidate } from '@/app/resources/providers'
 import {
   findModelNameConflicts,
   normalizedModels as normalizeSharedModels,
@@ -9,6 +10,13 @@ import {
 
 export interface ModelDraftItem extends ModelDraftValue {
   key: number
+}
+
+export type ModelSyncMode = 'cleanup' | 'add' | 'full'
+
+export interface ModelSyncDiff {
+  additions: ModelCandidate[]
+  removals: ModelDraftItem[]
 }
 
 export type { ModelNameConflict }
@@ -35,4 +43,31 @@ export function sameModels(
   right: readonly ModelDraftItem[],
 ): boolean {
   return sameSharedModels(left, right)
+}
+
+export function createModelSyncDiff(
+  current: readonly ModelDraftItem[],
+  candidates: readonly ModelCandidate[],
+): ModelSyncDiff {
+  const liveCandidates = candidates.filter(({ sources }) => sources.includes('live'))
+  const liveIDs = new Set(liveCandidates.map(({ id }) => id))
+  const currentIDs = new Set(current.map(({ id }) => id.trim()).filter(Boolean))
+  return {
+    additions: liveCandidates.filter(({ id }) => !currentIDs.has(id)),
+    removals: current.filter(({ id }) => !liveIDs.has(id.trim())),
+  }
+}
+
+export function syncedModels(
+  current: readonly ModelDraftItem[],
+  diff: ModelSyncDiff,
+  mode: ModelSyncMode,
+) {
+  const removalKeys = new Set(diff.removals.map(({ key }) => key))
+  const retained = mode === 'add' ? current : current.filter(({ key }) => !removalKeys.has(key))
+  const additions =
+    mode === 'cleanup'
+      ? []
+      : diff.additions.map(({ id }) => ({ id, alias: '', alias_enabled: false }))
+  return normalizeSharedModels([...retained, ...additions])
 }

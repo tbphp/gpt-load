@@ -15,6 +15,7 @@ import {
   groupModelsQueryOptions,
   invalidateGroupModelDependents,
   replaceGroupModelsResource,
+  type GroupModelsDto,
 } from '@/app/resources/groups'
 import type { ModelCandidate } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
@@ -39,13 +40,17 @@ import {
 } from '@/features/models/model-draft'
 import ModelPricingStatus from '@/features/models/ModelPricingStatus.vue'
 
+import GroupModelSyncDialog from './GroupModelSyncDialog.vue'
 import {
+  createModelSyncDiff,
   createModelDraft,
   findModelNameConflicts,
   normalizedModels,
   sameModels,
+  syncedModels,
   type ModelDraftItem,
   type ModelNameConflict,
+  type ModelSyncMode,
 } from './model-diff'
 import {
   parseGroupModelsRouteQuery,
@@ -74,8 +79,9 @@ const initialLoading = useStableLoading(
 const queryRefreshing = computed(() => query.data.value !== undefined && query.isFetching.value)
 const saved = ref<ModelDraftItem[]>([])
 const draft = ref<ModelDraftItem[]>([])
-const pending = ref<'discover' | 'save' | null>(null)
+const pending = ref<'discover' | 'save' | 'sync' | null>(null)
 const discoveryError = ref('')
+const discoveryReady = ref(false)
 const saveError = ref('')
 const serverConflicts = ref<ModelNameConflict[]>([])
 const drawerOpen = computed(() => routeState.value.discoveryOpen)
@@ -85,6 +91,9 @@ const modelEditor = ref<{
 }>()
 const emptyConfirmOpen = ref(false)
 const candidates = ref<ModelCandidate[]>([])
+const syncDialogOpen = ref(false)
+const syncMode = ref<ModelSyncMode>('full')
+const syncError = ref('')
 const {
   value: savedFeedback,
   clear: clearSavedFeedback,
@@ -132,6 +141,7 @@ const dirty = computed(
     !sameModels(saved.value, draft.value) ||
     draft.value.some((item) => item.editable_id && !item.id.trim()),
 )
+const savePending = computed(() => pending.value === 'save' || pending.value === 'sync')
 const empty = computed(() => normalizedModels(draft.value).length === 0)
 const canSave = computed(
   () =>
@@ -147,6 +157,18 @@ const pendingPricingCount = computed(
 const currentModelIDs = computed(() => draft.value.map((item) => item.id.trim()).filter(Boolean))
 const knownPricingStatusByID = computed(
   () => new Map(saved.value.map((item) => [item.id, item.pricing_status] as const)),
+)
+const syncDiff = computed(() => createModelSyncDiff(saved.value, candidates.value))
+const syncRequestModels = computed(() => syncedModels(saved.value, syncDiff.value, syncMode.value))
+const syncConflicts = computed(() => findModelNameConflicts(syncRequestModels.value))
+const syncChangeCount = computed(() => {
+  const additions = syncMode.value === 'cleanup' ? 0 : syncDiff.value.additions.length
+  const removals = syncMode.value === 'add' ? 0 : syncDiff.value.removals.length
+  return additions + removals
+})
+const syncDisabled = computed(() => !discoveryReady.value || dirty.value || pending.value !== null)
+const syncDisabledReason = computed(() =>
+  dirty.value ? t('group.modelEditor.sync.dirty') : undefined,
 )
 const aliasEditorLabels = computed<ModelAliasEditorLabels>(() => ({
   tableLabel: t('group.modelEditor.tableLabel'),
@@ -218,6 +240,16 @@ watch(dirty, (isDirty) => {
 })
 
 watch(
+  () => props.groupId,
+  () => {
+    candidates.value = []
+    discoveryReady.value = false
+    syncDialogOpen.value = false
+    syncError.value = ''
+  },
+)
+
+watch(
   () => query.data.value,
   (models) => {
     if (!models || dirty.value || pending.value) return
@@ -237,8 +269,7 @@ watch(
       if (pending.value === 'discover') controller?.abort()
       return
     }
-    if (supported && models && pending.value === null && candidates.value.length === 0)
-      void runDiscovery()
+    if (supported && models && pending.value === null && !discoveryReady.value) void runDiscovery()
   },
   { immediate: true },
 )
@@ -316,6 +347,7 @@ function addManual(): void {
 function requestDiscovery(): void {
   if (!supportsModelDiscovery.value || pending.value) return
   candidates.value = []
+  discoveryReady.value = false
   discoveryError.value = ''
   if (drawerOpen.value) void runDiscovery()
   else setDiscoveryOpen(true)
@@ -324,6 +356,7 @@ function requestDiscovery(): void {
 async function runDiscovery(): Promise<void> {
   if (!supportsModelDiscovery.value || pending.value !== null) return
   controller?.abort()
+  discoveryReady.value = false
   const active = new AbortController()
   controller = active
   pending.value = 'discover'
@@ -332,8 +365,10 @@ async function runDiscovery(): Promise<void> {
     if (controller !== active) return
     candidates.value = result.models
     draft.value = mergeCandidateMetadata(draft.value, result.models)
+    discoveryReady.value = true
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
+    discoveryReady.value = false
     discoveryError.value =
       cause instanceof ApiError && cause.code === 'NO_ACTIVE_CREDENTIAL'
         ? t('group.modelEditor.noActiveCredential.title')
@@ -359,6 +394,65 @@ function confirmCandidates(selectedCandidates: ModelCandidate[]): void {
   serverConflicts.value = []
   saveError.value = ''
   setDiscoveryOpen(false)
+}
+
+function setSyncMode(mode: ModelSyncMode): void {
+  syncMode.value = mode
+  syncError.value = ''
+}
+
+function setSyncDialogOpen(open: boolean): void {
+  if (!open && pending.value === 'sync') return
+  syncDialogOpen.value = open
+  if (!open) syncError.value = ''
+}
+
+function requestSync(): void {
+  if (syncDisabled.value) return
+  syncMode.value = 'full'
+  syncError.value = ''
+  syncDialogOpen.value = true
+}
+
+function acceptSavedModels(result: GroupModelsDto): void {
+  const next = createModelDraft(result.items).map((item) => ({ ...item, key: nextKey++ }))
+  saved.value = next
+  draft.value = next.map((item) => ({ ...item, sources: [...item.sources] }))
+  serverConflicts.value = []
+  cacheGroupModels(queryClient, props.groupId, result)
+}
+
+async function confirmSync(): Promise<void> {
+  if (pending.value !== null || syncChangeCount.value === 0 || syncConflicts.value.length) return
+  const active = new AbortController()
+  const models = syncRequestModels.value
+  controller = active
+  pending.value = 'sync'
+  clearSavedFeedback()
+  syncError.value = ''
+  try {
+    const result = await replaceGroupModelsResource(
+      client,
+      props.groupId,
+      { models },
+      active.signal,
+    )
+    if (controller !== active) return
+    acceptSavedModels(result)
+    discoveryReady.value = false
+    syncDialogOpen.value = false
+    setDiscoveryOpen(false)
+    await invalidateGroupModelDependents(queryClient, props.groupId)
+    showSavedFeedback()
+  } catch (cause: unknown) {
+    if (cause instanceof RequestCancelledError || controller !== active) return
+    syncError.value = t('group.modelEditor.sync.saveFailed')
+  } finally {
+    if (controller === active) {
+      controller = undefined
+      pending.value = null
+    }
+  }
 }
 
 function requestSave(): void {
@@ -388,12 +482,8 @@ async function save(): Promise<void> {
       active.signal,
     )
     if (controller !== active) return
-    const next = createModelDraft(result.items).map((item) => ({ ...item, key: nextKey++ }))
-    saved.value = next
-    draft.value = next.map((item) => ({ ...item, sources: [...item.sources] }))
-    serverConflicts.value = []
+    acceptSavedModels(result)
     emptyConfirmOpen.value = false
-    cacheGroupModels(queryClient, props.groupId, result)
     await invalidateGroupModelDependents(queryClient, props.groupId)
     showSavedFeedback()
   } catch (cause: unknown) {
@@ -502,7 +592,7 @@ onBeforeUnmount(() => {
         :loading="pending === 'discover'"
         :error="discoveryError"
         :labels="discoveryDrawerLabels"
-        :dismissible="pending !== 'discover'"
+        :dismissible="pending === null"
         :search="routeState.discoverySearch ?? ''"
         :filter="routeState.discoveryFilter"
         @update:open="setDiscoveryOpen"
@@ -510,6 +600,31 @@ onBeforeUnmount(() => {
         @update:filter="setDiscoveryFilter"
         @retry="requestDiscovery"
         @confirm="confirmCandidates"
+      >
+        <template #footer-actions>
+          <AppButton
+            variant="secondary"
+            size="compact"
+            :disabled="syncDisabled"
+            :title="syncDisabledReason"
+            @click="requestSync"
+          >
+            {{ t('group.modelEditor.sync.action') }}
+          </AppButton>
+        </template>
+      </ModelDiscoveryDrawer>
+
+      <GroupModelSyncDialog
+        :open="syncDialogOpen"
+        :mode="syncMode"
+        :additions="syncDiff.additions"
+        :removals="syncDiff.removals"
+        :conflicts="syncConflicts"
+        :pending="pending === 'sync'"
+        :error="syncError"
+        @update:open="setSyncDialogOpen"
+        @update:mode="setSyncMode"
+        @confirm="confirmSync"
       />
 
       <AppConfirmDialog
@@ -531,7 +646,7 @@ onBeforeUnmount(() => {
         error-placement="floating"
         always-visible
         :dirty="dirty"
-        :pending="pending === 'save'"
+        :pending="savePending"
         :status="saveBarError ? 'error' : savedFeedback ? 'saved' : 'idle'"
         :error="saveBarError"
         :error-action-label="invalidRowCount ? t('group.modelEditor.locateFirstInvalid') : ''"
@@ -540,7 +655,7 @@ onBeforeUnmount(() => {
           ><div>
             <strong>
               {{
-                pending === 'save'
+                savePending
                   ? t('group.modelEditor.saving')
                   : savedFeedback
                     ? t('group.modelEditor.savedFeedback')
@@ -551,7 +666,7 @@ onBeforeUnmount(() => {
             </strong>
             <span>
               {{
-                pending === 'save'
+                savePending
                   ? t('group.modelEditor.savingNote')
                   : savedFeedback
                     ? t('group.modelEditor.savedFeedbackNote')
