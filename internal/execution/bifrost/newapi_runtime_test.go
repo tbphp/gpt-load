@@ -670,7 +670,7 @@ func TestNewAPIRouteCapabilityMatchesDeclaredOperations(t *testing.T) {
 		}
 	}
 	for _, unsupported := range []channel.RouteDescriptor{
-		{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesRetrieve, RouteMode: execution.RouteNative},
+		{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationProbe, RouteMode: execution.RouteNative},
 	} {
 		if err := manager.ValidateRouteCapability(channel.ProviderMultiProtocolGateway, unsupported); err == nil {
 			t.Errorf("unsupported route accepted: %#v", unsupported)

@@ -28,6 +28,7 @@ func builtInModules() []spec.Module {
 		modules.OpenRouter(),
 		modules.Groq(),
 		modules.XAI(),
+		modules.GPTLoad(),
 		modules.NewAPI(),
 		modules.CLIProxyAPI(),
 		modules.OpenAICompatible(),

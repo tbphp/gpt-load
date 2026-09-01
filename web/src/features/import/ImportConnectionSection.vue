@@ -68,6 +68,9 @@ function isOptionalBaseURL(key: string, required: boolean): boolean {
 }
 
 function baseURLDescription(): string {
+  if (props.channel?.channel_id === 'gpt_load') {
+    return t('import.connection.gptLoadUrlDescription')
+  }
   if (props.channel?.channel_id === 'newapi') {
     return t('import.connection.newApiUrlDescription')
   }

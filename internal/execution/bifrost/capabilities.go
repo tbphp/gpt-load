@@ -81,7 +81,7 @@ func nativeRouteImplemented(
 				operation == execution.OperationProbe
 		case protocol.OpenAIResponses:
 			return operation == execution.OperationResponsesCreate ||
-				operation == execution.OperationResponsesCompact
+				nativeResponsesLifecycleOperation(operation)
 		case protocol.OpenAIImages:
 			return operation == execution.OperationImagesGenerate ||
 				operation == execution.OperationImagesEdit
@@ -89,7 +89,9 @@ func nativeRouteImplemented(
 			return operation == execution.OperationEmbeddingsCreate ||
 				operation == execution.OperationProbe
 		case protocol.Anthropic, protocol.Gemini:
-			return operation == execution.OperationChatCompletion || operation == execution.OperationCountTokens
+			return operation == execution.OperationChatCompletion ||
+				operation == execution.OperationCountTokens ||
+				operation == execution.OperationListModels
 		default:
 			return false
 		}

@@ -23,6 +23,7 @@ const (
 	AzureOpenAI      ID = "azure_openai"
 	AWSBedrock       ID = "aws_bedrock"
 	GoogleVertex     ID = "google_vertex"
+	GPTLoad          ID = "gpt_load"
 	NewAPI           ID = "newapi"
 	CLIProxyAPI      ID = "cliproxyapi"
 	OpenAICompatible ID = "openai_compatible"
