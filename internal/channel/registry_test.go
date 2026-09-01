@@ -797,6 +797,26 @@ func TestOpenRouterUsesNativeChatAndResponsesWithoutLifecycle(t *testing.T) {
 	}
 }
 
+func TestOnlyVerifiedNativeSubscriptionChannelsDeclareStatelessResponsesStore(t *testing.T) {
+	registry := NewRegistry()
+	verified := map[ID]struct{}{Codex: {}, Grok: {}}
+
+	key := routeKey{
+		clientProtocol: protocol.OpenAIResponses,
+		operation:      execution.OperationResponsesCreate,
+	}
+	for _, channelID := range registry.order {
+		got := registry.byID[channelID].responsesStoreCompatibilities[key]
+		_, want := verified[channelID]
+		if want && got != ResponsesStoreCompatibilityStateless {
+			t.Errorf("%s compatibility = %q, want stateless", channelID, got)
+		}
+		if !want && got != ResponsesStoreCompatibilityNone {
+			t.Errorf("%s compatibility = %q, want none", channelID, got)
+		}
+	}
+}
+
 func descriptorIDs(descriptors []Descriptor) []ID {
 	ids := make([]ID, len(descriptors))
 	for index, descriptor := range descriptors {

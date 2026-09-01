@@ -192,6 +192,147 @@ func TestAdapterExecuteStreamRecordsPassiveQuotaObservationOnHandshake(t *testin
 	}
 }
 
+func TestAdapterNormalizesDowngradedResponsesStoreUnary(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		body     string
+		response string
+	}{
+		{
+			name:     "store true",
+			body:     `{"model":"gpt-5","input":"hello","store":true}`,
+			response: `{"id":"resp_1","object":"response","store":true,"output":[]}`,
+		},
+		{
+			name:     "store omitted",
+			body:     `{"model":"gpt-5","input":"hello"}`,
+			response: `{"id":"resp_1","object":"response","output":[]}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(
+				t,
+				credentialJSON("access", "refresh", time.Now().Add(time.Hour)),
+			)
+			fake := &fakeExecutor{result: codex.ExecuteResponse{Payload: []byte(test.response)}}
+			setCodexExecutor(t, adapter, fake)
+			spec := validSpec(t, row, keyService)
+			spec.ResponsesStoreDowngraded = true
+			spec.Body = []byte(test.body)
+
+			result := adapter.Execute(t.Context(), spec)
+			if result.Error != nil || fake.calls != 1 {
+				t.Fatalf("result/calls = %+v/%d", result, fake.calls)
+			}
+			for name, payload := range map[string][]byte{
+				"payload":          fake.request.Payload,
+				"original request": fake.request.OriginalRequest,
+				"response":         result.Body,
+			} {
+				var object map[string]json.RawMessage
+				if err := json.Unmarshal(payload, &object); err != nil {
+					t.Fatalf("decode %s: %v", name, err)
+				}
+				if string(object["store"]) != "false" {
+					t.Fatalf("%s store = %s; payload=%s", name, object["store"], payload)
+				}
+			}
+		})
+	}
+}
+
+func TestAdapterLeavesNonDowngradedResponsesStoreUnchanged(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(
+		t,
+		credentialJSON("access", "refresh", time.Now().Add(time.Hour)),
+	)
+	responseBody := []byte(`{"id":"resp_1","object":"response","store":true,"output":[]}`)
+	fake := &fakeExecutor{result: codex.ExecuteResponse{Payload: responseBody}}
+	setCodexExecutor(t, adapter, fake)
+	spec := validSpec(t, row, keyService)
+	spec.Body = []byte(`{"model":"gpt-5","input":"hello","store":true}`)
+
+	result := adapter.Execute(t.Context(), spec)
+	if result.Error != nil || !bytes.Equal(fake.request.Payload, spec.Body) ||
+		!bytes.Equal(result.Body, responseBody) {
+		t.Fatalf("request/result = %s / %s; error=%#v", fake.request.Payload, result.Body, result.Error)
+	}
+}
+
+func TestDowngradedResponsesStoreDoesNotRewriteErrorResult(t *testing.T) {
+	spec := execution.AttemptSpec{ResponsesStoreDowngraded: true}
+	body := []byte(`{"error":{"message":"failed"},"store":true}`)
+	result := execution.AttemptResult{
+		StatusCode: http.StatusBadRequest,
+		Body:       bytes.Clone(body),
+		Error:      &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP},
+	}
+
+	normalizeCPAResponsesStoreAttemptResult(spec, &result)
+	if !bytes.Equal(result.Body, body) {
+		t.Fatalf("error body = %s, want unchanged %s", result.Body, body)
+	}
+}
+
+func TestDowngradedResponsesStoreRejectsUnnormalizableSuccess(t *testing.T) {
+	spec := execution.AttemptSpec{ResponsesStoreDowngraded: true}
+	result := execution.AttemptResult{
+		DispatchState:   execution.DispatchMaybeSent,
+		ResponseStarted: true,
+		StatusCode:      http.StatusOK,
+		Body:            []byte(`not-json`),
+	}
+
+	normalizeCPAResponsesStoreAttemptResult(spec, &result)
+	if result.Error == nil || result.Error.Code != "stateless_responses_normalization_failed" ||
+		len(result.Body) != 0 {
+		t.Fatalf("result = %#v, want safe normalization failure", result)
+	}
+}
+
+func TestAdapterNormalizesDowngradedResponsesStoreStream(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(
+		t,
+		credentialJSON("access", "refresh", time.Now().Add(time.Hour)),
+	)
+	chunks := make(chan codex.ExecuteStreamChunk, 5)
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: response.created\n")}
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"store\":true}}\n\n")}
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n")}
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: response.completed\n")}
+	chunks <- codex.ExecuteStreamChunk{Payload: []byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\"}}\n\n")}
+	close(chunks)
+	fake := &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}}
+	setCodexExecutor(t, adapter, fake)
+	spec := validSpec(t, row, keyService)
+	spec.ResponsesStoreDowngraded = true
+	spec.Body = []byte(`{"model":"gpt-5","input":"hello","store":true,"stream":true}`)
+
+	var events []execution.StreamEvent
+	result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+		events = append(events, event.Clone())
+		return nil
+	})
+	if result.Error != nil || fake.calls != 1 {
+		t.Fatalf("result/calls = %+v/%d", result, fake.calls)
+	}
+	if !bytes.Contains(fake.request.Payload, []byte(`"store":false`)) ||
+		!bytes.Equal(fake.request.Payload, fake.request.OriginalRequest) {
+		t.Fatalf("request payload/original = %s / %s", fake.request.Payload, fake.request.OriginalRequest)
+	}
+	var streamed []byte
+	for _, event := range events {
+		if event.Kind == execution.StreamEventData {
+			streamed = append(streamed, event.Data...)
+		}
+	}
+	if bytes.Contains(streamed, []byte(`"store":true`)) ||
+		strings.Count(string(streamed), `"store":false`) != 2 ||
+		!bytes.Contains(streamed, []byte(`"type":"response.output_text.delta","delta":"ok"`)) {
+		t.Fatalf("streamed payload = %s", streamed)
+	}
+}
+
 func TestAdapterStopsBeforeDispatchWhenCredentialPreparationFails(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	preparer := &fakeCredentialPreparer{evidence: &execution.ErrorEvidence{

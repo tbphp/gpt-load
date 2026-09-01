@@ -73,6 +73,17 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 		RouteRequirementNative.Allows(RouteConverted) {
 		t.Fatal("route requirement mode policy is invalid")
 	}
+	for _, preference := range []ResponsesStorePreference{
+		ResponsesStorePreferenceNone,
+		ResponsesStorePreferencePreferStored,
+	} {
+		if !preference.Valid() {
+			t.Fatalf("expected Responses store preference %q to be valid", preference)
+		}
+	}
+	if ResponsesStorePreference("invalid").Valid() {
+		t.Fatal("expected unknown Responses store preference to be invalid")
+	}
 	for _, state := range []DispatchState{DispatchNotSent, DispatchMaybeSent, DispatchLocal} {
 		if !state.Valid() {
 			t.Fatalf("expected dispatch state %q to be valid", state)
@@ -383,6 +394,22 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		{name: "channel", mutate: func(s *AttemptSpec) { s.ChannelID = "" }, field: "channel_id"},
 		{name: "route mode", mutate: func(s *AttemptSpec) { s.RouteMode = RouteMode("fallback") }, field: "route_mode"},
 		{name: "route requirement", mutate: func(s *AttemptSpec) { s.RouteRequirement = RouteRequirement("converted-only") }, field: "route_requirement"},
+		{name: "store downgrade protocol", mutate: func(s *AttemptSpec) {
+			s.ResponsesStoreDowngraded = true
+			s.ClientProtocol = protocol.OpenAICompletions
+		}, field: "responses_store_downgraded"},
+		{name: "store downgrade operation", mutate: func(s *AttemptSpec) {
+			s.ResponsesStoreDowngraded = true
+			s.Operation = OperationChatCompletion
+		}, field: "responses_store_downgraded"},
+		{name: "store downgrade route mode", mutate: func(s *AttemptSpec) {
+			s.ResponsesStoreDowngraded = true
+			s.RouteMode = RouteConverted
+		}, field: "responses_store_downgraded"},
+		{name: "store downgrade native requirement", mutate: func(s *AttemptSpec) {
+			s.ResponsesStoreDowngraded = true
+			s.RouteRequirement = RouteRequirementNative
+		}, field: "responses_store_downgraded"},
 		{name: "protocol", mutate: func(s *AttemptSpec) { s.ClientProtocol = protocol.Protocol("unknown") }, field: "client_protocol"},
 		{name: "operation", mutate: func(s *AttemptSpec) { s.Operation = Operation("unknown") }, field: "operation"},
 		{name: "model", mutate: func(s *AttemptSpec) { s.UpstreamModel = "" }, field: "upstream_model"},

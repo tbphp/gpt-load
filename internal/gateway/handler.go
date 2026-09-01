@@ -539,11 +539,12 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	query := scheduler.Query{
-		ClientProtocol:   selectedRoute.Protocol,
-		Operation:        metadata.Operation,
-		RouteRequirement: metadata.RouteRequirement,
-		ExternalModel:    metadata.Model,
-		AccessKey:        accessKey,
+		ClientProtocol:           selectedRoute.Protocol,
+		Operation:                metadata.Operation,
+		RouteRequirement:         metadata.RouteRequirement,
+		ResponsesStorePreference: metadata.ResponsesStorePreference,
+		ExternalModel:            metadata.Model,
+		AccessKey:                accessKey,
 	}
 	candidateGroupIDs := scheduler.CandidateGroupIDsForQuery(snapshot, query)
 	capturedRefs := handler.registry.CaptureActiveCredentialRefs(candidateGroupIDs)
@@ -995,17 +996,18 @@ func (handler *Handler) executeAttempts(
 			Dialect: selectedDialect, ObserveUsage: observeUsage,
 			Group: selection.Group, APIKey: normalizedCredential.apiKey,
 			CredentialSecrets: normalizedCredential.secrets, Request: parsed,
-			ExternalModel:    externalModel,
-			UpstreamModelID:  optionalModelValue(selection.UpstreamModelID),
-			RequestID:        executionRequestID,
-			AttemptID:        executionRequestID + ":" + strconv.Itoa(attemptSequence),
-			AttemptSequence:  uint32(attemptSequence),
-			ClientProtocol:   selectedDialect.Protocol(),
-			Operation:        operation,
-			RouteRequirement: routeRequirement,
-			ChannelID:        string(selection.ChannelID),
-			RouteMode:        execution.RouteMode(selection.RouteMode),
-			TargetConfig:     selection.ResolvedTarget.TargetConfig,
+			ExternalModel:            externalModel,
+			UpstreamModelID:          optionalModelValue(selection.UpstreamModelID),
+			RequestID:                executionRequestID,
+			AttemptID:                executionRequestID + ":" + strconv.Itoa(attemptSequence),
+			AttemptSequence:          uint32(attemptSequence),
+			ClientProtocol:           selectedDialect.Protocol(),
+			Operation:                operation,
+			RouteRequirement:         routeRequirement,
+			ResponsesStoreDowngraded: selection.ResponsesStoreDowngraded,
+			ChannelID:                string(selection.ChannelID),
+			RouteMode:                execution.RouteMode(selection.RouteMode),
+			TargetConfig:             selection.ResolvedTarget.TargetConfig,
 			Credential: execution.NewCredentialSnapshot(
 				selection.CredentialID,
 				ref.Version,

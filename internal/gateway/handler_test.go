@@ -3513,6 +3513,80 @@ func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 	}
 }
 
+func TestHandlerRoutesStoredResponsesToExplicitNativeFallback(t *testing.T) {
+	for _, body := range []string{
+		`{"model":"gpt","input":"hello","store":true}`,
+		`{"model":"gpt","input":"hello"}`,
+	} {
+		forwarder := &scriptedForwarder{results: []UpstreamResult{{
+			DispatchState: execution.DispatchMaybeSent,
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": {"application/json"}},
+			Body:          []byte(`{"id":"resp_1","object":"response","store":false,"output":[]}`),
+		}}}
+		engine, _, _ := newResponsesStoreHandlerRuntime(t, forwarder, false, false)
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(body))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+
+		if response.Code != http.StatusOK || len(forwarder.inputs) != 1 {
+			t.Fatalf("status/inputs = %d/%d; body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+		}
+		input := forwarder.inputs[0]
+		if input.ChannelID != string(channel.Codex) || input.RouteMode != execution.RouteNative ||
+			!input.ResponsesStoreDowngraded || string(input.Request.Body) != body {
+			t.Fatalf("fallback input = %#v; body=%s", input, input.Request.Body)
+		}
+	}
+}
+
+func TestHandlerKeepsStoredResponsesOnExactTarget(t *testing.T) {
+	for _, body := range []string{
+		`{"model":"gpt","input":"hello","store":true}`,
+		`{"model":"gpt","input":"hello"}`,
+	} {
+		forwarder := &scriptedForwarder{results: []UpstreamResult{{
+			DispatchState: execution.DispatchMaybeSent,
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": {"application/json"}},
+			Body:          []byte(`{"id":"resp_1","object":"response","store":true,"output":[]}`),
+		}}}
+		engine, _, _ := newResponsesStoreHandlerRuntime(t, forwarder, true, true)
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(body))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+
+		if response.Code != http.StatusOK || len(forwarder.inputs) != 1 {
+			t.Fatalf("status/inputs = %d/%d; body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+		}
+		input := forwarder.inputs[0]
+		if input.ChannelID != string(channel.OpenAI) || input.ResponsesStoreDowngraded ||
+			string(input.Request.Body) != body {
+			t.Fatalf("exact input = %#v; body=%s", input, input.Request.Body)
+		}
+	}
+}
+
+func TestHandlerDoesNotChangeStoreSemanticsWhenExactCredentialIsUnavailable(t *testing.T) {
+	forwarder := &scriptedForwarder{}
+	engine, _, _ := newResponsesStoreHandlerRuntime(t, forwarder, true, false)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/responses",
+		bytes.NewBufferString(`{"model":"gpt","input":"hello","store":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable || len(forwarder.inputs) != 0 ||
+		!strings.Contains(response.Body.String(), `"code":"no_available_candidate"`) {
+		t.Fatalf("status/inputs/body = %d/%d/%s", response.Code, len(forwarder.inputs), response.Body.String())
+	}
+}
+
 func TestSubscriptionRateLimitWithoutResetUsesTenMinuteCooldown(t *testing.T) {
 	attemptNow := time.Date(2026, time.August, 21, 10, 0, 0, 0, time.UTC)
 	forwarder := &scriptedForwarder{results: []UpstreamResult{{
@@ -4921,6 +4995,94 @@ func newHandlerTestRuntime(
 ) (*gin.Engine, *state.Manager, *state.CredentialRegistry) {
 	t.Helper()
 	handler, manager, registry := newHandlerForTest(t, forwarder, upstreamKeys...)
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	return engine, manager, registry
+}
+
+func newResponsesStoreHandlerRuntime(
+	t *testing.T,
+	forwarder AttemptForwarder,
+	includeExact bool,
+	includeExactCredential bool,
+) (*gin.Engine, *state.Manager, *state.CredentialRegistry) {
+	t.Helper()
+	handler, manager, registry := newHandlerForTest(t, forwarder)
+	groups := []state.GroupConfig{{
+		ConnectionType: "subscription",
+		ID:             1,
+		Name:           "codex",
+		ChannelID:      channel.Codex,
+		Params:         json.RawMessage(`{}`),
+		Models:         []state.ModelConfig{{ID: "gpt-codex", Alias: "gpt"}},
+		Enabled:        true,
+	}}
+	credentials := []state.CredentialConfig{{
+		ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+		Version: 1, IdentityGeneration: 1, Fingerprint: "codex-account",
+	}}
+	if includeExact {
+		groups = append(groups, state.GroupConfig{
+			ConnectionType: "api_key",
+			ID:             2,
+			Name:           "openai",
+			ChannelID:      channel.OpenAI,
+			Params:         json.RawMessage(`{}`),
+			Models:         []state.ModelConfig{{ID: "gpt-openai", Alias: "gpt"}},
+			Enabled:        true,
+		})
+		credentials = append(credentials, state.CredentialConfig{
+			ID: 2, GroupID: 2, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 2, Fingerprint: "openai-key",
+		})
+	}
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups:          groups,
+		Credentials:     credentials,
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	entries := make([]state.CredentialEntry, 0, 2)
+	for _, value := range []struct {
+		id          uint
+		groupID     uint
+		identity    uint64
+		fingerprint string
+		plaintext   string
+		include     bool
+	}{
+		{
+			id: 1, groupID: 1, identity: 1, fingerprint: "codex-account", include: true,
+			plaintext: `{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account-1"}`,
+		},
+		{
+			id: 2, groupID: 2, identity: 2, fingerprint: "openai-key", include: includeExactCredential,
+			plaintext: `{"api_key":"sk-openai"}`,
+		},
+	} {
+		if !value.include {
+			continue
+		}
+		encrypted, err := handler.encryption.Encrypt(value.plaintext)
+		if err != nil {
+			t.Fatalf("Encrypt() error = %v", err)
+		}
+		entries = append(entries, state.CredentialEntry{
+			ID: value.id, GroupID: value.groupID, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: value.identity, Fingerprint: value.fingerprint,
+			EncryptedValue: encrypted,
+		})
+	}
+	if err := registry.ReplaceCredentials(entries); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
+	}
+	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, manager, registry

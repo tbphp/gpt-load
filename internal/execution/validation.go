@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"gpt-load/internal/protocol"
 )
 
 // Validate validates the credential identity and secret data.
@@ -65,6 +67,13 @@ func (s AttemptSpec) Validate() error {
 	}
 	if !s.RouteRequirement.Valid() {
 		return validationError("route_requirement", "unsupported value")
+	}
+	if s.ResponsesStoreDowngraded &&
+		(s.ClientProtocol != protocol.OpenAIResponses ||
+			s.Operation != OperationResponsesCreate ||
+			s.RouteMode != RouteNative ||
+			s.RouteRequirement.Normalize() != RouteRequirementAny) {
+		return validationError("responses_store_downgraded", "requires a native Responses Create compatibility route")
 	}
 	if operationRequiresModel(s.Operation) {
 		if strings.TrimSpace(s.ClientModel) == "" {

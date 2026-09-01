@@ -77,11 +77,12 @@ type CredentialInspection struct {
 type CredentialRuntimeView = state.CredentialRuntimeView
 
 type targetDecision struct {
-	target        state.RouteTarget
-	group         state.GroupCatalogView
-	requirementOK bool
-	included      bool
-	reason        ReasonCode
+	target                   state.RouteTarget
+	group                    state.GroupCatalogView
+	requirementOK            bool
+	responsesStoreDowngraded bool
+	included                 bool
+	reason                   ReasonCode
 }
 
 func cloneWeight(weight *int) *int {
@@ -116,7 +117,8 @@ func evaluateTargets(
 			return []targetDecision{}, ReasonModelFiltered, nil
 		}
 	}
-	if !query.clientProtocol.Valid() || !query.operation.Valid() || !query.routeRequirement.Valid() {
+	if !query.clientProtocol.Valid() || !query.operation.Valid() ||
+		!query.routeRequirement.Valid() || !query.responsesStorePreference.Valid() {
 		return []targetDecision{}, ReasonOperationUnsupported, nil
 	}
 	byOperation := index[query.clientProtocol]
@@ -139,6 +141,7 @@ func evaluateTargets(
 	decisions := make([]targetDecision, 0, len(routes))
 	seenGroups := make(map[uint]struct{}, len(routes))
 	included := 0
+	includedExact := 0
 	for _, route := range routes {
 		if _, duplicate := seenGroups[route.GroupID]; duplicate {
 			continue
@@ -152,10 +155,11 @@ func evaluateTargets(
 				route.GroupID,
 			)
 		}
-		requirementOK := routeRequirementSatisfied(query, route)
+		requirementOK, storeDowngraded, requirementReason := routeRequirementSatisfied(query, route)
 		decision := targetDecision{
 			target: cloneRouteTarget(route), group: group,
-			requirementOK: requirementOK, included: true,
+			requirementOK: requirementOK, responsesStoreDowngraded: storeDowngraded,
+			included: true,
 		}
 		groupFiltered := false
 		if len(query.accessKey.Filters.Groups) > 0 {
@@ -165,7 +169,7 @@ func evaluateTargets(
 		switch {
 		case !requirementOK:
 			decision.included = false
-			decision.reason = ReasonNativeRouteRequired
+			decision.reason = requirementReason
 		case !group.Enabled:
 			decision.included = false
 			decision.reason = ReasonGroupDisabled
@@ -175,8 +179,22 @@ func evaluateTargets(
 		}
 		if decision.included {
 			included++
+			if !decision.responsesStoreDowngraded {
+				includedExact++
+			}
 		}
 		decisions = append(decisions, decision)
+	}
+	if query.responsesStorePreference == execution.ResponsesStorePreferencePreferStored && includedExact > 0 {
+		for index := range decisions {
+			decision := &decisions[index]
+			if !decision.included || !decision.responsesStoreDowngraded {
+				continue
+			}
+			decision.included = false
+			decision.reason = ReasonOperationUnsupported
+			included--
+		}
 	}
 	if included > 0 {
 		return decisions, "", nil
@@ -190,15 +208,35 @@ func evaluateTargets(
 	return decisions, reason, nil
 }
 
-func routeRequirementSatisfied(query normalizedQuery, route state.RouteTarget) bool {
+func routeRequirementSatisfied(
+	query normalizedQuery,
+	route state.RouteTarget,
+) (bool, bool, ReasonCode) {
 	if !query.routeRequirement.Allows(execution.RouteMode(route.Mode)) {
-		return false
+		return false, false, ReasonNativeRouteRequired
 	}
-	if query.operation != execution.OperationResponsesCreate ||
-		query.routeRequirement.Normalize() != execution.RouteRequirementNative {
-		return true
+	if query.operation != execution.OperationResponsesCreate {
+		return true, false, ""
 	}
-	return route.ResolvedTarget.SupportsResponsesLifecycle()
+	if query.routeRequirement.Normalize() == execution.RouteRequirementNative {
+		if route.ResolvedTarget.SupportsResponsesLifecycle() {
+			return true, false, ""
+		}
+		return false, false, ReasonNativeRouteRequired
+	}
+	if query.responsesStorePreference != execution.ResponsesStorePreferencePreferStored {
+		return true, false, ""
+	}
+	if route.Mode == channel.RouteNative && route.ResolvedTarget.SupportsResponsesLifecycle() {
+		return true, false, ""
+	}
+	if route.Mode == channel.RouteNative && route.ResolvedTarget.ResponsesStoreCompatibility(
+		protocol.OpenAIResponses,
+		execution.OperationResponsesCreate,
+	) == channel.ResponsesStoreCompatibilityStateless {
+		return true, true, ""
+	}
+	return false, false, ReasonOperationUnsupported
 }
 
 func accessKeyAllowsGroup(accessKey state.AccessKeyView, groupID uint) bool {

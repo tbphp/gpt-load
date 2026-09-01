@@ -101,6 +101,81 @@ func TestCompilerRejectsOpenAIResponsesModelListRoute(t *testing.T) {
 	}
 }
 
+func TestCompilerValidatesExplicitResponsesStoreCompatibility(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		clientProtocol protocol.Protocol
+		operation      execution.Operation
+		mode           execution.RouteMode
+		compatibility  spec.ResponsesStoreCompatibility
+		wantError      bool
+	}{
+		{
+			name:           "native Responses create stateless",
+			clientProtocol: protocol.OpenAIResponses,
+			operation:      execution.OperationResponsesCreate,
+			mode:           execution.RouteNative,
+			compatibility:  spec.ResponsesStoreCompatibilityStateless,
+		},
+		{
+			name:           "converted Responses create",
+			clientProtocol: protocol.OpenAIResponses,
+			operation:      execution.OperationResponsesCreate,
+			mode:           execution.RouteConverted,
+			compatibility:  spec.ResponsesStoreCompatibilityStateless,
+			wantError:      true,
+		},
+		{
+			name:           "non Responses operation",
+			clientProtocol: protocol.OpenAICompletions,
+			operation:      execution.OperationChatCompletion,
+			mode:           execution.RouteNative,
+			compatibility:  spec.ResponsesStoreCompatibilityStateless,
+			wantError:      true,
+		},
+		{
+			name:           "unknown compatibility",
+			clientProtocol: protocol.OpenAIResponses,
+			operation:      execution.OperationResponsesCreate,
+			mode:           execution.RouteNative,
+			compatibility:  spec.ResponsesStoreCompatibility("unknown"),
+			wantError:      true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			module := findModule(t, builtInModules(), Codex)
+			module.Definition.Routes = []spec.Route{{
+				ClientProtocol:              test.clientProtocol,
+				Operation:                   test.operation,
+				Mode:                        test.mode,
+				ResponsesStoreCompatibility: test.compatibility,
+			}}
+			definitions, err := compileBuiltInModules([]spec.Module{module})
+			if test.wantError {
+				if err == nil {
+					t.Fatal("compileBuiltInModules() error = nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("compileBuiltInModules() error = %v", err)
+			}
+			key := routeKey{
+				clientProtocol: protocol.OpenAIResponses,
+				operation:      execution.OperationResponsesCreate,
+			}
+			if got := definitions[0].responsesStoreCompatibilities[key]; got != ResponsesStoreCompatibilityStateless {
+				t.Fatalf("compiled compatibility = %q", got)
+			}
+		})
+	}
+}
+
 func TestValidProtocolOperationOpenAIImagesMatrix(t *testing.T) {
 	t.Parallel()
 

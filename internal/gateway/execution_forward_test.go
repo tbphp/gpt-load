@@ -1520,6 +1520,19 @@ func TestNewExecutionAttemptSpecKeepsContinuityPrivate(t *testing.T) {
 	}
 }
 
+func TestNewExecutionAttemptSpecCarriesResponsesStoreDowngrade(t *testing.T) {
+	input := responsesExecutionForwardInput()
+	input.RouteRequirement = execution.RouteRequirementAny
+	input.ResponsesStoreDowngraded = true
+	spec, err := newExecutionAttemptSpec(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spec.ResponsesStoreDowngraded {
+		t.Fatal("ResponsesStoreDowngraded = false, want true")
+	}
+}
+
 func responsesExecutionForwardInput() ForwardInput {
 	input := executionForwardInput()
 	input.Dialect = dialect.NewOpenAIResponses()
