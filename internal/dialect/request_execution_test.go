@@ -411,6 +411,11 @@ func TestResponsesCreateClassifiesStorePreferenceWithoutWeakeningNativeResources
 			body:             `{"model":"gpt-5","input":[{"type":"item_reference","id":"item_123"}]}`,
 			routeRequirement: execution.RouteRequirementNative,
 		},
+		{
+			name:             "stored prompt outranks omitted store",
+			body:             `{"model":"gpt-5","prompt":{"id":"pmpt_123"}}`,
+			routeRequirement: execution.RouteRequirementNative,
+		},
 	}
 
 	for _, test := range tests {

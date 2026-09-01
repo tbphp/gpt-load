@@ -5,34 +5,65 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"unicode/utf8"
 
 	"gpt-load/internal/execution"
 )
 
+const maxResponsesStoreRewriteGrowthBytes = 64
+
 func forceStatelessResponsesPayload(payload []byte) ([]byte, error) {
-	object, err := decodeResponsesJSONObject(payload)
-	if err != nil {
-		return nil, fmt.Errorf("normalize stateless Responses request: %w", err)
-	}
-	object["store"] = json.RawMessage("false")
-	return json.Marshal(object)
+	return forceStatelessResponsesJSONObject(payload, "request")
 }
 
 func forceStatelessResponsesBody(body []byte) ([]byte, error) {
-	object, err := decodeResponsesJSONObject(body)
+	return forceStatelessResponsesJSONObject(body, "response")
+}
+
+func forceStatelessResponsesJSONObject(payload []byte, kind string) ([]byte, error) {
+	object, err := decodeResponsesJSONObject(payload)
 	if err != nil {
-		return nil, fmt.Errorf("normalize stateless Responses response: %w", err)
+		return nil, fmt.Errorf("normalize stateless Responses %s: %w", kind, err)
 	}
 	object["store"] = json.RawMessage("false")
-	return json.Marshal(object)
+	encoded, err := encodeResponsesJSONObject(object, len(payload))
+	if err != nil {
+		return nil, fmt.Errorf("normalize stateless Responses %s: %w", kind, err)
+	}
+	return encoded, nil
 }
 
 func decodeResponsesJSONObject(payload []byte) (map[string]json.RawMessage, error) {
+	if !utf8.Valid(payload) {
+		return nil, fmt.Errorf("body must be valid UTF-8")
+	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
 		return nil, fmt.Errorf("body must be a JSON object")
 	}
 	return object, nil
+}
+
+func encodeResponsesJSONObject(
+	object map[string]json.RawMessage,
+	sourceSize int,
+) ([]byte, error) {
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(object); err != nil {
+		return nil, fmt.Errorf("encode JSON object: %w", err)
+	}
+	encoded := output.Bytes()
+	if len(encoded) == 0 || encoded[len(encoded)-1] != '\n' {
+		return nil, fmt.Errorf("encoded JSON object has no terminator")
+	}
+	encoded = encoded[:len(encoded)-1]
+	if len(encoded) > sourceSize &&
+		len(encoded)-sourceSize > maxResponsesStoreRewriteGrowthBytes {
+		return nil, fmt.Errorf("encoded JSON object exceeds rewrite growth limit")
+	}
+	return encoded, nil
 }
 
 func normalizeCPAResponsesStoreAttemptResult(
@@ -93,11 +124,11 @@ func forceStatelessResponsesSSEEvent(event []byte) ([]byte, error) {
 		return nil, fmt.Errorf("decode Responses SSE response: %w", err)
 	}
 	response["store"] = json.RawMessage("false")
-	object["response"], err = json.Marshal(response)
+	object["response"], err = encodeResponsesJSONObject(response, len(rawResponse))
 	if err != nil {
 		return nil, fmt.Errorf("encode Responses SSE response: %w", err)
 	}
-	rewritten, err := json.Marshal(object)
+	rewritten, err := encodeResponsesJSONObject(object, len(payload))
 	if err != nil {
 		return nil, fmt.Errorf("encode Responses SSE payload: %w", err)
 	}
@@ -116,6 +147,9 @@ func forceStatelessResponsesSSEEvent(event []byte) ([]byte, error) {
 			_, _ = output.Write(line.content)
 			_, _ = output.Write(line.terminator)
 		}
+	}
+	if output.Len() > maxSubscriptionSSEEventBytes {
+		return nil, fmt.Errorf("rewritten Responses SSE event exceeds limit")
 	}
 	return output.Bytes(), nil
 }

@@ -241,6 +241,57 @@ func TestAdapterNormalizesDowngradedResponsesStoreUnary(t *testing.T) {
 	}
 }
 
+func TestStatelessResponsesStoreRewriteDoesNotEscapeHTML(t *testing.T) {
+	source := []byte(`{"input":"<tag>&","store":true}`)
+	for name, rewrite := range map[string]func([]byte) ([]byte, error){
+		"request":  forceStatelessResponsesPayload,
+		"response": forceStatelessResponsesBody,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rewritten, err := rewrite(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(rewritten, []byte(`<tag>&`)) ||
+				bytes.Contains(rewritten, []byte(`\u003c`)) ||
+				len(rewritten) > len(source)+64 {
+				t.Fatalf("rewritten = %s", rewritten)
+			}
+		})
+	}
+
+	event := []byte("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"output_text\":\"<tag>&\"}}\n\n")
+	rewritten, err := forceStatelessResponsesSSEEvent(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(rewritten, []byte(`<tag>&`)) ||
+		bytes.Contains(rewritten, []byte(`\u003c`)) ||
+		len(rewritten) > len(event)+64 {
+		t.Fatalf("rewritten event = %s", rewritten)
+	}
+}
+
+func TestStatelessResponsesStoreRewriteKeepsSSEEventLimit(t *testing.T) {
+	prefix := []byte(`data: {"type":"response.completed","response":{"output_text":"`)
+	suffix := []byte("\"}}\n\n")
+	paddingSize := maxSubscriptionSSEEventBytes - len(prefix) - len(suffix)
+	if paddingSize <= 0 {
+		t.Fatal("invalid SSE test fixture")
+	}
+	event := make([]byte, 0, maxSubscriptionSSEEventBytes)
+	event = append(event, prefix...)
+	event = append(event, bytes.Repeat([]byte{'x'}, paddingSize)...)
+	event = append(event, suffix...)
+	if len(event) != maxSubscriptionSSEEventBytes {
+		t.Fatalf("event size = %d", len(event))
+	}
+
+	if _, err := forceStatelessResponsesSSEEvent(event); err == nil {
+		t.Fatal("forceStatelessResponsesSSEEvent() accepted an oversized rewritten event")
+	}
+}
+
 func TestAdapterLeavesNonDowngradedResponsesStoreUnchanged(t *testing.T) {
 	adapter, _, _, keyService, row := newAdapterFixture(
 		t,

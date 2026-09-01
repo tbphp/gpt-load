@@ -116,7 +116,8 @@ func responsesCreateRequirements(
 		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
 	if hasMeaningfulField(root, "previous_response_id") ||
-		hasMeaningfulField(root, "conversation") {
+		hasMeaningfulField(root, "conversation") ||
+		responsesPromptReferencesProviderResource(root["prompt"]) {
 		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
 	if background, ok := root["background"].(bool); ok && background {
@@ -141,6 +142,11 @@ func responsesCreateRequirements(
 		return execution.RouteRequirementAny, execution.ResponsesStorePreferencePreferStored
 	}
 	return execution.RouteRequirementAny, execution.ResponsesStorePreferenceNone
+}
+
+func responsesPromptReferencesProviderResource(value any) bool {
+	prompt, ok := value.(map[string]any)
+	return ok && hasMeaningfulField(prompt, "id")
 }
 
 func chatRequiresNativeRoute(clientProtocol protocol.Protocol, body []byte) bool {
