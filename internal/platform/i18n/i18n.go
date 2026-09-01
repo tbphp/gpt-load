@@ -3,7 +3,6 @@ package i18n
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"gpt-load/internal/platform/i18n/locales"
 
@@ -74,49 +73,33 @@ func parseAcceptLanguage(acceptLang string) []string {
 		return nil
 	}
 
-	// 简单解析，只取第一个语言
-	parts := strings.Split(acceptLang, ",")
-	if len(parts) > 0 {
-		lang := strings.TrimSpace(parts[0])
-		// 移除质量因子 (q=...)
-		if idx := strings.Index(lang, ";"); idx > 0 {
-			lang = lang[:idx]
-		}
-
-		// 标准化语言代码
-		lang = normalizeLanguageCode(lang)
-		return []string{lang}
+	tags, _, err := language.ParseAcceptLanguage(acceptLang)
+	if err != nil {
+		return nil
 	}
 
-	return nil
-}
-
-// normalizeLanguageCode 标准化语言代码
-func normalizeLanguageCode(lang string) string {
-	lang = strings.TrimSpace(lang)
-
-	// 映射常见的语言代码
-	switch strings.ToLower(lang) {
-	case "zh", "zh-cn", "zh-hans":
-		return "zh-CN"
-	case "en", "en-us":
-		return "en-US"
-	case "ja", "ja-jp":
-		return "ja-JP"
-	default:
-		// 尝试匹配前缀
-		if strings.HasPrefix(strings.ToLower(lang), "zh") {
-			return "zh-CN"
+	seen := make(map[string]struct{}, len(tags))
+	result := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		base, _ := tag.Base()
+		var supported string
+		switch base.String() {
+		case "zh":
+			supported = "zh-CN"
+		case "en":
+			supported = "en-US"
+		case "ja":
+			supported = "ja-JP"
+		default:
+			continue
 		}
-		if strings.HasPrefix(strings.ToLower(lang), "en") {
-			return "en-US"
+		if _, exists := seen[supported]; exists {
+			continue
 		}
-		if strings.HasPrefix(strings.ToLower(lang), "ja") {
-			return "ja-JP"
-		}
-		// 默认返回中文
-		return "zh-CN"
+		seen[supported] = struct{}{}
+		result = append(result, supported)
 	}
+	return result
 }
 
 // T 翻译消息

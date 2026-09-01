@@ -121,6 +121,22 @@ func TestUnsupportedLanguageFallsBackToChinese(t *testing.T) {
 	}
 }
 
+func TestMiddlewareUsesSupportedAcceptLanguageFallback(t *testing.T) {
+	if err := Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(nil)
+	context.Request = httptest.NewRequest("GET", "/", nil)
+	context.Request.Header.Set("Accept-Language", "fr-FR, en-US;q=0.9")
+	Middleware()(context)
+
+	if got := Message(context, "bad_request"); got != "Bad request" {
+		t.Fatalf("Message() = %q, want %q", got, "Bad request")
+	}
+}
+
 func TestMessageWithoutLocalizerUsesChinese(t *testing.T) {
 	if err := Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)
