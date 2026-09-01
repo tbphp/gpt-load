@@ -146,6 +146,20 @@ func (r RouteRequirement) Allows(mode RouteMode) bool {
 	return r.Normalize() == RouteRequirementAny || mode == RouteNative
 }
 
+// ResponsesStorePreference records the one Responses Create storage intent
+// that may use an explicitly declared stateless compatibility route.
+type ResponsesStorePreference string
+
+const (
+	ResponsesStorePreferenceNone         ResponsesStorePreference = ""
+	ResponsesStorePreferencePreferStored ResponsesStorePreference = "prefer_stored"
+)
+
+// Valid reports whether the Responses storage preference is recognized.
+func (p ResponsesStorePreference) Valid() bool {
+	return p == ResponsesStorePreferenceNone || p == ResponsesStorePreferencePreferStored
+}
+
 // CredentialSnapshot is the exact logical credential selected for an attempt.
 // Secret data is private and is never included in JSON.
 type CredentialSnapshot struct {
@@ -202,19 +216,20 @@ type AttemptTimeouts struct {
 // NewAttemptSpec or Clone must be used at ownership boundaries because Query,
 // Header, Body, TargetConfig, and Credential contain reference-backed values.
 type AttemptSpec struct {
-	RequestID        string            `json:"request_id"`
-	AttemptID        string            `json:"attempt_id"`
-	Sequence         uint32            `json:"sequence"`
-	ChannelID        string            `json:"channel_id"`
-	RouteMode        RouteMode         `json:"route_mode"`
-	ClientProtocol   protocol.Protocol `json:"client_protocol"`
-	Operation        Operation         `json:"operation"`
-	RouteRequirement RouteRequirement  `json:"route_requirement"`
-	ClientModel      string            `json:"client_model,omitempty"`
-	UpstreamModel    string            `json:"upstream_model,omitempty"`
-	Method           string            `json:"method"`
-	Path             string            `json:"path"`
-	Query            url.Values        `json:"query,omitempty"`
+	RequestID                string            `json:"request_id"`
+	AttemptID                string            `json:"attempt_id"`
+	Sequence                 uint32            `json:"sequence"`
+	ChannelID                string            `json:"channel_id"`
+	RouteMode                RouteMode         `json:"route_mode"`
+	ClientProtocol           protocol.Protocol `json:"client_protocol"`
+	Operation                Operation         `json:"operation"`
+	RouteRequirement         RouteRequirement  `json:"route_requirement"`
+	ResponsesStoreDowngraded bool              `json:"responses_store_downgraded,omitempty"`
+	ClientModel              string            `json:"client_model,omitempty"`
+	UpstreamModel            string            `json:"upstream_model,omitempty"`
+	Method                   string            `json:"method"`
+	Path                     string            `json:"path"`
+	Query                    url.Values        `json:"query,omitempty"`
 	// RawQuery preserves the original query bytes when exact forwarding matters.
 	// It is mutually exclusive with Query and intentionally is not URL-decoded.
 	RawQuery string      `json:"raw_query,omitempty"`

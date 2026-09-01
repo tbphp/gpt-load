@@ -37,18 +37,19 @@ type ForwardInput struct {
 	OnStreamReady     func()
 	OnFirstResponse   func()
 
-	RequestID        string
-	AttemptID        string
-	AttemptSequence  uint32
-	ClientProtocol   protocol.Protocol
-	Operation        execution.Operation
-	RouteRequirement execution.RouteRequirement
-	ChannelID        string
-	RouteMode        execution.RouteMode
-	TargetConfig     json.RawMessage
-	Credential       execution.CredentialSnapshot
-	Proxy            outboundproxy.Effective
-	ProxyFingerprint string
+	RequestID                string
+	AttemptID                string
+	AttemptSequence          uint32
+	ClientProtocol           protocol.Protocol
+	Operation                execution.Operation
+	RouteRequirement         execution.RouteRequirement
+	ResponsesStoreDowngraded bool
+	ChannelID                string
+	RouteMode                execution.RouteMode
+	TargetConfig             json.RawMessage
+	Credential               execution.CredentialSnapshot
+	Proxy                    outboundproxy.Effective
+	ProxyFingerprint         string
 	// ForceCredentialRefresh preserves one explicit provider-auth retry as a
 	// globally counted Attempt on the same selected credential.
 	ForceCredentialRefresh bool

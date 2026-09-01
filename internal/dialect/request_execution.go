@@ -21,7 +21,11 @@ func chatExecutionMetadata(
 
 func responsesExecutionMetadata(
 	request *ParsedRequest,
-) (execution.Operation, execution.RouteRequirement) {
+) (
+	execution.Operation,
+	execution.RouteRequirement,
+	execution.ResponsesStorePreference,
+) {
 	operation := responsesOperation(request)
 	nativeResource := operation == execution.OperationResponsesRetrieve ||
 		operation == execution.OperationResponsesDelete ||
@@ -29,9 +33,10 @@ func responsesExecutionMetadata(
 		operation == execution.OperationResponsesInputItems ||
 		operation == execution.OperationResponsesPassthrough
 	if operation == execution.OperationResponsesCreate {
-		nativeResource = responsesCreateRequiresNativeRoute(request.Body)
+		routeRequirement, storePreference := responsesCreateRequirements(request.Body)
+		return operation, routeRequirement, storePreference
 	}
-	return operation, routeRequirement(nativeResource)
+	return operation, routeRequirement(nativeResource), execution.ResponsesStorePreferenceNone
 }
 
 func routeRequirement(native bool) execution.RouteRequirement {
@@ -103,28 +108,45 @@ func hasMeaningfulField(object map[string]any, field string) bool {
 	}
 }
 
-func responsesCreateRequiresNativeRoute(body []byte) bool {
+func responsesCreateRequirements(
+	body []byte,
+) (execution.RouteRequirement, execution.ResponsesStorePreference) {
 	root, ok := decodeExecutionFeatureObject(body)
 	if !ok {
-		return true
+		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
 	if hasMeaningfulField(root, "previous_response_id") ||
-		hasMeaningfulField(root, "conversation") {
-		return true
+		hasMeaningfulField(root, "conversation") ||
+		responsesPromptReferencesProviderResource(root["prompt"]) {
+		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
 	if background, ok := root["background"].(bool); ok && background {
-		return true
+		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
 	if responsesInputReferencesProviderResource(root["input"]) ||
 		responsesToolsReferenceProviderResource(root["tools"]) {
-		return true
+		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
 	value, exists := root["store"]
-	if !exists || value == nil {
-		return true
+	if !exists {
+		return execution.RouteRequirementAny, execution.ResponsesStorePreferencePreferStored
+	}
+	if value == nil {
+		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
 	store, ok := value.(bool)
-	return !ok || store
+	if !ok {
+		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
+	}
+	if store {
+		return execution.RouteRequirementAny, execution.ResponsesStorePreferencePreferStored
+	}
+	return execution.RouteRequirementAny, execution.ResponsesStorePreferenceNone
+}
+
+func responsesPromptReferencesProviderResource(value any) bool {
+	prompt, ok := value.(map[string]any)
+	return ok && hasMeaningfulField(prompt, "id")
 }
 
 func chatRequiresNativeRoute(clientProtocol protocol.Protocol, body []byte) bool {

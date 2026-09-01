@@ -227,13 +227,29 @@ type UtilityID ExtensionID
 // ActionID selects one explicitly supported credential/account action.
 type ActionID ExtensionID
 
+// ResponsesStoreCompatibility declares one explicitly verified stateless
+// fallback for a native Responses Create route.
+type ResponsesStoreCompatibility string
+
+const (
+	ResponsesStoreCompatibilityNone      ResponsesStoreCompatibility = ""
+	ResponsesStoreCompatibilityStateless ResponsesStoreCompatibility = "stateless"
+)
+
+// Valid reports whether the Responses store compatibility is recognized.
+func (compatibility ResponsesStoreCompatibility) Valid() bool {
+	return compatibility == ResponsesStoreCompatibilityNone ||
+		compatibility == ResponsesStoreCompatibilityStateless
+}
+
 // Route is one explicit channel execution capability.
 type Route struct {
-	ClientProtocol protocol.Protocol
-	Operation      execution.Operation
-	Mode           execution.RouteMode
-	Resolver       RouteResolverID
-	PossibleModes  []execution.RouteMode
+	ClientProtocol              protocol.Protocol
+	Operation                   execution.Operation
+	Mode                        execution.RouteMode
+	ResponsesStoreCompatibility ResponsesStoreCompatibility
+	Resolver                    RouteResolverID
+	PossibleModes               []execution.RouteMode
 }
 
 // NewRoute constructs one explicit static route declaration.

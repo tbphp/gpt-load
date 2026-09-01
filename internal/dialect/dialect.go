@@ -19,15 +19,16 @@ type ParsedRequest struct {
 }
 
 type RequestMetadata struct {
-	Model            *string
-	Stream           bool
-	AffinityPrefix   []byte
-	Operation        execution.Operation
-	RouteRequirement execution.RouteRequirement
-	ObserveUsage     bool
-	PricingMode      pricing.Mode
-	UsageDiagnostics usage.Diagnostics
-	Reasoning        reasoning.Config
+	Model                    *string
+	Stream                   bool
+	AffinityPrefix           []byte
+	Operation                execution.Operation
+	RouteRequirement         execution.RouteRequirement
+	ResponsesStorePreference execution.ResponsesStorePreference
+	ObserveUsage             bool
+	PricingMode              pricing.Mode
+	UsageDiagnostics         usage.Diagnostics
+	Reasoning                reasoning.Config
 }
 
 type Dialect interface {

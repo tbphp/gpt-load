@@ -19,28 +19,31 @@ type CredentialSource interface {
 }
 
 type Query struct {
-	ClientProtocol        protocol.Protocol
-	Operation             execution.Operation
-	RouteRequirement      execution.RouteRequirement
-	ExternalModel         *string
-	AccessKey             state.AccessKeyView
-	AllowedCredentialIDs  map[uint]struct{}
-	PreferredCredentialID uint
+	ClientProtocol           protocol.Protocol
+	Operation                execution.Operation
+	RouteRequirement         execution.RouteRequirement
+	ResponsesStorePreference execution.ResponsesStorePreference
+	ExternalModel            *string
+	AccessKey                state.AccessKeyView
+	AllowedCredentialIDs     map[uint]struct{}
+	PreferredCredentialID    uint
 }
 
 type Selection struct {
-	CredentialID    uint
-	GroupID         uint
-	ChannelID       channel.ID
-	ResolvedTarget  channel.ResolvedTarget
-	RouteMode       channel.RouteMode
-	UpstreamModelID *string
-	Group           state.GroupView
+	CredentialID             uint
+	GroupID                  uint
+	ChannelID                channel.ID
+	ResolvedTarget           channel.ResolvedTarget
+	RouteMode                channel.RouteMode
+	UpstreamModelID          *string
+	Group                    state.GroupView
+	ResponsesStoreDowngraded bool
 }
 
 type candidateTarget struct {
-	target state.RouteTarget
-	group  state.GroupView
+	target                   state.RouteTarget
+	group                    state.GroupView
+	responsesStoreDowngraded bool
 }
 
 type weightedCredential struct {
@@ -62,12 +65,13 @@ type Iterator struct {
 }
 
 type normalizedQuery struct {
-	clientProtocol       protocol.Protocol
-	operation            execution.Operation
-	routeRequirement     execution.RouteRequirement
-	externalModel        *string
-	accessKey            state.AccessKeyView
-	allowedCredentialIDs map[uint]struct{}
+	clientProtocol           protocol.Protocol
+	operation                execution.Operation
+	routeRequirement         execution.RouteRequirement
+	responsesStorePreference execution.ResponsesStorePreference
+	externalModel            *string
+	accessKey                state.AccessKeyView
+	allowedCredentialIDs     map[uint]struct{}
 }
 
 func New(snapshot *state.ConfigSnapshot, credentials CredentialSource, query Query, random *rand.Rand) *Iterator {
@@ -272,8 +276,9 @@ func filterTargetsWithReason(
 			continue
 		}
 		targets = append(targets, candidateTarget{
-			target: cloneRouteTarget(decision.target),
-			group:  group,
+			target:                   cloneRouteTarget(decision.target),
+			group:                    group,
+			responsesStoreDowngraded: decision.responsesStoreDowngraded,
 		})
 	}
 	return targets, staticReason
@@ -297,12 +302,13 @@ func normalizeQuery(query Query) normalizedQuery {
 		}
 	}
 	return normalizedQuery{
-		clientProtocol:       clientProtocol,
-		operation:            operation,
-		routeRequirement:     query.RouteRequirement.Normalize(),
-		externalModel:        cloneString(query.ExternalModel),
-		accessKey:            query.AccessKey,
-		allowedCredentialIDs: cloneAllowedCredentialIDs(query),
+		clientProtocol:           clientProtocol,
+		operation:                operation,
+		routeRequirement:         query.RouteRequirement.Normalize(),
+		responsesStorePreference: query.ResponsesStorePreference,
+		externalModel:            cloneString(query.ExternalModel),
+		accessKey:                query.AccessKey,
+		allowedCredentialIDs:     cloneAllowedCredentialIDs(query),
 	}
 }
 
@@ -311,13 +317,14 @@ func newSelection(credential state.CredentialMeta, target candidateTarget) Selec
 	resolvedTarget := target.target.ResolvedTarget
 	resolvedTarget.TargetConfig = append([]byte(nil), resolvedTarget.TargetConfig...)
 	return Selection{
-		CredentialID:    credential.ID,
-		GroupID:         credential.GroupID,
-		ChannelID:       resolvedTarget.ChannelID,
-		ResolvedTarget:  resolvedTarget,
-		RouteMode:       target.target.Mode,
-		UpstreamModelID: upstreamModelID,
-		Group:           cloneGroupView(target.group),
+		CredentialID:             credential.ID,
+		GroupID:                  credential.GroupID,
+		ChannelID:                resolvedTarget.ChannelID,
+		ResolvedTarget:           resolvedTarget,
+		RouteMode:                target.target.Mode,
+		UpstreamModelID:          upstreamModelID,
+		Group:                    cloneGroupView(target.group),
+		ResponsesStoreDowngraded: target.responsesStoreDowngraded,
 	}
 }
 

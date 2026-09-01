@@ -282,6 +282,150 @@ func TestStatefulResponsesCreateRequiresLifecycleTargetEvenWhenWireIsNative(t *t
 	}
 }
 
+func TestResponsesStorePreferenceKeepsTheWholeRequestOnExactTargets(t *testing.T) {
+	t.Parallel()
+
+	snapshot := responsesStoreSchedulerSnapshot(t, true)
+	query := Query{
+		ClientProtocol:           protocol.OpenAIResponses,
+		Operation:                execution.OperationResponsesCreate,
+		ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored,
+		ExternalModel:            modelPointer("gpt"),
+		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}
+	if got := CandidateGroupIDsForQuery(snapshot, query); !slices.Equal(got, []uint{2}) {
+		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want exact OpenAI [2]", got)
+	}
+
+	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
+		{ID: 11, GroupID: 1},
+		{ID: 21, GroupID: 2},
+		{ID: 31, GroupID: 3},
+		{ID: 41, GroupID: 4},
+	}}, query, rand.New(zeroRandSource{}))
+	selection, err := iterator.Next()
+	if err != nil || selection.GroupID != 2 || selection.ChannelID != channel.OpenAI ||
+		selection.ResponsesStoreDowngraded {
+		t.Fatalf("Next() = (%#v, %v), want exact OpenAI", selection, err)
+	}
+	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("second Next() error = %v, want exact pool exhaustion", err)
+	}
+}
+
+func TestResponsesStorePreferenceUsesOnlyExplicitNativeFallback(t *testing.T) {
+	t.Parallel()
+
+	snapshot := responsesStoreSchedulerSnapshot(t, false)
+	query := Query{
+		ClientProtocol:           protocol.OpenAIResponses,
+		Operation:                execution.OperationResponsesCreate,
+		ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored,
+		ExternalModel:            modelPointer("gpt"),
+		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}
+	if got := CandidateGroupIDsForQuery(snapshot, query); !slices.Equal(got, []uint{1}) {
+		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want verified Codex fallback [1]", got)
+	}
+
+	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
+		{ID: 11, GroupID: 1},
+		{ID: 31, GroupID: 3},
+		{ID: 41, GroupID: 4},
+	}}, query, rand.New(zeroRandSource{}))
+	selection, err := iterator.Next()
+	if err != nil || selection.GroupID != 1 || selection.ChannelID != channel.Codex ||
+		selection.RouteMode != channel.RouteNative || !selection.ResponsesStoreDowngraded {
+		t.Fatalf("Next() = (%#v, %v), want native Codex store fallback", selection, err)
+	}
+	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("second Next() error = %v, want fallback pool exhaustion", err)
+	}
+
+	filteredQuery := query
+	filteredQuery.AccessKey.Filters.Groups = map[uint]struct{}{3: {}, 4: {}}
+	if got := CandidateGroupIDsForQuery(snapshot, filteredQuery); len(got) != 0 {
+		t.Fatalf("filtered CandidateGroupIDsForQuery() = %#v, want no unauthorized fallback", got)
+	}
+}
+
+func TestResponsesStorePreferenceAllowsVerifiedGrokFallback(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ConnectionType: "subscription",
+			ID:             5,
+			Name:           "grok",
+			ChannelID:      channel.Grok,
+			Params:         json.RawMessage(`{}`),
+			Enabled:        true,
+			Models:         []state.ModelConfig{{ID: "grok-upstream", Alias: "gpt"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	query := Query{
+		ClientProtocol:           protocol.OpenAIResponses,
+		Operation:                execution.OperationResponsesCreate,
+		ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored,
+		ExternalModel:            modelPointer("gpt"),
+		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}
+	selection, err := New(
+		snapshot,
+		fakeCredentialSource{keys: []state.CredentialMeta{{ID: 51, GroupID: 5}}},
+		query,
+		rand.New(zeroRandSource{}),
+	).Next()
+	if err != nil || selection.ChannelID != channel.Grok || !selection.ResponsesStoreDowngraded {
+		t.Fatalf("Next() = (%#v, %v), want Grok store fallback", selection, err)
+	}
+}
+
+func TestResponsesStorePreferenceDoesNotFallbackWhenExactTargetLacksCredentials(t *testing.T) {
+	t.Parallel()
+
+	iterator := New(
+		responsesStoreSchedulerSnapshot(t, true),
+		fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1}}},
+		Query{
+			ClientProtocol:           protocol.OpenAIResponses,
+			Operation:                execution.OperationResponsesCreate,
+			ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored,
+			ExternalModel:            modelPointer("gpt"),
+			AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
+		},
+		rand.New(zeroRandSource{}),
+	)
+	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("Next() error = %v, want exact pool exhaustion without semantic fallback", err)
+	}
+}
+
+func TestResponsesStorePreferenceRequiresNativeCreateForExactTarget(t *testing.T) {
+	t.Parallel()
+
+	target, err := channel.NewRegistry().Resolve(channel.OpenAI, nil)
+	if err != nil {
+		t.Fatalf("Resolve(openai) error = %v", err)
+	}
+	matched, downgraded, reason := routeRequirementSatisfied(
+		normalizedQuery{
+			clientProtocol:           protocol.OpenAIResponses,
+			operation:                execution.OperationResponsesCreate,
+			routeRequirement:         execution.RouteRequirementAny,
+			responsesStorePreference: execution.ResponsesStorePreferencePreferStored,
+		},
+		state.RouteTarget{Mode: channel.RouteConverted, ResolvedTarget: target},
+	)
+	if matched || downgraded || reason != ReasonOperationUnsupported {
+		t.Fatalf("routeRequirementSatisfied() = (%t, %t, %q), want converted create rejected", matched, downgraded, reason)
+	}
+}
+
 func TestOpenRouterRoutesResponsesWithReasoningOptOut(t *testing.T) {
 	t.Parallel()
 
@@ -469,6 +613,39 @@ func channelSchedulerSnapshot(t *testing.T) *state.ConfigSnapshot {
 				Models: []state.ModelConfig{{ID: "native-model", Alias: "public"}}, Enabled: true,
 			},
 		},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	return snapshot
+}
+
+func responsesStoreSchedulerSnapshot(t *testing.T, includeExact bool) *state.ConfigSnapshot {
+	t.Helper()
+	groups := []state.GroupConfig{
+		{ConnectionType: "subscription", ID: 1, Name: "codex", ChannelID: channel.Codex,
+			Params: json.RawMessage(`{}`), Enabled: true,
+			Models: []state.ModelConfig{{ID: "gpt-codex", Alias: "gpt"}},
+		},
+		{ConnectionType: "api_key", ID: 3, Name: "converted", ChannelID: channel.Anthropic,
+			Params: json.RawMessage(`{}`), Enabled: true,
+			Models: []state.ModelConfig{{ID: "claude", Alias: "gpt"}},
+		},
+		{ConnectionType: "api_key", ID: 4, Name: "unverified-native", ChannelID: channel.OpenRouter,
+			Params: json.RawMessage(`{}`), Enabled: true,
+			Models: []state.ModelConfig{{ID: "openai/gpt", Alias: "gpt"}},
+		},
+	}
+	if includeExact {
+		groups = append(groups, state.GroupConfig{
+			ConnectionType: "api_key", ID: 2, Name: "openai", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Enabled: true,
+			Models: []state.ModelConfig{{ID: "gpt-openai", Alias: "gpt"}},
+		})
+	}
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups:          groups,
 	})
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)

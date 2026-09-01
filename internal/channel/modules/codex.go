@@ -40,7 +40,12 @@ func Codex() spec.Module {
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesGenerate, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesEdit, execution.RouteNative),
-				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteNative),
+				{
+					ClientProtocol:              protocol.OpenAIResponses,
+					Operation:                   execution.OperationResponsesCreate,
+					Mode:                        execution.RouteNative,
+					ResponsesStoreCompatibility: spec.ResponsesStoreCompatibilityStateless,
+				},
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesInputTokens, execution.RouteNative),
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.Anthropic, execution.OperationCountTokens, execution.RouteConverted),

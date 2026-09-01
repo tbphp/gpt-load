@@ -328,7 +328,7 @@ func TestOpenAIResponsesInspectRequestIdentifiesLifecycleOperations(t *testing.T
 		model       string
 		requirement execution.RouteRequirement
 	}{
-		{name: "create", method: http.MethodPost, path: "/v1/responses", body: `{"model":"gpt-5"}`, operation: execution.OperationResponsesCreate, model: "gpt-5", requirement: execution.RouteRequirementNative},
+		{name: "create", method: http.MethodPost, path: "/v1/responses", body: `{"model":"gpt-5"}`, operation: execution.OperationResponsesCreate, model: "gpt-5"},
 		{name: "compact", method: http.MethodPost, path: "/v1/responses/compact", body: `{"model":"gpt-5","input":[]}`, operation: execution.OperationResponsesCompact, model: "gpt-5"},
 		{name: "input tokens", method: http.MethodPost, path: "/v1/responses/input_tokens", body: `{"model":"gpt-5","input":[]}`, operation: execution.OperationResponsesInputTokens, model: "gpt-5"},
 		{name: "retrieve", method: http.MethodGet, path: "/v1/responses/resp_123", operation: execution.OperationResponsesRetrieve, requirement: execution.RouteRequirementNative},
@@ -363,6 +363,81 @@ func TestOpenAIResponsesInspectRequestIdentifiesLifecycleOperations(t *testing.T
 			wantRequirement := test.requirement.Normalize()
 			if metadata.RouteRequirement != wantRequirement {
 				t.Fatalf("RouteRequirement = %q, want %q", metadata.RouteRequirement, wantRequirement)
+			}
+		})
+	}
+}
+
+func TestResponsesCreateClassifiesStorePreferenceWithoutWeakeningNativeResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		body             string
+		routeRequirement execution.RouteRequirement
+		storePreference  execution.ResponsesStorePreference
+	}{
+		{
+			name:            "store omitted prefers stored",
+			body:            `{"model":"gpt-5","input":"hello"}`,
+			storePreference: execution.ResponsesStorePreferencePreferStored,
+		},
+		{
+			name:            "store true prefers stored",
+			body:            `{"model":"gpt-5","input":"hello","store":true}`,
+			storePreference: execution.ResponsesStorePreferencePreferStored,
+		},
+		{
+			name: "store false keeps current routing",
+			body: `{"model":"gpt-5","input":"hello","store":false}`,
+		},
+		{
+			name:             "store null remains native only",
+			body:             `{"model":"gpt-5","input":"hello","store":null}`,
+			routeRequirement: execution.RouteRequirementNative,
+		},
+		{
+			name:             "invalid store remains native only",
+			body:             `{"model":"gpt-5","input":"hello","store":"false"}`,
+			routeRequirement: execution.RouteRequirementNative,
+		},
+		{
+			name:             "previous response remains native only",
+			body:             `{"model":"gpt-5","previous_response_id":"resp_123","store":false}`,
+			routeRequirement: execution.RouteRequirementNative,
+		},
+		{
+			name:             "provider resource outranks omitted store",
+			body:             `{"model":"gpt-5","input":[{"type":"item_reference","id":"item_123"}]}`,
+			routeRequirement: execution.RouteRequirementNative,
+		},
+		{
+			name:             "stored prompt outranks omitted store",
+			body:             `{"model":"gpt-5","prompt":{"id":"pmpt_123"}}`,
+			routeRequirement: execution.RouteRequirementNative,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			metadata, err := NewOpenAIResponses().InspectRequest(&ParsedRequest{
+				Method: http.MethodPost,
+				Path:   "/v1/responses",
+				Body:   []byte(test.body),
+			})
+			if err != nil {
+				t.Fatalf("InspectRequest() error = %v", err)
+			}
+			if metadata.RouteRequirement != test.routeRequirement.Normalize() ||
+				metadata.ResponsesStorePreference != test.storePreference {
+				t.Fatalf(
+					"requirements = %q/%q, want %q/%q",
+					metadata.RouteRequirement,
+					metadata.ResponsesStorePreference,
+					test.routeRequirement.Normalize(),
+					test.storePreference,
+				)
 			}
 		})
 	}
