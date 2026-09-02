@@ -807,7 +807,7 @@ func TestOpenRouterUsesNativeChatAndResponsesWithoutLifecycle(t *testing.T) {
 
 func TestOnlyVerifiedNativeSubscriptionChannelsDeclareStatelessResponsesStore(t *testing.T) {
 	registry := NewRegistry()
-	verified := map[ID]struct{}{Codex: {}, Grok: {}}
+	verified := map[ID]struct{}{Codex: {}, Grok: {}, NewAPI: {}}
 
 	key := routeKey{
 		clientProtocol: protocol.OpenAIResponses,

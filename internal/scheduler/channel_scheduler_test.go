@@ -470,6 +470,60 @@ func TestOpenRouterRoutesResponsesWithReasoningOptOut(t *testing.T) {
 	}
 }
 
+func TestNewAPIRoutesDefaultResponsesCreate(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ConnectionType: "api_key", ID: 12, Name: "newapi", ChannelID: channel.NewAPI,
+			Params: json.RawMessage(`{"base_url":"https://newapi.example/team-a"}`), Enabled: true,
+			Models: []state.ModelConfig{{ID: "gpt-5.6-luna", Alias: "gpt-5.6-luna"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	tests := []struct {
+		body       string
+		downgraded bool
+	}{
+		{body: `{"model":"gpt-5.6-luna","input":"hello"}`, downgraded: true},
+		{body: `{"model":"gpt-5.6-luna","input":"hello","store":true}`, downgraded: true},
+		{body: `{"model":"gpt-5.6-luna","input":"hello","store":false}`},
+	}
+	for _, test := range tests {
+		metadata, err := dialect.NewOpenAIResponses().InspectRequest(&dialect.ParsedRequest{
+			Method: http.MethodPost,
+			Path:   "/v1/responses",
+			Body:   []byte(test.body),
+		})
+		if err != nil {
+			t.Fatalf("InspectRequest(%s) error = %v", test.body, err)
+		}
+		selection, err := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{{
+			ID: 121, GroupID: 12,
+		}}}, Query{
+			ClientProtocol:           protocol.OpenAIResponses,
+			Operation:                metadata.Operation,
+			RouteRequirement:         metadata.RouteRequirement,
+			ResponsesStorePreference: metadata.ResponsesStorePreference,
+			ExternalModel:            modelPointer("gpt-5.6-luna"),
+			AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
+		}, rand.New(zeroRandSource{})).Next()
+		if err != nil {
+			t.Fatalf("Next(%s) error = %v", test.body, err)
+		}
+		if selection.GroupID != 12 || selection.ChannelID != channel.NewAPI ||
+			selection.RouteMode != channel.RouteNative || selection.UpstreamModelID == nil ||
+			*selection.UpstreamModelID != "gpt-5.6-luna" ||
+			selection.ResponsesStoreDowngraded != test.downgraded {
+			t.Fatalf("Selection(%s) = %#v, want native New API target downgraded=%t", test.body, selection, test.downgraded)
+		}
+	}
+}
+
 func TestCandidateGroupIDsForQueryRoutesAnthropicThinkingToOpenAICompatible(t *testing.T) {
 	t.Parallel()
 

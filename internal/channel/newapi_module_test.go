@@ -53,6 +53,12 @@ func TestNewAPIChannelContract(t *testing.T) {
 	if target.SupportsResponsesLifecycle() {
 		t.Fatal("New API must not advertise a complete Responses lifecycle")
 	}
+	if got := target.ResponsesStoreCompatibility(
+		protocol.OpenAIResponses,
+		execution.OperationResponsesCreate,
+	); got != ResponsesStoreCompatibilityStateless {
+		t.Fatalf("New API Responses create store compatibility = %q, want stateless", got)
+	}
 
 	wantRoutes := map[protocol.Protocol]map[execution.Operation]RouteMode{
 		protocol.OpenAICompletions: {
