@@ -2,6 +2,7 @@ package i18n
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -118,6 +119,54 @@ func TestUnsupportedLanguageFallsBackToChinese(t *testing.T) {
 
 	if got := Message(context, "bad_request"); got != "请求错误" {
 		t.Fatalf("Message() = %q, want %q", got, "请求错误")
+	}
+}
+
+func TestMiddlewareUsesSupportedAcceptLanguageFallback(t *testing.T) {
+	if err := Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(nil)
+	context.Request = httptest.NewRequest("GET", "/", nil)
+	context.Request.Header.Set("Accept-Language", "fr-FR, en-US;q=0.9")
+	Middleware()(context)
+
+	if got := Message(context, "bad_request"); got != "Bad request" {
+		t.Fatalf("Message() = %q, want %q", got, "Bad request")
+	}
+}
+
+func TestAcceptLanguageIgnoresUnrecognizedRanges(t *testing.T) {
+	if got := ResolveLanguage("en-US, ac;q=0.9"); got != "en-US" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "en-US")
+	}
+}
+
+func TestAcceptLanguageWildcardUsesServerDefault(t *testing.T) {
+	if got := ResolveLanguage("*;q=1, en-US;q=0.8"); got != "zh-CN" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "zh-CN")
+	}
+}
+
+func TestAcceptLanguagePreservesQualityOrder(t *testing.T) {
+	if got := ResolveLanguage("en-US;q=0.8, ja-JP;q=0.9"); got != "ja-JP" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "ja-JP")
+	}
+}
+
+func TestAcceptLanguageOversizedHeaderUsesServerDefault(t *testing.T) {
+	header := strings.Repeat("a", maxAcceptLanguageBytes+1) + ", en-US"
+	if got := ResolveLanguage(header); got != "zh-CN" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "zh-CN")
+	}
+}
+
+func TestAcceptLanguageWithTooManyEntriesUsesServerDefault(t *testing.T) {
+	header := strings.Repeat("fr-FR,", maxAcceptLanguageEntries) + "en-US"
+	if got := ResolveLanguage(header); got != "zh-CN" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "zh-CN")
 	}
 }
 

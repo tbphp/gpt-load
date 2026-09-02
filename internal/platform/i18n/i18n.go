@@ -3,12 +3,20 @@ package i18n
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"gpt-load/internal/platform/i18n/locales"
 
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"golang.org/x/text/language"
+)
+
+const (
+	// Accept-Language 只用于文案协商，超限时安全回退默认语言。
+	defaultLanguage          = "zh-CN"
+	maxAcceptLanguageBytes   = 4 << 10
+	maxAcceptLanguageEntries = 32
 )
 
 var (
@@ -47,76 +55,78 @@ func loadMessageFile(lang string) error {
 
 // GetLocalizer 获取本地化器
 func GetLocalizer(acceptLang string) *i18n.Localizer {
-	// 解析 Accept-Language 头
-	langs := parseAcceptLanguage(acceptLang)
+	return newLocalizer(parseAcceptLanguage(acceptLang))
+}
 
-	// 如果没有指定语言，默认使用中文
-	if len(langs) == 0 {
-		langs = []string{"zh-CN"}
+func newLocalizer(languages []string) *i18n.Localizer {
+	if len(languages) == 0 {
+		languages = []string{defaultLanguage}
 	}
-
-	return i18n.NewLocalizer(bundle, langs...)
+	return i18n.NewLocalizer(bundle, languages...)
 }
 
 // ResolveLanguage returns the canonical supported language selected from
 // Accept-Language.
 func ResolveLanguage(acceptLang string) string {
-	languages := parseAcceptLanguage(acceptLang)
+	return primaryLanguage(parseAcceptLanguage(acceptLang))
+}
+
+func primaryLanguage(languages []string) string {
 	if len(languages) == 0 {
-		return "zh-CN"
+		return defaultLanguage
 	}
 	return languages[0]
 }
 
 // parseAcceptLanguage 解析 Accept-Language 头
 func parseAcceptLanguage(acceptLang string) []string {
-	if acceptLang == "" {
+	if acceptLang == "" || len(acceptLang) > maxAcceptLanguageBytes {
+		return nil
+	}
+	entryCount := strings.Count(acceptLang, ",") + 1
+	if entryCount > maxAcceptLanguageEntries {
 		return nil
 	}
 
-	// 简单解析，只取第一个语言
-	parts := strings.Split(acceptLang, ",")
-	if len(parts) > 0 {
-		lang := strings.TrimSpace(parts[0])
-		// 移除质量因子 (q=...)
-		if idx := strings.Index(lang, ";"); idx > 0 {
-			lang = lang[:idx]
-		}
-
-		// 标准化语言代码
-		lang = normalizeLanguageCode(lang)
-		return []string{lang}
+	type preference struct {
+		tag    language.Tag
+		weight float32
 	}
 
-	return nil
-}
-
-// normalizeLanguageCode 标准化语言代码
-func normalizeLanguageCode(lang string) string {
-	lang = strings.TrimSpace(lang)
-
-	// 映射常见的语言代码
-	switch strings.ToLower(lang) {
-	case "zh", "zh-cn", "zh-hans":
-		return "zh-CN"
-	case "en", "en-us":
-		return "en-US"
-	case "ja", "ja-jp":
-		return "ja-JP"
-	default:
-		// 尝试匹配前缀
-		if strings.HasPrefix(strings.ToLower(lang), "zh") {
-			return "zh-CN"
+	preferences := make([]preference, 0, entryCount)
+	for _, entry := range strings.Split(acceptLang, ",") {
+		tags, weights, err := language.ParseAcceptLanguage(entry)
+		if err != nil || len(tags) == 0 {
+			continue
 		}
-		if strings.HasPrefix(strings.ToLower(lang), "en") {
-			return "en-US"
-		}
-		if strings.HasPrefix(strings.ToLower(lang), "ja") {
-			return "ja-JP"
-		}
-		// 默认返回中文
-		return "zh-CN"
+		preferences = append(preferences, preference{tag: tags[0], weight: weights[0]})
 	}
+	sort.SliceStable(preferences, func(i, j int) bool {
+		return preferences[i].weight > preferences[j].weight
+	})
+
+	seen := make(map[string]struct{}, len(preferences))
+	result := make([]string, 0, len(preferences))
+	for _, preference := range preferences {
+		base, _ := preference.tag.Base()
+		var supported string
+		switch base.String() {
+		case "mul", "zh":
+			supported = defaultLanguage
+		case "en":
+			supported = "en-US"
+		case "ja":
+			supported = "ja-JP"
+		default:
+			continue
+		}
+		if _, exists := seen[supported]; exists {
+			continue
+		}
+		seen[supported] = struct{}{}
+		result = append(result, supported)
+	}
+	return result
 }
 
 // T 翻译消息
