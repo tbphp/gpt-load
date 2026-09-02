@@ -30,6 +30,11 @@ func TestExecutionForwarderAppliesStatelessStoreToBifrostNativeAndConvertedRoute
 			response: `{"id":"resp","object":"response","status":"completed","model":"upstream-model","store":true,"output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
 		},
 		{
+			name: "DeepSeek native", channelID: channel.DeepSeek,
+			wantPath: "/responses", wantUpstreamStore: true,
+			response: `{"id":"resp","object":"response","status":"completed","model":"upstream-model","store":false,"output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`,
+		},
+		{
 			name: "Anthropic converted", channelID: channel.Anthropic,
 			wantPath: "/v1/messages",
 			response: `{"id":"msg","type":"message","role":"assistant","model":"upstream-model","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`,

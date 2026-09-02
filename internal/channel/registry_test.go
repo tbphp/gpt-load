@@ -818,7 +818,7 @@ func TestEveryResponsesCreateChannelDeclaresStoreHandling(t *testing.T) {
 		AzureOpenAI:      ResponsesStoreHandlingStateless,
 		AWSBedrock:       ResponsesStoreHandlingStateless,
 		GoogleVertex:     ResponsesStoreHandlingStateless,
-		DeepSeek:         ResponsesStoreHandlingUpstreamManaged,
+		DeepSeek:         ResponsesStoreHandlingStateless,
 		MoonshotAI:       ResponsesStoreHandlingStateless,
 		SiliconFlow:      ResponsesStoreHandlingStateless,
 		ZhipuAI:          ResponsesStoreHandlingStateless,

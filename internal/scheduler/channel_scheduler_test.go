@@ -479,6 +479,48 @@ func TestResponsesStorePreferenceKeepsUpstreamManagedGatewayUndowngraded(t *test
 	}
 }
 
+func TestResponsesStorePreferenceDefersStatelessDeepSeekTarget(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{
+				ConnectionType: "api_key", ID: 11, Name: "deepseek", ChannelID: channel.DeepSeek,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "deepseek-model", Alias: "gpt"}},
+			},
+			{
+				ConnectionType: "api_key", ID: 12, Name: "openai", ChannelID: channel.OpenAI,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "openai-model", Alias: "gpt"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
+		{ID: 111, GroupID: 11},
+		{ID: 121, GroupID: 12},
+	}}, Query{
+		ClientProtocol:           protocol.OpenAIResponses,
+		Operation:                execution.OperationResponsesCreate,
+		ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored,
+		ExternalModel:            modelPointer("gpt"),
+		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}, rand.New(zeroRandSource{}))
+
+	selection, err := iterator.Next()
+	if err != nil || selection.ChannelID != channel.OpenAI || selection.ResponsesStoreDowngraded {
+		t.Fatalf("first Next() = (%#v, %v), want upstream-managed OpenAI", selection, err)
+	}
+	selection, err = iterator.Next()
+	if err != nil || selection.ChannelID != channel.DeepSeek || !selection.ResponsesStoreDowngraded {
+		t.Fatalf("second Next() = (%#v, %v), want stateless DeepSeek fallback", selection, err)
+	}
+}
+
 func TestOpenRouterRoutesResponsesWithReasoningOptOut(t *testing.T) {
 	t.Parallel()
 
