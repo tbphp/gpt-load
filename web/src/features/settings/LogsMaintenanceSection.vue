@@ -2,9 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
+import type { SettingsResource } from '@/app/resources/settings'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
-import AppButton from '@/components/ui/AppButton.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 
@@ -14,7 +13,6 @@ import {
   setSettingsOverride,
   type SettingsDraft,
 } from './settings-patch'
-import type { SettingsMergeConflict } from './settings-response'
 import type { SettingsDraftChange } from './use-settings-controller'
 
 const settingKey = 'request_log_retention_days' as const
@@ -22,17 +20,13 @@ const props = defineProps<{
   base: SettingsResource
   draft: SettingsDraft
   disabled: boolean
-  conflicts: SettingsMergeConflict[]
 }>()
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
-  chooseMine: [key: RuntimeSettingKey]
-  chooseLatest: [key: RuntimeSettingKey]
 }>()
 const { t } = useI18n()
 const retentionInput = ref('')
 const lastPublishedValue = ref<number | undefined>()
-const conflict = computed(() => props.conflicts.find((candidate) => candidate.key === settingKey))
 const owned = computed(() => props.draft.overrides.has(settingKey))
 const pendingRestore = computed(
   () => !owned.value && props.base.settings.overrides.includes(settingKey),
@@ -73,12 +67,6 @@ function setValue(value: string): void {
   draft.values.request_log_retention_days = parsed
   lastPublishedValue.value = parsed
   emit('change', { key: settingKey, draft })
-}
-
-function conflictValue(side: 'mine' | 'latest'): string {
-  const value = conflict.value?.[side]
-  if (!value?.is_override) return t('settings.runtime.defaultSource')
-  return `${value.normalized_value} ${t('settings.logs.days')}`
 }
 </script>
 
@@ -143,28 +131,13 @@ function conflictValue(side: 'mine' | 'latest'): string {
         </div>
       </template>
     </RuntimeOverrideRow>
-
-    <article v-if="conflict" class="settings-logs__conflict" role="alert">
-      <strong>{{ t('settings.logs.retention') }}</strong>
-      <span>{{ t('settings.conflict.mine') }}: {{ conflictValue('mine') }}</span>
-      <span>{{ t('settings.conflict.latest') }}: {{ conflictValue('latest') }}</span>
-      <div>
-        <AppButton variant="secondary" size="compact" @click="emit('chooseMine', settingKey)">
-          {{ t('settings.conflict.useMine') }}
-        </AppButton>
-        <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', settingKey)">
-          {{ t('settings.conflict.useLatest') }}
-        </AppButton>
-      </div>
-    </article>
   </section>
 </template>
 
 <style scoped>
 .settings-section,
 .settings-section__heading,
-.settings-logs__input,
-.settings-logs__conflict {
+.settings-logs__input {
   display: grid;
 }
 
@@ -198,20 +171,5 @@ function conflictValue(side: 'mine' | 'latest'): string {
 .settings-logs__input > span {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
-}
-
-.settings-logs__conflict {
-  gap: var(--space-1);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-control);
-  padding: var(--space-3);
-  font-size: var(--text-label-xs);
-}
-
-.settings-logs__conflict > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
 }
 </style>

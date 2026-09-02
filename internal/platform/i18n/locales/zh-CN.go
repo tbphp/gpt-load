@@ -18,8 +18,6 @@ var MessagesZhCN = map[string]string{
 	"reset_credit.unavailable":                   "当前没有可用的重置卡",
 	"reset_credit.rejected":                      "上游未能使用这张重置卡",
 	"reset_credit.outcome_unknown":               "无法确认重置结果；请使用同一幂等键重试，系统不会使用新键重复消耗",
-	"settings.precondition_required":             "必须提供 If-Match",
-	"settings.version_conflict":                  "设置已在加载后发生变化",
 	"model_price.not_found":                      "模型价格不存在",
 	"model_price.unpriced_confirmation_required": "将模型价格标记为未定价需要明确确认",
 	"model_price.referenced":                     "模型价格仍被分组引用",

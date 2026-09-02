@@ -89,15 +89,7 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 		writeServiceError(c, "get_settings", err)
 		return
 	}
-	representation, err := newSettingsWireRepresentation(
-		i18n.Message(c, "common.success"),
-		result.DTO(),
-	)
-	if err != nil {
-		writeServiceError(c, "get_settings", err)
-		return
-	}
-	writeSettingsRepresentation(c, representation)
+	writeSettingsResponse(c, result)
 }
 
 type credentialAuthorizationRequest struct {
@@ -294,26 +286,17 @@ func (s *Server) handleCancelCredentialStage(c *gin.Context) {
 }
 
 func (s *Server) handleUpdateSettings(c *gin.Context) {
-	expectedETag, ok := requiredSettingsIfMatch(c)
-	if !ok {
-		return
-	}
 	var request SettingsUpdateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
 		writeServiceError(c, "update_settings", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.UpdateSettingsIfMatch(
-		c.Request.Context(),
-		request,
-		expectedETag,
-		i18n.Message(c, "common.success"),
-	)
+	result, err := s.service.UpdateSettings(c.Request.Context(), request)
 	if err != nil {
 		writeServiceError(c, "update_settings", err)
 		return
 	}
-	writeSettingsRepresentation(c, result)
+	writeSettingsResponse(c, result)
 }
 
 func (s *Server) handleGetGroupSummary(c *gin.Context) {
@@ -1027,32 +1010,12 @@ func requiredIdempotencyKey(
 	return values[0], true
 }
 
-func requiredSettingsIfMatch(c *gin.Context) (string, bool) {
-	values := c.Request.Header.Values("If-Match")
-	if len(values) == 0 || len(values) == 1 && values[0] == "" {
-		writeServiceError(c, "update_settings", app_errors.ErrSettingsPreconditionRequired)
-		return "", false
-	}
-	if len(values) != 1 {
-		writeServiceError(c, "update_settings", app_errors.ErrBadRequest)
-		return "", false
-	}
-	token, valid := parseSettingsHeaderETag(values[0])
-	if !valid {
-		writeServiceError(c, "update_settings", app_errors.ErrBadRequest)
-		return "", false
-	}
-	return token, true
-}
-
-func writeSettingsRepresentation(
-	c *gin.Context,
-	representation settingsWireRepresentation,
-) {
-	c.Header("ETag", representation.HeaderETag)
+func writeSettingsResponse(c *gin.Context, settings SettingsResponse) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
 	c.Header("Content-Language", i18n.GetLanguageFromContext(c))
 	c.Header("Vary", "Accept-Language")
-	c.Data(http.StatusOK, "application/json; charset=utf-8", representation.Body)
+	response.SuccessI18n(c, "common.success", settings)
 }
 
 func setSecretResponseHeaders(c *gin.Context) {
@@ -1153,10 +1116,6 @@ func serviceErrorMessageID(
 		return "reset_credit.rejected"
 	case app_errors.ErrResetCreditOutcomeUnknown.Code:
 		return "reset_credit.outcome_unknown"
-	case app_errors.ErrSettingsPreconditionRequired.Code:
-		return "settings.precondition_required"
-	case app_errors.ErrSettingsVersionConflict.Code:
-		return "settings.version_conflict"
 	case app_errors.ErrModelPriceUnpricedConfirmationRequired.Code:
 		return "model_price.unpriced_confirmation_required"
 	case app_errors.ErrModelPriceReferenced.Code:

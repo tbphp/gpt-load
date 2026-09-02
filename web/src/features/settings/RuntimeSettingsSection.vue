@@ -13,7 +13,6 @@ import type {
 } from '@/app/resources/settings'
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
-import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
@@ -25,22 +24,18 @@ import {
   setSettingsOverride,
   type SettingsDraft,
 } from './settings-patch'
-import type { SettingsMergeConflict } from './settings-response'
 import type { SettingsDraftChange } from './use-settings-controller'
 
 const props = defineProps<{
   base: SettingsResource
   draft: SettingsDraft
   disabled: boolean
-  conflicts: SettingsMergeConflict[]
   proxy: ProxyViewDto
   proxyMode: ProxyConfiguredMode
   proxyEndpoint: string
 }>()
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
-  chooseMine: [key: RuntimeSettingKey]
-  chooseLatest: [key: RuntimeSettingKey]
   'update:proxyMode': [value: ProxyConfiguredMode]
   'update:proxyEndpoint': [value: string]
 }>()
@@ -138,20 +133,6 @@ function policyCountError(key: PolicyCountSettingKey): string | undefined {
   return hasOverride(key) && !isValidNonNegativeInteger(props.draft.values[key])
     ? t('settings.runtime.nonNegativeIntegerError')
     : undefined
-}
-
-function conflictFor(key: RuntimeSettingKey): SettingsMergeConflict | undefined {
-  return props.conflicts.find((conflict) => conflict.key === key)
-}
-
-function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest'): string {
-  const value = conflict[side]
-  if (!value.is_override) return t('settings.runtime.defaultSource')
-  if (conflict.key === 'inject_usage_options' || conflict.key === 'models_dev_auto_sync_enabled')
-    return value.normalized_value ? t('settings.runtime.enabled') : t('settings.runtime.disabled')
-  if (conflict.key === 'retry_count' || conflict.key === 'blacklist_threshold')
-    return t('settings.runtime.effectiveCount', { value: value.normalized_value })
-  return `${value.normalized_value} ${t('settings.runtime.seconds')}`
 }
 </script>
 
@@ -264,25 +245,6 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
             </div>
           </template>
         </RuntimeOverrideRow>
-        <article v-if="conflictFor(key)" class="settings-runtime__conflict" role="alert">
-          <strong>{{ t(`settings.runtime.${key}`) }}</strong>
-          <span>
-            {{ t('settings.conflict.mine') }}:
-            {{ conflictValue(conflictFor(key)!, 'mine') }}
-          </span>
-          <span>
-            {{ t('settings.conflict.latest') }}:
-            {{ conflictValue(conflictFor(key)!, 'latest') }}
-          </span>
-          <div>
-            <AppButton variant="secondary" size="compact" @click="emit('chooseMine', key)">
-              {{ t('settings.conflict.useMine') }}
-            </AppButton>
-            <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', key)">
-              {{ t('settings.conflict.useLatest') }}
-            </AppButton>
-          </div>
-        </article>
       </div>
 
       <div v-for="policy in policyRows" :key="policy.key" class="settings-runtime__entry">
@@ -349,25 +311,6 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
             </div>
           </template>
         </RuntimeOverrideRow>
-        <article v-if="conflictFor(policy.key)" class="settings-runtime__conflict" role="alert">
-          <strong>{{ t(`settings.runtime.${policy.key}`) }}</strong>
-          <span>
-            {{ t('settings.conflict.mine') }}:
-            {{ conflictValue(conflictFor(policy.key)!, 'mine') }}
-          </span>
-          <span>
-            {{ t('settings.conflict.latest') }}:
-            {{ conflictValue(conflictFor(policy.key)!, 'latest') }}
-          </span>
-          <div>
-            <AppButton variant="secondary" size="compact" @click="emit('chooseMine', policy.key)">
-              {{ t('settings.conflict.useMine') }}
-            </AppButton>
-            <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', policy.key)">
-              {{ t('settings.conflict.useLatest') }}
-            </AppButton>
-          </div>
-        </article>
       </div>
 
       <div class="settings-runtime__entry">
@@ -424,37 +367,6 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
             </div>
           </template>
         </RuntimeOverrideRow>
-        <article
-          v-if="conflictFor('inject_usage_options')"
-          class="settings-runtime__conflict"
-          role="alert"
-        >
-          <strong>{{ t('settings.runtime.inject_usage_options') }}</strong>
-          <span>
-            {{ t('settings.conflict.mine') }}:
-            {{ conflictValue(conflictFor('inject_usage_options')!, 'mine') }}
-          </span>
-          <span>
-            {{ t('settings.conflict.latest') }}:
-            {{ conflictValue(conflictFor('inject_usage_options')!, 'latest') }}
-          </span>
-          <div>
-            <AppButton
-              variant="secondary"
-              size="compact"
-              @click="emit('chooseMine', 'inject_usage_options')"
-            >
-              {{ t('settings.conflict.useMine') }}
-            </AppButton>
-            <AppButton
-              variant="ghost"
-              size="compact"
-              @click="emit('chooseLatest', 'inject_usage_options')"
-            >
-              {{ t('settings.conflict.useLatest') }}
-            </AppButton>
-          </div>
-        </article>
       </div>
 
       <div class="settings-runtime__entry">
@@ -525,37 +437,6 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
             </div>
           </template>
         </RuntimeOverrideRow>
-        <article
-          v-if="conflictFor('models_dev_auto_sync_enabled')"
-          class="settings-runtime__conflict"
-          role="alert"
-        >
-          <strong>{{ t('settings.runtime.models_dev_auto_sync_enabled') }}</strong>
-          <span>
-            {{ t('settings.conflict.mine') }}:
-            {{ conflictValue(conflictFor('models_dev_auto_sync_enabled')!, 'mine') }}
-          </span>
-          <span>
-            {{ t('settings.conflict.latest') }}:
-            {{ conflictValue(conflictFor('models_dev_auto_sync_enabled')!, 'latest') }}
-          </span>
-          <div>
-            <AppButton
-              variant="secondary"
-              size="compact"
-              @click="emit('chooseMine', 'models_dev_auto_sync_enabled')"
-            >
-              {{ t('settings.conflict.useMine') }}
-            </AppButton>
-            <AppButton
-              variant="ghost"
-              size="compact"
-              @click="emit('chooseLatest', 'models_dev_auto_sync_enabled')"
-            >
-              {{ t('settings.conflict.useLatest') }}
-            </AppButton>
-          </div>
-        </article>
       </div>
     </div>
   </section>
@@ -566,7 +447,6 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
 .settings-section__heading,
 .settings-runtime__rows,
 .settings-runtime__entry,
-.settings-runtime__conflict,
 .settings-runtime__boolean {
   display: grid;
 }
@@ -590,21 +470,6 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
   margin-top: var(--space-1);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
-}
-
-.settings-runtime__conflict {
-  gap: var(--space-1);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-control);
-  padding: var(--space-3);
-  font-size: var(--text-label-xs);
-}
-
-.settings-runtime__conflict > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
 }
 
 .settings-runtime__input {

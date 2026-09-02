@@ -38,7 +38,7 @@ const errorId = computed(() => (invalid.value ? `${props.id}-error` : undefined)
   min-width: 0;
 }
 
-.compact-field-error :deep(input) {
+.compact-field-error[data-invalid='true'] :deep(input) {
   padding-inline-end: calc(
     var(--compact-field-error-indicator-size) + var(--compact-field-error-indicator-right) +
       var(--compact-field-error-input-gap)
@@ -95,7 +95,7 @@ const errorId = computed(() => (invalid.value ? `${props.id}-error` : undefined)
     --compact-field-error-input-gap: 4px;
   }
 
-  .compact-field-error :deep(input) {
+  .compact-field-error[data-invalid='true'] :deep(input) {
     padding-inline-end: calc(
       var(--compact-field-error-indicator-size) + var(--compact-field-error-indicator-right) +
         var(--compact-field-error-input-gap)

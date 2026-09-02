@@ -35,7 +35,7 @@ func TestClassifyMutationOutcome(t *testing.T) {
 		},
 		{
 			name: "precondition failed", statusCode: 412,
-			errorCode: app_errors.ErrSettingsVersionConflict.Code,
+			errorCode: "PRECONDITION_FAILED",
 			want:      "rejected",
 		},
 		{

@@ -13,9 +13,6 @@ export default {
     saveState: {
       saving: '設定を保存中',
       savingNote: 'すべての実行設定を公開中です…',
-      reconciling: '保存結果を確認中',
-      indeterminate: '保存結果の確認が必要です',
-      indeterminateNote: '下書きは保持されています。先にサーバーの最新状態を確認してください。',
       baseline: '現在公開中の設定',
       baselineNote: '未保存の実行設定の変更はありません。',
     },
@@ -37,24 +34,6 @@ export default {
     },
     validation: {
       title: '保存前に次の設定を修正してください:',
-    },
-    outcome: {
-      reconciling: '保存結果が不明なため、サーバーの最新状態を確認しています…',
-      indeterminate:
-        '保存結果を確認できませんでした。最新状態を確認するまで再保存しないでください。',
-      checkResult: '結果を確認',
-    },
-    conflict: {
-      deferred:
-        '外部の設定更新を検出しました。無効なローカル Header 編集を修正した後、サーバーの最新状態をマージします。',
-      rebased:
-        '設定が別の場所で変更されました。最新値と競合しないローカル編集をマージしました。確認して再保存してください。',
-      blocked:
-        '別の場所での変更とローカル編集が競合しています。すべての自分/最新の競合を解決してから保存してください。',
-      mine: '自分',
-      latest: '最新',
-      useMine: '自分を採用',
-      useLatest: '最新を採用',
     },
     runtime: {
       title: 'リクエストと転送',
@@ -127,8 +106,6 @@ export default {
         'グループのヘッダールール上書きはグローバルオブジェクト全体を置き換え、個別のルールをマージしません。',
       securityNotice:
         '固定 Header 値は通常の設定です。長期認証情報を保存しないでください。認証 Header はリテラルの {template} テンプレートを使用する必要があります。',
-      conflict:
-        'グローバル Header Rules が同時に変更されました。保持するバージョンを選択してください。',
     },
     logs: {
       title: 'ログとメンテナンス',
