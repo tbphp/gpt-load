@@ -382,6 +382,15 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 	if err := spec.Validate(); err != nil {
 		t.Fatalf("valid AttemptSpec.Validate() error = %v", err)
 	}
+	convertedDowngrade := spec.Clone()
+	convertedDowngrade.RouteMode = RouteConverted
+	convertedDowngrade.ClientProtocol = protocol.OpenAIResponses
+	convertedDowngrade.Operation = OperationResponsesCreate
+	convertedDowngrade.Path = "/v1/responses"
+	convertedDowngrade.ResponsesStoreDowngraded = true
+	if err := convertedDowngrade.Validate(); err != nil {
+		t.Fatalf("converted stateless AttemptSpec.Validate() error = %v", err)
+	}
 
 	tests := []struct {
 		name   string
@@ -401,10 +410,6 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		{name: "store downgrade operation", mutate: func(s *AttemptSpec) {
 			s.ResponsesStoreDowngraded = true
 			s.Operation = OperationChatCompletion
-		}, field: "responses_store_downgraded"},
-		{name: "store downgrade route mode", mutate: func(s *AttemptSpec) {
-			s.ResponsesStoreDowngraded = true
-			s.RouteMode = RouteConverted
 		}, field: "responses_store_downgraded"},
 		{name: "store downgrade native requirement", mutate: func(s *AttemptSpec) {
 			s.ResponsesStoreDowngraded = true

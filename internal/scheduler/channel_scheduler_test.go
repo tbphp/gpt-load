@@ -293,8 +293,10 @@ func TestResponsesStorePreferenceKeepsTheWholeRequestOnExactTargets(t *testing.T
 		ExternalModel:            modelPointer("gpt"),
 		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	}
-	if got := CandidateGroupIDsForQuery(snapshot, query); !slices.Equal(got, []uint{2}) {
-		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want exact OpenAI [2]", got)
+	got := CandidateGroupIDsForQuery(snapshot, query)
+	slices.Sort(got)
+	if !slices.Equal(got, []uint{1, 2, 3, 4}) {
+		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want every matching group", got)
 	}
 
 	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
@@ -308,12 +310,22 @@ func TestResponsesStorePreferenceKeepsTheWholeRequestOnExactTargets(t *testing.T
 		selection.ResponsesStoreDowngraded {
 		t.Fatalf("Next() = (%#v, %v), want exact OpenAI", selection, err)
 	}
-	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
-		t.Fatalf("second Next() error = %v, want exact pool exhaustion", err)
+	selection, err = iterator.Next()
+	if err != nil || selection.GroupID != 1 || !selection.ResponsesStoreDowngraded {
+		t.Fatalf("second Next() = (%#v, %v), want native stateless fallback", selection, err)
+	}
+	selection, err = iterator.Next()
+	if err != nil || selection.GroupID != 4 || !selection.ResponsesStoreDowngraded {
+		t.Fatalf("third Next() = (%#v, %v), want remaining native stateless fallback", selection, err)
+	}
+	selection, err = iterator.Next()
+	if err != nil || selection.GroupID != 3 || selection.RouteMode != channel.RouteConverted ||
+		!selection.ResponsesStoreDowngraded {
+		t.Fatalf("fourth Next() = (%#v, %v), want converted stateless fallback", selection, err)
 	}
 }
 
-func TestResponsesStorePreferenceUsesOnlyExplicitNativeFallback(t *testing.T) {
+func TestResponsesStorePreferenceUsesNativeThenConvertedStatelessFallback(t *testing.T) {
 	t.Parallel()
 
 	snapshot := responsesStoreSchedulerSnapshot(t, false)
@@ -324,8 +336,10 @@ func TestResponsesStorePreferenceUsesOnlyExplicitNativeFallback(t *testing.T) {
 		ExternalModel:            modelPointer("gpt"),
 		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	}
-	if got := CandidateGroupIDsForQuery(snapshot, query); !slices.Equal(got, []uint{1}) {
-		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want verified Codex fallback [1]", got)
+	got := CandidateGroupIDsForQuery(snapshot, query)
+	slices.Sort(got)
+	if !slices.Equal(got, []uint{1, 3, 4}) {
+		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want every stateless fallback", got)
 	}
 
 	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
@@ -338,14 +352,23 @@ func TestResponsesStorePreferenceUsesOnlyExplicitNativeFallback(t *testing.T) {
 		selection.RouteMode != channel.RouteNative || !selection.ResponsesStoreDowngraded {
 		t.Fatalf("Next() = (%#v, %v), want native Codex store fallback", selection, err)
 	}
-	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
-		t.Fatalf("second Next() error = %v, want fallback pool exhaustion", err)
+	selection, err = iterator.Next()
+	if err != nil || selection.GroupID != 4 || selection.ChannelID != channel.OpenRouter ||
+		selection.RouteMode != channel.RouteNative || !selection.ResponsesStoreDowngraded {
+		t.Fatalf("second Next() = (%#v, %v), want native OpenRouter store fallback", selection, err)
+	}
+	selection, err = iterator.Next()
+	if err != nil || selection.GroupID != 3 || selection.ChannelID != channel.Anthropic ||
+		selection.RouteMode != channel.RouteConverted || !selection.ResponsesStoreDowngraded {
+		t.Fatalf("third Next() = (%#v, %v), want converted Anthropic store fallback", selection, err)
 	}
 
 	filteredQuery := query
 	filteredQuery.AccessKey.Filters.Groups = map[uint]struct{}{3: {}, 4: {}}
-	if got := CandidateGroupIDsForQuery(snapshot, filteredQuery); len(got) != 0 {
-		t.Fatalf("filtered CandidateGroupIDsForQuery() = %#v, want no unauthorized fallback", got)
+	got = CandidateGroupIDsForQuery(snapshot, filteredQuery)
+	slices.Sort(got)
+	if !slices.Equal(got, []uint{3, 4}) {
+		t.Fatalf("filtered CandidateGroupIDsForQuery() = %#v, want authorized fallbacks", got)
 	}
 }
 
@@ -385,7 +408,7 @@ func TestResponsesStorePreferenceAllowsVerifiedGrokFallback(t *testing.T) {
 	}
 }
 
-func TestResponsesStorePreferenceDoesNotFallbackWhenExactTargetLacksCredentials(t *testing.T) {
+func TestResponsesStorePreferenceFallsBackWhenUpstreamManagedTargetLacksCredentials(t *testing.T) {
 	t.Parallel()
 
 	iterator := New(
@@ -400,15 +423,17 @@ func TestResponsesStorePreferenceDoesNotFallbackWhenExactTargetLacksCredentials(
 		},
 		rand.New(zeroRandSource{}),
 	)
-	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
-		t.Fatalf("Next() error = %v, want exact pool exhaustion without semantic fallback", err)
+	selection, err := iterator.Next()
+	if err != nil || selection.GroupID != 1 || selection.ChannelID != channel.Codex ||
+		!selection.ResponsesStoreDowngraded {
+		t.Fatalf("Next() = (%#v, %v), want Codex stateless fallback", selection, err)
 	}
 }
 
-func TestResponsesStorePreferenceRequiresNativeCreateForExactTarget(t *testing.T) {
+func TestResponsesStorePreferenceAllowsDeclaredConvertedStatelessTarget(t *testing.T) {
 	t.Parallel()
 
-	target, err := channel.NewRegistry().Resolve(channel.OpenAI, nil)
+	target, err := channel.NewRegistry().Resolve(channel.Anthropic, nil)
 	if err != nil {
 		t.Fatalf("Resolve(openai) error = %v", err)
 	}
@@ -421,8 +446,78 @@ func TestResponsesStorePreferenceRequiresNativeCreateForExactTarget(t *testing.T
 		},
 		state.RouteTarget{Mode: channel.RouteConverted, ResolvedTarget: target},
 	)
-	if matched || downgraded || reason != ReasonOperationUnsupported {
-		t.Fatalf("routeRequirementSatisfied() = (%t, %t, %q), want converted create rejected", matched, downgraded, reason)
+	if !matched || !downgraded || reason != "" {
+		t.Fatalf("routeRequirementSatisfied() = (%t, %t, %q), want converted stateless target", matched, downgraded, reason)
+	}
+}
+
+func TestResponsesStorePreferenceKeepsUpstreamManagedGatewayUndowngraded(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ConnectionType: "api_key", ID: 12, Name: "newapi", ChannelID: channel.NewAPI,
+			Params: json.RawMessage(`{"base_url":"https://newapi.example"}`), Enabled: true,
+			Models: []state.ModelConfig{{ID: "upstream", Alias: "gpt"}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{{
+		ID: 121, GroupID: 12,
+	}}}, Query{
+		ClientProtocol:           protocol.OpenAIResponses,
+		Operation:                execution.OperationResponsesCreate,
+		ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored,
+		ExternalModel:            modelPointer("gpt"),
+		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}, rand.New(zeroRandSource{})).Next()
+	if err != nil || selection.ChannelID != channel.NewAPI || selection.ResponsesStoreDowngraded {
+		t.Fatalf("Next() = (%#v, %v), want upstream-managed New API", selection, err)
+	}
+}
+
+func TestResponsesStorePreferenceDefersStatelessDeepSeekTarget(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{
+				ConnectionType: "api_key", ID: 11, Name: "deepseek", ChannelID: channel.DeepSeek,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "deepseek-model", Alias: "gpt"}},
+			},
+			{
+				ConnectionType: "api_key", ID: 12, Name: "openai", ChannelID: channel.OpenAI,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "openai-model", Alias: "gpt"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
+		{ID: 111, GroupID: 11},
+		{ID: 121, GroupID: 12},
+	}}, Query{
+		ClientProtocol:           protocol.OpenAIResponses,
+		Operation:                execution.OperationResponsesCreate,
+		ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored,
+		ExternalModel:            modelPointer("gpt"),
+		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
+	}, rand.New(zeroRandSource{}))
+
+	selection, err := iterator.Next()
+	if err != nil || selection.ChannelID != channel.OpenAI || selection.ResponsesStoreDowngraded {
+		t.Fatalf("first Next() = (%#v, %v), want upstream-managed OpenAI", selection, err)
+	}
+	selection, err = iterator.Next()
+	if err != nil || selection.ChannelID != channel.DeepSeek || !selection.ResponsesStoreDowngraded {
+		t.Fatalf("second Next() = (%#v, %v), want stateless DeepSeek fallback", selection, err)
 	}
 }
 
@@ -631,7 +726,7 @@ func responsesStoreSchedulerSnapshot(t *testing.T, includeExact bool) *state.Con
 			Params: json.RawMessage(`{}`), Enabled: true,
 			Models: []state.ModelConfig{{ID: "claude", Alias: "gpt"}},
 		},
-		{ConnectionType: "api_key", ID: 4, Name: "unverified-native", ChannelID: channel.OpenRouter,
+		{ConnectionType: "api_key", ID: 4, Name: "stateless-native", ChannelID: channel.OpenRouter,
 			Params: json.RawMessage(`{}`), Enabled: true,
 			Models: []state.ModelConfig{{ID: "openai/gpt", Alias: "gpt"}},
 		},

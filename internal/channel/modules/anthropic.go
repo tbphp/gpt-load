@@ -36,7 +36,7 @@ func Anthropic() spec.Module {
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationListModels, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationProbe, execution.RouteConverted),
-				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.RouteConverted),
+				spec.NewResponsesCreateRoute(execution.RouteConverted, spec.ResponsesStoreHandlingStateless),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesInputTokens, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationProbe, execution.RouteConverted),
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteNative),

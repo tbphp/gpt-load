@@ -71,9 +71,8 @@ func (s AttemptSpec) Validate() error {
 	if s.ResponsesStoreDowngraded &&
 		(s.ClientProtocol != protocol.OpenAIResponses ||
 			s.Operation != OperationResponsesCreate ||
-			s.RouteMode != RouteNative ||
 			s.RouteRequirement.Normalize() != RouteRequirementAny) {
-		return validationError("responses_store_downgraded", "requires a native Responses Create compatibility route")
+		return validationError("responses_store_downgraded", "requires a Responses Create stateless route")
 	}
 	if operationRequiresModel(s.Operation) {
 		if strings.TrimSpace(s.ClientModel) == "" {
