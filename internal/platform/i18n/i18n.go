@@ -3,6 +3,8 @@ package i18n
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"gpt-load/internal/platform/i18n/locales"
 
@@ -73,17 +75,31 @@ func parseAcceptLanguage(acceptLang string) []string {
 		return nil
 	}
 
-	tags, _, err := language.ParseAcceptLanguage(acceptLang)
-	if err != nil {
-		return nil
+	type preference struct {
+		tag    language.Tag
+		weight float32
 	}
 
-	seen := make(map[string]struct{}, len(tags))
-	result := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		base, _ := tag.Base()
+	preferences := make([]preference, 0, strings.Count(acceptLang, ",")+1)
+	for _, entry := range strings.Split(acceptLang, ",") {
+		tags, weights, err := language.ParseAcceptLanguage(entry)
+		if err != nil || len(tags) == 0 {
+			continue
+		}
+		preferences = append(preferences, preference{tag: tags[0], weight: weights[0]})
+	}
+	sort.SliceStable(preferences, func(i, j int) bool {
+		return preferences[i].weight > preferences[j].weight
+	})
+
+	seen := make(map[string]struct{}, len(preferences))
+	result := make([]string, 0, len(preferences))
+	for _, preference := range preferences {
+		base, _ := preference.tag.Base()
 		var supported string
 		switch base.String() {
+		case "mul":
+			supported = "zh-CN"
 		case "zh":
 			supported = "zh-CN"
 		case "en":

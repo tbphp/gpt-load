@@ -137,6 +137,18 @@ func TestMiddlewareUsesSupportedAcceptLanguageFallback(t *testing.T) {
 	}
 }
 
+func TestAcceptLanguageIgnoresUnrecognizedRanges(t *testing.T) {
+	if got := ResolveLanguage("en-US, ac;q=0.9"); got != "en-US" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "en-US")
+	}
+}
+
+func TestAcceptLanguageWildcardUsesServerDefault(t *testing.T) {
+	if got := ResolveLanguage("*;q=1, en-US;q=0.8"); got != "zh-CN" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "zh-CN")
+	}
+}
+
 func TestMessageWithoutLocalizerUsesChinese(t *testing.T) {
 	if err := Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)
