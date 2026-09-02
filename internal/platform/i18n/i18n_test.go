@@ -2,6 +2,7 @@ package i18n
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -145,6 +146,26 @@ func TestAcceptLanguageIgnoresUnrecognizedRanges(t *testing.T) {
 
 func TestAcceptLanguageWildcardUsesServerDefault(t *testing.T) {
 	if got := ResolveLanguage("*;q=1, en-US;q=0.8"); got != "zh-CN" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "zh-CN")
+	}
+}
+
+func TestAcceptLanguagePreservesQualityOrder(t *testing.T) {
+	if got := ResolveLanguage("en-US;q=0.8, ja-JP;q=0.9"); got != "ja-JP" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "ja-JP")
+	}
+}
+
+func TestAcceptLanguageOversizedHeaderUsesServerDefault(t *testing.T) {
+	header := strings.Repeat("a", maxAcceptLanguageBytes+1) + ", en-US"
+	if got := ResolveLanguage(header); got != "zh-CN" {
+		t.Fatalf("ResolveLanguage() = %q, want %q", got, "zh-CN")
+	}
+}
+
+func TestAcceptLanguageWithTooManyEntriesUsesServerDefault(t *testing.T) {
+	header := strings.Repeat("fr-FR,", maxAcceptLanguageEntries) + "en-US"
+	if got := ResolveLanguage(header); got != "zh-CN" {
 		t.Fatalf("ResolveLanguage() = %q, want %q", got, "zh-CN")
 	}
 }

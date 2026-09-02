@@ -12,6 +12,13 @@ import (
 	"golang.org/x/text/language"
 )
 
+const (
+	// Accept-Language 只用于文案协商，超限时安全回退默认语言。
+	defaultLanguage          = "zh-CN"
+	maxAcceptLanguageBytes   = 4 << 10
+	maxAcceptLanguageEntries = 32
+)
+
 var (
 	bundle *i18n.Bundle
 )
@@ -48,30 +55,36 @@ func loadMessageFile(lang string) error {
 
 // GetLocalizer 获取本地化器
 func GetLocalizer(acceptLang string) *i18n.Localizer {
-	// 解析 Accept-Language 头
-	langs := parseAcceptLanguage(acceptLang)
+	return newLocalizer(parseAcceptLanguage(acceptLang))
+}
 
-	// 如果没有指定语言，默认使用中文
-	if len(langs) == 0 {
-		langs = []string{"zh-CN"}
+func newLocalizer(languages []string) *i18n.Localizer {
+	if len(languages) == 0 {
+		languages = []string{defaultLanguage}
 	}
-
-	return i18n.NewLocalizer(bundle, langs...)
+	return i18n.NewLocalizer(bundle, languages...)
 }
 
 // ResolveLanguage returns the canonical supported language selected from
 // Accept-Language.
 func ResolveLanguage(acceptLang string) string {
-	languages := parseAcceptLanguage(acceptLang)
+	return primaryLanguage(parseAcceptLanguage(acceptLang))
+}
+
+func primaryLanguage(languages []string) string {
 	if len(languages) == 0 {
-		return "zh-CN"
+		return defaultLanguage
 	}
 	return languages[0]
 }
 
 // parseAcceptLanguage 解析 Accept-Language 头
 func parseAcceptLanguage(acceptLang string) []string {
-	if acceptLang == "" {
+	if acceptLang == "" || len(acceptLang) > maxAcceptLanguageBytes {
+		return nil
+	}
+	entryCount := strings.Count(acceptLang, ",") + 1
+	if entryCount > maxAcceptLanguageEntries {
 		return nil
 	}
 
@@ -80,7 +93,7 @@ func parseAcceptLanguage(acceptLang string) []string {
 		weight float32
 	}
 
-	preferences := make([]preference, 0, strings.Count(acceptLang, ",")+1)
+	preferences := make([]preference, 0, entryCount)
 	for _, entry := range strings.Split(acceptLang, ",") {
 		tags, weights, err := language.ParseAcceptLanguage(entry)
 		if err != nil || len(tags) == 0 {
@@ -98,10 +111,8 @@ func parseAcceptLanguage(acceptLang string) []string {
 		base, _ := preference.tag.Base()
 		var supported string
 		switch base.String() {
-		case "mul":
-			supported = "zh-CN"
-		case "zh":
-			supported = "zh-CN"
+		case "mul", "zh":
+			supported = defaultLanguage
 		case "en":
 			supported = "en-US"
 		case "ja":

@@ -18,8 +18,9 @@ func AttachRequestLanguage(c *gin.Context) {
 		return
 	}
 	acceptLang := c.GetHeader("Accept-Language")
-	c.Set(LocalizerKey, GetLocalizer(acceptLang))
-	c.Set(LanguageKey, ResolveLanguage(acceptLang))
+	languages := parseAcceptLanguage(acceptLang)
+	c.Set(LocalizerKey, newLocalizer(languages))
+	c.Set(LanguageKey, primaryLanguage(languages))
 }
 
 // Middleware i18n 中间件
