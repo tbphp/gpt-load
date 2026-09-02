@@ -13,7 +13,10 @@ func TestStatelessResponsesStoreRewriteDoesNotEscapeHTML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response := normalizeStatelessResponsesSuccess(source)
+	response, err := normalizeStatelessResponsesSuccess(source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, rewritten := range map[string][]byte{"request": request, "response": response} {
 		if !bytes.Contains(rewritten, []byte(`<tag>&`)) ||
 			bytes.Contains(rewritten, []byte(`\u003c`)) ||
@@ -58,7 +61,7 @@ func TestStatelessResponsesStoreRewriteRejectsInvalidRequestUTF8AndPreservesResp
 	if _, err := forceStatelessResponsesRequest(payload); err == nil {
 		t.Fatal("forceStatelessResponsesRequest() accepted invalid UTF-8")
 	}
-	if got := normalizeStatelessResponsesSuccess(payload); !bytes.Equal(got, payload) {
+	if got, err := normalizeStatelessResponsesSuccess(payload); err != nil || !bytes.Equal(got, payload) {
 		t.Fatalf("response = %q, want unchanged %q", got, payload)
 	}
 }

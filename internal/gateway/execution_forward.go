@@ -11,6 +11,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/usage"
@@ -752,6 +753,7 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 			return execution.AttemptSpec{}, err
 		}
 		spec.Body = body
+		platformheader.StripRequestRepresentationMetadata(spec.Header)
 	}
 	if err := spec.Validate(); err != nil {
 		return execution.AttemptSpec{}, err

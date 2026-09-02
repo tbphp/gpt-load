@@ -26,17 +26,17 @@ func forceStatelessResponsesRequest(payload []byte) ([]byte, error) {
 	return encoded, nil
 }
 
-func normalizeStatelessResponsesSuccess(payload []byte) []byte {
+func normalizeStatelessResponsesSuccess(payload []byte) ([]byte, error) {
 	object, err := decodeResponsesStoreObject(payload)
 	if err != nil {
-		return bytes.Clone(payload)
+		return bytes.Clone(payload), nil
 	}
 	object["store"] = json.RawMessage("false")
 	encoded, err := encodeResponsesStoreObject(object, len(payload))
 	if err != nil {
-		return bytes.Clone(payload)
+		return nil, fmt.Errorf("normalize stateless Responses response: %w", err)
 	}
-	return encoded
+	return encoded, nil
 }
 
 func normalizeStatelessResponsesSSEPayload(
@@ -58,11 +58,17 @@ func normalizeStatelessResponsesSSEPayload(
 	response["store"] = json.RawMessage("false")
 	object["response"], err = encodeResponsesStoreObject(response, len(rawResponse))
 	if err != nil {
-		return sseEventRewriteResult{body: bytes.Clone(event.Payload)}, nil
+		return sseEventRewriteResult{}, fmt.Errorf(
+			"normalize stateless Responses SSE response: %w",
+			err,
+		)
 	}
 	rewritten, err := encodeResponsesStoreObject(object, len(event.Payload))
 	if err != nil {
-		return sseEventRewriteResult{body: bytes.Clone(event.Payload)}, nil
+		return sseEventRewriteResult{}, fmt.Errorf(
+			"normalize stateless Responses SSE payload: %w",
+			err,
+		)
 	}
 	return sseEventRewriteResult{body: rewritten}, nil
 }

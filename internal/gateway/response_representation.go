@@ -102,7 +102,12 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		}
 	}
 	if input.ResponsesStoreDowngraded {
-		safePlain = normalizeStatelessResponsesSuccess(safePlain)
+		safePlain, err = normalizeStatelessResponsesSuccess(safePlain)
+		if err != nil {
+			return preparedSuccessRepresentation{}, successRepresentationProtocolError(
+				"normalize stateless Responses response",
+			)
+		}
 	}
 
 	inspectablePlain := safePlain

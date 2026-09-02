@@ -205,6 +205,35 @@ func TestExecutionForwarderPreservesUnrecognizedDowngradedResponsesSuccess(t *te
 	}
 }
 
+func TestExecutionForwarderRejectsDowngradedResponsesStoreEncodingFailure(t *testing.T) {
+	input := responsesExecutionForwardInput()
+	input.RouteRequirement = execution.RouteRequirementAny
+	input.ResponsesStoreDowngraded = true
+	input.ExternalModel = "same-model"
+	input.UpstreamModelID = "same-model"
+	input.Request.Body = []byte(`{"model":"same-model","input":"hello","store":true}`)
+	response := []byte(
+		`{"` + strings.Repeat("\u2028", maxResponsesStoreRewriteGrowthBytes/3+1) +
+			`":0,"store":true}`,
+	)
+	executor := fakeExecutionExecutor{unary: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+	) execution.AttemptResult {
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: response,
+		}
+	}}
+
+	result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+	if !errors.Is(result.Err, ErrUpstreamProtocol) || result.ExecutionError == nil ||
+		result.ExecutionError.Code != "response_representation_invalid" || len(result.Body) != 0 {
+		t.Fatalf("Forward() = %#v, body=%s", result, result.Body)
+	}
+}
+
 func TestExecutionForwarderCapturesImagesUsageFromUnaryBody(t *testing.T) {
 	t.Parallel()
 
@@ -1102,6 +1131,51 @@ func TestExecutionForwarderNormalizesSplitDowngradedResponsesStoreStream(t *test
 	}
 }
 
+func TestExecutionForwarderRejectsDowngradedResponsesStoreStreamEncodingFailure(t *testing.T) {
+	response := `{"` + strings.Repeat("\u2028", maxResponsesStoreRewriteGrowthBytes/3+1) +
+		`":0,"id":"resp_1","store":true}`
+	stream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":" + response + "}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"store\":true}}\n\n"
+	var sinkErr error
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		if err := sink(execution.StreamEvent{
+			Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+			Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}); err != nil {
+			t.Fatalf("ready sink: %v", err)
+		}
+		sinkErr = sink(execution.StreamEvent{
+			Sequence: 2, Kind: execution.StreamEventData, Data: []byte(stream),
+		})
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}
+	}}
+	input := responsesExecutionForwardInput()
+	input.RouteRequirement = execution.RouteRequirementAny
+	input.ResponsesStoreDowngraded = true
+	input.Request.Body = []byte(`{"model":"public","input":"hello","store":true,"stream":true}`)
+	recorder := httptest.NewRecorder()
+
+	result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
+	if !errors.Is(sinkErr, ErrUpstreamProtocol) || !errors.Is(result.Err, ErrUpstreamProtocol) ||
+		result.Committed || recorder.Body.Len() != 0 {
+		t.Fatalf(
+			"ForwardStream() = %#v, sinkErr=%v, body=%q",
+			result,
+			sinkErr,
+			recorder.Body.String(),
+		)
+	}
+}
+
 func TestExecutionForwarderDoesNotReportStreamReadyForFirstProviderError(t *testing.T) {
 	t.Parallel()
 
@@ -1656,6 +1730,37 @@ func TestNewExecutionAttemptSpecCarriesResponsesStoreDowngrade(t *testing.T) {
 	if !spec.ResponsesStoreDowngraded || !bytes.Contains(spec.Body, []byte(`"store":false`)) ||
 		bytes.Contains(spec.Body, []byte(`"store":true`)) {
 		t.Fatalf("AttemptSpec = %#v, body=%s", spec, spec.Body)
+	}
+}
+
+func TestNewExecutionAttemptSpecInvalidatesRepresentationHeadersAfterStoreRewrite(t *testing.T) {
+	input := responsesExecutionForwardInput()
+	input.RouteRequirement = execution.RouteRequirementAny
+	input.ResponsesStoreDowngraded = true
+	input.Request.Body = []byte(`{"model":"public","input":"hello","store":true}`)
+	input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
+		"ETag":            `"stale"`,
+		"Digest":          "sha-256=stale",
+		"Content-MD5":     "stale-md5",
+		"Content-Range":   "bytes 0-1/2",
+		"Content-Digest":  "sha-256=:c3RhbGU=:",
+		"Repr-Digest":     "sha-256=:c3RhbGU=:",
+		"Signature":       "stale-signature",
+		"Signature-Input": "stale-signature-input",
+		"X-Upstream":      "kept",
+	}}
+
+	spec, err := newExecutionAttemptSpec(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range representationMetadataHeaderNames {
+		if values := headerFieldValues(spec.Header, name); len(values) > 0 {
+			t.Errorf("%s = %#v, want absent", name, values)
+		}
+	}
+	if got := spec.Header.Get("X-Upstream"); got != "kept" {
+		t.Fatalf("X-Upstream = %q, want kept", got)
 	}
 }
 
