@@ -10,6 +10,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
+	"gpt-load/internal/protocol"
 )
 
 // Binding associates one ProviderKind with its execution adapter.
@@ -156,6 +157,16 @@ func (registry *Registry) resolve(spec execution.AttemptSpec) (execution.Executo
 			execution.ErrorKindInvalidRequest,
 			"undeclared_channel_route",
 			"attempt route is not declared by channel",
+		)
+	}
+	if spec.ResponsesStoreDowngraded && target.ResponsesStoreHandling(
+		protocol.OpenAIResponses,
+		execution.OperationResponsesCreate,
+	) != channel.ResponsesStoreHandlingStateless {
+		return nil, localAdapterEvidence(
+			execution.ErrorKindInvalidRequest,
+			"undeclared_responses_store_downgrade",
+			"attempt store downgrade is not declared by channel",
 		)
 	}
 	adapter := registry.bindings[target.ProviderKind]

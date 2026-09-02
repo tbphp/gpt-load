@@ -101,6 +101,9 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 			return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains in response body")
 		}
 	}
+	if input.ResponsesStoreDowngraded {
+		safePlain = normalizeStatelessResponsesSuccess(safePlain)
+	}
 
 	inspectablePlain := safePlain
 	if !opaqueRepresentation {

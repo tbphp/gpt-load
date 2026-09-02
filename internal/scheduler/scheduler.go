@@ -51,11 +51,16 @@ type weightedCredential struct {
 	weight int64
 }
 
+type candidatePool struct {
+	targetsByMode  map[channel.RouteMode]map[uint]candidateTarget
+	groupIDsByMode map[channel.RouteMode][]uint
+}
+
 type Iterator struct {
 	credentials           CredentialSource
 	random                *rand.Rand
-	targetsByMode         map[channel.RouteMode]map[uint]candidateTarget
-	groupIDsByMode        map[channel.RouteMode][]uint
+	regular               candidatePool
+	storeDowngraded       candidatePool
 	allowedCredentialIDs  map[uint]struct{}
 	preferredCredentialID uint
 	tried                 map[uint]struct{}
@@ -111,8 +116,8 @@ func newWithClock(
 	iterator := &Iterator{
 		credentials:           credentials,
 		random:                random,
-		targetsByMode:         make(map[channel.RouteMode]map[uint]candidateTarget),
-		groupIDsByMode:        make(map[channel.RouteMode][]uint),
+		regular:               newCandidatePool(),
+		storeDowngraded:       newCandidatePool(),
 		allowedCredentialIDs:  cloneAllowedCredentialIDs(query),
 		preferredCredentialID: query.PreferredCredentialID,
 		tried:                 make(map[uint]struct{}),
@@ -122,14 +127,25 @@ func newWithClock(
 	targets, staticReason := filterTargetsWithReason(snapshot, query)
 	iterator.staticReason = staticReason
 	for _, target := range targets {
-		mode := target.target.Mode
-		if iterator.targetsByMode[mode] == nil {
-			iterator.targetsByMode[mode] = make(map[uint]candidateTarget)
+		pool := &iterator.regular
+		if target.responsesStoreDowngraded {
+			pool = &iterator.storeDowngraded
 		}
-		iterator.targetsByMode[mode][target.target.GroupID] = target
-		iterator.groupIDsByMode[mode] = append(iterator.groupIDsByMode[mode], target.target.GroupID)
+		mode := target.target.Mode
+		if pool.targetsByMode[mode] == nil {
+			pool.targetsByMode[mode] = make(map[uint]candidateTarget)
+		}
+		pool.targetsByMode[mode][target.target.GroupID] = target
+		pool.groupIDsByMode[mode] = append(pool.groupIDsByMode[mode], target.target.GroupID)
 	}
 	return iterator
+}
+
+func newCandidatePool() candidatePool {
+	return candidatePool{
+		targetsByMode:  make(map[channel.RouteMode]map[uint]candidateTarget),
+		groupIDsByMode: make(map[channel.RouteMode][]uint),
+	}
 }
 
 func (iterator *Iterator) StaticReason() ReasonCode {
@@ -161,11 +177,25 @@ func (iterator *Iterator) SkipGroup(groupID uint) {
 	iterator.skippedGroups[groupID] = struct{}{}
 }
 
-func (iterator *Iterator) weightedPoolForMode(mode channel.RouteMode, now time.Time) ([]weightedCredential, int64) {
+func (iterator *Iterator) weightedPoolForMode(
+	mode channel.RouteMode,
+	now time.Time,
+) ([]weightedCredential, int64) {
+	if iterator == nil {
+		return nil, 0
+	}
+	return iterator.weightedPoolForCandidatePool(&iterator.regular, mode, now)
+}
+
+func (iterator *Iterator) weightedPoolForCandidatePool(
+	candidates *candidatePool,
+	mode channel.RouteMode,
+	now time.Time,
+) ([]weightedCredential, int64) {
 	if iterator == nil || iterator.credentials == nil {
 		return nil, 0
 	}
-	groupIDs := iterator.groupIDsByMode[mode]
+	groupIDs := candidates.groupIDsByMode[mode]
 	if len(groupIDs) == 0 {
 		return nil, 0
 	}
@@ -183,7 +213,7 @@ func (iterator *Iterator) weightedPoolForMode(mode channel.RouteMode, now time.T
 		if _, skipped := iterator.skippedGroups[credential.GroupID]; skipped {
 			continue
 		}
-		target, ok := iterator.targetsByMode[mode][credential.GroupID]
+		target, ok := candidates.targetsByMode[mode][credential.GroupID]
 		if !ok {
 			continue
 		}
@@ -208,30 +238,32 @@ func (iterator *Iterator) Next() (Selection, error) {
 	if iterator == nil || iterator.random == nil || iterator.now == nil {
 		return Selection{}, ErrExhausted
 	}
-	for _, mode := range []channel.RouteMode{channel.RouteNative, channel.RouteConverted} {
-		weighted, total := iterator.weightedPoolForMode(mode, iterator.now())
-		if total <= 0 {
-			continue
-		}
-
-		selected, preferred := preferredCredential(
-			weighted,
-			iterator.preferredCredentialID,
-		)
-		if !preferred {
-			ticket := iterator.random.Int63n(total)
-			selected = weighted[len(weighted)-1].meta
-			for _, candidate := range weighted {
-				if ticket < candidate.weight {
-					selected = candidate.meta
-					break
-				}
-				ticket -= candidate.weight
+	for _, pool := range []*candidatePool{&iterator.regular, &iterator.storeDowngraded} {
+		for _, mode := range []channel.RouteMode{channel.RouteNative, channel.RouteConverted} {
+			weighted, total := iterator.weightedPoolForCandidatePool(pool, mode, iterator.now())
+			if total <= 0 {
+				continue
 			}
+
+			selected, preferred := preferredCredential(
+				weighted,
+				iterator.preferredCredentialID,
+			)
+			if !preferred {
+				ticket := iterator.random.Int63n(total)
+				selected = weighted[len(weighted)-1].meta
+				for _, candidate := range weighted {
+					if ticket < candidate.weight {
+						selected = candidate.meta
+						break
+					}
+					ticket -= candidate.weight
+				}
+			}
+			iterator.tried[selected.ID] = struct{}{}
+			target := pool.targetsByMode[mode][selected.GroupID]
+			return newSelection(selected, target), nil
 		}
-		iterator.tried[selected.ID] = struct{}{}
-		target := iterator.targetsByMode[mode][selected.GroupID]
-		return newSelection(selected, target), nil
 	}
 	return Selection{}, ErrExhausted
 }

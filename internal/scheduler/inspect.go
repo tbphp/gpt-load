@@ -141,7 +141,6 @@ func evaluateTargets(
 	decisions := make([]targetDecision, 0, len(routes))
 	seenGroups := make(map[uint]struct{}, len(routes))
 	included := 0
-	includedExact := 0
 	for _, route := range routes {
 		if _, duplicate := seenGroups[route.GroupID]; duplicate {
 			continue
@@ -179,22 +178,8 @@ func evaluateTargets(
 		}
 		if decision.included {
 			included++
-			if !decision.responsesStoreDowngraded {
-				includedExact++
-			}
 		}
 		decisions = append(decisions, decision)
-	}
-	if query.responsesStorePreference == execution.ResponsesStorePreferencePreferStored && includedExact > 0 {
-		for index := range decisions {
-			decision := &decisions[index]
-			if !decision.included || !decision.responsesStoreDowngraded {
-				continue
-			}
-			decision.included = false
-			decision.reason = ReasonOperationUnsupported
-			included--
-		}
 	}
 	if included > 0 {
 		return decisions, "", nil
@@ -227,16 +212,18 @@ func routeRequirementSatisfied(
 	if query.responsesStorePreference != execution.ResponsesStorePreferencePreferStored {
 		return true, false, ""
 	}
-	if route.Mode == channel.RouteNative && route.ResolvedTarget.SupportsResponsesLifecycle() {
-		return true, false, ""
-	}
-	if route.Mode == channel.RouteNative && route.ResolvedTarget.ResponsesStoreCompatibility(
+	handling := route.ResolvedTarget.ResponsesStoreHandling(
 		protocol.OpenAIResponses,
 		execution.OperationResponsesCreate,
-	) == channel.ResponsesStoreCompatibilityStateless {
+	)
+	switch handling {
+	case channel.ResponsesStoreHandlingUpstreamManaged:
+		return true, false, ""
+	case channel.ResponsesStoreHandlingStateless:
 		return true, true, ""
+	default:
+		return false, false, ReasonOperationUnsupported
 	}
-	return false, false, ReasonOperationUnsupported
 }
 
 func accessKeyAllowsGroup(accessKey state.AccessKeyView, groupID uint) bool {

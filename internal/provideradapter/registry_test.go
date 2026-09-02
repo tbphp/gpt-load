@@ -2,6 +2,7 @@ package provideradapter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -92,6 +93,28 @@ func TestRegistryFailsClosedForMissingBindingAndUndeclaredRoute(t *testing.T) {
 		result.Error.ScopeHint != execution.ErrorScopeGroup ||
 		result.Error.Code != "undeclared_channel_route" {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestRegistryRejectsStoreDowngradeNotDeclaredByChannel(t *testing.T) {
+	t.Parallel()
+
+	bifrost := &recordingAdapter{}
+	registry, err := NewRegistry(channel.NewRegistry(), completeBindings(bifrost, &recordingAdapter{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := registry.Execute(t.Context(), execution.AttemptSpec{
+		ChannelID:                string(channel.NewAPI),
+		ClientProtocol:           "openai-responses",
+		Operation:                execution.OperationResponsesCreate,
+		RouteMode:                execution.RouteNative,
+		ResponsesStoreDowngraded: true,
+		TargetConfig:             json.RawMessage(`{"base_url":"https://newapi.example"}`),
+	})
+	if bifrost.unaryCalls != 0 || result.Error == nil ||
+		result.Error.Code != "undeclared_responses_store_downgrade" {
+		t.Fatalf("result/adapter = %#v/%+v", result, bifrost)
 	}
 }
 

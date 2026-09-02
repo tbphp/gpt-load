@@ -182,13 +182,14 @@ const (
 	RouteConverted = execution.RouteConverted
 )
 
-// ResponsesStoreCompatibility describes one verified native stateless
-// fallback for Responses Create.
-type ResponsesStoreCompatibility = spec.ResponsesStoreCompatibility
+// ResponsesStoreHandling describes how one Responses Create route handles the
+// client's store intent.
+type ResponsesStoreHandling = spec.ResponsesStoreHandling
 
 const (
-	ResponsesStoreCompatibilityNone      = spec.ResponsesStoreCompatibilityNone
-	ResponsesStoreCompatibilityStateless = spec.ResponsesStoreCompatibilityStateless
+	ResponsesStoreHandlingNone            = spec.ResponsesStoreHandlingNone
+	ResponsesStoreHandlingUpstreamManaged = spec.ResponsesStoreHandlingUpstreamManaged
+	ResponsesStoreHandlingStateless       = spec.ResponsesStoreHandlingStateless
 )
 
 // ProviderKind identifies the upstream API family selected by a code-owned
@@ -221,9 +222,9 @@ type ResolvedTarget struct {
 	TargetConfig      json.RawMessage `json:"-"`
 	CatalogProviderID string          `json:"-"`
 
-	modes                         map[protocol.Protocol]map[execution.Operation]RouteMode
-	resolvers                     map[routeKey]spec.RouteResolver
-	responsesStoreCompatibilities map[routeKey]ResponsesStoreCompatibility
+	modes                   map[protocol.Protocol]map[execution.Operation]RouteMode
+	resolvers               map[routeKey]spec.RouteResolver
+	responsesStoreHandlings map[routeKey]ResponsesStoreHandling
 }
 
 type routeKey struct {
@@ -244,12 +245,12 @@ func (t ResolvedTarget) Mode(
 	return mode, ok
 }
 
-// ResponsesStoreCompatibility returns the explicit compatibility for one route.
-func (t ResolvedTarget) ResponsesStoreCompatibility(
+// ResponsesStoreHandling returns the explicit store handling for one route.
+func (t ResolvedTarget) ResponsesStoreHandling(
 	clientProtocol protocol.Protocol,
 	operation execution.Operation,
-) ResponsesStoreCompatibility {
-	return t.responsesStoreCompatibilities[routeKey{
+) ResponsesStoreHandling {
+	return t.responsesStoreHandlings[routeKey{
 		clientProtocol: clientProtocol,
 		operation:      operation,
 	}]
@@ -538,8 +539,8 @@ func (r *Registry) Resolve(id ID, raw json.RawMessage) (ResolvedTarget, error) {
 		CatalogProviderID: definition.catalogProviderID,
 		modes:             cloneRouteModes(definition.modes),
 		resolvers:         cloneRouteResolvers(definition.resolvers),
-		responsesStoreCompatibilities: cloneResponsesStoreCompatibilities(
-			definition.responsesStoreCompatibilities,
+		responsesStoreHandlings: cloneResponsesStoreHandlings(
+			definition.responsesStoreHandlings,
 		),
 	}, nil
 }
@@ -652,21 +653,21 @@ func (s objectSchema) validate(prefix string, raw json.RawMessage) (map[string]s
 }
 
 type definition struct {
-	descriptor                    Descriptor
-	params                        objectSchema
-	validateParams                func(json.RawMessage) (map[string]string, error)
-	credentials                   objectSchema
-	validateCredential            func(map[string]string) error
-	catalogProviderID             string
-	providerKind                  ProviderKind
-	connection                    spec.Connection
-	capabilities                  spec.CapabilityBindings
-	endpointPolicy                spec.EndpointPolicy
-	fixedBaseURL                  string
-	fixedTargetConfig             json.RawMessage
-	modes                         map[protocol.Protocol]map[execution.Operation]RouteMode
-	resolvers                     map[routeKey]spec.RouteResolver
-	responsesStoreCompatibilities map[routeKey]ResponsesStoreCompatibility
+	descriptor              Descriptor
+	params                  objectSchema
+	validateParams          func(json.RawMessage) (map[string]string, error)
+	credentials             objectSchema
+	validateCredential      func(map[string]string) error
+	catalogProviderID       string
+	providerKind            ProviderKind
+	connection              spec.Connection
+	capabilities            spec.CapabilityBindings
+	endpointPolicy          spec.EndpointPolicy
+	fixedBaseURL            string
+	fixedTargetConfig       json.RawMessage
+	modes                   map[protocol.Protocol]map[execution.Operation]RouteMode
+	resolvers               map[routeKey]spec.RouteResolver
+	responsesStoreHandlings map[routeKey]ResponsesStoreHandling
 }
 
 func (d definition) matches(query string) bool {
@@ -693,8 +694,8 @@ func newRegistry(definitions []definition) (*Registry, error) {
 		definition.descriptor = cloneDescriptor(definition.descriptor)
 		definition.modes = cloneRouteModes(definition.modes)
 		definition.resolvers = cloneRouteResolvers(definition.resolvers)
-		definition.responsesStoreCompatibilities = cloneResponsesStoreCompatibilities(
-			definition.responsesStoreCompatibilities,
+		definition.responsesStoreHandlings = cloneResponsesStoreHandlings(
+			definition.responsesStoreHandlings,
 		)
 		definition.connection.AuthorizationMethods = append([]AuthorizationMethod(nil), definition.connection.AuthorizationMethods...)
 		definition.fixedTargetConfig = append(json.RawMessage(nil), definition.fixedTargetConfig...)
@@ -813,10 +814,10 @@ func cloneRouteResolvers(source map[routeKey]spec.RouteResolver) map[routeKey]sp
 	return clone
 }
 
-func cloneResponsesStoreCompatibilities(
-	source map[routeKey]ResponsesStoreCompatibility,
-) map[routeKey]ResponsesStoreCompatibility {
-	clone := make(map[routeKey]ResponsesStoreCompatibility, len(source))
+func cloneResponsesStoreHandlings(
+	source map[routeKey]ResponsesStoreHandling,
+) map[routeKey]ResponsesStoreHandling {
+	clone := make(map[routeKey]ResponsesStoreHandling, len(source))
 	for key, compatibility := range source {
 		clone[key] = compatibility
 	}

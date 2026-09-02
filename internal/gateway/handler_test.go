@@ -3569,8 +3569,13 @@ func TestHandlerKeepsStoredResponsesOnExactTarget(t *testing.T) {
 	}
 }
 
-func TestHandlerDoesNotChangeStoreSemanticsWhenExactCredentialIsUnavailable(t *testing.T) {
-	forwarder := &scriptedForwarder{}
+func TestHandlerFallsBackWhenUpstreamManagedCredentialIsUnavailable(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		DispatchState: execution.DispatchMaybeSent,
+		StatusCode:    http.StatusOK,
+		Header:        http.Header{"Content-Type": {"application/json"}},
+		Body:          []byte(`{"id":"resp_1","object":"response","store":false,"output":[]}`),
+	}}}
 	engine, _, _ := newResponsesStoreHandlerRuntime(t, forwarder, true, false)
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -3581,8 +3586,9 @@ func TestHandlerDoesNotChangeStoreSemanticsWhenExactCredentialIsUnavailable(t *t
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 
-	if response.Code != http.StatusServiceUnavailable || len(forwarder.inputs) != 0 ||
-		!strings.Contains(response.Body.String(), `"code":"no_available_candidate"`) {
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 1 ||
+		forwarder.inputs[0].ChannelID != string(channel.Codex) ||
+		!forwarder.inputs[0].ResponsesStoreDowngraded {
 		t.Fatalf("status/inputs/body = %d/%d/%s", response.Code, len(forwarder.inputs), response.Body.String())
 	}
 }

@@ -36,12 +36,7 @@ func Grok() spec.Module {
 			EndpointPolicy: spec.EndpointNone,
 		},
 		Routes: []spec.Route{
-			{
-				ClientProtocol:              protocol.OpenAIResponses,
-				Operation:                   execution.OperationResponsesCreate,
-				Mode:                        execution.RouteNative,
-				ResponsesStoreCompatibility: spec.ResponsesStoreCompatibilityStateless,
-			},
+			spec.NewResponsesCreateRoute(execution.RouteNative, spec.ResponsesStoreHandlingStateless),
 			spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesInputTokens, execution.RouteNative),
 			spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
 			spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),

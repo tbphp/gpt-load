@@ -130,6 +130,81 @@ func TestExecutionForwarderBuildsFrozenAttemptAndMapsUnaryResult(t *testing.T) {
 	}
 }
 
+func TestExecutionForwarderNormalizesDowngradedResponsesStoreUnary(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		request  string
+		response string
+	}{
+		{
+			name:     "store true",
+			request:  `{"model":"public","input":"hello","store":true}`,
+			response: `{"id":"resp_1","object":"response","store":true,"output":[]}`,
+		},
+		{
+			name:     "store omitted",
+			request:  `{"model":"public","input":"hello"}`,
+			response: `{"id":"resp_1","object":"response","output":[]}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := responsesExecutionForwardInput()
+			input.RouteRequirement = execution.RouteRequirementAny
+			input.ResponsesStoreDowngraded = true
+			input.Request.Body = []byte(test.request)
+			executor := fakeExecutionExecutor{unary: func(
+				_ context.Context,
+				spec execution.AttemptSpec,
+			) execution.AttemptResult {
+				var request map[string]json.RawMessage
+				if err := json.Unmarshal(spec.Body, &request); err != nil || string(request["store"]) != "false" {
+					t.Fatalf("upstream request = %s, err=%v", spec.Body, err)
+				}
+				return execution.AttemptResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+					Body: []byte(test.response),
+				}
+			}}
+
+			result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+			var response map[string]json.RawMessage
+			if result.Err != nil || json.Unmarshal(result.Body, &response) != nil ||
+				string(response["store"]) != "false" {
+				t.Fatalf("Forward() = %#v, body=%s", result, result.Body)
+			}
+			if string(input.Request.Body) != test.request {
+				t.Fatalf("input request mutated = %s", input.Request.Body)
+			}
+		})
+	}
+}
+
+func TestExecutionForwarderPreservesUnrecognizedDowngradedResponsesSuccess(t *testing.T) {
+	input := responsesExecutionForwardInput()
+	input.RouteRequirement = execution.RouteRequirementAny
+	input.ResponsesStoreDowngraded = true
+	input.ExternalModel = "same-model"
+	input.UpstreamModelID = "same-model"
+	input.Request.Body = []byte(`{"model":"same-model","input":"hello","store":true}`)
+	want := []byte(`not-json`)
+	executor := fakeExecutionExecutor{unary: func(
+		_ context.Context,
+		_ execution.AttemptSpec,
+	) execution.AttemptResult {
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/octet-stream"}},
+			Body: want,
+		}
+	}}
+
+	result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+	if result.Err != nil || !bytes.Equal(result.Body, want) {
+		t.Fatalf("Forward() = %#v, want unchanged body %q", result, want)
+	}
+}
+
 func TestExecutionForwarderCapturesImagesUsageFromUnaryBody(t *testing.T) {
 	t.Parallel()
 
@@ -978,6 +1053,55 @@ func TestExecutionForwarderClassifiesOpenAIResponsesStreamLifecycle(t *testing.T
 	}
 }
 
+func TestExecutionForwarderNormalizesSplitDowngradedResponsesStoreStream(t *testing.T) {
+	const stream = "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"store\":true}}\n\n" +
+		"event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"store\":true,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n"
+	chunks := []string{stream[:37], stream[37:111], stream[111 : len(stream)-9], stream[len(stream)-9:]}
+	executor := fakeExecutionExecutor{stream: func(
+		_ context.Context,
+		spec execution.AttemptSpec,
+		sink execution.StreamSink,
+	) execution.StreamResult {
+		if !bytes.Contains(spec.Body, []byte(`"store":false`)) || bytes.Contains(spec.Body, []byte(`"store":true`)) {
+			t.Fatalf("upstream request = %s", spec.Body)
+		}
+		if err := sink(execution.StreamEvent{
+			Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+			Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		for index, chunk := range chunks {
+			if err := sink(execution.StreamEvent{
+				Sequence: uint64(index + 2), Kind: execution.StreamEventData, Data: []byte(chunk),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+		}
+	}}
+	input := responsesExecutionForwardInput()
+	input.RouteRequirement = execution.RouteRequirementAny
+	input.ResponsesStoreDowngraded = true
+	input.Request.Body = []byte(`{"model":"public","input":"hello","store":true,"stream":true}`)
+	recorder := httptest.NewRecorder()
+
+	result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
+	body := recorder.Body.String()
+	if result.Err != nil || result.Stream.EndReason != StreamEndCleanEOF ||
+		strings.Contains(body, `"store":true`) || strings.Count(body, `"store":false`) != 2 ||
+		!strings.Contains(body, `"type":"response.output_text.delta","delta":"ok"`) {
+		t.Fatalf("ForwardStream() = %#v, body=%q", result, body)
+	}
+}
+
 func TestExecutionForwarderDoesNotReportStreamReadyForFirstProviderError(t *testing.T) {
 	t.Parallel()
 
@@ -1524,12 +1648,14 @@ func TestNewExecutionAttemptSpecCarriesResponsesStoreDowngrade(t *testing.T) {
 	input := responsesExecutionForwardInput()
 	input.RouteRequirement = execution.RouteRequirementAny
 	input.ResponsesStoreDowngraded = true
+	input.Request.Body = []byte(`{"model":"public","input":"hello","store":true}`)
 	spec, err := newExecutionAttemptSpec(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !spec.ResponsesStoreDowngraded {
-		t.Fatal("ResponsesStoreDowngraded = false, want true")
+	if !spec.ResponsesStoreDowngraded || !bytes.Contains(spec.Body, []byte(`"store":false`)) ||
+		bytes.Contains(spec.Body, []byte(`"store":true`)) {
+		t.Fatalf("AttemptSpec = %#v, body=%s", spec, spec.Body)
 	}
 }
 

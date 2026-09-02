@@ -113,7 +113,7 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 	if err != nil {
 		return definition{}, err
 	}
-	modes, resolvers, responsesStoreCompatibilities, publicRoutes, err := compileRoutes(
+	modes, resolvers, responsesStoreHandlings, publicRoutes, err := compileRoutes(
 		id,
 		source.Routes,
 		extensions,
@@ -162,20 +162,20 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 			Routes:          publicRoutes,
 			ClientProtocols: orderedProtocols(modes),
 		},
-		params:                        params,
-		validateParams:                validateParams,
-		credentials:                   credentials,
-		validateCredential:            validateCredential,
-		catalogProviderID:             source.Provider.CatalogProviderID,
-		providerKind:                  source.Provider.ProviderKind,
-		connection:                    cloneConnection(source.Connection),
-		capabilities:                  cloneCapabilityBindings(source.Capabilities),
-		endpointPolicy:                source.Provider.EndpointPolicy,
-		fixedBaseURL:                  fixedBaseURL,
-		fixedTargetConfig:             fixedTargetConfig,
-		modes:                         modes,
-		resolvers:                     resolvers,
-		responsesStoreCompatibilities: responsesStoreCompatibilities,
+		params:                  params,
+		validateParams:          validateParams,
+		credentials:             credentials,
+		validateCredential:      validateCredential,
+		catalogProviderID:       source.Provider.CatalogProviderID,
+		providerKind:            source.Provider.ProviderKind,
+		connection:              cloneConnection(source.Connection),
+		capabilities:            cloneCapabilityBindings(source.Capabilities),
+		endpointPolicy:          source.Provider.EndpointPolicy,
+		fixedBaseURL:            fixedBaseURL,
+		fixedTargetConfig:       fixedTargetConfig,
+		modes:                   modes,
+		resolvers:               resolvers,
+		responsesStoreHandlings: responsesStoreHandlings,
 	}, nil
 }
 
@@ -324,7 +324,7 @@ func compileRoutes(
 ) (
 	map[protocol.Protocol]map[execution.Operation]RouteMode,
 	map[routeKey]spec.RouteResolver,
-	map[routeKey]spec.ResponsesStoreCompatibility,
+	map[routeKey]spec.ResponsesStoreHandling,
 	[]RouteDescriptor,
 	error,
 ) {
@@ -333,7 +333,7 @@ func compileRoutes(
 	}
 	modes := make(map[protocol.Protocol]map[execution.Operation]RouteMode)
 	resolvers := make(map[routeKey]spec.RouteResolver)
-	responsesStoreCompatibilities := make(map[routeKey]spec.ResponsesStoreCompatibility)
+	responsesStoreHandlings := make(map[routeKey]spec.ResponsesStoreHandling)
 	public := make([]RouteDescriptor, 0, len(routes))
 	seen := make(map[routeKey]struct{}, len(routes))
 	for _, candidate := range routes {
@@ -351,17 +351,24 @@ func compileRoutes(
 		if isResponsesLifecycle(candidate.Operation) && candidate.Mode != execution.RouteNative {
 			return nil, nil, nil, nil, fmt.Errorf("channel %q has converted Responses lifecycle route %q", channelID, candidate.Operation)
 		}
-		if !candidate.ResponsesStoreCompatibility.Valid() {
-			return nil, nil, nil, nil, fmt.Errorf("channel %q has invalid Responses store compatibility", channelID)
+		if !candidate.ResponsesStoreHandling.Valid() {
+			return nil, nil, nil, nil, fmt.Errorf("channel %q has invalid Responses store handling", channelID)
 		}
-		if candidate.ResponsesStoreCompatibility != spec.ResponsesStoreCompatibilityNone {
-			if candidate.ClientProtocol != protocol.OpenAIResponses ||
-				candidate.Operation != execution.OperationResponsesCreate ||
-				candidate.Mode != execution.RouteNative ||
-				candidate.Resolver != "" || len(candidate.PossibleModes) != 0 {
-				return nil, nil, nil, nil, fmt.Errorf("channel %q has Responses store compatibility on an incompatible route", channelID)
-			}
-			responsesStoreCompatibilities[key] = candidate.ResponsesStoreCompatibility
+		responsesCreate := candidate.ClientProtocol == protocol.OpenAIResponses &&
+			candidate.Operation == execution.OperationResponsesCreate
+		switch {
+		case responsesCreate && candidate.ResponsesStoreHandling == spec.ResponsesStoreHandlingNone:
+			return nil, nil, nil, nil, fmt.Errorf("channel %q Responses create route has no store handling", channelID)
+		case !responsesCreate && candidate.ResponsesStoreHandling != spec.ResponsesStoreHandlingNone:
+			return nil, nil, nil, nil, fmt.Errorf("channel %q has Responses store handling on an incompatible route", channelID)
+		case candidate.ResponsesStoreHandling == spec.ResponsesStoreHandlingUpstreamManaged &&
+			(candidate.Mode != execution.RouteNative || containsRouteMode(
+				candidate.PossibleModes,
+				execution.RouteConverted,
+			)):
+			return nil, nil, nil, nil, fmt.Errorf("channel %q has upstream-managed store handling on a converted route", channelID)
+		case responsesCreate:
+			responsesStoreHandlings[key] = candidate.ResponsesStoreHandling
 		}
 		possibleModes := append([]RouteMode(nil), candidate.PossibleModes...)
 		if candidate.Resolver != "" {
@@ -408,7 +415,16 @@ func compileRoutes(
 			PossibleModes:  possibleModes,
 		})
 	}
-	return modes, resolvers, responsesStoreCompatibilities, public, nil
+	return modes, resolvers, responsesStoreHandlings, public, nil
+}
+
+func containsRouteMode(modes []execution.RouteMode, want execution.RouteMode) bool {
+	for _, mode := range modes {
+		if mode == want {
+			return true
+		}
+	}
+	return false
 }
 
 func validProtocolOperation(clientProtocol protocol.Protocol, operation execution.Operation) bool {

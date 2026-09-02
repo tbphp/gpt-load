@@ -936,6 +936,70 @@ func TestProductionRuntimeManagerUsesDeclaredResponsesOperation(t *testing.T) {
 	}
 }
 
+func TestProductionRuntimeManagerPreservesUpstreamManagedResponsesStore(t *testing.T) {
+	tests := []struct {
+		channelID channel.ID
+		wantPath  string
+	}{
+		{channelID: channel.OpenAI, wantPath: "/v1/responses"},
+		{channelID: channel.GPTLoad, wantPath: "/v1/responses"},
+		{channelID: channel.XAI, wantPath: "/v1/responses"},
+		{channelID: channel.NewAPI, wantPath: "/v1/responses"},
+		{channelID: channel.CLIProxyAPI, wantPath: "/v1/responses"},
+		{channelID: channel.DeepSeek, wantPath: "/responses"},
+	}
+	for _, test := range tests {
+		for _, request := range []struct {
+			name      string
+			body      string
+			wantStore bool
+		}{
+			{name: "store true", body: `{"model":"upstream-model","input":"hello","store":true}`,
+				wantStore: true},
+			{name: "store omitted", body: `{"model":"upstream-model","input":"hello"}`},
+		} {
+			t.Run(string(test.channelID)+"/"+request.name, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, upstream *http.Request) {
+					if upstream.Method != http.MethodPost || upstream.URL.Path != test.wantPath {
+						t.Errorf("upstream target = %s %s, want POST %s", upstream.Method, upstream.URL.Path, test.wantPath)
+					}
+					body, err := io.ReadAll(upstream.Body)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var payload map[string]json.RawMessage
+					if err := json.Unmarshal(body, &payload); err != nil {
+						t.Fatalf("decode upstream request: %v; body=%s", err, body)
+					}
+					store, exists := payload["store"]
+					if exists != request.wantStore || exists && string(store) != "true" {
+						t.Errorf("upstream store = %s/%t, want true/%t; body=%s", store, exists, request.wantStore, body)
+					}
+					writer.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(writer, `{"id":"resp","object":"response","status":"completed","model":"upstream-model","store":false,"output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
+				}))
+				defer server.Close()
+
+				manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, channel.NewRegistry())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := manager.Start(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				defer manager.Shutdown()
+
+				spec := openAIResponsesAttempt(t, test.channelID, server.URL)
+				spec.Body = []byte(request.body)
+				result := manager.Execute(context.Background(), spec)
+				if validationErr := result.Validate(); validationErr != nil || result.Error != nil {
+					t.Fatalf("Execute() = %+v validation=%v", result, validationErr)
+				}
+			})
+		}
+	}
+}
+
 func TestProductionRuntimeManagerUsesDeepSeekNativeAnthropicEndpoint(t *testing.T) {
 	var calls atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

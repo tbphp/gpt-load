@@ -154,6 +154,10 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		}
 		return !wasTerminal && streamEvents.sawTerminal, nil
 	})
+	var responsesStoreBuffer *statelessResponsesSSEBuffer
+	if input.ResponsesStoreDowngraded {
+		responsesStoreBuffer = newStatelessResponsesSSEBuffer()
+	}
 
 	var (
 		ready         *execution.StreamEvent
@@ -199,13 +203,24 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				errorBody = appendExecutionErrorBody(errorBody, event.Data)
 				return nil
 			}
-			completeData, terminalInChunk, err := streamBuffer.push(event.Data)
+			observedData := event.Data
+			if responsesStoreBuffer != nil {
+				observedData, err = responsesStoreBuffer.push(event.Data)
+				if err != nil {
+					downstreamErr = executionStreamProtocolFailure(err)
+					return downstreamErr
+				}
+				if len(observedData) == 0 {
+					return nil
+				}
+			}
+			completeData, terminalInChunk, err := streamBuffer.push(observedData)
 			if err != nil {
 				downstreamErr = executionStreamProtocolFailure(err)
 				return downstreamErr
 			}
-			forwardData := event.Data
-			if input.ClientProtocol == protocol.OpenAIImages {
+			forwardData := observedData
+			if input.ClientProtocol == protocol.OpenAIImages || responsesStoreBuffer != nil {
 				forwardData = completeData
 				if len(forwardData) == 0 {
 					return nil
@@ -272,10 +287,17 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		terminal = invalidExecutionStreamResult(terminal, ready, committed)
 	}
 	if downstreamErr == nil && terminal.Error == nil {
-		if err := streamBuffer.finish(); err != nil {
-			downstreamErr = executionStreamProtocolFailure(err)
-		} else if err := streamEvents.validateEOF(); err != nil {
-			downstreamErr = err
+		if responsesStoreBuffer != nil {
+			if err := responsesStoreBuffer.finish(); err != nil {
+				downstreamErr = executionStreamProtocolFailure(err)
+			}
+		}
+		if downstreamErr == nil {
+			if err := streamBuffer.finish(); err != nil {
+				downstreamErr = executionStreamProtocolFailure(err)
+			} else if err := streamEvents.validateEOF(); err != nil {
+				downstreamErr = err
+			}
 		}
 	}
 	capturedUsage := streamEvents.finalizeUsage()
@@ -724,6 +746,13 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 		Proxy:            input.Proxy,
 		ProxyFingerprint: input.ProxyFingerprint,
 	})
+	if spec.ResponsesStoreDowngraded {
+		body, err := forceStatelessResponsesRequest(spec.Body)
+		if err != nil {
+			return execution.AttemptSpec{}, err
+		}
+		spec.Body = body
+	}
 	if err := spec.Validate(); err != nil {
 		return execution.AttemptSpec{}, err
 	}

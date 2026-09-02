@@ -101,7 +101,7 @@ func TestCompilerRejectsOpenAIResponsesModelListRoute(t *testing.T) {
 	}
 }
 
-func TestCompilerValidatesExplicitResponsesStoreCompatibility(t *testing.T) {
+func TestCompilerValidatesExplicitResponsesStoreHandling(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -109,22 +109,53 @@ func TestCompilerValidatesExplicitResponsesStoreCompatibility(t *testing.T) {
 		clientProtocol protocol.Protocol
 		operation      execution.Operation
 		mode           execution.RouteMode
-		compatibility  spec.ResponsesStoreCompatibility
+		possibleModes  []execution.RouteMode
+		handling       spec.ResponsesStoreHandling
 		wantError      bool
 	}{
+		{
+			name:           "native Responses create upstream managed",
+			clientProtocol: protocol.OpenAIResponses,
+			operation:      execution.OperationResponsesCreate,
+			mode:           execution.RouteNative,
+			handling:       spec.ResponsesStoreHandlingUpstreamManaged,
+		},
 		{
 			name:           "native Responses create stateless",
 			clientProtocol: protocol.OpenAIResponses,
 			operation:      execution.OperationResponsesCreate,
 			mode:           execution.RouteNative,
-			compatibility:  spec.ResponsesStoreCompatibilityStateless,
+			handling:       spec.ResponsesStoreHandlingStateless,
 		},
 		{
-			name:           "converted Responses create",
+			name:           "converted Responses create stateless",
 			clientProtocol: protocol.OpenAIResponses,
 			operation:      execution.OperationResponsesCreate,
 			mode:           execution.RouteConverted,
-			compatibility:  spec.ResponsesStoreCompatibilityStateless,
+			handling:       spec.ResponsesStoreHandlingStateless,
+		},
+		{
+			name:           "converted Responses create upstream managed",
+			clientProtocol: protocol.OpenAIResponses,
+			operation:      execution.OperationResponsesCreate,
+			mode:           execution.RouteConverted,
+			handling:       spec.ResponsesStoreHandlingUpstreamManaged,
+			wantError:      true,
+		},
+		{
+			name:           "model-dependent Responses create can convert upstream managed",
+			clientProtocol: protocol.OpenAIResponses,
+			operation:      execution.OperationResponsesCreate,
+			mode:           execution.RouteNative,
+			possibleModes:  []execution.RouteMode{execution.RouteNative, execution.RouteConverted},
+			handling:       spec.ResponsesStoreHandlingUpstreamManaged,
+			wantError:      true,
+		},
+		{
+			name:           "Responses create without handling",
+			clientProtocol: protocol.OpenAIResponses,
+			operation:      execution.OperationResponsesCreate,
+			mode:           execution.RouteNative,
 			wantError:      true,
 		},
 		{
@@ -132,7 +163,7 @@ func TestCompilerValidatesExplicitResponsesStoreCompatibility(t *testing.T) {
 			clientProtocol: protocol.OpenAICompletions,
 			operation:      execution.OperationChatCompletion,
 			mode:           execution.RouteNative,
-			compatibility:  spec.ResponsesStoreCompatibilityStateless,
+			handling:       spec.ResponsesStoreHandlingStateless,
 			wantError:      true,
 		},
 		{
@@ -140,7 +171,7 @@ func TestCompilerValidatesExplicitResponsesStoreCompatibility(t *testing.T) {
 			clientProtocol: protocol.OpenAIResponses,
 			operation:      execution.OperationResponsesCreate,
 			mode:           execution.RouteNative,
-			compatibility:  spec.ResponsesStoreCompatibility("unknown"),
+			handling:       spec.ResponsesStoreHandling("unknown"),
 			wantError:      true,
 		},
 	}
@@ -150,10 +181,11 @@ func TestCompilerValidatesExplicitResponsesStoreCompatibility(t *testing.T) {
 			t.Parallel()
 			module := findModule(t, builtInModules(), Codex)
 			module.Definition.Routes = []spec.Route{{
-				ClientProtocol:              test.clientProtocol,
-				Operation:                   test.operation,
-				Mode:                        test.mode,
-				ResponsesStoreCompatibility: test.compatibility,
+				ClientProtocol:         test.clientProtocol,
+				Operation:              test.operation,
+				Mode:                   test.mode,
+				PossibleModes:          test.possibleModes,
+				ResponsesStoreHandling: test.handling,
 			}}
 			definitions, err := compileBuiltInModules([]spec.Module{module})
 			if test.wantError {
@@ -169,8 +201,8 @@ func TestCompilerValidatesExplicitResponsesStoreCompatibility(t *testing.T) {
 				clientProtocol: protocol.OpenAIResponses,
 				operation:      execution.OperationResponsesCreate,
 			}
-			if got := definitions[0].responsesStoreCompatibilities[key]; got != ResponsesStoreCompatibilityStateless {
-				t.Fatalf("compiled compatibility = %q", got)
+			if got := definitions[0].responsesStoreHandlings[key]; got != test.handling {
+				t.Fatalf("compiled handling = %q, want %q", got, test.handling)
 			}
 		})
 	}

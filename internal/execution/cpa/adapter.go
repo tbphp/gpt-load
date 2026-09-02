@@ -104,7 +104,6 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 	spec = execution.NewAttemptSpec(spec)
 	defer func() {
 		normalizeCPAImagesAttemptResult(spec, &result)
-		normalizeCPAResponsesStoreAttemptResult(spec, &result)
 	}()
 	provider, err := a.validateSpec(spec)
 	if err != nil {
@@ -351,20 +350,6 @@ func (a *Adapter) ExecuteStream(
 	}
 	emitPayloads := func(payloads [][]byte) *execution.StreamResult {
 		for _, unframed := range payloads {
-			if spec.ResponsesStoreDowngraded {
-				var normalizeErr error
-				unframed, normalizeErr = forceStatelessResponsesSSEEvent(unframed)
-				if normalizeErr != nil {
-					failure := streamInternalError(
-						upstreamProtocol,
-						headers,
-						applied,
-						"normalize stateless Responses event",
-						ready,
-					)
-					return &failure
-				}
-			}
 			payload := frameSSE(spec.ClientProtocol, unframed)
 			payload, rewriteErr := rewriteStreamModelAlias(spec, payload)
 			if rewriteErr != nil {
@@ -496,12 +481,6 @@ func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, erro
 	if !ok || execution.RouteMode(mode) != spec.RouteMode {
 		return nil, fmt.Errorf("subscription route is not declared by the channel")
 	}
-	if spec.ResponsesStoreDowngraded && target.ResponsesStoreCompatibility(
-		protocol.OpenAIResponses,
-		execution.OperationResponsesCreate,
-	) != channel.ResponsesStoreCompatibilityStateless {
-		return nil, fmt.Errorf("subscription route does not allow stateless Responses store fallback")
-	}
 	if spec.ClientProtocol == protocol.OpenAIImages {
 		if _, err := canonicalCPAImagesRequestPath(spec); err != nil {
 			return nil, err
@@ -526,13 +505,7 @@ func bridgeRequest(
 	payload := append([]byte(nil), spec.Body...)
 	headers := spec.Header.Clone()
 	requestPath := ""
-	if spec.ResponsesStoreDowngraded {
-		var err error
-		payload, err = forceStatelessResponsesPayload(payload)
-		if err != nil {
-			return providerRequest{}, err
-		}
-	} else if spec.ClientProtocol == protocol.OpenAIImages {
+	if spec.ClientProtocol == protocol.OpenAIImages {
 		var err error
 		requestPath, err = canonicalCPAImagesRequestPath(spec)
 		if err != nil {

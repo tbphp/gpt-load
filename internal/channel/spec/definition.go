@@ -227,29 +227,31 @@ type UtilityID ExtensionID
 // ActionID selects one explicitly supported credential/account action.
 type ActionID ExtensionID
 
-// ResponsesStoreCompatibility declares one explicitly verified stateless
-// fallback for a native Responses Create route.
-type ResponsesStoreCompatibility string
+// ResponsesStoreHandling declares how one Responses Create route handles the
+// client's store intent without implying complete Responses lifecycle support.
+type ResponsesStoreHandling string
 
 const (
-	ResponsesStoreCompatibilityNone      ResponsesStoreCompatibility = ""
-	ResponsesStoreCompatibilityStateless ResponsesStoreCompatibility = "stateless"
+	ResponsesStoreHandlingNone            ResponsesStoreHandling = ""
+	ResponsesStoreHandlingUpstreamManaged ResponsesStoreHandling = "upstream_managed"
+	ResponsesStoreHandlingStateless       ResponsesStoreHandling = "stateless"
 )
 
-// Valid reports whether the Responses store compatibility is recognized.
-func (compatibility ResponsesStoreCompatibility) Valid() bool {
-	return compatibility == ResponsesStoreCompatibilityNone ||
-		compatibility == ResponsesStoreCompatibilityStateless
+// Valid reports whether the Responses store handling value is recognized.
+func (handling ResponsesStoreHandling) Valid() bool {
+	return handling == ResponsesStoreHandlingNone ||
+		handling == ResponsesStoreHandlingUpstreamManaged ||
+		handling == ResponsesStoreHandlingStateless
 }
 
 // Route is one explicit channel execution capability.
 type Route struct {
-	ClientProtocol              protocol.Protocol
-	Operation                   execution.Operation
-	Mode                        execution.RouteMode
-	ResponsesStoreCompatibility ResponsesStoreCompatibility
-	Resolver                    RouteResolverID
-	PossibleModes               []execution.RouteMode
+	ClientProtocol         protocol.Protocol
+	Operation              execution.Operation
+	Mode                   execution.RouteMode
+	ResponsesStoreHandling ResponsesStoreHandling
+	Resolver               RouteResolverID
+	PossibleModes          []execution.RouteMode
 }
 
 // NewRoute constructs one explicit static route declaration.
@@ -259,6 +261,20 @@ func NewRoute(
 	mode execution.RouteMode,
 ) Route {
 	return Route{ClientProtocol: clientProtocol, Operation: operation, Mode: mode}
+}
+
+// NewResponsesCreateRoute constructs one Responses Create route with an
+// explicit store-handling contract.
+func NewResponsesCreateRoute(
+	mode execution.RouteMode,
+	handling ResponsesStoreHandling,
+) Route {
+	return Route{
+		ClientProtocol:         protocol.OpenAIResponses,
+		Operation:              execution.OperationResponsesCreate,
+		Mode:                   mode,
+		ResponsesStoreHandling: handling,
+	}
 }
 
 // CapabilityBindings names optional implementations without embedding runtime
