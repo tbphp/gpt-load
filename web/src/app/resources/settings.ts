@@ -1,9 +1,9 @@
 import { queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
-import type { ApiClient, ApiClientWithResponse } from '@/api/client'
+import type { ApiClient } from '@/api/client'
 import type { ProxyMutation, ProxyViewDto } from '@/api/control/types'
-import { ApiError, InvalidResponseError } from '@/api/errors'
+import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 
 import type { HeaderRulesDto } from './groups'
@@ -89,11 +89,8 @@ export type SettingsPatch = Partial<{
 
 export interface SettingsResource {
   settings: SettingsDto
-  settings_etag: string
 }
 
-const strongSettingsETag = /^"(?<token>sha256-[0-9a-f]{64})"$/
-const strongSettingsETagToken = /^sha256-[0-9a-f]{64}$/
 const settingsFields = ['values', 'overrides', 'read_only'] as const
 const settingsValueFields = [...runtimeSettingKeys, 'proxy_config'] as const
 
@@ -173,38 +170,11 @@ export function settingsQueryIdentity(locale: string) {
   return controlQueryKeys.settings(locale)
 }
 
-export function settingsResourceFromToken(settings: SettingsDto, token: string): SettingsResource {
-  if (!strongSettingsETagToken.test(token)) invalidResponse()
-  return {
-    settings,
-    settings_etag: token,
-  }
-}
-
-export function settingsResourceFromResponse(
-  settings: SettingsDto,
-  headers: Headers,
-): SettingsResource {
-  const header = headers.get('ETag')
-  const match = header?.match(strongSettingsETag)
-  const token = match?.groups?.token
-  if (!token) invalidResponse()
-  return settingsResourceFromToken(settings, token)
-}
-
-function clientWithResponse(client: ApiClient): ApiClientWithResponse {
-  if (!client.requestWithResponse) invalidResponse()
-  return client as ApiClientWithResponse
-}
-
 export async function getSettings(
   client: ApiClient,
   signal?: AbortSignal,
 ): Promise<SettingsResource> {
-  const response = await clientWithResponse(client).requestWithResponse<unknown>('/api/settings', {
-    signal,
-  })
-  return settingsResourceFromResponse(projectSettings(response.data), response.headers)
+  return { settings: projectSettings(await client.request<unknown>('/api/settings', { signal })) }
 }
 
 export function settingsQueryOptions(client: ApiClient, locale: MaybeRefOrGetter<string>) {
@@ -218,30 +188,15 @@ export function settingsQueryOptions(client: ApiClient, locale: MaybeRefOrGetter
 export async function updateSettings(
   client: ApiClient,
   patch: SettingsPatch,
-  settingsETag: string,
   signal?: AbortSignal,
 ): Promise<SettingsResource> {
-  const response = await clientWithResponse(client).requestWithResponse<unknown>('/api/settings', {
-    method: 'PUT',
-    headers: { 'If-Match': `"${settingsETag}"` },
-    json: { settings: patch },
-    signal,
-  })
-  return settingsResourceFromResponse(projectSettings(response.data), response.headers)
-}
-
-export function projectSettingsConflict(error: unknown): SettingsResource | undefined {
-  if (
-    !(error instanceof ApiError) ||
-    error.status !== 412 ||
-    error.code !== 'SETTINGS_VERSION_CONFLICT' ||
-    typeof error.data !== 'object' ||
-    error.data === null ||
-    Array.isArray(error.data)
-  ) {
-    return undefined
+  return {
+    settings: projectSettings(
+      await client.request<unknown>('/api/settings', {
+        method: 'PUT',
+        json: { settings: patch },
+        signal,
+      }),
+    ),
   }
-  const data = error.data as Record<string, unknown>
-  if (typeof data.settings_etag !== 'string') return undefined
-  return settingsResourceFromToken(projectSettings(data.settings), data.settings_etag)
 }

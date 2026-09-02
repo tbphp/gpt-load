@@ -298,31 +298,8 @@ func TestSettingsMutationAudit(t *testing.T) {
 		fixture := newServiceFixture(t)
 		var logs bytes.Buffer
 		_, engine := newMutationAuditRouteServer(t, fixture, &logs)
-		initial := serveSettingsOCCRequest(
-			t,
-			engine,
-			http.MethodGet,
-			authTestKey,
-			"en-US",
-			"",
-			"",
-		)
-		if initial.Code != http.StatusOK {
-			t.Fatalf(
-				"GET settings = %d %s",
-				initial.Code,
-				initial.Body.String(),
-			)
-		}
-		logs.Reset()
-		updated := serveSettingsOCCRequest(
-			t,
-			engine,
-			http.MethodPut,
-			authTestKey,
-			"en-US",
-			initial.Header().Get("ETag"),
-			`{"settings":{"request_timeout":900}}`,
+		updated := serveSettingsRequest(
+			t, engine, http.MethodPut, authTestKey, `{"settings":{"request_timeout":900}}`,
 		)
 		if updated.Code != http.StatusOK {
 			t.Fatalf(
@@ -353,7 +330,7 @@ func TestSettingsMutationAudit(t *testing.T) {
 			mutationAuditRequest{
 				method: http.MethodPut,
 				path:   "/api/settings",
-				body:   `{"settings":{"request_timeout":900}}`,
+				body:   `{"settings":{"unknown":true}}`,
 			},
 		)
 		assertMutationEvent(
@@ -365,7 +342,7 @@ func TestSettingsMutationAudit(t *testing.T) {
 			"192.0.2.1",
 			"rejected",
 			status,
-			app_errors.ErrSettingsPreconditionRequired.Code,
+			app_errors.ErrValidation.Code,
 			"warning",
 		)
 	})
@@ -374,32 +351,9 @@ func TestSettingsMutationAudit(t *testing.T) {
 		fixture := newServiceFixture(t)
 		var logs bytes.Buffer
 		_, engine := newMutationAuditRouteServer(t, fixture, &logs)
-		initial := serveSettingsOCCRequest(
-			t,
-			engine,
-			http.MethodGet,
-			authTestKey,
-			"en-US",
-			"",
-			"",
-		)
-		if initial.Code != http.StatusOK {
-			t.Fatalf(
-				"GET settings = %d %s",
-				initial.Code,
-				initial.Body.String(),
-			)
-		}
-		logs.Reset()
 		closeMutationAuditDB(t, fixture)
-		updated := serveSettingsOCCRequest(
-			t,
-			engine,
-			http.MethodPut,
-			authTestKey,
-			"en-US",
-			initial.Header().Get("ETag"),
-			`{"settings":{"request_timeout":900}}`,
+		updated := serveSettingsRequest(
+			t, engine, http.MethodPut, authTestKey, `{"settings":{"request_timeout":900}}`,
 		)
 		assertMutationEvent(
 			t,
@@ -888,22 +842,6 @@ func TestControlSecurityEventFormatterSecretMatrix(t *testing.T) {
 					engine.ServeHTTP(httptest.NewRecorder(), request)
 				}
 
-				initial := serveSettingsOCCRequest(
-					t,
-					engine,
-					http.MethodGet,
-					authKey,
-					"en-US",
-					"",
-					"",
-				)
-				if initial.Code != http.StatusOK {
-					t.Fatalf(
-						"GET settings = %d %s",
-						initial.Code,
-						initial.Body.String(),
-					)
-				}
 				settingsBody := fmt.Sprintf(
 					`{"settings":{"header_rules":{"set":{`+
 						`"X-Provider":%q,"X-Header":%q,`+
@@ -914,14 +852,8 @@ func TestControlSecurityEventFormatterSecretMatrix(t *testing.T) {
 					requestBodySecret,
 					responseSecret,
 				)
-				updated := serveSettingsOCCRequest(
-					t,
-					engine,
-					http.MethodPut,
-					authKey,
-					"en-US",
-					initial.Header().Get("ETag"),
-					settingsBody,
+				updated := serveSettingsRequest(
+					t, engine, http.MethodPut, authKey, settingsBody,
 				)
 				if updated.Code != http.StatusOK {
 					t.Fatalf(

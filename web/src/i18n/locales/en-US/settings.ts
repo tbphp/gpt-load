@@ -13,9 +13,6 @@ export default {
     saveState: {
       saving: 'Saving settings',
       savingNote: 'Publishing all runtime settings…',
-      reconciling: 'Checking the save result',
-      indeterminate: 'Save result needs confirmation',
-      indeterminateNote: 'The draft is retained; check the latest server state first.',
       baseline: 'Current published settings',
       baselineNote: 'No unsaved runtime-setting changes.',
     },
@@ -37,24 +34,6 @@ export default {
     },
     validation: {
       title: 'Fix these settings before saving:',
-    },
-    outcome: {
-      reconciling: 'The save result is unknown. Checking the latest server state…',
-      indeterminate:
-        'The save result could not be confirmed. Do not save again until the latest state is checked.',
-      checkResult: 'Check result',
-    },
-    conflict: {
-      deferred:
-        'An external Settings update was detected. Correct the invalid local Header edit before the latest server state is merged.',
-      rebased:
-        'Settings changed elsewhere. The latest values were merged with your non-conflicting edits; review and save again.',
-      blocked:
-        'Settings changed elsewhere and overlap with your edits. Resolve every mine/latest conflict before saving.',
-      mine: 'Mine',
-      latest: 'Latest',
-      useMine: 'Use mine',
-      useLatest: 'Use latest',
     },
     runtime: {
       title: 'Request and forwarding',
@@ -129,7 +108,6 @@ export default {
         'A Group Header Rules override replaces the complete global object; individual rules are not merged.',
       securityNotice:
         'Fixed Header values are ordinary configuration. Do not store long-lived credentials; credential Headers must use the literal {template} template.',
-      conflict: 'Global Header Rules changed concurrently. Choose the version to retain.',
     },
     logs: {
       title: 'Logs and maintenance',

@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 
 import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
-import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
@@ -16,19 +15,15 @@ import {
   setSettingsOverride,
   type SettingsDraft,
 } from './settings-patch'
-import type { SettingsMergeConflict } from './settings-response'
 import type { SettingsDraftChange } from './use-settings-controller'
 
 const props = defineProps<{
   base: SettingsResource
   draft: SettingsDraft
   disabled: boolean
-  conflicts: SettingsMergeConflict[]
 }>()
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
-  chooseMine: [key: RuntimeSettingKey]
-  chooseLatest: [key: RuntimeSettingKey]
 }>()
 const { t } = useI18n()
 const numericKeys = ['affinity_ttl', 'affinity_capacity'] as const
@@ -75,21 +70,6 @@ function fieldError(key: (typeof numericKeys)[number]): string | undefined {
       ? isValidTimeout(props.draft.values[key])
       : isValidAffinityCapacity(props.draft.values[key])
   return valid ? undefined : t(`settings.affinity.${key}Error`)
-}
-
-function conflictFor(key: RuntimeSettingKey): SettingsMergeConflict | undefined {
-  return props.conflicts.find((conflict) => conflict.key === key)
-}
-
-function conflictValue(key: RuntimeSettingKey, side: 'mine' | 'latest'): string {
-  const value = conflictFor(key)?.[side]
-  if (!value?.is_override) return t('settings.runtime.defaultSource')
-  if (key === 'affinity_enabled') {
-    return value.normalized_value ? t('settings.runtime.enabled') : t('settings.runtime.disabled')
-  }
-  const unit =
-    key === 'affinity_ttl' ? t('settings.runtime.seconds') : t('settings.affinity.entries')
-  return `${value.normalized_value} ${unit}`
 }
 
 const enabledValue = computed(() =>
@@ -217,25 +197,6 @@ const enabledValue = computed(() =>
         </RuntimeOverrideRow>
       </div>
     </div>
-
-    <article
-      v-for="conflict in conflicts.filter(({ key }) => key.startsWith('affinity_'))"
-      :key="conflict.key"
-      class="settings-affinity__conflict"
-      role="alert"
-    >
-      <strong>{{ t(`settings.affinity.${conflict.key}`) }}</strong>
-      <span>{{ t('settings.conflict.mine') }}: {{ conflictValue(conflict.key, 'mine') }}</span>
-      <span>{{ t('settings.conflict.latest') }}: {{ conflictValue(conflict.key, 'latest') }}</span>
-      <div>
-        <AppButton variant="secondary" size="compact" @click="emit('chooseMine', conflict.key)">
-          {{ t('settings.conflict.useMine') }}
-        </AppButton>
-        <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', conflict.key)">
-          {{ t('settings.conflict.useLatest') }}
-        </AppButton>
-      </div>
-    </article>
   </section>
 </template>
 
@@ -243,7 +204,6 @@ const enabledValue = computed(() =>
 .settings-section,
 .settings-section__heading,
 .settings-affinity__rows,
-.settings-affinity__conflict,
 .settings-affinity__boolean {
   display: grid;
 }
@@ -286,20 +246,5 @@ const enabledValue = computed(() =>
 .settings-affinity__input > span {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
-}
-
-.settings-affinity__conflict {
-  gap: var(--space-1);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-control);
-  padding: var(--space-3);
-  font-size: var(--text-label-xs);
-}
-
-.settings-affinity__conflict > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
 }
 </style>

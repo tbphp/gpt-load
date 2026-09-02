@@ -3,26 +3,22 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HeaderRulesDto } from '@/app/resources/groups'
-import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
+import type { SettingsResource } from '@/app/resources/settings'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
-import type { SettingsMergeConflict } from './settings-response'
 import type { SettingsDraftChange } from './use-settings-controller'
 
 const props = defineProps<{
   base: SettingsResource
   draft: SettingsDraft
   disabled: boolean
-  conflicts: SettingsMergeConflict[]
   resetKey?: number
 }>()
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
-  chooseMine: [key: RuntimeSettingKey]
-  chooseLatest: [key: RuntimeSettingKey]
   'update:valid': [valid: boolean]
   'update:invalidEdits': [hasEdits: boolean]
 }>()
@@ -39,7 +35,6 @@ const rules = computed(() =>
     : props.base.settings.values.header_rules,
 )
 const ruleCount = computed(() => Object.keys(rules.value.set).length + rules.value.remove.length)
-const conflict = computed(() => props.conflicts.find((item) => item.key === key))
 
 function cloneDraft(): SettingsDraft {
   return createSettingsDraft({
@@ -73,15 +68,6 @@ function updateRules(value: HeaderRulesDto): void {
   const draft = cloneDraft()
   draft.values.header_rules = value
   emit('change', { key, draft })
-}
-
-function conflictSummary(side: 'mine' | 'latest'): string {
-  const identity = conflict.value?.[side]
-  if (!identity?.is_override) return t('settings.headers.defaultSource')
-  const value = identity.normalized_value as HeaderRulesDto
-  return t('settings.headers.ruleCount', {
-    count: Object.keys(value.set).length + value.remove.length,
-  })
 }
 
 watch(
@@ -126,20 +112,6 @@ watch(
       </div>
     </header>
 
-    <div v-if="conflict" class="settings-headers__conflict" role="alert">
-      <strong>{{ t('settings.headers.conflict') }}</strong>
-      <span>{{ t('settings.conflict.mine') }}: {{ conflictSummary('mine') }}</span>
-      <span>{{ t('settings.conflict.latest') }}: {{ conflictSummary('latest') }}</span>
-      <div>
-        <AppButton variant="secondary" size="compact" @click="emit('chooseMine', key)">
-          {{ t('settings.conflict.useMine') }}
-        </AppButton>
-        <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', key)">
-          {{ t('settings.conflict.useLatest') }}
-        </AppButton>
-      </div>
-    </div>
-
     <HeaderRulesEditor
       appearance="ledger"
       :model-value="rules"
@@ -157,8 +129,7 @@ watch(
 <style scoped>
 .settings-section,
 .settings-section__heading,
-.settings-headers__meta,
-.settings-headers__conflict {
+.settings-headers__meta {
   display: grid;
 }
 
@@ -198,21 +169,6 @@ watch(
 }
 
 .settings-headers__meta :deep(.app-button) {
-  margin-top: var(--space-1);
-}
-
-.settings-headers__conflict {
-  gap: var(--space-1);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-control);
-  padding: var(--space-3);
-  font-size: var(--text-label-xs);
-}
-
-.settings-headers__conflict > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
   margin-top: var(--space-1);
 }
 

@@ -20,7 +20,6 @@ import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
-import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -73,7 +72,7 @@ const {
 } = useTransientFlag(1_600)
 const proxyMode = ref<ProxyConfiguredMode>('inherit')
 const proxyEndpoint = ref('')
-const proxyBaseView = computed(() => resource.value?.settings.values.proxy_config)
+const proxyBaseView = ref<ProxyViewDto>()
 const proxyState = computed(() =>
   proxyBaseView.value
     ? proxyDraftState(proxyBaseView.value, proxyMode.value, proxyEndpoint.value)
@@ -88,18 +87,11 @@ const {
   valid: controllerValid,
   pending,
   failed,
-  indeterminate,
-  reconciling,
-  concurrent,
   operationLocked,
-  conflicts,
   savedAt,
   updateDraft,
-  chooseMine,
-  chooseLatest,
   discard: discardDraft,
   saveAll,
-  checkResult,
 } = useSettingsController(resource, { hasLocalEdits })
 
 function resetProxyDraft(view: ProxyViewDto): void {
@@ -109,13 +101,10 @@ function resetProxyDraft(view: ProxyViewDto): void {
 
 watch(
   () => base.value?.settings.values.proxy_config,
-  (view, previous) => {
+  (view) => {
     if (!view) return
-    if (!previous || proxyMode.value === view.configured_mode) {
-      resetProxyDraft(view)
-      return
-    }
-    if (!proxyDraftState(view, proxyMode.value, proxyEndpoint.value).dirty) resetProxyDraft(view)
+    resetProxyDraft(view)
+    proxyBaseView.value = view
   },
   { immediate: true },
 )
@@ -183,19 +172,7 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
 const savedAtLabel = computed(() =>
   savedAt.value ? formatLocalInstant(savedAt.value.getTime(), locale.value) : '',
 )
-const saveBarError = computed(() => {
-  if (pending.value || reconciling.value) return ''
-  if (failed.value) return t('settings.saveFailed')
-  return indeterminate.value ? t('settings.outcome.indeterminate') : ''
-})
-const deferredExternalUpdate = computed(
-  () =>
-    (headerRulesInvalidEdits.value || proxyState.value.dirty) &&
-    concurrent.value &&
-    resource.value !== null &&
-    base.value !== null &&
-    resource.value.settings_etag !== base.value.settings_etag,
-)
+const saveBarError = computed(() => (failed.value ? t('settings.saveFailed') : ''))
 
 useUnsavedChanges(dirty, {
   blocked: pageOperationLocked,
@@ -373,27 +350,14 @@ onBeforeUnmount(() => {
                 </li>
               </ul>
             </section>
-            <InlineFeedback v-if="concurrent" tone="warning">
-              {{
-                deferredExternalUpdate
-                  ? t('settings.conflict.deferred')
-                  : conflicts.length
-                    ? t('settings.conflict.blocked')
-                    : t('settings.conflict.rebased')
-              }}
-            </InlineFeedback>
-
             <RuntimeSettingsSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
-              :conflicts="conflicts"
-              :proxy="resource?.settings.values.proxy_config ?? base.settings.values.proxy_config"
+              :proxy="base.settings.values.proxy_config"
               :proxy-mode="proxyMode"
               :proxy-endpoint="proxyEndpoint"
               @change="updateDraft"
-              @choose-mine="chooseMine"
-              @choose-latest="chooseLatest"
               @update:proxy-mode="proxyMode = $event"
               @update:proxy-endpoint="proxyEndpoint = $event"
             />
@@ -401,20 +365,14 @@ onBeforeUnmount(() => {
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
-              :conflicts="conflicts"
               @change="updateDraft"
-              @choose-mine="chooseMine"
-              @choose-latest="chooseLatest"
             />
             <GlobalHeaderRulesSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
-              :conflicts="conflicts"
               :reset-key="headerRulesEditorRevision"
               @change="updateDraft"
-              @choose-mine="chooseMine"
-              @choose-latest="chooseLatest"
               @update:valid="headerRulesValid = $event"
               @update:invalid-edits="headerRulesInvalidEdits = $event"
             />
@@ -422,10 +380,7 @@ onBeforeUnmount(() => {
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
-              :conflicts="conflicts"
               @change="updateDraft"
-              @choose-mine="chooseMine"
-              @choose-latest="chooseLatest"
             />
           </template>
 
@@ -455,49 +410,31 @@ onBeforeUnmount(() => {
         always-visible
         :dirty="dirty"
         :pending="pending"
-        :status="
-          failed
-            ? 'error'
-            : reconciling || indeterminate
-              ? 'indeterminate'
-              : savedFeedback
-                ? 'saved'
-                : 'idle'
-        "
+        :status="failed ? 'error' : savedFeedback ? 'saved' : 'idle'"
         :error="saveBarError"
-        :error-action-label="indeterminate ? t('settings.outcome.checkResult') : undefined"
-        @error-action="checkResult"
       >
         <template #status>
           <div>
             <strong>
               {{
-                reconciling
-                  ? t('settings.saveState.reconciling')
-                  : indeterminate
-                    ? t('settings.saveState.indeterminate')
-                    : pending
-                      ? t('settings.saveState.saving')
-                      : dirty
-                        ? t('settings.dirtySummary', { count: changedLabels.length })
-                        : savedFeedback
-                          ? t('settings.saved')
-                          : t('settings.saveState.baseline')
+                pending
+                  ? t('settings.saveState.saving')
+                  : dirty
+                    ? t('settings.dirtySummary', { count: changedLabels.length })
+                    : savedFeedback
+                      ? t('settings.saved')
+                      : t('settings.saveState.baseline')
               }}
             </strong>
             <span>
               {{
-                reconciling
-                  ? t('settings.outcome.reconciling')
-                  : indeterminate
-                    ? t('settings.saveState.indeterminateNote')
-                    : pending
-                      ? t('settings.saveState.savingNote')
-                      : dirty
-                        ? changedLabels.join(', ')
-                        : savedFeedback
-                          ? t('settings.savedAt', { time: savedAtLabel })
-                          : t('settings.saveState.baselineNote')
+                pending
+                  ? t('settings.saveState.savingNote')
+                  : dirty
+                    ? changedLabels.join(', ')
+                    : savedFeedback
+                      ? t('settings.savedAt', { time: savedAtLabel })
+                      : t('settings.saveState.baselineNote')
               }}
             </span>
           </div>

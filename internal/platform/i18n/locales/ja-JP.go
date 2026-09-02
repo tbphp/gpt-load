@@ -18,8 +18,6 @@ var MessagesJaJP = map[string]string{
 	"reset_credit.unavailable":                   "現在利用できるリセットカードはありません",
 	"reset_credit.rejected":                      "上流でリセットカードを使用できませんでした",
 	"reset_credit.outcome_unknown":               "リセット結果を確認できません。同じ冪等キーで再試行し、新しいクレジットの重複消費を防いでください",
-	"settings.precondition_required":             "If-Match が必要です",
-	"settings.version_conflict":                  "読み込み後に設定が変更されました",
 	"model_price.not_found":                      "モデル価格が存在しません",
 	"model_price.unpriced_confirmation_required": "モデル価格を未設定としてマークするには明示的な確認が必要です",
 	"model_price.referenced":                     "モデル価格はグループから参照されています",

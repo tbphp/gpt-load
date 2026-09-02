@@ -19,12 +19,6 @@ export interface SettingsDraft {
   readOnly: Set<RuntimeSettingKey>
 }
 
-export interface SettingsFieldIdentity {
-  is_override: boolean
-  is_read_only: boolean
-  normalized_value: number | boolean | HeaderRulesDto
-}
-
 const requestForwardingKeys: RuntimeSettingKey[] = [
   'first_byte_timeout',
   'request_timeout',
@@ -136,67 +130,6 @@ export function settingsScopeKeys(scope: SettingsScope): RuntimeSettingKey[] {
   return scope === 'all' ? [...runtimeSettingKeys] : settingsSectionKeys(scope)
 }
 
-export function settingsFieldIdentity(
-  settings: SettingsDto,
-  key: RuntimeSettingKey,
-): SettingsFieldIdentity {
-  return {
-    is_override: settings.overrides.includes(key),
-    is_read_only: settings.read_only.includes(key),
-    normalized_value: normalizedIdentityValue(settings.values, key),
-  }
-}
-
-export function draftFieldIdentity(
-  draft: SettingsDraft,
-  key: RuntimeSettingKey,
-): SettingsFieldIdentity {
-  return {
-    is_override: draft.overrides.has(key),
-    is_read_only: draft.readOnly.has(key),
-    normalized_value: normalizedIdentityValue(draft.values, key),
-  }
-}
-
-export function sameSettingsFieldIdentity(
-  left: SettingsFieldIdentity,
-  right: SettingsFieldIdentity,
-): boolean {
-  return (
-    left.is_override === right.is_override &&
-    left.is_read_only === right.is_read_only &&
-    sameValue(left.normalized_value, right.normalized_value)
-  )
-}
-
-export function replaceDraftFieldFromSettings(
-  draft: SettingsDraft,
-  settings: SettingsDto,
-  key: RuntimeSettingKey,
-): SettingsDraft {
-  const next: SettingsDraft = {
-    values: cloneValues(draft.values),
-    overrides: new Set(draft.overrides),
-    readOnly: new Set(draft.readOnly),
-  }
-  if (settings.read_only.includes(key)) next.readOnly.add(key)
-  else next.readOnly.delete(key)
-  if (settings.overrides.includes(key)) next.overrides.add(key)
-  else next.overrides.delete(key)
-  if (key === 'header_rules') {
-    next.values.header_rules = cloneHeaderRules(settings.values.header_rules)
-  } else if (key === 'inject_usage_options') {
-    next.values.inject_usage_options = settings.values.inject_usage_options
-  } else if (key === 'affinity_enabled') {
-    next.values.affinity_enabled = settings.values.affinity_enabled
-  } else if (key === 'models_dev_auto_sync_enabled') {
-    next.values.models_dev_auto_sync_enabled = settings.values.models_dev_auto_sync_enabled
-  } else {
-    next.values[key] = settings.values[key]
-  }
-  return next
-}
-
 export function buildSettingsPatch(
   base: SettingsDto,
   draft: SettingsDraft,
@@ -226,40 +159,6 @@ export function buildSettingsPatch(
     }
   }
   return patch
-}
-
-export function rebaseSettingsDraft(
-  base: SettingsDto,
-  draft: SettingsDraft,
-  refreshed: SettingsDto,
-  scope: SettingsScope,
-): SettingsDraft {
-  const patch = buildSettingsPatch(base, draft, scope)
-  const rebased = createSettingsDraft(refreshed)
-
-  for (const key of settingsScopeKeys(scope)) {
-    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue
-    if (rebased.readOnly.has(key)) continue
-    const value = patch[key]
-    if (value === null) {
-      rebased.overrides.delete(key)
-      continue
-    }
-    rebased.overrides.add(key)
-    if (key === 'header_rules') {
-      rebased.values.header_rules = cloneHeaderRules(value as HeaderRulesDto)
-    } else if (key === 'inject_usage_options') {
-      rebased.values.inject_usage_options = value as boolean
-    } else if (key === 'affinity_enabled') {
-      rebased.values.affinity_enabled = value as boolean
-    } else if (key === 'models_dev_auto_sync_enabled') {
-      rebased.values.models_dev_auto_sync_enabled = value as boolean
-    } else {
-      rebased.values[key] = value as number
-    }
-  }
-
-  return rebased
 }
 
 export function isValidTimeout(value: number): boolean {

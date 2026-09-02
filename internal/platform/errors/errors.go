@@ -46,8 +46,6 @@ var (
 	ErrIdempotencyResultExpired               = &APIError{HTTPStatus: http.StatusGone, Code: "IDEMPOTENCY_RESULT_EXPIRED", Message: "The idempotent result retention period expired"}
 	ErrControlOperationIncomplete             = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "CONTROL_OPERATION_INCOMPLETE", Message: "The resource was committed but runtime recovery is incomplete"}
 	ErrControlRecoveryPending                 = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "CONTROL_RECOVERY_PENDING", Message: "An earlier committed operation is still recovering"}
-	ErrSettingsPreconditionRequired           = &APIError{HTTPStatus: http.StatusPreconditionRequired, Code: "SETTINGS_PRECONDITION_REQUIRED", Message: "If-Match is required"}
-	ErrSettingsVersionConflict                = &APIError{HTTPStatus: http.StatusPreconditionFailed, Code: "SETTINGS_VERSION_CONFLICT", Message: "Settings changed since they were loaded"}
 	ErrModelPriceUnpricedConfirmationRequired = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_UNPRICED_CONFIRMATION_REQUIRED", Message: "Marking a model price as unpriced requires explicit confirmation"}
 	ErrModelPriceReferenced                   = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_REFERENCED", Message: "Model price is referenced by Groups"}
 	ErrModelPriceAutomaticDeleteForbidden     = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_AUTOMATIC_DELETE_FORBIDDEN", Message: "Automatic model prices cannot be deleted manually"}

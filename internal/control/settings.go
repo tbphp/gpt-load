@@ -18,7 +18,6 @@ import (
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
-	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -45,20 +44,10 @@ type SettingsValuesResponse struct {
 }
 
 type SettingsResponse struct {
-	Revision         uint64                 `json:"revision"`
-	Values           SettingsValuesResponse `json:"values"`
-	Overrides        []string               `json:"overrides"`
-	ReadOnly         []string               `json:"read_only,omitempty"`
-	proxyFingerprint string
-}
-
-func (response SettingsResponse) DTO() SettingsDTO {
-	return canonicalizeSettingsDTO(SettingsDTO{
-		Values:           response.Values,
-		Overrides:        response.Overrides,
-		ReadOnly:         response.ReadOnly,
-		proxyFingerprint: response.proxyFingerprint,
-	})
+	Revision  uint64                 `json:"-"`
+	Values    SettingsValuesResponse `json:"values"`
+	Overrides []string               `json:"overrides"`
+	ReadOnly  []string               `json:"read_only,omitempty"`
 }
 
 type SettingsUpdateRequest struct {
@@ -158,103 +147,6 @@ func (s *Service) UpdateSettings(
 		snapshot.Settings.ModelsDevAutoSyncEnabled,
 	)
 	return s.GetSettings(ctx)
-}
-
-func (s *Service) UpdateSettingsIfMatch(
-	ctx context.Context,
-	request SettingsUpdateRequest,
-	expectedETag string,
-	message string,
-) (settingsWireRepresentation, error) {
-	updates, err := normalizeSettingUpdates(request, s.encryption)
-	if err != nil {
-		return settingsWireRepresentation{}, err
-	}
-	if s.modelsDevAutoSyncOverride != nil && settingRequestContains(request, state.SettingModelsDevAutoSyncEnabled) {
-		return settingsWireRepresentation{}, app_errors.ErrValidation
-	}
-
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if err := s.enforceOperationRecoveryBarrierLocked(ctx, 0); err != nil {
-		return settingsWireRepresentation{}, err
-	}
-
-	var (
-		input                   state.CompileInput
-		result                  settingsWireRepresentation
-		previousAutoSyncEnabled bool
-		updatedAutoSyncEnabled  bool
-	)
-	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
-		currentInput, err := stateloader.BuildCompileInputWithProxy(
-			ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
-		)
-		if err != nil {
-			return err
-		}
-		currentSnapshot, err := state.Compile(currentInput)
-		if err != nil {
-			return err
-		}
-		currentSettings, err := s.getSettingsWithSnapshot(ctx, tx, currentSnapshot)
-		if err != nil {
-			return err
-		}
-		currentRepresentation, err := newSettingsWireRepresentation(
-			message,
-			currentSettings.DTO(),
-		)
-		if err != nil {
-			return err
-		}
-		if currentRepresentation.ETag != expectedETag {
-			return app_errors.NewAPIErrorWithData(
-				app_errors.ErrSettingsVersionConflict,
-				SettingsConflictData{
-					Settings:     currentRepresentation.Settings,
-					SettingsETag: currentRepresentation.ETag,
-				},
-			)
-		}
-		previousAutoSyncEnabled = currentSnapshot.Settings.ModelsDevAutoSyncEnabled
-
-		if err := s.applySettingUpdates(tx, updates); err != nil {
-			return err
-		}
-		input, err = stateloader.BuildCompileInputWithProxy(
-			ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
-		)
-		if err != nil {
-			return err
-		}
-		compiled, err := state.Compile(input)
-		if err != nil {
-			return err
-		}
-		updatedAutoSyncEnabled = compiled.Settings.ModelsDevAutoSyncEnabled
-		updatedSettings, err := s.getSettingsWithSnapshot(ctx, tx, compiled)
-		if err != nil {
-			return err
-		}
-		result, err = newSettingsWireRepresentation(message, updatedSettings.DTO())
-		return err
-	})
-	if err != nil {
-		return settingsWireRepresentation{}, err
-	}
-	if _, err := s.publishSnapshot(input); err != nil {
-		return settingsWireRepresentation{}, joinCommittedRuntimeRecovery(
-			newControlOperationError(stagePublishCommittedSnapshot),
-			s.recoverCommittedRuntime(ctx, false),
-		)
-	}
-	s.requestCatalogSyncOnEnable(
-		settingRequestContains(request, state.SettingModelsDevAutoSyncEnabled),
-		previousAutoSyncEnabled,
-		updatedAutoSyncEnabled,
-	)
-	return result, nil
 }
 
 func (s *Service) requestCatalogSyncOnEnable(requested, before, after bool) {
@@ -386,7 +278,6 @@ func mapSettingsResponse(
 	remove := append([]string{}, settings.HeaderRules.Remove...)
 	overrides := make([]string, 0, len(rows))
 	var configuredProxy *outboundproxy.Config
-	proxyFingerprint := ""
 	for _, row := range rows {
 		if state.IsRuntimeSettingKey(row.Key) {
 			overrides = append(overrides, row.Key)
@@ -403,7 +294,6 @@ func mapSettingsResponse(
 			if err != nil || config.Mode == outboundproxy.ModeInherit {
 				return SettingsResponse{}, app_errors.ErrInternalServer
 			}
-			proxyFingerprint = encryptionService.Hash(plaintext)
 			plaintext = ""
 			configuredProxy = &config
 		}
@@ -423,8 +313,7 @@ func mapSettingsResponse(
 		readOnly = append(readOnly, state.SettingModelsDevAutoSyncEnabled)
 	}
 	return SettingsResponse{
-		Revision:         snapshot.Revision,
-		proxyFingerprint: proxyFingerprint,
+		Revision: snapshot.Revision,
 		Values: SettingsValuesResponse{
 			FirstByteTimeout:  durationSeconds(settings.FirstByteTimeout),
 			RequestTimeout:    durationSeconds(settings.RequestTimeout),

@@ -13,9 +13,6 @@ export default {
     saveState: {
       saving: '正在保存设置',
       savingNote: '正在发布全部运行设置…',
-      reconciling: '正在核对保存结果',
-      indeterminate: '保存结果待核对',
-      indeterminateNote: '草稿已保留，请先核对服务端最新状态。',
       baseline: '当前已发布设置',
       baselineNote: '未检测到未保存的运行设置变更。',
     },
@@ -37,20 +34,6 @@ export default {
     },
     validation: {
       title: '保存前请修正以下设置：',
-    },
-    outcome: {
-      reconciling: '保存结果尚不确定，正在核对服务端最新状态…',
-      indeterminate: '无法确认保存结果；核对最新状态前请勿再次保存。',
-      checkResult: '核对结果',
-    },
-    conflict: {
-      deferred: '检测到外部设置更新；请先修正无效的本地 Header 编辑，随后将合并最新服务端状态。',
-      rebased: '设置已在其他位置变更；最新值已与本地非冲突编辑合并，请复核后再次保存。',
-      blocked: '设置已在其他位置变更并与本地编辑重叠；解决全部“我的/最新”冲突后才能保存。',
-      mine: '我的',
-      latest: '最新',
-      useMine: '采用我的',
-      useLatest: '采用最新',
     },
     runtime: {
       title: '请求与转发',
@@ -115,7 +98,6 @@ export default {
       replacementWarning: '分组请求头规则覆盖会替换整个全局对象，不会逐项合并。',
       securityNotice:
         '固定 Header 值属于普通配置；不要保存长期凭证。凭证 Header 必须使用字面量模板 {template}。',
-      conflict: '全局 Header Rules 存在并发修改，请选择保留的版本。',
     },
     logs: {
       title: '日志与维护',

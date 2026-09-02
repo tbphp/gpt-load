@@ -2,33 +2,23 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
+import { controlQueryKeys } from '@/app/query-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
+import type { SettingsResource } from '@/app/resources/settings'
 import {
-  getSettings,
-  projectSettingsConflict,
   updateSettings,
   type RuntimeSettingKey,
   type SettingsPatch,
 } from '@/app/resources/settings'
-import { RequestCancelledError } from '@/api/errors'
-import { classifyMutationOutcome } from '@/app/mutation-outcome'
-import { controlQueryKeys } from '@/app/query-keys'
-import type { SettingsResource } from '@/app/resources/settings'
-import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 
 import {
   buildSettingsPatch,
   createSettingsDraft,
-  replaceDraftFieldFromSettings,
   validateSettingsSection,
   type SettingsDraft,
 } from './settings-patch'
-import {
-  chooseSettingsMutationResult,
-  mergeSettingsConflict,
-  reconcileSettingsMutation,
-  type SettingsMergeConflict,
-} from './settings-response'
 
 export interface SettingsDraftChange {
   key: RuntimeSettingKey
@@ -43,28 +33,16 @@ export interface SettingsPageController {
   valid: ComputedRef<boolean>
   pending: Readonly<Ref<boolean>>
   failed: Readonly<Ref<boolean>>
-  indeterminate: Readonly<Ref<boolean>>
-  reconciling: Readonly<Ref<boolean>>
-  concurrent: Readonly<Ref<boolean>>
   operationLocked: ComputedRef<boolean>
-  conflicts: Readonly<Ref<SettingsMergeConflict[]>>
   savedAt: Readonly<Ref<Date | null>>
   updateDraft(change: SettingsDraftChange): void
-  chooseMine(key: RuntimeSettingKey): void
-  chooseLatest(key: RuntimeSettingKey): void
   discard(): void
   saveAll(extra?: SettingsPatch): Promise<void>
-  checkResult(): Promise<void>
 }
 
 export interface SettingsControllerOptions {
   now?: () => Date
   hasLocalEdits?: Readonly<Ref<boolean>>
-}
-
-interface UnknownSettingsOperation {
-  base: SettingsResource
-  draft: SettingsDraft
 }
 
 function cloneDraft(draft: SettingsDraft): SettingsDraft {
@@ -89,14 +67,9 @@ export function useSettingsController(
   )
   const pending = ref(false)
   const failed = ref(false)
-  const indeterminate = ref(false)
-  const reconciling = ref(false)
-  const concurrent = ref(false)
-  const conflicts = ref<SettingsMergeConflict[]>([])
   const savedAt = ref<Date | null>(null)
   let requestOwner = 0
   let requestController: AbortController | undefined
-  let unknownOperation: UnknownSettingsOperation | undefined
   let mounted = true
 
   const settingsQueryKey = () => controlQueryKeys.settings(locale.value)
@@ -108,13 +81,12 @@ export function useSettingsController(
   const valid = computed(
     () =>
       draft.value !== null &&
-      conflicts.value.length === 0 &&
       validateSettingsSection(draft.value, 'request-forwarding') &&
       validateSettingsSection(draft.value, 'affinity') &&
       validateSettingsSection(draft.value, 'logs-maintenance') &&
       validateSettingsSection(draft.value, 'model-prices'),
   )
-  const operationLocked = computed(() => pending.value || indeterminate.value || reconciling.value)
+  const operationLocked = computed(() => pending.value)
 
   function isCurrent(owner: number, controller: AbortController): boolean {
     return (
@@ -125,87 +97,34 @@ export function useSettingsController(
     )
   }
 
-  function clearConflict(key: RuntimeSettingKey): void {
-    conflicts.value = conflicts.value.filter((conflict) => conflict.key !== key)
-    if (conflicts.value.length === 0) concurrent.value = false
-  }
-
-  function rebase(next: SettingsResource): void {
+  function reset(next: SettingsResource): void {
     base.value = next
     draft.value = createSettingsDraft(next.settings)
     failed.value = false
-    indeterminate.value = false
-    reconciling.value = false
-    concurrent.value = false
-    conflicts.value = []
-    unknownOperation = undefined
   }
 
-  async function markConfirmed(next: SettingsResource, nextDraft: SettingsDraft): Promise<void> {
-    base.value = next
-    draft.value = nextDraft
-    failed.value = false
-    indeterminate.value = false
-    concurrent.value = false
-    conflicts.value = []
-    unknownOperation = undefined
-    savedAt.value = new Date(now().getTime())
-    queryClient.setQueryData(settingsQueryKey(), next)
-    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.settings.update())
-  }
-
-  async function applyUnknownLatest(latest: SettingsResource): Promise<void> {
-    const operation = unknownOperation
-    if (!operation) return
-    const result = reconcileSettingsMutation(operation.base, operation.draft, latest, 'all')
-    base.value = result.resource
-    draft.value = result.draft
-    conflicts.value = result.conflicts
-    queryClient.setQueryData(settingsQueryKey(), latest)
-
-    if (result.kind === 'confirmed') {
-      await markConfirmed(result.resource, result.draft)
+  function consumeCurrentResource(): void {
+    const next = resource.value
+    if (!next || next === base.value) {
       return
     }
-    if (result.kind === 'conflict') {
-      unknownOperation = undefined
-      indeterminate.value = false
-      concurrent.value = true
-      return
-    }
-    indeterminate.value = true
-  }
-
-  function acceptExternalSettings(next: SettingsResource | null): void {
-    if (!next) return
     if (!base.value || !draft.value) {
-      rebase(next)
+      reset(next)
       return
     }
-    if (next.settings_etag === base.value.settings_etag) return
-    if (unknownOperation) {
-      void applyUnknownLatest(next)
+    if (dirty.value || options.hasLocalEdits?.value || pending.value) {
       return
     }
-    if (options.hasLocalEdits?.value) {
-      concurrent.value = true
-      return
-    }
-    if (dirty.value) {
-      const merged = mergeSettingsConflict(base.value, draft.value, next, 'all')
-      base.value = merged.resource
-      draft.value = merged.draft
-      conflicts.value = merged.conflicts
-      concurrent.value = true
-      return
-    }
-    rebase(next)
+    reset(next)
   }
 
-  watch(resource, acceptExternalSettings)
+  watch(resource, consumeCurrentResource)
+  watch(dirty, (isDirty) => {
+    if (!isDirty) consumeCurrentResource()
+  })
   if (options.hasLocalEdits) {
     watch(options.hasLocalEdits, (hasLocalEdits) => {
-      if (!hasLocalEdits) acceptExternalSettings(resource.value)
+      if (!hasLocalEdits) consumeCurrentResource()
     })
   }
 
@@ -213,56 +132,18 @@ export function useSettingsController(
     if (operationLocked.value || !draft.value) return
     draft.value = cloneDraft(change.draft)
     failed.value = false
-    clearConflict(change.key)
-  }
-
-  function chooseMine(key: RuntimeSettingKey): void {
-    if (operationLocked.value) return
-    clearConflict(key)
-  }
-
-  function chooseLatest(key: RuntimeSettingKey): void {
-    if (operationLocked.value || !base.value || !draft.value) return
-    draft.value = replaceDraftFieldFromSettings(draft.value, base.value.settings, key)
-    clearConflict(key)
   }
 
   function discard(): void {
     if (operationLocked.value || !base.value) return
-    draft.value = createSettingsDraft(base.value.settings)
-    failed.value = false
-    concurrent.value = false
-    conflicts.value = []
+    reset(resource.value ?? base.value)
   }
 
-  async function reconcileUnknownOperation(
-    owner: number,
-    controller: AbortController,
-  ): Promise<void> {
-    if (!unknownOperation || !isCurrent(owner, controller)) return
-    reconciling.value = true
-    try {
-      const latest = await getSettings(client, controller.signal)
-      if (!isCurrent(owner, controller)) return
-      await applyUnknownLatest(latest)
-    } catch (error: unknown) {
-      if (!isCurrent(owner, controller) || error instanceof RequestCancelledError) {
-        return
-      }
-      indeterminate.value = true
-    } finally {
-      if (isCurrent(owner, controller)) reconciling.value = false
-    }
-  }
-
-  async function checkResult(): Promise<void> {
-    if (!unknownOperation || reconciling.value || pending.value) return
-    requestController?.abort()
-    const owner = ++requestOwner
-    const controller = new AbortController()
-    requestController = controller
-    await reconcileUnknownOperation(owner, controller)
-    if (isCurrent(owner, controller)) requestController = undefined
+  async function markSaved(next: SettingsResource): Promise<void> {
+    reset(next)
+    savedAt.value = new Date(now().getTime())
+    queryClient.setQueryData(settingsQueryKey(), next)
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.settings.update())
   }
 
   async function saveAll(extra: SettingsPatch = {}): Promise<void> {
@@ -276,10 +157,8 @@ export function useSettingsController(
       return
     }
 
-    const operationBase = base.value
-    const operationDraft = cloneDraft(draft.value)
     const normalizedPatch = {
-      ...buildSettingsPatch(operationBase.settings, operationDraft, 'all'),
+      ...buildSettingsPatch(base.value.settings, draft.value, 'all'),
       ...extra,
     }
     requestController?.abort()
@@ -288,82 +167,21 @@ export function useSettingsController(
     requestController = controller
     pending.value = true
     failed.value = false
-    indeterminate.value = false
-    concurrent.value = false
 
     try {
-      const response = await updateSettings(
-        client,
-        normalizedPatch,
-        operationBase.settings_etag,
-        controller.signal,
-      )
+      const response = await updateSettings(client, normalizedPatch, controller.signal)
       if (!isCurrent(owner, controller)) return
       await queryClient.cancelQueries({ queryKey: settingsQueryKey(), exact: true })
       if (!isCurrent(owner, controller)) return
-
-      const cached = queryClient.getQueryData<SettingsResource>(settingsQueryKey())
-      const decision = chooseSettingsMutationResult(
-        response,
-        cached,
-        operationBase,
-        operationDraft,
-        'all',
-      )
-      if (decision.kind === 'refetch') {
-        await queryClient.refetchQueries({
-          queryKey: settingsQueryKey(),
-          exact: true,
-        })
-        if (!isCurrent(owner, controller)) return
-        const refreshed = queryClient.getQueryData<SettingsResource>(settingsQueryKey())
-        const refreshedDecision = chooseSettingsMutationResult(
-          response,
-          refreshed,
-          operationBase,
-          operationDraft,
-          'all',
-        )
-        if (refreshedDecision.kind === 'apply') {
-          await markConfirmed(refreshedDecision.resource, refreshedDecision.draft)
-          return
-        }
-        if (refreshed && refreshed.settings_etag !== cached?.settings_etag) {
-          acceptExternalSettings(refreshed)
-        }
-        return
-      }
-
-      await markConfirmed(decision.resource, decision.draft)
+      await markSaved(response)
     } catch (error: unknown) {
       if (!isCurrent(owner, controller) || error instanceof RequestCancelledError) return
-      const latest = projectSettingsConflict(error)
-      if (latest) {
-        const merged = mergeSettingsConflict(operationBase, operationDraft, latest, 'all')
-        base.value = merged.resource
-        draft.value = merged.draft
-        conflicts.value = merged.conflicts
-        concurrent.value = true
-        queryClient.setQueryData(settingsQueryKey(), latest)
-        return
-      }
-
-      const outcome = classifyMutationOutcome<SettingsResource>({
-        kind: 'error',
-        error,
-        requestSent: true,
-      })
-      if (outcome.kind === 'failed') {
-        failed.value = true
-        return
-      }
-      unknownOperation = { base: operationBase, draft: operationDraft }
-      indeterminate.value = true
-      await reconcileUnknownOperation(owner, controller)
+      failed.value = true
     } finally {
       if (isCurrent(owner, controller)) {
         requestController = undefined
         pending.value = false
+        consumeCurrentResource()
       }
     }
   }
@@ -373,7 +191,6 @@ export function useSettingsController(
     requestOwner += 1
     requestController?.abort()
     requestController = undefined
-    unknownOperation = undefined
   })
 
   return {
@@ -384,17 +201,10 @@ export function useSettingsController(
     valid,
     pending,
     failed,
-    indeterminate,
-    reconciling,
-    concurrent,
     operationLocked,
-    conflicts,
     savedAt,
     updateDraft,
-    chooseMine,
-    chooseLatest,
     discard,
     saveAll,
-    checkResult,
   }
 }

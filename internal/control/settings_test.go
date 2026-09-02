@@ -77,41 +77,6 @@ func TestSettingsProxyConfigIsEncryptedMaskedAndResettable(t *testing.T) {
 	}
 }
 
-func TestSettingsProxyPasswordChangesETagWithoutExposingPassword(t *testing.T) {
-	t.Parallel()
-	fixture := newServiceFixture(t)
-	current, err := fixture.service.GetSettings(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	initial, err := newSettingsWireRepresentation("settings", current.DTO())
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := fixture.service.UpdateSettingsIfMatch(t.Context(), SettingsUpdateRequest{
-		Settings: map[string]json.RawMessage{outboundproxy.SystemSettingKey: json.RawMessage(
-			`{"mode":"custom","url":"http://user:first-password@proxy.example.com:8080"}`,
-		)},
-	}, initial.ETag, "settings")
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := fixture.service.UpdateSettingsIfMatch(t.Context(), SettingsUpdateRequest{
-		Settings: map[string]json.RawMessage{outboundproxy.SystemSettingKey: json.RawMessage(
-			`{"mode":"custom","url":"http://user:second-password@proxy.example.com:8080"}`,
-		)},
-	}, first.ETag, "settings")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.ETag == second.ETag {
-		t.Fatal("proxy password change did not change settings ETag")
-	}
-	if bytes.Contains(second.Body, []byte("first-password")) || bytes.Contains(second.Body, []byte("second-password")) {
-		t.Fatalf("settings response leaked proxy password: %s", second.Body)
-	}
-}
-
 func TestSettingsProxyRejectsInvalidConfigWithoutMutation(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
@@ -385,48 +350,6 @@ func TestUpdateSettingsEnablingModelsDevRequestsImmediateSyncOnce(t *testing.T) 
 	case <-coordinator.immediateWake:
 		t.Fatal("true -> true requested another immediate catalog sync")
 	default:
-	}
-}
-
-func TestUpdateSettingsIfMatchEnablingModelsDevRequestsImmediateSync(t *testing.T) {
-	t.Parallel()
-	fixture := newServiceFixture(t)
-	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
-		Settings: map[string]json.RawMessage{
-			state.SettingModelsDevAutoSyncEnabled: json.RawMessage("false"),
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	current, err := fixture.service.GetSettings(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	representation, err := newSettingsWireRepresentation("settings", current.DTO())
-	if err != nil {
-		t.Fatal(err)
-	}
-	coordinator := newCatalogSyncCoordinator(
-		fixture.service,
-		nil,
-		"unused",
-		catalog.Metadata{},
-		false,
-	)
-	if _, err := fixture.service.UpdateSettingsIfMatch(
-		t.Context(),
-		SettingsUpdateRequest{Settings: map[string]json.RawMessage{
-			state.SettingModelsDevAutoSyncEnabled: json.RawMessage("true"),
-		}},
-		representation.ETag,
-		"settings",
-	); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-coordinator.immediateWake:
-	default:
-		t.Fatal("If-Match false -> true did not request immediate catalog sync")
 	}
 }
 
