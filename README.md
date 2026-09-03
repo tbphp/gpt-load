@@ -74,10 +74,12 @@ docker run -d --name gpt-load \
     -p 3001:3001 \
     -e AUTH_KEY=your-secure-key-here \
     -v "$(pwd)/data":/app/data \
-    ghcr.io/tbphp/gpt-load:latest
+    ghcr.io/tbphp/gpt-load:1
 ```
 
 > Please change `your-secure-key-here` to a strong password (never use the default value), then you can log in to the management interface: <http://localhost:3001>
+
+> The stable Docker tag for the v1 maintenance line is `1`. v1 releases no longer update `latest`; after the transition period, `latest` may move to v2. Existing v1 deployments should pin the image to `:1`.
 
 ### Method 2: Using Docker Compose (Recommended)
 
@@ -88,8 +90,8 @@ docker run -d --name gpt-load \
 mkdir -p gpt-load && cd gpt-load
 
 # Download configuration files
-wget https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/main/docker-compose.yml
-wget -O .env https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/main/.env.example
+wget https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/v1/docker-compose.yml
+wget -O .env https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/v1/.env.example
 
 # Edit the .env file and change AUTH_KEY to a strong password. Never use default or simple keys like sk-123456.
 
@@ -115,7 +117,7 @@ docker compose logs -f
 # Restart Service
 docker compose down && docker compose up -d
 
-# Update to latest version
+# Update to the latest v1 version
 docker compose pull && docker compose down && docker compose up -d
 ```
 
@@ -306,7 +308,7 @@ GPT-Load supports encrypted storage of API keys. You can enable, disable, or cha
 #### Docker Compose Deployment
 
 ```bash
-# 1. Update the image (ensure using the latest version)
+# 1. Update the image (ensure you are using the latest v1 version)
 docker compose pull
 
 # 2. Stop the service

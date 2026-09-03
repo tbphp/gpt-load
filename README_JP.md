@@ -74,10 +74,12 @@ docker run -d --name gpt-load \
     -p 3001:3001 \
     -e AUTH_KEY=your-secure-key-here \
     -v "$(pwd)/data":/app/data \
-    ghcr.io/tbphp/gpt-load:latest
+    ghcr.io/tbphp/gpt-load:1
 ```
 
 > `your-secure-key-here`を強力なパスワードに変更してください（デフォルト値は絶対に使用しないでください）。その後、管理インターフェースにログインできます：<http://localhost:3001>
+
+> v1 メンテナンスラインの安定版 Docker タグは `1` です。v1 リリースでは `latest` を更新しません。移行期間の終了後、`latest` は v2 を指す可能性があります。既存の v1 環境ではイメージを `:1` に固定してください。
 
 ### 方法2: Docker Composeを使用（推奨）
 
@@ -88,8 +90,8 @@ docker run -d --name gpt-load \
 mkdir -p gpt-load && cd gpt-load
 
 # 設定ファイルをダウンロード
-wget https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/main/docker-compose.yml
-wget -O .env https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/main/.env.example
+wget https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/v1/docker-compose.yml
+wget -O .env https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/v1/.env.example
 
 # .envファイルを編集し、AUTH_KEYを強力なパスワードに変更します。デフォルトやsk-123456のような単純なキーは絶対に使用しないでください。
 
@@ -115,7 +117,7 @@ docker compose logs -f
 # サービスを再起動
 docker compose down && docker compose up -d
 
-# 最新バージョンに更新
+# 最新の v1 バージョンに更新
 docker compose pull && docker compose down && docker compose up -d
 ```
 
@@ -306,7 +308,7 @@ GPT-LoadはAPIキーの暗号化保存をサポートしています。いつで
 #### Docker Composeデプロイメント
 
 ```bash
-# 1. イメージを更新（最新バージョンを使用していることを確認）
+# 1. イメージを更新（最新の v1 バージョンを使用していることを確認）
 docker compose pull
 
 # 2. サービスを停止

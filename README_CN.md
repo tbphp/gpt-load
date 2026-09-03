@@ -74,10 +74,12 @@ docker run -d --name gpt-load \
     -p 3001:3001 \
     -e AUTH_KEY=your-secure-key-here \
     -v "$(pwd)/data":/app/data \
-    ghcr.io/tbphp/gpt-load:latest
+    ghcr.io/tbphp/gpt-load:1
 ```
 
 > 请将 `your-secure-key-here` 改为强密码（决不能使用默认值），即可登录管理界面：<http://localhost:3001>
+
+> v1 维护线的稳定 Docker 标签为 `1`。v1 发布不再更新 `latest`；过渡期结束后，`latest` 可能切换至 v2。现有 v1 部署请将镜像固定为 `:1`。
 
 ### 方式二：使用 Docker Compose（推荐）
 
@@ -88,8 +90,8 @@ docker run -d --name gpt-load \
 mkdir -p gpt-load && cd gpt-load
 
 # 下载配置文件
-wget https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/main/docker-compose.yml
-wget -O .env https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/main/.env.example
+wget https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/v1/docker-compose.yml
+wget -O .env https://raw.githubusercontent.com/tbphp/gpt-load/refs/heads/v1/.env.example
 
 # 编辑 .env 文件，修改AUTH_KEY为强密码，绝不使用 sk-123456 等默认或者简单密钥
 
@@ -115,7 +117,7 @@ docker compose logs -f
 # 重启服务
 docker compose down && docker compose up -d
 
-# 更新到最新版本
+# 更新到最新 v1 版本
 docker compose pull && docker compose down && docker compose up -d
 ```
 
@@ -306,7 +308,7 @@ GPT-Load 支持对 API 密钥进行加密存储。您可以随时启用、禁用
 #### Docker Compose 部署
 
 ```bash
-# 1. 更新镜像（确保使用最新版本）
+# 1. 更新镜像（确保使用最新 v1 版本）
 docker compose pull
 
 # 2. 停止服务
