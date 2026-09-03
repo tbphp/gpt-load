@@ -239,14 +239,9 @@ func (observer *streamEventObserver) classify(
 	if observer == nil {
 		return genericProviderError, nil
 	}
-	if observer.sawTerminal {
-		if bytes.Equal(bytes.TrimSpace(event.Payload), []byte("[DONE]")) {
-			return false, nil
-		}
-		return false, fmt.Errorf(
-			"%w: SSE data event received after terminal event",
-			ErrUpstreamProtocol,
-		)
+	if observer.sawTerminal &&
+		bytes.Equal(bytes.TrimSpace(event.Payload), []byte("[DONE]")) {
+		return false, nil
 	}
 
 	classification := dialect.StreamEventClassification{
@@ -260,12 +255,23 @@ func (observer *streamEventObserver) classify(
 			event,
 		)
 		if panicked || err != nil ||
-			!validStreamEventDisposition(classification.Disposition) {
+			!validStreamEventDisposition(classification.Disposition) ||
+			classification.Auxiliary &&
+				classification.Disposition != dialect.StreamEventContinue {
 			return false, fmt.Errorf(
 				"%w: classify upstream SSE event",
 				ErrUpstreamProtocol,
 			)
 		}
+	}
+	if observer.sawTerminal {
+		if classification.IsAuxiliary() {
+			return false, nil
+		}
+		return false, fmt.Errorf(
+			"%w: SSE data event received after terminal event",
+			ErrUpstreamProtocol,
+		)
 	}
 
 	if classification.IsTerminal() {

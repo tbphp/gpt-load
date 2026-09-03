@@ -16,9 +16,10 @@ func TestOpenAIResponsesClassifiesStreamEvents(t *testing.T) {
 	}
 
 	tests := []struct {
-		name  string
-		event StreamEvent
-		want  StreamEventDisposition
+		name          string
+		event         StreamEvent
+		want          StreamEventDisposition
+		wantAuxiliary bool
 	}{
 		{
 			name: "matching explicit and payload completed",
@@ -59,6 +60,15 @@ func TestOpenAIResponsesClassifiesStreamEvents(t *testing.T) {
 			want: StreamEventFailed,
 		},
 		{
+			name: "ping metadata",
+			event: StreamEvent{
+				Name:    "ping",
+				Payload: []byte(`{"type":"ping","cost":"0"}`),
+			},
+			want:          StreamEventContinue,
+			wantAuxiliary: true,
+		},
+		{
 			name: "unknown event remains pass through",
 			event: StreamEvent{
 				Name:    "response.output_text.delta",
@@ -78,6 +88,9 @@ func TestOpenAIResponsesClassifiesStreamEvents(t *testing.T) {
 			}
 			if got.Disposition != test.want {
 				t.Fatalf("Disposition = %v, want %v", got.Disposition, test.want)
+			}
+			if got.IsAuxiliary() != test.wantAuxiliary {
+				t.Fatalf("IsAuxiliary() = %t, want %t", got.IsAuxiliary(), test.wantAuxiliary)
 			}
 		})
 	}

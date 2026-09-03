@@ -150,6 +150,12 @@ func (*OpenAIResponses) ClassifyStreamEvent(
 			}, nil
 		}
 	}
+	if eventType == "ping" {
+		return StreamEventClassification{
+			Disposition: StreamEventContinue,
+			Auxiliary:   true,
+		}, nil
+	}
 	return StreamEventClassification{
 		Disposition: StreamEventContinue,
 	}, nil

@@ -19,13 +19,24 @@ func (*OpenAI) ClassifyStreamEvent(event StreamEvent) (StreamEventClassification
 		return StreamEventClassification{Disposition: StreamEventCompleted}, nil
 	}
 	var object struct {
-		Error json.RawMessage `json:"error"`
+		Error   json.RawMessage `json:"error"`
+		Choices json.RawMessage `json:"choices"`
 	}
 	if err := json.Unmarshal(event.Payload, &object); err != nil {
 		return StreamEventClassification{}, fmt.Errorf("decode OpenAI stream event")
 	}
 	if meaningfulJSONValue(object.Error) {
 		return StreamEventClassification{Disposition: StreamEventFailed}, nil
+	}
+	if choices := bytes.TrimSpace(object.Choices); len(choices) > 0 {
+		var values []json.RawMessage
+		if json.Unmarshal(choices, &values) == nil &&
+			values != nil && len(values) == 0 {
+			return StreamEventClassification{
+				Disposition: StreamEventContinue,
+				Auxiliary:   true,
+			}, nil
+		}
 	}
 	return StreamEventClassification{Disposition: StreamEventContinue}, nil
 }

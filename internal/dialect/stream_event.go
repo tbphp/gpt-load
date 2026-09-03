@@ -18,6 +18,9 @@ const (
 
 type StreamEventClassification struct {
 	Disposition StreamEventDisposition
+	// Auxiliary marks metadata-only events that do not advance response
+	// content and may safely appear after a terminal event.
+	Auxiliary bool
 }
 
 func (classification StreamEventClassification) IsTerminal() bool {
@@ -31,6 +34,11 @@ func (classification StreamEventClassification) IsTerminal() bool {
 
 func (classification StreamEventClassification) IsProviderError() bool {
 	return classification.Disposition == StreamEventFailed
+}
+
+func (classification StreamEventClassification) IsAuxiliary() bool {
+	return classification.Auxiliary &&
+		classification.Disposition == StreamEventContinue
 }
 
 // StreamEventClassifier optionally exposes protocol-specific SSE lifecycle

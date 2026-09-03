@@ -1467,6 +1467,99 @@ func TestExecutionForwarderRejectsStreamingEOFWithoutProtocolTerminal(t *testing
 	}
 }
 
+func TestExecutionForwarderAllowsSafeEventsAfterTerminal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    func() ForwardInput
+		delta    string
+		terminal string
+		metadata string
+	}{
+		{
+			name:     "OpenAI Chat cost metadata",
+			input:    executionForwardInput,
+			delta:    "data: {\"id\":\"chat_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
+			terminal: "data: [DONE]\n\n",
+			metadata: "data: {\"choices\":[],\"cost\":\"0\"}\n\n",
+		},
+		{
+			name:  "OpenAI Responses ping metadata",
+			input: responsesExecutionForwardInput,
+			delta: "event: response.output_text.delta\n" +
+				"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n",
+			terminal: "event: response.completed\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+			metadata: "event: ping\n" +
+				"data: {\"type\":\"ping\",\"cost\":\"0\"}\n\n",
+		},
+		{
+			name:  "OpenAI Responses done sentinel",
+			input: responsesExecutionForwardInput,
+			delta: "event: response.output_text.delta\n" +
+				"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n",
+			terminal: "event: response.completed\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+			metadata: "data: [DONE]\n\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var metadataErr error
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				if err := sink(execution.StreamEvent{
+					Sequence: 2, Kind: execution.StreamEventData, Data: []byte(test.delta),
+				}); err != nil {
+					t.Fatalf("delta sink: %v", err)
+				}
+				metadataErr = sink(execution.StreamEvent{
+					Sequence: 3, Kind: execution.StreamEventData,
+					Data: []byte(test.terminal + test.metadata),
+				})
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+				}
+			}}
+			input := test.input()
+			input.ObserveUsage = true
+			recorder := httptest.NewRecorder()
+
+			result := NewExecutionForwarder(executor).ForwardStream(
+				context.Background(), input, recorder,
+			)
+			wantBody := test.delta + test.terminal + test.metadata
+			if metadataErr != nil || result.Err != nil || !result.Committed ||
+				result.Stream.EndReason != StreamEndCleanEOF ||
+				result.Usage.Diagnostics.Has(usage.DiagnosticInvalidPayload) ||
+				recorder.Body.String() != wantBody {
+				t.Fatalf(
+					"metadata error/result/body = %v / %#v / %q, want success and %q",
+					metadataErr,
+					result,
+					recorder.Body.String(),
+					wantBody,
+				)
+			}
+		})
+	}
+}
+
 func TestExecutionForwarderRejectsOpenAIResponsesDataAfterTerminal(t *testing.T) {
 	t.Parallel()
 

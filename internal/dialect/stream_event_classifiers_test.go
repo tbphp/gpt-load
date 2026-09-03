@@ -6,10 +6,11 @@ func TestStreamingDialectsClassifyTerminalAndErrorEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		classifier StreamEventClassifier
-		event      StreamEvent
-		want       StreamEventDisposition
+		name          string
+		classifier    StreamEventClassifier
+		event         StreamEvent
+		want          StreamEventDisposition
+		wantAuxiliary bool
 	}{
 		{
 			name: "OpenAI done", classifier: NewOpenAI(),
@@ -22,6 +23,16 @@ func TestStreamingDialectsClassifyTerminalAndErrorEvents(t *testing.T) {
 		{
 			name: "OpenAI error", classifier: NewOpenAI(),
 			event: StreamEvent{Payload: []byte(`{"error":{"message":"failed"}}`)}, want: StreamEventFailed,
+		},
+		{
+			name: "OpenAI empty choices metadata", classifier: NewOpenAI(),
+			event: StreamEvent{Payload: []byte(`{"choices":[],"cost":"0"}`)},
+			want:  StreamEventContinue, wantAuxiliary: true,
+		},
+		{
+			name: "OpenAI null choices remains ordinary data", classifier: NewOpenAI(),
+			event: StreamEvent{Payload: []byte(`{"choices":null,"cost":"0"}`)},
+			want:  StreamEventContinue,
 		},
 		{
 			name: "Anthropic stop", classifier: NewAnthropic(),
@@ -57,6 +68,9 @@ func TestStreamingDialectsClassifyTerminalAndErrorEvents(t *testing.T) {
 			}
 			if got.Disposition != test.want {
 				t.Fatalf("Disposition = %v, want %v", got.Disposition, test.want)
+			}
+			if got.IsAuxiliary() != test.wantAuxiliary {
+				t.Fatalf("IsAuxiliary() = %t, want %t", got.IsAuxiliary(), test.wantAuxiliary)
 			}
 		})
 	}
