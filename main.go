@@ -1,4 +1,4 @@
-// Package main provides the GPT-Load 2.0 process entry point.
+// Package main provides the GPT-Load executable process entry point.
 package main
 
 import (
