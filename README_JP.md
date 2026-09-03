@@ -8,24 +8,26 @@
 
 API キー、サブスクリプションアカウント、トラフィック制御、障害処理、リクエストログ、使用量集計を一つの入口にまとめます。
 
-[English](README.md) · [中文](README_CN.md) · 日本語
-
-[公式サイト](https://www.gpt-load.com)
+[English](README.md) · [中文](README_CN.md) · 日本語 | [公式サイト](https://www.gpt-load.com)
 
 [![Release](https://img.shields.io/github/v/tag/tbphp/gpt-load?filter=v2.*)](https://github.com/tbphp/gpt-load/releases)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3A2-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
+<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
+
 </div>
 
 ---
 
-アプリケーション側で必要なのは、一つの Base URL と一つの AccessKey だけです。プロバイダー、アカウント、認証情報、モデル、ルーティングポリシーはすべて管理画面で設定します。
+## スポンサー
 
-<img src="./screenshot/architecture-overview.png" alt="GPT-Load の統合アクセスとアップストリームルーティング構成図" width="860">
+<sub>[スポンサーになる](mailto:tangb7420@gmail.com)</sub>
 
-## スポンサーと支援
+<details open>
+<summary>スポンサー詳細（折りたたみ可能）</summary>
 
 <table>
 <tbody>
@@ -37,30 +39,16 @@ API キー、サブスクリプションアカウント、トラフィック制�
 <td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
 <td>APIMartによる本プロジェクトへのスポンサー支援に感謝します！APIMartはAI画像・動画生成に特化した低価格APIプラットフォームで、GPT-Image-2は1枚$0.006から、1ドルで160枚以上の画像を生成できます。画像と動画の両方に対応する1つの非同期APIで、タスクを送信してIDを取得し、ポーリングまたはコールバックで結果を取得できます。数万枚規模の一括処理でもタイムアウトせず、モデルを切り替えてもコードを変更する必要はありません。従量課金制で月額料金は不要です。<a href="https://go.apimart.ai/gh-gpt-load">こちらの登録リンク</a>から登録して、すぐにご利用いただけます。</td>
 </tr>
-<tr>
-<td width="180">
-<a href="https://openai.com/">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset="./screenshot/sponsor-openai-lockup-white.svg">
-<source media="(prefers-color-scheme: light)" srcset="./screenshot/sponsor-openai-lockup-black.svg">
-<img src="./screenshot/sponsor-openai-lockup-black.svg" alt="OpenAI" width="150">
-</picture>
-</a>
-</td>
-<td>本プロジェクトへのスポンサー支援に感謝します（OpenAI）。</td>
-</tr>
-<tr>
-<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
-<td>LINUX DO コミュニティの支援に感謝します。</td>
-</tr>
-<tr>
-<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
-<td>本プロジェクトは DigitalOcean の支援を受けています。</td>
-</tr>
 </tbody>
 </table>
 
+</details>
+
 ## GPT-Load を選ぶ理由
+
+アプリケーション側で必要なのは、一つの Base URL と一つの AccessKey だけです。プロバイダー、アカウント、認証情報、モデル、ルーティングポリシーはすべて管理画面で設定します。
+
+<img src="./screenshot/architecture-overview.png" alt="GPT-Load の統合アクセスとアップストリームルーティング構成図" width="860">
 
 - **単一ゲートウェイでネイティブプロトコルを維持** — 公式 API、クラウド基盤、モデルサービス、互換中継を一元管理しながら、クライアントは OpenAI、Anthropic、Gemini のネイティブインターフェイスをそのまま使えます。
 - **API キーとサブスクリプションを統一管理** — Codex、Claude、Antigravity、Grok と API キーチャネルで、認証情報管理・スケジューリング・健全性管理を共通化します。
@@ -271,17 +259,33 @@ GPT-Load の一部機能は以下のプロジェクトを基盤としていま�
 
 チャネルアイコンは対応するアップストリームプロバイダーを識別するために使用しています。商標権は各所有者に帰属し、本プロジェクトはこれらのプロバイダーと提携関係や推奨関係にはありません。
 
-## フィードバックと貢献
+## プロジェクト支援
 
-問題や機能の提案は [GitHub Issue](https://github.com/tbphp/gpt-load/issues) へお寄せください。セキュリティ脆弱性は [SECURITY.md](SECURITY.md) の手順に従って報告してください。
+<table>
+<tbody>
+<tr>
+<td align="center" width="33%">
+<a href="https://openai.com/">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="./screenshot/sponsor-openai-lockup-white.svg">
+<source media="(prefers-color-scheme: light)" srcset="./screenshot/sponsor-openai-lockup-black.svg">
+<img src="./screenshot/sponsor-openai-lockup-black.svg" alt="OpenAI" width="120">
+</picture>
+</a>
+<br><sub>プラットフォーム支援</sub>
+</td>
+<td align="center" width="33%">
+<a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="120"></a>
+<br><sub>コミュニティ支援</sub>
+</td>
+<td align="center" width="33%">
+<a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="120"></a>
+<br><sub>インフラ支援</sub>
+</td>
+</tr>
+</tbody>
+</table>
 
-コミュニティでの交流や利用方法の相談は、[Telegram グループ](https://t.me/+GHpy5SwEllg3MTUx) にご参加ください。
+---
 
-<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
-<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
-
-GPT-Load が役に立ったら、Star をいただけると嬉しいです。
-
-## ライセンス
-
-GPT-Load は [MIT License](LICENSE) で公開されています。
+[MIT License](LICENSE) · [サードパーティ表記](THIRD_PARTY_NOTICES.md) · [セキュリティポリシー](SECURITY.md)
