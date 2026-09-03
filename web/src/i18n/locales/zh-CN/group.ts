@@ -253,6 +253,7 @@ export default {
           modelPattern: '模型只支持精确值或末尾一个 * 的前缀匹配。',
           setObject: '设置参数必须是 JSON 对象。',
           invalidJSON: 'JSON 格式不正确。',
+          unsafeNumber: '数字必须可安全、无损地通过管理界面保存。',
           forbiddenField: '不能设置或删除根字段 model、stream 或 store。',
           removeRequired: '请输入删除路径。',
           removePointer: '路径必须以 / 开头、使用有效的 ~0、~1 转义，且不能包含数组索引。',

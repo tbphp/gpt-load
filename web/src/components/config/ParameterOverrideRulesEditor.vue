@@ -14,6 +14,11 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import FormField from '@/components/ui/FormField.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import {
+  assertJSONNumbersRoundTrip,
+  isJSONSafeNumber,
+  JSONNumberPrecisionError,
+} from '@/lib/json-number'
 
 interface RemoveRow {
   key: number
@@ -65,13 +70,11 @@ function cloneJSONValue(value: unknown): ParameterJSONValue {
       Object.entries(value).map(([key, nested]) => [key, cloneJSONValue(nested)]),
     )
   }
-  if (
-    value === null ||
-    typeof value === 'boolean' ||
-    typeof value === 'number' ||
-    typeof value === 'string'
-  )
+  if (typeof value === 'number') {
+    if (!isJSONSafeNumber(value)) throw new JSONNumberPrecisionError()
     return value
+  }
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value
   throw new TypeError('invalid JSON value')
 }
 
@@ -112,6 +115,7 @@ function parseSet(text: string): Record<string, ParameterJSONValue> | undefined 
   const trimmed = text.trim()
   if (!trimmed) return undefined
   const value: unknown = JSON.parse(trimmed)
+  assertJSONNumbersRoundTrip(trimmed)
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
   return Object.fromEntries(
     Object.entries(value as Record<string, ParameterJSONValue>).map(([key, nested]) => [
@@ -150,8 +154,12 @@ function ruleErrors(row: RuleRow): RuleErrors {
         Object.keys(set).some((key) => ['model', 'stream', 'store'].includes(key.toLowerCase()))
       )
         errors.set = t('group.settings.parameterOverrides.errors.forbiddenField')
-    } catch {
-      errors.set = t('group.settings.parameterOverrides.errors.invalidJSON')
+    } catch (cause: unknown) {
+      errors.set = t(
+        cause instanceof JSONNumberPrecisionError
+          ? 'group.settings.parameterOverrides.errors.unsafeNumber'
+          : 'group.settings.parameterOverrides.errors.invalidJSON',
+      )
     }
   }
 

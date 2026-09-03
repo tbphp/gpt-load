@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -19,6 +21,8 @@ const (
 	maxConfigBytes = 256 << 10
 	maxRemovePaths = 256
 	maxJSONDepth   = 64
+	maxApplyBytes  = 8 << 20
+	maxSafeInteger = int64(1<<53 - 1)
 )
 
 var forbiddenRootFields = []string{"model", "stream", "store"}
@@ -98,7 +102,7 @@ func compileRule(raw map[string]json.RawMessage) (rule, int, error) {
 		if err := decodeJSON(rawSet, &entry.set); err != nil || entry.set == nil {
 			return rule{}, 0, fmt.Errorf("set must be a JSON object")
 		}
-		if err := validateJSONDepth(entry.set, 1); err != nil {
+		if err := validateSetValue(entry.set, 1); err != nil {
 			return rule{}, 0, err
 		}
 		for key := range entry.set {
@@ -161,12 +165,12 @@ func compileMatch(raw json.RawMessage) (compiledMatch, error) {
 		if err := decodeJSON(rawProtocol, &value); err != nil {
 			return compiledMatch{}, fmt.Errorf("match.protocol must be a string")
 		}
-		value = strings.TrimSpace(value)
-		if value != "" {
-			result.clientProtocol = protocol.Protocol(value)
-			if !result.clientProtocol.Valid() {
-				return compiledMatch{}, fmt.Errorf("match.protocol %q is invalid", value)
-			}
+		if value == "" || strings.TrimSpace(value) != value {
+			return compiledMatch{}, fmt.Errorf("match.protocol must be omitted or contain a canonical protocol")
+		}
+		result.clientProtocol = protocol.Protocol(value)
+		if !result.clientProtocol.Valid() {
+			return compiledMatch{}, fmt.Errorf("match.protocol %q is invalid", value)
 		}
 	}
 	if rawModel, exists := values["model"]; exists {
@@ -174,18 +178,18 @@ func compileMatch(raw json.RawMessage) (compiledMatch, error) {
 		if err := decodeJSON(rawModel, &value); err != nil {
 			return compiledMatch{}, fmt.Errorf("match.model must be a string")
 		}
-		value = strings.TrimSpace(value)
-		if value != "" {
-			wildcards := strings.Count(value, "*")
-			switch {
-			case wildcards == 0:
-				result.model = value
-			case wildcards == 1 && strings.HasSuffix(value, "*") && len(value) > 1:
-				result.model = strings.TrimSuffix(value, "*")
-				result.modelPrefix = true
-			default:
-				return compiledMatch{}, fmt.Errorf("match.model supports only one trailing prefix wildcard")
-			}
+		if value == "" || strings.TrimSpace(value) != value {
+			return compiledMatch{}, fmt.Errorf("match.model must be omitted or contain a non-empty model")
+		}
+		wildcards := strings.Count(value, "*")
+		switch {
+		case wildcards == 0:
+			result.model = value
+		case wildcards == 1 && strings.HasSuffix(value, "*") && len(value) > 1:
+			result.model = strings.TrimSuffix(value, "*")
+			result.modelPrefix = true
+		default:
+			return compiledMatch{}, fmt.Errorf("match.model supports only one trailing prefix wildcard")
 		}
 	}
 	return result, nil
@@ -227,6 +231,9 @@ func (rules Rules) Apply(
 	}
 	if len(matched) == 0 {
 		return body, false, nil
+	}
+	if len(body) > maxApplyBytes {
+		return nil, false, fmt.Errorf("request body exceeds parameter override limit of %d bytes", maxApplyBytes)
 	}
 	var object map[string]any
 	if err := decodeJSON(body, &object); err != nil || object == nil {
@@ -301,6 +308,9 @@ func parsePointer(value string) ([]string, error) {
 	if value == "" || value[0] != '/' {
 		return nil, fmt.Errorf("must start with / and cannot target the document root")
 	}
+	if strings.Count(value, "/") > maxJSONDepth {
+		return nil, fmt.Errorf("exceeds maximum path depth %d", maxJSONDepth)
+	}
 	rawSegments := strings.Split(value[1:], "/")
 	segments := make([]string, len(rawSegments))
 	for index, raw := range rawSegments {
@@ -351,23 +361,50 @@ func forbiddenRootField(value string) bool {
 	return false
 }
 
-func validateJSONDepth(value any, depth int) error {
+func validateSetValue(value any, depth int) error {
 	if depth > maxJSONDepth {
 		return fmt.Errorf("set exceeds maximum JSON depth %d", maxJSONDepth)
 	}
 	switch typed := value.(type) {
 	case map[string]any:
 		for _, nested := range typed {
-			if err := validateJSONDepth(nested, depth+1); err != nil {
+			if err := validateSetValue(nested, depth+1); err != nil {
 				return err
 			}
 		}
 	case []any:
 		for _, nested := range typed {
-			if err := validateJSONDepth(nested, depth+1); err != nil {
+			if err := validateSetValue(nested, depth+1); err != nil {
 				return err
 			}
 		}
+	case json.Number:
+		if err := validateJSONNumber(typed); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateJSONNumber(value json.Number) error {
+	literal := value.String()
+	parsed, err := strconv.ParseFloat(literal, 64)
+	if err != nil || math.IsInf(parsed, 0) || math.IsNaN(parsed) {
+		return fmt.Errorf("set contains a number outside the supported range")
+	}
+	exact, ok := new(big.Rat).SetString(literal)
+	if !ok {
+		return fmt.Errorf("set contains an invalid number")
+	}
+	if exact.IsInt() {
+		absolute := new(big.Int).Abs(exact.Num())
+		if absolute.Cmp(big.NewInt(maxSafeInteger)) > 0 {
+			return fmt.Errorf("set contains an integer outside the JSON safe range")
+		}
+	}
+	roundTrip, ok := new(big.Rat).SetString(strconv.FormatFloat(parsed, 'g', -1, 64))
+	if !ok || exact.Cmp(roundTrip) != 0 {
+		return fmt.Errorf("set contains a number that cannot round-trip through the management UI")
 	}
 	return nil
 }

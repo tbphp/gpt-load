@@ -259,6 +259,7 @@ export default {
           modelPattern: '完全一致、または末尾に 1 つだけ * を置く前方一致を使用してください。',
           setObject: '設定パラメーターは JSON オブジェクトである必要があります。',
           invalidJSON: 'JSON 形式が正しくありません。',
+          unsafeNumber: '数値は管理画面で安全かつ無損失に保存できる必要があります。',
           forbiddenField: 'ルートの model、stream、store は設定または削除できません。',
           removeRequired: '削除パスを入力してください。',
           removePointer:

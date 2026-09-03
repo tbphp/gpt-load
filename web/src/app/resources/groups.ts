@@ -29,6 +29,7 @@ import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys, normalizeGroupCollectionFilters } from '@/app/query-keys'
 import { projectChannelID } from '@/app/resources/channels'
 import { projectModelCandidate, type ModelCandidate } from '@/app/resources/providers'
+import { isJSONSafeNumber } from '@/lib/json-number'
 
 import {
   assertNoSecretLikeFields,
@@ -287,7 +288,11 @@ function projectHeaderRules(value: unknown): HeaderRulesDto {
 function projectParameterJSONValue(value: unknown, depth = 0): ParameterJSONValue {
   if (depth > 64) throw new InvalidResponseError()
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return value
-  if (typeof value === 'number') return projectFiniteNumber(value)
+  if (typeof value === 'number') {
+    const number = projectFiniteNumber(value)
+    if (!isJSONSafeNumber(number)) throw new InvalidResponseError()
+    return number
+  }
   if (Array.isArray(value)) return value.map((item) => projectParameterJSONValue(item, depth + 1))
   const record = projectRecord(value)
   return Object.fromEntries(

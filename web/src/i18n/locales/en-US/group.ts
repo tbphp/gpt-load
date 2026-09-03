@@ -261,6 +261,7 @@ export default {
           modelPattern: 'Use an exact model or one trailing * prefix wildcard.',
           setObject: 'Set parameters must be a JSON object.',
           invalidJSON: 'The JSON format is invalid.',
+          unsafeNumber: 'Numbers must round-trip safely and losslessly through the management UI.',
           forbiddenField: 'Root fields model, stream, and store cannot be set or removed.',
           removeRequired: 'Enter a removal path.',
           removePointer:

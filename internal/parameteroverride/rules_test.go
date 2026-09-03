@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"gpt-load/internal/execution"
@@ -108,6 +109,10 @@ func TestCompileRejectsInvalidRules(t *testing.T) {
 		{name: "empty action", value: []any{map[string]any{"match": map[string]any{}}}},
 		{name: "enabled field", value: []any{map[string]any{"enabled": true, "set": map[string]any{"temperature": 1}}}},
 		{name: "operation condition", value: []any{map[string]any{"match": map[string]any{"operation": "chat_completion"}, "set": map[string]any{"temperature": 1}}}},
+		{name: "empty protocol", value: []any{map[string]any{"match": map[string]any{"protocol": ""}, "set": map[string]any{"temperature": 1}}}},
+		{name: "padded protocol", value: []any{map[string]any{"match": map[string]any{"protocol": " anthropic "}, "set": map[string]any{"temperature": 1}}}},
+		{name: "empty model", value: []any{map[string]any{"match": map[string]any{"model": ""}, "set": map[string]any{"temperature": 1}}}},
+		{name: "padded model", value: []any{map[string]any{"match": map[string]any{"model": " gpt-5"}, "set": map[string]any{"temperature": 1}}}},
 		{name: "invalid protocol", value: []any{map[string]any{"match": map[string]any{"protocol": "openai"}, "set": map[string]any{"temperature": 1}}}},
 		{name: "wildcard only", value: []any{map[string]any{"match": map[string]any{"model": "*"}, "set": map[string]any{"temperature": 1}}}},
 		{name: "middle wildcard", value: []any{map[string]any{"match": map[string]any{"model": "gpt-*mini"}, "set": map[string]any{"temperature": 1}}}},
@@ -115,6 +120,10 @@ func TestCompileRejectsInvalidRules(t *testing.T) {
 		{name: "forbidden remove", value: []any{map[string]any{"remove": []any{"/store/value"}}}},
 		{name: "root remove", value: []any{map[string]any{"remove": []any{""}}}},
 		{name: "array remove", value: []any{map[string]any{"remove": []any{"/tools/0"}}}},
+		{name: "deep remove", value: []any{map[string]any{"remove": []any{strings.Repeat("/field", maxJSONDepth+1)}}}},
+		{name: "unsafe integer", value: []any{map[string]any{"set": map[string]any{"value": json.Number("9007199254740992")}}}},
+		{name: "overflowing number", value: []any{map[string]any{"set": map[string]any{"value": json.Number("1e400")}}}},
+		{name: "lossy decimal", value: []any{map[string]any{"set": map[string]any{"value": json.Number("0.10000000000000001")}}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -122,6 +131,55 @@ func TestCompileRejectsInvalidRules(t *testing.T) {
 				t.Fatal("Compile() accepted invalid rules")
 			}
 		})
+	}
+}
+
+func TestCompileAcceptsNumbersThatRoundTripThroughManagementUI(t *testing.T) {
+	for _, value := range []json.Number{
+		"9007199254740991",
+		"-9007199254740991",
+		"0.1",
+		"1.0",
+		"1e3",
+		"1e-7",
+		"-0",
+	} {
+		t.Run(value.String(), func(t *testing.T) {
+			if _, err := Compile([]any{map[string]any{"set": map[string]any{"value": value}}}); err != nil {
+				t.Fatalf("Compile(%s) error = %v", value, err)
+			}
+		})
+	}
+}
+
+func TestRulesRejectOversizedBodiesOnlyAfterRuleMatch(t *testing.T) {
+	rules := compileRulesForTest(t, []any{
+		map[string]any{
+			"match": map[string]any{"model": "matched"},
+			"set":   map[string]any{"temperature": json.Number("0.5")},
+		},
+	})
+	prefix := []byte(`{"model":"matched","input":"`)
+	suffix := []byte(`"}`)
+	body := append(prefix, bytes.Repeat([]byte("x"), maxApplyBytes-len(prefix)-len(suffix)+1)...)
+	body = append(body, suffix...)
+
+	if _, applied, err := rules.Apply(
+		protocol.OpenAICompletions,
+		execution.OperationChatCompletion,
+		"matched",
+		body,
+	); err == nil || applied || !strings.Contains(err.Error(), "body exceeds") {
+		t.Fatalf("matching Apply() = applied %t, error %v", applied, err)
+	}
+	got, applied, err := rules.Apply(
+		protocol.OpenAICompletions,
+		execution.OperationChatCompletion,
+		"other",
+		body,
+	)
+	if err != nil || applied || !bytes.Equal(got, body) {
+		t.Fatalf("non-matching Apply() = %d bytes, applied %t, error %v", len(got), applied, err)
 	}
 }
 
