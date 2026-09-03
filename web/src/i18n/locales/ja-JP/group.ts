@@ -480,6 +480,11 @@ export default {
         refreshCredential: '認証情報を更新',
         refreshCredentialSucceeded: '認証情報を更新しました',
         refreshCredentialFailed: '認証情報を更新できません',
+        rediscoverLocal: 'ローカルアカウントを再取得',
+        rediscoverLocalSucceeded: '新しいローカルアカウントに切り替えました',
+        rediscoverLocalFailed: 'ローカルアカウントを再取得できません',
+        rediscoverSameAccount: '現在のローカルアカウントのままです',
+        rediscoverNoLocalAccount: 'ローカルのプライマリアカウントが見つかりません',
         dailySuccessSummary: '24 時間の成功',
         dailyFailureSummary: '24 時間の失敗',
         dailyIncomplete:

@@ -24,6 +24,7 @@ import type {
   CredentialQuotaWindowDto,
   CredentialResetCreditConsumeDto,
   CredentialRecoveryDto,
+  CredentialRediscoverResultDto,
   CredentialRevealDto,
   CredentialStatus,
   CredentialSummaryDto,
@@ -953,6 +954,49 @@ export async function refreshCredential(
 ): Promise<CredentialItemDto> {
   return projectCredentialItem(
     await client.request(`/api/groups/${groupId}/credentials/${credentialId}/refresh`, {
+      method: 'POST',
+      json: {},
+      signal,
+    }),
+  )
+}
+
+const credentialRediscoverFields = [
+  'swapped',
+  'reason',
+  'previous_account',
+  'current_account',
+  'error_code',
+] as const
+
+function projectCredentialRediscover(value: unknown): CredentialRediscoverResultDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, credentialRediscoverFields)
+  const swapped = projectBoolean(record.swapped)
+  const result: CredentialRediscoverResultDto = { swapped }
+  if (record.reason !== undefined) {
+    result.reason = projectEnum(record.reason, ['no_local_account', 'same_account'] as const)
+  }
+  if (record.previous_account !== undefined) {
+    result.previous_account = projectString(record.previous_account, { allowEmpty: false })
+  }
+  if (record.current_account !== undefined) {
+    result.current_account = projectString(record.current_account, { allowEmpty: false })
+  }
+  if (record.error_code !== undefined) {
+    result.error_code = projectString(record.error_code, { allowEmpty: false })
+  }
+  return result
+}
+
+export async function rediscoverLocalCredential(
+  client: ApiClient,
+  groupId: number,
+  credentialId: number,
+  signal?: AbortSignal,
+): Promise<CredentialRediscoverResultDto> {
+  return projectCredentialRediscover(
+    await client.request(`/api/groups/${groupId}/credentials/${credentialId}/rediscover-local`, {
       method: 'POST',
       json: {},
       signal,

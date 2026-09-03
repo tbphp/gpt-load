@@ -63,7 +63,7 @@
 ## 为什么选择 GPT-Load
 
 - **统一入口，保留原生协议** — 官方 API、云平台、模型服务和兼容中转统一管理；客户端继续使用 OpenAI、Anthropic 或 Gemini 原生接口，无需改造代码。
-- **统一管理 API Key 与订阅账号** — Codex、Claude、Antigravity、Grok 等订阅渠道与 API Key 渠道共享凭据管理、调度和健康体系。
+- **统一管理 API Key 与订阅账号** — Codex、Claude、Antigravity、Grok、Kiro 等订阅渠道与 API Key 渠道共享凭据管理、调度和健康体系。
 - **内置调度与故障隔离** — 多凭据调度、自动权重、重试、冷却、黑名单与会话亲和，降低单个凭据过载或失效的影响。
 - **可观测、易部署、数据自持** — 提供健康、路由、日志、用量与成本估算；单个 Go 二进制内嵌管理界面，支持 SQLite、MySQL、PostgreSQL 和本地凭据加密。
 
@@ -127,6 +127,8 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 
 <img src="./screenshot/subscription-accounts.png" alt="GPT-Load 订阅账号与额度状态" width="860">
 
+> **Kiro 本地账号自动换号** — 当 Kiro 桌面/SSO 账号用量达到 95% 时，GPT-Load 会自动重新读取本地令牌缓存中当前登录的账号，并把已存储的凭据切换到这个新账号上（受冷却时间与单轮上限约束）。你也可以在 Kiro 凭据的 **更多 → 换号刷新** 菜单中手动触发同一操作。
+
 **访问密钥只读首页** — 使用 AccessKey 登录，只查看该密钥自己的分组、模型、请求、用量与费用额度
 
 <img src="./screenshot/access-key-home.png" alt="GPT-Load 访问密钥只读首页" width="860">
@@ -156,7 +158,7 @@ Embeddings 首期只在 OpenAI、OpenRouter 和 OpenAI Compatible API Key 渠道
 
 - **官方与云平台**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
 - **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq
-- **订阅渠道**：Codex、Claude、Antigravity、Grok
+- **订阅渠道**：Codex、Claude、Antigravity、Grok、Kiro
 - **自定义**：OpenAI Compatible（任意兼容中转）
 
 ## 部署与数据

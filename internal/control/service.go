@@ -28,6 +28,8 @@ import (
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -88,6 +90,7 @@ type Service struct {
 	observationMu         sync.Mutex
 	observationFlights    map[observationFlightKey]*observationFlight
 	observationSemaphore  chan struct{}
+	rotationMonitor       *kiroRotationMonitor
 }
 
 type credentialRuntimeRetirer interface {
@@ -248,6 +251,7 @@ func NewService(
 		operationRecoveryWake: make(chan struct{}, 1),
 		observationFlights:    make(map[observationFlightKey]*observationFlight),
 		observationSemaphore:  make(chan struct{}, 1),
+		rotationMonitor:       newKiroRotationMonitor(logrus.StandardLogger()),
 	}
 	if cfg != nil {
 		service.environmentProxy = outboundproxy.Environment()

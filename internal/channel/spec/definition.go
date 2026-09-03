@@ -18,6 +18,7 @@ const (
 	Claude           ID = "claude"
 	Antigravity      ID = "antigravity"
 	Grok             ID = "grok"
+	Kiro             ID = "kiro"
 	Anthropic        ID = "anthropic"
 	Gemini           ID = "gemini"
 	AzureOpenAI      ID = "azure_openai"
@@ -47,6 +48,7 @@ const (
 	ProviderClaude               ProviderKind = "claude"
 	ProviderAntigravity          ProviderKind = "antigravity"
 	ProviderGrok                 ProviderKind = "grok"
+	ProviderKiro                 ProviderKind = "kiro"
 	ProviderAnthropic            ProviderKind = "anthropic"
 	ProviderGemini               ProviderKind = "gemini"
 	ProviderMultiProtocolGateway ProviderKind = "multi_protocol_gateway"
@@ -66,11 +68,12 @@ type NoticeID string
 const (
 	NoticeClaudeOAuthRisk      NoticeID = "claude_oauth_risk"
 	NoticeAntigravityOAuthRisk NoticeID = "antigravity_oauth_risk"
+	NoticeKiroOAuthRisk        NoticeID = "kiro_oauth_risk"
 )
 
 // Valid reports whether the notice ID is part of the public channel contract.
 func (id NoticeID) Valid() bool {
-	return id == NoticeClaudeOAuthRisk || id == NoticeAntigravityOAuthRisk
+	return id == NoticeClaudeOAuthRisk || id == NoticeAntigravityOAuthRisk || id == NoticeKiroOAuthRisk
 }
 
 // NoticeTone controls the bounded presentation style of one channel notice.
@@ -97,6 +100,7 @@ func (kind ProviderKind) Valid() bool {
 		ProviderClaude,
 		ProviderAntigravity,
 		ProviderGrok,
+		ProviderKiro,
 		ProviderAnthropic,
 		ProviderGemini,
 		ProviderMultiProtocolGateway,
@@ -165,15 +169,16 @@ const (
 type AuthorizationMethod string
 
 const (
-	AuthorizationBrowserOAuth AuthorizationMethod = "browser_oauth"
-	AuthorizationDeviceOAuth  AuthorizationMethod = "device_oauth"
-	AuthorizationOAuthFile    AuthorizationMethod = "oauth_file"
+	AuthorizationBrowserOAuth  AuthorizationMethod = "browser_oauth"
+	AuthorizationDeviceOAuth   AuthorizationMethod = "device_oauth"
+	AuthorizationOAuthFile     AuthorizationMethod = "oauth_file"
+	AuthorizationSelfDiscovery AuthorizationMethod = "self_discovery"
 )
 
 // Valid reports whether the authorization method is part of the public channel contract.
 func (method AuthorizationMethod) Valid() bool {
 	switch method {
-	case AuthorizationBrowserOAuth, AuthorizationDeviceOAuth, AuthorizationOAuthFile:
+	case AuthorizationBrowserOAuth, AuthorizationDeviceOAuth, AuthorizationOAuthFile, AuthorizationSelfDiscovery:
 		return true
 	default:
 		return false

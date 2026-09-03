@@ -13,7 +13,7 @@ import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 
-const MAX_FEATURED_CHANNELS = 4
+const MAX_FEATURED_CHANNELS = 5
 const FEATURED_CHANNEL_IDS: Record<ChannelConnectionType, readonly string[]> = {
   api_key: ['openai', 'anthropic', 'gemini', 'openai_compatible'],
   subscription: ['codex', 'claude'],
@@ -109,6 +109,9 @@ const extraChannel = computed(() =>
 )
 const otherChannels = computed(() =>
   activeChannels.value.filter((channel) => !featuredChannelIDs.value.has(channel.channel_id)),
+)
+const showMoreChannels = computed(
+  () => activeConnectionType.value === 'api_key' || otherChannels.value.length > 0,
 )
 
 watch(
@@ -319,14 +322,10 @@ function onSearchKeydown(event: KeyboardEvent): void {
             <span>{{ channel.name }}</span>
           </button>
 
-          <span
-            v-if="activeConnectionType === 'api_key'"
-            class="channel-picker__divider"
-            aria-hidden="true"
-          />
+          <span v-if="showMoreChannels" class="channel-picker__divider" aria-hidden="true" />
 
           <AppPopover
-            v-if="activeConnectionType === 'api_key'"
+            v-if="showMoreChannels"
             v-model:open="popoverOpen"
             align="start"
             content-class="channel-picker__panel"

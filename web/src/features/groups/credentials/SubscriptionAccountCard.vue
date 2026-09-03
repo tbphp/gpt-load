@@ -66,6 +66,7 @@ const emit = defineEmits<{
   reset: [item: CredentialItemDto]
   download: [item: CredentialItemDto]
   'refresh-credential': [item: CredentialItemDto]
+  'rediscover-local': [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
 }>()
 const { locale, n, t, te } = useI18n()
@@ -540,7 +541,7 @@ function retryDetails(): void {
 }
 
 function runMenuAction(
-  action: 'download' | 'refresh-credential' | 'toggle' | 'restore' | 'remove',
+  action: 'download' | 'refresh-credential' | 'rediscover-local' | 'toggle' | 'restore' | 'remove',
 ): void {
   menuOpen.value = false
   switch (action) {
@@ -549,6 +550,9 @@ function runMenuAction(
       return
     case 'refresh-credential':
       emit('refresh-credential', props.item)
+      return
+    case 'rediscover-local':
+      emit('rediscover-local', props.item)
       return
     case 'toggle':
       emit('toggle', props.item)
@@ -773,6 +777,11 @@ function runMenuAction(
                 >
                   <KeyRound :size="15" aria-hidden="true" />{{
                     t('group.credentials.subscription.refreshCredential')
+                  }}
+                </button>
+                <button type="button" :disabled="busy" @click="runMenuAction('rediscover-local')">
+                  <RefreshCw :size="15" aria-hidden="true" />{{
+                    t('group.credentials.subscription.rediscoverLocal')
                   }}
                 </button>
                 <button type="button" :disabled="busy" @click="runMenuAction('toggle')">

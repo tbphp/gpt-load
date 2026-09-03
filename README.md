@@ -63,7 +63,7 @@ Your application only needs one base URL and one AccessKey. Providers, accounts,
 ## Why GPT-Load
 
 - **One gateway, native protocols** — Manage official APIs, cloud platforms, model services, and compatible relays together while clients keep their OpenAI, Anthropic, or Gemini native interfaces.
-- **One mechanism for API keys and subscriptions** — Codex, Claude, Antigravity, Grok, and API-key channels share credential management, scheduling, and health handling.
+- **One mechanism for API keys and subscriptions** — Codex, Claude, Antigravity, Grok, Kiro, and API-key channels share credential management, scheduling, and health handling.
 - **Scheduling and failure isolation built in** — Multi-credential scheduling, automatic weighting, retries, cooldown, blacklisting, and session affinity reduce the impact of overloaded or failing credentials.
 - **Observable, self-hosted, and simple to deploy** — Inspect health, routes, logs, usage, and cost estimates in an embedded UI backed by SQLite, MySQL, or PostgreSQL with local credential encryption.
 
@@ -127,6 +127,8 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 
 <img src="./screenshot/subscription-accounts.png" alt="GPT-Load subscription accounts and quota status" width="860">
 
+> **Kiro local-account rotation** — When a Kiro desktop/SSO account reaches 95% usage, GPT-Load automatically re-reads the account currently signed into the local token cache and swaps the stored credential onto that fresh account (subject to a cooldown and a per-cycle cap). You can also trigger the same operation manually for a Kiro credential from its **更多 → 换号刷新** menu item.
+
 **AccessKey read-only home** — Sign in with an AccessKey to view only its own groups, models, requests, usage, and cost allowance
 
 <img src="./screenshot/access-key-home.png" alt="GPT-Load AccessKey read-only home" width="860">
@@ -156,7 +158,7 @@ Embeddings initially uses the native OpenAI-compatible wire only on the OpenAI, 
 
 - **Official and cloud** — OpenAI, Anthropic, Gemini, xAI, Azure OpenAI, AWS Bedrock, Google Vertex AI
 - **Model services** — DeepSeek, Moonshot AI, SiliconFlow, Zhipu AI, Alibaba, Volcengine, OpenRouter, Groq
-- **Subscription** — Codex, Claude, Antigravity, Grok
+- **Subscription** — Codex, Claude, Antigravity, Grok, Kiro
 - **Custom** — OpenAI Compatible (any compatible relay)
 
 ## Deployment and data

@@ -175,6 +175,7 @@ export default {
       result: 'Connected {added} account(s)',
       resultDuplicated: 'Connected {added} account(s), skipped {duplicated} already present',
       pendingAccount: 'Waiting for account information',
+      localAccount: 'Local account',
       expires: 'Expires',
       unknown: 'Unknown',
       stageError: {

@@ -26,6 +26,7 @@ const (
 	Claude           = spec.Claude
 	Antigravity      = spec.Antigravity
 	Grok             = spec.Grok
+	Kiro             = spec.Kiro
 	Anthropic        = spec.Anthropic
 	Gemini           = spec.Gemini
 	AzureOpenAI      = spec.AzureOpenAI
@@ -77,9 +78,10 @@ type ConnectionDescriptor struct {
 type AuthorizationMethod = spec.AuthorizationMethod
 
 const (
-	AuthorizationBrowserOAuth = spec.AuthorizationBrowserOAuth
-	AuthorizationDeviceOAuth  = spec.AuthorizationDeviceOAuth
-	AuthorizationOAuthFile    = spec.AuthorizationOAuthFile
+	AuthorizationBrowserOAuth  = spec.AuthorizationBrowserOAuth
+	AuthorizationDeviceOAuth   = spec.AuthorizationDeviceOAuth
+	AuthorizationOAuthFile     = spec.AuthorizationOAuthFile
+	AuthorizationSelfDiscovery = spec.AuthorizationSelfDiscovery
 )
 
 // CredentialAction is one safe account action advertised to the management UI.
@@ -202,6 +204,7 @@ const (
 	ProviderClaude               = spec.ProviderClaude
 	ProviderAntigravity          = spec.ProviderAntigravity
 	ProviderGrok                 = spec.ProviderGrok
+	ProviderKiro                 = spec.ProviderKiro
 	ProviderAnthropic            = spec.ProviderAnthropic
 	ProviderGemini               = spec.ProviderGemini
 	ProviderMultiProtocolGateway = spec.ProviderMultiProtocolGateway

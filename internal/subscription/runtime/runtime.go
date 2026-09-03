@@ -199,6 +199,24 @@ type DeviceAuthorizationDriver interface {
 	PollDeviceAuthorization(context.Context, []byte) (DeviceAuthorizationPoll, error)
 }
 
+// SelfDiscoveryDriver is implemented by subscription channels that can provision
+// a ready credential from a locally detected account (e.g. an already-signed-in
+// desktop or SSO token cache) without running an interactive authorization flow.
+// The second return reports whether any local account was found; a missing
+// account is not an error so callers can fall through to the normal flow.
+type SelfDiscoveryDriver interface {
+	Driver
+	DiscoverLocalCredential(context.Context) (Credential, bool, error)
+}
+
+// AccountIdentifier is an optional subscription capability for channels that
+// store an account identity inside a credential blob (e.g. Kiro stores
+// AccountID). The control layer uses it to extract the stored account ID
+// without importing provider-specific codec packages directly.
+type AccountIdentifier interface {
+	StoredAccountID(canonical []byte) string
+}
+
 // ModelDiscovery is a narrow optional subscription capability.
 type ModelDiscovery interface {
 	ID() spec.UtilityID

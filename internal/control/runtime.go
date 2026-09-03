@@ -163,6 +163,13 @@ func (runtime *Runtime) Run(ctx context.Context) {
 			runtime.operationRecovery.RunOperationRecovery(ctx)
 		}()
 	}
+	if service, ok := runtime.operationRecovery.(*Service); ok {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			service.RunKiroRotation(ctx)
+		}()
+	}
 	if runtime.catalogSync != nil {
 		wait.Add(1)
 		go func() {

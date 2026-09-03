@@ -80,7 +80,7 @@ func TestBeta1InitialMigrationCreatesCompleteFinalSchema(t *testing.T) {
 		}
 	}
 
-	for index, method := range []string{"browser_oauth", "device_oauth", "oauth_file"} {
+	for index, method := range []string{"browser_oauth", "device_oauth", "oauth_file", "self_discovery"} {
 		if err := insertBeta1CredentialStage(db, fmt.Sprintf("stage-%d", index), method); err != nil {
 			t.Errorf("Beta.1 authorization method %q was rejected: %v", method, err)
 		}

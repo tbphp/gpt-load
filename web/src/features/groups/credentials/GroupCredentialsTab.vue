@@ -38,6 +38,7 @@ import {
   getCredentialDetail,
   revealCredential,
   refreshCredential as refreshCredentialRequest,
+  rediscoverLocalCredential,
   restoreCredential,
   restoreTestedCredential,
   refreshCredentialObservation,
@@ -718,6 +719,40 @@ async function refreshCredentialToken(item: CredentialItemDto): Promise<void> {
     await Promise.allSettled([refetchActiveCredentialPage(), refetchGroupSummary()])
   } finally {
     setPending(item.credential_id, 'refresh-credential', false)
+  }
+}
+
+async function rediscoverCredential(item: CredentialItemDto): Promise<void> {
+  if (pending(item.credential_id)) return
+  feedback.value = ''
+  setPending(item.credential_id, 'rediscover-local', true)
+  try {
+    const result = await rediscoverLocalCredential(client, props.groupId, item.credential_id)
+    if (result.swapped) {
+      clearDetailState(item.credential_id)
+      await reconcileItem(item, true)
+      toast.show({
+        message: t('group.credentials.subscription.rediscoverLocalSucceeded'),
+        tone: 'success',
+      })
+    } else if (result.reason === 'same_account') {
+      toast.show({
+        message: t('group.credentials.subscription.rediscoverSameAccount'),
+        tone: 'warning',
+      })
+    } else {
+      toast.show({
+        message: t('group.credentials.subscription.rediscoverNoLocalAccount'),
+        tone: 'warning',
+      })
+    }
+  } catch (cause) {
+    feedback.value = t(
+      presentSubscriptionErrorKey(cause, 'group.credentials.subscription.rediscoverLocalFailed'),
+    )
+    await Promise.allSettled([refetchActiveCredentialPage(), refetchGroupSummary()])
+  } finally {
+    setPending(item.credential_id, 'rediscover-local', false)
   }
 }
 
@@ -1723,6 +1758,7 @@ async function runBatch(
               @reset="openResetCreditDialog"
               @download="downloadCredentialFile"
               @refresh-credential="refreshCredentialToken"
+              @rediscover-local="rediscoverCredential"
               @remove="
                 deleteTarget = {
                   ids: [$event.credential_id],

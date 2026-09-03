@@ -252,7 +252,7 @@ type initialCredentialStage struct {
 	ID                   string      `gorm:"type:varchar(36);primaryKey;not null"`
 	ChannelID            string      `gorm:"type:varchar(64);not null"`
 	ConnectionType       string      `gorm:"type:varchar(32);not null;check:chk_credential_stage_connection_type,connection_type = 'subscription'"`
-	AuthorizationMethod  string      `gorm:"type:varchar(32);not null;check:chk_credential_stage_authorization_method,authorization_method IN ('browser_oauth','device_oauth','oauth_file')"`
+	AuthorizationMethod  string      `gorm:"type:varchar(32);not null;check:chk_credential_stage_authorization_method,authorization_method IN ('browser_oauth','device_oauth','oauth_file','self_discovery')"`
 	Status               string      `gorm:"type:varchar(32);not null;check:chk_credential_stage_status,status IN ('pending_authorization','exchanging','ready','consumed','failed','cancelled','expired','outcome_unknown');index:idx_credential_stages_status_expires,priority:1"`
 	EncryptedPayload     string      `gorm:"type:text;not null"`
 	PayloadSchemaVersion uint        `gorm:"not null;default:1;check:chk_credential_stage_payload_schema,payload_schema_version > 0"`

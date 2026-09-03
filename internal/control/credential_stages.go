@@ -573,6 +573,12 @@ func (s *Service) beginCredentialAuthorizationWithNetwork(
 	channelID channel.ID,
 	network subscriptionruntime.NetworkContext,
 ) (CredentialStageResult, error) {
+	if stageResult, ok, err := s.trySelfDiscoveryCredentialAuthorization(ctx, channelID, network); ok || err != nil {
+		if err != nil {
+			return CredentialStageResult{}, err
+		}
+		return stageResult, nil
+	}
 	if s.channelRegistry.SupportsAuthorizationMethod(channelID, channel.AuthorizationBrowserOAuth) {
 		return s.beginBrowserCredentialAuthorization(ctx, channelID, network)
 	}
@@ -580,6 +586,38 @@ func (s *Service) beginCredentialAuthorizationWithNetwork(
 		return s.beginDeviceCredentialAuthorization(ctx, channelID, network)
 	}
 	return CredentialStageResult{}, app_errors.ErrValidation
+}
+
+// trySelfDiscoveryCredentialAuthorization provisions a ready credential stage
+// directly from a locally detected account when the channel's driver supports
+// self-discovery. It reports a missing local account as a non-error so the
+// caller can fall through to the normal OAuth flow.
+func (s *Service) trySelfDiscoveryCredentialAuthorization(
+	ctx context.Context,
+	channelID channel.ID,
+	network subscriptionruntime.NetworkContext,
+) (CredentialStageResult, bool, error) {
+	driver, err := s.subscriptionDriver(channelID)
+	if err != nil {
+		return CredentialStageResult{}, false, err
+	}
+	discoverer, ok := driver.(subscriptionruntime.SelfDiscoveryDriver)
+	if !ok {
+		return CredentialStageResult{}, false, nil
+	}
+	discoveryContext, cancelDiscovery := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
+	defer cancelDiscovery()
+	credential, found, err := discoverer.DiscoverLocalCredential(subscriptionruntime.WithNetworkContext(discoveryContext, network))
+	if err != nil || !found {
+		return CredentialStageResult{}, found, err
+	}
+	stageResult, err := s.persistReadyCredentialStage(
+		discoveryContext, channelID, string(channel.AuthorizationSelfDiscovery), credential, network,
+	)
+	if err != nil {
+		return CredentialStageResult{}, true, err
+	}
+	return stageResult, true, nil
 }
 
 func (s *Service) beginBrowserCredentialAuthorization(

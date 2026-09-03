@@ -490,6 +490,28 @@ func (s *Server) handleRefreshGroupCredential(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleRediscoverLocalKiroCredential(c *gin.Context) {
+	groupID, ok := groupID(c, "rediscover_local_kiro_credential")
+	if !ok {
+		return
+	}
+	credentialID, ok := credentialID(c, "rediscover_local_kiro_credential")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "rediscover_local_kiro_credential", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.RediscoverKiroCredential(c.Request.Context(), groupID, credentialID)
+	if err != nil {
+		writeServiceError(c, "rediscover_local_kiro_credential", err)
+		return
+	}
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleConsumeGroupCredentialResetCredit(c *gin.Context) {
 	groupID, ok := groupID(c, "consume_group_credential_reset_credit")
 	if !ok {

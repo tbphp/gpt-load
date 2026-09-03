@@ -161,6 +161,7 @@ export default {
       result: '已连接 {added} 个账号',
       resultDuplicated: '已连接 {added} 个账号，跳过 {duplicated} 个已存在的账号',
       pendingAccount: '等待账号信息',
+      localAccount: '本地账号',
       expires: '有效期',
       unknown: '未知',
       stageError: {

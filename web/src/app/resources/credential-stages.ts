@@ -32,7 +32,7 @@ export interface CredentialStageAccount {
 export interface CredentialStage {
   stage_id: string
   status: CredentialStageStatus
-  authorization_method?: 'browser_oauth' | 'device_oauth' | 'oauth_file'
+  authorization_method?: 'browser_oauth' | 'device_oauth' | 'oauth_file' | 'self_discovery'
   authorization_url?: string
   redirect_uri?: string
   user_code?: string
@@ -79,7 +79,12 @@ const stageStatuses = [
   'expired',
   'outcome_unknown',
 ] as const
-const authorizationMethods = ['browser_oauth', 'device_oauth', 'oauth_file'] as const
+const authorizationMethods = [
+  'browser_oauth',
+  'device_oauth',
+  'oauth_file',
+  'self_discovery',
+] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()

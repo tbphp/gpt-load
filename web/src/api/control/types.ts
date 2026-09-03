@@ -301,6 +301,15 @@ export interface CredentialDownloadAllDto {
   files: CredentialDownloadDto[]
 }
 
+/** 换号刷新结果：重新读取本地 Kiro 账号并在凭证行上原地替换。 */
+export interface CredentialRediscoverResultDto {
+  swapped: boolean
+  reason?: 'no_local_account' | 'same_account'
+  previous_account?: string
+  current_account?: string
+  error_code?: string
+}
+
 export type CredentialTestOutcome = 'passed' | 'failed' | 'inconclusive'
 
 export type CredentialTestReason =

@@ -591,7 +591,10 @@ onBeforeUnmount(() => {
         <div v-else class="subscription-stager__summary">
           <div class="subscription-stager__identity">
             <strong>{{
-              stage.account.email_mask || t('import.subscription.pendingAccount')
+              stage.account.email_mask ||
+              (stage.status === 'ready'
+                ? t('import.subscription.localAccount')
+                : t('import.subscription.pendingAccount'))
             }}</strong>
             <span v-if="stage.status === 'ready'">
               <template v-if="stage.duplicate">

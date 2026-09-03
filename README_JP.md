@@ -63,7 +63,7 @@ API キー、サブスクリプションアカウント、トラフィック制�
 ## GPT-Load を選ぶ理由
 
 - **単一ゲートウェイでネイティブプロトコルを維持** — 公式 API、クラウド基盤、モデルサービス、互換中継を一元管理しながら、クライアントは OpenAI、Anthropic、Gemini のネイティブインターフェイスをそのまま使えます。
-- **API キーとサブスクリプションを統一管理** — Codex、Claude、Antigravity、Grok と API キーチャネルで、認証情報管理・スケジューリング・健全性管理を共通化します。
+- **API キーとサブスクリプションを統一管理** — Codex、Claude、Antigravity、Grok、Kiro と API キーチャネルで、認証情報管理・スケジューリング・健全性管理を共通化します。
 - **スケジューリングと障害分離を内蔵** — 複数認証情報のスケジューリング、自動ウェイト、リトライ、クールダウン、ブラックリスト、セッションアフィニティにより、過負荷や失効の影響を抑えます。
 - **可観測で導入しやすく、データを自己管理** — 健全性、ルート、ログ、使用量、コスト概算を確認でき、SQLite、MySQL、PostgreSQL とローカル認証情報暗号化を単一バイナリで利用できます。
 
@@ -127,6 +127,8 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 
 <img src="./screenshot/subscription-accounts.png" alt="GPT-Load サブスクリプションアカウントとクォータ状態" width="860">
 
+> **Kiro ローカルアカウントの自動ローテーション** — Kiro デスクトップ／SSO アカウントの使用量が 95% に達すると、GPT-Load はローカルトークンキャッシュに現在サインインしているアカウントを再読込し、保存済みの認証情報をその新しいアカウントに自動で切り替えます（クールダウンと1サイクルあたりの上限に従います）。Kiro 認証情報の **その他 → ローカルアカウントを再取得** メニューから、同じ操作を手動で実行することもできます。
+
 **AccessKey 読み取り専用ホーム** — AccessKey でログインし、そのキーに限定されたグループ、モデル、リクエスト、使用量、費用上限を表示
 
 <img src="./screenshot/access-key-home.png" alt="GPT-Load AccessKey 読み取り専用ホーム" width="860">
@@ -156,7 +158,7 @@ Embeddings は初期段階では OpenAI、OpenRouter、OpenAI Compatible の API
 
 - **公式・クラウド**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
 - **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq
-- **サブスクリプション**：Codex、Claude、Antigravity、Grok
+- **サブスクリプション**：Codex、Claude、Antigravity、Grok、Kiro
 - **カスタム**：OpenAI Compatible（任意の互換中継）
 
 ## デプロイとデータ
