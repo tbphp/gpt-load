@@ -107,7 +107,7 @@ const protocolOptions = computed(() => [
   { value: '', label: t('group.settings.parameterOverrides.allProtocols') },
   ...availableProtocols.value.map((value) => ({
     value,
-    label: t(`group.settings.parameterOverrides.protocols.${value}`),
+    label: value,
   })),
 ])
 
@@ -269,14 +269,11 @@ function formatSet(row: RuleRow): void {
 }
 
 function protocolLabel(value: string): string {
-  return value
-    ? t(`group.settings.parameterOverrides.protocols.${value}`)
-    : t('group.settings.parameterOverrides.allProtocols')
+  return value || t('group.settings.parameterOverrides.allProtocols')
 }
 
-function ruleSummary(row: RuleRow): string {
-  const model = row.model.trim() || t('group.settings.parameterOverrides.allModels')
-  return `${protocolLabel(row.protocol)} · ${model}`
+function modelLabel(row: RuleRow): string {
+  return row.model.trim() || t('group.settings.parameterOverrides.allModels')
 }
 
 function setCount(row: RuleRow): number {
@@ -301,7 +298,7 @@ function matchCount(model: string): number | undefined {
   <div class="parameter-rules">
     <div class="parameter-rules__intro">
       <p>{{ t('group.settings.parameterOverrides.orderHelp') }}</p>
-      <AppButton size="sm" :disabled="disabled" @click="addRule">
+      <AppButton size="compact" :disabled="disabled" @click="addRule">
         <Plus :size="15" aria-hidden="true" />
         {{ t('group.settings.parameterOverrides.addRule') }}
       </AppButton>
@@ -335,11 +332,15 @@ function matchCount(model: string): number | undefined {
           @click="row.open = !row.open"
         >
           <ChevronDown :size="16" aria-hidden="true" />
-          <span>
+          <span class="parameter-rule__identity">
             <strong>{{
               t('group.settings.parameterOverrides.rule', { position: index + 1 })
             }}</strong>
-            <small>{{ ruleSummary(row) }}</small>
+            <span class="parameter-rule__match">
+              <code>{{ protocolLabel(row.protocol) }}</code>
+              <span aria-hidden="true">·</span>
+              <small>{{ modelLabel(row) }}</small>
+            </span>
           </span>
           <span class="parameter-rule__counts">
             {{
@@ -432,38 +433,43 @@ function matchCount(model: string): number | undefined {
               </template>
             </FormField>
           </div>
-          <InlineFeedback v-if="!row.protocol && protocols.length > 1" tone="warning">{{
-            t('group.settings.parameterOverrides.allProtocolWarning')
-          }}</InlineFeedback>
+          <InlineFeedback
+            v-if="!row.protocol && protocols.length > 1"
+            tone="warning"
+            appearance="ledger-hint"
+            >{{ t('group.settings.parameterOverrides.allProtocolWarning') }}</InlineFeedback
+          >
         </fieldset>
 
         <div class="parameter-rule__values">
-          <FormField
-            :id="`${instanceId}-set-${row.key}`"
-            :label="t('group.settings.parameterOverrides.set')"
-            :description="t('group.settings.parameterOverrides.setHelp')"
-            :error="errorsByRule.get(row.key)?.set"
-            size="compact"
-          >
-            <template #default="{ describedBy, invalid }">
-              <textarea
-                :id="`${instanceId}-set-${row.key}`"
-                v-model="row.setText"
-                :placeholder="t('group.settings.parameterOverrides.setPlaceholder')"
-                :aria-describedby="describedBy"
-                :aria-invalid="invalid"
-                :disabled="disabled"
-                spellcheck="false"
-              ></textarea>
-            </template>
-          </FormField>
-          <AppButton
-            variant="ghost"
-            size="sm"
-            :disabled="disabled || !row.setText.trim()"
-            @click="formatSet(row)"
-            >{{ t('group.settings.parameterOverrides.formatJSON') }}</AppButton
-          >
+          <div class="parameter-rule__set">
+            <FormField
+              :id="`${instanceId}-set-${row.key}`"
+              :label="t('group.settings.parameterOverrides.set')"
+              :description="t('group.settings.parameterOverrides.setHelp')"
+              :error="errorsByRule.get(row.key)?.set"
+              size="compact"
+            >
+              <template #default="{ describedBy, invalid }">
+                <textarea
+                  :id="`${instanceId}-set-${row.key}`"
+                  v-model="row.setText"
+                  :placeholder="t('group.settings.parameterOverrides.setPlaceholder')"
+                  :aria-describedby="describedBy"
+                  :aria-invalid="invalid"
+                  :disabled="disabled"
+                  spellcheck="false"
+                ></textarea>
+              </template>
+            </FormField>
+            <AppButton
+              variant="link"
+              size="inline"
+              :disabled="disabled || !row.setText.trim()"
+              @click="formatSet(row)"
+              >{{ t('group.settings.parameterOverrides.formatJSON') }}</AppButton
+            >
+          </div>
 
           <div class="parameter-rule__remove">
             <div class="parameter-rule__remove-heading">
@@ -471,7 +477,11 @@ function matchCount(model: string): number | undefined {
                 <strong>{{ t('group.settings.parameterOverrides.remove') }}</strong>
                 <small>{{ t('group.settings.parameterOverrides.removeHelp') }}</small>
               </span>
-              <AppButton variant="ghost" size="sm" :disabled="disabled" @click="addRemovePath(row)"
+              <AppButton
+                variant="link"
+                size="inline"
+                :disabled="disabled"
+                @click="addRemovePath(row)"
                 ><Plus :size="14" aria-hidden="true" />{{
                   t('group.settings.parameterOverrides.addRemove')
                 }}</AppButton
@@ -524,7 +534,7 @@ function matchCount(model: string): number | undefined {
 <style scoped>
 .parameter-rules {
   display: grid;
-  gap: var(--space-3);
+  gap: 11px;
 }
 .parameter-rules__intro,
 .parameter-rule__header,
@@ -535,24 +545,27 @@ function matchCount(model: string): number | undefined {
 }
 .parameter-rules__intro {
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 .parameter-rules__intro p {
+  max-width: 620px;
   margin: 0;
   color: var(--color-text-faint);
-  font-size: var(--text-sm);
+  font-size: var(--text-meta);
+  line-height: var(--line-normal);
 }
 .parameter-rules__empty {
   display: grid;
   gap: 3px;
   border: 1px dashed var(--color-border-control);
   border-radius: var(--radius-control);
-  padding: 18px;
+  background: var(--color-surface-sunken);
+  padding: 14px 15px;
   color: var(--color-text-muted);
 }
 .parameter-rules__empty span {
   color: var(--color-text-faint);
-  font-size: var(--text-sm);
+  font-size: var(--text-label-xs);
 }
 .parameter-rule {
   overflow: hidden;
@@ -561,11 +574,10 @@ function matchCount(model: string): number | undefined {
   background: var(--color-surface);
 }
 .parameter-rule--invalid {
-  border-color: color-mix(in srgb, var(--color-danger) 55%, var(--color-border-subtle));
+  box-shadow: inset 2px 0 var(--color-danger);
 }
 .parameter-rule__header {
-  min-height: 48px;
-  background: var(--color-surface-sunken);
+  min-height: 50px;
 }
 .parameter-rule__summary {
   display: grid;
@@ -573,28 +585,57 @@ function matchCount(model: string): number | undefined {
   flex: 1;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   border: 0;
   background: transparent;
   color: inherit;
-  padding: 9px 10px;
+  padding: 10px 8px 10px 12px;
   text-align: left;
   cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+.parameter-rule__summary:hover {
+  background: var(--color-surface-sunken);
+}
+.parameter-rule__summary > svg {
+  color: var(--color-text-faint);
+  transition: transform var(--duration-fast) var(--easing-standard);
 }
 .parameter-rule__summary[aria-expanded='true'] > svg {
   transform: rotate(180deg);
 }
-.parameter-rule__summary > span:not(.parameter-rule__counts) {
-  display: grid;
+.parameter-rule__identity,
+.parameter-rule__match {
+  display: flex;
   min-width: 0;
-  gap: 1px;
+  align-items: center;
 }
-.parameter-rule__summary strong,
-.parameter-rule__remove-heading strong {
+.parameter-rule__identity {
+  gap: var(--space-2);
+}
+.parameter-rule__identity > strong {
+  flex: none;
   font-size: var(--text-meta);
 }
-.parameter-rule__summary small,
+.parameter-rule__match {
+  flex: 1;
+  overflow: hidden;
+  gap: 6px;
+  color: var(--color-text-faint);
+}
+.parameter-rule__match code {
+  flex: none;
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  padding: 3px 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+.parameter-rule__match small,
 .parameter-rule__remove-heading small {
+  min-width: 0;
   overflow: hidden;
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
@@ -603,31 +644,32 @@ function matchCount(model: string): number | undefined {
 }
 .parameter-rule__counts {
   color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
+  font-size: 10.5px;
   white-space: nowrap;
 }
 .parameter-rule__actions {
   display: flex;
   flex: none;
   gap: 1px;
-  padding-right: 7px;
+  padding-right: 8px;
 }
 .parameter-rule__body {
   display: grid;
-  gap: var(--space-4);
+  gap: 15px;
   border-top: 1px solid var(--color-border-subtle);
-  padding: 14px;
+  background: color-mix(in srgb, var(--color-surface-sunken) 42%, var(--color-surface));
+  padding: 14px 16px 16px;
 }
 .parameter-rule__conditions {
   display: grid;
-  gap: var(--space-3);
+  gap: 10px;
   min-width: 0;
   margin: 0;
   border: 0;
   padding: 0;
 }
 .parameter-rule__conditions legend {
-  margin-bottom: var(--space-2);
+  margin-bottom: 9px;
   font-size: var(--text-meta);
   font-weight: 650;
 }
@@ -639,25 +681,40 @@ function matchCount(model: string): number | undefined {
 .parameter-rule__condition-grid :deep(.app-select__trigger) {
   width: 100%;
 }
+.parameter-rule__condition-grid :deep(.app-select__value),
+.parameter-rule__condition-grid input {
+  font-family: var(--font-mono);
+}
 .parameter-rule__values {
   display: grid;
-  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1.35fr) minmax(250px, 0.75fr);
+  align-items: start;
+  gap: 18px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 15px;
+}
+.parameter-rule__set {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
 }
 .parameter-rule__values textarea {
-  min-height: 150px;
+  min-height: 132px;
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
   tab-size: 2;
 }
-.parameter-rule__values > .app-button {
-  justify-self: start;
+.parameter-rule__set > .app-button {
+  justify-self: end;
 }
 .parameter-rule__remove {
   display: grid;
+  min-width: 0;
+  align-content: start;
   gap: var(--space-2);
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-3);
+  border-left: 1px solid var(--color-border-subtle);
+  padding-left: 18px;
 }
 .parameter-rule__remove-heading {
   justify-content: space-between;
@@ -666,6 +723,10 @@ function matchCount(model: string): number | undefined {
 .parameter-rule__remove-heading > span {
   display: grid;
   gap: 2px;
+}
+.parameter-rule__remove-heading strong {
+  font-size: var(--text-sm);
+  font-weight: 560;
 }
 .parameter-rule__remove-row {
   align-items: start;
@@ -679,11 +740,22 @@ function matchCount(model: string): number | undefined {
   font-family: var(--font-mono);
   font-size: 13px;
 }
+@media (max-width: 960px) {
+  .parameter-rule__values {
+    grid-template-columns: 1fr;
+  }
+  .parameter-rule__remove {
+    border-top: 1px solid var(--color-border-subtle);
+    border-left: 0;
+    padding-top: 14px;
+    padding-left: 0;
+  }
+}
 @media (max-width: 800px) {
   .parameter-rules__intro,
   .parameter-rule__remove-heading {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
   .parameter-rule__condition-grid {
     grid-template-columns: 1fr;
@@ -691,6 +763,13 @@ function matchCount(model: string): number | undefined {
   .parameter-rule__header {
     align-items: stretch;
     flex-direction: column;
+  }
+  .parameter-rule__summary {
+    min-height: var(--touch-target);
+  }
+  .parameter-rule__identity {
+    display: grid;
+    gap: 2px;
   }
   .parameter-rule__counts {
     display: none;
@@ -704,9 +783,19 @@ function matchCount(model: string): number | undefined {
     width: var(--touch-target);
     height: var(--touch-target);
   }
+  .parameter-rule__set > :deep(.app-button--inline),
+  .parameter-rule__remove-heading > :deep(.app-button--inline) {
+    min-height: var(--touch-target);
+  }
   .parameter-rule__values textarea {
-    min-height: 220px;
+    min-height: 180px;
     font-size: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .parameter-rule__summary,
+  .parameter-rule__summary > svg {
+    transition: none;
   }
 }
 </style>
