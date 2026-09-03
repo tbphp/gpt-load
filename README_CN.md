@@ -8,24 +8,26 @@
 
 把 API Key、订阅账号、流量调度、故障处理、请求日志与用量统计，收进同一个入口。
 
-[English](README.md) · 中文 · [日本語](README_JP.md)
-
-[官方网站](https://www.gpt-load.com)
+[English](README.md) · 中文 · [日本語](README_JP.md) | [官方网站](https://www.gpt-load.com)
 
 [![Release](https://img.shields.io/github/v/tag/tbphp/gpt-load?filter=v2.*)](https://github.com/tbphp/gpt-load/releases)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3A2-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
+<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
+
 </div>
 
 ---
 
-应用只需要配置一个地址和一个 AccessKey。后面的服务商、账号、凭据、模型与路由策略，全部在管理界面里完成。
+## 赞助商
 
-<img src="./screenshot/architecture-overview.png" alt="GPT-Load 统一接入与上游分流架构图" width="860">
+<sub>[成为赞助商](mailto:tangb7420@gmail.com)</sub>
 
-## 赞助与支持
+<details open>
+<summary>赞助商详情（可折叠）</summary>
 
 <table>
 <tbody>
@@ -37,30 +39,16 @@
 <td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
 <td>感谢 APIMart 赞助了本项目！APIMart 是专注 AI 图片/视频生成的低价 API 平台，GPT-Image-2 低至 $0.006/张，1 美元可出图 160+ 张。图片、视频一套异步 API 通吃，提交任务拿 ID、回调取结果，跑批万张不超时、换模型不改代码。按量付费、无月费，通过<a href="https://go.apimart.ai/gh-gpt-load">此注册链接</a>注册即可开用。</td>
 </tr>
-<tr>
-<td width="180">
-<a href="https://openai.com/">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset="./screenshot/sponsor-openai-lockup-white.svg">
-<source media="(prefers-color-scheme: light)" srcset="./screenshot/sponsor-openai-lockup-black.svg">
-<img src="./screenshot/sponsor-openai-lockup-black.svg" alt="OpenAI" width="150">
-</picture>
-</a>
-</td>
-<td>感谢 OpenAI 对本项目的赞助支持。</td>
-</tr>
-<tr>
-<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
-<td>感谢 LINUX DO 社区的支持。</td>
-</tr>
-<tr>
-<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
-<td>本项目由 DigitalOcean 支持。</td>
-</tr>
 </tbody>
 </table>
 
+</details>
+
 ## 为什么选择 GPT-Load
+
+应用只需要配置一个地址和一个 AccessKey。后面的服务商、账号、凭据、模型与路由策略，全部在管理界面里完成。
+
+<img src="./screenshot/architecture-overview.png" alt="GPT-Load 统一接入与上游分流架构图" width="860">
 
 - **统一入口，保留原生协议** — 官方 API、云平台、模型服务和兼容中转统一管理；客户端继续使用 OpenAI、Anthropic 或 Gemini 原生接口，无需改造代码。
 - **统一管理 API Key 与订阅账号** — Codex、Claude、Antigravity、Grok 等订阅渠道与 API Key 渠道共享凭据管理、调度和健康体系。
@@ -143,8 +131,8 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 | ----------------------- | ---------------------------- |
 | OpenAI Chat Completions | `POST /v1/chat/completions`  |
 | OpenAI Responses        | `/v1/responses` 及其资源路径 |
-| OpenAI Images           | `POST /v1/images/...`       |
-| OpenAI Embeddings       | `POST /v1/embeddings`       |
+| OpenAI Images           | `POST /v1/images/...`        |
+| OpenAI Embeddings       | `POST /v1/embeddings`        |
 | Anthropic Messages      | `POST /v1/messages`          |
 | Gemini                  | `/v1beta/models/...`         |
 
@@ -214,28 +202,28 @@ Windows 普通用户可改为下载 `gpt-load-windows-setup.exe`。双击并确�
 <details>
 <summary>查看全部环境变量</summary>
 
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `HOST` | `127.0.0.1` | Native 模式的监听地址，也是 Compose 主端口和 OAuth 回调端口的默认宿主机发布地址；Compose 容器内部固定监听 `0.0.0.0`。 |
-| `PORT` | `3001` | HTTP 服务端口，必须为 `1–65535`；Compose 同时用于容器端口、宿主机发布端口和健康检查。 |
-| `BIND_ADDRESS` | 空，继承 `HOST` | 仅用于 Compose，单独覆盖主服务端口的宿主机发布地址，不改变 OAuth 回调端口。 |
-| `OAUTH_CALLBACK_BIND_ADDRESS` | 空，继承 `HOST` | 仅用于 Compose，单独覆盖 OAuth 固定回调端口 `1455`、`54545`、`51121` 的宿主机发布地址。 |
-| `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | 收到停止信号后等待请求结束的最长时间，正整数，单位秒。 |
-| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Compose 强制停止容器前的等待时间，使用 Docker duration，建议大于 `GRACEFUL_SHUTDOWN_TIMEOUT`。 |
-| `READ_TIMEOUT` | `60` | HTTP 请求读取超时，正整数，单位秒。 |
-| `IDLE_TIMEOUT` | `120` | HTTP keep-alive 空闲连接超时，正整数，单位秒。 |
-| `DATA_DIR` | `./data` | 托管数据库、`auth.key`、`encryption.key` 和运行状态文件的目录；官方 Compose 固定为 `/app/data`，Windows Setup 服务固定为 `%ProgramData%\GPT-Load\data`。 |
-| `DATABASE_DSN` | 空，使用 `${DATA_DIR}/gpt-load.db` | 空值使用应用托管的 SQLite；非空值支持 SQLite 路径或 URL、MySQL URL、PostgreSQL URL，并视为运维方管理的外部数据库。容器内文件路径必须位于已挂载目录。 |
-| `DATABASE_MAX_OPEN_CONNECTIONS` | `10` | MySQL 和 PostgreSQL 的最大打开连接数，必须为正整数；SQLite 始终使用单连接。 |
-| `DATABASE_MAX_IDLE_CONNECTIONS` | `5` | MySQL 和 PostgreSQL 的最大空闲连接数，必须为正整数且不大于 `DATABASE_MAX_OPEN_CONNECTIONS`；SQLite 始终使用单连接。 |
-| `AUTH_KEY` | 空，读取或生成 `${DATA_DIR}/auth.key` | 管理界面和 `/api` 管理接口的 Bearer 密钥，不是数据面 AccessKey。 |
-| `ENCRYPTION_KEY` | 空，读取或生成 `${DATA_DIR}/encryption.key` | 用于加密渠道凭据；更换或丢失后无法解密已有凭据，必须与数据库一起备份。 |
-| `HTTP_PROXY` | 空 | HTTP 上游请求的环境代理。 |
-| `HTTPS_PROXY` | 空 | HTTPS 上游请求的环境代理。 |
-| `NO_PROXY` | 空 | 逗号分隔的不经过环境代理的主机、域名或 IP。 |
-| `LOG_LEVEL` | `info` | 支持 `panic`、`fatal`、`error`、`warn`、`warning`、`info`、`debug`、`trace`；无效值会告警并回退到 `info`。 |
-| `LOG_FORMAT` | `text` | 支持 `text`、`json`；其他值会导致启动失败。 |
-| `MODELS_DEV_AUTO_SYNC_ENABLED` | 未设置，初始默认 `true` | 未设置时使用管理界面的持久化设置；设置后强制开启或关闭 Models.dev 自动同步，并使管理界面中的同名选项变为只读。 |
+| 变量                            | 默认值                                      | 说明                                                                                                                                                     |
+| ------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HOST`                          | `127.0.0.1`                                 | Native 模式的监听地址，也是 Compose 主端口和 OAuth 回调端口的默认宿主机发布地址；Compose 容器内部固定监听 `0.0.0.0`。                                    |
+| `PORT`                          | `3001`                                      | HTTP 服务端口，必须为 `1–65535`；Compose 同时用于容器端口、宿主机发布端口和健康检查。                                                                    |
+| `BIND_ADDRESS`                  | 空，继承 `HOST`                             | 仅用于 Compose，单独覆盖主服务端口的宿主机发布地址，不改变 OAuth 回调端口。                                                                              |
+| `OAUTH_CALLBACK_BIND_ADDRESS`   | 空，继承 `HOST`                             | 仅用于 Compose，单独覆盖 OAuth 固定回调端口 `1455`、`54545`、`51121` 的宿主机发布地址。                                                                  |
+| `GRACEFUL_SHUTDOWN_TIMEOUT`     | `10`                                        | 收到停止信号后等待请求结束的最长时间，正整数，单位秒。                                                                                                   |
+| `CONTAINER_STOP_GRACE_PERIOD`   | `15s`                                       | Compose 强制停止容器前的等待时间，使用 Docker duration，建议大于 `GRACEFUL_SHUTDOWN_TIMEOUT`。                                                           |
+| `READ_TIMEOUT`                  | `60`                                        | HTTP 请求读取超时，正整数，单位秒。                                                                                                                      |
+| `IDLE_TIMEOUT`                  | `120`                                       | HTTP keep-alive 空闲连接超时，正整数，单位秒。                                                                                                           |
+| `DATA_DIR`                      | `./data`                                    | 托管数据库、`auth.key`、`encryption.key` 和运行状态文件的目录；官方 Compose 固定为 `/app/data`，Windows Setup 服务固定为 `%ProgramData%\GPT-Load\data`。 |
+| `DATABASE_DSN`                  | 空，使用 `${DATA_DIR}/gpt-load.db`          | 空值使用应用托管的 SQLite；非空值支持 SQLite 路径或 URL、MySQL URL、PostgreSQL URL，并视为运维方管理的外部数据库。容器内文件路径必须位于已挂载目录。     |
+| `DATABASE_MAX_OPEN_CONNECTIONS` | `10`                                        | MySQL 和 PostgreSQL 的最大打开连接数，必须为正整数；SQLite 始终使用单连接。                                                                              |
+| `DATABASE_MAX_IDLE_CONNECTIONS` | `5`                                         | MySQL 和 PostgreSQL 的最大空闲连接数，必须为正整数且不大于 `DATABASE_MAX_OPEN_CONNECTIONS`；SQLite 始终使用单连接。                                      |
+| `AUTH_KEY`                      | 空，读取或生成 `${DATA_DIR}/auth.key`       | 管理界面和 `/api` 管理接口的 Bearer 密钥，不是数据面 AccessKey。                                                                                         |
+| `ENCRYPTION_KEY`                | 空，读取或生成 `${DATA_DIR}/encryption.key` | 用于加密渠道凭据；更换或丢失后无法解密已有凭据，必须与数据库一起备份。                                                                                   |
+| `HTTP_PROXY`                    | 空                                          | HTTP 上游请求的环境代理。                                                                                                                                |
+| `HTTPS_PROXY`                   | 空                                          | HTTPS 上游请求的环境代理。                                                                                                                               |
+| `NO_PROXY`                      | 空                                          | 逗号分隔的不经过环境代理的主机、域名或 IP。                                                                                                              |
+| `LOG_LEVEL`                     | `info`                                      | 支持 `panic`、`fatal`、`error`、`warn`、`warning`、`info`、`debug`、`trace`；无效值会告警并回退到 `info`。                                               |
+| `LOG_FORMAT`                    | `text`                                      | 支持 `text`、`json`；其他值会导致启动失败。                                                                                                              |
+| `MODELS_DEV_AUTO_SYNC_ENABLED`  | 未设置，初始默认 `true`                     | 未设置时使用管理界面的持久化设置；设置后强制开启或关闭 Models.dev 自动同步，并使管理界面中的同名选项变为只读。                                           |
 
 环境代理仅在凭据、Group 和全局设置都未指定代理时生效。
 
@@ -271,17 +259,33 @@ GPT-Load 自身负责凭据存储、账号选择、调度、重试、健康、�
 
 各渠道图标用于标识对应的上游服务商，其商标权归各自所有者；本项目与这些服务商没有从属或背书关系。
 
-## 反馈与贡献
+## 项目支持
 
-遇到问题或有功能建议，欢迎提交 [GitHub Issue](https://github.com/tbphp/gpt-load/issues)。安全漏洞请按 [SECURITY.md](SECURITY.md) 的流程报告。
+<table>
+<tbody>
+<tr>
+<td align="center" width="33%">
+<a href="https://openai.com/">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="./screenshot/sponsor-openai-lockup-white.svg">
+<source media="(prefers-color-scheme: light)" srcset="./screenshot/sponsor-openai-lockup-black.svg">
+<img src="./screenshot/sponsor-openai-lockup-black.svg" alt="OpenAI" width="120">
+</picture>
+</a>
+<br><sub>平台支持</sub>
+</td>
+<td align="center" width="33%">
+<a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="120"></a>
+<br><sub>社区支持</sub>
+</td>
+<td align="center" width="33%">
+<a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="120"></a>
+<br><sub>基础设施支持</sub>
+</td>
+</tr>
+</tbody>
+</table>
 
-社区交流与使用讨论可加入 [Telegram 群组](https://t.me/+GHpy5SwEllg3MTUx)。
+---
 
-<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
-<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
-
-如果 GPT-Load 对你有帮助，欢迎点个 Star。
-
-## 许可证
-
-GPT-Load 使用 [MIT License](LICENSE)。
+[MIT License](LICENSE) · [第三方声明](THIRD_PARTY_NOTICES.md) · [安全政策](SECURITY.md)

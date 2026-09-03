@@ -8,24 +8,26 @@
 
 API keys, subscription accounts, traffic scheduling, failure handling, request logs, and usage accounting — behind a single entry point.
 
-English · [中文](README_CN.md) · [日本語](README_JP.md)
-
-[Official Website](https://www.gpt-load.com)
+English · [中文](README_CN.md) · [日本語](README_JP.md) | [Official Website](https://www.gpt-load.com)
 
 [![Release](https://img.shields.io/github/v/tag/tbphp/gpt-load?filter=v2.*)](https://github.com/tbphp/gpt-load/releases)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3A2-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
 [![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
+<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
+
 </div>
 
 ---
 
-Your application only needs one base URL and one AccessKey. Providers, accounts, credentials, models, and routing policy are all configured in the management UI.
+## Sponsors
 
-<img src="./screenshot/architecture-overview.png" alt="GPT-Load unified access and upstream routing architecture" width="860">
+<sub>[Become a sponsor](mailto:tangb7420@gmail.com)</sub>
 
-## Sponsors and support
+<details open>
+<summary>Sponsor details (collapsible)</summary>
 
 <table>
 <tbody>
@@ -37,30 +39,16 @@ Your application only needs one base URL and one AccessKey. Providers, accounts,
 <td width="180"><a href="https://go.apimart.ai/gh-gpt-load"><img src="./screenshot/apimart.png" alt="APIMart" width="150"></a></td>
 <td>Thanks to APIMart for sponsoring this project! APIMart is a low-cost API platform for AI image &amp; video generation — GPT-Image-2 from $0.006/image, 160+ images per dollar. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — <a href="https://go.apimart.ai/gh-gpt-load">sign up here</a> to get started.</td>
 </tr>
-<tr>
-<td width="180">
-<a href="https://openai.com/">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset="./screenshot/sponsor-openai-lockup-white.svg">
-<source media="(prefers-color-scheme: light)" srcset="./screenshot/sponsor-openai-lockup-black.svg">
-<img src="./screenshot/sponsor-openai-lockup-black.svg" alt="OpenAI" width="150">
-</picture>
-</a>
-</td>
-<td>Thanks to OpenAI for sponsoring this project.</td>
-</tr>
-<tr>
-<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
-<td>Thanks to the LINUX DO community for their support.</td>
-</tr>
-<tr>
-<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="150"></a></td>
-<td>This project is supported by DigitalOcean.</td>
-</tr>
 </tbody>
 </table>
 
+</details>
+
 ## Why GPT-Load
+
+Your application only needs one base URL and one AccessKey. Providers, accounts, credentials, models, and routing policy are all configured in the management UI.
+
+<img src="./screenshot/architecture-overview.png" alt="GPT-Load unified access and upstream routing architecture" width="860">
 
 - **One gateway, native protocols** — Manage official APIs, cloud platforms, model services, and compatible relays together while clients keep their OpenAI, Anthropic, or Gemini native interfaces.
 - **One mechanism for API keys and subscriptions** — Codex, Claude, Antigravity, Grok, and API-key channels share credential management, scheduling, and health handling.
@@ -271,17 +259,33 @@ GPT-Load owns credential storage, account selection, scheduling, retry, health, 
 
 Channel icons identify their respective upstream providers. All trademarks belong to their owners; this project is not affiliated with or endorsed by them.
 
-## Feedback and contributing
+## Project support
 
-For problems or feature ideas, open a [GitHub Issue](https://github.com/tbphp/gpt-load/issues). Report security vulnerabilities through the process in [SECURITY.md](SECURITY.md).
+<table>
+<tbody>
+<tr>
+<td align="center" width="33%">
+<a href="https://openai.com/">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="./screenshot/sponsor-openai-lockup-white.svg">
+<source media="(prefers-color-scheme: light)" srcset="./screenshot/sponsor-openai-lockup-black.svg">
+<img src="./screenshot/sponsor-openai-lockup-black.svg" alt="OpenAI" width="120">
+</picture>
+</a>
+<br><sub>Platform support</sub>
+</td>
+<td align="center" width="33%">
+<a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="120"></a>
+<br><sub>Community support</sub>
+</td>
+<td align="center" width="33%">
+<a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean" width="120"></a>
+<br><sub>Infrastructure support</sub>
+</td>
+</tr>
+</tbody>
+</table>
 
-For community chat and usage discussion, join the [Telegram group](https://t.me/+GHpy5SwEllg3MTUx).
+---
 
-<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp/gpt-load | Trendshift" width="220" height="48"/></a>
-<a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" width="220" height="47"/></a>
-
-If GPT-Load is useful to you, a star is appreciated.
-
-## License
-
-GPT-Load is released under the [MIT License](LICENSE).
+[MIT License](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [Security policy](SECURITY.md)
