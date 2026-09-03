@@ -1467,54 +1467,157 @@ func TestExecutionForwarderRejectsStreamingEOFWithoutProtocolTerminal(t *testing
 	}
 }
 
-func TestExecutionForwarderRejectsOpenAIResponsesDataAfterTerminal(t *testing.T) {
+func TestExecutionForwarderFreezesObservationAfterOpenAIResponsesTerminal(t *testing.T) {
 	t.Parallel()
 
 	const completedEvent = "event: response.completed\n" +
-		"data: {\"type\":\"response.completed\",\"response\":{}}\n\n"
-	const extraEvent = "event: response.output_text.delta\n" +
-		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"late\"}\n\n"
-	var extraErr error
-	executor := fakeExecutionExecutor{stream: func(
-		_ context.Context,
-		_ execution.AttemptSpec,
-		sink execution.StreamSink,
-	) execution.StreamResult {
-		if err := sink(execution.StreamEvent{
-			Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
-			Header: http.Header{"Content-Type": {"text/event-stream"}},
-		}); err != nil {
-			t.Fatalf("ready sink: %v", err)
-		}
-		if err := sink(execution.StreamEvent{
-			Sequence: 2, Kind: execution.StreamEventData, Data: []byte(completedEvent),
-		}); err != nil {
-			t.Fatalf("terminal sink: %v", err)
-		}
-		extraErr = sink(execution.StreamEvent{
-			Sequence: 3, Kind: execution.StreamEventData, Data: []byte(extraEvent),
-		})
-		return execution.StreamResult{
-			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": {"text/event-stream"}},
-			Error: &execution.ErrorEvidence{
-				Kind: execution.ErrorKindCanceled, Summary: "stream sink stopped",
-			},
-		}
-	}}
+		"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":8,\"output_tokens\":2,\"total_tokens\":10}}}\n\n"
+	const trailingEvent = "event: error\n" +
+		"data: {\"type\":\"error\",\"error\":{\"message\":\"late failure\"},\"response\":{\"usage\":{\"input_tokens\":80,\"output_tokens\":20,\"total_tokens\":100}}}\n\n"
 
-	recorder := httptest.NewRecorder()
-	result := NewExecutionForwarder(executor).ForwardStream(
-		context.Background(), responsesExecutionForwardInput(), recorder,
-	)
-	if !errors.Is(extraErr, ErrUpstreamProtocol) ||
-		result.Stream.EndReason != StreamEndUpstreamProtocolError ||
-		result.Stream.ErrorSummary != fixedErrorSummary("upstream_protocol_error") {
-		t.Fatalf("extra error/result = %v / %#v", extraErr, result)
+	tests := []struct {
+		name   string
+		chunks []string
+	}{
+		{name: "separate chunks", chunks: []string{completedEvent, trailingEvent}},
+		{name: "same chunk", chunks: []string{completedEvent + trailingEvent}},
 	}
-	if got := recorder.Body.String(); got != completedEvent {
-		t.Fatalf("response body = %q, want terminal only %q", got, completedEvent)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sinkErr error
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				for index, chunk := range test.chunks {
+					sinkErr = sink(execution.StreamEvent{
+						Sequence: uint64(index + 2), Kind: execution.StreamEventData,
+						Data: []byte(chunk),
+					})
+					if sinkErr != nil {
+						break
+					}
+				}
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+				}
+			}}
+
+			forwarder := NewExecutionForwarder(executor)
+			recorder := httptest.NewRecorder()
+			result := forwarder.ForwardStream(
+				context.Background(), responsesExecutionForwardInput(), recorder,
+			)
+			if sinkErr != nil || result.Err != nil || !result.Committed ||
+				result.Stream.EndReason != StreamEndCleanEOF || result.Stream.ErrorSummary != "" {
+				t.Fatalf("sink error/result = %v / %#v", sinkErr, result)
+			}
+			if result.Usage.State != usage.StateComplete ||
+				result.Usage.Tokens != (usage.Tokens{UncachedInput: 8, Output: 2}) {
+				t.Fatalf("usage = %#v", result.Usage)
+			}
+			if failures := forwarder.usageCapture.failureTotal.Load(); failures != 0 {
+				t.Fatalf("usage capture failures = %d, want 0", failures)
+			}
+			if got, want := recorder.Body.String(), completedEvent+trailingEvent; got != want {
+				t.Fatalf("response body = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestExecutionForwarderPassesDataAfterTerminalAcrossDialects(t *testing.T) {
+	t.Parallel()
+
+	const trailingEvent = "data: {\"metadata\":{\"cost\":\"0\"}}\n\n"
+	tests := []struct {
+		name     string
+		dialect  dialect.Dialect
+		protocol protocol.Protocol
+		terminal string
+	}{
+		{
+			name: "OpenAI Chat", dialect: dialect.NewOpenAI(),
+			protocol: protocol.OpenAICompletions,
+			terminal: "data: [DONE]\n\n",
+		},
+		{
+			name: "Anthropic", dialect: dialect.NewAnthropic(),
+			protocol: protocol.Anthropic,
+			terminal: "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+		},
+		{
+			name: "Gemini", dialect: dialect.NewGemini(),
+			protocol: protocol.Gemini,
+			terminal: "data: {\"candidates\":[{\"index\":0,\"finishReason\":\"STOP\"}]}\n\n",
+		},
+		{
+			name: "OpenAI Images", dialect: dialect.NewOpenAIImages(),
+			protocol: protocol.OpenAIImages,
+			terminal: "event: image_generation.completed\ndata: {\"type\":\"image_generation.completed\"}\n\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var sinkErr error
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				sinkErr = sink(execution.StreamEvent{
+					Sequence: 2, Kind: execution.StreamEventData,
+					Data: []byte(test.terminal + trailingEvent),
+				})
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+				}
+			}}
+
+			input := executionForwardInput()
+			input.Dialect = test.dialect
+			input.ClientProtocol = test.protocol
+			if test.protocol == protocol.OpenAIImages {
+				input.Operation = execution.OperationImagesGenerate
+				input.Request.Path = "/v1/images/generations"
+				input.Request.RawQuery = ""
+				input.Request.Body = []byte(`{"model":"public","stream":true}`)
+			}
+			recorder := httptest.NewRecorder()
+			result := NewExecutionForwarder(executor).ForwardStream(
+				context.Background(), input, recorder,
+			)
+			if sinkErr != nil || result.Err != nil || !result.Committed ||
+				result.Stream.EndReason != StreamEndCleanEOF {
+				t.Fatalf("sink error/result = %v / %#v", sinkErr, result)
+			}
+			if got, want := recorder.Body.String(), test.terminal+trailingEvent; got != want {
+				t.Fatalf("response body = %q, want %q", got, want)
+			}
+		})
 	}
 }
 

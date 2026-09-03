@@ -240,13 +240,8 @@ func (observer *streamEventObserver) classify(
 		return genericProviderError, nil
 	}
 	if observer.sawTerminal {
-		if bytes.Equal(bytes.TrimSpace(event.Payload), []byte("[DONE]")) {
-			return false, nil
-		}
-		return false, fmt.Errorf(
-			"%w: SSE data event received after terminal event",
-			ErrUpstreamProtocol,
-		)
+		// 首个协议终态确定观测结果；后续数据仅透传。
+		return false, nil
 	}
 
 	classification := dialect.StreamEventClassification{
