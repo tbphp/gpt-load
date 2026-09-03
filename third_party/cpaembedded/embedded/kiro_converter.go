@@ -277,13 +277,10 @@ func kiroConversationFromRequest(request kiroRequest) (kiroConversationState, st
 		ChatTriggerType: kiroChatTriggerManual,
 		AgentTaskType:   kiroAgentTaskTypeVibe,
 	}
-	if request.Thinking != nil && strings.EqualFold(strings.TrimSpace(request.Thinking.Type), "enabled") {
-		// Force vibe is compatible with reasoning; keep default agent task type.
-	}
 	modelID := request.Model
 	var conversationID string
 	var history []kiroHistoryEntry
-	var hasCurrent bool
+	var lastImages []kiroImage
 
 	tools := buildKiroToolEntries(request.Tools)
 
@@ -306,9 +303,10 @@ func kiroConversationFromRequest(request kiroRequest) (kiroConversationState, st
 					entry.UserInputMessage.Context = &kiroUserInputMessageContext{ToolResults: results}
 				}
 			} else if len(images) > 0 {
-				// Images only on the final current message; fold into history text is not
-				// supported, so this path is only used for the current message below.
-				_ = images
+				// Images are only lifted onto the final current message; history
+				// user entries carry text only. Capture them here so the last user
+				// turn's images reach the currentMessage below.
+				lastImages = images
 			}
 			history = append(history, entry)
 		case "assistant":
@@ -338,27 +336,40 @@ func kiroConversationFromRequest(request kiroRequest) (kiroConversationState, st
 		}
 	}
 
-	// The final message becomes the "current" user message.
+	// The final user message becomes the "current" user message. The Kiro
+	// conversation envelope has no dedicated system field, so the flattened
+	// Anthropic system prompt is carried as the leading user content so the
+	// model still receives it as an instruction. Both the tool specifications
+	// and any tool results on the final user turn are attached to the current
+	// message's context so the active turn is self-contained.
+	systemPrompt := normalizeKiroSystem(request.System)
+	nextContent := ""
+	var toolResults []kiroToolResult
 	if len(history) > 0 {
 		last := history[len(history)-1]
-		if last.UserInputMessage != nil && last.UserInputMessage.Context == nil {
+		if last.UserInputMessage != nil {
 			history = history[:len(history)-1]
-			state.CurrentMessage.UserInputMessage = kiroUserInputMessage{
-				Content: last.UserInputMessage.Content,
-				ModelID: modelID,
-				Origin:  kiroOriginCLI,
-				Context: &kiroUserInputMessageContext{Tools: tools},
+			nextContent = last.UserInputMessage.Content
+			if last.UserInputMessage.Context != nil {
+				toolResults = last.UserInputMessage.Context.ToolResults
 			}
-			hasCurrent = true
 		}
 	}
-	if !hasCurrent {
-		state.CurrentMessage.UserInputMessage = kiroUserInputMessage{
-			Content: "",
-			ModelID: modelID,
-			Origin:  kiroOriginCLI,
-			Context: &kiroUserInputMessageContext{Tools: tools},
-		}
+	if systemPrompt != "" && nextContent != "" {
+		nextContent = strings.TrimSpace(systemPrompt + "\n\n" + nextContent)
+	} else if systemPrompt != "" {
+		nextContent = systemPrompt
+	}
+	context := &kiroUserInputMessageContext{Tools: tools, ToolResults: toolResults}
+	if len(toolResults) == 0 {
+		context.ToolResults = nil
+	}
+	state.CurrentMessage.UserInputMessage = kiroUserInputMessage{
+		Content: nextContent,
+		ModelID: modelID,
+		Origin:  kiroOriginCLI,
+		Context: context,
+		Images:  lastImages,
 	}
 	state.ConversationID = conversationID
 	state.History = history

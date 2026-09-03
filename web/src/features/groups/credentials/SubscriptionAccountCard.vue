@@ -49,6 +49,7 @@ const props = withDefaults(
     detailError: string
     channelIcon?: string
     channelMark?: string
+    canRediscoverLocal: boolean
     capabilities: ChannelCapabilitiesDto
     saveProxy: (value: ProxyMutation) => Promise<void>
   }>(),
@@ -779,7 +780,12 @@ function runMenuAction(
                     t('group.credentials.subscription.refreshCredential')
                   }}
                 </button>
-                <button type="button" :disabled="busy" @click="runMenuAction('rediscover-local')">
+                <button
+                  v-if="canRediscoverLocal"
+                  type="button"
+                  :disabled="busy"
+                  @click="runMenuAction('rediscover-local')"
+                >
                   <RefreshCw :size="15" aria-hidden="true" />{{
                     t('group.credentials.subscription.rediscoverLocal')
                   }}

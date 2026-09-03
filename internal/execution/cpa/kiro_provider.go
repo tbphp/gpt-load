@@ -126,12 +126,9 @@ func kiroLocalTokenCountModelSupported(model string) bool {
 }
 
 func (bridge *kiroProviderBridge) CountTokensLocal(
-	ctx context.Context,
+	_ context.Context,
 	request providerRequest,
 ) (providerResponse, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if bridge == nil || bridge.executor == nil {
 		return providerResponse{}, errors.New("Kiro provider bridge is unavailable")
 	}
@@ -240,6 +237,11 @@ func kiroProviderErrorSummary(status int, code string) string {
 		return "Kiro upstream service failed"
 	case status >= http.StatusBadRequest:
 		return "Kiro upstream request was rejected"
+	case status == 0:
+		// No HTTP status (transport / local error). Return empty so the caller
+		// falls back to the redacted transport summary that preserves the real
+		// upstream error rather than collapsing it into a generic message.
+		return ""
 	default:
 		return "Kiro upstream request failed"
 	}

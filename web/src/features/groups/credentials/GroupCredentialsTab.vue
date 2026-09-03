@@ -114,6 +114,7 @@ const authorizationMethods = computed(
   () => channelDescriptor.value?.connection.authorization_methods ?? [],
 )
 const channelName = computed(() => channelDescriptor.value?.name ?? props.channelId)
+const isKiroChannel = computed(() => props.channelId === 'kiro')
 const channelNotices = computed(() => channelDescriptor.value?.notices ?? [])
 const channelCapabilities = computed<ChannelCapabilitiesDto>(
   () =>
@@ -1748,6 +1749,7 @@ async function runBatch(
               :observation-error="observationError(item.credential_id)"
               :channel-icon="channelDescriptor?.icon"
               :channel-mark="channelDescriptor?.mark"
+              :can-rediscover-local="isKiroChannel"
               :capabilities="channelCapabilities"
               :save-proxy="(value) => saveCredentialProxy(item, value)"
               @update:selected="setSelected(item.credential_id, $event)"

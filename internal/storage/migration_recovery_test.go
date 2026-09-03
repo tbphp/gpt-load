@@ -140,7 +140,7 @@ func TestApplyMySQLMigrationRecoversAccessKeyLifecycleAddition(t *testing.T) {
 			if err := applyMySQLMigration(db, migrations[6]); err != nil {
 				t.Fatalf("resume lifecycle migration: %v", err)
 			}
-			assertInternalMigrationComplete(t, db, registeredMigrationIDs())
+			assertInternalMigrationComplete(t, db, registeredMigrationIDs()[:7])
 		})
 	}
 }

@@ -201,6 +201,9 @@ func (*kiroDriver) Observe(ctx context.Context, credential subscriptionruntime.C
 		if errors.Is(err, ErrAccountObservationPayloadInvalid) {
 			return subscriptionruntime.Observation{}, subscriptionruntime.ErrObservationPayloadInvalid
 		}
+		if errors.Is(err, ErrAccountObservationUnavailable) {
+			return subscriptionruntime.Observation{}, subscriptionruntime.ErrObservationUnavailable
+		}
 		return subscriptionruntime.Observation{}, err
 	}
 	normalized, err := NormalizeObservation(value.Email, observed)

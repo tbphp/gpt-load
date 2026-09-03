@@ -79,8 +79,12 @@ func kiroMeterWindow(index int, meter UsageMeter) (providerobservation.QuotaWind
 		id = fmt.Sprintf("meter-%d", index+1)
 	}
 	unit := strings.ToLower(strings.TrimSpace(meter.Unit))
+	scope := quotaScopeAccount
+	if unit == "invocations" || unit == "credits" {
+		scope = quotaScopeCredits
+	}
 	window := providerobservation.QuotaWindow{
-		ID: id, Label: providerobservation.DisplayName(meter.DisplayName), Scope: quotaScopeAccount,
+		ID: id, Label: providerobservation.DisplayName(meter.DisplayName), Scope: scope,
 		Unit: unit, State: "unknown",
 	}
 	resetAt := kiroResetAt(meter.ResetDate)

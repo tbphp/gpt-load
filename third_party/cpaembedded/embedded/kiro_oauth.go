@@ -17,6 +17,16 @@ const (
 	kiroClientID            = "kiro-cli"
 )
 
+// kiroValidTokenEndpointHosts is the allowlist of hostnames permitted for the
+// Kiro OAuth token endpoint. Stored token_endpoint values are only honored
+// when their hostname appears here; anything else is rejected to prevent SSRF
+// via a tampered credential field.
+var kiroValidTokenEndpointHosts = map[string]bool{
+	"prod.us-east-1.auth.desktop.kiro.dev": true,
+	"prod.eu-west-1.auth.desktop.kiro.dev": true,
+	"prod.us-west-2.auth.desktop.kiro.dev": true,
+}
+
 // kiroDeviceAuthorizationRequest is the body sent to the Kiro device
 // authorization endpoint.
 type kiroDeviceAuthorizationRequest struct {
@@ -251,7 +261,7 @@ func ImportKiroCredential(ctx context.Context, raw []byte, options KiroOptions) 
 	if kind == "" {
 		kind = string(KiroAuthSocial)
 	}
-	if kind != string(KiroAuthAPIKey) && kind != string(KiroAuthSocial) {
+	if kind != string(KiroAuthAPIKey) && kind != string(KiroAuthSocial) && kind != string(KiroAuthOIDC) {
 		return KiroCredential{}, fmt.Errorf("Kiro credential auth_kind is unsupported")
 	}
 	region := strings.TrimSpace(imported.Region)
@@ -314,6 +324,19 @@ func refreshKiroCredentialOnce(ctx context.Context, current KiroCredential, opti
 	}
 	tokenEndpoint := strings.TrimSpace(current.TokenEndpoint)
 	if tokenEndpoint == "" {
+		authHost, err := KiroAuthURL(region)
+		if err != nil {
+			return KiroCredential{}, err
+		}
+		tokenEndpoint = authHost + "refreshToken"
+	}
+	// SECURITY: a stored token_endpoint must resolve to a Kiro-auth allowlisted
+	// host, otherwise we refuse to call it. This prevents an SSRF where a
+	// tampered credential field redirects the token refresh to an arbitrary
+	// internal or external host. When no safe stored endpoint is available we
+	// fall back to the hardcoded per-region default.
+	parsed, parseErr := url.Parse(tokenEndpoint)
+	if parseErr != nil || !kiroValidTokenEndpointHosts[parsed.Hostname()] {
 		authHost, err := KiroAuthURL(region)
 		if err != nil {
 			return KiroCredential{}, err

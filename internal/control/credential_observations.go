@@ -244,6 +244,12 @@ func (s *Service) refreshCredentialObservationOnce(
 				"observation_payload_invalid", "normalize subscription information", nil,
 			)
 		}
+		if errors.Is(observeErr, subscriptionruntime.ErrObservationUnavailable) {
+			return s.recordCredentialObservationFailure(
+				ctx, credential, previous, attemptMS,
+				"observation_unavailable", "read subscription information", nil,
+			)
+		}
 		if status := subscriptionUpstreamHTTPStatus(observeErr); status == http.StatusUnauthorized ||
 			status == http.StatusForbidden {
 			code, summary := "observation_authorization_failed", "authorize subscription information"

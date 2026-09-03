@@ -165,13 +165,14 @@ func (executor *kiroHTTPExecutor) ExecuteCanonical(
 		return ExecuteResponse{}, kiroJSONEnvelopeError(response, response.Body)
 	}
 	var (
-		blocks     []map[string]any
-		usage      map[string]any
-		stopReason = "stop_sequence"
-		thinking   []string
-		sig        string
+		blocks      []map[string]any
+		usage       map[string]any
+		stopReason  = "stop_sequence"
+		thinking    []string
+		sig         string
+		upstreamErr error
 	)
-	_ = parseKiroStream(response.Body, func(event kiroEvent) bool {
+	streamErr := parseKiroStream(response.Body, func(event kiroEvent) bool {
 		switch event.Type {
 		case kiroEventAssistantResponse:
 			if strings.TrimSpace(event.Content) != "" {
@@ -196,12 +197,20 @@ func (executor *kiroHTTPExecutor) ExecuteCanonical(
 			usage = kiroAnthropicUsage(event)
 			stopReason = "end_turn"
 		case kiroEventInvalidState, kiroEventException:
-			if msg := event.ErrorText(); msg != "" {
-				// Surface as an upstream error after emitting what we have.
+			// Surface the upstream error instead of silently succeeding on the
+			// partial output accumulated so far.
+			if msg := event.ErrorText(); msg != "" && upstreamErr == nil {
+				upstreamErr = &KiroExecutionError{status: http.StatusBadGateway, code: "upstream", summary: msg}
 			}
 		}
 		return false
 	})
+	if upstreamErr != nil {
+		return ExecuteResponse{}, upstreamErr
+	}
+	if streamErr != nil {
+		return ExecuteResponse{}, &KiroExecutionError{status: http.StatusBadGateway, code: "eventstream", summary: streamErr.Error()}
+	}
 	// Prepend thinking block when present.
 	if len(thinking) > 0 {
 		content := make([]map[string]any, 0, len(blocks)+1)

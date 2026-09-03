@@ -227,6 +227,11 @@ type ModelDiscovery interface {
 // channel capability could not normalize from an upstream request failure.
 var ErrObservationPayloadInvalid = errors.New("subscription observation payload invalid")
 
+// ErrObservationUnavailable signals that the channel could not observe the
+// account at all (e.g. Kiro's local self-exploration mirror was not readable),
+// as distinct from a payload that was received but could not be normalized.
+var ErrObservationUnavailable = errors.New("subscription observation unavailable")
+
 // Observation contains the canonical, provider-neutral observation JSON.
 // Headers are retained only for bounded metadata such as retry timing.
 type Observation struct {

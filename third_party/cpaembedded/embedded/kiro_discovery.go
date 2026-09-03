@@ -18,6 +18,11 @@ import (
 type KiroDiscovery struct {
 	// TokenFound is true when a live Kiro OAuth token was discovered on disk.
 	TokenFound bool
+	// AccountID is the stable SSO client binding of the discovered account
+	// (ClientIDHash), when a live token was found. Observers use it to confirm
+	// the discovered account matches the credential being monitored so quota is
+	// never attributed to a different account.
+	AccountID string
 	// Region is the token's serving region (e.g. "us-east-1").
 	Region string
 	// ExpiresAt is the token expiry, if known.
@@ -153,6 +158,7 @@ func DiscoverKiroLocal() (KiroDiscovery, error) {
 	}
 	if found {
 		discovery.TokenFound = true
+		discovery.AccountID = strings.TrimSpace(credential.AccountID)
 		discovery.Region = credential.Region
 		if expiresAt, ok := KiroCredentialExpiresAt(credential); ok {
 			discovery.ExpiresAt = expiresAt

@@ -309,6 +309,7 @@ func (s *Service) swapKiroCredentialToFresh(
 	}
 	groupID := group.ID
 	credentialID := credential.ID
+	var updatedVersion uint64
 	err = s.writeCredentialConfig(ctx, groupID, credentialID, func(tx *gorm.DB) error {
 		var row models.Credential
 		if err := tx.Where("id = ? AND group_id = ?", credentialID, groupID).Take(&row).Error; err != nil {
@@ -321,24 +322,28 @@ func (s *Service) swapKiroCredentialToFresh(
 			channel.ID(group.ChannelID) != channelIDKiro {
 			return app_errors.ErrValidation
 		}
+		updatedVersion = row.SecretVersion + 1
 		return tx.Model(&models.Credential{}).
 			Where("id = ? AND group_id = ? AND secret_version = ?", credentialID, groupID, row.SecretVersion).
 			Updates(map[string]any{
 				"data":                 ciphertext,
 				"fingerprint":          fingerprint,
 				"identity_fingerprint": identityFingerprint,
-				"secret_version":       row.SecretVersion + 1,
+				"secret_version":       updatedVersion,
 				"auth_state":           models.CredentialAuthStateReady,
 				"auth_error_code":      "",
 				"updated_at_ms":        s.now().UnixMilli(),
 			}).Error
 	}, func() error {
+		if updatedVersion == 0 {
+			return app_errors.ErrInternalServer
+		}
 		entries, snapshotErr := s.registry.SnapshotGroupCredentialEntriesExact(groupID, []uint{credentialID})
 		if snapshotErr != nil {
 			return snapshotErr
 		}
 		entry := entries[0]
-		entry.Version = groupCollectionCredentialVersion(credential.SecretVersion + 1)
+		entry.Version = groupCollectionCredentialVersion(updatedVersion)
 		entry.IdentityGeneration = groupCollectionCredentialIdentity(
 			identityFingerprint,
 			group,

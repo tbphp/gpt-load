@@ -30,6 +30,7 @@ func Kiro() spec.Module {
 			AuthorizationMethods: []spec.AuthorizationMethod{
 				spec.AuthorizationDeviceOAuth,
 				spec.AuthorizationOAuthFile,
+				spec.AuthorizationSelfDiscovery,
 			},
 		},
 		Params:      []spec.Field{},

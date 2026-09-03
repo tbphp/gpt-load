@@ -195,7 +195,8 @@ type kiroToolUseAccumulator struct {
 
 // update ingests one toolUseEvent payload. A frame carrying a full toolUseId and
 // input yields a ready kiroEvent immediately. When input arrives split across
-// frames (fragmented), it is accumulated and emitted on flush at end of stream.
+// frames (fragmented), each chunk is appended to the accumulator and emitted on
+// flush at end of stream.
 func (acc *kiroToolUseAccumulator) update(raw map[string]json.RawMessage) (kiroEvent, bool) {
 	toolUseID := asKiroString(raw["toolUseId"])
 	toolName := asKiroString(raw["name"])
@@ -211,7 +212,8 @@ func (acc *kiroToolUseAccumulator) update(raw map[string]json.RawMessage) (kiroE
 	if toolUseID == "" {
 		return kiroEvent{}, false
 	}
-	// Complete call in this frame: emit now.
+	// When a full input arrives together with the toolUseId, this call is
+	// complete in this frame: emit immediately.
 	if len(input) > 0 {
 		acc.started = false
 		acc.inputBuf = nil
@@ -223,13 +225,15 @@ func (acc *kiroToolUseAccumulator) update(raw map[string]json.RawMessage) (kiroE
 			ToolStop:  true,
 		}, true
 	}
-	// Fragmented: begin or continue accumulation.
+	// Fragmented: begin or continue accumulation, appending each partial input
+	// chunk so flush can emit the concatenated input instead of an empty blob.
 	if !acc.started {
 		acc.toolUseID = toolUseID
 		acc.toolName = toolName
 		acc.started = true
 		acc.inputBuf = nil
 	}
+	acc.inputBuf = append(acc.inputBuf, input...)
 	return kiroEvent{}, false
 }
 

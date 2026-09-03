@@ -62,7 +62,17 @@ func ObserveKiroAccount(ctx context.Context, credential KiroCredential, options 
 		LoadedViaFreecode: true,
 		IncompleteSources: []string{},
 	}
-	if discovery.Usage != nil {
+	// Bind the observation to the credential being monitored: if the credential
+	// carries an account identity and the currently discovered local account
+	// differs, the usage mirrors belong to a different account. Reporting them
+	// would let one account's exhaustion trigger a rotation of another, so mark
+	// the quota unobserved instead.
+	identityMismatch := strings.TrimSpace(credential.AccountID) != "" &&
+		discovery.AccountID != "" &&
+		!strings.EqualFold(strings.TrimSpace(discovery.AccountID), strings.TrimSpace(credential.AccountID))
+	if identityMismatch {
+		observation.IncompleteSources = append(observation.IncompleteSources, "identity_mismatch")
+	} else if discovery.Usage != nil {
 		observation.ModelID = strings.TrimSpace(discovery.Usage.ModelID)
 		meters := make([]KiroUsageMeter, 0, len(discovery.Usage.Breaks))
 		for _, brk := range discovery.Usage.Breaks {
