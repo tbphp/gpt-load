@@ -3,7 +3,7 @@ name: Build Docker Image
 on:
   push:
     tags:
-      - "*"
+      - "v1.*"
 jobs:
   build_docker_image:
     name: Build Docker Image
@@ -49,7 +49,7 @@ jobs:
           tags: |
             type=ref,event=tag
             type=raw,value=beta,enable=${{ contains(github.ref, '-beta') }}
-            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
+            type=raw,value=1,enable=${{ !contains(github.ref, '-') }}
 
       - name: Build and push Docker image
         id: build
