@@ -141,17 +141,19 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		if err != nil {
 			return false, err
 		}
-		streamEvents.observeUsageEvent(event)
-		if providerError {
-			streamEvents.observeError(
-				event.Payload,
-				summarizeErrorBody(
-					redactor,
+		if !wasTerminal {
+			streamEvents.observeUsageEvent(event)
+			if providerError {
+				streamEvents.observeError(
 					event.Payload,
-					fixedErrorSummary("upstream_sse_error"),
-					summarySecrets...,
-				),
-			)
+					summarizeErrorBody(
+						redactor,
+						event.Payload,
+						fixedErrorSummary("upstream_sse_error"),
+						summarySecrets...,
+					),
+				)
+			}
 		}
 		return !wasTerminal && streamEvents.sawTerminal, nil
 	})
