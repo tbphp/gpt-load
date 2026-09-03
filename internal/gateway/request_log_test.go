@@ -25,6 +25,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
@@ -1090,6 +1091,53 @@ func TestRequestRecorderMergesRequestPricingDiagnosticsIntoKnownCost(t *testing.
 	}
 }
 
+func TestRequestRecorderUsesFrozenAttemptMetadata(t *testing.T) {
+	recorder := newRequestRecorder(
+		&recordingRequestLogSink{}, "attempt-metadata", time.Unix(100, 0), 1,
+		protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) },
+	)
+	originalDiagnostics := usage.Diagnostics{}
+	originalDiagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
+	recorder.setUsageDiagnostics(originalDiagnostics)
+	recorder.setPricingMode(pricing.ModeStandard)
+	recorder.setReasoning(reasoning.Config{Effort: "low"})
+	model := "gpt-4o"
+	recorder.freezeNextAttemptPricing(frozenAttemptPricing{
+		channelID: string(channel.OpenAI), groupID: 1,
+		upstreamModel: model,
+		table:         mustGatewayPriceTableWithFast(t, 2_000_000_000, 5_000_000_000),
+		applicable:    true,
+		metadataSet:   true,
+		pricingMode:   pricing.ModeFast,
+		reasoning:     reasoning.Config{Effort: "high"},
+	})
+	selection := requestLogSelection(1, 2, "group")
+	selection.UpstreamModelID = &model
+	index := recorder.appendAttempt(
+		selection,
+		UpstreamResult{StatusCode: http.StatusOK},
+		telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "",
+		time.Unix(100, 0), time.Unix(101, 0),
+	)
+	recorder.completeResponse(UpstreamResult{
+		StatusCode: http.StatusOK,
+		Usage: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
+		},
+	}, health.Decision{}, model, index)
+
+	if recorder.usage.Result.Diagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
+		t.Fatalf("usage diagnostics = %#v, want attempt-local diagnostics", recorder.usage.Result.Diagnostics)
+	}
+	if got := withoutPricingReceipt(recorder.usage.Pricing); got.EstimatedCostNanoUSD != 10_000_000_000 {
+		t.Fatalf("attempt pricing = %#v", got)
+	}
+	if recorder.reasoning.Effort != "high" {
+		t.Fatalf("request reasoning = %#v", recorder.reasoning)
+	}
+}
+
 func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *testing.T) {
 	model := "provider-model"
 	table, err := pricing.NewTable([]pricing.Rule{{
@@ -1184,6 +1232,64 @@ func TestHandlerUsesRequestedFastModeWhenResponseOmitsEffectiveMode(t *testing.T
 	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &receipt); err != nil ||
 		receipt.PricingMode != pricing.ModeFast {
 		t.Fatalf("fast pricing receipt = %#v, %v", receipt, err)
+	}
+}
+
+func TestHandlerUsesParameterOverridePricingMode(t *testing.T) {
+	table := mustGatewayPriceTableWithFast(t, 2_000_000_000, 5_000_000_000)
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header), RequestWritten: true,
+		Usage: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
+		},
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, manager, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
+	)
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ConnectionType: "api_key", ID: 1, Name: "openai", ChannelID: channel.OpenAI,
+			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+			Settings: config.Settings{state.SettingParameterOverrides: []any{
+				map[string]any{
+					"match": map[string]any{"model": "gpt-*"},
+					"set":   map[string]any{"service_tier": "priority"},
+				},
+			}},
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	events := sink.snapshot()
+	if len(events) != 1 || len(forwarder.inputs) != 1 ||
+		!bytes.Contains(forwarder.inputs[0].Request.Body, []byte(`"service_tier":"priority"`)) {
+		t.Fatalf("events/inputs = %#v/%#v", events, forwarder.inputs)
+	}
+	var receipt pricing.Receipt
+	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &receipt); err != nil ||
+		receipt.PricingMode != pricing.ModeFast ||
+		events[0].Usage.Pricing.EstimatedCostNanoUSD != 10_000_000_000 {
+		t.Fatalf("override pricing = %#v, receipt=%#v, error=%v", events[0].Usage.Pricing, receipt, err)
 	}
 }
 

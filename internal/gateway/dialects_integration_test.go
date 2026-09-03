@@ -22,6 +22,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -37,6 +38,7 @@ type dialectGatewayGroup struct {
 	params      json.RawMessage
 	apiKeys     []string
 	models      []state.ModelConfig
+	settings    config.Settings
 	headerRules state.HeaderRules
 	firstByte   time.Duration
 }
@@ -105,7 +107,7 @@ func newDialectGatewayEngineWithForwarder(
 			channelID, params = testChannelConfig(t, selectedProtocol, baseURL)
 		}
 		configs = append(configs, state.GroupConfig{ConnectionType: "api_key", ID: group.id, Name: group.name, ChannelID: channelID, Params: params,
-			Models: models, Enabled: true,
+			Models: models, Settings: group.settings, Enabled: true,
 		})
 		for _, apiKey := range group.apiKeys {
 			entries = append(entries, testCredentialEntry(t, keyService, credentialID, group.id, apiKey))
@@ -597,6 +599,72 @@ func TestGatewayRewritesEachAttemptFromOriginal(t *testing.T) {
 		}
 		if body.Model != wantModels[index] {
 			t.Fatalf("upstream request %d model = %q, want %q; body=%s", index+1, body.Model, wantModels[index], received.Body)
+		}
+	}
+}
+
+func TestGatewayAppliesEachGroupsParameterOverridesFromOriginal(t *testing.T) {
+	first := fakeupstream.New(fakeupstream.Step{Status: http.StatusUnauthorized, Fixture: "401.json"})
+	defer first.Close()
+	second := fakeupstream.New(fakeupstream.Step{Status: http.StatusOK, Fixture: "success.json"})
+	defer second.Close()
+
+	rules := func(marker string) config.Settings {
+		return config.Settings{state.SettingParameterOverrides: []any{
+			map[string]any{
+				"match": map[string]any{
+					"protocol": string(protocol.OpenAICompletions),
+					"model":    "public*",
+				},
+				"remove": []any{"/nested/remove"},
+				"set": map[string]any{
+					"marker": marker,
+					"nested": map[string]any{"group": marker},
+				},
+			},
+		}}
+	}
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "public",
+		dialect.NewSet(dialect.NewOpenAI()),
+		dialectGatewayGroup{
+			id: 1, name: "first", upstreamURL: first.URL, apiKeys: []string{"sk-first"},
+			models:   []state.ModelConfig{{ID: "provider-one", Alias: "public"}},
+			settings: rules("first"),
+		},
+		dialectGatewayGroup{
+			id: 2, name: "second", upstreamURL: second.URL, apiKeys: []string{"sk-second"},
+			models:   []state.ModelConfig{{ID: "provider-two", Alias: "public"}},
+			settings: rules("second"),
+		},
+	)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"public","nested":{"remove":true,"original":true}}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	requests := append(first.Requests(), second.Requests()...)
+	if len(requests) != 2 {
+		t.Fatalf("upstream requests = %d, want 2", len(requests))
+	}
+	for index, received := range requests {
+		var body map[string]any
+		if err := json.Unmarshal(received.Body, &body); err != nil {
+			t.Fatal(err)
+		}
+		wantMarker := []string{"first", "second"}[index]
+		if body["marker"] != wantMarker {
+			t.Fatalf("request %d marker = %#v, want %q", index+1, body["marker"], wantMarker)
+		}
+		nested, ok := body["nested"].(map[string]any)
+		if !ok || nested["remove"] != nil || nested["original"] != true || nested["group"] != wantMarker {
+			t.Fatalf("request %d nested = %#v", index+1, body["nested"])
 		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
+	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 )
@@ -138,6 +139,7 @@ type GroupView struct {
 	AffinityEnabled    bool
 	WeightManual       *int
 	Proxy              outboundproxy.Effective
+	ParameterOverrides parameteroverride.Rules
 }
 
 type GroupCatalogView struct {
@@ -230,6 +232,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			WeightManual:       cloneWeight(group.WeightManual),
 			ConnectionType:     connection.Normalize(group.ConnectionType),
 			Proxy:              groupProxy,
+			ParameterOverrides: resolved.ParameterOverrides,
 		}
 		params, err := input.ChannelRegistry.ValidateParams(group.ChannelID, group.Params)
 		if err != nil {

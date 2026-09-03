@@ -18,9 +18,13 @@ import type {
   GroupOptionDto,
   GroupSettingsDto,
   GroupSummaryDto,
+  ParameterJSONValue,
+  ParameterOverrideMatchDto,
+  ParameterOverrideRuleDto,
   ProxyConfigInput,
   ProxyMutation,
 } from '@/api/control/types'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys, normalizeGroupCollectionFilters } from '@/app/query-keys'
 import { projectChannelID } from '@/app/resources/channels'
@@ -32,6 +36,7 @@ import {
   projectBoolean,
   projectEpochMilliseconds,
   projectEnum,
+  projectFiniteNumber,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -105,6 +110,7 @@ const runtimeSettingFields = [
   'inject_usage_options',
   'affinity_enabled',
 ] as const
+const groupRuntimeSettingFields = [...runtimeSettingFields, 'parameter_overrides'] as const
 
 export interface HeaderRulesDto {
   set: Record<string, string>
@@ -120,6 +126,7 @@ export interface GroupRuntimeConfigDto {
   header_rules?: HeaderRulesDto
   inject_usage_options?: boolean
   affinity_enabled?: boolean
+  parameter_overrides?: ParameterOverrideRuleDto[]
 }
 
 export interface GroupEffectiveConfigDto {
@@ -277,6 +284,54 @@ function projectHeaderRules(value: unknown): HeaderRulesDto {
   }
 }
 
+function projectParameterJSONValue(value: unknown, depth = 0): ParameterJSONValue {
+  if (depth > 64) throw new InvalidResponseError()
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value
+  if (typeof value === 'number') return projectFiniteNumber(value)
+  if (Array.isArray(value)) return value.map((item) => projectParameterJSONValue(item, depth + 1))
+  const record = projectRecord(value)
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => [
+      key,
+      projectParameterJSONValue(nested, depth + 1),
+    ]),
+  )
+}
+
+function projectParameterOverrideMatch(value: unknown): ParameterOverrideMatchDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['protocol', 'model'])
+  const result: ParameterOverrideMatchDto = {}
+  if (Object.prototype.hasOwnProperty.call(record, 'protocol'))
+    result.protocol = projectEnum(record.protocol, enabledDataProtocols)
+  if (Object.prototype.hasOwnProperty.call(record, 'model'))
+    result.model = projectString(record.model, { allowEmpty: true })
+  return result
+}
+
+function projectParameterOverrideRule(value: unknown): ParameterOverrideRuleDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['match', 'set', 'remove'])
+  const result: ParameterOverrideRuleDto = {
+    match: Object.prototype.hasOwnProperty.call(record, 'match')
+      ? projectParameterOverrideMatch(record.match)
+      : {},
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'set')) {
+    const set = projectRecord(record.set)
+    result.set = Object.fromEntries(
+      Object.entries(set).map(([key, nested]) => [key, projectParameterJSONValue(nested, 1)]),
+    )
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'remove'))
+    result.remove = projectArray(record.remove, (path) => projectString(path, { allowEmpty: true }))
+  return result
+}
+
+function projectParameterOverrides(value: unknown): ParameterOverrideRuleDto[] {
+  return projectArray(value, projectParameterOverrideRule)
+}
+
 function projectRuntimeConfig(value: unknown, complete: false): GroupRuntimeConfigDto
 function projectRuntimeConfig(value: unknown, complete: true): GroupEffectiveConfigDto
 function projectRuntimeConfig(
@@ -284,7 +339,7 @@ function projectRuntimeConfig(
   complete: boolean,
 ): GroupRuntimeConfigDto | GroupEffectiveConfigDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, runtimeSettingFields)
+  assertNoSecretLikeFields(record, complete ? runtimeSettingFields : groupRuntimeSettingFields)
   const result: GroupRuntimeConfigDto = {}
 
   for (const field of ['first_byte_timeout', 'request_timeout', 'stream_idle_timeout'] as const) {
@@ -305,6 +360,9 @@ function projectRuntimeConfig(
   }
   if (complete || Object.prototype.hasOwnProperty.call(record, 'affinity_enabled')) {
     result.affinity_enabled = projectBoolean(record.affinity_enabled)
+  }
+  if (!complete && Object.prototype.hasOwnProperty.call(record, 'parameter_overrides')) {
+    result.parameter_overrides = projectParameterOverrides(record.parameter_overrides)
   }
   return result as GroupRuntimeConfigDto | GroupEffectiveConfigDto
 }

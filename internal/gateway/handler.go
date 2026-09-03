@@ -114,13 +114,17 @@ type Handler struct {
 
 func (handler *Handler) freezeAttemptPricing(
 	selection scheduler.Selection,
-	applicable bool,
+	metadata dialect.RequestMetadata,
 ) frozenAttemptPricing {
 	frozen := frozenAttemptPricing{
-		channelID:     string(selection.ChannelID),
-		groupID:       selection.GroupID,
-		upstreamModel: optionalModelValue(selection.UpstreamModelID),
-		applicable:    applicable,
+		channelID:        string(selection.ChannelID),
+		groupID:          selection.GroupID,
+		upstreamModel:    optionalModelValue(selection.UpstreamModelID),
+		applicable:       metadata.ObserveUsage,
+		metadataSet:      true,
+		pricingMode:      metadata.PricingMode,
+		usageDiagnostics: metadata.UsageDiagnostics,
+		reasoning:        metadata.Reasoning.Clone(),
 	}
 	if handler != nil && handler.priceTables != nil {
 		frozen.table = handler.priceTables.Load()
@@ -581,10 +585,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		selectedDialect,
 		parsed,
 		model,
-		metadata.Stream,
-		metadata.ObserveUsage,
-		metadata.Operation,
-		metadata.RouteRequirement,
+		metadata,
 		requestAffinity,
 		recorder,
 		&quotaAdmission,
@@ -755,14 +756,13 @@ func (handler *Handler) executeAttempts(
 	selectedDialect dialect.Dialect,
 	parsed *dialect.ParsedRequest,
 	externalModel string,
-	stream bool,
-	observeUsage bool,
-	operation execution.Operation,
-	routeRequirement execution.RouteRequirement,
+	originalMetadata dialect.RequestMetadata,
 	requestAffinity requestAffinity,
 	recorder *requestRecorder,
 	quotaAdmission *requestAccessQuotaAdmission,
 ) {
+	stream := originalMetadata.Stream
+	operation := originalMetadata.Operation
 	type deferredAttempt struct {
 		result        UpstreamResult
 		decision      health.Decision
@@ -784,6 +784,59 @@ func (handler *Handler) executeAttempts(
 	}
 	var refreshRetry *credentialRefreshRetry
 	authRefreshReplayUsed := false
+	type preparedRequest struct {
+		request  *dialect.ParsedRequest
+		metadata dialect.RequestMetadata
+		applied  bool
+		err      error
+	}
+	preparedByGroup := make(map[uint]preparedRequest)
+	loggedOverrideRejections := make(map[uint]struct{})
+	parameterOverrideRejected := false
+	prepareRequest := func(selection scheduler.Selection) preparedRequest {
+		if prepared, exists := preparedByGroup[selection.GroupID]; exists {
+			return prepared
+		}
+		prepared := preparedRequest{request: parsed, metadata: originalMetadata}
+		body, applied, err := selection.Group.ParameterOverrides.Apply(
+			selectedDialect.Protocol(),
+			originalMetadata.Operation,
+			externalModel,
+			parsed.Body,
+		)
+		if err != nil {
+			prepared.err = err
+			preparedByGroup[selection.GroupID] = prepared
+			return prepared
+		}
+		if !applied {
+			preparedByGroup[selection.GroupID] = prepared
+			return prepared
+		}
+		prepared.applied = true
+		if int64(len(body)) > maxRequestBodyBytes {
+			prepared.err = errRequestTooLarge
+			preparedByGroup[selection.GroupID] = prepared
+			return prepared
+		}
+		request := &dialect.ParsedRequest{
+			Method: parsed.Method, Path: parsed.Path, RawQuery: parsed.RawQuery,
+			Header: parsed.Header.Clone(), Body: body,
+		}
+		metadata, err := selectedDialect.InspectRequest(request)
+		if err != nil || metadata.Operation != originalMetadata.Operation ||
+			metadata.Stream != originalMetadata.Stream ||
+			metadata.ResponsesStorePreference != originalMetadata.ResponsesStorePreference ||
+			!sameOptionalString(metadata.Model, originalMetadata.Model) {
+			prepared.err = fmt.Errorf("inspect overridden request")
+			preparedByGroup[selection.GroupID] = prepared
+			return prepared
+		}
+		prepared.request = request
+		prepared.metadata = metadata
+		preparedByGroup[selection.GroupID] = prepared
+		return prepared
+	}
 	decisionContextForSelection := func(selection scheduler.Selection) health.DecisionContext {
 		defaultRateLimitCooldown := fixedCooldown
 		credentialRefreshable := false
@@ -804,6 +857,7 @@ func (handler *Handler) executeAttempts(
 	}
 	recordCandidatePreparationFailure := func(
 		selection scheduler.Selection,
+		attemptMetadata dialect.RequestMetadata,
 		code string,
 		summary string,
 		scope execution.ErrorScope,
@@ -816,7 +870,7 @@ func (handler *Handler) executeAttempts(
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attemptSequence)
 		if recorder != nil {
 			recorder.freezeNextAttemptPricing(
-				handler.freezeAttemptPricing(selection, observeUsage),
+				handler.freezeAttemptPricing(selection, attemptMetadata),
 			)
 		}
 		attemptStarted := recorder.beforeForward()
@@ -898,6 +952,29 @@ func (handler *Handler) executeAttempts(
 		if !active {
 			continue
 		}
+		prepared := prepareRequest(selection)
+		if prepared.err != nil ||
+			(prepared.applied &&
+				!prepared.metadata.RouteRequirement.Allows(execution.RouteMode(selection.RouteMode))) {
+			parameterOverrideRejected = true
+			if _, logged := loggedOverrideRejections[selection.GroupID]; !logged {
+				reason := "invalid_final_request"
+				if prepared.err == nil {
+					reason = "route_incompatible"
+				}
+				utils.LogPlaneBestEffort(
+					handler.logger,
+					logrus.WarnLevel,
+					utils.LogPlaneData,
+					logrus.Fields{"group_id": selection.GroupID, "reason": reason},
+					"Parameter override rejected an upstream Group",
+				)
+				loggedOverrideRejections[selection.GroupID] = struct{}{}
+			}
+			iterator.SkipGroup(selection.GroupID)
+			continue
+		}
+		attemptMetadata := prepared.metadata
 		if !retryPolicyResolved {
 			// A request can fail over across Groups. Freeze the first active
 			// candidate's effective Group policy for the whole retry chain.
@@ -908,6 +985,7 @@ func (handler *Handler) executeAttempts(
 		if err != nil {
 			if !recordCandidatePreparationFailure(
 				selection,
+				attemptMetadata,
 				"credential_decrypt_failed",
 				"Stored credential could not be decrypted.",
 				execution.ErrorScopeCredential,
@@ -926,6 +1004,7 @@ func (handler *Handler) executeAttempts(
 		if err != nil {
 			if !recordCandidatePreparationFailure(
 				selection,
+				attemptMetadata,
 				"credential_normalization_failed",
 				"Stored credential could not be prepared.",
 				execution.ErrorScopeCredential,
@@ -948,7 +1027,7 @@ func (handler *Handler) executeAttempts(
 				summary = "Credential proxy configuration could not be prepared."
 				scope = execution.ErrorScopeCredential
 			}
-			if !recordCandidatePreparationFailure(selection, code, summary, scope) {
+			if !recordCandidatePreparationFailure(selection, attemptMetadata, code, summary, scope) {
 				break
 			}
 			continue
@@ -993,17 +1072,17 @@ func (handler *Handler) executeAttempts(
 			executionRequestID = recorder.requestID
 		}
 		input := ForwardInput{
-			Dialect: selectedDialect, ObserveUsage: observeUsage,
+			Dialect: selectedDialect, ObserveUsage: attemptMetadata.ObserveUsage,
 			Group: selection.Group, APIKey: normalizedCredential.apiKey,
-			CredentialSecrets: normalizedCredential.secrets, Request: parsed,
+			CredentialSecrets: normalizedCredential.secrets, Request: prepared.request,
 			ExternalModel:            externalModel,
 			UpstreamModelID:          optionalModelValue(selection.UpstreamModelID),
 			RequestID:                executionRequestID,
 			AttemptID:                executionRequestID + ":" + strconv.Itoa(attemptSequence),
 			AttemptSequence:          uint32(attemptSequence),
 			ClientProtocol:           selectedDialect.Protocol(),
-			Operation:                operation,
-			RouteRequirement:         routeRequirement,
+			Operation:                attemptMetadata.Operation,
+			RouteRequirement:         attemptMetadata.RouteRequirement,
 			ResponsesStoreDowngraded: selection.ResponsesStoreDowngraded,
 			ChannelID:                string(selection.ChannelID),
 			RouteMode:                execution.RouteMode(selection.RouteMode),
@@ -1024,7 +1103,7 @@ func (handler *Handler) executeAttempts(
 		}
 		if recorder != nil {
 			recorder.freezeNextAttemptPricing(
-				handler.freezeAttemptPricing(selection, observeUsage),
+				handler.freezeAttemptPricing(selection, attemptMetadata),
 			)
 		}
 		attemptStarted := recorder.beforeForward()
@@ -1240,7 +1319,18 @@ func (handler *Handler) executeAttempts(
 		handler.completeReason(ginContext, recorder, reasonModelRequiredByFilter)
 		return
 	}
+	if parameterOverrideRejected && lastAttemptIndex < 0 {
+		handler.completeReason(ginContext, recorder, reasonParameterOverrideUnavailable)
+		return
+	}
 	handler.completeReason(ginContext, recorder, reasonNoCandidate)
+}
+
+func sameOptionalString(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func initializeDebugHeaders(headers http.Header) {

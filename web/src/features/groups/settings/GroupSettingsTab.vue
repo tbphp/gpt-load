@@ -5,7 +5,13 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
-import type { GroupSettingsDto, HeaderRulesDto, ProxyConfiguredMode } from '@/api/control/types'
+import type {
+  AccessProtocol,
+  GroupSettingsDto,
+  HeaderRulesDto,
+  ParameterOverrideRuleDto,
+  ProxyConfiguredMode,
+} from '@/api/control/types'
 
 import { RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
@@ -14,6 +20,7 @@ import { proxyDraftState, proxyOverrideToggleMode } from '@/app/resources/proxy'
 import { channelsQueryOptions, type ChannelFieldDto } from '@/app/resources/channels'
 import {
   cacheGroupSettings,
+  groupModelsQueryOptions,
   groupSettingsQueryOptions,
   invalidateGroupSettingsDependents,
   updateGroupSettings,
@@ -22,6 +29,7 @@ import { useUnsavedChanges } from '@/app/unsaved-changes'
 import { useTransientFlag } from '@/app/use-transient-flag'
 import { groupDetailLocation } from '@/app/route-locations'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
+import ParameterOverrideRulesEditor from '@/components/config/ParameterOverrideRulesEditor.vue'
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -68,6 +76,7 @@ const router = useRouter()
 const { t } = useI18n()
 const routeState = computed(() => parseGroupSettingsRouteQuery(route.query))
 const query = useQuery(groupSettingsQueryOptions(client, () => props.groupId))
+const modelsQuery = useQuery(groupModelsQueryOptions(client, () => props.groupId))
 const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const initialLoading = useStableLoading(
   () => query.isPending.value && query.data.value === undefined,
@@ -82,6 +91,9 @@ const error = ref('')
 const headerRulesValid = ref(true)
 const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
+const parameterOverridesValid = ref(true)
+const parameterOverridesInvalidEdits = ref(false)
+const parameterOverridesEditorRevision = ref(0)
 const proxyMode = ref<ProxyConfiguredMode>('inherit')
 const proxyEndpoint = ref('')
 const {
@@ -111,11 +123,25 @@ const channelParamFields = computed<ChannelFieldDto[]>(() =>
     : (selectedChannel.value?.param_fields ?? []),
 )
 const channelParamsDisabled = computed(() => selectedChannel.value === undefined)
+const parameterOverrideOperations = new Set([
+  'chat_completion',
+  'responses_create',
+  'images_generate',
+  'embeddings_create',
+])
+const parameterOverrideProtocols = computed<AccessProtocol[]>(() => [
+  ...new Set(
+    (selectedChannel.value?.routes ?? [])
+      .filter(({ operation }) => parameterOverrideOperations.has(operation))
+      .map(({ client_protocol }) => client_protocol),
+  ),
+])
 let controller: AbortController | undefined
 const navItems = computed(() => [
   { id: 'settings-general', label: t('group.settings.sections.general') },
   { id: 'settings-routing', label: t('group.settings.sections.routing') },
   { id: 'settings-runtime', label: t('group.settings.sections.runtime') },
+  { id: 'settings-parameters', label: t('group.settings.sections.parameters') },
   { id: 'settings-headers', label: t('group.settings.sections.headers') },
   { id: 'settings-danger', label: t('group.settings.sections.danger') },
 ])
@@ -151,6 +177,7 @@ const dirty = computed(
     !deleted.value &&
     (Object.keys(patch.value).length > 0 ||
       headerRulesInvalidEdits.value ||
+      parameterOverridesInvalidEdits.value ||
       proxyState.value.dirty),
 )
 const mutationPending = computed(() => pending.value || deletePending.value)
@@ -195,6 +222,7 @@ const valid = computed(
     timeoutValid.value &&
     policyCountsValid.value &&
     headerRulesValid.value &&
+    parameterOverridesValid.value &&
     !proxyState.value.invalid,
 )
 const showInjectUsage = computed(
@@ -232,6 +260,9 @@ function resetSavedDraft(settings: GroupSettingsDto): void {
   headerRulesValid.value = true
   headerRulesInvalidEdits.value = false
   headerRulesEditorRevision.value += 1
+  parameterOverridesValid.value = true
+  parameterOverridesInvalidEdits.value = false
+  parameterOverridesEditorRevision.value += 1
   proxyMode.value = settings.proxy.configured_mode
   proxyEndpoint.value = ''
 }
@@ -288,6 +319,7 @@ function sectionFromID(id: string): GroupSettingsSection | undefined {
   return value === 'general' ||
     value === 'routing' ||
     value === 'runtime' ||
+    value === 'parameters' ||
     value === 'headers' ||
     value === 'danger'
     ? value
@@ -359,6 +391,14 @@ function updateHeaderRules(value: HeaderRulesDto): void {
       header_rules: { set: { ...value.set }, remove: [...value.remove] },
     },
   }
+}
+
+function updateParameterOverrides(value: ParameterOverrideRuleDto[]): void {
+  if (!draft.value) return
+  const overrides = { ...draft.value.overrides }
+  if (value.length === 0) delete overrides.parameter_overrides
+  else overrides.parameter_overrides = value
+  draft.value = { ...draft.value, overrides }
 }
 
 function setInjectUsageOverride(enabled: boolean): void {
@@ -733,6 +773,22 @@ onBeforeUnmount(() => {
                 />
               </div>
             </div>
+          </section>
+          <section id="settings-parameters" class="group-settings__section">
+            <header>
+              <h3>{{ t('group.settings.sections.parameters') }}</h3>
+              <p>{{ t('group.settings.parameterOverrides.description') }}</p>
+            </header>
+            <ParameterOverrideRulesEditor
+              :key="parameterOverridesEditorRevision"
+              :model-value="draft.overrides.parameter_overrides ?? []"
+              :protocols="parameterOverrideProtocols"
+              :models="modelsQuery.data.value?.items ?? []"
+              :disabled="mutationPending"
+              @update:valid="parameterOverridesValid = $event"
+              @update:invalid-edits="parameterOverridesInvalidEdits = $event"
+              @update:model-value="updateParameterOverrides"
+            />
           </section>
           <section id="settings-headers" class="group-settings__section">
             <header>

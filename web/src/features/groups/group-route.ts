@@ -12,7 +12,8 @@ import {
 } from '@/app/route-query'
 
 export type GroupTab = 'credentials' | 'models' | 'settings'
-export type GroupSettingsSection = 'general' | 'routing' | 'runtime' | 'headers' | 'danger'
+export type GroupSettingsSection =
+  'general' | 'routing' | 'runtime' | 'parameters' | 'headers' | 'danger'
 export type GroupModelDiscoveryFilter = 'unadded' | 'all'
 
 export interface CredentialRouteState {
@@ -43,6 +44,7 @@ const settingsSections = new Set<GroupSettingsSection>([
   'general',
   'routing',
   'runtime',
+  'parameters',
   'headers',
   'danger',
 ])
