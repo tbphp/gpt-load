@@ -1,5 +1,7 @@
 <div align="center">
 
+<!-- Workflow verification marker. -->
+
 <img src="./web/public/favicon.svg" alt="GPT-Load" width="96">
 
 # GPT-Load
