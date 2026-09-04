@@ -65,7 +65,7 @@ Your application only needs one base URL and one AccessKey. Providers, accounts,
 Requires Docker and Docker Compose.
 
 ```bash
-git clone --depth 1 --branch v2 https://github.com/tbphp/gpt-load.git
+git clone --depth 1 https://github.com/tbphp/gpt-load.git
 cd gpt-load
 
 cp .env.example .env

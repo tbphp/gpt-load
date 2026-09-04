@@ -18,10 +18,10 @@ Thanks for helping improve GPT-Load. This document covers what a human contribut
 
 `2.x` 与 `1.x` 是两套不兼容的实现，数据不互通。
 
-- **2.x 开发基于 `v2` 分支**，PR 也提交到 `v2`。
+- **2.x 开发基于 `main` 分支**，PR 也提交到 `main`。
 - `1.x` 处于维护状态，只接受安全和严重缺陷修复。
 
-`2.x` and `1.x` are incompatible implementations and do not share data. Base 2.x work on the **`v2` branch** and target your PR at `v2`. The `1.x` line is in maintenance and only takes security and critical bug fixes.
+`2.x` and `1.x` are incompatible implementations and do not share data. Base 2.x work on the **`main` branch** and target your PR at `main`. The `1.x` line is in maintenance and only takes security and critical bug fixes.
 
 ## 本地开发 / Local development
 
@@ -56,13 +56,13 @@ Race tests for that module run in CI; per repository convention they are not run
 
 ## 提交 PR / Submitting a pull request
 
-1. 从 `v2` 切出分支，保持改动聚焦，不要夹带无关重构或格式化。
+1. 从 `main` 切出分支，保持改动聚焦，不要夹带无关重构或格式化。
 2. 修复缺陷或改变行为时，优先补一个能复现问题的测试。
 3. 提交前跑一次 `make check`；无法运行时在 PR 里说明原因和未验证范围。
 4. 按 `.github/pull_request_template.md` 填写，如实勾选自查清单。
 5. 改动涉及用户可见能力时，**三份 README（`README.md`、`README_CN.md`、`README_JP.md`）必须同步更新**。
 
-1. Branch from `v2`, keep the change focused, and avoid unrelated refactors or reformatting.
+1. Branch from `main`, keep the change focused, and avoid unrelated refactors or reformatting.
 2. For bug fixes and behavior changes, add a test that reproduces the problem first.
 3. Run `make check` before submitting; if you cannot, say why and what remains unverified.
 4. Fill in `.github/pull_request_template.md` honestly, including the checklist.

@@ -65,7 +65,7 @@
 需要 Docker 与 Docker Compose。
 
 ```bash
-git clone --depth 1 --branch v2 https://github.com/tbphp/gpt-load.git
+git clone --depth 1 https://github.com/tbphp/gpt-load.git
 cd gpt-load
 
 cp .env.example .env
