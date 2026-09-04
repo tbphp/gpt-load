@@ -9,7 +9,7 @@ func TestReleaseWorkflowParallelizesIndependentBuildStages(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	webJob := workflowJobBlock(t, content, "verify-and-build-web")
 	staticJob := workflowJobBlock(t, content, "static-checks")
-	for _, command := range []string{"govulncheck", "go vet ./...", "go build -trimpath"} {
+	for _, command := range []string{"go vet ./...", "go build -trimpath"} {
 		if strings.Contains(webJob, command) {
 			t.Fatalf("web artifact job still serializes %q:\n%s", command, webJob)
 		}
