@@ -503,6 +503,10 @@ export default {
           'Quota was reset, but quota information could not be refreshed. Try again manually.',
         tokenExpiresAt: 'Credential expires',
         lastTokenRefresh: 'Last credential refresh',
+        initialSyncTitle: 'Quota information not loaded',
+        initialSyncDescription:
+          'Refresh once after importing to load the current quota and its progress.',
+        initialSyncAction: 'Refresh quota',
         noQuota: 'The upstream has not supplied any displayable quota window',
         quotaPendingRefresh: 'Refresh pending',
         quotaResetPrefix: 'Resets',

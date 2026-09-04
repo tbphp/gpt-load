@@ -507,6 +507,10 @@ export default {
           '利用枠をリセットしましたが、利用枠情報を更新できませんでした。手動で再試行してください。',
         tokenExpiresAt: '認証期限',
         lastTokenRefresh: '認証情報の最終更新',
+        initialSyncTitle: '利用枠情報が未取得です',
+        initialSyncDescription:
+          '初回インポート後に一度更新すると、現在の利用枠と進捗を取得できます。',
+        initialSyncAction: '利用枠を更新',
         noQuota: '上流から表示可能な利用枠が提供されていません',
         quotaPendingRefresh: '更新待ち',
         quotaResetPrefix: '',

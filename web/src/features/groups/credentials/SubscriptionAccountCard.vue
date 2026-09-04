@@ -5,6 +5,7 @@ import {
   CircleOff,
   Download,
   Ellipsis,
+  Gauge,
   KeyRound,
   LoaderCircle,
   RefreshCw,
@@ -102,6 +103,14 @@ watch(
 
 const observation = computed(() => props.item.observation)
 const supportsQuotaObservation = computed(() => props.capabilities.quota_observation)
+const needsInitialQuotaSync = computed(
+  () =>
+    supportsQuotaObservation.value &&
+    (observation.value === undefined ||
+      (observation.value.state === 'unavailable' &&
+        observation.value.observed_at_ms === null &&
+        observation.value.last_attempt_at_ms === null)),
+)
 const supportsResetCredit = computed(() =>
   props.capabilities.credential_actions.includes('reset_credit'),
 )
@@ -890,6 +899,26 @@ function runMenuAction(
           </span>
         </div>
       </div>
+      <div v-else-if="needsInitialQuotaSync" class="subscription-account__initial-sync">
+        <span class="subscription-account__initial-sync-icon" aria-hidden="true">
+          <Gauge :size="17" />
+        </span>
+        <span class="subscription-account__initial-sync-copy">
+          <strong>{{ t('group.credentials.subscription.initialSyncTitle') }}</strong>
+          <span>{{ t('group.credentials.subscription.initialSyncDescription') }}</span>
+        </span>
+        <AppButton
+          class="subscription-account__initial-sync-action"
+          variant="secondary"
+          tone="action"
+          size="compact"
+          :disabled="busy || credentialRefreshBlocked"
+          @click="emit('refresh', item)"
+        >
+          <RefreshCw :size="14" aria-hidden="true" />
+          {{ t('group.credentials.subscription.initialSyncAction') }}
+        </AppButton>
+      </div>
       <p v-else-if="supportsQuotaObservation" class="subscription-account__faint">
         {{ t('group.credentials.subscription.noQuota') }}
       </p>
@@ -1588,6 +1617,43 @@ function runMenuAction(
   border-radius: 3px;
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+.subscription-account__initial-sync {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-action-soft) 72%, var(--color-surface));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--color-action) 58%, transparent);
+  padding: 8px 10px 8px 13px;
+}
+.subscription-account__initial-sync-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-action);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-action) 12%, transparent);
+}
+.subscription-account__initial-sync-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+.subscription-account__initial-sync-copy strong {
+  color: var(--color-text);
+  font-weight: 650;
+}
+.subscription-account__initial-sync-action {
+  flex: none;
 }
 .subscription-account__faint,
 .subscription-account__hint {
