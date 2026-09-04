@@ -6,6 +6,9 @@ runs:
   steps:
     - name: Set up pnpm
       uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      env:
+        NPM_CONFIG_AUDIT: "false"
+        NPM_CONFIG_FUND: "false"
       with:
         version: 11.17.0
         run_install: false
@@ -20,12 +23,6 @@ runs:
     - name: Install web dependencies
       shell: bash
       run: pnpm --dir web install --frozen-lockfile
-
-    - name: Audit web dependencies
-      shell: bash
-      # 只审计生产依赖：devDependencies 经 Vite 构建后不进入 internal/webui/dist，
-      # 让它们的 CVE 阻断发布只会制造噪音。
-      run: pnpm --dir web audit --prod --audit-level high
 
     - name: Lint web source
       shell: bash

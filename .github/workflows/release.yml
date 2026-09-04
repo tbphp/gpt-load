@@ -193,9 +193,6 @@ jobs:
           go mod tidy -diff
           go vet ./...
 
-      - name: Audit Go dependencies
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-
       - name: Run Go vet
         run: go vet ./...
 

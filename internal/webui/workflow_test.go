@@ -41,10 +41,27 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 		}
 	}
 
+	const pnpmSetupStep = "    - name: Set up pnpm\n"
+	pnpmSetupIndex := strings.Index(content, pnpmSetupStep)
+	if pnpmSetupIndex == -1 {
+		t.Fatal("web-ci action does not contain the pnpm setup step")
+	}
+	pnpmSetupBlock := content[pnpmSetupIndex+len(pnpmSetupStep):]
+	if nextStepIndex := strings.Index(pnpmSetupBlock, "\n    - name: "); nextStepIndex != -1 {
+		pnpmSetupBlock = pnpmSetupBlock[:nextStepIndex]
+	}
+	for _, required := range []string{
+		"        NPM_CONFIG_AUDIT: \"false\"",
+		"        NPM_CONFIG_FUND: \"false\"",
+	} {
+		if !strings.Contains(pnpmSetupBlock, required) {
+			t.Fatalf("pnpm setup step does not contain %q", required)
+		}
+	}
+
 	previousIndex := -1
 	for _, command := range []string{
 		"pnpm --dir web install --frozen-lockfile",
-		"pnpm --dir web audit --prod --audit-level high",
 		"pnpm --dir web run lint",
 		"pnpm --dir web run format",
 		"pnpm --dir web run build",
@@ -61,13 +78,40 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 	if strings.Contains(content, "pnpm --dir web run type-check") {
 		t.Fatal("web-ci action duplicates the type-check already run by the build script")
 	}
-	// devDependencies 不进入 internal/webui/dist，审计它们只会让发布被无关 CVE 阻断。
-	if strings.Contains(content, "pnpm --dir web audit --audit-level") {
-		t.Fatal("web-ci action audits devDependencies that never reach the release artifact")
-	}
 	packageJSON := readRepositoryFile(t, "web/package.json")
 	if !strings.Contains(packageJSON, `"build": "pnpm run type-check && vite build"`) {
 		t.Fatal("web build script no longer includes the required type-check")
+	}
+}
+
+func TestDependencyVulnerabilityMonitoringIsDelegatedToDependabot(t *testing.T) {
+	for _, file := range []string{
+		".github/actions/web-ci/action.yml",
+		".github/workflows/ci.yml",
+		".github/workflows/release.yml",
+	} {
+		content := readRepositoryFile(t, file)
+		for _, forbidden := range []string{
+			"Audit web dependencies",
+			"pnpm --dir web audit",
+			"Audit Go dependencies",
+			"govulncheck",
+		} {
+			if strings.Contains(content, forbidden) {
+				t.Fatalf("%s duplicates Dependabot dependency monitoring with %q", file, forbidden)
+			}
+		}
+	}
+
+	dependabot := readRepositoryFile(t, ".github/dependabot.yml")
+	for _, required := range []string{
+		"- package-ecosystem: npm\n    directory: /web",
+		"- package-ecosystem: gomod\n    directory: /",
+		"- package-ecosystem: gomod\n    directory: /third_party/cpaembedded",
+	} {
+		if !strings.Contains(dependabot, required) {
+			t.Fatalf("Dependabot configuration does not contain %q", required)
+		}
 	}
 }
 
@@ -124,7 +168,6 @@ func TestBranchAndReleaseWorkflowsRunRaceInParallelGates(t *testing.T) {
 		run  string
 	}{
 		{name: "Check module graph", run: "go mod tidy -diff"},
-		{name: "Audit Go dependencies", run: "go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./..."},
 		{name: "Run Go vet", run: "go vet ./..."},
 		{name: "Check repository invariants", run: "git diff --check"},
 	} {
@@ -2805,10 +2848,10 @@ func TestReleaseWorkflowSkipsOnlyCIProvenGatesAndStillFailsClosed(t *testing.T) 
 			t.Fatalf("%s does not reuse the CI verdict:\n%s", jobName, job)
 		}
 	}
-	// 静态检查依赖会随时间变化的漏洞库，每次发布都必须重跑。
+	// Release 的静态检查仍需独立执行，不复用 CI 结论。
 	staticChecks := workflowJobBlock(t, content, "static-checks")
 	if strings.Contains(staticChecks, "ci_verified") {
-		t.Fatalf("static checks must not reuse a stale vulnerability audit:\n%s", staticChecks)
+		t.Fatalf("release static checks must run independently of the CI verdict:\n%s", staticChecks)
 	}
 
 	preflight := workflowJobBlock(t, content, "publication-preflight")
