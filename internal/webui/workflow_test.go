@@ -41,6 +41,24 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 		}
 	}
 
+	const pnpmSetupStep = "    - name: Set up pnpm\n"
+	pnpmSetupIndex := strings.Index(content, pnpmSetupStep)
+	if pnpmSetupIndex == -1 {
+		t.Fatal("web-ci action does not contain the pnpm setup step")
+	}
+	pnpmSetupBlock := content[pnpmSetupIndex+len(pnpmSetupStep):]
+	if nextStepIndex := strings.Index(pnpmSetupBlock, "\n    - name: "); nextStepIndex != -1 {
+		pnpmSetupBlock = pnpmSetupBlock[:nextStepIndex]
+	}
+	for _, required := range []string{
+		"        NPM_CONFIG_AUDIT: \"false\"",
+		"        NPM_CONFIG_FUND: \"false\"",
+	} {
+		if !strings.Contains(pnpmSetupBlock, required) {
+			t.Fatalf("pnpm setup step does not contain %q", required)
+		}
+	}
+
 	previousIndex := -1
 	for _, command := range []string{
 		"pnpm --dir web install --frozen-lockfile",
