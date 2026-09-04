@@ -29,6 +29,13 @@ function isJSONNumberLiteral(text: string): boolean {
   return jsonNumberPattern.test(text)
 }
 
+/** 参数对象的字段名不能为空；快捷路径无法把空字段与“尚未输入”区分开。 */
+export function hasEmptyParameterKey(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasEmptyParameterKey)
+  if (value === null || typeof value !== 'object') return false
+  return Object.entries(value).some(([key, nested]) => key === '' || hasEmptyParameterKey(nested))
+}
+
 /** 裸文本会被重新推断成别的类型时，才需要补引号。 */
 function needsQuoting(value: string): boolean {
   return (
@@ -117,6 +124,7 @@ export function valueFromText(text: string, kind: ParameterValueKind): Parameter
   } catch {
     throw new ParameterValueError('json')
   }
+  if (hasEmptyParameterKey(parsed)) throw new ParameterValueError('empty-key')
   assertJSONNumbersRoundTrip(trimmed)
   return parsed as ParameterJSONValue
 }

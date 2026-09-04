@@ -318,6 +318,9 @@ func parsePointer(value string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+		if decoded == "" {
+			return nil, fmt.Errorf("contains an empty path segment")
+		}
 		segments[index] = decoded
 		if decoded == "-" {
 			return nil, fmt.Errorf("array element paths are not supported")
@@ -367,7 +370,10 @@ func validateSetValue(value any, depth int) error {
 	}
 	switch typed := value.(type) {
 	case map[string]any:
-		for _, nested := range typed {
+		for key, nested := range typed {
+			if key == "" {
+				return fmt.Errorf("set contains an empty object field name")
+			}
 			if err := validateSetValue(nested, depth+1); err != nil {
 				return err
 			}

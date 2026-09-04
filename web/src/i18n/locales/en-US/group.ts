@@ -259,7 +259,7 @@ export default {
           modelPattern: 'Use an exact model or one trailing * prefix wildcard.',
           pathRequired: 'Enter a parameter path.',
           pathInvalid:
-            'Separate levels with /. Array indexes are not supported, and ~ is only valid in ~0 or ~1.',
+            'Separate non-empty levels with /. Array indexes are not supported, and ~ is only valid in ~0 or ~1.',
           pathDuplicate: 'Paths must be unique.',
           pathAncestor:
             'A path cannot be the parent or child of another set path in the same rule.',
@@ -268,6 +268,7 @@ export default {
           valueNumber: 'Not a valid number. Switch the type to Text to store it as text.',
           valueBoolean: 'A boolean must be true or false.',
           valueJSON: 'Invalid JSON. Provide a complete structure starting with { or [.',
+          emptyKey: 'Parameter object field names cannot be empty.',
           unsafeNumber: 'Numbers must round-trip safely and losslessly through the management UI.',
           setObject: 'Set parameters must be a JSON object.',
           invalidJSON: 'The JSON format is invalid.',

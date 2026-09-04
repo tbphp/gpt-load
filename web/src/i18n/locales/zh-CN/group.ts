@@ -252,7 +252,7 @@ export default {
         errors: {
           modelPattern: '模型只支持精确值或末尾一个 * 的前缀匹配。',
           pathRequired: '请输入参数路径。',
-          pathInvalid: '路径用 / 分层，不支持数组下标；~ 只能出现在 ~0 或 ~1 中。',
+          pathInvalid: '路径用 / 分层，各层不能为空且不支持数组下标；~ 只能写作 ~0 或 ~1。',
           pathDuplicate: '路径不能重复。',
           pathAncestor: '路径不能与同一规则的另一条设置路径互为父子。',
           forbiddenField: '不能设置或删除根字段 model、stream 或 store。',
@@ -260,6 +260,7 @@ export default {
           valueNumber: '不是有效数字；如果要按文本保存，请把类型改成文本。',
           valueBoolean: '布尔值只能是 true 或 false。',
           valueJSON: 'JSON 格式不正确，需要以 { 或 [ 开头的完整结构。',
+          emptyKey: '参数对象的字段名不能为空。',
           unsafeNumber: '数字必须可安全、无损地通过管理界面保存。',
           setObject: '设置参数必须是 JSON 对象。',
           invalidJSON: 'JSON 格式不正确。',

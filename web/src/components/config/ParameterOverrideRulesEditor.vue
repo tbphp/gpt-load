@@ -27,6 +27,7 @@ import {
 } from '@/lib/parameter-paths'
 import {
   formatValueText,
+  hasEmptyParameterKey,
   inferValueKind,
   parameterValueKinds,
   ParameterValueError,
@@ -178,6 +179,7 @@ function parseSetText(text: string): Record<string, ParameterJSONValue> | undefi
   const value: unknown = JSON.parse(trimmed)
   assertJSONNumbersRoundTrip(trimmed)
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  if (hasEmptyParameterKey(value)) throw new ParameterValueError('empty-key')
   return value as Record<string, ParameterJSONValue>
 }
 
@@ -248,6 +250,8 @@ function valueError(row: ParamRow): string {
       return t('group.settings.parameterOverrides.errors.valueNumber')
     if (cause instanceof ParameterValueError && cause.message === 'boolean')
       return t('group.settings.parameterOverrides.errors.valueBoolean')
+    if (cause instanceof ParameterValueError && cause.message === 'empty-key')
+      return t('group.settings.parameterOverrides.errors.emptyKey')
     return t('group.settings.parameterOverrides.errors.valueJSON')
   }
 }
@@ -285,7 +289,9 @@ function ruleErrors(row: RuleRow): RuleErrors {
       errors.set = t(
         cause instanceof JSONNumberPrecisionError
           ? 'group.settings.parameterOverrides.errors.unsafeNumber'
-          : 'group.settings.parameterOverrides.errors.invalidJSON',
+          : cause instanceof ParameterValueError && cause.message === 'empty-key'
+            ? 'group.settings.parameterOverrides.errors.emptyKey'
+            : 'group.settings.parameterOverrides.errors.invalidJSON',
       )
     }
   }
@@ -802,7 +808,8 @@ const modelMatchCounts = computed(
                       :aria-label="t('group.settings.parameterOverrides.paramValue')"
                       :disabled="disabled"
                       spellcheck="false"
-                      @input="setParamValue(param, ($event.target as HTMLInputElement).value)"
+                      @input="param.valueText = ($event.target as HTMLInputElement).value"
+                      @change="setParamValue(param, ($event.target as HTMLInputElement).value)"
                     />
                   </template>
                   <IconButton

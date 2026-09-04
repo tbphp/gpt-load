@@ -56,6 +56,7 @@ export function decodeParameterPath(
     const decoded = unescapeSegment(raw)
     if (
       decoded === undefined ||
+      decoded === '' ||
       (operation === 'remove' && (decoded === '-' || /^\d+$/u.test(decoded)))
     )
       return undefined
