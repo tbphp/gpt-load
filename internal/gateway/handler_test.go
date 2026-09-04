@@ -3484,6 +3484,45 @@ func TestHandlerSkipsGroupsWhoseOverridesRequireNativeRouting(t *testing.T) {
 	}
 }
 
+func TestHandlerIncludesGroupsWhoseOverridesRemoveNativeRoutingRequirement(t *testing.T) {
+	t.Parallel()
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
+	}}}
+	settings := config.Settings{state.SettingParameterOverrides: []any{
+		map[string]any{
+			"match": map[string]any{
+				"protocol": string(protocol.Anthropic),
+				"model":    "claude-*",
+			},
+			"remove": []any{"/container"},
+		},
+	}}
+	engine, _ := newConvertedFallbackHandlerTestRuntime(t, forwarder, settings)
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(
+		`{"model":"claude-client","max_tokens":64,"container":{"id":"container_123"},"messages":[{"role":"user","content":"hello"}]}`,
+	))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || len(forwarder.inputs) != 1 {
+		t.Fatalf("response/attempts = %d %s / %d", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
+	}
+	input := forwarder.inputs[0]
+	if input.RouteMode != execution.RouteConverted ||
+		input.RouteRequirement.Normalize() != execution.RouteRequirementAny {
+		t.Fatalf("route = %q/%q, want converted/any", input.RouteMode, input.RouteRequirement)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(input.Request.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := body["container"]; exists {
+		t.Fatalf("overridden request retained container: %s", input.Request.Body)
+	}
+}
+
 func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 	attemptNow := time.Date(2026, time.July, 21, 12, 0, 0, 0, time.UTC)
 	tests := []struct {

@@ -89,6 +89,9 @@ func TestRulesMatchClientProtocolAndClientModel(t *testing.T) {
 		{name: "utility operation", protocol: protocol.Anthropic, operation: execution.OperationCountTokens, model: "public-sonnet"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			if matched := rules.Matches(test.protocol, test.operation, test.model); matched != test.applied {
+				t.Fatalf("Matches() = %t, want %t", matched, test.applied)
+			}
 			_, applied, err := rules.Apply(test.protocol, test.operation, test.model, []byte(`{"model":"public-sonnet"}`))
 			if err != nil {
 				t.Fatal(err)

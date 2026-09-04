@@ -550,7 +550,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		ExternalModel:            metadata.Model,
 		AccessKey:                accessKey,
 	}
-	candidateGroupIDs := scheduler.CandidateGroupIDsForQuery(snapshot, query)
+	candidateQuery, candidateGroupIDs := parameterOverrideCandidateScope(snapshot, query)
 	capturedRefs := handler.registry.CaptureActiveCredentialRefs(candidateGroupIDs)
 	allowedCredentialRefs := make(map[uint]state.CredentialRef, len(capturedRefs))
 	for _, ref := range capturedRefs {
@@ -568,7 +568,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	for credentialID := range allowedCredentialRefs {
 		allowedCredentialIDs[credentialID] = struct{}{}
 	}
-	query.AllowedCredentialIDs = allowedCredentialIDs
+	candidateQuery.AllowedCredentialIDs = allowedCredentialIDs
 	requestAffinity := handler.resolveRequestAffinity(
 		snapshot,
 		accessKey.ID,
@@ -576,8 +576,8 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		metadata.AffinityPrefix,
 		allowedCredentialRefs,
 	)
-	query.PreferredCredentialID = requestAffinity.preferredCredentialID
-	iterator := scheduler.New(snapshot, handler.registry, query, handler.newRandom())
+	candidateQuery.PreferredCredentialID = requestAffinity.preferredCredentialID
+	iterator := scheduler.New(snapshot, handler.registry, candidateQuery, handler.newRandom())
 	handler.executeAttempts(
 		ginContext,
 		iterator,
@@ -590,6 +590,40 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		recorder,
 		&quotaAdmission,
 	)
+}
+
+func parameterOverrideCandidateScope(
+	snapshot *state.ConfigSnapshot,
+	query scheduler.Query,
+) (scheduler.Query, []uint) {
+	candidateGroupIDs := scheduler.CandidateGroupIDsForQuery(snapshot, query)
+	if snapshot == nil || query.RouteRequirement.Normalize() != execution.RouteRequirementNative {
+		return query, candidateGroupIDs
+	}
+
+	clientModel := optionalModelValue(query.ExternalModel)
+	seen := make(map[uint]struct{}, len(candidateGroupIDs))
+	for _, groupID := range candidateGroupIDs {
+		seen[groupID] = struct{}{}
+	}
+	relaxed := query
+	relaxed.RouteRequirement = execution.RouteRequirementAny
+	expanded := append([]uint(nil), candidateGroupIDs...)
+	for _, groupID := range scheduler.CandidateGroupIDsForQuery(snapshot, relaxed) {
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		group, exists := snapshot.Groups[groupID]
+		if !exists || !group.ParameterOverrides.Matches(query.ClientProtocol, query.Operation, clientModel) {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		expanded = append(expanded, groupID)
+	}
+	if len(expanded) == len(candidateGroupIDs) {
+		return query, candidateGroupIDs
+	}
+	return relaxed, expanded
 }
 
 func (handler *Handler) quotaNow() time.Time {
@@ -954,8 +988,7 @@ func (handler *Handler) executeAttempts(
 		}
 		prepared := prepareRequest(selection)
 		if prepared.err != nil ||
-			(prepared.applied &&
-				!prepared.metadata.RouteRequirement.Allows(execution.RouteMode(selection.RouteMode))) {
+			!prepared.metadata.RouteRequirement.Allows(execution.RouteMode(selection.RouteMode)) {
 			parameterOverrideRejected = true
 			if _, logged := loggedOverrideRejections[selection.GroupID]; !logged {
 				reason := "invalid_final_request"
