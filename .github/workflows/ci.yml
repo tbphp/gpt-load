@@ -1,9 +1,6 @@
-name: V2 CI
+name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
@@ -17,7 +14,7 @@ env:
   GOPROXY: https://proxy.golang.org|direct
 
 concurrency:
-  group: v2-ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:

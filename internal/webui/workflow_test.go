@@ -128,16 +128,9 @@ func TestMakeCheckDoesNotDuplicateWebTypeCheck(t *testing.T) {
 func TestBranchAndReleaseWorkflowsFollowDefaultBranch(t *testing.T) {
 	ci := readRepositoryFile(t, ".github/workflows/ci.yml")
 	triggers := workflowTopLevelBlock(t, ci, "on")
-	for _, required := range []string{
-		"push:\n    branches:\n      - main",
-		"pull_request:\n    branches:\n      - main",
-	} {
-		if !strings.Contains(triggers, required) {
-			t.Fatalf("branch CI triggers do not contain %q:\n%s", required, triggers)
-		}
-	}
-	if strings.Contains(triggers, "      - v2") {
-		t.Fatalf("branch CI still targets the removed v2 branch:\n%s", triggers)
+	wantTriggers := "on:\n  pull_request:\n    branches:\n      - main"
+	if got := strings.Join(workflowSignificantYAMLLines(triggers), "\n"); got != wantTriggers {
+		t.Fatalf("branch CI triggers = %q, want %q", got, wantTriggers)
 	}
 
 	release := readRepositoryFile(t, ".github/workflows/release.yml")
@@ -156,6 +149,28 @@ func TestBranchAndReleaseWorkflowsFollowDefaultBranch(t *testing.T) {
 		if strings.Contains(release, forbidden) {
 			t.Fatalf("release workflow still contains removed branch reference %q", forbidden)
 		}
+	}
+}
+
+func TestWorkflowNamesDoNotCarryRetiredV2PhaseLabel(t *testing.T) {
+	for _, workflow := range []struct {
+		file string
+		name string
+	}{
+		{file: ".github/workflows/ci.yml", name: "CI"},
+		{file: ".github/workflows/release.yml", name: "Release"},
+	} {
+		content := readRepositoryFile(t, workflow.file)
+		if got := workflowTopLevelScalar(t, content, "name"); got != workflow.name {
+			t.Fatalf("%s does not use workflow name %q", workflow.file, workflow.name)
+		}
+	}
+}
+
+func TestWorkflowTopLevelScalarAllowsLeadingYAMLMetadata(t *testing.T) {
+	content := "---\n# Generated workflow metadata.\nname: CI\non:\n"
+	if got := workflowTopLevelScalar(t, content, "name"); got != "CI" {
+		t.Fatalf("workflow name = %q, want CI", got)
 	}
 }
 
@@ -290,7 +305,7 @@ func TestBranchWorkflowCancelsSupersededRuns(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/ci.yml")
 	concurrency := workflowTopLevelBlock(t, content, "concurrency")
 	for _, required := range []string{
-		`group: v2-ci-${{ github.event.pull_request.number || github.ref }}`,
+		`group: ci-pr-${{ github.event.pull_request.number }}`,
 		"cancel-in-progress: true",
 	} {
 		if !strings.Contains(concurrency, required) {
@@ -2657,6 +2672,38 @@ func readRepositoryFile(t *testing.T, name string) string {
 	return string(content)
 }
 
+func workflowTopLevelScalar(t *testing.T, content, key string) string {
+	t.Helper()
+	for _, line := range workflowSignificantYAMLLines(content) {
+		if strings.HasPrefix(line, " ") {
+			continue
+		}
+		lineKey, value, found := strings.Cut(line, ":")
+		if !found || lineKey != key {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			t.Fatalf("workflow top-level %s is not a scalar", key)
+		}
+		return value
+	}
+	t.Fatalf("workflow does not contain top-level %s", key)
+	return ""
+}
+
+func workflowSignificantYAMLLines(content string) []string {
+	lines := make([]string, 0)
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed == "---" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
 func workflowTopLevelBlock(t *testing.T, content, key string) string {
 	t.Helper()
 	lines := strings.Split(content, "\n")
@@ -2672,7 +2719,11 @@ func workflowTopLevelBlock(t *testing.T, content, key string) string {
 	}
 	end := len(lines)
 	for index := start + 1; index < len(lines); index++ {
-		if lines[index] != "" && !strings.HasPrefix(lines[index], " ") {
+		trimmed := strings.TrimSpace(lines[index])
+		if trimmed == "" || trimmed == "---" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if !strings.HasPrefix(lines[index], " ") {
 			end = index
 			break
 		}
