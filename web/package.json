@@ -17,7 +17,7 @@
     "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
-    "@lucide/vue": "1.35.0",
+    "@lucide/vue": "1.38.0",
     "@tanstack/vue-query": "5.102.8",
     "reka-ui": "2.10.4",
     "vue": "3.5.42",
