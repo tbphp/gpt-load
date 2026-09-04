@@ -37,6 +37,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 		GPTLoad,
 		NewAPI,
 		CLIProxyAPI,
+		Sub2API,
 		OpenAICompatible,
 	}
 	if got := descriptorIDs(registry.List()); !reflect.DeepEqual(got, wantIDs) {
@@ -68,6 +69,9 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	}
 	if got := descriptorIDs(registry.Search("cpa")); !reflect.DeepEqual(got, []ID{CLIProxyAPI}) {
 		t.Fatalf("Search(cpa) IDs = %v", got)
+	}
+	if got := descriptorIDs(registry.Search("s2a")); !reflect.DeepEqual(got, []ID{Sub2API}) {
+		t.Fatalf("Search(s2a) IDs = %v", got)
 	}
 	if got := descriptorIDs(registry.Search("gptload")); !reflect.DeepEqual(got, []ID{GPTLoad}) {
 		t.Fatalf("Search(gptload) IDs = %v", got)
@@ -830,6 +834,7 @@ func TestEveryResponsesCreateChannelDeclaresStoreHandling(t *testing.T) {
 		GPTLoad:          ResponsesStoreHandlingUpstreamManaged,
 		NewAPI:           ResponsesStoreHandlingUpstreamManaged,
 		CLIProxyAPI:      ResponsesStoreHandlingUpstreamManaged,
+		Sub2API:          ResponsesStoreHandlingUpstreamManaged,
 		OpenAICompatible: ResponsesStoreHandlingStateless,
 	}
 

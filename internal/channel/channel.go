@@ -34,6 +34,7 @@ const (
 	GPTLoad          = spec.GPTLoad
 	NewAPI           = spec.NewAPI
 	CLIProxyAPI      = spec.CLIProxyAPI
+	Sub2API          = spec.Sub2API
 	OpenAICompatible = spec.OpenAICompatible
 	DeepSeek         = spec.DeepSeek
 	MoonshotAI       = spec.MoonshotAI

@@ -104,6 +104,8 @@ export default {
         'Enter the New API gateway root or deployment prefix, for example https://new-api.example.com. Do not include standard protocol paths such as /v1 or /v1beta.',
       cpaUrlDescription:
         'Enter the CLIProxyAPI gateway root or deployment prefix, for example https://cpa.example.com. Do not include standard protocol paths such as /v1 or /v1beta.',
+      sub2ApiUrlDescription:
+        'Enter the Sub2API gateway root or deployment prefix, for example https://sub2api.example.com. Do not include standard protocol paths such as /v1 or /v1beta.',
       urlDescriptionWithDefault: 'Default URL: {url}',
       urlVersionWarning: 'Version path may differ; please verify',
       customUrl: 'Custom upstream URL',

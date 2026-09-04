@@ -230,6 +230,8 @@ export default {
           'New API ゲートウェイのルートまたはデプロイ接頭辞を入力してください。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
         cpaUrlDescription:
           'CLIProxyAPI ゲートウェイのルートまたはデプロイ接頭辞を入力してください。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
+        sub2ApiUrlDescription:
+          'Sub2API ゲートウェイのルートまたはデプロイ接頭辞を入力してください。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
         customUrl: 'カスタム上流 URL',
         customUrlHelp: '既定ではチャネル設定または SDK 公式アドレスを使用します。',
         paramRequired: '{field} を入力してください。',

@@ -31,6 +31,7 @@ func builtInModules() []spec.Module {
 		modules.GPTLoad(),
 		modules.NewAPI(),
 		modules.CLIProxyAPI(),
+		modules.Sub2API(),
 		modules.OpenAICompatible(),
 	}
 }

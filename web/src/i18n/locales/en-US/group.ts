@@ -231,6 +231,8 @@ export default {
           'Enter the New API gateway root or deployment prefix. Do not include standard protocol paths such as /v1 or /v1beta.',
         cpaUrlDescription:
           'Enter the CLIProxyAPI gateway root or deployment prefix. Do not include standard protocol paths such as /v1 or /v1beta.',
+        sub2ApiUrlDescription:
+          'Enter the Sub2API gateway root or deployment prefix. Do not include standard protocol paths such as /v1 or /v1beta.',
         customUrl: 'Custom upstream URL',
         customUrlHelp: 'Uses the channel preset or SDK official address by default.',
         paramRequired: 'Enter {field}.',

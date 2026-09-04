@@ -26,6 +26,7 @@ const (
 	GPTLoad          ID = "gpt_load"
 	NewAPI           ID = "newapi"
 	CLIProxyAPI      ID = "cliproxyapi"
+	Sub2API          ID = "sub2api"
 	OpenAICompatible ID = "openai_compatible"
 	DeepSeek         ID = "deepseek"
 	MoonshotAI       ID = "moonshotai"

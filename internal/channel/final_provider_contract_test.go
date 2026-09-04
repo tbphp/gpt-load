@@ -34,6 +34,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 		GPTLoad,
 		NewAPI,
 		CLIProxyAPI,
+		Sub2API,
 		OpenAICompatible,
 	}
 	if got := descriptorIDs(registry.List()); !reflect.DeepEqual(got, want) {

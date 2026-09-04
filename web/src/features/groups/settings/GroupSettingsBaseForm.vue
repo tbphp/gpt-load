@@ -88,6 +88,9 @@ function parameterHelp(field: ChannelFieldDto): string {
   if (field.key === 'base_url' && props.channelId === 'cliproxyapi') {
     return t('group.settings.base.cpaUrlDescription')
   }
+  if (field.key === 'base_url' && props.channelId === 'sub2api') {
+    return t('group.settings.base.sub2ApiUrlDescription')
+  }
   return t('group.settings.base.urlWarning')
 }
 

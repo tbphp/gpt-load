@@ -946,6 +946,7 @@ func TestProductionRuntimeManagerPreservesUpstreamManagedResponsesStore(t *testi
 		{channelID: channel.XAI, wantPath: "/v1/responses"},
 		{channelID: channel.NewAPI, wantPath: "/v1/responses"},
 		{channelID: channel.CLIProxyAPI, wantPath: "/v1/responses"},
+		{channelID: channel.Sub2API, wantPath: "/v1/responses"},
 	}
 	for _, test := range tests {
 		for _, request := range []struct {
