@@ -120,6 +120,39 @@ func TestDownstreamHeadersMiddlewareAppliesConfiguredRulesToActualResponses(t *t
 	}
 }
 
+func TestDownstreamHeadersMiddlewareVariesExplicitOriginPolicyOnOriginMisses(t *testing.T) {
+	handler := newDownstreamHeadersTestHandler(t, config.Settings{
+		state.SettingCORS: map[string]any{
+			"enabled":         true,
+			"allowed_origins": []any{"app://obsidian.md"},
+		},
+	})
+	engine := gin.New()
+	engine.Use(handler.DownstreamHeadersMiddleware())
+	engine.POST("/v1/responses", func(context *gin.Context) {
+		context.Status(http.StatusUnauthorized)
+	})
+
+	for _, origin := range []string{"", "https://untrusted.example"} {
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		if origin != "" {
+			request.Header.Set("Origin", origin)
+		}
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("origin %q status = %d, want 401", origin, response.Code)
+		}
+		if !headerListContains(response.Header().Values("Vary"), "Origin") {
+			t.Errorf("origin %q Vary = %#v, want Origin", origin, response.Header().Values("Vary"))
+		}
+		if response.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Errorf("origin %q exposed CORS headers: %#v", origin, response.Header())
+		}
+	}
+}
+
 func TestDownstreamHeadersMiddlewareRejectsDisallowedPreflightWithoutAffectingControlPlane(t *testing.T) {
 	handler := newDownstreamHeadersTestHandler(t, configuredBrowserAccessSettings())
 	engine := gin.New()

@@ -231,7 +231,7 @@ export function isValidCORSConfig(value: CORSConfigDto): boolean {
   if (value.allowed_origins.includes('*') && value.allowed_origins.length > 1) return false
   if (!validUniqueList(value.allowed_methods, true, (entry) => entry !== '*' && isHTTPToken(entry)))
     return false
-  if (!validHeaderList(value.allowed_headers, true)) return false
+  if (!validHeaderList(value.allowed_headers, value.enabled)) return false
   if (!validHeaderList(value.exposed_headers, false)) return false
   if (value.enabled && (value.allowed_origins.length === 0 || value.allowed_methods.length === 0))
     return false

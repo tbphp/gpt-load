@@ -36,7 +36,7 @@ func (handler *Handler) DownstreamHeadersMiddleware() gin.HandlerFunc {
 			snapshot.Settings.CORS,
 		)
 		responseRules := snapshot.Settings.ResponseHeaderRules
-		if !preflightAllowed && len(corsHeaders) == 0 &&
+		if !preflightAllowed && len(corsHeaders) == 0 && len(vary) == 0 &&
 			len(responseRules.Set) == 0 && len(responseRules.Remove) == 0 {
 			context.Next()
 			return
@@ -70,13 +70,17 @@ func downstreamCORSHeaders(
 	if request == nil || !config.Enabled {
 		return nil, nil, false
 	}
+	var originVary []string
+	if !containsExactString(config.AllowedOrigins, "*") {
+		originVary = []string{"Origin"}
+	}
 	origin := strings.TrimSpace(request.Header.Get("Origin"))
 	allowedOrigin, wildcard := matchCORSOrigin(origin, config.AllowedOrigins)
 	preflight := request.Method == http.MethodOptions &&
 		origin != "" &&
 		strings.TrimSpace(request.Header.Get("Access-Control-Request-Method")) != ""
 	if !allowedOrigin {
-		return nil, nil, false
+		return nil, originVary, false
 	}
 
 	if preflight {
@@ -88,7 +92,7 @@ func downstreamCORSHeaders(
 		)
 		if !valid || !corsMethodAllowed(method, config.AllowedMethods) ||
 			!corsHeadersAllowed(requestedHeaders, config.AllowedHeaders) {
-			return nil, nil, false
+			return nil, originVary, false
 		}
 		headers := corsActualResponseHeaders(origin, wildcard, config)
 		headers.Set("Access-Control-Allow-Methods", strings.Join(config.AllowedMethods, ", "))
@@ -115,7 +119,7 @@ func downstreamCORSHeaders(
 	if wildcard {
 		return headers, nil, false
 	}
-	return headers, []string{"Origin"}, false
+	return headers, originVary, false
 }
 
 func corsActualResponseHeaders(origin string, wildcard bool, config state.CORSConfig) http.Header {
