@@ -77,6 +77,9 @@ function baseURLDescription(): string {
   if (props.channel?.channel_id === 'cliproxyapi') {
     return t('import.connection.cpaUrlDescription')
   }
+  if (props.channel?.channel_id === 'sub2api') {
+    return t('import.connection.sub2ApiUrlDescription')
+  }
   if (props.channel?.channel_id === 'openai_compatible') {
     return t('import.connection.compatibleUrlDescription')
   }
