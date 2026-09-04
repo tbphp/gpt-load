@@ -198,23 +198,6 @@ func compileMatch(raw json.RawMessage) (compiledMatch, error) {
 // Empty reports whether no rule can be applied.
 func (rules Rules) Empty() bool { return len(rules.entries) == 0 }
 
-// Matches reports whether at least one rule matches a supported request identity.
-func (rules Rules) Matches(
-	clientProtocol protocol.Protocol,
-	operation execution.Operation,
-	clientModel string,
-) bool {
-	if rules.Empty() || !supports(clientProtocol, operation) {
-		return false
-	}
-	for _, entry := range rules.entries {
-		if entry.matches(clientProtocol, clientModel) {
-			return true
-		}
-	}
-	return false
-}
-
 // Clone returns an independently owned rule set.
 func (rules Rules) Clone() Rules {
 	cloned := Rules{entries: make([]rule, len(rules.entries))}

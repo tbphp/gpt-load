@@ -1138,6 +1138,57 @@ func TestRequestRecorderUsesFrozenAttemptMetadata(t *testing.T) {
 	}
 }
 
+func TestRequestRecorderDoesNotReuseClientMetadataWhenAttemptObservationIsUnavailable(t *testing.T) {
+	recorder := newRequestRecorder(
+		&recordingRequestLogSink{}, "attempt-metadata-unavailable", time.Unix(100, 0), 1,
+		protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) },
+	)
+	recorder.setPricingMode(pricing.ModeFast)
+	recorder.setReasoning(reasoning.Config{Effort: "low"})
+	model := "gpt-4o"
+	provider := &mutableGatewayPriceTableProvider{
+		table: mustGatewayPriceTableWithFast(t, 2_000_000_000, 5_000_000_000),
+	}
+	handler := &Handler{priceTables: provider}
+	selection := requestLogSelection(1, 2, "group")
+	selection.UpstreamModelID = &model
+	recorder.freezeNextAttemptPricing(handler.freezeAttemptPricing(
+		selection,
+		dialect.RequestMetadata{ObserveUsage: true},
+		false,
+	))
+	index := recorder.appendAttempt(
+		selection,
+		UpstreamResult{StatusCode: http.StatusOK},
+		telemetry.FailureCategoryOK,
+		telemetry.ActionTerminate,
+		"",
+		"",
+		time.Unix(100, 0),
+		time.Unix(101, 0),
+	)
+	recorder.completeResponse(UpstreamResult{
+		StatusCode: http.StatusOK,
+		Usage: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 1_000_000},
+		},
+	}, health.Decision{}, model, index)
+
+	if recorder.reasoning != (reasoning.Config{}) {
+		t.Fatalf("request reasoning = %#v, want unknown", recorder.reasoning)
+	}
+	if got := withoutPricingReceipt(recorder.usage.Pricing); got != (telemetry.PricingObservation{
+		UpstreamModel: model,
+		CostState:     string(pricing.CostStateUnpriced), PricingCompleteness: string(pricing.CompletenessUnavailable),
+	}) {
+		t.Fatalf("attempt pricing = %#v", got)
+	}
+	if provider.LoadCount() != 0 {
+		t.Fatalf("PriceTableProvider.Load calls = %d, want 0", provider.LoadCount())
+	}
+}
+
 func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *testing.T) {
 	model := "provider-model"
 	table, err := pricing.NewTable([]pricing.Rule{{
@@ -1235,7 +1286,7 @@ func TestHandlerUsesRequestedFastModeWhenResponseOmitsEffectiveMode(t *testing.T
 	}
 }
 
-func TestHandlerUsesParameterOverridePricingMode(t *testing.T) {
+func TestHandlerUsesParameterOverrideAttemptObservations(t *testing.T) {
 	table := mustGatewayPriceTableWithFast(t, 2_000_000_000, 5_000_000_000)
 	forwarder := &scriptedForwarder{results: []UpstreamResult{{
 		StatusCode: http.StatusOK, Header: make(http.Header), RequestWritten: true,
@@ -1256,7 +1307,10 @@ func TestHandlerUsesParameterOverridePricingMode(t *testing.T) {
 			Settings: config.Settings{state.SettingParameterOverrides: []any{
 				map[string]any{
 					"match": map[string]any{"model": "gpt-*"},
-					"set":   map[string]any{"service_tier": "priority"},
+					"set": map[string]any{
+						"service_tier":     "priority",
+						"reasoning_effort": "high",
+					},
 				},
 			}},
 		}},
@@ -1288,7 +1342,8 @@ func TestHandlerUsesParameterOverridePricingMode(t *testing.T) {
 	var receipt pricing.Receipt
 	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &receipt); err != nil ||
 		receipt.PricingMode != pricing.ModeFast ||
-		events[0].Usage.Pricing.EstimatedCostNanoUSD != 10_000_000_000 {
+		events[0].Usage.Pricing.EstimatedCostNanoUSD != 10_000_000_000 ||
+		events[0].Reasoning.Effort != "high" {
 		t.Fatalf("override pricing = %#v, receipt=%#v, error=%v", events[0].Usage.Pricing, receipt, err)
 	}
 }
