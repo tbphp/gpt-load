@@ -27,6 +27,31 @@ var forbiddenRequestRuleNames = map[string]struct{}{
 	"content-encoding":  {},
 }
 
+var forbiddenResponseRuleNames = map[string]struct{}{
+	"connection":                       {},
+	"proxy-connection":                 {},
+	"keep-alive":                       {},
+	"te":                               {},
+	"trailer":                          {},
+	"transfer-encoding":                {},
+	"upgrade":                          {},
+	"content-encoding":                 {},
+	"content-length":                   {},
+	"content-range":                    {},
+	"content-type":                     {},
+	"date":                             {},
+	"server":                           {},
+	"set-cookie":                       {},
+	"set-cookie2":                      {},
+	"vary":                             {},
+	"access-control-allow-origin":      {},
+	"access-control-allow-methods":     {},
+	"access-control-allow-headers":     {},
+	"access-control-allow-credentials": {},
+	"access-control-expose-headers":    {},
+	"access-control-max-age":           {},
+}
+
 func IsCredentialName(name string) bool {
 	normalized := normalizeName(name)
 	if normalized == "" {
@@ -50,6 +75,23 @@ func IsForbiddenRequestRuleName(name string) bool {
 
 func IsForbiddenRequestRuleSetName(name string) bool {
 	return IsForbiddenRequestRuleName(name)
+}
+
+// IsForbiddenResponseRuleName reports whether a user-managed downstream rule
+// could interfere with HTTP framing, gateway-owned metadata, credentials, or
+// the dedicated CORS policy.
+func IsForbiddenResponseRuleName(name string) bool {
+	normalized := normalizeName(name)
+	if normalized == "" {
+		return false
+	}
+	if strings.HasPrefix(normalized, "proxy-") ||
+		strings.HasPrefix(normalized, "x-gptload-") ||
+		IsCredentialName(normalized) {
+		return true
+	}
+	_, exists := forbiddenResponseRuleNames[normalized]
+	return exists
 }
 
 func normalizeName(name string) string {

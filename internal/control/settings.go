@@ -26,11 +26,23 @@ type HeaderRulesResponse struct {
 	Remove []string          `json:"remove"`
 }
 
+type CORSConfigResponse struct {
+	Enabled          bool     `json:"enabled"`
+	AllowedOrigins   []string `json:"allowed_origins"`
+	AllowedMethods   []string `json:"allowed_methods"`
+	AllowedHeaders   []string `json:"allowed_headers"`
+	ExposedHeaders   []string `json:"exposed_headers"`
+	AllowCredentials bool     `json:"allow_credentials"`
+	MaxAge           int      `json:"max_age"`
+}
+
 type SettingsValuesResponse struct {
 	FirstByteTimeout         int64               `json:"first_byte_timeout"`
 	RequestTimeout           int64               `json:"request_timeout"`
 	StreamIdleTimeout        int64               `json:"stream_idle_timeout"`
 	HeaderRules              HeaderRulesResponse `json:"header_rules"`
+	CORS                     CORSConfigResponse  `json:"cors"`
+	ResponseHeaderRules      HeaderRulesResponse `json:"response_header_rules"`
 	InjectUsageOptions       bool                `json:"inject_usage_options"`
 	RetryCount               int                 `json:"retry_count"`
 	BlacklistThreshold       int                 `json:"blacklist_threshold"`
@@ -276,6 +288,11 @@ func mapSettingsResponse(
 		set[name] = value
 	}
 	remove := append([]string{}, settings.HeaderRules.Remove...)
+	responseSet := make(map[string]string, len(settings.ResponseHeaderRules.Set))
+	for name, value := range settings.ResponseHeaderRules.Set {
+		responseSet[name] = value
+	}
+	responseRemove := append([]string{}, settings.ResponseHeaderRules.Remove...)
 	overrides := make([]string, 0, len(rows))
 	var configuredProxy *outboundproxy.Config
 	for _, row := range rows {
@@ -321,6 +338,19 @@ func mapSettingsResponse(
 			HeaderRules: HeaderRulesResponse{
 				Set:    set,
 				Remove: remove,
+			},
+			CORS: CORSConfigResponse{
+				Enabled:          settings.CORS.Enabled,
+				AllowedOrigins:   append([]string{}, settings.CORS.AllowedOrigins...),
+				AllowedMethods:   append([]string{}, settings.CORS.AllowedMethods...),
+				AllowedHeaders:   append([]string{}, settings.CORS.AllowedHeaders...),
+				ExposedHeaders:   append([]string{}, settings.CORS.ExposedHeaders...),
+				AllowCredentials: settings.CORS.AllowCredentials,
+				MaxAge:           settings.CORS.MaxAgeSeconds,
+			},
+			ResponseHeaderRules: HeaderRulesResponse{
+				Set:    responseSet,
+				Remove: responseRemove,
 			},
 			InjectUsageOptions:       settings.InjectUsageOptions,
 			RetryCount:               settings.RetryCount,

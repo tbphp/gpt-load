@@ -32,6 +32,7 @@ import { formatLocalInstant } from '@/lib/format'
 
 import GlobalHeaderRulesSection from './GlobalHeaderRulesSection.vue'
 import AffinitySettingsSection from './AffinitySettingsSection.vue'
+import BrowserAccessSection from './BrowserAccessSection.vue'
 import LogsMaintenanceSection from './LogsMaintenanceSection.vue'
 import RuntimeSettingsSection from './RuntimeSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
@@ -64,6 +65,8 @@ const settingsRefreshing = computed(
 )
 const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
+const browserAccessInvalidEdits = ref(false)
+const browserAccessEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
 const {
   value: savedFeedback,
@@ -78,7 +81,9 @@ const proxyState = computed(() =>
     ? proxyDraftState(proxyBaseView.value, proxyMode.value, proxyEndpoint.value)
     : { dirty: false, invalid: false, value: undefined },
 )
-const hasLocalEdits = computed(() => headerRulesInvalidEdits.value || proxyState.value.dirty)
+const hasLocalEdits = computed(
+  () => headerRulesInvalidEdits.value || browserAccessInvalidEdits.value || proxyState.value.dirty,
+)
 const {
   base,
   draft,
@@ -113,6 +118,7 @@ const navItems = computed(() => [
   { id: 'settings-forwarding', label: t('settings.navigation.forwarding') },
   { id: 'settings-affinity', label: t('settings.navigation.affinity') },
   { id: 'settings-headers', label: t('settings.navigation.headers') },
+  { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
   { id: 'settings-logs', label: t('settings.navigation.logs') },
   { id: 'settings-system', label: t('settings.navigation.system') },
 ])
@@ -123,14 +129,22 @@ const { activeSection, selectSection } = useSectionNavigation({
   topOffset: 76,
 })
 const headerRulesValid = ref(true)
+const browserAccessValid = ref(true)
+const corsValid = ref(true)
+const responseHeaderRulesValid = ref(true)
 const pageOperationLocked = computed(() => operationLocked.value)
 const dirty = computed(
-  () => controllerDirty.value || headerRulesInvalidEdits.value || proxyState.value.dirty,
+  () =>
+    controllerDirty.value ||
+    headerRulesInvalidEdits.value ||
+    browserAccessInvalidEdits.value ||
+    proxyState.value.dirty,
 )
 const valid = computed(
   () =>
     controllerValid.value &&
     (!draft.value?.overrides.has('header_rules') || headerRulesValid.value) &&
+    browserAccessValid.value &&
     !proxyState.value.invalid,
 )
 const timeoutKeys = [
@@ -146,6 +160,8 @@ const changedKeys = computed(() => {
   ) as RuntimeSettingKey[]
   if (headerRulesInvalidEdits.value && !changed.includes('header_rules'))
     changed.push('header_rules')
+  if (browserAccessInvalidEdits.value && !changed.includes('response_header_rules'))
+    changed.push('response_header_rules')
   return changed
 })
 const changedLabels = computed(() => [
@@ -160,6 +176,8 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
     if (timeoutKeys.includes(key as (typeof timeoutKeys)[number]))
       return !isValidTimeout(current.values[key as (typeof timeoutKeys)[number]])
     if (key === 'header_rules') return !headerRulesValid.value
+    if (key === 'cors') return !corsValid.value
+    if (key === 'response_header_rules') return !responseHeaderRulesValid.value
     if (key === 'request_log_retention_days')
       return !isValidRetention(current.values.request_log_retention_days)
     if (key === 'affinity_capacity')
@@ -183,6 +201,13 @@ watch(
   () => draft.value?.overrides.has('header_rules'),
   (hasOverride) => {
     if (!hasOverride) headerRulesInvalidEdits.value = false
+  },
+)
+
+watch(
+  () => draft.value?.overrides.has('response_header_rules'),
+  (hasOverride) => {
+    if (!hasOverride) browserAccessInvalidEdits.value = false
   },
 )
 
@@ -216,6 +241,7 @@ function sectionFromID(id: string): SettingsSection | undefined {
   return section === 'forwarding' ||
     section === 'affinity' ||
     section === 'headers' ||
+    section === 'browser-access' ||
     section === 'logs' ||
     section === 'system'
     ? section
@@ -234,6 +260,8 @@ function discard(): void {
   discardDraft()
   headerRulesInvalidEdits.value = false
   headerRulesEditorRevision.value += 1
+  browserAccessInvalidEdits.value = false
+  browserAccessEditorRevision.value += 1
   if (proxyBaseView.value) resetProxyDraft(proxyBaseView.value)
 }
 
@@ -252,11 +280,14 @@ function settingLabel(key: RuntimeSettingKey): string {
     return t(`settings.affinity.${key}`)
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
   if (key === 'header_rules') return t('settings.headers.title')
+  if (key === 'cors') return t('settings.browserAccess.cors.title')
+  if (key === 'response_header_rules') return t('settings.browserAccess.responseHeaders.title')
   return t(`settings.runtime.${key}`)
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
   if (key === 'header_rules') return 'settings-headers'
+  if (key === 'cors' || key === 'response_header_rules') return 'settings-browser-access'
   return `settings-value-${key}`
 }
 
@@ -265,11 +296,13 @@ async function focusTarget(key: RuntimeSettingKey): Promise<void> {
   const section =
     key === 'header_rules'
       ? 'settings-headers'
-      : key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity'
-        ? 'settings-affinity'
-        : key === 'request_log_retention_days'
-          ? 'settings-logs'
-          : 'settings-forwarding'
+      : key === 'cors' || key === 'response_header_rules'
+        ? 'settings-browser-access'
+        : key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity'
+          ? 'settings-affinity'
+          : key === 'request_log_retention_days'
+            ? 'settings-logs'
+            : 'settings-forwarding'
   await navigateSection(section)
   await nextTick()
   const target =
@@ -278,7 +311,12 @@ async function focusTarget(key: RuntimeSettingKey): Promise<void> {
           .getElementById('settings-headers')
           ?.querySelector<HTMLElement>('[aria-invalid="true"]') ??
         document.getElementById('settings-headers'))
-      : document.getElementById(id)
+      : key === 'cors' || key === 'response_header_rules'
+        ? (document
+            .getElementById('settings-browser-access')
+            ?.querySelector<HTMLElement>('[aria-invalid="true"]') ??
+          document.getElementById('settings-browser-access'))
+        : document.getElementById(id)
   target?.focus()
 }
 
@@ -375,6 +413,17 @@ onBeforeUnmount(() => {
               @change="updateDraft"
               @update:valid="headerRulesValid = $event"
               @update:invalid-edits="headerRulesInvalidEdits = $event"
+            />
+            <BrowserAccessSection
+              :base="base"
+              :draft="draft"
+              :disabled="pageOperationLocked"
+              :reset-key="browserAccessEditorRevision"
+              @change="updateDraft"
+              @update:valid="browserAccessValid = $event"
+              @update:cors-valid="corsValid = $event"
+              @update:response-rules-valid="responseHeaderRulesValid = $event"
+              @update:invalid-edits="browserAccessInvalidEdits = $event"
             />
             <LogsMaintenanceSection
               :base="base"

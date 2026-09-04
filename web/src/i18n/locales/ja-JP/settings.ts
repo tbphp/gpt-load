@@ -29,6 +29,7 @@ export default {
       forwarding: 'リクエストと転送',
       affinity: 'リクエストアフィニティ',
       headers: 'グローバル Header Rules',
+      browserAccess: 'ブラウザーアクセス',
       logs: 'ログとメンテナンス',
       system: 'システム情報',
     },
@@ -106,6 +107,43 @@ export default {
         'グループのヘッダールール上書きはグローバルオブジェクト全体を置き換え、個別のルールをマージしません。',
       securityNotice:
         '固定 Header 値は通常の設定です。長期認証情報を保存しないでください。認証 Header はリテラルの {template} テンプレートを使用する必要があります。',
+    },
+    browserAccess: {
+      title: 'ブラウザーアクセスとダウンストリームヘッダー',
+      description:
+        '/v1 と /v1beta のデータプレーンだけに適用し、管理 API はクロスオリジンで公開しません。',
+      cors: {
+        title: 'CORS ポリシー',
+        description: '許可されたプリフライトは AccessKey 認証前に 204 を返します。',
+        enabled: 'CORS を有効化',
+        enabledHelp: '無効時は既存の OPTIONS と認証動作を維持します。',
+        allowedOrigins: '許可するオリジン',
+        allowedOriginsPlaceholder: 'app://obsidian.md, https://notes.example',
+        allowedMethods: '許可するメソッド',
+        allowedHeaders: '許可するリクエストヘッダー',
+        exposedHeaders: 'ブラウザーに公開するレスポンスヘッダー',
+        maxAge: 'プリフライトキャッシュ時間（秒）',
+        allowCredentials: 'ブラウザー資格情報を許可',
+        allowCredentialsHelp:
+          'Cookie またはクライアント証明書用です。オリジン * とは併用できません。',
+        securityNotice:
+          '明示的なオリジン許可リストを推奨します。オリジン * は、訪問者が保持する API Key を使って任意の Web ページからデータプレーンを呼び出せるようにします。リストはカンマで区切ります。',
+        enabledSummary: '{count} 個のオリジンに対して有効',
+        disabledSummary: 'CORS は無効です。OPTIONS は既存の動作を維持します。',
+      },
+      responseHeaders: {
+        title: 'ダウンストリームレスポンスヘッダールール',
+        description:
+          'すべてのデータプレーンレスポンスを確定する前にカスタムヘッダーを設定、上書き、または削除します。',
+        removeHint: 'ダウンストリームレスポンスからこの Header を削除します。',
+      },
+      errors: {
+        origins:
+          '一意で有効なオリジンを入力してください。* は単独で使用し、資格情報を許可できません。',
+        methods: '一意の HTTP メソッドをカンマ区切りで入力してください。',
+        headers: '一意の Header 名をカンマ区切りで入力してください。* は単独で使用します。',
+        maxAge: '0 または正の安全な整数を入力してください。',
+      },
     },
     logs: {
       title: 'ログとメンテナンス',

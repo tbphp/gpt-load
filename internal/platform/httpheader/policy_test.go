@@ -96,3 +96,30 @@ func TestIsForbiddenRequestRuleName(t *testing.T) {
 		})
 	}
 }
+
+func TestIsForbiddenResponseRuleName(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want bool
+	}{
+		{name: "Connection", want: true},
+		{name: "Content-Length", want: true},
+		{name: "content-type", want: true},
+		{name: "Set-Cookie", want: true},
+		{name: "Vary", want: true},
+		{name: "Access-Control-Allow-Origin", want: true},
+		{name: "Access-Control-Allow-Private-Network"},
+		{name: "x-gptload-attempts", want: true},
+		{name: "Authorization", want: true},
+		{name: "Proxy-Custom", want: true},
+		{name: "Cross-Origin-Resource-Policy"},
+		{name: "Cache-Control"},
+		{name: "X-Custom"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := IsForbiddenResponseRuleName(test.name); got != test.want {
+				t.Fatalf("IsForbiddenResponseRuleName(%q) = %t, want %t", test.name, got, test.want)
+			}
+		})
+	}
+}

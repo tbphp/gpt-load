@@ -18,6 +18,8 @@ const (
 	SettingRequestTimeout           = "request_timeout"
 	SettingStreamIdleTimeout        = "stream_idle_timeout"
 	SettingHeaderRules              = "header_rules"
+	SettingCORS                     = "cors"
+	SettingResponseHeaderRules      = "response_header_rules"
 	SettingInjectUsageOptions       = "inject_usage_options"
 	SettingRetryCount               = "retry_count"
 	SettingBlacklistThreshold       = "blacklist_threshold"
@@ -43,6 +45,8 @@ type RuntimeSettings struct {
 	RequestTimeout           time.Duration
 	StreamIdleTimeout        time.Duration
 	HeaderRules              HeaderRules
+	CORS                     CORSConfig
+	ResponseHeaderRules      HeaderRules
 	InjectUsageOptions       bool
 	RetryCount               int
 	BlacklistThreshold       int
@@ -69,6 +73,8 @@ func DefaultRuntimeSettings() RuntimeSettings {
 		RequestTimeout:           600 * time.Second,
 		StreamIdleTimeout:        300 * time.Second,
 		HeaderRules:              HeaderRules{Set: map[string]string{}},
+		CORS:                     defaultCORSConfig(),
+		ResponseHeaderRules:      HeaderRules{Set: map[string]string{}},
 		InjectUsageOptions:       true,
 		RetryCount:               2,
 		BlacklistThreshold:       3,
@@ -87,6 +93,8 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingRequestTimeout,
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
+		SettingCORS,
+		SettingResponseHeaderRules,
 		SettingInjectUsageOptions,
 		SettingRetryCount,
 		SettingBlacklistThreshold,
@@ -130,6 +138,18 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.HeaderRules = rules
+		case SettingCORS:
+			cors, err := parseCORSConfig(value)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.CORS = cors
+		case SettingResponseHeaderRules:
+			rules, err := parseResponseHeaderRules(value)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.ResponseHeaderRules = rules
 		case SettingInjectUsageOptions:
 			value, err := strictBoolean(key, value)
 			if err != nil {
@@ -280,6 +300,12 @@ func ValidateRuntimeSetting(key string, value any) error {
 	case SettingHeaderRules:
 		_, err := parseHeaderRules(value)
 		return err
+	case SettingCORS:
+		_, err := parseCORSConfig(value)
+		return err
+	case SettingResponseHeaderRules:
+		_, err := parseResponseHeaderRules(value)
+		return err
 	case SettingInjectUsageOptions:
 		_, err := strictBoolean(key, value)
 		return err
@@ -415,48 +441,72 @@ func positiveWholeSeconds(path string, value any) (int64, error) {
 }
 
 func parseHeaderRules(value any) (HeaderRules, error) {
+	return parseHeaderRulesWithPolicy(
+		value,
+		SettingHeaderRules,
+		func(name string) bool {
+			return httpheader.IsForbiddenRequestRuleName(name) ||
+				httpheader.IsCredentialName(name)
+		},
+	)
+}
+
+func parseResponseHeaderRules(value any) (HeaderRules, error) {
+	return parseHeaderRulesWithPolicy(
+		value,
+		SettingResponseHeaderRules,
+		httpheader.IsForbiddenResponseRuleName,
+	)
+}
+
+func parseHeaderRulesWithPolicy(
+	value any,
+	settingName string,
+	forbidden func(string) bool,
+) (HeaderRules, error) {
 	rules := HeaderRules{Set: make(map[string]string)}
 	object, ok := value.(map[string]any)
 	if !ok {
-		return HeaderRules{}, fmt.Errorf("header_rules must be an object")
+		return HeaderRules{}, fmt.Errorf("%s must be an object", settingName)
 	}
 	for key := range object {
 		if key != "set" && key != "remove" {
-			return HeaderRules{}, fmt.Errorf("unknown header_rules field %q", key)
+			return HeaderRules{}, fmt.Errorf("unknown %s field %q", settingName, key)
 		}
 	}
 	seen := make(map[string]struct{})
 	if rawSet, exists := object["set"]; exists {
 		set, ok := rawSet.(map[string]any)
 		if !ok {
-			return HeaderRules{}, fmt.Errorf("header_rules.set must be an object")
+			return HeaderRules{}, fmt.Errorf("%s.set must be an object", settingName)
 		}
 		for name, rawValue := range set {
 			if !validHTTPHeaderName(name) {
-				return HeaderRules{}, fmt.Errorf("header_rules.set contains invalid header name %q", name)
+				return HeaderRules{}, fmt.Errorf("%s.set contains invalid header name %q", settingName, name)
 			}
 			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
-			if httpheader.IsForbiddenRequestRuleName(canonicalName) ||
-				httpheader.IsCredentialName(canonicalName) {
+			if forbidden != nil && forbidden(canonicalName) {
 				return HeaderRules{}, fmt.Errorf(
-					"header_rules.set cannot set forbidden header %q",
+					"%s.set cannot set forbidden header %q",
+					settingName,
 					canonicalName,
 				)
 			}
 			identity := strings.ToLower(name)
 			if _, duplicate := seen[identity]; duplicate {
 				return HeaderRules{}, fmt.Errorf(
-					"header_rules.set contains duplicate header %q",
+					"%s.set contains duplicate header %q",
+					settingName,
 					canonicalName,
 				)
 			}
 			seen[identity] = struct{}{}
 			text, ok := rawValue.(string)
 			if !ok {
-				return HeaderRules{}, fmt.Errorf("header_rules.set.%s must be a string", name)
+				return HeaderRules{}, fmt.Errorf("%s.set.%s must be a string", settingName, name)
 			}
 			if !validHTTPHeaderValue(text) {
-				return HeaderRules{}, fmt.Errorf("header_rules.set.%s contains invalid header value", name)
+				return HeaderRules{}, fmt.Errorf("%s.set.%s contains invalid header value", settingName, name)
 			}
 			rules.Set[canonicalName] = text
 		}
@@ -464,33 +514,35 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 	if rawRemove, exists := object["remove"]; exists {
 		remove, ok := rawRemove.([]any)
 		if !ok {
-			return HeaderRules{}, fmt.Errorf("header_rules.remove must be an array")
+			return HeaderRules{}, fmt.Errorf("%s.remove must be an array", settingName)
 		}
 		rules.Remove = make([]string, 0, len(remove))
 		for index, rawName := range remove {
 			name, ok := rawName.(string)
 			if !ok {
-				return HeaderRules{}, fmt.Errorf("header_rules.remove[%d] must be a string", index)
+				return HeaderRules{}, fmt.Errorf("%s.remove[%d] must be a string", settingName, index)
 			}
 			if !validHTTPHeaderName(name) {
 				return HeaderRules{}, fmt.Errorf(
-					"header_rules.remove[%d] contains invalid header name %q",
+					"%s.remove[%d] contains invalid header name %q",
+					settingName,
 					index,
 					name,
 				)
 			}
 			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
-			if httpheader.IsForbiddenRequestRuleName(canonicalName) ||
-				httpheader.IsCredentialName(canonicalName) {
+			if forbidden != nil && forbidden(canonicalName) {
 				return HeaderRules{}, fmt.Errorf(
-					"header_rules.remove cannot remove forbidden header %q",
+					"%s.remove cannot remove forbidden header %q",
+					settingName,
 					canonicalName,
 				)
 			}
 			identity := strings.ToLower(name)
 			if _, duplicate := seen[identity]; duplicate {
 				return HeaderRules{}, fmt.Errorf(
-					"header_rules.remove contains duplicate header %q",
+					"%s.remove contains duplicate header %q",
+					settingName,
 					canonicalName,
 				)
 			}
