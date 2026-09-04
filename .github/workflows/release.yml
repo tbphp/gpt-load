@@ -105,11 +105,11 @@ jobs:
           } >>"${GITHUB_OUTPUT}"
           # release-tag-validation:end
 
-      - name: Require tag commit in v2 history
+      - name: Require tag commit in main history
         shell: bash
         run: |
-          git fetch --no-tags origin v2
-          git merge-base --is-ancestor "${GITHUB_SHA}" origin/v2
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
 
       - name: Reuse CI verdict for this commit
         id: ci
@@ -731,8 +731,8 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           test "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" = "${GITHUB_SHA}"
-          git fetch --no-tags origin v2
-          git merge-base --is-ancestor "${GITHUB_SHA}" origin/v2
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
 
       - name: Verify complete release asset set
         run: .github/scripts/release-verify-assets.sh release

@@ -65,7 +65,7 @@ API キー、サブスクリプションアカウント、トラフィック制�
 Docker と Docker Compose が必要です。
 
 ```bash
-git clone --depth 1 --branch v2 https://github.com/tbphp/gpt-load.git
+git clone --depth 1 https://github.com/tbphp/gpt-load.git
 cd gpt-load
 
 cp .env.example .env

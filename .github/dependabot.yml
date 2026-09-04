@@ -1,7 +1,7 @@
 # 仓库已对所有 action 强制 SHA pin，上游补丁不会自动到达；由 Dependabot 提 PR
 # 更新 SHA 并同步刷新其后的版本注释，保持"可审计"与"能更新"同时成立。
 #
-# 不要声明 target-branch。Dependabot 默认就针对默认分支（当前为 v2），而一旦声明
+# 不要声明 target-branch。Dependabot 默认就针对默认分支（当前为 main），而一旦声明
 # target-branch，本文件对该 ecosystem 的配置就不再作用于 security update，
 # groups、labels 与 commit-message 会对安全更新 PR 全部失效。
 # https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference

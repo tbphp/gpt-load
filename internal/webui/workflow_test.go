@@ -81,6 +81,40 @@ func TestMakeCheckDoesNotDuplicateWebTypeCheck(t *testing.T) {
 	}
 }
 
+func TestBranchAndReleaseWorkflowsFollowDefaultBranch(t *testing.T) {
+	ci := readRepositoryFile(t, ".github/workflows/ci.yml")
+	triggers := workflowTopLevelBlock(t, ci, "on")
+	for _, required := range []string{
+		"push:\n    branches:\n      - main",
+		"pull_request:\n    branches:\n      - main",
+	} {
+		if !strings.Contains(triggers, required) {
+			t.Fatalf("branch CI triggers do not contain %q:\n%s", required, triggers)
+		}
+	}
+	if strings.Contains(triggers, "      - v2") {
+		t.Fatalf("branch CI still targets the removed v2 branch:\n%s", triggers)
+	}
+
+	release := readRepositoryFile(t, ".github/workflows/release.yml")
+	for _, required := range []struct {
+		value string
+		count int
+	}{
+		{value: "git fetch --no-tags origin main", count: 2},
+		{value: `git merge-base --is-ancestor "${GITHUB_SHA}" origin/main`, count: 2},
+	} {
+		if count := strings.Count(release, required.value); count != required.count {
+			t.Fatalf("release workflow contains %q %d times, want %d", required.value, count, required.count)
+		}
+	}
+	for _, forbidden := range []string{"origin/v2", "Require tag commit in v2 history"} {
+		if strings.Contains(release, forbidden) {
+			t.Fatalf("release workflow still contains removed branch reference %q", forbidden)
+		}
+	}
+}
+
 func TestBranchAndReleaseWorkflowsRunRaceInParallelGates(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/ci.yml")
 	testJob := workflowJobBlock(t, content, "test")
