@@ -128,6 +128,9 @@ func TestCompileRejectsInvalidRules(t *testing.T) {
 		{name: "unsafe integer", value: []any{map[string]any{"set": map[string]any{"value": json.Number("9007199254740992")}}}},
 		{name: "overflowing number", value: []any{map[string]any{"set": map[string]any{"value": json.Number("1e400")}}}},
 		{name: "lossy decimal", value: []any{map[string]any{"set": map[string]any{"value": json.Number("0.10000000000000001")}}}},
+		{name: "negative zero", value: []any{map[string]any{"set": map[string]any{"value": json.Number("-0")}}}},
+		{name: "negative decimal zero", value: []any{map[string]any{"set": map[string]any{"value": json.Number("-0.0")}}}},
+		{name: "negative exponent zero", value: []any{map[string]any{"set": map[string]any{"value": json.Number("-0e3")}}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -146,7 +149,6 @@ func TestCompileAcceptsNumbersThatRoundTripThroughManagementUI(t *testing.T) {
 		"1.0",
 		"1e3",
 		"1e-7",
-		"-0",
 	} {
 		t.Run(value.String(), func(t *testing.T) {
 			if _, err := Compile([]any{map[string]any{"set": map[string]any{"value": value}}}); err != nil {

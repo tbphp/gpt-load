@@ -398,6 +398,9 @@ func validateJSONNumber(value json.Number) error {
 	if err != nil || math.IsInf(parsed, 0) || math.IsNaN(parsed) {
 		return fmt.Errorf("set contains a number outside the supported range")
 	}
+	if parsed == 0 && math.Signbit(parsed) {
+		return fmt.Errorf("set contains a number that cannot round-trip through the management UI")
+	}
 	exact, ok := new(big.Rat).SetString(literal)
 	if !ok {
 		return fmt.Errorf("set contains an invalid number")

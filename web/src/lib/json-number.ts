@@ -1,7 +1,11 @@
 export class JSONNumberPrecisionError extends Error {}
 
 export function isJSONSafeNumber(value: number): boolean {
-  return Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value))
+  return (
+    Number.isFinite(value) &&
+    !Object.is(value, -0) &&
+    (!Number.isInteger(value) || Number.isSafeInteger(value))
+  )
 }
 
 export function assertJSONNumbersRoundTrip(source: string): void {
