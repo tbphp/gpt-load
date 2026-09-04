@@ -128,13 +128,12 @@ func TestMakeCheckDoesNotDuplicateWebTypeCheck(t *testing.T) {
 func TestBranchAndReleaseWorkflowsFollowDefaultBranch(t *testing.T) {
 	ci := readRepositoryFile(t, ".github/workflows/ci.yml")
 	triggers := workflowTopLevelBlock(t, ci, "on")
-	for _, required := range []string{
-		"push:\n    branches:\n      - main",
-		"pull_request:\n    branches:\n      - main",
-	} {
-		if !strings.Contains(triggers, required) {
-			t.Fatalf("branch CI triggers do not contain %q:\n%s", required, triggers)
-		}
+	required := "pull_request:\n    branches:\n      - main"
+	if !strings.Contains(triggers, required) {
+		t.Fatalf("branch CI triggers do not contain %q:\n%s", required, triggers)
+	}
+	if strings.Contains(triggers, "push:") {
+		t.Fatalf("branch CI still runs after changes merge into main:\n%s", triggers)
 	}
 	if strings.Contains(triggers, "      - v2") {
 		t.Fatalf("branch CI still targets the removed v2 branch:\n%s", triggers)
@@ -155,6 +154,21 @@ func TestBranchAndReleaseWorkflowsFollowDefaultBranch(t *testing.T) {
 	for _, forbidden := range []string{"origin/v2", "Require tag commit in v2 history"} {
 		if strings.Contains(release, forbidden) {
 			t.Fatalf("release workflow still contains removed branch reference %q", forbidden)
+		}
+	}
+}
+
+func TestWorkflowNamesDoNotCarryRetiredV2PhaseLabel(t *testing.T) {
+	for _, workflow := range []struct {
+		file string
+		name string
+	}{
+		{file: ".github/workflows/ci.yml", name: "CI"},
+		{file: ".github/workflows/release.yml", name: "Release"},
+	} {
+		content := readRepositoryFile(t, workflow.file)
+		if !strings.HasPrefix(content, "name: "+workflow.name+"\n") {
+			t.Fatalf("%s does not use workflow name %q", workflow.file, workflow.name)
 		}
 	}
 }
@@ -290,7 +304,7 @@ func TestBranchWorkflowCancelsSupersededRuns(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/ci.yml")
 	concurrency := workflowTopLevelBlock(t, content, "concurrency")
 	for _, required := range []string{
-		`group: v2-ci-${{ github.event.pull_request.number || github.ref }}`,
+		`group: ci-pr-${{ github.event.pull_request.number }}`,
 		"cancel-in-progress: true",
 	} {
 		if !strings.Contains(concurrency, required) {
