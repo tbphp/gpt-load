@@ -76,11 +76,19 @@ const searchDebounce = useDebouncedAction(250)
 const data = computed(() => groupsQuery.data.value)
 const toast = useToast()
 const togglingGroupIDs = ref(new Set<number>())
+const optimisticEnabled = ref(new Map<number, boolean>())
+
+// AppSwitch 是纯受控组件，只反映 model-value。直接绑查询数据的话，点击后要等
+// 请求和 refetch 都走完开关才翻转，看起来就是个卡住的开关；先本地置位，
+// 请求结束（成功或失败）后再把显示交还给查询数据。
+function groupEnabled(group: GroupCollectionItemDto): boolean {
+  return optimisticEnabled.value.get(group.id) ?? group.enabled
+}
 
 // 开关只写 enabled 一个字段——设置接口是部分更新语义，其余配置不受影响。
-async function toggleGroupEnabled(group: GroupCollectionItemDto): Promise<void> {
+async function toggleGroupEnabled(group: GroupCollectionItemDto, next: boolean): Promise<void> {
   if (togglingGroupIDs.value.has(group.id)) return
-  const next = !group.enabled
+  optimisticEnabled.value = new Map(optimisticEnabled.value).set(group.id, next)
   togglingGroupIDs.value = new Set(togglingGroupIDs.value).add(group.id)
   try {
     await updateGroupSettings(client, group.id, { enabled: next })
@@ -94,6 +102,10 @@ async function toggleGroupEnabled(group: GroupCollectionItemDto): Promise<void> 
   } catch {
     toast.show({ message: t('groups.collection.toggleFailed'), tone: 'danger' })
   } finally {
+    // 成功时 refetch 已带回服务端值，失败时回滚到原值，两种情况都交还查询数据。
+    const optimistic = new Map(optimisticEnabled.value)
+    optimistic.delete(group.id)
+    optimisticEnabled.value = optimistic
     const pending = new Set(togglingGroupIDs.value)
     pending.delete(group.id)
     togglingGroupIDs.value = pending
@@ -482,10 +494,10 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 
               <div class="ledger-record-list__cell group-status" role="cell">
                 <AppSwitch
-                  :model-value="group.enabled"
+                  :model-value="groupEnabled(group)"
                   :disabled="togglingGroupIDs.has(group.id)"
                   :label="t('groups.collection.toggleEnabled', { name: group.name })"
-                  @update:model-value="toggleGroupEnabled(group)"
+                  @update:model-value="toggleGroupEnabled(group, $event)"
                 />
                 <StatusBadge :status="group.status">
                   {{ t(`groups.collection.status.${group.status}`) }}

@@ -35,14 +35,25 @@ function hiddenRouteGroups(upstream: ModelUpstreamDto): ModelRouteGroupDto[] {
   return upstream.route_groups.slice(visibleRouteGroupCount)
 }
 
+// 分隔符按界面语言走：中日文顿号、英文逗号，硬编码会漏到其他语言。
+// 用 conjunction + narrow：narrow 去掉“和 / and”只留分隔符，而 unit 类型
+// 在中日文下根本不插分隔符（那是给“5 英尺 3 英寸”这类量词连写用的）。
+function formatGroupNames(names: string[]): string {
+  try {
+    return new Intl.ListFormat(locale.value, { style: 'narrow', type: 'conjunction' }).format(names)
+  } catch {
+    return names.join(', ')
+  }
+}
+
 function hiddenRouteGroupsTooltip(upstream: ModelUpstreamDto): string {
   const hidden = hiddenRouteGroups(upstream)
   return t('models.tree.routeGroupMore', {
     count: hidden.length,
-    names: hidden.map(({ name }) => name).join('、'),
+    names: formatGroupNames(hidden.map(({ name }) => name)),
   })
 }
-const { t } = useI18n()
+const { locale, t } = useI18n()
 
 const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel))
 
