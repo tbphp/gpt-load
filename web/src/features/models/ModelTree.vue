@@ -23,8 +23,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ open: [upstream: ModelUpstreamDto] }>()
 
-// 一行里的分组必定同渠道（列表按「渠道 + 上游模型」聚合），所以两枚就够点出归属，
-// 更多的折叠成 +N，完整清单仍在抽屉里。
+// 一行里的分组必定同渠道，两枚足够点出归属，其余在抽屉里看。
 const visibleRouteGroupCount = 2
 
 function visibleRouteGroups(upstream: ModelUpstreamDto): ModelRouteGroupDto[] {
@@ -35,9 +34,7 @@ function hiddenRouteGroups(upstream: ModelUpstreamDto): ModelRouteGroupDto[] {
   return upstream.route_groups.slice(visibleRouteGroupCount)
 }
 
-// 分隔符按界面语言走：中日文顿号、英文逗号，硬编码会漏到其他语言。
-// 用 conjunction + narrow：narrow 去掉“和 / and”只留分隔符，而 unit 类型
-// 在中日文下根本不插分隔符（那是给“5 英尺 3 英寸”这类量词连写用的）。
+// narrow 去掉“和 / and”只留分隔符；unit 类型在中日文下不插分隔符，不能用。
 function formatGroupNames(names: string[]): string {
   try {
     return new Intl.ListFormat(locale.value, { style: 'narrow', type: 'conjunction' }).format(names)
@@ -538,7 +535,6 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
   text-align: left;
 }
 
-/* 归属分组：一行最多两枚，超出的折叠成 +N。名字可任意长，一律省略并提示。 */
 .model-tree__groups {
   display: inline-flex;
   min-width: 0;

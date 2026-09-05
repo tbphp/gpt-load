@@ -52,8 +52,7 @@ const tooltip = computed(() =>
   cursor: help;
 }
 
-/* 按钮形态要清掉 UA 默认 padding 与字体：容器是固定 22×22 的 border-box，
-   默认内边距会把 13px 图标挤变形。 */
+/* 容器是固定 22×22 的 border-box，UA 默认内边距会挤变形图标。 */
 .proxy-scope-indicator--clickable {
   border: 0;
   padding: 0;

@@ -35,7 +35,7 @@ const modeOptions = computed(() => [
   { value: 'direct', label: t('common.proxy.mode.direct') },
   { value: 'custom', label: t('common.proxy.mode.custom') },
 ])
-// 分段控件没有整体 disabled，逐项禁用即可覆盖保存中与只读态。
+// 分段控件没有整体 disabled，逐项禁用。
 const segmentedModeOptions = computed(() =>
   modeOptions.value.map((option) => ({ ...option, disabled: props.disabled || pending.value })),
 )
@@ -82,7 +82,7 @@ function updateEndpoint(value: string): void {
   saveFailed.value = false
 }
 
-// 供外部入口（如订阅卡片徽章行的代理指示器）一次完成“展开 + 进入编辑”。
+// 供卡片徽章行的指示器一次完成“展开 + 进入编辑”。
 defineExpose({ beginEdit })
 
 async function save(): Promise<void> {
@@ -215,7 +215,6 @@ async function save(): Promise<void> {
   font-size: var(--text-label-xs);
 }
 
-/* 分段控件按文案自然宽度，不参与收缩。 */
 .proxy-config-editor__mode {
   flex: none;
 }
@@ -225,7 +224,7 @@ async function save(): Promise<void> {
   --compact-field-error-indicator-size: 22px;
   --compact-field-error-indicator-right: 2px;
   --compact-field-error-input-gap: 4px;
-  /* basis 归零：地址栏独自吸收剩余宽度，控件行始终保持一行不折行。 */
+  /* basis 归零，地址栏独吞剩余宽度，控件行不折行。 */
   flex: 1 1 0;
   min-width: 0;
 }

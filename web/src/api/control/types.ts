@@ -58,8 +58,6 @@ export interface GroupCollectionItemDto {
   channel_id: string
   connection_type: ConnectionType
   params: ChannelParamsDto
-  /** 运维配置的开关本身。status 还叠加了凭据与模型的可用性，不能拿来当开关。 */
-  enabled: boolean
   status: GroupCollectionStatus
   model_count: number
   credential_counts: CredentialCounts

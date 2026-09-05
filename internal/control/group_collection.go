@@ -40,15 +40,11 @@ type GroupCollectionCredentialCounts struct {
 }
 
 type GroupCollectionItem struct {
-	ID             uint                  `json:"id"`
-	Name           string                `json:"name"`
-	ChannelID      channel.ID            `json:"channel_id"`
-	ConnectionType models.ConnectionType `json:"connection_type"`
-	Params         json.RawMessage       `json:"params"`
-	// Enabled 是运维配置的开关本身；Status 是叠加了凭据与模型后的实际可用性。
-	// 两者必须分开：weight_manual 为 0 的分组同样呈现 disabled 状态，
-	// 但它的开关仍然是打开的，列表上的开关只能反映 Enabled。
-	Enabled          bool                            `json:"enabled"`
+	ID               uint                            `json:"id"`
+	Name             string                          `json:"name"`
+	ChannelID        channel.ID                      `json:"channel_id"`
+	ConnectionType   models.ConnectionType           `json:"connection_type"`
+	Params           json.RawMessage                 `json:"params"`
 	Status           GroupCollectionStatus           `json:"status"`
 	ModelCount       int64                           `json:"model_count"`
 	CredentialCounts GroupCollectionCredentialCounts `json:"credential_counts"`
@@ -360,7 +356,6 @@ func mapGroupCollectionRecords(
 				ID: group.ID, Name: group.Name, ChannelID: channelID,
 				ConnectionType: normalizeGroupConnectionType(group.ConnectionType),
 				Params:         append(json.RawMessage(nil), params...),
-				Enabled:        catalog.Enabled,
 				ModelCount:     int64(len(groupModels)),
 			},
 			CreatedAtMS: group.CreatedAtMS,

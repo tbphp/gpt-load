@@ -33,7 +33,7 @@ const { t } = useI18n()
 const showsIcon = computed(() => Boolean(props.channel?.mark))
 const channelLabel = computed(() => props.channel?.name.trim() || props.channelId || '—')
 
-// 分组名是这一列最有价值的信息，取不到（分组已删除）才退回编号。
+// 取不到分组名（已删除）才退回编号。
 const groupLabel = computed(() => {
   const name = props.groupName?.trim()
   if (name) return name
@@ -60,7 +60,6 @@ const credentialTooltip = computed(() =>
     : t('monitor.logs.routeIdentity.credential', { id: props.credentialId }),
 )
 
-// plain 外观（详情抽屉）横向空间充裕，把渠道也摊开说清楚。
 const plainChannelTooltip = computed(() =>
   props.channelId === null
     ? ''
@@ -146,7 +145,7 @@ const plainChannelTooltip = computed(() =>
   font-size: var(--text-label-xs);
 }
 
-/* 分组名可任意长，一律省略；宽度不够时优先保住它，凭据号不参与收缩。 */
+/* 分组名一律省略，凭据号不参与收缩。 */
 .log-route-identity__group {
   min-width: 0;
   overflow: hidden;
@@ -189,7 +188,6 @@ const plainChannelTooltip = computed(() =>
   white-space: nowrap;
 }
 
-/* 抽屉里横向空间充裕，排成一行并跟随所在字段的字号。 */
 .log-route-identity--plain {
   display: flex;
   flex-wrap: wrap;

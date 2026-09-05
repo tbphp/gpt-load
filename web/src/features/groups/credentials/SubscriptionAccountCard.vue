@@ -81,8 +81,7 @@ const draftWeightMode = ref<'auto' | 'manual'>('auto')
 const draftWeight = ref('50')
 const weightInputId = computed(() => `subscription-account-weight-${props.item.credential_id}`)
 
-// 自动权重是系统算的，等同于代理的“继承”态，折叠时不加视觉噪音；
-// 只有手动配过的账号才在徽章行露出，主备关系一眼可见。
+// 自动权重等同代理的“继承”态，折叠时不加视觉噪音。
 const showWeightChip = computed(
   () => props.item.weight_mode === 'manual' && props.item.weight !== null,
 )
@@ -101,7 +100,7 @@ function resetWeightDraft(): void {
   draftWeight.value = String(props.item.weight ?? 50)
 }
 
-// 徽章行的两个入口都一次完成“展开 + 进入编辑”，与密钥列表点权重值的行为一致。
+// 一次完成“展开 + 进入编辑”，与密钥列表点权重值一致。
 function editWeight(): void {
   if (props.busy) return
   resetWeightDraft()
@@ -124,7 +123,7 @@ function saveWeight(): void {
   weightEditing.value = false
 }
 
-// 保存成功后 item 会带回新值；收起卡片时一并退出编辑，避免下次展开停在旧草稿。
+// 收起卡片时退出编辑，避免下次展开停在旧草稿。
 watch(
   () => [props.item.weight_mode, props.item.weight] as const,
   () => {
@@ -1996,7 +1995,6 @@ function runMenuAction(
   gap: 13px;
   margin-top: 13px;
 }
-/* 手动权重的徽章：与状态徽章同高，比数值本身更靠图标识别。 */
 .subscription-account__weight-chip {
   display: inline-flex;
   min-height: 24px;

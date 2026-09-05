@@ -78,14 +78,12 @@ const toast = useToast()
 const togglingGroupIDs = ref(new Set<number>())
 const optimisticEnabled = ref(new Map<number, boolean>())
 
-// AppSwitch 是纯受控组件，只反映 model-value。直接绑查询数据的话，点击后要等
-// 请求和 refetch 都走完开关才翻转，看起来就是个卡住的开关；先本地置位，
-// 请求结束（成功或失败）后再把显示交还给查询数据。
+// weight_manual 为 0 也判定 disabled，但接口限定 1~100，故 disabled 即已停用。
+// AppSwitch 纯受控，等请求走完才翻转会像卡住，故先本地置位。
 function groupEnabled(group: GroupCollectionItemDto): boolean {
-  return optimisticEnabled.value.get(group.id) ?? group.enabled
+  return optimisticEnabled.value.get(group.id) ?? group.status !== 'disabled'
 }
 
-// 开关只写 enabled 一个字段——设置接口是部分更新语义，其余配置不受影响。
 async function toggleGroupEnabled(group: GroupCollectionItemDto, next: boolean): Promise<void> {
   if (togglingGroupIDs.value.has(group.id)) return
   optimisticEnabled.value = new Map(optimisticEnabled.value).set(group.id, next)
@@ -102,7 +100,6 @@ async function toggleGroupEnabled(group: GroupCollectionItemDto, next: boolean):
   } catch {
     toast.show({ message: t('groups.collection.toggleFailed'), tone: 'danger' })
   } finally {
-    // 成功时 refetch 已带回服务端值，失败时回滚到原值，两种情况都交还查询数据。
     const optimistic = new Map(optimisticEnabled.value)
     optimistic.delete(group.id)
     optimisticEnabled.value = optimistic
@@ -613,7 +610,7 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 }
 
 .groups-record-grid {
-  /* 状态列扩宽以容纳开关 + 徽章；操作列去掉按钮文案后收窄，总宽反而比之前小。 */
+  /* 状态列扩宽容纳开关，操作列去掉文案后收窄，总宽比改前更小。 */
   --ledger-record-list-grid: minmax(0, 1fr) 140px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 96px;
 }
 
@@ -759,7 +756,6 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 
 @media (max-width: 1040px) {
   .groups-record-grid {
-    /* 状态列同样要放下开关 + 徽章。 */
     --ledger-record-list-grid: minmax(0, 1fr) 124px minmax(0, 1.25fr) 76px minmax(0, 1.15fr) 72px;
     --ledger-record-list-column-gap: 12px;
   }

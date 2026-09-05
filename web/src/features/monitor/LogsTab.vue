@@ -355,8 +355,7 @@ async function commitFilters(filters: RequestLogFilters): Promise<void> {
   await router.push(monitorLocation(logsMonitorQuery(filters)))
 }
 
-// 点分组名就地收窄当前日志列表：排查时想看的是这个分组的其他请求，
-// 而不是跳去分组详情（日志里的分组还可能已经被删掉）。
+// 就地收窄而非跳转：排查时要看的是同分组的其他请求，且分组可能已删。
 async function filterByGroup(groupID: number): Promise<void> {
   await commitFilters({ ...appliedFilters.value, group_id: groupID })
 }
@@ -963,8 +962,7 @@ function costLabel(log: RequestLogItemDto): string {
 }
 
 .logs-list {
-  /* 时间是定长格式，Token/耗时/成本按实际内容重算，压出的宽度正好装下新的访问密钥列，
-     总宽与拆列前持平。 */
+  /* 时间定长、Token/耗时/成本按实际内容重算，压出的宽度装下新增的密钥列。 */
   --ledger-record-list-grid: 96px minmax(96px, 0.62fr) minmax(132px, 0.86fr) minmax(180px, 1.2fr)
     96px minmax(76px, 0.42fr) minmax(104px, 0.6fr) 100px 34px;
   --ledger-record-list-column-gap: 16px;
