@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/andybalholm/brotli v1.2.3
+	github.com/buger/jsonparser v1.2.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/joho/godotenv v1.5.1
@@ -50,7 +51,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10 // indirect
 	github.com/aws/smithy-go v1.27.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
-	github.com/buger/jsonparser v1.2.0 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.3-0.20260730064818-2a36d6da63e2 // indirect
 	github.com/bytedance/sonic/loader v0.5.2 // indirect

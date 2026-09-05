@@ -231,24 +231,37 @@ func (rules Rules) Apply(
 	if len(matched) == 0 {
 		return body, false, nil
 	}
-	var object map[string]any
-	if err := decodeJSON(body, &object); err != nil || object == nil {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 || body[0] != '{' || !json.Valid(body) {
 		return nil, false, fmt.Errorf("request body must be a JSON object")
+	}
+	object := &requestValue{raw: body}
+	for _, entry := range matched {
+		object.planSet(entry.set)
+		for _, pointer := range entry.remove {
+			object.planPath(pointer)
+		}
 	}
 	for _, entry := range matched {
 		for _, pointer := range entry.remove {
-			removeObjectField(object, pointer)
+			if err := object.remove(pointer); err != nil {
+				return nil, false, err
+			}
 		}
-		mergeObject(object, entry.set)
+		if err := object.merge(entry.set); err != nil {
+			return nil, false, err
+		}
 	}
-	var encoded bytes.Buffer
-	encoder := json.NewEncoder(&encoded)
-	// 请求体是 JSON，无需为嵌入 HTML 转义 <、>、&，避免无谓的体积膨胀。
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(object); err != nil {
+	// 先计算最终长度，再精确分配一次；不为中间规则结果保留完整请求体。
+	var measured requestOutput
+	if err := object.write(&measured); err != nil {
 		return nil, false, fmt.Errorf("encode overridden request body: %w", err)
 	}
-	return bytes.TrimSuffix(encoded.Bytes(), []byte("\n")), true, nil
+	encoded := requestOutput{body: make([]byte, 0, measured.size)}
+	if err := object.write(&encoded); err != nil {
+		return nil, false, fmt.Errorf("encode overridden request body: %w", err)
+	}
+	return encoded.body, true, nil
 }
 
 func supports(clientProtocol protocol.Protocol, operation execution.Operation) bool {
@@ -277,30 +290,6 @@ func (entry rule) matches(clientProtocol protocol.Protocol, clientModel string) 
 		return strings.HasPrefix(clientModel, entry.model)
 	}
 	return clientModel == entry.model
-}
-
-func mergeObject(target, source map[string]any) {
-	for key, value := range source {
-		sourceObject, sourceIsObject := value.(map[string]any)
-		targetObject, targetIsObject := target[key].(map[string]any)
-		if sourceIsObject && targetIsObject {
-			mergeObject(targetObject, sourceObject)
-			continue
-		}
-		target[key] = cloneJSON(value)
-	}
-}
-
-func removeObjectField(target map[string]any, pointer []string) {
-	current := target
-	for _, segment := range pointer[:len(pointer)-1] {
-		nested, ok := current[segment].(map[string]any)
-		if !ok {
-			return
-		}
-		current = nested
-	}
-	delete(current, pointer[len(pointer)-1])
 }
 
 func parsePointer(value string) ([]string, error) {
