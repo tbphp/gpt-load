@@ -198,6 +198,9 @@ function policyCountError(key: PolicyCountSettingKey): string | undefined {
               <strong v-else>{{
                 t(`settings.runtime.routeStrategies.${base.settings.values.route_strategy}`)
               }}</strong>
+              <small v-if="!hasOverride('route_strategy') && !isPendingRestore('route_strategy')">
+                {{ t('settings.runtime.currentEffective') }}
+              </small>
               <small>{{ t('settings.runtime.routeStrategyHelp') }}</small>
             </div>
           </template>
