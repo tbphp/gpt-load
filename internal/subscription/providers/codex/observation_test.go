@@ -71,8 +71,7 @@ func TestNormalizePassiveQuotaWindowsMapsAdditionalLimitNamespaces(t *testing.T)
 	if _, ok := byID["primary"]; !ok {
 		t.Fatalf("windows = %#v, want the account-scope primary window", windows)
 	}
-	// The Limit-Name only has to produce the matching window ID; Scope, like
-	// the other display metadata, stays owned by the active observation.
+	// 保留原有 ID 格式；实际匹配使用 SourceID 和周期，不使用展示名称。
 	spark, ok := byID["gpt-5-3-codex-spark-primary"]
 	if !ok || spark.Used == nil || *spark.Used != 33 {
 		t.Fatalf("additional primary window = %#v (all=%#v)", spark, windows)
@@ -84,8 +83,7 @@ func TestNormalizePassiveQuotaWindowsMapsAdditionalLimitNamespaces(t *testing.T)
 }
 
 func TestNormalizePassiveQuotaWindowsAdditionalIDMatchesActiveJSON(t *testing.T) {
-	// The passive namespace ID must equal the ID the active JSON path builds
-	// for the same limit_name, otherwise the merge silently never applies.
+	// 保留现有窗口 ID 的兼容性；来源与周期的匹配另有回归测试。
 	raw, err := NormalizeQuota([]byte(`{
 		"plan_type":"pro",
 		"additional_rate_limits":[{
@@ -115,20 +113,19 @@ func TestNormalizePassiveQuotaWindowsAdditionalIDMatchesActiveJSON(t *testing.T)
 	}
 }
 
-func TestNormalizePassiveQuotaWindowsSkipsNamespaceWithoutLimitName(t *testing.T) {
-	// Without a Limit-Name there is no way to build the same stable ID the
-	// active path uses, so the namespace must be ignored entirely.
+func TestNormalizePassiveQuotaWindowsKeepsSourceWithoutLimitName(t *testing.T) {
+	// 命名空间足以标识来源；缺少展示名称不应丢弃额度信息。
 	windows := NormalizePassiveQuotaWindows(map[string]string{
 		"X-Codex-Mysteryns-Primary-Used-Percent": "33",
 	}, time.Now())
-	if len(windows) != 0 {
-		t.Fatalf("windows = %#v, want none without a Limit-Name", windows)
+	if len(windows) != 1 || windows[0].SourceID != "codex_mysteryns" {
+		t.Fatalf("windows = %#v, want source identified without a Limit-Name", windows)
 	}
 }
 
 func TestNormalizePassiveQuotaWindowsOmitsAllDisplayMetadata(t *testing.T) {
 	// A passive response only ever updates quota numbers and state on windows
-	// an active observation already created. Every identity/display field is
+	// an active observation already created. Every display field is
 	// left empty so the merge cannot overwrite what that observation owns --
 	// Label in particular is derived from the window period, which a partial
 	// response may not carry.
