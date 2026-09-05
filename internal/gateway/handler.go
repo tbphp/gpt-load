@@ -791,13 +791,17 @@ func (handler *Handler) executeAttempts(
 		observationsAvailable bool
 		err                   error
 	}
-	preparedByGroup := make(map[uint]preparedRequest)
+	// 缓存仅属于本次请求；切换分组时释放旧结果，避免重试累积完整请求体。
+	var preparedGroupID uint
+	var cachedPrepared *preparedRequest
 	loggedOverrideFailures := make(map[uint]struct{})
 	var parameterOverrideFailure *reason
 	prepareRequest := func(selection scheduler.Selection) preparedRequest {
-		if prepared, exists := preparedByGroup[selection.GroupID]; exists {
-			return prepared
+		if cachedPrepared != nil && preparedGroupID == selection.GroupID {
+			return *cachedPrepared
 		}
+		cachedPrepared = nil
+		preparedGroupID = selection.GroupID
 		prepared := preparedRequest{
 			request: parsed, observations: originalMetadata, observationsAvailable: true,
 		}
@@ -809,16 +813,16 @@ func (handler *Handler) executeAttempts(
 		)
 		if err != nil {
 			prepared.err = err
-			preparedByGroup[selection.GroupID] = prepared
+			cachedPrepared = &prepared
 			return prepared
 		}
 		if !applied {
-			preparedByGroup[selection.GroupID] = prepared
+			cachedPrepared = &prepared
 			return prepared
 		}
 		if int64(len(body)) > maxRequestBodyBytes {
 			prepared.err = errRequestTooLarge
-			preparedByGroup[selection.GroupID] = prepared
+			cachedPrepared = &prepared
 			return prepared
 		}
 		request := &dialect.ParsedRequest{
@@ -840,7 +844,7 @@ func (handler *Handler) executeAttempts(
 			prepared.observationsAvailable = true
 		}
 		prepared.request = request
-		preparedByGroup[selection.GroupID] = prepared
+		cachedPrepared = &prepared
 		return prepared
 	}
 	decisionContextForSelection := func(selection scheduler.Selection) health.DecisionContext {
