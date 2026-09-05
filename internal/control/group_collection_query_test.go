@@ -514,3 +514,72 @@ func createGroupCollectionUsageStat(
 		t.Fatalf("create usage stat for group %d: %v", groupID, err)
 	}
 }
+
+// 列表上的启停开关只能反映 Group.Enabled，不能拿 Status 代替：Status 还叠加了
+// 凭据与模型的可用性，也叠加了 weight_manual 为 0 的历史数据。开关若绑 Status，
+// 用户点击后状态不变，会被当成坏掉的开关。
+func TestListGroupCollectionExposesEnabledSeparatelyFromStatus(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("switch source"), ChannelID: channel.OpenAI,
+		ConnectionType: models.ConnectionTypeAPIKey,
+		Models: optionalGroupModels{Set: true, Values: []GroupModel{
+			{ID: "provider-model", Alias: "provider-model"},
+		}},
+		Credentials: "sk-switch-source",
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+
+	item := singleGroupCollectionItem(t, fixture)
+	if !item.Enabled || item.Status != GroupCollectionStatusAvailable {
+		t.Fatalf("fresh group enabled = %v, status = %q", item.Enabled, item.Status)
+	}
+
+	if _, err := fixture.service.UpdateGroupSettings(t.Context(), created.GroupID,
+		GroupSettingsUpdateRequest{Enabled: optionalField[bool]{Set: true, Value: false}},
+	); err != nil {
+		t.Fatalf("UpdateGroupSettings(enabled=false) error = %v", err)
+	}
+	item = singleGroupCollectionItem(t, fixture)
+	if item.Enabled || item.Status != GroupCollectionStatusDisabled {
+		t.Fatalf("disabled group enabled = %v, status = %q", item.Enabled, item.Status)
+	}
+
+	if _, err := fixture.service.UpdateGroupSettings(t.Context(), created.GroupID,
+		GroupSettingsUpdateRequest{Enabled: optionalField[bool]{Set: true, Value: true}},
+	); err != nil {
+		t.Fatalf("UpdateGroupSettings(enabled=true) error = %v", err)
+	}
+	if item = singleGroupCollectionItem(t, fixture); !item.Enabled {
+		t.Fatalf("re-enabled group enabled = false")
+	}
+}
+
+func singleGroupCollectionItem(t *testing.T, fixture serviceFixture) GroupCollectionItem {
+	t.Helper()
+	collection, err := fixture.service.ListGroupCollection(t.Context(), GroupCollectionQuery{
+		Page: 1, PageSize: 20,
+	})
+	if err != nil || len(collection.Items) != 1 {
+		t.Fatalf("ListGroupCollection() = %#v, %v", collection, err)
+	}
+	return collection.Items[0]
+}
+
+// 一个启用中的分组，只要 weight_manual 是 0 就同样呈现 disabled；这正是
+// Status 不能当开关用的原因。
+func TestGroupCollectionStatusDisabledByZeroWeightKeepsGroupEnabled(t *testing.T) {
+	t.Parallel()
+	zero := 0
+	catalog := state.GroupCatalogView{Enabled: true, WeightManual: &zero}
+	counts := GroupCollectionCredentialCounts{Total: 1, Available: 1}
+	if status := groupCollectionStatus(catalog, counts, 1); status != GroupCollectionStatusDisabled {
+		t.Fatalf("status = %q, want %q", status, GroupCollectionStatusDisabled)
+	}
+	if !catalog.Enabled {
+		t.Fatalf("catalog.Enabled = false, want true")
+	}
+}

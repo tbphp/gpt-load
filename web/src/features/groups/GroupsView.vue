@@ -10,15 +10,17 @@ import type {
   ConnectionType,
   CredentialCounts,
   GroupCollectionFilters,
+  GroupCollectionItemDto,
   GroupCollectionSort,
   GroupCollectionStatus,
 } from '@/api/control/types'
 import { channelsQueryOptions, type ChannelDto } from '@/app/resources/channels'
-import { groupCollectionQueryOptions } from '@/app/resources/groups'
+import { groupCollectionQueryOptions, updateGroupSettings } from '@/app/resources/groups'
 import { groupDetailLocation, groupsLocation, importLocation } from '@/app/route-locations'
 import { useCollectionLoading } from '@/app/loading-state'
 import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
+import { useToast } from '@/app/toast'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
@@ -26,6 +28,7 @@ import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -71,6 +74,31 @@ const channelsByID = computed<Record<string, ChannelDto>>(() =>
 const searchDebounce = useDebouncedAction(250)
 
 const data = computed(() => groupsQuery.data.value)
+const toast = useToast()
+const togglingGroupIDs = ref(new Set<number>())
+
+// 开关只写 enabled 一个字段——设置接口是部分更新语义，其余配置不受影响。
+async function toggleGroupEnabled(group: GroupCollectionItemDto): Promise<void> {
+  if (togglingGroupIDs.value.has(group.id)) return
+  const next = !group.enabled
+  togglingGroupIDs.value = new Set(togglingGroupIDs.value).add(group.id)
+  try {
+    await updateGroupSettings(client, group.id, { enabled: next })
+    await groupsQuery.refetch()
+    toast.show({
+      message: t(next ? 'groups.collection.enabledOn' : 'groups.collection.enabledOff', {
+        name: group.name,
+      }),
+      tone: next ? 'success' : 'warning',
+    })
+  } catch {
+    toast.show({ message: t('groups.collection.toggleFailed'), tone: 'danger' })
+  } finally {
+    const pending = new Set(togglingGroupIDs.value)
+    pending.delete(group.id)
+    togglingGroupIDs.value = pending
+  }
+}
 const hasFilterCriteria = computed(
   () =>
     filters.value.q !== undefined ||
@@ -453,6 +481,12 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
               </div>
 
               <div class="ledger-record-list__cell group-status" role="cell">
+                <AppSwitch
+                  :model-value="group.enabled"
+                  :disabled="togglingGroupIDs.has(group.id)"
+                  :label="t('groups.collection.toggleEnabled', { name: group.name })"
+                  @update:model-value="toggleGroupEnabled(group)"
+                />
                 <StatusBadge :status="group.status">
                   {{ t(`groups.collection.status.${group.status}`) }}
                 </StatusBadge>
@@ -517,19 +551,15 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
                   :to="importLocation({ mode: 'existing', group_id: group.id })"
                   custom
                 >
-                  <AppButton
-                    class="append-credential"
+                  <IconButton
                     role="link"
-                    variant="secondary"
+                    variant="surface"
                     size="compact"
-                    :aria-label="t('groups.collection.appendCredentialFor', { name: group.name })"
+                    :label="t('groups.collection.appendCredentialFor', { name: group.name })"
                     @click="navigate"
                   >
                     <Plus :size="15" aria-hidden="true" />
-                    <span class="append-credential__label">{{
-                      t('groups.collection.appendCredential')
-                    }}</span>
-                  </AppButton>
+                  </IconButton>
                 </RouterLink>
                 <RouterLink v-slot="{ navigate }" :to="groupDetailLocation(group.id)" custom>
                   <IconButton
@@ -571,7 +601,14 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 }
 
 .groups-record-grid {
-  --ledger-record-list-grid: minmax(0, 1fr) 96px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 164px;
+  /* 状态列扩宽以容纳开关 + 徽章；操作列去掉按钮文案后收窄，总宽反而比之前小。 */
+  --ledger-record-list-grid: minmax(0, 1fr) 140px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 96px;
+}
+
+.group-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
 }
 
 .group-name {
@@ -710,18 +747,9 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 
 @media (max-width: 1040px) {
   .groups-record-grid {
-    --ledger-record-list-grid: minmax(0, 1fr) 84px minmax(0, 1.25fr) 76px minmax(0, 1.15fr) 72px;
+    /* 状态列同样要放下开关 + 徽章。 */
+    --ledger-record-list-grid: minmax(0, 1fr) 124px minmax(0, 1.25fr) 76px minmax(0, 1.15fr) 72px;
     --ledger-record-list-column-gap: 12px;
-  }
-
-  .append-credential {
-    width: 34px;
-    min-width: 34px;
-    padding: 0;
-  }
-
-  .append-credential__label {
-    display: none;
   }
 }
 

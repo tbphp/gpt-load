@@ -716,6 +716,7 @@ export default {
         group: '分组：{name}（G{id}）',
         channel: '渠道：{name}',
         credential: '凭据：K{id}',
+        filterHint: '点击只看该分组的日志',
       },
       details: '查看详情',
       failureCategory: {

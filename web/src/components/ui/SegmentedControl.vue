@@ -16,7 +16,7 @@ withDefaults(
     idPrefix?: string
     scrollable?: boolean
     appearance?: 'joined' | 'pills' | 'drawer'
-    size?: 'sm' | 'compact' | 'touch'
+    size?: 'xs' | 'sm' | 'compact' | 'touch'
   }>(),
   {
     controlsId: undefined,
@@ -117,6 +117,13 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
 .segmented-control__list--compact .segmented-control__trigger {
   min-height: var(--control-compact);
   padding: 4px 10px;
+}
+/* 设置面板内的紧凑控件行：与同排的输入框、按钮统一 26px。 */
+.segmented-control__list--xs .segmented-control__trigger {
+  min-height: 26px;
+  padding: 3px 9px;
+  font-size: var(--text-label-xs);
+  font-weight: 620;
 }
 .segmented-control__list--sm .segmented-control__trigger {
   min-width: 78px;

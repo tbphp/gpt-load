@@ -355,6 +355,12 @@ async function commitFilters(filters: RequestLogFilters): Promise<void> {
   await router.push(monitorLocation(logsMonitorQuery(filters)))
 }
 
+// 点分组名就地收窄当前日志列表：排查时想看的是这个分组的其他请求，
+// 而不是跳去分组详情（日志里的分组还可能已经被删掉）。
+async function filterByGroup(groupID: number): Promise<void> {
+  await commitFilters({ ...appliedFilters.value, group_id: groupID })
+}
+
 async function applyFilters(): Promise<void> {
   const errors = validateLogFilterDraft(draft.value)
   filterErrors.value = errors
@@ -647,6 +653,9 @@ function costLabel(log: RequestLogItemDto): string {
       >
         <template #header>
           <span role="columnheader">{{ t('monitor.logs.columns.time') }}</span>
+          <span v-if="!isAccessKey" role="columnheader">
+            {{ t('monitor.logs.columns.accessKey') }}
+          </span>
           <span v-if="!isAccessKey" role="columnheader">{{ t('monitor.logs.columns.route') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.modelProtocol') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.response') }}</span>
@@ -678,17 +687,26 @@ function costLabel(log: RequestLogItemDto): string {
             v-if="!isAccessKey"
             class="ledger-record-list__cell logs-list__cell"
             role="cell"
-            :data-label="t('monitor.logs.columns.route')"
+            :data-label="t('monitor.logs.columns.accessKey')"
           >
             <OverflowTooltip as="span" :content="accessKeyLabel(log)">
               {{ accessKeyLabel(log) }}
             </OverflowTooltip>
+          </div>
+          <div
+            v-if="!isAccessKey"
+            class="ledger-record-list__cell logs-list__cell"
+            role="cell"
+            :data-label="t('monitor.logs.columns.route')"
+          >
             <LogRouteIdentity
               :group-id="log.group_id"
               :group-name="groupName(log)"
               :channel-id="log.channel_id"
               :channel="channelDefinition(log)"
               :credential-id="log.credential_id"
+              filterable
+              @filter-group="filterByGroup"
             />
           </div>
           <div
@@ -945,16 +963,18 @@ function costLabel(log: RequestLogItemDto): string {
 }
 
 .logs-list {
-  --ledger-record-list-grid: 116px minmax(132px, 0.95fr) minmax(180px, 1.2fr) 112px
-    minmax(88px, 0.58fr) minmax(142px, 0.9fr) 126px 34px;
+  /* 时间是定长格式，Token/耗时/成本按实际内容重算，压出的宽度正好装下新的访问密钥列，
+     总宽与拆列前持平。 */
+  --ledger-record-list-grid: 96px minmax(96px, 0.62fr) minmax(132px, 0.86fr) minmax(180px, 1.2fr)
+    96px minmax(76px, 0.42fr) minmax(104px, 0.6fr) 100px 34px;
   --ledger-record-list-column-gap: 16px;
   --ledger-record-list-record-min-height: 72px;
   --ledger-record-list-record-padding: 10px 0;
 }
 
 .logs-list--scoped {
-  --ledger-record-list-grid: 116px minmax(180px, 1.2fr) 112px minmax(88px, 0.58fr)
-    minmax(142px, 0.9fr) 126px 34px;
+  --ledger-record-list-grid: 96px minmax(180px, 1.2fr) 96px minmax(76px, 0.42fr)
+    minmax(104px, 0.6fr) 100px 34px;
 }
 
 .logs-list__cell {
@@ -1133,8 +1153,8 @@ function costLabel(log: RequestLogItemDto): string {
 @media (max-width: 1080px) {
   .logs-list {
     --ledger-record-list-column-gap: 10px;
-    --ledger-record-list-grid: 108px minmax(118px, 0.9fr) minmax(160px, 1.15fr) 104px
-      minmax(84px, 0.58fr) minmax(124px, 0.85fr) 116px 32px;
+    --ledger-record-list-grid: 92px minmax(88px, 0.6fr) minmax(118px, 0.82fr) minmax(160px, 1.15fr)
+      92px minmax(72px, 0.42fr) minmax(96px, 0.58fr) 96px 32px;
   }
 }
 

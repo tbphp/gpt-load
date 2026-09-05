@@ -308,9 +308,10 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
                 >
                   <SegmentedControl
                     v-model="draftWeightMode"
+                    class="group-credential-record__weight-mode"
                     :label="t('group.credentials.weightEditor.mode')"
                     :options="weightModeOptions"
-                    size="compact"
+                    size="xs"
                   />
                   <label class="sr-only" :for="weightInputId">
                     {{ t('group.credentials.weightEditor.value') }}
@@ -529,6 +530,10 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
   gap: 13px 16px;
+}
+
+.group-credential-record__weight-mode {
+  flex: none;
 }
 
 .group-credential-record__weight-form > input {

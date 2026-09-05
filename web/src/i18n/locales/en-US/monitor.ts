@@ -735,6 +735,7 @@ export default {
         group: 'Group: {name} (G{id})',
         channel: 'Channel: {name}',
         credential: 'Credential: K{id}',
+        filterHint: 'Click to show only this group',
       },
       details: 'View details',
       failureCategory: {

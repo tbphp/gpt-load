@@ -8,11 +8,12 @@ import {
   Gauge,
   KeyRound,
   LoaderCircle,
+  PencilLine,
   RefreshCw,
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type {
@@ -31,6 +32,7 @@ import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
+import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatLocalInstant, formatTokens } from '@/lib/format'
@@ -68,10 +70,71 @@ const emit = defineEmits<{
   download: [item: CredentialItemDto]
   'refresh-credential': [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
+  weight: [payload: { item: CredentialItemDto; value: string }]
 }>()
 const { locale, n, t, te } = useI18n()
 const menuOpen = ref(false)
 const detailsExpanded = ref(false)
+const proxyEditor = ref<{ beginEdit: () => void } | null>(null)
+const weightEditing = ref(false)
+const draftWeightMode = ref<'auto' | 'manual'>('auto')
+const draftWeight = ref('50')
+const weightInputId = computed(() => `subscription-account-weight-${props.item.credential_id}`)
+
+// 自动权重是系统算的，等同于代理的“继承”态，折叠时不加视觉噪音；
+// 只有手动配过的账号才在徽章行露出，主备关系一眼可见。
+const showWeightChip = computed(
+  () => props.item.weight_mode === 'manual' && props.item.weight !== null,
+)
+const weightModeOptions = computed(() => [
+  { value: 'auto', label: t('group.credentials.weightEditor.auto'), disabled: props.busy },
+  { value: 'manual', label: t('group.credentials.weightEditor.manual'), disabled: props.busy },
+])
+const manualWeightValid = computed(() => {
+  if (draftWeightMode.value === 'auto') return true
+  const value = Number(draftWeight.value)
+  return Number.isInteger(value) && value >= 1 && value <= 100
+})
+
+function resetWeightDraft(): void {
+  draftWeightMode.value = props.item.weight_mode
+  draftWeight.value = String(props.item.weight ?? 50)
+}
+
+// 徽章行的两个入口都一次完成“展开 + 进入编辑”，与密钥列表点权重值的行为一致。
+function editWeight(): void {
+  if (props.busy) return
+  resetWeightDraft()
+  detailsExpanded.value = true
+  weightEditing.value = true
+}
+
+function editProxy(): void {
+  if (props.busy) return
+  detailsExpanded.value = true
+  void nextTick(() => proxyEditor.value?.beginEdit())
+}
+
+function saveWeight(): void {
+  if (props.busy || !manualWeightValid.value) return
+  emit('weight', {
+    item: props.item,
+    value: draftWeightMode.value === 'auto' ? 'auto' : String(Number(draftWeight.value)),
+  })
+  weightEditing.value = false
+}
+
+// 保存成功后 item 会带回新值；收起卡片时一并退出编辑，避免下次展开停在旧草稿。
+watch(
+  () => [props.item.weight_mode, props.item.weight] as const,
+  () => {
+    if (!weightEditing.value) resetWeightDraft()
+  },
+  { immediate: true },
+)
+watch(detailsExpanded, (expanded) => {
+  if (!expanded) weightEditing.value = false
+})
 const nowMs = ref(Date.now())
 let clockTimer: number | undefined
 
@@ -717,7 +780,24 @@ function runMenuAction(
             >
               {{ statusLabel }}
             </StatusBadge>
-            <ProxyScopeIndicator v-if="capabilities.outbound_proxy" :view="item.proxy" />
+            <button
+              v-if="showWeightChip"
+              class="subscription-account__weight-chip"
+              type="button"
+              :disabled="busy"
+              :title="t('group.credentials.editWeightHint')"
+              :aria-label="t('group.credentials.editWeight')"
+              @click="editWeight"
+            >
+              <Gauge :size="12" aria-hidden="true" />
+              <b>{{ n(item.weight as number) }}</b>
+            </button>
+            <ProxyScopeIndicator
+              v-if="capabilities.outbound_proxy"
+              :view="item.proxy"
+              clickable
+              @activate="editProxy"
+            />
           </div>
           <div class="subscription-account__actions">
             <span
@@ -1241,13 +1321,82 @@ function runMenuAction(
           </div>
         </section>
       </div>
-      <ProxyConfigEditor
-        class="subscription-account__proxy"
-        :view="item.proxy"
-        :save-proxy="saveProxy"
-        :supported="capabilities.outbound_proxy"
-        :disabled="busy"
-      />
+      <div class="subscription-account__panels">
+        <div class="setting-panel">
+          <span class="setting-panel__title">{{ t('group.credentials.columns.weight') }}</span>
+          <div class="setting-panel__body">
+            <template v-if="!weightEditing">
+              <span class="setting-panel__tag">
+                {{ t(`group.credentials.weightEditor.${item.weight_mode}`) }}
+              </span>
+              <span class="setting-panel__value">
+                {{ item.weight === null ? t('group.credentials.none') : n(item.weight) }}
+              </span>
+              <IconButton
+                class="setting-panel__edit"
+                variant="ghost"
+                tone="action"
+                size="xs"
+                :label="t('group.credentials.editWeight')"
+                :disabled="busy || displayDisabled"
+                @click="editWeight"
+              >
+                <PencilLine :size="12" aria-hidden="true" />
+              </IconButton>
+            </template>
+            <form v-else class="setting-panel__form" @submit.prevent="saveWeight">
+              <SegmentedControl
+                v-model="draftWeightMode"
+                class="subscription-account__weight-mode"
+                :label="t('group.credentials.weightEditor.mode')"
+                :options="weightModeOptions"
+                size="xs"
+              />
+              <label class="sr-only" :for="weightInputId">
+                {{ t('group.credentials.weightEditor.value') }}
+              </label>
+              <input
+                :id="weightInputId"
+                v-model="draftWeight"
+                class="subscription-account__weight-input"
+                :class="{ 'is-concealed': draftWeightMode === 'auto' }"
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                inputmode="numeric"
+                :disabled="busy || draftWeightMode === 'auto'"
+                :tabindex="draftWeightMode === 'auto' ? -1 : undefined"
+                :aria-hidden="draftWeightMode === 'auto' ? 'true' : undefined"
+                :aria-invalid="!manualWeightValid || undefined"
+              />
+              <div class="setting-panel__actions">
+                <AppButton variant="ghost" size="compact" @click="weightEditing = false">
+                  {{ t('group.credentials.weightEditor.cancel') }}
+                </AppButton>
+                <AppButton type="submit" size="compact" :disabled="busy || !manualWeightValid">
+                  {{ t('group.credentials.weightEditor.save') }}
+                </AppButton>
+              </div>
+              <p
+                v-if="draftWeightMode === 'manual' && !manualWeightValid"
+                class="setting-panel__error"
+                role="alert"
+              >
+                {{ t('group.credentials.weightEditor.invalid') }}
+              </p>
+            </form>
+          </div>
+        </div>
+
+        <ProxyConfigEditor
+          ref="proxyEditor"
+          :view="item.proxy"
+          :save-proxy="saveProxy"
+          :supported="capabilities.outbound_proxy"
+          :disabled="busy"
+        />
+      </div>
     </section>
   </article>
 </template>
@@ -1842,8 +1991,59 @@ function runMenuAction(
   display: grid;
   gap: 13px;
 }
-.subscription-account__proxy {
+.subscription-account__panels {
+  display: grid;
+  gap: 13px;
   margin-top: 13px;
+}
+/* 手动权重的徽章：与状态徽章同高，比数值本身更靠图标识别。 */
+.subscription-account__weight-chip {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--radius-tag);
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  padding: 3px 7px 3px 6px;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.subscription-account__weight-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.subscription-account__weight-chip:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.subscription-account__weight-chip > b {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.subscription-account__weight-mode {
+  flex: none;
+}
+.subscription-account__weight-input {
+  width: 64px;
+  min-height: 26px;
+  flex: none;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+  font-variant-numeric: tabular-nums;
+}
+.subscription-account__weight-input.is-concealed {
+  visibility: hidden;
 }
 .subscription-account__skeleton-section {
   display: grid;

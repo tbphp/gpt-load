@@ -63,6 +63,10 @@ export default {
       copyFailure: 'コピーできませんでした',
       credentialHealthLabel:
         '合計 {total} 件の認証情報、正常 {available}、クールダウン中 {cooldown}、ブラックリスト {blacklisted}、無効 {disabled}',
+      toggleEnabled: '{name} を有効化',
+      enabledOn: '{name} を有効にしました',
+      enabledOff: '{name} を停止しました。新しいリクエストは受け付けません。',
+      toggleFailed: '切り替えに失敗しました。再試行してください。',
       appendCredential: '認証情報を追加',
       appendCredentialFor: '{name} に認証情報を追加',
     },

@@ -63,6 +63,10 @@ export default {
       copyFailure: 'Copy failed',
       credentialHealthLabel:
         '{total} credentials total: {available} available, {cooldown} cooling down, {blacklisted} blacklisted, {disabled} disabled',
+      toggleEnabled: 'Enable {name}',
+      enabledOn: 'Enabled {name}',
+      enabledOff: 'Disabled {name}. It no longer takes new requests.',
+      toggleFailed: 'Could not change the switch. Try again.',
       appendCredential: 'Add credential',
       appendCredentialFor: 'Add a credential to {name}',
     },

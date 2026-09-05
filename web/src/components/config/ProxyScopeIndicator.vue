@@ -6,7 +6,10 @@ import { useI18n } from 'vue-i18n'
 import type { ProxyViewDto } from '@/api/control/types'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 
-const props = defineProps<{ view: ProxyViewDto }>()
+const props = withDefaults(defineProps<{ view: ProxyViewDto; clickable?: boolean }>(), {
+  clickable: false,
+})
+const emit = defineEmits<{ activate: [] }>()
 const { t } = useI18n()
 
 // 只在凭据自己配置了代理（未沿用上一级）时提示，继承态不加视觉噪音。
@@ -21,7 +24,16 @@ const tooltip = computed(() =>
 
 <template>
   <AppTooltip v-if="own" :content="tooltip">
-    <span class="proxy-scope-indicator" tabindex="0" :aria-label="tooltip">
+    <button
+      v-if="clickable"
+      class="proxy-scope-indicator proxy-scope-indicator--clickable"
+      type="button"
+      :aria-label="tooltip"
+      @click="emit('activate')"
+    >
+      <Route :size="13" aria-hidden="true" />
+    </button>
+    <span v-else class="proxy-scope-indicator" tabindex="0" :aria-label="tooltip">
       <Route :size="13" aria-hidden="true" />
     </span>
   </AppTooltip>
@@ -38,6 +50,11 @@ const tooltip = computed(() =>
   background: var(--color-info-bg);
   color: var(--color-info);
   cursor: help;
+}
+
+.proxy-scope-indicator--clickable {
+  border: 0;
+  cursor: pointer;
 }
 
 .proxy-scope-indicator:focus-visible {

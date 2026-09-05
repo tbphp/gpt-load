@@ -734,6 +734,7 @@ export default {
         group: 'グループ：{name}（G{id}）',
         channel: 'チャネル：{name}',
         credential: 'クレデンシャル：K{id}',
+        filterHint: 'クリックでこのグループのみ表示',
       },
       details: '詳細を表示',
       failureCategory: {
