@@ -36,7 +36,7 @@ func NormalizeQuota(primary, details []byte) ([]byte, error) {
 		}
 	}
 	if rate, ok := object(firstValue(payload, "rate_limit", "rateLimit")); ok {
-		result.QuotaWindows = append(result.QuotaWindows, normalizeRateWindows(rate, "", "account")...)
+		result.QuotaWindows = append(result.QuotaWindows, normalizeRateWindows(rate, "", "account", "codex")...)
 	}
 	if additional, ok := firstValue(payload, "additional_rate_limits", "additionalRateLimits").([]any); ok {
 		for index, rawEntry := range additional {
@@ -52,7 +52,8 @@ func NormalizeQuota(primary, details []byte) ([]byte, error) {
 			if !ok {
 				continue
 			}
-			windows := normalizeRateWindows(rate, providerobservation.SafeID(name)+"-", name)
+			sourceID := cleanString(firstValue(entry, "metered_feature", "meteredFeature"))
+			windows := normalizeRateWindows(rate, providerobservation.SafeID(name)+"-", name, sourceID)
 			modelIDs := stringsFrom(firstValue(entry, "model_ids", "modelIds"))
 			for windowIndex := range windows {
 				windows[windowIndex].ModelIDs = append([]string(nil), modelIDs...)
@@ -112,27 +113,15 @@ var passiveQuotaNamespaceFields = []string{"limit-reached", "limit-name", "allow
 
 // passiveQuotaNamespace holds one Codex limit namespace parsed out of the
 // response headers. The empty namespace is the credential's own rate limit;
-// any other namespace is an additional limit identified by its Limit-Name.
+// any other namespace identifies an additional metered feature.
 type passiveQuotaNamespace struct {
 	rateLevel map[string]string
 	windows   map[string]map[string]string
 }
 
-// NormalizePassiveQuotaWindows converts one response's passive quota headers
-// into the same windows NormalizeQuota produces from the active JSON payload,
-// reusing normalizeRateWindows so Scope, Unit, and State follow one rule
-// regardless of source.
-//
-// Namespaces are discovered from the headers rather than enumerated, so a
-// limit Codex introduces later is picked up without a code change as long as
-// it follows the same X-Codex-<namespace>-<window>-<field> shape and carries
-// an X-Codex-<namespace>-Limit-Name. An additional namespace without that
-// name is skipped: its ID could not be made to match the active JSON path.
-//
-// Label and LabelKey are deliberately left empty. They are derived from the
-// window period, which a partial response may omit, and this output only ever
-// updates windows an active observation already created -- that observation
-// stays the owner of the display metadata.
+// NormalizePassiveQuotaWindows 提取响应头中的来源、周期和额度数据。
+// 来源按上游 limit_id 规则与主动查询的 metered_feature 对齐，不依赖 Limit-Name。
+// 展示元数据仍由主动观测负责；缺少周期的样本由合并层拒绝，不能退回槽位匹配。
 func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Time) []quotaWindow {
 	if len(signals) == 0 {
 		return nil
@@ -141,11 +130,12 @@ func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Tim
 	namespaces := parsePassiveQuotaNamespaces(signals)
 	for _, key := range sortedNamespaceKeys(namespaces) {
 		namespace := namespaces[key]
-		prefix, scope := "", "account"
+		prefix, scope, sourceID := "", "account", "codex"
 		if key != "" {
+			sourceID += "-" + key
 			limitName := strings.TrimSpace(namespace.rateLevel["limit-name"])
-			if limitName == "" || providerobservation.SafeID(limitName) == "" {
-				continue
+			if limitName == "" {
+				limitName = sourceID
 			}
 			scope = limitName
 			prefix = providerobservation.SafeID(limitName) + "-"
@@ -154,7 +144,7 @@ func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Tim
 		if rate == nil {
 			continue
 		}
-		for _, window := range normalizeRateWindows(rate, prefix, scope) {
+		for _, window := range normalizeRateWindows(rate, prefix, scope, sourceID) {
 			// Scope and Unit only served to build the ID and pick the label
 			// rules above; they are cleared, like Label, so the merge updates
 			// nothing but the quota numbers and state.
@@ -168,11 +158,8 @@ func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Tim
 	return result
 }
 
-// parsePassiveQuotaNamespaces groups X-Codex-* headers by limit namespace.
-// The first path segment equal to "primary" or "secondary" separates the
-// namespace from the field name, so a field that merely mentions a window
-// (X-Codex-Primary-Over-Secondary-Limit-Percent) stays attached to the window
-// that owns it.
+// parsePassiveQuotaNamespaces 从已知字段后缀定位槽位，避免将来源名称中的
+// primary/secondary 误认成窗口，或把 over-secondary-limit-percent 当成额度值。
 func parsePassiveQuotaNamespaces(signals map[string]string) map[string]*passiveQuotaNamespace {
 	namespaces := make(map[string]*passiveQuotaNamespace)
 	ensure := func(key string) *passiveQuotaNamespace {
@@ -192,41 +179,35 @@ func parsePassiveQuotaNamespaces(signals map[string]string) map[string]*passiveQ
 		if !found || suffix == "" {
 			continue
 		}
-		segments := strings.Split(suffix, "-")
-		windowIndex := -1
-		for index, segment := range segments {
-			if segment == "primary" || segment == "secondary" {
-				windowIndex = index
+		for _, field := range passiveQuotaNamespaceFields {
+			if suffix == field {
+				ensure("").rateLevel[field] = value
+				break
+			}
+			if owner, ok := strings.CutSuffix(suffix, "-"+field); ok && owner != "" {
+				ensure(owner).rateLevel[field] = value
 				break
 			}
 		}
-		if windowIndex < 0 {
-			// No window segment: this is either a namespace-wide field or a
-			// header this normalizer has no meaning for (plan type, credits).
-			for _, field := range passiveQuotaNamespaceFields {
-				if suffix == field {
-					ensure("").rateLevel[field] = value
-					break
-				}
-				if owner, trimmed := strings.CutSuffix(suffix, "-"+field); trimmed && owner != "" {
-					ensure(owner).rateLevel[field] = value
-					break
-				}
+		for _, field := range []string{"used-percent", "window-minutes", "reset-at", "reset-after-seconds"} {
+			owner, ok := strings.CutSuffix(suffix, "-"+field)
+			if !ok {
+				continue
 			}
-			continue
+			namespaceKey, windowName := "", owner
+			if index := strings.LastIndexByte(owner, '-'); index >= 0 {
+				namespaceKey, windowName = owner[:index], owner[index+1:]
+			}
+			if windowName != "primary" && windowName != "secondary" {
+				continue
+			}
+			namespace := ensure(namespaceKey)
+			if namespace.windows[windowName] == nil {
+				namespace.windows[windowName] = map[string]string{}
+			}
+			namespace.windows[windowName][field] = value
+			break
 		}
-		namespaceKey := strings.Join(segments[:windowIndex], "-")
-		field := strings.Join(segments[windowIndex+1:], "-")
-		if field == "" {
-			continue
-		}
-		namespace := ensure(namespaceKey)
-		window := namespace.windows[segments[windowIndex]]
-		if window == nil {
-			window = map[string]string{}
-			namespace.windows[segments[windowIndex]] = window
-		}
-		window[field] = value
 	}
 	return namespaces
 }
@@ -341,7 +322,12 @@ func passiveQuotaBool(value string) (bool, bool) {
 	return parsed, true
 }
 
-func normalizeRateWindows(rate map[string]any, prefix, scope string) []quotaWindow {
+// 与 Codex 的 normalize_limit_id 一致；名称仅用于显示，不能作为来源标识。
+func normalizeQuotaSourceID(value string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_")
+}
+
+func normalizeRateWindows(rate map[string]any, prefix, scope, sourceID string) []quotaWindow {
 	result := make([]quotaWindow, 0, 2)
 	for _, name := range []string{"primary", "secondary"} {
 		window, ok := object(firstValue(rate, name+"_window", name+"Window"))
@@ -350,7 +336,7 @@ func normalizeRateWindows(rate map[string]any, prefix, scope string) []quotaWind
 		}
 		item := quotaWindow{
 			ID: prefix + name, Label: windowLabel(window, name, scope), LabelKey: codexWindowLabelKey(name, scope),
-			Scope: scope, Unit: "percent", State: "unknown",
+			Scope: scope, Unit: "percent", State: "unknown", SourceID: normalizeQuotaSourceID(sourceID),
 		}
 		if used, ok := number(firstValue(window, "used_percent", "usedPercent")); ok {
 			used = math.Max(0, math.Min(100, used))
