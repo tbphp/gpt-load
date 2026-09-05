@@ -138,11 +138,9 @@ type passiveQuotaMerge struct {
 	Changed bool
 }
 
-// mergePassiveQuotaSnapshot overlays patches onto the quota_windows array
-// inside a stored snapshot, carrying every other field through unchanged by
-// value. The snapshot is decoded and re-encoded, so key order and formatting
-// are not preserved byte-for-byte. Only uniquely matched existing windows
-// are updated; a passive signal never creates or repurposes a window.
+// mergePassiveQuotaSnapshot 仅更新已有且唯一匹配的窗口，不创建或改换窗口。
+// 无变化时直接返回原始 raw，保持字节不变；仅在窗口数据变化时重新编码，
+// 此时保留其他字段的值，但不保证原始键顺序或格式。
 func mergePassiveQuotaSnapshot(
 	raw []byte,
 	patches []providerobservation.QuotaWindow,
