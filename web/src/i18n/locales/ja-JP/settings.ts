@@ -26,20 +26,26 @@ export default {
     navigation: {
       label: '設定セクション',
       caption: 'セクション',
-      forwarding: 'リクエストと転送',
-      affinity: 'リクエストアフィニティ',
-      headers: 'グローバル Header Rules',
+      routing: 'ルーティングとスケジューリング',
+      connection: '接続とタイムアウト',
+      reliability: '再試行と認証情報の健全性',
+      upstreamRewrite: 'アップストリーム要求の書き換え',
       browserAccess: 'ブラウザーアクセス',
-      logs: 'ログとメンテナンス',
+      dataMaintenance: 'データとメンテナンス',
       system: 'システム情報',
     },
     validation: {
       title: '保存前に次の設定を修正してください:',
     },
-    runtime: {
-      title: 'リクエストと転送',
+    reliability: {
+      title: '再試行と認証情報の健全性',
       description:
-        '明示値は組み込み既定値を上書きします。既定値の復元後は現在のバージョンが有効値を決めます。すべての時間設定は秒単位です。',
+        '失敗時の再試行方針と、認証情報がブラックリスト登録されるまでの許容度、再検証の間隔です。',
+    },
+    runtime: {
+      title: '接続とタイムアウト',
+      description:
+        'アップストリームへの接続方法と各段階のタイムアウトです。明示値は組み込み既定値を上書きし、既定値の復元後は現在のバージョンが有効値を決めます。',
       route_strategy: 'ルート戦略',
       routeStrategies: {
         native_first: 'ネイティブ優先',
@@ -83,9 +89,9 @@ export default {
       disabled: '無効',
     },
     affinity: {
-      title: 'リクエストアフィニティ',
+      title: 'ルーティングとスケジューリング',
       description:
-        '自動ソフトアフィニティのグローバル既定値を制御します。グループごとに継承、有効、無効を選択できます。',
+        'どの候補を先に試すか、直近成功したターゲットを再利用するかを決めます。グループごとに継承または上書きできます。',
       affinity_enabled: 'リクエストアフィニティを有効化',
       enabledHelp:
         '無効の場合、明示的に有効化したグループのみアフィニティ対象を学習して再利用できます。',
@@ -98,8 +104,8 @@ export default {
       entries: '件',
     },
     headers: {
-      title: 'グローバル Header Rules',
-      description: 'すべてのアップストリーム要求の基本ルールです。',
+      title: 'アップストリーム要求の書き換え',
+      description: 'アップストリームへ送る前にリクエストヘッダーと本文へ加える変更です。',
       ruleCount: '{count} 件のルール',
       currentPublishedRuleCount: '現在公開中のルール {count} 件',
       defaultSource: '組み込み既定値',
@@ -153,8 +159,8 @@ export default {
       },
     },
     logs: {
-      title: 'ログとメンテナンス',
-      description: 'リクエストログは毎時のメンテナンスタスクが保持日数に従って削除します。',
+      title: 'データとメンテナンス',
+      description: 'バックグラウンドで実行される定期的なクリーンアップと同期タスクです。',
       retention: 'リクエストログ保持日数',
       effectiveValue: '{value} 日',
       days: '日',

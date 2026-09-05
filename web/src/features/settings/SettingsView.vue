@@ -30,12 +30,13 @@ import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { formatLocalInstant } from '@/lib/format'
 
-import GlobalHeaderRulesSection from './GlobalHeaderRulesSection.vue'
-import AffinitySettingsSection from './AffinitySettingsSection.vue'
 import BrowserAccessSection from './BrowserAccessSection.vue'
-import LogsMaintenanceSection from './LogsMaintenanceSection.vue'
-import RuntimeSettingsSection from './RuntimeSettingsSection.vue'
+import ConnectionSettingsSection from './ConnectionSettingsSection.vue'
+import DataMaintenanceSection from './DataMaintenanceSection.vue'
+import ReliabilitySettingsSection from './ReliabilitySettingsSection.vue'
+import RoutingSettingsSection from './RoutingSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
+import UpstreamRewriteSection from './UpstreamRewriteSection.vue'
 import {
   isValidAffinityCapacity,
   isValidNonNegativeInteger,
@@ -115,11 +116,12 @@ watch(
 )
 
 const navItems = computed(() => [
-  { id: 'settings-forwarding', label: t('settings.navigation.forwarding') },
-  { id: 'settings-affinity', label: t('settings.navigation.affinity') },
-  { id: 'settings-headers', label: t('settings.navigation.headers') },
+  { id: 'settings-routing', label: t('settings.navigation.routing') },
+  { id: 'settings-connection', label: t('settings.navigation.connection') },
+  { id: 'settings-reliability', label: t('settings.navigation.reliability') },
+  { id: 'settings-upstream-rewrite', label: t('settings.navigation.upstreamRewrite') },
   { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
-  { id: 'settings-logs', label: t('settings.navigation.logs') },
+  { id: 'settings-data-maintenance', label: t('settings.navigation.dataMaintenance') },
   { id: 'settings-system', label: t('settings.navigation.system') },
 ])
 const routeSection = computed(() => parseSettingsSection(route.query))
@@ -238,11 +240,12 @@ function sectionID(section: SettingsSection): string {
 
 function sectionFromID(id: string): SettingsSection | undefined {
   const section = id.replace(/^settings-/u, '')
-  return section === 'forwarding' ||
-    section === 'affinity' ||
-    section === 'headers' ||
+  return section === 'routing' ||
+    section === 'connection' ||
+    section === 'reliability' ||
+    section === 'upstream-rewrite' ||
     section === 'browser-access' ||
-    section === 'logs' ||
+    section === 'data-maintenance' ||
     section === 'system'
     ? section
     : undefined
@@ -286,37 +289,40 @@ function settingLabel(key: RuntimeSettingKey): string {
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
-  if (key === 'header_rules') return 'settings-headers'
+  if (key === 'header_rules') return 'settings-upstream-rewrite'
   if (key === 'cors' || key === 'response_header_rules') return 'settings-browser-access'
   return `settings-value-${key}`
 }
 
+function sectionForKey(key: RuntimeSettingKey): SettingsSection {
+  if (key === 'header_rules' || key === 'inject_usage_options') return 'upstream-rewrite'
+  if (key === 'cors' || key === 'response_header_rules') return 'browser-access'
+  if (
+    key === 'route_strategy' ||
+    key === 'affinity_enabled' ||
+    key === 'affinity_ttl' ||
+    key === 'affinity_capacity'
+  )
+    return 'routing'
+  if (key === 'first_byte_timeout' || key === 'request_timeout' || key === 'stream_idle_timeout')
+    return 'connection'
+  if (key === 'retry_count' || key === 'blacklist_threshold' || key === 'validation_interval')
+    return 'reliability'
+  return 'data-maintenance'
+}
+
 async function focusTarget(key: RuntimeSettingKey): Promise<void> {
   const id = settingTarget(key)
-  const section =
-    key === 'header_rules'
-      ? 'settings-headers'
-      : key === 'cors' || key === 'response_header_rules'
-        ? 'settings-browser-access'
-        : key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity'
-          ? 'settings-affinity'
-          : key === 'request_log_retention_days'
-            ? 'settings-logs'
-            : 'settings-forwarding'
-  await navigateSection(section)
+  const sectionElementId = sectionID(sectionForKey(key))
+  await navigateSection(sectionElementId)
   await nextTick()
   const target =
-    key === 'header_rules'
+    key === 'header_rules' || key === 'cors' || key === 'response_header_rules'
       ? (document
-          .getElementById('settings-headers')
+          .getElementById(sectionElementId)
           ?.querySelector<HTMLElement>('[aria-invalid="true"]') ??
-        document.getElementById('settings-headers'))
-      : key === 'cors' || key === 'response_header_rules'
-        ? (document
-            .getElementById('settings-browser-access')
-            ?.querySelector<HTMLElement>('[aria-invalid="true"]') ??
-          document.getElementById('settings-browser-access'))
-        : document.getElementById(id)
+        document.getElementById(sectionElementId))
+      : document.getElementById(id)
   target?.focus()
 }
 
@@ -388,7 +394,13 @@ onBeforeUnmount(() => {
                 </li>
               </ul>
             </section>
-            <RuntimeSettingsSection
+            <RoutingSettingsSection
+              :base="base"
+              :draft="draft"
+              :disabled="pageOperationLocked"
+              @change="updateDraft"
+            />
+            <ConnectionSettingsSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
@@ -399,13 +411,13 @@ onBeforeUnmount(() => {
               @update:proxy-mode="proxyMode = $event"
               @update:proxy-endpoint="proxyEndpoint = $event"
             />
-            <AffinitySettingsSection
+            <ReliabilitySettingsSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
               @change="updateDraft"
             />
-            <GlobalHeaderRulesSection
+            <UpstreamRewriteSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
@@ -425,7 +437,7 @@ onBeforeUnmount(() => {
               @update:response-rules-valid="responseHeaderRulesValid = $event"
               @update:invalid-edits="browserAccessInvalidEdits = $event"
             />
-            <LogsMaintenanceSection
+            <DataMaintenanceSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"

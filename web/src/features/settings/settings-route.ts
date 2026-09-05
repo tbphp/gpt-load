@@ -3,14 +3,21 @@ import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import { isCanonicalRouteQuery, scalarRouteQuery } from '@/app/route-query'
 
 export type SettingsSection =
-  'forwarding' | 'affinity' | 'headers' | 'browser-access' | 'logs' | 'system'
+  | 'routing'
+  | 'connection'
+  | 'reliability'
+  | 'upstream-rewrite'
+  | 'browser-access'
+  | 'data-maintenance'
+  | 'system'
 
 const sections = new Set<SettingsSection>([
-  'forwarding',
-  'affinity',
-  'headers',
+  'routing',
+  'connection',
+  'reliability',
+  'upstream-rewrite',
   'browser-access',
-  'logs',
+  'data-maintenance',
   'system',
 ])
 
@@ -18,11 +25,11 @@ export function parseSettingsSection(query: LocationQuery): SettingsSection {
   const value = scalarRouteQuery(query.section)
   return value !== undefined && sections.has(value as SettingsSection)
     ? (value as SettingsSection)
-    : 'forwarding'
+    : 'routing'
 }
 
 export function serializeSettingsRouteQuery(section: SettingsSection): LocationQueryRaw {
-  return section === 'forwarding' ? {} : { section }
+  return section === 'routing' ? {} : { section }
 }
 
 export function isCanonicalSettingsRouteQuery(

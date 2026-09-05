@@ -26,19 +26,25 @@ export default {
     navigation: {
       label: '设置章节',
       caption: '章节',
-      forwarding: '请求与转发',
-      affinity: '请求亲和',
-      headers: '全局 Header Rules',
+      routing: '路由与调度',
+      connection: '连接与超时',
+      reliability: '重试与凭据健康',
+      upstreamRewrite: '上游请求改写',
       browserAccess: '浏览器访问',
-      logs: '日志与维护',
+      dataMaintenance: '数据与维护',
       system: '系统信息',
     },
     validation: {
       title: '保存前请修正以下设置：',
     },
+    reliability: {
+      title: '重试与凭据健康',
+      description: '失败时的重试策略，以及凭据被拉黑前的宽容度和复检节奏。',
+    },
     runtime: {
-      title: '请求与转发',
-      description: '显式值覆盖内置默认；恢复默认后由当前版本决定有效值。所有时间设置均以秒为单位。',
+      title: '连接与超时',
+      description:
+        '到上游的连接方式与各阶段超时；显式值覆盖内置默认，恢复默认后由当前版本决定有效值。',
       route_strategy: '路由策略',
       routeStrategies: {
         native_first: '原生优先',
@@ -79,8 +85,8 @@ export default {
       disabled: '已禁用',
     },
     affinity: {
-      title: '请求亲和',
-      description: '控制自动软亲和的全局默认行为；分组可单独继承、开启或关闭。',
+      title: '路由与调度',
+      description: '决定一次请求先尝试谁、以及是否复用上次命中的目标；分组可单独继承或覆盖。',
       affinity_enabled: '启用请求亲和',
       enabledHelp: '关闭后仅显式开启亲和的分组可以学习和复用亲和目标。',
       affinity_ttl: '默认有效期',
@@ -92,8 +98,8 @@ export default {
       entries: '条',
     },
     headers: {
-      title: '全局 Header Rules',
-      description: '用于所有上游请求的基础规则。',
+      title: '上游请求改写',
+      description: '发往上游前对请求头和请求体做的调整。',
       ruleCount: '{count} 条规则',
       currentPublishedRuleCount: '当前已发布 {count} 条规则',
       defaultSource: '内置默认',
@@ -141,8 +147,8 @@ export default {
       },
     },
     logs: {
-      title: '日志与维护',
-      description: '请求日志由每小时维护任务按保留天数清理。',
+      title: '数据与维护',
+      description: '后台按计划执行的清理与同步任务。',
       retention: '请求日志保留天数',
       effectiveValue: '{value} 天',
       days: '天',

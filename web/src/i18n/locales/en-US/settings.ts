@@ -26,20 +26,26 @@ export default {
     navigation: {
       label: 'Settings sections',
       caption: 'Sections',
-      forwarding: 'Request and forwarding',
-      affinity: 'Request affinity',
-      headers: 'Global Header Rules',
+      routing: 'Routing and scheduling',
+      connection: 'Connection and timeouts',
+      reliability: 'Retries and credential health',
+      upstreamRewrite: 'Upstream request rewriting',
       browserAccess: 'Browser access',
-      logs: 'Logs and maintenance',
+      dataMaintenance: 'Data and maintenance',
       system: 'System information',
     },
     validation: {
       title: 'Fix these settings before saving:',
     },
-    runtime: {
-      title: 'Request and forwarding',
+    reliability: {
+      title: 'Retries and credential health',
       description:
-        'Explicit values override built-in defaults. Restoring a default uses the current version; all time values are in seconds.',
+        'The retry policy on failure, plus how much slack a credential gets before being blacklisted and how often it is rechecked.',
+    },
+    runtime: {
+      title: 'Connection and timeouts',
+      description:
+        'How connections reach upstream and the per-stage timeouts. Explicit values override built-in defaults; restoring a default uses the current version.',
       route_strategy: 'Route strategy',
       routeStrategies: {
         native_first: 'Native first',
@@ -85,9 +91,9 @@ export default {
       disabled: 'Disabled',
     },
     affinity: {
-      title: 'Request affinity',
+      title: 'Routing and scheduling',
       description:
-        'Controls the global defaults for automatic soft affinity. Each Group can inherit, enable, or disable it.',
+        'Decides which candidate is tried first, and whether a recently successful target is reused. Each Group can inherit or override this.',
       affinity_enabled: 'Enable request affinity',
       enabledHelp:
         'When disabled, only Groups that explicitly enable affinity can learn and reuse an affinity target.',
@@ -100,8 +106,8 @@ export default {
       entries: 'entries',
     },
     headers: {
-      title: 'Global Header Rules',
-      description: 'Base rules for every upstream request.',
+      title: 'Upstream request rewriting',
+      description: 'Adjustments made to the request headers and body before it reaches upstream.',
       ruleCount: '{count} rules',
       currentPublishedRuleCount: '{count} currently published rules',
       defaultSource: 'Built-in default',
@@ -154,8 +160,8 @@ export default {
       },
     },
     logs: {
-      title: 'Logs and maintenance',
-      description: 'An hourly maintenance task cleans request logs by retention days.',
+      title: 'Data and maintenance',
+      description: 'Scheduled cleanup and sync tasks that run in the background.',
       retention: 'Request-log retention days',
       effectiveValue: '{value} days',
       days: 'days',
