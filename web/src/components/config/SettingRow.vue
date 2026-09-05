@@ -154,33 +154,27 @@ const emit = defineEmits<{ toggle: [] }>()
   justify-content: center;
   width: 27px;
   height: 27px;
-  border: 1px solid var(--color-border-control);
+  border: 0;
   border-radius: var(--radius-control);
-  background: var(--color-surface);
+  background: transparent;
   cursor: pointer;
-  transition:
-    background-color var(--duration-fast) var(--easing-standard),
-    border-color var(--duration-fast) var(--easing-standard);
+  transition: background-color var(--duration-fast) var(--easing-standard);
 }
 
 .setting-row__action--action {
-  border-color: color-mix(in srgb, var(--color-action) 34%, var(--color-border-control));
-  background: var(--color-action-soft);
   color: var(--color-action);
 }
 
 .setting-row__action--action:hover:not(:disabled) {
-  border-color: var(--color-action);
+  background: var(--color-action-soft);
 }
 
 .setting-row__action--warning {
-  border-color: color-mix(in srgb, var(--color-warning) 34%, var(--color-border-control));
-  background: var(--color-warning-bg);
   color: var(--color-warning);
 }
 
 .setting-row__action--warning:hover:not(:disabled) {
-  border-color: var(--color-warning);
+  background: var(--color-warning-bg);
 }
 
 .setting-row__action:focus-visible {
