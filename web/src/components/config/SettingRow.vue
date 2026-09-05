@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { CircleHelp } from '@lucide/vue'
+
 import AppButton from '@/components/ui/AppButton.vue'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 withDefaults(
@@ -30,57 +33,35 @@ const emit = defineEmits<{ toggle: [] }>()
 <template>
   <div
     class="setting-row"
-    :class="{
-      'setting-row--divided': divided,
-      'setting-row--active': overridden || pendingRestore || locked,
-      'setting-row--editing': overridden,
-    }"
+    :class="{ 'setting-row--divided': divided, 'setting-row--editing': overridden }"
   >
     <div class="setting-row__identity">
       <span class="setting-row__label">{{ label }}</span>
-      <button
-        v-if="help && !overridden"
-        type="button"
-        class="setting-row__hint"
-        :title="help"
-        :aria-label="help"
-      >
-        ?
-      </button>
+      <AppTooltip v-if="help" :content="help">
+        <span class="setting-row__hint" tabindex="0" :aria-label="help">
+          <CircleHelp :size="13" aria-hidden="true" />
+        </span>
+      </AppTooltip>
     </div>
 
-    <div class="setting-row__value">
-      <template v-if="overridden">
-        <slot name="control" />
-        <small v-if="help" class="setting-row__help">{{ help }}</small>
-      </template>
-      <span v-else class="setting-row__plain">{{ value }}</span>
-    </div>
-
-    <div class="setting-row__trailing">
+    <div class="setting-row__cluster">
       <StatusBadge
-        v-if="overridden || pendingRestore || locked"
+        v-if="pendingRestore || locked"
         size="compact"
-        :tone="locked ? 'neutral' : pendingRestore ? 'warning' : 'info'"
-        :icon="locked ? 'off' : pendingRestore ? 'alert' : 'edit'"
+        :tone="locked ? 'neutral' : 'warning'"
+        :icon="locked ? 'off' : 'alert'"
       >
         {{ sourceLabel }}
       </StatusBadge>
+      <div class="setting-row__value">
+        <slot v-if="overridden" name="control" />
+        <span v-else class="setting-row__plain">{{ value }}</span>
+      </div>
       <AppButton
-        v-if="overridden || pendingRestore"
+        v-if="!locked"
         variant="secondary"
         :tone="overridden ? 'warning' : 'action'"
         size="compact"
-        :disabled="disabled"
-        @click="emit('toggle')"
-      >
-        {{ actionLabel }}
-      </AppButton>
-      <AppButton
-        v-else-if="!locked"
-        class="setting-row__ghost-action"
-        variant="link"
-        size="inline"
         :disabled="disabled"
         @click="emit('toggle')"
       >
@@ -93,11 +74,11 @@ const emit = defineEmits<{ toggle: [] }>()
 <style scoped>
 .setting-row {
   display: grid;
-  grid-template-columns: 172px minmax(0, 1fr) auto;
+  grid-template-columns: 172px minmax(0, 1fr);
   align-items: center;
   column-gap: var(--space-4);
   border-left: 2px solid transparent;
-  padding: 9px 10px 9px 12px;
+  padding: 8px 10px 8px 12px;
 }
 
 .setting-row--divided {
@@ -105,11 +86,9 @@ const emit = defineEmits<{ toggle: [] }>()
 }
 
 .setting-row--editing {
-  align-items: start;
   border-left-color: var(--color-action);
   border-radius: var(--radius-control);
   background: var(--color-surface-sunken);
-  padding-block: 11px;
 }
 
 .setting-row__identity {
@@ -122,12 +101,8 @@ const emit = defineEmits<{ toggle: [] }>()
   font-weight: 600;
 }
 
-.setting-row--active .setting-row__identity {
-  color: var(--color-text);
-}
-
 .setting-row--editing .setting-row__identity {
-  padding-top: 6px;
+  color: var(--color-text);
 }
 
 .setting-row__hint {
@@ -135,24 +110,33 @@ const emit = defineEmits<{ toggle: [] }>()
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--color-border-control);
-  border-radius: 50%;
-  background: transparent;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-tag);
   color: var(--color-text-faint);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 0;
   cursor: help;
 }
 
-.setting-row__value {
-  display: grid;
+.setting-row__hint:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+
+.setting-row__hint:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.setting-row__cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   min-width: 0;
-  justify-items: start;
-  gap: 6px;
+  gap: var(--space-3);
+}
+
+.setting-row__value {
+  min-width: 0;
 }
 
 .setting-row__plain {
@@ -161,52 +145,10 @@ const emit = defineEmits<{ toggle: [] }>()
   font-variant-numeric: tabular-nums;
 }
 
-.setting-row__help {
-  max-width: 56ch;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-  line-height: 1.5;
-}
-
-.setting-row__trailing {
-  display: flex;
-  min-height: 30px;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-
-.setting-row--editing .setting-row__trailing {
-  padding-top: 4px;
-}
-
-.setting-row__ghost-action {
-  opacity: 0;
-  transition: opacity var(--duration-fast) var(--easing-standard);
-}
-
-.setting-row:hover .setting-row__ghost-action,
-.setting-row:focus-within .setting-row__ghost-action {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .setting-row__ghost-action {
-    opacity: 1;
-  }
-}
-
 @media (max-width: 800px) {
   .setting-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .setting-row__identity {
-    grid-column: 1 / -1;
-  }
-
-  .setting-row__ghost-action {
-    opacity: 1;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--space-2);
   }
 }
 </style>

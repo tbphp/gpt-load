@@ -927,6 +927,7 @@ small {
 }
 .group-settings__runtime {
   display: grid;
+  gap: var(--space-1);
 }
 .group-settings__runtime-row {
   min-width: 0;

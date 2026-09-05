@@ -222,6 +222,10 @@ function setModelsDevAutoSync(value: boolean): void {
   scroll-margin-top: 76px;
 }
 
+.settings-data-maintenance__rows {
+  gap: var(--space-1);
+}
+
 .settings-section__heading h2,
 .settings-section__heading p {
   margin: 0;

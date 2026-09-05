@@ -4,10 +4,10 @@ import { useI18n } from 'vue-i18n'
 
 import { routeStrategies } from '@/api/control/types'
 import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
-import AppSelect from '@/components/ui/AppSelect.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
+import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 
 import SettingRow from '@/components/config/SettingRow.vue'
 import {
@@ -29,10 +29,11 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const numericKeys = ['affinity_ttl', 'affinity_capacity'] as const
-const routeStrategyOptions = computed(() =>
+const routeStrategyOptions = computed<SegmentedControlOption[]>(() =>
   routeStrategies.map((value) => ({
     value,
     label: t(`settings.runtime.routeStrategies.${value}`),
+    disabled: props.disabled,
   })),
 )
 const enabledValue = computed(() =>
@@ -134,11 +135,10 @@ function numberFieldValue(key: (typeof numericKeys)[number]): string {
         @toggle="toggleOverride('route_strategy')"
       >
         <template #control>
-          <AppSelect
+          <SegmentedControl
             :model-value="draft.values.route_strategy"
             :options="routeStrategyOptions"
             :label="t('settings.runtime.route_strategy')"
-            :disabled="disabled"
             size="compact"
             @update:model-value="setRouteStrategy"
           />
@@ -228,6 +228,10 @@ function numberFieldValue(key: (typeof numericKeys)[number]): string {
 .settings-section {
   gap: var(--space-4);
   scroll-margin-top: 76px;
+}
+
+.settings-routing__rows {
+  gap: var(--space-1);
 }
 
 .settings-section__heading h2,
