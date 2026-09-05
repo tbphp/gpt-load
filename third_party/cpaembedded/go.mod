@@ -5,7 +5,7 @@ go 1.26.6
 require (
 	github.com/andybalholm/brotli v1.2.3
 	github.com/google/uuid v1.6.0
-	github.com/router-for-me/CLIProxyAPI/v7 v7.2.144
+	github.com/router-for-me/CLIProxyAPI/v7 v7.2.151
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
 )

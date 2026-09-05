@@ -115,6 +115,9 @@ func downstreamCORSHeaders(
 		return headers, vary, true
 	}
 
+	if !corsMethodAllowed(request.Method, config.AllowedMethods) {
+		return nil, originVary, false
+	}
 	headers := corsActualResponseHeaders(origin, wildcard, config)
 	if wildcard {
 		return headers, nil, false

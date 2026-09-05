@@ -219,6 +219,39 @@ func TestDownstreamHeadersMiddlewareExpandsWildcardAllowedHeaders(t *testing.T) 
 	}
 }
 
+func TestDownstreamHeadersActualRequestMethods(t *testing.T) {
+	for _, origin := range []string{"https://client.example", "*"} {
+		handler := newDownstreamHeadersTestHandler(t, config.Settings{
+			state.SettingCORS: map[string]any{
+				"enabled":         true,
+				"allowed_origins": []any{origin},
+				"allowed_methods": []any{"POST"},
+			},
+		})
+		engine := gin.New()
+		engine.Use(handler.DownstreamHeadersMiddleware())
+		engine.Any("/v1/models", func(context *gin.Context) {
+			context.JSON(http.StatusOK, gin.H{"data": []string{}})
+		})
+		for _, method := range []string{"GET", "POST"} {
+			request := httptest.NewRequest(method, "/v1/models", nil)
+			request.Header.Set("Origin", "https://client.example")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			want := ""
+			if method == "POST" {
+				want = origin
+			}
+			if got := response.Header().Get("Access-Control-Allow-Origin"); got != want {
+				t.Errorf("policy %q method %s: allow origin = %q, want %q", origin, method, got, want)
+			}
+			if origin != "*" && !headerListContains(response.Header().Values("Vary"), "Origin") {
+				t.Error("explicit origin policy must retain Vary: Origin")
+			}
+		}
+	}
+}
+
 func newDownstreamHeadersTestHandler(t *testing.T, settings config.Settings) *Handler {
 	t.Helper()
 	manager := state.NewManager()
