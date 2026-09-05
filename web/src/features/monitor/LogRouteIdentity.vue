@@ -4,9 +4,9 @@ import { useI18n } from 'vue-i18n'
 
 import type { ChannelDto } from '@/app/resources/channels'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
-import { formatRouteEntity } from './log-format'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
-import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
+
+import { formatRouteEntity } from './log-format'
 
 const props = withDefaults(
   defineProps<{
@@ -26,9 +26,9 @@ const props = withDefaults(
   {
     groupName: undefined,
     credentialName: undefined,
+    channel: undefined,
     groupDeleted: false,
     credentialDeleted: false,
-    channel: undefined,
     appearance: 'compact',
     filterable: false,
   },
@@ -43,14 +43,8 @@ const { t } = useI18n()
 // 图标优先表达渠道；图标资源缺失时退回渠道名，ID 是最后的诊断兜底。
 const showsIcon = computed(() => Boolean(props.channel?.mark))
 const channelLabel = computed(() => props.channel?.name.trim() || props.channelId || '—')
-// 渠道只有一个图标，名称必须靠提示传达。
-const channelTooltip = computed(() =>
-  props.channelId === null
-    ? ''
-    : t('monitor.logs.routeIdentity.channel', { name: channelLabel.value }),
-)
 
-// 分组、凭据与访问密钥共用同一套名称回退。
+// 取不到名称（已删除）才退回编号，凭据与分组同一套规则。
 const groupLabel = computed(() =>
   formatRouteEntity({
     id: props.groupId,
@@ -71,13 +65,27 @@ const credentialLabel = computed(() =>
         deletedText: (id) => t('monitor.logs.deletedRef', { id }),
       }),
 )
-// 退回编号时用等宽字体，与名称区分开。
 const hasGroupName = computed(() => Boolean(props.groupName?.trim()) || props.groupDeleted)
 const hasCredentialName = computed(
   () => Boolean(props.credentialName?.trim()) || props.credentialDeleted,
 )
 const canFilterGroup = computed(() => props.filterable && props.groupId !== null)
 const canFilterCredential = computed(() => props.filterable && props.credentialId !== null)
+
+// 三个字段共用一条提示：列里放不下的名称在这里给全，省得逐个悬停。
+const routeTooltip = computed(() => {
+  const lines: string[] = []
+  if (props.channelId !== null) {
+    lines.push(t('monitor.logs.routeIdentity.channel', { name: channelLabel.value }))
+  }
+  if (props.groupId !== null) {
+    lines.push(t('monitor.logs.routeIdentity.group', { name: groupLabel.value }))
+  }
+  if (credentialLabel.value) {
+    lines.push(t('monitor.logs.routeIdentity.credential', { name: credentialLabel.value }))
+  }
+  return lines.join('\n')
+})
 
 const groupAction = computed(() =>
   t('monitor.logs.routeIdentity.filterGroup', { name: groupLabel.value }),
@@ -88,51 +96,62 @@ const credentialAction = computed(() =>
 </script>
 
 <template>
-  <span class="log-route-identity" :class="`log-route-identity--${appearance}`">
-    <span class="log-route-identity__line">
-      <AppTooltip v-if="showsIcon" :content="channelTooltip">
-        <span class="log-route-identity__icon" tabindex="0" :aria-label="channelTooltip">
+  <!-- 抽屉里字段已完整展开，无需再提示。 -->
+  <AppTooltip
+    :content="routeTooltip"
+    :disabled="appearance === 'plain' || routeTooltip.length === 0"
+    side="top"
+    align="start"
+  >
+    <span class="log-route-identity" :class="`log-route-identity--${appearance}`">
+      <span class="log-route-identity__line">
+        <span v-if="showsIcon" class="log-route-identity__icon">
           <ChannelIcon :icon="channel?.icon ?? ''" :mark="channel?.mark ?? ''" />
         </span>
-      </AppTooltip>
-      <span v-else-if="channelId !== null" class="log-route-identity__channel">
-        {{ channelLabel }}
+        <span v-else-if="channelId !== null" class="log-route-identity__channel">
+          {{ channelLabel }}
+        </span>
+
+        <button
+          v-if="canFilterGroup"
+          class="log-route-identity__group filterable-value"
+          :class="{ 'log-route-identity__group--code': !hasGroupName }"
+          type="button"
+          :aria-label="groupAction"
+          @click="emit('filter-group', groupId as number)"
+        >
+          {{ groupLabel }}
+        </button>
+        <span
+          v-else
+          class="log-route-identity__group"
+          :class="{ 'log-route-identity__group--code': !hasGroupName }"
+        >
+          {{ groupLabel }}
+        </span>
       </span>
 
-      <OverflowTooltip
-        :key="`group-${canFilterGroup}`"
-        :as="canFilterGroup ? 'button' : 'span'"
-        class="log-route-identity__group"
-        :class="{
-          'log-route-identity__group--code': !hasGroupName,
-          'filterable-value': canFilterGroup,
-        }"
-        :content="groupLabel"
-        :type="canFilterGroup ? 'button' : undefined"
-        :aria-label="canFilterGroup ? groupAction : undefined"
-        @click="canFilterGroup && emit('filter-group', groupId as number)"
-      >
-        {{ groupLabel }}
-      </OverflowTooltip>
+      <template v-if="credentialLabel">
+        <button
+          v-if="canFilterCredential"
+          class="log-route-identity__credential filterable-value"
+          :class="{ 'log-route-identity__credential--code': !hasCredentialName }"
+          type="button"
+          :aria-label="credentialAction"
+          @click="emit('filter-credential', credentialId as number)"
+        >
+          {{ credentialLabel }}
+        </button>
+        <span
+          v-else
+          class="log-route-identity__credential"
+          :class="{ 'log-route-identity__credential--code': !hasCredentialName }"
+        >
+          {{ credentialLabel }}
+        </span>
+      </template>
     </span>
-
-    <OverflowTooltip
-      v-if="credentialLabel"
-      :key="`credential-${canFilterCredential}`"
-      :as="canFilterCredential ? 'button' : 'span'"
-      class="log-route-identity__credential"
-      :class="{
-        'log-route-identity__credential--code': !hasCredentialName,
-        'filterable-value': canFilterCredential,
-      }"
-      :content="credentialLabel"
-      :type="canFilterCredential ? 'button' : undefined"
-      :aria-label="canFilterCredential ? credentialAction : undefined"
-      @click="canFilterCredential && emit('filter-credential', credentialId as number)"
-    >
-      {{ credentialLabel }}
-    </OverflowTooltip>
-  </span>
+  </AppTooltip>
 </template>
 
 <style scoped>
@@ -155,19 +174,13 @@ const credentialAction = computed(() =>
   font-size: var(--text-label-xs);
 }
 
-.log-route-identity__icon:focus-visible {
-  border-radius: 3px;
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
-}
-
 .log-route-identity__channel {
   flex: none;
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
 
-/* 名称可任意长，一律省略；凭据行独占一行，两者都不挤压彼此。 */
+/* 名称可任意长，一律省略；凭据独占一行，两者不挤压彼此。 */
 .log-route-identity__group,
 .log-route-identity__credential {
   display: block;
@@ -177,6 +190,8 @@ const credentialAction = computed(() =>
   background: none;
   padding: 0;
   font: inherit;
+  /* 行高须高于字号，否则悬停下划线被 overflow 裁掉；须排在 font 简写之后。 */
+  line-height: 1.5;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -202,6 +217,12 @@ const credentialAction = computed(() =>
 .log-route-identity__group--code {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
+}
+
+/* 下方两条规则设了字色，与全局悬停色特异性相同却后加载，这里叠类名压过它们。 */
+.log-route-identity__group.filterable-value:hover,
+.log-route-identity__credential.filterable-value:hover {
+  color: var(--color-action);
 }
 
 /* 抽屉空间充裕，排成一行并跟随所在字段字号。 */

@@ -122,11 +122,11 @@ function credentialMeta(credential: HealthProblemCredentialDto): string {
           <div class="ledger-record-list__cell problem-health-record__identity" role="cell">
             <OverflowTooltip
               :as="RouterLink"
-              class="problem-health-record__mask"
-              :content="item.credential.mask"
+              class="problem-health-record__identity"
+              :content="item.credential.identity"
               :to="groupDetailLocation(item.credential.group_id, { tab: 'credentials' })"
             >
-              {{ item.credential.mask }}
+              {{ item.credential.identity }}
             </OverflowTooltip>
             <OverflowTooltip as="small" :content="credentialMeta(item.credential)">
               {{ credentialMeta(item.credential) }}
@@ -266,7 +266,9 @@ function credentialMeta(credential: HealthProblemCredentialDto): string {
                 role="link"
                 variant="ghost"
                 size="compact"
-                :label="t('monitor.health.problems.viewLogs', { credential: item.credential.mask })"
+                :label="
+                  t('monitor.health.problems.viewLogs', { credential: item.credential.identity })
+                "
                 @click="navigate"
               >
                 <ScrollText :size="15" aria-hidden="true" />
@@ -335,7 +337,7 @@ function credentialMeta(credential: HealthProblemCredentialDto): string {
   gap: var(--space-1);
 }
 
-.problem-health-record__mask {
+.problem-health-record__identity {
   max-width: 100%;
   color: var(--color-text);
   font-family: var(--font-mono);
@@ -345,7 +347,7 @@ function credentialMeta(credential: HealthProblemCredentialDto): string {
   white-space: nowrap;
 }
 
-.problem-health-record__mask:hover {
+.problem-health-record__identity:hover {
   color: var(--color-action);
 }
 

@@ -1404,7 +1404,7 @@ func (s *Service) CredentialLabels(credentialIDs []uint) map[uint]string {
 	return labels
 }
 
-// 与健康页的掩码同源：订阅账号取邮箱掩码，其余按渠道规范化后取密钥掩码。
+// 与凭据列表一致：订阅账号给完整邮箱（本就在管理面明示），API 密钥给掩码。
 func (s *Service) credentialLabel(
 	ciphertext string,
 	channelID channel.ID,
@@ -1424,7 +1424,7 @@ func (s *Service) credentialLabel(
 		if parseErr != nil {
 			return "", parseErr
 		}
-		return maskEmail(credential.Account().Email), nil
+		return strings.TrimSpace(credential.Account().Email), nil
 	}
 	validated, err := normalizeStoredCredential(s.channelRegistry, channelID, plaintext)
 	if err != nil {

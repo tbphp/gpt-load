@@ -300,10 +300,20 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 				continue
 			}
 			sortProjectModelGroups(upstream.routeGroups)
+			// 分组信息只对管理员可见；访问密钥范围整条不发，而不是发一条
+			// 身份被抹空的占位记录——id=0/channel_id="" 这类占位值会违反
+			// 前端 projectSafeInteger/projectChannelID 的强校验，把整个
+			// 模型页判定为无效响应，比不发这条数据本身还糟。
+			routeGroups := []ProjectModelGroupDTO{}
+			affectedGroups := []ProjectModelGroupDTO{}
+			if query.AccessKeyID == nil {
+				routeGroups = append(routeGroups, upstream.routeGroups...)
+				affectedGroups = append(affectedGroups, upstream.affectedGroups...)
+			}
 			upstreamDTO := ProjectUpstreamModelDTO{
 				ModelID: upstream.modelID, AliasApplied: upstream.aliasApplied,
-				Price: upstream.price, RouteGroups: append([]ProjectModelGroupDTO{}, upstream.routeGroups...),
-				AffectedGroups:   append([]ProjectModelGroupDTO{}, upstream.affectedGroups...),
+				Price: upstream.price, RouteGroups: routeGroups,
+				AffectedGroups:   affectedGroups,
 				CatalogReference: upstream.catalogReference,
 			}
 			dto.UpstreamModels = append(dto.UpstreamModels, upstreamDTO)

@@ -5,8 +5,10 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import { useAbortControllerPool } from '@/app/use-abort-controller-pool'
 import { useStableLoading } from '@/app/loading-state'
 import type { ChannelDto } from '@/app/resources/channels'
+import { revealCredential } from '@/app/resources/credentials'
 import {
   requestLogDetailQueryOptions,
   type RequestLogAttemptDto,
@@ -16,6 +18,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
+import CopyChip from '@/components/ui/CopyChip.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
@@ -152,7 +155,10 @@ watch(
 watch(
   () => props.open,
   (open) => {
-    if (!open) return
+    if (!open) {
+      copyControllers.abortAll()
+      return
+    }
     errorMessageExpanded.value = false
     expandedAttemptErrorMessages.value = new Set()
   },
@@ -240,6 +246,32 @@ function finalGroupName(): string | null {
     props.groupNames?.[groupID] ??
     null
   )
+}
+
+const copyControllers = useAbortControllerPool()
+
+// 订阅账号展示的就是完整邮箱，直接复制即可；密钥展示的是掩码，需取真值。
+const revealsCredential = computed(
+  () => channelDefinition(log.value?.channel_id)?.connection.type === 'api_key',
+)
+
+// 密钥的 reveal 被订阅渠道拒绝，故仅密钥类走这条取值路径。
+async function resolveCredentialCopyValue(): Promise<string> {
+  const record = log.value
+  if (!record || record.group_id === null || record.credential_id === null) return ''
+  const controller = copyControllers.create()
+  try {
+    const result = await revealCredential(
+      client,
+      record.group_id,
+      record.credential_id,
+      controller.signal,
+    )
+    const values = Object.values(result.credential)
+    return values.length === 1 ? values[0] : JSON.stringify(result.credential)
+  } finally {
+    copyControllers.release(controller)
+  }
 }
 
 function channelDefinition(channelID: string | null | undefined): ChannelDto | null {
@@ -444,12 +476,14 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 :credential-deleted="log.credential_id !== null && log.credential_name === ''"
                 appearance="plain"
               />
-              <CopyButton
+              <CopyChip
                 v-if="log.credential_name"
+                layout="icon"
                 :value="log.credential_name"
                 :label="t('monitor.logs.drawer.copyCredential')"
                 :success-label="t('common.copied')"
                 :failure-label="t('common.copyFailed')"
+                :resolve-value="revealsCredential ? resolveCredentialCopyValue : undefined"
               />
             </dd>
           </div>
@@ -775,7 +809,11 @@ function toggleAttemptErrorMessage(sequence: number): void {
   gap: 4px;
 }
 
-.log-detail__route :deep(.copy-control button),
+.log-detail__route :deep(.copy-chip) {
+  min-height: 22px;
+  padding: 0;
+}
+
 .log-detail__request-id :deep(.copy-control button) {
   width: 28px;
   height: 28px;

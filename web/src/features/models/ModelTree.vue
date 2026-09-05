@@ -199,7 +199,7 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
                 {{ t('models.tree.tierCount', { count: entry.tierCount }) }}
               </span>
               <span
-                v-if="entry.upstream.route_groups.length > 0"
+                v-if="!readOnly && entry.upstream.route_groups.length > 0"
                 class="model-tree__groups"
                 :aria-label="t('models.tree.routeGroups')"
               >
