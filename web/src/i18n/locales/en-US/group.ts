@@ -63,6 +63,10 @@ export default {
       copyFailure: 'Copy failed',
       credentialHealthLabel:
         '{total} credentials total: {available} available, {cooldown} cooling down, {blacklisted} blacklisted, {disabled} disabled',
+      toggleEnabled: 'Enable {name}',
+      enabledOn: 'Enabled {name}',
+      enabledOff: 'Disabled {name}. It no longer takes new requests.',
+      toggleFailed: 'Could not change the switch. Try again.',
       appendCredential: 'Add credential',
       appendCredentialFor: 'Add a credential to {name}',
     },
@@ -425,6 +429,7 @@ export default {
       diagnostics: 'Diagnostics',
       moreActions: 'More actions',
       editWeightHint: 'Click to adjust weight',
+      weightChipTooltip: 'Manual weight {weight}. Click to edit.',
       expand: 'Expand credential details',
       collapse: 'Collapse credential details',
       restore: 'Restore now',

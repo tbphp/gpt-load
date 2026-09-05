@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import type { ProxyConfiguredMode, ProxyMutation, ProxyViewDto } from '@/api/control/types'
 import { proxyDraftState, proxyPlaceholderURL } from '@/app/resources/proxy'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
+import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -35,6 +35,10 @@ const modeOptions = computed(() => [
   { value: 'direct', label: t('common.proxy.mode.direct') },
   { value: 'custom', label: t('common.proxy.mode.custom') },
 ])
+// 分段控件没有整体 disabled，逐项禁用。
+const segmentedModeOptions = computed(() =>
+  modeOptions.value.map((option) => ({ ...option, disabled: props.disabled || pending.value })),
+)
 const draft = computed(() => proxyDraftState(props.view, mode.value, endpoint.value))
 const endpointError = computed(() =>
   mode.value === 'custom' && touched.value && draft.value.invalid
@@ -77,6 +81,9 @@ function updateEndpoint(value: string): void {
   touched.value = true
   saveFailed.value = false
 }
+
+// 供卡片徽章行的指示器一次完成“展开 + 进入编辑”。
+defineExpose({ beginEdit })
 
 async function save(): Promise<void> {
   touched.value = true
@@ -126,13 +133,12 @@ async function save(): Promise<void> {
       </template>
 
       <form v-else class="setting-panel__form" @submit.prevent="save">
-        <AppSelect
+        <SegmentedControl
           class="proxy-config-editor__mode"
           :model-value="mode"
           :label="t('common.proxy.modeLabel')"
-          :options="modeOptions"
-          size="compact"
-          :disabled="disabled || pending"
+          :options="segmentedModeOptions"
+          size="xs"
           @update:model-value="updateMode"
         />
         <CompactFieldError
@@ -209,13 +215,8 @@ async function save(): Promise<void> {
   font-size: var(--text-label-xs);
 }
 
-/* 下拉固定宽度，不随所选模式伸缩。 */
-.proxy-config-editor__mode :deep(.app-select__trigger) {
-  width: 92px;
-  min-height: 26px;
+.proxy-config-editor__mode {
   flex: none;
-  padding-inline: 7px;
-  font-size: var(--text-label-xs);
 }
 
 .proxy-config-editor__endpoint {
@@ -223,7 +224,8 @@ async function save(): Promise<void> {
   --compact-field-error-indicator-size: 22px;
   --compact-field-error-indicator-right: 2px;
   --compact-field-error-input-gap: 4px;
-  flex: 1 1 120px;
+  /* basis 归零，地址栏独吞剩余宽度，控件行不折行。 */
+  flex: 1 1 0;
   min-width: 0;
 }
 

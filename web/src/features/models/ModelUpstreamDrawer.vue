@@ -265,7 +265,7 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
             </span>
             <span class="upstream-drawer__group">
               <span class="upstream-drawer__eyebrow">{{ t('models.drawer.group') }}</span>
-              <RouterLink :to="groupDetailLocation(association.group.id)">
+              <RouterLink :to="groupDetailLocation(association.group.id, { tab: 'models' })">
                 {{ association.group.name }}
               </RouterLink>
               <span v-if="!association.group.enabled" class="upstream-drawer__tag">

@@ -38,6 +38,7 @@ export default {
       invalid: 'Enter a valid HTTP or SOCKS5 proxy URL.',
       effective: 'Effective: {mode}',
       ownTooltip: 'Proxy: {type}',
+      ownTooltipClickable: 'Proxy: {type}. Click to edit.',
       inherit: {
         global: 'Inherit startup environment',
         group: 'Inherit global',

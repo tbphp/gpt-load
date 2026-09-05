@@ -441,3 +441,32 @@
   color: var(--color-danger);
   font-size: var(--text-label-xs);
 }
+
+/*
+ * 日志里可点击就地筛选的值：访问密钥、分组、凭据、模型共用同一套外观。
+ * 平时跟随所在列的字色字号，只在悬停时点出可交互。
+ */
+.filterable-value {
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  /* 行高须高于字号，否则悬停下划线被 overflow 裁掉；须排在 font 简写之后。 */
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+
+.filterable-value:hover {
+  color: var(--color-action);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.filterable-value:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

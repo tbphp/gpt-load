@@ -58,6 +58,7 @@ import LogProtocolConversion from './LogProtocolConversion.vue'
 import LogRouteIdentity from './LogRouteIdentity.vue'
 import LogsFilterForm from './LogsFilterForm.vue'
 import PricingModeIndicator from './PricingModeIndicator.vue'
+import { formatRouteEntity } from './log-format'
 import {
   logsMonitorQuery,
   parseLogsMonitorState,
@@ -355,6 +356,23 @@ async function commitFilters(filters: RequestLogFilters): Promise<void> {
   await router.push(monitorLocation(logsMonitorQuery(filters)))
 }
 
+// 就地收窄而非跳转：排查时要看的是同一维度的其他请求，且目标可能已删。
+async function filterByGroup(groupID: number): Promise<void> {
+  await commitFilters({ ...appliedFilters.value, group_id: groupID })
+}
+
+async function filterByCredential(credentialID: number): Promise<void> {
+  await commitFilters({ ...appliedFilters.value, credential_id: credentialID })
+}
+
+async function filterByAccessKey(accessKeyID: number): Promise<void> {
+  await commitFilters({ ...appliedFilters.value, access_key_id: accessKeyID })
+}
+
+async function filterByClientModel(clientModel: string): Promise<void> {
+  await commitFilters({ ...appliedFilters.value, client_model: clientModel })
+}
+
 async function applyFilters(): Promise<void> {
   const errors = validateLogFilterDraft(draft.value)
   filterErrors.value = errors
@@ -453,8 +471,18 @@ async function setDetailOpen(requestID: string | undefined, open: boolean): Prom
 }
 
 function accessKeyLabel(log: RequestLogItemDto): string {
-  if (log.access_key.deleted) return t('monitor.logs.accessKey.deleted', { id: log.access_key.id })
-  return log.access_key.name ?? `#${log.access_key.id}`
+  return formatRouteEntity({
+    id: log.access_key.id,
+    name: log.access_key.name,
+    deleted: log.access_key.deleted,
+    prefix: '#',
+    deletedText: (id) => t('monitor.logs.deletedRef', { id }),
+  })
+}
+
+// 分组名靠 options 反查：查询就绪后仍找不到，才能断定分组已被删除。
+function groupDeleted(log: RequestLogItemDto): boolean {
+  return log.group_id !== null && groupsQuery.isSuccess.value && groupName(log) === null
 }
 
 function groupName(log: RequestLogItemDto): string | null {
@@ -608,7 +636,7 @@ function costLabel(log: RequestLogItemDto): string {
       v-if="logsQuery.isPending.value || initialLoading"
       variant="collection"
       :rows="appliedFilters.limit ?? 20"
-      :columns="isAccessKey ? 7 : 8"
+      :columns="isAccessKey ? 7 : 9"
       row-height="72px"
       mobile-row-height="176px"
       :concealed="!initialLoading"
@@ -633,7 +661,7 @@ function costLabel(log: RequestLogItemDto): string {
         v-if="collectionTransition"
         variant="collection"
         :rows="skeletonRows"
-        :columns="isAccessKey ? 7 : 8"
+        :columns="isAccessKey ? 7 : 9"
         row-height="72px"
         mobile-row-height="176px"
         :label="t('monitor.logs.loading')"
@@ -647,6 +675,9 @@ function costLabel(log: RequestLogItemDto): string {
       >
         <template #header>
           <span role="columnheader">{{ t('monitor.logs.columns.time') }}</span>
+          <span v-if="!isAccessKey" role="columnheader">
+            {{ t('monitor.logs.columns.accessKey') }}
+          </span>
           <span v-if="!isAccessKey" role="columnheader">{{ t('monitor.logs.columns.route') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.modelProtocol') }}</span>
           <span role="columnheader">{{ t('monitor.logs.columns.response') }}</span>
@@ -678,17 +709,37 @@ function costLabel(log: RequestLogItemDto): string {
             v-if="!isAccessKey"
             class="ledger-record-list__cell logs-list__cell"
             role="cell"
-            :data-label="t('monitor.logs.columns.route')"
+            :data-label="t('monitor.logs.columns.accessKey')"
           >
-            <OverflowTooltip as="span" :content="accessKeyLabel(log)">
+            <OverflowTooltip
+              as="button"
+              type="button"
+              class="filterable-value"
+              :content="accessKeyLabel(log)"
+              :aria-label="t('monitor.logs.filterAccessKey', { name: accessKeyLabel(log) })"
+              @click="filterByAccessKey(log.access_key.id)"
+            >
               {{ accessKeyLabel(log) }}
             </OverflowTooltip>
+          </div>
+          <div
+            v-if="!isAccessKey"
+            class="ledger-record-list__cell logs-list__cell"
+            role="cell"
+            :data-label="t('monitor.logs.columns.route')"
+          >
             <LogRouteIdentity
               :group-id="log.group_id"
               :group-name="groupName(log)"
               :channel-id="log.channel_id"
               :channel="channelDefinition(log)"
               :credential-id="log.credential_id"
+              :credential-name="log.credential_name"
+              :group-deleted="groupDeleted(log)"
+              :credential-deleted="log.credential_id !== null && log.credential_name === ''"
+              filterable
+              @filter-group="filterByGroup"
+              @filter-credential="filterByCredential"
             />
           </div>
           <div
@@ -699,9 +750,12 @@ function costLabel(log: RequestLogItemDto): string {
             <span class="logs-list__inline">
               <OverflowTooltip
                 v-if="log.client_model"
-                as="code"
-                class="logs-list__model"
+                as="button"
+                type="button"
+                class="logs-list__model filterable-value"
                 :content="log.client_model"
+                :aria-label="t('monitor.logs.filterModel', { name: log.client_model })"
+                @click="filterByClientModel(log.client_model)"
               >
                 {{ log.client_model }}
               </OverflowTooltip>
@@ -945,16 +999,17 @@ function costLabel(log: RequestLogItemDto): string {
 }
 
 .logs-list {
-  --ledger-record-list-grid: 116px minmax(132px, 0.95fr) minmax(180px, 1.2fr) 112px
-    minmax(88px, 0.58fr) minmax(142px, 0.9fr) 126px 34px;
+  /* 时间定长、Token/耗时/成本按实际内容重算，压出的宽度装下新增的密钥列。 */
+  --ledger-record-list-grid: 96px minmax(96px, 0.62fr) minmax(132px, 0.86fr) minmax(180px, 1.2fr)
+    96px minmax(76px, 0.42fr) minmax(104px, 0.6fr) 100px 34px;
   --ledger-record-list-column-gap: 16px;
   --ledger-record-list-record-min-height: 72px;
   --ledger-record-list-record-padding: 10px 0;
 }
 
 .logs-list--scoped {
-  --ledger-record-list-grid: 116px minmax(180px, 1.2fr) 112px minmax(88px, 0.58fr)
-    minmax(142px, 0.9fr) 126px 34px;
+  --ledger-record-list-grid: 96px minmax(180px, 1.2fr) 96px minmax(76px, 0.42fr)
+    minmax(104px, 0.6fr) 100px 34px;
 }
 
 .logs-list__cell {
@@ -967,7 +1022,8 @@ function costLabel(log: RequestLogItemDto): string {
 }
 
 .logs-list__cell > span,
-.logs-list__cell code {
+.logs-list__cell code,
+.logs-list__cell .filterable-value {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1040,6 +1096,7 @@ function costLabel(log: RequestLogItemDto): string {
 
 .logs-list__model {
   flex: 0 1 auto;
+  font-family: var(--font-mono);
 }
 
 .logs-list__reasoning {
@@ -1133,8 +1190,8 @@ function costLabel(log: RequestLogItemDto): string {
 @media (max-width: 1080px) {
   .logs-list {
     --ledger-record-list-column-gap: 10px;
-    --ledger-record-list-grid: 108px minmax(118px, 0.9fr) minmax(160px, 1.15fr) 104px
-      minmax(84px, 0.58fr) minmax(124px, 0.85fr) 116px 32px;
+    --ledger-record-list-grid: 92px minmax(88px, 0.6fr) minmax(118px, 0.82fr) minmax(160px, 1.15fr)
+      92px minmax(72px, 0.42fr) minmax(96px, 0.58fr) 96px 32px;
   }
 }
 

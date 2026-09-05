@@ -322,6 +322,7 @@ function projectCatalogReference(
 function projectUpstreamPrice(
   record: Record<string, unknown>,
   upstreamModelID: string,
+  isAccessKey: boolean,
 ): Pick<ModelUpstreamDto, 'price' | 'route_groups' | 'affected_groups' | 'catalog_reference'> {
   const price = projectModelPrice(record.price)
   const routeGroups = projectArray(record.route_groups, projectRouteGroup)
@@ -329,14 +330,16 @@ function projectUpstreamPrice(
   const affectedGroupIDs = new Set(affectedGroups.map(({ id }) => id))
   if (
     price.model_id !== upstreamModelID ||
-    routeGroups.length === 0 ||
-    affectedGroups.length === 0 ||
+    (isAccessKey
+      ? routeGroups.length !== 0 || affectedGroups.length !== 0
+      : routeGroups.length === 0 ||
+        affectedGroups.length === 0 ||
+        price.reference_group_count !== affectedGroups.length) ||
     routeGroups.some(({ channel_id }) => channel_id !== price.channel_id) ||
     affectedGroups.some(({ channel_id }) => channel_id !== price.channel_id) ||
     new Set(routeGroups.map(({ id }) => id)).size !== routeGroups.length ||
     affectedGroupIDs.size !== affectedGroups.length ||
-    routeGroups.some(({ id }) => !affectedGroupIDs.has(id)) ||
-    price.reference_group_count !== affectedGroups.length
+    routeGroups.some(({ id }) => !affectedGroupIDs.has(id))
   ) {
     invalidResponse()
   }
@@ -351,7 +354,11 @@ function projectUpstreamPrice(
   }
 }
 
-function projectUpstreamModel(value: unknown, clientModel: string): ModelUpstreamDto {
+function projectUpstreamModel(
+  value: unknown,
+  clientModel: string,
+  isAccessKey: boolean,
+): ModelUpstreamDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, upstreamModelFields)
   const modelID = projectIdentityString(record.model_id)
@@ -360,7 +367,7 @@ function projectUpstreamModel(value: unknown, clientModel: string): ModelUpstrea
   return {
     model_id: modelID,
     alias_applied: aliasApplied,
-    ...projectUpstreamPrice(record, modelID),
+    ...projectUpstreamPrice(record, modelID, isAccessKey),
   }
 }
 
@@ -404,12 +411,12 @@ export function projectUpstreamModelDetail(value: unknown): UpstreamModelDetailD
   }
 }
 
-function projectClientModel(value: unknown): ClientModelDto {
+function projectClientModel(value: unknown, isAccessKey: boolean): ClientModelDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, clientModelFields)
   const clientModel = projectIdentityString(record.client_model)
   const upstreamModels = projectArray(record.upstream_models, (upstream) =>
-    projectUpstreamModel(upstream, clientModel),
+    projectUpstreamModel(upstream, clientModel, isAccessKey),
   )
   if (
     upstreamModels.length === 0 ||
@@ -475,12 +482,12 @@ function expectedPageItems(pagination: ModelCollectionPaginationDto): number {
   return remainder === 0 ? pagination.page_size : remainder
 }
 
-export function projectModelCollection(value: unknown): ModelCollectionDto {
+export function projectModelCollection(value: unknown, isAccessKey = false): ModelCollectionDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, collectionFields)
   const summary = projectSummary(record.summary)
   const catalog = projectCatalog(record.catalog)
-  const items = projectArray(record.items, projectClientModel)
+  const items = projectArray(record.items, (item) => projectClientModel(item, isAccessKey))
   const pagination = projectPagination(record.pagination)
   const expectedTotalPages =
     pagination.total_items === 0 ? 0 : Math.ceil(pagination.total_items / pagination.page_size)
@@ -513,6 +520,7 @@ export async function listModels(
   client: ApiClient,
   filters: ModelCollectionFilters,
   signal?: AbortSignal,
+  isAccessKey = false,
 ): Promise<ModelCollectionDto> {
   const normalized = normalizeModelCollectionFilters(filters)
   const params = new URLSearchParams({
@@ -524,6 +532,7 @@ export async function listModels(
   if (normalized.q !== undefined) params.set('q', normalized.q)
   const result = projectModelCollection(
     await client.request(`/api/models?${params.toString()}`, { method: 'GET', signal }),
+    isAccessKey,
   )
   if (
     result.pagination.page !== normalized.page ||
@@ -547,12 +556,14 @@ export async function getUpstreamModelDetail(
 export function modelCollectionQueryOptions(
   client: ApiClient,
   filters: MaybeRefOrGetter<ModelCollectionFilters>,
+  isAccessKey: MaybeRefOrGetter<boolean> = false,
 ) {
   return queryOptions({
     queryKey: computed(() =>
       controlQueryKeys.models.collection(normalizeModelCollectionFilters(toValue(filters))),
     ),
-    queryFn: ({ queryKey, signal }) => listModels(client, queryKey[3], signal),
+    queryFn: ({ queryKey, signal }) =>
+      listModels(client, queryKey[3], signal, toValue(isAccessKey)),
     placeholderData: keepPreviousData,
   })
 }

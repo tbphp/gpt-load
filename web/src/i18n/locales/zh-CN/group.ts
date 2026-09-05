@@ -63,6 +63,10 @@ export default {
       copyFailure: '复制失败',
       credentialHealthLabel:
         '共 {total} 个凭据，正常 {available}，冷却中 {cooldown}，已拉黑 {blacklisted}，已停用 {disabled}',
+      toggleEnabled: '启用 {name}',
+      enabledOn: '已启用 {name}',
+      enabledOff: '已停用 {name}，该分组不再接受新请求',
+      toggleFailed: '切换失败，请重试',
       appendCredential: '追加凭据',
       appendCredentialFor: '向 {name} 追加凭据',
     },
@@ -410,6 +414,7 @@ export default {
       diagnostics: '运行诊断',
       moreActions: '更多操作',
       editWeightHint: '点击调整权重',
+      weightChipTooltip: '手动权重 {weight}，点击编辑',
       expand: '展开凭据详情',
       collapse: '收起凭据详情',
       restore: '立即恢复',

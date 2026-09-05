@@ -1718,6 +1718,7 @@ async function runBatch(
               @update:selected="setSelected(item.credential_id, $event)"
               @toggle="mutateItem($event, 'toggle')"
               @restore="mutateItem($event, 'restore')"
+              @weight="mutateItem($event.item, 'weight', $event.value)"
               @refresh="refreshObservation"
               @load-details="loadCredentialUsage"
               @reset="openResetCreditDialog"

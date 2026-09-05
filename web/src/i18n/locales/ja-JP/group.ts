@@ -63,6 +63,10 @@ export default {
       copyFailure: 'コピーできませんでした',
       credentialHealthLabel:
         '合計 {total} 件の認証情報、正常 {available}、クールダウン中 {cooldown}、ブラックリスト {blacklisted}、無効 {disabled}',
+      toggleEnabled: '{name} を有効化',
+      enabledOn: '{name} を有効にしました',
+      enabledOff: '{name} を停止しました。新しいリクエストは受け付けません。',
+      toggleFailed: '切り替えに失敗しました。再試行してください。',
       appendCredential: '認証情報を追加',
       appendCredentialFor: '{name} に認証情報を追加',
     },
@@ -424,6 +428,7 @@ export default {
       diagnostics: '実行診断',
       moreActions: 'その他の操作',
       editWeightHint: 'クリックして重みを調整',
+      weightChipTooltip: '手動ウェイト {weight}。クリックで編集',
       expand: '認証情報の詳細を展開',
       collapse: '認証情報の詳細を折りたたむ',
       restore: 'すぐに回復',

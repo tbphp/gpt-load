@@ -2,10 +2,12 @@
 import { ChevronRight, CircleHelp, Zap } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 
 import { enabledDataProtocols } from '@/api/control/protocols'
+import { groupDetailLocation } from '@/app/route-locations'
 import type { GroupProtocol } from '@/api/control/types'
-import type { ClientModelDto, ModelUpstreamDto } from '@/app/resources/models'
+import type { ClientModelDto, ModelRouteGroupDto, ModelUpstreamDto } from '@/app/resources/models'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
@@ -20,7 +22,35 @@ const props = defineProps<{
   readOnly?: boolean
 }>()
 const emit = defineEmits<{ open: [upstream: ModelUpstreamDto] }>()
-const { t } = useI18n()
+
+// 一行里的分组必定同渠道，两枚足够点出归属，其余在抽屉里看。
+const visibleRouteGroupCount = 2
+
+function visibleRouteGroups(upstream: ModelUpstreamDto): ModelRouteGroupDto[] {
+  return upstream.route_groups.slice(0, visibleRouteGroupCount)
+}
+
+function hiddenRouteGroups(upstream: ModelUpstreamDto): ModelRouteGroupDto[] {
+  return upstream.route_groups.slice(visibleRouteGroupCount)
+}
+
+// narrow 去掉“和 / and”只留分隔符；unit 类型在中日文下不插分隔符，不能用。
+function formatGroupNames(names: string[]): string {
+  try {
+    return new Intl.ListFormat(locale.value, { style: 'narrow', type: 'conjunction' }).format(names)
+  } catch {
+    return names.join(', ')
+  }
+}
+
+function hiddenRouteGroupsTooltip(upstream: ModelUpstreamDto): string {
+  const hidden = hiddenRouteGroups(upstream)
+  return t('models.tree.routeGroupMore', {
+    count: hidden.length,
+    names: formatGroupNames(hidden.map(({ name }) => name)),
+  })
+}
+const { locale, t } = useI18n()
 
 const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel))
 
@@ -167,6 +197,34 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
               </span>
               <span v-if="entry.tierCount > 0" class="model-tree__tag">
                 {{ t('models.tree.tierCount', { count: entry.tierCount }) }}
+              </span>
+              <span
+                v-if="!readOnly && entry.upstream.route_groups.length > 0"
+                class="model-tree__groups"
+                :aria-label="t('models.tree.routeGroups')"
+              >
+                <RouterLink
+                  v-for="group in visibleRouteGroups(entry.upstream)"
+                  :key="group.id"
+                  class="model-tree__group"
+                  :class="{ 'model-tree__group--disabled': !group.enabled }"
+                  :to="groupDetailLocation(group.id, { tab: 'models' })"
+                  :title="
+                    group.enabled
+                      ? t('models.tree.routeGroupLink', { name: group.name })
+                      : t('models.tree.routeGroupDisabled', { name: group.name })
+                  "
+                >
+                  {{ group.name }}
+                </RouterLink>
+                <AppTooltip
+                  v-if="hiddenRouteGroups(entry.upstream).length > 0"
+                  :content="hiddenRouteGroupsTooltip(entry.upstream)"
+                >
+                  <span class="model-tree__group model-tree__group--more" tabindex="0">
+                    +{{ hiddenRouteGroups(entry.upstream).length }}
+                  </span>
+                </AppTooltip>
               </span>
             </div>
 
@@ -475,6 +533,49 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
   font-size: var(--text-meta);
   overflow-wrap: anywhere;
   text-align: left;
+}
+
+.model-tree__groups {
+  display: inline-flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.model-tree__group {
+  max-width: 168px;
+  overflow: hidden;
+  border-radius: var(--radius-tag);
+  background: var(--color-action-soft);
+  color: var(--color-action);
+  padding: 1px 7px;
+  font-size: var(--text-label-xs);
+  font-weight: 620;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-tree__group:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.model-tree__group:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.model-tree__group--disabled {
+  background: var(--color-neutral-bg);
+  color: var(--color-text-faint);
+}
+
+.model-tree__group--more {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  cursor: help;
 }
 
 .model-tree__upstream-name {
