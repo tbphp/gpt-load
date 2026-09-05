@@ -793,7 +793,7 @@ func (handler *Handler) executeAttempts(
 	}
 	preparedByGroup := make(map[uint]preparedRequest)
 	loggedOverrideFailures := make(map[uint]struct{})
-	parameterOverrideFailed := false
+	var parameterOverrideFailure *reason
 	prepareRequest := func(selection scheduler.Selection) preparedRequest {
 		if prepared, exists := preparedByGroup[selection.GroupID]; exists {
 			return prepared
@@ -965,7 +965,13 @@ func (handler *Handler) executeAttempts(
 		}
 		prepared := prepareRequest(selection)
 		if prepared.err != nil {
-			parameterOverrideFailed = true
+			if errors.Is(prepared.err, errRequestTooLarge) {
+				if parameterOverrideFailure == nil {
+					parameterOverrideFailure = &reasonRequestTooLarge
+				}
+			} else {
+				parameterOverrideFailure = &reasonParameterOverrideUnavailable
+			}
 			if _, logged := loggedOverrideFailures[selection.GroupID]; !logged {
 				utils.LogPlaneBestEffort(
 					handler.logger,
@@ -1338,8 +1344,8 @@ func (handler *Handler) executeAttempts(
 		handler.completeReason(ginContext, recorder, reasonModelRequiredByFilter)
 		return
 	}
-	if parameterOverrideFailed && lastAttemptIndex < 0 {
-		handler.completeReason(ginContext, recorder, reasonParameterOverrideUnavailable)
+	if parameterOverrideFailure != nil && lastAttemptIndex < 0 {
+		handler.completeReason(ginContext, recorder, *parameterOverrideFailure)
 		return
 	}
 	handler.completeReason(ginContext, recorder, reasonNoCandidate)

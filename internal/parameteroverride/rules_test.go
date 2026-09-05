@@ -158,7 +158,7 @@ func TestCompileAcceptsNumbersThatRoundTripThroughManagementUI(t *testing.T) {
 	}
 }
 
-func TestRulesRejectOversizedBodiesOnlyAfterRuleMatch(t *testing.T) {
+func TestRulesApplyLargeBodies(t *testing.T) {
 	rules := compileRulesForTest(t, []any{
 		map[string]any{
 			"match": map[string]any{"model": "matched"},
@@ -167,15 +167,15 @@ func TestRulesRejectOversizedBodiesOnlyAfterRuleMatch(t *testing.T) {
 	})
 	prefix := []byte(`{"model":"matched","input":"`)
 	suffix := []byte(`"}`)
-	body := append(prefix, bytes.Repeat([]byte("x"), maxApplyBytes-len(prefix)-len(suffix)+1)...)
+	body := append(prefix, bytes.Repeat([]byte("x"), (10<<20)-len(prefix)-len(suffix))...)
 	body = append(body, suffix...)
 
-	if _, applied, err := rules.Apply(
+	if got, applied, err := rules.Apply(
 		protocol.OpenAICompletions,
 		execution.OperationChatCompletion,
 		"matched",
 		body,
-	); err == nil || applied || !strings.Contains(err.Error(), "body exceeds") {
+	); err != nil || !applied || !bytes.Contains(got, []byte(`"temperature":0.5`)) {
 		t.Fatalf("matching Apply() = applied %t, error %v", applied, err)
 	}
 	got, applied, err := rules.Apply(

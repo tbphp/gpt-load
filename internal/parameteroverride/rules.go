@@ -21,7 +21,6 @@ const (
 	maxConfigBytes = 256 << 10
 	maxRemovePaths = 256
 	maxJSONDepth   = 64
-	maxApplyBytes  = 8 << 20
 	maxSafeInteger = int64(1<<53 - 1)
 )
 
@@ -231,9 +230,6 @@ func (rules Rules) Apply(
 	}
 	if len(matched) == 0 {
 		return body, false, nil
-	}
-	if len(body) > maxApplyBytes {
-		return nil, false, fmt.Errorf("request body exceeds parameter override limit of %d bytes", maxApplyBytes)
 	}
 	var object map[string]any
 	if err := decodeJSON(body, &object); err != nil || object == nil {
