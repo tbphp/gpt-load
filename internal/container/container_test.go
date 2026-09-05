@@ -80,6 +80,78 @@ func TestSystemOutboundProxyProviderUsesEnvironmentAndLatestGlobalSnapshot(t *te
 	}
 }
 
+func TestBuildContainerInstallsDataPlaneCORSBeforeRouteAuthentication(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+	if err := i18n.Init(); err != nil {
+		t.Fatalf("i18n.Init() error = %v", err)
+	}
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	var engine *gin.Engine
+	var manager *state.Manager
+	if err := dependencyContainer.Invoke(func(
+		resolvedEngine *gin.Engine,
+		resolvedManager *state.Manager,
+		db *gorm.DB,
+	) {
+		engine = resolvedEngine
+		manager = resolvedManager
+		sqlDB, dbErr := db.DB()
+		if dbErr == nil {
+			t.Cleanup(func() { _ = sqlDB.Close() })
+		}
+	}); err != nil {
+		t.Fatalf("resolve container dependencies: %v", err)
+	}
+	if _, err := manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		SystemSettings: config.Settings{
+			state.SettingCORS: map[string]any{
+				"enabled":         true,
+				"allowed_origins": []any{"app://obsidian.md"},
+				"allowed_methods": []any{"POST"},
+				"allowed_headers": []any{"Authorization"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("publish CORS settings: %v", err)
+	}
+
+	for _, target := range []string{"/v1/responses", "/v1/chat/completions"} {
+		request := httptest.NewRequest(http.MethodOptions, target, nil)
+		request.Header.Set("Origin", "app://obsidian.md")
+		request.Header.Set("Access-Control-Request-Method", "POST")
+		request.Header.Set("Access-Control-Request-Headers", "Authorization")
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+
+		if response.Code != http.StatusNoContent ||
+			response.Header().Get("Access-Control-Allow-Origin") != "app://obsidian.md" {
+			t.Fatalf("OPTIONS %s = %d headers=%#v, want CORS 204", target, response.Code, response.Header())
+		}
+		if response.Header().Get("X-Gptload-Attempts") != "" ||
+			response.Header().Get("X-Gptload-Group") != "" {
+			t.Fatalf("OPTIONS %s entered data-plane authentication: %#v", target, response.Header())
+		}
+	}
+
+	controlRequest := httptest.NewRequest(http.MethodOptions, "/api/settings", nil)
+	controlRequest.Header.Set("Origin", "app://obsidian.md")
+	controlRequest.Header.Set("Access-Control-Request-Method", "PUT")
+	controlResponse := httptest.NewRecorder()
+	engine.ServeHTTP(controlResponse, controlRequest)
+	if controlResponse.Code == http.StatusNoContent ||
+		controlResponse.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("control-plane OPTIONS unexpectedly used data-plane CORS: %d %#v", controlResponse.Code, controlResponse.Header())
+	}
+}
+
 func TestBuildContainerDoesNotInitializeUnusedRuntimeStore(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())

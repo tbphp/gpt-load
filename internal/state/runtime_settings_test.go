@@ -17,10 +17,16 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := RuntimeSettings{
-		FirstByteTimeout:         120 * time.Second,
-		RequestTimeout:           600 * time.Second,
-		StreamIdleTimeout:        300 * time.Second,
-		HeaderRules:              HeaderRules{Set: map[string]string{}},
+		FirstByteTimeout:  120 * time.Second,
+		RequestTimeout:    600 * time.Second,
+		StreamIdleTimeout: 300 * time.Second,
+		HeaderRules:       HeaderRules{Set: map[string]string{}},
+		CORS: CORSConfig{
+			AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
+			AllowedHeaders: []string{"*"},
+			MaxAgeSeconds:  600,
+		},
+		ResponseHeaderRules:      HeaderRules{Set: map[string]string{}},
 		InjectUsageOptions:       true,
 		RetryCount:               2,
 		BlacklistThreshold:       3,
@@ -33,6 +39,169 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 	}
 	if !reflect.DeepEqual(snapshot.Settings, want) {
 		t.Fatalf("Settings = %#v, want %#v", snapshot.Settings, want)
+	}
+}
+
+func TestCORSAndResponseHeaderRulesAreSystemOnlyRuntimeSettings(t *testing.T) {
+	for key, value := range map[string]any{
+		SettingCORS: map[string]any{
+			"enabled":           true,
+			"allowed_origins":   []any{"app://obsidian.md", "https://notes.example"},
+			"allowed_methods":   []any{"post", "GET"},
+			"allowed_headers":   []any{"authorization", "content-type"},
+			"exposed_headers":   []any{"x-request-id"},
+			"allow_credentials": true,
+			"max_age":           json.Number("900"),
+		},
+		SettingResponseHeaderRules: map[string]any{
+			"set":    map[string]any{"x-browser-client": "enabled"},
+			"remove": []any{"x-upstream-marker"},
+		},
+	} {
+		if !IsRuntimeSettingKey(key) {
+			t.Errorf("IsRuntimeSettingKey(%q) = false", key)
+		}
+		if err := ValidateRuntimeSetting(key, value); err != nil {
+			t.Errorf("ValidateRuntimeSetting(%q) error = %v", key, err)
+		}
+	}
+
+	resolved, err := ResolveRuntimeSettings(config.Settings{
+		SettingCORS: map[string]any{
+			"enabled":           true,
+			"allowed_origins":   []any{"app://obsidian.md", "https://notes.example"},
+			"allowed_methods":   []any{"post", "GET"},
+			"allowed_headers":   []any{"authorization", "content-type"},
+			"exposed_headers":   []any{"x-request-id"},
+			"allow_credentials": true,
+			"max_age":           json.Number("900"),
+		},
+		SettingResponseHeaderRules: map[string]any{
+			"set":    map[string]any{"x-browser-client": "enabled"},
+			"remove": []any{"x-upstream-marker"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCORS := CORSConfig{
+		Enabled:          true,
+		AllowedOrigins:   []string{"app://obsidian.md", "https://notes.example"},
+		AllowedMethods:   []string{"POST", "GET"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"X-Request-Id"},
+		AllowCredentials: true,
+		MaxAgeSeconds:    900,
+	}
+	if !reflect.DeepEqual(resolved.CORS, wantCORS) {
+		t.Fatalf("CORS = %#v, want %#v", resolved.CORS, wantCORS)
+	}
+	wantRules := HeaderRules{
+		Set:    map[string]string{"X-Browser-Client": "enabled"},
+		Remove: []string{"X-Upstream-Marker"},
+	}
+	if !reflect.DeepEqual(resolved.ResponseHeaderRules, wantRules) {
+		t.Fatalf("ResponseHeaderRules = %#v, want %#v", resolved.ResponseHeaderRules, wantRules)
+	}
+
+	for _, key := range []string{SettingCORS, SettingResponseHeaderRules} {
+		if _, err := ResolveGroupRuntimeSettings(
+			resolved,
+			config.Settings{key: map[string]any{}},
+		); err == nil {
+			t.Fatalf("ResolveGroupRuntimeSettings accepted system-only %q", key)
+		}
+	}
+}
+
+func TestCORSValidationRejectsUnsafeOrAmbiguousConfiguration(t *testing.T) {
+	validBase := map[string]any{
+		"enabled":         true,
+		"allowed_origins": []any{"https://notes.example"},
+	}
+	tests := []struct {
+		name  string
+		value map[string]any
+	}{
+		{name: "enabled without origins", value: map[string]any{"enabled": true, "allowed_origins": []any{}}},
+		{name: "credentialed wildcard", value: map[string]any{"enabled": true, "allowed_origins": []any{"*"}, "allow_credentials": true}},
+		{name: "wildcard mixed with origin", value: map[string]any{"enabled": true, "allowed_origins": []any{"*", "https://notes.example"}}},
+		{name: "origin with comma", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://one.example, https://two.example"}}},
+		{name: "origin with path", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example/path"}}},
+		{name: "origin without scheme", value: map[string]any{"enabled": true, "allowed_origins": []any{"notes.example"}}},
+		{name: "duplicate origin", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example", "https://notes.example"}}},
+		{name: "empty methods", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allowed_methods": []any{}}},
+		{name: "wildcard method", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allowed_methods": []any{"*"}}},
+		{name: "invalid method", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allowed_methods": []any{"POST\nTRACE"}}},
+		{name: "invalid allowed header", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allowed_headers": []any{"Bad Header"}}},
+		{name: "negative max age", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "max_age": json.Number("-1")}},
+		{name: "credentialed wildcard exposed headers", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allow_credentials": true, "exposed_headers": []any{"*"}}},
+		{name: "unknown field", value: map[string]any{"enabled": false, "surprise": true}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateRuntimeSetting(SettingCORS, test.value); err == nil {
+				t.Fatalf("ValidateRuntimeSetting accepted %#v", test.value)
+			}
+		})
+	}
+	if err := ValidateRuntimeSetting(SettingCORS, validBase); err != nil {
+		t.Fatalf("ValidateRuntimeSetting rejected valid CORS config: %v", err)
+	}
+}
+
+func TestCORSOriginsAreCanonicalizedBeforeDuplicateDetection(t *testing.T) {
+	origins, err := parseCORSOrigins([]any{
+		"HTTPS://EXAMPLE.COM",
+		"http://EXAMPLE.COM:80",
+		"https://EXAMPLE.COM:444",
+		"https://bücher.example",
+		"APP://OBSIDIAN.MD",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"https://example.com",
+		"http://example.com",
+		"https://example.com:444",
+		"https://xn--bcher-kva.example",
+		"app://obsidian.md",
+	}
+	if !reflect.DeepEqual(origins, want) {
+		t.Fatalf("origins = %#v, want %#v", origins, want)
+	}
+
+	if _, err := parseCORSOrigins([]any{
+		"HTTPS://EXAMPLE.COM",
+		"https://example.com:443",
+	}); err == nil || !strings.Contains(err.Error(), "duplicate origin") {
+		t.Fatalf("normalized duplicate error = %v, want duplicate origin", err)
+	}
+}
+
+func TestResponseHeaderRulesRejectTransportAndCORSOwnedHeaders(t *testing.T) {
+	for _, name := range []string{
+		"Connection",
+		"Content-Length",
+		"Content-Type",
+		"Set-Cookie",
+		"Transfer-Encoding",
+		"Vary",
+		"Access-Control-Allow-Origin",
+		"X-GPTLoad-Attempts",
+	} {
+		for _, section := range []string{"set", "remove"} {
+			value := map[string]any{}
+			if section == "set" {
+				value[section] = map[string]any{name: "value"}
+			} else {
+				value[section] = []any{name}
+			}
+			if err := ValidateRuntimeSetting(SettingResponseHeaderRules, value); err == nil {
+				t.Errorf("response_header_rules accepted %s %q", section, name)
+			}
+		}
 	}
 }
 
@@ -461,6 +630,8 @@ func TestIsRuntimeSettingKeyRecognizesOnlyPublicRuntimeKeys(t *testing.T) {
 		SettingRequestTimeout,
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
+		SettingCORS,
+		SettingResponseHeaderRules,
 		SettingInjectUsageOptions,
 		SettingRetryCount,
 		SettingBlacklistThreshold,

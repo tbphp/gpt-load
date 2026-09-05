@@ -19,6 +19,7 @@ func bindGatewayRoutesForTest(
 	handler *Handler,
 ) {
 	t.Helper()
+	engine.Use(handler.DownstreamHeadersMiddleware())
 	registry, err := httproute.NewRegistry(handler.HTTPModule())
 	if err != nil {
 		t.Fatalf("NewRegistry() error = %v", err)

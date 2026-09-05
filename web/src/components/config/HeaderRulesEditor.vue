@@ -10,6 +10,7 @@ import {
   validateHeaderRuleRows,
   type HeaderRuleAction,
   type HeaderRuleValidationError,
+  type HeaderRuleValidationPolicy,
 } from './header-rules-validation'
 
 interface RuleRow {
@@ -30,6 +31,7 @@ const props = withDefaults(
     resetKey?: number
     showNotice?: boolean
     showAdd?: boolean
+    validationPolicy?: HeaderRuleValidationPolicy
   }>(),
   {
     disabled: false,
@@ -39,6 +41,7 @@ const props = withDefaults(
     resetKey: 0,
     showNotice: true,
     showAdd: true,
+    validationPolicy: 'request',
   },
 )
 const emit = defineEmits<{
@@ -114,6 +117,7 @@ function rowsMatchRules(rows: readonly RuleRow[], rules: HeaderRulesDto): boolea
 const validationErrors = computed(() =>
   validateHeaderRuleRows(
     rows.value.map(({ key, action, name, value }) => ({ rowKey: key, action, name, value })),
+    props.validationPolicy,
   ),
 )
 const validationErrorsByRow = computed(() => {

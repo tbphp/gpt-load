@@ -123,11 +123,79 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	if got.Values.HeaderRules.Remove == nil || len(got.Values.HeaderRules.Remove) != 0 {
 		t.Fatalf("header_rules.remove = %#v, want empty slice", got.Values.HeaderRules.Remove)
 	}
+	if got.Values.CORS.Enabled ||
+		!reflect.DeepEqual(got.Values.CORS.AllowedMethods, []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}) ||
+		!reflect.DeepEqual(got.Values.CORS.AllowedHeaders, []string{"*"}) ||
+		got.Values.CORS.MaxAge != 600 {
+		t.Fatalf("cors = %#v, want disabled browser-access defaults", got.Values.CORS)
+	}
+	if got.Values.CORS.AllowedOrigins == nil || got.Values.CORS.ExposedHeaders == nil {
+		t.Fatalf("cors collections must be non-nil: %#v", got.Values.CORS)
+	}
+	if got.Values.ResponseHeaderRules.Set == nil || got.Values.ResponseHeaderRules.Remove == nil {
+		t.Fatalf("response_header_rules collections must be non-nil: %#v", got.Values.ResponseHeaderRules)
+	}
 	if got.Overrides == nil {
 		t.Fatal("overrides = nil, want empty slice")
 	}
 	if !got.Values.ModelsDevAutoSyncEnabled || got.ReadOnly == nil || len(got.ReadOnly) != 0 {
 		t.Fatalf("Models.dev settings = %#v/%#v, want true and no read-only keys", got.Values, got.ReadOnly)
+	}
+}
+
+func TestUpdateSettingsPublishesCORSAndResponseHeaderRules(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingCORS: json.RawMessage(`{
+				"enabled": true,
+				"allowed_origins": ["app://obsidian.md"],
+				"allowed_methods": ["post"],
+				"allowed_headers": ["authorization", "content-type"],
+				"exposed_headers": ["x-request-id"],
+				"allow_credentials": true,
+				"max_age": 900
+			}`),
+			state.SettingResponseHeaderRules: json.RawMessage(`{
+				"set": {"x-browser-client": "enabled"},
+				"remove": ["x-upstream-marker"]
+			}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCORS := CORSConfigResponse{
+		Enabled:          true,
+		AllowedOrigins:   []string{"app://obsidian.md"},
+		AllowedMethods:   []string{"POST"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"X-Request-Id"},
+		AllowCredentials: true,
+		MaxAge:           900,
+	}
+	if !reflect.DeepEqual(updated.Values.CORS, wantCORS) {
+		t.Fatalf("cors = %#v, want %#v", updated.Values.CORS, wantCORS)
+	}
+	wantRules := HeaderRulesResponse{
+		Set:    map[string]string{"X-Browser-Client": "enabled"},
+		Remove: []string{"X-Upstream-Marker"},
+	}
+	if !reflect.DeepEqual(updated.Values.ResponseHeaderRules, wantRules) {
+		t.Fatalf("response header rules = %#v, want %#v", updated.Values.ResponseHeaderRules, wantRules)
+	}
+	wantOverrides := []string{state.SettingCORS, state.SettingResponseHeaderRules}
+	if !reflect.DeepEqual(updated.Overrides, wantOverrides) {
+		t.Fatalf("overrides = %#v, want %#v", updated.Overrides, wantOverrides)
+	}
+
+	var rows []models.SystemSetting
+	if err := fixture.db.Order("key").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Key != state.SettingCORS || rows[1].Key != state.SettingResponseHeaderRules {
+		t.Fatalf("persisted rows = %#v", rows)
 	}
 }
 
@@ -613,6 +681,8 @@ func TestUpdateSettingsRejectsInvalidChangesWithoutPublishing(t *testing.T) {
 		{name: "excess retention", updates: map[string]json.RawMessage{state.SettingRequestLogRetentionDays: json.RawMessage("366")}, wantErr: app_errors.ErrValidation},
 		{name: "unknown header rule", updates: map[string]json.RawMessage{state.SettingHeaderRules: json.RawMessage(`{"append":{}}`)}, wantErr: app_errors.ErrValidation},
 		{name: "case folded duplicate header", updates: map[string]json.RawMessage{state.SettingHeaderRules: json.RawMessage(`{"set":{"X-Test":"one","x-test":"two"}}`)}, wantErr: app_errors.ErrValidation},
+		{name: "enabled CORS without origins", updates: map[string]json.RawMessage{state.SettingCORS: json.RawMessage(`{"enabled":true,"allowed_origins":[]}`)}, wantErr: app_errors.ErrValidation},
+		{name: "reserved response header", updates: map[string]json.RawMessage{state.SettingResponseHeaderRules: json.RawMessage(`{"set":{"Access-Control-Allow-Origin":"*"}}`)}, wantErr: app_errors.ErrValidation},
 		{name: "malformed raw value", updates: map[string]json.RawMessage{state.SettingRequestTimeout: json.RawMessage("900 800")}, wantErr: app_errors.ErrValidation},
 		{name: "empty", updates: map[string]json.RawMessage{}, wantErr: app_errors.ErrBadRequest},
 		{name: "nil", updates: nil, wantErr: app_errors.ErrBadRequest},
@@ -689,6 +759,7 @@ func TestSettingsUpdateRequestRejectsDuplicateUnknownAndWrongShapeJSON(t *testin
 		{name: "duplicate header rules field", body: `{"settings":{"header_rules":{"set":{},"set":{}}}}`},
 		{name: "duplicate header set member", body: `{"settings":{"header_rules":{"set":{"X-Test":"one","X-Test":"two"}}}}`},
 		{name: "duplicate object nested in array", body: `{"settings":{"header_rules":{"remove":[{"future":1,"future":2}]}}}`},
+		{name: "duplicate CORS field", body: `{"settings":{"cors":{"enabled":true,"enabled":false}}}`},
 		{name: "unknown top level", body: `{"settings":{},"other":{}}`},
 		{name: "missing settings", body: `{}`},
 		{name: "null settings", body: `{"settings":null}`},

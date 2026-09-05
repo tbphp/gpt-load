@@ -433,23 +433,11 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	if snapshot == nil {
 		t.Fatal("Current() = nil, want snapshot")
 	}
-	wantSettings := state.RuntimeSettings{
-		FirstByteTimeout:  20 * time.Second,
-		RequestTimeout:    600 * time.Second,
-		StreamIdleTimeout: 300 * time.Second,
-		HeaderRules: state.HeaderRules{
-			Set:    map[string]string{"X-System": "system"},
-			Remove: []string{"X-System-Remove"},
-		},
-		InjectUsageOptions:       true,
-		RetryCount:               2,
-		BlacklistThreshold:       3,
-		AffinityEnabled:          true,
-		AffinityTTL:              time.Hour,
-		AffinityCapacity:         10_000,
-		ValidationInterval:       10 * time.Minute,
-		RequestLogRetentionDays:  7,
-		ModelsDevAutoSyncEnabled: true,
+	wantSettings := state.DefaultRuntimeSettings()
+	wantSettings.FirstByteTimeout = 20 * time.Second
+	wantSettings.HeaderRules = state.HeaderRules{
+		Set:    map[string]string{"X-System": "system"},
+		Remove: []string{"X-System-Remove"},
 	}
 	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
 		t.Fatalf("snapshot Settings = %#v, want %#v", snapshot.Settings, wantSettings)

@@ -2,6 +2,7 @@ import type { HeaderRulesDto } from '@/app/resources/groups'
 import type {
   RuntimeSettingKey,
   PolicyCountSettingKey,
+  CORSConfigDto,
   SettingsDto,
   SettingsPatch,
   SettingsValues,
@@ -10,7 +11,7 @@ import type {
 import { runtimeSettingKeys } from '@/app/resources/settings'
 
 export type SettingsSection =
-  'request-forwarding' | 'affinity' | 'logs-maintenance' | 'model-prices'
+  'request-forwarding' | 'affinity' | 'browser-access' | 'logs-maintenance' | 'model-prices'
 export type SettingsScope = SettingsSection | 'all'
 
 export interface SettingsDraft {
@@ -31,14 +32,30 @@ const requestForwardingKeys: RuntimeSettingKey[] = [
 ]
 const logsMaintenanceKeys: RuntimeSettingKey[] = ['request_log_retention_days']
 const affinityKeys: RuntimeSettingKey[] = ['affinity_enabled', 'affinity_ttl', 'affinity_capacity']
+const browserAccessKeys: RuntimeSettingKey[] = ['cors', 'response_header_rules']
 const modelPriceKeys: RuntimeSettingKey[] = ['models_dev_auto_sync_enabled']
 
 function cloneHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
   return { set: { ...value.set }, remove: [...value.remove] }
 }
 
+function cloneCORSConfig(value: CORSConfigDto): CORSConfigDto {
+  return {
+    ...value,
+    allowed_origins: [...value.allowed_origins],
+    allowed_methods: [...value.allowed_methods],
+    allowed_headers: [...value.allowed_headers],
+    exposed_headers: [...value.exposed_headers],
+  }
+}
+
 function cloneValues(value: SettingsValues): SettingsValues {
-  return { ...value, header_rules: cloneHeaderRules(value.header_rules) }
+  return {
+    ...value,
+    header_rules: cloneHeaderRules(value.header_rules),
+    cors: cloneCORSConfig(value.cors),
+    response_header_rules: cloneHeaderRules(value.response_header_rules),
+  }
 }
 
 export function createSettingsDraft(settings: SettingsDto): SettingsDraft {
@@ -69,12 +86,17 @@ export function setSettingsOverride(
       next.values.affinity_enabled = base.values.affinity_enabled
     } else if (key === 'models_dev_auto_sync_enabled') {
       next.values.models_dev_auto_sync_enabled = base.values.models_dev_auto_sync_enabled
+    } else if (key === 'cors') {
+      next.values.cors = cloneCORSConfig(base.values.cors)
+    } else if (key === 'response_header_rules') {
+      next.values.response_header_rules = cloneHeaderRules(base.values.response_header_rules)
     } else if (key !== 'header_rules') {
       next.values[key] = base.values[key]
     }
   } else {
     next.overrides.delete(key)
     if (key === 'header_rules') next.values.header_rules = { set: {}, remove: [] }
+    if (key === 'response_header_rules') next.values.response_header_rules = { set: {}, remove: [] }
   }
   return next
 }
@@ -90,9 +112,21 @@ function normalizeHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
 function normalizedWireValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
-): number | boolean | HeaderRulesDto {
-  if (key === 'header_rules') return normalizeHeaderRules(settings.header_rules)
+): number | boolean | HeaderRulesDto | CORSConfigDto {
+  if (key === 'header_rules' || key === 'response_header_rules')
+    return normalizeHeaderRules(settings[key])
+  if (key === 'cors') return normalizeCORSConfig(settings.cors)
   return settings[key]
+}
+
+function normalizeCORSConfig(value: CORSConfigDto): CORSConfigDto {
+  return {
+    ...cloneCORSConfig(value),
+    allowed_origins: value.allowed_origins.map(normalizeCORSOrigin),
+    allowed_methods: value.allowed_methods.map((entry) => entry.trim().toUpperCase()),
+    allowed_headers: value.allowed_headers.map((entry) => entry.trim()),
+    exposed_headers: value.exposed_headers.map((entry) => entry.trim()),
+  }
 }
 
 function canonicalHeaderRulesIdentity(value: HeaderRulesDto): HeaderRulesDto {
@@ -110,9 +144,22 @@ function canonicalHeaderRulesIdentity(value: HeaderRulesDto): HeaderRulesDto {
 function normalizedIdentityValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
-): number | boolean | HeaderRulesDto {
-  if (key === 'header_rules') return canonicalHeaderRulesIdentity(settings.header_rules)
+): number | boolean | HeaderRulesDto | CORSConfigDto {
+  if (key === 'header_rules' || key === 'response_header_rules')
+    return canonicalHeaderRulesIdentity(settings[key])
+  if (key === 'cors') return canonicalCORSIdentity(settings.cors)
   return normalizedWireValue(settings, key)
+}
+
+function canonicalCORSIdentity(value: CORSConfigDto): CORSConfigDto {
+  const normalized = normalizeCORSConfig(value)
+  return {
+    ...normalized,
+    allowed_origins: [...normalized.allowed_origins].sort(),
+    allowed_methods: [...normalized.allowed_methods].sort(),
+    allowed_headers: normalized.allowed_headers.map(asciiLower).sort(),
+    exposed_headers: normalized.exposed_headers.map(asciiLower).sort(),
+  }
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
@@ -122,6 +169,7 @@ function sameValue(left: unknown, right: unknown): boolean {
 export function settingsSectionKeys(section: SettingsSection): RuntimeSettingKey[] {
   if (section === 'request-forwarding') return [...requestForwardingKeys]
   if (section === 'affinity') return [...affinityKeys]
+  if (section === 'browser-access') return [...browserAccessKeys]
   if (section === 'logs-maintenance') return [...logsMaintenanceKeys]
   return [...modelPriceKeys]
 }
@@ -177,6 +225,78 @@ export function isValidNonNegativeInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0
 }
 
+export function isValidCORSConfig(value: CORSConfigDto): boolean {
+  const allowedOrigins = value.allowed_origins.map(normalizeCORSOrigin)
+  if (!isValidNonNegativeInteger(value.max_age)) return false
+  if (!validUniqueList(allowedOrigins, false, (entry) => validOrigin(entry))) return false
+  if (allowedOrigins.includes('*') && allowedOrigins.length > 1) return false
+  if (!validUniqueList(value.allowed_methods, true, (entry) => entry !== '*' && isHTTPToken(entry)))
+    return false
+  if (!validHeaderList(value.allowed_headers, value.enabled)) return false
+  if (!validHeaderList(value.exposed_headers, false)) return false
+  if (value.enabled && (value.allowed_origins.length === 0 || value.allowed_methods.length === 0))
+    return false
+  if (value.enabled && value.allowed_headers.length === 0) return false
+  if (value.allow_credentials && allowedOrigins.includes('*')) return false
+  if (value.allow_credentials && value.exposed_headers.includes('*')) return false
+  return true
+}
+
+function validOrigin(value: string): boolean {
+  if (value === '*' || value === 'null') return true
+  return parseCORSOriginURL(value) !== null
+}
+
+function normalizeCORSOrigin(value: string): string {
+  const origin = value.trim()
+  if (origin === '*' || origin === 'null') return origin
+  const parsed = parseCORSOriginURL(origin)
+  if (parsed === null) return origin
+  const protocol = asciiLower(parsed.protocol)
+  if (protocol === 'http:' || protocol === 'https:') return parsed.origin
+  return `${protocol}//${asciiLower(parsed.host)}`
+}
+
+function parseCORSOriginURL(value: string): URL | null {
+  if (
+    value !== value.trim() ||
+    value.includes('@') ||
+    !/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#\s,]+$/u.test(value)
+  )
+    return null
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol && parsed.host ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function validHeaderList(values: string[], required: boolean): boolean {
+  if (required && values.length === 0) return false
+  if (!validUniqueList(values, true, (entry) => entry === '*' || isHTTPToken(entry))) return false
+  return !values.includes('*') || values.length === 1
+}
+
+function validUniqueList(
+  values: string[],
+  caseInsensitive: boolean,
+  validate: (value: string) => boolean,
+): boolean {
+  const seen = new Set<string>()
+  for (const value of values) {
+    if (!validate(value)) return false
+    const identity = caseInsensitive ? asciiLower(value) : value
+    if (seen.has(identity)) return false
+    seen.add(identity)
+  }
+  return true
+}
+
+function isHTTPToken(value: string): boolean {
+  return value.length > 0 && /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(value)
+}
+
 function asciiLower(value: string): string {
   return value.replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32))
 }
@@ -195,6 +315,9 @@ export function validateSettingsSection(draft: SettingsDraft, section: SettingsS
       !draft.overrides.has('request_log_retention_days') ||
       isValidRetention(draft.values.request_log_retention_days)
     )
+  }
+  if (section === 'browser-access') {
+    return !draft.overrides.has('cors') || isValidCORSConfig(draft.values.cors)
   }
   const timeouts: TimeoutSettingKey[] = [
     'first_byte_timeout',
