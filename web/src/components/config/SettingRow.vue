@@ -60,7 +60,10 @@ const emit = defineEmits<{ toggle: [] }>()
         <button
           type="button"
           class="setting-row__action"
-          :class="`setting-row__action--${overridden ? 'warning' : 'action'}`"
+          :class="[
+            `setting-row__action--${overridden ? 'warning' : 'action'}`,
+            { 'setting-row__action--reveal': !overridden },
+          ]"
           :aria-label="actionLabel"
           :disabled="disabled"
           @click="emit('toggle')"
@@ -187,10 +190,32 @@ const emit = defineEmits<{ toggle: [] }>()
   opacity: 0.46;
 }
 
+.setting-row__action--reveal {
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+
+.setting-row:hover .setting-row__action--reveal,
+.setting-row:focus-within .setting-row__action--reveal {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .setting-row__action--reveal {
+    opacity: 1;
+  }
+}
+
 @media (max-width: 800px) {
   .setting-row {
     grid-template-columns: minmax(0, 1fr);
     row-gap: var(--space-2);
+  }
+
+  .setting-row__action--reveal {
+    opacity: 1;
   }
 }
 </style>
