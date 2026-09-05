@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 
 import { computed } from 'vue'
 
-import type { ProxyConfiguredMode, ProxyViewDto } from '@/api/control/types'
+import { routeStrategies, type ProxyConfiguredMode, type ProxyViewDto } from '@/api/control/types'
 import { proxyOverrideToggleMode } from '@/app/resources/proxy'
 import type {
   PolicyCountSettingKey,
@@ -13,6 +13,7 @@ import type {
 } from '@/app/resources/settings'
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
@@ -40,6 +41,12 @@ const emit = defineEmits<{
   'update:proxyEndpoint': [value: string]
 }>()
 const { t } = useI18n()
+const routeStrategyOptions = computed(() =>
+  routeStrategies.map((value) => ({
+    value,
+    label: t(`settings.runtime.routeStrategies.${value}`),
+  })),
+)
 
 // 代理沿用其它设置项的覆盖语义：inherit 即“未覆盖”，direct/custom 即“显式覆盖”。
 const proxyOverridden = computed(() => props.proxyMode !== 'inherit')
@@ -107,6 +114,14 @@ function setInjectUsage(value: boolean): void {
   publish('inject_usage_options', draft)
 }
 
+function setRouteStrategy(value: string): void {
+  const strategy = routeStrategies.find((candidate) => candidate === value)
+  if (strategy === undefined) return
+  const draft = cloneDraft()
+  draft.values.route_strategy = strategy
+  publish('route_strategy', draft)
+}
+
 function setPolicyCount(key: PolicyCountSettingKey, value: string): void {
   const draft = cloneDraft()
   draft.values[key] = Number(value)
@@ -144,6 +159,50 @@ function policyCountError(key: PolicyCountSettingKey): string | undefined {
     </header>
 
     <div class="settings-runtime__rows">
+      <div class="settings-runtime__entry">
+        <RuntimeOverrideRow
+          appearance="ledger"
+          :label="t('settings.runtime.route_strategy')"
+          :detail="t('settings.runtime.routeStrategyHelp')"
+          :source-label="
+            hasOverride('route_strategy')
+              ? t('settings.runtime.overrideSource')
+              : isPendingRestore('route_strategy')
+                ? t('settings.runtime.pendingRestoreSource')
+                : t('settings.runtime.defaultSource')
+          "
+          :action-label="
+            hasOverride('route_strategy')
+              ? t('settings.runtime.restoreDefault')
+              : t('settings.runtime.override')
+          "
+          :overridden="hasOverride('route_strategy')"
+          :pending-restore="isPendingRestore('route_strategy')"
+          :disabled="disabled"
+          @toggle="toggleOverride('route_strategy')"
+        >
+          <template #value>
+            <div class="settings-runtime__choice">
+              <AppSelect
+                v-if="hasOverride('route_strategy')"
+                :model-value="draft.values.route_strategy"
+                :options="routeStrategyOptions"
+                :label="t('settings.runtime.route_strategy')"
+                :disabled="disabled"
+                size="compact"
+                @update:model-value="setRouteStrategy"
+              />
+              <strong v-else-if="isPendingRestore('route_strategy')">{{
+                t('settings.runtime.resetPending')
+              }}</strong>
+              <strong v-else>{{
+                t(`settings.runtime.routeStrategies.${base.settings.values.route_strategy}`)
+              }}</strong>
+              <small>{{ t('settings.runtime.routeStrategyHelp') }}</small>
+            </div>
+          </template>
+        </RuntimeOverrideRow>
+      </div>
       <div class="settings-runtime__entry">
         <RuntimeOverrideRow
           appearance="ledger"
@@ -447,6 +506,7 @@ function policyCountError(key: PolicyCountSettingKey): string | undefined {
 .settings-section__heading,
 .settings-runtime__rows,
 .settings-runtime__entry,
+.settings-runtime__choice,
 .settings-runtime__boolean {
   display: grid;
 }
@@ -479,7 +539,8 @@ function policyCountError(key: PolicyCountSettingKey): string | undefined {
   gap: var(--space-2);
 }
 
-.settings-runtime__boolean {
+.settings-runtime__boolean,
+.settings-runtime__choice {
   justify-items: start;
   gap: var(--space-1);
 }

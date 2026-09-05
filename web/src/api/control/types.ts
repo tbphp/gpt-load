@@ -2,6 +2,8 @@ import type { ProtocolValue } from './protocols'
 
 export type GroupProtocol = ProtocolValue
 export type AccessProtocol = ProtocolValue
+export const routeStrategies = ['native_first', 'weighted_mix'] as const
+export type RouteStrategy = (typeof routeStrategies)[number]
 export type FailureCategory =
   | 'ok'
   | 'rate_limited'

@@ -45,6 +45,7 @@ type SettingsValuesResponse struct {
 	ResponseHeaderRules      HeaderRulesResponse `json:"response_header_rules"`
 	InjectUsageOptions       bool                `json:"inject_usage_options"`
 	RetryCount               int                 `json:"retry_count"`
+	RouteStrategy            state.RouteStrategy `json:"route_strategy"`
 	BlacklistThreshold       int                 `json:"blacklist_threshold"`
 	AffinityEnabled          bool                `json:"affinity_enabled"`
 	AffinityTTL              int64               `json:"affinity_ttl"`
@@ -354,6 +355,7 @@ func mapSettingsResponse(
 			},
 			InjectUsageOptions:       settings.InjectUsageOptions,
 			RetryCount:               settings.RetryCount,
+			RouteStrategy:            settings.RouteStrategy,
 			BlacklistThreshold:       settings.BlacklistThreshold,
 			AffinityEnabled:          settings.AffinityEnabled,
 			AffinityTTL:              durationSeconds(settings.AffinityTTL),

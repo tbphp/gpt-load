@@ -466,6 +466,7 @@ export default {
         reasonLine: 'Reason: {reason}',
         observedAt: 'Observed at {time}',
         revision: 'Revision {revision}',
+        routeStrategy: 'Route strategy: {strategy}',
         protocol: 'Protocol',
         externalModel: 'Client model',
         modelNotSpecified: 'Not specified',
@@ -481,8 +482,12 @@ export default {
       },
       groups: {
         title: 'Candidate Groups',
-        description:
-          'Native routes are tried first, with protocol conversion used only when no native candidate is available. Within a tier, selection is weighted random; rows are sorted by weight, not fixed hit order.',
+        description: {
+          native_first:
+            'Native routes are tried first; converted routes are used when no native candidate is available. Selection within a tier is weighted random; rows are sorted by tier and weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
+          weighted_mix:
+            'Eligible native and converted candidates compete in one pool by effective weight; rows are sorted by weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
+        },
         count: '{count}',
         tableLabel: 'Candidate Group route explanation',
         completeEmpty:
@@ -503,7 +508,7 @@ export default {
         viewGroup: 'View Group',
         columns: {
           group: 'Group',
-          status: 'Route tier',
+          status: 'Route mode',
           credentials: 'Credentials',
           weight: 'Effective weight',
           share: 'Weight share',

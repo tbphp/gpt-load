@@ -1,6 +1,11 @@
 import type { ApiClient } from '@/api/client'
 import { enabledDataProtocols } from '@/api/control/protocols'
-import type { AccessKeyDto, AccessProtocol } from '@/api/control/types'
+import {
+  routeStrategies,
+  type AccessKeyDto,
+  type AccessProtocol,
+  type RouteStrategy,
+} from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 
 import {
@@ -87,6 +92,7 @@ export interface RouteInspectGroupDto {
 export interface RouteInspectResponseDto {
   observed_at_ms: number
   snapshot_revision: number
+  route_strategy: RouteStrategy
   protocol: AccessProtocol
   operation: RouteInspectOperation
   route_requirement: RouteInspectRequirement
@@ -231,6 +237,7 @@ export function projectRouteInspection(value: unknown): RouteInspectResponseDto 
   assertNoSecretLikeFields(record, [
     'observed_at_ms',
     'snapshot_revision',
+    'route_strategy',
     'protocol',
     'operation',
     'route_requirement',
@@ -243,6 +250,7 @@ export function projectRouteInspection(value: unknown): RouteInspectResponseDto 
   return {
     observed_at_ms: projectEpochMilliseconds(record.observed_at_ms),
     snapshot_revision: projectSafeInteger(record.snapshot_revision, { minimum: 1 }),
+    route_strategy: projectEnum(record.route_strategy, routeStrategies),
     protocol: projectEnum(record.protocol, enabledDataProtocols),
     operation: projectEnum(record.operation, routeInspectOperations),
     route_requirement: projectEnum(record.route_requirement, routeInspectRequirements),

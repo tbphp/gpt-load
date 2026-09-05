@@ -448,6 +448,7 @@ export default {
         reasonLine: '原因：{reason}',
         observedAt: '观测时间 {time}',
         revision: '修订 {revision}',
+        routeStrategy: '路由策略：{strategy}',
         protocol: '协议',
         externalModel: '客户端模型',
         modelNotSpecified: '未指定',
@@ -461,8 +462,12 @@ export default {
       },
       groups: {
         title: '候选分组',
-        description:
-          '先尝试原生路由，仅在原生无可用候选时使用协议转换；同一层级按有效权重加权随机，列表按权重降序展示，并非固定命中次序。',
+        description: {
+          native_first:
+            '先尝试原生路由，原生无可用候选时使用协议转换；同层按有效权重加权随机。列表按层级和权重排序；请求亲和仍生效，权重份额不等于实际流量比例。',
+          weighted_mix:
+            '符合请求要求的原生与转换候选在同一池按有效权重加权随机，列表按权重排序。请求亲和仍生效，权重份额不等于实际流量比例。',
+        },
         count: '{count} 个',
         tableLabel: '候选分组路由解释',
         completeEmpty: '未返回候选分组；这是该输入的完整当前运行时解释，并非空态。',
@@ -482,7 +487,7 @@ export default {
         viewGroup: '查看分组',
         columns: {
           group: '分组',
-          status: '路由层级',
+          status: '路由模式',
           credentials: '凭据',
           weight: '有效权重',
           share: '权重份额',

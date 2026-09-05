@@ -40,6 +40,13 @@ export default {
       title: 'リクエストと転送',
       description:
         '明示値は組み込み既定値を上書きします。既定値の復元後は現在のバージョンが有効値を決めます。すべての時間設定は秒単位です。',
+      route_strategy: 'ルート戦略',
+      routeStrategies: {
+        native_first: 'ネイティブ優先',
+        weighted_mix: '混合ウェイト',
+      },
+      routeStrategyHelp:
+        'ネイティブ優先は本来の機能をできるだけ維持します。混合ウェイトではネイティブと変換候補が有効ウェイトで競合し、変換による機能差が生じる場合があります。リクエスト親和性は引き続き有効で、厳密なトラフィック比率は保証されません。',
       first_byte_timeout: 'ネイティブ応答 / ストリーム初回イベントのタイムアウト',
       request_timeout: 'リクエスト全体のタイムアウト',
       stream_idle_timeout: 'ストリームアイドルタイムアウト',

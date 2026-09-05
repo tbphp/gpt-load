@@ -466,6 +466,7 @@ export default {
         reasonLine: '理由：{reason}',
         observedAt: '観測時刻 {time}',
         revision: 'リビジョン {revision}',
+        routeStrategy: 'ルート戦略：{strategy}',
         protocol: 'プロトコル',
         externalModel: 'クライアントモデル',
         modelNotSpecified: '未指定',
@@ -479,8 +480,12 @@ export default {
       },
       groups: {
         title: '候補グループ',
-        description:
-          'まずネイティブルートを試し、候補がない場合のみプロトコル変換を使用します。同じ階層では有効ウェイトによる加重ランダムで、一覧はウェイト順ですが固定のヒット順ではありません。',
+        description: {
+          native_first:
+            'ネイティブルートを先に試し、利用可能な候補がない場合に変換を使用します。同じ階層では有効ウェイトによる加重ランダムで、階層とウェイト順に表示します。リクエスト親和性は引き続き有効で、ウェイト比率は実際のトラフィック比率とは異なります。',
+          weighted_mix:
+            '要求を満たすネイティブと変換候補が同じプールで有効ウェイトにより競合し、ウェイト順に表示します。リクエスト親和性は引き続き有効で、ウェイト比率は実際のトラフィック比率とは異なります。',
+        },
         count: '{count} 件',
         tableLabel: '候補グループのルート説明',
         completeEmpty:
@@ -501,7 +506,7 @@ export default {
         viewGroup: 'グループを表示',
         columns: {
           group: 'グループ',
-          status: 'ルート階層',
+          status: 'ルートモード',
           credentials: '認証情報',
           weight: '有効ウェイト',
           share: 'ウェイト比率',

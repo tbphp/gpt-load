@@ -11,6 +11,33 @@ import (
 	"gpt-load/internal/platform/config"
 )
 
+func TestRouteStrategyAcceptsOnlyExplicitGlobalPolicies(t *testing.T) {
+	const key = "route_strategy"
+	if !IsRuntimeSettingKey(key) {
+		t.Fatal("route_strategy is not a public runtime setting")
+	}
+	for _, value := range []string{"native_first", "weighted_mix"} {
+		if err := ValidateRuntimeSetting(key, value); err != nil {
+			t.Errorf("ValidateRuntimeSetting(%q) error = %v", value, err)
+		}
+		resolved, err := ResolveRuntimeSettings(config.Settings{key: value})
+		if err != nil || string(resolved.RouteStrategy) != value {
+			t.Errorf("ResolveRuntimeSettings(%q) = %#v, %v", value, resolved, err)
+		}
+		if _, err := ResolveGroupRuntimeSettings(DefaultRuntimeSettings(), config.Settings{key: value}); err == nil {
+			t.Errorf("Group accepted system-only route_strategy %q", value)
+		}
+	}
+	for _, value := range []any{nil, "", "unknown", "Native_First", " weighted_mix ", true, 1, []any{}, map[string]any{}} {
+		if err := ValidateRuntimeSetting(key, value); err == nil {
+			t.Errorf("ValidateRuntimeSetting(%#v) accepted invalid route strategy", value)
+		}
+		if _, err := ResolveRuntimeSettings(config.Settings{key: value}); err == nil {
+			t.Errorf("ResolveRuntimeSettings(%#v) accepted invalid route strategy", value)
+		}
+	}
+}
+
 func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 	snapshot, err := Compile(CompileInput{})
 	if err != nil {
@@ -29,6 +56,7 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 		ResponseHeaderRules:      HeaderRules{Set: map[string]string{}},
 		InjectUsageOptions:       true,
 		RetryCount:               2,
+		RouteStrategy:            RouteStrategyNativeFirst,
 		BlacklistThreshold:       3,
 		AffinityEnabled:          true,
 		AffinityTTL:              time.Hour,

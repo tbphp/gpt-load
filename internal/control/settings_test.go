@@ -21,6 +21,7 @@ import (
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -77,6 +78,56 @@ func TestSettingsProxyConfigIsEncryptedMaskedAndResettable(t *testing.T) {
 	}
 }
 
+func TestUpdateSettingsRouteStrategyPersistsPublishesReloadsAndResets(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	for _, test := range []struct {
+		name     string
+		raw      json.RawMessage
+		strategy state.RouteStrategy
+	}{
+		{name: "weighted mix", raw: json.RawMessage(`"weighted_mix"`), strategy: state.RouteStrategyWeightedMix},
+		{name: "explicit native first", raw: json.RawMessage(`"native_first"`), strategy: state.RouteStrategyNativeFirst},
+		{name: "weighted mix again", raw: json.RawMessage(`"weighted_mix"`), strategy: state.RouteStrategyWeightedMix},
+		{name: "reset", raw: json.RawMessage(`null`), strategy: state.RouteStrategyNativeFirst},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			before := fixture.manager.Current()
+			previousStrategy := before.Settings.RouteStrategy
+			got, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+				Settings: map[string]json.RawMessage{state.SettingRouteStrategy: test.raw},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			after := fixture.manager.Current()
+			if got.Values.RouteStrategy != test.strategy || after.Settings.RouteStrategy != test.strategy ||
+				after.Revision != before.Revision+1 || before.Settings.RouteStrategy != previousStrategy {
+				t.Fatalf("response/snapshots = %#v / %#v / %#v", got, before.Settings, after.Settings)
+			}
+			var rows []models.SystemSetting
+			if err := fixture.db.Where("key = ?", state.SettingRouteStrategy).Find(&rows).Error; err != nil {
+				t.Fatal(err)
+			}
+			if string(test.raw) == "null" {
+				if len(got.Overrides) != 0 || len(rows) != 0 {
+					t.Fatalf("reset overrides/rows = %#v / %#v", got.Overrides, rows)
+				}
+			} else if !reflect.DeepEqual(got.Overrides, []string{state.SettingRouteStrategy}) ||
+				len(rows) != 1 || rows[0].Value != string(test.raw) {
+				t.Fatalf("persisted overrides/rows = %#v / %#v", got.Overrides, rows)
+			}
+			reloaded := state.NewManager()
+			if err := stateloader.New(fixture.db, reloaded, state.NewCredentialRegistry()).Load(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if got := reloaded.Current().Settings.RouteStrategy; got != test.strategy {
+				t.Fatalf("reloaded route strategy = %q, want %q", got, test.strategy)
+			}
+		})
+	}
+}
+
 func TestSettingsProxyRejectsInvalidConfigWithoutMutation(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
@@ -110,6 +161,7 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	if got.Values.FirstByteTimeout != 120 ||
 		got.Values.RequestTimeout != 600 || got.Values.StreamIdleTimeout != 300 ||
 		got.Values.ValidationInterval != 600 ||
+		got.Values.RouteStrategy != state.RouteStrategyNativeFirst ||
 		got.Values.RequestLogRetentionDays != 7 || !got.Values.InjectUsageOptions {
 		t.Fatalf("values = %#v", got.Values)
 	}

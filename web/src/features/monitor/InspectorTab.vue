@@ -181,6 +181,7 @@ const includedGroups = computed(() =>
 const excludedGroups = computed(() =>
   (observation.value?.groups ?? []).filter((group) => !group.included),
 )
+const weightedMix = computed(() => observation.value?.route_strategy === 'weighted_mix')
 const orderedIncludedGroups = computed(() =>
   [...includedGroups.value].sort((left, right) => {
     const routeModeOrder = routeModePriority(left) - routeModePriority(right)
@@ -199,18 +200,12 @@ const activeRouteMode = computed<'native' | 'converted' | null>(() => {
   }
   return null
 })
-const activeTierGroups = computed(() =>
-  activeRouteMode.value === null
-    ? []
-    : includedGroups.value.filter(
-        (group) => group.routable && group.route_mode === activeRouteMode.value,
-      ),
-)
+const activeGroups = computed(() => includedGroups.value.filter(isActiveCandidate))
 const availableCredentialCount = computed(() =>
-  activeTierGroups.value.reduce((total, group) => total + groupAvailableCredentialCount(group), 0),
+  activeGroups.value.reduce((total, group) => total + groupAvailableCredentialCount(group), 0),
 )
 const totalEffectiveWeight = computed(() =>
-  activeTierGroups.value.reduce((total, group) => total + groupEffectiveWeight(group), 0),
+  activeGroups.value.reduce((total, group) => total + groupEffectiveWeight(group), 0),
 )
 
 function readProtocol(raw: unknown): AccessProtocol | '' {
@@ -437,22 +432,27 @@ function accessKeyStatusTone(status: 'active' | 'disabled'): 'success' | 'neutra
 }
 
 function routeModePriority(group: RouteInspectGroupDto): number {
-  return group.route_mode === 'native' ? 0 : 1
+  return weightedMix.value || group.route_mode === 'native' ? 0 : 1
+}
+
+function isActiveCandidate(group: RouteInspectGroupDto): boolean {
+  return group.routable && (weightedMix.value || group.route_mode === activeRouteMode.value)
 }
 
 function routePriorityTone(group: RouteInspectGroupDto): StatusTone {
-  if (!group.routable) return 'neutral'
-  if (group.route_mode !== activeRouteMode.value) return 'neutral'
+  if (!isActiveCandidate(group)) return 'neutral'
   return group.route_mode === 'native' ? 'success' : 'warning'
 }
 
 function routePriorityLabel(group: RouteInspectGroupDto): string {
-  return t(`monitor.inspector.groups.priority.${group.route_mode}`)
+  return weightedMix.value
+    ? t(`monitor.inspector.routeModes.${group.route_mode}`)
+    : t(`monitor.inspector.groups.priority.${group.route_mode}`)
 }
 
 function groupStatusLabel(group: RouteInspectGroupDto): string {
   if (!group.routable) return t('monitor.inspector.result.notRoutable')
-  return group.route_mode === activeRouteMode.value
+  return isActiveCandidate(group)
     ? t('monitor.inspector.groups.weightedCandidate')
     : t('monitor.inspector.groups.fallbackCandidate')
 }
@@ -482,14 +482,14 @@ function groupEffectiveWeight(group: RouteInspectGroupDto): number {
 }
 
 function groupShare(group: RouteInspectGroupDto): number {
-  if (group.route_mode !== activeRouteMode.value) return 0
+  if (!isActiveCandidate(group)) return 0
   const total = totalEffectiveWeight.value
   if (total <= 0) return 0
   return Math.round((groupEffectiveWeight(group) / total) * 1_000) / 10
 }
 
 function groupShareLabel(group: RouteInspectGroupDto): string {
-  if (group.route_mode !== activeRouteMode.value) return t('monitor.inspector.groups.standbyShare')
+  if (!isActiveCandidate(group)) return t('monitor.inspector.groups.standbyShare')
   return formatPercent(groupEffectiveWeight(group), totalEffectiveWeight.value, locale.value)
 }
 
@@ -637,6 +637,13 @@ onBeforeUnmount(() => {
               </p>
             </div>
             <div class="route-summary__meta">
+              <span>
+                {{
+                  t('monitor.inspector.result.routeStrategy', {
+                    strategy: t(`settings.runtime.routeStrategies.${observation.route_strategy}`),
+                  })
+                }}
+              </span>
               <time :datetime="observationDateTime">
                 {{
                   t('monitor.inspector.result.observedAt', {
@@ -725,7 +732,7 @@ onBeforeUnmount(() => {
           <MonitorSectionHeading
             id="route-candidates-title"
             :title="t('monitor.inspector.groups.title')"
-            :description="t('monitor.inspector.groups.description')"
+            :description="t(`monitor.inspector.groups.description.${observation.route_strategy}`)"
             :meta="
               t('monitor.inspector.groups.count', {
                 count: formattedInteger(includedGroups.length),

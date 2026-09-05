@@ -241,6 +241,7 @@ func TestLoaderPublishesDefaultsFromEmptyDatabase(t *testing.T) {
 	if got.FirstByteTimeout != 120*time.Second ||
 		got.RequestTimeout != 600*time.Second ||
 		got.StreamIdleTimeout != 300*time.Second ||
+		got.RouteStrategy != state.RouteStrategyNativeFirst ||
 		got.RequestLogRetentionDays != 7 {
 		t.Fatalf("Settings = %#v", got)
 	}
@@ -264,6 +265,9 @@ func TestLoaderRejectsInvalidKnownPublicSystemSettingsWithoutPublishing(t *testi
 	}{
 		{name: "null header rules", key: state.SettingHeaderRules, value: "null"},
 		{name: "fractional request timeout", key: state.SettingRequestTimeout, value: "1.5"},
+		{name: "unknown route strategy", key: state.SettingRouteStrategy, value: `"unknown"`},
+		{name: "null route strategy", key: state.SettingRouteStrategy, value: "null"},
+		{name: "boolean route strategy", key: state.SettingRouteStrategy, value: "true"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
