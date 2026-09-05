@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/httpheader"
 )
@@ -29,6 +30,7 @@ const (
 	SettingValidationInterval       = "validation_interval"
 	SettingRequestLogRetentionDays  = "request_log_retention_days"
 	SettingModelsDevAutoSyncEnabled = "models_dev_auto_sync_enabled"
+	SettingParameterOverrides       = "parameter_overrides"
 )
 
 const (
@@ -65,6 +67,7 @@ type ResolvedGroupSettings struct {
 	RetryCount         int
 	BlacklistThreshold int
 	AffinityEnabled    bool
+	ParameterOverrides parameteroverride.Rules
 }
 
 func DefaultRuntimeSettings() RuntimeSettings {
@@ -282,6 +285,12 @@ func ResolveGroupRuntimeSettings(
 				return ResolvedGroupSettings{}, err
 			}
 			resolved.AffinityEnabled = parsed
+		case SettingParameterOverrides:
+			parsed, err := parameteroverride.Compile(value)
+			if err != nil {
+				return ResolvedGroupSettings{}, err
+			}
+			resolved.ParameterOverrides = parsed
 		default:
 			return ResolvedGroupSettings{}, fmt.Errorf("unknown group setting %q", key)
 		}

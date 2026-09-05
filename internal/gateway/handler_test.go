@@ -3448,6 +3448,118 @@ func TestHandlerRetriesAnotherGroupAfterLocalConversionFailure(t *testing.T) {
 	})
 }
 
+func TestHandlerKeepsOriginalRouteAfterParameterOverride(t *testing.T) {
+	t.Parallel()
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
+	}}}
+	settings := config.Settings{state.SettingParameterOverrides: []any{
+		map[string]any{
+			"match": map[string]any{
+				"protocol": string(protocol.Anthropic),
+				"model":    "claude-*",
+			},
+			"set": map[string]any{"container": "container_123"},
+		},
+	}}
+	engine, registry := newConvertedFallbackHandlerTestRuntime(t, forwarder, settings)
+	before := registry.Snapshot()
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(
+		`{"model":"claude-client","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`,
+	))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || len(forwarder.inputs) != 1 {
+		t.Fatalf("response/attempts = %d %s / %d", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
+	}
+	input := forwarder.inputs[0]
+	if input.RouteMode != execution.RouteConverted ||
+		input.RouteRequirement.Normalize() != execution.RouteRequirementAny {
+		t.Fatalf("route = %q/%q, want converted/any", input.RouteMode, input.RouteRequirement)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(input.Request.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["container"] != "container_123" {
+		t.Fatalf("overridden request = %s, want container", input.Request.Body)
+	}
+	if after := registry.Snapshot(); !reflect.DeepEqual(after, before) {
+		t.Fatalf("credential health changed: before=%#v after=%#v", before, after)
+	}
+}
+
+func TestHandlerDoesNotExpandCandidatesAfterParameterOverride(t *testing.T) {
+	t.Parallel()
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
+	}}}
+	settings := config.Settings{state.SettingParameterOverrides: []any{
+		map[string]any{
+			"match": map[string]any{
+				"protocol": string(protocol.Anthropic),
+				"model":    "claude-*",
+			},
+			"remove": []any{"/container"},
+		},
+	}}
+	engine, _ := newConvertedFallbackHandlerTestRuntime(t, forwarder, settings)
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(
+		`{"model":"claude-client","max_tokens":64,"container":{"id":"container_123"},"messages":[{"role":"user","content":"hello"}]}`,
+	))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.Code != http.StatusServiceUnavailable ||
+		body.Code != reasonNoCandidate.Code || len(forwarder.inputs) != 0 {
+		t.Fatalf("response/attempts = %d %s / %d", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
+	}
+}
+
+func TestHandlerForwardsOverrideWithoutProviderSemanticValidation(t *testing.T) {
+	t.Parallel()
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
+	}}}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-one")
+	publishHandlerPolicySettings(
+		t,
+		handler,
+		manager,
+		1,
+		nil,
+		config.Settings{state.SettingParameterOverrides: []any{
+			map[string]any{"set": map[string]any{"service_tier": "ultrafast"}},
+		}},
+	)
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || len(forwarder.inputs) != 1 {
+		t.Fatalf("response/attempts = %d %s / %d", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
+	}
+	if !bytes.Contains(forwarder.inputs[0].Request.Body, []byte(`"service_tier":"ultrafast"`)) {
+		t.Fatalf("effective request = %s, want overridden service_tier", forwarder.inputs[0].Request.Body)
+	}
+}
+
 func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 	attemptNow := time.Date(2026, time.July, 21, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -5230,6 +5342,7 @@ func newHandlerForTestWithStats(
 func newConvertedFallbackHandlerTestRuntime(
 	t *testing.T,
 	forwarder AttemptForwarder,
+	groupSettings ...config.Settings,
 ) (*gin.Engine, *state.CredentialRegistry) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -5245,6 +5358,11 @@ func newConvertedFallbackHandlerTestRuntime(
 			Params: json.RawMessage(`{"base_url":"https://two.example/v1"}`), Enabled: true,
 			Models: []state.ModelConfig{{ID: "upstream-two", Alias: "claude-client"}},
 		},
+	}
+	if len(groupSettings) > 0 {
+		for index := range groups {
+			groups[index].Settings = groupSettings[0]
+		}
 	}
 	credentials := []state.CredentialConfig{
 		{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-one"},

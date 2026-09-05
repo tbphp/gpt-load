@@ -307,6 +307,10 @@ func normalizeGroupSettings(settings config.Settings) (config.Settings, models.J
 		return nil, nil, app_errors.ErrValidation
 	}
 	for key, value := range normalized {
+		if key == state.SettingParameterOverrides {
+			// 参数覆盖校验依赖原始 JSON 数字字面量。
+			continue
+		}
 		normalized[key] = canonicalizeGroupSettingNumbers(value)
 	}
 	encoded, err = json.Marshal(normalized)

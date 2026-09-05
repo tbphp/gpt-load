@@ -92,6 +92,20 @@ export interface HeaderRulesDto {
   remove: string[]
 }
 
+export type ParameterJSONValue =
+  null | boolean | number | string | unknown[] | Record<string, unknown>
+
+export interface ParameterOverrideMatchDto {
+  protocol?: AccessProtocol
+  model?: string
+}
+
+export interface ParameterOverrideRuleDto {
+  match: ParameterOverrideMatchDto
+  set?: Record<string, ParameterJSONValue>
+  remove?: string[]
+}
+
 export interface GroupRuntimeConfigDto {
   first_byte_timeout?: number
   request_timeout?: number
@@ -101,6 +115,7 @@ export interface GroupRuntimeConfigDto {
   header_rules?: HeaderRulesDto
   inject_usage_options?: boolean
   affinity_enabled?: boolean
+  parameter_overrides?: ParameterOverrideRuleDto[]
 }
 
 export interface GroupEffectiveConfigDto {

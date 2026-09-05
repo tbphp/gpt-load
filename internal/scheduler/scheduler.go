@@ -380,6 +380,7 @@ func cloneGroupView(group state.GroupView) state.GroupView {
 	group.HeaderRules.Set = cloneStringMap(group.HeaderRules.Set)
 	group.HeaderRules.Remove = append([]string(nil), group.HeaderRules.Remove...)
 	group.ResolvedTarget.TargetConfig = append([]byte(nil), group.ResolvedTarget.TargetConfig...)
+	group.ParameterOverrides = group.ParameterOverrides.Clone()
 	return group
 }
 

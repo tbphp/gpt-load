@@ -15,9 +15,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -68,6 +70,54 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 		!reflect.DeepEqual(got.Effective.HeaderRules.Set, map[string]string{"X-Group": "value"}) ||
 		!reflect.DeepEqual(got.Effective.HeaderRules.Remove, []string{"X-Removed"}) {
 		t.Fatalf("effective = %#v", got.Effective)
+	}
+}
+
+func TestUpdateGroupSettingsPublishesParameterOverrides(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "sk-parameter-overrides")
+	rawRules := []any{
+		map[string]any{
+			"match": map[string]any{"protocol": string(protocol.OpenAICompletions), "model": "public-*"},
+			"set":   map[string]any{"temperature": json.Number("0.4")},
+		},
+	}
+
+	result, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{
+			state.SettingParameterOverrides: rawRules,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Overrides[state.SettingParameterOverrides] == nil {
+		t.Fatalf("overrides = %#v", result.Overrides)
+	}
+	body, applied, err := fixture.manager.Current().Groups[groupID].ParameterOverrides.Apply(
+		protocol.OpenAICompletions,
+		execution.OperationChatCompletion,
+		"public-model",
+		[]byte(`{"model":"public-model"}`),
+	)
+	if err != nil || !applied || string(body) != `{"model":"public-model","temperature":0.4}` {
+		t.Fatalf("Apply() = %s, %t, %v", body, applied, err)
+	}
+
+	before := fixture.manager.Current()
+	_, err = fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{
+			state.SettingParameterOverrides: []any{map[string]any{
+				"set": map[string]any{"stream": true},
+			}},
+		}},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("invalid rules error = %v, want validation", err)
+	}
+	if fixture.manager.Current() != before {
+		t.Fatal("invalid parameter overrides published a snapshot")
 	}
 }
 

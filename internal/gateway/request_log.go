@@ -39,11 +39,15 @@ type requestOutcome struct {
 }
 
 type frozenAttemptPricing struct {
-	channelID     string
-	groupID       uint
-	upstreamModel string
-	table         *pricing.Table
-	applicable    bool
+	channelID        string
+	groupID          uint
+	upstreamModel    string
+	table            *pricing.Table
+	applicable       bool
+	metadataSet      bool
+	pricingMode      pricing.Mode
+	usageDiagnostics usage.Diagnostics
+	reasoning        reasoning.Config
 }
 
 type requestRecorder struct {
@@ -520,18 +524,27 @@ func (recorder *requestRecorder) bindUsage(
 	if attempt.GroupID == 0 || attempt.ChannelID == "" || attempt.CredentialID == 0 || attempt.Sequence < 1 {
 		return
 	}
-	if !applicable || !recorder.usageApplicable {
-		result = usage.Result{State: usage.StateNotApplicable}
-	} else if !validCapturedUsage(result) {
-		result = usage.Result{State: usage.StateMissing}
-	} else {
-		result.Diagnostics.Merge(recorder.usageDiagnostics)
-	}
 	frozen := frozenAttemptPricing{}
 	if attemptIndex < len(recorder.attemptPricing) {
 		frozen = recorder.attemptPricing[attemptIndex]
 	}
-	pricingMode := effectivePricingMode(recorder.requestedPricingMode)
+	usageApplicable := recorder.usageApplicable
+	requestDiagnostics := recorder.usageDiagnostics
+	pricingMode := recorder.requestedPricingMode
+	if frozen.metadataSet {
+		usageApplicable = frozen.applicable
+		requestDiagnostics = frozen.usageDiagnostics
+		pricingMode = frozen.pricingMode
+		recorder.setReasoning(frozen.reasoning)
+	}
+	if !applicable || !usageApplicable {
+		result = usage.Result{State: usage.StateNotApplicable}
+	} else if !validCapturedUsage(result) {
+		result = usage.Result{State: usage.StateMissing}
+	} else {
+		result.Diagnostics.Merge(requestDiagnostics)
+	}
+	pricingMode = effectivePricingMode(pricingMode)
 	pricingObservation := quoteFrozenAttempt(frozen, result, pricingMode)
 	recorder.usage = telemetry.UsageObservation{
 		Result:          result,
