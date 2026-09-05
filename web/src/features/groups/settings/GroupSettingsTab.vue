@@ -31,7 +31,7 @@ import { groupDetailLocation } from '@/app/route-locations'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import ParameterOverrideRulesEditor from '@/components/config/ParameterOverrideRulesEditor.vue'
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
-import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
+import SettingRow from '@/components/config/SettingRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
@@ -166,6 +166,9 @@ const proxyEffectiveLabel = computed(() => {
   return view.display_url ?? t(`common.proxy.mode.${view.effective_mode}`)
 })
 const proxySupported = computed(() => selectedChannel.value?.capabilities.outbound_proxy ?? false)
+const proxyValue = computed(() =>
+  proxySupported.value ? proxyEffectiveLabel.value : t('common.proxy.unsupported'),
+)
 
 function toggleProxyOverride(): void {
   const base = saved.value?.proxy
@@ -227,6 +230,11 @@ const valid = computed(
 )
 const showInjectUsage = computed(
   () => selectedChannel.value?.client_protocols.includes('openai-completions') ?? false,
+)
+const injectUsageValue = computed(() =>
+  saved.value?.effective.inject_usage_options
+    ? t('group.settings.runtime.enabledValue')
+    : t('group.settings.runtime.disabledValue'),
 )
 const displayedHeaderRules = computed<HeaderRulesDto>(
   () =>
@@ -565,200 +573,167 @@ onBeforeUnmount(() => {
               <p>{{ t('group.settings.runtime.description') }}</p>
             </header>
             <div class="group-settings__runtime">
-              <div class="group-settings__runtime-row">
-                <RuntimeOverrideRow
-                  appearance="ledger"
-                  :label="t('common.proxy.title')"
-                  :detail="
-                    proxySupported
-                      ? proxyOverridden
-                        ? t('group.settings.runtime.override')
-                        : proxyEffectiveLabel
-                      : t('common.proxy.unsupported')
-                  "
-                  :value-label="
-                    proxySupported && !proxyOverridden
-                      ? t('group.settings.runtime.currentValue')
-                      : !proxySupported
-                        ? t('common.proxy.unsupportedHelp')
-                        : undefined
-                  "
-                  :source-label="
-                    !proxySupported
-                      ? t('common.proxy.unsupportedBadge')
-                      : proxyOverridden
-                        ? t('group.settings.runtime.override')
-                        : t('group.settings.runtime.inherited')
-                  "
-                  :action-label="
-                    proxyOverridden
-                      ? t('group.settings.runtime.useInherited')
-                      : t('group.settings.runtime.useOverride')
-                  "
-                  :overridden="proxyOverridden"
-                  :locked="!proxySupported"
-                  :disabled="mutationPending || selectedChannel === undefined || !proxySupported"
-                  @toggle="toggleProxyOverride"
-                >
-                  <template v-if="proxySupported && proxyOverridden" #value>
-                    <ProxyOverrideControl
-                      :base="saved.proxy"
-                      :mode="proxyMode"
-                      :endpoint="proxyEndpoint"
+              <SettingRow
+                :label="t('common.proxy.title')"
+                :value="proxyValue"
+                :help="proxySupported ? undefined : t('common.proxy.unsupportedHelp')"
+                :source-label="
+                  !proxySupported
+                    ? t('common.proxy.unsupportedBadge')
+                    : proxyOverridden
+                      ? t('group.settings.runtime.override')
+                      : t('group.settings.runtime.inherited')
+                "
+                :action-label="
+                  proxyOverridden
+                    ? t('group.settings.runtime.useInherited')
+                    : t('group.settings.runtime.useOverride')
+                "
+                :overridden="proxySupported && proxyOverridden"
+                :locked="!proxySupported"
+                :disabled="mutationPending || selectedChannel === undefined || !proxySupported"
+                @toggle="toggleProxyOverride"
+              >
+                <template #control>
+                  <ProxyOverrideControl
+                    :base="saved.proxy"
+                    :mode="proxyMode"
+                    :endpoint="proxyEndpoint"
+                    :disabled="mutationPending"
+                    @update:mode="proxyMode = $event"
+                    @update:endpoint="proxyEndpoint = $event"
+                  />
+                </template>
+              </SettingRow>
+              <SettingRow
+                v-for="key in timeoutKeys"
+                :key="key"
+                :label="t(`group.settings.runtime.${key}`)"
+                :value="t('group.settings.runtime.effective', { value: saved.effective[key] })"
+                :source-label="
+                  draft.overrides[key] === undefined
+                    ? t('group.settings.runtime.inherited')
+                    : t('group.settings.runtime.override')
+                "
+                :action-label="
+                  draft.overrides[key] === undefined
+                    ? t('group.settings.runtime.useOverride')
+                    : t('group.settings.runtime.useInherited')
+                "
+                :overridden="draft.overrides[key] !== undefined"
+                :disabled="mutationPending"
+                @toggle="setTimeoutOverride(key, draft.overrides[key] === undefined)"
+              >
+                <template #control>
+                  <div class="group-settings__runtime-input">
+                    <AppTextInput
+                      type="number"
+                      min="1"
+                      :model-value="String(draft.overrides[key])"
+                      :label="
+                        t('group.settings.runtime.valueFor', {
+                          field: t(`group.settings.runtime.${key}`),
+                        })
+                      "
+                      appearance="surface"
+                      size="compact"
+                      monospace
                       :disabled="mutationPending"
-                      @update:mode="proxyMode = $event"
-                      @update:endpoint="proxyEndpoint = $event"
+                      @update:model-value="setTimeoutValue(key, $event)"
                     />
-                  </template>
-                </RuntimeOverrideRow>
-              </div>
-              <div v-for="key in timeoutKeys" :key="key" class="group-settings__runtime-row">
-                <RuntimeOverrideRow
-                  appearance="ledger"
-                  :label="t(`group.settings.runtime.${key}`)"
-                  :detail="t('group.settings.runtime.effective', { value: saved.effective[key] })"
-                  :value-label="t('group.settings.runtime.currentValue')"
-                  :source-label="
-                    draft.overrides[key] === undefined
-                      ? t('group.settings.runtime.inherited')
-                      : t('group.settings.runtime.override')
-                  "
-                  :action-label="
-                    draft.overrides[key] === undefined
-                      ? t('group.settings.runtime.useOverride')
-                      : t('group.settings.runtime.useInherited')
-                  "
-                  :overridden="draft.overrides[key] !== undefined"
-                  :disabled="mutationPending"
-                  @toggle="setTimeoutOverride(key, draft.overrides[key] === undefined)"
-                >
-                  <template v-if="draft.overrides[key] !== undefined" #value>
-                    <div class="group-settings__runtime-input">
-                      <AppTextInput
-                        type="number"
-                        min="1"
-                        :model-value="String(draft.overrides[key])"
-                        :label="
-                          t('group.settings.runtime.valueFor', {
-                            field: t(`group.settings.runtime.${key}`),
-                          })
-                        "
-                        appearance="surface"
-                        size="compact"
-                        monospace
-                        :disabled="mutationPending"
-                        @update:model-value="setTimeoutValue(key, $event)"
-                      />
-                      <span aria-hidden="true">{{ t('group.settings.runtime.seconds') }}</span>
-                    </div>
-                  </template>
-                </RuntimeOverrideRow>
-              </div>
-              <div
+                    <span aria-hidden="true">{{ t('group.settings.runtime.seconds') }}</span>
+                  </div>
+                </template>
+              </SettingRow>
+              <SettingRow
                 v-for="policy in policyRows"
                 :key="policy.key"
-                class="group-settings__runtime-row"
+                :label="t(`group.settings.runtime.${policy.key}`)"
+                :value="
+                  t('group.settings.runtime.effectiveCount', {
+                    value: saved.effective[policy.key],
+                  })
+                "
+                :help="t(`group.settings.runtime.${policy.helpKey}`)"
+                :source-label="
+                  draft.overrides[policy.key] === undefined
+                    ? t('group.settings.runtime.inherited')
+                    : t('group.settings.runtime.override')
+                "
+                :action-label="
+                  draft.overrides[policy.key] === undefined
+                    ? t('group.settings.runtime.useOverride')
+                    : t('group.settings.runtime.useInherited')
+                "
+                :overridden="draft.overrides[policy.key] !== undefined"
+                :divided="policy.key !== 'blacklist_threshold' || showInjectUsage"
+                :disabled="mutationPending"
+                @toggle="
+                  setPolicyCountOverride(policy.key, draft.overrides[policy.key] === undefined)
+                "
               >
-                <RuntimeOverrideRow
-                  appearance="ledger"
-                  :label="t(`group.settings.runtime.${policy.key}`)"
-                  :detail="
-                    t('group.settings.runtime.effectiveCount', {
-                      value: saved.effective[policy.key],
-                    })
-                  "
-                  :value-label="t(`group.settings.runtime.${policy.helpKey}`)"
-                  :source-label="
-                    draft.overrides[policy.key] === undefined
-                      ? t('group.settings.runtime.inherited')
-                      : t('group.settings.runtime.override')
-                  "
-                  :action-label="
-                    draft.overrides[policy.key] === undefined
-                      ? t('group.settings.runtime.useOverride')
-                      : t('group.settings.runtime.useInherited')
-                  "
-                  :overridden="draft.overrides[policy.key] !== undefined"
-                  :disabled="mutationPending"
-                  @toggle="
-                    setPolicyCountOverride(policy.key, draft.overrides[policy.key] === undefined)
-                  "
-                >
-                  <template v-if="draft.overrides[policy.key] !== undefined" #value>
-                    <div class="group-settings__runtime-input">
-                      <CompactFieldError
-                        :id="`group-settings-${policy.key}`"
-                        :error="policyCountError(policy.key)"
-                      >
-                        <template #default="{ invalid, describedBy }">
-                          <AppTextInput
-                            :id="`group-settings-${policy.key}`"
-                            type="number"
-                            min="0"
-                            step="1"
-                            inputmode="numeric"
-                            :model-value="String(draft.overrides[policy.key])"
-                            :label="
-                              t('group.settings.runtime.valueFor', {
-                                field: t(`group.settings.runtime.${policy.key}`),
-                              })
-                            "
-                            appearance="surface"
-                            size="compact"
-                            monospace
-                            :disabled="mutationPending"
-                            :invalid="invalid"
-                            :described-by="describedBy"
-                            @update:model-value="setPolicyCountValue(policy.key, $event)"
-                          />
-                        </template>
-                      </CompactFieldError>
-                      <span aria-hidden="true">{{ t('group.settings.runtime.countUnit') }}</span>
-                    </div>
-                  </template>
-                </RuntimeOverrideRow>
-              </div>
-              <div v-if="showInjectUsage" class="group-settings__runtime-row">
-                <RuntimeOverrideRow
-                  appearance="ledger"
-                  :label="t('group.settings.runtime.inject_usage_options')"
-                  :detail="t('group.settings.runtime.injectUsageHelp')"
-                  :value-label="t('group.settings.runtime.currentValue')"
-                  :source-label="
-                    draft.overrides.inject_usage_options === undefined
-                      ? t('group.settings.runtime.inherited')
-                      : t('group.settings.runtime.override')
-                  "
-                  :action-label="
-                    draft.overrides.inject_usage_options === undefined
-                      ? t('group.settings.runtime.useOverride')
-                      : t('group.settings.runtime.useInherited')
-                  "
-                  :overridden="draft.overrides.inject_usage_options !== undefined"
-                  :disabled="mutationPending"
-                  @toggle="
-                    setInjectUsageOverride(draft.overrides.inject_usage_options === undefined)
-                  "
-                >
-                  <template v-if="draft.overrides.inject_usage_options !== undefined" #value>
-                    <div class="group-settings__boolean-value">
-                      <AppSwitch
-                        :model-value="draft.overrides.inject_usage_options"
-                        :disabled="mutationPending"
-                        :label="t('group.settings.runtime.inject_usage_options')"
-                        @update:model-value="draft.overrides.inject_usage_options = $event"
-                      />
-                      <span>
-                        {{
-                          draft.overrides.inject_usage_options
-                            ? t('group.settings.runtime.enabledValue')
-                            : t('group.settings.runtime.disabledValue')
-                        }}
-                      </span>
-                    </div>
-                  </template>
-                </RuntimeOverrideRow>
-              </div>
+                <template #control>
+                  <div class="group-settings__runtime-input">
+                    <CompactFieldError
+                      :id="`group-settings-${policy.key}`"
+                      :error="policyCountError(policy.key)"
+                    >
+                      <template #default="{ invalid, describedBy }">
+                        <AppTextInput
+                          :id="`group-settings-${policy.key}`"
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputmode="numeric"
+                          :model-value="String(draft.overrides[policy.key])"
+                          :label="
+                            t('group.settings.runtime.valueFor', {
+                              field: t(`group.settings.runtime.${policy.key}`),
+                            })
+                          "
+                          appearance="surface"
+                          size="compact"
+                          monospace
+                          :disabled="mutationPending"
+                          :invalid="invalid"
+                          :described-by="describedBy"
+                          @update:model-value="setPolicyCountValue(policy.key, $event)"
+                        />
+                      </template>
+                    </CompactFieldError>
+                    <span aria-hidden="true">{{ t('group.settings.runtime.countUnit') }}</span>
+                  </div>
+                </template>
+              </SettingRow>
+              <SettingRow
+                v-if="showInjectUsage"
+                :label="t('group.settings.runtime.inject_usage_options')"
+                :value="injectUsageValue"
+                :help="t('group.settings.runtime.injectUsageHelp')"
+                :source-label="
+                  draft.overrides.inject_usage_options === undefined
+                    ? t('group.settings.runtime.inherited')
+                    : t('group.settings.runtime.override')
+                "
+                :action-label="
+                  draft.overrides.inject_usage_options === undefined
+                    ? t('group.settings.runtime.useOverride')
+                    : t('group.settings.runtime.useInherited')
+                "
+                :overridden="draft.overrides.inject_usage_options !== undefined"
+                :divided="false"
+                :disabled="mutationPending"
+                @toggle="setInjectUsageOverride(draft.overrides.inject_usage_options === undefined)"
+              >
+                <template #control>
+                  <AppSwitch
+                    :model-value="draft.overrides.inject_usage_options ?? false"
+                    :disabled="mutationPending"
+                    :label="t('group.settings.runtime.inject_usage_options')"
+                    @update:model-value="draft.overrides.inject_usage_options = $event"
+                  />
+                </template>
+              </SettingRow>
               <div class="group-settings__runtime-row group-settings__affinity-row">
                 <div class="group-settings__affinity-identity">
                   <strong>{{ t('group.settings.runtime.affinity_enabled') }}</strong>
@@ -967,15 +942,6 @@ small {
   color: var(--color-text-faint);
   font-family: var(--font-mono);
   font-size: 11px;
-  white-space: nowrap;
-}
-.group-settings__boolean-value {
-  display: flex;
-  min-height: var(--control-xs);
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--text-meta);
   white-space: nowrap;
 }
 .group-settings__affinity-row {

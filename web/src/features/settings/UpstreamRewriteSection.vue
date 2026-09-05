@@ -9,7 +9,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
-import SettingRow from './SettingRow.vue'
+import SettingRow from '@/components/config/SettingRow.vue'
 import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
 import type { SettingsDraftChange } from './use-settings-controller'
 

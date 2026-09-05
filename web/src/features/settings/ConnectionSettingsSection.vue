@@ -13,7 +13,7 @@ import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 
-import SettingRow from './SettingRow.vue'
+import SettingRow from '@/components/config/SettingRow.vue'
 import {
   createSettingsDraft,
   isValidTimeout,

@@ -7,7 +7,7 @@ import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 
-import SettingRow from './SettingRow.vue'
+import SettingRow from '@/components/config/SettingRow.vue'
 import {
   createSettingsDraft,
   isValidRetention,
