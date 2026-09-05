@@ -15,6 +15,12 @@ type requestValue struct {
 	fields map[string]*requestValue
 	loaded bool
 	dirty  bool
+	// 当前字段在父对象原始 JSON 中最后一次出现的位置，不随覆盖值改变。
+	start int
+	end   int
+	// 重复对象通过代次使旧子字段失效，避免每次遍历全部规则字段清空。
+	generation       uint
+	parentGeneration uint
 }
 
 func (value *requestValue) field(key string) *requestValue {
@@ -54,19 +60,29 @@ func (value *requestValue) load() error {
 	if value.loaded {
 		return nil
 	}
-	for _, child := range value.fields {
+	_, err := value.scan(value.raw)
+	return err
+}
+
+// 按规则路径直接下行，返回对象终点；父层不先扫描整个子树再递归。
+func (value *requestValue) scan(body []byte) (int, error) {
+	value.generation++
+	end, err := value.eachField(body, true, nil)
+	if err != nil {
+		return 0, err
+	}
+	value.raw, value.loaded = body[:end], true
+	return end, nil
+}
+
+func (value *requestValue) currentField(key string) *requestValue {
+	child := value.fields[key]
+	if child.parentGeneration != value.generation {
 		child.reset(nil)
+		child.start, child.end = 0, 0
+		child.parentGeneration = value.generation
 	}
-	if err := eachRequestField(value.raw, func(key, raw, _ []byte) {
-		if child := value.fields[string(key)]; child != nil {
-			// 重复字段与 encoding/json 保持一致，以最后一次出现为准。
-			child.reset(raw)
-		}
-	}); err != nil {
-		return err
-	}
-	value.loaded = true
-	return nil
+	return child
 }
 
 func (value *requestValue) remove(path []string) error {
@@ -76,7 +92,7 @@ func (value *requestValue) remove(path []string) error {
 	if err := value.load(); err != nil {
 		return err
 	}
-	child := value.fields[path[0]]
+	child := value.currentField(path[0])
 	if len(path) == 1 {
 		child.reset(nil)
 		child.dirty = true
@@ -96,7 +112,7 @@ func (value *requestValue) merge(source any) error {
 			return err
 		}
 		for key, item := range object {
-			if err := value.fields[key].merge(item); err != nil {
+			if err := value.currentField(key).merge(item); err != nil {
 				return err
 			}
 		}
@@ -140,8 +156,8 @@ func (value *requestValue) write(output *requestOutput) error {
 		}
 		first = false
 	}
-	if err := eachRequestField(value.raw, func(key, _, member []byte) {
-		if child := value.fields[string(key)]; child != nil && child.dirty {
+	if _, err := value.eachField(value.raw, false, func(key, member []byte) {
+		if child := value.fields[string(key)]; child != nil && child.parentGeneration == value.generation && child.dirty {
 			return
 		}
 		separator()
@@ -150,7 +166,7 @@ func (value *requestValue) write(output *requestOutput) error {
 		return err
 	}
 	for key, child := range value.fields {
-		if !child.dirty || child.raw == nil {
+		if child.parentGeneration != value.generation || !child.dirty || child.raw == nil {
 			continue
 		}
 		separator()
@@ -170,32 +186,54 @@ func (value *requestValue) write(output *requestOutput) error {
 
 // 调用方已用 json.Valid 校验完整请求。这里只扫描字段边界，值引用原始字节；
 // 仅含转义或非法 UTF-8 的键需要解码，沿用 encoding/json 的键名语义。
-func eachRequestField(body []byte, visit func(key, raw, member []byte)) error {
+func (value *requestValue) eachField(body []byte, discover bool, visit func(key, member []byte)) (int, error) {
 	remaining := bytes.TrimLeft(body[1:], " \t\r\n")
 	for remaining[0] != '}' {
 		member := remaining
 		key, _, end, err := jsonparser.Get(remaining)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if bytes.ContainsRune(key, '\\') || !utf8.Valid(key) {
 			var decoded string
 			if err := json.Unmarshal(remaining[:end], &decoded); err != nil {
-				return err
+				return 0, err
 			}
 			key = []byte(decoded)
 		}
 		remaining = bytes.TrimLeft(remaining[end:], " \t\r\n")
 		remaining = bytes.TrimLeft(remaining[1:], " \t\r\n") // 跳过冒号。
-		_, _, end, err = jsonparser.Get(remaining)
-		if err != nil {
-			return err
+		start := len(body) - len(remaining)
+		child := value.fields[string(key)]
+		switch {
+		case discover && child != nil && remaining[0] == '{' && len(child.fields) > 0:
+			child.reset(nil)
+			end, err = child.scan(remaining)
+		case !discover && child != nil && child.parentGeneration == value.generation && child.start == start && child.end > start:
+			// 测量和输出直接使用已发现的终点，不重复扫描深层的大值。
+			end = child.end - start
+		default:
+			_, _, end, err = jsonparser.Get(remaining)
+			if discover && child != nil {
+				child.reset(nil)
+			}
 		}
-		visit(key, remaining[:end], member[:len(member)-len(remaining)+end])
+		if err != nil {
+			return 0, err
+		}
+		if discover && child != nil {
+			// 重复键只保留最后一次的位置，索引大小不随客户端字段数量增长。
+			child.raw = remaining[:end]
+			child.start, child.end = start, start+end
+			child.parentGeneration = value.generation
+		}
+		if visit != nil {
+			visit(key, member[:len(member)-len(remaining)+end])
+		}
 		remaining = bytes.TrimLeft(remaining[end:], " \t\r\n")
 		if remaining[0] == ',' {
 			remaining = bytes.TrimLeft(remaining[1:], " \t\r\n")
 		}
 	}
-	return nil
+	return len(body) - len(remaining) + 1, nil
 }

@@ -18,10 +18,11 @@ func TestApplyAllocationsDoNotScaleWithUntouchedElements(t *testing.T) {
 		fmt.Fprintf(&fields, `"field%d":0,`, index)
 	}
 	for name, payload := range map[string]string{
-		"numbers":       `{"input":[` + strings.Repeat("0,", 32768) + `0]}`,
-		"objects":       `{"input":[` + strings.Repeat(`{"a":0},`, 8192) + `{}]}`,
-		"root fields":   `{` + fields.String() + `"last":0}`,
-		"nested fields": `{"nested":{` + fields.String() + `"last":0}}`,
+		"numbers":           `{"input":[` + strings.Repeat("0,", 32768) + `0]}`,
+		"objects":           `{"input":[` + strings.Repeat(`{"a":0},`, 8192) + `{}]}`,
+		"root fields":       `{` + fields.String() + `"last":0}`,
+		"nested fields":     `{"nested":{` + fields.String() + `"last":0}}`,
+		"duplicate targets": `{` + strings.Repeat(`"nested":{"payload":[0],"marker":false},`, 8192) + `"last":0}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			rules := compileRulesForTest(t, []any{map[string]any{
@@ -41,11 +42,70 @@ func TestApplyAllocationsDoNotScaleWithUntouchedElements(t *testing.T) {
 	}
 }
 
+func TestRequestLoadIndexesNestedPathsTogether(t *testing.T) {
+	const depth = 64
+	body := []byte(strings.Repeat(`{"n":`, depth-1) + `{"payload":[0,1,2],"flag":true}` + strings.Repeat("}", depth-1))
+	root := &requestValue{raw: body}
+	path := strings.Split(strings.Repeat("n/", depth-1)+"flag", "/")
+	root.planPath(path)
+	if err := root.load(); err != nil {
+		t.Fatal(err)
+	}
+	node := root
+	for index, key := range path {
+		if !node.loaded {
+			t.Fatalf("depth %d requires another descendant scan", index+1)
+		}
+		node = node.fields[key]
+	}
+	if string(node.raw) != "true" {
+		t.Fatalf("leaf = %s, want true", node.raw)
+	}
+}
+
+func TestApplyDuplicateObjectsDiscardEarlierChildren(t *testing.T) {
+	rules := compileRulesForTest(t, []any{map[string]any{
+		"set": map[string]any{"nested": map[string]any{"branch": map[string]any{"new": true}}},
+	}})
+	for _, body := range []string{
+		`{"nested":{"branch":{"old":true}},"nested":{}}`,
+		`{"nested":{"branch":{"old":true}},"nested":null}`,
+		`{"nested":{"branch":{"old":true}},"nested":{"branch":{}}}`,
+	} {
+		got, _, err := rules.Apply(protocol.OpenAICompletions, execution.OperationChatCompletion, "model", []byte(body))
+		if err != nil || string(got) != `{"nested":{"branch":{"new":true}}}` {
+			t.Fatalf("Apply(%s) = %s, %v", body, got, err)
+		}
+	}
+}
+
+func BenchmarkApplyNestedRequest(b *testing.B) {
+	for _, depth := range []int{1, 4, 16, 64} {
+		b.Run(fmt.Sprintf("depth%d", depth), func(b *testing.B) {
+			body := []byte(strings.Repeat(`{"n":`, depth-1) + `{"payload":"` + strings.Repeat("x", 4<<20) + `","flag":true}` + strings.Repeat("}", depth-1))
+			rules, err := Compile([]any{map[string]any{"remove": []any{strings.Repeat("/n", depth-1) + "/flag"}}})
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.SetBytes(int64(len(body)))
+			b.ResetTimer()
+			for b.Loop() {
+				if _, _, err := rules.Apply(protocol.OpenAICompletions, execution.OperationChatCompletion, "model", body); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func TestApplyPreservesSequentialMergeAndRemoveSemantics(t *testing.T) {
 	for _, body := range []string{
 		`{"nested":{"keep":1,"remove":2},"array":[0,{},null],"text":"<>&","number":-0}`,
 		`{"nested":[0,1],"array":{"0":true},"0":{"child":1},"a/b":{"~":1}}`,
 		`{"nested":{"first":1},"nested":{"second":2},"\u0061":0,"a":1}`,
+		`{"nested":{"first":1},"nested":null,"tail":true}`,
+		`{"nested":null,"nested":{"first":1},"tail":true}`,
 		`{"nested":null,"empty":{},"literal":"\\\"{}[]","a.b":3}`,
 		`{"nested":{"keep":1},"\ud800":1,"\ud800\udc00":2}`,
 	} {
@@ -101,6 +161,7 @@ func FuzzApplyMatchesTreeSemantics(f *testing.F) {
 	for _, body := range []string{
 		`{}`, `{"nested":{"keep":1,"remove":2}}`, `{"nested":[{}],"input":[0,1]}`,
 		`{"nested":{"x":1},"nested":{"y":2}}`, `{"\ud800":1}`,
+		`{"nested":{"remove":{"deep":[0]}},"nested":null,"tail":true}`,
 	} {
 		f.Add(body)
 	}
