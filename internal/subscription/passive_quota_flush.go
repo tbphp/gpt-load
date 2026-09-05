@@ -83,9 +83,8 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 			return nil
 		}
 		if !merge.Matched {
-			// The response named no window this snapshot tracks, so it is no
-			// observation of this credential's quota at all. Creating windows
-			// is the active observation's job.
+			// 未命中已有窗口或周期冲突的样本不能推进同步时间。
+			// 窗口创建和周期变更仍由主动观测负责。
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}
@@ -143,8 +142,8 @@ type passiveQuotaMerge struct {
 // inside a stored snapshot, carrying every other field through unchanged by
 // value. The snapshot is decoded and re-encoded, so key order and formatting
 // are not preserved byte-for-byte. Only window IDs the snapshot already
-// tracks are updated; an unmatched patch ID is silently ignored so a passive
-// signal never creates a window.
+// tracks are updated; an unmatched patch ID or a conflicting known period
+// is ignored so a passive signal never creates or repurposes a window.
 func mergePassiveQuotaSnapshot(
 	raw []byte,
 	patches []providerobservation.QuotaWindow,
@@ -172,9 +171,15 @@ func mergePassiveQuotaSnapshot(
 		if !exists {
 			continue
 		}
+		previous := merged[position]
+		// primary/secondary 只是上游槽位；周期冲突时连用量、重置时间和状态也不能合并。
+		if previous.WindowSeconds != nil && patch.WindowSeconds != nil &&
+			*previous.WindowSeconds != *patch.WindowSeconds {
+			continue
+		}
 		outcome.Matched = true
-		next := providerobservation.MergeQuotaWindow(merged[position], patch)
-		if !reflect.DeepEqual(next, merged[position]) {
+		next := providerobservation.MergeQuotaWindow(previous, patch)
+		if !reflect.DeepEqual(next, previous) {
 			outcome.Changed = true
 		}
 		merged[position] = next
