@@ -158,6 +158,29 @@ func TestCompileAcceptsNumbersThatRoundTripThroughManagementUI(t *testing.T) {
 	}
 }
 
+func TestRulesPreserveHTMLCharactersWithoutExpansion(t *testing.T) {
+	rules := compileRulesForTest(t, []any{
+		map[string]any{"set": map[string]any{"instruction": "<tag>&value</tag>"}},
+	})
+	input := strings.Repeat("<>&", 1024)
+	body := []byte(`{"model":"model","input":"` + input + `","precise":1.2300}`)
+	got, applied, err := rules.Apply(protocol.OpenAICompletions, execution.OperationChatCompletion, "model", body)
+	if err != nil || !applied {
+		t.Fatalf("Apply() applied = %t, error = %v", applied, err)
+	}
+	if len(got) > len(body)+64 || bytes.Contains(got, []byte(`\u003c`)) || bytes.Contains(got, []byte(`\u003e`)) || bytes.Contains(got, []byte(`\u0026`)) {
+		t.Fatalf("HTML characters expanded: input bytes = %d, output bytes = %d", len(body), len(got))
+	}
+	var values map[string]any
+	decodeJSONForTest(t, got, &values)
+	if values["input"] != input || values["instruction"] != "<tag>&value</tag>" || values["precise"] != json.Number("1.2300") {
+		t.Fatal("parameter values or numeric literal changed")
+	}
+	if bytes.HasSuffix(got, []byte("\n")) {
+		t.Fatal("encoded body has an extra trailing newline")
+	}
+}
+
 func TestRulesApplyLargeBodies(t *testing.T) {
 	rules := compileRulesForTest(t, []any{
 		map[string]any{

@@ -241,11 +241,14 @@ func (rules Rules) Apply(
 		}
 		mergeObject(object, entry.set)
 	}
-	encoded, err := json.Marshal(object)
-	if err != nil {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	// 请求体是 JSON，无需为嵌入 HTML 转义 <、>、&，避免无谓的体积膨胀。
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(object); err != nil {
 		return nil, false, fmt.Errorf("encode overridden request body: %w", err)
 	}
-	return encoded, true, nil
+	return bytes.TrimSuffix(encoded.Bytes(), []byte("\n")), true, nil
 }
 
 func supports(clientProtocol protocol.Protocol, operation execution.Operation) bool {
