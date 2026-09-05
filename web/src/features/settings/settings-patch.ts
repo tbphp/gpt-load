@@ -122,7 +122,7 @@ function normalizedWireValue(
 function normalizeCORSConfig(value: CORSConfigDto): CORSConfigDto {
   return {
     ...cloneCORSConfig(value),
-    allowed_origins: value.allowed_origins.map((entry) => entry.trim()),
+    allowed_origins: value.allowed_origins.map(normalizeCORSOrigin),
     allowed_methods: value.allowed_methods.map((entry) => entry.trim().toUpperCase()),
     allowed_headers: value.allowed_headers.map((entry) => entry.trim()),
     exposed_headers: value.exposed_headers.map((entry) => entry.trim()),
@@ -226,9 +226,10 @@ export function isValidNonNegativeInteger(value: number): boolean {
 }
 
 export function isValidCORSConfig(value: CORSConfigDto): boolean {
+  const allowedOrigins = value.allowed_origins.map(normalizeCORSOrigin)
   if (!isValidNonNegativeInteger(value.max_age)) return false
-  if (!validUniqueList(value.allowed_origins, false, (entry) => validOrigin(entry))) return false
-  if (value.allowed_origins.includes('*') && value.allowed_origins.length > 1) return false
+  if (!validUniqueList(allowedOrigins, false, (entry) => validOrigin(entry))) return false
+  if (allowedOrigins.includes('*') && allowedOrigins.length > 1) return false
   if (!validUniqueList(value.allowed_methods, true, (entry) => entry !== '*' && isHTTPToken(entry)))
     return false
   if (!validHeaderList(value.allowed_headers, value.enabled)) return false
@@ -236,18 +237,39 @@ export function isValidCORSConfig(value: CORSConfigDto): boolean {
   if (value.enabled && (value.allowed_origins.length === 0 || value.allowed_methods.length === 0))
     return false
   if (value.enabled && value.allowed_headers.length === 0) return false
-  if (value.allow_credentials && value.allowed_origins.includes('*')) return false
+  if (value.allow_credentials && allowedOrigins.includes('*')) return false
   if (value.allow_credentials && value.exposed_headers.includes('*')) return false
   return true
 }
 
 function validOrigin(value: string): boolean {
   if (value === '*' || value === 'null') return true
-  return (
-    value === value.trim() &&
-    !value.includes('@') &&
-    /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#\s,]+$/u.test(value)
+  return parseCORSOriginURL(value) !== null
+}
+
+function normalizeCORSOrigin(value: string): string {
+  const origin = value.trim()
+  if (origin === '*' || origin === 'null') return origin
+  const parsed = parseCORSOriginURL(origin)
+  if (parsed === null) return origin
+  const protocol = asciiLower(parsed.protocol)
+  if (protocol === 'http:' || protocol === 'https:') return parsed.origin
+  return `${protocol}//${asciiLower(parsed.host)}`
+}
+
+function parseCORSOriginURL(value: string): URL | null {
+  if (
+    value !== value.trim() ||
+    value.includes('@') ||
+    !/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#\s,]+$/u.test(value)
   )
+    return null
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol && parsed.host ? parsed : null
+  } catch {
+    return null
+  }
 }
 
 function validHeaderList(values: string[], required: boolean): boolean {

@@ -150,6 +150,36 @@ func TestCORSValidationRejectsUnsafeOrAmbiguousConfiguration(t *testing.T) {
 	}
 }
 
+func TestCORSOriginsAreCanonicalizedBeforeDuplicateDetection(t *testing.T) {
+	origins, err := parseCORSOrigins([]any{
+		"HTTPS://EXAMPLE.COM",
+		"http://EXAMPLE.COM:80",
+		"https://EXAMPLE.COM:444",
+		"https://bücher.example",
+		"APP://OBSIDIAN.MD",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"https://example.com",
+		"http://example.com",
+		"https://example.com:444",
+		"https://xn--bcher-kva.example",
+		"app://obsidian.md",
+	}
+	if !reflect.DeepEqual(origins, want) {
+		t.Fatalf("origins = %#v, want %#v", origins, want)
+	}
+
+	if _, err := parseCORSOrigins([]any{
+		"HTTPS://EXAMPLE.COM",
+		"https://example.com:443",
+	}); err == nil || !strings.Contains(err.Error(), "duplicate origin") {
+		t.Fatalf("normalized duplicate error = %v, want duplicate origin", err)
+	}
+}
+
 func TestResponseHeaderRulesRejectTransportAndCORSOwnedHeaders(t *testing.T) {
 	for _, name := range []string{
 		"Connection",

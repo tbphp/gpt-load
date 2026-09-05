@@ -2,9 +2,13 @@ package state
 
 import (
 	"fmt"
+	"net"
 	"net/textproto"
 	"net/url"
+	"strconv"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 var defaultCORSMethods = []string{
@@ -131,8 +135,8 @@ func parseCORSOrigins(value any) ([]string, error) {
 		if !ok {
 			return nil, fmt.Errorf("cors.allowed_origins[%d] must be a string", index)
 		}
-		origin = strings.TrimSpace(origin)
-		if !validCORSOrigin(origin) {
+		origin, valid := canonicalCORSOrigin(strings.TrimSpace(origin))
+		if !valid {
 			return nil, fmt.Errorf("cors.allowed_origins[%d] is invalid", index)
 		}
 		if _, duplicate := seen[origin]; duplicate {
@@ -172,22 +176,52 @@ func parseCORSMethods(value any) ([]string, error) {
 	return parsed, nil
 }
 
-func validCORSOrigin(origin string) bool {
+func canonicalCORSOrigin(origin string) (string, bool) {
 	if origin == "*" || origin == "null" {
-		return true
+		return origin, true
 	}
 	if origin == "" || strings.ContainsAny(origin, " \t\r\n,") || !validHTTPHeaderValue(origin) {
-		return false
+		return "", false
 	}
 	parsed, err := url.Parse(origin)
-	return err == nil &&
-		parsed.Scheme != "" &&
-		parsed.Host != "" &&
-		parsed.User == nil &&
-		parsed.Path == "" &&
-		parsed.RawQuery == "" &&
-		parsed.Fragment == "" &&
-		parsed.Opaque == ""
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil ||
+		parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
+		return "", false
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return "", false
+	}
+	host := ""
+	if ip := net.ParseIP(hostname); ip != nil {
+		host = ip.String()
+	} else {
+		host, err = idna.Lookup.ToASCII(hostname)
+		if err != nil {
+			return "", false
+		}
+		host = strings.ToLower(host)
+	}
+
+	port := parsed.Port()
+	if port != "" {
+		parsedPort, parseErr := strconv.ParseUint(port, 10, 16)
+		if parseErr != nil {
+			return "", false
+		}
+		port = strconv.FormatUint(parsedPort, 10)
+	}
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+		port = ""
+	}
+	if port != "" {
+		host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return scheme + "://" + host, true
 }
 
 func parseCORSHeaderNames(path string, value any) ([]string, error) {
