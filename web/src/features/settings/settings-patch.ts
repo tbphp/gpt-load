@@ -1,3 +1,4 @@
+import type { RouteStrategy } from '@/api/control/types'
 import type { HeaderRulesDto } from '@/app/resources/groups'
 import type {
   RuntimeSettingKey,
@@ -21,6 +22,7 @@ export interface SettingsDraft {
 }
 
 const requestForwardingKeys: RuntimeSettingKey[] = [
+  'route_strategy',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
@@ -80,7 +82,9 @@ export function setSettingsOverride(
   if (next.readOnly.has(key)) return next
   if (enabled) {
     next.overrides.add(key)
-    if (key === 'inject_usage_options') {
+    if (key === 'route_strategy') {
+      next.values.route_strategy = base.values.route_strategy
+    } else if (key === 'inject_usage_options') {
       next.values.inject_usage_options = base.values.inject_usage_options
     } else if (key === 'affinity_enabled') {
       next.values.affinity_enabled = base.values.affinity_enabled
@@ -112,7 +116,7 @@ function normalizeHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
 function normalizedWireValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
-): number | boolean | HeaderRulesDto | CORSConfigDto {
+): number | boolean | RouteStrategy | HeaderRulesDto | CORSConfigDto {
   if (key === 'header_rules' || key === 'response_header_rules')
     return normalizeHeaderRules(settings[key])
   if (key === 'cors') return normalizeCORSConfig(settings.cors)
@@ -144,7 +148,7 @@ function canonicalHeaderRulesIdentity(value: HeaderRulesDto): HeaderRulesDto {
 function normalizedIdentityValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
-): number | boolean | HeaderRulesDto | CORSConfigDto {
+): number | boolean | RouteStrategy | HeaderRulesDto | CORSConfigDto {
   if (key === 'header_rules' || key === 'response_header_rules')
     return canonicalHeaderRulesIdentity(settings[key])
   if (key === 'cors') return canonicalCORSIdentity(settings.cors)

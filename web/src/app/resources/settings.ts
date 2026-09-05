@@ -2,7 +2,12 @@ import { queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
-import type { ProxyMutation, ProxyViewDto } from '@/api/control/types'
+import {
+  routeStrategies,
+  type ProxyMutation,
+  type ProxyViewDto,
+  type RouteStrategy,
+} from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 
@@ -11,6 +16,7 @@ import {
   assertNoSecretLikeFields,
   projectArray,
   projectBoolean,
+  projectEnum,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -18,6 +24,7 @@ import {
 import { projectProxyView } from './proxy'
 
 export const runtimeSettingKeys = [
+  'route_strategy',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
@@ -38,6 +45,7 @@ export const runtimeSettingKeys = [
 export type RuntimeSettingKey = (typeof runtimeSettingKeys)[number]
 export type TimeoutSettingKey = Exclude<
   RuntimeSettingKey,
+  | 'route_strategy'
   | 'retry_count'
   | 'blacklist_threshold'
   | 'header_rules'
@@ -62,6 +70,7 @@ export interface CORSConfigDto {
 }
 
 export interface SettingsValues {
+  route_strategy: RouteStrategy
   first_byte_timeout: number
   request_timeout: number
   stream_idle_timeout: number
@@ -87,6 +96,7 @@ export interface SettingsDto {
 }
 
 export type SettingsPatch = Partial<{
+  route_strategy: RouteStrategy | null
   first_byte_timeout: number | null
   request_timeout: number | null
   stream_idle_timeout: number | null
@@ -186,6 +196,7 @@ export function projectSettings(value: unknown): SettingsDto {
 
   return {
     values: {
+      route_strategy: projectEnum(values.route_strategy, routeStrategies),
       first_byte_timeout: projectSafeInteger(values.first_byte_timeout, { minimum: 1 }),
       request_timeout: projectSafeInteger(values.request_timeout, { minimum: 1 }),
       stream_idle_timeout: projectSafeInteger(values.stream_idle_timeout, { minimum: 1 }),

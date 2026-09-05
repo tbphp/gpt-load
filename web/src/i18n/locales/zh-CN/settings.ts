@@ -39,6 +39,13 @@ export default {
     runtime: {
       title: '请求与转发',
       description: '显式值覆盖内置默认；恢复默认后由当前版本决定有效值。所有时间设置均以秒为单位。',
+      route_strategy: '路由策略',
+      routeStrategies: {
+        native_first: '原生优先',
+        weighted_mix: '混合权重',
+      },
+      routeStrategyHelp:
+        '原生优先尽量保留原生能力；混合权重让原生与转换候选按有效权重竞争，转换可能存在能力差异。请求亲和仍生效，流量不保证严格按权重分配。',
       first_byte_timeout: '原生响应 / 流式首事件超时',
       request_timeout: '请求总时长',
       stream_idle_timeout: '流空闲超时',

@@ -40,6 +40,13 @@ export default {
       title: 'Request and forwarding',
       description:
         'Explicit values override built-in defaults. Restoring a default uses the current version; all time values are in seconds.',
+      route_strategy: 'Route strategy',
+      routeStrategies: {
+        native_first: 'Native first',
+        weighted_mix: 'Weighted mix',
+      },
+      routeStrategyHelp:
+        'Native first favors native capabilities. Weighted mix lets native and converted candidates compete by effective weight; conversion may differ in capabilities. Request affinity still applies, so traffic shares are not guaranteed.',
       first_byte_timeout: 'Native response / stream first-event timeout',
       request_timeout: 'Total request timeout',
       stream_idle_timeout: 'Stream idle timeout',

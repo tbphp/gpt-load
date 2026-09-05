@@ -460,6 +460,10 @@ func TestGroupSettingsHTTPRejectsStrictJSONAndUnauthorizedWithoutMutation(t *tes
 		`{"unknown":true}`,
 		`{"name":"one","name":"two"}`,
 		`{"weight_manual":0}`,
+		`{"route_strategy":"weighted_mix"}`,
+		`{"overrides":{"route_strategy":"weighted_mix"}}`,
+		`{"overrides":{"route_strategy":"native_first"}}`,
+		`{"overrides":{"route_strategy":null}}`,
 	} {
 		recorder := serveGroupSettingsRequest(t, engine, http.MethodPut, path, "test-auth-key", body)
 		if recorder.Code != http.StatusBadRequest {

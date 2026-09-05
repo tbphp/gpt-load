@@ -52,7 +52,7 @@ type weightedCredential struct {
 }
 
 type candidatePool struct {
-	targetsByMode  map[channel.RouteMode]map[uint]candidateTarget
+	targetsByGroup map[uint]candidateTarget
 	groupIDsByMode map[channel.RouteMode][]uint
 }
 
@@ -61,6 +61,7 @@ type Iterator struct {
 	random                *rand.Rand
 	regular               candidatePool
 	storeDowngraded       candidatePool
+	routeModeTiers        [][]channel.RouteMode
 	allowedCredentialIDs  map[uint]struct{}
 	preferredCredentialID uint
 	tried                 map[uint]struct{}
@@ -118,11 +119,15 @@ func newWithClock(
 		random:                random,
 		regular:               newCandidatePool(),
 		storeDowngraded:       newCandidatePool(),
+		routeModeTiers:        [][]channel.RouteMode{{channel.RouteNative}, {channel.RouteConverted}},
 		allowedCredentialIDs:  cloneAllowedCredentialIDs(query),
 		preferredCredentialID: query.PreferredCredentialID,
 		tried:                 make(map[uint]struct{}),
 		skippedGroups:         make(map[uint]struct{}),
 		now:                   now,
+	}
+	if snapshot != nil && snapshot.Settings.RouteStrategy == state.RouteStrategyWeightedMix {
+		iterator.routeModeTiers = [][]channel.RouteMode{{channel.RouteNative, channel.RouteConverted}}
 	}
 	targets, staticReason := filterTargetsWithReason(snapshot, query)
 	iterator.staticReason = staticReason
@@ -132,10 +137,7 @@ func newWithClock(
 			pool = &iterator.storeDowngraded
 		}
 		mode := target.target.Mode
-		if pool.targetsByMode[mode] == nil {
-			pool.targetsByMode[mode] = make(map[uint]candidateTarget)
-		}
-		pool.targetsByMode[mode][target.target.GroupID] = target
+		pool.targetsByGroup[target.target.GroupID] = target
 		pool.groupIDsByMode[mode] = append(pool.groupIDsByMode[mode], target.target.GroupID)
 	}
 	return iterator
@@ -143,7 +145,7 @@ func newWithClock(
 
 func newCandidatePool() candidatePool {
 	return candidatePool{
-		targetsByMode:  make(map[channel.RouteMode]map[uint]candidateTarget),
+		targetsByGroup: make(map[uint]candidateTarget),
 		groupIDsByMode: make(map[channel.RouteMode][]uint),
 	}
 }
@@ -184,18 +186,21 @@ func (iterator *Iterator) weightedPoolForMode(
 	if iterator == nil {
 		return nil, 0
 	}
-	return iterator.weightedPoolForCandidatePool(&iterator.regular, mode, now)
+	return iterator.weightedPoolForCandidatePool(&iterator.regular, []channel.RouteMode{mode}, now)
 }
 
 func (iterator *Iterator) weightedPoolForCandidatePool(
 	candidates *candidatePool,
-	mode channel.RouteMode,
+	modes []channel.RouteMode,
 	now time.Time,
 ) ([]weightedCredential, int64) {
 	if iterator == nil || iterator.credentials == nil {
 		return nil, 0
 	}
-	groupIDs := candidates.groupIDsByMode[mode]
+	var groupIDs []uint
+	for _, mode := range modes {
+		groupIDs = append(groupIDs, candidates.groupIDsByMode[mode]...)
+	}
 	if len(groupIDs) == 0 {
 		return nil, 0
 	}
@@ -213,7 +218,7 @@ func (iterator *Iterator) weightedPoolForCandidatePool(
 		if _, skipped := iterator.skippedGroups[credential.GroupID]; skipped {
 			continue
 		}
-		target, ok := candidates.targetsByMode[mode][credential.GroupID]
+		target, ok := candidates.targetsByGroup[credential.GroupID]
 		if !ok {
 			continue
 		}
@@ -239,8 +244,8 @@ func (iterator *Iterator) Next() (Selection, error) {
 		return Selection{}, ErrExhausted
 	}
 	for _, pool := range []*candidatePool{&iterator.regular, &iterator.storeDowngraded} {
-		for _, mode := range []channel.RouteMode{channel.RouteNative, channel.RouteConverted} {
-			weighted, total := iterator.weightedPoolForCandidatePool(pool, mode, iterator.now())
+		for _, modes := range iterator.routeModeTiers {
+			weighted, total := iterator.weightedPoolForCandidatePool(pool, modes, iterator.now())
 			if total <= 0 {
 				continue
 			}
@@ -261,7 +266,7 @@ func (iterator *Iterator) Next() (Selection, error) {
 				}
 			}
 			iterator.tried[selected.ID] = struct{}{}
-			target := pool.targetsByMode[mode][selected.GroupID]
+			target := pool.targetsByGroup[selected.GroupID]
 			return newSelection(selected, target), nil
 		}
 	}

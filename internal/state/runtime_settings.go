@@ -23,6 +23,7 @@ const (
 	SettingResponseHeaderRules      = "response_header_rules"
 	SettingInjectUsageOptions       = "inject_usage_options"
 	SettingRetryCount               = "retry_count"
+	SettingRouteStrategy            = "route_strategy"
 	SettingBlacklistThreshold       = "blacklist_threshold"
 	SettingAffinityEnabled          = "affinity_enabled"
 	SettingAffinityTTL              = "affinity_ttl"
@@ -31,6 +32,13 @@ const (
 	SettingRequestLogRetentionDays  = "request_log_retention_days"
 	SettingModelsDevAutoSyncEnabled = "models_dev_auto_sync_enabled"
 	SettingParameterOverrides       = "parameter_overrides"
+)
+
+type RouteStrategy string
+
+const (
+	RouteStrategyNativeFirst RouteStrategy = "native_first"
+	RouteStrategyWeightedMix RouteStrategy = "weighted_mix"
 )
 
 const (
@@ -51,6 +59,7 @@ type RuntimeSettings struct {
 	ResponseHeaderRules      HeaderRules
 	InjectUsageOptions       bool
 	RetryCount               int
+	RouteStrategy            RouteStrategy
 	BlacklistThreshold       int
 	AffinityEnabled          bool
 	AffinityTTL              time.Duration
@@ -80,6 +89,7 @@ func DefaultRuntimeSettings() RuntimeSettings {
 		ResponseHeaderRules:      HeaderRules{Set: map[string]string{}},
 		InjectUsageOptions:       true,
 		RetryCount:               2,
+		RouteStrategy:            RouteStrategyNativeFirst,
 		BlacklistThreshold:       3,
 		AffinityEnabled:          true,
 		AffinityTTL:              time.Hour,
@@ -100,6 +110,7 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingResponseHeaderRules,
 		SettingInjectUsageOptions,
 		SettingRetryCount,
+		SettingRouteStrategy,
 		SettingBlacklistThreshold,
 		SettingAffinityEnabled,
 		SettingAffinityTTL,
@@ -165,6 +176,12 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.RetryCount = count
+		case SettingRouteStrategy:
+			strategy, err := parseRouteStrategy(value)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.RouteStrategy = strategy
 		case SettingBlacklistThreshold:
 			threshold, err := nonNegativeWholeNumber(key, value)
 			if err != nil {
@@ -321,6 +338,9 @@ func ValidateRuntimeSetting(key string, value any) error {
 	case SettingRetryCount, SettingBlacklistThreshold:
 		_, err := nonNegativeWholeNumber(key, value)
 		return err
+	case SettingRouteStrategy:
+		_, err := parseRouteStrategy(value)
+		return err
 	case SettingAffinityEnabled:
 		_, err := strictBoolean(key, value)
 		return err
@@ -344,6 +364,17 @@ func ValidateRuntimeSetting(key string, value any) error {
 	default:
 		return fmt.Errorf("unknown runtime setting %q", key)
 	}
+}
+
+func parseRouteStrategy(value any) (RouteStrategy, error) {
+	text, ok := value.(string)
+	if ok {
+		switch strategy := RouteStrategy(text); strategy {
+		case RouteStrategyNativeFirst, RouteStrategyWeightedMix:
+			return strategy, nil
+		}
+	}
+	return "", fmt.Errorf("%s must be native_first or weighted_mix", SettingRouteStrategy)
 }
 
 func strictBoolean(path string, value any) (bool, error) {
