@@ -58,6 +58,7 @@ import LogProtocolConversion from './LogProtocolConversion.vue'
 import LogRouteIdentity from './LogRouteIdentity.vue'
 import LogsFilterForm from './LogsFilterForm.vue'
 import PricingModeIndicator from './PricingModeIndicator.vue'
+import { formatRouteEntity } from './log-format'
 import {
   logsMonitorQuery,
   parseLogsMonitorState,
@@ -355,9 +356,21 @@ async function commitFilters(filters: RequestLogFilters): Promise<void> {
   await router.push(monitorLocation(logsMonitorQuery(filters)))
 }
 
-// 就地收窄而非跳转：排查时要看的是同分组的其他请求，且分组可能已删。
+// 就地收窄而非跳转：排查时要看的是同一维度的其他请求，且目标可能已删。
 async function filterByGroup(groupID: number): Promise<void> {
   await commitFilters({ ...appliedFilters.value, group_id: groupID })
+}
+
+async function filterByCredential(credentialID: number): Promise<void> {
+  await commitFilters({ ...appliedFilters.value, credential_id: credentialID })
+}
+
+async function filterByAccessKey(accessKeyID: number): Promise<void> {
+  await commitFilters({ ...appliedFilters.value, access_key_id: accessKeyID })
+}
+
+async function filterByClientModel(clientModel: string): Promise<void> {
+  await commitFilters({ ...appliedFilters.value, client_model: clientModel })
 }
 
 async function applyFilters(): Promise<void> {
@@ -458,8 +471,18 @@ async function setDetailOpen(requestID: string | undefined, open: boolean): Prom
 }
 
 function accessKeyLabel(log: RequestLogItemDto): string {
-  if (log.access_key.deleted) return t('monitor.logs.accessKey.deleted', { id: log.access_key.id })
-  return log.access_key.name ?? `#${log.access_key.id}`
+  return formatRouteEntity({
+    id: log.access_key.id,
+    name: log.access_key.name,
+    deleted: log.access_key.deleted,
+    prefix: '#',
+    deletedText: (id) => t('monitor.logs.deletedRef', { id }),
+  })
+}
+
+// 分组名靠 options 反查：查询就绪后仍找不到，才能断定分组已被删除。
+function groupDeleted(log: RequestLogItemDto): boolean {
+  return log.group_id !== null && groupsQuery.isSuccess.value && groupName(log) === null
 }
 
 function groupName(log: RequestLogItemDto): string | null {
@@ -688,7 +711,14 @@ function costLabel(log: RequestLogItemDto): string {
             role="cell"
             :data-label="t('monitor.logs.columns.accessKey')"
           >
-            <OverflowTooltip as="span" :content="accessKeyLabel(log)">
+            <OverflowTooltip
+              as="button"
+              type="button"
+              class="filterable-value"
+              :content="accessKeyLabel(log)"
+              :aria-label="t('monitor.logs.filterAccessKey', { name: accessKeyLabel(log) })"
+              @click="filterByAccessKey(log.access_key.id)"
+            >
               {{ accessKeyLabel(log) }}
             </OverflowTooltip>
           </div>
@@ -704,8 +734,12 @@ function costLabel(log: RequestLogItemDto): string {
               :channel-id="log.channel_id"
               :channel="channelDefinition(log)"
               :credential-id="log.credential_id"
+              :credential-name="log.credential_name"
+              :group-deleted="groupDeleted(log)"
+              :credential-deleted="log.credential_id !== null && log.credential_name === ''"
               filterable
               @filter-group="filterByGroup"
+              @filter-credential="filterByCredential"
             />
           </div>
           <div
@@ -716,9 +750,12 @@ function costLabel(log: RequestLogItemDto): string {
             <span class="logs-list__inline">
               <OverflowTooltip
                 v-if="log.client_model"
-                as="code"
-                class="logs-list__model"
+                as="button"
+                type="button"
+                class="logs-list__model filterable-value"
                 :content="log.client_model"
+                :aria-label="t('monitor.logs.filterModel', { name: log.client_model })"
+                @click="filterByClientModel(log.client_model)"
               >
                 {{ log.client_model }}
               </OverflowTooltip>
@@ -985,7 +1022,8 @@ function costLabel(log: RequestLogItemDto): string {
 }
 
 .logs-list__cell > span,
-.logs-list__cell code {
+.logs-list__cell code,
+.logs-list__cell .filterable-value {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1058,6 +1096,7 @@ function costLabel(log: RequestLogItemDto): string {
 
 .logs-list__model {
   flex: 0 1 auto;
+  font-family: var(--font-mono);
 }
 
 .logs-list__reasoning {

@@ -429,6 +429,7 @@ export default {
       diagnostics: 'Diagnostics',
       moreActions: 'More actions',
       editWeightHint: 'Click to adjust weight',
+      weightChipTooltip: 'Manual weight {weight}. Click to edit.',
       expand: 'Expand credential details',
       collapse: 'Collapse credential details',
       restore: 'Restore now',

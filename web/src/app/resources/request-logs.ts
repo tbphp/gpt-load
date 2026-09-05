@@ -126,6 +126,8 @@ export interface RequestLogAttemptDto {
   group_name: string
   channel_id: string | null
   credential_id: number | null
+  /** 凭据的可读标识（掩码）。凭据已删除时为空。 */
+  credential_name: string
   operation: RequestLogOperation | null
   route_mode: RequestLogRouteMode | null
   upstream_model: string | null
@@ -180,6 +182,8 @@ export interface RequestLogItemDto {
   group_id: number | null
   channel_id: string | null
   credential_id: number | null
+  /** 凭据的可读标识（掩码）。凭据已删除时为空。 */
+  credential_name: string
   route_mode: RequestLogRouteMode | null
   usage_state: RequestLogUsageState
   cost_state: RequestLogCostState
@@ -281,6 +285,7 @@ const itemFields = [
   'group_id',
   'channel_id',
   'credential_id',
+  'credential_name',
   'route_mode',
   'usage_state',
   'cost_state',
@@ -423,6 +428,7 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'group_name',
     'channel_id',
     'credential_id',
+    'credential_name',
     'operation',
     'route_mode',
     'upstream_model',
@@ -455,6 +461,7 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
       record.credential_id === null
         ? null
         : projectSafeInteger(record.credential_id, { minimum: 1 }),
+    credential_name: projectString(record.credential_name, { allowEmpty: true }),
     operation: record.operation === null ? null : projectEnum(record.operation, operations),
     route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
     upstream_model: projectNullableModel(record.upstream_model),
@@ -602,6 +609,7 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
       record.credential_id === null
         ? null
         : projectSafeInteger(record.credential_id, { minimum: 1 }),
+    credential_name: projectString(record.credential_name, { allowEmpty: true }),
     route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
     pricing_mode: record.pricing_mode === null ? null : projectPricingMode(record.pricing_mode),
     context_threshold_tokens:

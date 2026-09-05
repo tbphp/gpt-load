@@ -208,7 +208,7 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
                   :key="group.id"
                   class="model-tree__group"
                   :class="{ 'model-tree__group--disabled': !group.enabled }"
-                  :to="groupDetailLocation(group.id)"
+                  :to="groupDetailLocation(group.id, { tab: 'models' })"
                   :title="
                     group.enabled
                       ? t('models.tree.routeGroupLink', { name: group.name })

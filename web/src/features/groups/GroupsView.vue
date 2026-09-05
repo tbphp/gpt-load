@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowRight, KeyRound, Layers3, Plus, Search, TriangleAlert, UserRound } from '@lucide/vue'
-import { useQuery } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -15,7 +15,12 @@ import type {
   GroupCollectionStatus,
 } from '@/api/control/types'
 import { channelsQueryOptions, type ChannelDto } from '@/app/resources/channels'
-import { groupCollectionQueryOptions, updateGroupSettings } from '@/app/resources/groups'
+import {
+  cacheGroupSettings,
+  groupCollectionQueryOptions,
+  invalidateGroupSettingsDependents,
+  updateGroupSettings,
+} from '@/app/resources/groups'
 import { groupDetailLocation, groupsLocation, importLocation } from '@/app/route-locations'
 import { useCollectionLoading } from '@/app/loading-state'
 import { useDebouncedAction } from '@/app/use-debounced-action'
@@ -75,6 +80,7 @@ const searchDebounce = useDebouncedAction(250)
 
 const data = computed(() => groupsQuery.data.value)
 const toast = useToast()
+const queryClient = useQueryClient()
 const togglingGroupIDs = ref(new Set<number>())
 const optimisticEnabled = ref(new Map<number, boolean>())
 
@@ -89,8 +95,9 @@ async function toggleGroupEnabled(group: GroupCollectionItemDto, next: boolean):
   optimisticEnabled.value = new Map(optimisticEnabled.value).set(group.id, next)
   togglingGroupIDs.value = new Set(togglingGroupIDs.value).add(group.id)
   try {
-    await updateGroupSettings(client, group.id, { enabled: next })
-    await groupsQuery.refetch()
+    const settings = await updateGroupSettings(client, group.id, { enabled: next })
+    cacheGroupSettings(queryClient, group.id, settings)
+    await invalidateGroupSettingsDependents(queryClient, group.id)
     toast.show({
       message: t(next ? 'groups.collection.enabledOn' : 'groups.collection.enabledOff', {
         name: group.name,

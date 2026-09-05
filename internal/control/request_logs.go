@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -67,6 +68,7 @@ type requestLogAttemptResponse struct {
 	GroupName         string                            `json:"group_name"`
 	ChannelID         *channel.ID                       `json:"channel_id"`
 	CredentialID      *uint                             `json:"credential_id"`
+	CredentialName    string                            `json:"credential_name"`
 	Operation         *execution.Operation              `json:"operation"`
 	RouteMode         *channel.RouteMode                `json:"route_mode"`
 	UpstreamModel     *string                           `json:"upstream_model"`
@@ -147,6 +149,7 @@ type requestLogItemResponse struct {
 	GroupID                 *uint                        `json:"group_id"`
 	ChannelID               *channel.ID                  `json:"channel_id"`
 	CredentialID            *uint                        `json:"credential_id"`
+	CredentialName          string                       `json:"credential_name"`
 	RouteMode               *channel.RouteMode           `json:"route_mode"`
 	UsageState              usage.State                  `json:"usage_state"`
 	CostState               pricing.CostState            `json:"cost_state"`
@@ -249,7 +252,10 @@ func (s *Server) handleListRequestLogs(c *gin.Context) {
 			page.Items[index] = sanitizeAccessKeyRequestLog(page.Items[index])
 		}
 	}
-	result, err := mapRequestLogListResponse(page)
+	result, err := mapRequestLogListResponse(
+		page,
+		s.service.CredentialLabels(requestLogCredentialIDs(page.Items)),
+	)
 	if err != nil {
 		writeServiceError(c, "list_request_logs", err)
 		return
@@ -278,7 +284,10 @@ func (s *Server) handleGetRequestLog(c *gin.Context) {
 		writeServiceError(c, "get_request_log", err)
 		return
 	}
-	result, err := mapRequestLogDetailResponse(record)
+	result, err := mapRequestLogDetailResponse(
+		record,
+		s.service.CredentialLabels(requestLogCredentialIDs([]requestlog.Record{record})),
+	)
 	if err != nil {
 		writeServiceError(c, "get_request_log", err)
 		return
@@ -805,7 +814,29 @@ func encodeRequestLogCursor(cursor requestlog.Cursor) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, error) {
+func credentialLabelFor(labels map[uint]string, credentialID *uint) string {
+	if labels == nil || credentialID == nil {
+		return ""
+	}
+	return labels[*credentialID]
+}
+
+// 一页日志里的凭据数远小于条数：同一个号会被反复使用，去重后通常只剩几个。
+func requestLogCredentialIDs(records []requestlog.Record) []uint {
+	ids := make([]uint, 0, len(records))
+	for _, record := range records {
+		ids = append(ids, record.CredentialID)
+		for _, attempt := range record.Attempts {
+			ids = append(ids, attempt.CredentialID)
+		}
+	}
+	return ids
+}
+
+func mapRequestLogListResponse(
+	page requestlog.Page,
+	credentialLabels map[uint]string,
+) (requestLogListResponse, error) {
 	result := requestLogListResponse{
 		Items: make([]requestLogItemResponse, 0, len(page.Items)),
 	}
@@ -820,7 +851,7 @@ func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, er
 		if err != nil {
 			return requestLogListResponse{}, err
 		}
-		item, err := mapRequestLogItemResponse(record, usageCost)
+		item, err := mapRequestLogItemResponse(record, usageCost, credentialLabels)
 		if err != nil {
 			return requestLogListResponse{}, err
 		}
@@ -839,6 +870,7 @@ func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, er
 func mapRequestLogItemResponse(
 	record requestlog.Record,
 	usageCost requestLogUsageCostResponse,
+	credentialLabels map[uint]string,
 ) (requestLogItemResponse, error) {
 	inputTokens, ok := checkedRequestLogInputTokens(record)
 	if !ok {
@@ -893,6 +925,7 @@ func mapRequestLogItemResponse(
 		GroupID:                 usageCost.groupID,
 		ChannelID:               usageCost.channelID,
 		CredentialID:            usageCost.credentialID,
+		CredentialName:          credentialLabelFor(credentialLabels, usageCost.credentialID),
 		RouteMode:               routeMode,
 		UsageState:              record.UsageState,
 		CostState:               record.CostState,
@@ -979,18 +1012,21 @@ func checkedRequestLogInputTokens(record requestlog.Record) (int64, bool) {
 	return total, true
 }
 
-func mapRequestLogDetailResponse(record requestlog.Record) (requestLogDetailResponse, error) {
+func mapRequestLogDetailResponse(
+	record requestlog.Record,
+	credentialLabels map[uint]string,
+) (requestLogDetailResponse, error) {
 	usageCost, err := mapRequestLogUsageCost(record)
 	if err != nil {
 		return requestLogDetailResponse{}, err
 	}
-	item, err := mapRequestLogItemResponse(record, usageCost)
+	item, err := mapRequestLogItemResponse(record, usageCost, credentialLabels)
 	if err != nil {
 		return requestLogDetailResponse{}, err
 	}
 	attempts := make([]requestLogAttemptResponse, 0, len(record.Attempts))
 	for _, attempt := range record.Attempts {
-		mapped, err := mapRequestLogAttempt(attempt)
+		mapped, err := mapRequestLogAttempt(attempt, credentialLabels)
 		if err != nil {
 			return requestLogDetailResponse{}, err
 		}
@@ -1002,7 +1038,10 @@ func mapRequestLogDetailResponse(record requestlog.Record) (requestLogDetailResp
 	}, nil
 }
 
-func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse, error) {
+func mapRequestLogAttempt(
+	attempt requestlog.Attempt,
+	credentialLabels map[uint]string,
+) (requestLogAttemptResponse, error) {
 	channelID, err := nullableRequestLogChannelID(attempt.ChannelID)
 	if err != nil {
 		return requestLogAttemptResponse{}, fmt.Errorf("map request log attempt: %w", err)
@@ -1053,6 +1092,7 @@ func mapRequestLogAttempt(attempt requestlog.Attempt) (requestLogAttemptResponse
 		GroupName:         attempt.GroupName,
 		ChannelID:         channelID,
 		CredentialID:      credentialID,
+		CredentialName:    credentialLabelFor(credentialLabels, credentialID),
 		Operation:         operation,
 		RouteMode:         routeMode,
 		UpstreamModel:     nullableRequestLogModel(attempt.UpstreamModel),
@@ -1322,4 +1362,73 @@ func mapRequestLogUsageCost(record requestlog.Record) (requestLogUsageCostRespon
 		result.groupID = &groupID
 	}
 	return result, nil
+}
+
+// CredentialLabels 把凭据 ID 翻译成可读标识：API 密钥给掩码，订阅账号给邮箱掩码。
+// 密文常驻凭据注册表，整个过程不读数据库；注册表里没有的凭据（已删除）不出现在
+// 结果里，由调用方决定如何呈现。入参允许重复，每个 ID 至多解密一次。
+func (s *Service) CredentialLabels(credentialIDs []uint) map[uint]string {
+	if s == nil || s.registry == nil || s.encryption == nil || len(credentialIDs) == 0 {
+		return nil
+	}
+	s.writeMu.RLock()
+	snapshot := s.manager.Current()
+	s.writeMu.RUnlock()
+	if snapshot == nil {
+		return nil
+	}
+	labels := make(map[uint]string, len(credentialIDs))
+	seen := make(map[uint]struct{}, len(credentialIDs))
+	for _, credentialID := range credentialIDs {
+		if credentialID == 0 {
+			continue
+		}
+		if _, done := seen[credentialID]; done {
+			continue
+		}
+		seen[credentialID] = struct{}{}
+		ref, known := s.registry.CredentialRef(credentialID)
+		if !known || ref.EncryptedValue == "" {
+			continue
+		}
+		group, exists := snapshot.Groups[ref.GroupID]
+		if !exists {
+			continue
+		}
+		label, err := s.credentialLabel(ref.EncryptedValue, group.ChannelID, group.ConnectionType)
+		if err != nil || label == "" {
+			continue
+		}
+		labels[credentialID] = label
+	}
+	return labels
+}
+
+// 与健康页的掩码同源：订阅账号取邮箱掩码，其余按渠道规范化后取密钥掩码。
+func (s *Service) credentialLabel(
+	ciphertext string,
+	channelID channel.ID,
+	connectionType string,
+) (string, error) {
+	plaintext, err := s.encryption.Decrypt(ciphertext)
+	if err != nil {
+		return "", err
+	}
+	expected, known := s.channelRegistry.ConnectionType(channelID)
+	if !known || expected != strings.TrimSpace(connectionType) {
+		return "", fmt.Errorf("channel connection mismatch")
+	}
+	if driver, bound := s.subscriptions.Driver(channelID); bound {
+		credential, parseErr := driver.Parse([]byte(plaintext))
+		plaintext = ""
+		if parseErr != nil {
+			return "", parseErr
+		}
+		return maskEmail(credential.Account().Email), nil
+	}
+	validated, err := normalizeStoredCredential(s.channelRegistry, channelID, plaintext)
+	if err != nil {
+		return "", err
+	}
+	return maskCanonicalCredential(validated.CanonicalJSON())
 }

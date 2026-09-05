@@ -414,6 +414,7 @@ export default {
       diagnostics: '运行诊断',
       moreActions: '更多操作',
       editWeightHint: '点击调整权重',
+      weightChipTooltip: '手动权重 {weight}，点击编辑',
       expand: '展开凭据详情',
       collapse: '收起凭据详情',
       restore: '立即恢复',

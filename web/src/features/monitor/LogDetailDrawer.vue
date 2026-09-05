@@ -227,7 +227,7 @@ function formatFormulaLine(line: RequestLogPricingLineDto): string {
 function accessKeyLabel(): string {
   const key = log.value?.access_key
   if (!key) return '—'
-  if (key.deleted) return t('monitor.logs.accessKey.deleted', { id: key.id })
+  if (key.deleted) return t('monitor.logs.deletedRef', { id: key.id })
   return key.name ? `${key.name} · #${key.id}` : `#${key.id}`
 }
 
@@ -433,14 +433,23 @@ function toggleAttemptErrorMessage(sequence: number): void {
         <dl class="log-detail__grid">
           <div class="log-detail__wide">
             <dt>{{ t('monitor.logs.drawer.routeIdentity') }}</dt>
-            <dd>
+            <dd class="log-detail__route">
               <LogRouteIdentity
                 :group-id="log.group_id"
                 :group-name="finalGroupName()"
                 :channel-id="log.channel_id"
                 :channel="finalChannel()"
                 :credential-id="log.credential_id"
+                :credential-name="log.credential_name"
+                :credential-deleted="log.credential_id !== null && log.credential_name === ''"
                 appearance="plain"
+              />
+              <CopyButton
+                v-if="log.credential_name"
+                :value="log.credential_name"
+                :label="t('monitor.logs.drawer.copyCredential')"
+                :success-label="t('common.copied')"
+                :failure-label="t('common.copyFailed')"
               />
             </dd>
           </div>
@@ -595,6 +604,10 @@ function toggleAttemptErrorMessage(sequence: number): void {
                     :channel-id="attempt.channel_id"
                     :channel="channelDefinition(attempt.channel_id)"
                     :credential-id="attempt.credential_id"
+                    :credential-name="attempt.credential_name"
+                    :credential-deleted="
+                      attempt.credential_id !== null && attempt.credential_name === ''
+                    "
                     appearance="plain"
                   />
                 </dd>
@@ -754,6 +767,15 @@ function toggleAttemptErrorMessage(sequence: number): void {
   white-space: nowrap;
 }
 
+.log-detail__route {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.log-detail__route :deep(.copy-control button),
 .log-detail__request-id :deep(.copy-control button) {
   width: 28px;
   height: 28px;

@@ -85,6 +85,9 @@ const weightInputId = computed(() => `subscription-account-weight-${props.item.c
 const showWeightChip = computed(
   () => props.item.weight_mode === 'manual' && props.item.weight !== null,
 )
+const weightChipTooltip = computed(() =>
+  t('group.credentials.weightChipTooltip', { weight: n(props.item.weight ?? 0) }),
+)
 const weightModeOptions = computed(() => [
   { value: 'auto', label: t('group.credentials.weightEditor.auto'), disabled: props.busy },
   { value: 'manual', label: t('group.credentials.weightEditor.manual'), disabled: props.busy },
@@ -779,18 +782,18 @@ function runMenuAction(
             >
               {{ statusLabel }}
             </StatusBadge>
-            <button
-              v-if="showWeightChip"
-              class="subscription-account__weight-chip"
-              type="button"
-              :disabled="busy"
-              :title="t('group.credentials.editWeightHint')"
-              :aria-label="t('group.credentials.editWeight')"
-              @click="editWeight"
-            >
-              <Gauge :size="12" aria-hidden="true" />
-              <b>{{ n(item.weight as number) }}</b>
-            </button>
+            <AppTooltip v-if="showWeightChip" :content="weightChipTooltip">
+              <button
+                class="subscription-account__weight-chip"
+                type="button"
+                :disabled="busy"
+                :aria-label="weightChipTooltip"
+                @click="editWeight"
+              >
+                <Gauge :size="12" aria-hidden="true" />
+                <b>{{ n(item.weight as number) }}</b>
+              </button>
+            </AppTooltip>
             <ProxyScopeIndicator
               v-if="capabilities.outbound_proxy"
               :view="item.proxy"
