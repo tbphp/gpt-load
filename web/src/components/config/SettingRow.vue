@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { CircleHelp } from '@lucide/vue'
+import { CircleHelp, PencilLine, RotateCcw } from '@lucide/vue'
 
-import AppButton from '@/components/ui/AppButton.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
@@ -57,16 +56,19 @@ const emit = defineEmits<{ toggle: [] }>()
         <slot v-if="overridden" name="control" />
         <span v-else class="setting-row__plain">{{ value }}</span>
       </div>
-      <AppButton
-        v-if="!locked"
-        variant="secondary"
-        :tone="overridden ? 'warning' : 'action'"
-        size="compact"
-        :disabled="disabled"
-        @click="emit('toggle')"
-      >
-        {{ actionLabel }}
-      </AppButton>
+      <AppTooltip v-if="!locked" :content="actionLabel">
+        <button
+          type="button"
+          class="setting-row__action"
+          :class="`setting-row__action--${overridden ? 'warning' : 'action'}`"
+          :aria-label="actionLabel"
+          :disabled="disabled"
+          @click="emit('toggle')"
+        >
+          <RotateCcw v-if="overridden" :size="14" aria-hidden="true" />
+          <PencilLine v-else :size="14" aria-hidden="true" />
+        </button>
+      </AppTooltip>
     </div>
   </div>
 </template>
@@ -143,6 +145,52 @@ const emit = defineEmits<{ toggle: [] }>()
   color: var(--color-text);
   font-size: var(--text-body);
   font-variant-numeric: tabular-nums;
+}
+
+.setting-row__action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 27px;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+
+.setting-row__action--action {
+  border-color: color-mix(in srgb, var(--color-action) 34%, var(--color-border-control));
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+
+.setting-row__action--action:hover:not(:disabled) {
+  border-color: var(--color-action);
+}
+
+.setting-row__action--warning {
+  border-color: color-mix(in srgb, var(--color-warning) 34%, var(--color-border-control));
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.setting-row__action--warning:hover:not(:disabled) {
+  border-color: var(--color-warning);
+}
+
+.setting-row__action:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.setting-row__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
 }
 
 @media (max-width: 800px) {
