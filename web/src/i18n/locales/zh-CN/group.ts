@@ -207,7 +207,9 @@ export default {
         description: '手动权重仅在明确覆盖时生效。',
         weightHelp: '自动模式由运行时调度决定；手动模式范围为 1–100。',
       },
-      headers: { description: '规则默认折叠；展开后编辑将完整替换全局的上游请求头规则。' },
+      headers: {
+        description: '发往上游前设置、覆盖或移除的请求头规则；覆盖后将完整替换全局规则，不做合并。',
+      },
       parameterOverrides: {
         description: '只改写推理请求的参数；明文保存，请勿填写凭据。',
         order: '同一字段冲突时，靠下的规则赢',
@@ -331,9 +333,6 @@ export default {
           '此分组覆盖会完整替换全局 HeaderRules；后续全局更改不会合并到这里。',
         affinity_enabled: '请求亲和',
         affinityHelp: '只控制本分组是否学习或复用亲和目标，不改变普通轮询、权重或重试。',
-        affinityInherit: '继承全局',
-        affinityEnable: '开启',
-        affinityDisable: '关闭',
       },
       delete: {
         sectionDescription: '删除分组会同时删除其全部渠道凭据，且无法撤销。',

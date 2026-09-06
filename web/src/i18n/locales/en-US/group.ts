@@ -211,7 +211,7 @@ export default {
       },
       headers: {
         description:
-          'Rules are collapsed by default; editing replaces the complete global upstream request header rules.',
+          'Header rules applied to outgoing upstream requests — set, override, or remove; overriding fully replaces the global rules instead of merging with them.',
       },
       parameterOverrides: {
         description:
@@ -343,9 +343,6 @@ export default {
         affinity_enabled: 'Request affinity',
         affinityHelp:
           'Controls whether this Group learns or reuses affinity targets without changing normal weights, scheduling, or retries.',
-        affinityInherit: 'Inherit global',
-        affinityEnable: 'Enable',
-        affinityDisable: 'Disable',
       },
       delete: {
         sectionDescription:

@@ -211,7 +211,7 @@ export default {
       },
       headers: {
         description:
-          'ルールは既定で折りたたまれ、編集するとグローバルなアップストリームリクエストヘッダールール全体を置き換えます。',
+          'アップストリームへのリクエストに適用するヘッダーの設定・上書き・削除ルール。オーバーライドするとグローバルルール全体を置き換え、マージはされません。',
       },
       parameterOverrides: {
         description:
@@ -343,9 +343,6 @@ export default {
         affinity_enabled: 'リクエストアフィニティ',
         affinityHelp:
           '通常の重み、スケジューリング、再試行を変えず、このグループがアフィニティ対象を学習または再利用するかを制御します。',
-        affinityInherit: 'グローバルを継承',
-        affinityEnable: '有効',
-        affinityDisable: '無効',
       },
       delete: {
         sectionDescription:

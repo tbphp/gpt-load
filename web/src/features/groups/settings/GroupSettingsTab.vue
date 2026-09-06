@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ChevronDown } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -31,8 +30,10 @@ import { groupDetailLocation } from '@/app/route-locations'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import ParameterOverrideRulesEditor from '@/components/config/ParameterOverrideRulesEditor.vue'
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
+import SettingBlock from '@/components/config/SettingBlock.vue'
 import SettingRow from '@/components/config/SettingRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
@@ -41,7 +42,6 @@ import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
-import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
@@ -231,27 +231,13 @@ const displayedHeaderRules = computed<HeaderRulesDto>(
     draft.value?.overrides.header_rules ??
     saved.value?.effective.header_rules ?? { set: {}, remove: [] },
 )
-const affinityMode = computed(() => {
-  const value = draft.value?.overrides.affinity_enabled
-  return value === undefined ? 'inherit' : value ? 'enabled' : 'disabled'
-})
-const affinityOptions = computed<SegmentedControlOption[]>(() => [
-  {
-    value: 'inherit',
-    label: t('group.settings.runtime.affinityInherit'),
-    disabled: mutationPending.value,
-  },
-  {
-    value: 'enabled',
-    label: t('group.settings.runtime.affinityEnable'),
-    disabled: mutationPending.value,
-  },
-  {
-    value: 'disabled',
-    label: t('group.settings.runtime.affinityDisable'),
-    disabled: mutationPending.value,
-  },
-])
+const affinityOverridden = computed(() => draft.value?.overrides.affinity_enabled !== undefined)
+const affinityEnabledLabel = computed(() =>
+  saved.value?.effective.affinity_enabled
+    ? t('group.settings.runtime.enabledValue')
+    : t('group.settings.runtime.disabledValue'),
+)
+const headerRulesOverridden = computed(() => draft.value?.overrides.header_rules !== undefined)
 function resetSavedDraft(settings: GroupSettingsDto): void {
   saved.value = settings
   draft.value = createGroupSettingsDraft(settings)
@@ -331,13 +317,6 @@ function setSection(id: string): void {
   if (value !== routeState.value.section) updateRoute({ section: value })
 }
 
-function setHeaderRulesExpanded(event: Event): void {
-  const expanded = (event.currentTarget as HTMLDetailsElement).open
-  if (expanded !== routeState.value.headerRulesExpanded) {
-    updateRoute({ headerRulesExpanded: expanded })
-  }
-}
-
 function updateParam(key: string, value: string | null): void {
   if (!draft.value) return
   const params = { ...draft.value.params }
@@ -391,6 +370,24 @@ function updateHeaderRules(value: HeaderRulesDto): void {
   }
 }
 
+async function toggleHeaderRulesOverride(): Promise<void> {
+  if (!draft.value || !saved.value) return
+  const overrides = { ...draft.value.overrides }
+  if (headerRulesOverridden.value) {
+    delete overrides.header_rules
+  } else {
+    overrides.header_rules = {
+      set: { ...saved.value.effective.header_rules.set },
+      remove: [...saved.value.effective.header_rules.remove],
+    }
+  }
+  draft.value = { ...draft.value, overrides }
+  headerRulesValid.value = true
+  headerRulesInvalidEdits.value = false
+  await nextTick()
+  headerRulesEditorRevision.value += 1
+}
+
 function updateParameterOverrides(value: ParameterOverrideRuleDto[]): void {
   if (!draft.value) return
   const overrides = { ...draft.value.overrides }
@@ -399,12 +396,20 @@ function updateParameterOverrides(value: ParameterOverrideRuleDto[]): void {
   draft.value = { ...draft.value, overrides }
 }
 
-function setAffinityMode(value: string): void {
-  if (!draft.value || !['inherit', 'enabled', 'disabled'].includes(value)) return
+function toggleAffinityOverride(): void {
+  if (!draft.value || !saved.value) return
   const overrides = { ...draft.value.overrides }
-  if (value === 'inherit') delete overrides.affinity_enabled
-  else overrides.affinity_enabled = value === 'enabled'
+  if (affinityOverridden.value) delete overrides.affinity_enabled
+  else overrides.affinity_enabled = saved.value.effective.affinity_enabled
   draft.value = { ...draft.value, overrides }
+}
+
+function setAffinityValue(value: boolean): void {
+  if (!draft.value) return
+  draft.value = {
+    ...draft.value,
+    overrides: { ...draft.value.overrides, affinity_enabled: value },
+  }
 }
 
 function requestSave(): void {
@@ -642,7 +647,6 @@ onBeforeUnmount(() => {
                     : t('group.settings.runtime.useInherited')
                 "
                 :overridden="draft.overrides[policy.key] !== undefined"
-                :divided="policy.key !== 'blacklist_threshold'"
                 :disabled="mutationPending"
                 @toggle="
                   setPolicyCountOverride(policy.key, draft.overrides[policy.key] === undefined)
@@ -681,19 +685,34 @@ onBeforeUnmount(() => {
                   </div>
                 </template>
               </SettingRow>
-              <div class="group-settings__runtime-row group-settings__affinity-row">
-                <div class="group-settings__affinity-identity">
-                  <strong>{{ t('group.settings.runtime.affinity_enabled') }}</strong>
-                  <small>{{ t('group.settings.runtime.affinityHelp') }}</small>
-                </div>
-                <SegmentedControl
-                  :model-value="affinityMode"
-                  :options="affinityOptions"
-                  :label="t('group.settings.runtime.affinity_enabled')"
-                  size="sm"
-                  @update:model-value="setAffinityMode"
-                />
-              </div>
+              <SettingRow
+                :label="t('group.settings.runtime.affinity_enabled')"
+                :value="affinityEnabledLabel"
+                :help="t('group.settings.runtime.affinityHelp')"
+                :source-label="
+                  affinityOverridden
+                    ? t('group.settings.runtime.override')
+                    : t('group.settings.runtime.inherited')
+                "
+                :action-label="
+                  affinityOverridden
+                    ? t('group.settings.runtime.useInherited')
+                    : t('group.settings.runtime.useOverride')
+                "
+                :overridden="affinityOverridden"
+                :divided="false"
+                :disabled="mutationPending"
+                @toggle="toggleAffinityOverride"
+              >
+                <template #control>
+                  <AppSwitch
+                    :model-value="draft.overrides.affinity_enabled ?? false"
+                    :disabled="mutationPending"
+                    :label="t('group.settings.runtime.affinity_enabled')"
+                    @update:model-value="setAffinityValue"
+                  />
+                </template>
+              </SettingRow>
             </div>
           </section>
           <section id="settings-parameters" class="group-settings__section">
@@ -713,43 +732,38 @@ onBeforeUnmount(() => {
             />
           </section>
           <section id="settings-headers" class="group-settings__section">
-            <header>
-              <h3>{{ t('group.settings.sections.headers') }}</h3>
-              <p>{{ t('group.settings.headers.description') }}</p>
-            </header>
-            <details
-              class="group-settings__header-rules"
-              :open="routeState.headerRulesExpanded"
-              @toggle="setHeaderRulesExpanded"
+            <SettingBlock
+              :title="t('group.settings.sections.headers')"
+              :help="t('group.settings.headers.description')"
+              :meta="headerSummary()"
+              :source-label="
+                headerRulesOverridden
+                  ? t('group.settings.runtime.override')
+                  : t('group.settings.runtime.inherited')
+              "
+              :action-label="
+                headerRulesOverridden
+                  ? t('group.settings.runtime.useInherited')
+                  : t('group.settings.runtime.useOverride')
+              "
+              :overridden="headerRulesOverridden"
+              :disabled="mutationPending"
+              @toggle="toggleHeaderRulesOverride"
             >
-              <summary>
-                <span>
-                  <strong>{{ headerSummary() }}</strong>
-                  <span>
-                    {{
-                      draft.overrides.header_rules === undefined
-                        ? t('group.settings.runtime.inherited')
-                        : t('group.settings.runtime.override')
-                    }}
-                  </span>
-                </span>
-                <ChevronDown :size="16" aria-hidden="true" />
-              </summary>
-              <div class="group-settings__header-controls">
-                <HeaderRulesEditor
-                  :key="headerRulesEditorRevision"
-                  appearance="ledger"
-                  :model-value="displayedHeaderRules"
-                  :disabled="mutationPending"
-                  :show-notice="false"
-                  :remove-label="t('group.settings.runtime.headerRemove')"
-                  :remove-hint="t('group.settings.runtime.headerRemoveHint')"
-                  @update:valid="headerRulesValid = $event"
-                  @update:invalid-edits="headerRulesInvalidEdits = $event"
-                  @update:model-value="updateHeaderRules"
-                />
-              </div>
-            </details>
+              <HeaderRulesEditor
+                :key="headerRulesEditorRevision"
+                appearance="ledger"
+                :model-value="displayedHeaderRules"
+                :disabled="mutationPending || !headerRulesOverridden"
+                :show-notice="false"
+                :show-add="headerRulesOverridden"
+                :remove-label="t('group.settings.runtime.headerRemove')"
+                :remove-hint="t('group.settings.runtime.headerRemoveHint')"
+                @update:valid="headerRulesValid = $event"
+                @update:invalid-edits="headerRulesInvalidEdits = $event"
+                @update:model-value="updateHeaderRules"
+              />
+            </SettingBlock>
           </section>
           <section id="settings-danger" class="group-settings__section group-settings__danger">
             <header>
@@ -876,9 +890,6 @@ small {
   display: grid;
   gap: var(--space-1);
 }
-.group-settings__runtime-row {
-  min-width: 0;
-}
 .group-settings__runtime-input {
   display: flex;
   width: min(100%, 190px);
@@ -891,65 +902,6 @@ small {
   font-family: var(--font-mono);
   font-size: 11px;
   white-space: nowrap;
-}
-.group-settings__affinity-row {
-  display: flex;
-  min-height: 68px;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: 11px 2px;
-}
-.group-settings__affinity-identity {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-1);
-}
-.group-settings__affinity-identity strong {
-  font-size: var(--text-meta);
-}
-.group-settings__affinity-identity small {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-.group-settings__header-rules {
-  overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-}
-.group-settings__header-rules > summary {
-  display: flex;
-  min-height: 48px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  background: var(--color-surface-sunken);
-  padding: 9px 12px;
-  cursor: pointer;
-  list-style: none;
-}
-.group-settings__header-rules > summary::-webkit-details-marker {
-  display: none;
-}
-.group-settings__header-rules > summary > span {
-  display: grid;
-  gap: 1px;
-}
-.group-settings__header-rules > summary strong {
-  font-size: var(--text-meta);
-}
-.group-settings__header-rules > summary span span {
-  color: var(--color-text-faint);
-  font-size: 11px;
-}
-.group-settings__header-rules > summary > svg {
-  flex: none;
-}
-.group-settings__header-controls {
-  display: grid;
-  gap: 11px;
-  border-top: 1px solid var(--color-border-subtle);
-  padding: 12px;
 }
 .group-settings__danger-zone {
   display: flex;
@@ -983,10 +935,6 @@ small {
     width: min(100%, 220px);
   }
   .group-settings__danger-zone {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .group-settings__affinity-row {
     align-items: stretch;
     flex-direction: column;
   }
