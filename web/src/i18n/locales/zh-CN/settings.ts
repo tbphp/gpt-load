@@ -60,8 +60,6 @@ export default {
       blacklist_threshold: '连续失败拉黑阈值',
       blacklistThresholdHelp: '凭据达到该连续失败次数后自动拉黑；0 表示关闭自动拉黑。',
       validation_interval: '检测间隔',
-      inject_usage_options: '为流式响应注入 usage 选项',
-      injectUsageHelp: '只在支持该能力的 openai-completions 流式请求中生效，用于获取最终 usage。',
       models_dev_auto_sync_enabled: '自动同步 Models.dev 目录与价格',
       modelsDevAutoSyncHelp: '启用后按计划同步目录和自动价格；关闭后仍可在模型页手动同步。',
       environmentSource: '环境变量锁定',
@@ -100,6 +98,7 @@ export default {
     headers: {
       title: '上游请求改写',
       description: '发往上游前对请求头和请求体做的调整。',
+      blockTitle: '全局 Header Rules',
       ruleCount: '{count} 条规则',
       currentPublishedRuleCount: '当前已发布 {count} 条规则',
       defaultSource: '内置默认',

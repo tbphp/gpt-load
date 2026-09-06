@@ -4653,7 +4653,7 @@ func TestHandlerDoesNotExposeAliasedUpstreamModelWhenRetryBudgetIsExhausted(t *t
 	assertHeadersDoNotContain(t, recorder.Header(), upstreamModel)
 }
 
-func TestHandlerKeepsFrozenSnapshotAndInjectUsageSettingAcrossRetry(t *testing.T) {
+func TestHandlerKeepsFrozenSnapshotAcrossRetry(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{
 		{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: []byte(`{"error":"invalid_api_key"}`), ClassificationBody: []byte(`{"error":"invalid_api_key"}`), RequestWritten: true},
 		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
@@ -4669,7 +4669,7 @@ func TestHandlerKeepsFrozenSnapshotAndInjectUsageSettingAcrossRetry(t *testing.T
 			ChannelRegistry: channel.NewRegistry(),
 			Groups: []state.GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "openai", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Enabled: true,
 				Models:   []state.ModelConfig{{ID: "gpt-4o"}},
-				Settings: config.Settings{state.SettingInjectUsageOptions: false},
+				Settings: config.Settings{state.SettingBlacklistThreshold: 7},
 			}},
 			Credentials: []state.CredentialConfig{
 				testCredentialConfig(1, 1),
@@ -4689,19 +4689,21 @@ func TestHandlerKeepsFrozenSnapshotAndInjectUsageSettingAcrossRetry(t *testing.T
 	engine.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK || len(forwarder.inputs) != 2 ||
-		!forwarder.inputs[0].Group.InjectUsageOptions || !forwarder.inputs[1].Group.InjectUsageOptions {
-		t.Fatalf("response/attempts/inject settings = %d/%d/%t/%t, want 200/2/true/true", recorder.Code, len(forwarder.inputs), forwarder.inputs[0].Group.InjectUsageOptions, forwarder.inputs[1].Group.InjectUsageOptions)
+		forwarder.inputs[0].Group.BlacklistThreshold != 3 ||
+		forwarder.inputs[1].Group.BlacklistThreshold != 3 {
+		t.Fatalf("response/attempts/frozen thresholds = %d/%d/%d/%d, want 200/2/3/3", recorder.Code, len(forwarder.inputs), forwarder.inputs[0].Group.BlacklistThreshold, forwarder.inputs[1].Group.BlacklistThreshold)
 	}
-	if current := manager.Current(); current == nil || current.Groups[1].InjectUsageOptions {
-		t.Fatalf("current snapshot = %#v, want newly published inject_usage_options=false", current)
+	if current := manager.Current(); current == nil || current.Groups[1].BlacklistThreshold != 7 {
+		t.Fatalf("current snapshot = %#v, want newly published blacklist_threshold=7", current)
 	}
 
 	secondRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
 	secondRequest.Header.Set("Authorization", "Bearer gl-client")
 	secondRecorder := httptest.NewRecorder()
 	engine.ServeHTTP(secondRecorder, secondRequest)
-	if secondRecorder.Code != http.StatusOK || len(forwarder.inputs) != 3 || forwarder.inputs[2].Group.InjectUsageOptions {
-		t.Fatalf("new request/attempts/inject setting = %d/%d/%t, want 200/3/false", secondRecorder.Code, len(forwarder.inputs), forwarder.inputs[2].Group.InjectUsageOptions)
+	if secondRecorder.Code != http.StatusOK || len(forwarder.inputs) != 3 ||
+		forwarder.inputs[2].Group.BlacklistThreshold != 7 {
+		t.Fatalf("new request/attempts/threshold = %d/%d/%d, want 200/3/7", secondRecorder.Code, len(forwarder.inputs), forwarder.inputs[2].Group.BlacklistThreshold)
 	}
 }
 

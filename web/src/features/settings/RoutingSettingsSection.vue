@@ -8,6 +8,7 @@ import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
+import { formatInteger } from '@/lib/format'
 
 import SettingRow from '@/components/config/SettingRow.vue'
 import {
@@ -27,7 +28,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
 }>()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const numericKeys = ['affinity_ttl', 'affinity_capacity'] as const
 const routeStrategyOptions = computed<SegmentedControlOption[]>(() =>
   routeStrategies.map((value) => ({
@@ -37,7 +38,7 @@ const routeStrategyOptions = computed<SegmentedControlOption[]>(() =>
   })),
 )
 const enabledValue = computed(() =>
-  props.draft.values.affinity_enabled
+  props.base.settings.values.affinity_enabled
     ? t('settings.runtime.enabled')
     : t('settings.runtime.disabled'),
 )
@@ -107,7 +108,9 @@ function numberFieldError(key: (typeof numericKeys)[number]): string | undefined
 
 function numberFieldValue(key: (typeof numericKeys)[number]): string {
   if (isPendingRestore(key)) return t('settings.runtime.resetPending')
-  return t(`settings.affinity.${key}Effective`, { value: props.base.settings.values[key] })
+  return t(`settings.affinity.${key}Effective`, {
+    value: formatInteger(props.base.settings.values[key], locale.value),
+  })
 }
 </script>
 

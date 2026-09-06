@@ -54,7 +54,6 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 			MaxAgeSeconds:  600,
 		},
 		ResponseHeaderRules:      HeaderRules{Set: map[string]string{}},
-		InjectUsageOptions:       true,
 		RetryCount:               2,
 		RouteStrategy:            RouteStrategyNativeFirst,
 		BlacklistThreshold:       3,
@@ -660,7 +659,6 @@ func TestIsRuntimeSettingKeyRecognizesOnlyPublicRuntimeKeys(t *testing.T) {
 		SettingHeaderRules,
 		SettingCORS,
 		SettingResponseHeaderRules,
-		SettingInjectUsageOptions,
 		SettingRetryCount,
 		SettingBlacklistThreshold,
 		SettingAffinityEnabled,
@@ -714,57 +712,6 @@ func TestResolveGroupRuntimeSettingsOwnsSystemHeaderRuleCopy(t *testing.T) {
 	system.HeaderRules.Remove[0] = "X-Mutated"
 	if resolved.HeaderRules.Set["X-System"] != "system" || resolved.HeaderRules.Remove[0] != "X-Old" {
 		t.Fatalf("group rules changed with system settings: %#v", resolved.HeaderRules)
-	}
-}
-
-func TestDefaultRuntimeSettingsInjectUsageOptions(t *testing.T) {
-	if !DefaultRuntimeSettings().InjectUsageOptions {
-		t.Fatal("default inject_usage_options = false, want true")
-	}
-}
-
-func TestResolveRuntimeSettingsInjectUsageOptionsRequiresBoolean(t *testing.T) {
-	for _, value := range []any{true, false} {
-		got, err := ResolveRuntimeSettings(config.Settings{SettingInjectUsageOptions: value})
-		if err != nil || got.InjectUsageOptions != value {
-			t.Fatalf("ResolveRuntimeSettings(%#v) = %#v, %v", value, got, err)
-		}
-	}
-	for _, value := range []any{0, 1, "true", nil, []any{}, map[string]any{}} {
-		if _, err := ResolveRuntimeSettings(config.Settings{SettingInjectUsageOptions: value}); err == nil {
-			t.Fatalf("ResolveRuntimeSettings(%#v) accepted non-boolean", value)
-		}
-	}
-}
-
-func TestResolveGroupRuntimeSettingsInjectUsagePrecedence(t *testing.T) {
-	tests := []struct {
-		name   string
-		system config.Settings
-		group  config.Settings
-		want   bool
-	}{
-		{name: "default", want: true},
-		{name: "system false", system: config.Settings{SettingInjectUsageOptions: false}, want: false},
-		{name: "group true", system: config.Settings{SettingInjectUsageOptions: false}, group: config.Settings{SettingInjectUsageOptions: true}, want: true},
-		{name: "group false", system: config.Settings{SettingInjectUsageOptions: true}, group: config.Settings{SettingInjectUsageOptions: false}, want: false},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			base, err := ResolveRuntimeSettings(test.system)
-			if err != nil {
-				t.Fatal(err)
-			}
-			resolved, err := ResolveGroupRuntimeSettings(base, test.group)
-			if err != nil || resolved.InjectUsageOptions != test.want {
-				t.Fatalf("ResolveGroupRuntimeSettings() = %#v, %v; want %t", resolved, err, test.want)
-			}
-		})
-	}
-	for _, value := range []any{nil, 0, 1, "true", []any{}, map[string]any{}} {
-		if _, err := ResolveGroupRuntimeSettings(DefaultRuntimeSettings(), config.Settings{SettingInjectUsageOptions: value}); err == nil {
-			t.Fatalf("ResolveGroupRuntimeSettings(%#v) accepted non-boolean", value)
-		}
 	}
 }
 

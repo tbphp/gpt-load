@@ -37,9 +37,9 @@ const emit = defineEmits<{ toggle: [] }>()
     <div class="setting-row__identity">
       <span class="setting-row__label">{{ label }}</span>
       <AppTooltip v-if="help" :content="help">
-        <span class="setting-row__hint" tabindex="0" :aria-label="help">
+        <button type="button" class="setting-row__hint" :aria-label="`${label} · ${help}`">
           <CircleHelp :size="13" aria-hidden="true" />
-        </span>
+        </button>
       </AppTooltip>
     </div>
 
@@ -64,7 +64,8 @@ const emit = defineEmits<{ toggle: [] }>()
             `setting-row__action--${overridden ? 'warning' : 'action'}`,
             { 'setting-row__action--reveal': !overridden },
           ]"
-          :aria-label="actionLabel"
+          :aria-label="`${actionLabel} · ${label}`"
+          :aria-pressed="overridden"
           :disabled="disabled"
           @click="emit('toggle')"
         >
@@ -79,7 +80,7 @@ const emit = defineEmits<{ toggle: [] }>()
 <style scoped>
 .setting-row {
   display: grid;
-  grid-template-columns: 172px minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr);
   align-items: center;
   column-gap: var(--space-4);
   border-left: 2px solid transparent;
@@ -104,6 +105,7 @@ const emit = defineEmits<{ toggle: [] }>()
   color: var(--color-text-muted);
   font-size: var(--text-meta);
   font-weight: 600;
+  line-height: 1.4;
 }
 
 .setting-row--editing .setting-row__identity {
@@ -117,8 +119,11 @@ const emit = defineEmits<{ toggle: [] }>()
   justify-content: center;
   width: 18px;
   height: 18px;
+  border: 0;
   border-radius: var(--radius-tag);
+  background: transparent;
   color: var(--color-text-faint);
+  padding: 0;
   cursor: help;
 }
 
@@ -134,6 +139,8 @@ const emit = defineEmits<{ toggle: [] }>()
 
 .setting-row__cluster {
   display: flex;
+  /* 与控件实际高度对齐，折叠态和覆盖态才会完全等高。 */
+  min-height: 28px;
   flex-wrap: wrap;
   align-items: center;
   min-width: 0;

@@ -5,11 +5,8 @@ import { useI18n } from 'vue-i18n'
 import type { HeaderRulesDto } from '@/app/resources/groups'
 import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
-import AppButton from '@/components/ui/AppButton.vue'
-import AppSwitch from '@/components/ui/AppSwitch.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
 
-import SettingRow from '@/components/config/SettingRow.vue'
+import SettingBlock from '@/components/config/SettingBlock.vue'
 import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
 import type { SettingsDraftChange } from './use-settings-controller'
 
@@ -95,41 +92,6 @@ watch(
     void resetEditor()
   },
 )
-
-function hasOverride(key: RuntimeSettingKey): boolean {
-  return props.draft.overrides.has(key)
-}
-
-function isPendingRestore(key: RuntimeSettingKey): boolean {
-  return !hasOverride(key) && props.base.settings.overrides.includes(key)
-}
-
-function toggleOverride(key: RuntimeSettingKey): void {
-  publish(key, setSettingsOverride(props.base.settings, props.draft, key, !hasOverride(key)))
-}
-
-function sourceLabel(key: RuntimeSettingKey): string {
-  if (hasOverride(key)) return t('settings.runtime.overrideSource')
-  if (isPendingRestore(key)) return t('settings.runtime.pendingRestoreSource')
-  return t('settings.runtime.defaultSource')
-}
-
-function actionLabel(key: RuntimeSettingKey): string {
-  return hasOverride(key) ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')
-}
-
-function setInjectUsage(value: boolean): void {
-  const draft = cloneDraft()
-  draft.values.inject_usage_options = value
-  publish('inject_usage_options', draft)
-}
-
-const injectUsageValue = computed(() => {
-  if (isPendingRestore('inject_usage_options')) return t('settings.runtime.resetPending')
-  return props.base.settings.values.inject_usage_options
-    ? t('settings.runtime.enabled')
-    : t('settings.runtime.disabled')
-})
 </script>
 
 <template>
@@ -140,33 +102,20 @@ const injectUsageValue = computed(() => {
     </header>
 
     <div class="upstream-rewrite__blocks">
-      <article class="upstream-rewrite__block">
-        <header class="upstream-rewrite__block-heading">
-          <span>{{ t('settings.headers.ruleCount', { count: headerRuleCount }) }}</span>
-          <StatusBadge
-            size="compact"
-            :tone="
-              headerRulesPendingRestore ? 'warning' : headerRulesOverridden ? 'info' : 'neutral'
-            "
-            :icon="headerRulesPendingRestore ? 'alert' : headerRulesOverridden ? 'edit' : 'check'"
-          >
-            {{ headerRulesSourceLabel() }}
-          </StatusBadge>
-          <AppButton
-            variant="secondary"
-            :tone="headerRulesOverridden ? 'warning' : 'action'"
-            size="compact"
-            :disabled="disabled"
-            @click="toggleHeaderRulesOverride"
-          >
-            {{
-              headerRulesOverridden
-                ? t('settings.headers.restoreDefault')
-                : t('settings.headers.override')
-            }}
-          </AppButton>
-        </header>
-
+      <SettingBlock
+        :title="t('settings.headers.blockTitle')"
+        :meta="t('settings.headers.ruleCount', { count: headerRuleCount })"
+        :source-label="headerRulesSourceLabel()"
+        :action-label="
+          headerRulesOverridden
+            ? t('settings.headers.restoreDefault')
+            : t('settings.headers.override')
+        "
+        :overridden="headerRulesOverridden"
+        :pending-restore="headerRulesPendingRestore"
+        :disabled="disabled"
+        @toggle="toggleHeaderRulesOverride"
+      >
         <HeaderRulesEditor
           appearance="ledger"
           :model-value="headerRules"
@@ -178,29 +127,7 @@ const injectUsageValue = computed(() => {
           @update:valid="emit('update:valid', $event)"
           @update:invalid-edits="emit('update:invalidEdits', $event)"
         />
-      </article>
-
-      <SettingRow
-        :label="t('settings.runtime.inject_usage_options')"
-        :value="injectUsageValue"
-        :help="t('settings.runtime.injectUsageHelp')"
-        :source-label="sourceLabel('inject_usage_options')"
-        :action-label="actionLabel('inject_usage_options')"
-        :overridden="hasOverride('inject_usage_options')"
-        :pending-restore="isPendingRestore('inject_usage_options')"
-        :divided="false"
-        :disabled="disabled"
-        @toggle="toggleOverride('inject_usage_options')"
-      >
-        <template #control>
-          <AppSwitch
-            :model-value="draft.values.inject_usage_options"
-            :disabled="disabled"
-            :label="t('settings.runtime.inject_usage_options')"
-            @update:model-value="setInjectUsage"
-          />
-        </template>
-      </SettingRow>
+      </SettingBlock>
     </div>
   </section>
 </template>
@@ -208,8 +135,7 @@ const injectUsageValue = computed(() => {
 <style scoped>
 .settings-section,
 .settings-section__heading,
-.upstream-rewrite__blocks,
-.upstream-rewrite__block {
+.upstream-rewrite__blocks {
   display: grid;
 }
 
@@ -235,37 +161,6 @@ const injectUsageValue = computed(() => {
 }
 
 .upstream-rewrite__blocks {
-  gap: var(--space-4);
-}
-
-.upstream-rewrite__block {
-  gap: var(--space-3);
-  border-bottom: 1px dashed var(--color-border-subtle);
-  padding-bottom: var(--space-4);
-}
-
-.upstream-rewrite__block-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
-}
-
-.upstream-rewrite__block-heading span:first-child {
-  margin-right: auto;
-}
-
-@media (max-width: 560px) {
-  .upstream-rewrite__block-heading {
-    justify-content: flex-start;
-  }
-
-  .upstream-rewrite__block-heading span:first-child {
-    margin-right: 0;
-    width: 100%;
-  }
+  gap: var(--space-5);
 }
 </style>

@@ -4,16 +4,12 @@ import { useI18n } from 'vue-i18n'
 
 import type { ChannelParamsDto } from '@/api/control/types'
 import type { ChannelFieldDto } from '@/app/resources/channels'
-import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 
 const props = defineProps<{
   section: 'general' | 'routing'
   channelId: string
-  channelName: string
-  channelIcon: string
-  channelMark: string
   paramFields: ChannelFieldDto[]
   params: ChannelParamsDto
   name: string
@@ -107,19 +103,6 @@ function setWeightMode(value: string): void {
       <p>{{ t('group.settings.base.description') }}</p>
     </header>
     <div class="group-settings__grid">
-      <div class="group-settings__field">
-        <span>{{ t('group.settings.base.channel') }}</span>
-        <div class="group-settings__readonly" :aria-label="t('group.settings.base.channel')">
-          <ChannelIcon
-            v-if="channelIcon || channelMark"
-            class="group-settings__channel-icon"
-            :icon="channelIcon"
-            :mark="channelMark"
-          />
-          <strong>{{ channelName }}</strong>
-        </div>
-        <small>{{ t('group.settings.base.channelHelp') }}</small>
-      </div>
       <label class="group-settings__field">
         <span>{{ t('group.settings.base.name') }}</span>
         <input
@@ -296,30 +279,6 @@ function setWeightMode(value: string): void {
   color: var(--color-text);
   padding: 0 var(--space-3);
   font: inherit;
-}
-
-.group-settings__readonly {
-  display: flex;
-  min-height: var(--control-md);
-  align-items: center;
-  justify-content: flex-start;
-  gap: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  padding: 0 var(--space-3);
-}
-
-.group-settings__readonly strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-settings__channel-icon {
-  flex: none;
-  font-size: 16px;
 }
 
 .group-settings__mono,

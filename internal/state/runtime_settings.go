@@ -21,7 +21,6 @@ const (
 	SettingHeaderRules              = "header_rules"
 	SettingCORS                     = "cors"
 	SettingResponseHeaderRules      = "response_header_rules"
-	SettingInjectUsageOptions       = "inject_usage_options"
 	SettingRetryCount               = "retry_count"
 	SettingRouteStrategy            = "route_strategy"
 	SettingBlacklistThreshold       = "blacklist_threshold"
@@ -57,7 +56,6 @@ type RuntimeSettings struct {
 	HeaderRules              HeaderRules
 	CORS                     CORSConfig
 	ResponseHeaderRules      HeaderRules
-	InjectUsageOptions       bool
 	RetryCount               int
 	RouteStrategy            RouteStrategy
 	BlacklistThreshold       int
@@ -72,7 +70,6 @@ type RuntimeSettings struct {
 type ResolvedGroupSettings struct {
 	Timeouts           TimeoutConfig
 	HeaderRules        HeaderRules
-	InjectUsageOptions bool
 	RetryCount         int
 	BlacklistThreshold int
 	AffinityEnabled    bool
@@ -87,7 +84,6 @@ func DefaultRuntimeSettings() RuntimeSettings {
 		HeaderRules:              HeaderRules{Set: map[string]string{}},
 		CORS:                     defaultCORSConfig(),
 		ResponseHeaderRules:      HeaderRules{Set: map[string]string{}},
-		InjectUsageOptions:       true,
 		RetryCount:               2,
 		RouteStrategy:            RouteStrategyNativeFirst,
 		BlacklistThreshold:       3,
@@ -108,7 +104,6 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingHeaderRules,
 		SettingCORS,
 		SettingResponseHeaderRules,
-		SettingInjectUsageOptions,
 		SettingRetryCount,
 		SettingRouteStrategy,
 		SettingBlacklistThreshold,
@@ -164,12 +159,6 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.ResponseHeaderRules = rules
-		case SettingInjectUsageOptions:
-			value, err := strictBoolean(key, value)
-			if err != nil {
-				return RuntimeSettings{}, err
-			}
-			resolved.InjectUsageOptions = value
 		case SettingRetryCount:
 			count, err := nonNegativeWholeNumber(key, value)
 			if err != nil {
@@ -247,7 +236,6 @@ func ResolveGroupRuntimeSettings(
 			StreamIdle: base.StreamIdleTimeout,
 		},
 		HeaderRules:        cloneHeaderRules(base.HeaderRules),
-		InjectUsageOptions: base.InjectUsageOptions,
 		RetryCount:         base.RetryCount,
 		BlacklistThreshold: base.BlacklistThreshold,
 		AffinityEnabled:    base.AffinityEnabled,
@@ -278,12 +266,6 @@ func ResolveGroupRuntimeSettings(
 				return ResolvedGroupSettings{}, err
 			}
 			resolved.HeaderRules = parsed
-		case SettingInjectUsageOptions:
-			parsed, err := strictBoolean(key, value)
-			if err != nil {
-				return ResolvedGroupSettings{}, err
-			}
-			resolved.InjectUsageOptions = parsed
 		case SettingRetryCount:
 			parsed, err := nonNegativeWholeNumber(key, value)
 			if err != nil {
@@ -331,9 +313,6 @@ func ValidateRuntimeSetting(key string, value any) error {
 		return err
 	case SettingResponseHeaderRules:
 		_, err := parseResponseHeaderRules(value)
-		return err
-	case SettingInjectUsageOptions:
-		_, err := strictBoolean(key, value)
 		return err
 	case SettingRetryCount, SettingBlacklistThreshold:
 		_, err := nonNegativeWholeNumber(key, value)

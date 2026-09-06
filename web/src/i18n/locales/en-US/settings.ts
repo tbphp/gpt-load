@@ -63,9 +63,6 @@ export default {
       blacklistThresholdHelp:
         'A credential is blacklisted after this many consecutive failures; 0 disables automatic blacklisting.',
       validation_interval: 'Credential validation interval',
-      inject_usage_options: 'Inject usage options for streaming responses',
-      injectUsageHelp:
-        'Applies only to capable openai-completions streaming requests so the final usage can be returned.',
       models_dev_auto_sync_enabled: 'Automatically sync the Models.dev catalog and prices',
       modelsDevAutoSyncHelp:
         'When enabled, the catalog and automatic prices sync on schedule. Manual sync remains available on Models.',
@@ -108,6 +105,7 @@ export default {
     headers: {
       title: 'Upstream request rewriting',
       description: 'Adjustments made to the request headers and body before it reaches upstream.',
+      blockTitle: 'Global Header Rules',
       ruleCount: '{count} rules',
       currentPublishedRuleCount: '{count} currently published rules',
       defaultSource: 'Built-in default',

@@ -33,7 +33,6 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 		"request_timeout":480,
 		"stream_idle_timeout":270,
 		"header_rules":{"set":{"X-Group":"value"},"remove":["X-Removed"]},
-		"inject_usage_options":false,
 		"affinity_enabled":false
 	}`)
 	if err := fixture.db.Create(group).Error; err != nil {
@@ -57,7 +56,6 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 		state.SettingRequestTimeout,
 		state.SettingStreamIdleTimeout,
 		state.SettingHeaderRules,
-		state.SettingInjectUsageOptions,
 		state.SettingAffinityEnabled,
 	} {
 		if got.Overrides[key] == nil {
@@ -66,7 +64,7 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 	}
 	if got.Effective.FirstByteTimeout != 180 ||
 		got.Effective.RequestTimeout != 480 || got.Effective.StreamIdleTimeout != 270 ||
-		got.Effective.InjectUsageOptions || got.Effective.AffinityEnabled ||
+		got.Effective.AffinityEnabled ||
 		!reflect.DeepEqual(got.Effective.HeaderRules.Set, map[string]string{"X-Group": "value"}) ||
 		!reflect.DeepEqual(got.Effective.HeaderRules.Remove, []string{"X-Removed"}) {
 		t.Fatalf("effective = %#v", got.Effective)
@@ -393,7 +391,7 @@ func TestUpdateGroupTargetSerializesWithCredentialSecretMutation(t *testing.T) {
 	}
 }
 
-func TestUpdateGroupSettingsValidatesWeightAndAllowsUsageObservationAcrossChannels(t *testing.T) {
+func TestUpdateGroupSettingsValidatesWeight(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-validation")
@@ -428,21 +426,8 @@ func TestUpdateGroupSettingsValidatesWeightAndAllowsUsageObservationAcrossChanne
 			}
 		})
 	}
-	anthropic, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("settings-anthropic"), ChannelID: channel.Anthropic,
-		Params: json.RawMessage(`{}`), Models: optionalGroupModels{Set: true}, Credentials: "sk-anthropic", ConnectionType: "api_key",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated, err := fixture.service.UpdateGroupSettings(t.Context(), anthropic.GroupID, GroupSettingsUpdateRequest{
-		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{state.SettingInjectUsageOptions: true}},
-	})
-	if err != nil || !updated.Effective.InjectUsageOptions {
-		t.Fatalf("cross-channel usage observation update = %#v, %v", updated, err)
-	}
-	if got := fixture.manager.Current().Revision; got != beforeRevision+5 {
-		t.Fatalf("settings mutation revision = %d, want %d", got, beforeRevision+5)
+	if got := fixture.manager.Current().Revision; got != beforeRevision+3 {
+		t.Fatalf("settings mutation revision = %d, want %d", got, beforeRevision+3)
 	}
 }
 

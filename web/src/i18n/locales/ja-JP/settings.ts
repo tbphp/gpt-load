@@ -62,9 +62,6 @@ export default {
       blacklistThresholdHelp:
         'この連続失敗回数に達すると認証情報をブラックリストへ登録します。0 で自動登録を無効化します。',
       validation_interval: '認証情報の検証間隔',
-      inject_usage_options: 'ストリーミング応答へ usage オプションを注入',
-      injectUsageHelp:
-        '最終 usage を取得するため、この機能をサポートする openai-completions のストリーミング要求でのみ有効です。',
       models_dev_auto_sync_enabled: 'Models.dev カタログと価格を自動同期',
       modelsDevAutoSyncHelp:
         '有効にするとカタログと自動価格を定期同期します。Models 画面からの手動同期は引き続き利用できます。',
@@ -106,6 +103,7 @@ export default {
     headers: {
       title: 'アップストリーム要求の書き換え',
       description: 'アップストリームへ送る前にリクエストヘッダーと本文へ加える変更です。',
+      blockTitle: 'グローバル Header Rules',
       ruleCount: '{count} 件のルール',
       currentPublishedRuleCount: '現在公開中のルール {count} 件',
       defaultSource: '組み込み既定値',

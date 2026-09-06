@@ -234,6 +234,24 @@ watch(
   { deep: true, immediate: true },
 )
 
+// 深链首屏：分区渲染前 selectSection 的滚动会静默失败，且路由的 scrollBehavior 会把页面重置到
+// 顶部并打断平滑滚动。等内容挂载后再用即时滚动补一次定位。
+const initialSectionSettled = ref(false)
+watch(
+  () => Boolean(base.value && draft.value),
+  (ready) => {
+    if (!ready || initialSectionSettled.value) return
+    initialSectionSettled.value = true
+    void nextTick(() => {
+      const target = sectionID(routeSection.value)
+      // 路由切页会把滚动位置重置到顶部，重试一次以覆盖这次重置。
+      selectSection(target, 'auto')
+      window.setTimeout(() => selectSection(target, 'auto'), 120)
+    })
+  },
+  { immediate: true },
+)
+
 function sectionID(section: SettingsSection): string {
   return `settings-${section}`
 }
@@ -282,7 +300,7 @@ function settingLabel(key: RuntimeSettingKey): string {
   if (key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity')
     return t(`settings.affinity.${key}`)
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
-  if (key === 'header_rules') return t('settings.headers.title')
+  if (key === 'header_rules') return t('settings.headers.blockTitle')
   if (key === 'cors') return t('settings.browserAccess.cors.title')
   if (key === 'response_header_rules') return t('settings.browserAccess.responseHeaders.title')
   return t(`settings.runtime.${key}`)
@@ -295,7 +313,7 @@ function settingTarget(key: RuntimeSettingKey): string {
 }
 
 function sectionForKey(key: RuntimeSettingKey): SettingsSection {
-  if (key === 'header_rules' || key === 'inject_usage_options') return 'upstream-rewrite'
+  if (key === 'header_rules') return 'upstream-rewrite'
   if (key === 'cors' || key === 'response_header_rules') return 'browser-access'
   if (
     key === 'route_strategy' ||

@@ -43,7 +43,6 @@ type SettingsValuesResponse struct {
 	HeaderRules              HeaderRulesResponse `json:"header_rules"`
 	CORS                     CORSConfigResponse  `json:"cors"`
 	ResponseHeaderRules      HeaderRulesResponse `json:"response_header_rules"`
-	InjectUsageOptions       bool                `json:"inject_usage_options"`
 	RetryCount               int                 `json:"retry_count"`
 	RouteStrategy            state.RouteStrategy `json:"route_strategy"`
 	BlacklistThreshold       int                 `json:"blacklist_threshold"`
@@ -353,7 +352,6 @@ func mapSettingsResponse(
 				Set:    responseSet,
 				Remove: responseRemove,
 			},
-			InjectUsageOptions:       settings.InjectUsageOptions,
 			RetryCount:               settings.RetryCount,
 			RouteStrategy:            settings.RouteStrategy,
 			BlacklistThreshold:       settings.BlacklistThreshold,

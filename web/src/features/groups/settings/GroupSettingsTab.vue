@@ -33,7 +33,6 @@ import ParameterOverrideRulesEditor from '@/components/config/ParameterOverrideR
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import SettingRow from '@/components/config/SettingRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
@@ -116,7 +115,6 @@ const policyRows = [
 const selectedChannel = computed(() =>
   channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === draft.value?.channel_id),
 )
-const channelName = computed(() => selectedChannel.value?.name ?? draft.value?.channel_id ?? '')
 const channelParamFields = computed<ChannelFieldDto[]>(() =>
   saved.value?.connection_type === 'subscription'
     ? []
@@ -227,14 +225,6 @@ const valid = computed(
     headerRulesValid.value &&
     parameterOverridesValid.value &&
     !proxyState.value.invalid,
-)
-const showInjectUsage = computed(
-  () => selectedChannel.value?.client_protocols.includes('openai-completions') ?? false,
-)
-const injectUsageValue = computed(() =>
-  saved.value?.effective.inject_usage_options
-    ? t('group.settings.runtime.enabledValue')
-    : t('group.settings.runtime.disabledValue'),
 )
 const displayedHeaderRules = computed<HeaderRulesDto>(
   () =>
@@ -409,14 +399,6 @@ function updateParameterOverrides(value: ParameterOverrideRuleDto[]): void {
   draft.value = { ...draft.value, overrides }
 }
 
-function setInjectUsageOverride(enabled: boolean): void {
-  if (!draft.value || !saved.value) return
-  const overrides = { ...draft.value.overrides }
-  if (enabled) overrides.inject_usage_options = saved.value.effective.inject_usage_options
-  else delete overrides.inject_usage_options
-  draft.value = { ...draft.value, overrides }
-}
-
 function setAffinityMode(value: string): void {
   if (!draft.value || !['inherit', 'enabled', 'disabled'].includes(value)) return
   const overrides = { ...draft.value.overrides }
@@ -526,9 +508,6 @@ onBeforeUnmount(() => {
           <GroupSettingsBaseForm
             section="general"
             :channel-id="draft.channel_id"
-            :channel-name="channelName"
-            :channel-icon="selectedChannel?.icon ?? ''"
-            :channel-mark="selectedChannel?.mark ?? ''"
             :param-fields="channelParamFields"
             :params="draft.params"
             :name="draft.name"
@@ -548,9 +527,6 @@ onBeforeUnmount(() => {
           <GroupSettingsBaseForm
             section="routing"
             :channel-id="draft.channel_id"
-            :channel-name="channelName"
-            :channel-icon="selectedChannel?.icon ?? ''"
-            :channel-mark="selectedChannel?.mark ?? ''"
             :param-fields="channelParamFields"
             :params="draft.params"
             :name="draft.name"
@@ -666,7 +642,7 @@ onBeforeUnmount(() => {
                     : t('group.settings.runtime.useInherited')
                 "
                 :overridden="draft.overrides[policy.key] !== undefined"
-                :divided="policy.key !== 'blacklist_threshold' || showInjectUsage"
+                :divided="policy.key !== 'blacklist_threshold'"
                 :disabled="mutationPending"
                 @toggle="
                   setPolicyCountOverride(policy.key, draft.overrides[policy.key] === undefined)
@@ -703,35 +679,6 @@ onBeforeUnmount(() => {
                     </CompactFieldError>
                     <span aria-hidden="true">{{ t('group.settings.runtime.countUnit') }}</span>
                   </div>
-                </template>
-              </SettingRow>
-              <SettingRow
-                v-if="showInjectUsage"
-                :label="t('group.settings.runtime.inject_usage_options')"
-                :value="injectUsageValue"
-                :help="t('group.settings.runtime.injectUsageHelp')"
-                :source-label="
-                  draft.overrides.inject_usage_options === undefined
-                    ? t('group.settings.runtime.inherited')
-                    : t('group.settings.runtime.override')
-                "
-                :action-label="
-                  draft.overrides.inject_usage_options === undefined
-                    ? t('group.settings.runtime.useOverride')
-                    : t('group.settings.runtime.useInherited')
-                "
-                :overridden="draft.overrides.inject_usage_options !== undefined"
-                :divided="false"
-                :disabled="mutationPending"
-                @toggle="setInjectUsageOverride(draft.overrides.inject_usage_options === undefined)"
-              >
-                <template #control>
-                  <AppSwitch
-                    :model-value="draft.overrides.inject_usage_options ?? false"
-                    :disabled="mutationPending"
-                    :label="t('group.settings.runtime.inject_usage_options')"
-                    @update:model-value="draft.overrides.inject_usage_options = $event"
-                  />
                 </template>
               </SettingRow>
               <div class="group-settings__runtime-row group-settings__affinity-row">

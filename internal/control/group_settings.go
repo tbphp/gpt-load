@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	"gorm.io/gorm"
 
@@ -14,7 +13,6 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
@@ -279,9 +277,6 @@ func (s *Service) UpdateGroupSettings(
 			group.ProxyConfig = normalized.proxyConfig
 			updates["proxy_config"] = normalized.proxyConfig
 		}
-		if err := validateGroupInjectUsageOptionsConstraint(group, s.channelRegistry); err != nil {
-			return err
-		}
 		if err := validateGroupRowCandidate(ctx, tx, group, s.channelRegistry); err != nil {
 			return app_errors.ErrValidation
 		}
@@ -319,24 +314,4 @@ func (s *Service) UpdateGroupSettings(
 	}
 	response.Proxy, err = s.groupProxyView(ctx, s.db, committed)
 	return response, err
-}
-
-func validateGroupInjectUsageOptionsConstraint(group models.Group, registry *channel.Registry) error {
-	settings := make(config.Settings)
-	if len(group.Overrides) > 0 {
-		if err := decodeGroupDiscoveryJSON(group.Overrides, &settings); err != nil {
-			return app_errors.ErrValidation
-		}
-	}
-	if _, set := settings[state.SettingInjectUsageOptions]; !set {
-		return nil
-	}
-	if registry == nil {
-		return app_errors.ErrValidation
-	}
-	descriptor, ok := registry.Get(channel.ID(group.ChannelID))
-	if !ok || !slices.Contains(descriptor.ClientProtocols, protocol.OpenAICompletions) {
-		return app_errors.ErrValidation
-	}
-	return nil
 }

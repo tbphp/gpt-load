@@ -441,3 +441,12 @@
   color: var(--color-danger);
   font-size: var(--text-label-xs);
 }
+
+/* 设置行与设置块内的控件统一缩小一档：直接覆盖控件尺寸变量，
+   变量会继承进子组件，不需要和组件自身的 scoped 样式比优先级。 */
+.setting-row,
+.setting-block {
+  --control-compact: var(--setting-control-height);
+  --control-xs: var(--setting-control-height);
+  --control-sm: var(--setting-control-height);
+}

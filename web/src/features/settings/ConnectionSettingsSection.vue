@@ -12,6 +12,7 @@ import type {
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
+import { formatInteger } from '@/lib/format'
 
 import SettingRow from '@/components/config/SettingRow.vue'
 import {
@@ -35,7 +36,7 @@ const emit = defineEmits<{
   'update:proxyMode': [value: ProxyConfiguredMode]
   'update:proxyEndpoint': [value: string]
 }>()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const timeoutKeys: TimeoutSettingKey[] = [
   'first_byte_timeout',
   'request_timeout',
@@ -109,7 +110,9 @@ function actionLabel(key: RuntimeSettingKey): string {
 
 function timeoutValue(key: TimeoutSettingKey): string {
   if (isPendingRestore(key)) return t('settings.runtime.resetPending')
-  return t('settings.runtime.effectiveValue', { value: props.base.settings.values[key] })
+  return t('settings.runtime.effectiveValue', {
+    value: formatInteger(props.base.settings.values[key], locale.value),
+  })
 }
 
 function setTimeoutValue(key: TimeoutSettingKey, value: string): void {

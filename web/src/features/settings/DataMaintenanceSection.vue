@@ -6,6 +6,7 @@ import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settin
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
+import { formatInteger } from '@/lib/format'
 
 import SettingRow from '@/components/config/SettingRow.vue'
 import {
@@ -25,7 +26,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
 }>()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const retentionInput = ref('')
 const lastPublishedRetention = ref<number | undefined>()
 const retentionOwned = computed(() => props.draft.overrides.has(retentionKey))
@@ -40,7 +41,7 @@ const retentionError = computed(() =>
 const retentionValue = computed(() => {
   if (retentionPendingRestore.value) return t('settings.runtime.resetPending')
   return t('settings.logs.effectiveValue', {
-    value: props.base.settings.values.request_log_retention_days,
+    value: formatInteger(props.base.settings.values.request_log_retention_days, locale.value),
   })
 })
 
@@ -111,7 +112,7 @@ const syncActionLabel = computed(() =>
 )
 const syncValue = computed(() => {
   if (isPendingRestore('models_dev_auto_sync_enabled')) return t('settings.runtime.resetPending')
-  return props.draft.values.models_dev_auto_sync_enabled
+  return props.base.settings.values.models_dev_auto_sync_enabled
     ? t('settings.runtime.enabled')
     : t('settings.runtime.disabled')
 })

@@ -29,7 +29,6 @@ const requestForwardingKeys: RuntimeSettingKey[] = [
   'retry_count',
   'blacklist_threshold',
   'header_rules',
-  'inject_usage_options',
   'validation_interval',
 ]
 const logsMaintenanceKeys: RuntimeSettingKey[] = ['request_log_retention_days']
@@ -84,17 +83,17 @@ export function setSettingsOverride(
     next.overrides.add(key)
     if (key === 'route_strategy') {
       next.values.route_strategy = base.values.route_strategy
-    } else if (key === 'inject_usage_options') {
-      next.values.inject_usage_options = base.values.inject_usage_options
     } else if (key === 'affinity_enabled') {
       next.values.affinity_enabled = base.values.affinity_enabled
     } else if (key === 'models_dev_auto_sync_enabled') {
       next.values.models_dev_auto_sync_enabled = base.values.models_dev_auto_sync_enabled
     } else if (key === 'cors') {
       next.values.cors = cloneCORSConfig(base.values.cors)
+    } else if (key === 'header_rules') {
+      next.values.header_rules = cloneHeaderRules(base.values.header_rules)
     } else if (key === 'response_header_rules') {
       next.values.response_header_rules = cloneHeaderRules(base.values.response_header_rules)
-    } else if (key !== 'header_rules') {
+    } else {
       next.values[key] = base.values[key]
     }
   } else {

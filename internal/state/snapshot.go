@@ -133,7 +133,6 @@ type GroupView struct {
 	Models             []ModelConfig
 	Timeouts           TimeoutConfig
 	HeaderRules        HeaderRules
-	InjectUsageOptions bool
 	RetryCount         int
 	BlacklistThreshold int
 	AffinityEnabled    bool
@@ -225,7 +224,6 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			Models:             append([]ModelConfig(nil), group.Models...),
 			Timeouts:           resolved.Timeouts,
 			HeaderRules:        resolved.HeaderRules,
-			InjectUsageOptions: resolved.InjectUsageOptions,
 			RetryCount:         resolved.RetryCount,
 			BlacklistThreshold: resolved.BlacklistThreshold,
 			AffinityEnabled:    resolved.AffinityEnabled,

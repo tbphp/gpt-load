@@ -5,11 +5,10 @@ import { useI18n } from 'vue-i18n'
 import type { HeaderRulesDto } from '@/app/resources/groups'
 import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
-import AppButton from '@/components/ui/AppButton.vue'
+import SettingBlock from '@/components/config/SettingBlock.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import {
   createSettingsDraft,
@@ -233,36 +232,18 @@ function sourceLabel(overridden: boolean, pendingRestore: boolean): string {
     </header>
 
     <div class="browser-access__blocks">
-      <article class="browser-access__block">
-        <header class="browser-access__block-heading">
-          <div class="browser-access__identity">
-            <strong>{{ t('settings.browserAccess.cors.title') }}</strong>
-            <small>{{ t('settings.browserAccess.cors.description') }}</small>
-          </div>
-          <div class="browser-access__meta">
-            <StatusBadge
-              size="compact"
-              :tone="corsPendingRestore ? 'warning' : corsOverridden ? 'info' : 'neutral'"
-              :icon="corsPendingRestore ? 'alert' : corsOverridden ? 'edit' : 'check'"
-            >
-              {{ sourceLabel(corsOverridden, corsPendingRestore) }}
-            </StatusBadge>
-            <AppButton
-              variant="secondary"
-              :tone="corsOverridden ? 'warning' : 'action'"
-              size="compact"
-              :disabled="disabled"
-              @click="toggleOverride('cors')"
-            >
-              {{
-                corsOverridden
-                  ? t('settings.runtime.restoreDefault')
-                  : t('settings.runtime.override')
-              }}
-            </AppButton>
-          </div>
-        </header>
-
+      <SettingBlock
+        :title="t('settings.browserAccess.cors.title')"
+        :help="t('settings.browserAccess.cors.description')"
+        :source-label="sourceLabel(corsOverridden, corsPendingRestore)"
+        :action-label="
+          corsOverridden ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')
+        "
+        :overridden="corsOverridden"
+        :pending-restore="corsPendingRestore"
+        :disabled="disabled"
+        @toggle="toggleOverride('cors')"
+      >
         <div v-if="corsOverridden" class="browser-access__cors-form">
           <div class="browser-access__switch-field browser-access__field--wide">
             <div>
@@ -408,47 +389,23 @@ function sourceLabel(overridden: boolean, pendingRestore: boolean): string {
               : t('settings.browserAccess.cors.disabledSummary')
           }}
         </p>
-      </article>
+      </SettingBlock>
 
-      <article class="browser-access__block">
-        <header class="browser-access__block-heading">
-          <div class="browser-access__identity">
-            <strong>{{ t('settings.browserAccess.responseHeaders.title') }}</strong>
-            <small>{{ t('settings.browserAccess.responseHeaders.description') }}</small>
-          </div>
-          <div class="browser-access__meta">
-            <span>{{ t('settings.headers.ruleCount', { count: responseRuleCount }) }}</span>
-            <StatusBadge
-              size="compact"
-              :tone="
-                responseRulesPendingRestore
-                  ? 'warning'
-                  : responseRulesOverridden
-                    ? 'info'
-                    : 'neutral'
-              "
-              :icon="
-                responseRulesPendingRestore ? 'alert' : responseRulesOverridden ? 'edit' : 'check'
-              "
-            >
-              {{ sourceLabel(responseRulesOverridden, responseRulesPendingRestore) }}
-            </StatusBadge>
-            <AppButton
-              variant="secondary"
-              :tone="responseRulesOverridden ? 'warning' : 'action'"
-              size="compact"
-              :disabled="disabled"
-              @click="toggleOverride('response_header_rules')"
-            >
-              {{
-                responseRulesOverridden
-                  ? t('settings.runtime.restoreDefault')
-                  : t('settings.runtime.override')
-              }}
-            </AppButton>
-          </div>
-        </header>
-
+      <SettingBlock
+        :title="t('settings.browserAccess.responseHeaders.title')"
+        :help="t('settings.browserAccess.responseHeaders.description')"
+        :meta="t('settings.headers.ruleCount', { count: responseRuleCount })"
+        :source-label="sourceLabel(responseRulesOverridden, responseRulesPendingRestore)"
+        :action-label="
+          responseRulesOverridden
+            ? t('settings.runtime.restoreDefault')
+            : t('settings.runtime.override')
+        "
+        :overridden="responseRulesOverridden"
+        :pending-restore="responseRulesPendingRestore"
+        :disabled="disabled"
+        @toggle="toggleOverride('response_header_rules')"
+      >
         <HeaderRulesEditor
           appearance="ledger"
           validation-policy="response"
@@ -462,7 +419,7 @@ function sourceLabel(overridden: boolean, pendingRestore: boolean): string {
           @update:valid="responseRulesValid = $event"
           @update:invalid-edits="responseRulesInvalidEdits = $event"
         />
-      </article>
+      </SettingBlock>
     </div>
   </section>
 </template>
@@ -471,9 +428,6 @@ function sourceLabel(overridden: boolean, pendingRestore: boolean): string {
 .settings-section,
 .settings-section__heading,
 .browser-access__blocks,
-.browser-access__block,
-.browser-access__identity,
-.browser-access__meta,
 .browser-access__field,
 .browser-access__switch-field {
   display: grid;
@@ -486,20 +440,17 @@ function sourceLabel(overridden: boolean, pendingRestore: boolean): string {
 
 .settings-section__heading h2,
 .settings-section__heading p,
-.browser-access__identity strong,
-.browser-access__identity small,
 .browser-access__summary,
 .browser-access__notice {
   margin: 0;
 }
 
 .settings-section__heading h2 {
-  font-size: var(--text-body);
+  font-size: var(--title-section);
   font-weight: 650;
 }
 
 .settings-section__heading p,
-.browser-access__identity small,
 .browser-access__summary {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
@@ -509,45 +460,17 @@ function sourceLabel(overridden: boolean, pendingRestore: boolean): string {
   gap: var(--space-5);
 }
 
-.browser-access__block {
-  gap: var(--space-3);
-}
-
-.browser-access__block + .browser-access__block {
-  border-top: 1px dashed var(--color-border-subtle);
-  padding-top: var(--space-4);
-}
-
-.browser-access__block-heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: var(--space-4);
-}
-
-.browser-access__identity {
-  gap: var(--space-1);
-}
-
-.browser-access__identity strong,
 .browser-access__switch-field strong {
   font-size: var(--text-meta);
-}
-
-.browser-access__meta {
-  justify-items: end;
-  gap: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
-  text-align: end;
 }
 
 .browser-access__cors-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3) var(--space-4);
-  border-left: 2px solid var(--color-border-subtle);
-  padding: var(--space-2) 0 var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  padding: var(--space-3) var(--space-4);
 }
 
 .browser-access__field {

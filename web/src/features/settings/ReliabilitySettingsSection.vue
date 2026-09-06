@@ -8,6 +8,7 @@ import type {
 } from '@/app/resources/settings'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
+import { formatInteger } from '@/lib/format'
 
 import SettingRow from '@/components/config/SettingRow.vue'
 import {
@@ -27,7 +28,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
 }>()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const policyRows = [
   { key: 'retry_count', helpKey: 'retryCountHelp' },
   { key: 'blacklist_threshold', helpKey: 'blacklistThresholdHelp' },
@@ -69,7 +70,9 @@ function actionLabel(key: RuntimeSettingKey): string {
 
 function policyValue(key: PolicyCountSettingKey): string {
   if (isPendingRestore(key)) return t('settings.runtime.resetPending')
-  return t('settings.runtime.effectiveCount', { value: props.base.settings.values[key] })
+  return t('settings.runtime.effectiveCount', {
+    value: formatInteger(props.base.settings.values[key], locale.value),
+  })
 }
 
 function setPolicyCount(key: PolicyCountSettingKey, value: string): void {
@@ -87,7 +90,7 @@ function policyCountError(key: PolicyCountSettingKey): string | undefined {
 function validationIntervalValue(): string {
   if (isPendingRestore('validation_interval')) return t('settings.runtime.resetPending')
   return t('settings.runtime.effectiveValue', {
-    value: props.base.settings.values.validation_interval,
+    value: formatInteger(props.base.settings.values.validation_interval, locale.value),
   })
 }
 
