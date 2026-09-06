@@ -129,3 +129,28 @@ func TestPassiveQuotaActiveLimitMatchesActiveMeteredFeature(t *testing.T) {
 		t.Fatalf("passive period does not align with the active window: %#v", windows[0])
 	}
 }
+
+// 去重只针对通用组与独立命名空间之间的重复报告。通用组内部的两个槽位始终是
+// 两份不同的数据，即使周期相同也不能互相判定为副本而双双消失，是否可用交给
+// 合并层判定。
+func TestPassiveQuotaDeduplicationIgnoresSiblingGenericWindows(t *testing.T) {
+	windows := NormalizePassiveQuotaWindows(map[string]string{
+		"X-Codex-Active-Limit":             "premium",
+		"X-Codex-Primary-Used-Percent":     "10",
+		"X-Codex-Primary-Window-Minutes":   "300",
+		"X-Codex-Secondary-Used-Percent":   "20",
+		"X-Codex-Secondary-Window-Minutes": "300",
+	}, time.Now())
+	if len(windows) != 2 {
+		t.Fatalf("windows = %#v, want both generic slots preserved", windows)
+	}
+	for index, window := range windows {
+		if window.SourceID != "codex" || window.WindowSeconds == nil || *window.WindowSeconds != 18000 {
+			t.Fatalf("window %d = %#v", index, window)
+		}
+	}
+	if windows[0].Used == nil || *windows[0].Used != 10 ||
+		windows[1].Used == nil || *windows[1].Used != 20 {
+		t.Fatalf("generic slots lost their own values: %#v", windows)
+	}
+}

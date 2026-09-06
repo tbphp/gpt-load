@@ -226,10 +226,15 @@ func passiveQuotaHasNamespacedWindows(namespaces map[string]*passiveQuotaNamespa
 // 歧义后会把两者一起丢弃，因此只保留命名空间单独报告的那份。周期不同的窗口对应
 // 不同额度，必须各自保留。generic 是通用组产出的窗口下标。
 func passiveQuotaDropDuplicateCopies(windows []quotaWindow, generic []int) []quotaWindow {
+	isGeneric := make(map[int]bool, len(generic))
+	for _, index := range generic {
+		isGeneric[index] = true
+	}
 	duplicated := make(map[int]bool, len(generic))
 	for _, index := range generic {
 		for other := range windows {
-			if other == index || windows[other].SourceID != windows[index].SourceID {
+			// 只与独立命名空间比较：通用组内部的两个槽位是两份数据，不是副本。
+			if isGeneric[other] || windows[other].SourceID != windows[index].SourceID {
 				continue
 			}
 			if samePassiveQuotaPeriod(windows[other], windows[index]) {
