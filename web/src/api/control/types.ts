@@ -174,6 +174,7 @@ export interface CredentialAccountDto {
 }
 
 export interface CredentialQuotaWindowDto {
+  source_id?: string
   id: string
   label: string
   label_key?: CredentialQuotaLabelKey

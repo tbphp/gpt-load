@@ -212,6 +212,7 @@ const resetCreditConsumeFields = [
   'replayed',
 ] as const
 const quotaWindowFields = [
+  'source_id',
   'id',
   'label',
   'label_key',
@@ -373,6 +374,7 @@ function projectQuotaWindow(value: unknown): CredentialQuotaWindowDto {
   const remaining = projectOptionalNumber(record, 'remaining', { minimum: 0 })
   const utilization = projectOptionalNumber(record, 'utilization', { minimum: 0, maximum: 1 })
   return {
+    ...(record.source_id === undefined ? {} : { source_id: projectString(record.source_id) }),
     id,
     label,
     ...(record.label_key === undefined
