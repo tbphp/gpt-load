@@ -24,6 +24,7 @@ func TestFlushPassiveQuotaSourcesPreservesCardWindowsAndHealth(t *testing.T) {
 	}
 	observedAt := time.UnixMilli(2000)
 	patches := codex.NormalizePassiveQuotaWindows(map[string]string{
+		"X-Codex-Active-Limit":                     "premium",
 		"X-Codex-Primary-Used-Percent":             "0",
 		"X-Codex-Primary-Window-Minutes":           "300",
 		"X-Codex-Secondary-Used-Percent":           "100",

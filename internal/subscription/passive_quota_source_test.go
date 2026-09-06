@@ -23,6 +23,8 @@ func TestPassiveQuotaMatchesSourceAndPeriodAcrossSlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	patches := codex.NormalizePassiveQuotaWindows(map[string]string{
+		// 本次请求计费到普通额度，通用组报告账号自身窗口，Spark 另有命名空间。
+		"X-Codex-Active-Limit":                       "premium",
 		"X-Codex-Primary-Used-Percent":               "5",
 		"X-Codex-Primary-Window-Minutes":             "300",
 		"X-Codex-Secondary-Used-Percent":             "100",
@@ -113,5 +115,45 @@ func TestPassiveQuotaSourceMatchingRejectsUncertainTargets(t *testing.T) {
 				t.Fatalf("uncertain sample changed data or freshness: matched=%v changed=%v snapshot=%s", merged.Matched, merged.Changed, merged.Encoded)
 			}
 		})
+	}
+}
+
+// 复现维护者现场：普通 7d 用尽后请求 Spark，上游只在通用组里回本次计费到的
+// Spark 周窗口。按普通额度收下会把 7d 刷成满额，必须落到 Spark 自己的窗口上。
+func TestPassiveQuotaMeteredRequestDoesNotRefillAccountWeekly(t *testing.T) {
+	raw, err := codex.NormalizeQuota([]byte(`{"plan_type":"pro",
+		"rate_limit":{"primary_window":{"used_percent":100,"limit_window_seconds":604800,"reset_at":1788700000}},
+		"additional_rate_limits":[{"metered_feature":"codex_bengalfox","limit_name":"GPT-5.3-Codex-Spark",
+			"rate_limit":{"primary_window":{"used_percent":0,"limit_window_seconds":18000,"reset_at":1788678033},
+				"secondary_window":{"used_percent":0,"limit_window_seconds":604800,"reset_at":1789222487}}}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var active providerobservation.Snapshot
+	if err := json.Unmarshal(raw, &active); err != nil {
+		t.Fatal(err)
+	}
+	if len(active.QuotaWindows) != 3 || active.QuotaWindows[0].State != "exhausted" {
+		t.Fatalf("unexpected active snapshot: %s", raw)
+	}
+
+	patches := codex.NormalizePassiveQuotaWindows(map[string]string{
+		"X-Codex-Active-Limit":             "codex_bengalfox",
+		"X-Codex-Secondary-Used-Percent":   "10",
+		"X-Codex-Secondary-Window-Minutes": "10080",
+		"X-Codex-Secondary-Reset-At":       "1789222487",
+	}, time.Unix(1788660000, 0))
+	merged, err := mergePassiveQuotaSnapshot(raw, patches)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !merged.Matched || !merged.Changed || len(merged.Windows) != 3 {
+		t.Fatalf("merge = %#v, want only the Spark weekly window refreshed", merged)
+	}
+	want := append([]providerobservation.QuotaWindow(nil), active.QuotaWindows...)
+	used, remaining, utilization := 10.0, 90.0, 0.1
+	want[2].Used, want[2].Remaining, want[2].Utilization = &used, &remaining, &utilization
+	if !reflect.DeepEqual(merged.Windows, want) {
+		t.Fatalf("account weekly window was refilled by the Spark copy: %s", merged.Encoded)
 	}
 }

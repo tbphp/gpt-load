@@ -58,7 +58,10 @@ func TestNormalizePassiveQuotaWindowsMapsAdditionalLimitNamespaces(t *testing.T)
 	// limit_name "GPT 5.3 Codex Spark" arrives on the HTTP path under a short
 	// namespace plus an X-Codex-<ns>-Limit-Name header.
 	windows := NormalizePassiveQuotaWindows(map[string]string{
+		// 请求计费到普通额度，通用组报告的就是账号自身的窗口。
+		"X-Codex-Active-Limit":                       "premium",
 		"X-Codex-Primary-Used-Percent":               "20",
+		"X-Codex-Primary-Window-Minutes":             "300",
 		"X-Codex-Bengalfox-Limit-Name":               "GPT 5.3 Codex Spark",
 		"X-Codex-Bengalfox-Primary-Used-Percent":     "33",
 		"X-Codex-Bengalfox-Primary-Window-Minutes":   "300",
