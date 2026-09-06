@@ -136,6 +136,7 @@ func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Tim
 		return nil
 	}
 	result := make([]quotaWindow, 0, 2)
+	generic := make([]int, 0, 2)
 	namespaces := parsePassiveQuotaNamespaces(signals)
 	for _, key := range sortedNamespaceKeys(namespaces) {
 		namespace := namespaces[key]
@@ -159,8 +160,14 @@ func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Tim
 			// rules above; they are cleared, like Label, so the merge updates
 			// nothing but the quota numbers and state.
 			window.Label, window.LabelKey, window.Scope, window.Unit = "", "", "", ""
+			if key == "" {
+				generic = append(generic, len(result))
+			}
 			result = append(result, window)
 		}
+	}
+	if len(generic) > 0 {
+		result = passiveQuotaDropDuplicateCopies(result, generic)
 	}
 	if len(result) == 0 {
 		return nil
@@ -193,32 +200,60 @@ func passiveQuotaGenericSourceID(namespaces map[string]*passiveQuotaNamespace) s
 	case "":
 		// 没有 Active-Limit 就无法直接区分普通额度和专属额度的副本。同一响应里
 		// 已经独立报告了别的来源时按副本处理，只有单独报告这一组才沿用普通额度。
-		if passiveQuotaHasNamespacedWindows(namespaces, "") {
+		if passiveQuotaHasNamespacedWindows(namespaces) {
 			return ""
 		}
 		return codexAccountQuotaSourceID
 	default:
-		// 专属额度的副本可以直接刷新该来源，但上游已经单独报告它时必须让位：
-		// 两份数据会指向同一个窗口，合并层判定歧义后会把两者一起丢弃。
-		if passiveQuotaHasNamespacedWindows(namespaces, active) {
-			return ""
-		}
+		// 专属额度的副本直接刷新该来源。与独立命名空间真正重复的窗口另行去重，
+		// 这里不能因为该来源另有一个周期的窗口就丢掉整组。
 		return active
 	}
 }
 
 // passiveQuotaHasNamespacedWindows 报告除通用组外是否还有带窗口数据的来源。
-// source 非空时只统计该来源。
-func passiveQuotaHasNamespacedWindows(namespaces map[string]*passiveQuotaNamespace, source string) bool {
+func passiveQuotaHasNamespacedWindows(namespaces map[string]*passiveQuotaNamespace) bool {
 	for key, namespace := range namespaces {
-		if key == "" || len(namespace.windows) == 0 {
-			continue
-		}
-		if source == "" || passiveQuotaNamespaceSourceID(key) == source {
+		if key != "" && len(namespace.windows) > 0 {
 			return true
 		}
 	}
 	return false
+}
+
+// passiveQuotaDropDuplicateCopies 丢弃与独立命名空间重复的通用窗口。只有来源和
+// 周期都相同才是同一份额度的两次报告：这时两个补丁会指向同一个窗口，合并层判定
+// 歧义后会把两者一起丢弃，因此只保留命名空间单独报告的那份。周期不同的窗口对应
+// 不同额度，必须各自保留。generic 是通用组产出的窗口下标。
+func passiveQuotaDropDuplicateCopies(windows []quotaWindow, generic []int) []quotaWindow {
+	duplicated := make(map[int]bool, len(generic))
+	for _, index := range generic {
+		for other := range windows {
+			if other == index || windows[other].SourceID != windows[index].SourceID {
+				continue
+			}
+			if samePassiveQuotaPeriod(windows[other], windows[index]) {
+				duplicated[index] = true
+				break
+			}
+		}
+	}
+	if len(duplicated) == 0 {
+		return windows
+	}
+	kept := windows[:0]
+	for index, window := range windows {
+		if duplicated[index] {
+			continue
+		}
+		kept = append(kept, window)
+	}
+	return kept
+}
+
+func samePassiveQuotaPeriod(left, right quotaWindow) bool {
+	return left.WindowSeconds != nil && right.WindowSeconds != nil &&
+		*left.WindowSeconds == *right.WindowSeconds
 }
 
 // parsePassiveQuotaNamespaces 从已知字段后缀定位槽位，避免将来源名称中的

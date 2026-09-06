@@ -23,13 +23,21 @@ func TestPassiveQuotaGenericWindowsFollowActiveLimit(t *testing.T) {
 		activeLimit string
 		namespaced  bool
 		wantSources []string
+		wantPeriods []int64
 	}{
-		{"spark request reports only the metered window", "codex_bengalfox", false, []string{"codex_bengalfox"}},
-		{"account request keeps the account source", "premium", false, []string{"codex"}},
-		{"account alias keeps the account source", "codex", false, []string{"codex"}},
-		{"metered copy yields to its own namespace", "codex_bengalfox", true, []string{"codex_bengalfox"}},
-		{"legacy response without an active limit", "", false, []string{"codex"}},
-		{"unidentified copy alongside a metered namespace", "", true, []string{"codex_bengalfox"}},
+		{"spark request reports only the metered window", "codex_bengalfox", false,
+			[]string{"codex_bengalfox"}, []int64{604800}},
+		{"account request keeps the account source", "premium", false,
+			[]string{"codex"}, []int64{604800}},
+		{"account alias keeps the account source", "codex", false,
+			[]string{"codex"}, []int64{604800}},
+		// 同来源但不同周期，两个窗口各自对应一份额度，都要刷新。
+		{"metered copy covers another period", "codex_bengalfox", true,
+			[]string{"codex_bengalfox", "codex_bengalfox"}, []int64{604800, 18000}},
+		{"legacy response without an active limit", "", false,
+			[]string{"codex"}, []int64{604800}},
+		{"unidentified copy alongside a metered namespace", "", true,
+			[]string{"codex_bengalfox"}, []int64{18000}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			signals := map[string]string{}
@@ -50,16 +58,21 @@ func TestPassiveQuotaGenericWindowsFollowActiveLimit(t *testing.T) {
 				t.Fatalf("windows = %#v, want %d from %v", windows, len(test.wantSources), test.wantSources)
 			}
 			for index, want := range test.wantSources {
-				if windows[index].SourceID != want {
-					t.Fatalf("window %d source = %q, want %q (all=%#v)", index, windows[index].SourceID, want, windows)
+				window := windows[index]
+				if window.SourceID != want {
+					t.Fatalf("window %d source = %q, want %q (all=%#v)", index, window.SourceID, want, windows)
+				}
+				if window.WindowSeconds == nil || *window.WindowSeconds != test.wantPeriods[index] {
+					t.Fatalf("window %d period = %v, want %d (all=%#v)",
+						index, window.WindowSeconds, test.wantPeriods[index], windows)
 				}
 			}
 		})
 	}
 }
 
-// 已经独立报告专属额度时，通用组的副本必须让位，否则两份数据指向同一个窗口，
-// 合并层会判定为歧义而把两者一起丢弃。
+// 同来源同周期才是真正的重复：这时通用副本必须让位，否则两份数据指向同一个
+// 窗口，合并层会判定为歧义而把两者一起丢弃。
 func TestPassiveQuotaMeteredCopyDoesNotCompeteWithItsNamespace(t *testing.T) {
 	windows := NormalizePassiveQuotaWindows(map[string]string{
 		"X-Codex-Active-Limit":                       "codex_bengalfox",
