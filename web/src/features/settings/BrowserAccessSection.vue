@@ -71,7 +71,7 @@ const cors = computed(() =>
   corsOverridden.value ? props.draft.values.cors : props.base.settings.values.cors,
 )
 const responseRules = computed(() =>
-  responseRulesOverridden.value
+  responseRulesOverridden.value || responseRulesPendingRestore.value
     ? props.draft.values.response_header_rules
     : props.base.settings.values.response_header_rules,
 )

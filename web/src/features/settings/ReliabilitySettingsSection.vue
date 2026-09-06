@@ -77,7 +77,7 @@ function policyValue(key: PolicyCountSettingKey): string {
 
 function setPolicyCount(key: PolicyCountSettingKey, value: string): void {
   const draft = cloneDraft()
-  draft.values[key] = Number(value)
+  draft.values[key] = value.trim() === '' ? Number.NaN : Number(value)
   publish(key, draft)
 }
 
@@ -96,7 +96,7 @@ function validationIntervalValue(): string {
 
 function setValidationInterval(value: string): void {
   const draft = cloneDraft()
-  draft.values.validation_interval = Number(value)
+  draft.values.validation_interval = value.trim() === '' ? Number.NaN : Number(value)
   publish('validation_interval', draft)
 }
 

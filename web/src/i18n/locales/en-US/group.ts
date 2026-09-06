@@ -334,7 +334,7 @@ export default {
         nonNegativeIntegerError: 'Enter 0 or a positive whole number.',
         override: 'Overridden by this Group',
         inherited: 'Inherited from global settings',
-        pendingRestoreSource: 'Pending inherit',
+        pendingRestoreSource: 'Pending inheritance',
         resetPending: 'Saving will make this follow the global setting',
         useOverride: 'Override',
         useInherited: 'Use inherited',

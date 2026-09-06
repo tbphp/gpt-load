@@ -117,7 +117,7 @@ function timeoutValue(key: TimeoutSettingKey): string {
 
 function setTimeoutValue(key: TimeoutSettingKey, value: string): void {
   const draft = cloneDraft()
-  draft.values[key] = Number(value)
+  draft.values[key] = value.trim() === '' ? Number.NaN : Number(value)
   publish(key, draft)
 }
 
