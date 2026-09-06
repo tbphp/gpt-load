@@ -318,6 +318,8 @@ export default {
         nonNegativeIntegerError: '请输入 0 或正整数。',
         override: '本分组覆盖',
         inherited: '继承全局设置',
+        pendingRestoreSource: '待恢复继承',
+        resetPending: '保存后跟随全局设置',
         useOverride: '覆盖',
         useInherited: '继承',
         enabledValue: '开启',

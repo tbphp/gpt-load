@@ -326,6 +326,8 @@ export default {
         nonNegativeIntegerError: '0 または正の整数を入力してください。',
         override: 'このグループで上書き',
         inherited: 'グローバル設定を継承',
+        pendingRestoreSource: '継承待ち',
+        resetPending: '保存するとグローバル設定に従います',
         useOverride: '上書きに変更',
         useInherited: '継承に変更',
         enabledValue: '有効',

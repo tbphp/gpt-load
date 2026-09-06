@@ -158,15 +158,20 @@ const proxyState = computed(() =>
 )
 // 代理沿用其它设置项的覆盖语义：inherit 即“继承全局”，direct/custom 即“本分组覆盖”。
 const proxyOverridden = computed(() => proxyMode.value !== 'inherit')
+const proxyPendingRestore = computed(
+  () => saved.value?.proxy.configured_mode !== 'inherit' && proxyMode.value === 'inherit',
+)
 const proxyEffectiveLabel = computed(() => {
   const view = saved.value?.proxy
   if (!view) return ''
   return view.display_url ?? t(`common.proxy.mode.${view.effective_mode}`)
 })
 const proxySupported = computed(() => selectedChannel.value?.capabilities.outbound_proxy ?? false)
-const proxyValue = computed(() =>
-  proxySupported.value ? proxyEffectiveLabel.value : t('common.proxy.unsupported'),
-)
+const proxyValue = computed(() => {
+  if (!proxySupported.value) return t('common.proxy.unsupported')
+  if (proxyPendingRestore.value) return t('group.settings.runtime.resetPending')
+  return proxyEffectiveLabel.value
+})
 
 function toggleProxyOverride(): void {
   const base = saved.value?.proxy
@@ -226,18 +231,27 @@ const valid = computed(
     parameterOverridesValid.value &&
     !proxyState.value.invalid,
 )
-const displayedHeaderRules = computed<HeaderRulesDto>(
-  () =>
-    draft.value?.overrides.header_rules ??
-    saved.value?.effective.header_rules ?? { set: {}, remove: [] },
+function isPendingRestore(key: GroupTimeoutKey | GroupPolicyCountKey): boolean {
+  return draft.value?.overrides[key] === undefined && saved.value?.overrides[key] !== undefined
+}
+const headerRulesOverridden = computed(() => draft.value?.overrides.header_rules !== undefined)
+const headerRulesPendingRestore = computed(
+  () => !headerRulesOverridden.value && saved.value?.overrides.header_rules !== undefined,
 )
+const displayedHeaderRules = computed<HeaderRulesDto>(() => {
+  if (draft.value?.overrides.header_rules !== undefined) return draft.value.overrides.header_rules
+  if (headerRulesPendingRestore.value) return { set: {}, remove: [] }
+  return saved.value?.effective.header_rules ?? { set: {}, remove: [] }
+})
 const affinityOverridden = computed(() => draft.value?.overrides.affinity_enabled !== undefined)
+const affinityPendingRestore = computed(
+  () => !affinityOverridden.value && saved.value?.overrides.affinity_enabled !== undefined,
+)
 const affinityEnabledLabel = computed(() =>
   saved.value?.effective.affinity_enabled
     ? t('group.settings.runtime.enabledValue')
     : t('group.settings.runtime.disabledValue'),
 )
-const headerRulesOverridden = computed(() => draft.value?.overrides.header_rules !== undefined)
 function resetSavedDraft(settings: GroupSettingsDto): void {
   saved.value = settings
   draft.value = createGroupSettingsDraft(settings)
@@ -563,7 +577,9 @@ onBeforeUnmount(() => {
                     ? t('common.proxy.unsupportedBadge')
                     : proxyOverridden
                       ? t('group.settings.runtime.override')
-                      : t('group.settings.runtime.inherited')
+                      : proxyPendingRestore
+                        ? t('group.settings.runtime.pendingRestoreSource')
+                        : t('group.settings.runtime.inherited')
                 "
                 :action-label="
                   proxyOverridden
@@ -571,6 +587,7 @@ onBeforeUnmount(() => {
                     : t('group.settings.runtime.useOverride')
                 "
                 :overridden="proxySupported && proxyOverridden"
+                :pending-restore="proxySupported && proxyPendingRestore"
                 :locked="!proxySupported"
                 :disabled="mutationPending || selectedChannel === undefined || !proxySupported"
                 @toggle="toggleProxyOverride"
@@ -590,11 +607,17 @@ onBeforeUnmount(() => {
                 v-for="key in timeoutKeys"
                 :key="key"
                 :label="t(`group.settings.runtime.${key}`)"
-                :value="t('group.settings.runtime.effective', { value: saved.effective[key] })"
+                :value="
+                  isPendingRestore(key)
+                    ? t('group.settings.runtime.resetPending')
+                    : t('group.settings.runtime.effective', { value: saved.effective[key] })
+                "
                 :source-label="
-                  draft.overrides[key] === undefined
-                    ? t('group.settings.runtime.inherited')
-                    : t('group.settings.runtime.override')
+                  draft.overrides[key] !== undefined
+                    ? t('group.settings.runtime.override')
+                    : isPendingRestore(key)
+                      ? t('group.settings.runtime.pendingRestoreSource')
+                      : t('group.settings.runtime.inherited')
                 "
                 :action-label="
                   draft.overrides[key] === undefined
@@ -602,6 +625,7 @@ onBeforeUnmount(() => {
                     : t('group.settings.runtime.useInherited')
                 "
                 :overridden="draft.overrides[key] !== undefined"
+                :pending-restore="isPendingRestore(key)"
                 :disabled="mutationPending"
                 @toggle="setTimeoutOverride(key, draft.overrides[key] === undefined)"
               >
@@ -631,15 +655,19 @@ onBeforeUnmount(() => {
                 :key="policy.key"
                 :label="t(`group.settings.runtime.${policy.key}`)"
                 :value="
-                  t('group.settings.runtime.effectiveCount', {
-                    value: saved.effective[policy.key],
-                  })
+                  isPendingRestore(policy.key)
+                    ? t('group.settings.runtime.resetPending')
+                    : t('group.settings.runtime.effectiveCount', {
+                        value: saved.effective[policy.key],
+                      })
                 "
                 :help="t(`group.settings.runtime.${policy.helpKey}`)"
                 :source-label="
-                  draft.overrides[policy.key] === undefined
-                    ? t('group.settings.runtime.inherited')
-                    : t('group.settings.runtime.override')
+                  draft.overrides[policy.key] !== undefined
+                    ? t('group.settings.runtime.override')
+                    : isPendingRestore(policy.key)
+                      ? t('group.settings.runtime.pendingRestoreSource')
+                      : t('group.settings.runtime.inherited')
                 "
                 :action-label="
                   draft.overrides[policy.key] === undefined
@@ -647,6 +675,7 @@ onBeforeUnmount(() => {
                     : t('group.settings.runtime.useInherited')
                 "
                 :overridden="draft.overrides[policy.key] !== undefined"
+                :pending-restore="isPendingRestore(policy.key)"
                 :disabled="mutationPending"
                 @toggle="
                   setPolicyCountOverride(policy.key, draft.overrides[policy.key] === undefined)
@@ -687,12 +716,18 @@ onBeforeUnmount(() => {
               </SettingRow>
               <SettingRow
                 :label="t('group.settings.runtime.affinity_enabled')"
-                :value="affinityEnabledLabel"
+                :value="
+                  affinityPendingRestore
+                    ? t('group.settings.runtime.resetPending')
+                    : affinityEnabledLabel
+                "
                 :help="t('group.settings.runtime.affinityHelp')"
                 :source-label="
                   affinityOverridden
                     ? t('group.settings.runtime.override')
-                    : t('group.settings.runtime.inherited')
+                    : affinityPendingRestore
+                      ? t('group.settings.runtime.pendingRestoreSource')
+                      : t('group.settings.runtime.inherited')
                 "
                 :action-label="
                   affinityOverridden
@@ -700,6 +735,7 @@ onBeforeUnmount(() => {
                     : t('group.settings.runtime.useOverride')
                 "
                 :overridden="affinityOverridden"
+                :pending-restore="affinityPendingRestore"
                 :divided="false"
                 :disabled="mutationPending"
                 @toggle="toggleAffinityOverride"
@@ -739,7 +775,9 @@ onBeforeUnmount(() => {
               :source-label="
                 headerRulesOverridden
                   ? t('group.settings.runtime.override')
-                  : t('group.settings.runtime.inherited')
+                  : headerRulesPendingRestore
+                    ? t('group.settings.runtime.pendingRestoreSource')
+                    : t('group.settings.runtime.inherited')
               "
               :action-label="
                 headerRulesOverridden
@@ -747,6 +785,7 @@ onBeforeUnmount(() => {
                   : t('group.settings.runtime.useOverride')
               "
               :overridden="headerRulesOverridden"
+              :pending-restore="headerRulesPendingRestore"
               :disabled="mutationPending"
               @toggle="toggleHeaderRulesOverride"
             >
