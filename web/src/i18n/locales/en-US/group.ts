@@ -643,9 +643,10 @@ export default {
         auth: {
           ready: 'Authorized',
           refreshing: 'Refreshing credential',
-          reauthorization_required: 'Reconnect or re-import required',
+          reauthorization_required:
+            'Credential rejected; try refreshing it, then reconnect or re-import',
           outcome_unknown:
-            'Credential refresh outcome unknown; reconnect or re-import the credential',
+            'Credential refresh outcome unknown; try refreshing it, then reconnect or re-import',
         },
         authError: {
           refreshRejected:
@@ -653,11 +654,11 @@ export default {
           identityChanged:
             'The refreshed credential belongs to another account. Reconnect or re-import the original account.',
           outcomeUnknown:
-            'The latest credential refresh could not be confirmed. Reconnect or re-import this account.',
+            'The latest credential refresh could not be confirmed. Try refreshing the credential, then reconnect or re-import this account.',
           persistFailed:
-            'The new credential could not be stored safely. Reconnect or re-import this account.',
+            'The new credential could not be stored safely. Try refreshing the credential, then reconnect or re-import this account.',
           runtimeMismatch:
-            'The runtime credential state could not be confirmed. Reconnect or re-import this account.',
+            'The runtime credential state could not be confirmed. Try refreshing the credential, then reconnect or re-import this account.',
           refreshStartFailed: 'The credential refresh could not start. Try again shortly.',
         },
         observationError: {

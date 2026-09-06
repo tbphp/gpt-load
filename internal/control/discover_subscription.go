@@ -148,6 +148,27 @@ func (s *Service) prepareStoredSubscriptionCredentialWithForce(
 	row models.Credential,
 	forceRefresh bool,
 ) (subscriptionruntime.Credential, error) {
+	return s.prepareStoredSubscriptionCredentialInternal(ctx, group, row, forceRefresh, false)
+}
+
+// recoverStoredSubscriptionCredential runs one operator-initiated refresh that
+// is allowed to recover a credential from a failed auth state. Only the
+// explicit "refresh credential" action may use it.
+func (s *Service) recoverStoredSubscriptionCredential(
+	ctx context.Context,
+	group models.Group,
+	row models.Credential,
+) (subscriptionruntime.Credential, error) {
+	return s.prepareStoredSubscriptionCredentialInternal(ctx, group, row, true, true)
+}
+
+func (s *Service) prepareStoredSubscriptionCredentialInternal(
+	ctx context.Context,
+	group models.Group,
+	row models.Credential,
+	forceRefresh bool,
+	allowRecovery bool,
+) (subscriptionruntime.Credential, error) {
 	if _, frozen := subscriptionruntime.NetworkFromContext(ctx); !frozen {
 		network, err := s.credentialNetworkContext(ctx, s.db, group, row)
 		if err != nil {
@@ -158,9 +179,13 @@ func (s *Service) prepareStoredSubscriptionCredentialWithForce(
 	switch row.AuthState {
 	case "", models.CredentialAuthStateReady:
 	case models.CredentialAuthStateReauthorizationRequired:
-		return subscriptionruntime.Credential{}, app_errors.ErrCredentialReauthorizationRequired
+		if !allowRecovery {
+			return subscriptionruntime.Credential{}, app_errors.ErrCredentialReauthorizationRequired
+		}
 	case models.CredentialAuthStateRefreshing, models.CredentialAuthStateOutcomeUnknown:
-		return subscriptionruntime.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
+		if !allowRecovery {
+			return subscriptionruntime.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
+		}
 	default:
 		return subscriptionruntime.Credential{}, app_errors.ErrInternalServer
 	}
@@ -174,7 +199,7 @@ func (s *Service) prepareStoredSubscriptionCredentialWithForce(
 	if driverErr != nil {
 		return subscriptionruntime.Credential{}, app_errors.ErrInternalServer
 	}
-	if s.prepareSubscriptionCredential == nil {
+	if s.prepareSubscriptionCredential == nil || (allowRecovery && s.recoverSubscriptionCredential == nil) {
 		credential, parseErr := driver.Parse(canonical)
 		if parseErr != nil {
 			return subscriptionruntime.Credential{}, app_errors.ErrInternalServer
@@ -183,12 +208,19 @@ func (s *Service) prepareStoredSubscriptionCredentialWithForce(
 	}
 	prepareContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancel()
-	credential, evidence := s.prepareSubscriptionCredential(prepareContext, channelID, execution.NewCredentialSnapshot(
+	snapshot := execution.NewCredentialSnapshot(
 		row.ID,
 		groupCollectionCredentialVersion(row.SecretVersion),
 		groupCollectionCredentialIdentity(row.IdentityFingerprint, group),
 		canonical,
-	), forceRefresh)
+	)
+	var credential subscriptionruntime.Credential
+	var evidence *execution.ErrorEvidence
+	if allowRecovery {
+		credential, evidence = s.recoverSubscriptionCredential(prepareContext, channelID, snapshot)
+	} else {
+		credential, evidence = s.prepareSubscriptionCredential(prepareContext, channelID, snapshot, forceRefresh)
+	}
 	if evidence != nil {
 		return subscriptionruntime.Credential{}, subscriptionPreparationAPIError(evidence)
 	}

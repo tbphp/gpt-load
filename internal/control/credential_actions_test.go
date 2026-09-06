@@ -165,14 +165,13 @@ func TestRefreshGroupCredentialOnlyRefreshesToken(t *testing.T) {
 	t.Parallel()
 
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	forces := make([]bool, 0, 2)
-	fixture.service.prepareSubscriptionCredential = func(
+	recoveryCalls := 0
+	fixture.service.recoverSubscriptionCredential = func(
 		_ context.Context,
 		channelID channel.ID,
 		snapshot execution.CredentialSnapshot,
-		force bool,
 	) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
-		forces = append(forces, force)
+		recoveryCalls++
 		if channelID != channel.Codex {
 			return subscriptionruntime.Credential{}, &execution.ErrorEvidence{
 				Kind: execution.ErrorKindInternal,
@@ -204,8 +203,8 @@ func TestRefreshGroupCredentialOnlyRefreshesToken(t *testing.T) {
 	if _, err := fixture.service.RefreshGroupCredential(t.Context(), groupID, credentialID); err != nil {
 		t.Fatal(err)
 	}
-	if len(forces) != 1 || !forces[0] || observationCalls != 0 {
-		t.Fatalf("prepare force calls = %#v, observation calls = %d", forces, observationCalls)
+	if recoveryCalls != 1 || observationCalls != 0 {
+		t.Fatalf("recovery calls = %d, observation calls = %d", recoveryCalls, observationCalls)
 	}
 }
 
@@ -213,11 +212,10 @@ func TestRefreshGroupCredentialCanRetryAfterTemporaryFailure(t *testing.T) {
 	t.Parallel()
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	calls := 0
-	fixture.service.prepareSubscriptionCredential = func(
+	fixture.service.recoverSubscriptionCredential = func(
 		context.Context,
 		channel.ID,
 		execution.CredentialSnapshot,
-		bool,
 	) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
 		calls++
 		if calls == 1 {

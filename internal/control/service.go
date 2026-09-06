@@ -69,6 +69,7 @@ type Service struct {
 	pollDeviceAuthorization           func(context.Context, channel.ID, []byte) (subscriptionruntime.DeviceAuthorizationPoll, error)
 	refreshSubscriptionCredential     func(context.Context, channel.ID, subscriptionruntime.Credential) (subscriptionruntime.Credential, error)
 	prepareSubscriptionCredential     func(context.Context, channel.ID, execution.CredentialSnapshot, bool) (subscriptionruntime.Credential, *execution.ErrorEvidence)
+	recoverSubscriptionCredential     func(context.Context, channel.ID, execution.CredentialSnapshot) (subscriptionruntime.Credential, *execution.ErrorEvidence)
 	discoverSubscriptionModels        func(context.Context, channel.ID, subscriptionruntime.Credential) ([]string, error)
 	observeSubscriptionAccount        func(context.Context, channel.ID, subscriptionruntime.Credential) (subscriptionruntime.Observation, error)
 	consumeSubscriptionResetCredit    func(context.Context, channel.ID, subscriptionruntime.Credential, string) (subscriptionruntime.ResetCreditResult, error)
@@ -254,6 +255,7 @@ func NewService(
 	}
 	if subscriptionCredentials != nil {
 		service.prepareSubscriptionCredential = subscriptionCredentials.PrepareForControl
+		service.recoverSubscriptionCredential = subscriptionCredentials.RefreshForManualRecovery
 		service.subscriptions = subscriptionCredentials.Runtime()
 	}
 	if reader, ok := usageStats.(credentialWindowUsageReader); ok {

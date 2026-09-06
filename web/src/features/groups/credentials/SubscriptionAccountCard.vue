@@ -487,7 +487,8 @@ const authIssue = computed(() => {
   const key = props.item.auth_error_code ? authErrorKeys[props.item.auth_error_code] : undefined
   return key ? t(key) : t(`group.credentials.subscription.auth.${props.item.auth_state}`)
 })
-const credentialRefreshBlocked = computed(() => props.item.auth_state !== 'ready')
+// 额度同步需要可用的 access token；凭据刷新本身是异常账号的恢复入口，不受此限制。
+const observationRefreshBlocked = computed(() => props.item.auth_state !== 'ready')
 const dailyUsage = computed(() => props.item.daily_usage)
 const dailyIncompleteHint = computed(() =>
   dailyUsage.value && !dailyUsage.value.data_complete
@@ -824,7 +825,7 @@ function runMenuAction(
                 variant="ghost"
                 :label="t('group.credentials.subscription.sync')"
                 :busy="refreshingObservation"
-                :disabled="busy || credentialRefreshBlocked"
+                :disabled="busy || observationRefreshBlocked"
                 @click="emit('refresh', item)"
               >
                 <RefreshCw
@@ -857,9 +858,7 @@ function runMenuAction(
                 </button>
                 <button
                   type="button"
-                  :disabled="
-                    busy || item.configured_status === 'disabled' || credentialRefreshBlocked
-                  "
+                  :disabled="busy || item.configured_status === 'disabled'"
                   @click="runMenuAction('refresh-credential')"
                 >
                   <KeyRound :size="15" aria-hidden="true" />{{
@@ -994,7 +993,7 @@ function runMenuAction(
           variant="secondary"
           tone="action"
           size="compact"
-          :disabled="busy || credentialRefreshBlocked"
+          :disabled="busy || observationRefreshBlocked"
           @click="emit('refresh', item)"
         >
           <RefreshCw :size="14" aria-hidden="true" />
