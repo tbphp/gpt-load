@@ -202,7 +202,7 @@ export default {
         routing: 'スケジューリング',
         runtime: 'ランタイム上書き',
         parameters: 'パラメーター上書き',
-        headers: 'HeaderRules',
+        headers: 'アップストリームリクエストヘッダールール',
         danger: '危険な操作',
       },
       routing: {
@@ -210,7 +210,8 @@ export default {
         weightHelp: '自動はランタイムスケジューリングで決まり、手動は 1–100 です',
       },
       headers: {
-        description: 'ルールは既定で折りたたまれ、編集すると HeaderRules 全体を置き換えます',
+        description:
+          'ルールは既定で折りたたまれ、編集するとグローバルなアップストリームリクエストヘッダールール全体を置き換えます。',
       },
       parameterOverrides: {
         description:

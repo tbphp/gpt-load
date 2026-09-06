@@ -202,7 +202,7 @@ export default {
         routing: 'Scheduling',
         runtime: 'Runtime overrides',
         parameters: 'Parameter overrides',
-        headers: 'HeaderRules',
+        headers: 'Upstream request header rules',
         danger: 'Danger zone',
       },
       routing: {
@@ -211,7 +211,7 @@ export default {
       },
       headers: {
         description:
-          'Rules are collapsed by default; editing replaces the complete HeaderRules object',
+          'Rules are collapsed by default; editing replaces the complete global upstream request header rules.',
       },
       parameterOverrides: {
         description:

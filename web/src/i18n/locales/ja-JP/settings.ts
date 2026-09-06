@@ -29,8 +29,7 @@ export default {
       routing: 'ルーティングとスケジューリング',
       connection: '接続とタイムアウト',
       reliability: '再試行と認証情報の健全性',
-      upstreamRewrite: 'アップストリーム要求の書き換え',
-      browserAccess: 'ブラウザーアクセス',
+      browserAccess: 'Header とクロスオリジン',
       dataMaintenance: 'データとメンテナンス',
       system: 'システム情報',
     },
@@ -101,28 +100,14 @@ export default {
       entries: '件',
     },
     headers: {
-      title: 'アップストリーム要求の書き換え',
-      description: 'アップストリームへ送る前にリクエストヘッダーと本文へ加える変更です。',
-      blockTitle: 'グローバル Header Rules',
+      description: 'アップストリームへ送る前に設定・上書き・削除するリクエストヘッダーです。',
+      blockTitle: 'アップストリームリクエストヘッダールール',
       ruleCount: '{count} 件のルール',
-      currentPublishedRuleCount: '現在公開中のルール {count} 件',
-      defaultSource: '組み込み既定値',
-      overrideSource: '明示的な上書き',
-      pendingRestoreSource: '復元待ち・現在公開中',
-      override: '上書き',
-      restoreDefault: '既定値に戻す',
-      inherited: '有効な組み込みルールを表示しています。編集するには上書きを有効にしてください。',
-      resetPending:
-        '現在公開中の明示ルールを表示しています。保存後に現在のバージョンの既定値へ戻ります。',
-      replacementWarning:
-        'グループのヘッダールール上書きはグローバルオブジェクト全体を置き換え、個別のルールをマージしません。',
-      securityNotice:
-        '固定 Header 値は通常の設定です。長期認証情報を保存しないでください。認証 Header はリテラルの {template} テンプレートを使用する必要があります。',
     },
     browserAccess: {
-      title: 'ブラウザーアクセスとダウンストリームヘッダー',
+      title: 'Header とクロスオリジン',
       description:
-        '/v1 と /v1beta のデータプレーンだけに適用し、管理 API はクロスオリジンで公開しません。',
+        'クロスオリジンアクセスポリシーと、アップストリームへの送信時およびブラウザーへの返却時の Header 書き換えルールです。/v1 と /v1beta のデータプレーンだけに適用し、管理 API はクロスオリジンで公開しません。',
       cors: {
         title: 'CORS ポリシー',
         description: '許可されたプリフライトは AccessKey 認証前に 204 を返します。',

@@ -36,7 +36,6 @@ import DataMaintenanceSection from './DataMaintenanceSection.vue'
 import ReliabilitySettingsSection from './ReliabilitySettingsSection.vue'
 import RoutingSettingsSection from './RoutingSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
-import UpstreamRewriteSection from './UpstreamRewriteSection.vue'
 import {
   isValidAffinityCapacity,
   isValidNonNegativeInteger,
@@ -65,8 +64,7 @@ const settingsRefreshing = computed(
   () => settingsQuery.data.value !== undefined && settingsQuery.isFetching.value,
 )
 const headerRulesInvalidEdits = ref(false)
-const headerRulesEditorRevision = ref(0)
-const browserAccessInvalidEdits = ref(false)
+const responseRulesInvalidEdits = ref(false)
 const browserAccessEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
 const {
@@ -83,7 +81,7 @@ const proxyState = computed(() =>
     : { dirty: false, invalid: false, value: undefined },
 )
 const hasLocalEdits = computed(
-  () => headerRulesInvalidEdits.value || browserAccessInvalidEdits.value || proxyState.value.dirty,
+  () => headerRulesInvalidEdits.value || responseRulesInvalidEdits.value || proxyState.value.dirty,
 )
 const {
   base,
@@ -119,7 +117,6 @@ const navItems = computed(() => [
   { id: 'settings-routing', label: t('settings.navigation.routing') },
   { id: 'settings-connection', label: t('settings.navigation.connection') },
   { id: 'settings-reliability', label: t('settings.navigation.reliability') },
-  { id: 'settings-upstream-rewrite', label: t('settings.navigation.upstreamRewrite') },
   { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
   { id: 'settings-data-maintenance', label: t('settings.navigation.dataMaintenance') },
   { id: 'settings-system', label: t('settings.navigation.system') },
@@ -139,15 +136,11 @@ const dirty = computed(
   () =>
     controllerDirty.value ||
     headerRulesInvalidEdits.value ||
-    browserAccessInvalidEdits.value ||
+    responseRulesInvalidEdits.value ||
     proxyState.value.dirty,
 )
 const valid = computed(
-  () =>
-    controllerValid.value &&
-    (!draft.value?.overrides.has('header_rules') || headerRulesValid.value) &&
-    browserAccessValid.value &&
-    !proxyState.value.invalid,
+  () => controllerValid.value && browserAccessValid.value && !proxyState.value.invalid,
 )
 const timeoutKeys = [
   'first_byte_timeout',
@@ -162,7 +155,7 @@ const changedKeys = computed(() => {
   ) as RuntimeSettingKey[]
   if (headerRulesInvalidEdits.value && !changed.includes('header_rules'))
     changed.push('header_rules')
-  if (browserAccessInvalidEdits.value && !changed.includes('response_header_rules'))
+  if (responseRulesInvalidEdits.value && !changed.includes('response_header_rules'))
     changed.push('response_header_rules')
   return changed
 })
@@ -209,7 +202,7 @@ watch(
 watch(
   () => draft.value?.overrides.has('response_header_rules'),
   (hasOverride) => {
-    if (!hasOverride) browserAccessInvalidEdits.value = false
+    if (!hasOverride) responseRulesInvalidEdits.value = false
   },
 )
 
@@ -261,7 +254,6 @@ function sectionFromID(id: string): SettingsSection | undefined {
   return section === 'routing' ||
     section === 'connection' ||
     section === 'reliability' ||
-    section === 'upstream-rewrite' ||
     section === 'browser-access' ||
     section === 'data-maintenance' ||
     section === 'system'
@@ -280,8 +272,7 @@ async function navigateSection(id: string): Promise<void> {
 function discard(): void {
   discardDraft()
   headerRulesInvalidEdits.value = false
-  headerRulesEditorRevision.value += 1
-  browserAccessInvalidEdits.value = false
+  responseRulesInvalidEdits.value = false
   browserAccessEditorRevision.value += 1
   if (proxyBaseView.value) resetProxyDraft(proxyBaseView.value)
 }
@@ -307,14 +298,14 @@ function settingLabel(key: RuntimeSettingKey): string {
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
-  if (key === 'header_rules') return 'settings-upstream-rewrite'
-  if (key === 'cors' || key === 'response_header_rules') return 'settings-browser-access'
+  if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
+    return 'settings-browser-access'
   return `settings-value-${key}`
 }
 
 function sectionForKey(key: RuntimeSettingKey): SettingsSection {
-  if (key === 'header_rules') return 'upstream-rewrite'
-  if (key === 'cors' || key === 'response_header_rules') return 'browser-access'
+  if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
+    return 'browser-access'
   if (
     key === 'route_strategy' ||
     key === 'affinity_enabled' ||
@@ -435,15 +426,6 @@ onBeforeUnmount(() => {
               :disabled="pageOperationLocked"
               @change="updateDraft"
             />
-            <UpstreamRewriteSection
-              :base="base"
-              :draft="draft"
-              :disabled="pageOperationLocked"
-              :reset-key="headerRulesEditorRevision"
-              @change="updateDraft"
-              @update:valid="headerRulesValid = $event"
-              @update:invalid-edits="headerRulesInvalidEdits = $event"
-            />
             <BrowserAccessSection
               :base="base"
               :draft="draft"
@@ -451,9 +433,11 @@ onBeforeUnmount(() => {
               :reset-key="browserAccessEditorRevision"
               @change="updateDraft"
               @update:valid="browserAccessValid = $event"
+              @update:header-rules-valid="headerRulesValid = $event"
               @update:cors-valid="corsValid = $event"
               @update:response-rules-valid="responseHeaderRulesValid = $event"
-              @update:invalid-edits="browserAccessInvalidEdits = $event"
+              @update:header-rules-invalid-edits="headerRulesInvalidEdits = $event"
+              @update:response-rules-invalid-edits="responseRulesInvalidEdits = $event"
             />
             <DataMaintenanceSection
               :base="base"

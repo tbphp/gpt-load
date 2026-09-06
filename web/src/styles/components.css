@@ -442,11 +442,14 @@
   font-size: var(--text-label-xs);
 }
 
-/* 设置行与设置块内的控件统一缩小一档：直接覆盖控件尺寸变量，
-   变量会继承进子组件，不需要和组件自身的 scoped 样式比优先级。 */
-.setting-row,
-.setting-block {
+/* 设置页与分组设置页内的控件统一缩小一档：直接覆盖控件尺寸变量，变量会
+   继承进子组件和整个内容区域，不需要和组件自身的 scoped 样式比优先级。
+   作用域限定在内容区域（不含 SectionNav 与 StickySaveBar），避免连带缩小
+   侧边导航或保存栏按钮。 */
+.settings__content,
+.group-settings__content {
   --control-compact: var(--setting-control-height);
   --control-xs: var(--setting-control-height);
   --control-sm: var(--setting-control-height);
+  --control-md: var(--setting-control-height);
 }

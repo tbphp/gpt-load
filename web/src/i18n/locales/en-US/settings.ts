@@ -29,8 +29,7 @@ export default {
       routing: 'Routing and scheduling',
       connection: 'Connection and timeouts',
       reliability: 'Retries and credential health',
-      upstreamRewrite: 'Upstream request rewriting',
-      browserAccess: 'Browser access',
+      browserAccess: 'Headers and CORS',
       dataMaintenance: 'Data and maintenance',
       system: 'System information',
     },
@@ -103,28 +102,14 @@ export default {
       entries: 'entries',
     },
     headers: {
-      title: 'Upstream request rewriting',
-      description: 'Adjustments made to the request headers and body before it reaches upstream.',
-      blockTitle: 'Global Header Rules',
+      description: 'Headers set, overridden, or removed before the request reaches upstream.',
+      blockTitle: 'Upstream request header rules',
       ruleCount: '{count} rules',
-      currentPublishedRuleCount: '{count} currently published rules',
-      defaultSource: 'Built-in default',
-      overrideSource: 'Explicit override',
-      pendingRestoreSource: 'Pending restore · currently published',
-      override: 'Override',
-      restoreDefault: 'Restore default',
-      inherited: 'The effective built-in rules are shown. Enable an override to edit them.',
-      resetPending:
-        'The published explicit rules remain visible. Saving is required to restore the current version default.',
-      replacementWarning:
-        'A Group Header Rules override replaces the complete global object; individual rules are not merged.',
-      securityNotice:
-        'Fixed Header values are ordinary configuration. Do not store long-lived credentials; credential Headers must use the literal {template} template.',
     },
     browserAccess: {
-      title: 'Browser access and downstream headers',
+      title: 'Headers and CORS',
       description:
-        'Applies only to the /v1 and /v1beta data plane; management APIs remain cross-origin restricted.',
+        'CORS policy, plus header rewrite rules for requests sent upstream and responses returned to the browser. Applies only to the /v1 and /v1beta data plane; management APIs remain cross-origin restricted.',
       cors: {
         title: 'CORS policy',
         description: 'Allowed browser preflights return 204 before AccessKey authentication.',

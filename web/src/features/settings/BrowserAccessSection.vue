@@ -19,6 +19,7 @@ import {
 import type { SettingsDraftChange } from './use-settings-controller'
 
 type CORSListKey = 'allowed_origins' | 'allowed_methods' | 'allowed_headers' | 'exposed_headers'
+type ToggleableKey = 'header_rules' | 'cors' | 'response_header_rules'
 
 const props = defineProps<{
   base: SettingsResource
@@ -29,17 +30,27 @@ const props = defineProps<{
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
   'update:valid': [value: boolean]
+  'update:headerRulesValid': [value: boolean]
   'update:corsValid': [value: boolean]
   'update:responseRulesValid': [value: boolean]
-  'update:invalidEdits': [value: boolean]
+  'update:headerRulesInvalidEdits': [value: boolean]
+  'update:responseRulesInvalidEdits': [value: boolean]
 }>()
 const { t } = useI18n()
+
+const headerRulesRawValid = ref(true)
+const headerRulesInvalidEdits = ref(false)
+const headerRulesEditorResetKey = ref(0)
 const responseRulesValid = ref(true)
 const responseRulesInvalidEdits = ref(false)
 const responseEditorResetKey = ref(0)
 
+const headerRulesOverridden = computed(() => props.draft.overrides.has('header_rules'))
 const corsOverridden = computed(() => props.draft.overrides.has('cors'))
 const responseRulesOverridden = computed(() => props.draft.overrides.has('response_header_rules'))
+const headerRulesPendingRestore = computed(
+  () => !headerRulesOverridden.value && props.base.settings.overrides.includes('header_rules'),
+)
 const corsPendingRestore = computed(
   () => !corsOverridden.value && props.base.settings.overrides.includes('cors'),
 )
@@ -47,6 +58,14 @@ const responseRulesPendingRestore = computed(
   () =>
     !responseRulesOverridden.value &&
     props.base.settings.overrides.includes('response_header_rules'),
+)
+const headerRules = computed(() =>
+  headerRulesOverridden.value || headerRulesPendingRestore.value
+    ? props.draft.values.header_rules
+    : props.base.settings.values.header_rules,
+)
+const headerRuleCount = computed(
+  () => Object.keys(headerRules.value.set).length + headerRules.value.remove.length,
 )
 const cors = computed(() =>
   corsOverridden.value ? props.draft.values.cors : props.base.settings.values.cors,
@@ -59,28 +78,48 @@ const responseRules = computed(() =>
 const responseRuleCount = computed(
   () => Object.keys(responseRules.value.set).length + responseRules.value.remove.length,
 )
+const effectiveHeaderRulesValid = computed(
+  () => !headerRulesOverridden.value || headerRulesRawValid.value,
+)
 const corsValid = computed(
   () => !corsOverridden.value || isValidCORSConfig(props.draft.values.cors),
 )
 const effectiveResponseRulesValid = computed(
   () => !responseRulesOverridden.value || responseRulesValid.value,
 )
-const valid = computed(() => corsValid.value && effectiveResponseRulesValid.value)
+const valid = computed(
+  () => effectiveHeaderRulesValid.value && corsValid.value && effectiveResponseRulesValid.value,
+)
 
 watch(valid, (value) => emit('update:valid', value), { immediate: true })
+watch(headerRulesRawValid, (value) => emit('update:headerRulesValid', value), { immediate: true })
 watch(corsValid, (value) => emit('update:corsValid', value), { immediate: true })
 watch(effectiveResponseRulesValid, (value) => emit('update:responseRulesValid', value), {
   immediate: true,
 })
-watch(responseRulesInvalidEdits, (value) => emit('update:invalidEdits', value), { immediate: true })
+watch(headerRulesInvalidEdits, (value) => emit('update:headerRulesInvalidEdits', value), {
+  immediate: true,
+})
+watch(responseRulesInvalidEdits, (value) => emit('update:responseRulesInvalidEdits', value), {
+  immediate: true,
+})
 watch(
   () => props.resetKey,
   () => {
+    headerRulesRawValid.value = true
+    headerRulesInvalidEdits.value = false
+    headerRulesEditorResetKey.value += 1
     responseRulesValid.value = true
     responseRulesInvalidEdits.value = false
     responseEditorResetKey.value += 1
   },
 )
+watch(headerRulesOverridden, (overridden) => {
+  if (!overridden) {
+    headerRulesRawValid.value = true
+    headerRulesInvalidEdits.value = false
+  }
+})
 watch(responseRulesOverridden, (overridden) => {
   if (!overridden) {
     responseRulesValid.value = true
@@ -100,17 +139,29 @@ function publish(key: RuntimeSettingKey, draft: SettingsDraft): void {
   emit('change', { key, draft })
 }
 
-async function toggleOverride(key: 'cors' | 'response_header_rules'): Promise<void> {
+async function toggleOverride(key: ToggleableKey): Promise<void> {
   publish(
     key,
     setSettingsOverride(props.base.settings, props.draft, key, !props.draft.overrides.has(key)),
   )
+  if (key === 'header_rules') {
+    headerRulesRawValid.value = true
+    headerRulesInvalidEdits.value = false
+    await nextTick()
+    headerRulesEditorResetKey.value += 1
+  }
   if (key === 'response_header_rules') {
     responseRulesValid.value = true
     responseRulesInvalidEdits.value = false
     await nextTick()
     responseEditorResetKey.value += 1
   }
+}
+
+function updateHeaderRules(value: HeaderRulesDto): void {
+  const draft = cloneDraft()
+  draft.values.header_rules = value
+  publish('header_rules', draft)
 }
 
 function setCORSEnabled(value: boolean): void {
@@ -392,6 +443,34 @@ function sourceLabel(overridden: boolean, pendingRestore: boolean): string {
       </SettingBlock>
 
       <SettingBlock
+        :title="t('settings.headers.blockTitle')"
+        :help="t('settings.headers.description')"
+        :meta="t('settings.headers.ruleCount', { count: headerRuleCount })"
+        :source-label="sourceLabel(headerRulesOverridden, headerRulesPendingRestore)"
+        :action-label="
+          headerRulesOverridden
+            ? t('settings.runtime.restoreDefault')
+            : t('settings.runtime.override')
+        "
+        :overridden="headerRulesOverridden"
+        :pending-restore="headerRulesPendingRestore"
+        :disabled="disabled"
+        @toggle="toggleOverride('header_rules')"
+      >
+        <HeaderRulesEditor
+          appearance="ledger"
+          :model-value="headerRules"
+          :disabled="disabled || !headerRulesOverridden"
+          :reset-key="headerRulesEditorResetKey"
+          :show-notice="false"
+          :show-add="headerRulesOverridden"
+          @update:model-value="updateHeaderRules"
+          @update:valid="headerRulesRawValid = $event"
+          @update:invalid-edits="headerRulesInvalidEdits = $event"
+        />
+      </SettingBlock>
+
+      <SettingBlock
         :title="t('settings.browserAccess.responseHeaders.title')"
         :help="t('settings.browserAccess.responseHeaders.description')"
         :meta="t('settings.headers.ruleCount', { count: responseRuleCount })"
@@ -515,14 +594,8 @@ function sourceLabel(overridden: boolean, pendingRestore: boolean): string {
 }
 
 @media (max-width: 800px) {
-  .browser-access__block-heading,
   .browser-access__cors-form {
     grid-template-columns: 1fr;
-  }
-
-  .browser-access__meta {
-    justify-items: start;
-    text-align: start;
   }
 
   .browser-access__field--wide,

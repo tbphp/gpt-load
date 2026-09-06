@@ -200,14 +200,14 @@ export default {
         routing: '调度',
         runtime: '运行时覆盖',
         parameters: '参数覆盖',
-        headers: 'HeaderRules',
+        headers: '上游请求头规则',
         danger: '危险区域',
       },
       routing: {
         description: '手动权重仅在明确覆盖时生效。',
         weightHelp: '自动模式由运行时调度决定；手动模式范围为 1–100。',
       },
-      headers: { description: '规则默认折叠；展开后编辑将完整替换全局 HeaderRules。' },
+      headers: { description: '规则默认折叠；展开后编辑将完整替换全局的上游请求头规则。' },
       parameterOverrides: {
         description: '只改写推理请求的参数；明文保存，请勿填写凭据。',
         order: '同一字段冲突时，靠下的规则赢',
