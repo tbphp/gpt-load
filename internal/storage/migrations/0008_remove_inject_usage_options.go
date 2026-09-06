@@ -39,7 +39,7 @@ func Up0008(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&systemSetting0008{}) {
 		return fmt.Errorf("remove inject usage options: table %q is missing", systemSettingTable0008)
 	}
-	if err := db.Where("`key` = ?", injectUsageOptionsKey0008).
+	if err := db.Where(&systemSetting0008{Key: injectUsageOptionsKey0008}).
 		Delete(&systemSetting0008{}).Error; err != nil {
 		return fmt.Errorf("delete %s system setting: %w", injectUsageOptionsKey0008, err)
 	}
@@ -62,9 +62,11 @@ func stripGroupInjectUsageOptions0008(db *gorm.DB) error {
 		if !changed {
 			continue
 		}
+		// json 列必须收到文本；写 []byte 时 PostgreSQL 驱动会当成 bytea 而报
+		// invalid input syntax for type json。
 		if err := db.Model(&group0008{}).
 			Where("id = ?", group.ID).
-			Update("overrides", stripped).Error; err != nil {
+			Update("overrides", string(stripped)).Error; err != nil {
 			return fmt.Errorf("update overrides for group %d: %w", group.ID, err)
 		}
 	}
@@ -102,7 +104,7 @@ func ValidateRecoverable0008(db *gorm.DB) error {
 	}
 	var settingCount int64
 	if err := db.Model(&systemSetting0008{}).
-		Where("`key` = ?", injectUsageOptionsKey0008).
+		Where(&systemSetting0008{Key: injectUsageOptionsKey0008}).
 		Count(&settingCount).Error; err != nil {
 		return fmt.Errorf("count %s system setting: %w", injectUsageOptionsKey0008, err)
 	}
