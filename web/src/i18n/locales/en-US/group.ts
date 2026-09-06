@@ -300,6 +300,9 @@ export default {
         customUrlHelp: 'Uses the channel preset or SDK official address by default.',
         paramRequired: 'Enter {field}.',
         validationModel: 'Validation model (optional)',
+        validationModelPlaceholder: 'Search or enter a model ID',
+        validationModelHelp:
+          'Leave empty to use the first model in this Group; enter the upstream model ID, not an alias.',
         weight: 'Manual Group weight',
         auto: 'Auto',
         manual: 'Manual',

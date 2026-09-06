@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ChannelParamsDto } from '@/api/control/types'
+import type { ChannelParamsDto, GroupModelItemDto } from '@/api/control/types'
 import type { ChannelFieldDto } from '@/app/resources/channels'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
@@ -14,6 +14,7 @@ const props = defineProps<{
   params: ChannelParamsDto
   name: string
   validationModel: string | null
+  models: GroupModelItemDto[]
   weightManual: number | null
   enabled: boolean
   pending: boolean
@@ -29,6 +30,13 @@ const emit = defineEmits<{
   'update:enabled': [value: boolean]
 }>()
 const { t } = useI18n()
+const validationModelListId = `${useId()}-validation-models`
+// 验活直接把该值当成上游模型 ID 使用，所以候选取 id 而不是可能被别名替换的 client_model。
+const validationModelOptions = computed(() =>
+  [...props.models]
+    .map(({ id, alias, alias_enabled }) => ({ id, alias: alias_enabled ? alias : '' }))
+    .sort((left, right) => left.id.localeCompare(right.id)),
+)
 const weightMode = computed(() => (props.weightManual === null ? 'auto' : 'manual'))
 const weightModes = computed(() => [
   { value: 'auto', label: t('group.settings.base.auto'), disabled: props.pending },
@@ -118,9 +126,21 @@ function setWeightMode(value: string): void {
         <input
           class="group-settings__mono"
           :value="validationModel ?? ''"
+          :list="validationModelListId"
+          :placeholder="t('group.settings.base.validationModelPlaceholder')"
           :disabled="pending"
+          autocomplete="off"
           @input="emit('update:validationModel', ($event.target as HTMLInputElement).value || null)"
         />
+        <datalist :id="validationModelListId">
+          <option
+            v-for="option in validationModelOptions"
+            :key="option.id"
+            :value="option.id"
+            :label="option.alias || undefined"
+          />
+        </datalist>
+        <small>{{ t('group.settings.base.validationModelHelp') }}</small>
       </label>
       <template v-for="field in paramFields" :key="field.key">
         <div v-if="isOptionalBaseURL(field)" class="group-settings__field group-settings__wide">

@@ -293,6 +293,8 @@ export default {
         customUrlHelp: '默认使用渠道预设或 SDK 官方地址。',
         paramRequired: '请输入{field}。',
         validationModel: '验活模型（可选）',
+        validationModelPlaceholder: '搜索或输入模型 ID',
+        validationModelHelp: '留空时使用分组的第一个模型；这里填上游模型 ID，不是别名。',
         weight: '分组权重',
         auto: '自动',
         manual: '手动',

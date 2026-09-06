@@ -300,6 +300,9 @@ export default {
         customUrlHelp: '既定ではチャネル設定または SDK 公式アドレスを使用します。',
         paramRequired: '{field} を入力してください。',
         validationModel: '検証モデル（任意）',
+        validationModelPlaceholder: 'モデル ID を検索または入力',
+        validationModelHelp:
+          '空欄の場合はグループの最初のモデルを使用します。エイリアスではなくアップストリームのモデル ID を入力してください。',
         weight: 'グループ手動ウェイト',
         auto: '自動',
         manual: '手動',
