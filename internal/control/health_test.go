@@ -147,7 +147,7 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		t.Fatalf("disabled/zero/empty group counts = %#v", got.Groups)
 	}
 	if len(got.CooldownCredentials) != 1 || got.CooldownCredentials[0].CredentialID != 12 ||
-		got.CooldownCredentials[0].Mask != "rate****safe" ||
+		got.CooldownCredentials[0].Identity != "rate****safe" ||
 		got.CooldownCredentials[0].LastFailureCategory != "rate_limited" ||
 		got.CooldownCredentials[0].LastStatusCode == nil ||
 		*got.CooldownCredentials[0].LastStatusCode != 429 ||
@@ -158,7 +158,7 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		t.Fatalf("cooldown details = %#v", got.CooldownCredentials)
 	}
 	if len(got.BlacklistedCredentials) != 1 || got.BlacklistedCredentials[0].CredentialID != 13 ||
-		got.BlacklistedCredentials[0].Mask != "inva****lock" ||
+		got.BlacklistedCredentials[0].Identity != "inva****lock" ||
 		got.BlacklistedCredentials[0].LastFailureCategory != "invalid_key" ||
 		got.BlacklistedCredentials[0].LastStatusCode == nil ||
 		*got.BlacklistedCredentials[0].LastStatusCode != 401 ||
@@ -435,7 +435,7 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 		t.Fatalf("RuntimeHealth() error = %v", err)
 	}
 	if len(result.BlacklistedCredentials) != 1 ||
-		result.BlacklistedCredentials[0].Mask != "prov****tail" ||
+		result.BlacklistedCredentials[0].Identity != "prov****tail" ||
 		result.BlacklistedCredentials[0].LastFailureCategory != "ambiguous" ||
 		result.BlacklistedCredentials[0].LastStatusCode != nil {
 		t.Fatalf("blacklisted details = %#v", result.BlacklistedCredentials)
@@ -519,18 +519,18 @@ func TestRuntimeHealthFailsClosedWhenProblemKeyCannotBeDecrypted(t *testing.T) {
 	}
 }
 
-func TestHealthProblemMaskFailsClosedWhenCiphertextIsMissing(t *testing.T) {
+func TestHealthProblemCredentialIdentityFailsClosedWhenCiphertextIsMissing(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
-	if _, err := fixture.service.healthProblemMask(nil, 1, "", "api_key"); !errors.Is(
+	if _, err := fixture.service.healthProblemCredentialIdentity(nil, 1, "", "api_key"); !errors.Is(
 		err,
 		app_errors.ErrInternalServer,
 	) {
-		t.Fatalf("healthProblemMask() error = %v, want INTERNAL_SERVER_ERROR", err)
+		t.Fatalf("healthProblemCredentialIdentity() error = %v, want INTERNAL_SERVER_ERROR", err)
 	}
 }
 
-func TestHealthProblemMaskExtractsTypedCredentialSecret(t *testing.T) {
+func TestHealthProblemCredentialIdentityMasksAPIKeySecret(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
 	ciphertext := encryptHealthKey(
@@ -538,31 +538,33 @@ func TestHealthProblemMaskExtractsTypedCredentialSecret(t *testing.T) {
 		fixture,
 		`{"api_key":"provider-secret-credential-tail"}`,
 	)
-	mask, err := fixture.service.healthProblemMask(
+	identity, err := fixture.service.healthProblemCredentialIdentity(
 		map[uint]string{1: ciphertext},
 		1,
 		channel.OpenAI,
 		"api_key",
 	)
 	if err != nil {
-		t.Fatalf("healthProblemMask() error = %v", err)
+		t.Fatalf("healthProblemCredentialIdentity() error = %v", err)
 	}
-	if mask != "prov****tail" || strings.Contains(mask, "api_key") || strings.Contains(mask, "{") {
-		t.Fatalf("healthProblemMask() = %q, want api_key-only mask", mask)
+	if identity != "prov****tail" || strings.Contains(identity, "api_key") || strings.Contains(identity, "{") {
+		t.Fatalf("healthProblemCredentialIdentity() = %q, want api_key mask", identity)
 	}
 }
 
-func TestHealthProblemMaskUsesSafeSubscriptionAccountIdentity(t *testing.T) {
+// 订阅账号在管理面其余位置（凭据卡片、日志）一律展示完整邮箱，这里不再是例外；
+// 泄露边界仍然成立——展示的只是邮箱，refresh/access token 绝不出现在返回值里。
+func TestHealthProblemCredentialIdentityShowsFullSubscriptionEmail(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
 	ciphertext := encryptHealthKey(t, fixture,
 		`{"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret","account_id":"account-one","email":"owner@example.com"}`)
-	mask, err := fixture.service.healthProblemMask(map[uint]string{1: ciphertext}, 1, channel.Codex, "subscription")
+	identity, err := fixture.service.healthProblemCredentialIdentity(map[uint]string{1: ciphertext}, 1, channel.Codex, "subscription")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mask != "o***r@example.com" || strings.Contains(mask, "secret") {
-		t.Fatalf("mask = %q", mask)
+	if identity != "owner@example.com" || strings.Contains(identity, "secret") {
+		t.Fatalf("identity = %q", identity)
 	}
 }
 

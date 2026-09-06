@@ -172,6 +172,7 @@ export interface CredentialAccountDto {
 }
 
 export interface CredentialQuotaWindowDto {
+  source_id?: string
   id: string
   label: string
   label_key?: CredentialQuotaLabelKey
@@ -423,7 +424,8 @@ export interface HealthProblemCredentialDto {
   weight_manual: number | null
   weight_auto: number
   recovery: HealthRecoveryDto
-  mask: string
+  /** API 密钥仍是掩码，订阅账号给完整邮箱，与凭据卡片、日志的展示约定一致。 */
+  identity: string
   last_failure_category: Exclude<FailureCategory, 'ok'>
   last_status_code: number | null
 }

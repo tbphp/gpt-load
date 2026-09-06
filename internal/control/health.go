@@ -44,7 +44,7 @@ type healthProblemCredentialResponse struct {
 	CredentialID            uint                   `json:"credential_id"`
 	GroupID                 uint                   `json:"group_id"`
 	GroupName               string                 `json:"group_name"`
-	Mask                    string                 `json:"mask"`
+	Identity                string                 `json:"identity"`
 	LastFailureCategory     string                 `json:"last_failure_category"`
 	LastStatusCode          *int                   `json:"last_status_code"`
 	CooldownUntilMS         *int64                 `json:"cooldown_until_ms"`
@@ -193,7 +193,10 @@ func optionalHealthStatusCode(value int) *int {
 	return &cloned
 }
 
-func (service *Service) healthProblemMask(
+// healthProblemCredentialIdentity 返回健康问题列表里凭据的展示身份：
+// API 密钥仍是掩码，订阅账号给完整邮箱，与凭据卡片、日志的既有约定一致；
+// 拿不到邮箱时回退到 "Subscription #ID"。access/refresh token 绝不进入返回值。
+func (service *Service) healthProblemCredentialIdentity(
 	ciphertexts map[uint]string,
 	credentialID uint,
 	channelID channel.ID,
@@ -233,8 +236,8 @@ func (service *Service) healthProblemMask(
 		if parseErr != nil {
 			return "", fmt.Errorf("map runtime health subscription credential %d: %w", credentialID, app_errors.ErrInternalServer)
 		}
-		if mask := maskEmail(credential.Account().Email); mask != "" {
-			return mask, nil
+		if email := strings.TrimSpace(credential.Account().Email); email != "" {
+			return email, nil
 		}
 		return fmt.Sprintf("Subscription #%d", credentialID), nil
 	}
@@ -331,7 +334,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			continue
 		}
 		groupView := observation.snapshot.Groups[key.GroupID]
-		mask, err := service.healthProblemMask(
+		identity, err := service.healthProblemCredentialIdentity(
 			observation.problemCiphertexts,
 			key.ID,
 			groupView.ChannelID,
@@ -351,7 +354,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			CredentialID:            key.ID,
 			GroupID:                 key.GroupID,
 			GroupName:               group.Name,
-			Mask:                    mask,
+			Identity:                identity,
 			LastFailureCategory:     lastFailureCategory.String(),
 			LastStatusCode:          optionalHealthStatusCode(lastStatusCode),
 			FailureCount:            key.FailureCount,

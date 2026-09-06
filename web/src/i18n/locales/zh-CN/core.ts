@@ -38,6 +38,7 @@ export default {
       invalid: '请输入有效的 HTTP 或 SOCKS5 代理地址。',
       effective: '当前生效：{mode}',
       ownTooltip: '代理：{type}',
+      ownTooltipClickable: '代理：{type}，点击编辑',
       inherit: {
         global: '继承启动环境',
         group: '继承全局',

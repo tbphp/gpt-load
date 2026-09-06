@@ -38,6 +38,7 @@ export default {
       invalid: '有効な HTTP または SOCKS5 プロキシ URL を入力してください。',
       effective: '現在有効：{mode}',
       ownTooltip: 'プロキシ：{type}',
+      ownTooltipClickable: 'プロキシ：{type}。クリックで編集',
       inherit: {
         global: '起動環境を継承',
         group: 'グローバル設定を継承',

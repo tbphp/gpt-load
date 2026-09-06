@@ -17,14 +17,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/requestlog"
+	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
@@ -842,7 +845,7 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 			CostState:           pricing.CostStateNotApplicable,
 			PricingCompleteness: pricing.CompletenessNotApplicable,
 		}},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("mapRequestLogListResponse() error = %v", err)
 	}
@@ -886,7 +889,7 @@ func TestRequestLogDetailProjectsEmptyAttemptReasoningAsNull(t *testing.T) {
 			FailureCategory: telemetry.FailureCategoryClientError,
 			Action:          telemetry.ActionTerminate,
 		}},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("mapRequestLogDetailResponse() error = %v", err)
 	}
@@ -957,7 +960,7 @@ func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			record := base
 			test.mutate(&record)
-			if _, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}}); err == nil {
+			if _, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}}, nil); err == nil {
 				t.Fatal("mapRequestLogListResponse() error = nil, want rejection")
 			}
 		})
@@ -974,7 +977,7 @@ func TestRequestLogUsageCostProjectionAcceptsMaximumSafeFinalGroupID(t *testing.
 		GroupID: uint(safeGroupID), UsageState: usage.StateComplete,
 		CostState: pricing.CostStatePriced, PricingCompleteness: pricing.CompletenessComplete,
 	}
-	result, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}})
+	result, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}}, nil)
 	if err != nil {
 		t.Fatalf("mapRequestLogListResponse() error = %v", err)
 	}
@@ -1311,7 +1314,7 @@ func TestRequestLogAttemptActionUsesCredentialTerms(t *testing.T) {
 		telemetry.Action("fail_credential"):     "fail_credential",
 		telemetry.ActionTerminate:               string(telemetry.ActionTerminate),
 	} {
-		mapped, err := mapRequestLogAttempt(requestlog.Attempt{Action: input})
+		mapped, err := mapRequestLogAttempt(requestlog.Attempt{Action: input}, nil)
 		if err != nil {
 			t.Fatalf("mapRequestLogAttempt(%q) error = %v", input, err)
 		}
@@ -1333,4 +1336,110 @@ func Example_requestLogOpaqueCursor() {
 	payload := `{"v":2,"completed_at_ms":1784894400000,"request_id":"00000000-0000-4000-8000-000000000001"}`
 	fmt.Println(encodeTestCursorPayload(payload))
 	// Output: eyJ2IjoyLCJjb21wbGV0ZWRfYXRfbXMiOjE3ODQ4OTQ0MDAwMDAsInJlcXVlc3RfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEifQ
+}
+
+// 日志里的凭据要显示成人话：密文常驻凭据注册表，按 ID 取出解密即可，
+// 不额外读库；注册表里没有的（已删除）留空，交由前端显示“已删除 · #id”。
+func TestCredentialLabelsMasksFromRegistryWithoutDatabaseReads(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name: stringPointer("log labels"), ChannelID: channel.OpenAI,
+		ConnectionType: models.ConnectionTypeAPIKey,
+		Models:         optionalGroupModels{Set: true},
+		Credentials:    "sk-log-label-abcdefghijklmnop",
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", created.GroupID).Take(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	queries := 0
+	const callbackName = "test:credential_labels_no_db"
+	if err := fixture.db.Callback().Query().Before("gorm:query").Register(callbackName, func(*gorm.DB) {
+		queries++
+	}); err != nil {
+		t.Fatalf("register query observer: %v", err)
+	}
+	t.Cleanup(func() { _ = fixture.db.Callback().Query().Remove(callbackName) })
+
+	labels := fixture.service.CredentialLabels([]uint{credential.ID, credential.ID, 9_999})
+	if queries != 0 {
+		t.Fatalf("database queries = %d, want 0", queries)
+	}
+	label, exists := labels[credential.ID]
+	if !exists || label == "" {
+		t.Fatalf("label for %d = %q, exists = %v", credential.ID, label, exists)
+	}
+	if strings.Contains(label, "log-label-abcdefghijklmnop") {
+		t.Fatalf("label %q leaks the credential", label)
+	}
+	if want := utils.MaskAPIKey("sk-log-label-abcdefghijklmnop"); label != want {
+		t.Fatalf("label = %q, want %q", label, want)
+	}
+	if _, exists := labels[9_999]; exists {
+		t.Fatalf("unknown credential should be absent, got %q", labels[9_999])
+	}
+}
+
+func TestRequestLogResponsesCarryCredentialLabels(t *testing.T) {
+	t.Parallel()
+	record := requestlog.Record{
+		RequestID:           "11111111-1111-4111-8111-111111111111",
+		CompletedAtMS:       1_700_000_000_000,
+		GroupID:             3,
+		CredentialID:        41,
+		UsageState:          usage.StateComplete,
+		CostState:           pricing.CostStatePriced,
+		PricingCompleteness: pricing.CompletenessComplete,
+		Attempts: []requestlog.Attempt{
+			{Sequence: 1, GroupID: 3, CredentialID: 41},
+			{Sequence: 2, GroupID: 3, CredentialID: 42},
+		},
+	}
+	labels := map[uint]string{41: "m***t@example.com"}
+
+	detail, err := mapRequestLogDetailResponse(record, labels)
+	if err != nil {
+		t.Fatalf("mapRequestLogDetailResponse() error = %v", err)
+	}
+	if detail.CredentialName != "m***t@example.com" {
+		t.Fatalf("item credential_name = %q", detail.CredentialName)
+	}
+	if detail.Attempts[0].CredentialName != "m***t@example.com" {
+		t.Fatalf("attempt 1 credential_name = %q", detail.Attempts[0].CredentialName)
+	}
+	// 注册表里没有的凭据留空，前端据此显示“已删除”。
+	if detail.Attempts[1].CredentialName != "" {
+		t.Fatalf("attempt 2 credential_name = %q, want empty", detail.Attempts[1].CredentialName)
+	}
+
+	list, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}}, labels)
+	if err != nil {
+		t.Fatalf("mapRequestLogListResponse() error = %v", err)
+	}
+	if list.Items[0].CredentialName != "m***t@example.com" {
+		t.Fatalf("list credential_name = %q", list.Items[0].CredentialName)
+	}
+}
+
+// 同一个凭据在一页里反复出现，收集时按出现顺序全量给出，去重交给 CredentialLabels。
+func TestRequestLogCredentialIDsCollectsItemAndAttempts(t *testing.T) {
+	t.Parallel()
+	ids := requestLogCredentialIDs([]requestlog.Record{
+		{CredentialID: 41, Attempts: []requestlog.Attempt{{CredentialID: 41}, {CredentialID: 42}}},
+		{CredentialID: 41},
+	})
+	want := []uint{41, 41, 42, 41}
+	if len(ids) != len(want) {
+		t.Fatalf("ids = %v, want %v", ids, want)
+	}
+	for index := range want {
+		if ids[index] != want[index] {
+			t.Fatalf("ids = %v, want %v", ids, want)
+		}
+	}
 }

@@ -44,6 +44,7 @@ type ObservationAccountSummary struct {
 }
 
 type ObservationQuotaWindow struct {
+	SourceID      string                  `json:"source_id,omitempty"`
 	ID            string                  `json:"id"`
 	Label         string                  `json:"label"`
 	LabelKey      string                  `json:"label_key,omitempty"`
@@ -674,7 +675,7 @@ func providerQuotaWindows(windows []ObservationQuotaWindow) []providerobservatio
 	for _, window := range windows {
 		result = append(result, providerobservation.QuotaWindow{
 			ID: window.ID, Label: window.Label, LabelKey: window.LabelKey,
-			Scope: window.Scope, Unit: window.Unit,
+			Scope: window.Scope, Unit: window.Unit, SourceID: window.SourceID,
 			Used: window.Used, Limit: window.Limit, Remaining: window.Remaining, Utilization: window.Utilization,
 			ResetAtMS: window.ResetAtMS, WindowSeconds: window.WindowSeconds, ModelIDs: window.ModelIDs,
 			State: window.State, IsPrimary: window.IsPrimary,
