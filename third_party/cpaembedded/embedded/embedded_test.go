@@ -570,6 +570,9 @@ func TestCodexHTTPExecutorCanonicalFacadeCapturesQuotaSignalsOnSuccessAndError(t
 
 func TestCodexHTTPExecutorStreamCanonicalFacadeCapturesQuotaSignalsOnHandshake(t *testing.T) {
 	transport := claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		if got := request.URL.String(); got != "https://relay.example/codex/responses" {
+			t.Errorf("request URL = %q", got)
+		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header: http.Header{
@@ -585,6 +588,7 @@ func TestCodexHTTPExecutorStreamCanonicalFacadeCapturesQuotaSignalsOnHandshake(t
 		Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123",
 	}, ExecuteRequest{
 		Model: "gpt-5.2", Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`), Format: "openai-response",
+		BaseURL: "https://relay.example/codex",
 	})
 	if err != nil {
 		t.Fatalf("ExecuteStreamCanonical() error = %v", err)
@@ -601,17 +605,23 @@ func TestCodexHTTPExecutorCanonicalFacadeExecutesOnce(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
+		if r.URL.Path != "/responses" || r.Header.Get("Authorization") != "Bearer access" ||
+			r.Header.Get("Chatgpt-Account-Id") != "account-123" {
+			t.Errorf("request = %s %s %#v", r.Method, r.URL.Path, r.Header)
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.2\",\"output\":[]}}\n\n")
 	}))
 	defer server.Close()
 	executor := NewCodexHTTPExecutor()
 	credential := CodexCredential{Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-123"}
-	// This lower-level auth call only changes the test endpoint. Production
-	// canonical facade deliberately has no base URL input.
-	_, _ = executor.Execute(context.Background(), NewCodexAuth("probe", credential, server.URL), cliproxyexecutor.Request{
-		Model: "gpt-5.2", Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`), Format: sdktranslator.FormatOpenAIResponse,
-	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse})
+	_, err := executor.ExecuteCanonical(context.Background(), "probe", credential, ExecuteRequest{
+		Model: "gpt-5.2", Payload: []byte(`{"model":"gpt-5.2","input":"hello"}`),
+		Format: "openai-response", BaseURL: server.URL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if requests.Load() != 1 {
 		t.Fatalf("requests = %d, want 1", requests.Load())
 	}

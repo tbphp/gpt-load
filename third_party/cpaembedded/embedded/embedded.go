@@ -150,6 +150,7 @@ type ExecuteRequest struct {
 	Headers              http.Header
 	OriginalRequest      []byte
 	ContinuityKey        string
+	BaseURL              string
 	ProxyURL             string
 	ProxyFromEnvironment bool
 }
@@ -385,7 +386,7 @@ func (e *CodexHTTPExecutor) Identifier() string { return ProviderCodex }
 
 func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
 	format := sdktranslator.FromString(request.Format)
-	auth := NewCodexAuth(credentialID, credential, "")
+	auth := NewCodexAuth(credentialID, credential, request.BaseURL)
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
@@ -409,7 +410,7 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 
 func (e *CodexHTTPExecutor) CountTokensCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
 	format := sdktranslator.FromString(request.Format)
-	auth := NewCodexAuth(credentialID, credential, "")
+	auth := NewCodexAuth(credentialID, credential, request.BaseURL)
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
@@ -464,7 +465,7 @@ func normalizeCodexResponsesTokenCount(payload []byte) ([]byte, error) {
 
 func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (*ExecuteStreamResponse, error) {
 	format := sdktranslator.FromString(request.Format)
-	auth := NewCodexAuth(credentialID, credential, "")
+	auth := NewCodexAuth(credentialID, credential, request.BaseURL)
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)

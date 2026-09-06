@@ -136,12 +136,16 @@ func (*codexDriver) AuthorizationFailureDefinitive(err error) bool {
 	}
 }
 
-func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential) ([]string, error) {
+func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return nil, err
 	}
-	models, err := ListModels(ctx, value)
+	baseURL, err := codexTargetBaseURL(target)
+	if err != nil {
+		return nil, err
+	}
+	models, err := ListModels(ctx, value, baseURL)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
@@ -156,12 +160,16 @@ func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionr
 	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderCodex, result), nil
 }
 
-func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
+func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.Observation{}, err
 	}
-	observed, err := ObserveAccount(ctx, value)
+	baseURL, err := codexTargetBaseURL(target)
+	if err != nil {
+		return subscriptionruntime.Observation{}, err
+	}
+	observed, err := ObserveAccount(ctx, value, baseURL)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
@@ -170,7 +178,7 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 		return subscriptionruntime.Observation{}, err
 	}
 	var detailsPayload []byte
-	details, detailErr := ObserveResetCredits(ctx, value)
+	details, detailErr := ObserveResetCredits(ctx, value, baseURL)
 	if detailErr == nil {
 		detailsPayload = details.Payload
 	}
@@ -181,12 +189,16 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 	return subscriptionruntime.Observation{Payload: normalized, Header: observed.Header.Clone(), QuotaObserved: true}, nil
 }
 
-func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.Credential, requestID string) (subscriptionruntime.ResetCreditResult, error) {
+func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target, requestID string) (subscriptionruntime.ResetCreditResult, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.ResetCreditResult{}, err
 	}
-	result, err := ConsumeResetCredit(ctx, value, requestID)
+	baseURL, err := codexTargetBaseURL(target)
+	if err != nil {
+		return subscriptionruntime.ResetCreditResult{}, err
+	}
+	result, err := ConsumeResetCredit(ctx, value, baseURL, requestID)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
@@ -195,6 +207,31 @@ func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.
 		return subscriptionruntime.ResetCreditResult{}, err
 	}
 	return NormalizeResetCreditResult(result.Payload)
+}
+
+func codexTargetBaseURL(target subscriptionruntime.Target) (string, error) {
+	if len(target.Config) == 0 {
+		return "", nil
+	}
+	var config struct {
+		BaseURL string `json:"base_url"`
+	}
+	if err := json.Unmarshal(target.Config, &config); err != nil {
+		return "", fmt.Errorf("decode Codex target: %w", err)
+	}
+	if strings.TrimSpace(config.BaseURL) == "" {
+		return "", nil
+	}
+	baseURL, err := spec.NormalizeBaseURL(config.BaseURL)
+	if err != nil {
+		return "", fmt.Errorf("normalize Codex target: %w", err)
+	}
+	// An empty bridge target preserves Codex's distinct official defaults:
+	// /backend-api/codex for models and /backend-api for quota utilities.
+	if baseURL == modules.CodexDefaultBaseURL {
+		return "", nil
+	}
+	return baseURL, nil
 }
 
 type codexResetCreditPayload struct {

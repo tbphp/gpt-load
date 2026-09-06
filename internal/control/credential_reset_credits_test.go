@@ -71,6 +71,7 @@ func TestConsumeCredentialResetCreditReportsPendingForPartialObservation(t *test
 		context.Context,
 		channel.ID,
 		subscriptionruntime.Credential,
+		subscriptionruntime.Target,
 	) (subscriptionruntime.Observation, error) {
 		return subscriptionruntime.Observation{
 			Payload: []byte(`{"plan_summary":{"name":"Claude Team"},"quota_windows":[]}`),

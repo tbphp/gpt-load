@@ -391,6 +391,44 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 	}
 }
 
+func TestAdapterPassesCustomCodexBaseURLToUnaryAndStreamExecutors(t *testing.T) {
+	const baseURL = "https://relay.example/codex"
+	for _, stream := range []bool{false, true} {
+		name := "unary"
+		if stream {
+			name = "stream"
+		}
+		t.Run(name, func(t *testing.T) {
+			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			fake := &fakeExecutor{result: codex.ExecuteResponse{Payload: []byte(`{"id":"resp_1","model":"gpt-5","output":[]}`)}}
+			if stream {
+				chunks := make(chan codex.ExecuteStreamChunk, 1)
+				chunks <- codex.ExecuteStreamChunk{Payload: []byte(`data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5","output":[]}}`)}
+				close(chunks)
+				fake.stream = &codex.ExecuteStreamResponse{Chunks: chunks}
+			}
+			setCodexExecutor(t, adapter, fake)
+			spec := validSpec(t, row, keyService)
+			spec.TargetConfig = json.RawMessage(`{"base_url":"` + baseURL + `"}`)
+
+			if stream {
+				result := adapter.ExecuteStream(t.Context(), spec, func(execution.StreamEvent) error { return nil })
+				if result.Error != nil {
+					t.Fatalf("ExecuteStream() error = %#v", result.Error)
+				}
+			} else {
+				result := adapter.Execute(t.Context(), spec)
+				if result.Error != nil {
+					t.Fatalf("Execute() error = %#v", result.Error)
+				}
+			}
+			if fake.calls != 1 || fake.request.BaseURL != baseURL {
+				t.Fatalf("calls/request = %d/%#v", fake.calls, fake.request)
+			}
+		})
+	}
+}
+
 func TestAdapterExecutesCodexImagesWithFixedCanonicalPath(t *testing.T) {
 	t.Parallel()
 
@@ -895,6 +933,7 @@ func TestAdapterRejectsUnsupportedAntigravityInputBeforeCredentialPreparation(t 
 	adapter.credentials = preparer
 	spec := validSpec(t, row, keyService)
 	spec.ChannelID = string(channel.Antigravity)
+	spec.TargetConfig = json.RawMessage(`{}`)
 	spec.ClientProtocol = protocol.OpenAIResponses
 	spec.Operation = execution.OperationResponsesCreate
 	spec.RouteMode = execution.RouteConverted
@@ -1581,5 +1620,5 @@ func validSpec(t *testing.T, row models.Credential, keyService encryption.Servic
 	if err != nil {
 		t.Fatal(err)
 	}
-	return execution.NewAttemptSpec(execution.AttemptSpec{RequestID: "request-1", AttemptID: "attempt-1", Sequence: 1, ChannelID: "codex", RouteMode: execution.RouteNative, ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, ClientModel: "gpt-5", UpstreamModel: "gpt-5", Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{"model":"gpt-5","input":"hi"}`), Credential: execution.NewCredentialSnapshot(row.ID, row.SecretVersion, 1, []byte(plaintext))})
+	return execution.NewAttemptSpec(execution.AttemptSpec{RequestID: "request-1", AttemptID: "attempt-1", Sequence: 1, ChannelID: "codex", RouteMode: execution.RouteNative, ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, ClientModel: "gpt-5", UpstreamModel: "gpt-5", Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{"model":"gpt-5","input":"hi"}`), TargetConfig: json.RawMessage(`{"base_url":"https://chatgpt.com/backend-api/codex"}`), Credential: execution.NewCredentialSnapshot(row.ID, row.SecretVersion, 1, []byte(plaintext))})
 }

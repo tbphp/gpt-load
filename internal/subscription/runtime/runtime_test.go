@@ -48,21 +48,21 @@ func TestRuntimeRequiresExplicitImplementations(t *testing.T) {
 type testDiscovery struct{ id spec.UtilityID }
 
 func (value testDiscovery) ID() spec.UtilityID { return value.id }
-func (testDiscovery) DiscoverModels(context.Context, Credential) ([]string, error) {
+func (testDiscovery) DiscoverModels(context.Context, Credential, Target) ([]string, error) {
 	return nil, nil
 }
 
 type testObservation struct{ id spec.UtilityID }
 
 func (value testObservation) ID() spec.UtilityID { return value.id }
-func (testObservation) Observe(context.Context, Credential) (Observation, error) {
+func (testObservation) Observe(context.Context, Credential, Target) (Observation, error) {
 	return Observation{}, nil
 }
 
 type testResetCredit struct{ id spec.ActionID }
 
 func (value testResetCredit) ID() spec.ActionID { return value.id }
-func (testResetCredit) Consume(context.Context, Credential, string) (ResetCreditResult, error) {
+func (testResetCredit) Consume(context.Context, Credential, Target, string) (ResetCreditResult, error) {
 	return ResetCreditResult{}, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"gpt-load/internal/channel/modules"
 	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
@@ -195,6 +196,10 @@ func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) 
 		!reflect.DeepEqual(descriptor.Capabilities.CredentialActions, []CredentialAction{CredentialActionResetCredit}) {
 		t.Fatalf("subscription capabilities = %#v", descriptor.Capabilities)
 	}
+	if len(descriptor.ParamFields) != 1 || descriptor.ParamFields[0].Key != "base_url" ||
+		descriptor.ParamFields[0].InputKind != InputURL || descriptor.ParamFields[0].Required {
+		t.Fatalf("Codex Base URL field = %#v", descriptor.ParamFields)
+	}
 	openAI, ok := registry.Get(OpenAI)
 	if !ok || openAI.Connection.Type != "api_key" {
 		t.Fatalf("OpenAI connection = %#v, found = %t", openAI.Connection, ok)
@@ -206,6 +211,16 @@ func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) 
 	target, err := registry.Resolve(Codex, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got := string(target.TargetConfig); got != `{"base_url":"`+modules.CodexDefaultBaseURL+`"}` {
+		t.Fatalf("Codex default target = %s", got)
+	}
+	override, err := registry.Resolve(Codex, json.RawMessage(`{"base_url":"HTTPS://RELAY.EXAMPLE:443/codex/"}`))
+	if err != nil || string(override.TargetConfig) != `{"base_url":"https://relay.example/codex"}` {
+		t.Fatalf("Codex override target = %s, %v", override.TargetConfig, err)
+	}
+	if _, err := registry.ResolveExecutionTarget(Codex, override.TargetConfig); err != nil {
+		t.Fatalf("ResolveExecutionTarget(Codex override) error = %v", err)
 	}
 	for clientProtocol, expectation := range map[protocol.Protocol]struct {
 		operation execution.Operation

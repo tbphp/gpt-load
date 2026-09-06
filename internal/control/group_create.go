@@ -174,9 +174,6 @@ func (s *Service) normalizeGroupCreate(
 	if err != nil {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
-	if connectionType == models.ConnectionTypeSubscription && string(params.CanonicalJSON()) != "{}" {
-		return normalizedGroupCreate{}, app_errors.ErrValidation
-	}
 	descriptor, ok := s.channelRegistry.Get(request.ChannelID)
 	if !ok {
 		return normalizedGroupCreate{}, app_errors.ErrValidation

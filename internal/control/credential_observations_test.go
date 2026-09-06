@@ -364,6 +364,7 @@ func TestRefreshCredentialObservationKeepsFreshQuotaWhenPartialUsageIsMissing(t 
 		context.Context,
 		channel.ID,
 		subscriptionruntime.Credential,
+		subscriptionruntime.Target,
 	) (subscriptionruntime.Observation, error) {
 		return subscriptionruntime.Observation{
 			Payload:         []byte(`{"account_summary":{"display_name":"Updated owner"},"quota_windows":[]}`),
@@ -393,6 +394,7 @@ func TestRefreshCredentialObservationMergesSparseAccountWithFreshQuota(t *testin
 		context.Context,
 		channel.ID,
 		subscriptionruntime.Credential,
+		subscriptionruntime.Target,
 	) (subscriptionruntime.Observation, error) {
 		return subscriptionruntime.Observation{Payload: []byte(`{
 			"plan_summary":{"name":"Claude Team"},
@@ -415,6 +417,7 @@ func TestRefreshCredentialObservationMergesSparseAccountWithFreshQuota(t *testin
 		context.Context,
 		channel.ID,
 		subscriptionruntime.Credential,
+		subscriptionruntime.Target,
 	) (subscriptionruntime.Observation, error) {
 		return subscriptionruntime.Observation{
 			Payload: []byte(`{
@@ -498,6 +501,7 @@ func TestRefreshCredentialObservationMergesCoveredQuotaScopes(t *testing.T) {
 				context.Context,
 				channel.ID,
 				subscriptionruntime.Credential,
+				subscriptionruntime.Target,
 			) (subscriptionruntime.Observation, error) {
 				return subscriptionruntime.Observation{Payload: []byte(`{
 					"plan_summary":{"name":"Pro"},
@@ -517,6 +521,7 @@ func TestRefreshCredentialObservationMergesCoveredQuotaScopes(t *testing.T) {
 				context.Context,
 				channel.ID,
 				subscriptionruntime.Credential,
+				subscriptionruntime.Target,
 			) (subscriptionruntime.Observation, error) {
 				return test.observation, nil
 			}
@@ -558,6 +563,7 @@ func TestRefreshCredentialObservationRetriesOnceAfterUnauthorized(t *testing.T) 
 		context.Context,
 		channel.ID,
 		subscriptionruntime.Credential,
+		subscriptionruntime.Target,
 	) (subscriptionruntime.Observation, error) {
 		observationCalls++
 		if observationCalls == 1 {
@@ -594,6 +600,7 @@ func TestRefreshCredentialObservationClassifiesRepeatedAuthorizationFailure(t *t
 		context.Context,
 		channel.ID,
 		subscriptionruntime.Credential,
+		subscriptionruntime.Target,
 	) (subscriptionruntime.Observation, error) {
 		observationCalls++
 		return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: 401}
@@ -647,6 +654,7 @@ func TestRefreshCredentialObservationClassifiesNonRefreshableHTTPFailure(t *test
 				context.Context,
 				channel.ID,
 				subscriptionruntime.Credential,
+				subscriptionruntime.Target,
 			) (subscriptionruntime.Observation, error) {
 				observationCalls++
 				return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: test.statusCode}
@@ -668,6 +676,7 @@ func TestRefreshCredentialObservationPersistsPartialSnapshotAsStale(t *testing.T
 		context.Context,
 		channel.ID,
 		subscriptionruntime.Credential,
+		subscriptionruntime.Target,
 	) (subscriptionruntime.Observation, error) {
 		return subscriptionruntime.Observation{
 			Payload: []byte(`{"plan_summary":{"name":"Claude Team"},"account_summary":{"display_name":"Owner"},"quota_windows":[]}`),
@@ -765,6 +774,7 @@ func TestRefreshClaudeCredentialObservationPublishesAccountAndQuota(t *testing.T
 		_ context.Context,
 		channelID channel.ID,
 		credential subscriptionruntime.Credential,
+		_ subscriptionruntime.Target,
 	) (subscriptionruntime.Observation, error) {
 		if channelID != channel.Claude {
 			return subscriptionruntime.Observation{}, errors.New("unexpected subscription channel")

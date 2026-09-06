@@ -214,7 +214,11 @@ func (s *Service) refreshCredentialObservationOnce(
 	observeContext, cancelObserve := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancelObserve()
 	channelID := channel.ID(group.ChannelID)
-	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
+	target, err := s.resolveSubscriptionTarget(channelID, group.Params)
+	if err != nil {
+		return CredentialObservationResponse{}, app_errors.ErrInternalServer
+	}
+	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential, target)
 	authRefreshVersion := previous.LastAuthRefreshSecretVersion
 	if subscriptionUpstreamHTTPStatus(observeErr) == http.StatusUnauthorized &&
 		(previous.LastAuthRefreshSecretVersion == nil ||
@@ -235,7 +239,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		}
 		version := refreshed.SecretVersion
 		authRefreshVersion = &version
-		observation, observeErr = s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
+		observation, observeErr = s.observeSubscriptionAccount(observeContext, channelID, preparedCredential, target)
 	}
 	if observeErr != nil {
 		if errors.Is(observeErr, subscriptionruntime.ErrObservationPayloadInvalid) {

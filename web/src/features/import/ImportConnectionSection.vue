@@ -32,6 +32,7 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const proxySupported = computed(() => props.channel?.capabilities.outbound_proxy === true)
+const visibleParamFields = computed(() => props.channel?.param_fields ?? [])
 const proxyModeOptions = computed(() => [
   { value: 'inherit', label: t('common.proxy.inherit.group') },
   { value: 'direct', label: t('common.proxy.mode.direct') },
@@ -64,10 +65,17 @@ function fieldError(key: string): string {
 }
 
 function isOptionalBaseURL(key: string, required: boolean): boolean {
-  return key === 'base_url' && !required
+  return props.channel?.channel_id !== 'codex' && key === 'base_url' && !required
 }
 
 function baseURLDescription(): string {
+  if (props.channel?.channel_id === 'codex') {
+    return props.channel.default_base_url
+      ? t('import.subscription.baseUrlHelpWithDefault', {
+          url: props.channel.default_base_url,
+        })
+      : t('import.subscription.baseUrlHelp')
+  }
   if (props.channel?.channel_id === 'gpt_load') {
     return t('import.connection.gptLoadUrlDescription')
   }
@@ -87,6 +95,20 @@ function baseURLDescription(): string {
   return t('import.connection.urlDescriptionWithDefault', {
     url: props.channel.default_base_url,
   })
+}
+
+function paramLabel(key: string, label: string): string {
+  if (key !== 'base_url') return label
+  return props.channel?.channel_id === 'codex'
+    ? t('import.subscription.baseUrlLabel')
+    : t('import.connection.url')
+}
+
+function paramPlaceholder(key: string, inputKind: string): string | undefined {
+  if (inputKind !== 'url') return undefined
+  return key === 'base_url' && props.channel?.channel_id === 'codex'
+    ? t('import.subscription.baseUrlPlaceholder')
+    : 'https://'
 }
 
 function baseURLVersionWarning(key: string): string | undefined {
@@ -122,8 +144,8 @@ function baseURLVersionWarning(key: string): string | undefined {
         </template>
       </FormField>
 
-      <div v-if="channel?.param_fields.length" class="import-connection__params">
-        <template v-for="param in channel.param_fields" :key="param.key">
+      <div v-if="visibleParamFields.length" class="import-connection__params">
+        <template v-for="param in visibleParamFields" :key="param.key">
           <FormField
             v-if="isOptionalBaseURL(param.key, param.required)"
             id="import-channel-base-url-override"
@@ -174,7 +196,7 @@ function baseURLVersionWarning(key: string): string | undefined {
             v-else
             :id="`import-channel-param-${param.key}`"
             class="import-connection__param"
-            :label="param.key === 'base_url' ? t('import.connection.url') : param.label"
+            :label="paramLabel(param.key, param.label)"
             :description="param.key === 'base_url' ? baseURLDescription() : undefined"
             :description-warning="
               param.key === 'base_url' ? baseURLVersionWarning(param.key) : undefined
@@ -196,7 +218,7 @@ function baseURLVersionWarning(key: string): string | undefined {
                 autocomplete="off"
                 autocapitalize="none"
                 spellcheck="false"
-                :placeholder="param.input_kind === 'url' ? 'https://' : undefined"
+                :placeholder="paramPlaceholder(param.key, param.input_kind)"
                 @input="emit('update:param', param.key, ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur:param', param.key)"
               />

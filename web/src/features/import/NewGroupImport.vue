@@ -295,7 +295,9 @@ const allParamErrors = computed<Record<string, string>>(() => {
   if (!channel) return errors
   for (const field of channel.param_fields) {
     const value = draft.params[field.key]?.trim() ?? ''
-    if ((field.required || (field.key === 'base_url' && baseUrlOverrideEnabled.value)) && !value) {
+    const overrideRequired =
+      channel.channel_id !== 'codex' && field.key === 'base_url' && baseUrlOverrideEnabled.value
+    if ((field.required || overrideRequired) && !value) {
       errors[field.key] = t('import.connection.paramRequired', { name: field.label })
       continue
     }

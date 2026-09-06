@@ -102,6 +102,7 @@ type providerRequest struct {
 	// ContinuityKey is a private, tenant-scoped key used only by providers
 	// whose tool/thinking protocol needs an isolated multi-request replay lane.
 	ContinuityKey        string
+	BaseURL              string
 	ProxyURL             string
 	ProxyFromEnvironment bool
 }

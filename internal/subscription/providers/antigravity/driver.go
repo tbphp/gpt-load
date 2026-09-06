@@ -124,7 +124,7 @@ func (*antigravityDriver) ImportCredential(ctx context.Context, raw []byte) (sub
 	return antigravityRuntimeCredential(value, canonical), nil
 }
 
-func (*antigravityDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential) ([]string, error) {
+func (*antigravityDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return nil, err
@@ -144,7 +144,7 @@ func (*antigravityDriver) DiscoverModels(ctx context.Context, credential subscri
 	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderAntigravity, result), nil
 }
 
-func (*antigravityDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
+func (*antigravityDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.Observation{}, err

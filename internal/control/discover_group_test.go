@@ -374,6 +374,7 @@ func TestClaudeGroupDiscoversModelsAndBecomesAvailableAfterSelection(t *testing.
 		_ context.Context,
 		channelID channel.ID,
 		credential subscriptionruntime.Credential,
+		_ subscriptionruntime.Target,
 	) ([]string, error) {
 		if channelID != channel.Claude {
 			return nil, errors.New("unexpected subscription channel")
@@ -467,7 +468,7 @@ func TestDiscoverGroupModelsRefreshesSameCredentialOnceAfterUnauthorized(t *test
 		return credential, nil
 	}
 	discoveryCalls := 0
-	fixture.service.discoverSubscriptionModels = func(_ context.Context, _ channel.ID, credential subscriptionruntime.Credential) ([]string, error) {
+	fixture.service.discoverSubscriptionModels = func(_ context.Context, _ channel.ID, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) ([]string, error) {
 		discoveryCalls++
 		parsed, parseErr := codex.ParseCredentialJSON(credential.Canonical())
 		if parseErr != nil {

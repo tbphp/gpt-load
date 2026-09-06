@@ -251,10 +251,6 @@ func (s *Service) UpdateGroupSettings(
 			if validateErr != nil {
 				return app_errors.ErrValidation
 			}
-			if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription &&
-				string(params.CanonicalJSON()) != "{}" {
-				return app_errors.ErrValidation
-			}
 			group.Params = models.JSON(params.CanonicalJSON())
 			targetChanged = !bytes.Equal(bytes.TrimSpace(previousParams), bytes.TrimSpace(group.Params))
 			updates["params"] = append(models.JSON(nil), group.Params...)

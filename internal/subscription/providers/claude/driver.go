@@ -134,7 +134,7 @@ func (*claudeDriver) AuthorizationFailureDefinitive(err error) bool {
 	}
 }
 
-func (*claudeDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential) ([]string, error) {
+func (*claudeDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return nil, err
@@ -154,7 +154,7 @@ func (*claudeDriver) DiscoverModels(ctx context.Context, credential subscription
 	return result, nil
 }
 
-func (*claudeDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
+func (*claudeDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.Observation{}, err

@@ -49,6 +49,28 @@ func TestCodexImplementationsExposeCompleteCapabilities(t *testing.T) {
 	}
 }
 
+func TestCodexTargetBaseURLPreservesOfficialUtilityDefaultsAndCustomOverrides(t *testing.T) {
+	tests := []struct {
+		name   string
+		target subscriptionruntime.Target
+		want   string
+		fail   bool
+	}{
+		{name: "empty"},
+		{name: "official", target: subscriptionruntime.NewTarget([]byte(`{"base_url":"` + modules.CodexDefaultBaseURL + `"}`))},
+		{name: "custom", target: subscriptionruntime.NewTarget([]byte(`{"base_url":"HTTPS://RELAY.EXAMPLE:443/codex/"}`)), want: "https://relay.example/codex"},
+		{name: "invalid", target: subscriptionruntime.NewTarget([]byte(`{"base_url":"relative"}`)), fail: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := codexTargetBaseURL(test.target)
+			if (err != nil) != test.fail || got != test.want {
+				t.Fatalf("codexTargetBaseURL() = %q, %v", got, err)
+			}
+		})
+	}
+}
+
 func TestCodexDriverClassifiesRefreshFailures(t *testing.T) {
 	driver := newCodexDriver()
 	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got.Kind != subscriptionruntime.RefreshFailureIdentityChanged {

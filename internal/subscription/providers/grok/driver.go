@@ -139,7 +139,7 @@ type grokModelDiscovery struct{ *grokDriver }
 
 func (grokModelDiscovery) ID() spec.UtilityID { return modules.GrokModelDiscovery }
 
-func (*grokDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential) ([]string, error) {
+func (*grokDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return nil, err
@@ -155,7 +155,7 @@ func (*grokDriver) DiscoverModels(ctx context.Context, credential subscriptionru
 	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderGrok, models), nil
 }
 
-func (*grokDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
+func (*grokDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.Observation{}, err

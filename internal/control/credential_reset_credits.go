@@ -74,6 +74,10 @@ func (s *Service) ConsumeCredentialResetCredit(
 	if _, supported := s.subscriptions.ResetCreditAction(channelID); !supported {
 		return ResetCreditConsumeResponse{}, app_errors.ErrValidation
 	}
+	target, err := s.resolveSubscriptionTarget(channelID, group.Params)
+	if err != nil {
+		return ResetCreditConsumeResponse{}, app_errors.ErrInternalServer
+	}
 	preparedCredential, err := s.prepareStoredSubscriptionCredential(ctx, group, credential)
 	if err != nil {
 		return ResetCreditConsumeResponse{}, err
@@ -98,7 +102,7 @@ func (s *Service) ConsumeCredentialResetCredit(
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 	}
 	callContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
-	upstream, consumeErr := s.consumeSubscriptionResetCredit(callContext, channelID, preparedCredential, operation.RedeemRequestID)
+	upstream, consumeErr := s.consumeSubscriptionResetCredit(callContext, channelID, preparedCredential, target, operation.RedeemRequestID)
 	cancel()
 	if consumeErr != nil {
 		state, apiErr := classifyResetCreditConsumeError(consumeErr)
