@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"reflect"
 	"testing"
 	"time"
@@ -255,7 +254,6 @@ func TestInspectEligiblePoolMatchesIteratorInitialWeightedPool(t *testing.T) {
 		snapshot,
 		registry,
 		query,
-		rand.New(rand.NewSource(1)),
 		func() time.Time { return now },
 	)
 	weighted, _ := iterator.weightedPoolForMode(channel.RouteNative, now)
@@ -316,7 +314,6 @@ func TestInspectEligiblePoolMatchesIteratorCredentialAuthorization(t *testing.T)
 		snapshot,
 		registry,
 		query,
-		rand.New(rand.NewSource(1)),
 		func() time.Time { return now },
 	)
 	weighted, _ := iterator.weightedPoolForMode(channel.RouteNative, now)
@@ -379,7 +376,6 @@ func TestInspectEligiblePoolMatchesIteratorWhenQuotaObservationsDiffer(t *testin
 		snapshot,
 		registry,
 		query,
-		rand.New(rand.NewSource(1)),
 		func() time.Time { return now },
 	)
 	weighted, _ := iterator.weightedPoolForMode(channel.RouteNative, now)

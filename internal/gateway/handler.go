@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -99,7 +98,6 @@ type Handler struct {
 	requestLogSink      telemetry.RequestLogSink
 	priceTables         PriceTableProvider
 	accessQuota         *accessquota.Runtime
-	newRandom           func() *rand.Rand
 	newRequestID        func() (string, error)
 	requestNow          func() time.Time
 	now                 func() time.Time
@@ -157,6 +155,7 @@ func NewHandler(
 	if requestLogSink == nil {
 		requestLogSink = telemetry.NoopRequestLogSink{}
 	}
+	manager.SetSchedulingState(registry.SchedulingState())
 	channels := channel.NewRegistry()
 	subscriptions, _ := subscriptionruntime.NewRuntime(channels, subscriptionproviders.Implementations()...)
 	handler := &Handler{
@@ -164,7 +163,6 @@ func NewHandler(
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
 		affinityCache:  affinity.NewCache(),
-		newRandom:      func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
 		newRequestID:   newRequestID,
 		requestNow:     time.Now,
 		now:            time.Now,
@@ -584,7 +582,8 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		allowedCredentialRefs,
 	)
 	query.PreferredCredentialID = requestAffinity.preferredCredentialID
-	iterator := scheduler.New(snapshot, handler.registry, query, handler.newRandom())
+	query.AllowedCredentialRefs = allowedCredentialRefs
+	iterator := scheduler.New(snapshot, handler.registry, query)
 	handler.executeAttempts(
 		ginContext,
 		iterator,
@@ -955,6 +954,9 @@ func (handler *Handler) executeAttempts(
 			authRefreshReplayUsed = true
 			forceCredentialRefresh = currentRef.Version <= refreshRetry.ref.Version
 			refreshRetry = nil
+			if !iterator.ChargeReplay(selection, ref) {
+				continue
+			}
 		} else {
 			var err error
 			selection, err = iterator.Next()

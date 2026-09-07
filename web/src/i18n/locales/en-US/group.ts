@@ -210,8 +210,9 @@ export default {
         danger: 'Danger zone',
       },
       routing: {
-        description: 'Manual weight applies only when explicitly overridden.',
-        weightHelp: 'Auto is decided by runtime scheduling; manual ranges from 1 to 100',
+        description: 'Adjust the relative weight used for request allocation.',
+        weightHelp:
+          'Default: 50. Range: 1–100. Multiplied by credential weight to determine allocation shares.',
       },
       headers: {
         description:
@@ -307,7 +308,7 @@ export default {
         validationModelPlaceholder: 'Search or enter a model ID',
         validationModelHelp:
           'Leave empty to use the first model in this Group; enter the upstream model ID, not an alias.',
-        weight: 'Manual Group weight',
+        weight: 'Group weight',
         auto: 'Auto',
         manual: 'Manual',
         weightError: 'Enter a whole number from 1 to 100',

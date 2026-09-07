@@ -127,7 +127,6 @@ func TestIteratorRejectsProtocolOnlyGroupWithoutConfiguredModels(t *testing.T) {
 				Status: state.AccessKeyStatusActive,
 			},
 		},
-		rand.New(zeroRandSource{}),
 	)
 	if iterator.StaticReason() != ReasonNoRouteTarget {
 		t.Fatalf("StaticReason() = %q, want %q", iterator.StaticReason(), ReasonNoRouteTarget)
@@ -138,13 +137,9 @@ func TestIteratorRejectsProtocolOnlyGroupWithoutConfiguredModels(t *testing.T) {
 }
 
 type fakeCredentialSource struct {
-	keys []state.CredentialMeta
+	progress *state.SchedulingState
+	keys     []state.CredentialMeta
 }
-
-type zeroRandSource struct{}
-
-func (zeroRandSource) Int63() int64 { return 0 }
-func (zeroRandSource) Seed(int64)   {}
 
 func (source fakeCredentialSource) CollectCredentialCandidates(groupIDs []uint, excluded func(uint) bool, _ time.Time) []state.CredentialMeta {
 	allowed := make(map[uint]struct{}, len(groupIDs))
@@ -173,14 +168,14 @@ func TestIteratorUsesInjectedTimeForCandidateEligibility(t *testing.T) {
 	}
 
 	query := Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}
-	cooling := newWithClock(schedulerSnapshot(), registry, query, rand.New(rand.NewSource(1)), func() time.Time {
+	cooling := newWithClock(schedulerSnapshot(), registry, query, func() time.Time {
 		return now
 	})
 	if _, err := cooling.Next(); !errors.Is(err, ErrExhausted) {
 		t.Fatalf("Next() while cooling error = %v, want ErrExhausted", err)
 	}
 
-	expired := newWithClock(schedulerSnapshot(), registry, query, rand.New(rand.NewSource(1)), func() time.Time {
+	expired := newWithClock(schedulerSnapshot(), registry, query, func() time.Time {
 		return now.Add(time.Second)
 	})
 	selection, err := expired.Next()
@@ -194,8 +189,7 @@ func TestIteratorSkipGroupExcludesWholeGroup(t *testing.T) {
 		{ID: 11, GroupID: 1}, {ID: 12, GroupID: 1}, {ID: 21, GroupID: 2},
 	}}
 	iterator := New(schedulerSnapshot(), source,
-		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
-		rand.New(zeroRandSource{}))
+		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")})
 	first, err := iterator.Next()
 	if err != nil || first.CredentialID != 11 {
 		t.Fatalf("first Next() = (%#v, %v), want key 11", first, err)
@@ -216,13 +210,13 @@ func TestIteratorSkipGroupIsRequestLocal(t *testing.T) {
 		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
 	}}
 	query := Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}
-	first := New(schedulerSnapshot(), source, query, rand.New(zeroRandSource{}))
+	first := New(schedulerSnapshot(), source, query)
 	first.SkipGroup(1)
 	selection, err := first.Next()
 	if err != nil || selection.GroupID != 2 {
 		t.Fatalf("skipping iterator Next() = (%#v, %v), want group 2", selection, err)
 	}
-	second := New(schedulerSnapshot(), source, query, rand.New(zeroRandSource{}))
+	second := New(schedulerSnapshot(), source, query)
 	selection, err = second.Next()
 	if err != nil || selection.GroupID != 1 {
 		t.Fatalf("fresh iterator Next() = (%#v, %v), want group 1", selection, err)
@@ -235,7 +229,7 @@ func TestIteratorSkipGroupIgnoresNilReceiverAndZeroID(t *testing.T) {
 
 	iterator := New(schedulerSnapshot(), fakeCredentialSource{keys: []state.CredentialMeta{
 		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
-	}}, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, rand.New(zeroRandSource{}))
+	}}, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")})
 	iterator.SkipGroup(0)
 	selection, err := iterator.Next()
 	if err != nil || selection.GroupID != 1 {
@@ -252,8 +246,7 @@ func TestIteratorSkipGroupExcludesKeysAddedAfterSkip(t *testing.T) {
 		t.Fatalf("Replace() error = %v", err)
 	}
 	iterator := New(schedulerSnapshot(), registry,
-		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
-		rand.New(zeroRandSource{}))
+		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")})
 	iterator.SkipGroup(1)
 	if err := registry.ApplyCredentialImport(1, []state.CredentialEntry{{
 		ID: 12, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "new",
@@ -279,7 +272,6 @@ func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {
 		schedulerSnapshot(),
 		source,
 		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
-		rand.New(rand.NewSource(7)),
 	)
 
 	seen := make(map[uint]struct{})
@@ -318,9 +310,9 @@ func TestIteratorUsesEffectiveWeights(t *testing.T) {
 		{ID: 2, GroupID: 2, WeightAuto: 100},
 	}}
 	counts := map[uint]int{}
-	random := rand.New(rand.NewSource(99))
+	source.progress = state.NewSchedulingState()
 	for range 12000 {
-		iterator := New(snapshot, source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, random)
+		iterator := New(snapshot, source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")})
 		selection, err := iterator.Next()
 		if err != nil {
 			t.Fatalf("Next() error = %v", err)
@@ -340,13 +332,12 @@ func TestIteratorUsesKeyWeights(t *testing.T) {
 		{ID: 2, GroupID: 1, WeightAuto: 50},
 	}}
 	counts := map[uint]int{}
-	random := rand.New(rand.NewSource(99))
+	source.progress = state.NewSchedulingState()
 	for range 12000 {
 		iterator := New(
 			schedulerSnapshot(),
 			source,
 			Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
-			random,
 		)
 		selection, err := iterator.Next()
 		if err != nil {
@@ -401,9 +392,9 @@ func TestIteratorExcludesZeroManualWeights(t *testing.T) {
 			{ID: 21, GroupID: 2, WeightAuto: state.DefaultWeight},
 		}}
 
-		random := rand.New(rand.NewSource(1))
+		source.progress = state.NewSchedulingState()
 		for range 200 {
-			iterator := New(snapshot, source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, random)
+			iterator := New(snapshot, source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")})
 			selection, err := iterator.Next()
 			if err != nil || selection.CredentialID != 21 {
 				t.Fatalf("Next() = (%#v, %v), want enabled group key 21", selection, err)
@@ -418,9 +409,9 @@ func TestIteratorExcludesZeroManualWeights(t *testing.T) {
 			{ID: 12, GroupID: 1, WeightAuto: state.DefaultWeight},
 		}}
 
-		random := rand.New(rand.NewSource(1))
+		source.progress = state.NewSchedulingState()
 		for range 200 {
-			iterator := New(schedulerSnapshot(), source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, random)
+			iterator := New(schedulerSnapshot(), source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")})
 			selection, err := iterator.Next()
 			if err != nil || selection.CredentialID != 12 {
 				t.Fatalf("Next() = (%#v, %v), want enabled key 12", selection, err)
@@ -442,7 +433,6 @@ func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
 			snapshot,
 			fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight}}},
 			Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
-			rand.New(rand.NewSource(1)),
 		)
 		if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
 			t.Fatalf("Next() error = %v, want ErrExhausted", err)
@@ -458,7 +448,6 @@ func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
 				{ID: 21, GroupID: 2, WeightManual: &zero, WeightAuto: state.DefaultWeight},
 			}},
 			Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
-			rand.New(rand.NewSource(1)),
 		)
 		if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
 			t.Fatalf("Next() error = %v, want ErrExhausted", err)
@@ -471,7 +460,6 @@ func TestIteratorUsesDefaultWeights(t *testing.T) {
 		schedulerSnapshot(),
 		fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1}}},
 		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
-		rand.New(rand.NewSource(1)),
 	)
 	selection, err := iterator.Next()
 	if err != nil || selection.CredentialID != 11 {
@@ -494,7 +482,6 @@ func TestIteratorPrefersEligibleCredentialThenResumesWeightedCandidates(t *testi
 			ExternalModel:         modelPointer("gpt-4o"),
 			PreferredCredentialID: 12,
 		},
-		rand.New(zeroRandSource{}),
 	)
 
 	first, err := iterator.Next()
@@ -523,7 +510,6 @@ func TestIteratorIgnoresIneligiblePreferredCredential(t *testing.T) {
 			ExternalModel:         modelPointer("gpt-4o"),
 			PreferredCredentialID: 12,
 		},
-		rand.New(zeroRandSource{}),
 	)
 
 	selection, err := iterator.Next()
@@ -543,7 +529,6 @@ func TestIteratorReadsRegistryChangesBetweenNextCalls(t *testing.T) {
 		schedulerSnapshot(),
 		registry,
 		Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
-		rand.New(rand.NewSource(1)),
 	)
 	first, err := iterator.Next()
 	if err != nil || first.CredentialID != 11 {
@@ -576,7 +561,6 @@ func TestIteratorRestrictsLiveCandidatesToAllowedCredentialIDs(t *testing.T) {
 			ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o"),
 			AllowedCredentialIDs: allowed,
 		},
-		rand.New(zeroRandSource{}),
 	)
 
 	delete(allowed, 11)
@@ -628,7 +612,7 @@ func TestIteratorPropertyNeverEscapesAccessFilters(t *testing.T) {
 		for _, target := range targets {
 			frozenGroups[target.target.GroupID] = struct{}{}
 		}
-		iterator := New(snapshot, source, query, rand.New(rand.NewSource(int64(caseIndex+1))))
+		iterator := New(snapshot, source, query)
 
 		skipped := make(map[uint]struct{})
 		for {
@@ -668,9 +652,9 @@ func TestIteratorExhaustsForNilOrEmptyDependencies(t *testing.T) {
 		name     string
 		iterator *Iterator
 	}{
-		{name: "nil snapshot", iterator: New(nil, fakeCredentialSource{}, Query{}, rand.New(rand.NewSource(1)))},
-		{name: "nil key source", iterator: New(schedulerSnapshot(), nil, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, rand.New(rand.NewSource(1)))},
-		{name: "nil random", iterator: New(schedulerSnapshot(), fakeCredentialSource{}, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}, nil)},
+		{name: "nil snapshot", iterator: New(nil, fakeCredentialSource{}, Query{})},
+		{name: "nil key source", iterator: New(schedulerSnapshot(), nil, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")})},
+		{name: "empty source", iterator: New(schedulerSnapshot(), fakeCredentialSource{}, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")})},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -710,4 +694,15 @@ func schedulerSnapshot() *state.ConfigSnapshot {
 		panic(err)
 	}
 	return snapshot
+}
+
+func (source fakeCredentialSource) SchedulingState() *state.SchedulingState {
+	progress := source.progress
+	if progress == nil {
+		progress = state.NewSchedulingState()
+	}
+	for _, meta := range source.keys {
+		progress.SyncCredential(state.CredentialRuntimeView{ID: meta.ID, GroupID: meta.GroupID, IdentityGeneration: meta.IdentityGeneration, Status: state.CredentialStatusActive})
+	}
+	return progress
 }

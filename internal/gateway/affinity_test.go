@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"bytes"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -19,21 +18,12 @@ import (
 	"gpt-load/internal/telemetry"
 )
 
-type affinityFixedRandSource struct {
-	value int64
-}
-
-const affinitySecondCredentialRand int64 = 3000
-
-func (source affinityFixedRandSource) Int63() int64 { return source.value }
-func (affinityFixedRandSource) Seed(int64)          {}
-
 func TestHandlerLearnsAndReusesAutomaticSoftAffinity(t *testing.T) {
 	forwarder := &scriptedForwarder{results: successfulAffinityResults(2)}
 	handler, _, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
-	useAffinityRandomValues(handler, 0, affinitySecondCredentialRand)
+
 	engine := newAffinityTestEngine(t, handler)
 
 	serveAffinityRequest(t, engine, `{
@@ -63,7 +53,7 @@ func TestHandlerReusesSoftAffinityAcrossModelsWithSameCandidateRange(t *testing.
 	addAffinityModelRoute(t, manager.Current(), "gpt-4o-mini", 1)
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
-	useAffinityRandomValues(handler, 0, affinitySecondCredentialRand)
+
 	engine := newAffinityTestEngine(t, handler)
 
 	serveAffinityModelRequest(t, engine, "gpt-4o")
@@ -79,7 +69,7 @@ func TestHandlerRelearnsSoftAffinityWhenModelCandidateRangeChanges(t *testing.T)
 	moveSecondAffinityCredentialToGroup(t, manager.Current(), registry)
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
-	useAffinityRandomValues(handler, 0, 0, 0, 0)
+
 	engine := newAffinityTestEngine(t, handler)
 
 	serveAffinityModelRequest(t, engine, "gpt-4o")
@@ -101,7 +91,7 @@ func TestHandlerDoesNotLearnAffinityForNonParticipatingGroup(t *testing.T) {
 	snapshot.Groups[1] = group
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
-	useAffinityRandomValues(handler, 0, affinitySecondCredentialRand)
+
 	engine := newAffinityTestEngine(t, handler)
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"stable conversation"}]}`
 
@@ -150,7 +140,7 @@ func TestHandlerGroupAffinityOverrideWinsOverGlobalSetting(t *testing.T) {
 			current.Groups[1] = group
 			sink := &recordingRequestLogSink{}
 			handler.requestLogSink = sink
-			useAffinityRandomValues(handler, 0, affinitySecondCredentialRand)
+
 			engine := newAffinityTestEngine(t, handler)
 			body := `{"model":"gpt-4o","messages":[{"role":"user","content":"stable conversation"}]}`
 
@@ -179,7 +169,7 @@ func TestHandlerSoftAffinityRetriesAndRebindsAfterFallbackSuccess(t *testing.T) 
 	handler, _, registry := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
-	useAffinityRandomValues(handler, 0, affinitySecondCredentialRand, 0)
+
 	engine := newAffinityTestEngine(t, handler)
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"stable conversation"}]}`
 
@@ -199,7 +189,7 @@ func TestHandlerSoftAffinitySkipsDisabledCredentialAndLearnsReplacement(t *testi
 	handler, _, registry := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
-	useAffinityRandomValues(handler, 0, 0, 0)
+
 	engine := newAffinityTestEngine(t, handler)
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"stable conversation"}]}`
 
@@ -222,7 +212,7 @@ func TestHandlerDoesNotApplyAffinityWithoutInitialUserText(t *testing.T) {
 	handler, _, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
-	useAffinityRandomValues(handler, 0, affinitySecondCredentialRand)
+
 	engine := newAffinityTestEngine(t, handler)
 	body := `{"model":"gpt-4o","messages":[{"role":"system","content":"shared instruction"}]}`
 
@@ -242,7 +232,7 @@ func TestHandlerLearnsAffinityOnlyFromCleanCompletedStream(t *testing.T) {
 	handler, _, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
-	useAffinityRandomValues(handler, 0, affinitySecondCredentialRand, 0)
+
 	engine := newAffinityTestEngine(t, handler)
 	body := `{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"stable stream"}]}`
 
@@ -331,18 +321,6 @@ func successfulAffinityResult() UpstreamResult {
 		Header:         make(http.Header),
 		Body:           []byte(`{"ok":true}`),
 		RequestWritten: true,
-	}
-}
-
-func useAffinityRandomValues(handler *Handler, values ...int64) {
-	index := 0
-	handler.newRandom = func() *rand.Rand {
-		value := int64(0)
-		if index < len(values) {
-			value = values[index]
-			index++
-		}
-		return rand.New(affinityFixedRandSource{value: value})
 	}
 }
 

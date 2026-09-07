@@ -210,8 +210,9 @@ export default {
         danger: '危険な操作',
       },
       routing: {
-        description: '手動ウェイトは明示的に上書きした場合のみ適用されます。',
-        weightHelp: '自動はランタイムスケジューリングで決まり、手動は 1–100 です',
+        description: 'リクエスト分配に使うグループの相対的な重みを設定します。',
+        weightHelp:
+          '既定値は 50、範囲は 1–100 です。認証情報の重みと掛け合わせて分配比率を決定します。',
       },
       headers: {
         description:
@@ -307,7 +308,7 @@ export default {
         validationModelPlaceholder: 'モデル ID を検索または入力',
         validationModelHelp:
           '空欄の場合はグループの最初のモデルを使用します。エイリアスではなくアップストリームのモデル ID を入力してください。',
-        weight: 'グループ手動ウェイト',
+        weight: 'グループの重み',
         auto: '自動',
         manual: '手動',
         weightError: '1～100 の整数を入力してください',
