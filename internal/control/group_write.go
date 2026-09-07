@@ -19,7 +19,7 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-const maxCredentialLines = 1000
+const maxCredentialLines = 5000
 
 type GroupModel struct {
 	ID           string `json:"id"`

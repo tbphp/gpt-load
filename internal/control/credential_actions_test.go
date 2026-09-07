@@ -151,16 +151,6 @@ func TestDownloadAllGroupCredentialsReturnsEveryAccountAndNoStoreHeaders(t *test
 	}
 }
 
-func TestDownloadAllGroupCredentialsRejectsAPIKeyGroup(t *testing.T) {
-	t.Parallel()
-
-	fixture := newServiceFixture(t)
-	groupID := createGroupForCredentialImport(t, fixture, "sk-download-all-forbidden")
-	if _, err := fixture.service.DownloadAllGroupCredentials(t.Context(), groupID); !errors.Is(err, app_errors.ErrForbidden) {
-		t.Fatalf("DownloadAllGroupCredentials() error = %v, want forbidden", err)
-	}
-}
-
 func TestRefreshGroupCredentialOnlyRefreshesToken(t *testing.T) {
 	t.Parallel()
 

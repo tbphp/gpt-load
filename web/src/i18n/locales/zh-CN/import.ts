@@ -193,7 +193,7 @@ export default {
     },
     credentials: {
       title: 'API 密钥',
-      description: '每行一个，最多 1,000 条；重复项不会重复导入',
+      description: '每行一个，最多 5,000 条；重复项不会重复导入',
       label: '密钥内容',
       placeholder: '每行一个密钥',
       structuredTitle: '渠道凭据',
@@ -215,7 +215,7 @@ export default {
         duplicates: '重复项',
       },
       accessKeyWarning: '{count} 行看起来像 GPT-Load 访问密钥，请确认后继续',
-      tooMany: '最多可提交 1,000 个非空密钥',
+      tooMany: '最多可提交 5,000 个非空密钥',
       required: '请先填写至少一条凭据',
       channelCredentialNotice: '这里导入的是渠道 API 密钥；客户端凭证请在“访问密钥”页面创建',
       result: '新增 {added} 条凭据，跳过 {duplicated} 条重复凭据',

@@ -7,6 +7,7 @@ import {
   KeyRound,
   ListChecks,
   Plus,
+  RotateCcw,
   Search,
 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -86,7 +87,7 @@ import {
 } from '../group-route'
 
 const batchCredentialConcurrency = 4
-type FullCredentialAction = 'enable' | 'disable' | 'download'
+type FullCredentialAction = 'download' | 'enable' | 'disable' | 'restore'
 type CredentialTestRestoreError = 'failed' | 'conflict' | 'conflict_refresh_failed'
 
 const props = defineProps<{
@@ -218,9 +219,12 @@ const fullActionCopy = computed(() => {
     title: t(`group.credentials.full.confirmTitle.${action}`, {
       kind: fullCredentialKind.value,
     }),
-    description: t('group.credentials.full.confirmDescription', {
-      kind: fullCredentialKind.value,
-    }),
+    description: t(
+      action === 'restore'
+        ? 'group.credentials.full.restoreDescription'
+        : 'group.credentials.full.confirmDescription',
+      { kind: fullCredentialKind.value },
+    ),
     confirm: t(`group.credentials.full.confirm.${action}`),
   }
 })
@@ -721,10 +725,8 @@ async function refreshCredentialToken(item: CredentialItemDto): Promise<void> {
   }
 }
 
-function downloadJSONFile(filename: string, value: unknown): void {
-  const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], {
-    type: 'application/json;charset=utf-8',
-  })
+function downloadFile(filename: string, content: string, type: string): void {
+  const blob = new Blob([content], { type })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
@@ -733,6 +735,10 @@ function downloadJSONFile(filename: string, value: unknown): void {
   anchor.click()
   anchor.remove()
   window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+function downloadJSONFile(filename: string, value: unknown): void {
+  downloadFile(filename, `${JSON.stringify(value, null, 2)}\n`, 'application/json;charset=utf-8')
 }
 
 async function downloadCredentialFile(item: CredentialItemDto): Promise<void> {
@@ -757,7 +763,6 @@ async function downloadCredentialFile(item: CredentialItemDto): Promise<void> {
 
 function openFullAction(action: FullCredentialAction): void {
   if (bulkActionsBusy.value || (collection.value?.summary.total ?? 0) === 0) return
-  if (action === 'download' && props.connectionType !== 'subscription') return
   fullActionsOpen.value = false
   fullActionTarget.value = action
 }
@@ -771,8 +776,14 @@ async function confirmFullAction(): Promise<void> {
     let affected = 0
     if (action === 'download') {
       const result = await downloadAllCredentials(client, props.groupId)
-      for (const file of result.files) downloadJSONFile(file.filename, file.credential)
-      affected = result.files.length
+      for (const file of result.files) {
+        if ('content' in file) {
+          downloadFile(file.filename, file.content, 'text/plain;charset=utf-8')
+        } else {
+          downloadJSONFile(file.filename, file.credential)
+        }
+      }
+      affected = result.credential_count
     } else {
       const result = await batchCredentials(client, props.groupId, {
         action,
@@ -1182,10 +1193,23 @@ onBeforeUnmount(resetConnectionInspection)
 onBeforeUnmount(resetCredentialTestState)
 
 async function reconcileBatch(
-  action: 'enable' | 'disable' | 'delete',
+  action: 'enable' | 'disable' | 'delete' | 'restore',
   result: Awaited<ReturnType<typeof batchCredentials>>,
 ): Promise<void> {
   try {
+    if (action === 'restore') {
+      const affected = new Set(result.affected_credential_ids)
+      loadedDetails.value = new Map([...loadedDetails.value].filter(([id]) => !affected.has(id)))
+      detailErrors.value = new Map([...detailErrors.value].filter(([id]) => !affected.has(id)))
+      await Promise.all(
+        [
+          controlQueryKeys.groups.collectionAll,
+          controlQueryKeys.health(),
+          controlQueryKeys.home.base(),
+          controlQueryKeys.home.subscriptionAccounts(),
+        ].map((queryKey) => queryClient.invalidateQueries({ queryKey, refetchType: 'active' })),
+      )
+    }
     await cacheCredentialBatch(queryClient, props.groupId, action, result)
     await refetchActiveCredentialPage()
     await refetchGroupSummary()
@@ -1461,12 +1485,7 @@ async function runBatch(
             </AppButton>
           </template>
           <div class="group-credentials__full-menu">
-            <button
-              v-if="connectionType === 'subscription'"
-              type="button"
-              :disabled="bulkActionsBusy"
-              @click="openFullAction('download')"
-            >
+            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('download')">
               <Download :size="15" aria-hidden="true" />
               {{ t('group.credentials.full.download') }}
             </button>
@@ -1477,6 +1496,10 @@ async function runBatch(
             <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('disable')">
               <CircleOff :size="15" aria-hidden="true" />
               {{ t('group.credentials.full.disable') }}
+            </button>
+            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('restore')">
+              <RotateCcw :size="15" aria-hidden="true" />
+              {{ t('group.credentials.full.restore') }}
             </button>
           </div>
         </AppPopover>

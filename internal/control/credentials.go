@@ -129,6 +129,7 @@ const (
 	CredentialBatchEnable   CredentialBatchAction = "enable"
 	CredentialBatchDisable  CredentialBatchAction = "disable"
 	CredentialBatchDelete   CredentialBatchAction = "delete"
+	CredentialBatchRestore  CredentialBatchAction = "restore"
 	CredentialBatchScopeAll CredentialBatchScope  = "all"
 )
 

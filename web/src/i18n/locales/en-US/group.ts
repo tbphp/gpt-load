@@ -689,22 +689,29 @@ export default {
         download: 'Download all',
         enable: 'Enable all',
         disable: 'Disable all',
+        restore: 'Restore all',
         kind: { account: 'accounts', key: 'keys' },
         confirmTitle: {
-          download: 'Download every account in this Group?',
+          download: 'Download all {kind} in this Group?',
           enable: 'Enable all {kind} in this Group?',
           disable: 'Disable all {kind} in this Group?',
+          restore: 'Restore all {kind} in this Group?',
         },
-        confirmDescription: 'This affects every {kind} in the current Group.',
+        confirmDescription:
+          'This affects all {kind} in the current Group, regardless of search, filters, or pagination.',
+        restoreDescription:
+          'Clear cooldowns, blacklisting, and consecutive failures for this Group’s {kind}, skipping disabled credentials and those whose authorization is not ready. Historical statistics are preserved. This does not test the upstream, reset quotas, or reauthorize accounts, and applies regardless of search, filters, or pagination.',
         confirm: {
           download: 'Download all',
           enable: 'Enable all',
           disable: 'Disable all',
+          restore: 'Restore all',
         },
         succeeded: {
-          download: 'Downloaded {count} account files',
+          download: 'Downloaded {count} {kind}',
           enable: 'Enabled {count} {kind}',
           disable: 'Disabled {count} {kind}',
+          restore: 'Restored {count} {kind}',
         },
         failed: 'Unable to complete the full-Group operation',
       },
