@@ -187,8 +187,9 @@ export default {
       costLimits: {
         enableTotal: '启用总额度',
         enablePeriodic: '启用周期额度',
-        totalDescription: '限制此访问密钥的累计估算费用；达到限额后不会自动恢复。',
-        periodicDescription: '按首次请求触发的固定周期限制估算费用，最多可设置 10 条。',
+        totalDescription:
+          '限制此访问密钥的累计估算费用（含分组和访问密钥倍率）；达到限额后不会自动恢复。',
+        periodicDescription: '按首次请求触发的固定周期限制倍率后的估算费用，最多可设置 10 条。',
         addPeriodic: '添加周期额度',
         total: '总额度',
         periodic: '周期额度',

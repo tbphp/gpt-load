@@ -119,9 +119,11 @@ type requestLogPricingReceiptResponse struct {
 	MethodVersion          int                               `json:"method_version"`
 	Currency               string                            `json:"currency"`
 	PricingMode            pricing.Mode                      `json:"pricing_mode"`
+	PriceMultipliers       *pricing.PriceMultipliers         `json:"price_multipliers,omitempty"`
 	Rule                   requestLogPricingIdentityResponse `json:"rule"`
 	ContextThresholdTokens *string                           `json:"context_threshold_tokens"`
 	LineItems              []requestLogPricingLineResponse   `json:"line_items"`
+	BaseTotalNanoUSD       *string                           `json:"base_total_nano_usd,omitempty"`
 	TotalNanoUSD           string                            `json:"total_nano_usd"`
 }
 
@@ -1132,14 +1134,15 @@ func mapRequestLogPricingReceipt(
 		return nil, fmt.Errorf("map request log pricing receipt: %w", err)
 	}
 	result := &requestLogPricingReceiptResponse{
-		SchemaVersion: receipt.SchemaVersion,
-		Method:        receipt.Method,
-		MethodVersion: receipt.MethodVersion,
-		Currency:      receipt.Currency,
-		PricingMode:   receipt.PricingMode,
-		Rule:          requestLogPricingIdentityResponse{ModelID: receipt.Rule.ModelID},
-		LineItems:     make([]requestLogPricingLineResponse, 0, len(receipt.LineItems)),
-		TotalNanoUSD:  strconv.FormatInt(receipt.TotalNanoUSD, 10),
+		SchemaVersion:    receipt.SchemaVersion,
+		Method:           receipt.Method,
+		MethodVersion:    receipt.MethodVersion,
+		Currency:         receipt.Currency,
+		PricingMode:      receipt.PricingMode,
+		PriceMultipliers: receipt.PriceMultipliers,
+		Rule:             requestLogPricingIdentityResponse{ModelID: receipt.Rule.ModelID},
+		LineItems:        make([]requestLogPricingLineResponse, 0, len(receipt.LineItems)),
+		TotalNanoUSD:     strconv.FormatInt(receipt.TotalNanoUSD, 10),
 	}
 	if receipt.SchemaVersion < 4 {
 		result.PricingMode = pricing.ModeStandard
@@ -1148,7 +1151,7 @@ func mapRequestLogPricingReceipt(
 		scopeKey := receipt.Rule.ScopeKey
 		result.Rule.ScopeKey = &scopeKey
 	}
-	if receipt.SchemaVersion == 3 || receipt.SchemaVersion == 4 {
+	if receipt.SchemaVersion >= 3 {
 		channelID := channel.ID(receipt.Rule.ChannelID)
 		if _, ok := requestLogChannelRegistry.Get(channelID); !ok {
 			return nil, fmt.Errorf("map request log pricing receipt: unknown channel ID")
@@ -1159,6 +1162,10 @@ func mapRequestLogPricingReceipt(
 	if receipt.ContextThresholdTokens != nil {
 		value := strconv.FormatInt(*receipt.ContextThresholdTokens, 10)
 		result.ContextThresholdTokens = &value
+	}
+	if receipt.BaseTotalNanoUSD != nil {
+		value := strconv.FormatInt(*receipt.BaseTotalNanoUSD, 10)
+		result.BaseTotalNanoUSD = &value
 	}
 	for _, line := range receipt.LineItems {
 		mapped := requestLogPricingLineResponse{

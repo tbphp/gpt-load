@@ -190,7 +190,7 @@ func canonicalPricingReceipt(
 	if err := pricing.ValidateReceipt(receipt); err != nil {
 		return nil, err
 	}
-	if receipt.SchemaVersion != 4 || receipt.Rule != (pricing.ReceiptRule{
+	if (receipt.SchemaVersion != 4 && receipt.SchemaVersion != 5 && receipt.SchemaVersion != 6) || receipt.Rule != (pricing.ReceiptRule{
 		ChannelID: channelID,
 		ModelID:   observation.UpstreamModel,
 	}) ||

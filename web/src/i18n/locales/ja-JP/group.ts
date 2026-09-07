@@ -637,6 +637,8 @@ export default {
           usedPercent: '使用済み {value}%',
           requests: 'リクエスト',
           tokens: 'トークン',
+          priceMultiplierBasis:
+            'リクエスト時のモデル参考価格とグループ・アクセスキー倍率に基づく推定で、実際の請求額ではありません',
           referenceCost: 'API 参考コスト',
           unavailable: '利用可能なローカル統計は現在ありません',
           dataIncomplete: '統計データが期間全体をカバーしていないため、値が少ない場合があります',

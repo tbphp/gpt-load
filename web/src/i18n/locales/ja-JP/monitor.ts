@@ -275,7 +275,7 @@ export default {
         totalTokens: '報告済みトークン合計',
         persistedWindow: '現在の集計期間',
         estimatedCost: '推定コスト',
-        estimatedCostBasis: '報告済みトークンに基づく推定',
+        estimatedCostBasis: '報告済みトークンとリクエスト時の倍率に基づく推定',
       },
       tokens: {
         title: '報告済みトークン分類',
@@ -974,6 +974,13 @@ export default {
         partial: 'Token 使用量が部分的です',
       },
       receipt: {
+        total: '計算済み合計',
+        baseTotal: '倍率適用前の計算済み合計',
+        finalTotal: '最終計算済み合計',
+        totalRounding:
+          '各項目を従来のルールで四捨五入して合算し、合計にグループとアクセスキーの両倍率を掛け、最後に 0.000000001 USD 単位で一度四捨五入します。未価格設定の部分は含みません。',
+        rounding:
+          '各項目に全倍率を適用後、0.000000001 USD 単位で四捨五入して合算します。未価格設定の部分は含みません。',
         formula: 'コスト計算',
         input: '入力',
         output: '出力',

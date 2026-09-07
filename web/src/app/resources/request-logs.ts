@@ -18,6 +18,7 @@ import {
   projectEnum,
   projectInt64String,
   projectNonNegativeInt64String,
+  projectPriceMultiplier,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -109,14 +110,16 @@ export interface RequestLogPricingLineDto {
 }
 
 export interface RequestLogPricingReceiptDto {
-  schema_version: 1 | 2 | 3 | 4
+  schema_version: 1 | 2 | 3 | 4 | 5 | 6
   method: 'unit_rate_sum'
   method_version: 1
   currency: 'USD'
   pricing_mode: string
+  price_multipliers?: { group: string; access_key: string }
   rule: { scope_key?: string; channel_id?: string; model_id: string }
   context_threshold_tokens: string | null
   line_items: RequestLogPricingLineDto[]
+  base_total_nano_usd?: string
   total_nano_usd: string
 }
 
@@ -350,9 +353,11 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     'method_version',
     'currency',
     'pricing_mode',
+    'price_multipliers',
     'rule',
     'context_threshold_tokens',
     'line_items',
+    'base_total_nano_usd',
     'total_nano_usd',
   ])
   const rule = projectRecord(record.rule)
@@ -388,15 +393,31 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
         line.amount_nano_usd === null ? null : projectNonNegativeInt64String(line.amount_nano_usd),
     }
   })
-  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 4 }) as
-    1 | 2 | 3 | 4
+  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 6 }) as
+    1 | 2 | 3 | 4 | 5 | 6
+  let priceMultipliers: RequestLogPricingReceiptDto['price_multipliers']
+  if (schemaVersion >= 5) {
+    const multipliers = projectRecord(record.price_multipliers)
+    assertNoSecretLikeFields(multipliers, ['group', 'access_key'])
+    priceMultipliers = {
+      group: projectPriceMultiplier(multipliers.group),
+      access_key: projectPriceMultiplier(multipliers.access_key),
+    }
+  } else if (record.price_multipliers !== undefined) {
+    invalidResponse()
+  }
+  let baseTotal: string | undefined
+  if (schemaVersion === 6) {
+    baseTotal = projectNonNegativeInt64String(record.base_total_nano_usd)
+  } else if (record.base_total_nano_usd !== undefined) {
+    invalidResponse()
+  }
   const scopeKey = rule.scope_key === undefined ? undefined : projectNonBlankString(rule.scope_key)
   const channelID = rule.channel_id === undefined ? undefined : projectChannelID(rule.channel_id)
   if (
     (schemaVersion === 1 && (scopeKey === undefined || channelID !== undefined)) ||
     (schemaVersion === 2 && (scopeKey !== undefined || channelID !== undefined)) ||
-    ((schemaVersion === 3 || schemaVersion === 4) &&
-      (scopeKey !== undefined || channelID === undefined))
+    (schemaVersion >= 3 && (scopeKey !== undefined || channelID === undefined))
   ) {
     invalidResponse()
   }
@@ -406,6 +427,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     method_version: projectSafeInteger(record.method_version, { minimum: 1, maximum: 1 }) as 1,
     currency: projectEnum(record.currency, ['USD'] as const),
     pricing_mode: projectPricingMode(record.pricing_mode),
+    ...(priceMultipliers === undefined ? {} : { price_multipliers: priceMultipliers }),
     rule: {
       ...(scopeKey === undefined ? {} : { scope_key: scopeKey }),
       ...(channelID === undefined ? {} : { channel_id: channelID }),
@@ -416,6 +438,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
         ? null
         : projectNonNegativeInt64String(record.context_threshold_tokens),
     line_items: lines,
+    ...(baseTotal === undefined ? {} : { base_total_nano_usd: baseTotal }),
     total_nano_usd: projectNonNegativeInt64String(record.total_nano_usd),
   }
 }

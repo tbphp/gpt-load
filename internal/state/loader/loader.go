@@ -22,6 +22,7 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -253,7 +254,7 @@ func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 		return compileRows{}, fmt.Errorf("query credential metadata: %w", err)
 	}
 	if err := db.
-		Select("id", "name", "key_hash", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms").
+		Select("id", "name", "key_hash", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms", "price_multiplier_micros").
 		Order("id ASC").
 		Find(&rows.accessKeys).Error; err != nil {
 		return compileRows{}, fmt.Errorf("query access keys: %w", err)
@@ -630,7 +631,12 @@ func mapSystemAndGroups(
 		for _, model := range storedModels {
 			runtimeModels = append(runtimeModels, state.ModelConfig{ID: model.ID, Alias: model.Alias})
 		}
+		multiplier, err := persistedPriceMultiplier(row.PriceMultiplierMicros)
+		if err != nil {
+			return state.CompileInput{}, fmt.Errorf("group %d: %w", row.ID, err)
+		}
 		group := state.GroupConfig{
+			PriceMultiplier: &multiplier,
 			ID:              row.ID,
 			Name:            row.Name,
 			ChannelID:       channel.ID(row.ChannelID),
@@ -694,8 +700,13 @@ func mapAccessKeys(
 		if err != nil {
 			return nil, fmt.Errorf("compile access key %d allowed CIDRs: %w", row.ID, err)
 		}
+		multiplier, err := persistedPriceMultiplier(row.PriceMultiplierMicros)
+		if err != nil {
+			return nil, fmt.Errorf("access key %d: %w", row.ID, err)
+		}
 		result = append(result, state.AccessKeyConfig{
-			ID: row.ID, Name: row.Name, KeyHash: row.KeyHash, KeySuffix: row.KeySuffix,
+			PriceMultiplier: &multiplier,
+			ID:              row.ID, Name: row.Name, KeyHash: row.KeyHash, KeySuffix: row.KeySuffix,
 			Status: state.AccessKeyStatus(row.Status), Filters: filters.toState(), RPMLimit: row.RPMLimit,
 			ExpiresAtMS: cloneInt64Pointer(row.ExpiresAtMS), AllowedPeerCIDRs: allowedPeerCIDRs,
 			CostLimitRules: append([]accessquota.Rule(nil), rulesByAccessKey[row.ID]...),
@@ -872,4 +883,11 @@ func cloneWeight(value *int) *int {
 	}
 	cloned := *value
 	return &cloned
+}
+
+func persistedPriceMultiplier(value *int64) (pricing.PriceMultiplier, error) {
+	if value == nil || !pricing.PriceMultiplier(*value).Valid() {
+		return 0, fmt.Errorf("invalid persisted price multiplier")
+	}
+	return pricing.PriceMultiplier(*value), nil
 }

@@ -137,21 +137,23 @@ func (value *OptionalRPMLimit) UnmarshalJSON(data []byte) error {
 }
 
 type AccessKeyCreateRequest struct {
-	Name           string                          `json:"name"`
-	Status         *state.AccessKeyStatus          `json:"status"`
-	Filters        *AccessKeyFilters               `json:"filters"`
-	RPMLimit       OptionalRPMLimit                `json:"rpm_limit"`
-	CostLimitRules OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
-	ExpiresAtMS    *int64                          `json:"expires_at_ms"`
+	PriceMultiplier optionalField[string]           `json:"price_multiplier"`
+	Name            string                          `json:"name"`
+	Status          *state.AccessKeyStatus          `json:"status"`
+	Filters         *AccessKeyFilters               `json:"filters"`
+	RPMLimit        OptionalRPMLimit                `json:"rpm_limit"`
+	CostLimitRules  OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
+	ExpiresAtMS     *int64                          `json:"expires_at_ms"`
 }
 
 type AccessKeyUpdateRequest struct {
-	Name           *string                         `json:"name"`
-	Status         *state.AccessKeyStatus          `json:"status"`
-	Filters        *AccessKeyFilters               `json:"filters"`
-	RPMLimit       OptionalRPMLimit                `json:"rpm_limit"`
-	CostLimitRules OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
-	ExpiresAtMS    OptionalNullableEpochMS         `json:"expires_at_ms"`
+	PriceMultiplier optionalField[string]           `json:"price_multiplier"`
+	Name            *string                         `json:"name"`
+	Status          *state.AccessKeyStatus          `json:"status"`
+	Filters         *AccessKeyFilters               `json:"filters"`
+	RPMLimit        OptionalRPMLimit                `json:"rpm_limit"`
+	CostLimitRules  OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
+	ExpiresAtMS     OptionalNullableEpochMS         `json:"expires_at_ms"`
 }
 
 type AccessKeyCostLimitResetRequest struct {
@@ -159,6 +161,7 @@ type AccessKeyCostLimitResetRequest struct {
 }
 
 type AccessKeyMetadata struct {
+	PriceMultiplier string                    `json:"price_multiplier"`
 	ID              uint                      `json:"id"`
 	Name            string                    `json:"name"`
 	MaskedKey       string                    `json:"masked_key"`
@@ -191,15 +194,16 @@ type AccessKeyRevealResult struct {
 }
 
 type accessKeyMetadataRow struct {
-	ID          uint
-	Name        string
-	KeySuffix   string
-	Status      string
-	Filters     models.JSON
-	RPMLimit    int64
-	ExpiresAtMS *int64
-	CreatedAtMS int64
-	UpdatedAtMS int64
+	PriceMultiplierMicros *int64
+	ID                    uint
+	Name                  string
+	KeySuffix             string
+	Status                string
+	Filters               models.JSON
+	RPMLimit              int64
+	ExpiresAtMS           *int64
+	CreatedAtMS           int64
+	UpdatedAtMS           int64
 }
 
 type generatedAccessKeyCredential struct {
@@ -284,6 +288,10 @@ func (s *Service) CreateAccessKey(
 		return AccessKeyCreateResult{}, err
 	}
 
+	priceMultiplier, err := normalizePriceMultiplier(request.PriceMultiplier)
+	if err != nil {
+		return AccessKeyCreateResult{}, err
+	}
 	var result AccessKeyCreateResult
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
 		if err := validateFutureExpiresAtMS(request.ExpiresAtMS, s.now()); err != nil {
@@ -296,6 +304,7 @@ func (s *Service) CreateAccessKey(
 		if err != nil {
 			return err
 		}
+		row.PriceMultiplierMicros = priceMultiplierStorage(priceMultiplier)
 		row.Status = string(status)
 		row.ExpiresAtMS = cloneOptionalInt64(request.ExpiresAtMS)
 		if err := tx.Create(&row).Error; err != nil {
@@ -307,7 +316,8 @@ func (s *Service) CreateAccessKey(
 		}
 		metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
 			ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
-			Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
+			PriceMultiplierMicros: row.PriceMultiplierMicros,
+			Status:                row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
 			ExpiresAtMS: row.ExpiresAtMS,
 			CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
 		})
@@ -333,7 +343,7 @@ func (s *Service) UpdateAccessKey(
 	request AccessKeyUpdateRequest,
 ) (AccessKeyMetadata, error) {
 	if id == 0 || (request.Name == nil && request.Status == nil && request.Filters == nil &&
-		!request.RPMLimit.Set && !request.CostLimitRules.Set && !request.ExpiresAtMS.Set) {
+		!request.RPMLimit.Set && !request.CostLimitRules.Set && !request.ExpiresAtMS.Set && !request.PriceMultiplier.Set) {
 		return AccessKeyMetadata{}, app_errors.ErrBadRequest
 	}
 	if _, err := normalizeRPMLimit(request.RPMLimit, 0); err != nil {
@@ -343,6 +353,10 @@ func (s *Service) UpdateAccessKey(
 		if err := validateOptionalExpiresAtMS(request.ExpiresAtMS.Value); err != nil {
 			return AccessKeyMetadata{}, err
 		}
+	}
+	priceMultiplier, err := normalizePriceMultiplier(request.PriceMultiplier)
+	if err != nil {
+		return AccessKeyMetadata{}, err
 	}
 	var desiredCostLimitRules []normalizedAccessKeyCostLimitRule
 	if request.CostLimitRules.Set {
@@ -382,7 +396,7 @@ func (s *Service) UpdateAccessKey(
 	}
 
 	var result AccessKeyMetadata
-	_, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
+	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
 		if request.ExpiresAtMS.Set {
 			if err := validateFutureExpiresAtMS(request.ExpiresAtMS.Value, s.now()); err != nil {
 				return err
@@ -391,7 +405,7 @@ func (s *Service) UpdateAccessKey(
 		var row accessKeyMetadataRow
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
-				"id", "name", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms",
+				"id", "name", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms", "price_multiplier_micros",
 				"created_at_ms", "updated_at_ms",
 			).
 			Where("id = ?", id).
@@ -423,7 +437,11 @@ func (s *Service) UpdateAccessKey(
 			return fmt.Errorf("access key %d has invalid status", row.ID)
 		}
 
-		updates := make(map[string]any, 4)
+		updates := make(map[string]any, 5)
+		if request.PriceMultiplier.Set {
+			row.PriceMultiplierMicros = priceMultiplierStorage(priceMultiplier)
+			updates["price_multiplier_micros"] = int64(priceMultiplier)
+		}
 		if name != nil {
 			row.Name = *name
 			updates["name"] = row.Name
@@ -462,7 +480,7 @@ func (s *Service) UpdateAccessKey(
 		}
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
-				"id", "name", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms",
+				"id", "name", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms", "price_multiplier_micros",
 				"created_at_ms", "updated_at_ms",
 			).
 			Where("id = ?", row.ID).
@@ -586,7 +604,8 @@ func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error
 		)
 	}
 	return AccessKeyMetadata{
-		ID: row.ID, Name: row.Name,
+		PriceMultiplier: priceMultiplierResponse(row.PriceMultiplierMicros),
+		ID:              row.ID, Name: row.Name,
 		MaskedKey: maskedAccessKey(row.KeySuffix),
 		Status:    status, Filters: filters, RPMLimit: row.RPMLimit,
 		ExpiresAtMS:    cloneOptionalInt64(row.ExpiresAtMS),

@@ -28,6 +28,7 @@ type GroupEffectiveConfigResponse struct {
 // It deliberately excludes models and configuration that are loaded through focused
 // resources.
 type GroupSummaryResponse struct {
+	PriceMultiplier     string                  `json:"price_multiplier"`
 	ID                  uint                    `json:"id"`
 	Name                string                  `json:"name"`
 	ChannelID           channel.ID              `json:"channel_id"`
@@ -52,7 +53,8 @@ func (s *Service) GetGroupSummary(ctx context.Context, groupID uint) (GroupSumma
 			continue
 		}
 		return GroupSummaryResponse{
-			ID: record.ID, Name: record.Name,
+			PriceMultiplier: record.PriceMultiplier,
+			ID:              record.ID, Name: record.Name,
 			ChannelID: record.ChannelID, Params: append(json.RawMessage(nil), record.Params...),
 			ConnectionType:      record.ConnectionType,
 			ServiceStatus:       record.Status,

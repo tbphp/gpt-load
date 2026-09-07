@@ -20,6 +20,7 @@ export function cloneAccessKeyCreatePayload(
     },
     expires_at_ms: payload.expires_at_ms,
     rpm_limit: payload.rpm_limit,
+    price_multiplier: payload.price_multiplier,
     cost_limit_rules: payload.cost_limit_rules.map((rule) => ({ ...rule })),
   }
 }

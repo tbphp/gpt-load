@@ -23,7 +23,7 @@ export default {
     },
     matrix: {
       heading: '価格',
-      unit: 'USD / 1M',
+      unit: 'USD / 1M · 倍率適用前の単価',
       thresholdColumn: '段階',
       baseRow: 'デフォルト',
       addTier: '段階を追加',

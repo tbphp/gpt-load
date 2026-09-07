@@ -1,5 +1,15 @@
 export default {
   common: {
+    priceMultiplier: {
+      label: '价格倍率',
+      value: '倍率 ×{value}',
+      group: '分组',
+      accessKey: '访问密钥',
+      groupHelp: '基础单价 × 分组倍率 × 访问密钥倍率。默认 1，0 将可计价金额归零；仅影响后续请求。',
+      accessKeyHelp:
+        '与实际分组倍率相乘；日志、统计和成本额度均使用调整后金额。默认 1，0 将可计价金额归零；仅影响后续请求。',
+      invalid: '请输入 0–1000 的倍率，最多 6 位小数',
+    },
     appName: 'GPT-Load',
     retry: '重试',
     modelDiscoveryFailed: '模型发现失败，草稿未变',
@@ -283,7 +293,7 @@ export default {
         title: '近 30 天估算',
         viewDetail: '查看明细 →',
         viewModel: '查看 {model} 的用量明细',
-        caption: '近 30 天消耗前五的模型',
+        caption: '近 30 天调整后估算成本前五的模型',
         scrollHint: '横向滚动可查看全部列',
         columns: {
           model: '模型',

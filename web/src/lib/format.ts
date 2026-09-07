@@ -233,6 +233,13 @@ export function formatEstimatedCost(nanoUSD: string, locale: string): string {
   return formatCurrency(whole, fraction, locale)
 }
 
+export function formatExactNanoUSD(nanoUSD: string, locale: string): string {
+  if (!/^(?:0|[1-9]\d*)$/u.test(nanoUSD)) return '—'
+  const value = BigInt(nanoUSD)
+  const fraction = (value % NANO_USD_PER_USD).toString().padStart(9, '0').replace(/0+$/u, '')
+  return formatCurrency(value / NANO_USD_PER_USD, fraction.padEnd(2, '0'), locale)
+}
+
 export function formatUSD(value: string, locale: string): string {
   if (!/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/u.test(value)) return '—'
   const [whole = '0', fraction = ''] = value.split('.')

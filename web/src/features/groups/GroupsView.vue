@@ -525,6 +525,13 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
                     {{ channelName(group.channel_id) }}
                   </OverflowTooltip>
                   <span
+                    v-if="group.price_multiplier !== '1'"
+                    class="connection-type-badge"
+                    :title="t('common.priceMultiplier.groupHelp')"
+                  >
+                    {{ t('common.priceMultiplier.value', { value: group.price_multiplier }) }}
+                  </span>
+                  <span
                     class="connection-type-badge"
                     :class="connectionTypeBadgeClass(group.connection_type)"
                   >

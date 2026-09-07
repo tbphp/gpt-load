@@ -19,6 +19,7 @@ import (
 )
 
 type GroupSettingsResponse struct {
+	PriceMultiplier string                       `json:"price_multiplier"`
 	ChannelID       channel.ID                   `json:"channel_id"`
 	ConnectionType  models.ConnectionType        `json:"connection_type"`
 	Params          json.RawMessage              `json:"params"`
@@ -32,6 +33,7 @@ type GroupSettingsResponse struct {
 }
 
 type GroupSettingsUpdateRequest struct {
+	PriceMultiplier optionalField[string]               `json:"price_multiplier"`
 	Name            optionalField[string]               `json:"name"`
 	Params          optionalField[json.RawMessage]      `json:"params"`
 	ValidationModel optionalField[string]               `json:"validation_model"`
@@ -42,18 +44,19 @@ type GroupSettingsUpdateRequest struct {
 }
 
 type normalizedGroupSettingsUpdate struct {
-	name               *string
-	params             json.RawMessage
-	paramsSet          bool
-	validationModel    *string
-	validationModelSet bool
-	enabled            *bool
-	weightManual       *int
-	weightManualSet    bool
-	encodedOverrides   models.JSON
-	overridesSet       bool
-	proxyConfig        *string
-	proxySet           bool
+	priceMultiplierMicros *int64
+	name                  *string
+	params                json.RawMessage
+	paramsSet             bool
+	validationModel       *string
+	validationModelSet    bool
+	enabled               *bool
+	weightManual          *int
+	weightManualSet       bool
+	encodedOverrides      models.JSON
+	overridesSet          bool
+	proxyConfig           *string
+	proxySet              bool
 }
 
 func (s *Service) GetGroupSettings(ctx context.Context, groupID uint) (GroupSettingsResponse, error) {
@@ -115,6 +118,7 @@ func groupSettingsResponse(
 		)
 	}
 	return GroupSettingsResponse{
+		PriceMultiplier: priceMultiplierResponse(group.PriceMultiplierMicros),
 		ChannelID:       channelID,
 		ConnectionType:  normalizeGroupConnectionType(group.ConnectionType),
 		Params:          validated.CanonicalJSON(),
@@ -150,11 +154,18 @@ func normalizeGroupSettingsUpdate(
 		}
 	}
 	if !request.Name.Set && !request.Params.Set && !request.ValidationModel.Set &&
-		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set {
+		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set && !request.PriceMultiplier.Set {
 		return normalizedGroupSettingsUpdate{}, app_errors.ErrBadRequest
 	}
 
 	result := normalizedGroupSettingsUpdate{}
+	if request.PriceMultiplier.Set {
+		value, err := normalizePriceMultiplier(request.PriceMultiplier)
+		if err != nil {
+			return normalizedGroupSettingsUpdate{}, err
+		}
+		result.priceMultiplierMicros = priceMultiplierStorage(value)
+	}
 	if request.Name.Set {
 		value, err := normalizeGroupName(&request.Name.Value)
 		if err != nil {
@@ -236,7 +247,11 @@ func (s *Service) UpdateGroupSettings(
 			return app_errors.ErrValidation
 		}
 
-		updates := make(map[string]any, 7)
+		updates := make(map[string]any, 8)
+		if normalized.priceMultiplierMicros != nil {
+			group.PriceMultiplierMicros = normalized.priceMultiplierMicros
+			updates["price_multiplier_micros"] = *normalized.priceMultiplierMicros
+		}
 		if normalized.name != nil {
 			group.Name = *normalized.name
 			updates["name"] = group.Name

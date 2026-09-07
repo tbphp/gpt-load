@@ -20,6 +20,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import type { SearchableMultiSelectOption } from '@/components/ui/SearchableMultiSelect.vue'
 import { createUUID } from '@/lib/uuid'
+import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
 import {
   accessKeyProtocolOptions,
@@ -245,6 +246,9 @@ const saveBlockerKey = computed(() => {
   if (draft.value.name.trim().length === 0) return 'accessKeys.drawer.saveBlockedName'
   if (!Number.isSafeInteger(draft.value.rpm_limit) || draft.value.rpm_limit < 0) {
     return 'accessKeys.drawer.saveBlockedRPM'
+  }
+  if (!isValidPriceMultiplier(draft.value.price_multiplier)) {
+    return 'common.priceMultiplier.invalid'
   }
   if (!areAccessKeyCostLimitRulesValid(draft.value.costLimitRules)) {
     return 'accessKeys.drawer.saveBlockedCostLimits'
@@ -690,10 +694,12 @@ onBeforeUnmount(clearLocalState)
           :name="draft.name"
           :status="draft.status"
           :rpm-limit="draft.rpm_limit"
+          :price-multiplier="draft.price_multiplier"
           :disabled="formLocked"
           @update:name="draft.name = $event"
           @update:status="draft.status = $event"
           @update:rpm-limit="draft.rpm_limit = $event"
+          @update:price-multiplier="draft.price_multiplier = $event"
         />
       </section>
 
