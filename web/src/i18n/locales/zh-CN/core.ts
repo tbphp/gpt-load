@@ -377,9 +377,9 @@ export default {
             s3: '首次导入后需在模型区拉取模型',
           },
           'claude-code': {
-            s1: '执行上方命令后，在同一 Shell 中启动或重启 Claude Code',
-            s2: '/model 自动发现仅识别 ID 含 claude 或 anthropic 的模型（不区分大小写）',
-            s3: '其他模型用 claude --model YOUR_MODEL 启动，将 YOUR_MODEL 替换为可用模型 ID',
+            s1: '将 YOUR_MODEL 替换为该访问密钥可用的模型 ID，再执行上方命令',
+            s2: '在同一 Shell 中启动或重启 Claude Code；指定模型用于启动，并作为自定义选项加入 /model',
+            s3: '自动发现额外识别 ID 含 claude 或 anthropic 的网关模型（不区分大小写）',
           },
           'open-webui': {
             s1: '管理员设置 → Connections → OpenAI → 添加连接',

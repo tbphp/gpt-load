@@ -392,9 +392,9 @@ export default {
             s3: '初回インポート後にモデル一覧を取得してください',
           },
           'claude-code': {
-            s1: '上のコマンドを実行後、同じシェルで Claude Code を起動または再起動します',
-            s2: '/model の自動検出は ID に claude または anthropic を含むモデルのみが対象です（大文字・小文字は区別しません）',
-            s3: 'その他のモデルは YOUR_MODEL を利用可能なモデル ID に置き換え、claude --model YOUR_MODEL で起動します',
+            s1: 'YOUR_MODEL をこのアクセスキーで利用可能なモデル ID に置き換え、上のコマンドを実行します',
+            s2: '同じシェルで Claude Code を起動または再起動します。指定モデルが起動時に使われ、/model にカスタム項目として追加されます',
+            s3: '自動検出では ID に claude または anthropic を含むゲートウェイモデルも対象になります（大文字・小文字は区別しません）',
           },
           'open-webui': {
             s1: '管理者設定 → Connections → OpenAI → 接続を追加',

@@ -393,9 +393,9 @@ export default {
             s3: 'Fetch the models afterwards in the model section',
           },
           'claude-code': {
-            s1: 'Run the commands above, then start or restart Claude Code in the same shell',
-            s2: '/model discovery only recognizes IDs containing claude or anthropic (case-insensitive)',
-            s3: 'For other models, run claude --model YOUR_MODEL, replacing YOUR_MODEL with an available model ID',
+            s1: 'Replace YOUR_MODEL with a model ID available to this access key, then run the commands above',
+            s2: 'Start or restart Claude Code in the same shell; the specified model is used at startup and added as a custom option in /model',
+            s3: 'Discovery additionally recognizes gateway model IDs containing claude or anthropic (case-insensitive)',
           },
           'open-webui': {
             s1: 'Admin Settings → Connections → OpenAI → Add Connection',
