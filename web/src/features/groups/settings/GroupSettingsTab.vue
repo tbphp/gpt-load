@@ -45,6 +45,7 @@ import SectionNav from '@/components/ui/SectionNav.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
+import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
 import GroupDeleteDialog from './GroupDeleteDialog.vue'
 import GroupSettingsBaseForm from './GroupSettingsBaseForm.vue'
@@ -225,6 +226,7 @@ const valid = computed(
     !nameError.value &&
     Object.keys(paramErrors.value).length === 0 &&
     weightValid.value &&
+    isValidPriceMultiplier(draft.value?.price_multiplier ?? '') &&
     timeoutValid.value &&
     policyCountsValid.value &&
     headerRulesValid.value &&
@@ -533,6 +535,7 @@ onBeforeUnmount(() => {
             :validation-model="draft.validation_model"
             :models="modelsQuery.data.value?.items ?? []"
             :weight-manual="draft.weight_manual"
+            :price-multiplier="draft.price_multiplier"
             :enabled="draft.enabled"
             :pending="mutationPending"
             :params-disabled="channelParamsDisabled"
@@ -542,6 +545,7 @@ onBeforeUnmount(() => {
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:weight-manual="draft.weight_manual = $event"
+            @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
           />
           <GroupSettingsBaseForm
@@ -553,6 +557,7 @@ onBeforeUnmount(() => {
             :validation-model="draft.validation_model"
             :models="modelsQuery.data.value?.items ?? []"
             :weight-manual="draft.weight_manual"
+            :price-multiplier="draft.price_multiplier"
             :enabled="draft.enabled"
             :pending="mutationPending"
             :params-disabled="channelParamsDisabled"
@@ -562,6 +567,7 @@ onBeforeUnmount(() => {
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:weight-manual="draft.weight_manual = $event"
+            @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
           />
           <section id="settings-runtime" class="group-settings__section">

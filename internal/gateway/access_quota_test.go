@@ -171,13 +171,18 @@ func TestHandlerAccountsFinalEstimateWhenRequestIDGenerationFails(t *testing.T) 
 		Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 1_000_000}},
 	}}}
 	sink := &recordingRequestLogSink{}
-	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+	engine, handler, manager, _ := newRequestLogHandlerTestRuntime(
 		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
 	)
 	runtime := accessquota.NewRuntime()
 	if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: {
 		{ID: 103, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10_000_000_000},
 	}}); err != nil {
+		t.Fatal(err)
+	}
+	input := gatewayAccessQuotaCompileInput(handler, nil)
+	setGatewayPriceMultipliers(t, &input, "0.8", "1.5")
+	if _, err := manager.Publish(input); err != nil {
 		t.Fatal(err)
 	}
 	handler.accessQuota = runtime
@@ -194,7 +199,7 @@ func TestHandlerAccountsFinalEstimateWhenRequestIDGenerationFails(t *testing.T) 
 		t.Fatalf("response = %d %s", response.Code, response.Body.String())
 	}
 	view := runtime.Snapshot(1, time.Unix(3_001, 0))
-	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 2_000_000_000 {
+	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 2_400_000_000 {
 		t.Fatalf("quota view = %#v", view)
 	}
 	if events := sink.snapshot(); len(events) != 0 {

@@ -9,6 +9,7 @@ import type {
   GroupSettingsUpdateRequest,
   HeaderRulesDto,
 } from '@/app/resources/groups'
+import { normalizePriceMultiplier } from '@/lib/price-multiplier'
 
 export type GroupTimeoutKey = 'first_byte_timeout' | 'request_timeout' | 'stream_idle_timeout'
 export type GroupPolicyCountKey = 'retry_count' | 'blacklist_threshold'
@@ -21,6 +22,7 @@ export interface GroupSettingsDraft {
   validation_model: string | null
   enabled: boolean
   weight_manual: number | null
+  price_multiplier: string
   overrides: GroupRuntimeConfigDto
 }
 
@@ -183,6 +185,8 @@ export function buildGroupSettingsPatch(
   const validationModel = draft.validation_model?.trim() || null
   if (validationModel !== base.validation_model) patch.validation_model = validationModel
   if (draft.enabled !== base.enabled) patch.enabled = draft.enabled
+  const priceMultiplier = normalizePriceMultiplier(draft.price_multiplier)
+  if (priceMultiplier !== base.price_multiplier) patch.price_multiplier = priceMultiplier
   if (draft.weight_manual !== base.weight_manual) patch.weight_manual = draft.weight_manual
   if (JSON.stringify(overrides) !== JSON.stringify(normalizeOverrides(base.overrides))) {
     patch.overrides = overrides

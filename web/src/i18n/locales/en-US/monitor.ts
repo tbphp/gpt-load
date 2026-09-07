@@ -275,7 +275,7 @@ export default {
         totalTokens: 'Total reported tokens',
         persistedWindow: 'Current reporting window',
         estimatedCost: 'Estimated cost',
-        estimatedCostBasis: 'Based on reported tokens',
+        estimatedCostBasis: 'Reported tokens and multipliers at request time',
       },
       tokens: {
         title: 'Reported token categories',
@@ -976,6 +976,9 @@ export default {
         partial: 'Token usage is partial',
       },
       receipt: {
+        total: 'Priced total',
+        rounding:
+          'Each priced component is rounded to the nearest 0.000000001 USD after all multipliers, then summed. Unpriced portions are excluded.',
         formula: 'Cost calculation',
         input: 'Input',
         output: 'Output',

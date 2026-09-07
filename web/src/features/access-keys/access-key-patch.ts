@@ -5,6 +5,7 @@ import type {
 } from '@/app/resources/access-keys'
 import type { AccessKeyDto, AccessKeyFiltersDto } from '@/api/control/types'
 import { createUUID } from '@/lib/uuid'
+import { isValidPriceMultiplier, normalizePriceMultiplier } from '@/lib/price-multiplier'
 
 import {
   createAccessKeyScopeModes,
@@ -23,6 +24,7 @@ export interface AccessKeyDraft {
   expirationMode: 'never' | 'specified'
   expires_at_ms: number | null
   rpm_limit: number
+  price_multiplier: string
   costLimitRules: AccessKeyCostLimitRuleDraft[]
 }
 
@@ -75,6 +77,7 @@ export function createAccessKeyDraft(accessKey?: AccessKeyDto | null): AccessKey
     expirationMode: accessKey?.expires_at_ms == null ? 'never' : 'specified',
     expires_at_ms: accessKey?.expires_at_ms ?? null,
     rpm_limit: accessKey?.rpm_limit ?? 0,
+    price_multiplier: accessKey?.price_multiplier ?? '1',
     costLimitRules: (accessKey?.cost_limit_rules ?? []).map(costLimitRuleDraft),
   }
 }
@@ -90,6 +93,7 @@ export function createAccessKeyDraftFromCreateInput(input: CreateAccessKeyReques
     expirationMode: input.expires_at_ms === null ? 'never' : 'specified',
     expires_at_ms: input.expires_at_ms,
     rpm_limit: input.rpm_limit,
+    price_multiplier: input.price_multiplier,
     costLimitRules: input.cost_limit_rules.map(costLimitRuleDraft),
   }
 }
@@ -109,6 +113,7 @@ export function createAccessKeyDraftFromUpdate(
     expirationMode: expiresAt === null ? 'never' : 'specified',
     expires_at_ms: expiresAt,
     rpm_limit: patch.rpm_limit ?? base.rpm_limit,
+    price_multiplier: patch.price_multiplier ?? base.price_multiplier,
     costLimitRules: (patch.cost_limit_rules ?? base.cost_limit_rules).map(costLimitRuleDraft),
   }
 }
@@ -134,6 +139,7 @@ export function isAccessKeyDraftValid(
     draft.name.trim().length > 0 &&
     Number.isSafeInteger(draft.rpm_limit) &&
     draft.rpm_limit >= 0 &&
+    isValidPriceMultiplier(draft.price_multiplier) &&
     expirationValid &&
     (draft.sourceMode === 'all' || (allowedCIDRs.length > 0 && allowedCIDRs.length <= 64)) &&
     areAccessKeyCostLimitRulesValid(draft.costLimitRules) &&
@@ -153,6 +159,7 @@ export function buildCreateAccessKeyInput(draft: AccessKeyDraft): CreateAccessKe
     filters: materializeDraftFilters(draft),
     expires_at_ms: expirationValue(draft),
     rpm_limit: draft.rpm_limit,
+    price_multiplier: normalizePriceMultiplier(draft.price_multiplier),
     cost_limit_rules: costLimitInputs(draft.costLimitRules, false),
   }
 }
@@ -273,6 +280,7 @@ export function isAccessKeyDraftDirty(draft: AccessKeyDraft, base?: AccessKeyDto
     draft.status !== initial.status ||
     draft.expires_at_ms !== initial.expires_at_ms ||
     draft.rpm_limit !== initial.rpm_limit ||
+    normalizePriceMultiplier(draft.price_multiplier) !== initial.price_multiplier ||
     !equalFilters(draft.filters, initial.filters) ||
     !equalCostLimitRules(
       costLimitInputs(draft.costLimitRules, false),
@@ -292,6 +300,8 @@ export function accessKeyMatchesUpdatePatch(
     (patch.filters === undefined || equalFilters(patch.filters, accessKey.filters)) &&
     (patch.expires_at_ms === undefined || patch.expires_at_ms === accessKey.expires_at_ms) &&
     (patch.rpm_limit === undefined || patch.rpm_limit === accessKey.rpm_limit) &&
+    (patch.price_multiplier === undefined ||
+      normalizePriceMultiplier(patch.price_multiplier) === accessKey.price_multiplier) &&
     (patch.cost_limit_rules === undefined ||
       costLimitRulesMatchReconciliation(
         accessKey.cost_limit_rules,
@@ -366,6 +376,8 @@ export function buildAccessKeyUpdatePatch(
   if (!equalFilters(filters, base.filters)) patch.filters = filters
   if (expiresAt !== base.expires_at_ms) patch.expires_at_ms = expiresAt
   if (draft.rpm_limit !== base.rpm_limit) patch.rpm_limit = draft.rpm_limit
+  const priceMultiplier = normalizePriceMultiplier(draft.price_multiplier)
+  if (priceMultiplier !== base.price_multiplier) patch.price_multiplier = priceMultiplier
   const desiredCostLimits = costLimitInputs(draft.costLimitRules, true)
   if (!equalCostLimitRules(desiredCostLimits, base.cost_limit_rules)) {
     patch.cost_limit_rules = desiredCostLimits

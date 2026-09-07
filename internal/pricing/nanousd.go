@@ -69,15 +69,28 @@ func FormatUSD(value NanoUSD) string {
 
 // QuoteComponent returns the rounded nano USD cost of one usage component.
 func QuoteComponent(tokens int64, price NanoUSD, multiplier Multiplier) (NanoUSD, bool) {
+	return quoteComponentWithPriceMultipliers(tokens, price, multiplier, PriceMultipliers{
+		Group: DefaultPriceMultiplier, AccessKey: DefaultPriceMultiplier,
+	})
+}
+
+func quoteComponentWithPriceMultipliers(tokens int64, price NanoUSD, multiplier Multiplier, priceMultipliers PriceMultipliers) (NanoUSD, bool) {
 	if tokens < 0 || price < 0 || multiplier.Numerator <= 0 || multiplier.Denominator <= 0 {
+		return 0, false
+	}
+	if !priceMultipliers.Group.Valid() || !priceMultipliers.AccessKey.Valid() {
 		return 0, false
 	}
 
 	numerator := big.NewInt(tokens)
 	numerator.Mul(numerator, big.NewInt(int64(price)))
 	numerator.Mul(numerator, big.NewInt(multiplier.Numerator))
+	numerator.Mul(numerator, big.NewInt(int64(priceMultipliers.Group)))
+	numerator.Mul(numerator, big.NewInt(int64(priceMultipliers.AccessKey)))
 	denominator := big.NewInt(tokensPerMillion)
 	denominator.Mul(denominator, big.NewInt(multiplier.Denominator))
+	denominator.Mul(denominator, big.NewInt(int64(DefaultPriceMultiplier)))
+	denominator.Mul(denominator, big.NewInt(int64(DefaultPriceMultiplier)))
 
 	quotient, remainder := new(big.Int), new(big.Int)
 	quotient.QuoRem(numerator, denominator, remainder)

@@ -1,5 +1,16 @@
 export default {
   common: {
+    priceMultiplier: {
+      label: '価格倍率',
+      value: '倍率 ×{value}',
+      group: 'グループ',
+      accessKey: 'アクセスキー',
+      groupHelp:
+        '基準単価 × グループ倍率 × アクセスキー倍率。既定値は 1、0 は計算可能な金額をゼロにします。以後のリクエストに適用されます。',
+      accessKeyHelp:
+        '選択されたグループ倍率と乗算します。ログ、統計、コスト上限は調整後の金額を使用します。既定値は 1、0 は計算可能な金額をゼロにします。以後のリクエストに適用されます。',
+      invalid: '0〜1000 の倍率を小数点以下 6 桁以内で入力してください',
+    },
     appName: 'GPT-Load',
     retry: '再試行',
     modelDiscoveryFailed: 'モデル取得に失敗しました。下書きは未変更です',
@@ -296,7 +307,7 @@ export default {
         title: '直近 30 日間の概算',
         viewDetail: '詳細を見る →',
         viewModel: '{model} の使用状況を見る',
-        caption: '直近 30 日間の消費上位 5 モデル',
+        caption: '直近 30 日間の調整後推定コスト上位 5 モデル',
         scrollHint: '横にスクロールするとすべての列を確認できます',
         columns: {
           model: 'モデル',

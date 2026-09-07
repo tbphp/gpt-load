@@ -632,6 +632,8 @@ export default {
           usedPercent: '{value}% used',
           requests: 'Requests',
           tokens: 'Tokens',
+          priceMultiplierBasis:
+            'Estimated using model reference prices and Group/access key multipliers at request time; not an actual bill',
           referenceCost: 'API reference cost',
           unavailable: 'Local statistics are not currently available',
           dataIncomplete: 'Statistics do not cover the full window, so the value may be low',

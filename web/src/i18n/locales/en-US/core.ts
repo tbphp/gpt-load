@@ -1,5 +1,16 @@
 export default {
   common: {
+    priceMultiplier: {
+      label: 'Price multiplier',
+      value: 'Multiplier ×{value}',
+      group: 'Group',
+      accessKey: 'Access key',
+      groupHelp:
+        'Base rate × Group multiplier × access key multiplier. Default 1; 0 zeroes priced amounts. Applies to future requests only.',
+      accessKeyHelp:
+        'Multiplied by the selected Group multiplier. Logs, statistics, and cost limits use adjusted amounts. Default 1; 0 zeroes priced amounts. Future requests only.',
+      invalid: 'Enter a multiplier from 0 to 1000 with at most 6 decimals',
+    },
     appName: 'GPT-Load',
     retry: 'Retry',
     modelDiscoveryFailed: 'Discovery failed; draft unchanged',
@@ -298,7 +309,7 @@ export default {
         title: 'Estimated over 30 days',
         viewDetail: 'View details →',
         viewModel: 'View usage details for {model}',
-        caption: 'Top five models by spend over 30 days',
+        caption: 'Top five models by adjusted estimated cost over 30 days',
         scrollHint: 'Scroll horizontally to inspect every column',
         columns: {
           model: 'Model',

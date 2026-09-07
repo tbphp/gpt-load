@@ -6,6 +6,7 @@ import type { ChannelParamsDto, GroupModelItemDto } from '@/api/control/types'
 import type { ChannelFieldDto } from '@/app/resources/channels'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
+import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
 const props = defineProps<{
   section: 'general' | 'routing'
@@ -16,6 +17,7 @@ const props = defineProps<{
   validationModel: string | null
   models: GroupModelItemDto[]
   weightManual: number | null
+  priceMultiplier: string
   enabled: boolean
   pending: boolean
   paramsDisabled?: boolean
@@ -27,6 +29,7 @@ const emit = defineEmits<{
   'update:name': [value: string]
   'update:validationModel': [value: string | null]
   'update:weightManual': [value: number | null]
+  'update:priceMultiplier': [value: string]
   'update:enabled': [value: boolean]
 }>()
 const { t } = useI18n()
@@ -141,6 +144,21 @@ function setWeightMode(value: string): void {
           />
         </datalist>
         <small>{{ t('group.settings.base.validationModelHelp') }}</small>
+      </label>
+      <label class="group-settings__field">
+        <span>{{ t('common.priceMultiplier.label') }}</span>
+        <input
+          class="group-settings__mono"
+          :value="priceMultiplier"
+          inputmode="decimal"
+          :disabled="pending"
+          :aria-invalid="!isValidPriceMultiplier(priceMultiplier) || undefined"
+          @input="emit('update:priceMultiplier', ($event.target as HTMLInputElement).value)"
+        />
+        <small v-if="!isValidPriceMultiplier(priceMultiplier)" role="alert">
+          {{ t('common.priceMultiplier.invalid') }}
+        </small>
+        <small v-else>{{ t('common.priceMultiplier.groupHelp') }}</small>
       </label>
       <template v-for="field in paramFields" :key="field.key">
         <div v-if="isOptionalBaseURL(field)" class="group-settings__field group-settings__wide">

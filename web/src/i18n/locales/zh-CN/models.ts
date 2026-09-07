@@ -4,7 +4,7 @@ export default {
     loading: '正在加载模型…',
     loadFailed: '无法加载模型',
     stale: '后台刷新失败，当前模型信息可能已过期',
-    context: '预设价格优先于 Models.dev；USD / 1M Token，仅供估算',
+    context: '预设价格优先于 Models.dev；基础单价 USD / 1M Token，未含分组及访问密钥倍率',
     result: '显示 {shown} / {total} 个客户端模型',
     actions: {
       sync: '同步目录与自动价格',
@@ -18,7 +18,7 @@ export default {
       models: '{count} 个客户端模型',
       upstreams: '{count} 个上游模型',
       pending: '{count} 个待定价',
-      unit: 'USD / 百万 Token · 仅估算',
+      unit: '基础单价 USD / 百万 Token · 未含倍率',
     },
     catalog: {
       available: '预设价格目录可用',

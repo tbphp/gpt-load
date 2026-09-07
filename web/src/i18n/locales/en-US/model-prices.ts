@@ -23,7 +23,7 @@ export default {
     },
     matrix: {
       heading: 'Price',
-      unit: 'USD / 1M',
+      unit: 'USD / 1M · Before multipliers',
       thresholdColumn: 'Tier',
       baseRow: 'Default',
       addTier: 'Add tier',

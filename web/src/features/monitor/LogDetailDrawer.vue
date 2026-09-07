@@ -23,7 +23,7 @@ import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedCost } from '@/lib/format'
+import { formatEstimatedCost, formatExactNanoUSD } from '@/lib/format'
 
 import { formatCacheHitRate } from '@/lib/cache-rate'
 import {
@@ -220,14 +220,16 @@ function dispatchStateLabel(attempt: RequestLogAttemptDto): string {
 
 function formatFormulaLine(line: RequestLogPricingLineDto): string {
   const quantity = formatLogTokenCount(line.quantity, locale.value)
+  const multipliers = receipt.value?.price_multipliers
+  const priceMultiplier = multipliers ? ` × ${multipliers.group} × ${multipliers.access_key}` : ''
   if (line.state === 'unpriced' || line.rate_nano_usd_per_million === null) {
-    return `${quantity} × —`
+    return `${quantity} × —${priceMultiplier}`
   }
   const multiplier =
     line.multiplier.numerator === line.multiplier.denominator
       ? ''
       : ` × ${line.multiplier.numerator}/${line.multiplier.denominator}`
-  return `${quantity} × ${formatEstimatedCost(line.rate_nano_usd_per_million, locale.value)}/1M${multiplier}`
+  return `${quantity} × ${formatExactNanoUSD(line.rate_nano_usd_per_million, locale.value)}/1M${multiplier}${priceMultiplier}`
 }
 
 function accessKeyLabel(): string {
@@ -595,6 +597,15 @@ function toggleAttemptErrorMessage(sequence: number): void {
               <code>{{ pricingIdentity }}</code>
             </dd>
           </div>
+          <div v-if="!selfScoped && receipt?.price_multipliers" class="log-detail__wide">
+            <dt>{{ t('common.priceMultiplier.label') }}</dt>
+            <dd>
+              {{ t('common.priceMultiplier.group') }} ×{{ receipt.price_multipliers.group }} ·
+              {{ t('common.priceMultiplier.accessKey') }} ×{{
+                receipt.price_multipliers.access_key
+              }}
+            </dd>
+          </div>
           <div
             v-if="
               !selfScoped &&
@@ -608,6 +619,11 @@ function toggleAttemptErrorMessage(sequence: number): void {
             <dd class="log-detail__formula">
               <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
               <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
+              <span>
+                {{ t('monitor.logs.receipt.total') }} =
+                {{ formatExactNanoUSD(receipt.total_nano_usd, locale) }}
+              </span>
+              <small>{{ t('monitor.logs.receipt.rounding') }}</small>
             </dd>
           </div>
         </dl>

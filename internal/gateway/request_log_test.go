@@ -1023,6 +1023,7 @@ func TestRequestRecorderPreservesKnownCostWhenUsedOutputPriceIsUnavailable(t *te
 	recorder.freezeNextAttemptPricing(frozenAttemptPricing{
 		channelID: string(channel.OpenAI), groupID: 1,
 		upstreamModel: model, table: table, applicable: true,
+		priceMultipliers: pricing.PriceMultipliers{Group: pricing.DefaultPriceMultiplier, AccessKey: pricing.DefaultPriceMultiplier},
 	})
 	selection := requestLogSelection(1, 2, "group")
 	selection.UpstreamModelID = &model
@@ -1062,6 +1063,7 @@ func TestRequestRecorderMergesRequestPricingDiagnosticsIntoKnownCost(t *testing.
 	recorder.freezeNextAttemptPricing(frozenAttemptPricing{
 		channelID: string(channel.OpenAI), groupID: 1,
 		upstreamModel: model, table: table, applicable: true,
+		priceMultipliers: pricing.PriceMultipliers{Group: pricing.DefaultPriceMultiplier, AccessKey: pricing.DefaultPriceMultiplier},
 	})
 	selection := requestLogSelection(1, 2, "group")
 	selection.UpstreamModelID = &model
@@ -1104,12 +1106,13 @@ func TestRequestRecorderUsesFrozenAttemptMetadata(t *testing.T) {
 	model := "gpt-4o"
 	recorder.freezeNextAttemptPricing(frozenAttemptPricing{
 		channelID: string(channel.OpenAI), groupID: 1,
-		upstreamModel: model,
-		table:         mustGatewayPriceTableWithFast(t, 2_000_000_000, 5_000_000_000),
-		applicable:    true,
-		metadataSet:   true,
-		pricingMode:   pricing.ModeFast,
-		reasoning:     reasoning.Config{Effort: "high"},
+		upstreamModel:    model,
+		table:            mustGatewayPriceTableWithFast(t, 2_000_000_000, 5_000_000_000),
+		priceMultipliers: pricing.PriceMultipliers{Group: pricing.DefaultPriceMultiplier, AccessKey: pricing.DefaultPriceMultiplier},
+		applicable:       true,
+		metadataSet:      true,
+		pricingMode:      pricing.ModeFast,
+		reasoning:        reasoning.Config{Effort: "high"},
 	})
 	selection := requestLogSelection(1, 2, "group")
 	selection.UpstreamModelID = &model
@@ -1156,6 +1159,7 @@ func TestRequestRecorderDoesNotReuseClientMetadataWhenAttemptObservationIsUnavai
 		selection,
 		dialect.RequestMetadata{ObserveUsage: true},
 		false,
+		pricing.DefaultPriceMultiplier,
 	))
 	index := recorder.appendAttempt(
 		selection,

@@ -4,17 +4,20 @@ import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyDto } from '@/api/control/types'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
+import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
 const props = defineProps<{
   name: string
   status: AccessKeyDto['status']
   rpmLimit: number
+  priceMultiplier: string
   disabled: boolean
 }>()
 const emit = defineEmits<{
   'update:name': [value: string]
   'update:status': [value: AccessKeyDto['status']]
   'update:rpmLimit': [value: number]
+  'update:priceMultiplier': [value: string]
 }>()
 const { t } = useI18n()
 const nameInput = ref<InstanceType<typeof AppTextInput>>()
@@ -52,6 +55,33 @@ defineExpose({ focusName })
         :disabled="disabled"
         @update:model-value="emit('update:name', $event)"
       />
+    </div>
+
+    <div class="access-key-drawer__field">
+      <span class="access-key-drawer__field-label" aria-hidden="true">
+        {{ t('common.priceMultiplier.label') }}
+      </span>
+      <AppTextInput
+        id="access-key-price-multiplier"
+        :model-value="priceMultiplier"
+        :label="t('common.priceMultiplier.label')"
+        inputmode="decimal"
+        appearance="surface"
+        size="compact"
+        described-by="access-key-price-multiplier-description"
+        :invalid="!isValidPriceMultiplier(priceMultiplier)"
+        :disabled="disabled"
+        @update:model-value="emit('update:priceMultiplier', $event)"
+      />
+      <small id="access-key-price-multiplier-description">
+        {{
+          t(
+            isValidPriceMultiplier(priceMultiplier)
+              ? 'common.priceMultiplier.accessKeyHelp'
+              : 'common.priceMultiplier.invalid',
+          )
+        }}
+      </small>
     </div>
 
     <div class="access-key-setting-row">

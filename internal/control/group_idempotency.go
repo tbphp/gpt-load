@@ -21,6 +21,7 @@ import (
 )
 
 type groupCreateDigestBody struct {
+	PriceMultiplier     string                `json:"price_multiplier,omitempty"`
 	Name                *string               `json:"name"`
 	ChannelID           channel.ID            `json:"channel_id"`
 	ConnectionType      models.ConnectionType `json:"connection_type"`
@@ -53,6 +54,7 @@ func (s *Service) CreateGroupIdempotent(
 		}
 	}
 	digestBody := groupCreateDigestBody{
+		PriceMultiplier:     priceMultiplierDigest(normalized.priceMultiplier),
 		Name:                normalized.explicitName,
 		ChannelID:           normalized.channelID,
 		ConnectionType:      normalized.connectionType,
@@ -122,14 +124,15 @@ func (s *Service) CreateGroupIdempotent(
 				return idempotentMutationResult{}, app_errors.ErrInternalServer
 			}
 			group := models.Group{
-				Name:           name,
-				ChannelID:      string(normalized.channelID),
-				ConnectionType: normalized.connectionType,
-				Params:         append(models.JSON(nil), normalized.params...),
-				Models:         models.JSON(encodedModels),
-				Overrides:      normalized.encodedOverrides,
-				ProxyConfig:    normalized.proxyConfig,
-				Enabled:        true,
+				PriceMultiplierMicros: priceMultiplierStorage(normalized.priceMultiplier),
+				Name:                  name,
+				ChannelID:             string(normalized.channelID),
+				ConnectionType:        normalized.connectionType,
+				Params:                append(models.JSON(nil), normalized.params...),
+				Models:                models.JSON(encodedModels),
+				Overrides:             normalized.encodedOverrides,
+				ProxyConfig:           normalized.proxyConfig,
+				Enabled:               true,
 			}
 			if err := tx.Create(&group).Error; err != nil {
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)

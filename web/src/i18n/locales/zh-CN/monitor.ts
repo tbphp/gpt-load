@@ -266,7 +266,7 @@ export default {
         totalTokens: '已报告 Token 总数',
         persistedWindow: '当前统计窗口',
         estimatedCost: '预估成本',
-        estimatedCostBasis: '基于已报告 Token 估算',
+        estimatedCostBasis: '基于已报告 Token 与请求当时的倍率',
       },
       tokens: {
         title: '已报告 Token 分类',
@@ -953,6 +953,9 @@ export default {
         partial: '当前 Token 用量不完整',
       },
       receipt: {
+        total: '已计价合计',
+        rounding:
+          '各计价项应用全部倍率后四舍五入到 0.000000001 USD，再相加；未定价部分不计入合计。',
         formula: '成本计算',
         input: '输入',
         output: '输出',
