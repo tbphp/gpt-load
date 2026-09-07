@@ -159,7 +159,7 @@ func (bridge *antigravityProviderBridge) Execute(
 		AttemptID: request.AttemptID, Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ContinuityKey: antigravityContinuityScope(request.ContinuityKey, credentialID, request.Model, request.AttemptID),
-		ProxyURL:      request.ProxyURL,
+		BaseURL:       request.BaseURL, ProxyURL: request.ProxyURL,
 	})
 	if err == nil {
 		response.Payload, err = normalizeAntigravityResponseModel(request.Format, response.Payload, request.Model)
@@ -184,7 +184,7 @@ func (bridge *antigravityProviderBridge) CountTokens(
 		AttemptID: request.AttemptID, Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ContinuityKey: antigravityContinuityScope(request.ContinuityKey, credentialID, request.Model, request.AttemptID),
-		ProxyURL:      request.ProxyURL,
+		BaseURL:       request.BaseURL, ProxyURL: request.ProxyURL,
 	})
 	return providerResponse{Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone()}, err
 }
@@ -203,7 +203,7 @@ func (bridge *antigravityProviderBridge) ExecuteStream(
 		AttemptID: request.AttemptID, Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		Headers: request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		ContinuityKey: antigravityContinuityScope(request.ContinuityKey, credentialID, request.Model, request.AttemptID),
-		ProxyURL:      request.ProxyURL,
+		BaseURL:       request.BaseURL, ProxyURL: request.ProxyURL,
 	})
 	if response == nil {
 		return nil, err

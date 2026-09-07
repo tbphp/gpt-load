@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"gpt-load/internal/channel/modules"
 	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
@@ -212,7 +211,7 @@ func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(target.TargetConfig); got != `{"base_url":"`+modules.CodexDefaultBaseURL+`"}` {
+	if got := string(target.TargetConfig); got != `{}` {
 		t.Fatalf("Codex default target = %s", got)
 	}
 	override, err := registry.Resolve(Codex, json.RawMessage(`{"base_url":"HTTPS://RELAY.EXAMPLE:443/codex/"}`))

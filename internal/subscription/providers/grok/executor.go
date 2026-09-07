@@ -15,6 +15,7 @@ type ExecuteRequest struct {
 	Headers         http.Header
 	OriginalRequest []byte
 	ContinuityKey   string
+	BaseURL         string
 	ProxyURL        string
 }
 
@@ -83,7 +84,7 @@ func requestToBridge(request ExecuteRequest) cpaembedded.ExecuteRequest {
 		AttemptID: request.AttemptID, Model: request.Model, Payload: append([]byte(nil), request.Payload...),
 		Format: request.Format, Headers: request.Headers.Clone(),
 		OriginalRequest: append([]byte(nil), request.OriginalRequest...), ContinuityKey: request.ContinuityKey,
-		ProxyURL: request.ProxyURL,
+		BaseURL: request.BaseURL, ProxyURL: request.ProxyURL,
 	}
 }
 

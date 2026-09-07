@@ -204,8 +204,8 @@ func ImportCredential(ctx context.Context, raw []byte) (Credential, error) {
 	return credentialFromBridge(value), nil
 }
 
-func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
-	options, err := antigravityOptions(ctx)
+func ListModels(ctx context.Context, credential Credential, apiRoot string) ([]Model, error) {
+	options, err := antigravityAPIOptions(ctx, apiRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -223,8 +223,8 @@ func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
 	return result, nil
 }
 
-func ObserveAccount(ctx context.Context, credential Credential) (AccountObservation, error) {
-	options, err := antigravityOptions(ctx)
+func ObserveAccount(ctx context.Context, credential Credential, apiRoot string) (AccountObservation, error) {
+	options, err := antigravityAPIOptions(ctx, apiRoot)
 	if err != nil {
 		return AccountObservation{}, err
 	}

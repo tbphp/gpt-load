@@ -507,18 +507,9 @@ func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, stri
 	return provider, baseURL, nil
 }
 
-// resolvedTargetBaseURL extracts the normalized Base URL from a compiled target.
+// resolvedTargetBaseURL 提取编译目标中的可选订阅 API 代理根地址。
 func resolvedTargetBaseURL(raw json.RawMessage) (string, error) {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return "", nil
-	}
-	var target struct {
-		BaseURL string `json:"base_url"`
-	}
-	if err := json.Unmarshal(raw, &target); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(target.BaseURL), nil
+	return (subscriptionruntime.Target{Config: raw}).BaseURL()
 }
 
 // bridgeRequest copies an attempt into the provider-neutral CPA request shape

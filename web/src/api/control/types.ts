@@ -2,6 +2,8 @@ import type { ProtocolValue } from './protocols'
 
 export type GroupProtocol = ProtocolValue
 export type AccessProtocol = ProtocolValue
+export const routeStrategies = ['native_first', 'weighted_mix'] as const
+export type RouteStrategy = (typeof routeStrategies)[number]
 export type FailureCategory =
   | 'ok'
   | 'rate_limited'
@@ -53,6 +55,7 @@ export interface GroupCollectionSummaryDto {
 export interface GroupCollectionItemDto {
   id: number
   name: string
+  price_multiplier: string
   channel_id: string
   connection_type: ConnectionType
   params: ChannelParamsDto
@@ -78,6 +81,7 @@ export interface GroupCollectionResponseDto {
 export interface GroupSummaryDto {
   id: number
   name: string
+  price_multiplier: string
   channel_id: string
   connection_type: ConnectionType
   params: ChannelParamsDto
@@ -92,6 +96,20 @@ export interface HeaderRulesDto {
   remove: string[]
 }
 
+export type ParameterJSONValue =
+  null | boolean | number | string | unknown[] | Record<string, unknown>
+
+export interface ParameterOverrideMatchDto {
+  protocol?: AccessProtocol
+  model?: string
+}
+
+export interface ParameterOverrideRuleDto {
+  match: ParameterOverrideMatchDto
+  set?: Record<string, ParameterJSONValue>
+  remove?: string[]
+}
+
 export interface GroupRuntimeConfigDto {
   first_byte_timeout?: number
   request_timeout?: number
@@ -99,8 +117,8 @@ export interface GroupRuntimeConfigDto {
   retry_count?: number
   blacklist_threshold?: number
   header_rules?: HeaderRulesDto
-  inject_usage_options?: boolean
   affinity_enabled?: boolean
+  parameter_overrides?: ParameterOverrideRuleDto[]
 }
 
 export interface GroupEffectiveConfigDto {
@@ -110,12 +128,12 @@ export interface GroupEffectiveConfigDto {
   retry_count: number
   blacklist_threshold: number
   header_rules: HeaderRulesDto
-  inject_usage_options: boolean
   affinity_enabled: boolean
 }
 
 export interface GroupSettingsDto {
   name: string
+  price_multiplier: string
   channel_id: string
   connection_type: ConnectionType
   params: ChannelParamsDto
@@ -157,6 +175,7 @@ export interface CredentialAccountDto {
 }
 
 export interface CredentialQuotaWindowDto {
+  source_id?: string
   id: string
   label: string
   label_key?: CredentialQuotaLabelKey
@@ -408,7 +427,8 @@ export interface HealthProblemCredentialDto {
   weight_manual: number | null
   weight_auto: number
   recovery: HealthRecoveryDto
-  mask: string
+  /** API 密钥仍是掩码，订阅账号给完整邮箱，与凭据卡片、日志的展示约定一致。 */
+  identity: string
   last_failure_category: Exclude<FailureCategory, 'ok'>
   last_status_code: number | null
 }
@@ -511,6 +531,7 @@ export interface HealthAccessKeyCostLimitDto {
 export interface AccessKeyDto {
   id: number
   name: string
+  price_multiplier: string
   masked_key: string
   status: 'active' | 'disabled'
   filters: AccessKeyFiltersDto

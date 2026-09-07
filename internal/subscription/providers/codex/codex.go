@@ -177,12 +177,16 @@ func RefreshCredentialOnce(ctx context.Context, current Credential) (Credential,
 }
 
 // ListModels returns the models visible to one Codex subscription account.
-func ListModels(ctx context.Context, credential Credential, baseURL string) ([]Model, error) {
+func ListModels(ctx context.Context, credential Credential, apiRoot string) ([]Model, error) {
+	endpoints, err := cpaembedded.ResolveCodexAPIEndpoints(apiRoot)
+	if err != nil {
+		return nil, err
+	}
 	options, err := codexOptions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	values, err := cpaembedded.ListCodexModels(ctx, credentialToBridge(credential), baseURL, options)
+	values, err := cpaembedded.ListCodexModels(ctx, credentialToBridge(credential), endpoints.ExecutionBase, options)
 	if err != nil {
 		return nil, err
 	}
@@ -194,12 +198,16 @@ func ListModels(ctx context.Context, credential Credential, baseURL string) ([]M
 }
 
 // ObserveAccount retrieves account entitlement and quota metadata.
-func ObserveAccount(ctx context.Context, credential Credential, baseURL string) (AccountObservation, error) {
+func ObserveAccount(ctx context.Context, credential Credential, apiRoot string) (AccountObservation, error) {
+	endpoints, err := cpaembedded.ResolveCodexAPIEndpoints(apiRoot)
+	if err != nil {
+		return AccountObservation{}, err
+	}
 	options, err := codexOptions(ctx)
 	if err != nil {
 		return AccountObservation{}, err
 	}
-	value, err := cpaembedded.ObserveCodexAccount(ctx, credentialToBridge(credential), baseURL, options)
+	value, err := cpaembedded.ObserveCodexAccount(ctx, credentialToBridge(credential), endpoints.AccountBase, options)
 	if err != nil {
 		return AccountObservation{}, normalizeUpstreamError(err)
 	}
@@ -207,12 +215,16 @@ func ObserveAccount(ctx context.Context, credential Credential, baseURL string) 
 }
 
 // ObserveResetCredits retrieves the available reset-credit detail payload.
-func ObserveResetCredits(ctx context.Context, credential Credential, baseURL string) (AccountObservation, error) {
+func ObserveResetCredits(ctx context.Context, credential Credential, apiRoot string) (AccountObservation, error) {
+	endpoints, err := cpaembedded.ResolveCodexAPIEndpoints(apiRoot)
+	if err != nil {
+		return AccountObservation{}, err
+	}
 	options, err := codexOptions(ctx)
 	if err != nil {
 		return AccountObservation{}, err
 	}
-	value, err := cpaembedded.ObserveCodexResetCredits(ctx, credentialToBridge(credential), baseURL, options)
+	value, err := cpaembedded.ObserveCodexResetCredits(ctx, credentialToBridge(credential), endpoints.AccountBase, options)
 	if err != nil {
 		return AccountObservation{}, normalizeUpstreamError(err)
 	}
@@ -221,12 +233,16 @@ func ObserveResetCredits(ctx context.Context, credential Credential, baseURL str
 
 // ConsumeResetCredit consumes the next available credit with a caller-owned,
 // durable upstream idempotency identity.
-func ConsumeResetCredit(ctx context.Context, credential Credential, baseURL, redeemRequestID string) (AccountObservation, error) {
+func ConsumeResetCredit(ctx context.Context, credential Credential, apiRoot, redeemRequestID string) (AccountObservation, error) {
+	endpoints, err := cpaembedded.ResolveCodexAPIEndpoints(apiRoot)
+	if err != nil {
+		return AccountObservation{}, err
+	}
 	options, err := codexOptions(ctx)
 	if err != nil {
 		return AccountObservation{}, err
 	}
-	value, err := cpaembedded.ConsumeCodexResetCredit(ctx, credentialToBridge(credential), baseURL, redeemRequestID, options)
+	value, err := cpaembedded.ConsumeCodexResetCredit(ctx, credentialToBridge(credential), endpoints.AccountBase, redeemRequestID, options)
 	if err != nil {
 		return AccountObservation{}, normalizeUpstreamError(err)
 	}

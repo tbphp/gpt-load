@@ -48,7 +48,9 @@ func mapGroupRowToState(group models.Group) (state.GroupConfig, error) {
 	if group.ValidationModel != nil {
 		validationModel = *group.ValidationModel
 	}
+	multiplier := priceMultiplierFromStorage(group.PriceMultiplierMicros)
 	result := state.GroupConfig{
+		PriceMultiplier: &multiplier,
 		ID:              group.ID,
 		Name:            group.Name,
 		ChannelID:       channel.ID(group.ChannelID),

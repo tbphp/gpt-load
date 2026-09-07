@@ -63,7 +63,7 @@ export default {
         available: 'Available',
         tableLabel: 'Group health list',
         columns: {
-          group: 'Group',
+          group: 'Group: {name}',
           status: 'Scheduling',
           credentialHealth: 'Credential composition',
           exceptions: 'Current exceptions',
@@ -233,7 +233,7 @@ export default {
         anyGroup: 'All Groups',
         channel: 'Channel',
         anyChannel: 'All channels',
-        credential: 'Credential ID',
+        credential: 'Credential: {name}',
         model: 'Upstream model',
         modelPlaceholder: 'Exact model name',
         modelHelp: 'Optional exact upstream model after routing.',
@@ -275,7 +275,7 @@ export default {
         totalTokens: 'Total reported tokens',
         persistedWindow: 'Current reporting window',
         estimatedCost: 'Estimated cost',
-        estimatedCostBasis: 'Based on reported tokens',
+        estimatedCostBasis: 'Reported tokens and multipliers at request time',
       },
       tokens: {
         title: 'Reported token categories',
@@ -466,6 +466,7 @@ export default {
         reasonLine: 'Reason: {reason}',
         observedAt: 'Observed at {time}',
         revision: 'Revision {revision}',
+        routeStrategy: 'Route strategy: {strategy}',
         protocol: 'Protocol',
         externalModel: 'Client model',
         modelNotSpecified: 'Not specified',
@@ -481,8 +482,12 @@ export default {
       },
       groups: {
         title: 'Candidate Groups',
-        description:
-          'Native routes are tried first, with protocol conversion used only when no native candidate is available. Within a tier, selection is weighted random; rows are sorted by weight, not fixed hit order.',
+        description: {
+          native_first:
+            'Native routes are tried first; converted routes are used when no native candidate is available. Selection within a tier is weighted random; rows are sorted by tier and weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
+          weighted_mix:
+            'Eligible native and converted candidates compete in one pool by effective weight; rows are sorted by weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
+        },
         count: '{count}',
         tableLabel: 'Candidate Group route explanation',
         completeEmpty:
@@ -503,7 +508,7 @@ export default {
         viewGroup: 'View Group',
         columns: {
           group: 'Group',
-          status: 'Route tier',
+          status: 'Route mode',
           credentials: 'Credentials',
           weight: 'Effective weight',
           share: 'Weight share',
@@ -711,10 +716,7 @@ export default {
         text: 'Text cannot contain surrounding whitespace or control characters.',
         usd: 'Enter a non-negative USD amount with up to 9 decimal places.',
       },
-      accessKey: {
-        named: '{name} · #{id}',
-        deleted: 'Deleted · #{id}',
-      },
+      deletedRef: 'Deleted · #{id}',
       none: 'None',
       yes: 'Yes',
       no: 'No',
@@ -727,10 +729,14 @@ export default {
         notRecorded: 'Not recorded',
       },
       routeIdentity: {
-        group: 'Group: {name} (G{id})',
+        group: 'Group: {name}',
         channel: 'Channel: {name}',
-        credential: 'Credential: K{id}',
+        credential: 'Credential: {name}',
+        filterGroup: 'Show only logs from group {name}',
+        filterCredential: 'Show only logs from credential {name}',
       },
+      filterAccessKey: 'Show only logs from access key {name}',
+      filterModel: 'Show only logs for model {name}',
       details: 'View details',
       failureCategory: {
         ok: 'OK',
@@ -816,6 +822,7 @@ export default {
         summary: 'Request outcome',
         requestId: 'Request ID',
         copyRequestId: 'Copy request ID',
+        copyCredential: 'Copy credential',
         completedAt: 'Completed',
         status: 'Status',
         protocol: 'Protocol',
@@ -969,6 +976,13 @@ export default {
         partial: 'Token usage is partial',
       },
       receipt: {
+        total: 'Priced total',
+        baseTotal: 'Base priced total',
+        finalTotal: 'Final priced total',
+        totalRounding:
+          'Components are rounded using the original pricing rules and summed. The total is then multiplied by both group and access key multipliers and rounded once to the nearest 0.000000001 USD. Unpriced portions are excluded.',
+        rounding:
+          'Each priced component is rounded to the nearest 0.000000001 USD after all multipliers, then summed. Unpriced portions are excluded.',
         formula: 'Cost calculation',
         input: 'Input',
         output: 'Output',

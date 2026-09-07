@@ -205,6 +205,8 @@ type ProviderBinding struct {
 	CatalogProviderID string
 	EndpointPolicy    EndpointPolicy
 	FixedBaseURL      string
+	// DefaultBaseURLs 只提供官方地址提示，不注入用户参数或执行目标。
+	DefaultBaseURLs []string
 }
 
 // ExtensionID is a strongly typed code-owned extension binding.

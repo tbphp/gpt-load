@@ -13,7 +13,49 @@ import (
 
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/state"
+	"gpt-load/internal/storage/models"
 )
+
+func TestSettingsHTTPRouteStrategyRejectsInvalidValuesWithoutMutation(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	updated := serveLocalizedSettingsRequest(t, engine, http.MethodPut, "test-auth-key", "en-US",
+		`{"settings":{"route_strategy":"weighted_mix"}}`)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("PUT weighted_mix = %d %s", updated.Code, updated.Body.String())
+	}
+	var envelope struct {
+		Data SettingsResponse `json:"data"`
+	}
+	if err := json.Unmarshal(updated.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.Values.RouteStrategy != state.RouteStrategyWeightedMix {
+		t.Fatalf("response route strategy = %q", envelope.Data.Values.RouteStrategy)
+	}
+	before := fixture.manager.Current()
+	for _, raw := range []string{`""`, `"unknown"`, `"Native_First"`, `" weighted_mix "`, "true", "1", "[]", "{}"} {
+		rejected := serveLocalizedSettingsRequest(t, engine, http.MethodPut, "test-auth-key", "en-US",
+			`{"settings":{"route_strategy":`+raw+`,"retry_count":9}}`)
+		if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), `"code":"VALIDATION_FAILED"`) {
+			t.Fatalf("PUT route_strategy=%s = %d %s", raw, rejected.Code, rejected.Body.String())
+		}
+	}
+	if fixture.manager.Current() != before {
+		t.Fatal("invalid route strategy published a new Snapshot")
+	}
+	var rows []models.SystemSetting
+	if err := fixture.db.Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Key != state.SettingRouteStrategy || rows[0].Value != `"weighted_mix"` {
+		t.Fatalf("invalid updates changed persisted settings: %#v", rows)
+	}
+}
 
 func TestSettingsHTTPLastWriteWinsWithoutPrecondition(t *testing.T) {
 	t.Parallel()

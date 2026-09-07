@@ -36,7 +36,7 @@ func NormalizeQuota(primary, details []byte) ([]byte, error) {
 		}
 	}
 	if rate, ok := object(firstValue(payload, "rate_limit", "rateLimit")); ok {
-		result.QuotaWindows = append(result.QuotaWindows, normalizeRateWindows(rate, "", "account")...)
+		result.QuotaWindows = append(result.QuotaWindows, normalizeRateWindows(rate, "", "account", "codex")...)
 	}
 	if additional, ok := firstValue(payload, "additional_rate_limits", "additionalRateLimits").([]any); ok {
 		for index, rawEntry := range additional {
@@ -52,7 +52,8 @@ func NormalizeQuota(primary, details []byte) ([]byte, error) {
 			if !ok {
 				continue
 			}
-			windows := normalizeRateWindows(rate, providerobservation.SafeID(name)+"-", name)
+			sourceID := cleanString(firstValue(entry, "metered_feature", "meteredFeature"))
+			windows := normalizeRateWindows(rate, providerobservation.SafeID(name)+"-", name, sourceID)
 			modelIDs := stringsFrom(firstValue(entry, "model_ids", "modelIds"))
 			for windowIndex := range windows {
 				windows[windowIndex].ModelIDs = append([]string(nil), modelIDs...)
@@ -107,60 +108,66 @@ func NormalizeQuota(primary, details []byte) ([]byte, error) {
 const passiveQuotaMaxResetAtSeconds = math.MaxInt64 / 1000
 
 // passiveQuotaNamespaceFields are the header suffixes that belong to a limit
-// namespace as a whole rather than to one of its windows.
-var passiveQuotaNamespaceFields = []string{"limit-reached", "limit-name", "allowed"}
+// namespace as a whole rather than to one of its windows. active-limit only
+// ever appears on the response as a whole, which parses as the empty namespace.
+var passiveQuotaNamespaceFields = []string{"limit-reached", "limit-name", "allowed", "active-limit"}
+
+// codexAccountQuotaSourceID 是普通账号额度的来源标识，与主动查询里没有
+// metered_feature 的 rate_limit 对应。
+const codexAccountQuotaSourceID = "codex"
+
+// codexAccountActiveLimit 是 X-Codex-Active-Limit 指向普通账号额度时的取值。
+const codexAccountActiveLimit = "premium"
 
 // passiveQuotaNamespace holds one Codex limit namespace parsed out of the
 // response headers. The empty namespace is the credential's own rate limit;
-// any other namespace is an additional limit identified by its Limit-Name.
+// any other namespace identifies an additional metered feature.
 type passiveQuotaNamespace struct {
 	rateLevel map[string]string
 	windows   map[string]map[string]string
 }
 
-// NormalizePassiveQuotaWindows converts one response's passive quota headers
-// into the same windows NormalizeQuota produces from the active JSON payload,
-// reusing normalizeRateWindows so Scope, Unit, and State follow one rule
-// regardless of source.
-//
-// Namespaces are discovered from the headers rather than enumerated, so a
-// limit Codex introduces later is picked up without a code change as long as
-// it follows the same X-Codex-<namespace>-<window>-<field> shape and carries
-// an X-Codex-<namespace>-Limit-Name. An additional namespace without that
-// name is skipped: its ID could not be made to match the active JSON path.
-//
-// Label and LabelKey are deliberately left empty. They are derived from the
-// window period, which a partial response may omit, and this output only ever
-// updates windows an active observation already created -- that observation
-// stays the owner of the display metadata.
+// NormalizePassiveQuotaWindows 提取响应头中的来源、周期和额度数据。
+// 来源按上游 limit_id 规则与主动查询的 metered_feature 对齐，不依赖 Limit-Name；
+// 没有命名空间的一组由 Active-Limit 决定归属，见 passiveQuotaGenericSourceID。
+// 展示元数据仍由主动观测负责；缺少周期的样本由合并层拒绝，不能退回槽位匹配。
 func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Time) []quotaWindow {
 	if len(signals) == 0 {
 		return nil
 	}
 	result := make([]quotaWindow, 0, 2)
+	generic := make([]int, 0, 2)
 	namespaces := parsePassiveQuotaNamespaces(signals)
 	for _, key := range sortedNamespaceKeys(namespaces) {
 		namespace := namespaces[key]
-		prefix, scope := "", "account"
+		prefix, scope, sourceID := "", "account", passiveQuotaNamespaceSourceID(key)
 		if key != "" {
 			limitName := strings.TrimSpace(namespace.rateLevel["limit-name"])
-			if limitName == "" || providerobservation.SafeID(limitName) == "" {
-				continue
+			if limitName == "" {
+				limitName = sourceID
 			}
 			scope = limitName
 			prefix = providerobservation.SafeID(limitName) + "-"
+		} else if sourceID = passiveQuotaGenericSourceID(namespaces); sourceID == "" {
+			continue
 		}
 		rate := passiveQuotaRate(namespace, observedAt)
 		if rate == nil {
 			continue
 		}
-		for _, window := range normalizeRateWindows(rate, prefix, scope) {
+		for _, window := range normalizeRateWindows(rate, prefix, scope, sourceID) {
 			// Scope and Unit only served to build the ID and pick the label
 			// rules above; they are cleared, like Label, so the merge updates
 			// nothing but the quota numbers and state.
 			window.Label, window.LabelKey, window.Scope, window.Unit = "", "", "", ""
+			if key == "" {
+				generic = append(generic, len(result))
+			}
 			result = append(result, window)
 		}
+	}
+	if len(generic) > 0 {
+		result = passiveQuotaDropDuplicateCopies(result, generic)
 	}
 	if len(result) == 0 {
 		return nil
@@ -168,11 +175,94 @@ func NormalizePassiveQuotaWindows(signals map[string]string, observedAt time.Tim
 	return result
 }
 
-// parsePassiveQuotaNamespaces groups X-Codex-* headers by limit namespace.
-// The first path segment equal to "primary" or "secondary" separates the
-// namespace from the field name, so a field that merely mentions a window
-// (X-Codex-Primary-Over-Secondary-Limit-Percent) stays attached to the window
-// that owns it.
+// passiveQuotaNamespaceSourceID 把响应头命名空间映射成额度来源标识。上游用短名
+// 给专属额度分段（x-codex-bengalfox-*），主动查询用 metered_feature 报告同一个
+// 来源（codex_bengalfox），两者相差一个 codex 前缀。
+func passiveQuotaNamespaceSourceID(key string) string {
+	if key == "" {
+		return codexAccountQuotaSourceID
+	}
+	return normalizeQuotaSourceID(codexAccountQuotaSourceID + "-" + key)
+}
+
+// passiveQuotaGenericSourceID 判定没有命名空间的 X-Codex-Primary/Secondary-* 组
+// 归属哪个来源。这一组报告的是本次请求实际计费到的额度，而不是固定的普通账号
+// 额度：请求 Spark 等专属额度时，上游把该额度原样放进这一组，按普通额度收下就
+// 会用专属额度覆盖同周期的普通窗口。返回空串表示无法安全归属，整组丢弃。
+func passiveQuotaGenericSourceID(namespaces map[string]*passiveQuotaNamespace) string {
+	generic, ok := namespaces[""]
+	if !ok {
+		return ""
+	}
+	switch active := normalizeQuotaSourceID(generic.rateLevel["active-limit"]); active {
+	case codexAccountQuotaSourceID, codexAccountActiveLimit:
+		return codexAccountQuotaSourceID
+	case "":
+		// 没有 Active-Limit 就无法直接区分普通额度和专属额度的副本。同一响应里
+		// 已经独立报告了别的来源时按副本处理，只有单独报告这一组才沿用普通额度。
+		if passiveQuotaHasNamespacedWindows(namespaces) {
+			return ""
+		}
+		return codexAccountQuotaSourceID
+	default:
+		// 专属额度的副本直接刷新该来源。与独立命名空间真正重复的窗口另行去重，
+		// 这里不能因为该来源另有一个周期的窗口就丢掉整组。
+		return active
+	}
+}
+
+// passiveQuotaHasNamespacedWindows 报告除通用组外是否还有带窗口数据的来源。
+func passiveQuotaHasNamespacedWindows(namespaces map[string]*passiveQuotaNamespace) bool {
+	for key, namespace := range namespaces {
+		if key != "" && len(namespace.windows) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// passiveQuotaDropDuplicateCopies 丢弃与独立命名空间重复的通用窗口。只有来源和
+// 周期都相同才是同一份额度的两次报告：这时两个补丁会指向同一个窗口，合并层判定
+// 歧义后会把两者一起丢弃，因此只保留命名空间单独报告的那份。周期不同的窗口对应
+// 不同额度，必须各自保留。generic 是通用组产出的窗口下标。
+func passiveQuotaDropDuplicateCopies(windows []quotaWindow, generic []int) []quotaWindow {
+	isGeneric := make(map[int]bool, len(generic))
+	for _, index := range generic {
+		isGeneric[index] = true
+	}
+	duplicated := make(map[int]bool, len(generic))
+	for _, index := range generic {
+		for other := range windows {
+			// 只与独立命名空间比较：通用组内部的两个槽位是两份数据，不是副本。
+			if isGeneric[other] || windows[other].SourceID != windows[index].SourceID {
+				continue
+			}
+			if samePassiveQuotaPeriod(windows[other], windows[index]) {
+				duplicated[index] = true
+				break
+			}
+		}
+	}
+	if len(duplicated) == 0 {
+		return windows
+	}
+	kept := windows[:0]
+	for index, window := range windows {
+		if duplicated[index] {
+			continue
+		}
+		kept = append(kept, window)
+	}
+	return kept
+}
+
+func samePassiveQuotaPeriod(left, right quotaWindow) bool {
+	return left.WindowSeconds != nil && right.WindowSeconds != nil &&
+		*left.WindowSeconds == *right.WindowSeconds
+}
+
+// parsePassiveQuotaNamespaces 从已知字段后缀定位槽位，避免将来源名称中的
+// primary/secondary 误认成窗口，或把 over-secondary-limit-percent 当成额度值。
 func parsePassiveQuotaNamespaces(signals map[string]string) map[string]*passiveQuotaNamespace {
 	namespaces := make(map[string]*passiveQuotaNamespace)
 	ensure := func(key string) *passiveQuotaNamespace {
@@ -192,41 +282,35 @@ func parsePassiveQuotaNamespaces(signals map[string]string) map[string]*passiveQ
 		if !found || suffix == "" {
 			continue
 		}
-		segments := strings.Split(suffix, "-")
-		windowIndex := -1
-		for index, segment := range segments {
-			if segment == "primary" || segment == "secondary" {
-				windowIndex = index
+		for _, field := range passiveQuotaNamespaceFields {
+			if suffix == field {
+				ensure("").rateLevel[field] = value
+				break
+			}
+			if owner, ok := strings.CutSuffix(suffix, "-"+field); ok && owner != "" {
+				ensure(owner).rateLevel[field] = value
 				break
 			}
 		}
-		if windowIndex < 0 {
-			// No window segment: this is either a namespace-wide field or a
-			// header this normalizer has no meaning for (plan type, credits).
-			for _, field := range passiveQuotaNamespaceFields {
-				if suffix == field {
-					ensure("").rateLevel[field] = value
-					break
-				}
-				if owner, trimmed := strings.CutSuffix(suffix, "-"+field); trimmed && owner != "" {
-					ensure(owner).rateLevel[field] = value
-					break
-				}
+		for _, field := range []string{"used-percent", "window-minutes", "reset-at", "reset-after-seconds"} {
+			owner, ok := strings.CutSuffix(suffix, "-"+field)
+			if !ok {
+				continue
 			}
-			continue
+			namespaceKey, windowName := "", owner
+			if index := strings.LastIndexByte(owner, '-'); index >= 0 {
+				namespaceKey, windowName = owner[:index], owner[index+1:]
+			}
+			if windowName != "primary" && windowName != "secondary" {
+				continue
+			}
+			namespace := ensure(namespaceKey)
+			if namespace.windows[windowName] == nil {
+				namespace.windows[windowName] = map[string]string{}
+			}
+			namespace.windows[windowName][field] = value
+			break
 		}
-		namespaceKey := strings.Join(segments[:windowIndex], "-")
-		field := strings.Join(segments[windowIndex+1:], "-")
-		if field == "" {
-			continue
-		}
-		namespace := ensure(namespaceKey)
-		window := namespace.windows[segments[windowIndex]]
-		if window == nil {
-			window = map[string]string{}
-			namespace.windows[segments[windowIndex]] = window
-		}
-		window[field] = value
 	}
 	return namespaces
 }
@@ -341,7 +425,12 @@ func passiveQuotaBool(value string) (bool, bool) {
 	return parsed, true
 }
 
-func normalizeRateWindows(rate map[string]any, prefix, scope string) []quotaWindow {
+// 与 Codex 的 normalize_limit_id 一致；名称仅用于显示，不能作为来源标识。
+func normalizeQuotaSourceID(value string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_")
+}
+
+func normalizeRateWindows(rate map[string]any, prefix, scope, sourceID string) []quotaWindow {
 	result := make([]quotaWindow, 0, 2)
 	for _, name := range []string{"primary", "secondary"} {
 		window, ok := object(firstValue(rate, name+"_window", name+"Window"))
@@ -350,7 +439,7 @@ func normalizeRateWindows(rate map[string]any, prefix, scope string) []quotaWind
 		}
 		item := quotaWindow{
 			ID: prefix + name, Label: windowLabel(window, name, scope), LabelKey: codexWindowLabelKey(name, scope),
-			Scope: scope, Unit: "percent", State: "unknown",
+			Scope: scope, Unit: "percent", State: "unknown", SourceID: normalizeQuotaSourceID(sourceID),
 		}
 		if used, ok := number(firstValue(window, "used_percent", "usedPercent")); ok {
 			used = math.Max(0, math.Min(100, used))

@@ -62,6 +62,14 @@ func NormalizeHTTPSBaseURL(value string) (string, error) {
 	return normalized, nil
 }
 
+// NormalizeOptionalHTTPSBaseURL 允许清空可选的订阅代理地址。
+func NormalizeOptionalHTTPSBaseURL(value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", nil
+	}
+	return NormalizeHTTPSBaseURL(value)
+}
+
 // NormalizeCloudIdentifier rejects whitespace and control characters in a
 // provider-owned cloud configuration value.
 func NormalizeCloudIdentifier(value string) (string, error) {

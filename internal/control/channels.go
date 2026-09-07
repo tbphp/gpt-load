@@ -43,7 +43,9 @@ func (s *Service) ListChannels(ctx context.Context, query string) (ChannelListRe
 	items := make([]ChannelListItem, 0, len(descriptors))
 	for _, descriptor := range descriptors {
 		item := ChannelListItem{Descriptor: descriptor}
-		if s.channelDefaultBaseURLs != nil {
+		if len(descriptor.DefaultBaseURLs) > 0 {
+			item.DefaultBaseURL = descriptor.DefaultBaseURLs[0]
+		} else if s.channelDefaultBaseURLs != nil {
 			baseURL, unique, err := s.channelDefaultBaseURLs.DefaultBaseURL(descriptor.ID)
 			if err != nil {
 				return ChannelListResponse{}, err

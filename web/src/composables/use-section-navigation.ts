@@ -8,7 +8,7 @@ export interface SectionNavigationOptions {
 
 export interface SectionNavigationController {
   activeSection: Ref<string>
-  selectSection(id: string): void
+  selectSection(id: string, behavior?: ScrollBehavior): void
 }
 
 export function useSectionNavigation({
@@ -44,12 +44,12 @@ export function useSectionNavigation({
     sectionFrame = window.requestAnimationFrame(synchronizeSection)
   }
 
-  function selectSection(id: string): void {
+  function selectSection(id: string, behavior?: ScrollBehavior): void {
     activeSection.value = id
-    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      ? 'auto'
-      : 'smooth'
-    document.getElementById(id)?.scrollIntoView({ behavior, block: 'start' })
+    const resolved =
+      behavior ??
+      (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth')
+    document.getElementById(id)?.scrollIntoView({ behavior: resolved, block: 'start' })
   }
 
   onMounted(() => {

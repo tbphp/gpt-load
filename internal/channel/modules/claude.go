@@ -30,11 +30,15 @@ func Claude() spec.Module {
 					spec.AuthorizationOAuthFile,
 				},
 			},
-			Params:      []spec.Field{},
+			Params: []spec.Field{{
+				Key: "base_url", Label: "API root URL", InputKind: spec.InputURL,
+				Normalizer: spec.NormalizeOptionalHTTPSBaseURL,
+			}},
 			Credentials: []spec.Field{},
 			Provider: spec.ProviderBinding{
-				ProviderKind:   spec.ProviderClaude,
-				EndpointPolicy: spec.EndpointNone,
+				ProviderKind:    spec.ProviderClaude,
+				EndpointPolicy:  spec.EndpointSDKDefault,
+				DefaultBaseURLs: []string{"https://api.anthropic.com"},
 			},
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteNative),

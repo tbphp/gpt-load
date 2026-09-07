@@ -166,10 +166,6 @@ export default {
       importing: 'Importing…',
       importResult: 'Import complete: {succeeded} succeeded, {failed} failed',
       importFailed: 'The OAuth JSON is invalid or unsupported',
-      baseUrlLabel: 'Custom Base URL (optional)',
-      baseUrlPlaceholder: 'https://example.com/codex',
-      baseUrlHelp: 'Leave blank to use the default Codex upstream.',
-      baseUrlHelpWithDefault: 'Leave blank to use {url}.',
       pollFailed: 'Authorization status is temporarily unavailable; still retrying',
       pollAbandoned:
         'Authorization status could not be read after several tries; start a new authorization',

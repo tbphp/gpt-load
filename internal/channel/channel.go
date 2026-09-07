@@ -142,6 +142,7 @@ type Descriptor struct {
 	Capabilities     CapabilityDescriptor `json:"capabilities"`
 	Routes           []RouteDescriptor    `json:"routes"`
 	ClientProtocols  []protocol.Protocol  `json:"client_protocols"`
+	DefaultBaseURLs  []string             `json:"default_base_urls"`
 }
 
 // Params is one validated, canonical channel parameter object.
@@ -648,6 +649,9 @@ func (s objectSchema) validate(prefix string, raw json.RawMessage) (map[string]s
 		if err != nil {
 			return nil, &ValidationError{Field: prefix + "." + field.descriptor.Key, Reason: err.Error()}
 		}
+		if normalized == "" && !field.descriptor.Required {
+			continue
+		}
 		values[field.descriptor.Key] = normalized
 	}
 	return values, nil
@@ -767,6 +771,7 @@ func (r *Registry) lookup(id ID) (definition, bool) {
 }
 
 func cloneDescriptor(source Descriptor) Descriptor {
+	source.DefaultBaseURLs = append([]string{}, source.DefaultBaseURLs...)
 	source.SearchTerms = append([]string{}, source.SearchTerms...)
 	source.Notices = append([]NoticeDescriptor{}, source.Notices...)
 	source.ParamFields = append([]FieldDescriptor{}, source.ParamFields...)

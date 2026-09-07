@@ -120,7 +120,7 @@ func (s *Service) ConsumeCredentialResetCredit(
 	result := storedResetCreditResult{
 		Status: upstream.Status, WindowsReset: upstream.WindowsReset, RedeemedAtMS: upstream.RedeemedAtMS,
 	}
-	runtimeRestored := s.restoreCredentialRuntimeAfterReset(credentialID)
+	runtimeRestored, targetCurrent, targetErr := s.restoreCredentialRuntimeForTarget(ctx, group, credentialID)
 	canonicalResult, err := canonicaljson.Marshal(result)
 	if err != nil || s.finishResetCreditOperation(
 		operation.IdempotencyKey,
@@ -130,7 +130,7 @@ func (s *Service) ConsumeCredentialResetCredit(
 	) != nil {
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 	}
-	if !runtimeRestored {
+	if !runtimeRestored && (targetCurrent || targetErr != nil) {
 		utils.LogPlaneBestEffort(
 			logrus.StandardLogger(),
 			logrus.WarnLevel,
@@ -141,15 +141,20 @@ func (s *Service) ConsumeCredentialResetCredit(
 	}
 
 	response := resetCreditResponse(result, false)
+	if !targetCurrent {
+		response.ObservationPending = true
+		return response, nil
+	}
 	observationContext, cancelObservation := context.WithTimeout(
 		context.Background(),
 		2*defaultSubscriptionControlTimeout,
 	)
-	observation, observationErr := s.refreshCredentialObservation(
+	observation, observationErr := s.refreshCredentialObservationForTarget(
 		observationContext,
 		groupID,
 		credentialID,
 		observationRefreshAfterReset,
+		&group,
 	)
 	cancelObservation()
 	if observation.State != "" {

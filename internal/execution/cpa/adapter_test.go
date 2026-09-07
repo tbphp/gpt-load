@@ -392,7 +392,7 @@ func TestAdapterExecutesEverySupportedClientProtocolThroughCPA(t *testing.T) {
 }
 
 func TestAdapterPassesCustomCodexBaseURLToUnaryAndStreamExecutors(t *testing.T) {
-	const baseURL = "https://relay.example/codex"
+	const baseURL = "https://relay.example/team-a"
 	for _, stream := range []bool{false, true} {
 		name := "unary"
 		if stream {
@@ -1620,5 +1620,7 @@ func validSpec(t *testing.T, row models.Credential, keyService encryption.Servic
 	if err != nil {
 		t.Fatal(err)
 	}
-	return execution.NewAttemptSpec(execution.AttemptSpec{RequestID: "request-1", AttemptID: "attempt-1", Sequence: 1, ChannelID: "codex", RouteMode: execution.RouteNative, ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, ClientModel: "gpt-5", UpstreamModel: "gpt-5", Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{"model":"gpt-5","input":"hi"}`), TargetConfig: json.RawMessage(`{"base_url":"https://chatgpt.com/backend-api/codex"}`), Credential: execution.NewCredentialSnapshot(row.ID, row.SecretVersion, 1, []byte(plaintext))})
+	identityGeneration := stateloader.CredentialIdentityGeneration(
+		row.IdentityFingerprint, "codex", "subscription", json.RawMessage(`{}`))
+	return execution.NewAttemptSpec(execution.AttemptSpec{RequestID: "request-1", AttemptID: "attempt-1", Sequence: 1, ChannelID: "codex", RouteMode: execution.RouteNative, ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, ClientModel: "gpt-5", UpstreamModel: "gpt-5", Method: http.MethodPost, Path: "/v1/responses", Body: []byte(`{"model":"gpt-5","input":"hi"}`), TargetConfig: json.RawMessage(`{}`), Credential: execution.NewCredentialSnapshot(row.ID, row.SecretVersion, identityGeneration, []byte(plaintext))})
 }

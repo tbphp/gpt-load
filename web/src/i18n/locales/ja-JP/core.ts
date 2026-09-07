@@ -1,5 +1,24 @@
 export default {
   common: {
+    subscriptionApi: {
+      label: 'サブスクリプション API プロキシのルート URL（任意）',
+      default: '空欄の場合は公式エンドポイントを使用します。',
+      defaults: '空欄の場合は公式エンドポイント一式を使用します：{urls}。',
+      help: 'HTTPS のプロキシルートを指定してください。パスプレフィックスも指定できます。プロキシはチャネルの業務 API に対応する必要があり、API パスは自動で追加されます。OAuth は公式エンドポイントを使用します。',
+      invalid:
+        '認証情報、クエリパラメーター、フラグメントを含まない HTTPS のルート URL を入力してください',
+    },
+    priceMultiplier: {
+      label: '価格倍率',
+      value: '倍率 ×{value}',
+      group: 'グループ',
+      accessKey: 'アクセスキー',
+      groupHelp:
+        '基準単価 × グループ倍率 × アクセスキー倍率。既定値は 1、0 は計算可能な金額をゼロにします。以後のリクエストに適用されます。',
+      accessKeyHelp:
+        '選択されたグループ倍率と乗算します。ログ、統計、コスト上限は調整後の金額を使用します。既定値は 1、0 は計算可能な金額をゼロにします。以後のリクエストに適用されます。',
+      invalid: '0〜1000 の倍率を小数点以下 6 桁以内で入力してください',
+    },
     appName: 'GPT-Load',
     retry: '再試行',
     modelDiscoveryFailed: 'モデル取得に失敗しました。下書きは未変更です',
@@ -38,6 +57,7 @@ export default {
       invalid: '有効な HTTP または SOCKS5 プロキシ URL を入力してください。',
       effective: '現在有効：{mode}',
       ownTooltip: 'プロキシ：{type}',
+      ownTooltipClickable: 'プロキシ：{type}。クリックで編集',
       inherit: {
         global: '起動環境を継承',
         group: 'グローバル設定を継承',
@@ -295,7 +315,7 @@ export default {
         title: '直近 30 日間の概算',
         viewDetail: '詳細を見る →',
         viewModel: '{model} の使用状況を見る',
-        caption: '直近 30 日間の消費上位 5 モデル',
+        caption: '直近 30 日間の調整後推定コスト上位 5 モデル',
         scrollHint: '横にスクロールするとすべての列を確認できます',
         columns: {
           model: 'モデル',
@@ -391,8 +411,9 @@ export default {
             s3: '初回インポート後にモデル一覧を取得してください',
           },
           'claude-code': {
-            s1: 'Claude Code を起動するシェルで上のコマンドを実行します',
-            s2: 'ゲートウェイのモデルが /model の From gateway に表示されます',
+            s1: 'YOUR_MODEL をこのアクセスキーで利用可能なモデル ID に置き換え、上のコマンドを実行します',
+            s2: '同じシェルで Claude Code を起動または再起動します。指定モデルが起動時に使われ、/model にカスタム項目として追加されます',
+            s3: '自動検出では ID に claude または anthropic を含むゲートウェイモデルも対象になります（大文字・小文字は区別しません）',
           },
           'open-webui': {
             s1: '管理者設定 → Connections → OpenAI → 接続を追加',

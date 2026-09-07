@@ -1,5 +1,22 @@
 export default {
   common: {
+    subscriptionApi: {
+      label: '订阅 API 代理根地址（可选）',
+      default: '留空使用官方端点。',
+      defaults: '留空使用官方服务。默认地址：{urls}。',
+      help: '填写 HTTPS 代理根地址，可带路径前缀；代理需承接渠道业务 API，系统会追加原生接口路径。OAuth 仍使用官方端点。',
+      invalid: '请输入 HTTPS 根地址，不含用户名、密码、查询参数或 # 片段',
+    },
+    priceMultiplier: {
+      label: '价格倍率',
+      value: '倍率 ×{value}',
+      group: '分组',
+      accessKey: '访问密钥',
+      groupHelp: '基础单价 × 分组倍率 × 访问密钥倍率。默认 1，0 将可计价金额归零；仅影响后续请求。',
+      accessKeyHelp:
+        '与实际分组倍率相乘；日志、统计和成本额度均使用调整后金额。默认 1，0 将可计价金额归零；仅影响后续请求。',
+      invalid: '请输入 0–1000 的倍率，最多 6 位小数',
+    },
     appName: 'GPT-Load',
     retry: '重试',
     modelDiscoveryFailed: '模型发现失败，草稿未变',
@@ -38,6 +55,7 @@ export default {
       invalid: '请输入有效的 HTTP 或 SOCKS5 代理地址。',
       effective: '当前生效：{mode}',
       ownTooltip: '代理：{type}',
+      ownTooltipClickable: '代理：{type}，点击编辑',
       inherit: {
         global: '继承启动环境',
         group: '继承全局',
@@ -282,7 +300,7 @@ export default {
         title: '近 30 天估算',
         viewDetail: '查看明细 →',
         viewModel: '查看 {model} 的用量明细',
-        caption: '近 30 天消耗前五的模型',
+        caption: '近 30 天调整后估算成本前五的模型',
         scrollHint: '横向滚动可查看全部列',
         columns: {
           model: '模型',
@@ -376,8 +394,9 @@ export default {
             s3: '首次导入后需在模型区拉取模型',
           },
           'claude-code': {
-            s1: '在启动 Claude Code 的同一个 Shell 里执行上方命令',
-            s2: '网关模型会出现在 /model 的 From gateway 分组中',
+            s1: '将 YOUR_MODEL 替换为该访问密钥可用的模型 ID，再执行上方命令',
+            s2: '在同一 Shell 中启动或重启 Claude Code；指定模型用于启动，并作为自定义选项加入 /model',
+            s3: '自动发现额外识别 ID 含 claude 或 anthropic 的网关模型（不区分大小写）',
           },
           'open-webui': {
             s1: '管理员设置 → Connections → OpenAI → 添加连接',

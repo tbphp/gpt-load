@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	"gorm.io/gorm"
 
@@ -14,13 +13,13 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
 type GroupSettingsResponse struct {
+	PriceMultiplier string                       `json:"price_multiplier"`
 	ChannelID       channel.ID                   `json:"channel_id"`
 	ConnectionType  models.ConnectionType        `json:"connection_type"`
 	Params          json.RawMessage              `json:"params"`
@@ -34,6 +33,7 @@ type GroupSettingsResponse struct {
 }
 
 type GroupSettingsUpdateRequest struct {
+	PriceMultiplier optionalField[string]               `json:"price_multiplier"`
 	Name            optionalField[string]               `json:"name"`
 	Params          optionalField[json.RawMessage]      `json:"params"`
 	ValidationModel optionalField[string]               `json:"validation_model"`
@@ -44,18 +44,19 @@ type GroupSettingsUpdateRequest struct {
 }
 
 type normalizedGroupSettingsUpdate struct {
-	name               *string
-	params             json.RawMessage
-	paramsSet          bool
-	validationModel    *string
-	validationModelSet bool
-	enabled            *bool
-	weightManual       *int
-	weightManualSet    bool
-	encodedOverrides   models.JSON
-	overridesSet       bool
-	proxyConfig        *string
-	proxySet           bool
+	priceMultiplierMicros *int64
+	name                  *string
+	params                json.RawMessage
+	paramsSet             bool
+	validationModel       *string
+	validationModelSet    bool
+	enabled               *bool
+	weightManual          *int
+	weightManualSet       bool
+	encodedOverrides      models.JSON
+	overridesSet          bool
+	proxyConfig           *string
+	proxySet              bool
 }
 
 func (s *Service) GetGroupSettings(ctx context.Context, groupID uint) (GroupSettingsResponse, error) {
@@ -117,6 +118,7 @@ func groupSettingsResponse(
 		)
 	}
 	return GroupSettingsResponse{
+		PriceMultiplier: priceMultiplierResponse(group.PriceMultiplierMicros),
 		ChannelID:       channelID,
 		ConnectionType:  normalizeGroupConnectionType(group.ConnectionType),
 		Params:          validated.CanonicalJSON(),
@@ -152,11 +154,18 @@ func normalizeGroupSettingsUpdate(
 		}
 	}
 	if !request.Name.Set && !request.Params.Set && !request.ValidationModel.Set &&
-		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set {
+		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set && !request.PriceMultiplier.Set {
 		return normalizedGroupSettingsUpdate{}, app_errors.ErrBadRequest
 	}
 
 	result := normalizedGroupSettingsUpdate{}
+	if request.PriceMultiplier.Set {
+		value, err := normalizePriceMultiplier(request.PriceMultiplier)
+		if err != nil {
+			return normalizedGroupSettingsUpdate{}, err
+		}
+		result.priceMultiplierMicros = priceMultiplierStorage(value)
+	}
 	if request.Name.Set {
 		value, err := normalizeGroupName(&request.Name.Value)
 		if err != nil {
@@ -240,7 +249,11 @@ func (s *Service) UpdateGroupSettings(
 			return app_errors.ErrValidation
 		}
 
-		updates := make(map[string]any, 7)
+		updates := make(map[string]any, 8)
+		if normalized.priceMultiplierMicros != nil {
+			group.PriceMultiplierMicros = normalized.priceMultiplierMicros
+			updates["price_multiplier_micros"] = *normalized.priceMultiplierMicros
+		}
 		if normalized.name != nil {
 			group.Name = *normalized.name
 			updates["name"] = group.Name
@@ -277,9 +290,6 @@ func (s *Service) UpdateGroupSettings(
 			group.ProxyConfig = normalized.proxyConfig
 			updates["proxy_config"] = normalized.proxyConfig
 		}
-		if err := validateGroupInjectUsageOptionsConstraint(group, s.channelRegistry); err != nil {
-			return err
-		}
 		if err := validateGroupRowCandidate(ctx, tx, group, s.channelRegistry); err != nil {
 			return app_errors.ErrValidation
 		}
@@ -293,6 +303,19 @@ func (s *Service) UpdateGroupSettings(
 			if err != nil {
 				return err
 			}
+			if group.ConnectionType == models.ConnectionTypeSubscription {
+				credentialIDs := tx.Model(&models.Credential{}).Select("id").Where("group_id = ?", groupID)
+				if err := tx.Model(&models.CredentialObservation{}).Where("credential_id IN (?)", credentialIDs).
+					Updates(map[string]any{
+						"state": models.CredentialObservationUnavailable, "snapshot_json": models.JSON(`{}`),
+						"observation_version": gorm.Expr("observation_version + 1"),
+						"observed_at_ms":      nil, "last_attempt_at_ms": nil, "next_allowed_at_ms": nil,
+						"last_error_code": "", "last_auth_refresh_secret_version": nil,
+						"updated_at_ms": s.now().UTC().UnixMilli(),
+					}).Error; err != nil {
+					return app_errors.ParseDBError(err)
+				}
+			}
 		}
 		committed = group
 		return nil
@@ -300,6 +323,7 @@ func (s *Service) UpdateGroupSettings(
 		if !targetChanged {
 			return nil
 		}
+		s.invalidateGroupObservationFlights(groupID)
 		if s.stats != nil {
 			for _, entry := range targetEntries {
 				s.stats.Reset(entry.ID)
@@ -317,24 +341,4 @@ func (s *Service) UpdateGroupSettings(
 	}
 	response.Proxy, err = s.groupProxyView(ctx, s.db, committed)
 	return response, err
-}
-
-func validateGroupInjectUsageOptionsConstraint(group models.Group, registry *channel.Registry) error {
-	settings := make(config.Settings)
-	if len(group.Overrides) > 0 {
-		if err := decodeGroupDiscoveryJSON(group.Overrides, &settings); err != nil {
-			return app_errors.ErrValidation
-		}
-	}
-	if _, set := settings[state.SettingInjectUsageOptions]; !set {
-		return nil
-	}
-	if registry == nil {
-		return app_errors.ErrValidation
-	}
-	descriptor, ok := registry.Get(channel.ID(group.ChannelID))
-	if !ok || !slices.Contains(descriptor.ClientProtocols, protocol.OpenAICompletions) {
-		return app_errors.ErrValidation
-	}
-	return nil
 }

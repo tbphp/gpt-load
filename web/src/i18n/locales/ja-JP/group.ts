@@ -63,6 +63,10 @@ export default {
       copyFailure: 'コピーできませんでした',
       credentialHealthLabel:
         '合計 {total} 件の認証情報、正常 {available}、クールダウン中 {cooldown}、ブラックリスト {blacklisted}、無効 {disabled}',
+      toggleEnabled: '{name} を有効化',
+      enabledOn: '{name} を有効にしました',
+      enabledOff: '{name} を停止しました。新しいリクエストは受け付けません。',
+      toggleFailed: '切り替えに失敗しました。再試行してください。',
       appendCredential: '認証情報を追加',
       appendCredentialFor: '{name} に認証情報を追加',
     },
@@ -201,7 +205,8 @@ export default {
         general: '基本情報',
         routing: 'スケジューリング',
         runtime: 'ランタイム上書き',
-        headers: 'HeaderRules',
+        parameters: 'パラメーター上書き',
+        headers: 'アップストリームリクエストヘッダールール',
         danger: '危険な操作',
       },
       routing: {
@@ -209,7 +214,70 @@ export default {
         weightHelp: '自動はランタイムスケジューリングで決まり、手動は 1–100 です',
       },
       headers: {
-        description: 'ルールは既定で折りたたまれ、編集すると HeaderRules 全体を置き換えます',
+        description:
+          'アップストリームへのリクエストに適用するヘッダーの設定・上書き・削除ルール。オーバーライドするとグローバルルール全体を置き換え、マージはされません。',
+      },
+      parameterOverrides: {
+        description:
+          '推論リクエストのパラメータのみを書き換えます。値は平文で保存されるため、認証情報は入力しないでください。',
+        order: '同じフィールドが競合した場合は下のルールが優先',
+        addRule: 'ルールを追加',
+        empty: 'ルールなし。リクエストはそのまま転送されます',
+        moved: 'ルールを {position} 番目に移動しました',
+        moveUp: 'ルールを上へ',
+        moveDown: 'ルールを下へ',
+        copy: 'ルールを複製',
+        deleteRule: 'ルールを削除',
+        match: '条件',
+        protocol: 'プロトコル',
+        model: 'モデル',
+        allProtocols: 'すべてのプロトコル',
+        allModels: 'すべてのモデル',
+        modelMatch: '設定済みモデル {count} 件に一致',
+        modelNoMatch: '一致するモデルなし',
+        params: 'パラメータ',
+        paramAction: '操作',
+        paramPath: 'パラメータパス',
+        paramValue: '値',
+        paramKind: '型',
+        kind: {
+          text: 'テキスト',
+          number: '数値',
+          boolean: '真偽値',
+          null: 'Null',
+          json: 'JSON',
+        },
+        opSet: '設定',
+        opRemove: '削除',
+        addParam: 'パラメータを追加',
+        addRemovePath: '削除パスを追加',
+        deleteParam: 'この行を削除',
+        setLabel: 'パラメータを設定',
+        toJSON: 'JSON へ',
+        toRows: '行へ',
+        formatJSON: '整形',
+        pathsCross: 'パスが交差しています。削除が設定より先に実行されます',
+        pathHint: '階層は / で区切ります。キー内の / は ~1、~ は ~0 と書きます',
+        mergeHint: 'オブジェクトは再帰的にマージ、配列とスカラーは置換。変数は展開されません',
+        errors: {
+          modelPattern: 'モデルは完全一致、または末尾に * を 1 つ付けた前方一致のみです。',
+          pathRequired: 'パラメータパスを入力してください。',
+          pathInvalid:
+            '空でない階層を / で区切ります。配列インデックスは使用できず、~ は ~0 または ~1 のみ有効です。',
+          pathDuplicate: 'パスは重複できません。',
+          pathAncestor: '同一ルール内の別の設定パスと親子関係にすることはできません。',
+          forbiddenField: 'ルートフィールド model、stream、store は設定も削除もできません。',
+          valueRequired: '値を入力してください。',
+          valueNumber:
+            '有効な数値ではありません。テキストとして保存する場合は型をテキストに変更してください。',
+          valueBoolean: '真偽値は true または false のみです。',
+          valueJSON: 'JSON の形式が正しくありません。{ または [ で始まる完全な構造が必要です。',
+          emptyKey: 'パラメータオブジェクトのフィールド名を空にはできません。',
+          unsafeNumber: '数値は管理画面を通じて安全かつ無損失に保存できる必要があります。',
+          setObject: '設定パラメータは JSON オブジェクトである必要があります。',
+          invalidJSON: 'JSON の形式が正しくありません。',
+          actionRequired: 'パラメータを 1 つ以上追加してください。',
+        },
       },
       dangerDescription: '元に戻せない操作を通常の設定から明確に分離します。',
       saveFailed: 'グループ設定を更新できませんでした。',
@@ -236,6 +304,9 @@ export default {
         customUrlHelp: '既定ではチャネル設定または SDK 公式アドレスを使用します。',
         paramRequired: '{field} を入力してください。',
         validationModel: '検証モデル（任意）',
+        validationModelPlaceholder: 'モデル ID を検索または入力',
+        validationModelHelp:
+          '空欄の場合はグループの最初のモデルを使用します。エイリアスではなくアップストリームのモデル ID を入力してください。',
         weight: 'グループ手動ウェイト',
         auto: '自動',
         manual: '手動',
@@ -262,6 +333,8 @@ export default {
         nonNegativeIntegerError: '0 または正の整数を入力してください。',
         override: 'このグループで上書き',
         inherited: 'グローバル設定を継承',
+        pendingRestoreSource: '継承待ち',
+        resetPending: '保存するとグローバル設定に従います',
         useOverride: '上書きに変更',
         useInherited: '継承に変更',
         enabledValue: '有効',
@@ -276,14 +349,9 @@ export default {
         headerStorageNoticeEnd: 'を使用してください。',
         headerReplacementWarning:
           'このグループ上書きはグローバル HeaderRules 全体を置き換えます。今後のグローバル変更はマージされません。',
-        inject_usage_options: '使用量オプションを注入',
-        injectUsageHelp: 'この上書きは openai-completions でのみ利用できます',
         affinity_enabled: 'リクエストアフィニティ',
         affinityHelp:
           '通常の重み、スケジューリング、再試行を変えず、このグループがアフィニティ対象を学習または再利用するかを制御します。',
-        affinityInherit: 'グローバルを継承',
-        affinityEnable: '有効',
-        affinityDisable: '無効',
       },
       delete: {
         sectionDescription:
@@ -361,6 +429,7 @@ export default {
       diagnostics: '実行診断',
       moreActions: 'その他の操作',
       editWeightHint: 'クリックして重みを調整',
+      weightChipTooltip: '手動ウェイト {weight}。クリックで編集',
       expand: '認証情報の詳細を展開',
       collapse: '認証情報の詳細を折りたたむ',
       restore: 'すぐに回復',
@@ -568,6 +637,8 @@ export default {
           usedPercent: '使用済み {value}%',
           requests: 'リクエスト',
           tokens: 'トークン',
+          priceMultiplierBasis:
+            'リクエスト時のモデル参考価格とグループ・アクセスキー倍率に基づく推定で、実際の請求額ではありません',
           referenceCost: 'API 参考コスト',
           unavailable: '利用可能なローカル統計は現在ありません',
           dataIncomplete: '統計データが期間全体をカバーしていないため、値が少ない場合があります',
@@ -580,20 +651,22 @@ export default {
         auth: {
           ready: '認証済み',
           refreshing: '認証情報を更新中',
-          reauthorization_required: '再接続または再インポートが必要',
-          outcome_unknown: '認証情報の更新結果が不明です。再接続または再インポートしてください',
+          reauthorization_required:
+            '認証情報が失効しました。更新を試し、それでも失敗する場合は再接続または再インポートしてください',
+          outcome_unknown:
+            '認証情報の更新結果が不明です。更新を試し、それでも失敗する場合は再接続または再インポートしてください',
         },
         authError: {
           refreshRejected:
-            'Codex が認証情報の更新を拒否しました。このアカウントを再接続または再インポートしてください。',
+            '上流が認証情報の更新を拒否しました。再度更新を試し、それでも失敗する場合はこのアカウントを再接続または再インポートしてください。',
           identityChanged:
             '更新した認証情報は別のアカウントに属します。元のアカウントを再接続または再インポートしてください。',
           outcomeUnknown:
-            '最新の認証情報更新を確認できません。このアカウントを再接続または再インポートしてください。',
+            '最新の認証情報更新を確認できません。更新を試し、それでも失敗する場合はこのアカウントを再接続または再インポートしてください。',
           persistFailed:
-            '新しい認証情報を安全に保存できませんでした。このアカウントを再接続または再インポートしてください。',
+            '新しい認証情報を安全に保存できませんでした。更新を試し、それでも失敗する場合はこのアカウントを再接続または再インポートしてください。',
           runtimeMismatch:
-            'ランタイムの認証情報状態を確認できません。このアカウントを再接続または再インポートしてください。',
+            'ランタイムの認証情報状態を確認できません。更新を試し、それでも失敗する場合はこのアカウントを再接続または再インポートしてください。',
           refreshStartFailed:
             '認証情報の更新を開始できません。しばらくしてから再試行してください。',
         },

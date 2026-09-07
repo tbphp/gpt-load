@@ -85,6 +85,7 @@ export interface ChannelDto {
   search_terms: string[]
   description: string
   default_base_url: string
+  default_base_urls: string[]
   notices: ChannelNoticeDto[]
   param_fields: ChannelFieldDto[]
   credential_fields: ChannelFieldDto[]
@@ -107,6 +108,7 @@ const channelFields = [
   'search_terms',
   'description',
   'default_base_url',
+  'default_base_urls',
   'notices',
   'param_fields',
   'credential_fields',
@@ -306,6 +308,7 @@ function projectChannel(value: unknown): ChannelDto {
     search_terms: projectArray(record.search_terms, (term) => projectString(term)),
     description: projectString(record.description, { allowEmpty: true }),
     default_base_url: projectString(record.default_base_url, { allowEmpty: true }),
+    default_base_urls: projectArray(record.default_base_urls, (url) => projectString(url)),
     notices,
     param_fields: paramFields,
     credential_fields: credentialFields,

@@ -9,6 +9,7 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import FormField from '@/components/ui/FormField.vue'
+import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 import { hasUpstreamBaseURLVersionMismatch, isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
 
 import type { ImportProxyDraft } from './model-draft'
@@ -16,6 +17,7 @@ import type { ImportProxyDraft } from './model-draft'
 const props = defineProps<{
   channel: ChannelDto | null
   name: string
+  priceMultiplier: string
   params: Record<string, string>
   proxy: ImportProxyDraft
   paramErrors: Readonly<Record<string, string>>
@@ -25,6 +27,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   'update:name': [value: string]
+  'update:priceMultiplier': [value: string]
   'update:param': [key: string, value: string]
   'update:proxy': [value: ImportProxyDraft]
   'update:base-url-override': [enabled: boolean]
@@ -32,6 +35,7 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const proxySupported = computed(() => props.channel?.capabilities.outbound_proxy === true)
+const isSubscription = computed(() => props.channel?.connection.type === 'subscription')
 const visibleParamFields = computed(() => props.channel?.param_fields ?? [])
 const proxyModeOptions = computed(() => [
   { value: 'inherit', label: t('common.proxy.inherit.group') },
@@ -65,16 +69,16 @@ function fieldError(key: string): string {
 }
 
 function isOptionalBaseURL(key: string, required: boolean): boolean {
-  return props.channel?.channel_id !== 'codex' && key === 'base_url' && !required
+  return !isSubscription.value && key === 'base_url' && !required
 }
 
 function baseURLDescription(): string {
-  if (props.channel?.channel_id === 'codex') {
-    return props.channel.default_base_url
-      ? t('import.subscription.baseUrlHelpWithDefault', {
-          url: props.channel.default_base_url,
-        })
-      : t('import.subscription.baseUrlHelp')
+  if (isSubscription.value) {
+    const roots = props.channel?.default_base_urls ?? []
+    const defaults = roots.length
+      ? t('common.subscriptionApi.defaults', { urls: roots.join(', ') })
+      : t('common.subscriptionApi.default')
+    return `${defaults} ${t('common.subscriptionApi.help')}`
   }
   if (props.channel?.channel_id === 'gpt_load') {
     return t('import.connection.gptLoadUrlDescription')
@@ -99,19 +103,18 @@ function baseURLDescription(): string {
 
 function paramLabel(key: string, label: string): string {
   if (key !== 'base_url') return label
-  return props.channel?.channel_id === 'codex'
-    ? t('import.subscription.baseUrlLabel')
-    : t('import.connection.url')
+  return isSubscription.value ? t('common.subscriptionApi.label') : t('import.connection.url')
 }
 
 function paramPlaceholder(key: string, inputKind: string): string | undefined {
   if (inputKind !== 'url') return undefined
-  return key === 'base_url' && props.channel?.channel_id === 'codex'
-    ? t('import.subscription.baseUrlPlaceholder')
+  return key === 'base_url' && isSubscription.value
+    ? props.channel?.default_base_url || props.channel?.default_base_urls[0] || undefined
     : 'https://'
 }
 
 function baseURLVersionWarning(key: string): string | undefined {
+  if (isSubscription.value) return undefined
   if (key !== 'base_url' || !props.channel?.default_base_url) return undefined
   const value = props.params[key]?.trim() ?? ''
   if (!value || !isValidUpstreamBaseURL(value)) return undefined
@@ -228,6 +231,29 @@ function baseURLVersionWarning(key: string): string | undefined {
       </div>
 
       <FormField
+        id="import-price-multiplier"
+        class="import-connection__multiplier"
+        :label="t('common.priceMultiplier.label')"
+        :description="t('common.priceMultiplier.groupHelp')"
+        :error="
+          isValidPriceMultiplier(priceMultiplier) ? undefined : t('common.priceMultiplier.invalid')
+        "
+        size="compact"
+      >
+        <template #default="field">
+          <input
+            id="import-price-multiplier"
+            :value="priceMultiplier"
+            inputmode="decimal"
+            :disabled="disabled"
+            :aria-describedby="field.describedBy"
+            :aria-invalid="field.invalid || undefined"
+            @input="emit('update:priceMultiplier', ($event.target as HTMLInputElement).value)"
+          />
+        </template>
+      </FormField>
+
+      <FormField
         v-if="channel"
         id="import-group-proxy-mode"
         class="import-connection__proxy"
@@ -303,8 +329,14 @@ function baseURLVersionWarning(key: string): string | undefined {
   gap: var(--space-4);
 }
 
+.import-connection__multiplier,
 .import-connection__proxy {
   grid-column: 1 / -1;
+}
+
+.import-connection__multiplier input {
+  max-width: 260px;
+  font-family: var(--font-mono);
 }
 
 .import-connection__proxy-controls {

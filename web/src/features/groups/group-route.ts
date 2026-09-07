@@ -12,7 +12,8 @@ import {
 } from '@/app/route-query'
 
 export type GroupTab = 'credentials' | 'models' | 'settings'
-export type GroupSettingsSection = 'general' | 'routing' | 'runtime' | 'headers' | 'danger'
+export type GroupSettingsSection =
+  'general' | 'routing' | 'runtime' | 'parameters' | 'headers' | 'danger'
 export type GroupModelDiscoveryFilter = 'unadded' | 'all'
 
 export interface CredentialRouteState {
@@ -29,7 +30,6 @@ export interface GroupModelsRouteState {
 
 export interface GroupSettingsRouteState {
   section: GroupSettingsSection
-  headerRulesExpanded: boolean
 }
 
 const credentialStatuses = new Set<CredentialStatus>([
@@ -43,6 +43,7 @@ const settingsSections = new Set<GroupSettingsSection>([
   'general',
   'routing',
   'runtime',
+  'parameters',
   'headers',
   'danger',
 ])
@@ -147,14 +148,12 @@ export function parseGroupSettingsRouteQuery(query: LocationQuery): GroupSetting
       rawSection !== undefined && settingsSections.has(rawSection as GroupSettingsSection)
         ? (rawSection as GroupSettingsSection)
         : 'general',
-    headerRulesExpanded: scalarRouteQuery(query.headers) === 'expanded',
   }
 }
 
 export function serializeGroupSettingsRouteQuery(state: GroupSettingsRouteState): LocationQueryRaw {
   const query: LocationQueryRaw = { tab: 'settings' }
   if (state.section !== 'general') query.section = state.section
-  if (state.headerRulesExpanded) query.headers = 'expanded'
   return query
 }
 

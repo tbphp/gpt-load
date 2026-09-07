@@ -143,7 +143,7 @@ func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionr
 	if err != nil {
 		return nil, err
 	}
-	baseURL, err := codexTargetBaseURL(target)
+	baseURL, err := target.BaseURL()
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 	if err != nil {
 		return subscriptionruntime.Observation{}, err
 	}
-	baseURL, err := codexTargetBaseURL(target)
+	baseURL, err := target.BaseURL()
 	if err != nil {
 		return subscriptionruntime.Observation{}, err
 	}
@@ -200,7 +200,7 @@ func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.
 	if err != nil {
 		return subscriptionruntime.ResetCreditResult{}, err
 	}
-	baseURL, err := codexTargetBaseURL(target)
+	baseURL, err := target.BaseURL()
 	if err != nil {
 		return subscriptionruntime.ResetCreditResult{}, err
 	}
@@ -213,33 +213,6 @@ func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.
 		return subscriptionruntime.ResetCreditResult{}, err
 	}
 	return NormalizeResetCreditResult(result.Payload)
-}
-
-// codexTargetBaseURL validates an HTTPS-only Codex target and maps the official
-// endpoint back to the embedded bridge's distinct utility defaults.
-func codexTargetBaseURL(target subscriptionruntime.Target) (string, error) {
-	if len(target.Config) == 0 {
-		return "", nil
-	}
-	var config struct {
-		BaseURL string `json:"base_url"`
-	}
-	if err := json.Unmarshal(target.Config, &config); err != nil {
-		return "", fmt.Errorf("decode Codex target: %w", err)
-	}
-	if strings.TrimSpace(config.BaseURL) == "" {
-		return "", nil
-	}
-	baseURL, err := spec.NormalizeHTTPSBaseURL(config.BaseURL)
-	if err != nil {
-		return "", fmt.Errorf("normalize Codex target: %w", err)
-	}
-	// An empty bridge target preserves Codex's distinct official defaults:
-	// /backend-api/codex for models and /backend-api for quota utilities.
-	if baseURL == modules.CodexDefaultBaseURL {
-		return "", nil
-	}
-	return baseURL, nil
 }
 
 type codexResetCreditPayload struct {

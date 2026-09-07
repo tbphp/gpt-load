@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -157,10 +158,14 @@ func (e *claudeHTTPExecutor) ExecuteCanonical(
 		return ExecuteResponse{}, err
 	}
 	format := sdktranslator.FromString(request.Format)
+	endpoints, err := ResolveClaudeAPIEndpoints(request.BaseURL)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
 	auth := NewClaudeAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
-	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment, endpoints.ExecutionBase)
 	response, err := e.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
@@ -193,10 +198,14 @@ func (e *claudeHTTPExecutor) CountTokensCanonical(
 		return ExecuteResponse{}, err
 	}
 	format := sdktranslator.FromString(request.Format)
+	endpoints, err := ResolveClaudeAPIEndpoints(request.BaseURL)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
 	auth := NewClaudeAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
-	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment, endpoints.ExecutionBase)
 	response, err := e.inner.CountTokens(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
@@ -224,10 +233,14 @@ func (e *claudeHTTPExecutor) ExecuteStreamCanonical(
 		return nil, err
 	}
 	format := sdktranslator.FromString(request.Format)
+	endpoints, err := ResolveClaudeAPIEndpoints(request.BaseURL)
+	if err != nil {
+		return nil, err
+	}
 	auth := NewClaudeAuth(credentialID, credential, "")
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderClaude)
-	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
+	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment, endpoints.ExecutionBase)
 	response, err := e.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, cliproxyexecutor.Options{
@@ -267,11 +280,37 @@ func (e *claudeHTTPExecutor) executionContext(
 	auth *cliproxyauth.Auth,
 	observation *executionObservation,
 	proxyFromEnvironment bool,
+	baseURL string,
 ) context.Context {
 	transport := executionRoundTripper(ctx, e.cfg, auth, proxyFromEnvironment)
+	if baseURL != "" {
+		transport = claudeAPIProxyRoundTripper{base: transport, baseURL: baseURL}
+	}
 	return context.WithValue(ctx, "cliproxy.roundtripper", noRedirectRoundTripper{
 		base: transport, observation: observation,
 	})
+}
+
+// Claude 按官方 origin 选择原生 token count 与订阅协议；在传输边界替换目标，
+// 避免 CPA 将 API 代理误判成第三方 API Key 网关而切换为本地估算。
+type claudeAPIProxyRoundTripper struct {
+	base    http.RoundTripper
+	baseURL string
+}
+
+func (transport claudeAPIProxyRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	endpoint, err := ResolveAPIEndpoint(transport.baseURL, request.URL.String())
+	if err != nil {
+		return nil, err
+	}
+	target, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	mapped := request.Clone(request.Context())
+	mapped.URL = target
+	mapped.Host = ""
+	return transport.base.RoundTrip(mapped)
 }
 
 func normalizeClaudeExecutionError(err error) error {

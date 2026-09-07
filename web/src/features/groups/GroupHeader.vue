@@ -44,6 +44,9 @@ const channelName = computed(() => channel.value?.name.trim() || props.group.cha
       </div>
       <div class="group-header__details">
         <span class="group-header__id">#{{ group.id }}</span>
+        <span v-if="group.price_multiplier !== '1'" class="meta-tag">
+          {{ t('common.priceMultiplier.value', { value: group.price_multiplier }) }}
+        </span>
         <span class="meta-tag">
           <ChannelIcon
             v-if="channel"

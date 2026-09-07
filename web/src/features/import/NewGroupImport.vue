@@ -40,7 +40,7 @@ import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
-import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
+import { isValidSubscriptionBaseURL, isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
 import {
   appendSelectedCandidates,
   findModelNameConflicts,
@@ -57,6 +57,8 @@ import ImportConnectionSection from './ImportConnectionSection.vue'
 import ImportOperationNotice from './ImportOperationNotice.vue'
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
+import { isValidPriceMultiplier, normalizePriceMultiplier } from '@/lib/price-multiplier'
+
 import { analyzeCredentials } from './credential-analysis'
 import CredentialTextarea from './CredentialTextarea.vue'
 import SubscriptionCredentialStager from './SubscriptionCredentialStager.vue'
@@ -93,6 +95,7 @@ function freshDraft(): ImportDraft {
     params: {},
     proxy: { mode: 'inherit', url: '' },
     name: '',
+    price_multiplier: '1',
     credentials: '',
     staged_credentials: [],
     models: [],
@@ -296,13 +299,24 @@ const allParamErrors = computed<Record<string, string>>(() => {
   for (const field of channel.param_fields) {
     const value = draft.params[field.key]?.trim() ?? ''
     const overrideRequired =
-      channel.channel_id !== 'codex' && field.key === 'base_url' && baseUrlOverrideEnabled.value
+      channel.connection.type !== 'subscription' &&
+      field.key === 'base_url' &&
+      baseUrlOverrideEnabled.value
     if ((field.required || overrideRequired) && !value) {
       errors[field.key] = t('import.connection.paramRequired', { name: field.label })
       continue
     }
-    if (field.input_kind === 'url' && value && !isValidUpstreamBaseURL(value)) {
-      errors[field.key] = t('import.connection.urlError')
+    if (field.input_kind === 'url' && value) {
+      const subscriptionBaseURL =
+        channel.connection.type === 'subscription' && field.key === 'base_url'
+      const valid = subscriptionBaseURL
+        ? isValidSubscriptionBaseURL(value)
+        : isValidUpstreamBaseURL(value)
+      if (!valid) {
+        errors[field.key] = t(
+          subscriptionBaseURL ? 'common.subscriptionApi.invalid' : 'import.connection.urlError',
+        )
+      }
     }
   }
   return errors
@@ -353,6 +367,7 @@ const submissionErrorMessage = computed(
 )
 const submitBlockedReason = computed(() => {
   if (payloadLocked.value || mutationPending.value) return ''
+  if (!isValidPriceMultiplier(draft.price_multiplier)) return t('common.priceMultiplier.invalid')
   if (paramsError.value) {
     if (selectedChannel.value === null) return t('import.presets.channelRequired')
     return visibleParamError.value || t('import.steps.channel.incomplete')
@@ -381,6 +396,7 @@ const canCreate = computed(
   () =>
     !payloadLocked.value &&
     !mutationPending.value &&
+    isValidPriceMultiplier(draft.price_multiplier) &&
     !paramsError.value &&
     credentialCount.value > 0 &&
     (draft.connection_type === 'subscription' || !credentialAnalysis.value.tooManyCredentials) &&
@@ -712,6 +728,7 @@ watch(
 function initialChannelParams(channel: ChannelDto): Record<string, string> {
   return Object.fromEntries(
     channel.param_fields
+      .filter(({ key }) => channel.connection.type !== 'subscription' || key !== 'base_url')
       .filter(({ required, default_value: defaultValue }) => required || defaultValue !== null)
       .map(({ key, default_value: defaultValue }) => [key, defaultValue ?? '']),
   )
@@ -908,6 +925,7 @@ function buildCreateBody(confirmSameTarget: boolean): GroupCreateRequest {
     ),
     ...(draftProxyOverride.value === undefined ? {} : { proxy: draftProxyOverride.value }),
     ...(name ? { name } : {}),
+    price_multiplier: normalizePriceMultiplier(draft.price_multiplier),
     models: toGroupModels(draft.models),
     ...(draft.connection_type === 'subscription'
       ? { staged_credential_ids: currentReadyStages().map(({ stage_id }) => stage_id) }
@@ -1249,6 +1267,7 @@ onBeforeUnmount(() => {
           <ImportConnectionSection
             :channel="connectionChannel"
             :name="draft.name"
+            :price-multiplier="draft.price_multiplier"
             :params="draft.params"
             :proxy="draft.proxy"
             :proxy-disabled="proxyLocked"
@@ -1256,6 +1275,7 @@ onBeforeUnmount(() => {
             :base-url-override-enabled="baseUrlOverrideEnabled"
             :disabled="payloadLocked"
             @update:name="draft.name = $event"
+            @update:price-multiplier="draft.price_multiplier = $event"
             @update:param="setChannelParam"
             @update:proxy="draft.proxy = $event"
             @update:base-url-override="setBaseURLOverride"

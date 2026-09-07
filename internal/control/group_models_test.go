@@ -247,7 +247,6 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		Where("id = ?", created.GroupID).
 		Update("overrides", models.JSON(`{
 			"stream_idle_timeout":45,
-			"inject_usage_options":false,
 			"header_rules":{"remove":["X-Trace"]}
 		}`)).Error; err != nil {
 		t.Fatal(err)
@@ -303,15 +302,13 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		t.Fatalf("settings/summary = %#v/%#v", settings, summary)
 	}
 	streamIdle, ok := settings.Overrides[state.SettingStreamIdleTimeout].(json.Number)
-	if len(settings.Overrides) != 3 || !ok || streamIdle.String() != "45" ||
-		settings.Overrides[state.SettingHeaderRules] == nil ||
-		settings.Overrides[state.SettingInjectUsageOptions] != false {
+	if len(settings.Overrides) != 2 || !ok || streamIdle.String() != "45" ||
+		settings.Overrides[state.SettingHeaderRules] == nil {
 		t.Fatalf("preserved sparse config = %#v", settings.Overrides)
 	}
 	if settings.Effective.FirstByteTimeout != 120 ||
 		settings.Effective.RequestTimeout != 701 ||
 		settings.Effective.StreamIdleTimeout != 45 ||
-		settings.Effective.InjectUsageOptions ||
 		len(settings.Effective.HeaderRules.Set) != 0 ||
 		!reflect.DeepEqual(settings.Effective.HeaderRules.Remove, []string{"X-Trace"}) {
 		t.Fatalf("post-write effective config = %#v", settings.Effective)
@@ -339,7 +336,6 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	view := snapshot.Groups[created.GroupID]
 	if settings.Effective.RequestTimeout != int64(view.Timeouts.Request/time.Second) ||
 		settings.Effective.StreamIdleTimeout != int64(view.Timeouts.StreamIdle/time.Second) ||
-		settings.Effective.InjectUsageOptions != view.InjectUsageOptions ||
 		settings.Effective.AffinityEnabled != view.AffinityEnabled ||
 		!reflect.DeepEqual(settings.Effective.HeaderRules.Remove, view.HeaderRules.Remove) {
 		t.Fatalf("effective/snapshot = %#v/%#v", settings.Effective, view)

@@ -15,6 +15,10 @@ export function isValidUpstreamBaseURL(value: string): boolean {
   }
 }
 
+export function isValidSubscriptionBaseURL(value: string): boolean {
+  return isValidUpstreamBaseURL(value) && /^https:\/\//i.test(value.trim())
+}
+
 const versionPathSegmentPattern = /^v\d+[a-z]*$/i
 
 function versionPathSegment(value: string): string | null {

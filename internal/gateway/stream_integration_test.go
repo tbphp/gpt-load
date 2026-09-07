@@ -27,7 +27,6 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
-	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/encryptiontest"
@@ -126,9 +125,7 @@ func TestHandlerTerminatesAliasedNonObjectProviderErrorWithoutReplay(t *testing.
 	}
 }
 
-func TestHandlerStreamRetryUsesEachGroupsInjectUsageSetting(t *testing.T) {
-	first := false
-	second := true
+func TestHandlerStreamAlwaysRequestsUpstreamUsage(t *testing.T) {
 	upstream := fakeupstream.New(
 		fakeupstream.Step{Status: http.StatusTooManyRequests, Fixture: "openai/429.json"},
 		fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/stream.sse", Stream: true},
@@ -136,8 +133,8 @@ func TestHandlerStreamRetryUsesEachGroupsInjectUsageSetting(t *testing.T) {
 	defer upstream.Close()
 
 	engine, _ := newStreamingGatewayEngine(t,
-		streamGatewayGroup{id: 1, name: "first", upstreamURL: upstream.URL, apiKey: "sk-first", injectUsageOptions: &first},
-		streamGatewayGroup{id: 2, name: "second", upstreamURL: upstream.URL, apiKey: "sk-second", injectUsageOptions: &second},
+		streamGatewayGroup{id: 1, name: "first", upstreamURL: upstream.URL, apiKey: "sk-first"},
+		streamGatewayGroup{id: 2, name: "second", upstreamURL: upstream.URL, apiKey: "sk-second"},
 	)
 	recorder := performStreamingRequest(engine)
 	if recorder.Code != http.StatusOK {
@@ -147,14 +144,18 @@ func TestHandlerStreamRetryUsesEachGroupsInjectUsageSetting(t *testing.T) {
 	if len(requests) != 2 {
 		t.Fatalf("upstream requests = %d, want 2", len(requests))
 	}
-	for index, wantInjected := range []bool{false, true} {
+	for index, request := range requests {
 		var body map[string]any
-		if err := json.Unmarshal(requests[index].Body, &body); err != nil {
+		if err := json.Unmarshal(request.Body, &body); err != nil {
 			t.Fatalf("decode upstream request %d: %v", index+1, err)
 		}
-		_, injected := body["stream_options"]
-		if injected != wantInjected {
-			t.Fatalf("attempt %d stream_options present = %t, want %t; body=%#v", index+1, injected, wantInjected, body)
+		options, injected := body["stream_options"]
+		if !injected {
+			t.Fatalf("attempt %d missing stream_options; body=%#v", index+1, body)
+		}
+		object, ok := options.(map[string]any)
+		if !ok || object["include_usage"] != true {
+			t.Fatalf("attempt %d stream_options = %#v, want include_usage=true", index+1, options)
 		}
 	}
 }
@@ -841,15 +842,14 @@ func (listener *smallWriteBufferListener) Accept() (net.Conn, error) {
 }
 
 type streamGatewayGroup struct {
-	id                 uint
-	name               string
-	upstreamURL        string
-	apiKey             string
-	modelID            string
-	alias              string
-	firstByte          time.Duration
-	streamIdle         time.Duration
-	injectUsageOptions *bool
+	id          uint
+	name        string
+	upstreamURL string
+	apiKey      string
+	modelID     string
+	alias       string
+	firstByte   time.Duration
+	streamIdle  time.Duration
 }
 
 func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin.Engine, *state.CredentialRegistry) {
@@ -869,7 +869,6 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 		channelID, params := testChannelConfig(t, protocol.OpenAICompletions, baseURL)
 		groupConfigs = append(groupConfigs, state.GroupConfig{ConnectionType: "api_key", ID: group.id, Name: group.name, ChannelID: channelID, Params: params,
 			Models: []state.ModelConfig{{ID: modelID, Alias: group.alias}}, Enabled: true,
-			Settings: streamGatewaySettings(group.injectUsageOptions),
 		})
 		credentialID := uint(index + 1)
 		entries = append(entries, testCredentialEntry(t, keyService, credentialID, group.id, group.apiKey))
@@ -919,13 +918,6 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, registry
-}
-
-func streamGatewaySettings(injectUsageOptions *bool) config.Settings {
-	if injectUsageOptions == nil {
-		return nil
-	}
-	return config.Settings{state.SettingInjectUsageOptions: *injectUsageOptions}
 }
 
 func performStreamingRequest(engine *gin.Engine) *httptest.ResponseRecorder {

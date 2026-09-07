@@ -4,7 +4,8 @@ export default {
     loading: 'Loading models…',
     loadFailed: 'Unable to load models',
     stale: 'The current model information may be stale because the background refresh failed',
-    context: 'Preset prices take priority over Models.dev · USD / 1M tokens · estimates only',
+    context:
+      'Preset prices take priority over Models.dev · Base rates in USD / 1M tokens, before Group and access key multipliers',
     result: 'Showing {shown} of {total} client models',
     actions: {
       sync: 'Sync catalog and automatic prices',
@@ -18,7 +19,7 @@ export default {
       models: '{count} client models',
       upstreams: '{count} upstream models',
       pending: '{count} pending',
-      unit: 'USD / 1M tokens · estimate only',
+      unit: 'Base USD / 1M tokens · Before multipliers',
     },
     catalog: {
       available: 'Preset price catalog available',
@@ -66,6 +67,10 @@ export default {
       fastPrice: 'Fast mode price',
       fastPriceValue: 'Fast {field}: {price}',
       copy: 'Copy client model {model}',
+      routeGroups: 'Groups',
+      routeGroupMore: '{count} more: {names}',
+      routeGroupLink: 'Open group {name}',
+      routeGroupDisabled: '{name} (disabled)',
       copyUpstream: 'Copy upstream model {model}',
       copySucceeded: 'Copied',
       copyFailed: 'Copy failed',

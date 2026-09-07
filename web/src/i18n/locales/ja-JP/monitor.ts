@@ -63,7 +63,7 @@ export default {
         available: '利用可能',
         tableLabel: 'グループヘルス一覧',
         columns: {
-          group: 'グループ',
+          group: 'グループ：{name}',
           status: 'スケジュール',
           credentialHealth: '認証情報の構成',
           exceptions: '現在の例外',
@@ -233,7 +233,7 @@ export default {
         anyGroup: 'すべてのグループ',
         channel: 'チャネル',
         anyChannel: 'すべてのチャネル',
-        credential: 'クレデンシャル ID',
+        credential: '認証情報：{name}',
         model: 'アップストリームモデル',
         modelPlaceholder: '完全一致のモデル名',
         modelHelp: 'ルーティング後のアップストリームモデルを完全一致で絞り込みます。',
@@ -275,7 +275,7 @@ export default {
         totalTokens: '報告済みトークン合計',
         persistedWindow: '現在の集計期間',
         estimatedCost: '推定コスト',
-        estimatedCostBasis: '報告済みトークンに基づく推定',
+        estimatedCostBasis: '報告済みトークンとリクエスト時の倍率に基づく推定',
       },
       tokens: {
         title: '報告済みトークン分類',
@@ -466,6 +466,7 @@ export default {
         reasonLine: '理由：{reason}',
         observedAt: '観測時刻 {time}',
         revision: 'リビジョン {revision}',
+        routeStrategy: 'ルート戦略：{strategy}',
         protocol: 'プロトコル',
         externalModel: 'クライアントモデル',
         modelNotSpecified: '未指定',
@@ -479,8 +480,12 @@ export default {
       },
       groups: {
         title: '候補グループ',
-        description:
-          'まずネイティブルートを試し、候補がない場合のみプロトコル変換を使用します。同じ階層では有効ウェイトによる加重ランダムで、一覧はウェイト順ですが固定のヒット順ではありません。',
+        description: {
+          native_first:
+            'ネイティブルートを先に試し、利用可能な候補がない場合に変換を使用します。同じ階層では有効ウェイトによる加重ランダムで、階層とウェイト順に表示します。リクエスト親和性は引き続き有効で、ウェイト比率は実際のトラフィック比率とは異なります。',
+          weighted_mix:
+            '要求を満たすネイティブと変換候補が同じプールで有効ウェイトにより競合し、ウェイト順に表示します。リクエスト親和性は引き続き有効で、ウェイト比率は実際のトラフィック比率とは異なります。',
+        },
         count: '{count} 件',
         tableLabel: '候補グループのルート説明',
         completeEmpty:
@@ -501,7 +506,7 @@ export default {
         viewGroup: 'グループを表示',
         columns: {
           group: 'グループ',
-          status: 'ルート階層',
+          status: 'ルートモード',
           credentials: '認証情報',
           weight: '有効ウェイト',
           share: 'ウェイト比率',
@@ -710,10 +715,7 @@ export default {
         text: '前後の空白や制御文字は使用できません。',
         usd: '小数点以下 9 桁までの 0 以上の USD 金額を入力してください。',
       },
-      accessKey: {
-        named: '{name} · #{id}',
-        deleted: '削除済み · #{id}',
-      },
+      deletedRef: '削除済み · #{id}',
       none: 'なし',
       yes: 'はい',
       no: 'いいえ',
@@ -726,10 +728,14 @@ export default {
         notRecorded: '未記録',
       },
       routeIdentity: {
-        group: 'グループ：{name}（G{id}）',
+        group: 'グループ：{name}',
         channel: 'チャネル：{name}',
-        credential: 'クレデンシャル：K{id}',
+        credential: '認証情報：{name}',
+        filterGroup: 'グループ {name} のログのみ表示',
+        filterCredential: '認証情報 {name} のログのみ表示',
       },
+      filterAccessKey: 'アクセスキー {name} のログのみ表示',
+      filterModel: 'モデル {name} のログのみ表示',
       details: '詳細を表示',
       failureCategory: {
         ok: '正常',
@@ -815,6 +821,7 @@ export default {
         summary: 'リクエスト結果',
         requestId: 'リクエスト ID',
         copyRequestId: 'リクエスト ID をコピー',
+        copyCredential: '認証情報をコピー',
         completedAt: '完了時刻',
         status: '状態',
         protocol: 'プロトコル',
@@ -967,6 +974,13 @@ export default {
         partial: 'Token 使用量が部分的です',
       },
       receipt: {
+        total: '計算済み合計',
+        baseTotal: '倍率適用前の計算済み合計',
+        finalTotal: '最終計算済み合計',
+        totalRounding:
+          '各項目を従来のルールで四捨五入して合算し、合計にグループとアクセスキーの両倍率を掛け、最後に 0.000000001 USD 単位で一度四捨五入します。未価格設定の部分は含みません。',
+        rounding:
+          '各項目に全倍率を適用後、0.000000001 USD 単位で四捨五入して合算します。未価格設定の部分は含みません。',
         formula: 'コスト計算',
         input: '入力',
         output: '出力',

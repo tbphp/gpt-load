@@ -22,7 +22,7 @@ export default {
     },
     matrix: {
       heading: '价格',
-      unit: 'USD / 1M',
+      unit: 'USD / 1M · 倍率前单价',
       thresholdColumn: '档位',
       baseRow: '默认',
       addTier: '添加档位',

@@ -15,9 +15,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -31,7 +33,6 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 		"request_timeout":480,
 		"stream_idle_timeout":270,
 		"header_rules":{"set":{"X-Group":"value"},"remove":["X-Removed"]},
-		"inject_usage_options":false,
 		"affinity_enabled":false
 	}`)
 	if err := fixture.db.Create(group).Error; err != nil {
@@ -55,7 +56,6 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 		state.SettingRequestTimeout,
 		state.SettingStreamIdleTimeout,
 		state.SettingHeaderRules,
-		state.SettingInjectUsageOptions,
 		state.SettingAffinityEnabled,
 	} {
 		if got.Overrides[key] == nil {
@@ -64,10 +64,58 @@ func TestGetGroupSettingsReturnsPersistedDraftOverridesAndEffectiveConfig(t *tes
 	}
 	if got.Effective.FirstByteTimeout != 180 ||
 		got.Effective.RequestTimeout != 480 || got.Effective.StreamIdleTimeout != 270 ||
-		got.Effective.InjectUsageOptions || got.Effective.AffinityEnabled ||
+		got.Effective.AffinityEnabled ||
 		!reflect.DeepEqual(got.Effective.HeaderRules.Set, map[string]string{"X-Group": "value"}) ||
 		!reflect.DeepEqual(got.Effective.HeaderRules.Remove, []string{"X-Removed"}) {
 		t.Fatalf("effective = %#v", got.Effective)
+	}
+}
+
+func TestUpdateGroupSettingsPublishesParameterOverrides(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "sk-parameter-overrides")
+	rawRules := []any{
+		map[string]any{
+			"match": map[string]any{"protocol": string(protocol.OpenAICompletions), "model": "public-*"},
+			"set":   map[string]any{"temperature": json.Number("0.4")},
+		},
+	}
+
+	result, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{
+			state.SettingParameterOverrides: rawRules,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Overrides[state.SettingParameterOverrides] == nil {
+		t.Fatalf("overrides = %#v", result.Overrides)
+	}
+	body, applied, err := fixture.manager.Current().Groups[groupID].ParameterOverrides.Apply(
+		protocol.OpenAICompletions,
+		execution.OperationChatCompletion,
+		"public-model",
+		[]byte(`{"model":"public-model"}`),
+	)
+	if err != nil || !applied || string(body) != `{"model":"public-model","temperature":0.4}` {
+		t.Fatalf("Apply() = %s, %t, %v", body, applied, err)
+	}
+
+	before := fixture.manager.Current()
+	_, err = fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{
+			state.SettingParameterOverrides: []any{map[string]any{
+				"set": map[string]any{"stream": true},
+			}},
+		}},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("invalid rules error = %v, want validation", err)
+	}
+	if fixture.manager.Current() != before {
+		t.Fatal("invalid parameter overrides published a snapshot")
 	}
 }
 
@@ -343,7 +391,7 @@ func TestUpdateGroupTargetSerializesWithCredentialSecretMutation(t *testing.T) {
 	}
 }
 
-func TestUpdateGroupSettingsValidatesWeightAndAllowsUsageObservationAcrossChannels(t *testing.T) {
+func TestUpdateGroupSettingsValidatesWeight(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupForCredentialImport(t, fixture, "sk-settings-validation")
@@ -378,21 +426,8 @@ func TestUpdateGroupSettingsValidatesWeightAndAllowsUsageObservationAcrossChanne
 			}
 		})
 	}
-	anthropic, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		Name: stringPointer("settings-anthropic"), ChannelID: channel.Anthropic,
-		Params: json.RawMessage(`{}`), Models: optionalGroupModels{Set: true}, Credentials: "sk-anthropic", ConnectionType: "api_key",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated, err := fixture.service.UpdateGroupSettings(t.Context(), anthropic.GroupID, GroupSettingsUpdateRequest{
-		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{state.SettingInjectUsageOptions: true}},
-	})
-	if err != nil || !updated.Effective.InjectUsageOptions {
-		t.Fatalf("cross-channel usage observation update = %#v, %v", updated, err)
-	}
-	if got := fixture.manager.Current().Revision; got != beforeRevision+5 {
-		t.Fatalf("settings mutation revision = %d, want %d", got, beforeRevision+5)
+	if got := fixture.manager.Current().Revision; got != beforeRevision+3 {
+		t.Fatalf("settings mutation revision = %d, want %d", got, beforeRevision+3)
 	}
 }
 
@@ -410,6 +445,10 @@ func TestGroupSettingsHTTPRejectsStrictJSONAndUnauthorizedWithoutMutation(t *tes
 		`{"unknown":true}`,
 		`{"name":"one","name":"two"}`,
 		`{"weight_manual":0}`,
+		`{"route_strategy":"weighted_mix"}`,
+		`{"overrides":{"route_strategy":"weighted_mix"}}`,
+		`{"overrides":{"route_strategy":"native_first"}}`,
+		`{"overrides":{"route_strategy":null}}`,
 	} {
 		recorder := serveGroupSettingsRequest(t, engine, http.MethodPut, path, "test-auth-key", body)
 		if recorder.Code != http.StatusBadRequest {

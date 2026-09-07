@@ -40,10 +40,10 @@ func (s *Service) RefreshGroupCredential(
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}
-	if s.prepareSubscriptionCredential == nil {
+	if s.prepareSubscriptionCredential == nil || s.recoverSubscriptionCredential == nil {
 		return CredentialItemResponse{}, app_errors.ErrAuthorizationUnavailable
 	}
-	if _, err := s.prepareStoredSubscriptionCredentialWithForce(ctx, group, credential, true); err != nil {
+	if _, err := s.recoverStoredSubscriptionCredential(ctx, group, credential); err != nil {
 		return CredentialItemResponse{}, err
 	}
 	return s.loadCredentialItem(ctx, groupID, credentialID)

@@ -215,8 +215,8 @@ func ImportCredential(ctx context.Context, raw []byte) (Credential, error) {
 	return credentialFromBridge(value), nil
 }
 
-func ListModels(ctx context.Context, credential Credential) ([]string, error) {
-	options, err := grokOptions(ctx)
+func ListModels(ctx context.Context, credential Credential, apiRoot string) ([]string, error) {
+	options, err := grokAPIOptions(ctx, apiRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -227,8 +227,8 @@ func ListModels(ctx context.Context, credential Credential) ([]string, error) {
 	return append([]string(nil), values...), nil
 }
 
-func ObserveAccount(ctx context.Context, credential Credential) (AccountObservation, error) {
-	options, err := grokOptions(ctx)
+func ObserveAccount(ctx context.Context, credential Credential, apiRoot string) (AccountObservation, error) {
+	options, err := grokAPIOptions(ctx, apiRoot)
 	if err != nil {
 		return AccountObservation{}, err
 	}

@@ -138,8 +138,17 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 		fixedTargetConfig = canonicalJSON(map[string]string{"base_url": fixedBaseURL})
 	}
 
+	defaultBaseURLs := make([]string, 0, len(source.Provider.DefaultBaseURLs))
+	for _, raw := range source.Provider.DefaultBaseURLs {
+		value, err := spec.NormalizeHTTPSBaseURL(raw)
+		if err != nil {
+			return definition{}, fmt.Errorf("channel %q has invalid default URL hint: %w", id, err)
+		}
+		defaultBaseURLs = append(defaultBaseURLs, value)
+	}
 	return definition{
 		descriptor: Descriptor{
+			DefaultBaseURLs:  defaultBaseURLs,
 			ID:               source.ID,
 			Name:             source.Name,
 			Mark:             source.Mark,

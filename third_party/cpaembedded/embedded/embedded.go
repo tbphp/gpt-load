@@ -142,14 +142,15 @@ type HTTPExecutor interface {
 }
 
 type ExecuteRequest struct {
-	AttemptID            string
-	Model                string
-	Payload              []byte
-	Format               string
-	RequestPath          string
-	Headers              http.Header
-	OriginalRequest      []byte
-	ContinuityKey        string
+	AttemptID       string
+	Model           string
+	Payload         []byte
+	Format          string
+	RequestPath     string
+	Headers         http.Header
+	OriginalRequest []byte
+	ContinuityKey   string
+	// BaseURL 是可选的订阅 API 代理根地址，原生路径由渠道解析。
 	BaseURL              string
 	ProxyURL             string
 	ProxyFromEnvironment bool
@@ -388,7 +389,11 @@ func (e *CodexHTTPExecutor) Identifier() string { return ProviderCodex }
 // executor and captures request-path, reasoning, and quota observations.
 func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
 	format := sdktranslator.FromString(request.Format)
-	auth := NewCodexAuth(credentialID, credential, request.BaseURL)
+	endpoints, err := ResolveCodexAPIEndpoints(request.BaseURL)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
+	auth := NewCodexAuth(credentialID, credential, endpoints.ExecutionBase)
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
@@ -414,7 +419,11 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 // token-count payloads into the public response shape.
 func (e *CodexHTTPExecutor) CountTokensCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
 	format := sdktranslator.FromString(request.Format)
-	auth := NewCodexAuth(credentialID, credential, request.BaseURL)
+	endpoints, err := ResolveCodexAPIEndpoints(request.BaseURL)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
+	auth := NewCodexAuth(credentialID, credential, endpoints.ExecutionBase)
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)
@@ -471,7 +480,11 @@ func normalizeCodexResponsesTokenCount(payload []byte) ([]byte, error) {
 // chunks while retaining handshake and passive quota observations.
 func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (*ExecuteStreamResponse, error) {
 	format := sdktranslator.FromString(request.Format)
-	auth := NewCodexAuth(credentialID, credential, request.BaseURL)
+	endpoints, err := ResolveCodexAPIEndpoints(request.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	auth := NewCodexAuth(credentialID, credential, endpoints.ExecutionBase)
 	auth.ProxyURL = request.ProxyURL
 	observation := newExecutionObservation(request)
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment)

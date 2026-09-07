@@ -40,7 +40,7 @@ func TestServiceUsesInjectedChannelRegistryAndListsSafeDescriptors(t *testing.T)
 		result.Items[0].ID != channel.OpenAI || result.Items[1].ID != channel.Codex ||
 		result.Items[2].ID != channel.AzureOpenAI || result.Items[3].ID != channel.OpenAICompatible ||
 		result.Items[0].DefaultBaseURL != "https://openai-sdk-default.example" ||
-		result.Items[1].DefaultBaseURL != "" || result.Items[2].DefaultBaseURL != "" ||
+		result.Items[1].DefaultBaseURL != "https://chatgpt.com" || result.Items[2].DefaultBaseURL != "" ||
 		result.Items[3].DefaultBaseURL != "" {
 		t.Fatalf("ListChannels(openai) = %#v", result)
 	}

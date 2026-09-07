@@ -20,6 +20,7 @@ type ExecuteRequest struct {
 	Format               string
 	Headers              http.Header
 	OriginalRequest      []byte
+	BaseURL              string
 	ProxyURL             string
 	ProxyFromEnvironment bool
 }
@@ -219,6 +220,7 @@ func executeRequestToBridge(value ExecuteRequest) cpaembedded.ExecuteRequest {
 		Model: value.Model, Payload: append([]byte(nil), value.Payload...),
 		Format: value.Format, Headers: value.Headers.Clone(),
 		OriginalRequest:      append([]byte(nil), value.OriginalRequest...),
+		BaseURL:              value.BaseURL,
 		ProxyURL:             value.ProxyURL,
 		ProxyFromEnvironment: value.ProxyFromEnvironment,
 	}

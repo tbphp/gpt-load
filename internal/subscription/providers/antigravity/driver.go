@@ -126,12 +126,16 @@ func (*antigravityDriver) ImportCredential(ctx context.Context, raw []byte) (sub
 
 // DiscoverModels lists the models available to an Antigravity credential and
 // merges them with the provider's compatible static catalog.
-func (*antigravityDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) ([]string, error) {
+func (*antigravityDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return nil, err
 	}
-	models, err := ListModels(ctx, value)
+	baseURL, err := target.BaseURL()
+	if err != nil {
+		return nil, err
+	}
+	models, err := ListModels(ctx, value, baseURL)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
@@ -148,12 +152,16 @@ func (*antigravityDriver) DiscoverModels(ctx context.Context, credential subscri
 
 // Observe retrieves and normalizes Antigravity account, credit, and model quota
 // information into the provider-neutral observation contract.
-func (*antigravityDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
+func (*antigravityDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.Observation{}, err
 	}
-	observed, err := ObserveAccount(ctx, value)
+	baseURL, err := target.BaseURL()
+	if err != nil {
+		return subscriptionruntime.Observation{}, err
+	}
+	observed, err := ObserveAccount(ctx, value, baseURL)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {

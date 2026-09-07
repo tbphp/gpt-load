@@ -111,6 +111,18 @@ func newAntigravityHTTPExecutor(baseURL string) *antigravityHTTPExecutor {
 	return &antigravityHTTPExecutor{cfg: cfg, inner: internalexecutor.NewAntigravityExecutor(cfg), baseURL: baseURL}
 }
 
+// executionBaseURL 按请求解析目标，私有构造地址保留已有测试接缝。
+func (executor *antigravityHTTPExecutor) executionBaseURL(apiRoot string) (string, error) {
+	endpoints, err := ResolveAntigravityAPIEndpoints(apiRoot)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(apiRoot) == "" && executor.baseURL != "" {
+		return executor.baseURL, nil
+	}
+	return endpoints.ExecutionBase, nil
+}
+
 // NewAntigravityAuth creates a transient CPA auth object. credentialID is
 // intentionally not used as Auth.ID: CPA's private 429 cooldown map is keyed
 // by that field, while GPT-Load owns all credential health and cooldown state.
@@ -151,12 +163,17 @@ func (executor *antigravityHTTPExecutor) ExecuteCanonical(
 	if err := validateAntigravityCredential(credential); err != nil {
 		return ExecuteResponse{}, err
 	}
+	baseURL, err := executor.executionBaseURL(request.BaseURL)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
 	request = prepareAntigravityExecutionRequest(request)
+	request.ContinuityKey = targetContinuityScope(request.ContinuityKey, baseURL)
 	format := sdktranslator.FromString(request.Format)
-	auth := NewAntigravityAuth(credentialID, credential, executor.baseURL)
+	auth := NewAntigravityAuth(credentialID, credential, baseURL)
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderAntigravity)
-	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, request.ProxyURL, observation)
+	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, baseURL, request.ProxyURL, observation)
 	if err != nil {
 		return ExecuteResponse{}, err
 	}
@@ -184,11 +201,16 @@ func (executor *antigravityHTTPExecutor) CountTokensCanonical(
 	if err := validateAntigravityCredential(credential); err != nil {
 		return ExecuteResponse{}, err
 	}
+	baseURL, err := executor.executionBaseURL(request.BaseURL)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
 	request = prepareAntigravityExecutionRequest(request)
+	request.ContinuityKey = targetContinuityScope(request.ContinuityKey, baseURL)
 	format := sdktranslator.FromString(request.Format)
-	auth := NewAntigravityAuth(credentialID, credential, executor.baseURL)
+	auth := NewAntigravityAuth(credentialID, credential, baseURL)
 	auth.ProxyURL = request.ProxyURL
-	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, request.ProxyURL, nil)
+	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, baseURL, request.ProxyURL, nil)
 	if err != nil {
 		return ExecuteResponse{}, err
 	}
@@ -215,12 +237,17 @@ func (executor *antigravityHTTPExecutor) ExecuteStreamCanonical(
 	if err := validateAntigravityCredential(credential); err != nil {
 		return nil, err
 	}
+	baseURL, err := executor.executionBaseURL(request.BaseURL)
+	if err != nil {
+		return nil, err
+	}
 	request = prepareAntigravityExecutionRequest(request)
+	request.ContinuityKey = targetContinuityScope(request.ContinuityKey, baseURL)
 	format := sdktranslator.FromString(request.Format)
-	auth := NewAntigravityAuth(credentialID, credential, executor.baseURL)
+	auth := NewAntigravityAuth(credentialID, credential, baseURL)
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, ProviderAntigravity)
-	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, request.ProxyURL, observation)
+	executionCtx, err := executor.executionContext(ctx, credentialID, credential.AccountID, baseURL, request.ProxyURL, observation)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +287,11 @@ func antigravityExecutorOptions(
 		SourceFormat: format, ResponseFormat: format,
 	}
 	if scope := strings.TrimSpace(request.ContinuityKey); scope != "" {
-		options.Metadata = map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: scope}
+		options.Metadata = map[string]any{
+			cliproxyexecutor.ExecutionSessionMetadataKey: scope,
+			// CPA 的原生 sessionId 和私有 replay 分别读取两种 metadata。
+			cliproxyexecutor.DerivedSessionIDMetadataKey: scope,
+		}
 	}
 	return options
 }
@@ -411,6 +442,7 @@ func (executor *antigravityHTTPExecutor) executionContext(
 	ctx context.Context,
 	credentialID string,
 	accountID string,
+	baseURL string,
 	proxyURL string,
 	observation *executionObservation,
 ) (context.Context, error) {
@@ -424,7 +456,7 @@ func (executor *antigravityHTTPExecutor) executionContext(
 	}
 	key := antigravityExecutionTransportKey{
 		credential: credentialScope,
-		baseURL:    executor.baseURL,
+		baseURL:    baseURL,
 		proxyURL:   strings.TrimSpace(proxyURL),
 	}
 	transport, err := antigravityExecutionTransports.Get(key, func() (*http.Transport, error) {

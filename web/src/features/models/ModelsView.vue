@@ -65,7 +65,7 @@ const drawerOpen = computed(() => routeState.value.selectedPriceID !== undefined
 const activePriceID = computed(() => routeState.value.selectedPriceID ?? null)
 const drawer = ref<InstanceType<typeof ModelUpstreamDrawer>>()
 
-const modelsQuery = useQuery(modelCollectionQueryOptions(client, filters))
+const modelsQuery = useQuery(modelCollectionQueryOptions(client, filters, isAccessKey))
 const data = computed(() => modelsQuery.data.value)
 const collectionBusy = computed(() => data.value !== undefined && modelsQuery.isFetching.value)
 const {

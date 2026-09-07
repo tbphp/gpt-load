@@ -109,6 +109,14 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 
     <dl class="current-access-key__facts">
       <div>
+        <dt>{{ t('common.priceMultiplier.label') }}</dt>
+        <dd>
+          <OverflowTooltip :content="t('common.priceMultiplier.accessKeyHelp')">
+            ×{{ accessKey.price_multiplier }}
+          </OverflowTooltip>
+        </dd>
+      </div>
+      <div>
         <dt>{{ t('home.ledger.currentAccessKey.rpm') }}</dt>
         <dd>{{ rpm }}</dd>
       </div>
@@ -306,7 +314,7 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 
 .current-access-key__facts {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin: 0;
   gap: 1px;
   background: var(--color-border-subtle);

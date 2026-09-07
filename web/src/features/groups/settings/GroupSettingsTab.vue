@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { ChevronDown } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
-import type { GroupSettingsDto, HeaderRulesDto, ProxyConfiguredMode } from '@/api/control/types'
+import type {
+  AccessProtocol,
+  GroupSettingsDto,
+  HeaderRulesDto,
+  ParameterOverrideRuleDto,
+  ProxyConfiguredMode,
+} from '@/api/control/types'
 
 import { RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
@@ -14,6 +19,7 @@ import { proxyDraftState, proxyOverrideToggleMode } from '@/app/resources/proxy'
 import { channelsQueryOptions, type ChannelFieldDto } from '@/app/resources/channels'
 import {
   cacheGroupSettings,
+  groupModelsQueryOptions,
   groupSettingsQueryOptions,
   invalidateGroupSettingsDependents,
   updateGroupSettings,
@@ -22,8 +28,10 @@ import { useUnsavedChanges } from '@/app/unsaved-changes'
 import { useTransientFlag } from '@/app/use-transient-flag'
 import { groupDetailLocation } from '@/app/route-locations'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
+import ParameterOverrideRulesEditor from '@/components/config/ParameterOverrideRulesEditor.vue'
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
-import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
+import SettingBlock from '@/components/config/SettingBlock.vue'
+import SettingRow from '@/components/config/SettingRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
@@ -34,10 +42,10 @@ import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
-import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
-import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
+import { isValidSubscriptionBaseURL, isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
+import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
 import GroupDeleteDialog from './GroupDeleteDialog.vue'
 import GroupSettingsBaseForm from './GroupSettingsBaseForm.vue'
@@ -68,6 +76,7 @@ const router = useRouter()
 const { t } = useI18n()
 const routeState = computed(() => parseGroupSettingsRouteQuery(route.query))
 const query = useQuery(groupSettingsQueryOptions(client, () => props.groupId))
+const modelsQuery = useQuery(groupModelsQueryOptions(client, () => props.groupId))
 const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const initialLoading = useStableLoading(
   () => query.isPending.value && query.data.value === undefined,
@@ -82,6 +91,9 @@ const error = ref('')
 const headerRulesValid = ref(true)
 const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
+const parameterOverridesValid = ref(true)
+const parameterOverridesInvalidEdits = ref(false)
+const parameterOverridesEditorRevision = ref(0)
 const proxyMode = ref<ProxyConfiguredMode>('inherit')
 const proxyEndpoint = ref('')
 const {
@@ -104,16 +116,29 @@ const policyRows = [
 const selectedChannel = computed(() =>
   channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === draft.value?.channel_id),
 )
-const channelName = computed(() => selectedChannel.value?.name ?? draft.value?.channel_id ?? '')
 const channelParamFields = computed<ChannelFieldDto[]>(
   () => selectedChannel.value?.param_fields ?? [],
 )
 const channelParamsDisabled = computed(() => selectedChannel.value === undefined)
+const parameterOverrideOperations = new Set([
+  'chat_completion',
+  'responses_create',
+  'images_generate',
+  'embeddings_create',
+])
+const parameterOverrideProtocols = computed<AccessProtocol[]>(() => [
+  ...new Set(
+    (selectedChannel.value?.routes ?? [])
+      .filter(({ operation }) => parameterOverrideOperations.has(operation))
+      .map(({ client_protocol }) => client_protocol),
+  ),
+])
 let controller: AbortController | undefined
 const navItems = computed(() => [
   { id: 'settings-general', label: t('group.settings.sections.general') },
   { id: 'settings-routing', label: t('group.settings.sections.routing') },
   { id: 'settings-runtime', label: t('group.settings.sections.runtime') },
+  { id: 'settings-parameters', label: t('group.settings.sections.parameters') },
   { id: 'settings-headers', label: t('group.settings.sections.headers') },
   { id: 'settings-danger', label: t('group.settings.sections.danger') },
 ])
@@ -132,12 +157,20 @@ const proxyState = computed(() =>
 )
 // 代理沿用其它设置项的覆盖语义：inherit 即“继承全局”，direct/custom 即“本分组覆盖”。
 const proxyOverridden = computed(() => proxyMode.value !== 'inherit')
+const proxyPendingRestore = computed(
+  () => saved.value?.proxy.configured_mode !== 'inherit' && proxyMode.value === 'inherit',
+)
 const proxyEffectiveLabel = computed(() => {
   const view = saved.value?.proxy
   if (!view) return ''
   return view.display_url ?? t(`common.proxy.mode.${view.effective_mode}`)
 })
 const proxySupported = computed(() => selectedChannel.value?.capabilities.outbound_proxy ?? false)
+const proxyValue = computed(() => {
+  if (!proxySupported.value) return t('common.proxy.unsupported')
+  if (proxyPendingRestore.value) return t('group.settings.runtime.resetPending')
+  return proxyEffectiveLabel.value
+})
 
 function toggleProxyOverride(): void {
   const base = saved.value?.proxy
@@ -149,6 +182,7 @@ const dirty = computed(
     !deleted.value &&
     (Object.keys(patch.value).length > 0 ||
       headerRulesInvalidEdits.value ||
+      parameterOverridesInvalidEdits.value ||
       proxyState.value.dirty),
 )
 const mutationPending = computed(() => pending.value || deletePending.value)
@@ -161,8 +195,19 @@ const paramErrors = computed<Record<string, string>>(() => {
     const value = draft.value?.params[field.key]?.trim() ?? ''
     if (field.required && !value) {
       result[field.key] = t('group.settings.base.paramRequired', { field: field.label })
-    } else if (field.input_kind === 'url' && value && !isValidUpstreamBaseURL(value)) {
-      result[field.key] = t('group.settings.base.upstreamUrlError')
+    } else if (field.input_kind === 'url' && value) {
+      const subscriptionBaseURL =
+        draft.value?.connection_type === 'subscription' && field.key === 'base_url'
+      const valid = subscriptionBaseURL
+        ? isValidSubscriptionBaseURL(value)
+        : isValidUpstreamBaseURL(value)
+      if (!valid) {
+        result[field.key] = t(
+          subscriptionBaseURL
+            ? 'common.subscriptionApi.invalid'
+            : 'group.settings.base.upstreamUrlError',
+        )
+      }
     }
   }
   return result
@@ -190,46 +235,43 @@ const valid = computed(
     !nameError.value &&
     Object.keys(paramErrors.value).length === 0 &&
     weightValid.value &&
+    isValidPriceMultiplier(draft.value?.price_multiplier ?? '') &&
     timeoutValid.value &&
     policyCountsValid.value &&
     headerRulesValid.value &&
+    parameterOverridesValid.value &&
     !proxyState.value.invalid,
 )
-const showInjectUsage = computed(
-  () => selectedChannel.value?.client_protocols.includes('openai-completions') ?? false,
+function isPendingRestore(key: GroupTimeoutKey | GroupPolicyCountKey): boolean {
+  return draft.value?.overrides[key] === undefined && saved.value?.overrides[key] !== undefined
+}
+const headerRulesOverridden = computed(() => draft.value?.overrides.header_rules !== undefined)
+const headerRulesPendingRestore = computed(
+  () => !headerRulesOverridden.value && saved.value?.overrides.header_rules !== undefined,
 )
-const displayedHeaderRules = computed<HeaderRulesDto>(
-  () =>
-    draft.value?.overrides.header_rules ??
-    saved.value?.effective.header_rules ?? { set: {}, remove: [] },
-)
-const affinityMode = computed(() => {
-  const value = draft.value?.overrides.affinity_enabled
-  return value === undefined ? 'inherit' : value ? 'enabled' : 'disabled'
+const displayedHeaderRules = computed<HeaderRulesDto>(() => {
+  if (draft.value?.overrides.header_rules !== undefined) return draft.value.overrides.header_rules
+  if (headerRulesPendingRestore.value) return { set: {}, remove: [] }
+  return saved.value?.effective.header_rules ?? { set: {}, remove: [] }
 })
-const affinityOptions = computed<SegmentedControlOption[]>(() => [
-  {
-    value: 'inherit',
-    label: t('group.settings.runtime.affinityInherit'),
-    disabled: mutationPending.value,
-  },
-  {
-    value: 'enabled',
-    label: t('group.settings.runtime.affinityEnable'),
-    disabled: mutationPending.value,
-  },
-  {
-    value: 'disabled',
-    label: t('group.settings.runtime.affinityDisable'),
-    disabled: mutationPending.value,
-  },
-])
+const affinityOverridden = computed(() => draft.value?.overrides.affinity_enabled !== undefined)
+const affinityPendingRestore = computed(
+  () => !affinityOverridden.value && saved.value?.overrides.affinity_enabled !== undefined,
+)
+const affinityEnabledLabel = computed(() =>
+  saved.value?.effective.affinity_enabled
+    ? t('group.settings.runtime.enabledValue')
+    : t('group.settings.runtime.disabledValue'),
+)
 function resetSavedDraft(settings: GroupSettingsDto): void {
   saved.value = settings
   draft.value = createGroupSettingsDraft(settings)
   headerRulesValid.value = true
   headerRulesInvalidEdits.value = false
   headerRulesEditorRevision.value += 1
+  parameterOverridesValid.value = true
+  parameterOverridesInvalidEdits.value = false
+  parameterOverridesEditorRevision.value += 1
   proxyMode.value = settings.proxy.configured_mode
   proxyEndpoint.value = ''
 }
@@ -286,6 +328,7 @@ function sectionFromID(id: string): GroupSettingsSection | undefined {
   return value === 'general' ||
     value === 'routing' ||
     value === 'runtime' ||
+    value === 'parameters' ||
     value === 'headers' ||
     value === 'danger'
     ? value
@@ -297,13 +340,6 @@ function setSection(id: string): void {
   if (value === undefined) return
   scrollToSection(id)
   if (value !== routeState.value.section) updateRoute({ section: value })
-}
-
-function setHeaderRulesExpanded(event: Event): void {
-  const expanded = (event.currentTarget as HTMLDetailsElement).open
-  if (expanded !== routeState.value.headerRulesExpanded) {
-    updateRoute({ headerRulesExpanded: expanded })
-  }
 }
 
 function updateParam(key: string, value: string | null): void {
@@ -359,20 +395,46 @@ function updateHeaderRules(value: HeaderRulesDto): void {
   }
 }
 
-function setInjectUsageOverride(enabled: boolean): void {
+async function toggleHeaderRulesOverride(): Promise<void> {
   if (!draft.value || !saved.value) return
   const overrides = { ...draft.value.overrides }
-  if (enabled) overrides.inject_usage_options = saved.value.effective.inject_usage_options
-  else delete overrides.inject_usage_options
+  if (headerRulesOverridden.value) {
+    delete overrides.header_rules
+  } else {
+    overrides.header_rules = {
+      set: { ...saved.value.effective.header_rules.set },
+      remove: [...saved.value.effective.header_rules.remove],
+    }
+  }
+  draft.value = { ...draft.value, overrides }
+  headerRulesValid.value = true
+  headerRulesInvalidEdits.value = false
+  await nextTick()
+  headerRulesEditorRevision.value += 1
+}
+
+function updateParameterOverrides(value: ParameterOverrideRuleDto[]): void {
+  if (!draft.value) return
+  const overrides = { ...draft.value.overrides }
+  if (value.length === 0) delete overrides.parameter_overrides
+  else overrides.parameter_overrides = value
   draft.value = { ...draft.value, overrides }
 }
 
-function setAffinityMode(value: string): void {
-  if (!draft.value || !['inherit', 'enabled', 'disabled'].includes(value)) return
+function toggleAffinityOverride(): void {
+  if (!draft.value || !saved.value) return
   const overrides = { ...draft.value.overrides }
-  if (value === 'inherit') delete overrides.affinity_enabled
-  else overrides.affinity_enabled = value === 'enabled'
+  if (affinityOverridden.value) delete overrides.affinity_enabled
+  else overrides.affinity_enabled = saved.value.effective.affinity_enabled
   draft.value = { ...draft.value, overrides }
+}
+
+function setAffinityValue(value: boolean): void {
+  if (!draft.value) return
+  draft.value = {
+    ...draft.value,
+    overrides: { ...draft.value.overrides, affinity_enabled: value },
+  }
 }
 
 function requestSave(): void {
@@ -476,14 +538,16 @@ onBeforeUnmount(() => {
           <GroupSettingsBaseForm
             section="general"
             :channel-id="draft.channel_id"
-            :channel-name="channelName"
-            :channel-icon="selectedChannel?.icon ?? ''"
-            :channel-mark="selectedChannel?.mark ?? ''"
+            :connection-type="draft.connection_type"
+            :default-base-url="selectedChannel?.default_base_url ?? ''"
+            :default-base-urls="selectedChannel?.default_base_urls ?? []"
             :param-fields="channelParamFields"
             :params="draft.params"
             :name="draft.name"
             :validation-model="draft.validation_model"
+            :models="modelsQuery.data.value?.items ?? []"
             :weight-manual="draft.weight_manual"
+            :price-multiplier="draft.price_multiplier"
             :enabled="draft.enabled"
             :pending="mutationPending"
             :params-disabled="channelParamsDisabled"
@@ -493,19 +557,22 @@ onBeforeUnmount(() => {
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:weight-manual="draft.weight_manual = $event"
+            @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
           />
           <GroupSettingsBaseForm
             section="routing"
             :channel-id="draft.channel_id"
-            :channel-name="channelName"
-            :channel-icon="selectedChannel?.icon ?? ''"
-            :channel-mark="selectedChannel?.mark ?? ''"
+            :connection-type="draft.connection_type"
+            :default-base-url="selectedChannel?.default_base_url ?? ''"
+            :default-base-urls="selectedChannel?.default_base_urls ?? []"
             :param-fields="channelParamFields"
             :params="draft.params"
             :name="draft.name"
             :validation-model="draft.validation_model"
+            :models="modelsQuery.data.value?.items ?? []"
             :weight-manual="draft.weight_manual"
+            :price-multiplier="draft.price_multiplier"
             :enabled="draft.enabled"
             :pending="mutationPending"
             :params-disabled="channelParamsDisabled"
@@ -515,6 +582,7 @@ onBeforeUnmount(() => {
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:weight-manual="draft.weight_manual = $event"
+            @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
           />
           <section id="settings-runtime" class="group-settings__section">
@@ -523,253 +591,241 @@ onBeforeUnmount(() => {
               <p>{{ t('group.settings.runtime.description') }}</p>
             </header>
             <div class="group-settings__runtime">
-              <div class="group-settings__runtime-row">
-                <RuntimeOverrideRow
-                  appearance="ledger"
-                  :label="t('common.proxy.title')"
-                  :detail="
-                    proxySupported
-                      ? proxyOverridden
-                        ? t('group.settings.runtime.override')
-                        : proxyEffectiveLabel
-                      : t('common.proxy.unsupported')
-                  "
-                  :value-label="
-                    proxySupported && !proxyOverridden
-                      ? t('group.settings.runtime.currentValue')
-                      : !proxySupported
-                        ? t('common.proxy.unsupportedHelp')
-                        : undefined
-                  "
-                  :source-label="
-                    !proxySupported
-                      ? t('common.proxy.unsupportedBadge')
-                      : proxyOverridden
-                        ? t('group.settings.runtime.override')
+              <SettingRow
+                :label="t('common.proxy.title')"
+                :value="proxyValue"
+                :help="proxySupported ? undefined : t('common.proxy.unsupportedHelp')"
+                :source-label="
+                  !proxySupported
+                    ? t('common.proxy.unsupportedBadge')
+                    : proxyOverridden
+                      ? t('group.settings.runtime.override')
+                      : proxyPendingRestore
+                        ? t('group.settings.runtime.pendingRestoreSource')
                         : t('group.settings.runtime.inherited')
-                  "
-                  :action-label="
-                    proxyOverridden
-                      ? t('group.settings.runtime.useInherited')
-                      : t('group.settings.runtime.useOverride')
-                  "
-                  :overridden="proxyOverridden"
-                  :locked="!proxySupported"
-                  :disabled="mutationPending || selectedChannel === undefined || !proxySupported"
-                  @toggle="toggleProxyOverride"
-                >
-                  <template v-if="proxySupported && proxyOverridden" #value>
-                    <ProxyOverrideControl
-                      :base="saved.proxy"
-                      :mode="proxyMode"
-                      :endpoint="proxyEndpoint"
+                "
+                :action-label="
+                  proxyOverridden
+                    ? t('group.settings.runtime.useInherited')
+                    : t('group.settings.runtime.useOverride')
+                "
+                :overridden="proxySupported && proxyOverridden"
+                :pending-restore="proxySupported && proxyPendingRestore"
+                :locked="!proxySupported"
+                :disabled="mutationPending || selectedChannel === undefined || !proxySupported"
+                @toggle="toggleProxyOverride"
+              >
+                <template #control>
+                  <ProxyOverrideControl
+                    :base="saved.proxy"
+                    :mode="proxyMode"
+                    :endpoint="proxyEndpoint"
+                    :disabled="mutationPending"
+                    @update:mode="proxyMode = $event"
+                    @update:endpoint="proxyEndpoint = $event"
+                  />
+                </template>
+              </SettingRow>
+              <SettingRow
+                v-for="key in timeoutKeys"
+                :key="key"
+                :label="t(`group.settings.runtime.${key}`)"
+                :value="
+                  isPendingRestore(key)
+                    ? t('group.settings.runtime.resetPending')
+                    : t('group.settings.runtime.effective', { value: saved.effective[key] })
+                "
+                :source-label="
+                  draft.overrides[key] !== undefined
+                    ? t('group.settings.runtime.override')
+                    : isPendingRestore(key)
+                      ? t('group.settings.runtime.pendingRestoreSource')
+                      : t('group.settings.runtime.inherited')
+                "
+                :action-label="
+                  draft.overrides[key] === undefined
+                    ? t('group.settings.runtime.useOverride')
+                    : t('group.settings.runtime.useInherited')
+                "
+                :overridden="draft.overrides[key] !== undefined"
+                :pending-restore="isPendingRestore(key)"
+                :disabled="mutationPending"
+                @toggle="setTimeoutOverride(key, draft.overrides[key] === undefined)"
+              >
+                <template #control>
+                  <div class="group-settings__runtime-input">
+                    <AppTextInput
+                      type="number"
+                      min="1"
+                      :model-value="String(draft.overrides[key])"
+                      :label="
+                        t('group.settings.runtime.valueFor', {
+                          field: t(`group.settings.runtime.${key}`),
+                        })
+                      "
+                      appearance="surface"
+                      size="compact"
+                      monospace
                       :disabled="mutationPending"
-                      @update:mode="proxyMode = $event"
-                      @update:endpoint="proxyEndpoint = $event"
+                      @update:model-value="setTimeoutValue(key, $event)"
                     />
-                  </template>
-                </RuntimeOverrideRow>
-              </div>
-              <div v-for="key in timeoutKeys" :key="key" class="group-settings__runtime-row">
-                <RuntimeOverrideRow
-                  appearance="ledger"
-                  :label="t(`group.settings.runtime.${key}`)"
-                  :detail="t('group.settings.runtime.effective', { value: saved.effective[key] })"
-                  :value-label="t('group.settings.runtime.currentValue')"
-                  :source-label="
-                    draft.overrides[key] === undefined
-                      ? t('group.settings.runtime.inherited')
-                      : t('group.settings.runtime.override')
-                  "
-                  :action-label="
-                    draft.overrides[key] === undefined
-                      ? t('group.settings.runtime.useOverride')
-                      : t('group.settings.runtime.useInherited')
-                  "
-                  :overridden="draft.overrides[key] !== undefined"
-                  :disabled="mutationPending"
-                  @toggle="setTimeoutOverride(key, draft.overrides[key] === undefined)"
-                >
-                  <template v-if="draft.overrides[key] !== undefined" #value>
-                    <div class="group-settings__runtime-input">
-                      <AppTextInput
-                        type="number"
-                        min="1"
-                        :model-value="String(draft.overrides[key])"
-                        :label="
-                          t('group.settings.runtime.valueFor', {
-                            field: t(`group.settings.runtime.${key}`),
-                          })
-                        "
-                        appearance="surface"
-                        size="compact"
-                        monospace
-                        :disabled="mutationPending"
-                        @update:model-value="setTimeoutValue(key, $event)"
-                      />
-                      <span aria-hidden="true">{{ t('group.settings.runtime.seconds') }}</span>
-                    </div>
-                  </template>
-                </RuntimeOverrideRow>
-              </div>
-              <div
+                    <span aria-hidden="true">{{ t('group.settings.runtime.seconds') }}</span>
+                  </div>
+                </template>
+              </SettingRow>
+              <SettingRow
                 v-for="policy in policyRows"
                 :key="policy.key"
-                class="group-settings__runtime-row"
+                :label="t(`group.settings.runtime.${policy.key}`)"
+                :value="
+                  isPendingRestore(policy.key)
+                    ? t('group.settings.runtime.resetPending')
+                    : t('group.settings.runtime.effectiveCount', {
+                        value: saved.effective[policy.key],
+                      })
+                "
+                :help="t(`group.settings.runtime.${policy.helpKey}`)"
+                :source-label="
+                  draft.overrides[policy.key] !== undefined
+                    ? t('group.settings.runtime.override')
+                    : isPendingRestore(policy.key)
+                      ? t('group.settings.runtime.pendingRestoreSource')
+                      : t('group.settings.runtime.inherited')
+                "
+                :action-label="
+                  draft.overrides[policy.key] === undefined
+                    ? t('group.settings.runtime.useOverride')
+                    : t('group.settings.runtime.useInherited')
+                "
+                :overridden="draft.overrides[policy.key] !== undefined"
+                :pending-restore="isPendingRestore(policy.key)"
+                :disabled="mutationPending"
+                @toggle="
+                  setPolicyCountOverride(policy.key, draft.overrides[policy.key] === undefined)
+                "
               >
-                <RuntimeOverrideRow
-                  appearance="ledger"
-                  :label="t(`group.settings.runtime.${policy.key}`)"
-                  :detail="
-                    t('group.settings.runtime.effectiveCount', {
-                      value: saved.effective[policy.key],
-                    })
-                  "
-                  :value-label="t(`group.settings.runtime.${policy.helpKey}`)"
-                  :source-label="
-                    draft.overrides[policy.key] === undefined
-                      ? t('group.settings.runtime.inherited')
-                      : t('group.settings.runtime.override')
-                  "
-                  :action-label="
-                    draft.overrides[policy.key] === undefined
-                      ? t('group.settings.runtime.useOverride')
-                      : t('group.settings.runtime.useInherited')
-                  "
-                  :overridden="draft.overrides[policy.key] !== undefined"
-                  :disabled="mutationPending"
-                  @toggle="
-                    setPolicyCountOverride(policy.key, draft.overrides[policy.key] === undefined)
-                  "
-                >
-                  <template v-if="draft.overrides[policy.key] !== undefined" #value>
-                    <div class="group-settings__runtime-input">
-                      <CompactFieldError
-                        :id="`group-settings-${policy.key}`"
-                        :error="policyCountError(policy.key)"
-                      >
-                        <template #default="{ invalid, describedBy }">
-                          <AppTextInput
-                            :id="`group-settings-${policy.key}`"
-                            type="number"
-                            min="0"
-                            step="1"
-                            inputmode="numeric"
-                            :model-value="String(draft.overrides[policy.key])"
-                            :label="
-                              t('group.settings.runtime.valueFor', {
-                                field: t(`group.settings.runtime.${policy.key}`),
-                              })
-                            "
-                            appearance="surface"
-                            size="compact"
-                            monospace
-                            :disabled="mutationPending"
-                            :invalid="invalid"
-                            :described-by="describedBy"
-                            @update:model-value="setPolicyCountValue(policy.key, $event)"
-                          />
-                        </template>
-                      </CompactFieldError>
-                      <span aria-hidden="true">{{ t('group.settings.runtime.countUnit') }}</span>
-                    </div>
-                  </template>
-                </RuntimeOverrideRow>
-              </div>
-              <div v-if="showInjectUsage" class="group-settings__runtime-row">
-                <RuntimeOverrideRow
-                  appearance="ledger"
-                  :label="t('group.settings.runtime.inject_usage_options')"
-                  :detail="t('group.settings.runtime.injectUsageHelp')"
-                  :value-label="t('group.settings.runtime.currentValue')"
-                  :source-label="
-                    draft.overrides.inject_usage_options === undefined
-                      ? t('group.settings.runtime.inherited')
-                      : t('group.settings.runtime.override')
-                  "
-                  :action-label="
-                    draft.overrides.inject_usage_options === undefined
-                      ? t('group.settings.runtime.useOverride')
-                      : t('group.settings.runtime.useInherited')
-                  "
-                  :overridden="draft.overrides.inject_usage_options !== undefined"
-                  :disabled="mutationPending"
-                  @toggle="
-                    setInjectUsageOverride(draft.overrides.inject_usage_options === undefined)
-                  "
-                >
-                  <template v-if="draft.overrides.inject_usage_options !== undefined" #value>
-                    <div class="group-settings__boolean-value">
-                      <AppSwitch
-                        :model-value="draft.overrides.inject_usage_options"
-                        :disabled="mutationPending"
-                        :label="t('group.settings.runtime.inject_usage_options')"
-                        @update:model-value="draft.overrides.inject_usage_options = $event"
-                      />
-                      <span>
-                        {{
-                          draft.overrides.inject_usage_options
-                            ? t('group.settings.runtime.enabledValue')
-                            : t('group.settings.runtime.disabledValue')
-                        }}
-                      </span>
-                    </div>
-                  </template>
-                </RuntimeOverrideRow>
-              </div>
-              <div class="group-settings__runtime-row group-settings__affinity-row">
-                <div class="group-settings__affinity-identity">
-                  <strong>{{ t('group.settings.runtime.affinity_enabled') }}</strong>
-                  <small>{{ t('group.settings.runtime.affinityHelp') }}</small>
-                </div>
-                <SegmentedControl
-                  :model-value="affinityMode"
-                  :options="affinityOptions"
-                  :label="t('group.settings.runtime.affinity_enabled')"
-                  size="sm"
-                  @update:model-value="setAffinityMode"
-                />
-              </div>
+                <template #control>
+                  <div class="group-settings__runtime-input">
+                    <CompactFieldError
+                      :id="`group-settings-${policy.key}`"
+                      :error="policyCountError(policy.key)"
+                    >
+                      <template #default="{ invalid, describedBy }">
+                        <AppTextInput
+                          :id="`group-settings-${policy.key}`"
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputmode="numeric"
+                          :model-value="String(draft.overrides[policy.key])"
+                          :label="
+                            t('group.settings.runtime.valueFor', {
+                              field: t(`group.settings.runtime.${policy.key}`),
+                            })
+                          "
+                          appearance="surface"
+                          size="compact"
+                          monospace
+                          :disabled="mutationPending"
+                          :invalid="invalid"
+                          :described-by="describedBy"
+                          @update:model-value="setPolicyCountValue(policy.key, $event)"
+                        />
+                      </template>
+                    </CompactFieldError>
+                    <span aria-hidden="true">{{ t('group.settings.runtime.countUnit') }}</span>
+                  </div>
+                </template>
+              </SettingRow>
+              <SettingRow
+                :label="t('group.settings.runtime.affinity_enabled')"
+                :value="
+                  affinityPendingRestore
+                    ? t('group.settings.runtime.resetPending')
+                    : affinityEnabledLabel
+                "
+                :help="t('group.settings.runtime.affinityHelp')"
+                :source-label="
+                  affinityOverridden
+                    ? t('group.settings.runtime.override')
+                    : affinityPendingRestore
+                      ? t('group.settings.runtime.pendingRestoreSource')
+                      : t('group.settings.runtime.inherited')
+                "
+                :action-label="
+                  affinityOverridden
+                    ? t('group.settings.runtime.useInherited')
+                    : t('group.settings.runtime.useOverride')
+                "
+                :overridden="affinityOverridden"
+                :pending-restore="affinityPendingRestore"
+                :divided="false"
+                :disabled="mutationPending"
+                @toggle="toggleAffinityOverride"
+              >
+                <template #control>
+                  <AppSwitch
+                    :model-value="draft.overrides.affinity_enabled ?? false"
+                    :disabled="mutationPending"
+                    :label="t('group.settings.runtime.affinity_enabled')"
+                    @update:model-value="setAffinityValue"
+                  />
+                </template>
+              </SettingRow>
             </div>
           </section>
-          <section id="settings-headers" class="group-settings__section">
+          <section id="settings-parameters" class="group-settings__section">
             <header>
-              <h3>{{ t('group.settings.sections.headers') }}</h3>
-              <p>{{ t('group.settings.headers.description') }}</p>
+              <h3>{{ t('group.settings.sections.parameters') }}</h3>
+              <p>{{ t('group.settings.parameterOverrides.description') }}</p>
             </header>
-            <details
-              class="group-settings__header-rules"
-              :open="routeState.headerRulesExpanded"
-              @toggle="setHeaderRulesExpanded"
+            <ParameterOverrideRulesEditor
+              :key="parameterOverridesEditorRevision"
+              :model-value="draft.overrides.parameter_overrides ?? []"
+              :protocols="parameterOverrideProtocols"
+              :models="modelsQuery.data.value?.items ?? []"
+              :disabled="mutationPending"
+              @update:valid="parameterOverridesValid = $event"
+              @update:invalid-edits="parameterOverridesInvalidEdits = $event"
+              @update:model-value="updateParameterOverrides"
+            />
+          </section>
+          <section id="settings-headers" class="group-settings__section">
+            <SettingBlock
+              :title="t('group.settings.sections.headers')"
+              :help="t('group.settings.headers.description')"
+              :meta="headerSummary()"
+              :source-label="
+                headerRulesOverridden
+                  ? t('group.settings.runtime.override')
+                  : headerRulesPendingRestore
+                    ? t('group.settings.runtime.pendingRestoreSource')
+                    : t('group.settings.runtime.inherited')
+              "
+              :action-label="
+                headerRulesOverridden
+                  ? t('group.settings.runtime.useInherited')
+                  : t('group.settings.runtime.useOverride')
+              "
+              :overridden="headerRulesOverridden"
+              :pending-restore="headerRulesPendingRestore"
+              :disabled="mutationPending"
+              @toggle="toggleHeaderRulesOverride"
             >
-              <summary>
-                <span>
-                  <strong>{{ headerSummary() }}</strong>
-                  <span>
-                    {{
-                      draft.overrides.header_rules === undefined
-                        ? t('group.settings.runtime.inherited')
-                        : t('group.settings.runtime.override')
-                    }}
-                  </span>
-                </span>
-                <ChevronDown :size="16" aria-hidden="true" />
-              </summary>
-              <div class="group-settings__header-controls">
-                <HeaderRulesEditor
-                  :key="headerRulesEditorRevision"
-                  appearance="ledger"
-                  :model-value="displayedHeaderRules"
-                  :disabled="mutationPending"
-                  :show-notice="false"
-                  :remove-label="t('group.settings.runtime.headerRemove')"
-                  :remove-hint="t('group.settings.runtime.headerRemoveHint')"
-                  @update:valid="headerRulesValid = $event"
-                  @update:invalid-edits="headerRulesInvalidEdits = $event"
-                  @update:model-value="updateHeaderRules"
-                />
-              </div>
-            </details>
+              <HeaderRulesEditor
+                :key="headerRulesEditorRevision"
+                appearance="ledger"
+                :model-value="displayedHeaderRules"
+                :disabled="mutationPending || !headerRulesOverridden"
+                :show-notice="false"
+                :show-add="headerRulesOverridden"
+                :remove-label="t('group.settings.runtime.headerRemove')"
+                :remove-hint="t('group.settings.runtime.headerRemoveHint')"
+                @update:valid="headerRulesValid = $event"
+                @update:invalid-edits="headerRulesInvalidEdits = $event"
+                @update:model-value="updateHeaderRules"
+              />
+            </SettingBlock>
           </section>
           <section id="settings-danger" class="group-settings__section group-settings__danger">
             <header>
@@ -894,9 +950,7 @@ small {
 }
 .group-settings__runtime {
   display: grid;
-}
-.group-settings__runtime-row {
-  min-width: 0;
+  gap: var(--space-1);
 }
 .group-settings__runtime-input {
   display: flex;
@@ -910,74 +964,6 @@ small {
   font-family: var(--font-mono);
   font-size: 11px;
   white-space: nowrap;
-}
-.group-settings__boolean-value {
-  display: flex;
-  min-height: var(--control-xs);
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--text-meta);
-  white-space: nowrap;
-}
-.group-settings__affinity-row {
-  display: flex;
-  min-height: 68px;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: 11px 2px;
-}
-.group-settings__affinity-identity {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-1);
-}
-.group-settings__affinity-identity strong {
-  font-size: var(--text-meta);
-}
-.group-settings__affinity-identity small {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-.group-settings__header-rules {
-  overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-}
-.group-settings__header-rules > summary {
-  display: flex;
-  min-height: 48px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  background: var(--color-surface-sunken);
-  padding: 9px 12px;
-  cursor: pointer;
-  list-style: none;
-}
-.group-settings__header-rules > summary::-webkit-details-marker {
-  display: none;
-}
-.group-settings__header-rules > summary > span {
-  display: grid;
-  gap: 1px;
-}
-.group-settings__header-rules > summary strong {
-  font-size: var(--text-meta);
-}
-.group-settings__header-rules > summary span span {
-  color: var(--color-text-faint);
-  font-size: 11px;
-}
-.group-settings__header-rules > summary > svg {
-  flex: none;
-}
-.group-settings__header-controls {
-  display: grid;
-  gap: 11px;
-  border-top: 1px solid var(--color-border-subtle);
-  padding: 12px;
 }
 .group-settings__danger-zone {
   display: flex;
@@ -1011,10 +997,6 @@ small {
     width: min(100%, 220px);
   }
   .group-settings__danger-zone {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .group-settings__affinity-row {
     align-items: stretch;
     flex-direction: column;
   }

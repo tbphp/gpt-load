@@ -29,11 +29,15 @@ func Grok() spec.Module {
 				spec.AuthorizationOAuthFile,
 			},
 		},
-		Params:      []spec.Field{},
+		Params: []spec.Field{{
+			Key: "base_url", Label: "API root URL", InputKind: spec.InputURL,
+			Normalizer: spec.NormalizeOptionalHTTPSBaseURL,
+		}},
 		Credentials: []spec.Field{},
 		Provider: spec.ProviderBinding{
-			ProviderKind:   spec.ProviderGrok,
-			EndpointPolicy: spec.EndpointNone,
+			ProviderKind:    spec.ProviderGrok,
+			EndpointPolicy:  spec.EndpointSDKDefault,
+			DefaultBaseURLs: []string{"https://cli-chat-proxy.grok.com"},
 		},
 		Routes: []spec.Route{
 			spec.NewResponsesCreateRoute(execution.RouteNative, spec.ResponsesStoreHandlingStateless),

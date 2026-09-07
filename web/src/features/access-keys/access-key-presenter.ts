@@ -28,6 +28,7 @@ export interface AccessKeyPresenterLabels {
   allModels: string
   unlimited: string
   costRules(count: number): string
+  priceMultiplier(value: string): string
 }
 
 export interface AccessKeyPresenterOptions {
@@ -68,6 +69,9 @@ function presentAccessKeyWithGroupNames(
     ipRestricted: accessKey.filters.allowed_cidrs.length > 0,
     scopeRows,
     limits: [
+      ...(accessKey.price_multiplier === '1'
+        ? []
+        : [options.labels.priceMultiplier(accessKey.price_multiplier)]),
       accessKey.rpm_limit === 0
         ? options.labels.unlimited
         : `${new Intl.NumberFormat(options.locale).format(accessKey.rpm_limit)} RPM`,

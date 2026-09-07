@@ -520,6 +520,17 @@ func (r *CredentialRegistry) SetCredentialAuthState(credentialID uint, authState
 	return true
 }
 
+// CredentialAuthStateOf returns the runtime auth state of one credential.
+func (r *CredentialRegistry) CredentialAuthStateOf(credentialID uint) (CredentialAuthState, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok {
+		return "", false
+	}
+	return entry.AuthState.normalize(), true
+}
+
 // EncryptedCredentialData returns encrypted credential data for the selected
 // stable credential ID. Decryption belongs to the gateway execution boundary.
 func (r *CredentialRegistry) EncryptedCredentialData(credentialID uint) (string, bool) {
