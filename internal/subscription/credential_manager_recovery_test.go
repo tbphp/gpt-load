@@ -237,6 +237,77 @@ func TestCredentialManagerManualRecoverySerializesWithoutMergingRequests(t *test
 	assertStoredAuthState(t, db, row.ID, models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown")
 }
 
+// ReconcileGroup 只比较持久化配置，运行时版本已是最新、仅认证状态落后时会被
+// 判定为无需变更，因此复用新版本前必须定向修复并重新确认。
+func TestCredentialManagerManualRecoveryRepairsRuntimeAuthStateAtSameVersion(t *testing.T) {
+	manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Hour)))
+	snapshot := credentialSnapshot(t, row, keyService)
+	if !registry.ReplaceCredentialSecretIfMatch(row.ID, row.SecretVersion, row.SecretVersion+1, row.Fingerprint, row.Data) {
+		t.Fatal("seed runtime secret version")
+	}
+	if !registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown) {
+		t.Fatal("seed runtime auth state")
+	}
+	if err := db.Model(&models.Credential{}).Where("id = ?", row.ID).
+		Update("secret_version", row.SecretVersion+1).Error; err != nil {
+		t.Fatal(err)
+	}
+	refreshCalls := 0
+	manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
+		refreshCalls++
+		return codex.Credential{}, errors.New("must not be called")
+	})
+
+	_, evidence := manager.RefreshForManualRecovery(t.Context(), channel.Codex, snapshot)
+	if evidence != nil || refreshCalls != 0 {
+		t.Fatalf("evidence = %#v refresh = %d", evidence, refreshCalls)
+	}
+	authState, known := registry.CredentialAuthStateOf(row.ID)
+	if !known || authState != state.CredentialAuthStateReady {
+		t.Fatalf("runtime auth state = %q known=%t", authState, known)
+	}
+}
+
+// 账号状态与本次操作结果必须分离：保留历史认证问题，但报告这一次的失败。
+func TestCredentialManagerManualRecoveryReportsCurrentFailureNotStoredCode(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		authState models.CredentialAuthState
+		errorCode string
+		wantState models.CredentialAuthState
+		wantCode  string
+	}{
+		{
+			name:      "reauthorization required",
+			authState: models.CredentialAuthStateReauthorizationRequired,
+			errorCode: "refresh_rejected",
+			wantState: models.CredentialAuthStateReauthorizationRequired,
+			wantCode:  "refresh_rejected",
+		},
+		{
+			name:      "residual refreshing",
+			authState: models.CredentialAuthStateRefreshing,
+			errorCode: "",
+			wantState: models.CredentialAuthStateOutcomeUnknown,
+			wantCode:  "refresh_interrupted",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			manager, db, registry, keyService, row := newCredentialManagerFixture(t, credentialJSON("old-access", "old-refresh", time.Now().Add(time.Hour)))
+			markCredentialAuthState(t, db, registry, row.ID, testCase.authState, testCase.errorCode)
+			manager.refresh = adaptCodexRefresh(func(context.Context, codex.Credential) (codex.Credential, error) {
+				return codex.Credential{}, errors.New("dial tcp: connection refused")
+			})
+
+			_, evidence := manager.RefreshForManualRecovery(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService))
+			if evidence == nil || evidence.Code != "refresh_outcome_unknown" {
+				t.Fatalf("evidence = %#v, want this attempt reported as outcome unknown", evidence)
+			}
+			assertStoredAuthState(t, db, row.ID, testCase.wantState, testCase.wantCode)
+		})
+	}
+}
+
 func markCredentialAuthState(
 	t *testing.T,
 	db *gorm.DB,

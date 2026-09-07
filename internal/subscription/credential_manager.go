@@ -272,17 +272,23 @@ func (manager *CredentialManager) refreshCredentialLocked(
 		if restoreState != models.CredentialAuthStateReady {
 			stateValue, code = restoreState, restoreCode
 		}
+		// The persisted code describes the account, the evidence describes this
+		// attempt. A recovery retry that never reached the token endpoint must
+		// not report the account's older authorization error as its own outcome.
+		evidenceCode := "refresh_outcome_unknown"
 		switch failure.Kind {
 		case subscriptionruntime.RefreshFailureIdentityChanged:
 			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"
+			evidenceCode = "refresh_identity_changed"
 		case subscriptionruntime.RefreshFailureReauthorizationRequired:
 			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_rejected"
+			evidenceCode = "refresh_rejected"
 		}
 		if err := manager.transitionAuthState(ctx, row, row.SecretVersion, stateValue, code); err != nil {
 			manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
 			return subscriptionruntime.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
 		}
-		return subscriptionruntime.Credential{}, authEvidence(code)
+		return subscriptionruntime.Credential{}, authEvidence(evidenceCode)
 	}
 	if refreshed.Identity() == "" || refreshed.Identity() != current.Identity() {
 		if err := manager.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"); err != nil {
@@ -385,16 +391,20 @@ func refreshRestoreState(row models.Credential) (models.CredentialAuthState, str
 }
 
 // ensureRuntimeMatchesDurableSecret confirms the registry already serves the
-// durable secret version in a usable state, rebuilding the Group from database
-// truth when it does not.
+// durable secret version in a usable state, repairing it from database truth
+// when it does not. Reconciliation alone is not enough: it compares persisted
+// credential config, so a registry that already serves this version but lags on
+// auth state looks identical to it and would be left untouched.
 func (manager *CredentialManager) ensureRuntimeMatchesDurableSecret(
 	ctx context.Context,
 	row models.Credential,
 ) error {
-	ref, ok := manager.registry.CredentialRef(row.ID)
-	if ok && ref.Version == row.SecretVersion {
-		if authState, known := manager.registry.CredentialAuthStateOf(row.ID); known &&
-			authState == state.CredentialAuthStateReady {
+	if manager.runtimeMatchesDurableSecret(row) {
+		return nil
+	}
+	if ref, ok := manager.registry.CredentialRef(row.ID); ok && ref.Version == row.SecretVersion {
+		manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthState(row.AuthState))
+		if manager.runtimeMatchesDurableSecret(row) {
 			return nil
 		}
 	}
@@ -409,8 +419,22 @@ func (manager *CredentialManager) ensureRuntimeMatchesDurableSecret(
 	if manager.reconcileGroup == nil {
 		return errors.New("credential registry reconciliation is unavailable")
 	}
-	_, err = manager.reconcileGroup(row.GroupID, entries)
-	return err
+	if _, err := manager.reconcileGroup(row.GroupID, entries); err != nil {
+		return err
+	}
+	if !manager.runtimeMatchesDurableSecret(row) {
+		return errors.New("credential runtime state does not match the durable secret")
+	}
+	return nil
+}
+
+func (manager *CredentialManager) runtimeMatchesDurableSecret(row models.Credential) bool {
+	ref, ok := manager.registry.CredentialRef(row.ID)
+	if !ok || ref.Version != row.SecretVersion {
+		return false
+	}
+	authState, known := manager.registry.CredentialAuthStateOf(row.ID)
+	return known && authState == state.CredentialAuthStateReady
 }
 
 func (manager *CredentialManager) markRefreshOutcomeUnknown(
