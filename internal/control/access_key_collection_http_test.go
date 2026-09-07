@@ -138,7 +138,7 @@ func TestAccessKeyCollectionHTTPReturnsAuthenticatedCollectionEnvelope(t *testin
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatalf("decode collection data object: %v", err)
 	}
-	if len(fields) != 3 || fields["summary"] == nil || fields["items"] == nil || fields["pagination"] == nil {
+	if len(fields) != 4 || fields["usage_window"] == nil || fields["summary"] == nil || fields["items"] == nil || fields["pagination"] == nil {
 		t.Fatalf("collection data = %s, want object with summary/items/pagination only", data)
 	}
 	var result AccessKeyCollectionResponse

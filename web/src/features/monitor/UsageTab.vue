@@ -56,6 +56,7 @@ import {
 } from './monitor-route'
 import UsageFilterForm from './UsageFilterForm.vue'
 import UsageSummary from './UsageSummary.vue'
+import AccessKeySelect from '@/features/access-keys/AccessKeySelect.vue'
 
 const client = useApiClient()
 const session = useAuthSession()
@@ -288,6 +289,7 @@ const barTrendSeries = computed<UsageBarDatum[]>(() => {
 watch(
   [
     () => appliedFilters.value.range,
+    () => appliedFilters.value.access_key_id,
     () => appliedFilters.value.group_id,
     () => appliedFilters.value.channel_id,
     () => appliedFilters.value.credential_id,
@@ -359,7 +361,7 @@ async function applyFilters(): Promise<void> {
   const errors = validateUsageFilterDraft(draft.value)
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
-  await navigate(applyUsageFilterDraft(draft.value))
+  await navigate({ ...applyUsageFilterDraft(draft.value), at_ms: appliedFilters.value.at_ms })
 }
 
 async function resetFilters(): Promise<void> {
@@ -417,11 +419,18 @@ async function refresh(): Promise<void> {
   ])
 }
 
-defineExpose({ openFilters, refresh })
+defineExpose({ openFilters, refresh, report })
 </script>
 
 <template>
   <div class="usage-tab">
+    <AccessKeySelect
+      v-if="!isAccessKey"
+      :model-value="appliedFilters.access_key_id"
+      :options="accessKeysQuery.data.value ?? []"
+      :disabled="accessKeysQuery.isPending.value || accessKeysQuery.isError.value"
+      @update:model-value="navigate({ ...appliedFilters, access_key_id: $event })"
+    />
     <AsyncRefreshIndicator :active="usageRefreshing" :label="t('monitor.usage.loading')" />
 
     <SkeletonSurface
@@ -639,6 +648,13 @@ defineExpose({ openFilters, refresh })
             :groups="groupsQuery.data.value ?? []"
             :channels="channelsQuery.data.value?.items ?? []"
             :access-keys="accessKeysQuery.data.value ?? []"
+            @select-access-key="
+              navigate({
+                ...appliedFilters,
+                access_key_id: $event,
+                at_ms: appliedFilters.at_ms ?? report.observed_at_ms,
+              })
+            "
           />
         </section>
 

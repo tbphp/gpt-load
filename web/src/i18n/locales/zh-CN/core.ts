@@ -259,7 +259,7 @@ export default {
         models: '模型范围',
         allModels: '全部模型',
         lastRequest: '最近请求',
-        neverRequested: '暂无请求',
+        neverRequested: '保留期内无请求',
         costLimits: {
           title: '估算费用额度',
           available: '当前可用',

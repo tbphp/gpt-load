@@ -1,5 +1,6 @@
 export default {
   monitor: {
+    clearKeySearch: 'Clear key search',
     title: 'Monitor',
     description: 'Review runtime health, request logs, and current route decisions.',
     help: 'View description',

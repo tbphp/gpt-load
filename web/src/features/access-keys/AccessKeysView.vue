@@ -29,6 +29,7 @@ import CollectionStatusSummary from '@/components/collection/CollectionStatusSum
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -40,6 +41,7 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import AccessKeyCollection from './AccessKeyCollection.vue'
 import AccessKeyDrawer from './AccessKeyDrawer.vue'
+import AccessKeyHandoff from './AccessKeyHandoff.vue'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 import {
   constrainAccessKeyCollectionSearchQuery,
@@ -78,6 +80,15 @@ const accessKeysQuery = useQuery(accessKeyCollectionQueryOptions(client, filters
 const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const data = computed(() => accessKeysQuery.data.value)
+const copiedSource = ref<AccessKeyDto | null>(null)
+const recentlyCreated = ref<Pick<AccessKeyDto, 'id' | 'name' | 'expires_at_ms'> | null>(null)
+function cloneKey(key: AccessKeyDto): void {
+  if (createOperation.value) {
+    checkCreateOperation()
+    return
+  }
+  void setDrawerRoute({ mode: 'create', sourceAccessKeyID: key.id })
+}
 const collectionBusy = computed(() => data.value !== undefined && accessKeysQuery.isFetching.value)
 const {
   initial: initialLoading,
@@ -100,8 +111,46 @@ const pageRefreshing = computed(
     (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
     (channelsQuery.data.value !== undefined && channelsQuery.isFetching.value),
 )
+const distributionFilters = computed(() => [
+  {
+    key: 'range' as const,
+    label: t('accessKeys.distribution.period'),
+    options: ['7d', '30d'].map((value) => ({
+      value,
+      label: t(`accessKeys.distribution.${value}`),
+    })),
+  },
+  {
+    key: 'sort' as const,
+    label: t('accessKeys.distribution.sort'),
+    options: ['updated_desc', 'cost_desc', 'expires_asc'].map((value) => ({
+      value,
+      label: t(`accessKeys.distribution.${value}`),
+    })),
+  },
+  {
+    key: 'expiration' as const,
+    label: t('accessKeys.distribution.expiration'),
+    options: ['', 'expiring', 'expired'].map((value) => ({
+      value,
+      label: t(`accessKeys.distribution.${value || 'all'}`),
+    })),
+  },
+  {
+    key: 'quota' as const,
+    label: t('accessKeys.distribution.quota'),
+    options: ['', 'available', 'exhausted'].map((value) => ({
+      value,
+      label: t(`accessKeys.distribution.${value || 'all'}`),
+    })),
+  },
+])
 const hasFilterCriteria = computed(
-  () => filters.value.q !== undefined || filters.value.status !== undefined,
+  () =>
+    filters.value.q !== undefined ||
+    filters.value.status !== undefined ||
+    filters.value.expiration !== undefined ||
+    filters.value.quota !== undefined,
 )
 const statusSummaryItems = computed(() => {
   const summary = data.value?.summary
@@ -185,6 +234,13 @@ watch(
   ([drawer, pageData, pendingEdit, pendingRotate, placeholder]) => {
     if (drawer === undefined || drawer.mode === 'create') {
       selected.value = null
+      if (drawer?.mode === 'create' && drawer.sourceAccessKeyID !== undefined) {
+        if (copiedSource.value?.id !== drawer.sourceAccessKeyID) {
+          copiedSource.value =
+            pageData?.items.find((key) => key.id === drawer.sourceAccessKeyID) ?? null
+          if (!copiedSource.value && pageData && !placeholder) void setDrawerRoute(undefined, true)
+        }
+      } else copiedSource.value = null
       return
     }
     const item = pageData?.items.find((accessKey) => accessKey.id === drawer.accessKeyID)
@@ -250,7 +306,7 @@ async function setDrawerRoute(
   await (replace ? router.replace(location) : router.push(location))
 }
 
-function updateConditions(patch: Partial<Pick<AccessKeyCollectionFilters, 'q' | 'status'>>): void {
+function updateConditions(patch: Partial<AccessKeyCollectionFilters>): void {
   routeWithFilters({
     ...filters.value,
     q: constrainAccessKeyCollectionSearchQuery(searchDraft.value),
@@ -357,7 +413,13 @@ async function setDrawerOpen(open: boolean): Promise<void> {
   target?.focus()
 }
 
-async function handleSaved(kind: 'created' | 'updated', name: string): Promise<void> {
+async function handleSaved(
+  kind: 'created' | 'updated',
+  name: string,
+  key?: AccessKeyDto,
+): Promise<void> {
+  if (kind === 'created' && key)
+    recentlyCreated.value = { id: key.id, name: key.name, expires_at_ms: key.expires_at_ms }
   await setDrawerOpen(false)
   toast.show({ message: t(`accessKeys.toast.${kind}`, { name }) })
 }
@@ -457,10 +519,22 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
           </span>
         </InlineFeedback>
 
+        <AccessKeyHandoff
+          v-if="recentlyCreated"
+          :key="recentlyCreated.id"
+          :access-key="recentlyCreated"
+          @close="recentlyCreated = null"
+        />
+
         <AccessKeyDrawer
-          v-if="drawerOpen && (drawerRoute?.mode === 'create' || selected)"
+          v-if="
+            drawerOpen &&
+            ((drawerRoute?.mode === 'create' && (!drawerRoute.sourceAccessKeyID || copiedSource)) ||
+              selected)
+          "
           :open="drawerOpen"
           :access-key="selected"
+          :copy-from="copiedSource"
           :groups="groupsQuery.data.value ?? []"
           :channels="channelsQuery.data.value?.items ?? []"
           :total="data?.summary.total ?? 0"
@@ -567,7 +641,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
             <CollectionFilterBar
               :label="t('accessKeys.collection.filters.region')"
               :show-result="hasFilterCriteria"
-              single-column
+              class="access-keys__filters"
             >
               <label class="collection-filter-field collection-filter-field--search">
                 <span class="collection-filter-label">
@@ -580,6 +654,21 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
                   :clear-label="t('accessKeys.collection.filters.clearSearch')"
                   @update:model-value="scheduleSearch"
                   @clear="clearSearch"
+                />
+              </label>
+
+              <label
+                v-for="field in distributionFilters"
+                :key="field.key"
+                class="collection-filter-field"
+              >
+                <span class="collection-filter-label">{{ field.label }}</span>
+                <AppSelect
+                  :model-value="filters[field.key] ?? ''"
+                  :label="field.label"
+                  :options="field.options"
+                  size="compact"
+                  @update:model-value="updateConditions({ [field.key]: $event || undefined })"
                 />
               </label>
 
@@ -641,6 +730,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
             <AccessKeyCollection
               ref="collection"
               :access-keys="data.items"
+              :usage-window="data.usage_window"
               :groups="groupsQuery.data.value ?? []"
               :total="data.summary.total"
               :filtered-total="data.pagination.total_items"
@@ -649,6 +739,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
               :busy-ids="pendingStatusIDs"
               :locked-ids="lockedAccessKeyIDs"
               @open="openKey"
+              @clone="cloneKey"
               @toggle="toggleStatus"
               @deleted="handleDeleted"
               @reset="handleCostLimitsReset"
@@ -670,6 +761,15 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
 </template>
 
 <style scoped>
+.access-keys__filters.collection-filter-bar {
+  grid-template-columns: minmax(160px, 1fr) repeat(4, minmax(100px, auto));
+}
+@media (max-width: 860px) {
+  .access-keys__filters.collection-filter-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .access-keys__login-notice {
   margin: var(--space-4) 0 var(--space-2);
 }

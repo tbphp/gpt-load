@@ -52,7 +52,7 @@ func parseAccessKeyCollectionQuery(
 	}
 	for key, entries := range values {
 		switch key {
-		case "q", "status", "page", "page_size":
+		case "q", "status", "page", "page_size", "range", "sort", "expiration", "quota":
 		default:
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
 		}
@@ -87,6 +87,29 @@ func parseAccessKeyCollectionQuery(
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
 		}
 		query.PageSize = pageSize
+	}
+	for _, field := range []struct {
+		name    string
+		target  *string
+		allowed []string
+	}{
+		{"range", &query.Range, []string{"7d", "30d"}},
+		{"sort", &query.Sort, []string{"updated_desc", "cost_desc", "expires_asc"}},
+		{"expiration", &query.Expiration, []string{"expiring", "expired"}},
+		{"quota", &query.Quota, []string{"available", "exhausted"}},
+	} {
+		if entries, exists := values[field.name]; exists {
+			valid := false
+			for _, allowed := range field.allowed {
+				if entries[0] == allowed {
+					valid = true
+				}
+			}
+			if !valid {
+				return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
+			}
+			*field.target = entries[0]
+		}
 	}
 	return query, nil
 }

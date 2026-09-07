@@ -61,7 +61,7 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 			return err
 		}
 		distributions, err := queryUsageDistributions(
-			scope(connection, input), summary, input.AccessKeyID != nil,
+			scope(connection, input), summary, input.SelfScoped,
 		)
 		if err != nil {
 			return err

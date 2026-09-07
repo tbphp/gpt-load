@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { lazySurface } from '@/app/async-surface'
 import { monitorLocation } from '@/app/route-locations'
-import { usageRanges } from '@/app/resources/usage'
+import { usageRanges, type UsageReportDto } from '@/app/resources/usage'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -14,6 +14,7 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { isTimeRange } from '@/lib/time'
+import { parseAppliedLogFilters } from './log-filters'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import HealthTab from './HealthTab.vue'
@@ -21,6 +22,8 @@ import {
   normalizeAccessKeyMonitorQuery,
   normalizeMonitorQuery,
   normalizeMonitorTab,
+  logsMonitorQuery,
+  parseLogsMonitorState,
   parseUsageMonitorState,
   sameMonitorQuery,
   scopeAccessKeyUsageFilters,
@@ -37,7 +40,11 @@ const session = useAuthSession()
 const router = useRouter()
 const { t } = useI18n()
 const healthTab = ref<InstanceType<typeof HealthTab> | null>(null)
-const usageTab = ref<{ openFilters: () => void; refresh: () => Promise<void> } | null>(null)
+const usageTab = ref<{
+  openFilters: () => void
+  refresh: () => Promise<void>
+  report?: UsageReportDto
+} | null>(null)
 const healthRefreshPending = ref(false)
 const usageRefreshPending = ref(false)
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
@@ -73,6 +80,7 @@ const usageRangeOptions = computed(() =>
 )
 const usageFilterCount = computed(
   () =>
+    Number(!isAccessKey.value && usageFilters.value.access_key_id !== undefined) +
     Number(!isAccessKey.value && usageFilters.value.group_id !== undefined) +
     Number(!isAccessKey.value && usageFilters.value.channel_id !== undefined) +
     Number(!isAccessKey.value && usageFilters.value.credential_id !== undefined) +
@@ -94,6 +102,57 @@ function selectTab(value: string): void {
   const tab = normalizeMonitorTab(value)
   if (isAccessKey.value && tab !== 'usage' && tab !== 'logs') return
   if (tab === activeTab.value) return
+  if (activeTab.value === 'usage' && tab === 'logs') {
+    const report = usageTab.value?.report
+    if (!report) {
+      void router.push(
+        monitorLocation({ tab: 'logs', access_key_id: usageFilters.value.access_key_id }),
+      )
+      return
+    }
+    const filters = usageFilters.value
+    void router.push(
+      monitorLocation(
+        logsMonitorQuery(
+          {
+            limit: 20,
+            from_ms: report.from_ms,
+            to_ms: report.to_ms,
+            access_key_id: filters.access_key_id,
+            group_id: filters.group_id,
+            channel_id: filters.channel_id,
+            credential_id: filters.credential_id,
+            upstream_model: filters.upstream_model,
+          },
+          {
+            filtersOpen: false,
+            cursorHistory: [],
+            usageRange: filters.range,
+            usageAtMS: filters.at_ms ?? report.observed_at_ms,
+          },
+        ),
+      ),
+    )
+    return
+  }
+  if (activeTab.value === 'logs' && tab === 'usage') {
+    const filters = parseAppliedLogFilters(route.query)
+    const previous = parseLogsMonitorState(route.query)
+    void router.push(
+      monitorLocation(
+        usageMonitorQuery({
+          range: previous.usageRange ?? '24h',
+          at_ms: previous.usageAtMS,
+          access_key_id: filters.access_key_id,
+          group_id: filters.group_id,
+          channel_id: filters.channel_id,
+          credential_id: filters.credential_id,
+          upstream_model: filters.upstream_model,
+        }),
+      ),
+    )
+    return
+  }
   void router.push(monitorLocation({ tab }))
 }
 
@@ -123,7 +182,7 @@ function selectUsageRange(value: string): void {
   void router.push(
     monitorLocation(
       usageMonitorQuery(
-        { ...usageFilters.value, range: value },
+        { ...usageFilters.value, range: value, at_ms: undefined },
         {
           filtersOpen: false,
           seriesExpanded: false,

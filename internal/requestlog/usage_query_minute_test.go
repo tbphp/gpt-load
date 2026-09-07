@@ -179,6 +179,7 @@ func TestQueryUsageMinuteFiltersFinalAttributionAndAccessKey(t *testing.T) {
 	query := minuteUsageQuery(start)
 	query.GroupID, query.ChannelID, query.CredentialID = &groupID, channel.OpenAI, &credentialID
 	query.AccessKeyID, query.UpstreamModel = &accessKeyID, "final-model"
+	query.SelfScoped = true
 	report, err := newRequestLogTestService(db).QueryUsage(context.Background(), query)
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)

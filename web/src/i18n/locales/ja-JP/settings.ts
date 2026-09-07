@@ -1,5 +1,8 @@
 export default {
   settings: {
+    contactInfo: '管理者への連絡',
+    contactInfoHelp:
+      'アクセスキーユーザーに表示する連絡先。最大 500 文字。空欄の場合は表示しません。',
     title: '設定',
     loading: '実行設定を読み込み中…',
     loadFailed: '実行設定を読み込めません。',

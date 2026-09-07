@@ -37,6 +37,7 @@ type CORSConfigResponse struct {
 }
 
 type SettingsValuesResponse struct {
+	ContactInfo              string              `json:"contact_info"`
 	FirstByteTimeout         int64               `json:"first_byte_timeout"`
 	RequestTimeout           int64               `json:"request_timeout"`
 	StreamIdleTimeout        int64               `json:"stream_idle_timeout"`
@@ -332,6 +333,7 @@ func mapSettingsResponse(
 	return SettingsResponse{
 		Revision: snapshot.Revision,
 		Values: SettingsValuesResponse{
+			ContactInfo:       settings.ContactInfo,
 			FirstByteTimeout:  durationSeconds(settings.FirstByteTimeout),
 			RequestTimeout:    durationSeconds(settings.RequestTimeout),
 			StreamIdleTimeout: durationSeconds(settings.StreamIdleTimeout),

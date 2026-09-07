@@ -1,5 +1,7 @@
 export default {
   settings: {
+    contactInfo: '联系管理员',
+    contactInfoHelp: '向访问密钥用户展示的联系说明，最多 500 字，留空不展示。',
     title: '设置',
     loading: '正在加载运行设置…',
     loadFailed: '无法加载运行设置。',

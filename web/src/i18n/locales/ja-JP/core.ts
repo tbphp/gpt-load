@@ -271,7 +271,7 @@ export default {
         models: 'モデル範囲',
         allModels: 'すべてのモデル',
         lastRequest: '直近のリクエスト',
-        neverRequested: 'リクエストはまだありません',
+        neverRequested: '保持期間内のリクエストなし',
         costLimits: {
           title: '概算費用枠',
           available: '利用可能',

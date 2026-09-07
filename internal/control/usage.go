@@ -134,11 +134,12 @@ func (server *Server) handleUsage(c *gin.Context) {
 		return
 	}
 	if accessKeyID, scoped := currentAccessKeyID(c); scoped {
-		if query.GroupID != nil || query.ChannelID != "" || query.CredentialID != nil {
+		if query.AccessKeyID != nil || query.GroupID != nil || query.ChannelID != "" || query.CredentialID != nil {
 			writeServiceError(c, "usage", app_errors.ErrBadRequest)
 			return
 		}
 		query.AccessKeyID = &accessKeyID
+		query.SelfScoped = true
 	}
 	report, err := server.service.QueryUsage(c.Request.Context(), query)
 	if err != nil {
@@ -160,9 +161,11 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 	}
 	allowed := map[string]struct{}{
 		"range":          {},
+		"at_ms":          {},
 		"from_ms":        {},
 		"to_ms":          {},
 		"group_id":       {},
+		"access_key_id":  {},
 		"channel_id":     {},
 		"credential_id":  {},
 		"upstream_model": {},
@@ -175,6 +178,16 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 
 	if err := validateSafeMilliseconds(observedAtMS); err != nil {
 		return requestlog.UsageQuery{}, app_errors.ErrInternalServer
+	}
+	if value, ok := singleQueryValue(values, "at_ms"); ok {
+		at, err := parseCanonicalSafeMilliseconds(value)
+		if err != nil || at > observedAtMS {
+			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
+		}
+		if _, hasFrom := values["from_ms"]; hasFrom {
+			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
+		}
+		observedAtMS = at
 	}
 	query := requestlog.UsageQuery{}
 	rangeValue := usageRange24Hours
@@ -245,6 +258,13 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		}
 		query.Granularity = preset.granularity
 		query.BucketWidthMS = preset.bucketWidthMS
+	}
+	if value, ok := singleQueryValue(values, "access_key_id"); ok {
+		id, apiErr := parseUsageGroupID(value)
+		if apiErr != nil {
+			return requestlog.UsageQuery{}, apiErr
+		}
+		query.AccessKeyID = &id
 	}
 	if value, ok := singleQueryValue(values, "group_id"); ok {
 		groupID, apiErr := parseUsageGroupID(value)
@@ -333,7 +353,7 @@ func (service *Service) mapUsageResponse(
 	query requestlog.UsageQuery,
 	report requestlog.UsageReport,
 ) (usageResponse, error) {
-	accessKeyScoped := query.AccessKeyID != nil
+	accessKeyScoped := query.SelfScoped
 	if !accessKeyScoped && service.requestLogStats == nil {
 		return usageResponse{}, app_errors.ErrInternalServer
 	}

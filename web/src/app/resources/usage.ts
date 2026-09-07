@@ -25,6 +25,8 @@ export type UsageRange = TimeRange
 
 export interface UsageFilters {
   range: UsageRange
+  at_ms?: number
+  access_key_id?: number
   group_id?: number
   channel_id?: string
   credential_id?: number
@@ -231,11 +233,10 @@ export function projectUsageReport(value: unknown): UsageReportDto {
   if (
     rangeToMS - rangeFromMS !== bucketWidthMs * bucketCount ||
     (rollingHour
-      ? rangeToMS !== observedAtMS
+      ? rangeToMS > observedAtMS
       : !isUTCAligned(rangeFromMS, bucketWidthMs) ||
         !isUTCAligned(rangeToMS, bucketWidthMs) ||
-        observedAtMS < rangeToMS - bucketWidthMs ||
-        observedAtMS >= rangeToMS)
+        observedAtMS < rangeToMS - bucketWidthMs)
   ) {
     invalidResponse()
   }
@@ -414,6 +415,8 @@ export function projectUsageReport(value: unknown): UsageReportDto {
 
 export function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
   const result: UsageFilters = { range: filters.range }
+  if (filters.at_ms !== undefined) result.at_ms = filters.at_ms
+  if (filters.access_key_id !== undefined) result.access_key_id = filters.access_key_id
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.channel_id !== undefined) result.channel_id = filters.channel_id
   if (filters.credential_id !== undefined) result.credential_id = filters.credential_id
@@ -432,6 +435,9 @@ export async function getUsageReport(
 ): Promise<UsageReportDto> {
   const normalized = normalizeUsageFilters(filters)
   const params = new URLSearchParams([['range', normalized.range]])
+  if (normalized.at_ms !== undefined) params.append('at_ms', String(normalized.at_ms))
+  if (normalized.access_key_id !== undefined)
+    params.append('access_key_id', String(normalized.access_key_id))
   if (normalized.group_id !== undefined) params.append('group_id', String(normalized.group_id))
   if (normalized.channel_id !== undefined) params.append('channel_id', normalized.channel_id)
   if (normalized.credential_id !== undefined) {

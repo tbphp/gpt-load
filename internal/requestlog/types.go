@@ -184,6 +184,8 @@ const (
 )
 
 type UsageQuery struct {
+	// SelfScoped 控制只读用户视图，与管理员的密钥筛选独立。
+	SelfScoped    bool
 	FromMS        int64
 	ToMS          int64
 	Granularity   UsageGranularity

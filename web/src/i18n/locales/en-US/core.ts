@@ -273,7 +273,7 @@ export default {
         models: 'Model scope',
         allModels: 'All models',
         lastRequest: 'Latest request',
-        neverRequested: 'No requests yet',
+        neverRequested: 'No requests within retention',
         costLimits: {
           title: 'Estimated cost allowance',
           available: 'Available',

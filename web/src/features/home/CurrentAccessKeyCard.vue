@@ -15,7 +15,7 @@ import { quotaProgressTone } from '@/lib/quota-progress'
 
 import AccessKeyCostLimitWindowTime from '@/features/access-keys/AccessKeyCostLimitWindowTime.vue'
 
-const props = defineProps<{ accessKey: AccessKeyCollectionItemDto }>()
+const props = defineProps<{ accessKey: AccessKeyCollectionItemDto; contactInfo?: string }>()
 const { locale, n, t } = useI18n()
 
 const rpm = computed(() =>
@@ -109,6 +109,28 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 
     <dl class="current-access-key__facts">
       <div>
+        <dt>{{ t('accessKeys.distribution.expiration') }}</dt>
+        <dd>
+          <AppDateTime
+            v-if="accessKey.expires_at_ms !== null"
+            :instant="accessKey.expires_at_ms"
+            :locale="locale"
+          /><span v-else>{{ t('accessKeys.distribution.neverExpires') }}</span>
+        </dd>
+      </div>
+      <div>
+        <dt>{{ t('accessKeys.distribution.source') }}</dt>
+        <OverflowTooltip
+          as="dd"
+          :content="
+            accessKey.filters.allowed_cidrs.join(', ') || t('accessKeys.distribution.unrestricted')
+          "
+          >{{
+            accessKey.filters.allowed_cidrs.join(', ') || t('accessKeys.distribution.unrestricted')
+          }}</OverflowTooltip
+        >
+      </div>
+      <div>
         <dt>{{ t('common.priceMultiplier.label') }}</dt>
         <dd>
           <OverflowTooltip :content="t('common.priceMultiplier.accessKeyHelp')">
@@ -144,6 +166,9 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
         </dd>
       </div>
     </dl>
+    <p v-if="contactInfo" class="current-access-key__contact">
+      <strong>{{ t('accessKeys.distribution.contact') }}</strong> {{ contactInfo }}
+    </p>
 
     <section
       v-if="costLimits !== null && costLimits.rules.length > 0"
@@ -242,6 +267,14 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 </template>
 
 <style scoped>
+.current-access-key__contact {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .current-access-key {
   display: grid;
   gap: 14px;

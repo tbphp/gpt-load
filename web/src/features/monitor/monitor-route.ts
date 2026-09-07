@@ -28,6 +28,8 @@ export interface UsageMonitorState {
 }
 
 export interface LogsMonitorState {
+  usageAtMS?: number
+  usageRange?: UsageFilters['range']
   filtersOpen: boolean
   cursorHistory: string[]
   selectedRequestID?: string
@@ -76,6 +78,7 @@ const accessKeyForbiddenLogFilters: readonly (keyof RequestLogFilters)[] = [
 
 export function scopeAccessKeyUsageFilters(filters: UsageFilters): UsageFilters {
   const scoped = { ...filters }
+  delete scoped.access_key_id
   delete scoped.group_id
   delete scoped.channel_id
   delete scoped.credential_id
@@ -123,10 +126,13 @@ export function usageMonitorQuery(
     range: filters.range,
     metric: state.metric,
   }
+  if (filters.at_ms !== undefined) normalized.at_ms = String(filters.at_ms)
+  const accessKeyID = normalizeUsageGroupID(filters.access_key_id)
   const groupID = normalizeUsageGroupID(filters.group_id)
   const channelID = normalizeUsageChannelID(filters.channel_id)
   const credentialID = normalizeUsageGroupID(filters.credential_id)
   const upstreamModel = normalizeUsageModel(filters.upstream_model)
+  if (accessKeyID !== undefined) normalized.access_key_id = String(accessKeyID)
   if (groupID !== undefined) normalized.group_id = String(groupID)
   if (channelID !== undefined) normalized.channel_id = channelID
   if (credentialID !== undefined) normalized.credential_id = String(credentialID)
@@ -200,6 +206,8 @@ export function inspectorMonitorQuery(state: InspectorMonitorState): LocationQue
 
 export function parseLogsMonitorState(query: Record<string, unknown>): LogsMonitorState {
   return {
+    usageAtMS: normalizeUsageGroupID(query.usage_at_ms),
+    usageRange: parseAppliedUsageFilters({ range: query.usage_range }).range,
     filtersOpen: query.panel === 'filters',
     cursorHistory: parseLogCursorHistory(query.log_cursors),
     selectedRequestID: parseSelectedRequestID(query),
@@ -211,6 +219,10 @@ export function logsMonitorQuery(
   state: LogsMonitorState = { filtersOpen: false, cursorHistory: [] },
 ): LocationQueryRaw {
   const normalized = serializeAppliedLogFilters(filters)
+  if (state.usageAtMS !== undefined) {
+    normalized.usage_at_ms = String(state.usageAtMS)
+    normalized.usage_range = state.usageRange ?? defaultTimeRange
+  }
   if (state.filtersOpen) normalized.panel = 'filters'
   const cursorHistory = serializeLogCursorHistory(state.cursorHistory)
   if (cursorHistory !== undefined) normalized.log_cursors = cursorHistory

@@ -1,5 +1,8 @@
 export default {
   settings: {
+    contactInfo: 'Contact administrator',
+    contactInfoHelp:
+      'Contact information shown to access key users. Up to 500 characters; leave empty to hide.',
     title: 'Settings',
     loading: 'Loading runtime settings…',
     loadFailed: 'Unable to load runtime settings.',

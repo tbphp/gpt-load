@@ -547,6 +547,10 @@ export interface AccessKeyDto {
 export type AccessKeyCollectionStatus = AccessKeyDto['status']
 
 export interface AccessKeyCollectionFilters {
+  range?: '7d' | '30d'
+  sort?: 'updated_desc' | 'cost_desc' | 'expires_asc'
+  expiration?: 'expiring' | 'expired'
+  quota?: 'available' | 'exhausted'
   q?: string
   status?: AccessKeyCollectionStatus
   page: number
@@ -560,6 +564,7 @@ export interface AccessKeyCollectionSummaryDto {
 }
 
 export interface AccessKeyCollectionItemDto extends AccessKeyDto {
+  usage?: { request_count: number; total_tokens: number; estimated_cost_nano_usd: string }
   expired: boolean
   last_request_at_ms: number | null
 }
@@ -572,12 +577,14 @@ export interface AccessKeyCollectionPaginationDto {
 }
 
 export interface AccessKeyCollectionResponseDto {
+  usage_window: { range: '7d' | '30d'; from_ms: number; to_ms: number; observed_at_ms: number }
   summary: AccessKeyCollectionSummaryDto
   items: AccessKeyCollectionItemDto[]
   pagination: AccessKeyCollectionPaginationDto
 }
 
 export interface AccessKeyOptionDto {
+  key_suffix: string
   id: number
   name: string
   status: AccessKeyDto['status']

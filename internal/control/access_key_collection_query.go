@@ -14,10 +14,14 @@ const (
 )
 
 type AccessKeyCollectionQuery struct {
-	Query    string
-	Status   *state.AccessKeyStatus
-	Page     int64
-	PageSize int64
+	Range      string
+	Sort       string
+	Expiration string
+	Quota      string
+	Query      string
+	Status     *state.AccessKeyStatus
+	Page       int64
+	PageSize   int64
 }
 
 func queryAccessKeyCollectionRecords(
@@ -31,7 +35,7 @@ func queryAccessKeyCollectionRecords(
 			filtered = append(filtered, record)
 		}
 	}
-	sortAccessKeyCollectionRecords(filtered)
+	sortAccessKeyCollectionRecords(filtered, query.Sort)
 
 	totalItems := int64(len(filtered))
 	return AccessKeyCollectionResponse{
@@ -47,6 +51,9 @@ func queryAccessKeyCollectionRecords(
 }
 
 func normalizeAccessKeyCollectionQuery(query AccessKeyCollectionQuery) AccessKeyCollectionQuery {
+	if query.Range == "" {
+		query.Range = "7d"
+	}
 	if query.Page <= 0 {
 		query.Page = defaultAccessKeyCollectionPage
 	}
@@ -75,6 +82,13 @@ func matchesAccessKeyCollectionQuery(
 	record accessKeyCollectionRecord,
 	query AccessKeyCollectionQuery,
 ) bool {
+	if query.Expiration == "expired" && !record.Expired || query.Expiration == "expiring" && !record.expiring {
+		return false
+	}
+	exhausted := record.CostLimitStatus != nil && !record.CostLimitStatus.Allowed
+	if query.Quota == "exhausted" && !exhausted || query.Quota == "available" && exhausted {
+		return false
+	}
 	if query.Status != nil && record.Status != *query.Status {
 		return false
 	}
@@ -83,9 +97,23 @@ func matchesAccessKeyCollectionQuery(
 		accessKeyCollectionContainsFold(record.MaskedKey, query.Query)
 }
 
-func sortAccessKeyCollectionRecords(records []accessKeyCollectionRecord) {
+func sortAccessKeyCollectionRecords(records []accessKeyCollectionRecord, ordering string) {
 	sort.Slice(records, func(leftIndex, rightIndex int) bool {
 		left, right := records[leftIndex], records[rightIndex]
+		if ordering == "cost_desc" && left.usageCost != right.usageCost {
+			return left.usageCost > right.usageCost
+		}
+		if ordering == "expires_asc" {
+			if left.ExpiresAtMS == nil && right.ExpiresAtMS != nil {
+				return false
+			}
+			if left.ExpiresAtMS != nil && right.ExpiresAtMS == nil {
+				return true
+			}
+			if left.ExpiresAtMS != nil && right.ExpiresAtMS != nil && *left.ExpiresAtMS != *right.ExpiresAtMS {
+				return *left.ExpiresAtMS < *right.ExpiresAtMS
+			}
+		}
 		if left.UpdatedAtMS != right.UpdatedAtMS {
 			return left.UpdatedAtMS > right.UpdatedAtMS
 		}

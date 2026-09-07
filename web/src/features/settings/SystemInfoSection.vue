@@ -101,6 +101,7 @@ async function checkForUpdate(): Promise<void> {
       <h2>{{ t('settings.system.title') }}</h2>
       <p>{{ t('settings.system.description') }}</p>
     </header>
+    <slot />
 
     <AsyncRefreshIndicator :active="infoRefreshing" :label="t('settings.system.loading')" />
 

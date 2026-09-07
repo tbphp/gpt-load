@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ArrowRight, RotateCcw, Trash2 } from '@lucide/vue'
+import { ArrowRight, ChartNoAxesCombined, List, Copy, RotateCcw, Trash2 } from '@lucide/vue'
 import { computed, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -14,12 +15,17 @@ import CopyChip from '@/components/ui/CopyChip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
+import AppPopover from '@/components/ui/AppPopover.vue'
+import { monitorLocation } from '@/app/route-locations'
+import { formatEstimatedCost, formatInteger, formatTokens, formatUSD } from '@/lib/format'
 
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import AccessKeyCostLimitResetDialog from './AccessKeyCostLimitResetDialog.vue'
 import { presentAccessKeyCollection } from './access-key-presenter'
 
 const props = defineProps<{
+  usageWindow: { range: '7d' | '30d'; from_ms: number; to_ms: number; observed_at_ms: number }
   accessKeys: readonly AccessKeyCollectionItemDto[]
   groups: readonly GroupOptionDto[]
   total: number
@@ -31,10 +37,40 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   open: [accessKey: AccessKeyCollectionItemDto, trigger: HTMLElement]
+  clone: [accessKey: AccessKeyCollectionItemDto]
   toggle: [accessKey: AccessKeyCollectionItemDto]
   deleted: [name: string]
   reset: [name: string]
 }>()
+const router = useRouter()
+function viewUsage(id: number): void {
+  void router.push(
+    monitorLocation({
+      tab: 'usage',
+      access_key_id: String(id),
+      range: props.usageWindow.range,
+      at_ms: String(props.usageWindow.observed_at_ms),
+    }),
+  )
+}
+function viewLogs(id: number): void {
+  void router.push(
+    monitorLocation({
+      tab: 'logs',
+      access_key_id: String(id),
+      from_ms: String(props.usageWindow.from_ms),
+      to_ms: String(props.usageWindow.to_ms),
+      usage_range: props.usageWindow.range,
+      usage_at_ms: String(props.usageWindow.observed_at_ms),
+    }),
+  )
+}
+function quotaRules(id: number) {
+  return [...(source(id).cost_limit_status?.rules ?? [])].sort(
+    (a, b) =>
+      Number(a.remaining_usd) / Number(a.limit_usd) - Number(b.remaining_usd) / Number(b.limit_usd),
+  )
+}
 const client = useApiClient()
 const { locale, t } = useI18n()
 const copyControllers = useAbortControllerPool()
@@ -98,7 +134,7 @@ watch(
       <span role="columnheader">{{ t('accessKeys.columns.key') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.status') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.scope') }}</span>
-      <span role="columnheader">{{ t('accessKeys.columns.limits') }}</span>
+      <span role="columnheader">{{ t('accessKeys.distribution.usageQuota') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.lastRequest') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.actions') }}</span>
     </template>
@@ -152,8 +188,47 @@ watch(
       </div>
 
       <div class="ledger-record-list__cell access-key-rpm" role="cell">
-        <span class="mobile-label">{{ t('accessKeys.columns.limits') }}</span>
-        <span v-for="limit in record.limits" :key="limit">{{ limit }}</span>
+        <span class="mobile-label">{{ t('accessKeys.distribution.usageQuota') }}</span>
+        <template v-if="source(record.id).usage">
+          <strong>{{
+            formatEstimatedCost(source(record.id).usage!.estimated_cost_nano_usd, locale)
+          }}</strong>
+          <span>{{
+            t('accessKeys.distribution.usageValue', {
+              requests: formatInteger(source(record.id).usage!.request_count, locale),
+              tokens: formatTokens(source(record.id).usage!.total_tokens, locale),
+            })
+          }}</span>
+        </template>
+        <AppPopover v-if="quotaRules(record.id).length">
+          <template #trigger
+            ><button type="button" class="access-key-quota-link">
+              {{
+                t('accessKeys.distribution.remaining', {
+                  amount: formatUSD(quotaRules(record.id)[0]!.remaining_usd, locale),
+                })
+              }}
+            </button></template
+          >
+          <dl class="access-key-quota-detail">
+            <template v-for="rule in quotaRules(record.id)" :key="rule.id"
+              ><dt>
+                {{
+                  rule.kind === 'total'
+                    ? t('accessKeys.distribution.totalQuota')
+                    : t('accessKeys.distribution.periodic', {
+                        hours: (rule.period_seconds ?? 0) / 3600,
+                      })
+                }}
+              </dt>
+              <dd>
+                {{ formatUSD(rule.remaining_usd, locale) }} /
+                {{ formatUSD(rule.limit_usd, locale) }}
+              </dd></template
+            >
+          </dl>
+        </AppPopover>
+        <span v-else>{{ record.limits[0] }}</span>
       </div>
 
       <div class="ledger-record-list__cell access-key-last-request" role="cell">
@@ -163,9 +238,42 @@ watch(
           :locale="locale"
           :empty-label="t('accessKeys.collection.neverRequested')"
         />
+        <span class="access-key-expiry" :class="{ 'access-key-expiry--expired': record.expired }"
+          >{{ t('accessKeys.distribution.expires') }}
+          <AppDateTime
+            v-if="source(record.id).expires_at_ms !== null"
+            :instant="source(record.id).expires_at_ms!"
+            :locale="locale"
+          /><span v-else>{{ t('accessKeys.distribution.neverExpires') }}</span></span
+        >
       </div>
 
       <div class="ledger-record-list__cell record-actions" role="cell">
+        <IconButton
+          variant="ghost"
+          size="compact"
+          :label="t('accessKeys.distribution.viewUsage')"
+          :title="t('accessKeys.distribution.viewUsage')"
+          @click="viewUsage(record.id)"
+          ><ChartNoAxesCombined :size="15"
+        /></IconButton>
+        <IconButton
+          variant="ghost"
+          size="compact"
+          :label="t('accessKeys.distribution.viewLogs')"
+          :title="t('accessKeys.distribution.viewLogs')"
+          @click="viewLogs(record.id)"
+          ><List :size="15"
+        /></IconButton>
+        <IconButton
+          variant="ghost"
+          size="compact"
+          :label="t('accessKeys.distribution.clone')"
+          :title="t('accessKeys.distribution.clone')"
+          :disabled="lockedIds.has(record.id)"
+          @click="emit('clone', source(record.id))"
+          ><Copy :size="15"
+        /></IconButton>
         <AppButton
           variant="secondary"
           :tone="record.status === 'active' ? 'warning' : 'success'"
@@ -230,9 +338,39 @@ watch(
 </template>
 
 <style scoped>
+.access-key-expiry {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--text-label-xs);
+}
+.access-key-expiry--expired {
+  color: var(--color-danger);
+}
+.access-key-quota-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-action);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.access-key-quota-detail {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.access-key-quota-detail dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
 .access-keys-record-grid {
-  --ledger-record-list-grid: minmax(132px, 1.08fr) minmax(184px, 1.3fr) 102px minmax(190px, 1.35fr)
-    92px minmax(126px, 0.9fr) minmax(158px, 1.05fr);
+  --ledger-record-list-grid: minmax(100px, 0.8fr) minmax(145px, 1fr) 90px minmax(148px, 1fr)
+    minmax(145px, 1fr) minmax(120px, 0.9fr) 230px;
   --ledger-record-list-column-gap: 14px;
 }
 
@@ -315,8 +453,8 @@ watch(
 
 @media (max-width: 1120px) {
   .access-keys-record-grid {
-    --ledger-record-list-grid: minmax(110px, 1.05fr) minmax(156px, 1.2fr) 90px minmax(164px, 1.25fr)
-      78px minmax(96px, 0.8fr) minmax(148px, 1fr);
+    --ledger-record-list-grid: minmax(95px, 1fr) minmax(125px, 1fr) 80px minmax(130px, 1fr)
+      minmax(130px, 1fr) minmax(115px, 1fr) 230px;
     --ledger-record-list-column-gap: 10px;
   }
 
@@ -329,13 +467,12 @@ watch(
 
 @media (max-width: 1023px) and (min-width: 861px) {
   .access-keys-record-grid {
-    --ledger-record-list-grid: minmax(110px, 1fr) minmax(156px, 1.2fr) 90px minmax(164px, 1.25fr)
-      minmax(144px, 1fr);
+    --ledger-record-list-grid: minmax(90px, 0.8fr) minmax(125px, 1fr) 75px minmax(130px, 1fr) 230px;
   }
 
-  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(5)),
+  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(4)),
   .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(6)),
-  .access-key-rpm,
+  .access-key-scope,
   .access-key-last-request {
     display: none;
   }

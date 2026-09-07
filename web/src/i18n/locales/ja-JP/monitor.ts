@@ -1,5 +1,6 @@
 export default {
   monitor: {
+    clearKeySearch: 'キー検索をクリア',
     title: 'モニター',
     description: 'ランタイムの健全性、リクエストログ、現在のルート判断を確認します。',
     help: '説明を表示',
