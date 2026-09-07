@@ -700,7 +700,7 @@ export default {
         confirmDescription:
           'This affects all {kind} in the current Group, regardless of search, filters, or pagination.',
         restoreDescription:
-          'Clear cooldowns, blacklisting, and consecutive failures for this Group’s {kind}, skipping disabled credentials and those whose authorization is not ready. Historical statistics are preserved. This does not test the upstream, reset quotas, or reauthorize accounts, and applies regardless of search, filters, or pagination.',
+          'Restore only this Group’s {kind} that are in cooldown or blacklisted, and clear their consecutive failures. Disabled credentials and those whose authorization is not ready remain unchanged. Historical statistics are preserved. This does not test the upstream, reset quotas, or reauthorize accounts, and applies regardless of search, filters, or pagination.',
         confirm: {
           download: 'Download all',
           enable: 'Enable all',
