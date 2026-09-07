@@ -41,9 +41,13 @@ func TestValidateReceiptPriceMultipliersRejectsMissingAndTamperedInputs(t *testi
 		{"changed access key", func(r *Receipt) { r.PriceMultipliers.AccessKey = DefaultPriceMultiplier }},
 		{"changed protocol multiplier", func(r *Receipt) { r.LineItems[0].Multiplier.Numerator = 2 }},
 		{"changed base rate", func(r *Receipt) { *r.LineItems[0].RateNanoUSDPerMillion = 200 }},
-		{"changed line amount", func(r *Receipt) { *r.LineItems[0].AmountNanoUSD = 100 }},
+		{"changed line amount", func(r *Receipt) { *r.LineItems[0].AmountNanoUSD = 101 }},
+		{"missing base total", func(r *Receipt) { r.BaseTotalNanoUSD = nil }},
+		{"negative base total", func(r *Receipt) { *r.BaseTotalNanoUSD = -1 }},
+		{"changed base total", func(r *Receipt) { *r.BaseTotalNanoUSD = 101 }},
 		{"changed total", func(r *Receipt) { r.TotalNanoUSD = 100 }},
 		{"downgraded schema", func(r *Receipt) { r.SchemaVersion = 4 }},
+		{"downgraded to component multiplier schema", func(r *Receipt) { r.SchemaVersion = 5 }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, receipt := table.QuoteForModeWithMultipliers(identity, usage.Result{
@@ -70,6 +74,9 @@ func TestReceiptJSONRejectsNullMultipliersAndHistoricalInjectedFields(t *testing
 		{"v4 explicit factors", `{"schema_version":4,"price_multipliers":{"group":"1","access_key":"1"}}`},
 		{"v5 missing group", `{"schema_version":5,"price_multipliers":{"access_key":"1"}}`},
 		{"v5 unknown factor", `{"schema_version":5,"price_multipliers":{"group":"1","access_key":"1","other":"1"}}`},
+		{"v6 null base total", `{"schema_version":6,"base_total_nano_usd":null}`},
+		{"v5 injected base total", `{"schema_version":5,"base_total_nano_usd":0}`},
+		{"v5 null base total", `{"schema_version":5,"base_total_nano_usd":null}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var receipt Receipt
@@ -85,5 +92,31 @@ func TestReceiptJSONRejectsNullMultipliersAndHistoricalInjectedFields(t *testing
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&receipt); err == nil {
 		t.Fatal("receipt decoder accepted an unknown field")
+	}
+}
+
+func TestValidateHistoricalV5ReceiptKeepsOriginalComponentRounding(t *testing.T) {
+	const encoded = `{
+		"schema_version":5,"method":"unit_rate_sum","method_version":1,"currency":"USD","pricing_mode":"standard",
+		"rule":{"channel_id":"openai","model_id":"model"},"price_multipliers":{"group":"2","access_key":"1"},
+		"line_items":[
+			{"code":"input","quantity":1,"rate_nano_usd_per_million":600000,"multiplier":{"numerator":1,"denominator":1},"state":"priced","amount_nano_usd":1},
+			{"code":"output","quantity":1,"rate_nano_usd_per_million":600000,"multiplier":{"numerator":1,"denominator":1},"state":"priced","amount_nano_usd":1}
+		],"total_nano_usd":2
+	}`
+	var receipt Receipt
+	if err := json.Unmarshal([]byte(encoded), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateReceipt(receipt); err != nil {
+		t.Fatalf("historical v5 receipt changed: %v", err)
+	}
+	if receipt.BaseTotalNanoUSD != nil || receipt.TotalNanoUSD != 2 {
+		t.Fatalf("historical receipt was reinterpreted: %#v", receipt)
+	}
+	// 相同已存分项，v5 总额不能套用 v6 的总额倍率算法改成 4。
+	receipt.TotalNanoUSD = 4
+	if err := ValidateReceipt(receipt); err == nil {
+		t.Fatal("historical v5 accepted total-adjustment calculation")
 	}
 }

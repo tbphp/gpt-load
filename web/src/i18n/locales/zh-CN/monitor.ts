@@ -954,6 +954,10 @@ export default {
       },
       receipt: {
         total: '已计价合计',
+        baseTotal: '原始已计价合计',
+        finalTotal: '最终已计价合计',
+        totalRounding:
+          '各计价项按原规则四舍五入后合计，再同时乘以分组和访问密钥倍率，最后四舍五入到 0.000000001 USD；未定价部分不计入合计。',
         rounding:
           '各计价项应用全部倍率后四舍五入到 0.000000001 USD，再相加；未定价部分不计入合计。',
         formula: '成本计算',

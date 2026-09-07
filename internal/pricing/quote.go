@@ -32,12 +32,28 @@ func (table *Table) QuoteForMode(identity Identity, result usage.Result, mode Mo
 	return quote
 }
 
-// QuoteForModeWithMultipliers 冻结并应用本次请求的两层价格倍率。
+// QuoteForModeWithMultipliers 在原计价完成后统一调整请求总费用。
 func (table *Table) QuoteForModeWithMultipliers(identity Identity, result usage.Result, mode Mode, multipliers PriceMultipliers) (Quote, *Receipt) {
 	if !multipliers.Group.Valid() || !multipliers.AccessKey.Valid() {
 		return unavailableQuote(), nil
 	}
-	return table.quoteForMode(identity, result, mode, &multipliers)
+	quote, receipt := table.QuoteForModeWithReceipt(identity, result, mode)
+	if receipt == nil {
+		return quote, nil
+	}
+	baseTotal := receipt.TotalNanoUSD
+	if quote.State == CostStatePriced {
+		adjusted, ok := applyPriceMultipliers(quote.EstimatedCostNanoUSD, multipliers)
+		if !ok {
+			return unavailableQuote(), nil
+		}
+		quote.EstimatedCostNanoUSD = adjusted
+		receipt.TotalNanoUSD = int64(adjusted)
+	}
+	receipt.SchemaVersion = 6
+	receipt.BaseTotalNanoUSD = &baseTotal
+	receipt.PriceMultipliers = &multipliers
+	return quote, receipt
 }
 
 // QuoteForModeWithReceipt freezes the exact tier or mode schedule used. A mode
@@ -47,15 +63,6 @@ func (table *Table) QuoteForModeWithReceipt(
 	identity Identity,
 	result usage.Result,
 	mode Mode,
-) (Quote, *Receipt) {
-	return table.quoteForMode(identity, result, mode, nil)
-}
-
-func (table *Table) quoteForMode(
-	identity Identity,
-	result usage.Result,
-	mode Mode,
-	multipliers *PriceMultipliers,
 ) (Quote, *Receipt) {
 	switch result.State {
 	case usage.StateNotApplicable:
@@ -117,12 +124,6 @@ func (table *Table) quoteForMode(
 		ContextThresholdTokens: selectedThreshold,
 		LineItems:              make([]ReceiptLine, 0, len(components)+1),
 	}
-	priceMultipliers := PriceMultipliers{Group: DefaultPriceMultiplier, AccessKey: DefaultPriceMultiplier}
-	if multipliers != nil {
-		priceMultipliers = *multipliers
-		receipt.SchemaVersion = 5
-		receipt.PriceMultipliers = &priceMultipliers
-	}
 
 	positiveBillable := result.Tokens.CacheWriteUnknown > 0
 	pricedPositive := false
@@ -145,11 +146,10 @@ func (table *Table) quoteForMode(
 			receipt.LineItems = append(receipt.LineItems, line)
 			continue
 		}
-		componentCost, ok := quoteComponentWithPriceMultipliers(
+		componentCost, ok := QuoteComponent(
 			component.tokens,
 			component.price.NanoUSDPerMillion,
 			component.multiplier,
-			priceMultipliers,
 		)
 		if !ok {
 			return unavailableQuote(), nil

@@ -119,6 +119,7 @@ type Receipt struct {
 	Currency               string            `json:"currency"`
 	PricingMode            Mode              `json:"pricing_mode,omitempty"`
 	PriceMultipliers       *PriceMultipliers `json:"price_multipliers,omitempty"`
+	BaseTotalNanoUSD       *int64            `json:"base_total_nano_usd,omitempty"`
 	Rule                   ReceiptRule       `json:"rule"`
 	ContextThresholdTokens *int64            `json:"context_threshold_tokens,omitempty"`
 	LineItems              []ReceiptLine     `json:"line_items"`

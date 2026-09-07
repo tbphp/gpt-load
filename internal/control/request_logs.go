@@ -123,6 +123,7 @@ type requestLogPricingReceiptResponse struct {
 	Rule                   requestLogPricingIdentityResponse `json:"rule"`
 	ContextThresholdTokens *string                           `json:"context_threshold_tokens"`
 	LineItems              []requestLogPricingLineResponse   `json:"line_items"`
+	BaseTotalNanoUSD       *string                           `json:"base_total_nano_usd,omitempty"`
 	TotalNanoUSD           string                            `json:"total_nano_usd"`
 }
 
@@ -1161,6 +1162,10 @@ func mapRequestLogPricingReceipt(
 	if receipt.ContextThresholdTokens != nil {
 		value := strconv.FormatInt(*receipt.ContextThresholdTokens, 10)
 		result.ContextThresholdTokens = &value
+	}
+	if receipt.BaseTotalNanoUSD != nil {
+		value := strconv.FormatInt(*receipt.BaseTotalNanoUSD, 10)
+		result.BaseTotalNanoUSD = &value
 	}
 	for _, line := range receipt.LineItems {
 		mapped := requestLogPricingLineResponse{

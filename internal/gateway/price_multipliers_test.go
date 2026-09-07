@@ -25,7 +25,7 @@ func TestHandlerFreezesPriceMultipliersAndAccountsTheSameEstimate(t *testing.T) 
 			forwarder := &scriptedForwarder{results: []UpstreamResult{{
 				StatusCode: http.StatusOK, Header: make(http.Header), RequestWritten: true,
 				Body:  []byte(`{"ok":true}`),
-				Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 1000}},
+				Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 1, Output: 1}},
 			}}}
 			if stream {
 				forwarder.results[0].Committed = true
@@ -42,9 +42,19 @@ func TestHandlerFreezesPriceMultipliersAndAccountsTheSameEstimate(t *testing.T) 
 				t.Fatal(err)
 			}
 			handler.accessQuota = runtime
-			handler.priceTables = &mutableGatewayPriceTableProvider{table: mustGatewayPriceTable(t, 2_000_000_000, true)}
+			table, err := pricing.NewTable([]pricing.Rule{{
+				Identity: pricing.Identity{ChannelID: "openai", ModelID: "gpt-4o"},
+				Prices: pricing.Prices{
+					Input:  pricing.Price{NanoUSDPerMillion: 600_000, Set: true},
+					Output: pricing.Price{NanoUSDPerMillion: 600_000, Set: true},
+				},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
 			input := gatewayAccessQuotaCompileInput(handler, rules)
-			setGatewayPriceMultipliers(t, &input, "0.8", "1.5")
+			setGatewayPriceMultipliers(t, &input, "2", "1")
 			if _, err := manager.Publish(input); err != nil {
 				t.Fatal(err)
 			}
@@ -67,11 +77,12 @@ func TestHandlerFreezesPriceMultipliersAndAccountsTheSameEstimate(t *testing.T) 
 				t.Fatalf("response = %d %s", response.Code, response.Body.String())
 			}
 			events := sink.snapshot()
-			if len(events) != 1 || events[0].Usage.Pricing.EstimatedCostNanoUSD != 2_400_000 {
-				t.Fatalf("frozen multiplier estimate = %#v, want 2400000", events)
+			if len(events) != 1 || events[0].Usage.Pricing.EstimatedCostNanoUSD != 4 {
+				t.Fatalf("frozen multiplier estimate = %#v, want original base 2 adjusted to 4", events)
 			}
 			var receipt struct {
-				SchemaVersion    int `json:"schema_version"`
+				SchemaVersion    int    `json:"schema_version"`
+				BaseTotalNanoUSD *int64 `json:"base_total_nano_usd"`
 				PriceMultipliers struct {
 					Group     string `json:"group"`
 					AccessKey string `json:"access_key"`
@@ -80,11 +91,11 @@ func TestHandlerFreezesPriceMultipliersAndAccountsTheSameEstimate(t *testing.T) 
 			if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &receipt); err != nil {
 				t.Fatal(err)
 			}
-			if receipt.SchemaVersion != 5 || receipt.PriceMultipliers.Group != "0.8" || receipt.PriceMultipliers.AccessKey != "1.5" {
+			if receipt.SchemaVersion != 6 || receipt.PriceMultipliers.Group != "2" || receipt.PriceMultipliers.AccessKey != "1" || receipt.BaseTotalNanoUSD == nil || *receipt.BaseTotalNanoUSD != 2 {
 				t.Fatalf("frozen receipt = %#v", receipt)
 			}
 			view := runtime.Snapshot(1, time.Now())
-			if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 2_400_000 {
+			if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 4 {
 				t.Fatalf("quota = %#v, want the same adjusted estimate", view)
 			}
 		})

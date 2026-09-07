@@ -3,12 +3,13 @@ package pricing
 import (
 	"encoding/json"
 	"math"
+	"reflect"
 	"testing"
 
 	"gpt-load/internal/usage"
 )
 
-func TestQuotePriceMultipliersRoundsEachComponentOnlyOnce(t *testing.T) {
+func TestQuotePriceMultipliersAdjustsCompletedBaseTotal(t *testing.T) {
 	identity := Identity{ChannelID: "openai", ModelID: "model"}
 	for _, test := range []struct {
 		name   string
@@ -18,16 +19,14 @@ func TestQuotePriceMultipliersRoundsEachComponentOnlyOnce(t *testing.T) {
 		key    PriceMultiplier
 		want   NanoUSD
 	}{
-		{"apply before initial rounding", 1, 490_000, 3_000_000, DefaultPriceMultiplier, 1},
-		{"avoid rounding between factors", 1, 400_000, 1_500_000, 2_000_000, 1},
-		{"half up at final nanodollar", 1, 250_000, 2_000_000, DefaultPriceMultiplier, 1},
+		{"preserve original component rounding", 1, 490_000, 3_000_000, DefaultPriceMultiplier, 0},
+		{"avoid rounding between factors", 1, 1_000_000, 500_000, 1_500_000, 1},
+		{"half up at final nanodollar", 1, 1_000_000, 500_000, DefaultPriceMultiplier, 1},
 		{"exact fractional product", 1_000_000, 100, 800_000, 1_500_000, 120},
 		{"zero group", 1_000_000, 100, 0, 1_500_000, 0},
 		{"zero access key", 1_000_000, 100, 800_000, 0, 0},
 		{"full six decimal precision", 1_000_000, 1_000_000_000_000, 123_456, 654_321, 80_779_853_376},
 		{"large intermediate stays exact", 1_000_000, math.MaxInt64, 1_000_000_000, 1_000, math.MaxInt64},
-		{"discount keeps final amount in range", 2_000_000, math.MaxInt64, 500_000, DefaultPriceMultiplier, math.MaxInt64},
-		{"zero factor cancels large intermediate", math.MaxInt64, math.MaxInt64, 0, DefaultPriceMultiplier, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			table := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(test.rate)}})
@@ -38,46 +37,58 @@ func TestQuotePriceMultipliersRoundsEachComponentOnlyOnce(t *testing.T) {
 			if quote != (Quote{State: CostStatePriced, Completeness: CompletenessComplete, EstimatedCostNanoUSD: test.want}) {
 				t.Fatalf("quote = %#v, want amount %d", quote, test.want)
 			}
-			if receipt == nil || receipt.SchemaVersion != 5 || receipt.PriceMultipliers == nil || *receipt.PriceMultipliers != multipliers {
-				t.Fatalf("receipt did not freeze v5 multipliers: %#v", receipt)
+			if receipt == nil || receipt.SchemaVersion != 6 || receipt.PriceMultipliers == nil || *receipt.PriceMultipliers != multipliers {
+				t.Fatalf("receipt did not freeze v6 multipliers: %#v", receipt)
 			}
-			if receipt.LineItems[0].RateNanoUSDPerMillion == nil || *receipt.LineItems[0].RateNanoUSDPerMillion != int64(test.rate) ||
-				receipt.LineItems[0].Multiplier != directPriceMultiplier || receipt.LineItems[0].AmountNanoUSD == nil || *receipt.LineItems[0].AmountNanoUSD != int64(test.want) {
-				t.Fatalf("receipt changed base rate or protocol multiplier: %#v", receipt.LineItems[0])
+			baseQuote, baseReceipt := table.QuoteForModeWithReceipt(identity, usage.Result{
+				State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: test.tokens},
+			}, ModeStandard)
+			if baseReceipt == nil || !reflect.DeepEqual(receipt.LineItems, baseReceipt.LineItems) {
+				t.Fatalf("adjustment changed original line items: %#v", receipt.LineItems)
 			}
+
 			if err := ValidateReceipt(*receipt); err != nil {
-				t.Fatalf("generated v5 receipt: %v", err)
+				t.Fatalf("generated v6 receipt: %v", err)
 			}
 			encoded, err := json.Marshal(receipt)
 			if err != nil {
 				t.Fatal(err)
+			}
+			var frozen struct {
+				BaseTotal *int64 `json:"base_total_nano_usd"`
+			}
+			if err := json.Unmarshal(encoded, &frozen); err != nil {
+				t.Fatal(err)
+			}
+			if frozen.BaseTotal == nil || *frozen.BaseTotal != int64(baseQuote.EstimatedCostNanoUSD) {
+				t.Fatalf("receipt base total = %#v, want %d", frozen, baseQuote.EstimatedCostNanoUSD)
 			}
 			var decoded Receipt
 			if err := json.Unmarshal(encoded, &decoded); err != nil {
 				t.Fatal(err)
 			}
 			if err := ValidateReceipt(decoded); err != nil {
-				t.Fatalf("round-tripped v5 receipt: %v", err)
+				t.Fatalf("round-tripped v6 receipt: %v", err)
 			}
 		})
 	}
 }
 
-func TestQuotePriceMultipliersSumsIndividuallyRoundedComponents(t *testing.T) {
+func TestQuotePriceMultipliersAppliesAfterSummingOriginalRoundedComponents(t *testing.T) {
 	identity := Identity{ChannelID: "openai", ModelID: "model"}
 	table := mustTable(t, Rule{
 		Identity: identity,
-		Prices:   Prices{Input: fixedPrice(500_000), Output: fixedPrice(500_000)},
+		Prices:   Prices{Input: fixedPrice(600_000), Output: fixedPrice(600_000)},
 	})
 	quote, receipt := table.QuoteForModeWithMultipliers(identity, usage.Result{
 		State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 1, Output: 1},
-	}, ModeStandard, PriceMultipliers{Group: 800_000, AccessKey: 1_500_000})
-	// 每项 1 × 500000 / 1000000 × 0.8 × 1.5 = 0.6 纳美元，各自舍入为 1 后求和为 2。
-	if quote != (Quote{State: CostStatePriced, Completeness: CompletenessComplete, EstimatedCostNanoUSD: 2}) {
-		t.Fatalf("quote = %#v, want individually rounded total 2", quote)
+	}, ModeStandard, PriceMultipliers{Group: 2_000_000, AccessKey: DefaultPriceMultiplier})
+	// 原计价先把两个 0.6 纳美元分项各舍入为 1，基础总额 2 再乘 2 得到 4。
+	if quote != (Quote{State: CostStatePriced, Completeness: CompletenessComplete, EstimatedCostNanoUSD: 4}) {
+		t.Fatalf("quote = %#v, want original total 2 adjusted to 4", quote)
 	}
-	if receipt == nil || receipt.TotalNanoUSD != 2 || len(receipt.LineItems) != 2 {
-		t.Fatalf("receipt = %#v, want two lines with total 2", receipt)
+	if receipt == nil || receipt.TotalNanoUSD != 4 || len(receipt.LineItems) != 2 {
+		t.Fatalf("receipt = %#v, want two base lines with adjusted total 4", receipt)
 	}
 	for index, code := range []string{"input", "output"} {
 		line := receipt.LineItems[index]
@@ -171,6 +182,8 @@ func TestQuotePriceMultipliersFailClosedForInvalidFactorsAndOverflow(t *testing.
 		{"invalid access key", PriceMultipliers{Group: DefaultPriceMultiplier, AccessKey: 1_000_000_001}, usage.Tokens{UncachedInput: 1}},
 		{"component overflow", PriceMultipliers{Group: 2_000_000, AccessKey: DefaultPriceMultiplier}, usage.Tokens{UncachedInput: 1_000_000}},
 		{"sum overflow", PriceMultipliers{Group: 2_000_000, AccessKey: DefaultPriceMultiplier}, usage.Tokens{UncachedInput: 250_000, Output: 250_000}},
+		{"base overflow is not rescued by discount", PriceMultipliers{Group: 500_000, AccessKey: DefaultPriceMultiplier}, usage.Tokens{UncachedInput: 2_000_000}},
+		{"base overflow is not rescued by zero", PriceMultipliers{Group: 0, AccessKey: DefaultPriceMultiplier}, usage.Tokens{UncachedInput: 2_000_000}},
 		{"negative tokens even at zero", PriceMultipliers{}, usage.Tokens{UncachedInput: -1}},
 		{"token total overflow even at zero", PriceMultipliers{}, usage.Tokens{UncachedInput: math.MaxInt64, Output: 1}},
 	} {

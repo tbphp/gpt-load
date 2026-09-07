@@ -220,7 +220,7 @@ function dispatchStateLabel(attempt: RequestLogAttemptDto): string {
 
 function formatFormulaLine(line: RequestLogPricingLineDto): string {
   const quantity = formatLogTokenCount(line.quantity, locale.value)
-  const multipliers = receipt.value?.price_multipliers
+  const multipliers = receipt.value?.schema_version === 5 ? receipt.value.price_multipliers : null
   const priceMultiplier = multipliers ? ` × ${multipliers.group} × ${multipliers.access_key}` : ''
   if (line.state === 'unpriced' || line.rate_nano_usd_per_million === null) {
     return `${quantity} × —${priceMultiplier}`
@@ -619,11 +619,33 @@ function toggleAttemptErrorMessage(sequence: number): void {
             <dd class="log-detail__formula">
               <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
               <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
-              <span>
-                {{ t('monitor.logs.receipt.total') }} =
-                {{ formatExactNanoUSD(receipt.total_nano_usd, locale) }}
-              </span>
-              <small>{{ t('monitor.logs.receipt.rounding') }}</small>
+              <template
+                v-if="
+                  receipt.schema_version === 6 &&
+                  receipt.base_total_nano_usd !== undefined &&
+                  receipt.price_multipliers
+                "
+              >
+                <span>
+                  {{ t('monitor.logs.receipt.baseTotal') }} =
+                  {{ formatExactNanoUSD(receipt.base_total_nano_usd, locale) }}
+                </span>
+                <span>
+                  {{ t('monitor.logs.receipt.finalTotal') }} =
+                  {{ formatExactNanoUSD(receipt.base_total_nano_usd, locale) }} ×
+                  {{ receipt.price_multipliers.group }} ×
+                  {{ receipt.price_multipliers.access_key }} =
+                  {{ formatExactNanoUSD(receipt.total_nano_usd, locale) }}
+                </span>
+                <small>{{ t('monitor.logs.receipt.totalRounding') }}</small>
+              </template>
+              <template v-else>
+                <span>
+                  {{ t('monitor.logs.receipt.total') }} =
+                  {{ formatExactNanoUSD(receipt.total_nano_usd, locale) }}
+                </span>
+                <small>{{ t('monitor.logs.receipt.rounding') }}</small>
+              </template>
             </dd>
           </div>
         </dl>
