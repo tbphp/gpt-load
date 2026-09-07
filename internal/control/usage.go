@@ -225,16 +225,24 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		if !ok {
 			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
-		fromMS, toMS, err := epochms.WindowEndingAt(
-			observedAtMS,
-			preset.bucketWidthMS,
-			preset.bucketCount,
-		)
-		if err != nil {
-			return requestlog.UsageQuery{}, app_errors.ErrInternalServer
+		if rangeValue == usageRange1Hour {
+			if observedAtMS < epochms.MillisecondsPerHour {
+				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
+			}
+			query.FromMS = observedAtMS - epochms.MillisecondsPerHour
+			query.ToMS = observedAtMS
+		} else {
+			fromMS, toMS, err := epochms.WindowEndingAt(
+				observedAtMS,
+				preset.bucketWidthMS,
+				preset.bucketCount,
+			)
+			if err != nil {
+				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
+			}
+			query.FromMS = fromMS
+			query.ToMS = toMS
 		}
-		query.FromMS = fromMS
-		query.ToMS = toMS
 		query.Granularity = preset.granularity
 		query.BucketWidthMS = preset.bucketWidthMS
 	}
@@ -277,7 +285,7 @@ type usagePreset struct {
 func usageRangePreset(value string) (usagePreset, bool) {
 	switch value {
 	case usageRange1Hour:
-		return usagePreset{epochms.MillisecondsPerHour, 1, requestlog.UsageGranularityHour}, true
+		return usagePreset{requestlog.UsageFiveMinuteBucketMS, 12, requestlog.UsageGranularityMinute}, true
 	case usageRange24Hours:
 		return usagePreset{epochms.MillisecondsPerHour, 24, requestlog.UsageGranularityHour}, true
 	case usageRange3Days:
@@ -592,6 +600,13 @@ func validUsageDistributionModel(value string) bool {
 
 func usageResponseBucketWidth(query requestlog.UsageQuery) (int64, error) {
 	bucketWidthMS := query.BucketWidthMS
+	if query.Granularity == requestlog.UsageGranularityMinute {
+		if bucketWidthMS != requestlog.UsageFiveMinuteBucketMS ||
+			query.ToMS-query.FromMS != epochms.MillisecondsPerHour {
+			return 0, fmt.Errorf("map usage response: invalid minute window")
+		}
+		return bucketWidthMS, nil
+	}
 	if bucketWidthMS == 0 {
 		switch query.Granularity {
 		case requestlog.UsageGranularityHour:
@@ -620,9 +635,15 @@ func usageResponseBucketWidth(query requestlog.UsageQuery) (int64, error) {
 
 func usageResponseRange(query requestlog.UsageQuery, bucketWidthMS int64) (string, error) {
 	duration := query.ToMS - query.FromMS
-	if query.Granularity != requestlog.UsageGranularityHour &&
+	if query.Granularity != requestlog.UsageGranularityMinute &&
+		query.Granularity != requestlog.UsageGranularityHour &&
 		query.Granularity != requestlog.UsageGranularityDay {
 		return "", fmt.Errorf("map usage response: invalid granularity")
+	}
+	// 显式指定一个完整小时的自定义查询继续返回原有范围标签。
+	if query.Granularity == requestlog.UsageGranularityHour &&
+		bucketWidthMS == epochms.MillisecondsPerHour && duration == epochms.MillisecondsPerHour {
+		return usageRange1Hour, nil
 	}
 	for _, rangeValue := range []string{
 		usageRange1Hour,

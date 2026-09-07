@@ -323,6 +323,7 @@ export default {
         },
         empty: '该范围内暂无请求时间桶。',
         hourly: '按小时',
+        everyMinutes: '每 {count} 分钟',
         everyHours: '每 {count} 小时',
         daily: '按天',
         failureRate: '失败率',
@@ -331,7 +332,7 @@ export default {
       },
       series: {
         title: 'UTC 时间桶',
-        description: '后端按所选小时或天粒度返回的聚合。',
+        description: '按所选时间粒度统计的用量与成本。',
         caption: '按 UTC 时间桶统计的用量聚合',
         disclosure: '查看时间桶明细',
       },

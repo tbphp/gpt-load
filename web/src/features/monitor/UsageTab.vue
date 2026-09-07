@@ -18,6 +18,7 @@ import {
   type UsageDistributionMetric,
   type UsageFilters,
   type UsageRange,
+  type UsageReportDto,
 } from '@/app/resources/usage'
 import { monitorLocation } from '@/app/route-locations'
 import TrendChart from '@/components/charts/TrendChart.vue'
@@ -150,6 +151,23 @@ const distributionMetricOptions = computed(() => [
   { value: 'cost', label: t('monitor.usage.distribution.metrics.cost') },
 ])
 const costChartResolution = 1_000_000_000n
+const emptyUsageAggregate: UsageAggregateDto = {
+  request_count: 0,
+  success_count: 0,
+  failure_count: 0,
+  uncached_input_tokens: 0,
+  cache_read_tokens: 0,
+  cache_write_5m_tokens: 0,
+  cache_write_1h_tokens: 0,
+  cache_write_unknown_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+  estimated_cost_nano_usd: '0',
+  usage_missing_count: 0,
+  partial_count: 0,
+  unpriced_request_count: 0,
+  pricing_partial_count: 0,
+}
 const trendMetricOptions = computed(() => [
   { value: 'requests', label: t('monitor.usage.trend.metrics.requests') },
   { value: 'tokens', label: t('monitor.usage.trend.metrics.tokens') },
@@ -197,8 +215,33 @@ function normalizeTrendCost(value: bigint, maximum: bigint): number {
   return Number((value * costChartResolution + maximum / 2n) / maximum)
 }
 
+const trendBuckets = computed<UsageReportDto['series']>(() => {
+  const current = report.value
+  if (current?.range !== '1h') return current?.series ?? []
+
+  const byStart = new Map(current.series.map((bucket) => [bucket.bucket_start_ms, bucket]))
+  const buckets: UsageReportDto['series'] = []
+  const width = current.bucket_width_ms
+  // 补齐自然五分钟桶，首尾只覆盖最近一小时内的部分。
+  for (
+    let alignedStart = Math.floor(current.from_ms / width) * width;
+    alignedStart < current.to_ms;
+    alignedStart += width
+  ) {
+    const start = Math.max(alignedStart, current.from_ms)
+    buckets.push(
+      byStart.get(start) ?? {
+        ...emptyUsageAggregate,
+        bucket_start_ms: start,
+        bucket_end_ms: Math.min(alignedStart + width, current.to_ms),
+      },
+    )
+  }
+  return buckets
+})
+
 const requestTrendSeries = computed<TrendDatum[]>(() =>
-  (report.value?.series ?? []).map((bucket) => ({
+  trendBuckets.value.map((bucket) => ({
     bucket_start_ms: bucket.bucket_start_ms,
     bucket_end_ms: bucket.bucket_end_ms,
     request_count: bucket.success_count,
@@ -207,7 +250,7 @@ const requestTrendSeries = computed<TrendDatum[]>(() =>
 )
 
 const barTrendSeries = computed<UsageBarDatum[]>(() => {
-  const buckets = report.value?.series ?? []
+  const buckets = trendBuckets.value
   if (routeState.value.metric === 'tokens') {
     return buckets.map((bucket) => ({
       bucket_start_ms: bucket.bucket_start_ms,
@@ -270,6 +313,9 @@ function rangeLabel(range: UsageRange): string {
 
 function granularityLabel(): string {
   const bucketWidthMS = report.value?.bucket_width_ms
+  if (report.value?.granularity === 'minute') {
+    return t('monitor.usage.trend.everyMinutes', { count: (bucketWidthMS ?? 0) / (60 * 1000) })
+  }
   if (bucketWidthMS === 60 * 60 * 1000) return t('monitor.usage.trend.hourly')
   if (bucketWidthMS === 24 * 60 * 60 * 1000) return t('monitor.usage.trend.daily')
   return t('monitor.usage.trend.everyHours', {
@@ -470,6 +516,7 @@ defineExpose({ openFilters, refresh })
               :failure-label="trendPresentation.secondaryLabel ?? ''"
               :range-start="report.from_ms"
               :range-end="report.to_ms"
+              :center-buckets="report.range === '1h'"
               :locale="locale"
               show-bucket-range
               show-single-point

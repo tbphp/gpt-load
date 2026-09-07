@@ -26,6 +26,7 @@ const props = withDefaults(
     failureLabel: string
     rangeStart: number
     rangeEnd: number
+    centerBuckets?: boolean
     locale?: string
     showBucketRange?: boolean
     showSinglePoint?: boolean
@@ -33,6 +34,7 @@ const props = withDefaults(
   }>(),
   {
     locale: 'en-US',
+    centerBuckets: false,
     showBucketRange: false,
     showSinglePoint: false,
     failureRateLabel: undefined,
@@ -70,6 +72,7 @@ const geometry = computed(() =>
     maximumFailureHeight,
     props.rangeStart,
     props.rangeEnd,
+    props.centerBuckets,
   ),
 )
 const singlePoint = computed(() =>

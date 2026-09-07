@@ -38,19 +38,30 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		CleanupTimeout: usageRollbackTimeout,
 		Operation:      "usage read transaction",
 	}, func(connection *gorm.DB) error {
-		if err := validateUsageStatIntegrity(usageStatScope(connection, input)); err != nil {
+		scope := usageStatScope
+		alignmentMS := epochms.MillisecondsPerHour
+		if input.Granularity == UsageGranularityMinute {
+			scope = usageRequestLogScope
+			alignmentMS = UsageFiveMinuteBucketMS
+		}
+		if err := validateUsageIntegrity(scope(connection, input), alignmentMS); err != nil {
 			return err
 		}
-		summary, err := queryUsageSummary(usageStatScope(connection, input))
+		summary, err := queryUsageSummary(scope(connection, input))
 		if err != nil {
 			return err
 		}
-		series, err := queryUsageSeries(usageStatScope(connection, input), bucketWidthMS)
+		var series []UsageSeriesPoint
+		if input.Granularity == UsageGranularityMinute {
+			series, err = queryUsageMinuteSeries(scope(connection, input), input)
+		} else {
+			series, err = queryUsageSeries(scope(connection, input), bucketWidthMS)
+		}
 		if err != nil {
 			return err
 		}
 		distributions, err := queryUsageDistributions(
-			usageStatScope(connection, input), summary, input.AccessKeyID != nil,
+			scope(connection, input), summary, input.AccessKeyID != nil,
 		)
 		if err != nil {
 			return err
@@ -85,6 +96,14 @@ func validateUsageQuery(input UsageQuery) (int64, error) {
 	}
 	bucketWidthMS := input.BucketWidthMS
 	switch input.Granularity {
+	case UsageGranularityMinute:
+		if input.ToMS-input.FromMS != epochms.MillisecondsPerHour {
+			return 0, fmt.Errorf("query usage: minute granularity requires a one-hour range")
+		}
+		if bucketWidthMS != 0 && bucketWidthMS != UsageFiveMinuteBucketMS {
+			return 0, fmt.Errorf("query usage: minute granularity requires a five-minute bucket")
+		}
+		return UsageFiveMinuteBucketMS, nil
 	case UsageGranularityHour:
 		if bucketWidthMS == 0 {
 			bucketWidthMS = epochms.MillisecondsPerHour
@@ -183,11 +202,15 @@ func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 }
 
 func validateUsageStatIntegrity(scope *gorm.DB) error {
+	return validateUsageIntegrity(scope, epochms.MillisecondsPerHour)
+}
+
+func validateUsageIntegrity(scope *gorm.DB, bucketAlignmentMS int64) error {
 	var integrity usageStatIntegrity
 	if err := scope.Select(`
 		COALESCE(MAX(CASE
 			WHEN bucket_start_ms < 0
-				OR bucket_start_ms % 3600000 != 0
+				OR bucket_start_ms % ? != 0
 			THEN 1 ELSE 0 END), 0) AS invalid_bucket,
 		COALESCE(MAX(CASE
 			WHEN request_count < 0 OR success_count < 0 OR failure_count < 0
@@ -207,7 +230,7 @@ func validateUsageStatIntegrity(scope *gorm.DB) error {
 		COALESCE(MAX(CASE
 			WHEN estimated_cost_nano_usd < 0
 			THEN 1 ELSE 0 END), 0) AS invalid_cost
-	`).Find(&integrity).Error; err != nil {
+	`, bucketAlignmentMS).Find(&integrity).Error; err != nil {
 		return fmt.Errorf("check usage stat integrity: %w", err)
 	}
 	if integrity.InvalidBucket != 0 || integrity.InvalidCount != 0 ||

@@ -339,6 +339,7 @@ export default {
         },
         empty: 'No request buckets were returned for this range.',
         hourly: 'Hourly',
+        everyMinutes: 'Every {count} minutes',
         everyHours: 'Every {count} hours',
         daily: 'Daily',
         failureRate: 'Failure rate',
@@ -347,7 +348,7 @@ export default {
       },
       series: {
         title: 'UTC buckets',
-        description: 'Backend aggregates in the selected hourly or daily granularity.',
+        description: 'Usage and cost aggregated at the selected time granularity.',
         caption: 'Usage aggregates by UTC time bucket',
         disclosure: 'View time-bucket details',
       },
