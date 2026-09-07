@@ -649,7 +649,7 @@ export default {
         },
         authError: {
           refreshRejected:
-            'Codex rejected the credential refresh. Reconnect or re-import this account.',
+            'The upstream rejected the credential refresh. Try refreshing again; reconnect or re-import this account if it still fails.',
           identityChanged:
             'The refreshed credential belongs to another account. Reconnect or re-import the original account.',
           outcomeUnknown:

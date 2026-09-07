@@ -626,7 +626,8 @@ export default {
           outcome_unknown: '无法确认凭据刷新结果，请重新连接或重新导入凭据',
         },
         authError: {
-          refreshRejected: 'Codex 已拒绝刷新凭据，请重新连接或导入该账号凭据。',
+          refreshRejected:
+            '上游已拒绝刷新凭据，可尝试再次刷新凭据，仍失败时请重新连接或导入该账号凭据。',
           identityChanged: '刷新结果属于其他账号，请重新连接或导入原账号凭据。',
           outcomeUnknown: '无法确认最近一次凭据刷新结果，请重新连接或重新导入该账号凭据。',
           persistFailed: '新凭据未能安全保存，请重新连接或重新导入该账号凭据。',
