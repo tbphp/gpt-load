@@ -219,6 +219,9 @@ func TestCodexIsTheOnlySubscriptionChannelWithoutExposingExecutor(t *testing.T) 
 	if err != nil || string(override.TargetConfig) != `{"base_url":"https://relay.example/codex"}` {
 		t.Fatalf("Codex override target = %s, %v", override.TargetConfig, err)
 	}
+	if _, err := registry.Resolve(Codex, json.RawMessage(`{"base_url":"http://relay.example/codex"}`)); err == nil {
+		t.Fatal("Codex HTTP override was accepted")
+	}
 	if _, err := registry.ResolveExecutionTarget(Codex, override.TargetConfig); err != nil {
 		t.Fatalf("ResolveExecutionTarget(Codex override) error = %v", err)
 	}

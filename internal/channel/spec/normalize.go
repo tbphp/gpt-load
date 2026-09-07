@@ -48,6 +48,20 @@ func NormalizeBaseURL(value string) (string, error) {
 	return parsed.String(), nil
 }
 
+// NormalizeHTTPSBaseURL canonicalizes an endpoint that will receive sensitive
+// credentials and rejects cleartext HTTP targets.
+func NormalizeHTTPSBaseURL(value string) (string, error) {
+	normalized, err := NormalizeBaseURL(value)
+	if err != nil {
+		return "", err
+	}
+	parsed, err := url.Parse(normalized)
+	if err != nil || parsed == nil || parsed.Scheme != "https" {
+		return "", fmt.Errorf("must use HTTPS")
+	}
+	return normalized, nil
+}
+
 // NormalizeCloudIdentifier rejects whitespace and control characters in a
 // provider-owned cloud configuration value.
 func NormalizeCloudIdentifier(value string) (string, error) {

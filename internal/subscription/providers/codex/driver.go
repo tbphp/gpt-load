@@ -222,7 +222,7 @@ func codexTargetBaseURL(target subscriptionruntime.Target) (string, error) {
 	if strings.TrimSpace(config.BaseURL) == "" {
 		return "", nil
 	}
-	baseURL, err := spec.NormalizeBaseURL(config.BaseURL)
+	baseURL, err := spec.NormalizeHTTPSBaseURL(config.BaseURL)
 	if err != nil {
 		return "", fmt.Errorf("normalize Codex target: %w", err)
 	}

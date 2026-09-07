@@ -71,6 +71,13 @@ func TestCodexTargetBaseURLPreservesOfficialUtilityDefaultsAndCustomOverrides(t 
 	}
 }
 
+func TestCodexTargetBaseURLRejectsHTTP(t *testing.T) {
+	_, err := codexTargetBaseURL(subscriptionruntime.NewTarget([]byte(`{"base_url":"http://relay.example/codex"}`)))
+	if err == nil {
+		t.Fatal("codexTargetBaseURL() accepted an HTTP target")
+	}
+}
+
 func TestCodexDriverClassifiesRefreshFailures(t *testing.T) {
 	driver := newCodexDriver()
 	if got := driver.ClassifyRefreshFailure(ErrCredentialIdentityChanged); got.Kind != subscriptionruntime.RefreshFailureIdentityChanged {

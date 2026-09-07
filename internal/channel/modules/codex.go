@@ -33,7 +33,7 @@ func Codex() spec.Module {
 			},
 			Params: []spec.Field{{
 				Key: "base_url", Label: "Base URL", InputKind: spec.InputURL,
-				Normalizer: spec.NormalizeBaseURL,
+				Normalizer: spec.NormalizeHTTPSBaseURL,
 			}},
 			Credentials: []spec.Field{},
 			Provider: spec.ProviderBinding{
