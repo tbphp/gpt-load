@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,17 +14,17 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-// CredentialDownloadResult contains the canonical subscription credential and
-// the safe filename suggested to the management UI.
+// CredentialDownloadResult 返回订阅 JSON 或 API Key 文本文件及其安全文件名。
 type CredentialDownloadResult struct {
 	Filename   string          `json:"filename"`
-	Credential json.RawMessage `json:"credential"`
+	Credential json.RawMessage `json:"credential,omitempty"`
+	Content    *string         `json:"content,omitempty"`
 }
 
-// CredentialDownloadAllResult contains one downloadable file per subscription
-// credential in a Group, ordered by credential ID.
+// CredentialDownloadAllResult 按凭据 ID 顺序导出，并独立统计凭据数量。
 type CredentialDownloadAllResult struct {
-	Files []CredentialDownloadResult `json:"files"`
+	Files           []CredentialDownloadResult `json:"files"`
+	CredentialCount int                        `json:"credential_count"`
 }
 
 // RefreshGroupCredential forces only the subscription token refresh. Account
@@ -76,8 +77,7 @@ func (s *Service) DownloadGroupCredential(
 	}, nil
 }
 
-// DownloadAllGroupCredentials returns every subscription credential in the
-// Group without applying collection pagination or filters.
+// DownloadAllGroupCredentials 导出整个分组，不应用列表分页或筛选。
 func (s *Service) DownloadAllGroupCredentials(
 	ctx context.Context,
 	groupID uint,
@@ -90,9 +90,6 @@ func (s *Service) DownloadAllGroupCredentials(
 	err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
 		if err := tx.Take(&group, groupID).Error; err != nil {
 			return err
-		}
-		if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeSubscription {
-			return app_errors.ErrForbidden
 		}
 		if group.ChannelID == "" {
 			return app_errors.ErrValidation
@@ -109,8 +106,17 @@ func (s *Service) DownloadAllGroupCredentials(
 		}
 		return CredentialDownloadAllResult{}, app_errors.ParseDBError(err)
 	}
-	files := make([]CredentialDownloadResult, 0, len(rows))
+	apiKeyGroup := normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeAPIKey
+	fileCount := len(rows)
+	if apiKeyGroup {
+		fileCount = 1
+	}
+	files := make([]CredentialDownloadResult, 0, fileCount)
+	var content strings.Builder
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return CredentialDownloadAllResult{}, err
+		}
 		canonical, email, err := s.decodeCredential(group, row)
 		if err != nil {
 			return CredentialDownloadAllResult{}, err
@@ -118,12 +124,45 @@ func (s *Service) DownloadAllGroupCredentials(
 		if len(canonical) == 0 {
 			return CredentialDownloadAllResult{}, app_errors.ErrInternalServer
 		}
+		if apiKeyGroup {
+			line, err := credentialTextLine(canonical)
+			if err != nil {
+				return CredentialDownloadAllResult{}, err
+			}
+			content.WriteString(line)
+			content.WriteByte('\n')
+			continue
+		}
 		files = append(files, CredentialDownloadResult{
 			Filename:   subscriptionCredentialFilename(group.ChannelID, email, row.ID),
 			Credential: json.RawMessage(append([]byte(nil), canonical...)),
 		})
 	}
-	return CredentialDownloadAllResult{Files: files}, nil
+	if apiKeyGroup {
+		text := content.String()
+		files = append(files, CredentialDownloadResult{
+			Filename: fmt.Sprintf("%s-group-%d.txt", sanitizeCredentialFilenamePart(group.ChannelID), group.ID),
+			Content:  &text,
+		})
+	}
+	return CredentialDownloadAllResult{Files: files, CredentialCount: len(rows)}, nil
+}
+
+// credentialTextLine 保持普通 Key 一行一个，结构化凭据保留完整 JSON 以便重新导入。
+func credentialTextLine(canonical json.RawMessage) (string, error) {
+	var fields map[string]string
+	if err := json.Unmarshal(canonical, &fields); err != nil {
+		return "", app_errors.ErrInternalServer
+	}
+	if key, ok := fields["api_key"]; ok && len(fields) == 1 &&
+		!strings.ContainsAny(key, "\r\n") && !strings.HasPrefix(key, "{") {
+		return key, nil
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, canonical); err != nil {
+		return "", app_errors.ErrInternalServer
+	}
+	return compact.String(), nil
 }
 
 func (s *Service) loadSubscriptionCredentialTarget(

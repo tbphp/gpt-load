@@ -38,6 +38,6 @@ export function analyzeCredentials(raw: string, channelID = ''): CredentialAnaly
     emptyLineCount: raw ? lines.length - nonEmpty.length : 0,
     duplicateCount,
     likelyAccessKeyCount: nonEmpty.filter((line) => /^sk-gl-/i.test(line)).length,
-    tooManyCredentials: nonEmpty.length > 1_000,
+    tooManyCredentials: nonEmpty.length > 5_000,
   }
 }

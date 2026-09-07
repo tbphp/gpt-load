@@ -75,7 +75,7 @@ export interface CredentialPatch {
 }
 
 export interface CredentialBatchRequest {
-  action: 'enable' | 'disable' | 'delete'
+  action: 'enable' | 'disable' | 'delete' | 'restore'
   credential_ids?: number[]
   scope?: 'all'
 }
@@ -120,7 +120,8 @@ const credentialItemFields = [
 ] as const
 const credentialDetailFields = ['credential', 'observation'] as const
 const credentialDownloadFields = ['filename', 'credential'] as const
-const credentialDownloadAllFields = ['files'] as const
+const credentialTextDownloadFields = ['filename', 'content'] as const
+const credentialDownloadAllFields = ['credential_count', 'files'] as const
 const credentialDailyUsageFields = [
   'window_seconds',
   'success_count',
@@ -819,8 +820,25 @@ function projectCredentialDownload(value: unknown): CredentialDownloadDto {
 function projectCredentialDownloadAll(value: unknown): CredentialDownloadAllDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, credentialDownloadAllFields)
+  const credentialCount = projectSafeInteger(record.credential_count, { minimum: 0 })
+  const files = projectArray(record.files, (value): CredentialDownloadAllDto['files'][number] => {
+    const file = projectRecord(value)
+    if (!Object.prototype.hasOwnProperty.call(file, 'content')) {
+      return projectCredentialDownload(file)
+    }
+    assertNoSecretLikeFields(file, credentialTextDownloadFields)
+    const filename = projectString(file.filename)
+    if (!/^[a-z0-9][a-z0-9._-]{0,191}\.txt$/u.test(filename)) invalidResponse()
+    return { filename, content: projectString(file.content, { allowEmpty: true }) }
+  })
+  if (files.some((file) => 'content' in file)) {
+    if (files.length !== 1) invalidResponse()
+  } else if (files.length !== credentialCount) {
+    invalidResponse()
+  }
   return {
-    files: projectArray(record.files, projectCredentialDownload),
+    credential_count: credentialCount,
+    files,
   }
 }
 
@@ -1007,10 +1025,11 @@ export async function batchCredentials(
   const ids = body.credential_ids ?? []
   const all = body.scope === 'all'
   if (
-    !['enable', 'disable', 'delete'].includes(body.action) ||
+    !['enable', 'disable', 'delete', 'restore'].includes(body.action) ||
     (all
       ? body.action === 'delete' || body.credential_ids !== undefined
-      : body.scope !== undefined ||
+      : body.action === 'restore' ||
+        body.scope !== undefined ||
         ids.length < 1 ||
         ids.length > 100 ||
         ids.some((id) => !Number.isSafeInteger(id) || id < 1) ||

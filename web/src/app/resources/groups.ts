@@ -248,7 +248,7 @@ export function readCredentialValidationData(value: unknown): CredentialValidati
     const record = projectRecord(value)
     assertNoSecretLikeFields(record, ['entry', 'field', 'reason_code'])
     return {
-      entry: projectSafeInteger(record.entry, { minimum: 1, maximum: 1_000 }),
+      entry: projectSafeInteger(record.entry, { minimum: 1, maximum: 5_000 }),
       field: projectNonBlankString(record.field),
       reason_code: projectEnum(record.reason_code, credentialValidationReasonCodes),
     }

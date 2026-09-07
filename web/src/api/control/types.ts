@@ -317,7 +317,8 @@ export interface CredentialDownloadDto {
 }
 
 export interface CredentialDownloadAllDto {
-  files: CredentialDownloadDto[]
+  credential_count: number
+  files: (CredentialDownloadDto | { filename: string; content: string })[]
 }
 
 export type CredentialTestOutcome = 'passed' | 'failed' | 'inconclusive'

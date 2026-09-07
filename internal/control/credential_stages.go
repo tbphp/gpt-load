@@ -28,6 +28,7 @@ const (
 	credentialStageAuthTTL      = 5 * time.Minute
 	credentialStageDeviceMaxTTL = 30 * time.Minute
 	credentialStageTombstoneTTL = 24 * time.Hour
+	maxCredentialStageIDs       = 1000
 	maxOAuthFileBytes           = 64 * 1024
 	maxDeviceAuthorizationURL   = 4096
 	maxDeviceAuthorizationCode  = 128
@@ -1364,7 +1365,7 @@ func (s *Service) subscriptionIdentityFingerprint(channelID channel.ID, accountI
 }
 
 func normalizeCredentialStageIDs(values []string) ([]string, error) {
-	if len(values) == 0 || len(values) > maxCredentialLines {
+	if len(values) == 0 || len(values) > maxCredentialStageIDs {
 		return nil, app_errors.ErrValidation
 	}
 	normalized := make([]string, 0, len(values))

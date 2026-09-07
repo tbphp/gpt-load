@@ -207,7 +207,7 @@ export default {
     },
     credentials: {
       title: 'API keys',
-      description: 'One per line, up to 1,000; duplicates are not imported twice',
+      description: 'One per line, up to 5,000; duplicates are not imported twice',
       label: 'Key content',
       placeholder: 'One key per line',
       structuredTitle: 'Channel credentials',
@@ -232,7 +232,7 @@ export default {
         duplicates: 'Duplicates',
       },
       accessKeyWarning: '{count} lines look like GPT-Load access keys; verify before continuing',
-      tooMany: 'At most 1,000 non-empty keys can be submitted',
+      tooMany: 'At most 5,000 non-empty keys can be submitted',
       required: 'Enter at least one credential first',
       channelCredentialNotice:
         'These are channel API keys; create client credentials on the Access Keys page',
