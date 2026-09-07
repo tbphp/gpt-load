@@ -41,16 +41,17 @@ type accessKeyCollectionRecord struct {
 }
 
 type accessKeyCollectionRow struct {
-	ID              uint
-	Name            string
-	KeySuffix       string
-	Status          string
-	Filters         models.JSON
-	RPMLimit        int64
-	ExpiresAtMS     *int64
-	CreatedAtMS     int64
-	UpdatedAtMS     int64
-	LastRequestAtMS *int64
+	PriceMultiplierMicros *int64
+	ID                    uint
+	Name                  string
+	KeySuffix             string
+	Status                string
+	Filters               models.JSON
+	RPMLimit              int64
+	ExpiresAtMS           *int64
+	CreatedAtMS           int64
+	UpdatedAtMS           int64
+	LastRequestAtMS       *int64
 }
 
 func (s *Service) ListAccessKeyCollection(
@@ -89,7 +90,7 @@ func (s *Service) captureAccessKeyCollectionRecords(
 			Select(
 				"access_keys.id", "access_keys.name", "access_keys.key_suffix",
 				"access_keys.status", "access_keys.filters", "access_keys.rpm_limit",
-				"access_keys.expires_at_ms",
+				"access_keys.expires_at_ms", "access_keys.price_multiplier_micros",
 				"access_keys.created_at_ms", "access_keys.updated_at_ms",
 				"(SELECT MAX(request_logs.completed_at_ms) FROM request_logs WHERE request_logs.access_key_id = access_keys.id) AS last_request_at_ms",
 			).
@@ -121,15 +122,16 @@ func (s *Service) captureAccessKeyCollectionRecords(
 	}
 	for _, row := range rows {
 		metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
-			ID:          row.ID,
-			Name:        row.Name,
-			KeySuffix:   row.KeySuffix,
-			Status:      row.Status,
-			Filters:     row.Filters,
-			RPMLimit:    row.RPMLimit,
-			ExpiresAtMS: row.ExpiresAtMS,
-			CreatedAtMS: row.CreatedAtMS,
-			UpdatedAtMS: row.UpdatedAtMS,
+			PriceMultiplierMicros: row.PriceMultiplierMicros,
+			ID:                    row.ID,
+			Name:                  row.Name,
+			KeySuffix:             row.KeySuffix,
+			Status:                row.Status,
+			Filters:               row.Filters,
+			RPMLimit:              row.RPMLimit,
+			ExpiresAtMS:           row.ExpiresAtMS,
+			CreatedAtMS:           row.CreatedAtMS,
+			UpdatedAtMS:           row.UpdatedAtMS,
 		})
 		if err != nil {
 			return nil, err

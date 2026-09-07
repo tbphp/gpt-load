@@ -146,7 +146,7 @@ export const gatewayClients: readonly GatewayClient[] = [
     id: 'claude-code',
     kind: 'commandLine',
     configKind: 'snippet',
-    steps: 2,
+    steps: 3,
     icon: 'claude',
     mark: 'CD',
     searchTerms: ['claude', 'anthropic', 'cli'],
@@ -285,6 +285,8 @@ export function clientConfiguration(
       return [
         `export ANTHROPIC_BASE_URL="${origin}"`,
         `export ANTHROPIC_AUTH_TOKEN="${key}"`,
+        'export ANTHROPIC_MODEL="YOUR_MODEL"',
+        'export ANTHROPIC_CUSTOM_MODEL_OPTION="$ANTHROPIC_MODEL"',
         'export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY="1"',
       ].join('\n')
     case 'open-webui':

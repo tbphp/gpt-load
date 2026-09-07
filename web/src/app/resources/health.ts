@@ -90,7 +90,7 @@ const problemCredentialFields = [
   'weight_manual',
   'weight_auto',
   'recovery',
-  'mask',
+  'identity',
   'last_failure_category',
   'last_status_code',
 ] as const
@@ -218,7 +218,7 @@ function projectProblemCredential(value: unknown): HealthProblemCredentialDto {
         : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 }),
     weight_auto: projectSafeInteger(record.weight_auto, { minimum: 0, maximum: 100 }),
     recovery,
-    mask: projectString(record.mask),
+    identity: projectString(record.identity),
     last_failure_category: projectEnum(record.last_failure_category, problemFailureCategories),
     last_status_code:
       record.last_status_code === null

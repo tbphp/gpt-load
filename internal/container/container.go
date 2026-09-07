@@ -226,7 +226,9 @@ func BuildContainer() (*dig.Container, error) {
 	if err := dependencyContainer.Invoke(func(
 		engine *gin.Engine,
 		registry *httproute.Registry,
+		gatewayHandler *gateway.Handler,
 	) error {
+		engine.Use(gatewayHandler.DownstreamHeadersMiddleware())
 		return registry.Bind(engine)
 	}); err != nil {
 		return nil, fmt.Errorf("register HTTP routes: %w", err)

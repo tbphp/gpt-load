@@ -11,18 +11,51 @@ import (
 	"gpt-load/internal/platform/config"
 )
 
+func TestRouteStrategyAcceptsOnlyExplicitGlobalPolicies(t *testing.T) {
+	const key = "route_strategy"
+	if !IsRuntimeSettingKey(key) {
+		t.Fatal("route_strategy is not a public runtime setting")
+	}
+	for _, value := range []string{"native_first", "weighted_mix"} {
+		if err := ValidateRuntimeSetting(key, value); err != nil {
+			t.Errorf("ValidateRuntimeSetting(%q) error = %v", value, err)
+		}
+		resolved, err := ResolveRuntimeSettings(config.Settings{key: value})
+		if err != nil || string(resolved.RouteStrategy) != value {
+			t.Errorf("ResolveRuntimeSettings(%q) = %#v, %v", value, resolved, err)
+		}
+		if _, err := ResolveGroupRuntimeSettings(DefaultRuntimeSettings(), config.Settings{key: value}); err == nil {
+			t.Errorf("Group accepted system-only route_strategy %q", value)
+		}
+	}
+	for _, value := range []any{nil, "", "unknown", "Native_First", " weighted_mix ", true, 1, []any{}, map[string]any{}} {
+		if err := ValidateRuntimeSetting(key, value); err == nil {
+			t.Errorf("ValidateRuntimeSetting(%#v) accepted invalid route strategy", value)
+		}
+		if _, err := ResolveRuntimeSettings(config.Settings{key: value}); err == nil {
+			t.Errorf("ResolveRuntimeSettings(%#v) accepted invalid route strategy", value)
+		}
+	}
+}
+
 func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 	snapshot, err := Compile(CompileInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := RuntimeSettings{
-		FirstByteTimeout:         120 * time.Second,
-		RequestTimeout:           600 * time.Second,
-		StreamIdleTimeout:        300 * time.Second,
-		HeaderRules:              HeaderRules{Set: map[string]string{}},
-		InjectUsageOptions:       true,
+		FirstByteTimeout:  120 * time.Second,
+		RequestTimeout:    600 * time.Second,
+		StreamIdleTimeout: 300 * time.Second,
+		HeaderRules:       HeaderRules{Set: map[string]string{}},
+		CORS: CORSConfig{
+			AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
+			AllowedHeaders: []string{"*"},
+			MaxAgeSeconds:  600,
+		},
+		ResponseHeaderRules:      HeaderRules{Set: map[string]string{}},
 		RetryCount:               2,
+		RouteStrategy:            RouteStrategyNativeFirst,
 		BlacklistThreshold:       3,
 		AffinityEnabled:          true,
 		AffinityTTL:              time.Hour,
@@ -33,6 +66,169 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 	}
 	if !reflect.DeepEqual(snapshot.Settings, want) {
 		t.Fatalf("Settings = %#v, want %#v", snapshot.Settings, want)
+	}
+}
+
+func TestCORSAndResponseHeaderRulesAreSystemOnlyRuntimeSettings(t *testing.T) {
+	for key, value := range map[string]any{
+		SettingCORS: map[string]any{
+			"enabled":           true,
+			"allowed_origins":   []any{"app://obsidian.md", "https://notes.example"},
+			"allowed_methods":   []any{"post", "GET"},
+			"allowed_headers":   []any{"authorization", "content-type"},
+			"exposed_headers":   []any{"x-request-id"},
+			"allow_credentials": true,
+			"max_age":           json.Number("900"),
+		},
+		SettingResponseHeaderRules: map[string]any{
+			"set":    map[string]any{"x-browser-client": "enabled"},
+			"remove": []any{"x-upstream-marker"},
+		},
+	} {
+		if !IsRuntimeSettingKey(key) {
+			t.Errorf("IsRuntimeSettingKey(%q) = false", key)
+		}
+		if err := ValidateRuntimeSetting(key, value); err != nil {
+			t.Errorf("ValidateRuntimeSetting(%q) error = %v", key, err)
+		}
+	}
+
+	resolved, err := ResolveRuntimeSettings(config.Settings{
+		SettingCORS: map[string]any{
+			"enabled":           true,
+			"allowed_origins":   []any{"app://obsidian.md", "https://notes.example"},
+			"allowed_methods":   []any{"post", "GET"},
+			"allowed_headers":   []any{"authorization", "content-type"},
+			"exposed_headers":   []any{"x-request-id"},
+			"allow_credentials": true,
+			"max_age":           json.Number("900"),
+		},
+		SettingResponseHeaderRules: map[string]any{
+			"set":    map[string]any{"x-browser-client": "enabled"},
+			"remove": []any{"x-upstream-marker"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCORS := CORSConfig{
+		Enabled:          true,
+		AllowedOrigins:   []string{"app://obsidian.md", "https://notes.example"},
+		AllowedMethods:   []string{"POST", "GET"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"X-Request-Id"},
+		AllowCredentials: true,
+		MaxAgeSeconds:    900,
+	}
+	if !reflect.DeepEqual(resolved.CORS, wantCORS) {
+		t.Fatalf("CORS = %#v, want %#v", resolved.CORS, wantCORS)
+	}
+	wantRules := HeaderRules{
+		Set:    map[string]string{"X-Browser-Client": "enabled"},
+		Remove: []string{"X-Upstream-Marker"},
+	}
+	if !reflect.DeepEqual(resolved.ResponseHeaderRules, wantRules) {
+		t.Fatalf("ResponseHeaderRules = %#v, want %#v", resolved.ResponseHeaderRules, wantRules)
+	}
+
+	for _, key := range []string{SettingCORS, SettingResponseHeaderRules} {
+		if _, err := ResolveGroupRuntimeSettings(
+			resolved,
+			config.Settings{key: map[string]any{}},
+		); err == nil {
+			t.Fatalf("ResolveGroupRuntimeSettings accepted system-only %q", key)
+		}
+	}
+}
+
+func TestCORSValidationRejectsUnsafeOrAmbiguousConfiguration(t *testing.T) {
+	validBase := map[string]any{
+		"enabled":         true,
+		"allowed_origins": []any{"https://notes.example"},
+	}
+	tests := []struct {
+		name  string
+		value map[string]any
+	}{
+		{name: "enabled without origins", value: map[string]any{"enabled": true, "allowed_origins": []any{}}},
+		{name: "credentialed wildcard", value: map[string]any{"enabled": true, "allowed_origins": []any{"*"}, "allow_credentials": true}},
+		{name: "wildcard mixed with origin", value: map[string]any{"enabled": true, "allowed_origins": []any{"*", "https://notes.example"}}},
+		{name: "origin with comma", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://one.example, https://two.example"}}},
+		{name: "origin with path", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example/path"}}},
+		{name: "origin without scheme", value: map[string]any{"enabled": true, "allowed_origins": []any{"notes.example"}}},
+		{name: "duplicate origin", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example", "https://notes.example"}}},
+		{name: "empty methods", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allowed_methods": []any{}}},
+		{name: "wildcard method", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allowed_methods": []any{"*"}}},
+		{name: "invalid method", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allowed_methods": []any{"POST\nTRACE"}}},
+		{name: "invalid allowed header", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allowed_headers": []any{"Bad Header"}}},
+		{name: "negative max age", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "max_age": json.Number("-1")}},
+		{name: "credentialed wildcard exposed headers", value: map[string]any{"enabled": true, "allowed_origins": []any{"https://notes.example"}, "allow_credentials": true, "exposed_headers": []any{"*"}}},
+		{name: "unknown field", value: map[string]any{"enabled": false, "surprise": true}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateRuntimeSetting(SettingCORS, test.value); err == nil {
+				t.Fatalf("ValidateRuntimeSetting accepted %#v", test.value)
+			}
+		})
+	}
+	if err := ValidateRuntimeSetting(SettingCORS, validBase); err != nil {
+		t.Fatalf("ValidateRuntimeSetting rejected valid CORS config: %v", err)
+	}
+}
+
+func TestCORSOriginsAreCanonicalizedBeforeDuplicateDetection(t *testing.T) {
+	origins, err := parseCORSOrigins([]any{
+		"HTTPS://EXAMPLE.COM",
+		"http://EXAMPLE.COM:80",
+		"https://EXAMPLE.COM:444",
+		"https://bücher.example",
+		"APP://OBSIDIAN.MD",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"https://example.com",
+		"http://example.com",
+		"https://example.com:444",
+		"https://xn--bcher-kva.example",
+		"app://obsidian.md",
+	}
+	if !reflect.DeepEqual(origins, want) {
+		t.Fatalf("origins = %#v, want %#v", origins, want)
+	}
+
+	if _, err := parseCORSOrigins([]any{
+		"HTTPS://EXAMPLE.COM",
+		"https://example.com:443",
+	}); err == nil || !strings.Contains(err.Error(), "duplicate origin") {
+		t.Fatalf("normalized duplicate error = %v, want duplicate origin", err)
+	}
+}
+
+func TestResponseHeaderRulesRejectTransportAndCORSOwnedHeaders(t *testing.T) {
+	for _, name := range []string{
+		"Connection",
+		"Content-Length",
+		"Content-Type",
+		"Set-Cookie",
+		"Transfer-Encoding",
+		"Vary",
+		"Access-Control-Allow-Origin",
+		"X-GPTLoad-Attempts",
+	} {
+		for _, section := range []string{"set", "remove"} {
+			value := map[string]any{}
+			if section == "set" {
+				value[section] = map[string]any{name: "value"}
+			} else {
+				value[section] = []any{name}
+			}
+			if err := ValidateRuntimeSetting(SettingResponseHeaderRules, value); err == nil {
+				t.Errorf("response_header_rules accepted %s %q", section, name)
+			}
+		}
 	}
 }
 
@@ -461,7 +657,8 @@ func TestIsRuntimeSettingKeyRecognizesOnlyPublicRuntimeKeys(t *testing.T) {
 		SettingRequestTimeout,
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
-		SettingInjectUsageOptions,
+		SettingCORS,
+		SettingResponseHeaderRules,
 		SettingRetryCount,
 		SettingBlacklistThreshold,
 		SettingAffinityEnabled,
@@ -515,57 +712,6 @@ func TestResolveGroupRuntimeSettingsOwnsSystemHeaderRuleCopy(t *testing.T) {
 	system.HeaderRules.Remove[0] = "X-Mutated"
 	if resolved.HeaderRules.Set["X-System"] != "system" || resolved.HeaderRules.Remove[0] != "X-Old" {
 		t.Fatalf("group rules changed with system settings: %#v", resolved.HeaderRules)
-	}
-}
-
-func TestDefaultRuntimeSettingsInjectUsageOptions(t *testing.T) {
-	if !DefaultRuntimeSettings().InjectUsageOptions {
-		t.Fatal("default inject_usage_options = false, want true")
-	}
-}
-
-func TestResolveRuntimeSettingsInjectUsageOptionsRequiresBoolean(t *testing.T) {
-	for _, value := range []any{true, false} {
-		got, err := ResolveRuntimeSettings(config.Settings{SettingInjectUsageOptions: value})
-		if err != nil || got.InjectUsageOptions != value {
-			t.Fatalf("ResolveRuntimeSettings(%#v) = %#v, %v", value, got, err)
-		}
-	}
-	for _, value := range []any{0, 1, "true", nil, []any{}, map[string]any{}} {
-		if _, err := ResolveRuntimeSettings(config.Settings{SettingInjectUsageOptions: value}); err == nil {
-			t.Fatalf("ResolveRuntimeSettings(%#v) accepted non-boolean", value)
-		}
-	}
-}
-
-func TestResolveGroupRuntimeSettingsInjectUsagePrecedence(t *testing.T) {
-	tests := []struct {
-		name   string
-		system config.Settings
-		group  config.Settings
-		want   bool
-	}{
-		{name: "default", want: true},
-		{name: "system false", system: config.Settings{SettingInjectUsageOptions: false}, want: false},
-		{name: "group true", system: config.Settings{SettingInjectUsageOptions: false}, group: config.Settings{SettingInjectUsageOptions: true}, want: true},
-		{name: "group false", system: config.Settings{SettingInjectUsageOptions: true}, group: config.Settings{SettingInjectUsageOptions: false}, want: false},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			base, err := ResolveRuntimeSettings(test.system)
-			if err != nil {
-				t.Fatal(err)
-			}
-			resolved, err := ResolveGroupRuntimeSettings(base, test.group)
-			if err != nil || resolved.InjectUsageOptions != test.want {
-				t.Fatalf("ResolveGroupRuntimeSettings() = %#v, %v; want %t", resolved, err, test.want)
-			}
-		})
-	}
-	for _, value := range []any{nil, 0, 1, "true", []any{}, map[string]any{}} {
-		if _, err := ResolveGroupRuntimeSettings(DefaultRuntimeSettings(), config.Settings{SettingInjectUsageOptions: value}); err == nil {
-			t.Fatalf("ResolveGroupRuntimeSettings(%#v) accepted non-boolean", value)
-		}
 	}
 }
 

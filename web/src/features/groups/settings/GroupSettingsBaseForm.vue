@@ -1,24 +1,23 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ChannelParamsDto } from '@/api/control/types'
+import type { ChannelParamsDto, GroupModelItemDto } from '@/api/control/types'
 import type { ChannelFieldDto } from '@/app/resources/channels'
-import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
+import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
 const props = defineProps<{
   section: 'general' | 'routing'
   channelId: string
-  channelName: string
-  channelIcon: string
-  channelMark: string
   paramFields: ChannelFieldDto[]
   params: ChannelParamsDto
   name: string
   validationModel: string | null
+  models: GroupModelItemDto[]
   weightManual: number | null
+  priceMultiplier: string
   enabled: boolean
   pending: boolean
   paramsDisabled?: boolean
@@ -30,9 +29,17 @@ const emit = defineEmits<{
   'update:name': [value: string]
   'update:validationModel': [value: string | null]
   'update:weightManual': [value: number | null]
+  'update:priceMultiplier': [value: string]
   'update:enabled': [value: boolean]
 }>()
 const { t } = useI18n()
+const validationModelListId = `${useId()}-validation-models`
+// 验活直接把该值当成上游模型 ID 使用，所以候选取 id 而不是可能被别名替换的 client_model。
+const validationModelOptions = computed(() =>
+  [...props.models]
+    .map(({ id, alias, alias_enabled }) => ({ id, alias: alias_enabled ? alias : '' }))
+    .sort((left, right) => left.id.localeCompare(right.id)),
+)
 const weightMode = computed(() => (props.weightManual === null ? 'auto' : 'manual'))
 const weightModes = computed(() => [
   { value: 'auto', label: t('group.settings.base.auto'), disabled: props.pending },
@@ -107,19 +114,6 @@ function setWeightMode(value: string): void {
       <p>{{ t('group.settings.base.description') }}</p>
     </header>
     <div class="group-settings__grid">
-      <div class="group-settings__field">
-        <span>{{ t('group.settings.base.channel') }}</span>
-        <div class="group-settings__readonly" :aria-label="t('group.settings.base.channel')">
-          <ChannelIcon
-            v-if="channelIcon || channelMark"
-            class="group-settings__channel-icon"
-            :icon="channelIcon"
-            :mark="channelMark"
-          />
-          <strong>{{ channelName }}</strong>
-        </div>
-        <small>{{ t('group.settings.base.channelHelp') }}</small>
-      </div>
       <label class="group-settings__field">
         <span>{{ t('group.settings.base.name') }}</span>
         <input
@@ -135,9 +129,36 @@ function setWeightMode(value: string): void {
         <input
           class="group-settings__mono"
           :value="validationModel ?? ''"
+          :list="validationModelListId"
+          :placeholder="t('group.settings.base.validationModelPlaceholder')"
           :disabled="pending"
+          autocomplete="off"
           @input="emit('update:validationModel', ($event.target as HTMLInputElement).value || null)"
         />
+        <datalist :id="validationModelListId">
+          <option
+            v-for="option in validationModelOptions"
+            :key="option.id"
+            :value="option.id"
+            :label="option.alias || undefined"
+          />
+        </datalist>
+        <small>{{ t('group.settings.base.validationModelHelp') }}</small>
+      </label>
+      <label class="group-settings__field">
+        <span>{{ t('common.priceMultiplier.label') }}</span>
+        <input
+          class="group-settings__mono"
+          :value="priceMultiplier"
+          inputmode="decimal"
+          :disabled="pending"
+          :aria-invalid="!isValidPriceMultiplier(priceMultiplier) || undefined"
+          @input="emit('update:priceMultiplier', ($event.target as HTMLInputElement).value)"
+        />
+        <small v-if="!isValidPriceMultiplier(priceMultiplier)" role="alert">
+          {{ t('common.priceMultiplier.invalid') }}
+        </small>
+        <small v-else>{{ t('common.priceMultiplier.groupHelp') }}</small>
       </label>
       <template v-for="field in paramFields" :key="field.key">
         <div v-if="isOptionalBaseURL(field)" class="group-settings__field group-settings__wide">
@@ -296,30 +317,6 @@ function setWeightMode(value: string): void {
   color: var(--color-text);
   padding: 0 var(--space-3);
   font: inherit;
-}
-
-.group-settings__readonly {
-  display: flex;
-  min-height: var(--control-md);
-  align-items: center;
-  justify-content: flex-start;
-  gap: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  padding: 0 var(--space-3);
-}
-
-.group-settings__readonly strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-settings__channel-icon {
-  flex: none;
-  font-size: 16px;
 }
 
 .group-settings__mono,

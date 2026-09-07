@@ -32,6 +32,30 @@ func (table *Table) QuoteForMode(identity Identity, result usage.Result, mode Mo
 	return quote
 }
 
+// QuoteForModeWithMultipliers 在原计价完成后统一调整请求总费用。
+func (table *Table) QuoteForModeWithMultipliers(identity Identity, result usage.Result, mode Mode, multipliers PriceMultipliers) (Quote, *Receipt) {
+	if !multipliers.Group.Valid() || !multipliers.AccessKey.Valid() {
+		return unavailableQuote(), nil
+	}
+	quote, receipt := table.QuoteForModeWithReceipt(identity, result, mode)
+	if receipt == nil {
+		return quote, nil
+	}
+	baseTotal := receipt.TotalNanoUSD
+	if quote.State == CostStatePriced {
+		adjusted, ok := applyPriceMultipliers(quote.EstimatedCostNanoUSD, multipliers)
+		if !ok {
+			return unavailableQuote(), nil
+		}
+		quote.EstimatedCostNanoUSD = adjusted
+		receipt.TotalNanoUSD = int64(adjusted)
+	}
+	receipt.SchemaVersion = 6
+	receipt.BaseTotalNanoUSD = &baseTotal
+	receipt.PriceMultipliers = &multipliers
+	return quote, receipt
+}
+
 // QuoteForModeWithReceipt freezes the exact tier or mode schedule used. A mode
 // without a matching persisted schedule is indistinguishable from a standard
 // quote.

@@ -91,6 +91,37 @@ func QuoteComponent(tokens int64, price NanoUSD, multiplier Multiplier) (NanoUSD
 	return NanoUSD(quotient.Int64()), true
 }
 
+// quoteComponentWithPriceMultipliers 仅用于验证历史 v5 的分项倍率回执。
+func quoteComponentWithPriceMultipliers(tokens int64, price NanoUSD, multiplier Multiplier, priceMultipliers PriceMultipliers) (NanoUSD, bool) {
+	if tokens < 0 || price < 0 || multiplier.Numerator <= 0 || multiplier.Denominator <= 0 {
+		return 0, false
+	}
+	if !priceMultipliers.Group.Valid() || !priceMultipliers.AccessKey.Valid() {
+		return 0, false
+	}
+
+	numerator := big.NewInt(tokens)
+	numerator.Mul(numerator, big.NewInt(int64(price)))
+	numerator.Mul(numerator, big.NewInt(multiplier.Numerator))
+	numerator.Mul(numerator, big.NewInt(int64(priceMultipliers.Group)))
+	numerator.Mul(numerator, big.NewInt(int64(priceMultipliers.AccessKey)))
+	denominator := big.NewInt(tokensPerMillion)
+	denominator.Mul(denominator, big.NewInt(multiplier.Denominator))
+	denominator.Mul(denominator, big.NewInt(int64(DefaultPriceMultiplier)))
+	denominator.Mul(denominator, big.NewInt(int64(DefaultPriceMultiplier)))
+
+	quotient, remainder := new(big.Int), new(big.Int)
+	quotient.QuoRem(numerator, denominator, remainder)
+	remainder.Lsh(remainder, 1)
+	if remainder.Cmp(denominator) >= 0 {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+	if quotient.Sign() < 0 || !quotient.IsInt64() {
+		return 0, false
+	}
+	return NanoUSD(quotient.Int64()), true
+}
+
 // CheckedAddNanoUSD adds non-negative NanoUSD values without overflow.
 func CheckedAddNanoUSD(left, right NanoUSD) (NanoUSD, bool) {
 	if left < 0 || right < 0 || left > NanoUSD(math.MaxInt64)-right {

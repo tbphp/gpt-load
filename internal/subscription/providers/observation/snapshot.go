@@ -41,6 +41,8 @@ type AccountSummary struct {
 }
 
 type QuotaWindow struct {
+	// SourceID 是提供方的额度来源标识，不是展示名称或请求模型。
+	SourceID      string   `json:"source_id,omitempty"`
 	ID            string   `json:"id"`
 	Label         string   `json:"label"`
 	LabelKey      string   `json:"label_key,omitempty"`

@@ -86,7 +86,7 @@ func (manager *CredentialManager) Prepare(
 	snapshot execution.CredentialSnapshot,
 	forceRefresh bool,
 ) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
-	return manager.prepare(ctx, channelID, snapshot, forceRefresh, true)
+	return manager.prepare(ctx, channelID, snapshot, forceRefresh, true, false)
 }
 
 // PrepareForControl prepares a credential for an explicit control-plane
@@ -98,7 +98,18 @@ func (manager *CredentialManager) PrepareForControl(
 	snapshot execution.CredentialSnapshot,
 	forceRefresh bool,
 ) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
-	return manager.prepare(ctx, channelID, snapshot, forceRefresh, false)
+	return manager.prepare(ctx, channelID, snapshot, forceRefresh, false, false)
+}
+
+// RefreshForManualRecovery performs one operator-initiated credential refresh.
+// It is the only entry point permitted to recover a credential from a failed
+// auth state; every automatic path keeps the existing gate.
+func (manager *CredentialManager) RefreshForManualRecovery(
+	ctx context.Context,
+	channelID channel.ID,
+	snapshot execution.CredentialSnapshot,
+) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+	return manager.prepare(ctx, channelID, snapshot, true, false, true)
 }
 
 func (manager *CredentialManager) prepare(
@@ -107,6 +118,7 @@ func (manager *CredentialManager) prepare(
 	snapshot execution.CredentialSnapshot,
 	forceRefresh bool,
 	respectCooldown bool,
+	allowRecovery bool,
 ) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
 	driver, ok := manager.runtime.Driver(channelID)
 	if !ok {
@@ -132,6 +144,7 @@ func (manager *CredentialManager) prepare(
 			snapshot.Version,
 			forceRefresh,
 			respectCooldown,
+			allowRecovery,
 		)
 	})
 	return prepared, prepareErr
@@ -145,6 +158,7 @@ func (manager *CredentialManager) refreshCredentialLocked(
 	expectedVersion uint64,
 	forceRefresh bool,
 	respectCooldown bool,
+	allowRecovery bool,
 ) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
 	var row models.Credential
 	if err := manager.db.WithContext(ctx).First(&row, credentialID).Error; err != nil {
@@ -155,9 +169,13 @@ func (manager *CredentialManager) refreshCredentialLocked(
 		group.ChannelID != string(channelID) || group.ConnectionType != models.ConnectionTypeSubscription {
 		return subscriptionruntime.Credential{}, localEvidence("credential_target_mismatch", "subscription credential target does not match")
 	}
-	if row.AuthState != models.CredentialAuthStateReady {
+	if row.AuthState != models.CredentialAuthStateReady && !allowRecovery {
 		return subscriptionruntime.Credential{}, authEvidence(string(row.AuthState))
 	}
+	// A refresh that never produces a new credential must leave the account on
+	// the state it already had. Restoring Ready unconditionally would let one
+	// transient failure clear a real authorization problem.
+	restoreState, restoreCode := refreshRestoreState(row)
 	plaintext, err := manager.encryption.Decrypt(row.Data)
 	if err != nil {
 		return subscriptionruntime.Credential{}, localEvidence("credential_decrypt_failed", "subscription credential is unavailable")
@@ -167,7 +185,13 @@ func (manager *CredentialManager) refreshCredentialLocked(
 	if err != nil {
 		return subscriptionruntime.Credential{}, localEvidence("credential_invalid", "subscription credential is invalid")
 	}
-	if forceRefresh && row.SecretVersion > expectedVersion {
+	// A newer durable version alone does not prove the account recovered: the
+	// rotated secret may be committed while runtime publication failed.
+	if forceRefresh && row.SecretVersion > expectedVersion &&
+		row.AuthState == models.CredentialAuthStateReady {
+		if err := manager.ensureRuntimeMatchesDurableSecret(ctx, row); err != nil {
+			return subscriptionruntime.Credential{}, authEvidence("refresh_registry_mismatch")
+		}
 		return current, nil
 	}
 	if !forceRefresh {
@@ -185,9 +209,9 @@ func (manager *CredentialManager) refreshCredentialLocked(
 	}
 	if err := manager.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateRefreshing, ""); err != nil {
 		finalizeContext, cancel := refreshFinalizeContext(ctx)
-		restoreErr := manager.setAuthState(finalizeContext, row.ID, row.SecretVersion, models.CredentialAuthStateReady, "")
+		restoreErr := manager.setAuthState(finalizeContext, row.ID, row.SecretVersion, restoreState, restoreCode)
 		if restoreErr == nil {
-			restoreErr = manager.publishAuthState(finalizeContext, row, models.CredentialAuthStateReady)
+			restoreErr = manager.publishAuthState(finalizeContext, row, restoreState)
 		}
 		cancel()
 		if restoreErr != nil {
@@ -233,8 +257,8 @@ func (manager *CredentialManager) refreshCredentialLocked(
 				ctx,
 				row,
 				row.SecretVersion,
-				models.CredentialAuthStateReady,
-				"",
+				restoreState,
+				restoreCode,
 			); err != nil {
 				manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
 				return subscriptionruntime.Credential{}, localEvidence(
@@ -245,17 +269,26 @@ func (manager *CredentialManager) refreshCredentialLocked(
 			return subscriptionruntime.Credential{}, evidence
 		}
 		stateValue, code := models.CredentialAuthStateOutcomeUnknown, "refresh_outcome_unknown"
+		if restoreState != models.CredentialAuthStateReady {
+			stateValue, code = restoreState, restoreCode
+		}
+		// The persisted code describes the account, the evidence describes this
+		// attempt. A recovery retry that never reached the token endpoint must
+		// not report the account's older authorization error as its own outcome.
+		evidenceCode := "refresh_outcome_unknown"
 		switch failure.Kind {
 		case subscriptionruntime.RefreshFailureIdentityChanged:
 			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"
+			evidenceCode = "refresh_identity_changed"
 		case subscriptionruntime.RefreshFailureReauthorizationRequired:
 			stateValue, code = models.CredentialAuthStateReauthorizationRequired, "refresh_rejected"
+			evidenceCode = "refresh_rejected"
 		}
 		if err := manager.transitionAuthState(ctx, row, row.SecretVersion, stateValue, code); err != nil {
 			manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
 			return subscriptionruntime.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")
 		}
-		return subscriptionruntime.Credential{}, authEvidence(code)
+		return subscriptionruntime.Credential{}, authEvidence(evidenceCode)
 	}
 	if refreshed.Identity() == "" || refreshed.Identity() != current.Identity() {
 		if err := manager.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"); err != nil {
@@ -340,6 +373,68 @@ func (manager *CredentialManager) activeCredentialCooldownEvidence(
 	return refreshTemporarilyUnavailableEvidence(
 		subscriptionruntime.RefreshFailureDecision{RetryAfter: remaining},
 	)
+}
+
+// refreshRestoreState returns the auth state and error code a refresh must
+// restore when it ends without producing a new credential. Residual refreshing
+// is not a state a credential can be left in, so it is normalized the same way
+// interrupted refreshes are handled at startup.
+func refreshRestoreState(row models.Credential) (models.CredentialAuthState, string) {
+	switch row.AuthState {
+	case models.CredentialAuthStateRefreshing:
+		return models.CredentialAuthStateOutcomeUnknown, "refresh_interrupted"
+	case models.CredentialAuthStateReady, "":
+		return models.CredentialAuthStateReady, ""
+	default:
+		return row.AuthState, row.AuthErrorCode
+	}
+}
+
+// ensureRuntimeMatchesDurableSecret confirms the registry already serves the
+// durable secret version in a usable state, repairing it from database truth
+// when it does not. Reconciliation alone is not enough: it compares persisted
+// credential config, so a registry that already serves this version but lags on
+// auth state looks identical to it and would be left untouched.
+func (manager *CredentialManager) ensureRuntimeMatchesDurableSecret(
+	ctx context.Context,
+	row models.Credential,
+) error {
+	if manager.runtimeMatchesDurableSecret(row) {
+		return nil
+	}
+	if ref, ok := manager.registry.CredentialRef(row.ID); ok && ref.Version == row.SecretVersion {
+		manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthState(row.AuthState))
+		if manager.runtimeMatchesDurableSecret(row) {
+			return nil
+		}
+	}
+	reconcileContext, cancel := refreshFinalizeContext(ctx)
+	defer cancel()
+	entries, err := stateloader.BuildGroupCredentialEntriesWithProxy(
+		reconcileContext, manager.db, row.GroupID, manager.encryption,
+	)
+	if err != nil {
+		return err
+	}
+	if manager.reconcileGroup == nil {
+		return errors.New("credential registry reconciliation is unavailable")
+	}
+	if _, err := manager.reconcileGroup(row.GroupID, entries); err != nil {
+		return err
+	}
+	if !manager.runtimeMatchesDurableSecret(row) {
+		return errors.New("credential runtime state does not match the durable secret")
+	}
+	return nil
+}
+
+func (manager *CredentialManager) runtimeMatchesDurableSecret(row models.Credential) bool {
+	ref, ok := manager.registry.CredentialRef(row.ID)
+	if !ok || ref.Version != row.SecretVersion {
+		return false
+	}
+	authState, known := manager.registry.CredentialAuthStateOf(row.ID)
+	return known && authState == state.CredentialAuthStateReady
 }
 
 func (manager *CredentialManager) markRefreshOutcomeUnknown(

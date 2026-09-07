@@ -267,7 +267,7 @@ async function checkForUpdate(): Promise<void> {
 }
 
 .settings-section__heading h2 {
-  font-size: var(--text-body);
+  font-size: var(--title-section);
   font-weight: 650;
 }
 

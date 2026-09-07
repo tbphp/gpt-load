@@ -26,6 +26,7 @@ func TestWriteReasonUsesStableDataPlaneEnvelope(t *testing.T) {
 		reasonModelListTooLarge,
 		reasonAccessKeyRateLimited,
 		reasonConfigurationChanged,
+		reasonParameterOverrideUnavailable,
 	}
 	gin.SetMode(gin.TestMode)
 	for _, want := range tests {

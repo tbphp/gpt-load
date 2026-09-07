@@ -40,6 +40,7 @@ type GroupCollectionCredentialCounts struct {
 }
 
 type GroupCollectionItem struct {
+	PriceMultiplier  string                          `json:"price_multiplier"`
 	ID               uint                            `json:"id"`
 	Name             string                          `json:"name"`
 	ChannelID        channel.ID                      `json:"channel_id"`
@@ -85,6 +86,7 @@ func cloneGroupRows(rows []models.Group) []models.Group {
 			value := *rows[index].ValidationModel
 			cloned[index].ValidationModel = &value
 		}
+		cloned[index].PriceMultiplierMicros = cloneOptionalInt64(rows[index].PriceMultiplierMicros)
 		cloned[index].Credentials = nil
 	}
 	return cloned
@@ -353,7 +355,8 @@ func mapGroupCollectionRecords(
 		catalog := snapshot.GroupCatalog[group.ID]
 		record := groupCollectionRecord{
 			GroupCollectionItem: GroupCollectionItem{
-				ID: group.ID, Name: group.Name, ChannelID: channelID,
+				PriceMultiplier: priceMultiplierResponse(group.PriceMultiplierMicros),
+				ID:              group.ID, Name: group.Name, ChannelID: channelID,
 				ConnectionType: normalizeGroupConnectionType(group.ConnectionType),
 				Params:         append(json.RawMessage(nil), params...),
 				ModelCount:     int64(len(groupModels)),

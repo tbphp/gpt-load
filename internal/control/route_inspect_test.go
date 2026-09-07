@@ -83,6 +83,54 @@ func routeModelValue(value *string) string {
 	return *value
 }
 
+func TestRouteInspectReportsSnapshotRouteStrategy(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	for _, strategy := range []string{"native_first", "weighted_mix"} {
+		t.Run(strategy, func(t *testing.T) {
+			settings := config.Settings{}
+			if strategy != "native_first" {
+				settings["route_strategy"] = strategy
+			}
+			snapshot, err := fixture.manager.Publish(state.CompileInput{
+				ChannelRegistry: fixture.channelRegistry,
+				SystemSettings:  settings,
+				Groups: []state.GroupConfig{{
+					ID: 1, Name: "openai", ChannelID: channel.OpenAI, ConnectionType: "api_key",
+					Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
+				}},
+				AccessKeys: []state.AccessKeyConfig{{
+					ID: 10, Name: "client", KeyHash: "hash", Status: state.AccessKeyStatusActive,
+				}},
+			})
+			if err != nil {
+				t.Fatalf("publish route strategy: %v", err)
+			}
+			recorder := performRouteInspectRequest(engine, "test-auth-key",
+				`{"protocol":"openai-completions","external_model":"model","access_key_id":10}`)
+			got := decodeRouteInspectSuccess(t, recorder)
+			if got.SnapshotRevision != snapshot.Revision {
+				t.Fatalf("snapshot revision = %d, want %d", got.SnapshotRevision, snapshot.Revision)
+			}
+			var envelope struct {
+				Data struct {
+					RouteStrategy string `json:"route_strategy"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Data.RouteStrategy != strategy {
+				t.Fatalf("route strategy = %q, want %q", envelope.Data.RouteStrategy, strategy)
+			}
+		})
+	}
+}
+
 func TestRouteInspectEndpointRejectsMalformedAndInvalidRequests(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)

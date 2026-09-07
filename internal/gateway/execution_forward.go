@@ -736,7 +736,7 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 		RawQuery:                 input.Request.RawQuery,
 		Header:                   headers,
 		Body:                     input.Request.Body,
-		IncludeUsage:             input.ObserveUsage && input.Group.InjectUsageOptions,
+		IncludeUsage:             input.ObserveUsage,
 		ForceCredentialRefresh:   input.ForceCredentialRefresh,
 		ContinuityKey:            input.ContinuityKey,
 		TargetConfig:             input.TargetConfig,

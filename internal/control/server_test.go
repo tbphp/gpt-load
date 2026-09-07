@@ -1213,6 +1213,9 @@ func TestUpdateGroupSettingsEndpointRejectsStrictInvalidBodies(t *testing.T) {
 		{name: "negative weight", body: `{"weight_manual":-1}`, code: app_errors.ErrValidation.Code},
 		{name: "retired protocols", body: `{"protocols":[]}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "invalid overrides", body: `{"overrides":{"first_byte_timeout":-1}}`, code: app_errors.ErrValidation.Code},
+		{name: "parameter override negative zero", body: `{"overrides":{"parameter_overrides":[{"set":{"value":-0}}]}}`, code: app_errors.ErrValidation.Code},
+		{name: "parameter override negative decimal zero", body: `{"overrides":{"parameter_overrides":[{"set":{"value":-0.0}}]}}`, code: app_errors.ErrValidation.Code},
+		{name: "parameter override negative exponent zero", body: `{"overrides":{"parameter_overrides":[{"set":{"value":-0e3}}]}}`, code: app_errors.ErrValidation.Code},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			before := fixture.manager.Current().Revision

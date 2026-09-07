@@ -19,7 +19,6 @@ type GroupEffectiveConfigResponse struct {
 	RequestTimeout     int64               `json:"request_timeout"`
 	StreamIdleTimeout  int64               `json:"stream_idle_timeout"`
 	HeaderRules        HeaderRulesResponse `json:"header_rules"`
-	InjectUsageOptions bool                `json:"inject_usage_options"`
 	RetryCount         int                 `json:"retry_count"`
 	BlacklistThreshold int                 `json:"blacklist_threshold"`
 	AffinityEnabled    bool                `json:"affinity_enabled"`
@@ -29,6 +28,7 @@ type GroupEffectiveConfigResponse struct {
 // It deliberately excludes models and configuration that are loaded through focused
 // resources.
 type GroupSummaryResponse struct {
+	PriceMultiplier     string                  `json:"price_multiplier"`
 	ID                  uint                    `json:"id"`
 	Name                string                  `json:"name"`
 	ChannelID           channel.ID              `json:"channel_id"`
@@ -53,7 +53,8 @@ func (s *Service) GetGroupSummary(ctx context.Context, groupID uint) (GroupSumma
 			continue
 		}
 		return GroupSummaryResponse{
-			ID: record.ID, Name: record.Name,
+			PriceMultiplier: record.PriceMultiplier,
+			ID:              record.ID, Name: record.Name,
 			ChannelID: record.ChannelID, Params: append(json.RawMessage(nil), record.Params...),
 			ConnectionType:      record.ConnectionType,
 			ServiceStatus:       record.Status,
@@ -85,7 +86,6 @@ func effectiveGroupConfig(
 			Set:    set,
 			Remove: append([]string{}, resolved.HeaderRules.Remove...),
 		},
-		InjectUsageOptions: resolved.InjectUsageOptions,
 		RetryCount:         resolved.RetryCount,
 		BlacklistThreshold: resolved.BlacklistThreshold,
 		AffinityEnabled:    resolved.AffinityEnabled,

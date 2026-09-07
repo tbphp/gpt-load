@@ -63,6 +63,10 @@ export default {
       copyFailure: 'Copy failed',
       credentialHealthLabel:
         '{total} credentials total: {available} available, {cooldown} cooling down, {blacklisted} blacklisted, {disabled} disabled',
+      toggleEnabled: 'Enable {name}',
+      enabledOn: 'Enabled {name}',
+      enabledOff: 'Disabled {name}. It no longer takes new requests.',
+      toggleFailed: 'Could not change the switch. Try again.',
       appendCredential: 'Add credential',
       appendCredentialFor: 'Add a credential to {name}',
     },
@@ -201,7 +205,8 @@ export default {
         general: 'General',
         routing: 'Scheduling',
         runtime: 'Runtime overrides',
-        headers: 'HeaderRules',
+        parameters: 'Parameter overrides',
+        headers: 'Upstream request header rules',
         danger: 'Danger zone',
       },
       routing: {
@@ -210,7 +215,69 @@ export default {
       },
       headers: {
         description:
-          'Rules are collapsed by default; editing replaces the complete HeaderRules object',
+          'Header rules applied to outgoing upstream requests — set, override, or remove; overriding fully replaces the global rules instead of merging with them.',
+      },
+      parameterOverrides: {
+        description:
+          'Rewrite parameters on inference requests only. Values are stored as plaintext; do not enter credentials.',
+        order: 'On the same field, the lower rule wins',
+        addRule: 'Add rule',
+        empty: 'No rules; requests pass through unchanged',
+        moved: 'Rule moved to position {position}',
+        moveUp: 'Move rule up',
+        moveDown: 'Move rule down',
+        copy: 'Copy rule',
+        deleteRule: 'Delete rule',
+        match: 'Match',
+        protocol: 'Protocol',
+        model: 'Model',
+        allProtocols: 'All protocols',
+        allModels: 'All models',
+        modelMatch: 'Matches {count} configured models',
+        modelNoMatch: 'No model matches',
+        params: 'Params',
+        paramAction: 'Action',
+        paramPath: 'Parameter path',
+        paramValue: 'Value',
+        paramKind: 'Type',
+        kind: {
+          text: 'Text',
+          number: 'Number',
+          boolean: 'Boolean',
+          null: 'Null',
+          json: 'JSON',
+        },
+        opSet: 'Set',
+        opRemove: 'Remove',
+        addParam: 'Add parameter',
+        addRemovePath: 'Add removal path',
+        deleteParam: 'Delete this row',
+        setLabel: 'Set parameters',
+        toJSON: 'To JSON',
+        toRows: 'To rows',
+        formatJSON: 'Format',
+        pathsCross: 'Paths intersect; removals run before sets',
+        pathHint: 'Separate levels with /; write / in a key as ~1 and ~ as ~0',
+        mergeHint: 'Objects merge recursively; arrays and scalars replace. Variables stay literal',
+        errors: {
+          modelPattern: 'Use an exact model or one trailing * prefix wildcard.',
+          pathRequired: 'Enter a parameter path.',
+          pathInvalid:
+            'Separate non-empty levels with /. Array indexes are not supported, and ~ is only valid in ~0 or ~1.',
+          pathDuplicate: 'Paths must be unique.',
+          pathAncestor:
+            'A path cannot be the parent or child of another set path in the same rule.',
+          forbiddenField: 'Root fields model, stream, and store cannot be set or removed.',
+          valueRequired: 'Enter a value.',
+          valueNumber: 'Not a valid number. Switch the type to Text to store it as text.',
+          valueBoolean: 'A boolean must be true or false.',
+          valueJSON: 'Invalid JSON. Provide a complete structure starting with { or [.',
+          emptyKey: 'Parameter object field names cannot be empty.',
+          unsafeNumber: 'Numbers must round-trip safely and losslessly through the management UI.',
+          setObject: 'Set parameters must be a JSON object.',
+          invalidJSON: 'The JSON format is invalid.',
+          actionRequired: 'Add at least one parameter.',
+        },
       },
       dangerDescription: 'Keep irreversible actions clearly separated from routine settings.',
       saveFailed: 'Unable to update the Group settings.',
@@ -237,6 +304,9 @@ export default {
         customUrlHelp: 'Uses the channel preset or SDK official address by default.',
         paramRequired: 'Enter {field}.',
         validationModel: 'Validation model (optional)',
+        validationModelPlaceholder: 'Search or enter a model ID',
+        validationModelHelp:
+          'Leave empty to use the first model in this Group; enter the upstream model ID, not an alias.',
         weight: 'Manual Group weight',
         auto: 'Auto',
         manual: 'Manual',
@@ -264,6 +334,8 @@ export default {
         nonNegativeIntegerError: 'Enter 0 or a positive whole number.',
         override: 'Overridden by this Group',
         inherited: 'Inherited from global settings',
+        pendingRestoreSource: 'Pending inheritance',
+        resetPending: 'Saving will make this follow the global setting',
         useOverride: 'Override',
         useInherited: 'Use inherited',
         enabledValue: 'Enabled',
@@ -277,14 +349,9 @@ export default {
         headerStorageNoticeEnd: ' for credential values.',
         headerReplacementWarning:
           'This Group override replaces the complete global HeaderRules object; future global changes will not merge into it.',
-        inject_usage_options: 'Inject usage options',
-        injectUsageHelp: 'This override is available only for openai-completions',
         affinity_enabled: 'Request affinity',
         affinityHelp:
           'Controls whether this Group learns or reuses affinity targets without changing normal weights, scheduling, or retries.',
-        affinityInherit: 'Inherit global',
-        affinityEnable: 'Enable',
-        affinityDisable: 'Disable',
       },
       delete: {
         sectionDescription:
@@ -362,6 +429,7 @@ export default {
       diagnostics: 'Diagnostics',
       moreActions: 'More actions',
       editWeightHint: 'Click to adjust weight',
+      weightChipTooltip: 'Manual weight {weight}. Click to edit.',
       expand: 'Expand credential details',
       collapse: 'Collapse credential details',
       restore: 'Restore now',
@@ -564,6 +632,8 @@ export default {
           usedPercent: '{value}% used',
           requests: 'Requests',
           tokens: 'Tokens',
+          priceMultiplierBasis:
+            'Estimated using model reference prices and Group/access key multipliers at request time; not an actual bill',
           referenceCost: 'API reference cost',
           unavailable: 'Local statistics are not currently available',
           dataIncomplete: 'Statistics do not cover the full window, so the value may be low',
@@ -575,21 +645,22 @@ export default {
         auth: {
           ready: 'Authorized',
           refreshing: 'Refreshing credential',
-          reauthorization_required: 'Reconnect or re-import required',
+          reauthorization_required:
+            'Credential rejected; try refreshing it, then reconnect or re-import',
           outcome_unknown:
-            'Credential refresh outcome unknown; reconnect or re-import the credential',
+            'Credential refresh outcome unknown; try refreshing it, then reconnect or re-import',
         },
         authError: {
           refreshRejected:
-            'Codex rejected the credential refresh. Reconnect or re-import this account.',
+            'The upstream rejected the credential refresh. Try refreshing again; reconnect or re-import this account if it still fails.',
           identityChanged:
             'The refreshed credential belongs to another account. Reconnect or re-import the original account.',
           outcomeUnknown:
-            'The latest credential refresh could not be confirmed. Reconnect or re-import this account.',
+            'The latest credential refresh could not be confirmed. Try refreshing the credential, then reconnect or re-import this account.',
           persistFailed:
-            'The new credential could not be stored safely. Reconnect or re-import this account.',
+            'The new credential could not be stored safely. Try refreshing the credential, then reconnect or re-import this account.',
           runtimeMismatch:
-            'The runtime credential state could not be confirmed. Reconnect or re-import this account.',
+            'The runtime credential state could not be confirmed. Try refreshing the credential, then reconnect or re-import this account.',
           refreshStartFailed: 'The credential refresh could not start. Try again shortly.',
         },
         observationError: {

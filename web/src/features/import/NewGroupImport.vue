@@ -57,6 +57,8 @@ import ImportConnectionSection from './ImportConnectionSection.vue'
 import ImportOperationNotice from './ImportOperationNotice.vue'
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
+import { isValidPriceMultiplier, normalizePriceMultiplier } from '@/lib/price-multiplier'
+
 import { analyzeCredentials } from './credential-analysis'
 import CredentialTextarea from './CredentialTextarea.vue'
 import SubscriptionCredentialStager from './SubscriptionCredentialStager.vue'
@@ -93,6 +95,7 @@ function freshDraft(): ImportDraft {
     params: {},
     proxy: { mode: 'inherit', url: '' },
     name: '',
+    price_multiplier: '1',
     credentials: '',
     staged_credentials: [],
     models: [],
@@ -353,6 +356,7 @@ const submissionErrorMessage = computed(
 )
 const submitBlockedReason = computed(() => {
   if (payloadLocked.value || mutationPending.value) return ''
+  if (!isValidPriceMultiplier(draft.price_multiplier)) return t('common.priceMultiplier.invalid')
   if (paramsError.value) {
     if (selectedChannel.value === null) return t('import.presets.channelRequired')
     return visibleParamError.value || t('import.steps.channel.incomplete')
@@ -381,6 +385,7 @@ const canCreate = computed(
   () =>
     !payloadLocked.value &&
     !mutationPending.value &&
+    isValidPriceMultiplier(draft.price_multiplier) &&
     !paramsError.value &&
     credentialCount.value > 0 &&
     (draft.connection_type === 'subscription' || !credentialAnalysis.value.tooManyCredentials) &&
@@ -908,6 +913,7 @@ function buildCreateBody(confirmSameTarget: boolean): GroupCreateRequest {
     ),
     ...(draftProxyOverride.value === undefined ? {} : { proxy: draftProxyOverride.value }),
     ...(name ? { name } : {}),
+    price_multiplier: normalizePriceMultiplier(draft.price_multiplier),
     models: toGroupModels(draft.models),
     ...(draft.connection_type === 'subscription'
       ? { staged_credential_ids: currentReadyStages().map(({ stage_id }) => stage_id) }
@@ -1249,6 +1255,7 @@ onBeforeUnmount(() => {
           <ImportConnectionSection
             :channel="connectionChannel"
             :name="draft.name"
+            :price-multiplier="draft.price_multiplier"
             :params="draft.params"
             :proxy="draft.proxy"
             :proxy-disabled="proxyLocked"
@@ -1256,6 +1263,7 @@ onBeforeUnmount(() => {
             :base-url-override-enabled="baseUrlOverrideEnabled"
             :disabled="payloadLocked"
             @update:name="draft.name = $event"
+            @update:price-multiplier="draft.price_multiplier = $event"
             @update:param="setChannelParam"
             @update:proxy="draft.proxy = $event"
             @update:base-url-override="setBaseURLOverride"

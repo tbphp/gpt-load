@@ -30,10 +30,11 @@ import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { formatLocalInstant } from '@/lib/format'
 
-import GlobalHeaderRulesSection from './GlobalHeaderRulesSection.vue'
-import AffinitySettingsSection from './AffinitySettingsSection.vue'
-import LogsMaintenanceSection from './LogsMaintenanceSection.vue'
-import RuntimeSettingsSection from './RuntimeSettingsSection.vue'
+import BrowserAccessSection from './BrowserAccessSection.vue'
+import ConnectionSettingsSection from './ConnectionSettingsSection.vue'
+import DataMaintenanceSection from './DataMaintenanceSection.vue'
+import ReliabilitySettingsSection from './ReliabilitySettingsSection.vue'
+import RoutingSettingsSection from './RoutingSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
 import {
   isValidAffinityCapacity,
@@ -63,7 +64,8 @@ const settingsRefreshing = computed(
   () => settingsQuery.data.value !== undefined && settingsQuery.isFetching.value,
 )
 const headerRulesInvalidEdits = ref(false)
-const headerRulesEditorRevision = ref(0)
+const responseRulesInvalidEdits = ref(false)
+const browserAccessEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
 const {
   value: savedFeedback,
@@ -78,7 +80,9 @@ const proxyState = computed(() =>
     ? proxyDraftState(proxyBaseView.value, proxyMode.value, proxyEndpoint.value)
     : { dirty: false, invalid: false, value: undefined },
 )
-const hasLocalEdits = computed(() => headerRulesInvalidEdits.value || proxyState.value.dirty)
+const hasLocalEdits = computed(
+  () => headerRulesInvalidEdits.value || responseRulesInvalidEdits.value || proxyState.value.dirty,
+)
 const {
   base,
   draft,
@@ -110,10 +114,11 @@ watch(
 )
 
 const navItems = computed(() => [
-  { id: 'settings-forwarding', label: t('settings.navigation.forwarding') },
-  { id: 'settings-affinity', label: t('settings.navigation.affinity') },
-  { id: 'settings-headers', label: t('settings.navigation.headers') },
-  { id: 'settings-logs', label: t('settings.navigation.logs') },
+  { id: 'settings-routing', label: t('settings.navigation.routing') },
+  { id: 'settings-connection', label: t('settings.navigation.connection') },
+  { id: 'settings-reliability', label: t('settings.navigation.reliability') },
+  { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
+  { id: 'settings-data-maintenance', label: t('settings.navigation.dataMaintenance') },
   { id: 'settings-system', label: t('settings.navigation.system') },
 ])
 const routeSection = computed(() => parseSettingsSection(route.query))
@@ -123,15 +128,19 @@ const { activeSection, selectSection } = useSectionNavigation({
   topOffset: 76,
 })
 const headerRulesValid = ref(true)
+const browserAccessValid = ref(true)
+const corsValid = ref(true)
+const responseHeaderRulesValid = ref(true)
 const pageOperationLocked = computed(() => operationLocked.value)
 const dirty = computed(
-  () => controllerDirty.value || headerRulesInvalidEdits.value || proxyState.value.dirty,
+  () =>
+    controllerDirty.value ||
+    headerRulesInvalidEdits.value ||
+    responseRulesInvalidEdits.value ||
+    proxyState.value.dirty,
 )
 const valid = computed(
-  () =>
-    controllerValid.value &&
-    (!draft.value?.overrides.has('header_rules') || headerRulesValid.value) &&
-    !proxyState.value.invalid,
+  () => controllerValid.value && browserAccessValid.value && !proxyState.value.invalid,
 )
 const timeoutKeys = [
   'first_byte_timeout',
@@ -146,6 +155,8 @@ const changedKeys = computed(() => {
   ) as RuntimeSettingKey[]
   if (headerRulesInvalidEdits.value && !changed.includes('header_rules'))
     changed.push('header_rules')
+  if (responseRulesInvalidEdits.value && !changed.includes('response_header_rules'))
+    changed.push('response_header_rules')
   return changed
 })
 const changedLabels = computed(() => [
@@ -160,6 +171,8 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
     if (timeoutKeys.includes(key as (typeof timeoutKeys)[number]))
       return !isValidTimeout(current.values[key as (typeof timeoutKeys)[number]])
     if (key === 'header_rules') return !headerRulesValid.value
+    if (key === 'cors') return !corsValid.value
+    if (key === 'response_header_rules') return !responseHeaderRulesValid.value
     if (key === 'request_log_retention_days')
       return !isValidRetention(current.values.request_log_retention_days)
     if (key === 'affinity_capacity')
@@ -186,6 +199,13 @@ watch(
   },
 )
 
+watch(
+  () => draft.value?.overrides.has('response_header_rules'),
+  (hasOverride) => {
+    if (!hasOverride) responseRulesInvalidEdits.value = false
+  },
+)
+
 watch(savedAt, (value, previous) => {
   if (value && value !== previous) showSavedFeedback()
 })
@@ -207,16 +227,35 @@ watch(
   { deep: true, immediate: true },
 )
 
+// 深链首屏：分区渲染前 selectSection 的滚动会静默失败，且路由的 scrollBehavior 会把页面重置到
+// 顶部并打断平滑滚动。等内容挂载后再用即时滚动补一次定位。
+const initialSectionSettled = ref(false)
+watch(
+  () => Boolean(base.value && draft.value),
+  (ready) => {
+    if (!ready || initialSectionSettled.value) return
+    initialSectionSettled.value = true
+    void nextTick(() => {
+      const target = sectionID(routeSection.value)
+      // 路由切页会把滚动位置重置到顶部，重试一次以覆盖这次重置。
+      selectSection(target, 'auto')
+      window.setTimeout(() => selectSection(target, 'auto'), 120)
+    })
+  },
+  { immediate: true },
+)
+
 function sectionID(section: SettingsSection): string {
   return `settings-${section}`
 }
 
 function sectionFromID(id: string): SettingsSection | undefined {
   const section = id.replace(/^settings-/u, '')
-  return section === 'forwarding' ||
-    section === 'affinity' ||
-    section === 'headers' ||
-    section === 'logs' ||
+  return section === 'routing' ||
+    section === 'connection' ||
+    section === 'reliability' ||
+    section === 'browser-access' ||
+    section === 'data-maintenance' ||
     section === 'system'
     ? section
     : undefined
@@ -233,7 +272,8 @@ async function navigateSection(id: string): Promise<void> {
 function discard(): void {
   discardDraft()
   headerRulesInvalidEdits.value = false
-  headerRulesEditorRevision.value += 1
+  responseRulesInvalidEdits.value = false
+  browserAccessEditorRevision.value += 1
   if (proxyBaseView.value) resetProxyDraft(proxyBaseView.value)
 }
 
@@ -251,33 +291,46 @@ function settingLabel(key: RuntimeSettingKey): string {
   if (key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity')
     return t(`settings.affinity.${key}`)
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
-  if (key === 'header_rules') return t('settings.headers.title')
+  if (key === 'header_rules') return t('settings.headers.blockTitle')
+  if (key === 'cors') return t('settings.browserAccess.cors.title')
+  if (key === 'response_header_rules') return t('settings.browserAccess.responseHeaders.title')
   return t(`settings.runtime.${key}`)
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
-  if (key === 'header_rules') return 'settings-headers'
+  if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
+    return 'settings-browser-access'
   return `settings-value-${key}`
+}
+
+function sectionForKey(key: RuntimeSettingKey): SettingsSection {
+  if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
+    return 'browser-access'
+  if (
+    key === 'route_strategy' ||
+    key === 'affinity_enabled' ||
+    key === 'affinity_ttl' ||
+    key === 'affinity_capacity'
+  )
+    return 'routing'
+  if (key === 'first_byte_timeout' || key === 'request_timeout' || key === 'stream_idle_timeout')
+    return 'connection'
+  if (key === 'retry_count' || key === 'blacklist_threshold' || key === 'validation_interval')
+    return 'reliability'
+  return 'data-maintenance'
 }
 
 async function focusTarget(key: RuntimeSettingKey): Promise<void> {
   const id = settingTarget(key)
-  const section =
-    key === 'header_rules'
-      ? 'settings-headers'
-      : key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity'
-        ? 'settings-affinity'
-        : key === 'request_log_retention_days'
-          ? 'settings-logs'
-          : 'settings-forwarding'
-  await navigateSection(section)
+  const sectionElementId = sectionID(sectionForKey(key))
+  await navigateSection(sectionElementId)
   await nextTick()
   const target =
-    key === 'header_rules'
+    key === 'header_rules' || key === 'cors' || key === 'response_header_rules'
       ? (document
-          .getElementById('settings-headers')
+          .getElementById(sectionElementId)
           ?.querySelector<HTMLElement>('[aria-invalid="true"]') ??
-        document.getElementById('settings-headers'))
+        document.getElementById(sectionElementId))
       : document.getElementById(id)
   target?.focus()
 }
@@ -350,7 +403,13 @@ onBeforeUnmount(() => {
                 </li>
               </ul>
             </section>
-            <RuntimeSettingsSection
+            <RoutingSettingsSection
+              :base="base"
+              :draft="draft"
+              :disabled="pageOperationLocked"
+              @change="updateDraft"
+            />
+            <ConnectionSettingsSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
@@ -361,22 +420,26 @@ onBeforeUnmount(() => {
               @update:proxy-mode="proxyMode = $event"
               @update:proxy-endpoint="proxyEndpoint = $event"
             />
-            <AffinitySettingsSection
+            <ReliabilitySettingsSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
               @change="updateDraft"
             />
-            <GlobalHeaderRulesSection
+            <BrowserAccessSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"
-              :reset-key="headerRulesEditorRevision"
+              :reset-key="browserAccessEditorRevision"
               @change="updateDraft"
-              @update:valid="headerRulesValid = $event"
-              @update:invalid-edits="headerRulesInvalidEdits = $event"
+              @update:valid="browserAccessValid = $event"
+              @update:header-rules-valid="headerRulesValid = $event"
+              @update:cors-valid="corsValid = $event"
+              @update:response-rules-valid="responseHeaderRulesValid = $event"
+              @update:header-rules-invalid-edits="headerRulesInvalidEdits = $event"
+              @update:response-rules-invalid-edits="responseRulesInvalidEdits = $event"
             />
-            <LogsMaintenanceSection
+            <DataMaintenanceSection
               :base="base"
               :draft="draft"
               :disabled="pageOperationLocked"

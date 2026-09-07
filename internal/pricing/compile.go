@@ -186,7 +186,7 @@ func validateReceiptRule(rule ReceiptRule, schemaVersion int) error {
 			return fmt.Errorf("global receipt must not contain a channel ID")
 		}
 		return nil
-	case 3, 4:
+	case 3, 4, 5, 6:
 		if rule.ScopeKey != "" {
 			return fmt.Errorf("channel receipt must not contain a scope key")
 		}

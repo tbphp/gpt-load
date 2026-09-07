@@ -83,6 +83,7 @@ export function useSettingsController(
       draft.value !== null &&
       validateSettingsSection(draft.value, 'request-forwarding') &&
       validateSettingsSection(draft.value, 'affinity') &&
+      validateSettingsSection(draft.value, 'browser-access') &&
       validateSettingsSection(draft.value, 'logs-maintenance') &&
       validateSettingsSection(draft.value, 'model-prices'),
   )

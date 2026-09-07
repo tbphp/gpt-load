@@ -1,4 +1,5 @@
 export type HeaderRuleAction = 'set' | 'remove'
+export type HeaderRuleValidationPolicy = 'request' | 'response'
 
 export interface HeaderRuleInput {
   rowKey: number
@@ -31,8 +32,28 @@ const forbiddenSetNames = new Set([
   'cookie2',
 ])
 
+const forbiddenResponseNames = new Set([
+  ...forbiddenSetNames,
+  'content-encoding',
+  'content-length',
+  'content-range',
+  'content-type',
+  'date',
+  'server',
+  'set-cookie',
+  'set-cookie2',
+  'vary',
+  'access-control-allow-origin',
+  'access-control-allow-methods',
+  'access-control-allow-headers',
+  'access-control-allow-credentials',
+  'access-control-expose-headers',
+  'access-control-max-age',
+])
+
 export function validateHeaderRuleRows(
   rows: readonly HeaderRuleInput[],
+  policy: HeaderRuleValidationPolicy = 'request',
 ): HeaderRuleValidationError[] {
   const errors: HeaderRuleValidationError[] = []
   const duplicateRows = duplicateHeaderRuleRows(rows)
@@ -51,7 +72,7 @@ export function validateHeaderRuleRows(
       continue
     }
     const normalizedName = asciiLower(row.name)
-    if (credentialNames.has(normalizedName) || isForbiddenSetName(normalizedName)) {
+    if (credentialNames.has(normalizedName) || isForbiddenName(normalizedName, policy)) {
       errors.push({ code: 'forbidden_set_name', rowKey: row.rowKey })
       continue
     }
@@ -103,8 +124,10 @@ function isHTTPHeaderValue(value: string): boolean {
   return true
 }
 
-function isForbiddenSetName(normalizedName: string): boolean {
-  return normalizedName.startsWith('proxy-') || forbiddenSetNames.has(normalizedName)
+function isForbiddenName(normalizedName: string, policy: HeaderRuleValidationPolicy): boolean {
+  if (normalizedName.startsWith('proxy-')) return true
+  if (policy === 'request') return forbiddenSetNames.has(normalizedName)
+  return normalizedName.startsWith('x-gptload-') || forbiddenResponseNames.has(normalizedName)
 }
 
 function asciiLower(value: string): string {

@@ -18,13 +18,18 @@ import type {
   GroupOptionDto,
   GroupSettingsDto,
   GroupSummaryDto,
+  ParameterJSONValue,
+  ParameterOverrideMatchDto,
+  ParameterOverrideRuleDto,
   ProxyConfigInput,
   ProxyMutation,
 } from '@/api/control/types'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys, normalizeGroupCollectionFilters } from '@/app/query-keys'
 import { projectChannelID } from '@/app/resources/channels'
 import { projectModelCandidate, type ModelCandidate } from '@/app/resources/providers'
+import { isJSONSafeNumber } from '@/lib/json-number'
 
 import {
   assertNoSecretLikeFields,
@@ -32,6 +37,8 @@ import {
   projectBoolean,
   projectEpochMilliseconds,
   projectEnum,
+  projectFiniteNumber,
+  projectPriceMultiplier,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -41,6 +48,7 @@ import { projectProxyView } from './proxy'
 const groupSummaryFields = [
   'id',
   'name',
+  'price_multiplier',
   'channel_id',
   'connection_type',
   'params',
@@ -51,6 +59,7 @@ const groupSummaryFields = [
 ] as const
 const groupSettingsFields = [
   'name',
+  'price_multiplier',
   'channel_id',
   'connection_type',
   'params',
@@ -74,6 +83,7 @@ const groupCollectionSummaryFields = ['total', 'available', 'unavailable', 'disa
 const groupCollectionItemFields = [
   'id',
   'name',
+  'price_multiplier',
   'channel_id',
   'connection_type',
   'params',
@@ -102,9 +112,9 @@ const runtimeSettingFields = [
   'retry_count',
   'blacklist_threshold',
   'header_rules',
-  'inject_usage_options',
   'affinity_enabled',
 ] as const
+const groupRuntimeSettingFields = [...runtimeSettingFields, 'parameter_overrides'] as const
 
 export interface HeaderRulesDto {
   set: Record<string, string>
@@ -118,8 +128,8 @@ export interface GroupRuntimeConfigDto {
   retry_count?: number
   blacklist_threshold?: number
   header_rules?: HeaderRulesDto
-  inject_usage_options?: boolean
   affinity_enabled?: boolean
+  parameter_overrides?: ParameterOverrideRuleDto[]
 }
 
 export interface GroupEffectiveConfigDto {
@@ -129,7 +139,6 @@ export interface GroupEffectiveConfigDto {
   retry_count: number
   blacklist_threshold: number
   header_rules: HeaderRulesDto
-  inject_usage_options: boolean
   affinity_enabled: boolean
 }
 
@@ -142,6 +151,7 @@ export type {
 
 export type GroupSettingsUpdateRequest = Partial<{
   name: string
+  price_multiplier: string
   params: ChannelParamsDto
   validation_model: string | null
   enabled: boolean
@@ -184,6 +194,7 @@ export interface GroupModelsReplaceRequest {
 
 export interface GroupCreateRequest {
   name?: string
+  price_multiplier: string
   channel_id: string
   connection_type: ConnectionType
   params: ChannelParamsDto
@@ -277,6 +288,58 @@ function projectHeaderRules(value: unknown): HeaderRulesDto {
   }
 }
 
+function projectParameterJSONValue(value: unknown, depth = 0): ParameterJSONValue {
+  if (depth > 64) throw new InvalidResponseError()
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value
+  if (typeof value === 'number') {
+    const number = projectFiniteNumber(value)
+    if (!isJSONSafeNumber(number)) throw new InvalidResponseError()
+    return number
+  }
+  if (Array.isArray(value)) return value.map((item) => projectParameterJSONValue(item, depth + 1))
+  const record = projectRecord(value)
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => [
+      key,
+      projectParameterJSONValue(nested, depth + 1),
+    ]),
+  )
+}
+
+function projectParameterOverrideMatch(value: unknown): ParameterOverrideMatchDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['protocol', 'model'])
+  const result: ParameterOverrideMatchDto = {}
+  if (Object.prototype.hasOwnProperty.call(record, 'protocol'))
+    result.protocol = projectEnum(record.protocol, enabledDataProtocols)
+  if (Object.prototype.hasOwnProperty.call(record, 'model'))
+    result.model = projectString(record.model, { allowEmpty: true })
+  return result
+}
+
+function projectParameterOverrideRule(value: unknown): ParameterOverrideRuleDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['match', 'set', 'remove'])
+  const result: ParameterOverrideRuleDto = {
+    match: Object.prototype.hasOwnProperty.call(record, 'match')
+      ? projectParameterOverrideMatch(record.match)
+      : {},
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'set')) {
+    const set = projectRecord(record.set)
+    result.set = Object.fromEntries(
+      Object.entries(set).map(([key, nested]) => [key, projectParameterJSONValue(nested, 1)]),
+    )
+  }
+  if (Object.prototype.hasOwnProperty.call(record, 'remove'))
+    result.remove = projectArray(record.remove, (path) => projectString(path, { allowEmpty: true }))
+  return result
+}
+
+function projectParameterOverrides(value: unknown): ParameterOverrideRuleDto[] {
+  return projectArray(value, projectParameterOverrideRule)
+}
+
 function projectRuntimeConfig(value: unknown, complete: false): GroupRuntimeConfigDto
 function projectRuntimeConfig(value: unknown, complete: true): GroupEffectiveConfigDto
 function projectRuntimeConfig(
@@ -284,7 +347,7 @@ function projectRuntimeConfig(
   complete: boolean,
 ): GroupRuntimeConfigDto | GroupEffectiveConfigDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, runtimeSettingFields)
+  assertNoSecretLikeFields(record, complete ? runtimeSettingFields : groupRuntimeSettingFields)
   const result: GroupRuntimeConfigDto = {}
 
   for (const field of ['first_byte_timeout', 'request_timeout', 'stream_idle_timeout'] as const) {
@@ -300,11 +363,11 @@ function projectRuntimeConfig(
   if (complete || Object.prototype.hasOwnProperty.call(record, 'header_rules')) {
     result.header_rules = projectHeaderRules(record.header_rules)
   }
-  if (complete || Object.prototype.hasOwnProperty.call(record, 'inject_usage_options')) {
-    result.inject_usage_options = projectBoolean(record.inject_usage_options)
-  }
   if (complete || Object.prototype.hasOwnProperty.call(record, 'affinity_enabled')) {
     result.affinity_enabled = projectBoolean(record.affinity_enabled)
+  }
+  if (!complete && Object.prototype.hasOwnProperty.call(record, 'parameter_overrides')) {
+    result.parameter_overrides = projectParameterOverrides(record.parameter_overrides)
   }
   return result as GroupRuntimeConfigDto | GroupEffectiveConfigDto
 }
@@ -329,6 +392,7 @@ export function projectGroupSummary(value: unknown): GroupSummaryDto {
     channel_id: projectChannelID(record.channel_id),
     connection_type: projectEnum(record.connection_type, connectionTypes),
     params: projectChannelParams(record.params),
+    price_multiplier: projectPriceMultiplier(record.price_multiplier),
     service_status: serviceStatus,
     service_status_reason: serviceStatusReason,
     credential_count: projectSafeInteger(record.credential_count, { minimum: 0 }),
@@ -344,6 +408,7 @@ export function projectGroupSettings(value: unknown): GroupSettingsDto {
     channel_id: projectChannelID(record.channel_id),
     connection_type: projectEnum(record.connection_type, connectionTypes),
     params: projectChannelParams(record.params),
+    price_multiplier: projectPriceMultiplier(record.price_multiplier),
     validation_model:
       record.validation_model === null ? null : projectNonBlankString(record.validation_model),
     enabled: projectBoolean(record.enabled),
@@ -440,6 +505,7 @@ function projectGroupCollectionItem(value: unknown): GroupCollectionItemDto {
     connection_type: projectEnum(record.connection_type, connectionTypes),
     params: projectChannelParams(record.params),
     status,
+    price_multiplier: projectPriceMultiplier(record.price_multiplier),
     model_count: modelCount,
     credential_counts: credentialCounts,
   }

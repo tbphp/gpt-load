@@ -26,19 +26,32 @@ export default {
     navigation: {
       label: 'Settings sections',
       caption: 'Sections',
-      forwarding: 'Request and forwarding',
-      affinity: 'Request affinity',
-      headers: 'Global Header Rules',
-      logs: 'Logs and maintenance',
+      routing: 'Routing and scheduling',
+      connection: 'Connection and timeouts',
+      reliability: 'Retries and credential health',
+      browserAccess: 'Headers and CORS',
+      dataMaintenance: 'Data and maintenance',
       system: 'System information',
     },
     validation: {
       title: 'Fix these settings before saving:',
     },
-    runtime: {
-      title: 'Request and forwarding',
+    reliability: {
+      title: 'Retries and credential health',
       description:
-        'Explicit values override built-in defaults. Restoring a default uses the current version; all time values are in seconds.',
+        'The retry policy on failure, plus how much slack a credential gets before being blacklisted and how often it is rechecked.',
+    },
+    runtime: {
+      title: 'Connection and timeouts',
+      description:
+        'How connections reach upstream and the per-stage timeouts. Explicit values override built-in defaults; restoring a default uses the current version.',
+      route_strategy: 'Route strategy',
+      routeStrategies: {
+        native_first: 'Native first',
+        weighted_mix: 'Weighted mix',
+      },
+      routeStrategyHelp:
+        'Native first favors native capabilities. Weighted mix lets native and converted candidates compete by effective weight; conversion may differ in capabilities. Request affinity still applies, so traffic shares are not guaranteed.',
       first_byte_timeout: 'Native response / stream first-event timeout',
       request_timeout: 'Total request timeout',
       stream_idle_timeout: 'Stream idle timeout',
@@ -49,9 +62,6 @@ export default {
       blacklistThresholdHelp:
         'A credential is blacklisted after this many consecutive failures; 0 disables automatic blacklisting.',
       validation_interval: 'Credential validation interval',
-      inject_usage_options: 'Inject usage options for streaming responses',
-      injectUsageHelp:
-        'Applies only to capable openai-completions streaming requests so the final usage can be returned.',
       models_dev_auto_sync_enabled: 'Automatically sync the Models.dev catalog and prices',
       modelsDevAutoSyncHelp:
         'When enabled, the catalog and automatic prices sync on schedule. Manual sync remains available on Models.',
@@ -77,9 +87,9 @@ export default {
       disabled: 'Disabled',
     },
     affinity: {
-      title: 'Request affinity',
+      title: 'Routing and scheduling',
       description:
-        'Controls the global defaults for automatic soft affinity. Each Group can inherit, enable, or disable it.',
+        'Decides which candidate is tried first, and whether a recently successful target is reused. Each Group can inherit or override this.',
       affinity_enabled: 'Enable request affinity',
       enabledHelp:
         'When disabled, only Groups that explicitly enable affinity can learn and reuse an affinity target.',
@@ -92,26 +102,49 @@ export default {
       entries: 'entries',
     },
     headers: {
-      title: 'Global Header Rules',
-      description: 'Base rules for every upstream request.',
+      description: 'Headers set, overridden, or removed before the request reaches upstream.',
+      blockTitle: 'Upstream request header rules',
       ruleCount: '{count} rules',
-      currentPublishedRuleCount: '{count} currently published rules',
-      defaultSource: 'Built-in default',
-      overrideSource: 'Explicit override',
-      pendingRestoreSource: 'Pending restore · currently published',
-      override: 'Override',
-      restoreDefault: 'Restore default',
-      inherited: 'The effective built-in rules are shown. Enable an override to edit them.',
-      resetPending:
-        'The published explicit rules remain visible. Saving is required to restore the current version default.',
-      replacementWarning:
-        'A Group Header Rules override replaces the complete global object; individual rules are not merged.',
-      securityNotice:
-        'Fixed Header values are ordinary configuration. Do not store long-lived credentials; credential Headers must use the literal {template} template.',
+    },
+    browserAccess: {
+      title: 'Headers and CORS',
+      description:
+        'CORS policy, plus header rewrite rules for requests sent upstream and responses returned to the browser. Applies only to the /v1 and /v1beta data plane; management APIs remain cross-origin restricted.',
+      cors: {
+        title: 'CORS policy',
+        description: 'Allowed browser preflights return 204 before AccessKey authentication.',
+        enabled: 'Enable CORS',
+        enabledHelp: 'When disabled, existing OPTIONS and authentication behavior is preserved.',
+        allowedOrigins: 'Allowed origins',
+        allowedOriginsPlaceholder: 'app://obsidian.md, https://notes.example',
+        allowedMethods: 'Allowed methods',
+        allowedHeaders: 'Allowed request headers',
+        exposedHeaders: 'Response headers exposed to browsers',
+        maxAge: 'Preflight cache duration (seconds)',
+        allowCredentials: 'Allow browser credentials',
+        allowCredentialsHelp:
+          'Used for cookies or client certificates; incompatible with origin *.',
+        securityNotice:
+          'Prefer an explicit origin allowlist. Origin * lets any web page call the data plane with an API key held by its visitor. Separate list values with commas.',
+        enabledSummary: 'Enabled for {count} origins',
+        disabledSummary: 'CORS is disabled; OPTIONS keeps its existing behavior.',
+      },
+      responseHeaders: {
+        title: 'Downstream response header rules',
+        description:
+          'Set, override, or remove custom headers before every data-plane response is committed.',
+        removeHint: 'Remove this Header from the downstream response.',
+      },
+      errors: {
+        origins: 'Enter unique valid origins. * must be used alone and cannot allow credentials.',
+        methods: 'Enter unique HTTP methods separated by commas.',
+        headers: 'Enter unique Header names separated by commas. * must be used alone.',
+        maxAge: 'Enter zero or a positive safe integer.',
+      },
     },
     logs: {
-      title: 'Logs and maintenance',
-      description: 'An hourly maintenance task cleans request logs by retention days.',
+      title: 'Data and maintenance',
+      description: 'Scheduled cleanup and sync tasks that run in the background.',
       retention: 'Request-log retention days',
       effectiveValue: '{value} days',
       days: 'days',

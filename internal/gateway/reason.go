@@ -63,6 +63,11 @@ var (
 		Code:    "configuration_changed",
 		Message: "Configuration changed; retry the request.",
 	}
+	reasonParameterOverrideUnavailable = reason{
+		Status:  http.StatusServiceUnavailable,
+		Code:    "parameter_override_unavailable",
+		Message: "No upstream candidate could apply the configured parameter overrides.",
+	}
 )
 
 type accessKeyCostLimitRuleError struct {

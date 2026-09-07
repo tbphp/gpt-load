@@ -62,7 +62,7 @@ export default {
         available: '可用',
         tableLabel: '分组健康列表',
         columns: {
-          group: '分组',
+          group: '分组：{name}',
           status: '调度状态',
           credentialHealth: '凭据构成',
           exceptions: '当前异常',
@@ -225,7 +225,7 @@ export default {
         anyGroup: '全部分组',
         channel: '渠道',
         anyChannel: '全部渠道',
-        credential: '凭据 ID',
+        credential: '凭据：{name}',
         model: '上游模型',
         modelPlaceholder: '精确模型名',
         modelHelp: '可选，精确限定路由后的上游模型。',
@@ -266,7 +266,7 @@ export default {
         totalTokens: '已报告 Token 总数',
         persistedWindow: '当前统计窗口',
         estimatedCost: '预估成本',
-        estimatedCostBasis: '基于已报告 Token 估算',
+        estimatedCostBasis: '基于已报告 Token 与请求当时的倍率',
       },
       tokens: {
         title: '已报告 Token 分类',
@@ -448,6 +448,7 @@ export default {
         reasonLine: '原因：{reason}',
         observedAt: '观测时间 {time}',
         revision: '修订 {revision}',
+        routeStrategy: '路由策略：{strategy}',
         protocol: '协议',
         externalModel: '客户端模型',
         modelNotSpecified: '未指定',
@@ -461,8 +462,12 @@ export default {
       },
       groups: {
         title: '候选分组',
-        description:
-          '先尝试原生路由，仅在原生无可用候选时使用协议转换；同一层级按有效权重加权随机，列表按权重降序展示，并非固定命中次序。',
+        description: {
+          native_first:
+            '先尝试原生路由，原生无可用候选时使用协议转换；同层按有效权重加权随机。列表按层级和权重排序；请求亲和仍生效，权重份额不等于实际流量比例。',
+          weighted_mix:
+            '符合请求要求的原生与转换候选在同一池按有效权重加权随机，列表按权重排序。请求亲和仍生效，权重份额不等于实际流量比例。',
+        },
         count: '{count} 个',
         tableLabel: '候选分组路由解释',
         completeEmpty: '未返回候选分组；这是该输入的完整当前运行时解释，并非空态。',
@@ -482,7 +487,7 @@ export default {
         viewGroup: '查看分组',
         columns: {
           group: '分组',
-          status: '路由层级',
+          status: '路由模式',
           credentials: '凭据',
           weight: '有效权重',
           share: '权重份额',
@@ -692,10 +697,7 @@ export default {
         text: '内容不能包含首尾空白或控制字符。',
         usd: '请输入最多 9 位小数的非负 USD 金额。',
       },
-      accessKey: {
-        named: '{name} · #{id}',
-        deleted: '已删除 · #{id}',
-      },
+      deletedRef: '已删除 · #{id}',
       none: '无',
       yes: '是',
       no: '否',
@@ -708,10 +710,14 @@ export default {
         notRecorded: '未记录',
       },
       routeIdentity: {
-        group: '分组：{name}（G{id}）',
+        group: '分组：{name}',
         channel: '渠道：{name}',
-        credential: '凭据：K{id}',
+        credential: '凭据：{name}',
+        filterGroup: '只看分组 {name} 的日志',
+        filterCredential: '只看凭据 {name} 的日志',
       },
+      filterAccessKey: '只看访问密钥 {name} 的日志',
+      filterModel: '只看模型 {name} 的日志',
       details: '查看详情',
       failureCategory: {
         ok: '正常',
@@ -797,6 +803,7 @@ export default {
         summary: '请求结果',
         requestId: '请求 ID',
         copyRequestId: '复制请求 ID',
+        copyCredential: '复制凭据标识',
         completedAt: '完成时间',
         status: '状态',
         protocol: '协议',
@@ -946,6 +953,13 @@ export default {
         partial: '当前 Token 用量不完整',
       },
       receipt: {
+        total: '已计价合计',
+        baseTotal: '原始已计价合计',
+        finalTotal: '最终已计价合计',
+        totalRounding:
+          '各计价项按原规则四舍五入后合计，再同时乘以分组和访问密钥倍率，最后四舍五入到 0.000000001 USD；未定价部分不计入合计。',
+        rounding:
+          '各计价项应用全部倍率后四舍五入到 0.000000001 USD，再相加；未定价部分不计入合计。',
         formula: '成本计算',
         input: '输入',
         output: '输出',

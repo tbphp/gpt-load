@@ -182,16 +182,14 @@ func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 		t.Fatalf("AccessKey shared model = %#v", shared)
 	}
 	for _, upstream := range shared.UpstreamModels {
-		if len(upstream.RouteGroups) != 1 || len(upstream.AffectedGroups) != 1 {
-			t.Fatalf("channel-scoped shared upstream = %#v", upstream)
+		// 分组信息只对管理员可见。占位对象（id=0/channel_id=""）会触发前端
+		// projectSafeInteger/projectChannelID 的强校验直接判无效响应，把整个
+		// 模型页读崩——必须整条不发，而不是发一条身份被抹空的记录。
+		if len(upstream.RouteGroups) != 0 || len(upstream.AffectedGroups) != 0 {
+			t.Fatalf("AccessKey upstream must omit group identity entirely = %#v", upstream)
 		}
 		if upstream.Price.ChannelIcon == "" || upstream.Price.ChannelMark == "" {
 			t.Fatalf("AccessKey upstream misses channel visual identity: %#v", upstream.Price)
-		}
-		for _, group := range append(upstream.RouteGroups, upstream.AffectedGroups...) {
-			if got := string(group.Params); got != `{}` {
-				t.Fatalf("AccessKey route Group params = %s, want empty object", got)
-			}
 		}
 	}
 	for _, privateValue := range []string{
