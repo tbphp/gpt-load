@@ -40,7 +40,7 @@ func TestUsageAPIRouteUsesManagementAuthentication(t *testing.T) {
 	}
 }
 
-func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
+func TestParseUsageQueryUsesRangeSpecificWindows(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
@@ -52,11 +52,29 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 		bucketWidth int64
 	}{
 		{
-			name:        "1 hour uses one complete UTC hour",
+			name:        "1 hour uses the last sixty minutes across the hour boundary",
 			rawQuery:    "range=1h",
+			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789_000_000, time.UTC),
+			wantFrom:    time.Date(2026, time.July, 27, 11, 34, 56, 789_000_000, time.UTC),
+			wantTo:      time.Date(2026, time.July, 27, 12, 34, 56, 789_000_000, time.UTC),
+			granularity: requestlog.UsageGranularityMinute,
+			bucketWidth: int64(5 * time.Minute / time.Millisecond),
+		},
+		{
+			name:        "1 hour at an exact hour includes the preceding hour",
+			rawQuery:    "range=1h",
+			observedAt:  time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
+			wantFrom:    time.Date(2026, time.July, 27, 11, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityMinute,
+			bucketWidth: int64(5 * time.Minute / time.Millisecond),
+		},
+		{
+			name:        "custom one hour retains hourly aggregation",
+			rawQuery:    "from_ms=1785146400000&to_ms=1785150000000",
 			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
-			wantFrom:    time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 27, 13, 0, 0, 0, time.UTC),
+			wantFrom:    time.UnixMilli(1785146400000),
+			wantTo:      time.UnixMilli(1785150000000),
 			granularity: requestlog.UsageGranularityHour,
 			bucketWidth: int64(time.Hour / time.Millisecond),
 		},
@@ -158,7 +176,7 @@ func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
 		rangeValue    string
 		bucketWidthMS int64
 	}{
-		{rangeValue: "1h", bucketWidthMS: int64(time.Hour / time.Millisecond)},
+		{rangeValue: "1h", bucketWidthMS: int64(5 * time.Minute / time.Millisecond)},
 		{rangeValue: "24h", bucketWidthMS: int64(time.Hour / time.Millisecond)},
 		{rangeValue: "3d", bucketWidthMS: int64(3 * time.Hour / time.Millisecond)},
 		{rangeValue: "7d", bucketWidthMS: int64(6 * time.Hour / time.Millisecond)},
@@ -186,6 +204,41 @@ func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
 				t.Fatalf("range/bucket width = %q/%d, want %q/%d", envelope.Data.Range, envelope.Data.BucketWidthMS, test.rangeValue, test.bucketWidthMS)
 			}
 		})
+	}
+}
+
+func TestUsageAPIRollingHourRefreshUsesNewObservationAndPreservesFilters(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.September, 7, 14, 5, 23, 123_000_000, time.UTC)
+	reader := &recordingUsageStatReader{}
+	engine, fixture := newUsageTestEngine(t, now, reader)
+	fixture.service.now = func() time.Time { return now }
+	for _, observation := range []time.Time{now, now.Add(2 * time.Minute)} {
+		now = observation
+		recorder := performUsageRequest(engine, "test-auth-key",
+			"range=1h&group_id=7&channel_id=openai&credential_id=11&upstream_model=usage-model")
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("rolling usage response = %d %s", recorder.Code, recorder.Body.String())
+		}
+		var envelope struct {
+			Data usageResponse `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode rolling usage response: %v", err)
+		}
+		data := envelope.Data
+		if data.Range != "1h" || data.Granularity != "minute" ||
+			data.BucketWidthMS != int64(5*time.Minute/time.Millisecond) ||
+			data.FromMS != now.Add(-time.Hour).UnixMilli() || data.ToMS != now.UnixMilli() ||
+			data.ObservedAtMS != now.UnixMilli() {
+			t.Fatalf("rolling usage response window = %+v", data)
+		}
+		query := reader.queries[len(reader.queries)-1]
+		if query.GroupID == nil || *query.GroupID != 7 || query.ChannelID != "openai" ||
+			query.CredentialID == nil || *query.CredentialID != 11 ||
+			query.UpstreamModel != "usage-model" {
+			t.Fatalf("rolling usage filters = %+v", query)
+		}
 	}
 }
 

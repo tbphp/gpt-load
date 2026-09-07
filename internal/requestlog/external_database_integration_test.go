@@ -138,6 +138,36 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 		*credentialActivity.LastUsedAtMS != row.CompletedAtMS {
 		t.Fatalf("credential activity = %+v, want one exact successful attempt", credentialActivity)
 	}
+	usageQuery := UsageQuery{
+		FromMS:        row.CompletedAtMS + 1234 - time.Hour.Milliseconds(),
+		ToMS:          row.CompletedAtMS + 1234,
+		Granularity:   UsageGranularityMinute,
+		BucketWidthMS: UsageFiveMinuteBucketMS,
+		GroupID:       &groupID,
+		ChannelID:     "openai",
+		CredentialID:  &credentialID,
+		UpstreamModel: modelID,
+	}
+	usageReport, err := service.QueryUsage(t.Context(), usageQuery)
+	if err != nil {
+		t.Fatalf("minute QueryUsage() error = %v", err)
+	}
+	if usageReport.Summary.RequestCount != 1 ||
+		usageReport.Summary.EstimatedCostNanoUSD != row.EstimatedCostNanoUSD ||
+		len(usageReport.Series) != 1 || usageReport.Series[0].BucketStartMS != row.CompletedAtMS ||
+		usageReport.Series[0].BucketEndMS != usageQuery.ToMS {
+		t.Fatalf("minute usage report = %#v, want one frozen request in its five-minute bucket", usageReport)
+	}
+	assertMinuteUsageReportTotals(t, usageReport)
+	if len(usageReport.Distributions.Group) != 3 || len(usageReport.Distributions.AccessKey) != 3 {
+		t.Fatalf("minute admin distributions = %#v", usageReport.Distributions)
+	}
+	usageQuery.FromMS -= 1234
+	usageQuery.ToMS -= 1234
+	excludedUsage, err := service.QueryUsage(t.Context(), usageQuery)
+	if err != nil || excludedUsage.Summary.RequestCount != 0 || len(excludedUsage.Series) != 0 {
+		t.Fatalf("minute upper-bound exclusion = %#v/%v, want no request at ToMS", excludedUsage, err)
+	}
 	service.Sweep(context.Background(), now)
 	assertExternalRequestLogCount(t, db, "id = ?", []any{requestID}, 0)
 	assertExternalUsageStatCount(

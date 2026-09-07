@@ -339,6 +339,7 @@ export default {
         },
         empty: 'この期間のリクエストバケットはありません。',
         hourly: '時間別',
+        everyMinutes: '{count}分ごと',
         everyHours: '{count}時間ごと',
         daily: '日別',
         failureRate: '失敗率',
@@ -347,7 +348,7 @@ export default {
       },
       series: {
         title: 'UTC バケット',
-        description: '選択した時間または日単位でバックエンドが集計した値です。',
+        description: '選択した時間粒度で集計した使用量とコストです。',
         caption: 'UTC 時間バケット別の使用量集計',
         disclosure: '時間バケットの詳細を表示',
       },

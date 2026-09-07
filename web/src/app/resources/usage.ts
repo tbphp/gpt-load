@@ -57,7 +57,7 @@ export interface UsageDistributionAggregateDto {
 
 export interface UsageReportDto {
   range: UsageRange
-  granularity: 'hour' | 'day'
+  granularity: 'minute' | 'hour' | 'day'
   bucket_width_ms: number
   from_ms: number
   to_ms: number
@@ -126,11 +126,12 @@ const reportFields = [
 ] as const
 const hourMs = 60 * 60 * 1000
 const dayMs = 24 * hourMs
+const fiveMinutesMs = 5 * 60 * 1000
 const usageRangeContract: Record<
   UsageRange,
-  { granularity: 'hour' | 'day'; bucketWidthMs: number; buckets: number }
+  { granularity: UsageReportDto['granularity']; bucketWidthMs: number; buckets: number }
 > = {
-  '1h': { granularity: 'hour', bucketWidthMs: hourMs, buckets: 1 },
+  '1h': { granularity: 'minute', bucketWidthMs: fiveMinutesMs, buckets: 12 },
   '24h': { granularity: 'hour', bucketWidthMs: hourMs, buckets: 24 },
   '3d': { granularity: 'hour', bucketWidthMs: 3 * hourMs, buckets: 24 },
   '7d': { granularity: 'hour', bucketWidthMs: 6 * hourMs, buckets: 28 },
@@ -217,21 +218,24 @@ export function projectUsageReport(value: unknown): UsageReportDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, reportFields)
   const range = projectEnum(record.range, usageRanges)
-  const granularity = projectEnum(record.granularity, ['hour', 'day'] as const)
+  const granularity = projectEnum(record.granularity, ['minute', 'hour', 'day'] as const)
   const rangeContract = usageRangeContract[range]
   if (granularity !== rangeContract.granularity) invalidResponse()
-  const bucketWidthMs = projectSafeInteger(record.bucket_width_ms, { minimum: hourMs })
+  const bucketWidthMs = projectSafeInteger(record.bucket_width_ms, { minimum: fiveMinutesMs })
   if (bucketWidthMs !== rangeContract.bucketWidthMs) invalidResponse()
   const observedAtMS = projectEpochMilliseconds(record.observed_at_ms)
   const rangeFromMS = projectEpochMilliseconds(record.from_ms)
   const rangeToMS = projectEpochMilliseconds(record.to_ms)
   const bucketCount = rangeContract.buckets
+  const rollingHour = range === '1h'
   if (
-    !isUTCAligned(rangeFromMS, bucketWidthMs) ||
-    !isUTCAligned(rangeToMS, bucketWidthMs) ||
     rangeToMS - rangeFromMS !== bucketWidthMs * bucketCount ||
-    observedAtMS < rangeToMS - bucketWidthMs ||
-    observedAtMS >= rangeToMS
+    (rollingHour
+      ? rangeToMS !== observedAtMS
+      : !isUTCAligned(rangeFromMS, bucketWidthMs) ||
+        !isUTCAligned(rangeToMS, bucketWidthMs) ||
+        observedAtMS < rangeToMS - bucketWidthMs ||
+        observedAtMS >= rangeToMS)
   ) {
     invalidResponse()
   }
@@ -247,10 +251,15 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     ])
     const bucketStartMS = projectEpochMilliseconds(item.bucket_start_ms)
     const bucketEndMS = projectEpochMilliseconds(item.bucket_end_ms)
+    const alignedBucketStartMS = Math.floor(bucketStartMS / bucketWidthMs) * bucketWidthMs
     if (
-      !isUTCAligned(bucketStartMS, bucketWidthMs) ||
-      !isUTCAligned(bucketEndMS, bucketWidthMs) ||
-      bucketEndMS - bucketStartMS !== bucketWidthMs ||
+      (rollingHour
+        ? bucketStartMS !== Math.max(alignedBucketStartMS, rangeFromMS) ||
+          bucketEndMS !== Math.min(alignedBucketStartMS + bucketWidthMs, rangeToMS)
+        : !isUTCAligned(bucketStartMS, bucketWidthMs) ||
+          !isUTCAligned(bucketEndMS, bucketWidthMs) ||
+          bucketEndMS - bucketStartMS !== bucketWidthMs) ||
+      bucketEndMS <= bucketStartMS ||
       bucketStartMS < rangeFromMS ||
       bucketEndMS > rangeToMS ||
       bucketStartMS < previousBucketEndMS

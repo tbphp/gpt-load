@@ -161,8 +161,10 @@ type Page struct {
 type UsageGranularity string
 
 const (
-	UsageGranularityHour UsageGranularity = "hour"
-	UsageGranularityDay  UsageGranularity = "day"
+	UsageGranularityMinute  UsageGranularity = "minute"
+	UsageGranularityHour    UsageGranularity = "hour"
+	UsageGranularityDay     UsageGranularity = "day"
+	UsageFiveMinuteBucketMS int64            = 5 * 60 * 1000
 )
 
 type UsageDistributionDimension string
