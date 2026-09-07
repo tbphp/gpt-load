@@ -146,7 +146,7 @@ export const gatewayClients: readonly GatewayClient[] = [
     id: 'claude-code',
     kind: 'commandLine',
     configKind: 'snippet',
-    steps: 2,
+    steps: 3,
     icon: 'claude',
     mark: 'CD',
     searchTerms: ['claude', 'anthropic', 'cli'],
