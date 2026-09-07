@@ -14,6 +14,8 @@ import (
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
+// discoverSubscriptionStageModels discovers models with a staged credential
+// and retries once after forcing a refresh on an authorization failure.
 func (s *Service) discoverSubscriptionStageModels(
 	ctx context.Context,
 	channelID channel.ID,
@@ -88,6 +90,8 @@ func (s *Service) loadReadySubscriptionStageCredential(
 	return s.prepareReadySubscriptionStageCredential(ctx, stage, driver, credential, false)
 }
 
+// discoverSubscriptionGroupModels tries the active credentials in a persisted
+// group until one completes provider-native model discovery.
 func (s *Service) discoverSubscriptionGroupModels(
 	ctx context.Context,
 	rows groupDiscoverySnapshotRows,
@@ -224,6 +228,8 @@ func subscriptionPreparationAPIError(evidence *execution.ErrorEvidence) error {
 	return app_errors.ErrInternalServer
 }
 
+// discoverSubscriptionModelsForChannel invokes the channel capability under a
+// bounded timeout and merges its normalized IDs into the shared catalog.
 func (s *Service) discoverSubscriptionModelsForChannel(
 	ctx context.Context,
 	channelID channel.ID,

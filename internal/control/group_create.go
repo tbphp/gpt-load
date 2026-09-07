@@ -152,6 +152,8 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 	return result, nil
 }
 
+// normalizeGroupCreate validates and canonicalizes a group creation request
+// before any credentials or group state are persisted.
 func (s *Service) normalizeGroupCreate(
 	ctx context.Context,
 	request GroupCreateRequest,

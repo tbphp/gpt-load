@@ -384,6 +384,8 @@ func NewCodexHTTPExecutor() *CodexHTTPExecutor {
 
 func (e *CodexHTTPExecutor) Identifier() string { return ProviderCodex }
 
+// ExecuteCanonical runs one unary Codex request through CPA's stateless HTTP
+// executor and captures request-path, reasoning, and quota observations.
 func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
 	format := sdktranslator.FromString(request.Format)
 	auth := NewCodexAuth(credentialID, credential, request.BaseURL)
@@ -408,6 +410,8 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 	}, nil
 }
 
+// CountTokensCanonical runs Codex token counting and normalizes Responses API
+// token-count payloads into the public response shape.
 func (e *CodexHTTPExecutor) CountTokensCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
 	format := sdktranslator.FromString(request.Format)
 	auth := NewCodexAuth(credentialID, credential, request.BaseURL)
@@ -463,6 +467,8 @@ func normalizeCodexResponsesTokenCount(payload []byte) ([]byte, error) {
 	})
 }
 
+// ExecuteStreamCanonical runs one streaming Codex request and forwards copied
+// chunks while retaining handshake and passive quota observations.
 func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (*ExecuteStreamResponse, error) {
 	format := sdktranslator.FromString(request.Format)
 	auth := NewCodexAuth(credentialID, credential, request.BaseURL)

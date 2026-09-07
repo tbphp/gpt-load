@@ -28,6 +28,8 @@ type ModelDiscoveryResult struct {
 	Models []ModelCandidate `json:"models"`
 }
 
+// DiscoverModels validates a draft channel connection and returns the models
+// visible through its API-key or staged subscription credential.
 func (s *Service) DiscoverModels(
 	ctx context.Context,
 	request ModelDiscoveryRequest,

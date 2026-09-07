@@ -136,6 +136,8 @@ func (*codexDriver) AuthorizationFailureDefinitive(err error) bool {
 	}
 }
 
+// DiscoverModels lists the models visible to a Codex subscription credential
+// through the resolved official or custom target.
 func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
@@ -160,6 +162,8 @@ func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionr
 	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderCodex, result), nil
 }
 
+// Observe retrieves Codex usage and reset-credit details from the resolved
+// target and normalizes them into the provider-neutral quota contract.
 func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
@@ -189,6 +193,8 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 	return subscriptionruntime.Observation{Payload: normalized, Header: observed.Header.Clone(), QuotaObserved: true}, nil
 }
 
+// Consume redeems one Codex reset credit against the resolved target using the
+// caller's durable request identity.
 func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target, requestID string) (subscriptionruntime.ResetCreditResult, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
@@ -209,6 +215,8 @@ func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.
 	return NormalizeResetCreditResult(result.Payload)
 }
 
+// codexTargetBaseURL validates an HTTPS-only Codex target and maps the official
+// endpoint back to the embedded bridge's distinct utility defaults.
 func codexTargetBaseURL(target subscriptionruntime.Target) (string, error) {
 	if len(target.Config) == 0 {
 		return "", nil

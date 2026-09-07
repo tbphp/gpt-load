@@ -134,6 +134,7 @@ func (*claudeDriver) AuthorizationFailureDefinitive(err error) bool {
 	}
 }
 
+// DiscoverModels lists the models visible to a Claude subscription credential.
 func (*claudeDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
@@ -154,6 +155,8 @@ func (*claudeDriver) DiscoverModels(ctx context.Context, credential subscription
 	return result, nil
 }
 
+// Observe retrieves and normalizes Claude account and usage information into
+// the provider-neutral observation contract.
 func (*claudeDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {

@@ -14,6 +14,7 @@ const (
 	CodexDefaultBaseURL                               = "https://chatgpt.com/backend-api/codex"
 )
 
+// Codex declares the subscription-backed Codex channel and its supported routes.
 func Codex() spec.Module {
 	return spec.Module{
 		Definition: spec.Definition{

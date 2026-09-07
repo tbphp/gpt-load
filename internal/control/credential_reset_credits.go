@@ -40,6 +40,8 @@ type storedResetCreditResult struct {
 	RedeemedAtMS *int64 `json:"redeemed_at_ms,omitempty"`
 }
 
+// ConsumeCredentialResetCredit idempotently consumes one provider reset credit
+// and returns the refreshed observation when it is immediately available.
 func (s *Service) ConsumeCredentialResetCredit(
 	ctx context.Context,
 	groupID uint,

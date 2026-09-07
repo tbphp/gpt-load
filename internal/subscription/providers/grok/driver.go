@@ -139,6 +139,8 @@ type grokModelDiscovery struct{ *grokDriver }
 
 func (grokModelDiscovery) ID() spec.UtilityID { return modules.GrokModelDiscovery }
 
+// DiscoverModels lists the models available to a Grok subscription credential
+// and merges them with the provider's compatible static catalog.
 func (*grokDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
@@ -155,6 +157,8 @@ func (*grokDriver) DiscoverModels(ctx context.Context, credential subscriptionru
 	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderGrok, models), nil
 }
 
+// Observe retrieves and normalizes Grok account and quota information into the
+// provider-neutral observation contract.
 func (*grokDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {

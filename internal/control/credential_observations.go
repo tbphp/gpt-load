@@ -179,6 +179,8 @@ func (s *Service) credentialObservationRefreshInFlight(groupID, credentialID uin
 	}] != nil
 }
 
+// refreshCredentialObservationOnce fetches and persists one quota observation,
+// retrying once when an eligible credential refresh resolves authorization.
 func (s *Service) refreshCredentialObservationOnce(
 	ctx context.Context,
 	groupID uint,

@@ -100,6 +100,8 @@ func (a *Adapter) ValidateRouteCapability(
 	return provider.ValidateRouteCapability(route)
 }
 
+// Execute validates and dispatches one unary subscription attempt through the
+// provider bridge selected by the compiled channel definition.
 func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (result execution.AttemptResult) {
 	spec = execution.NewAttemptSpec(spec)
 	defer func() {
@@ -254,6 +256,8 @@ func effectiveUpstreamProtocol(provider providerBridge, observed protocol.Protoc
 	return provider.UpstreamProtocol()
 }
 
+// ExecuteStream validates and dispatches one streaming subscription attempt,
+// forwarding provider chunks and normalized completion evidence to the sink.
 func (a *Adapter) ExecuteStream(
 	ctx context.Context,
 	spec execution.AttemptSpec,
@@ -454,6 +458,8 @@ func responseUsage(spec execution.AttemptSpec, body []byte) *execution.UsageEvid
 	return usageEvidence(spec.ClientProtocol, body)
 }
 
+// validateSpec verifies that an attempt matches its declared channel provider,
+// route, request shape, and resolved execution target.
 func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, string, error) {
 	if a == nil || a.credentials == nil || a.channels == nil || len(a.providers) == 0 {
 		return nil, "", fmt.Errorf("subscription executor is unavailable")
@@ -501,6 +507,7 @@ func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, stri
 	return provider, baseURL, nil
 }
 
+// resolvedTargetBaseURL extracts the normalized Base URL from a compiled target.
 func resolvedTargetBaseURL(raw json.RawMessage) (string, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return "", nil
@@ -514,6 +521,8 @@ func resolvedTargetBaseURL(raw json.RawMessage) (string, error) {
 	return strings.TrimSpace(target.BaseURL), nil
 }
 
+// bridgeRequest copies an attempt into the provider-neutral CPA request shape
+// and performs the additional Images request normalization when required.
 func bridgeRequest(
 	spec execution.AttemptSpec,
 	proxySettings cpaProxySettings,

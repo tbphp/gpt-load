@@ -141,6 +141,8 @@ func (s *Service) retireCredentialRuntime(credentialID uint) {
 	}
 }
 
+// NewService constructs the control-plane service and wires channel-specific
+// subscription capabilities into its persistence and execution collaborators.
 func NewService(
 	db *gorm.DB,
 	manager *state.Manager,

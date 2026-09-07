@@ -387,6 +387,8 @@ func (e *executor) ExecuteStream(
 	return convertedResponse, nil
 }
 
+// executeRequestToBridge copies a Codex request into the embedded executor's
+// transport representation without sharing mutable payload or header state.
 func executeRequestToBridge(value ExecuteRequest) cpaembedded.ExecuteRequest {
 	return cpaembedded.ExecuteRequest{
 		Model:                value.Model,

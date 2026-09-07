@@ -209,6 +209,8 @@ func normalizeGroupSettingsUpdate(
 	return result, nil
 }
 
+// UpdateGroupSettings atomically applies validated group settings and
+// reconciles the resulting runtime credential entries.
 func (s *Service) UpdateGroupSettings(
 	ctx context.Context,
 	groupID uint,
