@@ -9,11 +9,14 @@ CLIProxyAPI (github.com/router-for-me/CLIProxyAPI):
     Copyright (c) 2025-2005.9 Luis Pater
     Copyright (c) 2025.9-present Router-For.ME
 
-fasthttp (github.com/valyala/fasthttp, including the github.com/tbphp/fasthttp
-fork built into GPT-Load):
+fasthttp (github.com/valyala/fasthttp):
 
     Copyright (c) 2015-present Aliaksandr Valialkin, VertaMedia, Kirill Danshin,
     Erik Dubbelboer, FastHTTP Authors
+
+go-brrr (github.com/molecule-man/go-brrr):
+
+    Copyright (c) 2026 Andrii Berezhynskyi
 
 Lobe Icons (github.com/lobehub/lobe-icons):
 

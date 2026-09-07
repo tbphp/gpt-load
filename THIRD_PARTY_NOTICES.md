@@ -53,14 +53,25 @@ The complete Inno Setup License text is distributed in
 ## fasthttp
 
 - Module: `github.com/valyala/fasthttp`
-- Replaced by: `github.com/tbphp/fasthttp v1.73.1-0.20260828150536-1c6c09a6f6bc`
+- Version: `v1.74.0`
 - Copyright: 2015-present Aliaksandr Valialkin, VertaMedia, Kirill Danshin, Erik
   Dubbelboer, FastHTTP Authors
 - License: MIT License
 
-GPT-Load builds against a pinned fork carrying an unreleased upstream stream
-lifecycle fix (<https://github.com/valyala/fasthttp/pull/2353>). The fork keeps
-the original copyright and MIT license unchanged.
+GPT-Load uses the official upstream release through Bifrost Core for provider
+HTTP requests and streaming responses.
+
+The complete MIT License text is distributed in `LICENSES/MIT.txt`.
+
+## go-brrr
+
+- Module: `github.com/molecule-man/go-brrr`
+- Version: `v1.0.1`
+- Copyright: 2026 Andrii Berezhynskyi
+- License: MIT License
+
+GPT-Load includes go-brrr through fasthttp for Brotli compression and
+decompression.
 
 The complete MIT License text is distributed in `LICENSES/MIT.txt`.
 
