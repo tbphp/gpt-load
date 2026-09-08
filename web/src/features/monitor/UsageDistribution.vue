@@ -195,10 +195,13 @@ function secondaryValue(item: UsageDistributionAggregateDto): string {
           <button
             v-if="row.identity?.access_key_id !== undefined"
             type="button"
-            class="usage-distribution__key-link"
+            class="usage-distribution__key-link usage-distribution__identity-copy"
             @click="emit('selectAccessKey', row.identity.access_key_id)"
           >
-            {{ identityLabel(row) }}
+            <OverflowTooltip as="strong" :content="identityLabel(row)" :focusable="false">
+              {{ identityLabel(row) }}
+            </OverflowTooltip>
+            <small>{{ identityMeta(row) }}</small>
           </button>
           <template v-else>
             <span class="usage-distribution__icon" aria-hidden="true">

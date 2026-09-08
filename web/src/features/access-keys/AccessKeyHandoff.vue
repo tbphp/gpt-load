@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { X } from '@lucide/vue'
-import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRouter } from 'vue-router'
 
 import type { AccessKeyDto } from '@/api/control/types'
 import { useApiClient } from '@/api/client-context'
 import { revealAccessKey } from '@/app/resources/access-keys'
-import { homeBaseQueryOptions } from '@/app/resources/home'
+import { getHomeBase } from '@/app/resources/home'
 import { homeLocation, loginLocation } from '@/app/route-locations'
 import { useAbortControllerPool } from '@/app/use-abort-controller-pool'
 import CopyChip from '@/components/ui/CopyChip.vue'
@@ -20,12 +19,12 @@ const { locale, t } = useI18n()
 const router = useRouter()
 const client = useApiClient()
 const controllers = useAbortControllerPool()
-const home = useQuery(homeBaseQueryOptions(client))
 const origin = window.location.origin
 async function handoff(): Promise<string> {
   const controller = controllers.create()
   const key = props.accessKey
   try {
+    const home = await getHomeBase(client, controller.signal)
     const result = await revealAccessKey(client, key.id, controller.signal)
     return t('accessKeys.distribution.handoffText', {
       name: key.name,
@@ -36,7 +35,7 @@ async function handoff(): Promise<string> {
         key.expires_at_ms === null
           ? t('accessKeys.distribution.neverExpires')
           : formatLocalInstant(key.expires_at_ms, locale.value),
-      contact: home.data.value?.contact_info || '',
+      contact: home.contact_info,
     })
   } finally {
     controllers.release(controller)
