@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { Database } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -16,14 +16,11 @@ import {
   type UsageAggregateDto,
   type UsageDistributionDimension,
   type UsageDistributionMetric,
-  type UsageFilters,
-  type UsageRange,
   type UsageReportDto,
 } from '@/app/resources/usage'
 import { monitorLocation } from '@/app/route-locations'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import type { TrendDatum } from '@/components/charts/trend-chart'
-import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import DataTable from '@/components/ui/DataTable.vue'
@@ -32,7 +29,13 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
-import { formatEstimatedCost, formatInteger, formatTokens } from '@/lib/format'
+import {
+  formatEstimatedCost,
+  formatInteger,
+  formatTokens,
+  formatLocalTimeRange,
+} from '@/lib/format'
+import { resolveDateTimePreset } from '@/lib/time'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
@@ -43,6 +46,7 @@ import {
   createUsageFilterDraft,
   parseAppliedUsageFilters,
   validateUsageFilterDraft,
+  type AppliedUsageFilters,
   type UsageFilterDraft,
   type UsageFilterErrors,
 } from './usage-filters'
@@ -224,12 +228,12 @@ function normalizeTrendCost(value: bigint, maximum: bigint): number {
 
 const trendBuckets = computed<UsageReportDto['series']>(() => {
   const current = report.value
-  if (current?.range !== '1h') return current?.series ?? []
+  if (!current) return []
 
   const byStart = new Map(current.series.map((bucket) => [bucket.bucket_start_ms, bucket]))
   const buckets: UsageReportDto['series'] = []
   const width = current.bucket_width_ms
-  // 补齐自然五分钟桶，首尾只覆盖最近一小时内的部分。
+  // 使用后端返回的粒度补零，首尾裁切到查询范围，不推断残缺桶的宽度。
   for (
     let alignedStart = Math.floor(current.from_ms / width) * width;
     alignedStart < current.to_ms;
@@ -294,7 +298,9 @@ const barTrendSeries = computed<UsageBarDatum[]>(() => {
 
 watch(
   [
-    () => appliedFilters.value.range,
+    () => appliedFilters.value.from_ms,
+    () => appliedFilters.value.to_ms,
+    () => appliedFilters.value.preset,
     () => appliedFilters.value.access_key_id,
     () => appliedFilters.value.group_id,
     () => appliedFilters.value.channel_id,
@@ -315,10 +321,6 @@ watch(
   },
 )
 
-function rangeLabel(range: UsageRange): string {
-  return t(`monitor.usage.filters.ranges.${range}`)
-}
-
 function granularityLabel(): string {
   const bucketWidthMS = report.value?.bucket_width_ms
   if (report.value?.granularity === 'minute') {
@@ -326,6 +328,11 @@ function granularityLabel(): string {
   }
   if (bucketWidthMS === 60 * 60 * 1000) return t('monitor.usage.trend.hourly')
   if (bucketWidthMS === 24 * 60 * 60 * 1000) return t('monitor.usage.trend.daily')
+  if (report.value?.granularity === 'day') {
+    return t('monitor.usage.trend.everyDays', {
+      count: (bucketWidthMS ?? 0) / (24 * 60 * 60 * 1000),
+    })
+  }
   return t('monitor.usage.trend.everyHours', {
     count: (bucketWidthMS ?? 0) / (60 * 60 * 1000),
   })
@@ -367,11 +374,15 @@ async function applyFilters(): Promise<void> {
   const errors = validateUsageFilterDraft(draft.value)
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
-  await navigate({ ...applyUsageFilterDraft(draft.value), at_ms: appliedFilters.value.at_ms })
+  await navigate(applyUsageFilterDraft(draft.value, appliedFilters.value))
 }
 
 async function resetFilters(): Promise<void> {
-  await navigate({ range: appliedFilters.value.range })
+  await navigate({
+    from_ms: appliedFilters.value.from_ms,
+    to_ms: appliedFilters.value.to_ms,
+    preset: appliedFilters.value.preset,
+  })
 }
 
 function updateDistributionDimension(value: string): void {
@@ -399,7 +410,7 @@ async function updateTrendMetric(value: string): Promise<void> {
 }
 
 async function navigate(
-  filters: UsageFilters,
+  filters: AppliedUsageFilters,
   state: UsageMonitorState = {
     filtersOpen: false,
     seriesExpanded: false,
@@ -417,8 +428,18 @@ function setSeriesExpanded(event: Event): void {
 }
 
 async function refresh(): Promise<void> {
+  const filters = appliedFilters.value
+  if (filters.preset) {
+    const interval = resolveDateTimePreset(filters.preset, Math.floor(Date.now() / 1000) * 1000)
+    if (interval.to_ms > interval.from_ms) {
+      await router.replace(
+        monitorLocation(usageMonitorQuery({ ...filters, ...interval }, routeState.value)),
+      )
+      await nextTick()
+    }
+  }
   await Promise.all([
-    usageQuery.refetch(),
+    usageQuery.refetch({ cancelRefetch: false }),
     ...(!isAccessKey.value
       ? [groupsQuery.refetch(), channelsQuery.refetch(), accessKeysQuery.refetch()]
       : []),
@@ -501,7 +522,7 @@ defineExpose({ openFilters, refresh, navigationReport, navigationPending })
             id="usage-trend-title"
             :title="trendPresentation.title"
             :description="trendPresentation.description"
-            :meta="`${rangeLabel(report.range)} · ${granularityLabel()}`"
+            :meta="granularityLabel()"
           >
             <template #actions>
               <SegmentedControl
@@ -524,7 +545,8 @@ defineExpose({ openFilters, refresh, navigationReport, navigationPending })
               :failure-label="trendPresentation.secondaryLabel ?? ''"
               :range-start="report.from_ms"
               :range-end="report.to_ms"
-              :center-buckets="report.range === '1h'"
+              center-buckets
+              show-bucket-seconds
               :locale="locale"
               show-bucket-range
               show-single-point
@@ -651,7 +673,6 @@ defineExpose({ openFilters, refresh, navigationReport, navigationPending })
               navigate({
                 ...appliedFilters,
                 access_key_id: $event,
-                at_ms: appliedFilters.at_ms ?? report.observed_at_ms,
               })
             "
           />
@@ -677,8 +698,17 @@ defineExpose({ openFilters, refresh, navigationReport, navigationPending })
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="bucket in report.series" :key="bucket.bucket_start_ms">
-                  <td><AppDateTime :instant="bucket.bucket_start_ms" :locale="locale" /></td>
+                <tr v-for="bucket in trendBuckets" :key="bucket.bucket_start_ms">
+                  <td>
+                    {{
+                      formatLocalTimeRange(
+                        bucket.bucket_start_ms,
+                        bucket.bucket_end_ms,
+                        locale,
+                        true,
+                      )
+                    }}
+                  </td>
                   <td>{{ formatInteger(bucket.request_count, locale) }}</td>
                   <td>{{ formatInteger(bucket.success_count, locale) }}</td>
                   <td>{{ formatInteger(bucket.failure_count, locale) }}</td>

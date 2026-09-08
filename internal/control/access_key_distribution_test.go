@@ -31,9 +31,9 @@ func TestAccessKeyDistributionCollectionMatchesUsageAndSortsBeforePagination(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	window, apiErr := parseUsageQuery("range=7d", now.UnixMilli())
-	if apiErr != nil {
-		t.Fatal(apiErr)
+	window := requestlog.UsageQuery{
+		FromMS: time.Date(2026, 8, 31, 18, 0, 0, 0, time.UTC).UnixMilli(),
+		ToMS:   time.Date(2026, 9, 7, 18, 0, 0, 0, time.UTC).UnixMilli(),
 	}
 	for index, row := range []models.UsageStat{
 		{AccessKeyID: key1.ID, BucketStartMS: window.FromMS, RequestCount: 1, SuccessCount: 1, UncachedInputTokens: 2, OutputTokens: 3, EstimatedCostNanoUSD: 100},
@@ -91,7 +91,7 @@ func TestAccessKeyDistributionCollectionMatchesUsageAndSortsBeforePagination(t *
 			}
 		})
 	}
-	recorder := performUsageRequest(engine, authTestKey, fmt.Sprintf("range=7d&access_key_id=%d", key2.ID))
+	recorder := performUsageRequest(engine, authTestKey, fmt.Sprintf("from_ms=%d&to_ms=%d&access_key_id=%d", window.FromMS, window.ToMS, key2.ID))
 	if recorder.Code != 200 {
 		t.Fatalf("usage = %d %s", recorder.Code, recorder.Body.String())
 	}

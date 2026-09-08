@@ -93,7 +93,7 @@ func TestQueryUsageExcludesLegacyZeroAttemptAggregates(t *testing.T) {
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 	})
 	if err != nil {
@@ -132,7 +132,7 @@ func TestQueryUsageScopesAccessKeyAndDistributesByModel(t *testing.T) {
 	accessKeyID := uint(41)
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 		AccessKeyID: &accessKeyID,
 		SelfScoped:  true,
@@ -164,7 +164,7 @@ func TestQueryUsageRejectsZeroAccessKeyScope(t *testing.T) {
 
 	_, err := service.QueryUsage(context.Background(), UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 		AccessKeyID: &zero,
 	})
@@ -193,7 +193,7 @@ func TestQueryUsageDistributionAggregatesCredentialsAndFoldsRemainder(t *testing
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 	})
 	if err != nil {
@@ -246,7 +246,7 @@ func TestQueryUsageGroupDistributionKeepsOnlyPersistedGroupsInTopFive(t *testing
 	} {
 		report, err := service.QueryUsage(context.Background(), UsageQuery{
 			FromMS:      start.UnixMilli(),
-			ToMS:        start.Add(time.Hour).UnixMilli(),
+			ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 			Granularity: UsageGranularityHour,
 		})
 		if err != nil {
@@ -312,7 +312,7 @@ func TestQueryUsageAccessKeyTokenDistributionKeepsOnlyPersistedKeys(t *testing.T
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 	})
 	if err != nil {
@@ -356,7 +356,7 @@ func TestQueryUsageModelDistributionAggregatesGroupsAndCredentials(t *testing.T)
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 	})
 	if err != nil {
@@ -409,8 +409,15 @@ func TestQueryUsageMergesHourlyRowsIntoThirtyUTCDays(t *testing.T) {
 
 func TestQueryUsageMergesHourlyRowsIntoAdaptiveBuckets(t *testing.T) {
 	start := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
-	for _, width := range []time.Duration{3 * time.Hour, 6 * time.Hour, 12 * time.Hour} {
-		t.Run(width.String(), func(t *testing.T) {
+	for _, test := range []struct {
+		width, span time.Duration
+	}{
+		{3 * time.Hour, 3 * 24 * time.Hour},
+		{6 * time.Hour, 7 * 24 * time.Hour},
+		{12 * time.Hour, 15 * 24 * time.Hour},
+	} {
+		t.Run(test.width.String(), func(t *testing.T) {
+			width := test.width
 			db := openRequestLogQueryDB(t)
 			service := newRequestLogTestService(db)
 			createUsageStats(
@@ -424,7 +431,7 @@ func TestQueryUsageMergesHourlyRowsIntoAdaptiveBuckets(t *testing.T) {
 
 			report, err := service.QueryUsage(context.Background(), UsageQuery{
 				FromMS:        start.UnixMilli(),
-				ToMS:          start.Add(2 * width).UnixMilli(),
+				ToMS:          start.Add(test.span).UnixMilli(),
 				Granularity:   UsageGranularityHour,
 				BucketWidthMS: width.Milliseconds(),
 			})
@@ -451,7 +458,7 @@ func TestQueryUsageMergesHourlyRowsIntoAdaptiveBuckets(t *testing.T) {
 	}
 }
 
-func TestQueryUsageRejectsInvalidBucketWidths(t *testing.T) {
+func TestQueryUsageIgnoresCallerBucketWidths(t *testing.T) {
 	start := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name        string
@@ -476,8 +483,8 @@ func TestQueryUsageRejectsInvalidBucketWidths(t *testing.T) {
 				Granularity:   test.granularity,
 				BucketWidthMS: test.width.Milliseconds(),
 			})
-			if err == nil {
-				t.Fatal("QueryUsage() error = nil, want invalid bucket width rejection")
+			if err != nil {
+				t.Fatalf("QueryUsage() error = %v, want bucket derived from time range", err)
 			}
 		})
 	}
@@ -515,7 +522,7 @@ func TestQueryUsageOrdersDistributionByRequestsAndCost(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			report, err := service.QueryUsage(context.Background(), UsageQuery{
 				FromMS:      start.UnixMilli(),
-				ToMS:        start.Add(time.Hour).UnixMilli(),
+				ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 				Granularity: UsageGranularityHour,
 			})
 			if err != nil {
@@ -555,7 +562,7 @@ func TestQueryUsageUsesOneReadSnapshot(t *testing.T) {
 	inserted := false
 	const callbackName = "test:usage_query_snapshot_insert"
 	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		if inserted || tx.Statement.Table != "usage_stats" {
+		if inserted || tx.DryRun {
 			return
 		}
 		inserted = true
@@ -579,7 +586,7 @@ func TestQueryUsageUsesOneReadSnapshot(t *testing.T) {
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 	})
 	if err != nil {
@@ -603,7 +610,7 @@ func TestQueryUsageCancelsAfterBeginWithoutPoisoningDatabaseConnection(t *testin
 	cancelled := false
 	const callbackName = "test:usage_query_cancel_after_begin"
 	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		if cancelled || tx.Statement.Table != "usage_stats" {
+		if cancelled || tx.DryRun {
 			return
 		}
 		cancelled = true
@@ -619,7 +626,7 @@ func TestQueryUsageCancelsAfterBeginWithoutPoisoningDatabaseConnection(t *testin
 
 	_, err := service.QueryUsage(ctx, UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 	})
 	if err == nil || !cancelled {
@@ -675,7 +682,7 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopDistribution(t *testing.T) {
 
 	input := UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 	}
 	summary, err := queryUsageSummary(usageStatScope(db, input))
@@ -801,7 +808,7 @@ func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 			createCorruptUsageStats(t, db, test.rows...)
 			_, err := newRequestLogTestService(db).QueryUsage(context.Background(), UsageQuery{
 				FromMS:      start.UnixMilli(),
-				ToMS:        start.Add(time.Hour).UnixMilli(),
+				ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 				Granularity: UsageGranularityHour,
 			})
 			if err == nil {

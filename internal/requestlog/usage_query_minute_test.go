@@ -86,13 +86,14 @@ func TestQueryUsageMinuteCanIncludeThirteenPartialAndFullBuckets(t *testing.T) {
 
 func TestQueryUsageMinuteClipsBucketNearTimestampLimit(t *testing.T) {
 	db := openRequestLogQueryDB(t)
-	start := time.UnixMilli(math.MaxInt64 - time.Hour.Milliseconds())
-	row := aggregationRow(aggregationRequestID(700), time.UnixMilli(math.MaxInt64-1), 7, "model")
+	const maxSafeMilliseconds int64 = 1<<53 - 1
+	start := time.UnixMilli(maxSafeMilliseconds - time.Hour.Milliseconds())
+	row := aggregationRow(aggregationRequestID(700), time.UnixMilli(maxSafeMilliseconds-1), 7, "model")
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatal(err)
 	}
 	report, err := newRequestLogTestService(db).QueryUsage(context.Background(), minuteUsageQuery(start))
-	if err != nil || len(report.Series) != 1 || report.Series[0].BucketEndMS != math.MaxInt64 ||
+	if err != nil || len(report.Series) != 1 || report.Series[0].BucketEndMS != maxSafeMilliseconds ||
 		report.Series[0].BucketStartMS < start.UnixMilli() {
 		t.Fatalf("QueryUsage() series/error = %#v/%v, want clipped bucket without overflow", report.Series, err)
 	}
@@ -132,6 +133,7 @@ func TestQueryUsageMinuteMatchesFrozenHourlyAccounting(t *testing.T) {
 	}
 	hourQuery := minuteUsageQuery(start)
 	hourQuery.Granularity = UsageGranularityHour
+	hourQuery.ToMS = start.Add(2 * time.Hour).UnixMilli()
 	hour, err := service.QueryUsage(context.Background(), hourQuery)
 	if err != nil {
 		t.Fatalf("hour QueryUsage() error = %v", err)
@@ -231,22 +233,23 @@ func TestQueryUsageMinuteUsesOneReadSnapshot(t *testing.T) {
 	assertMinuteUsageReportTotals(t, report)
 }
 
-func TestQueryUsageMinuteRejectsInvalidRanges(t *testing.T) {
+func TestQueryUsageDerivesWidthFromTimeRange(t *testing.T) {
 	start := time.Date(2026, time.September, 7, 13, 2, 0, 0, time.UTC)
 	for _, test := range []struct {
 		name     string
 		duration time.Duration
 		width    time.Duration
+		want     time.Duration
 	}{
-		{"short range", 59 * time.Minute, 5 * time.Minute},
-		{"long range", 61 * time.Minute, 5 * time.Minute},
-		{"wrong bucket", time.Hour, time.Minute},
+		{"short range", 59 * time.Minute, 5 * time.Minute, 5 * time.Minute},
+		{"long range", 61 * time.Minute, 5 * time.Minute, time.Hour},
+		{"caller bucket is ignored", time.Hour, time.Minute, 5 * time.Minute},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			query := minuteUsageQuery(start)
 			query.ToMS, query.BucketWidthMS = start.Add(test.duration).UnixMilli(), test.width.Milliseconds()
-			if _, err := validateUsageQuery(query); err == nil {
-				t.Fatal("validateUsageQuery() error = nil, want invalid minute range rejection")
+			if width, err := validateUsageQuery(query); err != nil || width != test.want.Milliseconds() {
+				t.Fatalf("validateUsageQuery() width/error = %d/%v, want %s", width, err, test.want)
 			}
 		})
 	}

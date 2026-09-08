@@ -229,6 +229,12 @@ api_get() {
     "${base_url}${path}"
 }
 
+api_get_usage() {
+  local to_ms
+  to_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
+  api_get "/api/usage?from_ms=$((to_ms - 86400000))&to_ms=${to_ms}"
+}
+
 api_write() {
   local method="$1"
   local path="$2"
@@ -281,7 +287,7 @@ test "$(
     --data-binary '{"model":"task13-release-model","messages":[]}' \
     "${base_url}/v1/chat/completions"
 )" = "401"
-api_get "/api/usage?range=24h" >"${task_tmp}/usage-empty.json"
+api_get_usage >"${task_tmp}/usage-empty.json"
 api_get "/api/model-prices" >"${task_tmp}/prices-empty.json"
 
 smoke_stage="create-group"
@@ -385,7 +391,7 @@ node -e '
 smoke_stage="verify-usage"
 usage_complete=false
 for _ in $(seq 1 80); do
-  api_get "/api/usage?range=24h" >"${task_tmp}/usage-first.json"
+  api_get_usage >"${task_tmp}/usage-first.json"
   if node -e '
     const fs=require("fs");
     const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
@@ -432,7 +438,7 @@ test "$(
 
 api_get "/api/groups" >"${task_tmp}/groups-second.json"
 api_get "${model_price_list_path}" >"${task_tmp}/prices-second.json"
-api_get "/api/usage?range=24h" >"${task_tmp}/usage-second.json"
+api_get_usage >"${task_tmp}/usage-second.json"
 access_list="$(api_get "/api/access-keys")"
 printf '%s' "${access_list}" | node -e '
   const fs=require("fs");

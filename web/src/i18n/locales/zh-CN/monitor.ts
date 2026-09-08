@@ -326,6 +326,7 @@ export default {
         hourly: '按小时',
         everyMinutes: '每 {count} 分钟',
         everyHours: '每 {count} 小时',
+        everyDays: '每 {count} 天',
         daily: '按天',
         failureRate: '失败率',
         inputTokens: '输入 Token',
@@ -582,6 +583,9 @@ export default {
         to: '结束时间',
         quickRanges: '快捷时间范围',
         quick: {
+          today: '今天',
+          yesterday: '昨天',
+          '6h': '6h',
           '1h': '1h',
           '24h': '24h',
           '3d': '3d',

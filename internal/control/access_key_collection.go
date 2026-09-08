@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/storage/models"
@@ -74,16 +75,25 @@ func (s *Service) ListAccessKeyCollection(
 	if s.now != nil {
 		observedAt = s.now()
 	}
-	usageQuery, apiErr := parseUsageQuery("range="+usageRange7Days, observedAt.UnixMilli())
-	if apiErr != nil {
-		return AccessKeyCollectionResponse{}, apiErr
+	observedAtMS, err := safeEpochMilliseconds(observedAt)
+	if err != nil {
+		return AccessKeyCollectionResponse{}, err
+	}
+	// 密钥列表保留固定七天口径，通过明确区间与用量页联动。
+	fromMS, toMS, err := epochms.WindowEndingAt(observedAtMS, 6*epochms.MillisecondsPerHour, 28)
+	if err != nil {
+		return AccessKeyCollectionResponse{}, app_errors.ErrInternalServer
+	}
+	usageQuery := requestlog.UsageQuery{
+		FromMS: fromMS, ToMS: toMS,
+		Granularity: requestlog.UsageGranularityHour, BucketWidthMS: 6 * epochms.MillisecondsPerHour,
 	}
 	records, err := s.captureAccessKeyCollectionRecords(ctx, usageQuery, observedAt)
 	if err != nil {
 		return AccessKeyCollectionResponse{}, err
 	}
 	result := queryAccessKeyCollectionRecords(records, query)
-	result.UsageWindow = &AccessKeyUsageWindow{ObservedAtMS: observedAt.UnixMilli(), Range: usageRange7Days, FromMS: usageQuery.FromMS, ToMS: usageQuery.ToMS}
+	result.UsageWindow = &AccessKeyUsageWindow{ObservedAtMS: observedAtMS, Range: "7d", FromMS: usageQuery.FromMS, ToMS: usageQuery.ToMS}
 	return result, nil
 }
 

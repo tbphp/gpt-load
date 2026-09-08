@@ -4,7 +4,6 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
-import { timeRanges, type TimeRange } from '@/lib/time'
 
 import {
   assertNoSecretLikeFields,
@@ -20,12 +19,10 @@ import {
 
 export type UsageDistributionDimension = 'group' | 'model' | 'access_key'
 export type UsageDistributionMetric = 'requests' | 'tokens' | 'cost'
-export const usageRanges = timeRanges
-export type UsageRange = TimeRange
 
 export interface UsageFilters {
-  range: UsageRange
-  at_ms?: number
+  from_ms: number
+  to_ms: number
   access_key_id?: number
   group_id?: number
   channel_id?: string
@@ -58,7 +55,6 @@ export interface UsageDistributionAggregateDto {
 }
 
 export interface UsageReportDto {
-  range: UsageRange
   granularity: 'minute' | 'hour' | 'day'
   bucket_width_ms: number
   from_ms: number
@@ -115,7 +111,6 @@ const distributionAggregateFields = [
   'estimated_cost_nano_usd',
 ] as const
 const reportFields = [
-  'range',
   'granularity',
   'bucket_width_ms',
   'from_ms',
@@ -129,24 +124,9 @@ const reportFields = [
 const hourMs = 60 * 60 * 1000
 const dayMs = 24 * hourMs
 const fiveMinutesMs = 5 * 60 * 1000
-const usageRangeContract: Record<
-  UsageRange,
-  { granularity: UsageReportDto['granularity']; bucketWidthMs: number; buckets: number }
-> = {
-  '1h': { granularity: 'minute', bucketWidthMs: fiveMinutesMs, buckets: 12 },
-  '24h': { granularity: 'hour', bucketWidthMs: hourMs, buckets: 24 },
-  '3d': { granularity: 'hour', bucketWidthMs: 3 * hourMs, buckets: 24 },
-  '7d': { granularity: 'hour', bucketWidthMs: 6 * hourMs, buckets: 28 },
-  '15d': { granularity: 'hour', bucketWidthMs: 12 * hourMs, buckets: 30 },
-  '30d': { granularity: 'day', bucketWidthMs: dayMs, buckets: 30 },
-}
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
-}
-
-function isUTCAligned(timestampValue: number, bucketWidthMs: number): boolean {
-  return timestampValue % bucketWidthMs === 0
 }
 
 export function projectUsageAggregate(value: unknown): UsageAggregateDto {
@@ -219,27 +199,19 @@ function projectCollectionHealth(value: unknown): UsageReportDto['collection_hea
 export function projectUsageReport(value: unknown): UsageReportDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, reportFields)
-  const range = projectEnum(record.range, usageRanges)
   const granularity = projectEnum(record.granularity, ['minute', 'hour', 'day'] as const)
-  const rangeContract = usageRangeContract[range]
-  if (granularity !== rangeContract.granularity) invalidResponse()
   const bucketWidthMs = projectSafeInteger(record.bucket_width_ms, { minimum: fiveMinutesMs })
-  if (bucketWidthMs !== rangeContract.bucketWidthMs) invalidResponse()
-  const observedAtMS = projectEpochMilliseconds(record.observed_at_ms)
-  const rangeFromMS = projectEpochMilliseconds(record.from_ms)
-  const rangeToMS = projectEpochMilliseconds(record.to_ms)
-  const bucketCount = rangeContract.buckets
-  const rollingHour = range === '1h'
   if (
-    rangeToMS - rangeFromMS !== bucketWidthMs * bucketCount ||
-    (rollingHour
-      ? rangeToMS > observedAtMS
-      : !isUTCAligned(rangeFromMS, bucketWidthMs) ||
-        !isUTCAligned(rangeToMS, bucketWidthMs) ||
-        observedAtMS < rangeToMS - bucketWidthMs)
+    (granularity === 'minute' && bucketWidthMs !== fiveMinutesMs) ||
+    (granularity === 'hour' && bucketWidthMs % hourMs !== 0) ||
+    (granularity === 'day' && bucketWidthMs % dayMs !== 0)
   ) {
     invalidResponse()
   }
+  const observedAtMS = projectEpochMilliseconds(record.observed_at_ms)
+  const rangeFromMS = projectEpochMilliseconds(record.from_ms)
+  const rangeToMS = projectEpochMilliseconds(record.to_ms)
+  if (rangeToMS <= rangeFromMS) invalidResponse()
 
   let previousBucketEndMS = rangeFromMS
   const series = projectArray(record.series, (value) => {
@@ -254,12 +226,8 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     const bucketEndMS = projectEpochMilliseconds(item.bucket_end_ms)
     const alignedBucketStartMS = Math.floor(bucketStartMS / bucketWidthMs) * bucketWidthMs
     if (
-      (rollingHour
-        ? bucketStartMS !== Math.max(alignedBucketStartMS, rangeFromMS) ||
-          bucketEndMS !== Math.min(alignedBucketStartMS + bucketWidthMs, rangeToMS)
-        : !isUTCAligned(bucketStartMS, bucketWidthMs) ||
-          !isUTCAligned(bucketEndMS, bucketWidthMs) ||
-          bucketEndMS - bucketStartMS !== bucketWidthMs) ||
+      bucketStartMS !== Math.max(alignedBucketStartMS, rangeFromMS) ||
+      bucketEndMS !== Math.min(alignedBucketStartMS + bucketWidthMs, rangeToMS) ||
       bucketEndMS <= bucketStartMS ||
       bucketStartMS < rangeFromMS ||
       bucketEndMS > rangeToMS ||
@@ -394,9 +362,19 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     ? projectDistributionMetricRecord(distributionsRecord.access_key, 'access_key')
     : undefined
   const summary = projectUsageAggregate(record.summary)
+  for (const field of aggregateKeys) {
+    if (series.reduce((total, bucket) => total + bucket[field], 0) !== summary[field]) {
+      invalidResponse()
+    }
+  }
+  if (
+    series.reduce((total, bucket) => total + BigInt(bucket.estimated_cost_nano_usd), 0n) !==
+    BigInt(summary.estimated_cost_nano_usd)
+  ) {
+    invalidResponse()
+  }
 
   return {
-    range,
     granularity,
     bucket_width_ms: bucketWidthMs,
     from_ms: rangeFromMS,
@@ -414,8 +392,7 @@ export function projectUsageReport(value: unknown): UsageReportDto {
 }
 
 export function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
-  const result: UsageFilters = { range: filters.range }
-  if (filters.at_ms !== undefined) result.at_ms = filters.at_ms
+  const result: UsageFilters = { from_ms: filters.from_ms, to_ms: filters.to_ms }
   if (filters.access_key_id !== undefined) result.access_key_id = filters.access_key_id
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.channel_id !== undefined) result.channel_id = filters.channel_id
@@ -434,8 +411,10 @@ export async function getUsageReport(
   signal?: AbortSignal,
 ): Promise<UsageReportDto> {
   const normalized = normalizeUsageFilters(filters)
-  const params = new URLSearchParams([['range', normalized.range]])
-  if (normalized.at_ms !== undefined) params.append('at_ms', String(normalized.at_ms))
+  const params = new URLSearchParams([
+    ['from_ms', String(normalized.from_ms)],
+    ['to_ms', String(normalized.to_ms)],
+  ])
   if (normalized.access_key_id !== undefined)
     params.append('access_key_id', String(normalized.access_key_id))
   if (normalized.group_id !== undefined) params.append('group_id', String(normalized.group_id))
@@ -449,6 +428,7 @@ export async function getUsageReport(
   const report = projectUsageReport(
     await client.request(`/api/usage?${params.toString()}`, { method: 'GET', signal }),
   )
+  if (report.from_ms !== normalized.from_ms || report.to_ms !== normalized.to_ms) invalidResponse()
   return report
 }
 

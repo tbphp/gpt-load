@@ -360,9 +360,7 @@ async function commitFilters(filters: RequestLogFilters): Promise<void> {
       logsMonitorQuery(filters, {
         filtersOpen: false,
         cursorHistory: [],
-        ...(sameWindow
-          ? { usageAtMS: routeState.value.usageAtMS, usageRange: routeState.value.usageRange }
-          : {}),
+        ...(sameWindow ? { usagePreset: routeState.value.usagePreset } : {}),
       }),
     ),
   )
@@ -430,8 +428,7 @@ function nextPage(): void {
     monitorLocation(
       logsMonitorQuery(appliedFilters.value, {
         filtersOpen: false,
-        usageAtMS: routeState.value.usageAtMS,
-        usageRange: routeState.value.usageRange,
+        usagePreset: routeState.value.usagePreset,
         cursorHistory: [...routeState.value.cursorHistory, cursor],
       }),
     ),
@@ -449,8 +446,7 @@ function previousPage(): void {
     monitorLocation(
       logsMonitorQuery(appliedFilters.value, {
         filtersOpen: false,
-        usageAtMS: routeState.value.usageAtMS,
-        usageRange: routeState.value.usageRange,
+        usagePreset: routeState.value.usagePreset,
         cursorHistory: routeState.value.cursorHistory.slice(0, -1),
       }),
     ),

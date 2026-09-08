@@ -342,6 +342,7 @@ export default {
         hourly: '時間別',
         everyMinutes: '{count}分ごと',
         everyHours: '{count}時間ごと',
+        everyDays: '{count} 日ごと',
         daily: '日別',
         failureRate: '失敗率',
         inputTokens: '入力 Token',
@@ -603,6 +604,9 @@ export default {
         to: '終了時刻',
         quickRanges: 'クイック時間範囲',
         quick: {
+          today: '今日',
+          yesterday: '昨日',
+          '6h': '6h',
           '1h': '1h',
           '24h': '24h',
           '3d': '3d',

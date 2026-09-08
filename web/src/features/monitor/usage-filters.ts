@@ -1,10 +1,18 @@
 import type { UsageFilters } from '@/app/resources/usage'
-import { defaultTimeRange, isTimeRange } from '@/lib/time'
+import {
+  defaultTimeRange,
+  isDateTimePreset,
+  resolveDateTimePreset,
+  type DateTimePreset,
+} from '@/lib/time'
 
 import { normalizeMonitorText } from './filter-validation'
 
+export interface AppliedUsageFilters extends UsageFilters {
+  preset?: DateTimePreset
+}
+
 export interface UsageFilterDraft {
-  range: UsageFilters['range']
   access_key_id: string
   group_id: string
   channel_id: string
@@ -12,10 +20,9 @@ export interface UsageFilterDraft {
   upstream_model: string
 }
 
-export type UsageFilterErrors = Partial<Record<Exclude<keyof UsageFilterDraft, 'range'>, string>>
+export type UsageFilterErrors = Partial<Record<keyof UsageFilterDraft, string>>
 
 const emptyDraft = (): UsageFilterDraft => ({
-  range: defaultTimeRange,
   access_key_id: '',
   group_id: '',
   channel_id: '',
@@ -23,8 +30,20 @@ const emptyDraft = (): UsageFilterDraft => ({
   upstream_model: '',
 })
 
-export function normalizeUsageRange(raw: unknown): UsageFilters['range'] {
-  return isTimeRange(raw) ? raw : defaultTimeRange
+export function defaultUsageFilters(
+  preset: DateTimePreset = defaultTimeRange,
+): AppliedUsageFilters {
+  const now = Math.floor(Date.now() / 1000) * 1000
+  const interval = resolveDateTimePreset(preset, now)
+  return interval.to_ms > interval.from_ms
+    ? { ...interval, preset }
+    : { ...resolveDateTimePreset(defaultTimeRange, now), preset: defaultTimeRange }
+}
+
+function normalizeUsageTimestamp(raw: unknown): number | undefined {
+  const value =
+    typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : NaN
+  return Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }
 
 export function normalizeUsageGroupID(raw: unknown): number | undefined {
@@ -46,10 +65,14 @@ export function normalizeUsageChannelID(raw: unknown): string | undefined {
   return raw
 }
 
-export function parseAppliedUsageFilters(query: Record<string, unknown>): UsageFilters {
-  const filters: UsageFilters = { range: normalizeUsageRange(query.range) }
-  const at = normalizeUsageGroupID(query.at_ms)
-  if (at !== undefined) filters.at_ms = at
+export function parseAppliedUsageFilters(query: Record<string, unknown>): AppliedUsageFilters {
+  const from = normalizeUsageTimestamp(query.from_ms)
+  const to = normalizeUsageTimestamp(query.to_ms)
+  const preset = query.preset ?? query.range
+  const filters: AppliedUsageFilters =
+    from !== undefined && to !== undefined && to > from
+      ? { from_ms: from, to_ms: to, ...(isDateTimePreset(preset) ? { preset } : {}) }
+      : defaultUsageFilters(isDateTimePreset(preset) ? preset : defaultTimeRange)
   const accessKeyID = normalizeUsageGroupID(query.access_key_id)
   const groupID = normalizeUsageGroupID(query.group_id)
   const channelID = normalizeUsageChannelID(query.channel_id)
@@ -66,7 +89,6 @@ export function parseAppliedUsageFilters(query: Record<string, unknown>): UsageF
 export function createUsageFilterDraft(filters: UsageFilters): UsageFilterDraft {
   return {
     ...emptyDraft(),
-    range: filters.range,
     access_key_id: filters.access_key_id === undefined ? '' : String(filters.access_key_id),
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
     channel_id: filters.channel_id ?? '',
@@ -75,9 +97,14 @@ export function createUsageFilterDraft(filters: UsageFilters): UsageFilterDraft 
   }
 }
 
-export function applyUsageFilterDraft(draft: UsageFilterDraft): UsageFilters {
-  const filters: UsageFilters = {
-    range: normalizeUsageRange(draft.range),
+export function applyUsageFilterDraft(
+  draft: UsageFilterDraft,
+  current: AppliedUsageFilters,
+): AppliedUsageFilters {
+  const filters: AppliedUsageFilters = {
+    from_ms: current.from_ms,
+    to_ms: current.to_ms,
+    preset: current.preset,
   }
   const accessKeyID = normalizeUsageGroupID(draft.access_key_id)
   const groupID = normalizeUsageGroupID(draft.group_id)

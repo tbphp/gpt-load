@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/pricing"
@@ -20,17 +19,7 @@ import (
 	"gpt-load/internal/usage"
 )
 
-const (
-	usageRange1Hour        = "1h"
-	usageRange24Hours      = "24h"
-	usageRange3Days        = "3d"
-	usageRange7Days        = "7d"
-	usageRange15Days       = "15d"
-	usageRange30Days       = "30d"
-	usageRangeCustom       = "custom"
-	usageDistributionLimit = 5
-	usageCustomMaxMS       = 30 * epochms.MillisecondsPerDay
-)
+const usageDistributionLimit = 5
 
 type UsageStatReader interface {
 	QueryUsage(context.Context, requestlog.UsageQuery) (requestlog.UsageReport, error)
@@ -96,7 +85,6 @@ type usageCollectionHealthResponse struct {
 }
 
 type usageResponse struct {
-	Range            string                         `json:"range"`
 	Granularity      requestlog.UsageGranularity    `json:"granularity"`
 	BucketWidthMS    int64                          `json:"bucket_width_ms"`
 	FromMS           int64                          `json:"from_ms"`
@@ -128,7 +116,7 @@ func (server *Server) handleUsage(c *gin.Context) {
 		writeServiceError(c, "usage", err)
 		return
 	}
-	query, apiErr := parseUsageQuery(c.Request.URL.RawQuery, observedAtMS)
+	query, apiErr := parseUsageQuery(c.Request.URL.RawQuery)
 	if apiErr != nil {
 		writeServiceError(c, "usage", apiErr)
 		return
@@ -154,14 +142,12 @@ func (server *Server) handleUsage(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery, *app_errors.APIError) {
+func parseUsageQuery(rawQuery string) (requestlog.UsageQuery, *app_errors.APIError) {
 	values, err := url.ParseQuery(rawQuery)
 	if err != nil {
 		return requestlog.UsageQuery{}, app_errors.ErrBadRequest
 	}
 	allowed := map[string]struct{}{
-		"range":          {},
-		"at_ms":          {},
 		"from_ms":        {},
 		"to_ms":          {},
 		"group_id":       {},
@@ -176,97 +162,30 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		}
 	}
 
-	if err := validateSafeMilliseconds(observedAtMS); err != nil {
-		return requestlog.UsageQuery{}, app_errors.ErrInternalServer
-	}
-	if value, ok := singleQueryValue(values, "at_ms"); ok {
-		at, err := parseCanonicalSafeMilliseconds(value)
-		if err != nil || at > observedAtMS {
-			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
-		}
-		if _, hasFrom := values["from_ms"]; hasFrom {
-			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
-		}
-		observedAtMS = at
-	}
-	query := requestlog.UsageQuery{}
-	rangeValue := usageRange24Hours
-	if value, ok := singleQueryValue(values, "range"); ok {
-		rangeValue = value
-	}
 	fromValue, hasFrom := singleQueryValue(values, "from_ms")
 	toValue, hasTo := singleQueryValue(values, "to_ms")
-	if hasFrom != hasTo {
+	if !hasFrom || !hasTo {
 		return requestlog.UsageQuery{}, app_errors.ErrValidation
 	}
-	if hasFrom {
-		if _, hasRange := singleQueryValue(values, "range"); hasRange {
-			return requestlog.UsageQuery{}, app_errors.ErrValidation
-		}
-		fromMS, err := parseCanonicalSafeMilliseconds(fromValue)
-		if err != nil {
-			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
-		}
-		toMS, err := parseCanonicalSafeMilliseconds(toValue)
-		if err != nil {
-			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
-		}
-		if fromMS >= toMS {
-			return requestlog.UsageQuery{}, app_errors.ErrValidation
-		}
-		spanMS := toMS - fromMS
-		if spanMS > usageCustomMaxMS {
-			return requestlog.UsageQuery{}, app_errors.ErrValidation
-		}
-		query.FromMS = fromMS
-		query.ToMS = toMS
-		bucketWidth := epochms.MillisecondsPerDay
-		if spanMS <= epochms.MillisecondsPerDay {
-			query.Granularity = requestlog.UsageGranularityHour
-			bucketWidth = epochms.MillisecondsPerHour
-		} else {
-			query.Granularity = requestlog.UsageGranularityDay
-		}
-		query.BucketWidthMS = bucketWidth
-		if fromMS%bucketWidth != 0 || toMS%bucketWidth != 0 {
-			return requestlog.UsageQuery{}, app_errors.ErrValidation
-		}
-		rangeValue = ""
+	fromMS, err := parseCanonicalSafeMilliseconds(fromValue)
+	if err != nil {
+		return requestlog.UsageQuery{}, app_errors.ErrBadRequest
 	}
-	if !hasFrom {
-		preset, ok := usageRangePreset(rangeValue)
-		if !ok {
-			return requestlog.UsageQuery{}, app_errors.ErrValidation
-		}
-		// 对齐区间包含锚点所在桶；滚动一小时必须有完整的前置时长。
-		earliestAtMS := int64(preset.bucketCount-1) * preset.bucketWidthMS
-		if rangeValue == usageRange1Hour {
-			earliestAtMS = epochms.MillisecondsPerHour
-		}
-		if _, anchored := singleQueryValue(values, "at_ms"); anchored && observedAtMS < earliestAtMS {
-			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
-		}
-		if rangeValue == usageRange1Hour {
-			if observedAtMS < epochms.MillisecondsPerHour {
-				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
-			}
-			query.FromMS = observedAtMS - epochms.MillisecondsPerHour
-			query.ToMS = observedAtMS
-		} else {
-			fromMS, toMS, err := epochms.WindowEndingAt(
-				observedAtMS,
-				preset.bucketWidthMS,
-				preset.bucketCount,
-			)
-			if err != nil {
-				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
-			}
-			query.FromMS = fromMS
-			query.ToMS = toMS
-		}
-		query.Granularity = preset.granularity
-		query.BucketWidthMS = preset.bucketWidthMS
+	toMS, err := parseCanonicalSafeMilliseconds(toValue)
+	if err != nil {
+		return requestlog.UsageQuery{}, app_errors.ErrBadRequest
 	}
+	granularity, bucketWidthMS, err := requestlog.ResolveUsageTimeBucket(fromMS, toMS)
+	if err != nil {
+		return requestlog.UsageQuery{}, app_errors.ErrValidation
+	}
+	query := requestlog.UsageQuery{
+		FromMS:        fromMS,
+		ToMS:          toMS,
+		Granularity:   granularity,
+		BucketWidthMS: bucketWidthMS,
+	}
+
 	if value, ok := singleQueryValue(values, "access_key_id"); ok {
 		id, apiErr := parseUsageGroupID(value)
 		if apiErr != nil {
@@ -302,31 +221,6 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		query.UpstreamModel = value
 	}
 	return query, nil
-}
-
-type usagePreset struct {
-	bucketWidthMS int64
-	bucketCount   int
-	granularity   requestlog.UsageGranularity
-}
-
-func usageRangePreset(value string) (usagePreset, bool) {
-	switch value {
-	case usageRange1Hour:
-		return usagePreset{requestlog.UsageFiveMinuteBucketMS, 12, requestlog.UsageGranularityMinute}, true
-	case usageRange24Hours:
-		return usagePreset{epochms.MillisecondsPerHour, 24, requestlog.UsageGranularityHour}, true
-	case usageRange3Days:
-		return usagePreset{3 * epochms.MillisecondsPerHour, 24, requestlog.UsageGranularityHour}, true
-	case usageRange7Days:
-		return usagePreset{6 * epochms.MillisecondsPerHour, 28, requestlog.UsageGranularityHour}, true
-	case usageRange15Days:
-		return usagePreset{12 * epochms.MillisecondsPerHour, 30, requestlog.UsageGranularityHour}, true
-	case usageRange30Days:
-		return usagePreset{epochms.MillisecondsPerDay, 30, requestlog.UsageGranularityDay}, true
-	default:
-		return usagePreset{}, false
-	}
 }
 
 func validUsageModel(value string) bool {
@@ -377,11 +271,7 @@ func (service *Service) mapUsageResponse(
 		stats.WriteFailureTotal > uint64(maxSafeInteger) {
 		return usageResponse{}, fmt.Errorf("map usage collection health: unsafe counter")
 	}
-	bucketWidthMS, err := usageResponseBucketWidth(query)
-	if err != nil {
-		return usageResponse{}, err
-	}
-	rangeValue, err := usageResponseRange(query, bucketWidthMS)
+	granularity, bucketWidthMS, err := requestlog.ResolveUsageTimeBucket(query.FromMS, query.ToMS)
 	if err != nil {
 		return usageResponse{}, err
 	}
@@ -399,8 +289,7 @@ func (service *Service) mapUsageResponse(
 		return usageResponse{}, fmt.Errorf("map usage observed_at_ms: %w", err)
 	}
 	result := usageResponse{
-		Range:         rangeValue,
-		Granularity:   query.Granularity,
+		Granularity:   granularity,
 		BucketWidthMS: bucketWidthMS,
 		FromMS:        query.FromMS,
 		ToMS:          query.ToMS,
@@ -624,71 +513,6 @@ func validUsageDistributionModel(value string) bool {
 		}
 	}
 	return true
-}
-
-func usageResponseBucketWidth(query requestlog.UsageQuery) (int64, error) {
-	bucketWidthMS := query.BucketWidthMS
-	if query.Granularity == requestlog.UsageGranularityMinute {
-		if bucketWidthMS != requestlog.UsageFiveMinuteBucketMS ||
-			query.ToMS-query.FromMS != epochms.MillisecondsPerHour {
-			return 0, fmt.Errorf("map usage response: invalid minute window")
-		}
-		return bucketWidthMS, nil
-	}
-	if bucketWidthMS == 0 {
-		switch query.Granularity {
-		case requestlog.UsageGranularityHour:
-			bucketWidthMS = epochms.MillisecondsPerHour
-		case requestlog.UsageGranularityDay:
-			bucketWidthMS = epochms.MillisecondsPerDay
-		default:
-			return 0, fmt.Errorf("map usage response: invalid granularity")
-		}
-	}
-	if bucketWidthMS < epochms.MillisecondsPerHour ||
-		bucketWidthMS > epochms.MillisecondsPerDay ||
-		bucketWidthMS%epochms.MillisecondsPerHour != 0 {
-		return 0, fmt.Errorf("map usage response: invalid bucket width")
-	}
-	if query.Granularity == requestlog.UsageGranularityHour &&
-		bucketWidthMS >= epochms.MillisecondsPerDay {
-		return 0, fmt.Errorf("map usage response: invalid hourly bucket width")
-	}
-	if query.Granularity == requestlog.UsageGranularityDay &&
-		bucketWidthMS != epochms.MillisecondsPerDay {
-		return 0, fmt.Errorf("map usage response: invalid daily bucket width")
-	}
-	return bucketWidthMS, nil
-}
-
-func usageResponseRange(query requestlog.UsageQuery, bucketWidthMS int64) (string, error) {
-	duration := query.ToMS - query.FromMS
-	if query.Granularity != requestlog.UsageGranularityMinute &&
-		query.Granularity != requestlog.UsageGranularityHour &&
-		query.Granularity != requestlog.UsageGranularityDay {
-		return "", fmt.Errorf("map usage response: invalid granularity")
-	}
-	// 显式指定一个完整小时的自定义查询继续返回原有范围标签。
-	if query.Granularity == requestlog.UsageGranularityHour &&
-		bucketWidthMS == epochms.MillisecondsPerHour && duration == epochms.MillisecondsPerHour {
-		return usageRange1Hour, nil
-	}
-	for _, rangeValue := range []string{
-		usageRange1Hour,
-		usageRange24Hours,
-		usageRange3Days,
-		usageRange7Days,
-		usageRange15Days,
-		usageRange30Days,
-	} {
-		preset, _ := usageRangePreset(rangeValue)
-		if query.Granularity == preset.granularity &&
-			bucketWidthMS == preset.bucketWidthMS &&
-			duration == int64(preset.bucketCount)*preset.bucketWidthMS {
-			return rangeValue, nil
-		}
-	}
-	return usageRangeCustom, nil
 }
 
 func mapUsageAggregate(source requestlog.UsageAggregate) (usageAggregateResponse, error) {

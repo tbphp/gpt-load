@@ -54,9 +54,9 @@ export function normalizeAccessKeyCollectionFilters(
 
 function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
   const result: UsageFilters = {
-    range: filters.range,
+    from_ms: filters.from_ms,
+    to_ms: filters.to_ms,
   }
-  if (filters.at_ms !== undefined) result.at_ms = filters.at_ms
   if (filters.access_key_id !== undefined) result.access_key_id = filters.access_key_id
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.channel_id !== undefined) result.channel_id = filters.channel_id

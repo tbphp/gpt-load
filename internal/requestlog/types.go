@@ -185,9 +185,10 @@ const (
 
 type UsageQuery struct {
 	// SelfScoped 控制只读用户视图，与管理员的密钥筛选独立。
-	SelfScoped    bool
-	FromMS        int64
-	ToMS          int64
+	SelfScoped bool
+	FromMS     int64
+	ToMS       int64
+	// 供管理 API 描述时间桶；QueryUsage 始终从 FromMS/ToMS 推导，不接受覆盖。
 	Granularity   UsageGranularity
 	BucketWidthMS int64
 	AccessKeyID   *uint

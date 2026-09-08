@@ -3,7 +3,7 @@ import type { LocationQueryRaw } from 'vue-router'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { UsageFilters } from '@/app/resources/usage'
 import type { RequestLogFilters } from '@/app/resources/request-logs'
-import { defaultTimeRange } from '@/lib/time'
+import { isDateTimePreset, type DateTimePreset } from '@/lib/time'
 
 import { parseAppliedLogFilters, serializeAppliedLogFilters } from './log-filters'
 import {
@@ -11,6 +11,8 @@ import {
   normalizeUsageChannelID,
   normalizeUsageModel,
   parseAppliedUsageFilters,
+  defaultUsageFilters,
+  type AppliedUsageFilters,
 } from './usage-filters'
 import { normalizeMonitorText } from './filter-validation'
 
@@ -28,8 +30,7 @@ export interface UsageMonitorState {
 }
 
 export interface LogsMonitorState {
-  usageAtMS?: number
-  usageRange?: UsageFilters['range']
+  usagePreset?: DateTimePreset
   filtersOpen: boolean
   cursorHistory: string[]
   selectedRequestID?: string
@@ -76,7 +77,7 @@ const accessKeyForbiddenLogFilters: readonly (keyof RequestLogFilters)[] = [
   'retry_count_max',
 ]
 
-export function scopeAccessKeyUsageFilters(filters: UsageFilters): UsageFilters {
+export function scopeAccessKeyUsageFilters<T extends UsageFilters>(filters: T): T {
   const scoped = { ...filters }
   delete scoped.access_key_id
   delete scoped.group_id
@@ -114,7 +115,7 @@ export function healthMonitorQuery(state: HealthMonitorState): LocationQueryRaw 
 }
 
 export function usageMonitorQuery(
-  filters: UsageFilters = { range: defaultTimeRange },
+  filters: AppliedUsageFilters = defaultUsageFilters(),
   state: UsageMonitorState = {
     filtersOpen: false,
     seriesExpanded: false,
@@ -123,10 +124,11 @@ export function usageMonitorQuery(
 ): LocationQueryRaw {
   const normalized: LocationQueryRaw = {
     tab: 'usage',
-    range: filters.range,
+    from_ms: String(filters.from_ms),
+    to_ms: String(filters.to_ms),
     metric: state.metric,
   }
-  if (filters.at_ms !== undefined) normalized.at_ms = String(filters.at_ms)
+  if (filters.preset) normalized.preset = filters.preset
   const accessKeyID = normalizeUsageGroupID(filters.access_key_id)
   const groupID = normalizeUsageGroupID(filters.group_id)
   const channelID = normalizeUsageChannelID(filters.channel_id)
@@ -206,11 +208,7 @@ export function inspectorMonitorQuery(state: InspectorMonitorState): LocationQue
 
 export function parseLogsMonitorState(query: Record<string, unknown>): LogsMonitorState {
   return {
-    usageAtMS: normalizeUsageGroupID(query.usage_at_ms),
-    usageRange:
-      query.usage_range === undefined
-        ? undefined
-        : parseAppliedUsageFilters({ range: query.usage_range }).range,
+    usagePreset: isDateTimePreset(query.usage_preset) ? query.usage_preset : undefined,
     filtersOpen: query.panel === 'filters',
     cursorHistory: parseLogCursorHistory(query.log_cursors),
     selectedRequestID: parseSelectedRequestID(query),
@@ -222,12 +220,7 @@ export function logsMonitorQuery(
   state: LogsMonitorState = { filtersOpen: false, cursorHistory: [] },
 ): LocationQueryRaw {
   const normalized = serializeAppliedLogFilters(filters)
-  if (state.usageAtMS !== undefined) {
-    normalized.usage_at_ms = String(state.usageAtMS)
-  }
-  if (state.usageRange !== undefined || state.usageAtMS !== undefined) {
-    normalized.usage_range = state.usageRange ?? defaultTimeRange
-  }
+  if (state.usagePreset !== undefined) normalized.usage_preset = state.usagePreset
   if (state.filtersOpen) normalized.panel = 'filters'
   const cursorHistory = serializeLogCursorHistory(state.cursorHistory)
   if (cursorHistory !== undefined) normalized.log_cursors = cursorHistory

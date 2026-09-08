@@ -299,7 +299,9 @@ try {
     Authorization = "Bearer $authKey"
     "Idempotency-Key" = [guid]::NewGuid().ToString().ToLowerInvariant()
   }
-  Invoke-RestMethod "http://127.0.0.1:$port/api/usage?range=24h" -Headers $headers | Out-Null
+  $usageToMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $usageFromMs = $usageToMs - 86400000
+  Invoke-RestMethod "http://127.0.0.1:$port/api/usage?from_ms=$usageFromMs&to_ms=$usageToMs" -Headers $headers | Out-Null
   Invoke-RestMethod "http://127.0.0.1:$port/api/model-prices" -Headers $headers | Out-Null
   Invoke-RestMethod `
     "http://127.0.0.1:$port/api/access-keys" `

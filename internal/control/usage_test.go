@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -31,7 +32,7 @@ func TestUsageAPIRouteUsesManagementAuthentication(t *testing.T) {
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/usage", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/usage?"+usageTestDayQuery, nil)
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
@@ -40,221 +41,7 @@ func TestUsageAPIRouteUsesManagementAuthentication(t *testing.T) {
 	}
 }
 
-func TestParseUsageQueryUsesRangeSpecificWindows(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name        string
-		rawQuery    string
-		observedAt  time.Time
-		wantFrom    time.Time
-		wantTo      time.Time
-		granularity requestlog.UsageGranularity
-		bucketWidth int64
-	}{
-		{
-			name:        "1 hour uses the last sixty minutes across the hour boundary",
-			rawQuery:    "range=1h",
-			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789_000_000, time.UTC),
-			wantFrom:    time.Date(2026, time.July, 27, 11, 34, 56, 789_000_000, time.UTC),
-			wantTo:      time.Date(2026, time.July, 27, 12, 34, 56, 789_000_000, time.UTC),
-			granularity: requestlog.UsageGranularityMinute,
-			bucketWidth: int64(5 * time.Minute / time.Millisecond),
-		},
-		{
-			name:        "1 hour at an exact hour includes the preceding hour",
-			rawQuery:    "range=1h",
-			observedAt:  time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
-			wantFrom:    time.Date(2026, time.July, 27, 11, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityMinute,
-			bucketWidth: int64(5 * time.Minute / time.Millisecond),
-		},
-		{
-			name:        "custom one hour retains hourly aggregation",
-			rawQuery:    "from_ms=1785146400000&to_ms=1785150000000",
-			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
-			wantFrom:    time.UnixMilli(1785146400000),
-			wantTo:      time.UnixMilli(1785150000000),
-			granularity: requestlog.UsageGranularityHour,
-			bucketWidth: int64(time.Hour / time.Millisecond),
-		},
-		{
-			name:        "24 hours crosses the local and UTC day at an exact hour boundary",
-			rawQuery:    "range=24h",
-			observedAt:  time.Date(2026, time.July, 27, 0, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60)),
-			wantFrom:    time.Date(2026, time.July, 25, 17, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 26, 17, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityHour,
-			bucketWidth: int64(time.Hour / time.Millisecond),
-		},
-		{
-			name:        "30 days crosses the local and UTC day at exact day boundaries",
-			rawQuery:    "range=30d",
-			observedAt:  time.Date(2026, time.July, 26, 20, 34, 56, 789, time.FixedZone("UTC-7", -7*60*60)),
-			wantFrom:    time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityDay,
-			bucketWidth: int64(24 * time.Hour / time.Millisecond),
-		},
-		{
-			name:        "3 days uses three hour buckets",
-			rawQuery:    "range=3d",
-			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
-			wantFrom:    time.Date(2026, time.July, 24, 15, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 27, 15, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityHour,
-			bucketWidth: int64(3 * time.Hour / time.Millisecond),
-		},
-		{
-			name:        "7 days uses six hour buckets",
-			rawQuery:    "range=7d",
-			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
-			wantFrom:    time.Date(2026, time.July, 20, 18, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 27, 18, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityHour,
-			bucketWidth: int64(6 * time.Hour / time.Millisecond),
-		},
-		{
-			name:        "15 days uses twelve hour buckets",
-			rawQuery:    "range=15d",
-			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
-			wantFrom:    time.Date(2026, time.July, 13, 0, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityHour,
-			bucketWidth: int64(12 * time.Hour / time.Millisecond),
-		},
-		{
-			name:        "custom 24 hours accepts exact UTC hour boundaries",
-			rawQuery:    "from_ms=1785042000000&to_ms=1785128400000",
-			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
-			wantFrom:    time.Date(2026, time.July, 26, 5, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 27, 5, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityHour,
-			bucketWidth: int64(time.Hour / time.Millisecond),
-		},
-		{
-			name:        "custom 30 days accepts exact UTC day boundaries",
-			rawQuery:    "from_ms=1782604800000&to_ms=1785196800000",
-			observedAt:  time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC),
-			wantFrom:    time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC),
-			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
-			granularity: requestlog.UsageGranularityDay,
-			bucketWidth: int64(24 * time.Hour / time.Millisecond),
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			query, apiErr := parseUsageQuery(test.rawQuery, test.observedAt.UnixMilli())
-			if apiErr != nil {
-				t.Fatalf("parseUsageQuery() error = %v", apiErr)
-			}
-			if query.FromMS != test.wantFrom.UnixMilli() ||
-				query.ToMS != test.wantTo.UnixMilli() ||
-				query.Granularity != test.granularity ||
-				query.BucketWidthMS != test.bucketWidth {
-				t.Fatalf(
-					"parseUsageQuery() window = %d to %d (%s, %dms), want %d to %d (%s, %dms)",
-					query.FromMS,
-					query.ToMS,
-					query.Granularity,
-					query.BucketWidthMS,
-					test.wantFrom.UnixMilli(),
-					test.wantTo.UnixMilli(),
-					test.granularity,
-					test.bucketWidth,
-				)
-			}
-		})
-	}
-}
-
-func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.UTC)
-	tests := []struct {
-		rangeValue    string
-		bucketWidthMS int64
-	}{
-		{rangeValue: "1h", bucketWidthMS: int64(5 * time.Minute / time.Millisecond)},
-		{rangeValue: "24h", bucketWidthMS: int64(time.Hour / time.Millisecond)},
-		{rangeValue: "3d", bucketWidthMS: int64(3 * time.Hour / time.Millisecond)},
-		{rangeValue: "7d", bucketWidthMS: int64(6 * time.Hour / time.Millisecond)},
-		{rangeValue: "15d", bucketWidthMS: int64(12 * time.Hour / time.Millisecond)},
-		{rangeValue: "30d", bucketWidthMS: int64(24 * time.Hour / time.Millisecond)},
-	}
-	for _, test := range tests {
-		t.Run(test.rangeValue, func(t *testing.T) {
-			engine, _ := newUsageTestEngine(t, now, &recordingUsageStatReader{})
-			recorder := performUsageRequest(engine, "test-auth-key", "range="+test.rangeValue)
-			if recorder.Code != http.StatusOK {
-				t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
-			}
-			var envelope struct {
-				Data struct {
-					Range         string `json:"range"`
-					BucketWidthMS int64  `json:"bucket_width_ms"`
-				} `json:"data"`
-			}
-			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
-				t.Fatalf("decode response: %v", err)
-			}
-			if envelope.Data.Range != test.rangeValue ||
-				envelope.Data.BucketWidthMS != test.bucketWidthMS {
-				t.Fatalf("range/bucket width = %q/%d, want %q/%d", envelope.Data.Range, envelope.Data.BucketWidthMS, test.rangeValue, test.bucketWidthMS)
-			}
-		})
-	}
-}
-
-func TestUsageAPIValidatesAnchorRangeBoundaries(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.September, 8, 0, 0, 0, 0, time.UTC)
-	tests := []struct {
-		rangeValue  string
-		firstAnchor time.Duration
-		span        time.Duration
-	}{
-		{"", 23 * time.Hour, 24 * time.Hour},
-		{"1h", time.Hour, time.Hour},
-		{"24h", 23 * time.Hour, 24 * time.Hour},
-		{"3d", 69 * time.Hour, 72 * time.Hour},
-		{"7d", 162 * time.Hour, 168 * time.Hour},
-		{"15d", 348 * time.Hour, 360 * time.Hour},
-		{"30d", 29 * 24 * time.Hour, 30 * 24 * time.Hour},
-	}
-	for _, test := range tests {
-		t.Run(test.rangeValue, func(t *testing.T) {
-			reader := &recordingUsageStatReader{}
-			engine, _ := newUsageTestEngine(t, now, reader)
-			params := url.Values{}
-			if test.rangeValue != "" {
-				params.Set("range", test.rangeValue)
-			}
-			for _, anchor := range []int64{0, 1, test.firstAnchor.Milliseconds() - 1} {
-				t.Run(strconv.FormatInt(anchor, 10), func(t *testing.T) {
-					params.Set("at_ms", strconv.FormatInt(anchor, 10))
-					recorder := performUsageRequest(engine, "test-auth-key", params.Encode())
-					assertUsageErrorCode(t, recorder, "BAD_REQUEST")
-				})
-			}
-			if len(reader.queries) != 0 {
-				t.Fatalf("invalid anchor reached usage reader: %d calls", len(reader.queries))
-			}
-			params.Set("at_ms", strconv.FormatInt(test.firstAnchor.Milliseconds(), 10))
-			recorder := performUsageRequest(engine, "test-auth-key", params.Encode())
-			if recorder.Code != http.StatusOK || len(reader.queries) != 1 {
-				t.Fatalf("earliest valid anchor = %d %s, reader calls=%d", recorder.Code, recorder.Body.String(), len(reader.queries))
-			}
-			query := reader.queries[0]
-			if query.FromMS != 0 || query.ToMS != test.span.Milliseconds() {
-				t.Fatalf("earliest window = [%d, %d), want [0, %d)", query.FromMS, query.ToMS, test.span.Milliseconds())
-			}
-		})
-	}
-}
-
-func TestUsageAPIRollingHourRefreshUsesNewObservationAndPreservesFilters(t *testing.T) {
+func TestUsageAPIUsesSuppliedWindowAndPreservesFilters(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.September, 7, 14, 5, 23, 123_000_000, time.UTC)
 	reader := &recordingUsageStatReader{}
@@ -263,7 +50,7 @@ func TestUsageAPIRollingHourRefreshUsesNewObservationAndPreservesFilters(t *test
 	for _, observation := range []time.Time{now, now.Add(2 * time.Minute)} {
 		now = observation
 		recorder := performUsageRequest(engine, "test-auth-key",
-			"range=1h&group_id=7&channel_id=openai&credential_id=11&upstream_model=usage-model")
+			usageTestTimeQuery(now.Add(-time.Hour), now)+"&group_id=7&channel_id=openai&credential_id=11&upstream_model=usage-model")
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("rolling usage response = %d %s", recorder.Code, recorder.Body.String())
 		}
@@ -274,7 +61,7 @@ func TestUsageAPIRollingHourRefreshUsesNewObservationAndPreservesFilters(t *test
 			t.Fatalf("decode rolling usage response: %v", err)
 		}
 		data := envelope.Data
-		if data.Range != "1h" || data.Granularity != "minute" ||
+		if data.Granularity != "minute" ||
 			data.BucketWidthMS != int64(5*time.Minute/time.Millisecond) ||
 			data.FromMS != now.Add(-time.Hour).UnixMilli() || data.ToMS != now.UnixMilli() ||
 			data.ObservedAtMS != now.UnixMilli() {
@@ -324,7 +111,7 @@ func TestUsageAPIReturnsDistributionWithoutCredentialIdentity(t *testing.T) {
 	recorder := performUsageRequest(
 		engine,
 		"test-auth-key",
-		"",
+		usageTestDayQuery,
 	)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -374,7 +161,7 @@ func TestUsageAPIReturnsDistributionWithoutCredentialIdentity(t *testing.T) {
 	}
 }
 
-func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing.T) {
+func TestUsageAPIReturnsExplicitWindowAndZeroArrays(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60))
 	reader := &recordingUsageStatReader{}
@@ -385,7 +172,7 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 		2026, time.July, 27, 3, 0, 0, 0, time.UTC,
 	)
 
-	recorder := performUsageRequest(engine, "test-auth-key", "")
+	recorder := performUsageRequest(engine, "test-auth-key", usageTestDayQuery)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -402,7 +189,6 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	var envelope struct {
 		Code int `json:"code"`
 		Data struct {
-			Range         string                      `json:"range"`
 			Granularity   requestlog.UsageGranularity `json:"granularity"`
 			FromMS        int64                       `json:"from_ms"`
 			ToMS          int64                       `json:"to_ms"`
@@ -427,7 +213,7 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if envelope.Code != 0 || envelope.Data.Range != "24h" ||
+	if envelope.Code != 0 ||
 		envelope.Data.Granularity != requestlog.UsageGranularityHour ||
 		envelope.Data.FromMS != time.Date(2026, time.July, 26, 5, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.ToMS != time.Date(2026, time.July, 27, 5, 0, 0, 0, time.UTC).UnixMilli() ||
@@ -450,7 +236,7 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 		t.Fatalf("decode raw response: %v", err)
 	}
 	for _, forbidden := range []string{
-		"filters", "request_log", "timezone", "from", "to", "observed_at",
+		"range", "filters", "request_log", "timezone", "from", "to", "observed_at",
 		"estimated_cost" + "_usd",
 	} {
 		if _, exists := rawEnvelope.Data[forbidden]; exists {
@@ -465,7 +251,7 @@ func TestUsageAPIReturnsAllDistributionViewsInOneResponse(t *testing.T) {
 	reader := &recordingUsageStatReader{}
 	engine, _ := newUsageTestEngine(t, now, reader)
 
-	recorder := performUsageRequest(engine, "test-auth-key", "range=24h")
+	recorder := performUsageRequest(engine, "test-auth-key", usageTestDayQuery)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -554,7 +340,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	recorder := performUsageRequest(
 		engine,
 		"test-auth-key",
-		"range=30d&group_id=9&channel_id=openai&credential_id=13&upstream_model=upstream-model",
+		"from_ms=1782604800000&to_ms=1785196800000&group_id=9&channel_id=openai&credential_id=13&upstream_model=upstream-model",
 	)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -574,7 +360,6 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	}
 	var envelope struct {
 		Data struct {
-			Range       string                      `json:"range"`
 			Granularity requestlog.UsageGranularity `json:"granularity"`
 			FromMS      int64                       `json:"from_ms"`
 			ToMS        int64                       `json:"to_ms"`
@@ -609,8 +394,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if envelope.Data.Range != "30d" ||
-		envelope.Data.Granularity != requestlog.UsageGranularityDay ||
+	if envelope.Data.Granularity != requestlog.UsageGranularityDay ||
 		envelope.Data.FromMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.ToMS != time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.Summary.TotalTokens != 9 ||
@@ -652,7 +436,7 @@ func TestUsageAPIValidatesModelAsUTF8BytesWithoutBoundaryWhitespaceOrControls(t 
 		"model variant",
 	}
 	for _, model := range validModels {
-		recorder := performUsageRequest(engine, "test-auth-key", "upstream_model="+url.QueryEscape(model))
+		recorder := performUsageRequest(engine, "test-auth-key", usageTestDayQuery+"&upstream_model="+url.QueryEscape(model))
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("valid model %q response = %d %s", model, recorder.Code, recorder.Body.String())
 		}
@@ -675,7 +459,7 @@ func TestUsageAPIValidatesModelAsUTF8BytesWithoutBoundaryWhitespaceOrControls(t 
 	}
 	for _, test := range invalidModels {
 		t.Run(test.name, func(t *testing.T) {
-			recorder := performUsageRequest(engine, "test-auth-key", test.query)
+			recorder := performUsageRequest(engine, "test-auth-key", usageTestDayQuery+"&"+test.query)
 			assertUsageErrorCode(t, recorder, "VALIDATION_FAILED")
 		})
 	}
@@ -707,10 +491,7 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 		{query: "from_ms=01&to_ms=2", code: "BAD_REQUEST"},
 		{query: "from_ms=-1&to_ms=2", code: "BAD_REQUEST"},
 		{query: "from_ms=1&to_ms=1", code: "VALIDATION_FAILED"},
-		{query: "from_ms=1&to_ms=3600001", code: "VALIDATION_FAILED"},
-		{query: "from_ms=1&to_ms=90000001", code: "VALIDATION_FAILED"},
-		{query: "from_ms=0&to_ms=2678400000", code: "VALIDATION_FAILED"},
-		{query: "range=24h&from_ms=1&to_ms=2", code: "VALIDATION_FAILED"},
+		{query: "range=24h&from_ms=1&to_ms=2", code: "BAD_REQUEST"},
 		{query: "group_id=0", code: "VALIDATION_FAILED"},
 		{query: "group_id=01", code: "BAD_REQUEST"},
 		{query: "group_id=%2B1", code: "BAD_REQUEST"},
@@ -740,7 +521,11 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.query, func(t *testing.T) {
-			recorder := performUsageRequest(engine, "test-auth-key", test.query)
+			query := test.query
+			if !strings.Contains(query, "from_ms") && !strings.Contains(query, "to_ms") {
+				query = usageTestDayQuery + "&" + query
+			}
+			recorder := performUsageRequest(engine, "test-auth-key", query)
 			assertUsageErrorCode(t, recorder, test.code)
 		})
 	}
@@ -863,7 +648,7 @@ func TestUsageAPIRejectsUnsafeAggregateAndKeepsErrorsSecret(t *testing.T) {
 		Summary: requestlog.UsageAggregate{RequestCount: 9_007_199_254_740_992},
 	}}
 	engine, _ := newUsageTestEngine(t, time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC), reader)
-	recorder := performUsageRequest(engine, "test-auth-key", "")
+	recorder := performUsageRequest(engine, "test-auth-key", usageTestDayQuery)
 	if recorder.Code != http.StatusInternalServerError ||
 		!strings.Contains(recorder.Body.String(), "INTERNAL_SERVER_ERROR") ||
 		strings.Contains(recorder.Body.String(), "unsafe") {
@@ -872,7 +657,7 @@ func TestUsageAPIRejectsUnsafeAggregateAndKeepsErrorsSecret(t *testing.T) {
 
 	reader.err = errors.New("usage database secret")
 	reader.report = requestlog.UsageReport{}
-	recorder = performUsageRequest(engine, "test-auth-key", "")
+	recorder = performUsageRequest(engine, "test-auth-key", usageTestDayQuery)
 	if recorder.Code != http.StatusInternalServerError || strings.Contains(recorder.Body.String(), "usage database secret") {
 		t.Fatalf("reader error response = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -895,7 +680,7 @@ func TestUsageAPIRejectsUnsafeProcessStatsWithoutLeakingCause(t *testing.T) {
 				&recordingUsageStatReader{},
 			)
 			test.mutate(&fixture.requestLogStats.value)
-			recorder := performUsageRequest(engine, "test-auth-key", "")
+			recorder := performUsageRequest(engine, "test-auth-key", usageTestDayQuery)
 			if recorder.Code != http.StatusInternalServerError ||
 				!strings.Contains(recorder.Body.String(), "INTERNAL_SERVER_ERROR") ||
 				strings.Contains(strings.ToLower(recorder.Body.String()), "queue") ||
@@ -926,7 +711,7 @@ func TestUsageAPIExcludesLegacyZeroAttemptAggregateFromSQLite(t *testing.T) {
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
-	recorder := performUsageRequest(engine, "test-auth-key", "")
+	recorder := performUsageRequest(engine, "test-auth-key", usageTestTimeQuery(now.Add(-24*time.Hour), now))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
 	}
@@ -967,7 +752,7 @@ func TestUsageAPIAcceptsMaximumSafeCanonicalGroupID(t *testing.T) {
 		time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
 		reader,
 	)
-	recorder := performUsageRequest(engine, "test-auth-key", "group_id=9007199254740991")
+	recorder := performUsageRequest(engine, "test-auth-key", usageTestDayQuery+"&group_id=9007199254740991")
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
 	}
@@ -1011,7 +796,7 @@ func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
-	recorder := performUsageRequest(engine, created.Key, "range=7d&upstream_model=allowed-model")
+	recorder := performUsageRequest(engine, created.Key, usageTestTimeQuery(now.AddDate(0, 0, -7), now)+"&upstream_model=allowed-model")
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("AccessKey usage response = %d %s, want 200", recorder.Code, recorder.Body.String())
 	}
@@ -1049,7 +834,7 @@ func TestUsageAPIBindsAccessKeyScopeAndRedactsProcessHealth(t *testing.T) {
 	}
 
 	for _, filter := range []string{"group_id=1", "channel_id=openai", "credential_id=101"} {
-		forbidden := performUsageRequest(engine, created.Key, filter)
+		forbidden := performUsageRequest(engine, created.Key, usageTestDayQuery+"&"+filter)
 		if forbidden.Code != http.StatusBadRequest || len(reader.queries) != 1 {
 			t.Fatalf(
 				"AccessKey internal filter %q = %d %s, calls=%d, want 400/no query",
@@ -1166,6 +951,12 @@ func newUsageTestEngine(
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	return engine, fixture
+}
+
+const usageTestDayQuery = "from_ms=1785042000000&to_ms=1785128400000"
+
+func usageTestTimeQuery(from, to time.Time) string {
+	return fmt.Sprintf("from_ms=%d&to_ms=%d", from.UnixMilli(), to.UnixMilli())
 }
 
 func performUsageRequest(engine *gin.Engine, authKey, query string) *httptest.ResponseRecorder {

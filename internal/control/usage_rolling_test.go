@@ -66,17 +66,16 @@ func TestUsageAPIRollingHourReadsLogsAndScopesAccessKey(t *testing.T) {
 		query     string
 		wantCount int64
 		wantCost  string
-		wantRange string
 		wantGrain requestlog.UsageGranularity
 	}{
-		{"management frozen hour", "test-auth-key", fmt.Sprintf("range=1h&at_ms=%d", now.Add(-time.Minute).UnixMilli()), 2, "1400", "1h", requestlog.UsageGranularityMinute},
-		{"management rolling hour", "test-auth-key", "range=1h", 3, "2100", "1h", requestlog.UsageGranularityMinute},
-		{"access key rolling hour", key.Key, "range=1h", 2, "1400", "1h", requestlog.UsageGranularityMinute},
-		{"management filters access key", "test-auth-key", fmt.Sprintf("range=1h&access_key_id=%d&group_id=7", key.ID), 2, "1400", "1h", requestlog.UsageGranularityMinute},
-		{"daily range retains hourly source", "test-auth-key", "range=24h", 99, "0", "24h", requestlog.UsageGranularityHour},
-		{"custom hour retains hourly source and metadata", "test-auth-key",
+		{"management frozen hour", "test-auth-key", usageTestTimeQuery(from.Add(-time.Minute), now.Add(-time.Minute)), 2, "1400", requestlog.UsageGranularityMinute},
+		{"management rolling hour", "test-auth-key", usageTestTimeQuery(from, now), 3, "2100", requestlog.UsageGranularityMinute},
+		{"access key rolling hour", key.Key, usageTestTimeQuery(from, now), 2, "1400", requestlog.UsageGranularityMinute},
+		{"management filters access key", "test-auth-key", usageTestTimeQuery(from, now) + fmt.Sprintf("&access_key_id=%d&group_id=7", key.ID), 2, "1400", requestlog.UsageGranularityMinute},
+		{"daily range combines hourly and boundary sources", "test-auth-key", usageTestTimeQuery(now.Add(-24*time.Hour), now), 101, "1400", requestlog.UsageGranularityHour},
+		{"aligned hour uses logs and minute buckets", "test-auth-key",
 			fmt.Sprintf("from_ms=%d&to_ms=%d", from.Truncate(time.Hour).UnixMilli(), from.Truncate(time.Hour).Add(time.Hour).UnixMilli()),
-			99, "0", "1h", requestlog.UsageGranularityHour},
+			2, "1400", requestlog.UsageGranularityMinute},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := performUsageRequest(engine, test.auth, test.query)
@@ -90,13 +89,13 @@ func TestUsageAPIRollingHourReadsLogsAndScopesAccessKey(t *testing.T) {
 				t.Fatalf("decode usage response: %v", err)
 			}
 			data := envelope.Data
-			if data.Range != test.wantRange || data.Granularity != test.wantGrain {
-				t.Fatalf("usage range/granularity = %s/%s, want %s/%s", data.Range, data.Granularity, test.wantRange, test.wantGrain)
+			if data.Granularity != test.wantGrain {
+				t.Fatalf("usage granularity = %s, want %s", data.Granularity, test.wantGrain)
 			}
 			if data.Summary.RequestCount != test.wantCount || data.Summary.EstimatedCostNanoUSD != test.wantCost {
 				t.Fatalf("usage summary = %+v", data.Summary)
 			}
-			if test.query == "range=1h" {
+			if test.query == usageTestTimeQuery(from, now) {
 				if len(data.Series) != 2 || data.Series[0].BucketStartMS != from.UnixMilli() ||
 					data.Series[1].BucketEndMS != now.UnixMilli() || data.Granularity != "minute" {
 					t.Fatalf("rolling usage series = %+v", data.Series)
@@ -121,7 +120,7 @@ func TestUsageAPIRollingHourReadsLogsAndScopesAccessKey(t *testing.T) {
 		})
 	}
 	for _, id := range []uint{key.ID, key.ID + 1} {
-		recorder := performUsageRequest(engine, key.Key, fmt.Sprintf("range=1h&access_key_id=%d", id))
+		recorder := performUsageRequest(engine, key.Key, usageTestTimeQuery(from, now)+fmt.Sprintf("&access_key_id=%d", id))
 		if recorder.Code != http.StatusBadRequest {
 			t.Fatalf("access key cannot select a scope: %d %s", recorder.Code, recorder.Body.String())
 		}

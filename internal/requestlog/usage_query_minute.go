@@ -1,8 +1,6 @@
 package requestlog
 
 import (
-	"fmt"
-
 	"gorm.io/gorm"
 
 	"gpt-load/internal/storage/models"
@@ -29,32 +27,7 @@ func usageRequestLogScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 		logs = logs.Where("upstream_model = ?", input.UpstreamModel)
 	}
 	return db.Session(&gorm.Session{NewDB: true}).
-		Table("(?) AS usage_rows", logs.Select(usageRequestLogProjection, UsageFiveMinuteBucketMS))
-}
-
-func queryUsageMinuteSeries(scope *gorm.DB, input UsageQuery) ([]UsageSeriesPoint, error) {
-	var source []usageHourPoint
-	if err := scope.Select("bucket_start_ms, " + usageAggregateSelect).
-		Group("bucket_start_ms").Order("bucket_start_ms ASC").Find(&source).Error; err != nil {
-		return nil, fmt.Errorf("query minute usage series: %w", err)
-	}
-	series := make([]UsageSeriesPoint, 0, len(source))
-	for _, point := range source {
-		if err := validateUsageAggregate(point.UsageAggregate); err != nil {
-			return nil, fmt.Errorf("validate minute usage series: %w", err)
-		}
-		// 首尾自然桶截取到查询范围；先比较差值，避免接近 int64 上界时相加溢出。
-		endMS := input.ToMS
-		if input.ToMS-point.BucketStartMS > UsageFiveMinuteBucketMS {
-			endMS = point.BucketStartMS + UsageFiveMinuteBucketMS
-		}
-		series = append(series, UsageSeriesPoint{
-			BucketStartMS:  max(point.BucketStartMS, input.FromMS),
-			BucketEndMS:    endMS,
-			UsageAggregate: point.UsageAggregate,
-		})
-	}
-	return series, nil
+		Table("(?) AS usage_rows", logs.Select(usageRequestLogProjection, UsageFiveMinuteBucketMS, UsageFiveMinuteBucketMS))
 }
 
 // 与 usageStatDelta.addRow 保持一致：只统计已完成的最终归属，每个请求仅计一次；
@@ -75,5 +48,6 @@ const usageRequestLogProjection = `
 	CASE WHEN usage_state = 'missing' THEN 1 ELSE 0 END AS usage_missing_count,
 	CASE WHEN usage_state = 'partial' THEN 1 ELSE 0 END AS partial_count,
 	CASE WHEN usage_state IN ('complete', 'partial') AND cost_state = 'unpriced' THEN 1 ELSE 0 END AS unpriced_request_count,
-	CASE WHEN cost_state = 'priced' AND pricing_completeness = 'partial' THEN 1 ELSE 0 END AS pricing_partial_count
+	CASE WHEN cost_state = 'priced' AND pricing_completeness = 'partial' THEN 1 ELSE 0 END AS pricing_partial_count,
+	? + 0 AS bucket_alignment_ms
 `
