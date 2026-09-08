@@ -180,10 +180,14 @@ func (s *Server) handleImportCredentialBatch(c *gin.Context) {
 
 func (s *Server) handleCredentialImport(c *gin.Context, batch bool) {
 	fileLimit := int64(maxOAuthFileBytes)
+	multipartOverhead := int64(256 * 1024)
 	if batch {
 		fileLimit = importfile.MaxFileBytes
+		// 每个文件部件预留 4 KiB，容纳 UTF-8 文件名、MIME 头和 boundary。
+		// 表单字段另有 256 KiB 余量；文件内容总量仍在读取后独立校验。
+		multipartOverhead += int64(importfile.MaxEntries) * 4 * 1024
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, fileLimit+256*1024)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, fileLimit+multipartOverhead)
 	reader, err := c.Request.MultipartReader()
 	if err != nil {
 		writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
@@ -213,7 +217,7 @@ func (s *Server) handleCredentialImport(c *gin.Context, batch bool) {
 			break
 		}
 		if nextErr != nil {
-			writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+			writeServiceError(c, "import_credential_stage", credentialImportReadError(nextErr))
 			return
 		}
 		switch {
@@ -222,21 +226,26 @@ func (s *Server) handleCredentialImport(c *gin.Context, batch bool) {
 			value, readErr := io.ReadAll(io.LimitReader(part, maxCredentialStageChannelIDBytes+1))
 			_ = part.Close()
 			if readErr != nil || int64(len(value)) > maxCredentialStageChannelIDBytes || channelCount != 1 {
-				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				writeServiceError(c, "import_credential_stage", credentialImportReadError(readErr))
 				return
 			}
 			channelID = channel.ID(strings.TrimSpace(string(value)))
 		case part.FormName() == "file" && part.FileName() != "":
 			fileCount++
-			if (!batch && fileCount != 1) || fileCount > importfile.MaxEntries {
+			if !batch && fileCount != 1 {
 				_ = part.Close()
 				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				return
+			}
+			if batch && fileCount > importfile.MaxEntries {
+				_ = part.Close()
+				writeServiceError(c, "import_credential_stage", credentialImportDocumentError(&importfile.Error{Code: "too_many_entries"}))
 				return
 			}
 			raw, err = io.ReadAll(io.LimitReader(part, fileLimit+1))
 			_ = part.Close()
 			if err != nil {
-				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				writeServiceError(c, "import_credential_stage", credentialImportReadError(err))
 				return
 			}
 			if batch {
@@ -252,7 +261,7 @@ func (s *Server) handleCredentialImport(c *gin.Context, batch bool) {
 			value, readErr := io.ReadAll(io.LimitReader(part, 80*1024+1))
 			_ = part.Close()
 			if preparedCount != 1 || readErr != nil || len(value) > 80*1024 || json.Unmarshal(value, &preparedIDs) != nil || len(preparedIDs) > importfile.MaxEntries {
-				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				writeServiceError(c, "import_credential_stage", credentialImportReadError(readErr))
 				return
 			}
 		case part.FormName() == "proxy" && part.FileName() == "":
@@ -260,7 +269,7 @@ func (s *Server) handleCredentialImport(c *gin.Context, batch bool) {
 			value, readErr := io.ReadAll(io.LimitReader(part, 16*1024+1))
 			_ = part.Close()
 			if readErr != nil || len(value) > 16*1024 || proxyCount != 1 {
-				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				writeServiceError(c, "import_credential_stage", credentialImportReadError(readErr))
 				return
 			}
 			config, decodeErr := outboundproxy.Decode(string(value))
@@ -276,7 +285,7 @@ func (s *Server) handleCredentialImport(c *gin.Context, batch bool) {
 			parsed, parseErr := parseCanonicalSafePlatformUint(strings.TrimSpace(string(value)))
 			if readErr != nil || int64(len(value)) > maxCredentialStageGroupIDBytes ||
 				groupCount != 1 || parseErr != nil || parsed == 0 {
-				writeServiceError(c, "import_credential_stage", app_errors.ErrOAuthFileInvalid)
+				writeServiceError(c, "import_credential_stage", credentialImportReadError(readErr))
 				return
 			}
 			groupID = parsed
@@ -314,6 +323,14 @@ func (s *Server) handleCredentialImport(c *gin.Context, batch bool) {
 	setMutationResourceLocator(c, "credential-stage:"+result.StageID)
 	setSecretResponseHeaders(c)
 	response.SuccessI18n(c, "common.success", result)
+}
+
+func credentialImportReadError(err error) *app_errors.APIError {
+	var maxBytesError *http.MaxBytesError
+	if errors.As(err, &maxBytesError) {
+		return app_errors.ErrRequestTooLarge
+	}
+	return app_errors.ErrOAuthFileInvalid
 }
 
 func (s *Server) handleGetCredentialStage(c *gin.Context) {
