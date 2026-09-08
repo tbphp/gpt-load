@@ -66,7 +66,8 @@ type RequestLogAttempt struct {
 	FailureOrigin         string      `gorm:"type:varchar(16);not null;default:'';check:chk_request_log_attempt_failure_origin,failure_origin IN ('','client','upstream','downstream','internal')"`
 	FailureScope          string      `gorm:"type:varchar(16);not null;default:'';check:chk_request_log_attempt_failure_scope,failure_scope IN ('','request','model','credential','group')"`
 	RetryDirective        string      `gorm:"type:varchar(32);not null;default:'';check:chk_request_log_attempt_retry_directive,retry_directive IN ('','none','refresh_credential','next_candidate')"`
-	Effect                string      `gorm:"type:varchar(32);not null;default:'';check:chk_request_log_attempt_effect,effect IN ('','none','cooldown_credential','record_credential_failure','skip_group')"`
+	Effect                string      `gorm:"type:varchar(32);not null;default:'';check:chk_request_log_attempt_effect,effect IN ('','none','cooldown_credential','cooldown_model','record_credential_failure','skip_group') AND (effect <> 'cooldown_model' OR cooldown_until_ms IS NOT NULL)"`
+	CooldownUntilMS       *int64      `gorm:"type:bigint;check:chk_request_log_attempt_cooldown,cooldown_until_ms IS NULL OR cooldown_until_ms >= 0"`
 	RuleID                string      `gorm:"type:varchar(128);not null;default:''"`
 	Action                string      `gorm:"type:varchar(32);not null;check:chk_request_log_attempt_action,action IN ('terminate','retry','cooldown_credential','fail_credential','skip_group')"`
 	WillRetry             bool        `gorm:"not null;default:false"`

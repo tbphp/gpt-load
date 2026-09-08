@@ -567,6 +567,17 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
                   :counts="group.credential_counts"
                   :label="credentialHealthLabel(group.credential_counts)"
                 />
+                <StatusBadge
+                  v-if="group.credential_counts.model_cooldown > 0"
+                  tone="warning"
+                  size="compact"
+                >
+                  {{
+                    t('group.credentials.modelCooldown.credentialCount', {
+                      count: n(group.credential_counts.model_cooldown),
+                    })
+                  }}
+                </StatusBadge>
               </div>
 
               <div class="ledger-record-list__cell record-actions" role="cell">

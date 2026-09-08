@@ -35,6 +35,7 @@ export function normalizeCredentialCollectionFilters(
   const query = filters.q?.trim()
   if (query) normalized.q = query
   if (filters.status !== undefined) normalized.status = filters.status
+  if (filters.model_cooldown) normalized.model_cooldown = true
   return normalized
 }
 

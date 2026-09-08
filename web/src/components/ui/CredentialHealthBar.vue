@@ -17,6 +17,7 @@ const normalizedCounts = computed<CredentialCounts>(() =>
   'total' in props.counts
     ? props.counts
     : {
+        model_cooldown: props.counts.model_cooldown,
         total: props.counts.credentials,
         available: props.counts.available,
         cooldown: props.counts.cooldown,

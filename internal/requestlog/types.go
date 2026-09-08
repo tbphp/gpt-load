@@ -48,6 +48,7 @@ type Attempt struct {
 	FailureScope      execution.ErrorScope      `json:"failure_scope"`
 	RetryDirective    telemetry.RetryDirective  `json:"retry_directive"`
 	Effect            telemetry.Effect          `json:"effect"`
+	CooldownUntilMS   *int64                    `json:"cooldown_until_ms"`
 	RuleID            string                    `json:"rule_id"`
 	Action            telemetry.Action          `json:"action"`
 	WillRetry         bool                      `json:"will_retry"`

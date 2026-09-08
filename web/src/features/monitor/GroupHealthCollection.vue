@@ -41,7 +41,11 @@ function status(group: HealthGroupDto) {
       tone: 'danger' as const,
     }
   }
-  if (group.counts.cooldown > 0 || group.counts.blacklisted > 0) {
+  if (
+    group.counts.cooldown > 0 ||
+    group.counts.blacklisted > 0 ||
+    group.counts.model_cooldown > 0
+  ) {
     return {
       key: 'limited',
       label: t('monitor.health.groups.limited'),
@@ -142,6 +146,11 @@ function credentialHealthLabel(counts: HealthCredentialCountsDto): string {
           </div>
 
           <div class="ledger-record-list__cell group-health-record__exceptions" role="cell">
+            <StatusBadge v-if="group.counts.model_cooldown > 0" tone="warning" size="compact">{{
+              t('group.credentials.modelCooldown.credentialCount', {
+                count: n(group.counts.model_cooldown),
+              })
+            }}</StatusBadge>
             <StatusBadge v-if="group.counts.cooldown > 0" tone="warning" size="compact">
               {{ t('monitor.health.groups.cooldownCount', { count: n(group.counts.cooldown) }) }}
             </StatusBadge>
@@ -153,7 +162,11 @@ function credentialHealthLabel(counts: HealthCredentialCountsDto): string {
               }}
             </StatusBadge>
             <span
-              v-if="group.counts.cooldown === 0 && group.counts.blacklisted === 0"
+              v-if="
+                group.counts.cooldown === 0 &&
+                group.counts.blacklisted === 0 &&
+                group.counts.model_cooldown === 0
+              "
               class="group-health-record__none"
             >
               {{ t('monitor.health.groups.none') }}

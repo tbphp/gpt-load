@@ -58,6 +58,9 @@ type candidatePool struct {
 }
 
 type Iterator struct {
+	snapshot              *state.ConfigSnapshot
+	query                 Query
+	operation             execution.Operation
 	credentials           CredentialSource
 	progress              *state.SchedulingState
 	regular               candidatePool
@@ -116,6 +119,7 @@ func newWithClock(
 	now func() time.Time,
 ) *Iterator {
 	iterator := &Iterator{
+		snapshot: snapshot, query: query, operation: normalizeQuery(query).operation,
 		credentials:           credentials,
 		allowedCredentialRefs: cloneCredentialIdentities(query.AllowedCredentialRefs),
 		regular:               newCandidatePool(),
@@ -229,6 +233,9 @@ func (iterator *Iterator) withWeightedPool(candidates *candidatePool, modes []ch
 			}
 			target, ok := candidates.targetsByGroup[credential.GroupID]
 			if !ok {
+				continue
+			}
+			if modelCooldownUntil(credential.ModelCooldowns, target.target.UpstreamModelID, iterator.operation, now).After(now) {
 				continue
 			}
 			weight := effectiveWeight(target.group.WeightManual, credential.WeightManual)

@@ -374,6 +374,7 @@ func (recorder *requestRecorder) appendDecisionAttempt(
 		FailureScope:      decision.Scope,
 		RetryDirective:    telemetry.RetryDirective(decision.Retry),
 		Effect:            telemetry.Effect(decision.Effect),
+		CooldownUntil:     decision.CooldownUntil,
 		RuleID:            string(decision.RuleID),
 		Action:            telemetryAction(decision),
 		ErrorCode:         errorCode,
@@ -493,14 +494,15 @@ func (recorder *requestRecorder) completeProviderError(
 	if recorder == nil {
 		return
 	}
-	summary := reasonUpstreamProtocol.Message
+	value := providerErrorReason(result)
+	summary := value.Message
 	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) && recorder.attempts[attemptIndex].ErrorSummary != "" {
 		summary = recorder.attempts[attemptIndex].ErrorSummary
 	}
 	recorder.outcome = requestOutcome{
 		status:        telemetry.RequestStatusError,
-		statusCode:    reasonUpstreamProtocol.Status,
-		errorCode:     reasonUpstreamProtocol.Code,
+		statusCode:    value.Status,
+		errorCode:     value.Code,
 		errorSummary:  summary,
 		upstreamModel: upstreamModel,
 	}

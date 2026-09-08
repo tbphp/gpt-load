@@ -216,6 +216,9 @@ func (s *Service) restoreCredentialRuntimeAfterReset(credentialID uint) bool {
 		if !s.registry.RestoreRuntimeState(credentialID) {
 			return
 		}
+		if !s.registry.ClearModelCooldowns(credentialID) {
+			return
+		}
 		s.stats.ClearProblemState(credentialID)
 		restored = true
 	}

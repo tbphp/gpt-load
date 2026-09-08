@@ -101,7 +101,14 @@ const groupOptionFields = [
   'enabled',
   'models',
 ] as const
-const credentialCountFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
+const credentialCountFields = [
+  'model_cooldown',
+  'total',
+  'available',
+  'cooldown',
+  'blacklisted',
+  'disabled',
+] as const
 const groupCollectionStatuses = ['available', 'unavailable', 'disabled'] as const
 const groupUnavailableReasons = ['no_available_credentials', 'no_models'] as const
 const connectionTypes = ['api_key', 'subscription'] as const
@@ -460,6 +467,7 @@ function projectCredentialCounts(value: unknown): CredentialCounts {
     total: projectSafeInteger(record.total, { minimum: 0 }),
     available: projectSafeInteger(record.available, { minimum: 0 }),
     cooldown: projectSafeInteger(record.cooldown, { minimum: 0 }),
+    model_cooldown: projectSafeInteger(record.model_cooldown, { minimum: 0 }),
     blacklisted: projectSafeInteger(record.blacklisted, { minimum: 0 }),
     disabled: projectSafeInteger(record.disabled, { minimum: 0 }),
   }

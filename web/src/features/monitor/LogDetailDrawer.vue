@@ -730,6 +730,10 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 <dt>{{ t('monitor.logs.drawer.retryDirective') }}</dt>
                 <dd>{{ t(`monitor.logs.retryDirective.${attempt.retry_directive}`) }}</dd>
               </div>
+              <div v-if="attempt.cooldown_until_ms !== null">
+                <dt>{{ t('group.credentials.modelCooldown.until') }}</dt>
+                <dd><AppDateTime :instant="attempt.cooldown_until_ms" :locale="locale" /></dd>
+              </div>
               <div v-if="attempt.effect">
                 <dt>{{ t('monitor.logs.drawer.effect') }}</dt>
                 <dd>{{ t(`monitor.logs.effect.${attempt.effect}`) }}</dd>

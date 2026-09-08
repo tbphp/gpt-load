@@ -60,12 +60,14 @@ type Effect string
 const (
 	EffectNone                    Effect = "none"
 	EffectCooldownCredential      Effect = "cooldown_credential"
+	EffectCooldownModel           Effect = "cooldown_model"
 	EffectRecordCredentialFailure Effect = "record_credential_failure"
 	EffectSkipGroup               Effect = "skip_group"
 )
 
 func (value Effect) Valid() bool {
 	return value == EffectNone || value == EffectCooldownCredential ||
+		value == EffectCooldownModel ||
 		value == EffectRecordCredentialFailure || value == EffectSkipGroup
 }
 
@@ -101,6 +103,7 @@ type Attempt struct {
 	FailureScope      execution.ErrorScope
 	RetryDirective    RetryDirective
 	Effect            Effect
+	CooldownUntil     time.Time
 	RuleID            string
 	Action            Action
 	WillRetry         bool

@@ -21,6 +21,7 @@ import AppTooltip from '@/components/ui/AppTooltip.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import ModelCooldownDetails from '@/components/ui/ModelCooldownDetails.vue'
 import { formatLocalInstant } from '@/lib/format'
 
 import { presentCredentialFailureCategory } from './credential-failure-presenter'
@@ -53,7 +54,10 @@ const draftWeight = ref('50')
 const detailId = computed(() => `group-credential-details-${props.item.credential_id}`)
 const weightInputId = computed(() => `group-credential-weight-${props.item.credential_id}`)
 const isProblem = computed(
-  () => props.item.effective_status === 'cooldown' || props.item.effective_status === 'blacklisted',
+  () =>
+    props.item.effective_status === 'cooldown' ||
+    props.item.effective_status === 'blacklisted' ||
+    props.item.model_cooldowns.length > 0,
 )
 const weightLabel = computed(() => t('group.credentials.weight', { weight: n(props.item.weight) }))
 const recentLabel = computed(() =>
@@ -161,6 +165,9 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
         <StatusBadge :status="item.effective_status" size="compact">
           {{ t(`group.credentials.effective.${item.effective_status}`) }}
         </StatusBadge>
+        <StatusBadge v-if="item.model_cooldowns.length > 0" tone="warning" size="compact">{{
+          t('group.credentials.modelCooldown.count', { count: n(item.model_cooldowns.length) })
+        }}</StatusBadge>
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__weight" role="cell">
@@ -333,6 +340,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
             <span class="setting-panel__title">
               {{ t('group.credentials.diagnostics') }}
             </span>
+            <ModelCooldownDetails :cooldowns="item.model_cooldowns" />
             <dl class="setting-panel__body group-credential-record__runtime-details">
               <div>
                 <dt>{{ t('group.credentials.detailsFailure') }}</dt>

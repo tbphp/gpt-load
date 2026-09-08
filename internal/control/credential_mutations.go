@@ -318,7 +318,7 @@ func (s *Service) restoreGroupCredential(
 		}
 		if targetSignature == nil {
 			bucket := classifyHealthKey(groupView, current, observedAt)
-			if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
+			if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted && !hasModelCooldown(current.ModelCooldowns, observedAt) {
 				restoreErr = app_errors.ErrInvalidCredentialState
 				return
 			}
@@ -339,7 +339,12 @@ func (s *Service) restoreGroupCredential(
 			testedCredential = &credential
 		}
 		if targetSignature == nil {
-			if !s.registry.RestoreRuntimeState(credentialID) {
+			if !s.registry.ClearModelCooldowns(credentialID) {
+				restoreErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
+				return
+			}
+			bucket := classifyHealthKey(groupView, current, observedAt)
+			if (bucket == healthBucketCooldown || bucket == healthBucketBlacklisted) && !s.registry.RestoreRuntimeState(credentialID) {
 				restoreErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
 				return
 			}
@@ -707,11 +712,14 @@ func (s *Service) restoreCredentialBatchRuntime(group models.Group, entries []st
 			CooldownUntil: entry.CooldownUntil, Blacklisted: entry.Blacklisted,
 		}
 		bucket := classifyHealthKey(groupView, view, now)
-		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
+		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted && !hasModelCooldown(entry.ModelCooldowns, now) {
 			continue
 		}
+		if !s.registry.ClearModelCooldowns(entry.ID) {
+			return nil, dbRegistryMismatch(mismatchMissingRegistry, group.ID, entry.ID)
+		}
 		// 只修改健康字段，保留并发发布的订阅额度与授权状态。
-		if !s.registry.RestoreRuntimeState(entry.ID) {
+		if (bucket == healthBucketCooldown || bucket == healthBucketBlacklisted) && !s.registry.RestoreRuntimeState(entry.ID) {
 			return nil, dbRegistryMismatch(mismatchMissingRegistry, group.ID, entry.ID)
 		}
 		s.stats.ClearProblemState(entry.ID)
@@ -777,6 +785,9 @@ func summarizeGroupRuntimeCredentials(
 			continue
 		}
 		summary.Total++
+		if hasModelCooldown(view.ModelCooldowns, observedAt) {
+			summary.ModelCooldown++
+		}
 		switch classifyHealthKey(groupView, view, observedAt) {
 		case healthBucketAvailable:
 			summary.Available++

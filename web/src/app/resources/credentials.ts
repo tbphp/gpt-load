@@ -87,6 +87,7 @@ const credentialCollectionFields = [
   'pagination',
 ] as const
 const credentialSummaryFields = [
+  'model_cooldown',
   'total',
   'available',
   'cooldown',
@@ -94,6 +95,7 @@ const credentialSummaryFields = [
   'disabled',
 ] as const
 const credentialItemFields = [
+  'model_cooldowns',
   'credential_id',
   'connection_type',
   'secret_version',
@@ -500,11 +502,21 @@ function projectObservation(value: unknown): CredentialObservationDto {
   }
 }
 
+export function projectModelCooldown(value: unknown) {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['model', 'cooldown_until_ms'])
+  return {
+    model: projectString(record.model, { allowEmpty: false }),
+    cooldown_until_ms: projectEpochMilliseconds(record.cooldown_until_ms),
+  }
+}
+
 export function projectCredentialSummary(value: unknown): CredentialSummaryDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, credentialSummaryFields)
   const result = {
     total: projectSafeInteger(record.total, { minimum: 0 }),
+    model_cooldown: projectSafeInteger(record.model_cooldown, { minimum: 0 }),
     available: projectSafeInteger(record.available, { minimum: 0 }),
     cooldown: projectSafeInteger(record.cooldown, { minimum: 0 }),
     blacklisted: projectSafeInteger(record.blacklisted, { minimum: 0 }),
@@ -556,6 +568,7 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
   return {
     credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
     connection_type: connectionType,
+    model_cooldowns: projectArray(record.model_cooldowns, projectModelCooldown),
     secret_version: projectSafeInteger(record.secret_version, { minimum: 1 }),
     mask: projectMask(record.mask),
     account: projectAccount(record.account, connectionType),
@@ -695,6 +708,7 @@ function credentialCollectionURL(
     page: String(normalized.page),
     page_size: String(normalized.page_size),
   })
+  if (normalized.model_cooldown) params.set('model_cooldown', 'true')
   if (normalized.q !== undefined) params.set('q', normalized.q)
   if (normalized.status !== undefined) params.set('status', normalized.status)
   return `/api/groups/${groupId}/credentials?${params.toString()}`
@@ -1060,12 +1074,14 @@ function queryFilters(queryKey: QueryKey): CredentialCollectionFilters | undefin
   if (
     !Number.isSafeInteger(record.page) ||
     (record.page_size !== 20 && record.page_size !== 50 && record.page_size !== 100) ||
+    (record.model_cooldown !== undefined && record.model_cooldown !== true) ||
     (record.q !== undefined && typeof record.q !== 'string') ||
     (record.status !== undefined && !effectiveStatuses.includes(record.status as CredentialStatus))
   ) {
     return undefined
   }
   return {
+    ...(record.model_cooldown === true ? { model_cooldown: true as const } : {}),
     page: record.page as number,
     page_size: record.page_size as 20 | 50 | 100,
     ...(record.q === undefined ? {} : { q: record.q }),
@@ -1075,6 +1091,7 @@ function queryFilters(queryKey: QueryKey): CredentialCollectionFilters | undefin
 
 function matchesFilters(item: CredentialItemDto, filters: CredentialCollectionFilters): boolean {
   if (filters.status !== undefined && item.effective_status !== filters.status) return false
+  if (filters.model_cooldown && item.model_cooldowns.length === 0) return false
   if (filters.q === undefined) return true
   const query = filters.q.toLowerCase()
   return (
@@ -1089,6 +1106,8 @@ function withSummaryDelta(
   next: CredentialItemDto | undefined,
 ): CredentialSummaryDto {
   const result = { ...summary }
+  result.model_cooldown +=
+    Number((next?.model_cooldowns.length ?? 0) > 0) - Number(previous.model_cooldowns.length > 0)
   result[previous.effective_status]--
   if (next !== undefined) result[next.effective_status]++
   return result
@@ -1130,6 +1149,7 @@ function credentialFilterSetID(filters: CredentialCollectionFilters): string {
   return JSON.stringify({
     q: filters.q ?? null,
     status: filters.status ?? null,
+    model_cooldown: filters.model_cooldown ?? false,
     page_size: filters.page_size,
   })
 }
@@ -1139,8 +1159,10 @@ function totalItemsAfterBatchDelete(
   knownDeletedIDs: Set<number>,
   summary: CredentialSummaryDto,
 ): number {
-  const { q, status } = pages[0].filters
-  if (q === undefined) return status === undefined ? summary.total : summary[status]
+  const { q, status, model_cooldown } = pages[0].filters
+  if (q === undefined && !model_cooldown)
+    return status === undefined ? summary.total : summary[status]
+  if (q === undefined && status === undefined && model_cooldown) return summary.model_cooldown
   return Math.max(
     0,
     Math.max(...pages.map(({ collection }) => collection.pagination.total_items)) -

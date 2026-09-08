@@ -402,6 +402,7 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 	}, codexExecutionOptions(request, format, false))
 	if err != nil {
 		return ExecuteResponse{
+			Headers:                observation.responseHeaders(),
 			AppliedReasoningEffort: observation.reasoningEffort(),
 			UpstreamRequestPath:    observation.upstreamRequestPath(),
 			QuotaSignals:           observation.quotaSignalObservation(),
@@ -493,6 +494,7 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 	}, codexExecutionOptions(request, format, true))
 	if err != nil {
 		return &ExecuteStreamResponse{
+			Headers:                observation.responseHeaders(),
 			AppliedReasoningEffort: observation.reasoningEffort(),
 			UpstreamRequestPath:    observation.upstreamRequestPath(),
 			QuotaSignals:           observation.quotaSignalObservation(),
@@ -792,6 +794,7 @@ type executionObservation struct {
 	effort              string
 	observedRequestPath string
 	quota               cliproxyauth.QuotaState
+	retryAfter          string
 }
 
 func newExecutionObservation(request ExecuteRequest) *executionObservation {
@@ -875,8 +878,23 @@ func (o *executionObservation) observeQuotaSignals(header http.Header, observedA
 		return
 	}
 	o.mu.Lock()
+	// 恢复证据始终属于当前 HTTP 响应，缺失时不能沿用上一次请求的值。
+	o.retryAfter = ""
+	if value := header.Get("Retry-After"); len(value) <= 128 && !strings.ContainsAny(value, "\r\n") {
+		o.retryAfter = value
+	}
 	o.quota.ObserveResponseHeadersForProvider(o.provider, header, observedAt)
 	o.mu.Unlock()
+}
+
+func (o *executionObservation) responseHeaders() http.Header {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	header := make(http.Header)
+	if o.retryAfter != "" {
+		header.Set("Retry-After", o.retryAfter)
+	}
+	return header
 }
 
 func (o *executionObservation) quotaSignalObservation() QuotaSignalObservation {

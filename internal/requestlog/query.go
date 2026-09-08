@@ -271,6 +271,7 @@ func decodeAttemptRows(rows []models.RequestLogAttempt) ([]Attempt, error) {
 			FailureScope:    execution.ErrorScope(row.FailureScope),
 			RetryDirective:  telemetry.RetryDirective(row.RetryDirective),
 			Effect:          telemetry.Effect(row.Effect),
+			CooldownUntilMS: row.CooldownUntilMS,
 			RuleID:          row.RuleID,
 			Action:          telemetry.Action(row.Action),
 			WillRetry:       row.WillRetry,

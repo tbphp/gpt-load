@@ -92,10 +92,23 @@ const items = computed<HealthOverviewItem[]>(() => [
       </AppTooltip>
       <span v-else class="health-overview__detail">{{ item.detail }}</span>
     </article>
+    <span v-if="counts.model_cooldown > 0" class="health-overview__model-cooldown"
+      >{{
+        t('group.credentials.modelCooldown.credentialCount', { count: n(counts.model_cooldown) })
+      }}
+      · {{ t('group.credentials.modelCooldown.hint') }}</span
+    >
   </section>
 </template>
 
 <style scoped>
+.health-overview__model-cooldown {
+  grid-column: 1 / -1;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  color: var(--color-warning);
+  font-size: var(--text-label-xs);
+}
 .health-overview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

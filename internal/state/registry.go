@@ -28,23 +28,25 @@ const (
 )
 
 type CredentialEntry struct {
-	ID                 uint
-	GroupID            uint
-	Version            uint64
-	IdentityGeneration uint64
-	Fingerprint        string
-	WeightManual       *int
-	Status             CredentialStatus
-	AuthState          CredentialAuthState
-	CooldownUntil      time.Time
-	Blacklisted        bool
-	FailureCount       int
-	FailureGeneration  uint64
-	EncryptedValue     string
-	EncryptedProxy     string
-	ProxyFingerprint   string
-	quotaRemaining     *float64
-	quotaResetAt       time.Time
+	ID                      uint
+	GroupID                 uint
+	Version                 uint64
+	IdentityGeneration      uint64
+	Fingerprint             string
+	WeightManual            *int
+	Status                  CredentialStatus
+	AuthState               CredentialAuthState
+	CooldownUntil           time.Time
+	ModelCooldowns          map[string]time.Time
+	ModelCooldownGeneration uint64
+	Blacklisted             bool
+	FailureCount            int
+	FailureGeneration       uint64
+	EncryptedValue          string
+	EncryptedProxy          string
+	ProxyFingerprint        string
+	quotaRemaining          *float64
+	quotaResetAt            time.Time
 }
 
 type CredentialMeta struct {
@@ -53,18 +55,20 @@ type CredentialMeta struct {
 	Version            uint64
 	IdentityGeneration uint64
 	WeightManual       *int
+	ModelCooldowns     map[string]time.Time
 }
 
 type CredentialRef struct {
-	ID                 uint
-	GroupID            uint
-	Version            uint64
-	IdentityGeneration uint64
-	Fingerprint        string
-	EncryptedValue     string
-	EncryptedProxy     string
-	ProxyFingerprint   string
-	FailureGeneration  uint64
+	ID                      uint
+	GroupID                 uint
+	Version                 uint64
+	IdentityGeneration      uint64
+	Fingerprint             string
+	EncryptedValue          string
+	EncryptedProxy          string
+	ProxyFingerprint        string
+	FailureGeneration       uint64
+	ModelCooldownGeneration uint64
 }
 
 type CredentialRegistry struct {
@@ -140,6 +144,11 @@ func (r *CredentialRegistry) ReplaceCredentials(entries []CredentialEntry) error
 	}
 
 	r.mu.Lock()
+	for groupID, bucket := range buckets {
+		for id, entry := range bucket {
+			preserveModelCooldowns(entry, r.buckets[groupID][id])
+		}
+	}
 	r.buckets = buckets
 	r.credentialGroups = credentialGroups
 	views := make([]CredentialRuntimeView, 0, len(entries))
@@ -176,6 +185,7 @@ func (r *CredentialRegistry) ApplyCredentialImport(groupID uint, entries []Crede
 			r.buckets[groupID] = make(map[uint]*CredentialEntry)
 		}
 		cloned := cloneCredentialEntry(entry)
+		preserveModelCooldowns(&cloned, r.buckets[groupID][entry.ID])
 		r.buckets[groupID][entry.ID] = &cloned
 		r.credentialGroups[entry.ID] = groupID
 		r.scheduling.SyncCredential(runtimeView(r.buckets[groupID][entry.ID]))
@@ -300,6 +310,7 @@ func (r *CredentialRegistry) ReconcileGroup(groupID uint, entries []CredentialEn
 			continue
 		}
 		cloned := cloneCredentialEntry(desired)
+		preserveModelCooldowns(&cloned, previous[desired.ID])
 		next[desired.ID] = &cloned
 	}
 	for credentialID := range previous {
@@ -589,7 +600,8 @@ func (r *CredentialRegistry) CaptureActiveCredentialRefs(groupIDs []uint) []Cred
 				Version: entry.Version, IdentityGeneration: entry.IdentityGeneration,
 				Fingerprint: entry.Fingerprint, EncryptedValue: entry.EncryptedValue,
 				EncryptedProxy: entry.EncryptedProxy, ProxyFingerprint: entry.ProxyFingerprint,
-				FailureGeneration: entry.FailureGeneration,
+				FailureGeneration:       entry.FailureGeneration,
+				ModelCooldownGeneration: entry.ModelCooldownGeneration,
 			})
 		}
 	}
@@ -657,6 +669,7 @@ func (r *CredentialRegistry) CredentialRef(credentialID uint) (CredentialRef, bo
 		IdentityGeneration: entry.IdentityGeneration, Fingerprint: entry.Fingerprint,
 		EncryptedValue: entry.EncryptedValue, EncryptedProxy: entry.EncryptedProxy,
 		ProxyFingerprint: entry.ProxyFingerprint, FailureGeneration: entry.FailureGeneration,
+		ModelCooldownGeneration: entry.ModelCooldownGeneration,
 	}, true
 }
 
@@ -699,7 +712,8 @@ func (r *CredentialRegistry) collectCredentialCandidatesLocked(groupIDs []uint, 
 			meta := CredentialMeta{
 				ID: view.ID, GroupID: view.GroupID,
 				Version: view.Version, IdentityGeneration: view.IdentityGeneration,
-				WeightManual: cloneWeight(view.WeightManual),
+				WeightManual:   cloneWeight(view.WeightManual),
+				ModelCooldowns: view.ModelCooldowns,
 			}
 			metas = append(metas, meta)
 		}
@@ -987,7 +1001,8 @@ func (r *CredentialRegistry) BlacklistedCredentials() []CredentialRef {
 				Version: entry.Version, IdentityGeneration: entry.IdentityGeneration,
 				Fingerprint: entry.Fingerprint, EncryptedValue: entry.EncryptedValue,
 				EncryptedProxy: entry.EncryptedProxy, ProxyFingerprint: entry.ProxyFingerprint,
-				FailureGeneration: entry.FailureGeneration,
+				FailureGeneration:       entry.FailureGeneration,
+				ModelCooldownGeneration: entry.ModelCooldownGeneration,
 			})
 		}
 	}
@@ -1014,6 +1029,7 @@ func cloneCredentialEntry(entry CredentialEntry) CredentialEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
 	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	entry.FailureGeneration = 0
+	entry.ModelCooldowns = cloneModelCooldowns(entry.ModelCooldowns)
 	return entry
 }
 
@@ -1037,6 +1053,7 @@ func (state CredentialAuthState) valid() bool {
 func detachCredentialEntryExact(entry CredentialEntry) CredentialEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
 	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
+	entry.ModelCooldowns = cloneModelCooldowns(entry.ModelCooldowns)
 	return entry
 }
 

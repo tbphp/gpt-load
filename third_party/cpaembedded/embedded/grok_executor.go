@@ -134,7 +134,7 @@ func (executor *grokHTTPExecutor) ExecuteCanonical(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, grokExecutorOptions(request, format, false))
 	if err != nil {
-		return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, normalizeGrokExecutionError(err)
+		return ExecuteResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort()}, normalizeGrokExecutionError(err)
 	}
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
@@ -199,7 +199,7 @@ func (executor *grokHTTPExecutor) ExecuteStreamCanonical(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, grokExecutorOptions(request, format, true))
 	if err != nil {
-		return &ExecuteStreamResponse{AppliedReasoningEffort: observation.reasoningEffort()}, normalizeGrokExecutionError(err)
+		return &ExecuteStreamResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort()}, normalizeGrokExecutionError(err)
 	}
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {

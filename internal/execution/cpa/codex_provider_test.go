@@ -61,14 +61,14 @@ func TestCodexProviderClassifiesStructuredRateLimitEvidence(t *testing.T) {
 		wantRetry  time.Duration
 	}{
 		{
-			name: "wrapped credential usage limit",
+			name: "wrapped model usage limit",
 			err: fmt.Errorf("wrapped: %w", &codexClassifiedTestError{
 				status:     http.StatusTooManyRequests,
 				payload:    `{"error":{"type":"usage_limit_reached","message":"usage limit reached"}}`,
 				retryAfter: 17 * time.Second,
 			}),
 			wantType: "usage_limit_reached", wantHint: execution.FailureHintRateLimited,
-			wantScope:  execution.ErrorScopeCredential,
+			wantScope:  execution.ErrorScopeModel,
 			wantReplay: execution.ReplaySafetyRejectedBeforeProcessing,
 			wantRetry:  17 * time.Second,
 		},

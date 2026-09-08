@@ -181,7 +181,7 @@ func (executor *antigravityHTTPExecutor) ExecuteCanonical(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, false))
 	if err != nil {
-		return ExecuteResponse{AppliedReasoningEffort: observation.reasoningEffort()}, normalizeAntigravityExecutionError(err)
+		return ExecuteResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort()}, normalizeAntigravityExecutionError(err)
 	}
 	return ExecuteResponse{
 		Payload: normalizeAntigravityConvertedUsage(request.Format, false, response.Payload), Headers: response.Headers.Clone(),
@@ -255,7 +255,7 @@ func (executor *antigravityHTTPExecutor) ExecuteStreamCanonical(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, true))
 	if err != nil {
-		return &ExecuteStreamResponse{AppliedReasoningEffort: observation.reasoningEffort()}, normalizeAntigravityExecutionError(err)
+		return &ExecuteStreamResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort()}, normalizeAntigravityExecutionError(err)
 	}
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {

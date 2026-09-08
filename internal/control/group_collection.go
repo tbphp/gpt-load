@@ -32,11 +32,12 @@ const (
 )
 
 type GroupCollectionCredentialCounts struct {
-	Total       int64 `json:"total"`
-	Available   int64 `json:"available"`
-	Cooldown    int64 `json:"cooldown"`
-	Blacklisted int64 `json:"blacklisted"`
-	Disabled    int64 `json:"disabled"`
+	ModelCooldown int   `json:"model_cooldown"`
+	Total         int64 `json:"total"`
+	Available     int64 `json:"available"`
+	Cooldown      int64 `json:"cooldown"`
+	Blacklisted   int64 `json:"blacklisted"`
+	Disabled      int64 `json:"disabled"`
 }
 
 type GroupCollectionItem struct {
@@ -371,6 +372,9 @@ func mapGroupCollectionRecords(
 		for _, persistedCredential := range credentialsByGroup[group.ID] {
 			bucket := classifyHealthKey(catalog, runtimeByID[persistedCredential.ID], observedAt)
 			addGroupCollectionCredentialCount(&record.CredentialCounts, bucket)
+			if hasModelCooldown(runtimeByID[persistedCredential.ID].ModelCooldowns, observedAt) {
+				record.CredentialCounts.ModelCooldown++
+			}
 		}
 		record.Status, record.UnavailableReason = groupCollectionStatusAndReason(
 			catalog,

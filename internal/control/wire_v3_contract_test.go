@@ -91,7 +91,7 @@ func TestHealthAndRouteInspectionUseCredentialWireNames(t *testing.T) {
 		t.Fatalf("json.Marshal(health) error = %v", err)
 	}
 	for _, token := range []string{
-		`"counts":{"credentials":1,"available":1,"cooldown":0,"blacklisted":0}`,
+		`"counts":{"model_cooldown":0,"credentials":1,"available":1,"cooldown":0,"blacklisted":0}`,
 		`"cooldown_credentials":[{"credential_id":7`,
 		`"blacklisted_credentials":[]`,
 	} {

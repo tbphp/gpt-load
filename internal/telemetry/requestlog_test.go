@@ -60,6 +60,7 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"FailureScope",
 			"RetryDirective",
 			"Effect",
+			"CooldownUntil",
 			"RuleID",
 			"Action",
 			"WillRetry",

@@ -299,6 +299,7 @@ func TestHandlerSkipsCooldownFromStaleCredentialVersion(t *testing.T) {
 		},
 		http.StatusTooManyRequests,
 		now,
+		"",
 	)
 
 	views := registry.Snapshot()
@@ -1356,7 +1357,7 @@ func TestHandlerFinalizesCommittedStreamThroughJudge(t *testing.T) {
 			wantCooldown: 1,
 		},
 		{
-			name: "unscoped rate limit does not apply committed effect",
+			name: "unscoped rate limit applies model effect",
 			result: UpstreamResult{
 				DispatchState:   execution.DispatchMaybeSent,
 				ResponseStarted: true,
@@ -1422,6 +1423,10 @@ func TestHandlerFinalizesCommittedStreamThroughJudge(t *testing.T) {
 				}
 				if got := stats.Snapshot(credentialID, now); got.Problem != 1 {
 					t.Fatalf("credential stats = %#v, want one problem", got)
+				}
+			} else if test.result.ExecutionError.ScopeHint == "" {
+				if got := registry.ModelCooldowns(credentialID, now); !got["gpt-4o"].Equal(now.Add(time.Minute)) {
+					t.Fatalf("model cooldown = %v", got)
 				}
 			} else if got := stats.Snapshot(credentialID, now); got != (health.CredentialStats{}) {
 				t.Fatalf("credential stats = %#v, want empty", got)
@@ -1934,6 +1939,10 @@ func newModelListHandlerEngineWithLimit(
 }
 
 type panicRuntimeRegistry struct{}
+
+func (panicRuntimeRegistry) SetModelCooldown(state.CredentialRef, string, time.Time, time.Time) (bool, bool) {
+	panic("model endpoint mutated cooldown")
+}
 
 func (panicRuntimeRegistry) SchedulingState() *state.SchedulingState {
 	panic("unexpected registry access")
@@ -2983,7 +2992,7 @@ func TestHandlerTerminatesRequestWrittenStreamFailuresBeforeCommit(t *testing.T)
 	}
 }
 
-func TestHandlerRetriesClassifiedFirstProviderErrorAndReturns502OnExhaustion(t *testing.T) {
+func TestHandlerRetriesClassifiedFirstProviderErrorAndReturns429OnExhaustion(t *testing.T) {
 	const marker = "rate_limit_error"
 	providerError := UpstreamResult{
 		StatusCode:                http.StatusOK,
@@ -3035,8 +3044,8 @@ func TestHandlerRetriesClassifiedFirstProviderErrorAndReturns502OnExhaustion(t *
 		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 			t.Fatalf("decode response: %v; body=%s", err, recorder.Body.String())
 		}
-		if recorder.Code != http.StatusBadGateway ||
-			body.Code != reasonUpstreamProtocol.Code ||
+		if recorder.Code != http.StatusTooManyRequests ||
+			body.Code != reasonModelRateLimited.Code ||
 			strings.Contains(recorder.Body.String(), "rate_limit_error") {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 		}
@@ -3607,11 +3616,8 @@ func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, request)
 
-			if recording.cooldownCalls != 1 || recording.cooldownCredentialID != 1 ||
-				!recording.cooldownUntil.Equal(test.want) {
-				t.Fatalf("cooldown = calls:%d key:%d until:%v, want 1/1/%v",
-					recording.cooldownCalls, recording.cooldownCredentialID,
-					recording.cooldownUntil, test.want)
+			if until := registry.ModelCooldowns(1, attemptNow)["gpt-4o"]; !until.Equal(test.want) {
+				t.Fatalf("model deadline = %v, want %v", until, test.want)
 			}
 		})
 	}
@@ -3746,7 +3752,7 @@ func TestSubscriptionRateLimitWithoutResetUsesTenMinuteCooldown(t *testing.T) {
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
 	views := registry.Snapshot()
-	if len(views) != 1 || !views[0].CooldownUntil.Equal(attemptNow.Add(10*time.Minute)) {
+	if len(views) != 1 || !views[0].ModelCooldowns["gpt-4o"].Equal(attemptNow.Add(10*time.Minute)) {
 		t.Fatalf("subscription cooldown = %#v, want %v", views, attemptNow.Add(10*time.Minute))
 	}
 }

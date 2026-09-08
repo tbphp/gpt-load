@@ -566,6 +566,7 @@ export default {
         group_weight_zero: 'Group effective weight is zero',
         credential_disabled: 'Credential is disabled',
         credential_blacklisted: 'Credential is blacklisted',
+        model_cooldown: 'The current model is cooling down on this credential',
         credential_cooldown: 'Credential is cooling down',
         credential_auth_unavailable: 'Subscription authentication is currently unavailable',
         credential_weight_zero: 'Credential effective weight is zero',
@@ -779,6 +780,7 @@ export default {
         next_candidate: 'Try next candidate',
       },
       effect: {
+        cooldown_model: 'Cooldown current model',
         none: 'No runtime change',
         cooldown_credential: 'Cooldown credential',
         record_credential_failure: 'Record credential failure',

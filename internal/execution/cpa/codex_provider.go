@@ -412,7 +412,7 @@ func (*codexProviderBridge) ClassifyError(
 		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 	case status == http.StatusTooManyRequests && typeValue == "usage_limit_reached":
 		evidence.Hint = execution.FailureHintRateLimited
-		evidence.ScopeHint = execution.ErrorScopeCredential
+		evidence.ScopeHint = execution.ErrorScopeModel
 		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 	case status == http.StatusTooManyRequests && codexModelCapacityError(err):
 		evidence.Hint = execution.FailureHintCandidateUnavailable

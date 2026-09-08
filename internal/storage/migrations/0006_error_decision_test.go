@@ -31,6 +31,7 @@ func TestErrorDecisionMigrationPreservesAttemptsAndAddsDecisionContract(t *testi
 	}
 	if err := db.Omit(
 		"FailureOrigin", "FailureScope", "RetryDirective", "Effect", "RuleID",
+		"CooldownUntilMS",
 	).Create(&attempt).Error; err != nil {
 		t.Fatalf("create legacy attempt: %v", err)
 	}
@@ -66,13 +67,13 @@ func TestErrorDecisionMigrationPreservesAttemptsAndAddsDecisionContract(t *testi
 		RetryDirective: "refresh_credential", Effect: "none", RuleID: "auth.refresh_required",
 		Action: "retry", ErrorSummary: "refresh required",
 	}
-	if err := db.Create(&newAttempt).Error; err != nil {
+	if err := db.Omit("CooldownUntilMS").Create(&newAttempt).Error; err != nil {
 		t.Fatalf("create decision attempt: %v", err)
 	}
 	invalid := newAttempt
 	invalid.Sequence = 3
 	invalid.FailureOrigin = "unknown"
-	if err := db.Create(&invalid).Error; err == nil {
+	if err := db.Omit("CooldownUntilMS").Create(&invalid).Error; err == nil {
 		t.Fatal("migration accepted an invalid failure origin")
 	}
 

@@ -34,6 +34,7 @@ const (
 	ReasonCredentialAuthUnavailable ReasonCode = "credential_auth_unavailable"
 	ReasonCredentialBlacklisted     ReasonCode = "credential_blacklisted"
 	ReasonCredentialCooldown        ReasonCode = "credential_cooldown"
+	ReasonModelCooldown             ReasonCode = "model_cooldown"
 	ReasonCredentialWeightZero      ReasonCode = "credential_weight_zero"
 	ReasonCredentialNotAllowed      ReasonCode = "credential_not_allowed"
 	ReasonNoAvailableCredential     ReasonCode = "no_available_credential"
@@ -247,6 +248,8 @@ func inspectCredential(
 	credential CredentialRuntimeView,
 	allowedCredentialIDs map[uint]struct{},
 	now time.Time,
+	model string,
+	operation execution.Operation,
 ) CredentialInspection {
 	result := CredentialInspection{
 		CredentialID: credential.ID,
@@ -280,7 +283,14 @@ func inspectCredential(
 	case state.CredentialRuntimeCooldown:
 		result.Reason = ReasonCredentialCooldown
 		result.CooldownUntil = credential.CooldownUntil
+		if until := modelCooldownUntil(credential.ModelCooldowns, model, operation, now); until.After(result.CooldownUntil) {
+			result.CooldownUntil = until
+		}
 	default:
+		if until := modelCooldownUntil(credential.ModelCooldowns, model, operation, now); until.After(now) {
+			result.Reason, result.CooldownUntil = ReasonModelCooldown, until
+			return result
+		}
 		result.Available = true
 		result.EffectiveWeight = effectiveWeight(
 			group.WeightManual,
@@ -364,6 +374,8 @@ func Inspect(
 				credential,
 				normalized.allowedCredentialIDs,
 				now,
+				decision.target.UpstreamModelID,
+				normalized.operation,
 			)
 			groupResult.Credentials = append(groupResult.Credentials, credentialResult)
 		}

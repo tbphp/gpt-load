@@ -34,6 +34,7 @@ type Effect string
 const (
 	EffectNone                    Effect = "none"
 	EffectCooldownCredential      Effect = "cooldown_credential"
+	EffectCooldownModel           Effect = "cooldown_model"
 	EffectRecordCredentialFailure Effect = "record_credential_failure"
 	EffectSkipGroup               Effect = "skip_group"
 )
@@ -50,6 +51,7 @@ func (directive RetryDirective) Valid() bool {
 func (effect Effect) Valid() bool {
 	return effect == EffectNone ||
 		effect == EffectCooldownCredential ||
+		effect == EffectCooldownModel ||
 		effect == EffectRecordCredentialFailure ||
 		effect == EffectSkipGroup
 }
@@ -128,13 +130,13 @@ func (decision Decision) Validate() error {
 		return fmt.Errorf("rule ID contains an invalid character")
 	}
 	switch decision.Effect {
-	case EffectCooldownCredential:
+	case EffectCooldownCredential, EffectCooldownModel:
 		if decision.CooldownUntil.IsZero() {
-			return fmt.Errorf("credential cooldown requires a deadline")
+			return fmt.Errorf("cooldown requires a deadline")
 		}
 	}
-	if decision.Effect != EffectCooldownCredential && !decision.CooldownUntil.IsZero() {
-		return fmt.Errorf("cooldown deadline requires credential cooldown effect")
+	if decision.Effect != EffectCooldownCredential && decision.Effect != EffectCooldownModel && !decision.CooldownUntil.IsZero() {
+		return fmt.Errorf("cooldown deadline requires a cooldown effect")
 	}
 	return nil
 }

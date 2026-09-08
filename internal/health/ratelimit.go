@@ -1,6 +1,7 @@
 package health
 
 import (
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -8,6 +9,25 @@ import (
 )
 
 const maxRateLimitResetDelay = time.Hour
+
+// ParseExplicitRetryAfter 支持本次拒绝明确返回的长恢复时间，不扩大其他 reset 头的语义。
+func ParseExplicitRetryAfter(header http.Header, now time.Time) (time.Time, bool) {
+	var latest time.Time
+	for _, value := range matchingHeaderValues(header, func(name string) bool { return name == "retry-after" }) {
+		value = strings.TrimSpace(value)
+		until, err := http.ParseTime(value)
+		if seconds, parseErr := strconv.ParseInt(value, 10, 64); parseErr == nil {
+			if seconds <= 0 || seconds > math.MaxInt64/int64(time.Second) {
+				continue
+			}
+			until, err = now.Add(time.Duration(seconds)*time.Second), nil
+		}
+		if err == nil && until.After(now) && until.After(latest) {
+			latest = until
+		}
+	}
+	return latest, !latest.IsZero()
+}
 
 type resetHeaderFamily struct {
 	values     []string

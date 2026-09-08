@@ -544,6 +544,7 @@ export default {
         group_weight_zero: '分组有效权重为零',
         credential_disabled: '凭据已停用',
         credential_blacklisted: '凭据已拉黑',
+        model_cooldown: '该凭据的当前模型正在冷却',
         credential_cooldown: '凭据正在冷却',
         credential_auth_unavailable: '订阅账号当前无法完成鉴权',
         credential_weight_zero: '凭据有效权重为零',
@@ -760,6 +761,7 @@ export default {
         next_candidate: '尝试下一个候选',
       },
       effect: {
+        cooldown_model: '冷却当前模型',
         none: '无运行态变更',
         cooldown_credential: '冷却凭据',
         record_credential_failure: '记录凭据失败',

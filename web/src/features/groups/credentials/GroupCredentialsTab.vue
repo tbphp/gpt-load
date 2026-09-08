@@ -264,7 +264,10 @@ const credentialTestDialogResult = computed(() => {
   }
 })
 const hasChangedConditions = computed(
-  () => filters.value.q !== undefined || filters.value.status !== undefined,
+  () =>
+    filters.value.q !== undefined ||
+    filters.value.status !== undefined ||
+    filters.value.model_cooldown === true,
 )
 const statusSummaryItems = computed(() => {
   const summary = collection.value?.summary
@@ -321,7 +324,13 @@ watch(
 )
 
 watch(
-  () => [filters.value.status, filters.value.q, filters.value.page, filters.value.page_size],
+  () => [
+    filters.value.status,
+    filters.value.q,
+    filters.value.page,
+    filters.value.page_size,
+    filters.value.model_cooldown,
+  ],
   () => {
     selectedIds.value = new Set()
   },
@@ -370,7 +379,9 @@ function updateRoute(
 }
 
 function setFilter(
-  patch: Partial<Pick<CredentialCollectionFilters, 'q' | 'status' | 'page_size'>>,
+  patch: Partial<
+    Pick<CredentialCollectionFilters, 'q' | 'status' | 'page_size' | 'model_cooldown'>
+  >,
 ): void {
   updateRoute({ ...filters.value, ...patch, page: 1 })
 }
@@ -455,6 +466,7 @@ function currentSelectionContext(): string {
   return JSON.stringify({
     groupId: props.groupId,
     status: filters.value.status ?? null,
+    modelCooldown: filters.value.model_cooldown ?? false,
     query: filters.value.q ?? null,
     page: filters.value.page,
     pageSize: filters.value.page_size,
@@ -663,6 +675,8 @@ async function reconcileItem(result: CredentialItemDto, refetchActive: boolean):
       }
     }
     await refetchGroupSummary()
+    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() })
+    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.collectionAll })
   } catch {
     feedback.value = t('group.credentials.reconcileFailed')
     await invalidateReconciliationQueries()
@@ -966,14 +980,13 @@ async function confirmResetCredit(): Promise<void> {
       target.idempotencyKey,
     )
     const observationPending = result.observation_pending || result.observation?.state !== 'fresh'
-    if (result.observation) {
-      await reconcileItem({ ...target.item, observation: result.observation }, false)
-    } else {
-      try {
-        await refetchActiveCredentialPage()
-      } catch {
-        await invalidateReconciliationQueries()
-      }
+    try {
+      clearDetailState(target.item.credential_id)
+      const detail = await getCredentialDetail(client, props.groupId, target.item.credential_id)
+      await reconcileItem(detail.credential, true)
+    } catch {
+      feedback.value = t('group.credentials.reconcileFailed')
+      await invalidateReconciliationQueries()
     }
     if (observationPending) {
       feedback.value = t('group.credentials.subscription.consumeResetCreditPending')
@@ -1660,6 +1673,22 @@ async function runBatch(
             </AppButton>
           </span>
         </label>
+        <label class="group-credentials__model-filter">
+          <input
+            type="checkbox"
+            :checked="filters.model_cooldown === true"
+            @change="
+              setFilter({
+                model_cooldown: ($event.target as HTMLInputElement).checked ? true : undefined,
+              })
+            "
+          />
+          {{
+            t('group.credentials.modelCooldown.credentialCount', {
+              count: n(collection.summary.model_cooldown),
+            })
+          }}
+        </label>
         <CredentialBatchBar
           :selected-count="selectedCount"
           :all-visible-selected="allVisibleSelected"
@@ -1891,6 +1920,13 @@ async function runBatch(
 </template>
 
 <style scoped>
+.group-credentials__model-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-label-xs);
+  white-space: nowrap;
+}
 .group-credentials {
   display: grid;
   min-width: 0;

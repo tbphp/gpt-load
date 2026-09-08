@@ -564,6 +564,7 @@ export default {
         group_weight_zero: 'グループの有効ウェイトがゼロです',
         credential_disabled: '認証情報は無効です',
         credential_blacklisted: '認証情報はブラックリストに登録されています',
+        model_cooldown: 'この認証情報の対象モデルはクールダウン中です',
         credential_cooldown: '認証情報はクールダウン中です',
         credential_auth_unavailable: 'サブスクリプション認証を現在利用できません',
         credential_weight_zero: '認証情報の有効ウェイトがゼロです',
@@ -778,6 +779,7 @@ export default {
         next_candidate: '次の候補を試行',
       },
       effect: {
+        cooldown_model: '対象モデルをクールダウン',
         none: '実行時状態の変更なし',
         cooldown_credential: '認証情報をクールダウン',
         record_credential_failure: '認証情報の失敗を記録',

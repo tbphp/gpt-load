@@ -34,6 +34,7 @@ import IconButton from '@/components/ui/IconButton.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import ModelCooldownDetails from '@/components/ui/ModelCooldownDetails.vue'
 import { formatEstimatedCost, formatLocalInstant, formatTokens } from '@/lib/format'
 import { quotaProgressTone } from '@/lib/quota-progress'
 
@@ -339,7 +340,10 @@ const resetCreditsTooltip = computed(() => {
   return [t('group.credentials.subscription.resetCreditsTooltipTitle'), ...lines].join('\n')
 })
 const isProblem = computed(
-  () => props.item.effective_status === 'cooldown' || props.item.effective_status === 'blacklisted',
+  () =>
+    props.item.effective_status === 'cooldown' ||
+    props.item.effective_status === 'blacklisted' ||
+    props.item.model_cooldowns.length > 0,
 )
 
 interface QuotaWindowPeriod {
@@ -417,7 +421,6 @@ function quotaWindowLabel(window: CredentialQuotaWindowDto): string {
 
 type UnifiedStatus =
   | 'available'
-  | 'quota_exhausted'
   | 'cooldown'
   | 'blacklisted'
   | 'refreshing'
@@ -430,20 +433,14 @@ const unifiedStatus = computed<UnifiedStatus>(() => {
   if (props.item.auth_state === 'refreshing') return 'refreshing'
   if (props.item.auth_state === 'reauthorization_required') return 'needs_reauth'
   if (props.item.auth_state === 'outcome_unknown') return 'outcome_unknown'
+  if (props.item.effective_status === 'disabled') return 'disabled'
   if (props.item.effective_status === 'blacklisted') return 'blacklisted'
   if (props.item.effective_status === 'cooldown') return 'cooldown'
-  if (
-    supportsQuotaObservation.value &&
-    quotaWindows.value.some((window) => window.scope === 'account' && window.state === 'exhausted')
-  ) {
-    return 'quota_exhausted'
-  }
   return 'available'
 })
 const statusTone = computed<'success' | 'warning' | 'danger' | 'neutral'>(() => {
   const tones: Record<UnifiedStatus, 'success' | 'warning' | 'danger' | 'neutral'> = {
     available: 'success',
-    quota_exhausted: 'warning',
     cooldown: 'warning',
     blacklisted: 'danger',
     refreshing: 'neutral',
@@ -686,13 +683,6 @@ function runMenuAction(
         height="16px"
         aria-hidden="true"
       />
-      <SkeletonBlock
-        v-if="unifiedStatus === 'quota_exhausted'"
-        class="subscription-account__refresh-skeleton-hint"
-        width="82%"
-        height="16px"
-        aria-hidden="true"
-      />
       <div
         v-if="hasResetCredits"
         class="subscription-account__refresh-skeleton-credits"
@@ -774,6 +764,9 @@ function runMenuAction(
             >
               {{ statusLabel }}
             </StatusBadge>
+            <StatusBadge v-if="item.model_cooldowns.length > 0" tone="warning" size="compact">{{
+              t('group.credentials.modelCooldown.count', { count: n(item.model_cooldowns.length) })
+            }}</StatusBadge>
             <AppTooltip v-if="showWeightChip" :content="weightChipTooltip">
               <button
                 class="subscription-account__weight-chip"
@@ -995,10 +988,6 @@ function runMenuAction(
         {{ t('group.credentials.subscription.noQuota') }}
       </p>
 
-      <p v-if="unifiedStatus === 'quota_exhausted'" class="subscription-account__hint">
-        {{ t('group.credentials.subscription.quotaExhaustedHint') }}
-      </p>
-
       <div v-if="hasResetCredits" class="subscription-account__credits">
         <span>{{ t('group.credentials.subscription.resetCredits') }}</span>
         <AppTooltip :content="resetCreditsTooltip">
@@ -1218,6 +1207,7 @@ function runMenuAction(
 
         <section class="subscription-account__detail-section">
           <h3>{{ t('group.credentials.subscription.overview') }}</h3>
+          <ModelCooldownDetails :cooldowns="item.model_cooldowns" />
           <div class="subscription-account__diagnostics">
             <dl>
               <dt>{{ t('group.credentials.subscription.lastUsed') }}</dt>

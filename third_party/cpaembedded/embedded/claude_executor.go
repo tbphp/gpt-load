@@ -174,6 +174,7 @@ func (e *claudeHTTPExecutor) ExecuteCanonical(
 	})
 	if err != nil {
 		return ExecuteResponse{
+			Headers:                observation.responseHeaders(),
 			AppliedReasoningEffort: observation.reasoningEffort(),
 			QuotaSignals:           observation.quotaSignalObservation(),
 		}, normalizeClaudeExecutionError(err)
@@ -249,6 +250,7 @@ func (e *claudeHTTPExecutor) ExecuteStreamCanonical(
 	})
 	if err != nil {
 		return &ExecuteStreamResponse{
+			Headers:                observation.responseHeaders(),
 			AppliedReasoningEffort: observation.reasoningEffort(),
 			QuotaSignals:           observation.quotaSignalObservation(),
 		}, normalizeClaudeExecutionError(err)

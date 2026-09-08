@@ -15,6 +15,7 @@ import {
   projectArray,
   projectBoolean,
   projectEpochMilliseconds,
+  projectNullableEpochMilliseconds,
   projectEnum,
   projectInt64String,
   projectNonNegativeInt64String,
@@ -32,7 +33,7 @@ export type RequestLogFailureOrigin = 'client' | 'upstream' | 'downstream' | 'in
 export type RequestLogFailureScope = 'request' | 'model' | 'credential' | 'group'
 export type RequestLogRetryDirective = 'none' | 'refresh_credential' | 'next_candidate'
 export type RequestLogEffect =
-  'none' | 'cooldown_credential' | 'record_credential_failure' | 'skip_group'
+  'none' | 'cooldown_credential' | 'cooldown_model' | 'record_credential_failure' | 'skip_group'
 export type RequestLogUsageState = 'complete' | 'partial' | 'missing' | 'not_applicable'
 export type RequestLogCostState = 'priced' | 'unpriced' | 'not_applicable'
 export type RequestLogPricingCompleteness =
@@ -146,6 +147,7 @@ export interface RequestLogAttemptDto {
   failure_scope: RequestLogFailureScope | null
   retry_directive: RequestLogRetryDirective | null
   effect: RequestLogEffect | null
+  cooldown_until_ms: number | null
   rule_id: string | null
   action: RequestLogAction
   will_retry: boolean
@@ -467,6 +469,7 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'failure_scope',
     'retry_directive',
     'effect',
+    'cooldown_until_ms',
     'rule_id',
     'action',
     'will_retry',
@@ -512,12 +515,14 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
       record.retry_directive === null
         ? null
         : projectEnum(record.retry_directive, ['none', 'refresh_credential', 'next_candidate']),
+    cooldown_until_ms: projectNullableEpochMilliseconds(record.cooldown_until_ms),
     effect:
       record.effect === null
         ? null
         : projectEnum(record.effect, [
             'none',
             'cooldown_credential',
+            'cooldown_model',
             'record_credential_failure',
             'skip_group',
           ]),

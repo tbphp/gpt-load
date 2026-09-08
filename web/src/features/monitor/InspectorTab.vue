@@ -64,6 +64,7 @@ const knownReasons = new Set<RouteInspectReasonCode>([
   'credential_disabled',
   'credential_blacklisted',
   'credential_cooldown',
+  'model_cooldown',
   'credential_auth_unavailable',
   'credential_weight_zero',
   'credential_not_allowed',
@@ -455,7 +456,11 @@ function groupStatusLabel(group: RouteInspectGroupDto): string {
 
 function credentialTone(credential: RouteInspectCredentialDto): StatusTone {
   if (credential.available) return 'success'
-  if (credential.reason_code === 'credential_cooldown') return 'warning'
+  if (
+    credential.reason_code === 'credential_cooldown' ||
+    credential.reason_code === 'model_cooldown'
+  )
+    return 'warning'
   if (credential.reason_code === 'credential_blacklisted') return 'danger'
   return 'neutral'
 }

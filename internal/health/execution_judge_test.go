@@ -123,7 +123,7 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			},
 			want: Result{
 				Category:      FailureCategoryRateLimited,
-				Action:        ActionCooldownCredential,
+				Action:        ActionRetry,
 				CooldownUntil: now.Add(12 * time.Second),
 			},
 		},
@@ -186,7 +186,7 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			},
 			want: Result{
 				Category:      FailureCategoryRateLimited,
-				Action:        ActionCooldownCredential,
+				Action:        ActionRetry,
 				CooldownUntil: now.Add(30 * time.Second),
 			},
 		},
@@ -338,7 +338,7 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 				},
 			},
 			want: Result{
-				Category: FailureCategoryRateLimited, Action: ActionCooldownCredential,
+				Category: FailureCategoryRateLimited, Action: ActionRetry,
 				CooldownUntil: now.Add(time.Minute),
 			},
 		},

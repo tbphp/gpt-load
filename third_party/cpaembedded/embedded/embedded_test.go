@@ -544,6 +544,7 @@ func TestCodexHTTPExecutorCanonicalFacadeCapturesQuotaSignalsOnSuccessAndError(t
 				return &http.Response{
 					StatusCode: test.statusCode,
 					Header: http.Header{
+						"Retry-After":                    {"172800"},
 						"Content-Type":                   {"text/event-stream"},
 						"X-Codex-Primary-Used-Percent":   {"55"},
 						"X-Codex-Primary-Window-Minutes": {"10080"},
@@ -560,6 +561,9 @@ func TestCodexHTTPExecutorCanonicalFacadeCapturesQuotaSignalsOnSuccessAndError(t
 			})
 			if (err != nil) != test.wantErr {
 				t.Fatalf("ExecuteCanonical() error = %v, wantErr %v", err, test.wantErr)
+			}
+			if response.Headers.Get("Retry-After") != "172800" {
+				t.Fatal("lost Retry-After on execution result")
 			}
 			if response.QuotaSignals.Signals["X-Codex-Primary-Used-Percent"] != "55" || response.QuotaSignals.ObservedAt.IsZero() {
 				t.Fatalf("ExecuteCanonical() QuotaSignals = %#v", response.QuotaSignals)

@@ -7,6 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
@@ -55,6 +56,14 @@ func mapEvent(
 			}
 		}
 		attemptReceipt := models.JSON(nil)
+		var cooldownUntilMS *int64
+		if !attempt.CooldownUntil.IsZero() {
+			value, err := epochms.FromTime(attempt.CooldownUntil)
+			if err != nil {
+				return models.RequestLog{}, fmt.Errorf("invalid attempt cooldown deadline: %w", err)
+			}
+			cooldownUntilMS = &value
+		}
 		if attempt.Sequence == event.Usage.AttemptSequence {
 			attemptReceipt = receipt
 		}
@@ -83,6 +92,7 @@ func mapEvent(
 			FailureScope:          string(attempt.FailureScope),
 			RetryDirective:        string(attempt.RetryDirective),
 			Effect:                string(attempt.Effect),
+			CooldownUntilMS:       cooldownUntilMS,
 			RuleID:                attempt.RuleID,
 			Action:                string(attempt.Action),
 			WillRetry:             attempt.WillRetry,
@@ -301,6 +311,9 @@ func validateFrozenObservation(event telemetry.RequestEvent) error {
 }
 
 func validatedAttemptObservation(attempt telemetry.Attempt) (uint, error) {
+	if attempt.Effect == telemetry.EffectCooldownModel && (attempt.CooldownUntil.IsZero() || attempt.FailureScope != execution.ErrorScopeModel || attempt.UpstreamModel == "") {
+		return 0, fmt.Errorf("invalid model cooldown attempt %d", attempt.Sequence)
+	}
 	credentialID := attempt.CredentialID
 	if (credentialID == 0) != (attempt.ChannelID == "") {
 		return 0, fmt.Errorf("invalid attempt %d identity", attempt.Sequence)

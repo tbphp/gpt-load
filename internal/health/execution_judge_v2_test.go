@@ -631,7 +631,7 @@ func TestJudgeExecutionImagesRequireExplicitReplaySafety(t *testing.T) {
 				Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRateLimited,
 				StatusCode: http.StatusTooManyRequests, Summary: "rate limited",
 			},
-			wantRetry: RetryNone, wantEffect: EffectCooldownCredential, wantCooldown: true,
+			wantRetry: RetryNone, wantEffect: EffectCooldownModel, wantCooldown: true,
 		},
 		{
 			name:   "invalid credential without rejection proof",
@@ -651,7 +651,7 @@ func TestJudgeExecutionImagesRequireExplicitReplaySafety(t *testing.T) {
 				StatusCode: http.StatusTooManyRequests, Summary: "request rejected",
 				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
 			},
-			wantRetry: RetryNextCandidate, wantEffect: EffectCooldownCredential, wantCooldown: true,
+			wantRetry: RetryNextCandidate, wantEffect: EffectCooldownModel, wantCooldown: true,
 		},
 	}
 

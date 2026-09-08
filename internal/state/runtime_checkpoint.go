@@ -9,26 +9,31 @@ import (
 // carry across a process restart. Persisted key configuration remains owned by
 // SQLite and is matched by ID plus group ID during restore.
 type CredentialRuntimeCheckpoint struct {
-	ID            uint      `json:"id"`
-	GroupID       uint      `json:"group_id"`
-	CooldownUntil time.Time `json:"cooldown_until"`
-	Blacklisted   bool      `json:"blacklisted"`
-	FailureCount  int       `json:"failure_count"`
+	ID                 uint                 `json:"id"`
+	GroupID            uint                 `json:"group_id"`
+	CooldownUntil      time.Time            `json:"cooldown_until"`
+	Blacklisted        bool                 `json:"blacklisted"`
+	FailureCount       int                  `json:"failure_count"`
+	IdentityGeneration uint64               `json:"identity_generation,omitempty"`
+	ModelCooldowns     map[string]time.Time `json:"model_cooldowns,omitempty"`
 }
 
 // CaptureRuntimeCheckpoint returns detached runtime health state in stable
 // order. It intentionally excludes credentials and failure generations.
 func (r *CredentialRegistry) CaptureRuntimeCheckpoint() []CredentialRuntimeCheckpoint {
+	r.ExpireModelCooldowns(time.Now())
 	r.mu.RLock()
 	checkpoints := make([]CredentialRuntimeCheckpoint, 0, len(r.credentialGroups))
 	for _, bucket := range r.buckets {
 		for _, entry := range bucket {
 			checkpoints = append(checkpoints, CredentialRuntimeCheckpoint{
-				ID:            entry.ID,
-				GroupID:       entry.GroupID,
-				CooldownUntil: entry.CooldownUntil,
-				Blacklisted:   entry.Blacklisted,
-				FailureCount:  entry.FailureCount,
+				ID:                 entry.ID,
+				GroupID:            entry.GroupID,
+				CooldownUntil:      entry.CooldownUntil,
+				Blacklisted:        entry.Blacklisted,
+				FailureCount:       entry.FailureCount,
+				IdentityGeneration: entry.IdentityGeneration,
+				ModelCooldowns:     cloneModelCooldowns(entry.ModelCooldowns),
 			})
 		}
 	}
@@ -65,6 +70,10 @@ func (r *CredentialRegistry) RestoreRuntimeCheckpoint(checkpoints []CredentialRu
 		entry.CooldownUntil = checkpoint.CooldownUntil
 		entry.Blacklisted = checkpoint.Blacklisted
 		entry.FailureCount = checkpoint.FailureCount
+		if checkpoint.IdentityGeneration == entry.IdentityGeneration {
+			entry.ModelCooldowns = cloneModelCooldowns(checkpoint.ModelCooldowns)
+			pruneModelCooldowns(entry.ModelCooldowns, time.Now())
+		}
 		r.scheduling.SyncCredential(runtimeView(entry))
 		restored++
 	}

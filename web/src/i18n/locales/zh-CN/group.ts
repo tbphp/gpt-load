@@ -364,6 +364,13 @@ export default {
       settings: '设置',
     },
     credentials: {
+      modelCooldown: {
+        label: '模型冷却',
+        count: '模型冷却 · {count}',
+        credentialCount: '模型冷却 · {count} 个凭据',
+        until: '恢复时间',
+        hint: '仅影响对应模型，凭据基础状态独立显示',
+      },
       title: '密钥',
       description: '查看状态、调度权重和最近结果',
       add: '添加密钥',
@@ -668,7 +675,7 @@ export default {
         },
         confirmDescription: '此操作将作用于当前分组的全部{kind}，不受搜索、筛选和分页影响。',
         restoreDescription:
-          '仅恢复当前分组中处于冷却或黑名单状态的{kind}，并清除其连续失败状态。停用或授权未就绪项保持不变。保留历史统计，不检测上游、不重置额度或重新授权，不受搜索、筛选和分页影响。',
+          '清除当前分组全部{kind}的模型冷却，并恢复处于凭据冷却或黑名单状态的可启用项。保留启停、授权状态和历史统计，不重置上游额度；不受搜索、筛选和分页影响。',
         confirm: {
           download: '确认下载',
           enable: '确认启用',

@@ -232,6 +232,7 @@ defineExpose({ refresh })
       >
         <HealthProblemCollection
           :items="problemItems"
+          :model-cooldown-credentials="healthQuery.data.value.model_cooldown_credentials"
           :recovery-by-credential="recoveryByCredential"
           :stats-window-seconds="healthQuery.data.value.stats_window_seconds"
           :available-count="healthQuery.data.value.counts.available"

@@ -61,6 +61,7 @@ func (ticker standardRuntimeTicker) Stop() {
 }
 
 type Runtime struct {
+	registry           *state.CredentialRegistry
 	validator          validationSweep
 	requestLogCleaner  RequestLogCleaner
 	stageCleaner       credentialStageCleaner
@@ -87,6 +88,7 @@ func NewRuntime(
 	catalogSync *CatalogSyncCoordinator,
 ) *Runtime {
 	runtime := &Runtime{
+		registry:           registry,
 		requestLogCleaner:  requestLogCleaner,
 		stageCleaner:       operationRecovery,
 		operationRecovery:  operationRecovery,
@@ -238,6 +240,9 @@ func (runtime *Runtime) runRetention(ctx context.Context, ticker runtimeTicker) 
 }
 
 func (runtime *Runtime) sweepRetention(ctx context.Context, now time.Time) {
+	if runtime.registry != nil {
+		runtime.registry.ExpireModelCooldowns(now)
+	}
 	if runtime.requestLogCleaner != nil {
 		runtime.requestLogCleaner.Sweep(ctx, now)
 	}

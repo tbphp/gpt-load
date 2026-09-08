@@ -37,6 +37,7 @@ export type RouteInspectReasonCode =
   | 'credential_disabled'
   | 'credential_blacklisted'
   | 'credential_cooldown'
+  | 'model_cooldown'
   | 'credential_auth_unavailable'
   | 'credential_weight_zero'
   | 'credential_not_allowed'
@@ -141,6 +142,7 @@ const reasonCodes = [
   'credential_disabled',
   'credential_blacklisted',
   'credential_cooldown',
+  'model_cooldown',
   'credential_auth_unavailable',
   'credential_weight_zero',
   'credential_not_allowed',

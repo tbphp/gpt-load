@@ -28,6 +28,9 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 	decisionContext = normalizeDecisionContext(decisionContext)
 	if errors.Is(attempt.DownstreamErr, context.Canceled) ||
 		errors.Is(attempt.DownstreamErr, context.DeadlineExceeded) {
+		if result, ok := canceledModelCooldown(attempt, decisionContext); ok {
+			return result
+		}
 		return decision(
 			FailureCategoryDownstreamCancel,
 			execution.ErrorOriginDownstream,
@@ -38,6 +41,9 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 		)
 	}
 	if attempt.DownstreamErr != nil {
+		if result, ok := canceledModelCooldown(attempt, decisionContext); ok {
+			return result
+		}
 		return decision(
 			FailureCategoryAmbiguous,
 			execution.ErrorOriginDownstream,
@@ -188,6 +194,19 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 	}
 	result = constrainOperationReplay(result, attempt, decisionContext)
 	return constrainCommittedDecision(result, attempt)
+}
+
+func canceledModelCooldown(attempt ExecutionAttempt, decisionContext DecisionContext) (Decision, bool) {
+	if attempt.DispatchState != execution.DispatchMaybeSent || !decisionContext.Operation.UsesModelCooldown() ||
+		attempt.Evidence == nil || attempt.Evidence.Hint != execution.FailureHintRateLimited ||
+		(attempt.Evidence.Kind != execution.ErrorKindHTTP && attempt.Evidence.Kind != execution.ErrorKindProvider) ||
+		(attempt.Evidence.ScopeHint != "" && attempt.Evidence.ScopeHint != execution.ErrorScopeModel) ||
+		(attempt.Evidence.OriginHint != "" && attempt.Evidence.OriginHint != execution.ErrorOriginUpstream) {
+		return Decision{}, false
+	}
+	result := rateLimitDecision(attempt, decisionContext)
+	result.Retry = RetryNone
+	return result, result.Effect == EffectCooldownModel
 }
 
 func refreshTemporarilyUnavailableDecision(attempt ExecutionAttempt, decisionContext DecisionContext) Decision {
@@ -519,7 +538,12 @@ func decision(
 func rateLimitDecision(attempt ExecutionAttempt, decisionContext DecisionContext) Decision {
 	scope := attempt.Evidence.ScopeHint
 	retry := retryUnlessExplicitlyUnknown(attempt.Evidence)
-	if scope == execution.ErrorScopeRequest || scope == execution.ErrorScopeModel {
+	modelScoped := decisionContext.Operation.UsesModelCooldown() && (scope == "" || scope == execution.ErrorScopeModel)
+	if scope == "" && decisionContext.Operation.Valid() && !decisionContext.Operation.UsesModelCooldown() {
+		return decision(FailureCategoryRateLimited, originForEvidence(attempt.Evidence), execution.ErrorScopeRequest,
+			retry, EffectNone, "rate_limit.operation_no_cooldown")
+	}
+	if scope == execution.ErrorScopeRequest || scope == execution.ErrorScopeModel && !modelScoped {
 		return decision(
 			FailureCategoryRateLimited,
 			originForEvidence(attempt.Evidence),
@@ -533,6 +557,9 @@ func rateLimitDecision(attempt ExecutionAttempt, decisionContext DecisionContext
 	ruleID := RuleID("legacy.http_429_credential_cooldown")
 	if scope == execution.ErrorScopeCredential {
 		ruleID = "rate_limit.credential.default_cooldown"
+	}
+	if modelScoped {
+		scope, effect, ruleID = execution.ErrorScopeModel, EffectCooldownModel, "rate_limit.model.default_cooldown"
 	}
 	result := decision(
 		FailureCategoryRateLimited,
@@ -550,6 +577,12 @@ func rateLimitDecision(attempt ExecutionAttempt, decisionContext DecisionContext
 	header := attempt.Header
 	if len(header) == 0 {
 		header = attempt.Evidence.Header
+	}
+	if modelScoped {
+		if until, ok := ParseExplicitRetryAfter(header, attempt.Now); ok {
+			result.CooldownUntil, result.RuleID = until, "rate_limit.retry_after"
+			return result
+		}
 	}
 	if until, ok := ParseRateLimitReset(header, attempt.Now); ok {
 		result.CooldownUntil = until
@@ -612,6 +645,11 @@ func constrainCommittedDecision(result Decision, attempt ExecutionAttempt) Decis
 	originalEffect := result.Effect
 	result.Retry = RetryNone
 	switch result.Effect {
+	case EffectCooldownModel:
+		if attempt.Evidence == nil || attempt.Evidence.Hint != execution.FailureHintRateLimited ||
+			attempt.Evidence.OriginHint == execution.ErrorOriginInternal || attempt.Evidence.OriginHint == execution.ErrorOriginDownstream {
+			result.Effect, result.CooldownUntil = EffectNone, time.Time{}
+		}
 	case EffectCooldownCredential, EffectRecordCredentialFailure:
 		if !trustedCommittedCredentialEffect(result, attempt.Evidence) {
 			result.Effect = EffectNone

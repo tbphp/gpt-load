@@ -79,6 +79,7 @@ type runtimeCredentialRegistry interface {
 	ActiveEncryptedCredentialDataIfMatch(ref state.CredentialRef) (string, bool)
 	SetCooldownWithChange(credentialID uint, until time.Time) (exists bool, changed bool)
 	SetCooldownWithChangeIfVersion(credentialID uint, expectedVersion uint64, until time.Time) (matched bool, changed bool)
+	SetModelCooldown(state.CredentialRef, string, time.Time, time.Time) (bool, bool)
 	IncrFailure(credentialID uint) (int, bool)
 	SetBlacklistedWithChange(credentialID uint) (exists bool, changed bool)
 	ClearFailure(credentialID uint) bool
@@ -256,6 +257,7 @@ func (handler *Handler) applyDecisionEffect(
 		statusCode,
 		attemptNow,
 		defaults.BlacklistThreshold,
+		"",
 	)
 }
 
@@ -266,6 +268,7 @@ func (handler *Handler) applyGroupDecisionEffect(
 	decision health.Decision,
 	statusCode int,
 	attemptNow time.Time,
+	model string,
 ) {
 	handler.applyDecisionEffectWithBlacklistPolicy(
 		ref,
@@ -274,6 +277,7 @@ func (handler *Handler) applyGroupDecisionEffect(
 		statusCode,
 		attemptNow,
 		group.BlacklistThreshold,
+		model,
 	)
 }
 
@@ -292,9 +296,22 @@ func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 	statusCode int,
 	attemptNow time.Time,
 	blacklistThreshold int,
+	model string,
 ) {
 	credentialID := ref.ID
 	switch decision.Effect {
+	case health.EffectCooldownModel:
+		handler.mutateCredentialForTarget(ref, func() {
+			accepted, changed := handler.registry.SetModelCooldown(ref, model, decision.CooldownUntil, attemptNow)
+			if accepted {
+				handler.stats.RecordProblem(credentialID, decision.Category, statusCode, attemptNow)
+			}
+			if changed {
+				utils.LogPlaneBestEffort(handler.logger, logrus.WarnLevel, utils.LogPlaneData,
+					logrus.Fields{"event": "model_cooldown", "credential_id": credentialID, "model": model,
+						"cooldown_until": decision.CooldownUntil, "status_code": statusCode}, "Upstream model entered cooldown")
+			}
+		})
 	case health.EffectCooldownCredential:
 		handler.mutateCredentialForTarget(ref, func() {
 			until := decision.CooldownUntil
@@ -930,7 +947,7 @@ func (handler *Handler) executeAttempts(
 			selection, nil, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
-		handler.applyGroupDecisionEffect(selection.Group, allowedCredentialRefs[selection.CredentialID], 0, decision, 0, attemptNow)
+		handler.applyGroupDecisionEffect(selection.Group, allowedCredentialRefs[selection.CredentialID], 0, decision, 0, attemptNow, optionalModelValue(selection.UpstreamModelID))
 		if decision.Effect == health.EffectSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}
@@ -1195,6 +1212,7 @@ func (handler *Handler) executeAttempts(
 				decision,
 				result.StatusCode,
 				attemptNow,
+				optionalModelValue(selection.UpstreamModelID),
 			)
 			if stream && result.Stream.EndReason == StreamEndCleanEOF {
 				handler.recordCredentialSuccess(ref, attemptNow)
@@ -1213,6 +1231,9 @@ func (handler *Handler) executeAttempts(
 					attemptCompleted,
 				)
 				recorder.completeCanceled(ginContext.Request.Context(), 0, recordedAttempt)
+			}
+			if decision.Effect == health.EffectCooldownModel {
+				handler.applyGroupDecisionEffect(selection.Group, ref, 0, decision, result.StatusCode, attemptNow, optionalModelValue(selection.UpstreamModelID))
 			}
 			return
 		}
@@ -1233,6 +1254,7 @@ func (handler *Handler) executeAttempts(
 			decision,
 			result.StatusCode,
 			attemptNow,
+			optionalModelValue(selection.UpstreamModelID),
 		)
 		if decision.Retry == health.RetryRefreshCredential &&
 			!authRefreshReplayUsed && forwardAttempts < forwardAttemptLimit {
@@ -1268,8 +1290,12 @@ func (handler *Handler) executeAttempts(
 				optionalModelValue(selection.UpstreamModelID),
 				recordedAttempt,
 			)
-			if err := handler.writeReason(ginContext, reasonUpstreamProtocol); err != nil {
-				handler.completeWriteTerminal(ginContext, recorder, reasonUpstreamProtocol.Status)
+			value := providerErrorReason(result)
+			if value.Status == http.StatusTooManyRequests {
+				setCooldownRetryAfter(ginContext, decision.CooldownUntil, handler.now())
+			}
+			if err := handler.writeReason(ginContext, value); err != nil {
+				handler.completeWriteTerminal(ginContext, recorder, value.Status)
 			}
 			return
 		}
@@ -1322,8 +1348,12 @@ func (handler *Handler) executeAttempts(
 			lastProviderError.upstreamModel,
 			lastProviderError.attemptIndex,
 		)
-		if err := handler.writeReason(ginContext, reasonUpstreamProtocol); err != nil {
-			handler.completeWriteTerminal(ginContext, recorder, reasonUpstreamProtocol.Status)
+		value := providerErrorReason(lastProviderError.result)
+		if value.Status == http.StatusTooManyRequests {
+			setCooldownRetryAfter(ginContext, lastProviderError.decision.CooldownUntil, handler.now())
+		}
+		if err := handler.writeReason(ginContext, value); err != nil {
+			handler.completeWriteTerminal(ginContext, recorder, value.Status)
 		}
 		return
 	}
@@ -1368,7 +1398,18 @@ func (handler *Handler) executeAttempts(
 		handler.completeReason(ginContext, recorder, *parameterOverrideFailure)
 		return
 	}
+	if until, limited := iterator.CooldownUntil(); limited {
+		setCooldownRetryAfter(ginContext, until, handler.now())
+		handler.completeReason(ginContext, recorder, reasonModelRateLimited)
+		return
+	}
 	handler.completeReason(ginContext, recorder, reasonNoCandidate)
+}
+
+func setCooldownRetryAfter(ctx *gin.Context, until, now time.Time) {
+	if until.After(now) {
+		ctx.Writer.Header().Set("Retry-After", strconv.FormatInt(int64(math.Ceil(until.Sub(now).Seconds())), 10))
+	}
 }
 
 func initializeDebugHeaders(headers http.Header) {

@@ -84,6 +84,7 @@ type requestLogAttemptResponse struct {
 	FailureScope      *execution.ErrorScope             `json:"failure_scope"`
 	RetryDirective    *telemetry.RetryDirective         `json:"retry_directive"`
 	Effect            *telemetry.Effect                 `json:"effect"`
+	CooldownUntilMS   *int64                            `json:"cooldown_until_ms"`
 	RuleID            *string                           `json:"rule_id"`
 	Action            string                            `json:"action"`
 	WillRetry         bool                              `json:"will_retry"`
@@ -1110,6 +1111,7 @@ func mapRequestLogAttempt(
 		FailureScope:      failureScope,
 		RetryDirective:    retryDirective,
 		Effect:            effect,
+		CooldownUntilMS:   attempt.CooldownUntilMS,
 		RuleID:            nullableRequestLogModel(attempt.RuleID),
 		Action:            requestLogAttemptAction(attempt.Action),
 		WillRetry:         attempt.WillRetry,

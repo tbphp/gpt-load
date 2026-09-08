@@ -1598,10 +1598,10 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 		t.Fatalf("events = %#v", events)
 	}
 	event := events[0]
-	if response.Code != http.StatusBadGateway ||
+	if response.Code != http.StatusTooManyRequests ||
 		event.Status != telemetry.RequestStatusError ||
-		event.StatusCode != http.StatusBadGateway ||
-		event.ErrorCode != reasonUpstreamProtocol.Code ||
+		event.StatusCode != http.StatusTooManyRequests ||
+		event.ErrorCode != reasonModelRateLimited.Code ||
 		event.ErrorSummary != fixedErrorSummary("upstream_sse_error") ||
 		event.Usage.Result != (usage.Result{
 			State: usage.StateComplete,
@@ -1620,11 +1620,11 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 	if attempt.StatusCode != http.StatusOK ||
 		attempt.FailureCategory != telemetry.FailureCategoryRateLimited ||
 		attempt.FailureOrigin != execution.ErrorOriginUpstream ||
-		attempt.FailureScope != "" ||
+		attempt.FailureScope != execution.ErrorScopeModel ||
 		attempt.RetryDirective != telemetry.RetryNextCandidate ||
-		attempt.Effect != telemetry.EffectCooldownCredential ||
-		attempt.RuleID != "rate_limit.reset_header" ||
-		attempt.Action != telemetry.ActionCooldownCredential ||
+		attempt.Effect != telemetry.EffectCooldownModel ||
+		attempt.RuleID != "rate_limit.retry_after" ||
+		attempt.Action != telemetry.ActionRetry ||
 		attempt.Committed ||
 		attempt.ErrorSummary != fixedErrorSummary("upstream_sse_error") {
 		t.Fatalf("attempt = %#v", attempt)
@@ -1742,7 +1742,7 @@ func TestHandlerRetryExhaustionUsesProviderErrorAttemptAndItsFrozenPrice(t *test
 	engine.ServeHTTP(response, request)
 
 	events := sink.snapshot()
-	if response.Code != http.StatusBadGateway || len(events) != 1 ||
+	if response.Code != http.StatusTooManyRequests || len(events) != 1 ||
 		len(events[0].Attempts) != 3 {
 		t.Fatalf("response/events = %d/%#v", response.Code, events)
 	}
