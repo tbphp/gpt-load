@@ -81,16 +81,31 @@ const usageTimeDraft = ref<{ from: string; to: string; preset?: DateTimePreset }
   from: '',
   to: '',
 })
-const usageTimeErrors = computed(() => {
-  const from = parseLocalDateTime(usageTimeDraft.value.from)
-  const to = parseLocalDateTime(usageTimeDraft.value.to)
+const usageTimeValues = computed(() => {
+  const draft = usageTimeDraft.value
+  const current = usageFilters.value
+  // 回拨时同一本地时间对应两个时刻，未改动的端点保留原始毫秒值。
   return {
-    from: from ? undefined : t('monitor.logs.errors.dateTime'),
-    to: !to
-      ? t('monitor.logs.errors.dateTime')
-      : from && to.getTime() <= from.getTime()
-        ? t('monitor.logs.errors.range')
-        : undefined,
+    from:
+      draft.from !== '' && draft.from === localDateTimeInput(current.from_ms)
+        ? current.from_ms
+        : parseLocalDateTime(draft.from)?.getTime(),
+    to:
+      draft.to !== '' && draft.to === localDateTimeInput(current.to_ms)
+        ? current.to_ms
+        : parseLocalDateTime(draft.to)?.getTime(),
+  }
+})
+const usageTimeErrors = computed(() => {
+  const { from, to } = usageTimeValues.value
+  return {
+    from: from === undefined ? t('monitor.logs.errors.dateTime') : undefined,
+    to:
+      to === undefined
+        ? t('monitor.logs.errors.dateTime')
+        : from !== undefined && to <= from
+          ? t('monitor.logs.errors.range')
+          : undefined,
   }
 })
 watch(
@@ -198,10 +213,9 @@ function resetUsageTimeDraft(): void {
 }
 
 function applyUsageCustomTime(): void {
-  const from = parseLocalDateTime(usageTimeDraft.value.from)
-  const to = parseLocalDateTime(usageTimeDraft.value.to)
-  if (!from || !to || to.getTime() <= from.getTime()) return
-  applyUsageTimeRange(from.getTime(), to.getTime(), usageTimeDraft.value.preset)
+  const { from, to } = usageTimeValues.value
+  if (from === undefined || to === undefined || to <= from) return
+  applyUsageTimeRange(from, to, usageTimeDraft.value.preset)
 }
 
 function applyUsageTimeRange(from: number, to: number, preset?: DateTimePreset): void {
