@@ -485,9 +485,9 @@ export default {
         title: 'Candidate Groups',
         description: {
           native_first:
-            'Native routes are tried first; converted routes are used when no native candidate is available. Selection within a tier is weighted random; rows are sorted by tier and weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
+            'Native routes are tried first; converted routes are used when no native candidate is available. Selection within a tier follows a weighted rotation using shared allocation progress; rows are sorted by tier and weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
           weighted_mix:
-            'Eligible native and converted candidates compete in one pool by effective weight; rows are sorted by weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
+            'Eligible native and converted candidates share one rotation based on effective weight and shared allocation progress; rows are sorted by weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
         },
         count: '{count}',
         tableLabel: 'Candidate Group route explanation',

@@ -154,7 +154,9 @@ func (s *SchedulingState) SyncGroups(snapshot *ConfigSnapshot) {
 		}
 		groups := make(map[uint]bool, len(snapshot.GroupCatalog))
 		for id, group := range snapshot.GroupCatalog {
-			groups[id] = group.Enabled && (group.WeightManual == nil || *group.WeightManual > 0)
+			// 与路由编译保持一致：空模型分组整体暂停，普通候选变化仍保留历史。
+			groups[id] = group.Enabled && len(snapshot.Groups[id].Models) > 0 &&
+				(group.WeightManual == nil || *group.WeightManual > 0)
 		}
 		for _, member := range d.Members {
 			if !groups[member.GroupID] {
