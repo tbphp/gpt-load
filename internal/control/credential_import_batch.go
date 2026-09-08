@@ -178,7 +178,7 @@ func (s *Service) ImportCredentialFiles(
 			attempted = true
 			credential, importErr := s.subscriptions.ImportCredential(ctx, channelID, entry.Credential)
 			if importErr != nil {
-				item.ErrorCode = credentialImportItemError(classifyCredentialImportError(driver, importErr))
+				item.ErrorCode = credentialImportItemError(ctx, classifyCredentialImportError(driver, importErr))
 				break
 			}
 			if _, duplicate := identities[credential.Identity()]; duplicate {
@@ -187,12 +187,12 @@ func (s *Service) ImportCredentialFiles(
 			}
 			credential, importErr = s.prepareTransientSubscriptionCredential(ctx, channelID, driver, credential)
 			if importErr != nil {
-				item.ErrorCode = credentialImportItemError(importErr)
+				item.ErrorCode = credentialImportItemError(ctx, importErr)
 				break
 			}
 			stage, persistErr := s.persistReadyCredentialStage(ctx, channelID, "oauth_file", credential, network)
 			if persistErr != nil {
-				item.ErrorCode = credentialImportItemError(persistErr)
+				item.ErrorCode = credentialImportItemError(ctx, persistErr)
 				break
 			}
 			identities[credential.Identity()] = struct{}{}
@@ -251,7 +251,11 @@ func credentialImportDocumentError(err error) error {
 	}
 }
 
-func credentialImportItemError(err error) string {
+func credentialImportItemError(ctx context.Context, err error) string {
+	// 内层可能已经把请求超时转换为上游或授权错误，批次截止状态优先。
+	if ctx.Err() != nil {
+		return "import_timeout"
+	}
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return "import_timeout"

@@ -10,10 +10,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/channel/modules"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/storage/models"
@@ -314,6 +316,7 @@ func TestCredentialImportBatchPreservesBootstrapFailureMeaning(t *testing.T) {
 		{"profile unavailable", &claude.UpstreamHTTPError{StatusCode: 503}, "upstream_unavailable"},
 		{"refresh rejected", &codex.TokenEndpointError{StatusCode: 400, Code: "invalid_grant"}, "reauthorization_required"},
 		{"identity changed", codex.ErrCredentialIdentityChanged, "reauthorization_required"},
+		{"provider timeout while batch is active", fmt.Errorf("provider request: %w", context.DeadlineExceeded), "upstream_unavailable"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newServiceFixture(t)
@@ -328,6 +331,84 @@ func TestCredentialImportBatchPreservesBootstrapFailureMeaning(t *testing.T) {
 			batch, err := fixture.service.ImportCredentialBatch(t.Context(), channel.Codex, []byte(`{"tokens":{"refresh_token":"failure-refresh"}}`), 0, nil)
 			if err != nil || len(batch.Items) != 1 || batch.Items[0].ErrorCode != test.code {
 				t.Fatalf("batch/error = %#v/%v, want %s", batch, err, test.code)
+			}
+		})
+	}
+}
+
+type deadlineBatchImporter struct {
+	subscriptionruntime.BrowserAuthorizationDriver
+	waitDuringImport bool
+	calls            int
+}
+
+func (driver *deadlineBatchImporter) ImportCredential(ctx context.Context, _ []byte) (subscriptionruntime.Credential, error) {
+	driver.calls++
+	if driver.calls == 1 {
+		return driver.Parse([]byte(`{"type":"codex","access_token":"ready-access","refresh_token":"ready-refresh","account_id":"ready-account","expired":"2035-01-01T00:00:00Z"}`))
+	}
+	if driver.waitDuringImport {
+		<-ctx.Done()
+		return subscriptionruntime.Credential{}, fmt.Errorf("import request: %w", ctx.Err())
+	}
+	return driver.Parse([]byte(`{"type":"codex","access_token":"expired-access","refresh_token":"expired-refresh","account_id":"waiting-account","expired":"2000-01-01T00:00:00Z"}`))
+}
+
+func TestCredentialImportBatchDeadlinePreservesCompletedAndPendingResults(t *testing.T) {
+	t.Parallel()
+	for _, phase := range []string{"import", "refresh"} {
+		t.Run(phase, func(t *testing.T) {
+			t.Parallel()
+			fixture := newServiceFixture(t)
+			implementations := subscriptionproviders.Implementations()
+			var importer *deadlineBatchImporter
+			for _, registration := range implementations {
+				for index, driver := range registration.Drivers {
+					if driver.ID() == modules.CodexSubscriptionDriver {
+						importer = &deadlineBatchImporter{
+							BrowserAuthorizationDriver: driver.(subscriptionruntime.BrowserAuthorizationDriver),
+							waitDuringImport:           phase == "import",
+						}
+						registration.Drivers[index] = importer
+					}
+				}
+			}
+			if importer == nil {
+				t.Fatal("Codex driver not found")
+			}
+			var err error
+			fixture.service.subscriptions, err = subscriptionruntime.NewRuntime(fixture.service.channelRegistry, implementations...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			refreshCalls := 0
+			fixture.service.refreshSubscriptionCredential = func(ctx context.Context, _ channel.ID, _ subscriptionruntime.Credential) (subscriptionruntime.Credential, error) {
+				refreshCalls++
+				<-ctx.Done()
+				return subscriptionruntime.Credential{}, fmt.Errorf("refresh request: %w", ctx.Err())
+			}
+			raw := []byte(`[{"tokens":{"refresh_token":"first-refresh"}},{"tokens":{"refresh_token":"second-refresh"}},{"tokens":{"refresh_token":"third-refresh"}}]`)
+			// 缩短父请求期限，实际等到正在处理的请求被取消，避免等待默认 30 秒。
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			batch, err := fixture.service.ImportCredentialBatch(ctx, channel.Codex, raw, 0, nil)
+			if err != nil || len(batch.Items) != 3 {
+				t.Fatalf("batch/error = %#v/%v", batch, err)
+			}
+			if importer.calls != 2 || (phase == "refresh" && refreshCalls != 1) || (phase == "import" && refreshCalls != 0) {
+				t.Fatalf("unexpected import/refresh calls = %d/%d", importer.calls, refreshCalls)
+			}
+			if batch.Items[0].Status != "ready" || batch.Items[0].Stage == nil {
+				t.Fatal("deadline discarded a completed account")
+			}
+			for _, item := range batch.Items[1:] {
+				if item.Status != "failed" || item.ErrorCode != "import_timeout" || item.Stage != nil {
+					t.Errorf("item %d status/error = %s/%s, want failed/import_timeout", item.Index, item.Status, item.ErrorCode)
+				}
+			}
+			var count int64
+			if err := fixture.db.Model(&models.CredentialStage{}).Count(&count).Error; err != nil || count != 1 {
+				t.Fatalf("persisted stages/error = %d/%v, want one completed stage", count, err)
 			}
 		})
 	}
