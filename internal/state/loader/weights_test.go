@@ -49,11 +49,6 @@ func TestLoaderMapsSchedulingWeights(t *testing.T) {
 	if candidates[0].WeightManual == nil || *candidates[0].WeightManual != keyWeight {
 		t.Fatalf("first WeightManual = %v, want %d", candidates[0].WeightManual, keyWeight)
 	}
-	for _, candidate := range candidates {
-		if candidate.WeightAuto != state.DefaultWeight {
-			t.Errorf("credential %d WeightAuto = %d, want %d", candidate.ID, candidate.WeightAuto, state.DefaultWeight)
-		}
-	}
 	if got := manager.Current().ExecutionCandidates[protocol.OpenAICompletions][execution.OperationChatCompletion]["gpt-weighted"]; len(got) != 1 {
 		t.Fatalf("route candidates = %#v, want one group", got)
 	}
@@ -88,9 +83,6 @@ func TestLoaderPreservesManualWeightBoundaries(t *testing.T) {
 			candidates := registry.CollectCredentialCandidates([]uint{group.ID}, nil, time.Time{})
 			if len(candidates) != 1 || candidates[0].WeightManual == nil || *candidates[0].WeightManual != weight {
 				t.Fatalf("CollectCandidates() = %#v, want explicit manual weight %d", candidates, weight)
-			}
-			if candidates[0].WeightAuto != state.DefaultWeight {
-				t.Fatalf("WeightAuto = %d, want %d", candidates[0].WeightAuto, state.DefaultWeight)
 			}
 		})
 	}

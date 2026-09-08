@@ -126,8 +126,6 @@ export default {
         failureCategory: '失敗理由',
         statusCode: 'HTTP ステータス',
         statusUnavailable: 'HTTP ステータスなし',
-        manualWeight: '手動ウェイト',
-        autoWeight: '自動ウェイト',
         automatic: '自動',
       },
       recovery: {
@@ -529,19 +527,17 @@ export default {
         columns: {
           credential: '認証情報',
           status: '状態',
-          manual: '手動ウェイト',
-          auto: '自動ウェイト',
+          weight: 'ウェイト',
           effective: '有効ウェイト',
           cooldown: 'クールダウン期限',
         },
       },
       weights: {
-        manual: '生の手動ウェイト',
-        auto: '生の自動ウェイト',
+        weight: 'ウェイト',
         effective: '生の有効ウェイト',
         null: 'null',
         none: '—',
-        groupManual: 'グループ手動ウェイト {value}',
+        group: 'グループウェイト {value}',
       },
       excluded: {
         title: '除外グループ',

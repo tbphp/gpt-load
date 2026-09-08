@@ -122,8 +122,6 @@ export default {
         failureCategory: '失败原因',
         statusCode: 'HTTP 状态',
         statusUnavailable: '无 HTTP 状态',
-        manualWeight: '手动权重',
-        autoWeight: '自动权重',
         automatic: '自动',
       },
       recovery: {
@@ -510,19 +508,17 @@ export default {
         columns: {
           credential: '凭据',
           status: '状态',
-          manual: '手动权重',
-          auto: '自动权重',
+          weight: '权重',
           effective: '有效权重',
           cooldown: '冷却到期',
         },
       },
       weights: {
-        manual: '原始手动权重',
-        auto: '原始自动权重',
+        weight: '权重',
         effective: '原始有效权重',
         null: 'null',
         none: '—',
-        groupManual: '分组手动权重 {value}',
+        group: '分组权重 {value}',
       },
       excluded: {
         title: '排除分组',

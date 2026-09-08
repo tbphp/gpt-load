@@ -30,8 +30,8 @@ func TestIteratorExhaustsNativeTierBeforeConvertedTier(t *testing.T) {
 	snapshot.Groups[2] = native
 
 	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
-		{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
-		{ID: 21, GroupID: 2, WeightAuto: state.DefaultWeight},
+		{ID: 11, GroupID: 1},
+		{ID: 21, GroupID: 2},
 	}}, Query{
 		ClientProtocol: protocol.OpenAICompletions,
 		Operation:      execution.OperationChatCompletion,
@@ -66,8 +66,8 @@ func TestIteratorDoesNotLetConvertedPreferenceBypassNativeTier(t *testing.T) {
 	t.Parallel()
 
 	iterator := New(channelSchedulerSnapshot(t), fakeCredentialSource{keys: []state.CredentialMeta{
-		{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
-		{ID: 21, GroupID: 2, WeightAuto: state.DefaultWeight},
+		{ID: 11, GroupID: 1},
+		{ID: 21, GroupID: 2},
 	}}, Query{
 		ClientProtocol:        protocol.OpenAICompletions,
 		Operation:             execution.OperationChatCompletion,
@@ -635,7 +635,7 @@ func TestOperationUnsupportedIsStableAndInspectionIsNeutral(t *testing.T) {
 	}
 
 	inspection, err := Inspect(snapshot, []state.CredentialRuntimeView{{
-		ID: 11, GroupID: 1, Status: state.CredentialStatusActive, WeightAuto: state.DefaultWeight,
+		ID: 11, GroupID: 1, Status: state.CredentialStatusActive,
 	}}, query, time.Unix(100, 0))
 	if err != nil {
 		t.Fatalf("Inspect() error = %v", err)

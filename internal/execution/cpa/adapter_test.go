@@ -1558,7 +1558,7 @@ func newSubscriptionAdapterFixture(
 	}
 	registry := state.NewCredentialRegistry()
 	identityGeneration := stateloader.CredentialIdentityGeneration(row.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params))
-	if err := registry.ReplaceCredentials([]state.CredentialEntry{{ID: row.ID, GroupID: group.ID, Version: 1, IdentityGeneration: identityGeneration, Fingerprint: row.Fingerprint, Status: state.CredentialStatusActive, WeightAuto: state.DefaultWeight, EncryptedValue: row.Data}}); err != nil {
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{ID: row.ID, GroupID: group.ID, Version: 1, IdentityGeneration: identityGeneration, Fingerprint: row.Fingerprint, Status: state.CredentialStatusActive, EncryptedValue: row.Data}}); err != nil {
 		t.Fatal(err)
 	}
 	channels := channel.NewRegistry()

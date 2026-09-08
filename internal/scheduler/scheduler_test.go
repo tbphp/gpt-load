@@ -113,7 +113,7 @@ func TestIteratorRejectsProtocolOnlyGroupWithoutConfiguredModels(t *testing.T) {
 		t.Fatalf("Compile() error = %v", err)
 	}
 	source := fakeCredentialSource{keys: []state.CredentialMeta{{
-		ID: 71, GroupID: 7, WeightAuto: state.DefaultWeight,
+		ID: 71, GroupID: 7,
 	}}}
 
 	iterator := New(
@@ -306,8 +306,8 @@ func TestIteratorUsesEffectiveWeights(t *testing.T) {
 	snapshot.Groups[2] = group
 
 	source := fakeCredentialSource{keys: []state.CredentialMeta{
-		{ID: 1, GroupID: 1, WeightAuto: 100},
-		{ID: 2, GroupID: 2, WeightAuto: 100},
+		{ID: 1, GroupID: 1, WeightManual: new(100)},
+		{ID: 2, GroupID: 2, WeightManual: new(100)},
 	}}
 	counts := map[uint]int{}
 	source.progress = state.NewSchedulingState()
@@ -328,8 +328,8 @@ func TestIteratorUsesEffectiveWeights(t *testing.T) {
 func TestIteratorUsesKeyWeights(t *testing.T) {
 	manualWeight := 100
 	source := fakeCredentialSource{keys: []state.CredentialMeta{
-		{ID: 1, GroupID: 1, WeightManual: &manualWeight, WeightAuto: 1},
-		{ID: 2, GroupID: 1, WeightAuto: 50},
+		{ID: 1, GroupID: 1, WeightManual: &manualWeight},
+		{ID: 2, GroupID: 1},
 	}}
 	counts := map[uint]int{}
 	source.progress = state.NewSchedulingState()
@@ -362,17 +362,16 @@ func TestEffectiveWeightCombinesGroupAndKeyWeights(t *testing.T) {
 		want  int64
 	}{
 		{name: "defaults", group: state.GroupView{}, key: state.CredentialMeta{}, want: 50 * 50},
-		{name: "group and auto key", group: state.GroupView{WeightManual: &groupManual}, key: state.CredentialMeta{WeightAuto: 30}, want: 20 * 30},
-		{name: "manual key overrides auto", group: state.GroupView{WeightManual: &groupManual}, key: state.CredentialMeta{WeightManual: &keyManual, WeightAuto: 90}, want: 20 * 40},
-		{name: "zero group", group: state.GroupView{WeightManual: &zero}, key: state.CredentialMeta{WeightAuto: 30}},
-		{name: "zero key", group: state.GroupView{WeightManual: &groupManual}, key: state.CredentialMeta{WeightManual: &zero, WeightAuto: 30}},
+		{name: "group and configured credential", group: state.GroupView{WeightManual: &groupManual}, key: state.CredentialMeta{WeightManual: new(30)}, want: 20 * 30},
+		{name: "configured credential weight", group: state.GroupView{WeightManual: &groupManual}, key: state.CredentialMeta{WeightManual: &keyManual}, want: 20 * 40},
+		{name: "zero group", group: state.GroupView{WeightManual: &zero}, key: state.CredentialMeta{WeightManual: new(30)}},
+		{name: "zero key", group: state.GroupView{WeightManual: &groupManual}, key: state.CredentialMeta{WeightManual: &zero}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if got := effectiveWeight(
 				test.group.WeightManual,
 				test.key.WeightManual,
-				test.key.WeightAuto,
 			); got != test.want {
 				t.Fatalf("effectiveWeight() = %d, want %d", got, test.want)
 			}
@@ -388,8 +387,8 @@ func TestIteratorExcludesZeroManualWeights(t *testing.T) {
 		group.WeightManual = &zero
 		snapshot.Groups[1] = group
 		source := fakeCredentialSource{keys: []state.CredentialMeta{
-			{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
-			{ID: 21, GroupID: 2, WeightAuto: state.DefaultWeight},
+			{ID: 11, GroupID: 1},
+			{ID: 21, GroupID: 2},
 		}}
 
 		source.progress = state.NewSchedulingState()
@@ -405,8 +404,8 @@ func TestIteratorExcludesZeroManualWeights(t *testing.T) {
 	t.Run("key", func(t *testing.T) {
 		zero := 0
 		source := fakeCredentialSource{keys: []state.CredentialMeta{
-			{ID: 11, GroupID: 1, WeightManual: &zero, WeightAuto: state.DefaultWeight},
-			{ID: 12, GroupID: 1, WeightAuto: state.DefaultWeight},
+			{ID: 11, GroupID: 1, WeightManual: &zero},
+			{ID: 12, GroupID: 1},
 		}}
 
 		source.progress = state.NewSchedulingState()
@@ -431,7 +430,7 @@ func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
 		}
 		iterator := New(
 			snapshot,
-			fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight}}},
+			fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1}}},
 			Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 		)
 		if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
@@ -444,8 +443,8 @@ func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
 		iterator := New(
 			schedulerSnapshot(),
 			fakeCredentialSource{keys: []state.CredentialMeta{
-				{ID: 11, GroupID: 1, WeightManual: &zero, WeightAuto: state.DefaultWeight},
-				{ID: 21, GroupID: 2, WeightManual: &zero, WeightAuto: state.DefaultWeight},
+				{ID: 11, GroupID: 1, WeightManual: &zero},
+				{ID: 21, GroupID: 2, WeightManual: &zero},
 			}},
 			Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 		)
@@ -473,8 +472,8 @@ func TestIteratorPrefersEligibleCredentialThenResumesWeightedCandidates(t *testi
 	iterator := New(
 		schedulerSnapshot(),
 		fakeCredentialSource{keys: []state.CredentialMeta{
-			{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
-			{ID: 12, GroupID: 1, WeightAuto: state.DefaultWeight},
+			{ID: 11, GroupID: 1},
+			{ID: 12, GroupID: 1},
 		}},
 		Query{
 			ClientProtocol:        protocol.OpenAICompletions,
@@ -501,8 +500,8 @@ func TestIteratorIgnoresIneligiblePreferredCredential(t *testing.T) {
 	iterator := New(
 		schedulerSnapshot(),
 		fakeCredentialSource{keys: []state.CredentialMeta{
-			{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
-			{ID: 12, GroupID: 1, WeightManual: &zero, WeightAuto: state.DefaultWeight},
+			{ID: 11, GroupID: 1},
+			{ID: 12, GroupID: 1, WeightManual: &zero},
 		}},
 		Query{
 			ClientProtocol:        protocol.OpenAICompletions,

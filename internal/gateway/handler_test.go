@@ -723,7 +723,7 @@ func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFai
 		close(recoveryAttempted)
 		var recovered bool
 		mutations.Do(1, func() {
-			recovered = baseRegistry.RecoverIfMatch(ref, state.DefaultWeight)
+			recovered = baseRegistry.RecoverIfMatch(ref)
 			if recovered {
 				stats.Reset(1)
 			}
@@ -773,7 +773,7 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 		mutations.Do(1, func() {
 			close(recoveryEntered)
 			<-releaseRecovery
-			recovered = registry.RecoverIfMatch(ref, state.DefaultWeight)
+			recovered = registry.RecoverIfMatch(ref)
 			if recovered {
 				stats.Reset(1)
 			}
@@ -1020,12 +1020,7 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 				StatusCode: http.StatusNotFound, Header: make(http.Header), Body: []byte(`{"error":"model not found"}`),
 				ClassificationBody: []byte(`{"error":"model not found"}`), RequestWritten: true,
 			},
-			want: health.CredentialStats{
-				Problem:             1,
-				ConsecutiveProblem:  1,
-				LastFailureCategory: health.FailureCategoryModelUnavailable,
-				LastStatusCode:      http.StatusNotFound,
-			},
+			want: health.CredentialStats{},
 		},
 		{
 			name: "host error",
@@ -3422,7 +3417,7 @@ func TestHandlerRetriesAnotherGroupAfterLocalConversionFailure(t *testing.T) {
 		}
 	})
 
-	t.Run("upstream unsupported model 400 is passed through once", func(t *testing.T) {
+	t.Run("upstream unsupported model retries other candidates without penalty", func(t *testing.T) {
 		forwarder := &scriptedForwarder{results: []UpstreamResult{{
 			StatusCode:      http.StatusBadRequest,
 			Header:          http.Header{"Content-Type": {"application/json"}},
@@ -3446,7 +3441,7 @@ func TestHandlerRetriesAnotherGroupAfterLocalConversionFailure(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusBadRequest || recorder.Body.String() != `{"error":{"code":"unsupported_model"}}` || len(forwarder.inputs) != 1 {
+		if recorder.Code != http.StatusBadRequest || recorder.Body.String() != `{"error":{"code":"unsupported_model"}}` || len(forwarder.inputs) != 2 {
 			t.Fatalf("response/attempts = %d %s / %d", recorder.Code, recorder.Body.String(), len(forwarder.inputs))
 		}
 		if after := registry.Snapshot(); !reflect.DeepEqual(after, before) {
@@ -3594,16 +3589,6 @@ func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 				RequestWritten:     true,
 			},
 			want: attemptNow.Add(time.Minute),
-		},
-		{
-			name: "model unavailable",
-			result: UpstreamResult{
-				StatusCode: http.StatusNotFound, Header: make(http.Header),
-				Body:               []byte(`{"error":"model_not_found"}`),
-				ClassificationBody: []byte(`{"error":"model_not_found"}`),
-				RequestWritten:     true,
-			},
-			want: attemptNow.Add(time.Hour),
 		},
 	}
 	for _, test := range tests {

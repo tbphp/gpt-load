@@ -722,7 +722,6 @@ func TestBuildContainerWiresSingletonMutationCoordinator(t *testing.T) {
 		})
 		want := reflect.ValueOf(coordinator).Pointer()
 		handlerMutation := mutationCoordinatorFieldPointer(t, reflect.ValueOf(handler), "mutations")
-		runtimeMutation := mutationCoordinatorFieldPointer(t, reflect.ValueOf(runtime), "mutations")
 
 		runtimeValue := reflect.ValueOf(runtime).Elem()
 		validator := runtimeValue.FieldByName("validator")
@@ -730,11 +729,10 @@ func TestBuildContainerWiresSingletonMutationCoordinator(t *testing.T) {
 			t.Fatal("Runtime validator is not wired")
 		}
 		validationMutation := mutationCoordinatorFieldPointer(t, validator.Elem(), "mutations")
-		if handlerMutation != want || runtimeMutation != want || validationMutation != want {
+		if handlerMutation != want || validationMutation != want {
 			t.Fatalf(
-				"mutation coordinators = handler:%#x runtime:%#x validation:%#x want:%#x",
+				"mutation coordinators = handler:%#x validation:%#x want:%#x",
 				handlerMutation,
-				runtimeMutation,
 				validationMutation,
 				want,
 			)

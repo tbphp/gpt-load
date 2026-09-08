@@ -197,13 +197,7 @@ func (s *Service) restoreCredentialRuntimeAfterReset(credentialID uint) bool {
 	}
 	restored := false
 	apply := func() {
-		now := s.now().UTC()
-		stats := s.stats.Snapshot(credentialID, now)
-		stats.ConsecutiveFailure = 0
-		stats.ConsecutiveProblem = 0
-		stats.LastFailureCategory = 0
-		stats.LastStatusCode = 0
-		if !s.registry.RestoreRuntimeState(credentialID, calculateAutoWeight(stats)) {
+		if !s.registry.RestoreRuntimeState(credentialID) {
 			return
 		}
 		s.stats.ClearProblemState(credentialID)

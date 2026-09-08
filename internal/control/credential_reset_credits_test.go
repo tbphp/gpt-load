@@ -316,6 +316,11 @@ func TestConsumeCredentialResetCreditRestoresRuntimeHealth(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 	now := time.Date(2026, time.August, 14, 11, 30, 0, 0, time.UTC)
 	fixture.service.now = func() time.Time { return now }
+	if _, err := fixture.service.UpdateGroupCredential(t.Context(), groupID, credentialID, CredentialUpdateRequest{
+		WeightManual: optionalField[int]{Set: true, Value: 80},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	fixture.stats.RecordFailure(credentialID, health.FailureCategoryRateLimited, http.StatusTooManyRequests, now)
 	if !fixture.registry.SetCooldown(credentialID, now.Add(time.Hour)) ||
 		!fixture.registry.SetBlacklisted(credentialID) {
@@ -343,7 +348,7 @@ func TestConsumeCredentialResetCreditRestoresRuntimeHealth(t *testing.T) {
 		t.Fatal("credential missing from runtime registry")
 	}
 	if view.Blacklisted || !view.CooldownUntil.IsZero() || view.FailureCount != 0 ||
-		view.Status != "active" {
+		view.Status != "active" || view.WeightManual == nil || *view.WeightManual != 80 {
 		t.Fatalf("runtime credential after reset = %#v", view)
 	}
 	stats := fixture.stats.Snapshot(credentialID, now)

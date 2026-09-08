@@ -9,7 +9,7 @@ func TestCredentialRegistryKeepsIdentityAndHealthGenerationsIndependent(t *testi
 	entry := CredentialEntry{
 		ID: 11, GroupID: 7, Version: 42, IdentityGeneration: 99,
 		Fingerprint: "fingerprint", Status: CredentialStatusActive,
-		WeightAuto: DefaultWeight, EncryptedValue: "encrypted-data",
+		EncryptedValue: "encrypted-data",
 	}
 	if err := ValidateCredentialEntries([]CredentialEntry{entry}); err != nil {
 		t.Fatalf("ValidateCredentialEntries() error = %v", err)
@@ -57,7 +57,7 @@ func TestValidateCredentialEntriesRequiresDurableIdentityEvidence(t *testing.T) 
 	base := CredentialEntry{
 		ID: 1, GroupID: 2, Version: 3, IdentityGeneration: 4,
 		Fingerprint: "fingerprint", Status: CredentialStatusActive,
-		WeightAuto: DefaultWeight, EncryptedValue: "encrypted",
+		EncryptedValue: "encrypted",
 	}
 	tests := []struct {
 		name   string

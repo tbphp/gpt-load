@@ -47,8 +47,8 @@ func TestIteratorRouteStrategyUsesEffectiveWeightsAcrossModes(t *testing.T) {
 				}
 			}
 			source := fakeCredentialSource{keys: []state.CredentialMeta{
-				{ID: 11, GroupID: 1, WeightAuto: 1},
-				{ID: 21, GroupID: 2, WeightAuto: 1},
+				{ID: 11, GroupID: 1, WeightManual: new(1)},
+				{ID: 21, GroupID: 2, WeightManual: new(1)},
 			}}
 			source.progress = state.NewSchedulingState()
 			converted := 0
@@ -113,8 +113,8 @@ func TestIteratorWeightedMixPreservesStoredResponsesPriority(t *testing.T) {
 		group.WeightManual = &weight
 		snapshot.Groups[3] = group
 		iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
-			{ID: 11, GroupID: 1, WeightAuto: 1}, {ID: 21, GroupID: 2, WeightAuto: 1},
-			{ID: 31, GroupID: 3, WeightAuto: 1}, {ID: 41, GroupID: 4, WeightAuto: 1},
+			{ID: 11, GroupID: 1, WeightManual: new(1)}, {ID: 21, GroupID: 2, WeightManual: new(1)},
+			{ID: 31, GroupID: 3, WeightManual: new(1)}, {ID: 41, GroupID: 4, WeightManual: new(1)},
 		}}, Query{
 			ClientProtocol:           protocol.OpenAIResponses,
 			Operation:                execution.OperationResponsesCreate,

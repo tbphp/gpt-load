@@ -17,7 +17,7 @@ func (iterator *Iterator) ChargeReplay(selection Selection, ref state.Credential
 			if meta.ID != ref.ID || meta.IdentityGeneration != ref.IdentityGeneration {
 				continue
 			}
-			weight := effectiveWeight(selection.Group.WeightManual, meta.WeightManual, meta.WeightAuto)
+			weight := effectiveWeight(selection.Group.WeightManual, meta.WeightManual)
 			if weight > 0 {
 				_, charged = iterator.selectCredential([]weightedCredential{{meta: meta, weight: weight}}, ref.ID)
 			}

@@ -52,8 +52,7 @@ type healthProblemCredentialResponse struct {
 	RecentSuccessCount      uint64                 `json:"recent_success_count"`
 	RecentProblemCount      uint64                 `json:"recent_problem_count"`
 	ConsecutiveProblemCount uint64                 `json:"consecutive_problem_count"`
-	WeightManual            *int                   `json:"weight_manual"`
-	WeightAuto              int                    `json:"weight_auto"`
+	Weight                  int                    `json:"weight"`
 	Recovery                healthRecoveryResponse `json:"recovery"`
 }
 
@@ -361,8 +360,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			RecentSuccessCount:      stats.Success,
 			RecentProblemCount:      stats.Problem,
 			ConsecutiveProblemCount: stats.ConsecutiveProblem,
-			WeightManual:            cloneInt(key.WeightManual),
-			WeightAuto:              key.WeightAuto,
+			Weight:                  state.ConfiguredWeight(key.WeightManual),
 		}
 		if bucket == healthBucketCooldown {
 			cooldownUntilMS, err := optionalSafeEpochMilliseconds(key.CooldownUntil)
