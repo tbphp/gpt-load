@@ -105,10 +105,6 @@ const timeoutKeys = groupTimeoutKeys
 const policyCountKeys = groupPolicyCountKeys
 const policyRows = [
   {
-    key: 'retry_count',
-    helpKey: 'retryCountHelp',
-  },
-  {
     key: 'blacklist_threshold',
     helpKey: 'blacklistThresholdHelp',
   },

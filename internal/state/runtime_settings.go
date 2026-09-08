@@ -70,7 +70,6 @@ type RuntimeSettings struct {
 type ResolvedGroupSettings struct {
 	Timeouts           TimeoutConfig
 	HeaderRules        HeaderRules
-	RetryCount         int
 	BlacklistThreshold int
 	AffinityEnabled    bool
 	ParameterOverrides parameteroverride.Rules
@@ -236,7 +235,6 @@ func ResolveGroupRuntimeSettings(
 			StreamIdle: base.StreamIdleTimeout,
 		},
 		HeaderRules:        cloneHeaderRules(base.HeaderRules),
-		RetryCount:         base.RetryCount,
 		BlacklistThreshold: base.BlacklistThreshold,
 		AffinityEnabled:    base.AffinityEnabled,
 	}
@@ -267,11 +265,8 @@ func ResolveGroupRuntimeSettings(
 			}
 			resolved.HeaderRules = parsed
 		case SettingRetryCount:
-			parsed, err := nonNegativeWholeNumber(key, value)
-			if err != nil {
-				return ResolvedGroupSettings{}, err
-			}
-			resolved.RetryCount = parsed
+			// 兼容读取历史分组配置；重试预算仅由系统设置决定。
+			continue
 		case SettingBlacklistThreshold:
 			parsed, err := nonNegativeWholeNumber(key, value)
 			if err != nil {

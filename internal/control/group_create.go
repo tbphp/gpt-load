@@ -301,6 +301,9 @@ func (s *Service) resolveChannelConnectionType(
 }
 
 func normalizeGroupSettings(settings config.Settings) (config.Settings, models.JSON, error) {
+	if _, exists := settings[state.SettingRetryCount]; exists {
+		return nil, nil, app_errors.ErrValidation
+	}
 	if settings == nil {
 		settings = make(config.Settings)
 	}

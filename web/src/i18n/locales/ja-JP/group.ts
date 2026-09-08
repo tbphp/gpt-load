@@ -321,10 +321,8 @@ export default {
         title: 'ランタイム上書き',
         description: '継承値はグローバル設定に従い、グループ上書きは疎なまま保持されます。',
         first_byte_timeout: 'ネイティブ応答 / ストリーム初回イベントのタイムアウト',
-        request_timeout: 'リクエストタイムアウト',
+        request_timeout: '上流リクエスト1回あたりのタイムアウト',
         stream_idle_timeout: 'ストリームアイドルタイムアウト',
-        retry_count: '追加再試行回数',
-        retryCountHelp: '最初の上流試行後に追加する再試行の上限です。0 で再試行を無効化します。',
         blacklist_threshold: '連続失敗のブラックリストしきい値',
         blacklistThresholdHelp:
           'この連続失敗回数に達すると認証情報をブラックリストへ登録します。0 で自動登録を無効化します。',

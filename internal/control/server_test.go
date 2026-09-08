@@ -1213,6 +1213,9 @@ func TestUpdateGroupSettingsEndpointRejectsStrictInvalidBodies(t *testing.T) {
 		{name: "negative weight", body: `{"weight_manual":-1}`, code: app_errors.ErrValidation.Code},
 		{name: "retired protocols", body: `{"protocols":[]}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "invalid overrides", body: `{"overrides":{"first_byte_timeout":-1}}`, code: app_errors.ErrValidation.Code},
+		{name: "retired retry count", body: `{"overrides":{"retry_count":4}}`, code: app_errors.ErrValidation.Code},
+		{name: "retired zero retry count", body: `{"overrides":{"retry_count":0}}`, code: app_errors.ErrValidation.Code},
+		{name: "retired null retry count", body: `{"overrides":{"retry_count":null}}`, code: app_errors.ErrValidation.Code},
 		{name: "parameter override negative zero", body: `{"overrides":{"parameter_overrides":[{"set":{"value":-0}}]}}`, code: app_errors.ErrValidation.Code},
 		{name: "parameter override negative decimal zero", body: `{"overrides":{"parameter_overrides":[{"set":{"value":-0.0}}]}}`, code: app_errors.ErrValidation.Code},
 		{name: "parameter override negative exponent zero", body: `{"overrides":{"parameter_overrides":[{"set":{"value":-0e3}}]}}`, code: app_errors.ErrValidation.Code},
@@ -1229,6 +1232,9 @@ func TestUpdateGroupSettingsEndpointRejectsStrictInvalidBodies(t *testing.T) {
 			request.Header.Set("Content-Type", "application/json")
 			engine.ServeHTTP(recorder, request)
 
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("response status = %d, want 400", recorder.Code)
+			}
 			var envelope struct {
 				Code string `json:"code"`
 			}

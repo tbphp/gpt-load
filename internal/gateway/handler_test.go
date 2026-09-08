@@ -3995,9 +3995,11 @@ func TestSubscriptionExplicit401RetriesSameCredentialWithForcedRefresh(t *testin
 	}}
 	handler, manager, registry := newHandlerForTest(t, forwarder, "placeholder")
 	if _, err := manager.Publish(state.CompileInput{
+		SystemSettings:  config.Settings{state.SettingRetryCount: 1},
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "subscription", ChannelID: channel.Codex,
+			Settings:       config.Settings{state.SettingRetryCount: 0},
 			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
@@ -4498,7 +4500,7 @@ func TestHandlerRetries401WithAnotherKeyThenReturnsSuccess(t *testing.T) {
 	}
 }
 
-func TestHandlerAppliesSystemAndGroupRetrySettings(t *testing.T) {
+func TestHandlerAppliesSystemRetrySettingsAndIgnoresLegacyGroupOverrides(t *testing.T) {
 	invalid := UpstreamResult{
 		StatusCode: http.StatusUnauthorized, Header: make(http.Header),
 		Body:               []byte(`{"error":"invalid_api_key"}`),
@@ -4519,24 +4521,24 @@ func TestHandlerAppliesSystemAndGroupRetrySettings(t *testing.T) {
 			wantAttempts: 1,
 		},
 		{
-			name: "group count enables four retries over disabled system policy",
+			name: "legacy group count cannot enable retries over disabled system policy",
 			systemSettings: config.Settings{
 				state.SettingRetryCount: 0,
 			},
 			groupSettings: config.Settings{
 				state.SettingRetryCount: 4,
 			},
-			wantAttempts: 5,
+			wantAttempts: 1,
 		},
 		{
-			name: "group retry count overrides system count",
+			name: "legacy group retry count cannot reduce system count",
 			systemSettings: config.Settings{
 				state.SettingRetryCount: 4,
 			},
 			groupSettings: config.Settings{
 				state.SettingRetryCount: 1,
 			},
-			wantAttempts: 2,
+			wantAttempts: 5,
 		},
 	}
 	for _, test := range tests {

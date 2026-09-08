@@ -12,7 +12,7 @@ import type {
 import { normalizePriceMultiplier } from '@/lib/price-multiplier'
 
 export type GroupTimeoutKey = 'first_byte_timeout' | 'request_timeout' | 'stream_idle_timeout'
-export type GroupPolicyCountKey = 'retry_count' | 'blacklist_threshold'
+export type GroupPolicyCountKey = 'blacklist_threshold'
 
 export interface GroupSettingsDraft {
   channel_id: string
@@ -31,10 +31,7 @@ export const groupTimeoutKeys: readonly GroupTimeoutKey[] = [
   'request_timeout',
   'stream_idle_timeout',
 ]
-export const groupPolicyCountKeys: readonly GroupPolicyCountKey[] = [
-  'retry_count',
-  'blacklist_threshold',
-]
+export const groupPolicyCountKeys: readonly GroupPolicyCountKey[] = ['blacklist_threshold']
 
 function cloneHeaders(value: HeaderRulesDto): HeaderRulesDto {
   return { set: { ...value.set }, remove: [...value.remove] }

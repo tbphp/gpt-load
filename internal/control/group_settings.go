@@ -111,6 +111,7 @@ func groupSettingsResponse(
 	if overrides == nil {
 		overrides = make(config.Settings)
 	}
+	delete(overrides, state.SettingRetryCount)
 	effective, err := effectiveGroupConfig(system, overrides)
 	if err != nil {
 		return GroupSettingsResponse{}, fmt.Errorf(

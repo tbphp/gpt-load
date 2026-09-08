@@ -137,7 +137,6 @@ type GroupView struct {
 	Models             []ModelConfig
 	Timeouts           TimeoutConfig
 	HeaderRules        HeaderRules
-	RetryCount         int
 	BlacklistThreshold int
 	AffinityEnabled    bool
 	WeightManual       *int
@@ -230,7 +229,6 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			Models:             append([]ModelConfig(nil), group.Models...),
 			Timeouts:           resolved.Timeouts,
 			HeaderRules:        resolved.HeaderRules,
-			RetryCount:         resolved.RetryCount,
 			BlacklistThreshold: resolved.BlacklistThreshold,
 			AffinityEnabled:    resolved.AffinityEnabled,
 			WeightManual:       cloneWeight(group.WeightManual),

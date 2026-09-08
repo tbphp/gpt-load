@@ -19,7 +19,6 @@ type GroupEffectiveConfigResponse struct {
 	RequestTimeout     int64               `json:"request_timeout"`
 	StreamIdleTimeout  int64               `json:"stream_idle_timeout"`
 	HeaderRules        HeaderRulesResponse `json:"header_rules"`
-	RetryCount         int                 `json:"retry_count"`
 	BlacklistThreshold int                 `json:"blacklist_threshold"`
 	AffinityEnabled    bool                `json:"affinity_enabled"`
 }
@@ -86,7 +85,6 @@ func effectiveGroupConfig(
 			Set:    set,
 			Remove: append([]string{}, resolved.HeaderRules.Remove...),
 		},
-		RetryCount:         resolved.RetryCount,
 		BlacklistThreshold: resolved.BlacklistThreshold,
 		AffinityEnabled:    resolved.AffinityEnabled,
 	}, nil

@@ -20,12 +20,12 @@ func TestHandlerParameterOverrideCacheKeepsOnlyLastGroup(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{failure, failure, failure, success, success}}
 	settings := func(field string) config.Settings {
 		return config.Settings{
-			state.SettingRetryCount:         3,
 			state.SettingParameterOverrides: []any{map[string]any{"set": map[string]any{field: true}}},
 		}
 	}
-	engine, registry := newDialectGatewayEngineWithForwarder(t, protocol.OpenAICompletions, "public",
+	engine, registry := newDialectGatewayEngineWithSystemSettings(t, protocol.OpenAICompletions, "public",
 		dialect.NewSet(dialect.NewOpenAI()), forwarder,
+		config.Settings{state.SettingRetryCount: 3},
 		dialectGatewayGroup{id: 1, name: "first", upstreamURL: "https://first.example", apiKeys: []string{"sk-one", "sk-two", "sk-three"}, settings: settings("first")},
 		dialectGatewayGroup{id: 2, name: "second", upstreamURL: "https://second.example", apiKeys: []string{"sk-four"}, settings: settings("second")},
 	)

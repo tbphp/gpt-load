@@ -53,11 +53,11 @@ export default {
       routeStrategyHelp:
         'Native first favors native capabilities. Weighted mix lets native and converted candidates compete by effective weight; conversion may differ in capabilities. Request affinity still applies, so traffic shares are not guaranteed.',
       first_byte_timeout: 'Native response / stream first-event timeout',
-      request_timeout: 'Total request timeout',
+      request_timeout: 'Upstream request timeout per attempt',
       stream_idle_timeout: 'Stream idle timeout',
       retry_count: 'Extra retry count',
       retryCountHelp:
-        'Maximum extra retries after the initial upstream attempt; 0 disables retries.',
+        'Maximum extra retries per request after the initial upstream attempt. The budget is shared across groups and does not reset when switching groups; 0 disables retries.',
       blacklist_threshold: 'Consecutive-failure blacklist threshold',
       blacklistThresholdHelp:
         'A credential is blacklisted after this many consecutive failures; 0 disables automatic blacklisting.',

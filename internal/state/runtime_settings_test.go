@@ -232,7 +232,7 @@ func TestResponseHeaderRulesRejectTransportAndCORSOwnedHeaders(t *testing.T) {
 	}
 }
 
-func TestRetryAndBlacklistCountsArePublicAndResolveByGroupPrecedence(t *testing.T) {
+func TestRetryIsGlobalAndBlacklistAllowsGroupOverride(t *testing.T) {
 	for key, value := range map[string]any{
 		SettingRetryCount:         json.Number("9007199254740991"),
 		SettingBlacklistThreshold: json.Number("0"),
@@ -262,7 +262,7 @@ func TestRetryAndBlacklistCountsArePublicAndResolveByGroupPrecedence(t *testing.
 	if err != nil {
 		t.Fatalf("ResolveGroupRuntimeSettings() error = %v", err)
 	}
-	if resolved.RetryCount != 4 || resolved.BlacklistThreshold != 5 {
+	if resolved.BlacklistThreshold != 5 {
 		t.Fatalf("group policies = %#v", resolved)
 	}
 }
@@ -279,6 +279,25 @@ func TestRetryAndBlacklistCountsRejectNegativeOrNonIntegralValues(t *testing.T) 
 			if err := ValidateRuntimeSetting(key, value); err == nil {
 				t.Errorf("ValidateRuntimeSetting(%q, %#v) accepted invalid value", key, value)
 			}
+		}
+	}
+}
+
+func TestGroupRuntimeSettingsIgnoreLegacyRetryCount(t *testing.T) {
+	base := DefaultRuntimeSettings()
+	settings := config.Settings{SettingBlacklistThreshold: 5}
+	want, err := ResolveGroupRuntimeSettings(base, settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, count := range []int{0, 4} {
+		settings[SettingRetryCount] = count
+		got, err := ResolveGroupRuntimeSettings(base, settings)
+		if err != nil {
+			t.Fatalf("legacy retry_count=%d prevented loading: %v", count, err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("legacy retry_count=%d changed effective group settings", count)
 		}
 	}
 }

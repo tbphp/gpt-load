@@ -52,10 +52,11 @@ export default {
       routeStrategyHelp:
         '原生优先尽量保留原生能力；混合权重让原生与转换候选按有效权重竞争，转换可能存在能力差异。请求亲和仍生效，流量不保证严格按权重分配。',
       first_byte_timeout: '原生响应 / 流式首事件超时',
-      request_timeout: '请求总时长',
+      request_timeout: '单次上游请求超时',
       stream_idle_timeout: '流空闲超时',
       retry_count: '额外重试次数',
-      retryCountHelp: '首次上游尝试失败后最多追加的重试次数；0 表示关闭重试。',
+      retryCountHelp:
+        '每个请求在首次上游尝试后最多追加的重试次数；跨分组共享，切换分组不会重置；0 表示关闭重试。',
       blacklist_threshold: '连续失败拉黑阈值',
       blacklistThresholdHelp: '凭据达到该连续失败次数后自动拉黑；0 表示关闭自动拉黑。',
       validation_interval: '检测间隔',
