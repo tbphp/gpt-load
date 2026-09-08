@@ -31,15 +31,9 @@ func (iterator *Iterator) CooldownUntil() (time.Time, bool) {
 		if !group.Included {
 			continue
 		}
-		if len(group.Credentials) == 0 {
-			return time.Time{}, false
-		}
 		for _, credential := range group.Credentials {
-			if credential.Reason == ReasonCredentialNotAllowed {
-				continue
-			}
 			if credential.Reason != ReasonCredentialCooldown && credential.Reason != ReasonModelCooldown {
-				return time.Time{}, false
+				continue
 			}
 			if earliest.IsZero() || credential.CooldownUntil.Before(earliest) {
 				earliest = credential.CooldownUntil

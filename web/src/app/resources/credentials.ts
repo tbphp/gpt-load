@@ -1183,10 +1183,19 @@ export async function cacheCredentialItem(
     .getQueryCache()
     .findAll({ queryKey: controlQueryKeys.groups.credentialsAll(groupId) })
   const previous = queries
+    .filter((query) => !query.state.isInvalidated)
     .map((query) => (query.state.data as CredentialCollectionDto | undefined)?.items)
     .flatMap((items) => items ?? [])
     .find(({ credential_id }) => credential_id === item.credential_id)
   for (const query of queries) {
+    // 批量操作会更新汇总并将旧明细标为过期；不能再用旧明细计算增减。
+    if (query.state.isInvalidated) {
+      await queryClient.refetchQueries(
+        { queryKey: query.queryKey, exact: true, type: 'active' },
+        { throwOnError: true },
+      )
+      continue
+    }
     const filters = queryFilters(query.queryKey)
     const collection = query.state.data as CredentialCollectionDto | undefined
     const current = collection?.items.find(
@@ -1196,7 +1205,7 @@ export async function cacheCredentialItem(
       await invalidateExactCredentialPage(queryClient, query.queryKey)
       continue
     }
-    const summary = withSummaryDelta(collection.summary, previous, item)
+    const summary = withSummaryDelta(collection.summary, current ?? previous, item)
     if (filters === undefined || current === undefined) {
       queryClient.setQueryData<CredentialCollectionDto>(query.queryKey, { ...collection, summary })
       await invalidateExactCredentialPage(queryClient, query.queryKey)

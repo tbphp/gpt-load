@@ -3045,7 +3045,7 @@ func TestHandlerRetriesClassifiedFirstProviderErrorAndReturns429OnExhaustion(t *
 			t.Fatalf("decode response: %v; body=%s", err, recorder.Body.String())
 		}
 		if recorder.Code != http.StatusTooManyRequests ||
-			body.Code != reasonModelRateLimited.Code ||
+			body.Code != reasonUpstreamRateLimited.Code ||
 			strings.Contains(recorder.Body.String(), "rate_limit_error") {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 		}

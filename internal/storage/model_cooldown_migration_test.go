@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"gorm.io/gorm"
@@ -20,6 +21,41 @@ func TestExternalModelCooldownMigrationContract(t *testing.T) {
 		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
 	}
 	testModelCooldownMigration(t, func(t *testing.T) *gorm.DB { return openExternalIncrementalMigrationDatabase(t, dsn) })
+}
+
+func TestExternalModelCooldownMigrationRecoversConstraintReplacement(t *testing.T) {
+	dsn := os.Getenv("GPT_LOAD_DATABASE_TEST_DSN")
+	if dsn == "" {
+		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
+	}
+	db := openExternalIncrementalMigrationDatabase(t, dsn)
+	if db.Dialector.Name() != "mysql" {
+		t.Skip("DDL auto-commit recovery is specific to MySQL")
+	}
+	if err := applyMigrationRegistry(db, migrations[:9]); err != nil {
+		t.Fatal(err)
+	}
+	interrupted := false
+	const callback = "test:interrupt_model_cooldown_check"
+	if err := db.Callback().Raw().After("gorm:raw").Register(callback, func(tx *gorm.DB) {
+		sql := strings.ToLower(tx.Statement.SQL.String())
+		if tx.Error == nil && strings.Contains(sql, "drop") && strings.Contains(sql, "chk_request_log_attempt_effect") {
+			interrupted = true
+			tx.AddError(fmt.Errorf("interrupted after replacing attempt effect constraint"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := AutoMigrate(db)
+	if removeErr := db.Callback().Raw().Remove(callback); removeErr != nil {
+		t.Fatal(removeErr)
+	}
+	if err == nil || !interrupted {
+		t.Fatalf("DDL interruption was not exercised: %v", err)
+	}
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("cannot resume after constraint replacement: %v", err)
+	}
 }
 
 func testModelCooldownMigration(t *testing.T, open func(*testing.T) *gorm.DB) {

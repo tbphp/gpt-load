@@ -1601,7 +1601,7 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 	if response.Code != http.StatusTooManyRequests ||
 		event.Status != telemetry.RequestStatusError ||
 		event.StatusCode != http.StatusTooManyRequests ||
-		event.ErrorCode != reasonModelRateLimited.Code ||
+		event.ErrorCode != reasonUpstreamRateLimited.Code ||
 		event.ErrorSummary != fixedErrorSummary("upstream_sse_error") ||
 		event.Usage.Result != (usage.Result{
 			State: usage.StateComplete,

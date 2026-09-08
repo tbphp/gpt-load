@@ -204,7 +204,7 @@ func canceledModelCooldown(attempt ExecutionAttempt, decisionContext DecisionCon
 		(attempt.Evidence.OriginHint != "" && attempt.Evidence.OriginHint != execution.ErrorOriginUpstream) {
 		return Decision{}, false
 	}
-	result := rateLimitDecision(attempt, decisionContext)
+	result := decisionForExecutionCategory(FailureCategoryRateLimited, attempt, decisionContext)
 	result.Retry = RetryNone
 	return result, result.Effect == EffectCooldownModel
 }
@@ -583,8 +583,7 @@ func rateLimitDecision(attempt ExecutionAttempt, decisionContext DecisionContext
 			result.CooldownUntil, result.RuleID = until, "rate_limit.retry_after"
 			return result
 		}
-	}
-	if until, ok := ParseRateLimitReset(header, attempt.Now); ok {
+	} else if until, ok := ParseRateLimitReset(header, attempt.Now); ok {
 		result.CooldownUntil = until
 		result.RuleID = "rate_limit.reset_header"
 		return result

@@ -64,3 +64,31 @@ func TestModelCooldownFiltersSelectionInspectionAndRefreshReplay(t *testing.T) {
 		t.Fatalf("restored=%#v err=%v", after, err)
 	}
 }
+
+func TestCooldownRecoveryIgnoresCredentialsThatCannotBecomeCandidates(t *testing.T) {
+	r := state.NewCredentialRegistry()
+	if err := r.ReplaceCredentials([]state.CredentialEntry{
+		{ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Status: state.CredentialStatusActive, Fingerprint: "one", EncryptedValue: "one"},
+		{ID: 2, GroupID: 2, Version: 1, IdentityGeneration: 1, Status: state.CredentialStatusActive, Fingerprint: "two", EncryptedValue: "two"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	ref, _ := r.CredentialRef(1)
+	r.SetModelCooldown(ref, "gpt-4o", now.Add(time.Hour), now)
+	r.SetBlacklisted(2)
+	query := Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}
+	iterator := New(schedulerSnapshot(), r, query)
+	if _, err := iterator.Next(); err != ErrExhausted {
+		t.Fatalf("unexpected candidate: %v", err)
+	}
+	if until, limited := iterator.CooldownUntil(); !limited || !until.Equal(now.Add(time.Hour)) {
+		t.Fatalf("blacklisted credential hid recoverable cooldown: %v, %t", until, limited)
+	}
+	if err := r.SetCredentialStatus(1, state.CredentialStatusDisabled); err != nil {
+		t.Fatal(err)
+	}
+	if until, limited := iterator.CooldownUntil(); limited || !until.IsZero() {
+		t.Fatalf("disabled/blacklisted credentials were reported as recoverable: %v, %t", until, limited)
+	}
+}

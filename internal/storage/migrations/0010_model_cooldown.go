@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -41,12 +42,13 @@ func Up0010(db *gorm.DB) error {
 			}
 		}
 	} else {
-		if db.Migrator().HasConstraint(modelCooldownTable0010, modelCooldownEffect0010) {
-			if err := dropCheckConstraint0006(db, modelCooldownEffect0010); err != nil {
-				return err
-			}
+		drop := "DROP CONSTRAINT"
+		if dialector, ok := db.Dialector.(*gormmysql.Dialector); ok && dialector.Config != nil &&
+			mysqlRequiresCheckDropSyntax0003(dialector.ServerVersion) {
+			drop = "DROP CHECK"
 		}
-		if err := db.Exec("ALTER TABLE request_log_attempts ADD CONSTRAINT chk_request_log_attempt_effect CHECK (" + modelCooldownEffectExpression0010 + ")").Error; err != nil {
+		// 同一条 DDL 原子替换，避免 MySQL 中断后因旧迁移约束缺失而无法恢复。
+		if err := db.Exec("ALTER TABLE request_log_attempts " + drop + " chk_request_log_attempt_effect, ADD CONSTRAINT chk_request_log_attempt_effect CHECK (" + modelCooldownEffectExpression0010 + ")").Error; err != nil {
 			return err
 		}
 	}
@@ -90,7 +92,7 @@ func rebuildModelCooldownSQLite0010(db *gorm.DB) error {
 	return nil
 }
 
-// ValidateRecoverable0010 接受 MySQL 的列已添加、旧约束已删除或新约束已建状态。
+// ValidateRecoverable0010 接受 MySQL 的列已添加或约束已完成原子替换状态。
 func ValidateRecoverable0010(db *gorm.DB) error {
 	if !db.Migrator().HasTable(modelCooldownTable0010) {
 		return fmt.Errorf("model cooldown attempts table is missing")
@@ -115,8 +117,8 @@ func ValidateRecoverable0010(db *gorm.DB) error {
 	if hasColumn && !db.Migrator().HasConstraint(modelCooldownTable0010, modelCooldownDeadline0010) {
 		return fmt.Errorf("model cooldown deadline constraint is missing")
 	}
-	if !hasColumn && !db.Migrator().HasConstraint(modelCooldownTable0010, modelCooldownEffect0010) {
-		return fmt.Errorf("prior attempt effect constraint is missing")
+	if !db.Migrator().HasConstraint(modelCooldownTable0010, modelCooldownEffect0010) {
+		return fmt.Errorf("attempt effect constraint is missing")
 	}
 	return nil
 }
