@@ -160,8 +160,55 @@ export default {
       oauthJSONLabel: 'OAuth JSON の内容',
       importText: '貼り付けた内容をインポート',
       importFile: '認証情報ファイルを読み込む',
-      importing: 'インポート中…',
-      importResult: 'インポート完了：成功 {succeeded} 件、失敗 {failed} 件',
+      importing: 'アカウントを読み込み中…',
+      supportedFormats: '複数アカウントを含む形式を自動判別：{formats}',
+      pastedContent: '貼り付けた JSON',
+      detectedFormat: '判別した形式：{format}',
+      importSummary: '接続準備完了 {ready} 件 · スキップ {skipped} 件 · 失敗 {failed} 件',
+      importEntry: '項目 {index}',
+      importFormat: {
+        cpa: 'CPA 互換形式',
+        codex: 'Codex 公式形式',
+        claudeCode: 'Claude Code 公式形式',
+        sub2api: 'sub2api 形式',
+      },
+      importStatus: { skipped: 'スキップ', failed: '失敗' },
+      importError: {
+        invalid_json: 'JSON を解析できません。内容の欠落や重複フィールドを確認してください。',
+        invalid_document: 'エクスポート内のアカウント構造が無効です。',
+        unsupported_format: '形式を判別できません。下に記載された形式でエクスポートしてください。',
+        unsupported_version:
+          '未対応のエクスポートバージョンです。元のアプリを更新して再度エクスポートしてください。',
+        empty_document: 'ファイルにアカウントがありません。',
+        too_many_entries:
+          '1 回のインポートにつき最大 1,000 アカウントです。分割して読み込んでください。',
+        file_too_large:
+          '1 回のインポートの合計サイズは 4 MiB までです。分割して読み込んでください。',
+        credential_too_large:
+          'この認証情報は 64 KiB を超えています。エクスポート内容を確認してください。',
+        invalid_credential:
+          '認証情報の項目が無効か検証に失敗しました。再エクスポートまたはログインしてください。',
+        incomplete_credential:
+          '認証情報が不足しています。再エクスポートまたはログインしてください。',
+        unsupported_auth_mode:
+          'この認証方式は未対応です。サブスクリプションの OAuth 認証情報を使用してください。',
+        missing_refresh_token:
+          '更新用の認証情報がありません。アカウント全体をエクスポートするかログインしてください。',
+        unsupported_channel: 'このアカウントのチャネルは未対応です。',
+        unsupported_client: 'この OAuth クライアントは未対応です。ここで再度ログインしてください。',
+        identity_conflict:
+          'アカウントの識別情報が一致しません。再エクスポートまたはログインしてください。',
+        channel_mismatch: '別のチャネルのアカウントです。対応するチャネルで読み込んでください。',
+        duplicate_account: 'このアカウントは今回のインポートで処理済みです。',
+        already_prepared: 'このアカウントは現在の接続待ちリストにあります。',
+        import_timeout:
+          '処理がタイムアウトしました。準備完了のアカウントを確認し、未完了の項目を再試行してください。',
+        reauthorization_required: '認証が失効しています。再度ログインしてください。',
+        authorization_unknown: '認証状態を確認できません。再度ログインしてください。',
+        upstream_unavailable:
+          '上流に接続できません。プロキシを確認するか、後で再試行してください。',
+        import_failed: 'インポートを完了できません。接続を確認して再試行してください。',
+      },
       importFailed: 'OAuth JSON が無効または未対応です',
       pollFailed: '認証状態を取得できません。再試行を続けます',
       pollAbandoned: '認証状態を複数回取得できなかったため待機を終了しました。やり直してください',

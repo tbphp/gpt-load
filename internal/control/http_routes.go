@@ -57,6 +57,13 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.auditMutation(newMutationDescriptor("credential_stage_import", "credential_stage", staticMutationLocator("new"))),
 				s.handleImportCredentialStage,
 			),
+			controlRoute(
+				"control.credential-stages.import-batch",
+				http.MethodPost,
+				"/credential-stages/import-batch",
+				s.auditMutation(newMutationDescriptor("credential_stage_import", "credential_stage", staticMutationLocator("batch"))),
+				s.handleImportCredentialBatch,
+			),
 			controlRoute("control.credential-stages.get", http.MethodGet, "/credential-stages/:stage_id", s.handleGetCredentialStage),
 			controlRoute(
 				"control.credential-stages.oauth-callback",

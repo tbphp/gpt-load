@@ -163,8 +163,53 @@ export default {
       oauthJSONLabel: 'OAuth JSON content',
       importText: 'Import pasted content',
       importFile: 'Import credential files',
-      importing: 'Importing…',
-      importResult: 'Import complete: {succeeded} succeeded, {failed} failed',
+      importing: 'Reading accounts…',
+      supportedFormats: 'Automatically detects single or multiple accounts: {formats}',
+      pastedContent: 'Pasted JSON',
+      detectedFormat: 'Detected: {format}',
+      importSummary: '{ready} accounts ready to connect · {skipped} skipped · {failed} failed',
+      importEntry: 'Entry {index}',
+      importFormat: {
+        cpa: 'CPA-compatible format',
+        codex: 'Official Codex format',
+        claudeCode: 'Official Claude Code format',
+        sub2api: 'sub2api format',
+      },
+      importStatus: { skipped: 'Skipped', failed: 'Failed' },
+      importError: {
+        invalid_json: 'Unable to parse JSON. Check for incomplete content or duplicate fields.',
+        invalid_document: 'The export contains an invalid account structure.',
+        unsupported_format:
+          'Unrecognized format. Use one of the account export formats listed below.',
+        unsupported_version:
+          'Unsupported export version. Update the source application and export again.',
+        empty_document: 'The file contains no accounts.',
+        too_many_entries:
+          'Each import supports up to 1,000 accounts. Split the selection and try again.',
+        file_too_large:
+          'The total size per import cannot exceed 4 MiB. Split the selection and try again.',
+        credential_too_large: 'This account credential exceeds 64 KiB. Check the exported content.',
+        invalid_credential:
+          'Credential fields are invalid or validation failed. Export again or sign in.',
+        incomplete_credential: 'The credential is incomplete. Export again or sign in.',
+        unsupported_auth_mode:
+          'This authentication method is unsupported. Use subscription OAuth credentials.',
+        missing_refresh_token:
+          'Refresh credentials are missing. Export the complete account or sign in.',
+        unsupported_channel: 'This account channel is not supported.',
+        unsupported_client: 'This OAuth client is not compatible. Sign in here again.',
+        identity_conflict: 'Account identity fields conflict. Export again or sign in.',
+        channel_mismatch: 'This account belongs to another channel. Import it in that channel.',
+        duplicate_account: 'This account was already processed in this import.',
+        already_prepared: 'This account is already in the list awaiting connection.',
+        import_timeout:
+          'Processing timed out. Check ready accounts before retrying unfinished entries.',
+        reauthorization_required: 'Authorization has expired. Sign in again.',
+        authorization_unknown: 'Unable to confirm authorization status. Sign in again.',
+        upstream_unavailable:
+          'The upstream is temporarily unavailable. Check the proxy or try again later.',
+        import_failed: 'Unable to complete the import. Check your connection and try again.',
+      },
       importFailed: 'The OAuth JSON is invalid or unsupported',
       pollFailed: 'Authorization status is temporarily unavailable; still retrying',
       pollAbandoned:

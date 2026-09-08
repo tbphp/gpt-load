@@ -144,6 +144,7 @@ const connectionWorkspaceOpen = ref(false)
 const fullActionsOpen = ref(false)
 const fullActionTarget = ref<FullCredentialAction>()
 const connectionStages = ref<CredentialStage[]>([])
+const connectionImportState = ref({ busy: false, hasResults: false })
 const connectOperationKey = ref<string>()
 // 抽屉打开时列表区被遮住，连接失败的提示必须落在抽屉内部才看得见。
 const connectFeedback = ref('')
@@ -1070,25 +1071,31 @@ async function inspectConnectionStages(signature: string, stageIDs: string[]): P
   }
 }
 
-// 授权就绪即写入，省掉一次多余的确认点击。同时发起多个授权时等全部落定
-// 再一次性写入，避免第一个完成就把抽屉关掉。写入前先标出将跳过的重复账号；
-// 有失败的暂存时不自动写入，让用户先处理那一条。
+// 浏览器授权沿用全部就绪后自动连接；文件导入先显示完整结果，等待用户点击连接。
+// 导入期间不检查或写入中间结果，完成后仍提前标出重复账号。
 watch(
-  connectionStages,
-  (stages) => {
-    if (!connectionWorkspaceOpen.value || connectBusy.value || stages.length === 0) return
-    const signature = readyConnectionSignature(stages)
+  [connectionStages, connectionImportState],
+  ([stages, importState]) => {
+    if (
+      !connectionWorkspaceOpen.value ||
+      connectBusy.value ||
+      importState.busy ||
+      stages.length === 0
+    )
+      return
+    const inspectable = importState.hasResults ? readyConnectionStages.value : stages
+    const signature = readyConnectionSignature(inspectable)
     if (!signature) return
     if (inspectedConnectionSignature.value !== signature) {
       if (inspectingConnectionSignature.value !== signature) {
         void inspectConnectionStages(
           signature,
-          stages.map(({ stage_id }) => stage_id),
+          inspectable.map(({ stage_id }) => stage_id),
         )
       }
       return
     }
-    if (autoWrittenSignatures.has(signature)) return
+    if (importState.hasResults || autoWrittenSignatures.has(signature)) return
     autoWrittenSignatures.add(signature)
     void saveConnectedAccounts()
   },
@@ -1099,6 +1106,7 @@ watch(
 function openConnectionWorkspace(): void {
   resetConnectionInspection()
   connectionStages.value = []
+  connectionImportState.value = { busy: false, hasResults: false }
   connectOperationKey.value = undefined
   connectFeedback.value = ''
   autoWrittenSignatures.clear()
@@ -1111,6 +1119,7 @@ function setConnectionWorkspace(open: boolean): void {
   if (!open) {
     resetConnectionInspection()
     connectionStages.value = []
+    connectionImportState.value = { busy: false, hasResults: false }
     connectOperationKey.value = undefined
     connectFeedback.value = ''
     autoWrittenSignatures.clear()
@@ -1118,6 +1127,7 @@ function setConnectionWorkspace(open: boolean): void {
 }
 
 async function saveConnectedAccounts(): Promise<void> {
+  if (connectionImportState.value.busy) return
   const now = Date.now()
   const ready = connectionStages.value.filter(
     ({ status, expires_at_ms }) => status === 'ready' && expires_at_ms > now,
@@ -1538,6 +1548,7 @@ async function runBatch(
           {{ connectFeedback }}
         </InlineFeedback>
         <SubscriptionCredentialStager
+          v-if="connectionWorkspaceOpen"
           v-model="connectionStages"
           :channel-id="channelId"
           :channel-name="channelName"
@@ -1548,6 +1559,7 @@ async function runBatch(
           hide-header
           context="connect"
           :disabled="connectBusy"
+          @import-state="connectionImportState = $event"
         />
       </div>
       <template #footer>
@@ -1562,7 +1574,11 @@ async function runBatch(
         <AppButton
           size="compact"
           :busy="connectBusy || connectionInspectionPending"
-          :disabled="readyConnectionStages.length === 0 || connectionInspectionPending"
+          :disabled="
+            readyConnectionStages.length === 0 ||
+            connectionInspectionPending ||
+            connectionImportState.busy
+          "
           @click="saveConnectedAccounts"
         >
           {{

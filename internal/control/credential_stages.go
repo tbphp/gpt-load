@@ -188,6 +188,11 @@ func (s *Service) ImportCredentialStage(
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
+	normalized, err := normalizedSingleCredentialImport(channelID, raw, driver)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	defer clear(normalized)
 	var proxyConfig *outboundproxy.Config
 	if len(proxyConfigs) > 0 {
 		proxyConfig = proxyConfigs[0]
@@ -196,7 +201,7 @@ func (s *Service) ImportCredentialStage(
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
-	return s.importCredentialStageWithNetwork(ctx, channelID, raw, driver, network)
+	return s.importCredentialStageWithNetwork(ctx, channelID, normalized, driver, network)
 }
 
 func (s *Service) ImportGroupCredentialStage(
@@ -209,11 +214,16 @@ func (s *Service) ImportGroupCredentialStage(
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
+	normalized, err := normalizedSingleCredentialImport(channelID, raw, driver)
+	if err != nil {
+		return CredentialStageResult{}, err
+	}
+	defer clear(normalized)
 	network, err := s.groupCredentialStageNetworkContext(ctx, groupID, channelID)
 	if err != nil {
 		return CredentialStageResult{}, err
 	}
-	return s.importCredentialStageWithNetwork(ctx, channelID, raw, driver, network)
+	return s.importCredentialStageWithNetwork(ctx, channelID, normalized, driver, network)
 }
 
 func (s *Service) credentialStageImportDriver(
@@ -249,7 +259,7 @@ func (s *Service) importCredentialStageWithNetwork(
 	defer cancelImport()
 	credential, err := s.subscriptions.ImportCredential(importContext, channelID, raw)
 	if err != nil {
-		return CredentialStageResult{}, credentialImportAPIError(err)
+		return CredentialStageResult{}, classifyCredentialImportError(driver, err)
 	}
 	credential, err = s.prepareTransientSubscriptionCredential(ctx, channelID, driver, credential)
 	if err != nil {

@@ -43,6 +43,23 @@ export interface CredentialStage {
   duplicate?: boolean
 }
 
+export type CredentialImportFormat = 'cpa' | 'codex' | 'claude-code' | 'sub2api'
+
+export interface CredentialImportItem {
+  index: number
+  file_index: number
+  import_id?: string
+  format?: CredentialImportFormat
+  channel_id?: string
+  status: 'ready' | 'skipped' | 'failed'
+  stage?: CredentialStage
+  error_code?: string
+}
+
+export interface CredentialImportBatchResult {
+  items: CredentialImportItem[]
+}
+
 export interface CredentialConnectInspection {
   duplicated_stage_ids: string[]
 }
@@ -148,6 +165,60 @@ export function projectCredentialStage(value: unknown): CredentialStage {
   }
 }
 
+function projectCredentialImportBatch(
+  value: unknown,
+  fileCount: number,
+): CredentialImportBatchResult {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['items'])
+  const items = projectArray(record.items, (value): CredentialImportItem => {
+    const item = projectRecord(value)
+    assertNoSecretLikeFields(item, [
+      'index',
+      'file_index',
+      'import_id',
+      'format',
+      'channel_id',
+      'status',
+      'stage',
+      'error_code',
+    ])
+    const status = projectEnum(item.status, ['ready', 'skipped', 'failed'] as const)
+    const stage = item.stage === undefined ? undefined : projectCredentialStage(item.stage)
+    const errorCode =
+      item.error_code === undefined ? undefined : projectInternalErrorCode(item.error_code)
+    const importID = item.import_id === undefined ? undefined : projectString(item.import_id)
+    if (importID !== undefined && !/^[a-f0-9]{64}$/u.test(importID)) invalidResponse()
+    if (
+      (status === 'ready' && (stage?.status !== 'ready' || errorCode !== undefined)) ||
+      (status !== 'ready' && (stage !== undefined || errorCode === undefined))
+    ) {
+      invalidResponse()
+    }
+    return {
+      index: projectSafeInteger(item.index, { minimum: 1 }),
+      file_index: projectSafeInteger(item.file_index, { minimum: 1, maximum: fileCount }),
+      status,
+      ...(importID === undefined ? {} : { import_id: importID }),
+      ...(item.format === undefined
+        ? {}
+        : {
+            format: projectEnum(item.format, ['cpa', 'codex', 'claude-code', 'sub2api'] as const),
+          }),
+      ...(item.channel_id === undefined ? {} : { channel_id: projectString(item.channel_id) }),
+      ...(stage === undefined ? {} : { stage }),
+      ...(errorCode === undefined ? {} : { error_code: errorCode }),
+    }
+  })
+  if (
+    items.length === 0 ||
+    new Set(items.map(({ file_index, index }) => `${file_index}:${index}`)).size !== items.length
+  ) {
+    invalidResponse()
+  }
+  return { items }
+}
+
 function projectConnectResult(value: unknown): CredentialConnectResult {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, ['group_id', 'credentials_added', 'credentials_duplicated'])
@@ -225,6 +296,28 @@ export async function importCredentialStage(
   body.set('file', file, file.name)
   return projectCredentialStage(
     await client.request('/api/credential-stages/import', { method: 'POST', body, signal }),
+  )
+}
+
+export async function importCredentialBatch(
+  client: ApiClient,
+  channelID: string,
+  files: File[],
+  network?: CredentialStageNetworkInput,
+  preparedImportIDs: string[] = [],
+  signal?: AbortSignal,
+): Promise<CredentialImportBatchResult> {
+  const body = new FormData()
+  body.set('channel_id', channelID)
+  if (network?.proxy !== undefined) body.set('proxy', JSON.stringify(network.proxy))
+  if (network?.group_id !== undefined) body.set('group_id', String(network.group_id))
+  for (const file of files) body.append('file', file, file.name)
+  if (preparedImportIDs.length > 0) {
+    body.set('prepared_import_ids', JSON.stringify(preparedImportIDs))
+  }
+  return projectCredentialImportBatch(
+    await client.request('/api/credential-stages/import-batch', { method: 'POST', body, signal }),
+    files.length,
   )
 }
 

@@ -172,6 +172,7 @@ const conflict = ref<SameTargetConflictData | null>(
 )
 const serverModelConflicts = ref<ModelNameConflict[]>([])
 const completed = ref(false)
+const subscriptionImportState = ref({ busy: false, hasResults: false })
 if (createOperation.outcome.value?.kind === 'confirmed') createOperation.reset()
 if (appendOperation.outcome.value?.kind === 'confirmed') appendOperation.reset()
 if (connectOperation.outcome.value?.kind === 'confirmed') connectOperation.reset()
@@ -354,6 +355,7 @@ const submissionErrorMessage = computed(
 )
 const submitBlockedReason = computed(() => {
   if (payloadLocked.value || mutationPending.value) return ''
+  if (subscriptionImportState.value.busy) return t('import.subscription.importing')
   if (!isValidPriceMultiplier(draft.price_multiplier)) return t('common.priceMultiplier.invalid')
   if (paramsError.value) {
     if (selectedChannel.value === null) return t('import.presets.channelRequired')
@@ -375,6 +377,7 @@ const canDiscover = computed(
   () =>
     selectedChannel.value?.capabilities.model_discovery === true &&
     !payloadLocked.value &&
+    !subscriptionImportState.value.busy &&
     !paramsError.value &&
     credentialCount.value > 0 &&
     (draft.connection_type === 'subscription' || !credentialAnalysis.value.tooManyCredentials),
@@ -383,6 +386,7 @@ const canCreate = computed(
   () =>
     !payloadLocked.value &&
     !mutationPending.value &&
+    !subscriptionImportState.value.busy &&
     isValidPriceMultiplier(draft.price_multiplier) &&
     !paramsError.value &&
     credentialCount.value > 0 &&
@@ -474,6 +478,7 @@ const credentialStepDescription = computed(() => {
   )
 })
 const credentialStepSummary = computed(() => {
+  if (subscriptionImportState.value.busy) return t('import.subscription.importing')
   if (!isSubscription.value && credentialAnalysis.value.tooManyCredentials) {
     return t('import.credentials.tooMany')
   }
@@ -1310,6 +1315,7 @@ onBeforeUnmount(() => {
             :entry-disabled="draftProxyMutation === undefined"
             hide-header
             compact
+            @import-state="subscriptionImportState = $event"
           />
           <CredentialTextarea
             v-else

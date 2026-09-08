@@ -5,18 +5,21 @@ import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
 import type { ProxyConfigInput } from '@/api/control/types'
-import { useToast } from '@/app/toast'
+import { ApiError } from '@/api/errors'
 import {
   beginCredentialAuthorization,
   cancelCredentialStage,
   completeCredentialAuthorization,
   getCredentialStage,
-  importCredentialStage,
+  importCredentialBatch,
   pollCredentialDeviceAuthorization,
   type CredentialStageNetworkInput,
   type CredentialStage,
+  type CredentialImportFormat,
+  type CredentialImportItem,
 } from '@/app/resources/credential-stages'
 import type { ChannelAuthorizationMethod, ChannelNoticeDto } from '@/app/resources/channels'
+import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
@@ -28,6 +31,50 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
 
 const OAUTH_JSON_PLACEHOLDER = '{"access_token":"...","refresh_token":"..."}'
+
+const importFormats: Record<CredentialImportFormat, { icon: string; mark: string; label: string }> =
+  {
+    cpa: { icon: 'cpa', mark: 'C', label: 'import.subscription.importFormat.cpa' },
+    codex: { icon: 'codex', mark: 'C', label: 'import.subscription.importFormat.codex' },
+    'claude-code': {
+      icon: 'claude',
+      mark: 'C',
+      label: 'import.subscription.importFormat.claudeCode',
+    },
+    sub2api: { icon: 'sub2api', mark: 'S', label: 'import.subscription.importFormat.sub2api' },
+  }
+const knownImportErrors = new Set([
+  'invalid_json',
+  'invalid_document',
+  'unsupported_format',
+  'unsupported_version',
+  'empty_document',
+  'too_many_entries',
+  'file_too_large',
+  'credential_too_large',
+  'invalid_credential',
+  'incomplete_credential',
+  'unsupported_auth_mode',
+  'missing_refresh_token',
+  'unsupported_channel',
+  'unsupported_client',
+  'identity_conflict',
+  'channel_mismatch',
+  'duplicate_account',
+  'already_prepared',
+  'import_timeout',
+  'reauthorization_required',
+  'authorization_unknown',
+  'upstream_unavailable',
+  'import_failed',
+])
+
+interface ImportReport {
+  id: number
+  fileName?: string
+  items: CredentialImportItem[]
+  errorKey?: string
+}
 
 const props = withDefaults(
   defineProps<{
@@ -62,9 +109,11 @@ const props = withDefaults(
     context: 'create',
   },
 )
-const emit = defineEmits<{ 'update:modelValue': [stages: CredentialStage[]] }>()
+const emit = defineEmits<{
+  'update:modelValue': [stages: CredentialStage[]]
+  'import-state': [state: { busy: boolean; hasResults: boolean }]
+}>()
 const client = useApiClient()
-const toast = useToast()
 const { locale, n, t } = useI18n()
 const busyAction = ref<'authorize' | 'import' | `callback:${string}` | ''>('')
 const feedbackKey = ref('')
@@ -74,6 +123,14 @@ const callbackErrorKeys = ref<Record<string, string>>({})
 // 弹窗被拦截时授权已经开始，唯一出路是手动打开链接，这里额外提示一句。
 const popupBlockedStages = ref<Record<string, boolean>>({})
 const jsonImportOpen = ref(false)
+const importReports = ref<ImportReport[]>([])
+let nextImportReportID = 0
+let importController: AbortController | undefined
+watch(
+  [() => busyAction.value === 'import', () => importReports.value.length > 0],
+  ([busy, hasResults]) => emit('import-state', { busy, hasResults }),
+  { immediate: true, flush: 'sync' },
+)
 const nowMS = ref(Date.now())
 const polling = new Map<
   string,
@@ -99,6 +156,47 @@ const supportsInteractiveOAuth = computed(
 )
 const hasEntryMethod = computed(() => supportsInteractiveOAuth.value || supportsOAuthFile.value)
 const channelLabel = computed(() => props.channelName.trim() || props.channelId)
+const supportedFormats = computed(() => {
+  const formats: CredentialImportFormat[] = ['cpa', 'sub2api']
+  if (props.channelId === 'codex') formats.splice(1, 0, 'codex')
+  if (props.channelId === 'claude') formats.splice(1, 0, 'claude-code')
+  return formats.map((format) => t(importFormats[format].label)).join(' · ')
+})
+
+function reportFormats(report: ImportReport): CredentialImportFormat[] {
+  return [...new Set(report.items.flatMap(({ format }) => (format ? [format] : [])))]
+}
+
+function reportSummary(report: ImportReport): string {
+  return t('import.subscription.importSummary', {
+    ready: n(report.items.filter(({ status }) => status === 'ready').length),
+    skipped: n(report.items.filter(({ status }) => status === 'skipped').length),
+    failed: n(report.items.filter(({ status }) => status === 'failed').length),
+  })
+}
+
+function importErrorKey(code?: string): string {
+  return code && knownImportErrors.has(code)
+    ? `import.subscription.importError.${code}`
+    : 'import.subscription.importFailed'
+}
+
+function importFailureKey(cause: unknown): string {
+  if (cause instanceof ApiError && cause.code === 'OAUTH_FILE_INVALID') {
+    const data = cause.data
+    if (data !== null && typeof data === 'object' && 'import_error' in data) {
+      if (typeof data.import_error === 'string') return importErrorKey(data.import_error)
+    }
+  }
+  return presentSubscriptionErrorKey(cause, 'import.subscription.importError.import_failed')
+}
+
+watch([() => props.channelId, () => props.groupId], () => {
+  importController?.abort()
+  importReports.value = []
+  oauthJSON.value = ''
+  jsonImportOpen.value = false
+})
 
 function replaceStage(stage: CredentialStage): void {
   const existing = props.modelValue.find((item) => item.stage_id === stage.stage_id)
@@ -312,61 +410,88 @@ async function importFile(event: Event): Promise<void> {
   ) {
     return
   }
-  feedbackKey.value = ''
-  busyAction.value = 'import'
-  const imported: CredentialStage[] = []
-  let failed = 0
-  try {
-    for (const file of files) {
-      try {
-        imported.push(
-          await importCredentialStage(client, props.channelId, file, stageNetwork.value),
-        )
-      } catch {
-        failed += 1
-      }
-    }
-    if (imported.length > 0) {
-      const knownStageIDs = new Set(props.modelValue.map(({ stage_id }) => stage_id))
-      emit('update:modelValue', [
-        ...props.modelValue,
-        ...imported.filter(({ stage_id }) => !knownStageIDs.has(stage_id)),
-      ])
-      oauthJSON.value = ''
-      jsonImportOpen.value = false
-    }
-    toast.show({
-      message: t('import.subscription.importResult', {
-        succeeded: n(imported.length),
-        failed: n(failed),
-      }),
-      tone: failed === 0 ? 'success' : imported.length === 0 ? 'danger' : 'warning',
-      duration: 4_000,
-    })
-  } finally {
-    busyAction.value = ''
-  }
+  await importFiles(files)
 }
 
 async function importText(): Promise<void> {
   const value = oauthJSON.value.trim()
   if (!value) return
-  await importOAuthJSON(
-    new File([value], `${props.channelId}-credential.json`, { type: 'application/json' }),
+  await importFiles(
+    [new File([value], `${props.channelId}-credential.json`, { type: 'application/json' })],
+    true,
   )
 }
 
-async function importOAuthJSON(file: File): Promise<void> {
+async function importFiles(files: File[], pasted = false): Promise<void> {
   if (!supportsOAuthFile.value || props.disabled || props.entryDisabled || busyAction.value) return
   feedbackKey.value = ''
   busyAction.value = 'import'
+  const controller = new AbortController()
+  importController = controller
+  const channelID = props.channelId
+  const network = stageNetwork.value
+  const reports: ImportReport[] = files.map((file) => ({
+    id: ++nextImportReportID,
+    ...(pasted ? {} : { fileName: file.name }),
+    items: [],
+  }))
+  const activeStageIDs = new Set(props.modelValue.map(({ stage_id }) => stage_id))
+  const preparedImportIDs = [
+    ...new Set(
+      importReports.value.flatMap(({ items }) =>
+        items.flatMap((item) =>
+          item.status === 'ready' &&
+          item.import_id &&
+          item.stage &&
+          activeStageIDs.has(item.stage.stage_id)
+            ? [item.import_id]
+            : [],
+        ),
+      ),
+    ),
+  ]
   try {
-    replaceStage(await importCredentialStage(client, props.channelId, file, stageNetwork.value))
-    oauthJSON.value = ''
-    jsonImportOpen.value = false
+    const result = await importCredentialBatch(
+      client,
+      channelID,
+      files,
+      network,
+      preparedImportIDs,
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+    for (const [fileIndex, report] of reports.entries()) {
+      report.items = result.items.filter(({ file_index }) => file_index === fileIndex + 1)
+      if (report.items.length === 0)
+        report.errorKey = 'import.subscription.importError.import_failed'
+    }
+    importReports.value = [...importReports.value, ...reports]
+    const stages = result.items.flatMap(({ stage }) => (stage ? [stage] : []))
+    const knownStageIDs = new Set(props.modelValue.map(({ stage_id }) => stage_id))
+    if (stages.length > 0) {
+      emit('update:modelValue', [
+        ...props.modelValue,
+        ...stages.filter(({ stage_id }) => !knownStageIDs.has(stage_id)),
+      ])
+      await nextTick()
+    }
+    if (
+      pasted &&
+      result.items.every(({ status }) => status === 'ready') &&
+      !controller.signal.aborted
+    ) {
+      oauthJSON.value = ''
+      jsonImportOpen.value = false
+    }
   } catch (cause) {
-    feedbackKey.value = presentSubscriptionErrorKey(cause, 'import.subscription.importFailed')
+    if (controller.signal.aborted) return
+    const errorKey = importFailureKey(cause)
+    importReports.value = [
+      ...importReports.value,
+      ...reports.map((report) => ({ ...report, errorKey })),
+    ]
   } finally {
+    importController = undefined
     busyAction.value = ''
   }
 }
@@ -498,6 +623,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  importController?.abort()
+  emit('import-state', { busy: false, hasResults: false })
   for (const stageID of [...polling.keys()]) stopPolling(stageID)
   for (const stageID of [...expiryTimers.keys()]) stopExpiryTimer(stageID)
   if (countdownTimer !== undefined) window.clearInterval(countdownTimer)
@@ -538,6 +665,52 @@ onBeforeUnmount(() => {
         {{ t(`import.subscription.channelNotice.${notice.id}`) }}
       </InlineFeedback>
     </template>
+
+    <div v-if="importReports.length" class="subscription-stager__imports" aria-live="polite">
+      <article
+        v-for="report in importReports"
+        :key="report.id"
+        class="subscription-stager__import-report"
+      >
+        <div class="subscription-stager__import-heading">
+          <strong>{{ report.fileName ?? t('import.subscription.pastedContent') }}</strong>
+          <span
+            v-for="format in reportFormats(report)"
+            :key="format"
+            class="subscription-stager__format"
+            :aria-label="
+              t('import.subscription.detectedFormat', { format: t(importFormats[format].label) })
+            "
+          >
+            <ChannelIcon :icon="importFormats[format].icon" :mark="importFormats[format].mark" />
+            {{ t(importFormats[format].label) }}
+          </span>
+        </div>
+        <p v-if="report.errorKey" class="subscription-stager__import-error">
+          {{ t(report.errorKey) }}
+        </p>
+        <template v-else>
+          <p class="subscription-stager__import-summary">{{ reportSummary(report) }}</p>
+          <ul
+            v-if="report.items.some(({ status }) => status !== 'ready')"
+            class="subscription-stager__import-issues"
+          >
+            <li
+              v-for="item in report.items.filter(({ status }) => status !== 'ready')"
+              :key="item.index"
+            >
+              <StatusBadge :tone="item.status === 'skipped' ? 'neutral' : 'danger'" size="compact">
+                {{ t(`import.subscription.importStatus.${item.status}`) }}
+              </StatusBadge>
+              <span>
+                {{ t('import.subscription.importEntry', { index: n(item.index) }) }} ·
+                {{ t(importErrorKey(item.error_code)) }}
+              </span>
+            </li>
+          </ul>
+        </template>
+      </article>
+    </div>
 
     <div v-if="hasAccounts" class="subscription-stager__accounts">
       <article
@@ -798,6 +971,10 @@ onBeforeUnmount(() => {
         </label>
       </div>
 
+      <p v-if="supportsOAuthFile" class="subscription-stager__import-help">
+        {{ t('import.subscription.supportedFormats', { formats: supportedFormats }) }}
+      </p>
+
       <DisclosurePanel
         v-if="supportsOAuthFile"
         :summary="t('import.subscription.pasteJSON')"
@@ -886,6 +1063,69 @@ onBeforeUnmount(() => {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
+}
+.subscription-stager__imports {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.subscription-stager__import-report {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding-bottom: var(--space-3);
+}
+.subscription-stager__import-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.subscription-stager__import-heading strong {
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+.subscription-stager__format {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  padding: 3px 6px;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+}
+.subscription-stager__format :deep(.channel-icon) {
+  width: 15px;
+  height: 15px;
+}
+.subscription-stager__import-summary,
+.subscription-stager__import-help,
+.subscription-stager__import-error {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  line-height: 1.6;
+}
+.subscription-stager__import-error {
+  color: var(--color-danger);
+}
+.subscription-stager__import-issues {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.subscription-stager__import-issues li {
+  display: flex;
+  align-items: start;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  line-height: 1.6;
 }
 .subscription-stager__account {
   display: grid;
