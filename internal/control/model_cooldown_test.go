@@ -103,6 +103,54 @@ func TestModelCooldownCollectionAndHealthKeepIndependentAccountStatus(t *testing
 	}
 }
 
+func TestRuntimeHealthKeepsModelCooldownIdentityWhenGroupIsDisabled(t *testing.T) {
+	for _, connectionType := range []string{"api_key", "subscription"} {
+		t.Run(connectionType, func(t *testing.T) {
+			var fixture serviceFixture
+			var groupID, credentialID uint
+			if connectionType == "subscription" {
+				fixture, groupID, credentialID = newSubscriptionCredentialFixture(t)
+			} else {
+				fixture = newServiceFixture(t)
+				groupID = createGroupWithCredentials(t, fixture, "disabled-group-model-secret")
+				credentialID = batchRestoreRows(t, fixture, groupID)[0].ID
+			}
+			now := time.Now()
+			fixture.service.now = func() time.Time { return now }
+			ref, _ := fixture.registry.CredentialRef(credentialID)
+			if accepted, _ := fixture.registry.SetModelCooldown(ref, "gpt-test", now.Add(time.Hour), now); !accepted {
+				t.Fatal("model cooldown was rejected")
+			}
+			before, err := fixture.service.RuntimeHealth()
+			if err != nil || len(before.ModelCooldownCredentials) != 1 {
+				t.Fatalf("initial health = %#v, %v", before, err)
+			}
+			for _, enabled := range []bool{false, true} {
+				if _, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
+					Enabled: optionalField[bool]{Set: true, Value: enabled},
+				}); err != nil {
+					t.Fatal(err)
+				}
+				got, err := fixture.service.RuntimeHealth()
+				if err != nil {
+					t.Fatalf("health with group enabled=%t: %v", enabled, err)
+				}
+				if got.Counts.ModelCooldown != 1 || len(got.ModelCooldownCredentials) != 1 {
+					t.Fatalf("model cooldown disappeared after group enabled=%t: %#v", enabled, got)
+				}
+				detail := got.ModelCooldownCredentials[0]
+				if detail.CredentialID != credentialID || detail.GroupID != groupID ||
+					detail.Identity != before.ModelCooldownCredentials[0].Identity || len(detail.ModelCooldowns) != 1 {
+					t.Fatalf("model cooldown identity changed: %#v", detail)
+				}
+				if len(got.Groups) != 1 || got.Groups[0].Enabled != enabled || (got.Counts.Credentials > 0) != enabled {
+					t.Fatalf("group health changed: %#v", got)
+				}
+			}
+		})
+	}
+}
+
 func TestRestoreModelCooldownPreservesSubscriptionAuthorization(t *testing.T) {
 	for _, authState := range []models.CredentialAuthState{models.CredentialAuthStateRefreshing, models.CredentialAuthStateReauthorizationRequired, models.CredentialAuthStateOutcomeUnknown} {
 		t.Run(string(authState), func(t *testing.T) {

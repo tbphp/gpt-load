@@ -308,8 +308,8 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			result.Counts.ModelCooldown++
 			result.Groups[index].Counts.ModelCooldown++
 			if len(result.ModelCooldownCredentials) < healthProblemCredentialDetailLimit {
-				groupView := observation.snapshot.Groups[key.GroupID]
-				identity, err := service.healthProblemCredentialIdentity(observation.problemCiphertexts, key.ID, groupView.ChannelID, groupView.ConnectionType)
+				// 停用分组仍保留模型冷却，身份展示使用完整分组目录。
+				identity, err := service.healthProblemCredentialIdentity(observation.problemCiphertexts, key.ID, group.ChannelID, group.ConnectionType)
 				if err != nil {
 					return runtimeHealthResponse{}, err
 				}
