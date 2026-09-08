@@ -69,6 +69,13 @@ const upstreamUrlSource = computed(() =>
           <span>{{ channelName }}</span>
         </span>
         <span v-for="url in upstreamUrls" :key="url" class="group-header__upstream">
+          <CopyChip
+            :value="url"
+            :label="t('group.copyUpstreamUrl', { url })"
+            :success-label="t('group.copySuccess')"
+            :failure-label="t('group.copyFailure')"
+            layout="trailing"
+          />
           <AppTooltip :content="upstreamUrlSource">
             <span
               class="group-header__url-source"
@@ -80,12 +87,6 @@ const upstreamUrlSource = computed(() =>
               <Globe v-else :size="14" aria-hidden="true" />
             </span>
           </AppTooltip>
-          <CopyChip
-            :value="url"
-            :label="t('group.copyUpstreamUrl', { url })"
-            :success-label="t('group.copySuccess')"
-            :failure-label="t('group.copyFailure')"
-          />
         </span>
       </div>
     </div>

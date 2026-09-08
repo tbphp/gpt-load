@@ -193,8 +193,11 @@ const paramErrors = computed<Record<string, string>>(() => {
   const result: Record<string, string> = {}
   for (const field of channelParamFields.value) {
     const value = draft.value?.params[field.key]?.trim() ?? ''
-    if (field.required && !value) {
-      result[field.key] = t('group.settings.base.paramRequired', { field: field.label })
+    const overrideRequired = field.key === 'base_url' && draft.value?.params.base_url !== undefined
+    if ((field.required || overrideRequired) && !value) {
+      result[field.key] = t('group.settings.base.paramRequired', {
+        field: field.key === 'base_url' ? t('common.upstreamUrl.label') : field.label,
+      })
     } else if (field.input_kind === 'url' && value) {
       const subscriptionBaseURL =
         draft.value?.connection_type === 'subscription' && field.key === 'base_url'
@@ -202,11 +205,9 @@ const paramErrors = computed<Record<string, string>>(() => {
         ? isValidSubscriptionBaseURL(value)
         : isValidUpstreamBaseURL(value)
       if (!valid) {
-        result[field.key] = t(
-          subscriptionBaseURL
-            ? 'common.subscriptionApi.invalid'
-            : 'group.settings.base.upstreamUrlError',
-        )
+        result[field.key] = t('common.upstreamUrl.invalid', {
+          protocol: subscriptionBaseURL ? 'HTTPS' : 'HTTP(S)',
+        })
       }
     }
   }

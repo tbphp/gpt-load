@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue'
+import { computed, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { ChannelParamsDto, ConnectionType, GroupModelItemDto } from '@/api/control/types'
@@ -48,47 +48,35 @@ const weightValid = computed(
     props.weightManual === null ||
     (Number.isInteger(props.weightManual) && props.weightManual >= 1 && props.weightManual <= 100),
 )
-const baseUrlOverrideEnabled = ref(false)
-
-watch(
-  () => props.channelId,
-  () => {
-    baseUrlOverrideEnabled.value = Boolean(props.params.base_url?.trim())
-  },
-  { immediate: true },
+const baseUrlOverrideEnabled = computed(() => props.params.base_url !== undefined)
+const defaultBaseUrls = computed(() =>
+  props.defaultBaseUrls.length
+    ? props.defaultBaseUrls
+    : props.defaultBaseUrl
+      ? [props.defaultBaseUrl]
+      : [],
 )
-
-watch(
-  () => props.params.base_url,
-  (value) => {
-    if (value?.trim()) baseUrlOverrideEnabled.value = true
-  },
+const defaultBaseURLDescription = computed(() =>
+  defaultBaseUrls.value.length
+    ? t('common.upstreamUrl.defaults', { urls: defaultBaseUrls.value.join(', ') })
+    : t('common.upstreamUrl.default'),
 )
 
 function isOptionalBaseURL(field: ChannelFieldDto): boolean {
-  return !isSubscription.value && field.key === 'base_url' && !field.required
+  return field.key === 'base_url' && !field.required
 }
 
 function setBaseURLOverride(enabled: boolean): void {
-  baseUrlOverrideEnabled.value = enabled
-  if (!enabled) emit('update:param', 'base_url', null)
+  emit('update:param', 'base_url', enabled ? (props.params.base_url ?? '') : null)
 }
 
 function updateParam(field: ChannelFieldDto, value: string): void {
-  if (field.key === 'base_url' && !field.required && !value.trim()) {
-    baseUrlOverrideEnabled.value = false
-    emit('update:param', field.key, null)
-    return
-  }
   emit('update:param', field.key, value)
 }
 
 function parameterHelp(field: ChannelFieldDto): string {
   if (field.key === 'base_url' && isSubscription.value) {
-    const defaults = props.defaultBaseUrls.length
-      ? t('common.subscriptionApi.defaults', { urls: props.defaultBaseUrls.join(', ') })
-      : t('common.subscriptionApi.default')
-    return `${defaults} ${t('common.subscriptionApi.help')}`
+    return t('common.upstreamUrl.subscriptionHelp')
   }
   if (field.key === 'base_url' && props.channelId === 'gpt_load') {
     return t('group.settings.base.gptLoadUrlDescription')
@@ -107,15 +95,12 @@ function parameterHelp(field: ChannelFieldDto): string {
 
 function parameterLabel(field: ChannelFieldDto): string {
   if (field.key !== 'base_url') return field.label
-  return isSubscription.value
-    ? t('common.subscriptionApi.label')
-    : t('group.settings.base.upstreamUrl')
+  return t('common.upstreamUrl.label')
 }
 
 function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
-  return field.key === 'base_url' && isSubscription.value
-    ? props.defaultBaseUrl || props.defaultBaseUrls[0] || undefined
-    : undefined
+  if (field.input_kind !== 'url') return undefined
+  return field.key === 'base_url' ? defaultBaseUrls.value[0] || 'https://' : 'https://'
 }
 </script>
 
@@ -174,13 +159,13 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
       </label>
       <template v-for="field in paramFields" :key="field.key">
         <div v-if="isOptionalBaseURL(field)" class="group-settings__field group-settings__wide">
-          <span>{{ t('group.settings.base.customUrl') }}</span>
+          <span>{{ t('common.upstreamUrl.label') }}</span>
           <div class="group-settings__base-url-switch">
-            <small>{{ t('group.settings.base.customUrlHelp') }}</small>
+            <small>{{ defaultBaseURLDescription }}</small>
             <AppSwitch
               :model-value="baseUrlOverrideEnabled"
               :disabled="pending || paramsDisabled"
-              :label="t('group.settings.base.customUrl')"
+              :label="t('common.upstreamUrl.label')"
               @update:model-value="setBaseURLOverride"
             />
           </div>

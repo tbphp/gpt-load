@@ -298,12 +298,11 @@ const allParamErrors = computed<Record<string, string>>(() => {
   if (!channel) return errors
   for (const field of channel.param_fields) {
     const value = draft.params[field.key]?.trim() ?? ''
-    const overrideRequired =
-      channel.connection.type !== 'subscription' &&
-      field.key === 'base_url' &&
-      baseUrlOverrideEnabled.value
+    const overrideRequired = field.key === 'base_url' && baseUrlOverrideEnabled.value
     if ((field.required || overrideRequired) && !value) {
-      errors[field.key] = t('import.connection.paramRequired', { name: field.label })
+      errors[field.key] = t('import.connection.paramRequired', {
+        name: field.key === 'base_url' ? t('common.upstreamUrl.label') : field.label,
+      })
       continue
     }
     if (field.input_kind === 'url' && value) {
@@ -313,9 +312,9 @@ const allParamErrors = computed<Record<string, string>>(() => {
         ? isValidSubscriptionBaseURL(value)
         : isValidUpstreamBaseURL(value)
       if (!valid) {
-        errors[field.key] = t(
-          subscriptionBaseURL ? 'common.subscriptionApi.invalid' : 'import.connection.urlError',
-        )
+        errors[field.key] = t('common.upstreamUrl.invalid', {
+          protocol: subscriptionBaseURL ? 'HTTPS' : 'HTTP(S)',
+        })
       }
     }
   }
@@ -728,7 +727,6 @@ watch(
 function initialChannelParams(channel: ChannelDto): Record<string, string> {
   return Object.fromEntries(
     channel.param_fields
-      .filter(({ key }) => channel.connection.type !== 'subscription' || key !== 'base_url')
       .filter(({ required, default_value: defaultValue }) => required || defaultValue !== null)
       .map(({ key, default_value: defaultValue }) => [key, defaultValue ?? '']),
   )
