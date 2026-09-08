@@ -60,9 +60,11 @@ auth_key="$(cat "${data_dir}/auth.key")"
 test -n "${auth_key}"
 grep -F "\"version\":\"${release_version}\"" "${data_dir}/health.json"
 curl -fsS "http://127.0.0.1:${port}/" | grep -F '<div id="app"></div>' >/dev/null
+usage_to_ms="$(python3 -c 'import time; print(time.time_ns() // 1_000_000)')"
+usage_from_ms=$((usage_to_ms - 86400000))
 curl -fsS \
   -H "Authorization: Bearer ${auth_key}" \
-  "http://127.0.0.1:${port}/api/usage?range=24h" >/dev/null
+  "http://127.0.0.1:${port}/api/usage?from_ms=${usage_from_ms}&to_ms=${usage_to_ms}" >/dev/null
 curl -fsS \
   -H "Authorization: Bearer ${auth_key}" \
   "http://127.0.0.1:${port}/api/model-prices" >/dev/null

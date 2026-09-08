@@ -202,7 +202,7 @@ func TestQueryUsageFiltersAndProjectsChannelCredential(t *testing.T) {
 	credentialID := uint(11)
 	report, err := newRequestLogTestService(db).QueryUsage(t.Context(), UsageQuery{
 		FromMS:       start.UnixMilli(),
-		ToMS:         start.Add(time.Hour).UnixMilli(),
+		ToMS:         start.Add(2 * time.Hour).UnixMilli(),
 		Granularity:  UsageGranularityHour,
 		ChannelID:    channel.OpenAI,
 		CredentialID: &credentialID,
@@ -237,7 +237,7 @@ func TestAccessScopedUsageDistributionCollapsesHiddenRoutesByModel(t *testing.T)
 	accessKeyID := uint(41)
 	report, err := newRequestLogTestService(db).QueryUsage(t.Context(), UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 		AccessKeyID: &accessKeyID,
 	})
@@ -267,7 +267,7 @@ func TestAccessScopedUsageReturnsOnlyModelDistributions(t *testing.T) {
 	accessKeyID := uint(41)
 	report, err := newRequestLogTestService(db).QueryUsage(t.Context(), UsageQuery{
 		FromMS:      start.UnixMilli(),
-		ToMS:        start.Add(time.Hour).UnixMilli(),
+		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 		AccessKeyID: &accessKeyID,
 	})

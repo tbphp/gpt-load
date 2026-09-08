@@ -29,6 +29,7 @@ const props = withDefaults(
     centerBuckets?: boolean
     locale?: string
     showBucketRange?: boolean
+    showBucketSeconds?: boolean
     showSinglePoint?: boolean
     failureRateLabel?: string
   }>(),
@@ -36,6 +37,7 @@ const props = withDefaults(
     locale: 'en-US',
     centerBuckets: false,
     showBucketRange: false,
+    showBucketSeconds: false,
     showSinglePoint: false,
     failureRateLabel: undefined,
   },
@@ -116,7 +118,12 @@ watch(seriesKey, () => {
 
 function formatBucketTime(datum: TrendDatum): string {
   return props.showBucketRange
-    ? formatLocalTimeRange(datum.bucket_start_ms, datum.bucket_end_ms, props.locale)
+    ? formatLocalTimeRange(
+        datum.bucket_start_ms,
+        datum.bucket_end_ms,
+        props.locale,
+        props.showBucketSeconds,
+      )
     : formatLocalInstant(datum.bucket_start_ms, props.locale)
 }
 

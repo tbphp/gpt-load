@@ -3,7 +3,6 @@ import type { LocationQueryRaw } from 'vue-router'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { UsageFilters } from '@/app/resources/usage'
 import type { RequestLogFilters } from '@/app/resources/request-logs'
-import { defaultTimeRange } from '@/lib/time'
 
 import { parseAppliedLogFilters, serializeAppliedLogFilters } from './log-filters'
 import {
@@ -11,6 +10,8 @@ import {
   normalizeUsageChannelID,
   normalizeUsageModel,
   parseAppliedUsageFilters,
+  defaultUsageFilters,
+  type AppliedUsageFilters,
 } from './usage-filters'
 import { normalizeMonitorText } from './filter-validation'
 
@@ -74,7 +75,7 @@ const accessKeyForbiddenLogFilters: readonly (keyof RequestLogFilters)[] = [
   'retry_count_max',
 ]
 
-export function scopeAccessKeyUsageFilters(filters: UsageFilters): UsageFilters {
+export function scopeAccessKeyUsageFilters<T extends UsageFilters>(filters: T): T {
   const scoped = { ...filters }
   delete scoped.group_id
   delete scoped.channel_id
@@ -111,7 +112,7 @@ export function healthMonitorQuery(state: HealthMonitorState): LocationQueryRaw 
 }
 
 export function usageMonitorQuery(
-  filters: UsageFilters = { range: defaultTimeRange },
+  filters: AppliedUsageFilters = defaultUsageFilters(),
   state: UsageMonitorState = {
     filtersOpen: false,
     seriesExpanded: false,
@@ -120,9 +121,11 @@ export function usageMonitorQuery(
 ): LocationQueryRaw {
   const normalized: LocationQueryRaw = {
     tab: 'usage',
-    range: filters.range,
+    from_ms: String(filters.from_ms),
+    to_ms: String(filters.to_ms),
     metric: state.metric,
   }
+  if (filters.preset) normalized.preset = filters.preset
   const groupID = normalizeUsageGroupID(filters.group_id)
   const channelID = normalizeUsageChannelID(filters.channel_id)
   const credentialID = normalizeUsageGroupID(filters.credential_id)

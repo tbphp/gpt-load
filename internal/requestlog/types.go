@@ -184,8 +184,9 @@ const (
 )
 
 type UsageQuery struct {
-	FromMS        int64
-	ToMS          int64
+	FromMS int64
+	ToMS   int64
+	// 供管理 API 描述时间桶；QueryUsage 始终从 FromMS/ToMS 推导，不接受覆盖。
 	Granularity   UsageGranularity
 	BucketWidthMS int64
 	AccessKeyID   *uint

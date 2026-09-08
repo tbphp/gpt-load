@@ -341,6 +341,7 @@ export default {
         hourly: 'Hourly',
         everyMinutes: 'Every {count} minutes',
         everyHours: 'Every {count} hours',
+        everyDays: 'Every {count} days',
         daily: 'Daily',
         failureRate: 'Failure rate',
         inputTokens: 'Input tokens',
@@ -603,6 +604,9 @@ export default {
         to: 'To',
         quickRanges: 'Quick time ranges',
         quick: {
+          today: 'Today',
+          yesterday: 'Yesterday',
+          '6h': '6h',
           '1h': '1h',
           '24h': '24h',
           '3d': '3d',

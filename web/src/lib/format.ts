@@ -50,17 +50,24 @@ export function formatLocalInstantWithSeconds(ms: number, timeZone = currentTime
   return date ? formatZonedDateTime(date, timeZone, true) : '—'
 }
 
-export function formatLocalTimeRange(startMs: number, endMs: number, locale: string): string {
+export function formatLocalTimeRange(
+  startMs: number,
+  endMs: number,
+  locale: string,
+  includeSeconds = false,
+): string {
   void locale
   const start = validDate(startMs)
   const end = validDate(endMs)
   if (!start || !end || end.getTime() <= start.getTime()) return '—'
   const timeZone = currentTimeZone()
-  return `${formatZonedDateTime(start, timeZone, false)} – ${formatZonedDateTime(
-    end,
-    timeZone,
-    false,
-  )}`
+  const format = (date: Date) => {
+    const value = formatZonedDateTime(date, timeZone, includeSeconds)
+    return includeSeconds && date.getMilliseconds()
+      ? `${value}.${String(date.getMilliseconds()).padStart(3, '0')}`
+      : value
+  }
+  return `${format(start)} – ${format(end)}`
 }
 
 export function formatDuration(startedAtMs: number, nowMs: number, locale: string): string {

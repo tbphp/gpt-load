@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { CalendarClock } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { currentTimeZone, timeRangeMilliseconds, timeRanges } from '@/lib/time'
+import {
+  currentTimeZone,
+  dateTimePresets,
+  localDateTimeInput,
+  resolveDateTimePreset,
+  type DateTimePreset,
+} from '@/lib/time'
 
 import AppButton from './AppButton.vue'
 import AppPopover from './AppPopover.vue'
@@ -13,23 +19,41 @@ import OverflowTooltip from './OverflowTooltip.vue'
 const props = defineProps<{
   from: string
   to: string
+  appliedFrom?: string
+  appliedTo?: string
   label: string
   fromLabel: string
   toLabel: string
   timezoneLabel: string
   fromError?: string
   toError?: string
+  preset?: DateTimePreset
+  rollingEndOffsetMs?: number
+  applyLabel?: string
+  applyDisabled?: boolean
 }>()
 const emit = defineEmits<{
   'update:from': [value: string]
   'update:to': [value: string]
+  'update:preset': [value: DateTimePreset | undefined]
+  shortcut: [preset: DateTimePreset, from: number, to: number]
+  apply: []
+  open: []
 }>()
 const { t } = useI18n()
 const open = ref(false)
 const timezone = currentTimeZone()
-const shortcuts = timeRanges.map((key) => ({ key, milliseconds: timeRangeMilliseconds[key] }))
+const fieldID = useId()
 
-const display = computed(() => `${displayValue(props.from)} → ${displayValue(props.to)}`)
+const display = computed(
+  () =>
+    `${displayValue(props.appliedFrom ?? props.from)} → ${displayValue(props.appliedTo ?? props.to)}`,
+)
+
+function changeOpen(value: boolean): void {
+  open.value = value
+  if (value) emit('open')
+}
 
 function displayValue(value: string): string {
   const normalized = normalizeLocalInputValue(value)
@@ -38,10 +62,11 @@ function displayValue(value: string): string {
 
 function normalizeLocalInputValue(value: string): string {
   if (!value) return ''
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/u.test(value) ? `${value}:00` : value
+  return /^\d{4,}-\d{2}-\d{2}T\d{2}:\d{2}$/u.test(value) ? `${value}:00` : value
 }
 
 function updateLocalInput(field: 'from' | 'to', value: string): void {
+  emit('update:preset', undefined)
   const normalized = normalizeLocalInputValue(value)
   if (field === 'from') {
     emit('update:from', normalized)
@@ -50,23 +75,30 @@ function updateLocalInput(field: 'from' | 'to', value: string): void {
   }
 }
 
-function localInputValue(milliseconds: number): string {
-  const date = new Date(milliseconds)
-  const pad = (part: number) => String(part).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+function selectShortcut(preset: DateTimePreset): void {
+  const now = Math.floor(Date.now() / 1000) * 1000
+  const range = resolveDateTimePreset(preset, now, props.rollingEndOffsetMs ?? 24 * 60 * 60 * 1000)
+  emit('update:from', localDateTimeInput(range.from_ms))
+  emit('update:to', localDateTimeInput(range.to_ms))
+  emit('update:preset', preset)
+  emit('shortcut', preset, range.from_ms, range.to_ms)
+  if (props.applyLabel && range.to_ms > range.from_ms) open.value = false
 }
 
-function selectShortcut(milliseconds: number): void {
-  const now = Math.floor(Date.now() / 1000) * 1000
-  emit('update:from', localInputValue(Math.max(0, now - milliseconds)))
-  emit('update:to', localInputValue(now + 24 * 60 * 60 * 1000))
+function apply(): void {
+  if (props.applyDisabled) return
+  emit('apply')
+  open.value = false
 }
 </script>
 
 <template>
-  <AppPopover v-model:open="open" align="start" content-class="app-date-range-popover">
+  <AppPopover
+    :open="open"
+    align="start"
+    content-class="app-date-range-popover"
+    @update:open="changeOpen"
+  >
     <template #trigger>
       <AppButton
         class="app-date-range__trigger"
@@ -83,21 +115,22 @@ function selectShortcut(milliseconds: number): void {
 
     <div class="app-date-range__shortcuts" :aria-label="t('monitor.logs.filters.quickRanges')">
       <AppButton
-        v-for="shortcut in shortcuts"
-        :key="shortcut.key"
+        v-for="shortcut in dateTimePresets"
+        :key="shortcut"
         variant="ghost"
         size="compact"
-        @click="selectShortcut(shortcut.milliseconds)"
+        :aria-pressed="preset === shortcut"
+        @click="selectShortcut(shortcut)"
       >
-        {{ t(`monitor.logs.filters.quick.${shortcut.key}`) }}
+        {{ t(`monitor.logs.filters.quick.${shortcut}`) }}
       </AppButton>
     </div>
     <div class="app-date-range__fields">
-      <FormField id="logs-range-from" :label="fromLabel" size="compact" :error="fromError">
+      <FormField :id="`${fieldID}-from`" :label="fromLabel" size="compact" :error="fromError">
         <template #default="{ describedBy, invalid }">
           <span class="app-date-range__input-shell">
             <input
-              id="logs-range-from"
+              :id="`${fieldID}-from`"
               class="app-date-range__native-input"
               :value="from"
               type="datetime-local"
@@ -110,11 +143,11 @@ function selectShortcut(milliseconds: number): void {
           </span>
         </template>
       </FormField>
-      <FormField id="logs-range-to" :label="toLabel" size="compact" :error="toError">
+      <FormField :id="`${fieldID}-to`" :label="toLabel" size="compact" :error="toError">
         <template #default="{ describedBy, invalid }">
           <span class="app-date-range__input-shell">
             <input
-              id="logs-range-to"
+              :id="`${fieldID}-to`"
               class="app-date-range__native-input"
               :value="to"
               type="datetime-local"
@@ -129,6 +162,15 @@ function selectShortcut(milliseconds: number): void {
       </FormField>
     </div>
     <p class="app-date-range__timezone">{{ timezoneLabel }} · {{ timezone }}</p>
+    <AppButton
+      v-if="applyLabel"
+      class="app-date-range__apply"
+      size="compact"
+      :disabled="applyDisabled"
+      @click="apply"
+    >
+      {{ applyLabel }}
+    </AppButton>
   </AppPopover>
 </template>
 
@@ -151,7 +193,7 @@ function selectShortcut(milliseconds: number): void {
 
 .app-date-range__shortcuts {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 4px;
   overflow-x: auto;
   border-bottom: 1px solid var(--color-border-subtle);
@@ -159,8 +201,17 @@ function selectShortcut(milliseconds: number): void {
 }
 
 .app-date-range__shortcuts .app-button {
-  flex: 1 0 auto;
   white-space: nowrap;
+}
+
+.app-date-range__shortcuts .app-button[aria-pressed='true'] {
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+
+.app-date-range__apply {
+  display: flex;
+  margin: 12px 0 0 auto;
 }
 
 .app-date-range__fields {

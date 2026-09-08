@@ -6,14 +6,13 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { lazySurface } from '@/app/async-surface'
 import { monitorLocation } from '@/app/route-locations'
-import { usageRanges } from '@/app/resources/usage'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
+import AppDateTimeRangePicker from '@/components/ui/AppDateTimeRangePicker.vue'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
-import { isTimeRange } from '@/lib/time'
+import { localDateTimeInput, parseLocalDateTime, type DateTimePreset } from '@/lib/time'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import HealthTab from './HealthTab.vue'
@@ -65,11 +64,26 @@ const usageFilters = computed(() => {
   const filters = parseAppliedUsageFilters(route.query)
   return isAccessKey.value ? scopeAccessKeyUsageFilters(filters) : filters
 })
-const usageRangeOptions = computed(() =>
-  usageRanges.map((value) => ({
-    value,
-    label: t(`monitor.usage.filters.ranges.${value}`),
-  })),
+const usageTimeDraft = ref<{ from: string; to: string; preset?: DateTimePreset }>({
+  from: '',
+  to: '',
+})
+const usageTimeErrors = computed(() => {
+  const from = parseLocalDateTime(usageTimeDraft.value.from)
+  const to = parseLocalDateTime(usageTimeDraft.value.to)
+  return {
+    from: from ? undefined : t('monitor.logs.errors.dateTime'),
+    to: !to
+      ? t('monitor.logs.errors.dateTime')
+      : from && to.getTime() <= from.getTime()
+        ? t('monitor.logs.errors.range')
+        : undefined,
+  }
+})
+watch(
+  () => [usageFilters.value.from_ms, usageFilters.value.to_ms, usageFilters.value.preset],
+  resetUsageTimeDraft,
+  { immediate: true },
 )
 const usageFilterCount = computed(
   () =>
@@ -117,13 +131,32 @@ async function refreshUsage(): Promise<void> {
   }
 }
 
-function selectUsageRange(value: string): void {
-  if (!isTimeRange(value)) return
+function selectUsageShortcut(preset: DateTimePreset, from: number, to: number): void {
+  if (to <= from) return
+  applyUsageTimeRange(from, to, preset)
+}
+
+function resetUsageTimeDraft(): void {
+  usageTimeDraft.value = {
+    from: localDateTimeInput(usageFilters.value.from_ms),
+    to: localDateTimeInput(usageFilters.value.to_ms),
+    preset: usageFilters.value.preset,
+  }
+}
+
+function applyUsageCustomTime(): void {
+  const from = parseLocalDateTime(usageTimeDraft.value.from)
+  const to = parseLocalDateTime(usageTimeDraft.value.to)
+  if (!from || !to || to.getTime() <= from.getTime()) return
+  applyUsageTimeRange(from.getTime(), to.getTime(), usageTimeDraft.value.preset)
+}
+
+function applyUsageTimeRange(from: number, to: number, preset?: DateTimePreset): void {
   const state = parseUsageMonitorState(route.query)
   void router.push(
     monitorLocation(
       usageMonitorQuery(
-        { ...usageFilters.value, range: value },
+        { ...usageFilters.value, from_ms: from, to_ms: to, preset },
         {
           filtersOpen: false,
           seriesExpanded: false,
@@ -141,6 +174,7 @@ function selectUsageRange(value: string): void {
       <PageHeader id="monitor-title" :title="t('monitor.title')" />
       <AppTabs
         class="monitor-tabs"
+        :class="{ 'monitor-tabs--usage': activeTab === 'usage' }"
         :model-value="activeTab"
         :label="t('monitor.tabs.label')"
         :items="items"
@@ -164,12 +198,24 @@ function selectUsageRange(value: string): void {
             {{ t('monitor.health.refresh') }}
           </AppButton>
           <div v-else-if="activeTab === 'usage'" class="monitor-usage-actions">
-            <AppSelect
-              :model-value="usageFilters.range"
+            <AppDateTimeRangePicker
+              v-model:from="usageTimeDraft.from"
+              v-model:to="usageTimeDraft.to"
+              v-model:preset="usageTimeDraft.preset"
+              :applied-from="localDateTimeInput(usageFilters.from_ms)"
+              :applied-to="localDateTimeInput(usageFilters.to_ms)"
               :label="t('monitor.usage.filters.range')"
-              :options="usageRangeOptions"
-              size="compact"
-              @update:model-value="selectUsageRange"
+              :from-label="t('monitor.logs.filters.from')"
+              :to-label="t('monitor.logs.filters.to')"
+              :timezone-label="t('monitor.logs.filters.timezone')"
+              :from-error="usageTimeErrors.from"
+              :to-error="usageTimeErrors.to"
+              :rolling-end-offset-ms="0"
+              :apply-label="t('monitor.usage.filters.apply')"
+              :apply-disabled="Boolean(usageTimeErrors.from || usageTimeErrors.to)"
+              @shortcut="selectUsageShortcut"
+              @apply="applyUsageCustomTime"
+              @open="resetUsageTimeDraft"
             />
             <AppButton variant="secondary" size="compact" @click="usageTab?.openFilters()">
               <ListFilter :size="14" aria-hidden="true" />
@@ -273,11 +319,26 @@ function selectUsageRange(value: string): void {
   .monitor-panel {
     padding-top: var(--detail-panel-padding-top-compact);
   }
+
+  .monitor-tabs--usage :deep(.app-tabs__bar) {
+    flex-wrap: wrap;
+  }
+
+  .monitor-tabs--usage :deep(.app-tabs__list),
+  .monitor-tabs--usage :deep(.app-tabs__actions) {
+    width: 100%;
+  }
 }
 
 @media (max-width: 560px) {
   .monitor-usage-actions {
+    width: 100%;
+    flex-wrap: wrap;
     gap: var(--space-1);
+  }
+
+  .monitor-usage-actions :deep(.app-popover) {
+    flex-basis: 100%;
   }
 }
 
