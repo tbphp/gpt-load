@@ -327,7 +327,7 @@ func TestGroupCredentialMutationsPreserveRuntimeIdentityAndHealthContracts(t *te
 		t.Fatalf("UpdateGroupCredential() error = %v", err)
 	}
 	if updated.CredentialID != rows[0].ID || updated.ConfiguredStatus != "disabled" ||
-		updated.WeightMode != "manual" {
+		updated.Weight != weight {
 		t.Fatalf("updated credential = %#v", updated)
 	}
 	var committed models.Credential

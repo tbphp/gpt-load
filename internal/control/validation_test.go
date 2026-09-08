@@ -107,7 +107,6 @@ func TestValidationWorkerFallsBackToEmbeddingsAfterExplicitModelRejection(t *tes
 		}
 	}
 	if got, want := worker.recorder.events(), []string{
-		fmt.Sprintf("registry.weight:7:%d", state.DefaultWeight),
 		"registry.recover:7",
 		"stats.reset:7",
 	}; !reflect.DeepEqual(got, want) {
@@ -411,9 +410,7 @@ func TestValidationWorkerProbesStructuredCloudCredential(t *testing.T) {
 		len(observed.Query) != 0 || len(observed.Body) != 0 {
 		t.Fatalf("probe attempt contains provider wire shape: %#v", observed)
 	}
-	if got, want := worker.recorder.events(), []string{
-		fmt.Sprintf("registry.weight:7:%d", state.DefaultWeight), "registry.recover:7", "stats.reset:7",
-	}; !reflect.DeepEqual(got, want) {
+	if got, want := worker.recorder.events(), []string{"registry.recover:7", "stats.reset:7"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("recovery events = %#v, want %#v", got, want)
 	}
 }
@@ -646,7 +643,7 @@ func TestValidationWorkerCoordinatesConditionalRecoveryAndStatsReset(t *testing.
 		t.Fatalf("recovery events before coordinator callback = %#v, want none", got)
 	}
 	close(coordinator.releaseEntry)
-	if got, want := awaitValue(t, coordinator.observed), []string{"registry.weight:7:50", "registry.recover:7", "stats.reset:7"}; !sameValidationEvents(got, want) {
+	if got, want := awaitValue(t, coordinator.observed), []string{"registry.recover:7", "stats.reset:7"}; !sameValidationEvents(got, want) {
 		t.Fatalf("recovery events = %#v, want %#v", got, want)
 	}
 	select {
@@ -868,7 +865,6 @@ func TestValidationWorkerUnrelatedSnapshotRevisionAllowsRecovery(t *testing.T) {
 	worker.Validate(context.Background())
 
 	if got, want := worker.recorder.events(), []string{
-		"registry.weight:7:50",
 		"registry.recover:7",
 		"stats.reset:7",
 	}; !sameValidationEvents(got, want) {
@@ -939,11 +935,11 @@ func (registry *publicationValidationRegistry) BlacklistedCredentials() []state.
 	return registry.delegate.BlacklistedCredentials()
 }
 
-func (registry *publicationValidationRegistry) RecoverIfMatch(ref state.CredentialRef, weight int) bool {
+func (registry *publicationValidationRegistry) RecoverIfMatch(ref state.CredentialRef) bool {
 	registry.recoverCallbackActive <- registry.callbackActive()
 	close(registry.recoverEntered)
 	<-registry.releaseRecover
-	return registry.delegate.RecoverIfMatch(ref, weight)
+	return registry.delegate.RecoverIfMatch(ref)
 }
 
 type publicationValidationStats struct {
@@ -1192,7 +1188,7 @@ func TestValidationWorkerDoesNotRecoverDisabledOrReplacedKeyRef(t *testing.T) {
 				t.Helper()
 				if err := registry.ReplaceCredentials([]state.CredentialEntry{{
 					ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 7, Fingerprint: "test-7", Status: state.CredentialStatusActive, Blacklisted: true,
-					FailureCount: 5, WeightAuto: 17, EncryptedValue: "cipher-replaced",
+					FailureCount: 5, EncryptedValue: "cipher-replaced",
 				}}); err != nil {
 					t.Fatalf("Replace() error = %v", err)
 				}
@@ -1205,7 +1201,7 @@ func TestValidationWorkerDoesNotRecoverDisabledOrReplacedKeyRef(t *testing.T) {
 			registry := state.NewCredentialRegistry()
 			if err := registry.ReplaceCredentials([]state.CredentialEntry{{
 				ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 7, Fingerprint: "test-7", Status: state.CredentialStatusActive, Blacklisted: true,
-				FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-original",
+				FailureCount: 3, EncryptedValue: "cipher-original",
 			}}); err != nil {
 				t.Fatalf("Replace() error = %v", err)
 			}
@@ -1498,14 +1494,13 @@ func (registry *validationRegistryRecorder) BlacklistedCredentials() []state.Cre
 	return append([]state.CredentialRef(nil), registry.refs...)
 }
 
-func (registry *validationRegistryRecorder) RecoverIfMatch(ref state.CredentialRef, weight int) bool {
+func (registry *validationRegistryRecorder) RecoverIfMatch(ref state.CredentialRef) bool {
 	registry.mu.Lock()
 	recoveryOK := registry.recoveryOK
 	registry.mu.Unlock()
 	if !recoveryOK {
 		return false
 	}
-	registry.recorder.add(fmt.Sprintf("registry.weight:%d:%d", ref.ID, weight))
 	registry.recorder.add(fmt.Sprintf("registry.recover:%d", ref.ID))
 	return true
 }

@@ -423,10 +423,6 @@ function formattedInteger(value: number): string {
   return formatInteger(value, locale.value)
 }
 
-function nullableWeight(value: number | null): string {
-  return value === null ? t('monitor.inspector.weights.none') : formattedInteger(value)
-}
-
 function accessKeyStatusTone(status: 'active' | 'disabled'): 'success' | 'neutral' {
   return status === 'active' ? 'success' : 'neutral'
 }
@@ -840,8 +836,8 @@ onBeforeUnmount(() => {
                   </div>
                   <span>
                     {{
-                      t('monitor.inspector.weights.groupManual', {
-                        value: nullableWeight(group.weight_manual),
+                      t('monitor.inspector.weights.group', {
+                        value: formattedInteger(group.weight_manual ?? 50),
                       })
                     }}
                   </span>
@@ -866,10 +862,7 @@ onBeforeUnmount(() => {
                       t('monitor.inspector.credentials.columns.status')
                     }}</span>
                     <span role="columnheader">{{
-                      t('monitor.inspector.credentials.columns.manual')
-                    }}</span>
-                    <span role="columnheader">{{
-                      t('monitor.inspector.credentials.columns.auto')
+                      t('monitor.inspector.credentials.columns.weight')
                     }}</span>
                     <span role="columnheader">{{
                       t('monitor.inspector.credentials.columns.effective')
@@ -912,18 +905,9 @@ onBeforeUnmount(() => {
                       role="cell"
                     >
                       <span class="route-credential-label">{{
-                        t('monitor.inspector.credentials.columns.manual')
+                        t('monitor.inspector.credentials.columns.weight')
                       }}</span>
-                      <span>{{ nullableWeight(credential.weight_manual) }}</span>
-                    </div>
-                    <div
-                      class="ledger-record-list__cell route-credential-record__weight"
-                      role="cell"
-                    >
-                      <span class="route-credential-label">{{
-                        t('monitor.inspector.credentials.columns.auto')
-                      }}</span>
-                      <span>{{ formattedInteger(credential.weight_auto) }}</span>
+                      <span>{{ formattedInteger(credential.weight) }}</span>
                     </div>
                     <div
                       class="ledger-record-list__cell route-credential-record__weight"
@@ -1387,7 +1371,7 @@ onBeforeUnmount(() => {
 }
 
 .route-credential-grid {
-  --ledger-record-list-grid: 88px minmax(170px, 1.4fr) 92px 92px 108px minmax(148px, 1fr);
+  --ledger-record-list-grid: 88px minmax(170px, 1.4fr) 92px 108px minmax(148px, 1fr);
   --ledger-record-list-column-gap: 14px;
 }
 

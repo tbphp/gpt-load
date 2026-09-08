@@ -65,7 +65,6 @@ export type {
   CredentialTestOutcome,
   CredentialTestReason,
   CredentialTestResultDto,
-  CredentialWeightMode,
 } from '@/api/control/types'
 
 export interface CredentialPatch {
@@ -105,7 +104,6 @@ const credentialItemFields = [
   'observation',
   'configured_status',
   'effective_status',
-  'weight_mode',
   'weight',
   'recent_success_count',
   'recent_failure_count',
@@ -152,7 +150,6 @@ const inconclusiveCredentialTestReasons = [
 ] as const
 const configuredStatuses = ['active', 'disabled'] as const
 const effectiveStatuses = ['available', 'cooldown', 'blacklisted', 'disabled'] as const
-const weightModes = ['auto', 'manual'] as const
 const recoveryModes = ['none', 'cooldown', 'probe', 'manual'] as const
 const failureCategories = [
   'ok',
@@ -544,15 +541,13 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
   const connectionType = projectEnum(record.connection_type, connectionTypes)
   const configuredStatus = projectEnum(record.configured_status, configuredStatuses)
   const effectiveStatus = projectEnum(record.effective_status, effectiveStatuses)
-  const weightMode = projectEnum(record.weight_mode, weightModes)
-  const weight =
-    record.weight === null ? null : projectSafeInteger(record.weight, { minimum: 1, maximum: 100 })
+  const weight = projectSafeInteger(record.weight, { minimum: 0, maximum: 100 })
   const cooldownUntil = projectNullableEpochMilliseconds(record.cooldown_until_ms)
   const recovery = projectRecovery(record.recovery)
   if (
-    // 分组停用或手动权重为 0 时，active 凭据的运行时状态也会是 disabled。
+    // 分组停用或权重为 0 时，active 凭据的运行时状态也会是 disabled。
     (configuredStatus === 'disabled' && effectiveStatus !== 'disabled') ||
-    (effectiveStatus === 'available') !== (weight !== null) ||
+    (weight === 0 && effectiveStatus !== 'disabled') ||
     (effectiveStatus === 'cooldown') !== (cooldownUntil !== null) ||
     (recovery.mode === 'cooldown') !== (effectiveStatus === 'cooldown')
   ) {
@@ -573,7 +568,6 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
       : { observation: projectObservation(record.observation) }),
     configured_status: configuredStatus,
     effective_status: effectiveStatus,
-    weight_mode: weightMode,
     weight,
     recent_success_count: projectSafeInteger(record.recent_success_count, { minimum: 0 }),
     recent_failure_count: projectSafeInteger(record.recent_failure_count, { minimum: 0 }),

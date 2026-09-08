@@ -1250,7 +1250,7 @@ async function mutateItem(
             props.groupId,
             item.credential_id,
             action === 'weight'
-              ? { weight_manual: value === 'auto' ? null : Number(value) }
+              ? { weight_manual: Number(value) }
               : { status: item.configured_status === 'active' ? 'disabled' : 'active' },
           )
   } catch {

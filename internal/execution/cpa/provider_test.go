@@ -3,6 +3,7 @@ package cpa
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"gpt-load/internal/channel"
@@ -153,3 +154,25 @@ func TestCredentialScopedFailureSurvivesErrorWrapping(t *testing.T) {
 }
 
 var _ providerBridge = (*recordingProviderBridge)(nil)
+
+func TestProviderModelRejectionRefinesGenericRequestHint(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		want execution.FailureHint
+	}{
+		{name: "generic provider rejection", err: errors.New("model unsupported"), want: execution.FailureHintModelUnavailable},
+		{name: "explicit request scope preserved", err: requestScopedTestError{}, want: execution.FailureHintRequestRejected},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			evidence := &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusBadRequest,
+				Hint: execution.FailureHintRequestRejected, Code: "unsupported_model",
+			}
+			annotateProviderErrorEvidence(evidence, test.err)
+			if evidence.Hint != test.want {
+				t.Fatalf("hint = %s, want %s", evidence.Hint, test.want)
+			}
+		})
+	}
+}

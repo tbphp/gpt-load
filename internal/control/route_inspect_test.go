@@ -409,16 +409,16 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
 		{
 			ID: 31, GroupID: 2, Version: 1, IdentityGeneration: 31, Fingerprint: "test-31", Status: state.CredentialStatusActive,
-			WeightAuto: 30, EncryptedValue: "cipher-three",
+			WeightManual: new(30), EncryptedValue: "cipher-three",
 		},
 		{
 			ID: 22, GroupID: 1, Version: 1, IdentityGeneration: 22, Fingerprint: "test-22", Status: state.CredentialStatusActive,
-			CooldownUntil: now.Add(time.Minute), WeightAuto: 40,
+			CooldownUntil: now.Add(time.Minute), WeightManual: new(40),
 			EncryptedValue: "cipher-two",
 		},
 		{
 			ID: 21, GroupID: 1, Version: 1, IdentityGeneration: 21, Fingerprint: "test-21", Status: state.CredentialStatusActive,
-			WeightManual: &keyWeight, WeightAuto: 90,
+			WeightManual:   &keyWeight,
 			EncryptedValue: "cipher-one",
 		},
 	}); err != nil {
@@ -462,14 +462,12 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	}
 	available := primary.Credentials[0]
 	if !available.Available || available.ReasonCode != nil ||
-		available.WeightManual == nil || *available.WeightManual != 25 ||
-		available.WeightAuto != 90 || available.EffectiveWeight != 50*25 ||
+		available.Weight != 25 || available.EffectiveWeight != 50*25 ||
 		available.CooldownUntilMS != nil {
 		t.Fatalf("available key = %#v", available)
 	}
 	cooldown := primary.Credentials[1]
-	if cooldown.Available || cooldown.WeightManual != nil ||
-		cooldown.WeightAuto != 40 || cooldown.EffectiveWeight != 0 ||
+	if cooldown.Available || cooldown.Weight != 40 || cooldown.EffectiveWeight != 0 ||
 		cooldown.CooldownUntilMS == nil ||
 		*cooldown.CooldownUntilMS != now.Add(time.Minute).UnixMilli() {
 		t.Fatalf("cooldown key = %#v", cooldown)
@@ -482,8 +480,7 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 		!backup.Included || !backup.Routable || backup.ReasonCode != nil ||
 		len(backup.Credentials) != 1 || backup.Credentials[0].CredentialID != 31 ||
 		!backup.Credentials[0].Available || backup.Credentials[0].ReasonCode != nil ||
-		backup.Credentials[0].WeightManual != nil ||
-		backup.Credentials[0].WeightAuto != 30 ||
+		backup.Credentials[0].Weight != 30 ||
 		backup.Credentials[0].EffectiveWeight != 20*30 ||
 		backup.Credentials[0].CooldownUntilMS != nil {
 		t.Fatalf("backup group = %#v", backup)
@@ -679,19 +676,19 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
 		{
 			ID: 14, GroupID: 1, Version: 1, IdentityGeneration: 14, Fingerprint: "test-14", Status: state.CredentialStatusActive,
-			WeightAuto: 70, CooldownUntil: cooldownAt, EncryptedValue: "cooldown",
+			WeightManual: new(70), CooldownUntil: cooldownAt, EncryptedValue: "cooldown",
 		},
 		{
 			ID: 12, GroupID: 1, Version: 1, IdentityGeneration: 12, Fingerprint: "test-12", Status: state.CredentialStatusActive,
-			WeightManual: &zero, WeightAuto: 45, EncryptedValue: "zero",
+			WeightManual: &zero, EncryptedValue: "zero",
 		},
 		{
 			ID: 13, GroupID: 1, Version: 1, IdentityGeneration: 13, Fingerprint: "test-13", Status: state.CredentialStatusActive,
-			WeightAuto: 60, Blacklisted: true, EncryptedValue: "blacklisted",
+			WeightManual: new(60), Blacklisted: true, EncryptedValue: "blacklisted",
 		},
 		{
 			ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "test-11", Status: state.CredentialStatusDisabled,
-			WeightManual: &disabledManual, WeightAuto: 30, EncryptedValue: "disabled",
+			WeightManual: &disabledManual, EncryptedValue: "disabled",
 		},
 	}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -727,23 +724,14 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 		scheduler.ReasonCredentialBlacklisted,
 		scheduler.ReasonCredentialCooldown,
 	}
-	wantManual := []*int{&disabledManual, &zero, nil, nil}
-	wantAuto := []int{30, 45, 60, 70}
+	wantWeights := []int{disabledManual, zero, 60, 70}
 	for index, credential := range group.Credentials {
 		if credential.CredentialID != uint(11+index) || credential.Available ||
 			credential.EffectiveWeight != 0 ||
-			credential.WeightAuto != wantAuto[index] {
+			credential.Weight != wantWeights[index] {
 			t.Fatalf("unavailable credential %d = %#v", index, credential)
 		}
 		assertRouteReason(t, credential.ReasonCode, wantReasons[index])
-		if wantManual[index] == nil {
-			if credential.WeightManual != nil {
-				t.Fatalf("key %d manual weight = %v, want nil", index, credential.WeightManual)
-			}
-		} else if credential.WeightManual == nil ||
-			*credential.WeightManual != *wantManual[index] {
-			t.Fatalf("key %d manual weight = %v, want %d", index, credential.WeightManual, *wantManual[index])
-		}
 		if index == 3 {
 			if credential.CooldownUntilMS == nil ||
 				*credential.CooldownUntilMS != cooldownAt.UnixMilli() {

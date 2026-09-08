@@ -49,8 +49,8 @@ func TestKeyRegistryCollectCandidatesExcludesRuntimeUnavailableKeys(t *testing.T
 		return keyID == 6
 	}, now)
 	want := []CredentialMeta{
-		{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, WeightAuto: DefaultWeight},
-		{ID: 4, GroupID: 10, Version: 1, IdentityGeneration: 1, WeightAuto: DefaultWeight},
+		{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1},
+		{ID: 4, GroupID: 10, Version: 1, IdentityGeneration: 1},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("CollectCandidates() = %#v, want %#v", got, want)
@@ -193,36 +193,6 @@ func TestKeyRegistrySetCooldownConcurrentWritersKeepLatestDeadline(t *testing.T)
 	}
 }
 
-func TestKeyRegistryDefaultsAndSetsAutoWeight(t *testing.T) {
-	registry := NewCredentialRegistry()
-	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
-		ID: 1, GroupID: 10, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher",
-	}})
-
-	assertAutoWeight := func(want int) {
-		t.Helper()
-		got := registry.CollectCredentialCandidates([]uint{10}, nil, time.Time{})
-		if len(got) != 1 || got[0].WeightAuto != want {
-			t.Fatalf("CollectCandidates() = %#v, want WeightAuto %d", got, want)
-		}
-	}
-	assertAutoWeight(DefaultWeight)
-	for _, weight := range []int{1, MaxWeight} {
-		if ok := registry.SetAutoWeight(1, weight); !ok {
-			t.Fatalf("SetAutoWeight(1, %d) = false, want true", weight)
-		}
-		assertAutoWeight(weight)
-	}
-	for _, invalid := range []int{0, MaxWeight + 1} {
-		if ok := registry.SetAutoWeight(1, invalid); ok {
-			t.Errorf("SetAutoWeight(1, %d) = true, want false", invalid)
-		}
-	}
-	if ok := registry.SetAutoWeight(99, DefaultWeight); ok {
-		t.Error("SetAutoWeight(missing key) = true, want false")
-	}
-}
-
 func TestKeyRegistryClearFailureAndRecover(t *testing.T) {
 	registry := NewCredentialRegistry()
 	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
@@ -258,14 +228,14 @@ func TestKeyRegistryRecoverIfMatchRestoresMatchingBlacklistedActiveKey(t *testin
 	registry := NewCredentialRegistry()
 	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
 		ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true,
-		FailureCount: 3, WeightAuto: 17, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
+		FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 
-	if ok := registry.RecoverIfMatch(CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"}, DefaultWeight); !ok {
+	if ok := registry.RecoverIfMatch(CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"}); !ok {
 		t.Fatal("RecoverIfMatch() = false, want true")
 	}
 	if got, want := registryEntry(t, registry, 1), (CredentialEntry{
-		ID: 1, GroupID: 10, Status: CredentialStatusActive, WeightAuto: DefaultWeight,
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
 		FailureGeneration: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("entry after RecoverIfMatch() = %#v, want %#v", got, want)
@@ -278,7 +248,7 @@ func TestKeyRegistryRestoreRuntimeStateIfMatchRequiresAndClearsCooldown(t *testi
 	entry := CredentialEntry{
 		ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true,
 		FailureCount: 3, CooldownUntil: cooldownUntil,
-		WeightAuto: 17, Version: 1, IdentityGeneration: 1,
+		Version: 1, IdentityGeneration: 1,
 		Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}
 	mustReplaceKeyEntries(t, registry, []CredentialEntry{entry})
@@ -289,18 +259,18 @@ func TestKeyRegistryRestoreRuntimeStateIfMatchRequiresAndClearsCooldown(t *testi
 		FailureGeneration: before.FailureGeneration,
 	}
 
-	if registry.RestoreRuntimeStateIfMatch(ref, cooldownUntil.Add(time.Second), DefaultWeight) {
+	if registry.RestoreRuntimeStateIfMatch(ref, cooldownUntil.Add(time.Second)) {
 		t.Fatal("RestoreRuntimeStateIfMatch(stale cooldown) = true, want false")
 	}
 	if got := registryEntry(t, registry, 1); !reflect.DeepEqual(got, before) {
 		t.Fatalf("entry after rejected restore = %#v, want %#v", got, before)
 	}
-	if !registry.RestoreRuntimeStateIfMatch(ref, cooldownUntil, DefaultWeight) {
+	if !registry.RestoreRuntimeStateIfMatch(ref, cooldownUntil) {
 		t.Fatal("RestoreRuntimeStateIfMatch() = false, want true")
 	}
 	got := registryEntry(t, registry, 1)
 	if got.Blacklisted || got.FailureCount != 0 || !got.CooldownUntil.IsZero() ||
-		got.WeightAuto != DefaultWeight || got.FailureGeneration != before.FailureGeneration+1 {
+		got.FailureGeneration != before.FailureGeneration+1 {
 		t.Fatalf("entry after restore = %#v", got)
 	}
 }
@@ -309,7 +279,7 @@ func TestKeyRegistryRecoverIfMatchRejectsStaleGeneration(t *testing.T) {
 	registry := NewCredentialRegistry()
 	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
 		ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true,
-		FailureCount: 3, WeightAuto: 17, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
+		FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 
 	stale := registry.BlacklistedCredentials()[0]
@@ -320,7 +290,7 @@ func TestKeyRegistryRecoverIfMatchRejectsStaleGeneration(t *testing.T) {
 		t.Fatal("IncrFailure(1) = false, want true")
 	}
 	before := registryEntry(t, registry, 1)
-	if ok := registry.RecoverIfMatch(stale, DefaultWeight); ok {
+	if ok := registry.RecoverIfMatch(stale); ok {
 		t.Fatal("RecoverIfMatch(stale ref) = true, want false")
 	}
 	if got := registryEntry(t, registry, 1); !reflect.DeepEqual(got, before) {
@@ -331,11 +301,11 @@ func TestKeyRegistryRecoverIfMatchRejectsStaleGeneration(t *testing.T) {
 	if fresh.FailureGeneration != 1 {
 		t.Fatalf("fresh FailureGeneration = %d, want 1", fresh.FailureGeneration)
 	}
-	if ok := registry.RecoverIfMatch(fresh, DefaultWeight); !ok {
+	if ok := registry.RecoverIfMatch(fresh); !ok {
 		t.Fatal("RecoverIfMatch(fresh ref) = false, want true")
 	}
 	if got, want := registryEntry(t, registry, 1), (CredentialEntry{
-		ID: 1, GroupID: 10, Status: CredentialStatusActive, WeightAuto: DefaultWeight,
+		ID: 1, GroupID: 10, Status: CredentialStatusActive,
 		FailureGeneration: 2, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("entry after fresh RecoverIfMatch() = %#v, want %#v", got, want)
@@ -344,38 +314,29 @@ func TestKeyRegistryRecoverIfMatchRejectsStaleGeneration(t *testing.T) {
 
 func TestKeyRegistryRecoverIfMatchRejectsNonMatchingOrInvalidRecoveryWithoutMutation(t *testing.T) {
 	tests := []struct {
-		name   string
-		entry  CredentialEntry
-		ref    CredentialRef
-		weight int
+		name  string
+		entry CredentialEntry
+		ref   CredentialRef
 	}{
 		{
-			name: "disabled", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusDisabled, Blacklisted: true, FailureCount: 3, WeightAuto: 17, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
-			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"}, weight: DefaultWeight,
+			name: "disabled", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusDisabled, Blacklisted: true, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
+			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
 		},
 		{
-			name: "not blacklisted", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusActive, FailureCount: 3, WeightAuto: 17, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
-			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"}, weight: DefaultWeight,
+			name: "not blacklisted", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusActive, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
+			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
 		},
 		{
-			name: "group mismatch", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
-			ref: CredentialRef{ID: 1, GroupID: 11, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"}, weight: DefaultWeight,
+			name: "group mismatch", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
+			ref: CredentialRef{ID: 1, GroupID: 11, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
 		},
 		{
-			name: "cipher mismatch", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
-			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-replaced"}, weight: DefaultWeight,
+			name: "cipher mismatch", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
+			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-replaced"},
 		},
 		{
-			name: "missing", entry: CredentialEntry{ID: 2, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
-			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"}, weight: DefaultWeight,
-		},
-		{
-			name: "weight too low", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
-			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"}, weight: 0,
-		},
-		{
-			name: "weight too high", entry: CredentialEntry{ID: 1, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
-			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"}, weight: MaxWeight + 1,
+			name: "missing", entry: CredentialEntry{ID: 2, GroupID: 10, Status: CredentialStatusActive, Blacklisted: true, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-two"},
+			ref: CredentialRef{ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one"},
 		},
 	}
 
@@ -385,7 +346,7 @@ func TestKeyRegistryRecoverIfMatchRejectsNonMatchingOrInvalidRecoveryWithoutMuta
 			mustReplaceKeyEntries(t, registry, []CredentialEntry{test.entry})
 			before := registryEntry(t, registry, test.entry.ID)
 
-			if ok := registry.RecoverIfMatch(test.ref, test.weight); ok {
+			if ok := registry.RecoverIfMatch(test.ref); ok {
 				t.Fatal("RecoverIfMatch() = true, want false")
 			}
 			if got := registryEntry(t, registry, test.entry.ID); !reflect.DeepEqual(got, before) {
@@ -424,8 +385,6 @@ func TestValidateKeyEntriesRejectsInvalidWeights(t *testing.T) {
 	}{
 		{name: "manual below range", entry: CredentialEntry{WeightManual: &manualTooLow}},
 		{name: "manual above range", entry: CredentialEntry{WeightManual: &manualTooHigh}},
-		{name: "auto below range", entry: CredentialEntry{WeightAuto: -1}},
-		{name: "auto above range", entry: CredentialEntry{WeightAuto: MaxWeight + 1}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

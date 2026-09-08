@@ -48,7 +48,6 @@ func TestBatchRestoreAllCredentialsPreservesConfigurationAndHistory(t *testing.T
 	}
 	for _, row := range rows {
 		fixture.registry.IncrFailure(row.ID)
-		fixture.registry.SetAutoWeight(row.ID, 1)
 		fixture.stats.RecordSuccess(row.ID, now.Add(-time.Second))
 		fixture.stats.RecordFailure(row.ID, health.FailureCategoryInvalidKey, 401, now)
 	}
@@ -89,7 +88,6 @@ func TestBatchRestoreAllCredentialsPreservesConfigurationAndHistory(t *testing.T
 		want.CooldownUntil = time.Time{}
 		want.Blacklisted = false
 		want.FailureCount = 0
-		want.WeightAuto = calculateAutoWeight(stats)
 		if !reflect.DeepEqual(after, want) {
 			t.Fatalf("credential %d runtime = %#v, want %#v", before.ID, after, want)
 		}
@@ -211,7 +209,7 @@ func TestBatchRestoreUsesStateAtMutationBoundary(t *testing.T) {
 	fixture.service.mutations = &batchRestoreBoundaryCoordinator{
 		MutationCoordinator: health.NewMutationCoordinator(),
 		before: func() {
-			fixture.registry.RestoreRuntimeState(rows[0].ID, state.MaxWeight)
+			fixture.registry.RestoreRuntimeState(rows[0].ID)
 			fixture.registry.SetBlacklisted(rows[1].ID)
 		},
 	}

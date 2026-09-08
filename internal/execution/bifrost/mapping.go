@@ -298,6 +298,8 @@ func neutralFailureHint(status int, values ...string) execution.FailureHint {
 	switch {
 	case status == http.StatusUnauthorized:
 		return execution.FailureHintInvalidCredential
+	case candidateCapabilityRejected(status, values):
+		return execution.FailureHintModelUnavailable
 	case containsAnyMarker(markers,
 		"model_not_found", "model not found", "model_not_available",
 		"model unavailable", "deployment_not_found", "unsupported_model"):
@@ -322,6 +324,29 @@ func neutralFailureHint(status int, values ...string) execution.FailureHint {
 	default:
 		return ""
 	}
+}
+
+// candidateCapabilityRejected 只识别具体能力拒绝，不放宽整个 invalid_request_error 类型。
+func candidateCapabilityRejected(status int, values []string) bool {
+	switch status {
+	case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed:
+	default:
+		return false
+	}
+	if len(values) < 2 {
+		return false
+	}
+	code := strings.ToLower(strings.TrimSpace(values[1]))
+	switch code {
+	case "unsupported_model", "unsupported-model", "unsupported_operation", "operation_not_supported":
+		return true
+	}
+	if code != "" || !strings.EqualFold(strings.TrimSpace(values[0]), "invalid_request_error") {
+		return false
+	}
+	// 保留已知 Anthropic 能力拒绝的窄匹配，引用文本或其他参数错误不能触发重试。
+	message := strings.ToLower(strings.TrimSpace(values[len(values)-1]))
+	return strings.TrimSuffix(message, ".") == "function calling is not supported with this model"
 }
 
 func annotateBifrostErrorEvidence(evidence *execution.ErrorEvidence) {

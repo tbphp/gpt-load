@@ -338,13 +338,8 @@ func (s *Service) restoreGroupCredential(
 			credential := credentialProbeCredentialFromEntry(entries[0])
 			testedCredential = &credential
 		}
-		stats := s.stats.Snapshot(credentialID, observedAt)
-		stats.ConsecutiveFailure = 0
-		stats.ConsecutiveProblem = 0
-		stats.LastFailureCategory = 0
-		stats.LastStatusCode = 0
 		if targetSignature == nil {
-			if !s.registry.RestoreRuntimeState(credentialID, calculateAutoWeight(stats)) {
+			if !s.registry.RestoreRuntimeState(credentialID) {
 				restoreErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
 				return
 			}
@@ -352,7 +347,6 @@ func (s *Service) restoreGroupCredential(
 			if testedCredential == nil || !s.registry.RestoreRuntimeStateIfMatch(
 				testedCredential.ref,
 				testedCredential.cooldownUntil,
-				calculateAutoWeight(stats),
 			) {
 				restoreErr = app_errors.ErrCredentialVersionConflict
 				return
@@ -716,13 +710,8 @@ func (s *Service) restoreCredentialBatchRuntime(group models.Group, entries []st
 		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
 			continue
 		}
-		stats := s.stats.Snapshot(entry.ID, now)
-		stats.ConsecutiveFailure = 0
-		stats.ConsecutiveProblem = 0
-		stats.LastFailureCategory = 0
-		stats.LastStatusCode = 0
 		// 只修改健康字段，保留并发发布的订阅额度与授权状态。
-		if !s.registry.RestoreRuntimeState(entry.ID, calculateAutoWeight(stats)) {
+		if !s.registry.RestoreRuntimeState(entry.ID) {
 			return nil, dbRegistryMismatch(mismatchMissingRegistry, group.ID, entry.ID)
 		}
 		s.stats.ClearProblemState(entry.ID)

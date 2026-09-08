@@ -140,19 +140,18 @@ func TestInspectExplainsGroupsAndKeysInStableOrder(t *testing.T) {
 	keys := []state.CredentialRuntimeView{
 		{
 			ID: 32, GroupID: 3, Status: state.CredentialStatusActive,
-			WeightAuto: state.DefaultWeight,
 		},
 		{
 			ID: 12, GroupID: 1, Status: state.CredentialStatusActive,
-			WeightAuto: state.DefaultWeight, CooldownUntil: now.Add(time.Minute),
+			CooldownUntil: now.Add(time.Minute),
 		},
 		{
 			ID: 11, GroupID: 1, Status: state.CredentialStatusActive,
-			WeightManual: &zero, WeightAuto: state.DefaultWeight,
+			WeightManual: &zero,
 		},
 		{
 			ID: 13, GroupID: 1, Status: state.CredentialStatusActive,
-			WeightAuto: 40,
+			WeightManual: new(40),
 		},
 	}
 	before := append([]state.CredentialRuntimeView(nil), keys...)
@@ -204,10 +203,10 @@ func TestInspectEligiblePoolMatchesIteratorInitialWeightedPool(t *testing.T) {
 	zero := 0
 	registry := state.NewCredentialRegistry()
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{
-		{ID: 11, GroupID: 1, Status: state.CredentialStatusActive, WeightAuto: 40, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "one"},
+		{ID: 11, GroupID: 1, Status: state.CredentialStatusActive, WeightManual: new(40), Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "one"},
 		{
 			ID: 12, GroupID: 1, Status: state.CredentialStatusActive,
-			WeightManual: &manual, WeightAuto: 80, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "two",
+			WeightManual: &manual, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "two",
 		},
 		{
 			ID: 13, GroupID: 1, Status: state.CredentialStatusActive,
@@ -283,13 +282,13 @@ func TestInspectEligiblePoolMatchesIteratorCredentialAuthorization(t *testing.T)
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{
 		{
 			ID: 11, GroupID: 1, Status: state.CredentialStatusActive,
-			AuthState: state.CredentialAuthStateReady, WeightAuto: state.DefaultWeight,
-			Version: 1, IdentityGeneration: 1, Fingerprint: "ready", EncryptedValue: "ready",
+			AuthState: state.CredentialAuthStateReady,
+			Version:   1, IdentityGeneration: 1, Fingerprint: "ready", EncryptedValue: "ready",
 		},
 		{
 			ID: 12, GroupID: 1, Status: state.CredentialStatusActive,
-			AuthState: state.CredentialAuthStateRefreshing, WeightAuto: state.DefaultWeight,
-			Version: 1, IdentityGeneration: 1, Fingerprint: "refreshing", EncryptedValue: "refreshing",
+			AuthState: state.CredentialAuthStateRefreshing,
+			Version:   1, IdentityGeneration: 1, Fingerprint: "refreshing", EncryptedValue: "refreshing",
 		},
 	}); err != nil {
 		t.Fatalf("ReplaceCredentials() error = %v", err)
@@ -340,13 +339,13 @@ func TestInspectEligiblePoolMatchesIteratorWhenQuotaObservationsDiffer(t *testin
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{
 		{
 			ID: 71, GroupID: 7, Status: state.CredentialStatusActive,
-			AuthState: state.CredentialAuthStateReady, WeightAuto: state.DefaultWeight,
-			Version: 1, IdentityGeneration: 1, Fingerprint: "low", EncryptedValue: "low",
+			AuthState: state.CredentialAuthStateReady,
+			Version:   1, IdentityGeneration: 1, Fingerprint: "low", EncryptedValue: "low",
 		},
 		{
 			ID: 72, GroupID: 7, Status: state.CredentialStatusActive,
-			AuthState: state.CredentialAuthStateReady, WeightAuto: state.DefaultWeight,
-			Version: 1, IdentityGeneration: 1, Fingerprint: "high", EncryptedValue: "high",
+			AuthState: state.CredentialAuthStateReady,
+			Version:   1, IdentityGeneration: 1, Fingerprint: "high", EncryptedValue: "high",
 		},
 	}); err != nil {
 		t.Fatalf("ReplaceCredentials() error = %v", err)

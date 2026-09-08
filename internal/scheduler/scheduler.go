@@ -231,7 +231,7 @@ func (iterator *Iterator) withWeightedPool(candidates *candidatePool, modes []ch
 			if !ok {
 				continue
 			}
-			weight := effectiveWeight(target.group.WeightManual, credential.WeightManual, credential.WeightAuto)
+			weight := effectiveWeight(target.group.WeightManual, credential.WeightManual)
 			if weight > 0 {
 				weighted = append(weighted, weightedCredential{meta: credential, weight: weight})
 			}

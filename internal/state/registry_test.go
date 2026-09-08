@@ -104,11 +104,11 @@ func TestKeyRegistryRestoreRuntimeState(t *testing.T) {
 		FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 
-	if ok := registry.RestoreRuntimeState(1, 37); !ok {
+	if ok := registry.RestoreRuntimeState(1); !ok {
 		t.Fatal("RestoreRuntimeState() = false, want true")
 	}
 	got := registryEntry(t, registry, 1)
-	if !got.CooldownUntil.IsZero() || got.Blacklisted || got.FailureCount != 0 || got.WeightAuto != 37 {
+	if !got.CooldownUntil.IsZero() || got.Blacklisted || got.FailureCount != 0 {
 		t.Fatalf("restored entry = %#v", got)
 	}
 	if got.FailureGeneration != 1 {
@@ -116,17 +116,9 @@ func TestKeyRegistryRestoreRuntimeState(t *testing.T) {
 	}
 
 	before := registryEntry(t, registry, 1)
-	for _, test := range []struct {
-		credentialID uint
-		weight       int
-	}{
-		{credentialID: 0, weight: 37},
-		{credentialID: 99, weight: 37},
-		{credentialID: 1, weight: 0},
-		{credentialID: 1, weight: MaxWeight + 1},
-	} {
-		if registry.RestoreRuntimeState(test.credentialID, test.weight) {
-			t.Fatalf("RestoreRuntimeState(%d, %d) = true, want false", test.credentialID, test.weight)
+	for _, credentialID := range []uint{0, 99} {
+		if registry.RestoreRuntimeState(credentialID) {
+			t.Fatalf("RestoreRuntimeState(%d) = true, want false", credentialID)
 		}
 	}
 	if after := registryEntry(t, registry, 1); !reflect.DeepEqual(after, before) {
@@ -480,7 +472,7 @@ func TestKeyRegistrySnapshotIsSortedDetachedAndCredentialFree(t *testing.T) {
 			Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-disabled",
 		},
 		{
-			ID: 11, GroupID: 1, WeightManual: &weight, WeightAuto: 23,
+			ID: 11, GroupID: 1, WeightManual: &weight,
 			Status: CredentialStatusActive, CooldownUntil: now.Add(time.Minute),
 			Blacklisted: true, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-secret",
 		},
@@ -495,12 +487,12 @@ func TestKeyRegistrySnapshotIsSortedDetachedAndCredentialFree(t *testing.T) {
 		t.Fatalf("Snapshot order = %#v", got)
 	}
 	if got[0].WeightManual == nil || *got[0].WeightManual != 17 ||
-		got[0].WeightAuto != 23 || !got[0].Blacklisted ||
+		!got[0].Blacklisted ||
 		got[0].FailureCount != 3 || !got[0].CooldownUntil.Equal(now.Add(time.Minute)) {
 		t.Fatalf("Snapshot runtime values = %#v", got[0])
 	}
-	if got[1].WeightAuto != DefaultWeight {
-		t.Fatalf("default WeightAuto = %d, want %d", got[1].WeightAuto, DefaultWeight)
+	if got[1].WeightManual != nil {
+		t.Fatalf("default configuration = %v, want unset", got[1].WeightManual)
 	}
 	*got[0].WeightManual = 99
 	got[0].FailureCount = 99
@@ -990,8 +982,8 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 				if err := registry.SetCredentialStatus(credentialID, CredentialStatusDisabled); err != nil {
 					errors <- fmt.Errorf("SetCredentialStatus(%d, disabled): %w", credentialID, err)
 				}
-				if ok := registry.SetAutoWeight(credentialID, operation%MaxWeight+1); !ok {
-					errors <- fmt.Errorf("SetAutoWeight(%d) = false", credentialID)
+				if err := registry.UpdateCredentialConfig(credentialID, CredentialStatusActive, new(operation%MaxWeight+1)); err != nil {
+					errors <- fmt.Errorf("UpdateCredentialConfig(%d): %w", credentialID, err)
 				}
 				if ok := registry.SetCooldown(credentialID, time.Unix(int64(operation+1), 0)); !ok {
 					errors <- fmt.Errorf("SetCooldown(%d) = false", credentialID)
@@ -1229,7 +1221,7 @@ func TestKeyRegistryUpdateKeyConfigAtomicallyPreservesRuntimeState(t *testing.T)
 	cooldown := time.Date(2026, time.July, 24, 12, 30, 0, 0, time.UTC)
 	registry := NewCredentialRegistry()
 	mustReplaceKeyEntries(t, registry, []CredentialEntry{{
-		ID: 11, GroupID: 7, WeightManual: &oldWeight, WeightAuto: 42,
+		ID: 11, GroupID: 7, WeightManual: &oldWeight,
 		Status: CredentialStatusActive, CooldownUntil: cooldown,
 		Blacklisted: true, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-secret",
 	}})
@@ -1244,7 +1236,7 @@ func TestKeyRegistryUpdateKeyConfigAtomicallyPreservesRuntimeState(t *testing.T)
 	if got.Status != CredentialStatusDisabled || got.WeightManual == nil || *got.WeightManual != 80 {
 		t.Fatalf("config = %#v", got)
 	}
-	if got.WeightAuto != 42 || !got.CooldownUntil.Equal(cooldown) ||
+	if !got.CooldownUntil.Equal(cooldown) ||
 		!got.Blacklisted || got.FailureCount != 3 ||
 		got.EncryptedValue != "cipher-secret" || got.GroupID != 7 {
 		t.Fatalf("runtime fields changed = %#v", got)
@@ -1255,7 +1247,7 @@ func TestKeyRegistryUpdateKeyConfigAtomicallyPreservesRuntimeState(t *testing.T)
 	}
 	view := registry.Snapshot()[0]
 	if view.Status != CredentialStatusActive || view.WeightManual != nil ||
-		view.WeightAuto != 42 || !view.Blacklisted || view.FailureCount != 3 {
+		!view.Blacklisted || view.FailureCount != 3 {
 		t.Fatalf("cleared manual state = %#v", view)
 	}
 }
@@ -1307,7 +1299,6 @@ func TestKeyRegistryUpdateKeyConfigIsRaceSafeWithRuntimeMutations(t *testing.T) 
 			for index := 0; index < 100; index++ {
 				weight := (worker + index) % (MaxWeight + 1)
 				_ = registry.UpdateCredentialConfig(1, CredentialStatusActive, &weight)
-				_ = registry.SetAutoWeight(1, (index%MaxWeight)+1)
 				_ = registry.SetCooldown(1, time.Unix(int64(index), 0))
 				_, _ = registry.IncrFailure(1)
 			}

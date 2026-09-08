@@ -69,8 +69,7 @@ export interface RouteInspectCredentialDto {
   credential_id: number
   available: boolean
   reason_code: RouteInspectReasonCode | null
-  weight_manual: number | null
-  weight_auto: number
+  weight: number
   effective_weight: number
   cooldown_until_ms: number | null
 }
@@ -176,8 +175,7 @@ function projectRouteCredential(value: unknown): RouteInspectCredentialDto {
     'credential_id',
     'available',
     'reason_code',
-    'weight_manual',
-    'weight_auto',
+    'weight',
     'effective_weight',
     'cooldown_until_ms',
   ])
@@ -185,8 +183,7 @@ function projectRouteCredential(value: unknown): RouteInspectCredentialDto {
     credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
     available: projectBoolean(record.available),
     reason_code: projectReason(record.reason_code),
-    weight_manual: projectNullableWeight(record.weight_manual),
-    weight_auto: projectSafeInteger(record.weight_auto, { minimum: 0, maximum: 100 }),
+    weight: projectSafeInteger(record.weight, { minimum: 0, maximum: 100 }),
     effective_weight: projectSafeInteger(record.effective_weight, { minimum: 0 }),
     cooldown_until_ms: projectNullableEpochMilliseconds(record.cooldown_until_ms),
   }

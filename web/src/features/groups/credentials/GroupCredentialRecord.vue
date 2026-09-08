@@ -20,7 +20,6 @@ import AppPopover from '@/components/ui/AppPopover.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatLocalInstant } from '@/lib/format'
 
@@ -50,18 +49,13 @@ const emit = defineEmits<{
 }>()
 const { locale, n, t } = useI18n()
 const menuOpen = ref(false)
-const draftWeightMode = ref<'auto' | 'manual'>('auto')
 const draftWeight = ref('50')
 const detailId = computed(() => `group-credential-details-${props.item.credential_id}`)
 const weightInputId = computed(() => `group-credential-weight-${props.item.credential_id}`)
 const isProblem = computed(
   () => props.item.effective_status === 'cooldown' || props.item.effective_status === 'blacklisted',
 )
-const weightLabel = computed(() =>
-  props.item.weight === null
-    ? t('group.credentials.none')
-    : t(`group.credentials.weight.${props.item.weight_mode}`, { weight: n(props.item.weight) }),
-)
+const weightLabel = computed(() => t('group.credentials.weight', { weight: n(props.item.weight) }))
 const recentLabel = computed(() =>
   props.item.recent_failure_count === 0
     ? t('group.credentials.recentSuccessOnly', { success: n(props.item.recent_success_count) })
@@ -85,12 +79,7 @@ const failureLabel = computed(() =>
         props.item.last_status_code === null ? '' : ` · ${props.item.last_status_code}`
       }`,
 )
-const weightModeOptions = computed(() => [
-  { value: 'auto', label: t('group.credentials.weightEditor.auto'), disabled: props.busy },
-  { value: 'manual', label: t('group.credentials.weightEditor.manual'), disabled: props.busy },
-])
-const manualWeightValid = computed(() => {
-  if (draftWeightMode.value === 'auto') return true
+const weightValid = computed(() => {
   const value = Number(draftWeight.value)
   return Number.isInteger(value) && value >= 1 && value <= 100
 })
@@ -99,16 +88,15 @@ watch(
   () => props.weightEditorOpen,
   (open) => {
     if (!open) return
-    draftWeightMode.value = props.item.weight_mode
-    draftWeight.value = String(props.item.weight ?? 50)
+    draftWeight.value = String(props.item.weight)
   },
 )
 
 function saveWeight(): void {
-  if (props.busy || !manualWeightValid.value) return
+  if (props.busy || !weightValid.value) return
   emit('weight', {
     item: props.item,
-    value: draftWeightMode.value === 'auto' ? 'auto' : String(Number(draftWeight.value)),
+    value: String(Number(draftWeight.value)),
   })
   emit('update:weightEditorOpen', false)
 }
@@ -179,10 +167,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
         <span class="group-credential-record__mobile-label">{{
           t('group.credentials.columns.weight')
         }}</span>
-        <AppTooltip v-if="item.weight === null" :content="t('group.credentials.notScheduledHelp')">
-          <span class="group-credential-record__weight-none" tabindex="0">{{ weightLabel }}</span>
-        </AppTooltip>
-        <AppTooltip v-else :content="t('group.credentials.editWeightHint')">
+        <AppTooltip :content="t('group.credentials.editWeightHint')">
           <button
             type="button"
             class="group-credential-record__weight-value"
@@ -283,11 +268,8 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
               </span>
               <div class="setting-panel__body">
                 <template v-if="!weightEditorOpen">
-                  <span class="setting-panel__tag">
-                    {{ t(`group.credentials.weightEditor.${item.weight_mode}`) }}
-                  </span>
                   <span class="setting-panel__value">
-                    {{ item.weight === null ? t('group.credentials.none') : n(item.weight) }}
+                    {{ n(item.weight) }}
                   </span>
                   <IconButton
                     class="setting-panel__edit"
@@ -306,29 +288,19 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
                   class="setting-panel__form group-credential-record__weight-form"
                   @submit.prevent="saveWeight"
                 >
-                  <SegmentedControl
-                    v-model="draftWeightMode"
-                    class="group-credential-record__weight-mode"
-                    :label="t('group.credentials.weightEditor.mode')"
-                    :options="weightModeOptions"
-                    size="xs"
-                  />
                   <label class="sr-only" :for="weightInputId">
                     {{ t('group.credentials.weightEditor.value') }}
                   </label>
                   <input
                     :id="weightInputId"
                     v-model="draftWeight"
-                    :class="{ 'is-concealed': draftWeightMode === 'auto' }"
                     type="number"
                     min="1"
                     max="100"
                     step="1"
                     inputmode="numeric"
-                    :disabled="busy || draftWeightMode === 'auto'"
-                    :tabindex="draftWeightMode === 'auto' ? -1 : undefined"
-                    :aria-hidden="draftWeightMode === 'auto' ? 'true' : undefined"
-                    :aria-invalid="!manualWeightValid || undefined"
+                    :disabled="busy"
+                    :aria-invalid="!weightValid || undefined"
                   />
                   <div class="setting-panel__actions">
                     <AppButton
@@ -338,15 +310,11 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
                     >
                       {{ t('group.credentials.weightEditor.cancel') }}
                     </AppButton>
-                    <AppButton type="submit" size="compact" :disabled="busy || !manualWeightValid">
+                    <AppButton type="submit" size="compact" :disabled="busy || !weightValid">
                       {{ t('group.credentials.weightEditor.save') }}
                     </AppButton>
                   </div>
-                  <p
-                    v-if="draftWeightMode === 'manual' && !manualWeightValid"
-                    class="setting-panel__error"
-                    role="alert"
-                  >
+                  <p v-if="!weightValid" class="setting-panel__error" role="alert">
                     {{ t('group.credentials.weightEditor.invalid') }}
                   </p>
                 </form>
@@ -532,10 +500,6 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   gap: 13px 16px;
 }
 
-.group-credential-record__weight-mode {
-  flex: none;
-}
-
 .group-credential-record__weight-form > input {
   width: 64px;
   min-height: 26px;
@@ -547,11 +511,6 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   padding: 0 6px;
   font-family: var(--font-mono);
   font-size: var(--text-label-xs);
-}
-
-.group-credential-record__weight-form > input.is-concealed {
-  visibility: hidden;
-  pointer-events: none;
 }
 
 .group-credential-record__weight-value {

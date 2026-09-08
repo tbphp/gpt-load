@@ -763,15 +763,15 @@ func TestJudgeExecutionCompatibilityRuleMatrix(t *testing.T) {
 			retry: RetryNone, effect: EffectNone, ruleID: "fallback.http_client_error",
 		},
 		{
-			name: "model unavailable retains credential cooldown", status: http.StatusNotFound,
+			name: "model unavailable does not penalize credential", status: http.StatusNotFound,
 			evidence: execution.ErrorEvidence{
 				Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintModelUnavailable,
 				ScopeHint: execution.ErrorScopeModel, StatusCode: http.StatusNotFound,
 				Summary: "model unavailable",
 			},
 			category: FailureCategoryModelUnavailable, scope: execution.ErrorScopeModel,
-			retry: RetryNextCandidate, effect: EffectCooldownCredential,
-			ruleID: "model.unavailable", cooldownAt: now.Add(time.Hour),
+			retry: RetryNextCandidate, effect: EffectNone,
+			ruleID: "model.unavailable",
 		},
 	}
 

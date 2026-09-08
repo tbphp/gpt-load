@@ -34,7 +34,6 @@ type CredentialEntry struct {
 	IdentityGeneration uint64
 	Fingerprint        string
 	WeightManual       *int
-	WeightAuto         int
 	Status             CredentialStatus
 	AuthState          CredentialAuthState
 	CooldownUntil      time.Time
@@ -54,7 +53,6 @@ type CredentialMeta struct {
 	Version            uint64
 	IdentityGeneration uint64
 	WeightManual       *int
-	WeightAuto         int
 }
 
 type CredentialRef struct {
@@ -101,9 +99,6 @@ func ValidateCredentialEntries(entries []CredentialEntry) error {
 		}
 		if err := validateManualWeight(fmt.Sprintf("credential %d", entry.ID), entry.WeightManual); err != nil {
 			return err
-		}
-		if entry.WeightAuto < 0 || entry.WeightAuto > MaxWeight {
-			return fmt.Errorf("credential %d auto weight must be between 0 and %d", entry.ID, MaxWeight)
 		}
 		if entry.EncryptedValue == "" {
 			return fmt.Errorf("credential %d encrypted value is required", entry.ID)
@@ -704,7 +699,7 @@ func (r *CredentialRegistry) collectCredentialCandidatesLocked(groupIDs []uint, 
 			meta := CredentialMeta{
 				ID: view.ID, GroupID: view.GroupID,
 				Version: view.Version, IdentityGeneration: view.IdentityGeneration,
-				WeightManual: cloneWeight(view.WeightManual), WeightAuto: view.WeightAuto,
+				WeightManual: cloneWeight(view.WeightManual),
 			}
 			metas = append(metas, meta)
 		}
@@ -874,31 +869,13 @@ func (r *CredentialRegistry) SetBlacklistedWithChange(credentialID uint) (bool, 
 	return true, true
 }
 
-func (r *CredentialRegistry) SetAutoWeight(credentialID uint, weight int) bool {
-	if weight < 1 || weight > MaxWeight {
-		return false
-	}
+func (r *CredentialRegistry) RestoreRuntimeState(credentialID uint) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry, ok := r.entryLocked(credentialID)
 	if !ok {
 		return false
 	}
-	entry.WeightAuto = weight
-	return true
-}
-
-func (r *CredentialRegistry) RestoreRuntimeState(credentialID uint, weight int) bool {
-	if weight < 1 || weight > MaxWeight {
-		return false
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	entry, ok := r.entryLocked(credentialID)
-	if !ok {
-		return false
-	}
-	entry.WeightAuto = weight
 	entry.CooldownUntil = time.Time{}
 	entry.Blacklisted = false
 	entry.FailureCount = 0
@@ -954,8 +931,8 @@ func (r *CredentialRegistry) Recover(credentialID uint) bool {
 	return true
 }
 
-func (r *CredentialRegistry) RecoverIfMatch(ref CredentialRef, weight int) bool {
-	return r.restoreRuntimeStateIfMatch(ref, nil, weight)
+func (r *CredentialRegistry) RecoverIfMatch(ref CredentialRef) bool {
+	return r.restoreRuntimeStateIfMatch(ref, nil)
 }
 
 // RestoreRuntimeStateIfMatch restores a tested blacklisted credential only
@@ -963,21 +940,16 @@ func (r *CredentialRegistry) RecoverIfMatch(ref CredentialRef, weight int) bool 
 func (r *CredentialRegistry) RestoreRuntimeStateIfMatch(
 	ref CredentialRef,
 	cooldownUntil time.Time,
-	weight int,
 ) bool {
-	return r.restoreRuntimeStateIfMatch(ref, &cooldownUntil, weight)
+	return r.restoreRuntimeStateIfMatch(ref, &cooldownUntil)
 }
 
 func (r *CredentialRegistry) restoreRuntimeStateIfMatch(
 	ref CredentialRef,
 	cooldownUntil *time.Time,
-	weight int,
 ) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if weight < 1 || weight > MaxWeight {
-		return false
-	}
 	groupID, ok := r.credentialGroups[ref.ID]
 	if !ok || groupID != ref.GroupID {
 		return false
@@ -992,7 +964,6 @@ func (r *CredentialRegistry) restoreRuntimeStateIfMatch(
 		cooldownUntil != nil && !entry.CooldownUntil.Equal(*cooldownUntil) {
 		return false
 	}
-	entry.WeightAuto = weight
 	if cooldownUntil != nil {
 		entry.CooldownUntil = time.Time{}
 	}
@@ -1043,9 +1014,6 @@ func cloneCredentialEntry(entry CredentialEntry) CredentialEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
 	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	entry.FailureGeneration = 0
-	if entry.WeightAuto == 0 {
-		entry.WeightAuto = DefaultWeight
-	}
 	return entry
 }
 

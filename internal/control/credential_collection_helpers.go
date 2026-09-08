@@ -136,16 +136,12 @@ func mapCredentialRuntimeItem(
 	stats health.CredentialStats,
 	observedAt time.Time,
 ) (CredentialItemResponse, error) {
-	weightMode := "auto"
-	if view.WeightManual != nil {
-		weightMode = "manual"
-	}
 	item := CredentialItemResponse{
 		CredentialID:            credentialID,
 		Mask:                    mask,
 		ConfiguredStatus:        string(view.Status),
 		EffectiveStatus:         string(bucket),
-		WeightMode:              weightMode,
+		Weight:                  state.ConfiguredWeight(view.WeightManual),
 		RecentSuccessCount:      stats.Success,
 		RecentFailureCount:      stats.Failure,
 		ConsecutiveFailureCount: stats.ConsecutiveFailure,
@@ -154,16 +150,6 @@ func mapCredentialRuntimeItem(
 	}
 	switch bucket {
 	case healthBucketAvailable:
-		weight := view.WeightAuto
-		if view.WeightManual != nil {
-			weight = *view.WeightManual
-		}
-		if weight < 1 || weight > state.MaxWeight {
-			return CredentialItemResponse{}, fmt.Errorf(
-				"map credential %d weight: %w", credentialID, app_errors.ErrInternalServer,
-			)
-		}
-		item.Weight = &weight
 		item.Recovery = CredentialRecoveryResponse{Mode: "none"}
 	case healthBucketCooldown:
 		cooldownUntilMS, err := optionalSafeEpochMilliseconds(view.CooldownUntil)

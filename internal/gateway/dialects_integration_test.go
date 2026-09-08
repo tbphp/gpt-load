@@ -1072,7 +1072,7 @@ func TestAnthropicGatewayFailover(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer gl-client")
 	recorder = httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusBadRequest || clientErrorRequests.Load() != 1 || recorder.Header().Get(debugHeaderAttempts) != "1" {
+	if recorder.Code != http.StatusBadRequest || clientErrorRequests.Load() != 2 || recorder.Header().Get(debugHeaderAttempts) != "2" {
 		t.Fatalf("client error response = %d attempts=%s requests=%d body=%s", recorder.Code, recorder.Header().Get(debugHeaderAttempts), clientErrorRequests.Load(), recorder.Body.String())
 	}
 }
