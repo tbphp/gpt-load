@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -954,8 +953,8 @@ func TestHandlerPublishesUsageForActualNonStreamingResponseAttempt(t *testing.T)
 		{StatusCode: http.StatusTooManyRequests, Header: make(http.Header), ClassificationBody: []byte(`{"error":{"type":"rate_limit_error"}}`), Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 99}}, RequestWritten: true},
 		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}, RequestWritten: true},
 	}}
-	engine, handler, _, _ := newRequestLogHandlerTestRuntime(t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second")
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	engine, _, _, _ := newRequestLogHandlerTestRuntime(t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second")
+
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
 	request.Header.Set("Authorization", "Bearer gl-client")
 	engine.ServeHTTP(httptest.NewRecorder(), request)
@@ -1450,10 +1449,10 @@ func mustGatewayPriceTableWithFast(t *testing.T, standard, fast int64) *pricing.
 func TestHandlerDiscardsPreCommitStreamUsageOnRetry(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	forwarder := &usageObservingStreamRetryForwarder{}
-	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+	engine, _, _, _ := newRequestLogHandlerTestRuntime(
 		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second",
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/chat/completions",
@@ -1491,7 +1490,7 @@ func TestHandlerRecordsCandidatePreparationFailureThroughJudge(t *testing.T) {
 	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
 		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second",
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	handler.encryption = &failCredentialDecrypt{Service: handler.encryption, remaining: 1}
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -1531,7 +1530,7 @@ func TestHandlerCandidatePreparationFailuresDoNotExhaustForwardBudget(t *testing
 		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink,
 		"sk-first", "sk-second", "sk-third", "sk-fourth",
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	handler.encryption = &failCredentialDecrypt{Service: handler.encryption, remaining: 3}
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -1577,14 +1576,14 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 			},
 		}),
 	}}
-	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+	engine, _, _, _ := newRequestLogHandlerTestRuntime(
 		t,
 		forwarder,
 		&recordingAccessKeyRPMLimiter{},
 		sink,
 		apiKey,
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/chat/completions",
@@ -1658,10 +1657,10 @@ func TestHandlerBootstrapCapacityRetryRequestLogContract(t *testing.T) {
 		},
 	}}
 	sink := &recordingRequestLogSink{}
-	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+	engine, _, _, _ := newRequestLogHandlerTestRuntime(
 		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second",
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/chat/completions",
@@ -1731,7 +1730,7 @@ func TestHandlerRetryExhaustionUsesProviderErrorAttemptAndItsFrozenPrice(t *test
 		"sk-second",
 		"sk-third",
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	handler.priceTables = provider
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -1770,8 +1769,8 @@ func TestHandlerRememberedLastResponseKeepsOriginalUsageAttempt(t *testing.T) {
 		{Err: errors.New("transport two")},
 		{Err: errors.New("transport three")},
 	}}
-	engine, handler, _, _ := newRequestLogHandlerTestRuntime(t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second", "sk-third")
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	engine, _, _, _ := newRequestLogHandlerTestRuntime(t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second", "sk-third")
+
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
 	request.Header.Set("Authorization", "Bearer gl-client")
 	engine.ServeHTTP(httptest.NewRecorder(), request)
@@ -1851,8 +1850,8 @@ func TestHandlerTerminalAttemptUsageKeepsRouteAttribution(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			sink := &recordingRequestLogSink{}
-			engine, handler, _, _ := newRequestLogHandlerTestRuntime(t, test.forwarder, &recordingAccessKeyRPMLimiter{}, sink, test.upstreamKeys...)
-			handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+			engine, _, _, _ := newRequestLogHandlerTestRuntime(t, test.forwarder, &recordingAccessKeyRPMLimiter{}, sink, test.upstreamKeys...)
+
 			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
 			request.Header.Set("Authorization", "Bearer gl-client")
 			engine.ServeHTTP(httptest.NewRecorder(), request)
@@ -2234,10 +2233,10 @@ func TestHandlerRPMAdmissionOrderingAndSingleCharge(t *testing.T) {
 	}}
 	limiter := &recordingAccessKeyRPMLimiter{}
 	sink := &recordingRequestLogSink{}
-	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+	engine, _, _, _ := newRequestLogHandlerTestRuntime(
 		t, forwarder, limiter, sink, "sk-first", "sk-second",
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	body := &observingReadCloser{
 		reader: strings.NewReader(`{"model":"gpt-4o"}`),
 	}
@@ -2451,10 +2450,10 @@ func TestHandlerRequestLogScopeAndExactlyOnce(t *testing.T) {
 				decisions: []ratelimit.LimitDecision{test.decision},
 			}
 			sink := &recordingRequestLogSink{}
-			engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+			engine, _, _, _ := newRequestLogHandlerTestRuntime(
 				t, forwarder, limiter, sink, test.upstreamKeys...,
 			)
-			handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 			request := httptest.NewRequest(
 				test.method, test.target, strings.NewReader(test.body),
 			)
@@ -2659,10 +2658,10 @@ func TestHandlerRecordsNonStreamingRetryChain(t *testing.T) {
 		}}
 		limiter := &recordingAccessKeyRPMLimiter{}
 		sink := &recordingRequestLogSink{}
-		engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		engine, _, _, _ := newRequestLogHandlerTestRuntime(
 			t, forwarder, limiter, sink, "sk-first", "sk-second",
 		)
-		handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 		request := httptest.NewRequest(
 			http.MethodPost,
 			"/v1/chat/completions",
@@ -2712,14 +2711,14 @@ func TestHandlerRecordsNonStreamingRetryChain(t *testing.T) {
 			RequestWritten: true,
 		}}}
 		sink := &recordingRequestLogSink{}
-		engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		engine, _, _, _ := newRequestLogHandlerTestRuntime(
 			t,
 			forwarder,
 			&recordingAccessKeyRPMLimiter{},
 			sink,
 			"sk-only",
 		)
-		handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 		request := httptest.NewRequest(
 			http.MethodPost,
 			"/v1/chat/completions",
@@ -2977,10 +2976,10 @@ func TestHandlerRejectsFinalSwitchingProtocolsAsLocalProtocolError(t *testing.T)
 		RequestWritten: true,
 	}}}
 	sink := &recordingRequestLogSink{}
-	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+	engine, _, _, _ := newRequestLogHandlerTestRuntime(
 		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-one",
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/chat/completions",

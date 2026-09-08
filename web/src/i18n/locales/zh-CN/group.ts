@@ -208,8 +208,8 @@ export default {
         danger: '危险区域',
       },
       routing: {
-        description: '手动权重仅在明确覆盖时生效。',
-        weightHelp: '自动模式由运行时调度决定；手动模式范围为 1–100。',
+        description: '调整分组参与请求分配的相对权重。',
+        weightHelp: '默认 50，范围 1–100；与凭据权重相乘，决定分配比例。',
       },
       headers: {
         description: '发往上游前设置、覆盖或移除的请求头规则；覆盖后将完整替换全局规则，不做合并。',

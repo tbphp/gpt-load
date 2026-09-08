@@ -69,6 +69,7 @@ func (r *CredentialRegistry) RestoreRuntimeCheckpoint(checkpoints []CredentialRu
 		entry.CooldownUntil = checkpoint.CooldownUntil
 		entry.Blacklisted = checkpoint.Blacklisted
 		entry.FailureCount = checkpoint.FailureCount
+		r.scheduling.SyncCredential(runtimeView(entry))
 		restored++
 	}
 	return restored

@@ -168,8 +168,9 @@ func BuildContainer() (*dig.Container, error) {
 		func(registry *channel.Registry) (*bifrostexecutor.RuntimeManager, error) {
 			return bifrostexecutor.NewManagedRuntime(registry)
 		},
-		func(adapters *provideradapter.Registry, quotaRuntime *accessquota.Runtime) *state.Manager {
+		func(adapters *provideradapter.Registry, quotaRuntime *accessquota.Runtime, credentials *state.CredentialRegistry) *state.Manager {
 			manager := state.NewManager()
+			manager.SetSchedulingState(credentials.SchedulingState())
 			manager.SetSnapshotReconciler(runtimeSnapshotReconciler{
 				adapters: adapters, accessQuota: quotaRuntime,
 			})

@@ -70,6 +70,7 @@ type CredentialRef struct {
 }
 
 type CredentialRegistry struct {
+	scheduling       *SchedulingState
 	mu               sync.RWMutex
 	buckets          map[uint]map[uint]*CredentialEntry
 	credentialGroups map[uint]uint
@@ -77,6 +78,7 @@ type CredentialRegistry struct {
 
 func NewCredentialRegistry() *CredentialRegistry {
 	return &CredentialRegistry{
+		scheduling:       NewSchedulingState(),
 		buckets:          make(map[uint]map[uint]*CredentialEntry),
 		credentialGroups: make(map[uint]uint),
 	}
@@ -145,6 +147,11 @@ func (r *CredentialRegistry) ReplaceCredentials(entries []CredentialEntry) error
 	r.mu.Lock()
 	r.buckets = buckets
 	r.credentialGroups = credentialGroups
+	views := make([]CredentialRuntimeView, 0, len(entries))
+	for _, entry := range entries {
+		views = append(views, runtimeView(&entry))
+	}
+	r.scheduling.SyncCredentials(0, views)
 	r.mu.Unlock()
 	return nil
 }
@@ -176,6 +183,7 @@ func (r *CredentialRegistry) ApplyCredentialImport(groupID uint, entries []Crede
 		cloned := cloneCredentialEntry(entry)
 		r.buckets[groupID][entry.ID] = &cloned
 		r.credentialGroups[entry.ID] = groupID
+		r.scheduling.SyncCredential(runtimeView(r.buckets[groupID][entry.ID]))
 	}
 	return nil
 }
@@ -230,6 +238,7 @@ func (r *CredentialRegistry) RestoreGroupCredentialEntriesExact(groupID uint, en
 		detached := detachCredentialEntryExact(entry)
 		r.buckets[groupID][entry.ID] = &detached
 		r.credentialGroups[entry.ID] = groupID
+		r.scheduling.SyncCredential(runtimeView(r.buckets[groupID][entry.ID]))
 	}
 	return nil
 }
@@ -309,6 +318,7 @@ func (r *CredentialRegistry) ReconcileGroup(groupID uint, entries []CredentialEn
 			r.credentialGroups[credentialID] = groupID
 		}
 	}
+	r.syncSchedulingGroupLocked(groupID)
 	return true, nil
 }
 
@@ -356,6 +366,7 @@ func (r *CredentialRegistry) RemoveCredential(credentialID uint) bool {
 		delete(r.buckets, groupID)
 	}
 	delete(r.credentialGroups, credentialID)
+	r.scheduling.Remove(credentialID)
 	return true
 }
 
@@ -374,6 +385,7 @@ func (r *CredentialRegistry) UpdateGroupCredentialStatuses(
 	}
 	for _, credentialID := range credentialIDs {
 		r.buckets[groupID][credentialID].Status = status
+		r.scheduling.SyncCredential(runtimeView(r.buckets[groupID][credentialID]))
 	}
 	return nil
 }
@@ -387,6 +399,7 @@ func (r *CredentialRegistry) RemoveGroupCredentials(groupID uint, credentialIDs 
 	for _, credentialID := range credentialIDs {
 		delete(r.buckets[groupID], credentialID)
 		delete(r.credentialGroups, credentialID)
+		r.scheduling.Remove(credentialID)
 	}
 	if len(r.buckets[groupID]) == 0 {
 		delete(r.buckets, groupID)
@@ -436,6 +449,7 @@ func (r *CredentialRegistry) RemoveGroup(groupID uint) bool {
 	}
 	for credentialID := range bucket {
 		delete(r.credentialGroups, credentialID)
+		r.scheduling.Remove(credentialID)
 	}
 	delete(r.buckets, groupID)
 	return true
@@ -452,6 +466,7 @@ func (r *CredentialRegistry) SetCredentialStatus(credentialID uint, status Crede
 		return fmt.Errorf("credential %d not found", credentialID)
 	}
 	r.buckets[groupID][credentialID].Status = status
+	r.scheduling.SyncCredential(runtimeView(r.buckets[groupID][credentialID]))
 	return nil
 }
 
@@ -475,6 +490,7 @@ func (r *CredentialRegistry) UpdateCredentialConfig(
 	}
 	entry.Status = status
 	entry.WeightManual = clonedWeight
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return nil
 }
 
@@ -513,6 +529,7 @@ func (r *CredentialRegistry) SetCredentialAuthState(credentialID uint, authState
 		return false
 	}
 	entry.AuthState = authState.normalize()
+	r.scheduling.SyncCredential(runtimeView(entry))
 	if entry.AuthState != CredentialAuthStateReady {
 		entry.quotaRemaining = nil
 		entry.quotaResetAt = time.Time{}
@@ -651,9 +668,35 @@ func (r *CredentialRegistry) CredentialRef(credentialID uint) (CredentialRef, bo
 // CollectCredentialCandidates returns currently schedulable credentials.
 func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, excluded func(uint) bool, now time.Time) []CredentialMeta {
 	r.mu.RLock()
-	metas := make([]CredentialMeta, 0)
+	metas := r.collectCredentialCandidatesLocked(groupIDs, nil, now)
+	r.mu.RUnlock()
+	filtered := metas[:0]
+	for _, meta := range metas {
+		if excluded == nil || !excluded(meta.ID) {
+			filtered = append(filtered, meta)
+		}
+	}
+	metas = filtered
+	sort.Slice(metas, func(i, j int) bool {
+		if metas[i].GroupID != metas[j].GroupID {
+			return metas[i].GroupID < metas[j].GroupID
+		}
+		return metas[i].ID < metas[j].ID
+	})
+	return metas
+}
+
+func (r *CredentialRegistry) collectCredentialCandidatesLocked(groupIDs []uint, excluded func(uint) bool, now time.Time) []CredentialMeta {
+	capacity := 0
+	for _, groupID := range groupIDs {
+		capacity += len(r.buckets[groupID])
+	}
+	metas := make([]CredentialMeta, 0, capacity)
 	for _, groupID := range groupIDs {
 		for _, entry := range r.buckets[groupID] {
+			if excluded != nil && excluded(entry.ID) {
+				continue
+			}
 			view := runtimeView(entry)
 			if view.RuntimeState(now) != CredentialRuntimeAvailable || entry.AuthState.normalize() != CredentialAuthStateReady {
 				continue
@@ -666,22 +709,7 @@ func (r *CredentialRegistry) CollectCredentialCandidates(groupIDs []uint, exclud
 			metas = append(metas, meta)
 		}
 	}
-	r.mu.RUnlock()
-
-	filtered := metas[:0]
-	for _, meta := range metas {
-		if excluded != nil && excluded(meta.ID) {
-			continue
-		}
-		filtered = append(filtered, meta)
-	}
-	sort.Slice(filtered, func(i, j int) bool {
-		if filtered[i].GroupID != filtered[j].GroupID {
-			return filtered[i].GroupID < filtered[j].GroupID
-		}
-		return filtered[i].ID < filtered[j].ID
-	})
-	return filtered
+	return metas
 }
 
 // SetCredentialQuotaObservation publishes an ephemeral provider observation for
@@ -790,6 +818,7 @@ func (r *CredentialRegistry) ClearCooldownIfMatch(credentialID uint, expected ti
 		return false
 	}
 	entry.CooldownUntil = time.Time{}
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return true
 }
 
@@ -804,6 +833,7 @@ func (r *CredentialRegistry) SetCooldownWithChange(credentialID uint, until time
 		return true, false
 	}
 	entry.CooldownUntil = until
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return true, true
 }
 
@@ -824,6 +854,7 @@ func (r *CredentialRegistry) SetCooldownWithChangeIfVersion(
 		return true, false
 	}
 	entry.CooldownUntil = until
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return true, true
 }
 
@@ -839,6 +870,7 @@ func (r *CredentialRegistry) SetBlacklistedWithChange(credentialID uint) (bool, 
 	}
 	entry.Blacklisted = true
 	entry.FailureGeneration++
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return true, true
 }
 
@@ -871,6 +903,7 @@ func (r *CredentialRegistry) RestoreRuntimeState(credentialID uint, weight int) 
 	entry.Blacklisted = false
 	entry.FailureCount = 0
 	entry.FailureGeneration++
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return true
 }
 
@@ -917,6 +950,7 @@ func (r *CredentialRegistry) Recover(credentialID uint) bool {
 		entry.FailureCount = 0
 		entry.FailureGeneration++
 	}
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return true
 }
 
@@ -965,6 +999,7 @@ func (r *CredentialRegistry) restoreRuntimeStateIfMatch(
 	entry.Blacklisted = false
 	entry.FailureCount = 0
 	entry.FailureGeneration++
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return true
 }
 
