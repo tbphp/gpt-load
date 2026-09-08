@@ -80,6 +80,8 @@ export default {
     backToGroups: 'グループ一覧に戻る',
     importCredentials: 'チャネル認証情報をインポート',
     copyUpstreamUrl: 'アップストリームアドレス {url} をコピー',
+    upstreamUrlCustom: 'カスタム',
+    upstreamUrlOfficialDefault: '公式デフォルト',
     copySuccess: 'コピーしました',
     copyFailure: 'コピーできませんでした',
     modelEditor: {

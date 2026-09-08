@@ -80,6 +80,8 @@ export default {
     backToGroups: 'Back to Groups',
     importCredentials: 'Import channel credentials',
     copyUpstreamUrl: 'Copy upstream address {url}',
+    upstreamUrlCustom: 'Custom',
+    upstreamUrlOfficialDefault: 'Official default',
     copySuccess: 'Copied',
     copyFailure: 'Copy failed',
     modelEditor: {

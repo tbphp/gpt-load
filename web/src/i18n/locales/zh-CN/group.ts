@@ -80,6 +80,8 @@ export default {
     backToGroups: '返回分组列表',
     importCredentials: '导入渠道凭据',
     copyUpstreamUrl: '复制上游地址 {url}',
+    upstreamUrlCustom: '自定义',
+    upstreamUrlOfficialDefault: '官方默认',
     copySuccess: '已复制',
     copyFailure: '复制失败',
     modelEditor: {
