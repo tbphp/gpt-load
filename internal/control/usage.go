@@ -238,6 +238,14 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		if !ok {
 			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
+		// 对齐区间包含锚点所在桶；滚动一小时必须有完整的前置时长。
+		earliestAtMS := int64(preset.bucketCount-1) * preset.bucketWidthMS
+		if rangeValue == usageRange1Hour {
+			earliestAtMS = epochms.MillisecondsPerHour
+		}
+		if _, anchored := singleQueryValue(values, "at_ms"); anchored && observedAtMS < earliestAtMS {
+			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
+		}
 		if rangeValue == usageRange1Hour {
 			if observedAtMS < epochms.MillisecondsPerHour {
 				return requestlog.UsageQuery{}, app_errors.ErrInternalServer

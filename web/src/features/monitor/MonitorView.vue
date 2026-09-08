@@ -14,7 +14,7 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { isTimeRange } from '@/lib/time'
-import { parseAppliedLogFilters } from './log-filters'
+import { defaultRequestLogFilters, parseAppliedLogFilters } from './log-filters'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import HealthTab from './HealthTab.vue'
@@ -44,6 +44,7 @@ const usageTab = ref<{
   openFilters: () => void
   refresh: () => Promise<void>
   navigationReport?: UsageReportDto
+  navigationPending: boolean
 } | null>(null)
 const healthRefreshPending = ref(false)
 const usageRefreshPending = ref(false)
@@ -61,7 +62,7 @@ const items = computed<AppTabItem[]>(() => {
     {
       value: 'logs',
       label: t('monitor.tabs.logs'),
-      disabled: activeTab.value === 'usage' && !usageTab.value?.navigationReport,
+      disabled: activeTab.value === 'usage' && usageTab.value?.navigationPending,
     },
   ]
   return isAccessKey.value
@@ -107,16 +108,18 @@ function selectTab(value: string): void {
   if (isAccessKey.value && tab !== 'usage' && tab !== 'logs') return
   if (tab === activeTab.value) return
   if (activeTab.value === 'usage' && tab === 'logs') {
+    if (usageTab.value?.navigationPending) return
     const report = usageTab.value?.navigationReport
-    if (!report) return
+    // 用量不可用时使用日志默认时间范围，仍保留筛选和返回用量的上下文。
+    const logRange = report ?? defaultRequestLogFilters()
     const filters = usageFilters.value
     void router.push(
       monitorLocation(
         logsMonitorQuery(
           {
             limit: 20,
-            from_ms: report.from_ms,
-            to_ms: report.to_ms,
+            from_ms: logRange.from_ms,
+            to_ms: logRange.to_ms,
             access_key_id: filters.access_key_id,
             group_id: filters.group_id,
             channel_id: filters.channel_id,
@@ -127,7 +130,7 @@ function selectTab(value: string): void {
             filtersOpen: false,
             cursorHistory: [],
             usageRange: filters.range,
-            usageAtMS: filters.at_ms ?? report.observed_at_ms,
+            usageAtMS: filters.at_ms ?? report?.observed_at_ms,
           },
         ),
       ),

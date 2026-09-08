@@ -100,6 +100,9 @@ const report = computed(() => usageQuery.data.value)
 const navigationReport = computed(() =>
   usageQuery.isPlaceholderData.value ? undefined : report.value,
 )
+const navigationPending = computed(
+  () => usageQuery.isFetching.value && navigationReport.value === undefined,
+)
 const distributionDimension = ref<UsageDistributionDimension>('model')
 const distributionMetric = ref<UsageDistributionMetric>('cost')
 const distribution = computed(() => {
@@ -423,7 +426,7 @@ async function refresh(): Promise<void> {
   ])
 }
 
-defineExpose({ openFilters, refresh, navigationReport })
+defineExpose({ openFilters, refresh, navigationReport, navigationPending })
 </script>
 
 <template>

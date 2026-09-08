@@ -207,6 +207,53 @@ func TestUsageAPIReturnsExactPresetRange(t *testing.T) {
 	}
 }
 
+func TestUsageAPIValidatesAnchorRangeBoundaries(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.September, 8, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		rangeValue  string
+		firstAnchor time.Duration
+		span        time.Duration
+	}{
+		{"", 23 * time.Hour, 24 * time.Hour},
+		{"1h", time.Hour, time.Hour},
+		{"24h", 23 * time.Hour, 24 * time.Hour},
+		{"3d", 69 * time.Hour, 72 * time.Hour},
+		{"7d", 162 * time.Hour, 168 * time.Hour},
+		{"15d", 348 * time.Hour, 360 * time.Hour},
+		{"30d", 29 * 24 * time.Hour, 30 * 24 * time.Hour},
+	}
+	for _, test := range tests {
+		t.Run(test.rangeValue, func(t *testing.T) {
+			reader := &recordingUsageStatReader{}
+			engine, _ := newUsageTestEngine(t, now, reader)
+			params := url.Values{}
+			if test.rangeValue != "" {
+				params.Set("range", test.rangeValue)
+			}
+			for _, anchor := range []int64{0, 1, test.firstAnchor.Milliseconds() - 1} {
+				t.Run(strconv.FormatInt(anchor, 10), func(t *testing.T) {
+					params.Set("at_ms", strconv.FormatInt(anchor, 10))
+					recorder := performUsageRequest(engine, "test-auth-key", params.Encode())
+					assertUsageErrorCode(t, recorder, "BAD_REQUEST")
+				})
+			}
+			if len(reader.queries) != 0 {
+				t.Fatalf("invalid anchor reached usage reader: %d calls", len(reader.queries))
+			}
+			params.Set("at_ms", strconv.FormatInt(test.firstAnchor.Milliseconds(), 10))
+			recorder := performUsageRequest(engine, "test-auth-key", params.Encode())
+			if recorder.Code != http.StatusOK || len(reader.queries) != 1 {
+				t.Fatalf("earliest valid anchor = %d %s, reader calls=%d", recorder.Code, recorder.Body.String(), len(reader.queries))
+			}
+			query := reader.queries[0]
+			if query.FromMS != 0 || query.ToMS != test.span.Milliseconds() {
+				t.Fatalf("earliest window = [%d, %d), want [0, %d)", query.FromMS, query.ToMS, test.span.Milliseconds())
+			}
+		})
+	}
+}
+
 func TestUsageAPIRollingHourRefreshUsesNewObservationAndPreservesFilters(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.September, 7, 14, 5, 23, 123_000_000, time.UTC)
@@ -647,6 +694,14 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 	}{
 		{query: "unknown=1", code: "BAD_REQUEST"},
 		{query: "range=24h&range=30d", code: "BAD_REQUEST"},
+		{query: "at_ms=", code: "BAD_REQUEST"},
+		{query: "at_ms=-1", code: "BAD_REQUEST"},
+		{query: "at_ms=01", code: "BAD_REQUEST"},
+		{query: "at_ms=1.5", code: "BAD_REQUEST"},
+		{query: "at_ms=9007199254740991", code: "BAD_REQUEST"},
+		{query: "at_ms=9007199254740992", code: "BAD_REQUEST"},
+		{query: "at_ms=3600000&at_ms=7200000", code: "BAD_REQUEST"},
+		{query: "at_ms=3600000&from_ms=0&to_ms=3600000", code: "BAD_REQUEST"},
 		{query: "from=1&to=2", code: "BAD_REQUEST"},
 		{query: "from_ms=1", code: "VALIDATION_FAILED"},
 		{query: "from_ms=01&to_ms=2", code: "BAD_REQUEST"},

@@ -207,7 +207,10 @@ export function inspectorMonitorQuery(state: InspectorMonitorState): LocationQue
 export function parseLogsMonitorState(query: Record<string, unknown>): LogsMonitorState {
   return {
     usageAtMS: normalizeUsageGroupID(query.usage_at_ms),
-    usageRange: parseAppliedUsageFilters({ range: query.usage_range }).range,
+    usageRange:
+      query.usage_range === undefined
+        ? undefined
+        : parseAppliedUsageFilters({ range: query.usage_range }).range,
     filtersOpen: query.panel === 'filters',
     cursorHistory: parseLogCursorHistory(query.log_cursors),
     selectedRequestID: parseSelectedRequestID(query),
@@ -221,6 +224,8 @@ export function logsMonitorQuery(
   const normalized = serializeAppliedLogFilters(filters)
   if (state.usageAtMS !== undefined) {
     normalized.usage_at_ms = String(state.usageAtMS)
+  }
+  if (state.usageRange !== undefined || state.usageAtMS !== undefined) {
     normalized.usage_range = state.usageRange ?? defaultTimeRange
   }
   if (state.filtersOpen) normalized.panel = 'filters'
