@@ -48,7 +48,6 @@ type AccessKeyCollectionResponse struct {
 
 type accessKeyCollectionRecord struct {
 	AccessKeyCollectionItem
-	expiring  bool
 	usageCost int64
 }
 
@@ -75,7 +74,7 @@ func (s *Service) ListAccessKeyCollection(
 	if s.now != nil {
 		observedAt = s.now()
 	}
-	usageQuery, apiErr := parseUsageQuery("range="+query.Range, observedAt.UnixMilli())
+	usageQuery, apiErr := parseUsageQuery("range="+usageRange7Days, observedAt.UnixMilli())
 	if apiErr != nil {
 		return AccessKeyCollectionResponse{}, apiErr
 	}
@@ -84,7 +83,7 @@ func (s *Service) ListAccessKeyCollection(
 		return AccessKeyCollectionResponse{}, err
 	}
 	result := queryAccessKeyCollectionRecords(records, query)
-	result.UsageWindow = &AccessKeyUsageWindow{ObservedAtMS: observedAt.UnixMilli(), Range: query.Range, FromMS: usageQuery.FromMS, ToMS: usageQuery.ToMS}
+	result.UsageWindow = &AccessKeyUsageWindow{ObservedAtMS: observedAt.UnixMilli(), Range: usageRange7Days, FromMS: usageQuery.FromMS, ToMS: usageQuery.ToMS}
 	return result, nil
 }
 
@@ -174,7 +173,6 @@ func (s *Service) captureAccessKeyCollectionRecords(
 			return nil, err
 		}
 		records = append(records, accessKeyCollectionRecord{
-			expiring:  row.ExpiresAtMS != nil && *row.ExpiresAtMS > observedAtMS && *row.ExpiresAtMS <= observedAt.Add(72*time.Hour).UnixMilli(),
 			usageCost: usageByKey[row.ID].EstimatedCostNanoUSD,
 			AccessKeyCollectionItem: AccessKeyCollectionItem{
 				Usage:             &usageDistributionAggregateResponse{RequestCount: aggregate.RequestCount, TotalTokens: aggregate.TotalTokens, EstimatedCostNanoUSD: aggregate.EstimatedCostNanoUSD},

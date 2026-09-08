@@ -254,8 +254,6 @@ export default {
         unlimited: '不限',
         protocols: '可用协议',
         allProtocols: '全部协议',
-        groups: '分组范围',
-        allGroups: '全部分组',
         models: '模型范围',
         allModels: '全部模型',
         lastRequest: '最近请求',

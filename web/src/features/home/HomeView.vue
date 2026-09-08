@@ -202,7 +202,6 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
         <CurrentAccessKeyCard
           v-if="baseQuery.data.value.current_access_key"
           :access-key="baseQuery.data.value.current_access_key"
-          :contact-info="baseQuery.data.value.contact_info"
         />
 
         <GatewayConnection

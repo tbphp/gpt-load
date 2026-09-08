@@ -10,7 +10,6 @@ import {
 } from '@/app/route-query'
 
 const defaultFilters: AccessKeyCollectionFilters = {
-  range: '7d',
   sort: 'updated_desc',
   page: 1,
   page_size: 20,
@@ -48,15 +47,8 @@ export function parseAccessKeyCollectionRouteQuery(
   const status = scalarRouteQuery(query.status)
   const page = parsePositiveRouteInteger(query.page)
 
-  for (const [key, allowed] of Object.entries({
-    range: ['7d', '30d'],
-    sort: ['updated_desc', 'cost_desc', 'expires_asc'],
-    expiration: ['expiring', 'expired'],
-    quota: ['available', 'exhausted'],
-  })) {
-    const value = scalarRouteQuery(query[key])
-    if (value !== undefined && allowed.includes(value)) Object.assign(filters, { [key]: value })
-  }
+  const sort = scalarRouteQuery(query.sort)
+  if (sort === 'updated_desc' || sort === 'cost_desc' || sort === 'expires_asc') filters.sort = sort
   if (q) filters.q = q
   if (status !== undefined && statuses.has(status as AccessKeyCollectionStatus)) {
     filters.status = status as AccessKeyCollectionStatus
@@ -71,10 +63,7 @@ export function serializeAccessKeyCollectionRouteQuery(
 ): LocationQueryRaw {
   const query: LocationQueryRaw = {}
   const q = normalizeAccessKeyCollectionSearchQuery(filters.q)
-  for (const key of ['range', 'sort', 'expiration', 'quota'] as const) {
-    if (filters[key] !== undefined && filters[key] !== defaultFilters[key])
-      query[key] = filters[key]
-  }
+  if (filters.sort !== undefined && filters.sort !== defaultFilters.sort) query.sort = filters.sort
   if (q) query.q = q
   if (filters.status !== undefined) query.status = filters.status
   if (filters.page !== defaultFilters.page) query.page = String(filters.page)

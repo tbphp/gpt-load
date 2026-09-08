@@ -56,7 +56,6 @@ import {
 } from './monitor-route'
 import UsageFilterForm from './UsageFilterForm.vue'
 import UsageSummary from './UsageSummary.vue'
-import AccessKeySelect from '@/features/access-keys/AccessKeySelect.vue'
 
 const client = useApiClient()
 const session = useAuthSession()
@@ -431,13 +430,6 @@ defineExpose({ openFilters, refresh, navigationReport, navigationPending })
 
 <template>
   <div class="usage-tab">
-    <AccessKeySelect
-      v-if="!isAccessKey"
-      :model-value="appliedFilters.access_key_id"
-      :options="accessKeysQuery.data.value ?? []"
-      :disabled="accessKeysQuery.isPending.value || accessKeysQuery.isError.value"
-      @update:model-value="navigate({ ...appliedFilters, access_key_id: $event })"
-    />
     <AsyncRefreshIndicator :active="usageRefreshing" :label="t('monitor.usage.loading')" />
 
     <SkeletonSurface
@@ -716,6 +708,8 @@ defineExpose({ openFilters, refresh, navigationReport, navigationPending })
       :errors="filterErrors"
       :groups="groupsQuery.data.value ?? []"
       :channels="channelsQuery.data.value?.items ?? []"
+      :access-keys="accessKeysQuery.data.value ?? []"
+      :access-keys-failed="accessKeysQuery.isError.value"
       :groups-failed="groupsQuery.isError.value"
       :channels-failed="channelsQuery.isError.value"
       :self-scoped="isAccessKey"

@@ -33,7 +33,6 @@ import { formatLocalInstant } from '@/lib/format'
 import BrowserAccessSection from './BrowserAccessSection.vue'
 import ConnectionSettingsSection from './ConnectionSettingsSection.vue'
 import DataMaintenanceSection from './DataMaintenanceSection.vue'
-import ContactSettingRow from './ContactSettingRow.vue'
 import ReliabilitySettingsSection from './ReliabilitySettingsSection.vue'
 import RoutingSettingsSection from './RoutingSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
@@ -171,7 +170,6 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
     if (!current.overrides.has(key)) return false
     if (timeoutKeys.includes(key as (typeof timeoutKeys)[number]))
       return !isValidTimeout(current.values[key as (typeof timeoutKeys)[number]])
-    if (key === 'contact_info') return [...current.values.contact_info].length > 500
     if (key === 'header_rules') return !headerRulesValid.value
     if (key === 'cors') return !corsValid.value
     if (key === 'response_header_rules') return !responseHeaderRulesValid.value
@@ -290,7 +288,6 @@ function confirmDiscard(): void {
 }
 
 function settingLabel(key: RuntimeSettingKey): string {
-  if (key === 'contact_info') return t('settings.contactInfo')
   if (key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity')
     return t(`settings.affinity.${key}`)
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
@@ -307,7 +304,6 @@ function settingTarget(key: RuntimeSettingKey): string {
 }
 
 function sectionForKey(key: RuntimeSettingKey): SettingsSection {
-  if (key === 'contact_info') return 'system'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'browser-access'
   if (
@@ -451,14 +447,7 @@ onBeforeUnmount(() => {
             />
           </template>
 
-          <SystemInfoSection
-            ><ContactSettingRow
-              v-if="base && draft"
-              :base="base"
-              :draft="draft"
-              :disabled="pageOperationLocked"
-              @change="updateDraft"
-          /></SystemInfoSection>
+          <SystemInfoSection />
         </div>
       </div>
 

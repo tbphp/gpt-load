@@ -26,7 +26,7 @@ const importedCredentialResourcePlan = (groupID: number) =>
 
 export const mutationInvalidationPlans = {
   settings: {
-    update: () => plan([], [controlQueryKeys.groups.settingsAll(), controlQueryKeys.home.base()]),
+    update: () => plan([], [controlQueryKeys.groups.settingsAll()]),
   },
   group: {
     create: plan(

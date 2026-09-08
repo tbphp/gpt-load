@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ArrowRight, ChartNoAxesCombined, List, Copy, RotateCcw, Trash2 } from '@lucide/vue'
-import { computed, watch } from 'vue'
+import { ArrowRight, Ellipsis } from '@lucide/vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
@@ -9,7 +9,9 @@ import type { AccessKeyCollectionItemDto, GroupOptionDto } from '@/api/control/t
 import { revealAccessKey } from '@/app/resources/access-keys'
 import { useAbortControllerPool } from '@/app/use-abort-controller-pool'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
-import AppButton from '@/components/ui/AppButton.vue'
+import AppSwitch from '@/components/ui/AppSwitch.vue'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
+import QuotaProgressBar from '@/components/ui/QuotaProgressBar.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -19,26 +21,28 @@ import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import { monitorLocation } from '@/app/route-locations'
 import { formatEstimatedCost, formatInteger, formatTokens, formatUSD } from '@/lib/format'
+import { quotaProgressTone } from '@/lib/quota-progress'
 
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import AccessKeyCostLimitResetDialog from './AccessKeyCostLimitResetDialog.vue'
 import { presentAccessKeyCollection } from './access-key-presenter'
 
 const props = defineProps<{
-  usageWindow: { range: '7d' | '30d'; from_ms: number; to_ms: number; observed_at_ms: number }
+  usageWindow: { range: '7d'; from_ms: number; to_ms: number; observed_at_ms: number }
   accessKeys: readonly AccessKeyCollectionItemDto[]
   groups: readonly GroupOptionDto[]
   total: number
   filteredTotal: number
   page: number
   pageSize: number
+  optimisticEnabled: ReadonlyMap<number, boolean>
   busyIds: ReadonlySet<number>
   lockedIds: ReadonlySet<number>
 }>()
 const emit = defineEmits<{
   open: [accessKey: AccessKeyCollectionItemDto, trigger: HTMLElement]
   clone: [accessKey: AccessKeyCollectionItemDto]
-  toggle: [accessKey: AccessKeyCollectionItemDto]
+  toggle: [accessKey: AccessKeyCollectionItemDto, enabled: boolean]
   deleted: [name: string]
   reset: [name: string]
 }>()
@@ -63,12 +67,6 @@ function viewLogs(id: number): void {
       usage_range: props.usageWindow.range,
       usage_at_ms: String(props.usageWindow.observed_at_ms),
     }),
-  )
-}
-function quotaRules(id: number) {
-  return [...(source(id).cost_limit_status?.rules ?? [])].sort(
-    (a, b) =>
-      Number(a.remaining_usd) / Number(a.limit_usd) - Number(b.remaining_usd) / Number(b.limit_usd),
   )
 }
 const client = useApiClient()
@@ -101,6 +99,67 @@ function source(id: number): AccessKeyCollectionItemDto {
   return accessKey
 }
 
+const quotas = computed(
+  () =>
+    new Map(
+      props.accessKeys.map((key) => {
+        const rules = key.cost_limit_status?.rules ?? []
+        const percent = rules.length
+          ? Math.min(
+              ...rules.map((rule) =>
+                rule.status === 'inactive'
+                  ? 100
+                  : Math.round(
+                      Math.max(
+                        0,
+                        Math.min(100, (Number(rule.remaining_usd) / Number(rule.limit_usd)) * 100),
+                      ),
+                    ),
+              ),
+            )
+          : undefined
+        const tooltip = rules.length
+          ? rules
+              .map((rule) => {
+                const label =
+                  rule.kind === 'total'
+                    ? t('accessKeys.distribution.totalQuota')
+                    : t('accessKeys.distribution.periodic', { hours: rule.period_seconds / 3600 })
+                return `${label} · ${t('accessKeys.distribution.remaining', { amount: formatUSD(rule.remaining_usd, locale.value) })}`
+              })
+              .join('\n')
+          : t('accessKeys.unlimited')
+        return [
+          key.id,
+          {
+            percent,
+            tone: quotaProgressTone(
+              percent ?? 100,
+              rules.some((rule) => rule.status === 'exhausted'),
+            ),
+            tooltip,
+          },
+        ] as const
+      }),
+    ),
+)
+const menuKeyID = ref<number>()
+const dialogKey = ref<AccessKeyCollectionItemDto | null>(null)
+const deleteDialog = ref<InstanceType<typeof AccessKeyDeleteDialog>>()
+const resetDialog = ref<InstanceType<typeof AccessKeyCostLimitResetDialog>>()
+
+type MenuAction = 'usage' | 'logs' | 'clone' | 'reset' | 'delete'
+async function runMenuAction(id: number, action: MenuAction): Promise<void> {
+  menuKeyID.value = undefined
+  if (action === 'usage') return viewUsage(id)
+  if (action === 'logs') return viewLogs(id)
+  if (action === 'clone') return emit('clone', source(id))
+  dialogKey.value = source(id)
+  await nextTick()
+  if (action === 'delete') deleteDialog.value?.open()
+  else resetDialog.value?.open()
+}
+
 async function resolveCopyValue(id: number): Promise<string> {
   const controller = copyControllers.create()
   try {
@@ -112,6 +171,7 @@ async function resolveCopyValue(id: number): Promise<string> {
 }
 
 function conceal(): void {
+  menuKeyID.value = undefined
   copyControllers.abortAll()
 }
 
@@ -153,6 +213,7 @@ watch(
       <div class="ledger-record-list__cell access-key-secret-cell" role="cell">
         <span class="mobile-label">{{ t('accessKeys.columns.key') }}</span>
         <CopyChip
+          layout="trailing"
           :value="record.maskedKey"
           :label="t('accessKeys.copy')"
           :success-label="t('common.copied')"
@@ -163,6 +224,12 @@ watch(
 
       <div class="ledger-record-list__cell access-key-status" role="cell">
         <span class="mobile-label">{{ t('accessKeys.columns.status') }}</span>
+        <AppSwitch
+          :model-value="optimisticEnabled.get(record.id) ?? record.status === 'active'"
+          :disabled="busyIds.has(record.id) || lockedIds.has(record.id)"
+          :label="t('accessKeys.actions.toggle', { name: record.name })"
+          @update:model-value="emit('toggle', source(record.id), $event)"
+        />
         <StatusBadge :tone="record.status === 'active' ? 'success' : 'neutral'">
           {{ t(`accessKeys.status.${record.status}`) }}
         </StatusBadge>
@@ -200,35 +267,18 @@ watch(
             })
           }}</span>
         </template>
-        <AppPopover v-if="quotaRules(record.id).length">
-          <template #trigger
-            ><button type="button" class="access-key-quota-link">
-              {{
-                t('accessKeys.distribution.remaining', {
-                  amount: formatUSD(quotaRules(record.id)[0]!.remaining_usd, locale),
-                })
-              }}
-            </button></template
-          >
-          <dl class="access-key-quota-detail">
-            <template v-for="rule in quotaRules(record.id)" :key="rule.id"
-              ><dt>
-                {{
-                  rule.kind === 'total'
-                    ? t('accessKeys.distribution.totalQuota')
-                    : t('accessKeys.distribution.periodic', {
-                        hours: (rule.period_seconds ?? 0) / 3600,
-                      })
-                }}
-              </dt>
-              <dd>
-                {{ formatUSD(rule.remaining_usd, locale) }} /
-                {{ formatUSD(rule.limit_usd, locale) }}
-              </dd></template
-            >
-          </dl>
-        </AppPopover>
-        <span v-else>{{ record.limits[0] }}</span>
+        <AppTooltip :content="quotas.get(record.id)!.tooltip" align="start">
+          <span class="access-key-quota" tabindex="0">
+            <span>{{ t('accessKeys.distribution.remainingLabel') }}</span>
+            <QuotaProgressBar
+              :value="quotas.get(record.id)!.percent"
+              :tone="quotas.get(record.id)!.tone"
+              :label="t('accessKeys.distribution.remainingLabel')"
+              :value-text="quotas.get(record.id)!.tooltip"
+              compact
+            />
+          </span>
+        </AppTooltip>
       </div>
 
       <div class="ledger-record-list__cell access-key-last-request" role="cell">
@@ -249,80 +299,47 @@ watch(
       </div>
 
       <div class="ledger-record-list__cell record-actions" role="cell">
-        <IconButton
-          variant="ghost"
-          size="compact"
-          :label="t('accessKeys.distribution.viewUsage')"
-          :title="t('accessKeys.distribution.viewUsage')"
-          @click="viewUsage(record.id)"
-          ><ChartNoAxesCombined :size="15"
-        /></IconButton>
-        <IconButton
-          variant="ghost"
-          size="compact"
-          :label="t('accessKeys.distribution.viewLogs')"
-          :title="t('accessKeys.distribution.viewLogs')"
-          @click="viewLogs(record.id)"
-          ><List :size="15"
-        /></IconButton>
-        <IconButton
-          variant="ghost"
-          size="compact"
-          :label="t('accessKeys.distribution.clone')"
-          :title="t('accessKeys.distribution.clone')"
-          :disabled="lockedIds.has(record.id)"
-          @click="emit('clone', source(record.id))"
-          ><Copy :size="15"
-        /></IconButton>
-        <AppButton
-          variant="secondary"
-          :tone="record.status === 'active' ? 'warning' : 'success'"
-          size="compact"
-          :busy="busyIds.has(record.id)"
-          :disabled="lockedIds.has(record.id)"
-          @click="emit('toggle', source(record.id))"
+        <AppPopover
+          :open="menuKeyID === record.id"
+          align="end"
+          content-class="app-popover__content--access-key-menu"
+          @update:open="menuKeyID = $event ? record.id : undefined"
         >
-          {{
-            record.status === 'active'
-              ? t('accessKeys.actions.disable')
-              : t('accessKeys.actions.enable')
-          }}
-        </AppButton>
-        <AccessKeyCostLimitResetDialog
-          v-if="record.costLimitRuleCount > 0"
-          :access-key="source(record.id)"
-          @reset="emit('reset', $event)"
-        >
-          <template #trigger="{ open }">
+          <template #trigger>
             <IconButton
               variant="ghost"
               size="compact"
-              :label="t('accessKeys.reset.open')"
+              :label="t('accessKeys.actions.more')"
               :disabled="busyIds.has(record.id) || lockedIds.has(record.id)"
-              @click="open"
-            >
-              <RotateCcw :size="15" aria-hidden="true" />
-            </IconButton>
+              ><Ellipsis :size="16" aria-hidden="true"
+            /></IconButton>
           </template>
-        </AccessKeyCostLimitResetDialog>
-        <AccessKeyDeleteDialog
-          :access-key="source(record.id)"
-          :total="total"
-          @deleted="emit('deleted', $event)"
-        >
-          <template #trigger="{ open }">
-            <IconButton
-              variant="ghost"
-              tone="danger"
-              size="compact"
-              :label="t('accessKeys.delete.open')"
-              :disabled="busyIds.has(record.id) || lockedIds.has(record.id)"
-              @click="open"
+          <div class="access-key-menu">
+            <button type="button" @click="runMenuAction(record.id, 'usage')">
+              {{ t('accessKeys.distribution.viewUsage') }}
+            </button>
+            <button type="button" @click="runMenuAction(record.id, 'logs')">
+              {{ t('accessKeys.distribution.viewLogs') }}
+            </button>
+            <button type="button" @click="runMenuAction(record.id, 'clone')">
+              {{ t('accessKeys.distribution.clone') }}
+            </button>
+            <button
+              v-if="record.costLimitRuleCount > 0"
+              type="button"
+              @click="runMenuAction(record.id, 'reset')"
             >
-              <Trash2 :size="15" aria-hidden="true" />
-            </IconButton>
-          </template>
-        </AccessKeyDeleteDialog>
+              {{ t('accessKeys.reset.open') }}
+            </button>
+            <button
+              type="button"
+              class="access-key-menu__danger"
+              @click="runMenuAction(record.id, 'delete')"
+            >
+              {{ t('accessKeys.delete.open') }}
+            </button>
+          </div>
+        </AppPopover>
         <IconButton
           variant="ghost"
           size="compact"
@@ -335,6 +352,20 @@ watch(
       </div>
     </article>
   </LedgerRecordList>
+  <template v-if="dialogKey">
+    <AccessKeyDeleteDialog
+      ref="deleteDialog"
+      hide-trigger
+      :access-key="dialogKey"
+      :total="total"
+      @deleted="emit('deleted', $event)"
+    />
+    <AccessKeyCostLimitResetDialog
+      ref="resetDialog"
+      :access-key="dialogKey"
+      @reset="emit('reset', $event)"
+    />
+  </template>
 </template>
 
 <style scoped>
@@ -346,31 +377,50 @@ watch(
 .access-key-expiry--expired {
   color: var(--color-danger);
 }
-.access-key-quota-link {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--color-action);
-  font: inherit;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+.access-key-quota {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+  font-family: var(--font-sans);
+  font-size: var(--text-label-xs);
 }
-.access-key-quota-detail {
+.access-key-quota :deep(.quota-progress) {
+  width: 76px;
+}
+.access-key-quota:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.access-key-menu {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  margin: 0;
-  font-size: var(--text-sm);
+  gap: 2px;
 }
-.access-key-quota-detail dd {
-  margin: 0;
-  font-family: var(--font-mono);
+.access-key-menu button {
+  min-height: 34px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text);
+  padding: 7px 10px;
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.access-key-menu button:hover,
+.access-key-menu button:focus-visible {
+  background: var(--color-surface-sunken);
+}
+.access-key-menu .access-key-menu__danger {
+  color: var(--color-danger);
 }
 
 .access-keys-record-grid {
-  --ledger-record-list-grid: minmax(100px, 0.8fr) minmax(145px, 1fr) 90px minmax(148px, 1fr)
-    minmax(145px, 1fr) minmax(120px, 0.9fr) 230px;
+  --ledger-record-list-grid: minmax(100px, 0.8fr) minmax(145px, 1fr) 136px minmax(148px, 1fr)
+    minmax(145px, 1fr) minmax(120px, 0.9fr) 64px;
   --ledger-record-list-column-gap: 14px;
 }
 
@@ -418,7 +468,7 @@ watch(
 .access-key-scope dt {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
-  text-align: right;
+  text-align: left;
 }
 
 .access-key-scope dd {
@@ -453,8 +503,8 @@ watch(
 
 @media (max-width: 1120px) {
   .access-keys-record-grid {
-    --ledger-record-list-grid: minmax(95px, 1fr) minmax(125px, 1fr) 80px minmax(130px, 1fr)
-      minmax(130px, 1fr) minmax(115px, 1fr) 230px;
+    --ledger-record-list-grid: minmax(95px, 1fr) minmax(125px, 1fr) 136px minmax(130px, 1fr)
+      minmax(130px, 1fr) minmax(115px, 1fr) 64px;
     --ledger-record-list-column-gap: 10px;
   }
 
@@ -467,7 +517,7 @@ watch(
 
 @media (max-width: 1023px) and (min-width: 861px) {
   .access-keys-record-grid {
-    --ledger-record-list-grid: minmax(90px, 0.8fr) minmax(125px, 1fr) 75px minmax(130px, 1fr) 230px;
+    --ledger-record-list-grid: minmax(90px, 0.8fr) minmax(125px, 1fr) 136px minmax(130px, 1fr) 64px;
   }
 
   .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(4)),
@@ -494,7 +544,6 @@ watch(
     grid-column: 1 / -1;
   }
 
-  .access-key-status,
   .access-key-rpm,
   .access-key-last-request {
     display: grid;
@@ -522,6 +571,10 @@ watch(
   .mobile-label {
     display: inline;
   }
+
+  .access-key-status .mobile-label {
+    flex-basis: 100%;
+  }
 }
 
 @media (max-width: 560px) {
@@ -532,5 +585,12 @@ watch(
   .access-key-scope dl > div {
     grid-template-columns: 42px minmax(0, 1fr);
   }
+}
+</style>
+
+<style>
+.app-popover__content--access-key-menu {
+  width: 164px;
+  padding: 5px;
 }
 </style>

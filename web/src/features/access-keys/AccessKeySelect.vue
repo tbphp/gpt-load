@@ -8,7 +8,10 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 
+defineOptions({ inheritAttrs: false })
+
 const props = defineProps<{
+  id?: string
   modelValue?: number
   options: AccessKeyOptionDto[]
   disabled?: boolean
@@ -43,9 +46,11 @@ function choose(id?: number): void {
 </script>
 
 <template>
-  <AppPopover v-model:open="open" align="start">
+  <AppPopover v-model:open="open" class="access-key-select" align="start">
     <template #trigger>
       <AppButton
+        v-bind="$attrs"
+        :id="id"
         variant="secondary"
         size="compact"
         :disabled="disabled"

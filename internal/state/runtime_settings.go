@@ -8,8 +8,6 @@ import (
 	"net/textproto"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
@@ -32,7 +30,6 @@ const (
 	SettingValidationInterval       = "validation_interval"
 	SettingRequestLogRetentionDays  = "request_log_retention_days"
 	SettingModelsDevAutoSyncEnabled = "models_dev_auto_sync_enabled"
-	SettingContactInfo              = "contact_info"
 	SettingParameterOverrides       = "parameter_overrides"
 )
 
@@ -53,7 +50,6 @@ const (
 )
 
 type RuntimeSettings struct {
-	ContactInfo              string
 	FirstByteTimeout         time.Duration
 	RequestTimeout           time.Duration
 	StreamIdleTimeout        time.Duration
@@ -116,7 +112,7 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingAffinityCapacity,
 		SettingValidationInterval,
 		SettingRequestLogRetentionDays,
-		SettingModelsDevAutoSyncEnabled, SettingContactInfo:
+		SettingModelsDevAutoSyncEnabled:
 		return true
 	default:
 		return false
@@ -216,12 +212,6 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.RequestLogRetentionDays = days
-		case SettingContactInfo:
-			text, err := parseContactInfo(value)
-			if err != nil {
-				return RuntimeSettings{}, err
-			}
-			resolved.ContactInfo = text
 		case SettingModelsDevAutoSyncEnabled:
 			value, err := strictBoolean(key, value)
 			if err != nil {
@@ -346,9 +336,6 @@ func ValidateRuntimeSetting(key string, value any) error {
 			minRequestLogRetentionDays,
 			maxRequestLogRetentionDays,
 		)
-		return err
-	case SettingContactInfo:
-		_, err := parseContactInfo(value)
 		return err
 	case SettingModelsDevAutoSyncEnabled:
 		_, err := strictBoolean(key, value)
@@ -627,17 +614,4 @@ func validHTTPHeaderValue(value string) bool {
 		}
 	}
 	return true
-}
-
-func parseContactInfo(value any) (string, error) {
-	text, ok := value.(string)
-	if !ok || !utf8.ValidString(text) || utf8.RuneCountInString(text) > 500 {
-		return "", fmt.Errorf("contact_info must contain at most 500 characters")
-	}
-	for _, r := range text {
-		if unicode.IsControl(r) && r != '\n' && r != '\t' {
-			return "", fmt.Errorf("contact_info contains a control character")
-		}
-	}
-	return text, nil
 }

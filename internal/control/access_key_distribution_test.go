@@ -58,10 +58,9 @@ func TestAccessKeyDistributionCollectionMatchesUsageAndSortsBeforePagination(t *
 		tokens int64
 		total  int64
 	}{
-		{"range=7d&sort=cost_desc&page_size=1", key2.ID, 2, "200", 18, 2},
-		{"range=7d&sort=cost_desc&page_size=1&page=2", key1.ID, 1, "100", 5, 2},
-		{"range=30d&sort=cost_desc&page_size=1", key1.ID, 31, "3100", 5, 2},
-		{"range=7d&expiration=expiring&sort=expires_asc", key2.ID, 2, "200", 18, 1},
+		{"sort=cost_desc&page_size=1", key2.ID, 2, "200", 18, 2},
+		{"sort=cost_desc&page_size=1&page=2", key1.ID, 1, "100", 5, 2},
+		{"sort=expires_asc&page_size=1", key2.ID, 2, "200", 18, 2},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/api/access-keys?"+tc.query, nil)
@@ -77,11 +76,15 @@ func TestAccessKeyDistributionCollectionMatchesUsageAndSortsBeforePagination(t *
 						ID    uint                               `json:"id"`
 						Usage usageDistributionAggregateResponse `json:"usage"`
 					}
-					Pagination AccessKeyCollectionPagination `json:"pagination"`
+					Pagination  AccessKeyCollectionPagination `json:"pagination"`
+					UsageWindow AccessKeyUsageWindow          `json:"usage_window"`
 				}
 			}
 			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 				t.Fatal(err)
+			}
+			if result.Data.UsageWindow.Range != "7d" || result.Data.UsageWindow.FromMS != window.FromMS || result.Data.UsageWindow.ToMS != window.ToMS {
+				t.Fatalf("collection window = %+v, want fixed 7-day window", result.Data.UsageWindow)
 			}
 			if len(result.Data.Items) != 1 || result.Data.Items[0].ID != tc.want || result.Data.Items[0].Usage.RequestCount != tc.count || result.Data.Items[0].Usage.EstimatedCostNanoUSD != tc.cost || result.Data.Items[0].Usage.TotalTokens != tc.tokens || result.Data.Pagination.TotalItems != tc.total {
 				t.Fatalf("collection = %+v", result)
@@ -101,60 +104,29 @@ func TestAccessKeyDistributionCollectionMatchesUsageAndSortsBeforePagination(t *
 	}
 }
 
-func TestDistributionContactSettingPublishesToAccessKeyHome(t *testing.T) {
+func TestRemovedContactSettingIsNotExposed(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
-	key, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{Name: "contact viewer"})
+	key, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{Name: "viewer"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{Settings: map[string]json.RawMessage{"contact_info": json.RawMessage(`"Contact: admin@example.test"`)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	serialized, err := json.Marshal(updated.Values)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var values map[string]any
-	if err := json.Unmarshal(serialized, &values); err != nil {
-		t.Fatal(err)
-	}
-	if values["contact_info"] != "Contact: admin@example.test" {
-		t.Fatalf("settings contact = %v", values["contact_info"])
 	}
 	home, err := fixture.service.ReadAccessKeyHomeBase(t.Context(), fixture.service.now().UnixMilli(), key.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	serialized, err = json.Marshal(home)
+	serialized, err := json.Marshal(home)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var values map[string]json.RawMessage
 	if err := json.Unmarshal(serialized, &values); err != nil {
 		t.Fatal(err)
 	}
-	if values["contact_info"] != "Contact: admin@example.test" {
-		t.Fatalf("home contact = %v", values["contact_info"])
+	if _, exists := values["contact_info"]; exists {
+		t.Fatal("home still exposes removed contact information")
 	}
-	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{Settings: map[string]json.RawMessage{"contact_info": json.RawMessage(`42`)}}); err == nil {
-		t.Fatal("numeric contact accepted")
-	}
-	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{Settings: map[string]json.RawMessage{"contact_info": json.RawMessage(`null`)}}); err != nil {
-		t.Fatal(err)
-	}
-	home, err = fixture.service.ReadAccessKeyHomeBase(t.Context(), fixture.service.now().UnixMilli(), key.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	serialized, err = json.Marshal(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(serialized, &values); err != nil {
-		t.Fatal(err)
-	}
-	if values["contact_info"] != "" {
-		t.Fatalf("reset contact = %v", values["contact_info"])
+	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{Settings: map[string]json.RawMessage{"contact_info": json.RawMessage(`"removed"`)}}); err == nil {
+		t.Fatal("removed contact setting can still be updated")
 	}
 }

@@ -15,7 +15,7 @@ import { quotaProgressTone } from '@/lib/quota-progress'
 
 import AccessKeyCostLimitWindowTime from '@/features/access-keys/AccessKeyCostLimitWindowTime.vue'
 
-const props = defineProps<{ accessKey: AccessKeyCollectionItemDto; contactInfo?: string }>()
+const props = defineProps<{ accessKey: AccessKeyCollectionItemDto }>()
 const { locale, n, t } = useI18n()
 
 const rpm = computed(() =>
@@ -29,11 +29,6 @@ const protocols = computed(() =>
   props.accessKey.filters.protocols.length === 0
     ? t('home.ledger.currentAccessKey.allProtocols')
     : props.accessKey.filters.protocols.join(', '),
-)
-const groups = computed(() =>
-  props.accessKey.filters.groups.length === 0
-    ? t('home.ledger.currentAccessKey.allGroups')
-    : props.accessKey.filters.groups.map((id) => `#${id}`).join(', '),
 )
 const models = computed(() =>
   props.accessKey.filters.models.length === 0
@@ -115,27 +110,8 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
             v-if="accessKey.expires_at_ms !== null"
             :instant="accessKey.expires_at_ms"
             :locale="locale"
-          /><span v-else>{{ t('accessKeys.distribution.neverExpires') }}</span>
-        </dd>
-      </div>
-      <div>
-        <dt>{{ t('accessKeys.distribution.source') }}</dt>
-        <OverflowTooltip
-          as="dd"
-          :content="
-            accessKey.filters.allowed_cidrs.join(', ') || t('accessKeys.distribution.unrestricted')
-          "
-          >{{
-            accessKey.filters.allowed_cidrs.join(', ') || t('accessKeys.distribution.unrestricted')
-          }}</OverflowTooltip
-        >
-      </div>
-      <div>
-        <dt>{{ t('common.priceMultiplier.label') }}</dt>
-        <dd>
-          <OverflowTooltip :content="t('common.priceMultiplier.accessKeyHelp')">
-            ×{{ accessKey.price_multiplier }}
-          </OverflowTooltip>
+          />
+          <span v-else>{{ t('accessKeys.distribution.neverExpires') }}</span>
         </dd>
       </div>
       <div>
@@ -143,16 +119,12 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
         <dd>{{ rpm }}</dd>
       </div>
       <div>
-        <dt>{{ t('home.ledger.currentAccessKey.protocols') }}</dt>
-        <OverflowTooltip as="dd" :content="protocols">{{ protocols }}</OverflowTooltip>
-      </div>
-      <div>
-        <dt>{{ t('home.ledger.currentAccessKey.groups') }}</dt>
-        <OverflowTooltip as="dd" :content="groups">{{ groups }}</OverflowTooltip>
-      </div>
-      <div>
-        <dt>{{ t('home.ledger.currentAccessKey.models') }}</dt>
-        <OverflowTooltip as="dd" :content="models">{{ models }}</OverflowTooltip>
+        <dt>{{ t('common.priceMultiplier.label') }}</dt>
+        <dd>
+          <OverflowTooltip :content="t('common.priceMultiplier.accessKeyHelp')"
+            >×{{ accessKey.price_multiplier }}</OverflowTooltip
+          >
+        </dd>
       </div>
       <div>
         <dt>{{ t('home.ledger.currentAccessKey.lastRequest') }}</dt>
@@ -166,9 +138,24 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
         </dd>
       </div>
     </dl>
-    <p v-if="contactInfo" class="current-access-key__contact">
-      <strong>{{ t('accessKeys.distribution.contact') }}</strong> {{ contactInfo }}
-    </p>
+    <dl class="current-access-key__scope">
+      <div>
+        <dt>{{ t('accessKeys.distribution.source') }}</dt>
+        <dd>
+          {{
+            accessKey.filters.allowed_cidrs.join(', ') || t('accessKeys.distribution.unrestricted')
+          }}
+        </dd>
+      </div>
+      <div>
+        <dt>{{ t('home.ledger.currentAccessKey.protocols') }}</dt>
+        <dd>{{ protocols }}</dd>
+      </div>
+      <div>
+        <dt>{{ t('home.ledger.currentAccessKey.models') }}</dt>
+        <dd>{{ models }}</dd>
+      </div>
+    </dl>
 
     <section
       v-if="costLimits !== null && costLimits.rules.length > 0"
@@ -267,14 +254,6 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 </template>
 
 <style scoped>
-.current-access-key__contact {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .current-access-key {
   display: grid;
   gap: 14px;
@@ -312,7 +291,8 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 }
 
 .current-access-key__title p,
-.current-access-key__facts dt {
+.current-access-key__facts dt,
+.current-access-key__scope dt {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
@@ -345,30 +325,33 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
   color: var(--color-text-faint);
 }
 
-.current-access-key__facts {
+.current-access-key__facts,
+.current-access-key__scope {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin: 0;
-  gap: 1px;
-  background: var(--color-border-subtle);
+  gap: 14px 24px;
 }
-
-.current-access-key__facts > div {
-  min-width: 0;
-  background: var(--color-surface);
-  padding: 10px 12px;
+.current-access-key__facts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-top: 2px;
 }
-
-.current-access-key__facts dd {
-  display: block;
+.current-access-key__scope {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.5fr);
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 14px;
+}
+.current-access-key__facts > div,
+.current-access-key__scope > div {
   min-width: 0;
-  overflow: hidden;
+}
+.current-access-key__facts dd,
+.current-access-key__scope dd {
   margin: 5px 0 0;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .current-access-key__limits {
@@ -501,6 +484,10 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 @media (max-width: 860px) {
   .current-access-key__facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .current-access-key__scope {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

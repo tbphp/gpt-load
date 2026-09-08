@@ -39,7 +39,6 @@ export const runtimeSettingKeys = [
   'validation_interval',
   'request_log_retention_days',
   'models_dev_auto_sync_enabled',
-  'contact_info',
 ] as const
 
 export type RuntimeSettingKey = (typeof runtimeSettingKeys)[number]
@@ -55,7 +54,6 @@ export type TimeoutSettingKey = Exclude<
   | 'affinity_capacity'
   | 'request_log_retention_days'
   | 'models_dev_auto_sync_enabled'
-  | 'contact_info'
 >
 export type PolicyCountSettingKey = 'retry_count' | 'blacklist_threshold'
 
@@ -85,7 +83,6 @@ export interface SettingsValues {
   validation_interval: number
   request_log_retention_days: number
   models_dev_auto_sync_enabled: boolean
-  contact_info: string
   proxy_config: ProxyViewDto
 }
 
@@ -111,7 +108,6 @@ export type SettingsPatch = Partial<{
   validation_interval: number | null
   request_log_retention_days: number | null
   models_dev_auto_sync_enabled: boolean | null
-  contact_info: string | null
   proxy_config: ProxyMutation
 }>
 
@@ -216,7 +212,6 @@ export function projectSettings(value: unknown): SettingsDto {
         minimum: 1,
         maximum: 365,
       }),
-      contact_info: projectString(values.contact_info, { allowEmpty: true }),
       models_dev_auto_sync_enabled: projectBoolean(values.models_dev_auto_sync_enabled),
       proxy_config: projectProxyView(values.proxy_config),
     },

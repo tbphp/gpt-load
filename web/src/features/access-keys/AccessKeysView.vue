@@ -72,6 +72,7 @@ const viewRoot = ref<HTMLElement | null>(null)
 const collection = ref<InstanceType<typeof AccessKeyCollection> | null>(null)
 const deletionAnnouncement = ref('')
 const pendingStatusIDs = ref(new Set<number>())
+const optimisticEnabled = ref(new Map<number, boolean>())
 const lockedAccessKeyIDs = computed<ReadonlySet<number>>(() =>
   rotateOperation.value ? new Set([rotateOperation.value.base.id]) : new Set<number>(),
 )
@@ -111,46 +112,14 @@ const pageRefreshing = computed(
     (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
     (channelsQuery.data.value !== undefined && channelsQuery.isFetching.value),
 )
-const distributionFilters = computed(() => [
-  {
-    key: 'range' as const,
-    label: t('accessKeys.distribution.period'),
-    options: ['7d', '30d'].map((value) => ({
-      value,
-      label: t(`accessKeys.distribution.${value}`),
-    })),
-  },
-  {
-    key: 'sort' as const,
-    label: t('accessKeys.distribution.sort'),
-    options: ['updated_desc', 'cost_desc', 'expires_asc'].map((value) => ({
-      value,
-      label: t(`accessKeys.distribution.${value}`),
-    })),
-  },
-  {
-    key: 'expiration' as const,
-    label: t('accessKeys.distribution.expiration'),
-    options: ['', 'expiring', 'expired'].map((value) => ({
-      value,
-      label: t(`accessKeys.distribution.${value || 'all'}`),
-    })),
-  },
-  {
-    key: 'quota' as const,
-    label: t('accessKeys.distribution.quota'),
-    options: ['', 'available', 'exhausted'].map((value) => ({
-      value,
-      label: t(`accessKeys.distribution.${value || 'all'}`),
-    })),
-  },
-])
+const sortOptions = computed(() =>
+  ['updated_desc', 'cost_desc', 'expires_asc'].map((value) => ({
+    value,
+    label: t(`accessKeys.distribution.${value}`),
+  })),
+)
 const hasFilterCriteria = computed(
-  () =>
-    filters.value.q !== undefined ||
-    filters.value.status !== undefined ||
-    filters.value.expiration !== undefined ||
-    filters.value.quota !== undefined,
+  () => filters.value.q !== undefined || filters.value.status !== undefined,
 )
 const statusSummaryItems = computed(() => {
   const summary = data.value?.summary
@@ -418,10 +387,12 @@ async function handleSaved(
   name: string,
   key?: AccessKeyDto,
 ): Promise<void> {
-  if (kind === 'created' && key)
-    recentlyCreated.value = { id: key.id, name: key.name, expires_at_ms: key.expires_at_ms }
   await setDrawerOpen(false)
-  toast.show({ message: t(`accessKeys.toast.${kind}`, { name }) })
+  if (kind === 'created' && key) {
+    recentlyCreated.value = { id: key.id, name: key.name, expires_at_ms: key.expires_at_ms }
+  } else {
+    toast.show({ message: t(`accessKeys.toast.${kind}`, { name }) })
+  }
 }
 
 async function handleDeleted(name: string): Promise<void> {
@@ -458,9 +429,10 @@ function setStatusPending(id: number, pending: boolean): void {
   pendingStatusIDs.value = next
 }
 
-async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
+async function toggleStatus(accessKey: AccessKeyDto, enabled: boolean): Promise<void> {
   if (statusControllers.has(accessKey.id)) return
-  const status = accessKey.status === 'active' ? 'disabled' : 'active'
+  const status = enabled ? 'active' : 'disabled'
+  optimisticEnabled.value = new Map(optimisticEnabled.value).set(accessKey.id, enabled)
   const controller = new AbortController()
   statusControllers.set(accessKey.id, controller)
   setStatusPending(accessKey.id, true)
@@ -489,6 +461,9 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
     if (statusControllers.get(accessKey.id) === controller) {
       statusControllers.delete(accessKey.id)
       setStatusPending(accessKey.id, false)
+      const next = new Map(optimisticEnabled.value)
+      next.delete(accessKey.id)
+      optimisticEnabled.value = next
     }
   }
 }
@@ -657,18 +632,16 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
                 />
               </label>
 
-              <label
-                v-for="field in distributionFilters"
-                :key="field.key"
-                class="collection-filter-field"
-              >
-                <span class="collection-filter-label">{{ field.label }}</span>
+              <label class="collection-filter-field">
+                <span class="collection-filter-label">{{ t('accessKeys.distribution.sort') }}</span>
                 <AppSelect
-                  :model-value="filters[field.key] ?? ''"
-                  :label="field.label"
-                  :options="field.options"
+                  :model-value="filters.sort ?? 'updated_desc'"
+                  :label="t('accessKeys.distribution.sort')"
+                  :options="sortOptions"
                   size="compact"
-                  @update:model-value="updateConditions({ [field.key]: $event || undefined })"
+                  @update:model-value="
+                    updateConditions({ sort: $event as AccessKeyCollectionFilters['sort'] })
+                  "
                 />
               </label>
 
@@ -737,6 +710,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
               :page="data.pagination.page"
               :page-size="data.pagination.page_size"
               :busy-ids="pendingStatusIDs"
+              :optimistic-enabled="optimisticEnabled"
               :locked-ids="lockedAccessKeyIDs"
               @open="openKey"
               @clone="cloneKey"
@@ -762,7 +736,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
 
 <style scoped>
 .access-keys__filters.collection-filter-bar {
-  grid-template-columns: minmax(160px, 1fr) repeat(4, minmax(100px, auto));
+  grid-template-columns: minmax(160px, 1fr) 180px;
 }
 @media (max-width: 860px) {
   .access-keys__filters.collection-filter-bar {

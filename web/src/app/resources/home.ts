@@ -31,7 +31,6 @@ export type HomeRange = '24h' | '30d'
 export type HomeStatisticsGranularity = 'hour' | 'day'
 
 export interface HomeBaseDto {
-  contact_info: string
   server_now_ms: number
   started_at_ms: number
   version: string
@@ -133,7 +132,6 @@ export interface HomeSubscriptionAccountsDto {
 }
 
 const homeBaseFields = [
-  'contact_info',
   'server_now_ms',
   'started_at_ms',
   'version',
@@ -260,7 +258,6 @@ export function projectHomeBase(value: unknown): HomeBaseDto {
     previousID = accessKey.id
   }
   return {
-    contact_info: projectString(record.contact_info, { allowEmpty: true }),
     server_now_ms: serverNowMS,
     started_at_ms: startedAtMS,
     version: projectNonBlankTrimmedString(record.version),

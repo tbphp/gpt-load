@@ -33,7 +33,6 @@ type HomeAccessKey struct {
 }
 
 type HomeBase struct {
-	ContactInfo      string                   `json:"contact_info"`
 	Inventory        HomeInventory            `json:"inventory"`
 	AccessKeys       []HomeAccessKey          `json:"access_keys"`
 	CurrentAccessKey *AccessKeyCollectionItem `json:"current_access_key"`
@@ -184,9 +183,8 @@ func (s *Service) readHomeBase(
 		return HomeBase{}, err
 	}
 	result := HomeBase{
-		ContactInfo: snapshot.Settings.ContactInfo,
-		Inventory:   inventory,
-		AccessKeys:  accessKeys,
+		Inventory:  inventory,
+		AccessKeys: accessKeys,
 	}
 	if accessKeyID != nil {
 		current, err := mapHomeCurrentAccessKey(accessKeyRows[0], nowMS)

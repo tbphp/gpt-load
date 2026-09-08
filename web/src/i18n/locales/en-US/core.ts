@@ -268,8 +268,6 @@ export default {
         unlimited: 'Unlimited',
         protocols: 'Protocols',
         allProtocols: 'All protocols',
-        groups: 'Group scope',
-        allGroups: 'All Groups',
         models: 'Model scope',
         allModels: 'All models',
         lastRequest: 'Latest request',

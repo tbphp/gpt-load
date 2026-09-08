@@ -48,10 +48,7 @@ export function normalizeAccessKeyCollectionFilters(
   const query = filters.q?.trim()
   if (query) normalized.q = query
   if (filters.status !== undefined) normalized.status = filters.status
-  normalized.range = filters.range ?? '7d'
   normalized.sort = filters.sort ?? 'updated_desc'
-  if (filters.expiration !== undefined) normalized.expiration = filters.expiration
-  if (filters.quota !== undefined) normalized.quota = filters.quota
   return normalized
 }
 

@@ -14,14 +14,11 @@ const (
 )
 
 type AccessKeyCollectionQuery struct {
-	Range      string
-	Sort       string
-	Expiration string
-	Quota      string
-	Query      string
-	Status     *state.AccessKeyStatus
-	Page       int64
-	PageSize   int64
+	Sort     string
+	Query    string
+	Status   *state.AccessKeyStatus
+	Page     int64
+	PageSize int64
 }
 
 func queryAccessKeyCollectionRecords(
@@ -51,9 +48,6 @@ func queryAccessKeyCollectionRecords(
 }
 
 func normalizeAccessKeyCollectionQuery(query AccessKeyCollectionQuery) AccessKeyCollectionQuery {
-	if query.Range == "" {
-		query.Range = "7d"
-	}
 	if query.Page <= 0 {
 		query.Page = defaultAccessKeyCollectionPage
 	}
@@ -82,13 +76,6 @@ func matchesAccessKeyCollectionQuery(
 	record accessKeyCollectionRecord,
 	query AccessKeyCollectionQuery,
 ) bool {
-	if query.Expiration == "expired" && !record.Expired || query.Expiration == "expiring" && !record.expiring {
-		return false
-	}
-	exhausted := record.CostLimitStatus != nil && !record.CostLimitStatus.Allowed
-	if query.Quota == "exhausted" && !exhausted || query.Quota == "available" && exhausted {
-		return false
-	}
 	if query.Status != nil && record.Status != *query.Status {
 		return false
 	}

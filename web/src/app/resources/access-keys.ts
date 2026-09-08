@@ -371,7 +371,7 @@ export function projectAccessKeyCollection(value: unknown): AccessKeyCollectionR
   assertNoSecretLikeFields(window, ['range', 'from_ms', 'to_ms', 'observed_at_ms'])
   const usage_window = {
     observed_at_ms: projectEpochMilliseconds(window.observed_at_ms),
-    range: projectEnum(window.range, ['7d', '30d'] as const),
+    range: projectEnum(window.range, ['7d'] as const),
     from_ms: projectEpochMilliseconds(window.from_ms),
     to_ms: projectEpochMilliseconds(window.to_ms),
   }
@@ -402,9 +402,7 @@ export async function listAccessKeyCollection(
   })
   if (normalized.q !== undefined) params.set('q', normalized.q)
   if (normalized.status !== undefined) params.set('status', normalized.status)
-  for (const key of ['range', 'sort', 'expiration', 'quota'] as const) {
-    if (normalized[key] !== undefined) params.set(key, normalized[key])
-  }
+  if (normalized.sort !== undefined) params.set('sort', normalized.sort)
   const result = projectAccessKeyCollection(
     await client.request(`/api/access-keys?${params.toString()}`, { method: 'GET', signal }),
   )
