@@ -207,7 +207,6 @@ function applyUsageTimeRange(from: number, to: number, preset?: DateTimePreset):
               :label="t('monitor.usage.filters.range')"
               :from-label="t('monitor.logs.filters.from')"
               :to-label="t('monitor.logs.filters.to')"
-              :timezone-label="t('monitor.logs.filters.timezone')"
               :from-error="usageTimeErrors.from"
               :to-error="usageTimeErrors.to"
               :rolling-end-offset-ms="0"

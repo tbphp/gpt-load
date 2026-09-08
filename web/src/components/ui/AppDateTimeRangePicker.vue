@@ -4,7 +4,6 @@ import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import {
-  currentTimeZone,
   dateTimePresets,
   localDateTimeInput,
   resolveDateTimePreset,
@@ -24,7 +23,6 @@ const props = defineProps<{
   label: string
   fromLabel: string
   toLabel: string
-  timezoneLabel: string
   fromError?: string
   toError?: string
   preset?: DateTimePreset
@@ -42,7 +40,6 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const open = ref(false)
-const timezone = currentTimeZone()
 const fieldID = useId()
 
 const display = computed(
@@ -96,7 +93,11 @@ function apply(): void {
   <AppPopover
     :open="open"
     align="start"
-    content-class="app-date-range-popover"
+    :content-class="
+      applyLabel
+        ? 'app-date-range-popover app-date-range-popover--with-apply'
+        : 'app-date-range-popover'
+    "
     @update:open="changeOpen"
   >
     <template #trigger>
@@ -125,7 +126,10 @@ function apply(): void {
         {{ t(`monitor.logs.filters.quick.${shortcut}`) }}
       </AppButton>
     </div>
-    <div class="app-date-range__fields">
+    <div
+      class="app-date-range__fields"
+      :class="{ 'app-date-range__fields--with-apply': applyLabel }"
+    >
       <FormField :id="`${fieldID}-from`" :label="fromLabel" size="compact" :error="fromError">
         <template #default="{ describedBy, invalid }">
           <span class="app-date-range__input-shell">
@@ -143,34 +147,41 @@ function apply(): void {
           </span>
         </template>
       </FormField>
-      <FormField :id="`${fieldID}-to`" :label="toLabel" size="compact" :error="toError">
+      <FormField
+        :id="`${fieldID}-to`"
+        class="app-date-range__end-field"
+        :label="toLabel"
+        size="compact"
+        :error="toError"
+      >
         <template #default="{ describedBy, invalid }">
-          <span class="app-date-range__input-shell">
-            <input
-              :id="`${fieldID}-to`"
-              class="app-date-range__native-input"
-              :value="to"
-              type="datetime-local"
-              step="1"
-              :aria-label="toLabel"
-              :aria-describedby="describedBy"
-              :aria-invalid="invalid || undefined"
-              @input="updateLocalInput('to', ($event.target as HTMLInputElement).value)"
-            />
-          </span>
+          <div class="app-date-range__end-controls">
+            <span class="app-date-range__input-shell">
+              <input
+                :id="`${fieldID}-to`"
+                class="app-date-range__native-input"
+                :value="to"
+                type="datetime-local"
+                step="1"
+                :aria-label="toLabel"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="updateLocalInput('to', ($event.target as HTMLInputElement).value)"
+              />
+            </span>
+            <AppButton
+              v-if="applyLabel"
+              class="app-date-range__apply"
+              size="compact"
+              :disabled="applyDisabled"
+              @click="apply"
+            >
+              {{ applyLabel }}
+            </AppButton>
+          </div>
         </template>
       </FormField>
     </div>
-    <p class="app-date-range__timezone">{{ timezoneLabel }} · {{ timezone }}</p>
-    <AppButton
-      v-if="applyLabel"
-      class="app-date-range__apply"
-      size="compact"
-      :disabled="applyDisabled"
-      @click="apply"
-    >
-      {{ applyLabel }}
-    </AppButton>
   </AppPopover>
 </template>
 
@@ -191,16 +202,25 @@ function apply(): void {
   padding: 14px;
 }
 
+.app-date-range-popover--with-apply {
+  width: min(480px, var(--reka-popover-content-available-width));
+}
+
 .app-date-range__shortcuts {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 2px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
   border-bottom: 1px solid var(--color-border-subtle);
   padding-bottom: 10px;
 }
 
 .app-date-range__shortcuts .app-button {
+  flex: 1 0 auto;
+  padding-inline: 6px;
   white-space: nowrap;
 }
 
@@ -209,9 +229,8 @@ function apply(): void {
   color: var(--color-action);
 }
 
-.app-date-range__apply {
-  display: flex;
-  margin: 12px 0 0 auto;
+.app-date-range__end-controls .app-date-range__apply {
+  min-height: var(--control-xs);
 }
 
 .app-date-range__fields {
@@ -221,10 +240,28 @@ function apply(): void {
   padding-top: 12px;
 }
 
-.app-date-range__timezone {
-  margin: 10px 0 0;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
+.app-date-range__fields--with-apply {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+}
+
+.app-date-range__fields--with-apply .app-date-range__end-field {
+  grid-column: 2 / -1;
+  grid-template-columns: subgrid;
+}
+
+.app-date-range__end-controls {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+}
+
+.app-date-range__fields--with-apply .app-date-range__end-controls {
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.app-date-range__fields--with-apply .app-date-range__end-field > .form-field__error {
+  grid-column: 1 / -1;
 }
 
 .app-date-range__input-shell {
@@ -283,6 +320,12 @@ function apply(): void {
 
   .app-date-range__fields {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-date-range__fields--with-apply .app-date-range__end-field {
+    grid-column: 1;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
   }
 }
 </style>

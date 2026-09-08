@@ -514,7 +514,7 @@ defineExpose({ openFilters, refresh })
             id="usage-trend-title"
             :title="trendPresentation.title"
             :description="trendPresentation.description"
-            :meta="`${formatLocalTimeRange(report.from_ms, report.to_ms, locale, true)} · ${granularityLabel()}`"
+            :meta="granularityLabel()"
           >
             <template #actions>
               <SegmentedControl
