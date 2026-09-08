@@ -32,6 +32,7 @@ import {
   projectNullableEpochMilliseconds,
   projectPriceMultiplier,
   projectRecord,
+  projectNonNegativeInt64String,
   projectSafeInteger,
   projectString,
 } from './projector'
@@ -92,11 +93,11 @@ const metadataFields = [
   'created_at_ms',
   'updated_at_ms',
 ] as const
-const optionFields = ['id', 'name', 'status'] as const
-const collectionFields = ['summary', 'items', 'pagination'] as const
+const optionFields = ['id', 'name', 'status', 'key_suffix'] as const
+const collectionFields = ['summary', 'items', 'pagination', 'usage_window'] as const
 const collectionSummaryFields = ['total', 'active', 'disabled'] as const
 const collectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
-const collectionItemFields = [...metadataFields, 'expired', 'last_request_at_ms'] as const
+const collectionItemFields = [...metadataFields, 'expired', 'last_request_at_ms', 'usage'] as const
 const costLimitRuleFields = ['id', 'kind', 'limit_usd', 'period_seconds'] as const
 const costLimitRuleStatusFields = [
   ...costLimitRuleFields,
@@ -327,6 +328,16 @@ function expectedCollectionPageItems(pagination: AccessKeyCollectionPaginationDt
   return finalPageItems === 0 ? pagination.page_size : finalPageItems
 }
 
+function projectAccessKeyUsage(value: unknown) {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['request_count', 'total_tokens', 'estimated_cost_nano_usd'])
+  return {
+    request_count: projectSafeInteger(record.request_count, { minimum: 0 }),
+    total_tokens: projectSafeInteger(record.total_tokens, { minimum: 0 }),
+    estimated_cost_nano_usd: projectNonNegativeInt64String(record.estimated_cost_nano_usd),
+  }
+}
+
 export function projectAccessKeyCollectionItem(value: unknown): AccessKeyCollectionItemDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, collectionItemFields)
@@ -335,6 +346,7 @@ export function projectAccessKeyCollectionItem(value: unknown): AccessKeyCollect
   )
   return {
     ...metadata,
+    usage: record.usage === undefined ? undefined : projectAccessKeyUsage(record.usage),
     expired: projectBoolean(record.expired),
     last_request_at_ms: projectNullableEpochMilliseconds(record.last_request_at_ms),
   }
@@ -355,13 +367,23 @@ export function projectAccessKeyCollection(value: unknown): AccessKeyCollectionR
   ) {
     invalidResponse()
   }
-  return { summary, items, pagination }
+  const window = projectRecord(record.usage_window)
+  assertNoSecretLikeFields(window, ['range', 'from_ms', 'to_ms', 'observed_at_ms'])
+  const usage_window = {
+    observed_at_ms: projectEpochMilliseconds(window.observed_at_ms),
+    range: projectEnum(window.range, ['7d'] as const),
+    from_ms: projectEpochMilliseconds(window.from_ms),
+    to_ms: projectEpochMilliseconds(window.to_ms),
+  }
+  if (usage_window.to_ms <= usage_window.from_ms) invalidResponse()
+  return { summary, items, pagination, usage_window }
 }
 
 export function projectAccessKeyOption(value: unknown): AccessKeyOptionDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, optionFields)
   return {
+    key_suffix: projectString(record.key_suffix),
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankTrimmedString(record.name),
     status: projectEnum(record.status, ['active', 'disabled'] as const),
@@ -380,6 +402,7 @@ export async function listAccessKeyCollection(
   })
   if (normalized.q !== undefined) params.set('q', normalized.q)
   if (normalized.status !== undefined) params.set('status', normalized.status)
+  if (normalized.sort !== undefined) params.set('sort', normalized.sort)
   const result = projectAccessKeyCollection(
     await client.request(`/api/access-keys?${params.toString()}`, { method: 'GET', signal }),
   )

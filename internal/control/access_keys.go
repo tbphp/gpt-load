@@ -182,9 +182,10 @@ type AccessKeyCreateResult struct {
 }
 
 type AccessKeyOption struct {
-	ID     uint                  `json:"id"`
-	Name   string                `json:"name"`
-	Status state.AccessKeyStatus `json:"status"`
+	KeySuffix string                `json:"key_suffix"`
+	ID        uint                  `json:"id"`
+	Name      string                `json:"name"`
+	Status    state.AccessKeyStatus `json:"status"`
 }
 
 type AccessKeyRevealResult struct {
@@ -503,7 +504,7 @@ func (s *Service) ListAccessKeyOptions(ctx context.Context) ([]AccessKeyOption, 
 	var rows []AccessKeyOption
 	if err := s.db.WithContext(ctx).
 		Model(&models.AccessKey{}).
-		Select("id", "name", "status").
+		Select("id", "name", "status", "key_suffix").
 		Order("id ASC").
 		Scan(&rows).Error; err != nil {
 		return nil, app_errors.ParseDBError(err)

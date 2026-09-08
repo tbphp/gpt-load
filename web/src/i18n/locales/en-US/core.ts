@@ -268,12 +268,10 @@ export default {
         unlimited: 'Unlimited',
         protocols: 'Protocols',
         allProtocols: 'All protocols',
-        groups: 'Group scope',
-        allGroups: 'All Groups',
         models: 'Model scope',
         allModels: 'All models',
         lastRequest: 'Latest request',
-        neverRequested: 'No requests yet',
+        neverRequested: 'No requests within retention',
         costLimits: {
           title: 'Estimated cost allowance',
           available: 'Available',

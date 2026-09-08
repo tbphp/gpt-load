@@ -50,7 +50,7 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 			return err
 		}
 		distributions, err := queryUsageDistributions(
-			scope.Session(&gorm.Session{}), summary, input.AccessKeyID != nil,
+			scope.Session(&gorm.Session{}), summary, input.SelfScoped,
 		)
 		if err != nil {
 			return err
@@ -86,7 +86,7 @@ func validateUsageQuery(input UsageQuery) (int64, error) {
 func queryUsageDistributions(
 	scope *gorm.DB,
 	summary UsageAggregate,
-	accessKeyScoped bool,
+	selfScoped bool,
 ) (UsageDistributions, error) {
 	result := UsageDistributions{
 		Group:     make(map[UsageDistributionMetric]UsageDistribution, 3),
@@ -98,7 +98,7 @@ func queryUsageDistributions(
 		UsageDistributionDimensionModel,
 		UsageDistributionDimensionAccessKey,
 	}
-	if accessKeyScoped {
+	if selfScoped {
 		dimensions = []UsageDistributionDimension{UsageDistributionDimensionModel}
 	}
 	for _, dimension := range dimensions {

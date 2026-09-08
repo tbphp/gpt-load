@@ -166,6 +166,7 @@ func TestListAccessKeyCollectionReadsMappedMetadataWithoutDecrypting(t *testing.
 	}
 	if got, want := result.Items, []AccessKeyCollectionItem{{
 		AccessKeyMetadata: created.AccessKeyMetadata,
+		Usage:             &usageDistributionAggregateResponse{EstimatedCostNanoUSD: "0"},
 	}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("items = %#v, want %#v", got, want)
 	}

@@ -251,7 +251,7 @@ func TestListAccessKeyCollectionReturnsMaskedMetadataWithoutDecrypting(t *testin
 		context.Background(),
 		AccessKeyCollectionQuery{Page: 1, PageSize: 20},
 	); err != nil ||
-		!reflect.DeepEqual(afterCorruption, listed) {
+		!reflect.DeepEqual(afterCorruption.Items, listed.Items) {
 		t.Fatalf(
 			"ListAccessKeyCollection() after ciphertext corruption = %#v, %v, want unchanged metadata",
 			afterCorruption,

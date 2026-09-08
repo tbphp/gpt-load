@@ -1,5 +1,6 @@
 export default {
   monitor: {
+    clearKeySearch: '清除密钥搜索',
     title: '监控',
     description: '查看运行健康、请求日志和当前路由决策。',
     help: '查看说明',

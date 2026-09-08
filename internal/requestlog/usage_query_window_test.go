@@ -204,6 +204,72 @@ func TestQueryUsageMixedSourcesApplyAllFilters(t *testing.T) {
 	assertMinuteUsageReportTotals(t, report)
 }
 
+func TestQueryUsageExactAccessKeyFilterKeepsAdministratorDistributions(t *testing.T) {
+	for _, span := range []time.Duration{30 * time.Minute, 2*time.Hour + 2*time.Minute} {
+		for _, persisted := range []bool{true, false} {
+			for _, selfScoped := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/persisted=%t/self=%t", span, persisted, selfScoped), func(t *testing.T) {
+					db := openRequestLogQueryDB(t)
+					from := time.Date(2026, time.September, 8, 13, 17, 0, 0, time.UTC)
+					to := from.Add(span)
+					keyID := uint(41)
+					if persisted {
+						if err := db.Create(&models.AccessKey{
+							ID: keyID, Name: "filtered", KeyValue: "cipher-filtered", KeyHash: "hash-filtered",
+							KeySuffix: "0041", Status: "active", Filters: models.JSON(`{}`),
+						}).Error; err != nil {
+							t.Fatal(err)
+						}
+					}
+					if err := db.Create(&models.Group{
+						ID: 7, Name: "filtered-group", ChannelID: "openai", Params: models.JSON(`{}`),
+						Models: models.JSON(`[]`), Enabled: true,
+					}).Error; err != nil {
+						t.Fatal(err)
+					}
+					var rows []models.RequestLog
+					for index, at := range []time.Time{from.Add(time.Minute), from.Add(span / 2), to.Add(-time.Minute)} {
+						row := aggregationRow(fmt.Sprintf("filtered-%d", index), at, 7, "filtered-model")
+						row.AccessKeyID = keyID
+						rows = append(rows, row)
+						other := row
+						other.ID, other.AccessKeyID = fmt.Sprintf("other-%d", index), 42
+						rows = append(rows, other)
+					}
+					if err := (&gormBatchWriter{db: db}).WriteBatch(t.Context(), rows); err != nil {
+						t.Fatal(err)
+					}
+					report, err := newRequestLogTestService(db).QueryUsage(t.Context(), UsageQuery{
+						FromMS: from.UnixMilli(), ToMS: to.UnixMilli(), AccessKeyID: &keyID, SelfScoped: selfScoped,
+					})
+					if err != nil || report.Summary.RequestCount != 3 {
+						t.Fatalf("filtered request count/error = %d/%v, want three requests", report.Summary.RequestCount, err)
+					}
+					if selfScoped {
+						if len(report.Distributions.Group) != 0 || len(report.Distributions.AccessKey) != 0 {
+							t.Fatalf("self-scoped view exposes management dimensions: %#v", report.Distributions)
+						}
+					} else {
+						group := usageDistribution(t, report, UsageDistributionDimensionGroup, UsageDistributionMetricRequests)
+						if len(group.Items) != 1 || group.Items[0].GroupID != 7 || group.Items[0].RequestCount != 3 {
+							t.Fatalf("administrator key filter lost group distribution: %#v", group)
+						}
+						key := usageDistribution(t, report, UsageDistributionDimensionAccessKey, UsageDistributionMetricRequests)
+						if persisted {
+							if len(key.Items) != 1 || key.Items[0].AccessKeyID != keyID || key.Items[0].RequestCount != 3 {
+								t.Fatalf("administrator key filter lost access-key distribution: %#v", key)
+							}
+						} else if len(key.Items) != 0 || key.Other == nil || key.Other.RequestCount != 3 {
+							t.Fatalf("historical key must remain in Other: %#v", key)
+						}
+					}
+					assertMinuteUsageReportTotals(t, report)
+				})
+			}
+		}
+	}
+}
+
 func TestQueryUsageMixedSourcesRejectCorruptRowsBeforeCombining(t *testing.T) {
 	for _, kind := range []string{"misaligned hour", "negative hourly count", "negative log tokens"} {
 		t.Run(kind, func(t *testing.T) {

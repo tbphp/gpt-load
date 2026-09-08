@@ -68,8 +68,10 @@ func TestUsageAPIRollingHourReadsLogsAndScopesAccessKey(t *testing.T) {
 		wantCost  string
 		wantGrain requestlog.UsageGranularity
 	}{
+		{"management frozen hour", "test-auth-key", usageTestTimeQuery(from.Add(-time.Minute), now.Add(-time.Minute)), 2, "1400", requestlog.UsageGranularityMinute},
 		{"management rolling hour", "test-auth-key", usageTestTimeQuery(from, now), 3, "2100", requestlog.UsageGranularityMinute},
 		{"access key rolling hour", key.Key, usageTestTimeQuery(from, now), 2, "1400", requestlog.UsageGranularityMinute},
+		{"management filters access key", "test-auth-key", usageTestTimeQuery(from, now) + fmt.Sprintf("&access_key_id=%d&group_id=7", key.ID), 2, "1400", requestlog.UsageGranularityMinute},
 		{"daily range combines hourly and boundary sources", "test-auth-key", usageTestTimeQuery(now.Add(-24*time.Hour), now), 101, "1400", requestlog.UsageGranularityHour},
 		{"aligned hour uses logs and minute buckets", "test-auth-key",
 			fmt.Sprintf("from_ms=%d&to_ms=%d", from.Truncate(time.Hour).UnixMilli(), from.Truncate(time.Hour).Add(time.Hour).UnixMilli()),
@@ -108,10 +110,19 @@ func TestUsageAPIRollingHourReadsLogsAndScopesAccessKey(t *testing.T) {
 					}
 				}
 			}
+			if test.auth == "test-auth-key" && (data.Distributions.Group == nil || data.CollectionHealth.Scope != "current_process") {
+				t.Fatalf("filtered management response lost management view: %+v", data)
+			}
 			if test.auth == key.Key && (data.Distributions.Group != nil || data.Distributions.AccessKey != nil ||
 				data.CollectionHealth.Scope != "access_key") {
 				t.Fatalf("access key response exposes management scope: %+v", data)
 			}
 		})
+	}
+	for _, id := range []uint{key.ID, key.ID + 1} {
+		recorder := performUsageRequest(engine, key.Key, usageTestTimeQuery(from, now)+fmt.Sprintf("&access_key_id=%d", id))
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("access key cannot select a scope: %d %s", recorder.Code, recorder.Body.String())
+		}
 	}
 }

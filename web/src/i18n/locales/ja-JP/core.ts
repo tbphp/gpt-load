@@ -266,12 +266,10 @@ export default {
         unlimited: '無制限',
         protocols: '利用可能なプロトコル',
         allProtocols: 'すべてのプロトコル',
-        groups: 'グループ範囲',
-        allGroups: 'すべてのグループ',
         models: 'モデル範囲',
         allModels: 'すべてのモデル',
         lastRequest: '直近のリクエスト',
-        neverRequested: 'リクエストはまだありません',
+        neverRequested: '保持期間内のリクエストなし',
         costLimits: {
           title: '概算費用枠',
           available: '利用可能',

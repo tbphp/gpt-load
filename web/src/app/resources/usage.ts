@@ -23,6 +23,7 @@ export type UsageDistributionMetric = 'requests' | 'tokens' | 'cost'
 export interface UsageFilters {
   from_ms: number
   to_ms: number
+  access_key_id?: number
   group_id?: number
   channel_id?: string
   credential_id?: number
@@ -392,6 +393,7 @@ export function projectUsageReport(value: unknown): UsageReportDto {
 
 export function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
   const result: UsageFilters = { from_ms: filters.from_ms, to_ms: filters.to_ms }
+  if (filters.access_key_id !== undefined) result.access_key_id = filters.access_key_id
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.channel_id !== undefined) result.channel_id = filters.channel_id
   if (filters.credential_id !== undefined) result.credential_id = filters.credential_id
@@ -413,6 +415,8 @@ export async function getUsageReport(
     ['from_ms', String(normalized.from_ms)],
     ['to_ms', String(normalized.to_ms)],
   ])
+  if (normalized.access_key_id !== undefined)
+    params.append('access_key_id', String(normalized.access_key_id))
   if (normalized.group_id !== undefined) params.append('group_id', String(normalized.group_id))
   if (normalized.channel_id !== undefined) params.append('channel_id', normalized.channel_id)
   if (normalized.credential_id !== undefined) {

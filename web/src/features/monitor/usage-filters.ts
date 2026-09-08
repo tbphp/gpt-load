@@ -13,6 +13,7 @@ export interface AppliedUsageFilters extends UsageFilters {
 }
 
 export interface UsageFilterDraft {
+  access_key_id: string
   group_id: string
   channel_id: string
   credential_id: string
@@ -22,6 +23,7 @@ export interface UsageFilterDraft {
 export type UsageFilterErrors = Partial<Record<keyof UsageFilterDraft, string>>
 
 const emptyDraft = (): UsageFilterDraft => ({
+  access_key_id: '',
   group_id: '',
   channel_id: '',
   credential_id: '',
@@ -71,10 +73,12 @@ export function parseAppliedUsageFilters(query: Record<string, unknown>): Applie
     from !== undefined && to !== undefined && to > from
       ? { from_ms: from, to_ms: to, ...(isDateTimePreset(preset) ? { preset } : {}) }
       : defaultUsageFilters(isDateTimePreset(preset) ? preset : defaultTimeRange)
+  const accessKeyID = normalizeUsageGroupID(query.access_key_id)
   const groupID = normalizeUsageGroupID(query.group_id)
   const channelID = normalizeUsageChannelID(query.channel_id)
   const credentialID = normalizeUsageGroupID(query.credential_id)
   const upstreamModel = normalizeUsageModel(query.upstream_model ?? query.model)
+  if (accessKeyID !== undefined) filters.access_key_id = accessKeyID
   if (groupID !== undefined) filters.group_id = groupID
   if (channelID !== undefined) filters.channel_id = channelID
   if (credentialID !== undefined) filters.credential_id = credentialID
@@ -85,6 +89,7 @@ export function parseAppliedUsageFilters(query: Record<string, unknown>): Applie
 export function createUsageFilterDraft(filters: UsageFilters): UsageFilterDraft {
   return {
     ...emptyDraft(),
+    access_key_id: filters.access_key_id === undefined ? '' : String(filters.access_key_id),
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
     channel_id: filters.channel_id ?? '',
     credential_id: filters.credential_id === undefined ? '' : String(filters.credential_id),
@@ -101,10 +106,12 @@ export function applyUsageFilterDraft(
     to_ms: current.to_ms,
     preset: current.preset,
   }
+  const accessKeyID = normalizeUsageGroupID(draft.access_key_id)
   const groupID = normalizeUsageGroupID(draft.group_id)
   const channelID = normalizeUsageChannelID(draft.channel_id)
   const credentialID = normalizeUsageGroupID(draft.credential_id)
   const upstreamModel = normalizeUsageModel(draft.upstream_model)
+  if (accessKeyID !== undefined) filters.access_key_id = accessKeyID
   if (groupID !== undefined) filters.group_id = groupID
   if (channelID !== undefined) filters.channel_id = channelID
   if (credentialID !== undefined) filters.credential_id = credentialID
@@ -114,6 +121,8 @@ export function applyUsageFilterDraft(
 
 export function validateUsageFilterDraft(draft: UsageFilterDraft): UsageFilterErrors {
   const errors: UsageFilterErrors = {}
+  if (draft.access_key_id && normalizeUsageGroupID(draft.access_key_id) === undefined)
+    errors.access_key_id = 'monitor.usage.errors.positiveId'
   if (draft.group_id && normalizeUsageGroupID(draft.group_id) === undefined) {
     errors.group_id = 'monitor.usage.errors.positiveId'
   }

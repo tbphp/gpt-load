@@ -96,6 +96,7 @@ async function confirmReset(): Promise<void> {
 }
 
 onBeforeUnmount(() => controller?.abort())
+defineExpose({ open: () => setOpen(true) })
 </script>
 
 <template>
@@ -111,7 +112,7 @@ onBeforeUnmount(() => controller?.abort())
     @update:open="setOpen"
     @confirm="confirmReset"
   >
-    <template #trigger>
+    <template v-if="$slots.trigger" #trigger>
       <slot name="trigger" :open="() => setOpen(true)" />
     </template>
 

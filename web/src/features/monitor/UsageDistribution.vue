@@ -32,6 +32,7 @@ const props = defineProps<{
   accessKeys: AccessKeyOptionDto[]
 }>()
 
+const emit = defineEmits<{ selectAccessKey: [id: number] }>()
 const { locale, t } = useI18n()
 
 const rows = computed<DistributionRow[]>(() => {
@@ -191,24 +192,37 @@ function secondaryValue(item: UsageDistributionAggregateDto): string {
         </span>
 
         <span class="usage-distribution__identity" :title="identityLabel(row)">
-          <span class="usage-distribution__icon" aria-hidden="true">
-            <template v-if="distribution.dimension === 'group'">
-              <ChannelIcon
-                v-if="row.identity && channel(row.identity)"
-                :icon="channel(row.identity)!.icon"
-                :mark="channel(row.identity)!.mark"
-              />
-              <Boxes v-else :size="17" />
-            </template>
-            <KeyRound v-else-if="distribution.dimension === 'access_key'" :size="17" />
-            <Layers3 v-else :size="17" />
-          </span>
-          <span class="usage-distribution__identity-copy">
+          <button
+            v-if="row.identity?.access_key_id !== undefined"
+            type="button"
+            class="usage-distribution__key-link usage-distribution__identity-copy"
+            @click="emit('selectAccessKey', row.identity.access_key_id)"
+          >
             <OverflowTooltip as="strong" :content="identityLabel(row)" :focusable="false">
               {{ identityLabel(row) }}
             </OverflowTooltip>
             <small>{{ identityMeta(row) }}</small>
-          </span>
+          </button>
+          <template v-else>
+            <span class="usage-distribution__icon" aria-hidden="true">
+              <template v-if="distribution.dimension === 'group'">
+                <ChannelIcon
+                  v-if="row.identity && channel(row.identity)"
+                  :icon="channel(row.identity)!.icon"
+                  :mark="channel(row.identity)!.mark"
+                />
+                <Boxes v-else :size="17" />
+              </template>
+              <KeyRound v-else-if="distribution.dimension === 'access_key'" :size="17" />
+              <Layers3 v-else :size="17" />
+            </span>
+            <span class="usage-distribution__identity-copy">
+              <OverflowTooltip as="strong" :content="identityLabel(row)" :focusable="false">
+                {{ identityLabel(row) }}
+              </OverflowTooltip>
+              <small>{{ identityMeta(row) }}</small>
+            </span>
+          </template>
         </span>
 
         <span class="usage-distribution__visual">
@@ -229,6 +243,17 @@ function secondaryValue(item: UsageDistributionAggregateDto): string {
 </template>
 
 <style scoped>
+.usage-distribution__key-link {
+  border: 0;
+  background: transparent;
+  color: var(--color-action);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .usage-distribution {
   display: grid;
   min-width: 0;

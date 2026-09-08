@@ -135,6 +135,7 @@ func TestQueryUsageScopesAccessKeyAndDistributesByModel(t *testing.T) {
 		ToMS:        start.Add(2 * time.Hour).UnixMilli(),
 		Granularity: UsageGranularityHour,
 		AccessKeyID: &accessKeyID,
+		SelfScoped:  true,
 	})
 	if err != nil {
 		t.Fatalf("QueryUsage() error = %v", err)

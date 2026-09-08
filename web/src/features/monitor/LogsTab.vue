@@ -353,7 +353,17 @@ async function commitFilters(filters: RequestLogFilters): Promise<void> {
     return
   }
 
-  await router.push(monitorLocation(logsMonitorQuery(filters)))
+  const sameWindow =
+    filters.from_ms === appliedFilters.value.from_ms && filters.to_ms === appliedFilters.value.to_ms
+  await router.push(
+    monitorLocation(
+      logsMonitorQuery(filters, {
+        filtersOpen: false,
+        cursorHistory: [],
+        ...(sameWindow ? { usagePreset: routeState.value.usagePreset } : {}),
+      }),
+    ),
+  )
 }
 
 // 就地收窄而非跳转：排查时要看的是同一维度的其他请求，且目标可能已删。
@@ -378,10 +388,11 @@ async function applyFilters(): Promise<void> {
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
 
-  await commitFilters({
-    ...applyLogFilterDraft(draft.value),
-    limit: appliedFilters.value.limit ?? 20,
-  })
+  const initial = createLogFilterDraft(appliedFilters.value)
+  const next = applyLogFilterDraft(draft.value)
+  if (draft.value.from === initial.from) next.from_ms = appliedFilters.value.from_ms
+  if (draft.value.to === initial.to) next.to_ms = appliedFilters.value.to_ms
+  await commitFilters({ ...next, limit: appliedFilters.value.limit ?? 20 })
 }
 
 async function resetFilters(): Promise<void> {
@@ -417,6 +428,7 @@ function nextPage(): void {
     monitorLocation(
       logsMonitorQuery(appliedFilters.value, {
         filtersOpen: false,
+        usagePreset: routeState.value.usagePreset,
         cursorHistory: [...routeState.value.cursorHistory, cursor],
       }),
     ),
@@ -434,6 +446,7 @@ function previousPage(): void {
     monitorLocation(
       logsMonitorQuery(appliedFilters.value, {
         filtersOpen: false,
+        usagePreset: routeState.value.usagePreset,
         cursorHistory: routeState.value.cursorHistory.slice(0, -1),
       }),
     ),

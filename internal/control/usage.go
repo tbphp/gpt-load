@@ -122,11 +122,12 @@ func (server *Server) handleUsage(c *gin.Context) {
 		return
 	}
 	if accessKeyID, scoped := currentAccessKeyID(c); scoped {
-		if query.GroupID != nil || query.ChannelID != "" || query.CredentialID != nil {
+		if query.AccessKeyID != nil || query.GroupID != nil || query.ChannelID != "" || query.CredentialID != nil {
 			writeServiceError(c, "usage", app_errors.ErrBadRequest)
 			return
 		}
 		query.AccessKeyID = &accessKeyID
+		query.SelfScoped = true
 	}
 	report, err := server.service.QueryUsage(c.Request.Context(), query)
 	if err != nil {
@@ -150,6 +151,7 @@ func parseUsageQuery(rawQuery string) (requestlog.UsageQuery, *app_errors.APIErr
 		"from_ms":        {},
 		"to_ms":          {},
 		"group_id":       {},
+		"access_key_id":  {},
 		"channel_id":     {},
 		"credential_id":  {},
 		"upstream_model": {},
@@ -184,6 +186,13 @@ func parseUsageQuery(rawQuery string) (requestlog.UsageQuery, *app_errors.APIErr
 		BucketWidthMS: bucketWidthMS,
 	}
 
+	if value, ok := singleQueryValue(values, "access_key_id"); ok {
+		id, apiErr := parseUsageGroupID(value)
+		if apiErr != nil {
+			return requestlog.UsageQuery{}, apiErr
+		}
+		query.AccessKeyID = &id
+	}
 	if value, ok := singleQueryValue(values, "group_id"); ok {
 		groupID, apiErr := parseUsageGroupID(value)
 		if apiErr != nil {
@@ -246,7 +255,7 @@ func (service *Service) mapUsageResponse(
 	query requestlog.UsageQuery,
 	report requestlog.UsageReport,
 ) (usageResponse, error) {
-	accessKeyScoped := query.AccessKeyID != nil
+	accessKeyScoped := query.SelfScoped
 	if !accessKeyScoped && service.requestLogStats == nil {
 		return usageResponse{}, app_errors.ErrInternalServer
 	}

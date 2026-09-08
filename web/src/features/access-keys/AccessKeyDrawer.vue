@@ -67,6 +67,7 @@ const props = withDefaults(
   defineProps<{
     open: boolean
     accessKey: AccessKeyDto | null
+    copyFrom?: AccessKeyDto | null
     groups: GroupOptionDto[]
     channels: ChannelDto[]
     total: number
@@ -76,6 +77,7 @@ const props = withDefaults(
     rotateOperation?: PendingAccessKeyRotateOperation | null
   }>(),
   {
+    copyFrom: null,
     createOperation: null,
     editOperation: null,
     rotateOperation: null,
@@ -87,7 +89,7 @@ const emit = defineEmits<{
   'update:createOperation': [operation: PendingAccessKeyCreateOperation | null]
   'update:editOperation': [operation: PendingAccessKeyEditOperation | null]
   'update:rotateOperation': [operation: PendingAccessKeyRotateOperation | null]
-  saved: [kind: 'created' | 'updated', name: string]
+  saved: [kind: 'created' | 'updated', name: string, accessKey?: AccessKeyDto]
   rotated: [name: string]
   deleted: [name: string]
 }>()
@@ -309,6 +311,19 @@ async function resetForOpen(): Promise<void> {
     : carriedEditOperation
       ? createAccessKeyDraftFromUpdate(carriedEditOperation.base, carriedEditOperation.patch)
       : createAccessKeyDraft(props.accessKey)
+  if (!props.accessKey && props.copyFrom && !carriedCreateOperation) {
+    draft.value = createAccessKeyDraft({
+      ...props.copyFrom,
+      name: t('accessKeys.distribution.copyName', { name: props.copyFrom.name }),
+      cost_limit_rules: [],
+    })
+    draft.value.costLimitRules = props.copyFrom.cost_limit_rules.map((rule) => ({
+      clientKey: createUUID(),
+      kind: rule.kind,
+      limit_usd: rule.limit_usd,
+      period_seconds: rule.period_seconds,
+    }))
+  }
   operationID.value = props.accessKey
     ? ''
     : (carriedCreateOperation?.idempotencyKey ?? createUUID())
@@ -346,7 +361,7 @@ function handleRotated(accessKey: AccessKeyDto): void {
 }
 
 watch(
-  () => [props.open, props.accessKey] as const,
+  () => [props.open, props.accessKey, props.copyFrom?.id] as const,
   ([open]) => {
     if (open) void resetForOpen()
     else clearLocalState()
@@ -567,7 +582,7 @@ async function save(): Promise<void> {
       pending.value = false
     }
   }
-  if (savedKind) emit('saved', savedKind, savedName)
+  if (savedKind) emit('saved', savedKind, savedName, base.value ?? undefined)
 }
 
 async function reconcileEdit(): Promise<void> {

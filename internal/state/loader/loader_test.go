@@ -257,6 +257,25 @@ func TestLoaderRejectsUnknownPublicSystemSetting(t *testing.T) {
 	}
 }
 
+func TestLoaderIgnoresRemovedContactSetting(t *testing.T) {
+	db := openMigratedDatabase(t)
+	mustCreate(t, db, &models.SystemSetting{Key: "contact_info", Value: `"old contact"`})
+	settings, err := loader.LoadSystemSettings(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := settings["contact_info"]; exists {
+		t.Fatal("removed contact setting is still included in runtime settings")
+	}
+	manager := state.NewManager()
+	if err := loader.New(db, manager, state.NewCredentialRegistry()).Load(context.Background()); err != nil {
+		t.Fatalf("old contact setting prevents startup: %v", err)
+	}
+	if manager.Current() == nil {
+		t.Fatal("configuration was not published")
+	}
+}
+
 func TestLoaderRejectsInvalidKnownPublicSystemSettingsWithoutPublishing(t *testing.T) {
 	tests := []struct {
 		name  string

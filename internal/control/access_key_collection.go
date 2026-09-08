@@ -7,14 +7,17 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/requestlog"
 	"gpt-load/internal/storage/models"
 )
 
 type AccessKeyCollectionItem struct {
 	AccessKeyMetadata
-	LastRequestAtMS *int64 `json:"last_request_at_ms"`
-	Expired         bool   `json:"expired"`
+	Usage           *usageDistributionAggregateResponse `json:"usage,omitempty"`
+	LastRequestAtMS *int64                              `json:"last_request_at_ms"`
+	Expired         bool                                `json:"expired"`
 }
 
 type AccessKeyCollectionSummary struct {
@@ -30,14 +33,23 @@ type AccessKeyCollectionPagination struct {
 	TotalPages int64 `json:"total_pages"`
 }
 
+type AccessKeyUsageWindow struct {
+	ObservedAtMS int64  `json:"observed_at_ms"`
+	Range        string `json:"range"`
+	FromMS       int64  `json:"from_ms"`
+	ToMS         int64  `json:"to_ms"`
+}
+
 type AccessKeyCollectionResponse struct {
-	Summary    AccessKeyCollectionSummary    `json:"summary"`
-	Items      []AccessKeyCollectionItem     `json:"items"`
-	Pagination AccessKeyCollectionPagination `json:"pagination"`
+	UsageWindow *AccessKeyUsageWindow         `json:"usage_window,omitempty"`
+	Summary     AccessKeyCollectionSummary    `json:"summary"`
+	Items       []AccessKeyCollectionItem     `json:"items"`
+	Pagination  AccessKeyCollectionPagination `json:"pagination"`
 }
 
 type accessKeyCollectionRecord struct {
 	AccessKeyCollectionItem
+	usageCost int64
 }
 
 type accessKeyCollectionRow struct {
@@ -58,15 +70,36 @@ func (s *Service) ListAccessKeyCollection(
 	ctx context.Context,
 	query AccessKeyCollectionQuery,
 ) (AccessKeyCollectionResponse, error) {
-	records, err := s.captureAccessKeyCollectionRecords(ctx)
+	query = normalizeAccessKeyCollectionQuery(query)
+	observedAt := time.Now()
+	if s.now != nil {
+		observedAt = s.now()
+	}
+	observedAtMS, err := safeEpochMilliseconds(observedAt)
 	if err != nil {
 		return AccessKeyCollectionResponse{}, err
 	}
-	return queryAccessKeyCollectionRecords(records, normalizeAccessKeyCollectionQuery(query)), nil
+	// 密钥列表保留固定七天口径，通过明确区间与用量页联动。
+	fromMS, toMS, err := epochms.WindowEndingAt(observedAtMS, 6*epochms.MillisecondsPerHour, 28)
+	if err != nil {
+		return AccessKeyCollectionResponse{}, app_errors.ErrInternalServer
+	}
+	usageQuery := requestlog.UsageQuery{
+		FromMS: fromMS, ToMS: toMS,
+		Granularity: requestlog.UsageGranularityHour, BucketWidthMS: 6 * epochms.MillisecondsPerHour,
+	}
+	records, err := s.captureAccessKeyCollectionRecords(ctx, usageQuery, observedAt)
+	if err != nil {
+		return AccessKeyCollectionResponse{}, err
+	}
+	result := queryAccessKeyCollectionRecords(records, query)
+	result.UsageWindow = &AccessKeyUsageWindow{ObservedAtMS: observedAtMS, Range: "7d", FromMS: usageQuery.FromMS, ToMS: usageQuery.ToMS}
+	return result, nil
 }
 
 func (s *Service) captureAccessKeyCollectionRecords(
 	ctx context.Context,
+	usageQuery requestlog.UsageQuery, observedAt time.Time,
 ) ([]accessKeyCollectionRecord, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -85,6 +118,7 @@ func (s *Service) captureAccessKeyCollectionRecords(
 
 	var rows []accessKeyCollectionRow
 	var costLimitRows []models.AccessKeyCostLimitRule
+	var usageByKey map[uint]requestlog.UsageAggregate
 	if err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
@@ -97,6 +131,11 @@ func (s *Service) captureAccessKeyCollectionRecords(
 			Order("access_keys.id ASC").
 			Scan(&rows).Error; err != nil {
 			return err
+		}
+		var usageErr error
+		usageByKey, usageErr = requestlog.ReadAccessKeyUsage(tx, usageQuery)
+		if usageErr != nil {
+			return usageErr
 		}
 		return tx.Order("access_key_id ASC, CASE WHEN kind = 'total' THEN 0 ELSE 1 END ASC, period_seconds ASC, id ASC").
 			Find(&costLimitRows).Error
@@ -112,10 +151,6 @@ func (s *Service) captureAccessKeyCollectionRecords(
 		rulesByAccessKey[row.AccessKeyID] = append(rulesByAccessKey[row.AccessKeyID], row)
 	}
 	records := make([]accessKeyCollectionRecord, 0, len(rows))
-	observedAt := time.Now()
-	if s.now != nil {
-		observedAt = s.now()
-	}
 	observedAtMS, err := safeEpochMilliseconds(observedAt)
 	if err != nil {
 		return nil, app_errors.ErrInternalServer
@@ -143,8 +178,14 @@ func (s *Service) captureAccessKeyCollectionRecords(
 				metadata.CostLimitStatus = &status
 			}
 		}
+		aggregate, err := mapUsageAggregate(usageByKey[row.ID])
+		if err != nil {
+			return nil, err
+		}
 		records = append(records, accessKeyCollectionRecord{
+			usageCost: usageByKey[row.ID].EstimatedCostNanoUSD,
 			AccessKeyCollectionItem: AccessKeyCollectionItem{
+				Usage:             &usageDistributionAggregateResponse{RequestCount: aggregate.RequestCount, TotalTokens: aggregate.TotalTokens, EstimatedCostNanoUSD: aggregate.EstimatedCostNanoUSD},
 				AccessKeyMetadata: metadata,
 				LastRequestAtMS:   row.LastRequestAtMS,
 				Expired: metadata.ExpiresAtMS != nil &&

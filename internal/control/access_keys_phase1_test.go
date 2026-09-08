@@ -224,10 +224,10 @@ func TestListAccessKeyOptionsContainsOnlySelectorMetadata(t *testing.T) {
 	}
 	if len(options) != 2 ||
 		options[0] != (AccessKeyOption{
-			ID: first.ID, Name: "first-option", Status: state.AccessKeyStatusActive,
+			ID: first.ID, Name: "first-option", Status: state.AccessKeyStatusActive, KeySuffix: first.Key[len(first.Key)-4:],
 		}) ||
 		options[1] != (AccessKeyOption{
-			ID: second.ID, Name: "second-option", Status: state.AccessKeyStatusDisabled,
+			ID: second.ID, Name: "second-option", Status: state.AccessKeyStatusDisabled, KeySuffix: second.Key[len(second.Key)-4:],
 		}) {
 		t.Fatalf("options = %#v", options)
 	}
