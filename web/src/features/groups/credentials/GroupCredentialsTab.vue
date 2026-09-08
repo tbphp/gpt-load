@@ -655,7 +655,7 @@ async function refetchActiveCredentialPage(): Promise<void> {
   )
 }
 
-async function reconcileItem(result: CredentialItemDto, refetchActive: boolean): Promise<void> {
+async function reconcileItem(result: CredentialItemDto, refetchActive: boolean): Promise<boolean> {
   try {
     const current = cachedCurrentCredential(result.credential_id)
     if (current !== undefined && current.secret_version !== result.secret_version) {
@@ -677,9 +677,11 @@ async function reconcileItem(result: CredentialItemDto, refetchActive: boolean):
     await refetchGroupSummary()
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() })
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.collectionAll })
+    return true
   } catch {
     feedback.value = t('group.credentials.reconcileFailed')
     await invalidateReconciliationQueries()
+    return false
   }
 }
 
@@ -980,17 +982,18 @@ async function confirmResetCredit(): Promise<void> {
       target.idempotencyKey,
     )
     const observationPending = result.observation_pending || result.observation?.state !== 'fresh'
+    let reconciled = false
     try {
       clearDetailState(target.item.credential_id)
       const detail = await getCredentialDetail(client, props.groupId, target.item.credential_id)
-      await reconcileItem(detail.credential, true)
+      reconciled = await reconcileItem(detail.credential, true)
     } catch {
       feedback.value = t('group.credentials.reconcileFailed')
       await invalidateReconciliationQueries()
     }
-    if (observationPending) {
+    if (reconciled && observationPending) {
       feedback.value = t('group.credentials.subscription.consumeResetCreditPending')
-    } else {
+    } else if (reconciled) {
       toast.show({
         message: t('group.credentials.subscription.consumeResetCreditSucceeded'),
         tone: 'success',
@@ -1945,7 +1948,7 @@ async function runBatch(
 }
 .group-credentials__tools {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(0, max-content);
+  grid-template-columns: minmax(260px, 1fr) auto minmax(0, max-content);
   align-items: start;
   gap: 10px;
   border-bottom: 1px solid var(--color-border-subtle);

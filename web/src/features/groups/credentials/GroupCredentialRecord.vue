@@ -465,7 +465,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
 }
 
 /* 白底面板复用 .setting-panel__body，只把弹性排布换成三列指标网格。 */
-.group-credential-record__details dl {
+.group-credential-record__runtime-details {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-5);
@@ -677,7 +677,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   }
 
   .group-credential-record__settings,
-  .group-credential-record__details dl {
+  .group-credential-record__runtime-details {
     grid-template-columns: 1fr;
   }
 

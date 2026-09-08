@@ -522,7 +522,10 @@ export function projectCredentialSummary(value: unknown): CredentialSummaryDto {
     blacklisted: projectSafeInteger(record.blacklisted, { minimum: 0 }),
     disabled: projectSafeInteger(record.disabled, { minimum: 0 }),
   }
-  if (result.total !== result.available + result.cooldown + result.blacklisted + result.disabled) {
+  if (
+    result.total !== result.available + result.cooldown + result.blacklisted + result.disabled ||
+    result.model_cooldown > result.total
+  ) {
     invalidResponse()
   }
   return result
