@@ -26,14 +26,18 @@ const props = withDefaults(
     failureLabel: string
     rangeStart: number
     rangeEnd: number
+    centerBuckets?: boolean
     locale?: string
     showBucketRange?: boolean
+    showBucketSeconds?: boolean
     showSinglePoint?: boolean
     failureRateLabel?: string
   }>(),
   {
     locale: 'en-US',
+    centerBuckets: false,
     showBucketRange: false,
+    showBucketSeconds: false,
     showSinglePoint: false,
     failureRateLabel: undefined,
   },
@@ -70,6 +74,7 @@ const geometry = computed(() =>
     maximumFailureHeight,
     props.rangeStart,
     props.rangeEnd,
+    props.centerBuckets,
   ),
 )
 const singlePoint = computed(() =>
@@ -113,7 +118,12 @@ watch(seriesKey, () => {
 
 function formatBucketTime(datum: TrendDatum): string {
   return props.showBucketRange
-    ? formatLocalTimeRange(datum.bucket_start_ms, datum.bucket_end_ms, props.locale)
+    ? formatLocalTimeRange(
+        datum.bucket_start_ms,
+        datum.bucket_end_ms,
+        props.locale,
+        props.showBucketSeconds,
+      )
     : formatLocalInstant(datum.bucket_start_ms, props.locale)
 }
 

@@ -5,7 +5,6 @@ import { useI18n } from 'vue-i18n'
 import type { ChannelParamsDto, ConnectionType, GroupModelItemDto } from '@/api/control/types'
 import type { ChannelFieldDto } from '@/app/resources/channels'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
-import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
 const props = defineProps<{
@@ -44,11 +43,6 @@ const validationModelOptions = computed(() =>
     .map(({ id, alias, alias_enabled }) => ({ id, alias: alias_enabled ? alias : '' }))
     .sort((left, right) => left.id.localeCompare(right.id)),
 )
-const weightMode = computed(() => (props.weightManual === null ? 'auto' : 'manual'))
-const weightModes = computed(() => [
-  { value: 'auto', label: t('group.settings.base.auto'), disabled: props.pending },
-  { value: 'manual', label: t('group.settings.base.manual'), disabled: props.pending },
-])
 const weightValid = computed(
   () =>
     props.weightManual === null ||
@@ -122,11 +116,6 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
   return field.key === 'base_url' && isSubscription.value
     ? props.defaultBaseUrl || props.defaultBaseUrls[0] || undefined
     : undefined
-}
-
-function setWeightMode(value: string): void {
-  if (props.pending) return
-  emit('update:weightManual', value === 'auto' ? null : (props.weightManual ?? 50))
 }
 </script>
 
@@ -238,22 +227,14 @@ function setWeightMode(value: string): void {
     <div class="group-settings__field group-settings__wide">
       <span>{{ t('group.settings.base.weight') }}</span>
       <div class="group-settings__weight-editor">
-        <SegmentedControl
-          :model-value="weightMode"
-          :label="t('group.settings.base.weight')"
-          :options="weightModes"
-          size="compact"
-          @update:model-value="setWeightMode"
-        />
         <input
-          v-if="weightManual !== null"
           class="group-settings__mono"
           type="number"
           min="1"
           max="100"
           step="1"
           inputmode="numeric"
-          :value="weightManual"
+          :value="weightManual ?? 50"
           :disabled="pending"
           :aria-label="t('group.settings.base.weight')"
           :aria-invalid="!weightValid || undefined"
@@ -411,10 +392,6 @@ fieldset {
 
   .group-settings__field input:not([type='checkbox']) {
     font-size: 16px;
-  }
-
-  .group-settings__weight-editor :deep(.segmented-control__trigger) {
-    min-height: var(--touch-target);
   }
 
   .group-settings__field .group-settings__weight-editor > input {

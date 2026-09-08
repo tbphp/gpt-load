@@ -3,7 +3,6 @@ package scheduler
 import (
 	"encoding/json"
 	"errors"
-	"math/rand"
 	"net/http"
 	"slices"
 	"strings"
@@ -38,7 +37,7 @@ func TestIteratorExhaustsNativeTierBeforeConvertedTier(t *testing.T) {
 		Operation:      execution.OperationChatCompletion,
 		ExternalModel:  modelPointer("public"),
 		AccessKey:      state.AccessKeyView{Status: state.AccessKeyStatusActive},
-	}, rand.New(zeroRandSource{}))
+	})
 
 	first, err := iterator.Next()
 	if err != nil {
@@ -74,7 +73,7 @@ func TestIteratorDoesNotLetConvertedPreferenceBypassNativeTier(t *testing.T) {
 		Operation:             execution.OperationChatCompletion,
 		ExternalModel:         modelPointer("public"),
 		PreferredCredentialID: 11,
-	}, rand.New(zeroRandSource{}))
+	})
 
 	first, err := iterator.Next()
 	if err != nil || first.CredentialID != 21 || first.RouteMode != channel.RouteNative {
@@ -97,7 +96,7 @@ func TestIteratorSkipGroupAndAllowedCredentialIDsApplyAcrossRouteTiers(t *testin
 		Operation:            execution.OperationChatCompletion,
 		ExternalModel:        modelPointer("public"),
 		AllowedCredentialIDs: allowed,
-	}, rand.New(zeroRandSource{}))
+	})
 	delete(allowed, 11)
 	allowed[12] = struct{}{}
 	iterator.SkipGroup(2)
@@ -127,7 +126,7 @@ func TestIteratorRejectsResponsesResourceOperationWithoutConfiguredModels(t *tes
 		ClientProtocol: protocol.OpenAIResponses,
 		Operation:      execution.OperationResponsesRetrieve,
 		ExternalModel:  nil,
-	}, rand.New(zeroRandSource{}))
+	})
 	if iterator.StaticReason() != ReasonNoRouteTarget {
 		t.Fatalf("StaticReason() = %q, want %q", iterator.StaticReason(), ReasonNoRouteTarget)
 	}
@@ -304,7 +303,7 @@ func TestResponsesStorePreferenceKeepsTheWholeRequestOnExactTargets(t *testing.T
 		{ID: 21, GroupID: 2},
 		{ID: 31, GroupID: 3},
 		{ID: 41, GroupID: 4},
-	}}, query, rand.New(zeroRandSource{}))
+	}}, query)
 	selection, err := iterator.Next()
 	if err != nil || selection.GroupID != 2 || selection.ChannelID != channel.OpenAI ||
 		selection.ResponsesStoreDowngraded {
@@ -346,7 +345,7 @@ func TestResponsesStorePreferenceUsesNativeThenConvertedStatelessFallback(t *tes
 		{ID: 11, GroupID: 1},
 		{ID: 31, GroupID: 3},
 		{ID: 41, GroupID: 4},
-	}}, query, rand.New(zeroRandSource{}))
+	}}, query)
 	selection, err := iterator.Next()
 	if err != nil || selection.GroupID != 1 || selection.ChannelID != channel.Codex ||
 		selection.RouteMode != channel.RouteNative || !selection.ResponsesStoreDowngraded {
@@ -401,7 +400,6 @@ func TestResponsesStorePreferenceAllowsVerifiedGrokFallback(t *testing.T) {
 		snapshot,
 		fakeCredentialSource{keys: []state.CredentialMeta{{ID: 51, GroupID: 5}}},
 		query,
-		rand.New(zeroRandSource{}),
 	).Next()
 	if err != nil || selection.ChannelID != channel.Grok || !selection.ResponsesStoreDowngraded {
 		t.Fatalf("Next() = (%#v, %v), want Grok store fallback", selection, err)
@@ -421,7 +419,6 @@ func TestResponsesStorePreferenceFallsBackWhenUpstreamManagedTargetLacksCredenti
 			ExternalModel:            modelPointer("gpt"),
 			AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
 		},
-		rand.New(zeroRandSource{}),
 	)
 	selection, err := iterator.Next()
 	if err != nil || selection.GroupID != 1 || selection.ChannelID != channel.Codex ||
@@ -473,7 +470,7 @@ func TestResponsesStorePreferenceKeepsUpstreamManagedGatewayUndowngraded(t *test
 		ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored,
 		ExternalModel:            modelPointer("gpt"),
 		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
-	}, rand.New(zeroRandSource{})).Next()
+	}).Next()
 	if err != nil || selection.ChannelID != channel.NewAPI || selection.ResponsesStoreDowngraded {
 		t.Fatalf("Next() = (%#v, %v), want upstream-managed New API", selection, err)
 	}
@@ -509,7 +506,7 @@ func TestResponsesStorePreferenceDefersStatelessDeepSeekTarget(t *testing.T) {
 		ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored,
 		ExternalModel:            modelPointer("gpt"),
 		AccessKey:                state.AccessKeyView{Status: state.AccessKeyStatusActive},
-	}, rand.New(zeroRandSource{}))
+	})
 
 	selection, err := iterator.Next()
 	if err != nil || selection.ChannelID != channel.OpenAI || selection.ResponsesStoreDowngraded {
@@ -554,7 +551,7 @@ func TestOpenRouterRoutesResponsesWithReasoningOptOut(t *testing.T) {
 		RouteRequirement: metadata.RouteRequirement,
 		ExternalModel:    modelPointer("gpt-5.6-luna"),
 		AccessKey:        state.AccessKeyView{Status: state.AccessKeyStatusActive},
-	}, rand.New(zeroRandSource{})).Next()
+	}).Next()
 	if err != nil {
 		t.Fatalf("Next() error = %v", err)
 	}
@@ -629,7 +626,7 @@ func TestOperationUnsupportedIsStableAndInspectionIsNeutral(t *testing.T) {
 		Operation:      execution.OperationResponsesRetrieve,
 		AccessKey:      state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	}
-	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1}}}, query, rand.New(zeroRandSource{}))
+	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1}}}, query)
 	if iterator.StaticReason() != ReasonOperationUnsupported {
 		t.Fatalf("StaticReason() = %q, want %q", iterator.StaticReason(), ReasonOperationUnsupported)
 	}

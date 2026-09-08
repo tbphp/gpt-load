@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { ChevronRight, CircleHelp, Zap } from '@lucide/vue'
+import { ChevronRight, Zap } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
-import { enabledDataProtocols } from '@/api/control/protocols'
 import { groupDetailLocation } from '@/app/route-locations'
-import type { GroupProtocol } from '@/api/control/types'
 import type { ClientModelDto, ModelRouteGroupDto, ModelUpstreamDto } from '@/app/resources/models'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
@@ -53,16 +51,6 @@ function hiddenRouteGroupsTooltip(upstream: ModelUpstreamDto): string {
 const { locale, t } = useI18n()
 
 const rows = computed<ClientModelRow[]>(() => props.items.map(presentClientModel))
-
-function hasProtocolRestriction(protocols: GroupProtocol[]): boolean {
-  return props.readOnly === true && protocols.length < enabledDataProtocols.length
-}
-
-function protocolRestrictionTooltip(protocols: GroupProtocol[]): string {
-  return t('models.tree.protocolRestrictedHelp', {
-    protocols: protocols.join('\n'),
-  })
-}
 
 function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
   return t('models.tree.pricingIdentityHelp', {
@@ -122,20 +110,6 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
               <span class="model-tree__tag">
                 {{ t('models.tree.upstreamCount', { count: row.upstreams.length }) }}
               </span>
-              <AppTooltip
-                v-if="hasProtocolRestriction(row.model.protocols)"
-                :content="protocolRestrictionTooltip(row.model.protocols)"
-                align="start"
-              >
-                <button
-                  type="button"
-                  class="model-tree__protocol-restriction"
-                  :aria-label="protocolRestrictionTooltip(row.model.protocols)"
-                >
-                  <CircleHelp :size="13" aria-hidden="true" />
-                  {{ t('models.tree.protocolRestricted') }}
-                </button>
-              </AppTooltip>
             </div>
           </div>
 
@@ -420,24 +394,6 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
   white-space: nowrap;
 }
 
-.model-tree__protocol-restriction {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  border: 0;
-  border-radius: var(--radius-tag);
-  background: var(--color-warning-bg);
-  cursor: help;
-  padding: 1px 6px;
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: var(--text-label-xs);
-}
-
-.model-tree__protocol-restriction svg {
-  color: var(--color-warning);
-}
-
 .model-tree__channel-icon {
   display: inline-flex;
   width: 20px;
@@ -456,8 +412,7 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
   cursor: default;
 }
 
-.model-tree__channel-icon:focus-visible,
-.model-tree__protocol-restriction:focus-visible {
+.model-tree__channel-icon:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 1px;
 }

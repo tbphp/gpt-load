@@ -194,7 +194,7 @@ export function buildUsageBarGeometry(
 
   const primaryBars = parsed.map((datum, index) => {
     const groupWidth = groupWidths[index]!
-    const gap = grouped ? Math.min(0.8, Math.max(0.4, groupWidth * 0.035)) : 0
+    const gap = grouped ? Math.min(groupWidth / 2, 0.8, Math.max(0.4, groupWidth * 0.035)) : 0
     const barWidth = grouped ? (groupWidth - gap) / 2 : groupWidth
     const point = points[index]!
     const height = scaledHeight(datum.primaryValue)
@@ -209,7 +209,7 @@ export function buildUsageBarGeometry(
   const secondaryBars = grouped
     ? parsed.map((datum, index) => {
         const groupWidth = groupWidths[index]!
-        const gap = Math.min(0.8, Math.max(0.4, groupWidth * 0.035))
+        const gap = Math.min(groupWidth / 2, 0.8, Math.max(0.4, groupWidth * 0.035))
         const barWidth = (groupWidth - gap) / 2
         const point = points[index]!
         const height = scaledHeight(datum.secondaryValue)

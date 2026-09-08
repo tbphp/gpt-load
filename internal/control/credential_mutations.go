@@ -494,7 +494,8 @@ func (s *Service) mapCredentialItem(
 }
 
 func normalizeCredentialBatchRequest(request CredentialBatchRequest) ([]uint, bool, error) {
-	if request.Action != CredentialBatchEnable && request.Action != CredentialBatchDisable && request.Action != CredentialBatchDelete {
+	if request.Action != CredentialBatchEnable && request.Action != CredentialBatchDisable &&
+		request.Action != CredentialBatchDelete && request.Action != CredentialBatchRestore {
 		return nil, false, app_errors.ErrValidation
 	}
 	if request.Scope == CredentialBatchScopeAll {
@@ -503,7 +504,7 @@ func normalizeCredentialBatchRequest(request CredentialBatchRequest) ([]uint, bo
 		}
 		return nil, true, nil
 	}
-	if request.Scope != "" {
+	if request.Scope != "" || request.Action == CredentialBatchRestore {
 		return nil, false, app_errors.ErrValidation
 	}
 	if len(request.CredentialIDs) < 1 || len(request.CredentialIDs) > 100 {
@@ -592,6 +593,10 @@ func (s *Service) BatchGroupCredentials(
 		before, snapshotErr := s.registry.SnapshotGroupCredentialEntriesExact(groupID, ids)
 		if snapshotErr != nil {
 			mutationErr = fmt.Errorf("snapshot credential registry entries: %w", app_errors.ErrInternalServer)
+			return
+		}
+		if request.Action == CredentialBatchRestore {
+			ids, mutationErr = s.restoreCredentialBatchRuntime(group, before)
 			return
 		}
 		desired := make([]state.CredentialEntry, len(before))
@@ -696,6 +701,34 @@ func (s *Service) BatchGroupCredentials(
 		AffectedCredentialIDs: ids,
 		Summary:               summarizeGroupRuntimeCredentials(group, s.registry.Snapshot(), s.now().UTC()),
 	}, nil
+}
+
+func (s *Service) restoreCredentialBatchRuntime(group models.Group, entries []state.CredentialEntry) ([]uint, error) {
+	groupView := state.GroupCatalogView{ID: group.ID, Enabled: group.Enabled, WeightManual: group.WeightManual}
+	now := s.now().UTC()
+	restored := make([]uint, 0, len(entries))
+	for _, entry := range entries {
+		view := state.CredentialRuntimeView{
+			Status: entry.Status, AuthState: entry.AuthState, WeightManual: entry.WeightManual,
+			CooldownUntil: entry.CooldownUntil, Blacklisted: entry.Blacklisted,
+		}
+		bucket := classifyHealthKey(groupView, view, now)
+		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
+			continue
+		}
+		stats := s.stats.Snapshot(entry.ID, now)
+		stats.ConsecutiveFailure = 0
+		stats.ConsecutiveProblem = 0
+		stats.LastFailureCategory = 0
+		stats.LastStatusCode = 0
+		// 只修改健康字段，保留并发发布的订阅额度与授权状态。
+		if !s.registry.RestoreRuntimeState(entry.ID, calculateAutoWeight(stats)) {
+			return nil, dbRegistryMismatch(mismatchMissingRegistry, group.ID, entry.ID)
+		}
+		s.stats.ClearProblemState(entry.ID)
+		restored = append(restored, entry.ID)
+	}
+	return restored, nil
 }
 
 func (s *Service) applyCredentialBatchRegistryMutation(

@@ -1,5 +1,6 @@
 export default {
   monitor: {
+    clearKeySearch: '清除密钥搜索',
     title: '监控',
     description: '查看运行健康、请求日志和当前路由决策。',
     help: '查看说明',
@@ -323,7 +324,9 @@ export default {
         },
         empty: '该范围内暂无请求时间桶。',
         hourly: '按小时',
+        everyMinutes: '每 {count} 分钟',
         everyHours: '每 {count} 小时',
+        everyDays: '每 {count} 天',
         daily: '按天',
         failureRate: '失败率',
         inputTokens: '输入 Token',
@@ -331,7 +334,7 @@ export default {
       },
       series: {
         title: 'UTC 时间桶',
-        description: '后端按所选小时或天粒度返回的聚合。',
+        description: '按所选时间粒度统计的用量与成本。',
         caption: '按 UTC 时间桶统计的用量聚合',
         disclosure: '查看时间桶明细',
       },
@@ -464,9 +467,9 @@ export default {
         title: '候选分组',
         description: {
           native_first:
-            '先尝试原生路由，原生无可用候选时使用协议转换；同层按有效权重加权随机。列表按层级和权重排序；请求亲和仍生效，权重份额不等于实际流量比例。',
+            '先尝试原生路由，原生无可用候选时使用协议转换；同层按有效权重和共享分配进度轮询。列表按层级和权重排序；请求亲和仍生效，权重份额不等于实际流量比例。',
           weighted_mix:
-            '符合请求要求的原生与转换候选在同一池按有效权重加权随机，列表按权重排序。请求亲和仍生效，权重份额不等于实际流量比例。',
+            '符合请求要求的原生与转换候选在同一池按有效权重和共享分配进度轮询，列表按权重排序。请求亲和仍生效，权重份额不等于实际流量比例。',
         },
         count: '{count} 个',
         tableLabel: '候选分组路由解释',
@@ -580,6 +583,9 @@ export default {
         to: '结束时间',
         quickRanges: '快捷时间范围',
         quick: {
+          today: '今天',
+          yesterday: '昨天',
+          '6h': '6h',
           '1h': '1h',
           '24h': '24h',
           '3d': '3d',

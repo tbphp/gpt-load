@@ -161,8 +161,10 @@ type Page struct {
 type UsageGranularity string
 
 const (
-	UsageGranularityHour UsageGranularity = "hour"
-	UsageGranularityDay  UsageGranularity = "day"
+	UsageGranularityMinute  UsageGranularity = "minute"
+	UsageGranularityHour    UsageGranularity = "hour"
+	UsageGranularityDay     UsageGranularity = "day"
+	UsageFiveMinuteBucketMS int64            = 5 * 60 * 1000
 )
 
 type UsageDistributionDimension string
@@ -182,8 +184,11 @@ const (
 )
 
 type UsageQuery struct {
-	FromMS        int64
-	ToMS          int64
+	// SelfScoped 控制只读用户视图，与管理员的密钥筛选独立。
+	SelfScoped bool
+	FromMS     int64
+	ToMS       int64
+	// 供管理 API 描述时间桶；QueryUsage 始终从 FromMS/ToMS 推导，不接受覆盖。
 	Granularity   UsageGranularity
 	BucketWidthMS int64
 	AccessKeyID   *uint

@@ -1,5 +1,6 @@
 export default {
   monitor: {
+    clearKeySearch: 'Clear key search',
     title: 'Monitor',
     description: 'Review runtime health, request logs, and current route decisions.',
     help: 'View description',
@@ -339,7 +340,9 @@ export default {
         },
         empty: 'No request buckets were returned for this range.',
         hourly: 'Hourly',
+        everyMinutes: 'Every {count} minutes',
         everyHours: 'Every {count} hours',
+        everyDays: 'Every {count} days',
         daily: 'Daily',
         failureRate: 'Failure rate',
         inputTokens: 'Input tokens',
@@ -347,7 +350,7 @@ export default {
       },
       series: {
         title: 'UTC buckets',
-        description: 'Backend aggregates in the selected hourly or daily granularity.',
+        description: 'Usage and cost aggregated at the selected time granularity.',
         caption: 'Usage aggregates by UTC time bucket',
         disclosure: 'View time-bucket details',
       },
@@ -484,9 +487,9 @@ export default {
         title: 'Candidate Groups',
         description: {
           native_first:
-            'Native routes are tried first; converted routes are used when no native candidate is available. Selection within a tier is weighted random; rows are sorted by tier and weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
+            'Native routes are tried first; converted routes are used when no native candidate is available. Selection within a tier follows a weighted rotation using shared allocation progress; rows are sorted by tier and weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
           weighted_mix:
-            'Eligible native and converted candidates compete in one pool by effective weight; rows are sorted by weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
+            'Eligible native and converted candidates share one rotation based on effective weight and shared allocation progress; rows are sorted by weight. Request affinity still applies, so weight shares are not actual traffic ratios.',
         },
         count: '{count}',
         tableLabel: 'Candidate Group route explanation',
@@ -602,6 +605,9 @@ export default {
         to: 'To',
         quickRanges: 'Quick time ranges',
         quick: {
+          today: 'Today',
+          yesterday: 'Yesterday',
+          '6h': '6h',
           '1h': '1h',
           '24h': '24h',
           '3d': '3d',

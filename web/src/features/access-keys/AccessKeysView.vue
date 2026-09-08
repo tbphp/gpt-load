@@ -29,6 +29,7 @@ import CollectionStatusSummary from '@/components/collection/CollectionStatusSum
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -40,6 +41,7 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 
 import AccessKeyCollection from './AccessKeyCollection.vue'
 import AccessKeyDrawer from './AccessKeyDrawer.vue'
+import AccessKeyHandoff from './AccessKeyHandoff.vue'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 import {
   constrainAccessKeyCollectionSearchQuery,
@@ -70,6 +72,7 @@ const viewRoot = ref<HTMLElement | null>(null)
 const collection = ref<InstanceType<typeof AccessKeyCollection> | null>(null)
 const deletionAnnouncement = ref('')
 const pendingStatusIDs = ref(new Set<number>())
+const optimisticEnabled = ref(new Map<number, boolean>())
 const lockedAccessKeyIDs = computed<ReadonlySet<number>>(() =>
   rotateOperation.value ? new Set([rotateOperation.value.base.id]) : new Set<number>(),
 )
@@ -78,6 +81,15 @@ const accessKeysQuery = useQuery(accessKeyCollectionQueryOptions(client, filters
 const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const channelsQuery = useQuery(channelsQueryOptions(client, ''))
 const data = computed(() => accessKeysQuery.data.value)
+const copiedSource = ref<AccessKeyDto | null>(null)
+const recentlyCreated = ref<Pick<AccessKeyDto, 'id' | 'name' | 'expires_at_ms'> | null>(null)
+function cloneKey(key: AccessKeyDto): void {
+  if (createOperation.value) {
+    checkCreateOperation()
+    return
+  }
+  void setDrawerRoute({ mode: 'create', sourceAccessKeyID: key.id })
+}
 const collectionBusy = computed(() => data.value !== undefined && accessKeysQuery.isFetching.value)
 const {
   initial: initialLoading,
@@ -99,6 +111,12 @@ const pageRefreshing = computed(
     collectionRefreshing.value ||
     (groupsQuery.data.value !== undefined && groupsQuery.isFetching.value) ||
     (channelsQuery.data.value !== undefined && channelsQuery.isFetching.value),
+)
+const sortOptions = computed(() =>
+  ['updated_desc', 'cost_desc', 'expires_asc'].map((value) => ({
+    value,
+    label: t(`accessKeys.distribution.${value}`),
+  })),
 )
 const hasFilterCriteria = computed(
   () => filters.value.q !== undefined || filters.value.status !== undefined,
@@ -185,6 +203,13 @@ watch(
   ([drawer, pageData, pendingEdit, pendingRotate, placeholder]) => {
     if (drawer === undefined || drawer.mode === 'create') {
       selected.value = null
+      if (drawer?.mode === 'create' && drawer.sourceAccessKeyID !== undefined) {
+        if (copiedSource.value?.id !== drawer.sourceAccessKeyID) {
+          copiedSource.value =
+            pageData?.items.find((key) => key.id === drawer.sourceAccessKeyID) ?? null
+          if (!copiedSource.value && pageData && !placeholder) void setDrawerRoute(undefined, true)
+        }
+      } else copiedSource.value = null
       return
     }
     const item = pageData?.items.find((accessKey) => accessKey.id === drawer.accessKeyID)
@@ -250,7 +275,7 @@ async function setDrawerRoute(
   await (replace ? router.replace(location) : router.push(location))
 }
 
-function updateConditions(patch: Partial<Pick<AccessKeyCollectionFilters, 'q' | 'status'>>): void {
+function updateConditions(patch: Partial<AccessKeyCollectionFilters>): void {
   routeWithFilters({
     ...filters.value,
     q: constrainAccessKeyCollectionSearchQuery(searchDraft.value),
@@ -357,9 +382,17 @@ async function setDrawerOpen(open: boolean): Promise<void> {
   target?.focus()
 }
 
-async function handleSaved(kind: 'created' | 'updated', name: string): Promise<void> {
+async function handleSaved(
+  kind: 'created' | 'updated',
+  name: string,
+  key?: AccessKeyDto,
+): Promise<void> {
   await setDrawerOpen(false)
-  toast.show({ message: t(`accessKeys.toast.${kind}`, { name }) })
+  if (kind === 'created' && key) {
+    recentlyCreated.value = { id: key.id, name: key.name, expires_at_ms: key.expires_at_ms }
+  } else {
+    toast.show({ message: t(`accessKeys.toast.${kind}`, { name }) })
+  }
 }
 
 async function handleDeleted(name: string): Promise<void> {
@@ -396,9 +429,10 @@ function setStatusPending(id: number, pending: boolean): void {
   pendingStatusIDs.value = next
 }
 
-async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
+async function toggleStatus(accessKey: AccessKeyDto, enabled: boolean): Promise<void> {
   if (statusControllers.has(accessKey.id)) return
-  const status = accessKey.status === 'active' ? 'disabled' : 'active'
+  const status = enabled ? 'active' : 'disabled'
+  optimisticEnabled.value = new Map(optimisticEnabled.value).set(accessKey.id, enabled)
   const controller = new AbortController()
   statusControllers.set(accessKey.id, controller)
   setStatusPending(accessKey.id, true)
@@ -427,6 +461,9 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
     if (statusControllers.get(accessKey.id) === controller) {
       statusControllers.delete(accessKey.id)
       setStatusPending(accessKey.id, false)
+      const next = new Map(optimisticEnabled.value)
+      next.delete(accessKey.id)
+      optimisticEnabled.value = next
     }
   }
 }
@@ -457,10 +494,22 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
           </span>
         </InlineFeedback>
 
+        <AccessKeyHandoff
+          v-if="recentlyCreated"
+          :key="recentlyCreated.id"
+          :access-key="recentlyCreated"
+          @close="recentlyCreated = null"
+        />
+
         <AccessKeyDrawer
-          v-if="drawerOpen && (drawerRoute?.mode === 'create' || selected)"
+          v-if="
+            drawerOpen &&
+            ((drawerRoute?.mode === 'create' && (!drawerRoute.sourceAccessKeyID || copiedSource)) ||
+              selected)
+          "
           :open="drawerOpen"
           :access-key="selected"
+          :copy-from="copiedSource"
           :groups="groupsQuery.data.value ?? []"
           :channels="channelsQuery.data.value?.items ?? []"
           :total="data?.summary.total ?? 0"
@@ -567,7 +616,7 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
             <CollectionFilterBar
               :label="t('accessKeys.collection.filters.region')"
               :show-result="hasFilterCriteria"
-              single-column
+              class="access-keys__filters"
             >
               <label class="collection-filter-field collection-filter-field--search">
                 <span class="collection-filter-label">
@@ -580,6 +629,19 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
                   :clear-label="t('accessKeys.collection.filters.clearSearch')"
                   @update:model-value="scheduleSearch"
                   @clear="clearSearch"
+                />
+              </label>
+
+              <label class="collection-filter-field">
+                <span class="collection-filter-label">{{ t('accessKeys.distribution.sort') }}</span>
+                <AppSelect
+                  :model-value="filters.sort ?? 'updated_desc'"
+                  :label="t('accessKeys.distribution.sort')"
+                  :options="sortOptions"
+                  size="compact"
+                  @update:model-value="
+                    updateConditions({ sort: $event as AccessKeyCollectionFilters['sort'] })
+                  "
                 />
               </label>
 
@@ -641,14 +703,17 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
             <AccessKeyCollection
               ref="collection"
               :access-keys="data.items"
+              :usage-window="data.usage_window"
               :groups="groupsQuery.data.value ?? []"
               :total="data.summary.total"
               :filtered-total="data.pagination.total_items"
               :page="data.pagination.page"
               :page-size="data.pagination.page_size"
               :busy-ids="pendingStatusIDs"
+              :optimistic-enabled="optimisticEnabled"
               :locked-ids="lockedAccessKeyIDs"
               @open="openKey"
+              @clone="cloneKey"
               @toggle="toggleStatus"
               @deleted="handleDeleted"
               @reset="handleCostLimitsReset"
@@ -670,6 +735,19 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
 </template>
 
 <style scoped>
+:deep(.access-keys__filters.collection-filter-bar) {
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) 180px;
+}
+:deep(.access-keys__filters .collection-filter-field--search) {
+  grid-column: auto;
+}
+@media (max-width: 560px) {
+  :deep(.access-keys__filters.collection-filter-bar) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .access-keys__login-notice {
   margin: var(--space-4) 0 var(--space-2);
 }

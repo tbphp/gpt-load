@@ -213,9 +213,14 @@ func TestHandlerTreatsSDKNormalizedCompressedStreamAsSingleAttempt(t *testing.T)
 		}
 
 		second := performStreamingRequest(engine)
-		if second.Code != http.StatusOK || len(compressed.Requests()) != 2 || len(backup.Requests()) != 0 {
+		if second.Code != http.StatusOK || len(compressed.Requests()) != 1 || len(backup.Requests()) != 1 {
 			t.Fatalf("second response/counts = %d compressed:%d backup:%d", second.Code, len(compressed.Requests()), len(backup.Requests()))
 		}
+		third := performStreamingRequest(engine)
+		if third.Code != http.StatusOK || len(compressed.Requests()) != 2 || len(backup.Requests()) != 1 {
+			t.Fatalf("healthy credential did not remain in rotation: status=%d compressed=%d backup=%d", third.Code, len(compressed.Requests()), len(backup.Requests()))
+		}
+
 	})
 
 	t.Run("multiple candidates still produce one logical attempt", func(t *testing.T) {
@@ -914,7 +919,7 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 		nil,
 		nil,
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, registry

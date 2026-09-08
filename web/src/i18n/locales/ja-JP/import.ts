@@ -203,7 +203,7 @@ export default {
     },
     credentials: {
       title: 'API キー',
-      description: '1 行に 1 つ、最大 1,000 件 — 重複は二重に追加されません',
+      description: '1 行に 1 つ、最大 5,000 件 — 重複は二重に追加されません',
       label: 'キー内容',
       placeholder: '1 行に 1 つのキー',
       structuredTitle: 'チャネル認証情報',
@@ -229,7 +229,7 @@ export default {
         duplicates: '重複',
       },
       accessKeyWarning: '{count} 行が GPT-Load アクセスキーのようです — 続行前に確認してください',
-      tooMany: '空でないキーは最大 1,000 件です',
+      tooMany: '空でないキーは最大 5,000 件です',
       required: '先に認証情報を 1 件以上入力してください',
       channelCredentialNotice:
         'ここにはチャネルの API キーを入力します — クライアント認証情報はアクセスキーページで作成してください',

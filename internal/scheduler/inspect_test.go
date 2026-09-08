@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -255,7 +255,6 @@ func TestInspectEligiblePoolMatchesIteratorInitialWeightedPool(t *testing.T) {
 		snapshot,
 		registry,
 		query,
-		rand.New(rand.NewSource(1)),
 		func() time.Time { return now },
 	)
 	weighted, _ := iterator.weightedPoolForMode(channel.RouteNative, now)
@@ -316,7 +315,6 @@ func TestInspectEligiblePoolMatchesIteratorCredentialAuthorization(t *testing.T)
 		snapshot,
 		registry,
 		query,
-		rand.New(rand.NewSource(1)),
 		func() time.Time { return now },
 	)
 	weighted, _ := iterator.weightedPoolForMode(channel.RouteNative, now)
@@ -379,12 +377,16 @@ func TestInspectEligiblePoolMatchesIteratorWhenQuotaObservationsDiffer(t *testin
 		snapshot,
 		registry,
 		query,
-		rand.New(rand.NewSource(1)),
 		func() time.Time { return now },
 	)
 	weighted, _ := iterator.weightedPoolForMode(channel.RouteNative, now)
-	if len(weighted) != 2 || weighted[0].meta.ID != 71 || weighted[1].meta.ID != 72 {
-		t.Fatalf("Iterator pool = %#v, want both weighted credentials", weighted)
+	credentialIDs := make([]uint, 0, len(weighted))
+	for _, credential := range weighted {
+		credentialIDs = append(credentialIDs, credential.meta.ID)
+	}
+	slices.Sort(credentialIDs)
+	if !reflect.DeepEqual(credentialIDs, []uint{71, 72}) {
+		t.Fatalf("Iterator credential IDs = %v, want [71 72]", credentialIDs)
 	}
 }
 

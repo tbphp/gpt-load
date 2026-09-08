@@ -24,6 +24,7 @@ type RuntimeStateCheckpoint interface {
 type runtimeStateCheckpointDocument struct {
 	Credentials []state.CredentialRuntimeCheckpoint `json:"credentials,omitempty"`
 	Stats       []health.StatsRuntimeCheckpoint     `json:"stats,omitempty"`
+	Scheduling  *state.SchedulingCheckpoint         `json:"scheduling,omitempty"`
 }
 
 // FileRuntimeStateCheckpoint stores the small, disposable runtime checkpoint
@@ -72,6 +73,9 @@ func (checkpoint *FileRuntimeStateCheckpoint) Restore(ctx context.Context) error
 	}
 	if checkpoint.registry != nil {
 		checkpoint.registry.RestoreRuntimeCheckpoint(document.Credentials)
+		if document.Scheduling != nil {
+			checkpoint.registry.SchedulingState().RestoreCheckpoint(*document.Scheduling)
+		}
 	}
 	if checkpoint.stats != nil {
 		checkpoint.stats.RestoreRuntimeCheckpoint(document.Stats)
@@ -89,6 +93,8 @@ func (checkpoint *FileRuntimeStateCheckpoint) Save(ctx context.Context) error {
 	document := runtimeStateCheckpointDocument{}
 	if checkpoint.registry != nil {
 		document.Credentials = checkpoint.registry.CaptureRuntimeCheckpoint()
+		scheduling := checkpoint.registry.SchedulingState().CaptureCheckpoint()
+		document.Scheduling = &scheduling
 	}
 	if checkpoint.stats != nil {
 		document.Stats = checkpoint.stats.CaptureRuntimeCheckpoint()

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
-import type { GroupOptionDto } from '@/api/control/types'
+import type { AccessKeyOptionDto, GroupOptionDto } from '@/api/control/types'
 import type { ChannelDto } from '@/app/resources/channels'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import FormField from '@/components/ui/FormField.vue'
+import AccessKeySelect from '@/features/access-keys/AccessKeySelect.vue'
 
 import type { UsageFilterDraft, UsageFilterErrors } from './usage-filters'
 
@@ -14,6 +15,8 @@ const props = defineProps<{
   open: boolean
   draft: UsageFilterDraft
   errors: UsageFilterErrors
+  accessKeys: AccessKeyOptionDto[]
+  accessKeysFailed: boolean
   groups: GroupOptionDto[]
   channels: ChannelDto[]
   groupsFailed: boolean
@@ -77,6 +80,39 @@ function error(field: keyof UsageFilterErrors): string | undefined {
   >
     <form class="usage-filter-drawer" @submit.prevent="emit('apply')">
       <div class="usage-filter-drawer__grid">
+        <FormField
+          v-if="!selfScoped"
+          id="usage-access-key"
+          :label="t('monitor.logs.filters.accessKey')"
+          size="compact"
+          :error="error('access_key_id')"
+        >
+          <template #default="{ describedBy, invalid }">
+            <input
+              v-if="accessKeysFailed"
+              id="usage-access-key"
+              :value="draft.access_key_id"
+              inputmode="numeric"
+              autocomplete="off"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @input="
+                emit('updateField', 'access_key_id', ($event.target as HTMLInputElement).value)
+              "
+            />
+            <AccessKeySelect
+              v-else
+              id="usage-access-key"
+              :model-value="draft.access_key_id ? Number(draft.access_key_id) : undefined"
+              :options="accessKeys"
+              :aria-describedby="describedBy"
+              :aria-invalid="invalid || undefined"
+              @update:model-value="
+                emit('updateField', 'access_key_id', $event === undefined ? '' : String($event))
+              "
+            />
+          </template>
+        </FormField>
         <FormField
           v-if="!selfScoped"
           id="usage-group"
@@ -210,7 +246,9 @@ function error(field: keyof UsageFilterErrors): string | undefined {
   gap: 12px 10px;
 }
 
-.usage-filter-drawer__grid :deep(.app-select__trigger) {
+.usage-filter-drawer__grid :deep(.app-select__trigger),
+.usage-filter-drawer__grid :deep(.access-key-select),
+.usage-filter-drawer__grid :deep(.access-key-select .app-button) {
   width: 100%;
 }
 

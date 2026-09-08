@@ -59,6 +59,9 @@ func TestParseAccessKeyCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 		{name: "bare question mark", forceQuery: true},
 		{name: "malformed escape", rawQuery: "q=%zz"},
 		{name: "unknown key", rawQuery: "unknown=1"},
+		{name: "removed period filter", rawQuery: "range=30d"},
+		{name: "removed expiry filter", rawQuery: "expiration=expiring"},
+		{name: "removed quota filter", rawQuery: "quota=exhausted"},
 		{name: "q repeated", rawQuery: "q=one&q=two"},
 		{name: "status repeated", rawQuery: "status=active&status=disabled"},
 		{name: "page repeated", rawQuery: "page=1&page=2"},
@@ -138,7 +141,7 @@ func TestAccessKeyCollectionHTTPReturnsAuthenticatedCollectionEnvelope(t *testin
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatalf("decode collection data object: %v", err)
 	}
-	if len(fields) != 3 || fields["summary"] == nil || fields["items"] == nil || fields["pagination"] == nil {
+	if len(fields) != 4 || fields["usage_window"] == nil || fields["summary"] == nil || fields["items"] == nil || fields["pagination"] == nil {
 		t.Fatalf("collection data = %s, want object with summary/items/pagination only", data)
 	}
 	var result AccessKeyCollectionResponse

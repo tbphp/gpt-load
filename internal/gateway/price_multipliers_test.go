@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"encoding/json"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -154,7 +153,7 @@ func TestHandlerCrossGroupRetryUsesFinalUsageGroupMultiplier(t *testing.T) {
 	if _, err := manager.Publish(input); err != nil {
 		t.Fatal(err)
 	}
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	handler.priceTables = &mutableGatewayPriceTableProvider{table: mustGatewayPriceTable(t, 2_000_000_000, true)}
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
 	request.Header.Set("Authorization", "Bearer gl-client")

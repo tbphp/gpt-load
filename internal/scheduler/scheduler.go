@@ -3,7 +3,6 @@ package scheduler
 
 import (
 	"errors"
-	"math/rand"
 	"time"
 
 	"gpt-load/internal/channel"
@@ -15,6 +14,7 @@ import (
 var ErrExhausted = errors.New("scheduler exhausted")
 
 type CredentialSource interface {
+	SchedulingState() *state.SchedulingState
 	CollectCredentialCandidates(groupIDs []uint, excluded func(uint) bool, now time.Time) []state.CredentialMeta
 }
 
@@ -27,6 +27,7 @@ type Query struct {
 	AccessKey                state.AccessKeyView
 	AllowedCredentialIDs     map[uint]struct{}
 	PreferredCredentialID    uint
+	AllowedCredentialRefs    map[uint]state.CredentialRef
 }
 
 type Selection struct {
@@ -58,7 +59,7 @@ type candidatePool struct {
 
 type Iterator struct {
 	credentials           CredentialSource
-	random                *rand.Rand
+	progress              *state.SchedulingState
 	regular               candidatePool
 	storeDowngraded       candidatePool
 	routeModeTiers        [][]channel.RouteMode
@@ -66,6 +67,7 @@ type Iterator struct {
 	preferredCredentialID uint
 	tried                 map[uint]struct{}
 	skippedGroups         map[uint]struct{}
+	allowedCredentialRefs map[uint]credentialIdentity
 	staticReason          ReasonCode
 	now                   func() time.Time
 }
@@ -80,8 +82,8 @@ type normalizedQuery struct {
 	allowedCredentialIDs     map[uint]struct{}
 }
 
-func New(snapshot *state.ConfigSnapshot, credentials CredentialSource, query Query, random *rand.Rand) *Iterator {
-	return newWithClock(snapshot, credentials, query, random, time.Now)
+func New(snapshot *state.ConfigSnapshot, credentials CredentialSource, query Query) *Iterator {
+	return newWithClock(snapshot, credentials, query, time.Now)
 }
 
 // CandidateGroupIDsForQuery returns the frozen credential-capture scope for a
@@ -111,12 +113,11 @@ func newWithClock(
 	snapshot *state.ConfigSnapshot,
 	credentials CredentialSource,
 	query Query,
-	random *rand.Rand,
 	now func() time.Time,
 ) *Iterator {
 	iterator := &Iterator{
 		credentials:           credentials,
-		random:                random,
+		allowedCredentialRefs: cloneCredentialIdentities(query.AllowedCredentialRefs),
 		regular:               newCandidatePool(),
 		storeDowngraded:       newCandidatePool(),
 		routeModeTiers:        [][]channel.RouteMode{{channel.RouteNative}, {channel.RouteConverted}},
@@ -126,6 +127,12 @@ func newWithClock(
 		skippedGroups:         make(map[uint]struct{}),
 		now:                   now,
 	}
+
+	if credentials != nil {
+		iterator.progress = credentials.SchedulingState()
+		iterator.progress.SyncGroups(snapshot)
+	}
+
 	if snapshot != nil && snapshot.Settings.RouteStrategy == state.RouteStrategyWeightedMix {
 		iterator.routeModeTiers = [][]channel.RouteMode{{channel.RouteNative, channel.RouteConverted}}
 	}
@@ -186,106 +193,79 @@ func (iterator *Iterator) weightedPoolForMode(
 	if iterator == nil {
 		return nil, 0
 	}
-	return iterator.weightedPoolForCandidatePool(&iterator.regular, []channel.RouteMode{mode}, now)
+	var weighted []weightedCredential
+	var total int64
+	iterator.withWeightedPool(&iterator.regular, []channel.RouteMode{mode}, now, func(pool []weightedCredential) {
+		weighted = pool
+		for _, candidate := range pool {
+			total += candidate.weight
+		}
+	})
+	return weighted, total
 }
 
-func (iterator *Iterator) weightedPoolForCandidatePool(
-	candidates *candidatePool,
-	modes []channel.RouteMode,
-	now time.Time,
-) ([]weightedCredential, int64) {
-	if iterator == nil || iterator.credentials == nil {
-		return nil, 0
-	}
+func (iterator *Iterator) withWeightedPool(candidates *candidatePool, modes []channel.RouteMode, now time.Time, fn func([]weightedCredential)) {
 	var groupIDs []uint
 	for _, mode := range modes {
 		groupIDs = append(groupIDs, candidates.groupIDsByMode[mode]...)
 	}
-	if len(groupIDs) == 0 {
-		return nil, 0
-	}
-	pool := iterator.credentials.CollectCredentialCandidates(groupIDs, func(credentialID uint) bool {
-		_, tried := iterator.tried[credentialID]
-		return tried
-	}, now)
-	weighted := make([]weightedCredential, 0, len(pool))
-	for _, credential := range pool {
-		if iterator.allowedCredentialIDs != nil {
-			if _, allowed := iterator.allowedCredentialIDs[credential.ID]; !allowed {
+	excluded := func(id uint) bool { _, tried := iterator.tried[id]; return tried }
+	consume := func(pool []state.CredentialMeta) {
+		weighted := make([]weightedCredential, 0, len(pool))
+		for _, credential := range pool {
+			if iterator.allowedCredentialIDs != nil {
+				if _, ok := iterator.allowedCredentialIDs[credential.ID]; !ok {
+					continue
+				}
+			}
+			if iterator.allowedCredentialRefs != nil {
+				ref, ok := iterator.allowedCredentialRefs[credential.ID]
+				if !ok || ref.GroupID != credential.GroupID || ref.IdentityGeneration != credential.IdentityGeneration {
+					continue
+				}
+			}
+			if _, skipped := iterator.skippedGroups[credential.GroupID]; skipped {
 				continue
 			}
+			target, ok := candidates.targetsByGroup[credential.GroupID]
+			if !ok {
+				continue
+			}
+			weight := effectiveWeight(target.group.WeightManual, credential.WeightManual, credential.WeightAuto)
+			if weight > 0 {
+				weighted = append(weighted, weightedCredential{meta: credential, weight: weight})
+			}
 		}
-		if _, skipped := iterator.skippedGroups[credential.GroupID]; skipped {
-			continue
-		}
-		target, ok := candidates.targetsByGroup[credential.GroupID]
-		if !ok {
-			continue
-		}
-		weight := effectiveWeight(
-			target.group.WeightManual,
-			credential.WeightManual,
-			credential.WeightAuto,
-		)
-		if weight <= 0 {
-			continue
-		}
-		weighted = append(weighted, weightedCredential{meta: credential, weight: weight})
+		fn(weighted)
 	}
-	var total int64
-	for _, credential := range weighted {
-		total += credential.weight
+	if source, ok := iterator.credentials.(interface {
+		WithCredentialCandidates([]uint, func(uint) bool, time.Time, func([]state.CredentialMeta))
+	}); ok {
+		source.WithCredentialCandidates(groupIDs, excluded, now, consume)
+	} else {
+		consume(iterator.credentials.CollectCredentialCandidates(groupIDs, excluded, now))
 	}
-	return weighted, total
 }
 
 func (iterator *Iterator) Next() (Selection, error) {
-	if iterator == nil || iterator.random == nil || iterator.now == nil {
+	if iterator == nil || iterator.credentials == nil || iterator.progress == nil || iterator.now == nil {
 		return Selection{}, ErrExhausted
 	}
 	for _, pool := range []*candidatePool{&iterator.regular, &iterator.storeDowngraded} {
 		for _, modes := range iterator.routeModeTiers {
-			weighted, total := iterator.weightedPoolForCandidatePool(pool, modes, iterator.now())
-			if total <= 0 {
+			var selected state.CredentialMeta
+			var found bool
+			iterator.withWeightedPool(pool, modes, iterator.now(), func(weighted []weightedCredential) {
+				selected, found = iterator.selectCredential(weighted, iterator.preferredCredentialID)
+			})
+			if !found {
 				continue
 			}
-
-			selected, preferred := preferredCredential(
-				weighted,
-				iterator.preferredCredentialID,
-			)
-			if !preferred {
-				ticket := iterator.random.Int63n(total)
-				selected = weighted[len(weighted)-1].meta
-				for _, candidate := range weighted {
-					if ticket < candidate.weight {
-						selected = candidate.meta
-						break
-					}
-					ticket -= candidate.weight
-				}
-			}
 			iterator.tried[selected.ID] = struct{}{}
-			target := pool.targetsByGroup[selected.GroupID]
-			return newSelection(selected, target), nil
+			return newSelection(selected, pool.targetsByGroup[selected.GroupID]), nil
 		}
 	}
 	return Selection{}, ErrExhausted
-}
-
-func preferredCredential(
-	weighted []weightedCredential,
-	credentialID uint,
-) (state.CredentialMeta, bool) {
-	if credentialID == 0 {
-		return state.CredentialMeta{}, false
-	}
-	for _, candidate := range weighted {
-		if candidate.meta.ID == credentialID {
-			return candidate.meta, true
-		}
-	}
-	return state.CredentialMeta{}, false
 }
 
 func filterTargetsWithReason(
@@ -406,4 +386,20 @@ func cloneString(value *string) *string {
 	}
 	cloned := *value
 	return &cloned
+}
+
+type credentialIdentity struct {
+	GroupID            uint
+	IdentityGeneration uint64
+}
+
+func cloneCredentialIdentities(refs map[uint]state.CredentialRef) map[uint]credentialIdentity {
+	if refs == nil {
+		return nil
+	}
+	identities := make(map[uint]credentialIdentity, len(refs))
+	for id, ref := range refs {
+		identities[id] = credentialIdentity{GroupID: ref.GroupID, IdentityGeneration: ref.IdentityGeneration}
+	}
+	return identities
 }

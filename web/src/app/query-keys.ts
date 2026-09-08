@@ -48,13 +48,16 @@ export function normalizeAccessKeyCollectionFilters(
   const query = filters.q?.trim()
   if (query) normalized.q = query
   if (filters.status !== undefined) normalized.status = filters.status
+  normalized.sort = filters.sort ?? 'updated_desc'
   return normalized
 }
 
 function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
   const result: UsageFilters = {
-    range: filters.range,
+    from_ms: filters.from_ms,
+    to_ms: filters.to_ms,
   }
+  if (filters.access_key_id !== undefined) result.access_key_id = filters.access_key_id
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.channel_id !== undefined) result.channel_id = filters.channel_id
   if (filters.credential_id !== undefined) result.credential_id = filters.credential_id

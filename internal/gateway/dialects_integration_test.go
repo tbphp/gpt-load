@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -153,7 +152,7 @@ func newDialectGatewayEngineWithForwarder(
 		nil,
 		nil,
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, registry

@@ -52,7 +52,7 @@ func parseAccessKeyCollectionQuery(
 	}
 	for key, entries := range values {
 		switch key {
-		case "q", "status", "page", "page_size":
+		case "q", "status", "page", "page_size", "sort":
 		default:
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
 		}
@@ -87,6 +87,14 @@ func parseAccessKeyCollectionQuery(
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
 		}
 		query.PageSize = pageSize
+	}
+	if entries, exists := values["sort"]; exists {
+		switch entries[0] {
+		case "updated_desc", "cost_desc", "expires_asc":
+			query.Sort = entries[0]
+		default:
+			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
+		}
 	}
 	return query, nil
 }

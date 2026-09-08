@@ -149,6 +149,7 @@ export function buildTrendGeometry(
   maximumFailureHeight: number,
   rangeStart: number,
   rangeEnd: number,
+  centerBuckets = false,
 ): TrendGeometry {
   const plotTop = validDimension(chartHeight) ? Math.min(14, chartHeight * 0.1) : 0
   const plotBottomInset = validDimension(chartHeight) ? Math.min(8, chartHeight * 0.1) : 0
@@ -181,9 +182,11 @@ export function buildTrendGeometry(
   const points = parsed.map<TrendPoint>((datum) => {
     return {
       x: round(
-        pointRangeDuration === 0
-          ? width / 2
-          : ((datum.start - rangeStart) / pointRangeDuration) * width,
+        centerBuckets
+          ? ((datum.start - rangeStart + (datum.end - datum.start) / 2) / rangeDuration) * width
+          : pointRangeDuration === 0
+            ? width / 2
+            : ((datum.start - rangeStart) / pointRangeDuration) * width,
       ),
       y: round(
         maximumRequests === 0

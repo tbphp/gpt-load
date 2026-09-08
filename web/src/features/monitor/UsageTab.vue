@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { Database } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -16,13 +16,11 @@ import {
   type UsageAggregateDto,
   type UsageDistributionDimension,
   type UsageDistributionMetric,
-  type UsageFilters,
-  type UsageRange,
+  type UsageReportDto,
 } from '@/app/resources/usage'
 import { monitorLocation } from '@/app/route-locations'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import type { TrendDatum } from '@/components/charts/trend-chart'
-import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import DataTable from '@/components/ui/DataTable.vue'
@@ -31,7 +29,13 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
-import { formatEstimatedCost, formatInteger, formatTokens } from '@/lib/format'
+import {
+  formatEstimatedCost,
+  formatInteger,
+  formatTokens,
+  formatLocalTimeRange,
+} from '@/lib/format'
+import { resolveDateTimePreset } from '@/lib/time'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
@@ -42,6 +46,7 @@ import {
   createUsageFilterDraft,
   parseAppliedUsageFilters,
   validateUsageFilterDraft,
+  type AppliedUsageFilters,
   type UsageFilterDraft,
   type UsageFilterErrors,
 } from './usage-filters'
@@ -94,6 +99,13 @@ const accessKeysQuery = useQuery({
 })
 const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
+// 切换筛选时的占位报告只用于过渡展示，不能作为跨页导航的时间依据。
+const navigationReport = computed(() =>
+  usageQuery.isPlaceholderData.value ? undefined : report.value,
+)
+const navigationPending = computed(
+  () => usageQuery.isFetching.value && navigationReport.value === undefined,
+)
 const distributionDimension = ref<UsageDistributionDimension>('model')
 const distributionMetric = ref<UsageDistributionMetric>('cost')
 const distribution = computed(() => {
@@ -150,6 +162,23 @@ const distributionMetricOptions = computed(() => [
   { value: 'cost', label: t('monitor.usage.distribution.metrics.cost') },
 ])
 const costChartResolution = 1_000_000_000n
+const emptyUsageAggregate: UsageAggregateDto = {
+  request_count: 0,
+  success_count: 0,
+  failure_count: 0,
+  uncached_input_tokens: 0,
+  cache_read_tokens: 0,
+  cache_write_5m_tokens: 0,
+  cache_write_1h_tokens: 0,
+  cache_write_unknown_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+  estimated_cost_nano_usd: '0',
+  usage_missing_count: 0,
+  partial_count: 0,
+  unpriced_request_count: 0,
+  pricing_partial_count: 0,
+}
 const trendMetricOptions = computed(() => [
   { value: 'requests', label: t('monitor.usage.trend.metrics.requests') },
   { value: 'tokens', label: t('monitor.usage.trend.metrics.tokens') },
@@ -197,8 +226,33 @@ function normalizeTrendCost(value: bigint, maximum: bigint): number {
   return Number((value * costChartResolution + maximum / 2n) / maximum)
 }
 
+const trendBuckets = computed<UsageReportDto['series']>(() => {
+  const current = report.value
+  if (!current) return []
+
+  const byStart = new Map(current.series.map((bucket) => [bucket.bucket_start_ms, bucket]))
+  const buckets: UsageReportDto['series'] = []
+  const width = current.bucket_width_ms
+  // 使用后端返回的粒度补零，首尾裁切到查询范围，不推断残缺桶的宽度。
+  for (
+    let alignedStart = Math.floor(current.from_ms / width) * width;
+    alignedStart < current.to_ms;
+    alignedStart += width
+  ) {
+    const start = Math.max(alignedStart, current.from_ms)
+    buckets.push(
+      byStart.get(start) ?? {
+        ...emptyUsageAggregate,
+        bucket_start_ms: start,
+        bucket_end_ms: Math.min(alignedStart + width, current.to_ms),
+      },
+    )
+  }
+  return buckets
+})
+
 const requestTrendSeries = computed<TrendDatum[]>(() =>
-  (report.value?.series ?? []).map((bucket) => ({
+  trendBuckets.value.map((bucket) => ({
     bucket_start_ms: bucket.bucket_start_ms,
     bucket_end_ms: bucket.bucket_end_ms,
     request_count: bucket.success_count,
@@ -207,7 +261,7 @@ const requestTrendSeries = computed<TrendDatum[]>(() =>
 )
 
 const barTrendSeries = computed<UsageBarDatum[]>(() => {
-  const buckets = report.value?.series ?? []
+  const buckets = trendBuckets.value
   if (routeState.value.metric === 'tokens') {
     return buckets.map((bucket) => ({
       bucket_start_ms: bucket.bucket_start_ms,
@@ -244,7 +298,10 @@ const barTrendSeries = computed<UsageBarDatum[]>(() => {
 
 watch(
   [
-    () => appliedFilters.value.range,
+    () => appliedFilters.value.from_ms,
+    () => appliedFilters.value.to_ms,
+    () => appliedFilters.value.preset,
+    () => appliedFilters.value.access_key_id,
     () => appliedFilters.value.group_id,
     () => appliedFilters.value.channel_id,
     () => appliedFilters.value.credential_id,
@@ -264,14 +321,18 @@ watch(
   },
 )
 
-function rangeLabel(range: UsageRange): string {
-  return t(`monitor.usage.filters.ranges.${range}`)
-}
-
 function granularityLabel(): string {
   const bucketWidthMS = report.value?.bucket_width_ms
+  if (report.value?.granularity === 'minute') {
+    return t('monitor.usage.trend.everyMinutes', { count: (bucketWidthMS ?? 0) / (60 * 1000) })
+  }
   if (bucketWidthMS === 60 * 60 * 1000) return t('monitor.usage.trend.hourly')
   if (bucketWidthMS === 24 * 60 * 60 * 1000) return t('monitor.usage.trend.daily')
+  if (report.value?.granularity === 'day') {
+    return t('monitor.usage.trend.everyDays', {
+      count: (bucketWidthMS ?? 0) / (24 * 60 * 60 * 1000),
+    })
+  }
   return t('monitor.usage.trend.everyHours', {
     count: (bucketWidthMS ?? 0) / (60 * 60 * 1000),
   })
@@ -313,11 +374,15 @@ async function applyFilters(): Promise<void> {
   const errors = validateUsageFilterDraft(draft.value)
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
-  await navigate(applyUsageFilterDraft(draft.value))
+  await navigate(applyUsageFilterDraft(draft.value, appliedFilters.value))
 }
 
 async function resetFilters(): Promise<void> {
-  await navigate({ range: appliedFilters.value.range })
+  await navigate({
+    from_ms: appliedFilters.value.from_ms,
+    to_ms: appliedFilters.value.to_ms,
+    preset: appliedFilters.value.preset,
+  })
 }
 
 function updateDistributionDimension(value: string): void {
@@ -345,7 +410,7 @@ async function updateTrendMetric(value: string): Promise<void> {
 }
 
 async function navigate(
-  filters: UsageFilters,
+  filters: AppliedUsageFilters,
   state: UsageMonitorState = {
     filtersOpen: false,
     seriesExpanded: false,
@@ -363,15 +428,25 @@ function setSeriesExpanded(event: Event): void {
 }
 
 async function refresh(): Promise<void> {
+  const filters = appliedFilters.value
+  if (filters.preset) {
+    const interval = resolveDateTimePreset(filters.preset, Math.floor(Date.now() / 1000) * 1000)
+    if (interval.to_ms > interval.from_ms) {
+      await router.replace(
+        monitorLocation(usageMonitorQuery({ ...filters, ...interval }, routeState.value)),
+      )
+      await nextTick()
+    }
+  }
   await Promise.all([
-    usageQuery.refetch(),
+    usageQuery.refetch({ cancelRefetch: false }),
     ...(!isAccessKey.value
       ? [groupsQuery.refetch(), channelsQuery.refetch(), accessKeysQuery.refetch()]
       : []),
   ])
 }
 
-defineExpose({ openFilters, refresh })
+defineExpose({ openFilters, refresh, navigationReport, navigationPending })
 </script>
 
 <template>
@@ -447,7 +522,7 @@ defineExpose({ openFilters, refresh })
             id="usage-trend-title"
             :title="trendPresentation.title"
             :description="trendPresentation.description"
-            :meta="`${rangeLabel(report.range)} · ${granularityLabel()}`"
+            :meta="granularityLabel()"
           >
             <template #actions>
               <SegmentedControl
@@ -470,6 +545,8 @@ defineExpose({ openFilters, refresh })
               :failure-label="trendPresentation.secondaryLabel ?? ''"
               :range-start="report.from_ms"
               :range-end="report.to_ms"
+              center-buckets
+              show-bucket-seconds
               :locale="locale"
               show-bucket-range
               show-single-point
@@ -592,6 +669,12 @@ defineExpose({ openFilters, refresh })
             :groups="groupsQuery.data.value ?? []"
             :channels="channelsQuery.data.value?.items ?? []"
             :access-keys="accessKeysQuery.data.value ?? []"
+            @select-access-key="
+              navigate({
+                ...appliedFilters,
+                access_key_id: $event,
+              })
+            "
           />
         </section>
 
@@ -615,8 +698,17 @@ defineExpose({ openFilters, refresh })
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="bucket in report.series" :key="bucket.bucket_start_ms">
-                  <td><AppDateTime :instant="bucket.bucket_start_ms" :locale="locale" /></td>
+                <tr v-for="bucket in trendBuckets" :key="bucket.bucket_start_ms">
+                  <td>
+                    {{
+                      formatLocalTimeRange(
+                        bucket.bucket_start_ms,
+                        bucket.bucket_end_ms,
+                        locale,
+                        true,
+                      )
+                    }}
+                  </td>
                   <td>{{ formatInteger(bucket.request_count, locale) }}</td>
                   <td>{{ formatInteger(bucket.success_count, locale) }}</td>
                   <td>{{ formatInteger(bucket.failure_count, locale) }}</td>
@@ -646,6 +738,8 @@ defineExpose({ openFilters, refresh })
       :errors="filterErrors"
       :groups="groupsQuery.data.value ?? []"
       :channels="channelsQuery.data.value?.items ?? []"
+      :access-keys="accessKeysQuery.data.value ?? []"
+      :access-keys-failed="accessKeysQuery.isError.value"
       :groups-failed="groupsQuery.isError.value"
       :channels-failed="channelsQuery.isError.value"
       :self-scoped="isAccessKey"

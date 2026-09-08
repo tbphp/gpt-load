@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -810,6 +809,11 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 	}
 }
 
+func (registry *mutatingRuntimeRegistry) WithCredentialCandidates(groups []uint, excluded func(uint) bool, now time.Time, fn func([]state.CredentialMeta)) {
+	// 故意在收集后改变身份/状态，覆盖较弱来源返回旧候选的防线。
+	fn(registry.CollectCredentialCandidates(groups, excluded, now))
+}
+
 func (registry *mutatingRuntimeRegistry) CollectCredentialCandidates(
 	groupIDs []uint,
 	excluded func(uint) bool,
@@ -1080,7 +1084,7 @@ func TestHandlerRecordsInvalidKeyPerAttempt(t *testing.T) {
 		},
 	}}
 	engine, handler, _, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	handler.now = func() time.Time { return now }
 
 	request := httptest.NewRequest(
@@ -1127,7 +1131,7 @@ func TestHandlerDoesNotRotateOrPenalizeRequestRejected429(t *testing.T) {
 	engine, handler, registry, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
 	recording := &recordingRuntimeRegistry{CredentialRegistry: registry}
 	handler.registry = recording
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	handler.now = func() time.Time { return now }
 
 	request := httptest.NewRequest(
@@ -1172,7 +1176,7 @@ func TestHandlerRetriesCandidateUnavailableWithoutCredentialPenalty(t *testing.T
 	engine, handler, registry, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
 	recording := &recordingRuntimeRegistry{CredentialRegistry: registry}
 	handler.registry = recording
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	handler.now = func() time.Time { return now }
 
 	request := httptest.NewRequest(
@@ -1230,7 +1234,6 @@ func TestHandlerRetriesSafeBootstrapCapacityErrorWithoutCredentialPenalty(t *tes
 			engine, handler, registry, _ := newStatsHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
 			recording := &recordingRuntimeRegistry{CredentialRegistry: registry}
 			handler.registry = recording
-			handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 
 			request := httptest.NewRequest(
 				http.MethodPost,
@@ -1936,6 +1939,10 @@ func newModelListHandlerEngineWithLimit(
 }
 
 type panicRuntimeRegistry struct{}
+
+func (panicRuntimeRegistry) SchedulingState() *state.SchedulingState {
+	panic("unexpected registry access")
+}
 
 func (panicRuntimeRegistry) CollectCredentialCandidates([]uint, func(uint) bool, time.Time) []state.CredentialMeta {
 	panic("model endpoint collected upstream candidates")
@@ -4046,6 +4053,12 @@ func TestSubscriptionExplicit401RetriesSameCredentialWithForcedRefresh(t *testin
 		forwarder.inputs[0].ForceCredentialRefresh || !forwarder.inputs[1].ForceCredentialRefresh {
 		t.Fatalf("inputs = %#v", forwarder.inputs)
 	}
+	registry.SchedulingState().WithLock(func(ledger *state.SchedulingLedger) {
+		if ledger.Sequence != 2 {
+			t.Fatalf("allocation sequence = %d, want both explicit attempts charged", ledger.Sequence)
+		}
+	})
+
 }
 
 func TestSubscriptionExplicit401ForcesRefreshAtMostOncePerRequest(t *testing.T) {
@@ -4703,7 +4716,7 @@ func TestHandlerKeepsFrozenSnapshotAcrossRetry(t *testing.T) {
 	engine.ServeHTTP(secondRecorder, secondRequest)
 	if secondRecorder.Code != http.StatusOK || len(forwarder.inputs) != 3 ||
 		forwarder.inputs[2].Group.BlacklistThreshold != 7 {
-		t.Fatalf("new request/attempts/threshold = %d/%d/%d, want 200/3/7", secondRecorder.Code, len(forwarder.inputs), forwarder.inputs[2].Group.BlacklistThreshold)
+		t.Fatalf("new request/attempts = %d/%d, body=%s, want 200/3 and threshold=7", secondRecorder.Code, len(forwarder.inputs), secondRecorder.Body.String())
 	}
 }
 
@@ -4756,7 +4769,7 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 				nil, nil, nil,
 			)
 			handler.registry = runtimeRegistry
-			handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
+
 			engine := gin.New()
 			bindGatewayRoutesForTest(t, engine, handler)
 
@@ -4981,7 +4994,7 @@ func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
 				},
 			}
 			handler, _, registry := newHandlerForTest(t, forwarder)
-			handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 			engine := gin.New()
 			bindGatewayRoutesForTest(t, engine, handler)
 			keyService := encryptiontest.Service(t, "handler-test-master-key")
@@ -5093,7 +5106,7 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 		nil,
 		nil,
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
+
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine
@@ -5337,7 +5350,7 @@ func newHandlerForTestWithStats(
 		health.NewMutationCoordinator(),
 		nil, nil, nil,
 	)
-	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
+
 	return handler, manager, registry
 }
 
@@ -5404,7 +5417,7 @@ func newConvertedFallbackHandlerTestRuntime(
 		nil, nil, nil,
 	)
 	handler.channels = channelRegistry
-	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, registry

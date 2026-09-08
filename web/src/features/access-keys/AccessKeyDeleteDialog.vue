@@ -13,8 +13,13 @@ import AppTypedConfirmation from '@/components/ui/AppTypedConfirmation.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 const props = withDefaults(
-  defineProps<{ accessKey: AccessKeyDto; total: number; disabled?: boolean }>(),
-  { disabled: false },
+  defineProps<{
+    accessKey: AccessKeyDto
+    total: number
+    disabled?: boolean
+    hideTrigger?: boolean
+  }>(),
+  { disabled: false, hideTrigger: false },
 )
 const emit = defineEmits<{ deleted: [name: string] }>()
 const client = useApiClient()
@@ -71,6 +76,7 @@ async function confirmDelete(): Promise<void> {
 }
 
 onBeforeUnmount(() => controller?.abort())
+defineExpose({ open: openDialog })
 </script>
 
 <template>
@@ -87,7 +93,7 @@ onBeforeUnmount(() => controller?.abort())
     @update:open="setOpen"
     @confirm="confirmDelete"
   >
-    <template #trigger>
+    <template v-if="!hideTrigger" #trigger>
       <slot name="trigger" :open="openDialog">
         <AppButton variant="danger" size="compact" :disabled="disabled" @click="openDialog">
           <Trash2 :size="16" aria-hidden="true" />

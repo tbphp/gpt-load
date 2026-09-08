@@ -116,7 +116,7 @@ watch(seriesKey, () => {
 })
 
 function formatBucketTime(datum: UsageBarDatum): string {
-  return formatLocalTimeRange(datum.bucket_start_ms, datum.bucket_end_ms, props.locale)
+  return formatLocalTimeRange(datum.bucket_start_ms, datum.bucket_end_ms, props.locale, true)
 }
 
 function primaryTooltipValue(datum: UsageBarDatum): string {

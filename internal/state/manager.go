@@ -7,6 +7,7 @@ import (
 )
 
 type Manager struct {
+	scheduling *SchedulingState
 	publishMu  sync.RWMutex
 	current    atomic.Pointer[ConfigSnapshot]
 	reconciler SnapshotReconciler
@@ -127,10 +128,23 @@ func (m *Manager) publishCompiledLocked(next *ConfigSnapshot) *ConfigSnapshot {
 	if current := m.current.Load(); current != nil {
 		next.Revision = current.Revision + 1
 	}
+	if m.scheduling != nil {
+		m.scheduling.SyncGroups(next)
+	}
 	m.current.Store(next)
 	if m.updates != nil {
 		close(m.updates)
 	}
 	m.updates = make(chan struct{})
 	return next
+}
+
+// SetSchedulingState 将分组配置发布与单实例调度状态衔接；不持有 Registry 锁。
+func (m *Manager) SetSchedulingState(scheduling *SchedulingState) {
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+	m.scheduling = scheduling
+	if scheduling != nil {
+		scheduling.SyncGroups(m.current.Load())
+	}
 }

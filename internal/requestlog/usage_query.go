@@ -16,7 +16,6 @@ import (
 
 const (
 	usageDistributionLimit = 5
-	maxUsageSeriesHours    = 30 * 24
 	usageRollbackTimeout   = time.Second
 )
 
@@ -38,19 +37,20 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		CleanupTimeout: usageRollbackTimeout,
 		Operation:      "usage read transaction",
 	}, func(connection *gorm.DB) error {
-		if err := validateUsageStatIntegrity(usageStatScope(connection, input)); err != nil {
+		scope := usageWindowScope(connection, input)
+		if err := validateUsageIntegrity(scope, 0); err != nil {
 			return err
 		}
-		summary, err := queryUsageSummary(usageStatScope(connection, input))
+		summary, err := queryUsageSummary(scope.Session(&gorm.Session{}))
 		if err != nil {
 			return err
 		}
-		series, err := queryUsageSeries(usageStatScope(connection, input), bucketWidthMS)
+		series, err := queryUsageWindowSeries(scope.Session(&gorm.Session{}), input, bucketWidthMS)
 		if err != nil {
 			return err
 		}
 		distributions, err := queryUsageDistributions(
-			usageStatScope(connection, input), summary, input.AccessKeyID != nil,
+			scope.Session(&gorm.Session{}), summary, input.SelfScoped,
 		)
 		if err != nil {
 			return err
@@ -67,12 +67,9 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 }
 
 func validateUsageQuery(input UsageQuery) (int64, error) {
-	if input.FromMS < 0 || input.ToMS <= input.FromMS {
-		return 0, fmt.Errorf("query usage: invalid time range")
-	}
-	if input.ToMS-input.FromMS >
-		int64(maxUsageSeriesHours)*epochms.MillisecondsPerHour {
-		return 0, fmt.Errorf("query usage: time range exceeds %d hours", maxUsageSeriesHours)
+	_, bucketWidthMS, err := ResolveUsageTimeBucket(input.FromMS, input.ToMS)
+	if err != nil {
+		return 0, err
 	}
 	if input.AccessKeyID != nil && *input.AccessKeyID == 0 {
 		return 0, fmt.Errorf("query usage: invalid access key scope")
@@ -83,43 +80,13 @@ func validateUsageQuery(input UsageQuery) (int64, error) {
 	if input.CredentialID != nil && *input.CredentialID == 0 {
 		return 0, fmt.Errorf("query usage: invalid credential scope")
 	}
-	bucketWidthMS := input.BucketWidthMS
-	switch input.Granularity {
-	case UsageGranularityHour:
-		if bucketWidthMS == 0 {
-			bucketWidthMS = epochms.MillisecondsPerHour
-		}
-	case UsageGranularityDay:
-		if bucketWidthMS == 0 {
-			bucketWidthMS = epochms.MillisecondsPerDay
-		}
-	default:
-		return 0, fmt.Errorf("query usage: unsupported granularity %q", input.Granularity)
-	}
-	if bucketWidthMS < epochms.MillisecondsPerHour ||
-		bucketWidthMS > epochms.MillisecondsPerDay ||
-		bucketWidthMS%epochms.MillisecondsPerHour != 0 {
-		return 0, fmt.Errorf("query usage: invalid bucket width %d", bucketWidthMS)
-	}
-	if input.Granularity == UsageGranularityHour &&
-		bucketWidthMS >= epochms.MillisecondsPerDay {
-		return 0, fmt.Errorf("query usage: hourly granularity requires a sub-day bucket")
-	}
-	if input.Granularity == UsageGranularityDay &&
-		bucketWidthMS != epochms.MillisecondsPerDay {
-		return 0, fmt.Errorf("query usage: daily granularity requires a day bucket")
-	}
-	if input.FromMS%bucketWidthMS != 0 || input.ToMS%bucketWidthMS != 0 ||
-		(input.ToMS-input.FromMS)%bucketWidthMS != 0 {
-		return 0, fmt.Errorf("query usage: time range is not bucket aligned")
-	}
 	return bucketWidthMS, nil
 }
 
 func queryUsageDistributions(
 	scope *gorm.DB,
 	summary UsageAggregate,
-	accessKeyScoped bool,
+	selfScoped bool,
 ) (UsageDistributions, error) {
 	result := UsageDistributions{
 		Group:     make(map[UsageDistributionMetric]UsageDistribution, 3),
@@ -131,7 +98,7 @@ func queryUsageDistributions(
 		UsageDistributionDimensionModel,
 		UsageDistributionDimensionAccessKey,
 	}
-	if accessKeyScoped {
+	if selfScoped {
 		dimensions = []UsageDistributionDimension{UsageDistributionDimensionModel}
 	}
 	for _, dimension := range dimensions {
@@ -183,11 +150,23 @@ func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 }
 
 func validateUsageStatIntegrity(scope *gorm.DB) error {
+	return validateUsageIntegrity(scope, epochms.MillisecondsPerHour)
+}
+
+func validateUsageIntegrity(scope *gorm.DB, bucketAlignmentMS int64) error {
 	var integrity usageStatIntegrity
-	if err := scope.Select(`
+	alignmentExpression := "?"
+	var arguments []any
+	if bucketAlignmentMS == 0 {
+		// 混合行集携带原始来源的桶宽，不能把损坏的小时记录按分钟桶放行。
+		alignmentExpression = "bucket_alignment_ms"
+	} else {
+		arguments = append(arguments, bucketAlignmentMS)
+	}
+	if err := scope.Session(&gorm.Session{}).Select(`
 		COALESCE(MAX(CASE
 			WHEN bucket_start_ms < 0
-				OR bucket_start_ms % 3600000 != 0
+				OR bucket_start_ms % `+alignmentExpression+` != 0
 			THEN 1 ELSE 0 END), 0) AS invalid_bucket,
 		COALESCE(MAX(CASE
 			WHEN request_count < 0 OR success_count < 0 OR failure_count < 0
@@ -207,7 +186,7 @@ func validateUsageStatIntegrity(scope *gorm.DB) error {
 		COALESCE(MAX(CASE
 			WHEN estimated_cost_nano_usd < 0
 			THEN 1 ELSE 0 END), 0) AS invalid_cost
-	`).Find(&integrity).Error; err != nil {
+	`, arguments...).Find(&integrity).Error; err != nil {
 		return fmt.Errorf("check usage stat integrity: %w", err)
 	}
 	if integrity.InvalidBucket != 0 || integrity.InvalidCount != 0 ||

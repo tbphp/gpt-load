@@ -210,8 +210,9 @@ export default {
         danger: '危険な操作',
       },
       routing: {
-        description: '手動ウェイトは明示的に上書きした場合のみ適用されます。',
-        weightHelp: '自動はランタイムスケジューリングで決まり、手動は 1–100 です',
+        description: 'リクエスト分配に使うグループの相対的な重みを設定します。',
+        weightHelp:
+          '既定値は 50、範囲は 1–100 です。認証情報の重みと掛け合わせて分配比率を決定します。',
       },
       headers: {
         description:
@@ -307,7 +308,7 @@ export default {
         validationModelPlaceholder: 'モデル ID を検索または入力',
         validationModelHelp:
           '空欄の場合はグループの最初のモデルを使用します。エイリアスではなくアップストリームのモデル ID を入力してください。',
-        weight: 'グループ手動ウェイト',
+        weight: 'グループの重み',
         auto: '自動',
         manual: '手動',
         weightError: '1～100 の整数を入力してください',
@@ -695,22 +696,29 @@ export default {
         download: 'すべてダウンロード',
         enable: 'すべて有効化',
         disable: 'すべて無効化',
+        restore: 'すべて回復',
         kind: { account: 'アカウント', key: 'キー' },
         confirmTitle: {
-          download: 'このグループの全アカウントをダウンロードしますか？',
+          download: 'このグループの全{kind}をダウンロードしますか？',
           enable: 'このグループの全{kind}を有効化しますか？',
           disable: 'このグループの全{kind}を無効化しますか？',
+          restore: 'このグループの全{kind}を回復しますか？',
         },
-        confirmDescription: '現在のグループにあるすべての{kind}が対象です。',
+        confirmDescription:
+          '検索、フィルター、ページに関係なく、現在のグループにあるすべての{kind}が対象です。',
+        restoreDescription:
+          '現在のグループでクールダウン中またはブラックリストに登録されている{kind}のみを復旧し、その連続失敗状態をクリアします。無効化されている認証情報と認証が準備できていない項目は変更しません。過去の統計は保持します。上流のテスト、クォータのリセット、再認証は行いません。検索、フィルター、ページに関係なく適用されます。',
         confirm: {
           download: 'すべてダウンロード',
           enable: 'すべて有効化',
           disable: 'すべて無効化',
+          restore: 'すべて回復',
         },
         succeeded: {
-          download: '{count} 件のアカウントファイルをダウンロードしました',
+          download: '{count} 件の{kind}をダウンロードしました',
           enable: '{count} 件の{kind}を有効化しました',
           disable: '{count} 件の{kind}を無効化しました',
+          restore: '{count} 件の{kind}を回復しました',
         },
         failed: '全件操作を完了できません',
       },

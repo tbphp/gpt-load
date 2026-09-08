@@ -105,7 +105,6 @@ function applyAdvanced(): void {
         :label="t('monitor.logs.filters.timeRange')"
         :from-label="t('monitor.logs.filters.from')"
         :to-label="t('monitor.logs.filters.to')"
-        :timezone-label="t('monitor.logs.filters.timezone')"
         :from-error="errors.from ? t(errors.from) : undefined"
         :to-error="errors.to ? t(errors.to) : undefined"
         @update:from="update('from', $event)"

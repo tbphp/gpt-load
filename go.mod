@@ -88,6 +88,7 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/molecule-man/go-brrr v1.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pierrec/xxHash v0.1.5 // indirect
@@ -110,7 +111,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasthttp v1.73.0 // indirect
+	github.com/valyala/fasthttp v1.74.0 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.1 // indirect
@@ -127,8 +128,5 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.54.0 // indirect
 )
-
-// Temporary stream lifecycle fix: https://github.com/valyala/fasthttp/pull/2353
-replace github.com/valyala/fasthttp => github.com/tbphp/fasthttp v1.73.1-0.20260828150536-1c6c09a6f6bc
 
 replace github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded => ./third_party/cpaembedded
