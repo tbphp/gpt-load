@@ -243,14 +243,14 @@ type requestAccessQuotaAdmission struct {
 }
 
 func (handler *Handler) applyDecisionEffect(
-	credentialID uint,
+	ref state.CredentialRef,
 	decision health.Decision,
 	statusCode int,
 	attemptNow time.Time,
 ) {
 	defaults := state.DefaultRuntimeSettings()
 	handler.applyDecisionEffectWithBlacklistPolicy(
-		credentialID,
+		ref,
 		0,
 		decision,
 		statusCode,
@@ -261,14 +261,14 @@ func (handler *Handler) applyDecisionEffect(
 
 func (handler *Handler) applyGroupDecisionEffect(
 	group state.GroupView,
-	credentialID uint,
+	ref state.CredentialRef,
 	credentialVersion uint64,
 	decision health.Decision,
 	statusCode int,
 	attemptNow time.Time,
 ) {
 	handler.applyDecisionEffectWithBlacklistPolicy(
-		credentialID,
+		ref,
 		credentialVersion,
 		decision,
 		statusCode,
@@ -286,16 +286,17 @@ func refreshCooldownCredentialVersion(result UpstreamResult, credentialVersion u
 }
 
 func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
-	credentialID uint,
+	ref state.CredentialRef,
 	credentialVersion uint64,
 	decision health.Decision,
 	statusCode int,
 	attemptNow time.Time,
 	blacklistThreshold int,
 ) {
+	credentialID := ref.ID
 	switch decision.Effect {
 	case health.EffectCooldownCredential:
-		mutate := func() {
+		handler.mutateCredentialForTarget(ref, func() {
 			until := decision.CooldownUntil
 			exists, changed := false, false
 			if credentialVersion == 0 {
@@ -314,14 +315,9 @@ func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 			if changed {
 				handler.logCredentialCooldown(credentialID, decision.Category, statusCode)
 			}
-		}
-		if handler.mutations == nil {
-			mutate()
-		} else {
-			handler.mutations.Do(credentialID, mutate)
-		}
+		})
 	case health.EffectRecordCredentialFailure:
-		handler.mutations.Do(credentialID, func() {
+		handler.mutateCredentialForTarget(ref, func() {
 			count, ok := handler.registry.IncrFailure(credentialID)
 			if !ok {
 				return
@@ -342,12 +338,28 @@ func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 	}
 }
 
-func (handler *Handler) recordCredentialSuccess(credentialID uint, at time.Time) {
-	handler.mutations.Do(credentialID, func() {
-		if handler.registry.ClearFailure(credentialID) {
-			handler.stats.RecordSuccess(credentialID, at)
+func (handler *Handler) recordCredentialSuccess(ref state.CredentialRef, at time.Time) {
+	handler.mutateCredentialForTarget(ref, func() {
+		if handler.registry.ClearFailure(ref.ID) {
+			handler.stats.RecordSuccess(ref.ID, at)
 		}
 	})
+}
+
+func (handler *Handler) mutateCredentialForTarget(ref state.CredentialRef, mutate func()) {
+	apply := func() {
+		// 与配置变更共用凭据锁，避免校验后再切换目标；同目标的令牌刷新不影响结果归属。
+		current, exists := handler.registry.CredentialRef(ref.ID)
+		if !exists || current.GroupID != ref.GroupID || current.IdentityGeneration != ref.IdentityGeneration {
+			return
+		}
+		mutate()
+	}
+	if handler.mutations == nil {
+		apply()
+	} else {
+		handler.mutations.Do(ref.ID, apply)
+	}
 }
 
 func retryAttemptLimit(group state.GroupView) int {
@@ -918,7 +930,7 @@ func (handler *Handler) executeAttempts(
 			selection, nil, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
-		handler.applyGroupDecisionEffect(selection.Group, selection.CredentialID, 0, decision, 0, attemptNow)
+		handler.applyGroupDecisionEffect(selection.Group, allowedCredentialRefs[selection.CredentialID], 0, decision, 0, attemptNow)
 		if decision.Effect == health.EffectSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}
@@ -1184,14 +1196,14 @@ func (handler *Handler) executeAttempts(
 			}
 			handler.applyGroupDecisionEffect(
 				selection.Group,
-				selection.CredentialID,
+				ref,
 				0,
 				decision,
 				result.StatusCode,
 				attemptNow,
 			)
 			if stream && result.Stream.EndReason == StreamEndCleanEOF {
-				handler.recordCredentialSuccess(selection.CredentialID, attemptNow)
+				handler.recordCredentialSuccess(ref, attemptNow)
 				handler.recordAffinitySuccess(requestAffinity, selection, ref)
 			}
 			return
@@ -1214,7 +1226,7 @@ func (handler *Handler) executeAttempts(
 			!result.ProviderErrorBeforeCommit && result.HasResponse() &&
 			result.StatusCode >= http.StatusOK &&
 			result.StatusCode < http.StatusMultipleChoices {
-			handler.recordCredentialSuccess(selection.CredentialID, attemptNow)
+			handler.recordCredentialSuccess(ref, attemptNow)
 		}
 		recordedAttempt := recorder.recordAttempt(
 			selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
@@ -1222,7 +1234,7 @@ func (handler *Handler) executeAttempts(
 		lastAttemptIndex = recordedAttempt
 		handler.applyGroupDecisionEffect(
 			selection.Group,
-			selection.CredentialID,
+			ref,
 			refreshCooldownCredentialVersion(result, ref.Version),
 			decision,
 			result.StatusCode,

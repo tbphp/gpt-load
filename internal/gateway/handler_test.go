@@ -242,7 +242,7 @@ func TestHandlerCoordinatesCooldownMutation(t *testing.T) {
 	handler := &Handler{registry: registry, stats: stats, mutations: coordinator}
 	done := make(chan struct{})
 	go func() {
-		handler.applyDecisionEffect(1, health.Decision{
+		handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, health.Decision{
 			Category: health.FailureCategoryRateLimited,
 			Effect:   health.EffectCooldownCredential,
 		}, http.StatusTooManyRequests, now)
@@ -290,7 +290,7 @@ func TestHandlerSkipsCooldownFromStaleCredentialVersion(t *testing.T) {
 	}
 	handler.applyGroupDecisionEffect(
 		state.GroupView{},
-		ref.ID,
+		ref,
 		ref.Version,
 		health.Decision{
 			Category:      health.FailureCategoryRateLimited,
@@ -473,7 +473,7 @@ func TestHandlerCoordinatesSuccessMutation(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		handler.recordCredentialSuccess(1, now)
+		handler.recordCredentialSuccess(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, now)
 		close(done)
 	}()
 	receiveTestSignal(t, coordinator.entered, "success coordinator entry")
@@ -517,11 +517,11 @@ func TestHandlerLogsCredentialStateChanges(t *testing.T) {
 		CooldownUntil: now.Add(time.Minute),
 	}
 
-	handler.applyDecisionEffect(1, cooldown, http.StatusTooManyRequests, now)
-	handler.applyDecisionEffect(1, cooldown, http.StatusTooManyRequests, now)
+	handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, cooldown, http.StatusTooManyRequests, now)
+	handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, cooldown, http.StatusTooManyRequests, now)
 	blacklistThreshold := state.DefaultRuntimeSettings().BlacklistThreshold
 	for range blacklistThreshold + 1 {
-		handler.applyDecisionEffect(1, health.Decision{
+		handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, health.Decision{
 			Category: health.FailureCategoryInvalidKey,
 			Effect:   health.EffectRecordCredentialFailure,
 		}, http.StatusUnauthorized, now)
@@ -564,7 +564,7 @@ func TestHandlerRecordsCooldownFailureContext(t *testing.T) {
 	handler := &Handler{registry: registry, stats: stats}
 	until := now.Add(30 * time.Second)
 
-	handler.applyDecisionEffect(1, health.Decision{
+	handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, health.Decision{
 		Category:      health.FailureCategoryRateLimited,
 		Effect:        health.EffectCooldownCredential,
 		CooldownUntil: until,
@@ -598,7 +598,7 @@ func TestHandlerSkipsStatsWhenRegistryKeyWasDeletedBeforeCompletion(t *testing.T
 		{
 			name: "cooldown",
 			mutate: func(handler *Handler) {
-				handler.applyDecisionEffect(1, health.Decision{
+				handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, health.Decision{
 					Category: health.FailureCategoryRateLimited,
 					Effect:   health.EffectCooldownCredential,
 				}, http.StatusTooManyRequests, now)
@@ -607,7 +607,7 @@ func TestHandlerSkipsStatsWhenRegistryKeyWasDeletedBeforeCompletion(t *testing.T
 		{
 			name: "attributable failure",
 			mutate: func(handler *Handler) {
-				handler.applyDecisionEffect(1, health.Decision{
+				handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, health.Decision{
 					Category: health.FailureCategoryInvalidKey,
 					Effect:   health.EffectRecordCredentialFailure,
 				}, http.StatusUnauthorized, now)
@@ -616,7 +616,7 @@ func TestHandlerSkipsStatsWhenRegistryKeyWasDeletedBeforeCompletion(t *testing.T
 		{
 			name: "success",
 			mutate: func(handler *Handler) {
-				handler.recordCredentialSuccess(1, now)
+				handler.recordCredentialSuccess(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, now)
 			},
 		},
 	} {
@@ -656,7 +656,7 @@ func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		handler.applyDecisionEffect(1, health.Decision{
+		handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, health.Decision{
 			Category: health.FailureCategoryInvalidKey,
 			Effect:   health.EffectRecordCredentialFailure,
 		}, http.StatusUnauthorized, now)
@@ -712,7 +712,7 @@ func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFai
 
 	failureDone := make(chan struct{})
 	go func() {
-		handler.applyDecisionEffect(1, health.Decision{Effect: health.EffectRecordCredentialFailure}, 0, now)
+		handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, health.Decision{Effect: health.EffectRecordCredentialFailure}, 0, now)
 		close(failureDone)
 	}()
 	receiveTestSignal(t, registry.failureEntered, "gateway failure mutation")
@@ -786,7 +786,7 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 	failureDone := make(chan struct{})
 	go func() {
 		close(failureAttempted)
-		handler.applyDecisionEffect(1, health.Decision{Effect: health.EffectRecordCredentialFailure}, 0, now)
+		handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, health.Decision{Effect: health.EffectRecordCredentialFailure}, 0, now)
 		close(failureDone)
 	}()
 	receiveTestSignal(t, failureAttempted, "gateway failure attempt")
@@ -4305,7 +4305,7 @@ func TestHandlerLeavesCredentialRegistryUnchangedForNonCredentialEffects(t *test
 		t.Run(fmt.Sprintf("effect_%s", effect), func(t *testing.T) {
 			recording := &recordingRuntimeRegistry{CredentialRegistry: state.NewCredentialRegistry()}
 			handler := &Handler{registry: recording}
-			handler.applyDecisionEffect(1, health.Decision{Effect: effect}, 0, time.Time{})
+			handler.applyDecisionEffect(state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, health.Decision{Effect: effect}, 0, time.Time{})
 			if recording.cooldownCalls != 0 || recording.incrFailureCalls != 0 ||
 				recording.blacklistCalls != 0 || recording.clearCalls != 0 {
 				t.Fatalf("mutation calls = cooldown:%d failure:%d blacklist:%d clear:%d",
