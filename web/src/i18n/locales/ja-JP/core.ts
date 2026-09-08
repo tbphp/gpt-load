@@ -1,5 +1,14 @@
 export default {
   common: {
+    upstreamUrl: {
+      label: 'カスタム上流 URL',
+      default: '既定ではチャネルの公式 URL を使用します。',
+      defaults: '既定の URL：{urls}',
+      subscriptionHelp:
+        'HTTPS のルート URL を入力してください。パスプレフィックスも指定できます。上流サービスはチャネルの業務 API に対応する必要があり、API パスは自動で追加されます。OAuth 認証は公式 URL を使用します。',
+      invalid:
+        '認証情報、クエリパラメーター、フラグメントを含まない有効な {protocol} の上流 URL を入力してください',
+    },
     priceMultiplier: {
       label: '価格倍率',
       value: '倍率 ×{value}',

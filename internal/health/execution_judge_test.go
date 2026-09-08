@@ -234,7 +234,7 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
 		},
 		{
-			name: "forbidden model marker cools credential",
+			name: "forbidden model marker retries without penalty",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,
 				StatusCode:    http.StatusForbidden,
@@ -247,13 +247,12 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 				},
 			},
 			want: Result{
-				Category:      FailureCategoryModelUnavailable,
-				Action:        ActionCooldownCredential,
-				CooldownUntil: now.Add(time.Hour),
+				Category: FailureCategoryModelUnavailable,
+				Action:   ActionRetry,
 			},
 		},
 		{
-			name: "forbidden unsupported model marker cools credential",
+			name: "forbidden unsupported model marker retries without penalty",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,
 				StatusCode:    http.StatusForbidden,
@@ -266,9 +265,8 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 				},
 			},
 			want: Result{
-				Category:      FailureCategoryModelUnavailable,
-				Action:        ActionCooldownCredential,
-				CooldownUntil: now.Add(time.Hour),
+				Category: FailureCategoryModelUnavailable,
+				Action:   ActionRetry,
 			},
 		},
 		{
@@ -300,7 +298,7 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryAuthenticationRequired, Action: ActionTerminate},
 		},
 		{
-			name: "model not found cools credential",
+			name: "model not found retries without penalty",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,
 				StatusCode:    http.StatusNotFound,
@@ -313,9 +311,8 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 				},
 			},
 			want: Result{
-				Category:      FailureCategoryModelUnavailable,
-				Action:        ActionCooldownCredential,
-				CooldownUntil: now.Add(time.Hour),
+				Category: FailureCategoryModelUnavailable,
+				Action:   ActionRetry,
 			},
 		},
 		{
@@ -375,7 +372,7 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 			want: Result{Category: FailureCategoryConversionUnsupported, Action: ActionSkipGroup},
 		},
 		{
-			name: "structured unsupported model 400 is a client error",
+			name: "structured unsupported model 400 retries another candidate",
 			attempt: ExecutionAttempt{
 				DispatchState: execution.DispatchMaybeSent,
 				StatusCode:    http.StatusBadRequest,
@@ -387,7 +384,7 @@ func TestJudgeExecutionUsesNeutralEvidenceAndReplayBoundary(t *testing.T) {
 					Summary:    "request capability is unavailable",
 				},
 			},
-			want: Result{Category: FailureCategoryClientError, Action: ActionTerminate},
+			want: Result{Category: FailureCategoryModelUnavailable, Action: ActionRetry},
 		},
 		{
 			name: "clean success terminates",

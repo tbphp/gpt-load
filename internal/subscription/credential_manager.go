@@ -4,6 +4,7 @@ package subscription
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -142,6 +143,7 @@ func (manager *CredentialManager) prepare(
 			driver,
 			snapshot.ID,
 			snapshot.Version,
+			snapshot.IdentityGeneration,
 			forceRefresh,
 			respectCooldown,
 			allowRecovery,
@@ -156,6 +158,7 @@ func (manager *CredentialManager) refreshCredentialLocked(
 	driver subscriptionruntime.Driver,
 	credentialID uint,
 	expectedVersion uint64,
+	expectedIdentityGeneration uint64,
 	forceRefresh bool,
 	respectCooldown bool,
 	allowRecovery bool,
@@ -165,8 +168,15 @@ func (manager *CredentialManager) refreshCredentialLocked(
 		return subscriptionruntime.Credential{}, localEvidence("credential_unavailable", "subscription credential is unavailable")
 	}
 	var group models.Group
-	if err := manager.db.WithContext(ctx).Select("id", "channel_id", "connection_type").First(&group, row.GroupID).Error; err != nil ||
+	if err := manager.db.WithContext(ctx).Select("id", "channel_id", "connection_type", "params").First(&group, row.GroupID).Error; err != nil ||
 		group.ChannelID != string(channelID) || group.ConnectionType != models.ConnectionTypeSubscription {
+		return subscriptionruntime.Credential{}, localEvidence("credential_target_mismatch", "subscription credential target does not match")
+	}
+	// URL 变更与凭据刷新共用 mutation 锁；此处读取持久身份，既阻止旧目标刷新，
+	// 也允许同一目标的人工恢复修复尚未同步的 registry。
+	currentIdentityGeneration := stateloader.CredentialIdentityGeneration(
+		row.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params))
+	if currentIdentityGeneration != expectedIdentityGeneration {
 		return subscriptionruntime.Credential{}, localEvidence("credential_target_mismatch", "subscription credential target does not match")
 	}
 	if row.AuthState != models.CredentialAuthStateReady && !allowRecovery {

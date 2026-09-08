@@ -100,12 +100,14 @@ func (a *Adapter) ValidateRouteCapability(
 	return provider.ValidateRouteCapability(route)
 }
 
+// Execute validates and dispatches one unary subscription attempt through the
+// provider bridge selected by the compiled channel definition.
 func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (result execution.AttemptResult) {
 	spec = execution.NewAttemptSpec(spec)
 	defer func() {
 		normalizeCPAImagesAttemptResult(spec, &result)
 	}()
-	provider, err := a.validateSpec(spec)
+	provider, baseURL, err := a.validateSpec(spec)
 	if err != nil {
 		return unaryNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "", err)
 	}
@@ -123,7 +125,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 			Proxy: spec.Proxy, Fingerprint: spec.ProxyFingerprint,
 		})
 	}
-	request, err := bridgeRequest(spec, proxySettings, false)
+	request, err := bridgeRequest(spec, proxySettings, baseURL, false)
 	if err != nil {
 		return unaryNotSent(
 			execution.ErrorKindInvalidRequest,
@@ -254,6 +256,8 @@ func effectiveUpstreamProtocol(provider providerBridge, observed protocol.Protoc
 	return provider.UpstreamProtocol()
 }
 
+// ExecuteStream validates and dispatches one streaming subscription attempt,
+// forwarding provider chunks and normalized completion evidence to the sink.
 func (a *Adapter) ExecuteStream(
 	ctx context.Context,
 	spec execution.AttemptSpec,
@@ -266,7 +270,7 @@ func (a *Adapter) ExecuteStream(
 	if sink == nil {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "stream sink is required", "")
 	}
-	provider, err := a.validateSpec(spec)
+	provider, baseURL, err := a.validateSpec(spec)
 	if err != nil {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "")
 	}
@@ -286,7 +290,7 @@ func (a *Adapter) ExecuteStream(
 			Proxy: spec.Proxy, Fingerprint: spec.ProxyFingerprint,
 		})
 	}
-	request, err := bridgeRequest(spec, proxySettings, true)
+	request, err := bridgeRequest(spec, proxySettings, baseURL, true)
 	if err != nil {
 		return streamNotSent(
 			execution.ErrorKindInvalidRequest,
@@ -454,52 +458,66 @@ func responseUsage(spec execution.AttemptSpec, body []byte) *execution.UsageEvid
 	return usageEvidence(spec.ClientProtocol, body)
 }
 
-func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, error) {
+// validateSpec verifies that an attempt matches its declared channel provider,
+// route, request shape, and resolved execution target.
+func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, string, error) {
 	if a == nil || a.credentials == nil || a.channels == nil || len(a.providers) == 0 {
-		return nil, fmt.Errorf("subscription executor is unavailable")
+		return nil, "", fmt.Errorf("subscription executor is unavailable")
 	}
 	if err := spec.Validate(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	channelID := channel.ID(spec.ChannelID)
 	providerKind, ok := a.channels.ProviderKind(channelID)
 	if !ok {
-		return nil, fmt.Errorf("subscription target has no provider binding")
+		return nil, "", fmt.Errorf("subscription target has no provider binding")
 	}
 	provider, ok := a.providers[providerKind]
 	if !ok || provider == nil {
-		return nil, fmt.Errorf("subscription target is not bound to this adapter")
+		return nil, "", fmt.Errorf("subscription target is not bound to this adapter")
 	}
 	target, err := a.channels.ResolveExecutionTarget(channelID, spec.TargetConfig)
 	if err != nil {
-		return nil, fmt.Errorf("resolve subscription target: %w", err)
+		return nil, "", fmt.Errorf("resolve subscription target: %w", err)
 	}
 	if target.ProviderKind != providerKind {
-		return nil, fmt.Errorf("subscription target provider binding changed")
+		return nil, "", fmt.Errorf("subscription target provider binding changed")
 	}
 	mode, ok := target.ModeForModel(spec.ClientProtocol, spec.Operation, spec.UpstreamModel)
 	if !ok || execution.RouteMode(mode) != spec.RouteMode {
-		return nil, fmt.Errorf("subscription route is not declared by the channel")
+		return nil, "", fmt.Errorf("subscription route is not declared by the channel")
 	}
 	if spec.ClientProtocol == protocol.OpenAIImages {
 		if _, err := canonicalCPAImagesRequestPath(spec); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if _, err := dialect.NewOpenAIImages().InspectRequest(&dialect.ParsedRequest{
 			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,
 			Header: spec.Header.Clone(), Body: append([]byte(nil), spec.Body...),
 		}); err != nil {
-			return nil, fmt.Errorf("invalid Images request: %w", err)
+			return nil, "", fmt.Errorf("invalid Images request: %w", err)
 		}
 	} else if !json.Valid(spec.Body) {
-		return nil, fmt.Errorf("subscription request body must be JSON")
+		return nil, "", fmt.Errorf("subscription request body must be JSON")
 	}
-	return provider, nil
+	baseURL, err := resolvedTargetBaseURL(target.TargetConfig)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve subscription base URL: %w", err)
+	}
+	return provider, baseURL, nil
 }
 
+// resolvedTargetBaseURL 提取编译目标中的可选订阅 API 代理根地址。
+func resolvedTargetBaseURL(raw json.RawMessage) (string, error) {
+	return (subscriptionruntime.Target{Config: raw}).BaseURL()
+}
+
+// bridgeRequest copies an attempt into the provider-neutral CPA request shape
+// and performs the additional Images request normalization when required.
 func bridgeRequest(
 	spec execution.AttemptSpec,
 	proxySettings cpaProxySettings,
+	baseURL string,
 	stream bool,
 ) (providerRequest, error) {
 	payload := append([]byte(nil), spec.Body...)
@@ -526,6 +544,7 @@ func bridgeRequest(
 		Format: formatFor(spec.ClientProtocol), RequestPath: requestPath, Headers: headers,
 		OriginalRequest:      append([]byte(nil), payload...),
 		ContinuityKey:        spec.ContinuityKey,
+		BaseURL:              baseURL,
 		ProxyURL:             proxySettings.URL,
 		ProxyFromEnvironment: proxySettings.FromEnvironment,
 	}, nil

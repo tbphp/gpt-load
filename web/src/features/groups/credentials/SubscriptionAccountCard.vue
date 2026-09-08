@@ -32,7 +32,6 @@ import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
-import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatLocalInstant, formatTokens } from '@/lib/format'
@@ -77,30 +76,21 @@ const menuOpen = ref(false)
 const detailsExpanded = ref(false)
 const proxyEditor = ref<{ beginEdit: () => void } | null>(null)
 const weightEditing = ref(false)
-const draftWeightMode = ref<'auto' | 'manual'>('auto')
 const draftWeight = ref('50')
 const weightInputId = computed(() => `subscription-account-weight-${props.item.credential_id}`)
 
-// 自动权重等同代理的“继承”态，折叠时不加视觉噪音。
-const showWeightChip = computed(
-  () => props.item.weight_mode === 'manual' && props.item.weight !== null,
-)
+// 默认权重保持简洁，非默认值显示快捷编辑入口。
+const showWeightChip = computed(() => props.item.weight !== 50)
 const weightChipTooltip = computed(() =>
-  t('group.credentials.weightChipTooltip', { weight: n(props.item.weight ?? 0) }),
+  t('group.credentials.weightChipTooltip', { weight: n(props.item.weight) }),
 )
-const weightModeOptions = computed(() => [
-  { value: 'auto', label: t('group.credentials.weightEditor.auto'), disabled: props.busy },
-  { value: 'manual', label: t('group.credentials.weightEditor.manual'), disabled: props.busy },
-])
-const manualWeightValid = computed(() => {
-  if (draftWeightMode.value === 'auto') return true
+const weightValid = computed(() => {
   const value = Number(draftWeight.value)
   return Number.isInteger(value) && value >= 1 && value <= 100
 })
 
 function resetWeightDraft(): void {
-  draftWeightMode.value = props.item.weight_mode
-  draftWeight.value = String(props.item.weight ?? 50)
+  draftWeight.value = String(props.item.weight)
 }
 
 // 一次完成“展开 + 进入编辑”，与密钥列表点权重值一致。
@@ -118,17 +108,17 @@ function editProxy(): void {
 }
 
 function saveWeight(): void {
-  if (props.busy || !manualWeightValid.value) return
+  if (props.busy || !weightValid.value) return
   emit('weight', {
     item: props.item,
-    value: draftWeightMode.value === 'auto' ? 'auto' : String(Number(draftWeight.value)),
+    value: String(Number(draftWeight.value)),
   })
   weightEditing.value = false
 }
 
 // 收起卡片时退出编辑，避免下次展开停在旧草稿。
 watch(
-  () => [props.item.weight_mode, props.item.weight] as const,
+  () => props.item.weight,
   () => {
     if (!weightEditing.value) resetWeightDraft()
   },
@@ -1328,11 +1318,8 @@ function runMenuAction(
           <span class="setting-panel__title">{{ t('group.credentials.columns.weight') }}</span>
           <div class="setting-panel__body">
             <template v-if="!weightEditing">
-              <span class="setting-panel__tag">
-                {{ t(`group.credentials.weightEditor.${item.weight_mode}`) }}
-              </span>
               <span class="setting-panel__value">
-                {{ item.weight === null ? t('group.credentials.none') : n(item.weight) }}
+                {{ n(item.weight) }}
               </span>
               <IconButton
                 class="setting-panel__edit"
@@ -1347,13 +1334,6 @@ function runMenuAction(
               </IconButton>
             </template>
             <form v-else class="setting-panel__form" @submit.prevent="saveWeight">
-              <SegmentedControl
-                v-model="draftWeightMode"
-                class="subscription-account__weight-mode"
-                :label="t('group.credentials.weightEditor.mode')"
-                :options="weightModeOptions"
-                size="xs"
-              />
               <label class="sr-only" :for="weightInputId">
                 {{ t('group.credentials.weightEditor.value') }}
               </label>
@@ -1361,30 +1341,23 @@ function runMenuAction(
                 :id="weightInputId"
                 v-model="draftWeight"
                 class="subscription-account__weight-input"
-                :class="{ 'is-concealed': draftWeightMode === 'auto' }"
                 type="number"
                 min="1"
                 max="100"
                 step="1"
                 inputmode="numeric"
-                :disabled="busy || draftWeightMode === 'auto'"
-                :tabindex="draftWeightMode === 'auto' ? -1 : undefined"
-                :aria-hidden="draftWeightMode === 'auto' ? 'true' : undefined"
-                :aria-invalid="!manualWeightValid || undefined"
+                :disabled="busy"
+                :aria-invalid="!weightValid || undefined"
               />
               <div class="setting-panel__actions">
                 <AppButton variant="ghost" size="compact" @click="weightEditing = false">
                   {{ t('group.credentials.weightEditor.cancel') }}
                 </AppButton>
-                <AppButton type="submit" size="compact" :disabled="busy || !manualWeightValid">
+                <AppButton type="submit" size="compact" :disabled="busy || !weightValid">
                   {{ t('group.credentials.weightEditor.save') }}
                 </AppButton>
               </div>
-              <p
-                v-if="draftWeightMode === 'manual' && !manualWeightValid"
-                class="setting-panel__error"
-                role="alert"
-              >
+              <p v-if="!weightValid" class="setting-panel__error" role="alert">
                 {{ t('group.credentials.weightEditor.invalid') }}
               </p>
             </form>
@@ -2027,9 +2000,6 @@ function runMenuAction(
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
-.subscription-account__weight-mode {
-  flex: none;
-}
 .subscription-account__weight-input {
   width: 64px;
   min-height: 26px;
@@ -2042,9 +2012,6 @@ function runMenuAction(
   font-family: var(--font-mono);
   font-size: var(--text-label-xs);
   font-variant-numeric: tabular-nums;
-}
-.subscription-account__weight-input.is-concealed {
-  visibility: hidden;
 }
 .subscription-account__skeleton-section {
   display: grid;

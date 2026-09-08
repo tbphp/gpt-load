@@ -28,6 +28,8 @@ type ModelDiscoveryResult struct {
 	Models []ModelCandidate `json:"models"`
 }
 
+// DiscoverModels validates a draft channel connection and returns the models
+// visible through its API-key or staged subscription credential.
 func (s *Service) DiscoverModels(
 	ctx context.Context,
 	request ModelDiscoveryRequest,
@@ -46,6 +48,11 @@ func (s *Service) DiscoverModels(
 	if request.Proxy != nil && !s.channelRegistry.SupportsOutboundProxy(request.ChannelID) {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
+	resolvedTarget, err := s.channelRegistry.Resolve(request.ChannelID, request.Params)
+	if err != nil {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	}
+	subscriptionTarget := subscriptionTargetFromResolved(resolvedTarget)
 	bindings, ok := s.channelRegistry.CapabilityBindings(request.ChannelID)
 	if !ok {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
@@ -60,7 +67,7 @@ func (s *Service) DiscoverModels(
 			return ModelDiscoveryResult{}, networkErr
 		}
 		return s.discoverSubscriptionStageModels(
-			ctx, request.ChannelID, request.StagedCredentialID, network,
+			ctx, request.ChannelID, request.StagedCredentialID, network, subscriptionTarget,
 		)
 	}
 	if connectionType == models.ConnectionTypeAPIKey && strings.TrimSpace(request.StagedCredentialID) != "" {
@@ -68,10 +75,6 @@ func (s *Service) DiscoverModels(
 	}
 	if connectionType == models.ConnectionTypeSubscription &&
 		(strings.TrimSpace(request.Credentials) != "" || strings.TrimSpace(request.StagedCredentialID) == "") {
-		return ModelDiscoveryResult{}, app_errors.ErrValidation
-	}
-	resolvedTarget, err := s.channelRegistry.Resolve(request.ChannelID, request.Params)
-	if err != nil {
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
 	var discoveryCredentials []discoveryCredential

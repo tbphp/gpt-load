@@ -40,7 +40,7 @@ import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
-import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
+import { isValidSubscriptionBaseURL, isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
 import {
   appendSelectedCandidates,
   findModelNameConflicts,
@@ -299,12 +299,24 @@ const allParamErrors = computed<Record<string, string>>(() => {
   if (!channel) return errors
   for (const field of channel.param_fields) {
     const value = draft.params[field.key]?.trim() ?? ''
-    if ((field.required || (field.key === 'base_url' && baseUrlOverrideEnabled.value)) && !value) {
-      errors[field.key] = t('import.connection.paramRequired', { name: field.label })
+    const overrideRequired = field.key === 'base_url' && baseUrlOverrideEnabled.value
+    if ((field.required || overrideRequired) && !value) {
+      errors[field.key] = t('import.connection.paramRequired', {
+        name: field.key === 'base_url' ? t('common.upstreamUrl.label') : field.label,
+      })
       continue
     }
-    if (field.input_kind === 'url' && value && !isValidUpstreamBaseURL(value)) {
-      errors[field.key] = t('import.connection.urlError')
+    if (field.input_kind === 'url' && value) {
+      const subscriptionBaseURL =
+        channel.connection.type === 'subscription' && field.key === 'base_url'
+      const valid = subscriptionBaseURL
+        ? isValidSubscriptionBaseURL(value)
+        : isValidUpstreamBaseURL(value)
+      if (!valid) {
+        errors[field.key] = t('common.upstreamUrl.invalid', {
+          protocol: subscriptionBaseURL ? 'HTTPS' : 'HTTP(S)',
+        })
+      }
     }
   }
   return errors

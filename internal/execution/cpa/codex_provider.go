@@ -89,6 +89,8 @@ func (*codexProviderBridge) ValidateRouteCapability(route channel.RouteDescripto
 	return nil
 }
 
+// CountTokensLocal runs Codex's local token estimator through the embedded
+// bridge while preserving the request metadata used by execution reporting.
 func (bridge *codexProviderBridge) CountTokensLocal(
 	ctx context.Context,
 	request providerRequest,
@@ -100,7 +102,7 @@ func (bridge *codexProviderBridge) CountTokensLocal(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		RequestPath: request.RequestPath,
 		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
+		BaseURL: request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	headers := response.Headers.Clone()
 	if headers == nil {
@@ -288,6 +290,8 @@ func (*codexProviderBridge) ParseCredential(raw []byte) (providerCredential, err
 	return codexProviderCredential{value: credential}, nil
 }
 
+// Execute translates one provider-neutral request into a unary Codex request
+// and returns its protocol and passive quota evidence.
 func (bridge *codexProviderBridge) Execute(
 	ctx context.Context,
 	credentialID string,
@@ -302,7 +306,7 @@ func (bridge *codexProviderBridge) Execute(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		RequestPath: request.RequestPath,
 		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
+		BaseURL: request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
@@ -313,6 +317,8 @@ func (bridge *codexProviderBridge) Execute(
 	}, err
 }
 
+// ExecuteStream translates one provider-neutral request into a streaming Codex
+// request and exposes its chunks together with passive quota evidence.
 func (bridge *codexProviderBridge) ExecuteStream(
 	ctx context.Context,
 	credentialID string,
@@ -327,7 +333,7 @@ func (bridge *codexProviderBridge) ExecuteStream(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		RequestPath: request.RequestPath,
 		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
+		BaseURL: request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	if response == nil {
 		return nil, err

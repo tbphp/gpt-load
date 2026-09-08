@@ -74,6 +74,17 @@ func NewGrokHTTPExecutor() GrokHTTPExecutor {
 	return &grokHTTPExecutor{cfg: cfg, inner: internalexecutor.NewXAIExecutor(cfg)}
 }
 
+func (executor *grokHTTPExecutor) executionBaseURL(apiRoot string) (string, error) {
+	endpoints, err := ResolveGrokAPIEndpoints(apiRoot)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(apiRoot) == "" && executor.baseURL != "" {
+		return executor.baseURL, nil
+	}
+	return endpoints.ExecutionBase, nil
+}
+
 func NewGrokAuth(id string, credential GrokCredential, baseURL string) *cliproxyauth.Auth {
 	metadata := map[string]any{
 		"type": ProviderGrok, "access_token": credential.AccessToken,
@@ -81,6 +92,12 @@ func NewGrokAuth(id string, credential GrokCredential, baseURL string) *cliproxy
 	}
 	attributes := map[string]string{
 		"auth_kind": "oauth", "using_api": "false",
+		// CPA 默认仅向官方域附加这些头，API 代理仍需保持相同订阅协议。
+		"header:X-XAI-Token-Auth":         "xai-grok-cli",
+		"header:x-grok-client-version":    grokClientVersion,
+		"header:User-Agent":               "xai-grok-workspace/" + grokClientVersion,
+		"header:x-grok-client-identifier": "grok-shell",
+		"header:x-authenticateresponse":   "authenticate-response",
 	}
 	if value := strings.TrimSpace(baseURL); value != "" {
 		attributes["base_url"] = value
@@ -102,9 +119,14 @@ func (executor *grokHTTPExecutor) ExecuteCanonical(
 	if err := validateGrokCredential(credential); err != nil {
 		return ExecuteResponse{}, err
 	}
+	baseURL, err := executor.executionBaseURL(request.BaseURL)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
 	request = prepareGrokExecutionRequest(request)
+	request.ContinuityKey = targetContinuityScope(request.ContinuityKey, baseURL)
 	format := sdktranslator.FromString(request.Format)
-	auth := NewGrokAuth(credentialID, credential, executor.baseURL)
+	auth := NewGrokAuth(credentialID, credential, baseURL)
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, grokCPAProvider)
 	executionCtx := executor.executionContext(ctx, auth, observation)
@@ -127,9 +149,14 @@ func (executor *grokHTTPExecutor) CountTokensCanonical(
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	baseURL, err := executor.executionBaseURL(request.BaseURL)
+	if err != nil {
+		return ExecuteResponse{}, err
+	}
 	request = prepareGrokExecutionRequest(request)
+	request.ContinuityKey = targetContinuityScope(request.ContinuityKey, baseURL)
 	format := sdktranslator.FromString(request.Format)
-	response, err := executor.inner.CountTokens(ctx, NewGrokAuth("local-token-count", GrokCredential{}, executor.baseURL), cliproxyexecutor.Request{
+	response, err := executor.inner.CountTokens(ctx, NewGrokAuth("local-token-count", GrokCredential{}, baseURL), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, grokExecutorOptions(request, format, false))
 	if err != nil {
@@ -157,9 +184,14 @@ func (executor *grokHTTPExecutor) ExecuteStreamCanonical(
 	if err := validateGrokCredential(credential); err != nil {
 		return nil, err
 	}
+	baseURL, err := executor.executionBaseURL(request.BaseURL)
+	if err != nil {
+		return nil, err
+	}
 	request = prepareGrokExecutionRequest(request)
+	request.ContinuityKey = targetContinuityScope(request.ContinuityKey, baseURL)
 	format := sdktranslator.FromString(request.Format)
-	auth := NewGrokAuth(credentialID, credential, executor.baseURL)
+	auth := NewGrokAuth(credentialID, credential, baseURL)
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, grokCPAProvider)
 	executionCtx := executor.executionContext(ctx, auth, observation)

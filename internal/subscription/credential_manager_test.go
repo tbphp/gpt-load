@@ -608,7 +608,7 @@ func newCredentialManagerFixture(
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
 		ID: row.ID, GroupID: group.ID, Version: 1, IdentityGeneration: identityGeneration,
 		Fingerprint: row.Fingerprint, Status: state.CredentialStatusActive,
-		WeightAuto: state.DefaultWeight, EncryptedValue: row.Data,
+		EncryptedValue: row.Data,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +626,9 @@ func credentialSnapshot(t *testing.T, row models.Credential, keyService encrypti
 	if err != nil {
 		t.Fatal(err)
 	}
-	return execution.NewCredentialSnapshot(row.ID, row.SecretVersion, 1, []byte(plaintext))
+	identityGeneration := stateloader.CredentialIdentityGeneration(
+		row.IdentityFingerprint, "codex", "subscription", json.RawMessage(`{}`))
+	return execution.NewCredentialSnapshot(row.ID, row.SecretVersion, identityGeneration, []byte(plaintext))
 }
 
 func credentialJSON(access, refresh string, expires time.Time) []byte {

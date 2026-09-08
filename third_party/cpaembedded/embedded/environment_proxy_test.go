@@ -105,7 +105,7 @@ func TestCPAProtectedExecutorsInstallEnvironmentProxyRoundTripper(t *testing.T) 
 	if !ok {
 		t.Fatal("Claude executor has an unexpected implementation")
 	}
-	claudeContext := claudeExecutor.executionContext(t.Context(), nil, nil, true)
+	claudeContext := claudeExecutor.executionContext(t.Context(), nil, nil, true, "")
 	assertEnvironmentProxyContext(t, claudeContext)
 }
 

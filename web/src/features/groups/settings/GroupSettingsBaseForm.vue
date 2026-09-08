@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue'
+import { computed, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ChannelParamsDto, GroupModelItemDto } from '@/api/control/types'
+import type { ChannelParamsDto, ConnectionType, GroupModelItemDto } from '@/api/control/types'
 import type { ChannelFieldDto } from '@/app/resources/channels'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import { isValidPriceMultiplier } from '@/lib/price-multiplier'
@@ -10,6 +10,9 @@ import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 const props = defineProps<{
   section: 'general' | 'routing'
   channelId: string
+  connectionType: ConnectionType
+  defaultBaseUrl: string
+  defaultBaseUrls: string[]
   paramFields: ChannelFieldDto[]
   params: ChannelParamsDto
   name: string
@@ -32,6 +35,7 @@ const emit = defineEmits<{
   'update:enabled': [value: boolean]
 }>()
 const { t } = useI18n()
+const isSubscription = computed(() => props.connectionType === 'subscription')
 const validationModelListId = `${useId()}-validation-models`
 // 验活直接把该值当成上游模型 ID 使用，所以候选取 id 而不是可能被别名替换的 client_model。
 const validationModelOptions = computed(() =>
@@ -44,21 +48,18 @@ const weightValid = computed(
     props.weightManual === null ||
     (Number.isInteger(props.weightManual) && props.weightManual >= 1 && props.weightManual <= 100),
 )
-const baseUrlOverrideEnabled = ref(false)
-
-watch(
-  () => props.channelId,
-  () => {
-    baseUrlOverrideEnabled.value = Boolean(props.params.base_url?.trim())
-  },
-  { immediate: true },
+const baseUrlOverrideEnabled = computed(() => props.params.base_url !== undefined)
+const defaultBaseUrls = computed(() =>
+  props.defaultBaseUrls.length
+    ? props.defaultBaseUrls
+    : props.defaultBaseUrl
+      ? [props.defaultBaseUrl]
+      : [],
 )
-
-watch(
-  () => props.params.base_url,
-  (value) => {
-    if (value?.trim()) baseUrlOverrideEnabled.value = true
-  },
+const defaultBaseURLDescription = computed(() =>
+  defaultBaseUrls.value.length
+    ? t('common.upstreamUrl.defaults', { urls: defaultBaseUrls.value.join(', ') })
+    : t('common.upstreamUrl.default'),
 )
 
 function isOptionalBaseURL(field: ChannelFieldDto): boolean {
@@ -66,20 +67,17 @@ function isOptionalBaseURL(field: ChannelFieldDto): boolean {
 }
 
 function setBaseURLOverride(enabled: boolean): void {
-  baseUrlOverrideEnabled.value = enabled
-  if (!enabled) emit('update:param', 'base_url', null)
+  emit('update:param', 'base_url', enabled ? (props.params.base_url ?? '') : null)
 }
 
 function updateParam(field: ChannelFieldDto, value: string): void {
-  if (isOptionalBaseURL(field) && !value.trim()) {
-    baseUrlOverrideEnabled.value = false
-    emit('update:param', field.key, null)
-    return
-  }
   emit('update:param', field.key, value)
 }
 
 function parameterHelp(field: ChannelFieldDto): string {
+  if (field.key === 'base_url' && isSubscription.value) {
+    return t('common.upstreamUrl.subscriptionHelp')
+  }
   if (field.key === 'base_url' && props.channelId === 'gpt_load') {
     return t('group.settings.base.gptLoadUrlDescription')
   }
@@ -93,6 +91,16 @@ function parameterHelp(field: ChannelFieldDto): string {
     return t('group.settings.base.sub2ApiUrlDescription')
   }
   return t('group.settings.base.urlWarning')
+}
+
+function parameterLabel(field: ChannelFieldDto): string {
+  if (field.key !== 'base_url') return field.label
+  return t('common.upstreamUrl.label')
+}
+
+function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
+  if (field.input_kind !== 'url') return undefined
+  return field.key === 'base_url' ? defaultBaseUrls.value[0] || 'https://' : 'https://'
 }
 </script>
 
@@ -151,13 +159,13 @@ function parameterHelp(field: ChannelFieldDto): string {
       </label>
       <template v-for="field in paramFields" :key="field.key">
         <div v-if="isOptionalBaseURL(field)" class="group-settings__field group-settings__wide">
-          <span>{{ t('group.settings.base.customUrl') }}</span>
+          <span>{{ t('common.upstreamUrl.label') }}</span>
           <div class="group-settings__base-url-switch">
-            <small>{{ t('group.settings.base.customUrlHelp') }}</small>
+            <small>{{ defaultBaseURLDescription }}</small>
             <AppSwitch
               :model-value="baseUrlOverrideEnabled"
               :disabled="pending || paramsDisabled"
-              :label="t('group.settings.base.customUrl')"
+              :label="t('common.upstreamUrl.label')"
               @update:model-value="setBaseURLOverride"
             />
           </div>
@@ -166,15 +174,14 @@ function parameterHelp(field: ChannelFieldDto): string {
           v-if="!isOptionalBaseURL(field) || baseUrlOverrideEnabled"
           class="group-settings__field group-settings__wide"
         >
-          <span>{{
-            field.key === 'base_url' ? t('group.settings.base.upstreamUrl') : field.label
-          }}</span>
+          <span>{{ parameterLabel(field) }}</span>
           <input
             class="group-settings__mono"
             :type="field.input_kind === 'url' ? 'url' : 'text'"
             :value="params[field.key] ?? ''"
+            :placeholder="parameterPlaceholder(field)"
             :disabled="pending || paramsDisabled"
-            :required="field.required || (field.key === 'base_url' && baseUrlOverrideEnabled)"
+            :required="field.required || (isOptionalBaseURL(field) && baseUrlOverrideEnabled)"
             :aria-invalid="paramErrors[field.key] ? 'true' : undefined"
             @input="updateParam(field, ($event.target as HTMLInputElement).value)"
           />

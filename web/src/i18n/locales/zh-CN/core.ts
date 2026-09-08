@@ -1,5 +1,13 @@
 export default {
   common: {
+    upstreamUrl: {
+      label: '自定义上游地址',
+      default: '默认使用渠道官方地址。',
+      defaults: '默认地址：{urls}',
+      subscriptionHelp:
+        '填写 HTTPS 根地址，可带路径前缀；上游需支持渠道业务 API，系统会追加原生接口路径。OAuth 授权仍使用官方地址。',
+      invalid: '请输入有效的 {protocol} 上游地址，不含用户名、密码、查询参数或 # 片段',
+    },
     priceMultiplier: {
       label: '价格倍率',
       value: '倍率 ×{value}',

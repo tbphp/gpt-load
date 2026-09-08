@@ -53,16 +53,24 @@ func newPassiveQuotaPending() *passiveQuotaPending {
 //
 // A response with no windows is a no-op: it must not advance the pending
 // observation time. An observedAtMS older than the pending entry is dropped.
+// Removed credentials and responses from an outdated target are also ignored.
 func (manager *CredentialManager) RecordPassiveQuotaObservation(
 	credentialID uint,
 	identityGeneration uint64,
 	observedAtMS int64,
 	windows []providerobservation.QuotaWindow,
 ) {
-	if manager == nil || manager.passiveQuota == nil || credentialID == 0 || len(windows) == 0 {
+	if manager == nil || manager.passiveQuota == nil || manager.registry == nil || credentialID == 0 || len(windows) == 0 {
 		return
 	}
-	manager.passiveQuota.record(credentialID, identityGeneration, observedAtMS, windows)
+	manager.mutations.Do(credentialID, func() {
+		// 排队与目标切换共用互斥边界，防止旧请求迟到时挤掉新目标的待写观测。
+		ref, ok := manager.registry.CredentialRef(credentialID)
+		if !ok || ref.IdentityGeneration != identityGeneration {
+			return
+		}
+		manager.passiveQuota.record(credentialID, identityGeneration, observedAtMS, windows)
+	})
 }
 
 // DirtyPassiveQuotaObservations returns up to limit pending observations that

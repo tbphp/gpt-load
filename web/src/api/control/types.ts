@@ -161,7 +161,6 @@ export interface GroupModelsDto {
 
 export type CredentialStatus = 'available' | 'cooldown' | 'blacklisted' | 'disabled'
 export type CredentialConfiguredStatus = 'active' | 'disabled'
-export type CredentialWeightMode = 'auto' | 'manual'
 export type CredentialRecoveryMode = 'none' | 'cooldown' | 'probe' | 'manual'
 export type CredentialAuthState =
   'ready' | 'refreshing' | 'reauthorization_required' | 'outcome_unknown'
@@ -277,8 +276,7 @@ export interface CredentialItemDto {
   observation?: CredentialObservationDto
   configured_status: CredentialConfiguredStatus
   effective_status: CredentialStatus
-  weight_mode: CredentialWeightMode
-  weight: number | null
+  weight: number
   recent_success_count: number
   recent_failure_count: number
   consecutive_failure_count: number
@@ -425,8 +423,7 @@ export interface HealthProblemCredentialDto {
   recent_success_count: number
   recent_problem_count: number
   consecutive_problem_count: number
-  weight_manual: number | null
-  weight_auto: number
+  weight: number
   recovery: HealthRecoveryDto
   /** API 密钥仍是掩码，订阅账号给完整邮箱，与凭据卡片、日志的展示约定一致。 */
   identity: string

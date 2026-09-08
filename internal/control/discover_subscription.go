@@ -14,18 +14,21 @@ import (
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
+// discoverSubscriptionStageModels discovers models with a staged credential
+// and retries once after forcing a refresh on an authorization failure.
 func (s *Service) discoverSubscriptionStageModels(
 	ctx context.Context,
 	channelID channel.ID,
 	stageID string,
 	network subscriptionruntime.NetworkContext,
+	target subscriptionruntime.Target,
 ) (ModelDiscoveryResult, error) {
 	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	credential, err := s.loadReadySubscriptionStageCredential(ctx, channelID, stageID)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
-	result, err := s.discoverSubscriptionModelsForChannel(ctx, channelID, credential)
+	result, err := s.discoverSubscriptionModelsForChannel(ctx, channelID, credential, target)
 	if subscriptionUpstreamHTTPStatus(err) != http.StatusUnauthorized {
 		return result, err
 	}
@@ -33,7 +36,7 @@ func (s *Service) discoverSubscriptionStageModels(
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
-	return s.discoverSubscriptionModelsForChannel(ctx, channelID, credential)
+	return s.discoverSubscriptionModelsForChannel(ctx, channelID, credential, target)
 }
 
 func (s *Service) forceRefreshReadySubscriptionStageCredential(
@@ -87,12 +90,18 @@ func (s *Service) loadReadySubscriptionStageCredential(
 	return s.prepareReadySubscriptionStageCredential(ctx, stage, driver, credential, false)
 }
 
+// discoverSubscriptionGroupModels tries the active credentials in a persisted
+// group until one completes provider-native model discovery.
 func (s *Service) discoverSubscriptionGroupModels(
 	ctx context.Context,
 	rows groupDiscoverySnapshotRows,
 ) (ModelDiscoveryResult, error) {
 	if len(rows.credentials) == 0 {
 		return ModelDiscoveryResult{}, app_errors.ErrNoActiveCredential
+	}
+	target, err := s.resolveSubscriptionTarget(channel.ID(rows.group.ChannelID), rows.group.Params)
+	if err != nil {
+		return ModelDiscoveryResult{}, app_errors.ErrInternalServer
 	}
 	var preparationErr error
 	attempted := false
@@ -109,7 +118,7 @@ func (s *Service) discoverSubscriptionGroupModels(
 			continue
 		}
 		attempted = true
-		result, err := s.discoverSubscriptionModelsForChannel(attemptContext, channel.ID(rows.group.ChannelID), credential)
+		result, err := s.discoverSubscriptionModelsForChannel(attemptContext, channel.ID(rows.group.ChannelID), credential, target)
 		if err == nil {
 			return result, nil
 		}
@@ -119,7 +128,7 @@ func (s *Service) discoverSubscriptionGroupModels(
 				preparationErr = prepareErr
 				continue
 			}
-			result, err = s.discoverSubscriptionModelsForChannel(attemptContext, channel.ID(rows.group.ChannelID), credential)
+			result, err = s.discoverSubscriptionModelsForChannel(attemptContext, channel.ID(rows.group.ChannelID), credential, target)
 			if err == nil {
 				return result, nil
 			}
@@ -251,17 +260,20 @@ func subscriptionPreparationAPIError(evidence *execution.ErrorEvidence) error {
 	return app_errors.ErrInternalServer
 }
 
+// discoverSubscriptionModelsForChannel invokes the channel capability under a
+// bounded timeout and merges its normalized IDs into the shared catalog.
 func (s *Service) discoverSubscriptionModelsForChannel(
 	ctx context.Context,
 	channelID channel.ID,
 	credential subscriptionruntime.Credential,
+	target subscriptionruntime.Target,
 ) (ModelDiscoveryResult, error) {
 	if s == nil || s.discoverSubscriptionModels == nil {
 		return ModelDiscoveryResult{}, app_errors.ErrInternalServer
 	}
 	discoveryContext, cancel := context.WithTimeout(ctx, s.modelDiscoveryTimeout)
 	defer cancel()
-	ids, err := s.discoverSubscriptionModels(discoveryContext, channelID, credential)
+	ids, err := s.discoverSubscriptionModels(discoveryContext, channelID, credential, target)
 	if err != nil {
 		if status := subscriptionUpstreamHTTPStatus(err); status != 0 {
 			return ModelDiscoveryResult{}, fmt.Errorf(
@@ -272,8 +284,8 @@ func (s *Service) discoverSubscriptionModelsForChannel(
 		}
 		return ModelDiscoveryResult{}, fmt.Errorf("discover upstream models: %w", app_errors.ErrBadGateway)
 	}
-	target := discoveryTarget{channelID: channelID}
-	return s.mergeDiscoveredModels(ctx, normalizeDiscoveredModels(ids), target)
+	mergeTarget := discoveryTarget{channelID: channelID}
+	return s.mergeDiscoveredModels(ctx, normalizeDiscoveredModels(ids), mergeTarget)
 }
 
 func (s *Service) decodeStageSubscriptionCredential(channelID channel.ID, stage models.CredentialStage) (subscriptionruntime.Credential, error) {

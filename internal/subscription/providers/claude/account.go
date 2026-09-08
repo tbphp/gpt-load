@@ -74,8 +74,8 @@ type AccountObservation struct {
 	IncompleteSources []string
 }
 
-func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
-	options, err := claudeOptions(ctx)
+func ListModels(ctx context.Context, credential Credential, apiRoot string) ([]Model, error) {
+	options, err := claudeAPIOptions(ctx, apiRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -92,8 +92,8 @@ func ListModels(ctx context.Context, credential Credential) ([]Model, error) {
 	return result, nil
 }
 
-func ObserveAccount(ctx context.Context, credential Credential) (AccountObservation, error) {
-	options, err := claudeOptions(ctx)
+func ObserveAccount(ctx context.Context, credential Credential, apiRoot string) (AccountObservation, error) {
+	options, err := claudeAPIOptions(ctx, apiRoot)
 	if err != nil {
 		return AccountObservation{}, err
 	}

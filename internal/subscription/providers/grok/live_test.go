@@ -26,7 +26,7 @@ func TestLiveGrokObservationContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse live Grok credential: %v", err)
 	}
-	observed, err := ObserveAccount(t.Context(), credential)
+	observed, err := ObserveAccount(t.Context(), credential, "")
 	if err != nil {
 		t.Fatalf("observe live Grok account: %v", err)
 	}

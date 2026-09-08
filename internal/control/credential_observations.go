@@ -132,6 +132,16 @@ func (s *Service) refreshCredentialObservation(
 	credentialID uint,
 	mode observationRefreshMode,
 ) (CredentialObservationResponse, error) {
+	return s.refreshCredentialObservationForTarget(ctx, groupID, credentialID, mode, nil)
+}
+
+func (s *Service) refreshCredentialObservationForTarget(
+	ctx context.Context,
+	groupID uint,
+	credentialID uint,
+	mode observationRefreshMode,
+	expectedTarget *models.Group,
+) (CredentialObservationResponse, error) {
 	if groupID == 0 || credentialID == 0 {
 		return CredentialObservationResponse{}, app_errors.ErrValidation
 	}
@@ -160,12 +170,31 @@ func (s *Service) refreshCredentialObservation(
 		s.observationMu.Unlock()
 		defer func() {
 			s.observationMu.Lock()
-			delete(s.observationFlights, key)
+			if s.observationFlights[key] == flight {
+				delete(s.observationFlights, key)
+			}
 			close(flight.done)
 			s.observationMu.Unlock()
 		}()
-		flight.result, flight.err = s.refreshCredentialObservationOnce(ctx, groupID, credentialID, mode)
+		flight.result, flight.err = s.refreshCredentialObservationOnce(ctx, groupID, credentialID, mode, flight, expectedTarget)
 		return flight.result, flight.err
+	}
+}
+
+// 调用方持有 writeMu，确保目标变更与观测结果发布按顺序发生。
+func (s *Service) observationFlightCurrent(groupID, credentialID uint, flight *observationFlight) bool {
+	s.observationMu.Lock()
+	defer s.observationMu.Unlock()
+	return s.observationFlights[observationFlightKey{groupID: groupID, credentialID: credentialID}] == flight
+}
+
+func (s *Service) invalidateGroupObservationFlights(groupID uint) {
+	s.observationMu.Lock()
+	defer s.observationMu.Unlock()
+	for key := range s.observationFlights {
+		if key.groupID == groupID {
+			delete(s.observationFlights, key)
+		}
 	}
 }
 
@@ -180,15 +209,22 @@ func (s *Service) credentialObservationRefreshInFlight(groupID, credentialID uin
 	}] != nil
 }
 
+// refreshCredentialObservationOnce fetches and persists one quota observation,
+// retrying once when an eligible credential refresh resolves authorization.
 func (s *Service) refreshCredentialObservationOnce(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
 	mode observationRefreshMode,
+	flight *observationFlight,
+	expectedTarget *models.Group,
 ) (CredentialObservationResponse, error) {
 	group, credential, previous, err := s.loadObservationTarget(ctx, groupID, credentialID)
 	if err != nil {
 		return CredentialObservationResponse{}, err
+	}
+	if expectedTarget != nil && !sameSubscriptionTarget(*expectedTarget, group) {
+		return CredentialObservationResponse{}, nil
 	}
 	network, err := s.credentialNetworkContext(ctx, s.db, group, credential)
 	if err != nil {
@@ -196,8 +232,15 @@ func (s *Service) refreshCredentialObservationOnce(
 	}
 	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
 	if mode == observationRefreshAfterReset {
-		if _, err := s.invalidateCredentialObservationAfterReset(ctx, credential, &previous); err != nil {
-			return CredentialObservationResponse{}, err
+		s.writeMu.Lock()
+		if !s.observationFlightCurrent(groupID, credentialID, flight) {
+			s.writeMu.Unlock()
+			return CredentialObservationResponse{}, nil
+		}
+		_, invalidateErr := s.invalidateCredentialObservationAfterReset(ctx, credential, &previous)
+		s.writeMu.Unlock()
+		if invalidateErr != nil {
+			return CredentialObservationResponse{}, invalidateErr
 		}
 	}
 	now := s.now().UTC()
@@ -215,12 +258,25 @@ func (s *Service) refreshCredentialObservationOnce(
 	observeContext, cancelObserve := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
 	defer cancelObserve()
 	channelID := channel.ID(group.ChannelID)
-	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
+	target, err := s.resolveSubscriptionTarget(channelID, group.Params)
+	if err != nil {
+		return CredentialObservationResponse{}, app_errors.ErrInternalServer
+	}
+	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential, target)
 	authRefreshVersion := previous.LastAuthRefreshSecretVersion
 	if subscriptionUpstreamHTTPStatus(observeErr) == http.StatusUnauthorized &&
 		(previous.LastAuthRefreshSecretVersion == nil ||
 			*previous.LastAuthRefreshSecretVersion != credential.SecretVersion) &&
 		s.prepareSubscriptionCredential != nil {
+		s.writeMu.RLock()
+		currentFlight := s.observationFlightCurrent(groupID, credentialID, flight)
+		s.writeMu.RUnlock()
+		if !currentFlight {
+			if mode == observationRefreshAfterReset {
+				return CredentialObservationResponse{}, nil
+			}
+			return s.GetCredentialObservation(ctx, groupID, credentialID)
+		}
 		preparedCredential, err = s.prepareStoredSubscriptionCredentialWithForce(
 			observeContext,
 			group,
@@ -228,6 +284,15 @@ func (s *Service) refreshCredentialObservationOnce(
 			true,
 		)
 		if err != nil {
+			// 凭据管理器在取得 mutation 锁后再次核对目标，覆盖前置检查后的切换。
+			s.writeMu.RLock()
+			defer s.writeMu.RUnlock()
+			if !s.observationFlightCurrent(groupID, credentialID, flight) {
+				if mode == observationRefreshAfterReset {
+					return CredentialObservationResponse{}, nil
+				}
+				return s.GetCredentialObservation(ctx, groupID, credentialID)
+			}
 			return CredentialObservationResponse{}, err
 		}
 		var refreshed models.Credential
@@ -236,7 +301,16 @@ func (s *Service) refreshCredentialObservationOnce(
 		}
 		version := refreshed.SecretVersion
 		authRefreshVersion = &version
-		observation, observeErr = s.observeSubscriptionAccount(observeContext, channelID, preparedCredential)
+		observation, observeErr = s.observeSubscriptionAccount(observeContext, channelID, preparedCredential, target)
+	}
+	// 网络请求期间允许编辑分组；迟到结果不得写入新目标的观测或运行态。
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if !s.observationFlightCurrent(groupID, credentialID, flight) {
+		if mode == observationRefreshAfterReset {
+			return CredentialObservationResponse{}, nil
+		}
+		return s.GetCredentialObservation(ctx, groupID, credentialID)
 	}
 	if observeErr != nil {
 		if errors.Is(observeErr, subscriptionruntime.ErrObservationPayloadInvalid) {

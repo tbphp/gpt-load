@@ -409,14 +409,23 @@ func TestFlushPassiveQuotaObservationsDiscardsWithoutExistingRow(t *testing.T) {
 }
 
 func TestFlushPassiveQuotaObservationsDiscardsOnIdentityGenerationMismatch(t *testing.T) {
-	manager, db, _, _, row := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	manager, db, registry, _, row := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	newFlushableCredentialObservation(t, manager, row.ID, models.CredentialObservationFresh,
 		`{"plan_summary":{},"quota_windows":[{"id":"primary","scope":"account","unit":"percent","state":"available"}]}`,
 	)
+	entries, err := registry.SnapshotGroupCredentialEntriesExact(row.GroupID, []uint{row.ID})
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("read credential entries: %v", err)
+	}
 	used := 10.0
-	manager.RecordPassiveQuotaObservation(row.ID, 999999, 2000, []providerobservation.QuotaWindow{
+	manager.RecordPassiveQuotaObservation(row.ID, entries[0].IdentityGeneration, 2000, []providerobservation.QuotaWindow{
 		{ID: "primary", Scope: "account", State: "available", Used: &used},
 	})
+	// 样本入队时仍属于当前目标，之后的目标切换由 flush 阶段再次拦截。
+	entries[0].IdentityGeneration = 999999
+	if _, err := registry.ReconcileGroup(row.GroupID, entries); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
 		t.Fatalf("FlushPassiveQuotaObservations() error = %v", err)

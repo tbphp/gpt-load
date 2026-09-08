@@ -87,8 +87,7 @@ const problemCredentialFields = [
   'recent_success_count',
   'recent_problem_count',
   'consecutive_problem_count',
-  'weight_manual',
-  'weight_auto',
+  'weight',
   'recovery',
   'identity',
   'last_failure_category',
@@ -212,11 +211,7 @@ function projectProblemCredential(value: unknown): HealthProblemCredentialDto {
     consecutive_problem_count: projectSafeInteger(record.consecutive_problem_count, {
       minimum: 0,
     }),
-    weight_manual:
-      record.weight_manual === null
-        ? null
-        : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 }),
-    weight_auto: projectSafeInteger(record.weight_auto, { minimum: 0, maximum: 100 }),
+    weight: projectSafeInteger(record.weight, { minimum: 0, maximum: 100 }),
     recovery,
     identity: projectString(record.identity),
     last_failure_category: projectEnum(record.last_failure_category, problemFailureCategories),

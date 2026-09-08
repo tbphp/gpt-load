@@ -175,7 +175,7 @@ func TestHandlerSoftAffinityRetriesAndRebindsAfterFallbackSuccess(t *testing.T) 
 
 	serveAffinityRequest(t, engine, body)
 	serveAffinityRequest(t, engine, body)
-	if !registry.RestoreRuntimeState(1, state.DefaultWeight) {
+	if !registry.RestoreRuntimeState(1) {
 		t.Fatal("RestoreRuntimeState() = false, want credential 1 restored")
 	}
 	serveAffinityRequest(t, engine, body)

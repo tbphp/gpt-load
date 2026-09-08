@@ -126,8 +126,6 @@ export default {
         failureCategory: 'Failure category',
         statusCode: 'HTTP status',
         statusUnavailable: 'No HTTP status',
-        manualWeight: 'Manual weight',
-        autoWeight: 'Automatic weight',
         automatic: 'Automatic',
       },
       recovery: {
@@ -531,19 +529,17 @@ export default {
         columns: {
           credential: 'Credential',
           status: 'Status',
-          manual: 'Manual weight',
-          auto: 'Auto weight',
+          weight: 'Weight',
           effective: 'Effective weight',
           cooldown: 'Cooldown until',
         },
       },
       weights: {
-        manual: 'Raw manual weight',
-        auto: 'Raw automatic weight',
+        weight: 'Weight',
         effective: 'Raw effective weight',
         null: 'null',
         none: '—',
-        groupManual: 'Group manual weight {value}',
+        group: 'Group weight {value}',
       },
       excluded: {
         title: 'Excluded Groups',

@@ -34,7 +34,7 @@ type validationSweep interface {
 
 type validationRegistry interface {
 	BlacklistedCredentials() []state.CredentialRef
-	RecoverIfMatch(ref state.CredentialRef, weight int) bool
+	RecoverIfMatch(ref state.CredentialRef) bool
 }
 
 type statsResetter interface {
@@ -223,7 +223,7 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 
 		var matched bool
 		worker.mutations.Do(ref.ID, func() {
-			matched = worker.registry.RecoverIfMatch(ref, state.DefaultWeight)
+			matched = worker.registry.RecoverIfMatch(ref)
 			if matched {
 				worker.stats.Reset(ref.ID)
 			}

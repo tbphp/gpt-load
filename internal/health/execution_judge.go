@@ -261,9 +261,6 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 			attempt.Evidence.Hint == "" {
 			return FailureCategoryAmbiguous
 		}
-		if structuredUnsupportedModelClientError(statusCode, attempt.Evidence) {
-			return FailureCategoryClientError
-		}
 		switch attempt.Evidence.Hint {
 		case execution.FailureHintInvalidCredential:
 			return FailureCategoryInvalidKey
@@ -314,19 +311,6 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 	}
 }
 
-func structuredUnsupportedModelClientError(statusCode int, evidence *execution.ErrorEvidence) bool {
-	if evidence == nil || statusCode != http.StatusBadRequest {
-		return false
-	}
-	for _, value := range []string{evidence.Type, evidence.Code} {
-		normalized := strings.ToLower(strings.TrimSpace(value))
-		if normalized == "unsupported_model" || normalized == "unsupported-model" {
-			return true
-		}
-	}
-	return false
-}
-
 func decisionForExecutionCategory(
 	category FailureCategory,
 	attempt ExecutionAttempt,
@@ -337,6 +321,15 @@ func decisionForExecutionCategory(
 	}
 	origin := originForEvidence(attempt.Evidence)
 	scope := attempt.Evidence.ScopeHint
+	if category == FailureCategoryModelUnavailable {
+		switch decisionContext.Operation {
+		case execution.OperationResponsesRetrieve, execution.OperationResponsesDelete,
+			execution.OperationResponsesCancel, execution.OperationResponsesInputItems,
+			execution.OperationResponsesPassthrough:
+			// 资源请求不通过切换模型候选恢复，也不能影响整份凭据。
+			return decision(category, origin, scope, RetryNone, EffectNone, "model.resource_unavailable")
+		}
+	}
 	if attempt.Evidence != nil && attempt.Evidence.Hint == execution.FailureHintCandidateUnavailable {
 		if attempt.Evidence.ReplaySafety == execution.ReplaySafetyUnknown {
 			return decision(category, origin, scope, RetryNone, EffectNone, "safety.replay_unknown")
@@ -369,16 +362,14 @@ func decisionForExecutionCategory(
 				ruleID,
 			)
 		}
-		result := decision(
+		return decision(
 			category,
 			origin,
 			scopeOrDefault(scope, execution.ErrorScopeModel),
 			retry,
-			EffectCooldownCredential,
+			EffectNone,
 			"model.unavailable",
 		)
-		result.CooldownUntil = attempt.Now.Add(time.Hour)
-		return result
 	case FailureCategoryInvalidKey:
 		return decision(
 			category,

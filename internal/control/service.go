@@ -70,9 +70,9 @@ type Service struct {
 	refreshSubscriptionCredential     func(context.Context, channel.ID, subscriptionruntime.Credential) (subscriptionruntime.Credential, error)
 	prepareSubscriptionCredential     func(context.Context, channel.ID, execution.CredentialSnapshot, bool) (subscriptionruntime.Credential, *execution.ErrorEvidence)
 	recoverSubscriptionCredential     func(context.Context, channel.ID, execution.CredentialSnapshot) (subscriptionruntime.Credential, *execution.ErrorEvidence)
-	discoverSubscriptionModels        func(context.Context, channel.ID, subscriptionruntime.Credential) ([]string, error)
-	observeSubscriptionAccount        func(context.Context, channel.ID, subscriptionruntime.Credential) (subscriptionruntime.Observation, error)
-	consumeSubscriptionResetCredit    func(context.Context, channel.ID, subscriptionruntime.Credential, string) (subscriptionruntime.ResetCreditResult, error)
+	discoverSubscriptionModels        func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target) ([]string, error)
+	observeSubscriptionAccount        func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target) (subscriptionruntime.Observation, error)
+	consumeSubscriptionResetCredit    func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target, string) (subscriptionruntime.ResetCreditResult, error)
 	oauthCallback                     *OAuthCallbackManager
 	now                               func() time.Time
 	publishSnapshot                   func(state.CompileInput) (*state.ConfigSnapshot, error)
@@ -142,6 +142,8 @@ func (s *Service) retireCredentialRuntime(credentialID uint) {
 	}
 }
 
+// NewService constructs the control-plane service and wires channel-specific
+// subscription capabilities into its persistence and execution collaborators.
 func NewService(
 	db *gorm.DB,
 	manager *state.Manager,
@@ -224,26 +226,26 @@ func NewService(
 			}
 			return driver.Refresh(ctx, credential)
 		},
-		discoverSubscriptionModels: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential) ([]string, error) {
+		discoverSubscriptionModels: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, target subscriptionruntime.Target) ([]string, error) {
 			capability, ok := subscriptions.ModelDiscovery(channelID)
 			if !ok {
 				return nil, app_errors.ErrValidation
 			}
-			return capability.DiscoverModels(ctx, credential)
+			return capability.DiscoverModels(ctx, credential, target)
 		},
-		observeSubscriptionAccount: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
+		observeSubscriptionAccount: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, target subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 			capability, ok := subscriptions.QuotaObservation(channelID)
 			if !ok {
 				return subscriptionruntime.Observation{}, app_errors.ErrValidation
 			}
-			return capability.Observe(ctx, credential)
+			return capability.Observe(ctx, credential, target)
 		},
-		consumeSubscriptionResetCredit: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, requestID string) (subscriptionruntime.ResetCreditResult, error) {
+		consumeSubscriptionResetCredit: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, target subscriptionruntime.Target, requestID string) (subscriptionruntime.ResetCreditResult, error) {
 			capability, ok := subscriptions.ResetCreditAction(channelID)
 			if !ok {
 				return subscriptionruntime.ResetCreditResult{}, app_errors.ErrValidation
 			}
-			return capability.Consume(ctx, credential, requestID)
+			return capability.Consume(ctx, credential, target, requestID)
 		},
 		now:                   time.Now,
 		operationRecoveryWake: make(chan struct{}, 1),

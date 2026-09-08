@@ -25,7 +25,7 @@ var codexControlHooks sync.Map
 func installCodexControlTestHooks(service *Service) {
 	hooks := &codexControlTestHooks{}
 	codexControlHooks.Store(service, hooks)
-	service.observeSubscriptionAccount = func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
+	service.observeSubscriptionAccount = func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 		if channelID != channel.Codex {
 			return subscriptionruntime.Observation{}, errors.New("unexpected subscription channel")
 		}
@@ -62,7 +62,7 @@ func installCodexControlTestHooks(service *Service) {
 		payload, err := json.Marshal(snapshot)
 		return subscriptionruntime.Observation{Payload: payload, Header: observed.Header.Clone()}, err
 	}
-	service.consumeSubscriptionResetCredit = func(context.Context, channel.ID, subscriptionruntime.Credential, string) (subscriptionruntime.ResetCreditResult, error) {
+	service.consumeSubscriptionResetCredit = func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target, string) (subscriptionruntime.ResetCreditResult, error) {
 		return subscriptionruntime.ResetCreditResult{}, errors.New("test reset-credit action is not configured")
 	}
 }
@@ -146,7 +146,7 @@ func setCodexModelDiscovery(
 	discover func(context.Context, codex.Credential) ([]codex.Model, error),
 ) {
 	t.Helper()
-	service.discoverSubscriptionModels = func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential) ([]string, error) {
+	service.discoverSubscriptionModels = func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) ([]string, error) {
 		if channelID != channel.Codex {
 			return nil, errors.New("unexpected subscription channel")
 		}
@@ -186,7 +186,7 @@ func setCodexResetCreditConsume(
 	consume func(context.Context, codex.Credential, string) (codex.AccountObservation, error),
 ) {
 	t.Helper()
-	service.consumeSubscriptionResetCredit = func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, requestID string) (subscriptionruntime.ResetCreditResult, error) {
+	service.consumeSubscriptionResetCredit = func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, _ subscriptionruntime.Target, requestID string) (subscriptionruntime.ResetCreditResult, error) {
 		if channelID != channel.Codex {
 			return subscriptionruntime.ResetCreditResult{}, errors.New("unexpected subscription channel")
 		}

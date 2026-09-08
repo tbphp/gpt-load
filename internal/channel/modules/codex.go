@@ -11,8 +11,10 @@ const (
 	CodexModelDiscovery     spec.UtilityID            = "codex_models"
 	CodexQuotaObservation   spec.UtilityID            = "codex_quota"
 	CodexResetCreditAction  spec.ActionID             = "codex_reset_credit"
+	CodexDefaultBaseURL                               = "https://chatgpt.com"
 )
 
+// Codex declares the subscription-backed Codex channel and its supported routes.
 func Codex() spec.Module {
 	return spec.Module{
 		Definition: spec.Definition{
@@ -30,11 +32,15 @@ func Codex() spec.Module {
 					spec.AuthorizationOAuthFile,
 				},
 			},
-			Params:      []spec.Field{},
+			Params: []spec.Field{{
+				Key: "base_url", Label: "Base URL", InputKind: spec.InputURL,
+				Normalizer: spec.NormalizeOptionalHTTPSBaseURL,
+			}},
 			Credentials: []spec.Field{},
 			Provider: spec.ProviderBinding{
-				ProviderKind:   spec.ProviderCodex,
-				EndpointPolicy: spec.EndpointNone,
+				ProviderKind:    spec.ProviderCodex,
+				EndpointPolicy:  spec.EndpointSDKDefault,
+				DefaultBaseURLs: []string{CodexDefaultBaseURL},
 			},
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),

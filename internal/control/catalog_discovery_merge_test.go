@@ -83,6 +83,7 @@ func TestClaudeDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.
 		_ context.Context,
 		channelID channel.ID,
 		_ subscriptionruntime.Credential,
+		_ subscriptionruntime.Target,
 	) ([]string, error) {
 		if channelID != channel.Claude {
 			t.Fatalf("channel = %q, want Claude", channelID)
@@ -146,6 +147,7 @@ func TestAntigravityDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *tes
 		_ context.Context,
 		channelID channel.ID,
 		_ subscriptionruntime.Credential,
+		_ subscriptionruntime.Target,
 	) ([]string, error) {
 		if channelID != channel.Antigravity {
 			t.Fatalf("channel = %q, want Antigravity", channelID)
@@ -209,6 +211,7 @@ func TestGrokDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T)
 		_ context.Context,
 		channelID channel.ID,
 		_ subscriptionruntime.Credential,
+		_ subscriptionruntime.Target,
 	) ([]string, error) {
 		if channelID != channel.Grok {
 			t.Fatalf("channel = %q, want Grok", channelID)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"gpt-load/internal/channel"
@@ -51,6 +52,14 @@ func credentialScopedFailure(err error) (bool, bool) {
 func annotateProviderErrorEvidence(evidence *execution.ErrorEvidence, err error) {
 	if evidence == nil {
 		return
+	}
+	if evidence.Kind == execution.ErrorKindHTTP && evidence.StatusCode == http.StatusBadRequest &&
+		evidence.Hint == execution.FailureHintRequestRejected && !requestScopedFailure(err) {
+		// 通用 HTTP 400 标签不能盖过明确的模型拒绝；保留 provider 的强请求级判定。
+		switch strings.ToLower(strings.TrimSpace(evidence.Code)) {
+		case "unsupported_model", "unsupported-model":
+			evidence.Hint = execution.FailureHintModelUnavailable
+		}
 	}
 	switch evidence.Kind {
 	case execution.ErrorKindTransport, execution.ErrorKindTimeout,
@@ -101,7 +110,9 @@ type providerRequest struct {
 	OriginalRequest []byte
 	// ContinuityKey is a private, tenant-scoped key used only by providers
 	// whose tool/thinking protocol needs an isolated multi-request replay lane.
-	ContinuityKey        string
+	ContinuityKey string
+	// BaseURL 是可选的订阅 API 代理根地址，原生路径由渠道解析。
+	BaseURL              string
 	ProxyURL             string
 	ProxyFromEnvironment bool
 }

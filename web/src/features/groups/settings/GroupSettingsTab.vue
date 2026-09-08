@@ -44,7 +44,7 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
-import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
+import { isValidSubscriptionBaseURL, isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
 import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
 import GroupDeleteDialog from './GroupDeleteDialog.vue'
@@ -116,10 +116,8 @@ const policyRows = [
 const selectedChannel = computed(() =>
   channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === draft.value?.channel_id),
 )
-const channelParamFields = computed<ChannelFieldDto[]>(() =>
-  saved.value?.connection_type === 'subscription'
-    ? []
-    : (selectedChannel.value?.param_fields ?? []),
+const channelParamFields = computed<ChannelFieldDto[]>(
+  () => selectedChannel.value?.param_fields ?? [],
 )
 const channelParamsDisabled = computed(() => selectedChannel.value === undefined)
 const parameterOverrideOperations = new Set([
@@ -195,10 +193,22 @@ const paramErrors = computed<Record<string, string>>(() => {
   const result: Record<string, string> = {}
   for (const field of channelParamFields.value) {
     const value = draft.value?.params[field.key]?.trim() ?? ''
-    if (field.required && !value) {
-      result[field.key] = t('group.settings.base.paramRequired', { field: field.label })
-    } else if (field.input_kind === 'url' && value && !isValidUpstreamBaseURL(value)) {
-      result[field.key] = t('group.settings.base.upstreamUrlError')
+    const overrideRequired = field.key === 'base_url' && draft.value?.params.base_url !== undefined
+    if ((field.required || overrideRequired) && !value) {
+      result[field.key] = t('group.settings.base.paramRequired', {
+        field: field.key === 'base_url' ? t('common.upstreamUrl.label') : field.label,
+      })
+    } else if (field.input_kind === 'url' && value) {
+      const subscriptionBaseURL =
+        draft.value?.connection_type === 'subscription' && field.key === 'base_url'
+      const valid = subscriptionBaseURL
+        ? isValidSubscriptionBaseURL(value)
+        : isValidUpstreamBaseURL(value)
+      if (!valid) {
+        result[field.key] = t('common.upstreamUrl.invalid', {
+          protocol: subscriptionBaseURL ? 'HTTPS' : 'HTTP(S)',
+        })
+      }
     }
   }
   return result
@@ -529,6 +539,9 @@ onBeforeUnmount(() => {
           <GroupSettingsBaseForm
             section="general"
             :channel-id="draft.channel_id"
+            :connection-type="draft.connection_type"
+            :default-base-url="selectedChannel?.default_base_url ?? ''"
+            :default-base-urls="selectedChannel?.default_base_urls ?? []"
             :param-fields="channelParamFields"
             :params="draft.params"
             :name="draft.name"
@@ -551,6 +564,9 @@ onBeforeUnmount(() => {
           <GroupSettingsBaseForm
             section="routing"
             :channel-id="draft.channel_id"
+            :connection-type="draft.connection_type"
+            :default-base-url="selectedChannel?.default_base_url ?? ''"
+            :default-base-urls="selectedChannel?.default_base_urls ?? []"
             :param-fields="channelParamFields"
             :params="draft.params"
             :name="draft.name"

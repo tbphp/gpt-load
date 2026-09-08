@@ -134,12 +134,17 @@ func (*claudeDriver) AuthorizationFailureDefinitive(err error) bool {
 	}
 }
 
-func (*claudeDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential) ([]string, error) {
+// DiscoverModels lists the models visible to a Claude subscription credential.
+func (*claudeDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return nil, err
 	}
-	models, err := ListModels(ctx, value)
+	baseURL, err := target.BaseURL()
+	if err != nil {
+		return nil, err
+	}
+	models, err := ListModels(ctx, value, baseURL)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
@@ -154,12 +159,18 @@ func (*claudeDriver) DiscoverModels(ctx context.Context, credential subscription
 	return result, nil
 }
 
-func (*claudeDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
+// Observe retrieves and normalizes Claude account and usage information into
+// the provider-neutral observation contract.
+func (*claudeDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.Observation{}, err
 	}
-	observed, err := ObserveAccount(ctx, value)
+	baseURL, err := target.BaseURL()
+	if err != nil {
+		return subscriptionruntime.Observation{}, err
+	}
+	observed, err := ObserveAccount(ctx, value, baseURL)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {

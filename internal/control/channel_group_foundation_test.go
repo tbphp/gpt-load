@@ -40,7 +40,7 @@ func TestServiceUsesInjectedChannelRegistryAndListsSafeDescriptors(t *testing.T)
 		result.Items[0].ID != channel.OpenAI || result.Items[1].ID != channel.Codex ||
 		result.Items[2].ID != channel.AzureOpenAI || result.Items[3].ID != channel.OpenAICompatible ||
 		result.Items[0].DefaultBaseURL != "https://openai-sdk-default.example" ||
-		result.Items[1].DefaultBaseURL != "" || result.Items[2].DefaultBaseURL != "" ||
+		result.Items[1].DefaultBaseURL != "https://chatgpt.com" || result.Items[2].DefaultBaseURL != "" ||
 		result.Items[3].DefaultBaseURL != "" {
 		t.Fatalf("ListChannels(openai) = %#v", result)
 	}
@@ -212,14 +212,22 @@ func TestGroupCreateRequiresConnectionTypeAndValidatesSubscriptionContract(t *te
 	if !errors.Is(err, app_errors.ErrValidation) {
 		t.Fatalf("mixed credential input error = %v", err)
 	}
-	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+	stage := mustImportSubscriptionStage(t, fixture, "custom-target-account", "custom-target@example.com")
+	custom, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name: stringPointer("subscription custom target"), ChannelID: channel.Codex,
 		ConnectionType: models.ConnectionTypeSubscription,
-		Params:         json.RawMessage(`{"base_url":"https://example.com/v1"}`),
-		Models:         optionalGroupModels{Set: true}, StagedCredentialIDs: []string{"stage-one"},
+		Params:         json.RawMessage(`{"base_url":"HTTPS://EXAMPLE.COM:443/codex/"}`),
+		Models:         optionalGroupModels{Set: true}, StagedCredentialIDs: []string{stage.StageID},
 	})
-	if !errors.Is(err, app_errors.ErrValidation) {
+	if err != nil {
 		t.Fatalf("subscription custom target error = %v", err)
+	}
+	var customGroup models.Group
+	if err := fixture.db.Take(&customGroup, custom.GroupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got := string(customGroup.Params); got != `{"base_url":"https://example.com/codex"}` {
+		t.Fatalf("subscription custom target params = %s", got)
 	}
 }
 

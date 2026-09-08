@@ -32,8 +32,7 @@ type routeInspectCredentialResponse struct {
 	CredentialID    uint                  `json:"credential_id"`
 	Available       bool                  `json:"available"`
 	ReasonCode      *scheduler.ReasonCode `json:"reason_code"`
-	WeightManual    *int                  `json:"weight_manual"`
-	WeightAuto      int                   `json:"weight_auto"`
+	Weight          int                   `json:"weight"`
 	EffectiveWeight int64                 `json:"effective_weight"`
 	CooldownUntilMS *int64                `json:"cooldown_until_ms"`
 }
@@ -201,8 +200,7 @@ func mapRouteInspectResponse(
 				CredentialID:    credential.CredentialID,
 				Available:       credential.Available,
 				ReasonCode:      optionalReason(credential.Reason),
-				WeightManual:    cloneInt(credential.WeightManual),
-				WeightAuto:      credential.WeightAuto,
+				Weight:          state.ConfiguredWeight(credential.WeightManual),
 				EffectiveWeight: credential.EffectiveWeight,
 				CooldownUntilMS: cooldownUntilMS,
 			})

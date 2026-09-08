@@ -188,7 +188,7 @@ func TestFileRuntimeStateCheckpointRestoresAndConsumesFile(t *testing.T) {
 
 	registry := state.NewCredentialRegistry()
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
-		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, WeightAuto: 37,
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		EncryptedValue: "cipher-one",
 	}}); err != nil {
 		t.Fatalf("replace registry: %v", err)
@@ -209,10 +209,10 @@ func TestFileRuntimeStateCheckpointRestoresAndConsumesFile(t *testing.T) {
 
 	loadedRegistry := state.NewCredentialRegistry()
 	if err := loadedRegistry.ReplaceCredentials([]state.CredentialEntry{{
-		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, WeightAuto: 1,
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		EncryptedValue: "cipher-one",
 	}, {
-		ID: 2, GroupID: 20, Version: 1, IdentityGeneration: 2, Fingerprint: "test-2", Status: state.CredentialStatusActive, WeightAuto: 2,
+		ID: 2, GroupID: 20, Version: 1, IdentityGeneration: 2, Fingerprint: "test-2", Status: state.CredentialStatusActive,
 		EncryptedValue: "cipher-two",
 	}}); err != nil {
 		t.Fatalf("replace loaded registry: %v", err)
@@ -228,7 +228,7 @@ func TestFileRuntimeStateCheckpointRestoresAndConsumesFile(t *testing.T) {
 
 	entry := loadedRegistry.Snapshot()[0]
 	if entry.ID != 1 || !entry.CooldownUntil.Equal(time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)) ||
-		!entry.Blacklisted || entry.FailureCount != 1 || entry.WeightAuto != 37 {
+		!entry.Blacklisted || entry.FailureCount != 1 {
 		t.Fatalf("restored key runtime state = %#v", entry)
 	}
 	gotStats := loadedStats.Snapshot(1, time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC))
@@ -241,7 +241,7 @@ func TestFileRuntimeStateCheckpointReturnsErrorWhenDeleteFails(t *testing.T) {
 	dataDir := t.TempDir()
 	path := filepath.Join(dataDir, runtimeStateCheckpointFileName)
 	raw, err := json.Marshal(runtimeStateCheckpointDocument{
-		Credentials: []state.CredentialRuntimeCheckpoint{{ID: 1, GroupID: 10, WeightAuto: 37}},
+		Credentials: []state.CredentialRuntimeCheckpoint{{ID: 1, GroupID: 10}},
 	})
 	if err != nil {
 		t.Fatalf("marshal checkpoint fixture: %v", err)
@@ -252,7 +252,7 @@ func TestFileRuntimeStateCheckpointReturnsErrorWhenDeleteFails(t *testing.T) {
 
 	registry := state.NewCredentialRegistry()
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
-		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, WeightAuto: 1,
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		EncryptedValue: "cipher-one",
 	}}); err != nil {
 		t.Fatalf("replace registry: %v", err)
@@ -265,8 +265,8 @@ func TestFileRuntimeStateCheckpointReturnsErrorWhenDeleteFails(t *testing.T) {
 	if err := checkpoint.Restore(context.Background()); !errors.Is(err, os.ErrPermission) {
 		t.Fatalf("Restore() error = %v, want permission error", err)
 	}
-	if got := registry.Snapshot()[0].WeightAuto; got != 1 {
-		t.Fatalf("weight after failed checkpoint removal = %d, want 1", got)
+	if got := registry.Snapshot()[0].WeightManual; got != nil {
+		t.Fatalf("configured weight after failed checkpoint removal = %v, want unset", got)
 	}
 }
 
@@ -278,7 +278,7 @@ func TestFileRuntimeStateCheckpointConsumesMalformedFileAndReturnsError(t *testi
 	}
 	registry := state.NewCredentialRegistry()
 	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
-		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, WeightAuto: 1,
+		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive,
 		EncryptedValue: "cipher-one",
 	}}); err != nil {
 		t.Fatalf("replace registry: %v", err)
@@ -287,8 +287,8 @@ func TestFileRuntimeStateCheckpointConsumesMalformedFileAndReturnsError(t *testi
 	if err := checkpoint.Restore(context.Background()); err == nil {
 		t.Fatal("Restore() error = nil, want malformed checkpoint error")
 	}
-	if got := registry.Snapshot()[0].WeightAuto; got != 1 {
-		t.Fatalf("weight after malformed checkpoint = %d, want 1", got)
+	if got := registry.Snapshot()[0].WeightManual; got != nil {
+		t.Fatalf("configured weight after malformed checkpoint = %v, want unset", got)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("malformed checkpoint file was not consumed, stat error = %v", err)

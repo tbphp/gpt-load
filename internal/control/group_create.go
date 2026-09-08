@@ -156,6 +156,8 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 	return result, nil
 }
 
+// normalizeGroupCreate validates and canonicalizes a group creation request
+// before any credentials or group state are persisted.
 func (s *Service) normalizeGroupCreate(
 	ctx context.Context,
 	request GroupCreateRequest,
@@ -180,9 +182,6 @@ func (s *Service) normalizeGroupCreate(
 	}
 	params, err := s.channelRegistry.ValidateParams(request.ChannelID, request.Params)
 	if err != nil {
-		return normalizedGroupCreate{}, app_errors.ErrValidation
-	}
-	if connectionType == models.ConnectionTypeSubscription && string(params.CanonicalJSON()) != "{}" {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
 	descriptor, ok := s.channelRegistry.Get(request.ChannelID)

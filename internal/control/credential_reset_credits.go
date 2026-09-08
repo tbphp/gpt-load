@@ -40,6 +40,8 @@ type storedResetCreditResult struct {
 	RedeemedAtMS *int64 `json:"redeemed_at_ms,omitempty"`
 }
 
+// ConsumeCredentialResetCredit idempotently consumes one provider reset credit
+// and returns the refreshed observation when it is immediately available.
 func (s *Service) ConsumeCredentialResetCredit(
 	ctx context.Context,
 	groupID uint,
@@ -61,16 +63,25 @@ func (s *Service) ConsumeCredentialResetCredit(
 		return ResetCreditConsumeResponse{}, err
 	}
 	ctx = subscriptionruntime.WithNetworkContext(ctx, network)
+	channelID := channel.ID(group.ChannelID)
+	target, err := s.resolveSubscriptionTarget(channelID, group.Params)
+	if err != nil {
+		return ResetCreditConsumeResponse{}, app_errors.ErrInternalServer
+	}
+	baseURL, err := target.BaseURL()
+	if err != nil {
+		return ResetCreditConsumeResponse{}, app_errors.ErrInternalServer
+	}
+	digest := resetCreditRequestDigest(groupID, credentialID, credential.IdentityFingerprint, baseURL)
 	if replay, found, replayErr := s.replayResetCreditOperationIfExists(
 		ctx,
 		groupID,
 		credentialID,
-		credential.IdentityFingerprint,
+		digest,
 		idempotencyKey,
 	); found {
 		return replay, replayErr
 	}
-	channelID := channel.ID(group.ChannelID)
 	if _, supported := s.subscriptions.ResetCreditAction(channelID); !supported {
 		return ResetCreditConsumeResponse{}, app_errors.ErrValidation
 	}
@@ -83,7 +94,7 @@ func (s *Service) ConsumeCredentialResetCredit(
 		ctx,
 		groupID,
 		credentialID,
-		credential.IdentityFingerprint,
+		digest,
 		idempotencyKey,
 	)
 	if err != nil {
@@ -98,7 +109,7 @@ func (s *Service) ConsumeCredentialResetCredit(
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 	}
 	callContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
-	upstream, consumeErr := s.consumeSubscriptionResetCredit(callContext, channelID, preparedCredential, operation.RedeemRequestID)
+	upstream, consumeErr := s.consumeSubscriptionResetCredit(callContext, channelID, preparedCredential, target, operation.RedeemRequestID)
 	cancel()
 	if consumeErr != nil {
 		state, apiErr := classifyResetCreditConsumeError(consumeErr)
@@ -114,7 +125,7 @@ func (s *Service) ConsumeCredentialResetCredit(
 	result := storedResetCreditResult{
 		Status: upstream.Status, WindowsReset: upstream.WindowsReset, RedeemedAtMS: upstream.RedeemedAtMS,
 	}
-	runtimeRestored := s.restoreCredentialRuntimeAfterReset(credentialID)
+	runtimeRestored, targetCurrent, targetErr := s.restoreCredentialRuntimeForTarget(ctx, group, credentialID)
 	canonicalResult, err := canonicaljson.Marshal(result)
 	if err != nil || s.finishResetCreditOperation(
 		operation.IdempotencyKey,
@@ -124,7 +135,7 @@ func (s *Service) ConsumeCredentialResetCredit(
 	) != nil {
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 	}
-	if !runtimeRestored {
+	if !runtimeRestored && (targetCurrent || targetErr != nil) {
 		utils.LogPlaneBestEffort(
 			logrus.StandardLogger(),
 			logrus.WarnLevel,
@@ -135,15 +146,20 @@ func (s *Service) ConsumeCredentialResetCredit(
 	}
 
 	response := resetCreditResponse(result, false)
+	if !targetCurrent {
+		response.ObservationPending = true
+		return response, nil
+	}
 	observationContext, cancelObservation := context.WithTimeout(
 		context.Background(),
 		2*defaultSubscriptionControlTimeout,
 	)
-	observation, observationErr := s.refreshCredentialObservation(
+	observation, observationErr := s.refreshCredentialObservationForTarget(
 		observationContext,
 		groupID,
 		credentialID,
 		observationRefreshAfterReset,
+		&group,
 	)
 	cancelObservation()
 	if observation.State != "" {
@@ -197,13 +213,7 @@ func (s *Service) restoreCredentialRuntimeAfterReset(credentialID uint) bool {
 	}
 	restored := false
 	apply := func() {
-		now := s.now().UTC()
-		stats := s.stats.Snapshot(credentialID, now)
-		stats.ConsecutiveFailure = 0
-		stats.ConsecutiveProblem = 0
-		stats.LastFailureCategory = 0
-		stats.LastStatusCode = 0
-		if !s.registry.RestoreRuntimeState(credentialID, calculateAutoWeight(stats)) {
+		if !s.registry.RestoreRuntimeState(credentialID) {
 			return
 		}
 		s.stats.ClearProblemState(credentialID)
@@ -221,10 +231,9 @@ func (s *Service) beginResetCreditOperation(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
-	identityFingerprint string,
+	digest [sha256.Size]byte,
 	idempotencyKey string,
 ) (models.CredentialResetOperation, bool, error) {
-	digest := resetCreditRequestDigest(groupID, credentialID, identityFingerprint)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	nowMS := s.now().UTC().UnixMilli()
@@ -286,7 +295,7 @@ func (s *Service) replayResetCreditOperationIfExists(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
-	identityFingerprint string,
+	digest [sha256.Size]byte,
 	idempotencyKey string,
 ) (ResetCreditConsumeResponse, bool, error) {
 	var existing models.CredentialResetOperation
@@ -297,7 +306,6 @@ func (s *Service) replayResetCreditOperationIfExists(
 	if err != nil {
 		return ResetCreditConsumeResponse{}, true, app_errors.ParseDBError(err)
 	}
-	digest := resetCreditRequestDigest(groupID, credentialID, identityFingerprint)
 	if !bytes.Equal(existing.RequestDigest, digest[:]) ||
 		existing.GroupID != groupID || existing.CredentialID != credentialID {
 		return ResetCreditConsumeResponse{}, true, app_errors.ErrIdempotencyKeyReused
@@ -339,7 +347,18 @@ func (s *Service) replayResetCreditOperation(
 	return response, nil
 }
 
-func resetCreditRequestDigest(groupID, credentialID uint, identityFingerprint string) [sha256.Size]byte {
+func resetCreditRequestDigest(groupID, credentialID uint, identityFingerprint, baseURL string) [sha256.Size]byte {
+	// 自定义地址启用前的操作只使用官方端点，官方模式保留 v1 摘要以兼容旧记录。
+	// 自定义目标使用独立摘要，规范化后的完整路径也参与匹配，禁止跨目标复用。
+	if baseURL != "" {
+		return sha256.Sum256([]byte(fmt.Sprintf(
+			"gpt-load/credential-reset/v2/%d/%d/%s/%s",
+			groupID,
+			credentialID,
+			identityFingerprint,
+			baseURL,
+		)))
+	}
 	return sha256.Sum256([]byte(fmt.Sprintf(
 		"gpt-load/credential-reset/v1/%d/%d/%s",
 		groupID,

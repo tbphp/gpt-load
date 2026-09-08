@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft } from '@lucide/vue'
+import { ArrowLeft, Globe, SlidersHorizontal } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -9,6 +9,7 @@ import { useApiClient } from '@/api/client-context'
 import { channelsQueryOptions } from '@/app/resources/channels'
 import { groupsLocation } from '@/app/route-locations'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
@@ -20,6 +21,17 @@ const channel = computed(() =>
   channelsQuery.data.value?.items.find(({ channel_id }) => channel_id === props.group.channel_id),
 )
 const channelName = computed(() => channel.value?.name.trim() || props.group.channel_id)
+const customUpstreamUrl = computed(
+  () => props.group.params.base_url?.trim() || props.group.params.endpoint?.trim(),
+)
+const upstreamUrls = computed(() => {
+  if (customUpstreamUrl.value) return [customUpstreamUrl.value]
+  if (channel.value?.default_base_urls.length) return channel.value.default_base_urls
+  return channel.value?.default_base_url ? [channel.value.default_base_url] : []
+})
+const upstreamUrlSource = computed(() =>
+  t(customUpstreamUrl.value ? 'group.upstreamUrlCustom' : 'group.upstreamUrlOfficialDefault'),
+)
 </script>
 
 <template>
@@ -56,13 +68,26 @@ const channelName = computed(() => channel.value?.name.trim() || props.group.cha
           />
           <span>{{ channelName }}</span>
         </span>
-        <CopyChip
-          v-if="group.params.base_url"
-          :value="group.params.base_url"
-          :label="t('group.copyUpstreamUrl', { url: group.params.base_url })"
-          :success-label="t('group.copySuccess')"
-          :failure-label="t('group.copyFailure')"
-        />
+        <span v-for="url in upstreamUrls" :key="url" class="group-header__upstream">
+          <CopyChip
+            :value="url"
+            :label="t('group.copyUpstreamUrl', { url })"
+            :success-label="t('group.copySuccess')"
+            :failure-label="t('group.copyFailure')"
+            layout="trailing"
+          />
+          <AppTooltip :content="upstreamUrlSource">
+            <span
+              class="group-header__url-source"
+              role="img"
+              :aria-label="upstreamUrlSource"
+              tabindex="0"
+            >
+              <SlidersHorizontal v-if="customUpstreamUrl" :size="14" aria-hidden="true" />
+              <Globe v-else :size="14" aria-hidden="true" />
+            </span>
+          </AppTooltip>
+        </span>
       </div>
     </div>
   </header>
@@ -140,6 +165,18 @@ const channelName = computed(() => channel.value?.name.trim() || props.group.cha
   flex: none;
   font-size: 15px;
 }
+.group-header__upstream {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+}
+.group-header__url-source {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-faint);
+}
 .group-header__details :deep(.copy-chip) {
   max-width: 20rem;
   min-height: var(--control-compact);
@@ -172,6 +209,9 @@ const channelName = computed(() => channel.value?.name.trim() || props.group.cha
     flex-direction: column;
   }
   .group-header__details :deep(.copy-chip-wrap) {
+    width: 100%;
+  }
+  .group-header__upstream {
     width: 100%;
   }
   .group-header__details :deep(.copy-chip) {

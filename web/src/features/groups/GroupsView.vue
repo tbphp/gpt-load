@@ -550,6 +550,7 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
                   :label="t('groups.collection.copyUrl', { url: group.params.base_url })"
                   :success-label="t('groups.collection.copySuccess')"
                   :failure-label="t('groups.collection.copyFailure')"
+                  layout="trailing"
                 />
               </div>
 

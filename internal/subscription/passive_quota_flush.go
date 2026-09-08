@@ -45,6 +45,19 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservation(
 	ctx context.Context,
 	observation PassiveQuotaObservation,
 ) error {
+	var err error
+	// 身份校验、CAS 重试和额度投影必须与目标切换处于同一互斥边界，
+	// 避免旧目标已落盘的结果在切换之后继续写入新目标的运行时额度。
+	manager.mutations.Do(observation.CredentialID, func() {
+		err = manager.flushOnePassiveQuotaObservationLocked(ctx, observation)
+	})
+	return err
+}
+
+func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
+	ctx context.Context,
+	observation PassiveQuotaObservation,
+) error {
 	if manager.registry == nil {
 		return nil
 	}

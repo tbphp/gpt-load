@@ -323,7 +323,7 @@ func TestDiscoverModelsRefreshesReadyStageOnceAfterUnauthorized(t *testing.T) {
 		return credential, nil
 	})
 	discoveryCalls := 0
-	fixture.service.discoverSubscriptionModels = func(_ context.Context, _ channel.ID, credential subscriptionruntime.Credential) ([]string, error) {
+	fixture.service.discoverSubscriptionModels = func(_ context.Context, _ channel.ID, credential subscriptionruntime.Credential, _ subscriptionruntime.Target) ([]string, error) {
 		discoveryCalls++
 		parsed, parseErr := codex.ParseCredentialJSON(credential.Canonical())
 		if parseErr != nil {

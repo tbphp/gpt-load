@@ -83,8 +83,7 @@ type CredentialItemResponse struct {
 	Observation             *CredentialObservationResponse `json:"observation,omitempty"`
 	ConfiguredStatus        string                         `json:"configured_status"`
 	EffectiveStatus         string                         `json:"effective_status"`
-	WeightMode              string                         `json:"weight_mode"`
-	Weight                  *int                           `json:"weight"`
+	Weight                  int                            `json:"weight"`
 	RecentSuccessCount      uint64                         `json:"recent_success_count"`
 	RecentFailureCount      uint64                         `json:"recent_failure_count"`
 	ConsecutiveFailureCount uint64                         `json:"consecutive_failure_count"`

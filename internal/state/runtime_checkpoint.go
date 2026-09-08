@@ -11,7 +11,6 @@ import (
 type CredentialRuntimeCheckpoint struct {
 	ID            uint      `json:"id"`
 	GroupID       uint      `json:"group_id"`
-	WeightAuto    int       `json:"weight_auto"`
 	CooldownUntil time.Time `json:"cooldown_until"`
 	Blacklisted   bool      `json:"blacklisted"`
 	FailureCount  int       `json:"failure_count"`
@@ -27,7 +26,6 @@ func (r *CredentialRegistry) CaptureRuntimeCheckpoint() []CredentialRuntimeCheck
 			checkpoints = append(checkpoints, CredentialRuntimeCheckpoint{
 				ID:            entry.ID,
 				GroupID:       entry.GroupID,
-				WeightAuto:    entry.WeightAuto,
 				CooldownUntil: entry.CooldownUntil,
 				Blacklisted:   entry.Blacklisted,
 				FailureCount:  entry.FailureCount,
@@ -53,7 +51,6 @@ func (r *CredentialRegistry) RestoreRuntimeCheckpoint(checkpoints []CredentialRu
 	restored := 0
 	for _, checkpoint := range checkpoints {
 		if checkpoint.ID == 0 || checkpoint.GroupID == 0 ||
-			checkpoint.WeightAuto < 0 || checkpoint.WeightAuto > MaxWeight ||
 			checkpoint.FailureCount < 0 {
 			continue
 		}
@@ -65,7 +62,6 @@ func (r *CredentialRegistry) RestoreRuntimeCheckpoint(checkpoints []CredentialRu
 		if !ok {
 			continue
 		}
-		entry.WeightAuto = checkpoint.WeightAuto
 		entry.CooldownUntil = checkpoint.CooldownUntil
 		entry.Blacklisted = checkpoint.Blacklisted
 		entry.FailureCount = checkpoint.FailureCount

@@ -3,61 +3,14 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"gpt-load/internal/channel"
-	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
-
-type autoWeightWrite struct {
-	keyID  uint
-	weight int
-}
-
-type fakeAutoWeightRegistry struct {
-	mu        sync.Mutex
-	activeIDs []uint
-	reject    map[uint]bool
-	writes    []autoWeightWrite
-	wrote     chan autoWeightWrite
-}
-
-func newFakeAutoWeightRegistry(activeIDs ...uint) *fakeAutoWeightRegistry {
-	return &fakeAutoWeightRegistry{
-		activeIDs: append([]uint(nil), activeIDs...),
-		reject:    make(map[uint]bool),
-		wrote:     make(chan autoWeightWrite, 32),
-	}
-}
-
-func (registry *fakeAutoWeightRegistry) ActiveCredentialIDs() []uint {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	return append([]uint(nil), registry.activeIDs...)
-}
-
-func (registry *fakeAutoWeightRegistry) SetAutoWeight(keyID uint, weight int) bool {
-	write := autoWeightWrite{keyID: keyID, weight: weight}
-	registry.mu.Lock()
-	registry.writes = append(registry.writes, write)
-	rejected := registry.reject[keyID]
-	registry.mu.Unlock()
-	registry.wrote <- write
-	return !rejected
-}
-
-func (registry *fakeAutoWeightRegistry) snapshotWrites() []autoWeightWrite {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	return append([]autoWeightWrite(nil), registry.writes...)
-}
 
 type fakeRuntimeTicker struct {
 	ticks    chan time.Time
@@ -106,21 +59,6 @@ func (sweep *fakeValidationSweep) Validate(ctx context.Context) {
 type fakeRuntimeClock struct {
 	mu  sync.Mutex
 	now time.Time
-}
-
-type barrierRuntimeMutationCoordinator struct {
-	entered      chan struct{}
-	releaseEntry chan struct{}
-	callbackDone chan struct{}
-	releaseExit  chan struct{}
-}
-
-func (coordinator *barrierRuntimeMutationCoordinator) Do(_ uint, fn func()) {
-	close(coordinator.entered)
-	<-coordinator.releaseEntry
-	fn()
-	close(coordinator.callbackDone)
-	<-coordinator.releaseExit
 }
 
 func (clock *fakeRuntimeClock) set(now time.Time) {
@@ -200,9 +138,7 @@ func TestRuntimeRunsOperationRecoveryUntilCancellation(t *testing.T) {
 		started:  make(chan struct{}),
 		returned: make(chan struct{}),
 	}
-	runtime, _, _, created := newRuntimeHarness(
-		newFakeAutoWeightRegistry(1),
-		health.NewStatsStore(),
+	runtime, _, created := newRuntimeHarness(
 		newFakeValidationSweep(false),
 		time.Now,
 	)
@@ -221,15 +157,11 @@ func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T
 	base := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 	clock := &fakeRuntimeClock{now: base}
 	cleaner := newControlledRequestLogCleaner(false)
-	autoTicker := newFakeRuntimeTicker()
 	validationTicker := newFakeRuntimeTicker()
 	retentionTicker := newFakeRuntimeTicker()
 	created := make(chan time.Duration, 3)
 	runtime := newTestRuntime(
-		newFakeAutoWeightRegistry(1),
-		health.NewStatsStore(),
 		newFakeValidationSweep(false),
-		autoTicker,
 		validationTicker,
 		created,
 		clock.current,
@@ -238,8 +170,6 @@ func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T
 	runtime.newTicker = func(interval time.Duration) runtimeTicker {
 		created <- interval
 		switch interval {
-		case 30 * time.Second:
-			return autoTicker
 		case 32 * time.Minute:
 			return validationTicker
 		case time.Hour:
@@ -251,9 +181,6 @@ func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T
 	}
 
 	cancel, done := startRuntime(t, runtime)
-	if interval := awaitValue(t, created); interval != 30*time.Second {
-		t.Fatalf("auto-weight ticker interval = %v, want 30s", interval)
-	}
 	if interval := awaitValue(t, created); interval != 32*time.Minute {
 		t.Fatalf("validation ticker interval = %v, want 32m", interval)
 	}
@@ -280,7 +207,6 @@ func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T
 	awaitSignal(t, cleaner.returned)
 
 	stopRuntime(t, cancel, done)
-	awaitSignal(t, autoTicker.stopped)
 	awaitSignal(t, validationTicker.stopped)
 	awaitSignal(t, retentionTicker.stopped)
 	if got := cleaner.maxActive.Load(); got != 1 {
@@ -291,18 +217,15 @@ func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T
 func TestRuntimeSweepsCredentialStagesWithoutRequestLogCleaner(t *testing.T) {
 	t.Parallel()
 	base := time.Date(2026, time.August, 13, 8, 0, 0, 0, time.UTC)
-	autoTicker := newFakeRuntimeTicker()
 	validationTicker := newFakeRuntimeTicker()
 	retentionTicker := newFakeRuntimeTicker()
 	created := make(chan time.Duration, 3)
-	runtime := newTestRuntime(newFakeAutoWeightRegistry(), health.NewStatsStore(), newFakeValidationSweep(false), autoTicker, validationTicker, created, func() time.Time { return base })
+	runtime := newTestRuntime(newFakeValidationSweep(false), validationTicker, created, func() time.Time { return base })
 	cleaner := &controlledStageCleaner{calls: make(chan time.Time, 2)}
 	runtime.stageCleaner = cleaner
 	runtime.newTicker = func(interval time.Duration) runtimeTicker {
 		created <- interval
 		switch interval {
-		case 30 * time.Second:
-			return autoTicker
 		case 32 * time.Minute:
 			return validationTicker
 		case time.Hour:
@@ -327,15 +250,11 @@ func TestRuntimeSweepsCredentialStagesWithoutRequestLogCleaner(t *testing.T) {
 func TestRuntimeCancellationWaitsForRetentionSweep(t *testing.T) {
 	t.Parallel()
 	cleaner := newControlledRequestLogCleaner(true)
-	autoTicker := newFakeRuntimeTicker()
 	validationTicker := newFakeRuntimeTicker()
 	retentionTicker := newFakeRuntimeTicker()
 	created := make(chan time.Duration, 3)
 	runtime := newTestRuntime(
-		newFakeAutoWeightRegistry(1),
-		health.NewStatsStore(),
 		newFakeValidationSweep(false),
-		autoTicker,
 		validationTicker,
 		created,
 		time.Now,
@@ -344,8 +263,6 @@ func TestRuntimeCancellationWaitsForRetentionSweep(t *testing.T) {
 	runtime.newTicker = func(interval time.Duration) runtimeTicker {
 		created <- interval
 		switch interval {
-		case 30 * time.Second:
-			return autoTicker
 		case 32 * time.Minute:
 			return validationTicker
 		case time.Hour:
@@ -374,37 +291,27 @@ func TestRuntimeCancellationWaitsForRetentionSweep(t *testing.T) {
 	awaitSignal(t, retentionTicker.stopped)
 }
 
-func TestRuntimeCreatesAutoWeightAndJitteredValidationTickers(t *testing.T) {
+func TestRuntimeCreatesOnlyJitteredValidationTicker(t *testing.T) {
 	t.Parallel()
-	registry := newFakeAutoWeightRegistry(1)
-	autoTicker := newFakeRuntimeTicker()
 	validationTicker := newFakeRuntimeTicker()
 	created := make(chan time.Duration, 2)
-	runtime := newTestRuntime(registry, health.NewStatsStore(), newFakeValidationSweep(false), autoTicker, validationTicker, created, time.Now)
+	runtime := newTestRuntime(newFakeValidationSweep(false), validationTicker, created, time.Now)
 	runtime.validationJitter = func() time.Duration { return 2 * time.Minute }
 
 	cancel, done := startRuntime(t, runtime)
-	if interval := awaitValue(t, created); interval != 30*time.Second {
-		t.Fatalf("auto-weight ticker interval = %v, want 30s", interval)
-	}
 	if interval := awaitValue(t, created); interval != 32*time.Minute {
 		t.Fatalf("validation ticker interval = %v, want 32m", interval)
 	}
 	stopRuntime(t, cancel, done)
-	awaitSignal(t, autoTicker.stopped)
 	awaitSignal(t, validationTicker.stopped)
 }
 
 func TestRuntimeValidationJitterDoesNotOverflow(t *testing.T) {
 	t.Parallel()
-	autoTicker := newFakeRuntimeTicker()
 	validationTicker := newFakeRuntimeTicker()
 	created := make(chan time.Duration, 2)
 	runtime := newTestRuntime(
-		newFakeAutoWeightRegistry(1),
-		health.NewStatsStore(),
 		newFakeValidationSweep(false),
-		autoTicker,
 		validationTicker,
 		created,
 		time.Now,
@@ -413,21 +320,14 @@ func TestRuntimeValidationJitterDoesNotOverflow(t *testing.T) {
 	runtime.validationJitter = func() time.Duration { return maxValidationJitter }
 	runtime.newTicker = func(interval time.Duration) runtimeTicker {
 		created <- interval
-		if interval == runtime.autoWeightInterval {
-			return autoTicker
-		}
 		return validationTicker
 	}
 
 	cancel, done := startRuntime(t, runtime)
-	if interval := awaitValue(t, created); interval != 30*time.Second {
-		t.Fatalf("auto-weight ticker interval = %v, want 30s", interval)
-	}
 	if interval := awaitValue(t, created); interval != time.Duration(1<<63-1) {
 		t.Fatalf("validation ticker interval = %v, want capped maximum duration", interval)
 	}
 	stopRuntime(t, cancel, done)
-	awaitSignal(t, autoTicker.stopped)
 	awaitSignal(t, validationTicker.stopped)
 }
 
@@ -437,15 +337,11 @@ func TestRuntimeReschedulesValidationWhenPublishedIntervalChanges(t *testing.T) 
 	if _, err := manager.Publish(state.CompileInput{}); err != nil {
 		t.Fatal(err)
 	}
-	autoTicker := newFakeRuntimeTicker()
 	defaultTicker := newFakeRuntimeTicker()
 	overriddenTicker := newFakeRuntimeTicker()
 	created := make(chan time.Duration, 3)
 	runtime := newTestRuntime(
-		newFakeAutoWeightRegistry(1),
-		health.NewStatsStore(),
 		newFakeValidationSweep(false),
-		autoTicker,
 		defaultTicker,
 		created,
 		time.Now,
@@ -454,8 +350,6 @@ func TestRuntimeReschedulesValidationWhenPublishedIntervalChanges(t *testing.T) 
 	runtime.newTicker = func(interval time.Duration) runtimeTicker {
 		created <- interval
 		switch interval {
-		case 30 * time.Second:
-			return autoTicker
 		case 12 * time.Minute:
 			return defaultTicker
 		case 22 * time.Minute:
@@ -467,9 +361,6 @@ func TestRuntimeReschedulesValidationWhenPublishedIntervalChanges(t *testing.T) 
 	}
 
 	cancel, done := startRuntime(t, runtime)
-	if interval := awaitValue(t, created); interval != 30*time.Second {
-		t.Fatalf("auto-weight ticker interval = %v, want 30s", interval)
-	}
 	if interval := awaitValue(t, created); interval != 12*time.Minute {
 		t.Fatalf("default validation ticker interval = %v, want 12m", interval)
 	}
@@ -484,218 +375,13 @@ func TestRuntimeReschedulesValidationWhenPublishedIntervalChanges(t *testing.T) 
 	awaitSignal(t, defaultTicker.stopped)
 
 	stopRuntime(t, cancel, done)
-	awaitSignal(t, autoTicker.stopped)
 	awaitSignal(t, overriddenTicker.stopped)
-}
-
-func TestRuntimeWaitsForTickBeforeRecompute(t *testing.T) {
-	t.Parallel()
-	registry := newFakeAutoWeightRegistry(1)
-	runtime, autoTicker, _, created := newRuntimeHarness(registry, health.NewStatsStore(), newFakeValidationSweep(false), time.Now)
-
-	cancel, done := startRuntime(t, runtime)
-	awaitTickers(t, created)
-	if got := registry.snapshotWrites(); len(got) != 0 {
-		t.Fatalf("writes before first tick = %v, want none", got)
-	}
-	stopRuntime(t, cancel, done)
-	awaitSignal(t, autoTicker.stopped)
-}
-
-func TestRuntimeRecomputesEveryActiveKey(t *testing.T) {
-	t.Parallel()
-	registry := newFakeAutoWeightRegistry(3, 7, 9)
-	runtime, autoTicker, _, created := newRuntimeHarness(registry, health.NewStatsStore(), newFakeValidationSweep(false), time.Now)
-
-	cancel, done := startRuntime(t, runtime)
-	awaitTickers(t, created)
-	for tick := 0; tick < 2; tick++ {
-		autoTicker.ticks <- time.Now()
-		for _, keyID := range []uint{3, 7, 9} {
-			if got, want := awaitValue(t, registry.wrote), (autoWeightWrite{keyID: keyID, weight: state.DefaultWeight}); got != want {
-				t.Fatalf("tick %d write = %#v, want %#v", tick+1, got, want)
-			}
-		}
-	}
-	stopRuntime(t, cancel, done)
-
-	want := []autoWeightWrite{
-		{keyID: 3, weight: 50}, {keyID: 7, weight: 50}, {keyID: 9, weight: 50},
-		{keyID: 3, weight: 50}, {keyID: 7, weight: 50}, {keyID: 9, weight: 50},
-	}
-	if got := registry.snapshotWrites(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("writes = %#v, want %#v", got, want)
-	}
-}
-
-func TestRuntimeResetsExpiredStatsToDefaultWeight(t *testing.T) {
-	t.Parallel()
-	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
-	stats := health.NewStatsStore()
-	for sample := 0; sample < 10; sample++ {
-		stats.RecordSuccess(1, base)
-	}
-	registry := newFakeAutoWeightRegistry(1)
-	clock := &fakeRuntimeClock{now: base}
-	runtime, autoTicker, _, created := newRuntimeHarness(registry, stats, newFakeValidationSweep(false), clock.current)
-
-	cancel, done := startRuntime(t, runtime)
-	awaitTickers(t, created)
-	autoTicker.ticks <- base
-	if got, want := awaitValue(t, registry.wrote), (autoWeightWrite{keyID: 1, weight: 92}); got != want {
-		t.Fatalf("write with populated window = %#v, want %#v", got, want)
-	}
-
-	clock.set(base.Add(5 * time.Minute))
-	autoTicker.ticks <- base.Add(5 * time.Minute)
-	if got, want := awaitValue(t, registry.wrote), (autoWeightWrite{keyID: 1, weight: state.DefaultWeight}); got != want {
-		t.Fatalf("write after window expiry = %#v, want %#v", got, want)
-	}
-	stopRuntime(t, cancel, done)
-}
-
-func TestRuntimeContinuesWhenKeyDisappears(t *testing.T) {
-	t.Parallel()
-	registry := newFakeAutoWeightRegistry(1, 2, 3)
-	registry.reject[2] = true
-	runtime, autoTicker, _, created := newRuntimeHarness(registry, health.NewStatsStore(), newFakeValidationSweep(false), time.Now)
-
-	cancel, done := startRuntime(t, runtime)
-	awaitTickers(t, created)
-	autoTicker.ticks <- time.Now()
-	for _, keyID := range []uint{1, 2, 3} {
-		if got, want := awaitValue(t, registry.wrote), (autoWeightWrite{keyID: keyID, weight: state.DefaultWeight}); got != want {
-			t.Fatalf("write = %#v, want %#v", got, want)
-		}
-	}
-	stopRuntime(t, cancel, done)
-}
-
-func TestRuntimeCooldownProblemDoesNotAffectAutoWeightSeenByCandidateCollection(t *testing.T) {
-	t.Parallel()
-	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
-	registry := state.NewCredentialRegistry()
-	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
-		ID: 1, GroupID: 10, Version: 1, IdentityGeneration: 1, Fingerprint: "test-1", Status: state.CredentialStatusActive, EncryptedValue: "cipher-one",
-	}}); err != nil {
-		t.Fatalf("Replace() error = %v", err)
-	}
-	stats := health.NewStatsStore()
-	for sample := 0; sample < 10; sample++ {
-		stats.RecordSuccess(1, base)
-	}
-	stats.RecordProblem(1, health.FailureCategoryRateLimited, 429, base)
-
-	runtime := &Runtime{
-		registry: registry, stats: stats, mutations: health.NewMutationCoordinator(),
-	}
-	runtime.recompute(base)
-	candidates := registry.CollectCredentialCandidates([]uint{10}, nil, base)
-	if len(candidates) != 1 || candidates[0].WeightAuto != 92 {
-		t.Fatalf("CollectCandidates() = %#v, want one candidate with WeightAuto 92", candidates)
-	}
-}
-
-func TestRuntimeCoordinatesStatsSnapshotAndAutoWeightWrite(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	registry := newFakeAutoWeightRegistry(1)
-	stats := health.NewStatsStore()
-	for range 10 {
-		stats.RecordSuccess(1, now)
-	}
-	coordinator := &barrierRuntimeMutationCoordinator{
-		entered:      make(chan struct{}),
-		releaseEntry: make(chan struct{}),
-		callbackDone: make(chan struct{}),
-		releaseExit:  make(chan struct{}),
-	}
-	runtime := &Runtime{registry: registry, stats: stats, mutations: coordinator}
-
-	done := make(chan struct{})
-	go func() {
-		runtime.recompute(now)
-		close(done)
-	}()
-	awaitSignal(t, coordinator.entered)
-	select {
-	case write := <-registry.wrote:
-		t.Fatalf("auto-weight write before coordinator callback = %#v", write)
-	default:
-	}
-	stats.RecordFailure(1, health.FailureCategoryAmbiguous, 0, now)
-	close(coordinator.releaseEntry)
-	awaitSignal(t, coordinator.callbackDone)
-
-	if got, want := awaitValue(t, registry.wrote), (autoWeightWrite{keyID: 1, weight: 42}); got != want {
-		t.Fatalf("auto-weight write = %#v, want %#v", got, want)
-	}
-	select {
-	case <-done:
-		t.Fatal("recompute returned before coordinator interval was released")
-	default:
-	}
-	close(coordinator.releaseExit)
-	awaitSignal(t, done)
-}
-
-func TestRuntimeCoordinatesAutoWeightWithValidationRecovery(t *testing.T) {
-	t.Parallel()
-	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
-	stats := health.NewStatsStore()
-	for range 10 {
-		stats.RecordSuccess(1, base)
-	}
-	registry := newInterleavingRegistry()
-	probePassed := make(chan struct{})
-	probes := &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
-		close(probePassed)
-		return nil
-	}}
-	mutations := health.NewMutationCoordinator()
-	runtime := &Runtime{registry: registry, stats: stats, mutations: mutations}
-	worker := &validationWorker{
-		snapshots: &validationSnapshotRecorder{snapshot: validationSnapshot(map[uint]state.GroupView{
-			1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil),
-		})},
-		registry:  registry,
-		stats:     stats,
-		mutations: mutations,
-		decryptor: validationDecryptor{},
-		channels:  channel.NewRegistry(),
-		executor:  &validationTestExecutor{probes: probes},
-	}
-
-	autoDone := make(chan struct{})
-	go func() {
-		runtime.recompute(base)
-		close(autoDone)
-	}()
-	awaitSignal(t, registry.autoBlocked)
-
-	validationDone := make(chan struct{})
-	go func() {
-		worker.Validate(context.Background())
-		close(validationDone)
-	}()
-	awaitSignal(t, probePassed)
-	close(registry.releaseAuto)
-	awaitSignal(t, autoDone)
-	awaitSignal(t, validationDone)
-
-	if got := registry.weight(); got != state.DefaultWeight {
-		t.Fatalf("final weight = %d, want recovered default %d", got, state.DefaultWeight)
-	}
-	if got := registry.recoveryCount(); got != 1 {
-		t.Fatalf("conditional recoveries = %d, want 1", got)
-	}
 }
 
 func TestRuntimeWaitsForValidationTick(t *testing.T) {
 	t.Parallel()
-	registry := newFakeAutoWeightRegistry(1)
 	validator := newFakeValidationSweep(false)
-	runtime, _, validationTicker, created := newRuntimeHarness(registry, health.NewStatsStore(), validator, time.Now)
+	runtime, validationTicker, created := newRuntimeHarness(validator, time.Now)
 
 	cancel, done := startRuntime(t, runtime)
 	awaitTickers(t, created)
@@ -710,29 +396,10 @@ func TestRuntimeWaitsForValidationTick(t *testing.T) {
 	stopRuntime(t, cancel, done)
 }
 
-func TestRuntimeKeepsRecomputingWhileValidationIsBlocked(t *testing.T) {
+func TestRuntimeCancellationStopsTickerAndWaitsForValidation(t *testing.T) {
 	t.Parallel()
-	registry := newFakeAutoWeightRegistry(1)
 	validator := newFakeValidationSweep(true)
-	runtime, autoTicker, validationTicker, created := newRuntimeHarness(registry, health.NewStatsStore(), validator, time.Now)
-
-	cancel, done := startRuntime(t, runtime)
-	awaitTickers(t, created)
-	validationTicker.ticks <- time.Now()
-	awaitSignal(t, validator.started)
-	autoTicker.ticks <- time.Now()
-	if got, want := awaitValue(t, registry.wrote), (autoWeightWrite{keyID: 1, weight: state.DefaultWeight}); got != want {
-		t.Fatalf("auto-weight write while validation is blocked = %#v, want %#v", got, want)
-	}
-	stopRuntime(t, cancel, done)
-	awaitSignal(t, validator.returned)
-}
-
-func TestRuntimeCancellationStopsBothTickersAndWaitsForValidation(t *testing.T) {
-	t.Parallel()
-	registry := newFakeAutoWeightRegistry(1)
-	validator := newFakeValidationSweep(true)
-	runtime, autoTicker, validationTicker, created := newRuntimeHarness(registry, health.NewStatsStore(), validator, time.Now)
+	runtime, validationTicker, created := newRuntimeHarness(validator, time.Now)
 
 	cancel, done := startRuntime(t, runtime)
 	awaitTickers(t, created)
@@ -741,71 +408,18 @@ func TestRuntimeCancellationStopsBothTickersAndWaitsForValidation(t *testing.T) 
 	cancel()
 	awaitSignal(t, validator.returned)
 	awaitSignal(t, done)
-	awaitSignal(t, autoTicker.stopped)
 	awaitSignal(t, validationTicker.stopped)
 }
 
 func TestRuntimeStopsOnContextCancellation(t *testing.T) {
 	t.Parallel()
-	registry := newFakeAutoWeightRegistry(1)
-	runtime, autoTicker, validationTicker, created := newRuntimeHarness(registry, health.NewStatsStore(), newFakeValidationSweep(false), time.Now)
+	runtime, validationTicker, created := newRuntimeHarness(newFakeValidationSweep(false), time.Now)
 
 	cancel, done := startRuntime(t, runtime)
 	awaitTickers(t, created)
 	stopRuntime(t, cancel, done)
-	awaitSignal(t, autoTicker.stopped)
 	awaitSignal(t, validationTicker.stopped)
 
-	autoTicker.ticks <- time.Now()
-	if got := registry.snapshotWrites(); len(got) != 0 {
-		t.Fatalf("writes after cancellation = %v, want none", got)
-	}
-}
-
-func newRuntimeHarness(
-	registry autoWeightRegistry,
-	stats *health.StatsStore,
-	validator validationSweep,
-	now func() time.Time,
-) (*Runtime, *fakeRuntimeTicker, *fakeRuntimeTicker, <-chan time.Duration) {
-	autoTicker := newFakeRuntimeTicker()
-	validationTicker := newFakeRuntimeTicker()
-	created := make(chan time.Duration, 2)
-	runtime := newTestRuntime(registry, stats, validator, autoTicker, validationTicker, created, now)
-	return runtime, autoTicker, validationTicker, created
-}
-
-func newTestRuntime(
-	registry autoWeightRegistry,
-	stats *health.StatsStore,
-	validator validationSweep,
-	autoTicker *fakeRuntimeTicker,
-	validationTicker *fakeRuntimeTicker,
-	created chan<- time.Duration,
-	now func() time.Time,
-) *Runtime {
-	return &Runtime{
-		registry:           registry,
-		stats:              stats,
-		mutations:          health.NewMutationCoordinator(),
-		validator:          validator,
-		autoWeightInterval: 30 * time.Second,
-		validationInterval: 30 * time.Minute,
-		validationJitter:   func() time.Duration { return 2 * time.Minute },
-		now:                now,
-		newTicker: func(interval time.Duration) runtimeTicker {
-			created <- interval
-			switch interval {
-			case 30 * time.Second:
-				return autoTicker
-			case 32 * time.Minute:
-				return validationTicker
-			default:
-				testingPanic("unexpected ticker interval", interval)
-				return nil
-			}
-		},
-	}
 }
 
 func testingPanic(message string, value time.Duration) {
@@ -814,9 +428,6 @@ func testingPanic(message string, value time.Duration) {
 
 func awaitTickers(t *testing.T, created <-chan time.Duration) {
 	t.Helper()
-	if interval := awaitValue(t, created); interval != 30*time.Second {
-		t.Fatalf("auto-weight ticker interval = %v, want 30s", interval)
-	}
 	if interval := awaitValue(t, created); interval != 32*time.Minute {
 		t.Fatalf("validation ticker interval = %v, want 32m", interval)
 	}
@@ -868,58 +479,22 @@ func awaitSignal(t *testing.T, channel <-chan struct{}) {
 	}
 }
 
-type interleavingRegistry struct {
-	mu            sync.Mutex
-	autoBlocked   chan struct{}
-	releaseAuto   chan struct{}
-	blockAutoOnce sync.Once
-	currentWeight int
-	recoveries    int
+func newRuntimeHarness(validator validationSweep, now func() time.Time) (*Runtime, *fakeRuntimeTicker, <-chan time.Duration) {
+	validationTicker := newFakeRuntimeTicker()
+	created := make(chan time.Duration, 2)
+	return newTestRuntime(validator, validationTicker, created, now), validationTicker, created
 }
 
-func newInterleavingRegistry() *interleavingRegistry {
-	return &interleavingRegistry{
-		autoBlocked:   make(chan struct{}),
-		releaseAuto:   make(chan struct{}),
-		currentWeight: 17,
+func newTestRuntime(validator validationSweep, validationTicker *fakeRuntimeTicker, created chan<- time.Duration, now func() time.Time) *Runtime {
+	return &Runtime{
+		validator: validator, validationInterval: 30 * time.Minute,
+		validationJitter: func() time.Duration { return 2 * time.Minute }, now: now,
+		newTicker: func(interval time.Duration) runtimeTicker {
+			created <- interval
+			if interval != 32*time.Minute {
+				testingPanic("unexpected ticker interval", interval)
+			}
+			return validationTicker
+		},
 	}
-}
-
-func (*interleavingRegistry) ActiveCredentialIDs() []uint {
-	return []uint{1}
-}
-
-func (registry *interleavingRegistry) SetAutoWeight(_ uint, weight int) bool {
-	if weight == 92 {
-		registry.blockAutoOnce.Do(func() { close(registry.autoBlocked) })
-		<-registry.releaseAuto
-	}
-	registry.mu.Lock()
-	registry.currentWeight = weight
-	registry.mu.Unlock()
-	return true
-}
-
-func (*interleavingRegistry) BlacklistedCredentials() []state.CredentialRef {
-	return []state.CredentialRef{{ID: 1, GroupID: 1, EncryptedValue: "cipher-one"}}
-}
-
-func (registry *interleavingRegistry) RecoverIfMatch(_ state.CredentialRef, weight int) bool {
-	registry.mu.Lock()
-	registry.currentWeight = weight
-	registry.recoveries++
-	registry.mu.Unlock()
-	return true
-}
-
-func (registry *interleavingRegistry) weight() int {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	return registry.currentWeight
-}
-
-func (registry *interleavingRegistry) recoveryCount() int {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	return registry.recoveries
 }

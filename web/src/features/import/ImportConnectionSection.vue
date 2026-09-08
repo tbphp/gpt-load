@@ -35,6 +35,12 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const proxySupported = computed(() => props.channel?.capabilities.outbound_proxy === true)
+const isSubscription = computed(() => props.channel?.connection.type === 'subscription')
+const visibleParamFields = computed(() => props.channel?.param_fields ?? [])
+const defaultBaseUrls = computed(() => {
+  if (props.channel?.default_base_urls.length) return props.channel.default_base_urls
+  return props.channel?.default_base_url ? [props.channel.default_base_url] : []
+})
 const proxyModeOptions = computed(() => [
   { value: 'inherit', label: t('common.proxy.inherit.group') },
   { value: 'direct', label: t('common.proxy.mode.direct') },
@@ -71,6 +77,16 @@ function isOptionalBaseURL(key: string, required: boolean): boolean {
 }
 
 function baseURLDescription(): string {
+  const defaults = defaultBaseUrls.value.length
+    ? t('common.upstreamUrl.defaults', { urls: defaultBaseUrls.value.join(', ') })
+    : ''
+  return [defaults, baseURLHelp()].filter(Boolean).join(' ')
+}
+
+function baseURLHelp(): string {
+  if (isSubscription.value) {
+    return t('common.upstreamUrl.subscriptionHelp')
+  }
   if (props.channel?.channel_id === 'gpt_load') {
     return t('import.connection.gptLoadUrlDescription')
   }
@@ -86,13 +102,21 @@ function baseURLDescription(): string {
   if (props.channel?.channel_id === 'openai_compatible') {
     return t('import.connection.compatibleUrlDescription')
   }
-  if (!props.channel?.default_base_url) return t('import.connection.urlDescription')
-  return t('import.connection.urlDescriptionWithDefault', {
-    url: props.channel.default_base_url,
-  })
+  return t('import.connection.urlDescription')
+}
+
+function paramLabel(key: string, label: string): string {
+  if (key !== 'base_url') return label
+  return t('common.upstreamUrl.label')
+}
+
+function paramPlaceholder(key: string, inputKind: string): string | undefined {
+  if (inputKind !== 'url') return undefined
+  return key === 'base_url' ? defaultBaseUrls.value[0] || 'https://' : 'https://'
 }
 
 function baseURLVersionWarning(key: string): string | undefined {
+  if (isSubscription.value) return undefined
   if (key !== 'base_url' || !props.channel?.default_base_url) return undefined
   const value = props.params[key]?.trim() ?? ''
   if (!value || !isValidUpstreamBaseURL(value)) return undefined
@@ -125,13 +149,13 @@ function baseURLVersionWarning(key: string): string | undefined {
         </template>
       </FormField>
 
-      <div v-if="channel?.param_fields.length" class="import-connection__params">
-        <template v-for="param in channel.param_fields" :key="param.key">
+      <div v-if="visibleParamFields.length" class="import-connection__params">
+        <template v-for="param in visibleParamFields" :key="param.key">
           <FormField
             v-if="isOptionalBaseURL(param.key, param.required)"
             id="import-channel-base-url-override"
             class="import-connection__param import-connection__param--optional-url"
-            :label="t('import.connection.customUrl')"
+            :label="t('common.upstreamUrl.label')"
             :description="baseURLDescription()"
             :description-warning="baseURLVersionWarning(param.key)"
             :error="fieldError(param.key)"
@@ -145,7 +169,7 @@ function baseURLVersionWarning(key: string): string | undefined {
                   id="import-channel-base-url-override"
                   :model-value="baseUrlOverrideEnabled"
                   :disabled="disabled"
-                  :label="t('import.connection.customUrl')"
+                  :label="t('common.upstreamUrl.label')"
                   @update:model-value="emit('update:base-url-override', $event)"
                 />
                 <div v-if="baseUrlOverrideEnabled" class="import-connection__url-input">
@@ -156,13 +180,13 @@ function baseURLVersionWarning(key: string): string | undefined {
                     type="url"
                     required
                     :disabled="disabled"
-                    :aria-label="t('import.connection.customUrl')"
+                    :aria-label="t('common.upstreamUrl.label')"
                     :aria-invalid="field.invalid || undefined"
                     :aria-describedby="field.describedBy"
                     autocomplete="off"
                     autocapitalize="none"
                     spellcheck="false"
-                    placeholder="https://"
+                    :placeholder="paramPlaceholder(param.key, param.input_kind)"
                     @input="
                       emit('update:param', param.key, ($event.target as HTMLInputElement).value)
                     "
@@ -177,7 +201,7 @@ function baseURLVersionWarning(key: string): string | undefined {
             v-else
             :id="`import-channel-param-${param.key}`"
             class="import-connection__param"
-            :label="param.key === 'base_url' ? t('import.connection.url') : param.label"
+            :label="paramLabel(param.key, param.label)"
             :description="param.key === 'base_url' ? baseURLDescription() : undefined"
             :description-warning="
               param.key === 'base_url' ? baseURLVersionWarning(param.key) : undefined
@@ -193,13 +217,14 @@ function baseURLVersionWarning(key: string): string | undefined {
                 :class="{ 'import-connection__url': param.input_kind === 'url' }"
                 :value="params[param.key] ?? ''"
                 :type="param.input_kind === 'url' ? 'url' : 'text'"
+                :required="param.required"
                 :disabled="disabled"
                 :aria-invalid="field.invalid || undefined"
                 :aria-describedby="field.describedBy"
                 autocomplete="off"
                 autocapitalize="none"
                 spellcheck="false"
-                :placeholder="param.input_kind === 'url' ? 'https://' : undefined"
+                :placeholder="paramPlaceholder(param.key, param.input_kind)"
                 @input="emit('update:param', param.key, ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur:param', param.key)"
               />

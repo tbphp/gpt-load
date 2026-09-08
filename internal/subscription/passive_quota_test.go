@@ -3,17 +3,27 @@ package subscription
 import (
 	"testing"
 
+	"gpt-load/internal/state"
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
-func testCredentialManagerForPassiveQuota() *CredentialManager {
-	return NewCredentialManager(nil, nil, nil, nil, nil)
+func testCredentialManagerForPassiveQuota(t *testing.T) *CredentialManager {
+	t.Helper()
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 7, GroupID: 1, Version: 1, IdentityGeneration: 100,
+		Status: state.CredentialStatusActive, AuthState: state.CredentialAuthStateReady,
+		Fingerprint: "fingerprint", EncryptedValue: "ciphertext",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	return NewCredentialManager(nil, nil, registry, nil, nil)
 }
 
 func floatPointer(value float64) *float64 { return &value }
 
 func TestRecordPassiveQuotaObservationIsVisibleAsDirty(t *testing.T) {
-	manager := testCredentialManagerForPassiveQuota()
+	manager := testCredentialManagerForPassiveQuota(t)
 	windows := []providerobservation.QuotaWindow{
 		{ID: "primary", Scope: "account", Unit: "percent", State: "available", Used: floatPointer(10)},
 	}
@@ -27,7 +37,7 @@ func TestRecordPassiveQuotaObservationIsVisibleAsDirty(t *testing.T) {
 }
 
 func TestRecordPassiveQuotaObservationReplacesRatherThanCombiningResponses(t *testing.T) {
-	manager := testCredentialManagerForPassiveQuota()
+	manager := testCredentialManagerForPassiveQuota(t)
 	manager.RecordPassiveQuotaObservation(7, 100, 1000, []providerobservation.QuotaWindow{
 		{ID: "primary", Used: floatPointer(10)},
 	})
@@ -49,7 +59,7 @@ func TestRecordPassiveQuotaObservationReplacesRatherThanCombiningResponses(t *te
 }
 
 func TestRecordPassiveQuotaObservationCopiesCallerWindows(t *testing.T) {
-	manager := testCredentialManagerForPassiveQuota()
+	manager := testCredentialManagerForPassiveQuota(t)
 	resetAt := int64(4242)
 	windows := []providerobservation.QuotaWindow{
 		{ID: "primary", Used: floatPointer(10), Utilization: floatPointer(0.1), ResetAtMS: &resetAt},
@@ -77,7 +87,7 @@ func TestRecordPassiveQuotaObservationCopiesCallerWindows(t *testing.T) {
 }
 
 func TestRecordPassiveQuotaObservationDropsOlderObservedAt(t *testing.T) {
-	manager := testCredentialManagerForPassiveQuota()
+	manager := testCredentialManagerForPassiveQuota(t)
 	manager.RecordPassiveQuotaObservation(7, 100, 2000, []providerobservation.QuotaWindow{
 		{ID: "primary", Used: floatPointer(90)},
 	})
@@ -92,7 +102,7 @@ func TestRecordPassiveQuotaObservationDropsOlderObservedAt(t *testing.T) {
 }
 
 func TestRecordPassiveQuotaObservationIgnoresEmptyWindows(t *testing.T) {
-	manager := testCredentialManagerForPassiveQuota()
+	manager := testCredentialManagerForPassiveQuota(t)
 	manager.RecordPassiveQuotaObservation(7, 100, 1000, nil)
 
 	if dirty := manager.DirtyPassiveQuotaObservations(10); len(dirty) != 0 {
@@ -101,10 +111,18 @@ func TestRecordPassiveQuotaObservationIgnoresEmptyWindows(t *testing.T) {
 }
 
 func TestRecordPassiveQuotaObservationReplacesOnIdentityGenerationChange(t *testing.T) {
-	manager := testCredentialManagerForPassiveQuota()
+	manager := testCredentialManagerForPassiveQuota(t)
 	manager.RecordPassiveQuotaObservation(7, 100, 1000, []providerobservation.QuotaWindow{
 		{ID: "primary", Used: floatPointer(10)},
 	})
+	entries, err := manager.registry.SnapshotGroupCredentialEntriesExact(1, []uint{7})
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("read credential entries: %v", err)
+	}
+	entries[0].IdentityGeneration = 200
+	if _, err := manager.registry.ReconcileGroup(1, entries); err != nil {
+		t.Fatal(err)
+	}
 	manager.RecordPassiveQuotaObservation(7, 200, 2000, []providerobservation.QuotaWindow{
 		{ID: "secondary", Used: floatPointer(20)},
 	})
@@ -117,7 +135,7 @@ func TestRecordPassiveQuotaObservationReplacesOnIdentityGenerationChange(t *test
 }
 
 func TestAckPassiveQuotaObservationEvictsTheEntry(t *testing.T) {
-	manager := testCredentialManagerForPassiveQuota()
+	manager := testCredentialManagerForPassiveQuota(t)
 	manager.RecordPassiveQuotaObservation(7, 100, 1000, []providerobservation.QuotaWindow{
 		{ID: "primary", Used: floatPointer(10)},
 	})
@@ -141,7 +159,7 @@ func TestAckPassiveQuotaObservationEvictsTheEntry(t *testing.T) {
 }
 
 func TestAckPassiveQuotaObservationClearsOnlyMatchingVersion(t *testing.T) {
-	manager := testCredentialManagerForPassiveQuota()
+	manager := testCredentialManagerForPassiveQuota(t)
 	manager.RecordPassiveQuotaObservation(7, 100, 1000, []providerobservation.QuotaWindow{
 		{ID: "primary", Used: floatPointer(10)},
 	})
@@ -167,7 +185,7 @@ func TestAckPassiveQuotaObservationClearsOnlyMatchingVersion(t *testing.T) {
 }
 
 func TestSetPassiveQuotaDirtyNotifierFiresOnRecord(t *testing.T) {
-	manager := testCredentialManagerForPassiveQuota()
+	manager := testCredentialManagerForPassiveQuota(t)
 	fired := make(chan struct{}, 1)
 	manager.SetPassiveQuotaDirtyNotifier(func() {
 		select {

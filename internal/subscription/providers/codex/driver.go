@@ -136,12 +136,18 @@ func (*codexDriver) AuthorizationFailureDefinitive(err error) bool {
 	}
 }
 
-func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential) ([]string, error) {
+// DiscoverModels lists the models visible to a Codex subscription credential
+// through the resolved official or custom target.
+func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) ([]string, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return nil, err
 	}
-	models, err := ListModels(ctx, value)
+	baseURL, err := target.BaseURL()
+	if err != nil {
+		return nil, err
+	}
+	models, err := ListModels(ctx, value, baseURL)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
@@ -156,12 +162,18 @@ func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionr
 	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderCodex, result), nil
 }
 
-func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential) (subscriptionruntime.Observation, error) {
+// Observe retrieves Codex usage and reset-credit details from the resolved
+// target and normalizes them into the provider-neutral quota contract.
+func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.Observation{}, err
 	}
-	observed, err := ObserveAccount(ctx, value)
+	baseURL, err := target.BaseURL()
+	if err != nil {
+		return subscriptionruntime.Observation{}, err
+	}
+	observed, err := ObserveAccount(ctx, value, baseURL)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
@@ -170,7 +182,7 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 		return subscriptionruntime.Observation{}, err
 	}
 	var detailsPayload []byte
-	details, detailErr := ObserveResetCredits(ctx, value)
+	details, detailErr := ObserveResetCredits(ctx, value, baseURL)
 	if detailErr == nil {
 		detailsPayload = details.Payload
 	}
@@ -181,12 +193,18 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 	return subscriptionruntime.Observation{Payload: normalized, Header: observed.Header.Clone(), QuotaObserved: true}, nil
 }
 
-func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.Credential, requestID string) (subscriptionruntime.ResetCreditResult, error) {
+// Consume redeems one Codex reset credit against the resolved target using the
+// caller's durable request identity.
+func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target, requestID string) (subscriptionruntime.ResetCreditResult, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.ResetCreditResult{}, err
 	}
-	result, err := ConsumeResetCredit(ctx, value, requestID)
+	baseURL, err := target.BaseURL()
+	if err != nil {
+		return subscriptionruntime.ResetCreditResult{}, err
+	}
+	result, err := ConsumeResetCredit(ctx, value, baseURL, requestID)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
