@@ -406,7 +406,7 @@ func TestConsumeCredentialResetCreditRecoversStalePreparedOperationWithSameKey(t
 	if err := fixture.db.Take(&credential, credentialID).Error; err != nil {
 		t.Fatal(err)
 	}
-	digest := resetCreditRequestDigest(groupID, credentialID, credential.IdentityFingerprint)
+	digest := resetCreditRequestDigest(groupID, credentialID, credential.IdentityFingerprint, "")
 	staleMS := now.Add(-defaultSubscriptionControlTimeout - time.Second).UnixMilli()
 	if err := fixture.db.Create(&models.CredentialResetOperation{
 		IdempotencyKey: resetCreditTestKey, RequestDigest: digest[:], GroupID: groupID,
