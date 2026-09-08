@@ -727,7 +727,7 @@ async function refreshCredentialToken(item: CredentialItemDto): Promise<void> {
   try {
     const result = await refreshCredentialRequest(client, props.groupId, item.credential_id)
     clearDetailState(item.credential_id)
-    await reconcileItem(result, true)
+    if (!(await reconcileItem(result, true))) return
     toast.show({
       message: t('group.credentials.subscription.refreshCredentialSucceeded'),
       tone: 'success',
@@ -1367,6 +1367,7 @@ async function confirmTestedCredentialRestore(): Promise<void> {
   credentialTestRestoreError.value = undefined
   setPending(item.credential_id, 'test-restore', true)
   let restored = false
+  let reconciled = false
   try {
     const restoredItem = await restoreTestedCredential(
       client,
@@ -1375,7 +1376,7 @@ async function confirmTestedCredentialRestore(): Promise<void> {
       result.restore_proof,
     )
     if (owner !== credentialTestOwner || groupID !== props.groupId) return
-    await reconcileItem(restoredItem, true)
+    reconciled = await reconcileItem(restoredItem, true)
     restored = true
   } catch (cause) {
     if (owner !== credentialTestOwner || groupID !== props.groupId) return
@@ -1397,10 +1398,12 @@ async function confirmTestedCredentialRestore(): Promise<void> {
     }
   }
   if (!restored || owner !== credentialTestOwner || groupID !== props.groupId) return
-  toast.show({
-    message: t('group.credentials.test.restoreSucceeded'),
-    tone: 'success',
-  })
+  if (reconciled) {
+    toast.show({
+      message: t('group.credentials.test.restoreSucceeded'),
+      tone: 'success',
+    })
+  }
   resetCredentialTestState()
 }
 
