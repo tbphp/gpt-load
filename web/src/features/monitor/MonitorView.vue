@@ -43,7 +43,7 @@ const healthTab = ref<InstanceType<typeof HealthTab> | null>(null)
 const usageTab = ref<{
   openFilters: () => void
   refresh: () => Promise<void>
-  report?: UsageReportDto
+  navigationReport?: UsageReportDto
 } | null>(null)
 const healthRefreshPending = ref(false)
 const usageRefreshPending = ref(false)
@@ -58,7 +58,11 @@ const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQ
 const items = computed<AppTabItem[]>(() => {
   const shared = [
     { value: 'usage', label: t('monitor.tabs.usage') },
-    { value: 'logs', label: t('monitor.tabs.logs') },
+    {
+      value: 'logs',
+      label: t('monitor.tabs.logs'),
+      disabled: activeTab.value === 'usage' && !usageTab.value?.navigationReport,
+    },
   ]
   return isAccessKey.value
     ? shared
@@ -103,13 +107,8 @@ function selectTab(value: string): void {
   if (isAccessKey.value && tab !== 'usage' && tab !== 'logs') return
   if (tab === activeTab.value) return
   if (activeTab.value === 'usage' && tab === 'logs') {
-    const report = usageTab.value?.report
-    if (!report) {
-      void router.push(
-        monitorLocation({ tab: 'logs', access_key_id: usageFilters.value.access_key_id }),
-      )
-      return
-    }
+    const report = usageTab.value?.navigationReport
+    if (!report) return
     const filters = usageFilters.value
     void router.push(
       monitorLocation(

@@ -6,6 +6,7 @@ export interface AppTabItem {
   value: string
   label: string
   count?: string | number
+  disabled?: boolean
 }
 
 const props = withDefaults(
@@ -46,6 +47,7 @@ watch(
             :key="item.value"
             class="app-tabs__trigger"
             :value="item.value"
+            :disabled="item.disabled"
             :data-tab-value="item.value"
           >
             <span>{{ item.label }}</span>
@@ -115,6 +117,10 @@ watch(
 .app-tabs__trigger[data-state='active'] {
   border-bottom-color: var(--color-action);
   color: var(--color-text);
+}
+.app-tabs__trigger[data-disabled] {
+  color: var(--color-text-faint);
+  cursor: not-allowed;
 }
 .app-tabs__count {
   color: var(--color-text-faint);

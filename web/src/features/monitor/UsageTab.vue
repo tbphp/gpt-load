@@ -96,6 +96,10 @@ const accessKeysQuery = useQuery({
 })
 const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
+// 切换筛选时的占位报告只用于过渡展示，不能作为跨页导航的时间依据。
+const navigationReport = computed(() =>
+  usageQuery.isPlaceholderData.value ? undefined : report.value,
+)
 const distributionDimension = ref<UsageDistributionDimension>('model')
 const distributionMetric = ref<UsageDistributionMetric>('cost')
 const distribution = computed(() => {
@@ -419,7 +423,7 @@ async function refresh(): Promise<void> {
   ])
 }
 
-defineExpose({ openFilters, refresh, report })
+defineExpose({ openFilters, refresh, navigationReport })
 </script>
 
 <template>

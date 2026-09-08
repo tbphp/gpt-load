@@ -361,7 +361,7 @@ function handleRotated(accessKey: AccessKeyDto): void {
 }
 
 watch(
-  () => [props.open, props.accessKey] as const,
+  () => [props.open, props.accessKey, props.copyFrom?.id] as const,
   ([open]) => {
     if (open) void resetForOpen()
     else clearLocalState()

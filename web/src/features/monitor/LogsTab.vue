@@ -430,6 +430,8 @@ function nextPage(): void {
     monitorLocation(
       logsMonitorQuery(appliedFilters.value, {
         filtersOpen: false,
+        usageAtMS: routeState.value.usageAtMS,
+        usageRange: routeState.value.usageRange,
         cursorHistory: [...routeState.value.cursorHistory, cursor],
       }),
     ),
@@ -447,6 +449,8 @@ function previousPage(): void {
     monitorLocation(
       logsMonitorQuery(appliedFilters.value, {
         filtersOpen: false,
+        usageAtMS: routeState.value.usageAtMS,
+        usageRange: routeState.value.usageRange,
         cursorHistory: routeState.value.cursorHistory.slice(0, -1),
       }),
     ),
