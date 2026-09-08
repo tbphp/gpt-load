@@ -735,12 +735,16 @@ async function toggleStatus(accessKey: AccessKeyDto, enabled: boolean): Promise<
 </template>
 
 <style scoped>
-.access-keys__filters.collection-filter-bar {
-  grid-template-columns: minmax(160px, 1fr) 180px;
+:deep(.access-keys__filters.collection-filter-bar) {
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) 180px;
 }
-@media (max-width: 860px) {
-  .access-keys__filters.collection-filter-bar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+:deep(.access-keys__filters .collection-filter-field--search) {
+  grid-column: auto;
+}
+@media (max-width: 560px) {
+  :deep(.access-keys__filters.collection-filter-bar) {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

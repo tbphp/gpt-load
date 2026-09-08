@@ -26,11 +26,6 @@ const loading = ref(true)
 const failed = ref(false)
 const origin = window.location.origin
 const login = new URL(router.resolve(loginLocation()).href, origin).href
-const fields = computed(() => [
-  { label: t('accessKeys.distribution.loginAddress'), value: login },
-  { label: 'Base URL', value: origin },
-  { label: 'API Key', value: secret.value },
-])
 const handoffText = computed(() =>
   t('accessKeys.distribution.handoffText', {
     name: props.accessKey.name,
@@ -64,7 +59,6 @@ onMounted(loadKey)
   <AppDialog
     :open="true"
     :title="t('accessKeys.distribution.created', { name: accessKey.name })"
-    :description="t('accessKeys.distribution.handoffDescription')"
     :close-label="t('common.close')"
     @update:open="!$event && emit('close')"
   >
@@ -81,14 +75,14 @@ onMounted(loadKey)
       />
       <div v-else class="access-key-handoff__body">
         <dl class="access-key-handoff__fields">
-          <div v-for="field in fields" :key="field.label">
-            <dt>{{ field.label }}</dt>
+          <div>
+            <dt>API Key</dt>
             <dd>
-              <code>{{ field.value }}</code>
+              <code>{{ secret }}</code>
               <CopyChip
                 layout="icon"
-                :value="field.value"
-                :label="t('common.copy') + ' ' + field.label"
+                :value="secret"
+                :label="t('accessKeys.copy')"
                 :success-label="t('common.copied')"
                 :failure-label="t('common.copyFailed')"
               />

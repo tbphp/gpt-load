@@ -15,7 +15,7 @@ const props = withDefaults(
   defineProps<{
     open: boolean
     title: string
-    description: string
+    description?: string
     closeLabel: string
     dismissible?: boolean
     preventCloseAutoFocus?: boolean
@@ -23,7 +23,13 @@ const props = withDefaults(
     tone?: 'default' | 'danger'
     descriptionTone?: 'default' | 'warning'
   }>(),
-  { dismissible: true, appearance: 'default', tone: 'default', descriptionTone: 'default' },
+  {
+    description: '',
+    dismissible: true,
+    appearance: 'default',
+    tone: 'default',
+    descriptionTone: 'default',
+  },
 )
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
@@ -43,6 +49,7 @@ function guardDismiss(event: Event): void {
     <DialogPortal>
       <DialogOverlay class="app-dialog__overlay" />
       <DialogContent
+        v-bind="description ? {} : { 'aria-describedby': undefined }"
         class="app-dialog__content"
         :class="[`app-dialog__content--${appearance}`, `app-dialog__content--${tone}`]"
         @close-auto-focus="preventCloseAutoFocus && $event.preventDefault()"
@@ -56,6 +63,7 @@ function guardDismiss(event: Event): void {
           </DialogClose>
         </header>
         <DialogDescription
+          v-if="description"
           class="app-dialog__description"
           :class="[
             `app-dialog__description--${descriptionTone}`,

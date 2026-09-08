@@ -267,7 +267,11 @@ watch(
             })
           }}</span>
         </template>
-        <AppTooltip :content="quotas.get(record.id)!.tooltip" align="start">
+        <AppTooltip
+          v-if="record.costLimitRuleCount > 0"
+          :content="quotas.get(record.id)!.tooltip"
+          align="start"
+        >
           <span class="access-key-quota" tabindex="0">
             <span>{{ t('accessKeys.distribution.remainingLabel') }}</span>
             <QuotaProgressBar
@@ -453,16 +457,14 @@ watch(
 
 .access-key-scope dl {
   display: grid;
-  gap: 3px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 3px 6px;
   margin: 0;
 }
 
 .access-key-scope dl > div {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: 46px minmax(0, 1fr);
-  align-items: baseline;
-  gap: 6px;
+  display: contents;
 }
 
 .access-key-scope dt {
@@ -580,10 +582,6 @@ watch(
 @media (max-width: 560px) {
   .access-keys-record-grid {
     --ledger-record-list-card-grid: 76px minmax(0, 1fr);
-  }
-
-  .access-key-scope dl > div {
-    grid-template-columns: 42px minmax(0, 1fr);
   }
 }
 </style>

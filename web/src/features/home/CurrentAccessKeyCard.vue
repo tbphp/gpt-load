@@ -104,6 +104,10 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 
     <dl class="current-access-key__facts">
       <div>
+        <dt>{{ t('accessKeys.createdAt') }}</dt>
+        <dd><AppDateTime :instant="accessKey.created_at_ms" :locale="locale" /></dd>
+      </div>
+      <div>
         <dt>{{ t('accessKeys.distribution.expiration') }}</dt>
         <dd>
           <AppDateTime
@@ -126,6 +130,8 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
           >
         </dd>
       </div>
+    </dl>
+    <dl class="current-access-key__scope">
       <div>
         <dt>{{ t('home.ledger.currentAccessKey.lastRequest') }}</dt>
         <dd>
@@ -137,8 +143,6 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
           <span v-else>{{ t('home.ledger.currentAccessKey.neverRequested') }}</span>
         </dd>
       </div>
-    </dl>
-    <dl class="current-access-key__scope">
       <div>
         <dt>{{ t('accessKeys.distribution.source') }}</dt>
         <dd>
@@ -336,7 +340,7 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
   padding-top: 2px;
 }
 .current-access-key__scope {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.5fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border-top: 1px solid var(--color-border-subtle);
   padding-top: 14px;
 }
@@ -482,12 +486,9 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
 }
 
 @media (max-width: 860px) {
-  .current-access-key__facts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
+  .current-access-key__facts,
   .current-access-key__scope {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -497,7 +498,8 @@ function ruleTone(rule: AccessKeyCostLimitRuleStatusDto): 'success' | 'warning' 
     flex-direction: column;
   }
 
-  .current-access-key__facts {
+  .current-access-key__facts,
+  .current-access-key__scope {
     grid-template-columns: minmax(0, 1fr);
   }
 
