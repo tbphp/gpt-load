@@ -89,8 +89,10 @@ func (s *SchedulingState) syncCredentialLocked(view CredentialRuntimeView) {
 	d := &s.ledger
 	m := d.Members[view.ID]
 	if m == nil || m.GroupID != view.GroupID || m.IdentityGeneration != view.IdentityGeneration {
+		// 启动先发布分组再加载凭据，尚未分配也要保留停用组的恢复边界。
 		m = &SchedulingMember{ID: view.ID, GroupID: view.GroupID,
-			IdentityGeneration: view.IdentityGeneration, Pending: d.Started}
+			IdentityGeneration: view.IdentityGeneration,
+			Pending:            d.Started || d.GroupsKnown && !d.Groups[view.GroupID]}
 		d.Members[view.ID] = m
 		if d.LastMember == view.ID {
 			d.LastMember, d.Consecutive = 0, 0

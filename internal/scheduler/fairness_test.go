@@ -302,6 +302,45 @@ func TestFairnessGroupToggleIsObservedBetweenRequests(t *testing.T) {
 	}
 }
 
+func TestFairnessInitiallyDisabledGroupJoinsCurrentProgress(t *testing.T) {
+	registry := state.NewCredentialRegistry()
+	manager := state.NewManager()
+	manager.SetSchedulingState(registry.SchedulingState())
+	publish := func(enabled bool) *state.ConfigSnapshot {
+		snapshot, err := manager.Publish(state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []state.GroupConfig{
+			{ID: 1, Name: "active", ChannelID: channel.OpenAI, ConnectionType: "api_key", Enabled: true,
+				Models: []state.ModelConfig{{ID: "gpt-4o"}}},
+			{ID: 2, Name: "initially-disabled", ChannelID: channel.OpenAI, ConnectionType: "api_key", Enabled: enabled,
+				Models: []state.ModelConfig{{ID: "gpt-4o"}}},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snapshot
+	}
+	// 与启动加载顺序一致：先发布分组，再加载凭据。
+	snapshot := publish(false)
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{
+		{ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 1, Status: state.CredentialStatusActive,
+			Fingerprint: "fixture-1", EncryptedValue: "cipher"},
+		{ID: 12, GroupID: 2, Version: 1, IdentityGeneration: 1, Status: state.CredentialStatusActive,
+			Fingerprint: "fixture-2", EncryptedValue: "cipher"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for range 1000 {
+		fairnessPick(t, snapshot, registry, 0)
+	}
+	snapshot = publish(true)
+	counts := map[uint]int{}
+	for range 101 {
+		counts[fairnessPick(t, snapshot, registry, 0)]++
+	}
+	if counts[11] != 50 || counts[12] != 51 {
+		t.Fatalf("group activation distribution = %v, want 50/51 without historical catchup", counts)
+	}
+}
+
 func TestFairnessHeavyWeightIsNotLimitedToOneHundred(t *testing.T) {
 	r := newFairnessRegistry(t)
 	snapshot := schedulerSnapshot()
