@@ -51,13 +51,14 @@ function choose(id?: number): void {
       <AppButton
         v-bind="$attrs"
         :id="id"
+        class="access-key-select__trigger"
         variant="secondary"
         size="compact"
         :disabled="disabled"
         :aria-label="`${t('monitor.logs.filters.accessKey')}: ${selectedLabel}`"
       >
         <span class="access-key-select__label">{{ selectedLabel }}</span>
-        <ChevronDown :size="14" aria-hidden="true" />
+        <ChevronDown class="access-key-select__chevron" :size="14" aria-hidden="true" />
       </AppButton>
     </template>
     <div class="access-key-select__options">
@@ -90,11 +91,33 @@ function choose(id?: number): void {
 </template>
 
 <style scoped>
+.access-key-select__trigger.app-button {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-compact);
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  padding-inline: var(--space-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+}
+.access-key-select__trigger.app-button:hover:not(:disabled) {
+  color: var(--color-text-muted);
+}
+.access-key-select__trigger.app-button:disabled {
+  opacity: 0.55;
+}
 .access-key-select__label {
-  max-width: 240px;
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.access-key-select__chevron {
+  flex-shrink: 0;
 }
 .access-key-select__options {
   display: grid;
