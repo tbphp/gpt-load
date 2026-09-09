@@ -110,7 +110,7 @@ func TestAppLogsCheckpointRestoreFailureOnce(t *testing.T) {
 		DB:                db,
 		StartupBootstrap:  startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:      runtimeStateLoaderFunc(func(context.Context) error { return nil }),
-		RuntimeCheckpoint: NewFileRuntimeStateCheckpoint(dataDir, nil, nil),
+		RuntimeCheckpoint: NewFileRuntimeStateCheckpoint(dataDir, nil, nil, nil),
 		ControlRuntime:    newControlRuntimeFake(nil, false),
 		RequestLogs:       newRequestLogRuntimeFake(nil, nil),
 	})
@@ -199,7 +199,7 @@ func TestFileRuntimeStateCheckpointRestoresAndConsumesFile(t *testing.T) {
 	stats := health.NewStatsStore()
 	stats.RecordFailure(1, health.FailureCategoryUpstreamHostError, 503, time.Date(2026, 8, 7, 11, 59, 0, 0, time.UTC))
 
-	checkpoint := NewFileRuntimeStateCheckpoint(dataDir, registry, stats)
+	checkpoint := NewFileRuntimeStateCheckpoint(dataDir, registry, stats, nil)
 	if err := checkpoint.Save(context.Background()); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
@@ -218,7 +218,7 @@ func TestFileRuntimeStateCheckpointRestoresAndConsumesFile(t *testing.T) {
 		t.Fatalf("replace loaded registry: %v", err)
 	}
 	loadedStats := health.NewStatsStore()
-	loader := NewFileRuntimeStateCheckpoint(dataDir, loadedRegistry, loadedStats)
+	loader := NewFileRuntimeStateCheckpoint(dataDir, loadedRegistry, loadedStats, nil)
 	if err := loader.Restore(context.Background()); err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
@@ -234,6 +234,30 @@ func TestFileRuntimeStateCheckpointRestoresAndConsumesFile(t *testing.T) {
 	gotStats := loadedStats.Snapshot(1, time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC))
 	if gotStats.Failure != 1 || gotStats.Problem != 1 || gotStats.LastStatusCode != 503 {
 		t.Fatalf("restored key stats = %#v", gotStats)
+	}
+}
+
+func TestFileRuntimeStateCheckpointRestoresResponseOwnership(t *testing.T) {
+	dir := t.TempDir()
+	original := state.NewResponseBindings()
+	if !original.Record(7, "stored-response", state.CredentialRef{ID: 2, GroupID: 3, IdentityGeneration: 4}) {
+		t.Fatal("record failed")
+	}
+	want, _ := original.Lookup(7, "stored-response")
+	checkpoint := NewFileRuntimeStateCheckpoint(dir, nil, nil, original)
+	if err := checkpoint.Save(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	restored := state.NewResponseBindings()
+	loader := NewFileRuntimeStateCheckpoint(dir, nil, nil, restored)
+	if err := loader.Restore(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := restored.Lookup(7, "stored-response")
+	if !ok || got.AccessKeyID != want.AccessKeyID || got.CredentialID != want.CredentialID ||
+		got.GroupID != want.GroupID || got.IdentityGeneration != want.IdentityGeneration ||
+		!got.ExpiresAt.Equal(want.ExpiresAt) {
+		t.Fatalf("restored binding = %#v, %t; want %#v", got, ok, want)
 	}
 }
 
@@ -257,7 +281,7 @@ func TestFileRuntimeStateCheckpointReturnsErrorWhenDeleteFails(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("replace registry: %v", err)
 	}
-	checkpoint := NewFileRuntimeStateCheckpoint(dataDir, registry, health.NewStatsStore())
+	checkpoint := NewFileRuntimeStateCheckpoint(dataDir, registry, health.NewStatsStore(), nil)
 	// The normal file implementation removes the file successfully. This test
 	// documents that a failed removal must prevent applying stale data through
 	// the injectable filesystem hook used by the implementation.
@@ -283,7 +307,7 @@ func TestFileRuntimeStateCheckpointConsumesMalformedFileAndReturnsError(t *testi
 	}}); err != nil {
 		t.Fatalf("replace registry: %v", err)
 	}
-	checkpoint := NewFileRuntimeStateCheckpoint(dataDir, registry, health.NewStatsStore())
+	checkpoint := NewFileRuntimeStateCheckpoint(dataDir, registry, health.NewStatsStore(), nil)
 	if err := checkpoint.Restore(context.Background()); err == nil {
 		t.Fatal("Restore() error = nil, want malformed checkpoint error")
 	}

@@ -119,6 +119,38 @@ func TestUpdateGroupSettingsPublishesParameterOverrides(t *testing.T) {
 	}
 }
 
+func TestGroupSettingsRejectNewContinuationOverridesButKeepLegacyReadable(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := validControlGroup("legacy-continuation")
+	group.Overrides = models.JSON(`{"parameter_overrides":[{"set":{"previous_response_id":"old-response"}}]}`)
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.manager.Publish(mustBuildCompileInput(t, fixture.db)); err != nil {
+		t.Fatalf("legacy rules blocked snapshot loading: %v", err)
+	}
+	if _, err := fixture.service.GetGroupSettings(t.Context(), group.ID); err != nil {
+		t.Fatalf("legacy rules prevented management access: %v", err)
+	}
+	before := fixture.manager.Current()
+	_, err := fixture.service.UpdateGroupSettings(t.Context(), group.ID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{
+			state.SettingParameterOverrides: []any{map[string]any{
+				"set": map[string]any{"previous_response_id": "new-response"},
+			}},
+		}},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) || fixture.manager.Current() != before {
+		t.Fatalf("new continuation override error = %v", err)
+	}
+	_, err = fixture.service.UpdateGroupSettings(t.Context(), group.ID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{}},
+	})
+	if err != nil {
+		t.Fatalf("legacy rule could not be corrected: %v", err)
+	}
+}
+
 func TestUpdateGroupSettingsPublishesOnceAndReturnsNewSettings(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)

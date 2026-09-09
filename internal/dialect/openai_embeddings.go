@@ -51,7 +51,7 @@ func (d *OpenAIEmbeddings) InspectRequest(request *ParsedRequest) (RequestMetada
 			return RequestMetadata{}, fmt.Errorf("unsupported %s Content-Type %q", d.Protocol(), contentType)
 		}
 	}
-	metadata, err := inspectJSONRequestFields(request.Body, true)
+	metadata, err := inspectJSONRequestFields(request.Body, true, false)
 	if err != nil {
 		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}

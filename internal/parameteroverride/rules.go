@@ -197,6 +197,32 @@ func compileMatch(raw json.RawMessage) (compiledMatch, error) {
 // Empty reports whether no rule can be applied.
 func (rules Rules) Empty() bool { return len(rules.entries) == 0 }
 
+// ValidateResponsesContinuation 用于管理面保存；不改变历史配置的 Compile 行为。
+func (rules Rules) ValidateResponsesContinuation() error {
+	for _, entry := range rules.entries {
+		if entry.clientProtocol == "" || entry.clientProtocol == protocol.OpenAIResponses {
+			if err := entry.validateResponsesContinuation(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (entry rule) validateResponsesContinuation() error {
+	for key := range entry.set {
+		if strings.EqualFold(key, "previous_response_id") {
+			return fmt.Errorf("parameter overrides cannot change previous_response_id")
+		}
+	}
+	for _, path := range entry.remove {
+		if strings.EqualFold(path[0], "previous_response_id") {
+			return fmt.Errorf("parameter overrides cannot change previous_response_id")
+		}
+	}
+	return nil
+}
+
 // Clone returns an independently owned rule set.
 func (rules Rules) Clone() Rules {
 	cloned := Rules{entries: make([]rule, len(rules.entries))}
@@ -225,6 +251,11 @@ func (rules Rules) Apply(
 	matched := make([]rule, 0, len(rules.entries))
 	for _, entry := range rules.entries {
 		if entry.matches(clientProtocol, clientModel) {
+			if clientProtocol == protocol.OpenAIResponses {
+				if err := entry.validateResponsesContinuation(); err != nil {
+					return nil, false, err
+				}
+			}
 			matched = append(matched, entry)
 		}
 	}

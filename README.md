@@ -239,7 +239,9 @@ Environment proxies apply only when no proxy is specified on the credential, gro
 - 2.0 is designed for a **single application instance**. Instances do not share state, so horizontal scaling is not supported.
 - Usage and cost are **estimates** derived from upstream responses. They support operational analysis and capacity planning, and do not equal a provider invoice or a financial reconciliation.
 - Subscription channels depend on upstream OAuth and compatibility protocols and may change as upstreams change. Only connect accounts you are entitled to use, and follow each provider's terms.
-- In OpenAI Responses, stateful requests relying on `previous_response_id`, `conversation`, or an existing resource ID are only reliable with a single credential, or with an upstream that shares resources across credentials.
+- Responses continuation with `previous_response_id` currently supports the `openai` and `gpt_load` channels. Response ownership is isolated by AccessKey and pins the original credential when current routing permits, independently of soft affinity. Unknown IDs, including IDs created before upgrading or outside this gateway, are rejected. Group parameter overrides cannot change this field.
+- Response bindings stay in memory for up to 30 days, with limits of 100,000 entries and 16 MiB of ID text; older entries are evicted when capacity is reached. A successful checkpoint during normal shutdown allows restoration from the same data directory. Crash recovery and continued upstream state availability are not guaranteed.
+- `conversation` and other existing resource IDs are outside this ownership routing scope and still depend on a single credential or upstream resource sharing across credentials.
 
 ## Moving from 1.x
 

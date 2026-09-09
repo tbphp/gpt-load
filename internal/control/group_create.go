@@ -13,6 +13,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/outboundproxy"
+	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
@@ -306,6 +307,12 @@ func normalizeGroupSettings(settings config.Settings) (config.Settings, models.J
 	}
 	if settings == nil {
 		settings = make(config.Settings)
+	}
+	if value, exists := settings[state.SettingParameterOverrides]; exists {
+		rules, err := parameteroverride.Compile(value)
+		if err != nil || rules.ValidateResponsesContinuation() != nil {
+			return nil, nil, app_errors.ErrValidation
+		}
 	}
 	encoded, err := json.Marshal(settings)
 	if err != nil {

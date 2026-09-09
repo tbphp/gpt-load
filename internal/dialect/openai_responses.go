@@ -38,7 +38,7 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 
 	metadata := RequestMetadata{}
 	if len(req.Body) > 0 {
-		parsed, err := inspectJSONRequestFields(req.Body, false)
+		parsed, err := inspectJSONRequestFields(req.Body, false, req.Method == http.MethodPost && req.Path == openAIResponsesPath)
 		if err != nil {
 			return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 		}
@@ -56,7 +56,9 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 	metadata.ObserveUsage = req.Method == http.MethodPost &&
 		(req.Path == openAIResponsesPath || req.Path == openAIResponsesCompactPath)
 	if len(req.Body) > 0 {
-		metadata.AffinityPrefix = inspectPromptAffinityPrefix(d.Protocol(), req.Body)
+		if metadata.PreviousResponseID == "" {
+			metadata.AffinityPrefix = inspectPromptAffinityPrefix(d.Protocol(), req.Body)
+		}
 		pricingMode, diagnostics, err := openAIRequestPricing(req.Body)
 		if err != nil {
 			return RequestMetadata{}, fmt.Errorf("inspect %s request pricing: %w", d.Protocol(), err)

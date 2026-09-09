@@ -42,7 +42,7 @@ func (d *Anthropic) InspectRequest(req *ParsedRequest) (RequestMetadata, error) 
 		return RequestMetadata{}, fmt.Errorf("parsed request is required")
 	}
 
-	metadata, err := inspectJSONRequestFields(req.Body, true)
+	metadata, err := inspectJSONRequestFields(req.Body, true, false)
 	if err != nil {
 		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}

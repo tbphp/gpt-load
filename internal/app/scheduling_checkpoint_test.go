@@ -31,11 +31,11 @@ func TestRuntimeCheckpointRestoresOnlyMatchingSchedulingIdentities(t *testing.T)
 		d.Members[2].Progress = d.Watermark
 		d.Members[2].LastSelected = 8
 	})
-	if err := NewFileRuntimeStateCheckpoint(dir, original, nil).Save(context.Background()); err != nil {
+	if err := NewFileRuntimeStateCheckpoint(dir, original, nil, nil).Save(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	loaded := makeRegistry(map[uint]uint64{1: 1, 2: 2, 3: 1})
-	if err := NewFileRuntimeStateCheckpoint(dir, loaded, nil).Restore(context.Background()); err != nil {
+	if err := NewFileRuntimeStateCheckpoint(dir, loaded, nil, nil).Restore(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	loaded.SchedulingState().WithLock(func(d *state.SchedulingLedger) {

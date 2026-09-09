@@ -141,6 +141,17 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		if err != nil {
 			return false, err
 		}
+		if !wasTerminal && !providerError && input.OnResponse != nil {
+			object, err := decodeResponsesStoreObject(event.Payload)
+			if err != nil {
+				return false, err
+			}
+			if response, exists := object["response"]; exists {
+				if err := input.OnResponse(response); err != nil {
+					return false, err
+				}
+			}
+		}
 		if !wasTerminal {
 			streamEvents.observeUsageEvent(event)
 			if providerError {
@@ -223,7 +234,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				return downstreamErr
 			}
 			forwardData := observedData
-			if input.ClientProtocol == protocol.OpenAIImages || responsesStoreBuffer != nil {
+			if input.ClientProtocol == protocol.OpenAIImages || responsesStoreBuffer != nil || input.OnResponse != nil {
 				forwardData = completeData
 				if len(forwardData) == 0 {
 					return nil

@@ -109,6 +109,7 @@ type Handler struct {
 	routeNotFoundEvents *utils.RateLimitedEventCounter
 	lifecycle           *httplifecycle.Coordinator
 	affinityCache       *affinity.Cache
+	responseBindings    *state.ResponseBindings
 }
 
 func (handler *Handler) freezeAttemptPricing(
@@ -163,13 +164,14 @@ func NewHandler(
 		manager: manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
-		affinityCache:  affinity.NewCache(),
-		newRequestID:   newRequestID,
-		requestNow:     time.Now,
-		now:            time.Now,
-		writeTimeout:   downstreamWriteTimeout,
-		modelListLimit: maxNonStreamingResponseBodyBytes,
-		logger:         logrus.StandardLogger(),
+		affinityCache:    affinity.NewCache(),
+		responseBindings: state.NewResponseBindings(),
+		newRequestID:     newRequestID,
+		requestNow:       time.Now,
+		now:              time.Now,
+		writeTimeout:     downstreamWriteTimeout,
+		modelListLimit:   maxNonStreamingResponseBodyBytes,
+		logger:           logrus.StandardLogger(),
 		authFailureEvents: utils.NewRateLimitedEventCounter(
 			time.Minute,
 			time.Now,
@@ -206,6 +208,7 @@ func NewHandlerWithLifecycle(
 	priceTables PriceTableProvider,
 	accessQuota *accessquota.Runtime,
 	lifecycle *httplifecycle.Coordinator,
+	responseBindings *state.ResponseBindings,
 ) *Handler {
 	handler := NewHandler(
 		manager,
@@ -227,6 +230,7 @@ func NewHandlerWithLifecycle(
 		handler.subscriptions = subscriptions
 	}
 	handler.lifecycle = lifecycle
+	handler.responseBindings = responseBindings
 	return handler
 }
 
@@ -603,15 +607,27 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		allowedCredentialIDs[credentialID] = struct{}{}
 	}
 	query.AllowedCredentialIDs = allowedCredentialIDs
-	requestAffinity := handler.resolveRequestAffinity(
-		snapshot,
-		accessKey.ID,
-		selectedRoute.Protocol,
-		metadata.AffinityPrefix,
-		allowedCredentialRefs,
-	)
-	query.PreferredCredentialID = requestAffinity.preferredCredentialID
 	query.AllowedCredentialRefs = allowedCredentialRefs
+	var requestAffinity requestAffinity
+	if metadata.PreviousResponseID != "" {
+		binding, found := handler.responseBindings.Lookup(accessKey.ID, metadata.PreviousResponseID)
+		if !found {
+			handler.completeReason(ginContext, recorder, reasonResponseBindingNotFound)
+			return
+		}
+		query.AllowedCredentialIDs = map[uint]struct{}{binding.CredentialID: {}}
+		query.AllowedCredentialRefs = map[uint]state.CredentialRef{
+			binding.CredentialID: {
+				ID: binding.CredentialID, GroupID: binding.GroupID,
+				IdentityGeneration: binding.IdentityGeneration,
+			},
+		}
+	} else {
+		requestAffinity = handler.resolveRequestAffinity(
+			snapshot, accessKey.ID, selectedRoute.Protocol, metadata.AffinityPrefix, allowedCredentialRefs,
+		)
+		query.PreferredCredentialID = requestAffinity.preferredCredentialID
+	}
 	iterator := scheduler.New(snapshot, handler.registry, query)
 	handler.executeAttempts(
 		ginContext,
@@ -908,8 +924,8 @@ func (handler *Handler) executeAttempts(
 		scope execution.ErrorScope,
 	) bool {
 		attemptSequence++
-		if attemptSequence == 1 && requestAffinity.preferredCredentialID != 0 &&
-			selection.CredentialID == requestAffinity.preferredCredentialID {
+		if attemptSequence == 1 && (originalMetadata.PreviousResponseID != "" ||
+			(requestAffinity.preferredCredentialID != 0 && selection.CredentialID == requestAffinity.preferredCredentialID)) {
 			recorder.setAffinityHit(true)
 		}
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attemptSequence)
@@ -1119,8 +1135,8 @@ func (handler *Handler) executeAttempts(
 
 		attemptSequence++
 		forwardAttempts++
-		if attemptSequence == 1 && requestAffinity.preferredCredentialID != 0 &&
-			selection.CredentialID == requestAffinity.preferredCredentialID {
+		if attemptSequence == 1 && (originalMetadata.PreviousResponseID != "" ||
+			(requestAffinity.preferredCredentialID != 0 && selection.CredentialID == requestAffinity.preferredCredentialID)) {
 			recorder.setAffinityHit(true)
 		}
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attemptSequence)
@@ -1154,6 +1170,7 @@ func (handler *Handler) executeAttempts(
 			ProxyFingerprint:       proxyFingerprint,
 			ForceCredentialRefresh: forceCredentialRefresh,
 			ContinuityKey:          requestAffinity.continuityKey,
+			OnResponse:             handler.responseBindingObserver(recorder.accessKeyID, selection, ref, prepared.request),
 			OnFirstResponse: func() {
 				recorder.recordFirstResponse()
 			},
@@ -1176,6 +1193,20 @@ func (handler *Handler) executeAttempts(
 			result = handler.forwarder.Forward(ginContext.Request.Context(), input)
 		}
 		result = normalizeUpstreamResultContract(result)
+		if !stream && result.HasResponse() && !result.ProviderErrorBeforeCommit &&
+			result.DispatchState != execution.DispatchLocal &&
+			result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
+			if input.OnResponse != nil {
+				if err := input.OnResponse(result.Body); err != nil {
+					result.Err = err
+					result.ExecutionError = &execution.ErrorEvidence{
+						Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
+						ScopeHint: execution.ErrorScopeRequest, Code: "response_binding_conflict",
+						Summary: "Response ownership could not be recorded.", ReplaySafety: execution.ReplaySafetyUnknown,
+					}
+				}
+			}
+		}
 		attemptCompleted := time.Time{}
 		if recorder != nil {
 			attemptCompleted = recorder.now()
@@ -1216,7 +1247,9 @@ func (handler *Handler) executeAttempts(
 			)
 			if stream && result.Stream.EndReason == StreamEndCleanEOF {
 				handler.recordCredentialSuccess(ref, attemptNow)
-				handler.recordAffinitySuccess(requestAffinity, selection, ref)
+				if originalMetadata.PreviousResponseID == "" {
+					handler.recordAffinitySuccess(requestAffinity, selection, ref)
+				}
 			}
 			return
 		}
@@ -1313,7 +1346,8 @@ func (handler *Handler) executeAttempts(
 				return
 			}
 			if result.DispatchState != execution.DispatchLocal &&
-				result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
+				result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices &&
+				originalMetadata.PreviousResponseID == "" {
 				handler.recordAffinitySuccess(requestAffinity, selection, ref)
 			}
 			return

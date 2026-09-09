@@ -40,7 +40,7 @@ func TestExtractJSONRequestFieldsStrictDecisionContract(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			body := []byte(test.body)
 			before := bytes.Clone(body)
-			metadata, err := inspectJSONRequestFields(body, true)
+			metadata, err := inspectJSONRequestFields(body, true, false)
 			model := ""
 			if metadata.Model != nil {
 				model = *metadata.Model

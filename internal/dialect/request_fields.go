@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-func inspectJSONRequestFields(body []byte, requireModel bool) (RequestMetadata, error) {
+func inspectJSONRequestFields(body []byte, requireModel, responsesCreate bool) (RequestMetadata, error) {
 	if !utf8.Valid(body) {
 		return RequestMetadata{}, fmt.Errorf("request body must be valid UTF-8")
 	}
@@ -26,6 +26,7 @@ func inspectJSONRequestFields(body []byte, requireModel bool) (RequestMetadata, 
 	result := RequestMetadata{}
 	modelSeen := false
 	streamSeen := false
+	previousResponseSeen := false
 	for decoder.More() {
 		fieldToken, err := decoder.Token()
 		if err != nil {
@@ -69,6 +70,14 @@ func inspectJSONRequestFields(body []byte, requireModel bool) (RequestMetadata, 
 			result.Stream, valid = value.(bool)
 			if !valid {
 				return RequestMetadata{}, fmt.Errorf("stream must be a boolean")
+			}
+		case responsesCreate && field == "previous_response_id":
+			if previousResponseSeen {
+				return RequestMetadata{}, fmt.Errorf("previous_response_id must be unique")
+			}
+			previousResponseSeen = true
+			if err := decoder.Decode(&result.PreviousResponseID); err != nil {
+				return RequestMetadata{}, fmt.Errorf("previous_response_id must be a string or null")
 			}
 		default:
 			var ignored json.RawMessage

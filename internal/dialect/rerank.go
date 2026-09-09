@@ -31,7 +31,7 @@ func (d *Rerank) InspectRequest(request *ParsedRequest) (RequestMetadata, error)
 			return RequestMetadata{}, fmt.Errorf("rerank requires application/json")
 		}
 	}
-	metadata, err := inspectJSONRequestFields(request.Body, true)
+	metadata, err := inspectJSONRequestFields(request.Body, true, false)
 	if err != nil {
 		return RequestMetadata{}, err
 	}

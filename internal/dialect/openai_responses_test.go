@@ -78,3 +78,36 @@ func TestOpenAIResponsesRequestSelectsSupportedPricingModes(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAIResponsesContinuationSkipsPromptAffinityAndKeepsOpaqueIDs(t *testing.T) {
+	for _, test := range []struct {
+		field string
+		id    string
+		err   bool
+	}{
+		{field: `"previous_response_id":" custom/id "`, id: " custom/id "},
+		{field: `"previous_response_id":null`},
+		{field: `"previous_response_id":""`},
+		{field: `"PREVIOUS_RESPONSE_ID":"unrelated"`},
+		{field: `"previous_response_id":123`, err: true},
+		{field: `"previous_response_id":false`, err: true},
+		{field: `"previous_response_id":[]`, err: true},
+		{field: `"previous_response_id":{}`, err: true},
+		{field: `"previous_response_id":"first","previous_response_id":"second"`, err: true},
+	} {
+		t.Run(test.field, func(t *testing.T) {
+			request := &ParsedRequest{
+				Method: http.MethodPost, Path: "/v1/responses",
+				Body: []byte(`{"model":"gpt-4o","input":"continue",` + test.field + `}`),
+			}
+			metadata, err := NewOpenAIResponses().InspectRequest(request)
+			if (err != nil) != test.err {
+				t.Fatalf("error = %v, want error %t", err, test.err)
+			}
+			if err == nil && (metadata.PreviousResponseID != test.id ||
+				(len(metadata.AffinityPrefix) == 0) != (test.id != "")) {
+				t.Fatalf("metadata = %#v, want ID %q and mutually exclusive affinity", metadata, test.id)
+			}
+		})
+	}
+}
