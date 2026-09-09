@@ -3,6 +3,7 @@ import { X } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessKeyOptionDto, GroupOptionDto } from '@/api/control/types'
 import type { ChannelDto } from '@/app/resources/channels'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -46,6 +47,23 @@ const groupOptions = computed(() => [
     value: String(group.id),
     label: `${group.name} · #${group.id}`,
   })),
+])
+const channelOptions = computed(() => {
+  const options = [{ value: '', label: t('monitor.logs.filters.anyChannel') }]
+  if (
+    props.draft.channel_id &&
+    !props.channels.some((channel) => channel.channel_id === props.draft.channel_id)
+  ) {
+    options.push({ value: props.draft.channel_id, label: props.draft.channel_id })
+  }
+  return [
+    ...options,
+    ...props.channels.map((channel) => ({ value: channel.channel_id, label: channel.name })),
+  ]
+})
+const protocolOptions = computed(() => [
+  { value: '', label: t('monitor.logs.filters.anyProtocol') },
+  ...enabledDataProtocols.map((value) => ({ value, label: value })),
 ])
 const statusOptions = computed(() => [
   { value: '', label: t('monitor.logs.filters.anyStatus') },
@@ -104,6 +122,36 @@ function applyAdvanced(): void {
         :disabled="groupsFailed"
         @update:model-value="update('group_id', $event)"
       />
+      <span v-if="!selfScoped" class="logs-filter__channel">
+        <AppTextInput
+          v-if="channelsFailed"
+          :model-value="draft.channel_id"
+          :label="t('monitor.logs.filters.channel')"
+          :placeholder="t('monitor.logs.filters.channel')"
+          :invalid="Boolean(errors.channel_id)"
+          :described-by="errors.channel_id ? 'logs-filter-error' : undefined"
+          size="compact"
+          @update:model-value="update('channel_id', $event)"
+        />
+        <AppSelect
+          v-else
+          :model-value="draft.channel_id"
+          :label="t('monitor.logs.filters.channel')"
+          :options="channelOptions"
+          size="compact"
+          :aria-invalid="Boolean(errors.channel_id) || undefined"
+          :aria-describedby="errors.channel_id ? 'logs-filter-error' : undefined"
+          @update:model-value="update('channel_id', $event)"
+        />
+      </span>
+      <AppSelect
+        class="logs-filter__status"
+        :model-value="draft.status"
+        :label="t('monitor.logs.filters.status')"
+        :options="statusOptions"
+        size="compact"
+        @update:model-value="update('status', $event)"
+      />
       <span v-if="!selfScoped" class="logs-filter__access-key">
         <AppTextInput
           v-if="accessKeysFailed"
@@ -125,6 +173,14 @@ function applyAdvanced(): void {
           @update:model-value="update('access_key_id', $event === undefined ? '' : String($event))"
         />
       </span>
+      <AppSelect
+        class="logs-filter__protocol"
+        :model-value="draft.protocol"
+        :label="t('monitor.logs.filters.protocol')"
+        :options="protocolOptions"
+        size="compact"
+        @update:model-value="update('protocol', $event)"
+      />
       <span class="logs-filter__model">
         <AppTextInput
           :model-value="draft.client_model"
@@ -136,29 +192,6 @@ function applyAdvanced(): void {
           data-1p-ignore="true"
           data-lpignore="true"
           @update:model-value="update('client_model', $event)"
-        />
-      </span>
-      <AppSelect
-        class="logs-filter__status"
-        :model-value="draft.status"
-        :label="t('monitor.logs.filters.status')"
-        :options="statusOptions"
-        size="compact"
-        @update:model-value="update('status', $event)"
-      />
-      <span class="logs-filter__request-id">
-        <AppTextInput
-          :model-value="draft.request_id"
-          :label="t('monitor.logs.filters.requestId')"
-          :placeholder="t('monitor.logs.filters.requestId')"
-          :invalid="Boolean(errors.request_id)"
-          :described-by="errors.request_id ? 'logs-filter-error' : undefined"
-          size="compact"
-          monospace
-          :spellcheck="false"
-          data-1p-ignore="true"
-          data-lpignore="true"
-          @update:model-value="update('request_id', $event)"
         />
       </span>
       <AppButton type="submit" size="compact">{{ t('monitor.logs.filters.apply') }}</AppButton>
@@ -176,8 +209,6 @@ function applyAdvanced(): void {
     :open="advancedOpen"
     :draft="draft"
     :errors="errors"
-    :channels="channels"
-    :channels-failed="channelsFailed"
     :self-scoped="selfScoped"
     @update-field="update"
     @update:open="emit('update:advancedOpen', $event)"
@@ -258,20 +289,23 @@ function applyAdvanced(): void {
   width: 170px;
 }
 
-.logs-filter__model,
-.logs-filter__request-id {
+.logs-filter__channel {
+  width: 150px;
+}
+
+.logs-filter__protocol {
+  width: 168px;
+}
+
+.logs-filter__model {
   display: block;
   width: auto;
   min-width: 130px;
   flex: 1 1 160px;
 }
 
-.logs-filter__request-id {
-  flex-basis: 220px;
-}
-
+.logs-filter__channel :deep(.app-text-input),
 .logs-filter__model :deep(.app-text-input),
-.logs-filter__request-id :deep(.app-text-input),
 .logs-filter__access-key :deep(.app-text-input),
 .logs-filter__access-key :deep(.access-key-select),
 .logs-filter__access-key :deep(.app-button) {
@@ -287,7 +321,9 @@ function applyAdvanced(): void {
 }
 
 .logs-filter__group :deep(.app-select__trigger),
-.logs-filter__status :deep(.app-select__trigger) {
+.logs-filter__status :deep(.app-select__trigger),
+.logs-filter__channel :deep(.app-select__trigger),
+.logs-filter__protocol :deep(.app-select__trigger) {
   width: 100%;
 }
 
@@ -304,6 +340,7 @@ function applyAdvanced(): void {
 
   .logs-filter__row > :deep(.app-button),
   .logs-filter__row > :deep(.app-select__trigger),
+  .logs-filter__channel :deep(.app-select__trigger),
   .logs-filter__access-key :deep(.app-button) {
     min-height: var(--touch-target);
   }
@@ -316,7 +353,8 @@ function applyAdvanced(): void {
   }
 
   .logs-filter__access-key,
-  .logs-filter__request-id,
+  .logs-filter__channel,
+  .logs-filter__protocol,
   .logs-filter__group,
   .logs-filter__model,
   .logs-filter__status {

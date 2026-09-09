@@ -675,13 +675,15 @@ export default {
         lastRefreshed: 'Last successful refresh',
         remove: 'Remove filter {value}',
         advancedTitle: 'More filters',
-        advancedDescription: 'Filter by request, retry attempts, final result, and numeric ranges.',
+        advancedDescription:
+          'Filter by request, upstream attempts, response timing, tokens, and cost.',
         closeAdvanced: 'Close more filters',
         sections: {
-          request: 'Request',
-          attempt: 'Retry attempts',
-          result: 'Final result',
-          ranges: 'Numeric ranges',
+          request: 'Request and response',
+          attempt: 'Upstream attempts and retries',
+          timing: 'Response timing',
+          usage: 'Tokens and cache',
+          cost: 'Cost and pricing',
         },
         retryState: { retried: 'Retried', not_retried: 'Not retried' },
         usageState: {

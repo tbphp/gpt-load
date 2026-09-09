@@ -674,13 +674,15 @@ export default {
         lastRefreshed: '最終成功更新',
         remove: 'フィルター {value} を削除',
         advancedTitle: 'その他のフィルター',
-        advancedDescription: 'リクエスト、再試行、最終結果、数値範囲で絞り込みます。',
+        advancedDescription:
+          'リクエスト、アップストリームの試行、応答時間、トークン、コストで絞り込みます。',
         closeAdvanced: 'その他のフィルターを閉じる',
         sections: {
-          request: 'リクエスト',
-          attempt: '再試行',
-          result: '最終結果',
-          ranges: '数値範囲',
+          request: 'リクエストとレスポンス',
+          attempt: 'アップストリームの試行と再試行',
+          timing: '応答時間',
+          usage: 'トークンとキャッシュ',
+          cost: 'コストと料金計算',
         },
         retryState: { retried: '再試行あり', not_retried: '再試行なし' },
         usageState: {

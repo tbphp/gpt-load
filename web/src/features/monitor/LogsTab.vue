@@ -144,16 +144,11 @@ const filterSignature = computed(() =>
   ]),
 )
 const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
-  'channel_id',
-  'credential_id',
-  'upstream_model',
-  'protocol',
+  'request_id',
   'stream',
   'final_status_code',
-  'usage_state',
-  'cost_state',
-  'pricing_completeness',
-  'cache_present',
+  'credential_id',
+  'upstream_model',
   'attempt_status_code',
   'failure_category',
   'error_code',
@@ -164,10 +159,14 @@ const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
   'first_response_max_ms',
   'duration_min_ms',
   'duration_max_ms',
+  'usage_state',
+  'cache_present',
   'input_tokens_min',
   'input_tokens_max',
   'output_tokens_min',
   'output_tokens_max',
+  'cost_state',
+  'pricing_completeness',
   'cost_min_nano_usd',
   'cost_max_nano_usd',
 ]
@@ -201,6 +200,9 @@ const appliedChips = computed(() => {
       }),
     })
   }
+  if (filters.channel_id !== undefined) {
+    values.push({ key: 'channel_id', label: advancedChipLabel('channel_id', filters.channel_id) })
+  }
   if (filters.status !== undefined) {
     values.push({
       key: 'status',
@@ -211,8 +213,8 @@ const appliedChips = computed(() => {
   }
   for (const key of [
     'access_key_id',
+    'protocol',
     'client_model',
-    'request_id',
     ...advancedFilterKeys.value,
   ] as const) {
     const value = filters[key]

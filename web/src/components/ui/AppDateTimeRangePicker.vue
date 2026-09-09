@@ -91,6 +91,7 @@ function selectShortcut(preset: DateTimePreset): void {
 
 function apply(): void {
   if (props.applyDisabled) return
+  emit('update:preset', undefined)
   emit('apply')
   open.value = false
 }
@@ -100,7 +101,6 @@ function apply(): void {
   <AppPopover
     :open="open"
     align="start"
-    :tooltip="rangeDisplay"
     :content-class="
       applyLabel
         ? 'app-date-range-popover app-date-range-popover--with-apply'
@@ -208,6 +208,7 @@ function apply(): void {
 }
 
 .app-date-range-popover {
+  --date-range-control-height: var(--control-xs);
   width: min(420px, var(--reka-popover-content-available-width));
   padding: 14px;
 }
@@ -240,12 +241,14 @@ function apply(): void {
 }
 
 .app-date-range__end-controls .app-date-range__apply {
-  min-height: var(--control-xs);
+  min-height: var(--date-range-control-height);
+  height: var(--date-range-control-height);
 }
 
 .app-date-range__fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 10px;
   padding-top: 12px;
 }
@@ -279,7 +282,8 @@ function apply(): void {
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: var(--control-xs);
+  min-height: var(--date-range-control-height);
+  height: var(--date-range-control-height);
   align-items: center;
   overflow: hidden;
   border: 1px solid var(--color-border-control);
@@ -302,8 +306,8 @@ function apply(): void {
 .app-date-range__native-input {
   position: static !important;
   width: 100% !important;
-  height: var(--control-xs) !important;
-  min-height: var(--control-xs) !important;
+  height: 100% !important;
+  min-height: 0 !important;
   border: 0 !important;
   border-radius: inherit !important;
   background: transparent !important;
@@ -322,6 +326,10 @@ function apply(): void {
 }
 
 @media (max-width: 560px) {
+  .app-date-range-popover {
+    --date-range-control-height: var(--touch-target);
+  }
+
   .app-date-range__trigger {
     width: 100%;
     max-width: none;

@@ -277,7 +277,7 @@ function resetTimeDraft(): void {
 function applyCustomTime(): void {
   const { from, to } = timeValues.value
   if (from === undefined || to === undefined || to <= from) return
-  applyTimeRange(from, to, timeDraft.value.preset)
+  applyTimeRange(from, to)
 }
 
 function applyTimeRange(from: number, to: number, preset?: DateTimePreset): void {
