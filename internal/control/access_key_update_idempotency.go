@@ -24,6 +24,17 @@ func (s *Service) UpdateAccessKeyIdempotent(ctx context.Context, idempotencyKey 
 	}
 	digestRequest := request
 	digestRequest.Key = ""
+	if request.Filters != nil {
+		filters, err := normalizeAccessKeyFilters(request.Filters)
+		if err != nil {
+			return AccessKeyMetadata{}, err
+		}
+		canonicalFilters := canonicalAccessKeyFilterSet(filters)
+		digestRequest.Filters = &AccessKeyFilters{
+			Groups: canonicalFilters.Groups, Protocols: canonicalFilters.Protocols,
+			Models: canonicalFilters.Models, AllowedCIDRs: canonicalFilters.AllowedCIDRs,
+		}
+	}
 	canonicalBody, err := canonicalIdempotencyBody(struct {
 		Request AccessKeyUpdateRequest `json:"request"`
 		KeyHash string                 `json:"key_hash"`

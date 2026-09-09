@@ -8,9 +8,85 @@ import (
 	"net/http"
 	"testing"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
+
+func TestEditAccessKeyReplaysEquivalentFilters(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	groupIDs := make([]uint, 0, 2)
+	for index := range 2 {
+		group, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+			ChannelID: channel.OpenAICompatible, ConnectionType: models.ConnectionTypeAPIKey,
+			Params: json.RawMessage(fmt.Sprintf(`{"base_url":"https://group-%d.example.com/v1"}`, index)),
+			Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Credentials: "test-credential",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		groupIDs = append(groupIDs, group.GroupID)
+	}
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{Name: "filter-replay"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := newAccessKeyLifecycleEngine(t, fixture)
+	path := fmt.Sprintf("/api/access-keys/%d", created.ID)
+	for index, test := range []struct {
+		name    string
+		initial string
+		retry   string
+	}{
+		{
+			name: "normalized sets",
+			initial: fmt.Sprintf(`{"key":"replacement-value","filters":{
+				"groups":[%d,%d,%d],"protocols":["anthropic","openai-completions","anthropic"],
+				"models":[" gpt-b ","gpt-a","gpt-a"],
+				"allowed_cidrs":["198.51.100.7/24","192.0.2.1","192.0.2.1/32"]
+			}}`, groupIDs[1], groupIDs[0], groupIDs[1]),
+			retry: fmt.Sprintf(`{"key":"replacement-value","filters":{
+				"groups":[%d,%d],"protocols":["openai-completions","anthropic"],
+				"models":["gpt-a","gpt-b"],"allowed_cidrs":["192.0.2.1/32","198.51.100.0/24"]
+			}}`, groupIDs[0], groupIDs[1]),
+		},
+		{
+			name:    "empty sets",
+			initial: `{"key":"replacement-value","filters":{}}`,
+			retry:   `{"key":"replacement-value","filters":{"groups":[],"protocols":[],"models":[],"allowed_cidrs":[]}}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			operationID := fmt.Sprintf("00000000-0000-4000-8000-%012d", 8430+index)
+			first := serveAccessKeyLifecycleRequest(t, engine, http.MethodPut, path, test.initial, operationID)
+			if first.Code != http.StatusOK {
+				t.Fatalf("initial edit status = %d", first.Code)
+			}
+			before := loadAccessKeyRow(t, fixture.db, created.ID)
+			replayed := serveAccessKeyLifecycleRequest(t, engine, http.MethodPut, path, test.retry, operationID)
+			if replayed.Code != http.StatusOK {
+				t.Fatalf("equivalent filter replay status = %d", replayed.Code)
+			}
+			if !bytes.Equal(decodeAccessKeyLifecycleData(t, first)["filters"], decodeAccessKeyLifecycleData(t, replayed)["filters"]) {
+				t.Fatal("replay did not return the original filter result")
+			}
+			if row := loadAccessKeyRow(t, fixture.db, created.ID); row.KeyValue != before.KeyValue || !bytes.Equal(row.Filters, before.Filters) {
+				t.Fatal("replay rewrote the credential or filters")
+			}
+			for _, body := range []string{
+				`{"key":"replacement-value"}`,
+				`{"key":"replacement-value","filters":{"models":["different-model"]}}`,
+			} {
+				conflict := serveAccessKeyLifecycleRequest(t, engine, http.MethodPut, path, body, operationID)
+				if conflict.Code != http.StatusConflict {
+					t.Fatalf("omitted or different filters status = %d", conflict.Code)
+				}
+			}
+		})
+	}
+}
 
 func TestEditAccessKeyReplacesCredentialAtomicallyAndReplays(t *testing.T) {
 	t.Parallel()

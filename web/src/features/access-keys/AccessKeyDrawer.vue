@@ -626,6 +626,7 @@ async function save(): Promise<void> {
         ...(updateBody.key ? { idempotencyKey: activeOperationID } : {}),
         state: outcome.kind === 'failed' ? 'reconciling' : outcome.kind,
       }
+      failed.value = false
       editReconciliation.value = operation
       editOperationRetained.value = true
       emit('update:editOperation', operation)
