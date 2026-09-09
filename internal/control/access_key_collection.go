@@ -53,6 +53,7 @@ type accessKeyCollectionRecord struct {
 }
 
 type accessKeyCollectionRow struct {
+	KeyPrefix             string
 	PriceMultiplierMicros *int64
 	ID                    uint
 	Name                  string
@@ -122,7 +123,7 @@ func (s *Service) captureAccessKeyCollectionRecords(
 	if err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
-				"access_keys.id", "access_keys.name", "access_keys.key_suffix",
+				"access_keys.id", "access_keys.name", "access_keys.key_prefix", "access_keys.key_suffix",
 				"access_keys.status", "access_keys.filters", "access_keys.rpm_limit",
 				"access_keys.expires_at_ms", "access_keys.price_multiplier_micros",
 				"access_keys.created_at_ms", "access_keys.updated_at_ms",
@@ -161,6 +162,7 @@ func (s *Service) captureAccessKeyCollectionRecords(
 			ID:                    row.ID,
 			Name:                  row.Name,
 			KeySuffix:             row.KeySuffix,
+			KeyPrefix:             row.KeyPrefix,
 			Status:                row.Status,
 			Filters:               row.Filters,
 			RPMLimit:              row.RPMLimit,

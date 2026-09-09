@@ -58,6 +58,7 @@ type homeCredentialRow struct {
 }
 
 type homeAccessKeyRow struct {
+	KeyPrefix             string
 	PriceMultiplierMicros *int64
 	ID                    uint
 	Name                  string
@@ -260,7 +261,7 @@ func (s *Service) readHomeRows(
 		}
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
-				"id", "name", "key_suffix", "status", "filters", "rpm_limit", "price_multiplier_micros",
+				"id", "name", "key_prefix", "key_suffix", "status", "filters", "rpm_limit", "price_multiplier_micros",
 				"expires_at_ms",
 				"created_at_ms", "updated_at_ms",
 				"(SELECT MAX(request_logs.completed_at_ms) FROM request_logs WHERE request_logs.access_key_id = access_keys.id) AS last_request_at_ms",
@@ -495,7 +496,7 @@ func mapHomeAccessKeys(rows []homeAccessKeyRow) ([]HomeAccessKey, error) {
 				app_errors.ErrInternalServer,
 			)
 		}
-		if !validAccessKeySuffix(row.KeySuffix) {
+		if !validAccessKeyPrefix(row.KeyPrefix) || !validAccessKeySuffix(row.KeySuffix) {
 			return nil, fmt.Errorf(
 				"map home access key %d: invalid persisted suffix: %w",
 				row.ID,
@@ -518,7 +519,7 @@ func mapHomeAccessKeys(rows []homeAccessKeyRow) ([]HomeAccessKey, error) {
 		}
 		result = append(result, HomeAccessKey{
 			ID: row.ID, Name: row.Name,
-			MaskedKey: maskedAccessKey(row.KeySuffix),
+			MaskedKey: maskedAccessKey(row.KeyPrefix, row.KeySuffix),
 			Protocols: protocols,
 		})
 	}
@@ -541,7 +542,7 @@ func mapHomeCurrentAccessKey(
 ) (AccessKeyCollectionItem, error) {
 	metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
 		PriceMultiplierMicros: row.PriceMultiplierMicros,
-		ID:                    row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
+		ID:                    row.ID, Name: row.Name, KeyPrefix: row.KeyPrefix, KeySuffix: row.KeySuffix,
 		Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
 		ExpiresAtMS: row.ExpiresAtMS,
 		CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,

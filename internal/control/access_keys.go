@@ -196,6 +196,7 @@ type AccessKeyRevealResult struct {
 }
 
 type accessKeyMetadataRow struct {
+	KeyPrefix             string
 	PriceMultiplierMicros *int64
 	ID                    uint
 	Name                  string
@@ -209,6 +210,7 @@ type accessKeyMetadataRow struct {
 }
 
 type generatedAccessKeyCredential struct {
+	KeyPrefix string
 	Plaintext string
 	KeyValue  string
 	KeyHash   string
@@ -235,6 +237,7 @@ func (s *Service) newAccessKeyRow(
 		Name:      name,
 		KeyValue:  credential.KeyValue,
 		KeyHash:   credential.KeyHash,
+		KeyPrefix: &credential.KeyPrefix,
 		KeySuffix: credential.KeySuffix,
 		Status:    string(state.AccessKeyStatusActive),
 		Filters:   models.JSON(encodedFilters),
@@ -263,13 +266,18 @@ func (s *Service) prepareAccessKeyCredential(plaintext string) (generatedAccessK
 	}
 	// 短密钥全部隐藏，避免尾号披露全部或大部分凭据。
 	suffix := "****"
+	prefix := ""
 	if len(plaintext) > 8 {
 		suffix = plaintext[len(plaintext)-4:]
+	}
+	if len(plaintext) > 16 {
+		prefix = plaintext[:6]
 	}
 	return generatedAccessKeyCredential{
 		Plaintext: plaintext,
 		KeyValue:  ciphertext,
 		KeyHash:   s.encryption.Hash(plaintext),
+		KeyPrefix: prefix,
 		KeySuffix: suffix,
 	}, nil
 }
@@ -332,7 +340,7 @@ func (s *Service) CreateAccessKey(
 			return err
 		}
 		metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
-			ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
+			ID: row.ID, Name: row.Name, KeyPrefix: *row.KeyPrefix, KeySuffix: row.KeySuffix,
 			PriceMultiplierMicros: row.PriceMultiplierMicros,
 			Status:                row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
 			ExpiresAtMS: row.ExpiresAtMS,
@@ -422,14 +430,14 @@ func (s *Service) UpdateAccessKey(
 		var row accessKeyMetadataRow
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
-				"id", "name", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms", "price_multiplier_micros",
+				"id", "name", "key_prefix", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms", "price_multiplier_micros",
 				"created_at_ms", "updated_at_ms",
 			).
 			Where("id = ?", id).
 			Take(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
-		if !validAccessKeySuffix(row.KeySuffix) {
+		if !validAccessKeyPrefix(row.KeyPrefix) || !validAccessKeySuffix(row.KeySuffix) {
 			return fmt.Errorf(
 				"access key %d has invalid persisted suffix: %w",
 				row.ID,
@@ -497,7 +505,7 @@ func (s *Service) UpdateAccessKey(
 		}
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
-				"id", "name", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms", "price_multiplier_micros",
+				"id", "name", "key_prefix", "key_suffix", "status", "filters", "rpm_limit", "expires_at_ms", "price_multiplier_micros",
 				"created_at_ms", "updated_at_ms",
 			).
 			Where("id = ?", row.ID).
@@ -605,7 +613,7 @@ func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error
 			app_errors.ErrInternalServer,
 		)
 	}
-	if !validAccessKeySuffix(row.KeySuffix) {
+	if !validAccessKeyPrefix(row.KeyPrefix) || !validAccessKeySuffix(row.KeySuffix) {
 		return AccessKeyMetadata{}, fmt.Errorf(
 			"access key %d has invalid persisted suffix: %w",
 			row.ID,
@@ -623,7 +631,7 @@ func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error
 	return AccessKeyMetadata{
 		PriceMultiplier: priceMultiplierResponse(row.PriceMultiplierMicros),
 		ID:              row.ID, Name: row.Name,
-		MaskedKey: maskedAccessKey(row.KeySuffix),
+		MaskedKey: maskedAccessKey(row.KeyPrefix, row.KeySuffix),
 		Status:    status, Filters: filters, RPMLimit: row.RPMLimit,
 		ExpiresAtMS:    cloneOptionalInt64(row.ExpiresAtMS),
 		CostLimitRules: []AccessKeyCostLimitRule{},
@@ -631,8 +639,12 @@ func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error
 	}, nil
 }
 
-func maskedAccessKey(suffix string) string {
-	return "****" + suffix
+func maskedAccessKey(prefix, suffix string) string {
+	return prefix + "****" + suffix
+}
+
+func validAccessKeyPrefix(value string) bool {
+	return value == "" || len(value) == 6 && validAccessKeyPlaintext(value)
 }
 
 func validAccessKeySuffix(value string) bool {

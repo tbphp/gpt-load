@@ -136,7 +136,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 				return idempotentMutationResult{}, err
 			}
 			metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
-				ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
+				ID: row.ID, Name: row.Name, KeyPrefix: *row.KeyPrefix, KeySuffix: row.KeySuffix,
 				PriceMultiplierMicros: row.PriceMultiplierMicros,
 				Status:                row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
 				ExpiresAtMS: row.ExpiresAtMS,

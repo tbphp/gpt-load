@@ -419,7 +419,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			if view.Allowed {
 				continue
 			}
-			if !validAccessKeySuffix(accessKey.KeySuffix) {
+			if !validAccessKeyPrefix(accessKey.KeyPrefix) || !validAccessKeySuffix(accessKey.KeySuffix) {
 				return runtimeHealthResponse{}, fmt.Errorf(
 					"map blocked access key %d suffix: %w",
 					accessKeyID,
@@ -429,7 +429,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			status := mapAccessKeyCostLimitStatus(view)
 			result.BlockedAccessKeys = append(result.BlockedAccessKeys, healthAccessKeyCostLimitResponse{
 				AccessKeyID: accessKeyID, Name: accessKey.Name,
-				MaskedKey:         maskedAccessKey(accessKey.KeySuffix),
+				MaskedKey:         maskedAccessKey(accessKey.KeyPrefix, accessKey.KeySuffix),
 				Recoverable:       status.Recoverable,
 				NextAvailableAtMS: cloneCostLimitMilliseconds(status.NextAvailableAtMS),
 				BlockingRules:     blockingCostLimitRuleStatuses(status),

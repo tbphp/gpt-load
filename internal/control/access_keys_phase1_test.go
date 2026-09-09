@@ -52,7 +52,7 @@ func TestAccessKeyMetadataListAndUpdateNeverDecryptCiphertext(t *testing.T) {
 		t.Fatalf("ListAccessKeyCollection() error = %v", err)
 	}
 	if len(collection.Items) != 1 || collection.Items[0].ID != created.ID ||
-		collection.Items[0].MaskedKey != "****0000" {
+		collection.Items[0].MaskedKey != "sk-gl-****0000" {
 		t.Fatalf("ListAccessKeyCollection() = %#v", collection)
 	}
 	encoded, err := json.Marshal(collection)

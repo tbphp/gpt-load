@@ -34,7 +34,7 @@ func testCustomAccessKeyMigration(t *testing.T, open func(*testing.T) *gorm.DB) 
 					t.Fatal(err)
 				}
 				key = models.AccessKey{Name: "existing", KeyValue: "encrypted-test-value", KeyHash: "existing-hash", KeySuffix: "cafe", Status: "active", Filters: models.JSON(`{}`)}
-				if err := db.Create(&key).Error; err != nil {
+				if err := db.Omit("KeyPrefix").Create(&key).Error; err != nil {
 					t.Fatal(err)
 				}
 				rule = models.AccessKeyCostLimitRule{AccessKeyID: key.ID, Kind: models.AccessKeyCostLimitKindTotal, LimitNanoUSD: 100, RuleRevision: 1}
@@ -47,7 +47,7 @@ func testCustomAccessKeyMigration(t *testing.T, open func(*testing.T) *gorm.DB) 
 				}
 				// 删除过的较大 ID 也不能因重建表而被再次分配。
 				deleted := models.AccessKey{Name: "deleted", KeyValue: "cipher", KeyHash: "deleted-hash", KeySuffix: "dead", Status: "active", Filters: models.JSON(`{}`)}
-				if err := db.Create(&deleted).Error; err != nil {
+				if err := db.Omit("KeyPrefix").Create(&deleted).Error; err != nil {
 					t.Fatal(err)
 				}
 				deletedID = deleted.ID

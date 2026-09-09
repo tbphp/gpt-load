@@ -40,8 +40,11 @@ func TestCustomAccessKeyCreationAndReplay(t *testing.T) {
 			if len(key) <= 8 && created.MaskedKey != "********" {
 				t.Fatal("short key was not fully masked")
 			}
-			if len(key) > 8 && created.MaskedKey != "****"+key[len(key)-4:] {
+			if len(key) > 8 && len(key) <= 16 && created.MaskedKey != "****"+key[len(key)-4:] {
 				t.Fatal("custom key suffix was not preserved")
+			}
+			if len(key) > 16 && created.MaskedKey != key[:6]+"****"+key[len(key)-4:] {
+				t.Fatal("custom key prefix and suffix were not preserved")
 			}
 			row := loadAccessKeyRow(t, fixture.db, created.ID)
 			if row.KeyValue == key || row.KeyHash != fixture.encryption.Hash(key) {
