@@ -16,6 +16,7 @@ import {
 } from './access-key-scope'
 
 export interface AccessKeyDraft {
+  key: string
   name: string
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
@@ -70,6 +71,7 @@ export function createAccessKeyDraft(accessKey?: AccessKeyDto | null): AccessKey
   )
   return {
     name: accessKey?.name ?? '',
+    key: '',
     status: accessKey?.status ?? 'active',
     filters,
     scopeModes: createAccessKeyScopeModes(filters),
@@ -86,6 +88,7 @@ export function createAccessKeyDraftFromCreateInput(input: CreateAccessKeyReques
   const filters = normalizeAccessKeyFilters(input.filters)
   return {
     name: input.name,
+    key: input.key ?? '',
     status: input.status,
     filters,
     scopeModes: createAccessKeyScopeModes(filters),
@@ -106,6 +109,7 @@ export function createAccessKeyDraftFromUpdate(
   const expiresAt = patch.expires_at_ms !== undefined ? patch.expires_at_ms : base.expires_at_ms
   return {
     name: patch.name ?? base.name,
+    key: patch.key ?? '',
     status: patch.status ?? base.status,
     filters,
     scopeModes: createAccessKeyScopeModes(filters),
@@ -154,6 +158,7 @@ export function isAccessKeyDraftValid(
 
 export function buildCreateAccessKeyInput(draft: AccessKeyDraft): CreateAccessKeyRequest {
   return {
+    ...(draft.key ? { key: draft.key } : {}),
     name: draft.name.trim(),
     status: draft.status,
     filters: materializeDraftFilters(draft),
@@ -277,6 +282,7 @@ export function isAccessKeyDraftDirty(draft: AccessKeyDraft, base?: AccessKeyDto
   if (base) return Object.keys(buildAccessKeyUpdatePatch(base, draft)).length > 0
   return (
     draft.name !== initial.name ||
+    draft.key !== initial.key ||
     draft.status !== initial.status ||
     draft.expires_at_ms !== initial.expires_at_ms ||
     draft.rpm_limit !== initial.rpm_limit ||
@@ -295,6 +301,7 @@ export function accessKeyMatchesUpdatePatch(
   base: AccessKeyDto,
 ): boolean {
   return (
+    !patch.key &&
     (patch.name === undefined || patch.name === accessKey.name) &&
     (patch.status === undefined || patch.status === accessKey.status) &&
     (patch.filters === undefined || equalFilters(patch.filters, accessKey.filters)) &&
@@ -368,6 +375,7 @@ export function buildAccessKeyUpdatePatch(
   draft: AccessKeyDraft,
 ): UpdateAccessKeyRequest {
   const patch: UpdateAccessKeyRequest = {}
+  if (draft.key !== '') patch.key = draft.key
   const name = draft.name.trim()
   const filters = materializeDraftFilters(draft)
   const expiresAt = expirationValue(draft)

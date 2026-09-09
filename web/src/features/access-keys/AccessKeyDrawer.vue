@@ -12,11 +12,12 @@ import {
 } from '@/app/resources/access-keys'
 import type { AccessKeyDto, AccessProtocol, GroupOptionDto } from '@/api/control/types'
 import type { ChannelDto } from '@/app/resources/channels'
-import { RequestCancelledError } from '@/api/errors'
+import { ApiError, RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import type { SearchableMultiSelectOption } from '@/components/ui/SearchableMultiSelect.vue'
 import { createUUID } from '@/lib/uuid'
@@ -35,13 +36,13 @@ import {
   findAccessKeyForReconciliation,
   type PendingAccessKeyEditOperation,
 } from './access-key-edit-operation'
-import type { PendingAccessKeyRotateOperation } from './access-key-rotate-operation'
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import AccessKeyCostLimitEditor from './AccessKeyCostLimitEditor.vue'
 import AccessKeyFormFields from './AccessKeyFormFields.vue'
+import AccessKeyCredentialField from './AccessKeyCredentialField.vue'
+import { estimateAccessKeyStrength, isValidCustomAccessKey } from './access-key-strength'
 import AccessKeyOperationFeedback from './AccessKeyOperationFeedback.vue'
 import AccessKeyPolicyFields from './AccessKeyPolicyFields.vue'
-import AccessKeyRotateDialog from './AccessKeyRotateDialog.vue'
 import AccessKeyScopeEditor from './AccessKeyScopeEditor.vue'
 import {
   materializeAccessKeyFilters,
@@ -74,13 +75,11 @@ const props = withDefaults(
     groupCatalogState?: GroupCatalogState
     createOperation?: PendingAccessKeyCreateOperation | null
     editOperation?: PendingAccessKeyEditOperation | null
-    rotateOperation?: PendingAccessKeyRotateOperation | null
   }>(),
   {
     copyFrom: null,
     createOperation: null,
     editOperation: null,
-    rotateOperation: null,
     groupCatalogState: 'ready',
   },
 )
@@ -88,9 +87,7 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
   'update:createOperation': [operation: PendingAccessKeyCreateOperation | null]
   'update:editOperation': [operation: PendingAccessKeyEditOperation | null]
-  'update:rotateOperation': [operation: PendingAccessKeyRotateOperation | null]
   saved: [kind: 'created' | 'updated', name: string, accessKey?: AccessKeyDto]
-  rotated: [name: string]
   deleted: [name: string]
 }>()
 const client = useApiClient()
@@ -101,10 +98,12 @@ const base = ref<AccessKeyDto | null>(null)
 const draft = ref<AccessKeyDraft>(createAccessKeyDraft())
 const operationID = ref('')
 const createPayload = ref<CreateAccessKeyRequest | null>(null)
+const credentialField = ref<InstanceType<typeof AccessKeyCredentialField>>()
+const keyConfirmationOpen = ref(false)
+const customKeyError = ref('')
 const createOperationRetained = ref(false)
 const editOperationRetained = ref(false)
 const pending = ref(false)
-const rotationPending = ref(false)
 const failed = ref(false)
 const mutationState = ref<'idle' | 'indeterminate' | 'reconciling'>('idle')
 const editReconciliation = ref<PendingAccessKeyEditOperation | null>(null)
@@ -113,6 +112,22 @@ const modelInput = ref('')
 let controller: AbortController | undefined
 
 const editing = computed(() => base.value !== null)
+const keyConfirmationDescription = computed(() => {
+  if (!editing.value) return t('accessKeys.customKey.warningDescription')
+  const impact = t('accessKeys.customKey.replaceDescription')
+  return estimateAccessKeyStrength(draft.value.key) === 'weak'
+    ? `${impact} ${t('accessKeys.customKey.replaceWeakWarning')}`
+    : impact
+})
+const keyConfirmationLabel = computed(() =>
+  t(
+    editing.value
+      ? estimateAccessKeyStrength(draft.value.key) === 'weak'
+        ? 'accessKeys.customKey.saveAnyway'
+        : 'accessKeys.drawer.saveChanges'
+      : 'accessKeys.customKey.createAnyway',
+  ),
+)
 const createOperationActive = computed(
   () =>
     !editing.value &&
@@ -120,14 +135,9 @@ const createOperationActive = computed(
     (mutationState.value !== 'idle' || failed.value),
 )
 const formLocked = computed(
-  () =>
-    pending.value ||
-    rotationPending.value ||
-    createOperationActive.value ||
-    editReconciliation.value !== null ||
-    props.rotateOperation !== null,
+  () => pending.value || createOperationActive.value || editReconciliation.value !== null,
 )
-const closeBlocked = computed(() => pending.value || rotationPending.value)
+const closeBlocked = computed(() => pending.value)
 const protocolOptions = computed(() => accessKeyProtocolOptions())
 const selectedGroupIDs = computed(() =>
   draft.value.scopeModes.groups === 'restricted' ? draft.value.filters.groups : [],
@@ -166,14 +176,6 @@ const modelMismatch = computed(
     draft.value.filters.models.some((model) => !catalogModelOptions.value.includes(model)),
 )
 const dirty = computed(() => isAccessKeyDraftDirty(draft.value, base.value))
-const rotateActionDisabled = computed(
-  () =>
-    pending.value ||
-    rotationPending.value ||
-    createOperationActive.value ||
-    editReconciliation.value !== null ||
-    dirty.value,
-)
 const unsavedDirty = computed(
   () =>
     dirty.value &&
@@ -195,11 +197,17 @@ const scopeValid = computed(() =>
 const valid = computed(
   () =>
     isAccessKeyDraftValid(draft.value, base.value, groupCatalog.value) &&
+    isValidCustomAccessKey(draft.value.key) &&
     !groupProtocolMismatch.value,
 )
 const mutationFeedbackKey = computed(() => {
   if (mutationState.value === 'idle') return ''
   if (editReconciliation.value) {
+    if (editReconciliation.value.idempotencyKey) {
+      return mutationState.value === 'reconciling'
+        ? 'accessKeys.customKey.editKeyReconciling'
+        : 'accessKeys.customKey.editKeyIndeterminate'
+    }
     return mutationState.value === 'reconciling'
       ? 'accessKeys.drawer.editReconciling'
       : 'accessKeys.drawer.editIndeterminate'
@@ -246,6 +254,7 @@ const saveBlockerKey = computed(() => {
   if (pending.value) return 'accessKeys.drawer.saveBlockedPending'
   if (editReconciliation.value || createOperationActive.value) return ''
   if (draft.value.name.trim().length === 0) return 'accessKeys.drawer.saveBlockedName'
+  if (!isValidCustomAccessKey(draft.value.key)) return 'accessKeys.customKey.invalid'
   if (!Number.isSafeInteger(draft.value.rpm_limit) || draft.value.rpm_limit < 0) {
     return 'accessKeys.drawer.saveBlockedRPM'
   }
@@ -288,10 +297,11 @@ function clearLocalState(): void {
   draft.value = createAccessKeyDraft()
   operationID.value = ''
   createPayload.value = null
+  keyConfirmationOpen.value = false
+  customKeyError.value = ''
   createOperationRetained.value = false
   editOperationRetained.value = false
   pending.value = false
-  rotationPending.value = false
   failed.value = false
   mutationState.value = 'idle'
   editReconciliation.value = null
@@ -300,6 +310,8 @@ function clearLocalState(): void {
 }
 
 async function resetForOpen(): Promise<void> {
+  keyConfirmationOpen.value = false
+  customKeyError.value = ''
   const carriedCreateOperation = props.accessKey ? null : props.createOperation
   const carriedEditOperation =
     props.accessKey && props.editOperation?.base.id === props.accessKey.id
@@ -325,7 +337,7 @@ async function resetForOpen(): Promise<void> {
     }))
   }
   operationID.value = props.accessKey
-    ? ''
+    ? (carriedEditOperation?.idempotencyKey ?? createUUID())
     : (carriedCreateOperation?.idempotencyKey ?? createUUID())
   createPayload.value = carriedCreateOperation
     ? cloneAccessKeyCreatePayload(carriedCreateOperation.payload)
@@ -352,12 +364,6 @@ function handleDeleted(name: string): void {
   clearLocalState()
   emit('update:editOperation', null)
   emit('deleted', name)
-}
-
-function handleRotated(accessKey: AccessKeyDto): void {
-  base.value = accessKey
-  draft.value = createAccessKeyDraft(accessKey)
-  emit('rotated', accessKey.name)
 }
 
 watch(
@@ -449,6 +455,49 @@ function setScopeMode(dimension: AccessKeyScopeDimension, nextMode: AccessKeySco
   draft.value.scopeModes[dimension] = nextMode
 }
 
+function updateCustomKey(value: string): void {
+  draft.value.key = value
+  customKeyError.value = ''
+}
+
+function reportCustomKeyError(error: unknown): void {
+  if (!(error instanceof ApiError)) return
+  if (error.code === 'DUPLICATE_RESOURCE')
+    customKeyError.value = t('accessKeys.customKey.duplicate')
+  if (error.code === 'ACCESS_KEY_ADMIN_CONFLICT')
+    customKeyError.value = t('accessKeys.customKey.adminConflict')
+  if (error.code === 'INVALID_CUSTOM_ACCESS_KEY')
+    customKeyError.value = t('accessKeys.customKey.invalid')
+}
+
+async function requestSave(): Promise<void> {
+  if (pending.value || keyConfirmationOpen.value) return
+  if (
+    !createOperationActive.value &&
+    !editReconciliation.value &&
+    valid.value &&
+    dirty.value &&
+    (editing.value ? draft.value.key !== '' : estimateAccessKeyStrength(draft.value.key) === 'weak')
+  ) {
+    keyConfirmationOpen.value = true
+    return
+  }
+  await save()
+}
+
+async function setKeyConfirmationOpen(open: boolean): Promise<void> {
+  keyConfirmationOpen.value = open
+  if (!open) {
+    await nextTick()
+    credentialField.value?.focus()
+  }
+}
+
+async function confirmKeyChange(): Promise<void> {
+  keyConfirmationOpen.value = false
+  await save()
+}
+
 async function save(): Promise<void> {
   if (pending.value) {
     return
@@ -469,6 +518,7 @@ async function save(): Promise<void> {
     createPayload.value = cloneAccessKeyCreatePayload(activeCreatePayload)
   }
   pending.value = true
+  customKeyError.value = ''
   failed.value = false
   editNotApplied.value = false
   mutationState.value = 'idle'
@@ -486,6 +536,7 @@ async function save(): Promise<void> {
         currentBase.id,
         updateBody!,
         activeController.signal,
+        updateBody?.key ? activeOperationID : undefined,
       )
       if (
         controller !== activeController ||
@@ -534,12 +585,16 @@ async function save(): Promise<void> {
       return
     }
     if (error instanceof RequestCancelledError) return
+    if (updateBody?.key || activeCreatePayload?.key) reportCustomKeyError(error)
     const outcome = classifyMutationOutcome({
       kind: 'error',
       error,
       requestSent: true,
     })
     failed.value = outcome.kind === 'failed'
+    if (currentBase && outcome.kind === 'failed' && outcome.reason === 'rejected') {
+      operationID.value = createUUID()
+    }
     if (!currentBase && outcome.kind === 'failed' && outcome.reason === 'rejected') {
       operationID.value = createUUID()
       createPayload.value = null
@@ -559,23 +614,30 @@ async function save(): Promise<void> {
     } else if (
       currentBase &&
       updateBody &&
-      (outcome.kind === 'indeterminate' || outcome.kind === 'reconciling')
+      (outcome.kind === 'indeterminate' ||
+        outcome.kind === 'reconciling' ||
+        (!!updateBody.key &&
+          outcome.kind === 'failed' &&
+          outcome.reason === 'retryable-precondition'))
     ) {
       const operation: PendingAccessKeyEditOperation = {
         base: currentBase,
         patch: updateBody,
-        state: outcome.kind,
+        ...(updateBody.key ? { idempotencyKey: activeOperationID } : {}),
+        state: outcome.kind === 'failed' ? 'reconciling' : outcome.kind,
       }
+      failed.value = false
       editReconciliation.value = operation
       editOperationRetained.value = true
       emit('update:editOperation', operation)
     }
     mutationState.value =
-      outcome.kind === 'reconciling'
+      editReconciliation.value?.state ??
+      (outcome.kind === 'reconciling'
         ? 'reconciling'
         : outcome.kind === 'indeterminate'
           ? 'indeterminate'
-          : 'idle'
+          : 'idle')
   } finally {
     if (controller === activeController) {
       controller = undefined
@@ -596,11 +658,38 @@ async function reconcileEdit(): Promise<void> {
   const activeController = controller
   let confirmedName: string | null = null
   try {
-    const latest = await findAccessKeyForReconciliation(
-      client,
-      attempt.base.id,
-      activeController.signal,
-    )
+    let latest: AccessKeyDto | undefined
+    if (attempt.idempotencyKey) {
+      try {
+        latest = await updateAccessKey(
+          client,
+          attempt.base.id,
+          attempt.patch,
+          activeController.signal,
+          attempt.idempotencyKey,
+        )
+      } catch (error: unknown) {
+        const outcome = classifyMutationOutcome({ kind: 'error', error, requestSent: true })
+        if (
+          outcome.kind !== 'failed' ||
+          outcome.reason !== 'expired-known' ||
+          outcome.resource_identity !== `access-key:${attempt.base.id}`
+        )
+          throw error
+        // 完成记录已过期时只读取当前状态，不能重新执行旧的密钥替换。
+        latest = await findAccessKeyForReconciliation(
+          client,
+          attempt.base.id,
+          activeController.signal,
+        )
+      }
+    } else {
+      latest = await findAccessKeyForReconciliation(
+        client,
+        attempt.base.id,
+        activeController.signal,
+      )
+    }
     if (controller !== activeController || editReconciliation.value !== attempt || !props.open) {
       return
     }
@@ -620,7 +709,10 @@ async function reconcileEdit(): Promise<void> {
       failed.value = true
       return
     }
-    if (accessKeyMatchesUpdatePatch(latest, attempt.patch, attempt.base)) {
+    if (
+      attempt.idempotencyKey ||
+      accessKeyMatchesUpdatePatch(latest, attempt.patch, attempt.base)
+    ) {
       base.value = latest
       draft.value = createAccessKeyDraft(latest)
       editReconciliation.value = null
@@ -660,13 +752,28 @@ async function reconcileEdit(): Promise<void> {
       editReconciliation.value === attempt &&
       !(error instanceof RequestCancelledError)
     ) {
-      const operation: PendingAccessKeyEditOperation = {
-        ...attempt,
-        state: 'indeterminate',
+      if (attempt.patch.key) reportCustomKeyError(error)
+      const outcome = classifyMutationOutcome({ kind: 'error', error, requestSent: true })
+      if (attempt.idempotencyKey && outcome.kind === 'failed' && outcome.reason === 'rejected') {
+        editReconciliation.value = null
+        editOperationRetained.value = false
+        emit('update:editOperation', null)
+        operationID.value = createUUID()
+        mutationState.value = 'idle'
+        failed.value = true
+      } else {
+        const operation: PendingAccessKeyEditOperation = {
+          ...attempt,
+          state:
+            outcome.kind === 'reconciling' ||
+            (outcome.kind === 'failed' && outcome.reason === 'retryable-precondition')
+              ? 'reconciling'
+              : 'indeterminate',
+        }
+        editReconciliation.value = operation
+        emit('update:editOperation', operation)
+        mutationState.value = operation.state
       }
-      editReconciliation.value = operation
-      emit('update:editOperation', operation)
-      mutationState.value = operation.state
     }
   } finally {
     if (controller === activeController) {
@@ -694,7 +801,7 @@ onBeforeUnmount(clearLocalState)
   >
     <template #trigger><slot name="trigger" /></template>
 
-    <form id="access-key-drawer-form" class="access-key-drawer" @submit.prevent="save">
+    <form id="access-key-drawer-form" class="access-key-drawer" @submit.prevent="requestSave">
       <AccessKeyOperationFeedback
         :failed="failed"
         :edit-not-applied="editNotApplied"
@@ -715,7 +822,19 @@ onBeforeUnmount(clearLocalState)
           @update:status="draft.status = $event"
           @update:rpm-limit="draft.rpm_limit = $event"
           @update:price-multiplier="draft.price_multiplier = $event"
-        />
+        >
+          <template #credential>
+            <AccessKeyCredentialField
+              ref="credentialField"
+              :model-value="draft.key"
+              :editing="editing"
+              :current-mask="base?.masked_key"
+              :disabled="formLocked"
+              :error="customKeyError"
+              @update:model-value="updateCustomKey"
+            />
+          </template>
+        </AccessKeyFormFields>
       </section>
 
       <section class="drawer-section">
@@ -781,14 +900,6 @@ onBeforeUnmount(clearLocalState)
 
     <template #footer>
       <div v-if="editing && base" class="access-key-drawer__management">
-        <AccessKeyRotateDialog
-          :access-key="base"
-          :disabled="rotateActionDisabled"
-          :operation="rotateOperation"
-          @update:pending="rotationPending = $event"
-          @update:operation="emit('update:rotateOperation', $event)"
-          @rotated="handleRotated"
-        />
         <AccessKeyDeleteDialog
           :access-key="base"
           :total="total"
@@ -833,6 +944,19 @@ onBeforeUnmount(clearLocalState)
       </AppButton>
     </template>
   </AppDrawer>
+  <AppConfirmDialog
+    :open="keyConfirmationOpen"
+    :title="t(editing ? 'accessKeys.customKey.replaceTitle' : 'accessKeys.customKey.warningTitle')"
+    :description="keyConfirmationDescription"
+    :close-label="t('accessKeys.customKey.warningClose')"
+    :cancel-label="t('accessKeys.customKey.returnToEdit')"
+    :confirm-label="keyConfirmationLabel"
+    description-tone="warning"
+    focus-cancel
+    prevent-close-auto-focus
+    @update:open="setKeyConfirmationOpen"
+    @confirm="confirmKeyChange"
+  />
 </template>
 
 <style scoped>

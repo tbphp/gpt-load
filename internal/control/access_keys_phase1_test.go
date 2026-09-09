@@ -145,7 +145,7 @@ func TestAccessKeyMetadataFailsClosedForInvalidPersistedSuffix(t *testing.T) {
 	}
 	if err := fixture.db.Model(&models.AccessKey{}).
 		Where("id = ?", created.ID).
-		UpdateColumn("key_suffix", "ZZZZ").Error; err != nil {
+		UpdateColumn("key_suffix", "bad ").Error; err != nil {
 		t.Fatalf("set invalid suffix: %v", err)
 	}
 	if err := fixture.db.Exec("PRAGMA ignore_check_constraints = OFF").Error; err != nil {

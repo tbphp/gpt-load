@@ -1,5 +1,43 @@
 export default {
   accessKeys: {
+    customKey: {
+      generate: 'Generate randomly',
+      current: 'Current key:',
+      editPlaceholder: 'Enter a new key, or leave blank to keep it',
+      keepHint: 'Leave blank to keep the current key.',
+      saveHint: 'The new key takes effect only after saving successfully.',
+      generateFailed: 'Unable to generate a secure random key. Retry or enter a key manually.',
+      replaceTitle: 'Replace this access key?',
+      replaceDescription:
+        'After saving successfully, the old key will stop working. Requests already in progress are unaffected. Update every client using this key.',
+      replaceWeakWarning:
+        'The new key is weak and easy to guess, which may allow unauthorized requests and quota consumption.',
+      saveAnyway: 'Save anyway',
+      editKeyIndeterminate:
+        'The key replacement result is unknown. Check the original operation before making another change.',
+      editKeyReconciling:
+        'The key replacement was committed and is still being applied. Continue checking the result.',
+      label: 'Access key',
+      placeholder: 'Leave blank to generate automatically',
+      automaticHint: 'A random key will be generated automatically.',
+      show: 'Show key',
+      hide: 'Hide key',
+      strength: 'Strength: {level}',
+      weak: 'Weak',
+      fair: 'Fair',
+      strong: 'Stronger',
+      estimate: 'Estimate only',
+      weakHint: 'Use a longer key and avoid sequences or repeated characters.',
+      invalid: 'Use up to 256 visible ASCII characters without spaces or control characters.',
+      duplicate: 'This access key already exists. Use a different key.',
+      adminConflict: 'The administrator key cannot be used as an access key.',
+      warningTitle: 'Use a weak key anyway?',
+      warningDescription:
+        'This key is easy to guess and may allow unauthorized requests and quota consumption. Consider changing it or leaving the field blank to generate a random key.',
+      warningClose: 'Close weak key warning',
+      returnToEdit: 'Edit key',
+      createAnyway: 'Create anyway',
+    },
     distribution: {
       sort: 'Sort',
       expiration: 'Expiration',
@@ -44,7 +82,6 @@ export default {
       reset: 'Cost allowances reset for access key “{name}”',
       enabled: 'Access key “{name}” enabled',
       disabled: 'Access key “{name}” disabled',
-      rotated: 'Access key “{name}” rotated',
     },
     loading: 'Loading access keys…',
     loadFailed: 'Unable to load access keys.',
@@ -113,10 +150,6 @@ export default {
         'The update to access key “{name}” has an unknown outcome. Check current metadata before editing another access key.',
       editReconciling:
         'The update to access key “{name}” was committed and still needs metadata reconciliation.',
-      rotateIndeterminate:
-        'The rotation outcome for access key “{name}” is unknown. Check it using the original operation.',
-      rotateReconciling:
-        'The rotation for access key “{name}” was committed and runtime recovery is still in progress.',
       checkResult: 'Check result',
     },
     status: {
@@ -291,28 +324,6 @@ export default {
       confirm: 'Delete access key',
       failed: 'Unable to delete the access key.',
       deletedAnnouncement: 'Deleted access key “{name}”.',
-    },
-    rotate: {
-      open: 'Rotate key',
-      title: 'Rotate this access key now?',
-      description: 'Generate a new access key for “{name}”.',
-      close: 'Close access key rotation confirmation',
-      impact:
-        'The old key becomes invalid as soon as rotation succeeds. Requests already in progress are unaffected.',
-      confirm: 'Rotate now',
-      checkResult: 'Check result',
-      done: 'Done',
-      failed: 'Unable to rotate the access key.',
-      indeterminate: 'The rotation outcome is unknown. Check it using the same operation.',
-      reconciling:
-        'The rotation was committed and runtime recovery is still in progress. Check again.',
-      refreshFailed:
-        'Rotation completed, but current metadata could not be refreshed. Close and refresh the list.',
-      newKey: 'New access key',
-      currentKey: 'Current access key',
-      newKeyHint: 'The new key is active. Update client configuration now.',
-      replayedHint:
-        'This is an idempotent replay. Copy uses the existing Reveal endpoint to read the current key.',
     },
     reset: {
       open: 'Reset allowances',

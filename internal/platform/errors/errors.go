@@ -27,6 +27,8 @@ var (
 	ErrInvalidJSON                            = &APIError{HTTPStatus: http.StatusBadRequest, Code: "INVALID_JSON", Message: "Invalid JSON format"}
 	ErrRequestTooLarge                        = &APIError{HTTPStatus: http.StatusRequestEntityTooLarge, Code: "REQUEST_TOO_LARGE", Message: "Request body is too large"}
 	ErrValidation                             = &APIError{HTTPStatus: http.StatusBadRequest, Code: "VALIDATION_FAILED", Message: "Input validation failed"}
+	ErrInvalidCustomAccessKey                 = &APIError{HTTPStatus: http.StatusBadRequest, Code: "INVALID_CUSTOM_ACCESS_KEY", Message: "Custom access key contains unsupported characters or exceeds 256 bytes"}
+	ErrAccessKeyAdminConflict                 = &APIError{HTTPStatus: http.StatusBadRequest, Code: "ACCESS_KEY_ADMIN_CONFLICT", Message: "Access key must differ from the administrator key"}
 	ErrDuplicateResource                      = &APIError{HTTPStatus: http.StatusConflict, Code: "DUPLICATE_RESOURCE", Message: "Resource already exists"}
 	ErrResourceNotFound                       = &APIError{HTTPStatus: http.StatusNotFound, Code: "NOT_FOUND", Message: "Resource not found"}
 	ErrGroupInUse                             = &APIError{HTTPStatus: http.StatusConflict, Code: "GROUP_IN_USE", Message: "Group is referenced by access keys"}

@@ -72,6 +72,7 @@ func externalModelName(model ModelConfig) string {
 }
 
 type AccessKeyConfig struct {
+	KeyPrefix        string
 	PriceMultiplier  *pricing.PriceMultiplier
 	ID               uint
 	Name             string
@@ -154,6 +155,7 @@ type GroupCatalogView struct {
 }
 
 type AccessKeyView struct {
+	KeyPrefix        string
 	PriceMultiplier  pricing.PriceMultiplier
 	ID               uint
 	Name             string
@@ -286,6 +288,7 @@ func newAccessKeyView(input AccessKeyConfig) AccessKeyView {
 		PriceMultiplier: resolvePriceMultiplier(input.PriceMultiplier),
 		ID:              input.ID, Name: input.Name, Status: input.Status,
 		KeySuffix:        input.KeySuffix,
+		KeyPrefix:        input.KeyPrefix,
 		Filters:          cloneFilterSet(input.Filters),
 		ExpiresAtMS:      cloneAccessKeyExpiry(input.ExpiresAtMS),
 		AllowedPeerCIDRs: cloneAllowedPeerCIDRs(input.AllowedPeerCIDRs),

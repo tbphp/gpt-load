@@ -2,6 +2,9 @@ package locales
 
 // MessagesZhCN contains Simplified Chinese control-plane translations.
 var MessagesZhCN = map[string]string{
+	"access_key.custom_invalid":                  "密钥最多 256 个字符，仅支持英文字母、数字和英文符号，不允许空白。",
+	"access_key.admin_conflict":                  "不能使用管理员密钥作为访问密钥。",
+	"access_key.exists":                          "此访问密钥已存在，请使用其他密钥。",
 	"common.success":                             "操作成功",
 	"route.not_found":                            "路由不存在",
 	"route.method_not_allowed":                   "请求方法不被允许",

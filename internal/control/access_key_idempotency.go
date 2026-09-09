@@ -24,6 +24,7 @@ type accessKeyFilterDigestBody struct {
 }
 
 type accessKeyCreateDigestBody struct {
+	KeyHash         string                          `json:"key_hash,omitempty"`
 	PriceMultiplier string                          `json:"price_multiplier,omitempty"`
 	Name            string                          `json:"name"`
 	Status          *state.AccessKeyStatus          `json:"status,omitempty"`
@@ -38,6 +39,14 @@ func (s *Service) CreateAccessKeyIdempotent(
 	idempotencyKey string,
 	request AccessKeyCreateRequest,
 ) (AccessKeyCreateResult, error) {
+	keyHash := ""
+	if request.Key != "" {
+		if !validAccessKeyPlaintext(request.Key) {
+			return AccessKeyCreateResult{}, app_errors.ErrInvalidCustomAccessKey
+		}
+		// 使用带密钥的指纹区分请求，避免幂等摘要成为弱密钥的离线猜测凭据。
+		keyHash = s.encryption.Hash(request.Key)
+	}
 	name, err := normalizeAccessKeyName(request.Name)
 	if err != nil {
 		return AccessKeyCreateResult{}, err
@@ -74,6 +83,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 	}
 	digestFilters := canonicalAccessKeyFilterSet(filters)
 	canonicalBody, err := canonicalIdempotencyBody(accessKeyCreateDigestBody{
+		KeyHash:         keyHash,
 		PriceMultiplier: priceMultiplierDigest(priceMultiplier),
 		Name:            name, Status: digestStatus, Filters: digestFilters, RPMLimit: rpmLimit,
 		CostLimitRules: costLimitRuleRequestsForDigest(costLimitRules),
@@ -111,7 +121,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 			if err := validateFilterGroupReferences(tx, filters.Groups); err != nil {
 				return idempotentMutationResult{}, err
 			}
-			row, plaintext, err := s.newAccessKeyRow(name, filters, rpmLimit)
+			row, plaintext, err := s.newAccessKeyRow(name, filters, rpmLimit, request.Key)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
@@ -126,7 +136,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 				return idempotentMutationResult{}, err
 			}
 			metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
-				ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
+				ID: row.ID, Name: row.Name, KeyPrefix: *row.KeyPrefix, KeySuffix: row.KeySuffix,
 				PriceMultiplierMicros: row.PriceMultiplierMicros,
 				Status:                row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
 				ExpiresAtMS: row.ExpiresAtMS,

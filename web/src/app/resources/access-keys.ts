@@ -17,7 +17,6 @@ import type {
   AccessKeyFiltersDto,
   AccessKeyOptionDto,
   AccessKeyRevealDto,
-  AccessKeyRotateResultDto,
 } from '@/api/control/types'
 import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
@@ -48,11 +47,11 @@ export type {
   AccessKeyFiltersDto,
   AccessKeyOptionDto,
   AccessKeyRevealDto,
-  AccessKeyRotateResultDto,
   AccessProtocol,
 } from '@/api/control/types'
 
 export interface CreateAccessKeyRequest {
+  key?: string
   name: string
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
@@ -70,6 +69,7 @@ export interface AccessKeyCostLimitRuleInput {
 }
 
 export type UpdateAccessKeyRequest = Partial<{
+  key: string
   name: string
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
@@ -490,41 +490,17 @@ export async function revealAccessKey(
   }
 }
 
-export async function rotateAccessKey(
-  client: ApiClient,
-  id: number,
-  idempotencyKey: string,
-  signal?: AbortSignal,
-): Promise<AccessKeyRotateResultDto> {
-  const record = projectRecord(
-    await client.request(`/api/access-keys/${id}/rotate`, {
-      method: 'POST',
-      headers: { 'Idempotency-Key': idempotencyKey },
-      signal,
-    }),
-  )
-  assertNoSecretLikeFields(record, [...metadataFields, 'key', 'replayed'])
-  const key = record.key === undefined ? undefined : projectString(record.key)
-  if (typeof record.replayed !== 'boolean' || record.replayed === (key !== undefined)) {
-    invalidResponse()
-  }
-  const metadata = Object.fromEntries(metadataFields.map((field) => [field, record[field]]))
-  return {
-    ...projectAccessKeyMetadata(metadata),
-    ...(key === undefined ? {} : { key }),
-    replayed: record.replayed,
-  }
-}
-
 export async function updateAccessKey(
   client: ApiClient,
   id: number,
   body: UpdateAccessKeyRequest,
   signal?: AbortSignal,
+  idempotencyKey?: string,
 ): Promise<AccessKeyDto> {
   return projectAccessKeyMetadata(
     await client.request(`/api/access-keys/${id}`, {
       method: 'PUT',
+      ...(idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : {}),
       json: body,
       signal,
     }),

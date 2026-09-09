@@ -182,7 +182,7 @@ func TestListAccessKeyCollectionRejectsCanceledContextAndInvalidMappedMetadata(t
 	}
 
 	row := models.AccessKey{
-		Name: "invalid", KeyValue: "ciphertext", KeyHash: "hash", KeySuffix: "ZZZZ",
+		Name: "invalid", KeyValue: "ciphertext", KeyHash: "hash", KeySuffix: "bad ",
 		Status: string(state.AccessKeyStatusActive), Filters: models.JSON(`{}`),
 	}
 	if err := fixture.db.Exec("PRAGMA ignore_check_constraints = ON").Error; err != nil {
@@ -202,7 +202,7 @@ func TestListAccessKeyCollectionRejectsCanceledContextAndInvalidMappedMetadata(t
 func accessKeyCollectionQueryRecord(id uint, name, suffix string, status state.AccessKeyStatus, updatedAtMS int64) accessKeyCollectionRecord {
 	return accessKeyCollectionRecord{AccessKeyCollectionItem: AccessKeyCollectionItem{
 		AccessKeyMetadata: AccessKeyMetadata{
-			ID: id, Name: name, MaskedKey: maskedAccessKey(suffix), Status: status, UpdatedAtMS: updatedAtMS,
+			ID: id, Name: name, MaskedKey: maskedAccessKey("sk-gl-", suffix), Status: status, UpdatedAtMS: updatedAtMS,
 		},
 	}}
 }

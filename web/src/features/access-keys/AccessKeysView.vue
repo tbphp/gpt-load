@@ -52,7 +52,6 @@ import {
   type AccessKeyDrawerRoute,
 } from './access-key-collection-route'
 import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
-import type { PendingAccessKeyRotateOperation } from './access-key-rotate-operation'
 
 const client = useApiClient()
 const route = useRoute()
@@ -67,14 +66,13 @@ const drawerOpen = computed(() => drawerRoute.value !== undefined)
 const selected = ref<AccessKeyDto | null>(null)
 const createOperation = ref<PendingAccessKeyCreateOperation | null>(null)
 const editOperation = ref<PendingAccessKeyEditOperation | null>(null)
-const rotateOperation = ref<PendingAccessKeyRotateOperation | null>(null)
 const viewRoot = ref<HTMLElement | null>(null)
 const collection = ref<InstanceType<typeof AccessKeyCollection> | null>(null)
 const deletionAnnouncement = ref('')
 const pendingStatusIDs = ref(new Set<number>())
 const optimisticEnabled = ref(new Map<number, boolean>())
 const lockedAccessKeyIDs = computed<ReadonlySet<number>>(() =>
-  rotateOperation.value ? new Set([rotateOperation.value.base.id]) : new Set<number>(),
+  editOperation.value ? new Set([editOperation.value.base.id]) : new Set<number>(),
 )
 const statusControllers = new Map<number, AbortController>()
 const accessKeysQuery = useQuery(accessKeyCollectionQueryOptions(client, filters))
@@ -165,11 +163,6 @@ const editOperationNoticeKey = computed(() =>
 const editOperationName = computed(
   () => editOperation.value?.patch.name ?? editOperation.value?.base.name ?? '',
 )
-const rotateOperationNoticeKey = computed(() =>
-  rotateOperation.value?.state === 'reconciling'
-    ? 'accessKeys.operation.rotateReconciling'
-    : 'accessKeys.operation.rotateIndeterminate',
-)
 let restoreFocus: HTMLElement | null = null
 const searchDebounce = useDebouncedAction(300)
 let mounted = true
@@ -193,14 +186,8 @@ watch(
 watch(filters, () => collection.value?.conceal())
 
 watch(
-  [
-    drawerRoute,
-    data,
-    editOperation,
-    rotateOperation,
-    () => accessKeysQuery.isPlaceholderData.value,
-  ],
-  ([drawer, pageData, pendingEdit, pendingRotate, placeholder]) => {
+  [drawerRoute, data, editOperation, () => accessKeysQuery.isPlaceholderData.value],
+  ([drawer, pageData, pendingEdit, placeholder]) => {
     if (drawer === undefined || drawer.mode === 'create') {
       selected.value = null
       if (drawer?.mode === 'create' && drawer.sourceAccessKeyID !== undefined) {
@@ -219,10 +206,6 @@ watch(
     }
     if (pendingEdit?.base.id === drawer.accessKeyID) {
       selected.value = pendingEdit.base
-      return
-    }
-    if (pendingRotate?.base.id === drawer.accessKeyID) {
-      selected.value = pendingRotate.base
       return
     }
     if (pageData && !placeholder) void setDrawerRoute(undefined, true)
@@ -325,10 +308,6 @@ function openKey(accessKey: AccessKeyDto, trigger: HTMLElement): void {
     checkEditOperation()
     return
   }
-  if (rotateOperation.value && rotateOperation.value.base.id !== accessKey.id) {
-    checkRotateOperation()
-    return
-  }
   selected.value = accessKey
   restoreFocus = trigger
   void setDrawerRoute({ mode: 'edit', accessKeyID: accessKey.id })
@@ -342,10 +321,6 @@ function setEditOperation(operation: PendingAccessKeyEditOperation | null): void
   editOperation.value = operation
 }
 
-function setRotateOperation(operation: PendingAccessKeyRotateOperation | null): void {
-  rotateOperation.value = operation
-}
-
 function checkCreateOperation(): void {
   if (!createOperation.value) return
   selected.value = null
@@ -355,15 +330,6 @@ function checkCreateOperation(): void {
 
 function checkEditOperation(): void {
   const operation = editOperation.value
-  if (!operation) return
-  selected.value =
-    data.value?.items.find((accessKey) => accessKey.id === operation.base.id) ?? operation.base
-  restoreFocus = null
-  void setDrawerRoute({ mode: 'edit', accessKeyID: operation.base.id })
-}
-
-function checkRotateOperation(): void {
-  const operation = rotateOperation.value
   if (!operation) return
   selected.value =
     data.value?.items.find((accessKey) => accessKey.id === operation.base.id) ?? operation.base
@@ -416,10 +382,6 @@ async function handleCostLimitsReset(name: string): Promise<void> {
     void queryClient.invalidateQueries({ queryKey: accessKeyResources.collection.queryKey })
   }
   if (mounted) toast.show({ message: t('accessKeys.toast.reset', { name }) })
-}
-
-function handleRotated(name: string): void {
-  toast.show({ message: t('accessKeys.toast.rotated', { name }) })
 }
 
 function setStatusPending(id: number, pending: boolean): void {
@@ -516,13 +478,10 @@ async function toggleStatus(accessKey: AccessKeyDto, enabled: boolean): Promise<
           :group-catalog-state="groupCatalogState"
           :create-operation="createOperation"
           :edit-operation="selected?.id === editOperation?.base.id ? editOperation : null"
-          :rotate-operation="selected?.id === rotateOperation?.base.id ? rotateOperation : null"
           @update:create-operation="setCreateOperation"
           @update:edit-operation="setEditOperation"
-          @update:rotate-operation="setRotateOperation"
           @update:open="setDrawerOpen"
           @saved="handleSaved"
-          @rotated="handleRotated"
           @deleted="handleDeleted"
         />
 
@@ -538,15 +497,6 @@ async function toggleStatus(accessKey: AccessKeyDto, enabled: boolean): Promise<
             t(editOperationNoticeKey, { name: editOperationName })
           }}</InlineFeedback>
           <AppButton variant="secondary" @click="checkEditOperation">
-            {{ t('accessKeys.operation.checkResult') }}
-          </AppButton>
-        </section>
-
-        <section v-if="rotateOperation" class="access-keys__operation" aria-live="polite">
-          <InlineFeedback tone="warning">{{
-            t(rotateOperationNoticeKey, { name: rotateOperation.base.name })
-          }}</InlineFeedback>
-          <AppButton variant="secondary" @click="checkRotateOperation">
             {{ t('accessKeys.operation.checkResult') }}
           </AppButton>
         </section>

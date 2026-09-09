@@ -1,5 +1,43 @@
 export default {
   accessKeys: {
+    customKey: {
+      generate: 'ランダム生成',
+      current: '現在のキー：',
+      editPlaceholder: '新しいキーを入力。空欄の場合は変更しません',
+      keepHint: '空欄の場合は現在のキーを維持します。',
+      saveHint: '新しいキーは保存成功後に有効になります。',
+      generateFailed: '安全なランダムキーを生成できません。再試行するか手動で入力してください。',
+      replaceTitle: 'アクセスキーを変更しますか？',
+      replaceDescription:
+        '保存に成功すると、古いキーは直ちに無効になります。実行中のリクエストには影響しません。このキーを使用するクライアントの設定を更新してください。',
+      replaceWeakWarning:
+        '新しいキーは推測されやすく、不正なリクエストや利用枠の消費につながる可能性があります。',
+      saveAnyway: '保存を続ける',
+      editKeyIndeterminate:
+        'キー変更の結果が不明です。再度変更する前に、元の操作の結果を確認してください。',
+      editKeyReconciling:
+        'キー変更は確定しましたが、反映処理が続いています。結果の確認を続けてください。',
+      label: 'アクセスキー',
+      placeholder: '空欄の場合は自動生成',
+      automaticHint: 'ランダムなキーを自動生成します。',
+      show: 'キーを表示',
+      hide: 'キーを隠す',
+      strength: '強度：{level}',
+      weak: '弱い',
+      fair: '普通',
+      strong: '比較的強い',
+      estimate: '目安です',
+      weakHint: '長さを増やし、連続または繰り返しの文字を避けてください。',
+      invalid: '空白や制御文字を含まない、256 文字以内の表示可能な ASCII 文字を使用してください。',
+      duplicate: 'このアクセスキーは既に存在します。別のキーを使用してください。',
+      adminConflict: '管理者キーをアクセスキーとして使用することはできません。',
+      warningTitle: '弱いキーを使用しますか？',
+      warningDescription:
+        'このキーは推測されやすく、不正なリクエストや利用枠の消費につながる可能性があります。キーを変更するか、空欄にしてランダムなキーを生成してください。',
+      warningClose: '弱いキーの警告を閉じる',
+      returnToEdit: '修正する',
+      createAnyway: '作成を続ける',
+    },
     distribution: {
       sort: '並び順',
       expiration: '有効期限',
@@ -44,7 +82,6 @@ export default {
       reset: 'アクセスキー「{name}」の費用枠をリセットしました',
       enabled: 'アクセスキー「{name}」を有効にしました',
       disabled: 'アクセスキー「{name}」を無効にしました',
-      rotated: 'アクセスキー「{name}」をローテーションしました',
     },
     loading: 'アクセスキーを読み込み中…',
     loadFailed: 'アクセスキーを読み込めません。',
@@ -113,10 +150,6 @@ export default {
         'アクセスキー「{name}」の更新結果は不明です。別のアクセスキーを編集する前に現在のメタデータを確認してください。',
       editReconciling:
         'アクセスキー「{name}」の更新は確定しましたが、現在のメタデータを確認する必要があります。',
-      rotateIndeterminate:
-        'アクセスキー「{name}」のローテーション結果は不明です。元の操作で結果を確認してください。',
-      rotateReconciling:
-        'アクセスキー「{name}」のローテーションは確定しましたが、ランタイムの復旧中です。',
       checkResult: '結果を確認',
     },
     status: {
@@ -287,27 +320,6 @@ export default {
       confirm: 'アクセスキーを削除',
       failed: 'アクセスキーを削除できません。',
       deletedAnnouncement: 'アクセスキー「{name}」を削除しました。',
-    },
-    rotate: {
-      open: 'キーをローテーション',
-      title: 'このアクセスキーを今すぐローテーションしますか？',
-      description: '「{name}」の新しいアクセスキーを生成します。',
-      close: 'アクセスキーのローテーション確認を閉じる',
-      impact:
-        'ローテーション成功後、古いキーは直ちに無効になります。実行中のリクエストには影響しません。',
-      confirm: '今すぐローテーション',
-      checkResult: '結果を確認',
-      done: '完了',
-      failed: 'アクセスキーをローテーションできません。',
-      indeterminate: 'ローテーション結果は不明です。同じ操作で結果を確認してください。',
-      reconciling: 'ローテーションは確定しましたが、ランタイムの復旧中です。再度確認してください。',
-      refreshFailed:
-        'ローテーションは完了しましたが、現在のメタデータを更新できません。閉じて一覧を再読み込みしてください。',
-      newKey: '新しいアクセスキー',
-      currentKey: '現在のアクセスキー',
-      newKeyHint: '新しいキーは有効です。クライアント設定をすぐに更新してください。',
-      replayedHint:
-        'これは冪等リプレイです。コピー時は既存の Reveal API から現在のキーを取得します。',
     },
     reset: {
       open: '費用枠をリセット',

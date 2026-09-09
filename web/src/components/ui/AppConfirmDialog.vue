@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+
 import AppButton from './AppButton.vue'
 import AppDialog from './AppDialog.vue'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean
     title: string
@@ -15,6 +17,7 @@ withDefaults(
     confirmDisabled?: boolean
     dismissible?: boolean
     preventCloseAutoFocus?: boolean
+    focusCancel?: boolean
     appearance?: 'default' | 'ledger'
     descriptionTone?: 'default' | 'warning'
   }>(),
@@ -24,6 +27,7 @@ withDefaults(
     confirmDisabled: false,
     dismissible: true,
     preventCloseAutoFocus: false,
+    focusCancel: false,
     appearance: 'default',
     descriptionTone: 'default',
   },
@@ -32,6 +36,16 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
   confirm: []
 }>()
+const cancelButton = ref<InstanceType<typeof AppButton>>()
+
+function focusInitialControl(event: Event): void {
+  if (!props.focusCancel) return
+  const button = cancelButton.value?.$el
+  if (button instanceof HTMLButtonElement) {
+    event.preventDefault()
+    button.focus()
+  }
+}
 </script>
 
 <template>
@@ -46,11 +60,13 @@ const emit = defineEmits<{
     :tone="tone"
     :description-tone="descriptionTone"
     @update:open="emit('update:open', $event)"
+    @open-auto-focus="focusInitialControl"
   >
     <template v-if="$slots.trigger" #trigger><slot name="trigger" /></template>
     <template v-if="$slots.default" #body><slot /></template>
     <template #footer>
       <AppButton
+        ref="cancelButton"
         variant="secondary"
         size="compact"
         :disabled="pending || !dismissible"

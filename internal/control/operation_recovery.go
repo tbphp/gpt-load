@@ -270,7 +270,7 @@ func operationGroupID(operation *models.ControlOperation) (uint, error) {
 
 func validateOperationResourceIdentity(kind operationKind, identity string) error {
 	switch kind {
-	case operationKindAccessKeyCreate, operationKindAccessKeyRotate:
+	case operationKindAccessKeyCreate, operationKindAccessKeyRotate, operationKindAccessKeyUpdate:
 		_, err := parseResourceIdentity(identity, "access-key")
 		return err
 	case operationKindGroupCreate, operationKindCredentialImport:

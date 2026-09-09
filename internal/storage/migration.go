@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -10,7 +9,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"gpt-load/internal/storage/dbtx"
 	migrationfiles "gpt-load/internal/storage/migrations"
 )
 
@@ -97,6 +95,14 @@ var migrations = []migration{
 		ID: migrationfiles.ID0010, Up: migrationfiles.Up0010,
 		Validate: migrationfiles.Validate0010, ValidateRecoverable: migrationfiles.ValidateRecoverable0010,
 	},
+	{
+		ID: migrationfiles.ID0011, Up: migrationfiles.Up0011,
+		Validate: migrationfiles.Validate0011, ValidateRecoverable: migrationfiles.ValidateRecoverable0011,
+	},
+	{
+		ID: migrationfiles.ID0012, Up: migrationfiles.Up0012,
+		Validate: migrationfiles.Validate0012, ValidateRecoverable: migrationfiles.ValidateRecoverable0012,
+	},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -116,14 +122,7 @@ func applyMigrationRegistry(db *gorm.DB, entries []migration) error {
 
 	switch strings.ToLower(db.Dialector.Name()) {
 	case "sqlite":
-		// SQLite has no advisory-lock API. BEGIN IMMEDIATE pins a connection and
-		// serializes competing writers before any schema inspection occurs.
-		return dbtx.Run(context.Background(), db, dbtx.Options{
-			Mode:      dbtx.Write,
-			Operation: "database migration",
-		}, func(transaction *gorm.DB) error {
-			return applyMigrationsLocked(transaction, entries, false)
-		})
+		return applySQLiteMigrationRegistry(db, entries)
 	case "mysql", "postgres", "postgresql":
 		return db.Connection(func(connection *gorm.DB) error {
 			if err := acquireMigrationLock(connection); err != nil {
