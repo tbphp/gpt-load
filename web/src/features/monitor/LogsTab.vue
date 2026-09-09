@@ -143,7 +143,7 @@ const filterSignature = computed(() =>
     appliedFilters.value.to_ms,
   ]),
 )
-const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
+const advancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
   'request_id',
   'stream',
   'final_status_code',
@@ -170,24 +170,7 @@ const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
   'cost_min_nano_usd',
   'cost_max_nano_usd',
 ]
-const accessKeyForbiddenFilterKeys = new Set<keyof RequestLogFilters>([
-  'group_id',
-  'channel_id',
-  'credential_id',
-  'upstream_model',
-  'access_key_id',
-  'attempt_status_code',
-  'failure_category',
-  'error_code',
-  'retry_state',
-  'retry_count_min',
-  'retry_count_max',
-])
-const advancedFilterKeys = computed(() =>
-  isAccessKey.value
-    ? allAdvancedFilterKeys.filter((key) => !accessKeyForbiddenFilterKeys.has(key))
-    : allAdvancedFilterKeys,
-)
+// appliedFilters 已按当前身份收窄，标签只展示其中有值的条件。
 const appliedChips = computed(() => {
   const filters = appliedFilters.value
   const values: Array<{ key: string; label: string }> = []
@@ -211,12 +194,7 @@ const appliedChips = computed(() => {
       }),
     })
   }
-  for (const key of [
-    'access_key_id',
-    'protocol',
-    'client_model',
-    ...advancedFilterKeys.value,
-  ] as const) {
+  for (const key of ['access_key_id', 'protocol', 'client_model', ...advancedFilterKeys] as const) {
     const value = filters[key]
     if (value === undefined) continue
     values.push({ key, label: advancedChipLabel(key, value) })

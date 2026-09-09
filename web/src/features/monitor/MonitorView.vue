@@ -19,10 +19,10 @@ import {
   resolveDateTimePreset,
   type DateTimePreset,
 } from '@/lib/time'
-import { parseAppliedLogFilters } from './log-filters'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import HealthTab from './HealthTab.vue'
+import { parseAppliedLogFilters } from './log-filters'
 import {
   normalizeAccessKeyMonitorQuery,
   normalizeMonitorQuery,
@@ -32,8 +32,8 @@ import {
   sameMonitorQuery,
   scopeAccessKeyLogFilters,
   scopeAccessKeyUsageFilters,
+  usageMonitorQuery,
 } from './monitor-route'
-import { usageMonitorQuery } from './monitor-route'
 import { parseAppliedUsageFilters } from './usage-filters'
 
 const InspectorTab = lazySurface(() => import('./InspectorTab.vue'))

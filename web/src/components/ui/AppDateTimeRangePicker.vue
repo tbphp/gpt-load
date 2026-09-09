@@ -292,17 +292,6 @@ function apply(): void {
   color: var(--color-text);
 }
 
-.app-date-range__input-value {
-  min-width: 0;
-  overflow: hidden;
-  padding: 0 10px;
-  font-family: var(--font-mono);
-  font-size: var(--text-meta);
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .app-date-range__native-input {
   position: static !important;
   width: 100% !important;

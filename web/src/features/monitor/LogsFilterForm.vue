@@ -11,7 +11,7 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AccessKeySelect from '@/features/access-keys/AccessKeySelect.vue'
 
-import type { LogFilterDraft, LogFilterErrors } from './log-filters'
+import { requestLogStatuses, type LogFilterDraft, type LogFilterErrors } from './log-filters'
 import LogsAdvancedFilterDrawer from './LogsAdvancedFilterDrawer.vue'
 
 interface AppliedChip {
@@ -67,7 +67,7 @@ const protocolOptions = computed(() => [
 ])
 const statusOptions = computed(() => [
   { value: '', label: t('monitor.logs.filters.anyStatus') },
-  ...(['success', 'error', 'incomplete', 'canceled'] as const).map((value) => ({
+  ...requestLogStatuses.map((value) => ({
     value,
     label: t(`monitor.logs.status.${value}`),
   })),
@@ -80,22 +80,14 @@ const firstError = computed(() => {
 function update(field: keyof LogFilterDraft, value: string): void {
   emit('updateField', field, value)
 }
-
-function submit(): void {
-  emit('apply')
-}
-
-function reset(): void {
-  emit('reset')
-}
-
-function applyAdvanced(): void {
-  emit('apply')
-}
 </script>
 
 <template>
-  <form class="logs-filter" :aria-label="t('monitor.logs.filters.label')" @submit.prevent="submit">
+  <form
+    class="logs-filter"
+    :aria-label="t('monitor.logs.filters.label')"
+    @submit.prevent="emit('apply')"
+  >
     <div v-if="appliedChips.length" class="logs-filter__chips">
       <span class="logs-filter__chips-label">{{ t('monitor.logs.filters.applied') }}</span>
       <button
@@ -195,7 +187,7 @@ function applyAdvanced(): void {
         />
       </span>
       <AppButton type="submit" size="compact">{{ t('monitor.logs.filters.apply') }}</AppButton>
-      <AppButton variant="secondary" size="compact" @click="reset">
+      <AppButton variant="secondary" size="compact" @click="emit('reset')">
         {{ t('monitor.logs.filters.reset') }}
       </AppButton>
     </div>
@@ -212,8 +204,8 @@ function applyAdvanced(): void {
     :self-scoped="selfScoped"
     @update-field="update"
     @update:open="emit('update:advancedOpen', $event)"
-    @apply="applyAdvanced"
-    @reset="reset"
+    @apply="emit('apply')"
+    @reset="emit('reset')"
   />
 </template>
 

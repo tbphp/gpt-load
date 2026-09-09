@@ -85,51 +85,25 @@ export const requestLogFailureCategories = [
 ] as const
 export const requestLogRetryStates = ['retried', 'not_retried'] as const
 
+const integerRangePairs = [
+  ['retry_count_min', 'retry_count_max'],
+  ['first_response_min_ms', 'first_response_max_ms'],
+  ['duration_min_ms', 'duration_max_ms'],
+  ['input_tokens_min', 'input_tokens_max'],
+  ['output_tokens_min', 'output_tokens_max'],
+] as const
+const integerRangeFields = integerRangePairs.flat()
+
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const channelIDPattern = /^[a-z][a-z0-9_]{0,99}$/u
 const canonicalNonNegativeInteger = /^(?:0|[1-9]\d*)$/
+
 function defaultRequestLogFilters(preset: DateTimePreset = defaultTimeRange): AppliedLogFilters {
   const now = Math.floor(Date.now() / 1000) * 1000
   const interval = resolveDateTimePreset(preset, now)
   return interval.to_ms > interval.from_ms
     ? { ...interval, preset, limit: 20 }
     : { ...resolveDateTimePreset(defaultTimeRange, now), preset: defaultTimeRange, limit: 20 }
-}
-
-function emptyDraft(): LogFilterDraft {
-  return {
-    group_id: '',
-    channel_id: '',
-    credential_id: '',
-    status: '',
-    client_model: '',
-    upstream_model: '',
-    access_key_id: '',
-    request_id: '',
-    protocol: '',
-    stream: '',
-    final_status_code: '',
-    usage_state: '',
-    cost_state: '',
-    pricing_completeness: '',
-    cache_present: '',
-    attempt_status_code: '',
-    failure_category: '',
-    error_code: '',
-    retry_state: '',
-    retry_count_min: '',
-    retry_count_max: '',
-    first_response_min_ms: '',
-    first_response_max_ms: '',
-    duration_min_ms: '',
-    duration_max_ms: '',
-    input_tokens_min: '',
-    input_tokens_max: '',
-    output_tokens_min: '',
-    output_tokens_max: '',
-    cost_min_usd: '',
-    cost_max_usd: '',
-  }
 }
 
 function nanoUSDToUSD(value: string | undefined): string {
@@ -152,7 +126,6 @@ function usdToNanoUSD(value: string): string | undefined {
 
 export function createLogFilterDraft(filters: RequestLogFilters): LogFilterDraft {
   return {
-    ...emptyDraft(),
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
     channel_id: filters.channel_id ?? '',
     credential_id: filters.credential_id === undefined ? '' : String(filters.credential_id),
@@ -228,18 +201,7 @@ export function applyLogFilterDraft(
   }
   if (draft.error_code) filters.error_code = draft.error_code
   if (draft.retry_state) filters.retry_state = draft.retry_state as RequestLogRetryState
-  for (const field of [
-    'retry_count_min',
-    'retry_count_max',
-    'first_response_min_ms',
-    'first_response_max_ms',
-    'duration_min_ms',
-    'duration_max_ms',
-    'input_tokens_min',
-    'input_tokens_max',
-    'output_tokens_min',
-    'output_tokens_max',
-  ] as const) {
+  for (const field of integerRangeFields) {
     if (draft[field]) Object.assign(filters, { [field]: Number(draft[field]) })
   }
   const costMin = usdToNanoUSD(draft.cost_min_usd)
@@ -298,19 +260,7 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): AppliedL
     const value = parseSafeInteger(query[field], 1)
     if (value !== undefined) Object.assign(filters, { [field]: value })
   }
-  const numbers = [
-    'retry_count_min',
-    'retry_count_max',
-    'first_response_min_ms',
-    'first_response_max_ms',
-    'duration_min_ms',
-    'duration_max_ms',
-    'input_tokens_min',
-    'input_tokens_max',
-    'output_tokens_min',
-    'output_tokens_max',
-  ] as const
-  for (const field of numbers) {
+  for (const field of integerRangeFields) {
     const value = parseSafeInteger(query[field])
     if (value !== undefined) Object.assign(filters, { [field]: value })
   }
@@ -389,18 +339,7 @@ export function validateLogFilterDraft(draft: LogFilterDraft): LogFilterErrors {
   if (draft.channel_id && !channelIDPattern.test(draft.channel_id)) {
     errors.channel_id = 'monitor.logs.errors.channelId'
   }
-  for (const field of [
-    'retry_count_min',
-    'retry_count_max',
-    'first_response_min_ms',
-    'first_response_max_ms',
-    'duration_min_ms',
-    'duration_max_ms',
-    'input_tokens_min',
-    'input_tokens_max',
-    'output_tokens_min',
-    'output_tokens_max',
-  ] as const) {
+  for (const field of integerRangeFields) {
     validateIntegerField(errors, draft, field)
   }
   for (const field of ['final_status_code', 'attempt_status_code'] as const) {
@@ -420,13 +359,7 @@ export function validateLogFilterDraft(draft: LogFilterDraft): LogFilterErrors {
   if (draft.cost_max_usd && usdToNanoUSD(draft.cost_max_usd) === undefined) {
     errors.cost_max_usd = 'monitor.logs.errors.usd'
   }
-  for (const [minimum, maximum] of [
-    ['retry_count_min', 'retry_count_max'],
-    ['first_response_min_ms', 'first_response_max_ms'],
-    ['duration_min_ms', 'duration_max_ms'],
-    ['input_tokens_min', 'input_tokens_max'],
-    ['output_tokens_min', 'output_tokens_max'],
-  ] as const) {
+  for (const [minimum, maximum] of integerRangePairs) {
     if (!errors[minimum] && !errors[maximum] && draft[minimum] && draft[maximum]) {
       if (Number(draft[minimum]) > Number(draft[maximum])) {
         errors[maximum] = 'monitor.logs.errors.numericRange'

@@ -22,14 +22,6 @@ export interface UsageFilterDraft {
 
 export type UsageFilterErrors = Partial<Record<keyof UsageFilterDraft, string>>
 
-const emptyDraft = (): UsageFilterDraft => ({
-  access_key_id: '',
-  group_id: '',
-  channel_id: '',
-  credential_id: '',
-  upstream_model: '',
-})
-
 export function defaultUsageFilters(
   preset: DateTimePreset = defaultTimeRange,
 ): AppliedUsageFilters {
@@ -88,7 +80,6 @@ export function parseAppliedUsageFilters(query: Record<string, unknown>): Applie
 
 export function createUsageFilterDraft(filters: UsageFilters): UsageFilterDraft {
   return {
-    ...emptyDraft(),
     access_key_id: filters.access_key_id === undefined ? '' : String(filters.access_key_id),
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
     channel_id: filters.channel_id ?? '',
