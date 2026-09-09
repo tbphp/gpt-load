@@ -109,7 +109,7 @@ export function createAccessKeyDraftFromUpdate(
   const expiresAt = patch.expires_at_ms !== undefined ? patch.expires_at_ms : base.expires_at_ms
   return {
     name: patch.name ?? base.name,
-    key: '',
+    key: patch.key ?? '',
     status: patch.status ?? base.status,
     filters,
     scopeModes: createAccessKeyScopeModes(filters),
@@ -301,6 +301,7 @@ export function accessKeyMatchesUpdatePatch(
   base: AccessKeyDto,
 ): boolean {
   return (
+    !patch.key &&
     (patch.name === undefined || patch.name === accessKey.name) &&
     (patch.status === undefined || patch.status === accessKey.status) &&
     (patch.filters === undefined || equalFilters(patch.filters, accessKey.filters)) &&
@@ -374,6 +375,7 @@ export function buildAccessKeyUpdatePatch(
   draft: AccessKeyDraft,
 ): UpdateAccessKeyRequest {
   const patch: UpdateAccessKeyRequest = {}
+  if (draft.key !== '') patch.key = draft.key
   const name = draft.name.trim()
   const filters = materializeDraftFilters(draft)
   const expiresAt = expirationValue(draft)

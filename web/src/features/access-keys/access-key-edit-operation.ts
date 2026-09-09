@@ -3,6 +3,7 @@ import type { AccessKeyDto } from '@/api/control/types'
 import { listAccessKeyCollection, type UpdateAccessKeyRequest } from '@/app/resources/access-keys'
 
 export interface PendingAccessKeyEditOperation {
+  idempotencyKey?: string
   base: AccessKeyDto
   patch: UpdateAccessKeyRequest
   state: 'indeterminate' | 'reconciling'

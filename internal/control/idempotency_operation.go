@@ -71,7 +71,7 @@ type operationExpiredData struct {
 func operationRequiredStages(kind operationKind) ([]operationStage, error) {
 	var stages []operationStage
 	switch kind {
-	case operationKindAccessKeyCreate, operationKindAccessKeyRotate:
+	case operationKindAccessKeyCreate, operationKindAccessKeyRotate, operationKindAccessKeyUpdate:
 		stages = []operationStage{
 			operationStageDBCommitted,
 			operationStageSnapshotPublished,

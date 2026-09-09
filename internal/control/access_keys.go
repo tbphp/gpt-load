@@ -148,6 +148,7 @@ type AccessKeyCreateRequest struct {
 }
 
 type AccessKeyUpdateRequest struct {
+	Key             string                          `json:"key"`
 	PriceMultiplier optionalField[string]           `json:"price_multiplier"`
 	Name            *string                         `json:"name"`
 	Status          *state.AccessKeyStatus          `json:"status"`
@@ -367,28 +368,48 @@ func (s *Service) UpdateAccessKey(
 	id uint,
 	request AccessKeyUpdateRequest,
 ) (AccessKeyMetadata, error) {
-	if id == 0 || (request.Name == nil && request.Status == nil && request.Filters == nil &&
+	mutate, err := s.accessKeyUpdateMutation(id, request)
+	if err != nil {
+		return AccessKeyMetadata{}, err
+	}
+	var result AccessKeyMetadata
+	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
+		var mutationErr error
+		result, mutationErr = mutate(tx)
+		return mutationErr
+	}, nil)
+	if err != nil {
+		return AccessKeyMetadata{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) accessKeyUpdateMutation(
+	id uint,
+	request AccessKeyUpdateRequest,
+) (func(*gorm.DB) (AccessKeyMetadata, error), error) {
+	if id == 0 || (request.Key == "" && request.Name == nil && request.Status == nil && request.Filters == nil &&
 		!request.RPMLimit.Set && !request.CostLimitRules.Set && !request.ExpiresAtMS.Set && !request.PriceMultiplier.Set) {
-		return AccessKeyMetadata{}, app_errors.ErrBadRequest
+		return nil, app_errors.ErrBadRequest
 	}
 	if _, err := normalizeRPMLimit(request.RPMLimit, 0); err != nil {
-		return AccessKeyMetadata{}, err
+		return nil, err
 	}
 	if request.ExpiresAtMS.Set {
 		if err := validateOptionalExpiresAtMS(request.ExpiresAtMS.Value); err != nil {
-			return AccessKeyMetadata{}, err
+			return nil, err
 		}
 	}
 	priceMultiplier, err := normalizePriceMultiplier(request.PriceMultiplier)
 	if err != nil {
-		return AccessKeyMetadata{}, err
+		return nil, err
 	}
 	var desiredCostLimitRules []normalizedAccessKeyCostLimitRule
 	if request.CostLimitRules.Set {
 		var err error
 		desiredCostLimitRules, err = normalizeAccessKeyCostLimitRules(request.CostLimitRules, true)
 		if err != nil {
-			return AccessKeyMetadata{}, err
+			return nil, err
 		}
 	}
 
@@ -396,35 +417,39 @@ func (s *Service) UpdateAccessKey(
 	if request.Name != nil {
 		normalized, err := normalizeAccessKeyName(*request.Name)
 		if err != nil {
-			return AccessKeyMetadata{}, err
+			return nil, err
 		}
 		name = &normalized
 	}
 	if request.Status != nil &&
 		*request.Status != state.AccessKeyStatusActive &&
 		*request.Status != state.AccessKeyStatusDisabled {
-		return AccessKeyMetadata{}, app_errors.ErrValidation
+		return nil, app_errors.ErrValidation
 	}
 	var filters *AccessKeyFilters
 	var encodedFilters []byte
 	if request.Filters != nil {
 		normalized, err := normalizeAccessKeyFilters(request.Filters)
 		if err != nil {
-			return AccessKeyMetadata{}, err
+			return nil, err
 		}
 		encoded, err := encodeStoredAccessKeyFilters(normalized)
 		if err != nil {
-			return AccessKeyMetadata{}, fmt.Errorf("encode access key filters: %w", err)
+			return nil, fmt.Errorf("encode access key filters: %w", err)
 		}
 		filters = &normalized
 		encodedFilters = encoded
 	}
 
-	var result AccessKeyMetadata
-	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
+	if request.Key != "" && !validAccessKeyPlaintext(request.Key) {
+		return nil, app_errors.ErrInvalidCustomAccessKey
+	}
+	return func(tx *gorm.DB) (AccessKeyMetadata, error) {
+		var result AccessKeyMetadata
+		var err error
 		if request.ExpiresAtMS.Set {
 			if err := validateFutureExpiresAtMS(request.ExpiresAtMS.Value, s.now()); err != nil {
-				return err
+				return result, err
 			}
 		}
 		var row accessKeyMetadataRow
@@ -435,10 +460,10 @@ func (s *Service) UpdateAccessKey(
 			).
 			Where("id = ?", id).
 			Take(&row).Error; err != nil {
-			return app_errors.ParseDBError(err)
+			return result, app_errors.ParseDBError(err)
 		}
 		if !validAccessKeyPrefix(row.KeyPrefix) || !validAccessKeySuffix(row.KeySuffix) {
-			return fmt.Errorf(
+			return result, fmt.Errorf(
 				"access key %d has invalid persisted suffix: %w",
 				row.ID,
 				app_errors.ErrInternalServer,
@@ -446,7 +471,7 @@ func (s *Service) UpdateAccessKey(
 		}
 		currentFilters, err := decodeStoredAccessKeyFilters(row.Filters)
 		if err != nil {
-			return fmt.Errorf("decode access key %d filters: %w", row.ID, err)
+			return result, fmt.Errorf("decode access key %d filters: %w", row.ID, err)
 		}
 		if filters != nil {
 			if err := validateAccessKeyGroupUpdate(
@@ -454,15 +479,25 @@ func (s *Service) UpdateAccessKey(
 				currentFilters.Groups,
 				filters.Groups,
 			); err != nil {
-				return err
+				return result, err
 			}
 		}
 		status := state.AccessKeyStatus(row.Status)
 		if status != state.AccessKeyStatusActive && status != state.AccessKeyStatusDisabled {
-			return fmt.Errorf("access key %d has invalid status", row.ID)
+			return result, fmt.Errorf("access key %d has invalid status", row.ID)
 		}
 
 		updates := make(map[string]any, 5)
+		if request.Key != "" {
+			credential, err := s.prepareAccessKeyCredential(request.Key)
+			if err != nil {
+				return result, err
+			}
+			updates["key_value"] = credential.KeyValue
+			updates["key_hash"] = credential.KeyHash
+			updates["key_prefix"] = credential.KeyPrefix
+			updates["key_suffix"] = credential.KeySuffix
+		}
 		if request.PriceMultiplier.Set {
 			row.PriceMultiplierMicros = priceMultiplierStorage(priceMultiplier)
 			updates["price_multiplier_micros"] = int64(priceMultiplier)
@@ -491,7 +526,7 @@ func (s *Service) UpdateAccessKey(
 			if err := tx.Model(&models.AccessKey{}).
 				Where("id = ?", row.ID).
 				Updates(updates).Error; err != nil {
-				return app_errors.ParseDBError(err)
+				return result, app_errors.ParseDBError(err)
 			}
 		}
 		var costLimitRows []models.AccessKeyCostLimitRule
@@ -501,7 +536,7 @@ func (s *Service) UpdateAccessKey(
 			costLimitRows, err = loadAccessKeyCostLimitRuleRows(tx, row.ID)
 		}
 		if err != nil {
-			return err
+			return result, err
 		}
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
@@ -510,18 +545,14 @@ func (s *Service) UpdateAccessKey(
 			).
 			Where("id = ?", row.ID).
 			Take(&row).Error; err != nil {
-			return app_errors.ParseDBError(err)
+			return result, app_errors.ParseDBError(err)
 		}
 		result, err = mapAccessKeyMetadataRow(row)
 		if err == nil {
 			result.CostLimitRules = mapAccessKeyCostLimitRules(costLimitRows)
 		}
-		return err
-	}, nil)
-	if err != nil {
-		return AccessKeyMetadata{}, err
-	}
-	return result, nil
+		return result, err
+	}, nil
 }
 
 func (s *Service) ListAccessKeyOptions(ctx context.Context) ([]AccessKeyOption, error) {

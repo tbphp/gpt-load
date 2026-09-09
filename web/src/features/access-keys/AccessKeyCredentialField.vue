@@ -4,15 +4,26 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import AppTextInput from '@/components/ui/AppTextInput.vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 
 import { estimateAccessKeyStrength, isValidCustomAccessKey } from './access-key-strength'
 
-const props = defineProps<{ modelValue: string; disabled: boolean; error?: string }>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: string
+    disabled: boolean
+    error?: string
+    editing?: boolean
+    currentMask?: string
+  }>(),
+  { editing: false, currentMask: '', error: '' },
+)
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const { t } = useI18n()
 const input = ref<InstanceType<typeof AppTextInput>>()
 const visible = ref(false)
+const generationFailed = ref(false)
 const invalid = computed(() => !isValidCustomAccessKey(props.modelValue))
 const strength = computed(() => estimateAccessKeyStrength(props.modelValue))
 const filledSegments = computed(() => ({ weak: 1, fair: 2, strong: 3 })[strength.value ?? 'weak'])
@@ -20,6 +31,7 @@ const filledSegments = computed(() => ({ weak: 1, fair: 2, strong: 3 })[strength
 watch(
   () => props.modelValue,
   (value) => {
+    generationFailed.value = false
     if (value === '') visible.value = false
   },
 )
@@ -27,26 +39,48 @@ watch(
 function focus(): void {
   input.value?.focus()
 }
+
+function generateKey(): void {
+  generationFailed.value = false
+  try {
+    const bytes = new Uint8Array(16)
+    globalThis.crypto.getRandomValues(bytes)
+    const random = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    emit('update:modelValue', `sk-gl-${random}`)
+  } catch {
+    generationFailed.value = true
+  }
+}
 defineExpose({ focus })
 </script>
 
 <template>
   <div class="access-key-credential">
-    <label
-      id="access-key-custom-label"
-      for="access-key-custom-value"
-      class="access-key-credential__label"
-    >
-      {{ t('accessKeys.customKey.label') }}
-      <small>{{ t('accessKeys.drawer.optional') }}</small>
-    </label>
+    <div class="access-key-credential__heading">
+      <label
+        id="access-key-custom-label"
+        for="access-key-custom-value"
+        class="access-key-credential__label"
+      >
+        {{ t('accessKeys.customKey.label') }}
+        <small>{{ t('accessKeys.drawer.optional') }}</small>
+      </label>
+      <AppButton variant="link" size="inline" :disabled="disabled" @click="generateKey">
+        {{ t('accessKeys.customKey.generate') }}
+      </AppButton>
+    </div>
+    <small v-if="editing && currentMask">
+      {{ t('accessKeys.customKey.current') }} <code>{{ currentMask }}</code>
+    </small>
     <AppTextInput
       id="access-key-custom-value"
       ref="input"
       :model-value="modelValue"
       :label="t('accessKeys.customKey.label')"
       :type="visible ? 'text' : 'password'"
-      :placeholder="t('accessKeys.customKey.placeholder')"
+      :placeholder="
+        t(editing ? 'accessKeys.customKey.editPlaceholder' : 'accessKeys.customKey.placeholder')
+      "
       :disabled="disabled"
       :invalid="invalid || !!error"
       :spellcheck="false"
@@ -78,6 +112,9 @@ defineExpose({ focus })
       class="access-key-credential__description"
       aria-live="polite"
     >
+      <p v-if="generationFailed" class="access-key-credential__error">
+        {{ t('accessKeys.customKey.generateFailed') }}
+      </p>
       <p v-if="invalid || error" class="access-key-credential__error">
         {{ error || t('accessKeys.customKey.invalid') }}
       </p>
@@ -99,8 +136,11 @@ defineExpose({ focus })
           <small>{{ t('accessKeys.customKey.estimate') }}</small>
         </div>
         <p v-if="strength === 'weak'">{{ t('accessKeys.customKey.weakHint') }}</p>
+        <p>{{ t('accessKeys.customKey.saveHint') }}</p>
       </template>
-      <p v-else>{{ t('accessKeys.customKey.automaticHint') }}</p>
+      <p v-else>
+        {{ t(editing ? 'accessKeys.customKey.keepHint' : 'accessKeys.customKey.automaticHint') }}
+      </p>
     </div>
   </div>
 </template>
@@ -109,6 +149,13 @@ defineExpose({ focus })
 .access-key-credential {
   display: grid;
   gap: 6px;
+}
+.access-key-credential__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 .access-key-credential__label {
   color: var(--color-text-muted);

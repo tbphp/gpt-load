@@ -594,11 +594,6 @@ export interface AccessKeyCreateResultDto extends AccessKeyDto {
   replayed: boolean
 }
 
-export interface AccessKeyRotateResultDto extends AccessKeyDto {
-  key?: string
-  replayed: boolean
-}
-
 export interface AccessKeyRevealDto {
   id: number
   key: string
