@@ -133,12 +133,15 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 | OpenAI Responses        | `/v1/responses` and its resource paths |
 | OpenAI Images           | `POST /v1/images/...`                  |
 | OpenAI Embeddings       | `POST /v1/embeddings`                  |
+| Rerank                  | `POST /v1/rerank`                      |
 | Anthropic Messages      | `POST /v1/messages`                    |
 | Gemini                  | `/v1beta/models/...`                   |
 
 Each channel declares exactly which protocols and capabilities it can execute. GPT-Load converts between supported capabilities, but it is not a general-purpose any-protocol, any-JSON translator.
 
 Embeddings initially uses the native OpenAI-compatible wire only on the OpenAI, OpenRouter, and OpenAI Compatible API-key channels; subscription channels and protocol conversion are not supported. An AccessKey without a protocol filter keeps its existing “all enabled protocols” behavior and therefore gains Embeddings access after upgrade. Least-privilege deployments should configure an explicit protocol filter.
+
+Rerank uses the independent `rerank` protocol through `POST /v1/rerank` on the OpenAI Compatible, New API, and GPT-Load API-key channels. Requests contain `model`, `query`, and a text-only `documents` array, with optional upstream parameters such as `top_n` and `return_documents`. Streaming, subscription channels, and protocol conversion are not supported. OpenAI Compatible takes a complete API prefix (for example, `https://host/v1`); New API / GPT-Load take the gateway root. The upstream must implement a compatible Rerank endpoint. AccessKeys without a protocol filter also gain Rerank access. Responses containing only non-token units such as `search_units` remain unpriced; these units are not treated as tokens or free requests.
 
 ### Built-in channels
 

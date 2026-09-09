@@ -389,7 +389,7 @@ export default {
       title: 'ルート検査',
       description: 'プロトコル、モデル、アクセスキーから候補グループと認証情報を確認します。',
       boundary:
-        '会話内容やアフィニティヒットを含まない標準的なステートレスリクエストを模擬します。Responses は store:false を使用し、Images は画像生成のみ、Embeddings は埋め込み作成のみを確認します。読み取り専用で、上流送信や Token 消費はありません。',
+        '会話内容やアフィニティヒットを含まない標準的なステートレスリクエストを模擬します。Responses は store:false を使用し、Images は画像生成のみ、Embeddings は埋め込み作成のみ、Rerank はテキストの再ランキングを確認します。読み取り専用で、上流送信や Token 消費はありません。',
       routeModes: {
         native: 'ネイティブ',
         converted: 'プロトコル変換',
@@ -408,6 +408,7 @@ export default {
         images_generate: '画像を生成',
         images_edit: '画像を編集',
         embeddings_create: '埋め込みを作成',
+        rerank: 'ドキュメントを再ランキング',
       },
       routeRequirements: {
         any: 'プロトコル変換を許可（損失の可能性あり）',
@@ -799,6 +800,7 @@ export default {
         images_generate: '画像を生成',
         images_edit: '画像を編集',
         embeddings_create: '埋め込みを作成',
+        rerank: 'ドキュメントを再ランキング',
         list_models: 'モデル一覧',
         probe: 'ヘルスプローブ',
       },

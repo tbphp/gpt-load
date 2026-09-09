@@ -68,6 +68,7 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 	defer func() {
 		normalizeImagesAttemptResult(spec, &result)
 		normalizeEmbeddingsAttemptResult(spec, &result)
+		normalizeRerankAttemptResult(spec, &result)
 	}()
 	prepared, preflightError := r.prepare(spec, false)
 	if preflightError != nil {
@@ -491,6 +492,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	if providerKind == channel.ProviderDeepSeek && spec.ClientProtocol == protocol.Anthropic {
 		directKey.UseAnthropicEndpoints = schemas.Ptr(true)
 	}
+	if spec.ClientProtocol == protocol.Rerank {
+		return prepareRerank(spec, resolved, provider, directKey, secrets)
+	}
 	if spec.Operation == execution.OperationProbe {
 		if spec.ClientProtocol == protocol.OpenAIEmbeddings {
 			typedURL, targetErr := embeddingTypedTarget(providerKind, resolved.TargetConfig, "")
@@ -905,7 +909,7 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 			return false
 		}
 		switch spec.ClientProtocol {
-		case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.OpenAIEmbeddings,
+		case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.OpenAIEmbeddings, protocol.Rerank,
 			protocol.Anthropic, protocol.Gemini:
 			return true
 		default:
@@ -948,6 +952,8 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		default:
 			return false
 		}
+	case protocol.Rerank:
+		return !stream && spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationRerank && spec.Method == http.MethodPost && spec.Path == "/v1/rerank"
 	case protocol.OpenAIEmbeddings:
 		return !stream && spec.RouteMode == execution.RouteNative &&
 			spec.Operation == execution.OperationEmbeddingsCreate &&

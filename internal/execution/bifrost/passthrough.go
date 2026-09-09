@@ -691,7 +691,7 @@ func usageEvidenceFromPassthroughForSpec(
 	spec execution.AttemptSpec,
 	source *schemas.BifrostPassthroughUsage,
 ) (*execution.UsageEvidence, error) {
-	if spec.ClientProtocol == protocol.OpenAIImages {
+	if spec.ClientProtocol == protocol.OpenAIImages || spec.ClientProtocol == protocol.Rerank {
 		return nil, nil
 	}
 	return usageEvidenceFromPassthrough(source)

@@ -316,6 +316,7 @@ func operationRequiresModel(operation Operation) bool {
 		operation == OperationImagesGenerate ||
 		operation == OperationImagesEdit ||
 		operation == OperationEmbeddingsCreate ||
+		operation == OperationRerank ||
 		operation == OperationProbe
 }
 

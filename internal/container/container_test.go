@@ -519,6 +519,7 @@ func TestBuildContainerResolvesAllDialects(t *testing.T) {
 		openAIResponses *dialect.OpenAIResponses,
 		openAIImages *dialect.OpenAIImages,
 		openAIEmbeddings *dialect.OpenAIEmbeddings,
+		rerank *dialect.Rerank,
 		anthropic *dialect.Anthropic,
 		gemini *dialect.Gemini,
 		values dialect.Set,
@@ -534,8 +535,9 @@ func TestBuildContainerResolvesAllDialects(t *testing.T) {
 			values[protocol.OpenAIResponses] != openAIResponses ||
 			values[protocol.OpenAIImages] != openAIImages ||
 			values[protocol.OpenAIEmbeddings] != openAIEmbeddings ||
+			values[protocol.Rerank] != rerank ||
 			values[protocol.Anthropic] != anthropic ||
-			values[protocol.Gemini] != gemini || len(values) != 6 {
+			values[protocol.Gemini] != gemini || len(values) != 7 {
 			t.Fatalf("dialect Set = %#v", values)
 		}
 	})

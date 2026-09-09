@@ -56,7 +56,7 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("unsupported or malformed Content-Encoding")
 	}
 	opaqueRepresentation := input.ClientProtocol == protocol.OpenAIImages ||
-		input.ClientProtocol == protocol.OpenAIEmbeddings
+		input.ClientProtocol == protocol.OpenAIEmbeddings || input.ClientProtocol == protocol.Rerank
 	var originalPlain []byte
 	if opaqueRepresentation && encoding == contentcoding.Identity {
 		// The buffered attempt result owns wire for the duration of this terminal
@@ -693,6 +693,9 @@ func opaqueCredentialLiteralsRemain(
 	body []byte,
 	secrets []string,
 ) bool {
+	if clientProtocol == protocol.Rerank {
+		return rerankCredentialLiteralsRemain(body, secrets)
+	}
 	if clientProtocol == protocol.OpenAIEmbeddings {
 		return embeddingsCredentialLiteralsRemain(body, secrets)
 	}
@@ -878,4 +881,30 @@ func (writer *boundedCredentialBuffer) Write(value []byte) (int, error) {
 		return 0, fmt.Errorf("credential replacement exceeds response limit")
 	}
 	return writer.buffer.Write(value)
+}
+
+// Rerank 文档保持原文，只检查已知凭据；逐 token 检查也覆盖重复字段的值。
+func rerankCredentialLiteralsRemain(body []byte, secrets []string) bool {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
+		return true
+	}
+	replacers, exists := newCredentialLiteralReplacers(secrets)
+	if !exists {
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.UseNumber()
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return false
+		}
+		if err != nil {
+			return true
+		}
+		if value, ok := token.(string); ok && credentialLiteralRemains(value, replacers.residual) {
+			return true
+		}
+	}
 }

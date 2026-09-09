@@ -4,7 +4,7 @@ package execution
 func (o Operation) UsesModelCooldown() bool {
 	switch o {
 	case OperationChatCompletion, OperationResponsesCreate, OperationResponsesCompact,
-		OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate:
+		OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate, OperationRerank:
 		return true
 	default:
 		return false

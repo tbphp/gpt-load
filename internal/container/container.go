@@ -153,6 +153,7 @@ func BuildContainer() (*dig.Container, error) {
 		dialect.NewOpenAIResponses,
 		dialect.NewOpenAIImages,
 		dialect.NewOpenAIEmbeddings,
+		dialect.NewRerank,
 		dialect.NewAnthropic,
 		dialect.NewGemini,
 		func(
@@ -160,10 +161,11 @@ func BuildContainer() (*dig.Container, error) {
 			openAIResponses *dialect.OpenAIResponses,
 			openAIImages *dialect.OpenAIImages,
 			openAIEmbeddings *dialect.OpenAIEmbeddings,
+			rerank *dialect.Rerank,
 			anthropic *dialect.Anthropic,
 			gemini *dialect.Gemini,
 		) dialect.Set {
-			return dialect.NewSet(openAI, openAIResponses, openAIImages, openAIEmbeddings, anthropic, gemini)
+			return dialect.NewSet(openAI, openAIResponses, openAIImages, openAIEmbeddings, rerank, anthropic, gemini)
 		},
 		func(registry *channel.Registry) (*bifrostexecutor.RuntimeManager, error) {
 			return bifrostexecutor.NewManagedRuntime(registry)

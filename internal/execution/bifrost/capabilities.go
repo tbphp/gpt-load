@@ -39,9 +39,9 @@ func convertedRouteImplemented(providerKind channel.ProviderKind, clientProtocol
 	case execution.OperationImagesGenerate:
 		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIImages
 	case execution.OperationListModels:
-		return clientProtocol != protocol.OpenAIResponses && clientProtocol.Valid()
+		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.Rerank && clientProtocol.Valid()
 	case execution.OperationProbe:
-		return clientProtocol.Valid()
+		return clientProtocol != protocol.Rerank && clientProtocol.Valid()
 	case execution.OperationChatCompletion:
 		return clientProtocol == protocol.OpenAICompletions ||
 			clientProtocol == protocol.Anthropic ||
@@ -62,6 +62,9 @@ func nativeRouteImplemented(
 	clientProtocol protocol.Protocol,
 	operation execution.Operation,
 ) bool {
+	if clientProtocol == protocol.Rerank {
+		return (providerKind == channel.ProviderOpenAICompatible || providerKind == channel.ProviderMultiProtocolGateway) && (operation == execution.OperationRerank || operation == execution.OperationProbe)
+	}
 	switch providerKind {
 	case channel.ProviderOpenAI:
 		if clientProtocol == protocol.OpenAIEmbeddings {

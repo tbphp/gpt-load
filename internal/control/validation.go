@@ -63,10 +63,10 @@ type validationWorker struct {
 type groupValidationSignature [sha256.Size]byte
 
 type groupValidationTarget struct {
-	protocol         protocol.Protocol
-	fallbackProtocol protocol.Protocol
-	model            string
-	signature        groupValidationSignature
+	protocol          protocol.Protocol
+	fallbackProtocols []protocol.Protocol
+	model             string
+	signature         groupValidationSignature
 }
 
 var _ validationSweep = (*validationWorker)(nil)
@@ -306,18 +306,18 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 	if !ok {
 		return groupValidationTarget{}, false
 	}
-	fallbackProtocol := protocol.Protocol("")
-	if selectedProtocol != protocol.OpenAIEmbeddings {
-		if mode, supported := group.ResolvedTarget.ModeForModel(
-			protocol.OpenAIEmbeddings,
-			execution.OperationProbe,
-			probeModel,
-		); supported && mode == channel.RouteNative {
-			fallbackProtocol = protocol.OpenAIEmbeddings
+	var fallbackProtocols []protocol.Protocol
+	for _, candidate := range []protocol.Protocol{protocol.OpenAIEmbeddings, protocol.Rerank} {
+		if candidate == selectedProtocol {
+			continue
+		}
+		if mode, supported := group.ResolvedTarget.ModeForModel(candidate, execution.OperationProbe, probeModel); supported && mode == channel.RouteNative {
+			fallbackProtocols = append(fallbackProtocols, candidate)
 		}
 	}
+
 	return groupValidationTarget{
-		protocol: selectedProtocol, fallbackProtocol: fallbackProtocol,
+		protocol: selectedProtocol, fallbackProtocols: fallbackProtocols,
 		model:     probeModel,
 		signature: computeGroupValidationSignature(group, selectedProtocol, probeModel),
 	}, true
@@ -327,7 +327,7 @@ func validationProtocol(target channel.ResolvedTarget, model string) (protocol.P
 	return target.PreferredProtocol(execution.OperationProbe, model)
 }
 
-func validationProbeNeedsEmbeddingsFallback(result execution.AttemptResult) bool {
+func validationProbeNeedsProtocolFallback(result execution.AttemptResult) bool {
 	if result.Validate() != nil || result.Error == nil ||
 		result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted {
 		return false

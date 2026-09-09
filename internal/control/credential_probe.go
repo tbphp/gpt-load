@@ -181,9 +181,7 @@ func (probe *credentialProbeExecutor) Probe(
 		generation = 1
 	}
 	probeProtocols := []protocol.Protocol{target.protocol}
-	if target.fallbackProtocol != "" {
-		probeProtocols = append(probeProtocols, target.fallbackProtocol)
-	}
+	probeProtocols = append(probeProtocols, target.fallbackProtocols...)
 	startedAt := probe.now()
 	for index, probeProtocol := range probeProtocols {
 		routeMode, supported := group.ResolvedTarget.ModeForModel(
@@ -235,7 +233,7 @@ func (probe *credentialProbeExecutor) Probe(
 			result: result, latency: latency, protocol: probeProtocol,
 		}
 		if credentialProbePassed(result) || index+1 == len(probeProtocols) ||
-			!validationProbeNeedsEmbeddingsFallback(result) {
+			!validationProbeNeedsProtocolFallback(result) {
 			return executed, nil
 		}
 	}

@@ -3822,3 +3822,52 @@ func TestRequestRecorderTerminalErrorsUseSanitizedAttemptSummary(t *testing.T) {
 		})
 	}
 }
+
+func TestRerankRequestLogFreezesProviderInputEcho(t *testing.T) {
+	t.Parallel()
+
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(
+		sink,
+		"req-embeddings-error",
+		time.Unix(100, 0),
+		9,
+		protocol.Rerank,
+		func() time.Time { return time.Unix(101, 0) },
+	)
+	recorder.setOperation(execution.OperationRerank)
+	providerSummary := "invalid input=input-sentinel vector=VkVDVE9SX1NFTlRJTkVM"
+	index := recorder.appendAttempt(
+		requestLogSelection(12, 22, "embeddings"),
+		UpstreamResult{StatusCode: http.StatusBadRequest},
+		telemetry.FailureCategoryClientError,
+		telemetry.ActionTerminate,
+		"upstream_client_error",
+		providerSummary,
+		time.Unix(100, 0),
+		time.Unix(100, 0),
+	)
+	recorder.completeResponse(
+		UpstreamResult{StatusCode: http.StatusBadRequest, ErrorSummary: providerSummary},
+		health.Decision{Category: health.FailureCategoryClientError},
+		"provider-embedding",
+		index,
+	)
+	recorder.emit()
+
+	if len(sink.events) != 1 {
+		t.Fatalf("events = %#v", sink.events)
+	}
+	event := sink.events[0]
+	want := fixedErrorSummary("upstream_client_error")
+	if event.ErrorSummary != want || len(event.Attempts) != 1 ||
+		event.Attempts[0].ErrorSummary != want {
+		t.Fatalf("Embeddings summaries = %q / %#v", event.ErrorSummary, event.Attempts)
+	}
+	encoded, _ := json.Marshal(event)
+	for _, forbidden := range []string{"input-sentinel", "VkVDVE9SX1NFTlRJTkVM"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("Embeddings request log retained %q: %s", forbidden, encoded)
+		}
+	}
+}

@@ -372,6 +372,9 @@ func decisionForExecutionCategory(
 			if decisionContext.Operation == execution.OperationEmbeddingsCreate {
 				ruleID = "embeddings.model_unavailable"
 			}
+			if decisionContext.Operation == execution.OperationRerank {
+				ruleID = "rerank.model_unavailable"
+			}
 			return decision(
 				category,
 				origin,
