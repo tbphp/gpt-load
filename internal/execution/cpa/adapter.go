@@ -136,12 +136,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 	}
 	if validator, ok := provider.(providerRequestValidator); ok {
 		if err := validator.ValidateRequest(request); err != nil {
-			return unaryNotSent(
-				execution.ErrorKindInvalidRequest,
-				"subscription request input is not supported",
-				"unsupported_subscription_input",
-				err,
-			)
+			return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: requestValidationEvidence(err)}
 		}
 	}
 	if countTokensOperation(spec.Operation) {
@@ -308,7 +303,7 @@ func (a *Adapter) ExecuteStream(
 	}
 	if validator, ok := provider.(providerRequestValidator); ok {
 		if err := validator.ValidateRequest(request); err != nil {
-			return streamNotSent(execution.ErrorKindInvalidRequest, "subscription request input is not supported", "unsupported_subscription_input")
+			return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: requestValidationEvidence(err)}
 		}
 	}
 	preparedCredential, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
@@ -801,6 +796,14 @@ func modelAttemptPreparationEvidence(evidence *execution.ErrorEvidence) *executi
 	projected := evidence.Clone()
 	projected.StatusCode = 0
 	return &projected
+}
+
+func requestValidationEvidence(err error) *execution.ErrorEvidence {
+	var classified interface{ ConversionCode() string }
+	if errors.As(err, &classified) {
+		return notSentEvidence(execution.ErrorKindConversionUnsupported, "subscription request conversion is not supported", classified.ConversionCode())
+	}
+	return notSentEvidence(execution.ErrorKindInvalidRequest, "subscription request input is not supported", "unsupported_subscription_input")
 }
 
 func notSentEvidence(kind execution.ErrorKind, summary, code string) *execution.ErrorEvidence {

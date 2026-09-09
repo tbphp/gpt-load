@@ -33,9 +33,6 @@ func geminiImagesSpec() execution.AttemptSpec {
 }
 
 func TestGeminiImagesRouteAndCapability(t *testing.T) {
-	if !supportedRequestShape(geminiImagesSpec(), false) || supportedRequestShape(geminiImagesSpec(), true) {
-		t.Fatal("converted Gemini Images must only allow non-streaming generations")
-	}
 	target, err := channel.NewRegistry().Resolve(channel.Gemini, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
@@ -120,10 +117,15 @@ func TestGeminiImagesRejectsUnsupportedInputsWithoutDispatch(t *testing.T) {
 	for _, test := range []struct {
 		name, body string
 		stream     bool
+		invalid    bool
 	}{
 		{name: "multiple", body: `{"model":"public-image","prompt":"draw","n":2}`},
 		{name: "size", body: `{"model":"public-image","prompt":"draw","size":"1024x1024"}`},
 		{name: "stream", body: `{"model":"public-image","prompt":"draw","stream":true}`, stream: true},
+		{name: "stream without flag", body: `{"model":"public-image","prompt":"draw"}`, stream: true},
+		{name: "invalid count", body: `{"model":"public-image","prompt":"draw","n":"2"}`, invalid: true},
+		{name: "missing prompt", body: `{"model":"public-image","n":2}`, invalid: true},
+		{name: "invalid stream", body: `{"model":"public-image","prompt":"draw","stream":"true"}`, stream: true, invalid: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spec := geminiImagesSpec()
@@ -137,6 +139,13 @@ func TestGeminiImagesRejectsUnsupportedInputsWithoutDispatch(t *testing.T) {
 			}
 			if result.DispatchState != execution.DispatchNotSent || result.Error == nil || calls.Load() != 0 {
 				t.Fatalf("unsupported input = %+v, upstream calls = %d", result, calls.Load())
+			}
+			wantKind := execution.ErrorKindConversionUnsupported
+			if test.invalid {
+				wantKind = execution.ErrorKindInvalidRequest
+			}
+			if result.Error.Kind != wantKind || !test.invalid && result.Error.Code != execution.ErrorCodeTargetConversionNotSupported {
+				t.Fatalf("input error = %+v, want %s", result.Error, wantKind)
 			}
 		})
 	}

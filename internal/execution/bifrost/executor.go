@@ -613,6 +613,11 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		if convertedImages {
 			body, err = geminiimage.ConvertRequest(body)
 			if err != nil {
+				var classified interface{ ConversionCode() string }
+				if errors.As(err, &classified) {
+					failure := notSentConversionFailure(classified.ConversionCode(), err.Error())
+					return preparedAttempt{}, &failure
+				}
 				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported Gemini image generation input")
 				failure.Error.OriginHint, failure.Error.ScopeHint = execution.ErrorOriginClient, execution.ErrorScopeRequest
 				return preparedAttempt{}, &failure
@@ -931,7 +936,7 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 			return validResponsesPassthroughShape(spec, stream)
 		}
 	case protocol.OpenAIImages:
-		convertedGeneration := spec.RouteMode == execution.RouteConverted && spec.Operation == execution.OperationImagesGenerate && !stream
+		convertedGeneration := spec.RouteMode == execution.RouteConverted && spec.Operation == execution.OperationImagesGenerate
 		if (spec.RouteMode != execution.RouteNative && !convertedGeneration) || spec.Method != http.MethodPost {
 			return false
 		}

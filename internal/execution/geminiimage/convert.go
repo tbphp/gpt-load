@@ -19,6 +19,15 @@ import (
 // ErrInvalidResponse 表示上游响应无法转换为有效的单张图片，错误不包含上游正文。
 var ErrInvalidResponse = errors.New("Gemini image response could not be converted")
 
+// unsupportedRequestError 沿用执行器的转换失败分类，允许尝试其他上游候选。
+type unsupportedRequestError string
+
+func (err unsupportedRequestError) Error() string { return string(err) }
+
+func (unsupportedRequestError) ConversionCode() string {
+	return execution.ErrorCodeTargetConversionNotSupported
+}
+
 // ValidateRequest 校验单图、非流式合同，避免静默丢弃 Images 参数。
 func ValidateRequest(payload []byte) error {
 	_, err := generationPrompt(payload)
@@ -34,32 +43,43 @@ func generationPrompt(payload []byte) (string, error) {
 	if err := json.Unmarshal(object["prompt"], &prompt); err != nil || strings.TrimSpace(prompt) == "" {
 		return "", errors.New("Gemini image conversion requires a non-empty prompt")
 	}
+	var conversionErr error
 	for name, raw := range object {
 		switch name {
 		case "model", "prompt":
 		case "n":
 			var count int
-			if json.Unmarshal(raw, &count) != nil || count != 1 {
-				return "", errors.New("Gemini image conversion only supports n=1")
+			if json.Unmarshal(raw, &count) != nil || count < 1 {
+				return "", errors.New("Images n must be a positive integer")
+			}
+			if count != 1 {
+				conversionErr = unsupportedRequestError("Gemini image conversion only supports n=1")
 			}
 		case "stream":
-			if !bytes.Equal(bytes.TrimSpace(raw), []byte("false")) {
-				return "", errors.New("Gemini image conversion does not support streaming")
+			var stream *bool
+			if json.Unmarshal(raw, &stream) != nil || stream == nil {
+				return "", errors.New("Images stream must be a boolean")
+			}
+			if *stream {
+				conversionErr = unsupportedRequestError("Gemini image conversion does not support streaming")
 			}
 		case "size", "quality", "response_format":
 			want := "auto"
 			if name == "response_format" {
 				want = "b64_json"
 			}
-			var value string
-			if json.Unmarshal(raw, &value) != nil || value != want {
-				return "", fmt.Errorf("Gemini image conversion only supports %s=%s", name, want)
+			var value *string
+			if json.Unmarshal(raw, &value) != nil || value == nil {
+				return "", fmt.Errorf("Images %s must be a string", name)
+			}
+			if *value != want {
+				conversionErr = unsupportedRequestError(fmt.Sprintf("Gemini image conversion only supports %s=%s", name, want))
 			}
 		default:
-			return "", errors.New("Gemini image conversion received an unsupported field")
+			conversionErr = unsupportedRequestError("Gemini image conversion received an unsupported field")
 		}
 	}
-	return prompt, nil
+	return prompt, conversionErr
 }
 
 // ConvertRequest 将已清理控制字段的 Images 请求转换为 Gemini generateContent 正文。

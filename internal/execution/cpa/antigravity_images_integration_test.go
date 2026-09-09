@@ -193,21 +193,36 @@ func TestAntigravityImagesAdapterRejectsUnsupportedInputsBeforeDispatch(t *testi
 	_, adapter, _, spec := newAntigravityImagesRuntime(t)
 	preparer := &fakeCredentialPreparer{delegate: adapter.credentials}
 	adapter.credentials = preparer
-	for _, payload := range []string{
-		`{"model":"public-image","prompt":"draw","n":2}`,
-		`{"model":"public-image","prompt":"draw","stream":true}`,
-		`{"model":"public-image","prompt":"draw","size":"1024x1024"}`,
+	for _, test := range []struct {
+		payload string
+		stream  bool
+		invalid bool
+	}{
+		{payload: `{"model":"public-image","prompt":"draw","n":2}`},
+		{payload: `{"model":"public-image","prompt":"draw","stream":true}`, stream: true},
+		{payload: `{"model":"public-image","prompt":"draw"}`, stream: true},
+		{payload: `{"model":"public-image","prompt":"draw","size":"1024x1024"}`},
+		{payload: `{"model":"public-image","prompt":"draw","n":"2"}`, invalid: true},
+		{payload: `{"model":"public-image","n":2}`, invalid: true},
+		{payload: `{"model":"public-image","prompt":"draw","stream":"true"}`, stream: true, invalid: true},
 	} {
-		spec.Body = []byte(payload)
+		spec.Body = []byte(test.payload)
 		var result execution.AttemptResult
-		if strings.Contains(payload, `"stream":true`) {
+		if test.stream {
 			stream := adapter.ExecuteStream(t.Context(), spec, func(execution.StreamEvent) error { return nil })
 			result.DispatchState, result.Error = stream.DispatchState, stream.Error
 		} else {
 			result = adapter.Execute(t.Context(), spec)
 		}
-		if result.DispatchState != execution.DispatchNotSent || result.Error == nil || result.Error.Code != "unsupported_subscription_input" || preparer.calls != 0 {
+		if result.DispatchState != execution.DispatchNotSent || result.Error == nil || preparer.calls != 0 {
 			t.Fatalf("unsupported input result = %+v, credential preparations = %d", result, preparer.calls)
+		}
+		wantKind := execution.ErrorKindConversionUnsupported
+		if test.invalid {
+			wantKind = execution.ErrorKindInvalidRequest
+		}
+		if result.Error.Kind != wantKind || !test.invalid && result.Error.Code != execution.ErrorCodeTargetConversionNotSupported {
+			t.Fatalf("input error = %+v, want %s", result.Error, wantKind)
 		}
 	}
 }
@@ -240,8 +255,9 @@ func TestAntigravityImagesHTTPRejectsUnsupportedRequestsAndInvalidOutput(t *test
 		response   string
 		wantStatus int
 	}{
-		{name: "stream", request: `{"model":"public-image","prompt":"draw","stream":true}`, wantStatus: http.StatusBadRequest},
-		{name: "multiple images", request: `{"model":"public-image","prompt":"draw","n":2}`, wantStatus: http.StatusBadRequest},
+		{name: "stream", request: `{"model":"public-image","prompt":"draw","stream":true}`, wantStatus: http.StatusUnprocessableEntity},
+		{name: "multiple images", request: `{"model":"public-image","prompt":"draw","n":2}`, wantStatus: http.StatusUnprocessableEntity},
+		{name: "invalid count", request: `{"model":"public-image","prompt":"draw","n":"2"}`, wantStatus: http.StatusBadRequest},
 		{name: "no image output", request: `{"model":"public-image","prompt":"private prompt"}`, response: `{"candidates":[{"content":{"parts":[{"text":"private response"}]}}]}`, wantStatus: http.StatusBadGateway},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -257,8 +273,11 @@ func TestAntigravityImagesHTTPRejectsUnsupportedRequestsAndInvalidOutput(t *test
 				len(observations.events) != 1 || len(observations.events[0].Attempts) != 1 {
 				t.Fatalf("response = %d %s; events = %+v", recorder.Code, recorder.Body.String(), observations.events)
 			}
-			if test.wantStatus == http.StatusBadRequest && fake.request.Format != "" {
+			if test.wantStatus != http.StatusBadGateway && fake.request.Format != "" {
 				t.Fatal("unsupported request reached the upstream executor")
+			}
+			if test.wantStatus == http.StatusUnprocessableEntity && !strings.Contains(recorder.Body.String(), `"code":"protocol_conversion_unsupported"`) {
+				t.Fatalf("conversion error = %s", recorder.Body.String())
 			}
 		})
 	}

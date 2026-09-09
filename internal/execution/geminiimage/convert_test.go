@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 )
 
 func geminiImageFixture(t *testing.T, metadata string) []byte {
@@ -25,21 +26,39 @@ func geminiImageFixture(t *testing.T, metadata string) []byte {
 	return body
 }
 
-func TestConvertRequestRejectsUnsupportedInputs(t *testing.T) {
-	tests := []string{
-		`{}`, `{"prompt":""}`, `{"prompt":"   "}`, `{"prompt":5}`,
-		`{"prompt":"draw","n":2}`, `{"prompt":"draw","n":1.5}`, `{"prompt":"draw","n":null}`,
-		`{"prompt":"draw","stream":true}`, `{"prompt":"draw","stream":"false"}`,
-		`{"prompt":"draw","response_format":"url"}`, `{"prompt":"draw","size":"1024x1024"}`,
-		`{"prompt":"draw","quality":"high"}`, `{"prompt":"draw","image":"private data"}`,
-		`{"prompt":"draw","unknown_option":true}`, `null`, `[]`,
-	}
-	for _, payload := range tests {
-		t.Run(payload, func(t *testing.T) {
-			if err := ValidateRequest([]byte(payload)); err == nil {
-				t.Fatal("unsupported Images request was accepted")
-			}
-		})
+func TestConvertRequestClassifiesRejectedInputs(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		conversion bool
+		payloads   []string
+	}{
+		{name: "invalid request", payloads: []string{
+			`{}`, `{"prompt":""}`, `{"prompt":"   "}`, `{"prompt":5}`, `null`, `[]`,
+			`{"prompt":"draw","n":1.5}`, `{"prompt":"draw","n":null}`, `{"prompt":"draw","n":0}`,
+			`{"prompt":"draw","stream":"false"}`, `{"prompt":"draw","stream":null}`,
+			`{"prompt":"draw","size":123}`, `{"prompt":"draw","quality":null}`,
+			`{"prompt":"draw","response_format":true}`,
+			`{"prompt":"draw","n":2,"size":123,"unknown_option":true}`,
+		}},
+		{name: "unsupported conversion", conversion: true, payloads: []string{
+			`{"prompt":"draw","n":2}`, `{"prompt":"draw","stream":true}`,
+			`{"prompt":"draw","response_format":"url"}`, `{"prompt":"draw","size":"1024x1024"}`,
+			`{"prompt":"draw","quality":"high"}`, `{"prompt":"draw","image":"private data"}`,
+			`{"prompt":"draw","unknown_option":true}`,
+		}},
+	} {
+		for _, payload := range test.payloads {
+			t.Run(test.name+"/"+payload, func(t *testing.T) {
+				err := ValidateRequest([]byte(payload))
+				var classified interface{ ConversionCode() string }
+				if err == nil || errors.As(err, &classified) != test.conversion {
+					t.Fatalf("request error = %v, want conversion unsupported = %t", err, test.conversion)
+				}
+				if test.conversion && classified.ConversionCode() != execution.ErrorCodeTargetConversionNotSupported {
+					t.Fatalf("conversion code = %s", classified.ConversionCode())
+				}
+			})
+		}
 	}
 	if err := ValidateRequest([]byte(`{"prompt":"draw"}`)); err != nil {
 		t.Fatalf("default request rejected: %v", err)
