@@ -547,7 +547,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	requestHeaders := ginContext.Request.Header.Clone()
-	platformheader.StripRequestRepresentationMetadata(requestHeaders)
+	platformheader.StripRepresentationMetadata(requestHeaders)
 	parsed := &dialect.ParsedRequest{
 		Method:   ginContext.Request.Method,
 		Path:     ginContext.Request.URL.Path,

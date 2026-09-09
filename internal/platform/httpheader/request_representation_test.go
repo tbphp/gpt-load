@@ -81,7 +81,7 @@ func TestNormalizeUpstreamRequestRepresentationInitializesNilHeader(t *testing.T
 	}
 }
 
-func TestStripRequestRepresentationMetadataRemovesCaseCollidingFields(t *testing.T) {
+func TestStripRepresentationMetadataRemovesCaseCollidingFields(t *testing.T) {
 	headers := http.Header{
 		"Content-Encoding": {"gzip"},
 		"content-length":   {"123"},
@@ -96,7 +96,7 @@ func TestStripRequestRepresentationMetadataRemovesCaseCollidingFields(t *testing
 		"Content-Type":     {"application/json"},
 	}
 
-	StripRequestRepresentationMetadata(headers)
+	StripRepresentationMetadata(headers)
 
 	for _, name := range []string{
 		"Content-Encoding",

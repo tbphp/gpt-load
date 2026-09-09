@@ -85,7 +85,7 @@ func TestIteratorDoesNotLetConvertedPreferenceBypassNativeTier(t *testing.T) {
 	}
 }
 
-func TestImagesGenerationPrefersNativeBeforeAntigravityConversion(t *testing.T) {
+func TestImagesGenerationPrefersNativeBeforeGeminiConversions(t *testing.T) {
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
@@ -93,13 +93,15 @@ func TestImagesGenerationPrefersNativeBeforeAntigravityConversion(t *testing.T) 
 				Models: []state.ModelConfig{{ID: "gemini-3.1-flash-image", Alias: "public"}}, Enabled: true},
 			{ID: 2, ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "gpt-image-2", Alias: "public"}}, Enabled: true},
+			{ID: 3, ChannelID: channel.Gemini, ConnectionType: "api_key", Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "gemini-3.1-flash-image", Alias: "public"}}, Enabled: true},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
-		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
+		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2}, {ID: 31, GroupID: 3},
 	}}, Query{
 		ClientProtocol: protocol.OpenAIImages, Operation: execution.OperationImagesGenerate,
 		RouteRequirement: execution.RouteRequirementAny, ExternalModel: modelPointer("public"),
@@ -113,6 +115,11 @@ func TestImagesGenerationPrefersNativeBeforeAntigravityConversion(t *testing.T) 
 	if err != nil || second.GroupID != 1 || second.RouteMode != channel.RouteConverted ||
 		second.UpstreamModelID == nil || *second.UpstreamModelID != "gemini-3.1-flash-image" {
 		t.Fatalf("second selection = %+v, error = %v", second, err)
+	}
+	third, err := iterator.Next()
+	if err != nil || third.GroupID != 3 || third.RouteMode != channel.RouteConverted ||
+		third.UpstreamModelID == nil || *third.UpstreamModelID != "gemini-3.1-flash-image" {
+		t.Fatalf("third selection = %+v, error = %v", third, err)
 	}
 	if got := snapshot.ExecutionCandidates[protocol.OpenAIImages][execution.OperationImagesEdit]["public"]; len(got) != 1 || got[0].GroupID != 2 {
 		t.Fatalf("image edits targets = %+v", got)

@@ -12,8 +12,11 @@ import (
 
 	"github.com/maximhq/bifrost/core/schemas"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/geminiimage"
+	"gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
 )
 
@@ -263,7 +266,7 @@ func encodeNativeJSONObject(object map[string]json.RawMessage) ([]byte, error) {
 	return encoded, nil
 }
 
-func (r *Runtime) executeNative(
+func (r *Runtime) executePassthrough(
 	parent context.Context,
 	spec execution.AttemptSpec,
 	prepared preparedAttempt,
@@ -374,6 +377,21 @@ complete:
 	}
 	model := openAIResponseModel(bodyBytes, spec.UpstreamModel)
 	if status >= http.StatusOK && status < http.StatusMultipleChoices {
+		if prepared.mode == channel.RouteConverted && spec.ClientProtocol == protocol.OpenAIImages {
+			var err error
+			bodyBytes, usageEvidence, err = geminiimage.ConvertResponse(bodyBytes)
+			httpheader.StripRepresentationMetadata(headers)
+			headers.Set("Content-Type", "application/json")
+			if err != nil {
+				failure := startedUnaryFailure(http.StatusBadGateway, headers, execution.ErrorKindProvider, geminiimage.ErrInvalidResponse.Error())
+				failure.Error.Code = "invalid_image_response"
+				failure.Error.StatusCode = http.StatusBadGateway
+				failure.Error.Hint = execution.FailureHintRequestRejected
+				failure.Error.OriginHint, failure.Error.ScopeHint = execution.ErrorOriginUpstream, execution.ErrorScopeRequest
+				return failure
+			}
+			model = openAIResponseModel(bodyBytes, "")
+		}
 		if needsClientModelAlias(spec) && headers.Get("Content-Encoding") == "" {
 			var err error
 			bodyBytes, err = rewriteClientResponseModel(spec.ClientProtocol, bodyBytes, spec.ClientModel)

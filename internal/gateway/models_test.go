@@ -127,7 +127,7 @@ func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 					protocol.OpenAIImages: {},
 				},
 			}},
-			want: []string{"chat-only", "shared"},
+			want: []string{"both", "chat-only", "shared"},
 		},
 	}
 

@@ -13,6 +13,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/geminiimage"
 	"gpt-load/internal/execution/responsealias"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/subscription/providers/antigravity"
@@ -73,8 +74,10 @@ func (*antigravityProviderBridge) ParseCredential(raw []byte) (providerCredentia
 // dialect layer so this does not become a second request schema.
 func (*antigravityProviderBridge) ValidateRequest(request providerRequest) error {
 	if strings.TrimSpace(request.Format) == "openai-image" {
-		_, err := antigravityImagesPrompt(request)
-		return err
+		if request.RequestPath != "/v1/images/generations" {
+			return errors.New("Antigravity only supports image generations")
+		}
+		return geminiimage.ValidateRequest(request.Payload)
 	}
 	if strings.TrimSpace(request.Format) == "openai-response" &&
 		strings.Contains(strings.ToLower(strings.TrimSpace(request.Model)), "image") {
@@ -164,7 +167,7 @@ func (bridge *antigravityProviderBridge) Execute(
 	}
 	images := strings.TrimSpace(request.Format) == "openai-image"
 	if images {
-		payload, err := antigravityImagesRequestPayload(request)
+		payload, err := geminiimage.ConvertRequest(request.Payload)
 		if err != nil {
 			return providerResponse{}, err
 		}
@@ -181,7 +184,7 @@ func (bridge *antigravityProviderBridge) Execute(
 	}
 	var imageUsage *execution.UsageEvidence
 	if err == nil && images {
-		response.Payload, imageUsage, err = convertAntigravityImagesResponse(response.Payload)
+		response.Payload, imageUsage, err = geminiimage.ConvertResponse(response.Payload)
 	}
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
@@ -330,12 +333,12 @@ func (*antigravityProviderBridge) ClassifyError(
 	if err == nil {
 		return 0, nil
 	}
-	if errors.Is(err, errAntigravityImagesResponse) {
+	if errors.Is(err, geminiimage.ErrInvalidResponse) {
 		return http.StatusBadGateway, &execution.ErrorEvidence{
 			Kind: execution.ErrorKindProvider, StatusCode: http.StatusBadGateway,
 			Hint: execution.FailureHintRequestRejected, OriginHint: execution.ErrorOriginUpstream,
 			ScopeHint: execution.ErrorScopeRequest, Code: "invalid_image_response",
-			Summary: errAntigravityImagesResponse.Error(), ReplaySafety: execution.ReplaySafetyUnknown,
+			Summary: geminiimage.ErrInvalidResponse.Error(), ReplaySafety: execution.ReplaySafetyUnknown,
 		}
 	}
 	status := 0

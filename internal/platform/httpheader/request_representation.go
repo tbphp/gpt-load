@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var requestRepresentationMetadataNames = [...]string{
+var representationMetadataNames = [...]string{
 	"Content-Encoding",
 	"Content-Length",
 	"ETag",
@@ -27,19 +27,18 @@ func NormalizeUpstreamRequestRepresentation(request *http.Request, finalBodyLeng
 	} else {
 		request.Header = request.Header.Clone()
 	}
-	StripRequestRepresentationMetadata(request.Header)
+	StripRepresentationMetadata(request.Header)
 	deleteField(request.Header, "Accept-Encoding")
 	request.Header.Set("Accept-Encoding", "identity")
 	request.ContentLength = finalBodyLength
 }
 
-// StripRequestRepresentationMetadata removes headers bound to the original
-// HTTP request representation, regardless of their field-name casing.
-func StripRequestRepresentationMetadata(headers http.Header) {
+// StripRepresentationMetadata 清理绑定原始 HTTP 正文的元数据，适用于请求与响应。
+func StripRepresentationMetadata(headers http.Header) {
 	if headers == nil {
 		return
 	}
-	for _, name := range requestRepresentationMetadataNames {
+	for _, name := range representationMetadataNames {
 		deleteField(headers, name)
 	}
 }

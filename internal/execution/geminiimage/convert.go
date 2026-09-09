@@ -1,4 +1,5 @@
-package cpa
+// Package geminiimage 实现 OpenAI Images 客户端到 Gemini 生图上游的单向格式适配。
+package geminiimage
 
 import (
 	"bytes"
@@ -15,20 +16,23 @@ import (
 	"gpt-load/internal/usage"
 )
 
-var errAntigravityImagesResponse = errors.New("Antigravity image response could not be converted")
+// ErrInvalidResponse 表示上游响应无法转换为有效的单张图片，错误不包含上游正文。
+var ErrInvalidResponse = errors.New("Gemini image response could not be converted")
 
-// antigravityImagesPrompt 校验首期单图、非流式合同，避免静默丢弃 Images 参数。
-func antigravityImagesPrompt(request providerRequest) (string, error) {
-	if request.RequestPath != "/v1/images/generations" {
-		return "", errors.New("Antigravity only supports image generations")
-	}
+// ValidateRequest 校验单图、非流式合同，避免静默丢弃 Images 参数。
+func ValidateRequest(payload []byte) error {
+	_, err := generationPrompt(payload)
+	return err
+}
+
+func generationPrompt(payload []byte) (string, error) {
 	var object map[string]json.RawMessage
-	if err := json.Unmarshal(request.Payload, &object); err != nil || object == nil {
-		return "", errors.New("Antigravity Images request must be a JSON object")
+	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
+		return "", errors.New("Gemini image conversion requires a JSON object")
 	}
 	var prompt string
 	if err := json.Unmarshal(object["prompt"], &prompt); err != nil || strings.TrimSpace(prompt) == "" {
-		return "", errors.New("Antigravity Images requires a non-empty prompt")
+		return "", errors.New("Gemini image conversion requires a non-empty prompt")
 	}
 	for name, raw := range object {
 		switch name {
@@ -36,11 +40,11 @@ func antigravityImagesPrompt(request providerRequest) (string, error) {
 		case "n":
 			var count int
 			if json.Unmarshal(raw, &count) != nil || count != 1 {
-				return "", errors.New("Antigravity Images only supports n=1")
+				return "", errors.New("Gemini image conversion only supports n=1")
 			}
 		case "stream":
 			if !bytes.Equal(bytes.TrimSpace(raw), []byte("false")) {
-				return "", errors.New("Antigravity Images does not support streaming")
+				return "", errors.New("Gemini image conversion does not support streaming")
 			}
 		case "size", "quality", "response_format":
 			want := "auto"
@@ -49,17 +53,18 @@ func antigravityImagesPrompt(request providerRequest) (string, error) {
 			}
 			var value string
 			if json.Unmarshal(raw, &value) != nil || value != want {
-				return "", fmt.Errorf("Antigravity Images only supports %s=%s", name, want)
+				return "", fmt.Errorf("Gemini image conversion only supports %s=%s", name, want)
 			}
 		default:
-			return "", errors.New("Antigravity Images request contains an unsupported field")
+			return "", errors.New("Gemini image conversion received an unsupported field")
 		}
 	}
 	return prompt, nil
 }
 
-func antigravityImagesRequestPayload(request providerRequest) ([]byte, error) {
-	prompt, err := antigravityImagesPrompt(request)
+// ConvertRequest 将已清理控制字段的 Images 请求转换为 Gemini generateContent 正文。
+func ConvertRequest(payload []byte) ([]byte, error) {
+	prompt, err := generationPrompt(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -71,28 +76,29 @@ func antigravityImagesRequestPayload(request providerRequest) ([]byte, error) {
 	})
 }
 
-type antigravityImageData struct {
+type imageData struct {
 	MIMEType      string `json:"mimeType"`
 	SnakeMIMEType string `json:"mime_type"`
 	Data          string `json:"data"`
 }
 
-func convertAntigravityImagesResponse(payload []byte) ([]byte, *execution.UsageEvidence, error) {
+// ConvertResponse 返回 Images 正文及保留原 Gemini 计价语义的用量证据。
+func ConvertResponse(payload []byte) ([]byte, *execution.UsageEvidence, error) {
 	var root struct {
 		ModelVersion  string          `json:"modelVersion"`
 		UsageMetadata json.RawMessage `json:"usageMetadata"`
 		Candidates    []struct {
 			Content struct {
 				Parts []struct {
-					Thought         bool                  `json:"thought"`
-					InlineData      *antigravityImageData `json:"inlineData"`
-					SnakeInlineData *antigravityImageData `json:"inline_data"`
+					Thought         bool       `json:"thought"`
+					InlineData      *imageData `json:"inlineData"`
+					SnakeInlineData *imageData `json:"inline_data"`
 				} `json:"parts"`
 			} `json:"content"`
 		} `json:"candidates"`
 	}
 	if err := json.Unmarshal(payload, &root); err != nil {
-		return nil, nil, errAntigravityImagesResponse
+		return nil, nil, ErrInvalidResponse
 	}
 	image := ""
 	for _, candidate := range root.Candidates {
@@ -114,21 +120,21 @@ func convertAntigravityImagesResponse(payload []byte) ([]byte, *execution.UsageE
 			switch mimeType {
 			case "image/png", "image/jpeg", "image/webp":
 			default:
-				return nil, nil, errAntigravityImagesResponse
+				return nil, nil, ErrInvalidResponse
 			}
 			if image != "" || data.Data == "" {
-				return nil, nil, errAntigravityImagesResponse
+				return nil, nil, ErrInvalidResponse
 			}
 			// 流式校验 Base64，避免额外分配整张解码图片。
 			decoded, err := io.Copy(io.Discard, base64.NewDecoder(base64.StdEncoding.Strict(), strings.NewReader(data.Data)))
 			if err != nil || decoded == 0 {
-				return nil, nil, errAntigravityImagesResponse
+				return nil, nil, ErrInvalidResponse
 			}
 			image = data.Data
 		}
 	}
 	if image == "" {
-		return nil, nil, errAntigravityImagesResponse
+		return nil, nil, ErrInvalidResponse
 	}
 	normalized, err := dialect.NewGemini().ExtractUsage(payload)
 	if err != nil {
@@ -147,7 +153,7 @@ func convertAntigravityImagesResponse(payload []byte) ([]byte, *execution.UsageE
 	if normalized.State != usage.StateMissing && normalized.Diagnostics == (usage.Diagnostics{}) {
 		var metadata map[string]json.RawMessage
 		if err := json.Unmarshal(root.UsageMetadata, &metadata); err != nil {
-			return nil, nil, errAntigravityImagesResponse
+			return nil, nil, ErrInvalidResponse
 		}
 		wireUsage := map[string]any{}
 		if raw, ok := metadata["promptTokenCount"]; ok {
@@ -166,7 +172,7 @@ func convertAntigravityImagesResponse(payload []byte) ([]byte, *execution.UsageE
 	}
 	body, err := json.Marshal(response)
 	if err != nil {
-		return nil, nil, errAntigravityImagesResponse
+		return nil, nil, ErrInvalidResponse
 	}
 	return body, evidence, nil
 }

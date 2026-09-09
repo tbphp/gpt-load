@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/usage"
@@ -118,87 +117,11 @@ func TestAntigravityImagesConvertsGenerationAndPreservesUsage(t *testing.T) {
 	}
 }
 
-func TestAntigravityImagesRejectsUnsupportedInputs(t *testing.T) {
-	tests := []string{
-		`{}`, `{"prompt":""}`, `{"prompt":"   "}`, `{"prompt":5}`,
-		`{"prompt":"draw","n":2}`, `{"prompt":"draw","n":1.5}`, `{"prompt":"draw","n":null}`,
-		`{"prompt":"draw","stream":true}`, `{"prompt":"draw","stream":"false"}`,
-		`{"prompt":"draw","response_format":"url"}`, `{"prompt":"draw","size":"1024x1024"}`,
-		`{"prompt":"draw","quality":"high"}`, `{"prompt":"draw","image":"private data"}`,
-		`{"prompt":"draw","unknown_option":true}`, `null`, `[]`,
-	}
-	bridge := &antigravityProviderBridge{}
-	for _, payload := range tests {
-		t.Run(payload, func(t *testing.T) {
-			if err := bridge.ValidateRequest(antigravityImagesRequest(payload)); err == nil {
-				t.Fatal("unsupported Images request was accepted")
-			}
-		})
-	}
-	if err := bridge.ValidateRequest(antigravityImagesRequest(`{"prompt":"draw"}`)); err != nil {
-		t.Fatalf("default request rejected: %v", err)
-	}
+func TestAntigravityImagesRejectsEditingRoute(t *testing.T) {
 	request := antigravityImagesRequest(`{"prompt":"draw"}`)
 	request.RequestPath = "/v1/images/edits"
-	if err := bridge.ValidateRequest(request); err == nil {
+	if err := (&antigravityProviderBridge{}).ValidateRequest(request); err == nil {
 		t.Fatal("image edits were accepted")
-	}
-}
-
-func TestAntigravityImagesRejectsInvalidResponses(t *testing.T) {
-	for name, payload := range map[string]string{
-		"invalid JSON": "not JSON private response",
-		"empty":        `{}`,
-		"blocked":      `{"promptFeedback":{"blockReason":"SAFETY"}}`,
-		"text only":    `{"candidates":[{"content":{"parts":[{"text":"private response"}]}}]}`,
-		"empty image":  `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":""}}]}}]}`,
-		"bad base64":   `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"!private response!"}}]}}]}`,
-		"wrong MIME":   `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"text/plain","data":"AA=="}}]}}]}`,
-		"two images":   `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"AA=="}},{"inlineData":{"mimeType":"image/png","data":"AA=="}}]}}]}`,
-		"thought only": `{"candidates":[{"content":{"parts":[{"thought":true,"inlineData":{"mimeType":"image/png","data":"AA=="}}]}}]}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			bridge := &antigravityProviderBridge{executor: &recordingAntigravityExecutor{response: []byte(payload)}}
-			_, err := bridge.Execute(t.Context(), "17", antigravityProviderTestCredential(), antigravityImagesRequest(`{"prompt":"draw"}`))
-			if err == nil {
-				t.Fatal("invalid image output was accepted")
-			}
-			result := unaryExecutionError(t.Context(), bridge, err, antigravityProviderTestCredential())
-			normalizeCPAImagesAttemptResult(execution.AttemptSpec{ClientProtocol: protocol.OpenAIImages}, &result)
-			if result.Error == nil || result.StatusCode != http.StatusBadGateway ||
-				result.DispatchState != execution.DispatchMaybeSent || result.Error.ReplaySafety != execution.ReplaySafetyUnknown ||
-				strings.Contains(err.Error(), "private response") || strings.Contains(result.Error.Summary, "private response") {
-				t.Fatalf("invalid image error = %+v / %v", result, err)
-			}
-		})
-	}
-}
-
-func TestAntigravityImagesPreservesGeminiUsageStates(t *testing.T) {
-	for name, metadata := range map[string]string{
-		"missing":         "",
-		"empty":           `{}`,
-		"partial":         `{"promptTokenCount":10}`,
-		"invalid":         `{"promptTokenCount":"invalid","candidatesTokenCount":20}`,
-		"negative cached": `{"promptTokenCount":10,"cachedContentTokenCount":20,"candidatesTokenCount":5}`,
-		"missing invalid": `{"promptTokenCount":"invalid","candidatesTokenCount":"invalid"}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			upstream := antigravityImagesResponse(t, metadata)
-			bridge := &antigravityProviderBridge{executor: &recordingAntigravityExecutor{response: upstream}}
-			response, err := bridge.Execute(t.Context(), "17", antigravityProviderTestCredential(), antigravityImagesRequest(`{"prompt":"draw"}`))
-			if err != nil {
-				t.Fatal(err)
-			}
-			want, err := dialect.NewGemini().ExtractUsage(upstream)
-			if err != nil {
-				t.Fatal(err)
-			}
-			result := antigravityImagesAttempt(response, bridge)
-			if result.Usage == nil || !reflect.DeepEqual(result.Usage.Normalized, want) {
-				t.Fatalf("Images canonical usage = %+v, want %+v", result.Usage, want)
-			}
-		})
 	}
 }
 

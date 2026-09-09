@@ -23,7 +23,7 @@ func (manager *RuntimeManager) ValidateRouteCapability(
 		return fmt.Errorf("provider is not implemented by Bifrost")
 	}
 	if route.RouteMode == execution.RouteConverted {
-		if convertedRouteImplemented(route.ClientProtocol, route.Operation) {
+		if convertedRouteImplemented(providerKind, route.ClientProtocol, route.Operation) {
 			return nil
 		}
 		return fmt.Errorf("converted route is not implemented")
@@ -34,8 +34,10 @@ func (manager *RuntimeManager) ValidateRouteCapability(
 	return nil
 }
 
-func convertedRouteImplemented(clientProtocol protocol.Protocol, operation execution.Operation) bool {
+func convertedRouteImplemented(providerKind channel.ProviderKind, clientProtocol protocol.Protocol, operation execution.Operation) bool {
 	switch operation {
+	case execution.OperationImagesGenerate:
+		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIImages
 	case execution.OperationListModels:
 		return clientProtocol != protocol.OpenAIResponses && clientProtocol.Valid()
 	case execution.OperationProbe:

@@ -402,7 +402,6 @@ func TestOpenAIImagesRequestShapeAndCapabilityAreExact(t *testing.T) {
 		func(spec *execution.AttemptSpec) { spec.Method = http.MethodGet },
 		func(spec *execution.AttemptSpec) { spec.Path = "/v1/images/variations" },
 		func(spec *execution.AttemptSpec) { spec.Operation = execution.OperationImagesEdit },
-		func(spec *execution.AttemptSpec) { spec.RouteMode = execution.RouteConverted },
 	} {
 		invalid := valid.Clone()
 		mutate(&invalid)

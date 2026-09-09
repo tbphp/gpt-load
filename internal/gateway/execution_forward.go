@@ -755,7 +755,7 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 			return execution.AttemptSpec{}, err
 		}
 		spec.Body = body
-		platformheader.StripRequestRepresentationMetadata(spec.Header)
+		platformheader.StripRepresentationMetadata(spec.Header)
 	}
 	if err := spec.Validate(); err != nil {
 		return execution.AttemptSpec{}, err
