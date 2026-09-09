@@ -739,6 +739,7 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 		ClientProtocol:           input.ClientProtocol,
 		Operation:                input.Operation,
 		RouteRequirement:         input.RouteRequirement,
+		ResponsesStorePreference: input.ResponsesStorePreference,
 		ResponsesStoreDowngraded: input.ResponsesStoreDowngraded,
 		ClientModel:              input.ExternalModel,
 		UpstreamModel:            input.UpstreamModelID,

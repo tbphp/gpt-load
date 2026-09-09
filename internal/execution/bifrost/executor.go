@@ -427,13 +427,20 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return preparedAttempt{}, &failure
 	}
 	if spec.Operation == execution.OperationResponsesCreate &&
-		spec.RouteRequirement.Normalize() == execution.RouteRequirementNative &&
-		!resolved.SupportsResponsesLifecycle() {
-		failure := notSentConversionFailure(
-			execution.ErrorCodeCriticalSemanticLoss,
-			"target does not support Responses resource lifecycle",
-		)
-		return preparedAttempt{}, &failure
+		spec.RouteRequirement.Normalize() == execution.RouteRequirementNative {
+		var stateSupported bool
+		if spec.ResponsesStorePreference == execution.ResponsesStorePreferenceRequireStored {
+			stateSupported = resolved.ResponsesStoreHandling(spec.ClientProtocol, spec.Operation) == channel.ResponsesStoreHandlingUpstreamManaged
+		} else {
+			stateSupported = resolved.SupportsResponsesLifecycle()
+		}
+		if !stateSupported {
+			failure := notSentConversionFailure(
+				execution.ErrorCodeCriticalSemanticLoss,
+				"target does not support required Responses state",
+			)
+			return preparedAttempt{}, &failure
+		}
 	}
 	if spec.Operation == execution.OperationResponsesPassthrough &&
 		providerKind != channel.ProviderOpenAI &&

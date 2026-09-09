@@ -78,6 +78,7 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 	for _, preference := range []ResponsesStorePreference{
 		ResponsesStorePreferenceNone,
 		ResponsesStorePreferencePreferStored,
+		ResponsesStorePreferenceRequireStored,
 	} {
 		if !preference.Valid() {
 			t.Fatalf("expected Responses store preference %q to be valid", preference)
@@ -402,6 +403,15 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		{name: "request id", mutate: func(s *AttemptSpec) { s.RequestID = "" }, field: "request_id"},
 		{name: "attempt id", mutate: func(s *AttemptSpec) { s.AttemptID = "" }, field: "attempt_id"},
 		{name: "sequence", mutate: func(s *AttemptSpec) { s.Sequence = 0 }, field: "sequence"},
+		{name: "storage preference", mutate: func(s *AttemptSpec) {
+			s.ResponsesStorePreference = ResponsesStorePreference("invalid")
+		}, field: "responses_store_preference"},
+		{name: "stored continuation on another protocol", mutate: func(s *AttemptSpec) {
+			s.ResponsesStorePreference = ResponsesStorePreferenceRequireStored
+			s.RouteRequirement = RouteRequirementNative
+			s.ClientProtocol = protocol.OpenAICompletions
+			s.Operation = OperationChatCompletion
+		}, field: "responses_store_preference"},
 		{name: "channel", mutate: func(s *AttemptSpec) { s.ChannelID = "" }, field: "channel_id"},
 		{name: "route mode", mutate: func(s *AttemptSpec) { s.RouteMode = RouteMode("fallback") }, field: "route_mode"},
 		{name: "route requirement", mutate: func(s *AttemptSpec) { s.RouteRequirement = RouteRequirement("converted-only") }, field: "route_requirement"},

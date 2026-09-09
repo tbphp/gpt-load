@@ -68,6 +68,14 @@ func (s AttemptSpec) Validate() error {
 	if !s.RouteRequirement.Valid() {
 		return validationError("route_requirement", "unsupported value")
 	}
+	if !s.ResponsesStorePreference.Valid() {
+		return validationError("responses_store_preference", "unsupported value")
+	}
+	if s.ResponsesStorePreference == ResponsesStorePreferenceRequireStored &&
+		(s.ClientProtocol != protocol.OpenAIResponses || s.Operation != OperationResponsesCreate ||
+			s.RouteRequirement.Normalize() != RouteRequirementNative) {
+		return validationError("responses_store_preference", "requires a native Responses Create request")
+	}
 	if s.ResponsesStoreDowngraded &&
 		(s.ClientProtocol != protocol.OpenAIResponses ||
 			s.Operation != OperationResponsesCreate ||

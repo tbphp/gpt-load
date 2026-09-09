@@ -203,6 +203,14 @@ func routeRequirementSatisfied(
 	if query.operation != execution.OperationResponsesCreate {
 		return true, false, ""
 	}
+	if query.responsesStorePreference == execution.ResponsesStorePreferenceRequireStored {
+		if route.Mode == channel.RouteNative && route.ResolvedTarget.ResponsesStoreHandling(
+			protocol.OpenAIResponses, execution.OperationResponsesCreate,
+		) == channel.ResponsesStoreHandlingUpstreamManaged {
+			return true, false, ""
+		}
+		return false, false, ReasonNativeRouteRequired
+	}
 	if query.routeRequirement.Normalize() == execution.RouteRequirementNative {
 		if route.ResolvedTarget.SupportsResponsesLifecycle() {
 			return true, false, ""

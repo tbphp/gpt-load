@@ -4,15 +4,18 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/app"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/parameteroverride"
@@ -39,6 +42,54 @@ func TestResponsesContinuationPinsCredentialWithoutSoftAffinity(t *testing.T) {
 			assertAffinityHits(t, sink.snapshot(), []bool{false, true, false})
 			if got := handler.registry.SchedulingState().CaptureCheckpoint().Sequence; got != 3 {
 				t.Fatalf("scheduling allocations = %d, want 3", got)
+			}
+		})
+	}
+}
+
+func TestResponsesContinuationUsesNativeStorageCapabilities(t *testing.T) {
+	for _, channelID := range []channel.ID{
+		channel.OpenAI, channel.GPTLoad, channel.XAI, channel.NewAPI, channel.CLIProxyAPI, channel.Sub2API,
+	} {
+		t.Run(string(channelID), func(t *testing.T) {
+			type observedRequest struct {
+				PreviousResponseID string `json:"previous_response_id"`
+				Store              *bool  `json:"store"`
+				authorization      string
+			}
+			requests := make(chan observedRequest, 8)
+			var count atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				var observed observedRequest
+				if err := json.NewDecoder(request.Body).Decode(&observed); err != nil {
+					t.Error(err)
+					writer.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				observed.authorization = request.Header.Get("Authorization")
+				requests <- observed
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = writer.Write(storedResponse(fmt.Sprintf("response-%d", count.Add(1))).Body)
+			}))
+			defer server.Close()
+			handler, engine, sink := newContinuationFixture(t, newTestExecutionForwarder(t))
+			setContinuationChannel(t, handler, channelID, server.URL)
+			serveContinuation(t, engine, "gl-client", `{"model":"gpt-4o","input":"initial"}`, http.StatusOK)
+			serveContinuation(t, engine, "gl-client", `{"model":"gpt-4o","previous_response_id":"response-1","input":"continue"}`, http.StatusOK)
+			serveContinuation(t, engine, "gl-client", `{"model":"gpt-4o","previous_response_id":"response-2","input":"continue","store":false}`, http.StatusOK)
+			if count.Load() != 3 {
+				t.Fatalf("upstream attempts = %d, want 3", count.Load())
+			}
+			for index, id := range []string{"", "response-1", "response-2"} {
+				observed := <-requests
+				if observed.PreviousResponseID != id || observed.authorization != "Bearer sk-one" ||
+					(index == 2 && (observed.Store == nil || *observed.Store)) {
+					t.Fatalf("request %d lost continuation semantics: %+v", index, observed)
+				}
+			}
+			assertAffinityHits(t, sink.snapshot(), []bool{false, true, true})
+			if _, ok := handler.responseBindings.Lookup(1, "response-3"); ok {
+				t.Fatal("store:false registered a new continuation ID")
 			}
 		})
 	}
@@ -116,7 +167,9 @@ func TestResponsesContinuationRegistersSSEBeforeDelivery(t *testing.T) {
 			return execution.StreamResult{StatusCode: http.StatusOK, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true}
 		},
 	}
-	_, engine, _ = newContinuationFixture(t, NewExecutionForwarder(executor))
+	handler, runtime, _ := newContinuationFixture(t, NewExecutionForwarder(executor))
+	engine = runtime
+	setContinuationChannel(t, handler, channel.NewAPI, "https://upstream.example")
 	request := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"model":"gpt-4o","input":"initial","stream":true}`))
 	request.Header.Set("Authorization", "Bearer gl-client")
 	engine.ServeHTTP(writer, request)
@@ -291,6 +344,35 @@ func newContinuationFixture(t *testing.T, forwarder AttemptForwarder) (*Handler,
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return handler, engine, sink
+}
+
+func setContinuationChannel(t *testing.T, handler *Handler, channelID channel.ID, baseURL string) {
+	t.Helper()
+	credentials := make([]state.CredentialConfig, 0, 2)
+	for _, id := range []uint{1, 2} {
+		credentials = append(credentials, state.CredentialConfig{
+			ID: id, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: uint64(id), Fingerprint: fmt.Sprintf("credential-%d", id),
+		})
+	}
+	params, err := json.Marshal(map[string]string{"base_url": baseURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := handler.manager.Publish(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: string(channelID), ChannelID: channelID, ConnectionType: "api_key",
+			Params: params,
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: credentials,
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func serveContinuation(t *testing.T, engine http.Handler, key, body string, status int) *httptest.ResponseRecorder {

@@ -405,6 +405,7 @@ func TestResponsesCreateClassifiesStorePreferenceWithoutWeakeningNativeResources
 			name:             "previous response remains native only",
 			body:             `{"model":"gpt-5","previous_response_id":"resp_123","store":false}`,
 			routeRequirement: execution.RouteRequirementNative,
+			storePreference:  execution.ResponsesStorePreferenceRequireStored,
 		},
 		{
 			name:             "provider resource outranks omitted store",

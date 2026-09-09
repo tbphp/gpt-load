@@ -286,7 +286,7 @@ func TestRouteRequirementKeepsStatefulResponsesOnNativeTargets(t *testing.T) {
 	}
 }
 
-func TestStatefulResponsesCreateRequiresLifecycleTargetEvenWhenWireIsNative(t *testing.T) {
+func TestResponsesContinuationSeparatesStorageFromOtherResourceRequirements(t *testing.T) {
 	t.Parallel()
 
 	snapshot, err := state.Compile(state.CompileInput{
@@ -304,6 +304,14 @@ func TestStatefulResponsesCreateRequiresLifecycleTargetEvenWhenWireIsNative(t *t
 				Params: json.RawMessage(`{}`), Enabled: true,
 				Models: []state.ModelConfig{{ID: "grok", Alias: "gpt"}},
 			},
+			{ConnectionType: "subscription", ID: 10, Name: "codex", ChannelID: channel.Codex,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "gpt-codex", Alias: "gpt"}},
+			},
+			{ConnectionType: "api_key", ID: 11, Name: "converted", ChannelID: channel.Anthropic,
+				Params: json.RawMessage(`{}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "claude", Alias: "gpt"}},
+			},
 		},
 	})
 	if err != nil {
@@ -319,6 +327,39 @@ func TestStatefulResponsesCreateRequiresLifecycleTargetEvenWhenWireIsNative(t *t
 	})
 	if !slices.Equal(got, []uint{7}) {
 		t.Fatalf("CandidateGroupIDsForQuery() = %#v, want lifecycle-capable OpenAI group [7]", got)
+	}
+	for _, test := range []struct {
+		name   string
+		fields string
+		want   []uint
+	}{
+		{"continuation", `,"input":"continue"`, []uint{7, 9}},
+		{"unstored next response", `,"store":false`, []uint{7, 9}},
+		{"conversation", `,"conversation":"conv_1"`, []uint{7}},
+		{"background", `,"background":true`, []uint{7}},
+		{"stored prompt", `,"prompt":{"id":"pmpt_1"}`, []uint{7}},
+		{"input reference", `,"input":[{"type":"item_reference","id":"item_1"}]`, []uint{7}},
+		{"file search", `,"tools":[{"type":"file_search","vector_store_ids":["vs_1"]}]`, []uint{7}},
+		{"null store", `,"store":null`, []uint{7}},
+		{"invalid store", `,"store":"invalid"`, []uint{7}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			metadata, err := dialect.NewOpenAIResponses().InspectRequest(&dialect.ParsedRequest{
+				Method: http.MethodPost, Path: "/v1/responses",
+				Body: []byte(`{"model":"gpt","previous_response_id":"resp_1"` + test.fields + `}`),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			query := Query{
+				ClientProtocol: protocol.OpenAIResponses, Operation: metadata.Operation,
+				RouteRequirement: metadata.RouteRequirement, ResponsesStorePreference: metadata.ResponsesStorePreference,
+				ExternalModel: metadata.Model,
+			}
+			if got := CandidateGroupIDsForQuery(snapshot, query); !slices.Equal(got, test.want) {
+				t.Fatalf("candidate groups = %v, want %v", got, test.want)
+			}
+		})
 	}
 }
 

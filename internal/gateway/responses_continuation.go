@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 )
@@ -19,7 +21,9 @@ func (handler *Handler) responseBindingObserver(
 ) func([]byte) error {
 	if request == nil || request.Method != http.MethodPost || request.Path != "/v1/responses" ||
 		selection.RouteMode != execution.RouteNative || selection.ResponsesStoreDowngraded ||
-		!selection.ResolvedTarget.SupportsResponsesLifecycle() {
+		selection.ResolvedTarget.ResponsesStoreHandling(
+			protocol.OpenAIResponses, execution.OperationResponsesCreate,
+		) != channel.ResponsesStoreHandlingUpstreamManaged {
 		return nil
 	}
 	var options struct {

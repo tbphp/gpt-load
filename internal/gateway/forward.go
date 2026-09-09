@@ -45,6 +45,7 @@ type ForwardInput struct {
 	ClientProtocol           protocol.Protocol
 	Operation                execution.Operation
 	RouteRequirement         execution.RouteRequirement
+	ResponsesStorePreference execution.ResponsesStorePreference
 	ResponsesStoreDowngraded bool
 	ChannelID                string
 	RouteMode                execution.RouteMode

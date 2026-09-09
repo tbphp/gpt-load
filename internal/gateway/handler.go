@@ -1156,6 +1156,7 @@ func (handler *Handler) executeAttempts(
 			ClientProtocol:           selectedDialect.Protocol(),
 			Operation:                originalMetadata.Operation,
 			RouteRequirement:         originalMetadata.RouteRequirement,
+			ResponsesStorePreference: originalMetadata.ResponsesStorePreference,
 			ResponsesStoreDowngraded: selection.ResponsesStoreDowngraded,
 			ChannelID:                string(selection.ChannelID),
 			RouteMode:                execution.RouteMode(selection.RouteMode),

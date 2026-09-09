@@ -115,8 +115,7 @@ func responsesCreateRequirements(
 	if !ok {
 		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
-	if hasMeaningfulField(root, "previous_response_id") ||
-		hasMeaningfulField(root, "conversation") ||
+	if hasMeaningfulField(root, "conversation") ||
 		responsesPromptReferencesProviderResource(root["prompt"]) {
 		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
@@ -128,17 +127,15 @@ func responsesCreateRequirements(
 		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
 	value, exists := root["store"]
-	if !exists {
-		return execution.RouteRequirementAny, execution.ResponsesStorePreferencePreferStored
-	}
-	if value == nil {
-		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
-	}
 	store, ok := value.(bool)
-	if !ok {
+	if exists && !ok {
 		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceNone
 	}
-	if store {
+	// 其他资源与参数约束优先；仅纯 ID 续接使用上游存储要求。
+	if hasMeaningfulField(root, "previous_response_id") {
+		return execution.RouteRequirementNative, execution.ResponsesStorePreferenceRequireStored
+	}
+	if !exists || store {
 		return execution.RouteRequirementAny, execution.ResponsesStorePreferencePreferStored
 	}
 	return execution.RouteRequirementAny, execution.ResponsesStorePreferenceNone
