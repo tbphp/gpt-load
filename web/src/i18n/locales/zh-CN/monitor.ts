@@ -373,7 +373,7 @@ export default {
       title: '路由检查',
       description: '按协议、模型与访问密钥检查当前候选分组和凭据。',
       boundary:
-        '按所选协议模拟不含会话内容与亲和命中的标准无状态请求；Responses 使用 store:false，Images 只检查图片生成，Embeddings 只检查向量创建。只读检查，不会发送上游请求或消耗 Token。',
+        '按所选协议模拟不含会话内容与亲和命中的标准无状态请求；Responses 使用 store:false，Images 只检查图片生成，Embeddings 只检查向量创建，Rerank 检查文本重排序。只读检查，不会发送上游请求或消耗 Token。',
       routeModes: {
         native: '原生',
         converted: '协议转换',
@@ -392,6 +392,7 @@ export default {
         images_generate: '生成图片',
         images_edit: '编辑图片',
         embeddings_create: '创建向量',
+        rerank: '文档重排序',
       },
       routeRequirements: {
         any: '允许协议转换（可有损）',
@@ -781,6 +782,7 @@ export default {
         images_generate: '生成图片',
         images_edit: '编辑图片',
         embeddings_create: '创建向量',
+        rerank: '文档重排序',
         list_models: '列出模型',
         probe: '健康探测',
       },

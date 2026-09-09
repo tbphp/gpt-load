@@ -16,6 +16,10 @@ export const protocolCatalog = [
     supportsProtocolOnlyRouting: false,
   },
   {
+    value: 'rerank',
+    supportsProtocolOnlyRouting: false,
+  },
+  {
     value: 'anthropic',
     supportsProtocolOnlyRouting: false,
   },

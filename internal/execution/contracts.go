@@ -43,6 +43,7 @@ const (
 	OperationImagesGenerate       Operation = "images_generate"
 	OperationImagesEdit           Operation = "images_edit"
 	OperationEmbeddingsCreate     Operation = "embeddings_create"
+	OperationRerank               Operation = "rerank"
 	OperationListModels           Operation = "list_models"
 	OperationProbe                Operation = "probe"
 )
@@ -63,6 +64,7 @@ func (o Operation) Valid() bool {
 		OperationImagesGenerate,
 		OperationImagesEdit,
 		OperationEmbeddingsCreate,
+		OperationRerank,
 		OperationListModels,
 		OperationProbe:
 		return true
@@ -88,7 +90,7 @@ const (
 // ReplayPolicy returns the operation-level replay contract.
 func (o Operation) ReplayPolicy() ReplayPolicy {
 	switch o {
-	case OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate:
+	case OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate, OperationRerank:
 		return ReplayPolicyRequireRejectedBeforeProcessing
 	default:
 		return ReplayPolicyLegacy

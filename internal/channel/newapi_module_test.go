@@ -68,6 +68,7 @@ func TestNewAPIChannelContract(t *testing.T) {
 			execution.OperationImagesGenerate: RouteNative,
 			execution.OperationImagesEdit:     RouteNative,
 		},
+		protocol.Rerank: {execution.OperationRerank: RouteNative, execution.OperationProbe: RouteNative},
 		protocol.OpenAIEmbeddings: {
 			execution.OperationEmbeddingsCreate: RouteNative,
 			execution.OperationProbe:            RouteNative,

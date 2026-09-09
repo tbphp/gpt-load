@@ -232,8 +232,8 @@ func TestValidationProbeEmbeddingsFallbackEvidenceIsNarrow(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if got := validationProbeNeedsEmbeddingsFallback(test.result); got != test.want {
-				t.Fatalf("validationProbeNeedsEmbeddingsFallback() = %t, want %t; result=%#v", got, test.want, test.result)
+			if got := validationProbeNeedsProtocolFallback(test.result); got != test.want {
+				t.Fatalf("validationProbeNeedsProtocolFallback() = %t, want %t; result=%#v", got, test.want, test.result)
 			}
 		})
 	}

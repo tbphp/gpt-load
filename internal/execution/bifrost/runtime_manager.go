@@ -141,7 +141,7 @@ func buildEffectiveProviderConfigForAttempt(
 func multiProtocolGatewayProviderProfile(clientProtocol protocol.Protocol) (schemas.ModelProvider, error) {
 	switch clientProtocol {
 	case "", protocol.OpenAICompletions, protocol.OpenAIResponses,
-		protocol.OpenAIImages, protocol.OpenAIEmbeddings:
+		protocol.OpenAIImages, protocol.OpenAIEmbeddings, protocol.Rerank:
 		return schemas.OpenAI, nil
 	case protocol.Anthropic:
 		return schemas.Anthropic, nil

@@ -121,6 +121,7 @@ const parameterOverrideOperations = new Set([
   'responses_create',
   'images_generate',
   'embeddings_create',
+  'rerank',
 ])
 const parameterOverrideProtocols = computed<AccessProtocol[]>(() => [
   ...new Set(

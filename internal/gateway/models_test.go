@@ -310,3 +310,72 @@ func assertJSONEqual(t *testing.T, got, want string) {
 		t.Fatalf("JSON mismatch\ngot:  %s\nwant: %s", got, want)
 	}
 }
+
+func TestVisibleOpenAIModelIDsIncludesRerankRoutes(t *testing.T) {
+	t.Parallel()
+
+	snapshot := &state.ConfigSnapshot{ExecutionCandidates: state.ExecutionCandidateIndex{
+		protocol.OpenAICompletions: {
+			execution.OperationChatCompletion: {
+				"chat-only": {{GroupID: 1}},
+				"shared":    {{GroupID: 1}},
+			},
+		},
+		protocol.Rerank: {
+			execution.OperationRerank: {
+				"rerank-only": {{GroupID: 2}},
+				"shared":      {{GroupID: 2}},
+			},
+		},
+	}}
+
+	tests := []struct {
+		name      string
+		accessKey state.AccessKeyView
+		want      []string
+	}{
+		{
+			name: "unrestricted union",
+			want: []string{"chat-only", "rerank-only", "shared"},
+		},
+		{
+			name: "rerank protocol filter",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{
+				protocol.Rerank: {},
+			}}},
+			want: []string{"rerank-only", "shared"},
+		},
+		{
+			name: "rerank protocol and matching group filters",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{
+				Protocols: map[protocol.Protocol]struct{}{protocol.Rerank: {}},
+				Groups:    map[uint]struct{}{2: {}},
+			}},
+			want: []string{"rerank-only", "shared"},
+		},
+		{
+			name: "rerank protocol and nonmatching group filters",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{
+				Protocols: map[protocol.Protocol]struct{}{protocol.Rerank: {}},
+				Groups:    map[uint]struct{}{1: {}},
+			}},
+			want: []string{},
+		},
+		{
+			name: "chat protocol filter excludes rerank-only routes",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{
+				protocol.OpenAICompletions: {},
+			}}},
+			want: []string{"chat-only", "shared"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := visibleModelIDs(snapshot, test.accessKey, protocol.OpenAICompletions)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("visibleModelIDs() = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}

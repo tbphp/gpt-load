@@ -112,6 +112,7 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			path:    openAIEmbeddingsPath,
 			resolve: staticRoute(protocol.OpenAIEmbeddings, endpointForward),
 		},
+		{name: "data.rerank", methods: []string{http.MethodPost}, path: "/v1/rerank", resolve: staticRoute(protocol.Rerank, endpointForward)},
 	}
 }
 

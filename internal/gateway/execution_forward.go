@@ -49,7 +49,7 @@ func (forwarder *ExecutionForwarder) Forward(
 	result := upstreamFromExecutionResult(ctx, input, executionResult)
 	result = forwarder.prepareBufferedResult(input, result)
 	if (input.ClientProtocol == protocol.OpenAIImages ||
-		input.ClientProtocol == protocol.OpenAIEmbeddings) && input.ObserveUsage &&
+		input.ClientProtocol == protocol.OpenAIEmbeddings || input.ClientProtocol == protocol.Rerank) && input.ObserveUsage &&
 		result.HasResponse() && result.StatusCode >= http.StatusOK &&
 		result.StatusCode < http.StatusMultipleChoices &&
 		executionResult.Usage == nil && result.Usage.State == usage.StateMissing && forwarder.usageCapture != nil {

@@ -55,6 +55,7 @@ export type RequestLogOperation =
   | 'images_generate'
   | 'images_edit'
   | 'embeddings_create'
+  | 'rerank'
   | 'list_models'
   | 'probe'
 export type RequestLogRouteMode = 'native' | 'converted'
@@ -249,6 +250,7 @@ const operations = [
   'images_generate',
   'images_edit',
   'embeddings_create',
+  'rerank',
   'list_models',
   'probe',
 ] as const
