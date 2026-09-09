@@ -27,7 +27,13 @@ export default {
     copy: 'コピー',
     copied: 'コピーしました',
     copyFailed: 'コピーに失敗しました',
-    copyUnsupported: 'コピーを使用できません。HTTPS を使用してください',
+    copyFallback: {
+      title: '内容をコピー',
+      description:
+        '自動コピーに失敗しました。もう一度コピーを押すか、下の内容を選択して手動でコピーしてください。',
+      valueLabel: 'コピーする内容',
+      failed: 'コピーに失敗しました。上の内容を選択して手動でコピーしてください。',
+    },
     pagination: {
       label: 'ページ送り',
       total: '全 {total} 件',

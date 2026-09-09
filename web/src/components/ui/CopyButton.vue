@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { Check, Copy } from '@lucide/vue'
-import { onBeforeUnmount, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { onBeforeUnmount, ref, watch } from 'vue'
 
-import { copyText } from '@/lib/clipboard'
+import { useClipboardCopy } from '@/app/use-clipboard-copy'
+import CopyFallbackDialog from './CopyFallbackDialog.vue'
 
 const props = defineProps<{
   value: string
@@ -11,13 +11,17 @@ const props = defineProps<{
   successLabel: string
   failureLabel: string
 }>()
-const { t } = useI18n()
-const state = ref<'idle' | 'success' | 'unsupported' | 'failure'>('idle')
+const { copy: copyValue, fallbackText, pending, reset } = useClipboardCopy()
+const state = ref<'idle' | 'success' | 'failure'>('idle')
 let resetTimer: number | undefined
 
 async function copy(): Promise<void> {
+  if (pending.value) return
+  state.value = 'idle'
   try {
-    state.value = (await copyText(props.value)) ? 'success' : 'failure'
+    const result = await copyValue(props.value)
+    if (result === 'cancelled') return
+    state.value = result === 'success' ? 'success' : 'idle'
   } catch {
     state.value = 'failure'
   }
@@ -25,12 +29,27 @@ async function copy(): Promise<void> {
   resetTimer = window.setTimeout(() => (state.value = 'idle'), 2000)
 }
 
+watch(
+  () => props.value,
+  () => {
+    reset()
+    state.value = 'idle'
+  },
+  { flush: 'sync' },
+)
+
 onBeforeUnmount(() => window.clearTimeout(resetTimer))
 </script>
 
 <template>
   <span class="copy-control">
-    <button type="button" :aria-label="label" @click="copy">
+    <button
+      type="button"
+      :aria-label="label"
+      :aria-busy="pending"
+      :disabled="pending"
+      @click="copy"
+    >
       <Check v-if="state === 'success'" :size="16" aria-hidden="true" />
       <Copy v-else :size="16" aria-hidden="true" />
     </button>
@@ -41,14 +60,9 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer))
       aria-live="polite"
       aria-atomic="true"
     >
-      {{
-        state === 'unsupported'
-          ? t('common.copyUnsupported')
-          : state === 'success'
-            ? successLabel
-            : failureLabel
-      }}
+      {{ state === 'success' ? successLabel : failureLabel }}
     </span>
+    <CopyFallbackDialog v-if="fallbackText !== undefined" :value="fallbackText" @close="reset" />
   </span>
 </template>
 

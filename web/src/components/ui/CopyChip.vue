@@ -7,10 +7,10 @@ import {
   TooltipRoot,
   TooltipTrigger,
 } from 'reka-ui'
-import { onBeforeUnmount, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { onBeforeUnmount, ref, watch } from 'vue'
 
-import { canWriteToClipboardNatively, copyText } from '@/lib/clipboard'
+import { useClipboardCopy } from '@/app/use-clipboard-copy'
+import CopyFallbackDialog from './CopyFallbackDialog.vue'
 import OverflowTooltip from './OverflowTooltip.vue'
 
 const props = withDefaults(
@@ -29,9 +29,9 @@ const props = withDefaults(
   { resolveValue: undefined, layout: 'leading' },
 )
 
-type CopyState = 'idle' | 'success' | 'unsupported' | 'failure'
+type CopyState = 'idle' | 'success' | 'failure'
 
-const { t } = useI18n()
+const { copy, fallbackText, pending, reset } = useClipboardCopy()
 const state = ref<CopyState>('idle')
 let resetTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -44,20 +44,26 @@ function scheduleReset(): void {
 }
 
 async function copyValue(): Promise<void> {
-  if (props.resolveValue && !canWriteToClipboardNatively()) {
-    state.value = 'unsupported'
-    scheduleReset()
-    return
-  }
-
+  if (pending.value) return
+  state.value = 'idle'
   try {
-    const value = props.resolveValue ? await props.resolveValue() : props.value
-    state.value = (await copyText(value)) ? 'success' : 'failure'
+    const result = await copy(props.resolveValue ?? props.value)
+    if (result === 'cancelled') return
+    state.value = result === 'success' ? 'success' : 'idle'
   } catch {
     state.value = 'failure'
   }
   scheduleReset()
 }
+
+watch(
+  () => props.value,
+  () => {
+    reset()
+    state.value = 'idle'
+  },
+  { flush: 'sync' },
+)
 
 onBeforeUnmount(() => {
   if (resetTimer !== undefined) clearTimeout(resetTimer)
@@ -79,6 +85,8 @@ onBeforeUnmount(() => {
             :data-state="state"
             type="button"
             :aria-label="label"
+            :aria-busy="pending"
+            :disabled="pending"
             @click="copyValue"
           >
             <Copy v-if="layout === 'leading'" :size="14" aria-hidden="true" />
@@ -105,17 +113,12 @@ onBeforeUnmount(() => {
             role="status"
             aria-live="polite"
           >
-            {{
-              state === 'unsupported'
-                ? t('common.copyUnsupported')
-                : state === 'success'
-                  ? successLabel
-                  : failureLabel
-            }}
+            {{ state === 'success' ? successLabel : failureLabel }}
           </TooltipContent>
         </TooltipPortal>
       </TooltipRoot>
     </TooltipProvider>
+    <CopyFallbackDialog v-if="fallbackText !== undefined" :value="fallbackText" @close="reset" />
   </span>
 </template>
 
@@ -172,7 +175,6 @@ onBeforeUnmount(() => {
 }
 
 .copy-chip:hover,
-.copy-chip[data-state='unsupported'],
 .copy-chip[data-state='success'],
 .copy-chip[data-state='failure'] {
   background: var(--color-surface-sunken);
@@ -183,7 +185,6 @@ onBeforeUnmount(() => {
   color: var(--color-success);
 }
 
-.copy-chip[data-state='unsupported'],
 .copy-chip[data-state='failure'] {
   color: var(--color-danger);
 }
@@ -210,7 +211,6 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.copy-chip__feedback--unsupported,
 .copy-chip__feedback--failure {
   border-color: var(--color-feedback-danger-border);
   color: var(--color-danger);

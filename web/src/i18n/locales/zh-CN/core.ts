@@ -25,7 +25,12 @@ export default {
     copy: '复制',
     copied: '已复制',
     copyFailed: '复制失败',
-    copyUnsupported: '当前环境不支持复制，请使用 HTTPS',
+    copyFallback: {
+      title: '复制内容',
+      description: '自动复制未成功，请再次点击复制，或选中下方内容手动复制。',
+      valueLabel: '待复制内容',
+      failed: '复制仍未成功，请选中上方内容手动复制。',
+    },
     pagination: {
       label: '分页',
       total: '共 {total} 条',

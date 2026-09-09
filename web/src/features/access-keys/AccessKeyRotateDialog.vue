@@ -257,6 +257,8 @@ onBeforeUnmount(() => controller?.abort())
           t(result.key ? 'accessKeys.rotate.newKey' : 'accessKeys.rotate.currentKey')
         }}</strong>
         <CopyChip
+          v-if="open"
+          :key="`${accessKey.id}:${result.updated_at_ms}`"
           :value="displayKey"
           :label="t('accessKeys.copy')"
           :success-label="t('common.copied')"

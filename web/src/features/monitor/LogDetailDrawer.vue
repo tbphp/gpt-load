@@ -147,6 +147,7 @@ const costAmountLabel = computed(() => {
 watch(
   () => props.requestId,
   () => {
+    copyControllers.abortAll()
     errorMessageExpanded.value = false
     expandedAttemptErrorMessages.value = new Set()
   },
@@ -479,7 +480,8 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 appearance="plain"
               />
               <CopyChip
-                v-if="log.credential_name"
+                v-if="open && log.credential_name"
+                :key="`${requestId}:${log.group_id}:${log.credential_id}`"
                 layout="icon"
                 :value="log.credential_name"
                 :label="t('monitor.logs.drawer.copyCredential')"

@@ -148,6 +148,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
         }}</span>
         <span class="group-credential-record__credential">
           <CopyChip
+            :key="item.secret_version"
             :value="item.mask"
             :label="t('group.credentials.copy')"
             :success-label="t('common.copied')"

@@ -129,8 +129,9 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
     :close-label="t('common.close')"
     @update:open="requestClose"
   >
-    <template v-if="detail" #title-adornment>
+    <template v-if="open && detail" #title-adornment>
       <CopyChip
+        :key="priceId ?? undefined"
         layout="icon"
         :value="detail.model_id"
         :label="t('models.drawer.copyModel', { model: detail.model_id })"

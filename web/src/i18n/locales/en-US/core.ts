@@ -27,7 +27,13 @@ export default {
     copy: 'Copy',
     copied: 'Copied',
     copyFailed: 'Copy failed',
-    copyUnsupported: 'Copy is unavailable. Use HTTPS.',
+    copyFallback: {
+      title: 'Copy content',
+      description:
+        'Automatic copying failed. Try Copy again, or select the content below to copy it manually.',
+      valueLabel: 'Content to copy',
+      failed: 'Copying still failed. Select the content above to copy it manually.',
+    },
     pagination: {
       label: 'Pagination',
       total: 'Total: {total}',

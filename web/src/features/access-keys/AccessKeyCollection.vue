@@ -70,6 +70,7 @@ function viewLogs(id: number): void {
 const client = useApiClient()
 const { locale, t } = useI18n()
 const copyControllers = useAbortControllerPool()
+const copyGeneration = ref(0)
 const sources = computed(
   () => new Map(props.accessKeys.map((accessKey) => [accessKey.id, accessKey])),
 )
@@ -169,6 +170,7 @@ async function resolveCopyValue(id: number): Promise<string> {
 }
 
 function conceal(): void {
+  copyGeneration.value++
   menuKeyID.value = undefined
   copyControllers.abortAll()
 }
@@ -211,6 +213,7 @@ watch(
       <div class="ledger-record-list__cell access-key-secret-cell" role="cell">
         <span class="mobile-label">{{ t('accessKeys.columns.key') }}</span>
         <CopyChip
+          :key="`${copyGeneration}:${source(record.id).updated_at_ms}`"
           layout="trailing"
           :value="record.maskedKey"
           :label="t('accessKeys.copy')"
