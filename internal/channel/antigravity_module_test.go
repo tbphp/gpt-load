@@ -62,6 +62,7 @@ func TestAntigravityModuleDeclaresSubscriptionContract(t *testing.T) {
 		{protocol.Anthropic, execution.OperationChatCompletion, RouteConverted},
 		{protocol.Anthropic, execution.OperationCountTokens, RouteConverted},
 		{protocol.OpenAICompletions, execution.OperationChatCompletion, RouteConverted},
+		{protocol.OpenAIImages, execution.OperationImagesGenerate, RouteConverted},
 		{protocol.OpenAIResponses, execution.OperationResponsesCreate, RouteConverted},
 		{protocol.OpenAIResponses, execution.OperationResponsesInputTokens, RouteConverted},
 	} {
@@ -71,5 +72,8 @@ func TestAntigravityModuleDeclaresSubscriptionContract(t *testing.T) {
 	}
 	if _, exists := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCompact); exists {
 		t.Fatal("Antigravity unexpectedly declares responses compact")
+	}
+	if _, exists := target.Mode(protocol.OpenAIImages, execution.OperationImagesEdit); exists {
+		t.Fatal("Antigravity unexpectedly declares image edits")
 	}
 }

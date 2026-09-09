@@ -80,6 +80,9 @@ func (d *OpenAIImages) InspectRequest(request *ParsedRequest) (RequestMetadata, 
 	}
 	metadata.Operation = operation
 	metadata.RouteRequirement = execution.RouteRequirementNative
+	if operation == execution.OperationImagesGenerate {
+		metadata.RouteRequirement = execution.RouteRequirementAny
+	}
 	metadata.ObserveUsage = true
 	return metadata, nil
 }

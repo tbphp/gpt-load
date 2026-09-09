@@ -85,6 +85,40 @@ func TestIteratorDoesNotLetConvertedPreferenceBypassNativeTier(t *testing.T) {
 	}
 }
 
+func TestImagesGenerationPrefersNativeBeforeAntigravityConversion(t *testing.T) {
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{ID: 1, ChannelID: channel.Antigravity, ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "gemini-3.1-flash-image", Alias: "public"}}, Enabled: true},
+			{ID: 2, ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`),
+				Models: []state.ModelConfig{{ID: "gpt-image-2", Alias: "public"}}, Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iterator := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{
+		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
+	}}, Query{
+		ClientProtocol: protocol.OpenAIImages, Operation: execution.OperationImagesGenerate,
+		RouteRequirement: execution.RouteRequirementAny, ExternalModel: modelPointer("public"),
+		PreferredCredentialID: 11,
+	})
+	first, err := iterator.Next()
+	if err != nil || first.GroupID != 2 || first.RouteMode != channel.RouteNative {
+		t.Fatalf("first selection = %+v, error = %v", first, err)
+	}
+	second, err := iterator.Next()
+	if err != nil || second.GroupID != 1 || second.RouteMode != channel.RouteConverted ||
+		second.UpstreamModelID == nil || *second.UpstreamModelID != "gemini-3.1-flash-image" {
+		t.Fatalf("second selection = %+v, error = %v", second, err)
+	}
+	if got := snapshot.ExecutionCandidates[protocol.OpenAIImages][execution.OperationImagesEdit]["public"]; len(got) != 1 || got[0].GroupID != 2 {
+		t.Fatalf("image edits targets = %+v", got)
+	}
+}
+
 func TestIteratorSkipGroupAndAllowedCredentialIDsApplyAcrossRouteTiers(t *testing.T) {
 	t.Parallel()
 

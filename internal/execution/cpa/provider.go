@@ -151,6 +151,7 @@ func proxySettingsForAttempt(effective outboundproxy.Effective) (cpaProxySetting
 type providerResponse struct {
 	Payload                []byte
 	Headers                http.Header
+	Usage                  *execution.UsageEvidence
 	AppliedReasoningEffort string
 	UpstreamProtocol       protocol.Protocol
 	Local                  bool

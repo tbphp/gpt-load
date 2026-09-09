@@ -287,7 +287,7 @@ func TestRouteInspectDerivesStandardRequestMetadataFromProtocol(t *testing.T) {
 	}{
 		{protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
-		{protocol: protocol.OpenAIImages, operation: execution.OperationImagesGenerate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementNative},
+		{protocol: protocol.OpenAIImages, operation: execution.OperationImagesGenerate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.OpenAIEmbeddings, operation: execution.OperationEmbeddingsCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementNative},
 		{protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.Gemini, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted, routeRequirement: execution.RouteRequirementAny},

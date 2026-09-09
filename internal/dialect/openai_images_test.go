@@ -73,9 +73,13 @@ func TestOpenAIImagesInspectJSONRequests(t *testing.T) {
 			if err != nil {
 				t.Fatalf("InspectRequest() error = %v", err)
 			}
+			wantRequirement := execution.RouteRequirementNative
+			if test.operation == execution.OperationImagesGenerate {
+				wantRequirement = execution.RouteRequirementAny
+			}
 			if metadata.Model == nil || *metadata.Model != "gpt-image-2" ||
 				metadata.Operation != test.operation || metadata.Stream != test.stream ||
-				metadata.RouteRequirement != execution.RouteRequirementNative ||
+				metadata.RouteRequirement != wantRequirement ||
 				!metadata.ObserveUsage {
 				t.Fatalf("metadata = %#v", metadata)
 			}
@@ -172,7 +176,7 @@ func TestOpenAIImagesStandardRequestUsesGeneration(t *testing.T) {
 	}
 	if metadata.Model == nil || *metadata.Model != "gpt-image-2" ||
 		metadata.Operation != execution.OperationImagesGenerate ||
-		metadata.RouteRequirement != execution.RouteRequirementNative {
+		metadata.RouteRequirement != execution.RouteRequirementAny {
 		t.Fatalf("metadata = %#v", metadata)
 	}
 }

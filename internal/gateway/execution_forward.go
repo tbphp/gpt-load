@@ -52,7 +52,7 @@ func (forwarder *ExecutionForwarder) Forward(
 		input.ClientProtocol == protocol.OpenAIEmbeddings) && input.ObserveUsage &&
 		result.HasResponse() && result.StatusCode >= http.StatusOK &&
 		result.StatusCode < http.StatusMultipleChoices &&
-		result.Usage.State == usage.StateMissing && forwarder.usageCapture != nil {
+		executionResult.Usage == nil && result.Usage.State == usage.StateMissing && forwarder.usageCapture != nil {
 		result.Usage = forwarder.usageCapture.extractNonStreamingPlain(
 			input.Dialect,
 			result.ClassificationBody,

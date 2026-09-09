@@ -46,6 +46,7 @@ func Antigravity() spec.Module {
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.Anthropic, execution.OperationCountTokens, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesGenerate, execution.RouteConverted),
 				spec.NewResponsesCreateRoute(execution.RouteConverted, spec.ResponsesStoreHandlingStateless),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesInputTokens, execution.RouteConverted),
 			},

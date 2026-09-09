@@ -14,6 +14,7 @@ type recordingAntigravityExecutor struct {
 	request      antigravity.ExecuteRequest
 	response     []byte
 	streamChunks [][]byte
+	err          error
 }
 
 type antigravityClassifiedTestError struct {
@@ -45,6 +46,9 @@ func (executor *recordingAntigravityExecutor) Execute(
 	request antigravity.ExecuteRequest,
 ) (antigravity.ExecuteResponse, error) {
 	executor.request = request
+	if executor.err != nil {
+		return antigravity.ExecuteResponse{}, executor.err
+	}
 	payload := executor.response
 	if payload == nil {
 		payload = []byte(`{"ok":true}`)
