@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/protocol"
@@ -157,6 +158,14 @@ func (registry *Registry) resolve(spec execution.AttemptSpec) (execution.Executo
 			execution.ErrorKindInvalidRequest,
 			"undeclared_channel_route",
 			"attempt route is not declared by channel",
+		)
+	}
+	if spec.RouteMode == execution.RouteConverted && spec.ClientProtocol == protocol.Anthropic &&
+		spec.Operation == execution.OperationChatCompletion && dialect.AnthropicRequestsZeroOutput(spec.Body) {
+		return nil, localAdapterEvidence(
+			execution.ErrorKindConversionUnsupported,
+			execution.ErrorCodeCriticalSemanticLoss,
+			"protocol conversion cannot preserve Anthropic zero-output semantics",
 		)
 	}
 	if spec.ResponsesStoreDowngraded && target.ResponsesStoreHandling(
