@@ -1,6 +1,8 @@
 package dialect
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 
 	"gpt-load/internal/execution"
@@ -17,6 +19,22 @@ func NewAnthropic() *Anthropic {
 
 func (*Anthropic) Protocol() protocol.Protocol {
 	return protocol.Anthropic
+}
+
+// AnthropicRequestsZeroOutput 判断请求是否显式要求零输出，不把缺失、null 或字符串视为数值零。
+func AnthropicRequestsZeroOutput(body []byte) bool {
+	var request struct {
+		MaxTokens json.RawMessage `json:"max_tokens"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		return false
+	}
+	mantissa := request.MaxTokens
+	if index := bytes.IndexAny(mantissa, "eE"); index >= 0 {
+		mantissa = mantissa[:index]
+	}
+	// 按有效数字判断，避免极小的非零数值经浮点下溢被误判为零。
+	return bytes.IndexByte(mantissa, '0') >= 0 && len(bytes.Trim(mantissa, "-0.")) == 0
 }
 
 func (d *Anthropic) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {

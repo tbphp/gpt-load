@@ -19,6 +19,7 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
@@ -456,6 +457,16 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return preparedAttempt{}, &failure
 	}
 	safeQuery := safeAttemptQuery(spec)
+	if mode == channel.RouteConverted {
+		// 源协议的调用标记和响应格式不能继承到其他协议的目标 URL。
+		switch spec.ClientProtocol {
+		case protocol.Anthropic:
+			safeQuery = removeRawQueryValue(safeQuery, "beta")
+		case protocol.Gemini:
+			safeQuery = removeRawQueryValue(safeQuery, "alt")
+			safeQuery = removeRawQueryValue(safeQuery, "$alt")
+		}
+	}
 	if mode == channel.RouteNative && spec.ClientProtocol == protocol.Gemini &&
 		(providerKind == channel.ProviderGemini || providerKind == channel.ProviderGoogleVertex ||
 			providerKind == channel.ProviderMultiProtocolGateway) {
@@ -658,6 +669,16 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			directKey: directKey,
 			secrets:   secrets,
 		}, nil
+	}
+	if spec.ClientProtocol == protocol.Anthropic && spec.Operation == execution.OperationChatCompletion &&
+		dialect.AnthropicRequestsZeroOutput(spec.Body) {
+		failure := notSentConversionFailure(
+			execution.ErrorCodeCriticalSemanticLoss,
+			"typed conversion cannot preserve Anthropic zero-output semantics",
+		)
+		failure.Error.OriginHint = execution.ErrorOriginInternal
+		failure.Error.ScopeHint = execution.ErrorScopeGroup
+		return preparedAttempt{}, &failure
 	}
 	if spec.Operation == execution.OperationListModels {
 		typedURL, upstreamProtocol, targetErr := convertedListModelsTarget(providerKind, customTargetBaseURL, safeQuery)
