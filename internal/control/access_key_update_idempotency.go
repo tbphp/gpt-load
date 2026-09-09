@@ -9,6 +9,7 @@ import (
 
 	"gpt-load/internal/platform/canonicaljson"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 )
@@ -24,6 +25,31 @@ func (s *Service) UpdateAccessKeyIdempotent(ctx context.Context, idempotencyKey 
 	}
 	digestRequest := request
 	digestRequest.Key = ""
+	if request.Name != nil {
+		name, err := normalizeAccessKeyName(*request.Name)
+		if err != nil {
+			return AccessKeyMetadata{}, err
+		}
+		digestRequest.Name = &name
+	}
+	if request.PriceMultiplier.Set {
+		multiplier, err := normalizePriceMultiplier(request.PriceMultiplier)
+		if err != nil {
+			return AccessKeyMetadata{}, err
+		}
+		digestRequest.PriceMultiplier.Value = pricing.FormatPriceMultiplier(multiplier)
+	}
+	if request.CostLimitRules.Set {
+		rules, err := normalizeAccessKeyCostLimitRules(request.CostLimitRules, true)
+		if err != nil {
+			return AccessKeyMetadata{}, err
+		}
+		digestRequest.CostLimitRules.Values = costLimitRuleRequestsForDigest(rules)
+		// 编辑摘要必须保留规则 ID，区分保留既有规则与创建新规则。
+		for index, rule := range rules {
+			digestRequest.CostLimitRules.Values[index].ID = rule.ID
+		}
+	}
 	if request.Filters != nil {
 		filters, err := normalizeAccessKeyFilters(request.Filters)
 		if err != nil {

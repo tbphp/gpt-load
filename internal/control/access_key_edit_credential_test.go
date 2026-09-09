@@ -6,12 +6,84 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
+
+func TestEditAccessKeyReplaysNormalizedFields(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "before",
+		CostLimitRules: OptionalAccessKeyCostLimitRules{Set: true, Values: []AccessKeyCostLimitRuleRequest{
+			{Kind: "total", LimitUSD: "10"},
+			{Kind: "periodic", LimitUSD: "2", PeriodSeconds: 3600},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	totalID, periodicID := created.CostLimitRules[0].ID, created.CostLimitRules[1].ID
+	totalRule := fmt.Sprintf(`{"id":%d,"kind":"total","limit_usd":"10"}`, totalID)
+	periodicRule := fmt.Sprintf(`{"id":%d,"kind":"periodic","limit_usd":"2","period_seconds":3600}`, periodicID)
+	engine := newAccessKeyLifecycleEngine(t, fixture)
+	path := fmt.Sprintf("/api/access-keys/%d", created.ID)
+	for index, test := range []struct {
+		name, initial, retry, different string
+	}{
+		{"name", `"name":" client "`, `"name":"client"`, `"name":"other"`},
+		{"default multiplier", `"price_multiplier":"1.0"`, `"price_multiplier":"1"`, `"price_multiplier":"2"`},
+		{"fractional multiplier", `"price_multiplier":"1.50"`, `"price_multiplier":"1.5"`, `"price_multiplier":"1.6"`},
+		{
+			"cost amount",
+			fmt.Sprintf(`"cost_limit_rules":[{"id":%d,"kind":"total","limit_usd":"10.00"},%s]`, totalID, periodicRule),
+			fmt.Sprintf(`"cost_limit_rules":[%s,%s]`, totalRule, periodicRule),
+			fmt.Sprintf(`"cost_limit_rules":[{"id":%d,"kind":"total","limit_usd":"11"},%s]`, totalID, periodicRule),
+		},
+		{
+			"cost rule order and identity",
+			fmt.Sprintf(`"cost_limit_rules":[%s,%s]`, totalRule, periodicRule),
+			fmt.Sprintf(`"cost_limit_rules":[%s,%s]`, periodicRule, totalRule),
+			fmt.Sprintf(`"cost_limit_rules":[{"kind":"total","limit_usd":"10"},%s]`, periodicRule),
+		},
+		{"empty cost rules", `"cost_limit_rules":[]`, `"cost_limit_rules":[]`, `"cost_limit_rules":[{"kind":"total","limit_usd":"10"}]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			operationID := fmt.Sprintf("00000000-0000-4000-8000-%012d", 8621+index)
+			first := serveAccessKeyLifecycleRequest(t, engine, http.MethodPut, path,
+				`{"key":"replacement-value",`+test.initial+`}`, operationID)
+			if first.Code != http.StatusOK {
+				t.Fatalf("initial edit status = %d", first.Code)
+			}
+			before := loadAccessKeyRow(t, fixture.db, created.ID)
+			replayed := serveAccessKeyLifecycleRequest(t, engine, http.MethodPut, path,
+				`{"key":"replacement-value",`+test.retry+`}`, operationID)
+			if replayed.Code != http.StatusOK {
+				t.Fatalf("equivalent edit replay status = %d", replayed.Code)
+			}
+			if !reflect.DeepEqual(decodeAccessKeyLifecycleData(t, first), decodeAccessKeyLifecycleData(t, replayed)) {
+				t.Fatal("replay did not return the original result")
+			}
+			if row := loadAccessKeyRow(t, fixture.db, created.ID); row.KeyValue != before.KeyValue {
+				t.Fatal("replay rewrote the credential")
+			}
+			for _, body := range []string{
+				`{"key":"replacement-value"}`,
+				`{"key":"replacement-value",` + test.different + `}`,
+			} {
+				conflict := serveAccessKeyLifecycleRequest(t, engine, http.MethodPut, path, body, operationID)
+				if conflict.Code != http.StatusConflict {
+					t.Fatalf("omitted or different mutation status = %d", conflict.Code)
+				}
+			}
+		})
+	}
+}
 
 func TestEditAccessKeyReplaysEquivalentFilters(t *testing.T) {
 	t.Parallel()
