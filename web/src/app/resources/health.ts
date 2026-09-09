@@ -16,7 +16,6 @@ import type {
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { projectAccessKeyCostLimitRuleStatus } from './access-keys'
-import { projectModelCooldown } from './credentials'
 
 import {
   assertNoSecretLikeFields,
@@ -41,15 +40,8 @@ export type {
   RuntimeHealthDto,
 } from '@/api/control/types'
 
-const countFields = [
-  'model_cooldown',
-  'credentials',
-  'available',
-  'cooldown',
-  'blacklisted',
-] as const
+const countFields = ['credentials', 'available', 'cooldown', 'blacklisted'] as const
 const healthFields = [
-  'model_cooldown_credentials',
   'observed_at_ms',
   'version',
   'uptime_seconds',
@@ -163,7 +155,6 @@ export function projectHealthCounts(value: unknown): HealthCredentialCountsDto {
     credentials: projectSafeInteger(record.credentials, { minimum: 0 }),
     available: projectSafeInteger(record.available, { minimum: 0 }),
     cooldown: projectSafeInteger(record.cooldown, { minimum: 0 }),
-    model_cooldown: projectSafeInteger(record.model_cooldown, { minimum: 0 }),
     blacklisted: projectSafeInteger(record.blacklisted, { minimum: 0 }),
   }
   if (result.credentials !== result.available + result.cooldown + result.blacklisted) {
@@ -175,11 +166,15 @@ export function projectHealthCounts(value: unknown): HealthCredentialCountsDto {
 function projectHealthGroup(value: unknown): HealthGroupDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, ['id', 'name', 'enabled', 'counts'])
+  const { model_cooldown, ...counts } = projectRecord(record.counts)
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
     enabled: projectBoolean(record.enabled),
-    counts: projectHealthCounts(record.counts),
+    counts: {
+      ...projectHealthCounts(counts),
+      model_cooldown: projectSafeInteger(model_cooldown, { minimum: 0 }),
+    },
   }
 }
 
@@ -332,23 +327,6 @@ export function projectRuntimeHealth(value: unknown): RuntimeHealthDto {
     stats_window_seconds: projectSafeInteger(record.stats_window_seconds, { minimum: 1 }),
     counts: projectHealthCounts(record.counts),
     groups: projectArray(record.groups, projectHealthGroup),
-    model_cooldown_credentials: projectArray(record.model_cooldown_credentials, (value) => {
-      const item = projectRecord(value)
-      assertNoSecretLikeFields(item, [
-        'credential_id',
-        'group_id',
-        'group_name',
-        'identity',
-        'model_cooldowns',
-      ])
-      return {
-        credential_id: projectSafeInteger(item.credential_id, { minimum: 1 }),
-        group_id: projectSafeInteger(item.group_id, { minimum: 1 }),
-        group_name: projectNonBlankString(item.group_name),
-        identity: projectNonBlankString(item.identity),
-        model_cooldowns: projectArray(item.model_cooldowns, projectModelCooldown),
-      }
-    }),
     cooldown_credentials: projectArray(record.cooldown_credentials, projectProblemCredential),
     blacklisted_credentials: projectArray(record.blacklisted_credentials, projectProblemCredential),
     low_quota_credentials: projectArray(record.low_quota_credentials, projectQuotaCredential),

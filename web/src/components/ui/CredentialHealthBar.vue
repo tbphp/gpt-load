@@ -13,11 +13,10 @@ const props = defineProps<{
 }>()
 
 const { n } = useI18n()
-const normalizedCounts = computed<CredentialCounts>(() =>
+const normalizedCounts = computed(() =>
   'total' in props.counts
     ? props.counts
     : {
-        model_cooldown: props.counts.model_cooldown,
         total: props.counts.credentials,
         available: props.counts.available,
         cooldown: props.counts.cooldown,

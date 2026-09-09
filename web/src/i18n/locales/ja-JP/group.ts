@@ -382,7 +382,6 @@ export default {
         count: 'モデルクールダウン · {count}',
         credentialCount: 'モデルクールダウン · {count} 件の認証情報',
         until: '復帰時刻',
-        hint: '対象モデルのみが制限され、認証情報の基本状態は別に表示されます。',
       },
       title: 'キー',
       description: '状態、スケジュールウェイト、最近の結果を確認します',

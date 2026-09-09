@@ -48,19 +48,13 @@ func parseCredentialCollectionQuery(rawQuery string) (CredentialCollectionQuery,
 	}
 	for key, entries := range values {
 		switch key {
-		case "q", "status", "page", "page_size", "model_cooldown":
+		case "q", "status", "page", "page_size":
 		default:
 			return CredentialCollectionQuery{}, app_errors.ErrBadRequest
 		}
 		if len(entries) != 1 {
 			return CredentialCollectionQuery{}, app_errors.ErrBadRequest
 		}
-	}
-	if entries, exists := values["model_cooldown"]; exists {
-		if entries[0] != "true" {
-			return CredentialCollectionQuery{}, app_errors.ErrBadRequest
-		}
-		query.ModelCooldown = true
 	}
 	if entries, exists := values["q"]; exists {
 		query.Query = strings.TrimSpace(entries[0])

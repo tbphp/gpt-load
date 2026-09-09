@@ -137,7 +137,7 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		got.Groups[1].ID != 2 || got.Groups[2].ID != 3 || got.Groups[3].ID != 4 {
 		t.Fatalf("group order = %#v", got.Groups)
 	}
-	if got.Groups[0].Counts != (healthCountsResponse{
+	if got.Groups[0].Counts.healthCountsResponse != (healthCountsResponse{
 		Credentials: 3, Available: 1, Cooldown: 1, Blacklisted: 1,
 	}) {
 		t.Fatalf("active group counts = %#v", got.Groups[0].Counts)

@@ -9,7 +9,6 @@ import {
   Plus,
   RotateCcw,
   Search,
-  Timer,
 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -265,10 +264,7 @@ const credentialTestDialogResult = computed(() => {
   }
 })
 const hasChangedConditions = computed(
-  () =>
-    filters.value.q !== undefined ||
-    filters.value.status !== undefined ||
-    filters.value.model_cooldown === true,
+  () => filters.value.q !== undefined || filters.value.status !== undefined,
 )
 const statusSummaryItems = computed(() => {
   const summary = collection.value?.summary
@@ -325,13 +321,7 @@ watch(
 )
 
 watch(
-  () => [
-    filters.value.status,
-    filters.value.q,
-    filters.value.page,
-    filters.value.page_size,
-    filters.value.model_cooldown,
-  ],
+  () => [filters.value.status, filters.value.q, filters.value.page, filters.value.page_size],
   () => {
     selectedIds.value = new Set()
   },
@@ -380,9 +370,7 @@ function updateRoute(
 }
 
 function setFilter(
-  patch: Partial<
-    Pick<CredentialCollectionFilters, 'q' | 'status' | 'page_size' | 'model_cooldown'>
-  >,
+  patch: Partial<Pick<CredentialCollectionFilters, 'q' | 'status' | 'page_size'>>,
 ): void {
   updateRoute({ ...filters.value, ...patch, page: 1 })
 }
@@ -467,7 +455,6 @@ function currentSelectionContext(): string {
   return JSON.stringify({
     groupId: props.groupId,
     status: filters.value.status ?? null,
-    modelCooldown: filters.value.model_cooldown ?? false,
     query: filters.value.q ?? null,
     page: filters.value.page,
     pageSize: filters.value.page_size,
@@ -1680,20 +1667,6 @@ async function runBatch(
             </AppButton>
           </span>
         </label>
-        <AppButton
-          class="group-credentials__model-filter"
-          variant="secondary"
-          size="compact"
-          :tone="filters.model_cooldown ? 'warning' : 'neutral'"
-          :aria-pressed="filters.model_cooldown === true"
-          @click="setFilter({ model_cooldown: filters.model_cooldown ? undefined : true })"
-        >
-          <Timer :size="15" aria-hidden="true" />
-          {{ t('group.credentials.modelCooldown.label') }}
-          <span class="group-credentials__filter-count">{{
-            n(collection.summary.model_cooldown)
-          }}</span>
-        </AppButton>
         <CredentialBatchBar
           class="group-credentials__batch-bar"
           :selected-count="selectedCount"
@@ -1926,15 +1899,6 @@ async function runBatch(
 </template>
 
 <style scoped>
-.group-credentials__filter-count {
-  min-width: 20px;
-  border-radius: var(--radius-tag);
-  background: color-mix(in srgb, currentColor 9%, transparent);
-  padding: 1px 5px;
-  font-family: var(--font-mono);
-  font-size: var(--text-label-xs);
-  text-align: center;
-}
 .group-credentials__batch-bar {
   margin-left: auto;
 }
@@ -2064,9 +2028,6 @@ async function runBatch(
   }
 }
 @media (max-width: 860px) {
-  .group-credentials__model-filter {
-    min-height: var(--touch-target);
-  }
   .group-credential-record-grid {
     --ledger-record-list-card-grid: minmax(0, 0.8fr) minmax(0, 1.2fr);
   }

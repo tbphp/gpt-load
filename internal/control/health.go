@@ -21,18 +21,22 @@ type RequestLogStatsReader interface {
 }
 
 type healthCountsResponse struct {
+	Credentials int `json:"credentials"`
+	Available   int `json:"available"`
+	Cooldown    int `json:"cooldown"`
+	Blacklisted int `json:"blacklisted"`
+}
+
+type healthGroupCountsResponse struct {
+	healthCountsResponse
 	ModelCooldown int `json:"model_cooldown"`
-	Credentials   int `json:"credentials"`
-	Available     int `json:"available"`
-	Cooldown      int `json:"cooldown"`
-	Blacklisted   int `json:"blacklisted"`
 }
 
 type healthGroupResponse struct {
-	ID      uint                 `json:"id"`
-	Name    string               `json:"name"`
-	Enabled bool                 `json:"enabled"`
-	Counts  healthCountsResponse `json:"counts"`
+	ID      uint                      `json:"id"`
+	Name    string                    `json:"name"`
+	Enabled bool                      `json:"enabled"`
+	Counts  healthGroupCountsResponse `json:"counts"`
 }
 
 type healthRecoveryResponse struct {
@@ -98,20 +102,19 @@ type requestLogHealthResponse struct {
 }
 
 type runtimeHealthResponse struct {
-	ModelCooldownCredentials []healthModelCooldownCredentialResponse `json:"model_cooldown_credentials"`
-	ObservedAtMS             int64                                   `json:"observed_at_ms"`
-	Version                  string                                  `json:"version"`
-	UptimeSeconds            int64                                   `json:"uptime_seconds"`
-	SnapshotRevision         uint64                                  `json:"snapshot_revision"`
-	StatsWindowSeconds       int64                                   `json:"stats_window_seconds"`
-	Counts                   healthCountsResponse                    `json:"counts"`
-	Groups                   []healthGroupResponse                   `json:"groups"`
-	CooldownCredentials      []healthProblemCredentialResponse       `json:"cooldown_credentials"`
-	BlacklistedCredentials   []healthProblemCredentialResponse       `json:"blacklisted_credentials"`
-	LowQuotaCredentials      []healthQuotaCredentialResponse         `json:"low_quota_credentials"`
-	ExpiringResetCredits     []healthExpiringResetCreditResponse     `json:"expiring_reset_credits"`
-	BlockedAccessKeys        []healthAccessKeyCostLimitResponse      `json:"blocked_access_keys"`
-	RequestLog               requestLogHealthResponse                `json:"request_log"`
+	ObservedAtMS           int64                               `json:"observed_at_ms"`
+	Version                string                              `json:"version"`
+	UptimeSeconds          int64                               `json:"uptime_seconds"`
+	SnapshotRevision       uint64                              `json:"snapshot_revision"`
+	StatsWindowSeconds     int64                               `json:"stats_window_seconds"`
+	Counts                 healthCountsResponse                `json:"counts"`
+	Groups                 []healthGroupResponse               `json:"groups"`
+	CooldownCredentials    []healthProblemCredentialResponse   `json:"cooldown_credentials"`
+	BlacklistedCredentials []healthProblemCredentialResponse   `json:"blacklisted_credentials"`
+	LowQuotaCredentials    []healthQuotaCredentialResponse     `json:"low_quota_credentials"`
+	ExpiringResetCredits   []healthExpiringResetCreditResponse `json:"expiring_reset_credits"`
+	BlockedAccessKeys      []healthAccessKeyCostLimitResponse  `json:"blocked_access_keys"`
+	RequestLog             requestLogHealthResponse            `json:"request_log"`
 }
 
 type healthAccessKeyCostLimitResponse struct {
@@ -270,16 +273,15 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		return runtimeHealthResponse{}, fmt.Errorf("map runtime health observed_at_ms: %w", err)
 	}
 	result := runtimeHealthResponse{
-		ModelCooldownCredentials: []healthModelCooldownCredentialResponse{},
-		ObservedAtMS:             observedAtMS,
-		SnapshotRevision:         observation.snapshot.Revision,
-		StatsWindowSeconds:       int64(health.StatsWindow / time.Second),
-		Groups:                   []healthGroupResponse{},
-		CooldownCredentials:      []healthProblemCredentialResponse{},
-		BlacklistedCredentials:   []healthProblemCredentialResponse{},
-		LowQuotaCredentials:      []healthQuotaCredentialResponse{},
-		ExpiringResetCredits:     []healthExpiringResetCreditResponse{},
-		BlockedAccessKeys:        []healthAccessKeyCostLimitResponse{},
+		ObservedAtMS:           observedAtMS,
+		SnapshotRevision:       observation.snapshot.Revision,
+		StatsWindowSeconds:     int64(health.StatsWindow / time.Second),
+		Groups:                 []healthGroupResponse{},
+		CooldownCredentials:    []healthProblemCredentialResponse{},
+		BlacklistedCredentials: []healthProblemCredentialResponse{},
+		LowQuotaCredentials:    []healthQuotaCredentialResponse{},
+		ExpiringResetCredits:   []healthExpiringResetCreditResponse{},
+		BlockedAccessKeys:      []healthAccessKeyCostLimitResponse{},
 	}
 	groupIDs := make([]uint, 0, len(observation.snapshot.GroupCatalog))
 	for groupID := range observation.snapshot.GroupCatalog {
@@ -305,23 +307,10 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			}
 		}
 		if hasModelCooldown(key.ModelCooldowns, observation.observedAt) {
-			result.Counts.ModelCooldown++
 			result.Groups[index].Counts.ModelCooldown++
-			if len(result.ModelCooldownCredentials) < healthProblemCredentialDetailLimit {
-				// 停用分组仍保留模型冷却，身份展示使用完整分组目录。
-				identity, err := service.healthProblemCredentialIdentity(observation.problemCiphertexts, key.ID, group.ChannelID, group.ConnectionType)
-				if err != nil {
-					return runtimeHealthResponse{}, err
-				}
-				limits, err := modelCooldownResponses(key.ModelCooldowns, observation.observedAt)
-				if err != nil {
-					return runtimeHealthResponse{}, err
-				}
-				result.ModelCooldownCredentials = append(result.ModelCooldownCredentials, healthModelCooldownCredentialResponse{CredentialID: key.ID, GroupID: key.GroupID, GroupName: group.Name, Identity: identity, ModelCooldowns: limits})
-			}
 		}
 		addHealthCount(&result.Counts, bucket)
-		addHealthCount(&result.Groups[index].Counts, bucket)
+		addHealthCount(&result.Groups[index].Counts.healthCountsResponse, bucket)
 		// 额度只用于管理面展示，不参与健康分桶或调度；低额度凭据在这里单列提示。
 		if bucket == healthBucketAvailable || bucket == healthBucketCooldown {
 			if remaining := key.ObservedQuotaRemaining(); remaining != nil &&

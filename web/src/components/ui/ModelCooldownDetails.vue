@@ -14,12 +14,9 @@ const { locale, t } = useI18n()
     class="model-cooldowns"
     :aria-label="t('group.credentials.modelCooldown.label')"
   >
-    <header class="model-cooldowns__header">
-      <h3>{{ t('group.credentials.modelCooldown.label') }}</h3>
-      <span>{{ t('group.credentials.modelCooldown.until') }}</span>
-    </header>
+    <h3>{{ t('group.credentials.modelCooldown.label') }}</h3>
     <dl class="model-cooldowns__list">
-      <div v-for="cooldown in cooldowns" :key="cooldown.model" class="model-cooldowns__row">
+      <div v-for="cooldown in cooldowns" :key="cooldown.model" class="model-cooldowns__tag">
         <dt>{{ cooldown.model }}</dt>
         <dd>
           <AppRelativeTime
@@ -41,40 +38,29 @@ const { locale, t } = useI18n()
   min-width: 0;
   font-size: var(--text-label-xs);
 }
-.model-cooldowns__header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  color: var(--color-text-muted);
-}
-.model-cooldowns__header h3 {
+.model-cooldowns h3 {
   margin: 0;
+  color: var(--color-text-muted);
   font: inherit;
   font-weight: 680;
   letter-spacing: 0.06em;
 }
-.model-cooldowns__header > span {
-  flex: none;
-  padding-right: 12px;
-  font-weight: 400;
-}
 .model-cooldowns__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   min-width: 0;
   margin: 0;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
 }
-.model-cooldowns__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
+.model-cooldowns__tag {
+  display: inline-flex;
+  max-width: 100%;
   align-items: baseline;
-  gap: var(--space-4);
-  padding: 9px 12px;
-}
-.model-cooldowns__row + .model-cooldowns__row {
-  border-top: 1px solid var(--color-border-subtle);
+  gap: 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-tag);
+  background: var(--color-surface);
+  padding: 5px 9px;
 }
 .model-cooldowns dt {
   min-width: 0;
@@ -82,10 +68,13 @@ const { locale, t } = useI18n()
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
 }
+.model-cooldowns dt::after {
+  content: ':';
+}
 .model-cooldowns dd {
+  flex: none;
   margin: 0;
   color: var(--color-text-muted);
-  text-align: right;
   white-space: nowrap;
 }
 </style>

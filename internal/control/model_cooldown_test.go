@@ -1,6 +1,7 @@
 package control
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -71,7 +72,7 @@ func TestModelCooldownCollectionAndHealthKeepIndependentAccountStatus(t *testing
 	for _, model := range []string{"b", "a"} {
 		fixture.registry.SetModelCooldown(ref, model, now.Add(time.Hour), now)
 	}
-	query, parseErr := parseCredentialCollectionQuery("model_cooldown=true")
+	query, parseErr := parseCredentialCollectionQuery("")
 	if parseErr != nil {
 		t.Fatal(parseErr)
 	}
@@ -87,7 +88,7 @@ func TestModelCooldownCollectionAndHealthKeepIndependentAccountStatus(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if collection.Summary.ModelCooldown != 1 || collection.Summary.Available != 2 || collection.Pagination.TotalItems != 1 || len(collection.Items) != 1 {
+	if collection.Summary.Available != 2 || collection.Pagination.TotalItems != 2 || len(collection.Items) != 2 {
 		t.Fatalf("collection = %#v", collection)
 	}
 	item := collection.Items[0]
@@ -98,12 +99,38 @@ func TestModelCooldownCollectionAndHealthKeepIndependentAccountStatus(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if health.Counts.ModelCooldown != 1 || len(health.ModelCooldownCredentials) != 1 || len(health.CooldownCredentials) != 0 {
+	if health.Counts.Available != 2 || health.Groups[0].Counts.ModelCooldown != 1 || len(health.CooldownCredentials) != 0 {
 		t.Fatalf("health = %#v", health)
+	}
+	// 删除的展示不再保留对应汇总字段和明细响应。
+	for name, value := range map[string]any{
+		"credential_summary": collection.Summary,
+		"health_counts":      health.Counts,
+		"health":             health,
+	} {
+		payload, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		for _, removed := range []string{"model_cooldown", "model_cooldown_credentials"} {
+			if _, exists := fields[removed]; exists {
+				t.Errorf("%s still exposes %s", name, removed)
+			}
+		}
 	}
 }
 
-func TestRuntimeHealthKeepsModelCooldownIdentityWhenGroupIsDisabled(t *testing.T) {
+func TestCredentialCollectionRejectsRemovedModelCooldownFilter(t *testing.T) {
+	if _, err := parseCredentialCollectionQuery("model_cooldown=true"); err == nil {
+		t.Fatal("removed model cooldown filter is still accepted")
+	}
+}
+
+func TestRuntimeHealthCountsModelCooldownWhenGroupIsDisabled(t *testing.T) {
 	for _, connectionType := range []string{"api_key", "subscription"} {
 		t.Run(connectionType, func(t *testing.T) {
 			var fixture serviceFixture
@@ -122,7 +149,7 @@ func TestRuntimeHealthKeepsModelCooldownIdentityWhenGroupIsDisabled(t *testing.T
 				t.Fatal("model cooldown was rejected")
 			}
 			before, err := fixture.service.RuntimeHealth()
-			if err != nil || len(before.ModelCooldownCredentials) != 1 {
+			if err != nil || len(before.Groups) != 1 || before.Groups[0].Counts.ModelCooldown != 1 {
 				t.Fatalf("initial health = %#v, %v", before, err)
 			}
 			for _, enabled := range []bool{false, true} {
@@ -135,13 +162,8 @@ func TestRuntimeHealthKeepsModelCooldownIdentityWhenGroupIsDisabled(t *testing.T
 				if err != nil {
 					t.Fatalf("health with group enabled=%t: %v", enabled, err)
 				}
-				if got.Counts.ModelCooldown != 1 || len(got.ModelCooldownCredentials) != 1 {
+				if len(got.Groups) != 1 || got.Groups[0].Counts.ModelCooldown != 1 {
 					t.Fatalf("model cooldown disappeared after group enabled=%t: %#v", enabled, got)
-				}
-				detail := got.ModelCooldownCredentials[0]
-				if detail.CredentialID != credentialID || detail.GroupID != groupID ||
-					detail.Identity != before.ModelCooldownCredentials[0].Identity || len(detail.ModelCooldowns) != 1 {
-					t.Fatalf("model cooldown identity changed: %#v", detail)
 				}
 				if len(got.Groups) != 1 || got.Groups[0].Enabled != enabled || (got.Counts.Credentials > 0) != enabled {
 					t.Fatalf("group health changed: %#v", got)

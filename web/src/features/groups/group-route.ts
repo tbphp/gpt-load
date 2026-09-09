@@ -77,7 +77,6 @@ export function parseCredentialRouteQuery(query: LocationQuery): CredentialColle
   }
   const q = normalizeCredentialSearch(scalarRouteQuery(query.q))
   if (q !== undefined) filters.q = q
-  if (scalarRouteQuery(query.model_cooldown) === 'true') filters.model_cooldown = true
   if (status !== undefined && credentialStatuses.has(status as CredentialStatus)) {
     filters.status = status as CredentialStatus
   }
@@ -99,7 +98,6 @@ export function serializeCredentialRouteQuery(
   const q = normalizeCredentialSearch(filters.q)
   if (q !== undefined) query.q = q
   if (filters.status !== undefined) query.credential_status = filters.status
-  if (filters.model_cooldown) query.model_cooldown = 'true'
   if (filters.page !== 1) query.page = String(filters.page)
   if (filters.page_size !== 20) query.page_size = String(filters.page_size)
   const expanded = serializePositiveRouteIntegerList(state.expandedCredentialIDs)

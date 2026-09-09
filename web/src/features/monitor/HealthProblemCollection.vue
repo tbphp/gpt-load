@@ -1,18 +1,16 @@
 <script setup lang="ts">
-import { ArrowRight, ChevronDown, ScrollText } from '@lucide/vue'
+import { ArrowRight, ScrollText } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
 import type { HealthProblemCredentialDto } from '@/app/resources/health'
-import type { HealthModelCooldownCredentialDto } from '@/api/control/types'
 import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import ModelCooldownDetails from '@/components/ui/ModelCooldownDetails.vue'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 
@@ -29,7 +27,6 @@ interface RecoveryDisplay {
 
 const props = defineProps<{
   items: HealthProblemItem[]
-  modelCooldownCredentials: HealthModelCooldownCredentialDto[]
   recoveryByCredential: Record<number, RecoveryDisplay | undefined>
   statsWindowSeconds: number
   availableCount: number
@@ -60,21 +57,14 @@ function credentialMeta(credential: HealthProblemCredentialDto): string {
         })
       "
       :meta="
-        items.length + modelCooldownCredentials.length > 0
-          ? t('monitor.health.problems.count', {
-              count: n(
-                new Set([
-                  ...items.map((item) => item.credential.credential_id),
-                  ...modelCooldownCredentials.map((item) => item.credential_id),
-                ]).size,
-              ),
-            })
+        items.length > 0
+          ? t('monitor.health.problems.count', { count: n(items.length) })
           : undefined
       "
     />
 
     <div
-      v-if="items.length === 0 && modelCooldownCredentials.length === 0"
+      v-if="items.length === 0"
       class="problem-health__clear-panel"
       :class="{ 'problem-health__clear-panel--inactive': availableCount === 0 }"
       role="status"
@@ -305,118 +295,10 @@ function credentialMeta(credential: HealthProblemCredentialDto): string {
         </article>
       </template>
     </LedgerRecordList>
-    <div v-if="modelCooldownCredentials.length > 0" class="problem-health__models">
-      <details
-        v-for="credential in modelCooldownCredentials"
-        :key="credential.credential_id"
-        class="problem-health__model-record"
-      >
-        <summary>
-          <RouterLink
-            class="problem-health__model-identity"
-            :to="
-              groupDetailLocation(credential.group_id, {
-                tab: 'credentials',
-                model_cooldown: 'true',
-              })
-            "
-          >
-            <strong>{{ credential.identity }}</strong>
-            <small>{{ credential.group_name }}</small>
-          </RouterLink>
-          <StatusBadge class="problem-health__model-count" tone="warning" size="compact">{{
-            t('group.credentials.modelCooldown.count', {
-              count: n(credential.model_cooldowns.length),
-            })
-          }}</StatusBadge>
-          <ChevronDown class="problem-health__model-chevron" :size="16" aria-hidden="true" />
-        </summary>
-        <div class="problem-health__model-details">
-          <ModelCooldownDetails :cooldowns="credential.model_cooldowns" />
-        </div>
-      </details>
-    </div>
   </section>
 </template>
 
 <style scoped>
-.problem-health__models {
-  min-width: 0;
-  max-height: 320px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  overflow: auto;
-}
-.problem-health__model-record + .problem-health__model-record {
-  border-top: 1px solid var(--color-border-subtle);
-}
-.problem-health__model-record summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 16px;
-  align-items: center;
-  gap: 10px 16px;
-  padding: 12px 14px;
-  cursor: pointer;
-  list-style: none;
-  font-size: var(--text-label-xs);
-}
-.problem-health__model-record summary::-webkit-details-marker {
-  display: none;
-}
-.problem-health__model-record summary:hover,
-.problem-health__model-record[open] summary {
-  background: var(--color-surface-sunken);
-}
-.problem-health__model-record summary:focus-visible,
-.problem-health__model-identity:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
-}
-.problem-health__model-identity {
-  display: grid;
-  justify-self: start;
-  min-width: 0;
-  gap: 3px;
-  border-radius: var(--radius-tag);
-  color: var(--color-text);
-  overflow-wrap: anywhere;
-}
-.problem-health__model-identity strong {
-  font-weight: 560;
-}
-.problem-health__model-identity small {
-  color: var(--color-text-faint);
-  font-size: inherit;
-}
-.problem-health__model-identity:hover strong {
-  color: var(--color-action);
-}
-.problem-health__model-chevron {
-  color: var(--color-text-faint);
-}
-.problem-health__model-record[open] .problem-health__model-chevron {
-  transform: rotate(180deg);
-}
-.problem-health__model-details {
-  padding: 12px 14px 14px;
-  border-top: 1px solid var(--color-border-subtle);
-  background: var(--color-surface-sunken);
-}
-@media (max-width: 560px) {
-  .problem-health__model-record summary {
-    grid-template-columns: minmax(0, 1fr) 16px;
-    gap: 8px 12px;
-  }
-  .problem-health__model-count {
-    grid-column: 1;
-    justify-self: start;
-  }
-  .problem-health__model-chevron {
-    grid-column: 2;
-    grid-row: 1 / 3;
-  }
-}
 .problem-health {
   display: grid;
   min-width: 0;

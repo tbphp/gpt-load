@@ -93,7 +93,6 @@ func (service *Service) captureRuntimeHealthObservation() (
 	problemCiphertexts := make(map[uint]string)
 	cooldownDetails := 0
 	blacklistedDetails := 0
-	modelCooldownDetails := 0
 	for _, key := range keys {
 		group, exists := snapshot.GroupCatalog[key.GroupID]
 		if !exists {
@@ -112,10 +111,6 @@ func (service *Service) captureRuntimeHealthObservation() (
 		}
 		if bucket == healthBucketBlacklisted && blacklistedDetails < healthProblemCredentialDetailLimit {
 			blacklistedDetails++
-			needsIdentity = true
-		}
-		if hasModelCooldown(key.ModelCooldowns, observedAt) && modelCooldownDetails < healthProblemCredentialDetailLimit {
-			modelCooldownDetails++
 			needsIdentity = true
 		}
 		if !needsIdentity {

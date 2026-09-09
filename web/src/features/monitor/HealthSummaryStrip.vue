@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 
 import type { HealthCredentialCountsDto } from '@/app/resources/health'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
 import type { StatusTone } from '@/components/ui/status-presenter'
 
 interface CooldownRecovery {
@@ -93,27 +92,10 @@ const items = computed<HealthOverviewItem[]>(() => [
       </AppTooltip>
       <span v-else class="health-overview__detail">{{ item.detail }}</span>
     </article>
-    <div v-if="counts.model_cooldown > 0" class="health-overview__model-cooldown">
-      <StatusBadge tone="warning" size="compact">{{
-        t('group.credentials.modelCooldown.credentialCount', { count: n(counts.model_cooldown) })
-      }}</StatusBadge>
-      <span>{{ t('group.credentials.modelCooldown.hint') }}</span>
-    </div>
   </section>
 </template>
 
 <style scoped>
-.health-overview__model-cooldown {
-  display: flex;
-  grid-column: 1 / -1;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 12px 18px;
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
-}
 .health-overview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

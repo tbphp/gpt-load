@@ -785,9 +785,6 @@ func summarizeGroupRuntimeCredentials(
 			continue
 		}
 		summary.Total++
-		if hasModelCooldown(view.ModelCooldowns, observedAt) {
-			summary.ModelCooldown++
-		}
 		switch classifyHealthKey(groupView, view, observedAt) {
 		case healthBucketAvailable:
 			summary.Available++

@@ -381,7 +381,6 @@ export default {
         count: 'Model cooldown · {count}',
         credentialCount: 'Model cooldown · {count} credentials',
         until: 'Available after',
-        hint: 'Only the affected models are limited; credential status is shown separately.',
       },
       title: 'Keys',
       description: 'Review status, scheduling weight, and recent results',

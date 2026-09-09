@@ -43,11 +43,10 @@ type CredentialRevealResult struct {
 }
 
 type CredentialCollectionQuery struct {
-	Query         string
-	Status        *string
-	ModelCooldown bool
-	Page          int
-	PageSize      int
+	Query    string
+	Status   *string
+	Page     int
+	PageSize int
 }
 
 type CredentialCollectionResponse struct {
@@ -59,12 +58,11 @@ type CredentialCollectionResponse struct {
 }
 
 type CredentialSummaryResponse struct {
-	Total         int `json:"total"`
-	Available     int `json:"available"`
-	Cooldown      int `json:"cooldown"`
-	Blacklisted   int `json:"blacklisted"`
-	Disabled      int `json:"disabled"`
-	ModelCooldown int `json:"model_cooldown"`
+	Total       int `json:"total"`
+	Available   int `json:"available"`
+	Cooldown    int `json:"cooldown"`
+	Blacklisted int `json:"blacklisted"`
+	Disabled    int `json:"disabled"`
 }
 
 type CredentialAccountResponse struct {
@@ -468,9 +466,6 @@ func (s *Service) mapCredentialCollection(
 func summarizeCredentialCollection(records []credentialCollectionRecord) CredentialSummaryResponse {
 	summary := CredentialSummaryResponse{Total: len(records)}
 	for _, record := range records {
-		if len(record.item.ModelCooldowns) > 0 {
-			summary.ModelCooldown++
-		}
 		switch record.bucket {
 		case healthBucketAvailable:
 			summary.Available++
@@ -487,9 +482,6 @@ func summarizeCredentialCollection(records []credentialCollectionRecord) Credent
 
 func credentialCollectionMatches(record credentialCollectionRecord, query CredentialCollectionQuery) bool {
 	if query.Status != nil && record.item.EffectiveStatus != *query.Status {
-		return false
-	}
-	if query.ModelCooldown && len(record.item.ModelCooldowns) == 0 {
 		return false
 	}
 	if query.Query == "" {

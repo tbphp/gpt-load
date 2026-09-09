@@ -369,7 +369,6 @@ export default {
         count: '模型冷却 · {count}',
         credentialCount: '模型冷却 · {count} 个凭据',
         until: '恢复时间',
-        hint: '仅影响对应模型，凭据基础状态独立显示',
       },
       title: '密钥',
       description: '查看状态、调度权重和最近结果',

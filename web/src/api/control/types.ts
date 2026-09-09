@@ -346,7 +346,6 @@ export interface CredentialTestResultDto {
 }
 
 export interface CredentialSummaryDto {
-  model_cooldown: number
   total: number
   available: number
   cooldown: number
@@ -370,7 +369,6 @@ export interface CredentialCollectionDto {
 }
 
 export interface CredentialCollectionFilters {
-  model_cooldown?: true
   q?: string
   status?: CredentialStatus
   page: number
@@ -402,7 +400,6 @@ export interface CredentialCounts {
 }
 
 export interface HealthCredentialCountsDto {
-  model_cooldown: number
   credentials: number
   available: number
   cooldown: number
@@ -413,7 +410,7 @@ export interface HealthGroupDto {
   id: number
   name: string
   enabled: boolean
-  counts: HealthCredentialCountsDto
+  counts: HealthCredentialCountsDto & { model_cooldown: number }
 }
 
 export interface HealthRecoveryDto {
@@ -459,16 +456,7 @@ export interface RequestLogHealthDto {
   last_retention_failure_at_ms: number | null
 }
 
-export interface HealthModelCooldownCredentialDto {
-  credential_id: number
-  group_id: number
-  group_name: string
-  identity: string
-  model_cooldowns: ModelCooldownDto[]
-}
-
 export interface RuntimeHealthDto {
-  model_cooldown_credentials: HealthModelCooldownCredentialDto[]
   observed_at_ms: number
   version: string
   uptime_seconds: number

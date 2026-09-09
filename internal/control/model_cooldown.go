@@ -10,14 +10,6 @@ type ModelCooldownResponse struct {
 	CooldownUntilMS int64  `json:"cooldown_until_ms"`
 }
 
-type healthModelCooldownCredentialResponse struct {
-	CredentialID   uint                    `json:"credential_id"`
-	GroupID        uint                    `json:"group_id"`
-	GroupName      string                  `json:"group_name"`
-	Identity       string                  `json:"identity"`
-	ModelCooldowns []ModelCooldownResponse `json:"model_cooldowns"`
-}
-
 func hasModelCooldown(limits map[string]time.Time, now time.Time) bool {
 	for _, until := range limits {
 		if until.After(now) {
