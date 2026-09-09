@@ -580,6 +580,15 @@ export default {
         from: '开始时间',
         to: '结束时间',
         quickRanges: '快捷时间范围',
+        quickDisplay: {
+          '1h': '最近 1 小时',
+          '6h': '最近 6 小时',
+          '24h': '最近 24 小时',
+          '3d': '最近 3 天',
+          '7d': '最近 7 天',
+          '15d': '最近 15 天',
+          '30d': '最近 30 天',
+        },
         quick: {
           today: '今天',
           yesterday: '昨天',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ListFilter, RefreshCw } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -13,7 +13,12 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppDateTimeRangePicker from '@/components/ui/AppDateTimeRangePicker.vue'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
-import { localDateTimeInput, parseLocalDateTime, type DateTimePreset } from '@/lib/time'
+import {
+  localDateTimeInput,
+  parseLocalDateTime,
+  resolveDateTimePreset,
+  type DateTimePreset,
+} from '@/lib/time'
 import { parseAppliedLogFilters } from './log-filters'
 import { useAuthSession } from '@/features/auth/auth-session'
 
@@ -83,12 +88,38 @@ const items = computed<AppTabItem[]>(() => {
         { value: 'inspector', label: t('monitor.tabs.inspector') },
       ]
 })
+const routeUsageFilters = computed(() => parseAppliedUsageFilters(route.query))
+const routeLogFilters = computed(() => parseAppliedLogFilters(route.query))
+const routeTimeFilters = computed(() =>
+  activeTab.value === 'logs' ? routeLogFilters.value : routeUsageFilters.value,
+)
+const resolvedTimeRange = ref<{ from_ms: number; to_ms: number; preset?: DateTimePreset }>()
+
+// 快捷范围只在进入页面、切换快捷项或显式刷新时解析，筛选和翻页共用同一区间。
+watch(
+  () => {
+    if (activeTab.value !== 'logs' && activeTab.value !== 'usage') return undefined
+    const filters = routeTimeFilters.value
+    return filters.preset ?? `${filters.from_ms}:${filters.to_ms}`
+  },
+  (selection) => {
+    if (selection === undefined) {
+      resolvedTimeRange.value = undefined
+      return
+    }
+    const { from_ms, to_ms, preset } = routeTimeFilters.value
+    if (preset && resolvedTimeRange.value?.preset === preset) return
+    resolvedTimeRange.value = { from_ms, to_ms, preset }
+  },
+  { immediate: true },
+)
+
 const usageFilters = computed(() => {
-  const filters = parseAppliedUsageFilters(route.query)
+  const filters = { ...routeUsageFilters.value, ...resolvedTimeRange.value }
   return isAccessKey.value ? scopeAccessKeyUsageFilters(filters) : filters
 })
 const logFilters = computed(() => {
-  const filters = parseAppliedLogFilters(route.query)
+  const filters = { ...routeLogFilters.value, ...resolvedTimeRange.value }
   return isAccessKey.value ? scopeAccessKeyLogFilters(filters) : filters
 })
 const timeFilters = computed(() =>
@@ -216,6 +247,14 @@ async function refreshData(): Promise<void> {
   if (!current || pending.value) return
   pending.value = true
   try {
+    const preset = timeFilters.value.preset
+    if (preset) {
+      const interval = resolveDateTimePreset(preset, Math.floor(Date.now() / 1000) * 1000)
+      if (interval.to_ms > interval.from_ms) {
+        resolvedTimeRange.value = { ...interval, preset }
+        await nextTick()
+      }
+    }
     await current.refresh()
   } finally {
     pending.value = false
@@ -242,6 +281,7 @@ function applyCustomTime(): void {
 }
 
 function applyTimeRange(from: number, to: number, preset?: DateTimePreset): void {
+  resolvedTimeRange.value = { from_ms: from, to_ms: to, preset }
   if (activeTab.value === 'logs') {
     void router.push(
       monitorLocation(logsMonitorQuery({ ...logFilters.value, from_ms: from, to_ms: to, preset })),
@@ -304,6 +344,7 @@ function applyTimeRange(from: number, to: number, preset?: DateTimePreset): void
               v-model:preset="timeDraft.preset"
               :applied-from="localDateTimeInput(timeFilters.from_ms)"
               :applied-to="localDateTimeInput(timeFilters.to_ms)"
+              :applied-preset="timeFilters.preset"
               :label="t('monitor.usage.filters.range')"
               :from-label="t('monitor.logs.filters.from')"
               :to-label="t('monitor.logs.filters.to')"
@@ -344,10 +385,10 @@ function applyTimeRange(from: number, to: number, preset?: DateTimePreset): void
             <HealthTab ref="healthTab" />
           </div>
           <div v-else-if="activeTab === 'logs'" class="monitor-panel">
-            <LogsTab ref="logsTab" />
+            <LogsTab ref="logsTab" :filters="logFilters" />
           </div>
           <div v-else-if="activeTab === 'usage'" class="monitor-panel">
-            <UsageTab ref="usageTab" />
+            <UsageTab ref="usageTab" :filters="usageFilters" />
           </div>
           <div v-else class="monitor-panel">
             <InspectorTab />

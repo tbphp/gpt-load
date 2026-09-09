@@ -122,11 +122,14 @@ export function usageMonitorQuery(
 ): LocationQueryRaw {
   const normalized: LocationQueryRaw = {
     tab: 'usage',
-    from_ms: String(filters.from_ms),
-    to_ms: String(filters.to_ms),
     metric: state.metric,
   }
-  if (filters.preset) normalized.preset = filters.preset
+  if (filters.preset) {
+    normalized.preset = filters.preset
+  } else {
+    normalized.from_ms = String(filters.from_ms)
+    normalized.to_ms = String(filters.to_ms)
+  }
   const accessKeyID = normalizeUsageGroupID(filters.access_key_id)
   const groupID = normalizeUsageGroupID(filters.group_id)
   const channelID = normalizeUsageChannelID(filters.channel_id)

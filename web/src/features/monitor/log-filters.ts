@@ -354,6 +354,7 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): AppliedL
 export function serializeAppliedLogFilters(filters: AppliedLogFilters): LocationQueryRaw {
   const query: LocationQueryRaw = { tab: 'logs' }
   for (const field of requestLogFilterFields) {
+    if (filters.preset && (field === 'from_ms' || field === 'to_ms')) continue
     const value = filters[field]
     if (value !== undefined) query[field] = String(value)
   }

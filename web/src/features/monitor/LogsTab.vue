@@ -30,13 +30,11 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatISOInstant, formatLocalInstantWithSeconds } from '@/lib/format'
-import { resolveDateTimePreset } from '@/lib/time'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import {
   applyLogFilterDraft,
   createLogFilterDraft,
-  parseAppliedLogFilters,
   serializeAppliedLogFilters,
   validateLogFilterDraft,
   type AppliedLogFilters,
@@ -67,6 +65,7 @@ import {
   type LogsMonitorState,
 } from './monitor-route'
 
+const props = defineProps<{ filters: AppliedLogFilters }>()
 const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
@@ -75,7 +74,7 @@ const { locale, t } = useI18n()
 const logPageSizes = [20, 50, 100] as const
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
 const appliedFilters = computed(() => {
-  const filters = parseAppliedLogFilters(route.query)
+  const filters = props.filters
   return isAccessKey.value ? scopeAccessKeyLogFilters(filters) : filters
 })
 const routeState = computed(() => parseLogsMonitorState(route.query))
@@ -138,7 +137,11 @@ const logsRefreshing = computed(
 const currentPage = computed(() => routeState.value.cursorHistory.length + 1)
 const paginationBusy = computed(() => paginationPending.value || logsQuery.isFetching.value)
 const filterSignature = computed(() =>
-  JSON.stringify(serializeAppliedLogFilters(appliedFilters.value)),
+  JSON.stringify([
+    serializeAppliedLogFilters(appliedFilters.value),
+    appliedFilters.value.from_ms,
+    appliedFilters.value.to_ms,
+  ]),
 )
 const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
   'channel_id',
@@ -340,7 +343,7 @@ function updateDraftField(field: keyof LogFilterDraft, value: string): void {
 async function commitFilters(filters: AppliedLogFilters): Promise<void> {
   if (isAccessKey.value) filters = scopeAccessKeyLogFilters(filters)
   const serialized = serializeAppliedLogFilters(filters)
-  const nextSignature = JSON.stringify(serialized)
+  const nextSignature = JSON.stringify([serialized, filters.from_ms, filters.to_ms])
   draft.value = createLogFilterDraft(filters)
   draftBeforeAdvanced = undefined
   filterErrors.value = {}
@@ -464,14 +467,9 @@ function openFilters(): void {
 }
 
 async function refresh(): Promise<void> {
-  let filters = appliedFilters.value
-  if (filters.preset) {
-    const interval = resolveDateTimePreset(filters.preset, Math.floor(Date.now() / 1000) * 1000)
-    if (interval.to_ms > interval.from_ms) filters = { ...filters, ...interval }
-  }
   paginationPending.value = false
   pageTransitionOrigin.value = null
-  await router.replace(monitorLocation(logsMonitorQuery(filters)))
+  await router.replace(monitorLocation(logsMonitorQuery(appliedFilters.value)))
   await nextTick()
   await Promise.all([
     logsQuery.refetch({ cancelRefetch: false }),

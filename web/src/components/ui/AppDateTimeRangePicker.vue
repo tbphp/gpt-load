@@ -13,13 +13,13 @@ import {
 import AppButton from './AppButton.vue'
 import AppPopover from './AppPopover.vue'
 import FormField from './FormField.vue'
-import OverflowTooltip from './OverflowTooltip.vue'
 
 const props = defineProps<{
   from: string
   to: string
   appliedFrom?: string
   appliedTo?: string
+  appliedPreset?: DateTimePreset
   label: string
   fromLabel: string
   toLabel: string
@@ -41,10 +41,18 @@ const { t } = useI18n()
 const open = ref(false)
 const fieldID = useId()
 
-const display = computed(
+const rangeDisplay = computed(
   () =>
     `${displayValue(props.appliedFrom ?? props.from)} → ${displayValue(props.appliedTo ?? props.to)}`,
 )
+const display = computed(() => {
+  const preset = props.appliedPreset
+  if (!preset) return rangeDisplay.value
+  if (preset === 'today' || preset === 'yesterday') {
+    return t(`monitor.logs.filters.quick.${preset}`)
+  }
+  return t(`monitor.logs.filters.quickDisplay.${preset}`)
+})
 
 function changeOpen(value: boolean): void {
   open.value = value
@@ -92,6 +100,7 @@ function apply(): void {
   <AppPopover
     :open="open"
     align="start"
+    :tooltip="rangeDisplay"
     :content-class="
       applyLabel
         ? 'app-date-range-popover app-date-range-popover--with-apply'
@@ -102,14 +111,13 @@ function apply(): void {
     <template #trigger>
       <AppButton
         class="app-date-range__trigger"
+        :class="{ 'app-date-range__trigger--custom': !appliedPreset }"
         variant="secondary"
         size="compact"
-        :aria-label="label"
+        :aria-label="`${label}: ${display}`"
       >
         <CalendarClock :size="14" aria-hidden="true" />
-        <OverflowTooltip as="span" :content="display" :focusable="false">
-          {{ display }}
-        </OverflowTooltip>
+        <span>{{ display }}</span>
       </AppButton>
     </template>
 
@@ -191,9 +199,12 @@ function apply(): void {
 
 .app-date-range__trigger > span {
   overflow: hidden;
-  font-family: var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.app-date-range__trigger--custom > span {
+  font-family: var(--font-mono);
 }
 
 .app-date-range-popover {

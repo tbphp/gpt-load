@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 
+import AppTooltip from './AppTooltip.vue'
+
 const open = defineModel<boolean>('open', { default: false })
 
 withDefaults(
@@ -8,11 +10,13 @@ withDefaults(
     align?: 'start' | 'center' | 'end'
     side?: 'top' | 'right' | 'bottom' | 'left'
     contentClass?: string
+    tooltip?: string
   }>(),
   {
     align: 'end',
     side: 'bottom',
     contentClass: undefined,
+    tooltip: undefined,
   },
 )
 </script>
@@ -20,7 +24,12 @@ withDefaults(
 <template>
   <span class="app-popover">
     <PopoverRoot v-model:open="open" :modal="false">
-      <PopoverTrigger as-child>
+      <AppTooltip v-if="tooltip" :content="tooltip" :disabled="open">
+        <PopoverTrigger as-child>
+          <slot name="trigger" />
+        </PopoverTrigger>
+      </AppTooltip>
+      <PopoverTrigger v-else as-child>
         <slot name="trigger" />
       </PopoverTrigger>
       <PopoverPortal>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { Database } from '@lucide/vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -35,7 +35,6 @@ import {
   formatTokens,
   formatLocalTimeRange,
 } from '@/lib/format'
-import { resolveDateTimePreset } from '@/lib/time'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
@@ -44,7 +43,6 @@ import UsageDistribution from './UsageDistribution.vue'
 import {
   applyUsageFilterDraft,
   createUsageFilterDraft,
-  parseAppliedUsageFilters,
   validateUsageFilterDraft,
   type AppliedUsageFilters,
   type UsageFilterDraft,
@@ -61,6 +59,7 @@ import {
 import UsageFilterForm from './UsageFilterForm.vue'
 import UsageSummary from './UsageSummary.vue'
 
+const props = defineProps<{ filters: AppliedUsageFilters }>()
 const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
@@ -68,7 +67,7 @@ const router = useRouter()
 const { locale, t } = useI18n()
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
 const appliedFilters = computed(() => {
-  const filters = parseAppliedUsageFilters(route.query)
+  const filters = props.filters
   return isAccessKey.value ? scopeAccessKeyUsageFilters(filters) : filters
 })
 const routeState = computed(() => parseUsageMonitorState(route.query))
@@ -428,16 +427,6 @@ function setSeriesExpanded(event: Event): void {
 }
 
 async function refresh(): Promise<void> {
-  const filters = appliedFilters.value
-  if (filters.preset) {
-    const interval = resolveDateTimePreset(filters.preset, Math.floor(Date.now() / 1000) * 1000)
-    if (interval.to_ms > interval.from_ms) {
-      await router.replace(
-        monitorLocation(usageMonitorQuery({ ...filters, ...interval }, routeState.value)),
-      )
-      await nextTick()
-    }
-  }
   await Promise.all([
     usageQuery.refetch({ cancelRefetch: false }),
     ...(!isAccessKey.value
