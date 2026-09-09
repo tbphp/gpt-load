@@ -11,7 +11,6 @@ const props = defineProps<{ value?: string }>()
 const emit = defineEmits<{ close: [] }>()
 
 const { t } = useI18n()
-const textarea = ref<HTMLTextAreaElement>()
 const pending = ref(false)
 const state = ref<'idle' | 'success' | 'failure'>('idle')
 let attempt = 0
@@ -33,13 +32,23 @@ async function copyValue(): Promise<void> {
   pending.value = true
   state.value = 'idle'
   try {
-    const copied = await copyText(props.value, textarea.value, () => currentAttempt === attempt)
+    const copied = await copyText(props.value, undefined, () => currentAttempt === attempt)
     if (currentAttempt === attempt) state.value = copied ? 'success' : 'failure'
   } catch {
     if (currentAttempt === attempt) state.value = 'failure'
   } finally {
     if (currentAttempt === attempt) pending.value = false
   }
+}
+
+function preserveMultilineCopy(event: ClipboardEvent): void {
+  const value = props.value
+  if (value === undefined || !/[\r\n]/.test(value) || !event.clipboardData) return
+  const input = event.target as HTMLInputElement
+  if (input.selectionStart !== 0 || input.selectionEnd !== input.value.length) return
+  // 单行输入框会移除换行，全选手动复制时仍保留原始配置。
+  event.clipboardData.setData('text/plain', value)
+  event.preventDefault()
 }
 
 watch(() => props.value, reset, { flush: 'sync' })
@@ -58,13 +67,14 @@ onBeforeUnmount(reset)
       <div class="copy-fallback">
         <label class="copy-fallback__field">
           <span>{{ t('common.copyFallback.valueLabel') }}</span>
-          <textarea
-            ref="textarea"
+          <input
             class="copy-fallback__value"
+            type="text"
             :value="value"
-            rows="4"
             readonly
+            autocomplete="off"
             spellcheck="false"
+            @copy="preserveMultilineCopy"
           />
         </label>
         <InlineFeedback v-if="state === 'success'" tone="success">
@@ -97,13 +107,12 @@ onBeforeUnmount(reset)
 
 .copy-fallback__value {
   width: 100%;
-  max-height: 280px;
-  resize: vertical;
+  min-height: var(--control-md);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface-sunken);
   color: var(--color-text);
-  padding: var(--space-3);
+  padding: 0 var(--space-3);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: var(--line-normal);
