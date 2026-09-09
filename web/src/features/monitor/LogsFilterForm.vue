@@ -235,8 +235,19 @@ function applyAdvanced(): void {
 }
 
 .logs-filter__row {
+  --logs-filter-control-height: var(--control-compact);
   flex-wrap: wrap;
   padding: 10px;
+}
+
+.logs-filter__row :deep(.app-text-input) {
+  min-height: var(--logs-filter-control-height);
+  height: var(--logs-filter-control-height);
+}
+
+.logs-filter__row :deep(.app-text-input input) {
+  min-height: 0;
+  height: 100%;
 }
 
 .logs-filter__group {
@@ -287,6 +298,10 @@ function applyAdvanced(): void {
 }
 
 @media (max-width: 860px) {
+  .logs-filter__row {
+    --logs-filter-control-height: var(--touch-target);
+  }
+
   .logs-filter__row > :deep(.app-button),
   .logs-filter__row > :deep(.app-select__trigger),
   .logs-filter__access-key :deep(.app-button) {

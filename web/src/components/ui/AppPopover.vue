@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
+import { PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 
 import AppTooltip from './AppTooltip.vue'
 
@@ -24,11 +24,16 @@ withDefaults(
 <template>
   <span class="app-popover">
     <PopoverRoot v-model:open="open" :modal="false">
-      <AppTooltip v-if="tooltip" :content="tooltip" :disabled="open">
-        <PopoverTrigger as-child>
-          <slot name="trigger" />
-        </PopoverTrigger>
-      </AppTooltip>
+      <!-- Tooltip 有独立的定位上下文，弹层锚点必须放在它外面。 -->
+      <PopoverAnchor v-if="tooltip" as-child>
+        <span class="app-popover__anchor">
+          <AppTooltip :content="tooltip" :disabled="open">
+            <PopoverTrigger as-child>
+              <slot name="trigger" />
+            </PopoverTrigger>
+          </AppTooltip>
+        </span>
+      </PopoverAnchor>
       <PopoverTrigger v-else as-child>
         <slot name="trigger" />
       </PopoverTrigger>
@@ -51,6 +56,12 @@ withDefaults(
 <style>
 .app-popover {
   display: inline-flex;
+}
+
+.app-popover__anchor {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1;
 }
 
 .app-popover__content {
