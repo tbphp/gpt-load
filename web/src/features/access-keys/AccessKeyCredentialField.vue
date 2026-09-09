@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { Eye, EyeOff } from '@lucide/vue'
+import { Dice5, Eye, EyeOff } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import AppTextInput from '@/components/ui/AppTextInput.vue'
-import AppButton from '@/components/ui/AppButton.vue'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 
 import { estimateAccessKeyStrength, isValidCustomAccessKey } from './access-key-strength'
@@ -65,48 +65,64 @@ defineExpose({ focus })
         {{ t('accessKeys.customKey.label') }}
         <small>{{ t('accessKeys.drawer.optional') }}</small>
       </label>
-      <AppButton variant="link" size="inline" :disabled="disabled" @click="generateKey">
-        {{ t('accessKeys.customKey.generate') }}
-      </AppButton>
     </div>
     <small v-if="editing && currentMask">
       {{ t('accessKeys.customKey.current') }} <code>{{ currentMask }}</code>
     </small>
-    <AppTextInput
-      id="access-key-custom-value"
-      ref="input"
-      :model-value="modelValue"
-      :label="t('accessKeys.customKey.label')"
-      :type="visible ? 'text' : 'password'"
-      :placeholder="
-        t(editing ? 'accessKeys.customKey.editPlaceholder' : 'accessKeys.customKey.placeholder')
-      "
-      :disabled="disabled"
-      :invalid="invalid || !!error"
-      :spellcheck="false"
-      autocomplete="new-password"
-      autocapitalize="none"
-      described-by="access-key-custom-description"
+    <div
+      class="access-key-credential__input-group"
+      :class="{ 'access-key-credential__input-group--invalid': invalid || !!error }"
+      data-input-shell
+      role="group"
       aria-labelledby="access-key-custom-label"
-      appearance="surface"
-      size="compact"
-      monospace
-      @update:model-value="emit('update:modelValue', $event)"
     >
-      <template #trailing>
+      <AppTextInput
+        id="access-key-custom-value"
+        ref="input"
+        :model-value="modelValue"
+        :label="t('accessKeys.customKey.label')"
+        :type="visible ? 'text' : 'password'"
+        :placeholder="
+          t(editing ? 'accessKeys.customKey.editPlaceholder' : 'accessKeys.customKey.placeholder')
+        "
+        :disabled="disabled"
+        :invalid="invalid || !!error"
+        :spellcheck="false"
+        autocomplete="new-password"
+        autocapitalize="none"
+        described-by="access-key-custom-description"
+        aria-labelledby="access-key-custom-label"
+        appearance="surface"
+        size="compact"
+        monospace
+        @update:model-value="emit('update:modelValue', $event)"
+      >
+        <template #trailing>
+          <IconButton
+            variant="ghost"
+            size="compact"
+            :disabled="disabled"
+            :label="t(visible ? 'accessKeys.customKey.hide' : 'accessKeys.customKey.show')"
+            :aria-pressed="visible"
+            @click="visible = !visible"
+          >
+            <EyeOff v-if="visible" :size="15" aria-hidden="true" />
+            <Eye v-else :size="15" aria-hidden="true" />
+          </IconButton>
+        </template>
+      </AppTextInput>
+      <AppTooltip :content="t('accessKeys.customKey.generate')" :disabled="disabled">
         <IconButton
-          variant="ghost"
+          class="access-key-credential__generate"
           size="compact"
           :disabled="disabled"
-          :label="t(visible ? 'accessKeys.customKey.hide' : 'accessKeys.customKey.show')"
-          :aria-pressed="visible"
-          @click="visible = !visible"
+          :label="t('accessKeys.customKey.generate')"
+          @click="generateKey"
         >
-          <EyeOff v-if="visible" :size="15" aria-hidden="true" />
-          <Eye v-else :size="15" aria-hidden="true" />
+          <Dice5 :size="16" aria-hidden="true" />
         </IconButton>
-      </template>
-    </AppTextInput>
+      </AppTooltip>
+    </div>
     <div
       id="access-key-custom-description"
       class="access-key-credential__description"
@@ -161,6 +177,37 @@ defineExpose({ focus })
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 560;
+}
+.access-key-credential__input-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+.access-key-credential__input-group--invalid {
+  border-color: var(--color-danger);
+}
+.access-key-credential__input-group :deep(.app-text-input) {
+  border: 0;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+}
+.access-key-credential__input-group :deep(.app-text-input[data-input-shell]:focus-within) {
+  outline: 0;
+  box-shadow: none;
+}
+.access-key-credential__generate {
+  height: 100%;
+  align-self: stretch;
+  border: 0;
+  border-left: 1px solid var(--color-border-subtle);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+@media (max-width: 860px) {
+  .access-key-credential__generate {
+    width: var(--touch-target);
+  }
 }
 .access-key-credential small {
   color: var(--color-text-faint);
