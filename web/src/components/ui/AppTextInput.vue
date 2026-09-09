@@ -10,7 +10,7 @@ const props = withDefaults(
   defineProps<{
     modelValue: string
     label: string
-    type?: 'text' | 'number'
+    type?: 'text' | 'number' | 'password'
     id?: string
     placeholder?: string
     disabled?: boolean
@@ -87,6 +87,7 @@ defineExpose({ focus })
       :class="{ 'app-text-input__input--mono': monospace }"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
+    <slot name="trailing" />
     <IconButton
       v-if="clearLabel && modelValue"
       variant="ghost"

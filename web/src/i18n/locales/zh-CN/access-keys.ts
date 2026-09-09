@@ -1,5 +1,27 @@
 export default {
   accessKeys: {
+    customKey: {
+      label: '访问密钥',
+      placeholder: '留空由系统自动生成',
+      automaticHint: '将自动生成随机密钥。',
+      show: '显示密钥',
+      hide: '隐藏密钥',
+      strength: '强度：{level}',
+      weak: '弱',
+      fair: '一般',
+      strong: '较强',
+      estimate: '仅供参考',
+      weakHint: '建议增加长度，避免连续或重复字符。',
+      invalid: '密钥最多 256 个字符，仅支持英文字母、数字和英文符号，不允许空白。',
+      duplicate: '此访问密钥已存在，请使用其他密钥。',
+      adminConflict: '不能使用管理员密钥作为访问密钥。',
+      warningTitle: '仍要使用弱密钥？',
+      warningDescription:
+        '该密钥容易被猜测，可能导致未经授权的调用和额度消耗。建议修改密钥，或清空输入以自动生成。',
+      warningClose: '关闭弱密钥提示',
+      returnToEdit: '返回修改',
+      createAnyway: '仍然创建',
+    },
     distribution: {
       sort: '排序',
       expiration: '有效期',

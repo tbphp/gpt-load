@@ -57,6 +57,8 @@ defineExpose({ focusName })
       />
     </div>
 
+    <slot name="credential" />
+
     <div class="access-key-drawer__field">
       <span class="access-key-drawer__field-label" aria-hidden="true">
         {{ t('common.priceMultiplier.label') }}

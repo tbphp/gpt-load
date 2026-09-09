@@ -1,5 +1,27 @@
 export default {
   accessKeys: {
+    customKey: {
+      label: 'Access key',
+      placeholder: 'Leave blank to generate automatically',
+      automaticHint: 'A random key will be generated automatically.',
+      show: 'Show key',
+      hide: 'Hide key',
+      strength: 'Strength: {level}',
+      weak: 'Weak',
+      fair: 'Fair',
+      strong: 'Stronger',
+      estimate: 'Estimate only',
+      weakHint: 'Use a longer key and avoid sequences or repeated characters.',
+      invalid: 'Use up to 256 visible ASCII characters without spaces or control characters.',
+      duplicate: 'This access key already exists. Use a different key.',
+      adminConflict: 'The administrator key cannot be used as an access key.',
+      warningTitle: 'Use a weak key anyway?',
+      warningDescription:
+        'This key is easy to guess and may allow unauthorized requests and quota consumption. Consider changing it or leaving the field blank to generate a random key.',
+      warningClose: 'Close weak key warning',
+      returnToEdit: 'Edit key',
+      createAnyway: 'Create anyway',
+    },
     distribution: {
       sort: 'Sort',
       expiration: 'Expiration',

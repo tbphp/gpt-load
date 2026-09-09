@@ -60,7 +60,7 @@ func (s *Service) EnsureInitialState(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("build default access key filters: %w", err)
 				}
-				row, _, err := s.newAccessKeyRow("Default", filters, 0)
+				row, _, err := s.newAccessKeyRow("Default", filters, 0, "")
 				if err != nil {
 					return err
 				}

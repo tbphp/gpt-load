@@ -137,6 +137,7 @@ func (value *OptionalRPMLimit) UnmarshalJSON(data []byte) error {
 }
 
 type AccessKeyCreateRequest struct {
+	Key             string                          `json:"key"`
 	PriceMultiplier optionalField[string]           `json:"price_multiplier"`
 	Name            string                          `json:"name"`
 	Status          *state.AccessKeyStatus          `json:"status"`
@@ -220,12 +221,13 @@ func (s *Service) newAccessKeyRow(
 	name string,
 	filters AccessKeyFilters,
 	rpmLimit int64,
+	customKey string,
 ) (models.AccessKey, string, error) {
 	encodedFilters, err := encodeStoredAccessKeyFilters(filters)
 	if err != nil {
 		return models.AccessKey{}, "", fmt.Errorf("encode access key filters: %w", err)
 	}
-	credential, err := s.generateAccessKeyCredential()
+	credential, err := s.prepareAccessKeyCredential(customKey)
 	if err != nil {
 		return models.AccessKey{}, "", err
 	}
@@ -241,20 +243,34 @@ func (s *Service) newAccessKeyRow(
 }
 
 func (s *Service) generateAccessKeyCredential() (generatedAccessKeyCredential, error) {
-	randomBytes := make([]byte, 16)
-	if _, err := io.ReadFull(s.random, randomBytes); err != nil {
-		return generatedAccessKeyCredential{}, fmt.Errorf("generate access key: %w", err)
+	return s.prepareAccessKeyCredential("")
+}
+
+func (s *Service) prepareAccessKeyCredential(plaintext string) (generatedAccessKeyCredential, error) {
+	if plaintext == "" {
+		randomBytes := make([]byte, 16)
+		if _, err := io.ReadFull(s.random, randomBytes); err != nil {
+			return generatedAccessKeyCredential{}, fmt.Errorf("generate access key: %w", err)
+		}
+		plaintext = accessKeyPrefix + hex.EncodeToString(randomBytes)
 	}
-	plaintext := accessKeyPrefix + hex.EncodeToString(randomBytes)
+	if !validAccessKeyPlaintext(plaintext) {
+		return generatedAccessKeyCredential{}, app_errors.ErrInvalidCustomAccessKey
+	}
 	ciphertext, err := s.encryption.Encrypt(plaintext)
 	if err != nil {
 		return generatedAccessKeyCredential{}, fmt.Errorf("encrypt access key: %w", err)
+	}
+	// 短密钥全部隐藏，避免尾号披露全部或大部分凭据。
+	suffix := "****"
+	if len(plaintext) > 8 {
+		suffix = plaintext[len(plaintext)-4:]
 	}
 	return generatedAccessKeyCredential{
 		Plaintext: plaintext,
 		KeyValue:  ciphertext,
 		KeyHash:   s.encryption.Hash(plaintext),
-		KeySuffix: plaintext[len(plaintext)-4:],
+		KeySuffix: suffix,
 	}, nil
 }
 
@@ -301,7 +317,7 @@ func (s *Service) CreateAccessKey(
 		if err := validateFilterGroupReferences(tx, filters.Groups); err != nil {
 			return err
 		}
-		row, plaintext, err := s.newAccessKeyRow(name, filters, rpmLimit)
+		row, plaintext, err := s.newAccessKeyRow(name, filters, rpmLimit, request.Key)
 		if err != nil {
 			return err
 		}
@@ -616,28 +632,22 @@ func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error
 }
 
 func maskedAccessKey(suffix string) string {
-	return accessKeyPrefix + "****" + suffix
+	return "****" + suffix
 }
 
 func validAccessKeySuffix(value string) bool {
 	if len(value) != 4 {
 		return false
 	}
-	for _, character := range []byte(value) {
-		if character < '0' || character > '9' && character < 'a' || character > 'f' {
-			return false
-		}
-	}
-	return true
+	return validAccessKeyPlaintext(value)
 }
 
 func validAccessKeyPlaintext(value string) bool {
-	if len(value) != len(accessKeyPrefix)+32 ||
-		!strings.HasPrefix(value, accessKeyPrefix) {
+	if len(value) == 0 || len(value) > 256 {
 		return false
 	}
-	for _, character := range []byte(strings.TrimPrefix(value, accessKeyPrefix)) {
-		if character < '0' || character > '9' && character < 'a' || character > 'f' {
+	for _, character := range []byte(value) {
+		if character < '!' || character > '~' {
 			return false
 		}
 	}

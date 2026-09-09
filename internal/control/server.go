@@ -886,6 +886,13 @@ func (s *Server) handleCreateAccessKey(c *gin.Context) {
 		writeServiceError(c, "create_access_key", mapControlJSONError(err))
 		return
 	}
+	if request.Key != "" {
+		digest := sha256.Sum256([]byte(request.Key))
+		if s.compareDigest(digest[:], s.authDigest[:]) == 1 {
+			writeServiceError(c, "create_access_key", app_errors.ErrAccessKeyAdminConflict)
+			return
+		}
+	}
 	result, err := s.service.CreateAccessKeyIdempotent(
 		c.Request.Context(),
 		idempotencyKey,
@@ -1215,7 +1222,14 @@ func serviceErrorMessageID(
 		}
 	case app_errors.ErrNoActiveCredential.Code:
 		return "group.no_active_credential"
+	case app_errors.ErrInvalidCustomAccessKey.Code:
+		return "access_key.custom_invalid"
+	case app_errors.ErrAccessKeyAdminConflict.Code:
+		return "access_key.admin_conflict"
 	case app_errors.ErrDuplicateResource.Code:
+		if operation == "create_access_key" {
+			return "access_key.exists"
+		}
 		if operation == "create_group" || operation == "update_group_settings" {
 			return "group.name_exists"
 		}

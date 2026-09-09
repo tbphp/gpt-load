@@ -2,6 +2,9 @@ package locales
 
 // MessagesJaJP contains Japanese control-plane translations.
 var MessagesJaJP = map[string]string{
+	"access_key.custom_invalid":                  "空白や制御文字を含まない、256 文字以内の表示可能な ASCII 文字を使用してください。",
+	"access_key.admin_conflict":                  "管理者キーをアクセスキーとして使用することはできません。",
+	"access_key.exists":                          "このアクセスキーは既に存在します。別のキーを使用してください。",
 	"common.success":                             "成功",
 	"route.not_found":                            "ルートが見つかりません",
 	"route.method_not_allowed":                   "許可されていないHTTPメソッドです",

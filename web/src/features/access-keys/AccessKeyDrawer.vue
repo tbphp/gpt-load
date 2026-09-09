@@ -12,11 +12,12 @@ import {
 } from '@/app/resources/access-keys'
 import type { AccessKeyDto, AccessProtocol, GroupOptionDto } from '@/api/control/types'
 import type { ChannelDto } from '@/app/resources/channels'
-import { RequestCancelledError } from '@/api/errors'
+import { ApiError, RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import type { SearchableMultiSelectOption } from '@/components/ui/SearchableMultiSelect.vue'
 import { createUUID } from '@/lib/uuid'
@@ -39,6 +40,8 @@ import type { PendingAccessKeyRotateOperation } from './access-key-rotate-operat
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import AccessKeyCostLimitEditor from './AccessKeyCostLimitEditor.vue'
 import AccessKeyFormFields from './AccessKeyFormFields.vue'
+import AccessKeyCredentialField from './AccessKeyCredentialField.vue'
+import { estimateAccessKeyStrength, isValidCustomAccessKey } from './access-key-strength'
 import AccessKeyOperationFeedback from './AccessKeyOperationFeedback.vue'
 import AccessKeyPolicyFields from './AccessKeyPolicyFields.vue'
 import AccessKeyRotateDialog from './AccessKeyRotateDialog.vue'
@@ -101,6 +104,9 @@ const base = ref<AccessKeyDto | null>(null)
 const draft = ref<AccessKeyDraft>(createAccessKeyDraft())
 const operationID = ref('')
 const createPayload = ref<CreateAccessKeyRequest | null>(null)
+const credentialField = ref<InstanceType<typeof AccessKeyCredentialField>>()
+const weakKeyWarningOpen = ref(false)
+const customKeyError = ref('')
 const createOperationRetained = ref(false)
 const editOperationRetained = ref(false)
 const pending = ref(false)
@@ -195,6 +201,7 @@ const scopeValid = computed(() =>
 const valid = computed(
   () =>
     isAccessKeyDraftValid(draft.value, base.value, groupCatalog.value) &&
+    (editing.value || isValidCustomAccessKey(draft.value.key)) &&
     !groupProtocolMismatch.value,
 )
 const mutationFeedbackKey = computed(() => {
@@ -246,6 +253,8 @@ const saveBlockerKey = computed(() => {
   if (pending.value) return 'accessKeys.drawer.saveBlockedPending'
   if (editReconciliation.value || createOperationActive.value) return ''
   if (draft.value.name.trim().length === 0) return 'accessKeys.drawer.saveBlockedName'
+  if (!editing.value && !isValidCustomAccessKey(draft.value.key))
+    return 'accessKeys.customKey.invalid'
   if (!Number.isSafeInteger(draft.value.rpm_limit) || draft.value.rpm_limit < 0) {
     return 'accessKeys.drawer.saveBlockedRPM'
   }
@@ -288,6 +297,8 @@ function clearLocalState(): void {
   draft.value = createAccessKeyDraft()
   operationID.value = ''
   createPayload.value = null
+  weakKeyWarningOpen.value = false
+  customKeyError.value = ''
   createOperationRetained.value = false
   editOperationRetained.value = false
   pending.value = false
@@ -300,6 +311,8 @@ function clearLocalState(): void {
 }
 
 async function resetForOpen(): Promise<void> {
+  weakKeyWarningOpen.value = false
+  customKeyError.value = ''
   const carriedCreateOperation = props.accessKey ? null : props.createOperation
   const carriedEditOperation =
     props.accessKey && props.editOperation?.base.id === props.accessKey.id
@@ -449,6 +462,39 @@ function setScopeMode(dimension: AccessKeyScopeDimension, nextMode: AccessKeySco
   draft.value.scopeModes[dimension] = nextMode
 }
 
+function updateCustomKey(value: string): void {
+  draft.value.key = value
+  customKeyError.value = ''
+}
+
+async function requestSave(): Promise<void> {
+  if (pending.value || weakKeyWarningOpen.value) return
+  if (
+    !editing.value &&
+    !createOperationActive.value &&
+    valid.value &&
+    dirty.value &&
+    estimateAccessKeyStrength(draft.value.key) === 'weak'
+  ) {
+    weakKeyWarningOpen.value = true
+    return
+  }
+  await save()
+}
+
+async function setWeakKeyWarningOpen(open: boolean): Promise<void> {
+  weakKeyWarningOpen.value = open
+  if (!open) {
+    await nextTick()
+    credentialField.value?.focus()
+  }
+}
+
+async function confirmWeakKey(): Promise<void> {
+  weakKeyWarningOpen.value = false
+  await save()
+}
+
 async function save(): Promise<void> {
   if (pending.value) {
     return
@@ -469,6 +515,7 @@ async function save(): Promise<void> {
     createPayload.value = cloneAccessKeyCreatePayload(activeCreatePayload)
   }
   pending.value = true
+  customKeyError.value = ''
   failed.value = false
   editNotApplied.value = false
   mutationState.value = 'idle'
@@ -534,6 +581,14 @@ async function save(): Promise<void> {
       return
     }
     if (error instanceof RequestCancelledError) return
+    if (!currentBase && activeCreatePayload?.key && error instanceof ApiError) {
+      if (error.code === 'DUPLICATE_RESOURCE')
+        customKeyError.value = t('accessKeys.customKey.duplicate')
+      if (error.code === 'ACCESS_KEY_ADMIN_CONFLICT')
+        customKeyError.value = t('accessKeys.customKey.adminConflict')
+      if (error.code === 'INVALID_CUSTOM_ACCESS_KEY')
+        customKeyError.value = t('accessKeys.customKey.invalid')
+    }
     const outcome = classifyMutationOutcome({
       kind: 'error',
       error,
@@ -694,7 +749,7 @@ onBeforeUnmount(clearLocalState)
   >
     <template #trigger><slot name="trigger" /></template>
 
-    <form id="access-key-drawer-form" class="access-key-drawer" @submit.prevent="save">
+    <form id="access-key-drawer-form" class="access-key-drawer" @submit.prevent="requestSave">
       <AccessKeyOperationFeedback
         :failed="failed"
         :edit-not-applied="editNotApplied"
@@ -715,7 +770,17 @@ onBeforeUnmount(clearLocalState)
           @update:status="draft.status = $event"
           @update:rpm-limit="draft.rpm_limit = $event"
           @update:price-multiplier="draft.price_multiplier = $event"
-        />
+        >
+          <template v-if="!editing" #credential>
+            <AccessKeyCredentialField
+              ref="credentialField"
+              :model-value="draft.key"
+              :disabled="formLocked"
+              :error="customKeyError"
+              @update:model-value="updateCustomKey"
+            />
+          </template>
+        </AccessKeyFormFields>
       </section>
 
       <section class="drawer-section">
@@ -833,6 +898,19 @@ onBeforeUnmount(clearLocalState)
       </AppButton>
     </template>
   </AppDrawer>
+  <AppConfirmDialog
+    :open="weakKeyWarningOpen"
+    :title="t('accessKeys.customKey.warningTitle')"
+    :description="t('accessKeys.customKey.warningDescription')"
+    :close-label="t('accessKeys.customKey.warningClose')"
+    :cancel-label="t('accessKeys.customKey.returnToEdit')"
+    :confirm-label="t('accessKeys.customKey.createAnyway')"
+    description-tone="warning"
+    focus-cancel
+    prevent-close-auto-focus
+    @update:open="setWeakKeyWarningOpen"
+    @confirm="confirmWeakKey"
+  />
 </template>
 
 <style scoped>

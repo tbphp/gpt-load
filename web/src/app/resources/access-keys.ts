@@ -53,6 +53,7 @@ export type {
 } from '@/api/control/types'
 
 export interface CreateAccessKeyRequest {
+  key?: string
   name: string
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto

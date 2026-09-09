@@ -1,5 +1,27 @@
 export default {
   accessKeys: {
+    customKey: {
+      label: 'アクセスキー',
+      placeholder: '空欄の場合は自動生成',
+      automaticHint: 'ランダムなキーを自動生成します。',
+      show: 'キーを表示',
+      hide: 'キーを隠す',
+      strength: '強度：{level}',
+      weak: '弱い',
+      fair: '普通',
+      strong: '比較的強い',
+      estimate: '目安です',
+      weakHint: '長さを増やし、連続または繰り返しの文字を避けてください。',
+      invalid: '空白や制御文字を含まない、256 文字以内の表示可能な ASCII 文字を使用してください。',
+      duplicate: 'このアクセスキーは既に存在します。別のキーを使用してください。',
+      adminConflict: '管理者キーをアクセスキーとして使用することはできません。',
+      warningTitle: '弱いキーを使用しますか？',
+      warningDescription:
+        'このキーは推測されやすく、不正なリクエストや利用枠の消費につながる可能性があります。キーを変更するか、空欄にしてランダムなキーを生成してください。',
+      warningClose: '弱いキーの警告を閉じる',
+      returnToEdit: '修正する',
+      createAnyway: '作成を続ける',
+    },
     distribution: {
       sort: '並び順',
       expiration: '有効期限',

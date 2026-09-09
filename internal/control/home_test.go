@@ -156,7 +156,7 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 		AccessKeys: []HomeAccessKey{
 			{
 				ID: 3, Name: "filtered",
-				MaskedKey: "sk-gl-****88ab",
+				MaskedKey: "****88ab",
 				Protocols: []protocol.Protocol{
 					protocol.OpenAICompletions,
 					protocol.Gemini,
@@ -164,7 +164,7 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 			},
 			{
 				ID: 9, Name: "all protocols",
-				MaskedKey: "sk-gl-****c0de",
+				MaskedKey: "****c0de",
 				Protocols: protocol.DataPlaneProtocols(),
 			},
 		},

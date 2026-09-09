@@ -31,7 +31,10 @@ const props = withDefaults(
     descriptionTone: 'default',
   },
 )
-const emit = defineEmits<{ 'update:open': [open: boolean] }>()
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+  'open-auto-focus': [event: Event]
+}>()
 
 function setOpen(open: boolean): void {
   if (!open && !props.dismissible) return
@@ -53,6 +56,7 @@ function guardDismiss(event: Event): void {
         class="app-dialog__content"
         :class="[`app-dialog__content--${appearance}`, `app-dialog__content--${tone}`]"
         @close-auto-focus="preventCloseAutoFocus && $event.preventDefault()"
+        @open-auto-focus="emit('open-auto-focus', $event)"
         @escape-key-down="guardDismiss"
         @interact-outside="guardDismiss"
       >

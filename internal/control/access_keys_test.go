@@ -238,9 +238,9 @@ func TestListAccessKeyCollectionReturnsMaskedMetadataWithoutDecrypting(t *testin
 	}
 	if len(listed.Items) != 2 ||
 		listed.Items[0].ID != second.ID ||
-		listed.Items[0].MaskedKey != "sk-gl-****1e1f" ||
+		listed.Items[0].MaskedKey != "****1e1f" ||
 		listed.Items[1].ID != first.ID ||
-		listed.Items[1].MaskedKey != "sk-gl-****0e0f" {
+		listed.Items[1].MaskedKey != "****0e0f" {
 		t.Fatalf("ListAccessKeyCollection() = %#v", listed)
 	}
 

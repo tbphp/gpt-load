@@ -10,6 +10,7 @@ export function cloneAccessKeyCreatePayload(
   payload: CreateAccessKeyRequest,
 ): CreateAccessKeyRequest {
   return {
+    ...(payload.key ? { key: payload.key } : {}),
     name: payload.name,
     status: payload.status,
     filters: {

@@ -182,7 +182,7 @@ func TestListAccessKeyCollectionRejectsCanceledContextAndInvalidMappedMetadata(t
 	}
 
 	row := models.AccessKey{
-		Name: "invalid", KeyValue: "ciphertext", KeyHash: "hash", KeySuffix: "ZZZZ",
+		Name: "invalid", KeyValue: "ciphertext", KeyHash: "hash", KeySuffix: "bad ",
 		Status: string(state.AccessKeyStatusActive), Filters: models.JSON(`{}`),
 	}
 	if err := fixture.db.Exec("PRAGMA ignore_check_constraints = ON").Error; err != nil {
