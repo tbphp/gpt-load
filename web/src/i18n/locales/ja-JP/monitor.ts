@@ -564,7 +564,7 @@ export default {
         group_weight_zero: 'グループの有効ウェイトがゼロです',
         credential_disabled: '認証情報は無効です',
         credential_blacklisted: '認証情報はブラックリストに登録されています',
-        model_cooldown: 'この認証情報の対象モデルはクールダウン中です',
+        model_cooldown: 'モデル冷却中',
         credential_cooldown: '認証情報はクールダウン中です',
         credential_auth_unavailable: 'サブスクリプション認証を現在利用できません',
         credential_weight_zero: '認証情報の有効ウェイトがゼロです',

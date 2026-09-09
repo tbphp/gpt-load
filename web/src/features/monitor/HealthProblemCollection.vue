@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, ScrollText } from '@lucide/vue'
+import { ArrowRight, ChevronDown, ScrollText } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -306,24 +306,34 @@ function credentialMeta(credential: HealthProblemCredentialDto): string {
       </template>
     </LedgerRecordList>
     <div v-if="modelCooldownCredentials.length > 0" class="problem-health__models">
-      <details v-for="credential in modelCooldownCredentials" :key="credential.credential_id">
+      <details
+        v-for="credential in modelCooldownCredentials"
+        :key="credential.credential_id"
+        class="problem-health__model-record"
+      >
         <summary>
           <RouterLink
+            class="problem-health__model-identity"
             :to="
               groupDetailLocation(credential.group_id, {
                 tab: 'credentials',
                 model_cooldown: 'true',
               })
             "
-            >{{ credential.group_name }} · {{ credential.identity }}</RouterLink
           >
-          <StatusBadge tone="warning" size="compact">{{
+            <strong>{{ credential.identity }}</strong>
+            <small>{{ credential.group_name }}</small>
+          </RouterLink>
+          <StatusBadge class="problem-health__model-count" tone="warning" size="compact">{{
             t('group.credentials.modelCooldown.count', {
               count: n(credential.model_cooldowns.length),
             })
           }}</StatusBadge>
+          <ChevronDown class="problem-health__model-chevron" :size="16" aria-hidden="true" />
         </summary>
-        <ModelCooldownDetails :cooldowns="credential.model_cooldowns" />
+        <div class="problem-health__model-details">
+          <ModelCooldownDetails :cooldowns="credential.model_cooldowns" />
+        </div>
       </details>
     </div>
   </section>
@@ -331,21 +341,81 @@ function credentialMeta(credential: HealthProblemCredentialDto): string {
 
 <style scoped>
 .problem-health__models {
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  min-width: 0;
   max-height: 320px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
   overflow: auto;
 }
-.problem-health__models summary {
+.problem-health__model-record + .problem-health__model-record {
+  border-top: 1px solid var(--color-border-subtle);
+}
+.problem-health__model-record summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 12px 14px;
   cursor: pointer;
-  margin-bottom: var(--space-2);
-  overflow-wrap: anywhere;
+  list-style: none;
   font-size: var(--text-label-xs);
 }
-.problem-health__models summary a {
+.problem-health__model-record summary::-webkit-details-marker {
+  display: none;
+}
+.problem-health__model-record summary:hover,
+.problem-health__model-record[open] summary {
+  background: var(--color-surface-sunken);
+}
+.problem-health__model-record summary:focus-visible,
+.problem-health__model-identity:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.problem-health__model-identity {
+  display: grid;
+  justify-self: start;
+  min-width: 0;
+  gap: 3px;
+  border-radius: var(--radius-tag);
   color: var(--color-text);
-  margin-right: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.problem-health__model-identity strong {
+  font-weight: 560;
+}
+.problem-health__model-identity small {
+  color: var(--color-text-faint);
+  font-size: inherit;
+}
+.problem-health__model-identity:hover strong {
+  color: var(--color-action);
+}
+.problem-health__model-chevron {
+  color: var(--color-text-faint);
+}
+.problem-health__model-record[open] .problem-health__model-chevron {
+  transform: rotate(180deg);
+}
+.problem-health__model-details {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+}
+@media (max-width: 560px) {
+  .problem-health__model-record summary {
+    grid-template-columns: minmax(0, 1fr) 16px;
+    gap: 8px 12px;
+  }
+  .problem-health__model-count {
+    grid-column: 1;
+    justify-self: start;
+  }
+  .problem-health__model-chevron {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
 }
 .problem-health {
   display: grid;

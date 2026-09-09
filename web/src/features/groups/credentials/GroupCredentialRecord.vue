@@ -163,12 +163,14 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
         <span class="group-credential-record__mobile-label">{{
           t('group.credentials.columns.status')
         }}</span>
-        <StatusBadge :status="item.effective_status" size="compact">
-          {{ t(`group.credentials.effective.${item.effective_status}`) }}
-        </StatusBadge>
-        <StatusBadge v-if="item.model_cooldowns.length > 0" tone="warning" size="compact">{{
-          t('group.credentials.modelCooldown.count', { count: n(item.model_cooldowns.length) })
-        }}</StatusBadge>
+        <div class="group-credential-record__status-badges">
+          <StatusBadge :status="item.effective_status" size="compact">
+            {{ t(`group.credentials.effective.${item.effective_status}`) }}
+          </StatusBadge>
+          <StatusBadge v-if="item.model_cooldowns.length > 0" tone="warning" size="compact">{{
+            t('group.credentials.modelCooldown.count', { count: n(item.model_cooldowns.length) })
+          }}</StatusBadge>
+        </div>
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__weight" role="cell">
@@ -337,11 +339,12 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
             />
           </div>
 
+          <ModelCooldownDetails :cooldowns="item.model_cooldowns" />
+
           <div class="setting-panel">
             <span class="setting-panel__title">
               {{ t('group.credentials.diagnostics') }}
             </span>
-            <ModelCooldownDetails :cooldowns="item.model_cooldowns" />
             <dl class="setting-panel__body group-credential-record__runtime-details">
               <div>
                 <dt>{{ t('group.credentials.detailsFailure') }}</dt>
@@ -411,6 +414,13 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   gap: 6px;
 }
 
+.group-credential-record__status-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
 .group-credential-record__weight-none {
   color: var(--color-text-faint);
   text-decoration: underline dotted;
@@ -473,16 +483,16 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   margin: 0;
 }
 
-.group-credential-record__details dl div {
+.group-credential-record__runtime-details > div {
   min-width: 0;
 }
 
-.group-credential-record__details dt {
+.group-credential-record__runtime-details dt {
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
 
-.group-credential-record__details dd {
+.group-credential-record__runtime-details dd {
   margin: 3px 0 0;
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
@@ -643,7 +653,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   }
 
   .group-credential-record__mask,
-  .group-credential-record__recent,
+  .group-credential-record__status,
   .group-credential-record__actions {
     grid-column: 1 / -1;
   }
@@ -657,7 +667,6 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
     gap: 5px;
   }
 
-  .group-credential-record__recent,
   .group-credential-record__actions {
     border-top: 1px solid var(--color-border-subtle);
     padding-top: 11px;

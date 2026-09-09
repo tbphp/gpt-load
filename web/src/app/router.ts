@@ -81,7 +81,7 @@ const routes: RouteRecordRaw[] = [
       titleKey: 'shell.monitor',
       requiresAuth: true,
       primaryNav: 'monitor',
-      messageNamespaces: ['monitor'],
+      messageNamespaces: ['monitor', 'group', 'settings'],
     },
   }),
   pageRoute(pageRouteNames.models, {

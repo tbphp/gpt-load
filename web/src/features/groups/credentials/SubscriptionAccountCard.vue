@@ -1205,9 +1205,10 @@ function runMenuAction(
           </div>
         </section>
 
+        <ModelCooldownDetails :cooldowns="item.model_cooldowns" />
+
         <section class="subscription-account__detail-section">
           <h3>{{ t('group.credentials.subscription.overview') }}</h3>
-          <ModelCooldownDetails :cooldowns="item.model_cooldowns" />
           <div class="subscription-account__diagnostics">
             <dl>
               <dt>{{ t('group.credentials.subscription.lastUsed') }}</dt>
@@ -1513,6 +1514,8 @@ function runMenuAction(
   width: 20px;
   height: 20px;
   flex: none;
+  align-self: flex-start;
+  margin-top: 2px;
   align-items: center;
   justify-items: start;
   border: 0;
@@ -1552,8 +1555,14 @@ function runMenuAction(
 .subscription-account__badges {
   display: flex;
   min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+}
+.subscription-account__badges > * {
+  flex-shrink: 0;
+  max-width: 100%;
 }
 .subscription-account__mail {
   min-width: 0;

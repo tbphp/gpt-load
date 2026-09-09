@@ -569,6 +569,7 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
                 />
                 <StatusBadge
                   v-if="group.credential_counts.model_cooldown > 0"
+                  class="credential-health__model-cooldown"
                   tone="warning"
                   size="compact"
                 >
@@ -760,6 +761,10 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
   min-width: 0;
   align-items: center;
   gap: var(--space-2);
+}
+
+.credential-health__model-cooldown {
+  justify-self: start;
 }
 
 .record-actions {
