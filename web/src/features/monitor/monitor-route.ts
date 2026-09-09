@@ -3,7 +3,6 @@ import type { LocationQueryRaw } from 'vue-router'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { UsageFilters } from '@/app/resources/usage'
 import type { RequestLogFilters } from '@/app/resources/request-logs'
-import { isDateTimePreset, type DateTimePreset } from '@/lib/time'
 
 import { parseAppliedLogFilters, serializeAppliedLogFilters } from './log-filters'
 import {
@@ -30,7 +29,6 @@ export interface UsageMonitorState {
 }
 
 export interface LogsMonitorState {
-  usagePreset?: DateTimePreset
   filtersOpen: boolean
   cursorHistory: string[]
   selectedRequestID?: string
@@ -86,7 +84,7 @@ export function scopeAccessKeyUsageFilters<T extends UsageFilters>(filters: T): 
   return scoped
 }
 
-export function scopeAccessKeyLogFilters(filters: RequestLogFilters): RequestLogFilters {
+export function scopeAccessKeyLogFilters<T extends RequestLogFilters>(filters: T): T {
   const scoped = { ...filters }
   for (const field of accessKeyForbiddenLogFilters) delete scoped[field]
   return scoped
@@ -208,7 +206,6 @@ export function inspectorMonitorQuery(state: InspectorMonitorState): LocationQue
 
 export function parseLogsMonitorState(query: Record<string, unknown>): LogsMonitorState {
   return {
-    usagePreset: isDateTimePreset(query.usage_preset) ? query.usage_preset : undefined,
     filtersOpen: query.panel === 'filters',
     cursorHistory: parseLogCursorHistory(query.log_cursors),
     selectedRequestID: parseSelectedRequestID(query),
@@ -220,7 +217,6 @@ export function logsMonitorQuery(
   state: LogsMonitorState = { filtersOpen: false, cursorHistory: [] },
 ): LocationQueryRaw {
   const normalized = serializeAppliedLogFilters(filters)
-  if (state.usagePreset !== undefined) normalized.usage_preset = state.usagePreset
   if (state.filtersOpen) normalized.panel = 'filters'
   const cursorHistory = serializeLogCursorHistory(state.cursorHistory)
   if (cursorHistory !== undefined) normalized.log_cursors = cursorHistory

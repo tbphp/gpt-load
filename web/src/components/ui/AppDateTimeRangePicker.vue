@@ -26,7 +26,6 @@ const props = defineProps<{
   fromError?: string
   toError?: string
   preset?: DateTimePreset
-  rollingEndOffsetMs?: number
   applyLabel?: string
   applyDisabled?: boolean
 }>()
@@ -74,7 +73,7 @@ function updateLocalInput(field: 'from' | 'to', value: string): void {
 
 function selectShortcut(preset: DateTimePreset): void {
   const now = Math.floor(Date.now() / 1000) * 1000
-  const range = resolveDateTimePreset(preset, now, props.rollingEndOffsetMs ?? 24 * 60 * 60 * 1000)
+  const range = resolveDateTimePreset(preset, now)
   emit('update:from', localDateTimeInput(range.from_ms))
   emit('update:to', localDateTimeInput(range.to_ms))
   emit('update:preset', preset)

@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { ListFilter, X } from '@lucide/vue'
+import { X } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyOptionDto, GroupOptionDto } from '@/api/control/types'
 import type { ChannelDto } from '@/app/resources/channels'
-import AppDateTimeRangePicker from '@/components/ui/AppDateTimeRangePicker.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
+import AccessKeySelect from '@/features/access-keys/AccessKeySelect.vue'
 
 import type { LogFilterDraft, LogFilterErrors } from './log-filters'
 import LogsAdvancedFilterDrawer from './LogsAdvancedFilterDrawer.vue'
@@ -28,7 +28,6 @@ const props = defineProps<{
   channelsFailed: boolean
   accessKeysFailed: boolean
   appliedChips: AppliedChip[]
-  advancedCount: number
   advancedOpen: boolean
   selfScoped?: boolean
 }>()
@@ -81,36 +80,20 @@ function applyAdvanced(): void {
   <form class="logs-filter" :aria-label="t('monitor.logs.filters.label')" @submit.prevent="submit">
     <div v-if="appliedChips.length" class="logs-filter__chips">
       <span class="logs-filter__chips-label">{{ t('monitor.logs.filters.applied') }}</span>
-      <template v-for="chip in appliedChips" :key="chip.key">
-        <span v-if="chip.key === 'time'" class="logs-filter__chip logs-filter__chip--fixed">
-          {{ chip.label }}
-        </span>
-        <button
-          v-else
-          type="button"
-          class="logs-filter__chip"
-          :aria-label="t('monitor.logs.filters.remove', { value: chip.label })"
-          @click="emit('removeFilter', chip.key)"
-        >
-          <span>{{ chip.label }}</span>
-          <X :size="12" aria-hidden="true" />
-        </button>
-      </template>
+      <button
+        v-for="chip in appliedChips"
+        :key="chip.key"
+        type="button"
+        class="logs-filter__chip"
+        :aria-label="t('monitor.logs.filters.remove', { value: chip.label })"
+        @click="emit('removeFilter', chip.key)"
+      >
+        <span>{{ chip.label }}</span>
+        <X :size="12" aria-hidden="true" />
+      </button>
     </div>
 
     <div class="logs-filter__row">
-      <AppDateTimeRangePicker
-        :from="draft.from"
-        :to="draft.to"
-        :label="t('monitor.logs.filters.timeRange')"
-        :from-label="t('monitor.logs.filters.from')"
-        :to-label="t('monitor.logs.filters.to')"
-        :from-error="errors.from ? t(errors.from) : undefined"
-        :to-error="errors.to ? t(errors.to) : undefined"
-        @update:from="update('from', $event)"
-        @update:to="update('to', $event)"
-      />
-
       <AppSelect
         v-if="!selfScoped"
         class="logs-filter__group"
@@ -121,6 +104,27 @@ function applyAdvanced(): void {
         :disabled="groupsFailed"
         @update:model-value="update('group_id', $event)"
       />
+      <span v-if="!selfScoped" class="logs-filter__access-key">
+        <AppTextInput
+          v-if="accessKeysFailed"
+          :model-value="draft.access_key_id"
+          :label="t('monitor.logs.filters.accessKey')"
+          :placeholder="t('monitor.logs.filters.accessKey')"
+          :invalid="Boolean(errors.access_key_id)"
+          :described-by="errors.access_key_id ? 'logs-filter-error' : undefined"
+          inputmode="numeric"
+          size="compact"
+          @update:model-value="update('access_key_id', $event)"
+        />
+        <AccessKeySelect
+          v-else
+          :model-value="draft.access_key_id ? Number(draft.access_key_id) : undefined"
+          :options="accessKeys"
+          :aria-invalid="Boolean(errors.access_key_id) || undefined"
+          :aria-describedby="errors.access_key_id ? 'logs-filter-error' : undefined"
+          @update:model-value="update('access_key_id', $event === undefined ? '' : String($event))"
+        />
+      </span>
       <span class="logs-filter__model">
         <AppTextInput
           :model-value="draft.client_model"
@@ -142,11 +146,21 @@ function applyAdvanced(): void {
         size="compact"
         @update:model-value="update('status', $event)"
       />
-      <AppButton variant="secondary" size="compact" @click="emit('update:advancedOpen', true)">
-        <ListFilter :size="14" aria-hidden="true" />
-        {{ t('monitor.logs.filters.more') }}
-        <span v-if="advancedCount" class="logs-filter__count">{{ advancedCount }}</span>
-      </AppButton>
+      <span class="logs-filter__request-id">
+        <AppTextInput
+          :model-value="draft.request_id"
+          :label="t('monitor.logs.filters.requestId')"
+          :placeholder="t('monitor.logs.filters.requestId')"
+          :invalid="Boolean(errors.request_id)"
+          :described-by="errors.request_id ? 'logs-filter-error' : undefined"
+          size="compact"
+          monospace
+          :spellcheck="false"
+          data-1p-ignore="true"
+          data-lpignore="true"
+          @update:model-value="update('request_id', $event)"
+        />
+      </span>
       <AppButton type="submit" size="compact">{{ t('monitor.logs.filters.apply') }}</AppButton>
       <AppButton variant="secondary" size="compact" @click="reset">
         {{ t('monitor.logs.filters.reset') }}
@@ -162,9 +176,7 @@ function applyAdvanced(): void {
     :open="advancedOpen"
     :draft="draft"
     :errors="errors"
-    :access-keys="accessKeys"
     :channels="channels"
-    :access-keys-failed="accessKeysFailed"
     :channels-failed="channelsFailed"
     :self-scoped="selfScoped"
     @update-field="update"
@@ -222,16 +234,8 @@ function applyAdvanced(): void {
   color: var(--color-text);
 }
 
-.logs-filter__chip--fixed {
-  cursor: default;
-}
-
-.logs-filter__chip--fixed:hover {
-  border-color: var(--color-border-control);
-  color: var(--color-text-muted);
-}
-
 .logs-filter__row {
+  flex-wrap: wrap;
   padding: 10px;
 }
 
@@ -239,15 +243,32 @@ function applyAdvanced(): void {
   width: 150px;
 }
 
-.logs-filter__model {
+.logs-filter__access-key {
+  width: 170px;
+}
+
+.logs-filter__model,
+.logs-filter__request-id {
   display: block;
   width: auto;
   min-width: 130px;
-  flex: 1 1 180px;
+  flex: 1 1 160px;
 }
 
-.logs-filter__model :deep(.app-text-input) {
+.logs-filter__request-id {
+  flex-basis: 220px;
+}
+
+.logs-filter__model :deep(.app-text-input),
+.logs-filter__request-id :deep(.app-text-input),
+.logs-filter__access-key :deep(.app-text-input),
+.logs-filter__access-key :deep(.access-key-select),
+.logs-filter__access-key :deep(.app-button) {
   width: 100%;
+}
+
+.logs-filter__access-key :deep(.access-key-select__label) {
+  min-width: 0;
 }
 
 .logs-filter__status {
@@ -259,33 +280,16 @@ function applyAdvanced(): void {
   width: 100%;
 }
 
-.logs-filter__count {
-  display: inline-flex;
-  min-width: 18px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--color-action-soft);
-  color: var(--color-action);
-  font-size: 11px;
-}
-
 .logs-filter__error {
   margin: -2px 10px 8px;
   color: var(--color-danger);
   font-size: var(--text-label-xs);
 }
 
-@media (max-width: 1120px) {
-  .logs-filter__row {
-    flex-wrap: wrap;
-  }
-}
-
 @media (max-width: 860px) {
   .logs-filter__row > :deep(.app-button),
-  .logs-filter__row > :deep(.app-select__trigger) {
+  .logs-filter__row > :deep(.app-select__trigger),
+  .logs-filter__access-key :deep(.app-button) {
     min-height: var(--touch-target);
   }
 }
@@ -296,7 +300,8 @@ function applyAdvanced(): void {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .logs-filter__row > :deep(.app-popover),
+  .logs-filter__access-key,
+  .logs-filter__request-id,
   .logs-filter__group,
   .logs-filter__model,
   .logs-filter__status {

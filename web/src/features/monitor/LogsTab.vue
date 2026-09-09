@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { ArrowRight, CircleHelp, Info, Layers, Magnet, Search, TriangleAlert } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -30,15 +30,16 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatISOInstant, formatLocalInstantWithSeconds } from '@/lib/format'
+import { resolveDateTimePreset } from '@/lib/time'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import {
   applyLogFilterDraft,
   createLogFilterDraft,
-  defaultRequestLogFilters,
   parseAppliedLogFilters,
   serializeAppliedLogFilters,
   validateLogFilterDraft,
+  type AppliedLogFilters,
   type LogFilterDraft,
   type LogFilterErrors,
 } from './log-filters'
@@ -81,6 +82,7 @@ const routeState = computed(() => parseLogsMonitorState(route.query))
 const selectedRequestID = computed(() => routeState.value.selectedRequestID)
 const advancedOpen = computed(() => routeState.value.filtersOpen)
 const draft = ref(createLogFilterDraft(appliedFilters.value))
+let draftBeforeAdvanced: LogFilterDraft | undefined
 const filterErrors = ref<LogFilterErrors>({})
 const paginationPending = ref(false)
 const pageTransitionOrigin = ref<LogsMonitorState | null>(null)
@@ -142,8 +144,6 @@ const allAdvancedFilterKeys: readonly (keyof RequestLogFilters)[] = [
   'channel_id',
   'credential_id',
   'upstream_model',
-  'access_key_id',
-  'request_id',
   'protocol',
   'stream',
   'final_status_code',
@@ -186,23 +186,9 @@ const advancedFilterKeys = computed(() =>
     ? allAdvancedFilterKeys.filter((key) => !accessKeyForbiddenFilterKeys.has(key))
     : allAdvancedFilterKeys,
 )
-const advancedCount = computed(
-  () => advancedFilterKeys.value.filter((key) => appliedFilters.value[key] !== undefined).length,
-)
-const hasNonTimeFilters = computed(() =>
-  Object.keys(appliedFilters.value).some(
-    (key) => key !== 'from_ms' && key !== 'to_ms' && key !== 'limit',
-  ),
-)
 const appliedChips = computed(() => {
   const filters = appliedFilters.value
   const values: Array<{ key: string; label: string }> = []
-  if (filters.from_ms !== undefined && filters.to_ms !== undefined) {
-    values.push({
-      key: 'time',
-      label: `${formatDateFilter(filters.from_ms)} → ${formatDateFilter(filters.to_ms)}`,
-    })
-  }
   if (!isAccessKey.value && filters.group_id !== undefined) {
     const group = groupsQuery.data.value?.find(({ id }) => id === filters.group_id)
     values.push({
@@ -220,26 +206,49 @@ const appliedChips = computed(() => {
       }),
     })
   }
-  if (filters.client_model !== undefined) {
-    values.push({
-      key: 'client_model',
-      label: advancedChipLabel('client_model', filters.client_model),
-    })
-  }
-  for (const key of advancedFilterKeys.value) {
+  for (const key of [
+    'access_key_id',
+    'client_model',
+    'request_id',
+    ...advancedFilterKeys.value,
+  ] as const) {
     const value = filters[key]
     if (value === undefined) continue
     values.push({ key, label: advancedChipLabel(key, value) })
   }
   return values
 })
+const filterCount = computed(() => appliedChips.value.length)
+const hasNonTimeFilters = computed(() => filterCount.value > 0)
 
 watch(filterSignature, () => {
-  draft.value = createLogFilterDraft(appliedFilters.value)
-  filterErrors.value = {}
   paginationPending.value = false
   pageTransitionOrigin.value = null
 })
+
+// 时间和分页变化不丢弃常用搜索栏中尚未应用的条件。
+watch(
+  () => JSON.stringify(createLogFilterDraft(appliedFilters.value)),
+  () => {
+    draft.value = createLogFilterDraft(appliedFilters.value)
+    draftBeforeAdvanced = undefined
+    filterErrors.value = {}
+  },
+)
+
+watch(
+  advancedOpen,
+  (open) => {
+    if (open) {
+      draftBeforeAdvanced = { ...draft.value }
+    } else {
+      if (draftBeforeAdvanced) draft.value = draftBeforeAdvanced
+      draftBeforeAdvanced = undefined
+    }
+    filterErrors.value = {}
+  },
+  { immediate: true },
+)
 
 watch(
   () => logsQuery.dataUpdatedAt.value,
@@ -260,14 +269,6 @@ watch(
     void router.replace(monitorLocation(logsMonitorQuery(appliedFilters.value, origin)))
   },
 )
-
-function formatDateFilter(value: number): string {
-  const date = new Date(value)
-  const pad = (part: number) => String(part).padStart(2, '0')
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
-    date.getMinutes(),
-  )}:${pad(date.getSeconds())}`
-}
 
 function formatLogCompletedAt(value: number): string {
   const formatted = formatLocalInstantWithSeconds(value)
@@ -336,11 +337,12 @@ function updateDraftField(field: keyof LogFilterDraft, value: string): void {
   draft.value = { ...draft.value, [field]: value }
 }
 
-async function commitFilters(filters: RequestLogFilters): Promise<void> {
+async function commitFilters(filters: AppliedLogFilters): Promise<void> {
   if (isAccessKey.value) filters = scopeAccessKeyLogFilters(filters)
   const serialized = serializeAppliedLogFilters(filters)
   const nextSignature = JSON.stringify(serialized)
   draft.value = createLogFilterDraft(filters)
+  draftBeforeAdvanced = undefined
   filterErrors.value = {}
 
   if (
@@ -353,14 +355,11 @@ async function commitFilters(filters: RequestLogFilters): Promise<void> {
     return
   }
 
-  const sameWindow =
-    filters.from_ms === appliedFilters.value.from_ms && filters.to_ms === appliedFilters.value.to_ms
   await router.push(
     monitorLocation(
       logsMonitorQuery(filters, {
         filtersOpen: false,
         cursorHistory: [],
-        ...(sameWindow ? { usagePreset: routeState.value.usagePreset } : {}),
       }),
     ),
   )
@@ -388,16 +387,14 @@ async function applyFilters(): Promise<void> {
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
 
-  const initial = createLogFilterDraft(appliedFilters.value)
-  const next = applyLogFilterDraft(draft.value)
-  if (draft.value.from === initial.from) next.from_ms = appliedFilters.value.from_ms
-  if (draft.value.to === initial.to) next.to_ms = appliedFilters.value.to_ms
-  await commitFilters({ ...next, limit: appliedFilters.value.limit ?? 20 })
+  await commitFilters(applyLogFilterDraft(draft.value, appliedFilters.value))
 }
 
 async function resetFilters(): Promise<void> {
   await commitFilters({
-    ...defaultRequestLogFilters(),
+    from_ms: appliedFilters.value.from_ms,
+    to_ms: appliedFilters.value.to_ms,
+    preset: appliedFilters.value.preset,
     limit: appliedFilters.value.limit ?? 20,
   })
 }
@@ -408,7 +405,6 @@ function setPageSize(pageSize: RequestLogPageSize): void {
 }
 
 async function removeFilter(key: string): Promise<void> {
-  if (key === 'time') return
   const filters = { ...appliedFilters.value }
   delete filters[key as keyof RequestLogFilters]
   await commitFilters(filters)
@@ -428,7 +424,6 @@ function nextPage(): void {
     monitorLocation(
       logsMonitorQuery(appliedFilters.value, {
         filtersOpen: false,
-        usagePreset: routeState.value.usagePreset,
         cursorHistory: [...routeState.value.cursorHistory, cursor],
       }),
     ),
@@ -446,7 +441,6 @@ function previousPage(): void {
     monitorLocation(
       logsMonitorQuery(appliedFilters.value, {
         filtersOpen: false,
-        usagePreset: routeState.value.usagePreset,
         cursorHistory: routeState.value.cursorHistory.slice(0, -1),
       }),
     ),
@@ -464,6 +458,30 @@ function setAdvancedOpen(open: boolean): void {
     ),
   )
 }
+
+function openFilters(): void {
+  setAdvancedOpen(true)
+}
+
+async function refresh(): Promise<void> {
+  let filters = appliedFilters.value
+  if (filters.preset) {
+    const interval = resolveDateTimePreset(filters.preset, Math.floor(Date.now() / 1000) * 1000)
+    if (interval.to_ms > interval.from_ms) filters = { ...filters, ...interval }
+  }
+  paginationPending.value = false
+  pageTransitionOrigin.value = null
+  await router.replace(monitorLocation(logsMonitorQuery(filters)))
+  await nextTick()
+  await Promise.all([
+    logsQuery.refetch({ cancelRefetch: false }),
+    ...(!isAccessKey.value
+      ? [groupsQuery.refetch(), channelsQuery.refetch(), accessKeyOptionsQuery.refetch()]
+      : []),
+  ])
+}
+
+defineExpose({ openFilters, refresh, filterCount })
 
 async function setDetailOpen(requestID: string | undefined, open: boolean): Promise<void> {
   const closingID = selectedRequestID.value
@@ -621,7 +639,6 @@ function costLabel(log: RequestLogItemDto): string {
       :channels-failed="channelsQuery.isError.value"
       :access-keys-failed="accessKeyOptionsQuery.isError.value"
       :applied-chips="appliedChips"
-      :advanced-count="advancedCount"
       :advanced-open="advancedOpen"
       :self-scoped="isAccessKey"
       @update:advanced-open="setAdvancedOpen"

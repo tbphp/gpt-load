@@ -11,13 +11,22 @@ import type {
   RequestLogUsageState,
 } from '@/app/resources/request-logs'
 import { requestLogFilterFields } from '@/app/resources/request-log-filters'
-import { defaultTimeRange, timeRangeMilliseconds } from '@/lib/time'
+import {
+  defaultTimeRange,
+  isDateTimePreset,
+  resolveDateTimePreset,
+  type DateTimePreset,
+} from '@/lib/time'
 
 import { isValidMonitorText, maxSignedInt64 } from './filter-validation'
 
+export interface AppliedLogFilters extends RequestLogFilters {
+  from_ms: number
+  to_ms: number
+  preset?: DateTimePreset
+}
+
 export interface LogFilterDraft {
-  from: string
-  to: string
   group_id: string
   channel_id: string
   credential_id: string
@@ -79,22 +88,16 @@ export const requestLogRetryStates = ['retried', 'not_retried'] as const
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const channelIDPattern = /^[a-z][a-z0-9_]{0,99}$/u
 const canonicalNonNegativeInteger = /^(?:0|[1-9]\d*)$/
-function defaultRange(): Pick<RequestLogFilters, 'from_ms' | 'to_ms'> {
+function defaultRequestLogFilters(preset: DateTimePreset = defaultTimeRange): AppliedLogFilters {
   const now = Math.floor(Date.now() / 1000) * 1000
-  return {
-    from_ms: Math.max(0, now - timeRangeMilliseconds[defaultTimeRange]),
-    to_ms: now + 24 * 60 * 60 * 1000,
-  }
-}
-
-export function defaultRequestLogFilters(): RequestLogFilters {
-  return { ...defaultRange(), limit: 20 }
+  const interval = resolveDateTimePreset(preset, now)
+  return interval.to_ms > interval.from_ms
+    ? { ...interval, preset, limit: 20 }
+    : { ...resolveDateTimePreset(defaultTimeRange, now), preset: defaultTimeRange, limit: 20 }
 }
 
 function emptyDraft(): LogFilterDraft {
   return {
-    from: '',
-    to: '',
     group_id: '',
     channel_id: '',
     credential_id: '',
@@ -129,16 +132,6 @@ function emptyDraft(): LogFilterDraft {
   }
 }
 
-function toLocalDateTime(value: number | undefined): string {
-  if (value === undefined || !Number.isSafeInteger(value) || value < 0) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const pad = (part: number) => String(part).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-}
-
 function nanoUSDToUSD(value: string | undefined): string {
   if (value === undefined || !canonicalNonNegativeInteger.test(value)) return ''
   const padded = value.padStart(10, '0')
@@ -157,11 +150,9 @@ function usdToNanoUSD(value: string): string | undefined {
   return nanoUSD <= maxSignedInt64 ? nanoUSD.toString() : undefined
 }
 
-export function createLogFilterDraft(filters: RequestLogFilters = defaultRange()): LogFilterDraft {
+export function createLogFilterDraft(filters: RequestLogFilters): LogFilterDraft {
   return {
     ...emptyDraft(),
-    from: toLocalDateTime(filters.from_ms),
-    to: toLocalDateTime(filters.to_ms),
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
     channel_id: filters.channel_id ?? '',
     credential_id: filters.credential_id === undefined ? '' : String(filters.credential_id),
@@ -204,10 +195,16 @@ export function createLogFilterDraft(filters: RequestLogFilters = defaultRange()
   }
 }
 
-export function applyLogFilterDraft(draft: LogFilterDraft): RequestLogFilters {
-  const filters: RequestLogFilters = {}
-  if (draft.from) filters.from_ms = new Date(draft.from).getTime()
-  if (draft.to) filters.to_ms = new Date(draft.to).getTime()
+export function applyLogFilterDraft(
+  draft: LogFilterDraft,
+  current: AppliedLogFilters,
+): AppliedLogFilters {
+  const filters: AppliedLogFilters = {
+    from_ms: current.from_ms,
+    to_ms: current.to_ms,
+    preset: current.preset,
+    limit: current.limit,
+  }
   if (draft.group_id) filters.group_id = Number(draft.group_id)
   if (draft.channel_id) filters.channel_id = draft.channel_id
   if (draft.credential_id) filters.credential_id = Number(draft.credential_id)
@@ -286,16 +283,14 @@ function parseNanoUSD(raw: unknown): string | undefined {
   }
 }
 
-export function parseAppliedLogFilters(query: Record<string, unknown>): RequestLogFilters {
-  const filters: RequestLogFilters = {}
+export function parseAppliedLogFilters(query: Record<string, unknown>): AppliedLogFilters {
   const from = parseSafeInteger(query.from_ms)
   const to = parseSafeInteger(query.to_ms)
-  if (from !== undefined && to !== undefined && from < to) {
-    filters.from_ms = from
-    filters.to_ms = to
-  } else {
-    Object.assign(filters, defaultRange())
-  }
+  const preset = query.preset ?? query.usage_preset
+  const filters: AppliedLogFilters =
+    from !== undefined && to !== undefined && from < to
+      ? { from_ms: from, to_ms: to, ...(isDateTimePreset(preset) ? { preset } : {}) }
+      : defaultRequestLogFilters(isDateTimePreset(preset) ? preset : defaultTimeRange)
   const limit = parseSafeInteger(query.limit)
   filters.limit = limit === 20 || limit === 50 || limit === 100 ? (limit as RequestLogPageSize) : 20
   const ids = ['group_id', 'access_key_id', 'credential_id'] as const
@@ -356,30 +351,14 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): RequestL
   return filters
 }
 
-export function serializeAppliedLogFilters(filters: RequestLogFilters): LocationQueryRaw {
+export function serializeAppliedLogFilters(filters: AppliedLogFilters): LocationQueryRaw {
   const query: LocationQueryRaw = { tab: 'logs' }
   for (const field of requestLogFilterFields) {
     const value = filters[field]
     if (value !== undefined) query[field] = String(value)
   }
+  if (filters.preset) query.preset = filters.preset
   return query
-}
-
-function parseLocalDateTime(value: string): Date | undefined {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/u)
-  if (!match) return undefined
-  const values = match.slice(1).map(Number)
-  const [year, month, day, hour, minute, second] = values
-  if ([year, month, day, hour, minute, second].some((part) => part === undefined)) return undefined
-  const date = new Date(year!, month! - 1, day!, hour!, minute!, second!)
-  return date.getFullYear() === year &&
-    date.getMonth() === month! - 1 &&
-    date.getDate() === day &&
-    date.getHours() === hour &&
-    date.getMinutes() === minute &&
-    date.getSeconds() === second
-    ? date
-    : undefined
 }
 
 function validateIntegerField(
@@ -402,11 +381,6 @@ function validateIntegerField(
 
 export function validateLogFilterDraft(draft: LogFilterDraft): LogFilterErrors {
   const errors: LogFilterErrors = {}
-  const from = parseLocalDateTime(draft.from)
-  const to = parseLocalDateTime(draft.to)
-  if (!from) errors.from = 'monitor.logs.errors.dateTime'
-  if (!to) errors.to = 'monitor.logs.errors.dateTime'
-  if (from && to && from.getTime() >= to.getTime()) errors.to = 'monitor.logs.errors.range'
   for (const field of ['group_id', 'access_key_id', 'credential_id'] as const) {
     validateIntegerField(errors, draft, field)
     if (draft[field] === '0') errors[field] = 'monitor.logs.errors.positiveId'

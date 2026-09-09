@@ -1,13 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { AccessKeyOptionDto } from '@/api/control/types'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type { ChannelDto } from '@/app/resources/channels'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import FormField from '@/components/ui/FormField.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 import {
   requestLogCostStates,
@@ -23,9 +24,7 @@ const props = defineProps<{
   open: boolean
   draft: LogFilterDraft
   errors: LogFilterErrors
-  accessKeys: AccessKeyOptionDto[]
   channels: ChannelDto[]
-  accessKeysFailed: boolean
   channelsFailed: boolean
   selfScoped?: boolean
 }>()
@@ -36,6 +35,18 @@ const emit = defineEmits<{
   reset: []
 }>()
 const { t } = useI18n()
+const commonError = computed(() => {
+  for (const [field, label] of [
+    ['group_id', 'group'],
+    ['access_key_id', 'accessKey'],
+    ['client_model', 'clientModel'],
+    ['request_id', 'requestId'],
+  ] as const) {
+    const key = props.errors[field]
+    if (key) return `${t(`monitor.logs.filters.${label}`)}: ${t(key)}`
+  }
+  return ''
+})
 
 const option = (value: string, label: string) => ({ value, label })
 const booleanOptions = () => [
@@ -77,10 +88,6 @@ const retryOptions = () => [
     option(value, t(`monitor.logs.filters.retryState.${value}`)),
   ),
 ]
-const accessKeyOptions = () => [
-  option('', t('monitor.logs.filters.anyAccessKey')),
-  ...props.accessKeys.map((key) => option(String(key.id), `${key.name} · #${key.id}`)),
-]
 const channelOptions = () => {
   const options = [option('', t('monitor.logs.filters.anyChannel'))]
   if (
@@ -111,31 +118,11 @@ function update(field: keyof LogFilterDraft, value: string): void {
     :close-label="t('monitor.logs.filters.closeAdvanced')"
     @update:open="emit('update:open', $event)"
   >
+    <InlineFeedback v-if="commonError" tone="danger">{{ commonError }}</InlineFeedback>
     <form class="logs-advanced" @submit.prevent="emit('apply')">
       <section class="logs-advanced__section">
         <h3>{{ t('monitor.logs.filters.sections.request') }}</h3>
         <div class="logs-advanced__grid">
-          <FormField
-            v-if="!selfScoped"
-            id="logs-access-key"
-            :label="t('monitor.logs.filters.accessKey')"
-            size="compact"
-            :error="error('access_key_id')"
-          >
-            <template #default="{ describedBy, invalid }">
-              <AppSelect
-                id="logs-access-key"
-                :model-value="draft.access_key_id"
-                :label="t('monitor.logs.filters.accessKey')"
-                :options="accessKeyOptions()"
-                size="compact"
-                :disabled="accessKeysFailed"
-                :aria-describedby="describedBy"
-                :aria-invalid="invalid || undefined"
-                @update:model-value="update('access_key_id', $event)"
-              />
-            </template>
-          </FormField>
           <FormField id="logs-protocol" :label="t('monitor.logs.filters.protocol')" size="compact">
             <AppSelect
               id="logs-protocol"
@@ -145,24 +132,6 @@ function update(field: keyof LogFilterDraft, value: string): void {
               size="compact"
               @update:model-value="update('protocol', $event)"
             />
-          </FormField>
-          <FormField
-            id="logs-request-id"
-            :label="t('monitor.logs.filters.requestId')"
-            size="compact"
-            :error="error('request_id')"
-          >
-            <template #default="{ describedBy, invalid }">
-              <input
-                id="logs-request-id"
-                :value="draft.request_id"
-                class="logs-advanced__mono"
-                autocomplete="off"
-                :aria-describedby="describedBy"
-                :aria-invalid="invalid || undefined"
-                @input="update('request_id', ($event.target as HTMLInputElement).value)"
-              />
-            </template>
           </FormField>
           <FormField id="logs-stream" :label="t('monitor.logs.filters.stream')" size="compact">
             <AppSelect
@@ -506,10 +475,6 @@ function update(field: keyof LogFilterDraft, value: string): void {
 
 .logs-advanced__grid :deep(.app-select__trigger) {
   width: 100%;
-}
-
-.logs-advanced__mono {
-  font-family: var(--font-mono) !important;
 }
 
 .logs-advanced__footer-actions {

@@ -28,7 +28,6 @@ export function isDateTimePreset(value: unknown): value is DateTimePreset {
 export function resolveDateTimePreset(
   preset: DateTimePreset,
   now = Date.now(),
-  rollingEndOffsetMs = 0,
 ): { from_ms: number; to_ms: number } {
   if (preset === 'today' || preset === 'yesterday') {
     const midnight = new Date(now)
@@ -40,7 +39,7 @@ export function resolveDateTimePreset(
   }
   return {
     from_ms: Math.max(0, now - timeRangeMilliseconds[preset]),
-    to_ms: now + rollingEndOffsetMs,
+    to_ms: now,
   }
 }
 
