@@ -11,6 +11,7 @@ import (
 const (
 	DefaultResponseBindingTTL      = 30 * 24 * time.Hour
 	DefaultResponseBindingCapacity = 100_000
+	maxResponseIDBytes             = 4 << 10
 	maxResponseBindingIDBytes      = 16 << 20
 )
 
@@ -70,7 +71,7 @@ func (bindings *ResponseBindings) Lookup(accessKeyID uint, responseID string) (R
 // Record 在响应下发前登记；不同归属冲突时拒绝当前响应，不覆盖已有归属。
 func (bindings *ResponseBindings) Record(accessKeyID uint, responseID string, ref CredentialRef) bool {
 	if bindings == nil || accessKeyID == 0 || responseID == "" || ref.ID == 0 ||
-		ref.GroupID == 0 || ref.IdentityGeneration == 0 || len(responseID) > maxResponseBindingIDBytes {
+		ref.GroupID == 0 || ref.IdentityGeneration == 0 || len(responseID) > maxResponseIDBytes {
 		return false
 	}
 	bindings.mu.Lock()
@@ -124,7 +125,7 @@ func (bindings *ResponseBindings) RestoreCheckpoint(checkpoint []ResponseBinding
 	for _, binding := range ordered {
 		if binding.AccessKeyID == 0 || binding.ResponseID == "" || binding.CredentialID == 0 ||
 			binding.GroupID == 0 || binding.IdentityGeneration == 0 || !binding.ExpiresAt.After(now) ||
-			len(binding.ResponseID) > maxResponseBindingIDBytes {
+			len(binding.ResponseID) > maxResponseIDBytes {
 			continue
 		}
 		if !bindings.insert(binding) {

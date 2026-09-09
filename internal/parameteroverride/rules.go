@@ -201,7 +201,7 @@ func (rules Rules) Empty() bool { return len(rules.entries) == 0 }
 func (rules Rules) ValidateResponsesContinuation() error {
 	for _, entry := range rules.entries {
 		if entry.clientProtocol == "" || entry.clientProtocol == protocol.OpenAIResponses {
-			if err := entry.validateResponsesContinuation(); err != nil {
+			if err := entry.validateResponsesContinuation(nil); err != nil {
 				return err
 			}
 		}
@@ -209,7 +209,7 @@ func (rules Rules) ValidateResponsesContinuation() error {
 	return nil
 }
 
-func (entry rule) validateResponsesContinuation() error {
+func (entry rule) validateResponsesContinuation(object *requestValue) error {
 	for key := range entry.set {
 		if strings.EqualFold(key, "previous_response_id") {
 			return fmt.Errorf("parameter overrides cannot change previous_response_id")
@@ -217,6 +217,15 @@ func (entry rule) validateResponsesContinuation() error {
 	}
 	for _, path := range entry.remove {
 		if strings.EqualFold(path[0], "previous_response_id") {
+			if object != nil {
+				if err := object.load(); err != nil {
+					return err
+				}
+				// 旧规则删除不存在的字段不改变路由；保存配置时仍严格拒绝。
+				if object.currentField(path[0]).raw == nil {
+					continue
+				}
+			}
 			return fmt.Errorf("parameter overrides cannot change previous_response_id")
 		}
 	}
@@ -251,11 +260,6 @@ func (rules Rules) Apply(
 	matched := make([]rule, 0, len(rules.entries))
 	for _, entry := range rules.entries {
 		if entry.matches(clientProtocol, clientModel) {
-			if clientProtocol == protocol.OpenAIResponses {
-				if err := entry.validateResponsesContinuation(); err != nil {
-					return nil, false, err
-				}
-			}
 			matched = append(matched, entry)
 		}
 	}
@@ -271,6 +275,13 @@ func (rules Rules) Apply(
 		object.planSet(entry.set)
 		for _, pointer := range entry.remove {
 			object.planPath(pointer)
+		}
+	}
+	if clientProtocol == protocol.OpenAIResponses {
+		for _, entry := range matched {
+			if err := entry.validateResponsesContinuation(object); err != nil {
+				return nil, false, err
+			}
 		}
 	}
 	for _, entry := range matched {

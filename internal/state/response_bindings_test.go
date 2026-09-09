@@ -1,6 +1,7 @@
 package state
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -54,15 +55,59 @@ func TestResponseBindingsEvictOldestAndBoundIDMemory(t *testing.T) {
 			t.Fatalf("recent binding %q was lost", id)
 		}
 	}
-	largeID := strings.Repeat("x", maxResponseBindingIDBytes)
-	if !bindings.Record(1, largeID, ref) {
-		t.Fatal("opaque ID within memory budget was rejected")
+	bindings = NewResponseBindings()
+	prefix := strings.Repeat("x", 4<<10)
+	var firstID, lastID string
+	for index := range maxResponseBindingIDBytes/(4<<10) + 1 {
+		suffix := strconv.Itoa(index)
+		lastID = prefix[len(suffix):] + suffix
+		if index == 0 {
+			firstID = lastID
+		}
+		if !bindings.Record(1, lastID, ref) {
+			t.Fatal("valid ID was rejected before eviction")
+		}
 	}
-	if _, ok := bindings.Lookup(1, "newest"); ok {
-		t.Fatal("ID byte budget did not evict old entries")
+	if _, ok := bindings.Lookup(1, firstID); ok {
+		t.Fatal("ID byte budget retained the oldest entry")
 	}
-	if bindings.Record(2, largeID+"x", ref) {
-		t.Fatal("oversized record exceeded ID memory budget")
+	if _, ok := bindings.Lookup(1, lastID); !ok {
+		t.Fatal("ID byte budget lost the newest entry")
+	}
+}
+
+func TestResponseBindingsRejectOversizedIDWithoutEvictingOtherAccessKeys(t *testing.T) {
+	bindings := NewResponseBindings()
+	ref := CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}
+	maxID := strings.Repeat("x", 4<<10)
+	if !bindings.Record(1, maxID, ref) {
+		t.Fatal("ID at the single-record limit was rejected")
+	}
+	for _, size := range []int{len(maxID) + 1, 16 << 20} {
+		if bindings.Record(2, strings.Repeat("y", size), ref) {
+			t.Errorf("accepted oversized ID of %d bytes", size)
+		}
+		if _, ok := bindings.Lookup(1, maxID); !ok {
+			t.Error("oversized ID evicted another AccessKey's binding")
+		}
+	}
+}
+
+func TestResponseBindingsCheckpointSkipsOversizedIDs(t *testing.T) {
+	bindings := NewResponseBindings()
+	valid := ResponseBinding{AccessKeyID: 1, ResponseID: strings.Repeat("x", 4<<10),
+		CredentialID: 1, GroupID: 1, IdentityGeneration: 1, ExpiresAt: time.Now().Add(time.Hour)}
+	oversized := valid
+	oversized.AccessKeyID = 2
+	oversized.ResponseID += "x"
+	if err := bindings.RestoreCheckpoint([]ResponseBinding{valid, oversized}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := bindings.Lookup(1, valid.ResponseID); !ok {
+		t.Fatal("restore discarded a valid binding")
+	}
+	if _, ok := bindings.Lookup(2, oversized.ResponseID); ok {
+		t.Fatal("restore accepted an oversized ID")
 	}
 }
 
