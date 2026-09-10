@@ -19,8 +19,8 @@ func (transport codexHeadersRoundTripper) RoundTrip(request *http.Request) (*htt
 		name = http.CanonicalHeaderKey(name)
 		switch name {
 		case "User-Agent", "Originator", "Version":
-			value := codexHeaderValue(transport.source, name)
-			if value != "" || name == "User-Agent" {
+			value, present := codexHeaderValue(transport.source, name)
+			if present || name == "User-Agent" {
 				// 空 UA 显式禁止 net/http 重新补入 Go 默认 UA。
 				request.Header.Set(name, value)
 			} else {
@@ -68,9 +68,11 @@ func normalizedCodexHeaders(headers http.Header) http.Header {
 
 // normalizeCodexSessionHeader 兼容下划线拼法；同时存在时以连字符字段为准。
 func normalizeCodexSessionHeader(headers http.Header) {
-	session := strings.TrimSpace(codexHeaderValue(headers, "Session-Id"))
+	session, _ := codexHeaderValue(headers, "Session-Id")
+	session = strings.TrimSpace(session)
 	if session == "" {
-		session = strings.TrimSpace(codexHeaderValue(headers, "Session_id"))
+		session, _ = codexHeaderValue(headers, "Session_id")
+		session = strings.TrimSpace(session)
 	}
 	for name := range headers {
 		if strings.EqualFold(name, "Session-Id") || strings.EqualFold(name, "Session_id") {
@@ -82,14 +84,18 @@ func normalizeCodexSessionHeader(headers http.Header) {
 	}
 }
 
-func codexHeaderValue(headers http.Header, name string) string {
-	if value := headers.Get(name); value != "" {
-		return value
-	}
-	for key, values := range headers {
-		if strings.EqualFold(key, name) && len(values) > 0 {
-			return values[0]
+func codexHeaderValue(headers http.Header, name string) (string, bool) {
+	values, present := headers[http.CanonicalHeaderKey(name)]
+	if !present {
+		for key, candidate := range headers {
+			if strings.EqualFold(key, name) {
+				values, present = candidate, true
+				break
+			}
 		}
 	}
-	return ""
+	if len(values) > 0 {
+		return values[0], present
+	}
+	return "", present
 }

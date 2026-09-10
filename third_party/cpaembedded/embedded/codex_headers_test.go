@@ -28,6 +28,16 @@ func TestCodexHTTPIdentityOnImagesAndWireRemoval(t *testing.T) {
 			want:     http.Header{"User-Agent": {customUA}, "Originator": {"custom-client"}, "Version": {"0.200.0"}, "Session-Id": {"image-session"}},
 		},
 		{
+			name: "explicit empty identity headers remain present",
+			request: ExecuteRequest{
+				Model: "gpt-5", Format: "openai-response", Payload: []byte(`{"model":"gpt-5","input":"hello"}`),
+				Headers:           http.Header{"User-Agent": {customUA}, "Originator": {""}, "Version": {""}},
+				ConfiguredHeaders: []string{"User-Agent", "Originator", "Version"},
+			},
+			response: "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5\",\"output\":[]}}\n\n",
+			want:     http.Header{"User-Agent": {customUA}, "Originator": {""}, "Version": {""}},
+		},
+		{
 			name: "removed UA is not replaced by Go transport",
 			request: ExecuteRequest{
 				Model: "gpt-5", Format: "openai-response", Payload: []byte(`{"model":"gpt-5","input":"hello"}`),
@@ -61,6 +71,11 @@ func TestCodexHTTPIdentityOnImagesAndWireRemoval(t *testing.T) {
 			}
 			captured := <-capturedHeaders
 			for _, name := range []string{"User-Agent", "Originator", "Version", "Session-Id", "Session_id"} {
+				_, present := captured[name]
+				_, wantPresent := test.want[name]
+				if present != wantPresent {
+					t.Errorf("wire %s present = %t, want %t", name, present, wantPresent)
+				}
 				if got, want := captured.Get(name), test.want.Get(name); got != want {
 					t.Errorf("wire %s = %q, want %q", name, got, want)
 				}
