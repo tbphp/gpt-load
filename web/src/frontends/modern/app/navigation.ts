@@ -10,10 +10,13 @@ import {
   Settings2,
 } from '@lucide/vue'
 
+import modernPageRoutes from '../../../../../internal/webui/modern_page_routes.json'
 import pageRoutes from '../../../../../internal/webui/page_routes.json'
 
+const pageRouteEntries = [...pageRoutes.routes, ...modernPageRoutes.routes]
+
 export function pagePath(name: string): string {
-  const route = pageRoutes.routes.find((entry) => entry.name === name)
+  const route = pageRouteEntries.find((entry) => entry.name === name)
   if (!route) throw new Error(`UNKNOWN_MODERN_PAGE_ROUTE: ${name}`)
   return route.path
 }

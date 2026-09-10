@@ -22,7 +22,7 @@
 
 新版目前提供 Coral Anchor 品牌框架：可收起侧栏、移动端导航抽屉、页头与宽工作区、页面快速跳转，以及明暗模式、语言和界面切换设置。页面导航按“工作区”和“运行观测”直接展示，不通过二级 Tab 进入观测页面。
 
-`app/navigation.ts` 统一描述导航入口，并从 `internal/webui/page_routes.json` 读取页面地址。新增 `/monitor/usage`、`/monitor/logs`、`/monitor/health`、`/monitor/inspector` 的服务端页面注册，保证直接访问与刷新返回同一个 HTML 入口。`/monitor` 在新版跳转到用量页面，旧版仍保持原行为。
+`app/navigation.ts` 统一描述导航入口。`internal/webui/page_routes.json` 保留旧版原有的 9 个页面地址；新版独有的 `/monitor/usage`、`/monitor/logs`、`/monitor/health`、`/monitor/inspector` 放在 `internal/webui/modern_page_routes.json`。服务端与新版合并读取两份清单，旧版只读取原清单，避免新增页面触发旧版的路由完整性检查。所有页面仍返回同一个 HTML 入口；`/monitor` 在新版跳转到用量页面，旧版保持原行为。
 
 快速跳转按页面名称、分类和路径查找入口，支持键盘操作；路由加载失败时提供刷新重试。尚未实现的总览、业务页面、分组详情、导入和登录页面只保留标题，内容区留空。未提供登录流程、业务数据或真实操作，不显示虚构的统计、在线状态或身份。后续接入业务数据时继续遵守既有管理认证与 principal 权限合同。
 

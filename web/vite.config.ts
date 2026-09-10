@@ -8,7 +8,14 @@ export const webRootPath = fileURLToPath(new URL('.', import.meta.url))
 export const pageRouteManifestPath = fileURLToPath(
   new URL('../internal/webui/page_routes.json', import.meta.url),
 )
-export const devServerFileSystemAllow = [webRootPath, pageRouteManifestPath]
+export const modernPageRouteManifestPath = fileURLToPath(
+  new URL('../internal/webui/modern_page_routes.json', import.meta.url),
+)
+export const devServerFileSystemAllow = [
+  webRootPath,
+  pageRouteManifestPath,
+  modernPageRouteManifestPath,
+]
 
 const proxyTarget = process.env.VITE_DEV_PROXY_TARGET || 'http://127.0.0.1:3001'
 

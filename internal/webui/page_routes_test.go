@@ -130,3 +130,29 @@ func TestEmbeddedPageRouteManifestContainsCurrentPages(t *testing.T) {
 		}
 	}
 }
+
+func TestClassicPageRouteManifestKeepsOriginalPages(t *testing.T) {
+	routes, err := parsePageRouteManifest(embeddedPageRouteManifest)
+	if err != nil {
+		t.Fatalf("parse classic page route manifest: %v", err)
+	}
+	want := map[string]string{
+		"home":         "/",
+		"login":        "/login",
+		"import":       "/import",
+		"groups":       "/groups",
+		"group-detail": "/groups/:id",
+		"access-keys":  "/access-keys",
+		"monitor":      "/monitor",
+		"models":       "/models",
+		"settings":     "/settings",
+	}
+	if len(routes) != len(want) {
+		t.Fatalf("classic page manifest has %d routes, want %d original routes", len(routes), len(want))
+	}
+	for _, route := range routes {
+		if want[route.Name] != route.Path {
+			t.Errorf("classic route %q = %q, want %q", route.Name, route.Path, want[route.Name])
+		}
+	}
+}
