@@ -200,6 +200,13 @@ func routeRequirementSatisfied(
 	if !query.routeRequirement.Allows(execution.RouteMode(route.Mode)) {
 		return false, false, ReasonNativeRouteRequired
 	}
+	if query.responsesWebsocket != nil {
+		if query.clientProtocol == protocol.OpenAIResponses && query.operation == execution.OperationResponsesCreate &&
+			route.Mode == channel.RouteNative && route.ResolvedTarget.ResponsesWebsocket.Supports(*query.responsesWebsocket) {
+			return true, false, ""
+		}
+		return false, false, ReasonNativeRouteRequired
+	}
 	if query.operation != execution.OperationResponsesCreate {
 		return true, false, ""
 	}

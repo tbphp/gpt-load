@@ -35,7 +35,8 @@ quota policy. This bridge only exposes:
 
 It intentionally excludes CPA Manager, selector, account pool, file store, server,
 watcher, and Auto executors. The Codex WS facade blocks HTTP fallback and business
-request replay; it does not enable WS in the HTTP data plane.
+request replay. The gateway explicitly wires this facade into its native WS route;
+the existing HTTP executor remains separate.
 
 ## Codex WebSocket Session
 
@@ -60,6 +61,8 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   terminal status, raw usage (nil if absent), handshake headers when available,
   and `not_sent` / `maybe_sent` business-dispatch evidence. Reused connections do
   not provide new handshake headers; old quota headers are not carried forward.
+  `HeaderObservedAt` records when headers were received, so generation time does
+  not shift relative quota reset times. Prepared `Headers` use the SDK header contract.
   A generic `response.done` preserves `response.status`; only `completed` succeeds.
 - One turn runs at a time; overlapping calls fail with `session_busy`. Local
   validation errors leave the Session usable. Cancellation, timeout, transport
@@ -80,8 +83,10 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   replacement connections. CPA can still perform an extra handshake after a send
   failure, but cannot send the business request again. This is not a guarantee of
   exactly one network connection attempt.
-- Default per-turn timeout is five minutes; request and forwarded-event limits
-  default to 10 MiB each. All three are configurable when creating the Session.
+- Without a caller deadline, the default per-turn timeout is five minutes.
+  An explicit caller deadline is authoritative for that turn, so later turns can
+  use updated timeout settings. `Done` closes when the Session is invalidated.
+  Request and forwarded-event limits default to 10 MiB each. All three are configurable when creating the Session.
   The facade buffers no conversation history or output queue. Event checks occur
   **after SDK reading**: CPA v7.2.151 has no exposed raw-frame size limit and has
   its own internal buffers. These checks do not bound all SDK memory. CPA also
@@ -165,8 +170,8 @@ CPA_LIVE_CLAUDE_MODEL=optional-claude-model-id \
 
 This live test deliberately does not complete interactive browser OAuth, rotate
 a refresh token, or force real 401/429 responses. Those gates require a disposable
-	account and an explicitly supervised run; deterministic bridge tests cover their
-	local classification contracts, but do not constitute real-provider evidence.
+account and an explicitly supervised run; deterministic bridge tests cover their
+local classification contracts, but do not constitute real-provider evidence.
 
 The Antigravity contract requires a disposable credential whose Google account is
 authorized for the service. It verifies dynamic models, account/credits observation,

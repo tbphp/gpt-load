@@ -47,6 +47,129 @@ func wsCompleted(id string) []byte {
 	return []byte(fmt.Sprintf(`{"type":"response.completed","response":{"id":%q,"object":"response","status":"completed","store":false,"output":[],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}`, id))
 }
 
+func TestCodexWSSessionUsesEachTurnDeadline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		for turn := 0; turn < 2; turn++ {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+			if turn == 1 {
+				time.Sleep(100 * time.Millisecond)
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, wsCompleted(fmt.Sprintf("resp_%d", turn))); err != nil {
+				return
+			}
+		}
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer server.Close()
+	session := wsTestSession(t, server.URL)
+	session.options.TurnTimeout = 25 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := session.ExecuteTurn(ctx, json.RawMessage(`{"model":"gpt-5","input":"first"}`), nil); err != nil {
+		t.Fatal(err)
+	}
+	result, err := session.ExecuteTurn(ctx, json.RawMessage(`{"model":"gpt-5","previous_response_id":"resp_0","input":"next"}`), nil)
+	if err != nil || result.ResponseID != "resp_1" {
+		t.Fatalf("per-turn deadline was capped by session default: result=%+v err=%v", result, err)
+	}
+}
+
+func TestCodexWSSessionForwardsPreparedHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Codex-Turn-State") != "state-fixture" {
+			t.Error("prepared turn header missing")
+		}
+		if r.Header.Get("Authorization") != "Bearer test-access" {
+			t.Error("prepared header replaced credential")
+		}
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if _, _, err = conn.ReadMessage(); err == nil {
+			_ = conn.WriteMessage(websocket.TextMessage, wsCompleted("resp_headers"))
+		}
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer server.Close()
+	session := wsTestSession(t, server.URL)
+	session.options.Headers = http.Header{"X-Codex-Turn-State": {"state-fixture"}, "Authorization": {"Bearer untrusted"}}
+	if _, err := session.ExecuteTurn(t.Context(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCodexWSSessionDatesHandshakeHeadersBeforeGeneration(t *testing.T) {
+	generated := make(chan time.Time, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, http.Header{"X-Codex-Primary-Reset-After-Seconds": {"60"}})
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if _, _, err = conn.ReadMessage(); err != nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+		generated <- time.Now()
+		_ = conn.WriteMessage(websocket.TextMessage, wsCompleted("resp_headers_time"))
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer server.Close()
+	session := wsTestSession(t, server.URL)
+	result, err := session.ExecuteTurn(t.Context(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.HeaderObservedAt.IsZero() || !result.HeaderObservedAt.Before(<-generated) {
+		t.Fatal("handshake headers were dated at generation completion")
+	}
+}
+
+func TestCodexWSSessionPrewarmUsesRealUpstreamState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for turn := 0; turn < 2; turn++ {
+			var request map[string]any
+			if conn.ReadJSON(&request) != nil {
+				return
+			}
+			if turn == 0 && request["generate"] != false {
+				t.Error("prewarm became a generation request")
+			}
+			if turn == 1 && request["previous_response_id"] != "resp_0" {
+				t.Error("prewarm state was not continued")
+			}
+			if conn.WriteMessage(websocket.TextMessage, wsCompleted(fmt.Sprintf("resp_%d", turn))) != nil {
+				return
+			}
+		}
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer server.Close()
+	session := wsTestSession(t, server.URL)
+	first, err := session.ExecuteTurn(t.Context(), json.RawMessage(`{"model":"gpt-5","input":"warm","generate":false}`), nil)
+	if err != nil || first.ResponseID != "resp_0" {
+		t.Fatalf("prewarm result=%+v err=%v", first, err)
+	}
+	if _, err = session.ExecuteTurn(t.Context(), json.RawMessage(`{"model":"gpt-5","input":"continue","previous_response_id":"resp_0"}`), nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCodexWSSessionContinuationAndIsolation(t *testing.T) {
 	var connections, turns atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
