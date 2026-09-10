@@ -1,0 +1,125 @@
+:root {
+  color-scheme: light dark;
+  --modern-canvas: light-dark(#f5f7fa, #15191e);
+  --modern-surface: light-dark(#ffffff, #20262e);
+  --modern-text: light-dark(#18212b, #edf1f5);
+  --modern-muted: light-dark(#526170, #b2bfcc);
+  --modern-border: light-dark(#cbd5e1, #465260);
+  --modern-accent: light-dark(#215b85, #8ac8f2);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+  background: var(--modern-canvas);
+  color: var(--modern-text);
+  font-family: system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--modern-accent);
+  text-underline-offset: 3px;
+}
+
+button {
+  color: inherit;
+  font: inherit;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+:focus-visible {
+  outline: 2px solid var(--modern-accent);
+  outline-offset: 4px;
+}
+
+.modern-skip-link {
+  position: fixed;
+  z-index: 1;
+  top: 8px;
+  left: 8px;
+  transform: translateY(-200%);
+  background: var(--modern-surface);
+  padding: 8px 12px;
+}
+
+.modern-skip-link:focus {
+  transform: none;
+}
+
+.modern-app {
+  min-height: 100vh;
+}
+
+.modern-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--modern-border);
+  background: var(--modern-surface);
+  padding: 16px clamp(16px, 3vw, 40px);
+}
+
+.modern-header a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+}
+
+.modern-brand {
+  color: var(--modern-text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.modern-content {
+  width: 100%;
+  padding: 32px clamp(16px, 3vw, 40px);
+}
+
+.modern-page {
+  display: grid;
+  justify-items: start;
+  gap: 20px;
+}
+
+.modern-page h1,
+.modern-page h2,
+.modern-page p {
+  margin: 0;
+}
+
+.modern-description {
+  max-width: 70ch;
+  color: var(--modern-muted);
+}
+
+.modern-button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--modern-border);
+  border-radius: 6px;
+  background: var(--modern-surface);
+  padding: 8px 16px;
+  font-weight: 600;
+  text-decoration: none;
+}

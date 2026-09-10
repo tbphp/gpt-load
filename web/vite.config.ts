@@ -17,7 +17,9 @@ export default defineConfig({
   plugins: [vue(), tailwindcss()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@': fileURLToPath(new URL('./src/frontends/classic', import.meta.url)),
+      '@modern': fileURLToPath(new URL('./src/frontends/modern', import.meta.url)),
+      '@shared': fileURLToPath(new URL('./src/shared', import.meta.url)),
     },
   },
   server: {
