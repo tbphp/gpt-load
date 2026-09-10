@@ -51,18 +51,18 @@ const { t } = useI18n()
     <div class="modern-sidebar-footer">
       <HintTooltip :label="t('shell.documentation')" :disabled="!collapsed" side="right">
         <a
-          class="modern-nav-link"
+          class="modern-footer-link"
           href="https://www.gpt-load.com/docs"
           target="_blank"
           rel="noopener noreferrer"
           :aria-label="t('shell.documentation')"
         >
-          <BookOpen :size="18" :stroke-width="1.8" aria-hidden="true" />
+          <BookOpen :size="15" :stroke-width="1.7" aria-hidden="true" />
           <span v-if="!collapsed">{{ t('shell.documentation') }}</span>
           <ArrowUpRight
             v-if="!collapsed"
             class="modern-nav-link__external"
-            :size="14"
+            :size="12"
             aria-hidden="true"
           />
         </a>
@@ -76,7 +76,7 @@ const { t } = useI18n()
             rel="noopener noreferrer"
             aria-label="GitHub"
           >
-            <CodeXml :size="15" :stroke-width="1.8" aria-hidden="true" />
+            <CodeXml :size="14" :stroke-width="1.7" aria-hidden="true" />
             <template v-if="!collapsed"><span>GitHub</span><small>Star</small></template>
           </a>
         </HintTooltip>
@@ -88,7 +88,7 @@ const { t } = useI18n()
             rel="noopener noreferrer"
             aria-label="Telegram"
           >
-            <Send :size="14" :stroke-width="1.8" aria-hidden="true" />
+            <Send :size="14" :stroke-width="1.7" aria-hidden="true" />
             <span v-if="!collapsed">Telegram</span>
           </a>
         </HintTooltip>

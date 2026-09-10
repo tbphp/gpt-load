@@ -50,7 +50,7 @@ export default {
     checkUpdate: '更新を確認',
     checking: '確認中…',
     latestVersion: '最新バージョンです',
-    updateAvailable: '{version} に更新可能',
+    updateAvailable: '新バージョン {version}',
     checkFailed: '確認に失敗しました。再試行してください。',
     authRequired: '管理者ログインが必要です',
   },

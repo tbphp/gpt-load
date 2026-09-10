@@ -50,7 +50,7 @@ export default {
     checkUpdate: '检查更新',
     checking: '检查中…',
     latestVersion: '已是最新版本',
-    updateAvailable: '可更新至 {version}',
+    updateAvailable: '新版本 {version}',
     checkFailed: '检查失败，请重试',
     authRequired: '需要管理员登录',
   },

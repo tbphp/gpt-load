@@ -55,11 +55,10 @@ const checkLabel = computed(() =>
         @click="checkForUpdate"
       >
         <RefreshCw
-          :size="13"
+          :size="14"
           :class="{ 'is-spinning': checkState === 'checking' }"
           aria-hidden="true"
         />
-        <span v-if="!collapsed">{{ checkLabel }}</span>
       </button>
     </div>
     <a
@@ -71,8 +70,9 @@ const checkLabel = computed(() =>
       :title="statusMessage"
       :aria-label="statusMessage"
     >
+      <span v-if="!collapsed" class="modern-update-dot" aria-hidden="true" />
       <span v-if="!collapsed">{{ statusMessage }}</span>
-      <ArrowUpRight :size="14" aria-hidden="true" />
+      <ArrowUpRight :size="12" aria-hidden="true" />
     </a>
     <p
       v-else-if="statusMessage"
@@ -88,8 +88,8 @@ const checkLabel = computed(() =>
 <style scoped>
 .modern-system-status {
   border-top: 1px solid var(--modern-border);
-  margin-top: 10px;
-  padding: 12px 10px 16px;
+  margin-top: 8px;
+  padding: 8px 8px 12px;
   color: var(--modern-muted);
   font-size: 11px;
 }
@@ -105,6 +105,7 @@ const checkLabel = computed(() =>
 .modern-version {
   min-width: 0;
   overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -112,17 +113,16 @@ const checkLabel = computed(() =>
 
 .modern-update-button {
   display: inline-flex;
-  min-height: 30px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  gap: 5px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   padding: 4px;
   color: inherit;
-  font-size: 11px;
 }
 
 .modern-update-button:hover:not(:disabled) {
@@ -136,15 +136,34 @@ const checkLabel = computed(() =>
 
 .modern-update-release {
   display: flex;
+  min-height: 28px;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
-  padding-top: 6px;
-  color: var(--modern-accent);
+  border: 1px solid var(--modern-border);
+  border-radius: 6px;
+  margin-top: 4px;
+  background: var(--modern-surface);
+  padding: 5px 7px;
+  color: var(--modern-text);
+  line-height: 1.4;
+}
+
+.modern-update-dot {
+  width: 4px;
+  height: 4px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--modern-coral);
+}
+
+.modern-update-release > svg {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--modern-muted);
 }
 
 .modern-update-release:hover {
-  text-decoration: underline;
+  border-color: var(--modern-muted);
 }
 
 .modern-update-status {
@@ -173,6 +192,27 @@ const checkLabel = computed(() =>
   min-height: 32px;
   align-items: center;
   justify-content: center;
+}
+
+.is-compact .modern-update-release {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.is-compact .modern-update-release > svg {
+  margin-left: 0;
+}
+
+@media (max-width: 760px) {
+  .modern-update-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .modern-update-release {
+    min-height: 44px;
+  }
 }
 
 .is-spinning {
