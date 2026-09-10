@@ -1821,6 +1821,37 @@ func TestNewExecutionAttemptSpecKeepsContinuityPrivate(t *testing.T) {
 	}
 }
 
+func TestOtherChannelsRetainIdentityHeaderRules(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		rules       state.HeaderRules
+		wantUA      string
+		wantVersion string
+	}{
+		{name: "client headers", wantUA: "client/1.0", wantVersion: "1.0"},
+		{
+			name:   "configured headers",
+			rules:  state.HeaderRules{Set: map[string]string{"User-Agent": "configured/2.0", "Version": "2.0"}},
+			wantUA: "configured/2.0", wantVersion: "2.0",
+		},
+		{name: "removed headers", rules: state.HeaderRules{Remove: []string{"User-Agent", "Version"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := executionForwardInput()
+			input.Request.Header.Set("User-Agent", "client/1.0")
+			input.Request.Header.Set("Version", "1.0")
+			input.Group.HeaderRules = test.rules
+			spec, err := newExecutionAttemptSpec(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if spec.Header.Get("User-Agent") != test.wantUA || spec.Header.Get("Version") != test.wantVersion {
+				t.Fatalf("non-Codex headers changed: UA=%q Version=%q", spec.Header.Get("User-Agent"), spec.Header.Get("Version"))
+			}
+		})
+	}
+}
+
 func TestNewExecutionAttemptSpecCarriesResponsesStoreDowngrade(t *testing.T) {
 	input := responsesExecutionForwardInput()
 	input.RouteRequirement = execution.RouteRequirementAny

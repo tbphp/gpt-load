@@ -162,6 +162,12 @@ func codexWebsocketEvidence(ctx context.Context, err error) *execution.ErrorEvid
 			e.Kind = execution.ErrorKindInvalidRequest
 			e.OriginHint = execution.ErrorOriginInternal
 		}
+		if strings.EqualFold(failure.UpstreamCode, "model_at_capacity") || strings.EqualFold(failure.UpstreamCode, "model_is_at_capacity") {
+			e.Hint = execution.FailureHintCandidateUnavailable
+			e.ScopeHint = execution.ErrorScopeModel
+			// WS 错误未携带生成阶段证据；容量不足不计为额度耗尽，也不据此重放。
+			e.ReplaySafety = execution.ReplaySafetyUnknown
+		}
 	}
 	if ctx.Err() != nil && e.StatusCode == 0 && e.Kind != execution.ErrorKindProvider {
 		e.Kind = execution.ErrorKindCanceled

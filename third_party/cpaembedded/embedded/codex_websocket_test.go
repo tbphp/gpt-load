@@ -935,3 +935,60 @@ func TestCodexWSSessionPreservesDoneErrorCode(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexWSSessionFixedIdentity(t *testing.T) {
+	const wantUA = "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)"
+	for _, model := range []string{"gpt-6-astra", "gpt-5.6-luna"} {
+		for _, test := range []struct {
+			name    string
+			headers http.Header
+		}{
+			{name: "absent"},
+			{name: "supplied", headers: http.Header{"Version": {"9.9.9"}, "User-Agent": {"codex_cli_rs/0.200.0"}}},
+			{name: "empty", headers: http.Header{"Version": {""}, "User-Agent": {""}}},
+			{name: "case variants", headers: http.Header{"version": {"9.9.9"}, "user-agent": {"custom-client/1.0"}}},
+		} {
+			t.Run(model+"/"+test.name, func(t *testing.T) {
+				var handshakes atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					handshakes.Add(1)
+					if r.Header.Get("Version") != "0.153.3" || r.Header.Get("User-Agent") != wantUA {
+						t.Errorf("handshake identity: version=%q UA=%q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
+					}
+					if r.Header.Get("Authorization") != "Bearer test-access" {
+						t.Error("identity normalization changed credential")
+					}
+					conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+					if err != nil {
+						return
+					}
+					defer conn.Close()
+					for turn := 0; turn < 2; turn++ {
+						if _, _, err := conn.ReadMessage(); err != nil {
+							return
+						}
+						if err := conn.WriteMessage(websocket.TextMessage, wsCompleted(fmt.Sprintf("resp_fixed_%d", turn))); err != nil {
+							return
+						}
+					}
+					_, _, _ = conn.ReadMessage()
+				}))
+				defer server.Close()
+				session := wsTestSession(t, server.URL)
+				session.options.Headers = test.headers.Clone()
+				for turn := 0; turn < 2; turn++ {
+					payload := json.RawMessage(fmt.Sprintf(`{"model":%q,"input":"hello"}`, model))
+					if turn == 1 {
+						payload = json.RawMessage(fmt.Sprintf(`{"model":%q,"input":"next","previous_response_id":"resp_fixed_0"}`, model))
+					}
+					if _, err := session.ExecuteTurn(t.Context(), payload, nil); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if handshakes.Load() != 1 {
+					t.Errorf("handshakes = %d, want one reused connection", handshakes.Load())
+				}
+			})
+		}
+	}
+}
