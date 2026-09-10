@@ -16,7 +16,7 @@ const (
 )
 
 // WSSessionOptions 固定调用者已选定的凭据、API 代理根地址和出站代理。
-// ProxyURL 只能是 direct 或明确的 HTTP 代理 URL，环境代理须由调用者先解析。
+// ProxyURL 复用现有代理策略选择的 direct 或代理 URL，环境代理须由调用者先解析。
 type WSSessionOptions struct {
 	CredentialID    string
 	Credential      Credential

@@ -28,7 +28,7 @@ const (
 )
 
 // CodexWSSessionOptions 固定调用者已选择的身份、API 代理根地址和出站代理。
-// ProxyURL 必须是 direct 或明确的 HTTP 代理 URL，不读取环境代理。
+// ProxyURL 传入现有代理策略选定的 direct 或代理 URL，不读取环境代理。
 type CodexWSSessionOptions struct {
 	CredentialID    string
 	Credential      CodexCredential
@@ -96,10 +96,6 @@ func NewCodexWSSession(options CodexWSSessionOptions) (*CodexWSSession, error) {
 	proxy, err := proxyutil.Parse(options.ProxyURL)
 	if err != nil || (proxy.Mode != proxyutil.ModeDirect && proxy.Mode != proxyutil.ModeProxy) {
 		return nil, codexWSError("invalid_proxy")
-	}
-	// 当前 SDK 的 HTTPS 代理不可用，SOCKS5 拨号忽略 context；首版明确拒绝。
-	if proxy.URL != nil && proxy.URL.Scheme != "http" {
-		return nil, codexWSError("unsupported_proxy")
 	}
 	if proxy.URL != nil && (proxy.URL.RawQuery != "" || proxy.URL.Fragment != "" || (proxy.URL.Path != "" && proxy.URL.Path != "/")) {
 		return nil, codexWSError("invalid_proxy")
@@ -226,6 +222,12 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		return result, codexWSContextError(turnCtx.Err(), result.DispatchState)
 	}
 	if executionErr != nil {
+		// 连接 deadline 可能先于 context 定时器触发，仍须保留超时分类。
+		var timeout net.Error
+		if errors.As(executionErr, &timeout) && timeout.Timeout() {
+			s.invalidate(true)
+			return result, codexWSContextError(context.DeadlineExceeded, result.DispatchState)
+		}
 		failure := codexWSError("upstream_error")
 		failure.DispatchState, failure.UpstreamCode = result.DispatchState, observation.upstreamCode
 		var status interface{ StatusCode() int }

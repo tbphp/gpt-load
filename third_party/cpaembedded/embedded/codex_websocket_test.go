@@ -19,12 +19,16 @@ import (
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 )
 
-func wsTestSession(t *testing.T, target string) *CodexWSSession {
+func wsTestSession(t *testing.T, target string, proxyURLs ...string) *CodexWSSession {
 	t.Helper()
+	proxyURL := "direct"
+	if len(proxyURLs) != 0 {
+		proxyURL = proxyURLs[0]
+	}
 	session, err := NewCodexWSSession(CodexWSSessionOptions{
 		CredentialID: "ws-test", Credential: CodexCredential{
 			Type: ProviderCodex, AccessToken: "test-access", RefreshToken: "test-refresh", AccountID: "test-account",
-		}, ProxyURL: "direct", TurnTimeout: 3 * time.Second,
+		}, ProxyURL: proxyURL, TurnTimeout: 3 * time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +282,7 @@ func TestCodexWSSessionValidationKeepsSession(t *testing.T) {
 }
 
 func TestCodexWSSessionRejectsInvalidOptions(t *testing.T) {
-	for _, proxy := range []string{"", "ftp://proxy.invalid", "http://proxy.invalid?password=secret", "https://proxy.invalid", "socks5://proxy.invalid:1080", "socks5h://proxy.invalid:1080"} {
+	for _, proxy := range []string{"", "ftp://proxy.invalid", "http://proxy.invalid?password=secret"} {
 		_, err := NewCodexWSSession(CodexWSSessionOptions{
 			CredentialID: "test", Credential: CodexCredential{Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account"}, ProxyURL: proxy,
 		})
@@ -586,5 +590,146 @@ func TestCodexWSSessionHTTPProxyNegotiationHasDeadline(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("proxy CONNECT has no deadline")
+	}
+}
+
+func TestCodexWSSessionContinuesThroughSOCKS5(t *testing.T) {
+	var turns atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		previous := ""
+		for {
+			_, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var request struct {
+				Previous string `json:"previous_response_id"`
+			}
+			if json.Unmarshal(payload, &request) != nil || request.Previous != previous {
+				t.Error("SOCKS5 continuation changed")
+				return
+			}
+			previous = fmt.Sprintf("resp_socks_%d", turns.Add(1))
+			if err := conn.WriteMessage(websocket.TextMessage, wsCompleted(previous)); err != nil {
+				return
+			}
+		}
+	}))
+	defer upstream.Close()
+	proxy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyDone := make(chan struct{})
+	go func() {
+		defer close(proxyDone)
+		conn, err := proxy.Accept()
+		if err != nil {
+			if !errors.Is(err, net.ErrClosed) {
+				t.Error(err)
+			}
+			return
+		}
+		// 后续轮次必须复用此连接；额外拨号直接失败，避免坏实现卡在 SOCKS 协商。
+		_ = proxy.Close()
+		defer conn.Close()
+		if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			t.Error(err)
+			return
+		}
+		read := func(size int) []byte {
+			buffer := make([]byte, size)
+			if _, err := io.ReadFull(conn, buffer); err != nil {
+				t.Error(err)
+				return nil
+			}
+			return buffer
+		}
+		greeting := read(2)
+		if greeting == nil || greeting[0] != 5 || read(int(greeting[1])) == nil {
+			return
+		}
+		if _, err := conn.Write([]byte{5, 2}); err != nil {
+			t.Error(err)
+			return
+		}
+		auth := read(2)
+		if auth == nil || auth[0] != 1 {
+			t.Error("invalid SOCKS5 authentication")
+			return
+		}
+		username := read(int(auth[1]))
+		passwordLength := read(1)
+		if passwordLength == nil {
+			return
+		}
+		password := read(int(passwordLength[0]))
+		if string(username) != "test-user" || string(password) != "test-password" {
+			t.Error("SOCKS5 credentials were not forwarded")
+			return
+		}
+		if _, err := conn.Write([]byte{1, 0}); err != nil {
+			t.Error(err)
+			return
+		}
+		command := read(4)
+		if command == nil || command[0] != 5 || command[1] != 1 || command[3] != 3 {
+			t.Error("invalid SOCKS5 CONNECT")
+			return
+		}
+		length := read(1)
+		if length == nil {
+			return
+		}
+		hostname := read(int(length[0]))
+		port := read(2)
+		if string(hostname) != "codex.invalid" || len(port) != 2 || port[0] != 0 || port[1] != 80 {
+			t.Error("SOCKS5 target changed")
+			return
+		}
+		remote, err := net.Dial("tcp", upstream.Listener.Addr().String())
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer remote.Close()
+		if _, err := conn.Write([]byte{5, 0, 0, 1, 127, 0, 0, 1, 0, 80}); err != nil {
+			t.Error(err)
+			return
+		}
+		copied := make(chan struct{})
+		go func() { _, _ = io.Copy(remote, conn); _ = remote.Close(); close(copied) }()
+		_, _ = io.Copy(conn, remote)
+		_ = conn.Close()
+		<-copied
+	}()
+	t.Cleanup(func() {
+		_ = proxy.Close()
+		select {
+		case <-proxyDone:
+		case <-time.After(6 * time.Second):
+			t.Error("SOCKS5 proxy did not close")
+		}
+	})
+	session := wsTestSession(t, "http://codex.invalid", "socks5://test-user:test-password@"+proxy.Addr().String())
+	first, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := session.ExecuteTurn(context.Background(), json.RawMessage(fmt.Sprintf(`{"model":"gpt-5","input":"continue","previous_response_id":%q}`, first.ResponseID)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ResponseID != "resp_socks_2" || turns.Load() != 2 {
+		t.Fatal("SOCKS5 session did not complete two turns")
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
