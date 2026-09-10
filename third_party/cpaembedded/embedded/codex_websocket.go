@@ -121,7 +121,9 @@ func NewCodexWSSession(options CodexWSSessionOptions) (*CodexWSSession, error) {
 	options.Headers = options.Headers.Clone()
 	session := &CodexWSSession{
 		auth: auth, id: codexWSSessionIDPrefix + uuid.NewString(), options: options, closeDone: make(chan struct{}),
-		inner: internalexecutor.NewCodexWebsocketsExecutor(&internalconfig.Config{}),
+		inner: internalexecutor.NewCodexWebsocketsExecutor(&internalconfig.Config{
+			Codex: internalconfig.CodexConfig{ModelLevelCooling: true},
+		}),
 	}
 	session.resource = &codexWSResource{session: session}
 	return session, nil
@@ -203,7 +205,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	stream, executionErr := s.inner.ExecuteStream(turnCtx, s.auth, cliproxyexecutor.Request{
 		Model: model, Payload: append([]byte(nil), payload...), Format: sdktranslator.FormatOpenAIResponse,
 	}, cliproxyexecutor.Options{
-		Stream: true, Headers: s.options.Headers.Clone(), SourceFormat: sdktranslator.FormatOpenAIResponse, ResponseFormat: sdktranslator.FormatOpenAIResponse,
+		Stream: true, Headers: normalizedCodexHeaders(s.options.Headers), SourceFormat: sdktranslator.FormatOpenAIResponse, ResponseFormat: sdktranslator.FormatOpenAIResponse,
 		Metadata:           map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: s.id},
 		ExecutionLifecycle: s.resource, WebSocketResponseObserver: observation.observe,
 	})

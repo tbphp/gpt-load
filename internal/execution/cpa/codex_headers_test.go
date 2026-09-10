@@ -16,8 +16,7 @@ import (
 )
 
 func TestCodexGatewayRequestIdentity(t *testing.T) {
-	const defaultUA = "codex-tui/0.146.0 (Mac OS 26.5.0; arm64) iTerm.app/3.6.10 (codex-tui; 0.146.0)"
-	const lunaUA = "codex-tui/0.144.0 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.144.0)"
+	const defaultUA = "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)"
 	const configuredUA = "codex-tui/0.200.0 (Mac OS 26.5.0; arm64)"
 	tests := []struct {
 		name           string
@@ -31,65 +30,76 @@ func TestCodexGatewayRequestIdentity(t *testing.T) {
 		wantSession    string
 	}{
 		{
-			name:    "preserve provider default and align client version",
+			name:    "client identity cannot change fixed version",
 			headers: http.Header{"User-Agent": {"browser/1.0"}, "Originator": {"browser"}, "Version": {"9.9.9"}},
-			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.146.0",
+			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3",
 		},
 		{
-			name:    "configured identity wins",
+			name:    "configured UA cannot override CPA identity",
 			headers: http.Header{"User-Agent": {"browser/1.0"}, "Version": {"9.9.9"}},
 			rules:   state.HeaderRules{Set: map[string]string{"user-agent": configuredUA, "originator": "configured-client"}},
-			wantUA:  configuredUA, wantOriginator: "configured-client", wantVersion: "0.200.0",
+			wantUA:  defaultUA, wantOriginator: "configured-client", wantVersion: "0.153.3",
 		},
 		{
 			name: "preserve model default and align version", model: "gpt-5.6-luna",
 			headers: http.Header{"Version": {"9.9.9"}},
-			wantUA:  lunaUA, wantOriginator: "codex-tui", wantVersion: "0.144.0",
+			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3",
 		},
 		{
-			name: "configured identity wins over model default", model: "gpt-5.6-luna",
+			name: "configured UA cannot override model default", model: "gpt-5.6-luna",
 			rules:  state.HeaderRules{Set: map[string]string{"User-Agent": configuredUA}},
-			wantUA: configuredUA, wantOriginator: "codex-tui", wantVersion: "0.200.0",
+			wantUA: defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3",
 		},
 		{
-			name:    "custom UA does not inherit unrelated version",
+			name:    "non Codex configured UA is ignored",
 			headers: http.Header{"Version": {"9.9.9"}},
 			rules:   state.HeaderRules{Set: map[string]string{"User-Agent": "custom-client/1.0"}},
-			wantUA:  "custom-client/1.0", wantOriginator: "codex-tui",
+			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3",
 		},
 		{
-			name:   "explicit version remains authoritative",
+			name:   "configured version cannot override fixed version",
 			rules:  state.HeaderRules{Set: map[string]string{"User-Agent": "custom-client/1.0", "Version": "custom-version"}},
-			wantUA: "custom-client/1.0", wantOriginator: "codex-tui", wantVersion: "custom-version",
+			wantUA: defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3",
 		},
 		{
-			name:    "explicit removal survives SDK defaults",
+			name:    "removal cannot remove fixed identity",
 			headers: http.Header{"User-Agent": {"browser/1.0"}, "Originator": {"browser"}, "Version": {"9.9.9"}},
 			rules:   state.HeaderRules{Remove: []string{"User-Agent", "Originator", "Version"}},
+			wantUA:  defaultUA, wantVersion: "0.153.3",
+		},
+		{
+			name:   "empty configured identity is ignored",
+			rules:  state.HeaderRules{Set: map[string]string{"User-Agent": "", "Version": ""}},
+			wantUA: defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3",
+		},
+		{
+			name:    "client UA version is ignored",
+			headers: http.Header{"User-Agent": {"codex_cli_rs/0.999.0"}},
+			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3",
 		},
 		{
 			name: "underscore session is preserved", model: "gpt-5.6-luna",
 			headers: http.Header{"Session_id": {"client-session"}},
-			wantUA:  lunaUA, wantOriginator: "codex-tui", wantVersion: "0.144.0", wantSession: "client-session",
+			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3", wantSession: "client-session",
 		},
 		{
 			name:    "hyphen session wins over alias",
 			headers: http.Header{"Session_id": {"alias-session"}, "Session-Id": {"canonical-session"}},
-			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.146.0", wantSession: "canonical-session",
+			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3", wantSession: "canonical-session",
 		},
 		{
 			name:    "blank canonical session falls back to alias",
 			headers: http.Header{"Session-Id": {"  "}, "Session_id": {" alias-session "}},
-			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.146.0", wantSession: "alias-session",
+			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3", wantSession: "alias-session",
 		},
 		{
 			name: "prompt cache remains the session fallback", promptCacheKey: "cache-session",
-			wantUA: defaultUA, wantOriginator: "codex-tui", wantVersion: "0.146.0", wantSession: "cache-session",
+			wantUA: defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3", wantSession: "cache-session",
 		},
 		{
 			name: "session alias has the same precedence as canonical header", promptCacheKey: "cache-session",
 			headers: http.Header{"Session_id": {"client-session"}},
-			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.146.0", wantSession: "client-session",
+			wantUA:  defaultUA, wantOriginator: "codex-tui", wantVersion: "0.153.3", wantSession: "client-session",
 		},
 	}
 	for _, stream := range []bool{false, true} {

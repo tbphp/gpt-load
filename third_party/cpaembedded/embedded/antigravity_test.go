@@ -760,6 +760,37 @@ func TestAntigravityExecutionOnlyBridgeScopesConnectionsByCredential(t *testing.
 	}
 }
 
+func TestAntigravityRejectsForeignCompactionBeforeDispatch(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	executor := newAntigravityHTTPExecutor(server.URL)
+	credential := AntigravityCredential{
+		Type: ProviderAntigravity, AccessToken: "access-secret", RefreshToken: "refresh-secret",
+		AccountID: "google-account-one", Email: "owner@example.com", ProjectID: "project-one",
+		Expire: "2030-01-01T00:00:00Z",
+	}
+	request := ExecuteRequest{
+		Model: "gemini-live", Format: "openai-response",
+		Payload: []byte(`{"model":"gemini-live","input":[{"type":"compaction","encrypted_content":"foreign-capsule"}]}`),
+	}
+	for _, stream := range []bool{false, true} {
+		var err error
+		if stream {
+			_, err = executor.ExecuteStreamCanonical(t.Context(), "credential-one", credential, request)
+		} else {
+			_, err = executor.ExecuteCanonical(t.Context(), "credential-one", credential, request)
+		}
+		var failure *AntigravityExecutionError
+		if !errors.As(err, &failure) || failure.StatusCode() != http.StatusBadRequest || calls.Load() != 0 {
+			t.Fatalf("stream=%t error=%v upstream calls=%d", stream, err, calls.Load())
+		}
+	}
+}
+
 func TestAntigravityExecutionOnlyBridgeRejectsRedirects(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

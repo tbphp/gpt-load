@@ -2,13 +2,34 @@ package cpa
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/health"
 	"gpt-load/internal/subscription/providers/codex"
 )
+
+func TestWebsocketModelCapacityDoesNotApplyQuotaCooldown(t *testing.T) {
+	for _, code := range []string{"model_at_capacity", "model_is_at_capacity"} {
+		evidence := codexWebsocketEvidence(t.Context(), &codex.WSError{
+			Code: "upstream_error", UpstreamCode: code, HTTPStatus: http.StatusTooManyRequests,
+			DispatchState: codex.WSMaybeSent,
+		})
+		if evidence.Hint != execution.FailureHintCandidateUnavailable || evidence.ScopeHint != execution.ErrorScopeModel ||
+			evidence.ReplaySafety != execution.ReplaySafetyUnknown {
+			t.Fatalf("capacity evidence=%+v", evidence)
+		}
+		decision := health.JudgeExecution(health.ExecutionAttempt{
+			DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusTooManyRequests, Evidence: evidence,
+		}, health.DecisionContext{Method: http.MethodPost, Operation: execution.OperationResponsesCreate})
+		if decision.Effect != health.EffectNone || decision.Retry != health.RetryNone {
+			t.Fatalf("capacity rejection caused cooldown or unsafe replay: %+v", decision)
+		}
+	}
+}
 
 func TestWebsocketHTTPErrorEvidenceSurvivesCancellation(t *testing.T) {
 	for _, status := range []int{401, 429} {
