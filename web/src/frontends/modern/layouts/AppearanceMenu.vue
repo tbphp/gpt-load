@@ -13,7 +13,6 @@ import {
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { themes, usePreferences, type Theme } from '@modern/app/preferences'
-import HintTooltip from '@modern/components/HintTooltip.vue'
 import { supportedLocales, type AppLocale } from '@shared/preferences/locale'
 
 const { t } = useI18n()
@@ -30,11 +29,13 @@ function changeLocale(value: unknown): void {
 
 <template>
   <DropdownMenuRoot>
-    <HintTooltip :label="t('appearance.theme')">
-      <DropdownMenuTrigger class="modern-icon-button" :aria-label="t('appearance.theme')">
-        <component :is="themeIcon" :size="18" :stroke-width="1.8" aria-hidden="true" />
-      </DropdownMenuTrigger>
-    </HintTooltip>
+    <DropdownMenuTrigger
+      class="modern-icon-button"
+      :aria-label="t('appearance.theme')"
+      :title="t('appearance.theme')"
+    >
+      <component :is="themeIcon" :size="18" :stroke-width="1.8" aria-hidden="true" />
+    </DropdownMenuTrigger>
     <DropdownMenuPortal>
       <DropdownMenuContent class="modern-menu" align="end" :side-offset="8">
         <DropdownMenuLabel class="modern-menu-label">{{ t('appearance.theme') }}</DropdownMenuLabel>
@@ -55,11 +56,12 @@ function changeLocale(value: unknown): void {
     </DropdownMenuPortal>
   </DropdownMenuRoot>
   <DropdownMenuRoot>
-    <HintTooltip :label="t('appearance.language')">
-      <DropdownMenuTrigger class="modern-icon-button" :aria-label="t('appearance.language')"
-        ><Languages :size="18" :stroke-width="1.8" aria-hidden="true"
-      /></DropdownMenuTrigger>
-    </HintTooltip>
+    <DropdownMenuTrigger
+      class="modern-icon-button"
+      :aria-label="t('appearance.language')"
+      :title="t('appearance.language')"
+      ><Languages :size="18" :stroke-width="1.8" aria-hidden="true"
+    /></DropdownMenuTrigger>
     <DropdownMenuPortal>
       <DropdownMenuContent class="modern-menu" align="end" :side-offset="8">
         <DropdownMenuLabel class="modern-menu-label">{{

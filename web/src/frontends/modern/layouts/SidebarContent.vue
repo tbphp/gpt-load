@@ -30,6 +30,7 @@ const { t } = useI18n()
           v-for="item in navigationItems.filter((entry) => entry.section === section)"
           :key="item.id"
           :label="t(`pages.${item.id}.title`)"
+          :disabled="!collapsed"
           side="right"
         >
           <RouterLink
@@ -47,7 +48,7 @@ const { t } = useI18n()
       </div>
     </nav>
     <div class="modern-sidebar-footer">
-      <HintTooltip :label="t('settings')" side="right">
+      <HintTooltip :label="t('settings')" :disabled="!collapsed" side="right">
         <RouterLink
           class="modern-nav-link"
           :class="{ 'is-active': route.name === 'modern-settings' }"
@@ -60,7 +61,7 @@ const { t } = useI18n()
           <span v-if="!collapsed">{{ t('settings') }}</span>
         </RouterLink>
       </HintTooltip>
-      <HintTooltip :label="t('shell.documentation')" side="right">
+      <HintTooltip :label="t('shell.documentation')" :disabled="!collapsed" side="right">
         <a
           class="modern-nav-link"
           href="https://www.gpt-load.com"
@@ -79,7 +80,7 @@ const { t } = useI18n()
         </a>
       </HintTooltip>
       <div class="modern-sidebar-meta">
-        <HintTooltip label="GitHub" side="right">
+        <HintTooltip label="GitHub" :disabled="!collapsed" side="right">
           <a
             class="modern-community-link"
             href="https://github.com/tbphp/gpt-load"
@@ -91,7 +92,7 @@ const { t } = useI18n()
             <template v-if="!collapsed"><span>GitHub</span><small>Star</small></template>
           </a>
         </HintTooltip>
-        <HintTooltip label="Telegram" side="right">
+        <HintTooltip label="Telegram" :disabled="!collapsed" side="right">
           <a
             class="modern-community-link"
             href="https://t.me/+GHpy5SwEllg3MTUx"
