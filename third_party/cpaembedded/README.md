@@ -14,6 +14,7 @@ quota policy. This bridge only exposes:
 - strict CPA Codex JSON parsing;
 - one-shot, context-aware token refresh;
 - the stateless Codex HTTP executor and its explicit local CountTokens estimator;
+- an explicitly called Codex WebSocket Session facade for serial Responses turns;
 - one-shot model and usage observation requests.
 - Claude browser OAuth challenge creation and one-shot code exchange;
 - strict CPA Claude JSON parsing and stable device identity normalization;
@@ -32,8 +33,69 @@ quota policy. This bridge only exposes:
   translators, without CPA manager, refresh, retry, fallback,
   WebSocket, image, or video execution paths.
 
-It intentionally excludes CPA Manager, selector, pool, file store, server,
-watcher, WebSocket/Auto executors, fallback, and internal retry loops.
+It intentionally excludes CPA Manager, selector, account pool, file store, server,
+watcher, and Auto executors. The Codex WS facade blocks HTTP fallback and business
+request replay; it does not enable WS in the HTTP data plane.
+
+## Codex WebSocket Session
+
+`internal/subscription/providers/codex.NewWSSession` exposes this independent
+capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
+
+- Supply an already selected credential, optional HTTPS API proxy root (with the
+  same native-path mapping as HTTP), and an explicit HTTP outbound proxy URL or `direct`.
+  There is no environment proxy lookup, credential selection, or token refresh.
+  HTTP proxies can tunnel TLS/WSS upstreams with CONNECT. HTTPS and SOCKS5 proxy
+  URLs are rejected before dialing: the pinned SDK does not support HTTPS proxy
+  negotiation and its SOCKS5 dial path ignores context cancellation.
+- `NewWSSession` creates a handle; the first `ExecuteTurn` opens the connection.
+  Pass a Responses create body, without the WS event `type`. The first turn must
+  not reference a prior response. Retain its response ID and use the same Session
+  for subsequent `previous_response_id` turns. IDs are not automatically added,
+  removed, looked up globally, or persisted. CPA enforces `store:false` upstream.
+- `ExecuteTurn(ctx, body, emit)` is synchronous. The callback receives native JSON
+  events in order and must return promptly and honor `ctx`; nil discards events.
+  It may return an error or call `Close` to stop. The result contains response ID,
+  terminal status, raw usage (nil if absent), handshake headers when available,
+  and `not_sent` / `maybe_sent` business-dispatch evidence. Reused connections do
+  not provide new handshake headers; old quota headers are not carried forward.
+- One turn runs at a time; overlapping calls fail with `session_busy`. Local
+  validation errors leave the Session usable. Cancellation, timeout, transport
+  loss and failed/protocol-invalid responses close it. A closed Session cannot
+  reconnect. `Close` is idempotent and affects only that Session; active execution
+  then unwinds. Callers own the eventual `Close`, including after successful use.
+  Cancellation also closes an in-progress TLS/WS upgrade via the SDK's HTTP trace
+  connection hook. Before an HTTP proxy CONNECT tunnel is established that hook
+  is not yet available: cancellation may wait for proxy negotiation to end or its
+  deadline (the smaller of the turn deadline and SDK's 30-second handshake limit).
+- A lifetime-bound CPA `ExecutionLifecycle` blocks HTTP fallback and rejects
+  replacement connections. CPA can still perform an extra handshake after a send
+  failure, but cannot send the business request again. This is not a guarantee of
+  exactly one network connection attempt.
+- Default per-turn timeout is five minutes; request and forwarded-event limits
+  default to 10 MiB each. All three are configurable when creating the Session.
+  The facade buffers no conversation history or output queue. Event checks occur
+  **after SDK reading**: CPA v7.2.151 has no exposed raw-frame size limit and has
+  its own internal buffers. These checks do not bound all SDK memory. CPA also
+  retains its upstream read-idle timeout; idle connection loss invalidates the
+  Session and is not transparently recovered.
+- No multi-lane `stream_id`, background mode, other protocols, Responses resource
+  operations, global session routing, application shutdown integration, or
+  business health/quota/logging policy is introduced here.
+
+Deterministic tests use local fake WS upstreams. They prove connection reuse and
+wire contracts, not real Codex account availability or recovery compatibility.
+Real-account checks require a separately authorized credential and are opt-in.
+
+```bash
+CPA_LIVE_CODEX_WS_CREDENTIAL_FILE=/absolute/path/to/codex.json \
+CPA_LIVE_CODEX_WS_MODEL=authorized-model-id \
+  go test -count=1 -run '^TestLiveCodexWSSessionContract$' ./embedded
+```
+
+This makes two real model requests and checks that the second can recall a marker
+sent only in the first. `CPA_LIVE_CODEX_WS_PROXY_URL` defaults to `direct`;
+`CPA_LIVE_CODEX_WS_BASE_URL` optionally selects an authorized HTTPS API proxy root.
 
 ## Pinned upstream
 
@@ -53,7 +115,9 @@ bumps:
    executor, translation, headers, identity, model discovery, and usage observation code.
 2. Update the CPA version in this module and run `go mod tidy` here.
 3. Fix only bridge compatibility issues; keep the execution-only boundary and
-   do not adopt CPA Manager, retry, WebSocket, fallback, or file persistence.
+   do not adopt CPA Manager, business-request retry, Auto, fallback, or file persistence.
+   Revalidate the explicit WS facade's lifecycle, continuation, proxy and cancellation
+   contracts when changing the pinned SDK.
 4. Run `go test -count=1 ./...` in this module, then GPT-Load's full
    `make check` from the repository root.
 5. With authorized disposable CPA credentials, run the applicable opt-in live
