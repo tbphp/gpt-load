@@ -207,9 +207,10 @@ func (probe *credentialProbeExecutor) Probe(
 			ChannelID: string(group.ChannelID),
 			RouteMode: execution.RouteMode(routeMode), ClientProtocol: probeProtocol,
 			Operation: execution.OperationProbe, ClientModel: target.model, UpstreamModel: target.model,
-			Header:       applyControlHeaderRules(group.HeaderRules, apiKey),
-			TargetConfig: group.ResolvedTarget.TargetConfig,
-			Timeouts:     executionTimeouts(group.Timeouts),
+			Header:            applyControlHeaderRules(group.HeaderRules, apiKey),
+			ConfiguredHeaders: group.HeaderRules.ConfiguredNames(),
+			TargetConfig:      group.ResolvedTarget.TargetConfig,
+			Timeouts:          executionTimeouts(group.Timeouts),
 			Credential: execution.NewCredentialSnapshot(
 				ref.ID,
 				version,

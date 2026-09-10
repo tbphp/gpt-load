@@ -125,6 +125,18 @@ type HeaderRules struct {
 	Remove []string
 }
 
+// ConfiguredNames 标记显式设置或移除的字段，区分规则与客户端原始请求头。
+func (rules HeaderRules) ConfiguredNames() []string {
+	if len(rules.Set)+len(rules.Remove) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(rules.Set)+len(rules.Remove))
+	for name := range rules.Set {
+		names = append(names, name)
+	}
+	return append(names, rules.Remove...)
+}
+
 type GroupView struct {
 	PriceMultiplier    pricing.PriceMultiplier
 	ID                 uint

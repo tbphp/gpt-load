@@ -548,6 +548,7 @@ func bridgeRequest(
 	return providerRequest{
 		AttemptID: spec.AttemptID, Model: spec.UpstreamModel, Payload: payload,
 		Format: formatFor(spec.ClientProtocol), RequestPath: requestPath, Headers: headers,
+		ConfiguredHeaders:    append([]string(nil), spec.ConfiguredHeaders...),
 		OriginalRequest:      append([]byte(nil), payload...),
 		ContinuityKey:        spec.ContinuityKey,
 		BaseURL:              baseURL,
