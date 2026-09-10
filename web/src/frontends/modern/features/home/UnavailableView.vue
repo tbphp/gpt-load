@@ -1,16 +1,16 @@
 <script setup lang="ts">
+import { ArrowLeft } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
-
+import PageHeader from '@modern/components/PageHeader.vue'
 const { t } = useI18n()
 </script>
 
 <template>
-  <section class="modern-page" aria-labelledby="modern-unavailable-title">
-    <h1 id="modern-unavailable-title">{{ t('unavailableTitle') }}</h1>
-    <p class="modern-description">{{ t('homeDescription') }}</p>
-    <RouterLink class="modern-button" :to="{ name: 'modern-settings' }">
-      {{ t('interfaceSettings') }}
-    </RouterLink>
-  </section>
+  <div class="modern-page">
+    <PageHeader :title="t('unavailableTitle')" :description="t('homeDescription')" />
+    <RouterLink class="modern-button" :to="{ name: 'modern-home' }"
+      ><ArrowLeft :size="16" aria-hidden="true" />{{ t('workspace.backHome') }}</RouterLink
+    >
+  </div>
 </template>

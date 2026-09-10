@@ -107,15 +107,19 @@ func TestEmbeddedPageRouteManifestContainsCurrentPages(t *testing.T) {
 		got[route.Name] = route.Path
 	}
 	want := map[string]string{
-		"home":         "/",
-		"login":        "/login",
-		"import":       "/import",
-		"groups":       "/groups",
-		"group-detail": "/groups/:id",
-		"access-keys":  "/access-keys",
-		"monitor":      "/monitor",
-		"models":       "/models",
-		"settings":     "/settings",
+		"home":              "/",
+		"login":             "/login",
+		"import":            "/import",
+		"groups":            "/groups",
+		"group-detail":      "/groups/:id",
+		"access-keys":       "/access-keys",
+		"monitor":           "/monitor",
+		"monitor-usage":     "/monitor/usage",
+		"monitor-logs":      "/monitor/logs",
+		"monitor-health":    "/monitor/health",
+		"monitor-inspector": "/monitor/inspector",
+		"models":            "/models",
+		"settings":          "/settings",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("embedded routes = %#v, want %#v", got, want)

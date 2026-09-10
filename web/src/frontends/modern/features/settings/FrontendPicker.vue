@@ -23,34 +23,43 @@ function select(frontend: FrontendID): void {
 </script>
 
 <template>
-  <section class="modern-page" aria-labelledby="modern-frontend-title">
-    <h2 id="modern-frontend-title">{{ t('interfaceSettings') }}</h2>
-    <p class="modern-description">{{ t('frontend.description') }}</p>
-    <div class="modern-frontend-options">
-      <button
-        v-for="frontend in frontendOptions"
-        :key="frontend.id"
-        type="button"
-        class="modern-frontend-option"
-        :aria-pressed="frontend.id === 'modern'"
-        :disabled="pending"
-        @click="select(frontend.id)"
-      >
-        <img :src="frontend.preview" alt="" width="320" height="180" />
-        <strong>{{ t(`frontend.${frontend.id}.title`) }}</strong>
-        <span>{{ t(`frontend.${frontend.id}.description`) }}</span>
-        <span v-if="frontend.id === 'modern'">{{ t('frontend.current') }}</span>
-      </button>
+  <section class="modern-panel" aria-labelledby="modern-frontend-title">
+    <header class="modern-panel-header">
+      <h2 id="modern-frontend-title">{{ t('interfaceSettings') }}</h2>
+      <p>{{ t('frontend.description') }}</p>
+    </header>
+    <div class="modern-panel-body modern-frontend-body">
+      <div class="modern-frontend-options">
+        <button
+          v-for="frontend in frontendOptions"
+          :key="frontend.id"
+          type="button"
+          class="modern-frontend-option"
+          :aria-pressed="frontend.id === 'modern'"
+          :disabled="pending"
+          @click="select(frontend.id)"
+        >
+          <img :src="frontend.preview" alt="" width="320" height="180" />
+          <strong>{{ t(`frontend.${frontend.id}.title`) }}</strong>
+          <span>{{ t(`frontend.${frontend.id}.description`) }}</span>
+          <span v-if="frontend.id === 'modern'">{{ t('frontend.current') }}</span>
+        </button>
+      </div>
+      <p class="modern-description">{{ t('frontend.previewNote') }}</p>
+      <p v-if="failed" role="alert">{{ t('frontend.saveFailed') }}</p>
     </div>
-    <p class="modern-description">{{ t('frontend.previewNote') }}</p>
-    <p v-if="failed" role="alert">{{ t('frontend.saveFailed') }}</p>
   </section>
 </template>
 
 <style scoped>
+.modern-frontend-body {
+  display: grid;
+  gap: 18px;
+}
+
 .modern-frontend-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 300px));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 260px));
   gap: 16px;
 }
 
@@ -81,6 +90,6 @@ function select(frontend: FrontendID): void {
 
 .modern-frontend-option span {
   color: var(--modern-muted);
-  font-size: 14px;
+  font-size: 12px;
 }
 </style>
