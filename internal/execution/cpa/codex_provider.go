@@ -102,7 +102,8 @@ func (bridge *codexProviderBridge) CountTokensLocal(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		RequestPath: request.RequestPath,
 		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		BaseURL: request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
+		ConfiguredHeaders: append([]string(nil), request.ConfiguredHeaders...),
+		BaseURL:           request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	headers := response.Headers.Clone()
 	if headers == nil {
@@ -306,7 +307,8 @@ func (bridge *codexProviderBridge) Execute(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		RequestPath: request.RequestPath,
 		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		BaseURL: request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
+		ConfiguredHeaders: append([]string(nil), request.ConfiguredHeaders...),
+		BaseURL:           request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
@@ -333,7 +335,8 @@ func (bridge *codexProviderBridge) ExecuteStream(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: request.Format,
 		RequestPath: request.RequestPath,
 		Headers:     request.Headers.Clone(), OriginalRequest: append([]byte(nil), request.OriginalRequest...),
-		BaseURL: request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
+		ConfiguredHeaders: append([]string(nil), request.ConfiguredHeaders...),
+		BaseURL:           request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	if response == nil {
 		return nil, err
