@@ -84,7 +84,7 @@ export const navigationItems = [
 export type NavigationItem = (typeof navigationItems)[number]
 export type WorkspaceID = NavigationItem['id']
 
-export const navigationSections = ['workspace', 'observe'] as const
+export const navigationSections = ['workspace', 'observe', 'system'] as const
 
 export function findNavigationItem(name: unknown): NavigationItem | undefined {
   return navigationItems.find((item) => item.name === name)

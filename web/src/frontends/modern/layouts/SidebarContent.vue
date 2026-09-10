@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ArrowUpRight, BookOpen, CodeXml, Send, Settings2 } from '@lucide/vue'
+import { ArrowUpRight, BookOpen, CodeXml, Send } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 
 import { navigationItems, navigationSections } from '@modern/app/navigation'
 import BrandLogo from '@modern/components/BrandLogo.vue'
 import HintTooltip from '@modern/components/HintTooltip.vue'
+import SystemStatus from '@modern/features/system/SystemStatus.vue'
 
 defineProps<{ collapsed?: boolean }>()
 const emit = defineEmits<{ navigate: [] }>()
@@ -48,23 +49,10 @@ const { t } = useI18n()
       </div>
     </nav>
     <div class="modern-sidebar-footer">
-      <HintTooltip :label="t('settings')" :disabled="!collapsed" side="right">
-        <RouterLink
-          class="modern-nav-link"
-          :class="{ 'is-active': route.name === 'modern-settings' }"
-          :to="{ name: 'modern-settings' }"
-          :aria-label="t('settings')"
-          :aria-current="route.name === 'modern-settings' ? 'page' : undefined"
-          @click="emit('navigate')"
-        >
-          <Settings2 :size="18" :stroke-width="1.8" aria-hidden="true" />
-          <span v-if="!collapsed">{{ t('settings') }}</span>
-        </RouterLink>
-      </HintTooltip>
       <HintTooltip :label="t('shell.documentation')" :disabled="!collapsed" side="right">
         <a
           class="modern-nav-link"
-          href="https://www.gpt-load.com"
+          href="https://www.gpt-load.com/docs"
           target="_blank"
           rel="noopener noreferrer"
           :aria-label="t('shell.documentation')"
@@ -79,7 +67,7 @@ const { t } = useI18n()
           />
         </a>
       </HintTooltip>
-      <div class="modern-sidebar-meta">
+      <div class="modern-community-links">
         <HintTooltip label="GitHub" :disabled="!collapsed" side="right">
           <a
             class="modern-community-link"
@@ -105,6 +93,7 @@ const { t } = useI18n()
           </a>
         </HintTooltip>
       </div>
+      <SystemStatus :collapsed="collapsed" />
     </div>
   </div>
 </template>

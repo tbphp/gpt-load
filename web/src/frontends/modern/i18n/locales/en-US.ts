@@ -34,8 +34,6 @@ export default {
     backHome: 'Back to overview',
   },
   appearance: {
-    title: 'Appearance',
-    description: 'Preferences are saved only in this browser.',
     theme: 'Display mode',
     language: 'Interface language',
     themes: {
@@ -44,6 +42,17 @@ export default {
       dark: 'Dark',
     },
     persistenceFailed: 'Browser storage is unavailable. Your preferences apply to this visit only.',
+  },
+  system: {
+    currentVersion: 'Current version: {version}',
+    loadingVersion: 'Loading…',
+    versionUnavailable: 'Version unavailable',
+    checkUpdate: 'Check updates',
+    checking: 'Checking…',
+    latestVersion: 'Up to date',
+    updateAvailable: '{version} available',
+    checkFailed: 'Check failed. Try again.',
+    authRequired: 'Admin sign-in required',
   },
   quickNavigation: {
     title: 'Quick navigation',
@@ -55,7 +64,6 @@ export default {
   },
   navigation: 'Main navigation',
   skipToContent: 'Skip to main content',
-  settings: 'Global settings',
   interfaceSettings: 'Interface',
   frontend: {
     description: 'Reloads the page and applies only to this browser.',

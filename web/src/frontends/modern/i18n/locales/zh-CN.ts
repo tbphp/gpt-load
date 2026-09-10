@@ -34,8 +34,6 @@ export default {
     backHome: '返回总览',
   },
   appearance: {
-    title: '外观',
-    description: '偏好仅保存在当前浏览器。',
     theme: '显示模式',
     language: '界面语言',
     themes: {
@@ -44,6 +42,17 @@ export default {
       dark: '深色',
     },
     persistenceFailed: '浏览器未允许保存偏好，本次选择在当前访问中有效。',
+  },
+  system: {
+    currentVersion: '当前版本：{version}',
+    loadingVersion: '加载中…',
+    versionUnavailable: '版本未知',
+    checkUpdate: '检查更新',
+    checking: '检查中…',
+    latestVersion: '已是最新版本',
+    updateAvailable: '可更新至 {version}',
+    checkFailed: '检查失败，请重试',
+    authRequired: '需要管理员登录',
   },
   quickNavigation: {
     title: '快速跳转',
@@ -55,7 +64,6 @@ export default {
   },
   navigation: '主导航',
   skipToContent: '跳到主要内容',
-  settings: '全局设置',
   interfaceSettings: '界面设置',
   frontend: {
     description: '切换后重新加载，仅影响当前浏览器。',

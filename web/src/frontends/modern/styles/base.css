@@ -14,7 +14,8 @@
   --modern-action-hover: #913c2a;
   --modern-overlay: rgb(20 18 25 / 35%);
   --modern-sidebar-width: 232px;
-  --modern-topbar-height: 60px;
+  --modern-topbar-height: 56px;
+  --modern-content-inset: 30px;
 }
 
 :root[data-theme='light'] {
@@ -117,6 +118,39 @@ svg {
 }
 .modern-app.is-sidebar-collapsed {
   --modern-sidebar-width: 72px;
+}
+.modern-sidebar-toggle {
+  position: fixed;
+  z-index: 25;
+  top: 50dvh;
+  left: var(--modern-sidebar-width);
+  display: grid;
+  width: 24px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 0;
+  color: var(--modern-muted);
+  transform: translate(-50%, -50%);
+}
+.modern-sidebar-toggle::before {
+  position: absolute;
+  inset: 6px 4px;
+  border: 1px solid var(--modern-border);
+  border-radius: 5px;
+  background: var(--modern-surface);
+  content: '';
+}
+.modern-sidebar-toggle > svg {
+  position: relative;
+  opacity: 0.65;
+}
+.modern-sidebar-toggle:hover > svg,
+.modern-sidebar-toggle:focus-visible > svg {
+  color: var(--modern-accent);
+  opacity: 1;
 }
 .modern-sidebar {
   position: sticky;
@@ -226,19 +260,17 @@ svg {
   margin-top: auto;
   padding-top: 22px;
 }
-.modern-sidebar-meta {
+.modern-community-links {
   display: flex;
-  min-height: 59px;
+  min-height: 36px;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border-top: 1px solid var(--modern-border);
-  margin-top: 12px;
-  padding: 12px 8px;
+  padding: 0 12px;
   color: var(--modern-muted);
   font-size: 10px;
 }
-.modern-sidebar-meta a {
+.modern-community-links a {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -248,7 +280,7 @@ svg {
   min-height: 30px;
   border-radius: 4px;
   color: var(--modern-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .modern-community-link:hover {
@@ -258,13 +290,12 @@ svg {
   color: var(--modern-muted);
   font-size: 10px;
 }
-.is-collapsed .modern-sidebar-meta {
-  flex-direction: column;
+.is-collapsed .modern-community-links {
   padding-inline: 0;
-  gap: 4px;
+  gap: 0;
 }
 .is-collapsed .modern-community-link {
-  width: 40px;
+  width: 24px;
   height: 36px;
   justify-content: center;
 }
@@ -294,9 +325,6 @@ svg {
   border-top: 1px solid var(--modern-border);
   padding-top: 18px;
 }
-.is-collapsed .modern-sidebar-footer {
-  padding-bottom: 18px;
-}
 
 .modern-main-column {
   min-width: 0;
@@ -311,7 +339,7 @@ svg {
   gap: 16px;
   border-bottom: 1px solid var(--modern-border);
   background: var(--modern-surface);
-  padding: 0 26px 0 18px;
+  padding: 0 var(--modern-content-inset);
 }
 .modern-icon-button {
   display: inline-flex;
@@ -337,14 +365,14 @@ svg {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 11px;
+  gap: 9px;
   color: var(--modern-muted);
   font-size: 12px;
 }
 .modern-breadcrumb strong {
   overflow: hidden;
   color: var(--modern-text);
-  font-weight: 550;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -392,7 +420,7 @@ svg {
 .modern-content {
   width: 100%;
   min-width: 0;
-  padding: 24px 30px 36px;
+  padding: 24px var(--modern-content-inset) 36px;
 }
 .modern-content:focus {
   outline: none;
@@ -633,102 +661,30 @@ svg {
   width: 176px;
 }
 
-.modern-settings-stack {
-  display: grid;
-  gap: 22px;
-}
-.modern-setting-row {
-  display: grid;
-  grid-template-columns: 170px minmax(0, 560px);
-  gap: 24px;
-  align-items: center;
-  padding: 18px 22px;
-}
-.modern-setting-row + .modern-setting-row {
-  border-top: 1px solid var(--modern-border);
-}
-.modern-setting-copy strong {
-  font-size: 13px;
-  font-weight: 550;
-}
-.modern-theme-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  border: 0;
-  margin: 0;
-  padding: 0;
-  max-width: 360px;
-}
-.modern-theme-option {
-  display: flex;
-  min-height: 40px;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1px solid var(--modern-border);
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.modern-theme-option:has(input:checked) {
-  border-color: var(--modern-accent);
-  background: var(--modern-accent-soft);
-  color: var(--modern-accent);
-}
-.modern-theme-option input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-}
-.modern-theme-option:has(input:focus-visible) {
-  outline: 2px solid var(--modern-accent);
-  outline-offset: 3px;
-}
-.modern-select {
-  width: min(100%, 260px);
-  min-height: 38px;
-  border: 1px solid var(--modern-border);
-  border-radius: 6px;
-  background: var(--modern-surface);
-  padding: 7px 12px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
 @media (min-width: 1700px) {
-  .modern-content {
-    padding-inline: 38px;
+  .modern-app {
+    --modern-content-inset: 38px;
   }
 }
 @media (max-width: 1150px) {
   .modern-quick-nav-trigger {
     width: 180px;
   }
-  .modern-content {
-    padding-inline: 24px;
+  .modern-app {
+    --modern-content-inset: 24px;
   }
   .modern-breadcrumb > span,
   .modern-breadcrumb > svg {
     display: none;
   }
 }
-@media (max-width: 900px) {
-  .modern-setting-row {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 14px;
-  }
-}
 @media (max-width: 760px) {
   .modern-app {
     display: block;
+    --modern-content-inset: 18px;
   }
   .modern-sidebar,
-  .modern-desktop-toggle {
+  .modern-sidebar-toggle {
     display: none;
   }
   .modern-mobile-toggle {
@@ -737,7 +693,7 @@ svg {
   .modern-topbar {
     height: 56px;
     gap: 8px;
-    padding: 0 12px;
+    padding: 0 var(--modern-content-inset);
   }
   .modern-icon-button {
     width: 40px;
@@ -760,7 +716,7 @@ svg {
     gap: 0;
   }
   .modern-content {
-    padding: 16px 18px 28px;
+    padding: 16px var(--modern-content-inset) 28px;
   }
   .modern-page-header {
     align-items: flex-start;
@@ -775,8 +731,7 @@ svg {
     min-height: 44px;
   }
   .modern-panel-header,
-  .modern-panel-body,
-  .modern-setting-row {
+  .modern-panel-body {
     padding: 18px;
   }
   .modern-nav-link {
@@ -795,10 +750,6 @@ svg {
   .modern-menu-item {
     min-height: 44px;
     font-size: 14px;
-  }
-  .modern-theme-option {
-    flex-direction: column;
-    padding: 12px 5px;
   }
 }
 @media (max-width: 420px) {

@@ -34,8 +34,6 @@ export default {
     backHome: '概要に戻る',
   },
   appearance: {
-    title: '外観',
-    description: '設定はこのブラウザにのみ保存されます。',
     theme: '表示モード',
     language: '表示言語',
     themes: {
@@ -44,6 +42,17 @@ export default {
       dark: 'ダーク',
     },
     persistenceFailed: 'ブラウザに保存できません。設定は今回のアクセス中のみ有効です。',
+  },
+  system: {
+    currentVersion: '現在のバージョン：{version}',
+    loadingVersion: '読み込み中…',
+    versionUnavailable: 'バージョン不明',
+    checkUpdate: '更新を確認',
+    checking: '確認中…',
+    latestVersion: '最新バージョンです',
+    updateAvailable: '{version} に更新可能',
+    checkFailed: '確認に失敗しました。再試行してください。',
+    authRequired: '管理者ログインが必要です',
   },
   quickNavigation: {
     title: 'クイック移動',
@@ -55,7 +64,6 @@ export default {
   },
   navigation: 'メインナビゲーション',
   skipToContent: 'メインコンテンツへ移動',
-  settings: 'グローバル設定',
   interfaceSettings: '画面設定',
   frontend: {
     description: '切り替えると再読み込みされ、このブラウザにのみ適用されます。',

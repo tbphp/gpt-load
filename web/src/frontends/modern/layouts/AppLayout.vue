@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, Menu, PanelLeftClose, PanelLeftOpen, X } from '@lucide/vue'
+import { ChevronLeft, ChevronRight, Menu, X } from '@lucide/vue'
 import {
   DialogClose,
   DialogContent,
@@ -16,7 +16,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { findNavigationItem } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
-import HintTooltip from '@modern/components/HintTooltip.vue'
+import { provideSystemStatus } from '@modern/features/system/useSystemStatus'
 import AppearanceMenu from './AppearanceMenu.vue'
 import QuickNavigation from './QuickNavigation.vue'
 import SidebarContent from './SidebarContent.vue'
@@ -25,6 +25,7 @@ const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const { sidebarCollapsed, toggleSidebar, persistenceFailed } = usePreferences()
+provideSystemStatus()
 const mobileOpen = ref(false)
 const failedNavigation = ref<string | null>(null)
 const current = computed(() => findNavigationItem(route.meta.primaryNav ?? route.name))
@@ -81,26 +82,27 @@ onBeforeUnmount(() => {
   <TooltipProvider :delay-duration="400">
     <a class="modern-skip-link" href="#modern-content">{{ t('skipToContent') }}</a>
     <div class="modern-app" :class="{ 'is-sidebar-collapsed': sidebarCollapsed }">
-      <aside class="modern-sidebar"><SidebarContent :collapsed="sidebarCollapsed" /></aside>
+      <aside id="modern-desktop-sidebar" class="modern-sidebar">
+        <SidebarContent :collapsed="sidebarCollapsed" />
+      </aside>
+      <button
+        class="modern-sidebar-toggle"
+        type="button"
+        :aria-label="sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')"
+        :title="sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')"
+        :aria-expanded="!sidebarCollapsed"
+        aria-controls="modern-desktop-sidebar"
+        @click="toggleSidebar"
+      >
+        <component
+          :is="sidebarCollapsed ? ChevronRight : ChevronLeft"
+          :size="12"
+          :stroke-width="1.6"
+          aria-hidden="true"
+        />
+      </button>
       <div class="modern-main-column">
         <header class="modern-topbar">
-          <HintTooltip
-            :label="sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')"
-          >
-            <button
-              class="modern-icon-button modern-desktop-toggle"
-              type="button"
-              :aria-label="sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')"
-              @click="toggleSidebar"
-            >
-              <component
-                :is="sidebarCollapsed ? PanelLeftOpen : PanelLeftClose"
-                :size="18"
-                :stroke-width="1.8"
-                aria-hidden="true"
-              />
-            </button>
-          </HintTooltip>
           <DialogRoot v-model:open="mobileOpen">
             <DialogTrigger
               class="modern-icon-button modern-mobile-toggle"
