@@ -66,18 +66,18 @@ export const navigationItems = [
     icon: Activity,
   },
   {
-    id: 'inspector',
-    name: 'modern-inspector',
-    path: pagePath('monitor-inspector'),
-    section: 'observe',
-    icon: Route,
-  },
-  {
     id: 'settings',
     name: 'modern-settings',
     path: pagePath('settings'),
     section: 'system',
     icon: Settings2,
+  },
+  {
+    id: 'inspector',
+    name: 'modern-inspector',
+    path: pagePath('monitor-inspector'),
+    section: 'system',
+    icon: Route,
   },
 ] as const
 

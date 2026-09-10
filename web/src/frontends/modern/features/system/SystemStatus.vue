@@ -98,8 +98,8 @@ const checkLabel = computed(() =>
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: center;
+  gap: 4px;
 }
 
 .modern-version {
