@@ -1,6 +1,7 @@
 // Package embedded exposes the smallest CPA surface required by GPT-Load.
 // It deliberately excludes CPA's manager, selector, retry loop, server, watcher,
-// file store, websocket executor, and automatic credential refresh.
+// file store and automatic credential refresh. The separate Codex WS session
+// facade is explicit-only and does not replace the HTTP executor.
 package embedded
 
 import (
