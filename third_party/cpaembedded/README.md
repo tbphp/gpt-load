@@ -60,6 +60,7 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   terminal status, raw usage (nil if absent), handshake headers when available,
   and `not_sent` / `maybe_sent` business-dispatch evidence. Reused connections do
   not provide new handshake headers; old quota headers are not carried forward.
+  A generic `response.done` preserves `response.status`; only `completed` succeeds.
 - One turn runs at a time; overlapping calls fail with `session_busy`. Local
   validation errors leave the Session usable. Cancellation, timeout, transport
   loss and failed/protocol-invalid responses close it. A closed Session cannot
@@ -86,6 +87,10 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   its own internal buffers. These checks do not bound all SDK memory. CPA also
   retains its upstream read-idle timeout; idle connection loss invalidates the
   Session and is not transparently recovered.
+- A one-time, narrowly scoped logrus hook removes raw errors from the pinned
+  SDK's disconnect logs for facade-owned Sessions, retaining safe error classes
+  and WS close codes. It does not change log levels, outputs, or other Sessions'
+  logs. Revalidate this log-format contract when upgrading CPA.
 - No multi-lane `stream_id`, background mode, other protocols, Responses resource
   operations, global session routing, application shutdown integration, or
   business health/quota/logging policy is introduced here.

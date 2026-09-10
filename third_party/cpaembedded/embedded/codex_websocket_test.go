@@ -733,3 +733,40 @@ func TestCodexWSSessionContinuesThroughSOCKS5(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCodexWSSessionPreservesDoneStatus(t *testing.T) {
+	for _, status := range []string{"completed", "failed", "incomplete", "cancelled", "in_progress", ""} {
+		t.Run(status, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer conn.Close()
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+				body := fmt.Sprintf(`{"type":"response.done","response":{"id":"resp_done","object":"response","status":%q,"output":[],"usage":{"input_tokens":3,"output_tokens":1}}}`, status)
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(body)); err != nil {
+					t.Error(err)
+					return
+				}
+				_, _, _ = conn.ReadMessage()
+			}))
+			defer server.Close()
+			session := wsTestSession(t, server.URL)
+			result, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
+			wantFailure := status != "completed"
+			if result.Status != status || (err != nil) != wantFailure || result.ResponseID != "resp_done" || !json.Valid(result.Usage) {
+				t.Fatalf("done status=%q result=%+v error=%v", status, result, err)
+			}
+			session.mu.Lock()
+			closed := session.closed
+			session.mu.Unlock()
+			if closed != wantFailure {
+				t.Fatalf("done status=%q closed=%v", status, closed)
+			}
+		})
+	}
+}

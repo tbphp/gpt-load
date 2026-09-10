@@ -116,8 +116,9 @@ func NewCodexWSSession(options CodexWSSessionOptions) (*CodexWSSession, error) {
 	delete(auth.Metadata, "refresh_token")
 	auth.ProxyURL = proxy.Raw
 	options.Credential = CodexCredential{}
+	installCodexWSLogHook()
 	session := &CodexWSSession{
-		auth: auth, id: uuid.NewString(), options: options, closeDone: make(chan struct{}),
+		auth: auth, id: codexWSSessionIDPrefix + uuid.NewString(), options: options, closeDone: make(chan struct{}),
 		inner: internalexecutor.NewCodexWebsocketsExecutor(&internalconfig.Config{}),
 	}
 	session.resource = &codexWSResource{session: session}
@@ -421,8 +422,10 @@ func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexec
 		o.result.ResponseID = envelope.Response.ID
 	}
 	switch envelope.Type {
-	case "response.completed", "response.done":
+	case "response.completed":
 		o.result.Status, o.result.Usage = "completed", envelope.Response.Usage
+	case "response.done":
+		o.result.Status, o.result.Usage = envelope.Response.Status, envelope.Response.Usage
 	case "response.incomplete":
 		o.result.Status, o.result.Usage = "incomplete", envelope.Response.Usage
 	case "response.failed", "error":
@@ -438,7 +441,7 @@ func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexec
 		}
 	}
 	// 先释放已失败的会话；让 SDK 继续返回原始错误分类，而非在断连日志里输出错误正文。
-	if o.result.Status == "failed" || o.result.Status == "incomplete" {
+	if o.result.Status == "failed" || o.result.Status == "incomplete" || (envelope.Type == "response.done" && o.result.Status != "completed") {
 		o.failSession()
 	}
 }
