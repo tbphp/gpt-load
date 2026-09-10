@@ -145,6 +145,45 @@ func TestWebsocketSwitchImmediatelyClosesAffectedConnections(t *testing.T) {
 	}
 }
 
+func TestWebsocketMissingBoundGroupClosesConnections(t *testing.T) {
+	for _, change := range []string{"disabled", "deleted", "disabled and global WS off"} {
+		for _, phase := range []string{"idle", "active"} {
+			t.Run(change+"/"+phase, func(t *testing.T) {
+				upstream := websocketSettingsUpstream(t, phase == "active")
+				h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+				server := httptest.NewServer(engine)
+				t.Cleanup(server.Close)
+				conn := dialGatewayWebsocket(t, server.URL)
+				if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "hello"}); err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := conn.ReadMessage(); err != nil {
+					t.Fatal(err)
+				}
+				if change == "deleted" {
+					input.Groups = nil
+					input.Credentials = nil
+					h.registry.(*state.CredentialRegistry).RemoveGroup(1)
+				} else {
+					input.Groups[0].Enabled = false
+				}
+				if change == "disabled and global WS off" {
+					input.SystemSettings = config.Settings{state.SettingResponsesWebsocketEnabled: false}
+				}
+				if _, err := h.manager.Publish(input); err != nil {
+					t.Fatal(err)
+				}
+				if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, websocket.ClosePolicyViolation) {
+					t.Fatalf("%s connection remained open after group %s: %v", phase, change, err)
+				}
+			})
+		}
+	}
+}
+
 func TestWebsocketGroupOverrideSurvivesGlobalDisable(t *testing.T) {
 	upstream := websocketSettingsUpstream(t, false)
 	h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)

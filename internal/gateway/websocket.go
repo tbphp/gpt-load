@@ -355,9 +355,9 @@ func (s *websocketConnection) run() {
 		s.mu.Unlock()
 		enabled := false
 		if binding != nil {
-			// 仅 WS 开关要求即时中止；其余分组路由条件继续在下一轮检查。
+			// 分组停用、删除或 WS 关闭时即时中止；其余路由条件在下一轮检查。
 			group, exists := snapshot.Groups[binding.ref.GroupID]
-			enabled = !exists || group.ResponsesWebsocketEnabled
+			enabled = exists && group.ResponsesWebsocketEnabled
 		} else {
 			enabled = hasEnabledWebsocketGroup(snapshot, key)
 		}
