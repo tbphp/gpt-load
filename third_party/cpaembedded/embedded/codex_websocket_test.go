@@ -770,3 +770,45 @@ func TestCodexWSSessionPreservesDoneStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexWSSessionPreservesDoneErrorCode(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		code string
+		want string
+	}{
+		{"safe", "rate_limit_exceeded", "rate_limit_exceeded"},
+		{"unsafe", "invalid code\nprivate detail", ""},
+		{"empty", "", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer conn.Close()
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+				body := fmt.Sprintf(`{"type":"response.done","response":{"id":"resp_failed","object":"response","status":"failed","output":[],"error":{"code":%q,"message":"synthetic-upstream-detail"}}}`, test.code)
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(body)); err != nil {
+					t.Error(err)
+					return
+				}
+				_, _, _ = conn.ReadMessage()
+			}))
+			defer server.Close()
+			session := wsTestSession(t, server.URL)
+			result, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
+			var failure *CodexWSError
+			if !errors.As(err, &failure) || result.Status != "failed" || failure.UpstreamCode != test.want {
+				t.Fatalf("failed done error code lost or unsafe: status=%q error=%+v", result.Status, failure)
+			}
+			if strings.Contains(err.Error(), "synthetic-upstream-detail") {
+				t.Fatal("upstream error message leaked")
+			}
+		})
+	}
+}

@@ -248,7 +248,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	if result.Status != "completed" || result.ResponseID == "" {
 		s.invalidate(true)
 		failure := codexWSError("incomplete_response")
-		failure.DispatchState = result.DispatchState
+		failure.DispatchState, failure.UpstreamCode = result.DispatchState, observation.upstreamCode
 		return result, failure
 	}
 	s.mu.Lock()
@@ -426,6 +426,7 @@ func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexec
 		o.result.Status, o.result.Usage = "completed", envelope.Response.Usage
 	case "response.done":
 		o.result.Status, o.result.Usage = envelope.Response.Status, envelope.Response.Usage
+		o.upstreamCode = safeCodexWSCode(envelope.Response.Error.Code)
 	case "response.incomplete":
 		o.result.Status, o.result.Usage = "incomplete", envelope.Response.Usage
 	case "response.failed", "error":
