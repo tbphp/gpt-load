@@ -17,6 +17,7 @@ import (
 
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
 
@@ -103,21 +104,22 @@ func (s *websocketConnection) watchBinding(binding *websocketBinding) {
 }
 
 type websocketConnection struct {
-	inputBytes  int // 受 handler.websocketBudget.mu 保护。
-	handler     *Handler
-	conn        *websocket.Conn
-	request     *http.Request
-	keyID       uint
-	keyHash     string
-	ctx         context.Context
-	cancel      context.CancelFunc
-	write       chan struct{}
-	bind        chan struct{}
-	mu          sync.Mutex
-	binding     *websocketBinding
-	parents     map[string]websocketParent
-	parentOrder []string
-	workers     sync.WaitGroup
+	inputBytes   int // 受 handler.websocketBudget.mu 保护。
+	handler      *Handler
+	conn         *websocket.Conn
+	request      *http.Request
+	keyID        uint
+	keyHash      string
+	ctx          context.Context
+	cancel       context.CancelFunc
+	write        chan struct{}
+	bind         chan struct{}
+	mu           sync.Mutex
+	binding      *websocketBinding
+	parents      map[string]websocketParent
+	parentOrder  []string
+	workers      sync.WaitGroup
+	firstRequest *time.Timer
 }
 
 func websocketIntent(request *http.Request) bool {
@@ -154,7 +156,41 @@ func websocketOriginAllowed(request *http.Request, snapshot *state.ConfigSnapsho
 	return err == nil && parsed.User == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && strings.EqualFold(parsed.Host, request.Host)
 }
 
+var reasonWebsocketDisabled = reason{403, "websocket_disabled", "Responses WebSocket is disabled for the available groups."}
+
+func websocketGroupEnabled(snapshot *state.ConfigSnapshot, key state.AccessKeyView, groupID uint) bool {
+	if snapshot == nil {
+		return false
+	}
+	group, exists := snapshot.Groups[groupID]
+	if !exists || !snapshot.GroupCatalog[groupID].Enabled || !group.ResponsesWebsocketEnabled || !group.ResolvedTarget.ResponsesWebsocket.Native {
+		return false
+	}
+	if _, allowed := key.Filters.Groups[groupID]; len(key.Filters.Groups) > 0 && !allowed {
+		return false
+	}
+	if _, allowed := key.Filters.Protocols[protocol.OpenAIResponses]; len(key.Filters.Protocols) > 0 && !allowed {
+		return false
+	}
+	return true
+}
+
+func hasEnabledWebsocketGroup(snapshot *state.ConfigSnapshot, key state.AccessKeyView) bool {
+	if snapshot != nil {
+		for groupID := range snapshot.Groups {
+			if websocketGroupEnabled(snapshot, key, groupID) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (h *Handler) handleWebsocket(c *gin.Context, requestContext *dataPlaneRequestContext) {
+	if !hasEnabledWebsocketGroup(requestContext.snapshot, requestContext.accessKey) {
+		_ = h.writeReason(c, reasonWebsocketDisabled)
+		return
+	}
 	limits := h.websocketLimits
 	if !h.websocketBudget.connection(requestContext.accessKey.ID, limits, 1) {
 		_ = h.writeReason(c, reason{503, "websocket_connection_limit", "WebSocket connection limit reached."})
@@ -300,6 +336,7 @@ func (s *websocketConnection) run() {
 	lanes := make([]string, 0, limits.lanes+1)
 	active, pending := 0, 0
 	first := time.NewTimer(limits.firstRequest)
+	s.firstRequest = first
 	defer first.Stop()
 	idle := time.NewTimer(time.Hour)
 	idle.Stop()
@@ -307,9 +344,25 @@ func (s *websocketConnection) run() {
 	expiry := time.NewTimer(time.Hour)
 	expiry.Stop()
 	defer expiry.Stop()
-	armExpiry := func(snapshot *state.ConfigSnapshot) bool {
+	refreshConfiguration := func(snapshot *state.ConfigSnapshot) bool {
 		key, ok := s.authorized(snapshot)
 		if !ok {
+			s.closeWith(websocket.ClosePolicyViolation, "WebSocket authorization expired.")
+			return false
+		}
+		s.mu.Lock()
+		binding := s.binding
+		s.mu.Unlock()
+		enabled := false
+		if binding != nil {
+			// 仅 WS 开关要求即时中止；其余分组路由条件继续在下一轮检查。
+			group, exists := snapshot.Groups[binding.ref.GroupID]
+			enabled = !exists || group.ResponsesWebsocketEnabled
+		} else {
+			enabled = hasEnabledWebsocketGroup(snapshot, key)
+		}
+		if !enabled {
+			s.closeWith(websocket.ClosePolicyViolation, reasonWebsocketDisabled.Message)
 			return false
 		}
 		expiry.Stop()
@@ -319,7 +372,7 @@ func (s *websocketConnection) run() {
 		return true
 	}
 	snapshot, updates := s.handler.manager.CurrentWithUpdates()
-	if !armExpiry(snapshot) {
+	if !refreshConfiguration(snapshot) {
 		return
 	}
 	defer func() {
@@ -360,7 +413,6 @@ func (s *websocketConnection) run() {
 		}
 		select {
 		case turn := <-messages:
-			first.Stop()
 			idle.Stop()
 			if _, exists := queues[turn.lane]; !exists {
 				named := 0
@@ -371,8 +423,23 @@ func (s *websocketConnection) run() {
 				}
 				if turn.lane != "" && named >= limits.lanes {
 					s.reserveInput(-len(turn.body))
-					s.closeWith(websocket.ClosePolicyViolation, "WebSocket stream limit reached.")
-					return
+					turn.body = nil
+					// 新流尚无活动轮，拒绝可直接归属，不占用新的历史流名。
+					value := reason{400, "websocket_stream_limit_reached", "WebSocket stream limit reached. Reuse an existing stream_id or open a new connection."}
+					key, authorized := s.authorized(s.handler.manager.Current())
+					if !authorized {
+						value = reasonInvalidAccessKey
+					} else if !s.handler.limiter.Allow(key.ID, key.RPMLimit).Allowed {
+						value = reasonAccessKeyRateLimited
+					}
+					recorder := s.newTurnRecorder(turn)
+					recorder.completeReason(value)
+					recorder.emit()
+					s.emitReason(turn.lane, value)
+					if !authorized {
+						s.cancel()
+					}
+					continue
 				}
 				queues[turn.lane] = nil
 				lanes = append(lanes, turn.lane)
@@ -392,8 +459,7 @@ func (s *websocketConnection) run() {
 			}
 		case <-updates:
 			snapshot, updates = s.handler.manager.CurrentWithUpdates()
-			if !armExpiry(snapshot) {
-				s.closeWith(websocket.ClosePolicyViolation, "WebSocket authorization expired.")
+			if !refreshConfiguration(snapshot) {
 				return
 			}
 		case <-expiry.C:

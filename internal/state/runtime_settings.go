@@ -15,22 +15,23 @@ import (
 )
 
 const (
-	SettingFirstByteTimeout         = "first_byte_timeout"
-	SettingRequestTimeout           = "request_timeout"
-	SettingStreamIdleTimeout        = "stream_idle_timeout"
-	SettingHeaderRules              = "header_rules"
-	SettingCORS                     = "cors"
-	SettingResponseHeaderRules      = "response_header_rules"
-	SettingRetryCount               = "retry_count"
-	SettingRouteStrategy            = "route_strategy"
-	SettingBlacklistThreshold       = "blacklist_threshold"
-	SettingAffinityEnabled          = "affinity_enabled"
-	SettingAffinityTTL              = "affinity_ttl"
-	SettingAffinityCapacity         = "affinity_capacity"
-	SettingValidationInterval       = "validation_interval"
-	SettingRequestLogRetentionDays  = "request_log_retention_days"
-	SettingModelsDevAutoSyncEnabled = "models_dev_auto_sync_enabled"
-	SettingParameterOverrides       = "parameter_overrides"
+	SettingFirstByteTimeout          = "first_byte_timeout"
+	SettingRequestTimeout            = "request_timeout"
+	SettingStreamIdleTimeout         = "stream_idle_timeout"
+	SettingHeaderRules               = "header_rules"
+	SettingCORS                      = "cors"
+	SettingResponseHeaderRules       = "response_header_rules"
+	SettingRetryCount                = "retry_count"
+	SettingRouteStrategy             = "route_strategy"
+	SettingBlacklistThreshold        = "blacklist_threshold"
+	SettingAffinityEnabled           = "affinity_enabled"
+	SettingResponsesWebsocketEnabled = "responses_websocket_enabled"
+	SettingAffinityTTL               = "affinity_ttl"
+	SettingAffinityCapacity          = "affinity_capacity"
+	SettingValidationInterval        = "validation_interval"
+	SettingRequestLogRetentionDays   = "request_log_retention_days"
+	SettingModelsDevAutoSyncEnabled  = "models_dev_auto_sync_enabled"
+	SettingParameterOverrides        = "parameter_overrides"
 )
 
 type RouteStrategy string
@@ -50,48 +51,51 @@ const (
 )
 
 type RuntimeSettings struct {
-	FirstByteTimeout         time.Duration
-	RequestTimeout           time.Duration
-	StreamIdleTimeout        time.Duration
-	HeaderRules              HeaderRules
-	CORS                     CORSConfig
-	ResponseHeaderRules      HeaderRules
-	RetryCount               int
-	RouteStrategy            RouteStrategy
-	BlacklistThreshold       int
-	AffinityEnabled          bool
-	AffinityTTL              time.Duration
-	AffinityCapacity         int
-	ValidationInterval       time.Duration
-	RequestLogRetentionDays  int
-	ModelsDevAutoSyncEnabled bool
+	FirstByteTimeout          time.Duration
+	RequestTimeout            time.Duration
+	StreamIdleTimeout         time.Duration
+	HeaderRules               HeaderRules
+	CORS                      CORSConfig
+	ResponseHeaderRules       HeaderRules
+	RetryCount                int
+	RouteStrategy             RouteStrategy
+	BlacklistThreshold        int
+	AffinityEnabled           bool
+	ResponsesWebsocketEnabled bool
+	AffinityTTL               time.Duration
+	AffinityCapacity          int
+	ValidationInterval        time.Duration
+	RequestLogRetentionDays   int
+	ModelsDevAutoSyncEnabled  bool
 }
 
 type ResolvedGroupSettings struct {
-	Timeouts           TimeoutConfig
-	HeaderRules        HeaderRules
-	BlacklistThreshold int
-	AffinityEnabled    bool
-	ParameterOverrides parameteroverride.Rules
+	Timeouts                  TimeoutConfig
+	HeaderRules               HeaderRules
+	BlacklistThreshold        int
+	AffinityEnabled           bool
+	ResponsesWebsocketEnabled bool
+	ParameterOverrides        parameteroverride.Rules
 }
 
 func DefaultRuntimeSettings() RuntimeSettings {
 	return RuntimeSettings{
-		FirstByteTimeout:         120 * time.Second,
-		RequestTimeout:           600 * time.Second,
-		StreamIdleTimeout:        300 * time.Second,
-		HeaderRules:              HeaderRules{Set: map[string]string{}},
-		CORS:                     defaultCORSConfig(),
-		ResponseHeaderRules:      HeaderRules{Set: map[string]string{}},
-		RetryCount:               2,
-		RouteStrategy:            RouteStrategyNativeFirst,
-		BlacklistThreshold:       3,
-		AffinityEnabled:          true,
-		AffinityTTL:              time.Hour,
-		AffinityCapacity:         defaultAffinityCapacity,
-		ValidationInterval:       10 * time.Minute,
-		RequestLogRetentionDays:  defaultRequestLogRetentionDays,
-		ModelsDevAutoSyncEnabled: true,
+		FirstByteTimeout:          120 * time.Second,
+		RequestTimeout:            600 * time.Second,
+		StreamIdleTimeout:         300 * time.Second,
+		HeaderRules:               HeaderRules{Set: map[string]string{}},
+		CORS:                      defaultCORSConfig(),
+		ResponseHeaderRules:       HeaderRules{Set: map[string]string{}},
+		RetryCount:                2,
+		RouteStrategy:             RouteStrategyNativeFirst,
+		BlacklistThreshold:        3,
+		AffinityEnabled:           true,
+		ResponsesWebsocketEnabled: true,
+		AffinityTTL:               time.Hour,
+		AffinityCapacity:          defaultAffinityCapacity,
+		ValidationInterval:        10 * time.Minute,
+		RequestLogRetentionDays:   defaultRequestLogRetentionDays,
+		ModelsDevAutoSyncEnabled:  true,
 	}
 }
 
@@ -107,6 +111,7 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingRouteStrategy,
 		SettingBlacklistThreshold,
 		SettingAffinityEnabled,
+		SettingResponsesWebsocketEnabled,
 		SettingAffinityTTL,
 		SettingAffinityCapacity,
 		SettingValidationInterval,
@@ -182,6 +187,12 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.AffinityEnabled = value
+		case SettingResponsesWebsocketEnabled:
+			value, err := strictBoolean(key, value)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.ResponsesWebsocketEnabled = value
 		case SettingAffinityTTL:
 			seconds, err := positiveWholeSeconds(key, value)
 			if err != nil {
@@ -234,9 +245,10 @@ func ResolveGroupRuntimeSettings(
 			Request:    base.RequestTimeout,
 			StreamIdle: base.StreamIdleTimeout,
 		},
-		HeaderRules:        cloneHeaderRules(base.HeaderRules),
-		BlacklistThreshold: base.BlacklistThreshold,
-		AffinityEnabled:    base.AffinityEnabled,
+		HeaderRules:               cloneHeaderRules(base.HeaderRules),
+		BlacklistThreshold:        base.BlacklistThreshold,
+		AffinityEnabled:           base.AffinityEnabled,
+		ResponsesWebsocketEnabled: base.ResponsesWebsocketEnabled,
 	}
 	for key, value := range settings {
 		switch key {
@@ -279,6 +291,12 @@ func ResolveGroupRuntimeSettings(
 				return ResolvedGroupSettings{}, err
 			}
 			resolved.AffinityEnabled = parsed
+		case SettingResponsesWebsocketEnabled:
+			parsed, err := strictBoolean(key, value)
+			if err != nil {
+				return ResolvedGroupSettings{}, err
+			}
+			resolved.ResponsesWebsocketEnabled = parsed
 		case SettingParameterOverrides:
 			parsed, err := parameteroverride.Compile(value)
 			if err != nil {
@@ -315,7 +333,7 @@ func ValidateRuntimeSetting(key string, value any) error {
 	case SettingRouteStrategy:
 		_, err := parseRouteStrategy(value)
 		return err
-	case SettingAffinityEnabled:
+	case SettingAffinityEnabled, SettingResponsesWebsocketEnabled:
 		_, err := strictBoolean(key, value)
 		return err
 	case SettingAffinityTTL:

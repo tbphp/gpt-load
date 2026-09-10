@@ -644,7 +644,15 @@ func TestWebsocketCascadePreservesNativeFlow(t *testing.T) {
 	}
 	outer := httptest.NewServer(outerEngine)
 	defer outer.Close()
-	conn := dialGatewayWebsocket(t, outer.URL)
+	conn, response, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(outer.URL, "http")+"/v1/responses", http.Header{"Authorization": {"Bearer gl-client"}, "Origin": {outer.URL}})
+	if err != nil {
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","stream_id":"lane","input":"warm","generate":false}`))
 	var event struct {
 		Type     string `json:"type"`
@@ -774,7 +782,7 @@ func TestWebsocketRetriesOnlyUnsentUnboundTurns(t *testing.T) {
 				session.turn = func(ctx context.Context, body []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
 					if n == 1 {
 						_ = session.Close()
-						return execution.WebsocketResult{DispatchState: dispatch, Error: &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, StatusCode: 429, Code: "rate_limit_exceeded", OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeRequest}}
+						return execution.WebsocketResult{DispatchState: dispatch, Error: &execution.ErrorEvidence{Kind: execution.ErrorKindTransport, Code: "websocket_handshake_failed", OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeRequest}}
 					}
 					if err := emit(ctx, websocketCompleted("resp_retry", "")); err != nil {
 						return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent, Error: &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled}}

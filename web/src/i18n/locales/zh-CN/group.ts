@@ -339,6 +339,8 @@ export default {
         headerStorageNoticeEnd: '。',
         headerReplacementWarning:
           '此分组覆盖会完整替换全局 HeaderRules；后续全局更改不会合并到这里。',
+        responses_websocket_enabled: 'Responses WebSocket',
+        websocketHelp: '关闭会立即断开本分组的 WS 连接并中断生成，HTTP/SSE 不受影响。',
         affinity_enabled: '请求亲和',
         affinityHelp: '只控制本分组是否学习或复用亲和目标，不改变普通轮询、权重或重试。',
       },

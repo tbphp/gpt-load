@@ -52,6 +52,9 @@ export default {
       },
       routeStrategyHelp:
         'ネイティブ優先は本来の機能をできるだけ維持します。混合ウェイトではネイティブと変換候補が有効ウェイトで競合し、変換による機能差が生じる場合があります。リクエスト親和性は引き続き有効で、厳密なトラフィック比率は保証されません。',
+      responses_websocket_enabled: 'Responses WebSocket',
+      websocketHelp:
+        'グループで上書きできます。無効化すると対象の WS 接続と生成を直ちに終了します。HTTP/SSE は影響を受けません。',
       first_byte_timeout: 'ネイティブ応答 / ストリーム初回イベントのタイムアウト',
       request_timeout: '上流リクエスト1回あたりのタイムアウト',
       stream_idle_timeout: 'ストリームアイドルタイムアウト',

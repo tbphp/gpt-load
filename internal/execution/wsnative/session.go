@@ -97,6 +97,7 @@ func Dial(ctx context.Context, endpoint string, header http.Header, effective ou
 		result.Error = failure(execution.ErrorKindTransport, "websocket_handshake_failed", 0)
 		if response != nil {
 			result.Error = failure(execution.ErrorKindHTTP, "websocket_handshake_failed", response.StatusCode)
+			result.Error.ScopeHint = ""
 			if response.Body != nil {
 				body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 				_ = response.Body.Close()
@@ -106,8 +107,13 @@ func Dial(ctx context.Context, endpoint string, header http.Header, effective ou
 				}
 			}
 		}
-		if ctx.Err() != nil {
+		if ctx.Err() != nil && result.Error.Kind != execution.ErrorKindHTTP {
 			result.Error = contextFailure(ctx.Err())
+		} else if result.Error.Kind != execution.ErrorKindHTTP {
+			var timeout net.Error
+			if errors.As(err, &timeout) && timeout.Timeout() {
+				result.Error = failure(execution.ErrorKindTimeout, "websocket_timeout", 0)
+			}
 		}
 		return nil, result
 	}
@@ -331,6 +337,8 @@ func (s *session) ExecuteTurn(ctx context.Context, payload []byte, emit func(con
 						code = "upstream_response_failed"
 					}
 					result.Error = failure(execution.ErrorKindProvider, code, event.Status)
+					// 原生请求错误的健康作用域由既有分类器结合错误码确定。
+					result.Error.ScopeHint = ""
 				}
 				if responseID == "" && result.Error == nil {
 					result.Error = failure(execution.ErrorKindProvider, "missing_response_id", 0)

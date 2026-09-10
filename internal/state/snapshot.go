@@ -126,23 +126,24 @@ type HeaderRules struct {
 }
 
 type GroupView struct {
-	PriceMultiplier    pricing.PriceMultiplier
-	ID                 uint
-	Name               string
-	ChannelID          channel.ID
-	ConnectionType     string
-	Params             json.RawMessage
-	ResolvedTarget     channel.ResolvedTarget
-	ValidationModel    string
-	ClientProtocols    []protocol.Protocol
-	Models             []ModelConfig
-	Timeouts           TimeoutConfig
-	HeaderRules        HeaderRules
-	BlacklistThreshold int
-	AffinityEnabled    bool
-	WeightManual       *int
-	Proxy              outboundproxy.Effective
-	ParameterOverrides parameteroverride.Rules
+	PriceMultiplier           pricing.PriceMultiplier
+	ID                        uint
+	Name                      string
+	ChannelID                 channel.ID
+	ConnectionType            string
+	Params                    json.RawMessage
+	ResolvedTarget            channel.ResolvedTarget
+	ValidationModel           string
+	ClientProtocols           []protocol.Protocol
+	Models                    []ModelConfig
+	Timeouts                  TimeoutConfig
+	HeaderRules               HeaderRules
+	BlacklistThreshold        int
+	AffinityEnabled           bool
+	ResponsesWebsocketEnabled bool
+	WeightManual              *int
+	Proxy                     outboundproxy.Effective
+	ParameterOverrides        parameteroverride.Rules
 }
 
 type GroupCatalogView struct {
@@ -228,19 +229,20 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		}
 
 		view := GroupView{
-			PriceMultiplier:    resolvePriceMultiplier(group.PriceMultiplier),
-			ID:                 group.ID,
-			Name:               group.Name,
-			ValidationModel:    strings.TrimSpace(group.ValidationModel),
-			Models:             append([]ModelConfig(nil), group.Models...),
-			Timeouts:           resolved.Timeouts,
-			HeaderRules:        resolved.HeaderRules,
-			BlacklistThreshold: resolved.BlacklistThreshold,
-			AffinityEnabled:    resolved.AffinityEnabled,
-			WeightManual:       cloneWeight(group.WeightManual),
-			ConnectionType:     connection.Normalize(group.ConnectionType),
-			Proxy:              groupProxy,
-			ParameterOverrides: resolved.ParameterOverrides,
+			PriceMultiplier:           resolvePriceMultiplier(group.PriceMultiplier),
+			ID:                        group.ID,
+			Name:                      group.Name,
+			ValidationModel:           strings.TrimSpace(group.ValidationModel),
+			Models:                    append([]ModelConfig(nil), group.Models...),
+			Timeouts:                  resolved.Timeouts,
+			HeaderRules:               resolved.HeaderRules,
+			BlacklistThreshold:        resolved.BlacklistThreshold,
+			AffinityEnabled:           resolved.AffinityEnabled,
+			ResponsesWebsocketEnabled: resolved.ResponsesWebsocketEnabled,
+			WeightManual:              cloneWeight(group.WeightManual),
+			ConnectionType:            connection.Normalize(group.ConnectionType),
+			Proxy:                     groupProxy,
+			ParameterOverrides:        resolved.ParameterOverrides,
 		}
 		params, err := input.ChannelRegistry.ValidateParams(group.ChannelID, group.Params)
 		if err != nil {

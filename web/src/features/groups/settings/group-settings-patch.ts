@@ -74,6 +74,8 @@ function cloneOverrides(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
   for (const key of groupPolicyCountKeys) if (value[key] !== undefined) next[key] = value[key]
   if (value.header_rules) next.header_rules = cloneHeaders(value.header_rules)
   if (value.affinity_enabled !== undefined) next.affinity_enabled = value.affinity_enabled
+  if (value.responses_websocket_enabled !== undefined)
+    next.responses_websocket_enabled = value.responses_websocket_enabled
   if (value.parameter_overrides?.length)
     next.parameter_overrides = cloneParameterOverrides(value.parameter_overrides)
   return next

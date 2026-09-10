@@ -26,6 +26,7 @@ const (
 	ReasonNativeRouteRequired       ReasonCode = "native_route_required"
 	ReasonNoRouteTarget             ReasonCode = "no_route_target"
 	ReasonGroupDisabled             ReasonCode = "group_disabled"
+	ReasonWebsocketDisabled         ReasonCode = "websocket_disabled"
 	ReasonGroupFiltered             ReasonCode = "group_filtered"
 	ReasonNoAvailableGroup          ReasonCode = "no_available_group"
 	ReasonNoCredentials             ReasonCode = "no_credentials"
@@ -175,6 +176,9 @@ func evaluateTargets(
 		case groupFiltered:
 			decision.included = false
 			decision.reason = ReasonGroupFiltered
+		case query.responsesWebsocket != nil && !snapshot.Groups[route.GroupID].ResponsesWebsocketEnabled:
+			decision.included = false
+			decision.reason = ReasonWebsocketDisabled
 		}
 		if decision.included {
 			included++

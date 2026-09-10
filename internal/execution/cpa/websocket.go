@@ -62,7 +62,7 @@ func (a *Adapter) OpenWebsocket(ctx context.Context, spec execution.AttemptSpec)
 		settings.URL = "direct"
 	}
 	ctx = subscriptionruntime.WithNetworkContext(ctx, subscriptionruntime.NetworkContext{Proxy: spec.Proxy, Fingerprint: spec.ProxyFingerprint})
-	prepared, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, false)
+	prepared, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
 		result.Error = evidence
 		return nil, result
@@ -147,16 +147,23 @@ func codexWebsocketEvidence(ctx context.Context, err error) *execution.ErrorEvid
 		e.StatusCode = failure.HTTPStatus
 		if failure.UpstreamCode != "" {
 			e.Code = failure.UpstreamCode
+			e.Kind = execution.ErrorKindProvider
+			e.ScopeHint = ""
 		}
 		if e.StatusCode > 0 {
 			e.Kind = execution.ErrorKindHTTP
+			e.ScopeHint = ""
+			if e.StatusCode == http.StatusUnauthorized && failure.DispatchState == codex.WSNotSent {
+				e.Hint = execution.FailureHintRefreshRequired
+				e.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+			}
 		}
 		if failure.DispatchState == codex.WSNotSent && e.StatusCode == 0 {
 			e.Kind = execution.ErrorKindInvalidRequest
 			e.OriginHint = execution.ErrorOriginInternal
 		}
 	}
-	if ctx.Err() != nil {
+	if ctx.Err() != nil && e.StatusCode == 0 && e.Kind != execution.ErrorKindProvider {
 		e.Kind = execution.ErrorKindCanceled
 		e.OriginHint = execution.ErrorOriginDownstream
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {

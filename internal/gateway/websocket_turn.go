@@ -11,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/gorilla/websocket"
 
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/dialect"
@@ -119,13 +122,6 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		recorder.completeCanceled(s.ctx, 0, -1)
 		return
 	}
-	original, err := inspectWebsocketRequest(turn.body)
-	if err != nil {
-		reject(reasonInvalidProtocolRequest)
-		return
-	}
-	model := *original.metadata.Model
-	recorder.setClientModel(model)
 	// 首次绑定期间其余流只等待，不提前冻结配置或取得额度 Ticket。
 	select {
 	case s.bind <- struct{}{}:
@@ -163,6 +159,13 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		reject(reasonAccessKeyRateLimited)
 		return
 	}
+	original, err := inspectWebsocketRequest(turn.body)
+	if err != nil {
+		reject(reasonInvalidProtocolRequest)
+		return
+	}
+	model := *original.metadata.Model
+	recorder.setClientModel(model)
 	s.mu.Lock()
 	binding := s.binding
 	parent, parentFound := s.parents[original.previous]
@@ -171,6 +174,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		currentRef, exists := h.registry.CredentialRef(binding.ref.ID)
 		_, ready := h.registry.ActiveEncryptedCredentialDataIfMatch(currentRef)
 		group, groupExists := snapshot.Groups[binding.ref.GroupID]
+		if groupExists && !group.ResponsesWebsocketEnabled {
+			reject(reasonWebsocketDisabled)
+			s.cancel()
+			return
+		}
 		_, groupAllowed := key.Filters.Groups[binding.ref.GroupID]
 		_, protocolAllowed := key.Filters.Protocols[protocol.OpenAIResponses]
 		if !exists || !ready || !sameWebsocketIdentity(binding.ref, currentRef) || !groupExists ||
@@ -236,17 +244,41 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	}
 	iterator := scheduler.New(snapshot, h.registry, query)
 	limit := retryAttemptLimit(snapshot.Settings.RetryCount)
+	var refreshSelection *scheduler.Selection
+	var refreshRef state.CredentialRef
+	authRefreshUsed := false
 	for sequence := 1; sequence <= limit; sequence++ {
 		if s.ctx.Err() != nil {
 			recorder.completeCanceled(s.ctx, 0, -1)
 			return
 		}
-		selection, err := iterator.Next()
-		if err != nil {
-			reject(reasonNoCandidate)
-			return
+		var selection scheduler.Selection
+		var ref state.CredentialRef
+		forceCredentialRefresh := false
+		if refreshSelection != nil {
+			selection = *refreshSelection
+			currentRef, exists := h.registry.CredentialRef(selection.CredentialID)
+			if !exists || !sameWebsocketIdentity(currentRef, refreshRef) ||
+				currentRef.EncryptedProxy != refreshRef.EncryptedProxy || currentRef.ProxyFingerprint != refreshRef.ProxyFingerprint {
+				reject(reasonConfigurationChanged)
+				return
+			}
+			if !iterator.ChargeReplay(selection, currentRef) {
+				reject(reasonNoCandidate)
+				return
+			}
+			ref = currentRef
+			forceCredentialRefresh = currentRef.Version <= refreshRef.Version
+			authRefreshUsed = true
+			refreshSelection = nil
+		} else {
+			selection, err = iterator.Next()
+			if err != nil {
+				reject(reasonNoCandidate)
+				return
+			}
+			ref = query.AllowedCredentialRefs[selection.CredentialID]
 		}
-		ref := query.AllowedCredentialRefs[selection.CredentialID]
 		payload, effective, err := prepareWebsocketPayload(turn.body, original, selection)
 		if err != nil {
 			reject(reasonParameterOverrideUnavailable)
@@ -289,7 +321,10 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			id = "untracked"
 		}
 		parsed := &dialect.ParsedRequest{Method: http.MethodPost, Path: "/v1/responses", RawQuery: s.request.URL.RawQuery, Header: s.request.Header.Clone(), Body: payload}
+		// 来源校验属于客户端连接；显式上游 HeaderRules 随后照常应用。
+		parsed.Header.Del("Origin")
 		input := ForwardInput{Dialect: dialect.NewOpenAIResponses(), ObserveUsage: effective.metadata.ObserveUsage, Group: selection.Group, APIKey: credential.apiKey, CredentialSecrets: credential.secrets, Request: parsed, ExternalModel: model, UpstreamModelID: optionalModelValue(selection.UpstreamModelID), RequestID: id, AttemptID: id + ":" + strconv.Itoa(sequence), AttemptSequence: uint32(sequence), ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative, ResponsesStorePreference: original.metadata.ResponsesStorePreference, ChannelID: string(selection.ChannelID), RouteMode: execution.RouteNative, TargetConfig: selection.ResolvedTarget.TargetConfig, Credential: execution.NewCredentialSnapshot(ref.ID, ref.Version, ref.IdentityGeneration, credential.payload), Proxy: proxy, ProxyFingerprint: fingerprint}
+		input.ForceCredentialRefresh = forceCredentialRefresh
 		spec, err := newExecutionAttemptSpec(input)
 		if err != nil {
 			reject(reasonInvalidProtocolRequest)
@@ -328,6 +363,10 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		recorder.setAffinityHit(requiredRef != nil || selection.CredentialID == affinity.preferredCredentialID)
 		started := recorder.beforeForward()
 		ctx, cancel := context.WithTimeout(s.ctx, selection.Group.Timeouts.Request)
+		var firstByteDeadline time.Time
+		if selection.Group.Timeouts.FirstByte > 0 {
+			firstByteDeadline = time.Now().Add(selection.Group.Timeouts.FirstByte)
+		}
 		var wsResult execution.WebsocketResult
 		newBinding := binding == nil
 		if binding == nil {
@@ -340,12 +379,27 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				return
 			}
 			var session execution.WebsocketSession
-			session, wsResult = opener.OpenWebsocket(ctx, input)
+			// 准入完成后才结束首轮等待；拨号至首事件共用同一首字节期限。
+			s.firstRequest.Stop()
+			openCtx := ctx
+			var openCancel context.CancelFunc
+			if !firstByteDeadline.IsZero() {
+				openCtx, openCancel = context.WithDeadline(ctx, firstByteDeadline)
+			}
+			session, wsResult = opener.OpenWebsocket(openCtx, input)
+			if openCancel != nil {
+				openCancel()
+			}
 			if session != nil {
 				binding = &websocketBinding{session: session, ref: ref, channel: string(selection.ChannelID), target: string(spec.TargetConfig), proxy: fingerprint, headers: headerHash, capabilities: selection.ResolvedTarget.ResponsesWebsocket}
 				s.mu.Lock()
 				s.binding = binding
 				s.mu.Unlock()
+				latest := h.manager.Current()
+				currentKey, authorized := s.authorized(latest)
+				if !authorized || !websocketGroupEnabled(latest, currentKey, binding.ref.GroupID) {
+					s.closeWith(websocket.ClosePolicyViolation, reasonWebsocketDisabled.Message)
+				}
 				if binding.capabilities.Multiplex {
 					unlock()
 				}
@@ -356,8 +410,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			unlock()
 		}
 		result := UpstreamResult{DispatchState: wsResult.DispatchState, Header: wsResult.Header, ExecutionError: wsResult.Error, UpstreamProtocol: protocol.OpenAIResponses}
-		if binding != nil {
-			result = s.runWebsocketAttempt(ctx, cancel, binding, turn.lane, selection, ref, input, recorder, unlock)
+		if s.ctx.Err() != nil {
+			result.Err = s.ctx.Err()
+			result.ExecutionError = &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled, OriginHint: execution.ErrorOriginDownstream, Code: "websocket_canceled"}
+		} else if binding != nil {
+			result = s.runWebsocketAttempt(ctx, cancel, binding, turn.lane, selection, ref, input, recorder, unlock, firstByteDeadline)
 		} else {
 			result.Err = executionFailureError(ctx, wsResult.Error)
 			result.StatusCode = wsResult.Error.StatusCode
@@ -383,7 +440,10 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		// 多流一旦共享连接，不能以某一轮未发送推断其他轮也未发送。
 		if result.DispatchState == execution.DispatchNotSent && !result.Committed && newBinding &&
 			(binding == nil || !binding.capabilities.Multiplex) && decision.Retry != health.RetryNone &&
-			sequence < limit && requiredRef == nil && s.ctx.Err() == nil {
+			sequence < limit && requiredRef == nil && !authRefreshUsed && s.ctx.Err() == nil {
+			if decision.Retry == health.RetryRefreshCredential {
+				refreshSelection, refreshRef = &selection, ref
+			}
 			if binding != nil {
 				_ = binding.session.Close()
 				s.mu.Lock()
@@ -471,14 +531,18 @@ type websocketCancelCloser struct {
 
 func (c websocketCancelCloser) Close() error { c.timedOut.Store(true); c.cancel(); return nil }
 
-func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel context.CancelFunc, binding *websocketBinding, lane string, selection scheduler.Selection, ref state.CredentialRef, input ForwardInput, recorder *requestRecorder, unlock func()) UpstreamResult {
+func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel context.CancelFunc, binding *websocketBinding, lane string, selection scheduler.Selection, ref state.CredentialRef, input ForwardInput, recorder *requestRecorder, unlock func(), firstByteDeadline time.Time) UpstreamResult {
 	observer := newStreamEventObserver(input.Dialect, newUsageCaptureBoundary().newStreamForRequest(input.Dialect, input.ObserveUsage))
 	result := UpstreamResult{UpstreamProtocol: protocol.OpenAIResponses}
 	var responseID string
 	var timedOut atomic.Bool
-	first := newStreamWatchdog(websocketCancelCloser{cancel, &timedOut}, selection.Group.Timeouts.FirstByte)
-	if selection.Group.Timeouts.FirstByte > 0 {
-		first.reset()
+	first := newStreamWatchdog(websocketCancelCloser{cancel, &timedOut}, time.Until(firstByteDeadline))
+	if !firstByteDeadline.IsZero() {
+		if time.Until(firstByteDeadline) <= 0 {
+			first.interrupt(errStreamIdleTimeout)
+		} else {
+			first.reset()
+		}
 	}
 	defer first.stop()
 	var idle *streamWatchdog
@@ -562,8 +626,17 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 		if providerError {
 			observer.observeError(body, "Upstream WebSocket request failed.")
 			body = recorder.redactor.Bytes(body, input.CredentialSecrets...)
-			if !json.Valid(body) {
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(body, &fields) != nil || fields == nil {
 				return ErrUpstreamProtocol
+			}
+			if len(event.StreamID) > 0 {
+				// 流名已与客户端本轮核对，不能把合法标识误当密钥改写。
+				fields["stream_id"] = event.StreamID
+				body, err = json.Marshal(fields)
+				if err != nil {
+					return err
+				}
 			}
 		}
 		if len(event.Response) > 0 {
@@ -632,18 +705,26 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 		if copy.StatusCode >= 400 {
 			result.StatusCode = copy.StatusCode
 		}
-		result.ExecutionError.Hint = streamErrorFailureHint(copy.StatusCode, copy.Code)
+		if copy.Hint == "" {
+			result.ExecutionError.Hint = streamErrorFailureHint(copy.StatusCode, copy.Code)
+		}
 		result.Err = executionFailureError(ctx, &copy)
 		result.ErrorSummary = copy.Summary
 	}
 	result.Stream = observer.endObservation()
 	if !observer.sawTerminal {
-		result.Stream = streamTerminalObservation(StreamEndUpstreamTerminated)
-		if result.Err == nil {
-			result.Err = fmt.Errorf("%w: missing WebSocket terminal", ErrUpstreamProtocol)
+		if result.DispatchState == execution.DispatchNotSent && result.ExecutionError != nil {
+			// 握手/准备被明确拒绝，尚无业务流；保留原错误供健康和刷新判定。
+			result.Stream = StreamObservation{}
+		} else {
+			result.Stream = streamTerminalObservation(StreamEndUpstreamTerminated)
+			if result.Err == nil {
+				result.Err = fmt.Errorf("%w: missing WebSocket terminal", ErrUpstreamProtocol)
+			}
 		}
 	}
-	if !observer.terminalForwarded && (timedOut.Load() || errors.Is(ctx.Err(), context.DeadlineExceeded)) {
+	knownUpstreamError := wsResult.Error != nil && (wsResult.Error.Kind == execution.ErrorKindHTTP || wsResult.Error.Kind == execution.ErrorKindProvider)
+	if !observer.terminalForwarded && !knownUpstreamError && (timedOut.Load() || errors.Is(ctx.Err(), context.DeadlineExceeded)) {
 		result.Stream = streamTerminalObservation(StreamEndIdleTimeout)
 		result.Err = upstreamExecutionTimeoutError{}
 		result.ExecutionError = &execution.ErrorEvidence{Kind: execution.ErrorKindTimeout, OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeRequest, Code: "websocket_timeout", Summary: "WebSocket upstream request timed out."}
