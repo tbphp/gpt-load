@@ -50,9 +50,6 @@ func inspectWebsocketRequest(body []byte) (websocketRequest, error) {
 		}
 		value.required.Multiplex = true
 	}
-	if raw, exists := value.fields["stream"]; exists && len(raw) > 0 {
-		return value, ErrUpstreamProtocol
-	}
 	for _, key := range []string{"store", "generate", "background"} {
 		raw, exists := value.fields[key]
 		if !exists {
@@ -510,7 +507,8 @@ func prepareWebsocketPayload(body []byte, original websocketRequest, selection s
 	}
 	model, _ := json.Marshal(optionalModelValue(selection.UpstreamModelID))
 	effective.fields["model"] = model
-	delete(effective.fields, "type") // Session 接收 Create 参数，传输层生成原生事件封套。
+	delete(effective.fields, "type")   // Session 接收 Create 参数，传输层生成原生事件封套。
+	delete(effective.fields, "stream") // WS 固定返回事件流，兼容客户端复用的 HTTP 布尔参数。
 	for key := range effective.fields {
 		switch strings.ReplaceAll(strings.ToLower(key), "-", "_") {
 		case "provider", "fallback", "fallbacks", "authorization", "proxy_authorization", "api_key", "apikey", "x_api_key", "x_goog_api_key":

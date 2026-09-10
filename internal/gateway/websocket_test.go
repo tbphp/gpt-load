@@ -428,7 +428,7 @@ func TestWebsocketTerminalEvidence(t *testing.T) {
 }
 
 func TestWebsocketPreparationPreservesExplicitControls(t *testing.T) {
-	body := []byte(`{"type":"response.create","model":"public","input":"warm","generate":false,"store":true,"previous_response_id":"resp_parent"}`)
+	body := []byte(`{"type":"response.create","model":"public","input":"warm","stream":true,"generate":false,"store":true,"previous_response_id":"resp_parent"}`)
 	original, err := inspectWebsocketRequest(body)
 	if err != nil {
 		t.Fatal(err)
@@ -460,8 +460,104 @@ func TestWebsocketPreparationPreservesExplicitControls(t *testing.T) {
 			if !test.reject {
 				var req map[string]any
 				_ = json.Unmarshal(payload, &req)
-				if req["type"] != nil || req["model"] != "upstream" || req["generate"] != false || req["previous_response_id"] != "resp_parent" {
+				if req["type"] != nil || req["stream"] != nil || req["model"] != "upstream" || req["generate"] != false || req["previous_response_id"] != "resp_parent" {
 					t.Fatalf("session create-body contract violated: %s", payload)
+				}
+			}
+		})
+	}
+}
+
+func TestWebsocketStreamFieldValidation(t *testing.T) {
+	for _, test := range []struct {
+		name, field string
+		valid       bool
+	}{
+		{"absent", "", true},
+		{"true", `,"stream":true`, true},
+		{"false", `,"stream":false`, true},
+		{"null", `,"stream":null`, false},
+		{"string", `,"stream":"true"`, false},
+		{"number", `,"stream":1`, false},
+		{"duplicate", `,"stream":true,"stream":false`, false},
+		{"case collision", `,"stream":true,"Stream":false`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request, err := inspectWebsocketRequest([]byte(`{"type":"response.create","model":"public","input":[]` + test.field + `}`))
+			if (err == nil) != test.valid {
+				t.Fatalf("valid=%t err=%v", test.valid, err)
+			}
+			if err == nil && !request.metadata.Stream {
+				t.Fatal("WS request stopped being an event stream")
+			}
+		})
+	}
+}
+
+func TestWebsocketStreamFieldKeepsNativeEventsAcrossChannels(t *testing.T) {
+	for _, id := range []channel.ID{channel.OpenAI, channel.XAI, channel.CLIProxyAPI, channel.Sub2API, channel.GPTLoad} {
+		t.Run(string(id), func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				for index := 0; index < 3; index++ {
+					var request map[string]any
+					if conn.ReadJSON(&request) != nil {
+						return
+					}
+					if _, exists := request["stream"]; exists {
+						t.Error("redundant stream field reached upstream WS")
+					}
+					responseID := fmt.Sprintf("resp_%d", index)
+					if index == 0 {
+						if request["generate"] != false {
+							t.Error("prewarm lost generate:false")
+						}
+					} else {
+						if request["previous_response_id"] != fmt.Sprintf("resp_%d", index-1) {
+							t.Error("continuation lost parent response")
+						}
+						if err := conn.WriteJSON(map[string]any{"type": "response.output_text.delta", "response_id": responseID, "delta": "OK"}); err != nil {
+							return
+						}
+					}
+					if err := conn.WriteMessage(websocket.TextMessage, websocketCompleted(responseID, "")); err != nil {
+						return
+					}
+				}
+				_, _, _ = conn.ReadMessage()
+			}))
+			t.Cleanup(upstream.Close)
+			endpoint := upstream.URL
+			if id == channel.OpenAI || id == channel.XAI {
+				endpoint += "/v1"
+			}
+			_, engine, _ := websocketTestHandler(t, endpoint, id)
+			server := httptest.NewServer(engine)
+			t.Cleanup(server.Close)
+			conn := dialGatewayWebsocket(t, server.URL)
+			for index, stream := range []bool{true, true, false} {
+				request := map[string]any{"type": "response.create", "model": "public", "input": []any{}, "store": false, "stream": stream}
+				wantEvents := []string{"response.completed"}
+				if index == 0 {
+					request["generate"] = false
+				} else {
+					request["previous_response_id"] = fmt.Sprintf("resp_%d", index-1)
+					wantEvents = []string{"response.output_text.delta", "response.completed"}
+				}
+				if err := conn.WriteJSON(request); err != nil {
+					t.Fatal(err)
+				}
+				for _, want := range wantEvents {
+					var event struct {
+						Type string `json:"type"`
+					}
+					if err := conn.ReadJSON(&event); err != nil || event.Type != want {
+						t.Fatalf("turn=%d want=%s event=%+v err=%v", index, want, event, err)
+					}
 				}
 			}
 		})
