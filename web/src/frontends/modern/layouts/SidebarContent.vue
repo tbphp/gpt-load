@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowUpRight, BookOpen, Settings2 } from '@lucide/vue'
+import { ArrowUpRight, BookOpen, CodeXml, Send, Settings2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 
@@ -34,10 +34,10 @@ const { t } = useI18n()
         >
           <RouterLink
             class="modern-nav-link"
-            :class="{ 'is-active': route.name === item.name }"
+            :class="{ 'is-active': (route.meta.primaryNav ?? route.name) === item.name }"
             :to="{ name: item.name }"
             :aria-label="t(`pages.${item.id}.title`)"
-            :aria-current="route.name === item.name ? 'page' : undefined"
+            :aria-current="(route.meta.primaryNav ?? route.name) === item.name ? 'page' : undefined"
             @click="emit('navigate')"
           >
             <component :is="item.icon" :size="18" :stroke-width="1.8" aria-hidden="true" />
@@ -78,11 +78,31 @@ const { t } = useI18n()
           />
         </a>
       </HintTooltip>
-      <div v-if="!collapsed" class="modern-sidebar-meta">
-        <span>{{ t('shell.selfHosted') }}</span>
-        <a href="https://github.com/tbphp/gpt-load" target="_blank" rel="noopener noreferrer"
-          >GitHub <ArrowUpRight :size="12" aria-hidden="true"
-        /></a>
+      <div class="modern-sidebar-meta">
+        <HintTooltip label="GitHub" side="right">
+          <a
+            class="modern-community-link"
+            href="https://github.com/tbphp/gpt-load"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitHub"
+          >
+            <CodeXml :size="15" :stroke-width="1.8" aria-hidden="true" />
+            <template v-if="!collapsed"><span>GitHub</span><small>Star</small></template>
+          </a>
+        </HintTooltip>
+        <HintTooltip label="Telegram" side="right">
+          <a
+            class="modern-community-link"
+            href="https://t.me/+GHpy5SwEllg3MTUx"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Telegram"
+          >
+            <Send :size="14" :stroke-width="1.8" aria-hidden="true" />
+            <span v-if="!collapsed">Telegram</span>
+          </a>
+        </HintTooltip>
       </div>
     </div>
   </div>

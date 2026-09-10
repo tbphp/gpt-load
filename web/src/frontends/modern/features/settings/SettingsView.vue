@@ -17,7 +17,7 @@ function changeLocale(event: Event): void {
 
 <template>
   <div class="modern-page">
-    <PageHeader :title="t('pages.settings.title')" :description="t('pages.settings.description')" />
+    <PageHeader :title="t('pages.settings.title')" />
     <div class="modern-settings-stack">
       <section class="modern-panel">
         <header class="modern-panel-header">
@@ -27,7 +27,6 @@ function changeLocale(event: Event): void {
         <div class="modern-setting-row">
           <div class="modern-setting-copy">
             <strong>{{ t('appearance.theme') }}</strong>
-            <p>{{ t('appearance.themeDescription') }}</p>
           </div>
           <fieldset class="modern-theme-options">
             <legend class="modern-sr-only">{{ t('appearance.theme') }}</legend>
@@ -41,7 +40,7 @@ function changeLocale(event: Event): void {
               />
               <component
                 :is="themeIcons[option]"
-                :size="20"
+                :size="17"
                 :stroke-width="1.6"
                 aria-hidden="true"
               />
@@ -54,7 +53,6 @@ function changeLocale(event: Event): void {
             <label for="modern-language"
               ><strong>{{ t('appearance.language') }}</strong></label
             >
-            <p>{{ t('appearance.languageDescription') }}</p>
           </div>
           <select id="modern-language" class="modern-select" :value="locale" @change="changeLocale">
             <option v-for="option in supportedLocales" :key="option" :value="option">

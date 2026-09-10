@@ -11,7 +11,7 @@ import {
   DialogTrigger,
   TooltipProvider,
 } from 'reka-ui'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { findNavigationItem } from '@modern/app/navigation'
@@ -26,9 +26,14 @@ const route = useRoute()
 const router = useRouter()
 const { sidebarCollapsed, toggleSidebar, persistenceFailed } = usePreferences()
 const mobileOpen = ref(false)
-const current = computed(() => findNavigationItem(route.name))
+const failedNavigation = ref<string | null>(null)
+const current = computed(() => findNavigationItem(route.meta.primaryNav ?? route.name))
 const pageTitle = computed(() =>
-  current.value ? t(`pages.${current.value.id}.title`) : t('unavailableTitle'),
+  typeof route.meta.titleKey === 'string'
+    ? t(route.meta.titleKey)
+    : current.value
+      ? t(`pages.${current.value.id}.title`)
+      : t('notFound.title'),
 )
 watch(
   [pageTitle, locale],
@@ -43,13 +48,33 @@ watch(
     mobileOpen.value = false
   },
 )
-const removeAfterEach = router.afterEach((to, from) => {
+const removeAfterEach = router.afterEach((to, from, failure) => {
+  if (failure) return
+  failedNavigation.value = null
   if (to.fullPath === from.fullPath) return
   requestAnimationFrame(() =>
     document.getElementById('modern-content')?.focus({ preventScroll: true }),
   )
 })
-onBeforeUnmount(removeAfterEach)
+const removeNavigationError = router.onError((_error, to) => {
+  failedNavigation.value = to.fullPath
+})
+let desktopMedia: MediaQueryList | undefined
+function closeMobileOnDesktop(): void {
+  if (desktopMedia?.matches) mobileOpen.value = false
+}
+function reloadFailedNavigation(): void {
+  if (failedNavigation.value) window.location.assign(failedNavigation.value)
+}
+onMounted(() => {
+  desktopMedia = window.matchMedia('(min-width: 761px)')
+  desktopMedia.addEventListener('change', closeMobileOnDesktop)
+})
+onBeforeUnmount(() => {
+  removeAfterEach()
+  removeNavigationError()
+  desktopMedia?.removeEventListener('change', closeMobileOnDesktop)
+})
 </script>
 
 <template>
@@ -108,9 +133,11 @@ onBeforeUnmount(removeAfterEach)
           </div>
         </header>
         <main id="modern-content" class="modern-content" tabindex="-1">
-          <div class="modern-preview-notice">
-            <span>{{ t('shell.preview') }}</span>
-            <p>{{ t('shell.previewDescription') }}</p>
+          <div v-if="failedNavigation" class="modern-navigation-error" role="alert">
+            <span>{{ t('shell.navigationFailed') }}</span>
+            <button type="button" class="modern-button" @click="reloadFailedNavigation">
+              {{ t('shell.reload') }}
+            </button>
           </div>
           <p v-if="persistenceFailed" class="modern-preference-notice" role="status">
             {{ t('appearance.persistenceFailed') }}

@@ -12,10 +12,11 @@ import {
 } from 'reka-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { navigationItems } from '@modern/app/navigation'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const open = ref(false)
 const query = ref('')
@@ -25,7 +26,7 @@ const results = computed(() => {
   const words = query.value.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean)
   return navigationItems.filter((item) => {
     const text =
-      `${t(`pages.${item.id}.title`)} ${t(`pages.${item.id}.description`)} ${item.path}`.toLocaleLowerCase()
+      `${t(`pages.${item.id}.title`)} ${t(`sections.${item.section}`)} ${item.path}`.toLocaleLowerCase()
     return words.every((word) => text.includes(word))
   })
 })
@@ -37,16 +38,29 @@ watch(open, () => {
 watch(results, () => {
   selected.value = 0
 })
+watch(
+  () => route.fullPath,
+  () => {
+    open.value = false
+  },
+)
 function onShortcut(event: KeyboardEvent): void {
   if (event.isComposing) return
   if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'k') return
   event.preventDefault()
+  if (event.repeat) return
   open.value = !open.value
 }
 async function navigate(index: number): Promise<void> {
   const item = results.value[index]
   if (!item) return
-  await router.push({ name: item.name })
+  try {
+    await router.push({ name: item.name })
+  } catch {
+    // AppLayout 的 router.onError 已展示加载错误，关闭弹窗以露出恢复操作。
+    open.value = false
+    return
+  }
   open.value = false
 }
 function onInputKey(event: KeyboardEvent): void {
