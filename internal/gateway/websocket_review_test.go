@@ -288,7 +288,11 @@ func TestWebsocketSubscriptionRefreshRespectsDispatchAndBudget(t *testing.T) {
 					t.Errorf("attempt %d: credential=%d force=%t", index, input.Credential.ID, input.ForceCredentialRefresh)
 				}
 				session := &websocketScriptSession{done: make(chan struct{})}
-				session.turn = func(ctx context.Context, _ []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
+				session.turn = func(ctx context.Context, body []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
+					var fields map[string]json.RawMessage
+					if json.Unmarshal(body, &fields) != nil || fields["stream"] != nil {
+						t.Error("Codex session received invalid or unnormalized create parameters")
+					}
 					if index == 1 || test.alwaysFail {
 						_ = session.Close()
 						return execution.WebsocketResult{DispatchState: test.dispatch, Error: &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, StatusCode: 401, Code: "upstream_error", OriginHint: execution.ErrorOriginUpstream, Hint: execution.FailureHintRefreshRequired, ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing}}
@@ -303,7 +307,7 @@ func TestWebsocketSubscriptionRefreshRespectsDispatchAndBudget(t *testing.T) {
 			server := httptest.NewServer(engine)
 			defer server.Close()
 			conn := dialGatewayWebsocket(t, server.URL)
-			if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "hello", "store": false}); err != nil {
+			if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "hello", "store": false, "stream": true}); err != nil {
 				t.Fatal(err)
 			}
 			var event struct {
