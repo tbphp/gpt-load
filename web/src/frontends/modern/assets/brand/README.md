@@ -9,3 +9,5 @@
 品牌色为 Coral `#DB7458`、Ink `#282630`、Cream `#FAF7F0`。横版 Logo 保持 4:1 比例，窄位置使用专门的方形图标。界面主按钮使用更深的珊瑚色以保证白色文字对比度。
 
 仅由 modern 引用。旧版品牌和全局 HTML 的 favicon 保持不变；新版启动后替换当前页面的 favicon。
+
+`components/GitHubIcon.vue` 使用 GitHub 官方 [Octicons 的 mark-github-16](https://github.com/primer/octicons/blob/main/icons/mark-github-16.svg)，保留原始路径，以 `currentColor` 适配明暗主题。其 MIT 许可证见本目录的 `octicons.LICENSE`。

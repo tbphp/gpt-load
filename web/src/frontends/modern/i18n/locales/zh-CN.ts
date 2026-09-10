@@ -10,6 +10,7 @@ export default {
     expandSidebar: '展开侧栏',
     close: '关闭',
     documentation: '使用文档',
+    sponsor: '赞助支持',
     mobileNavigationDescription: '直接进入管理工作区和运行观测页面。',
     navigationFailed: '无法加载页面，请重新加载。',
     reload: '重新加载',

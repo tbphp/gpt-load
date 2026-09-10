@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ArrowUpRight, BookOpen, CodeXml, Send } from '@lucide/vue'
+import { BookOpen, Heart, Send } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 
 import { navigationItems, navigationSections } from '@modern/app/navigation'
 import BrandLogo from '@modern/components/BrandLogo.vue'
+import GitHubIcon from '@modern/components/GitHubIcon.vue'
 import HintTooltip from '@modern/components/HintTooltip.vue'
 import SystemStatus from '@modern/features/system/SystemStatus.vue'
 
@@ -49,40 +50,46 @@ const { t } = useI18n()
       </div>
     </nav>
     <div class="modern-sidebar-footer">
-      <HintTooltip :label="t('shell.documentation')" :disabled="!collapsed" side="right">
-        <a
-          class="modern-footer-link"
-          href="https://www.gpt-load.com/docs"
-          target="_blank"
-          rel="noopener noreferrer"
-          :aria-label="t('shell.documentation')"
-        >
-          <BookOpen :size="15" :stroke-width="1.7" aria-hidden="true" />
-          <span v-if="!collapsed">{{ t('shell.documentation') }}</span>
-          <ArrowUpRight
-            v-if="!collapsed"
-            class="modern-nav-link__external"
-            :size="12"
-            aria-hidden="true"
-          />
-        </a>
-      </HintTooltip>
-      <div class="modern-community-links">
+      <div class="modern-footer-links">
+        <HintTooltip :label="t('shell.documentation')" :disabled="!collapsed" side="right">
+          <a
+            class="modern-footer-link"
+            href="https://www.gpt-load.com/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            :aria-label="t('shell.documentation')"
+          >
+            <BookOpen :size="14" :stroke-width="1.7" aria-hidden="true" />
+            <span v-if="!collapsed">{{ t('shell.documentation') }}</span>
+          </a>
+        </HintTooltip>
+        <HintTooltip :label="t('shell.sponsor')" :disabled="!collapsed" side="right">
+          <a
+            class="modern-footer-link"
+            href="https://www.gpt-load.com/sponsor"
+            target="_blank"
+            rel="noopener noreferrer"
+            :aria-label="t('shell.sponsor')"
+          >
+            <Heart :size="14" :stroke-width="1.7" aria-hidden="true" />
+            <span v-if="!collapsed">{{ t('shell.sponsor') }}</span>
+          </a>
+        </HintTooltip>
         <HintTooltip label="GitHub" :disabled="!collapsed" side="right">
           <a
-            class="modern-community-link"
+            class="modern-footer-link"
             href="https://github.com/tbphp/gpt-load"
             target="_blank"
             rel="noopener noreferrer"
             aria-label="GitHub"
           >
-            <CodeXml :size="14" :stroke-width="1.7" aria-hidden="true" />
-            <template v-if="!collapsed"><span>GitHub</span><small>Star</small></template>
+            <GitHubIcon />
+            <span v-if="!collapsed">GitHub</span>
           </a>
         </HintTooltip>
         <HintTooltip label="Telegram" :disabled="!collapsed" side="right">
           <a
-            class="modern-community-link"
+            class="modern-footer-link"
             href="https://t.me/+GHpy5SwEllg3MTUx"
             target="_blank"
             rel="noopener noreferrer"
