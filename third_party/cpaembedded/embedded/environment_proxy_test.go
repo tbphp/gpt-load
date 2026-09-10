@@ -99,7 +99,7 @@ func TestEnvironmentProxyRoundTripperRejectsInvalidProxyWithoutFallback(t *testi
 func TestCPAProtectedExecutorsInstallEnvironmentProxyRoundTripper(t *testing.T) {
 	t.Parallel()
 
-	codexContext := NewCodexHTTPExecutor().executionContext(t.Context(), nil, nil, true)
+	codexContext := NewCodexHTTPExecutor().executionContext(t.Context(), nil, nil, true, nil)
 	assertEnvironmentProxyContext(t, codexContext)
 	claudeExecutor, ok := NewClaudeHTTPExecutor().(*claudeHTTPExecutor)
 	if !ok {

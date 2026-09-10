@@ -185,15 +185,20 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	credentialData := []byte(`{"api_key":"sk-secret-value"}`)
 	raw := validAttemptSpec(credentialData)
 	raw.RouteRequirement = RouteRequirementNative
+	raw.ConfiguredHeaders = []string{"User-Agent"}
 	owned := NewAttemptSpec(raw)
 
 	raw.Header.Set("X-Test", "mutated")
+	raw.ConfiguredHeaders[0] = "Originator"
 	raw.Query.Set("api-version", "mutated")
 	raw.Body[0] = 'X'
 	raw.TargetConfig[0] = 'Y'
 	credentialData[0] = 'Y'
 	if got := owned.Header.Get("X-Test"); got != "original" {
 		t.Fatalf("owned header = %q, want original", got)
+	}
+	if owned.ConfiguredHeaders[0] != "User-Agent" {
+		t.Fatal("mutating source changed configured header names")
 	}
 	if got := owned.Query.Get("api-version"); got != "2026-01-01" {
 		t.Fatalf("owned query = %q, want original", got)
@@ -213,12 +218,16 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 
 	clone := owned.Clone()
 	clone.Header.Set("X-Test", "clone")
+	clone.ConfiguredHeaders[0] = "Version"
 	clone.Query.Set("api-version", "clone")
 	clone.Body[0] = 'Z'
 	clone.TargetConfig[0] = 'Q'
 	clone.Credential.data[0] = 'Q'
 	if owned.Header.Get("X-Test") != "original" || owned.Query.Get("api-version") != "2026-01-01" {
 		t.Fatal("mutating clone changed original maps")
+	}
+	if owned.ConfiguredHeaders[0] != "User-Agent" {
+		t.Fatal("mutating clone changed configured header names")
 	}
 	if string(owned.Body) != `{"model":"client-model"}` || string(owned.Credential.Data()) != `{"api_key":"sk-secret-value"}` {
 		t.Fatal("mutating clone changed original byte slices")

@@ -92,11 +92,12 @@ func (s *Service) executeModelDiscovery(
 				Operation: execution.OperationListModels, Method: method, Path: path,
 				RawQuery: rawQuery,
 				Header:   applyControlHeaderRules(target.headerRules, credential.apiKey), Body: body,
-				TargetConfig:     target.resolvedTarget.TargetConfig,
-				Timeouts:         executionTimeouts(target.timeouts),
-				Credential:       credential.snapshot,
-				Proxy:            credential.proxy,
-				ProxyFingerprint: credential.proxyFingerprint,
+				ConfiguredHeaders: target.headerRules.ConfiguredNames(),
+				TargetConfig:      target.resolvedTarget.TargetConfig,
+				Timeouts:          executionTimeouts(target.timeouts),
+				Credential:        credential.snapshot,
+				Proxy:             credential.proxy,
+				ProxyFingerprint:  credential.proxyFingerprint,
 			})
 			if validationErr := spec.Validate(); validationErr != nil {
 				return ModelDiscoveryResult{}, fmt.Errorf("build discovery attempt: %w", app_errors.ErrInternalServer)

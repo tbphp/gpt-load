@@ -38,6 +38,22 @@ watcher, and Auto executors. The Codex WS facade blocks HTTP fallback and busine
 request replay. The gateway explicitly wires this facade into its native WS route;
 the existing HTTP executor remains separate.
 
+## Codex HTTP request identity
+
+The HTTP bridge preserves CPA's default and model-specific User-Agent values.
+Explicit GPT-Load request-header rules for `User-Agent`, `Originator`, and
+`Version` take precedence after CPA constructs the upstream request, including
+explicit removal. Downstream headers alone do not override CPA's default identity.
+Unless `Version` is explicitly configured, it follows the final `codex-tui` or
+`codex_cli_rs` User-Agent version; an unrecognized custom UA drops the unrelated
+client version.
+
+Both `Session-Id` and `Session_id` are accepted, with `Session-Id` taking precedence
+if both exist. The upstream receives one `Session-Id`; explicit client sessions
+keep CPA's existing precedence over its prompt-cache fallback. This applies to
+HTTP inference, including streaming and images; account queries and the independent
+WebSocket facade keep their existing behavior.
+
 ## Codex WebSocket Session
 
 `internal/subscription/providers/codex.NewWSSession` exposes this independent

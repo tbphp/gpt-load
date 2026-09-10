@@ -101,13 +101,14 @@ func annotateProviderErrorEvidence(evidence *execution.ErrorEvidence, err error)
 }
 
 type providerRequest struct {
-	AttemptID       string
-	Model           string
-	Payload         []byte
-	Format          string
-	RequestPath     string
-	Headers         http.Header
-	OriginalRequest []byte
+	AttemptID         string
+	Model             string
+	Payload           []byte
+	Format            string
+	RequestPath       string
+	Headers           http.Header
+	ConfiguredHeaders []string
+	OriginalRequest   []byte
 	// ContinuityKey is a private, tenant-scoped key used only by providers
 	// whose tool/thinking protocol needs an isolated multi-request replay lane.
 	ContinuityKey string

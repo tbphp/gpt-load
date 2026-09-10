@@ -760,6 +760,7 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 		Path:                     input.Request.Path,
 		RawQuery:                 input.Request.RawQuery,
 		Header:                   headers,
+		ConfiguredHeaders:        input.Group.HeaderRules.ConfiguredNames(),
 		Body:                     input.Request.Body,
 		IncludeUsage:             input.ObserveUsage,
 		ForceCredentialRefresh:   input.ForceCredentialRefresh,
