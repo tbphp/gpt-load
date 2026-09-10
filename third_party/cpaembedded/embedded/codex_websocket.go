@@ -116,7 +116,6 @@ func NewCodexWSSession(options CodexWSSessionOptions) (*CodexWSSession, error) {
 	delete(auth.Metadata, "refresh_token")
 	auth.ProxyURL = proxy.Raw
 	options.Credential = CodexCredential{}
-	installCodexWSLogHook()
 	session := &CodexWSSession{
 		auth: auth, id: codexWSSessionIDPrefix + uuid.NewString(), options: options, closeDone: make(chan struct{}),
 		inner: internalexecutor.NewCodexWebsocketsExecutor(&internalconfig.Config{}),

@@ -87,10 +87,12 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   its own internal buffers. These checks do not bound all SDK memory. CPA also
   retains its upstream read-idle timeout; idle connection loss invalidates the
   Session and is not transparently recovered.
-- A one-time, narrowly scoped logrus hook removes raw errors from the pinned
-  SDK's disconnect logs for facade-owned Sessions, retaining safe error classes
-  and WS close codes. It does not change log levels, outputs, or other Sessions'
-  logs. Revalidate this log-format contract when upgrading CPA.
+- A narrowly scoped logrus hook is registered during package initialization,
+  before the application's runtime redaction and log-sink hooks. It removes raw
+  errors from the pinned SDK's disconnect logs for facade-owned Sessions,
+  retaining safe error classes and WS close codes. It does not change log levels,
+  outputs, or other Sessions' logs. Revalidate this log-format contract when
+  upgrading CPA.
 - No multi-lane `stream_id`, background mode, other protocols, Responses resource
   operations, global session routing, application shutdown integration, or
   business health/quota/logging policy is introduced here.

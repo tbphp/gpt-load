@@ -3,17 +3,16 @@ package embedded
 import (
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 )
 
 const codexWSSessionIDPrefix = "gptload-codex-ws-"
 
-var codexWSLogHookOnce sync.Once
-
-func installCodexWSLogHook() {
-	codexWSLogHookOnce.Do(func() { logrus.AddHook(codexWSLogHook{}) })
+// 先于应用运行时的通用脱敏和日志写入 Hook 注册，避免 session 前缀先被
+// 遮蔽而无法匹配，或原始错误正文先被其他 Hook 持久化。
+func init() {
+	logrus.AddHook(codexWSLogHook{})
 }
 
 // CPA v7.2.151 在通知 lifecycle 前将 CloseError 正文写入默认 logger。
