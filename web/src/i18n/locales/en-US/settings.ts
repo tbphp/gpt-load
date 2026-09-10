@@ -52,6 +52,9 @@ export default {
       },
       routeStrategyHelp:
         'Native first favors native capabilities. Weighted mix lets native and converted candidates compete by effective weight; conversion may differ in capabilities. Request affinity still applies, so traffic shares are not guaranteed.',
+      responses_websocket_enabled: 'Responses WebSocket',
+      websocketHelp:
+        'Groups can override this setting. Disabling closes affected WS connections and interrupts generation immediately; HTTP/SSE remains available.',
       first_byte_timeout: 'Native response / stream first-event timeout',
       request_timeout: 'Upstream request timeout per attempt',
       stream_idle_timeout: 'Stream idle timeout',

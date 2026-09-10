@@ -350,6 +350,9 @@ export default {
         headerStorageNoticeEnd: 'を使用してください。',
         headerReplacementWarning:
           'このグループ上書きはグローバル HeaderRules 全体を置き換えます。今後のグローバル変更はマージされません。',
+        responses_websocket_enabled: 'Responses WebSocket',
+        websocketHelp:
+          '無効化すると、このグループの WS 接続と生成を直ちに終了します。HTTP/SSE は影響を受けません。',
         affinity_enabled: 'リクエストアフィニティ',
         affinityHelp:
           '通常の重み、スケジューリング、再試行を変えず、このグループがアフィニティ対象を学習または再利用するかを制御します。',

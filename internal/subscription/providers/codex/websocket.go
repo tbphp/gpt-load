@@ -25,15 +25,17 @@ type WSSessionOptions struct {
 	TurnTimeout     time.Duration
 	MaxRequestBytes int
 	MaxEventBytes   int
+	Headers         http.Header
 }
 
 // WSTurnResult 的 Usage 保留上游 JSON，缺失时为 nil，不伪造零用量。
 type WSTurnResult struct {
-	ResponseID    string
-	Status        string
-	Usage         json.RawMessage
-	Headers       http.Header
-	DispatchState string
+	ResponseID       string
+	Status           string
+	Usage            json.RawMessage
+	Headers          http.Header
+	HeaderObservedAt time.Time
+	DispatchState    string
 }
 
 // WSError 暴露稳定分类和发送证据，错误文本不包含上游正文与凭据。
@@ -56,6 +58,7 @@ func NewWSSession(options WSSessionOptions) (*WSSession, error) {
 	bridge, err := cpaembedded.NewCodexWSSession(cpaembedded.CodexWSSessionOptions{
 		CredentialID: options.CredentialID, Credential: credentialToBridge(options.Credential),
 		BaseURL: options.BaseURL, ProxyURL: options.ProxyURL,
+		Headers:     options.Headers.Clone(),
 		TurnTimeout: options.TurnTimeout, MaxRequestBytes: options.MaxRequestBytes, MaxEventBytes: options.MaxEventBytes,
 	})
 	if err != nil {
@@ -76,10 +79,20 @@ func (s *WSSession) ExecuteTurn(ctx context.Context, payload json.RawMessage, em
 	return WSTurnResult{
 		ResponseID: result.ResponseID, Status: result.Status, Usage: result.Usage,
 		Headers: result.Headers, DispatchState: result.DispatchState,
+		HeaderObservedAt: result.HeaderObservedAt,
 	}, wsErrorFromBridge(err)
 }
 
-// Close 幂等关闭本 Session，不影响其他 Session；活动 ExecuteTurn 随后退出。
+// Done 在本 Session 失效或关闭后通知调用者。
+func (s *WSSession) Done() <-chan struct{} {
+	var bridge *cpaembedded.CodexWSSession
+	if s != nil {
+		bridge = s.bridge
+	}
+	return bridge.Done()
+}
+
+// Close 幂等关闭本 Session，不影响其他 Session。
 func (s *WSSession) Close() error {
 	if s == nil {
 		return nil

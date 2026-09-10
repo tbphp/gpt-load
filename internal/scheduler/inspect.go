@@ -26,6 +26,7 @@ const (
 	ReasonNativeRouteRequired       ReasonCode = "native_route_required"
 	ReasonNoRouteTarget             ReasonCode = "no_route_target"
 	ReasonGroupDisabled             ReasonCode = "group_disabled"
+	ReasonWebsocketDisabled         ReasonCode = "websocket_disabled"
 	ReasonGroupFiltered             ReasonCode = "group_filtered"
 	ReasonNoAvailableGroup          ReasonCode = "no_available_group"
 	ReasonNoCredentials             ReasonCode = "no_credentials"
@@ -175,6 +176,9 @@ func evaluateTargets(
 		case groupFiltered:
 			decision.included = false
 			decision.reason = ReasonGroupFiltered
+		case query.responsesWebsocket != nil && !snapshot.Groups[route.GroupID].ResponsesWebsocketEnabled:
+			decision.included = false
+			decision.reason = ReasonWebsocketDisabled
 		}
 		if decision.included {
 			included++
@@ -198,6 +202,13 @@ func routeRequirementSatisfied(
 	route state.RouteTarget,
 ) (bool, bool, ReasonCode) {
 	if !query.routeRequirement.Allows(execution.RouteMode(route.Mode)) {
+		return false, false, ReasonNativeRouteRequired
+	}
+	if query.responsesWebsocket != nil {
+		if query.clientProtocol == protocol.OpenAIResponses && query.operation == execution.OperationResponsesCreate &&
+			route.Mode == channel.RouteNative && route.ResolvedTarget.ResponsesWebsocket.Supports(*query.responsesWebsocket) {
+			return true, false, ""
+		}
 		return false, false, ReasonNativeRouteRequired
 	}
 	if query.operation != execution.OperationResponsesCreate {

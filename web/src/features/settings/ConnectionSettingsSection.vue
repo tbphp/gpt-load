@@ -11,6 +11,7 @@ import type {
 } from '@/app/resources/settings'
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
+import AppSwitch from '@/components/ui/AppSwitch.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import { formatInteger } from '@/lib/format'
 
@@ -42,6 +43,17 @@ const timeoutKeys: TimeoutSettingKey[] = [
   'request_timeout',
   'stream_idle_timeout',
 ]
+const websocketValue = computed(() =>
+  props.base.settings.values.responses_websocket_enabled
+    ? t('settings.runtime.enabled')
+    : t('settings.runtime.disabled'),
+)
+
+function setWebsocketEnabled(value: boolean): void {
+  const draft = cloneDraft()
+  draft.values.responses_websocket_enabled = value
+  publish('responses_websocket_enabled', draft)
+}
 
 // 代理沿用其它设置项的覆盖语义：inherit 即“未覆盖”，direct/custom 即“显式覆盖”。
 const proxyOverridden = computed(() => props.proxyMode !== 'inherit')
@@ -136,6 +148,31 @@ function timeoutError(key: TimeoutSettingKey): string | undefined {
     </header>
 
     <div class="settings-connection__rows">
+      <SettingRow
+        :label="t('settings.runtime.responses_websocket_enabled')"
+        :value="
+          isPendingRestore('responses_websocket_enabled')
+            ? t('settings.runtime.resetPending')
+            : websocketValue
+        "
+        :help="t('settings.runtime.websocketHelp')"
+        :source-label="sourceLabel('responses_websocket_enabled')"
+        :action-label="actionLabel('responses_websocket_enabled')"
+        :overridden="hasOverride('responses_websocket_enabled')"
+        :pending-restore="isPendingRestore('responses_websocket_enabled')"
+        :disabled="disabled"
+        @toggle="toggleOverride('responses_websocket_enabled')"
+      >
+        <template #control>
+          <AppSwitch
+            id="settings-value-responses_websocket_enabled"
+            :model-value="draft.values.responses_websocket_enabled"
+            :disabled="disabled"
+            :label="t('settings.runtime.responses_websocket_enabled')"
+            @update:model-value="setWebsocketEnabled"
+          />
+        </template>
+      </SettingRow>
       <SettingRow
         :label="t('common.proxy.title')"
         :value="proxyValue"

@@ -349,6 +349,9 @@ export default {
         headerStorageNoticeEnd: ' for credential values.',
         headerReplacementWarning:
           'This Group override replaces the complete global HeaderRules object; future global changes will not merge into it.',
+        responses_websocket_enabled: 'Responses WebSocket',
+        websocketHelp:
+          'Disabling closes this group’s WS connections and interrupts generation immediately; HTTP/SSE remains available.',
         affinity_enabled: 'Request affinity',
         affinityHelp:
           'Controls whether this Group learns or reuses affinity targets without changing normal weights, scheduling, or retries.',

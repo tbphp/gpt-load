@@ -313,7 +313,12 @@ function sectionForKey(key: RuntimeSettingKey): SettingsSection {
     key === 'affinity_capacity'
   )
     return 'routing'
-  if (key === 'first_byte_timeout' || key === 'request_timeout' || key === 'stream_idle_timeout')
+  if (
+    key === 'first_byte_timeout' ||
+    key === 'request_timeout' ||
+    key === 'stream_idle_timeout' ||
+    key === 'responses_websocket_enabled'
+  )
     return 'connection'
   if (key === 'retry_count' || key === 'blacklist_threshold' || key === 'validation_interval')
     return 'reliability'

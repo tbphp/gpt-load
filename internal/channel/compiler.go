@@ -147,6 +147,7 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 		defaultBaseURLs = append(defaultBaseURLs, value)
 	}
 	return definition{
+		responsesWebsocket: source.ResponsesWebsocket,
 		descriptor: Descriptor{
 			DefaultBaseURLs:  defaultBaseURLs,
 			ID:               source.ID,
