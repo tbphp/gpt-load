@@ -5,42 +5,48 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
 type GroupSettingsResponse struct {
-	PriceMultiplier string                       `json:"price_multiplier"`
-	ChannelID       channel.ID                   `json:"channel_id"`
-	ConnectionType  models.ConnectionType        `json:"connection_type"`
-	Params          json.RawMessage              `json:"params"`
-	Name            string                       `json:"name"`
-	ValidationModel *string                      `json:"validation_model"`
-	Enabled         bool                         `json:"enabled"`
-	WeightManual    *int                         `json:"weight_manual"`
-	Overrides       config.Settings              `json:"overrides"`
-	Effective       GroupEffectiveConfigResponse `json:"effective"`
-	Proxy           outboundproxy.View           `json:"proxy"`
+	PriceMultiplier     string                       `json:"price_multiplier"`
+	ChannelID           channel.ID                   `json:"channel_id"`
+	ConnectionType      models.ConnectionType        `json:"connection_type"`
+	Params              json.RawMessage              `json:"params"`
+	Name                string                       `json:"name"`
+	ValidationProtocol  *protocol.Protocol           `json:"validation_protocol"`
+	ValidationProtocols []protocol.Protocol          `json:"validation_protocols"`
+	ValidationModel     *string                      `json:"validation_model"`
+	Enabled             bool                         `json:"enabled"`
+	WeightManual        *int                         `json:"weight_manual"`
+	Overrides           config.Settings              `json:"overrides"`
+	Effective           GroupEffectiveConfigResponse `json:"effective"`
+	Proxy               outboundproxy.View           `json:"proxy"`
 }
 
 type GroupSettingsUpdateRequest struct {
-	PriceMultiplier optionalField[string]               `json:"price_multiplier"`
-	Name            optionalField[string]               `json:"name"`
-	Params          optionalField[json.RawMessage]      `json:"params"`
-	ValidationModel optionalField[string]               `json:"validation_model"`
-	Enabled         optionalField[bool]                 `json:"enabled"`
-	WeightManual    optionalField[int]                  `json:"weight_manual"`
-	Overrides       optionalField[config.Settings]      `json:"overrides"`
-	Proxy           optionalField[outboundproxy.Config] `json:"proxy"`
+	PriceMultiplier    optionalField[string]               `json:"price_multiplier"`
+	Name               optionalField[string]               `json:"name"`
+	Params             optionalField[json.RawMessage]      `json:"params"`
+	ValidationProtocol optionalField[protocol.Protocol]    `json:"validation_protocol"`
+	ValidationModel    optionalField[string]               `json:"validation_model"`
+	Enabled            optionalField[bool]                 `json:"enabled"`
+	WeightManual       optionalField[int]                  `json:"weight_manual"`
+	Overrides          optionalField[config.Settings]      `json:"overrides"`
+	Proxy              optionalField[outboundproxy.Config] `json:"proxy"`
 }
 
 type normalizedGroupSettingsUpdate struct {
@@ -118,7 +124,25 @@ func groupSettingsResponse(
 			"resolve group %d effective config: %w", group.ID, app_errors.ErrInternalServer,
 		)
 	}
+	target, err := registry.Resolve(channelID, validated.CanonicalJSON())
+	if err != nil {
+		return GroupSettingsResponse{}, err
+	}
+	model, err := groupProbeModel(group)
+	if err != nil {
+		return GroupSettingsResponse{}, err
+	}
+	protocols := make([]protocol.Protocol, 0)
+	if normalizeGroupConnectionType(group.ConnectionType) != models.ConnectionTypeSubscription {
+		protocols = availableValidationProtocols(target)
+	}
+
+	selected := protocol.Protocol(stringValue(group.ValidationProtocol))
+	if selected == "" && len(protocols) > 0 {
+		selected, _ = target.PreferredProtocol(execution.OperationProbe, model)
+	}
 	return GroupSettingsResponse{
+		ValidationProtocol: optionalValidationProtocol(selected), ValidationProtocols: protocols,
 		PriceMultiplier: priceMultiplierResponse(group.PriceMultiplierMicros),
 		ChannelID:       channelID,
 		ConnectionType:  normalizeGroupConnectionType(group.ConnectionType),
@@ -154,11 +178,14 @@ func normalizeGroupSettingsUpdate(
 			return normalizedGroupSettingsUpdate{}, app_errors.ErrValidation
 		}
 	}
-	if !request.Name.Set && !request.Params.Set && !request.ValidationModel.Set &&
+	if !request.ValidationProtocol.Set && !request.Name.Set && !request.Params.Set && !request.ValidationModel.Set &&
 		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set && !request.PriceMultiplier.Set {
 		return normalizedGroupSettingsUpdate{}, app_errors.ErrBadRequest
 	}
 
+	if request.ValidationProtocol.Set && (request.ValidationProtocol.Null || !request.ValidationProtocol.Value.Valid()) {
+		return normalizedGroupSettingsUpdate{}, app_errors.ErrValidation
+	}
 	result := normalizedGroupSettingsUpdate{}
 	if request.PriceMultiplier.Set {
 		value, err := normalizePriceMultiplier(request.PriceMultiplier)
@@ -275,6 +302,18 @@ func (s *Service) UpdateGroupSettings(
 			group.ValidationModel = normalized.validationModel
 			updates["validation_model"] = normalized.validationModel
 		}
+		if request.ValidationProtocol.Set {
+			target, err := s.channelRegistry.Resolve(channel.ID(group.ChannelID), json.RawMessage(group.Params))
+			if err != nil {
+				return app_errors.ErrValidation
+			}
+			if !slices.Contains(availableValidationProtocols(target), request.ValidationProtocol.Value) || group.ConnectionType == models.ConnectionTypeSubscription {
+				return app_errors.ErrValidation
+			}
+			value := string(request.ValidationProtocol.Value)
+			group.ValidationProtocol = &value
+			updates["validation_protocol"] = value
+		}
 		if normalized.enabled != nil {
 			group.Enabled = *normalized.enabled
 			updates["enabled"] = group.Enabled
@@ -342,4 +381,55 @@ func (s *Service) UpdateGroupSettings(
 	}
 	response.Proxy, err = s.groupProxyView(ctx, s.db, committed)
 	return response, err
+}
+
+func optionalValidationProtocol(value protocol.Protocol) *protocol.Protocol {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func groupProbeModel(group models.Group) (string, error) {
+	if group.ValidationModel != nil {
+		return *group.ValidationModel, nil
+	}
+	var stored []GroupModel
+	if err := decodeGroupDiscoveryJSON(group.Models, &stored); err != nil {
+		return "", err
+	}
+	if len(stored) > 0 {
+		return stored[0].ID, nil
+	}
+	return "", nil
+}
+
+// 测试协议直接读取渠道声明，不另行维护能力清单。
+func availableValidationProtocols(target channel.ResolvedTarget) []protocol.Protocol {
+	result := make([]protocol.Protocol, 0)
+	for _, candidate := range protocol.DataPlaneProtocols() {
+		if _, ok := target.Mode(candidate, execution.OperationProbe); ok {
+			result = append(result, candidate)
+		}
+	}
+	return result
+}
+
+func (s *Service) initializeValidationProtocol(group *models.Group) error {
+	if normalizeGroupConnectionType(group.ConnectionType) == models.ConnectionTypeSubscription {
+		return nil
+	}
+	target, err := s.channelRegistry.Resolve(channel.ID(group.ChannelID), json.RawMessage(group.Params))
+	if err != nil {
+		return app_errors.ErrValidation
+	}
+	model, err := groupProbeModel(*group)
+	if err != nil {
+		return err
+	}
+	if selected, ok := target.PreferredProtocol(execution.OperationProbe, model); ok {
+		value := string(selected)
+		group.ValidationProtocol = &value
+	}
+	return nil
 }

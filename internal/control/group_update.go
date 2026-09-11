@@ -11,6 +11,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
@@ -50,16 +51,17 @@ func mapGroupRowToState(group models.Group) (state.GroupConfig, error) {
 	}
 	multiplier := priceMultiplierFromStorage(group.PriceMultiplierMicros)
 	result := state.GroupConfig{
-		PriceMultiplier: &multiplier,
-		ID:              group.ID,
-		Name:            group.Name,
-		ChannelID:       channel.ID(group.ChannelID),
-		ConnectionType:  string(group.ConnectionType),
-		Params:          append(json.RawMessage(nil), group.Params...),
-		ValidationModel: validationModel,
-		Models:          runtimeModels,
-		Settings:        settings,
-		WeightManual:    cloneInt(group.WeightManual), Enabled: group.Enabled,
+		PriceMultiplier:    &multiplier,
+		ID:                 group.ID,
+		Name:               group.Name,
+		ChannelID:          channel.ID(group.ChannelID),
+		ConnectionType:     string(group.ConnectionType),
+		Params:             append(json.RawMessage(nil), group.Params...),
+		ValidationProtocol: protocol.Protocol(stringValue(group.ValidationProtocol)),
+		ValidationModel:    validationModel,
+		Models:             runtimeModels,
+		Settings:           settings,
+		WeightManual:       cloneInt(group.WeightManual), Enabled: group.Enabled,
 	}
 	return result, nil
 }
@@ -84,4 +86,11 @@ func validateGroupRowCandidate(
 		Groups:          []state.GroupConfig{candidate},
 	})
 	return err
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

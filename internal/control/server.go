@@ -720,11 +720,12 @@ func (s *Server) handleTestGroupCredential(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := bindOptionalEmptyJSONObject(c); err != nil {
+	var request CredentialProbeRequest
+	if err := bindOptionalProbeJSON(c, &request); err != nil {
 		writeServiceError(c, "test_group_credential", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.TestGroupCredential(c.Request.Context(), groupID, credentialID)
+	result, err := s.service.TestGroupCredential(c.Request.Context(), groupID, credentialID, request)
 	if err != nil {
 		writeServiceError(c, "test_group_credential", err)
 		return
@@ -1290,4 +1291,19 @@ func logServiceError(operation string, err error, code string) {
 		fields,
 		"Operation failed",
 	)
+}
+
+func bindOptionalProbeJSON(c *gin.Context, target any) error {
+	if c.Request.ContentLength > maxControlJSONBodyBytes {
+		return &http.MaxBytesError{Limit: maxControlJSONBodyBytes}
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxControlJSONBodyBytes)
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(raw)) == "" {
+		return nil
+	}
+	return decodeStrictControlJSONObject(raw, target)
 }

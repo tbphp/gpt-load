@@ -298,7 +298,9 @@ export default {
         customUrl: '自定义上游地址',
         customUrlHelp: '默认使用渠道预设或 SDK 官方地址。',
         paramRequired: '请输入{field}。',
-        validationModel: '验活模型（可选）',
+        validationProtocol: '测试协议',
+        validationProtocolHelp: '作为密钥测试和自动验活的默认协议；单协议渠道不可修改。',
+        validationModel: '测试模型（可选）',
         validationModelPlaceholder: '搜索或输入模型 ID',
         validationModelHelp: '留空时使用分组的第一个模型；这里填上游模型 ID，不是别名。',
         weight: '分组权重',
@@ -426,6 +428,10 @@ export default {
       restore: '立即恢复',
       restoreFailed: '无法立即恢复渠道凭据',
       test: {
+        noModels: '当前分组暂无模型，可直接输入测试模型 ID。',
+        unavailable: '当前渠道没有可用于密钥测试的协议。',
+        start: '开始测试',
+        loadingSettings: '正在读取测试配置…',
         action: '测试连接',
         title: '测试连接',
         description:

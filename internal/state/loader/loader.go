@@ -637,17 +637,18 @@ func mapSystemAndGroups(
 			return state.CompileInput{}, fmt.Errorf("group %d: %w", row.ID, err)
 		}
 		group := state.GroupConfig{
-			PriceMultiplier: &multiplier,
-			ID:              row.ID,
-			Name:            row.Name,
-			ChannelID:       channel.ID(row.ChannelID),
-			ConnectionType:  string(row.ConnectionType),
-			Params:          append(json.RawMessage(nil), row.Params...),
-			ValidationModel: validationModel,
-			Models:          runtimeModels,
-			Settings:        settings,
-			WeightManual:    cloneWeight(row.WeightManual),
-			Enabled:         row.Enabled,
+			PriceMultiplier:    &multiplier,
+			ID:                 row.ID,
+			Name:               row.Name,
+			ChannelID:          channel.ID(row.ChannelID),
+			ConnectionType:     string(row.ConnectionType),
+			Params:             append(json.RawMessage(nil), row.Params...),
+			ValidationProtocol: protocol.Protocol(stringValue(row.ValidationProtocol)),
+			ValidationModel:    validationModel,
+			Models:             runtimeModels,
+			Settings:           settings,
+			WeightManual:       cloneWeight(row.WeightManual),
+			Enabled:            row.Enabled,
 		}
 		if row.ProxyConfig != nil {
 			proxy, err := decodePersistedProxy(*row.ProxyConfig, encryptionService)
@@ -893,4 +894,11 @@ func persistedPriceMultiplier(value *int64) (pricing.PriceMultiplier, error) {
 		return 0, fmt.Errorf("invalid persisted price multiplier")
 	}
 	return pricing.PriceMultiplier(*value), nil
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
