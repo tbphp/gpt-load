@@ -1,12 +1,22 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, KeyRound, LogOut, Menu, X } from '@lucide/vue'
+import {
+  ChevronLeft,
+  ChevronRight,
+  CirclePlus,
+  KeyRound,
+  LogOut,
+  Menu,
+  RefreshCw,
+  X,
+} from '@lucide/vue'
 import { DialogClose, DialogRoot, DialogTrigger, TooltipProvider } from 'reka-ui'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
+import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
 import { desktopMediaQuery } from '@modern/app/breakpoints'
 import { pagePath } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
+import { providePageRefresh } from '@modern/app/page-refresh'
 import { usePageTitle } from '@modern/app/use-page-title'
 import AppBadge from '@modern/components/ui/AppBadge.vue'
 import AppButton from '@modern/components/ui/AppButton.vue'
@@ -19,10 +29,9 @@ import { useAuthSession } from '@modern/features/auth/auth-session'
 import { provideSystemStatus } from '@modern/features/system/useSystemStatus'
 import { loginLocation } from '@modern/router'
 import AppearanceMenu from './AppearanceMenu.vue'
-import QuickNavigation from './QuickNavigation.vue'
 import SidebarContent from './SidebarContent.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
@@ -31,7 +40,20 @@ provideSystemStatus()
 const mobileOpen = ref(false)
 const failedNavigation = ref<string | null>(null)
 const loggingOut = ref(false)
-const { current, title: pageTitle } = usePageTitle()
+const { title: pageTitle } = usePageTitle()
+const pageRefresh = providePageRefresh()
+const refreshedAt = computed(() =>
+  pageRefresh.updatedAt.value === undefined
+    ? ''
+    : t('shell.refreshedAt', {
+        time: new Intl.DateTimeFormat(locale.value, {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }).format(pageRefresh.updatedAt.value),
+      }),
+)
 watch(
   () => route.fullPath,
   () => {
@@ -41,7 +63,8 @@ watch(
 const removeAfterEach = router.afterEach((to, from, failure) => {
   if (failure) return
   failedNavigation.value = null
-  if (to.fullPath === from.fullPath) return
+  // 同页搜索和筛选只更新查询参数，保留当前控件的输入焦点。
+  if (to.path === from.path) return
   requestAnimationFrame(() =>
     document.getElementById('modern-content')?.focus({ preventScroll: true }),
   )
@@ -100,33 +123,59 @@ onBeforeUnmount(() => {
       </button>
       <div class="modern-main-column">
         <header class="modern-topbar">
-          <DialogRoot v-model:open="mobileOpen">
-            <DialogTrigger as-child>
-              <AppIconButton class="modern-mobile-toggle" :icon="Menu" :label="t('navigation')" />
-            </DialogTrigger>
-            <AppDialogContent
-              placement="sidebar"
-              :title="t('navigation')"
-              :description="t('shell.mobileNavigationDescription')"
-            >
-              <DialogClose as-child>
-                <AppIconButton class="modern-mobile-close" :icon="X" :label="t('shell.close')" />
-              </DialogClose>
-              <SidebarContent @navigate="mobileOpen = false" />
-            </AppDialogContent>
-          </DialogRoot>
-          <div class="modern-breadcrumb" aria-hidden="true">
-            <span>{{ current ? t(`sections.${current.section}`) : t('sections.workspace') }}</span
-            ><AppIcon :icon="ChevronRight" size="xs" /><strong>{{ pageTitle }}</strong>
+          <h1>{{ pageTitle }}</h1>
+          <div v-if="pageRefresh.available.value" class="modern-topbar-refresh">
+            <span v-if="refreshedAt">{{ refreshedAt }}</span>
+            <AppIconButton
+              :icon="RefreshCw"
+              :label="t('shell.refresh')"
+              :loading="pageRefresh.pending.value"
+              @click="pageRefresh.run()"
+            />
           </div>
-          <div v-if="session.state.principalType === 'access_key'" class="modern-session-scope">
-            <AppBadge :icon="KeyRound" tone="info" :title="t('auth.readOnlyDescription')">
+          <span
+            v-if="pageRefresh.available.value"
+            class="modern-topbar-divider"
+            aria-hidden="true"
+          ></span>
+          <div class="modern-toolbar">
+            <DialogRoot v-model:open="mobileOpen">
+              <DialogTrigger as-child>
+                <AppIconButton class="modern-mobile-toggle" :icon="Menu" :label="t('navigation')" />
+              </DialogTrigger>
+              <AppDialogContent
+                placement="sidebar"
+                :title="t('navigation')"
+                :description="t('shell.mobileNavigationDescription')"
+              >
+                <DialogClose as-child>
+                  <AppIconButton class="modern-mobile-close" :icon="X" :label="t('shell.close')" />
+                </DialogClose>
+                <SidebarContent @navigate="mobileOpen = false" />
+              </AppDialogContent>
+            </DialogRoot>
+            <AppBadge
+              v-if="session.state.principalType === 'access_key'"
+              class="modern-session-scope"
+              :icon="KeyRound"
+              tone="info"
+              :title="t('auth.readOnlyDescription')"
+            >
               {{ t('auth.readOnly') }}
             </AppBadge>
-          </div>
-          <div class="modern-topbar-actions">
-            <QuickNavigation /><span class="modern-toolbar-divider" aria-hidden="true"></span
-            ><AppearanceMenu />
+            <AppButton
+              v-if="session.state.principalType === 'admin'"
+              variant="brand"
+              icon-only
+              :aria-label="t('shell.importCredentials')"
+              :title="t('shell.importCredentials')"
+              as-child
+            >
+              <RouterLink :to="{ name: 'modern-import' }"
+                ><AppIcon :icon="CirclePlus" size="lg"
+              /></RouterLink>
+            </AppButton>
+            <AppearanceMenu />
             <AppIconButton
               :icon="LogOut"
               :label="t('auth.logout')"
@@ -230,62 +279,65 @@ onBeforeUnmount(() => {
 .modern-main-column {
   min-width: 0;
 }
+/* 顶栏是所有页面共用的固定结构：标题 | 刷新与时间 | 竖线 | 全局控件。 */
 .modern-topbar {
   position: sticky;
   z-index: var(--modern-layer-header);
   top: 0;
   display: flex;
-  height: var(--modern-topbar-height);
+  min-height: var(--modern-topbar-height);
   align-items: center;
-  gap: var(--modern-space-4);
+  gap: var(--modern-space-3);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-surface);
   padding: 0 var(--modern-content-inset);
 }
-.modern-topbar .modern-mobile-toggle {
-  display: none;
-}
-.modern-breadcrumb {
-  display: flex;
+.modern-topbar h1 {
   flex: 1;
   min-width: 0;
-  align-items: center;
-  gap: var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-}
-.modern-breadcrumb strong {
   overflow: hidden;
   color: var(--modern-text);
-  font-weight: var(--modern-weight-medium);
+  font-size: var(--modern-font-size-title);
+  font-weight: var(--modern-weight-semibold);
+  letter-spacing: var(--modern-tracking-title);
+  line-height: var(--modern-leading-title);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.modern-breadcrumb > span {
+.modern-topbar-refresh {
+  display: flex;
+  min-width: 0;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
   white-space: nowrap;
 }
-.modern-topbar-actions {
+.modern-topbar-divider {
+  width: var(--modern-line-width);
+  height: var(--modern-space-5);
+  flex-shrink: 0;
+  background: var(--modern-border);
+}
+.modern-toolbar {
   display: flex;
-  min-height: var(--modern-topbar-height);
   flex-shrink: 0;
   align-items: center;
   gap: var(--modern-space-1);
 }
-.modern-toolbar-divider {
-  width: var(--modern-line-width);
-  height: var(--modern-space-5);
-  margin: 0 var(--modern-space-2);
-  background: var(--modern-border);
+.modern-toolbar .modern-mobile-toggle {
+  display: none;
 }
 .modern-session-scope {
-  display: flex;
   flex-shrink: 0;
+  margin-right: var(--modern-space-2);
   white-space: nowrap;
 }
 .modern-content {
   width: 100%;
   min-width: 0;
-  padding: var(--modern-content-top) var(--modern-content-inset) var(--modern-content-bottom);
+  padding: 0 var(--modern-content-inset) var(--modern-content-bottom);
 }
 .modern-content:focus {
   outline: none;
@@ -296,23 +348,6 @@ onBeforeUnmount(() => {
   top: var(--modern-space-3);
   right: var(--modern-space-2);
 }
-@media (max-width: 1150px) {
-  .modern-topbar {
-    height: auto;
-    min-height: var(--modern-topbar-height);
-    flex-wrap: wrap;
-    row-gap: 0;
-  }
-  .modern-breadcrumb > span,
-  .modern-breadcrumb > svg {
-    display: none;
-  }
-  .modern-session-scope {
-    order: 1;
-    flex-basis: 100%;
-    padding-bottom: var(--modern-space-2);
-  }
-}
 @media (max-width: 760px) {
   .modern-app {
     display: block;
@@ -321,18 +356,26 @@ onBeforeUnmount(() => {
   .modern-sidebar-toggle {
     display: none;
   }
-  .modern-topbar .modern-mobile-toggle {
+  /* 侧栏不可见时，抽屉入口回到标题行。 */
+  .modern-toolbar .modern-mobile-toggle {
     display: inline-flex;
   }
-  .modern-topbar {
-    column-gap: var(--modern-space-2);
-    padding: 0 var(--modern-content-inset);
-  }
-  .modern-topbar-actions {
+  .modern-toolbar {
     gap: 0;
   }
-  .modern-toolbar-divider {
+  .modern-topbar {
+    flex-wrap: wrap;
+    gap: var(--modern-space-2);
+    padding-block: var(--modern-space-2);
+  }
+  /* 移动端顶栏只留刷新按钮，时间文字和竖线让位给标题。 */
+  .modern-topbar-refresh span,
+  .modern-topbar-divider {
     display: none;
+  }
+  .modern-session-scope {
+    order: 1;
+    margin-right: 0;
   }
 }
 .modern-notices {

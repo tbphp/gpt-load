@@ -20,8 +20,13 @@ export function createModernRouter(
             ? () => import('./features/home/HomeView.vue')
             : item.id === 'settings'
               ? () => import('./features/settings/SettingsView.vue')
-              : () => import('./features/workspace/WorkspaceView.vue'),
-        props: item.id === 'home' || item.id === 'settings' ? undefined : { workspaceId: item.id },
+              : item.id === 'groups'
+                ? () => import('./features/groups/GroupsView.vue')
+                : () => import('./features/workspace/WorkspaceView.vue'),
+        props:
+          item.id === 'home' || item.id === 'settings' || item.id === 'groups'
+            ? undefined
+            : { workspaceId: item.id },
         meta: { requiresAuth: true, adminOnly: item.adminOnly },
       })),
       {

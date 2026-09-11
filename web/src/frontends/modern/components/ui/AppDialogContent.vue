@@ -3,7 +3,11 @@ import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogTi
 
 defineOptions({ inheritAttrs: false })
 withDefaults(
-  defineProps<{ title: string; description: string; placement?: 'dialog' | 'sidebar' }>(),
+  defineProps<{
+    title: string
+    description: string
+    placement?: 'dialog' | 'sidebar' | 'editor'
+  }>(),
   { placement: 'dialog' },
 )
 defineEmits<{ openAutoFocus: [event: Event] }>()
@@ -58,6 +62,13 @@ defineEmits<{ openAutoFocus: [event: Event] }>()
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--modern-sidebar);
+}
+.modern-dialog--editor {
+  inset: 0 0 0 auto;
+  width: min(var(--modern-dialog-width), 100vw);
+  border-left: var(--modern-line-width) solid var(--modern-border);
+  background: var(--modern-surface);
+  box-shadow: var(--modern-shadow-dialog);
 }
 @media (max-width: 760px) {
   .modern-dialog--dialog {

@@ -1,10 +1,16 @@
+import { jaJP as groupMessages } from './groups'
+
 export default {
+  ...groupMessages,
   sections: {
     workspace: 'ワークスペース',
     observe: '運用状況',
     system: 'システム',
   },
   shell: {
+    refresh: '更新',
+    refreshedAt: '{time} 更新',
+    importCredentials: 'キーをインポート',
     goHome: 'GPT-Load の概要',
     collapseSidebar: 'サイドバーを折りたたむ',
     expandSidebar: 'サイドバーを展開',
@@ -92,14 +98,6 @@ export default {
     updateAvailable: '新バージョン {version}',
     checkFailed: '確認に失敗しました。再試行してください。',
     authRequired: '管理者ログインが必要です',
-  },
-  quickNavigation: {
-    title: 'クイック移動',
-    placeholder: 'ページを検索…',
-    description: 'ページ名を検索し、矢印キーで選択して Enter キーで移動します。',
-    pages: 'ページ',
-    empty: '一致するページはありません。',
-    keyboardHint: '↑ ↓ 選択　Enter 移動　Esc 閉じる',
   },
   navigation: 'メインナビゲーション',
   skipToContent: 'メインコンテンツへ移動',

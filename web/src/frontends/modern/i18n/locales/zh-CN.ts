@@ -1,10 +1,16 @@
+import { zhCN as groupMessages } from './groups'
+
 export default {
+  ...groupMessages,
   sections: {
     workspace: '工作区',
     observe: '运行观测',
     system: '系统',
   },
   shell: {
+    refresh: '刷新',
+    refreshedAt: '更新于 {time}',
+    importCredentials: '导入密钥',
     goHome: 'GPT-Load 总览',
     collapseSidebar: '收起侧栏',
     expandSidebar: '展开侧栏',
@@ -90,14 +96,6 @@ export default {
     updateAvailable: '新版本 {version}',
     checkFailed: '检查失败，请重试',
     authRequired: '需要管理员登录',
-  },
-  quickNavigation: {
-    title: '快速跳转',
-    placeholder: '搜索页面…',
-    description: '搜索页面名称，使用方向键选择并按回车进入。',
-    pages: '页面',
-    empty: '没有找到匹配的页面。',
-    keyboardHint: '↑ ↓ 选择　Enter 进入　Esc 关闭',
   },
   navigation: '主导航',
   skipToContent: '跳到主要内容',

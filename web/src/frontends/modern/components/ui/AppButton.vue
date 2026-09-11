@@ -7,7 +7,7 @@ import AppIcon from './AppIcon.vue'
 
 const props = withDefaults(
   defineProps<{
-    variant?: 'default' | 'primary' | 'ghost' | 'danger'
+    variant?: 'default' | 'primary' | 'ghost' | 'brand' | 'danger'
     size?: 'xs' | 'sm' | 'md'
     type?: 'button' | 'submit' | 'reset'
     icon?: Component
@@ -109,6 +109,17 @@ function preventInactiveClick(event: MouseEvent): void {
   border-color: transparent;
   background: var(--modern-subtle);
   color: var(--modern-text);
+}
+/* brand 用于需要在一排中性图标里被一眼看到的高频入口。 */
+.modern-button--brand {
+  border-color: transparent;
+  background: transparent;
+  color: var(--modern-coral);
+}
+.modern-button--brand:hover:not(:disabled, [aria-disabled='true']) {
+  border-color: transparent;
+  background: var(--modern-accent-soft);
+  color: var(--modern-accent);
 }
 .modern-button--danger {
   border-color: var(--modern-danger);

@@ -3,10 +3,13 @@ import type { Component } from 'vue'
 
 import AppIcon from './AppIcon.vue'
 
-withDefaults(defineProps<{ icon?: Component; tone?: 'neutral' | 'info' }>(), {
-  icon: undefined,
-  tone: 'neutral',
-})
+withDefaults(
+  defineProps<{ icon?: Component; tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }>(),
+  {
+    icon: undefined,
+    tone: 'neutral',
+  },
+)
 </script>
 
 <template>
@@ -33,5 +36,17 @@ withDefaults(defineProps<{ icon?: Component; tone?: 'neutral' | 'info' }>(), {
 .modern-badge--info {
   background: var(--modern-info-soft);
   color: var(--modern-info);
+}
+.modern-badge--success {
+  background: var(--modern-success-soft);
+  color: var(--modern-success);
+}
+.modern-badge--warning {
+  background: var(--modern-warning-soft);
+  color: var(--modern-warning);
+}
+.modern-badge--danger {
+  background: var(--modern-danger-soft);
+  color: var(--modern-danger);
 }
 </style>

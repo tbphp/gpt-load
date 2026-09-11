@@ -1,10 +1,16 @@
+import { enUS as groupMessages } from './groups'
+
 export default {
+  ...groupMessages,
   sections: {
     workspace: 'Workspace',
     observe: 'Observability',
     system: 'System',
   },
   shell: {
+    refresh: 'Refresh',
+    refreshedAt: 'Updated {time}',
+    importCredentials: 'Import credentials',
     goHome: 'GPT-Load overview',
     collapseSidebar: 'Collapse sidebar',
     expandSidebar: 'Expand sidebar',
@@ -93,14 +99,6 @@ export default {
     updateAvailable: '{version} available',
     checkFailed: 'Check failed. Try again.',
     authRequired: 'Admin sign-in required',
-  },
-  quickNavigation: {
-    title: 'Quick navigation',
-    placeholder: 'Search pages…',
-    description: 'Search for a page, use the arrow keys to select it, and press Enter.',
-    pages: 'Pages',
-    empty: 'No matching pages.',
-    keyboardHint: '↑ ↓ Select　Enter Open　Esc Close',
   },
   navigation: 'Main navigation',
   skipToContent: 'Skip to main content',

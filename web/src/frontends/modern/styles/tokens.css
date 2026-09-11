@@ -2,30 +2,30 @@
 :root {
   color-scheme: light dark;
 
-  /* 颜色：保留已确认的 Coral / Ink / Cream，前景与背景成对维护。 */
-  --modern-canvas: light-dark(#ffffff, #22212a);
-  --modern-sidebar: light-dark(#f4f3ef, #1c1b23);
-  --modern-surface: light-dark(#ffffff, #282630);
-  --modern-subtle: light-dark(#f8f7f4, #302e38);
-  --modern-text: light-dark(#282630, #faf7f0);
-  --modern-muted: light-dark(#696572, #b7b2c0);
-  --modern-border: light-dark(#e5e3dd, #403c49);
-  --modern-coral: #db7458;
-  --modern-accent: light-dark(#a6422e, #f09a80);
-  --modern-accent-soft: light-dark(#f8eae4, #453029);
-  --modern-action: #ae4b35;
-  --modern-action-hover: #913c2a;
+  /* 颜色：亮橙红搭配白色与中性灰；前景与背景成对维护。 */
+  --modern-canvas: light-dark(#ffffff, #202020);
+  --modern-sidebar: light-dark(#f0f0ed, #181818);
+  --modern-surface: light-dark(#ffffff, #272727);
+  --modern-subtle: light-dark(#f8f8f6, #303030);
+  --modern-text: light-dark(#1c1c1b, #f5f5f2);
+  --modern-muted: light-dark(#6c6c67, #b5b5b0);
+  --modern-border: light-dark(#e4e4df, #40403c);
+  --modern-coral: var(--modern-action);
+  --modern-accent: light-dark(#e84518, #ff845e);
+  --modern-accent-soft: light-dark(#fff3ed, #3e2a23);
+  --modern-action: #ff4f1f;
+  --modern-action-hover: #f04012;
   --modern-on-action: #ffffff;
-  --modern-danger: light-dark(#b42318, #fca59c);
-  --modern-danger-soft: light-dark(#fff0ee, #442323);
-  --modern-success: light-dark(#26734d, #8cd5a8);
-  --modern-success-soft: light-dark(#eef8f1, #21392b);
-  --modern-warning: light-dark(#865a0c, #e7c878);
-  --modern-warning-soft: light-dark(#fff7e5, #3c3421);
-  --modern-info: light-dark(#3466a3, #9fbfed);
-  --modern-info-soft: light-dark(#edf4fc, #263449);
-  --modern-overlay: rgb(20 18 25 / 35%);
-  --modern-scrollbar: light-dark(#c7c3ba, #524e5c);
+  --modern-danger: light-dark(#dc3737, #ff8a80);
+  --modern-danger-soft: light-dark(#fff1f0, #3e2624);
+  --modern-success: light-dark(#1a9b55, #68d99a);
+  --modern-success-soft: light-dark(#edf9f1, #21362a);
+  --modern-warning: light-dark(#b87408, #f4bc52);
+  --modern-warning-soft: light-dark(#fff8e8, #3b321f);
+  --modern-info: light-dark(#377de2, #89b9ff);
+  --modern-info-soft: light-dark(#edf5ff, #233247);
+  --modern-overlay: rgb(20 20 18 / 35%);
+  --modern-scrollbar: light-dark(#cacac3, #565650);
   --modern-tooltip-surface: var(--modern-text);
   --modern-tooltip-text: var(--modern-surface);
 
@@ -82,6 +82,9 @@
   --modern-control-md: 36px;
   --modern-control-nav: 40px;
   --modern-touch-target: 44px;
+  --modern-switch-width: 32px;
+  --modern-switch-height: 18px;
+  --modern-switch-thumb: 14px;
   --modern-icon-xs: 12px;
   --modern-icon-sm: 14px;
   --modern-icon-md: 18px;
@@ -94,7 +97,6 @@
   --modern-sidebar-collapsed: 72px;
   --modern-topbar-height: 56px;
   --modern-content-inset: 32px;
-  --modern-content-top: 24px;
   --modern-content-bottom: 36px;
   --modern-panel-inset: 24px;
   --modern-page-gap: 24px;
@@ -141,7 +143,6 @@
 @media (max-width: 760px) {
   :root {
     --modern-content-inset: 16px;
-    --modern-content-top: 16px;
     --modern-content-bottom: 28px;
     --modern-panel-inset: 16px;
     --modern-logo-width: 176px;

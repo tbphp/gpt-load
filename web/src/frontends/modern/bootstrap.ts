@@ -6,7 +6,6 @@ import App from './App.vue'
 import { createSessionApiClient } from './app/api-client'
 import { createPreferences, preferencesKey } from './app/preferences'
 import { createModernQueryClient } from './app/query'
-import favicon from './assets/brand/icon.svg'
 import { authSessionKey, createAuthSession, type AuthSession } from './features/auth/auth-session'
 import { createModernI18n } from './i18n'
 import { createModernRouter } from './router'
@@ -27,8 +26,6 @@ export async function bootstrap(): Promise<void> {
   const preferences = createPreferences(i18n.global.locale.value, (locale) => {
     i18n.global.locale.value = locale
   })
-  const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
-  if (icon) icon.href = favicon
   const queryClient = createModernQueryClient()
   const client = createSessionApiClient({
     fetch: window.fetch.bind(window),

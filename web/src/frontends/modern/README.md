@@ -1,8 +1,8 @@
 # 新版前端开发约定
 
-本约定适用于 `modern` 的页面、业务功能和公共组件。保留已确认的 Coral / Ink / Cream 框架；新页面遵循同一套视觉基础，不另外选择主题、控件尺寸或交互库。
+本约定适用于 `modern` 的页面、业务功能和公共组件。界面采用亮橙红、白色与中性灰；新页面遵循同一套视觉基础，不另外选择主题、控件尺寸或交互库。
 
-正式视觉规范：[GPT-Load 新版前端视觉与组件规范（Coral）](https://app.notion.com/p/3d75e49ce6ae8148bbe5c0486a3ba9e7)。本文只维护工程入口、组件用法与开发约束。
+原视觉规范：[GPT-Load 新版前端视觉与组件规范（Coral）](https://app.notion.com/p/3d75e49ce6ae8148bbe5c0486a3ba9e7)。配色以当前 `styles/tokens.css` 为准：主操作使用亮橙红 `#FF4F1F`，选择态使用浅橙底色，灰阶不带紫色调；Logo 保留原品牌素材颜色。本文维护工程入口、组件用法与开发约束。
 
 ## 代码职责
 
@@ -39,22 +39,25 @@
 
 ## 优先复用的组件
 
-| 组件                       | 用法与边界                                                                                              |
-| -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `PageHeader`               | 页面标题、可选说明、默认插槽放页面主操作；页面最外层使用 `modern-page`                                  |
-| `AppPanel`                 | 有标题的内容面板，统一标题、说明、内边距；`actions` 插槽放面板操作                                      |
-| `AppButton`                | 标准按钮，`variant` 为 default / primary / ghost / danger，`size` 为 xs / sm / md；统一禁用、加载和焦点 |
-| `AppIconButton`            | 纯图标按钮，必须提供 `label`；不在页面里重复实现 aria-label、尺寸和加载状态                             |
-| `AppTextField`             | 文本输入、label、错误和焦点样式；通过 v-model 绑定，原生 input 属性透传，suffix 插槽放辅助操作          |
-| `AppCheckbox`              | 布尔选项，通过 v-model 绑定；必须提供 label，支持禁用，原生 input 属性透传                              |
-| `AppBadge`                 | 非交互身份或状态标签，可选图标，neutral / info 语义配色；不承担按钮或菜单行为                           |
-| `AppIcon`                  | 普通图标统一来自 Lucide，使用 xs / sm / md / lg 命名尺寸；品牌图标保留官方 SVG 路径                     |
-| `AppSelectMenu`            | 图标触发的单选菜单，通过 modelValue / options 传值；现有主题、语言选择共用                              |
-| `AppDialogContent`         | 在 Reka `DialogRoot` 内使用，统一 Portal、遮罩、层级、可访问标题和描述；dialog / sidebar 两种位置       |
-| `HintTooltip`              | 需要统一外观与延迟的提示一律用它；有可见同名文字时禁用，折叠侧栏的无文字图标可启用                      |
-| `AppNotice`                | 信息、成功、警告和错误提示，自动设置 status / alert；可选边框及 actions 插槽                            |
-| `AppExternalLink`          | 统一新窗口外链的 target / rel；调用方提供链接内容和必要的无障碍名称                                     |
-| `BrandLogo` / `GitHubIcon` | 已确认的品牌素材，不能临时绘制或用其他通用图标代替                                                      |
+| 组件                       | 用法与边界                                                                                                      |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `PageHeader`               | 登录页等公共布局里的标题块；业务页标题由顶栏统一渲染，页面最外层使用 `modern-page`                              |
+| `AppPanel`                 | 有标题的内容面板，统一标题、说明、内边距；`actions` 插槽放面板操作                                              |
+| `AppButton`                | 标准按钮，`variant` 为 default / primary / ghost / brand / danger，`size` 为 xs / sm / md；统一禁用、加载和焦点 |
+| `AppIconButton`            | 纯图标按钮，必须提供 `label`；不在页面里重复实现 aria-label、尺寸和加载状态                                     |
+| `AppTextField`             | 文本输入、label、错误和焦点样式；通过 v-model 绑定，原生 input 属性透传，suffix 插槽放辅助操作                  |
+| `AppCheckbox`              | 布尔选项，通过 v-model 绑定；必须提供 label，支持禁用，原生 input 属性透传                                      |
+| `AppSwitch`                | 即时布尔操作，通过 modelValue / update:modelValue 受控，loading 期间禁止重复操作                                |
+| `AppSelect`                | 带标签的原生单选框，支持隐藏可见标签；筛选与表单统一使用                                                        |
+| `AppCollectionState`       | 列表加载、空数据和失败状态，可插入重试或创建操作                                                                |
+| `AppBadge`                 | 非交互身份或状态标签，可选图标，neutral / info 语义配色；不承担按钮或菜单行为                                   |
+| `AppIcon`                  | 普通图标统一来自 Lucide，使用 xs / sm / md / lg 命名尺寸；品牌图标保留官方 SVG 路径                             |
+| `AppSelectMenu`            | 图标触发的单选菜单，通过 modelValue / options 传值；现有主题、语言选择共用                                      |
+| `AppDialogContent`         | 在 Reka `DialogRoot` 内使用，统一 Portal、遮罩、层级、可访问标题和描述；dialog / sidebar 两种位置               |
+| `HintTooltip`              | 需要统一外观与延迟的提示一律用它；有可见同名文字时禁用，折叠侧栏的无文字图标可启用                              |
+| `AppNotice`                | 信息、成功、警告和错误提示，自动设置 status / alert；可选边框及 actions 插槽                                    |
+| `AppExternalLink`          | 统一新窗口外链的 target / rel；调用方提供链接内容和必要的无障碍名称                                             |
+| `BrandLogo` / `GitHubIcon` | 已确认的品牌素材，不能临时绘制或用其他通用图标代替                                                              |
 
 提示分两层：`AppIconButton` 自带的原生 `title` 只作为无脚本时的兜底名称，需要与设计一致的悬浮提示统一使用 `HintTooltip`。同一元素不要同时挂两者，否则折叠侧栏等场景会叠出两个气泡。
 
@@ -75,7 +78,7 @@
 ```vue
 <DialogRoot v-model:open="open">
   <DialogTrigger as-child>
-    <AppIconButton :icon="Search" :label="t('quickNavigation.title')" />
+    <AppIconButton :icon="Menu" :label="t('navigation')" />
   </DialogTrigger>
   <AppDialogContent :title="title" :description="description">
     <!-- 功能内容；关闭操作使用 DialogClose as-child 配合 AppIconButton -->
@@ -92,13 +95,18 @@
 5. 可见文案通过 i18n，新增键同步中文、英文、日文。长文本可换行或截断，操作不能被挤出容器；错误、空状态与加载状态不得用虚构数据替代。
 6. 键盘焦点必须可见，图标按钮有明确名称；不只用颜色传达状态。异步动作避免重复提交。减少动效由全局规则处理，组件不自行覆盖。
 7. 宽工作区使用全局内容内边距，不增加居中的固定最大宽容器。移动端控件使用统一触摸尺寸，表格等复杂内容在自己的区域处理滚动。
-8. 滚动由页面承担：侧栏 `sticky` 并在自身内部滚动，顶栏 `sticky` 吸顶，内容区不另建滚动容器，这样移动端地址栏可以随滚动收起，路由的滚动位置恢复也继续由浏览器处理。新增的独立滚动区要一并设置 `overscroll-behavior: contain`，避免滚到边界后带动页面。滚动条粗细与配色由 `base.css` 统一，组件不再单独定制；浮层打开时的滚动条宽度补偿由 Reka 的 body 滚动锁负责，不要再叠加 `scrollbar-gutter`，否则占位式滚动条环境下会重复预留、开菜单时挤动内容。
+8. 顶栏是所有页面共用的固定结构，由 `AppLayout` 渲染：左侧当前页标题，接着是刷新时间与刷新按钮，一条竖线之后是导入密钥、明暗、语言和退出。业务页不自行渲染标题，也不要往顶栏加东西；需要刷新的页面用 `app/page-refresh.ts` 的 `usePageRefresh` 登记 `refresh` / `pending` / `updatedAt`，顶栏据此显示。页面自己的主操作放在页内工具条最右侧，搜索与筛选排在它左边；页内吸顶元素按 `top: var(--modern-topbar-height)` 计算。
+9. 滚动由页面承担：侧栏 `sticky` 并在自身内部滚动，顶栏 `sticky` 吸顶，内容区不另建滚动容器。独立滚动区只隔离实际滚动的轴：横向容器使用 `overscroll-behavior-x: contain`，不能用双向 contain 截断页面纵向滚动。滚动条粗细与配色由 `base.css` 统一；浮层打开时的宽度补偿由 Reka 的 body 滚动锁负责，不叠加 `scrollbar-gutter`。
 
 ## 认证与页面接入
 
 页面标题由 `app/use-page-title.ts` 统一推导（`meta.titleKey` → 导航项标题 → 未找到），文档标题、面包屑与路由播报共用这一份，路由不再通过 props 重复传标题键。受保护页面由 `AuthGate` 在身份验证成功后挂载；页面不得用浏览器是否存在密钥代替服务端认证。菜单权限在 `app/navigation.ts` 中声明，路由、侧栏、快捷导航使用同一规则。业务查询从共享注入入口 `useApiClient()` 取得新版会话客户端；不要自行创建绕过会话清理的 HTTP 客户端或从存储读取密钥。共享客户端只受理 `/api/` 路径，`/health` 这类无需认证的公开端点在 `api/` 内直接 `fetch` 并同样校验响应，除此之外不得绕过会话客户端。
 
 `features/auth/` 独立维护认证流程，`app/api-client.ts` 负责阻止旧身份的失败响应清除新会话。所有新版查询共用 bootstrap 装配的 QueryClient，以便退出或换身份时统一取消与清理。功能自己的在途请求和临时敏感状态仍须在卸载时清理，后续编辑与导入页面接入时补充对应恢复与未保存保护。
+
+分组工作区通过 `GET /api/modern/groups` 读取完整的轻量展示快照，包括服务原因、配置摘要与最近活跃小时。该端点使用原有只读采集，保留经典版接口的分页和字段合同。前端本地搜索、筛选和排序，条件写入 URL；首批渲染 60 个卡片，更多分组通过“继续显示”追加，不分割成独立页。展开卡片就地按需读取模型目录，暂停的分组不展示误导性的健康比例。活跃信息是小时聚合，不标为精确请求时间。
+
+启停与基础编辑使用原有设置接口，只提交修改字段。编辑面板管理名称、权重、价格倍率与启停，保留未保存保护；高级配置、凭据写入和导入页面后续独立实现。右侧编辑面板复用 `AppDialogContent` 的 `editor` 位置。
 
 ## 检查与修改流程
 

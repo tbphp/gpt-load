@@ -4,6 +4,7 @@ import { computed, ref, useId } from 'vue'
 defineOptions({ inheritAttrs: false })
 const props = defineProps<{
   label: string
+  labelHidden?: boolean
   id?: string
   error?: string
   invalid?: boolean
@@ -25,7 +26,7 @@ defineExpose({ focus: () => input.value?.focus({ preventScroll: true }) })
 
 <template>
   <div class="modern-text-field">
-    <label :for="inputId">{{ label }}</label>
+    <label :for="inputId" :class="{ 'modern-sr-only': labelHidden }">{{ label }}</label>
     <div class="modern-text-field-control" :class="{ 'is-invalid': error || invalid }">
       <input
         :id="inputId"

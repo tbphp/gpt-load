@@ -176,6 +176,7 @@ func (s *Server) HTTPModule() httproute.Module {
 			),
 			controlRoute("control.system.info", http.MethodGet, "/system/info", s.handleSystemInfo),
 			controlRoute("control.system.update", http.MethodGet, "/system/update", s.handleSystemUpdate),
+			controlRoute("control.modern.groups", http.MethodGet, "/modern/groups", s.handleListModernGroups),
 			controlRoute(
 				"control.groups.list",
 				http.MethodGet,
