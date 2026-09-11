@@ -18,7 +18,7 @@ const model = defineModel<boolean>({ required: true })
   min-height: var(--modern-control-sm);
   align-items: center;
   gap: var(--modern-space-2);
-  font-size: var(--modern-text-secondary);
+  font-size: var(--modern-font-size-secondary);
   cursor: pointer;
 }
 .modern-checkbox input {

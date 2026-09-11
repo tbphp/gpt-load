@@ -54,7 +54,7 @@ async function visit(directory) {
 await visit(root)
 
 const visualProperty =
-  /^(?:color|background(?:-color)?|(?:border|outline)(?:-(?:top|right|bottom|left))?-color|border(?:-.*)?-radius|border-radius|fill|stroke|stroke-width|font(?:-family|-size|-weight)?|line-height|letter-spacing|(?:box|text)-shadow|z-index|opacity)$/u
+  /^(?:color|background(?:-color)?|(?:border|outline)(?:-(?:top|right|bottom|left))?-color|border(?:-.*)?-radius|border-radius|fill|stroke|stroke-width|font(?:-family|-size|-weight)?|line-height|letter-spacing|(?:box|text)-shadow|scrollbar-color|z-index|opacity)$/u
 const spacingProperty =
   /^(?:margin|padding|gap|row-gap|column-gap|border|outline|inset|scroll-margin|scroll-padding)(?:-|$)/u
 const rawColor = /#[\da-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|oklch|lch|oklab|lab|color|light-dark)\(/iu

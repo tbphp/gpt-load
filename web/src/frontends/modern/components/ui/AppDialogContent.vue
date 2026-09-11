@@ -41,10 +41,11 @@ defineEmits<{ openAutoFocus: [event: Event] }>()
   overflow: hidden;
 }
 .modern-dialog--dialog {
-  top: min(16vh, 130px);
+  --modern-dialog-top: min(16dvh, 130px);
+  top: var(--modern-dialog-top);
   left: 50%;
   width: min(var(--modern-dialog-width), calc(100vw - var(--modern-space-8)));
-  max-height: calc(100dvh - min(16vh, 130px) - var(--modern-space-4));
+  max-height: calc(100dvh - var(--modern-dialog-top) - var(--modern-space-4));
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-dialog);
   background: var(--modern-surface);
@@ -55,12 +56,12 @@ defineEmits<{ openAutoFocus: [event: Event] }>()
   inset: 0 auto 0 0;
   width: min(var(--modern-drawer-width), calc(100vw - var(--modern-space-10)));
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--modern-sidebar);
 }
 @media (max-width: 760px) {
   .modern-dialog--dialog {
-    top: 12vh;
-    max-height: calc(88dvh - var(--modern-space-4));
+    --modern-dialog-top: 12dvh;
   }
 }
 </style>

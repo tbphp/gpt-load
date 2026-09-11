@@ -33,7 +33,7 @@ export function createModernRouter(
         path: pagePath('group-detail'),
         name: 'modern-group-detail',
         component: () => import('./features/workspace/WorkspaceView.vue'),
-        props: { workspaceId: 'groups', titleKey: 'pages.groupDetail.title' },
+        props: { workspaceId: 'groups' },
         meta: {
           primaryNav: 'modern-groups',
           titleKey: 'pages.groupDetail.title',
@@ -45,7 +45,7 @@ export function createModernRouter(
         path: pagePath('import'),
         name: 'modern-import',
         component: () => import('./features/workspace/WorkspaceView.vue'),
-        props: { workspaceId: 'groups', titleKey: 'pages.import.title' },
+        props: { workspaceId: 'groups' },
         meta: {
           primaryNav: 'modern-groups',
           titleKey: 'pages.import.title',

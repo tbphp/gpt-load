@@ -43,7 +43,7 @@ const checkLabel = computed(() =>
       >
         <span
           class="modern-version"
-          :title="t('system.currentVersion', { version: versionLabel })"
+          :title="collapsed ? undefined : t('system.currentVersion', { version: versionLabel })"
           :tabindex="collapsed ? 0 : undefined"
         >
           <AppIcon v-if="collapsed" :icon="Info" size="sm" />
@@ -89,7 +89,7 @@ const checkLabel = computed(() =>
   margin-top: var(--modern-space-2);
   padding: var(--modern-space-2) var(--modern-space-2) var(--modern-space-3);
   color: var(--modern-muted);
-  font-size: var(--modern-text-caption);
+  font-size: var(--modern-font-size-caption);
 }
 
 .modern-version-row {
@@ -171,6 +171,7 @@ const checkLabel = computed(() =>
 
 .is-compact .modern-update-release {
   border: 0;
+  margin-inline: auto;
   background: transparent;
   padding: 0;
 }

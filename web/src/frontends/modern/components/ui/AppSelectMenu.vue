@@ -63,6 +63,7 @@ function select(value: unknown): void {
   max-width: calc(100vw - var(--modern-space-8));
   max-height: var(--reka-dropdown-menu-content-available-height);
   overflow-y: auto;
+  overscroll-behavior: contain;
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-panel);
   background: var(--modern-surface);
@@ -72,7 +73,7 @@ function select(value: unknown): void {
 .modern-menu-label {
   padding: var(--modern-space-1) var(--modern-space-2) var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-text-caption);
+  font-size: var(--modern-font-size-caption);
 }
 .modern-menu-item {
   display: flex;
@@ -82,7 +83,7 @@ function select(value: unknown): void {
   gap: var(--modern-space-5);
   border-radius: var(--modern-radius-small);
   padding: var(--modern-space-1-5) var(--modern-space-2);
-  font-size: var(--modern-text-small);
+  font-size: var(--modern-font-size-small);
   cursor: pointer;
 }
 .modern-menu-item[data-highlighted] {
@@ -95,7 +96,7 @@ function select(value: unknown): void {
 @media (max-width: 760px) {
   .modern-menu-item {
     min-height: var(--modern-touch-target);
-    font-size: var(--modern-text-body);
+    font-size: var(--modern-font-size-body);
   }
 }
 </style>

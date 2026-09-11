@@ -103,7 +103,7 @@ function select(frontend: FrontendID): void {
   justify-content: space-between;
   gap: var(--modern-space-3);
   padding: 0 var(--modern-space-0-5);
-  font-size: var(--modern-text-secondary);
+  font-size: var(--modern-font-size-secondary);
 }
 
 .modern-frontend-option__current {
@@ -111,6 +111,6 @@ function select(frontend: FrontendID): void {
   align-items: center;
   gap: var(--modern-space-1);
   color: var(--modern-muted);
-  font-size: var(--modern-text-caption);
+  font-size: var(--modern-font-size-caption);
 }
 </style>

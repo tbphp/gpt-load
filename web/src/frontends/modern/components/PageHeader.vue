@@ -24,7 +24,7 @@ defineProps<{ title: string; description?: string }>()
 }
 .modern-page-header h1 {
   color: var(--modern-text);
-  font-size: var(--modern-text-title);
+  font-size: var(--modern-font-size-title);
   font-weight: var(--modern-weight-semibold);
   letter-spacing: var(--modern-tracking-title);
   line-height: var(--modern-leading-title);
@@ -32,7 +32,7 @@ defineProps<{ title: string; description?: string }>()
 .modern-page-header p {
   margin-top: var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-text-secondary);
+  font-size: var(--modern-font-size-secondary);
 }
 .modern-page-header__actions {
   display: flex;

@@ -26,7 +26,7 @@ withDefaults(defineProps<{ icon?: Component; tone?: 'neutral' | 'info' }>(), {
   background: var(--modern-subtle);
   padding: var(--modern-space-1) var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-text-small);
+  font-size: var(--modern-font-size-small);
   font-weight: var(--modern-weight-medium);
   line-height: var(--modern-leading-compact);
 }

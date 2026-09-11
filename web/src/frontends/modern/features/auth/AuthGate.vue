@@ -119,7 +119,7 @@ function reload(): void {
 }
 .modern-auth-checking {
   color: var(--modern-muted);
-  font-size: var(--modern-text-secondary);
+  font-size: var(--modern-font-size-secondary);
 }
 .modern-auth-gate-actions {
   flex-wrap: wrap;

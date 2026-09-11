@@ -224,7 +224,7 @@ async function submit(): Promise<void> {
 .modern-login-help {
   border-top: var(--modern-line-width) solid var(--modern-border);
   padding-top: var(--modern-space-4);
-  font-size: var(--modern-text-small);
+  font-size: var(--modern-font-size-small);
 }
 .modern-login-help summary {
   width: fit-content;

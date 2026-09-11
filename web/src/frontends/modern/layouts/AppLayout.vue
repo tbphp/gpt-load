@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ChevronLeft, ChevronRight, KeyRound, LogOut, Menu, X } from '@lucide/vue'
 import { DialogClose, DialogRoot, DialogTrigger, TooltipProvider } from 'reka-ui'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
 import { desktopMediaQuery } from '@modern/app/breakpoints'
-import { findNavigationItem, pagePath } from '@modern/app/navigation'
+import { pagePath } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
+import { usePageTitle } from '@modern/app/use-page-title'
 import AppBadge from '@modern/components/ui/AppBadge.vue'
 import AppButton from '@modern/components/ui/AppButton.vue'
 import AppDialogContent from '@modern/components/ui/AppDialogContent.vue'
@@ -30,14 +31,7 @@ provideSystemStatus()
 const mobileOpen = ref(false)
 const failedNavigation = ref<string | null>(null)
 const loggingOut = ref(false)
-const current = computed(() => findNavigationItem(route.meta.primaryNav ?? route.name))
-const pageTitle = computed(() =>
-  typeof route.meta.titleKey === 'string'
-    ? t(route.meta.titleKey)
-    : current.value
-      ? t(`pages.${current.value.id}.title`)
-      : t('notFound.title'),
-)
+const { current, title: pageTitle } = usePageTitle()
 watch(
   () => route.fullPath,
   () => {
@@ -179,19 +173,19 @@ onBeforeUnmount(() => {
   transform: none;
 }
 .modern-app {
-  --modern-sidebar-width: var(--modern-sidebar-expanded);
   display: grid;
-  grid-template-columns: var(--modern-sidebar-width) minmax(0, 1fr);
+  grid-template-columns: var(--modern-sidebar-expanded) minmax(0, 1fr);
   min-height: 100dvh;
+  transition: grid-template-columns var(--modern-motion-fast) var(--modern-motion-ease);
 }
 .modern-app.is-sidebar-collapsed {
-  --modern-sidebar-width: var(--modern-sidebar-collapsed);
+  grid-template-columns: var(--modern-sidebar-collapsed) minmax(0, 1fr);
 }
 .modern-sidebar-toggle {
   position: fixed;
   z-index: var(--modern-layer-sidebar-toggle);
   top: 50dvh;
-  left: var(--modern-sidebar-width);
+  left: var(--modern-sidebar-expanded);
   display: grid;
   width: var(--modern-space-6);
   height: var(--modern-touch-target);
@@ -202,6 +196,10 @@ onBeforeUnmount(() => {
   padding: 0;
   color: var(--modern-muted);
   transform: translate(-50%, -50%);
+  transition: left var(--modern-motion-fast) var(--modern-motion-ease);
+}
+.is-sidebar-collapsed .modern-sidebar-toggle {
+  left: var(--modern-sidebar-collapsed);
 }
 .modern-sidebar-toggle::before {
   position: absolute;
@@ -225,6 +223,7 @@ onBeforeUnmount(() => {
   top: 0;
   height: 100dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   border-right: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-sidebar);
 }
@@ -253,7 +252,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-text-small);
+  font-size: var(--modern-font-size-small);
 }
 .modern-breadcrumb strong {
   overflow: hidden;

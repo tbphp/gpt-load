@@ -35,13 +35,13 @@ const titleId = useId()
   padding: var(--modern-space-4) var(--modern-panel-inset);
 }
 .modern-panel-header h2 {
-  font-size: var(--modern-text-section);
+  font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
 }
 .modern-panel-header p {
   margin-top: var(--modern-space-1);
   color: var(--modern-muted);
-  font-size: var(--modern-text-small);
+  font-size: var(--modern-font-size-small);
 }
 .modern-panel-actions {
   display: flex;

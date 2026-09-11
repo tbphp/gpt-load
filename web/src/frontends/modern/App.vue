@@ -1,25 +1,15 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterView, useRoute } from 'vue-router'
+import { RouterView } from 'vue-router'
 
-import { findNavigationItem } from './app/navigation'
+import { usePageTitle } from './app/use-page-title'
 import AuthGate from './features/auth/AuthGate.vue'
 import AppLayout from './layouts/AppLayout.vue'
 import PublicLayout from './layouts/PublicLayout.vue'
 
-const route = useRoute()
-const { t, locale } = useI18n()
-const title = computed(() => {
-  const item = findNavigationItem(route.meta.primaryNav ?? route.name)
-  return t(
-    typeof route.meta.titleKey === 'string'
-      ? route.meta.titleKey
-      : item
-        ? `pages.${item.id}.title`
-        : 'notFound.title',
-  )
-})
+const { locale } = useI18n()
+const { title } = usePageTitle()
 watch(
   [title, locale],
   () => {

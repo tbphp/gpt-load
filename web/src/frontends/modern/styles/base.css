@@ -2,6 +2,8 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--modern-scrollbar) transparent;
 }
 body {
   min-width: var(--modern-viewport-min);
@@ -9,7 +11,7 @@ body {
   background: var(--modern-canvas);
   color: var(--modern-text);
   font-family: var(--modern-font-sans);
-  font-size: var(--modern-text-body);
+  font-size: var(--modern-font-size-body);
   font-weight: var(--modern-weight-regular);
   line-height: var(--modern-leading-body);
   -webkit-font-smoothing: antialiased;
@@ -67,6 +69,8 @@ svg {
 }
 .modern-sr-only {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;

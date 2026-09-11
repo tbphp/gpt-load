@@ -24,7 +24,7 @@ withDefaults(
   align-items: center;
   gap: var(--modern-space-3);
   color: var(--modern-notice-color);
-  font-size: var(--modern-text-body);
+  font-size: var(--modern-font-size-body);
 }
 .modern-notice--success {
   --modern-notice-color: var(--modern-success);

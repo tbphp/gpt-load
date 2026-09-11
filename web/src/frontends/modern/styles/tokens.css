@@ -25,6 +25,7 @@
   --modern-info: light-dark(#3466a3, #9fbfed);
   --modern-info-soft: light-dark(#edf4fc, #263449);
   --modern-overlay: rgb(20 18 25 / 35%);
+  --modern-scrollbar: light-dark(#c7c3ba, #524e5c);
   --modern-tooltip-surface: var(--modern-text);
   --modern-tooltip-text: var(--modern-surface);
 
@@ -33,13 +34,13 @@
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', sans-serif;
   --modern-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --modern-text-caption: 11px;
-  --modern-text-small: 12px;
-  --modern-text-secondary: 13px;
-  --modern-text-body: 14px;
-  --modern-text-section: 15px;
-  --modern-text-input-mobile: 16px;
-  --modern-text-title: 24px;
+  --modern-font-size-caption: 11px;
+  --modern-font-size-small: 12px;
+  --modern-font-size-secondary: 13px;
+  --modern-font-size-body: 14px;
+  --modern-font-size-section: 15px;
+  --modern-font-size-input-mobile: 16px;
+  --modern-font-size-title: 24px;
   --modern-weight-regular: 400;
   --modern-weight-medium: 500;
   --modern-weight-semibold: 600;

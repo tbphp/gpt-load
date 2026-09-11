@@ -101,6 +101,8 @@ export type WorkspaceID = NavigationItem['id']
 
 export const navigationSections = ['workspace', 'observe', 'system'] as const
 
-export function findNavigationItem(name: unknown): NavigationItem | undefined {
+export function findNavigationItem(
+  name: string | symbol | null | undefined,
+): NavigationItem | undefined {
   return navigationItems.find((item) => item.name === name)
 }

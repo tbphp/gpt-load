@@ -51,7 +51,7 @@ defineExpose({ focus: () => input.value?.focus({ preventScroll: true }) })
   gap: var(--modern-space-2);
 }
 .modern-text-field label {
-  font-size: var(--modern-text-secondary);
+  font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-medium);
 }
 .modern-text-field-control {
@@ -81,7 +81,7 @@ defineExpose({ focus: () => input.value?.focus({ preventScroll: true }) })
   background: transparent;
   padding: var(--modern-space-1-5) 0;
   color: var(--modern-text);
-  font-size: var(--modern-text-body);
+  font-size: var(--modern-font-size-body);
   line-height: var(--modern-leading-compact);
 }
 .modern-text-field-control input::placeholder {
@@ -90,14 +90,14 @@ defineExpose({ focus: () => input.value?.focus({ preventScroll: true }) })
 }
 .modern-text-field-error {
   color: var(--modern-danger);
-  font-size: var(--modern-text-small);
+  font-size: var(--modern-font-size-small);
 }
 @media (max-width: 760px) {
   .modern-text-field-control {
     min-height: var(--modern-touch-target);
   }
   .modern-text-field-control input {
-    font-size: var(--modern-text-input-mobile);
+    font-size: var(--modern-font-size-input-mobile);
   }
 }
 </style>

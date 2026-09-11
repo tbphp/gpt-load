@@ -36,7 +36,7 @@ defineProps<{
   background: var(--modern-tooltip-surface);
   padding: var(--modern-space-1) var(--modern-space-2);
   color: var(--modern-tooltip-text);
-  font-size: var(--modern-text-caption);
+  font-size: var(--modern-font-size-caption);
   box-shadow: var(--modern-shadow-tooltip);
 }
 </style>

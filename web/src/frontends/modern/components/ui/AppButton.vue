@@ -75,7 +75,7 @@ function preventInactiveClick(event: MouseEvent): void {
   background: var(--modern-surface);
   padding: var(--modern-space-1-5) var(--modern-space-3);
   color: var(--modern-text);
-  font-size: var(--modern-text-small);
+  font-size: var(--modern-font-size-small);
   font-weight: var(--modern-weight-medium);
   line-height: var(--modern-leading-compact);
   text-decoration: none;

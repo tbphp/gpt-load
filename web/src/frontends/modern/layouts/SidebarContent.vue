@@ -64,19 +64,16 @@ const footerLinks = computed(() => [
       </div>
     </nav>
     <div class="modern-sidebar-footer">
-      <div class="modern-footer-links">
-        <HintTooltip
+      <div v-if="!collapsed" class="modern-footer-links">
+        <AppExternalLink
           v-for="link in footerLinks"
           :key="link.href"
-          :label="link.label"
-          :disabled="!collapsed"
-          side="right"
+          class="modern-footer-link"
+          :href="link.href"
         >
-          <AppExternalLink class="modern-footer-link" :href="link.href" :aria-label="link.label">
-            <AppIcon :icon="link.icon" size="sm" />
-            <span v-if="!collapsed">{{ link.label }}</span>
-          </AppExternalLink>
-        </HintTooltip>
+          <AppIcon :icon="link.icon" size="sm" />
+          <span>{{ link.label }}</span>
+        </AppExternalLink>
       </div>
       <SystemStatus :collapsed="collapsed" />
     </div>
@@ -88,13 +85,14 @@ const footerLinks = computed(() => [
   display: flex;
   min-height: 100%;
   flex-direction: column;
-  padding: var(--modern-space-3) var(--modern-space-3) 0;
+  padding: 0 var(--modern-space-3);
 }
+/* 品牌区与顶栏等高、与导航文字同一左边界，两栏顶部视觉基线才一致。 */
 .modern-sidebar-brand {
   display: flex;
-  min-height: 60px;
+  min-height: var(--modern-topbar-height);
   align-items: center;
-  justify-content: center;
+  padding-inline: var(--modern-space-3) 0;
   margin-bottom: var(--modern-space-4);
 }
 .modern-sidebar-navigation {
@@ -108,7 +106,7 @@ const footerLinks = computed(() => [
 .modern-nav-section__label {
   margin: 0 var(--modern-space-3) var(--modern-space-1-5);
   color: var(--modern-muted);
-  font-size: var(--modern-text-caption);
+  font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-medium);
   letter-spacing: var(--modern-tracking-label);
 }
@@ -121,7 +119,7 @@ const footerLinks = computed(() => [
   border-radius: var(--modern-radius-control);
   padding: var(--modern-space-2) var(--modern-space-3);
   color: var(--modern-muted);
-  font-size: var(--modern-text-body);
+  font-size: var(--modern-font-size-body);
   font-weight: var(--modern-weight-medium);
   white-space: nowrap;
 }
@@ -136,8 +134,7 @@ const footerLinks = computed(() => [
 }
 .modern-nav-link.is-active::before {
   position: absolute;
-  top: 11px;
-  bottom: 11px;
+  inset-block: 25%;
   left: calc(-1 * var(--modern-space-3));
   width: 3px;
   border-radius: 0 var(--modern-space-0-5) var(--modern-space-0-5) 0;
@@ -153,33 +150,33 @@ const footerLinks = computed(() => [
 .modern-footer-links {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-0-5) var(--modern-space-1);
+  gap: var(--modern-space-1);
 }
 .modern-footer-link {
   display: flex;
   min-width: 0;
   min-height: var(--modern-control-sm);
   align-items: center;
+  justify-content: center;
   gap: var(--modern-space-1-5);
   border-radius: var(--modern-radius-control);
   padding: var(--modern-space-1-5) var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-text-small);
+  font-size: var(--modern-font-size-small);
   font-weight: var(--modern-weight-regular);
   white-space: nowrap;
+}
+/* 文字保持同一最小宽度，四个外链的图标才落在同一竖线上。 */
+.modern-footer-link span {
+  min-width: 5em;
 }
 .modern-footer-link:hover {
   background: var(--modern-surface);
   color: var(--modern-text);
 }
-.is-collapsed .modern-footer-links {
-  column-gap: 0;
-}
-.is-collapsed .modern-footer-link {
+.is-collapsed .modern-sidebar-brand {
   justify-content: center;
   padding-inline: 0;
-}
-.is-collapsed .modern-sidebar-brand {
   margin-bottom: var(--modern-space-6);
 }
 .is-collapsed .modern-nav-link {
@@ -192,14 +189,11 @@ const footerLinks = computed(() => [
 }
 @media (max-width: 760px) {
   .modern-nav-link {
-    font-size: var(--modern-text-section);
+    font-size: var(--modern-font-size-section);
     min-height: var(--modern-touch-target);
   }
   .modern-footer-link {
     min-height: var(--modern-touch-target);
-  }
-  .modern-sidebar-brand {
-    justify-content: flex-start;
   }
 }
 </style>

@@ -25,7 +25,11 @@ const results = computed(() => {
     return words.every((word) => text.includes(word))
   })
 })
-const shortcut = /Mac|iPhone|iPad/u.test(navigator.platform) ? '⌘ K' : 'Ctrl K'
+const platform =
+  (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+  navigator.platform
+// userAgentData 报 "macOS"、navigator.platform 报 "MacIntel"，统一忽略大小写匹配。
+const shortcut = /mac|iphone|ipad/iu.test(platform) ? '⌘ K' : 'Ctrl K'
 watch(open, () => {
   query.value = ''
   selected.value = 0
@@ -44,6 +48,8 @@ function onShortcut(event: KeyboardEvent): void {
   if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'k') return
   event.preventDefault()
   if (event.repeat) return
+  // 移动侧栏等浮层打开时不叠加第二个对话框，避免两个焦点锁互相争夺。
+  if (!open.value && document.querySelector('[role="dialog"]')) return
   open.value = !open.value
 }
 async function navigate(index: number): Promise<void> {
@@ -102,7 +108,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
           type="search"
           role="combobox"
           aria-autocomplete="list"
-          aria-expanded="true"
+          :aria-expanded="results.length > 0"
           aria-controls="modern-navigation-options"
           :aria-activedescendant="results.length ? `modern-quick-nav-${selected}` : undefined"
           :placeholder="t('quickNavigation.placeholder')"
@@ -158,7 +164,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
   background: var(--modern-subtle);
   padding: 0 var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-text-small);
+  font-size: var(--modern-font-size-small);
   text-align: left;
 }
 .modern-quick-nav-trigger:hover {
@@ -170,7 +176,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
   border-radius: var(--modern-radius-small);
   padding: 0 var(--modern-space-1);
   font-family: inherit;
-  font-size: var(--modern-text-caption);
+  font-size: var(--modern-font-size-caption);
   line-height: var(--modern-leading-body);
 }
 .modern-command-input {
@@ -189,7 +195,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
   background: transparent;
   padding: var(--modern-space-2) 0;
   color: var(--modern-text);
-  font-size: var(--modern-text-body);
+  font-size: var(--modern-font-size-body);
 }
 .modern-command-input input:focus {
   outline: none;
@@ -204,7 +210,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
 .modern-command-caption {
   padding: var(--modern-space-1) var(--modern-space-2) var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-text-caption);
+  font-size: var(--modern-font-size-caption);
 }
 .modern-command-result {
   display: flex;
@@ -225,23 +231,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
   display: grid;
   flex: 1;
   gap: var(--modern-space-0-5);
-  font-size: var(--modern-text-secondary);
+  font-size: var(--modern-font-size-secondary);
 }
 .modern-command-result small {
   color: var(--modern-muted);
-  font-size: var(--modern-text-caption);
+  font-size: var(--modern-font-size-caption);
 }
 .modern-command-footer {
   border-top: var(--modern-line-width) solid var(--modern-border);
   padding: var(--modern-space-2) var(--modern-space-4);
   color: var(--modern-muted);
-  font-size: var(--modern-text-caption);
+  font-size: var(--modern-font-size-caption);
   flex-shrink: 0;
 }
 .modern-command-empty {
   padding: var(--modern-space-6) var(--modern-space-3);
   color: var(--modern-muted);
-  font-size: var(--modern-text-secondary);
+  font-size: var(--modern-font-size-secondary);
 }
 @media (max-width: 1150px) {
   .modern-quick-nav-trigger {
@@ -262,7 +268,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
     display: none;
   }
   .modern-command-input input {
-    font-size: var(--modern-text-input-mobile);
+    font-size: var(--modern-font-size-input-mobile);
   }
 }
 </style>
