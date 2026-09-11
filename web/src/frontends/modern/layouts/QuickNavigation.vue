@@ -1,19 +1,13 @@
 <script setup lang="ts">
 import { ArrowRight, Search, X } from '@lucide/vue'
-import {
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogOverlay,
-  DialogPortal,
-  DialogRoot,
-  DialogTitle,
-  DialogTrigger,
-} from 'reka-ui'
+import { DialogClose, DialogRoot, DialogTrigger } from 'reka-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { navigationItems } from '@modern/app/navigation'
+import AppDialogContent from '@modern/components/ui/AppDialogContent.vue'
+import AppIcon from '@modern/components/ui/AppIcon.vue'
+import AppIconButton from '@modern/components/ui/AppIconButton.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -90,72 +84,184 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
 <template>
   <DialogRoot v-model:open="open">
     <DialogTrigger class="modern-quick-nav-trigger" :aria-label="t('quickNavigation.title')">
-      <Search :size="17" :stroke-width="1.8" aria-hidden="true" />
+      <AppIcon :icon="Search" />
       <span>{{ t('quickNavigation.placeholder') }}</span
       ><kbd>{{ shortcut }}</kbd>
     </DialogTrigger>
-    <DialogPortal>
-      <DialogOverlay class="modern-overlay" />
-      <DialogContent class="modern-command-dialog" @open-auto-focus="focusInput">
-        <DialogTitle class="modern-sr-only">{{ t('quickNavigation.title') }}</DialogTitle>
-        <DialogDescription class="modern-sr-only">{{
-          t('quickNavigation.description')
-        }}</DialogDescription>
-        <div class="modern-command-input">
-          <Search :size="20" :stroke-width="1.8" aria-hidden="true" />
-          <input
-            ref="input"
-            v-model="query"
-            type="search"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded="true"
-            aria-controls="modern-navigation-options"
-            :aria-activedescendant="results.length ? `modern-quick-nav-${selected}` : undefined"
-            :placeholder="t('quickNavigation.placeholder')"
-            :aria-label="t('quickNavigation.title')"
-            autocomplete="off"
-            @keydown="onInputKey"
-          />
-          <DialogClose class="modern-icon-button" :aria-label="t('shell.close')"
-            ><X :size="18" aria-hidden="true"
-          /></DialogClose>
-        </div>
-        <div class="modern-command-results">
-          <p class="modern-command-caption">{{ t('quickNavigation.pages') }}</p>
-          <div
-            id="modern-navigation-options"
-            role="listbox"
-            :aria-label="t('quickNavigation.pages')"
+    <AppDialogContent
+      :title="t('quickNavigation.title')"
+      :description="t('quickNavigation.description')"
+      @open-auto-focus="focusInput"
+    >
+      <div class="modern-command-input">
+        <AppIcon :icon="Search" size="lg" />
+        <input
+          ref="input"
+          v-model="query"
+          type="search"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded="true"
+          aria-controls="modern-navigation-options"
+          :aria-activedescendant="results.length ? `modern-quick-nav-${selected}` : undefined"
+          :placeholder="t('quickNavigation.placeholder')"
+          :aria-label="t('quickNavigation.title')"
+          autocomplete="off"
+          @keydown="onInputKey"
+        />
+        <DialogClose as-child><AppIconButton :icon="X" :label="t('shell.close')" /></DialogClose>
+      </div>
+      <div class="modern-command-results">
+        <p class="modern-command-caption">{{ t('quickNavigation.pages') }}</p>
+        <div id="modern-navigation-options" role="listbox" :aria-label="t('quickNavigation.pages')">
+          <button
+            v-for="(item, index) in results"
+            :id="`modern-quick-nav-${index}`"
+            :key="item.id"
+            type="button"
+            role="option"
+            :aria-selected="selected === index"
+            tabindex="-1"
+            class="modern-command-result"
+            :class="{ 'is-selected': selected === index }"
+            @pointermove="selected = index"
+            @focus="selected = index"
+            @click="navigate(index)"
           >
-            <button
-              v-for="(item, index) in results"
-              :id="`modern-quick-nav-${index}`"
-              :key="item.id"
-              type="button"
-              role="option"
-              :aria-selected="selected === index"
-              tabindex="-1"
-              class="modern-command-result"
-              :class="{ 'is-selected': selected === index }"
-              @pointermove="selected = index"
-              @focus="selected = index"
-              @click="navigate(index)"
+            <AppIcon :icon="item.icon" />
+            <span
+              >{{ t(`pages.${item.id}.title`)
+              }}<small>{{ t(`sections.${item.section}`) }}</small></span
             >
-              <component :is="item.icon" :size="18" :stroke-width="1.8" aria-hidden="true" />
-              <span
-                >{{ t(`pages.${item.id}.title`)
-                }}<small>{{ t(`sections.${item.section}`) }}</small></span
-              >
-              <ArrowRight :size="16" aria-hidden="true" />
-            </button>
-          </div>
-          <p v-if="!results.length" class="modern-command-empty" role="status">
-            {{ t('quickNavigation.empty') }}
-          </p>
+            <AppIcon :icon="ArrowRight" size="sm" />
+          </button>
         </div>
-        <p class="modern-command-footer">{{ t('quickNavigation.keyboardHint') }}</p>
-      </DialogContent>
-    </DialogPortal>
+        <p v-if="!results.length" class="modern-command-empty" role="status">
+          {{ t('quickNavigation.empty') }}
+        </p>
+      </div>
+      <p class="modern-command-footer">{{ t('quickNavigation.keyboardHint') }}</p>
+    </AppDialogContent>
   </DialogRoot>
 </template>
+
+<style scoped>
+.modern-quick-nav-trigger {
+  display: flex;
+  width: 246px;
+  height: var(--modern-control-md);
+  align-items: center;
+  gap: var(--modern-space-2);
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-control);
+  background: var(--modern-subtle);
+  padding: 0 var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-text-small);
+  text-align: left;
+}
+.modern-quick-nav-trigger:hover {
+  border-color: var(--modern-accent);
+}
+.modern-quick-nav-trigger kbd {
+  margin-left: auto;
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-small);
+  padding: 0 var(--modern-space-1);
+  font-family: inherit;
+  font-size: var(--modern-text-caption);
+  line-height: var(--modern-leading-body);
+}
+.modern-command-input {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-3);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  padding: var(--modern-space-3) var(--modern-space-4);
+  color: var(--modern-muted);
+  flex-shrink: 0;
+}
+.modern-command-input input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: var(--modern-space-2) 0;
+  color: var(--modern-text);
+  font-size: var(--modern-text-body);
+}
+.modern-command-input input:focus {
+  outline: none;
+}
+.modern-command-results {
+  max-height: min(440px, 58dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--modern-space-2);
+  min-height: 0;
+}
+.modern-command-caption {
+  padding: var(--modern-space-1) var(--modern-space-2) var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-text-caption);
+}
+.modern-command-result {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--modern-space-3);
+  border: 0;
+  border-radius: var(--modern-radius-control);
+  background: transparent;
+  padding: var(--modern-space-2) var(--modern-space-3);
+  text-align: left;
+}
+.modern-command-result.is-selected {
+  background: var(--modern-accent-soft);
+  color: var(--modern-accent);
+}
+.modern-command-result > span {
+  display: grid;
+  flex: 1;
+  gap: var(--modern-space-0-5);
+  font-size: var(--modern-text-secondary);
+}
+.modern-command-result small {
+  color: var(--modern-muted);
+  font-size: var(--modern-text-caption);
+}
+.modern-command-footer {
+  border-top: var(--modern-line-width) solid var(--modern-border);
+  padding: var(--modern-space-2) var(--modern-space-4);
+  color: var(--modern-muted);
+  font-size: var(--modern-text-caption);
+  flex-shrink: 0;
+}
+.modern-command-empty {
+  padding: var(--modern-space-6) var(--modern-space-3);
+  color: var(--modern-muted);
+  font-size: var(--modern-text-secondary);
+}
+@media (max-width: 1150px) {
+  .modern-quick-nav-trigger {
+    width: 180px;
+  }
+}
+@media (max-width: 760px) {
+  .modern-quick-nav-trigger {
+    width: var(--modern-touch-target);
+    height: var(--modern-touch-target);
+    justify-content: center;
+    border: 0;
+    background: transparent;
+    padding: 0;
+  }
+  .modern-quick-nav-trigger span,
+  .modern-quick-nav-trigger kbd {
+    display: none;
+  }
+  .modern-command-input input {
+    font-size: var(--modern-text-input-mobile);
+  }
+}
+</style>

@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
 import PageHeader from '@modern/components/PageHeader.vue'
+import AppButton from '@modern/components/ui/AppButton.vue'
+import AppIcon from '@modern/components/ui/AppIcon.vue'
 
 const { t } = useI18n()
 </script>
@@ -11,8 +13,10 @@ const { t } = useI18n()
 <template>
   <div class="modern-page">
     <PageHeader :title="t('notFound.title')" :description="t('notFound.description')" />
-    <RouterLink class="modern-button" :to="{ name: 'modern-home' }"
-      ><ArrowLeft :size="16" aria-hidden="true" />{{ t('notFound.backHome') }}</RouterLink
-    >
+    <AppButton as-child>
+      <RouterLink :to="{ name: 'modern-home' }">
+        <AppIcon :icon="ArrowLeft" size="sm" />{{ t('notFound.backHome') }}
+      </RouterLink>
+    </AppButton>
   </div>
 </template>

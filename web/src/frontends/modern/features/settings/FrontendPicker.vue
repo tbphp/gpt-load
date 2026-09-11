@@ -4,6 +4,9 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import modernPreview from '@modern/assets/frontend-preview.jpg'
+import AppIcon from '@modern/components/ui/AppIcon.vue'
+import AppNotice from '@modern/components/ui/AppNotice.vue'
+import AppPanel from '@modern/components/ui/AppPanel.vue'
 import { frontendOptions } from '@shared/frontend/catalog'
 import { switchFrontend, type FrontendID } from '@shared/frontend/preference'
 
@@ -25,12 +28,8 @@ function select(frontend: FrontendID): void {
 </script>
 
 <template>
-  <section class="modern-panel" aria-labelledby="modern-frontend-title">
-    <header class="modern-panel-header">
-      <h2 id="modern-frontend-title">{{ t('interfaceSettings') }}</h2>
-      <p>{{ t('frontend.description') }}</p>
-    </header>
-    <div class="modern-panel-body modern-frontend-body">
+  <AppPanel :title="t('interfaceSettings')" :description="t('frontend.description')">
+    <div class="modern-frontend-body">
       <div class="modern-frontend-options">
         <button
           v-for="frontend in frontendOptions"
@@ -50,26 +49,26 @@ function select(frontend: FrontendID): void {
           <span class="modern-frontend-option__label">
             <strong>{{ t(`frontend.${frontend.id}.title`) }}</strong>
             <span v-if="frontend.id === 'modern'" class="modern-frontend-option__current"
-              ><Check :size="14" aria-hidden="true" />{{ t('frontend.current') }}</span
+              ><AppIcon :icon="Check" size="sm" />{{ t('frontend.current') }}</span
             >
           </span>
         </button>
       </div>
-      <p v-if="failed" role="alert">{{ t('frontend.saveFailed') }}</p>
+      <AppNotice v-if="failed" tone="danger">{{ t('frontend.saveFailed') }}</AppNotice>
     </div>
-  </section>
+  </AppPanel>
 </template>
 
 <style scoped>
 .modern-frontend-body {
   display: grid;
-  gap: 18px;
+  gap: var(--modern-space-4);
 }
 
 .modern-frontend-options {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 236px));
-  gap: 16px;
+  gap: var(--modern-space-4);
 }
 
 .modern-frontend-option {
@@ -77,24 +76,24 @@ function select(frontend: FrontendID): void {
   min-width: 0;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
-  border: 1px solid var(--modern-border);
-  border-radius: 8px;
+  gap: var(--modern-space-3);
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-panel);
   background: var(--modern-surface);
-  padding: 10px;
+  padding: var(--modern-space-2);
   text-align: left;
   cursor: pointer;
 }
 
 .modern-frontend-option[aria-pressed='true'] {
   border-color: var(--modern-accent);
-  outline: 1px solid var(--modern-accent);
+  outline: var(--modern-line-width) solid var(--modern-accent);
 }
 
 .modern-frontend-option img {
   width: 100%;
   height: auto;
-  border-radius: 4px;
+  border-radius: var(--modern-radius-small);
 }
 
 .modern-frontend-option__label {
@@ -102,16 +101,16 @@ function select(frontend: FrontendID): void {
   width: 100%;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 0 2px;
-  font-size: 13px;
+  gap: var(--modern-space-3);
+  padding: 0 var(--modern-space-0-5);
+  font-size: var(--modern-text-secondary);
 }
 
 .modern-frontend-option__current {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--modern-space-1);
   color: var(--modern-muted);
-  font-size: 11px;
+  font-size: var(--modern-text-caption);
 }
 </style>

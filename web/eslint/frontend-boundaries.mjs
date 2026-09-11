@@ -34,6 +34,8 @@ export default {
     schema: [],
     messages: {
       boundary: '{{from}} 不能依赖 {{to}}；公共能力应放在 shared 内。',
+      component:
+        '新版公共组件不能依赖业务、布局、应用状态或 HTTP 层；通过 props、slots 和 events 组合。',
     },
   },
   create(context) {
@@ -45,6 +47,15 @@ export default {
       if (typeof source?.value !== 'string') return
       const resolved = resolveLocalImport(source.value, filename)
       if (!resolved) return
+      const componentRoot = path.join(sourceRoot, 'frontends/modern/components') + path.sep
+      const target = path.relative(sourceRoot, resolved).split(path.sep).join('/')
+      if (
+        filename.startsWith(componentRoot) &&
+        /^(?:frontends\/modern\/(?:features|layouts|api|app)|shared\/http)\//u.test(target)
+      ) {
+        context.report({ node: source, messageId: 'component' })
+        return
+      }
       const to = owner(resolved)
       if (to && to !== from && to !== 'shared') {
         context.report({ node: source, messageId: 'boundary', data: { from, to } })

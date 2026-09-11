@@ -12,6 +12,12 @@
 
 两套前端分别拥有样式入口，只启动所选界面。旧版 Tailwind 的源码扫描限制在 classic 内；入口和 shared 不导入任何一套界面的样式。
 
+## 新版视觉基础与组件复用
+
+新版开发先阅读 [modern 开发约定](src/frontends/modern/README.md)。颜色、字号、间距、尺寸、圆角和层级统一定义在 `modern/styles/tokens.css`；基础控件放在 `modern/components/ui/`，业务页面优先组合这些组件。组件自身样式使用 scoped CSS，不继续堆入全局样式文件。
+
+`pnpm run lint` 同时检查新版视觉变量、断点和组件依赖边界；旧版不应用新的视觉规范。
+
 ## 界面切换
 
 浏览器偏好为 `gpt-load.frontend`，有效值为 `classic`、`modern`，默认 `modern`。选择保存后重新加载 `/settings`，每次只创建一个应用和路由实例。语言、明暗模式及登录凭据保留既有浏览器存储约定。

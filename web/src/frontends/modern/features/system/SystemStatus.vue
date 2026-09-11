@@ -4,6 +4,9 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import HintTooltip from '@modern/components/HintTooltip.vue'
+import AppExternalLink from '@modern/components/ui/AppExternalLink.vue'
+import AppIcon from '@modern/components/ui/AppIcon.vue'
+import AppIconButton from '@modern/components/ui/AppIconButton.vue'
 import { useSystemStatus } from './useSystemStatus'
 
 defineProps<{ collapsed?: boolean }>()
@@ -42,38 +45,31 @@ const checkLabel = computed(() =>
           :title="t('system.currentVersion', { version: versionLabel })"
           :tabindex="collapsed ? 0 : undefined"
         >
-          <Info v-if="collapsed" :size="15" aria-hidden="true" />
+          <AppIcon v-if="collapsed" :icon="Info" size="sm" />
           <template v-else>{{ versionLabel }}</template>
         </span>
       </HintTooltip>
-      <button
+      <AppIconButton
         class="modern-update-button"
-        type="button"
-        :aria-label="checkLabel"
+        :icon="RefreshCw"
+        :label="checkLabel"
+        size="xs"
         :title="collapsed && statusMessage ? statusMessage : checkLabel"
-        :disabled="checkState === 'checking'"
+        :loading="checkState === 'checking'"
         @click="checkForUpdate"
-      >
-        <RefreshCw
-          :size="14"
-          :class="{ 'is-spinning': checkState === 'checking' }"
-          aria-hidden="true"
-        />
-      </button>
+      />
     </div>
-    <a
+    <AppExternalLink
       v-if="update"
       class="modern-update-release"
       :href="update.releaseURL"
-      target="_blank"
-      rel="noopener noreferrer"
       :title="statusMessage"
       :aria-label="statusMessage"
     >
       <span v-if="!collapsed" class="modern-update-dot" aria-hidden="true" />
       <span v-if="!collapsed">{{ statusMessage }}</span>
-      <ArrowUpRight :size="12" aria-hidden="true" />
-    </a>
+      <AppIcon :icon="ArrowUpRight" size="xs" />
+    </AppExternalLink>
     <p
       v-else-if="statusMessage"
       class="modern-update-status"
@@ -87,11 +83,11 @@ const checkLabel = computed(() =>
 
 <style scoped>
 .modern-system-status {
-  border-top: 1px solid var(--modern-border);
-  margin-top: 8px;
-  padding: 8px 8px 12px;
+  border-top: var(--modern-line-width) solid var(--modern-border);
+  margin-top: var(--modern-space-2);
+  padding: var(--modern-space-2) var(--modern-space-2) var(--modern-space-3);
   color: var(--modern-muted);
-  font-size: 11px;
+  font-size: var(--modern-text-caption);
 }
 
 .modern-version-row {
@@ -99,60 +95,37 @@ const checkLabel = computed(() =>
   min-width: 0;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: var(--modern-space-1);
 }
 
 .modern-version {
   min-width: 0;
   overflow: hidden;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--modern-font-mono);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.modern-update-button {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  padding: 4px;
-  color: inherit;
-}
-
-.modern-update-button:hover:not(:disabled) {
-  background: var(--modern-surface);
-  color: var(--modern-text);
-}
-
-.modern-update-button:disabled {
-  cursor: progress;
-}
-
 .modern-update-release {
   display: flex;
-  min-height: 28px;
+  min-height: var(--modern-control-xs);
   align-items: center;
-  gap: 6px;
-  border: 1px solid var(--modern-border);
-  border-radius: 6px;
-  margin-top: 4px;
+  gap: var(--modern-space-1-5);
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-control);
+  margin-top: var(--modern-space-1);
   background: var(--modern-surface);
-  padding: 5px 7px;
+  padding: var(--modern-space-1) var(--modern-space-1-5);
   color: var(--modern-text);
-  line-height: 1.4;
+  line-height: var(--modern-leading-compact);
 }
 
 .modern-update-dot {
-  width: 4px;
-  height: 4px;
+  width: var(--modern-space-1);
+  height: var(--modern-space-1);
   flex-shrink: 0;
-  border-radius: 50%;
+  border-radius: var(--modern-radius-round);
   background: var(--modern-coral);
 }
 
@@ -167,12 +140,12 @@ const checkLabel = computed(() =>
 }
 
 .modern-update-status {
-  margin-top: 6px;
-  line-height: 1.5;
+  margin-top: var(--modern-space-1-5);
+  line-height: var(--modern-leading-body);
 }
 
 .modern-update-status.is-error {
-  color: var(--modern-accent);
+  color: var(--modern-danger);
 }
 
 .is-compact {
@@ -188,8 +161,8 @@ const checkLabel = computed(() =>
 .is-compact .modern-update-button,
 .is-compact .modern-update-release {
   display: flex;
-  width: 40px;
-  min-height: 32px;
+  width: var(--modern-control-nav);
+  min-height: var(--modern-control-sm);
   align-items: center;
   justify-content: center;
 }
@@ -205,23 +178,8 @@ const checkLabel = computed(() =>
 }
 
 @media (max-width: 760px) {
-  .modern-update-button {
-    width: 44px;
-    height: 44px;
-  }
-
   .modern-update-release {
-    min-height: 44px;
-  }
-}
-
-.is-spinning {
-  animation: modern-update-spin 1s linear infinite;
-}
-
-@keyframes modern-update-spin {
-  to {
-    transform: rotate(360deg);
+    min-height: var(--modern-touch-target);
   }
 }
 </style>

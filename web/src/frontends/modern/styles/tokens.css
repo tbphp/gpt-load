@@ -1,0 +1,148 @@
+/* 新版视觉基础。公共视觉值只在此定义，页面与组件使用语义变量。 */
+:root {
+  color-scheme: light dark;
+
+  /* 颜色：保留已确认的 Coral / Ink / Cream，前景与背景成对维护。 */
+  --modern-canvas: light-dark(#ffffff, #22212a);
+  --modern-sidebar: light-dark(#f4f3ef, #1c1b23);
+  --modern-surface: light-dark(#ffffff, #282630);
+  --modern-subtle: light-dark(#f8f7f4, #302e38);
+  --modern-text: light-dark(#282630, #faf7f0);
+  --modern-muted: light-dark(#696572, #b7b2c0);
+  --modern-border: light-dark(#e5e3dd, #403c49);
+  --modern-coral: #db7458;
+  --modern-accent: light-dark(#a6422e, #f09a80);
+  --modern-accent-soft: light-dark(#f8eae4, #453029);
+  --modern-action: #ae4b35;
+  --modern-action-hover: #913c2a;
+  --modern-on-action: #ffffff;
+  --modern-danger: light-dark(#b42318, #fca59c);
+  --modern-danger-soft: light-dark(#fff0ee, #442323);
+  --modern-success: light-dark(#26734d, #8cd5a8);
+  --modern-success-soft: light-dark(#eef8f1, #21392b);
+  --modern-warning: light-dark(#865a0c, #e7c878);
+  --modern-warning-soft: light-dark(#fff7e5, #3c3421);
+  --modern-info: light-dark(#3466a3, #9fbfed);
+  --modern-info-soft: light-dark(#edf4fc, #263449);
+  --modern-overlay: rgb(20 18 25 / 35%);
+  --modern-tooltip-surface: var(--modern-text);
+  --modern-tooltip-text: var(--modern-surface);
+
+  /* 字体：沿用系统字体，不增加远端字体请求。 */
+  --modern-font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  --modern-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --modern-text-caption: 11px;
+  --modern-text-small: 12px;
+  --modern-text-secondary: 13px;
+  --modern-text-body: 14px;
+  --modern-text-section: 15px;
+  --modern-text-input-mobile: 16px;
+  --modern-text-title: 24px;
+  --modern-weight-regular: 400;
+  --modern-weight-medium: 500;
+  --modern-weight-semibold: 600;
+  --modern-leading-body: 1.6;
+  --modern-leading-compact: 1.4;
+  --modern-leading-title: 1.35;
+  --modern-tracking-title: -0.035em;
+  --modern-tracking-label: 0.04em;
+
+  /* 间距：以 4px 为主，2px / 6px 用于紧凑控件内部。 */
+  --modern-space-0-5: 2px;
+  --modern-space-1: 4px;
+  --modern-space-1-5: 6px;
+  --modern-space-2: 8px;
+  --modern-space-3: 12px;
+  --modern-space-4: 16px;
+  --modern-space-5: 20px;
+  --modern-space-6: 24px;
+  --modern-space-8: 32px;
+  --modern-space-10: 40px;
+  --modern-space-12: 48px;
+
+  /* 边框、圆角和阴影。普通面板不使用阴影。 */
+  --modern-line-width: 1px;
+  --modern-focus-width: 2px;
+  --modern-focus-offset: 3px;
+  --modern-radius-small: 4px;
+  --modern-radius-control: 6px;
+  --modern-radius-panel: 8px;
+  --modern-radius-dialog: 12px;
+  --modern-radius-round: 50%;
+  --modern-shadow-tooltip: 0 3px 12px rgb(0 0 0 / 10%);
+  --modern-shadow-menu: 0 8px 28px rgb(0 0 0 / 12%);
+  --modern-shadow-dialog: 0 20px 75px rgb(0 0 0 / 20%);
+
+  /* 控件与图标：尺寸由公共组件选择，不在调用处传像素。 */
+  --modern-control-xs: 28px;
+  --modern-control-sm: 32px;
+  --modern-control-md: 36px;
+  --modern-control-nav: 40px;
+  --modern-touch-target: 44px;
+  --modern-icon-xs: 12px;
+  --modern-icon-sm: 14px;
+  --modern-icon-md: 18px;
+  --modern-icon-lg: 20px;
+  --modern-icon-stroke: 1.8;
+
+  /* 布局语义值；宽工作区不设全局最大宽度。 */
+  --modern-viewport-min: 320px;
+  --modern-sidebar-expanded: 232px;
+  --modern-sidebar-collapsed: 72px;
+  --modern-topbar-height: 56px;
+  --modern-content-inset: 32px;
+  --modern-content-top: 24px;
+  --modern-content-bottom: 36px;
+  --modern-panel-inset: 24px;
+  --modern-page-gap: 24px;
+  --modern-logo-width: 192px;
+  --modern-dialog-width: 540px;
+  --modern-drawer-width: 280px;
+  --modern-menu-min-width: 176px;
+  --modern-tooltip-max-width: 260px;
+
+  /* 层级：壳层 < 遮罩 < 对话框 < 菜单 < 提示。 */
+  --modern-layer-raised: 1;
+  --modern-layer-header: 10;
+  --modern-layer-sidebar-toggle: 20;
+  --modern-layer-overlay: 30;
+  --modern-layer-dialog: 40;
+  --modern-layer-menu: 50;
+  --modern-layer-tooltip: 60;
+  --modern-layer-skip-link: 70;
+  --modern-motion-fast: 140ms;
+  --modern-motion-spin: 1s;
+  --modern-motion-ease: ease;
+  --modern-opacity-disabled: 0.55;
+  --modern-opacity-quiet: 0.65;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* CSS 媒体条件不能引用 var()；阈值与 app/breakpoints.ts 由样式检查共同约束。 */
+@media (min-width: 1700px) {
+  :root {
+    --modern-content-inset: 40px;
+  }
+}
+@media (max-width: 1150px) {
+  :root {
+    --modern-content-inset: 24px;
+  }
+}
+@media (max-width: 760px) {
+  :root {
+    --modern-content-inset: 16px;
+    --modern-content-top: 16px;
+    --modern-content-bottom: 28px;
+    --modern-panel-inset: 16px;
+    --modern-logo-width: 176px;
+  }
+}

@@ -15,4 +15,36 @@ export default defineConfigWithVueTs(
     plugins: { 'frontend-boundaries': { rules: { 'no-cross-imports': frontendBoundaries } } },
     rules: { 'frontend-boundaries/no-cross-imports': 'error' },
   },
+  {
+    files: ['src/frontends/modern/**/*.vue'],
+    rules: { 'vue/no-static-inline-styles': 'error' },
+  },
+  {
+    files: ['src/frontends/modern/{features,layouts}/**/*.vue'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'reka-ui',
+              importNames: [
+                'DialogContent',
+                'DialogOverlay',
+                'DialogPortal',
+                'DialogTitle',
+                'DialogDescription',
+                'DropdownMenuContent',
+                'DropdownMenuPortal',
+                'DropdownMenuRadioItem',
+                'TooltipRoot',
+                'TooltipContent',
+              ],
+              message: '复用 modern/components 中的公共浮层、菜单和提示组件。',
+            },
+          ],
+        },
+      ],
+    },
+  },
 )

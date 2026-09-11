@@ -13,3 +13,37 @@ defineProps<{ compact?: boolean }>()
     <img class="modern-brand-logo__dark" :src="logoDark" alt="GPT-Load" width="192" height="48" />
   </span>
 </template>
+
+<style scoped>
+.modern-brand-logo {
+  display: block;
+  width: var(--modern-logo-width);
+  max-width: 100%;
+}
+.modern-brand-logo img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.modern-brand-logo .modern-brand-logo__dark {
+  display: none;
+}
+.modern-brand-icon {
+  display: block;
+  border-radius: var(--modern-radius-control);
+}
+:global(:root[data-theme='dark'] .modern-brand-logo__light) {
+  display: none;
+}
+:global(:root[data-theme='dark'] .modern-brand-logo .modern-brand-logo__dark) {
+  display: block;
+}
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme='light']) .modern-brand-logo__light) {
+    display: none;
+  }
+  :global(:root:not([data-theme='light']) .modern-brand-logo .modern-brand-logo__dark) {
+    display: block;
+  }
+}
+</style>
