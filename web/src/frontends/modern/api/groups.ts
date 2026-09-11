@@ -13,6 +13,8 @@ export const availabilityStates = [
 ] as const
 export type GroupAvailability = (typeof availabilityStates)[number]
 export interface GroupFilters {
+  page: number
+  pageSize: number
   q: string
   view: (typeof groupViews)[number]
   channel: string
@@ -32,6 +34,7 @@ export interface GroupRow {
   channelID: string
   channelName: string
   channelMark: string
+  channelIcon: string
   connectionType: 'api_key' | 'subscription'
   endpoint: string
   enabled: boolean
@@ -112,6 +115,7 @@ export async function getGroupWorkspace(
       channelID: text(item.channel_id),
       channelName: text(item.channel_name),
       channelMark: text(item.channel_mark),
+      channelIcon: text(item.channel_icon ?? ''),
       connectionType: oneOf(item.connection_type, ['api_key', 'subscription']),
       endpoint: text(item.endpoint),
       enabled: boolean(item.enabled),
@@ -171,4 +175,68 @@ export async function updateGroupBasics(
       signal,
     }),
   )
+}
+
+export interface GroupUsage {
+  id: number
+  requests: number
+  successes: number
+  tokens: number
+  costNanoUSD: string
+  incomplete: boolean
+}
+
+export interface GroupUsageBatch {
+  from: number
+  to: number
+  observedAt: number
+  incomplete: boolean
+  items: GroupUsage[]
+}
+
+export async function getGroupUsage(
+  client: ApiClient,
+  ids: number[],
+  signal: AbortSignal,
+): Promise<GroupUsageBatch> {
+  const params = new URLSearchParams({ group_ids: ids.join(',') })
+  const data = record(
+    await client.request<unknown>(`/api/modern/groups/usage?${params}`, { signal }),
+  )
+  const from = integer(data.from_ms)
+  const to = integer(data.to_ms)
+  if (to <= from) throw new InvalidResponseError()
+  const health = record(data.collection_health)
+  const incomplete =
+    !boolean(data.data_complete) ||
+    integer(health.dropped_total) > 0 ||
+    integer(health.write_failure_total) > 0
+  const items = list(data.items).map((raw): GroupUsage => {
+    const item = record(raw)
+    const cost = text(item.estimated_cost_nano_usd)
+    if (!/^(0|[1-9]\d*)$/u.test(cost)) throw new InvalidResponseError()
+    const requests = integer(item.request_count)
+    const successes = integer(item.success_count)
+    if (successes > requests) throw new InvalidResponseError()
+    return {
+      id: integer(item.group_id, 1),
+      requests,
+      successes,
+      tokens: integer(item.total_tokens),
+      costNanoUSD: cost,
+      incomplete:
+        integer(item.usage_missing_count) > 0 ||
+        integer(item.partial_count) > 0 ||
+        integer(item.unpriced_request_count) > 0 ||
+        integer(item.pricing_partial_count) > 0,
+    }
+  })
+  const returnedIDs = new Set(items.map((item) => item.id))
+  if (
+    items.length !== ids.length ||
+    returnedIDs.size !== ids.length ||
+    ids.some((id) => !returnedIDs.has(id))
+  )
+    throw new InvalidResponseError()
+  return { from, to, observedAt: integer(data.observed_at_ms), incomplete, items }
 }

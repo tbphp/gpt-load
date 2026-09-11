@@ -36,6 +36,7 @@ defineEmits<{ openAutoFocus: [event: Event] }>()
   z-index: var(--modern-layer-overlay);
   inset: 0;
   background: var(--modern-overlay);
+  animation: modern-appear var(--modern-motion-fast) var(--modern-motion-ease);
 }
 .modern-dialog {
   position: fixed;
@@ -43,6 +44,7 @@ defineEmits<{ openAutoFocus: [event: Event] }>()
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: modern-appear var(--modern-motion-fast) var(--modern-motion-ease);
 }
 .modern-dialog--dialog {
   --modern-dialog-top: min(16dvh, 130px);

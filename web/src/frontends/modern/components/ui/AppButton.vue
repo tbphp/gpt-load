@@ -4,11 +4,12 @@ import { Primitive, useForwardExpose } from 'reka-ui'
 import { computed, type Component } from 'vue'
 
 import AppIcon from './AppIcon.vue'
+import type { ButtonVariant, ControlSize } from './types'
 
 const props = withDefaults(
   defineProps<{
-    variant?: 'default' | 'primary' | 'ghost' | 'brand' | 'danger'
-    size?: 'xs' | 'sm' | 'md'
+    variant?: ButtonVariant
+    size?: ControlSize
     type?: 'button' | 'submit' | 'reset'
     icon?: Component
     iconOnly?: boolean
@@ -63,6 +64,7 @@ function preventInactiveClick(event: MouseEvent): void {
 <style scoped>
 .modern-button {
   --modern-button-size: var(--modern-control-md);
+  --modern-button-font-size: var(--modern-font-size-secondary);
   display: inline-flex;
   width: fit-content;
   min-height: var(--modern-button-size);
@@ -70,22 +72,34 @@ function preventInactiveClick(event: MouseEvent): void {
   align-items: center;
   justify-content: center;
   gap: var(--modern-space-1-5);
-  border: var(--modern-line-width) solid var(--modern-border);
+  border: var(--modern-line-width) solid var(--modern-control-border);
   border-radius: var(--modern-radius-control);
   background: var(--modern-surface);
   padding: var(--modern-space-1-5) var(--modern-space-3);
   color: var(--modern-text);
-  font-size: var(--modern-font-size-small);
+  font-size: var(--modern-button-font-size);
   font-weight: var(--modern-weight-medium);
   line-height: var(--modern-leading-compact);
   text-decoration: none;
+  box-shadow: var(--modern-shadow-control);
+  user-select: none;
 }
 .modern-button:hover:not(:disabled, [aria-disabled='true']) {
-  border-color: var(--modern-muted);
-  background: var(--modern-subtle);
+  border-color: var(--modern-control-border-hover);
+  background: var(--modern-control-hover);
+}
+.modern-button:active:not(:disabled, [aria-disabled='true']) {
+  background: var(--modern-control-pressed);
+  box-shadow: none;
+}
+.modern-button:focus-visible {
+  outline: var(--modern-focus-width) solid var(--modern-accent);
+  outline-offset: var(--modern-focus-offset);
+  box-shadow: var(--modern-shadow-focus);
 }
 .modern-button--xs {
   --modern-button-size: var(--modern-control-xs);
+  --modern-button-font-size: var(--modern-font-size-small);
 }
 .modern-button--sm {
   --modern-button-size: var(--modern-control-sm);
@@ -99,15 +113,20 @@ function preventInactiveClick(event: MouseEvent): void {
   border-color: var(--modern-action-hover);
   background: var(--modern-action-hover);
 }
+.modern-button--primary:active:not(:disabled, [aria-disabled='true']) {
+  border-color: var(--modern-action-hover);
+  background: var(--modern-action-hover);
+}
 .modern-button--ghost {
   border-color: transparent;
   background: transparent;
   color: var(--modern-muted);
+  box-shadow: none;
 }
 .modern-button--ghost:hover:not(:disabled, [aria-disabled='true']),
-.modern-button--ghost[data-state='open'] {
+.modern-button--ghost[aria-expanded='true'] {
   border-color: transparent;
-  background: var(--modern-subtle);
+  background: var(--modern-control-hover);
   color: var(--modern-text);
 }
 /* brand 用于需要在一排中性图标里被一眼看到的高频入口。 */
@@ -115,14 +134,20 @@ function preventInactiveClick(event: MouseEvent): void {
   border-color: transparent;
   background: transparent;
   color: var(--modern-coral);
+  box-shadow: none;
 }
 .modern-button--brand:hover:not(:disabled, [aria-disabled='true']) {
   border-color: transparent;
   background: var(--modern-accent-soft);
   color: var(--modern-accent);
 }
+.modern-button--brand[aria-current='page'] {
+  background: var(--modern-accent-soft);
+  color: var(--modern-accent);
+}
 .modern-button--danger {
-  border-color: var(--modern-danger);
+  border-color: var(--modern-danger-soft);
+  background: var(--modern-danger-soft);
   color: var(--modern-danger);
 }
 .modern-button--danger:hover:not(:disabled, [aria-disabled='true']) {
@@ -133,6 +158,24 @@ function preventInactiveClick(event: MouseEvent): void {
   width: var(--modern-button-size);
   height: var(--modern-button-size);
   padding: 0;
+}
+.modern-button--text {
+  min-height: var(--modern-control-xs);
+  flex-shrink: 1;
+  justify-content: flex-start;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  box-shadow: none;
+}
+.modern-button--text:hover:not(:disabled, [aria-disabled='true']) {
+  background: transparent;
+  color: var(--modern-accent);
+  text-decoration: underline;
+  text-underline-offset: var(--modern-space-1);
 }
 @media (max-width: 760px) {
   .modern-button {

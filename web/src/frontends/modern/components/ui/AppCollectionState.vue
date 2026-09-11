@@ -14,12 +14,14 @@ defineProps<{
 
 <template>
   <div class="modern-collection-state" :role="error ? 'alert' : 'status'">
-    <AppIcon
-      v-if="loading || icon"
-      :icon="loading ? LoaderCircle : icon!"
-      size="lg"
-      :class="{ 'modern-spin': loading }"
-    />
+    <span v-if="loading || icon" class="modern-collection-state-icon">
+      <AppIcon
+        v-if="loading || icon"
+        :icon="loading ? LoaderCircle : icon!"
+        size="lg"
+        :class="{ 'modern-spin': loading }"
+      />
+    </span>
     <strong>{{ title }}</strong>
     <p v-if="description">{{ description }}</p>
     <div v-if="$slots.default" class="modern-collection-state-actions"><slot /></div>
@@ -39,6 +41,16 @@ defineProps<{
   color: var(--modern-text);
   font-size: var(--modern-font-size-body);
   font-weight: var(--modern-weight-medium);
+}
+.modern-collection-state-icon {
+  display: inline-flex;
+  width: var(--modern-touch-target);
+  height: var(--modern-touch-target);
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--modern-radius-panel);
+  background: var(--modern-subtle);
+  margin-bottom: var(--modern-space-1);
 }
 .modern-collection-state p {
   max-width: 48ch;

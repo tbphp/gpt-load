@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { X } from '@lucide/vue'
 import { DialogRoot } from 'reka-ui'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -11,13 +10,15 @@ import {
   type GroupBasicsPatch,
   type GroupRow,
 } from '@modern/api/groups'
-import AppButton from '@modern/components/ui/AppButton.vue'
-import AppCollectionState from '@modern/components/ui/AppCollectionState.vue'
-import AppDialogContent from '@modern/components/ui/AppDialogContent.vue'
-import AppIconButton from '@modern/components/ui/AppIconButton.vue'
-import AppNotice from '@modern/components/ui/AppNotice.vue'
-import AppSwitch from '@modern/components/ui/AppSwitch.vue'
-import AppTextField from '@modern/components/ui/AppTextField.vue'
+import {
+  AppButton,
+  AppCollectionState,
+  AppDialogContent,
+  AppDialogHeader,
+  AppNotice,
+  AppSwitch,
+  AppTextField,
+} from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 
 const props = defineProps<{ group: GroupRow }>()
@@ -164,13 +165,13 @@ async function save(): Promise<void> {
     "
   >
     <AppDialogContent placement="editor" :title="t('groups.edit.title')" :description="group.name">
-      <header class="modern-group-editor-header">
-        <div>
-          <h2>{{ t('groups.edit.title') }}</h2>
-          <p>#{{ group.id }} · {{ group.name }}</p>
-        </div>
-        <AppIconButton :icon="X" :label="t('shell.close')" :disabled="saving" @click="close" />
-      </header>
+      <AppDialogHeader
+        :title="t('groups.edit.title')"
+        :description="`#${group.id} · ${group.name}`"
+        :close-label="t('shell.close')"
+        :close-disabled="saving"
+        @close="close"
+      />
       <AppCollectionState v-if="loading" :title="t('collection.loading')" loading />
       <AppCollectionState v-else-if="loadFailed" :title="t('groups.edit.loadFailed')" error>
         <AppButton @click="load">{{ t('collection.retry') }}</AppButton>
@@ -241,27 +242,6 @@ async function save(): Promise<void> {
 </template>
 
 <style scoped>
-.modern-group-editor-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--modern-space-4);
-  padding: var(--modern-space-5) var(--modern-space-6);
-  border-bottom: var(--modern-line-width) solid var(--modern-border);
-}
-.modern-group-editor-header > div {
-  min-width: 0;
-}
-.modern-group-editor-header h2 {
-  font-size: var(--modern-font-size-section);
-  font-weight: var(--modern-weight-semibold);
-}
-.modern-group-editor-header p {
-  margin-top: var(--modern-space-1);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-  overflow-wrap: anywhere;
-}
 .modern-group-editor-form {
   display: flex;
   flex: 1;

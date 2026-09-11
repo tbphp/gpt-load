@@ -1,6 +1,8 @@
 import { zhCN as groupMessages } from './groups'
+import { zhCN as ui } from './ui'
 
 export default {
+  ui,
   ...groupMessages,
   sections: {
     workspace: '工作区',

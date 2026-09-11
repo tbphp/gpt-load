@@ -2,6 +2,8 @@
 import { watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterView } from 'vue-router'
+import { TooltipProvider } from 'reka-ui'
+import { tooltipDelay } from './components/ui/overlay'
 
 import { usePageTitle } from './app/use-page-title'
 import AuthGate from './features/auth/AuthGate.vue'
@@ -20,10 +22,12 @@ watch(
 </script>
 
 <template>
-  <RouterView v-slot="{ Component, route: currentRoute }">
-    <AuthGate v-if="currentRoute.meta.requiresAuth">
-      <AppLayout><component :is="Component" /></AppLayout>
-    </AuthGate>
-    <PublicLayout v-else><component :is="Component" /></PublicLayout>
-  </RouterView>
+  <TooltipProvider :delay-duration="tooltipDelay" :skip-delay-duration="tooltipDelay">
+    <RouterView v-slot="{ Component, route: currentRoute }">
+      <AuthGate v-if="currentRoute.meta.requiresAuth">
+        <AppLayout><component :is="Component" /></AppLayout>
+      </AuthGate>
+      <PublicLayout v-else><component :is="Component" /></PublicLayout>
+    </RouterView>
+  </TooltipProvider>
 </template>

@@ -12,6 +12,41 @@ const mediaQueries = []
 const issues = []
 const definedTokens = new Set()
 
+// 页面只组合公共控件；隐藏表单值不属于视觉控件。
+function checkTemplateRules(node, filename) {
+  if (!node) return
+  if (node.type === 1) {
+    const hiddenInput =
+      node.tag === 'input' &&
+      node.props.some(
+        (prop) => prop.type === 6 && prop.name === 'type' && prop.value?.content === 'hidden',
+      )
+    if (
+      filename.startsWith(path.join(root, 'features') + path.sep) &&
+      ['button', 'input', 'select', 'textarea', 'svg'].includes(node.tag) &&
+      !hiddenInput
+    ) {
+      issues.push(
+        `${path.relative(root, filename)}:${node.loc.start.line}: 业务页面的 <${node.tag}> 必须使用 components/ui 公共组件`,
+      )
+    }
+    const hasTitle = node.props.some(
+      (prop) =>
+        (prop.type === 6 && prop.name === 'title') ||
+        (prop.type === 7 &&
+          prop.name === 'bind' &&
+          prop.arg?.isStatic &&
+          prop.arg.content === 'title'),
+    )
+    if (node.tagType === 0 && (hasTitle || node.tag === 'title')) {
+      issues.push(
+        `${path.relative(root, filename)}:${node.loc.start.line}: 鼠标提示必须使用 AppTooltip，不使用原生 title`,
+      )
+    }
+  }
+  for (const child of node.children ?? []) checkTemplateRules(child, filename)
+}
+
 async function visit(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const filename = path.join(directory, entry.name)
@@ -21,9 +56,13 @@ async function visit(directory) {
     }
     if (!/\.(?:css|vue)$/u.test(filename)) continue
     const source = await readFile(filename, 'utf8')
+    const descriptor = filename.endsWith('.vue')
+      ? parse(source, { filename }).descriptor
+      : undefined
+    checkTemplateRules(descriptor?.template?.ast, filename)
     const blocks = filename.endsWith('.css')
       ? [{ content: source, offset: 0 }]
-      : parse(source, { filename }).descriptor.styles.map((style) => ({
+      : descriptor.styles.map((style) => ({
           content: style.content,
           offset: style.loc.start.line - 1,
         }))
@@ -110,5 +149,5 @@ if (issues.length) {
   console.error(issues.join('\n'))
   process.exitCode = 1
 } else {
-  console.log('新版视觉变量、公共样式与响应断点检查通过')
+  console.log('新版视觉变量、公共控件复用与响应断点检查通过')
 }

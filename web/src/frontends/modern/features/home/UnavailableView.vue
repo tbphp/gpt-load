@@ -3,8 +3,7 @@ import { ArrowLeft } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
-import AppButton from '@modern/components/ui/AppButton.vue'
-import AppIcon from '@modern/components/ui/AppIcon.vue'
+import { AppButton, AppIcon } from '@modern/components/ui'
 
 const { t } = useI18n()
 </script>

@@ -19,6 +19,7 @@ type ModernGroupItem struct {
 	ChannelID              channel.ID                      `json:"channel_id"`
 	ChannelName            string                          `json:"channel_name"`
 	ChannelMark            string                          `json:"channel_mark"`
+	ChannelIcon            string                          `json:"channel_icon"`
 	ConnectionType         models.ConnectionType           `json:"connection_type"`
 	Endpoint               string                          `json:"endpoint"`
 	Enabled                bool                            `json:"enabled"`
@@ -65,7 +66,7 @@ func (s *Service) ListModernGroups(ctx context.Context) (ModernGroupsResponse, e
 		}
 		result.Items = append(result.Items, ModernGroupItem{
 			ID: record.ID, Name: record.Name, ChannelID: record.ChannelID,
-			ChannelName: definition.Name, ChannelMark: definition.Mark,
+			ChannelName: definition.Name, ChannelMark: definition.Mark, ChannelIcon: definition.Icon,
 			ConnectionType: record.ConnectionType, Endpoint: endpoint,
 			Enabled: record.Enabled, Availability: modernGroupAvailability(record),
 			Weight: record.Weight, PriceMultiplier: record.PriceMultiplier,

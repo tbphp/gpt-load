@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { useForwardExpose } from 'reka-ui'
 import type { Component } from 'vue'
-
 import AppButton from './AppButton.vue'
+import AppTooltip from './AppTooltip.vue'
+import type { ButtonVariant, ControlSize } from './types'
 
+defineOptions({ inheritAttrs: false })
 defineProps<{
   icon: Component
   label: string
-  size?: 'xs' | 'sm' | 'md'
+  size?: ControlSize
+  variant?: ButtonVariant
   loading?: boolean
   disabled?: boolean
 }>()
@@ -15,15 +18,20 @@ const { forwardRef } = useForwardExpose()
 </script>
 
 <template>
-  <AppButton
-    :ref="forwardRef"
-    variant="ghost"
-    icon-only
-    :icon="icon"
-    :size="size"
-    :loading="loading"
-    :disabled="disabled"
-    :aria-label="label"
-    :title="label"
-  />
+  <AppTooltip
+    :label="label"
+    :disabled="$attrs['aria-expanded'] === true || $attrs['aria-expanded'] === 'true'"
+  >
+    <AppButton
+      :ref="forwardRef"
+      v-bind="$attrs"
+      :variant="variant ?? 'ghost'"
+      icon-only
+      :icon="icon"
+      :size="size"
+      :loading="loading"
+      :disabled="disabled"
+      :aria-label="label"
+    />
+  </AppTooltip>
 </template>

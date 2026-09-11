@@ -2,7 +2,11 @@ import type { LocationQuery } from 'vue-router'
 import { groupSorts, groupViews, type GroupFilters } from '@modern/api/groups'
 
 export function parseGroupFilters(query: LocationQuery): GroupFilters {
+  const page = typeof query.page === 'string' ? Number(query.page) : 1
+  const size = typeof query.page_size === 'string' ? Number(query.page_size) : 20
   return {
+    page: Number.isSafeInteger(page) && page > 0 ? page : 1,
+    pageSize: [20, 50, 100].includes(size) ? size : 20,
     q: typeof query.q === 'string' ? Array.from(query.q.trim()).slice(0, 200).join('') : '',
     view: groupViews.find((value) => value === query.view) ?? 'all',
     channel: typeof query.channel === 'string' ? query.channel : '',
@@ -11,6 +15,8 @@ export function parseGroupFilters(query: LocationQuery): GroupFilters {
 }
 export function groupFilterQuery(filters: GroupFilters): Record<string, string> {
   const query: Record<string, string> = {}
+  if (filters.page > 1) query.page = String(filters.page)
+  if (filters.pageSize !== 20) query.page_size = String(filters.pageSize)
   if (filters.q) query.q = filters.q
   if (filters.view !== 'all') query.view = filters.view
   if (filters.channel) query.channel = filters.channel

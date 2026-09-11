@@ -33,10 +33,14 @@ const titleId = useId()
   gap: var(--modern-space-3);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
   padding: var(--modern-space-4) var(--modern-panel-inset);
+  border-radius: var(--modern-radius-panel) var(--modern-radius-panel) 0 0;
 }
 .modern-panel-header h2 {
   font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
+}
+.modern-panel-header > div:first-child {
+  min-width: 0;
 }
 .modern-panel-header p {
   margin-top: var(--modern-space-1);

@@ -13,6 +13,12 @@
   --modern-coral: var(--modern-action);
   --modern-accent: light-dark(#e84518, #ff845e);
   --modern-accent-soft: light-dark(#fff3ed, #3e2a23);
+  --modern-badge-brand-text: color-mix(in srgb, var(--modern-accent) 80%, var(--modern-muted));
+  --modern-badge-brand-surface: color-mix(
+    in srgb,
+    var(--modern-accent-soft) 55%,
+    var(--modern-surface)
+  );
   --modern-action: #ff4f1f;
   --modern-action-hover: #f04012;
   --modern-on-action: #ffffff;
@@ -26,8 +32,22 @@
   --modern-info-soft: light-dark(#edf5ff, #233247);
   --modern-overlay: rgb(20 20 18 / 35%);
   --modern-scrollbar: light-dark(#cacac3, #565650);
-  --modern-tooltip-surface: var(--modern-text);
-  --modern-tooltip-text: var(--modern-surface);
+  --modern-tooltip-surface: color-mix(
+    in srgb,
+    var(--modern-accent-soft) 25%,
+    var(--modern-surface)
+  );
+  --modern-tooltip-text: var(--modern-muted);
+  --modern-tooltip-border: color-mix(in srgb, var(--modern-accent) 18%, var(--modern-border));
+
+  /* 控件状态：按钮、字段与选择器共用边框、底色和焦点反馈。 */
+  --modern-control-border: light-dark(#dcdcd6, #4a4a45);
+  --modern-control-border-hover: light-dark(#bdbdb5, #707069);
+  --modern-control-hover: light-dark(#f4f4f1, #353532);
+  --modern-control-pressed: light-dark(#ebebe6, #3e3e39);
+  --modern-control-disabled: light-dark(#f4f4f1, #2b2b29);
+  --modern-control-placeholder: light-dark(#85857d, #999991);
+  --modern-switch-off: light-dark(#ccccc4, #62625b);
 
   /* 字体：沿用系统字体，不增加远端字体请求。 */
   --modern-font-sans:
@@ -66,15 +86,19 @@
   /* 边框、圆角和阴影。普通面板不使用阴影。 */
   --modern-line-width: 1px;
   --modern-focus-width: 2px;
-  --modern-focus-offset: 3px;
-  --modern-radius-small: 4px;
-  --modern-radius-control: 6px;
-  --modern-radius-panel: 8px;
+  --modern-focus-offset: 2px;
+  --modern-radius-small: 6px;
+  --modern-radius-control: 8px;
+  --modern-radius-panel: 10px;
   --modern-radius-dialog: 12px;
   --modern-radius-round: 50%;
-  --modern-shadow-tooltip: 0 3px 12px rgb(0 0 0 / 10%);
+  --modern-shadow-tooltip: 0 2px 8px rgb(0 0 0 / 6%);
   --modern-shadow-menu: 0 8px 28px rgb(0 0 0 / 12%);
   --modern-shadow-dialog: 0 20px 75px rgb(0 0 0 / 20%);
+  --modern-shadow-control: 0 1px 2px rgb(0 0 0 / 4%);
+  --modern-shadow-thumb: 0 1px 3px rgb(0 0 0 / 18%);
+  --modern-shadow-focus: 0 0 0 3px color-mix(in srgb, var(--modern-accent) 15%, transparent);
+  --modern-shadow-focus-danger: 0 0 0 3px color-mix(in srgb, var(--modern-danger) 15%, transparent);
 
   /* 控件与图标：尺寸由公共组件选择，不在调用处传像素。 */
   --modern-control-xs: 28px;
@@ -82,14 +106,29 @@
   --modern-control-md: 36px;
   --modern-control-nav: 40px;
   --modern-touch-target: 44px;
-  --modern-switch-width: 32px;
-  --modern-switch-height: 18px;
-  --modern-switch-thumb: 14px;
+  --modern-switch-width: 36px;
+  --modern-switch-height: 20px;
+  --modern-switch-thumb: 16px;
+  --modern-checkbox-size: 18px;
+  --modern-badge-sm: 24px;
+  --modern-badge-xs: 20px;
   --modern-icon-xs: 12px;
   --modern-icon-sm: 14px;
   --modern-icon-md: 18px;
   --modern-icon-lg: 20px;
   --modern-icon-stroke: 1.8;
+  --modern-channel-mark-ratio: 0.7em;
+  --modern-channel-avatar: 28px;
+  --modern-inline-action-target: 24px;
+  --modern-inline-number-width: 76px;
+  --modern-status-bar-height: 8px;
+  --modern-status-success: var(--modern-success);
+  --modern-status-warning: light-dark(#eeae36, #eab84f);
+  --modern-status-danger: var(--modern-danger);
+  --modern-status-neutral: light-dark(#b9b9b1, #6d6d66);
+  --modern-loading-line: 3px;
+  --modern-motion-loading: 1100ms;
+  --modern-loading-overlay: color-mix(in srgb, var(--modern-surface) 78%, transparent);
 
   /* 布局语义值；宽工作区不设全局最大宽度。 */
   --modern-viewport-min: 320px;
@@ -104,7 +143,8 @@
   --modern-dialog-width: 540px;
   --modern-drawer-width: 280px;
   --modern-menu-min-width: 176px;
-  --modern-tooltip-max-width: 260px;
+  --modern-menu-max-height: 320px;
+  --modern-tooltip-max-width: 320px;
 
   /* 层级：壳层 < 遮罩 < 对话框 < 菜单 < 提示。 */
   --modern-layer-raised: 1;

@@ -32,6 +32,12 @@ button,
 a {
   touch-action: manipulation;
 }
+th,
+td,
+[role='columnheader'],
+[role='cell'] {
+  text-align: left;
+}
 button {
   cursor: pointer;
 }
@@ -52,7 +58,8 @@ select {
   transition:
     background-color var(--modern-motion-fast) var(--modern-motion-ease),
     border-color var(--modern-motion-fast) var(--modern-motion-ease),
-    color var(--modern-motion-fast) var(--modern-motion-ease);
+    color var(--modern-motion-fast) var(--modern-motion-ease),
+    box-shadow var(--modern-motion-fast) var(--modern-motion-ease);
 }
 :focus-visible {
   outline: var(--modern-focus-width) solid var(--modern-accent);
@@ -87,6 +94,14 @@ svg {
 @keyframes modern-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@keyframes modern-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 @media (prefers-reduced-motion: reduce) {

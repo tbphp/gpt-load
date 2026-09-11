@@ -1,76 +1,107 @@
 <script setup lang="ts">
-import { ChevronDown } from '@lucide/vue'
-import { useId } from 'vue'
+import { Check, ChevronDown } from '@lucide/vue'
+import {
+  SelectContent,
+  SelectItem,
+  SelectItemIndicator,
+  SelectItemText,
+  SelectPortal,
+  SelectRoot,
+  SelectTrigger,
+  SelectValue,
+  SelectViewport,
+} from 'reka-ui'
+import { computed, type Component } from 'vue'
+import AppField from './AppField.vue'
+import AppFieldControl from './AppFieldControl.vue'
 import AppIcon from './AppIcon.vue'
+import AppMenuSurface from './AppMenuSurface.vue'
+import AppOverflowText from './AppOverflowText.vue'
+import { overlaySideOffset } from './overlay'
+import type { ControlSize, FieldProps, SelectOption } from './types'
 
 defineOptions({ inheritAttrs: false })
-defineProps<{
-  label: string
-  options: ReadonlyArray<{ value: string; label: string }>
-  labelHidden?: boolean
-  disabled?: boolean
-}>()
+const props = defineProps<
+  FieldProps & {
+    options: readonly SelectOption[]
+    icon?: Component
+    size?: ControlSize
+    name?: string
+    required?: boolean
+  }
+>()
 const model = defineModel<string>({ required: true })
-const id = useId()
+// 全部选项使用空字符串；Reka 的可选空值为 null，表单提交仍为原始空字符串。
+const selected = computed({
+  get: () => (model.value === '' ? null : model.value),
+  set: (value: string | null) => {
+    model.value = value ?? ''
+  },
+})
+const selectedLabel = computed(
+  () => props.options.find((option) => option.value === model.value)?.label ?? model.value,
+)
 </script>
 
 <template>
-  <div class="modern-select">
-    <label :for="id" :class="{ 'modern-sr-only': labelHidden }">{{ label }}</label>
-    <div class="modern-select-control">
-      <select :id="id" v-model="model" v-bind="$attrs" :disabled="disabled">
-        <option v-for="option in options" :key="option.value" :value="option.value">
-          {{ option.label }}
-        </option>
-      </select>
-      <AppIcon :icon="ChevronDown" size="sm" />
-    </div>
-  </div>
+  <AppField v-slot="{ id, describedBy, invalid }" v-bind="props">
+    <SelectRoot v-model="selected" :disabled="disabled" :name="name" :required="required">
+      <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
+        <SelectTrigger
+          v-bind="$attrs"
+          :id="id"
+          class="modern-select-trigger"
+          :class="{ 'is-invalid': invalid }"
+          :aria-labelledby="`${id}-label`"
+          :aria-invalid="invalid || undefined"
+          :aria-describedby="describedBy"
+        >
+          <AppIcon v-if="icon" :icon="icon" size="sm" :label="label" />
+          <SelectValue class="modern-select-value"
+            ><AppOverflowText :text="selectedLabel"
+          /></SelectValue>
+          <AppIcon :icon="ChevronDown" size="sm" :label="label" />
+        </SelectTrigger>
+      </AppFieldControl>
+      <SelectPortal>
+        <AppMenuSurface>
+          <SelectContent position="popper" align="start" :side-offset="overlaySideOffset">
+            <SelectViewport>
+              <SelectItem
+                v-for="option in options"
+                :key="option.value"
+                :value="option.value === '' ? null : option.value"
+                :disabled="option.disabled"
+                class="modern-menu-option"
+              >
+                <SelectItemText>{{ option.label }}</SelectItemText>
+                <SelectItemIndicator><AppIcon :icon="Check" size="sm" /></SelectItemIndicator>
+              </SelectItem>
+            </SelectViewport>
+          </SelectContent>
+        </AppMenuSurface>
+      </SelectPortal>
+    </SelectRoot>
+  </AppField>
 </template>
 
 <style scoped>
-.modern-select {
-  display: grid;
+.modern-select-trigger {
+  justify-content: space-between;
+  text-align: left;
+}
+.modern-select-value {
+  flex: 1;
   min-width: 0;
-  gap: var(--modern-space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.modern-select label {
-  font-size: var(--modern-font-size-secondary);
-  font-weight: var(--modern-weight-medium);
-}
-.modern-select-control {
-  position: relative;
-  min-width: 0;
-}
-.modern-select select {
-  appearance: none;
-  width: 100%;
-  min-height: var(--modern-control-md);
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-surface);
-  padding: var(--modern-space-1-5) var(--modern-space-8) var(--modern-space-1-5)
-    var(--modern-space-3);
-  color: var(--modern-text);
-  font-size: var(--modern-font-size-small);
-  cursor: pointer;
-}
-.modern-select select:disabled {
-  opacity: var(--modern-opacity-disabled);
-  cursor: not-allowed;
-}
-.modern-select-control > svg {
-  position: absolute;
-  right: var(--modern-space-3);
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
+.modern-select-trigger > svg {
   color: var(--modern-muted);
+  transition: transform var(--modern-motion-fast) var(--modern-motion-ease);
 }
-@media (max-width: 760px) {
-  .modern-select select {
-    min-height: var(--modern-touch-target);
-    font-size: var(--modern-font-size-input-mobile);
-  }
+.modern-select-trigger[data-state='open'] > svg:last-child {
+  transform: rotate(180deg);
 }
 </style>

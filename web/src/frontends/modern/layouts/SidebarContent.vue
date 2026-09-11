@@ -8,9 +8,8 @@ import { navigationSections } from '@modern/app/navigation'
 import { useNavigation } from '@modern/app/use-navigation'
 import BrandLogo from '@modern/components/BrandLogo.vue'
 import GitHubIcon from '@modern/components/GitHubIcon.vue'
-import HintTooltip from '@modern/components/HintTooltip.vue'
-import AppExternalLink from '@modern/components/ui/AppExternalLink.vue'
-import AppIcon from '@modern/components/ui/AppIcon.vue'
+import AppTooltip from '@modern/components/ui/AppTooltip.vue'
+import { AppExternalLink, AppIcon } from '@modern/components/ui'
 import SystemStatus from '@modern/features/system/SystemStatus.vue'
 
 defineProps<{ collapsed?: boolean }>()
@@ -42,7 +41,7 @@ const footerLinks = computed(() => [
     <nav class="modern-sidebar-navigation" :aria-label="t('navigation')">
       <div v-for="section in sections" :key="section" class="modern-nav-section">
         <p v-if="!collapsed" class="modern-nav-section__label">{{ t(`sections.${section}`) }}</p>
-        <HintTooltip
+        <AppTooltip
           v-for="item in navigation.filter((entry) => entry.section === section)"
           :key="item.id"
           :label="t(`pages.${item.id}.title`)"
@@ -60,7 +59,7 @@ const footerLinks = computed(() => [
             <AppIcon :icon="item.icon" />
             <span v-if="!collapsed">{{ t(`pages.${item.id}.title`) }}</span>
           </RouterLink>
-        </HintTooltip>
+        </AppTooltip>
       </div>
     </nav>
     <div class="modern-sidebar-footer">

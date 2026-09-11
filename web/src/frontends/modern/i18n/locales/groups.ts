@@ -1,3 +1,5 @@
+import { zhCN as listZhCN, enUS as listEnUS, jaJP as listJaJP } from './groups-list'
+
 export const zhCN = {
   collection: {
     loading: '正在加载…',
@@ -7,6 +9,7 @@ export const zhCN = {
     stale: '列表刷新失败，当前显示上次加载的数据。',
   },
   groups: {
+    row: listZhCN,
     board: {
       views: { all: '全部分组', serving: '可服务', attention: '需关注', paused: '已暂停' },
       state: {
@@ -18,11 +21,11 @@ export const zhCN = {
         unavailable: '暂无可用凭据',
         syncing: '正在同步状态',
       },
-      sort: { priority: '运行优先', recent: '最近活跃', name: '名称排序' },
+      sort: { priority: '需关注优先', recent: '最近活跃', name: '名称排序' },
       allChannels: '全部渠道',
       channel: '渠道',
       search: '搜索分组、渠道、地址…',
-      price: '计价倍率',
+      price: '倍率 {value}×',
       credentials: '凭据',
       credentialsReady: '{count} 个可用',
       noModels: '尚未配置模型',
@@ -54,7 +57,7 @@ export const zhCN = {
     },
     columns: {
       credentials: '凭据健康',
-      models: '模型',
+      models: '模型 / 倍率',
     },
     credentials: { available: '可用', cooldown: '冷却', blacklisted: '隔离', disabled: '停用' },
     modelCooldown: '{count} 个凭据有模型冷却',
@@ -104,6 +107,7 @@ export const enUS: typeof zhCN = {
     stale: 'Refresh failed. Showing previously loaded data.',
   },
   groups: {
+    row: listEnUS,
     board: {
       views: {
         all: 'All groups',
@@ -120,11 +124,11 @@ export const enUS: typeof zhCN = {
         unavailable: 'No available credentials',
         syncing: 'Syncing status',
       },
-      sort: { priority: 'Operational priority', recent: 'Recently active', name: 'By name' },
+      sort: { priority: 'Needs attention first', recent: 'Recently active', name: 'By name' },
       allChannels: 'All channels',
       channel: 'Channel',
       search: 'Search groups, channels, URLs…',
-      price: 'price multiplier',
+      price: 'Rate {value}×',
       credentials: 'Credentials',
       credentialsReady: '{count} available',
       noModels: 'No models configured',
@@ -156,7 +160,7 @@ export const enUS: typeof zhCN = {
     },
     columns: {
       credentials: 'Credential health',
-      models: 'Models',
+      models: 'Models / rate',
     },
     credentials: {
       available: 'Available',
@@ -212,6 +216,7 @@ export const jaJP: typeof zhCN = {
     stale: '更新に失敗しました。前回のデータを表示しています。',
   },
   groups: {
+    row: listJaJP,
     board: {
       views: { all: 'すべて', serving: '提供中', attention: '要確認', paused: '停止中' },
       state: {
@@ -223,11 +228,11 @@ export const jaJP: typeof zhCN = {
         unavailable: '利用可能な認証情報なし',
         syncing: '状態を同期中',
       },
-      sort: { priority: '稼働優先', recent: '最近の利用順', name: '名前順' },
+      sort: { priority: '要確認を優先', recent: '最近の利用順', name: '名前順' },
       allChannels: 'すべてのチャネル',
       channel: 'チャネル',
       search: '名前、チャネル、URL を検索…',
-      price: '価格倍率',
+      price: '倍率 {value}×',
       credentials: '認証情報',
       credentialsReady: '{count} 件利用可能',
       noModels: 'モデル未設定',
@@ -259,7 +264,7 @@ export const jaJP: typeof zhCN = {
     },
     columns: {
       credentials: '認証情報の状態',
-      models: 'モデル',
+      models: 'モデル / 倍率',
     },
     credentials: {
       available: '利用可能',

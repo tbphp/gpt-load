@@ -9,7 +9,7 @@ import {
   RefreshCw,
   X,
 } from '@lucide/vue'
-import { DialogClose, DialogRoot, DialogTrigger, TooltipProvider } from 'reka-ui'
+import { DialogClose, DialogRoot, DialogTrigger } from 'reka-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
@@ -18,17 +18,21 @@ import { pagePath } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
 import { providePageRefresh } from '@modern/app/page-refresh'
 import { usePageTitle } from '@modern/app/use-page-title'
-import AppBadge from '@modern/components/ui/AppBadge.vue'
-import AppButton from '@modern/components/ui/AppButton.vue'
-import AppDialogContent from '@modern/components/ui/AppDialogContent.vue'
-import AppIcon from '@modern/components/ui/AppIcon.vue'
-import AppIconButton from '@modern/components/ui/AppIconButton.vue'
-import AppNotice from '@modern/components/ui/AppNotice.vue'
-import { tooltipDelay } from '@modern/components/ui/overlay'
+import {
+  AppBadge,
+  AppButton,
+  AppDialogContent,
+  AppIcon,
+  AppIconButton,
+  AppLoadingIndicator,
+  AppTooltip,
+  AppNotice,
+} from '@modern/components/ui'
 import { useAuthSession } from '@modern/features/auth/auth-session'
 import { provideSystemStatus } from '@modern/features/system/useSystemStatus'
 import { loginLocation } from '@modern/router'
 import AppearanceMenu from './AppearanceMenu.vue'
+import { useLoadingFeedback } from '@modern/components/ui/loading'
 import SidebarContent from './SidebarContent.vue'
 
 const { t, locale } = useI18n()
@@ -42,6 +46,13 @@ const failedNavigation = ref<string | null>(null)
 const loggingOut = ref(false)
 const { title: pageTitle } = usePageTitle()
 const pageRefresh = providePageRefresh()
+const navigating = ref(false)
+let navigationTarget: string | undefined
+const pageLoading = useLoadingFeedback(() => navigating.value || pageRefresh.pending.value)
+const removeBeforeEach = router.beforeEach((to) => {
+  navigationTarget = to.fullPath
+  navigating.value = true
+})
 const refreshedAt = computed(() =>
   pageRefresh.updatedAt.value === undefined
     ? ''
@@ -61,6 +72,7 @@ watch(
   },
 )
 const removeAfterEach = router.afterEach((to, from, failure) => {
+  if (navigationTarget === to.fullPath) navigating.value = false
   if (failure) return
   failedNavigation.value = null
   // 同页搜索和筛选只更新查询参数，保留当前控件的输入焦点。
@@ -70,6 +82,7 @@ const removeAfterEach = router.afterEach((to, from, failure) => {
   )
 })
 const removeNavigationError = router.onError((_error, to) => {
+  if (navigationTarget === to.fullPath) navigating.value = false
   failedNavigation.value = to.fullPath
 })
 let desktopMedia: MediaQueryList | undefined
@@ -97,6 +110,7 @@ onMounted(() => {
   desktopMedia.addEventListener('change', closeMobileOnDesktop)
 })
 onBeforeUnmount(() => {
+  removeBeforeEach()
   removeAfterEach()
   removeNavigationError()
   desktopMedia?.removeEventListener('change', closeMobileOnDesktop)
@@ -104,106 +118,111 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <TooltipProvider :delay-duration="tooltipDelay">
-    <a class="modern-skip-link" href="#modern-content">{{ t('skipToContent') }}</a>
-    <div class="modern-app" :class="{ 'is-sidebar-collapsed': sidebarCollapsed }">
-      <aside id="modern-desktop-sidebar" class="modern-sidebar">
-        <SidebarContent :collapsed="sidebarCollapsed" />
-      </aside>
+  <a class="modern-skip-link" href="#modern-content">{{ t('skipToContent') }}</a>
+  <div class="modern-app" :class="{ 'is-sidebar-collapsed': sidebarCollapsed }">
+    <aside id="modern-desktop-sidebar" class="modern-sidebar">
+      <SidebarContent :collapsed="sidebarCollapsed" />
+    </aside>
+    <AppTooltip
+      :label="sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')"
+      side="right"
+    >
       <button
         class="modern-sidebar-toggle"
         type="button"
         :aria-label="sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')"
-        :title="sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')"
         :aria-expanded="!sidebarCollapsed"
         aria-controls="modern-desktop-sidebar"
         @click="toggleSidebar"
       >
         <AppIcon :icon="sidebarCollapsed ? ChevronRight : ChevronLeft" size="xs" />
       </button>
-      <div class="modern-main-column">
-        <header class="modern-topbar">
-          <h1>{{ pageTitle }}</h1>
-          <div v-if="pageRefresh.available.value" class="modern-topbar-refresh">
-            <span v-if="refreshedAt">{{ refreshedAt }}</span>
-            <AppIconButton
-              :icon="RefreshCw"
-              :label="t('shell.refresh')"
-              :loading="pageRefresh.pending.value"
-              @click="pageRefresh.run()"
-            />
-          </div>
-          <span
-            v-if="pageRefresh.available.value"
-            class="modern-topbar-divider"
-            aria-hidden="true"
-          ></span>
-          <div class="modern-toolbar">
-            <DialogRoot v-model:open="mobileOpen">
-              <DialogTrigger as-child>
-                <AppIconButton class="modern-mobile-toggle" :icon="Menu" :label="t('navigation')" />
-              </DialogTrigger>
-              <AppDialogContent
-                placement="sidebar"
-                :title="t('navigation')"
-                :description="t('shell.mobileNavigationDescription')"
-              >
-                <DialogClose as-child>
-                  <AppIconButton class="modern-mobile-close" :icon="X" :label="t('shell.close')" />
-                </DialogClose>
-                <SidebarContent @navigate="mobileOpen = false" />
-              </AppDialogContent>
-            </DialogRoot>
-            <AppBadge
-              v-if="session.state.principalType === 'access_key'"
-              class="modern-session-scope"
-              :icon="KeyRound"
-              tone="info"
-              :title="t('auth.readOnlyDescription')"
+    </AppTooltip>
+    <div class="modern-main-column">
+      <header class="modern-topbar">
+        <h1>{{ pageTitle }}</h1>
+        <div v-if="pageRefresh.available.value" class="modern-topbar-refresh">
+          <span v-if="refreshedAt">{{ refreshedAt }}</span>
+          <AppIconButton
+            :icon="RefreshCw"
+            :label="t('shell.refresh')"
+            :loading="pageRefresh.pending.value"
+            @click="pageRefresh.run()"
+          />
+        </div>
+        <span
+          v-if="pageRefresh.available.value"
+          class="modern-topbar-divider"
+          aria-hidden="true"
+        ></span>
+        <div class="modern-toolbar">
+          <DialogRoot v-model:open="mobileOpen">
+            <DialogTrigger as-child>
+              <AppIconButton class="modern-mobile-toggle" :icon="Menu" :label="t('navigation')" />
+            </DialogTrigger>
+            <AppDialogContent
+              placement="sidebar"
+              :title="t('navigation')"
+              :description="t('shell.mobileNavigationDescription')"
             >
+              <DialogClose as-child>
+                <AppIconButton class="modern-mobile-close" :icon="X" :label="t('shell.close')" />
+              </DialogClose>
+              <SidebarContent @navigate="mobileOpen = false" />
+            </AppDialogContent>
+          </DialogRoot>
+          <AppTooltip
+            v-if="session.state.principalType === 'access_key'"
+            :label="t('auth.readOnlyDescription')"
+          >
+            <AppBadge class="modern-session-scope" :icon="KeyRound" tone="info">
               {{ t('auth.readOnly') }}
             </AppBadge>
+          </AppTooltip>
+          <AppTooltip
+            v-if="session.state.principalType === 'admin'"
+            :label="t('shell.importCredentials')"
+          >
             <AppButton
-              v-if="session.state.principalType === 'admin'"
               variant="brand"
               icon-only
               :aria-label="t('shell.importCredentials')"
-              :title="t('shell.importCredentials')"
               as-child
             >
               <RouterLink :to="{ name: 'modern-import' }"
                 ><AppIcon :icon="CirclePlus" size="lg"
               /></RouterLink>
             </AppButton>
-            <AppearanceMenu />
-            <AppIconButton
-              :icon="LogOut"
-              :label="t('auth.logout')"
-              :loading="loggingOut"
-              @click="logout"
-            />
-          </div>
-        </header>
-        <main id="modern-content" class="modern-content" tabindex="-1">
-          <div v-if="failedNavigation || persistenceFailed" class="modern-notices">
-            <AppNotice v-if="failedNavigation" tone="danger" bordered>
-              {{ t('shell.navigationFailed') }}
-              <template #actions>
-                <AppButton @click="reloadFailedNavigation">{{ t('shell.reload') }}</AppButton>
-              </template>
-            </AppNotice>
-            <AppNotice v-if="persistenceFailed" tone="warning">
-              {{ t('appearance.persistenceFailed') }}
-            </AppNotice>
-          </div>
-          <slot />
-        </main>
-      </div>
+          </AppTooltip>
+          <AppearanceMenu />
+          <AppIconButton
+            :icon="LogOut"
+            :label="t('auth.logout')"
+            :loading="loggingOut"
+            @click="logout"
+          />
+        </div>
+        <AppLoadingIndicator :loading="pageLoading" />
+      </header>
+      <main id="modern-content" class="modern-content" tabindex="-1">
+        <div v-if="failedNavigation || persistenceFailed" class="modern-notices">
+          <AppNotice v-if="failedNavigation" tone="danger" bordered>
+            {{ t('shell.navigationFailed') }}
+            <template #actions>
+              <AppButton @click="reloadFailedNavigation">{{ t('shell.reload') }}</AppButton>
+            </template>
+          </AppNotice>
+          <AppNotice v-if="persistenceFailed" tone="warning">
+            {{ t('appearance.persistenceFailed') }}
+          </AppNotice>
+        </div>
+        <slot />
+      </main>
     </div>
-    <span class="modern-sr-only" role="status" aria-live="polite" aria-atomic="true">{{
-      pageTitle
-    }}</span>
-  </TooltipProvider>
+  </div>
+  <span class="modern-sr-only" role="status" aria-live="polite" aria-atomic="true">{{
+    pageTitle
+  }}</span>
 </template>
 
 <style scoped>
@@ -224,7 +243,8 @@ onBeforeUnmount(() => {
 .modern-app {
   display: grid;
   grid-template-columns: var(--modern-sidebar-expanded) minmax(0, 1fr);
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   transition: grid-template-columns var(--modern-motion-fast) var(--modern-motion-ease);
 }
 .modern-app.is-sidebar-collapsed {
@@ -277,6 +297,10 @@ onBeforeUnmount(() => {
   background: var(--modern-sidebar);
 }
 .modern-main-column {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
 }
 /* 顶栏是所有页面共用的固定结构：标题 | 刷新与时间 | 竖线 | 全局控件。 */
@@ -335,9 +359,13 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .modern-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
   width: 100%;
   min-width: 0;
-  padding: 0 var(--modern-content-inset) var(--modern-content-bottom);
+  padding: 0 var(--modern-content-inset) var(--modern-space-3);
 }
 .modern-content:focus {
   outline: none;
@@ -380,6 +408,7 @@ onBeforeUnmount(() => {
 }
 .modern-notices {
   display: grid;
+  flex: none;
   gap: var(--modern-space-3);
   margin-bottom: var(--modern-space-5);
 }

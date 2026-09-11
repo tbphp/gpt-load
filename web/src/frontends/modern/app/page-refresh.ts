@@ -3,12 +3,14 @@ import {
   inject,
   onScopeDispose,
   provide,
+  ref,
   shallowRef,
   toValue,
   type InjectionKey,
   type MaybeRefOrGetter,
   type ShallowRef,
 } from 'vue'
+import { useLoadingFeedback } from '../components/ui/loading'
 
 // 顶栏的刷新入口是公共结构，页面只登记自己的刷新动作与数据时间。
 export interface PageRefreshSource {
@@ -22,12 +24,24 @@ const pageRefreshKey: InjectionKey<ShallowRef<PageRefreshSource | undefined>> =
 
 export function providePageRefresh() {
   const source = shallowRef<PageRefreshSource | undefined>()
+  const running = ref(false)
+  const pending = useLoadingFeedback(
+    () => running.value || (toValue(source.value?.pending) ?? false),
+  )
   provide(pageRefreshKey, source)
   return {
     available: computed(() => source.value !== undefined),
-    pending: computed(() => toValue(source.value?.pending) ?? false),
+    pending,
     updatedAt: computed(() => toValue(source.value?.updatedAt)),
-    run: () => source.value?.refresh(),
+    run: async () => {
+      if (running.value || !source.value) return
+      running.value = true
+      try {
+        await source.value.refresh()
+      } finally {
+        running.value = false
+      }
+    },
   }
 }
 

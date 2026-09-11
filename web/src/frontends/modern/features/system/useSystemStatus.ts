@@ -41,24 +41,22 @@ function createSystemStatus() {
     }
   }
 
-  async function loadUpdate(force: boolean): Promise<void> {
+  async function loadUpdate(): Promise<void> {
     if (checkState.value === 'checking') return
     if (!canCheckUpdate.value) {
       update.value = null
-      checkState.value = force ? 'authRequired' : 'idle'
+      checkState.value = 'authRequired'
       return
     }
     checkState.value = 'checking'
     try {
-      update.value = await getReleaseUpdate(client, force, controller.signal)
-      checkState.value = update.value ? 'available' : force ? 'latest' : 'idle'
+      update.value = await getReleaseUpdate(client, true, controller.signal)
+      checkState.value = update.value ? 'available' : 'latest'
     } catch (error) {
       if (error instanceof RequestCancelledError || controller.signal.aborted) return
       update.value = null
-      // 自动检查失败保持安静；手动检查给出结果，权限仍由现有管理接口校验。
-      checkState.value = !force
-        ? 'idle'
-        : error instanceof ApiError && (error.status === 401 || error.status === 403)
+      checkState.value =
+        error instanceof ApiError && (error.status === 401 || error.status === 403)
           ? 'authRequired'
           : 'failed'
     }
@@ -66,12 +64,11 @@ function createSystemStatus() {
 
   function checkForUpdate(): void {
     void loadVersion()
-    void loadUpdate(true)
+    void loadUpdate()
   }
 
   onMounted(() => {
     void loadVersion()
-    void loadUpdate(false)
   })
   onScopeDispose(() => controller.abort())
 

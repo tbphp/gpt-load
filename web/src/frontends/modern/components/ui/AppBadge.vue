@@ -1,52 +1,98 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-
 import AppIcon from './AppIcon.vue'
+import type { SemanticTone } from './types'
 
 withDefaults(
-  defineProps<{ icon?: Component; tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }>(),
-  {
-    icon: undefined,
-    tone: 'neutral',
-  },
+  defineProps<{
+    icon?: Component
+    tone?: SemanticTone | 'brand'
+    variant?: 'soft' | 'plain'
+    size?: 'xs' | 'sm'
+    dot?: boolean
+    mono?: boolean
+  }>(),
+  { icon: undefined, tone: 'neutral', variant: 'soft', size: 'sm' },
 )
 </script>
 
 <template>
-  <span class="modern-badge" :class="`modern-badge--${tone}`">
+  <span
+    class="modern-badge"
+    :class="[
+      `modern-badge--${tone}`,
+      `modern-badge--${variant}`,
+      `modern-badge--${size}`,
+      { 'is-mono': mono },
+    ]"
+  >
     <AppIcon v-if="icon" :icon="icon" size="sm" />
-    <span><slot /></span>
+    <span v-else-if="dot" class="modern-badge-dot" aria-hidden="true" />
+    <span class="modern-badge-label"><slot /></span>
   </span>
 </template>
 
 <style scoped>
 .modern-badge {
+  --modern-badge-color: var(--modern-muted);
+  --modern-badge-background: var(--modern-subtle);
   display: inline-flex;
-  min-height: var(--modern-control-xs);
+  width: fit-content;
+  max-width: 100%;
+  min-height: var(--modern-badge-sm);
   align-items: center;
   gap: var(--modern-space-1-5);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-subtle);
-  padding: var(--modern-space-1) var(--modern-space-2);
-  color: var(--modern-muted);
+  border-radius: var(--modern-radius-small);
+  background: var(--modern-badge-background);
+  padding: var(--modern-space-0-5) var(--modern-space-2);
+  color: var(--modern-badge-color);
   font-size: var(--modern-font-size-small);
   font-weight: var(--modern-weight-medium);
   line-height: var(--modern-leading-compact);
 }
 .modern-badge--info {
-  background: var(--modern-info-soft);
-  color: var(--modern-info);
+  --modern-badge-color: var(--modern-info);
+  --modern-badge-background: var(--modern-info-soft);
+}
+.modern-badge--brand {
+  --modern-badge-color: var(--modern-badge-brand-text);
+  --modern-badge-background: var(--modern-badge-brand-surface);
 }
 .modern-badge--success {
-  background: var(--modern-success-soft);
-  color: var(--modern-success);
+  --modern-badge-color: var(--modern-success);
+  --modern-badge-background: var(--modern-success-soft);
 }
 .modern-badge--warning {
-  background: var(--modern-warning-soft);
-  color: var(--modern-warning);
+  --modern-badge-color: var(--modern-warning);
+  --modern-badge-background: var(--modern-warning-soft);
 }
 .modern-badge--danger {
-  background: var(--modern-danger-soft);
-  color: var(--modern-danger);
+  --modern-badge-color: var(--modern-danger);
+  --modern-badge-background: var(--modern-danger-soft);
+}
+.modern-badge--plain {
+  min-height: 0;
+  background: transparent;
+  padding: 0;
+  font-weight: var(--modern-weight-regular);
+}
+.modern-badge--xs {
+  min-height: var(--modern-badge-xs);
+  font-size: var(--modern-font-size-caption);
+}
+.modern-badge.is-mono {
+  font-family: var(--modern-font-mono);
+  font-weight: var(--modern-weight-regular);
+}
+.modern-badge-dot {
+  width: var(--modern-space-1-5);
+  height: var(--modern-space-1-5);
+  flex-shrink: 0;
+  border-radius: var(--modern-radius-round);
+  background: currentColor;
+}
+.modern-badge-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 </style>

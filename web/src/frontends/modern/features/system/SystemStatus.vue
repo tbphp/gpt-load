@@ -3,10 +3,13 @@ import { ArrowUpRight, Info, RefreshCw } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import HintTooltip from '@modern/components/HintTooltip.vue'
-import AppExternalLink from '@modern/components/ui/AppExternalLink.vue'
-import AppIcon from '@modern/components/ui/AppIcon.vue'
-import AppIconButton from '@modern/components/ui/AppIconButton.vue'
+import {
+  AppExternalLink,
+  AppIcon,
+  AppIconButton,
+  AppOverflowText,
+  AppTooltip,
+} from '@modern/components/ui'
 import { useSystemStatus } from './useSystemStatus'
 
 defineProps<{ collapsed?: boolean }>()
@@ -36,42 +39,37 @@ const checkLabel = computed(() =>
 <template>
   <div class="modern-system-status" :class="{ 'is-compact': collapsed }">
     <div class="modern-version-row">
-      <HintTooltip
+      <AppTooltip
         :label="t('system.currentVersion', { version: versionLabel })"
         :disabled="!collapsed"
         side="right"
       >
-        <span
-          class="modern-version"
-          :title="collapsed ? undefined : t('system.currentVersion', { version: versionLabel })"
-          :tabindex="collapsed ? 0 : undefined"
-        >
+        <span class="modern-version" :tabindex="collapsed ? 0 : undefined">
           <AppIcon v-if="collapsed" :icon="Info" size="sm" />
-          <template v-else>{{ versionLabel }}</template>
+          <AppOverflowText v-else :text="versionLabel" />
         </span>
-      </HintTooltip>
+      </AppTooltip>
       <AppIconButton
         v-if="canCheckUpdate"
         class="modern-update-button"
         :icon="RefreshCw"
-        :label="checkLabel"
+        :label="collapsed && statusMessage ? statusMessage : checkLabel"
         size="xs"
-        :title="collapsed && statusMessage ? statusMessage : checkLabel"
         :loading="checkState === 'checking'"
         @click="checkForUpdate"
       />
     </div>
-    <AppExternalLink
-      v-if="update"
-      class="modern-update-release"
-      :href="update.releaseURL"
-      :title="statusMessage"
-      :aria-label="statusMessage"
-    >
-      <span v-if="!collapsed" class="modern-update-dot" aria-hidden="true" />
-      <span v-if="!collapsed">{{ statusMessage }}</span>
-      <AppIcon :icon="ArrowUpRight" size="xs" />
-    </AppExternalLink>
+    <AppTooltip v-if="update" :label="collapsed ? statusMessage : undefined">
+      <AppExternalLink
+        class="modern-update-release"
+        :href="update.releaseURL"
+        :aria-label="statusMessage"
+      >
+        <span v-if="!collapsed" class="modern-update-dot" aria-hidden="true" />
+        <span v-if="!collapsed">{{ statusMessage }}</span>
+        <AppIcon :icon="ArrowUpRight" size="xs" />
+      </AppExternalLink>
+    </AppTooltip>
     <p
       v-else-if="statusMessage"
       class="modern-update-status"

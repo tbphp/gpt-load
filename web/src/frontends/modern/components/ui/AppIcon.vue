@@ -1,17 +1,29 @@
 <script setup lang="ts">
+import { useForwardExpose } from 'reka-ui'
 import type { Component } from 'vue'
+import AppTooltip from './AppTooltip.vue'
+import type { ControlSize } from './types'
 
-withDefaults(defineProps<{ icon: Component; size?: 'xs' | 'sm' | 'md' | 'lg' }>(), { size: 'md' })
+defineOptions({ inheritAttrs: false })
+withDefaults(
+  defineProps<{ icon: Component; size?: ControlSize | 'lg' | 'inherit'; label?: string }>(),
+  { size: 'md', label: undefined },
+)
+const { forwardRef } = useForwardExpose()
 </script>
 
 <template>
-  <component
-    :is="icon"
-    class="modern-icon"
-    :class="`modern-icon--${size}`"
-    aria-hidden="true"
-    focusable="false"
-  />
+  <AppTooltip :label="label">
+    <component
+      :is="icon"
+      :ref="forwardRef"
+      v-bind="$attrs"
+      class="modern-icon"
+      :class="'modern-icon--' + size"
+      aria-hidden="true"
+      focusable="false"
+    />
+  </AppTooltip>
 </template>
 
 <style scoped>
@@ -20,6 +32,7 @@ withDefaults(defineProps<{ icon: Component; size?: 'xs' | 'sm' | 'md' | 'lg' }>(
   height: var(--modern-icon-md);
   flex-shrink: 0;
   stroke-width: var(--modern-icon-stroke);
+  vertical-align: middle;
 }
 .modern-icon--xs {
   width: var(--modern-icon-xs);
@@ -32,5 +45,9 @@ withDefaults(defineProps<{ icon: Component; size?: 'xs' | 'sm' | 'md' | 'lg' }>(
 .modern-icon--lg {
   width: var(--modern-icon-lg);
   height: var(--modern-icon-lg);
+}
+.modern-icon--inherit {
+  width: 1em;
+  height: 1em;
 }
 </style>

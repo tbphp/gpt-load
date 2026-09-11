@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { themes, usePreferences, type Theme } from '@modern/app/preferences'
-import AppSelectMenu from '@modern/components/ui/AppSelectMenu.vue'
+import { AppSelectMenu } from '@modern/components/ui'
 import { supportedLocales, type AppLocale } from '@shared/preferences/locale'
 
 const { t } = useI18n()

@@ -4,12 +4,14 @@ import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
 
-import AppButton from '@modern/components/ui/AppButton.vue'
-import AppCheckbox from '@modern/components/ui/AppCheckbox.vue'
-import AppExternalLink from '@modern/components/ui/AppExternalLink.vue'
-import AppIconButton from '@modern/components/ui/AppIconButton.vue'
-import AppNotice from '@modern/components/ui/AppNotice.vue'
-import AppTextField from '@modern/components/ui/AppTextField.vue'
+import {
+  AppButton,
+  AppCheckbox,
+  AppExternalLink,
+  AppIconButton,
+  AppNotice,
+  AppTextField,
+} from '@modern/components/ui'
 import { safeRedirect } from '@modern/router'
 import { RequestCancelledError } from '@shared/http/errors'
 import AuthCard from './AuthCard.vue'

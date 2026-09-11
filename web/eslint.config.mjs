@@ -20,6 +20,25 @@ export default defineConfigWithVueTs(
     rules: { 'vue/no-static-inline-styles': 'error' },
   },
   {
+    files: ['src/frontends/modern/**/*.{ts,vue}'],
+    ignores: ['src/frontends/modern/app/query.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'Property[key.name=/^(refetchInterval|refetchIntervalInBackground|refetchOnWindowFocus|refetchOnReconnect|refetchOnMount)$/]',
+          message: '新版禁止定时轮询；刷新策略统一由 app/query.ts 管理，不在页面覆盖。',
+        },
+        {
+          selector:
+            'Property[key.value=/^(refetchInterval|refetchIntervalInBackground|refetchOnWindowFocus|refetchOnReconnect|refetchOnMount)$/]',
+          message: '新版禁止定时轮询；刷新策略统一由 app/query.ts 管理，不在页面覆盖。',
+        },
+      ],
+    },
+  },
+  {
     files: ['src/frontends/modern/{features,layouts}/**/*.vue'],
     rules: {
       'no-restricted-imports': [

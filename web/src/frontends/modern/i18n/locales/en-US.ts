@@ -1,6 +1,8 @@
 import { enUS as groupMessages } from './groups'
+import { enUS as ui } from './ui'
 
 export default {
+  ui,
   ...groupMessages,
   sections: {
     workspace: 'Workspace',

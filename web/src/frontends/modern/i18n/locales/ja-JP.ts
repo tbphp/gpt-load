@@ -1,6 +1,8 @@
 import { jaJP as groupMessages } from './groups'
+import { jaJP as ui } from './ui'
 
 export default {
+  ui,
   ...groupMessages,
   sections: {
     workspace: 'ワークスペース',
