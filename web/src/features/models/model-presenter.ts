@@ -9,7 +9,7 @@ export interface ModelUpstreamRow {
   status: ModelPriceRowStatus
   /** 基础价格槽位；null 表示未设置，由视图渲染占位符。 */
   prices: Record<ModelPriceField, string | null>
-  fastPrices: Record<ModelPriceField, string | null> | null
+  modePrices: { mode: 'fast' | 'ultrafast'; prices: Record<ModelPriceField, string | null> }[]
   tierCount: number
 }
 
@@ -31,7 +31,10 @@ function presentUpstream(upstream: ModelUpstreamDto): ModelUpstreamRow {
     upstream,
     status: upstreamStatus(upstream),
     prices,
-    fastPrices: upstream.price.mode_schedules.fast?.prices ?? null,
+    modePrices: (['fast', 'ultrafast'] as const).flatMap((mode) => {
+      const schedule = upstream.price.mode_schedules[mode]
+      return schedule ? [{ mode, prices: schedule.prices }] : []
+    }),
     tierCount: upstream.price.context_tiers.length,
   }
 }

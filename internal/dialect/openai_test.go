@@ -65,6 +65,7 @@ func TestOpenAIInspectRequestSelectsSupportedPricingModes(t *testing.T) {
 	}{
 		{body: `{"model":"gpt-5","service_tier":"priority"}`, mode: pricing.ModeFast},
 		{body: `{"model":"gpt-5","service_tier":"fast"}`, mode: pricing.ModeFast},
+		{body: `{"model":"gpt-5","service_tier":"ultrafast"}`, mode: pricing.ModeUltrafast},
 		{body: `{"model":"gpt-5","service_tier":"default"}`, mode: pricing.ModeStandard},
 		{body: `{"model":"gpt-5"}`},
 		{body: `{"model":"gpt-5","service_tier":"auto"}`},

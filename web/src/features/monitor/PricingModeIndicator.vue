@@ -13,6 +13,11 @@ const props = defineProps<{
 }>()
 
 const { locale, t } = useI18n()
+const modeLabel = computed(() =>
+  props.mode === 'ultrafast'
+    ? t('monitor.logs.pricingMode.ultrafastLabel')
+    : t('monitor.logs.pricingMode.fastLabel'),
+)
 const tierLabel = computed(() =>
   props.contextThresholdTokens === null
     ? ''
@@ -28,12 +33,8 @@ const tierLabel = computed(() =>
       <ChartNoAxesColumnIncreasing :size="13" aria-hidden="true" />
     </span>
   </AppTooltip>
-  <AppTooltip v-else-if="mode === 'fast'" :content="t('monitor.logs.pricingMode.fastLabel')">
-    <span
-      class="pricing-mode-indicator"
-      tabindex="0"
-      :aria-label="t('monitor.logs.pricingMode.fastLabel')"
-    >
+  <AppTooltip v-else-if="mode === 'fast' || mode === 'ultrafast'" :content="modeLabel">
+    <span class="pricing-mode-indicator" tabindex="0" :aria-label="modeLabel">
       <Zap :size="13" aria-hidden="true" />
     </span>
   </AppTooltip>

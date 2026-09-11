@@ -124,7 +124,7 @@ func (s *Service) UpdateModelPrice(
 		if err := tx.First(&row, id).Error; err != nil {
 			return fmt.Errorf("load model price: %w", app_errors.ParseDBError(err))
 		}
-		if err := validateModeScheduleSetUnchanged(row, request.ModeSchedules.schedules); err != nil {
+		if err := validateModeScheduleUpdate(row, request.ModeSchedules.schedules); err != nil {
 			return err
 		}
 		references, err := loadPriceReferenceSnapshot(tx)
@@ -389,7 +389,7 @@ func buildModePriceSchedulesJSON(
 	return normalized, nil
 }
 
-func validateModeScheduleSetUnchanged(
+func validateModeScheduleUpdate(
 	row models.ModelPrice,
 	requested map[pricing.Mode]ModelPriceScheduleRequest,
 ) error {
@@ -397,11 +397,14 @@ func validateModeScheduleSetUnchanged(
 	if err != nil {
 		return fmt.Errorf("decode persisted model price: %w", app_errors.ErrInternalServer)
 	}
-	if len(rule.ModeSchedules) != len(requested) {
-		return fmt.Errorf("model price mode schedule set cannot be changed: %w", app_errors.ErrValidation)
-	}
+	// Ultrafast 允许在目录尚无价格时手工配置；其他模式保留原有增删约束。
 	for mode := range rule.ModeSchedules {
-		if _, exists := requested[mode]; !exists {
+		if _, exists := requested[mode]; !exists && mode != pricing.ModeUltrafast {
+			return fmt.Errorf("model price mode schedule set cannot be changed: %w", app_errors.ErrValidation)
+		}
+	}
+	for mode := range requested {
+		if _, exists := rule.ModeSchedules[mode]; !exists && mode != pricing.ModeUltrafast {
 			return fmt.Errorf("model price mode schedule set cannot be changed: %w", app_errors.ErrValidation)
 		}
 	}
