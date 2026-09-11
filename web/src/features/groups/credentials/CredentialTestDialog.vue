@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessProtocol, CredentialTestResultDto } from '@/api/control/types'
-import AppSelect from '@/components/ui/AppSelect.vue'
+import GroupTestFields from '../GroupTestFields.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -72,23 +72,15 @@ function setOpen(open: boolean): void {
           <span>{{ t('group.credentials.test.fields.credential') }}</span>
           <strong>{{ mask }}</strong>
         </p>
-        <span v-if="models.length">{{ t('group.credentials.test.fields.model') }}</span>
-        <AppSelect
-          v-if="models.length"
-          :model-value="model"
-          :label="t('group.credentials.test.fields.model')"
-          :options="models.map((value) => ({ value, label: value }))"
-          :disabled="busy"
-          @update:model-value="emit('update:model', $event)"
-        />
-        <span v-if="protocols.length">{{ t('group.settings.base.validationProtocol') }}</span>
-        <AppSelect
+        <GroupTestFields
           v-if="protocols.length"
-          :model-value="protocol"
-          :label="t('group.settings.base.validationProtocol')"
-          :options="protocols.map((value) => ({ value, label: value }))"
-          :disabled="busy || protocols.length <= 1"
-          @update:model-value="emit('update:protocol', $event as AccessProtocol)"
+          :protocol="protocol"
+          :protocols="protocols"
+          :model="model"
+          :models="models.map((id) => ({ id }))"
+          :disabled="busy || settingsPending"
+          @update:protocol="emit('update:protocol', $event)"
+          @update:model="emit('update:model', $event)"
         />
         <QueryFeedback
           v-if="settingsPending"
@@ -106,7 +98,11 @@ function setOpen(open: boolean): void {
         <InlineFeedback v-else-if="!protocols.length" tone="warning" appearance="ledger">
           {{ t('group.credentials.test.unavailable') }}
         </InlineFeedback>
-        <InlineFeedback v-else-if="!models.length" tone="warning" appearance="ledger">
+        <InlineFeedback
+          v-else-if="!models.length && !model?.trim()"
+          tone="warning"
+          appearance="ledger"
+        >
           {{ t('group.credentials.test.noModels') }}
         </InlineFeedback>
         <template v-else-if="result">
@@ -114,10 +110,10 @@ function setOpen(open: boolean): void {
             {{ t(`group.credentials.test.outcome.${result.outcome}`) }}
           </InlineFeedback>
           <dl class="credential-test-dialog__details">
-            <dt>{{ t('group.credentials.test.fields.model') }}</dt>
-            <dd>{{ result.model }}</dd>
             <dt>{{ t('group.credentials.test.fields.protocol') }}</dt>
             <dd>{{ result.protocol }}</dd>
+            <dt>{{ t('group.credentials.test.fields.model') }}</dt>
+            <dd>{{ result.model }}</dd>
             <dt>{{ t('group.credentials.test.fields.latency') }}</dt>
             <dd>{{ t('group.credentials.test.latency', { value: n(result.latency_ms) }) }}</dd>
             <dt>{{ t('group.credentials.test.fields.reason') }}</dt>
@@ -142,7 +138,7 @@ function setOpen(open: boolean): void {
     <template #footer>
       <AppButton
         size="compact"
-        :disabled="busy || settingsPending || !protocol || !model"
+        :disabled="busy || settingsPending || !protocol || !model?.trim()"
         @click="emit('test')"
       >
         {{ t('group.credentials.test.start') }}

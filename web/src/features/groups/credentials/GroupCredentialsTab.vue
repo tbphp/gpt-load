@@ -1371,7 +1371,7 @@ function clearCredentialTestResult(): void {
 async function runCredentialTest(): Promise<void> {
   const item = credentialTestTarget.value
   const protocol = credentialTestProtocol.value
-  const model = credentialTestModel.value
+  const model = credentialTestModel.value?.trim()
   if (!item || !protocol || !model || credentialTestSettingsPending.value) return
   if (props.connectionType !== 'api_key' || batchBusy.value || pending(item.credential_id)) return
 

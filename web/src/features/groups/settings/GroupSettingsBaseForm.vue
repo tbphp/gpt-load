@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useId } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type {
@@ -9,7 +9,7 @@ import type {
   GroupModelItemDto,
 } from '@/api/control/types'
 import type { ChannelFieldDto } from '@/app/resources/channels'
-import AppSelect from '@/components/ui/AppSelect.vue'
+import GroupTestFields from '../GroupTestFields.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
@@ -45,7 +45,6 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const isSubscription = computed(() => props.connectionType === 'subscription')
-const validationModelListId = `${useId()}-validation-models`
 // 验活直接把该值当成上游模型 ID 使用，所以候选取 id 而不是可能被别名替换的 client_model。
 const validationModelOptions = computed(() =>
   [...props.models]
@@ -145,42 +144,18 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
         </small>
         <small v-else>{{ t('common.priceMultiplier.groupHelp') }}</small>
       </label>
-      <div v-if="!isSubscription" class="group-settings__grid group-settings__wide">
-        <label class="group-settings__field">
-          <span>{{ t('group.settings.base.validationModel') }}</span>
-          <input
-            class="group-settings__mono"
-            :value="validationModel ?? ''"
-            :list="validationModelListId"
-            :placeholder="t('group.settings.base.validationModelPlaceholder')"
-            :disabled="pending"
-            autocomplete="off"
-            @input="
-              emit('update:validationModel', ($event.target as HTMLInputElement).value || null)
-            "
-          />
-          <datalist :id="validationModelListId">
-            <option
-              v-for="option in validationModelOptions"
-              :key="option.id"
-              :value="option.id"
-              :label="option.alias || undefined"
-            />
-          </datalist>
-          <small>{{ t('group.settings.base.validationModelHelp') }}</small>
-        </label>
-        <div class="group-settings__field">
-          <span>{{ t('group.settings.base.validationProtocol') }}</span>
-          <AppSelect
-            :model-value="validationProtocol ?? undefined"
-            :label="t('group.settings.base.validationProtocol')"
-            :options="validationProtocols.map((value) => ({ value, label: value }))"
-            :disabled="pending || validationProtocols.length <= 1"
-            @update:model-value="emit('update:validationProtocol', $event as AccessProtocol)"
-          />
-          <small>{{ t('group.settings.base.validationProtocolHelp') }}</small>
-        </div>
-      </div>
+      <GroupTestFields
+        v-if="!isSubscription"
+        class="group-settings__wide"
+        :protocol="validationProtocol"
+        :protocols="validationProtocols"
+        :model="validationModel"
+        :models="validationModelOptions"
+        :disabled="pending"
+        show-help
+        @update:protocol="emit('update:validationProtocol', $event)"
+        @update:model="emit('update:validationModel', $event || null)"
+      />
       <template v-for="field in paramFields" :key="field.key">
         <div v-if="isOptionalBaseURL(field)" class="group-settings__field group-settings__wide">
           <span>{{ t('common.upstreamUrl.label') }}</span>

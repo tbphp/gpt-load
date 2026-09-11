@@ -428,7 +428,7 @@ export default {
       restore: '立即恢复',
       restoreFailed: '无法立即恢复渠道凭据',
       test: {
-        noModels: '当前分组暂无可测试的模型，请先在分组中添加模型或配置测试模型。',
+        noModels: '当前分组暂无模型，可直接输入测试模型 ID。',
         unavailable: '当前渠道没有可用于密钥测试的协议。',
         start: '开始测试',
         loadingSettings: '正在读取测试配置…',
