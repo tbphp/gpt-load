@@ -83,6 +83,7 @@ func cloneGroupRows(rows []models.Group) []models.Group {
 			value := *rows[index].WeightManual
 			cloned[index].WeightManual = &value
 		}
+		cloned[index].ValidationProtocol = cloneString(rows[index].ValidationProtocol)
 		if rows[index].ValidationModel != nil {
 			value := *rows[index].ValidationModel
 			cloned[index].ValidationModel = &value

@@ -20,10 +20,6 @@ func openAIRequestPricing(body []byte) (pricing.Mode, usage.Diagnostics, error) 
 			return "", diagnostics, fmt.Errorf("service_tier field must use lowercase service_tier")
 		}
 	}
-	if value, ok := jsonString(root, "service_tier"); ok &&
-		strings.EqualFold(strings.TrimSpace(value), "ultrafast") {
-		return "", diagnostics, fmt.Errorf("service_tier ultrafast is not supported")
-	}
 	mode, supported := openAIRequestedPricingMode(root)
 	if !supported || jsonStringEquals(root, "speed", "fast") ||
 		openAIUnsupportedReasoningMode(root) {
@@ -44,6 +40,8 @@ func openAIRequestedPricingMode(root map[string]json.RawMessage) (pricing.Mode, 
 		return pricing.ModeStandard, true
 	case "fast", "priority":
 		return pricing.ModeFast, true
+	case "ultrafast":
+		return pricing.ModeUltrafast, true
 	default:
 		return "", false
 	}

@@ -37,15 +37,17 @@ type CodexWSSessionOptions struct {
 	TurnTimeout     time.Duration
 	MaxRequestBytes int
 	MaxEventBytes   int
+	Headers         http.Header
 }
 
 // CodexWSTurnResult 只描述本轮执行，不执行健康、额度或日志记账。
 type CodexWSTurnResult struct {
-	ResponseID    string
-	Status        string
-	Usage         json.RawMessage
-	Headers       http.Header
-	DispatchState string
+	ResponseID       string
+	Status           string
+	Usage            json.RawMessage
+	Headers          http.Header
+	HeaderObservedAt time.Time
+	DispatchState    string
 }
 
 // CodexWSError 的文本不包含上游响应、凭据、地址或代理密码。
@@ -65,7 +67,7 @@ func codexWSError(code string) *CodexWSError {
 	return &CodexWSError{Code: code, DispatchState: CodexWSNotSent}
 }
 
-// CodexWSSession 是尚未接入数据面的独立 Codex 上游会话。
+// CodexWSSession 是由调用者独占的 Codex 上游会话。
 type CodexWSSession struct {
 	auth              *cliproxyauth.Auth
 	inner             *internalexecutor.CodexWebsocketsExecutor
@@ -116,9 +118,12 @@ func NewCodexWSSession(options CodexWSSessionOptions) (*CodexWSSession, error) {
 	delete(auth.Metadata, "refresh_token")
 	auth.ProxyURL = proxy.Raw
 	options.Credential = CodexCredential{}
+	options.Headers = options.Headers.Clone()
 	session := &CodexWSSession{
 		auth: auth, id: codexWSSessionIDPrefix + uuid.NewString(), options: options, closeDone: make(chan struct{}),
-		inner: internalexecutor.NewCodexWebsocketsExecutor(&internalconfig.Config{}),
+		inner: internalexecutor.NewCodexWebsocketsExecutor(&internalconfig.Config{
+			Codex: internalconfig.CodexConfig{ModelLevelCooling: true},
+		}),
 	}
 	session.resource = &codexWSResource{session: session}
 	return session, nil
@@ -155,7 +160,14 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		s.mu.Unlock()
 		return result, codexWSError("continuation_requires_session")
 	}
-	turnCtx, cancel := context.WithTimeout(ctx, s.options.TurnTimeout)
+	var turnCtx context.Context
+	var cancel context.CancelFunc
+	if _, bounded := ctx.Deadline(); bounded {
+		// 网关每轮的 deadline 是业务期限；创建时的默认值不能截断后续配置上调。
+		turnCtx, cancel = context.WithCancel(ctx)
+	} else {
+		turnCtx, cancel = context.WithTimeout(ctx, s.options.TurnTimeout)
+	}
 	s.cancel, s.running = cancel, true
 	reuse := s.started
 	s.mu.Unlock()
@@ -193,12 +205,15 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	stream, executionErr := s.inner.ExecuteStream(turnCtx, s.auth, cliproxyexecutor.Request{
 		Model: model, Payload: append([]byte(nil), payload...), Format: sdktranslator.FormatOpenAIResponse,
 	}, cliproxyexecutor.Options{
-		Stream: true, SourceFormat: sdktranslator.FormatOpenAIResponse, ResponseFormat: sdktranslator.FormatOpenAIResponse,
+		Stream: true, Headers: normalizedCodexHeaders(s.options.Headers), SourceFormat: sdktranslator.FormatOpenAIResponse, ResponseFormat: sdktranslator.FormatOpenAIResponse,
 		Metadata:           map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: s.id},
 		ExecutionLifecycle: s.resource, WebSocketResponseObserver: observation.observe,
 	})
 	if stream != nil {
 		result.Headers = stream.Headers.Clone()
+		if len(result.Headers) > 0 {
+			result.HeaderObservedAt = time.Now()
+		}
 		// 原生 JSON 由 observer 交付。排空 SDK 的转换输出，确保单轮收尾完成。
 		for chunk := range stream.Chunks {
 			if chunk.Err != nil && executionErr == nil {
@@ -237,6 +252,9 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		var headers interface{ Headers() http.Header }
 		if errors.As(executionErr, &headers) {
 			result.Headers = headers.Headers().Clone()
+			if len(result.Headers) > 0 {
+				result.HeaderObservedAt = time.Now()
+			}
 		}
 		// SDK 请求预处理失败且未接触上游时，不破坏已有连接。
 		if cliproxyexecutor.UpstreamAttempted(turnCtx) || cliproxyexecutor.IsUpstreamWebsocketReplayRequired(executionErr) {
@@ -284,6 +302,16 @@ func (s *CodexWSSession) validateRequest(payload []byte) (string, string, error)
 		}
 	}
 	return model, previous, nil
+}
+
+// Done 在本 Session 失效或关闭后通知调用者。
+func (s *CodexWSSession) Done() <-chan struct{} {
+	if s == nil || s.closeDone == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	return s.closeDone
 }
 
 // Close 可从事件回调调用；它关闭连接并取消本轮，ExecuteTurn 随后退出。

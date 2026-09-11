@@ -9,6 +9,8 @@ import (
 func XAI() spec.Module {
 	return spec.Module{
 		Definition: spec.Definition{
+			ResponsesWebsocket: execution.WebsocketCapabilities{Native: true, Continuation: true, Prewarm: true, StoredResponses: true, Multiplex: false},
+
 			ID:          spec.XAI,
 			Name:        "xAI",
 			Mark:        "XA",

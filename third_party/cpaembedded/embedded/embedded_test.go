@@ -747,7 +747,10 @@ func TestListCodexModelsRequestsOnceAndNormalizesIDs(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		if r.URL.Path != "/models" || r.URL.Query().Get("client_version") == "" ||
+		if r.Header.Get("Version") != "0.153.3" || r.Header.Get("User-Agent") != "codex_cli_rs/0.153.3" {
+			t.Errorf("Codex version headers = %q / %q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
+		}
+		if r.URL.Path != "/models" || r.URL.Query().Get("client_version") != "0.153.3" ||
 			r.Header.Get("Authorization") != "Bearer access" || r.Header.Get("Chatgpt-Account-Id") != "account-123" {
 			t.Errorf("request = %s %s %#v", r.Method, r.URL.String(), r.Header)
 		}
@@ -772,6 +775,9 @@ func TestObserveCodexAccountUsesFixedUsagePathOnce(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
+		if r.Header.Get("Version") != "0.153.3" || r.Header.Get("User-Agent") != "codex_cli_rs/0.153.3" {
+			t.Errorf("Codex version headers = %q / %q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
+		}
 		if r.URL.Path != "/wham/usage" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
@@ -797,6 +803,9 @@ func TestObserveCodexResetCreditsUsesFixedDetailsPathOnce(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
+		if r.Header.Get("Version") != "0.153.3" || r.Header.Get("User-Agent") != "codex_cli_rs/0.153.3" {
+			t.Errorf("Codex version headers = %q / %q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
+		}
 		if r.Method != http.MethodGet || r.URL.Path != "/wham/rate-limit-reset-credits" {
 			t.Errorf("request = %s %s", r.Method, r.URL.Path)
 		}
@@ -825,6 +834,9 @@ func TestConsumeCodexResetCreditUsesStableRedeemRequestIDOnce(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
+		if r.Header.Get("Version") != "0.153.3" || r.Header.Get("User-Agent") != "codex_cli_rs/0.153.3" {
+			t.Errorf("Codex version headers = %q / %q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/wham/rate-limit-reset-credits/consume" ||
 			r.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("request = %s %s %#v", r.Method, r.URL.Path, r.Header)

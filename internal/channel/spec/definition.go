@@ -294,6 +294,7 @@ type CapabilityBindings struct {
 // shared helpers may normalize a field or construct one Route, but never hide
 // a complete channel definition, schema, or route set.
 type Definition struct {
+	ResponsesWebsocket  execution.WebsocketCapabilities
 	ID                  ID
 	Name                string
 	Mark                string

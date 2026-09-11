@@ -5,7 +5,10 @@ import (
 	"strings"
 )
 
-// codexHeadersRoundTripper 在 CPA 默认值与模型覆盖之后应用显式身份规则。
+// codexClientVersion 必须与固定 CPA 依赖的默认及模型 UA 版本一致，由出站请求测试校验。
+const codexClientVersion = "0.153.3"
+
+// codexHeadersRoundTripper 保留 CPA 的 UA，并固定版本及 HTTP 会话头。
 type codexHeadersRoundTripper struct {
 	base       http.RoundTripper
 	source     http.Header
@@ -14,30 +17,19 @@ type codexHeadersRoundTripper struct {
 
 func (transport codexHeadersRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
 	request = request.Clone(request.Context())
-	versionConfigured := false
 	for _, name := range transport.configured {
 		name = http.CanonicalHeaderKey(name)
 		switch name {
-		case "User-Agent", "Originator", "Version":
+		case "Originator":
 			value, present := codexHeaderValue(transport.source, name)
-			if present || name == "User-Agent" {
-				// 空 UA 显式禁止 net/http 重新补入 Go 默认 UA。
+			if present {
 				request.Header.Set(name, value)
 			} else {
 				request.Header.Del(name)
 			}
-			if name == "Version" {
-				versionConfigured = true
-			}
 		}
 	}
-	if !versionConfigured {
-		if version := codexUserAgentVersion(request.Header.Get("User-Agent")); version != "" {
-			request.Header.Set("Version", version)
-		} else {
-			request.Header.Del("Version")
-		}
-	}
+	request.Header.Set("Version", codexClientVersion)
 	normalizeCodexSessionHeader(request.Header)
 	// CPA 的直接图片路径不读取 opts.Headers，补回调用者显式提供的会话。
 	if request.Header.Get("Session-Id") == "" {
@@ -48,20 +40,18 @@ func (transport codexHeadersRoundTripper) RoundTrip(request *http.Request) (*htt
 	return transport.base.RoundTrip(request)
 }
 
-func codexUserAgentVersion(userAgent string) string {
-	fields := strings.Fields(userAgent)
-	if len(fields) == 0 {
-		return ""
-	}
-	product, version, _ := strings.Cut(fields[0], "/")
-	if product == "codex-tui" || product == "codex_cli_rs" {
-		return version
-	}
-	return ""
-}
-
 func normalizedCodexHeaders(headers http.Header) http.Header {
 	cloned := headers.Clone()
+	if cloned == nil {
+		cloned = make(http.Header)
+	}
+	// 仅 Codex 忽略客户端及分组规则提供的版本身份，UA 由 CPA 生成。
+	for name := range cloned {
+		if strings.EqualFold(name, "User-Agent") || strings.EqualFold(name, "Version") {
+			delete(cloned, name)
+		}
+	}
+	cloned.Set("Version", codexClientVersion)
 	normalizeCodexSessionHeader(cloned)
 	return cloned
 }

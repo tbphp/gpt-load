@@ -28,6 +28,9 @@ type Query struct {
 	AllowedCredentialIDs     map[uint]struct{}
 	PreferredCredentialID    uint
 	AllowedCredentialRefs    map[uint]state.CredentialRef
+
+	// ResponsesWebsocket 非 nil 时按原生 WS 合同准入，不要求 HTTP 资源接口。
+	ResponsesWebsocket *execution.WebsocketCapabilities
 }
 
 type Selection struct {
@@ -80,6 +83,7 @@ type normalizedQuery struct {
 	operation                execution.Operation
 	routeRequirement         execution.RouteRequirement
 	responsesStorePreference execution.ResponsesStorePreference
+	responsesWebsocket       *execution.WebsocketCapabilities
 	externalModel            *string
 	accessKey                state.AccessKeyView
 	allowedCredentialIDs     map[uint]struct{}
@@ -330,10 +334,19 @@ func normalizeQuery(query Query) normalizedQuery {
 		operation:                operation,
 		routeRequirement:         query.RouteRequirement.Normalize(),
 		responsesStorePreference: query.ResponsesStorePreference,
+		responsesWebsocket:       cloneWebsocketCapabilities(query.ResponsesWebsocket),
 		externalModel:            cloneString(query.ExternalModel),
 		accessKey:                query.AccessKey,
 		allowedCredentialIDs:     cloneAllowedCredentialIDs(query),
 	}
+}
+
+func cloneWebsocketCapabilities(value *execution.WebsocketCapabilities) *execution.WebsocketCapabilities {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func newSelection(credential state.CredentialMeta, target candidateTarget) Selection {

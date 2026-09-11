@@ -117,6 +117,7 @@ export interface GroupRuntimeConfigDto {
   blacklist_threshold?: number
   header_rules?: HeaderRulesDto
   affinity_enabled?: boolean
+  responses_websocket_enabled?: boolean
   parameter_overrides?: ParameterOverrideRuleDto[]
 }
 
@@ -127,6 +128,7 @@ export interface GroupEffectiveConfigDto {
   blacklist_threshold: number
   header_rules: HeaderRulesDto
   affinity_enabled: boolean
+  responses_websocket_enabled: boolean
 }
 
 export interface GroupSettingsDto {
@@ -136,6 +138,8 @@ export interface GroupSettingsDto {
   connection_type: ConnectionType
   params: ChannelParamsDto
   validation_model: string | null
+  validation_protocol: AccessProtocol | null
+  validation_protocols: AccessProtocol[]
   enabled: boolean
   weight_manual: number | null
   overrides: GroupRuntimeConfigDto

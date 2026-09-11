@@ -1161,7 +1161,8 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 							},
 						}},
 						ModePrices: map[pricing.Mode]pricing.Prices{
-							pricing.ModeFast: {Input: priceTestValue(18)},
+							pricing.ModeFast:      {Input: priceTestValue(18)},
+							pricing.ModeUltrafast: {Input: priceTestValue(28)},
 						},
 					},
 				},
@@ -1170,7 +1171,8 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 					Cost: &catalog.ModelCost{
 						Prices: pricing.Prices{Input: priceTestValue(100)},
 						ModePrices: map[pricing.Mode]pricing.Prices{
-							pricing.ModeFast: {Input: priceTestValue(200)},
+							pricing.ModeFast:      {Input: priceTestValue(200)},
+							pricing.ModeUltrafast: {Input: priceTestValue(300)},
 						},
 					},
 				},
@@ -1202,6 +1204,10 @@ func TestCatalogSyncReconcilesGroupAutomaticPricesAndPreservesManualRows(t *test
 		var schedules map[string]models.ModePriceSchedule
 		if err := json.Unmarshal(row.ModePriceSchedules, &schedules); err != nil {
 			t.Fatal(err)
+		}
+		ultrafast := schedules[string(pricing.ModeUltrafast)]
+		if ultrafast.Prices.InputPriceNanoUSDPerMillionTokens == nil || *ultrafast.Prices.InputPriceNanoUSDPerMillionTokens != 28 {
+			t.Fatalf("automatic Ultrafast schedule = %#v", schedules)
 		}
 		fast := schedules[string(pricing.ModeFast)]
 		if fast.Prices.InputPriceNanoUSDPerMillionTokens == nil ||

@@ -34,6 +34,19 @@ func NewExecutionForwarder(executor execution.Executor) *ExecutionForwarder {
 	}
 }
 
+func (forwarder *ExecutionForwarder) OpenWebsocket(ctx context.Context, input ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
+	spec, err := newExecutionAttemptSpec(input)
+	if forwarder != nil && err == nil {
+		if opener, ok := forwarder.executor.(execution.WebsocketOpener); ok {
+			return opener.OpenWebsocket(ctx, spec)
+		}
+	}
+	return nil, execution.WebsocketResult{DispatchState: execution.DispatchNotSent, Error: &execution.ErrorEvidence{
+		Kind: execution.ErrorKindInvalidRequest, OriginHint: execution.ErrorOriginInternal,
+		ScopeHint: execution.ErrorScopeRequest, Code: "websocket_not_supported", Summary: "Native WebSocket is not supported.",
+	}}
+}
+
 func (forwarder *ExecutionForwarder) Forward(
 	ctx context.Context,
 	input ForwardInput,

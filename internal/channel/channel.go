@@ -219,6 +219,8 @@ const (
 
 // ResolvedTarget is the provider-neutral execution target derived from a channel preset.
 type ResolvedTarget struct {
+	ResponsesWebsocket execution.WebsocketCapabilities `json:"-"`
+
 	ChannelID         ID              `json:"channel_id"`
 	ProviderKind      ProviderKind    `json:"-"`
 	TargetConfig      json.RawMessage `json:"-"`
@@ -535,6 +537,8 @@ func (r *Registry) Resolve(id ID, raw json.RawMessage) (ResolvedTarget, error) {
 	}
 	targetConfig := resolvedTargetConfig(definition, params)
 	return ResolvedTarget{
+		ResponsesWebsocket: definition.responsesWebsocket,
+
 		ChannelID:         id,
 		ProviderKind:      definition.providerKind,
 		TargetConfig:      append(json.RawMessage(nil), targetConfig...),
@@ -658,6 +662,7 @@ func (s objectSchema) validate(prefix string, raw json.RawMessage) (map[string]s
 }
 
 type definition struct {
+	responsesWebsocket      execution.WebsocketCapabilities
 	descriptor              Descriptor
 	params                  objectSchema
 	validateParams          func(json.RawMessage) (map[string]string, error)

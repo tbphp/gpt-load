@@ -1009,6 +1009,7 @@ export default {
       },
       pricingMode: {
         fastLabel: 'Fast mode pricing',
+        ultrafastLabel: 'Ultrafast mode pricing',
         tierLabel: 'Matched tier: input tokens ≥ {threshold}',
       },
     },

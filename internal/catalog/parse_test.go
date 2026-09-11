@@ -118,6 +118,7 @@ func TestParseModelsDevRetainsExperimentalModePrices(t *testing.T) {
 								},
 								"provider": {"body": {"service_tier": "priority"}}
 							},
+							"ultrafast": {"cost": {"input": 15, "output": 90, "cache_read": 1.5}, "provider": {"body": {"service_tier": "ultrafast"}}},
 							"pro": {"provider": {"body": {"reasoning": {"mode": "pro"}}}}
 						}
 					}
@@ -146,6 +147,10 @@ func TestParseModelsDevRetainsExperimentalModePrices(t *testing.T) {
 	assertPrice(t, "fast output", fast.Output, 60_000_000_000, true)
 	assertPrice(t, "fast cache read", fast.CacheRead, 1_000_000_000, true)
 	assertPrice(t, "fast cache write", fast.CacheWrite, 12_500_000_000, true)
+	ultrafast := cost.ModePrices[pricing.ModeUltrafast]
+	assertPrice(t, "ultrafast input", ultrafast.Input, 15_000_000_000, true)
+	assertPrice(t, "ultrafast output", ultrafast.Output, 90_000_000_000, true)
+	assertPrice(t, "ultrafast cache read", ultrafast.CacheRead, 1_500_000_000, true)
 	if _, ok := cost.ModePrices[pricing.Mode("pro")]; ok {
 		t.Fatalf("provider-only mode retained as a price = %#v", cost.ModePrices)
 	}

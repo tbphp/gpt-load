@@ -266,6 +266,15 @@ function selectTimeShortcut(preset: DateTimePreset, from: number, to: number): v
   applyTimeRange(from, to, preset)
 }
 
+function updateResolvedTimeRange(range: {
+  from_ms: number
+  to_ms: number
+  preset?: DateTimePreset
+}): void {
+  if (range.to_ms <= range.from_ms) return
+  resolvedTimeRange.value = range
+}
+
 function resetTimeDraft(): void {
   timeDraft.value = {
     from: localDateTimeInput(timeFilters.value.from_ms),
@@ -385,7 +394,11 @@ function applyTimeRange(from: number, to: number, preset?: DateTimePreset): void
             <HealthTab ref="healthTab" />
           </div>
           <div v-else-if="activeTab === 'logs'" class="monitor-panel">
-            <LogsTab ref="logsTab" :filters="logFilters" />
+            <LogsTab
+              ref="logsTab"
+              :filters="logFilters"
+              @time-range-resolved="updateResolvedTimeRange"
+            />
           </div>
           <div v-else-if="activeTab === 'usage'" class="monitor-panel">
             <UsageTab ref="usageTab" :filters="usageFilters" />

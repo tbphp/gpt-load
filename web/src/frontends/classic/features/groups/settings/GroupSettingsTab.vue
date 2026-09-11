@@ -261,6 +261,18 @@ const affinityEnabledLabel = computed(() =>
     ? t('group.settings.runtime.enabledValue')
     : t('group.settings.runtime.disabledValue'),
 )
+const websocketOverridden = computed(
+  () => draft.value?.overrides.responses_websocket_enabled !== undefined,
+)
+const websocketPendingRestore = computed(
+  () =>
+    !websocketOverridden.value && saved.value?.overrides.responses_websocket_enabled !== undefined,
+)
+const websocketEnabledLabel = computed(() =>
+  saved.value?.effective.responses_websocket_enabled
+    ? t('group.settings.runtime.enabledValue')
+    : t('group.settings.runtime.disabledValue'),
+)
 function resetSavedDraft(settings: GroupSettingsDto): void {
   saved.value = settings
   draft.value = createGroupSettingsDraft(settings)
@@ -435,6 +447,22 @@ function setAffinityValue(value: boolean): void {
   }
 }
 
+function toggleWebsocketOverride(): void {
+  if (!draft.value || !saved.value) return
+  const overrides = { ...draft.value.overrides }
+  if (websocketOverridden.value) delete overrides.responses_websocket_enabled
+  else overrides.responses_websocket_enabled = saved.value.effective.responses_websocket_enabled
+  draft.value = { ...draft.value, overrides }
+}
+
+function setWebsocketValue(value: boolean): void {
+  if (!draft.value) return
+  draft.value = {
+    ...draft.value,
+    overrides: { ...draft.value.overrides, responses_websocket_enabled: value },
+  }
+}
+
 function requestSave(): void {
   if (!dirty.value || !valid.value || mutationPending.value) return
   void save()
@@ -543,6 +571,8 @@ onBeforeUnmount(() => {
             :params="draft.params"
             :name="draft.name"
             :validation-model="draft.validation_model"
+            :validation-protocol="draft.validation_protocol"
+            :validation-protocols="saved?.validation_protocols ?? []"
             :models="modelsQuery.data.value?.items ?? []"
             :weight-manual="draft.weight_manual"
             :price-multiplier="draft.price_multiplier"
@@ -554,6 +584,7 @@ onBeforeUnmount(() => {
             @update:param="updateParam"
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
+            @update:validation-protocol="draft.validation_protocol = $event"
             @update:weight-manual="draft.weight_manual = $event"
             @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
@@ -568,6 +599,8 @@ onBeforeUnmount(() => {
             :params="draft.params"
             :name="draft.name"
             :validation-model="draft.validation_model"
+            :validation-protocol="draft.validation_protocol"
+            :validation-protocols="saved?.validation_protocols ?? []"
             :models="modelsQuery.data.value?.items ?? []"
             :weight-manual="draft.weight_manual"
             :price-multiplier="draft.price_multiplier"
@@ -579,6 +612,7 @@ onBeforeUnmount(() => {
             @update:param="updateParam"
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
+            @update:validation-protocol="draft.validation_protocol = $event"
             @update:weight-manual="draft.weight_manual = $event"
             @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
@@ -589,6 +623,40 @@ onBeforeUnmount(() => {
               <p>{{ t('group.settings.runtime.description') }}</p>
             </header>
             <div class="group-settings__runtime">
+              <SettingRow
+                :label="t('group.settings.runtime.responses_websocket_enabled')"
+                :value="
+                  websocketPendingRestore
+                    ? t('group.settings.runtime.resetPending')
+                    : websocketEnabledLabel
+                "
+                :help="t('group.settings.runtime.websocketHelp')"
+                :source-label="
+                  websocketOverridden
+                    ? t('group.settings.runtime.override')
+                    : websocketPendingRestore
+                      ? t('group.settings.runtime.pendingRestoreSource')
+                      : t('group.settings.runtime.inherited')
+                "
+                :action-label="
+                  websocketOverridden
+                    ? t('group.settings.runtime.useInherited')
+                    : t('group.settings.runtime.useOverride')
+                "
+                :overridden="websocketOverridden"
+                :pending-restore="websocketPendingRestore"
+                :disabled="mutationPending"
+                @toggle="toggleWebsocketOverride"
+              >
+                <template #control>
+                  <AppSwitch
+                    :model-value="draft.overrides.responses_websocket_enabled ?? false"
+                    :disabled="mutationPending"
+                    :label="t('group.settings.runtime.responses_websocket_enabled')"
+                    @update:model-value="setWebsocketValue"
+                  />
+                </template>
+              </SettingRow>
               <SettingRow
                 :label="t('common.proxy.title')"
                 :value="proxyValue"

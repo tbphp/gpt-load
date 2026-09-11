@@ -20,6 +20,7 @@ export interface GroupSettingsDraft {
   params: ChannelParamsDto
   name: string
   validation_model: string | null
+  validation_protocol: GroupSettingsDto['validation_protocol']
   enabled: boolean
   weight_manual: number | null
   price_multiplier: string
@@ -74,6 +75,8 @@ function cloneOverrides(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
   for (const key of groupPolicyCountKeys) if (value[key] !== undefined) next[key] = value[key]
   if (value.header_rules) next.header_rules = cloneHeaders(value.header_rules)
   if (value.affinity_enabled !== undefined) next.affinity_enabled = value.affinity_enabled
+  if (value.responses_websocket_enabled !== undefined)
+    next.responses_websocket_enabled = value.responses_websocket_enabled
   if (value.parameter_overrides?.length)
     next.parameter_overrides = cloneParameterOverrides(value.parameter_overrides)
   return next
@@ -179,6 +182,8 @@ export function buildGroupSettingsPatch(
     Object.entries(base.params).sort(([left], [right]) => left.localeCompare(right)),
   )
   if (JSON.stringify(params) !== JSON.stringify(baseParams)) patch.params = params
+  if (draft.validation_protocol !== base.validation_protocol)
+    patch.validation_protocol = draft.validation_protocol
   const validationModel = draft.validation_model?.trim() || null
   if (validationModel !== base.validation_model) patch.validation_model = validationModel
   if (draft.enabled !== base.enabled) patch.enabled = draft.enabled

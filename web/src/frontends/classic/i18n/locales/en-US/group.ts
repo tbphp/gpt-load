@@ -306,7 +306,10 @@ export default {
         customUrl: 'Custom upstream URL',
         customUrlHelp: 'Uses the channel preset or SDK official address by default.',
         paramRequired: 'Enter {field}.',
-        validationModel: 'Validation model (optional)',
+        validationProtocol: 'Test protocol',
+        validationProtocolHelp:
+          'Default protocol for credential tests and automatic validation. Read-only for single-protocol channels.',
+        validationModel: 'Test model (optional)',
         validationModelPlaceholder: 'Search or enter a model ID',
         validationModelHelp:
           'Leave empty to use the first model in this Group; enter the upstream model ID, not an alias.',
@@ -349,6 +352,9 @@ export default {
         headerStorageNoticeEnd: ' for credential values.',
         headerReplacementWarning:
           'This Group override replaces the complete global HeaderRules object; future global changes will not merge into it.',
+        responses_websocket_enabled: 'Responses WebSocket',
+        websocketHelp:
+          'Disabling closes this group’s WS connections and interrupts generation immediately; HTTP/SSE remains available.',
         affinity_enabled: 'Request affinity',
         affinityHelp:
           'Controls whether this Group learns or reuses affinity targets without changing normal weights, scheduling, or retries.',
@@ -438,6 +444,10 @@ export default {
       restore: 'Restore now',
       restoreFailed: 'Unable to restore the channel credential now',
       test: {
+        noModels: 'This group has no models. Enter a model ID to test.',
+        unavailable: 'This channel has no protocol available for credential tests.',
+        start: 'Run test',
+        loadingSettings: 'Loading test settings…',
         action: 'Test connection',
         title: 'Test connection',
         description:

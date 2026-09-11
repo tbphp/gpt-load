@@ -38,7 +38,6 @@ const (
 	defaultLoginTimeout  = 5 * time.Minute
 	defaultCodexBaseURL  = "https://chatgpt.com/backend-api/codex"
 	defaultCodexAPIBase  = "https://chatgpt.com/backend-api"
-	defaultModelsVersion = "0.144.1"
 	maxObservedBodyBytes = 32 << 20
 )
 
@@ -381,7 +380,10 @@ type CodexHTTPExecutor struct {
 
 // NewCodexHTTPExecutor constructs an HTTP-only executor with no CPA manager.
 func NewCodexHTTPExecutor() *CodexHTTPExecutor {
-	cfg := &internalconfig.Config{Codex: internalconfig.CodexConfig{StreamBootstrapBuffering: true}}
+	cfg := &internalconfig.Config{Codex: internalconfig.CodexConfig{
+		StreamBootstrapBuffering: true,
+		ModelLevelCooling:        true,
+	}}
 	return &CodexHTTPExecutor{cfg: cfg, inner: internalexecutor.NewCodexExecutor(cfg)}
 }
 
@@ -588,7 +590,7 @@ func ListCodexModels(ctx context.Context, credential CodexCredential, baseURL st
 		return nil, err
 	}
 	query := target.Query()
-	query.Set("client_version", defaultModelsVersion)
+	query.Set("client_version", codexClientVersion)
 	target.RawQuery = query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
@@ -743,7 +745,8 @@ func applyCodexReadHeaders(req *http.Request, credential CodexCredential) {
 	req.Header.Set("Authorization", "Bearer "+credential.AccessToken)
 	req.Header.Set("Chatgpt-Account-Id", credential.AccountID)
 	req.Header.Set("Originator", "codex_cli_rs")
-	req.Header.Set("User-Agent", "codex_cli_rs/"+defaultModelsVersion)
+	req.Header.Set("User-Agent", "codex_cli_rs/"+codexClientVersion)
+	req.Header.Set("Version", codexClientVersion)
 }
 
 func (e *CodexHTTPExecutor) executionContext(

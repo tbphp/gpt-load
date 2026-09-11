@@ -9,6 +9,8 @@ import (
 func CLIProxyAPI() spec.Module {
 	return spec.Module{
 		Definition: spec.Definition{
+			ResponsesWebsocket: execution.WebsocketCapabilities{Native: true, Continuation: true, Prewarm: true, StoredResponses: false, Multiplex: false},
+
 			ID:          spec.CLIProxyAPI,
 			Name:        "CLIProxyAPI",
 			Mark:        "CPA",

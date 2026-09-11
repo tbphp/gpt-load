@@ -9,6 +9,8 @@ import (
 func Sub2API() spec.Module {
 	return spec.Module{
 		Definition: spec.Definition{
+			ResponsesWebsocket: execution.WebsocketCapabilities{Native: true, Continuation: true, Prewarm: true, StoredResponses: false, Multiplex: false},
+
 			ID:          spec.Sub2API,
 			Name:        "Sub2API",
 			Mark:        "S2A",

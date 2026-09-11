@@ -30,6 +30,7 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatEstimatedCost, formatISOInstant, formatLocalInstantWithSeconds } from '@/lib/format'
+import { resolveDateTimePreset, type DateTimePreset } from '@/lib/time'
 import { useAuthSession } from '@/features/auth/auth-session'
 
 import {
@@ -66,6 +67,9 @@ import {
 } from './monitor-route'
 
 const props = defineProps<{ filters: AppliedLogFilters }>()
+const emit = defineEmits<{
+  'time-range-resolved': [range: { from_ms: number; to_ms: number; preset: DateTimePreset }]
+}>()
 const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
@@ -370,7 +374,18 @@ async function applyFilters(): Promise<void> {
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
 
-  await commitFilters(applyLogFilterDraft(draft.value, appliedFilters.value))
+  const filters = applyLogFilterDraft(draft.value, appliedFilters.value)
+  const preset = filters.preset
+  // 显式应用筛选时推进快捷范围；自定义范围及其他日志操作继续保留原区间。
+  if (preset) {
+    const interval = resolveDateTimePreset(preset, Math.floor(Date.now() / 1000) * 1000)
+    if (interval.to_ms > interval.from_ms) {
+      filters.from_ms = interval.from_ms
+      filters.to_ms = interval.to_ms
+      emit('time-range-resolved', { ...interval, preset })
+    }
+  }
+  await commitFilters(filters)
 }
 
 async function resetFilters(): Promise<void> {

@@ -5,8 +5,9 @@ package pricing
 type Mode string
 
 const (
-	ModeStandard Mode = "standard"
-	ModeFast     Mode = "fast"
+	ModeStandard  Mode = "standard"
+	ModeFast      Mode = "fast"
+	ModeUltrafast Mode = "ultrafast"
 )
 
 // Price is a USD price per one million tokens. Set distinguishes zero from an

@@ -119,6 +119,10 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 			ProxyConfig:           normalized.proxyConfig,
 			Enabled:               true,
 		}
+		if err := s.initializeValidationProtocol(&group); err != nil {
+			return err
+		}
+
 		if err := tx.Create(&group).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}

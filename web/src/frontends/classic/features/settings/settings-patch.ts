@@ -22,6 +22,7 @@ export interface SettingsDraft {
 }
 
 const requestForwardingKeys: RuntimeSettingKey[] = [
+  'responses_websocket_enabled',
   'route_strategy',
   'first_byte_timeout',
   'request_timeout',
@@ -85,6 +86,8 @@ export function setSettingsOverride(
       next.values.route_strategy = base.values.route_strategy
     } else if (key === 'affinity_enabled') {
       next.values.affinity_enabled = base.values.affinity_enabled
+    } else if (key === 'responses_websocket_enabled') {
+      next.values.responses_websocket_enabled = base.values.responses_websocket_enabled
     } else if (key === 'models_dev_auto_sync_enabled') {
       next.values.models_dev_auto_sync_enabled = base.values.models_dev_auto_sync_enabled
     } else if (key === 'cors') {

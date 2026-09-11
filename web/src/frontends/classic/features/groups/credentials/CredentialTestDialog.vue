@@ -2,7 +2,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { CredentialTestResultDto } from '@/api/control/types'
+import type { AccessProtocol, CredentialTestResultDto } from '@/api/control/types'
+import GroupTestFields from '../GroupTestFields.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -15,6 +16,11 @@ type CredentialTestDialogResult = Omit<CredentialTestResultDto, 'restore_proof'>
 const props = defineProps<{
   open: boolean
   mask: string
+  model?: string
+  models: string[]
+  protocol?: AccessProtocol
+  protocols: AccessProtocol[]
+  settingsPending: boolean
   pending: boolean
   requestFailed: boolean
   result?: CredentialTestDialogResult
@@ -25,6 +31,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:open': [open: boolean]
   restore: []
+  test: []
+  'update:model': [value: string]
+  'update:protocol': [value: AccessProtocol]
 }>()
 const { locale, n, t } = useI18n()
 
@@ -63,23 +72,48 @@ function setOpen(open: boolean): void {
           <span>{{ t('group.credentials.test.fields.credential') }}</span>
           <strong>{{ mask }}</strong>
         </p>
+        <GroupTestFields
+          v-if="protocols.length"
+          :protocol="protocol"
+          :protocols="protocols"
+          :model="model"
+          :models="models.map((id) => ({ id }))"
+          :disabled="busy || settingsPending"
+          @update:protocol="emit('update:protocol', $event)"
+          @update:model="emit('update:model', $event)"
+        />
         <QueryFeedback
-          v-if="pending"
+          v-if="settingsPending"
+          state="loading"
+          :message="t('group.credentials.test.loadingSettings')"
+        />
+        <QueryFeedback
+          v-else-if="pending"
           state="loading"
           :message="t('group.credentials.test.loading', { mask })"
         />
         <InlineFeedback v-else-if="requestFailed" tone="danger" appearance="ledger">
           {{ t('group.credentials.test.requestFailed') }}
         </InlineFeedback>
+        <InlineFeedback v-else-if="!protocols.length" tone="warning" appearance="ledger">
+          {{ t('group.credentials.test.unavailable') }}
+        </InlineFeedback>
+        <InlineFeedback
+          v-else-if="!models.length && !model?.trim()"
+          tone="warning"
+          appearance="ledger"
+        >
+          {{ t('group.credentials.test.noModels') }}
+        </InlineFeedback>
         <template v-else-if="result">
           <InlineFeedback :tone="resultTone" appearance="ledger">
             {{ t(`group.credentials.test.outcome.${result.outcome}`) }}
           </InlineFeedback>
           <dl class="credential-test-dialog__details">
-            <dt>{{ t('group.credentials.test.fields.model') }}</dt>
-            <dd>{{ result.model }}</dd>
             <dt>{{ t('group.credentials.test.fields.protocol') }}</dt>
             <dd>{{ result.protocol }}</dd>
+            <dt>{{ t('group.credentials.test.fields.model') }}</dt>
+            <dd>{{ result.model }}</dd>
             <dt>{{ t('group.credentials.test.fields.latency') }}</dt>
             <dd>{{ t('group.credentials.test.latency', { value: n(result.latency_ms) }) }}</dd>
             <dt>{{ t('group.credentials.test.fields.reason') }}</dt>
@@ -102,6 +136,13 @@ function setOpen(open: boolean): void {
     </template>
 
     <template #footer>
+      <AppButton
+        size="compact"
+        :disabled="busy || settingsPending || !protocol || !model?.trim()"
+        @click="emit('test')"
+      >
+        {{ t('group.credentials.test.start') }}
+      </AppButton>
       <template v-if="canRestore">
         <AppButton
           variant="secondary"

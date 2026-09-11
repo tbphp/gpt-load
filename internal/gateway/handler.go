@@ -110,6 +110,8 @@ type Handler struct {
 	lifecycle           *httplifecycle.Coordinator
 	affinityCache       *affinity.Cache
 	responseBindings    *state.ResponseBindings
+	websocketLimits     websocketLimits
+	websocketBudget     websocketBudget
 }
 
 func (handler *Handler) freezeAttemptPricing(
@@ -166,6 +168,7 @@ func NewHandler(
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
 		affinityCache:    affinity.NewCache(),
 		responseBindings: state.NewResponseBindings(),
+		websocketLimits:  defaultWebsocketLimits(),
 		newRequestID:     newRequestID,
 		requestNow:       time.Now,
 		now:              time.Now,
@@ -404,6 +407,10 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 	if requestContext.locallyRejected {
 		handler.dataPlaneRouteNotFound(ginContext)
+		return
+	}
+	if websocketIntent(ginContext.Request) {
+		handler.handleWebsocket(ginContext, requestContext)
 		return
 	}
 	requestStarted := requestContext.requestStarted

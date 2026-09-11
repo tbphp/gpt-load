@@ -1575,16 +1575,14 @@ func TestHandlerRejectsCaseCollidingModelBeforeAttempt(t *testing.T) {
 	}
 }
 
-func TestHandlerRejectsUltrafastServiceTierBeforeAttempt(t *testing.T) {
+func TestHandlerRejectsNonCanonicalServiceTierFieldsBeforeAttempt(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		path string
 		body string
 	}{
-		{name: "chat completions", path: "/v1/chat/completions", body: `{"model":"gpt-4o","service_tier":"ultrafast"}`},
 		{name: "chat completions uppercase", path: "/v1/chat/completions", body: `{"model":"gpt-4o","SERVICE_TIER":"ultrafast"}`},
 		{name: "chat completions collision", path: "/v1/chat/completions", body: `{"model":"gpt-4o","service_tier":"default","SERVICE_TIER":"ultrafast"}`},
-		{name: "responses", path: "/v1/responses", body: `{"model":"gpt-4o","service_tier":"ultrafast"}`},
 		{name: "responses uppercase", path: "/v1/responses", body: `{"model":"gpt-4o","SERVICE_TIER":"ultrafast"}`},
 		{name: "responses collision", path: "/v1/responses", body: `{"model":"gpt-4o","service_tier":"default","SERVICE_TIER":"ultrafast"}`},
 	} {

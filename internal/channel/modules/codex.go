@@ -18,6 +18,8 @@ const (
 func Codex() spec.Module {
 	return spec.Module{
 		Definition: spec.Definition{
+			ResponsesWebsocket: execution.WebsocketCapabilities{Native: true, Continuation: true, Prewarm: true, StoredResponses: false, Multiplex: false},
+
 			ID:          spec.Codex,
 			Name:        "Codex",
 			Mark:        "CX",

@@ -35,23 +35,37 @@ quota policy. This bridge only exposes:
 
 It intentionally excludes CPA Manager, selector, account pool, file store, server,
 watcher, and Auto executors. The Codex WS facade blocks HTTP fallback and business
-request replay; it does not enable WS in the HTTP data plane.
+request replay. The gateway explicitly wires this facade into its native WS route;
+the existing HTTP executor remains separate.
 
-## Codex HTTP request identity
+## Codex request identity
 
-The HTTP bridge preserves CPA's default and model-specific User-Agent values.
-Explicit GPT-Load request-header rules for `User-Agent`, `Originator`, and
-`Version` take precedence after CPA constructs the upstream request, including
-explicit removal. Downstream headers alone do not override CPA's default identity.
-Unless `Version` is explicitly configured, it follows the final `codex-tui` or
-`codex_cli_rs` User-Agent version; an unrecognized custom UA drops the unrelated
-client version.
+Codex HTTP inference (including streaming and images) and WebSocket handshakes
+use the pinned CPA default User-Agent. `Version` is fixed to the matching
+`codexClientVersion` constant, currently `0.153.3`. Downstream and GPT-Load group
+header rules cannot override, clear, or remove these two identity headers.
+This restriction applies only to Codex; other providers retain their header rules.
+HTTP continues to honor explicit `Originator` rules, including empty values and
+removal. WebSocket retains the SDK's existing originator handling.
+
+Model and account observation requests use the same version for their User-Agent,
+Version header, and models `client_version` query parameter. CPA's default UA
+constant is private, so dependency updates must keep our one version constant in
+sync; HTTP, image, WebSocket, and observation tests check the outgoing values.
 
 Both `Session-Id` and `Session_id` are accepted, with `Session-Id` taking precedence
-if both exist. The upstream receives one `Session-Id`; explicit client sessions
-keep CPA's existing precedence over its prompt-cache fallback. This applies to
-HTTP inference, including streaming and images; account queries and the independent
-WebSocket facade keep their existing behavior.
+if both exist. HTTP sends one `Session-Id`, retaining the existing precedence over
+CPA's prompt-cache fallback. WebSocket keeps CPA's wire spelling and connection
+reuse behavior.
+
+Both Codex executors explicitly enable CPA's `ModelLevelCooling`. This keeps
+`usage_limit_reached` from acquiring CPA's new credential-wide scope, preserving
+GPT-Load's credential-plus-model cooldown policy. GPT-Load still owns scheduling,
+retries, and health state. Pre-generation capacity rejections and explicitly
+retryable `server_error` responses are classified in the HTTP bridge; ordinary
+server failures do not acquire safe-replay evidence. WebSocket model-capacity
+error codes do not trigger quota cooldowns; without generation-stage proof, the
+existing conservative replay policy remains in effect.
 
 ## Codex WebSocket Session
 
@@ -76,6 +90,8 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   terminal status, raw usage (nil if absent), handshake headers when available,
   and `not_sent` / `maybe_sent` business-dispatch evidence. Reused connections do
   not provide new handshake headers; old quota headers are not carried forward.
+  `HeaderObservedAt` records when headers were received, so generation time does
+  not shift relative quota reset times. Prepared `Headers` use the SDK header contract.
   A generic `response.done` preserves `response.status`; only `completed` succeeds.
 - One turn runs at a time; overlapping calls fail with `session_busy`. Local
   validation errors leave the Session usable. Cancellation, timeout, transport
@@ -96,10 +112,12 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   replacement connections. CPA can still perform an extra handshake after a send
   failure, but cannot send the business request again. This is not a guarantee of
   exactly one network connection attempt.
-- Default per-turn timeout is five minutes; request and forwarded-event limits
-  default to 10 MiB each. All three are configurable when creating the Session.
+- Without a caller deadline, the default per-turn timeout is five minutes.
+  An explicit caller deadline is authoritative for that turn, so later turns can
+  use updated timeout settings. `Done` closes when the Session is invalidated.
+  Request and forwarded-event limits default to 10 MiB each. All three are configurable when creating the Session.
   The facade buffers no conversation history or output queue. Event checks occur
-  **after SDK reading**: CPA v7.2.151 has no exposed raw-frame size limit and has
+  **after SDK reading**: CPA v7.2.157 has no exposed raw-frame size limit and has
   its own internal buffers. These checks do not bound all SDK memory. CPA also
   retains its upstream read-idle timeout; idle connection loss invalidates the
   Session and is not transparently recovered.
@@ -130,7 +148,7 @@ sent only in the first. `CPA_LIVE_CODEX_WS_PROXY_URL` defaults to `direct`;
 ## Pinned upstream
 
 - Module: `github.com/router-for-me/CLIProxyAPI/v7`
-- Version: `v7.2.151`
+- Version: `v7.2.157`
 
 The root module consumes this bridge through a local `replace`; releases still
 resolve CPA itself at the exact version recorded in both `go.mod` files and
@@ -181,8 +199,8 @@ CPA_LIVE_CLAUDE_MODEL=optional-claude-model-id \
 
 This live test deliberately does not complete interactive browser OAuth, rotate
 a refresh token, or force real 401/429 responses. Those gates require a disposable
-	account and an explicitly supervised run; deterministic bridge tests cover their
-	local classification contracts, but do not constitute real-provider evidence.
+account and an explicitly supervised run; deterministic bridge tests cover their
+local classification contracts, but do not constitute real-provider evidence.
 
 The Antigravity contract requires a disposable credential whose Google account is
 authorized for the service. It verifies dynamic models, account/credits observation,

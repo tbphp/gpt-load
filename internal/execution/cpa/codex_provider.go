@@ -439,8 +439,13 @@ func (*codexProviderBridge) ClassifyError(
 }
 
 func codexBootstrapCapacityRejection(err error) bool {
-	_, codeValue := codexErrorTypeCode(err)
-	return codexBootstrapOverload(codeValue) || codexBootstrapRateLimit(codeValue)
+	typeValue, codeValue := codexErrorTypeCode(err)
+	if codexBootstrapOverload(codeValue) || codexBootstrapRateLimit(codeValue) || codexModelCapacityError(err) {
+		return true
+	}
+	// 仅在 ExecuteStream 返回首包前错误时调用；普通 server_error 不提供重试证据。
+	return (strings.EqualFold(typeValue, "server_error") || strings.EqualFold(codeValue, "server_error")) &&
+		strings.Contains(strings.ToLower(err.Error()), "you can retry your request")
 }
 
 func codexBootstrapOverload(codeValue string) bool {
@@ -468,6 +473,10 @@ func codexErrorTypeCode(err error) (string, string) {
 }
 
 func codexModelCapacityError(err error) bool {
+	_, code := codexErrorTypeCode(err)
+	if strings.EqualFold(code, "model_at_capacity") || strings.EqualFold(code, "model_is_at_capacity") {
+		return true
+	}
 	for current := err; current != nil; current = errors.Unwrap(current) {
 		message := strings.TrimSpace(current.Error())
 		var payload struct {
@@ -483,13 +492,9 @@ func codexModelCapacityError(err error) bool {
 				message = payload.Message
 			}
 		}
-		switch strings.ToLower(strings.TrimSpace(message)) {
-		case "selected model is at capacity",
-			"selected model is at capacity. please try a different model",
-			"selected model is at capacity. please try a different model.",
-			"the selected model is at capacity. please try a different model.",
-			"model is at capacity. please try a different model",
-			"model is at capacity. please try a different model.":
+		lower := strings.ToLower(message)
+		if strings.Contains(lower, "model_at_capacity") || strings.Contains(lower, "model_is_at_capacity") ||
+			strings.Contains(lower, "model") && strings.Contains(lower, "at capacity") {
 			return true
 		}
 	}

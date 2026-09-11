@@ -37,22 +37,23 @@ type CORSConfigResponse struct {
 }
 
 type SettingsValuesResponse struct {
-	FirstByteTimeout         int64               `json:"first_byte_timeout"`
-	RequestTimeout           int64               `json:"request_timeout"`
-	StreamIdleTimeout        int64               `json:"stream_idle_timeout"`
-	HeaderRules              HeaderRulesResponse `json:"header_rules"`
-	CORS                     CORSConfigResponse  `json:"cors"`
-	ResponseHeaderRules      HeaderRulesResponse `json:"response_header_rules"`
-	RetryCount               int                 `json:"retry_count"`
-	RouteStrategy            state.RouteStrategy `json:"route_strategy"`
-	BlacklistThreshold       int                 `json:"blacklist_threshold"`
-	AffinityEnabled          bool                `json:"affinity_enabled"`
-	AffinityTTL              int64               `json:"affinity_ttl"`
-	AffinityCapacity         int                 `json:"affinity_capacity"`
-	ValidationInterval       int64               `json:"validation_interval"`
-	RequestLogRetentionDays  int                 `json:"request_log_retention_days"`
-	ModelsDevAutoSyncEnabled bool                `json:"models_dev_auto_sync_enabled"`
-	ProxyConfig              outboundproxy.View  `json:"proxy_config"`
+	FirstByteTimeout          int64               `json:"first_byte_timeout"`
+	RequestTimeout            int64               `json:"request_timeout"`
+	StreamIdleTimeout         int64               `json:"stream_idle_timeout"`
+	HeaderRules               HeaderRulesResponse `json:"header_rules"`
+	CORS                      CORSConfigResponse  `json:"cors"`
+	ResponseHeaderRules       HeaderRulesResponse `json:"response_header_rules"`
+	RetryCount                int                 `json:"retry_count"`
+	RouteStrategy             state.RouteStrategy `json:"route_strategy"`
+	BlacklistThreshold        int                 `json:"blacklist_threshold"`
+	AffinityEnabled           bool                `json:"affinity_enabled"`
+	ResponsesWebsocketEnabled bool                `json:"responses_websocket_enabled"`
+	AffinityTTL               int64               `json:"affinity_ttl"`
+	AffinityCapacity          int                 `json:"affinity_capacity"`
+	ValidationInterval        int64               `json:"validation_interval"`
+	RequestLogRetentionDays   int                 `json:"request_log_retention_days"`
+	ModelsDevAutoSyncEnabled  bool                `json:"models_dev_auto_sync_enabled"`
+	ProxyConfig               outboundproxy.View  `json:"proxy_config"`
 }
 
 type SettingsResponse struct {
@@ -352,16 +353,17 @@ func mapSettingsResponse(
 				Set:    responseSet,
 				Remove: responseRemove,
 			},
-			RetryCount:               settings.RetryCount,
-			RouteStrategy:            settings.RouteStrategy,
-			BlacklistThreshold:       settings.BlacklistThreshold,
-			AffinityEnabled:          settings.AffinityEnabled,
-			AffinityTTL:              durationSeconds(settings.AffinityTTL),
-			AffinityCapacity:         settings.AffinityCapacity,
-			ValidationInterval:       durationSeconds(settings.ValidationInterval),
-			RequestLogRetentionDays:  settings.RequestLogRetentionDays,
-			ModelsDevAutoSyncEnabled: modelsDevAutoSyncEnabled,
-			ProxyConfig:              proxyView,
+			RetryCount:                settings.RetryCount,
+			RouteStrategy:             settings.RouteStrategy,
+			BlacklistThreshold:        settings.BlacklistThreshold,
+			AffinityEnabled:           settings.AffinityEnabled,
+			ResponsesWebsocketEnabled: settings.ResponsesWebsocketEnabled,
+			AffinityTTL:               durationSeconds(settings.AffinityTTL),
+			AffinityCapacity:          settings.AffinityCapacity,
+			ValidationInterval:        durationSeconds(settings.ValidationInterval),
+			RequestLogRetentionDays:   settings.RequestLogRetentionDays,
+			ModelsDevAutoSyncEnabled:  modelsDevAutoSyncEnabled,
+			ProxyConfig:               proxyView,
 		},
 		Overrides: overrides,
 		ReadOnly:  readOnly,

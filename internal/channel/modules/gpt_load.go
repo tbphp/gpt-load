@@ -9,6 +9,8 @@ import (
 func GPTLoad() spec.Module {
 	return spec.Module{
 		Definition: spec.Definition{
+			ResponsesWebsocket: execution.WebsocketCapabilities{Native: true, Continuation: true, Prewarm: true, StoredResponses: true, Multiplex: true},
+
 			ID:          spec.GPTLoad,
 			Name:        "GPT-Load",
 			Mark:        "GL",

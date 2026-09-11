@@ -67,6 +67,7 @@ func TestOpenAIResponsesRequestSelectsSupportedPricingModes(t *testing.T) {
 	}{
 		{body: `{"model":"gpt-5","service_tier":"priority"}`, mode: pricing.ModeFast},
 		{body: `{"model":"gpt-5","service_tier":"fast"}`, mode: pricing.ModeFast},
+		{body: `{"model":"gpt-5","service_tier":"ultrafast"}`, mode: pricing.ModeUltrafast},
 		{body: `{"model":"gpt-5","service_tier":"default"}`, mode: pricing.ModeStandard},
 		{body: `{"model":"gpt-5","speed":"fast"}`, unsupported: true},
 		{body: `{"model":"gpt-5","reasoning":{"mode":"pro"}}`, unsupported: true},

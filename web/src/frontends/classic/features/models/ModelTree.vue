@@ -218,20 +218,24 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
                 >
                   {{ entry.prices[field] ?? t('models.tree.noPrice') }}
                 </span>
-                <AppTooltip v-if="entry.fastPrices" :content="t('models.tree.fastPrice')">
+                <AppTooltip
+                  v-for="schedule in entry.modePrices"
+                  :key="schedule.mode"
+                  :content="t(`models.tree.${schedule.mode}Price`)"
+                >
                   <span
                     class="model-tree__fast-price"
                     tabindex="0"
                     :aria-label="
-                      t('models.tree.fastPriceValue', {
+                      t(`models.tree.${schedule.mode}PriceValue`, {
                         field: t(`modelPrices.fields.${field}`),
-                        price: entry.fastPrices[field] ?? t('models.tree.noPrice'),
+                        price: schedule.prices[field] ?? t('models.tree.noPrice'),
                       })
                     "
                   >
                     <Zap :size="11" aria-hidden="true" />
-                    <span :class="{ 'model-tree__price--empty': entry.fastPrices[field] === null }">
-                      {{ entry.fastPrices[field] ?? t('models.tree.noPrice') }}
+                    <span :class="{ 'model-tree__price--empty': schedule.prices[field] === null }">
+                      {{ schedule.prices[field] ?? t('models.tree.noPrice') }}
                     </span>
                   </span>
                 </AppTooltip>

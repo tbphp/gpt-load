@@ -3,6 +3,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@shared/http/client'
 import type {
+  AccessProtocol,
   ChannelParamsDto,
   ConnectionType,
   CredentialCounts,
@@ -64,6 +65,8 @@ const groupSettingsFields = [
   'connection_type',
   'params',
   'validation_model',
+  'validation_protocol',
+  'validation_protocols',
   'enabled',
   'weight_manual',
   'overrides',
@@ -119,6 +122,7 @@ const runtimeSettingFields = [
   'blacklist_threshold',
   'header_rules',
   'affinity_enabled',
+  'responses_websocket_enabled',
 ] as const
 const groupRuntimeSettingFields = [...runtimeSettingFields, 'parameter_overrides'] as const
 
@@ -134,6 +138,7 @@ export interface GroupRuntimeConfigDto {
   blacklist_threshold?: number
   header_rules?: HeaderRulesDto
   affinity_enabled?: boolean
+  responses_websocket_enabled?: boolean
   parameter_overrides?: ParameterOverrideRuleDto[]
 }
 
@@ -144,6 +149,7 @@ export interface GroupEffectiveConfigDto {
   blacklist_threshold: number
   header_rules: HeaderRulesDto
   affinity_enabled: boolean
+  responses_websocket_enabled: boolean
 }
 
 export type {
@@ -158,6 +164,7 @@ export type GroupSettingsUpdateRequest = Partial<{
   price_multiplier: string
   params: ChannelParamsDto
   validation_model: string | null
+  validation_protocol: AccessProtocol | null
   enabled: boolean
   weight_manual: number | null
   overrides: GroupRuntimeConfigDto
@@ -368,6 +375,9 @@ function projectRuntimeConfig(
   if (complete || Object.prototype.hasOwnProperty.call(record, 'affinity_enabled')) {
     result.affinity_enabled = projectBoolean(record.affinity_enabled)
   }
+  if (complete || Object.prototype.hasOwnProperty.call(record, 'responses_websocket_enabled')) {
+    result.responses_websocket_enabled = projectBoolean(record.responses_websocket_enabled)
+  }
   if (!complete && Object.prototype.hasOwnProperty.call(record, 'parameter_overrides')) {
     result.parameter_overrides = projectParameterOverrides(record.parameter_overrides)
   }
@@ -413,6 +423,13 @@ export function projectGroupSettings(value: unknown): GroupSettingsDto {
     price_multiplier: projectPriceMultiplier(record.price_multiplier),
     validation_model:
       record.validation_model === null ? null : projectNonBlankString(record.validation_model),
+    validation_protocol:
+      record.validation_protocol === null
+        ? null
+        : projectEnum(record.validation_protocol, enabledDataProtocols),
+    validation_protocols: projectArray(record.validation_protocols, (value) =>
+      projectEnum(value, enabledDataProtocols),
+    ),
     enabled: projectBoolean(record.enabled),
     weight_manual:
       record.weight_manual === null
