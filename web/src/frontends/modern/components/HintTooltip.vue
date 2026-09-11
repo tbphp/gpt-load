@@ -26,7 +26,8 @@ defineProps<{
   </TooltipRoot>
 </template>
 
-<style scoped>
+<!-- Portal 内容不带当前组件的 scoped 属性，使用唯一的 modern 类名作用于浮层节点。 -->
+<style>
 .modern-tooltip {
   z-index: var(--modern-layer-tooltip);
   max-width: min(var(--modern-tooltip-max-width), calc(100vw - var(--modern-space-8)));

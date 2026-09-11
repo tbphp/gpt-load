@@ -55,7 +55,8 @@ function select(value: unknown): void {
   </DropdownMenuRoot>
 </template>
 
-<style scoped>
+<!-- Portal 内容不带当前组件的 scoped 属性，使用唯一的 modern 类名作用于浮层节点。 -->
+<style>
 .modern-menu {
   z-index: var(--modern-layer-menu);
   min-width: var(--modern-menu-min-width);
