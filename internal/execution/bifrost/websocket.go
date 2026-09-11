@@ -13,6 +13,7 @@ import (
 
 // OpenWebsocket 复用目标、凭据和代理合同，原生 WS 不进入 HTTP SDK 的重试链。
 func (manager *RuntimeManager) OpenWebsocket(ctx context.Context, spec execution.AttemptSpec) (execution.WebsocketSession, execution.WebsocketResult) {
+	spec = withUserAgent(spec)
 	reject := func() (execution.WebsocketSession, execution.WebsocketResult) {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported native websocket request")
 		return nil, execution.WebsocketResult{DispatchState: execution.DispatchNotSent, Error: failure.Error}
