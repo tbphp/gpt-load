@@ -52,8 +52,7 @@ function viewUsage(id: number): void {
     monitorLocation({
       tab: 'usage',
       access_key_id: String(id),
-      from_ms: String(props.usageWindow.from_ms),
-      to_ms: String(props.usageWindow.to_ms),
+      preset: props.usageWindow.range,
     }),
   )
 }
@@ -62,8 +61,7 @@ function viewLogs(id: number): void {
     monitorLocation({
       tab: 'logs',
       access_key_id: String(id),
-      from_ms: String(props.usageWindow.from_ms),
-      to_ms: String(props.usageWindow.to_ms),
+      preset: props.usageWindow.range,
     }),
   )
 }

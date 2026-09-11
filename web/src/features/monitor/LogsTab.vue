@@ -87,6 +87,7 @@ const advancedOpen = computed(() => routeState.value.filtersOpen)
 const draft = ref(createLogFilterDraft(appliedFilters.value))
 let draftBeforeAdvanced: LogFilterDraft | undefined
 const filterErrors = ref<LogFilterErrors>({})
+const filterCommitPending = ref(false)
 const paginationPending = ref(false)
 const pageTransitionOrigin = ref<LogsMonitorState | null>(null)
 const currentCursor = computed(() => routeState.value.cursorHistory.at(-1))
@@ -110,7 +111,10 @@ const channelsByID = computed<Record<string, ChannelDto>>(() =>
     (channelsQuery.data.value?.items ?? []).map((channel) => [channel.channel_id, channel]),
   ),
 )
-const logsQuery = useQuery(requestLogQueryOptions(client, appliedFilters, currentCursor))
+const logsQuery = useQuery({
+  ...requestLogQueryOptions(client, appliedFilters, currentCursor),
+  enabled: computed(() => !filterCommitPending.value),
+})
 const logs = computed(() => logsQuery.data.value?.items ?? [])
 const {
   initial: initialLoading,
@@ -338,7 +342,7 @@ async function commitFilters(filters: AppliedLogFilters): Promise<void> {
     routeState.value.selectedRequestID === undefined &&
     !routeState.value.filtersOpen
   ) {
-    await logsQuery.refetch()
+    if (!filterCommitPending.value) await logsQuery.refetch({ cancelRefetch: false })
     return
   }
 
@@ -374,22 +378,36 @@ async function applyFilters(): Promise<void> {
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
 
-  const filters = applyLogFilterDraft(draft.value, appliedFilters.value)
-  const preset = filters.preset
-  // 显式应用筛选时推进快捷范围；自定义范围及其他日志操作继续保留原区间。
-  if (preset) {
-    const interval = resolveDateTimePreset(preset, Math.floor(Date.now() / 1000) * 1000)
-    if (interval.to_ms > interval.from_ms) {
-      filters.from_ms = interval.from_ms
-      filters.to_ms = interval.to_ms
-      emit('time-range-resolved', { ...interval, preset })
+  await commitRefreshedFilters(applyLogFilterDraft(draft.value, appliedFilters.value))
+}
+
+async function commitRefreshedFilters(filters: AppliedLogFilters): Promise<void> {
+  if (filterCommitPending.value) return
+  filterCommitPending.value = true
+  try {
+    // 时间、筛选和游标分步更新期间不查询，避免请求中间状态。
+    await nextTick()
+    const preset = filters.preset
+    if (preset) {
+      const interval = resolveDateTimePreset(preset, Math.floor(Date.now() / 1000) * 1000)
+      if (interval.to_ms > interval.from_ms) {
+        filters.from_ms = interval.from_ms
+        filters.to_ms = interval.to_ms
+        emit('time-range-resolved', { ...interval, preset })
+      }
     }
+    await commitFilters(filters)
+    await nextTick()
+  } finally {
+    filterCommitPending.value = false
   }
-  await commitFilters(filters)
+  await nextTick()
+  // 查询条件未变化时也刷新；已自动发出的请求直接复用。
+  await logsQuery.refetch({ cancelRefetch: false })
 }
 
 async function resetFilters(): Promise<void> {
-  await commitFilters({
+  await commitRefreshedFilters({
     from_ms: appliedFilters.value.from_ms,
     to_ms: appliedFilters.value.to_ms,
     preset: appliedFilters.value.preset,

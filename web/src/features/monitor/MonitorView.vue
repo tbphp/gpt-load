@@ -401,7 +401,11 @@ function applyTimeRange(from: number, to: number, preset?: DateTimePreset): void
             />
           </div>
           <div v-else-if="activeTab === 'usage'" class="monitor-panel">
-            <UsageTab ref="usageTab" :filters="usageFilters" />
+            <UsageTab
+              ref="usageTab"
+              :filters="usageFilters"
+              @time-range-resolved="updateResolvedTimeRange"
+            />
           </div>
           <div v-else class="monitor-panel">
             <InspectorTab />

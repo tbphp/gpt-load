@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { Database } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -36,6 +36,7 @@ import {
   formatLocalTimeRange,
 } from '@/lib/format'
 import { useAuthSession } from '@/features/auth/auth-session'
+import { resolveDateTimePreset, type DateTimePreset } from '@/lib/time'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 import UsageBarChart from './UsageBarChart.vue'
@@ -60,6 +61,9 @@ import UsageFilterForm from './UsageFilterForm.vue'
 import UsageSummary from './UsageSummary.vue'
 
 const props = defineProps<{ filters: AppliedUsageFilters }>()
+const emit = defineEmits<{
+  'time-range-resolved': [range: { from_ms: number; to_ms: number; preset: DateTimePreset }]
+}>()
 const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
@@ -74,6 +78,7 @@ const routeState = computed(() => parseUsageMonitorState(route.query))
 const filterOpen = computed(() => routeState.value.filtersOpen)
 const draft = ref<UsageFilterDraft>(createUsageFilterDraft(appliedFilters.value))
 const filterErrors = ref<UsageFilterErrors>({})
+const filterCommitPending = ref(false)
 
 const groupsQuery = useQuery({
   ...groupOptionsQueryOptions(client, () => !isAccessKey.value),
@@ -96,7 +101,10 @@ const accessKeysQuery = useQuery({
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
 })
-const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
+const usageQuery = useQuery({
+  ...usageQueryOptions(client, appliedFilters),
+  enabled: computed(() => !filterCommitPending.value),
+})
 const report = computed(() => usageQuery.data.value)
 // 切换筛选时的占位报告只用于过渡展示，不能作为跨页导航的时间依据。
 const navigationReport = computed(() =>
@@ -373,11 +381,36 @@ async function applyFilters(): Promise<void> {
   const errors = validateUsageFilterDraft(draft.value)
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
-  await navigate(applyUsageFilterDraft(draft.value, appliedFilters.value))
+  await commitRefreshedFilters(applyUsageFilterDraft(draft.value, appliedFilters.value))
+}
+
+async function commitRefreshedFilters(filters: AppliedUsageFilters): Promise<void> {
+  if (filterCommitPending.value) return
+  filterCommitPending.value = true
+  try {
+    // 时间和筛选分步更新期间不查询，避免请求中间状态。
+    await nextTick()
+    const preset = filters.preset
+    if (preset) {
+      const interval = resolveDateTimePreset(preset, Math.floor(Date.now() / 1000) * 1000)
+      if (interval.to_ms > interval.from_ms) {
+        filters.from_ms = interval.from_ms
+        filters.to_ms = interval.to_ms
+        emit('time-range-resolved', { ...interval, preset })
+      }
+    }
+    await navigate(filters)
+    await nextTick()
+  } finally {
+    filterCommitPending.value = false
+  }
+  await nextTick()
+  // 查询条件未变化时也刷新；已自动发出的请求直接复用。
+  await usageQuery.refetch({ cancelRefetch: false })
 }
 
 async function resetFilters(): Promise<void> {
-  await navigate({
+  await commitRefreshedFilters({
     from_ms: appliedFilters.value.from_ms,
     to_ms: appliedFilters.value.to_ms,
     preset: appliedFilters.value.preset,
