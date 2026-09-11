@@ -150,7 +150,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
 .modern-quick-nav-trigger {
   display: flex;
   width: 246px;
-  height: var(--modern-control-md);
+  height: var(--modern-control-sm);
   align-items: center;
   gap: var(--modern-space-2);
   border: var(--modern-line-width) solid var(--modern-border);
