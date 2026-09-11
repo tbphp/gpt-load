@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, Menu, X } from '@lucide/vue'
+import { ChevronLeft, ChevronRight, LogOut, Menu, X } from '@lucide/vue'
 import { DialogClose, DialogRoot, DialogTrigger, TooltipProvider } from 'reka-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
 import { desktopMediaQuery } from '@modern/app/breakpoints'
-import { findNavigationItem } from '@modern/app/navigation'
+import { findNavigationItem, pagePath } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
 import AppButton from '@modern/components/ui/AppButton.vue'
 import AppDialogContent from '@modern/components/ui/AppDialogContent.vue'
@@ -13,18 +13,22 @@ import AppIcon from '@modern/components/ui/AppIcon.vue'
 import AppIconButton from '@modern/components/ui/AppIconButton.vue'
 import AppNotice from '@modern/components/ui/AppNotice.vue'
 import { tooltipDelay } from '@modern/components/ui/overlay'
+import { useAuthSession } from '@modern/features/auth/auth-session'
 import { provideSystemStatus } from '@modern/features/system/useSystemStatus'
+import { loginLocation } from '@modern/router'
 import AppearanceMenu from './AppearanceMenu.vue'
 import QuickNavigation from './QuickNavigation.vue'
 import SidebarContent from './SidebarContent.vue'
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
+const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
 const { sidebarCollapsed, toggleSidebar, persistenceFailed } = usePreferences()
 provideSystemStatus()
 const mobileOpen = ref(false)
 const failedNavigation = ref<string | null>(null)
+const loggingOut = ref(false)
 const current = computed(() => findNavigationItem(route.meta.primaryNav ?? route.name))
 const pageTitle = computed(() =>
   typeof route.meta.titleKey === 'string'
@@ -32,13 +36,6 @@ const pageTitle = computed(() =>
     : current.value
       ? t(`pages.${current.value.id}.title`)
       : t('notFound.title'),
-)
-watch(
-  [pageTitle, locale],
-  () => {
-    document.title = `${pageTitle.value} · GPT-Load`
-  },
-  { immediate: true },
 )
 watch(
   () => route.fullPath,
@@ -63,6 +60,19 @@ function closeMobileOnDesktop(): void {
 }
 function reloadFailedNavigation(): void {
   if (failedNavigation.value) window.location.assign(failedNavigation.value)
+}
+async function logout(): Promise<void> {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  try {
+    const failure = await router.replace(loginLocation())
+    // 路由守卫阻止离开时仍保留会话，后续业务页可继续使用未保存修改保护。
+    if (!isNavigationFailure(failure)) session.clear()
+  } catch {
+    failedNavigation.value = pagePath('login')
+  } finally {
+    loggingOut.value = false
+  }
 }
 onMounted(() => {
   desktopMedia = window.matchMedia(desktopMediaQuery)
@@ -117,6 +127,18 @@ onBeforeUnmount(() => {
           <div class="modern-topbar-actions">
             <QuickNavigation /><span class="modern-toolbar-divider" aria-hidden="true"></span
             ><AppearanceMenu />
+            <span
+              v-if="session.state.principalType === 'access_key'"
+              class="modern-session-scope"
+              :title="t('auth.readOnlyDescription')"
+              >{{ t('auth.readOnly') }}</span
+            >
+            <AppIconButton
+              :icon="LogOut"
+              :label="t('auth.logout')"
+              :loading="loggingOut"
+              @click="logout"
+            />
           </div>
         </header>
         <main id="modern-content" class="modern-content" tabindex="-1">
@@ -254,6 +276,12 @@ onBeforeUnmount(() => {
   margin: 0 var(--modern-space-2);
   background: var(--modern-border);
 }
+.modern-session-scope {
+  margin-inline: var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-text-small);
+  white-space: nowrap;
+}
 .modern-content {
   width: 100%;
   min-width: 0;
@@ -294,6 +322,9 @@ onBeforeUnmount(() => {
     gap: 0;
   }
   .modern-toolbar-divider {
+    display: none;
+  }
+  .modern-session-scope {
     display: none;
   }
 }

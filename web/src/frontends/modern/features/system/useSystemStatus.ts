@@ -1,35 +1,32 @@
-import { inject, onMounted, onScopeDispose, provide, readonly, ref, type InjectionKey } from 'vue'
+import {
+  computed,
+  inject,
+  onMounted,
+  onScopeDispose,
+  provide,
+  readonly,
+  ref,
+  type InjectionKey,
+} from 'vue'
 
 import { getCurrentVersion, getReleaseUpdate, type ReleaseUpdate } from '@modern/api/system'
-import { usePreferences } from '@modern/app/preferences'
-import { createApiClient } from '@shared/http/client'
+import { useAuthSession } from '@modern/features/auth/auth-session'
+import { useApiClient } from '@shared/http/client-context'
 import { ApiError, RequestCancelledError } from '@shared/http/errors'
 
 type CheckState = 'idle' | 'checking' | 'latest' | 'available' | 'failed' | 'authRequired'
 
-function readAuthKey(): string {
-  try {
-    return window.localStorage.getItem('gpt-load.auth-key') ?? ''
-  } catch {
-    return ''
-  }
-}
-
 function createSystemStatus() {
-  const { locale } = usePreferences()
+  const session = useAuthSession()
+  const client = useApiClient()
+  const canCheckUpdate = computed(
+    () => session.state.phase === 'validated' && session.state.principalType === 'admin',
+  )
   const version = ref<string | null>(null)
   const versionLoading = ref(false)
   const checkState = ref<CheckState>('idle')
   const update = ref<ReleaseUpdate | null>(null)
   const controller = new AbortController()
-  const client = createApiClient({
-    fetch: window.fetch.bind(window),
-    getAuthKey: readAuthKey,
-    getLocale: () => locale.value,
-    onUnauthorized: () => {
-      update.value = null
-    },
-  })
 
   async function loadVersion(): Promise<void> {
     if (versionLoading.value) return
@@ -46,15 +43,14 @@ function createSystemStatus() {
 
   async function loadUpdate(force: boolean): Promise<void> {
     if (checkState.value === 'checking') return
-    const authKey = readAuthKey()
-    if (!authKey) {
+    if (!canCheckUpdate.value) {
       update.value = null
       checkState.value = force ? 'authRequired' : 'idle'
       return
     }
     checkState.value = 'checking'
     try {
-      update.value = await getReleaseUpdate(client, authKey, force, controller.signal)
+      update.value = await getReleaseUpdate(client, force, controller.signal)
       checkState.value = update.value ? 'available' : force ? 'latest' : 'idle'
     } catch (error) {
       if (error instanceof RequestCancelledError || controller.signal.aborted) return
@@ -80,6 +76,7 @@ function createSystemStatus() {
   onScopeDispose(() => controller.abort())
 
   return {
+    canCheckUpdate,
     version: readonly(version),
     versionLoading: readonly(versionLoading),
     checkState: readonly(checkState),

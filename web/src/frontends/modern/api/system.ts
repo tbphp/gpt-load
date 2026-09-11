@@ -47,12 +47,11 @@ export async function getCurrentVersion(signal: AbortSignal): Promise<string> {
 
 export async function getReleaseUpdate(
   client: ApiClient,
-  authKey: string,
   force: boolean,
   signal: AbortSignal,
 ): Promise<ReleaseUpdate | null> {
   const path = force ? '/api/system/update?force=true' : '/api/system/update'
-  const data = asRecord(await client.request<unknown>(path, { authKey, signal }))
+  const data = asRecord(await client.request<unknown>(path, { signal }))
   if (data.update === null) return null
   const update = asRecord(data.update)
   const version = asNonBlankString(update.version)

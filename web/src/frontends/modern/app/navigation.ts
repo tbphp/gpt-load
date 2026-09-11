@@ -22,13 +22,21 @@ export function pagePath(name: string): string {
 }
 
 export const navigationItems = [
-  { id: 'home', name: 'modern-home', path: pagePath('home'), section: 'workspace', icon: House },
+  {
+    id: 'home',
+    name: 'modern-home',
+    path: pagePath('home'),
+    section: 'workspace',
+    icon: House,
+    adminOnly: false,
+  },
   {
     id: 'groups',
     name: 'modern-groups',
     path: pagePath('groups'),
     section: 'workspace',
     icon: Layers2,
+    adminOnly: true,
   },
   {
     id: 'models',
@@ -36,6 +44,7 @@ export const navigationItems = [
     path: pagePath('models'),
     section: 'workspace',
     icon: Boxes,
+    adminOnly: false,
   },
   {
     id: 'accessKeys',
@@ -43,6 +52,7 @@ export const navigationItems = [
     path: pagePath('access-keys'),
     section: 'workspace',
     icon: KeyRound,
+    adminOnly: true,
   },
   {
     id: 'usage',
@@ -50,6 +60,7 @@ export const navigationItems = [
     path: pagePath('monitor-usage'),
     section: 'observe',
     icon: ChartNoAxesCombined,
+    adminOnly: false,
   },
   {
     id: 'logs',
@@ -57,6 +68,7 @@ export const navigationItems = [
     path: pagePath('monitor-logs'),
     section: 'observe',
     icon: ScrollText,
+    adminOnly: false,
   },
   {
     id: 'health',
@@ -64,6 +76,7 @@ export const navigationItems = [
     path: pagePath('monitor-health'),
     section: 'observe',
     icon: Activity,
+    adminOnly: true,
   },
   {
     id: 'settings',
@@ -71,6 +84,7 @@ export const navigationItems = [
     path: pagePath('settings'),
     section: 'system',
     icon: Settings2,
+    adminOnly: true,
   },
   {
     id: 'inspector',
@@ -78,6 +92,7 @@ export const navigationItems = [
     path: pagePath('monitor-inspector'),
     section: 'system',
     icon: Route,
+    adminOnly: true,
   },
 ] as const
 

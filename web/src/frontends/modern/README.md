@@ -45,6 +45,7 @@
 | `AppPanel`                 | 有标题的内容面板，统一标题、说明、内边距；`actions` 插槽放面板操作                                      |
 | `AppButton`                | 标准按钮，`variant` 为 default / primary / ghost / danger，`size` 为 xs / sm / md；统一禁用、加载和焦点 |
 | `AppIconButton`            | 纯图标按钮，必须提供 `label`；不在页面里重复实现 aria-label、尺寸和加载状态                             |
+| `AppTextField`             | 文本输入、label、错误和焦点样式；通过 v-model 绑定，原生 input 属性透传，suffix 插槽放辅助操作          |
 | `AppIcon`                  | 普通图标统一来自 Lucide，使用 xs / sm / md / lg 命名尺寸；品牌图标保留官方 SVG 路径                     |
 | `AppSelectMenu`            | 图标触发的单选菜单，通过 modelValue / options 传值；现有主题、语言选择共用                              |
 | `AppDialogContent`         | 在 Reka `DialogRoot` 内使用，统一 Portal、遮罩、层级、可访问标题和描述；dialog / sidebar 两种位置       |
@@ -87,6 +88,12 @@
 5. 可见文案通过 i18n，新增键同步中文、英文、日文。长文本可换行或截断，操作不能被挤出容器；错误、空状态与加载状态不得用虚构数据替代。
 6. 键盘焦点必须可见，图标按钮有明确名称；不只用颜色传达状态。异步动作避免重复提交。减少动效由全局规则处理，组件不自行覆盖。
 7. 宽工作区使用全局内容内边距，不增加居中的固定最大宽容器。移动端控件使用统一触摸尺寸，表格等复杂内容在自己的区域处理滚动。
+
+## 认证与页面接入
+
+受保护页面由 `AuthGate` 在身份验证成功后挂载；页面不得用浏览器是否存在密钥代替服务端认证。菜单权限在 `app/navigation.ts` 中声明，路由、侧栏、快捷导航使用同一规则。业务查询从共享注入入口 `useApiClient()` 取得新版会话客户端；不要自行创建绕过会话清理的 HTTP 客户端或从存储读取密钥。
+
+`features/auth/` 独立维护认证流程，`app/api-client.ts` 负责阻止旧身份的失败响应清除新会话。所有新版查询共用 bootstrap 装配的 QueryClient，以便退出或换身份时统一取消与清理。功能自己的在途请求和临时敏感状态仍须在卸载时清理，后续编辑与导入页面接入时补充对应恢复与未保存保护。
 
 ## 检查与修改流程
 

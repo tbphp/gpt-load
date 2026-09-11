@@ -4,7 +4,7 @@ import { DialogClose, DialogRoot, DialogTrigger } from 'reka-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { navigationItems } from '@modern/app/navigation'
+import { useNavigation } from '@modern/app/use-navigation'
 import AppDialogContent from '@modern/components/ui/AppDialogContent.vue'
 import AppIcon from '@modern/components/ui/AppIcon.vue'
 import AppIconButton from '@modern/components/ui/AppIconButton.vue'
@@ -16,9 +16,10 @@ const open = ref(false)
 const query = ref('')
 const input = ref<HTMLInputElement | null>(null)
 const selected = ref(0)
+const navigation = useNavigation()
 const results = computed(() => {
   const words = query.value.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean)
-  return navigationItems.filter((item) => {
+  return navigation.value.filter((item) => {
     const text =
       `${t(`pages.${item.id}.title`)} ${t(`sections.${item.section}`)} ${item.path}`.toLocaleLowerCase()
     return words.every((word) => text.includes(word))

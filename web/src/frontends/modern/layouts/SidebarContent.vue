@@ -4,7 +4,8 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 
-import { navigationItems, navigationSections } from '@modern/app/navigation'
+import { navigationSections } from '@modern/app/navigation'
+import { useNavigation } from '@modern/app/use-navigation'
 import BrandLogo from '@modern/components/BrandLogo.vue'
 import GitHubIcon from '@modern/components/GitHubIcon.vue'
 import HintTooltip from '@modern/components/HintTooltip.vue'
@@ -16,6 +17,10 @@ defineProps<{ collapsed?: boolean }>()
 const emit = defineEmits<{ navigate: [] }>()
 const route = useRoute()
 const { t } = useI18n()
+const navigation = useNavigation()
+const sections = computed(() =>
+  navigationSections.filter((section) => navigation.value.some((item) => item.section === section)),
+)
 const footerLinks = computed(() => [
   { label: t('shell.documentation'), href: 'https://www.gpt-load.com/docs', icon: BookOpen },
   { label: t('shell.sponsor'), href: 'https://www.gpt-load.com/sponsor', icon: Heart },
@@ -35,10 +40,10 @@ const footerLinks = computed(() => [
       <BrandLogo :compact="collapsed" />
     </RouterLink>
     <nav class="modern-sidebar-navigation" :aria-label="t('navigation')">
-      <div v-for="section in navigationSections" :key="section" class="modern-nav-section">
+      <div v-for="section in sections" :key="section" class="modern-nav-section">
         <p v-if="!collapsed" class="modern-nav-section__label">{{ t(`sections.${section}`) }}</p>
         <HintTooltip
-          v-for="item in navigationItems.filter((entry) => entry.section === section)"
+          v-for="item in navigation.filter((entry) => entry.section === section)"
           :key="item.id"
           :label="t(`pages.${item.id}.title`)"
           :disabled="!collapsed"

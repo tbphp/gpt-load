@@ -12,7 +12,8 @@ import { useSystemStatus } from './useSystemStatus'
 defineProps<{ collapsed?: boolean }>()
 
 const { t } = useI18n()
-const { version, versionLoading, checkState, update, checkForUpdate } = useSystemStatus()
+const { version, versionLoading, checkState, update, checkForUpdate, canCheckUpdate } =
+  useSystemStatus()
 const versionLabel = computed(() =>
   version.value
     ? version.value.startsWith('v')
@@ -50,6 +51,7 @@ const checkLabel = computed(() =>
         </span>
       </HintTooltip>
       <AppIconButton
+        v-if="canCheckUpdate"
         class="modern-update-button"
         :icon="RefreshCw"
         :label="checkLabel"
