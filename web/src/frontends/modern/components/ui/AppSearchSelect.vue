@@ -38,12 +38,14 @@ const props = withDefaults(
 const model = defineModel<string>({ required: true })
 const { t } = useI18n()
 const open = ref(false)
+// 仅点击、输入或方向键打开；弹窗恢复焦点时保留已选标签，不自动进入空搜索态。
 const search = ref('')
 const loading = ref(false)
 const failed = ref(false)
 const remoteOptions = ref<readonly SearchSelectOption[]>([])
 const retainedOption = ref<SearchSelectOption>()
 const input = ref<{ $el: HTMLInputElement }>()
+defineExpose({ focus: () => input.value?.$el.focus({ preventScroll: true }) })
 let controller: AbortController | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
 const source = computed(() => (props.loadOptions ? remoteOptions.value : props.options))
@@ -53,9 +55,17 @@ const selected = computed({
     model.value = value ?? ''
   },
 })
-const selectedLabel = computed(() =>
-  retainedOption.value?.value === model.value ? retainedOption.value.label : model.value,
-)
+const selectedLabel = computed(() => {
+  const option = [
+    ...props.options,
+    ...source.value,
+    ...(props.selectedOption ? [props.selectedOption] : []),
+  ].find((item) => item.value === model.value)
+  return (
+    option?.label ??
+    (retainedOption.value?.value === model.value ? retainedOption.value.label : model.value)
+  )
+})
 watch(
   [model, source, () => props.selectedOption],
   () => {
@@ -150,7 +160,6 @@ onScopeDispose(cancelRequest)
       :name="name"
       :required="required"
       ignore-filter
-      open-on-focus
       open-on-click
       :reset-search-term-on-blur="false"
       :reset-search-term-on-select="false"

@@ -8,7 +8,6 @@ import {
   isNavigationFailure,
   onBeforeRouteLeave,
   onBeforeRouteUpdate,
-  RouterLink,
   useRoute,
   useRouter,
 } from 'vue-router'
@@ -37,7 +36,6 @@ import {
   AppDialogContent,
   AppDialogHeader,
   AppFilterSummary,
-  AppIcon,
   AppIconButton,
   AppListFrame,
   AppNotice,
@@ -50,6 +48,8 @@ import {
 import { useApiClient } from '@shared/http/client-context'
 import GroupListRow from './GroupListRow.vue'
 import GroupEditPanel from './GroupEditPanel.vue'
+import GroupCreatePanel from './GroupCreatePanel.vue'
+import type { GroupCreateResult } from '@modern/api/group-create'
 import { groupFilterQuery, parseGroupFilters } from './group-route'
 
 const { t, n, locale } = useI18n()
@@ -66,6 +66,7 @@ const listLoading = useLoadingFeedback(() => filtering.value || refreshing.value
 const composing = ref(false)
 const expanded = ref(new Set<number>())
 const editing = ref<GroupRow>()
+const creating = ref(false)
 const pending = ref(new Map<number, 'toggle' | 'weight' | 'editor'>())
 const enabledOverrides = ref(new Map<number, boolean>())
 const weightErrors = ref(new Map<number, string>())
@@ -435,6 +436,51 @@ async function openEditor(group: GroupRow, event: MouseEvent): Promise<void> {
   editing.value = group
   editTrigger = trigger
 }
+async function openCreate(event: MouseEvent): Promise<void> {
+  const trigger = event.currentTarget as HTMLElement
+  if (!(await guardNavigation()) || controller.signal.aborted) return
+  creating.value = true
+  editTrigger = trigger
+}
+async function closeCreate(): Promise<void> {
+  creating.value = false
+  await nextTick()
+  if (!controller.signal.aborted && editTrigger?.isConnected)
+    editTrigger.focus({ preventScroll: true })
+}
+async function locateCreated(id: number): Promise<void> {
+  await closeCreate()
+  const result = await query.refetch()
+  if (controller.signal.aborted) return
+  if (result.isError) {
+    notice.value = {
+      tone: 'warning',
+      text: [notice.value?.text, t('groupCreate.resultReloadFailed')].filter(Boolean).join(' '),
+    }
+    return
+  }
+  if (creating.value || editing.value) return
+  const group = result.data?.items.find((item) => item.id === id)
+  if (group) {
+    search.value = group.name
+    await updateFilters({ q: group.name, channel: '', view: 'all', page: 1 })
+  }
+}
+async function onCreated(result: GroupCreateResult, appended: boolean): Promise<void> {
+  notice.value = {
+    tone: 'success',
+    text: t(appended ? 'groupCreate.resultAppended' : 'groupCreate.resultCreated', {
+      name: result.name,
+      added: n(result.added),
+      duplicated: n(result.duplicated),
+    }),
+  }
+  await locateCreated(result.id)
+}
+async function onLocated(id: number): Promise<void> {
+  notice.value = { tone: 'warning', text: t('groupCreate.resultKnown', { name: '#' + id }) }
+  await locateCreated(id)
+}
 async function closeEditor(): Promise<void> {
   editing.value = undefined
   await nextTick()
@@ -502,11 +548,9 @@ async function onSaved(id: number, settings: GroupBasics): Promise<void> {
         :options="sortOptions"
         @update:model-value="updateFilters({ sort: $event as GroupFilters['sort'] })"
       />
-      <AppButton variant="primary" as-child
-        ><RouterLink :to="{ name: 'modern-import' }"
-          ><AppIcon :icon="Plus" size="sm" />{{ t('groups.create') }}</RouterLink
-        ></AppButton
-      >
+      <AppButton variant="primary" :icon="Plus" :disabled="pending.size > 0" @click="openCreate">{{
+        t('groups.create')
+      }}</AppButton>
     </form>
     <div class="modern-groups-filterbar">
       <AppSegmentedControl
@@ -631,6 +675,13 @@ async function onSaved(id: number, settings: GroupBasics): Promise<void> {
         />
       </template>
     </AppListFrame>
+    <GroupCreatePanel
+      v-if="creating"
+      :initial-channel="filters.channel"
+      @close="closeCreate"
+      @created="onCreated"
+      @located="onLocated"
+    />
     <GroupEditPanel
       v-if="editing"
       :key="editing.id"

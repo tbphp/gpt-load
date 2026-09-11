@@ -1,7 +1,11 @@
 import { zhCN as groupMessages } from './groups'
 import { zhCN as ui } from './ui'
+import { zhCN as groupCreate } from './group-create'
+import { zhCN as modelSelection } from './model-selection'
 
 export default {
+  modelSelection,
+  groupCreate,
   ui,
   ...groupMessages,
   sections: {

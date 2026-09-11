@@ -1,19 +1,42 @@
 <script setup lang="ts">
-import { Check } from '@lucide/vue'
+import { Check, Minus } from '@lucide/vue'
+import { ref, useAttrs, type StyleValue } from 'vue'
 import AppIcon from './AppIcon.vue'
 
 defineOptions({ inheritAttrs: false })
-defineProps<{ label: string; disabled?: boolean }>()
+defineProps<{ label: string; labelHidden?: boolean; disabled?: boolean; indeterminate?: boolean }>()
 const model = defineModel<boolean>({ required: true })
+const input = ref<HTMLInputElement>()
+const attrs = useAttrs()
+function inputAttrs() {
+  return Object.fromEntries(
+    Object.entries(attrs).filter(([key]) => key !== 'class' && key !== 'style'),
+  )
+}
+defineExpose({ focus: () => input.value?.focus() })
 </script>
 
 <template>
-  <label class="modern-checkbox" :class="{ 'is-disabled': disabled }">
-    <input v-model="model" v-bind="$attrs" type="checkbox" :disabled="disabled" />
+  <label
+    class="modern-checkbox"
+    :class="[$attrs.class, { 'is-disabled': disabled }]"
+    :style="$attrs.style as StyleValue"
+  >
+    <input
+      ref="input"
+      v-model="model"
+      v-bind="inputAttrs()"
+      type="checkbox"
+      :disabled="disabled"
+      :indeterminate="indeterminate"
+      :aria-label="labelHidden || $slots.default ? label : undefined"
+    />
     <span class="modern-checkbox-control" aria-hidden="true">
-      <AppIcon v-if="model" :icon="Check" size="xs" />
+      <AppIcon v-if="indeterminate || model" :icon="indeterminate ? Minus : Check" size="xs" />
     </span>
-    <span>{{ label }}</span>
+    <span class="modern-checkbox-label" :class="{ 'modern-sr-only': labelHidden }"
+      ><slot>{{ label }}</slot></span
+    >
   </label>
 </template>
 
@@ -60,6 +83,14 @@ const model = defineModel<boolean>({ required: true })
 .modern-checkbox input:checked + .modern-checkbox-control {
   border-color: var(--modern-action);
   background: var(--modern-action);
+}
+.modern-checkbox input:indeterminate + .modern-checkbox-control {
+  border-color: var(--modern-action);
+  background: var(--modern-action);
+}
+.modern-checkbox-label {
+  min-width: 0;
+  flex: 1;
 }
 .modern-checkbox input:focus-visible + .modern-checkbox-control {
   outline: var(--modern-focus-width) solid var(--modern-accent);

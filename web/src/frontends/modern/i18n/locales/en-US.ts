@@ -1,7 +1,11 @@
 import { enUS as groupMessages } from './groups'
 import { enUS as ui } from './ui'
+import { enUS as groupCreate } from './group-create'
+import { enUS as modelSelection } from './model-selection'
 
 export default {
+  modelSelection,
+  groupCreate,
   ui,
   ...groupMessages,
   sections: {
