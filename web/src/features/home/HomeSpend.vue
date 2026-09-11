@@ -35,8 +35,8 @@ function modelName(model: string): string {
 function modelUsageLocation(model: string) {
   return monitorLocation(
     model === ''
-      ? { tab: 'usage', range: '30d' }
-      : { tab: 'usage', range: '30d', upstream_model: model },
+      ? { tab: 'usage', preset: '30d' }
+      : { tab: 'usage', preset: '30d', upstream_model: model },
   )
 }
 
@@ -52,7 +52,7 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
   <section class="home-spend" aria-labelledby="home-spend-title">
     <HomeSectionHeading id="home-spend-title" :title="t('home.ledger.spend.title')">
       <template #actions>
-        <RouterLink class="home-spend__link" :to="monitorLocation({ tab: 'usage', range: '30d' })">
+        <RouterLink class="home-spend__link" :to="monitorLocation({ tab: 'usage', preset: '30d' })">
           {{ t('home.ledger.spend.viewDetail') }}
         </RouterLink>
       </template>

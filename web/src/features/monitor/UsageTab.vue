@@ -36,6 +36,7 @@ import {
   formatLocalTimeRange,
 } from '@/lib/format'
 import { useAuthSession } from '@/features/auth/auth-session'
+import { resolveDateTimePreset, type DateTimePreset } from '@/lib/time'
 
 import MonitorSectionHeading from './MonitorSectionHeading.vue'
 import UsageBarChart from './UsageBarChart.vue'
@@ -60,6 +61,9 @@ import UsageFilterForm from './UsageFilterForm.vue'
 import UsageSummary from './UsageSummary.vue'
 
 const props = defineProps<{ filters: AppliedUsageFilters }>()
+const emit = defineEmits<{
+  'time-range-resolved': [range: { from_ms: number; to_ms: number; preset: DateTimePreset }]
+}>()
 const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
@@ -373,11 +377,25 @@ async function applyFilters(): Promise<void> {
   const errors = validateUsageFilterDraft(draft.value)
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
-  await navigate(applyUsageFilterDraft(draft.value, appliedFilters.value))
+  await commitRefreshedFilters(applyUsageFilterDraft(draft.value, appliedFilters.value))
+}
+
+async function commitRefreshedFilters(filters: AppliedUsageFilters): Promise<void> {
+  const preset = filters.preset
+  // 应用和重置筛选时推进快捷范围；自定义范围及其他用量操作保留原区间。
+  if (preset) {
+    const interval = resolveDateTimePreset(preset, Math.floor(Date.now() / 1000) * 1000)
+    if (interval.to_ms > interval.from_ms) {
+      filters.from_ms = interval.from_ms
+      filters.to_ms = interval.to_ms
+      emit('time-range-resolved', { ...interval, preset })
+    }
+  }
+  await navigate(filters)
 }
 
 async function resetFilters(): Promise<void> {
-  await navigate({
+  await commitRefreshedFilters({
     from_ms: appliedFilters.value.from_ms,
     to_ms: appliedFilters.value.to_ms,
     preset: appliedFilters.value.preset,
