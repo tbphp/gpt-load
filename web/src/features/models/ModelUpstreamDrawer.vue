@@ -73,22 +73,42 @@ const placeholderPrice: UpstreamModelDetailDto['price'] = {
 const price = computed(() => detail.value?.price ?? placeholderPrice)
 const channelName = computed(() => price.value.channel_name.trim() || price.value.channel_id || '—')
 const editor = useModelPriceEditor(toRef(price))
-const emptyFastDraft: ModelPriceSlotDraft = {
+const emptyModeDraft: ModelPriceSlotDraft = {
   input: '',
   output: '',
   cache_read: '',
   cache_write: '',
 }
-const emptyFastErrors: ModelPriceSlotErrors = {}
+const emptyModeErrors: ModelPriceSlotErrors = {}
 const hasFastSchedule = computed(() => Boolean(price.value.mode_schedules.fast))
 const fastDraft = computed({
-  get: () => editor.draft.value.modeSchedules.fast?.base ?? emptyFastDraft,
+  get: () => editor.draft.value.modeSchedules.fast?.base ?? emptyModeDraft,
   set: (value) => {
     const schedule = editor.draft.value.modeSchedules.fast
     if (schedule) schedule.base = value
   },
 })
-const fastErrors = computed(() => editor.errors.value.modeSchedules.fast?.base ?? emptyFastErrors)
+const fastErrors = computed(() => editor.errors.value.modeSchedules.fast?.base ?? emptyModeErrors)
+const hasUltrafastSchedule = computed(() => Boolean(editor.draft.value.modeSchedules.ultrafast))
+const ultrafastDraft = computed({
+  get: () => editor.draft.value.modeSchedules.ultrafast?.base ?? emptyModeDraft,
+  set: (value) => {
+    const schedule = editor.draft.value.modeSchedules.ultrafast
+    if (schedule) schedule.base = value
+  },
+})
+const ultrafastErrors = computed(
+  () => editor.errors.value.modeSchedules.ultrafast?.base ?? emptyModeErrors,
+)
+
+function addUltrafastPrice(): void {
+  editor.draft.value.modeSchedules.ultrafast = { base: { ...emptyModeDraft }, tiers: [] }
+}
+
+function removeUltrafastPrice(): void {
+  delete editor.draft.value.modeSchedules.ultrafast
+}
+
 const resetting = ref(false)
 
 async function requestClose(): Promise<void> {
@@ -235,6 +255,41 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
           :errors="fastErrors"
           :pending="editor.pending.value"
         />
+        <div class="upstream-drawer__mode-heading">
+          <h3>
+            <span>
+              <Zap :size="13" aria-hidden="true" />
+              {{ t('models.drawer.ultrafastPrices') }}
+            </span>
+            <span class="upstream-drawer__eyebrow">{{ t('modelPrices.matrix.unit') }}</span>
+          </h3>
+          <AppButton
+            v-if="hasUltrafastSchedule"
+            variant="ghost"
+            size="compact"
+            :disabled="editor.pending.value || resetting"
+            @click="removeUltrafastPrice"
+          >
+            {{ t('models.drawer.removeUltrafastPrice') }}
+          </AppButton>
+          <AppButton
+            v-else
+            variant="secondary"
+            size="compact"
+            :disabled="editor.pending.value || resetting"
+            @click="addUltrafastPrice"
+          >
+            {{ t('models.drawer.addUltrafastPrice') }}
+          </AppButton>
+        </div>
+        <ModelPriceSlotsEditor
+          v-if="hasUltrafastSchedule"
+          v-model:draft="ultrafastDraft"
+          id-prefix="model-price-ultrafast"
+          :errors="ultrafastErrors"
+          :pending="editor.pending.value"
+        />
+        <p v-else class="upstream-drawer__faint">{{ t('models.drawer.ultrafastFallback') }}</p>
       </section>
 
       <section class="upstream-drawer__section">

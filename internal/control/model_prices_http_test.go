@@ -647,3 +647,35 @@ func modelPriceHTTPUpdateBody(input string, confirm string) string {
 	return `{"input":` + input + `,"output":null,"cache_read":null,"cache_write":null,` +
 		`"context_tiers":[],"mode_schedules":{},"confirm_unpriced":` + confirm + `}`
 }
+
+func TestModelPriceHTTPManagesUltrafastSchedule(t *testing.T) {
+	fixture, engine, row := newModelPriceHTTPFixture(t, true)
+	for _, step := range []struct {
+		name, schedules string
+		wantCost        int64
+		wantMode        pricing.Mode
+	}{
+		{"add", `{"ultrafast":{"prices":{"input":"7","output":null,"cache_read":null,"cache_write":null},"context_tiers":[]}}`, 7_000_000_000, pricing.ModeUltrafast},
+		{"edit", `{"ultrafast":{"prices":{"input":"9","output":null,"cache_read":null,"cache_write":null},"context_tiers":[]}}`, 9_000_000_000, pricing.ModeUltrafast},
+		{"remove", `{}`, 2_000_000_000, pricing.ModeStandard},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			body := `{"input":"2","output":null,"cache_read":null,"cache_write":null,"context_tiers":[],"confirm_unpriced":false,"mode_schedules":` + step.schedules + `}`
+			response := serveModelPriceHTTPRequest(engine, http.MethodPut, fmt.Sprintf("/api/model-prices/%d", row.ID), body, authTestKey)
+			if response.Code != http.StatusOK {
+				t.Fatalf("update = %d %s", response.Code, response.Body.String())
+			}
+			quote, receipt := fixture.priceRuntime.Load().QuoteForModeWithReceipt(pricing.Identity{ChannelID: row.ChannelID, ModelID: row.ModelID}, usage.Result{Tokens: usage.Tokens{UncachedInput: 1_000_000}, State: usage.StateComplete}, pricing.ModeUltrafast)
+			if quote.EstimatedCostNanoUSD != pricing.NanoUSD(step.wantCost) || receipt == nil || receipt.PricingMode != step.wantMode {
+				t.Fatalf("quote=%+v receipt=%+v", quote, receipt)
+			}
+			var persisted models.ModelPrice
+			if err := fixture.db.First(&persisted, row.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if !persisted.IsManual {
+				t.Fatal("manual schedule did not persist ownership")
+			}
+		})
+	}
+}
