@@ -9,12 +9,14 @@ import type {
   GroupModelItemDto,
 } from '@/api/control/types'
 import type { ChannelFieldDto } from '@/app/resources/channels'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import GroupTestFields from '../GroupTestFields.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import { isValidPriceMultiplier } from '@/lib/price-multiplier'
+import type { GroupSettingsSection } from '../group-route'
 
 const props = defineProps<{
-  section: 'general' | 'routing'
+  section: Extract<GroupSettingsSection, 'general' | 'routing' | 'reasoning'>
   channelId: string
   connectionType: ConnectionType
   defaultBaseUrl: string
@@ -98,10 +100,41 @@ function parameterHelp(field: ChannelFieldDto): string {
   if (field.key === 'base_url' && props.channelId === 'sub2api') {
     return t('group.settings.base.sub2ApiUrlDescription')
   }
+  if (field.key === 'reasoning_content_alias') {
+    return t('group.settings.base.reasoningResponseHelp')
+  }
+  if (field.key === 'request_reasoning_alias') {
+    return t('group.settings.base.reasoningRequestHelp')
+  }
   return t('group.settings.base.urlWarning')
 }
 
+const reasoningOptionLabels: Record<string, string> = {
+  off: 'group.settings.base.reasoningOptionOff',
+  reasoning_to_content: 'group.settings.base.reasoningOptionToContent',
+  reasoning_content_to_reasoning: 'group.settings.base.reasoningOptionToReasoning',
+  duplicate: 'group.settings.base.reasoningOptionDuplicate',
+}
+
+function selectOptions(field: ChannelFieldDto): { value: string; label: string }[] {
+  return field.options.map((option) => ({
+    value: option,
+    label: reasoningOptionLabels[option] ? t(reasoningOptionLabels[option]) : option,
+  }))
+}
+
+function selectValue(field: ChannelFieldDto): string {
+  const raw = props.params[field.key] ?? ''
+  return field.options.includes(raw) ? raw : (field.options[0] ?? '')
+}
+
 function parameterLabel(field: ChannelFieldDto): string {
+  if (field.key === 'reasoning_content_alias') {
+    return t('group.settings.base.reasoningResponseLabel')
+  }
+  if (field.key === 'request_reasoning_alias') {
+    return t('group.settings.base.reasoningRequestLabel')
+  }
   if (field.key !== 'base_url') return field.label
   return t('common.upstreamUrl.label')
 }
@@ -110,6 +143,16 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
   if (field.input_kind !== 'url') return undefined
   return field.key === 'base_url' ? defaultBaseUrls.value[0] || 'https://' : 'https://'
 }
+
+const reasoningFieldKeys = ['reasoning_content_alias', 'request_reasoning_alias'] as const
+const reasoningFields = computed(() =>
+  props.paramFields.filter((field) => reasoningFieldKeys.some((key) => field.key === key)),
+)
+// The reasoning rename selects render in their own settings section; the
+// general grid shows everything else.
+const generalParamFields = computed(() =>
+  props.paramFields.filter((field) => !reasoningFieldKeys.some((key) => field.key === key)),
+)
 </script>
 
 <template>
@@ -156,7 +199,7 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
         @update:protocol="emit('update:validationProtocol', $event)"
         @update:model="emit('update:validationModel', $event || null)"
       />
-      <template v-for="field in paramFields" :key="field.key">
+      <template v-for="field in generalParamFields" :key="field.key">
         <div v-if="isOptionalBaseURL(field)" class="group-settings__field group-settings__wide">
           <span>{{ t('common.upstreamUrl.label') }}</span>
           <div class="group-settings__base-url-switch">
@@ -203,7 +246,7 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
     </div>
   </section>
 
-  <section v-else id="settings-routing" class="group-settings__section">
+  <section v-else-if="section === 'routing'" id="settings-routing" class="group-settings__section">
     <header class="group-settings__section-heading">
       <h3>{{ t('group.settings.sections.routing') }}</h3>
       <p>{{ t('group.settings.routing.description') }}</p>
@@ -227,6 +270,34 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
       </div>
       <small>{{ t('group.settings.routing.weightHelp') }}</small>
       <small v-if="!weightValid" role="alert">{{ t('group.settings.base.weightError') }}</small>
+    </div>
+  </section>
+
+  <section v-else id="settings-reasoning" class="group-settings__section">
+    <header class="group-settings__section-heading">
+      <h3>{{ t('group.settings.sections.reasoning') }}</h3>
+      <p>{{ t('group.settings.reasoning.description') }}</p>
+    </header>
+    <div class="group-settings__grid">
+      <div
+        v-for="field in reasoningFields"
+        :key="field.key"
+        class="group-settings__field group-settings__wide"
+      >
+        <span>{{ parameterLabel(field) }}</span>
+        <AppSelect
+          :model-value="selectValue(field)"
+          :label="parameterLabel(field)"
+          :options="selectOptions(field)"
+          :disabled="pending || paramsDisabled"
+          @update:model-value="updateParam(field, $event)"
+        />
+        <small v-if="paramErrors[field.key]" role="alert">{{ paramErrors[field.key] }}</small>
+        <small v-else>{{ parameterHelp(field) }}</small>
+      </div>
+      <p v-if="!reasoningFields.length" class="group-settings__field group-settings__wide">
+        {{ t('group.settings.reasoning.notSupported') }}
+      </p>
     </div>
   </section>
 </template>
@@ -260,6 +331,7 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
   margin-top: 3px;
   color: var(--color-text-faint);
   font-size: var(--text-sm);
+  white-space: pre-line;
 }
 
 .group-settings__grid {

@@ -54,6 +54,7 @@ const (
 	InputText   = spec.InputText
 	InputURL    = spec.InputURL
 	InputSecret = spec.InputSecret
+	InputSelect = spec.InputSelect
 )
 
 // FieldDescriptor is the public, value-free schema for one channel field.
@@ -61,6 +62,7 @@ type FieldDescriptor struct {
 	Key          string    `json:"key"`
 	Label        string    `json:"label"`
 	InputKind    InputKind `json:"input_kind"`
+	Options      []string  `json:"options,omitempty"`
 	Required     bool      `json:"required"`
 	Sensitive    bool      `json:"sensitive"`
 	DefaultValue *string   `json:"default_value"`
@@ -739,7 +741,7 @@ func validateDefinition(definition definition) error {
 		seen := make(map[string]struct{}, len(schema))
 		for _, field := range schema {
 			key := field.descriptor.Key
-			if key == "" || field.normalize == nil || (field.descriptor.InputKind != InputText && field.descriptor.InputKind != InputURL && field.descriptor.InputKind != InputSecret) {
+			if key == "" || field.normalize == nil || !field.descriptor.InputKind.Valid() {
 				return fmt.Errorf("channel %q has invalid %s field", id, name)
 			}
 			if _, duplicate := seen[key]; duplicate {

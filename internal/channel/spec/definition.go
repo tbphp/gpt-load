@@ -137,7 +137,53 @@ const (
 	InputText   InputKind = "text"
 	InputURL    InputKind = "url"
 	InputSecret InputKind = "secret"
+	InputSelect InputKind = "select"
 )
+
+// Valid reports whether the input kind is part of the public field contract.
+func (kind InputKind) Valid() bool {
+	switch kind {
+	case InputText, InputURL, InputSecret, InputSelect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Canonical values shared by the OpenAI-compatible reasoning alias select
+// parameters. The strings are persisted in group params and read back by the
+// execution layer, so they are part of the on-disk contract. Renaming stays
+// on the request direction where the admin knows the one upstream spelling;
+// responses only ever see off and duplicate.
+const (
+	// ReasoningAliasOff forwards reasoning fields untouched in one direction.
+	ReasoningAliasOff = "off"
+	// ReasoningAliasReasoningToContent renames reasoning to reasoning_content
+	// in outbound requests.
+	ReasoningAliasReasoningToContent = "reasoning_to_content"
+	// ReasoningAliasContentToReasoning renames reasoning_content to reasoning
+	// in outbound requests.
+	ReasoningAliasContentToReasoning = "reasoning_content_to_reasoning"
+	// ReasoningAliasDuplicate copies whichever spelling is present to the
+	// other one so both survive in responses.
+	ReasoningAliasDuplicate = "duplicate"
+)
+
+// ReasoningAliasOptions lists the accepted canonical values of the request
+// reasoning alias select parameter, in presentation order.
+var ReasoningAliasOptions = []string{
+	ReasoningAliasOff,
+	ReasoningAliasReasoningToContent,
+	ReasoningAliasContentToReasoning,
+}
+
+// ReasoningAliasResponseOptions is the response select's option list. The
+// client spelling is unknown per request, so a rename forces a guess;
+// duplicate emits both instead.
+var ReasoningAliasResponseOptions = []string{
+	ReasoningAliasOff,
+	ReasoningAliasDuplicate,
+}
 
 // ValueNormalizer canonicalizes one field without retaining its input.
 type ValueNormalizer func(string) (string, error)
@@ -147,6 +193,7 @@ type Field struct {
 	Key        string
 	Label      string
 	InputKind  InputKind
+	Options    []string
 	Required   bool
 	Sensitive  bool
 	Default    string

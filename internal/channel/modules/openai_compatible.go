@@ -19,10 +19,24 @@ func OpenAICompatible() spec.Module {
 				Type:            spec.ConnectionAPIKey,
 				CredentialInput: "batch_text",
 			},
-			Params: []spec.Field{{
-				Key: "base_url", Label: "Base URL", InputKind: spec.InputURL,
-				Required: true, Normalizer: spec.NormalizeBaseURL,
-			}},
+			Params: []spec.Field{
+				{
+					Key: "base_url", Label: "Base URL", InputKind: spec.InputURL,
+					Required: true, Normalizer: spec.NormalizeBaseURL,
+				},
+				// Key names are part of the stored group params contract;
+				// renaming them invalidates persisted rows.
+				{
+					Key: "reasoning_content_alias", Label: "Response Reasoning Alias",
+					InputKind: spec.InputSelect, Options: spec.ReasoningAliasResponseOptions,
+					Normalizer: spec.NormalizeResponseReasoningAlias,
+				},
+				{
+					Key: "request_reasoning_alias", Label: "Request Reasoning Alias",
+					InputKind: spec.InputSelect, Options: spec.ReasoningAliasOptions,
+					Normalizer: spec.NormalizeReasoningAlias,
+				},
+			},
 			Credentials: []spec.Field{{
 				Key: "api_key", Label: "API Key", InputKind: spec.InputSecret,
 				Required: true, Sensitive: true, Normalizer: spec.NormalizeNonEmpty,

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/protocol"
 )
@@ -16,8 +17,55 @@ func Needs(clientModel, upstreamModel string) bool {
 	return clientModel != "" && upstreamModel != "" && clientModel != upstreamModel
 }
 
+// ReasoningMode selects the reasoning-field handling for chat completions
+// payloads. The zero value disables the rewrite. The rename modes are
+// request-direction only; responses treat anything but duplicate as off.
+type ReasoningMode string
+
+const (
+	// ReasoningModeOff forwards reasoning fields untouched.
+	ReasoningModeOff ReasoningMode = spec.ReasoningAliasOff
+	// ReasoningModeReasoningToContent renames reasoning to reasoning_content
+	// in outbound requests.
+	ReasoningModeReasoningToContent ReasoningMode = spec.ReasoningAliasReasoningToContent
+	// ReasoningModeContentToReasoning renames reasoning_content to reasoning
+	// in outbound requests.
+	ReasoningModeContentToReasoning ReasoningMode = spec.ReasoningAliasContentToReasoning
+	// ReasoningModeDuplicate copies whichever spelling is present to the
+	// other one so both survive in responses.
+	ReasoningModeDuplicate ReasoningMode = spec.ReasoningAliasDuplicate
+)
+
 // RewriteJSON rewrites model fields in one protocol response object.
 func RewriteJSON(clientProtocol protocol.Protocol, body []byte, clientModel string) ([]byte, error) {
+	return rewriteJSON(clientProtocol, body, clientModel, ReasoningModeOff)
+}
+
+// RewriteJSONReasoning rewrites one protocol response object, optionally
+// emitting both reasoning spellings. An empty clientModel skips the model
+// rewrite; the reasoning rewrite only applies to OpenAI chat completions
+// objects.
+func RewriteJSONReasoning(
+	clientProtocol protocol.Protocol,
+	body []byte,
+	clientModel string,
+	mode ReasoningMode,
+) ([]byte, error) {
+	return rewriteJSON(clientProtocol, body, clientModel, mode)
+}
+
+func rewriteJSON(
+	clientProtocol protocol.Protocol,
+	body []byte,
+	clientModel string,
+	mode ReasoningMode,
+) ([]byte, error) {
+	if mode == ReasoningModeDuplicate && clientProtocol == protocol.OpenAICompletions {
+		body = normalizeOpenAIReasoning(body)
+	}
+	if clientModel == "" {
+		return body, nil
+	}
 	rewriter, err := modelRewriter(clientProtocol)
 	if err != nil {
 		return nil, err
@@ -34,12 +82,32 @@ func RewriteJSON(clientProtocol protocol.Protocol, body []byte, clientModel stri
 // blank-line delimiter is also accepted because some upstream bridges emit one
 // logical event per chunk without retaining the delimiter.
 func RewriteSSE(clientProtocol protocol.Protocol, data []byte, clientModel string) ([]byte, error) {
+	return rewriteSSE(clientProtocol, data, clientModel, ReasoningModeOff)
+}
+
+// RewriteSSEReasoning rewrites SSE events like RewriteSSE and optionally
+// emits both reasoning spellings in each data payload.
+func RewriteSSEReasoning(
+	clientProtocol protocol.Protocol,
+	data []byte,
+	clientModel string,
+	mode ReasoningMode,
+) ([]byte, error) {
+	return rewriteSSE(clientProtocol, data, clientModel, mode)
+}
+
+func rewriteSSE(
+	clientProtocol protocol.Protocol,
+	data []byte,
+	clientModel string,
+	mode ReasoningMode,
+) ([]byte, error) {
 	var output bytes.Buffer
 	remaining := data
 	for len(remaining) > 0 {
 		index, delimiterLength := firstSSEDelimiter(remaining)
 		if index < 0 {
-			rewritten, err := rewriteSSEEvent(clientProtocol, remaining, clientModel)
+			rewritten, err := rewriteSSEEvent(clientProtocol, remaining, clientModel, mode)
 			if err != nil {
 				return nil, err
 			}
@@ -47,7 +115,7 @@ func RewriteSSE(clientProtocol protocol.Protocol, data []byte, clientModel strin
 			break
 		}
 		eventEnd := index + delimiterLength
-		rewritten, err := rewriteSSEEvent(clientProtocol, remaining[:eventEnd], clientModel)
+		rewritten, err := rewriteSSEEvent(clientProtocol, remaining[:eventEnd], clientModel, mode)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +146,12 @@ func modelRewriter(clientProtocol protocol.Protocol) (dialect.ModelRewriter, err
 	}
 }
 
-func rewriteSSEEvent(clientProtocol protocol.Protocol, event []byte, clientModel string) ([]byte, error) {
+func rewriteSSEEvent(
+	clientProtocol protocol.Protocol,
+	event []byte,
+	clientModel string,
+	mode ReasoningMode,
+) ([]byte, error) {
 	lines := splitSSELines(event)
 	dataValues := make([][]byte, 0, 1)
 	firstDataLine := -1
@@ -98,7 +171,7 @@ func rewriteSSEEvent(clientProtocol protocol.Protocol, event []byte, clientModel
 	if len(payload) == 0 || bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
 		return bytes.Clone(event), nil
 	}
-	rewritten, err := RewriteJSON(clientProtocol, payload, clientModel)
+	rewritten, err := rewriteJSON(clientProtocol, payload, clientModel, mode)
 	if err != nil {
 		return nil, err
 	}

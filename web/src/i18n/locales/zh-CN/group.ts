@@ -204,6 +204,7 @@ export default {
       sections: {
         general: '基本信息',
         routing: '调度',
+        reasoning: '推理字段',
         runtime: '运行时覆盖',
         parameters: '参数覆盖',
         headers: '上游请求头规则',
@@ -212,6 +213,11 @@ export default {
       routing: {
         description: '调整分组参与请求分配的相对权重。',
         weightHelp: '默认 50，范围 1–100；与凭据权重相乘，决定分配比例。',
+      },
+      reasoning: {
+        description:
+          '在上下游响应与请求时转换推理字段，以适配更多下游客户端（仅 base_url 以 /v1 结尾时生效）',
+        notSupported: '当前渠道不支持推理字段设置。',
       },
       headers: {
         description: '发往上游前设置、覆盖或移除的请求头规则；覆盖后将完整替换全局规则，不做合并。',
@@ -287,6 +293,14 @@ export default {
         upstreamUrl: '上游地址',
         upstreamUrlError: '请输入有效的 HTTP 或 HTTPS Base URL。',
         urlWarning: '修改 Base URL 会影响此分组后续请求的发送位置。',
+        reasoningResponseLabel: '响应方向',
+        reasoningResponseHelp: '在响应中同时输出推理字段的两种拼写。',
+        reasoningRequestLabel: '请求方向',
+        reasoningRequestHelp: '重命名请求上游消息中的推理字段。',
+        reasoningOptionOff: '关闭',
+        reasoningOptionToContent: 'reasoning → reasoning_content',
+        reasoningOptionToReasoning: 'reasoning_content → reasoning',
+        reasoningOptionDuplicate: '同时输出 reasoning / reasoning_content',
         gptLoadUrlDescription:
           '填写 GPT-Load 网关根地址或部署前缀；不要填写 /v1 或 /v1beta 等标准协议路径。',
         newApiUrlDescription:

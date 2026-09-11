@@ -36,7 +36,11 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const proxySupported = computed(() => props.channel?.capabilities.outbound_proxy === true)
 const isSubscription = computed(() => props.channel?.connection.type === 'subscription')
-const visibleParamFields = computed(() => props.channel?.param_fields ?? [])
+// Select-kind params (e.g. reasoning alias switches) cannot be rendered by the
+// plain text inputs below; they are configured in the group settings sections.
+const visibleParamFields = computed(() =>
+  (props.channel?.param_fields ?? []).filter((param) => param.input_kind !== 'select'),
+)
 const defaultBaseUrls = computed(() => {
   if (props.channel?.default_base_urls.length) return props.channel.default_base_urls
   return props.channel?.default_base_url ? [props.channel.default_base_url] : []

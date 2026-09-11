@@ -3,6 +3,7 @@ package channel
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gpt-load/internal/channel/spec"
@@ -254,8 +255,26 @@ func compileSchema(channelID string, name string, fields []spec.Field) (objectSc
 			return nil, fmt.Errorf("channel %q has duplicate %s field %q", channelID, name, field.Key)
 		}
 		seen[field.Key] = struct{}{}
-		if field.InputKind != spec.InputText && field.InputKind != spec.InputURL && field.InputKind != spec.InputSecret {
+		if !field.InputKind.Valid() {
 			return nil, fmt.Errorf("channel %q has invalid %s field %q input kind", channelID, name, field.Key)
+		}
+		var optionSeen map[string]struct{}
+		if field.InputKind == spec.InputSelect {
+			optionSeen = make(map[string]struct{}, len(field.Options))
+			for _, option := range field.Options {
+				if option == "" {
+					return nil, fmt.Errorf("channel %q has an empty select option for %s field %q", channelID, name, field.Key)
+				}
+				if _, duplicate := optionSeen[option]; duplicate {
+					return nil, fmt.Errorf("channel %q has duplicate select option %q for %s field %q", channelID, name, option, field.Key)
+				}
+				optionSeen[option] = struct{}{}
+			}
+			if len(optionSeen) == 0 {
+				return nil, fmt.Errorf("channel %q has select %s field %q without options", channelID, name, field.Key)
+			}
+		} else if len(field.Options) > 0 {
+			return nil, fmt.Errorf("channel %q has select options on non-select %s field %q", channelID, name, field.Key)
 		}
 		if field.Sensitive != (field.InputKind == spec.InputSecret) {
 			return nil, fmt.Errorf("channel %q has inconsistent %s field %q sensitivity", channelID, name, field.Key)
@@ -271,12 +290,18 @@ func compileSchema(channelID string, name string, fields []spec.Field) (objectSc
 			if err != nil {
 				return nil, fmt.Errorf("channel %q has invalid default for %s field %q: %w", channelID, name, field.Key, err)
 			}
+			if field.InputKind == spec.InputSelect {
+				if _, valid := optionSeen[defaultValue]; !valid {
+					return nil, fmt.Errorf("channel %q has a default outside the options of %s field %q", channelID, name, field.Key)
+				}
+			}
 			value := defaultValue
 			publicDefault = &value
 		}
 		result = append(result, fieldSpec{
 			descriptor: FieldDescriptor{
 				Key: field.Key, Label: field.Label, InputKind: field.InputKind,
+				Options:  slices.Clone(field.Options),
 				Required: field.Required, Sensitive: field.Sensitive, DefaultValue: publicDefault,
 			},
 			defaultValue: defaultValue,

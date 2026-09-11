@@ -2,8 +2,11 @@ package bifrost
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"strings"
 
+	"gpt-load/internal/channel/spec"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
 	"gpt-load/internal/protocol"
@@ -103,24 +106,137 @@ func needsClientModelAlias(spec execution.AttemptSpec) bool {
 	return responsealias.Needs(spec.ClientModel, spec.UpstreamModel)
 }
 
+// parseRequestReasoningAliasMode resolves the request reasoning alias
+// parameter. Unset, empty, invalid and the response-only duplicate value
+// select off.
+func parseRequestReasoningAliasMode(raw json.RawMessage) responsealias.ReasoningMode {
+	text, ok := reasoningAliasText(raw)
+	if !ok {
+		return responsealias.ReasoningModeOff
+	}
+	switch text {
+	case spec.ReasoningAliasReasoningToContent:
+		return responsealias.ReasoningModeReasoningToContent
+	case spec.ReasoningAliasContentToReasoning:
+		return responsealias.ReasoningModeContentToReasoning
+	default:
+		return responsealias.ReasoningModeOff
+	}
+}
+
+// parseResponseReasoningAliasMode resolves the response reasoning alias
+// parameter. Unset, empty and invalid values select off.
+func parseResponseReasoningAliasMode(raw json.RawMessage) responsealias.ReasoningMode {
+	text, ok := reasoningAliasText(raw)
+	if !ok {
+		return responsealias.ReasoningModeOff
+	}
+	switch text {
+	case spec.ReasoningAliasDuplicate:
+		return responsealias.ReasoningModeDuplicate
+	default:
+		return responsealias.ReasoningModeOff
+	}
+}
+
+// reasoningAliasText decodes one stored alias parameter into the trimmed,
+// lowercased text the mode parsers compare. Unset and undecodable payloads
+// are not ok, which selects off.
+func reasoningAliasText(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return "", false
+	}
+	return strings.ToLower(strings.TrimSpace(text)), true
+}
+
+// reasoningAliasModes reads both reasoning alias directions from the resolved
+// target configuration. The reasoning_content_alias key name is fixed by
+// stored group params and must not be renamed.
+func reasoningAliasModes(spec execution.AttemptSpec) (responseMode, requestMode responsealias.ReasoningMode) {
+	if len(spec.TargetConfig) == 0 {
+		return responsealias.ReasoningModeOff, responsealias.ReasoningModeOff
+	}
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(spec.TargetConfig, &config); err != nil {
+		return responsealias.ReasoningModeOff, responsealias.ReasoningModeOff
+	}
+	return parseResponseReasoningAliasMode(config["reasoning_content_alias"]),
+		parseRequestReasoningAliasMode(config["request_reasoning_alias"])
+}
+
+func needsResponseReasoningAlias(spec execution.AttemptSpec) bool {
+	responseMode, _ := reasoningAliasModes(spec)
+	return spec.ClientProtocol == protocol.OpenAICompletions &&
+		responseMode != responsealias.ReasoningModeOff
+}
+
+func responseReasoningAliasMode(spec execution.AttemptSpec) responsealias.ReasoningMode {
+	if !needsResponseReasoningAlias(spec) {
+		return responsealias.ReasoningModeOff
+	}
+	responseMode, _ := reasoningAliasModes(spec)
+	return responseMode
+}
+
+// needsRequestReasoningAlias gates the outbound chat completions body
+// rewrite. Only the native OpenAI chat completions route forwards client
+// message objects verbatim, so other protocols never see this rewrite.
+func needsRequestReasoningAlias(spec execution.AttemptSpec) bool {
+	_, requestMode := reasoningAliasModes(spec)
+	return spec.ClientProtocol == protocol.OpenAICompletions &&
+		requestMode != responsealias.ReasoningModeOff
+}
+
+func requestReasoningAliasMode(spec execution.AttemptSpec) responsealias.ReasoningMode {
+	if !needsRequestReasoningAlias(spec) {
+		return responsealias.ReasoningModeOff
+	}
+	_, requestMode := reasoningAliasModes(spec)
+	return requestMode
+}
+
 func rewriteClientResponseModel(clientProtocol protocol.Protocol, body []byte, clientModel string) ([]byte, error) {
 	return responsealias.RewriteJSON(clientProtocol, body, clientModel)
+}
+
+// rewriteClientResponseAlias rewrites a native response, optionally with the
+// client model name and both reasoning spellings. An empty clientModel skips
+// the model rewrite and ReasoningModeOff skips the reasoning rewrite.
+func rewriteClientResponseAlias(
+	clientProtocol protocol.Protocol,
+	body []byte,
+	clientModel string,
+	mode responsealias.ReasoningMode,
+) ([]byte, error) {
+	return responsealias.RewriteJSONReasoning(clientProtocol, body, clientModel, mode)
 }
 
 type nativeAliasSSERewriter struct {
 	clientProtocol protocol.Protocol
 	clientModel    string
+	reasoningMode  responsealias.ReasoningMode
 	pending        []byte
 	maxEventBytes  int
 }
 
 func newNativeAliasSSERewriter(spec execution.AttemptSpec) *nativeAliasSSERewriter {
-	if !needsClientModelAlias(spec) {
+	needsModelAlias := needsClientModelAlias(spec)
+	reasoningMode := responseReasoningAliasMode(spec)
+	if !needsModelAlias && reasoningMode == responsealias.ReasoningModeOff {
 		return nil
+	}
+	clientModel := ""
+	if needsModelAlias {
+		clientModel = spec.ClientModel
 	}
 	return &nativeAliasSSERewriter{
 		clientProtocol: spec.ClientProtocol,
-		clientModel:    spec.ClientModel,
+		clientModel:    clientModel,
+		reasoningMode:  reasoningMode,
 		maxEventBytes:  execution.SSEEventLimit(spec.ClientProtocol),
 	}
 }
@@ -152,7 +268,7 @@ func (r *nativeAliasSSERewriter) push(chunk []byte) ([]byte, error) {
 		}
 		event := append([]byte(nil), r.pending[:eventEnd]...)
 		r.pending = r.pending[eventEnd:]
-		rewritten, err := rewriteClientSSEEvent(event, r.clientProtocol, r.clientModel)
+		rewritten, err := rewriteClientSSEEventAlias(event, r.clientProtocol, r.clientModel, r.reasoningMode)
 		if err != nil {
 			return nil, err
 		}
@@ -169,7 +285,7 @@ func (r *nativeAliasSSERewriter) finish() ([]byte, error) {
 	}
 	event := append([]byte(nil), r.pending...)
 	r.pending = nil
-	return rewriteClientSSEEvent(event, r.clientProtocol, r.clientModel)
+	return rewriteClientSSEEventAlias(event, r.clientProtocol, r.clientModel, r.reasoningMode)
 }
 
 func firstNativeSSEDelimiter(data []byte) (int, int) {
@@ -194,6 +310,17 @@ type nativeSSELine struct {
 	terminator []byte
 	isData     bool
 	data       []byte
+}
+
+// rewriteClientSSEEventAlias rewrites one native SSE event, optionally with
+// the client model name and both reasoning spellings on each data payload.
+func rewriteClientSSEEventAlias(
+	event []byte,
+	clientProtocol protocol.Protocol,
+	clientModel string,
+	mode responsealias.ReasoningMode,
+) ([]byte, error) {
+	return responsealias.RewriteSSEReasoning(clientProtocol, event, clientModel, mode)
 }
 
 func rewriteClientSSEEvent(event []byte, clientProtocol protocol.Protocol, clientModel string) ([]byte, error) {

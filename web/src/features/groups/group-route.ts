@@ -13,7 +13,7 @@ import {
 
 export type GroupTab = 'credentials' | 'models' | 'settings'
 export type GroupSettingsSection =
-  'general' | 'routing' | 'runtime' | 'parameters' | 'headers' | 'danger'
+  'general' | 'routing' | 'reasoning' | 'runtime' | 'parameters' | 'headers' | 'danger'
 export type GroupModelDiscoveryFilter = 'unadded' | 'all'
 
 export interface CredentialRouteState {
@@ -42,6 +42,7 @@ const credentialPageSizes = new Set<CredentialCollectionFilters['page_size']>([2
 const settingsSections = new Set<GroupSettingsSection>([
   'general',
   'routing',
+  'reasoning',
   'runtime',
   'parameters',
   'headers',

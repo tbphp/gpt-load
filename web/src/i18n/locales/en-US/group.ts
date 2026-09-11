@@ -206,6 +206,7 @@ export default {
       sections: {
         general: 'General',
         routing: 'Scheduling',
+        reasoning: 'Reasoning fields',
         runtime: 'Runtime overrides',
         parameters: 'Parameter overrides',
         headers: 'Upstream request header rules',
@@ -215,6 +216,11 @@ export default {
         description: 'Adjust the relative weight used for request allocation.',
         weightHelp:
           'Default: 50. Range: 1–100. Multiplied by credential weight to determine allocation shares.',
+      },
+      reasoning: {
+        description:
+          'Transform reasoning fields in upstream responses and outbound requests to support more downstream clients (only takes effect when base_url ends with /v1)',
+        notSupported: 'This channel does not support reasoning field settings.',
       },
       headers: {
         description:
@@ -295,6 +301,14 @@ export default {
         upstreamUrl: 'Upstream URL',
         upstreamUrlError: 'Enter a valid HTTP or HTTPS Base URL.',
         urlWarning: 'Changing the Base URL changes where future Group requests are sent.',
+        reasoningResponseLabel: 'Response direction',
+        reasoningResponseHelp: 'Emit both reasoning field spellings in upstream responses.',
+        reasoningRequestLabel: 'Request direction',
+        reasoningRequestHelp: 'Rename reasoning fields in messages sent upstream.',
+        reasoningOptionOff: 'Off',
+        reasoningOptionToContent: 'reasoning → reasoning_content',
+        reasoningOptionToReasoning: 'reasoning_content → reasoning',
+        reasoningOptionDuplicate: 'Emit reasoning / reasoning_content',
         gptLoadUrlDescription:
           'Enter the GPT-Load gateway root or deployment prefix. Do not include standard protocol paths such as /v1 or /v1beta.',
         newApiUrlDescription:

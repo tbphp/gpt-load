@@ -22,6 +22,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/geminiimage"
+	"gpt-load/internal/execution/responsealias"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 )
@@ -621,6 +622,13 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				failure.Error.ReplaySafety = execution.ReplaySafetyUnknown
 			}
 			return preparedAttempt{}, &failure
+		}
+		// Rename reasoning spellings in the outbound chat completions body
+		// before it reaches the passthrough transport. The typed request path
+		// rebuilds messages through the SDK and has no equivalent hook.
+		// Converted image requests carry a Gemini payload and never match.
+		if !convertedImages && needsRequestReasoningAlias(spec) {
+			body = responsealias.RewriteRequestMessages(body, requestReasoningAliasMode(spec))
 		}
 		passthroughPath := ""
 		if convertedImages {
