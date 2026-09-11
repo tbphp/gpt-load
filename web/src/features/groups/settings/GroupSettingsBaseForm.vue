@@ -2,8 +2,14 @@
 import { computed, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ChannelParamsDto, ConnectionType, GroupModelItemDto } from '@/api/control/types'
+import type {
+  AccessProtocol,
+  ChannelParamsDto,
+  ConnectionType,
+  GroupModelItemDto,
+} from '@/api/control/types'
 import type { ChannelFieldDto } from '@/app/resources/channels'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 
@@ -17,6 +23,8 @@ const props = defineProps<{
   params: ChannelParamsDto
   name: string
   validationModel: string | null
+  validationProtocol: AccessProtocol | null
+  validationProtocols: AccessProtocol[]
   models: GroupModelItemDto[]
   weightManual: number | null
   priceMultiplier: string
@@ -29,6 +37,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:param': [key: string, value: string | null]
   'update:name': [value: string]
+  'update:validationProtocol': [value: AccessProtocol]
   'update:validationModel': [value: string | null]
   'update:weightManual': [value: number | null]
   'update:priceMultiplier': [value: string]
@@ -142,6 +151,17 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
         </datalist>
         <small>{{ t('group.settings.base.validationModelHelp') }}</small>
       </label>
+      <div v-if="!isSubscription" class="group-settings__field">
+        <span>{{ t('group.settings.base.validationProtocol') }}</span>
+        <AppSelect
+          :model-value="validationProtocol ?? undefined"
+          :label="t('group.settings.base.validationProtocol')"
+          :options="validationProtocols.map((value) => ({ value, label: value }))"
+          :disabled="pending || validationProtocols.length <= 1"
+          @update:model-value="emit('update:validationProtocol', $event as AccessProtocol)"
+        />
+        <small>{{ t('group.settings.base.validationProtocolHelp') }}</small>
+      </div>
       <label class="group-settings__field">
         <span>{{ t('common.priceMultiplier.label') }}</span>
         <input

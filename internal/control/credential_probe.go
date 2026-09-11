@@ -344,14 +344,16 @@ func (s *Service) TestGroupCredential(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
+	protocols ...protocol.Protocol,
 ) (CredentialProbeResponse, error) {
 	if groupID == 0 || credentialID == 0 {
 		return CredentialProbeResponse{}, app_errors.ErrBadRequest
 	}
-	group, target, credential, err := s.captureCredentialProbe(ctx, groupID, credentialID)
+	group, target, credential, err := s.captureCredentialProbe(ctx, groupID, credentialID, protocols...)
 	if err != nil {
 		return CredentialProbeResponse{}, err
 	}
+
 	probe := newCredentialProbeExecutor(s.encryption, s.channelRegistry, s.executor)
 	executed, err := probe.Probe(ctx, group, target, credential.ref)
 	if err != nil {
@@ -399,6 +401,7 @@ func (s *Service) captureCredentialProbe(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
+	protocols ...protocol.Protocol,
 ) (state.GroupView, groupValidationTarget, credentialProbeCredential, error) {
 	if s == nil || s.db == nil || s.manager == nil || s.registry == nil {
 		return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, app_errors.ErrInternalServer
@@ -460,7 +463,15 @@ func (s *Service) captureCredentialProbe(
 			credentialID,
 		)
 	}
-	target, valid := buildGroupValidationTarget(group)
+	baseTarget, baseValid := buildGroupValidationTarget(group)
+	probeGroup := group
+	if len(protocols) > 0 && protocols[0] != "" {
+		probeGroup.ValidationProtocol = protocols[0]
+	}
+	target, valid := buildGroupValidationTarget(probeGroup)
+	if baseValid {
+		target.signature = baseTarget.signature
+	}
 	if !valid {
 		return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, app_errors.ErrValidation
 	}

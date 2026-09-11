@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/releasecheck"
 	"gpt-load/internal/subscription/providers/importfile"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -720,11 +721,18 @@ func (s *Server) handleTestGroupCredential(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := bindOptionalEmptyJSONObject(c); err != nil {
+	var request struct {
+		Protocol optionalField[protocol.Protocol] `json:"protocol"`
+	}
+	if err := bindOptionalProbeJSON(c, &request); err != nil {
 		writeServiceError(c, "test_group_credential", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.TestGroupCredential(c.Request.Context(), groupID, credentialID)
+	if request.Protocol.Set && (request.Protocol.Null || !request.Protocol.Value.Valid()) {
+		writeServiceError(c, "test_group_credential", app_errors.ErrValidation)
+		return
+	}
+	result, err := s.service.TestGroupCredential(c.Request.Context(), groupID, credentialID, request.Protocol.Value)
 	if err != nil {
 		writeServiceError(c, "test_group_credential", err)
 		return
@@ -1290,4 +1298,19 @@ func logServiceError(operation string, err error, code string) {
 		fields,
 		"Operation failed",
 	)
+}
+
+func bindOptionalProbeJSON(c *gin.Context, target any) error {
+	if c.Request.ContentLength > maxControlJSONBodyBytes {
+		return &http.MaxBytesError{Limit: maxControlJSONBodyBytes}
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxControlJSONBodyBytes)
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(raw)) == "" {
+		return nil
+	}
+	return decodeStrictControlJSONObject(raw, target)
 }

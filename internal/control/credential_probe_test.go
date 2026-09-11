@@ -171,7 +171,7 @@ func TestGroupCredentialProbeUsesExplicitValidationModel(t *testing.T) {
 	}
 }
 
-func TestGroupCredentialProbeFallsBackToEmbeddingsAndReportsProtocol(t *testing.T) {
+func TestGroupCredentialProbeSelectsEmbeddingsAndReportsProtocol(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "probe-embeddings-secret")
@@ -193,7 +193,7 @@ func TestGroupCredentialProbeFallsBackToEmbeddingsAndReportsProtocol(t *testing.
 	}}
 	fixture.service.executor = executor
 
-	response, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID)
+	response, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, protocol.OpenAIEmbeddings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,12 +202,7 @@ func TestGroupCredentialProbeFallsBackToEmbeddingsAndReportsProtocol(t *testing.
 		t.Fatalf("probe response = %#v", response)
 	}
 	calls := executor.recordedCalls()
-	if len(calls) != 2 ||
-		calls[0].ClientProtocol != protocol.OpenAICompletions ||
-		calls[1].ClientProtocol != protocol.OpenAIEmbeddings ||
-		calls[0].RequestID != calls[1].RequestID ||
-		calls[0].AttemptID == calls[1].AttemptID ||
-		calls[0].Sequence != 1 || calls[1].Sequence != 2 {
+	if len(calls) != 1 || calls[0].ClientProtocol != protocol.OpenAIEmbeddings {
 		t.Fatalf("probe calls = %#v", calls)
 	}
 }
@@ -464,7 +459,7 @@ func TestRestoreTestedGroupCredentialRequiresMatchingProofAndRestoresAtomically(
 		observedAt,
 	)
 	fixture.service.executor = &credentialProbeTestExecutor{result: successfulCredentialProbeResult()}
-	probe, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID)
+	probe, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, protocol.OpenAIEmbeddings)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,6 +509,11 @@ func TestRestoreTestedGroupCredentialRejectsStaleProofWithoutMutation(t *testing
 		name   string
 		mutate func(t *testing.T, fixture serviceFixture, groupID, credentialID uint)
 	}{
+		{name: "validation protocol", mutate: func(t *testing.T, fixture serviceFixture, groupID, _ uint) {
+			if _, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{ValidationProtocol: optionalField[protocol.Protocol]{Set: true, Value: protocol.OpenAIEmbeddings}}); err != nil {
+				t.Fatal(err)
+			}
+		}},
 		{
 			name: "target signature",
 			mutate: func(t *testing.T, fixture serviceFixture, groupID, _ uint) {

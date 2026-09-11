@@ -33,18 +33,19 @@ type CompileInput struct {
 }
 
 type GroupConfig struct {
-	PriceMultiplier *pricing.PriceMultiplier
-	ID              uint
-	Name            string
-	ChannelID       channel.ID
-	ConnectionType  string
-	Params          json.RawMessage
-	ValidationModel string
-	Models          []ModelConfig
-	Settings        config.Settings
-	WeightManual    *int
-	Enabled         bool
-	Proxy           *outboundproxy.Config
+	PriceMultiplier    *pricing.PriceMultiplier
+	ID                 uint
+	Name               string
+	ChannelID          channel.ID
+	ConnectionType     string
+	Params             json.RawMessage
+	ValidationProtocol protocol.Protocol
+	ValidationModel    string
+	Models             []ModelConfig
+	Settings           config.Settings
+	WeightManual       *int
+	Enabled            bool
+	Proxy              *outboundproxy.Config
 }
 
 // CredentialConfig contains only non-secret credential metadata required to
@@ -145,6 +146,7 @@ type GroupView struct {
 	ConnectionType            string
 	Params                    json.RawMessage
 	ResolvedTarget            channel.ResolvedTarget
+	ValidationProtocol        protocol.Protocol
 	ValidationModel           string
 	ClientProtocols           []protocol.Protocol
 	Models                    []ModelConfig
@@ -244,6 +246,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			PriceMultiplier:           resolvePriceMultiplier(group.PriceMultiplier),
 			ID:                        group.ID,
 			Name:                      group.Name,
+			ValidationProtocol:        group.ValidationProtocol,
 			ValidationModel:           strings.TrimSpace(group.ValidationModel),
 			Models:                    append([]ModelConfig(nil), group.Models...),
 			Timeouts:                  resolved.Timeouts,
@@ -460,8 +463,14 @@ func validateCompileInput(input CompileInput) error {
 		if !input.ChannelRegistry.SupportsConnectionType(group.ChannelID, connectionType) {
 			return fmt.Errorf("group %d channel %q does not support connection type %q", group.ID, group.ChannelID, connectionType)
 		}
-		if _, err := input.ChannelRegistry.Resolve(group.ChannelID, group.Params); err != nil {
+		target, err := input.ChannelRegistry.Resolve(group.ChannelID, group.Params)
+		if err != nil {
 			return fmt.Errorf("group %d channel %q: %w", group.ID, group.ChannelID, err)
+		}
+		if group.ValidationProtocol != "" {
+			if _, ok := target.Mode(group.ValidationProtocol, execution.OperationProbe); !ok || connectionType == "subscription" {
+				return fmt.Errorf("group %d validation protocol is unsupported", group.ID)
+			}
 		}
 		if err := validateManualWeight(fmt.Sprintf("group %d", group.ID), group.WeightManual); err != nil {
 			return err

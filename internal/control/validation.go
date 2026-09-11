@@ -8,6 +8,7 @@ import (
 	"hash"
 	"net/http"
 	"net/textproto"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -303,12 +304,19 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 		return groupValidationTarget{}, false
 	}
 	selectedProtocol, ok := validationProtocol(group.ResolvedTarget, probeModel)
+	if group.ValidationProtocol != "" {
+		selectedProtocol = group.ValidationProtocol
+		if !slices.Contains(availableValidationProtocols(group.ResolvedTarget), selectedProtocol) {
+			return groupValidationTarget{}, false
+		}
+		_, ok = group.ResolvedTarget.ModeForModel(selectedProtocol, execution.OperationProbe, probeModel)
+	}
 	if !ok {
 		return groupValidationTarget{}, false
 	}
 	var fallbackProtocols []protocol.Protocol
 	for _, candidate := range []protocol.Protocol{protocol.OpenAIEmbeddings, protocol.Rerank} {
-		if candidate == selectedProtocol {
+		if group.ValidationProtocol != "" || candidate == selectedProtocol {
 			continue
 		}
 		if mode, supported := group.ResolvedTarget.ModeForModel(candidate, execution.OperationProbe, probeModel); supported && mode == channel.RouteNative {

@@ -2,7 +2,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { CredentialTestResultDto } from '@/api/control/types'
+import type { AccessProtocol, CredentialTestResultDto } from '@/api/control/types'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -15,6 +16,9 @@ type CredentialTestDialogResult = Omit<CredentialTestResultDto, 'restore_proof'>
 const props = defineProps<{
   open: boolean
   mask: string
+  protocol?: AccessProtocol
+  protocols: AccessProtocol[]
+  settingsPending: boolean
   pending: boolean
   requestFailed: boolean
   result?: CredentialTestDialogResult
@@ -25,6 +29,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:open': [open: boolean]
   restore: []
+  test: []
+  'update:protocol': [value: AccessProtocol]
 }>()
 const { locale, n, t } = useI18n()
 
@@ -63,13 +69,30 @@ function setOpen(open: boolean): void {
           <span>{{ t('group.credentials.test.fields.credential') }}</span>
           <strong>{{ mask }}</strong>
         </p>
+        <span v-if="protocols.length">{{ t('group.settings.base.validationProtocol') }}</span>
+        <AppSelect
+          v-if="protocols.length"
+          :model-value="protocol"
+          :label="t('group.settings.base.validationProtocol')"
+          :options="protocols.map((value) => ({ value, label: value }))"
+          :disabled="busy || protocols.length <= 1"
+          @update:model-value="emit('update:protocol', $event as AccessProtocol)"
+        />
         <QueryFeedback
-          v-if="pending"
+          v-if="settingsPending"
+          state="loading"
+          :message="t('group.credentials.test.loadingSettings')"
+        />
+        <QueryFeedback
+          v-else-if="pending"
           state="loading"
           :message="t('group.credentials.test.loading', { mask })"
         />
         <InlineFeedback v-else-if="requestFailed" tone="danger" appearance="ledger">
           {{ t('group.credentials.test.requestFailed') }}
+        </InlineFeedback>
+        <InlineFeedback v-else-if="!protocols.length" tone="warning" appearance="ledger">
+          {{ t('group.credentials.test.unavailable') }}
         </InlineFeedback>
         <template v-else-if="result">
           <InlineFeedback :tone="resultTone" appearance="ledger">
@@ -102,6 +125,13 @@ function setOpen(open: boolean): void {
     </template>
 
     <template #footer>
+      <AppButton
+        size="compact"
+        :disabled="busy || settingsPending || !protocol"
+        @click="emit('test')"
+      >
+        {{ t('group.credentials.test.start') }}
+      </AppButton>
       <template v-if="canRestore">
         <AppButton
           variant="secondary"

@@ -18,6 +18,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import { ApiError } from '@/api/errors'
 import type {
+  AccessProtocol,
   CredentialCollectionDto,
   CredentialCollectionFilters,
   CredentialItemDto,
@@ -50,6 +51,7 @@ import {
   inspectGroupCredentialConnection,
   type CredentialStage,
 } from '@/app/resources/credential-stages'
+import { getGroupSettings } from '@/app/resources/groups'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useToast } from '@/app/toast'
@@ -134,6 +136,9 @@ const batchObservationPending = ref(new Set<number>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | undefined>()
+const credentialTestProtocol = ref<AccessProtocol>()
+const credentialTestProtocols = ref<AccessProtocol[]>([])
+const credentialTestSettingsPending = ref(false)
 const credentialTestTarget = ref<CredentialItemDto>()
 const credentialTestResult = ref<CredentialTestResultDto>()
 const credentialTestRequestFailed = ref(false)
@@ -1291,6 +1296,9 @@ function resetCredentialTestState(): void {
     setPending(credentialID, 'test-restore', false)
   }
   credentialTestTarget.value = undefined
+  credentialTestProtocol.value = undefined
+  credentialTestProtocols.value = []
+  credentialTestSettingsPending.value = false
   credentialTestResult.value = undefined
   credentialTestRequestFailed.value = false
   credentialTestRestoreBlocked.value = false
@@ -1303,6 +1311,43 @@ function setCredentialTestOpen(open: boolean): void {
 }
 
 async function openCredentialTest(item: CredentialItemDto): Promise<void> {
+  if (props.connectionType !== 'api_key' || batchBusy.value || pending(item.credential_id)) return
+  resetCredentialTestState()
+  credentialTestTarget.value = item
+  const owner = credentialTestOwner
+  const groupID = props.groupId
+  const controller = new AbortController()
+  credentialTestController = controller
+  credentialTestSettingsPending.value = true
+  try {
+    const settings = await getGroupSettings(client, groupID, controller.signal)
+    if (owner !== credentialTestOwner || groupID !== props.groupId) return
+    credentialTestProtocols.value = settings.validation_protocols
+    credentialTestProtocol.value = settings.validation_protocol ?? undefined
+  } catch {
+    if (owner === credentialTestOwner && groupID === props.groupId)
+      credentialTestRequestFailed.value = true
+  } finally {
+    if (owner === credentialTestOwner && groupID === props.groupId) {
+      credentialTestController = undefined
+      credentialTestSettingsPending.value = false
+    }
+  }
+}
+
+function setCredentialTestProtocol(value: AccessProtocol): void {
+  if (credentialTestPending.value || credentialTestRestorePending.value) return
+  credentialTestProtocol.value = value
+  credentialTestResult.value = undefined
+  credentialTestRequestFailed.value = false
+  credentialTestRestoreBlocked.value = false
+  credentialTestRestoreError.value = undefined
+}
+
+async function runCredentialTest(): Promise<void> {
+  const item = credentialTestTarget.value
+  const protocol = credentialTestProtocol.value
+  if (!item || !protocol || credentialTestSettingsPending.value) return
   if (props.connectionType !== 'api_key' || batchBusy.value || pending(item.credential_id)) return
 
   credentialTestController?.abort()
@@ -1321,6 +1366,7 @@ async function openCredentialTest(item: CredentialItemDto): Promise<void> {
       client,
       groupID,
       item.credential_id,
+      protocol,
       controller.signal,
     )
     if (owner !== credentialTestOwner || groupID !== props.groupId) return
@@ -1837,6 +1883,9 @@ async function runBatch(
     <CredentialTestDialog
       :open="credentialTestTarget !== undefined"
       :mask="credentialTestTarget?.mask ?? ''"
+      :protocol="credentialTestProtocol"
+      :protocols="credentialTestProtocols"
+      :settings-pending="credentialTestSettingsPending"
       :pending="credentialTestPending"
       :request-failed="credentialTestRequestFailed"
       :result="credentialTestDialogResult"
@@ -1845,6 +1894,8 @@ async function runBatch(
       :restore-error="credentialTestRestoreError"
       @update:open="setCredentialTestOpen"
       @restore="confirmTestedCredentialRestore"
+      @update:protocol="setCredentialTestProtocol"
+      @test="runCredentialTest"
     />
     <AppConfirmDialog
       appearance="ledger"

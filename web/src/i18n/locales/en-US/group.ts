@@ -306,6 +306,9 @@ export default {
         customUrl: 'Custom upstream URL',
         customUrlHelp: 'Uses the channel preset or SDK official address by default.',
         paramRequired: 'Enter {field}.',
+        validationProtocol: 'Test protocol',
+        validationProtocolHelp:
+          'Default protocol for credential tests and automatic validation. Read-only for single-protocol channels.',
         validationModel: 'Validation model (optional)',
         validationModelPlaceholder: 'Search or enter a model ID',
         validationModelHelp:
@@ -441,6 +444,9 @@ export default {
       restore: 'Restore now',
       restoreFailed: 'Unable to restore the channel credential now',
       test: {
+        unavailable: 'This channel has no protocol available for credential tests.',
+        start: 'Run test',
+        loadingSettings: 'Loading test settings…',
         action: 'Test connection',
         title: 'Test connection',
         description:
