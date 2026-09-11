@@ -65,6 +65,7 @@ type streamSDKResult struct {
 
 // Execute executes one non-streaming attempt.
 func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (result execution.AttemptResult) {
+	spec = withUserAgent(spec)
 	defer func() {
 		normalizeImagesAttemptResult(spec, &result)
 		normalizeEmbeddingsAttemptResult(spec, &result)
@@ -180,6 +181,7 @@ func (r *Runtime) ExecuteStream(
 	spec execution.AttemptSpec,
 	sink execution.StreamSink,
 ) (result execution.StreamResult) {
+	spec = withUserAgent(spec)
 	defer func() {
 		normalizeImagesStreamResult(spec, &result)
 	}()
