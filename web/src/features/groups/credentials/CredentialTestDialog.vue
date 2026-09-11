@@ -16,6 +16,8 @@ type CredentialTestDialogResult = Omit<CredentialTestResultDto, 'restore_proof'>
 const props = defineProps<{
   open: boolean
   mask: string
+  model?: string
+  models: string[]
   protocol?: AccessProtocol
   protocols: AccessProtocol[]
   settingsPending: boolean
@@ -30,6 +32,7 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
   restore: []
   test: []
+  'update:model': [value: string]
   'update:protocol': [value: AccessProtocol]
 }>()
 const { locale, n, t } = useI18n()
@@ -69,6 +72,15 @@ function setOpen(open: boolean): void {
           <span>{{ t('group.credentials.test.fields.credential') }}</span>
           <strong>{{ mask }}</strong>
         </p>
+        <span v-if="models.length">{{ t('group.credentials.test.fields.model') }}</span>
+        <AppSelect
+          v-if="models.length"
+          :model-value="model"
+          :label="t('group.credentials.test.fields.model')"
+          :options="models.map((value) => ({ value, label: value }))"
+          :disabled="busy"
+          @update:model-value="emit('update:model', $event)"
+        />
         <span v-if="protocols.length">{{ t('group.settings.base.validationProtocol') }}</span>
         <AppSelect
           v-if="protocols.length"
@@ -93,6 +105,9 @@ function setOpen(open: boolean): void {
         </InlineFeedback>
         <InlineFeedback v-else-if="!protocols.length" tone="warning" appearance="ledger">
           {{ t('group.credentials.test.unavailable') }}
+        </InlineFeedback>
+        <InlineFeedback v-else-if="!models.length" tone="warning" appearance="ledger">
+          {{ t('group.credentials.test.noModels') }}
         </InlineFeedback>
         <template v-else-if="result">
           <InlineFeedback :tone="resultTone" appearance="ledger">
@@ -127,7 +142,7 @@ function setOpen(open: boolean): void {
     <template #footer>
       <AppButton
         size="compact"
-        :disabled="busy || settingsPending || !protocol"
+        :disabled="busy || settingsPending || !protocol || !model"
         @click="emit('test')"
       >
         {{ t('group.credentials.test.start') }}

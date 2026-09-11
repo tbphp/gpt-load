@@ -404,22 +404,14 @@ func groupProbeModel(group models.Group) (string, error) {
 	return "", nil
 }
 
-// 优先展示原生上游协议；云渠道没有静态原生路由时保留声明的入口，由执行时解析模型路由。
+// 测试协议直接读取渠道声明，不另行维护能力清单。
 func availableValidationProtocols(target channel.ResolvedTarget) []protocol.Protocol {
 	result := make([]protocol.Protocol, 0)
 	for _, candidate := range protocol.DataPlaneProtocols() {
-		if mode, ok := target.Mode(candidate, execution.OperationProbe); ok && mode == channel.RouteNative {
+		if _, ok := target.Mode(candidate, execution.OperationProbe); ok {
 			result = append(result, candidate)
 		}
 	}
-	if len(result) == 0 {
-		for _, candidate := range protocol.DataPlaneProtocols() {
-			if _, ok := target.Mode(candidate, execution.OperationProbe); ok {
-				result = append(result, candidate)
-			}
-		}
-	}
-
 	return result
 }
 

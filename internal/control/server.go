@@ -23,7 +23,6 @@ import (
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/platform/utils"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/releasecheck"
 	"gpt-load/internal/subscription/providers/importfile"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -721,18 +720,12 @@ func (s *Server) handleTestGroupCredential(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var request struct {
-		Protocol optionalField[protocol.Protocol] `json:"protocol"`
-	}
+	var request CredentialProbeRequest
 	if err := bindOptionalProbeJSON(c, &request); err != nil {
 		writeServiceError(c, "test_group_credential", mapControlJSONError(err))
 		return
 	}
-	if request.Protocol.Set && (request.Protocol.Null || !request.Protocol.Value.Valid()) {
-		writeServiceError(c, "test_group_credential", app_errors.ErrValidation)
-		return
-	}
-	result, err := s.service.TestGroupCredential(c.Request.Context(), groupID, credentialID, request.Protocol.Value)
+	result, err := s.service.TestGroupCredential(c.Request.Context(), groupID, credentialID, request)
 	if err != nil {
 		writeServiceError(c, "test_group_credential", err)
 		return

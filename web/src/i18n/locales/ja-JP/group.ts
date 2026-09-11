@@ -445,6 +445,8 @@ export default {
       restore: 'すぐに回復',
       restoreFailed: 'チャネル認証情報をすぐに回復できません',
       test: {
+        noModels:
+          'テスト可能なモデルがありません。グループにモデルを追加するか、検証モデルを設定してください。',
         unavailable: 'このチャネルには認証情報のテストに使用できるプロトコルがありません。',
         start: 'テスト開始',
         loadingSettings: 'テスト設定を読み込み中…',

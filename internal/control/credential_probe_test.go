@@ -193,7 +193,7 @@ func TestGroupCredentialProbeSelectsEmbeddingsAndReportsProtocol(t *testing.T) {
 	}}
 	fixture.service.executor = executor
 
-	response, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, protocol.OpenAIEmbeddings)
+	response, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, CredentialProbeRequest{Protocol: optionalField[protocol.Protocol]{Set: true, Value: protocol.OpenAIEmbeddings}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +459,7 @@ func TestRestoreTestedGroupCredentialRequiresMatchingProofAndRestoresAtomically(
 		observedAt,
 	)
 	fixture.service.executor = &credentialProbeTestExecutor{result: successfulCredentialProbeResult()}
-	probe, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, protocol.OpenAIEmbeddings)
+	probe, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, CredentialProbeRequest{Protocol: optionalField[protocol.Protocol]{Set: true, Value: protocol.OpenAIEmbeddings}, Model: optionalField[string]{Set: true, Value: "temporary-restore-model"}})
 	if err != nil {
 		t.Fatal(err)
 	}

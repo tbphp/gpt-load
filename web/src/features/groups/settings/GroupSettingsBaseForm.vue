@@ -130,7 +130,7 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
         />
         <small v-if="nameError" role="alert">{{ nameError }}</small>
       </label>
-      <label class="group-settings__field">
+      <label v-if="!isSubscription" class="group-settings__field">
         <span>{{ t('group.settings.base.validationModel') }}</span>
         <input
           class="group-settings__mono"

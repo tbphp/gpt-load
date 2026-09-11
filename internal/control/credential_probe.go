@@ -57,6 +57,11 @@ type CredentialProbeResponse struct {
 	TestedAtMS   int64                  `json:"tested_at_ms"`
 }
 
+type CredentialProbeRequest struct {
+	Protocol optionalField[protocol.Protocol] `json:"protocol"`
+	Model    optionalField[string]            `json:"model"`
+}
+
 type CredentialProbeRestoreRequest struct {
 	RestoreProof string `json:"restore_proof"`
 }
@@ -344,12 +349,29 @@ func (s *Service) TestGroupCredential(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
-	protocols ...protocol.Protocol,
+	requests ...CredentialProbeRequest,
 ) (CredentialProbeResponse, error) {
 	if groupID == 0 || credentialID == 0 {
 		return CredentialProbeResponse{}, app_errors.ErrBadRequest
 	}
-	group, target, credential, err := s.captureCredentialProbe(ctx, groupID, credentialID, protocols...)
+	request := CredentialProbeRequest{}
+	if len(requests) > 0 {
+		request = requests[0]
+	}
+	if request.Protocol.Set && (request.Protocol.Null || !request.Protocol.Value.Valid()) {
+		return CredentialProbeResponse{}, app_errors.ErrValidation
+	}
+	if request.Model.Set {
+		if request.Model.Null {
+			return CredentialProbeResponse{}, app_errors.ErrValidation
+		}
+		model, err := normalizeValidationModel(request.Model.Value)
+		if err != nil {
+			return CredentialProbeResponse{}, err
+		}
+		request.Model.Value = model
+	}
+	group, target, credential, err := s.captureCredentialProbe(ctx, groupID, credentialID, request)
 	if err != nil {
 		return CredentialProbeResponse{}, err
 	}
@@ -401,7 +423,7 @@ func (s *Service) captureCredentialProbe(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
-	protocols ...protocol.Protocol,
+	request CredentialProbeRequest,
 ) (state.GroupView, groupValidationTarget, credentialProbeCredential, error) {
 	if s == nil || s.db == nil || s.manager == nil || s.registry == nil {
 		return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, app_errors.ErrInternalServer
@@ -465,8 +487,11 @@ func (s *Service) captureCredentialProbe(
 	}
 	baseTarget, baseValid := buildGroupValidationTarget(group)
 	probeGroup := group
-	if len(protocols) > 0 && protocols[0] != "" {
-		probeGroup.ValidationProtocol = protocols[0]
+	if request.Protocol.Set {
+		probeGroup.ValidationProtocol = request.Protocol.Value
+	}
+	if request.Model.Set {
+		probeGroup.ValidationModel = request.Model.Value
 	}
 	target, valid := buildGroupValidationTarget(probeGroup)
 	if baseValid {

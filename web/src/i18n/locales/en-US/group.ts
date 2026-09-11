@@ -444,6 +444,8 @@ export default {
       restore: 'Restore now',
       restoreFailed: 'Unable to restore the channel credential now',
       test: {
+        noModels:
+          'No test models are available. Add a model to this group or configure a validation model first.',
         unavailable: 'This channel has no protocol available for credential tests.',
         start: 'Run test',
         loadingSettings: 'Loading test settings…',

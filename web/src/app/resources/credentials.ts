@@ -930,12 +930,13 @@ export async function testCredentialConnection(
   groupId: number,
   credentialId: number,
   protocol: AccessProtocol,
+  model: string,
   signal?: AbortSignal,
 ): Promise<CredentialTestResultDto> {
   return projectCredentialTestResult(
     await client.request(`/api/groups/${groupId}/credentials/${credentialId}/test`, {
       method: 'POST',
-      json: { protocol },
+      json: { protocol, model },
       signal,
     }),
   )

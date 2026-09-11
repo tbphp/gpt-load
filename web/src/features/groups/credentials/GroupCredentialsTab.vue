@@ -51,7 +51,7 @@ import {
   inspectGroupCredentialConnection,
   type CredentialStage,
 } from '@/app/resources/credential-stages'
-import { getGroupSettings } from '@/app/resources/groups'
+import { getGroupModels, getGroupSettings } from '@/app/resources/groups'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useToast } from '@/app/toast'
@@ -136,6 +136,8 @@ const batchObservationPending = ref(new Set<number>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
 const resetTarget = ref<{ item: CredentialItemDto; idempotencyKey: string } | undefined>()
+const credentialTestModel = ref<string>()
+const credentialTestModels = ref<string[]>([])
 const credentialTestProtocol = ref<AccessProtocol>()
 const credentialTestProtocols = ref<AccessProtocol[]>([])
 const credentialTestSettingsPending = ref(false)
@@ -1296,6 +1298,8 @@ function resetCredentialTestState(): void {
     setPending(credentialID, 'test-restore', false)
   }
   credentialTestTarget.value = undefined
+  credentialTestModel.value = undefined
+  credentialTestModels.value = []
   credentialTestProtocol.value = undefined
   credentialTestProtocols.value = []
   credentialTestSettingsPending.value = false
@@ -1320,8 +1324,18 @@ async function openCredentialTest(item: CredentialItemDto): Promise<void> {
   credentialTestController = controller
   credentialTestSettingsPending.value = true
   try {
-    const settings = await getGroupSettings(client, groupID, controller.signal)
+    const [settings, models] = await Promise.all([
+      getGroupSettings(client, groupID, controller.signal),
+      getGroupModels(client, groupID, controller.signal),
+    ])
     if (owner !== credentialTestOwner || groupID !== props.groupId) return
+    credentialTestModels.value = [
+      ...new Set([
+        ...(settings.validation_model ? [settings.validation_model] : []),
+        ...models.items.map(({ id }) => id),
+      ]),
+    ]
+    credentialTestModel.value = settings.validation_model ?? credentialTestModels.value[0]
     credentialTestProtocols.value = settings.validation_protocols
     credentialTestProtocol.value = settings.validation_protocol ?? undefined
   } catch {
@@ -1335,9 +1349,19 @@ async function openCredentialTest(item: CredentialItemDto): Promise<void> {
   }
 }
 
+function setCredentialTestModel(value: string): void {
+  if (credentialTestPending.value || credentialTestRestorePending.value) return
+  credentialTestModel.value = value
+  clearCredentialTestResult()
+}
+
 function setCredentialTestProtocol(value: AccessProtocol): void {
   if (credentialTestPending.value || credentialTestRestorePending.value) return
   credentialTestProtocol.value = value
+  clearCredentialTestResult()
+}
+
+function clearCredentialTestResult(): void {
   credentialTestResult.value = undefined
   credentialTestRequestFailed.value = false
   credentialTestRestoreBlocked.value = false
@@ -1347,7 +1371,8 @@ function setCredentialTestProtocol(value: AccessProtocol): void {
 async function runCredentialTest(): Promise<void> {
   const item = credentialTestTarget.value
   const protocol = credentialTestProtocol.value
-  if (!item || !protocol || credentialTestSettingsPending.value) return
+  const model = credentialTestModel.value
+  if (!item || !protocol || !model || credentialTestSettingsPending.value) return
   if (props.connectionType !== 'api_key' || batchBusy.value || pending(item.credential_id)) return
 
   credentialTestController?.abort()
@@ -1367,6 +1392,7 @@ async function runCredentialTest(): Promise<void> {
       groupID,
       item.credential_id,
       protocol,
+      model,
       controller.signal,
     )
     if (owner !== credentialTestOwner || groupID !== props.groupId) return
@@ -1883,6 +1909,8 @@ async function runBatch(
     <CredentialTestDialog
       :open="credentialTestTarget !== undefined"
       :mask="credentialTestTarget?.mask ?? ''"
+      :model="credentialTestModel"
+      :models="credentialTestModels"
       :protocol="credentialTestProtocol"
       :protocols="credentialTestProtocols"
       :settings-pending="credentialTestSettingsPending"
@@ -1895,6 +1923,7 @@ async function runBatch(
       @update:open="setCredentialTestOpen"
       @restore="confirmTestedCredentialRestore"
       @update:protocol="setCredentialTestProtocol"
+      @update:model="setCredentialTestModel"
       @test="runCredentialTest"
     />
     <AppConfirmDialog

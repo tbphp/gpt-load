@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -29,12 +30,12 @@ func TestCredentialProbeProtocolOverrideDoesNotChangeGroupDefault(t *testing.T) 
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "protocol-auth"}, fixture.service).RegisterRoutes(engine)
 	path := fmt.Sprintf("/api/groups/%d/credentials/%d/test", groupID, credential.ID)
-	response := serveCredentialRequest(t, engine, http.MethodPost, path, `{"protocol":"openai-embeddings"}`, "protocol-auth", "")
+	response := serveCredentialRequest(t, engine, http.MethodPost, path, `{"protocol":"openai-embeddings","model":" temporary-model "}`, "protocol-auth", "")
 	if response.Code != http.StatusOK {
 		t.Fatalf("response = %d %s", response.Code, response.Body.String())
 	}
 	calls := executor.recordedCalls()
-	if len(calls) != 1 || calls[0].ClientProtocol != protocol.OpenAIEmbeddings {
+	if len(calls) != 1 || calls[0].ClientProtocol != protocol.OpenAIEmbeddings || calls[0].UpstreamModel != "temporary-model" {
 		t.Fatalf("calls = %#v", calls)
 	}
 	settings, err := fixture.service.GetGroupSettings(t.Context(), groupID)
@@ -46,7 +47,7 @@ func TestCredentialProbeProtocolOverrideDoesNotChangeGroupDefault(t *testing.T) 
 	if err := json.Unmarshal(encoded, &fields); err != nil {
 		t.Fatal(err)
 	}
-	if fields["validation_protocol"] != string(protocol.OpenAICompletions) {
+	if fields["validation_protocol"] != string(protocol.OpenAICompletions) || fields["validation_model"] != nil {
 		t.Fatalf("settings = %s", encoded)
 	}
 }
@@ -73,15 +74,16 @@ func TestValidationProtocolSettingsAndAutomaticTarget(t *testing.T) {
 	if err == nil {
 		t.Fatal("unsupported protocol accepted")
 	}
-	if _, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{ValidationProtocol: optionalField[protocol.Protocol]{Set: true, Value: protocol.Anthropic}}); err == nil {
-		t.Fatal("converted protocol accepted")
+	if _, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{ValidationProtocol: optionalField[protocol.Protocol]{Set: true, Value: protocol.Anthropic}}); err != nil {
+		t.Fatal(err)
 	}
 	var credential models.Credential
 	if err := fixture.db.Where("group_id = ?", groupID).Take(&credential).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, protocol.Anthropic); err == nil {
-		t.Fatal("converted protocol probe accepted")
+	fixture.service.executor = &credentialProbeTestExecutor{result: successfulCredentialProbeResult()}
+	if _, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, CredentialProbeRequest{Protocol: optionalField[protocol.Protocol]{Set: true, Value: protocol.Anthropic}}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -96,7 +98,7 @@ func TestExplicitProbeProtocolDoesNotFallback(t *testing.T) {
 	result.Error.OriginHint = execution.ErrorOriginUpstream
 	executor := &credentialProbeTestExecutor{result: result}
 	fixture.service.executor = executor
-	response, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, protocol.OpenAICompletions)
+	response, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, CredentialProbeRequest{Protocol: optionalField[protocol.Protocol]{Set: true, Value: protocol.OpenAICompletions}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,25 +107,40 @@ func TestExplicitProbeProtocolDoesNotFallback(t *testing.T) {
 	}
 }
 
-func TestValidationProtocolOptionsRepresentNativeUpstreamProtocols(t *testing.T) {
+func TestValidationProtocolOptionsUseChannelDeclarations(t *testing.T) {
 	registry := channel.NewRegistry()
-	for _, test := range []struct {
-		channel channel.ID
-		single  bool
-	}{{channel.Alibaba, true}, {channel.Groq, true}, {channel.OpenAI, false}} {
-		t.Run(string(test.channel), func(t *testing.T) {
-			response, err := groupSettingsResponse(models.Group{ChannelID: string(test.channel), Models: models.JSON(`[]`)}, state.RuntimeSettings{}, registry)
+	for _, id := range []channel.ID{channel.Alibaba, channel.Groq, channel.OpenAI} {
+		t.Run(string(id), func(t *testing.T) {
+			response, err := groupSettingsResponse(models.Group{ChannelID: string(id), Models: models.JSON(`[]`)}, state.RuntimeSettings{}, registry)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if test.single && (len(response.ValidationProtocols) != 1 || response.ValidationProtocols[0] != protocol.OpenAICompletions) {
-				t.Fatalf("protocols = %v", response.ValidationProtocols)
+			target, err := registry.Resolve(id, nil)
+			if err != nil {
+				t.Fatal(err)
 			}
-			for _, candidate := range response.ValidationProtocols {
-				if candidate == protocol.Anthropic || candidate == protocol.Gemini {
-					t.Fatalf("converted protocol advertised: %s", candidate)
+			for _, candidate := range protocol.DataPlaneProtocols() {
+				_, declared := target.Mode(candidate, execution.OperationProbe)
+				if slices.Contains(response.ValidationProtocols, candidate) != declared {
+					t.Fatalf("protocols = %v; declaration mismatch for %s", response.ValidationProtocols, candidate)
 				}
 			}
 		})
+	}
+}
+
+func TestCredentialProbeRejectsInvalidTemporaryModel(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "invalid-model-secret")
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []optionalField[string]{
+		{Set: true, Null: true}, {Set: true, Value: ""}, {Set: true, Value: "   "}, {Set: true, Value: "model\ninvalid"},
+	} {
+		if _, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, CredentialProbeRequest{Model: model}); err == nil {
+			t.Fatalf("invalid model accepted: %#v", model)
+		}
 	}
 }
