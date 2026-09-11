@@ -18,18 +18,31 @@ type AuthPhase =
 
 const authStorageKey = 'gpt-load.auth-key'
 
+function readCredential(storage?: Storage): string {
+  try {
+    return storage?.getItem(authStorageKey) ?? ''
+  } catch {
+    // 一种存储不可用时，仍可读取另一种存储。
+    return ''
+  }
+}
+
+function storeCredential(storage: Storage | undefined, value: string): void {
+  try {
+    if (value) storage?.setItem(authStorageKey, value)
+    else storage?.removeItem(authStorageKey)
+  } catch {
+    // 内存会话始终生效；存储不可用不能阻止登录或退出。
+  }
+}
+
 export function createAuthSession(deps: {
   client: ApiClient
   queryClient: QueryClient
-  storage?: Storage
+  localStorage?: Storage
+  sessionStorage?: Storage
 }) {
-  let credential = ''
-  try {
-    credential = deps.storage?.getItem(authStorageKey) ?? ''
-  } catch {
-    // 浏览器禁止存储时，仍允许在当前访问中登录。
-    credential = ''
-  }
+  let credential = readCredential(deps.sessionStorage) || readCredential(deps.localStorage)
   let revision = 0
   let loginController: AbortController | undefined
   let validation: { controller: AbortController; promise: Promise<void> } | undefined
@@ -38,15 +51,6 @@ export function createAuthSession(deps: {
     principalType: null as AuthPrincipalType | null,
     retryAfterSeconds: 0,
   })
-
-  function storeCredential(value: string): void {
-    try {
-      if (value) deps.storage?.setItem(authStorageKey, value)
-      else deps.storage?.removeItem(authStorageKey)
-    } catch {
-      // 内存会话始终生效；存储不可用不能阻止登录或退出。
-    }
-  }
 
   function cancelValidation(): void {
     validation?.controller.abort()
@@ -59,7 +63,8 @@ export function createAuthSession(deps: {
     loginController?.abort()
     loginController = undefined
     credential = ''
-    storeCredential('')
+    storeCredential(deps.localStorage, '')
+    storeCredential(deps.sessionStorage, '')
     state.phase = 'anonymous'
     state.principalType = null
     state.retryAfterSeconds = 0
@@ -106,7 +111,7 @@ export function createAuthSession(deps: {
     return promise
   }
 
-  async function login(candidate: string, signal: AbortSignal): Promise<void> {
+  async function login(candidate: string, remember: boolean, signal: AbortSignal): Promise<void> {
     cancelValidation()
     if (state.phase === 'validating') state.phase = 'unvalidated'
     loginController?.abort()
@@ -125,7 +130,9 @@ export function createAuthSession(deps: {
       cancelValidation()
       deps.queryClient.clear()
       credential = candidate
-      storeCredential(candidate)
+      // 仅在认证成功后切换存储；不记住时绝不回退到持久存储。
+      storeCredential(remember ? deps.sessionStorage : deps.localStorage, '')
+      storeCredential(remember ? deps.localStorage : deps.sessionStorage, candidate)
       state.principalType = session.principal_type
       state.retryAfterSeconds = 0
       state.phase = 'validated'

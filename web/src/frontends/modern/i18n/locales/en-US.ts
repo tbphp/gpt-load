@@ -37,8 +37,7 @@ export default {
     changeKey: 'Use another key',
     signedIn: 'Signed in. Opening your page…',
     continue: 'Continue',
-    sessionNote:
-      'This browser remembers your key and clears it on sign-out or authentication failure.',
+    remember: 'Remember me',
     logout: 'Sign out',
     readOnly: 'Access key · Read-only',
     readOnlyDescription:

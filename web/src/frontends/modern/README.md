@@ -46,6 +46,7 @@
 | `AppButton`                | 标准按钮，`variant` 为 default / primary / ghost / danger，`size` 为 xs / sm / md；统一禁用、加载和焦点 |
 | `AppIconButton`            | 纯图标按钮，必须提供 `label`；不在页面里重复实现 aria-label、尺寸和加载状态                             |
 | `AppTextField`             | 文本输入、label、错误和焦点样式；通过 v-model 绑定，原生 input 属性透传，suffix 插槽放辅助操作          |
+| `AppCheckbox`              | 布尔选项，通过 v-model 绑定；必须提供 label，支持禁用，原生 input 属性透传                              |
 | `AppIcon`                  | 普通图标统一来自 Lucide，使用 xs / sm / md / lg 命名尺寸；品牌图标保留官方 SVG 路径                     |
 | `AppSelectMenu`            | 图标触发的单选菜单，通过 modelValue / options 传值；现有主题、语言选择共用                              |
 | `AppDialogContent`         | 在 Reka `DialogRoot` 内使用，统一 Portal、遮罩、层级、可访问标题和描述；dialog / sidebar 两种位置       |

@@ -37,7 +37,7 @@ export default {
     changeKey: '更换密钥',
     signedIn: '登录成功，正在打开页面…',
     continue: '继续进入',
-    sessionNote: '此浏览器会记住登录密钥，退出或认证失效时清除。',
+    remember: '记住登录',
     logout: '退出登录',
     readOnly: '访问密钥 · 只读',
     readOnlyDescription: '仅能查看此密钥的总览、模型、用量和请求记录，不能修改系统配置。',

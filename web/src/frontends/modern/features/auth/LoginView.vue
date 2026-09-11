@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
 
 import AppButton from '@modern/components/ui/AppButton.vue'
+import AppCheckbox from '@modern/components/ui/AppCheckbox.vue'
 import AppExternalLink from '@modern/components/ui/AppExternalLink.vue'
 import AppIconButton from '@modern/components/ui/AppIconButton.vue'
 import AppNotice from '@modern/components/ui/AppNotice.vue'
@@ -21,6 +22,7 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const candidate = ref('')
+const remember = ref(false)
 const input = ref<InstanceType<typeof AppTextField>>()
 const visible = ref(false)
 const submitting = ref(false)
@@ -33,7 +35,6 @@ const countdown = useCountdown()
 const helpOpen = computed(() => route.query.help === 'auth')
 const locked = computed(() => feedback.value === 'locked' && countdown.active.value)
 const disabled = computed(() => submitting.value || locked.value)
-const instanceOrigin = window.location.origin
 const message = computed(() => {
   if (navigationFailed.value) return t('shell.navigationFailed')
   if (feedback.value === 'locked') return t('auth.locked', { seconds: countdown.seconds.value })
@@ -106,7 +107,7 @@ async function submit(): Promise<void> {
   feedback.value = undefined
   fieldError.value = undefined
   try {
-    await session.login(candidate.value, controller.signal)
+    await session.login(candidate.value, remember.value, controller.signal)
     authenticated.value = true
     candidate.value = ''
     visible.value = false
@@ -152,6 +153,12 @@ async function submit(): Promise<void> {
             />
           </template>
         </AppTextField>
+        <AppCheckbox
+          v-model="remember"
+          name="remember-login"
+          :label="t('auth.remember')"
+          :disabled="disabled"
+        />
         <AppNotice
           v-if="message"
           id="modern-auth-feedback"
@@ -176,7 +183,6 @@ async function submit(): Promise<void> {
           t('auth.continue')
         }}</AppButton>
       </template>
-      <p class="modern-login-note">{{ t('auth.sessionNote') }}</p>
     </form>
 
     <details class="modern-login-help" :open="helpOpen" @toggle="toggleHelp">
@@ -204,7 +210,6 @@ async function submit(): Promise<void> {
         }}</AppExternalLink>
       </div>
     </details>
-    <p class="modern-login-instance">{{ instanceOrigin }}</p>
   </AuthCard>
 </template>
 
@@ -215,16 +220,6 @@ async function submit(): Promise<void> {
 }
 .modern-login-form .modern-login-submit {
   width: 100%;
-}
-.modern-login-note,
-.modern-login-instance {
-  color: var(--modern-muted);
-  font-size: var(--modern-text-small);
-  overflow-wrap: anywhere;
-}
-.modern-login-instance {
-  font-family: var(--modern-font-mono);
-  text-align: center;
 }
 .modern-login-help {
   border-top: var(--modern-line-width) solid var(--modern-border);

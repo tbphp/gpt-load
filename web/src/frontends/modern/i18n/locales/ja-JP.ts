@@ -37,7 +37,7 @@ export default {
     changeKey: '別のキーを使用',
     signedIn: 'ログインしました。ページを開いています…',
     continue: '続ける',
-    sessionNote: 'キーはこのブラウザに保存され、ログアウト時や認証失効時に削除されます。',
+    remember: 'ログイン状態を保持',
     logout: 'ログアウト',
     readOnly: 'アクセスキー · 閲覧専用',
     readOnlyDescription:
