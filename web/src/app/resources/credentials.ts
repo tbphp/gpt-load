@@ -9,6 +9,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import type { ApiClient } from '@/api/client'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import type {
+  AccessProtocol,
   CredentialBatchResultDto,
   CredentialCollectionDto,
   CredentialCollectionFilters,
@@ -928,12 +929,14 @@ export async function testCredentialConnection(
   client: ApiClient,
   groupId: number,
   credentialId: number,
+  protocol: AccessProtocol,
+  model: string,
   signal?: AbortSignal,
 ): Promise<CredentialTestResultDto> {
   return projectCredentialTestResult(
     await client.request(`/api/groups/${groupId}/credentials/${credentialId}/test`, {
       method: 'POST',
-      json: {},
+      json: { protocol, model },
       signal,
     }),
   )

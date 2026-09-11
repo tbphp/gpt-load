@@ -20,6 +20,7 @@ export interface GroupSettingsDraft {
   params: ChannelParamsDto
   name: string
   validation_model: string | null
+  validation_protocol: GroupSettingsDto['validation_protocol']
   enabled: boolean
   weight_manual: number | null
   price_multiplier: string
@@ -181,6 +182,8 @@ export function buildGroupSettingsPatch(
     Object.entries(base.params).sort(([left], [right]) => left.localeCompare(right)),
   )
   if (JSON.stringify(params) !== JSON.stringify(baseParams)) patch.params = params
+  if (draft.validation_protocol !== base.validation_protocol)
+    patch.validation_protocol = draft.validation_protocol
   const validationModel = draft.validation_model?.trim() || null
   if (validationModel !== base.validation_model) patch.validation_model = validationModel
   if (draft.enabled !== base.enabled) patch.enabled = draft.enabled

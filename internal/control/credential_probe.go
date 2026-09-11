@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -55,6 +56,11 @@ type CredentialProbeResponse struct {
 	CanRestore   bool                   `json:"can_restore"`
 	RestoreProof *string                `json:"restore_proof"`
 	TestedAtMS   int64                  `json:"tested_at_ms"`
+}
+
+type CredentialProbeRequest struct {
+	Protocol optionalField[protocol.Protocol] `json:"protocol"`
+	Model    optionalField[string]            `json:"model"`
 }
 
 type CredentialProbeRestoreRequest struct {
@@ -344,14 +350,33 @@ func (s *Service) TestGroupCredential(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
+	requests ...CredentialProbeRequest,
 ) (CredentialProbeResponse, error) {
 	if groupID == 0 || credentialID == 0 {
 		return CredentialProbeResponse{}, app_errors.ErrBadRequest
 	}
-	group, target, credential, err := s.captureCredentialProbe(ctx, groupID, credentialID)
+	request := CredentialProbeRequest{}
+	if len(requests) > 0 {
+		request = requests[0]
+	}
+	if request.Protocol.Set && (request.Protocol.Null || !request.Protocol.Value.Valid()) {
+		return CredentialProbeResponse{}, app_errors.ErrValidation
+	}
+	if request.Model.Set {
+		if request.Model.Null {
+			return CredentialProbeResponse{}, app_errors.ErrValidation
+		}
+		model, err := normalizeValidationModel(request.Model.Value)
+		if err != nil {
+			return CredentialProbeResponse{}, err
+		}
+		request.Model.Value = model
+	}
+	group, target, credential, err := s.captureCredentialProbe(ctx, groupID, credentialID, request)
 	if err != nil {
 		return CredentialProbeResponse{}, err
 	}
+
 	probe := newCredentialProbeExecutor(s.encryption, s.channelRegistry, s.executor)
 	executed, err := probe.Probe(ctx, group, target, credential.ref)
 	if err != nil {
@@ -399,6 +424,7 @@ func (s *Service) captureCredentialProbe(
 	ctx context.Context,
 	groupID uint,
 	credentialID uint,
+	request CredentialProbeRequest,
 ) (state.GroupView, groupValidationTarget, credentialProbeCredential, error) {
 	if s == nil || s.db == nil || s.manager == nil || s.registry == nil {
 		return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, app_errors.ErrInternalServer
@@ -453,6 +479,13 @@ func (s *Service) captureCredentialProbe(
 		return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, app_errors.ErrInternalServer
 	}
 	group, exists := snapshot.Groups[groupID]
+	if !exists && !groupRow.Enabled {
+		group, err = s.compileDisabledGroupProbe(ctx, groupRow)
+		if err != nil {
+			return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, err
+		}
+		exists = true
+	}
 	if !exists {
 		return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, dbRegistryMismatch(
 			mismatchMissingRegistry,
@@ -460,7 +493,18 @@ func (s *Service) captureCredentialProbe(
 			credentialID,
 		)
 	}
-	target, valid := buildGroupValidationTarget(group)
+	baseTarget, baseValid := buildGroupValidationTarget(group)
+	probeGroup := group
+	if request.Protocol.Set {
+		probeGroup.ValidationProtocol = request.Protocol.Value
+	}
+	if request.Model.Set {
+		probeGroup.ValidationModel = request.Model.Value
+	}
+	target, valid := buildGroupValidationTarget(probeGroup)
+	if baseValid {
+		target.signature = baseTarget.signature
+	}
 	if !valid {
 		return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, app_errors.ErrValidation
 	}
@@ -600,4 +644,33 @@ func logCredentialProbe(ref state.CredentialRef, response CredentialProbeRespons
 		},
 		"Credential probe completed",
 	)
+}
+
+// 禁用分组不进入数据面快照；只为手动测试编译局部视图，不发布或启用分组。
+func (s *Service) compileDisabledGroupProbe(ctx context.Context, row models.Group) (state.GroupView, error) {
+	group, err := mapGroupRowToState(row)
+	if err != nil {
+		return state.GroupView{}, err
+	}
+	group.Enabled = true
+	group.Proxy, err = decryptProxyOverride(s.encryption, row.ProxyConfig)
+	if err != nil {
+		return state.GroupView{}, err
+	}
+	settings, globalProxy, err := stateloader.LoadSystemSettingsAndProxy(ctx, s.db, s.encryption)
+	if err != nil {
+		return state.GroupView{}, err
+	}
+	snapshot, err := state.Compile(state.CompileInput{
+		SystemSettings: settings, GlobalProxy: globalProxy, EnvironmentProxy: s.environmentProxy,
+		ChannelRegistry: s.channelRegistry, Groups: []state.GroupConfig{group},
+	})
+	if err != nil {
+		return state.GroupView{}, err
+	}
+	view, exists := snapshot.Groups[row.ID]
+	if !exists {
+		return state.GroupView{}, app_errors.ErrInternalServer
+	}
+	return view, nil
 }

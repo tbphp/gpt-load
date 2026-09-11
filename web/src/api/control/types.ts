@@ -138,6 +138,8 @@ export interface GroupSettingsDto {
   connection_type: ConnectionType
   params: ChannelParamsDto
   validation_model: string | null
+  validation_protocol: AccessProtocol | null
+  validation_protocols: AccessProtocol[]
   enabled: boolean
   weight_manual: number | null
   overrides: GroupRuntimeConfigDto

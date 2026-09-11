@@ -306,7 +306,10 @@ export default {
         customUrl: 'カスタム上流 URL',
         customUrlHelp: '既定ではチャネル設定または SDK 公式アドレスを使用します。',
         paramRequired: '{field} を入力してください。',
-        validationModel: '検証モデル（任意）',
+        validationProtocol: 'テストプロトコル',
+        validationProtocolHelp:
+          '認証情報のテストと自動検証で使用する既定のプロトコルです。対応するプロトコルが1つの場合は変更できません。',
+        validationModel: 'テストモデル（任意）',
         validationModelPlaceholder: 'モデル ID を検索または入力',
         validationModelHelp:
           '空欄の場合はグループの最初のモデルを使用します。エイリアスではなくアップストリームのモデル ID を入力してください。',
@@ -442,6 +445,10 @@ export default {
       restore: 'すぐに回復',
       restoreFailed: 'チャネル認証情報をすぐに回復できません',
       test: {
+        noModels: 'このグループにはモデルがありません。テストするモデル ID を入力してください。',
+        unavailable: 'このチャネルには認証情報のテストに使用できるプロトコルがありません。',
+        start: 'テスト開始',
+        loadingSettings: 'テスト設定を読み込み中…',
         action: '接続をテスト',
         title: '接続をテスト',
         description:
