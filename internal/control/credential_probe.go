@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -478,6 +479,13 @@ func (s *Service) captureCredentialProbe(
 		return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, app_errors.ErrInternalServer
 	}
 	group, exists := snapshot.Groups[groupID]
+	if !exists && !groupRow.Enabled {
+		group, err = s.compileDisabledGroupProbe(ctx, groupRow)
+		if err != nil {
+			return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, err
+		}
+		exists = true
+	}
 	if !exists {
 		return state.GroupView{}, groupValidationTarget{}, credentialProbeCredential{}, dbRegistryMismatch(
 			mismatchMissingRegistry,
@@ -636,4 +644,33 @@ func logCredentialProbe(ref state.CredentialRef, response CredentialProbeRespons
 		},
 		"Credential probe completed",
 	)
+}
+
+// 禁用分组不进入数据面快照；只为手动测试编译局部视图，不发布或启用分组。
+func (s *Service) compileDisabledGroupProbe(ctx context.Context, row models.Group) (state.GroupView, error) {
+	group, err := mapGroupRowToState(row)
+	if err != nil {
+		return state.GroupView{}, err
+	}
+	group.Enabled = true
+	group.Proxy, err = decryptProxyOverride(s.encryption, row.ProxyConfig)
+	if err != nil {
+		return state.GroupView{}, err
+	}
+	settings, globalProxy, err := stateloader.LoadSystemSettingsAndProxy(ctx, s.db, s.encryption)
+	if err != nil {
+		return state.GroupView{}, err
+	}
+	snapshot, err := state.Compile(state.CompileInput{
+		SystemSettings: settings, GlobalProxy: globalProxy, EnvironmentProxy: s.environmentProxy,
+		ChannelRegistry: s.channelRegistry, Groups: []state.GroupConfig{group},
+	})
+	if err != nil {
+		return state.GroupView{}, err
+	}
+	view, exists := snapshot.Groups[row.ID]
+	if !exists {
+		return state.GroupView{}, app_errors.ErrInternalServer
+	}
+	return view, nil
 }

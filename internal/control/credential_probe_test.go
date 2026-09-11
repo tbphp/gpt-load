@@ -781,3 +781,60 @@ func TestGroupCredentialProbeRouteContract(t *testing.T) {
 }
 
 var _ execution.Executor = (*credentialProbeTestExecutor)(nil)
+
+func TestGroupCredentialProbeHTTPAllowsDisabledGroupWithoutChangingRuntime(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "disabled-group-probe-secret")
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
+		Enabled: optionalField[bool]{Set: true, Value: false},
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{
+			state.SettingFirstByteTimeout: 7, state.SettingRequestTimeout: 31,
+			state.SettingHeaderRules: map[string]any{"set": map[string]any{"X-Probe-Setting": "preserved"}},
+		}},
+		Proxy: optionalField[outboundproxy.Config]{Set: true, Value: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example.test:8080"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := fixture.service.manager.Current().Groups[groupID]; exists {
+		t.Fatal("disabled group remained in data-plane snapshot")
+	}
+	before, err := fixture.registry.SnapshotGroupCredentialEntriesExact(groupID, []uint{credential.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := &credentialProbeTestExecutor{result: successfulCredentialProbeResult()}
+	fixture.service.executor = executor
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "disabled-group-auth"}, fixture.service).RegisterRoutes(engine)
+	path := fmt.Sprintf("/api/groups/%d/credentials/%d/test", groupID, credential.ID)
+	response := serveCredentialRequest(t, engine, http.MethodPost, path, `{"protocol":"openai-completions","model":"temporary-model"}`, "disabled-group-auth", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("response = %d %s", response.Code, response.Body.String())
+	}
+	if calls := executor.recordedCalls(); len(calls) != 1 || calls[0].UpstreamModel != "temporary-model" ||
+		calls[0].Header.Get("X-Probe-Setting") != "preserved" || calls[0].Timeouts.FirstByte != 7*time.Second || calls[0].Timeouts.Request != 31*time.Second || calls[0].Proxy.Config.URL != "http://proxy.example.test:8080" {
+		t.Fatalf("calls = %#v", calls)
+	}
+	after, err := fixture.registry.SnapshotGroupCredentialEntriesExact(groupID, []uint{credential.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("probe changed registry")
+	}
+	if _, exists := fixture.service.manager.Current().Groups[groupID]; exists {
+		t.Fatal("probe enabled data-plane group")
+	}
+	settings, err := fixture.service.GetGroupSettings(t.Context(), groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Enabled || settings.ValidationModel != nil {
+		t.Fatalf("probe changed settings: %#v", settings)
+	}
+}

@@ -300,7 +300,7 @@ export default {
         paramRequired: '请输入{field}。',
         validationProtocol: '测试协议',
         validationProtocolHelp: '作为密钥测试和自动验活的默认协议；单协议渠道不可修改。',
-        validationModel: '验活模型（可选）',
+        validationModel: '测试模型（可选）',
         validationModelPlaceholder: '搜索或输入模型 ID',
         validationModelHelp: '留空时使用分组的第一个模型；这里填上游模型 ID，不是别名。',
         weight: '分组权重',
@@ -428,7 +428,7 @@ export default {
       restore: '立即恢复',
       restoreFailed: '无法立即恢复渠道凭据',
       test: {
-        noModels: '当前分组暂无可测试的模型，请先在分组中添加模型或配置验活模型。',
+        noModels: '当前分组暂无可测试的模型，请先在分组中添加模型或配置测试模型。',
         unavailable: '当前渠道没有可用于密钥测试的协议。',
         start: '开始测试',
         loadingSettings: '正在读取测试配置…',

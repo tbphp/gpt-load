@@ -130,38 +130,6 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
         />
         <small v-if="nameError" role="alert">{{ nameError }}</small>
       </label>
-      <label v-if="!isSubscription" class="group-settings__field">
-        <span>{{ t('group.settings.base.validationModel') }}</span>
-        <input
-          class="group-settings__mono"
-          :value="validationModel ?? ''"
-          :list="validationModelListId"
-          :placeholder="t('group.settings.base.validationModelPlaceholder')"
-          :disabled="pending"
-          autocomplete="off"
-          @input="emit('update:validationModel', ($event.target as HTMLInputElement).value || null)"
-        />
-        <datalist :id="validationModelListId">
-          <option
-            v-for="option in validationModelOptions"
-            :key="option.id"
-            :value="option.id"
-            :label="option.alias || undefined"
-          />
-        </datalist>
-        <small>{{ t('group.settings.base.validationModelHelp') }}</small>
-      </label>
-      <div v-if="!isSubscription" class="group-settings__field">
-        <span>{{ t('group.settings.base.validationProtocol') }}</span>
-        <AppSelect
-          :model-value="validationProtocol ?? undefined"
-          :label="t('group.settings.base.validationProtocol')"
-          :options="validationProtocols.map((value) => ({ value, label: value }))"
-          :disabled="pending || validationProtocols.length <= 1"
-          @update:model-value="emit('update:validationProtocol', $event as AccessProtocol)"
-        />
-        <small>{{ t('group.settings.base.validationProtocolHelp') }}</small>
-      </div>
       <label class="group-settings__field">
         <span>{{ t('common.priceMultiplier.label') }}</span>
         <input
@@ -177,6 +145,42 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
         </small>
         <small v-else>{{ t('common.priceMultiplier.groupHelp') }}</small>
       </label>
+      <div v-if="!isSubscription" class="group-settings__grid group-settings__wide">
+        <label class="group-settings__field">
+          <span>{{ t('group.settings.base.validationModel') }}</span>
+          <input
+            class="group-settings__mono"
+            :value="validationModel ?? ''"
+            :list="validationModelListId"
+            :placeholder="t('group.settings.base.validationModelPlaceholder')"
+            :disabled="pending"
+            autocomplete="off"
+            @input="
+              emit('update:validationModel', ($event.target as HTMLInputElement).value || null)
+            "
+          />
+          <datalist :id="validationModelListId">
+            <option
+              v-for="option in validationModelOptions"
+              :key="option.id"
+              :value="option.id"
+              :label="option.alias || undefined"
+            />
+          </datalist>
+          <small>{{ t('group.settings.base.validationModelHelp') }}</small>
+        </label>
+        <div class="group-settings__field">
+          <span>{{ t('group.settings.base.validationProtocol') }}</span>
+          <AppSelect
+            :model-value="validationProtocol ?? undefined"
+            :label="t('group.settings.base.validationProtocol')"
+            :options="validationProtocols.map((value) => ({ value, label: value }))"
+            :disabled="pending || validationProtocols.length <= 1"
+            @update:model-value="emit('update:validationProtocol', $event as AccessProtocol)"
+          />
+          <small>{{ t('group.settings.base.validationProtocolHelp') }}</small>
+        </div>
+      </div>
       <template v-for="field in paramFields" :key="field.key">
         <div v-if="isOptionalBaseURL(field)" class="group-settings__field group-settings__wide">
           <span>{{ t('common.upstreamUrl.label') }}</span>

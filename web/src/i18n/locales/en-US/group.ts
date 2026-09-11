@@ -309,7 +309,7 @@ export default {
         validationProtocol: 'Test protocol',
         validationProtocolHelp:
           'Default protocol for credential tests and automatic validation. Read-only for single-protocol channels.',
-        validationModel: 'Validation model (optional)',
+        validationModel: 'Test model (optional)',
         validationModelPlaceholder: 'Search or enter a model ID',
         validationModelHelp:
           'Leave empty to use the first model in this Group; enter the upstream model ID, not an alias.',
@@ -445,7 +445,7 @@ export default {
       restoreFailed: 'Unable to restore the channel credential now',
       test: {
         noModels:
-          'No test models are available. Add a model to this group or configure a validation model first.',
+          'No test models are available. Add a model to this group or configure a test model first.',
         unavailable: 'This channel has no protocol available for credential tests.',
         start: 'Run test',
         loadingSettings: 'Loading test settings…',

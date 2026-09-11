@@ -309,7 +309,7 @@ export default {
         validationProtocol: 'テストプロトコル',
         validationProtocolHelp:
           '認証情報のテストと自動検証で使用する既定のプロトコルです。対応するプロトコルが1つの場合は変更できません。',
-        validationModel: '検証モデル（任意）',
+        validationModel: 'テストモデル（任意）',
         validationModelPlaceholder: 'モデル ID を検索または入力',
         validationModelHelp:
           '空欄の場合はグループの最初のモデルを使用します。エイリアスではなくアップストリームのモデル ID を入力してください。',
@@ -446,7 +446,7 @@ export default {
       restoreFailed: 'チャネル認証情報をすぐに回復できません',
       test: {
         noModels:
-          'テスト可能なモデルがありません。グループにモデルを追加するか、検証モデルを設定してください。',
+          'テスト可能なモデルがありません。グループにモデルを追加するか、テストモデルを設定してください。',
         unavailable: 'このチャネルには認証情報のテストに使用できるプロトコルがありません。',
         start: 'テスト開始',
         loadingSettings: 'テスト設定を読み込み中…',
