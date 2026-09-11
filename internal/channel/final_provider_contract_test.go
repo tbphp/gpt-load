@@ -29,6 +29,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 		Alibaba,
 		Volcengine,
 		OpenRouter,
+		Requesty,
 		Groq,
 		XAI,
 		GPTLoad,
