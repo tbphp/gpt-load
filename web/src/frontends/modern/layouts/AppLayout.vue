@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, LogOut, Menu, X } from '@lucide/vue'
+import { ChevronLeft, ChevronRight, KeyRound, LogOut, Menu, X } from '@lucide/vue'
 import { DialogClose, DialogRoot, DialogTrigger, TooltipProvider } from 'reka-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -7,6 +7,7 @@ import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
 import { desktopMediaQuery } from '@modern/app/breakpoints'
 import { findNavigationItem, pagePath } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
+import AppBadge from '@modern/components/ui/AppBadge.vue'
 import AppButton from '@modern/components/ui/AppButton.vue'
 import AppDialogContent from '@modern/components/ui/AppDialogContent.vue'
 import AppIcon from '@modern/components/ui/AppIcon.vue'
@@ -124,15 +125,14 @@ onBeforeUnmount(() => {
             <span>{{ current ? t(`sections.${current.section}`) : t('sections.workspace') }}</span
             ><AppIcon :icon="ChevronRight" size="xs" /><strong>{{ pageTitle }}</strong>
           </div>
+          <div v-if="session.state.principalType === 'access_key'" class="modern-session-scope">
+            <AppBadge :icon="KeyRound" tone="info" :title="t('auth.readOnlyDescription')">
+              {{ t('auth.readOnly') }}
+            </AppBadge>
+          </div>
           <div class="modern-topbar-actions">
             <QuickNavigation /><span class="modern-toolbar-divider" aria-hidden="true"></span
             ><AppearanceMenu />
-            <span
-              v-if="session.state.principalType === 'access_key'"
-              class="modern-session-scope"
-              :title="t('auth.readOnlyDescription')"
-              >{{ t('auth.readOnly') }}</span
-            >
             <AppIconButton
               :icon="LogOut"
               :label="t('auth.logout')"
@@ -248,6 +248,7 @@ onBeforeUnmount(() => {
 }
 .modern-breadcrumb {
   display: flex;
+  flex: 1;
   min-width: 0;
   align-items: center;
   gap: var(--modern-space-2);
@@ -266,9 +267,10 @@ onBeforeUnmount(() => {
 }
 .modern-topbar-actions {
   display: flex;
+  min-height: var(--modern-topbar-height);
+  flex-shrink: 0;
   align-items: center;
   gap: var(--modern-space-1);
-  margin-left: auto;
 }
 .modern-toolbar-divider {
   width: var(--modern-line-width);
@@ -277,9 +279,8 @@ onBeforeUnmount(() => {
   background: var(--modern-border);
 }
 .modern-session-scope {
-  margin-inline: var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-text-small);
+  display: flex;
+  flex-shrink: 0;
   white-space: nowrap;
 }
 .modern-content {
@@ -297,9 +298,20 @@ onBeforeUnmount(() => {
   right: var(--modern-space-2);
 }
 @media (max-width: 1150px) {
+  .modern-topbar {
+    height: auto;
+    min-height: var(--modern-topbar-height);
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
   .modern-breadcrumb > span,
   .modern-breadcrumb > svg {
     display: none;
+  }
+  .modern-session-scope {
+    order: 1;
+    flex-basis: 100%;
+    padding-bottom: var(--modern-space-2);
   }
 }
 @media (max-width: 760px) {
@@ -314,17 +326,13 @@ onBeforeUnmount(() => {
     display: inline-flex;
   }
   .modern-topbar {
-    height: var(--modern-topbar-height);
-    gap: var(--modern-space-2);
+    column-gap: var(--modern-space-2);
     padding: 0 var(--modern-content-inset);
   }
   .modern-topbar-actions {
     gap: 0;
   }
   .modern-toolbar-divider {
-    display: none;
-  }
-  .modern-session-scope {
     display: none;
   }
 }
