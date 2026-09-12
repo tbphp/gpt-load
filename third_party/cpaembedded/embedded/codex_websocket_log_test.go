@@ -10,20 +10,27 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 )
 
 type codexWSLogBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	updated chan struct{}
 }
 
 func (b *codexWSLogBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buf.Write(p)
+	n, err := b.buf.Write(p)
+	select {
+	case b.updated <- struct{}{}:
+	default:
+	}
+	return n, err
 }
 
 func (b *codexWSLogBuffer) String() string {
@@ -38,7 +45,7 @@ func TestCodexWSSessionRedactsCloseReason(t *testing.T) {
 	defer logrus.SetOutput(output)
 	for _, code := range []int{websocket.ClosePolicyViolation, 4001} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
-			var logs codexWSLogBuffer
+			logs := codexWSLogBuffer{updated: make(chan struct{}, 1)}
 			logrus.SetOutput(&logs)
 			const marker = "private-close-reason-marker"
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,11 +68,22 @@ func TestCodexWSSessionRedactsCloseReason(t *testing.T) {
 			if err == nil {
 				t.Fatal("upstream close must fail the turn")
 			}
-			if strings.Contains(logs.String(), marker) {
+			// SDK 可以先交付断连错误、再异步写日志；等本会话的日志写完再检查。
+			timeout := time.NewTimer(time.Second)
+			defer timeout.Stop()
+			for !strings.Contains(logs.String(), "upstream disconnected session="+session.id+" ") {
+				select {
+				case <-logs.updated:
+				case <-timeout.C:
+					t.Fatalf("missing close diagnostics after turn failure: %s", logs.String())
+				}
+			}
+			output := logs.String()
+			if strings.Contains(output, marker) {
 				t.Fatal("upstream close reason leaked into default logs")
 			}
-			if !strings.Contains(logs.String(), fmt.Sprintf("ws_close_code=%d", code)) || !strings.Contains(logs.String(), "error_class=websocket_closed") {
-				t.Fatalf("missing safe close diagnostics: %s", logs.String())
+			if !strings.Contains(output, fmt.Sprintf("ws_close_code=%d", code)) || !strings.Contains(output, "error_class=websocket_closed") {
+				t.Fatalf("missing safe close diagnostics: %s", output)
 			}
 		})
 	}
