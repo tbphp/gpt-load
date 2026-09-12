@@ -198,7 +198,7 @@ func TestEffectiveProviderConfigUsesSDKProviderAndCanonicalDefaultBaseURL(t *tes
 	}
 }
 
-func TestDeepSeekResponsesUsesDedicatedOpenAIRuntimeConfig(t *testing.T) {
+func TestDeepSeekResponsesProbeUsesDedicatedOpenAIRuntimeConfig(t *testing.T) {
 	registry := channel.NewRegistry()
 	resolved, err := registry.Resolve(channel.DeepSeek, json.RawMessage(`{"base_url":"https://deepseek.example/api"}`))
 	if err != nil {
@@ -208,7 +208,7 @@ func TestDeepSeekResponsesUsesDedicatedOpenAIRuntimeConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	responses, err := buildDeepSeekResponsesConfig(resolved, true)
+	responses, err := buildDeepSeekResponsesProbeConfig(resolved, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,6 +550,62 @@ func TestRuntimeManagerReconcilesGroupEffectiveProxy(t *testing.T) {
 		t.Fatalf("effective proxy runtime is not active: found=%t", exists)
 	}
 	<-manager.BeginShutdown()
+}
+
+func TestNativeMessageRuntimesStayReusableAfterReconcile(t *testing.T) {
+	t.Parallel()
+	registry := channel.NewRegistry()
+	for _, channelID := range []channel.ID{channel.DeepSeek, channel.OpenRouter, channel.Groq, channel.XAI} {
+		t.Run(string(channelID), func(t *testing.T) {
+			resolved, err := registry.Resolve(channelID, json.RawMessage(`{"base_url":"https://upstream.example/tenant"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager, err := newRuntimeManager(runtimeOptions{}, registry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Shutdown)
+			manager.pool = newRuntimeManagerPool(func(context.Context, effectiveProviderConfig) (managedProviderRuntime, error) {
+				return newFakeManagedRuntime(), nil
+			})
+			proxy := outboundproxy.Effective{
+				Config: outboundproxy.Config{Mode: outboundproxy.ModeCustom, URL: "http://proxy.example:8080"},
+				Source: outboundproxy.SourceGroup,
+			}
+			for _, clientProtocol := range []protocol.Protocol{protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic} {
+				operation := execution.OperationChatCompletion
+				if clientProtocol == protocol.OpenAIResponses {
+					operation = execution.OperationResponsesCreate
+				}
+				if mode, exists := resolved.Mode(clientProtocol, operation); !exists || mode != channel.RouteNative {
+					continue
+				}
+				spec := execution.AttemptSpec{ClientProtocol: clientProtocol, Operation: operation, RouteMode: execution.RouteNative, Proxy: proxy}
+				config, err := buildEffectiveProviderConfigForAttempt(resolved, spec, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				lease, err := manager.pool.acquire(t.Context(), config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				original := lease.runtime.(*fakeManagedRuntime)
+				lease.Release()
+				if err := manager.Reconcile([]provideradapter.RuntimeTarget{{Target: resolved, Proxy: proxy}}); err != nil {
+					t.Fatal(err)
+				}
+				next, err := manager.pool.acquire(t.Context(), config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if next.runtime != original || original.shutdowns.Load() != 0 {
+					t.Errorf("active %s runtime was retired by snapshot reconciliation", clientProtocol)
+				}
+				next.Release()
+			}
+		})
+	}
 }
 
 func TestRuntimeManagerPartitionsCredentialProxyByCredential(t *testing.T) {

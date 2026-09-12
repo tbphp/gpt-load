@@ -27,6 +27,24 @@ type passthroughStreamSDKResult struct {
 	err    *schemas.BifrostError
 }
 
+// nativeMessageProvider 为缺少透传接口的渠道复用相同 wire 协议，保留原有渠道身份。
+func nativeMessageProvider(providerKind channel.ProviderKind, spec execution.AttemptSpec) (schemas.ModelProvider, bool) {
+	if spec.RouteMode != execution.RouteNative ||
+		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate) {
+		return "", false
+	}
+	switch providerKind {
+	case channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI:
+		if spec.ClientProtocol == protocol.OpenAICompletions || spec.ClientProtocol == protocol.OpenAIResponses {
+			return schemas.OpenAI, true
+		}
+		if providerKind == channel.ProviderDeepSeek && spec.ClientProtocol == protocol.Anthropic {
+			return schemas.Anthropic, true
+		}
+	}
+	return "", false
+}
+
 func sanitizeNativeChatBody(body []byte, upstreamModel string, stream ...bool) ([]byte, error) {
 	object, err := decodeNativeJSONObject(body)
 	if err != nil {
