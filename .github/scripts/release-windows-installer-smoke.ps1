@@ -28,6 +28,7 @@ $installOwnerToken = $suffix
 $programData = [Environment]::GetFolderPath("CommonApplicationData")
 $configDir = Join-Path $programData "GPT-Load"
 $dataDir = Join-Path $configDir "data"
+$envFile = Join-Path $configDir ".env"
 $dataOwnerMarker = Join-Path $configDir ".installer-smoke-owner"
 $failureDataMarker = Join-Path $dataDir "installer-smoke-failure.txt"
 $upgradeMarker = Join-Path $dataDir "installer-smoke-upgrade.txt"
@@ -119,10 +120,18 @@ try {
 
   $listener = [System.Net.Sockets.TcpListener]::new(
     [System.Net.IPAddress]::Loopback,
-    3001
+    0
   )
+  # 由系统分配可用端口，避开自托管 Windows 的端口排除范围。
+  $listener.ExclusiveAddressUse = $true
   $listener.Start()
   try {
+    $port = $listener.LocalEndpoint.Port
+    # 测试服务读取同一端口；独占监听保持到安装失败回滚验收结束。
+    @(
+      "HOST=127.0.0.1",
+      "PORT=$port"
+    ) | Set-Content -Path $envFile -Encoding utf8NoBOM
     Invoke-CheckedProcess -Path $setup -Arguments @(
       "/VERYSILENT",
       "/SUPPRESSMSGBOXES",
@@ -179,7 +188,7 @@ try {
   $health = $null
   for ($attempt = 0; $attempt -lt 80; $attempt++) {
     try {
-      $health = Invoke-RestMethod "http://127.0.0.1:3001/health"
+      $health = Invoke-RestMethod "http://127.0.0.1:$port/health"
       break
     } catch {
       Start-Sleep -Milliseconds 250
@@ -196,7 +205,7 @@ try {
   }
   $authKey = (Get-Content $authFile -Raw).Trim()
   $headers = @{ Authorization = "Bearer $authKey" }
-  Invoke-RestMethod "http://127.0.0.1:3001/api/system/info" -Headers $headers | Out-Null
+  Invoke-RestMethod "http://127.0.0.1:$port/api/system/info" -Headers $headers | Out-Null
 
   [System.IO.File]::WriteAllText($upgradeMarker, $suffix)
   Invoke-CheckedProcess -Path $setup -Arguments @(
