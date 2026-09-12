@@ -82,7 +82,7 @@ jobs:
         run: go test -race -count=1 -timeout=15m . ./internal/...
 
   race-cpa:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout repository
@@ -102,7 +102,7 @@ jobs:
 
   database-contract:
     name: Database contract (${{ matrix.driver }})
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 15
     strategy:
       fail-fast: false

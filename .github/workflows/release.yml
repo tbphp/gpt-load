@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   validate-tag:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -228,7 +228,7 @@ jobs:
   race-cpa:
     needs: validate-tag
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -250,7 +250,7 @@ jobs:
     name: Database contract (${{ matrix.driver }})
     needs: validate-tag
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -316,11 +316,11 @@ jobs:
       matrix:
         include:
           - goos: linux
-            runner: [self-hosted, Linux, X64]
+            runner: [self-hosted, Linux, ARM64]
             goarch: amd64
             filename: gpt-load-linux-amd64
           - goos: linux
-            runner: [self-hosted, Linux, X64]
+            runner: [self-hosted, Linux, ARM64]
             goarch: arm64
             filename: gpt-load-linux-arm64
           - goos: darwin
@@ -421,7 +421,7 @@ jobs:
 
   package-metadata:
     needs: validate-tag
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -461,7 +461,7 @@ jobs:
       - build-binaries
       - build-windows-setup
       - package-metadata
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -523,7 +523,7 @@ jobs:
         include:
           - runner: [self-hosted, Linux, X64]
             filename: gpt-load-linux-amd64
-          - runner: ubuntu-24.04-arm
+          - runner: [self-hosted, Linux, ARM64]
             filename: gpt-load-linux-arm64
           - runner: macos-15-intel
             filename: gpt-load-macos-amd64
@@ -611,7 +611,7 @@ jobs:
 
   docker-smoke:
     needs: validate-tag
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 30
     steps:
       - name: Isolate Docker credentials
@@ -650,7 +650,7 @@ jobs:
           - arch: amd64
             runner: [self-hosted, Linux, X64]
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: [self-hosted, Linux, ARM64]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -702,7 +702,7 @@ jobs:
     # race-tests、race-cpa 与 database-contract 在 CI 已验证同一 commit 时为 skipped，
     # 这里只拒绝真正失败的 gate，不把 skipped 当作缺失的验证。
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 20
     permissions:
       # Draft Releases are visible only to identities with push access.
@@ -965,7 +965,7 @@ jobs:
     # 间接祖先因 CI 结论复用而 skipped，publish-images 也会被默认条件连带跳过，
     # 即便这里列出的直接 needs 全部成功。显式条件只看直接 needs，绕开这个传播。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 45
     permissions:
       contents: read
@@ -995,7 +995,7 @@ jobs:
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
         with:
-          platforms: arm64
+          platforms: amd64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -1081,7 +1081,7 @@ jobs:
       - publish-images
     # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' && needs.publish-images.result == 'success' }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     permissions:
       contents: write
@@ -1168,7 +1168,7 @@ jobs:
       - publish-images
     # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publish-images.result == 'success' }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1211,7 +1211,7 @@ jobs:
       - publish-images
     # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' && needs.publish-github.result == 'success' && needs.publish-images.result == 'success' }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 45
     permissions:
       # Draft Releases are visible only to identities with push access.
@@ -1354,7 +1354,7 @@ jobs:
       group: gpt-load-v2-image-channels
       cancel-in-progress: false
       queue: max
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1424,7 +1424,7 @@ jobs:
     environment:
       name: render
       url: ${{ vars.RENDER_SERVICE_URL }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1544,7 +1544,7 @@ jobs:
       - post-publish-image-smoke
       - post-publish-verify
       - promote-image-channels
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     permissions:
       # Draft Releases are visible only to identities with push access.

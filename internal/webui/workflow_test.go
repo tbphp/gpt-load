@@ -291,7 +291,7 @@ func TestWorkflowsPinExternalActionsAndHostedRunners(t *testing.T) {
 	}
 
 	ci := readRepositoryFile(t, ".github/workflows/ci.yml")
-	for _, required := range []string{"runs-on: [self-hosted, Linux, X64]", "runs-on: [self-hosted, macOS, ARM64]", "runs-on: [self-hosted, Windows, X64]"} {
+	for _, required := range []string{"runs-on: [self-hosted, Linux, ARM64]", "runs-on: [self-hosted, macOS, ARM64]", "runs-on: [self-hosted, Windows, X64]"} {
 		if !strings.Contains(ci, required) {
 			t.Errorf("branch CI does not contain %q", required)
 		}
@@ -2145,7 +2145,7 @@ func TestReleaseWorkflowPostPublishVerifiesDraftAssetsAgainstCurrentRun(t *testi
 	nativeJob := workflowJobBlock(t, content, "native-artifact-smoke")
 	for _, required := range []string{
 		"[self-hosted, Linux, X64]",
-		"ubuntu-24.04-arm",
+		"[self-hosted, Linux, ARM64]",
 		"macos-15-intel",
 		"[self-hosted, macOS, ARM64]",
 		"[self-hosted, Windows, X64]",

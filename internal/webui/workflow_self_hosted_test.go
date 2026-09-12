@@ -10,8 +10,8 @@ func TestSelfHostedCIKeepsPlatformGatesAndLocalCaches(t *testing.T) {
 	for job, runner := range map[string]string{
 		"test":                   "[self-hosted, macOS, ARM64]",
 		"race-tests":             "[self-hosted, macOS, ARM64]",
-		"race-cpa":               "[self-hosted, Linux, X64]",
-		"database-contract":      "[self-hosted, Linux, X64]",
+		"race-cpa":               "[self-hosted, Linux, ARM64]",
+		"database-contract":      "[self-hosted, Linux, ARM64]",
 		"windows-encryption-acl": "[self-hosted, Windows, X64]",
 	} {
 		block := workflowJobBlock(t, ci, job)
@@ -53,5 +53,25 @@ func TestSelfHostedReleaseIsolatesDockerCredentials(t *testing.T) {
 	if !strings.Contains(build, "runs-on: ${{ matrix.runner }}") ||
 		!strings.Contains(workflowStepBlock(t, build, "Build release binary"), "shell: bash") {
 		t.Fatal("cross-platform binary build must select its runner and use an explicit bash shell")
+	}
+}
+
+func TestReleaseKeepsX64OnlyForNativeAMD64Validation(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	const x64 = "[self-hosted, Linux, X64]"
+	if strings.Count(content, x64) != 2 {
+		t.Fatal("Linux X64 must only run the native binary and prebuilt image AMD64 gates")
+	}
+	for _, job := range []string{"native-artifact-smoke", "prebuilt-image-smoke"} {
+		block := workflowJobBlock(t, content, job)
+		if !strings.Contains(block, x64) || !strings.Contains(block, "[self-hosted, Linux, ARM64]") {
+			t.Errorf("%s must retain both native Linux architectures", job)
+		}
+	}
+	publish := workflowJobBlock(t, content, "publish-images")
+	qemu := workflowStepBlock(t, publish, "Set up QEMU")
+	if !strings.Contains(publish, "runs-on: [self-hosted, Linux, ARM64]") ||
+		!strings.Contains(qemu, "platforms: amd64") {
+		t.Fatal("ARM64 image publisher must enable AMD64 emulation for the other target")
 	}
 }
