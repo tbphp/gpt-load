@@ -43,6 +43,9 @@ type Loader struct {
 
 type subscriptionCredentialCanonicalizer interface {
 	CanonicalCredential(channel.ID, []byte) ([]byte, error)
+	// CredentialIdentityFingerprintInput 返回身份指纹的哈希输入；ok=false 表示该渠道没有
+	// 可用身份，此时与 control 层一致地不做迁移。
+	CredentialIdentityFingerprintInput(channel.ID, []byte) (string, bool, error)
 }
 
 // NewWithCredentialValidation creates the production loader that verifies
@@ -146,7 +149,7 @@ func (l *Loader) Load(ctx context.Context) error {
 	if err := state.ValidateCredentialEntries(entries); err != nil {
 		return fmt.Errorf("validate credentials: %w", err)
 	}
-	if err := l.validatePersistedCredentials(input, entries); err != nil {
+	if err := l.validatePersistedCredentials(ctx, input, entries); err != nil {
 		return err
 	}
 	if l.accessQuota != nil {
@@ -173,6 +176,24 @@ func (l *Loader) Load(ctx context.Context) error {
 }
 
 func (l *Loader) validatePersistedCredentials(
+	ctx context.Context,
+	input state.CompileInput,
+	entries []state.CredentialEntry,
+) error {
+	return l.validateAndMigrateCredentials(ctx, input, entries)
+}
+
+// validateAndMigrateCredentials 校验每条持久化凭据，并顺带完成一次「身份指纹迁移」。
+//
+// 背景：canonical JSON 的字节形状是 credentials.fingerprint 的契约，因此收紧身份定义时
+// 不能在 canonical 里新增字段（那会让既有凭据全部校验失败、实例无法启动）。身份只在
+// 判定时计算，于是身份定义变化后，既有行的 identity_fingerprint 会过期，而它参与运行期
+// 的凭据目标校验，必须重写。
+//
+// 迁移是幂等的，并且与凭据数据指纹的校验顺序固定为「先验证数据、再迁移身份」：
+// 只有 canonical 未被改动的行才会被迁移，避免把已损坏的数据一并接受下来。
+func (l *Loader) validateAndMigrateCredentials(
+	ctx context.Context,
 	input state.CompileInput,
 	entries []state.CredentialEntry,
 ) error {
@@ -184,10 +205,12 @@ func (l *Loader) validatePersistedCredentials(
 		connectionType string
 	}
 	targets := make(map[uint]validationTarget, len(input.Groups))
+	groupParams := make(map[uint]json.RawMessage, len(input.Groups))
 	for _, group := range input.Groups {
 		targets[group.ID] = validationTarget{channelID: group.ChannelID, connectionType: group.ConnectionType}
+		groupParams[group.ID] = json.RawMessage(group.Params)
 	}
-	for _, entry := range entries {
+	for index, entry := range entries {
 		target, exists := targets[entry.GroupID]
 		if !exists {
 			return fmt.Errorf("validate credential %d for group %d: execution target is missing", entry.ID, entry.GroupID)
@@ -199,6 +222,9 @@ func (l *Loader) validatePersistedCredentials(
 		raw := []byte(plaintext)
 		plaintext = ""
 		var canonical []byte
+		var identityInput string
+		var identityOK bool
+		var identityErr error
 		expectedConnection, known := l.channelRegistry.ConnectionType(target.channelID)
 		if !known || strings.TrimSpace(target.connectionType) != expectedConnection {
 			clear(raw)
@@ -211,10 +237,20 @@ func (l *Loader) validatePersistedCredentials(
 			}
 			var parseErr error
 			canonical, parseErr = l.subscriptions.CanonicalCredential(target.channelID, raw)
-			clear(raw)
 			if parseErr != nil {
+				clear(raw)
 				return fmt.Errorf("validate credential %d for group %d: stored shape is invalid", entry.ID, entry.GroupID)
 			}
+			// 身份指纹迁移需要凭据内容，必须在 clear(raw) 之前取得哈希输入。
+			identityInput, identityOK, identityErr = l.subscriptions.CredentialIdentityFingerprintInput(target.channelID, raw)
+			if identityErr != nil {
+				clear(raw)
+				clear(canonical)
+				return fmt.Errorf(
+					"derive identity for credential %d in group %d: %w", entry.ID, entry.GroupID, identityErr,
+				)
+			}
+			clear(raw)
 		} else {
 			if expectedConnection != string(models.ConnectionTypeAPIKey) {
 				clear(raw)
@@ -232,8 +268,87 @@ func (l *Loader) validatePersistedCredentials(
 		if subtle.ConstantTimeCompare([]byte(fingerprint), []byte(entry.Fingerprint)) != 1 {
 			return fmt.Errorf("validate credential %d for group %d: fingerprint mismatch", entry.ID, entry.GroupID)
 		}
+		// 凭据数据已确认未被改动，此时才允许做身份指纹迁移。
+		if expectedConnection != string(models.ConnectionTypeSubscription) || l.subscriptions == nil {
+			continue
+		}
+		if !identityOK {
+			// 身份不可用的行沿用既有指纹（与 control 层行为一致），不做迁移。
+			continue
+		}
+		migrated, storedFingerprint, currentFingerprint, migrateErr := l.migrateCredentialIdentity(
+			ctx, entry, identityInput,
+		)
+		if migrateErr != nil {
+			return migrateErr
+		}
+		if migrated {
+			entries[index].IdentityGeneration = CredentialIdentityGeneration(
+				currentFingerprint, string(target.channelID), target.connectionType, groupParams[entry.GroupID],
+			)
+			logrus.WithFields(logrus.Fields{
+				"event":      "startup.credential_identity_migrated",
+				"credential": entry.ID,
+				"group":      entry.GroupID,
+				"channel":    string(target.channelID),
+				"from":       shortFingerprint(storedFingerprint),
+				"to":         shortFingerprint(currentFingerprint),
+			}).Info("subscription credential identity fingerprint migrated")
+		}
 	}
 	return nil
+}
+
+// migrateCredentialIdentity 把一条既有凭据的 identity_fingerprint 重写为当前身份定义
+// 计算出的值。正常情况下是无操作；只有身份定义收紧/变更后才会产生差异。
+//
+// identityInput 是调用方在凭据明文被清零之前取到的哈希输入。
+func (l *Loader) migrateCredentialIdentity(
+	ctx context.Context,
+	entry state.CredentialEntry,
+	identityInput string,
+) (bool, string, string, error) {
+	var row struct{ IdentityFingerprint string }
+	if err := l.db.WithContext(ctx).
+		Model(&models.Credential{}).
+		Select("identity_fingerprint").
+		Where("id = ? AND group_id = ?", entry.ID, entry.GroupID).
+		Take(&row).Error; err != nil {
+		return false, "", "", fmt.Errorf(
+			"read identity fingerprint of credential %d in group %d: %w", entry.ID, entry.GroupID, err,
+		)
+	}
+	stored := row.IdentityFingerprint
+	current := l.encryption.Hash(identityInput)
+	if current == "" || subtle.ConstantTimeCompare([]byte(current), []byte(stored)) == 1 {
+		return false, stored, stored, nil
+	}
+	// 带守卫的更新：仍为那条旧指纹、且数据指纹未变时才写，保证幂等与并发安全。
+	result := l.db.WithContext(ctx).
+		Model(&models.Credential{}).
+		Where("id = ? AND group_id = ? AND identity_fingerprint = ? AND fingerprint = ?",
+			entry.ID, entry.GroupID, stored, entry.Fingerprint).
+		Update("identity_fingerprint", current)
+	if result.Error != nil {
+		return false, stored, "", fmt.Errorf(
+			"migrate identity fingerprint of credential %d in group %d: %w", entry.ID, entry.GroupID, result.Error,
+		)
+	}
+	if result.RowsAffected != 1 {
+		return false, stored, "", fmt.Errorf(
+			"migrate identity fingerprint of credential %d in group %d: credential changed concurrently",
+			entry.ID, entry.GroupID,
+		)
+	}
+	return true, stored, current, nil
+}
+
+// shortFingerprint 只用于日志，避免把完整指纹写进日志。
+func shortFingerprint(value string) string {
+	if len(value) > 12 {
+		return value[:12]
+	}
+	return value
 }
 
 func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {

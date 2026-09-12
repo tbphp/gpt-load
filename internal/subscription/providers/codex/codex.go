@@ -4,6 +4,7 @@ package codex
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +36,14 @@ type Credential struct {
 	Email        string `json:"email,omitempty"`
 	Expire       string `json:"expired,omitempty"`
 	LastRefresh  string `json:"last_refresh,omitempty"`
+	// userID 来自 id_token 内 https://api.openai.com/auth 的 chatgpt_user_id。
+	// 同一 workspace(chatgpt_account_id) 下可以有多个用户，仅用 AccountID 作为身份
+	// 会把它们折叠成同一份凭据（第二份在导入时被判为重复项丢弃）。
+	//
+	// 刻意不参与 JSON 序列化：canonical JSON 的字节形状是 credentials.fingerprint 的
+	// 契约（internal/state/loader 启动时会用 HMAC(canonical) 复核），多一个字段就会让
+	// 既有凭据全部校验失败、实例无法启动。因此该值不落盘，身份判定时从 id_token 现场解析。
+	userID string
 }
 
 // ParseCredentialJSON validates and normalizes one CPA-compatible Codex auth
@@ -423,6 +432,9 @@ func executeRequestToBridge(value ExecuteRequest) cpaembedded.ExecuteRequest {
 	}
 }
 
+// credentialFromBridge 把 CPA 的 Codex 凭据转换为本包的 Credential，是 CPA -> gpt-load
+// 的唯一出口（解析、浏览器授权、刷新、导入都经过它）。
+// 身份所需的 chatgpt_user_id 在这里从 id_token 派生，因为 CPA 的类型不暴露该 claim。
 func credentialFromBridge(value cpaembedded.CodexCredential) Credential {
 	return Credential{
 		Type:         value.Type,
@@ -433,9 +445,51 @@ func credentialFromBridge(value cpaembedded.CodexCredential) Credential {
 		Email:        value.Email,
 		Expire:       value.Expire,
 		LastRefresh:  value.LastRefresh,
+		userID:       codexUserID(value),
 	}
 }
 
+// codexUserID 从 id_token（必要时退回 access_token）里取 chatgpt_user_id。
+// CPA 侧不暴露该 claim，而它已经出现在每个 Codex 令牌里，因此在 gpt-load 这一层
+// 解析，避免改动 third_party/cpaembedded 的桥接契约。
+func codexUserID(value cpaembedded.CodexCredential) string {
+	for _, token := range []string{value.IDToken, value.AccessToken} {
+		if userID := codexTokenUserID(token); userID != "" {
+			return userID
+		}
+	}
+	return ""
+}
+
+type codexJWTClaims struct {
+	Auth struct {
+		ChatGPTUserID string `json:"chatgpt_user_id"`
+	} `json:"https://api.openai.com/auth"`
+}
+
+// codexTokenUserID 解析一个 JWT 的 payload 并返回 chatgpt_user_id；任何格式问题都返回
+// 空串（调用方据此回退到 workspace 身份），不做签名校验 —— 只用于读取本地已持有的令牌。
+func codexTokenUserID(token string) string {
+	parts := strings.Split(strings.TrimSpace(token), ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		if payload, err = base64.URLEncoding.DecodeString(parts[1]); err != nil {
+			return ""
+		}
+	}
+	var claims codexJWTClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(claims.Auth.ChatGPTUserID)
+}
+
+// credentialToBridge 把本包的 Credential 转换为 CPA 的 Codex 凭据，是 gpt-load -> CPA
+// 的唯一入口。身份用的 userID 是 gpt-load 侧现场解析的派生值，不落盘也不下发给 CPA，
+// 因此这里只透传 CPA 自己认识的字段。
 func credentialToBridge(value Credential) cpaembedded.CodexCredential {
 	return cpaembedded.CodexCredential{
 		Type:         value.Type,

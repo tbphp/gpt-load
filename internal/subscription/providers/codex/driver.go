@@ -260,13 +260,41 @@ func (codexModelDiscovery) ID() spec.UtilityID   { return modules.CodexModelDisc
 func (codexQuotaObservation) ID() spec.UtilityID { return modules.CodexQuotaObservation }
 func (codexResetCreditAction) ID() spec.ActionID { return modules.CodexResetCreditAction }
 
+// codexRuntimeCredential 组装运行时凭据：Canonical 用于持久化，身份与展示用的账号信息
+// 由 codexCredentialIdentity 与凭据自身派生。
 func codexRuntimeCredential(value Credential, canonical []byte) subscriptionruntime.Credential {
 	expiresAt, expires := CredentialExpiresAt(value)
 	account := subscriptionruntime.Account{Email: strings.TrimSpace(value.Email), ExpiresAt: expiresAt, ExpiresAtKnown: expires}
 	if refreshed, err := time.Parse(time.RFC3339, strings.TrimSpace(value.LastRefresh)); err == nil {
 		account.LastRefresh, account.LastRefreshKnown = refreshed, true
 	}
-	return subscriptionruntime.NewCredential(canonical, strings.TrimSpace(value.AccountID), account, expiresAt, expires, value.SecretValues())
+	return subscriptionruntime.NewCredential(canonical, codexCredentialIdentity(value), account, expiresAt, expires, value.SecretValues())
 }
 
 var _ subscriptionruntime.BrowserAuthorizationDriver = (*codexDriver)(nil)
+
+// CredentialIdentity 返回一份已解析凭据的稳定账号身份。
+//
+// Codex 的授权单位是 (workspace, user)：同一 workspace 下的不同用户是两份彼此独立的
+// 凭据（各自持有 refresh_token）。只按 workspace(chatgpt_account_id) 取身份会让第二份
+// 凭据在导入时被判定为重复项而静默丢弃。
+//
+// 身份只在判定时计算、不写入 canonical，因此升级不会改变 credentials.fingerprint；
+// 但既有行的 identity_fingerprint 仍需迁移，见 internal/state/loader 的加载期迁移。
+// 令牌里没有 user claim 时回退为纯 workspace 身份。
+func (value Credential) CredentialIdentity() string {
+	return codexCredentialIdentity(value)
+}
+
+func codexCredentialIdentity(value Credential) string {
+	accountID := strings.TrimSpace(value.AccountID)
+	userID := strings.TrimSpace(value.userID)
+	switch {
+	case userID == "":
+		return accountID
+	case accountID == "":
+		return userID
+	default:
+		return accountID + "/" + userID
+	}
+}

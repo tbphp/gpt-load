@@ -516,6 +516,33 @@ func (runtime *Runtime) CanonicalCredential(channelID channel.ID, raw []byte) ([
 	return credential.Canonical(), nil
 }
 
+// CredentialIdentityFingerprintInput returns the exact string that the control
+// plane hashes into a subscription credential's identity fingerprint.
+//
+// It lives next to the drivers because the prefix contains the driver id, which
+// only the runtime can resolve; startup loaders must reproduce it byte for byte
+// when migrating identity fingerprints written by an older identity definition.
+// It returns ok=false when the channel has no driver or the identity is empty,
+// matching the control plane's behavior of leaving such fingerprints empty.
+func (runtime *Runtime) CredentialIdentityFingerprintInput(
+	channelID channel.ID,
+	raw []byte,
+) (string, bool, error) {
+	driver, ok := runtime.Driver(channelID)
+	if !ok {
+		return "", false, fmt.Errorf("subscription driver for channel %q is unavailable", channelID)
+	}
+	credential, err := driver.Parse(raw)
+	if err != nil {
+		return "", false, err
+	}
+	identity := strings.TrimSpace(credential.Identity())
+	if identity == "" {
+		return "", false, nil
+	}
+	return "credential-identity/v1|" + string(channelID) + "|" + string(driver.ID()) + "|" + identity, true, nil
+}
+
 // ImportCredential prepares one OAuth-file credential for a ready stage. Most
 // channels use Parse directly; a provider that lacks a stable identity in its
 // native file may implement CredentialFileImporter for one bounded enrichment
