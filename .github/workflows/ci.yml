@@ -111,14 +111,17 @@ jobs:
         include:
           - driver: mysql
             image: mysql:8.4
+            data-dir: /var/lib/mysql
             port: "3306"
             health: mysqladmin ping -h 127.0.0.1 -proot
             dsn: mysql://root:root@127.0.0.1:{0}/gpt_load?charset=utf8mb4&transaction_isolation=%27READ-COMMITTED%27
           - driver: postgres
             image: postgres:18
+            data-dir: /var/lib/postgresql
             port: "5432"
             health: pg_isready -U postgres -d gpt_load
             dsn: postgres://postgres:postgres@127.0.0.1:{0}/gpt_load?sslmode=disable
+    # 仅临时合同测试数据库使用内存盘；每个实例按实际使用量占用，最多 2 GiB。
     services:
       database:
         image: ${{ matrix.image }}
@@ -130,6 +133,7 @@ jobs:
         ports:
           - ${{ matrix.port }}
         options: >-
+          --tmpfs ${{ matrix.data-dir }}:rw,nosuid,nodev,size=2g
           --health-cmd="${{ matrix.health }}"
           --health-interval=5s
           --health-timeout=10s
@@ -143,6 +147,7 @@ jobs:
         ports:
           - 3306
         options: >-
+          --tmpfs /var/lib/mysql:rw,nosuid,nodev,size=2g
           --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
           --health-interval=5s
           --health-timeout=10s

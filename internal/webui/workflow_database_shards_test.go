@@ -135,6 +135,9 @@ func TestDatabaseMatrixStartsOnlyRequiredServers(t *testing.T) {
 		for _, required := range []string{
 			"max-parallel: 2", "secondary-mysql:", "matrix.driver == 'mysql'",
 			"image: ${{ matrix.image }}", ".github/scripts/ci-database-contract.sh", "GPT_LOAD_DATABASE_SECONDARY_DSN",
+			"data-dir: /var/lib/mysql", "data-dir: /var/lib/postgresql",
+			"--tmpfs ${{ matrix.data-dir }}:rw,nosuid,nodev,size=2g",
+			"--tmpfs /var/lib/mysql:rw,nosuid,nodev,size=2g",
 		} {
 			if !strings.Contains(job, required) {
 				t.Errorf("%s database matrix is missing %s", workflow, required)
