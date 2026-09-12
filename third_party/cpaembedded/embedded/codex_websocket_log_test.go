@@ -48,8 +48,13 @@ func TestCodexWSSessionRedactsCloseReason(t *testing.T) {
 			logs := codexWSLogBuffer{updated: make(chan struct{}, 1)}
 			logrus.SetOutput(&logs)
 			const marker = "private-close-reason-marker"
+			headersReady := make(chan struct{})
+			releaseClose := sync.OnceFunc(func() { close(headersReady) })
+			defer releaseClose()
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, http.Header{
+					"X-Request-Id": {"close-reason-redaction-test"},
+				})
 				if err != nil {
 					t.Error(err)
 					return
@@ -58,25 +63,36 @@ func TestCodexWSSessionRedactsCloseReason(t *testing.T) {
 				if _, _, err := conn.ReadMessage(); err != nil {
 					return
 				}
+				<-headersReady
 				if err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code, marker)); err != nil {
 					t.Error(err)
 				}
 			}))
 			defer server.Close()
 			session := wsTestSession(t, server.URL)
+			headersObserved := false
+			session.options.ObserveHeaders = func(http.Header, time.Time) {
+				headersObserved = true
+				releaseClose()
+				// SDK 先交付错误再记录断连；若封装先清理连接，SDK 会跳过日志。
+				// 在握手交接处控制这个合法时序，确保本用例实际经过日志脱敏路径。
+				timeout := time.NewTimer(time.Second)
+				defer timeout.Stop()
+				for !strings.Contains(logs.String(), "upstream disconnected session="+session.id+" ") {
+					select {
+					case <-logs.updated:
+					case <-timeout.C:
+						t.Errorf("missing SDK close diagnostics before cleanup: %s", logs.String())
+						return
+					}
+				}
+			}
 			_, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
 			if err == nil {
 				t.Fatal("upstream close must fail the turn")
 			}
-			// SDK 可以先交付断连错误、再异步写日志；等本会话的日志写完再检查。
-			timeout := time.NewTimer(time.Second)
-			defer timeout.Stop()
-			for !strings.Contains(logs.String(), "upstream disconnected session="+session.id+" ") {
-				select {
-				case <-logs.updated:
-				case <-timeout.C:
-					t.Fatalf("missing close diagnostics after turn failure: %s", logs.String())
-				}
+			if !headersObserved {
+				t.Fatal("handshake callback did not exercise the controlled log ordering")
 			}
 			output := logs.String()
 			if strings.Contains(output, marker) {
