@@ -23,6 +23,7 @@ func TestMapEventV3PersistsMillisecondLedgerAndQuotesUpstreamModel(t *testing.T)
 		ModelConsistency:      telemetry.ModelConsistencyMatch,
 		Status:                telemetry.RequestStatusSuccess,
 		StatusCode:            200,
+		AffinityHit:           true, AffinityKind: telemetry.AffinityPromptCacheKey,
 		Attempts: []telemetry.Attempt{{
 			Sequence: 1, GroupID: 73, ChannelID: channel.OpenAI, CredentialID: 9,
 			Operation: execution.OperationChatCompletion, RouteMode: channel.RouteNative,
@@ -43,6 +44,9 @@ func TestMapEventV3PersistsMillisecondLedgerAndQuotesUpstreamModel(t *testing.T)
 	}
 
 	row := mustMapEvent(t, redact.New(), event)
+	if !row.AffinityHit || row.AffinityKind != telemetry.AffinityPromptCacheKey {
+		t.Fatal("affinity kind lost in persistence mapping")
+	}
 
 	if row.CompletedAtMS != 1_784_896_496_789 {
 		t.Fatalf("CompletedAtMS = %d, want 1784896496789", row.CompletedAtMS)
