@@ -361,6 +361,13 @@ func (a *Adapter) ExecuteStream(
 	emitPayloads := func(payloads [][]byte) *execution.StreamResult {
 		for _, unframed := range payloads {
 			payload := frameSSE(spec.ClientProtocol, unframed)
+			if spec.ClientProtocol == protocol.Anthropic && spec.RouteMode == execution.RouteConverted {
+				payload, err = normalizeConvertedAnthropicStartUsage(payload)
+				if err != nil {
+					failure := streamInternalError(upstreamProtocol, headers, applied, "normalize converted Anthropic usage", ready)
+					return &failure
+				}
+			}
 			payload, rewriteErr := rewriteStreamModelAlias(spec, payload)
 			if rewriteErr != nil {
 				failure := streamInternalError(upstreamProtocol, headers, applied, "rewrite subscription response model", ready)
