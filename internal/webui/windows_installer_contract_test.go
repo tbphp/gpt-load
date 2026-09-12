@@ -299,6 +299,8 @@ func TestWindowsSmokesOwnTheirFixedInstallationDirectory(t *testing.T) {
 			"refusing pre-existing installation directory",
 			"installOwnerMarker",
 			"installOwnerToken",
+			"Enter-WindowsSmoke -InstallDir $installDir -ConfigDir $configDir",
+			"$smokeMutex.ReleaseMutex()",
 		} {
 			if !strings.Contains(script, required) {
 				t.Fatalf("%s does not contain fixed install ownership contract %q", path, required)
@@ -306,6 +308,9 @@ func TestWindowsSmokesOwnTheirFixedInstallationDirectory(t *testing.T) {
 		}
 		if strings.Contains(script, `"/DIR=`) {
 			t.Fatalf("%s overrides the fixed installer directory", path)
+		}
+		if strings.Index(script, "Enter-WindowsSmoke -InstallDir") > strings.Index(script, "refusing pre-existing Windows service") {
+			t.Fatalf("%s rejects old smoke installations before recovering them", path)
 		}
 	}
 }

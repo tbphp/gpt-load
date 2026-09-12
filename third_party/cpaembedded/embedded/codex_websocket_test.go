@@ -540,7 +540,11 @@ func TestCodexWSSessionGuardsSDKSendRetry(t *testing.T) {
 		Metadata:           map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: session.id},
 		ExecutionLifecycle: lifecycle,
 	})
+	// 请求结束后立即撤销上下文，收尾统计仍必须有自己的等待时间。
+	cancel()
 	close(recordAfterSend)
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
 	if err == nil {
 		t.Fatal("failed send succeeded")
 	}
@@ -551,7 +555,7 @@ func TestCodexWSSessionGuardsSDKSendRetry(t *testing.T) {
 	for _, done := range pendingHandlers {
 		select {
 		case <-done:
-		case <-ctx.Done():
+		case <-waitCtx.Done():
 			t.Fatal("server handlers did not finish after SDK send failure")
 		}
 	}

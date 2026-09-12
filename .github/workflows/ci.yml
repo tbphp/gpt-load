@@ -191,6 +191,9 @@ jobs:
       - name: Test Windows service lifecycle
         run: go test -v -count=1 .
 
+      - name: Test Windows smoke recovery
+        run: go test -count=1 ./internal/webui -run '^TestWindowsSmokeRecovery$'
+
       - name: Smoke Windows service lifecycle
         shell: pwsh
         run: |

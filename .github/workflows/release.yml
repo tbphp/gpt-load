@@ -642,7 +642,7 @@ jobs:
         shell: bash
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
-          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}
+          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
           RELEASE_SMOKE_TRIVY_IMAGE: aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f
         run: .github/scripts/release-docker-smoke.sh
 
@@ -688,7 +688,7 @@ jobs:
         shell: bash
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
-          RELEASE_SMOKE_SUFFIX: prebuilt-${{ matrix.arch }}-${{ github.run_id }}
+          RELEASE_SMOKE_SUFFIX: prebuilt-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           RELEASE_SMOKE_TRIVY_IMAGE: aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f
           RELEASE_SMOKE_BUILD_TARGET: prebuilt
         run: .github/scripts/release-docker-smoke.sh
@@ -1210,7 +1210,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
           RELEASE_SMOKE_SOURCE_IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}
-          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}-ghcr
+          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}-ghcr
           # 同一 commit 的镜像已在 docker-smoke 扫描过，这里不重复扫描。
           RELEASE_SMOKE_SKIP_SCAN: "true"
         run: .github/scripts/release-docker-smoke.sh
@@ -1446,7 +1446,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
       IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}
       RENDER_CLI_VERSION: "2.25.0"
-      RENDER_CLI_SHA256: "3b3f1f839ef36b81f12d84ac7288f1c96f9f7519b39c53fe6f866612f704e7cd"
+      RENDER_CLI_SHA256: "7c4dc66ded7acc75e2f828b02d3d6901e9f2e4175d25c4fe5fd6f3aaf66b071b"
     steps:
       - name: Validate deployment inputs
         shell: bash
@@ -1461,7 +1461,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive="cli_${RENDER_CLI_VERSION}_linux_amd64.zip"
+          archive="cli_${RENDER_CLI_VERSION}_linux_arm64.zip"
           archive_path="${RUNNER_TEMP}/${archive}"
           extract_dir="${RUNNER_TEMP}/render-cli-${RENDER_CLI_VERSION}"
           url="https://github.com/render-oss/cli/releases/download/v${RENDER_CLI_VERSION}/${archive}"

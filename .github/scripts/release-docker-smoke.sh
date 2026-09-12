@@ -54,6 +54,8 @@ cleanup_temp() {
   fi
 }
 trap cleanup_temp EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 for target in "${container}" "${probe}" "${fake_container}"; do
   if docker container inspect "${target}" >/dev/null 2>&1; then

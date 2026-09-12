@@ -44,19 +44,28 @@ if ([System.IO.Path]::GetFullPath($configDir) -ne
     [System.IO.Path]::GetFullPath((Join-Path $programData "GPT-Load"))) {
   throw "refusing unexpected ProgramData cleanup target: $configDir"
 }
-if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-  throw "refusing pre-existing Windows service: $serviceName"
-}
-if (Test-Path $installDir) {
-  throw "refusing pre-existing installation directory: $installDir"
-}
-if (Test-Path $configDir) {
-  throw "refusing pre-existing ProgramData directory: $configDir"
-}
-foreach ($path in @($desktopShortcut, $startMenuShortcut, $uninstallKey)) {
-  if (Test-Path $path) {
-    throw "refusing pre-existing installer smoke path: $path"
+. "$PSScriptRoot/windows-smoke-recovery.ps1"
+$smokeMutex = Enter-WindowsSmoke -InstallDir $installDir -ConfigDir $configDir
+
+try {
+  if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+    throw "refusing pre-existing Windows service: $serviceName"
   }
+  if (Test-Path $installDir) {
+    throw "refusing pre-existing installation directory: $installDir"
+  }
+  if (Test-Path $configDir) {
+    throw "refusing pre-existing ProgramData directory: $configDir"
+  }
+  foreach ($path in @($desktopShortcut, $startMenuShortcut, $uninstallKey)) {
+    if (Test-Path $path) {
+      throw "refusing pre-existing installer smoke path: $path"
+    }
+  }
+} catch {
+  $smokeMutex.ReleaseMutex()
+  $smokeMutex.Dispose()
+  throw
 }
 
 function Invoke-CheckedProcess {
@@ -266,4 +275,6 @@ try {
       ((Get-Content $installOwnerMarker -Raw).Trim() -eq $installOwnerToken)) {
     Remove-Item -Force $installOwnerMarker -ErrorAction SilentlyContinue
   }
+  $smokeMutex.ReleaseMutex()
+  $smokeMutex.Dispose()
 }

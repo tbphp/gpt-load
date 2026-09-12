@@ -17,14 +17,23 @@ $dataDir = Join-Path $configDir "data"
 $envFile = Join-Path $configDir ".env"
 $dataOwnerMarker = Join-Path $configDir ".service-smoke-owner"
 
-if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-  throw "refusing pre-existing Windows service: $serviceName"
-}
-if (Test-Path $installDir) {
-  throw "refusing pre-existing installation directory: $installDir"
-}
-if (Test-Path $configDir) {
-  throw "refusing pre-existing ProgramData directory: $configDir"
+. "$PSScriptRoot/windows-smoke-recovery.ps1"
+$smokeMutex = Enter-WindowsSmoke -InstallDir $installDir -ConfigDir $configDir
+
+try {
+  if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+    throw "refusing pre-existing Windows service: $serviceName"
+  }
+  if (Test-Path $installDir) {
+    throw "refusing pre-existing installation directory: $installDir"
+  }
+  if (Test-Path $configDir) {
+    throw "refusing pre-existing ProgramData directory: $configDir"
+  }
+} catch {
+  $smokeMutex.ReleaseMutex()
+  $smokeMutex.Dispose()
+  throw
 }
 
 function Assert-ServiceAcl {
@@ -131,4 +140,6 @@ try {
       ((Get-Content $dataOwnerMarker -Raw).Trim() -eq $installOwnerToken)) {
     Remove-Item -Recurse -Force $configDir -ErrorAction SilentlyContinue
   }
+  $smokeMutex.ReleaseMutex()
+  $smokeMutex.Dispose()
 }

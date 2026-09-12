@@ -1,12 +1,82 @@
 package webui
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestDockerSmokeCancellationCleansOnlyOwnedResources(t *testing.T) {
+	source := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
+	preflight, _, found := strings.Cut(source, "cat >\"${task_tmp}/fake-response.json\"")
+	if !found {
+		t.Fatal("missing Docker smoke work boundary")
+	}
+	for _, conflict := range []string{"false", "true"} {
+		t.Run(conflict, func(t *testing.T) {
+			dir := t.TempDir()
+			log := filepath.Join(dir, "cleanup.log")
+			script := `docker() {
+  if [[ "$2" == inspect ]]; then [[ "$CONFLICT" == true ]]; return; fi
+  printf '%s\n' "$*" >> "$CLEANUP_LOG"
+}
+` + preflight + "\nkill -s TERM $$\n"
+			path := filepath.Join(dir, "cancel.sh")
+			if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			command := exec.Command("bash", path)
+			command.Env = append(os.Environ(), "CONFLICT="+conflict, "CLEANUP_LOG="+log, "RELEASE_SMOKE_SUFFIX=review-1-2")
+			output, err := command.CombinedOutput()
+			var exit *exec.ExitError
+			wantCode := 143
+			if conflict == "true" {
+				wantCode = 1
+			}
+			if !errors.As(err, &exit) || exit.ExitCode() != wantCode {
+				t.Fatalf("cancellation exit = %v, want %d: %s", err, wantCode, output)
+			}
+			cleanup, err := os.ReadFile(log)
+			if conflict == "true" {
+				if !os.IsNotExist(err) {
+					t.Fatalf("removed pre-existing Docker resources: %s, %v", cleanup, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, owned := range []string{"rm -f gpt-load-release-smoke-review-1-2", "volume rm gpt-load-release-smoke-review-1-2", "network rm gpt-load-release-network-review-1-2", "image rm gpt-load-release-smoke:review-1-2"} {
+				if !strings.Contains(string(cleanup), owned) {
+					t.Fatalf("cancellation did not clean %s: %s", owned, cleanup)
+				}
+			}
+		})
+	}
+}
+
+func TestReleaseDockerSmokeSeparatesRerunResources(t *testing.T) {
+	workflow := readRepositoryFile(t, ".github/workflows/release.yml")
+	for _, job := range []string{"docker-smoke", "prebuilt-image-smoke", "post-publish-image-smoke"} {
+		block := workflowJobBlock(t, workflow, job)
+		found := false
+		for _, line := range strings.Split(block, "\n") {
+			if !strings.HasPrefix(strings.TrimSpace(line), "RELEASE_SMOKE_SUFFIX:") {
+				continue
+			}
+			found = true
+			if !strings.Contains(line, "${{ github.run_id }}") || !strings.Contains(line, "${{ github.run_attempt }}") {
+				t.Fatalf("%s reuses Docker resource names across attempts: %s", job, line)
+			}
+		}
+		if !found {
+			t.Fatalf("%s has no task-specific Docker resource suffix", job)
+		}
+	}
+}
 
 func TestDockerSmokeDiscoversLoopbackPortOnEveryContainerStart(t *testing.T) {
 	source := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
