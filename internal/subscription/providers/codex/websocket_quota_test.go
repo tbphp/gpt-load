@@ -24,9 +24,12 @@ func TestWebsocketQuotaDoesNotGuessAccountSourceWhenMeteredValuesDiffer(t *testi
 		t.Fatal(err)
 	}
 	windows := NormalizeWebsocketQuotaWindows(payload, time.Unix(1000, 0))
+	if len(windows) != 2 {
+		t.Fatalf("windows = %#v, want both Spark windows", windows)
+	}
 	for _, window := range windows {
-		if window.SourceID != "" {
-			t.Fatalf("unidentified event invented source %q", window.SourceID)
+		if window.SourceID != "" || window.SourceName != "GPT-5.3-Codex-Spark" {
+			t.Fatalf("unexpected Spark source: id=%q name=%q", window.SourceID, window.SourceName)
 		}
 	}
 }
