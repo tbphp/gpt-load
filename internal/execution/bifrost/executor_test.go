@@ -1121,7 +1121,9 @@ func TestRuntimeMarksPromotedFirstChatStreamCapacityErrorReplaySafe(t *testing.T
 	defer server.Close()
 
 	runtime := newTestRuntime(t)
-	spec := compatibleSpec(server.URL)
+	// 非 /v1 原生地址现在也保真转发；此用例明确验证跨协议的 SDK 错误提升。
+	spec := convertedSpec(channel.OpenAICompatible, protocol.Anthropic, execution.OperationChatCompletion,
+		"/v1/messages", []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`))
 	spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/tenant/openai"}`)
 	spec = freezeTestAttempt(spec)
 	var events []execution.StreamEvent
@@ -1172,7 +1174,8 @@ func TestRuntimeFirstByteAndStreamIdleTimeouts(t *testing.T) {
 		defer server.Close()
 
 		runtime := newTestRuntime(t)
-		spec := compatibleSpec(server.URL)
+		spec := convertedSpec(channel.OpenAICompatible, protocol.Anthropic, execution.OperationChatCompletion,
+			"/v1/messages", []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`))
 		spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/tenant"}`)
 		spec.Timeouts.FirstByte = 20 * time.Millisecond
 		spec.Timeouts.Request = time.Second

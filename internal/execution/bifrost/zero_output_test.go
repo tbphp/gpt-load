@@ -17,7 +17,7 @@ import (
 func TestRuntimeRejectsAnthropicZeroOutputBeforeTypedConversion(t *testing.T) {
 	t.Parallel()
 
-	for _, channelID := range []channel.ID{channel.Gemini, channel.OpenAI, channel.OpenAICompatible, channel.DeepSeek} {
+	for _, channelID := range []channel.ID{channel.Gemini, channel.OpenAI, channel.OpenAICompatible} {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/stream=%t", channelID, stream), func(t *testing.T) {
 				var calls atomic.Int64
@@ -70,7 +70,7 @@ func TestNativeAnthropicZeroOutputPreservesLimitAndResponse(t *testing.T) {
 	t.Parallel()
 
 	const responseBody = `{"id":"msg_1","type":"message","role":"assistant","model":"upstream-model","content":[],"stop_reason":"max_tokens","stop_sequence":null,"usage":{"input_tokens":4,"output_tokens":0}}`
-	for _, channelID := range []channel.ID{channel.Anthropic, channel.NewAPI} {
+	for _, channelID := range []channel.ID{channel.Anthropic, channel.NewAPI, channel.DeepSeek} {
 		t.Run(string(channelID), func(t *testing.T) {
 			var calls atomic.Int64
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -79,7 +79,11 @@ func TestNativeAnthropicZeroOutputPreservesLimitAndResponse(t *testing.T) {
 				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 					t.Error(err)
 				}
-				if string(body["max_tokens"]) != "0" || request.URL.Path != "/v1/messages" {
+				wantPath := "/v1/messages"
+				if channelID == channel.DeepSeek {
+					wantPath = "/anthropic/v1/messages"
+				}
+				if string(body["max_tokens"]) != "0" || request.URL.Path != wantPath {
 					t.Errorf("native path/limit = %s/%s", request.URL.Path, body["max_tokens"])
 				}
 				writer.Header().Set("Content-Type", "application/json")
@@ -88,6 +92,7 @@ func TestNativeAnthropicZeroOutputPreservesLimitAndResponse(t *testing.T) {
 			defer server.Close()
 			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: server.URL})
 			runtime.baseURLs[channel.NewAPI] = server.URL
+			runtime.baseURLs[channel.DeepSeek] = server.URL
 			spec := convertedSpec(channelID, protocol.Anthropic, execution.OperationChatCompletion,
 				"/v1/messages", []byte(`{"model":"client-model","max_tokens":0,"messages":[{"role":"user","content":"hello"}]}`))
 			spec.ClientModel = spec.UpstreamModel

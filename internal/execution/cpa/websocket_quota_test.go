@@ -41,7 +41,7 @@ func TestWebsocketQuotaEventsRefreshBeforeTurnCompletesWithoutHeaders(t *testing
 				t.Fatal("quota observation changed the forwarded event")
 			}
 			dirty := manager.DirtyPassiveQuotaObservations(1)
-			if len(dirty) != 1 || len(dirty[0].Windows) != 3 {
+			if len(dirty) != 1 || len(dirty[0].Windows) != 2 {
 				t.Fatalf("quota event was not recorded before downstream delivery: %#v", dirty)
 			}
 			if dirty[0].ObservedAtMS < startedAt || dirty[0].Version <= lastVersion {

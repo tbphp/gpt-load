@@ -3,7 +3,6 @@ package codex
 import (
 	"encoding/json"
 	"math"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,13 +47,9 @@ func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quot
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	additionalComplete := true
 	for _, name := range names {
-		windows, complete := normalizeWebsocketQuotaRate(event.AdditionalRateLimits[name], observedAt)
+		windows := normalizeWebsocketQuotaRate(event.AdditionalRateLimits[name], observedAt)
 		name = strings.TrimSpace(name)
-		if !complete || len(windows) == 0 || name == "" {
-			additionalComplete = false
-		}
 		if name == "" {
 			continue
 		}
@@ -67,39 +62,25 @@ func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quot
 	if sourceID == "" {
 		sourceID = normalizeQuotaSourceID(event.LimitName)
 	}
-	if sourceID == "" && !additionalComplete {
-		// 缺少来源且附加数据不完整，无法排除顶层是附加额度的副本。
+	if sourceID == "" && len(event.AdditionalRateLimits) > 0 {
+		// 与 HTTP 相同：有附加额度但缺少来源时不能采用顶层数据。
+		// 数值相等或不同均不能证明它属于普通账号或某个附加来源。
 		return additional
 	}
 	if sourceID == "" || sourceID == codexAccountActiveLimit {
 		sourceID = codexAccountQuotaSourceID
 	}
-	primary, _ := normalizeWebsocketQuotaRate(event.RateLimits, observedAt)
-	result := make([]quotaWindow, 0, len(primary)+len(additional))
-	for _, window := range primary {
-		duplicate := false
-		for _, other := range additional {
-			// 实测 Spark 的顶层与附加窗口重复，但没有 metered_limit_name。
-			// 保留具名窗口，避免把这个副本当成普通账号额度写回。
-			candidate := window
-			other.SourceName = ""
-			candidate.ID, other.ID = "", ""
-			if reflect.DeepEqual(candidate, other) {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			window.SourceID = sourceID
-			result = append(result, window)
-		}
+	primary := normalizeWebsocketQuotaRate(event.RateLimits, observedAt)
+	for index := range primary {
+		primary[index].SourceID = sourceID
 	}
-	return append(result, additional...)
+	// 具名来源尚未解析，不能在这里按数值去重；合并层按实际目标窗口处理副本。
+	return append(primary, additional...)
 }
 
-func normalizeWebsocketQuotaRate(rate *websocketQuotaRate, observedAt time.Time) ([]quotaWindow, bool) {
+func normalizeWebsocketQuotaRate(rate *websocketQuotaRate, observedAt time.Time) []quotaWindow {
 	if rate == nil {
-		return nil, false
+		return nil
 	}
 	fields := map[string]any{}
 	if rate.Allowed != nil {
@@ -108,7 +89,6 @@ func normalizeWebsocketQuotaRate(rate *websocketQuotaRate, observedAt time.Time)
 	if rate.LimitReached != nil {
 		fields["limit_reached"] = *rate.LimitReached
 	}
-	complete := true
 	for _, slot := range []struct {
 		name   string
 		window *websocketQuotaWindow
@@ -120,7 +100,6 @@ func normalizeWebsocketQuotaRate(rate *websocketQuotaRate, observedAt time.Time)
 		if window.UsedPercent == nil || math.IsNaN(*window.UsedPercent) || math.IsInf(*window.UsedPercent, 0) ||
 			*window.UsedPercent < 0 || *window.UsedPercent > 100 || window.WindowMinutes == nil ||
 			*window.WindowMinutes <= 0 || *window.WindowMinutes > passiveQuotaMaxResetAtSeconds/60 {
-			complete = false
 			continue
 		}
 		values := map[string]string{
@@ -140,5 +119,5 @@ func normalizeWebsocketQuotaRate(rate *websocketQuotaRate, observedAt time.Time)
 		windows[index].Label, windows[index].LabelKey = "", ""
 		windows[index].Scope, windows[index].Unit = "", ""
 	}
-	return windows, complete
+	return windows
 }

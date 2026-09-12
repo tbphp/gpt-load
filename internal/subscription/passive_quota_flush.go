@@ -172,13 +172,26 @@ func mergePassiveQuotaSnapshot(
 	}
 	merged := append([]providerobservation.QuotaWindow(nil), existing...)
 	positions := make([]int, len(patches))
+	namedTargets := make(map[int]bool)
 	matches := make(map[int]int, len(patches))
 	for index, patch := range patches {
 		position := matchPassiveQuotaWindow(existing, patch)
 		positions[index] = position
-		if position >= 0 {
-			matches[position]++
+		if position >= 0 && patch.SourceName != "" {
+			namedTargets[position] = true
 		}
+	}
+	for index, position := range positions {
+		if position < 0 {
+			continue
+		}
+		// 仅 WS 带有 SourceName。来源解析后，同一目标的顶层副本让位给具名窗口；
+		// 不同来源、不同周期不会互相去重，数值差异也不改变这一优先级。
+		if patches[index].SourceName == "" && namedTargets[position] {
+			positions[index] = -1
+			continue
+		}
+		matches[position]++
 	}
 	outcome := passiveQuotaMerge{Encoded: raw, Windows: existing}
 	for index, patch := range patches {
@@ -252,14 +265,16 @@ func passiveQuotaSourceByName(windows []providerobservation.QuotaWindow, patch p
 		return ""
 	}
 	sourceID := ""
+	matched := false
 	for _, window := range windows {
-		if window.Scope == "account" || window.Scope != patch.SourceName || window.SourceID == "" ||
+		if window.Scope == "account" || window.Scope != patch.SourceName ||
 			window.WindowSeconds == nil || *window.WindowSeconds != *patch.WindowSeconds {
 			continue
 		}
-		if sourceID != "" {
+		if matched {
 			return ""
 		}
+		matched = true
 		sourceID = window.SourceID
 	}
 	return sourceID
