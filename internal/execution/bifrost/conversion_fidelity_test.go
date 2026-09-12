@@ -92,6 +92,72 @@ func TestConvertedMidConversationInstructionsAreNotWeakened(t *testing.T) {
 	}
 }
 
+func TestConvertedInstructionsAfterRolelessResponsesHistory(t *testing.T) {
+	t.Parallel()
+	const search = `{"type":"web_search_call","id":"ws_history","status":"completed","action":{"type":"search","query":"synthetic"}}`
+	const custom = `{"type":"custom_tool_call","id":"ct_history","call_id":"call_history","name":"synthetic_tool","input":"synthetic input"}`
+	for _, test := range []struct {
+		name      string
+		history   string
+		role      string
+		wantError bool
+	}{
+		{"search then system", search, "system", true},
+		{"search then developer", search, "developer", true},
+		{"custom then system", custom, "system", true},
+		{"custom then developer", custom, "developer", true},
+		{"ordinary user reminder", search, "user", false},
+		{"leading global instructions", `{"role":"system","content":"global instruction"}`, "developer", false},
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", test.name, stream), func(t *testing.T) {
+				var calls atomic.Int64
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					calls.Add(1)
+					body, err := io.ReadAll(request.Body)
+					if err != nil {
+						t.Error(err)
+					}
+					if test.wantError {
+						t.Errorf("lossy instruction reached upstream: %s", body)
+					} else if !strings.Contains(string(body), "caller reminder") {
+						t.Errorf("preserved instruction or user text is missing: %s", body)
+					}
+					writer.Header().Set("Content-Type", "application/json")
+					response := anthropicResponsesConvertedFixture
+					if stream {
+						writer.Header().Set("Content-Type", "text/event-stream")
+						response = anthropicResponsesStreamFixture
+					}
+					_, _ = io.WriteString(writer, response)
+				}))
+				defer server.Close()
+				runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, anthropicBaseURL: server.URL})
+				body := []byte(fmt.Sprintf(`{"model":"client-model","store":false,"input":[%s,{"role":"%s","content":"<system-reminder>caller reminder</system-reminder>"},{"role":"user","content":"continue"}]}`, test.history, test.role))
+				spec := convertedSpec(channel.Anthropic, protocol.OpenAIResponses, execution.OperationResponsesCreate, "/v1/responses", body)
+				spec.UpstreamModel = "claude-sonnet-4-6"
+				var evidence *execution.ErrorEvidence
+				var dispatch execution.DispatchState
+				if stream {
+					result := runtime.ExecuteStream(t.Context(), spec, func(execution.StreamEvent) error { return nil })
+					evidence, dispatch = result.Error, result.DispatchState
+				} else {
+					result := runtime.Execute(t.Context(), spec)
+					evidence, dispatch = result.Error, result.DispatchState
+				}
+				if test.wantError {
+					if calls.Load() != 0 || dispatch != execution.DispatchNotSent || evidence == nil ||
+						evidence.Kind != execution.ErrorKindConversionUnsupported || evidence.Code != execution.ErrorCodeCriticalSemanticLoss {
+						t.Fatalf("lossy conversion: calls=%d dispatch=%s error=%+v", calls.Load(), dispatch, evidence)
+					}
+				} else if calls.Load() != 1 || evidence != nil {
+					t.Fatalf("preservable input was rejected: calls=%d error=%+v", calls.Load(), evidence)
+				}
+			})
+		}
+	}
+}
+
 func TestChatFallbackDoesNotDropRequestedTools(t *testing.T) {
 	t.Parallel()
 	for _, channelID := range []channel.ID{channel.OpenAICompatible, channel.Groq} {

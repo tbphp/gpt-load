@@ -141,8 +141,8 @@ func CountMidConversationSystemMessages(clientProtocol protocol.Protocol, body [
 			seenConversation = true
 		}
 		itemType, _ := message["type"].(string)
-		switch itemType {
-		case "function_call", "function_call_output", "reasoning":
+		if clientProtocol == protocol.OpenAIResponses && itemType != "" {
+			// 非指令项目也属于有序历史，不按部分工具类型枚举会话起点。
 			seenConversation = true
 		}
 	}

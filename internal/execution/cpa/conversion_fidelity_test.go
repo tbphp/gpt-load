@@ -15,7 +15,10 @@ func TestAdapterRejectsOnlyLossyMidConversationInstructions(t *testing.T) {
 	t.Parallel()
 	for _, channelID := range []channel.ID{channel.Codex, channel.Grok, channel.Claude, channel.Antigravity} {
 		for _, clientProtocol := range []protocol.Protocol{protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic} {
-			for _, role := range []string{"system", "user"} {
+			for _, role := range []string{"system", "developer", "user"} {
+				if role == "developer" && clientProtocol == protocol.Anthropic {
+					continue
+				}
 				for _, stream := range []bool{false, true} {
 					t.Run(fmt.Sprintf("%s/%s/%s/stream=%t", channelID, clientProtocol, role, stream), func(t *testing.T) {
 						registry := channel.NewRegistry()
@@ -33,12 +36,19 @@ func TestAdapterRejectsOnlyLossyMidConversationInstructions(t *testing.T) {
 						if !exists {
 							t.Fatal("expected subscription route is missing")
 						}
-						body, err := json.Marshal(map[string]any{"model": "client-model", "max_tokens": 32, field: []map[string]any{
+						messages := []map[string]any{
 							{"role": "user", "content": "start"},
 							{"role": "assistant", "content": "reply"},
 							{"role": role, "content": "<system-reminder>new instruction</system-reminder>"},
 							{"role": "user", "content": "next"},
-						}})
+						}
+						if clientProtocol == protocol.OpenAIResponses {
+							messages = append([]map[string]any{{
+								"type": "web_search_call", "id": "ws_history", "status": "completed",
+								"action": map[string]any{"type": "search", "query": "synthetic"},
+							}}, messages[2:]...)
+						}
+						body, err := json.Marshal(map[string]any{"model": "client-model", "max_tokens": 32, field: messages})
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -60,7 +70,7 @@ func TestAdapterRejectsOnlyLossyMidConversationInstructions(t *testing.T) {
 						} else {
 							evidence = adapter.Execute(t.Context(), spec).Error
 						}
-						wantRejected := role == "system" && mode == execution.RouteConverted &&
+						wantRejected := role != "user" && mode == execution.RouteConverted &&
 							(channelID == channel.Claude || channelID == channel.Antigravity || clientProtocol == protocol.Anthropic)
 						if wantRejected {
 							if preparer.calls != 0 || evidence == nil || evidence.Kind != execution.ErrorKindConversionUnsupported ||
