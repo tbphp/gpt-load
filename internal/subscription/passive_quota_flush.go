@@ -220,6 +220,12 @@ func mergePassiveQuotaSnapshot(
 // matchPassiveQuotaWindow 按来源和实际周期对齐主动/被动数据；槽位不参与推断。
 // 其他未提供 SourceID 的渠道保留 ID 匹配，但不能覆盖带来源标识的窗口。
 func matchPassiveQuotaWindow(windows []providerobservation.QuotaWindow, patch providerobservation.QuotaWindow) int {
+	if patch.SourceID == "" && patch.SourceName != "" {
+		patch.SourceID = passiveQuotaSourceByName(windows, patch)
+		if patch.SourceID == "" {
+			return -1
+		}
+	}
 	matched := -1
 	for index, window := range windows {
 		if patch.SourceID != "" {
@@ -237,4 +243,24 @@ func matchPassiveQuotaWindow(windows []providerobservation.QuotaWindow, patch pr
 		matched = index
 	}
 	return matched
+}
+
+// Codex WS 的附加额度只报告原始 limit_name。利用主动观测已保存的名称和周期
+// 解析来源，再走既有 SourceID 匹配；不使用格式化后的 Label，也不推测名称别名。
+func passiveQuotaSourceByName(windows []providerobservation.QuotaWindow, patch providerobservation.QuotaWindow) string {
+	if patch.WindowSeconds == nil || *patch.WindowSeconds <= 0 {
+		return ""
+	}
+	sourceID := ""
+	for _, window := range windows {
+		if window.Scope == "account" || window.Scope != patch.SourceName || window.SourceID == "" ||
+			window.WindowSeconds == nil || *window.WindowSeconds != *patch.WindowSeconds {
+			continue
+		}
+		if sourceID != "" {
+			return ""
+		}
+		sourceID = window.SourceID
+	}
+	return sourceID
 }

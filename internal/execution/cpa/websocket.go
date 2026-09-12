@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
@@ -89,7 +90,14 @@ type observedWebsocketSession struct {
 }
 
 func (s *observedWebsocketSession) ExecuteTurn(ctx context.Context, payload []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
-	result := s.WebsocketSession.ExecuteTurn(ctx, payload, emit)
+	result := s.WebsocketSession.ExecuteTurn(ctx, payload, func(ctx context.Context, event []byte) error {
+		observedAt := time.Now()
+		s.adapter.recordPassiveQuotaObservation(s.spec, observedAt, codex.NormalizeWebsocketQuotaWindows(event, observedAt))
+		if emit != nil {
+			return emit(ctx, event)
+		}
+		return nil
+	})
 	if len(result.Header) > 0 && !result.HeaderObservedAt.IsZero() {
 		signals := make(map[string]string)
 		for name, values := range result.Header {
