@@ -21,6 +21,7 @@ import {
   AppBadge,
   AppChannelIcon,
   AppCollectionState,
+  AppConfirmDialog,
   AppDialogContent,
   AppDialogHeader,
   AppIcon,
@@ -803,50 +804,24 @@ onScopeDispose(() => {
       </form>
     </AppDialogContent>
   </DialogRoot>
-  <DialogRoot
+  <AppConfirmDialog
     :open="Boolean(confirmAction)"
-    @update:open="
-      (value) => {
-        if (!value) cancelConfirm()
-      }
+    :title="t(confirmAction === 'channel' ? 'groupCreate.changeChannel' : 'groups.edit.unsaved')"
+    :description="
+      t(
+        confirmAction === 'channel'
+          ? 'groupCreate.changeChannelHelp'
+          : unresolved
+            ? 'groupCreate.abandonUnknown'
+            : 'groups.edit.unsavedHelp',
+      )
     "
-  >
-    <AppDialogContent
-      :title="t(confirmAction === 'channel' ? 'groupCreate.changeChannel' : 'groups.edit.unsaved')"
-      :description="
-        t(
-          confirmAction === 'channel'
-            ? 'groupCreate.changeChannelHelp'
-            : unresolved
-              ? 'groupCreate.abandonUnknown'
-              : 'groups.edit.unsavedHelp',
-        )
-      "
-    >
-      <AppDialogHeader
-        :title="
-          t(confirmAction === 'channel' ? 'groupCreate.changeChannel' : 'groups.edit.unsaved')
-        "
-        :description="
-          t(
-            confirmAction === 'channel'
-              ? 'groupCreate.changeChannelHelp'
-              : unresolved
-                ? 'groupCreate.abandonUnknown'
-                : 'groups.edit.unsavedHelp',
-          )
-        "
-        :close-label="t('ui.close')"
-        @close="cancelConfirm"
-      />
-      <div class="modern-group-create-confirm">
-        <AppButton @click="cancelConfirm">{{ t('groups.edit.keepEditing') }}</AppButton>
-        <AppButton variant="danger" @click="confirmDiscard">{{
-          t('groups.edit.discard')
-        }}</AppButton>
-      </div>
-    </AppDialogContent>
-  </DialogRoot>
+    :cancel-label="t('groups.edit.keepEditing')"
+    :confirm-label="t('groups.edit.discard')"
+    tone="danger"
+    @cancel="cancelConfirm"
+    @confirm="confirmDiscard"
+  />
 </template>
 
 <style scoped>
@@ -930,11 +905,5 @@ onScopeDispose(() => {
 .modern-group-create-conflict-row > span {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-.modern-group-create-confirm {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--modern-space-2);
-  padding: var(--modern-space-5);
 }
 </style>

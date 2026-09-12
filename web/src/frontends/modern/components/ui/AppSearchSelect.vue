@@ -20,7 +20,7 @@ import AppFieldControl from './AppFieldControl.vue'
 import AppIcon from './AppIcon.vue'
 import AppMenuSurface from './AppMenuSurface.vue'
 import { overlaySideOffset } from './overlay'
-import type { FieldProps, SearchSelectOption } from './types'
+import type { ControlSize, FieldProps, SearchSelectOption } from './types'
 
 defineOptions({ inheritAttrs: false })
 const props = withDefaults(
@@ -29,11 +29,19 @@ const props = withDefaults(
       options?: readonly SearchSelectOption[]
       selectedOption?: SearchSelectOption
       loadOptions?: (query: string, signal: AbortSignal) => Promise<readonly SearchSelectOption[]>
+      allowCustom?: boolean
+      size?: ControlSize
       name?: string
       required?: boolean
     }
   >(),
-  { options: () => [], selectedOption: undefined, loadOptions: undefined, name: undefined },
+  {
+    options: () => [],
+    selectedOption: undefined,
+    loadOptions: undefined,
+    name: undefined,
+    size: 'md',
+  },
 )
 const model = defineModel<string>({ required: true })
 const { t } = useI18n()
@@ -85,12 +93,17 @@ const normalize = (value: string) =>
     .replace(/\p{Diacritic}/gu, '')
     .toLocaleLowerCase()
 const visible = computed(() => {
-  if (props.loadOptions) return source.value
   const terms = normalize(search.value).trim().split(/\s+/u).filter(Boolean)
-  return source.value.filter((option) => {
-    const text = normalize([option.label, option.value, ...(option.keywords ?? [])].join(' '))
-    return terms.every((term) => text.includes(term))
-  })
+  const options = props.loadOptions
+    ? source.value
+    : source.value.filter((option) => {
+        const text = normalize([option.label, option.value, ...(option.keywords ?? [])].join(' '))
+        return terms.every((term) => text.includes(term))
+      })
+  const custom = search.value.trim()
+  if (props.allowCustom && custom && !source.value.some((option) => option.value === custom))
+    return [...options, { value: custom, label: custom }]
+  return options
 })
 function cancelRequest(): void {
   clearTimeout(timer)
@@ -164,7 +177,7 @@ onScopeDispose(cancelRequest)
       :reset-search-term-on-blur="false"
       :reset-search-term-on-select="false"
     >
-      <AppFieldControl as-child :invalid="invalid" :disabled="disabled">
+      <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
         <ComboboxAnchor>
           <AppIcon :icon="Search" size="sm" class="modern-search-select-hint" />
           <ComboboxInput

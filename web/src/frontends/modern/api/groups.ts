@@ -123,7 +123,7 @@ export async function getGroupModelNames(client: ApiClient, id: number, signal: 
   })
 }
 
-function basics(value: unknown): GroupBasics {
+export function readGroupBasics(value: unknown): GroupBasics {
   const data = record(value)
   const weight = data.weight_manual === null ? null : integer(data.weight_manual)
   if (weight !== null && weight > 100) throw new InvalidResponseError()
@@ -135,7 +135,7 @@ function basics(value: unknown): GroupBasics {
   }
 }
 export async function getGroupBasics(client: ApiClient, id: number, signal: AbortSignal) {
-  return basics(await client.request<unknown>(`/api/groups/${id}/settings`, { signal }))
+  return readGroupBasics(await client.request<unknown>(`/api/groups/${id}/settings`, { signal }))
 }
 export async function updateGroupBasics(
   client: ApiClient,
@@ -143,7 +143,7 @@ export async function updateGroupBasics(
   patch: GroupBasicsPatch,
   signal: AbortSignal,
 ) {
-  return basics(
+  return readGroupBasics(
     await client.request<unknown>(`/api/groups/${id}/settings`, {
       method: 'PUT',
       json: patch,

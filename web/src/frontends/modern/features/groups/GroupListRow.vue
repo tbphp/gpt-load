@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, KeyRound, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink, useRoute } from 'vue-router'
 import { getGroupModelNames, type GroupRow, type GroupUsage } from '@modern/api/groups'
 import {
   AppBadge,
@@ -24,7 +25,7 @@ import { useApiClient } from '@shared/http/client-context'
 const props = defineProps<{
   group: GroupRow
   expanded: boolean
-  pending?: 'toggle' | 'weight' | 'editor'
+  pending?: 'toggle' | 'weight'
   enabledOverride?: boolean
   usage?: GroupUsage
   usageLoading: boolean
@@ -33,7 +34,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   expand: []
-  edit: [event: MouseEvent]
   toggle: [value: boolean]
   weight: [value: number]
   weightEditing: [value: boolean]
@@ -42,6 +42,7 @@ const emit = defineEmits<{
 }>()
 const { t, n, locale } = useI18n()
 const client = useApiClient()
+const route = useRoute()
 const id = useId()
 const modelSearch = ref('')
 const allModels = ref(false)
@@ -141,9 +142,16 @@ const lastActive = computed(() =>
         <div class="modern-group-heading">
           <div class="modern-group-name-line">
             <h2 :id="`${id}-name`">
-              <AppButton variant="text" :disabled="Boolean(pending)" @click="emit('edit', $event)"
-                ><AppOverflowText :text="group.name"
-              /></AppButton>
+              <AppButton variant="text" :disabled="Boolean(pending)" as-child>
+                <RouterLink
+                  :to="{
+                    name: 'modern-group-detail',
+                    params: { id: group.id },
+                    query: { from: route.fullPath },
+                  }"
+                  ><AppOverflowText :text="group.name"
+                /></RouterLink>
+              </AppButton>
             </h2>
             <AppBadge :tone="tone" variant="plain" size="xs" dot>{{
               t(`groups.row.state.${state}`)

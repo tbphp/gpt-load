@@ -37,8 +37,7 @@ export function createModernRouter(
       {
         path: pagePath('group-detail'),
         name: 'modern-group-detail',
-        component: () => import('./features/workspace/WorkspaceView.vue'),
-        props: { workspaceId: 'groups' },
+        component: () => import('./features/groups/GroupDetailView.vue'),
         meta: {
           primaryNav: 'modern-groups',
           titleKey: 'pages.groupDetail.title',

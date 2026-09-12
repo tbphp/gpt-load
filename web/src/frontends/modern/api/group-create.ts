@@ -23,6 +23,8 @@ export interface GroupChannel {
   credentialFields: ChannelField[]
   discovery: boolean
   proxy: boolean
+  quotaObservation: boolean
+  resetCredit: boolean
   connectionType: 'api_key' | 'subscription'
   authorizationMethods: AuthorizationMethod[]
   notices: ('claude_oauth_risk' | 'antigravity_oauth_risk')[]
@@ -72,6 +74,8 @@ export async function getGroupChannels(
       credentialFields: list(item.credential_fields).map(field),
       discovery: boolean(capabilities.model_discovery),
       proxy: boolean(capabilities.outbound_proxy),
+      quotaObservation: boolean(capabilities.quota_observation),
+      resetCredit: list(capabilities.credential_actions).includes('reset_credit'),
       connectionType,
       authorizationMethods,
       notices: list(item.notices).map((raw) =>

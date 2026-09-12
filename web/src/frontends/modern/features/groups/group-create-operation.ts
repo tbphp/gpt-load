@@ -19,7 +19,7 @@ type Outcome =
   | { kind: 'unknown' | 'reconciling' | 'waiting' }
   | { kind: 'expired'; groupID?: number }
 
-function createKey(): string {
+export function createOperationKey(): string {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
   const bytes = new Uint8Array(16)
   globalThis.crypto.getRandomValues(bytes)
@@ -59,7 +59,7 @@ export function useGroupCreateOperation(client: ApiClient) {
   }
   function begin(payload: Submission): void {
     if (operation.value) return
-    operation.value = { key: createKey(), payload: structuredClone(payload) }
+    operation.value = { key: createOperationKey(), payload: structuredClone(payload) }
     outcome.value = undefined
   }
   async function execute(): Promise<Outcome | undefined> {

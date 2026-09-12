@@ -1,3 +1,5 @@
+import { zhCN as credentialCards } from './credential-cards'
+import { zhCN as groupDetail } from './group-detail'
 import { zhCN as groupMessages } from './groups'
 import { zhCN as ui } from './ui'
 import { zhCN as groupCreate } from './group-create'
@@ -5,6 +7,8 @@ import { zhCN as modelSelection } from './model-selection'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  credentialCards,
+  groupDetail,
   subscriptions,
   modelSelection,
   groupCreate,

@@ -51,7 +51,7 @@ export const zhCN = {
   abandonUnknown: '操作可能已经生效。离开不会撤销后端结果，建议先确认结果。',
   resultCreated: '已创建 {name}，导入 {added} 条凭据，跳过 {duplicated} 条重复凭据。',
   resultAppended: '已向 {name} 导入 {added} 条凭据，跳过 {duplicated} 条重复凭据。',
-  resultKnown: '请检查分组 {name} 的实际结果。',
+  resultKnown: '请检查该分组的实际结果。',
   resultReloadFailed: '列表刷新失败，请手动刷新确认分组。',
   outcome: {
     unknown: '提交结果尚未确定，请确认结果。重试会继续本次操作，不会重复创建。',
@@ -119,7 +119,7 @@ export const enUS: typeof zhCN = {
   resultCreated:
     'Created {name}: imported {added} credentials and skipped {duplicated} duplicates.',
   resultAppended: 'Imported {added} credentials into {name} and skipped {duplicated} duplicates.',
-  resultKnown: 'Check the actual result for {name}.',
+  resultKnown: 'Check the actual result for this group.',
   resultReloadFailed: 'The list could not refresh. Refresh manually to check the group.',
   outcome: {
     unknown:
@@ -186,7 +186,7 @@ export const jaJP: typeof zhCN = {
     '操作が既に反映されている可能性があります。閉じても元に戻りません。先に結果をご確認ください。',
   resultCreated: '{name} を作成しました。{added} 件を追加し、重複 {duplicated} 件を除外しました。',
   resultAppended: '{name} に {added} 件を追加し、重複 {duplicated} 件を除外しました。',
-  resultKnown: '{name} の実際の結果を確認してください。',
+  resultKnown: 'このグループの実際の結果を確認してください。',
   resultReloadFailed: '一覧の更新に失敗しました。手動で更新してグループをご確認ください。',
   outcome: {
     unknown: '結果はまだ確定していません。同じ操作で結果を確認し、重複作成を防ぎます。',

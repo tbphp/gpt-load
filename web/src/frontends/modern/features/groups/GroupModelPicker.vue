@@ -3,7 +3,14 @@ import { ListChecks, Plus, Search, Trash2 } from '@lucide/vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ModelCandidate } from '@modern/api/model-discovery'
-import { AppButton, AppIconButton, AppPagination, AppTextField } from '@modern/components/ui'
+import {
+  AppButton,
+  AppCollectionState,
+  AppIconButton,
+  AppListFrame,
+  AppPagination,
+  AppTextField,
+} from '@modern/components/ui'
 import { useLoadingFeedback } from '@modern/components/ui/loading'
 import ModelSelectionDialog from '../models/ModelSelectionDialog.vue'
 import ModelSourceBadges from '../models/ModelSourceBadges.vue'
@@ -11,6 +18,7 @@ import ModelPriceBadge from '../models/ModelPriceBadge.vue'
 import { modelErrors, type GroupDraftModel } from './group-create-rules'
 
 const props = defineProps<{
+  layout?: 'form' | 'list'
   candidates: readonly ModelCandidate[]
   connectionRevision: number
   discoverySupported: boolean
@@ -19,6 +27,7 @@ const props = defineProps<{
   discoveryError?: string
   disabled?: boolean
   attempted?: boolean
+  configuredPricing?: ReadonlyMap<string, Pick<ModelCandidate, 'pricingStatus' | 'pricingSource'>>
 }>()
 const models = defineModel<GroupDraftModel[]>({ required: true })
 const emit = defineEmits<{ discover: []; cancelDiscovery: [] }>()
@@ -28,6 +37,7 @@ const loaded = ref(false)
 const search = ref('')
 const page = ref(1)
 const pageSize = ref(10)
+const list = ref<InstanceType<typeof AppListFrame>>()
 const fields = new Map<number, { focus(): void; $el?: HTMLElement }>()
 const filtering = ref(false)
 const feedback = useLoadingFeedback(filtering)
@@ -51,6 +61,7 @@ watch([search, pageSize], () => {
 })
 watch([search, page, pageSize], async () => {
   filtering.value = true
+  list.value?.scrollToTop()
   await nextTick()
   filtering.value = false
 })
@@ -141,28 +152,44 @@ defineExpose({
 </script>
 
 <template>
-  <section class="modern-create-models" :aria-label="t('groupCreate.models')">
+  <section
+    class="modern-create-models"
+    :class="{ 'modern-create-models--list': layout === 'list' }"
+    :aria-label="t('groupCreate.models')"
+  >
     <div class="modern-create-model-heading">
-      <h3>
+      <AppTextField
+        v-if="layout === 'list'"
+        v-model="search"
+        class="modern-create-model-search"
+        :label="t('modelSelection.searchSelected')"
+        label-hidden
+        :placeholder="t('modelSelection.searchSelected')"
+        :icon="Search"
+        :loading="feedback"
+        type="search"
+        size="sm"
+      />
+      <h3 v-else>
         {{ t('groupCreate.models') }} <span>{{ n(models.length) }}</span>
       </h3>
       <div class="modern-create-model-tools">
         <AppButton
           v-if="discoverySupported"
           :icon="ListChecks"
-          variant="brand"
+          :variant="layout === 'list' ? 'outline' : 'brand'"
           size="sm"
           :disabled="disabled || !canDiscover"
           @click="openSelection"
           >{{ t('modelSelection.title') }}</AppButton
         >
-        <AppButton :icon="Plus" variant="ghost" size="xs" :disabled="disabled" @click="addManual">{{
+        <AppButton :icon="Plus" variant="ghost" size="sm" :disabled="disabled" @click="addManual">{{
           t('groupCreate.manualModel')
         }}</AppButton>
       </div>
     </div>
     <AppTextField
-      v-if="models.length > 5 || search"
+      v-if="layout !== 'list' && (models.length > 5 || search)"
       v-model="search"
       :label="t('modelSelection.searchSelected')"
       label-hidden
@@ -171,18 +198,26 @@ defineExpose({
       :loading="feedback"
       type="search"
     />
-    <p v-if="!models.length" class="modern-create-model-empty">
-      {{ t('groupCreate.modelsOptional') }}
-    </p>
-    <p v-else-if="!rows.length" class="modern-create-model-empty">
-      {{ t('modelSelection.empty') }}
-    </p>
-    <div v-else class="modern-create-model-list">
-      <div class="modern-create-model-labels" aria-hidden="true">
-        <span>{{ t('groupCreate.modelID') }}</span
-        ><span>{{ t('groupCreate.alias') }}</span>
-      </div>
-      <div class="modern-create-model-rows">
+    <AppListFrame
+      ref="list"
+      :label="t('groupCreate.models')"
+      :flow="layout !== 'list'"
+      :loading="feedback"
+    >
+      <template v-if="models.length" #header>
+        <div class="modern-create-model-labels" aria-hidden="true">
+          <span>{{ t('groupCreate.modelID') }}</span
+          ><span>{{ t('groupCreate.alias') }}</span>
+        </div>
+      </template>
+      <AppCollectionState
+        v-if="layout === 'list' && !rows.length"
+        :title="t(models.length ? 'modelSelection.empty' : 'groupCreate.modelsOptional')"
+      />
+      <p v-else-if="!rows.length" class="modern-create-model-empty">
+        {{ t(models.length ? 'modelSelection.empty' : 'groupCreate.modelsOptional') }}
+      </p>
+      <div v-else class="modern-create-model-rows">
         <div v-for="model in rows" :key="model.key" class="modern-create-model-row">
           <AppTextField
             :ref="(element) => fieldRef(model.key, element)"
@@ -225,24 +260,32 @@ defineExpose({
           />
           <div class="modern-create-model-evidence">
             <ModelSourceBadges
+              v-if="
+                model.origin === 'manual' || candidatesByID.get(model.id.trim())?.sources?.length
+              "
               :sources="candidatesByID.get(model.id.trim())?.sources"
               :manual="model.origin === 'manual'"
             />
-            <ModelPriceBadge :candidate="candidatesByID.get(model.id.trim())" />
+            <ModelPriceBadge
+              :candidate="
+                candidatesByID.get(model.id.trim()) ?? configuredPricing?.get(model.id.trim())
+              "
+            />
           </div>
         </div>
       </div>
-    </div>
-    <AppPagination
-      v-if="models.length > 10"
-      v-model:page="page"
-      v-model:page-size="pageSize"
-      mode="total"
-      :total="filtered.length"
-      :page-sizes="[10, 20, 50]"
-      :disabled="disabled"
-      :pending="feedback"
-    />
+      <template v-if="layout === 'list' || models.length > 10" #footer>
+        <AppPagination
+          v-model:page="page"
+          v-model:page-size="pageSize"
+          mode="total"
+          :total="filtered.length"
+          :page-sizes="[10, 20, 50]"
+          :disabled="disabled"
+          :pending="feedback"
+        />
+      </template>
+    </AppListFrame>
   </section>
   <ModelSelectionDialog
     v-if="choosing"
@@ -262,6 +305,12 @@ defineExpose({
   gap: var(--modern-space-3);
   min-width: 0;
 }
+.modern-create-models--list {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
 .modern-create-model-heading,
 .modern-create-model-tools {
   display: flex;
@@ -271,6 +320,8 @@ defineExpose({
 .modern-create-model-heading {
   justify-content: space-between;
   flex-wrap: wrap;
+  flex: none;
+  padding-block: var(--modern-space-1);
 }
 .modern-create-model-heading h3 {
   font-size: var(--modern-font-size-body);
@@ -281,13 +332,14 @@ defineExpose({
   margin-left: var(--modern-space-1);
   font-weight: var(--modern-weight-regular);
 }
-.modern-create-model-list {
-  min-width: 0;
+.modern-create-model-search {
+  flex: 1;
+  min-width: var(--modern-menu-min-width);
 }
 .modern-create-model-labels,
 .modern-create-model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) var(--modern-control-sm);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) var(--modern-control-sm);
   gap: var(--modern-space-2);
   align-items: start;
 }
@@ -312,10 +364,22 @@ defineExpose({
   color: var(--modern-muted);
   font-size: var(--modern-font-size-secondary);
 }
+.modern-create-models--list .modern-create-model-labels {
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-create-models--list .modern-create-model-rows {
+  padding-block: 0 var(--modern-space-3);
+  gap: 0;
+}
+.modern-create-models--list .modern-create-model-row {
+  padding: var(--modern-space-3) 0;
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  row-gap: var(--modern-space-1-5);
+}
 @media (max-width: 760px) {
   .modern-create-model-labels,
   .modern-create-model-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) var(--modern-touch-target);
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) var(--modern-touch-target);
   }
 }
 </style>

@@ -7,7 +7,7 @@ withDefaults(
   defineProps<{
     icon?: Component
     tone?: SemanticTone | 'brand'
-    variant?: 'soft' | 'plain'
+    variant?: 'soft' | 'plain' | 'outline'
     size?: 'xs' | 'sm'
     dot?: boolean
     mono?: boolean
@@ -74,6 +74,11 @@ withDefaults(
   min-height: 0;
   background: transparent;
   padding: 0;
+  font-weight: var(--modern-weight-regular);
+}
+.modern-badge--outline {
+  border: var(--modern-line-width) solid var(--modern-border);
+  background: transparent;
   font-weight: var(--modern-weight-regular);
 }
 .modern-badge--xs {

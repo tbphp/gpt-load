@@ -95,11 +95,15 @@ export async function beginAuthorization(
   channelID: string,
   proxy: ProxyOverride | undefined,
   signal: AbortSignal,
+  groupID?: number,
 ): Promise<CredentialStage> {
   return readStage(
     await client.request('/api/credential-stages/authorizations', {
       method: 'POST',
-      json: { channel_id: channelID, ...(proxy ? { proxy } : {}) },
+      json: {
+        channel_id: channelID,
+        ...(groupID ? { group_id: groupID } : proxy ? { proxy } : {}),
+      },
       signal,
     }),
   )
@@ -156,10 +160,12 @@ export async function importCredentialFiles(
   proxy: ProxyOverride | undefined,
   preparedIDs: string[],
   signal: AbortSignal,
+  groupID?: number,
 ): Promise<CredentialImportItem[]> {
   const form = new FormData()
   form.set('channel_id', channelID)
-  if (proxy) form.set('proxy', JSON.stringify(proxy))
+  if (groupID) form.set('group_id', String(groupID))
+  else if (proxy) form.set('proxy', JSON.stringify(proxy))
   if (preparedIDs.length) form.set('prepared_import_ids', JSON.stringify(preparedIDs))
   for (const file of files) form.append('file', file, file.name)
   const data = record(

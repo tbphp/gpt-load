@@ -1,3 +1,5 @@
+import { jaJP as credentialCards } from './credential-cards'
+import { jaJP as groupDetail } from './group-detail'
 import { jaJP as groupMessages } from './groups'
 import { jaJP as ui } from './ui'
 import { jaJP as groupCreate } from './group-create'
@@ -5,6 +7,8 @@ import { jaJP as modelSelection } from './model-selection'
 import { jaJP as subscriptions } from './subscriptions'
 
 export default {
+  credentialCards,
+  groupDetail,
   subscriptions,
   modelSelection,
   groupCreate,

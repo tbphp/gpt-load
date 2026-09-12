@@ -39,6 +39,7 @@ import SubscriptionAuthorization from './SubscriptionAuthorization.vue'
 
 const props = defineProps<{
   channel: GroupChannel
+  groupId?: number
   proxy?: ProxyOverride
   disabled?: boolean
   entryDisabled?: boolean
@@ -246,7 +247,7 @@ async function authorize(replaceID?: string): Promise<void> {
         status.merge([{ ...previous, status: 'cancelled' }])
         await nextTick()
       }
-      return beginAuthorization(client, props.channel.id, props.proxy, signal)
+      return beginAuthorization(client, props.channel.id, props.proxy, signal, props.groupId)
     },
     (stage) => {
       if (!stage) return
@@ -289,7 +290,15 @@ async function importFiles(files: File[], pasted = false): Promise<void> {
   await run(
     'import',
     (signal) =>
-      importCredentialFiles(client, props.channel.id, files, props.proxy, preparedIDs, signal),
+      importCredentialFiles(
+        client,
+        props.channel.id,
+        files,
+        props.proxy,
+        preparedIDs,
+        signal,
+        props.groupId,
+      ),
     (result) => {
       for (const item of result)
         if (item.importID && item.stage) prepared.set(item.importID, item.stage.id)

@@ -2,7 +2,7 @@ import type { GroupChannel, ModelDraft } from '@modern/api/group-create'
 
 export interface GroupDraftModel extends ModelDraft {
   key: number
-  origin: 'manual' | 'discovery'
+  origin: 'manual' | 'discovery' | 'configured'
 }
 export function modelErrors(models: readonly GroupDraftModel[]): Map<number, 'id' | 'duplicate'> {
   const counts = new Map<string, number>()

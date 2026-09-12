@@ -7,7 +7,7 @@ withDefaults(
     title: string
     description: string
     placement?: 'dialog' | 'sidebar' | 'editor'
-    size?: 'default' | 'wide'
+    size?: 'default' | 'wide' | 'sheet' | 'confirm'
   }>(),
   { placement: 'dialog', size: 'default' },
 )
@@ -20,7 +20,7 @@ defineEmits<{ openAutoFocus: [event: Event] }>()
     <DialogContent
       v-bind="$attrs"
       class="modern-dialog"
-      :class="[`modern-dialog--${placement}`, { 'modern-dialog--wide': size === 'wide' }]"
+      :class="[`modern-dialog--${placement}`, `modern-dialog--${size}`]"
       @open-auto-focus="$emit('openAutoFocus', $event)"
     >
       <DialogTitle class="modern-sr-only">{{ title }}</DialogTitle>
@@ -61,6 +61,15 @@ defineEmits<{ openAutoFocus: [event: Event] }>()
 }
 .modern-dialog--wide {
   --modern-dialog-width: var(--modern-dialog-wide-width);
+}
+.modern-dialog--sheet {
+  --modern-dialog-width: var(--modern-dialog-sheet-width);
+}
+.modern-dialog--confirm {
+  --modern-dialog-width: var(--modern-dialog-confirm-width);
+  top: 50%;
+  max-height: calc(100dvh - var(--modern-space-8));
+  transform: translate(-50%, -50%);
 }
 .modern-dialog--sidebar {
   inset: 0 auto 0 0;

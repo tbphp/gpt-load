@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { Layers2, Plus, Search, TriangleAlert, X } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { DialogRoot } from 'reka-ui'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -33,8 +32,7 @@ import {
   AppButton,
   AppChannelIcon,
   AppCollectionState,
-  AppDialogContent,
-  AppDialogHeader,
+  AppConfirmDialog,
   AppFilterSummary,
   AppIconButton,
   AppListFrame,
@@ -47,7 +45,6 @@ import {
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import GroupListRow from './GroupListRow.vue'
-import GroupEditPanel from './GroupEditPanel.vue'
 import GroupCreatePanel from './GroupCreatePanel.vue'
 import type { GroupCreateResult } from '@modern/api/group-create'
 import { groupFilterQuery, parseGroupFilters } from './group-route'
@@ -65,9 +62,8 @@ const filterLoading = useLoadingFeedback(filtering)
 const listLoading = useLoadingFeedback(() => filtering.value || refreshing.value)
 const composing = ref(false)
 const expanded = ref(new Set<number>())
-const editing = ref<GroupRow>()
 const creating = ref(false)
-const pending = ref(new Map<number, 'toggle' | 'weight' | 'editor'>())
+const pending = ref(new Map<number, 'toggle' | 'weight'>())
 const enabledOverrides = ref(new Map<number, boolean>())
 const weightErrors = ref(new Map<number, string>())
 const weightEditors = ref(new Set<number>())
@@ -79,7 +75,7 @@ const listFrame = ref<InstanceType<typeof AppListFrame>>()
 const discardRequested = ref(false)
 let resolveLeave: ((allow: boolean) => void) | undefined
 let discardTrigger: HTMLElement | null = null
-let editTrigger: HTMLElement | undefined
+let createTrigger: HTMLElement | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let filterSequence = 0
 const controller = new AbortController()
@@ -341,7 +337,7 @@ function beforeUnload(event: BeforeUnloadEvent): void {
 onMounted(() => window.addEventListener('beforeunload', beforeUnload))
 watch(
   () => route.fullPath,
-  () => {
+  (_path, previousPath) => {
     if (route.name !== 'modern-groups') return
     clearTimeout(searchTimer)
     search.value = filters.value.q
@@ -351,7 +347,7 @@ watch(
     weightErrors.value.clear()
     frozenGroups.value = undefined
     rowRevision.value++
-    void nextTick(() => listFrame.value?.scrollToTop())
+    if (previousPath !== undefined) void nextTick(() => listFrame.value?.scrollToTop())
     const canonical = groupFilterQuery(filters.value)
     if (
       Object.keys(route.query).length !== Object.keys(canonical).length ||
@@ -430,23 +426,17 @@ async function mutate(
     pending.value.delete(group.id)
   }
 }
-async function openEditor(group: GroupRow, event: MouseEvent): Promise<void> {
-  const trigger = event.currentTarget as HTMLElement
-  if (!(await guardNavigation()) || controller.signal.aborted) return
-  editing.value = group
-  editTrigger = trigger
-}
 async function openCreate(event: MouseEvent): Promise<void> {
   const trigger = event.currentTarget as HTMLElement
   if (!(await guardNavigation()) || controller.signal.aborted) return
   creating.value = true
-  editTrigger = trigger
+  createTrigger = trigger
 }
 async function closeCreate(): Promise<void> {
   creating.value = false
   await nextTick()
-  if (!controller.signal.aborted && editTrigger?.isConnected)
-    editTrigger.focus({ preventScroll: true })
+  if (!controller.signal.aborted && createTrigger?.isConnected)
+    createTrigger.focus({ preventScroll: true })
 }
 async function locateCreated(id: number): Promise<void> {
   await closeCreate()
@@ -459,7 +449,7 @@ async function locateCreated(id: number): Promise<void> {
     }
     return
   }
-  if (creating.value || editing.value) return
+  if (creating.value) return
   const group = result.data?.items.find((item) => item.id === id)
   if (group) {
     search.value = group.name
@@ -478,26 +468,8 @@ async function onCreated(result: GroupCreateResult, appended: boolean): Promise<
   await locateCreated(result.id)
 }
 async function onLocated(id: number): Promise<void> {
-  notice.value = { tone: 'warning', text: t('groupCreate.resultKnown', { name: '#' + id }) }
+  notice.value = { tone: 'warning', text: t('groupCreate.resultKnown') }
   await locateCreated(id)
-}
-async function closeEditor(): Promise<void> {
-  editing.value = undefined
-  await nextTick()
-  if (controller.signal.aborted) return
-  const target =
-    editTrigger?.isConnected && !editTrigger.matches(':disabled, [aria-disabled="true"]')
-      ? editTrigger
-      : document.getElementById('modern-content')
-  target?.focus({ preventScroll: true })
-}
-async function onSaved(id: number, settings: GroupBasics): Promise<void> {
-  pending.value.set(id, 'editor')
-  try {
-    await refreshGroup(id, settings)
-  } finally {
-    pending.value.delete(id)
-  }
 }
 </script>
 
@@ -607,7 +579,12 @@ async function onSaved(id: number, settings: GroupBasics): Promise<void> {
         t('groups.row.partialHelp')
       }}</AppNotice>
     </div>
-    <AppListFrame ref="listFrame" :label="t('groups.list')" :loading="listLoading && Boolean(data)">
+    <AppListFrame
+      ref="listFrame"
+      :label="t('groups.list')"
+      :scroll-key="route.fullPath"
+      :loading="listLoading && Boolean(data)"
+    >
       <template #header>
         <div class="modern-group-list-head" aria-hidden="true">
           <span>{{ t('groups.row.group') }}</span>
@@ -655,7 +632,6 @@ async function onSaved(id: number, settings: GroupBasics): Promise<void> {
           :usage-incomplete="usage.data.value?.incomplete ?? false"
           :weight-error="weightErrors.get(group.id)"
           @expand="toggleExpanded(group.id)"
-          @edit="openEditor(group, $event)"
           @toggle="mutate(group, { enabled: $event }, 'toggle')"
           @weight="mutate(group, { weight_manual: $event }, 'weight')"
           @weight-editing="weightEditing(group.id, $event)"
@@ -682,39 +658,17 @@ async function onSaved(id: number, settings: GroupBasics): Promise<void> {
       @created="onCreated"
       @located="onLocated"
     />
-    <GroupEditPanel
-      v-if="editing"
-      :key="editing.id"
-      :group="editing"
-      @close="closeEditor"
-      @saved="onSaved"
-    />
-    <DialogRoot
+    <AppConfirmDialog
       :open="discardRequested"
-      @update:open="
-        (value) => {
-          if (!value) finishDiscard(false)
-        }
-      "
-    >
-      <AppDialogContent
-        :title="t('groups.edit.unsaved')"
-        :description="t('groups.row.finishEditing')"
-        @close-auto-focus="restoreDiscardFocus"
-      >
-        <AppDialogHeader
-          :title="t('groups.edit.unsaved')"
-          :close-label="t('ui.close')"
-          @close="finishDiscard(false)"
-        />
-        <div class="modern-groups-discard-actions">
-          <AppButton @click="finishDiscard(false)">{{ t('groups.edit.keepEditing') }}</AppButton>
-          <AppButton variant="danger" @click="finishDiscard(true)">{{
-            t('groups.edit.discard')
-          }}</AppButton>
-        </div>
-      </AppDialogContent>
-    </DialogRoot>
+      :title="t('groups.edit.unsaved')"
+      :description="t('groups.row.finishEditing')"
+      :cancel-label="t('groups.edit.keepEditing')"
+      :confirm-label="t('groups.edit.discard')"
+      tone="danger"
+      @cancel="finishDiscard(false)"
+      @confirm="finishDiscard(true)"
+      @close-auto-focus="restoreDiscardFocus"
+    />
   </div>
 </template>
 
@@ -781,12 +735,6 @@ async function onSaved(id: number, settings: GroupBasics): Promise<void> {
   justify-items: start;
   gap: var(--modern-space-4);
   text-align: left;
-}
-.modern-groups-discard-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--modern-space-2);
-  padding: var(--modern-space-5);
 }
 @media (max-width: 1150px) {
   .modern-groups-toolbar {
