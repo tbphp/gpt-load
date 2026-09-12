@@ -5,6 +5,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
+	"gpt-load/internal/telemetry"
 )
 
 type requestAffinity struct {
@@ -12,6 +13,7 @@ type requestAffinity struct {
 	observation           affinity.Observation
 	preferredCredentialID uint
 	continuityKey         string
+	kind                  string
 }
 
 func (handler *Handler) resolveRequestAffinity(
@@ -20,6 +22,7 @@ func (handler *Handler) resolveRequestAffinity(
 	clientProtocol protocol.Protocol,
 	prefix []byte,
 	allowedCredentialRefs map[uint]state.CredentialRef,
+	promptCacheKey string,
 ) requestAffinity {
 	if handler == nil || snapshot == nil {
 		return requestAffinity{}
@@ -30,7 +33,12 @@ func (handler *Handler) resolveRequestAffinity(
 		clientProtocol,
 		prefix,
 	)
-	result := requestAffinity{continuityKey: string(key)}
+	// 执行层私有 replay scope 仍由提示词派生，不把客户端缓存分组当作会话身份。
+	result := requestAffinity{continuityKey: string(key), kind: telemetry.AffinityPromptPrefix}
+	if promptCacheKey != "" {
+		key = affinity.DerivePromptCacheKey(handler.encryption, accessKeyID, clientProtocol, promptCacheKey)
+		result.kind = telemetry.AffinityPromptCacheKey
+	}
 	if handler.affinityCache == nil ||
 		!handler.affinityCache.Configure(
 			snapshot.Revision,

@@ -149,6 +149,7 @@ type RequestEvent struct {
 	FirstResponseMs       *int64
 	DurationMs            int64
 	AffinityHit           bool
+	AffinityKind          string
 	Reasoning             reasoning.Config
 	Attempts              []Attempt
 	Usage                 UsageObservation
@@ -161,3 +162,10 @@ type RequestLogSink interface {
 type NoopRequestLogSink struct{}
 
 func (NoopRequestLogSink) Emit(RequestEvent) {}
+
+// 亲和类型仅描述实际选中账号的依据，不代表上游缓存命中。
+const (
+	AffinityPromptPrefix       = "prompt_prefix"
+	AffinityPromptCacheKey     = "prompt_cache_key"
+	AffinityResponseContinuity = "response_continuity"
+)

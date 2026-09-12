@@ -75,6 +75,20 @@ const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
+
+function affinityTooltip(log: RequestLogItemDto): string {
+  switch (log.affinity_kind) {
+    case 'prompt_prefix':
+      return t('monitor.logs.drawer.affinityPromptPrefix')
+    case 'prompt_cache_key':
+      return t('monitor.logs.drawer.affinityPromptCacheKey')
+    case 'response_continuity':
+      return t('monitor.logs.drawer.affinityResponseContinuity')
+    default:
+      return t('monitor.logs.drawer.affinity')
+  }
+}
+
 const logPageSizes = [20, 50, 100] as const
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
 const appliedFilters = computed(() => {
@@ -869,11 +883,11 @@ function costLabel(log: RequestLogItemDto): string {
                   {{ responseLabel(log) }}
                 </StatusBadge>
               </OverflowTooltip>
-              <AppTooltip v-if="log.affinity_hit" :content="t('monitor.logs.drawer.affinity')">
+              <AppTooltip v-if="log.affinity_hit" :content="affinityTooltip(log)">
                 <span
                   class="logs-list__hint logs-list__affinity"
                   tabindex="0"
-                  :aria-label="t('monitor.logs.drawer.affinity')"
+                  :aria-label="affinityTooltip(log)"
                 >
                   <Magnet :size="13" aria-hidden="true" />
                 </span>

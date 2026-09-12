@@ -75,7 +75,7 @@ func testModelCooldownMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 				Protocol: "openai-completions", ClientModel: "model", UpstreamModel: "model", ModelConsistency: "not_applicable",
 				Status: "error", StatusCode: 429, DurationMs: 1, UsageState: "not_applicable", CostState: "not_applicable", PricingCompleteness: "not_applicable"}
 			if scenario != "fresh" {
-				if err := db.Create(&legacyRequest).Error; err != nil {
+				if err := db.Omit("AffinityKind").Create(&legacyRequest).Error; err != nil {
 					t.Fatal(err)
 				}
 				legacy := models.RequestLogAttempt{RequestID: legacyRequest.ID, Sequence: 1, GroupID: 1, CredentialID: 1,

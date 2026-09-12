@@ -28,11 +28,20 @@ func DeriveKey(
 	clientProtocol protocol.Protocol,
 	prefix []byte,
 ) Key {
+	return deriveKey(hasher, accessKeyID, clientProtocol, keyDomain, prefix)
+}
+
+// DerivePromptCacheKey 与提示词使用不同命名空间，保持现有租户和协议隔离。
+func DerivePromptCacheKey(hasher Hasher, accessKeyID uint, clientProtocol protocol.Protocol, key string) Key {
+	return deriveKey(hasher, accessKeyID, clientProtocol, "gpt-load/affinity/prompt-cache-key/v1", []byte(key))
+}
+
+func deriveKey(hasher Hasher, accessKeyID uint, clientProtocol protocol.Protocol, domain string, prefix []byte) Key {
 	if hasher == nil || accessKeyID == 0 || !clientProtocol.Valid() || len(prefix) == 0 {
 		return ""
 	}
 	var material bytes.Buffer
-	writeKeyField(&material, []byte(keyDomain))
+	writeKeyField(&material, []byte(domain))
 	var encodedID [8]byte
 	binary.BigEndian.PutUint64(encodedID[:], uint64(accessKeyID))
 	material.Write(encodedID[:])
