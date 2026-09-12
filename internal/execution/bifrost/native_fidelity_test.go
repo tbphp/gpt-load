@@ -137,6 +137,64 @@ func nativeFidelityObject(t *testing.T, body []byte) map[string]any {
 	return result
 }
 
+func TestNativeDeepSeekAnthropicReplayKeepsExistingPrefix(t *testing.T) {
+	t.Parallel()
+	wireBodies := make(chan []byte, 2)
+	const response = `{"id":"msg_replay","type":"message","role":"assistant","model":"upstream-model","content":[{"type":"thinking","thinking":"replay reasoning","signature":"synthetic-native-signature"},{"type":"tool_use","id":"call_replay","name":"lookup","input":{"n":9007199254740993}}],"stop_reason":"tool_use","usage":{"input_tokens":4,"output_tokens":2}}`
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		wireBodies <- body
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, response)
+	}))
+	defer server.Close()
+	runtime := newRuntimeForTest(t, testRuntimeOptions{allowPrivateNetwork: true})
+	spec := deepSeekAnthropicAttempt(t, server.URL)
+	initial, _, _ := nativeFidelityFixture(protocol.Anthropic)
+	spec.Body = []byte(initial)
+	first := runtime.Execute(t.Context(), spec)
+	if first.Error != nil {
+		t.Fatalf("first request: %+v", first.Error)
+	}
+	var returned struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(first.Body, &returned); err != nil {
+		t.Fatal(err)
+	}
+	root := nativeFidelityObject(t, spec.Body)
+	history := root["messages"].([]any)
+	assistant := map[string]any{"role": returned.Role, "content": returned.Content}
+	root["messages"] = append(history, assistant,
+		map[string]any{"role": "user", "content": json.RawMessage(`[{"type":"tool_result","tool_use_id":"call_replay","content":"result"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aW1hZ2U="}}]`)},
+		map[string]any{"role": "system", "content": "new round instruction"},
+		map[string]any{"role": "user", "content": "continue"})
+	var err error
+	spec.Body, err = json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := runtime.Execute(t.Context(), spec)
+	if second.Error != nil {
+		t.Fatalf("replayed request: %+v", second.Error)
+	}
+	before, after := nativeFidelityObject(t, <-wireBodies), nativeFidelityObject(t, <-wireBodies)
+	oldMessages, newMessages := before["messages"].([]any), after["messages"].([]any)
+	if !reflect.DeepEqual(oldMessages, newMessages[:len(oldMessages)]) {
+		t.Fatal("appending tool results and system instructions changed the existing message prefix")
+	}
+	expected := nativeFidelityObject(t, spec.Body)
+	if !reflect.DeepEqual(after["messages"], expected["messages"]) {
+		t.Fatal("response replay changed thinking, signature, tool arguments, media or associations")
+	}
+	for _, field := range []string{"system", "tools", "thinking", "output_config"} {
+		if !reflect.DeepEqual(before[field], after[field]) {
+			t.Errorf("appending a round changed %s", field)
+		}
+	}
+}
+
 func nativeFidelityFixture(clientProtocol protocol.Protocol) (string, string, string) {
 	switch clientProtocol {
 	case protocol.Anthropic:

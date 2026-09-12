@@ -806,7 +806,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 			return preparedAttempt{}, &failure
 		}
-		return preparedAttempt{
+		return finishConvertedPreparation(spec, providerKind, preparedAttempt{
 			provider:         provider,
 			mode:             mode,
 			upstreamProtocol: upstreamProtocol,
@@ -815,7 +815,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			clientProtocol:   spec.ClientProtocol,
 			directKey:        directKey,
 			secrets:          secrets,
-		}, nil
+		})
 	}
 
 	var openAIRequest openai.OpenAIChatRequest
@@ -844,10 +844,10 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 		return preparedAttempt{}, &failure
 	}
-	return preparedAttempt{
+	return finishConvertedPreparation(spec, providerKind, preparedAttempt{
 		provider: provider, mode: mode, upstreamProtocol: upstreamProtocol, request: request, typedURL: typedURL,
 		clientProtocol: spec.ClientProtocol, directKey: directKey, secrets: secrets,
-	}, nil
+	})
 }
 
 func newProbeRequest(

@@ -111,6 +111,9 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 	if err != nil {
 		return unaryNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "", err)
 	}
+	if evidence := convertedInstructionFailure(spec, provider.ProviderKind()); evidence != nil {
+		return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: evidence}
+	}
 	proxySettings, err := proxySettingsForAttempt(spec.Proxy)
 	if err != nil {
 		return unaryNotSent(
@@ -279,6 +282,9 @@ func (a *Adapter) ExecuteStream(
 	}
 	if countTokensOperation(spec.Operation) {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "count tokens does not support streaming", "")
+	}
+	if evidence := convertedInstructionFailure(spec, provider.ProviderKind()); evidence != nil {
+		return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: evidence}
 	}
 	proxySettings, err := proxySettingsForAttempt(spec.Proxy)
 	if err != nil {
