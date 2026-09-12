@@ -201,3 +201,80 @@ func TestMergeWebsocketQuotaPrefersNamedCopyForTheSameSourceAndPeriod(t *testing
 		}
 	}
 }
+
+func TestFlushWebsocketQuotaPairPreservesEachSampleTime(t *testing.T) {
+	tests := []struct {
+		name                        string
+		storedAt, headerAt, eventAt int64
+		eventSource                 string
+		wantAccount, wantSpark      float64
+		wantObservedAt              int64
+	}{
+		{"complementary windows", 1000, 2000, 3000, "codex_bengalfox", 12, 20, 3000},
+		{"active refresh between samples", 2500, 2000, 3000, "codex_bengalfox", 90, 20, 3000},
+		{"active refresh ties handshake", 2000, 2000, 3000, "codex_bengalfox", 90, 20, 3000},
+		{"active refresh ties event", 3000, 2000, 3000, "codex_bengalfox", 90, 5, 3000},
+		{"samples in same millisecond", 1000, 2000, 2000, "codex_bengalfox", 12, 20, 2000},
+		{"event supersedes same window", 1000, 2000, 3000, "codex", 20, 5, 3000},
+		{"unmatched event keeps handshake time", 1000, 2000, 3000, "unknown", 12, 5, 2000},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manager, db, registry, _, credential := newCredentialManagerFixture(t,
+				credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
+				`{"plan_summary":{},"quota_windows":[{"source_id":"codex","id":"account","scope":"account","window_seconds":604800,"used":90},{"source_id":"codex_bengalfox","id":"spark","scope":"GPT-5.3-Codex-Spark","window_seconds":604800,"used":5}]}`)
+			if err := db.Model(&models.CredentialObservation{}).Where("credential_id = ?", credential.ID).
+				Update("observed_at_ms", test.storedAt).Error; err != nil {
+				t.Fatal(err)
+			}
+			period := int64(604800)
+			header := PassiveQuotaSample{ObservedAtMS: test.headerAt, Windows: []providerobservation.QuotaWindow{
+				{SourceID: "codex", WindowSeconds: &period, Used: floatPointer(12), Limit: floatPointer(100), Remaining: floatPointer(88), Utilization: floatPointer(.12)},
+			}}
+			event := PassiveQuotaSample{ObservedAtMS: test.eventAt, Windows: []providerobservation.QuotaWindow{
+				{SourceID: test.eventSource, WindowSeconds: &period, Used: floatPointer(20), Limit: floatPointer(100), Remaining: floatPointer(80), Utilization: floatPointer(.20)},
+			}}
+			ref, _ := registry.CredentialRef(credential.ID)
+			manager.RecordPassiveQuotaPair(credential.ID, ref.IdentityGeneration, header, event)
+			if remaining, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || remaining {
+				t.Fatalf("flush: remaining=%t error=%v", remaining, err)
+			}
+			var stored models.CredentialObservation
+			if err := db.Take(&stored, "credential_id = ?", credential.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			var snapshot providerobservation.Snapshot
+			if err := json.Unmarshal(stored.SnapshotJSON, &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if stored.ObservedAtMS == nil || *stored.ObservedAtMS != test.wantObservedAt || len(snapshot.QuotaWindows) != 2 ||
+				*snapshot.QuotaWindows[0].Used != test.wantAccount || *snapshot.QuotaWindows[1].Used != test.wantSpark {
+				t.Fatalf("unexpected timestamp or quota values: time=%v snapshot=%s", stored.ObservedAtMS, stored.SnapshotJSON)
+			}
+		})
+	}
+}
+
+func TestWebsocketQuotaPairCoalescesWithoutRedatingHandshake(t *testing.T) {
+	manager := testCredentialManagerForPassiveQuota(t)
+	header := PassiveQuotaSample{ObservedAtMS: 1000, Windows: []providerobservation.QuotaWindow{{ID: "account", Used: floatPointer(12)}}}
+	event := PassiveQuotaSample{ObservedAtMS: 2000, Windows: []providerobservation.QuotaWindow{{ID: "spark", Used: floatPointer(20)}}}
+	manager.RecordPassiveQuotaPair(7, 100, header, event)
+	event.ObservedAtMS = 3000
+	*event.Windows[0].Used = 30
+	manager.RecordPassiveQuotaPair(7, 100, header, event)
+	*header.Windows[0].Used = 99
+	*event.Windows[0].Used = 99
+	dirty := manager.DirtyPassiveQuotaObservations(1)
+	if len(dirty) != 1 || dirty[0].Preceding == nil || dirty[0].Preceding.ObservedAtMS != 1000 ||
+		*dirty[0].Preceding.Windows[0].Used != 12 || dirty[0].ObservedAtMS != 3000 || *dirty[0].Windows[0].Used != 30 {
+		t.Fatalf("coalescing lost the handshake time or retained caller pointers: %#v", dirty)
+	}
+	// HTTP 继续整份替换，不继承另一请求留下的握手样本。
+	manager.RecordPassiveQuotaObservation(7, 100, 4000, []providerobservation.QuotaWindow{{ID: "http"}})
+	dirty = manager.DirtyPassiveQuotaObservations(1)
+	if len(dirty) != 1 || dirty[0].Preceding != nil || len(dirty[0].Windows) != 1 || dirty[0].Windows[0].ID != "http" {
+		t.Fatalf("HTTP inherited a WS sample: %#v", dirty)
+	}
+}

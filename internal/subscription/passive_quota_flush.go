@@ -88,7 +88,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}
-		merge, mergeErr := mergePassiveQuotaSnapshot(row.SnapshotJSON, observation.Windows)
+		merge, observedAtMS, mergeErr := mergePassiveQuotaSamples(row.SnapshotJSON, row.ObservedAtMS, observation)
 		if mergeErr != nil {
 			// A snapshot this malformed cannot be repaired by retrying the
 			// same merge; drop the observation instead of retrying forever.
@@ -105,7 +105,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 		// credential was observed just now, so the sync time advances even
 		// when the snapshot itself stays byte-identical.
 		updates := map[string]any{
-			"observed_at_ms": observation.ObservedAtMS,
+			"observed_at_ms": observedAtMS,
 			"updated_at_ms":  manager.now().UnixMilli(),
 		}
 		if merge.Changed {
@@ -137,6 +137,33 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 		// write. Retry once against the row it left behind.
 	}
 	return fmt.Errorf("passive quota observation for credential %d conflicted with a concurrent write", observation.CredentialID)
+}
+
+// mergePassiveQuotaSamples 按原始时间处理握手和事件，再通过同一次 CAS 写入。
+// 每份样本都与数据库中的时间比较，避免把旧握手改记为事件时间、覆盖期间的主动刷新。
+func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation PassiveQuotaObservation) (passiveQuotaMerge, int64, error) {
+	result := passiveQuotaMerge{Encoded: raw}
+	var observedAtMS int64
+	samples := [2]*PassiveQuotaSample{
+		observation.Preceding,
+		{ObservedAtMS: observation.ObservedAtMS, Windows: observation.Windows},
+	}
+	for _, sample := range samples {
+		if sample == nil || (storedAtMS != nil && sample.ObservedAtMS <= *storedAtMS) {
+			continue
+		}
+		merged, err := mergePassiveQuotaSnapshot(result.Encoded, sample.Windows)
+		if err != nil {
+			return passiveQuotaMerge{}, 0, err
+		}
+		if merged.Matched {
+			observedAtMS = sample.ObservedAtMS
+		}
+		merged.Matched = merged.Matched || result.Matched
+		merged.Changed = merged.Changed || result.Changed
+		result = merged
+	}
+	return result, observedAtMS, nil
 }
 
 // passiveQuotaMerge is the outcome of overlaying one response's windows onto
