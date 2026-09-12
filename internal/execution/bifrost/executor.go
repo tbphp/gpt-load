@@ -208,6 +208,11 @@ func (r *Runtime) ExecuteStream(
 			"count tokens does not support streaming",
 		))
 	}
+	if prepared.request != nil && prepared.upstreamProtocol == protocol.Anthropic {
+		// SDK 的 Chat 流会丢弃 message_delta；借用保留原始事件的读取路径，
+		// 请求仍按原有 Chat builder 生成，客户端仍使用原有 Anthropic→Chat 转换。
+		prepared.responsesRequest = prepared.request.ToResponsesRequest()
+	}
 	if prepared.responsesRequest != nil {
 		return r.executeConvertedResponsesStream(parent, spec, prepared, sink)
 	}

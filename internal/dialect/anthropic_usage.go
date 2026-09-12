@@ -33,6 +33,10 @@ func (d *Anthropic) ExtractUsage(body []byte) (usage.Result, error) {
 }
 
 func (d *Anthropic) NewUsageStreamExtractor() UsageStreamExtractor {
+	return d.NewUsageStreamSnapshotExtractor()
+}
+
+func (d *Anthropic) NewUsageStreamSnapshotExtractor() UsageStreamSnapshotExtractor {
 	return &anthropicUsageStreamExtractor{}
 }
 
@@ -62,6 +66,7 @@ type anthropicUsageStreamExtractor struct {
 	stopped            bool
 	cacheWriteFallback bool
 	trusted            anthropicCumulativeUsage
+	compaction         usage.Tokens
 }
 
 func (e *anthropicUsageStreamExtractor) Observe(payload []byte) error {
@@ -91,7 +96,23 @@ func (e *anthropicUsageStreamExtractor) Observe(payload []byte) error {
 }
 
 func (e *anthropicUsageStreamExtractor) Finalize() (usage.Result, bool) {
-	return e.accumulator.Finalize(true)
+	result, finalized := e.accumulator.Finalize(true)
+	if !finalized {
+		return result, false
+	}
+	if tokens, ok := addAnthropicUsageTokens(result.Tokens, e.compaction); ok {
+		result.Tokens = tokens
+	} else {
+		result.Diagnostics.Add(usage.DiagnosticInvalidNumber)
+		result.State = usage.StatePartial
+	}
+	return result, true
+}
+
+func (e *anthropicUsageStreamExtractor) Snapshot() usage.Result {
+	copy := *e
+	result, _ := copy.Finalize()
+	return result
 }
 
 func (e *anthropicUsageStreamExtractor) observeStart(root map[string]json.RawMessage) error {
@@ -120,6 +141,7 @@ func (e *anthropicUsageStreamExtractor) observeStart(root map[string]json.RawMes
 	}
 	if validInput {
 		e.validStart = true
+		diagnostics.Merge(e.observeCompaction(usageObject))
 		return e.mergeCumulative(next, diagnostics)
 	}
 	return e.mergeDiagnostics(diagnostics)
@@ -140,6 +162,7 @@ func (e *anthropicUsageStreamExtractor) observeDelta(root map[string]json.RawMes
 		diagnostics.Add(usage.DiagnosticInvalidEventSequence)
 		return e.mergeDiagnostics(diagnostics)
 	}
+	diagnostics.Merge(e.observeCompaction(usageObject))
 	return e.mergeCumulative(next, diagnostics)
 }
 
@@ -212,12 +235,8 @@ func (e *anthropicUsageStreamExtractor) mergeCumulative(
 	}
 
 	if next.aggregatePresent {
-		if e.trusted.aggregatePresent && next.aggregate < e.trusted.aggregate {
-			diagnostics.Add(usage.DiagnosticInvalidEventSequence)
-		} else {
-			e.trusted.aggregate = next.aggregate
-			e.trusted.aggregatePresent = true
-		}
+		e.trusted.aggregate = next.aggregate
+		e.trusted.aggregatePresent = true
 	}
 
 	if e.trusted.aggregatePresent {
@@ -283,7 +302,10 @@ func mergeAnthropicCumulativeField(
 	if nextPresent&field == 0 {
 		return
 	}
-	if *trustedPresent&field != 0 && nextValue < *trustedValue {
+	// 输入与缓存是可修正的用量快照：兼容上游可能先估算全部输入，
+	// 再补报较小的未缓存输入。缺失字段保留，明确的零和下降值覆盖。
+	// 输出仍是生成过程的累计计数，保留原有的倒退检查。
+	if field == anthropicUsageOutput && *trustedPresent&field != 0 && nextValue < *trustedValue {
 		diagnostics.Add(usage.DiagnosticInvalidEventSequence)
 		return
 	}

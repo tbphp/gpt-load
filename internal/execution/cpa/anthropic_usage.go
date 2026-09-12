@@ -6,8 +6,8 @@ import (
 )
 
 // CPA 跨协议流在 message_start 中注入全部输入的本地估算，但 Anthropic 的
-// input_tokens 表示未缓存输入。用零占位，避免估算值阻止最终真实 usage 更新，
-// 或在中断时被当作已计费用量。原生 Anthropic 不经过此修正。
+// input_tokens 表示未缓存输入。用零占位，避免向客户端报告虚假的未缓存输入，
+// 或在中断时把本地估算当作已计费用量。原生 Anthropic 不经过此修正。
 func normalizeConvertedAnthropicStartUsage(payload []byte) ([]byte, error) {
 	if !bytes.Contains(payload, []byte(`"message_start"`)) {
 		return payload, nil
