@@ -41,6 +41,112 @@ func TestUsageAnthropicCanonicalFixtures(t *testing.T) {
 	}
 }
 
+func TestUsageAnthropicStreamAcceptsInputCorrections(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		start string
+		delta string
+		want  usage.Tokens
+	}{
+		{
+			name:  "final uncached input replaces initial estimate",
+			start: `{"input_tokens":1200,"output_tokens":0}`,
+			delta: `{"input_tokens":100,"cache_read_input_tokens":900,"output_tokens":10}`,
+			want:  usage.Tokens{UncachedInput: 100, CacheRead: 900, Output: 10},
+		},
+		{
+			name:  "explicit zero corrects input and cache reads",
+			start: `{"input_tokens":1200,"cache_read_input_tokens":900,"output_tokens":0}`,
+			delta: `{"input_tokens":0,"cache_read_input_tokens":0,"output_tokens":10}`,
+			want:  usage.Tokens{Output: 10},
+		},
+		{
+			name:  "cache classification can be corrected in both directions",
+			start: `{"input_tokens":100,"cache_read_input_tokens":900}`,
+			delta: `{"input_tokens":200,"cache_read_input_tokens":800,"output_tokens":10}`,
+			want:  usage.Tokens{UncachedInput: 200, CacheRead: 800, Output: 10},
+		},
+		{
+			name:  "cache write aggregate and TTL details accept corrections",
+			start: `{"input_tokens":100,"cache_creation_input_tokens":80,"cache_creation":{"ephemeral_5m_input_tokens":30,"ephemeral_1h_input_tokens":50}}`,
+			delta: `{"cache_creation_input_tokens":20,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":20},"output_tokens":10}`,
+			want:  usage.Tokens{UncachedInput: 100, CacheWrite1H: 20, Output: 10},
+		},
+		{
+			name:  "aggregate-only cache writes can be corrected to zero",
+			start: `{"input_tokens":100,"cache_creation_input_tokens":80}`,
+			delta: `{"cache_creation_input_tokens":0,"output_tokens":10}`,
+			want:  usage.Tokens{UncachedInput: 100, Output: 10},
+		},
+		{
+			name:  "missing fields retain real initial usage",
+			start: `{"input_tokens":100,"cache_read_input_tokens":900,"cache_creation":{"ephemeral_5m_input_tokens":20,"ephemeral_1h_input_tokens":30}}`,
+			delta: `{"output_tokens":10}`,
+			want:  usage.Tokens{UncachedInput: 100, CacheRead: 900, CacheWrite5M: 20, CacheWrite1H: 30, Output: 10},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			extractor := NewAnthropic().NewUsageStreamExtractor()
+			for _, event := range []string{
+				`{"type":"message_start","message":{"usage":` + test.start + `}}`,
+				`{"type":"message_delta","usage":` + test.delta + `}`,
+				`{"type":"message_delta","usage":` + test.delta + `}`,
+				`{"type":"message_stop"}`,
+			} {
+				if err := extractor.Observe([]byte(event)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, finalized := extractor.Finalize()
+			if !finalized || got.State != usage.StateComplete || got.Tokens != test.want ||
+				got.Diagnostics.Has(usage.DiagnosticInvalidEventSequence) || got.Diagnostics.Has(usage.DiagnosticInconsistentTotal) {
+				t.Fatalf("usage = %+v, want complete %+v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestUsageAnthropicStreamCompactionSnapshots(t *testing.T) {
+	const initial = `{"type":"message_start","message":{"usage":{"input_tokens":100,"output_tokens":0,"iterations":[{"type":"compaction","input_tokens":50,"output_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":20}}]}}}`
+	for _, test := range []struct {
+		name        string
+		delta       string
+		want        usage.Tokens
+		diagnostics []usage.DiagnosticCode
+	}{
+		{name: "omitted snapshot preserves compaction", delta: `{"output_tokens":10}`,
+			want: usage.Tokens{UncachedInput: 150, CacheWrite5M: 10, CacheWrite1H: 20, Output: 15}},
+		{name: "repeated snapshot is not additive", delta: `{"output_tokens":10,"iterations":[{"type":"compaction","input_tokens":50,"output_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":20}}]}`,
+			want: usage.Tokens{UncachedInput: 150, CacheWrite5M: 10, CacheWrite1H: 20, Output: 15}},
+		{name: "empty snapshot clears compaction", delta: `{"output_tokens":10,"iterations":[]}`,
+			want: usage.Tokens{UncachedInput: 100, Output: 10}},
+		{name: "invalid iteration preserves last good snapshot", delta: `{"output_tokens":10,"iterations":[{"type":"compaction","input_tokens":-1,"output_tokens":5}]}`,
+			want: usage.Tokens{UncachedInput: 150, CacheWrite5M: 10, CacheWrite1H: 20, Output: 15}, diagnostics: []usage.DiagnosticCode{usage.DiagnosticNegativeValue}},
+		{name: "invalid container preserves last good snapshot", delta: `{"output_tokens":10,"iterations":{}}`,
+			want: usage.Tokens{UncachedInput: 150, CacheWrite5M: 10, CacheWrite1H: 20, Output: 15}, diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber}},
+		{name: "overflowing snapshot preserves last good snapshot", delta: `{"output_tokens":10,"iterations":[{"type":"compaction","input_tokens":9223372036854775807,"output_tokens":1}]}`,
+			want: usage.Tokens{UncachedInput: 150, CacheWrite5M: 10, CacheWrite1H: 20, Output: 15}, diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stream := NewAnthropic().NewUsageStreamExtractor()
+			for _, event := range []string{initial,
+				`{"type":"message_delta","usage":` + test.delta + `}`,
+				`{"type":"message_delta","usage":` + test.delta + `}`,
+				`{"type":"message_stop"}`,
+			} {
+				if err := stream.Observe([]byte(event)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, _ := stream.Finalize()
+			if result.State != usage.StateComplete || result.Tokens != test.want {
+				t.Fatalf("usage = %+v, want %+v", result, test.want)
+			}
+			requireUsageDiagnostics(t, result.Diagnostics, test.diagnostics...)
+		})
+	}
+}
+
 func TestUsageAnthropicCacheCreationMapping(t *testing.T) {
 	extractor := NewAnthropic()
 	tests := []struct {
