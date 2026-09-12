@@ -8,6 +8,7 @@ import (
 )
 
 func TestErrorDecisionMigrationPreservesAttemptsAndAddsDecisionContract(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := migrations.Up0001(db); err != nil {
 		t.Fatalf("Up0001() error = %v", err)
@@ -83,6 +84,7 @@ func TestErrorDecisionMigrationPreservesAttemptsAndAddsDecisionContract(t *testi
 }
 
 func TestErrorDecisionMigrationPreservesAttemptIndexesAndForeignKey(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := migrations.Up0001(db); err != nil {
 		t.Fatal(err)

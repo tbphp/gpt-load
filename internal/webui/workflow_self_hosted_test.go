@@ -30,7 +30,7 @@ func TestSelfHostedCIKeepsPlatformGatesAndLocalCaches(t *testing.T) {
 				t.Errorf("%s database gate can collide with local services: %s", file, fixedPort)
 			}
 		}
-		if !strings.Contains(database, "job.services[matrix.driver].ports[format('{0}', matrix.port)]") {
+		if !strings.Contains(database, "job.services.database.ports[format('{0}', matrix.port)]") {
 			t.Errorf("%s database DSN does not use the assigned service port", file)
 		}
 	}

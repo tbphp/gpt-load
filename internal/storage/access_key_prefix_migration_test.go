@@ -9,6 +9,7 @@ import (
 )
 
 func TestAccessKeyPrefixMigrationContract(t *testing.T) {
+	t.Parallel()
 	testAccessKeyPrefixMigration(t, openInternalMigrationTestDatabase)
 }
 
@@ -24,6 +25,9 @@ func testAccessKeyPrefixMigration(t *testing.T, open func(*testing.T) *gorm.DB) 
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if scenario != "fresh" {
 				if err := applyMigrationRegistry(db, migrations[:11]); err != nil {
 					t.Fatal(err)

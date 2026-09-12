@@ -258,14 +258,33 @@ jobs:
       matrix:
         include:
           - driver: mysql
+            image: mysql:8.4
             port: "3306"
+            health: mysqladmin ping -h 127.0.0.1 -proot
             dsn: mysql://root:root@127.0.0.1:{0}/gpt_load?charset=utf8mb4&transaction_isolation=%27READ-COMMITTED%27
           - driver: postgres
+            image: postgres:18
             port: "5432"
+            health: pg_isready -U postgres -d gpt_load
             dsn: postgres://postgres:postgres@127.0.0.1:{0}/gpt_load?sslmode=disable
     services:
-      mysql:
-        image: mysql:8.4
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: gpt_load
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gpt_load
+        ports:
+          - ${{ matrix.port }}
+        options: >-
+          --health-cmd="${{ matrix.health }}"
+          --health-interval=5s
+          --health-timeout=10s
+          --health-retries=20
+      # MySQL 两组使用独立实例，避免不同测试数据库争用同名 GET_LOCK。
+      secondary-mysql:
+        image: ${{ matrix.driver == 'mysql' && 'mysql:8.4' || '' }}
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: gpt_load
@@ -273,18 +292,6 @@ jobs:
           - 3306
         options: >-
           --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
-          --health-interval=5s
-          --health-timeout=10s
-          --health-retries=20
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: gpt_load
-        ports:
-          - 5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d gpt_load"
           --health-interval=5s
           --health-timeout=10s
           --health-retries=20
@@ -302,9 +309,9 @@ jobs:
 
       - name: Run external database contract
         env:
-          GPT_LOAD_DATABASE_TEST_DSN: ${{ format(matrix.dsn, job.services[matrix.driver].ports[format('{0}', matrix.port)]) }}
-        run: |
-          go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog -run '^TestExternal'
+          GPT_LOAD_DATABASE_TEST_DSN: ${{ format(matrix.dsn, job.services.database.ports[format('{0}', matrix.port)]) }}
+          GPT_LOAD_DATABASE_SECONDARY_DSN: ${{ matrix.driver == 'mysql' && format(matrix.dsn, job.services.secondary-mysql.ports['3306']) || '' }}
+        run: .github/scripts/ci-database-contract.sh "${{ matrix.driver }}"
 
   build-binaries:
     needs: verify-and-build-web
