@@ -10,12 +10,14 @@ import AppDialogHeader from './AppDialogHeader.vue'
 import AppIcon from './AppIcon.vue'
 import AppOverflowText from './AppOverflowText.vue'
 import { copyText } from './clipboard'
+import './textarea.css'
 
 defineOptions({ inheritAttrs: false })
 const props = defineProps<{
   value: string
   display?: string
   label?: string
+  wrap?: boolean
   resolveValue?: () => string | Promise<string>
 }>()
 const { t } = useI18n()
@@ -89,8 +91,9 @@ onScopeDispose(() => {
 </script>
 
 <template>
-  <span v-bind="$attrs" class="modern-copy-value">
-    <AppOverflowText :text="display ?? value" />
+  <span v-bind="$attrs" class="modern-copy-value" :class="{ 'is-wrapped': wrap }">
+    <span v-if="wrap">{{ display ?? value }}</span>
+    <AppOverflowText v-else :text="display ?? value" />
     <AppTooltip :label="label">
       <button
         ref="trigger"
@@ -143,6 +146,7 @@ onScopeDispose(() => {
         <textarea
           :id="id"
           ref="textarea"
+          class="modern-resizable-textarea"
           :value="fallback"
           readonly
           spellcheck="false"
@@ -185,6 +189,16 @@ onScopeDispose(() => {
   padding: var(--modern-space-0-5);
   color: var(--modern-muted);
   font: inherit;
+}
+.modern-copy-value.is-wrapped {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: var(--modern-leading-body);
+}
+.modern-copy-value.is-wrapped .modern-copy-button {
+  margin-inline-start: var(--modern-space-0-5);
+  vertical-align: middle;
 }
 .modern-copy-button:hover {
   background: var(--modern-control-hover);

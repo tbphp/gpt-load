@@ -117,6 +117,14 @@ function preventInactiveClick(event: MouseEvent): void {
   border-color: var(--modern-action-hover);
   background: var(--modern-action-hover);
 }
+.modern-button--outline,
+.modern-button--outline:hover:not(:disabled, [aria-disabled='true']),
+.modern-button--outline:active:not(:disabled, [aria-disabled='true']) {
+  border-color: var(--modern-accent);
+  background: transparent;
+  color: var(--modern-accent);
+  box-shadow: none;
+}
 .modern-button--ghost {
   border-color: transparent;
   background: transparent;

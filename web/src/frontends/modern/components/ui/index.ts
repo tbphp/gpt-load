@@ -28,6 +28,7 @@ export { default as AppSelectMenu } from './AppSelectMenu.vue'
 export { default as AppSwitch } from './AppSwitch.vue'
 export { default as AppTextField } from './AppTextField.vue'
 export { default as AppTextArea } from './AppTextArea.vue'
+export { default as AppFileButton } from './AppFileButton.vue'
 export { default as AppTooltip } from './AppTooltip.vue'
 export type {
   ButtonVariant,

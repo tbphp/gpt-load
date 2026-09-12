@@ -1,5 +1,6 @@
 export type ControlSize = 'xs' | 'sm' | 'md'
-export type ButtonVariant = 'default' | 'primary' | 'ghost' | 'brand' | 'danger' | 'text'
+export type ButtonVariant =
+  'default' | 'primary' | 'outline' | 'ghost' | 'brand' | 'danger' | 'text'
 export type SemanticTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
 
 export interface SelectOption {

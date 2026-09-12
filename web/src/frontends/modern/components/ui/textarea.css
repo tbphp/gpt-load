@@ -1,0 +1,35 @@
+/* 保留浏览器原生的纵向拖拽，只统一多行输入框的滚动条和手柄外观。 */
+@supports selector(::-webkit-resizer) {
+  .modern-resizable-textarea {
+    /* 非 auto 的标准滚动条样式会覆盖 WebKit 的手柄样式。 */
+    scrollbar-width: auto;
+    scrollbar-color: initial;
+  }
+  .modern-resizable-textarea::-webkit-scrollbar {
+    width: var(--modern-space-2);
+    height: var(--modern-space-2);
+  }
+  .modern-resizable-textarea::-webkit-scrollbar-thumb {
+    border: var(--modern-space-0-5) solid transparent;
+    border-radius: var(--modern-radius-round);
+    background: var(--modern-scrollbar);
+    background-clip: padding-box;
+  }
+  .modern-resizable-textarea::-webkit-scrollbar-track,
+  .modern-resizable-textarea::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .modern-resizable-textarea::-webkit-resizer {
+    color: var(--modern-control-border-hover);
+    background:
+      linear-gradient(currentColor, currentColor) center calc(50% - var(--modern-space-0-5)) /
+        var(--modern-space-2) var(--modern-line-width) no-repeat,
+      linear-gradient(currentColor, currentColor) center calc(50% + var(--modern-space-0-5)) /
+        var(--modern-space-2) var(--modern-line-width) no-repeat;
+    cursor: ns-resize;
+  }
+  .modern-resizable-textarea:hover::-webkit-resizer,
+  .modern-resizable-textarea:focus::-webkit-resizer {
+    color: var(--modern-muted);
+  }
+}

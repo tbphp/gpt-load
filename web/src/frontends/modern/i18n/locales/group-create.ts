@@ -1,5 +1,5 @@
 export const zhCN = {
-  title: '添加 API 密钥分组',
+  title: '添加分组',
   channel: '渠道',
   autoName: '留空时自动命名',
   baseURL: '上游地址',
@@ -62,7 +62,7 @@ export const zhCN = {
 }
 
 export const enUS: typeof zhCN = {
-  title: 'Add API key group',
+  title: 'Add group',
   channel: 'Channel',
   autoName: 'Leave blank for an automatic name',
   baseURL: 'Upstream URL',
@@ -131,7 +131,7 @@ export const enUS: typeof zhCN = {
 }
 
 export const jaJP: typeof zhCN = {
-  title: 'API キーのグループを追加',
+  title: 'グループを追加',
   channel: 'チャンネル',
   autoName: '空欄の場合は自動で命名',
   baseURL: '上流 URL',

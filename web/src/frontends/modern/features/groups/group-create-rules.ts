@@ -1,4 +1,4 @@
-import type { APIKeyChannel, ModelDraft } from '@modern/api/group-create'
+import type { GroupChannel, ModelDraft } from '@modern/api/group-create'
 
 export interface GroupDraftModel extends ModelDraft {
   key: number
@@ -19,7 +19,7 @@ export function modelErrors(models: readonly GroupDraftModel[]): Map<number, 'id
   return errors
 }
 
-export function credentialCount(raw: string, channel: APIKeyChannel | undefined): number {
+export function credentialCount(raw: string, channel: GroupChannel | undefined): number {
   const value = raw.trim()
   if (!value) return 0
   if (

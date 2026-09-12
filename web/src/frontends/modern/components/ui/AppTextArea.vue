@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import AppField from './AppField.vue'
 import AppFieldControl from './AppFieldControl.vue'
 import type { FieldProps } from './types'
+import './textarea.css'
 
 defineOptions({ inheritAttrs: false })
 const props = withDefaults(defineProps<FieldProps & { rows?: number; mono?: boolean }>(), {
@@ -15,13 +16,13 @@ defineExpose({ focus: () => input.value?.focus(), select: () => input.value?.sel
 
 <template>
   <AppField v-slot="{ id, describedBy, invalid }" v-bind="props">
-    <AppFieldControl :invalid="invalid" :disabled="disabled">
+    <AppFieldControl as-child :invalid="invalid" :disabled="disabled">
       <textarea
         :id="id"
         ref="input"
         v-model="model"
         v-bind="$attrs"
-        class="modern-textarea"
+        class="modern-textarea modern-resizable-textarea"
         :class="{ 'is-mono': mono }"
         :rows="rows"
         :disabled="disabled"
@@ -35,15 +36,9 @@ defineExpose({ focus: () => input.value?.focus(), select: () => input.value?.sel
 <style scoped>
 .modern-textarea {
   display: block;
-  width: 100%;
-  min-width: 0;
-  border: 0;
   outline: none;
   resize: vertical;
-  background: transparent;
-  padding: var(--modern-space-2) 0;
-  color: inherit;
-  font: inherit;
+  padding: var(--modern-space-2) var(--modern-space-3);
   line-height: var(--modern-leading-body);
 }
 .modern-textarea.is-mono {

@@ -11,7 +11,8 @@ export interface ChannelField {
   sensitive: boolean
   defaultValue: string
 }
-export interface APIKeyChannel {
+export type AuthorizationMethod = 'browser_oauth' | 'device_oauth' | 'oauth_file'
+export interface GroupChannel {
   id: string
   name: string
   icon: string
@@ -22,6 +23,9 @@ export interface APIKeyChannel {
   credentialFields: ChannelField[]
   discovery: boolean
   proxy: boolean
+  connectionType: 'api_key' | 'subscription'
+  authorizationMethods: AuthorizationMethod[]
+  notices: ('claude_oauth_risk' | 'antigravity_oauth_risk')[]
 }
 function field(value: unknown): ChannelField {
   const data = record(value)
@@ -36,31 +40,44 @@ function field(value: unknown): ChannelField {
     defaultValue: data.default_value === null ? '' : text(data.default_value),
   }
 }
-export async function getAPIKeyChannels(
+export async function getGroupChannels(
   client: ApiClient,
   signal: AbortSignal,
-): Promise<APIKeyChannel[]> {
+): Promise<GroupChannel[]> {
   const data = record(await client.request<unknown>('/api/channels', { signal }))
-  const items = list(data.items).flatMap((raw): APIKeyChannel[] => {
+  const items = list(data.items).map((raw): GroupChannel => {
     const item = record(raw)
     const connection = record(item.connection)
-    if (oneOf(connection.type, ['api_key', 'subscription']) !== 'api_key') return []
-    if (connection.credential_input !== 'batch_text') throw new InvalidResponseError()
+    const connectionType = oneOf(connection.type, ['api_key', 'subscription'] as const)
+    const authorizationMethods = list(connection.authorization_methods ?? []).map((method) =>
+      oneOf(method, ['browser_oauth', 'device_oauth', 'oauth_file'] as const),
+    )
+    if (
+      connection.credential_input !==
+        (connectionType === 'api_key' ? 'batch_text' : 'authorization') ||
+      (connectionType === 'subscription' && !authorizationMethods.length) ||
+      (connectionType === 'api_key' && authorizationMethods.length) ||
+      new Set(authorizationMethods).size !== authorizationMethods.length
+    )
+      throw new InvalidResponseError()
     const capabilities = record(item.capabilities)
-    return [
-      {
-        id: text(item.channel_id),
-        name: text(item.name),
-        icon: text(item.icon),
-        mark: text(item.mark),
-        keywords: list(item.search_terms).map(text),
-        defaultBaseURL: text(item.default_base_url),
-        fields: list(item.param_fields).map(field),
-        credentialFields: list(item.credential_fields).map(field),
-        discovery: boolean(capabilities.model_discovery),
-        proxy: boolean(capabilities.outbound_proxy),
-      },
-    ]
+    return {
+      id: text(item.channel_id),
+      name: text(item.name),
+      icon: text(item.icon),
+      mark: text(item.mark),
+      keywords: list(item.search_terms).map(text),
+      defaultBaseURL: text(item.default_base_url),
+      fields: list(item.param_fields).map(field),
+      credentialFields: list(item.credential_fields).map(field),
+      discovery: boolean(capabilities.model_discovery),
+      proxy: boolean(capabilities.outbound_proxy),
+      connectionType,
+      authorizationMethods,
+      notices: list(item.notices).map((raw) =>
+        oneOf(record(raw).id, ['claude_oauth_risk', 'antigravity_oauth_risk'] as const),
+      ),
+    }
   })
   if (new Set(items.map((item) => item.id)).size !== items.length) throw new InvalidResponseError()
   return items
@@ -72,17 +89,19 @@ export interface ModelDraft {
 export type ProxyOverride = { mode: 'direct' } | { mode: 'custom'; url: string }
 export interface GroupConnectionDraft {
   channel_id: string
-  connection_type: 'api_key'
   params: Record<string, string>
-  credentials: string
   proxy?: ProxyOverride
 }
-export interface GroupCreateRequest extends GroupConnectionDraft {
-  name?: string
-  price_multiplier: string
-  models: { id: string; alias: string; alias_enabled: boolean }[]
-  confirm_same_target: boolean
-}
+export type GroupCreateCredentials =
+  | { connection_type: 'api_key'; credentials: string }
+  | { connection_type: 'subscription'; staged_credential_ids: string[] }
+export type GroupCreateRequest = GroupConnectionDraft &
+  GroupCreateCredentials & {
+    name?: string
+    price_multiplier: string
+    models: { id: string; alias: string; alias_enabled: boolean }[]
+    confirm_same_target: boolean
+  }
 export interface GroupCreateResult {
   id: number
   name: string
@@ -91,7 +110,11 @@ export interface GroupCreateResult {
 }
 export async function discoverGroupDraftModels(
   client: ApiClient,
-  body: GroupConnectionDraft,
+  body: GroupConnectionDraft &
+    (
+      | { connection_type: 'api_key'; credentials: string }
+      | { connection_type: 'subscription'; staged_credential_id: string }
+    ),
   signal: AbortSignal,
 ): Promise<ModelCandidate[]> {
   const data = record(
@@ -99,7 +122,7 @@ export async function discoverGroupDraftModels(
   )
   return readModelCandidates(data.models)
 }
-export async function createAPIKeyGroup(
+export async function createGroup(
   client: ApiClient,
   body: GroupCreateRequest,
   key: string,

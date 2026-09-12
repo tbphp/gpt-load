@@ -3,14 +3,16 @@ import type { ApiClient } from '@shared/http/client'
 import { ApiError } from '@shared/http/errors'
 import {
   appendAPIKeyCredentials,
-  createAPIKeyGroup,
+  createGroup,
   type GroupCreateRequest,
   type GroupCreateResult,
 } from '@modern/api/group-create'
+import { connectCredentialStages } from '@modern/api/credential-stages'
 
 type Submission =
   | { kind: 'create'; request: GroupCreateRequest }
   | { kind: 'append'; group: { id: number; name: string }; credentials: string }
+  | { kind: 'connect'; group: { id: number; name: string }; stageIDs: string[] }
 type Outcome =
   | { kind: 'success'; result: GroupCreateResult; appended: boolean }
   | { kind: 'rejected'; error: ApiError }
@@ -72,15 +74,23 @@ export function useGroupCreateOperation(client: ApiClient) {
       const payload = current.payload
       const data =
         payload.kind === 'create'
-          ? await createAPIKeyGroup(client, payload.request, current.key, request.signal)
-          : await appendAPIKeyCredentials(
-              client,
-              payload.group,
-              payload.credentials,
-              current.key,
-              request.signal,
-            )
-      result = { kind: 'success', result: data, appended: payload.kind === 'append' }
+          ? await createGroup(client, payload.request, current.key, request.signal)
+          : payload.kind === 'connect'
+            ? await connectCredentialStages(
+                client,
+                payload.group,
+                payload.stageIDs,
+                current.key,
+                request.signal,
+              )
+            : await appendAPIKeyCredentials(
+                client,
+                payload.group,
+                payload.credentials,
+                current.key,
+                request.signal,
+              )
+      result = { kind: 'success', result: data, appended: payload.kind !== 'create' }
     } catch (error) {
       if (request.signal.aborted || operation.value !== current) return
       const data =

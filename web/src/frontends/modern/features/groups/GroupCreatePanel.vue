@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eye, EyeOff, ChevronDown } from '@lucide/vue'
+import { Eye, EyeOff, ChevronDown, KeyRound, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { DialogRoot } from 'reka-ui'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
@@ -7,15 +7,18 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   discoverGroupDraftModels,
-  getAPIKeyChannels,
+  getGroupChannels,
   type GroupConnectionDraft,
   type GroupCreateRequest,
   type GroupCreateResult,
+  type ProxyOverride,
 } from '@modern/api/group-create'
+import { readCredentialStage, type CredentialStage } from '@modern/api/credential-stages'
 import type { ModelCandidate } from '@modern/api/model-discovery'
 import { integer, list, record, text } from '@modern/api/response'
 import {
   AppButton,
+  AppBadge,
   AppChannelIcon,
   AppCollectionState,
   AppDialogContent,
@@ -32,6 +35,7 @@ import { useLoadingFeedback } from '@modern/components/ui/loading'
 import { useApiClient } from '@shared/http/client-context'
 import { ApiError } from '@shared/http/errors'
 import GroupModelPicker from './GroupModelPicker.vue'
+import SubscriptionCredentialStager from './SubscriptionCredentialStager.vue'
 import { useGroupCreateOperation } from './group-create-operation'
 import {
   credentialCount,
@@ -50,8 +54,8 @@ const emit = defineEmits<{
 const { t, n } = useI18n()
 const client = useApiClient()
 const query = useQuery({
-  queryKey: ['modern', 'api-key-channels'],
-  queryFn: ({ signal }) => getAPIKeyChannels(client, signal),
+  queryKey: ['modern', 'group-channels'],
+  queryFn: ({ signal }) => getGroupChannels(client, signal),
 })
 const channels = computed(() => query.data.value ?? [])
 const options = computed(() =>
@@ -63,10 +67,20 @@ const options = computed(() =>
 )
 const channelID = ref('')
 const channel = computed(() => channels.value.find((item) => item.id === channelID.value))
+const subscription = computed(() => channel.value?.connectionType === 'subscription')
 const params = ref<Record<string, string>>({})
 const name = ref('')
 const price = ref('1')
 const credentials = ref('')
+const stages = ref<CredentialStage[]>([])
+const authorizationPending = computed(() =>
+  stages.value.some((stage) =>
+    ['pending_authorization', 'exchanging', 'outcome_unknown'].includes(stage.status),
+  ),
+)
+const stagingBusy = ref(false)
+const stagingDirty = ref(false)
+const stager = ref<InstanceType<typeof SubscriptionCredentialStager>>()
 const models = ref<GroupDraftModel[]>([])
 const proxyMode = ref('inherit')
 const proxyURL = ref('')
@@ -82,6 +96,8 @@ const errorText = ref('')
 const conflicts = ref<{ id: number; name: string }[]>([])
 const operation = useGroupCreateOperation(client)
 const locked = computed(() => Boolean(operation.operation.value) || operation.pending.value)
+const inputLocked = computed(() => locked.value || stagingBusy.value)
+const busy = computed(() => operation.pending.value || stagingBusy.value)
 const outcome = operation.outcome
 const unresolved = computed(
   () => outcome.value && outcome.value.kind !== 'success' && outcome.value.kind !== 'rejected',
@@ -109,19 +125,37 @@ function snapshot(): string {
     name: name.value,
     price: price.value,
     credentials: credentials.value,
+    stages: stages.value.map((stage) => stage.id),
     models: models.value,
     proxyMode: proxyMode.value,
     proxyURL: proxyURL.value,
   })
 }
-const dirty = computed(() => !completed.value && snapshot() !== baseline.value)
+const dirty = computed(
+  () => !completed.value && (snapshot() !== baseline.value || stagingDirty.value),
+)
 baseline.value = snapshot()
-const count = computed(() => credentialCount(credentials.value, channel.value))
+function currentReadyIDs(): string[] {
+  return stages.value
+    .filter((stage) => stage.status === 'ready' && stage.expiresAt > Date.now())
+    .map((stage) => stage.id)
+}
+function expireReadyStages(): void {
+  if (stages.value.some((stage) => stage.status === 'ready' && stage.expiresAt <= Date.now()))
+    stages.value = stages.value.map((stage) =>
+      stage.status === 'ready' && stage.expiresAt <= Date.now()
+        ? { ...stage, status: 'expired' }
+        : stage,
+    )
+}
+const count = computed(() =>
+  subscription.value ? currentReadyIDs().length : credentialCount(credentials.value, channel.value),
+)
 const credentialError = computed(() =>
   !count.value
-    ? t('groupCreate.credentialsRequired')
-    : count.value > 5000
-      ? t('groupCreate.credentialsLimit')
+    ? t(subscription.value ? 'subscriptions.readyRequired' : 'groupCreate.credentialsRequired')
+    : count.value > (subscription.value ? 1000 : 5000)
+      ? t(subscription.value ? 'subscriptions.stageLimit' : 'groupCreate.credentialsLimit')
       : '',
 )
 const nameError = computed(() => {
@@ -139,6 +173,13 @@ const proxyError = computed(() =>
   channel.value?.proxy && proxyMode.value === 'custom' && !validProxyURL(proxyURL.value.trim())
     ? t('groupCreate.proxyError')
     : '',
+)
+const proxyOverride = computed<ProxyOverride | undefined>(() =>
+  !channel.value?.proxy || proxyMode.value === 'inherit'
+    ? undefined
+    : proxyMode.value === 'direct'
+      ? { mode: 'direct' }
+      : { mode: 'custom', url: proxyURL.value.trim() },
 )
 const paramErrors = computed(() =>
   Object.fromEntries(
@@ -179,7 +220,7 @@ function cancelDiscovery(): void {
   discovering.value = false
 }
 function selectChannel(value: string): void {
-  if (locked.value || !channels.value.some((item) => item.id === value)) return
+  if (inputLocked.value || !channels.value.some((item) => item.id === value)) return
   cancelDiscovery()
   channelID.value = value
   params.value = Object.fromEntries(
@@ -189,6 +230,8 @@ function selectChannel(value: string): void {
     ]),
   )
   credentials.value = ''
+  stages.value = []
+  stagingDirty.value = false
   models.value = []
   candidates.value = []
   proxyMode.value = 'inherit'
@@ -198,7 +241,7 @@ function selectChannel(value: string): void {
   errorText.value = ''
 }
 function requestChannel(value: string): void {
-  if (locked.value || value === channelID.value) return
+  if (inputLocked.value || value === channelID.value) return
   if (channelID.value && (credentials.value.trim() || models.value.length || dirty.value)) {
     requestedChannel = value
     confirmAction.value = 'channel'
@@ -216,40 +259,35 @@ watch(
   },
   { immediate: true },
 )
-watch(
-  [channelID, params, credentials, proxyMode, proxyURL],
-  () => {
-    connectionRevision.value++
-    cancelDiscovery()
-    candidates.value = []
-    discoveryError.value = ''
-  },
-  { deep: true },
-)
+function invalidateDiscovery(): void {
+  connectionRevision.value++
+  cancelDiscovery()
+  candidates.value = []
+  discoveryError.value = ''
+}
+watch([channelID, params, credentials, proxyMode, proxyURL], invalidateDiscovery, { deep: true })
+// 只跟踪实际用于发现模型的账号，其他账号就绪不打断当前模型选择。
+watch(() => currentReadyIDs()[0], invalidateDiscovery)
 function toggleSecret(key: string): void {
   if (secretsVisible.value.has(key)) secretsVisible.value.delete(key)
   else secretsVisible.value.add(key)
 }
 function connection(): GroupConnectionDraft {
-  const proxy =
-    channel.value?.proxy && proxyMode.value !== 'inherit'
-      ? proxyMode.value === 'direct'
-        ? { mode: 'direct' as const }
-        : { mode: 'custom' as const, url: proxyURL.value.trim() }
-      : undefined
+  const proxy = proxyOverride.value
   return {
     channel_id: channelID.value,
-    connection_type: 'api_key',
     params: Object.fromEntries(
       Object.entries(params.value).map(([key, value]) => [key, value.trim()]),
     ),
-    credentials: credentials.value,
     ...(proxy ? { proxy } : {}),
   }
 }
 function request(): GroupCreateRequest {
   return {
     ...connection(),
+    ...(subscription.value
+      ? { connection_type: 'subscription' as const, staged_credential_ids: currentReadyIDs() }
+      : { connection_type: 'api_key' as const, credentials: credentials.value }),
     ...(name.value.trim() ? { name: name.value.trim() } : {}),
     price_multiplier: price.value.trim(),
     models: models.value.map((model) => ({
@@ -263,6 +301,8 @@ function request(): GroupCreateRequest {
 function validConnection(): boolean {
   return (
     Boolean(channel.value) &&
+    !stagingBusy.value &&
+    (!subscription.value || currentReadyIDs().length > 0) &&
     !Object.keys(paramErrors.value).length &&
     !credentialError.value &&
     !proxyError.value
@@ -277,11 +317,14 @@ function focusConnectionError(): void {
   const field = Object.keys(paramErrors.value)[0]
   if (!channel.value) channelInput.value?.focus()
   else if (field) paramInputs.get(field)?.focus()
-  else if (credentialError.value) credentialInput.value?.focus()
-  else if (proxyError.value) proxyInput.value?.focus()
+  else if (credentialError.value) {
+    if (subscription.value) stager.value?.focus()
+    else credentialInput.value?.focus()
+  } else if (proxyError.value) proxyInput.value?.focus()
 }
 async function discover(): Promise<void> {
-  if (locked.value || discovering.value || !channel.value?.discovery) return
+  if (inputLocked.value || discovering.value || !channel.value?.discovery) return
+  expireReadyStages()
   attempted.value = true
   if (!validConnection()) {
     if (proxyError.value) advanced.value = true
@@ -294,8 +337,16 @@ async function discover(): Promise<void> {
   discoveryController = controller
   discovering.value = true
   discoveryError.value = ''
+  const stagedID = subscription.value ? currentReadyIDs()[0] : undefined
   try {
-    const result = await discoverGroupDraftModels(client, connection(), controller.signal)
+    const body = subscription.value
+      ? {
+          ...connection(),
+          connection_type: 'subscription' as const,
+          staged_credential_id: stagedID!,
+        }
+      : { ...connection(), connection_type: 'api_key' as const, credentials: credentials.value }
+    const result = await discoverGroupDraftModels(client, body, controller.signal)
     if (!controller.signal.aborted) {
       candidates.value = result
     }
@@ -304,6 +355,16 @@ async function discover(): Promise<void> {
       discoveryError.value =
         error instanceof ApiError ? error.message : t('groupCreate.discoveryFailed')
   } finally {
+    if (stagedID && !controller.signal.aborted) {
+      try {
+        const updated = await readCredentialStage(client, stagedID, controller.signal)
+        if (!controller.signal.aborted)
+          stages.value = stages.value.map((stage) => (stage.id === updated.id ? updated : stage))
+      } catch {
+        if (!controller.signal.aborted && !discoveryError.value)
+          discoveryError.value = t('subscriptions.refreshFailed')
+      }
+    }
     if (!controller.signal.aborted) discovering.value = false
   }
 }
@@ -361,7 +422,12 @@ async function execute(): Promise<void> {
   }
 }
 async function submit(): Promise<void> {
-  if (locked.value || query.isPending.value) return
+  if (inputLocked.value || query.isPending.value) return
+  if (authorizationPending.value) {
+    stager.value?.focus()
+    return
+  }
+  expireReadyStages()
   attempted.value = true
   errorText.value = ''
   if (!validConnection() || nameError.value || priceError.value || modelErrors(models.value).size) {
@@ -394,10 +460,20 @@ async function confirmSeparate(): Promise<void> {
 async function appendTo(group: { id: number; name: string }): Promise<void> {
   const current = operation.operation.value?.payload
   if (current?.kind !== 'create' || operation.pending.value) return
-  const raw = current.request.credentials
   operation.reset()
   conflicts.value = []
-  operation.begin({ kind: 'append', group: { id: group.id, name: group.name }, credentials: raw })
+  if (current.request.connection_type === 'subscription')
+    operation.begin({
+      kind: 'connect',
+      group: { ...group },
+      stageIDs: current.request.staged_credential_ids,
+    })
+  else
+    operation.begin({
+      kind: 'append',
+      group: { ...group },
+      credentials: current.request.credentials,
+    })
   await execute()
 }
 function editDraft(): void {
@@ -406,7 +482,7 @@ function editDraft(): void {
   conflicts.value = []
 }
 function close(): void {
-  if (operation.pending.value) return
+  if (busy.value) return
   if (dirty.value || operation.operation.value) confirmAction.value = 'close'
   else emit('close')
 }
@@ -426,7 +502,7 @@ function confirmDiscard(): void {
   }
 }
 function guardLeave(): boolean | Promise<boolean> {
-  if (operation.pending.value) return false
+  if (busy.value) return false
   if (!dirty.value && !operation.operation.value) return true
   resolveLeave?.(false)
   confirmAction.value = 'close'
@@ -448,6 +524,7 @@ onScopeDispose(() => {
   resolveLeave?.(false)
   window.removeEventListener('beforeunload', beforeUnload)
   credentials.value = ''
+  stages.value = []
   params.value = {}
 })
 </script>
@@ -470,7 +547,7 @@ onScopeDispose(() => {
       <AppDialogHeader
         :title="t('groupCreate.title')"
         :close-label="t('ui.close')"
-        :close-disabled="operation.pending.value"
+        :close-disabled="busy"
         @close="close"
       />
       <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
@@ -488,7 +565,7 @@ onScopeDispose(() => {
             :model-value="channelID"
             :label="t('groupCreate.channel')"
             :options="options"
-            :disabled="locked"
+            :disabled="inputLocked"
             :error="attempted && !channel ? t('groupCreate.required') : undefined"
             @update:model-value="requestChannel"
           >
@@ -499,6 +576,29 @@ onScopeDispose(() => {
                 :name="option.label"
               />
               <span>{{ option.label }}</span>
+              <AppBadge
+                size="xs"
+                :icon="
+                  channels.find((item) => item.id === option.value)?.connectionType ===
+                  'subscription'
+                    ? UserRound
+                    : KeyRound
+                "
+                :tone="
+                  channels.find((item) => item.id === option.value)?.connectionType ===
+                  'subscription'
+                    ? 'brand'
+                    : 'neutral'
+                "
+                >{{
+                  t(
+                    channels.find((item) => item.id === option.value)?.connectionType ===
+                      'subscription'
+                      ? 'subscriptions.connectionType'
+                      : 'subscriptions.apiKey',
+                  )
+                }}</AppBadge
+              >
             </template>
           </AppSearchSelect>
           <AppTextField
@@ -507,7 +607,7 @@ onScopeDispose(() => {
             :label="t('groups.edit.name')"
             :placeholder="t('groupCreate.autoName')"
             autocomplete="off"
-            :disabled="locked"
+            :disabled="inputLocked"
             :error="attempted ? nameError : undefined"
           />
           <template v-if="channel">
@@ -525,7 +625,7 @@ onScopeDispose(() => {
               :placeholder="
                 field.defaultValue || (field.inputKind === 'url' ? 'https://' : undefined)
               "
-              :disabled="locked"
+              :disabled="inputLocked"
               :error="attempted ? paramErrors[field.key] : undefined"
               autocomplete="off"
               spellcheck="false"
@@ -547,6 +647,7 @@ onScopeDispose(() => {
               </template>
             </AppTextField>
             <AppTextArea
+              v-if="!subscription"
               ref="credentialInput"
               v-model="credentials"
               :label="t('groupCreate.credentials')"
@@ -558,12 +659,25 @@ onScopeDispose(() => {
               mono
               autocomplete="off"
               spellcheck="false"
-              :disabled="locked"
+              :disabled="inputLocked"
               :error="attempted ? credentialError : undefined"
             />
-            <p class="modern-group-create-count">
+            <p v-if="!subscription" class="modern-group-create-count">
               {{ t('groupCreate.credentialCount', { count: n(count) }) }}
             </p>
+            <SubscriptionCredentialStager
+              v-else
+              :key="channel.id"
+              ref="stager"
+              v-model="stages"
+              :channel="channel"
+              :proxy="proxyOverride"
+              :disabled="locked || discovering"
+              :entry-disabled="Boolean(proxyError) || Object.keys(paramErrors).length > 0"
+              :error="attempted ? credentialError : undefined"
+              @busy="stagingBusy = $event"
+              @dirty="stagingDirty = $event"
+            />
             <GroupModelPicker
               ref="modelPicker"
               v-model="models"
@@ -573,7 +687,7 @@ onScopeDispose(() => {
               :discovery-supported="channel.discovery"
               :can-discover="validConnection()"
               :discovery-error="discoveryError"
-              :disabled="locked"
+              :disabled="inputLocked"
               :attempted="attempted"
               @discover="discover"
               @cancel-discovery="cancelDiscovery"
@@ -592,7 +706,7 @@ onScopeDispose(() => {
                   v-model="price"
                   :label="t('groups.edit.price')"
                   inputmode="decimal"
-                  :disabled="locked"
+                  :disabled="inputLocked"
                   :error="attempted ? priceError : undefined"
                 />
                 <AppSelect
@@ -600,14 +714,15 @@ onScopeDispose(() => {
                   v-model="proxyMode"
                   :label="t('groupCreate.proxy')"
                   :options="proxyOptions"
-                  :disabled="locked"
+                  :disabled="inputLocked || stages.length > 0"
+                  :description="stages.length ? t('subscriptions.proxyLocked') : undefined"
                 />
                 <AppTextField
                   v-if="channel.proxy && proxyMode === 'custom'"
                   ref="proxyInput"
                   v-model="proxyURL"
                   :label="t('groupCreate.proxyURL')"
-                  :disabled="locked"
+                  :disabled="inputLocked || stages.length > 0"
                   :error="attempted ? proxyError : undefined"
                   placeholder="http://127.0.0.1:7890"
                   autocomplete="off"
@@ -667,17 +782,20 @@ onScopeDispose(() => {
         </div>
         <footer class="modern-group-create-footer">
           <span v-if="channel">{{
-            t('groupCreate.summary', { credentials: n(count), models: n(models.length) })
+            authorizationPending
+              ? t('subscriptions.finishAuthorization')
+              : t(subscription ? 'subscriptions.createSummary' : 'groupCreate.summary', {
+                  credentials: n(count),
+                  models: n(models.length),
+                })
           }}</span>
           <div class="modern-group-create-actions">
-            <AppButton :disabled="operation.pending.value" @click="close">{{
-              t('ui.cancel')
-            }}</AppButton>
+            <AppButton :disabled="busy" @click="close">{{ t('ui.cancel') }}</AppButton>
             <AppButton
               type="submit"
               variant="primary"
               :loading="operation.pending.value"
-              :disabled="locked || !channels.length"
+              :disabled="inputLocked || !channels.length || authorizationPending"
               >{{ t('groups.create') }}</AppButton
             >
           </div>

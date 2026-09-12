@@ -2,8 +2,10 @@ import { enUS as groupMessages } from './groups'
 import { enUS as ui } from './ui'
 import { enUS as groupCreate } from './group-create'
 import { enUS as modelSelection } from './model-selection'
+import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  subscriptions,
   modelSelection,
   groupCreate,
   ui,

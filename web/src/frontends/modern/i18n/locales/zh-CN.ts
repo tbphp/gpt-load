@@ -2,8 +2,10 @@ import { zhCN as groupMessages } from './groups'
 import { zhCN as ui } from './ui'
 import { zhCN as groupCreate } from './group-create'
 import { zhCN as modelSelection } from './model-selection'
+import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  subscriptions,
   modelSelection,
   groupCreate,
   ui,
