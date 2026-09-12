@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
+	"gpt-load/internal/telemetry"
 )
 
 var reasonWebsocketCapability = reason{400, "websocket_capability_unavailable", "The selected upstream does not support this WebSocket capability."}
@@ -235,7 +236,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		}
 		return
 	}
-	affinity := h.resolveRequestAffinity(snapshot, key.ID, protocol.OpenAIResponses, original.metadata.AffinityPrefix, query.AllowedCredentialRefs)
+	affinity := h.resolveRequestAffinity(snapshot, key.ID, protocol.OpenAIResponses, original.metadata.AffinityPrefix, query.AllowedCredentialRefs, original.metadata.PromptCacheKey)
 	if requiredRef == nil {
 		query.PreferredCredentialID = affinity.preferredCredentialID
 	}
@@ -357,7 +358,13 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		recorder.setPricingMode(effective.metadata.PricingMode)
 		recorder.setUsageDiagnostics(effective.metadata.UsageDiagnostics)
 		recorder.freezeNextAttemptPricing(h.freezeAttemptPricing(selection, effective.metadata, true, key.PriceMultiplier))
-		recorder.setAffinityHit(requiredRef != nil || selection.CredentialID == affinity.preferredCredentialID)
+		if sequence == 1 {
+			kind := affinity.kind
+			if requiredRef != nil {
+				kind = telemetry.AffinityResponseContinuity
+			}
+			recorder.setAffinityHit(requiredRef != nil || selection.CredentialID == affinity.preferredCredentialID, kind)
+		}
 		started := recorder.beforeForward()
 		ctx, cancel := context.WithTimeout(s.ctx, selection.Group.Timeouts.Request)
 		var firstByteDeadline time.Time
@@ -429,7 +436,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		h.applyGroupDecisionEffect(selection.Group, ref, 0, decision, result.StatusCode, h.now(), input.UpstreamModelID)
 		if result.Stream.EndReason == StreamEndCleanEOF {
 			h.recordCredentialSuccess(ref, h.now())
-			if original.previous == "" {
+			if requiredRef == nil {
 				h.recordAffinitySuccess(affinity, selection, ref)
 			}
 		}

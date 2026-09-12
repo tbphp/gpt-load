@@ -149,6 +149,7 @@ type requestLogItemResponse struct {
 	ErrorCode               string                       `json:"error_code"`
 	ErrorSummary            string                       `json:"error_summary"`
 	AffinityHit             bool                         `json:"affinity_hit"`
+	AffinityKind            string                       `json:"affinity_kind"`
 	GroupID                 *uint                        `json:"group_id"`
 	ChannelID               *channel.ID                  `json:"channel_id"`
 	CredentialID            *uint                        `json:"credential_id"`
@@ -329,6 +330,7 @@ func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
 	record.ModelConsistency = telemetry.ModelConsistencyNotApplicable
 	record.AttemptCount = 0
 	record.AffinityHit = false
+	record.AffinityKind = ""
 	record.GroupID = 0
 	record.ChannelID = ""
 	record.CredentialID = 0
@@ -925,6 +927,7 @@ func mapRequestLogItemResponse(
 		ErrorCode:               record.ErrorCode,
 		ErrorSummary:            record.ErrorSummary,
 		AffinityHit:             record.AffinityHit,
+		AffinityKind:            record.AffinityKind,
 		GroupID:                 usageCost.groupID,
 		ChannelID:               usageCost.channelID,
 		CredentialID:            usageCost.credentialID,

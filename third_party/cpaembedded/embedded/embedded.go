@@ -404,6 +404,7 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment, &request)
 	response, err := e.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
+		Metadata: codexSessionMetadata(request, format),
 	}, codexExecutionOptions(request, format, false))
 	if err != nil {
 		return ExecuteResponse{
@@ -498,6 +499,7 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 	executionCtx := e.executionContext(ctx, auth, observation, request.ProxyFromEnvironment, &request)
 	response, err := e.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
+		Metadata: codexSessionMetadata(request, format),
 	}, codexExecutionOptions(request, format, true))
 	if err != nil {
 		return &ExecuteStreamResponse{
@@ -524,6 +526,25 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 		UpstreamRequestPath:    observation.upstreamRequestPath(),
 		QuotaSignals:           observation.quotaSignalObservation(),
 	}, nil
+}
+
+// 给 Codex 提供稳定缓存分组兜底；CPA 优先使用客户端缓存键或 Claude Code 身份。
+func codexSessionMetadata(request ExecuteRequest, format sdktranslator.Format) map[string]any {
+	switch format {
+	case sdktranslator.FormatOpenAI, sdktranslator.FormatOpenAIResponse, sdktranslator.FormatClaude, sdktranslator.FormatGemini:
+	default:
+		return nil
+	}
+	// 保留客户端已有会话头，避免兜底缓存键覆盖其上游会话。
+	if strings.TrimSpace(request.Headers.Get("Session-Id")) != "" {
+		return nil
+	}
+	scope := strings.TrimSpace(request.ContinuityKey)
+	if scope == "" {
+		return nil
+	}
+	// 这是提示词派生的缓存分组，不是严格执行会话；避免启用额外的 reasoning replay。
+	return map[string]any{cliproxyexecutor.DerivedSessionIDMetadataKey: scope}
 }
 
 func codexExecutionOptions(

@@ -1069,3 +1069,53 @@ func TestWebsocketFirstEventTimeoutClosesSession(t *testing.T) {
 		t.Fatal("first-event deadline did not stop upstream")
 	}
 }
+
+func TestWebsocketCacheAffinityAndConnectionBindingKinds(t *testing.T) {
+	var ids atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, websocketCompleted(fmt.Sprintf("cache-%d", ids.Add(1)), "")); err != nil {
+				return
+			}
+		}
+	}))
+	defer upstream.Close()
+	h, engine, _ := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+	sink := &recordingRequestLogSink{}
+	h.requestLogSink = sink
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	send := func(conn *websocket.Conn, key, prefix string, count int) {
+		t.Helper()
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type":"response.create","model":"public","input":%q,"prompt_cache_key":%q}`, prefix, key))); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := conn.ReadMessage(); err != nil {
+			t.Fatal(err)
+		}
+		waitWebsocketLogs(t, sink, count)
+	}
+	first := dialGatewayWebsocket(t, server.URL)
+	send(first, "a", "initial", 1)
+	first.Close()
+	second := dialGatewayWebsocket(t, server.URL)
+	defer second.Close()
+	send(second, "a", "different", 2)
+	send(second, "b", "bound turn", 3)
+	third := dialGatewayWebsocket(t, server.URL)
+	defer third.Close()
+	send(third, "b", "another", 4)
+	events := sink.snapshot()
+	assertAffinityHits(t, events, []bool{false, true, true, false})
+	if events[1].AffinityKind != telemetry.AffinityPromptCacheKey || events[2].AffinityKind != telemetry.AffinityResponseContinuity {
+		t.Fatal("WebSocket affinity kind mismatch")
+	}
+}
