@@ -14,7 +14,8 @@ import (
 
 func prepareConvertedInstructions(spec execution.AttemptSpec, providerKind channel.ProviderKind) (execution.AttemptSpec, *execution.ErrorEvidence) {
 	if spec.RouteMode != execution.RouteConverted ||
-		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate) {
+		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate &&
+			spec.Operation != execution.OperationCountTokens) {
 		return spec, nil
 	}
 	if (providerKind == channel.ProviderCodex || providerKind == channel.ProviderGrok) && spec.ClientProtocol == protocol.Anthropic {
@@ -32,7 +33,8 @@ func prepareConvertedInstructions(spec execution.AttemptSpec, providerKind chann
 		}
 		return spec, nil
 	}
-	if dialect.CountMidConversationSystemMessages(spec.ClientProtocol, spec.Body) == 0 {
+	if spec.Operation == execution.OperationCountTokens ||
+		dialect.CountMidConversationSystemMessages(spec.ClientProtocol, spec.Body) == 0 {
 		return spec, nil
 	}
 	lossy := false

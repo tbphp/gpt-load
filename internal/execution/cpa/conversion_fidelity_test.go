@@ -195,11 +195,79 @@ func TestAdapterPreservesAnthropicInstructionsOnResponsesTargets(t *testing.T) {
 					"input.6.content.0.text": "<system-reminder>ordinary reminder</system-reminder>",
 					"input.7.call_id":        "call_lookup", "input.7.name": "lookup",
 					"input.8.content.0.text": "DURING_TOOL", "input.9.call_id": "call_lookup",
+					"input.9.output":          "tool result",
 					"input.10.content.0.text": "next", "reasoning.effort": "high",
 				} {
 					if got := gjson.GetBytes(wire, path).String(); got != want {
 						t.Errorf("upstream %s = %q, want %q", path, got, want)
 					}
+				}
+			})
+		}
+	}
+}
+
+func TestAdapterTokenCountPreservesAnthropicInstructions(t *testing.T) {
+	for _, target := range []struct {
+		channel channel.ID
+		model   string
+	}{
+		{channel.Codex, "gpt-5.6-luna"},
+		{channel.Grok, "grok-4.3"},
+	} {
+		for _, input := range []struct {
+			name    string
+			content string
+		}{
+			{"string", `"Always answer in Chinese"`},
+			{"blocks", `[{"type":"text","text":"Use Chinese"},{"type":"text","text":"Keep the answer concise"}]`},
+		} {
+			t.Run(fmt.Sprintf("%s/%s", target.channel, input.name), func(t *testing.T) {
+				adapter := NewAdapter(nil, channel.NewRegistry())
+				preparer := &fakeCredentialPreparer{evidence: &execution.ErrorEvidence{
+					Kind: execution.ErrorKindInternal, Summary: "local token count must not prepare credentials",
+				}}
+				adapter.credentials = preparer
+				count := func(role string) int64 {
+					t.Helper()
+					body := []byte(fmt.Sprintf(`{
+						"model":%q,"system":"GLOBAL",
+						"messages":[
+							{"role":%q,"content":"PREFIX"},
+							{"role":"user","content":"hello"},
+							{"role":"assistant","content":"ok"},
+							{"role":%q,"content":%s},
+							{"role":"user","content":"<system-reminder>ordinary reminder</system-reminder>"}
+						]
+					}`, target.model, role, role, input.content))
+					spec := execution.NewAttemptSpec(execution.AttemptSpec{
+						RequestID: "count-instructions", AttemptID: "count-instructions-1", Sequence: 1,
+						ChannelID: string(target.channel), RouteMode: execution.RouteConverted,
+						ClientProtocol: protocol.Anthropic, Operation: execution.OperationCountTokens,
+						ClientModel: target.model, UpstreamModel: target.model,
+						Method: http.MethodPost, Path: "/v1/messages/count_tokens", Body: body,
+						Credential: execution.NewCredentialSnapshot(1, 1, 1, []byte(`{}`)),
+					})
+					result := adapter.Execute(t.Context(), spec)
+					if result.Error != nil {
+						t.Fatalf("count instructions: %+v", result.Error)
+					}
+					if preparer.calls != 0 || result.Header.Get(localTokenCountHeader) != "local-estimate" {
+						t.Fatal("token count did not use the local estimator")
+					}
+					if !bytes.Equal(spec.Body, body) {
+						t.Fatal("token count changed the original request")
+					}
+					tokens := gjson.GetBytes(result.Body, "input_tokens").Int()
+					if tokens <= 0 {
+						t.Fatalf("invalid token count: %s", result.Body)
+					}
+					return tokens
+				}
+				// 执行请求以 developer 原位发送指令，计数必须采用同一个提示。
+				want := count("developer")
+				if got := count("system"); got != want {
+					t.Fatalf("system token count = %d, executed developer prompt count = %d", got, want)
 				}
 			})
 		}
