@@ -19,7 +19,7 @@ func TestWindowsInstallerKeepsPortableBinaryAndAddsSetupAsset(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/release.yml")
 	setupJob := workflowJobBlock(t, workflow, "build-windows-setup")
 	for _, required := range []string{
-		"windows-2025",
+		"runs-on: [self-hosted, Windows, X64]",
 		"binary-gpt-load-windows-amd64.exe",
 		"packaging/windows/gpt-load.iss",
 		"ISCC.exe",
