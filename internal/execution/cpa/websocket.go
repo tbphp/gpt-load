@@ -7,17 +7,19 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/wsnative"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/subscription"
 	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 type websocketProvider interface {
-	openWebsocket(execution.AttemptSpec, providerCredential, string, string) (execution.WebsocketSession, error)
+	openWebsocket(execution.AttemptSpec, providerCredential, string, string, func(http.Header, time.Time)) (execution.WebsocketSession, error)
 }
 
 // OpenWebsocket 使用既有凭据刷新和网络准备，Session 仍由单个下游连接拥有。
@@ -73,35 +75,54 @@ func (a *Adapter) OpenWebsocket(ctx context.Context, spec execution.AttemptSpec)
 	if err != nil {
 		return reject()
 	}
-	s, err := opener.openWebsocket(spec, credential, baseURL, settings.URL)
+	observationSpec := execution.AttemptSpec{Credential: execution.NewCredentialSnapshot(spec.Credential.ID, spec.Credential.Version, spec.Credential.IdentityGeneration, nil)}
+	observed := &observedWebsocketSession{adapter: a, spec: observationSpec}
+	s, err := opener.openWebsocket(spec, credential, baseURL, settings.URL, observed.observeHeaders)
 	if err != nil {
 		result.Error = codexWebsocketEvidence(ctx, err)
 		return nil, result
 	}
-	observationSpec := execution.AttemptSpec{Credential: execution.NewCredentialSnapshot(spec.Credential.ID, spec.Credential.Version, spec.Credential.IdentityGeneration, nil)}
-	return &observedWebsocketSession{WebsocketSession: s, adapter: a, spec: observationSpec}, result
+	observed.WebsocketSession = s
+	return observed, result
 }
 
 type observedWebsocketSession struct {
 	execution.WebsocketSession
-	adapter *Adapter
-	spec    execution.AttemptSpec
+	adapter   *Adapter
+	spec      execution.AttemptSpec
+	handshake subscription.PassiveQuotaSample
 }
 
 func (s *observedWebsocketSession) ExecuteTurn(ctx context.Context, payload []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
-	result := s.WebsocketSession.ExecuteTurn(ctx, payload, emit)
-	if len(result.Header) > 0 && !result.HeaderObservedAt.IsZero() {
-		signals := make(map[string]string)
-		for name, values := range result.Header {
-			signals[name] = strings.Join(values, ",")
+	return s.WebsocketSession.ExecuteTurn(ctx, payload, func(ctx context.Context, event []byte) error {
+		observedAt := time.Now()
+		windows := codex.NormalizeWebsocketQuotaWindows(event, observedAt)
+		if len(windows) > 0 {
+			s.adapter.credentials.RecordPassiveQuotaPair(s.spec.Credential.ID, s.spec.Credential.IdentityGeneration,
+				s.handshake, subscription.PassiveQuotaSample{ObservedAtMS: observedAt.UnixMilli(), Windows: windows})
 		}
-		now := result.HeaderObservedAt
-		s.adapter.recordPassiveQuotaObservation(s.spec, now, codex.NormalizePassiveQuotaWindows(signals, now))
-	}
-	return result
+		if emit != nil {
+			return emit(ctx, event)
+		}
+		return nil
+	})
 }
 
-func (*codexProviderBridge) openWebsocket(spec execution.AttemptSpec, credential providerCredential, baseURL, proxyURL string) (execution.WebsocketSession, error) {
+// observeHeaders 保留响应头的原始额度样本；握手在交付本连接的事件之前记录。
+func (s *observedWebsocketSession) observeHeaders(headers http.Header, observedAt time.Time) {
+	if len(headers) == 0 || observedAt.IsZero() {
+		return
+	}
+	signals := make(map[string]string, len(headers))
+	for name, values := range headers {
+		signals[name] = strings.Join(values, ",")
+	}
+	windows := codex.NormalizePassiveQuotaWindows(signals, observedAt)
+	s.handshake = subscription.PassiveQuotaSample{ObservedAtMS: observedAt.UnixMilli(), Windows: windows}
+	s.adapter.recordPassiveQuotaObservation(s.spec, observedAt, windows)
+}
+
+func (*codexProviderBridge) openWebsocket(spec execution.AttemptSpec, credential providerCredential, baseURL, proxyURL string, observeHeaders func(http.Header, time.Time)) (execution.WebsocketSession, error) {
 	value, ok := credential.(codexProviderCredential)
 	if !ok {
 		return nil, errors.New("invalid websocket credential")
@@ -110,6 +131,7 @@ func (*codexProviderBridge) openWebsocket(spec execution.AttemptSpec, credential
 		CredentialID: strconv.FormatUint(uint64(spec.Credential.ID), 10), Credential: value.value,
 		BaseURL: baseURL, ProxyURL: proxyURL, TurnTimeout: spec.Timeouts.Request,
 		Headers:         spec.Header.Clone(),
+		ObserveHeaders:  observeHeaders,
 		MaxRequestBytes: wsnative.MaxMessageBytes, MaxEventBytes: wsnative.MaxMessageBytes,
 	})
 	if err != nil {

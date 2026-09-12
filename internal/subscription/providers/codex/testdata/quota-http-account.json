@@ -1,0 +1,59 @@
+{
+  "X-Codex-Active-Limit": [
+    "premium"
+  ],
+  "X-Codex-Bengalfox-Limit-Name": [
+    "GPT-5.3-Codex-Spark"
+  ],
+  "X-Codex-Bengalfox-Primary-Over-Secondary-Limit-Percent": [
+    "0"
+  ],
+  "X-Codex-Bengalfox-Primary-Reset-After-Seconds": [
+    "18000"
+  ],
+  "X-Codex-Bengalfox-Primary-Reset-At": [
+    "1789222873"
+  ],
+  "X-Codex-Bengalfox-Primary-Used-Percent": [
+    "0"
+  ],
+  "X-Codex-Bengalfox-Primary-Window-Minutes": [
+    "300"
+  ],
+  "X-Codex-Bengalfox-Secondary-Reset-After-Seconds": [
+    "604800"
+  ],
+  "X-Codex-Bengalfox-Secondary-Reset-At": [
+    "1789809673"
+  ],
+  "X-Codex-Bengalfox-Secondary-Used-Percent": [
+    "0"
+  ],
+  "X-Codex-Bengalfox-Secondary-Window-Minutes": [
+    "10080"
+  ],
+  "X-Codex-Primary-Over-Secondary-Limit-Percent": [
+    "0"
+  ],
+  "X-Codex-Primary-Reset-After-Seconds": [
+    "600609"
+  ],
+  "X-Codex-Primary-Reset-At": [
+    "1789805481"
+  ],
+  "X-Codex-Primary-Used-Percent": [
+    "6"
+  ],
+  "X-Codex-Primary-Window-Minutes": [
+    "10080"
+  ],
+  "X-Codex-Secondary-Reset-After-Seconds": [
+    "0"
+  ],
+  "X-Codex-Secondary-Used-Percent": [
+    "0"
+  ],
+  "X-Codex-Secondary-Window-Minutes": [
+    "0"
+  ]
+}

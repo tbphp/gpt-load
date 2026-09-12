@@ -1,0 +1,38 @@
+{
+  "additional_rate_limits": {
+    "GPT-5.3-Codex-Spark": {
+      "allowed": true,
+      "limit_reached": false,
+      "primary": {
+        "used_percent": 0,
+        "window_minutes": 300,
+        "reset_after_seconds": 17891,
+        "reset_at": 1789222880
+      },
+      "secondary": {
+        "used_percent": 0,
+        "window_minutes": 10080,
+        "reset_after_seconds": 604691,
+        "reset_at": 1789809680
+      }
+    }
+  },
+  "code_review_rate_limits": null,
+  "rate_limits": {
+    "allowed": true,
+    "limit_reached": false,
+    "primary": {
+      "used_percent": 0,
+      "window_minutes": 300,
+      "reset_after_seconds": 17891,
+      "reset_at": 1789222880
+    },
+    "secondary": {
+      "used_percent": 0,
+      "window_minutes": 10080,
+      "reset_after_seconds": 604691,
+      "reset_at": 1789809680
+    }
+  },
+  "type": "codex.rate_limits"
+}

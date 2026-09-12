@@ -49,6 +49,7 @@ type Adapter struct {
 type credentialPreparer interface {
 	Prepare(context.Context, channel.ID, execution.CredentialSnapshot, bool) (subscriptionruntime.Credential, *execution.ErrorEvidence)
 	RecordPassiveQuotaObservation(credentialID uint, identityGeneration uint64, observedAtMS int64, windows []providerobservation.QuotaWindow)
+	RecordPassiveQuotaPair(credentialID uint, identityGeneration uint64, preceding, latest subscription.PassiveQuotaSample)
 }
 
 // recordPassiveQuotaObservation forwards one execution's passive quota

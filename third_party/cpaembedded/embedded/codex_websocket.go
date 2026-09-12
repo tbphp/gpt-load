@@ -38,6 +38,9 @@ type CodexWSSessionOptions struct {
 	MaxRequestBytes int
 	MaxEventBytes   int
 	Headers         http.Header
+	// ObserveHeaders 在事件之前交付握手头，在结束前交付失败响应头。
+	// 回调须及时返回，不等待本轮结束。
+	ObserveHeaders func(http.Header, time.Time)
 }
 
 // CodexWSTurnResult 只描述本轮执行，不执行健康、额度或日志记账。
@@ -122,7 +125,8 @@ func NewCodexWSSession(options CodexWSSessionOptions) (*CodexWSSession, error) {
 	session := &CodexWSSession{
 		auth: auth, id: codexWSSessionIDPrefix + uuid.NewString(), options: options, closeDone: make(chan struct{}),
 		inner: internalexecutor.NewCodexWebsocketsExecutor(&internalconfig.Config{
-			Codex: internalconfig.CodexConfig{ModelLevelCooling: true},
+			// 不启用 SDK 的启动缓冲，确保 ExecuteStream 先返回握手，再交付原生事件。
+			Codex: internalconfig.CodexConfig{ModelLevelCooling: true, StreamBootstrapBuffering: false},
 		}),
 	}
 	session.resource = &codexWSResource{session: session}
@@ -202,18 +206,30 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		result: &result, maxBytes: s.options.MaxEventBytes, emit: emit, cancel: cancel,
 		failSession: func() { s.invalidate(false) },
 	}
+	headersReady := make(chan struct{})
 	stream, executionErr := s.inner.ExecuteStream(turnCtx, s.auth, cliproxyexecutor.Request{
 		Model: model, Payload: append([]byte(nil), payload...), Format: sdktranslator.FormatOpenAIResponse,
 	}, cliproxyexecutor.Options{
 		Stream: true, Headers: normalizedCodexHeaders(s.options.Headers), SourceFormat: sdktranslator.FormatOpenAIResponse, ResponseFormat: sdktranslator.FormatOpenAIResponse,
 		Metadata:           map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: s.id},
-		ExecutionLifecycle: s.resource, WebSocketResponseObserver: observation.observe,
+		ExecutionLifecycle: s.resource,
+		WebSocketResponseObserver: func(ctx context.Context, event cliproxyexecutor.WebSocketResponseEvent) {
+			// SDK 的读取协程可先于 ExecuteStream 返回运行；握手交接完成前不交付事件。
+			<-headersReady
+			observation.observe(ctx, event)
+		},
 	})
 	if stream != nil {
 		result.Headers = stream.Headers.Clone()
 		if len(result.Headers) > 0 {
 			result.HeaderObservedAt = time.Now()
+			if s.options.ObserveHeaders != nil {
+				s.options.ObserveHeaders(result.Headers.Clone(), result.HeaderObservedAt)
+			}
 		}
+	}
+	close(headersReady)
+	if stream != nil {
 		// 原生 JSON 由 observer 交付。排空 SDK 的转换输出，确保单轮收尾完成。
 		for chunk := range stream.Chunks {
 			if chunk.Err != nil && executionErr == nil {
@@ -254,6 +270,9 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 			result.Headers = headers.Headers().Clone()
 			if len(result.Headers) > 0 {
 				result.HeaderObservedAt = time.Now()
+				if s.options.ObserveHeaders != nil {
+					s.options.ObserveHeaders(result.Headers.Clone(), result.HeaderObservedAt)
+				}
 			}
 		}
 		// SDK 请求预处理失败且未接触上游时，不破坏已有连接。

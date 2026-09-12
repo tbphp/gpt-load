@@ -213,7 +213,20 @@ func TestCodexWSSessionContinuationAndIsolation(t *testing.T) {
 	defer server.Close()
 	session := wsTestSession(t, server.URL)
 	events := 0
+	headerCalls := 0
+	var headerAt time.Time
+	session.options.ObserveHeaders = func(headers http.Header, observedAt time.Time) {
+		if events != 0 || observedAt.IsZero() || headers.Get("X-Codex-Test") != "handshake" {
+			t.Error("handshake was not delivered before events with its original time")
+		}
+		headerCalls++
+		headerAt = observedAt
+		headers.Set("X-Codex-Test", "caller mutation")
+	}
 	consume := func(ctx context.Context, event json.RawMessage) error {
+		if headerCalls != 1 {
+			t.Error("event overtook handshake delivery")
+		}
 		if !json.Valid(event) {
 			t.Error("event is not native JSON")
 		}
@@ -237,7 +250,8 @@ func TestCodexWSSessionContinuationAndIsolation(t *testing.T) {
 	if second.ResponseID == first.ResponseID || events != 2 || connections.Load() != 1 {
 		t.Fatal("turns did not reuse one connection")
 	}
-	if first.Headers.Get("X-Codex-Test") == "" || second.Headers.Get("X-Codex-Test") != "" {
+	if first.Headers.Get("X-Codex-Test") != "handshake" || !first.HeaderObservedAt.Equal(headerAt) ||
+		len(second.Headers) != 0 || !second.HeaderObservedAt.IsZero() || headerCalls != 1 {
 		t.Fatal("handshake headers were lost or reused as fresh observation")
 	}
 	other := wsTestSession(t, server.URL)
