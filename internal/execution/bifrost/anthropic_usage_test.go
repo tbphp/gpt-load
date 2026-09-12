@@ -27,6 +27,12 @@ func TestNativeAnthropicGatewayUsage(t *testing.T) {
 			want    usage.Tokens
 		}{
 			{
+				name:  "missing captured usage retains executor evidence",
+				start: `{"output_tokens":0}`,
+				delta: `{"input_tokens":100,"cache_read_input_tokens":900,"output_tokens":10}`,
+				want:  usage.Tokens{UncachedInput: 100, CacheRead: 900, Output: 10},
+			},
+			{
 				name:  "final input corrects initial estimate",
 				start: `{"input_tokens":1200,"output_tokens":0}`,
 				delta: `{"input_tokens":100,"cache_read_input_tokens":900,"output_tokens":10}`,
