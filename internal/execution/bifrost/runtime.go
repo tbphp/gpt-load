@@ -136,7 +136,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	bifrostCore, err := core.Init(ctx, schemas.BifrostConfig{
 		Account:         r.account,
-		LLMPlugins:      []schemas.LLMPlugin{},
+		LLMPlugins:      []schemas.LLMPlugin{anthropicUsageStreamHook{}},
 		MCPPlugins:      []schemas.MCPPlugin{},
 		Logger:          r.logger,
 		InitialPoolSize: 64,

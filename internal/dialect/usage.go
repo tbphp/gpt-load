@@ -18,6 +18,13 @@ type UsageStreamExtractor interface {
 	Finalize() (usage.Result, bool)
 }
 
+// UsageStreamSnapshotExtractor lets an adapter normalize protocol conversions
+// from the observed usage without ending the upstream stream.
+type UsageStreamSnapshotExtractor interface {
+	UsageStreamExtractor
+	Snapshot() usage.Result
+}
+
 // StreamUsageInjector optionally derives an OpenAI streaming request that asks
 // the upstream to include terminal usage in the response stream.
 type StreamUsageInjector interface {
