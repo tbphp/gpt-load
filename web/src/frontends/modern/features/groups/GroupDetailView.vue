@@ -12,6 +12,7 @@ import {
   groupCredentialsKey,
 } from '@modern/api/group-detail'
 import { getGroupUsage, getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
+import { getGroupUsageTrend } from '@modern/api/group-usage-trend'
 import { usePageRefresh } from '@modern/app/page-refresh'
 import {
   AppBadge,
@@ -68,6 +69,13 @@ const usage = useQuery(
   })),
 )
 const groupUsage = computed(() => usage.data.value?.items.find((item) => item.id === id.value))
+const trend = useQuery(
+  computed(() => ({
+    queryKey: ['modern', 'group-usage-trend', id.value],
+    queryFn: ({ signal }: { signal: AbortSignal }) => getGroupUsageTrend(client, id.value, signal),
+    enabled: Boolean(group.value),
+  })),
+)
 const credentials = ref<InstanceType<typeof GroupCredentials>>()
 const basics = ref<InstanceType<typeof GroupBasicsForm>>()
 const credentialsPending = ref(false)
@@ -89,12 +97,16 @@ const returnTo = computed(() => {
   const from = route.query.from
   return typeof from === 'string' && /^\/groups(?:\?|$)/u.test(from) ? from : '/groups'
 })
+async function refreshUsage(): Promise<void> {
+  await Promise.all([usage.refetch(), trend.refetch()])
+}
 async function refresh(): Promise<void> {
   await Promise.all([
     groups.refetch(),
     channels.refetch(),
     models.refetch(),
     usage.refetch(),
+    trend.refetch(),
     credentials.value?.refresh(),
     basics.value?.refresh(),
   ])
@@ -105,6 +117,7 @@ usePageRefresh({
     groups.isFetching.value ||
     models.isFetching.value ||
     usage.isFetching.value ||
+    trend.isFetching.value ||
     basicsPending.value ||
     credentialsPending.value,
   updatedAt: () =>
@@ -112,6 +125,7 @@ usePageRefresh({
       groups.dataUpdatedAt.value,
       models.dataUpdatedAt.value,
       usage.dataUpdatedAt.value,
+      trend.dataUpdatedAt.value,
       basicsUpdatedAt.value,
       credentialsUpdatedAt.value,
     ) || undefined,
@@ -231,10 +245,11 @@ function added(result: GroupCreateResult): void {
             ><GroupOverview
               :group="group"
               :usage="groupUsage"
-              :loading="usage.isFetching.value"
+              :trend="trend.data.value"
+              :loading="usage.isFetching.value || trend.isFetching.value"
               :incomplete="usage.data.value?.incomplete ?? false"
-              :failed="usage.isError.value"
-              @retry="usage.refetch()"
+              :failed="usage.isError.value || trend.isError.value"
+              @retry="refreshUsage"
           /></template>
           <nav class="modern-group-settings-links" :aria-label="t('groupDetail.settings')">
             <AppButton

@@ -28,7 +28,7 @@ import {
   AppIconButton,
   AppNotice,
   AppSearchSelect,
-  AppSelect,
+  AppSegmentedField,
   AppTextArea,
   AppTextField,
 } from '@modern/components/ui'
@@ -710,7 +710,7 @@ onScopeDispose(() => {
                   :disabled="inputLocked"
                   :error="attempted ? priceError : undefined"
                 />
-                <AppSelect
+                <AppSegmentedField
                   v-if="channel.proxy"
                   v-model="proxyMode"
                   :label="t('groupCreate.proxy')"

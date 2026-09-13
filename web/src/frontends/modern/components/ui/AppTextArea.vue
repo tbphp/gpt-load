@@ -2,13 +2,17 @@
 import { ref } from 'vue'
 import AppField from './AppField.vue'
 import AppFieldControl from './AppFieldControl.vue'
-import type { FieldProps } from './types'
+import type { ControlSize, FieldProps } from './types'
 import './textarea.css'
 
 defineOptions({ inheritAttrs: false })
-const props = withDefaults(defineProps<FieldProps & { rows?: number; mono?: boolean }>(), {
-  rows: 5,
-})
+const props = withDefaults(
+  defineProps<FieldProps & { rows?: number; mono?: boolean; size?: ControlSize }>(),
+  {
+    rows: 5,
+    size: 'md',
+  },
+)
 const model = defineModel<string>({ required: true })
 const input = ref<HTMLTextAreaElement>()
 defineExpose({ focus: () => input.value?.focus(), select: () => input.value?.select() })
@@ -16,14 +20,14 @@ defineExpose({ focus: () => input.value?.focus(), select: () => input.value?.sel
 
 <template>
   <AppField v-slot="{ id, describedBy, invalid }" v-bind="props">
-    <AppFieldControl as-child :invalid="invalid" :disabled="disabled">
+    <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
       <textarea
         :id="id"
         ref="input"
         v-model="model"
         v-bind="$attrs"
         class="modern-textarea modern-resizable-textarea"
-        :class="{ 'is-mono': mono }"
+        :class="[{ 'is-mono': mono }, `modern-textarea--${size}`]"
         :rows="rows"
         :disabled="disabled"
         :aria-invalid="invalid || undefined"
@@ -43,6 +47,10 @@ defineExpose({ focus: () => input.value?.focus(), select: () => input.value?.sel
 }
 .modern-textarea.is-mono {
   font-family: var(--modern-font-mono);
+}
+.modern-textarea--xs {
+  padding: var(--modern-space-1) var(--modern-space-2);
+  line-height: var(--modern-leading-compact);
 }
 .modern-textarea::placeholder {
   color: var(--modern-control-placeholder);

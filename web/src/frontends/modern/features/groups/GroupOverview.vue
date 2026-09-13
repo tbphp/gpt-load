@@ -2,9 +2,11 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { GroupRow, GroupUsage } from '@modern/api/groups'
+import type { GroupUsageTrend } from '@modern/api/group-usage-trend'
 import {
   AppBadge,
   AppButton,
+  AppSparkline,
   AppLoadingIndicator,
   AppOverflowText,
   AppSegmentedBar,
@@ -15,6 +17,7 @@ import { formatCompactNumber, formatNanoUSD } from '@modern/components/ui/format
 const props = defineProps<{
   group: GroupRow
   usage?: GroupUsage
+  trend?: GroupUsageTrend
   loading: boolean
   incomplete: boolean
   failed: boolean
@@ -44,7 +47,25 @@ const failureRate = computed(() =>
         (props.usage.requests - props.usage.successes) / props.usage.requests,
       ),
 )
-const partial = computed(() => props.incomplete || props.usage?.incomplete)
+const partial = computed(
+  () => props.incomplete || props.usage?.incomplete || props.trend?.incomplete,
+)
+const trendPoints = computed(() => props.trend?.points ?? [])
+const trendValues = computed(() => trendPoints.value.map((point) => point.requests))
+const trendLabels = computed(() => {
+  const date = new Intl.DateTimeFormat(locale.value, { month: 'short', day: 'numeric' })
+  const time = new Intl.DateTimeFormat(locale.value, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  })
+  return trendPoints.value.map((point) => {
+    const from = `${date.format(point.from)} ${time.format(point.from)}`
+    const endDate =
+      date.format(point.to) === date.format(point.from) ? '' : `${date.format(point.to)} `
+    return `${from} – ${endDate}${time.format(point.to)}\n${t('credentialCards.requests')} ${n(point.requests)}`
+  })
+})
 </script>
 <template>
   <section class="modern-group-overview" :aria-label="t('groupDetail.overview')">
@@ -82,6 +103,18 @@ const partial = computed(() => props.incomplete || props.usage?.incomplete)
         <dd>{{ missing ? '—' : formatNanoUSD(usage!.costNanoUSD, locale) }}</dd>
       </div>
     </dl>
+    <div class="modern-group-overview-trend">
+      <h3>{{ t('groupDetail.requestTrend') }}</h3>
+      <AppSparkline
+        v-if="trend"
+        :values="trendValues"
+        :point-labels="trendLabels"
+        :label="t('groupDetail.requestTrend')"
+      />
+      <div v-else class="modern-group-overview-trend-empty">
+        {{ loading ? t('collection.loading') : t('groupDetail.noUsage') }}
+      </div>
+    </div>
     <AppButton v-if="failed" variant="text" size="xs" @click="$emit('retry')">{{
       t('groupDetail.retryUsage')
     }}</AppButton>
@@ -134,5 +167,24 @@ const partial = computed(() => props.incomplete || props.usage?.incomplete)
   margin: 0;
   font-size: var(--modern-font-size-secondary);
   font-variant-numeric: tabular-nums;
+}
+.modern-group-overview-trend {
+  display: grid;
+  gap: var(--modern-space-2);
+  padding-top: var(--modern-space-3);
+  border-top: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-group-overview-trend h3 {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  font-weight: var(--modern-weight-regular);
+}
+.modern-group-overview-trend-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--modern-trend-height);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
 }
 </style>

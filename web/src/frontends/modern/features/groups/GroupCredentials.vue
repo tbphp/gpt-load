@@ -1,10 +1,21 @@
 <script setup lang="ts">
-import { Pause, Play, Plus, RotateCcw, Search, Trash2, X } from '@lucide/vue'
+import {
+  ChevronDown,
+  Download,
+  Layers,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  Search,
+  Trash2,
+} from '@lucide/vue'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   batchGroupCredentials,
+  batchAllGroupCredentials,
   credentialStates,
   getGroupCredentials,
   groupCredentialsKey,
@@ -17,6 +28,7 @@ import type { GroupChannel } from '@modern/api/group-create'
 import {
   credentialDetailKey,
   exportCredential,
+  exportAllCredentials,
   refreshCredentialQuota,
   resetCredentialQuota,
   revealCredential,
@@ -30,6 +42,8 @@ import CredentialDetailPanel from './CredentialDetailPanel.vue'
 import CredentialTestDialog from './CredentialTestDialog.vue'
 import {
   AppButton,
+  AppActionMenu,
+  AppIcon,
   AppCheckbox,
   AppCollectionState,
   AppConfirmDialog,
@@ -68,6 +82,8 @@ const downloads = new Set<string>()
 const mutating = ref<number | 'batch'>()
 const pendingAction = ref('')
 const deleting = ref<number[]>([])
+type FullAction = 'download' | 'enable' | 'disable' | 'restore'
+const fullTarget = ref<FullAction>()
 const error = ref('')
 const notice = ref('')
 const list = ref<InstanceType<typeof AppListFrame>>()
@@ -85,6 +101,15 @@ const rows = computed(() => query.data.value?.items ?? [])
 const busy = computed(() => query.isFetching.value || mutating.value !== undefined)
 const stale = computed(() => query.isError.value && Boolean(query.data.value))
 const summary = computed(() => query.data.value?.counts)
+const fullActions = computed(() => [
+  { id: 'enable', label: t('groupDetail.full.enable'), icon: Play },
+  { id: 'disable', label: t('groupDetail.full.disable'), icon: Pause },
+  { id: 'restore', label: t('groupDetail.full.restore'), icon: RotateCcw },
+  { id: 'download', label: t('groupDetail.full.download'), icon: Download },
+])
+const fullIcon = computed(
+  () => fullActions.value.find((item) => item.id === fullTarget.value)?.icon,
+)
 const segments = computed(() => [
   { value: '', label: t('groupDetail.allCredentials'), count: summary.value?.total },
   ...credentialStates.map((value) => ({
@@ -211,8 +236,74 @@ function cacheRow(row: CredentialRow): void {
   cache.setQueriesData<CredentialCollection>(
     { queryKey: groupCredentialsKey(props.group.id) },
     (data) =>
-      data && { ...data, items: data.items.map((item) => (item.id === row.id ? row : item)) },
+      data && {
+        ...data,
+        items: data.items.map((item) =>
+          item.id === row.id
+            ? {
+                ...row,
+                weightManual: row.weightManual === undefined ? item.weightManual : row.weightManual,
+              }
+            : item,
+        ),
+      },
   )
+}
+function downloadFile(file: { filename: string; content: string; type?: string }): void {
+  const url = URL.createObjectURL(
+    new Blob([file.content], { type: file.type ?? 'application/json;charset=utf-8' }),
+  )
+  downloads.add(url)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = file.filename
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => {
+    URL.revokeObjectURL(url)
+    downloads.delete(url)
+  }, 1000)
+}
+function openFullAction(value: string): void {
+  if (busy.value || !summary.value?.total || !fullActions.value.some((item) => item.id === value))
+    return
+  error.value = ''
+  fullTarget.value = value as FullAction
+}
+async function applyFullAction(): Promise<void> {
+  const value = fullTarget.value
+  if (!value || busy.value) return
+  mutating.value = 'batch'
+  error.value = ''
+  notice.value = ''
+  try {
+    let count = 0
+    if (value === 'download') {
+      const result = await exportAllCredentials(client, props.group.id, controller.signal)
+      if (controller.signal.aborted) return
+      result.files.forEach(downloadFile)
+      count = result.count
+    } else {
+      const affected = await batchAllGroupCredentials(
+        client,
+        props.group.id,
+        value,
+        controller.signal,
+      )
+      if (controller.signal.aborted) return
+      count = affected.length
+      selected.value = new Set()
+      await changed()
+      void cache.invalidateQueries({ queryKey: ['modern', 'credential-detail', props.group.id] })
+    }
+    fullTarget.value = undefined
+    notice.value = t('groupDetail.full.succeeded.' + value, { count: n(count) })
+  } catch {
+    if (!controller.signal.aborted) error.value = t('credentialCards.actionFailed')
+  } finally {
+    mutating.value = undefined
+  }
 }
 function saved(row: CredentialRow): void {
   cacheRow(row)
@@ -248,18 +339,7 @@ async function action(row: CredentialRow, value: string): Promise<void> {
     if (value === 'download') {
       const file = await exportCredential(client, props.group.id, row.id, controller.signal)
       if (controller.signal.aborted) return
-      const url = URL.createObjectURL(new Blob([file.content], { type: 'application/json' }))
-      downloads.add(url)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = file.filename
-      document.body.append(link)
-      link.click()
-      link.remove()
-      setTimeout(() => {
-        URL.revokeObjectURL(url)
-        downloads.delete(url)
-      }, 1000)
+      downloadFile(file)
       return
     }
     if (value === 'quota') {
@@ -393,37 +473,53 @@ defineExpose({ refresh })
     >
       <template #header>
         <div class="modern-credentials-selection">
-          <AppCheckbox
-            :model-value="allSelected"
-            :indeterminate="selected.size > 0 && !allSelected"
-            :label="t('groupDetail.selectPage')"
-            :disabled="busy || !rows.length"
-            @update:model-value="selected = $event ? new Set(rows.map((row) => row.id)) : new Set()"
-          />
-          <template v-if="selected.size"
-            ><span>{{ t('groupDetail.selected', { count: n(selected.size) }) }}</span
-            ><AppIconButton
-              :icon="Play"
-              :label="t('groupDetail.enableSelected')"
-              size="sm"
-              :disabled="busy"
-              @click="batch('enable')" /><AppIconButton
-              :icon="Pause"
-              :label="t('groupDetail.disableSelected')"
-              size="sm"
-              :disabled="busy"
-              @click="batch('disable')" /><AppIconButton
-              :icon="Trash2"
-              :label="t('groupDetail.deleteSelected')"
-              size="sm"
-              :disabled="busy"
-              @click="deleting = [...selected]" /><AppIconButton
-              :icon="X"
-              :label="t('groupDetail.clearSelection')"
-              size="sm"
-              :disabled="busy"
-              @click="selected = new Set()"
-          /></template>
+          <div class="modern-credentials-selected-actions">
+            <AppCheckbox
+              :model-value="allSelected"
+              :indeterminate="selected.size > 0 && !allSelected"
+              :label="t('groupDetail.selectPage')"
+              :disabled="busy || !rows.length"
+              @update:model-value="
+                selected = $event ? new Set(rows.map((row) => row.id)) : new Set()
+              "
+            />
+            <template v-if="selected.size"
+              ><span>{{ t('groupDetail.selected', { count: n(selected.size) }) }}</span
+              ><AppIconButton
+                :icon="Play"
+                :label="t('groupDetail.enableSelected')"
+                size="sm"
+                :disabled="busy"
+                @click="batch('enable')" /><AppIconButton
+                :icon="Pause"
+                :label="t('groupDetail.disableSelected')"
+                size="sm"
+                :disabled="busy"
+                @click="batch('disable')" /><AppIconButton
+                :icon="Trash2"
+                :label="t('groupDetail.deleteSelected')"
+                size="sm"
+                :disabled="busy"
+                @click="deleting = [...selected]"
+            /></template>
+          </div>
+          <AppActionMenu
+            :label="t('groupDetail.full.actions')"
+            :items="fullActions"
+            :disabled="busy || !summary?.total"
+            @select="openFullAction"
+          >
+            <template #trigger>
+              <AppButton
+                :icon="Layers"
+                variant="ghost"
+                size="sm"
+                :disabled="busy || !summary?.total"
+              >
+                {{ t('groupDetail.full.actions') }}<AppIcon :icon="ChevronDown" size="xs" />
+              </AppButton>
+            </template>
+          </AppActionMenu>
         </div>
       </template>
       <AppCollectionState
@@ -447,7 +543,6 @@ defineExpose({ refresh })
           <SubscriptionCredentialCard
             v-if="group.connectionType === 'subscription'"
             :row="row"
-            :group="group"
             :channel="channel"
             :selected="selected.has(row.id)"
             :pending="mutating === row.id"
@@ -485,6 +580,25 @@ defineExpose({ refresh })
       /></template>
     </AppListFrame>
   </section>
+  <AppConfirmDialog
+    :open="Boolean(fullTarget)"
+    :icon="fullIcon"
+    :title="fullTarget ? t('groupDetail.full.' + fullTarget) : ''"
+    :subject="group.name"
+    :description="
+      t(
+        fullTarget === 'restore'
+          ? 'groupDetail.full.restoreDescription'
+          : 'groupDetail.full.description',
+      )
+    "
+    :confirm-label="fullTarget ? t('groupDetail.full.' + fullTarget) : ''"
+    :pending="mutating !== undefined"
+    :disabled="busy"
+    :error="error"
+    @cancel="fullTarget = undefined"
+    @confirm="applyFullAction"
+  />
   <AppConfirmDialog
     :open="deleting.length > 0"
     :icon="Trash2"
@@ -565,13 +679,20 @@ defineExpose({ refresh })
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: space-between;
   gap: var(--modern-space-2);
   min-height: var(--modern-control-nav);
   padding: 0 var(--modern-space-1) var(--modern-space-2);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
-.modern-credentials-selection > :first-child {
+.modern-credentials-selected-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--modern-space-2);
+}
+.modern-credentials-selected-actions > :first-child {
   margin-right: var(--modern-space-1);
 }
 .modern-credential-cards {

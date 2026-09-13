@@ -16,15 +16,15 @@ import {
   AppCollectionState,
   AppNotice,
   AppOverflowText,
-  AppSelect,
+  AppSegmentedField,
   AppTextField,
 } from '@modern/components/ui'
-import { formatCompactNumber, formatNanoUSD } from '@modern/components/ui/format'
 import { useApiClient } from '@shared/http/client-context'
-import { credentialStatus, credentialTime, quotaPeriod } from './credential-presentation'
+import { credentialStatus, credentialTime } from './credential-presentation'
 import { validProxyURL } from './group-create-rules'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import CredentialAccountInfo from './CredentialAccountInfo.vue'
+import CredentialWindowUsage from './CredentialWindowUsage.vue'
 
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
 const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
@@ -48,7 +48,7 @@ const controller = new AbortController()
 const dirty = computed(
   () =>
     Boolean(saved.value) &&
-    (weight.value !== String(saved.value!.weight) ||
+    (weight.value !== String(saved.value!.weightManual ?? '') ||
       proxyMode.value !== saved.value!.proxy.mode ||
       Boolean(proxyURL.value)),
 )
@@ -57,7 +57,7 @@ watch(
   (value) => {
     if (!value || dirty.value || saving.value) return
     saved.value = value
-    weight.value = String(value.weight)
+    weight.value = String(value.weightManual ?? '')
     proxyMode.value = value.proxy.mode
     proxyURL.value = ''
   },
@@ -81,9 +81,6 @@ const proxyOptions = computed(() => [
   { value: 'direct', label: t('groupCreate.proxyDirect') },
   { value: 'custom', label: t('groupCreate.proxyCustom') },
 ])
-const usageWindows = computed(
-  () => item.value.observation?.windows.filter((window) => window.usage) ?? [],
-)
 function failure(): string {
   if (!item.value.failures) return '—'
   const key = 'credentialCards.failures.' + item.value.failureCategory
@@ -96,7 +93,7 @@ async function save(): Promise<void> {
   attempted.value = true
   if (weightInvalid.value || proxyInvalid.value) return
   const patch: Parameters<typeof updateCredential>[3] = {}
-  if (weight.value !== String(saved.value.weight))
+  if (weight.value !== String(saved.value.weightManual ?? ''))
     patch.weight_manual = weight.value ? Number(weight.value) : null
   if (proxyChanged.value)
     patch.proxy =
@@ -148,6 +145,10 @@ onScopeDispose(() => controller.abort())
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
+      <CredentialWindowUsage
+        v-if="item.observation?.windows.length"
+        :windows="item.observation.windows"
+      />
       <AppNotice v-if="query.isError.value" tone="warning">{{
         t('groupDetail.refreshFailed')
       }}</AppNotice>
@@ -198,42 +199,6 @@ onScopeDispose(() => controller.abort())
         <h3>{{ t('credentialCards.accountInfo') }}</h3>
         <CredentialAccountInfo :row="item" />
       </section>
-      <section v-if="usageWindows.length" class="modern-credential-detail-section">
-        <h3>{{ t('credentialCards.windowUsage') }}</h3>
-        <div v-for="window in usageWindows" :key="window.id" class="modern-credential-window-usage">
-          <div class="modern-credential-detail-title">
-            <AppOverflowText
-              :text="
-                window.scope === 'account'
-                  ? quotaPeriod(window.windowSeconds) || window.label
-                  : window.label
-              "
-            /><AppBadge
-              v-if="
-                !window.usage!.complete ||
-                !window.usage!.usageComplete ||
-                !window.usage!.pricingComplete
-              "
-              size="xs"
-              >{{ t('groups.row.partial') }}</AppBadge
-            >
-          </div>
-          <dl class="modern-credential-detail-metrics">
-            <div>
-              <dt>{{ t('credentialCards.requests') }}</dt>
-              <dd>{{ n(window.usage!.requests) }}</dd>
-            </div>
-            <div>
-              <dt>Tokens</dt>
-              <dd>{{ formatCompactNumber(window.usage!.tokens, locale) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('groups.row.estimatedCost') }}</dt>
-              <dd>{{ formatNanoUSD(window.usage!.cost, locale) }}</dd>
-            </div>
-          </dl>
-        </div>
-      </section>
       <section v-if="item.modelCooldowns.length" class="modern-credential-detail-section">
         <h3>{{ t('credentialCards.cooldownModels') }}</h3>
         <div
@@ -258,7 +223,7 @@ onScopeDispose(() => controller.abort())
           :error="attempted && weightInvalid ? t('groups.edit.weightError') : undefined"
         />
         <template v-if="channel?.proxy"
-          ><AppSelect
+          ><AppSegmentedField
             v-model="proxyMode"
             :label="t('groupCreate.proxy')"
             :options="proxyOptions"
@@ -283,6 +248,7 @@ onScopeDispose(() => controller.abort())
   display: grid;
   gap: var(--modern-space-4);
 }
+.modern-window-usage + .modern-credential-detail-section,
 .modern-credential-detail-section + .modern-credential-detail-section {
   padding-top: var(--modern-space-5);
   border-top: var(--modern-line-width) solid var(--modern-border);
@@ -318,12 +284,5 @@ onScopeDispose(() => controller.abort())
   margin: 0;
   font-size: var(--modern-font-size-secondary);
   overflow-wrap: anywhere;
-}
-.modern-credential-window-usage {
-  display: grid;
-  gap: var(--modern-space-3);
-  background: var(--modern-subtle);
-  padding: var(--modern-space-3);
-  border-radius: var(--modern-radius-control);
 }
 </style>

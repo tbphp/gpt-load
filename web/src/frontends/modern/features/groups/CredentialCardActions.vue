@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { Download, KeyRound, RotateCcw, SlidersHorizontal, Trash2 } from '@lucide/vue'
+import { Download, KeyRound, RotateCcw, SlidersHorizontal, Stethoscope, Trash2 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
-import { AppActionMenu } from '@modern/components/ui'
+import { AppActionMenu, AppIconButton } from '@modern/components/ui'
 const props = defineProps<{ row: CredentialRow; subscription?: boolean; disabled?: boolean }>()
 defineEmits<{ action: [value: string] }>()
 const { t } = useI18n()
 const actions = computed(() => [
-  { id: 'details', label: t('credentialCards.diagnosticsAndSettings'), icon: SlidersHorizontal },
   ...(props.subscription
     ? [
         {
@@ -19,7 +18,7 @@ const actions = computed(() => [
         },
         { id: 'download', label: t('credentialCards.export'), icon: Download },
       ]
-    : []),
+    : [{ id: 'test', label: t('credentialCards.test'), icon: Stethoscope }]),
   ...(props.row.state === 'cooldown' ||
   props.row.state === 'blacklisted' ||
   props.row.modelCooldowns.length
@@ -29,10 +28,29 @@ const actions = computed(() => [
 ])
 </script>
 <template>
-  <AppActionMenu
-    :label="t('credentialCards.more')"
-    :items="actions"
-    :disabled="disabled"
-    @select="$emit('action', $event)"
-  />
+  <div class="modern-credential-card-action-menu">
+    <AppIconButton
+      :icon="SlidersHorizontal"
+      :label="t('credentialCards.diagnosticsAndSettings')"
+      size="xs"
+      :disabled="disabled"
+      @click="$emit('action', 'details')"
+    />
+    <AppActionMenu
+      size="xs"
+      :label="t('credentialCards.more')"
+      :items="actions"
+      :disabled="disabled"
+      @select="$emit('action', $event)"
+    />
+  </div>
 </template>
+
+<style scoped>
+.modern-credential-card-action-menu {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--modern-space-0-5);
+}
+</style>

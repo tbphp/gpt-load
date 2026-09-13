@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { SlidersHorizontal, Stethoscope } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
@@ -8,7 +7,6 @@ import {
   AppButton,
   AppCheckbox,
   AppCopyValue,
-  AppIconButton,
   AppOverflowText,
   AppSwitch,
   AppTooltip,
@@ -17,6 +15,7 @@ import { credentialStatus, credentialTime } from './credential-presentation'
 import CredentialCardActions from './CredentialCardActions.vue'
 import CredentialCardFrame from './CredentialCardFrame.vue'
 import CredentialOutcomeSummary from './CredentialOutcomeSummary.vue'
+import CredentialRoutingMeta from './CredentialRoutingMeta.vue'
 
 const props = defineProps<{
   row: CredentialRow
@@ -64,58 +63,42 @@ const issues = computed(() =>
           :label="t('credentialCards.copyKey')"
         />
       </div>
-      <AppBadge :tone="state.tone" variant="plain" size="xs" dot
-        ><AppOverflowText :text="t(state.key)"
-      /></AppBadge>
+      <AppTooltip :label="issues || undefined">
+        <AppButton
+          variant="text"
+          size="xs"
+          :disabled="disabled"
+          :aria-label="`${t(state.key)} · ${t('credentialCards.diagnosticsAndSettings')}`"
+          @click="$emit('action', 'details')"
+        >
+          <AppBadge :tone="state.tone" variant="plain" size="xs" dot
+            ><AppOverflowText :text="t(state.key)"
+          /></AppBadge>
+        </AppButton>
+      </AppTooltip>
     </template>
-    <dl class="modern-api-card-metadata">
+    <div v-if="error" class="modern-api-card-error" role="alert">
+      <AppOverflowText :text="error" />
+    </div>
+    <dl v-else class="modern-api-card-metadata">
       <div>
         <dt>{{ t('groupDetail.lastUsed') }}</dt>
         <dd><AppOverflowText :text="credentialTime(row.lastUsed, locale)" /></dd>
       </div>
       <div>
-        <dt>{{ t('groups.edit.weight') }}</dt>
-        <dd>
-          {{ n(row.weight)
-          }}<AppIconButton
-            :icon="SlidersHorizontal"
-            :label="t('credentialCards.diagnosticsAndSettings')"
-            size="xs"
-            :disabled="disabled"
-            @click="$emit('action', 'details')"
-          />
-        </dd>
+        <dt>{{ t('credentialCards.weight') }}</dt>
+        <dd>{{ n(row.weight) }}<CredentialRoutingMeta :row="row" :weight="false" /></dd>
       </div>
     </dl>
-    <div
-      class="modern-api-card-issues"
-      :class="{ 'has-error': error }"
-      :role="error ? 'alert' : undefined"
-    >
-      <AppOverflowText v-if="error" :text="error" />
-      <AppButton
-        v-else-if="issues"
-        variant="text"
-        size="xs"
-        :disabled="disabled"
-        @click="$emit('action', 'details')"
-        ><AppOverflowText :text="issues"
-      /></AppButton>
-    </div>
     <template #footer
-      ><CredentialOutcomeSummary :usage="row.daily" />
+      ><CredentialOutcomeSummary :usage="row.daily" compact />
       <div class="modern-api-card-actions">
-        <AppIconButton
-          :icon="Stethoscope"
-          :label="t('credentialCards.test')"
-          size="xs"
-          :disabled="disabled"
-          @click="$emit('action', 'test')"
-        /><CredentialCardActions
+        <CredentialCardActions
           :row="row"
           :disabled="disabled"
           @action="$emit('action', $event)"
         /><AppSwitch
+          size="sm"
           :model-value="row.enabled"
           :label="t('groups.edit.enabled')"
           :disabled="disabled"
@@ -134,13 +117,17 @@ const issues = computed(() =>
 .modern-api-card-metadata {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-2);
   margin: 0;
 }
 .modern-api-card-metadata > div {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-1);
   min-width: 0;
 }
 .modern-api-card-metadata dt {
+  flex: none;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
@@ -148,32 +135,22 @@ const issues = computed(() =>
   display: flex;
   align-items: center;
   gap: var(--modern-space-1);
-  min-height: var(--modern-control-xs);
-  margin: var(--modern-space-0-5) 0 0;
+  min-height: var(--modern-space-5);
+  min-width: 0;
+  margin: 0;
   font-size: var(--modern-font-size-small);
   font-variant-numeric: tabular-nums;
 }
-.modern-api-card-issues {
-  display: flex;
-  align-items: center;
+.modern-api-card-error {
   min-width: 0;
-  min-height: var(--modern-control-xs);
-  color: var(--modern-warning);
-  font-size: var(--modern-font-size-small);
-}
-.modern-api-card-issues.has-error {
   color: var(--modern-danger);
-}
-.modern-api-card-issues > button {
-  min-width: 0;
-  max-width: 100%;
-  color: inherit;
+  font-size: var(--modern-font-size-small);
 }
 .modern-api-card-actions {
   display: flex;
   align-items: center;
   flex: none;
-  gap: var(--modern-space-1);
+  gap: var(--modern-space-0-5);
   margin-left: auto;
 }
 </style>

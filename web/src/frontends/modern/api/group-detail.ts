@@ -174,6 +174,7 @@ export interface CredentialRow {
   state: CredentialState
   enabled: boolean
   weight: number
+  weightManual?: number | null
   successes: number
   failures: number
   failuresInRow: number
@@ -216,6 +217,12 @@ export function readCredential(value: unknown): CredentialRow {
     state: oneOf(row.effective_status, credentialStates),
     enabled: oneOf(row.configured_status, ['active', 'disabled']) === 'active',
     weight: integer(row.weight),
+    weightManual:
+      row.weight_manual === undefined
+        ? undefined
+        : row.weight_manual === null
+          ? null
+          : integer(row.weight_manual),
     successes: integer(row.recent_success_count),
     failures: integer(row.recent_failure_count),
     failuresInRow: integer(row.consecutive_failure_count),
@@ -270,7 +277,9 @@ export async function getGroupCredentials(
   })
   if (filters.q.trim()) params.set('q', filters.q.trim())
   if (filters.status) params.set('status', filters.status)
-  const data = record(await client.request(`/api/groups/${id}/credentials?${params}`, { signal }))
+  const data = record(
+    await client.request(`/api/modern/groups/${id}/credentials?${params}`, { signal }),
+  )
   const summary = record(data.summary)
   const pagination = record(data.pagination)
   return {
@@ -313,6 +322,22 @@ export async function batchGroupCredentials(
     await client.request(`/api/groups/${groupID}/credentials/batch`, {
       method: 'POST',
       json: { action, credential_ids: ids },
+      signal,
+    }),
+  )
+  return list(data.affected_credential_ids).map((id) => integer(id, 1))
+}
+
+export async function batchAllGroupCredentials(
+  client: ApiClient,
+  groupID: number,
+  action: 'enable' | 'disable' | 'restore',
+  signal: AbortSignal,
+) {
+  const data = record(
+    await client.request(`/api/groups/${groupID}/credentials/batch`, {
+      method: 'POST',
+      json: { action, scope: 'all' },
       signal,
     }),
   )

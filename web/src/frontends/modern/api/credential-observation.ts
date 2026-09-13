@@ -1,7 +1,11 @@
 import { InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
 
+const planLevels = ['free', 'standard', 'premium', 'elite'] as const
+
 export interface QuotaUsage {
+  from?: number
+  to?: number
   requests: number
   tokens: number
   cost: string
@@ -30,6 +34,7 @@ export interface CredentialObservation {
   observedAt: number | null
   error?: string
   plan: string
+  planLevel?: 'free' | 'standard' | 'premium' | 'elite'
   organization: string
   windows: CredentialQuota[]
   account?: {
@@ -64,6 +69,7 @@ export function readObservation(value: unknown): CredentialObservation | undefin
     observedAt: data.observed_at_ms == null ? null : integer(data.observed_at_ms),
     error: data.last_error_code === undefined ? undefined : text(data.last_error_code),
     plan: plan?.name == null ? '' : text(plan.name),
+    planLevel: planLevels.find((level) => level === plan?.level),
     organization: account?.organization_name == null ? '' : text(account.organization_name),
     account: account
       ? {
@@ -114,6 +120,8 @@ export function readObservation(value: unknown): CredentialObservation | undefin
             state: oneOf(window.state, ['available', 'exhausted', 'unknown']),
             usage: usage
               ? {
+                  from: optionalTime(usage.window_start_ms),
+                  to: optionalTime(usage.window_end_ms),
                   requests: integer(usage.request_count),
                   tokens: integer(usage.total_tokens),
                   cost,

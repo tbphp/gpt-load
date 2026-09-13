@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppTooltip from './AppTooltip.vue'
-import { Check, ChevronDown, LoaderCircle, Search } from '@lucide/vue'
+import { Check, ChevronDown, Search } from '@lucide/vue'
 import {
   ComboboxAnchor,
   ComboboxContent,
@@ -18,7 +18,9 @@ import AppButton from './AppButton.vue'
 import AppField from './AppField.vue'
 import AppFieldControl from './AppFieldControl.vue'
 import AppIcon from './AppIcon.vue'
+import AppLoadingIndicator from './AppLoadingIndicator.vue'
 import AppMenuSurface from './AppMenuSurface.vue'
+import { useLoadingFeedback } from './loading'
 import { overlaySideOffset } from './overlay'
 import type { ControlSize, FieldProps, SearchSelectOption } from './types'
 
@@ -30,6 +32,7 @@ const props = withDefaults(
       selectedOption?: SearchSelectOption
       loadOptions?: (query: string, signal: AbortSignal) => Promise<readonly SearchSelectOption[]>
       allowCustom?: boolean
+      placeholder?: string
       size?: ControlSize
       name?: string
       required?: boolean
@@ -39,6 +42,7 @@ const props = withDefaults(
     options: () => [],
     selectedOption: undefined,
     loadOptions: undefined,
+    placeholder: undefined,
     name: undefined,
     size: 'md',
   },
@@ -49,18 +53,25 @@ const open = ref(false)
 // 仅点击、输入或方向键打开；弹窗恢复焦点时保留已选标签，不自动进入空搜索态。
 const search = ref('')
 const loading = ref(false)
+const feedback = useLoadingFeedback(loading)
 const failed = ref(false)
 const remoteOptions = ref<readonly SearchSelectOption[]>([])
 const retainedOption = ref<SearchSelectOption>()
 const input = ref<{ $el: HTMLInputElement }>()
+const combobox = ref<{ highlightedElement?: HTMLElement }>()
 defineExpose({ focus: () => input.value?.$el.focus({ preventScroll: true }) })
 let controller: AbortController | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
+let inputChanged = false
+let keyboardBrowsing = false
 const source = computed(() => (props.loadOptions ? remoteOptions.value : props.options))
 const selected = computed({
   get: () => (model.value === '' ? null : model.value),
   set: (value: string | null) => {
     model.value = value ?? ''
+    if (props.allowCustom) search.value = value ?? ''
+    inputChanged = false
+    keyboardBrowsing = false
   },
 })
 const selectedLabel = computed(() => {
@@ -100,11 +111,33 @@ const visible = computed(() => {
         const text = normalize([option.label, option.value, ...(option.keywords ?? [])].join(' '))
         return terms.every((term) => text.includes(term))
       })
-  const custom = search.value.trim()
-  if (props.allowCustom && custom && !source.value.some((option) => option.value === custom))
-    return [...options, { value: custom, label: custom }]
   return options
 })
+function updateSearch(value: string): void {
+  inputChanged = true
+  keyboardBrowsing = false
+  search.value = value
+  // 自定义模式直接保存输入；候选项只辅助定位，不要求再选择一次。
+  if (props.allowCustom) model.value = value
+}
+function handleCustomKeydown(event: KeyboardEvent): void {
+  if (!props.allowCustom || event.isComposing || event.keyCode === 229) return
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') keyboardBrowsing = true
+  if (!open.value) return
+  if ((event.key === 'Home' || event.key === 'End') && !keyboardBrowsing) {
+    event.stopImmediatePropagation()
+    return
+  }
+  if (
+    event.key === 'Enter' &&
+    (!keyboardBrowsing || !combobox.value?.highlightedElement?.isConnected)
+  ) {
+    // Reka 会自动高亮首项；只有主动使用方向键时，回车才采用该候选项。
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    open.value = false
+  }
+}
 function cancelRequest(): void {
   clearTimeout(timer)
   controller?.abort()
@@ -140,8 +173,13 @@ watch(search, () => {
 })
 watch(open, async (value) => {
   cancelRequest()
-  search.value = ''
-  if (!value) return
+  if (!value) {
+    inputChanged = false
+    keyboardBrowsing = false
+    if (!props.allowCustom) search.value = ''
+    return
+  }
+  if (!inputChanged) search.value = props.allowCustom ? model.value : ''
   await nextTick()
   if (!open.value) return
   input.value?.$el.focus({ preventScroll: true })
@@ -167,6 +205,7 @@ onScopeDispose(cancelRequest)
 <template>
   <AppField v-slot="{ id, describedBy, invalid }" v-bind="props">
     <ComboboxRoot
+      ref="combobox"
       v-model="selected"
       v-model:open="open"
       :disabled="disabled"
@@ -178,30 +217,28 @@ onScopeDispose(cancelRequest)
       :reset-search-term-on-select="false"
     >
       <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
-        <ComboboxAnchor>
+        <ComboboxAnchor class="modern-search-select-control" :aria-busy="loading || undefined">
           <AppIcon :icon="Search" size="sm" class="modern-search-select-hint" />
           <ComboboxInput
             v-bind="$attrs"
             :id="id"
             ref="input"
             class="modern-search-select-input"
-            :model-value="open ? search : selectedLabel"
-            :placeholder="open ? t('ui.select.search') : label"
+            :model-value="open ? search : allowCustom ? model : selectedLabel"
+            :placeholder="placeholder ?? (open ? t('ui.select.search') : label)"
             :aria-invalid="invalid || undefined"
             :aria-describedby="describedBy"
             :aria-labelledby="`${id}-label`"
-            @update:model-value="search = $event"
+            @update:model-value="updateSearch"
+            @keydown.capture="handleCustomKeydown"
             @keydown.enter="preventImplicitSubmit"
           />
           <AppTooltip :label="label" :disabled="open">
             <ComboboxTrigger class="modern-search-select-trigger" :aria-label="label">
-              <AppIcon
-                :icon="loading ? LoaderCircle : ChevronDown"
-                size="sm"
-                :class="{ 'modern-spin': loading }"
-              />
+              <AppIcon :icon="ChevronDown" size="sm" />
             </ComboboxTrigger>
           </AppTooltip>
+          <AppLoadingIndicator :loading="feedback" field />
         </ComboboxAnchor>
       </AppFieldControl>
       <ComboboxPortal>
@@ -220,7 +257,7 @@ onScopeDispose(cancelRequest)
               }}<AppButton size="xs" @click="load">{{ t('ui.retry') }}</AppButton>
             </div>
             <div v-else-if="!visible.length" class="modern-search-select-status" role="status">
-              {{ t('ui.select.empty') }}
+              {{ t(allowCustom && search.trim() ? 'ui.select.customInput' : 'ui.select.empty') }}
             </div>
             <ComboboxViewport v-else>
               <ComboboxItem
@@ -249,6 +286,9 @@ onScopeDispose(cancelRequest)
 </template>
 
 <style scoped>
+.modern-search-select-control {
+  position: relative;
+}
 .modern-search-select-hint {
   color: var(--modern-muted);
 }

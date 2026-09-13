@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, type Component } from 'vue'
-import { LoaderCircle } from '@lucide/vue'
 import AppField from './AppField.vue'
 import AppFieldControl from './AppFieldControl.vue'
 import AppIcon from './AppIcon.vue'
+import AppLoadingIndicator from './AppLoadingIndicator.vue'
+import { useLoadingFeedback } from './loading'
 import type { ControlSize, FieldProps } from './types'
 
 defineOptions({ inheritAttrs: false })
@@ -12,6 +13,7 @@ const props = defineProps<
 >()
 const model = defineModel<string>({ required: true })
 const input = ref<HTMLInputElement>()
+const feedback = useLoadingFeedback(() => Boolean(props.loading))
 defineExpose({
   focus: () => input.value?.focus({ preventScroll: true }),
   select: () => input.value?.select(),
@@ -26,13 +28,7 @@ defineExpose({
       :disabled="disabled"
       :size="size"
     >
-      <AppIcon
-        v-if="icon || loading"
-        :icon="loading ? LoaderCircle : icon!"
-        size="sm"
-        :class="{ 'modern-spin': loading }"
-        :label="label"
-      />
+      <AppIcon v-if="icon" :icon="icon" size="sm" :label="label" />
       <input
         v-bind="$attrs"
         :id="id"
@@ -42,13 +38,18 @@ defineExpose({
         :disabled="disabled"
         :aria-invalid="invalid || undefined"
         :aria-describedby="describedBy"
+        :aria-busy="loading || undefined"
       />
       <slot name="suffix" />
+      <AppLoadingIndicator :loading="feedback" field />
     </AppFieldControl>
   </AppField>
 </template>
 
 <style scoped>
+.modern-text-field-control {
+  position: relative;
+}
 .modern-text-field-control > svg {
   color: var(--modern-muted);
 }

@@ -1,15 +1,39 @@
 <script setup lang="ts">
+import { Check, X } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
-import { AppOverflowText, AppTooltip } from '@modern/components/ui'
+import { AppIcon, AppOverflowText, AppTooltip } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
-defineProps<{ usage: CredentialRow['daily'] }>()
+defineProps<{ usage: CredentialRow['daily']; compact?: boolean }>()
 const { t, n, locale } = useI18n()
 </script>
 <template>
-  <div class="modern-credential-outcomes">
-    <span class="modern-credential-outcomes-window">24h</span>
-    <template v-if="usage">
+  <div class="modern-credential-outcomes" :class="{ 'is-compact': compact }">
+    <AppTooltip :label="usage && !usage.complete ? t('groups.row.partialHelp') : undefined">
+      <span
+        class="modern-credential-outcomes-window"
+        :tabindex="usage && !usage.complete ? 0 : undefined"
+        >24h{{ usage && !usage.complete ? '*' : '' }}</span
+      >
+    </AppTooltip>
+    <template v-if="usage && compact">
+      <AppTooltip :label="`${t('credentialCards.successShort')} ${n(usage.successes)}`">
+        <span class="modern-credential-outcomes-count" tabindex="0"
+          ><AppIcon :icon="Check" size="xs" />{{
+            formatCompactNumber(usage.successes, locale)
+          }}</span
+        >
+      </AppTooltip>
+      <AppTooltip :label="`${t('credentialCards.failureShort')} ${n(usage.failures)}`">
+        <span
+          class="modern-credential-outcomes-count"
+          :class="{ 'has-failures': usage.failures > 0 }"
+          tabindex="0"
+          ><AppIcon :icon="X" size="xs" />{{ formatCompactNumber(usage.failures, locale) }}</span
+        >
+      </AppTooltip>
+    </template>
+    <template v-else-if="usage">
       <span class="modern-credential-outcomes-count"
         ><AppOverflowText
           :text="formatCompactNumber(usage.successes, locale)"
@@ -46,6 +70,14 @@ const { t, n, locale } = useI18n()
 }
 .modern-credential-outcomes-window {
   font-size: var(--modern-font-size-caption);
+}
+.modern-credential-outcomes.is-compact {
+  flex-wrap: nowrap;
+  gap: var(--modern-space-1);
+}
+.modern-credential-outcomes.is-compact .modern-credential-outcomes-count {
+  align-items: center;
+  gap: var(--modern-space-0-5);
 }
 .modern-credential-outcomes-count {
   display: inline-flex;

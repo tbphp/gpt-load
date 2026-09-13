@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
-defineProps<{ loading: boolean }>()
+defineProps<{ loading: boolean; field?: boolean }>()
 const { t } = useI18n()
 </script>
 
 <template>
-  <div v-if="loading" class="modern-loading-indicator" role="status">
+  <div
+    v-if="loading"
+    class="modern-loading-indicator"
+    :class="{ 'modern-loading-indicator--field': field }"
+    role="status"
+  >
     <span class="modern-loading-indicator-track" aria-hidden="true" />
     <span class="modern-sr-only">{{ t('ui.loading') }}</span>
   </div>
@@ -27,6 +32,11 @@ const { t } = useI18n()
   height: 100%;
   background: var(--modern-action);
   animation: modern-loading-travel var(--modern-motion-loading) linear infinite;
+}
+.modern-loading-indicator--field {
+  inset: auto var(--modern-radius-control) var(--modern-line-width);
+  height: var(--modern-space-0-5);
+  border-radius: var(--modern-radius-small);
 }
 @keyframes modern-loading-travel {
   from {

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-defineProps<{ title: string; description?: string }>()
+defineProps<{ title: string; description?: string; compact?: boolean }>()
 </script>
 
 <template>
-  <section class="modern-form-section">
+  <section class="modern-form-section" :class="{ 'is-compact': compact }">
     <header class="modern-form-section-heading">
       <div>
         <h3>{{ title }}</h3>
@@ -52,5 +52,15 @@ defineProps<{ title: string; description?: string }>()
   display: grid;
   gap: var(--modern-space-3);
   min-width: 0;
+}
+.modern-form-section.is-compact .modern-form-section-heading {
+  gap: var(--modern-space-2);
+  margin-bottom: var(--modern-space-2);
+}
+.modern-form-section.is-compact .modern-form-section-body {
+  gap: var(--modern-space-2);
+}
+.modern-form-section.is-compact + .modern-form-section.is-compact {
+  padding-top: var(--modern-space-4);
 }
 </style>

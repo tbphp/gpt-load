@@ -27,7 +27,8 @@ const amount = computed(() =>
   height: var(--modern-status-bar-height);
   width: 100%;
   overflow: hidden;
-  background: var(--modern-subtle);
+  background: var(--modern-progress-track);
+  box-shadow: inset 0 0 0 var(--modern-line-width) var(--modern-progress-track-border);
   border-radius: var(--modern-radius-small);
 }
 .modern-progress-bar--sm {

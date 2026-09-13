@@ -6,7 +6,16 @@ import AppIcon from './AppIcon.vue'
 
 defineOptions({ inheritAttrs: false })
 const { forwardRef } = useForwardExpose()
-defineProps<{ modelValue: boolean; label: string; disabled?: boolean; loading?: boolean }>()
+withDefaults(
+  defineProps<{
+    modelValue: boolean
+    label: string
+    disabled?: boolean
+    loading?: boolean
+    size?: 'sm' | 'md'
+  }>(),
+  { size: 'md' },
+)
 defineEmits<{ 'update:modelValue': [value: boolean] }>()
 </script>
 
@@ -16,6 +25,7 @@ defineEmits<{ 'update:modelValue': [value: boolean] }>()
       :ref="forwardRef"
       v-bind="$attrs"
       class="modern-switch"
+      :class="`modern-switch--${size}`"
       type="button"
       role="switch"
       :aria-label="label"
@@ -51,6 +61,12 @@ defineEmits<{ 'update:modelValue': [value: boolean] }>()
   border-radius: var(--modern-switch-height);
   background: var(--modern-switch-off);
   transition: background-color var(--modern-motion-fast) var(--modern-motion-ease);
+}
+.modern-switch--sm {
+  --modern-switch-width: var(--modern-switch-sm-width);
+  --modern-switch-height: var(--modern-switch-sm-height);
+  --modern-switch-thumb: var(--modern-switch-sm-thumb);
+  min-height: var(--modern-control-xs);
 }
 .modern-switch-track > span {
   position: absolute;

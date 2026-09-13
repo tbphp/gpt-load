@@ -12,10 +12,12 @@ import AppIcon from './AppIcon.vue'
 import AppIconButton from './AppIconButton.vue'
 import AppMenuSurface from './AppMenuSurface.vue'
 import { overlaySideOffset } from './overlay'
+import type { ControlSize } from './types'
 
 defineProps<{
   label: string
   disabled?: boolean
+  size?: ControlSize
   items: readonly {
     id: string
     label: string
@@ -30,8 +32,13 @@ defineEmits<{ select: [id: string] }>()
 <template>
   <DropdownMenuRoot>
     <DropdownMenuTrigger as-child
-      ><AppIconButton :icon="Ellipsis" :label="label" size="sm" :disabled="disabled"
-    /></DropdownMenuTrigger>
+      ><slot name="trigger"
+        ><AppIconButton
+          :icon="Ellipsis"
+          :label="label"
+          :size="size ?? 'sm'"
+          :disabled="disabled" /></slot
+    ></DropdownMenuTrigger>
     <DropdownMenuPortal
       ><AppMenuSurface
         ><DropdownMenuContent align="end" :side-offset="overlaySideOffset">

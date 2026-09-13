@@ -59,3 +59,12 @@ export function sortedQuotaWindows(windows: readonly CredentialQuota[]): Credent
       (a.windowSeconds ?? Infinity) - (b.windowSeconds ?? Infinity),
   )
 }
+
+export function quotaWindowTitle(window: CredentialQuota, subject = window.label): string {
+  const period = quotaPeriod(window.windowSeconds)
+  if (window.scope === 'account' && period)
+    return subject && !subject.toLowerCase().includes(period.toLowerCase())
+      ? `${subject} · ${period}`
+      : subject || period
+  return subject
+}

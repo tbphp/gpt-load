@@ -45,12 +45,18 @@ const pending = ref(false)
 const result = ref<CredentialTestResult>()
 const error = ref('')
 const controller = new AbortController()
+let modelInitialized = false
+let protocolInitialized = false
 watch(
-  settings.data,
-  (value) => {
-    if (value && !protocol.value) {
-      model.value = value.validationModel ?? ''
+  [settings.data, models.data],
+  ([value, items]) => {
+    if (value && !protocolInitialized) {
       protocol.value = value.validationProtocol ?? value.validationProtocols[0] ?? ''
+      protocolInitialized = true
+    }
+    if (value && !modelInitialized && (value.validationModel || items)) {
+      model.value = value.validationModel ?? items?.[0]?.id ?? ''
+      modelInitialized = true
     }
   },
   { immediate: true },
@@ -62,7 +68,21 @@ watch([model, protocol], () => {
 const protocols = computed(() =>
   (settings.data.value?.validationProtocols ?? []).map((value) => ({ value, label: value })),
 )
-const modelOptions = computed(() => groupValidationModelOptions(models.data.value ?? []))
+const modelOptions = computed(() => {
+  const options = groupValidationModelOptions(models.data.value ?? [])
+  const configured = settings.data.value?.validationModel
+  return configured && !options.some((item) => item.value === configured)
+    ? [{ value: configured, label: configured }, ...options]
+    : options
+})
+function updateModel(value: string): void {
+  modelInitialized = true
+  model.value = value
+}
+function updateProtocol(value: string): void {
+  protocolInitialized = true
+  protocol.value = value
+}
 async function reloadSettings(): Promise<void> {
   await Promise.all([settings.refetch(), models.refetch()])
 }
@@ -124,18 +144,23 @@ onScopeDispose(() => controller.abort())
       <form class="modern-credential-test" @submit.prevent="run()">
         <AppLoadingIndicator :loading="settings.isFetching.value || models.isFetching.value" />
         <AppSelect
-          v-model="protocol"
+          :model-value="protocol"
           :label="t('groupDetail.validationProtocol')"
           :options="protocols"
-          :disabled="pending || settings.isPending.value"
+          :disabled="pending || settings.isPending.value || protocols.length === 1"
+          @update:model-value="updateProtocol"
         />
         <AppSearchSelect
-          v-model="model"
+          :model-value="model"
           :label="t('groupDetail.validationModel')"
           :options="modelOptions"
           allow-custom
           :disabled="pending || models.isPending.value"
+          @update:model-value="updateModel"
         />
+        <AppNotice v-if="settings.data.value && !protocols.length" tone="warning">{{
+          t('credentialCards.noTestProtocol')
+        }}</AppNotice>
         <AppNotice v-if="settings.isError.value || models.isError.value" tone="danger"
           >{{ t('groups.edit.loadFailed')
           }}<template #actions

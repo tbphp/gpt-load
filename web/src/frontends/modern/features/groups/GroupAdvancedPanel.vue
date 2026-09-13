@@ -25,6 +25,7 @@ import {
   AppNotice,
   AppFormSection,
   AppSearchSelect,
+  AppSegmentedField,
   AppSelect,
   AppTextArea,
   AppTextField,
@@ -32,6 +33,7 @@ import {
 import { useApiClient } from '@shared/http/client-context'
 import { validBaseURL, validProxyURL } from './group-create-rules'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
+import ParameterRulesEditor from '../config/ParameterRulesEditor.vue'
 import { groupValidationModelOptions } from './group-model-options'
 
 const props = defineProps<{ group: GroupRow; channel?: GroupChannel; models: GroupModel[] }>()
@@ -54,7 +56,9 @@ const proxyURL = ref('')
 const headersMode = ref('inherit')
 const headers = ref<{ key: number; name: string; value: string }[]>([])
 const removeHeaders = ref('')
-const rules = ref('[]')
+const rules = ref<ParameterRule[]>([])
+const rulesValid = ref(true)
+const rulesEditor = ref<InstanceType<typeof ParameterRulesEditor>>()
 const baseline = ref('')
 const attempted = ref(false)
 const saving = ref(false)
@@ -76,7 +80,9 @@ function snapshot(): string {
     rules.value,
   ])
 }
-const dirty = computed(() => Boolean(saved.value) && snapshot() !== baseline.value)
+const dirty = computed(
+  () => Boolean(saved.value) && (snapshot() !== baseline.value || !rulesValid.value),
+)
 watch(
   query.data,
   (data) => {
@@ -108,7 +114,8 @@ watch(
       value,
     }))
     removeHeaders.value = value.remove.join('\n')
-    rules.value = JSON.stringify(data.overrides.parameter_overrides ?? [], null, 2)
+    rules.value = JSON.parse(JSON.stringify(data.overrides.parameter_overrides ?? []))
+    rulesValid.value = true
     baseline.value = snapshot()
   },
   { immediate: true },
@@ -175,46 +182,18 @@ const headerInvalid = computed(() => {
     )
   )
 })
-const parsedRules = computed<ParameterRule[] | undefined>(() => {
-  try {
-    const value: unknown = JSON.parse(rules.value || '[]')
-    if (!Array.isArray(value)) return
-    for (const raw of value) {
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return
-      const rule = raw as Record<string, unknown>
-      if (Object.keys(rule).some((key) => !['match', 'set', 'remove'].includes(key))) return
-      if (!rule.match || typeof rule.match !== 'object' || Array.isArray(rule.match)) return
-      if (
-        Object.entries(rule.match).some(
-          ([key, value]) => !['model', 'protocol'].includes(key) || typeof value !== 'string',
-        )
-      )
-        return
-      if (
-        rule.set !== undefined &&
-        (!rule.set || typeof rule.set !== 'object' || Array.isArray(rule.set))
-      )
-        return
-      if (
-        rule.remove !== undefined &&
-        (!Array.isArray(rule.remove) || rule.remove.some((item) => typeof item !== 'string'))
-      )
-        return
-    }
-    return value as ParameterRule[]
-  } catch {
-    return undefined
-  }
-})
 async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value) return
   attempted.value = true
+  if (!rulesValid.value) {
+    await rulesEditor.value?.focusFirstInvalid()
+    return
+  }
   if (
     Object.keys(paramErrors.value).length ||
     runtimeNumbers.some(numberInvalid) ||
     proxyInvalid.value ||
-    headerInvalid.value ||
-    !parsedRules.value
+    headerInvalid.value
   )
     return
   const base = saved.value
@@ -236,7 +215,7 @@ async function save(): Promise<void> {
         .map((value) => value.trim())
         .filter(Boolean),
     }
-  if (parsedRules.value.length) overrides.parameter_overrides = parsedRules.value
+  if (rules.value.length) overrides.parameter_overrides = rules.value
   else delete overrides.parameter_overrides
   const patch: AdvancedSettingsPatch = {}
   const nextParams = Object.fromEntries(
@@ -329,7 +308,7 @@ onScopeDispose(() => controller.abort())
         </div>
         <template v-if="channel?.proxy">
           <div class="modern-advanced-columns">
-            <AppSelect
+            <AppSegmentedField
               v-model="proxyMode"
               :label="t('groupCreate.proxy')"
               :options="proxyOptions"
@@ -369,7 +348,7 @@ onScopeDispose(() => controller.abort())
             :disabled="saving"
             @update:model-value="numbers[key] = $event"
           />
-          <AppSelect
+          <AppSegmentedField
             v-for="key in runtimeSwitches"
             :key="key"
             :model-value="switches[key] ?? ''"
@@ -386,16 +365,21 @@ onScopeDispose(() => controller.abort())
           />
         </div>
       </AppFormSection>
-      <AppFormSection :title="t('groupDetail.headers')">
+      <AppFormSection compact :title="t('groupDetail.headers')">
         <template #actions
-          ><AppSelect
+          ><AppSegmentedField
             v-model="headersMode"
             class="modern-advanced-mode"
             :label="t('groupDetail.headers')"
             label-hidden
             :options="inheritOptions"
-            size="sm"
-            :disabled="saving"
+            size="xs"
+            :disabled="saving" /><AppIconButton
+            :icon="Plus"
+            :label="t('groupDetail.addHeader')"
+            size="xs"
+            :disabled="saving || headersMode === 'inherit'"
+            @click="headers.push({ key: nextHeader++, name: '', value: '' })"
         /></template>
         <div v-if="headers.length" class="modern-advanced-header-labels" aria-hidden="true">
           <span>{{ t('groupDetail.headerName') }}</span
@@ -407,7 +391,7 @@ onScopeDispose(() => controller.abort())
             :label="t('groupDetail.headerName')"
             label-hidden
             :placeholder="t('groupDetail.headerName')"
-            size="sm"
+            size="xs"
             :disabled="saving || headersMode === 'inherit'"
           />
           <AppTextField
@@ -415,30 +399,23 @@ onScopeDispose(() => controller.abort())
             :label="t('groupDetail.headerValue')"
             label-hidden
             :placeholder="t('groupDetail.headerValue')"
-            size="sm"
+            size="xs"
             :disabled="saving || headersMode === 'inherit'"
           />
           <AppIconButton
             :icon="Trash2"
             :label="t('groupDetail.removeHeader')"
-            size="sm"
+            size="xs"
             :disabled="saving || headersMode === 'inherit'"
             @click="headers = headers.filter((row) => row.key !== header.key)"
           />
         </div>
-        <AppButton
-          v-if="headersMode === 'custom'"
-          :icon="Plus"
-          variant="ghost"
-          size="sm"
-          :disabled="saving"
-          @click="headers.push({ key: nextHeader++, name: '', value: '' })"
-          >{{ t('groupDetail.addHeader') }}</AppButton
-        >
         <AppTextArea
           v-model="removeHeaders"
           :label="t('groupDetail.removeHeaders')"
           :rows="2"
+          size="xs"
+          :placeholder="t('groupDetail.oneHeaderPerLine')"
           mono
           :disabled="saving || headersMode === 'inherit'"
         />
@@ -446,15 +423,15 @@ onScopeDispose(() => controller.abort())
           t('groupDetail.invalidHeaders')
         }}</AppNotice>
       </AppFormSection>
-      <AppFormSection :title="t('groupDetail.parameters')">
-        <AppTextArea
+      <AppFormSection compact :title="t('groupDetail.parameters')">
+        <ParameterRulesEditor
+          ref="rulesEditor"
           v-model="rules"
-          :label="t('groupDetail.parameterJSON')"
-          :rows="6"
-          mono
-          :error="attempted && !parsedRules ? t('groupDetail.invalidRules') : undefined"
+          :protocols="channel?.parameterProtocols ?? []"
+          :models="models"
           :disabled="saving"
-          spellcheck="false"
+          :attempted="attempted"
+          @update:valid="rulesValid = $event"
         />
       </AppFormSection>
     </template>
@@ -474,7 +451,7 @@ onScopeDispose(() => controller.abort())
 .modern-advanced-header-labels,
 .modern-advanced-header-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) var(--modern-control-sm);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) var(--modern-control-xs);
   align-items: start;
   gap: var(--modern-space-2);
 }

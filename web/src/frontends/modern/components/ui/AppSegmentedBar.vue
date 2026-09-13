@@ -32,7 +32,8 @@ const visible = computed(() => props.segments.filter((segment) => segment.value 
   height: var(--modern-status-bar-height);
   overflow: hidden;
   border-radius: var(--modern-radius-small);
-  background: var(--modern-subtle);
+  background: var(--modern-progress-track);
+  box-shadow: inset 0 0 0 var(--modern-line-width) var(--modern-progress-track-border);
   gap: var(--modern-space-0-5);
 }
 .modern-segmented-bar-part {

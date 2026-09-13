@@ -60,6 +60,7 @@ withDefaults(
 .modern-field-control--xs {
   min-height: var(--modern-control-xs);
   padding-inline: var(--modern-space-2);
+  font-size: var(--modern-font-size-small);
 }
 @media (max-width: 760px) {
   .modern-field-control {

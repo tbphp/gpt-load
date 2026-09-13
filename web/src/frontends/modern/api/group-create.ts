@@ -25,6 +25,7 @@ export interface GroupChannel {
   proxy: boolean
   quotaObservation: boolean
   resetCredit: boolean
+  parameterProtocols: string[]
   connectionType: 'api_key' | 'subscription'
   authorizationMethods: AuthorizationMethod[]
   notices: ('claude_oauth_risk' | 'antigravity_oauth_risk')[]
@@ -76,6 +77,22 @@ export async function getGroupChannels(
       proxy: boolean(capabilities.outbound_proxy),
       quotaObservation: boolean(capabilities.quota_observation),
       resetCredit: list(capabilities.credential_actions).includes('reset_credit'),
+      parameterProtocols: [
+        ...new Set(
+          list(item.routes)
+            .map(record)
+            .filter((route) =>
+              [
+                'chat_completion',
+                'responses_create',
+                'images_generate',
+                'embeddings_create',
+                'rerank',
+              ].includes(text(route.operation)),
+            )
+            .map((route) => text(route.client_protocol)),
+        ),
+      ],
       connectionType,
       authorizationMethods,
       notices: list(item.notices).map((raw) =>

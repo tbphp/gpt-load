@@ -17,6 +17,7 @@ export const zhCN = {
     search: '输入关键词搜索…',
     loading: '正在搜索…',
     empty: '没有匹配选项',
+    customInput: '使用输入内容，无需选择选项',
     failed: '加载失败',
   },
   copy: {
@@ -61,6 +62,7 @@ export const enUS: typeof zhCN = {
     search: 'Type to search…',
     loading: 'Searching…',
     empty: 'No matching options',
+    customInput: 'Your input will be used; choosing an option is optional',
     failed: 'Unable to load',
   },
   copy: {
@@ -106,6 +108,7 @@ export const jaJP: typeof zhCN = {
     search: 'キーワードで検索…',
     loading: '検索中…',
     empty: '一致する選択肢がありません',
+    customInput: '入力内容を使用します。候補を選ぶ必要はありません',
     failed: '読み込みに失敗しました',
   },
   copy: {

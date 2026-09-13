@@ -85,6 +85,7 @@ type CredentialItemResponse struct {
 	ConfiguredStatus        string                         `json:"configured_status"`
 	EffectiveStatus         string                         `json:"effective_status"`
 	Weight                  int                            `json:"weight"`
+	WeightManual            *int                           `json:"-"` // 仅新版展示投影使用，经典接口不增加字段。
 	RecentSuccessCount      uint64                         `json:"recent_success_count"`
 	RecentFailureCount      uint64                         `json:"recent_failure_count"`
 	ConsecutiveFailureCount uint64                         `json:"consecutive_failure_count"`

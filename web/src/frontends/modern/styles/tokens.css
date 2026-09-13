@@ -6,7 +6,7 @@
   --modern-canvas: light-dark(#ffffff, #202020);
   --modern-sidebar: light-dark(#f0f0ed, #181818);
   --modern-surface: light-dark(#ffffff, #272727);
-  --modern-subtle: light-dark(#f8f8f6, #303030);
+  --modern-subtle: color-mix(in srgb, var(--modern-accent-soft) 15%, var(--modern-surface));
   --modern-text: light-dark(#1c1c1b, #f5f5f2);
   --modern-muted: light-dark(#6c6c67, #b5b5b0);
   --modern-border: light-dark(#e4e4df, #40403c);
@@ -39,12 +39,38 @@
   );
   --modern-tooltip-text: var(--modern-muted);
   --modern-tooltip-border: color-mix(in srgb, var(--modern-accent) 18%, var(--modern-border));
+  --modern-key-card-glow: color-mix(in srgb, var(--modern-accent-soft) 65%, var(--modern-surface));
+  --modern-key-card-tint: color-mix(in srgb, var(--modern-accent-soft) 35%, var(--modern-surface));
+  --modern-account-card-glow: color-mix(
+    in srgb,
+    var(--modern-info-soft) 55%,
+    var(--modern-surface)
+  );
+  --modern-account-card-tint: color-mix(
+    in srgb,
+    var(--modern-info-soft) 28%,
+    var(--modern-surface)
+  );
+  --modern-segmented-active-border: color-mix(
+    in srgb,
+    var(--modern-accent) 28%,
+    var(--modern-border)
+  );
+  --modern-segmented-active-hover: color-mix(
+    in srgb,
+    var(--modern-accent) 7%,
+    var(--modern-accent-soft)
+  );
 
   /* 控件状态：按钮、字段与选择器共用边框、底色和焦点反馈。 */
   --modern-control-border: light-dark(#dcdcd6, #4a4a45);
   --modern-control-border-hover: light-dark(#bdbdb5, #707069);
-  --modern-control-hover: light-dark(#f4f4f1, #353532);
-  --modern-control-pressed: light-dark(#ebebe6, #3e3e39);
+  --modern-control-hover: color-mix(in srgb, var(--modern-accent-soft) 40%, var(--modern-surface));
+  --modern-control-pressed: color-mix(
+    in srgb,
+    var(--modern-accent-soft) 80%,
+    var(--modern-surface)
+  );
   --modern-control-disabled: light-dark(#f4f4f1, #2b2b29);
   --modern-control-placeholder: light-dark(#85857d, #999991);
   --modern-switch-off: light-dark(#ccccc4, #62625b);
@@ -109,6 +135,9 @@
   --modern-switch-width: 36px;
   --modern-switch-height: 20px;
   --modern-switch-thumb: 16px;
+  --modern-switch-sm-width: 30px;
+  --modern-switch-sm-height: 16px;
+  --modern-switch-sm-thumb: 12px;
   --modern-checkbox-size: 18px;
   --modern-badge-sm: 24px;
   --modern-badge-xs: 20px;
@@ -130,6 +159,12 @@
   --modern-status-warning: light-dark(#eeae36, #eab84f);
   --modern-status-danger: var(--modern-danger);
   --modern-status-neutral: light-dark(#b9b9b1, #6d6d66);
+  --modern-progress-track: color-mix(in srgb, var(--modern-accent) 18%, var(--modern-surface));
+  --modern-progress-track-border: color-mix(
+    in srgb,
+    var(--modern-accent) 28%,
+    var(--modern-surface)
+  );
   --modern-loading-line: 3px;
   --modern-motion-loading: 1100ms;
   --modern-loading-overlay: color-mix(in srgb, var(--modern-surface) 78%, transparent);
@@ -144,9 +179,11 @@
   --modern-panel-inset: 24px;
   --modern-page-gap: 24px;
   --modern-context-sidebar: 280px;
-  --modern-key-card-min: 280px;
+  --modern-key-card-min: 240px;
   --modern-account-card-min: 340px;
-  --modern-key-card-height: 200px;
+  --modern-key-card-height: 104px;
+  --modern-trend-height: 64px;
+  --modern-trend-stroke: 1.5px;
   --modern-credential-card-inset: var(--modern-space-4);
   --modern-credential-card-gap: var(--modern-space-3);
   --modern-credential-grid-gap: var(--modern-space-3);

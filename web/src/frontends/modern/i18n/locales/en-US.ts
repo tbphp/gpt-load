@@ -1,4 +1,5 @@
 import { enUS as credentialCards } from './credential-cards'
+import { enUS as parameterRules } from './parameter-rules'
 import { enUS as groupDetail } from './group-detail'
 import { enUS as groupMessages } from './groups'
 import { enUS as ui } from './ui'
@@ -7,6 +8,7 @@ import { enUS as modelSelection } from './model-selection'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  parameterRules,
   credentialCards,
   groupDetail,
   subscriptions,

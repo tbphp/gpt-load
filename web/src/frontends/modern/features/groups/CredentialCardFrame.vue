@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { AppLoadingIndicator } from '@modern/components/ui'
+import './credential-card.css'
 defineProps<{ selected: boolean; pending?: boolean; compact?: boolean }>()
 </script>
 <template>
   <article
-    class="modern-credential-card"
+    class="modern-credential-card modern-credential-surface"
     :class="{ 'is-selected': selected, 'is-compact': compact }"
     :aria-busy="pending || undefined"
   >
     <AppLoadingIndicator :loading="pending" />
     <header class="modern-credential-card-heading"><slot name="heading" /></header>
     <div class="modern-credential-card-body"><slot /></div>
-    <footer class="modern-credential-card-footer"><slot name="footer" /></footer>
+    <footer class="modern-credential-card-footer modern-credential-surface-footer">
+      <slot name="footer" />
+    </footer>
   </article>
 </template>
 <style scoped>
@@ -24,7 +27,6 @@ defineProps<{ selected: boolean; pending?: boolean; compact?: boolean }>()
   align-self: start;
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-panel);
-  background: var(--modern-surface);
   overflow: hidden;
   transition: border-color var(--modern-motion-fast) var(--modern-motion-ease);
 }
@@ -54,39 +56,39 @@ defineProps<{ selected: boolean; pending?: boolean; compact?: boolean }>()
   align-items: center;
   gap: var(--modern-space-2);
   min-width: 0;
-  padding: var(--modern-space-1-5) var(--modern-credential-card-inset);
+  padding: var(--modern-space-1) var(--modern-credential-card-inset);
   border-top: var(--modern-line-width) solid var(--modern-border);
-  background: color-mix(in srgb, var(--modern-subtle) 55%, var(--modern-surface));
   font-size: var(--modern-font-size-small);
   color: var(--modern-muted);
 }
 .modern-credential-card.is-compact {
+  --modern-credential-card-inset: var(--modern-space-3);
   height: var(--modern-key-card-height);
   display: grid;
-  grid-template-rows: calc(var(--modern-control-sm) + var(--modern-space-4)) minmax(0, 1fr) calc(
-      var(--modern-control-nav) + var(--modern-space-3)
+  grid-template-rows: calc(var(--modern-control-xs) + var(--modern-space-2)) minmax(0, 1fr) var(
+      --modern-control-sm
     );
 }
 .is-compact .modern-credential-card-heading {
-  padding-top: var(--modern-space-2);
+  padding-top: var(--modern-space-1);
 }
 .is-compact .modern-credential-card-body {
   min-height: 0;
-  align-content: space-between;
+  align-content: center;
   gap: var(--modern-space-1);
-  padding-block: var(--modern-space-2);
+  padding-block: var(--modern-space-1);
 }
 .is-compact .modern-credential-card-footer {
   flex-wrap: nowrap;
+  gap: var(--modern-space-1);
+  padding-block: var(--modern-space-0-5);
 }
 @media (max-width: 760px) {
   .modern-credential-card.is-compact {
-    height: calc(
-      var(--modern-key-card-height) + var(--modern-touch-target) + var(--modern-space-3)
-    );
+    height: calc(var(--modern-key-card-height) + var(--modern-space-10));
     grid-template-rows:
-      calc(var(--modern-touch-target) + var(--modern-space-4)) minmax(0, 1fr)
-      calc(var(--modern-touch-target) + var(--modern-space-3));
+      calc(var(--modern-touch-target) + var(--modern-space-2)) minmax(0, 1fr)
+      calc(var(--modern-touch-target) + var(--modern-space-2));
   }
 }
 </style>
