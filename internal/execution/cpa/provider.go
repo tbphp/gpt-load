@@ -53,7 +53,7 @@ func annotateProviderErrorEvidence(evidence *execution.ErrorEvidence, err error)
 	if evidence == nil {
 		return
 	}
-	if evidence.Hint == "" && execution.ExplicitRequestRejection(evidence.Type, evidence.Code) {
+	if evidence.Hint == "" && execution.ExplicitRequestRejection(evidence.Type, evidence.Code, evidence.Summary) {
 		evidence.Hint = execution.FailureHintRequestRejected
 	}
 	if evidence.Kind == execution.ErrorKindHTTP && evidence.StatusCode == http.StatusBadRequest &&

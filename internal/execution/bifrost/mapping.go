@@ -298,7 +298,7 @@ func neutralFailureHint(status int, values ...string) execution.FailureHint {
 	switch {
 	case status == http.StatusUnauthorized:
 		return execution.FailureHintInvalidCredential
-	case len(values) >= 2 && execution.ExplicitRequestRejection(values[0], values[1]):
+	case len(values) >= 2 && execution.ExplicitRequestRejection(values[0], values[1], values[len(values)-1]):
 		return execution.FailureHintRequestRejected
 	case candidateCapabilityRejected(status, values):
 		return execution.FailureHintModelUnavailable

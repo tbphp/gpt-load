@@ -297,7 +297,7 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 		case execution.FailureHintHostError:
 			return FailureCategoryUpstreamHostError
 		}
-		if execution.ExplicitRequestRejection(attempt.Evidence.Type, attempt.Evidence.Code) {
+		if execution.ExplicitRequestRejection(attempt.Evidence.Type, attempt.Evidence.Code, attempt.Evidence.Summary) {
 			return FailureCategoryClientError
 		}
 		markers = strings.ToLower(strings.Join([]string{
@@ -446,6 +446,10 @@ func decisionForExecutionCategory(
 	default:
 		ruleID := ambiguousRuleID(attempt.Evidence)
 		if retryableUpstreamResponse(attempt) {
+			if !requestMayReplayAfterResponse(decisionContext) &&
+				attempt.Evidence.ReplaySafety != execution.ReplaySafetyRejectedBeforeProcessing {
+				return decision(category, origin, scope, RetryNone, EffectNone, "safety.operation_replay_unsafe")
+			}
 			if ruleID == "fallback.ambiguous" {
 				ruleID = "fallback.upstream_response"
 			}
@@ -731,10 +735,6 @@ func requestMayReplayAfterResponse(value DecisionContext) bool {
 	case execution.OperationChatCompletion,
 		execution.OperationResponsesCreate,
 		execution.OperationResponsesCompact,
-		execution.OperationImagesGenerate,
-		execution.OperationImagesEdit,
-		execution.OperationEmbeddingsCreate,
-		execution.OperationRerank,
 		execution.OperationResponsesRetrieve,
 		execution.OperationResponsesInputItems,
 		execution.OperationResponsesInputTokens,

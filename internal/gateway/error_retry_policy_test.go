@@ -1,14 +1,17 @@
 package gateway
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/protocol"
 )
@@ -57,6 +60,31 @@ func TestAnthropicPrechargeFailureRetriesWithoutCredentialPenalty(t *testing.T) 
 				}
 			}
 		})
+	}
+}
+
+func TestUnknownResponsesCancellationFailureDoesNotSwitchCredential(t *testing.T) {
+	var attempts atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if attempts.Add(1) == 1 {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = fmt.Fprint(w, `{"error":{"message":"resource rejected"}}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"id":"resp_1","status":"cancelled"}`)
+	}))
+	defer upstream.Close()
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIResponses, "model-a", dialect.NewSet(dialect.NewOpenAIResponses()),
+		dialectGatewayGroup{id: 1, name: "resource-retry", channelID: channel.OpenAI,
+			params: json.RawMessage(fmt.Sprintf(`{"base_url":%q}`, upstream.URL+"/v1")), apiKeys: []string{"sk-one", "sk-two"}},
+	)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses/resp_1/cancel", strings.NewReader("{}"))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || attempts.Load() != 1 || !strings.Contains(response.Body.String(), "resource rejected") {
+		t.Fatalf("status=%d attempts=%d body=%s", response.Code, attempts.Load(), response.Body.String())
 	}
 }
 

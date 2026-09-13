@@ -192,7 +192,7 @@ func TestJudgeUpstreamResultUsesStableStreamTerminalRules(t *testing.T) {
 				StatusCode:      http.StatusOK,
 				Committed:       true,
 				Stream:          streamTerminalObservation(test.endReason),
-			}, time.Now(), health.DecisionContext{})
+			}, time.Now(), health.DecisionContext{Method: http.MethodPost, Operation: execution.OperationChatCompletion})
 			if decision.Category != health.FailureCategoryAmbiguous ||
 				decision.Origin != test.wantOrigin || decision.Scope != test.wantScope ||
 				decision.Retry != health.RetryNone || decision.Effect != health.EffectNone ||

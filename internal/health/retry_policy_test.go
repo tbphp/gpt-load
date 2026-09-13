@@ -49,6 +49,7 @@ func TestUpstreamResponseRetryPreservesExecutionBoundaries(t *testing.T) {
 		committed bool
 		retry     RetryDirective
 		effect    Effect
+		rule      RuleID
 	}{
 		{name: "generation server error", status: 503, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP}, retry: RetryNextCandidate, effect: EffectSkipGroup},
 		{name: "unknown error event", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindProvider, Code: "upstream_sse_error"}, retry: RetryNextCandidate, effect: EffectNone},
@@ -61,7 +62,7 @@ func TestUpstreamResponseRetryPreservesExecutionBoundaries(t *testing.T) {
 		{name: "internal result with HTTP status", status: 400, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindInternal}, retry: RetryNone, effect: EffectNone},
 		{name: "unknown execution result", status: 503, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, ReplaySafety: execution.ReplaySafetyUnknown}, retry: RetryNone, effect: EffectSkipGroup},
 		{name: "committed event", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindProvider, Code: "upstream_sse_error"}, committed: true, retry: RetryNone, effect: EffectNone},
-		{name: "image needs rejection proof", status: 503, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP}, operation: execution.OperationImagesGenerate, retry: RetryNone, effect: EffectSkipGroup},
+		{name: "image needs rejection proof", status: 503, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP}, operation: execution.OperationImagesGenerate, retry: RetryNone, effect: EffectSkipGroup, rule: "upstream.host_error.replay_unsafe"},
 		{name: "resource mutation remains restricted", status: 503, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP}, operation: execution.OperationResponsesCancel, retry: RetryNone, effect: EffectSkipGroup},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -76,6 +77,37 @@ func TestUpstreamResponseRetryPreservesExecutionBoundaries(t *testing.T) {
 			if result.Retry != test.retry || result.Effect != test.effect {
 				t.Fatalf("decision=%#v, want retry=%s effect=%s", result, test.retry, test.effect)
 			}
+			if test.rule != "" && result.RuleID != test.rule {
+				t.Fatalf("rule=%s, want %s", result.RuleID, test.rule)
+			}
 		})
+	}
+}
+
+func TestUnknownErrorRetryRespectsOperationReplayPolicy(t *testing.T) {
+	for _, test := range []struct {
+		operation execution.Operation
+		method    string
+	}{
+		{execution.OperationResponsesDelete, http.MethodDelete},
+		{execution.OperationResponsesCancel, http.MethodPost},
+		{execution.OperationResponsesPassthrough, http.MethodPost},
+		{execution.OperationResponsesPassthrough, http.MethodGet},
+		{execution.OperationChatCompletion, http.MethodPost},
+	} {
+		for _, proof := range []execution.ReplaySafety{"", execution.ReplaySafetyRejectedBeforeProcessing} {
+			result := JudgeExecution(ExecutionAttempt{
+				DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusForbidden,
+				Evidence: &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, ReplaySafety: proof},
+			}, DecisionContext{Method: test.method, Operation: test.operation})
+			want := RetryNone
+			if test.method == http.MethodGet || test.operation == execution.OperationChatCompletion || proof != "" {
+				want = RetryNextCandidate
+			}
+			if result.Retry != want || result.Effect != EffectNone {
+				t.Errorf("operation=%s method=%s proof=%q decision=%#v, want retry=%s without effects",
+					test.operation, test.method, proof, result, want)
+			}
+		}
 	}
 }
