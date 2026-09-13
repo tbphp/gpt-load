@@ -938,15 +938,6 @@ function costLabel(log: RequestLogItemDto): string {
                   <span class="logs-list__token-direction" aria-hidden="true">in</span>
                   {{ formatLogTokenCount(log.input_tokens, locale) }}
                   <span class="logs-list__token-hints">
-                    <AppTooltip v-if="hasRequestLogCache(log)" :content="cacheTooltip(log)">
-                      <button
-                        type="button"
-                        class="logs-list__hint"
-                        :aria-label="t('monitor.logs.tokens.cacheDetails')"
-                      >
-                        <Layers :size="13" aria-hidden="true" />
-                      </button>
-                    </AppTooltip>
                     <AppTooltip
                       v-if="log.usage_state === 'partial'"
                       :content="t('monitor.logs.tokens.partial')"
@@ -965,6 +956,18 @@ function costLabel(log: RequestLogItemDto): string {
                   <span class="logs-list__token-direction" aria-hidden="true">out</span>
                   {{ formatLogTokenCount(log.output_tokens, locale) }}
                 </span>
+                <AppTooltip v-if="hasRequestLogCache(log)" :content="cacheTooltip(log)">
+                  <button
+                    type="button"
+                    class="logs-list__hint logs-list__cache-rate"
+                    :aria-label="`${t('monitor.logs.tokens.cacheHitRate')} ${formatCacheHitRate(log.cache_read_tokens, log.input_tokens, locale)} · ${t('monitor.logs.tokens.cacheDetails')}`"
+                  >
+                    <span class="logs-list__token-direction">
+                      <Layers :size="13" aria-hidden="true" />
+                    </span>
+                    {{ formatCacheHitRate(log.cache_read_tokens, log.input_tokens, locale) }}
+                  </button>
+                </AppTooltip>
               </span>
             </OverflowTooltip>
             <span v-else class="logs-list__state--warning">—</span>
@@ -1211,6 +1214,21 @@ function costLabel(log: RequestLogItemDto): string {
   color: var(--color-text-faint);
   padding: 0;
   cursor: help;
+}
+
+.logs-list__cache-rate {
+  width: max-content;
+  max-width: 100%;
+  flex-basis: auto;
+  justify-content: flex-start;
+  gap: 5px;
+  font: inherit;
+  font-size: var(--text-label-xs);
+}
+
+.logs-list__cache-rate .logs-list__token-direction {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .logs-list__hint:hover {
