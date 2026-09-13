@@ -70,6 +70,37 @@ func NormalizeOptionalHTTPSBaseURL(value string) (string, error) {
 	return NormalizeHTTPSBaseURL(value)
 }
 
+// normalizeReasoningAliasOption canonicalizes one reasoning alias select
+// parameter to one of the given canonical options. An empty value stays
+// empty so the option can be omitted, which the execution layer treats as
+// off.
+func normalizeReasoningAliasOption(value string, options []string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "", nil
+	}
+	for _, option := range options {
+		if normalized == option {
+			return option, nil
+		}
+	}
+	return "", fmt.Errorf("must be one of %s", strings.Join(options, ", "))
+}
+
+// NormalizeReasoningAlias canonicalizes the request reasoning alias select
+// parameter to one of the ReasoningAliasOptions values. Duplicate is rejected
+// on this direction: the outbound upstream spelling is known, so emitting
+// both adds nothing a rename does not already cover.
+func NormalizeReasoningAlias(value string) (string, error) {
+	return normalizeReasoningAliasOption(value, ReasoningAliasOptions)
+}
+
+// NormalizeResponseReasoningAlias canonicalizes the response reasoning alias
+// select parameter to off or duplicate.
+func NormalizeResponseReasoningAlias(value string) (string, error) {
+	return normalizeReasoningAliasOption(value, ReasoningAliasResponseOptions)
+}
+
 // NormalizeCloudIdentifier rejects whitespace and control characters in a
 // provider-owned cloud configuration value.
 func NormalizeCloudIdentifier(value string) (string, error) {

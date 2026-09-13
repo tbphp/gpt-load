@@ -141,11 +141,24 @@ func TestRegistryPublicDescriptorsContainSchemasButNoInternalOrSecretValues(t *t
 		t.Fatalf("openai credential field = %#v", credentialField)
 	}
 	compatible, ok := registry.Get(OpenAICompatible)
-	if !ok || len(compatible.ParamFields) != 1 {
+	if !ok || len(compatible.ParamFields) != 3 {
 		t.Fatalf("Get(openai_compatible) = %#v, %t", compatible, ok)
 	}
 	if field := compatible.ParamFields[0]; field.Key != "base_url" || field.InputKind != InputURL || !field.Required || field.Sensitive {
 		t.Fatalf("openai compatible param field = %#v", field)
+	}
+	for index, key := range []string{"reasoning_content_alias", "request_reasoning_alias"} {
+		field := compatible.ParamFields[index+1]
+		if field.Key != key || field.InputKind != InputSelect || field.Required || field.Sensitive {
+			t.Fatalf("openai compatible alias param %d = %#v", index, field)
+		}
+		expected := spec.ReasoningAliasOptions
+		if key == "reasoning_content_alias" {
+			expected = spec.ReasoningAliasResponseOptions
+		}
+		if strings.Join(field.Options, ",") != strings.Join(expected, ",") {
+			t.Fatalf("openai compatible alias param %d options = %v", index, field.Options)
+		}
 	}
 	encoded, err := json.Marshal(compatible)
 	if err != nil {

@@ -115,6 +115,11 @@ const selectedChannel = computed(() =>
 const channelParamFields = computed<ChannelFieldDto[]>(
   () => selectedChannel.value?.param_fields ?? [],
 )
+const reasoningFieldsSupported = computed(() =>
+  channelParamFields.value.some(
+    ({ key }) => key === 'reasoning_content_alias' || key === 'request_reasoning_alias',
+  ),
+)
 const channelParamsDisabled = computed(() => selectedChannel.value === undefined)
 const parameterOverrideOperations = new Set([
   'chat_completion',
@@ -134,6 +139,9 @@ let controller: AbortController | undefined
 const navItems = computed(() => [
   { id: 'settings-general', label: t('group.settings.sections.general') },
   { id: 'settings-routing', label: t('group.settings.sections.routing') },
+  ...(reasoningFieldsSupported.value
+    ? [{ id: 'settings-reasoning', label: t('group.settings.sections.reasoning') }]
+    : []),
   { id: 'settings-runtime', label: t('group.settings.sections.runtime') },
   { id: 'settings-parameters', label: t('group.settings.sections.parameters') },
   { id: 'settings-headers', label: t('group.settings.sections.headers') },
@@ -337,6 +345,7 @@ function sectionFromID(id: string): GroupSettingsSection | undefined {
   const value = id.replace(/^settings-/u, '')
   return value === 'general' ||
     value === 'routing' ||
+    value === 'reasoning' ||
     value === 'runtime' ||
     value === 'parameters' ||
     value === 'headers' ||
@@ -613,6 +622,35 @@ onBeforeUnmount(() => {
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:validation-protocol="draft.validation_protocol = $event"
+            @update:weight-manual="draft.weight_manual = $event"
+            @update:price-multiplier="draft.price_multiplier = $event"
+            @update:enabled="draft.enabled = $event"
+          />
+          <GroupSettingsBaseForm
+            v-if="reasoningFieldsSupported"
+            section="reasoning"
+            :channel-id="draft.channel_id"
+            :connection-type="draft.connection_type"
+            :default-base-url="selectedChannel?.default_base_url ?? ''"
+            :default-base-urls="selectedChannel?.default_base_urls ?? []"
+            :param-fields="channelParamFields"
+            :params="draft.params"
+            :name="draft.name"
+            :validation-model="draft.validation_model"
+            :validation-protocol="draft.validation_protocol"
+            :validation-protocols="saved?.validation_protocols ?? []"
+            :models="modelsQuery.data.value?.items ?? []"
+            :weight-manual="draft.weight_manual"
+            :price-multiplier="draft.price_multiplier"
+            :enabled="draft.enabled"
+            :pending="mutationPending"
+            :params-disabled="channelParamsDisabled"
+            :name-error="nameError"
+            :param-errors="paramErrors"
+            @update:param="updateParam"
+            @update:name="draft.name = $event"
+            @update:validation-protocol="draft.validation_protocol = $event"
+            @update:validation-model="draft.validation_model = $event"
             @update:weight-manual="draft.weight_manual = $event"
             @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"

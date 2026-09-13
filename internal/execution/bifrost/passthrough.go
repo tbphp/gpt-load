@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/geminiimage"
+	"gpt-load/internal/execution/responsealias"
 	"gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
 )
@@ -410,9 +411,15 @@ complete:
 			}
 			model = openAIResponseModel(bodyBytes, "")
 		}
-		if needsClientModelAlias(spec) && headers.Get("Content-Encoding") == "" {
+		reasoningMode := responseReasoningAliasMode(spec)
+		if (needsClientModelAlias(spec) || reasoningMode != responsealias.ReasoningModeOff) &&
+			headers.Get("Content-Encoding") == "" {
+			clientModel := ""
+			if needsClientModelAlias(spec) {
+				clientModel = spec.ClientModel
+			}
 			var err error
-			bodyBytes, err = rewriteClientResponseModel(spec.ClientProtocol, bodyBytes, spec.ClientModel)
+			bodyBytes, err = rewriteClientResponseAlias(spec.ClientProtocol, bodyBytes, clientModel, reasoningMode)
 			if err != nil {
 				return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "rewrite native response model")
 			}

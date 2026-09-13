@@ -16,7 +16,7 @@ import {
   projectString,
 } from './projector'
 
-export type ChannelFieldInputKind = 'text' | 'url' | 'secret'
+export type ChannelFieldInputKind = 'text' | 'url' | 'secret' | 'select'
 export type ChannelConnectionType = 'api_key' | 'subscription'
 const authorizationMethods = ['browser_oauth', 'device_oauth', 'oauth_file'] as const
 export type ChannelAuthorizationMethod = (typeof authorizationMethods)[number]
@@ -73,6 +73,7 @@ export interface ChannelFieldDto {
   key: string
   label: string
   input_kind: ChannelFieldInputKind
+  options: string[]
   required: boolean
   sensitive: boolean
   default_value: string | null
@@ -122,12 +123,13 @@ const fieldFields = [
   'key',
   'label',
   'input_kind',
+  'options',
   'required',
   'sensitive',
   'default_value',
 ] as const
 const listFields = ['items', 'total'] as const
-const inputKinds = ['text', 'url', 'secret'] as const
+const inputKinds = ['text', 'url', 'secret', 'select'] as const
 const connectionTypes = ['api_key', 'subscription'] as const
 const credentialInputs = ['batch_text', 'authorization'] as const
 const connectionFields = ['type', 'credential_input', 'authorization_methods'] as const
@@ -188,12 +190,15 @@ function projectChannelField(value: unknown): ChannelFieldDto {
   const inputKind = projectEnum(record.input_kind, inputKinds)
   const sensitive = projectBoolean(record.sensitive)
   const defaultValue = record.default_value === null ? null : projectString(record.default_value)
+  const options = projectArray(record.options ?? [], (option) => projectString(option))
   if (
     key !== key.trim() ||
     !/^[a-z][a-z0-9_]*$/u.test(key) ||
     label.trim().length === 0 ||
     sensitive !== (inputKind === 'secret') ||
-    (sensitive && defaultValue !== null)
+    (sensitive && defaultValue !== null) ||
+    (inputKind === 'select' && options.length === 0) ||
+    (inputKind !== 'select' && options.length > 0)
   ) {
     invalidResponse()
   }
@@ -201,6 +206,7 @@ function projectChannelField(value: unknown): ChannelFieldDto {
     key,
     label,
     input_kind: inputKind,
+    options,
     required: projectBoolean(record.required),
     sensitive,
     default_value: defaultValue,

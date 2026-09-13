@@ -206,6 +206,7 @@ export default {
       sections: {
         general: '基本情報',
         routing: 'スケジューリング',
+        reasoning: '推論フィールド',
         runtime: 'ランタイム上書き',
         parameters: 'パラメーター上書き',
         headers: 'アップストリームリクエストヘッダールール',
@@ -215,6 +216,11 @@ export default {
         description: 'リクエスト分配に使うグループの相対的な重みを設定します。',
         weightHelp:
           '既定値は 50、範囲は 1–100 です。認証情報の重みと掛け合わせて分配比率を決定します。',
+      },
+      reasoning: {
+        description:
+          '上流・下流のレスポンスとリクエストで推論フィールドを変換し、より多くの下流クライアントに対応します（base_url が /v1 で終わる場合のみ有効）',
+        notSupported: 'このチャネルは推論フィールドの設定に対応していません。',
       },
       headers: {
         description:
@@ -295,6 +301,15 @@ export default {
         upstreamUrl: 'アップストリーム URL',
         upstreamUrlError: '有効な HTTP または HTTPS の Base URL を入力してください。',
         urlWarning: 'Base URL を変更すると、今後のグループリクエストの送信先が変わります。',
+        reasoningResponseLabel: 'レスポンス方向',
+        reasoningResponseHelp: '上流レスポンスで推論フィールドの両表記を出力します。',
+        reasoningRequestLabel: 'リクエスト方向',
+        reasoningRequestHelp:
+          '上流へ送信するリクエストメッセージの推論フィールドをリネームします。',
+        reasoningOptionOff: 'オフ',
+        reasoningOptionToContent: 'reasoning → reasoning_content',
+        reasoningOptionToReasoning: 'reasoning_content → reasoning',
+        reasoningOptionDuplicate: 'reasoning / reasoning_content を同時出力',
         gptLoadUrlDescription:
           'GPT-Load ゲートウェイのルートまたはデプロイ接頭辞を入力してください。/v1 や /v1beta などの標準プロトコルパスは含めないでください。',
         newApiUrlDescription:
