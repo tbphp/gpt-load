@@ -297,6 +297,9 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 		case execution.FailureHintHostError:
 			return FailureCategoryUpstreamHostError
 		}
+		if execution.ExplicitRequestRejection(attempt.Evidence.Type, attempt.Evidence.Code) {
+			return FailureCategoryClientError
+		}
 		markers = strings.ToLower(strings.Join([]string{
 			attempt.Evidence.Type,
 			attempt.Evidence.Code,
@@ -321,8 +324,6 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 		return FailureCategoryInvalidKey
 	case statusCode >= http.StatusInternalServerError && statusCode <= 599:
 		return FailureCategoryUpstreamHostError
-	case statusCode >= http.StatusBadRequest && statusCode <= 499:
-		return FailureCategoryClientError
 	case attempt.Evidence != nil && attempt.Evidence.Kind == execution.ErrorKindInvalidRequest:
 		return FailureCategoryClientError
 	default:
@@ -409,10 +410,10 @@ func decisionForExecutionCategory(
 		if attempt.Evidence.ReplaySafety == execution.ReplaySafetyRejectedBeforeProcessing {
 			retry = RetryNextCandidate
 			ruleID = "upstream.host_error.rejected_before_processing"
-		} else if attempt.Evidence.ReplaySafety != execution.ReplaySafetyUnknown &&
+		} else if retryableUpstreamResponse(attempt) &&
 			requestMayReplayAfterResponse(decisionContext) {
 			retry = RetryNextCandidate
-			ruleID = "upstream.host_error.read_only"
+			ruleID = "upstream.host_error.response_retry"
 		}
 		return decision(
 			category,
@@ -443,7 +444,39 @@ func decisionForExecutionCategory(
 	case FailureCategoryOK:
 		return decision(category, origin, scope, RetryNone, EffectNone, "success.upstream_response")
 	default:
-		return decision(category, origin, scope, RetryNone, EffectNone, ambiguousRuleID(attempt.Evidence))
+		ruleID := ambiguousRuleID(attempt.Evidence)
+		if retryableUpstreamResponse(attempt) {
+			if ruleID == "fallback.ambiguous" {
+				ruleID = "fallback.upstream_response"
+			}
+			return decision(category, origin, scope, RetryNextCandidate, EffectNone, ruleID)
+		}
+		return decision(category, origin, scope, RetryNone, EffectNone, ruleID)
+	}
+}
+
+// retryableUpstreamResponse 区分已收到的错误响应与超时、断流等执行结果未知的失败。
+func retryableUpstreamResponse(attempt ExecutionAttempt) bool {
+	evidence := attempt.Evidence
+	if evidence == nil || originForEvidence(evidence) != execution.ErrorOriginUpstream ||
+		evidence.ReplaySafety == execution.ReplaySafetyUnknown {
+		return false
+	}
+	switch evidence.Kind {
+	case execution.ErrorKindHTTP:
+		status := attempt.StatusCode
+		if status == 0 {
+			status = evidence.StatusCode
+		}
+		return status >= http.StatusBadRequest && status <= 599
+	case execution.ErrorKindProvider:
+		switch evidence.Code {
+		case "upstream_protocol_error", "upstream_response_incomplete":
+			return false
+		}
+		return attempt.ResponseStarted()
+	default:
+		return false
 	}
 }
 
@@ -695,7 +728,14 @@ func requestMayReplayAfterResponse(value DecisionContext) bool {
 		return true
 	}
 	switch value.Operation {
-	case execution.OperationResponsesRetrieve,
+	case execution.OperationChatCompletion,
+		execution.OperationResponsesCreate,
+		execution.OperationResponsesCompact,
+		execution.OperationImagesGenerate,
+		execution.OperationImagesEdit,
+		execution.OperationEmbeddingsCreate,
+		execution.OperationRerank,
+		execution.OperationResponsesRetrieve,
 		execution.OperationResponsesInputItems,
 		execution.OperationResponsesInputTokens,
 		execution.OperationCountTokens,

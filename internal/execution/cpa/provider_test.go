@@ -159,15 +159,19 @@ func TestProviderModelRejectionRefinesGenericRequestHint(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		err  error
+		hint execution.FailureHint
+		code string
 		want execution.FailureHint
 	}{
-		{name: "generic provider rejection", err: errors.New("model unsupported"), want: execution.FailureHintModelUnavailable},
-		{name: "explicit request scope preserved", err: requestScopedTestError{}, want: execution.FailureHintRequestRejected},
+		{name: "generic provider rejection", err: errors.New("model unsupported"), hint: execution.FailureHintRequestRejected, code: "unsupported_model", want: execution.FailureHintModelUnavailable},
+		{name: "model without generic hint", code: "unsupported_model", want: execution.FailureHintModelUnavailable},
+		{name: "model alias without generic hint", code: "unsupported-model", want: execution.FailureHintModelUnavailable},
+		{name: "explicit request scope preserved", err: requestScopedTestError{}, hint: execution.FailureHintRequestRejected, code: "unsupported_model", want: execution.FailureHintRequestRejected},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			evidence := &execution.ErrorEvidence{
 				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusBadRequest,
-				Hint: execution.FailureHintRequestRejected, Code: "unsupported_model",
+				Hint: test.hint, Code: test.code,
 			}
 			annotateProviderErrorEvidence(evidence, test.err)
 			if evidence.Hint != test.want {

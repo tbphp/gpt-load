@@ -53,8 +53,11 @@ func annotateProviderErrorEvidence(evidence *execution.ErrorEvidence, err error)
 	if evidence == nil {
 		return
 	}
+	if evidence.Hint == "" && execution.ExplicitRequestRejection(evidence.Type, evidence.Code) {
+		evidence.Hint = execution.FailureHintRequestRejected
+	}
 	if evidence.Kind == execution.ErrorKindHTTP && evidence.StatusCode == http.StatusBadRequest &&
-		evidence.Hint == execution.FailureHintRequestRejected && !requestScopedFailure(err) {
+		(evidence.Hint == "" || evidence.Hint == execution.FailureHintRequestRejected) && !requestScopedFailure(err) {
 		// 通用 HTTP 400 标签不能盖过明确的模型拒绝；保留 provider 的强请求级判定。
 		switch strings.ToLower(strings.TrimSpace(evidence.Code)) {
 		case "unsupported_model", "unsupported-model":

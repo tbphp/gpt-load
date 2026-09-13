@@ -298,6 +298,8 @@ func neutralFailureHint(status int, values ...string) execution.FailureHint {
 	switch {
 	case status == http.StatusUnauthorized:
 		return execution.FailureHintInvalidCredential
+	case len(values) >= 2 && execution.ExplicitRequestRejection(values[0], values[1]):
+		return execution.FailureHintRequestRejected
 	case candidateCapabilityRejected(status, values):
 		return execution.FailureHintModelUnavailable
 	case containsAnyMarker(markers,
@@ -313,9 +315,6 @@ func neutralFailureHint(status int, values ...string) execution.FailureHint {
 		"authentication failed",
 		"invalid credential", "api key not valid"):
 		return execution.FailureHintInvalidCredential
-	case containsAnyMarker(markers,
-		"invalid_request_error", "context_length_exceeded"):
-		return execution.FailureHintRequestRejected
 	case containsAnyMarker(markers,
 		"server_is_overloaded", "service_unavailable", "server overloaded"):
 		return execution.FailureHintHostError
@@ -387,12 +386,6 @@ func annotateBifrostErrorEvidence(evidence *execution.ErrorEvidence) {
 			evidence.ScopeHint = execution.ErrorScopeGroup
 		case execution.ErrorKindCanceled, execution.ErrorKindInvalidRequest:
 			evidence.ScopeHint = execution.ErrorScopeRequest
-		case execution.ErrorKindHTTP:
-			if evidence.StatusCode >= http.StatusBadRequest &&
-				evidence.StatusCode < http.StatusInternalServerError &&
-				evidence.StatusCode != http.StatusTooManyRequests {
-				evidence.ScopeHint = execution.ErrorScopeRequest
-			}
 		}
 	}
 }
