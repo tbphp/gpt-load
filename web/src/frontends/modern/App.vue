@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterView } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import { TooltipProvider } from 'reka-ui'
 import { tooltipDelay } from './components/ui/overlay'
 import { provideMessages } from './app/messages'
+import { clipboardRevision } from './components/ui/clipboard'
 import AppMessageHost from './components/ui/AppMessageHost.vue'
 
 import { usePageTitle } from './app/use-page-title'
@@ -14,6 +15,14 @@ import PublicLayout from './layouts/PublicLayout.vue'
 
 const { locale } = useI18n()
 const messages = provideMessages()
+const route = useRoute()
+watch(
+  () => route.fullPath,
+  () => {
+    clipboardRevision.value++
+  },
+  { flush: 'sync' },
+)
 const { title } = usePageTitle()
 watch(
   [title, locale],

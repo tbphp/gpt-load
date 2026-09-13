@@ -29,7 +29,7 @@ useLoadingActivity(() => Boolean(props.loading || props.pending))
 <template>
   <GroupEditorSurface
     :pending="pending"
-    :size="wide === false ? 'default' : 'sheet'"
+    :size="wide ? 'sheet' : 'default'"
     :title="title"
     :description="description"
     @close="close"

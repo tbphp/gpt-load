@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { controlAttrs, layoutAttrs } from './field-attrs'
+import { matchesSearchOption } from './search-options'
 import { useLoadingActivity } from './loading'
 import AppTooltip from './AppTooltip.vue'
 import { Check, ChevronDown, Search } from '@lucide/vue'
@@ -97,21 +99,11 @@ watch(
   },
   { immediate: true },
 )
-const normalize = (value: string) =>
-  value
-    .normalize('NFKD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLocaleLowerCase()
-const visible = computed(() => {
-  const terms = normalize(search.value).trim().split(/\s+/u).filter(Boolean)
-  const options = props.loadOptions
+const visible = computed(() =>
+  props.loadOptions
     ? source.value
-    : source.value.filter((option) => {
-        const text = normalize([option.label, option.value, ...(option.keywords ?? [])].join(' '))
-        return terms.every((term) => text.includes(term))
-      })
-  return options
-})
+    : source.value.filter((option) => matchesSearchOption(option, search.value)),
+)
 function updateSearch(value: string): void {
   inputChanged = true
   keyboardBrowsing = false
@@ -202,7 +194,7 @@ onScopeDispose(cancelRequest)
 </script>
 
 <template>
-  <AppField v-slot="{ id, describedBy, invalid }" v-bind="props">
+  <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
     <ComboboxRoot
       ref="combobox"
       v-model="selected"
@@ -219,7 +211,7 @@ onScopeDispose(cancelRequest)
         <ComboboxAnchor class="modern-search-select-control" :aria-busy="loading || undefined">
           <AppIcon :icon="Search" size="sm" class="modern-search-select-hint" />
           <ComboboxInput
-            v-bind="$attrs"
+            v-bind="controlAttrs($attrs)"
             :id="id"
             ref="input"
             class="modern-search-select-input"

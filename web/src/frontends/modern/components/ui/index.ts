@@ -46,3 +46,8 @@ export type {
 } from './types'
 export { default as AppModelSelect } from './AppModelSelect.vue'
 export { default as AppSortMenu } from './AppSortMenu.vue'
+export { default as AppMultiSelect } from './AppMultiSelect.vue'
+export { default as AppCalendar } from './AppCalendar.vue'
+export { default as AppDateTimePicker } from './AppDateTimePicker.vue'
+export { default as AppDateTimeRangePicker } from './AppDateTimeRangePicker.vue'
+export { default as AppTag } from './AppTag.vue'

@@ -1,3 +1,7 @@
+import { shallowRef } from 'vue'
+
+export const clipboardRevision = shallowRef(0)
+
 // 保留经典版已验证的复制兼容流程，新版独立处理外观与生命周期。
 export function canWriteToClipboardNatively(): boolean {
   return Boolean(

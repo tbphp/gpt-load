@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { layoutAttrs } from './field-attrs'
 import { computed, useId } from 'vue'
 import type { FieldProps } from './types'
 
@@ -17,7 +18,7 @@ const describedBy = computed(
 </script>
 
 <template>
-  <div class="modern-field" :class="{ 'is-disabled': disabled }">
+  <div v-bind="layoutAttrs($attrs)" class="modern-field" :class="{ 'is-disabled': disabled }">
     <label :id="`${fieldId}-label`" :for="fieldId" :class="{ 'modern-sr-only': labelHidden }">{{
       label
     }}</label>
@@ -30,6 +31,7 @@ const describedBy = computed(
 <style scoped>
 .modern-field {
   display: grid;
+  align-content: start;
   min-width: 0;
   gap: var(--modern-space-1-5);
 }

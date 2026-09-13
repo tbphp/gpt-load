@@ -1,4 +1,6 @@
+import { zhCN as dateZH, enUS as dateEN, jaJP as dateJA } from './date-time'
 export const zhCN = {
+  date: dateZH,
   close: '关闭',
   edit: '编辑',
   loading: '正在加载…',
@@ -15,6 +17,9 @@ export const zhCN = {
   retry: '重试',
   select: {
     search: '输入关键词搜索…',
+    add: '添加“{value}”',
+    remove: '移除 {label}',
+    selected: '已选 {count} 项',
     allModels: '全部模型',
     modelPattern: '输入完整模型名，或在末尾添加 * 匹配前缀。',
     loading: '正在搜索…',
@@ -46,6 +51,7 @@ export const zhCN = {
 }
 
 export const enUS: typeof zhCN = {
+  date: dateEN,
   close: 'Close',
   edit: 'Edit',
   loading: 'Loading…',
@@ -62,6 +68,9 @@ export const enUS: typeof zhCN = {
   retry: 'Retry',
   select: {
     search: 'Type to search…',
+    add: 'Add “{value}”',
+    remove: 'Remove {label}',
+    selected: '{count} selected',
     allModels: 'All models',
     modelPattern: 'Enter an exact model name or add a trailing * to match a prefix.',
     loading: 'Searching…',
@@ -94,6 +103,7 @@ export const enUS: typeof zhCN = {
 }
 
 export const jaJP: typeof zhCN = {
+  date: dateJA,
   close: '閉じる',
   edit: '編集',
   loading: '読み込み中…',
@@ -110,6 +120,9 @@ export const jaJP: typeof zhCN = {
   retry: '再試行',
   select: {
     search: 'キーワードで検索…',
+    add: '「{value}」を追加',
+    remove: '{label}を削除',
+    selected: '{count} 件選択中',
     allModels: 'すべてのモデル',
     modelPattern: '完全なモデル名か、末尾に * を付けた前方一致を指定してください。',
     loading: '検索中…',

@@ -144,7 +144,6 @@ useMessageSource(() =>
   <GroupWorkspacePanel
     :title="t('groupDetail.credentialDetails')"
     :description="row.account || row.mask"
-    :wide="false"
     :dirty="dirty"
     :pending="saving"
     :loading="query.isFetching.value"

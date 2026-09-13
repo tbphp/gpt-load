@@ -66,6 +66,9 @@ watch(
 .modern-tooltip {
   z-index: var(--modern-layer-tooltip);
   max-width: min(var(--modern-tooltip-max-width), calc(100vw - var(--modern-space-8)));
+  max-height: calc(100dvh - var(--modern-space-8));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: var(--modern-line-width) solid var(--modern-tooltip-border);
   border-radius: var(--modern-radius-control);
   background: var(--modern-tooltip-surface);

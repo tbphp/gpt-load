@@ -89,6 +89,59 @@ func TestQueryAccessKeyCollectionRecordsFiltersStatus(t *testing.T) {
 	}
 }
 
+func TestQueryAccessKeyCollectionRecordsFiltersGroupAndExpiryBeforePagination(t *testing.T) {
+	t.Parallel()
+	active := state.AccessKeyStatusActive
+	disabled := state.AccessKeyStatusDisabled
+	future, past := int64(2000), int64(1000)
+	records := []accessKeyCollectionRecord{
+		accessKeyCollectionQueryRecord(1, "one", "0001", active, 100),
+		accessKeyCollectionQueryRecord(2, "two", "0002", active, 200),
+		accessKeyCollectionQueryRecord(3, "three", "0003", active, 300),
+		accessKeyCollectionQueryRecord(4, "four", "0004", disabled, 400),
+		accessKeyCollectionQueryRecord(5, "five", "0005", active, 500),
+	}
+	records[1].Filters.Groups = []uint{10}
+	records[1].ExpiresAtMS = &future
+	records[2].Filters.Groups = []uint{20}
+	records[2].ExpiresAtMS, records[2].Expired = &past, true
+	records[3].Filters.Groups = []uint{10, 20}
+	records[3].ExpiresAtMS, records[3].Expired = &past, true
+	records[4].ExpiresAtMS = &future
+	tests := []struct {
+		name  string
+		query AccessKeyCollectionQuery
+		ids   []uint
+		total int64
+	}{
+		{name: "group includes unrestricted keys", query: AccessKeyCollectionQuery{GroupID: 10}, ids: []uint{5, 4, 2, 1}, total: 4},
+		{name: "group matches any configured group", query: AccessKeyCollectionQuery{GroupID: 20}, ids: []uint{5, 4, 3, 1}, total: 4},
+		{name: "other group only includes unrestricted keys", query: AccessKeyCollectionQuery{GroupID: 99}, ids: []uint{5, 1}, total: 2},
+		{name: "never expires", query: AccessKeyCollectionQuery{Expiry: "never"}, ids: []uint{1}, total: 1},
+		{name: "future fixed expiry", query: AccessKeyCollectionQuery{Expiry: "active"}, ids: []uint{5, 2}, total: 2},
+		{name: "expired includes disabled", query: AccessKeyCollectionQuery{Expiry: "expired"}, ids: []uint{4, 3}, total: 2},
+		{name: "group and expiry combine", query: AccessKeyCollectionQuery{GroupID: 10, Expiry: "expired"}, ids: []uint{4}, total: 1},
+		{name: "group expiry status and search combine", query: AccessKeyCollectionQuery{GroupID: 20, Expiry: "expired", Status: &disabled, Query: "FOUR"}, ids: []uint{4}, total: 1},
+		{name: "empty intersection", query: AccessKeyCollectionQuery{GroupID: 10, Expiry: "expired", Status: &active}, ids: []uint{}, total: 0},
+		{name: "pagination follows combined filters", query: AccessKeyCollectionQuery{GroupID: 10, Expiry: "active", Page: 2, PageSize: 1}, ids: []uint{2}, total: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			query := normalizeAccessKeyCollectionQuery(test.query)
+			result := queryAccessKeyCollectionRecords(records, query)
+			if ids := accessKeyCollectionItemIDs(result.Items); !reflect.DeepEqual(ids, test.ids) {
+				t.Fatalf("item IDs = %v, want %v", ids, test.ids)
+			}
+			if result.Pagination.TotalItems != test.total {
+				t.Fatalf("total items = %d, want %d", result.Pagination.TotalItems, test.total)
+			}
+			if result.Summary != (AccessKeyCollectionSummary{Total: 5, Active: 4, Disabled: 1}) {
+				t.Fatalf("summary must remain unfiltered, got %#v", result.Summary)
+			}
+		})
+	}
+}
+
 func TestQueryAccessKeyCollectionRecordsSortsByUpdatedAtThenIDDescending(t *testing.T) {
 	t.Parallel()
 	records := []accessKeyCollectionRecord{

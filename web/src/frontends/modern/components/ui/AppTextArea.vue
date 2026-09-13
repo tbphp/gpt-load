@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { controlAttrs, layoutAttrs } from './field-attrs'
 import { ref } from 'vue'
 import AppField from './AppField.vue'
 import AppFieldControl from './AppFieldControl.vue'
@@ -19,13 +20,13 @@ defineExpose({ focus: () => input.value?.focus(), select: () => input.value?.sel
 </script>
 
 <template>
-  <AppField v-slot="{ id, describedBy, invalid }" v-bind="props">
+  <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
     <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
       <textarea
         :id="id"
         ref="input"
         v-model="model"
-        v-bind="$attrs"
+        v-bind="controlAttrs($attrs)"
         class="modern-textarea modern-resizable-textarea"
         :class="[{ 'is-mono': mono }, `modern-textarea--${size}`]"
         :rows="rows"

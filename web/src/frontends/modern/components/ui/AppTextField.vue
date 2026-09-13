@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { controlAttrs, layoutAttrs } from './field-attrs'
 import { useLoadingActivity } from './loading'
 import { ref, type Component } from 'vue'
 import AppField from './AppField.vue'
@@ -20,7 +21,7 @@ defineExpose({
 </script>
 
 <template>
-  <AppField v-slot="{ id, describedBy, invalid }" v-bind="props">
+  <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
     <AppFieldControl
       class="modern-text-field-control"
       :invalid="invalid"
@@ -29,7 +30,7 @@ defineExpose({
     >
       <AppIcon v-if="icon" :icon="icon" size="sm" :label="label" />
       <input
-        v-bind="$attrs"
+        v-bind="controlAttrs($attrs)"
         :id="id"
         ref="input"
         v-model="model"

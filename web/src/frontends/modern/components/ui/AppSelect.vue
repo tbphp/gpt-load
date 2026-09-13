@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { controlAttrs, layoutAttrs } from './field-attrs'
 import { Check, ChevronDown } from '@lucide/vue'
 import {
   SelectContent,
@@ -44,11 +45,11 @@ const selectedLabel = computed(
 </script>
 
 <template>
-  <AppField v-slot="{ id, describedBy, invalid }" v-bind="props">
+  <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
     <SelectRoot v-model="selected" :disabled="disabled" :name="name" :required="required">
       <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
         <SelectTrigger
-          v-bind="$attrs"
+          v-bind="controlAttrs($attrs)"
           :id="id"
           class="modern-select-trigger"
           :class="{ 'is-invalid': invalid }"

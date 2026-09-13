@@ -9,7 +9,7 @@ import AppDialogContent from './AppDialogContent.vue'
 import AppDialogHeader from './AppDialogHeader.vue'
 import AppIcon from './AppIcon.vue'
 import AppOverflowText from './AppOverflowText.vue'
-import { copyText } from './clipboard'
+import { clipboardRevision, copyText } from './clipboard'
 import './textarea.css'
 
 defineOptions({ inheritAttrs: false })
@@ -77,13 +77,28 @@ async function focusFallback(event: Event): Promise<void> {
   textarea.value?.focus({ preventScroll: true })
   textarea.value?.select()
 }
+function preserveFullCopy(event: ClipboardEvent): void {
+  const input = textarea.value
+  if (
+    fallback.value === undefined ||
+    !event.clipboardData ||
+    !input ||
+    input.selectionStart !== 0 ||
+    input.selectionEnd !== input.value.length
+  )
+    return
+  event.clipboardData.setData('text/plain', fallback.value)
+  event.preventDefault()
+}
 function closeFallback(): void {
   reset()
   void nextTick(() => {
     if (!disposed) trigger.value?.focus({ preventScroll: true })
   })
 }
-watch(() => [props.value, props.display, props.resolveValue], reset, { flush: 'sync' })
+watch(() => [props.value, props.display, props.resolveValue, clipboardRevision.value], reset, {
+  flush: 'sync',
+})
 onScopeDispose(() => {
   disposed = true
   reset()
@@ -151,6 +166,7 @@ onScopeDispose(() => {
           readonly
           spellcheck="false"
           @focus="textarea?.select()"
+          @copy="preserveFullCopy"
         />
         <p role="status">
           {{ state === 'success' ? t('ui.copy.success') : t('ui.copy.manualHelp') }}

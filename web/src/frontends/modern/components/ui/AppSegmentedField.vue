@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { controlAttrs, layoutAttrs } from './field-attrs'
 import AppField from './AppField.vue'
 import AppSegmentedControl from './AppSegmentedControl.vue'
 import type { ControlSize, FieldProps, SelectOption } from './types'
@@ -16,9 +17,9 @@ const model = defineModel<string>({ required: true })
 </script>
 
 <template>
-  <AppField v-slot="{ id, describedBy, invalid }" v-bind="props">
+  <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
     <AppSegmentedControl
-      v-bind="$attrs"
+      v-bind="controlAttrs($attrs)"
       :id="id"
       v-model="model"
       appearance="field"

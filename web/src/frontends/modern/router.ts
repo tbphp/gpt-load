@@ -22,9 +22,14 @@ export function createModernRouter(
               ? () => import('./features/settings/SettingsView.vue')
               : item.id === 'groups'
                 ? () => import('./features/groups/GroupsView.vue')
-                : () => import('./features/workspace/WorkspaceView.vue'),
+                : item.id === 'accessKeys'
+                  ? () => import('./features/access-keys/AccessKeysView.vue')
+                  : () => import('./features/workspace/WorkspaceView.vue'),
         props:
-          item.id === 'home' || item.id === 'settings' || item.id === 'groups'
+          item.id === 'home' ||
+          item.id === 'settings' ||
+          item.id === 'groups' ||
+          item.id === 'accessKeys'
             ? undefined
             : { workspaceId: item.id },
         meta: { requiresAuth: true, adminOnly: item.adminOnly },

@@ -101,7 +101,7 @@ function select(value: unknown): void {
 }
 .modern-segmented--field {
   --modern-segmented-size: var(--modern-control-md);
-  width: 100%;
+  width: fit-content;
   min-width: 0;
   flex-wrap: nowrap;
   border: var(--modern-line-width) solid var(--modern-border);
@@ -118,7 +118,7 @@ function select(value: unknown): void {
   padding-inline: var(--modern-space-1-5);
 }
 .modern-segmented--field .modern-segmented-option {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   min-height: calc(
     var(--modern-segmented-size) - 2 * (var(--modern-space-0-5) + var(--modern-line-width))

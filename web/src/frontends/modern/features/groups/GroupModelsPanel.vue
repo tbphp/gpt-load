@@ -143,6 +143,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
     :pending="saving"
     :loading="query.isFetching.value"
     :save-disabled="!initialized"
+    wide
     fill
     @close="emit('close')"
     @save="save"
