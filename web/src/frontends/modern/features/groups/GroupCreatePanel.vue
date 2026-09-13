@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { channelSearchOption } from '@modern/components/channel-options'
 import { Eye, EyeOff, ChevronDown, KeyRound, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { DialogRoot } from 'reka-ui'
@@ -59,13 +60,7 @@ const query = useQuery({
   queryFn: ({ signal }) => getGroupChannels(client, signal),
 })
 const channels = computed(() => query.data.value ?? [])
-const options = computed(() =>
-  channels.value.map((channel) => ({
-    value: channel.id,
-    label: channel.name,
-    keywords: channel.keywords,
-  })),
-)
+const options = computed(() => channels.value.map(channelSearchOption))
 const channelID = ref('')
 const channel = computed(() => channels.value.find((item) => item.id === channelID.value))
 const subscription = computed(() => channel.value?.connectionType === 'subscription')

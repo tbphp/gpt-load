@@ -9,18 +9,19 @@ import AppIconButton from './AppIconButton.vue'
 import AppSelect from './AppSelect.vue'
 
 const props = withDefaults(
-  defineProps<
-    {
-      page: number
-      pageSize: number
-      pageSizes?: readonly number[]
-      pending?: boolean
-      disabled?: boolean
-    } & (
-      { mode: 'total'; total?: number } | { mode: 'cursor'; hasPrevious: boolean; hasNext: boolean }
-    )
-  >(),
-  { pageSizes: () => [20, 50, 100], total: undefined },
+  defineProps<{
+    page: number
+    pageSize: number
+    pageSizes?: readonly number[]
+    pending?: boolean
+    disabled?: boolean
+    mode: 'total' | 'cursor'
+    total?: number
+    // 只用于游标模式；总量模式根据 total 计算翻页能力。
+    hasPrevious?: boolean
+    hasNext?: boolean
+  }>(),
+  { pageSizes: () => [20, 50, 100], total: undefined, hasPrevious: false, hasNext: false },
 )
 const emit = defineEmits<{
   'update:page': [page: number]

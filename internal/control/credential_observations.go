@@ -775,7 +775,12 @@ func (s *Service) enrichCredentialActivities(
 			credentialIDs = append(credentialIDs, items[index].CredentialID)
 		}
 	}
-	if len(credentialIDs) == 0 {
+	s.enrichCredentialActivityIDs(ctx, items, credentialIDs)
+}
+
+// 共用真实活动聚合；调用方限定本页凭据，避免逐个查询或扫描全部账号。
+func (s *Service) enrichCredentialActivityIDs(ctx context.Context, items []CredentialItemResponse, credentialIDs []uint) {
+	if s == nil || s.credentialActivity == nil || len(credentialIDs) == 0 {
 		return
 	}
 	now := s.now().UTC()

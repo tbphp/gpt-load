@@ -18,7 +18,7 @@ import {
   AppButton,
   AppIconButton,
   AppOverflowText,
-  AppSearchSelect,
+  AppModelSelect,
   AppSegmentedField,
   AppSelect,
   AppTextArea,
@@ -38,6 +38,7 @@ import {
   type ParameterRuleDraft,
   type ParameterValueType,
 } from './parameter-rule-draft'
+import { matchesModel } from '@modern/components/ui/model-match'
 
 const props = defineProps<{
   modelValue: ParameterRule[]
@@ -111,10 +112,6 @@ const protocolOptions = computed(() => [
 const modelNames = computed(() =>
   [...new Set(props.models.map((model) => model.clientModel))].sort(),
 )
-const modelOptions = computed(() => [
-  { value: '', label: t('parameterRules.allModels') },
-  ...modelNames.value.map((value) => ({ value, label: value })),
-])
 const operationOptions = computed(() =>
   ['set', 'remove'].map((value) => ({
     value,
@@ -272,11 +269,7 @@ function modelDescription(row: ParameterRuleDraft): string {
   const pattern = row.model.trim()
   const count = results.value.get(row.key)?.modelError
     ? 0
-    : modelNames.value.filter(
-        (name) =>
-          !pattern ||
-          (pattern.endsWith('*') ? name.startsWith(pattern.slice(0, -1)) : name === pattern),
-      ).length
+    : modelNames.value.filter((name) => matchesModel(name, pattern)).length
   return t('parameterRules.matches', { count: n(count) })
 }
 defineExpose({
@@ -385,12 +378,10 @@ defineExpose({
             size="xs"
             :disabled="disabled"
           />
-          <AppSearchSelect
+          <AppModelSelect
             v-model="row.model"
             :label="t('parameterRules.model')"
-            :options="modelOptions"
-            :placeholder="t('parameterRules.allModels')"
-            allow-custom
+            :models="modelNames"
             size="xs"
             :disabled="disabled"
             :description="modelDescription(row)"

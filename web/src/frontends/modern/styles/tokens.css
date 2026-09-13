@@ -127,6 +127,7 @@
   --modern-shadow-focus-danger: 0 0 0 3px color-mix(in srgb, var(--modern-danger) 15%, transparent);
 
   /* 控件与图标：尺寸由公共组件选择，不在调用处传像素。 */
+  --modern-control-xxs: 24px;
   --modern-control-xs: 28px;
   --modern-control-sm: 32px;
   --modern-control-md: 36px;
@@ -153,16 +154,20 @@
   --modern-channel-hero: 48px;
   --modern-channel-hero-glyph: 32px;
   --modern-inline-action-target: 24px;
-  --modern-inline-number-width: 76px;
+  --modern-inline-number-width: 104px;
   --modern-status-bar-height: 8px;
   --modern-status-success: var(--modern-success);
   --modern-status-warning: light-dark(#eeae36, #eab84f);
   --modern-status-danger: var(--modern-danger);
   --modern-status-neutral: light-dark(#b9b9b1, #6d6d66);
-  --modern-progress-track: color-mix(in srgb, var(--modern-accent) 18%, var(--modern-surface));
+  --modern-progress-track: color-mix(
+    in srgb,
+    var(--modern-status-neutral) 18%,
+    var(--modern-surface)
+  );
   --modern-progress-track-border: color-mix(
     in srgb,
-    var(--modern-accent) 28%,
+    var(--modern-status-neutral) 28%,
     var(--modern-surface)
   );
   --modern-loading-line: 3px;

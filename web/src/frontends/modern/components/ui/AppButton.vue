@@ -4,12 +4,12 @@ import { Primitive, useForwardExpose } from 'reka-ui'
 import { computed, type Component } from 'vue'
 
 import AppIcon from './AppIcon.vue'
-import type { ButtonVariant, ControlSize } from './types'
+import type { ButtonSize, ButtonVariant } from './types'
 
 const props = withDefaults(
   defineProps<{
     variant?: ButtonVariant
-    size?: ControlSize
+    size?: ButtonSize
     type?: 'button' | 'submit' | 'reset'
     icon?: Component
     iconOnly?: boolean
@@ -21,6 +21,7 @@ const props = withDefaults(
 )
 const inactive = computed(() => props.disabled || props.loading)
 const displayIcon = computed(() => (props.loading ? LoaderCircle : props.icon))
+const iconSize = computed(() => (props.size === 'xxs' ? 'xs' : props.size === 'xs' ? 'sm' : 'md'))
 const { forwardRef } = useForwardExpose()
 
 function preventInactiveClick(event: MouseEvent): void {
@@ -53,7 +54,7 @@ function preventInactiveClick(event: MouseEvent): void {
       <AppIcon
         v-if="displayIcon"
         :icon="displayIcon"
-        :size="size === 'xs' ? 'sm' : 'md'"
+        :size="iconSize"
         :class="{ 'modern-spin': loading }"
       />
       <slot />
@@ -96,6 +97,12 @@ function preventInactiveClick(event: MouseEvent): void {
   outline: var(--modern-focus-width) solid var(--modern-accent);
   outline-offset: var(--modern-focus-offset);
   box-shadow: var(--modern-shadow-focus);
+}
+.modern-button--xxs {
+  --modern-button-size: var(--modern-control-xxs);
+  --modern-button-font-size: var(--modern-font-size-caption);
+  gap: var(--modern-space-1);
+  padding: var(--modern-space-0-5) var(--modern-space-1-5);
 }
 .modern-button--xs {
   --modern-button-size: var(--modern-control-xs);

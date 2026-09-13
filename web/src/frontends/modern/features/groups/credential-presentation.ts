@@ -34,8 +34,21 @@ export function quotaRemaining(window: CredentialQuota): number | undefined {
       ? (1 - window.utilization) * 100
       : window.remaining !== undefined && window.limit
         ? (window.remaining / window.limit) * 100
-        : undefined
+        : window.used !== undefined && window.limit
+          ? (1 - window.used / window.limit) * 100
+          : undefined
   return remaining === undefined ? undefined : Math.max(0, Math.min(100, remaining))
+}
+export function quotaTone(window: CredentialQuota): 'neutral' | 'success' | 'warning' | 'danger' {
+  const percent = quotaRemaining(window)
+  if (window.state === 'exhausted') return 'danger'
+  return percent === undefined
+    ? 'neutral'
+    : percent < 30
+      ? 'danger'
+      : percent < 70
+        ? 'warning'
+        : 'success'
 }
 export function quotaPeriod(seconds?: number): string {
   if (!seconds) return ''

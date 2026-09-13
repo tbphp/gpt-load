@@ -19,6 +19,8 @@ export interface GroupFilters {
   q: string
   view: (typeof groupViews)[number]
   channel: string
+  connection: '' | 'api_key' | 'subscription'
+  model: string
   sort: (typeof groupSorts)[number]
 }
 export interface CredentialCounts {
@@ -43,7 +45,7 @@ export interface GroupRow {
   weight: number
   priceMultiplier: string
   modelCount: number
-  modelPreview: string[]
+  modelNames: string[]
   credentials: CredentialCounts
   lastActiveHour: number | null
   lastActiveHourRequests: number
@@ -98,7 +100,7 @@ export async function getGroupWorkspace(
       weight: integer(item.weight),
       priceMultiplier: text(item.price_multiplier),
       modelCount: integer(item.model_count),
-      modelPreview: list(item.model_preview).map(text),
+      modelNames: list(item.model_names).map(text),
       lastActiveHour: item.last_active_hour_ms === null ? null : integer(item.last_active_hour_ms),
       lastActiveHourRequests: integer(item.last_active_hour_requests),
       credentials: {

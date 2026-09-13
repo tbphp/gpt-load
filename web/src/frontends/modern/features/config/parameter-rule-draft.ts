@@ -1,4 +1,5 @@
 import type { ParameterRule } from '@modern/api/group-detail'
+import { isModelPattern } from '@modern/components/ui/model-match'
 
 export const parameterValueTypes = ['text', 'number', 'boolean', 'null', 'json'] as const
 export type ParameterValueType = (typeof parameterValueTypes)[number]
@@ -243,7 +244,7 @@ export function inspectParameterRule(rule: ParameterRuleDraft): ParameterRuleRes
   )
   const model = rule.model.trim()
   const result: ParameterRuleResult = {
-    modelError: model.includes('*') && !/^[^*]+\*$/u.test(model) ? 'modelPattern' : undefined,
+    modelError: !isModelPattern(model) ? 'modelPattern' : undefined,
     actionRequired: false,
     fields: new Map(),
     canSwitch: false,

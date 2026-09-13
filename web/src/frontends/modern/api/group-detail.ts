@@ -11,6 +11,24 @@ export const groupModelsKey = (id: number) => ['modern', 'group-models', id] as 
 export const groupCredentialsKey = (id: number) => ['modern', 'group-credentials', id] as const
 export const credentialStates = ['available', 'cooldown', 'blacklisted', 'disabled'] as const
 export type CredentialState = (typeof credentialStates)[number]
+export const credentialSorts = [
+  'priority',
+  'newest',
+  'oldest',
+  'name',
+  'weight_desc',
+  'weight_asc',
+  'failures',
+] as const
+export interface CredentialFilters {
+  q: string
+  status: string
+  page: number
+  pageSize: number
+  sort: (typeof credentialSorts)[number]
+  proxy: '' | 'inherit' | 'direct' | 'custom'
+  reset: '' | 'available' | 'none' | 'unknown'
+}
 export const runtimeNumbers = [
   'first_byte_timeout',
   'request_timeout',
@@ -268,7 +286,7 @@ export function readCredential(value: unknown): CredentialRow {
 export async function getGroupCredentials(
   client: ApiClient,
   id: number,
-  filters: { q: string; status: string; page: number; pageSize: number },
+  filters: CredentialFilters,
   signal: AbortSignal,
 ): Promise<CredentialCollection> {
   const params = new URLSearchParams({
@@ -277,6 +295,9 @@ export async function getGroupCredentials(
   })
   if (filters.q.trim()) params.set('q', filters.q.trim())
   if (filters.status) params.set('status', filters.status)
+  if (filters.sort !== 'priority') params.set('sort', filters.sort)
+  if (filters.proxy) params.set('proxy', filters.proxy)
+  if (filters.reset) params.set('reset', filters.reset)
   const data = record(
     await client.request(`/api/modern/groups/${id}/credentials?${params}`, { signal }),
   )

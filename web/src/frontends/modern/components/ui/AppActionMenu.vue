@@ -12,12 +12,12 @@ import AppIcon from './AppIcon.vue'
 import AppIconButton from './AppIconButton.vue'
 import AppMenuSurface from './AppMenuSurface.vue'
 import { overlaySideOffset } from './overlay'
-import type { ControlSize } from './types'
+import type { ButtonSize } from './types'
 
 defineProps<{
   label: string
   disabled?: boolean
-  size?: ControlSize
+  size?: ButtonSize
   items: readonly {
     id: string
     label: string

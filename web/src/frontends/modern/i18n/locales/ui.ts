@@ -15,6 +15,8 @@ export const zhCN = {
   retry: '重试',
   select: {
     search: '输入关键词搜索…',
+    allModels: '全部模型',
+    modelPattern: '输入完整模型名，或在末尾添加 * 匹配前缀。',
     loading: '正在搜索…',
     empty: '没有匹配选项',
     customInput: '使用输入内容，无需选择选项',
@@ -60,6 +62,8 @@ export const enUS: typeof zhCN = {
   retry: 'Retry',
   select: {
     search: 'Type to search…',
+    allModels: 'All models',
+    modelPattern: 'Enter an exact model name or add a trailing * to match a prefix.',
     loading: 'Searching…',
     empty: 'No matching options',
     customInput: 'Your input will be used; choosing an option is optional',
@@ -106,6 +110,8 @@ export const jaJP: typeof zhCN = {
   retry: '再試行',
   select: {
     search: 'キーワードで検索…',
+    allModels: 'すべてのモデル',
+    modelPattern: '完全なモデル名か、末尾に * を付けた前方一致を指定してください。',
     loading: '検索中…',
     empty: '一致する選択肢がありません',
     customInput: '入力内容を使用します。候補を選ぶ必要はありません',

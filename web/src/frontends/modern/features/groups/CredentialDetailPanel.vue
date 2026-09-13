@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Info } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -14,10 +15,12 @@ import {
   AppBadge,
   AppButton,
   AppCollectionState,
+  AppIcon,
   AppNotice,
   AppOverflowText,
   AppSegmentedField,
   AppTextField,
+  AppTooltip,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import { credentialStatus, credentialTime } from './credential-presentation'
@@ -159,11 +162,25 @@ onScopeDispose(() => controller.abort())
         </div>
         <dl class="modern-credential-detail-metrics">
           <div>
-            <dt>{{ t('groupDetail.recentSuccess') }}</dt>
+            <dt>{{ t('credentialCards.dailySuccess') }}</dt>
+            <dd :class="{ 'modern-credential-detail-success': item.daily }">
+              {{ item.daily ? n(item.daily.successes) : '—' }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('credentialCards.dailyFailure') }}</dt>
+            <dd
+              :class="{ 'modern-credential-detail-failure': item.daily && item.daily.failures > 0 }"
+            >
+              {{ item.daily ? n(item.daily.failures) : '—' }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('credentialCards.healthSuccess') }}</dt>
             <dd>{{ n(item.successes) }}</dd>
           </div>
           <div>
-            <dt>{{ t('groupDetail.recentFailure') }}</dt>
+            <dt>{{ t('credentialCards.healthFailure') }}</dt>
             <dd>{{ n(item.failures) }}</dd>
           </div>
           <div>
@@ -212,33 +229,50 @@ onScopeDispose(() => controller.abort())
         </div>
       </section>
       <section class="modern-credential-detail-section">
-        <h3>{{ t('credentialCards.settings') }}</h3>
-        <AppTextField
-          v-model="weight"
-          :label="t('groups.edit.weight')"
-          :description="t('credentialCards.autoWeight')"
-          :placeholder="t('credentialCards.automatic')"
-          inputmode="numeric"
-          :disabled="saving"
-          :error="attempted && weightInvalid ? t('groups.edit.weightError') : undefined"
-        />
-        <template v-if="channel?.proxy"
-          ><AppSegmentedField
+        <div class="modern-credential-detail-settings-title">
+          <h3>{{ t('credentialCards.settings') }}</h3>
+          <AppTooltip :label="t('credentialCards.autoWeight')">
+            <span
+              class="modern-credential-detail-help"
+              tabindex="0"
+              :aria-label="t('credentialCards.autoWeight')"
+            >
+              <AppIcon :icon="Info" size="sm" />
+            </span>
+          </AppTooltip>
+        </div>
+        <div class="modern-credential-detail-routing">
+          <AppTextField
+            v-model="weight"
+            :label="t('groups.edit.weight')"
+            :placeholder="t('credentialCards.automatic')"
+            size="sm"
+            inputmode="numeric"
+            :disabled="saving"
+            :error="attempted && weightInvalid ? t('groups.edit.weightError') : undefined"
+          />
+          <AppSegmentedField
+            v-if="channel?.proxy"
             v-model="proxyMode"
             :label="t('groupCreate.proxy')"
             :options="proxyOptions"
-            :disabled="saving" /><AppTextField
-            v-if="proxyMode === 'custom'"
-            v-model="proxyURL"
-            :label="t('groupCreate.proxyURL')"
-            :placeholder="saved?.proxy.mode === 'custom' ? saved.proxy.display : undefined"
-            :description="
-              saved?.proxy.mode === 'custom' ? t('groupDetail.proxyUnchanged') : undefined
-            "
+            size="sm"
             :disabled="saving"
-            :error="attempted && proxyInvalid ? t('groupCreate.proxyError') : undefined"
-            autocomplete="off"
-        /></template>
+          />
+        </div>
+        <AppTextField
+          v-if="channel?.proxy && proxyMode === 'custom'"
+          v-model="proxyURL"
+          :label="t('groupCreate.proxyURL')"
+          :placeholder="saved?.proxy.mode === 'custom' ? saved.proxy.display : undefined"
+          :description="
+            saved?.proxy.mode === 'custom' ? t('groupDetail.proxyUnchanged') : undefined
+          "
+          size="sm"
+          :disabled="saving"
+          :error="attempted && proxyInvalid ? t('groupCreate.proxyError') : undefined"
+          autocomplete="off"
+        />
       </section>
     </template>
   </GroupWorkspacePanel>
@@ -246,11 +280,11 @@ onScopeDispose(() => controller.abort())
 <style scoped>
 .modern-credential-detail-section {
   display: grid;
-  gap: var(--modern-space-4);
+  gap: var(--modern-space-3);
 }
 .modern-window-usage + .modern-credential-detail-section,
 .modern-credential-detail-section + .modern-credential-detail-section {
-  padding-top: var(--modern-space-5);
+  padding-top: var(--modern-space-3);
   border-top: var(--modern-line-width) solid var(--modern-border);
 }
 .modern-credential-detail-section h3 {
@@ -272,17 +306,62 @@ onScopeDispose(() => controller.abort())
 }
 .modern-credential-detail-metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-4);
+  grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
+  column-gap: var(--modern-space-4);
+  row-gap: var(--modern-space-1-5);
+  line-height: var(--modern-leading-compact);
+}
+.modern-credential-detail-metrics > div {
+  display: grid;
+  grid-column: span 2;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  column-gap: var(--modern-space-2);
+  min-width: 0;
 }
 .modern-credential-detail-metrics dt {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
-  margin-bottom: var(--modern-space-1);
 }
 .modern-credential-detail-metrics dd {
   margin: 0;
-  font-size: var(--modern-font-size-secondary);
+  min-width: 0;
+  font-size: var(--modern-font-size-small);
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+.modern-credential-detail-success {
+  color: var(--modern-status-success);
+}
+.modern-credential-detail-failure {
+  color: var(--modern-danger);
+}
+.modern-credential-detail-settings-title {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
+}
+.modern-credential-detail-help {
+  display: inline-flex;
+  color: var(--modern-muted);
+}
+.modern-credential-detail-routing {
+  display: grid;
+  grid-template-columns: minmax(0, 112px) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--modern-space-3);
+}
+@container modern-workspace-panel (max-width: 380px) {
+  .modern-credential-detail-metrics {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+}
+@container modern-workspace-panel (max-width: 340px) {
+  .modern-credential-detail-routing {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .modern-credential-detail-routing > :first-child {
+    max-width: 112px;
+  }
 }
 </style>

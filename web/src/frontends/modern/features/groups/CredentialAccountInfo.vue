@@ -4,8 +4,8 @@ import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
 import { credentialTime } from './credential-presentation'
 
-const props = defineProps<{ row: CredentialRow; routing?: boolean }>()
-const { t, n, locale } = useI18n()
+const props = defineProps<{ row: CredentialRow }>()
+const { t, locale } = useI18n()
 const fields = computed(() => {
   const row = props.row
   const observation = row.observation
@@ -30,13 +30,6 @@ const fields = computed(() => {
       observation?.observedAt ? credentialTime(observation.observedAt, locale.value) : undefined,
     ],
     ['lastUsed', credentialTime(row.lastUsed, locale.value)],
-    ['weight', props.routing ? n(row.weight) : undefined],
-    [
-      'proxy',
-      props.routing
-        ? row.proxy.display || t('credentialCards.proxyMode.' + row.proxy.mode)
-        : undefined,
-    ],
     ['errorCode', row.authError || observation?.error],
   ].filter((field): field is [string, string] => Boolean(field[1]))
 })

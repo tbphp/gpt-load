@@ -4,11 +4,16 @@ export function formatCompactNumber(value: number, locale: string): string {
   )
 }
 
-export function formatNanoUSD(value: string, locale: string): string {
+export function formatNanoUSD(
+  value: string,
+  locale: string,
+  currencyDisplay: 'symbol' | 'narrowSymbol' = 'symbol',
+): string {
   const amount = BigInt(value)
   const formatter = new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: 'USD',
+    currencyDisplay,
     maximumFractionDigits: 3,
   })
   if (amount > 0n && amount < 1_000_000n) return `<${formatter.format(0.001)}`

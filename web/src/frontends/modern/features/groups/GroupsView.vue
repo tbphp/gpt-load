@@ -36,17 +36,21 @@ import {
   AppFilterSummary,
   AppIconButton,
   AppListFrame,
+  AppModelSelect,
   AppNotice,
   AppPagination,
   AppSearchSelect,
   AppSegmentedControl,
+  AppSortMenu,
   AppSelect,
   AppTextField,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import GroupListRow from './GroupListRow.vue'
 import GroupCreatePanel from './GroupCreatePanel.vue'
-import type { GroupCreateResult } from '@modern/api/group-create'
+import { getGroupChannels, type GroupCreateResult } from '@modern/api/group-create'
+import { channelSearchOption } from '@modern/components/channel-options'
+import { matchesModel } from '@modern/components/ui/model-match'
 import { groupFilterQuery, parseGroupFilters } from './group-route'
 
 const { t, n, locale } = useI18n()
@@ -93,6 +97,13 @@ const query = useQuery(
   })),
 )
 const data = query.data
+const channelCatalog = useQuery({
+  queryKey: ['modern', 'group-channels'],
+  queryFn: ({ signal }) => getGroupChannels(client, signal),
+})
+const channelKeywords = computed(
+  () => new Map(channelCatalog.data.value?.map((channel) => [channel.id, channel.keywords])),
+)
 const groups = computed(() => data.value?.items ?? [])
 const counts = computed(() => ({
   all: groups.value.length,
@@ -100,26 +111,34 @@ const counts = computed(() => ({
   attention: groups.value.filter(needsAttention).length,
   paused: groups.value.filter(isPaused).length,
 }))
-const channelInfo = computed(
-  () =>
-    new Map(
-      groups.value.map((group) => [
-        group.channelID,
-        { icon: group.channelIcon, mark: group.channelMark, name: group.channelName },
-      ]),
-    ),
-)
+const channelInfo = computed(() => {
+  const info = new Map(
+    groups.value.map((group) => [
+      group.channelID,
+      { icon: group.channelIcon, mark: group.channelMark, name: group.channelName },
+    ]),
+  )
+  for (const channel of channelCatalog.data.value ?? [])
+    info.set(channel.id, { icon: channel.icon, mark: channel.mark, name: channel.name })
+  return info
+})
 const channels = computed(() => [
   { value: '', label: t('groups.board.allChannels') },
-  ...Array.from(channelInfo.value, ([value, info]) => ({
-    value,
-    label: info.name,
-    keywords: [value],
-  })).sort((a, b) => a.label.localeCompare(b.label, locale.value)),
+  ...Array.from(channelInfo.value, ([id, info]) =>
+    channelSearchOption({ id, name: info.name, keywords: channelKeywords.value.get(id) }),
+  ).sort((a, b) => a.label.localeCompare(b.label, locale.value)),
 ])
 const sortOptions = computed(() =>
   groupSorts.map((value) => ({ value, label: t('groups.board.sort.' + value) })),
 )
+const connectionOptions = computed(() => [
+  { value: '', label: t('groupDetail.filters.allChannelTypes') },
+  ...['api_key', 'subscription'].map((value) => ({
+    value,
+    label: t('groups.connection.' + value),
+  })),
+])
+const modelNames = computed(() => [...new Set(groups.value.flatMap((group) => group.modelNames))])
 const viewOptions = computed(() =>
   groupViews.map((value) => ({
     value,
@@ -141,6 +160,8 @@ const filtered = computed(() => {
       if (f.view === 'attention' && !needsAttention(group)) return false
       if (f.view === 'paused' && !isPaused(group)) return false
       if (f.channel && f.channel !== group.channelID) return false
+      if (f.connection && f.connection !== group.connectionType) return false
+      if (f.model && !group.modelNames.some((name) => matchesModel(name, f.model))) return false
       const text = [group.name, group.channelName, group.channelID, group.endpoint]
         .join(' ')
         .toLocaleLowerCase()
@@ -180,6 +201,18 @@ const usageByID = computed(
   () => new Map(usage.data.value?.items.map((item) => [item.id, item]) ?? []),
 )
 const activeFilters = computed(() => [
+  ...(filters.value.connection
+    ? [
+        {
+          key: 'connection',
+          label: t('groupDetail.filters.channelType'),
+          value: t('groups.connection.' + filters.value.connection),
+        },
+      ]
+    : []),
+  ...(filters.value.model
+    ? [{ key: 'model', label: t('groupDetail.models'), value: filters.value.model }]
+    : []),
   ...(filters.value.q
     ? [{ key: 'q', label: t('ui.filters.keyword'), value: filters.value.q }]
     : []),
@@ -213,7 +246,9 @@ const activeFilters = computed(() => [
 ])
 const changedFilters = computed(() => activeFilters.value.length > 0)
 function removeFilter(key: string): void {
-  if (key === 'q') {
+  if (key === 'connection') void updateFilters({ connection: '' })
+  else if (key === 'model') void updateFilters({ model: '' })
+  else if (key === 'q') {
     search.value = ''
     void updateFilters({ q: '' })
   } else if (key === 'view') void updateFilters({ view: 'all' })
@@ -238,6 +273,7 @@ async function refresh(): Promise<void> {
     await nextTick()
     if (!controller.signal.aborted) {
       await Promise.all([
+        channelCatalog.refetch(),
         usageIDs.value.length ? usage.refetch() : undefined,
         queryClient.invalidateQueries({
           queryKey: ['modern', 'group-model-names'],
@@ -281,7 +317,14 @@ function endComposition(): void {
 }
 function resetFilters(): void {
   search.value = ''
-  void updateFilters({ q: '', channel: '', view: 'all', sort: 'priority' })
+  void updateFilters({
+    q: '',
+    channel: '',
+    connection: '',
+    model: '',
+    view: 'all',
+    sort: 'priority',
+  })
 }
 function toggleExpanded(id: number): void {
   if (expanded.value.has(id)) expanded.value.delete(id)
@@ -454,7 +497,14 @@ async function locateCreated(id: number): Promise<void> {
   const group = result.data?.items.find((item) => item.id === id)
   if (group) {
     search.value = group.name
-    await updateFilters({ q: group.name, channel: '', view: 'all', page: 1 })
+    await updateFilters({
+      q: group.name,
+      channel: '',
+      connection: '',
+      model: '',
+      view: 'all',
+      page: 1,
+    })
   }
 }
 async function onCreated(result: GroupCreateResult, appended: boolean): Promise<void> {
@@ -515,15 +565,37 @@ async function onLocated(id: number): Promise<void> {
         </template>
       </AppSearchSelect>
       <AppSelect
-        :model-value="filters.sort"
-        :label="t('groups.sort.label')"
+        class="modern-groups-type"
+        :model-value="filters.connection"
+        :label="t('groupDetail.filters.channelType')"
         label-hidden
-        :options="sortOptions"
-        @update:model-value="updateFilters({ sort: $event as GroupFilters['sort'] })"
+        :options="connectionOptions"
+        @update:model-value="updateFilters({ connection: $event as GroupFilters['connection'] })"
       />
-      <AppButton variant="primary" :icon="Plus" :disabled="pending.size > 0" @click="openCreate">{{
-        t('groups.create')
-      }}</AppButton>
+      <AppModelSelect
+        class="modern-groups-model"
+        :model-value="filters.model"
+        :label="t('groupDetail.models')"
+        label-hidden
+        :models="modelNames"
+        @update:model-value="updateFilters({ model: $event }, true)"
+      />
+      <div class="modern-groups-toolbar-actions">
+        <AppSortMenu
+          :model-value="filters.sort"
+          :label="t('groups.sort.label')"
+          :options="sortOptions"
+          :disabled="pending.size > 0"
+          @update:model-value="updateFilters({ sort: $event as GroupFilters['sort'] })"
+        />
+        <AppButton
+          variant="primary"
+          :icon="Plus"
+          :disabled="pending.size > 0"
+          @click="openCreate"
+          >{{ t('groups.create') }}</AppButton
+        >
+      </div>
     </form>
     <div class="modern-groups-filterbar">
       <AppSegmentedControl
@@ -685,15 +757,40 @@ async function onLocated(id: number): Promise<void> {
   flex-direction: column;
 }
 .modern-groups-toolbar {
-  display: grid;
+  display: flex;
   flex: none;
-  grid-template-columns: minmax(180px, 1fr) minmax(170px, 220px) 150px auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--modern-space-3);
   padding: var(--modern-space-5) 0 var(--modern-space-3);
 }
 .modern-groups-search {
+  flex: 2 1 240px;
   min-width: 0;
+}
+.modern-groups-channel {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.modern-groups-model {
+  flex: 1.3 1 200px;
+  min-width: 0;
+}
+.modern-groups-type {
+  flex: 1 1 144px;
+  min-width: 0;
+}
+.modern-groups-toolbar > :last-child {
+  flex: none;
+  margin-left: auto;
+}
+.modern-groups-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  max-width: 100%;
+  gap: var(--modern-space-2);
 }
 .modern-groups-filterbar {
   display: flex;
@@ -738,11 +835,8 @@ async function onLocated(id: number): Promise<void> {
   text-align: left;
 }
 @media (max-width: 1150px) {
-  .modern-groups-toolbar {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  }
   .modern-groups-search {
-    grid-column: 1 / -1;
+    flex-basis: 100%;
   }
 }
 @media (max-width: 760px) {
@@ -757,12 +851,8 @@ async function onLocated(id: number): Promise<void> {
   }
 }
 @media (max-width: 420px) {
-  .modern-groups-toolbar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .modern-groups-toolbar > :last-child {
-    grid-column: 2;
-    justify-self: end;
+    margin-left: auto;
   }
 }
 </style>

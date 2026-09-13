@@ -1,4 +1,22 @@
 export const zhCN = {
+  filters: {
+    channelType: '渠道类型',
+    allChannelTypes: '全部类型',
+    proxy: '代理方式',
+    allProxies: '全部代理方式',
+    reset: '额度重置',
+    allResets: '全部重置状态',
+    resets: { available: '有可用重置券', none: '无可用重置券', unknown: '尚未同步' },
+    sorts: {
+      priority: '异常优先',
+      newest: '最近添加',
+      oldest: '最早添加',
+      name: '名称排序',
+      weight_desc: '权重从高到低',
+      weight_asc: '权重从低到高',
+      failures: '5 分钟失败最多',
+    },
+  },
   overview: '运行概况',
   requestTrend: '近 24 小时 · 请求趋势',
   noUsage: '暂无请求统计',
@@ -59,7 +77,6 @@ export const zhCN = {
   enableSelected: '启用所选凭据',
   disableSelected: '停用所选凭据',
   deleteSelected: '删除所选凭据',
-  clearSelection: '取消选择',
   updatedCredentials: '已更新 {count} 个凭据',
   credentialDetails: '凭据详情',
   weightValue: '权重 {value}',
@@ -98,7 +115,6 @@ export const zhCN = {
   oneHeaderPerLine: '每行一个名称',
   invalidHeaders: '请求头名称不能为空或重复，内容不能包含换行。',
   parameters: '参数覆盖',
-  parameterJSON: '覆盖规则 · JSON',
   invalidRules: '请输入有效的规则数组，包含 match 和 set / remove。',
   authState: {
     refreshing: '正在更新授权',
@@ -116,6 +132,28 @@ export const zhCN = {
 }
 
 export const enUS: typeof zhCN = {
+  filters: {
+    channelType: 'Channel type',
+    allChannelTypes: 'All types',
+    proxy: 'Proxy mode',
+    allProxies: 'All proxy modes',
+    reset: 'Quota reset',
+    allResets: 'All reset states',
+    resets: {
+      available: 'Reset credits available',
+      none: 'No reset credits',
+      unknown: 'Not yet synced',
+    },
+    sorts: {
+      priority: 'Needs attention first',
+      newest: 'Newest first',
+      oldest: 'Oldest first',
+      name: 'Name',
+      weight_desc: 'Highest weight',
+      weight_asc: 'Lowest weight',
+      failures: 'Most failures · 5m',
+    },
+  },
   overview: 'Overview',
   requestTrend: 'Request trend · 24h',
   noUsage: 'No request statistics',
@@ -177,7 +215,6 @@ export const enUS: typeof zhCN = {
   enableSelected: 'Enable selected credentials',
   disableSelected: 'Disable selected credentials',
   deleteSelected: 'Delete selected credentials',
-  clearSelection: 'Clear selection',
   updatedCredentials: '{count} credentials updated',
   credentialDetails: 'Credential details',
   weightValue: 'Weight {value}',
@@ -218,7 +255,6 @@ export const enUS: typeof zhCN = {
   oneHeaderPerLine: 'One name per line',
   invalidHeaders: 'Header names must be unique and non-empty. Values cannot contain line breaks.',
   parameters: 'Parameter overrides',
-  parameterJSON: 'Override rules · JSON',
   invalidRules: 'Enter a valid array of rules containing match and set / remove.',
   authState: {
     refreshing: 'Refreshing authorization',
@@ -236,6 +272,24 @@ export const enUS: typeof zhCN = {
 }
 
 export const jaJP: typeof zhCN = {
+  filters: {
+    channelType: 'チャネル種別',
+    allChannelTypes: 'すべての種別',
+    proxy: 'プロキシ方式',
+    allProxies: 'すべてのプロキシ方式',
+    reset: '枠のリセット',
+    allResets: 'すべてのリセット状態',
+    resets: { available: 'リセット券あり', none: 'リセット券なし', unknown: '未同期' },
+    sorts: {
+      priority: '要確認を優先',
+      newest: '追加が新しい順',
+      oldest: '追加が古い順',
+      name: '名前順',
+      weight_desc: '重みが高い順',
+      weight_asc: '重みが低い順',
+      failures: '5 分間の失敗が多い順',
+    },
+  },
   overview: '実行状況',
   requestTrend: '過去 24 時間のリクエスト推移',
   noUsage: 'リクエスト統計はありません',
@@ -296,7 +350,6 @@ export const jaJP: typeof zhCN = {
   enableSelected: '選択した認証情報を有効化',
   disableSelected: '選択した認証情報を無効化',
   deleteSelected: '選択した認証情報を削除',
-  clearSelection: '選択を解除',
   updatedCredentials: '{count} 件の認証情報を更新しました',
   credentialDetails: '認証情報の詳細',
   weightValue: '重み {value}',
@@ -338,7 +391,6 @@ export const jaJP: typeof zhCN = {
   oneHeaderPerLine: '1 行に 1 つの名前',
   invalidHeaders: 'ヘッダー名は空欄や重複にできません。値に改行は使用できません。',
   parameters: 'パラメータ上書き',
-  parameterJSON: '上書きルール · JSON',
   invalidRules: 'match と set / remove を含む有効なルール配列を入力してください。',
   authState: {
     refreshing: '認証を更新中',

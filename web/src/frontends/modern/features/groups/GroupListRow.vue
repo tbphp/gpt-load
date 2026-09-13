@@ -241,11 +241,6 @@ const lastActive = computed(() =>
               ? '—'
               : formatNanoUSD(usage.costNanoUSD, locale)
           }}
-          <AppTooltip v-if="partial" :label="t('groups.row.partialHelp')">
-            <AppBadge tone="warning" variant="plain" size="xs">{{
-              t('groups.row.partial')
-            }}</AppBadge>
-          </AppTooltip>
         </span>
       </div>
       <div class="modern-group-actions">

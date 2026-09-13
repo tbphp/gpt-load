@@ -10,6 +10,9 @@ export function parseGroupFilters(query: LocationQuery): GroupFilters {
     q: typeof query.q === 'string' ? Array.from(query.q.trim()).slice(0, 200).join('') : '',
     view: groupViews.find((value) => value === query.view) ?? 'all',
     channel: typeof query.channel === 'string' ? query.channel : '',
+    connection:
+      query.connection === 'api_key' || query.connection === 'subscription' ? query.connection : '',
+    model: typeof query.model === 'string' ? query.model.trim() : '',
     sort: groupSorts.find((value) => value === query.sort) ?? 'priority',
   }
 }
@@ -20,6 +23,8 @@ export function groupFilterQuery(filters: GroupFilters): Record<string, string> 
   if (filters.q) query.q = filters.q
   if (filters.view !== 'all') query.view = filters.view
   if (filters.channel) query.channel = filters.channel
+  if (filters.connection) query.connection = filters.connection
+  if (filters.model) query.model = filters.model
   if (filters.sort !== 'priority') query.sort = filters.sort
   return query
 }

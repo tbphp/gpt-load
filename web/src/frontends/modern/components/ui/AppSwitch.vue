@@ -12,7 +12,7 @@ withDefaults(
     label: string
     disabled?: boolean
     loading?: boolean
-    size?: 'sm' | 'md'
+    size?: 'xxs' | 'sm' | 'md'
   }>(),
   { size: 'md' },
 )
@@ -62,11 +62,17 @@ defineEmits<{ 'update:modelValue': [value: boolean] }>()
   background: var(--modern-switch-off);
   transition: background-color var(--modern-motion-fast) var(--modern-motion-ease);
 }
+/* 轨道尺寸与 sm 一致：滑块要容纳 12px 加载图标，再缩会溢出。
+   xxs 只降容器高度，用于和同排的 xxs 按钮对齐。 */
+.modern-switch--xxs,
 .modern-switch--sm {
   --modern-switch-width: var(--modern-switch-sm-width);
   --modern-switch-height: var(--modern-switch-sm-height);
   --modern-switch-thumb: var(--modern-switch-sm-thumb);
   min-height: var(--modern-control-xs);
+}
+.modern-switch--xxs {
+  min-height: var(--modern-control-xxs);
 }
 .modern-switch-track > span {
   position: absolute;

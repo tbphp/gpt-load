@@ -115,10 +115,23 @@ const syncLabel = computed(() =>
       >
         <CredentialQuotaRows v-if="observation?.windows.length" :windows="observation.windows" />
         <div v-else class="modern-subscription-card-empty">
-          <span>{{ t('credentialCards.noQuota') }}</span
-          ><span v-if="observation && observation.state !== 'fresh'">{{
-            t('credentialCards.observation.' + observation.state)
-          }}</span>
+          <span>{{ t('credentialCards.noQuota') }}</span>
+          <div class="modern-subscription-card-empty-row">
+            <span
+              v-if="observation && observation.state !== 'fresh'"
+              class="modern-subscription-card-empty-state"
+              >{{ t('credentialCards.observation.' + observation.state) }}</span
+            >
+            <AppButton
+              v-if="channel?.quotaObservation"
+              size="xxs"
+              :icon="RefreshCw"
+              :loading="pendingAction === 'quota'"
+              :disabled="disabled || row.authState !== 'ready'"
+              @click="$emit('action', 'quota')"
+              >{{ t('credentialCards.syncQuota') }}</AppButton
+            >
+          </div>
         </div>
       </div>
       <div
@@ -160,7 +173,7 @@ const syncLabel = computed(() =>
             class="modern-subscription-card-reset"
             :icon="Ticket"
             variant="outline"
-            size="xs"
+            size="xxs"
             :aria-label="`${t('credentialCards.useReset')} · ${t('credentialCards.resetCreditsShort', { count: n(observation.resetCredits) })}`"
             :loading="pendingAction === 'reset'"
             :disabled="disabled || !row.enabled || row.authState !== 'ready'"
@@ -179,7 +192,7 @@ const syncLabel = computed(() =>
           @action="$emit('action', $event)"
         />
         <AppSwitch
-          size="sm"
+          size="xxs"
           :model-value="row.enabled"
           :label="t('groups.edit.enabled')"
           :disabled="disabled"
@@ -278,8 +291,17 @@ const syncLabel = computed(() =>
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
-.modern-subscription-card-empty > :last-child:not(:first-child) {
+.modern-subscription-card-empty-state {
   color: var(--modern-warning);
+}
+.modern-subscription-card-empty-row {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
+  margin-top: var(--modern-space-1);
+}
+.modern-subscription-card-empty-row > :last-child {
+  margin-left: auto;
 }
 .modern-subscription-card-notices {
   display: flex;
@@ -307,9 +329,8 @@ const syncLabel = computed(() =>
   gap: var(--modern-space-1);
   margin-left: auto;
 }
+/* 重置卡是刻意保留的醒目入口，描边不要去掉。 */
 .modern-subscription-card-actions .modern-subscription-card-reset {
-  gap: var(--modern-space-1);
-  padding: var(--modern-space-0-5) var(--modern-space-1-5);
   border-color: var(--modern-tooltip-border);
 }
 .modern-subscription-card-actions .modern-subscription-card-reset:hover:not(:disabled) {

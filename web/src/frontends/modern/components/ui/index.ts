@@ -44,3 +44,5 @@ export type {
   SelectOption,
   SemanticTone,
 } from './types'
+export { default as AppModelSelect } from './AppModelSelect.vue'
+export { default as AppSortMenu } from './AppSortMenu.vue'

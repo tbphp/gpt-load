@@ -17,10 +17,12 @@ import {
   batchGroupCredentials,
   batchAllGroupCredentials,
   credentialStates,
+  credentialSorts,
   getGroupCredentials,
   groupCredentialsKey,
   setCredentialEnabled,
   type CredentialCollection,
+  type CredentialFilters,
   type CredentialRow,
 } from '@modern/api/group-detail'
 import type { GroupRow } from '@modern/api/groups'
@@ -53,6 +55,8 @@ import {
   AppNotice,
   AppPagination,
   AppSegmentedControl,
+  AppSortMenu,
+  AppSelect,
   AppTextField,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
@@ -68,7 +72,15 @@ const emit = defineEmits<{
 const { t, n } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
-const filters = ref({ q: '', status: '', page: 1, pageSize: 20 })
+const filters = ref<CredentialFilters>({
+  q: '',
+  status: '',
+  page: 1,
+  pageSize: 20,
+  sort: 'priority',
+  proxy: '',
+  reset: '',
+})
 const search = ref('')
 const composing = ref(false)
 const selected = ref(new Set<number>())
@@ -118,7 +130,54 @@ const segments = computed(() => [
     count: summary.value?.[value],
   })),
 ])
+const sortOptions = computed(() =>
+  credentialSorts.map((value) => ({
+    value,
+    label: t('groupDetail.filters.sorts.' + value),
+  })),
+)
+const proxyOptions = computed(() => [
+  { value: '', label: t('groupDetail.filters.allProxies') },
+  ...['inherit', 'direct', 'custom'].map((value) => ({
+    value,
+    label: t('credentialCards.proxyMode.' + value),
+  })),
+])
+const resetOptions = computed(() => [
+  { value: '', label: t('groupDetail.filters.allResets') },
+  ...['available', 'none', 'unknown'].map((value) => ({
+    value,
+    label: t('groupDetail.filters.resets.' + value),
+  })),
+])
 const filterSummary = computed(() => [
+  ...(filters.value.sort !== 'priority'
+    ? [
+        {
+          key: 'sort',
+          label: t('groups.sort.label'),
+          value: t('groupDetail.filters.sorts.' + filters.value.sort),
+        },
+      ]
+    : []),
+  ...(filters.value.proxy
+    ? [
+        {
+          key: 'proxy',
+          label: t('groupDetail.filters.proxy'),
+          value: t('credentialCards.proxyMode.' + filters.value.proxy),
+        },
+      ]
+    : []),
+  ...(filters.value.reset
+    ? [
+        {
+          key: 'reset',
+          label: t('groupDetail.filters.reset'),
+          value: t('groupDetail.filters.resets.' + filters.value.reset),
+        },
+      ]
+    : []),
   ...(filters.value.q
     ? [{ key: 'q', label: t('groupDetail.searchLabel'), value: filters.value.q }]
     : []),
@@ -167,6 +226,9 @@ function resetFilter(key?: string): void {
     page: 1,
     ...(!key || key === 'q' ? { q: '' } : {}),
     ...(!key || key === 'status' ? { status: '' } : {}),
+    ...(!key || key === 'sort' ? { sort: 'priority' as const } : {}),
+    ...(!key || key === 'proxy' ? { proxy: '' as const } : {}),
+    ...(!key || key === 'reset' ? { reset: '' as const } : {}),
   })
 }
 function select(id: number, value: boolean): void {
@@ -243,6 +305,8 @@ function cacheRow(row: CredentialRow): void {
             ? {
                 ...row,
                 weightManual: row.weightManual === undefined ? item.weightManual : row.weightManual,
+                daily: row.daily ?? item.daily,
+                lastUsed: row.lastUsed ?? item.lastUsed,
               }
             : item,
         ),
@@ -435,13 +499,41 @@ defineExpose({ refresh })
         @compositionstart="composing = true"
         @compositionend="compositionEnd"
       />
-      <AppButton :icon="Plus" variant="primary" :disabled="!channel" @click="emit('add')">{{
-        t(
-          group.connectionType === 'subscription'
-            ? 'groupDetail.connectAccount'
-            : 'groupDetail.addCredentials',
-        )
-      }}</AppButton>
+      <AppSelect
+        v-if="group.connectionType === 'subscription'"
+        class="modern-credentials-filter-control"
+        :model-value="filters.reset"
+        :label="t('groupDetail.filters.reset')"
+        label-hidden
+        :options="resetOptions"
+        :disabled="mutating !== undefined"
+        @update:model-value="change({ reset: $event as CredentialFilters['reset'], page: 1 })"
+      />
+      <AppSelect
+        class="modern-credentials-filter-control"
+        :model-value="filters.proxy"
+        :label="t('groupDetail.filters.proxy')"
+        label-hidden
+        :options="proxyOptions"
+        :disabled="mutating !== undefined"
+        @update:model-value="change({ proxy: $event as CredentialFilters['proxy'], page: 1 })"
+      />
+      <div class="modern-credentials-toolbar-actions">
+        <AppSortMenu
+          :model-value="filters.sort"
+          :label="t('groups.sort.label')"
+          :options="sortOptions"
+          :disabled="mutating !== undefined"
+          @update:model-value="change({ sort: $event as CredentialFilters['sort'], page: 1 })"
+        />
+        <AppButton :icon="Plus" variant="primary" :disabled="!channel" @click="emit('add')">{{
+          t(
+            group.connectionType === 'subscription'
+              ? 'groupDetail.connectAccount'
+              : 'groupDetail.addCredentials',
+          )
+        }}</AppButton>
+      </div>
     </div>
     <div class="modern-credentials-filters">
       <AppSegmentedControl
@@ -657,13 +749,30 @@ defineExpose({ refresh })
 }
 .modern-credentials-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--modern-space-3);
   padding: var(--modern-space-1) 0;
 }
 .modern-credentials-toolbar > :first-child {
-  flex: 1;
+  flex: 2 1 220px;
   min-width: 0;
+}
+.modern-credentials-filter-control {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.modern-credentials-toolbar > :last-child {
+  flex: none;
+  margin-left: auto;
+}
+.modern-credentials-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  max-width: 100%;
+  gap: var(--modern-space-2);
 }
 .modern-credentials-filters {
   display: flex;

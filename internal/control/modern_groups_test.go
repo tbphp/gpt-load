@@ -37,8 +37,8 @@ func TestModernGroupsPreservesModelAliasesAndZeroWeight(t *testing.T) {
 	if item.Weight != 0 || item.Availability != "paused" {
 		t.Errorf("zero weight context = %#v", item)
 	}
-	if item.ModelCount != 4 || !slices.Equal(item.ModelPreview, []string{"public-a", "upstream-b", "public-c"}) {
-		t.Errorf("model preview = %v, count = %d", item.ModelPreview, item.ModelCount)
+	if item.ModelCount != 4 || !slices.Equal(item.ModelNames, []string{"public-a", "upstream-b", "public-c", "public-d"}) {
+		t.Errorf("model names = %v, count = %d", item.ModelNames, item.ModelCount)
 	}
 }
 

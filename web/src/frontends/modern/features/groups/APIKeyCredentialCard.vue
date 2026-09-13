@@ -98,7 +98,7 @@ const issues = computed(() =>
           :disabled="disabled"
           @action="$emit('action', $event)"
         /><AppSwitch
-          size="sm"
+          size="xxs"
           :model-value="row.enabled"
           :label="t('groups.edit.enabled')"
           :disabled="disabled"

@@ -32,12 +32,12 @@ const actions = computed(() => [
     <AppIconButton
       :icon="SlidersHorizontal"
       :label="t('credentialCards.diagnosticsAndSettings')"
-      size="xs"
+      size="xxs"
       :disabled="disabled"
       @click="$emit('action', 'details')"
     />
     <AppActionMenu
-      size="xs"
+      size="xxs"
       :label="t('credentialCards.more')"
       :items="actions"
       :disabled="disabled"

@@ -7,6 +7,7 @@ import {
   credentialTime,
   quotaWindowTitle,
   quotaRemaining,
+  quotaTone,
   sortedQuotaWindows,
 } from './credential-presentation'
 const props = defineProps<{ windows: readonly CredentialQuota[] }>()
@@ -24,28 +25,20 @@ function value(window: CredentialQuota): string {
     return t('credentialCards.remaining', { value: n(window.remaining) })
   return '—'
 }
-function tone(window: CredentialQuota): 'neutral' | 'success' | 'warning' | 'danger' {
-  const percent = quotaRemaining(window)
-  if (window.state === 'exhausted') return 'danger'
-  return percent === undefined
-    ? 'neutral'
-    : percent < 30
-      ? 'danger'
-      : percent < 70
-        ? 'warning'
-        : 'success'
-}
 </script>
 <template>
   <div class="modern-credential-quota-list">
     <div v-for="window in rows" :key="window.id" class="modern-credential-quota">
-      <div class="modern-credential-quota-label" :class="{ 'is-tight': tone(window) === 'danger' }">
+      <div
+        class="modern-credential-quota-label"
+        :class="{ 'is-tight': quotaTone(window) === 'danger' }"
+      >
         <AppOverflowText :text="label(window)" /><span>{{ value(window) }}</span>
       </div>
       <AppProgressBar
         :label="`${label(window)} · ${value(window)}`"
         :value="quotaRemaining(window)"
-        :tone="tone(window)"
+        :tone="quotaTone(window)"
         size="sm"
       />
       <div v-if="window.resetsAt || window.models.length" class="modern-credential-quota-note">

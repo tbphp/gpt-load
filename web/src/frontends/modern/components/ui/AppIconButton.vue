@@ -3,13 +3,13 @@ import { useForwardExpose } from 'reka-ui'
 import type { Component } from 'vue'
 import AppButton from './AppButton.vue'
 import AppTooltip from './AppTooltip.vue'
-import type { ButtonVariant, ControlSize } from './types'
+import type { ButtonSize, ButtonVariant } from './types'
 
 defineOptions({ inheritAttrs: false })
 defineProps<{
   icon: Component
   label: string
-  size?: ControlSize
+  size?: ButtonSize
   variant?: ButtonVariant
   loading?: boolean
   disabled?: boolean

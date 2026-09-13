@@ -5,12 +5,21 @@ import { useI18n } from 'vue-i18n'
 import type { CredentialQuota } from '@modern/api/credential-observation'
 import { AppIcon, AppOverflowText, AppTooltip } from '@modern/components/ui'
 import { formatCompactNumber, formatNanoUSD } from '@modern/components/ui/format'
-import { credentialTime, quotaWindowTitle, sortedQuotaWindows } from './credential-presentation'
+import {
+  credentialTime,
+  quotaRemaining,
+  quotaWindowTitle,
+  sortedQuotaWindows,
+} from './credential-presentation'
 
 const props = defineProps<{ windows: readonly CredentialQuota[] }>()
 const { t, te, n, locale } = useI18n()
 const rows = computed(() => sortedQuotaWindows(props.windows))
-const peak = computed(() => Math.max(1, ...rows.value.map((window) => window.usage?.requests ?? 0)))
+function remaining(window: CredentialQuota): string {
+  const value = quotaRemaining(window)
+  if (value !== undefined) return `${n(value, { maximumFractionDigits: 1 })}%`
+  return window.remaining === undefined ? '—' : n(window.remaining)
+}
 function label(window: CredentialQuota): string {
   const key = 'credentialCards.quotaLabels.' + window.labelKey
   return quotaWindowTitle(window, window.labelKey && te(key) ? t(key) : window.label)
@@ -43,7 +52,6 @@ function warning(window: CredentialQuota): string | undefined {
   <section class="modern-window-usage">
     <header class="modern-window-usage-heading">
       <h3>{{ t('credentialCards.windowUsage') }}</h3>
-      <span>{{ t('credentialCards.compareRequests') }}</span>
     </header>
     <div
       class="modern-window-usage-table"
@@ -52,6 +60,7 @@ function warning(window: CredentialQuota): string | undefined {
     >
       <div class="modern-window-usage-columns modern-window-usage-head" role="row">
         <span role="columnheader">{{ t('credentialCards.window') }}</span>
+        <span role="columnheader">{{ t('credentialCards.remainingShort') }}</span>
         <span role="columnheader">{{ t('credentialCards.requests') }}</span>
         <span role="columnheader">Tokens</span>
         <span role="columnheader">{{ t('credentialCards.costShort') }}</span>
@@ -62,11 +71,6 @@ function warning(window: CredentialQuota): string | undefined {
         class="modern-window-usage-columns modern-window-usage-row"
         role="row"
       >
-        <span
-          class="modern-window-usage-bar"
-          :style="{ width: `${((window.usage?.requests ?? 0) / peak) * 100}%` }"
-          aria-hidden="true"
-        />
         <div class="modern-window-usage-name" role="cell">
           <AppOverflowText :text="label(window)" :full-text="detail(window)" />
           <AppTooltip v-if="warning(window)" :label="warning(window)">
@@ -74,6 +78,9 @@ function warning(window: CredentialQuota): string | undefined {
               ><AppIcon :icon="Info" size="xs"
             /></span>
           </AppTooltip>
+        </div>
+        <div role="cell" class="modern-window-usage-remaining">
+          <span>{{ remaining(window) }}</span>
         </div>
         <div role="cell" class="modern-window-usage-requests">
           <AppOverflowText
@@ -88,7 +95,9 @@ function warning(window: CredentialQuota): string | undefined {
           />
         </div>
         <div role="cell">
-          <AppOverflowText :text="window.usage ? formatNanoUSD(window.usage.cost, locale) : '—'" />
+          <AppOverflowText
+            :text="window.usage ? formatNanoUSD(window.usage.cost, locale, 'narrowSymbol') : '—'"
+          />
         </div>
       </div>
     </div>
@@ -111,11 +120,6 @@ function warning(window: CredentialQuota): string | undefined {
   font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
 }
-.modern-window-usage-heading > span {
-  margin-left: auto;
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-caption);
-}
 .modern-window-usage-table {
   min-width: 0;
   border: var(--modern-line-width) solid var(--modern-border);
@@ -124,37 +128,33 @@ function warning(window: CredentialQuota): string | undefined {
 }
 .modern-window-usage-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 0.85fr) minmax(0, 1fr);
+  grid-template-columns:
+    minmax(0, 1.35fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 0.85fr)
+    minmax(0, 1fr);
   align-items: center;
   gap: var(--modern-space-2);
   padding: var(--modern-space-2);
   text-align: left;
 }
 .modern-window-usage-head {
-  background: var(--modern-subtle);
+  background: var(--modern-surface);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
 }
 .modern-window-usage-row {
-  position: relative;
-  min-height: var(--modern-space-10);
+  min-height: var(--modern-touch-target);
   border-top: var(--modern-line-width) solid var(--modern-border);
+  background: var(--modern-surface);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
   font-variant-numeric: tabular-nums;
 }
-.modern-window-usage-bar {
-  position: absolute;
-  inset-block: var(--modern-space-0-5);
-  left: 0;
-  max-width: 100%;
-  pointer-events: none;
-  border-radius: var(--modern-radius-small);
-  background: linear-gradient(90deg, var(--modern-key-card-tint), var(--modern-accent-soft));
-}
 .modern-window-usage-row > div {
-  position: relative;
   min-width: 0;
+}
+.modern-window-usage-remaining {
+  display: grid;
+  gap: var(--modern-space-1);
 }
 .modern-window-usage-name {
   display: flex;

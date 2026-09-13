@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppTooltip from './AppTooltip.vue'
-import { LoaderCircle, Pencil, Save } from '@lucide/vue'
+import { LoaderCircle, Pencil, Save, X } from '@lucide/vue'
 import { PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui'
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -153,13 +153,35 @@ defineExpose({ cancel })
         </AppMenuSurface>
       </PopoverPortal>
     </PopoverRoot>
+    <AppTooltip :label="t('ui.cancel')" :disabled="!editing">
+      <button
+        type="button"
+        class="modern-inline-number-cancel"
+        :class="{ 'is-hidden': !editing }"
+        :disabled="!editing || disabled || pending"
+        :aria-label="t('ui.cancel')"
+        @click="cancel"
+      >
+        <AppIcon :icon="X" size="xs" />
+      </button>
+    </AppTooltip>
   </div>
 </template>
 
 <style scoped>
 .modern-inline-number {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-1);
   width: var(--modern-inline-number-width);
   flex: none;
+}
+.modern-inline-number > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.modern-inline-number-cancel.is-hidden {
+  visibility: hidden;
 }
 .modern-inline-number input {
   width: 100%;
@@ -197,7 +219,7 @@ defineExpose({ cancel })
 }
 @media (max-width: 760px) {
   .modern-inline-number {
-    width: 112px;
+    width: 160px;
   }
   .modern-inline-number input {
     font-size: var(--modern-font-size-input-mobile);
