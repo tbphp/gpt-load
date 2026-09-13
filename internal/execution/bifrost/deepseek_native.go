@@ -50,7 +50,7 @@ func normalizeDeepSeekNativeRequest(body []byte, clientProtocol protocol.Protoco
 		if clientProtocol == protocol.OpenAICompletions && message.Get("role").String() == "assistant" && !message.Get("reasoning_content").Exists() {
 			// 只复制已有的完整文本，不用摘要、密文或空占位补造思考内容。
 			reasoning := message.Get("reasoning")
-			if reasoning.Type == gjson.String {
+			if reasoning.Type == gjson.String && reasoning.Str != "" {
 				body, err = sjson.SetRawBytes(body, path+".reasoning_content", []byte(reasoning.Raw))
 				if err != nil {
 					return nil, err

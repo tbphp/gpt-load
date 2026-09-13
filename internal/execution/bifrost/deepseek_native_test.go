@@ -246,6 +246,7 @@ func TestDeepSeekCompatibilityLeavesUnsupportedContentAndCanonicalReasoning(t *t
 		{protocol.OpenAICompletions, `{"messages":[{"role":"assistant","reasoning_content":"canonical","reasoning":"alias"}]}`},
 		{protocol.OpenAICompletions, `{"messages":[{"role":"assistant","reasoning_content":"","reasoning":"alias"}]}`},
 		{protocol.OpenAICompletions, `{"messages":[{"role":"assistant","reasoning_content":null,"reasoning":"alias"}]}`},
+		{protocol.OpenAICompletions, `{"messages":[{"role":"assistant","reasoning":""}]}`},
 		{protocol.OpenAICompletions, `{"messages":[{"role":"assistant","reasoning":{"summary":"not original text"}}]}`},
 		{protocol.Anthropic, `{"system":"global","messages":[{"role":"user","content":"start"},{"role":"system","content":"instruction"}]}`},
 	} {
