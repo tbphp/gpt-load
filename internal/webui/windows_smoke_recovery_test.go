@@ -99,6 +99,44 @@ try {
   '
   if ($LASTEXITCODE -ne 0) { throw 'active smoke was not protected' }
 } finally { $lock.ReleaseMutex(); $lock.Dispose() }
+
+# 在初始化的每条完整语句后模拟强制中断：固定目录只能以完整状态出现。
+$source = [IO.File]::ReadAllText($env:INSTALLER_SCRIPT)
+$start = $source.IndexOf('  [System.IO.File]::WriteAllText($installOwnerMarker, $installOwnerToken)')
+$end = $source.IndexOf('  $listener =', $start)
+if ($start -lt 0 -or $end -le $start) { throw 'missing installer initialization block' }
+$lines = $source.Substring($start, $end - $start).Trim().Split([char]10)
+foreach ($cut in 1..($lines.Count + 1)) {
+  $programData = Join-Path $env:TEST_ROOT "init-$cut"
+  New-Item -ItemType Directory -Path $programData | Out-Null
+  $suffix = [guid]::NewGuid().ToString('N')
+  $installOwnerToken = $suffix
+  $installOwnerMarker = Join-Path $programData 'install.owner'
+  $configDir = Join-Path $programData 'GPT-Load'
+  $dataDir = Join-Path $configDir 'data'
+  $dataOwnerMarker = Join-Path $configDir '.installer-smoke-owner'
+  $failureDataMarker = Join-Path $dataDir 'installer-smoke-failure.txt'
+  $preparedConfig = Join-Path $programData ".gpt-load-installer-smoke-$suffix"
+  $ownsPreparedConfig = $false
+  $conflict = $cut -gt $lines.Count
+  if ($conflict) {
+    New-Item -ItemType Directory -Path $configDir | Out-Null
+    [IO.File]::WriteAllText((Join-Path $configDir 'real-data'), 'keep')
+  }
+  $count = [Math]::Min($cut, $lines.Count)
+  $failed = $false
+  try { . ([scriptblock]::Create(($lines[0..($count - 1)] -join [char]10))) }
+  catch { $failed = $true }
+  if ($failed -ne $conflict) { throw "unexpected initialization failure at $cut" }
+  if ($conflict) {
+    if ([IO.File]::ReadAllText((Join-Path $configDir 'real-data')) -ne 'keep') { throw 'overwrote existing configuration' }
+  } elseif ($cut -lt $lines.Count) {
+    if (Test-Path $configDir) { throw "exposed partially initialized directory after statement $cut" }
+  } else {
+    if ([IO.File]::ReadAllText($dataOwnerMarker) -ne $suffix -or
+        [IO.File]::ReadAllText($failureDataMarker) -ne $suffix) { throw 'published incomplete ownership evidence' }
+  }
+}
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "recovery-test.ps1")
@@ -110,7 +148,8 @@ try {
 		t.Fatal(err)
 	}
 	command := exec.Command(pwsh, "-NoLogo", "-NoProfile", "-File", path)
-	command.Env = append(os.Environ(), "RECOVERY_SCRIPT="+recovery, "TEST_ROOT="+dir)
+	command.Env = append(os.Environ(), "RECOVERY_SCRIPT="+recovery,
+		"INSTALLER_SCRIPT="+filepath.Join(filepath.Dir(recovery), "release-windows-installer-smoke.ps1"), "TEST_ROOT="+dir)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("Windows smoke recovery: %v\n%s", err, output)
 	}
