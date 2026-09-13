@@ -10,6 +10,8 @@ permissions:
 
 # 竖线分隔在任何错误（含网络错误）时回退到下一个源；默认的逗号只在
 # 404/410 时回退，proxy.golang.org 瞬时故障会直接让整个 job 失败。
+# 自托管 Runner 保留本机 Go 缓存；代码与编译参数变化由 Go 自动判定失效。
+# 不再下载/上传 setup-go 缓存，也无需 main push 预热。
 env:
   GOPROXY: https://proxy.golang.org|direct
 
@@ -19,7 +21,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -34,7 +36,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Check Go formatting
         run: |
@@ -62,7 +64,7 @@ jobs:
         run: git diff --check
 
   race-tests:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -70,27 +72,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Mark race-instrumented Go cache scope
-        # race-tests、test、database-contract(*) 默认共用同一个基于 go.sum 的
-        # setup-go 缓存 key；命中即不保存，race-instrumented GOCACHE 永远无法
-        # 写回，每次都要重新编译。加入这个 marker 文件参与 cache-dependency-path
-        # 哈希，让 race-tests 拥有独立 key 命名空间。
-        run: echo race-tests > .go-cache-scope
-
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            .go-cache-scope
+          cache: false
 
       - name: Run race-enabled tests
         run: go test -race -count=1 -timeout=15m . ./internal/...
 
   race-cpa:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout repository
@@ -102,8 +94,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: third_party/cpaembedded/go.sum
+          cache: false
 
       - name: Run embedded CPA bridge race-enabled tests
         working-directory: third_party/cpaembedded
@@ -111,7 +102,7 @@ jobs:
 
   database-contract:
     name: Database contract (${{ matrix.driver }})
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -119,31 +110,45 @@ jobs:
       matrix:
         include:
           - driver: mysql
-            dsn: mysql://root:root@127.0.0.1:3306/gpt_load?charset=utf8mb4&transaction_isolation=%27READ-COMMITTED%27
+            image: mysql:8.4
+            data-dir: /var/lib/mysql
+            port: "3306"
+            health: mysqladmin ping -h 127.0.0.1 -proot
+            dsn: mysql://root:root@127.0.0.1:{0}/gpt_load?charset=utf8mb4&transaction_isolation=%27READ-COMMITTED%27
           - driver: postgres
-            dsn: postgres://postgres:postgres@127.0.0.1:5432/gpt_load?sslmode=disable
+            image: postgres:18
+            data-dir: /var/lib/postgresql
+            port: "5432"
+            health: pg_isready -U postgres -d gpt_load
+            dsn: postgres://postgres:postgres@127.0.0.1:{0}/gpt_load?sslmode=disable
+    # 仅临时合同测试数据库使用内存盘；每个实例按实际使用量占用，最多 2 GiB。
     services:
-      mysql:
-        image: mysql:8.4
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: gpt_load
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gpt_load
+        ports:
+          - ${{ matrix.port }}
+        options: >-
+          --tmpfs ${{ matrix.data-dir }}:rw,nosuid,nodev,size=2g
+          --health-cmd="${{ matrix.health }}"
+          --health-interval=5s
+          --health-timeout=10s
+          --health-retries=20
+      # MySQL 两组使用独立实例，避免不同测试数据库争用同名 GET_LOCK。
+      secondary-mysql:
+        image: ${{ matrix.driver == 'mysql' && 'mysql:8.4' || '' }}
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: gpt_load
         ports:
-          - 3306:3306
+          - 3306
         options: >-
+          --tmpfs /var/lib/mysql:rw,nosuid,nodev,size=2g
           --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
-          --health-interval=5s
-          --health-timeout=10s
-          --health-retries=20
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: gpt_load
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d gpt_load"
           --health-interval=5s
           --health-timeout=10s
           --health-retries=20
@@ -157,16 +162,16 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Run external database contract
         env:
-          GPT_LOAD_DATABASE_TEST_DSN: ${{ matrix.dsn }}
-        run: |
-          go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog -run '^TestExternal'
+          GPT_LOAD_DATABASE_TEST_DSN: ${{ format(matrix.dsn, job.services.database.ports[format('{0}', matrix.port)]) }}
+          GPT_LOAD_DATABASE_SECONDARY_DSN: ${{ matrix.driver == 'mysql' && format(matrix.dsn, job.services.secondary-mysql.ports['3306']) || '' }}
+        run: .github/scripts/ci-database-contract.sh "${{ matrix.driver }}"
 
   windows-encryption-acl:
-    runs-on: windows-2025
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -178,13 +183,16 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Test Windows secure file and storage ACLs
         run: go test -v -count=1 ./internal/platform/securefile ./internal/platform/encryption ./internal/storage
 
       - name: Test Windows service lifecycle
         run: go test -v -count=1 .
+
+      - name: Test Windows smoke recovery
+        run: go test -count=1 ./internal/webui -run '^TestWindowsSmokeRecovery$'
 
       - name: Smoke Windows service lifecycle
         shell: pwsh

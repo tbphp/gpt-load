@@ -28,8 +28,11 @@ $installOwnerToken = $suffix
 $programData = [Environment]::GetFolderPath("CommonApplicationData")
 $configDir = Join-Path $programData "GPT-Load"
 $dataDir = Join-Path $configDir "data"
+$envFile = Join-Path $configDir ".env"
 $dataOwnerMarker = Join-Path $configDir ".installer-smoke-owner"
 $failureDataMarker = Join-Path $dataDir "installer-smoke-failure.txt"
+$preparedConfig = Join-Path $programData ".gpt-load-installer-smoke-$suffix"
+$ownsPreparedConfig = $false
 $upgradeMarker = Join-Path $dataDir "installer-smoke-upgrade.txt"
 $installedBinary = Join-Path $installDir "gpt-load.exe"
 $uninstaller = Join-Path $installDir "unins000.exe"
@@ -43,19 +46,28 @@ if ([System.IO.Path]::GetFullPath($configDir) -ne
     [System.IO.Path]::GetFullPath((Join-Path $programData "GPT-Load"))) {
   throw "refusing unexpected ProgramData cleanup target: $configDir"
 }
-if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-  throw "refusing pre-existing Windows service: $serviceName"
-}
-if (Test-Path $installDir) {
-  throw "refusing pre-existing installation directory: $installDir"
-}
-if (Test-Path $configDir) {
-  throw "refusing pre-existing ProgramData directory: $configDir"
-}
-foreach ($path in @($desktopShortcut, $startMenuShortcut, $uninstallKey)) {
-  if (Test-Path $path) {
-    throw "refusing pre-existing installer smoke path: $path"
+. "$PSScriptRoot/windows-smoke-recovery.ps1"
+$smokeMutex = Enter-WindowsSmoke -InstallDir $installDir -ConfigDir $configDir
+
+try {
+  if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+    throw "refusing pre-existing Windows service: $serviceName"
   }
+  if (Test-Path $installDir) {
+    throw "refusing pre-existing installation directory: $installDir"
+  }
+  if (Test-Path $configDir) {
+    throw "refusing pre-existing ProgramData directory: $configDir"
+  }
+  foreach ($path in @($desktopShortcut, $startMenuShortcut, $uninstallKey)) {
+    if (Test-Path $path) {
+      throw "refusing pre-existing installer smoke path: $path"
+    }
+  }
+} catch {
+  $smokeMutex.ReleaseMutex()
+  $smokeMutex.Dispose()
+  throw
 }
 
 function Invoke-CheckedProcess {
@@ -112,17 +124,28 @@ function Assert-ServiceAcl {
 
 try {
   [System.IO.File]::WriteAllText($installOwnerMarker, $installOwnerToken)
-  New-Item -ItemType Directory -Path $configDir | Out-Null
-  [System.IO.File]::WriteAllText($dataOwnerMarker, $installOwnerToken)
-  New-Item -ItemType Directory -Path $dataDir | Out-Null
-  [System.IO.File]::WriteAllText($failureDataMarker, $installOwnerToken)
+  # 同盘准备完整归属凭据后再公开固定目录，避免中断留下半初始化状态。
+  New-Item -ItemType Directory -Path $preparedConfig | Out-Null
+  $ownsPreparedConfig = $true
+  [System.IO.File]::WriteAllText((Join-Path $preparedConfig ".installer-smoke-owner"), $installOwnerToken)
+  New-Item -ItemType Directory -Path (Join-Path $preparedConfig "data") | Out-Null
+  [System.IO.File]::WriteAllText((Join-Path $preparedConfig "data/installer-smoke-failure.txt"), $installOwnerToken)
+  [System.IO.Directory]::Move($preparedConfig, $configDir)
 
   $listener = [System.Net.Sockets.TcpListener]::new(
     [System.Net.IPAddress]::Loopback,
-    3001
+    0
   )
+  # 由系统分配可用端口，避开自托管 Windows 的端口排除范围。
+  $listener.ExclusiveAddressUse = $true
   $listener.Start()
   try {
+    $port = $listener.LocalEndpoint.Port
+    # 测试服务读取同一端口；独占监听保持到安装失败回滚验收结束。
+    @(
+      "HOST=127.0.0.1",
+      "PORT=$port"
+    ) | Set-Content -Path $envFile -Encoding utf8NoBOM
     Invoke-CheckedProcess -Path $setup -Arguments @(
       "/VERYSILENT",
       "/SUPPRESSMSGBOXES",
@@ -179,7 +202,7 @@ try {
   $health = $null
   for ($attempt = 0; $attempt -lt 80; $attempt++) {
     try {
-      $health = Invoke-RestMethod "http://127.0.0.1:3001/health"
+      $health = Invoke-RestMethod "http://127.0.0.1:$port/health"
       break
     } catch {
       Start-Sleep -Milliseconds 250
@@ -196,7 +219,7 @@ try {
   }
   $authKey = (Get-Content $authFile -Raw).Trim()
   $headers = @{ Authorization = "Bearer $authKey" }
-  Invoke-RestMethod "http://127.0.0.1:3001/api/system/info" -Headers $headers | Out-Null
+  Invoke-RestMethod "http://127.0.0.1:$port/api/system/info" -Headers $headers | Out-Null
 
   [System.IO.File]::WriteAllText($upgradeMarker, $suffix)
   Invoke-CheckedProcess -Path $setup -Arguments @(
@@ -227,6 +250,9 @@ try {
   $afterHash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
   if ($afterHash -ne $expectedHash) { throw "Windows setup checksum mismatch after execution" }
 } finally {
+  if ($ownsPreparedConfig -and (Test-Path -LiteralPath $preparedConfig)) {
+    Remove-Item -LiteralPath $preparedConfig -Recurse -Force
+  }
   $ownsInstall = (Test-Path $installOwnerMarker) -and
     ((Get-Content $installOwnerMarker -Raw).Trim() -eq $installOwnerToken)
   if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
@@ -257,4 +283,6 @@ try {
       ((Get-Content $installOwnerMarker -Raw).Trim() -eq $installOwnerToken)) {
     Remove-Item -Force $installOwnerMarker -ErrorAction SilentlyContinue
   }
+  $smokeMutex.ReleaseMutex()
+  $smokeMutex.Dispose()
 }

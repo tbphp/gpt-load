@@ -7,6 +7,7 @@ import (
 )
 
 func TestProxyConfigMigrationAddsNullableEncryptedColumnsAndPreservesRows(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	for _, migrate := range []func() error{
 		func() error { return migrations.Up0001(db) },
@@ -69,6 +70,7 @@ func TestProxyConfigMigrationAddsNullableEncryptedColumnsAndPreservesRows(t *tes
 }
 
 func TestProxyConfigMigrationRecoverableValidationAcceptsPartialColumns(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name      string
 		statement string

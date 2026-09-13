@@ -12,6 +12,7 @@ import (
 )
 
 func TestModelCooldownMigrationContract(t *testing.T) {
+	t.Parallel()
 	testModelCooldownMigration(t, openInternalMigrationTestDatabase)
 }
 
@@ -62,6 +63,9 @@ func testModelCooldownMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted", "column_added"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if scenario != "fresh" {
 				if err := applyMigrationRegistry(db, migrations[:9]); err != nil {
 					t.Fatal(err)

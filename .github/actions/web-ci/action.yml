@@ -17,8 +17,8 @@ runs:
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: 24.18.0
-        cache: pnpm
-        cache-dependency-path: web/pnpm-lock.yaml
+        # 自托管 Mac 保留 pnpm store，不再恢复远端缓存。
+        package-manager-cache: false
 
     - name: Install web dependencies
       shell: bash

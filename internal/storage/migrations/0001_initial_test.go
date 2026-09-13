@@ -22,6 +22,7 @@ type initialColumn struct {
 }
 
 func TestBeta1InitialMigrationCreatesCompleteFinalSchema(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := migrations.Up0001(db); err != nil {
 		t.Fatalf("Up0001() error = %v", err)
@@ -105,6 +106,7 @@ func insertBeta1CredentialStage(db *gorm.DB, id, method string) error {
 }
 
 func TestBeta1InitialMigrationCascadesCredentialObservations(t *testing.T) {
+	t.Parallel()
 	db := openMigratedInitialTestDatabase(t)
 	if err := db.Exec(`INSERT INTO groups (
 		id, name, channel_id, connection_type, params, models, enabled, created_at_ms, updated_at_ms
@@ -136,6 +138,7 @@ func TestBeta1InitialMigrationCascadesCredentialObservations(t *testing.T) {
 }
 
 func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatal(err)
@@ -178,6 +181,7 @@ func TestAutoMigrateCreatesFinalPricingSchema(t *testing.T) {
 }
 
 func TestAutoMigrateCreatesNormalizedRequestLogInitialSchema(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatal(err)
@@ -235,6 +239,7 @@ func TestAutoMigrateCreatesNormalizedRequestLogInitialSchema(t *testing.T) {
 }
 
 func TestAutoMigrateAllowsUnrelatedSchemaInfoTable(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := db.Exec("CREATE TABLE schema_info (version integer PRIMARY KEY)").Error; err != nil {
 		t.Fatal(err)
@@ -251,6 +256,7 @@ func TestAutoMigrateAllowsUnrelatedSchemaInfoTable(t *testing.T) {
 }
 
 func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatal(err)
@@ -321,6 +327,7 @@ func TestAutoMigrateCreatesFinalCatalogAndUsageColumns(t *testing.T) {
 }
 
 func TestFinalModelPriceRejectsNegativeScalarPrices(t *testing.T) {
+	t.Parallel()
 	db := openMigratedInitialTestDatabase(t)
 	priceColumns := []string{
 		"input_price_nano_usd_per_million_tokens",
@@ -341,6 +348,7 @@ func TestFinalModelPriceRejectsNegativeScalarPrices(t *testing.T) {
 }
 
 func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testing.T) {
+	t.Parallel()
 	db := openMigratedInitialTestDatabase(t)
 
 	empty := models.ModelPrice{
@@ -405,6 +413,7 @@ func TestModelPriceValidatesAndNormalizesContextTiersBeforePersistence(t *testin
 }
 
 func TestModelPriceValidatesContextTiersAcrossGORMWritePaths(t *testing.T) {
+	t.Parallel()
 	type writePath struct {
 		name  string
 		write func(*gorm.DB, models.ModelPrice, models.JSON) error
@@ -469,6 +478,7 @@ func TestModelPriceValidatesContextTiersAcrossGORMWritePaths(t *testing.T) {
 }
 
 func TestFinalRequestLogEnforcesStateContract(t *testing.T) {
+	t.Parallel()
 	db := openMigratedInitialTestDatabase(t)
 	valid := []requestStateFixture{
 		{id: "valid-priced-complete", status: "success", usage: "complete", cost: "priced", pricing: "complete", estimatedCost: 1},
@@ -501,6 +511,7 @@ func TestFinalRequestLogEnforcesStateContract(t *testing.T) {
 }
 
 func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
+	t.Parallel()
 	db := openMigratedInitialTestDatabase(t)
 
 	for table, names := range map[string][]string{
@@ -633,6 +644,7 @@ func TestFinalSchemaUsesMillisecondIntegersAndEnforcesCounters(t *testing.T) {
 }
 
 func TestAutoMigrateRejectsChangedTableForCompletedMigration(t *testing.T) {
+	t.Parallel()
 	db := openMigratedInitialTestDatabase(t)
 	if err := db.Exec(`ALTER TABLE usage_stats RENAME TO usage_stats_checked`).Error; err != nil {
 		t.Fatal(err)
@@ -651,6 +663,7 @@ func TestAutoMigrateRejectsChangedTableForCompletedMigration(t *testing.T) {
 }
 
 func TestAutoMigrateRejectsMissingIndexForCompletedMigration(t *testing.T) {
+	t.Parallel()
 	db := openMigratedInitialTestDatabase(t)
 	if err := db.Exec("DROP INDEX idx_model_prices_channel_model").Error; err != nil {
 		t.Fatal(err)

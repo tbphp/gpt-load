@@ -19,7 +19,7 @@ func TestWindowsInstallerKeepsPortableBinaryAndAddsSetupAsset(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/release.yml")
 	setupJob := workflowJobBlock(t, workflow, "build-windows-setup")
 	for _, required := range []string{
-		"windows-2025",
+		"runs-on: [self-hosted, Windows, X64]",
 		"binary-gpt-load-windows-amd64.exe",
 		"packaging/windows/gpt-load.iss",
 		"ISCC.exe",
@@ -172,6 +172,43 @@ func TestWindowsInstallerCleansFreshInstallFailureWithoutDeletingProgramData(t *
 	}
 }
 
+func TestWindowsInstallerSmokeUsesAnAssignedPortForConflictAndHealth(t *testing.T) {
+	script := readRepositoryFile(t, ".github/scripts/release-windows-installer-smoke.ps1")
+	for _, required := range []string{
+		"[System.Net.IPAddress]::Loopback,\n    0",
+		"$listener.ExclusiveAddressUse = $true",
+		"$port = $listener.LocalEndpoint.Port",
+		`$envFile = Join-Path $configDir ".env"`,
+		`"HOST=127.0.0.1"`,
+		`"PORT=$port"`,
+		"Set-Content -Path $envFile -Encoding utf8NoBOM",
+		"http://127.0.0.1:$port/health",
+		"http://127.0.0.1:$port/api/system/info",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("installer smoke does not use the assigned port: missing %q", required)
+		}
+	}
+	if strings.Contains(script, "3001") {
+		t.Fatal("installer smoke still depends on the host's fixed application port")
+	}
+	previous := -1
+	for _, step := range []string{
+		"$listener.Start()",
+		"$port = $listener.LocalEndpoint.Port",
+		"Set-Content -Path $envFile -Encoding utf8NoBOM",
+		"Invoke-CheckedProcess -Path $setup",
+		"-ExpectedExitCode 10",
+		"$listener.Stop()",
+	} {
+		index := strings.Index(script, step)
+		if index <= previous {
+			t.Fatalf("installer smoke must hold its configured port until the conflict check finishes: %s", step)
+		}
+		previous = index
+	}
+}
+
 func TestPullRequestWindowsCIBuildsAndSmokesInstaller(t *testing.T) {
 	workflow := readRepositoryFile(t, ".github/workflows/ci.yml")
 	windowsJob := workflowJobBlock(t, workflow, "windows-encryption-acl")
@@ -201,7 +238,7 @@ func TestWindowsInstallerSmokeCoversInstallHealthStopAndUninstall(t *testing.T) 
 		"RELEASE_WINDOWS_BINARY",
 		"/VERYSILENT",
 		"Get-Service",
-		"http://127.0.0.1:3001/health",
+		"http://127.0.0.1:$port/health",
 		"auth.key",
 		"Authorization",
 		"service stop",
@@ -262,6 +299,8 @@ func TestWindowsSmokesOwnTheirFixedInstallationDirectory(t *testing.T) {
 			"refusing pre-existing installation directory",
 			"installOwnerMarker",
 			"installOwnerToken",
+			"Enter-WindowsSmoke -InstallDir $installDir -ConfigDir $configDir",
+			"$smokeMutex.ReleaseMutex()",
 		} {
 			if !strings.Contains(script, required) {
 				t.Fatalf("%s does not contain fixed install ownership contract %q", path, required)
@@ -269,6 +308,9 @@ func TestWindowsSmokesOwnTheirFixedInstallationDirectory(t *testing.T) {
 		}
 		if strings.Contains(script, `"/DIR=`) {
 			t.Fatalf("%s overrides the fixed installer directory", path)
+		}
+		if strings.Index(script, "Enter-WindowsSmoke -InstallDir") > strings.Index(script, "refusing pre-existing Windows service") {
+			t.Fatalf("%s rejects old smoke installations before recovering them", path)
 		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 )
 
 func TestCustomAccessKeyMigrationContract(t *testing.T) {
+	t.Parallel()
 	testCustomAccessKeyMigration(t, openInternalMigrationTestDatabase)
 }
 
@@ -26,6 +27,9 @@ func testCustomAccessKeyMigration(t *testing.T, open func(*testing.T) *gorm.DB) 
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			var key models.AccessKey
 			var rule models.AccessKeyCostLimitRule
 			var deletedID uint

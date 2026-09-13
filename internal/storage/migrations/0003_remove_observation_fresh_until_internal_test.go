@@ -3,6 +3,7 @@ package migrations
 import "testing"
 
 func TestMySQLRequiresCheckDropSyntax0003(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		serverVersion string
 		want          bool

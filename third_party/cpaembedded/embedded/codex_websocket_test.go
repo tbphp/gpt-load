@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -505,13 +506,23 @@ func (lifecycle *closeFirstWSBinding) End(reason string) { lifecycle.resource.En
 
 func TestCodexWSSessionGuardsSDKSendRetry(t *testing.T) {
 	var frames, handshakes atomic.Int32
+	var handlersMu sync.Mutex
+	var handlers []chan struct{}
+	recordAfterSend := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		done := make(chan struct{})
+		handlersMu.Lock()
+		handlers = append(handlers, done)
+		handlersMu.Unlock()
+		defer close(done)
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
 			t.Error(err)
 			return
 		}
 		defer conn.Close()
+		// 握手响应已发出，但服务端统计尚未更新，复现客户端先返回的调度顺序。
+		<-recordAfterSend
 		handshakes.Add(1)
 		if _, _, err := conn.ReadMessage(); err == nil {
 			frames.Add(1)
@@ -529,11 +540,27 @@ func TestCodexWSSessionGuardsSDKSendRetry(t *testing.T) {
 		Metadata:           map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: session.id},
 		ExecutionLifecycle: lifecycle,
 	})
+	// 请求结束后立即撤销上下文，收尾统计仍必须有自己的等待时间。
+	cancel()
+	close(recordAfterSend)
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
 	if err == nil {
 		t.Fatal("failed send succeeded")
 	}
+	// 客户端返回不代表服务端已统计完连接和业务帧；等待真实处理结束再断言。
+	handlersMu.Lock()
+	pendingHandlers := append([]chan struct{}(nil), handlers...)
+	handlersMu.Unlock()
+	for _, done := range pendingHandlers {
+		select {
+		case <-done:
+		case <-waitCtx.Done():
+			t.Fatal("server handlers did not finish after SDK send failure")
+		}
+	}
 	if frames.Load() != 0 || handshakes.Load() < 1 || handshakes.Load() > 2 {
-		t.Fatal("SDK send failure escaped the lifecycle guard")
+		t.Fatalf("SDK send failure escaped the lifecycle guard: frames=%d handshakes=%d binds=%d", frames.Load(), handshakes.Load(), lifecycle.binds.Load())
 	}
 	if lifecycle.binds.Load() < 1 || lifecycle.binds.Load() > 2 {
 		t.Fatal("unexpected SDK binding attempts")

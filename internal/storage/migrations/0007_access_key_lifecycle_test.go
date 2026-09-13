@@ -8,6 +8,7 @@ import (
 )
 
 func TestAccessKeyLifecycleMigrationAddsNullableExpiryAndPreservesRows(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := migrations.Up0001(db); err != nil {
 		t.Fatal(err)
@@ -44,6 +45,7 @@ func TestAccessKeyLifecycleMigrationAddsNullableExpiryAndPreservesRows(t *testin
 }
 
 func TestAccessKeyLifecycleMigrationValidationRejectsMissingColumn(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := migrations.Up0001(db); err != nil {
 		t.Fatal(err)

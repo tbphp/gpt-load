@@ -15,9 +15,11 @@ import (
 )
 
 func TestApplyMySQLMigrationRecoversEveryInitialDDLBoundary(t *testing.T) {
+	t.Parallel()
 	models := migrationfiles.SchemaModels0001()
 	for boundary := 0; boundary <= len(models); boundary++ {
 		t.Run(migrationfiles.TableNames0001()[boundaryOrLast(boundary, len(models))], func(t *testing.T) {
+			t.Parallel()
 			db := openInternalMigrationTestDatabase(t)
 			if err := db.AutoMigrate(&schemaMigration{}); err != nil {
 				t.Fatalf("create migration ledger: %v", err)
@@ -41,9 +43,11 @@ func TestApplyMySQLMigrationRecoversEveryInitialDDLBoundary(t *testing.T) {
 }
 
 func TestApplyMySQLMigrationRecoversEveryAccessKeyCostLimitDDLBoundary(t *testing.T) {
+	t.Parallel()
 	models := migrationfiles.SchemaModels0002()
 	for boundary := 0; boundary <= len(models); boundary++ {
 		t.Run(migrationfiles.TableNames0002()[boundaryOrLast(boundary, len(models))], func(t *testing.T) {
+			t.Parallel()
 			db := openInternalMigrationTestDatabase(t)
 			if err := db.AutoMigrate(&schemaMigration{}); err != nil {
 				t.Fatalf("create migration ledger: %v", err)
@@ -75,8 +79,10 @@ func TestApplyMySQLMigrationRecoversEveryAccessKeyCostLimitDDLBoundary(t *testin
 }
 
 func TestApplyMySQLMigrationRecoversObservationFreshnessRemoval(t *testing.T) {
+	t.Parallel()
 	for _, alreadyDropped := range []bool{false, true} {
 		t.Run(fmt.Sprintf("already_dropped_%t", alreadyDropped), func(t *testing.T) {
+			t.Parallel()
 			db := openInternalMigrationTestDatabase(t)
 			if err := db.AutoMigrate(&schemaMigration{}); err != nil {
 				t.Fatalf("create migration ledger: %v", err)
@@ -111,8 +117,10 @@ func TestApplyMySQLMigrationRecoversObservationFreshnessRemoval(t *testing.T) {
 }
 
 func TestApplyMySQLMigrationRecoversAccessKeyLifecycleAddition(t *testing.T) {
+	t.Parallel()
 	for _, columnAlreadyAdded := range []bool{false, true} {
 		t.Run(fmt.Sprintf("column_already_added_%t", columnAlreadyAdded), func(t *testing.T) {
+			t.Parallel()
 			db := openInternalMigrationTestDatabase(t)
 			if err := db.AutoMigrate(&schemaMigration{}); err != nil {
 				t.Fatalf("create migration ledger: %v", err)
@@ -150,6 +158,7 @@ func TestApplyMySQLMigrationRecoversAccessKeyLifecycleAddition(t *testing.T) {
 }
 
 func TestApplyMySQLMigrationRejectsUnsafeResumeState(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		setup func(*testing.T, internalMigrationDB)
@@ -190,6 +199,7 @@ func TestApplyMySQLMigrationRejectsUnsafeResumeState(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			db := openInternalMigrationTestDatabase(t)
 			if err := db.AutoMigrate(&schemaMigration{}); err != nil {
 				t.Fatal(err)
