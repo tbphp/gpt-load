@@ -3303,8 +3303,9 @@ func TestHandlerUsesClassifierForNonStreamingNonSuccess(t *testing.T) {
 	t.Run("client error terminates after one attempt", func(t *testing.T) {
 		forwarder := &scriptedForwarder{results: []UpstreamResult{
 			{StatusCode: http.StatusBadRequest, Header: make(http.Header),
-				Body:               []byte(`{"error":"invalid input"}`),
-				ClassificationBody: []byte(`{"error":"invalid input"}`), RequestWritten: true},
+				Body:           []byte(`{"error":"invalid input"}`),
+				ExecutionError: &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, Code: "invalid_parameter"},
+				RequestWritten: true},
 			{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`)},
 		}}
 		engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
@@ -4647,8 +4648,8 @@ func TestHandlerDoesNotExposeAliasedUpstreamModelWhenRetryBudgetIsExhausted(t *t
 
 	engine.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusInternalServerError || attempts.Load() != 1 {
-		t.Fatalf("response/attempts = %d/%d, want 500/1", recorder.Code, attempts.Load())
+	if recorder.Code != http.StatusInternalServerError || attempts.Load() != 3 {
+		t.Fatalf("response/attempts = %d/%d, want 500/3", recorder.Code, attempts.Load())
 	}
 	if strings.Contains(recorder.Body.String(), upstreamModel) ||
 		!strings.Contains(recorder.Body.String(), externalModel) {

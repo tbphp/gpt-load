@@ -67,13 +67,11 @@ func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
 		},
 		{
 			name: "generic forbidden permission", status: http.StatusForbidden,
-			body:  `{"error":{"code":"permission_denied"}}`,
-			scope: execution.ErrorScopeRequest,
+			body: `{"error":{"code":"permission_denied"}}`,
 		},
 		{
 			name: "payment required", status: http.StatusPaymentRequired,
-			body:  `{"error":{"message":"billing disabled"}}`,
-			scope: execution.ErrorScopeRequest,
+			body: `{"error":{"message":"billing disabled"}}`,
 		},
 		{
 			name: "explicit invalid key under forbidden", status: http.StatusForbidden,

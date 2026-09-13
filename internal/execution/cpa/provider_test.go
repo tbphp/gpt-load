@@ -157,21 +157,34 @@ var _ providerBridge = (*recordingProviderBridge)(nil)
 
 func TestProviderModelRejectionRefinesGenericRequestHint(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		err  error
-		want execution.FailureHint
+		name      string
+		err       error
+		hint      execution.FailureHint
+		typeValue string
+		code      string
+		want      execution.FailureHint
 	}{
-		{name: "generic provider rejection", err: errors.New("model unsupported"), want: execution.FailureHintModelUnavailable},
-		{name: "explicit request scope preserved", err: requestScopedTestError{}, want: execution.FailureHintRequestRejected},
+		{name: "generic provider rejection", err: errors.New("model unsupported"), hint: execution.FailureHintRequestRejected, code: "unsupported_model", want: execution.FailureHintModelUnavailable},
+		{name: "model without generic hint", code: "unsupported_model", want: execution.FailureHintModelUnavailable},
+		{name: "model alias without generic hint", code: "unsupported-model", want: execution.FailureHintModelUnavailable},
+		{name: "explicit parameter error precedes model code", typeValue: "invalid_parameter", code: "unsupported_model", want: execution.FailureHintRequestRejected},
+		{name: "explicit request scope preserved", err: requestScopedTestError{}, hint: execution.FailureHintRequestRejected, code: "unsupported_model", want: execution.FailureHintRequestRejected},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			evidence := &execution.ErrorEvidence{
 				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusBadRequest,
-				Hint: execution.FailureHintRequestRejected, Code: "unsupported_model",
+				Hint: test.hint, Type: test.typeValue, Code: test.code,
 			}
 			annotateProviderErrorEvidence(evidence, test.err)
 			if evidence.Hint != test.want {
 				t.Fatalf("hint = %s, want %s", evidence.Hint, test.want)
+			}
+			wantScope := execution.ErrorScopeModel
+			if test.want == execution.FailureHintRequestRejected {
+				wantScope = execution.ErrorScopeRequest
+			}
+			if evidence.ScopeHint != wantScope {
+				t.Fatalf("scope = %s, want %s", evidence.ScopeHint, wantScope)
 			}
 		})
 	}

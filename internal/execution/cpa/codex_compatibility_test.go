@@ -78,7 +78,7 @@ func TestCodexUpgradePreservesQuotaAndRejectionPolicy(t *testing.T) {
 				events := 0
 				result := adapter.ExecuteStream(ctx, spec, func(execution.StreamEvent) error { events++; return nil })
 				evidence, status, dispatch = result.Error, result.StatusCode, result.DispatchState
-				if test.wantReplay && events != 0 {
+				if events != 0 {
 					t.Fatalf("rejection emitted %d downstream events", events)
 				}
 			} else {
@@ -97,8 +97,8 @@ func TestCodexUpgradePreservesQuotaAndRejectionPolicy(t *testing.T) {
 			if decision.Effect != test.wantEffect {
 				t.Fatalf("health decision=%+v, want effect %s", decision, test.wantEffect)
 			}
-			if got := decision.Retry == health.RetryNextCandidate; got != test.wantReplay {
-				t.Fatalf("health retry=%s, want retryable=%t", decision.Retry, test.wantReplay)
+			if decision.Retry != health.RetryNextCandidate {
+				t.Fatalf("health retry=%s, want next candidate without changing replay evidence", decision.Retry)
 			}
 		})
 	}
