@@ -57,3 +57,22 @@ func identityTestIDTokenField(token string) string {
 	}
 	return fmt.Sprintf(`,"id_token":%q`, token)
 }
+
+func TestCodexIdentityRejectsConflictingTokenUsers(t *testing.T) {
+	t.Parallel()
+	for _, accessClaim := range []string{"chatgpt_user_id", "user_id"} {
+		t.Run(accessClaim, func(t *testing.T) {
+			value := Credential{Type: "codex", AccountID: "workspace", RefreshToken: "refresh", IDToken: identityTestToken(t, map[string]string{"chatgpt_user_id": "user-one"}, false), AccessToken: identityTestToken(t, map[string]string{accessClaim: "user-two"}, false)}
+			raw, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := newCodexDriver().Parse(raw); err == nil {
+				t.Fatal("conflicting token identities were accepted")
+			}
+			if _, err := MarshalCredential(value); err == nil {
+				t.Fatal("conflicting token identities were canonicalized")
+			}
+		})
+	}
+}

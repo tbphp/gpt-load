@@ -39,6 +39,15 @@ func credentialUserID(value Credential) string {
 	return ""
 }
 
+// 不能让旧 ID token 掩盖实际用于请求的新 access token 所属用户。
+func validateCredentialIdentity(value Credential) error {
+	idUser, accessUser := tokenUserID(value.IDToken), tokenUserID(value.AccessToken)
+	if idUser != "" && accessUser != "" && idUser != accessUser {
+		return ErrCredentialIdentityChanged
+	}
+	return nil
+}
+
 // JWT 仅用于读取已持有凭据的身份元数据，不作为签名或登录认证。
 func tokenUserID(token string) string {
 	parts := strings.Split(strings.TrimSpace(token), ".")

@@ -190,6 +190,10 @@ func (s *Service) ImportCredentialFiles(
 				item.ErrorCode = credentialImportItemError(ctx, importErr)
 				break
 			}
+			if _, duplicate := identities[credential.Identity()]; duplicate {
+				item.Status, item.ErrorCode = "skipped", "duplicate_account"
+				break
+			}
 			stage, persistErr := s.persistReadyCredentialStage(ctx, channelID, "oauth_file", credential, network)
 			if persistErr != nil {
 				item.ErrorCode = credentialImportItemError(ctx, persistErr)
