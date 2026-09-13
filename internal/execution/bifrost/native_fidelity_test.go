@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -42,6 +43,10 @@ func TestNativeMessagesPreserveConversationAndExtensions(t *testing.T) {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/%s/stream=%t", test.channel, test.protocol, stream), func(t *testing.T) {
 				body, responseBody, responseStream := nativeFidelityFixture(test.protocol)
+				if test.channel != channel.DeepSeek {
+					body = strings.ReplaceAll(body, `"role":"system"`, `"role":"developer"`)
+					body = strings.ReplaceAll(body, `"reasoning_content":"reasoning history"`, `"reasoning":"reasoning history"`)
+				}
 				var original map[string]json.RawMessage
 				if err := json.Unmarshal([]byte(body), &original); err != nil {
 					t.Fatal(err)
