@@ -257,12 +257,7 @@ function action(row: AccessKeyRow, value: string): void {
       name: value === 'logs' ? 'modern-logs' : 'modern-usage',
       query: {
         access_key_id: String(row.id),
-        ...(query.data.value
-          ? {
-              from_ms: String(query.data.value.usage_window.from_ms),
-              to_ms: String(query.data.value.usage_window.to_ms),
-            }
-          : {}),
+        preset: '7d',
       },
     })
   else if (value === 'copy' || value === 'share') void setPanel(value, row.id)

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { protocolLabel } from '@modern/i18n/protocols'
 import {
   ArrowDown,
   ArrowUp,
@@ -107,7 +108,7 @@ const protocolOptions = computed(() => [
   { value: '', label: t('parameterRules.allProtocols') },
   ...[
     ...new Set([...props.protocols, ...rows.value.map((row) => row.protocol).filter(Boolean)]),
-  ].map((value) => ({ value, label: value })),
+  ].map((value) => ({ value, label: protocolLabel(value, t) })),
 ])
 const modelNames = computed(() =>
   [...new Set(props.models.map((model) => model.clientModel))].sort(),
@@ -315,7 +316,7 @@ defineExpose({
         >
           <span>{{ t('parameterRules.rule', { number: n(index + 1) }) }}</span>
           <AppOverflowText
-            :text="`${row.protocol || t('parameterRules.allProtocols')} · ${row.model.trim() || t('parameterRules.allModels')}`"
+            :text="`${row.protocol ? protocolLabel(row.protocol, t) : t('parameterRules.allProtocols')} · ${row.model.trim() || t('parameterRules.allModels')}`"
           />
         </AppButton>
         <div class="modern-parameter-tools">

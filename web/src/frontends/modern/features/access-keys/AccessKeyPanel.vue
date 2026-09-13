@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { protocolLabel } from '@modern/i18n/protocols'
 import { Eye, EyeOff, RefreshCw, Trash2 } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { DialogRoot } from 'reka-ui'
@@ -146,7 +147,7 @@ const selectedGroups = computed({
 const protocolOptions = computed(() =>
   [...new Set([...accessProtocols, ...(base.value?.filters.protocols ?? [])])].map((value) => ({
     value,
-    label: value,
+    label: protocolLabel(value, t),
   })),
 )
 const modelOptions = computed(() =>

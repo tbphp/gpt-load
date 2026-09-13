@@ -1,4 +1,6 @@
+import { protocolMessages as protocols } from '../protocols'
 import { enUS as accessKeys } from './access-keys'
+import { enUS as logs } from './logs'
 import { enUS as credentialCards } from './credential-cards'
 import { enUS as groupWorkflows } from './group-workflows'
 import { enUS as parameterRules } from './parameter-rules'
@@ -10,6 +12,8 @@ import { enUS as modelSelection } from './model-selection'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  protocols,
+  logs,
   accessKeys,
   groupWorkflows,
   parameterRules,

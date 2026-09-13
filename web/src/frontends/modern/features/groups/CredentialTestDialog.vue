@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { protocolLabel } from '@modern/i18n/protocols'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { useQuery } from '@tanstack/vue-query'
 import { DialogRoot } from 'reka-ui'
@@ -67,7 +68,10 @@ watch([model, protocol], () => {
   error.value = ''
 })
 const protocols = computed(() =>
-  (settings.data.value?.validationProtocols ?? []).map((value) => ({ value, label: value })),
+  (settings.data.value?.validationProtocols ?? []).map((value) => ({
+    value,
+    label: protocolLabel(value, t),
+  })),
 )
 const modelOptions = computed(() => {
   const options = groupValidationModelOptions(models.data.value ?? [])

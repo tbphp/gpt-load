@@ -1,3 +1,4 @@
+import { dateRangePresets } from './components/ui/date-time'
 import { createRouter, createWebHistory, type Router, type RouterHistory } from 'vue-router'
 
 import { navigationItems, pagePath } from './app/navigation'
@@ -24,12 +25,15 @@ export function createModernRouter(
                 ? () => import('./features/groups/GroupsView.vue')
                 : item.id === 'accessKeys'
                   ? () => import('./features/access-keys/AccessKeysView.vue')
-                  : () => import('./features/workspace/WorkspaceView.vue'),
+                  : item.id === 'logs'
+                    ? () => import('./features/logs/LogsView.vue')
+                    : () => import('./features/workspace/WorkspaceView.vue'),
         props:
           item.id === 'home' ||
           item.id === 'settings' ||
           item.id === 'groups' ||
-          item.id === 'accessKeys'
+          item.id === 'accessKeys' ||
+          item.id === 'logs'
             ? undefined
             : { workspaceId: item.id },
         meta: { requiresAuth: true, adminOnly: item.adminOnly },
@@ -85,6 +89,15 @@ export function createModernRouter(
     if (!session.hasCredential()) return loginLocation(to.fullPath)
     if (to.meta.adminOnly && session.getPrincipalType() === 'access_key') {
       return { name: 'modern-home' }
+    }
+    if (
+      dateRangePresets.some((preset) => preset === to.query.preset) &&
+      ('from_ms' in to.query || 'to_ms' in to.query)
+    ) {
+      const query = { ...to.query }
+      delete query.from_ms
+      delete query.to_ms
+      return { path: to.path, query, hash: to.hash, replace: true }
     }
     return true
   })

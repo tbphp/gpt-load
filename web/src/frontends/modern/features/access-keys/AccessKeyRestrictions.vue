@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { protocolLabel } from '@modern/i18n/protocols'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AccessKey, CostRule, CostWindow } from '@modern/api/access-keys'
@@ -18,7 +19,11 @@ const tags = computed(() => {
         (id) => props.groups.get(String(id))?.name ?? t('accessKeys.groupUnavailable'),
       ),
     },
-    { key: 'protocols', label: t('accessKeys.protocols'), values: scope.protocols },
+    {
+      key: 'protocols',
+      label: t('accessKeys.protocols'),
+      values: scope.protocols.map((value) => protocolLabel(value, t)),
+    },
     { key: 'models', label: t('accessKeys.models'), values: scope.models },
     { key: 'sources', label: t('accessKeys.sourceTag'), values: scope.allowed_cidrs },
   ]

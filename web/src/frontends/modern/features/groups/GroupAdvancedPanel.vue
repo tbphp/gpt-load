@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { protocolLabel } from '@modern/i18n/protocols'
 import { Plus, Trash2 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -141,7 +142,10 @@ const modelOptions = computed(() => [
   ...groupValidationModelOptions(props.models),
 ])
 const protocolOptions = computed(() =>
-  (saved.value?.validationProtocols ?? []).map((value) => ({ value, label: value })),
+  (saved.value?.validationProtocols ?? []).map((value) => ({
+    value,
+    label: protocolLabel(value, t),
+  })),
 )
 const paramErrors = computed(() =>
   Object.fromEntries(
