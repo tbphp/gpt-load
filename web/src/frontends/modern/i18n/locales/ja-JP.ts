@@ -1,4 +1,5 @@
 import { jaJP as credentialCards } from './credential-cards'
+import { jaJP as groupWorkflows } from './group-workflows'
 import { jaJP as parameterRules } from './parameter-rules'
 import { jaJP as groupDetail } from './group-detail'
 import { jaJP as groupMessages } from './groups'
@@ -8,6 +9,7 @@ import { jaJP as modelSelection } from './model-selection'
 import { jaJP as subscriptions } from './subscriptions'
 
 export default {
+  groupWorkflows,
   parameterRules,
   credentialCards,
   groupDetail,

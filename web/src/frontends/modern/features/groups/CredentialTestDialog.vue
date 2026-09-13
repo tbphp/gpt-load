@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { useLoadingActivity } from '@modern/components/ui/loading'
 import { useQuery } from '@tanstack/vue-query'
 import { DialogRoot } from 'reka-ui'
 import { computed, onScopeDispose, ref, watch } from 'vue'
+import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import {
   getGroupModels,
@@ -19,7 +21,6 @@ import {
   AppButton,
   AppDialogContent,
   AppDialogHeader,
-  AppLoadingIndicator,
   AppNotice,
   AppSearchSelect,
   AppSelect,
@@ -123,6 +124,8 @@ function close(): void {
   if (!pending.value) emit('close')
 }
 onScopeDispose(() => controller.abort())
+useLoadingActivity(pending)
+useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : undefined))
 </script>
 <template>
   <DialogRoot
@@ -142,7 +145,6 @@ onScopeDispose(() => controller.abort())
         @close="close"
       />
       <form class="modern-credential-test" @submit.prevent="run()">
-        <AppLoadingIndicator :loading="settings.isFetching.value || models.isFetching.value" />
         <AppSelect
           :model-value="protocol"
           :label="t('groupDetail.validationProtocol')"
@@ -171,7 +173,6 @@ onScopeDispose(() => controller.abort())
             ></template
           ></AppNotice
         >
-        <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
         <AppNotice
           v-if="result"
           :tone="

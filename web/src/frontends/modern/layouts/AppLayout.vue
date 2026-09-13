@@ -10,6 +10,7 @@ import {
   X,
 } from '@lucide/vue'
 import { DialogClose, DialogRoot, DialogTrigger } from 'reka-ui'
+import { useIsFetching } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
@@ -17,6 +18,7 @@ import { desktopMediaQuery } from '@modern/app/breakpoints'
 import { pagePath } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
 import { providePageRefresh } from '@modern/app/page-refresh'
+import { useMessageSource } from '@modern/app/messages'
 import { usePageTitle } from '@modern/app/use-page-title'
 import {
   AppBadge,
@@ -26,19 +28,26 @@ import {
   AppIconButton,
   AppLoadingIndicator,
   AppTooltip,
-  AppNotice,
 } from '@modern/components/ui'
 import { useAuthSession } from '@modern/features/auth/auth-session'
 import { provideSystemStatus } from '@modern/features/system/useSystemStatus'
 import { loginLocation } from '@modern/router'
 import AppearanceMenu from './AppearanceMenu.vue'
-import { useLoadingFeedback } from '@modern/components/ui/loading'
+import { provideLoadingActivity, useLoadingFeedback } from '@modern/components/ui/loading'
 import SidebarContent from './SidebarContent.vue'
+import ImportGuide from '@modern/features/import/ImportGuide.vue'
 
 const { t, locale } = useI18n()
 const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
+function closeImport(): void {
+  const query = { ...route.query }
+  delete query.import
+  delete query.import_mode
+  delete query.import_group
+  void router.replace({ query })
+}
 const { sidebarCollapsed, toggleSidebar, persistenceFailed } = usePreferences()
 provideSystemStatus()
 const mobileOpen = ref(false)
@@ -46,9 +55,13 @@ const failedNavigation = ref<string | null>(null)
 const loggingOut = ref(false)
 const { title: pageTitle } = usePageTitle()
 const pageRefresh = providePageRefresh()
+const fetching = useIsFetching()
+const localActivity = provideLoadingActivity()
 const navigating = ref(false)
 let navigationTarget: string | undefined
-const pageLoading = useLoadingFeedback(() => navigating.value || pageRefresh.pending.value)
+const pageLoading = useLoadingFeedback(
+  () => navigating.value || pageRefresh.pending.value || fetching.value > 0 || localActivity.value,
+)
 const removeBeforeEach = router.beforeEach((to) => {
   navigationTarget = to.fullPath
   navigating.value = true
@@ -115,9 +128,27 @@ onBeforeUnmount(() => {
   removeNavigationError()
   desktopMedia?.removeEventListener('change', closeMobileOnDesktop)
 })
+useMessageSource(() =>
+  failedNavigation.value
+    ? {
+        text: t('shell.navigationFailed'),
+        tone: 'danger',
+        action: { label: t('shell.reload'), run: reloadFailedNavigation },
+      }
+    : undefined,
+)
+useMessageSource(() =>
+  persistenceFailed.value
+    ? { text: t('appearance.persistenceFailed'), tone: 'warning' }
+    : undefined,
+)
 </script>
 
 <template>
+  <ImportGuide
+    v-if="route.query.import === '1' && session.state.principalType === 'admin'"
+    @close="closeImport"
+  />
   <a class="modern-skip-link" href="#modern-content">{{ t('skipToContent') }}</a>
   <div class="modern-app" :class="{ 'is-sidebar-collapsed': sidebarCollapsed }">
     <aside id="modern-desktop-sidebar" class="modern-sidebar">
@@ -189,7 +220,7 @@ onBeforeUnmount(() => {
               :aria-label="t('shell.importCredentials')"
               as-child
             >
-              <RouterLink :to="{ name: 'modern-import' }"
+              <RouterLink :to="{ path: route.path, query: { ...route.query, import: '1' } }"
                 ><AppIcon :icon="CirclePlus" size="lg"
               /></RouterLink>
             </AppButton>
@@ -205,17 +236,6 @@ onBeforeUnmount(() => {
         <AppLoadingIndicator :loading="pageLoading" />
       </header>
       <main id="modern-content" class="modern-content" tabindex="-1">
-        <div v-if="failedNavigation || persistenceFailed" class="modern-notices">
-          <AppNotice v-if="failedNavigation" tone="danger" bordered>
-            {{ t('shell.navigationFailed') }}
-            <template #actions>
-              <AppButton @click="reloadFailedNavigation">{{ t('shell.reload') }}</AppButton>
-            </template>
-          </AppNotice>
-          <AppNotice v-if="persistenceFailed" tone="warning">
-            {{ t('appearance.persistenceFailed') }}
-          </AppNotice>
-        </div>
         <slot />
       </main>
     </div>

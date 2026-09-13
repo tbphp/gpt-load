@@ -27,11 +27,10 @@ import {
   AppFileButton,
   AppIcon,
   AppIconButton,
-  AppLoadingIndicator,
   AppNotice,
   AppTextArea,
 } from '@modern/components/ui'
-import { useLoadingFeedback } from '@modern/components/ui/loading'
+import { useLoadingActivity } from '@modern/components/ui/loading'
 import { useApiClient } from '@shared/http/client-context'
 import { ApiError } from '@shared/http/errors'
 import { useCredentialStageStatus } from './use-credential-stage-status'
@@ -96,7 +95,7 @@ const status = useCredentialStageStatus(client, stages, (id) =>
   Boolean(props.disabled || stageBusy(id)),
 )
 const busy = computed(() => pending.size > 0)
-const feedback = useLoadingFeedback(busy)
+useLoadingActivity(busy)
 const inactive = computed(() => props.disabled)
 const entryInactive = computed(
   () => inactive.value || props.entryDisabled || stages.value.length >= 1000,
@@ -455,7 +454,6 @@ defineExpose({
   >
     <div class="modern-subscription-heading modern-subscription-progress">
       <h3>{{ t('subscriptions.title') }}</h3>
-      <AppLoadingIndicator :loading="feedback" />
     </div>
     <div class="modern-subscription-actions">
       <AppButton

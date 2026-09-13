@@ -68,6 +68,14 @@ export type GroupBasicsPatch = Partial<{
 }>
 export const groupQueryKey = ['modern', 'groups', 'workspace'] as const
 
+export async function deleteGroup(
+  client: ApiClient,
+  id: number,
+  signal: AbortSignal,
+): Promise<void> {
+  await client.request(`/api/groups/${id}`, { method: 'DELETE', signal })
+}
+
 export function needsAttention(group: GroupRow): boolean {
   return !isPaused(group) && group.availability !== 'ready'
 }

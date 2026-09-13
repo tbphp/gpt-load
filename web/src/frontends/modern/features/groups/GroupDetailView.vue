@@ -2,6 +2,7 @@
 import { ArrowLeft, ChevronRight, Layers, SlidersHorizontal } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
+import { useMessages, useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { getGroupChannels, type GroupCreateResult } from '@modern/api/group-create'
@@ -22,7 +23,6 @@ import {
   AppCopyValue,
   AppIcon,
   AppIconButton,
-  AppNotice,
 } from '@modern/components/ui'
 import type { SemanticTone } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
@@ -82,8 +82,37 @@ const credentialsPending = ref(false)
 const credentialsUpdatedAt = ref(0)
 const basicsPending = ref(false)
 const basicsUpdatedAt = ref(0)
-const panel = ref<'models' | 'advanced' | 'add'>()
-const notice = ref('')
+const messages = useMessages()
+let panelUpdate: ReturnType<typeof router.replace> | undefined
+let panelTarget: string | undefined
+const panel = computed({
+  get: () =>
+    ['models', 'advanced', 'add'].includes(String(route.query.panel))
+      ? (route.query.panel as 'models' | 'advanced' | 'add')
+      : undefined,
+  set: (value) => {
+    void setPanel(value)
+  },
+})
+function setPanel(value?: 'models' | 'advanced' | 'add') {
+  if (panelUpdate && panelTarget === value) return panelUpdate
+  const query = { ...route.query }
+  if (value) query.panel = value
+  else {
+    delete query.panel
+    delete query.pick_models
+    delete query.sync_models
+    delete query.sync_mode
+  }
+  panelTarget = value
+  const operation = router.replace({ query })
+  panelUpdate = operation
+  const clear = () => {
+    if (panelUpdate === operation) panelUpdate = undefined
+  }
+  void operation.then(clear, clear)
+  return operation
+}
 const tone = computed<SemanticTone>(() =>
   group.value?.availability === 'ready'
     ? 'success'
@@ -139,14 +168,53 @@ function modelsSaved(): void {
   void cache.invalidateQueries({ queryKey: groupQueryKey })
   void cache.invalidateQueries({ queryKey: groupCredentialsKey(id.value) })
 }
-function added(result: GroupCreateResult): void {
-  notice.value = t('groupDetail.importResult', {
-    added: n(result.added),
-    duplicated: n(result.duplicated),
+async function groupDeleted(): Promise<void> {
+  const deletedID = id.value
+  await router.replace(returnTo.value)
+  for (const key of [
+    'group-settings',
+    'group-models',
+    'group-model-names',
+    'group-credentials',
+    'credential-detail',
+    'group-overview-usage',
+    'group-usage-trend',
+  ]) {
+    await cache.cancelQueries({ queryKey: ['modern', key, deletedID] })
+    cache.removeQueries({ queryKey: ['modern', key, deletedID] })
+  }
+  void cache.invalidateQueries({ queryKey: groupQueryKey })
+}
+async function added(result: GroupCreateResult): Promise<void> {
+  await setPanel(undefined)
+  messages.show({
+    tone: 'success',
+    text: t('groupDetail.importResult', {
+      added: n(result.added),
+      duplicated: n(result.duplicated),
+    }),
   })
   void cache.invalidateQueries({ queryKey: groupCredentialsKey(id.value) })
   void cache.invalidateQueries({ queryKey: groupQueryKey })
 }
+useMessageSource(() =>
+  groups.isError.value && group.value
+    ? {
+        text: t('groupDetail.refreshFailed'),
+        tone: 'warning',
+        action: { label: t('ui.retry'), run: refresh },
+      }
+    : undefined,
+)
+useMessageSource(() =>
+  channels.isError.value
+    ? {
+        text: t('groupDetail.channelFailed'),
+        tone: 'warning',
+        action: { label: t('ui.retry'), run: () => channels.refetch() },
+      }
+    : undefined,
+)
 </script>
 
 <template>
@@ -209,18 +277,6 @@ function added(result: GroupCreateResult): void {
             </div>
           </div>
         </header>
-        <AppNotice v-if="groups.isError.value" tone="warning">{{
-          t('groupDetail.refreshFailed')
-        }}</AppNotice>
-        <AppNotice v-if="channels.isError.value" tone="warning"
-          >{{ t('groupDetail.channelFailed')
-          }}<template #actions
-            ><AppButton size="sm" @click="channels.refetch()">{{
-              t('ui.retry')
-            }}</AppButton></template
-          ></AppNotice
-        >
-        <AppNotice v-if="notice" tone="success">{{ notice }}</AppNotice>
         <GroupCredentials
           :key="group.id"
           ref="credentials"
@@ -237,6 +293,8 @@ function added(result: GroupCreateResult): void {
           :key="group.id"
           ref="basics"
           :group="group"
+          :operation-pending="credentialsPending"
+          @deleted="groupDeleted"
           @saved="settingsSaved"
           @pending="basicsPending = $event"
           @updated-at="basicsUpdatedAt = $event"

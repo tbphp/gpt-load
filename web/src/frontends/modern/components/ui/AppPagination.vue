@@ -230,6 +230,8 @@ function selectSize(value: string): void {
   align-items: center;
 }
 .modern-pagination-controls {
+  flex-wrap: nowrap;
+  min-width: 0;
   justify-content: flex-end;
   gap: var(--modern-space-3);
 }
@@ -242,6 +244,7 @@ function selectSize(value: string): void {
   background: var(--modern-border);
 }
 .modern-pagination-navigation {
+  flex: none;
   gap: var(--modern-space-1);
 }
 .modern-pagination-pages {
@@ -264,15 +267,11 @@ function selectSize(value: string): void {
   display: none;
 }
 @container modern-pagination (max-width: 640px) {
+  .modern-pagination {
+    column-gap: var(--modern-space-3);
+  }
   .modern-pagination-controls {
-    display: contents;
-  }
-  .modern-pagination-size {
-    justify-self: end;
-  }
-  .modern-pagination-navigation {
-    grid-column: 1 / -1;
-    justify-self: end;
+    gap: var(--modern-space-2);
   }
   .modern-pagination-pages,
   .modern-pagination-divider,
@@ -281,6 +280,15 @@ function selectSize(value: string): void {
   }
   .modern-pagination-compact {
     display: inline-flex;
+  }
+}
+@container modern-pagination (max-width: 460px) {
+  .modern-pagination {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--modern-space-2);
+  }
+  .modern-pagination-controls {
+    justify-self: end;
   }
 }
 </style>

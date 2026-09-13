@@ -1,10 +1,9 @@
 <script setup lang="ts">
+import { useLoadingActivity } from './loading'
 import { ref, type Component } from 'vue'
 import AppField from './AppField.vue'
 import AppFieldControl from './AppFieldControl.vue'
 import AppIcon from './AppIcon.vue'
-import AppLoadingIndicator from './AppLoadingIndicator.vue'
-import { useLoadingFeedback } from './loading'
 import type { ControlSize, FieldProps } from './types'
 
 defineOptions({ inheritAttrs: false })
@@ -13,7 +12,7 @@ const props = defineProps<
 >()
 const model = defineModel<string>({ required: true })
 const input = ref<HTMLInputElement>()
-const feedback = useLoadingFeedback(() => Boolean(props.loading))
+useLoadingActivity(() => Boolean(props.loading))
 defineExpose({
   focus: () => input.value?.focus({ preventScroll: true }),
   select: () => input.value?.select(),
@@ -41,7 +40,6 @@ defineExpose({
         :aria-busy="loading || undefined"
       />
       <slot name="suffix" />
-      <AppLoadingIndicator :loading="feedback" field />
     </AppFieldControl>
   </AppField>
 </template>

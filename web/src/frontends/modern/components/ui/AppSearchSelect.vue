@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLoadingActivity } from './loading'
 import AppTooltip from './AppTooltip.vue'
 import { Check, ChevronDown, Search } from '@lucide/vue'
 import {
@@ -18,9 +19,7 @@ import AppButton from './AppButton.vue'
 import AppField from './AppField.vue'
 import AppFieldControl from './AppFieldControl.vue'
 import AppIcon from './AppIcon.vue'
-import AppLoadingIndicator from './AppLoadingIndicator.vue'
 import AppMenuSurface from './AppMenuSurface.vue'
-import { useLoadingFeedback } from './loading'
 import { overlaySideOffset } from './overlay'
 import type { ControlSize, FieldProps, SearchSelectOption } from './types'
 
@@ -53,7 +52,7 @@ const open = ref(false)
 // 仅点击、输入或方向键打开；弹窗恢复焦点时保留已选标签，不自动进入空搜索态。
 const search = ref('')
 const loading = ref(false)
-const feedback = useLoadingFeedback(loading)
+useLoadingActivity(loading)
 const failed = ref(false)
 const remoteOptions = ref<readonly SearchSelectOption[]>([])
 const retainedOption = ref<SearchSelectOption>()
@@ -238,7 +237,6 @@ onScopeDispose(cancelRequest)
               <AppIcon :icon="ChevronDown" size="sm" />
             </ComboboxTrigger>
           </AppTooltip>
-          <AppLoadingIndicator :loading="feedback" field />
         </ComboboxAnchor>
       </AppFieldControl>
       <ComboboxPortal>

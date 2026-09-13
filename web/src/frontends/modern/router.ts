@@ -48,8 +48,7 @@ export function createModernRouter(
       {
         path: pagePath('import'),
         name: 'modern-import',
-        component: () => import('./features/workspace/WorkspaceView.vue'),
-        props: { workspaceId: 'groups' },
+        redirect: { name: 'modern-groups', query: { import: '1' } },
         meta: {
           primaryNav: 'modern-groups',
           titleKey: 'pages.import.title',

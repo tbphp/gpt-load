@@ -1,4 +1,28 @@
-import { onScopeDispose, ref, toValue, watch, type MaybeRefOrGetter } from 'vue'
+import {
+  computed,
+  inject,
+  provide,
+  shallowReactive,
+  onScopeDispose,
+  ref,
+  toValue,
+  watch,
+  type InjectionKey,
+  type MaybeRefOrGetter,
+} from 'vue'
+
+const activityKey: InjectionKey<Set<MaybeRefOrGetter<boolean>>> = Symbol('modern-loading-activity')
+export function provideLoadingActivity() {
+  const sources = shallowReactive(new Set<MaybeRefOrGetter<boolean>>())
+  provide(activityKey, sources)
+  return computed(() => [...sources].some((source) => toValue(source)))
+}
+export function useLoadingActivity(source: MaybeRefOrGetter<boolean>): void {
+  const sources = inject(activityKey, undefined)
+  if (!sources) return
+  sources.add(source)
+  onScopeDispose(() => sources.delete(source))
+}
 
 // 只延长视觉反馈，不延迟请求或数据更新，避免快请求的加载状态一闪而过。
 export function useLoadingFeedback(source: MaybeRefOrGetter<boolean>) {

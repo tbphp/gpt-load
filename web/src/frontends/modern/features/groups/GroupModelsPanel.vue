@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { RefreshCw } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
+import { useURLState } from '@modern/app/url-state'
+import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import {
   discoverGroupModels,
@@ -11,11 +14,12 @@ import {
 import type { GroupChannel } from '@modern/api/group-create'
 import type { GroupRow } from '@modern/api/groups'
 import type { ModelCandidate } from '@modern/api/model-discovery'
-import { AppButton, AppCollectionState, AppNotice } from '@modern/components/ui'
+import { AppButton, AppCollectionState } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import { modelErrors, type GroupDraftModel } from './group-create-rules'
 import GroupModelPicker from './GroupModelPicker.vue'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
+import GroupModelSyncDialog from './GroupModelSyncDialog.vue'
 
 const props = defineProps<{ group: GroupRow; channel?: GroupChannel }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -30,6 +34,17 @@ const draft = ref<GroupDraftModel[]>([])
 const baseline = ref('')
 const initialized = ref(false)
 const saving = ref(false)
+const syncView = useURLState(
+  ['sync_models'],
+  (query) => ({ open: query.sync_models === '1' }),
+  (value) => (value.open ? { sync_models: '1' } : {}),
+)
+const syncing = computed({
+  get: () => syncView.value.open,
+  set: (open: boolean) => {
+    syncView.value = { open }
+  },
+})
 const attempted = ref(false)
 const error = ref('')
 const candidates = ref<ModelCandidate[]>([])
@@ -107,10 +122,17 @@ async function save(): Promise<void> {
     saving.value = false
   }
 }
+async function syncModels(models: GroupDraftModel[]): Promise<void> {
+  if (saving.value || dirty.value) return
+  draft.value = models
+  syncing.value = false
+  await save()
+}
 onScopeDispose(() => {
   controller.abort()
   cancelDiscovery()
 })
+useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : undefined))
 </script>
 
 <template>
@@ -130,7 +152,6 @@ onScopeDispose(() => {
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
-      <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
       <GroupModelPicker
         ref="picker"
         v-model="draft"
@@ -146,7 +167,27 @@ onScopeDispose(() => {
         :attempted="attempted"
         @discover="discover"
         @cancel-discovery="cancelDiscovery"
-      />
+      >
+        <template #actions>
+          <AppButton
+            v-if="channel?.discovery"
+            :icon="RefreshCw"
+            size="sm"
+            variant="ghost"
+            :disabled="!initialized || dirty || saving || discovering"
+            @click="syncing = true"
+          >
+            {{ t('groupWorkflows.syncModels') }}
+          </AppButton>
+        </template>
+      </GroupModelPicker>
     </template>
   </GroupWorkspacePanel>
+  <GroupModelSyncDialog
+    v-if="syncing && initialized"
+    :group-id="group.id"
+    :models="draft"
+    @close="syncing = false"
+    @confirm="syncModels"
+  />
 </template>

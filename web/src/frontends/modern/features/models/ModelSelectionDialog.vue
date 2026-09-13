@@ -20,7 +20,8 @@ import {
   AppTextField,
   AppTooltip,
 } from '@modern/components/ui'
-import { useLoadingFeedback } from '@modern/components/ui/loading'
+import { useURLState, positivePage } from '@modern/app/url-state'
+import { useLoadingActivity, useLoadingFeedback } from '@modern/components/ui/loading'
 import ModelSourceBadges from './ModelSourceBadges.vue'
 import ModelPriceBadge from './ModelPriceBadge.vue'
 
@@ -32,12 +33,70 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: []; refresh: []; confirm: [models: ModelCandidate[]] }>()
 const { t, n } = useI18n()
-const search = ref('')
-const source = ref('all')
-const pricing = ref('all')
-const scope = ref('unadded')
-const page = ref(1)
-const pageSize = ref(20)
+const view = useURLState(
+  ['picker_q', 'picker_source', 'picker_price', 'picker_scope', 'picker_page', 'picker_size'],
+  (query) => ({
+    q: typeof query.picker_q === 'string' ? query.picker_q : '',
+    source: ['live', 'catalog'].includes(String(query.picker_source))
+      ? String(query.picker_source)
+      : 'all',
+    price: ['configured', 'pending'].includes(String(query.picker_price))
+      ? String(query.picker_price)
+      : 'all',
+    scope: query.picker_scope === 'all' ? 'all' : 'unadded',
+    page: positivePage(query.picker_page),
+    size: [20, 50, 100].includes(Number(query.picker_size)) ? Number(query.picker_size) : 20,
+  }),
+  (value) => ({
+    ...(value.q ? { picker_q: value.q } : {}),
+    ...(value.source !== 'all' ? { picker_source: value.source } : {}),
+    ...(value.price !== 'all' ? { picker_price: value.price } : {}),
+    ...(value.scope !== 'unadded' ? { picker_scope: value.scope } : {}),
+    ...(value.page > 1 ? { picker_page: String(value.page) } : {}),
+    ...(value.size !== 20 ? { picker_size: String(value.size) } : {}),
+  }),
+)
+const search = computed({
+  get: () => view.value.q,
+  set: (value) => {
+    view.value.q = value
+    view.value.page = 1
+  },
+})
+const source = computed({
+  get: () => view.value.source,
+  set: (value) => {
+    view.value.source = value
+    view.value.page = 1
+  },
+})
+const pricing = computed({
+  get: () => view.value.price,
+  set: (value) => {
+    view.value.price = value
+    view.value.page = 1
+  },
+})
+const scope = computed({
+  get: () => view.value.scope,
+  set: (value) => {
+    view.value.scope = value
+    view.value.page = 1
+  },
+})
+const page = computed({
+  get: () => view.value.page,
+  set: (value) => {
+    view.value.page = value
+  },
+})
+const pageSize = computed({
+  get: () => view.value.size,
+  set: (value) => {
+    view.value.size = value
+    view.value.page = 1
+  },
+})
 const selected = ref(new Set<string>())
 const searchInput = ref<InstanceType<typeof AppTextField>>()
 const frame = ref<InstanceType<typeof AppListFrame>>()
@@ -116,9 +175,7 @@ const filters = computed(() => [
       ]
     : []),
 ])
-watch([search, source, pricing, scope, pageSize], () => {
-  page.value = 1
-})
+
 watch([search, source, pricing, scope, page, pageSize], async () => {
   filtering.value = true
   await nextTick()
@@ -188,6 +245,7 @@ function confirm(): void {
     ),
   )
 }
+useLoadingActivity(() => filtering.value || props.loading)
 </script>
 
 <template>

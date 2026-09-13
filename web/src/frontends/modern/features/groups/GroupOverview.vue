@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLoadingActivity } from '@modern/components/ui/loading'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { GroupRow, GroupUsage } from '@modern/api/groups'
@@ -7,7 +8,6 @@ import {
   AppBadge,
   AppButton,
   AppSparkline,
-  AppLoadingIndicator,
   AppOverflowText,
   AppSegmentedBar,
   AppTooltip,
@@ -66,10 +66,10 @@ const trendLabels = computed(() => {
     return `${from} – ${endDate}${time.format(point.to)}\n${t('credentialCards.requests')} ${n(point.requests)}`
   })
 })
+useLoadingActivity(() => props.loading)
 </script>
 <template>
   <section class="modern-group-overview" :aria-label="t('groupDetail.overview')">
-    <AppLoadingIndicator :loading="loading" />
     <div class="modern-group-overview-heading">
       <h2>{{ t('groupDetail.overview') }}</h2>
       <AppTooltip v-if="partial" :label="t('groups.row.partialHelp')"

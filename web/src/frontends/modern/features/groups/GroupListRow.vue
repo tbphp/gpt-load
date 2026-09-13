@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronUp, KeyRound, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
-import { computed, ref, useId } from 'vue'
+import { computed, useId } from 'vue'
+import { useURLState } from '@modern/app/url-state'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { getGroupModelNames, type GroupRow, type GroupUsage } from '@modern/api/groups'
@@ -44,8 +45,31 @@ const { t, n, locale } = useI18n()
 const client = useApiClient()
 const route = useRoute()
 const id = useId()
-const modelSearch = ref('')
-const allModels = ref(false)
+const searchKey = 'models_' + props.group.id
+const allKey = 'all_models_' + props.group.id
+const modelView = useURLState(
+  [searchKey, allKey],
+  (query) => ({
+    search: typeof query[searchKey] === 'string' ? (query[searchKey] as string) : '',
+    all: query[allKey] === '1',
+  }),
+  (value) => ({
+    ...(value.search ? { [searchKey]: value.search } : {}),
+    ...(value.all ? { [allKey]: '1' } : {}),
+  }),
+)
+const modelSearch = computed({
+  get: () => modelView.value.search,
+  set: (search: string) => {
+    modelView.value = { ...modelView.value, search }
+  },
+})
+const allModels = computed({
+  get: () => modelView.value.all,
+  set: (all: boolean) => {
+    modelView.value = { ...modelView.value, all }
+  },
+})
 const models = useQuery(
   computed(() => ({
     queryKey: ['modern', 'group-model-names', props.group.id],

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLoadingActivity } from '@modern/components/ui/loading'
 import { RefreshCw, Ticket } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -9,8 +10,6 @@ import {
   AppButton,
   AppCheckbox,
   AppIconButton,
-  AppLoadingIndicator,
-  AppNotice,
   AppOverflowText,
   AppSwitch,
   AppTooltip,
@@ -58,6 +57,7 @@ const syncLabel = computed(() =>
     .filter(Boolean)
     .join('\n'),
 )
+useLoadingActivity(() => Boolean(props.pending))
 </script>
 
 <template>
@@ -66,7 +66,6 @@ const syncLabel = computed(() =>
     :class="{ 'is-selected': selected }"
     :aria-busy="pending || undefined"
   >
-    <AppLoadingIndicator :loading="pending" />
     <header class="modern-subscription-card-heading">
       <AppTooltip :label="t('groupDetail.selectCredential', { name: row.account || row.mask })">
         <AppCheckbox
@@ -163,7 +162,6 @@ const syncLabel = computed(() =>
           }}</AppButton
         >
       </div>
-      <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
     </div>
     <footer class="modern-subscription-card-footer modern-credential-surface-footer">
       <CredentialOutcomeSummary :usage="row.daily" compact />

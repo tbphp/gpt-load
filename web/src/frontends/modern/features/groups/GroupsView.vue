@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Layers2, Plus, Search, TriangleAlert, X } from '@lucide/vue'
+import { Layers2, Plus, Search, TriangleAlert } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -26,6 +26,8 @@ import {
   type GroupRow,
   type GroupWorkspace,
 } from '@modern/api/groups'
+import { useMessageSource } from '@modern/app/messages'
+import { useURLState } from '@modern/app/url-state'
 import { usePageRefresh } from '@modern/app/page-refresh'
 import { useLoadingFeedback } from '@modern/components/ui/loading'
 import {
@@ -34,10 +36,8 @@ import {
   AppCollectionState,
   AppConfirmDialog,
   AppFilterSummary,
-  AppIconButton,
   AppListFrame,
   AppModelSelect,
-  AppNotice,
   AppPagination,
   AppSearchSelect,
   AppSegmentedControl,
@@ -50,8 +50,7 @@ import GroupListRow from './GroupListRow.vue'
 import GroupCreatePanel from './GroupCreatePanel.vue'
 import { getGroupChannels, type GroupCreateResult } from '@modern/api/group-create'
 import { channelSearchOption } from '@modern/components/channel-options'
-import { matchesModel } from '@modern/components/ui/model-match'
-import { groupFilterQuery, parseGroupFilters } from './group-route'
+import { groupFilterQuery as serializeGroupFilters, parseGroupFilters } from './group-route'
 
 const { t, n, locale } = useI18n()
 const client = useApiClient()
@@ -65,8 +64,45 @@ const refreshing = ref(false)
 const filterLoading = useLoadingFeedback(filtering)
 const listLoading = useLoadingFeedback(() => filtering.value || refreshing.value)
 const composing = ref(false)
-const expanded = ref(new Set<number>())
-const creating = ref(false)
+const expansion = useURLState(
+  ['expanded'],
+  (query) => ({
+    ids:
+      typeof query.expanded === 'string'
+        ? [
+            ...new Set(
+              query.expanded
+                .split(',')
+                .map(Number)
+                .filter((id) => Number.isSafeInteger(id) && id > 0),
+            ),
+          ]
+        : [],
+  }),
+  (value) => (value.ids.length ? { expanded: value.ids.join(',') } : {}),
+)
+const expanded = computed(() => new Set(expansion.value.ids))
+const creating = computed({
+  get: () => route.query.panel === 'create',
+  set: (value) => {
+    void setCreating(value)
+  },
+})
+function setCreating(value: boolean) {
+  const query = { ...route.query }
+  if (value) query.panel = 'create'
+  else {
+    delete query.panel
+    delete query.pick_models
+  }
+  return router.replace({ query })
+}
+function workspaceQuery(value: GroupFilters) {
+  const query = { ...route.query }
+  for (const key of ['page', 'page_size', 'q', 'view', 'channel', 'sort', 'connection', 'model'])
+    delete query[key]
+  return { ...query, ...serializeGroupFilters(value) }
+}
 const pending = ref(new Map<number, 'toggle' | 'weight'>())
 const enabledOverrides = ref(new Map<number, boolean>())
 const weightErrors = ref(new Map<number, string>())
@@ -161,7 +197,13 @@ const filtered = computed(() => {
       if (f.view === 'paused' && !isPaused(group)) return false
       if (f.channel && f.channel !== group.channelID) return false
       if (f.connection && f.connection !== group.connectionType) return false
-      if (f.model && !group.modelNames.some((name) => matchesModel(name, f.model))) return false
+      if (
+        f.model &&
+        !group.modelNames.some((name) =>
+          name.toLocaleLowerCase().includes(f.model.toLocaleLowerCase()),
+        )
+      )
+        return false
       const text = [group.name, group.channelName, group.channelID, group.endpoint]
         .join(' ')
         .toLocaleLowerCase()
@@ -293,7 +335,7 @@ async function updateFilters(patch: Partial<GroupFilters>, replace = false): Pro
     page: 1,
     ...patch,
   }
-  const location = { name: 'modern-groups', query: groupFilterQuery(next) }
+  const location = { name: 'modern-groups', query: workspaceQuery(next) }
   const operation = ++filterSequence
   filtering.value = true
   try {
@@ -327,8 +369,11 @@ function resetFilters(): void {
   })
 }
 function toggleExpanded(id: number): void {
-  if (expanded.value.has(id)) expanded.value.delete(id)
-  else expanded.value.add(id)
+  expansion.value = {
+    ids: expanded.value.has(id)
+      ? expansion.value.ids.filter((value) => value !== id)
+      : [...expansion.value.ids, id],
+  }
 }
 function weightEditing(id: number, active: boolean): void {
   if (active) {
@@ -386,13 +431,12 @@ watch(
     if (weightEditors.value.size) rowRevision.value++
     clearTimeout(searchTimer)
     search.value = filters.value.q
-    expanded.value.clear()
     weightEditors.value.clear()
     dirtyWeights.value.clear()
     weightErrors.value.clear()
     frozenGroups.value = undefined
     if (previousPath !== undefined) void nextTick(() => listFrame.value?.scrollToTop())
-    const canonical = groupFilterQuery(filters.value)
+    const canonical = workspaceQuery(filters.value)
     if (
       Object.keys(route.query).length !== Object.keys(canonical).length ||
       Object.keys(canonical).some((key) => canonical[key] !== route.query[key])
@@ -411,7 +455,7 @@ watch([page, () => data.value !== undefined], () => {
   )
     void router.replace({
       name: 'modern-groups',
-      query: groupFilterQuery({ ...filters.value, page: page.value }),
+      query: workspaceQuery({ ...filters.value, page: page.value }),
     })
 })
 onScopeDispose(() => {
@@ -473,11 +517,11 @@ async function mutate(
 async function openCreate(event: MouseEvent): Promise<void> {
   const trigger = event.currentTarget as HTMLElement
   if (!(await guardNavigation()) || controller.signal.aborted) return
-  creating.value = true
+  await setCreating(true)
   createTrigger = trigger
 }
 async function closeCreate(): Promise<void> {
-  creating.value = false
+  await setCreating(false)
   await nextTick()
   if (!controller.signal.aborted && createTrigger?.isConnected)
     createTrigger.focus({ preventScroll: true })
@@ -508,20 +552,43 @@ async function locateCreated(id: number): Promise<void> {
   }
 }
 async function onCreated(result: GroupCreateResult, appended: boolean): Promise<void> {
-  notice.value = {
-    tone: 'success',
+  const completedNotice = {
+    tone: 'success' as const,
     text: t(appended ? 'groupCreate.resultAppended' : 'groupCreate.resultCreated', {
       name: result.name,
       added: n(result.added),
       duplicated: n(result.duplicated),
     }),
   }
+  notice.value = undefined
   await locateCreated(result.id)
+  if (!notice.value) notice.value = completedNotice
 }
 async function onLocated(id: number): Promise<void> {
   notice.value = { tone: 'warning', text: t('groupCreate.resultKnown') }
   await locateCreated(id)
 }
+useMessageSource(() =>
+  notice.value ? { text: notice.value.text, tone: notice.value.tone } : undefined,
+)
+useMessageSource(() =>
+  query.isError.value && data.value
+    ? {
+        text: t('collection.stale'),
+        tone: 'warning',
+        action: { label: t('collection.retry'), run: refresh },
+      }
+    : undefined,
+)
+useMessageSource(() =>
+  usage.isError.value
+    ? {
+        text: t(usage.data.value ? 'groups.row.usageStale' : 'groups.row.usageFailed'),
+        tone: 'warning',
+        action: { label: t('collection.retry'), run: () => usage.refetch() },
+      }
+    : undefined,
+)
 </script>
 
 <template>
@@ -578,6 +645,7 @@ async function onLocated(id: number): Promise<void> {
         :label="t('groupDetail.models')"
         label-hidden
         :models="modelNames"
+        fuzzy
         @update:model-value="updateFilters({ model: $event }, true)"
       />
       <div class="modern-groups-toolbar-actions">
@@ -605,9 +673,13 @@ async function onLocated(id: number): Promise<void> {
         @update:model-value="updateFilters({ view: $event as GroupFilters['view'] })"
       />
       <div class="modern-groups-filter-actions">
-        <AppButton v-if="expanded.size" variant="ghost" size="sm" @click="expanded.clear()">{{
-          t('groups.board.collapseAll')
-        }}</AppButton>
+        <AppButton
+          v-if="expanded.size"
+          variant="ghost"
+          size="sm"
+          @click="expansion = { ids: [] }"
+          >{{ t('groups.board.collapseAll') }}</AppButton
+        >
         <AppFilterSummary
           :items="activeFilters"
           :disabled="pending.size > 0"
@@ -615,42 +687,6 @@ async function onLocated(id: number): Promise<void> {
           @reset="resetFilters"
         />
       </div>
-    </div>
-    <div
-      v-if="
-        notice ||
-        (query.isError.value && data) ||
-        usage.isError.value ||
-        usage.data.value?.incomplete
-      "
-      class="modern-groups-notices"
-    >
-      <AppNotice v-if="notice" :tone="notice.tone"
-        >{{ notice.text
-        }}<template #actions
-          ><AppIconButton
-            :icon="X"
-            :label="t('ui.close')"
-            size="xs"
-            @click="notice = undefined" /></template
-      ></AppNotice>
-      <AppNotice v-if="query.isError.value && data" tone="warning"
-        >{{ t('collection.stale')
-        }}<template #actions
-          ><AppButton size="xs" @click="refresh">{{ t('collection.retry') }}</AppButton></template
-        ></AppNotice
-      >
-      <AppNotice v-if="usage.isError.value" tone="warning"
-        >{{ t(usage.data.value ? 'groups.row.usageStale' : 'groups.row.usageFailed')
-        }}<template #actions
-          ><AppButton size="xs" :loading="usage.isFetching.value" @click="usage.refetch()">{{
-            t('collection.retry')
-          }}</AppButton></template
-        ></AppNotice
-      >
-      <AppNotice v-else-if="usage.data.value?.incomplete" tone="warning">{{
-        t('groups.row.partialHelp')
-      }}</AppNotice>
     </div>
     <AppListFrame
       ref="listFrame"

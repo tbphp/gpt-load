@@ -1,14 +1,10 @@
 <script setup lang="ts">
-import { DialogRoot } from 'reka-ui'
+import { useLoadingActivity } from '@modern/components/ui/loading'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  AppButton,
-  AppDialogContent,
-  AppDialogHeader,
-  AppLoadingIndicator,
-} from '@modern/components/ui'
+import { AppButton } from '@modern/components/ui'
 import GroupDraftGuard from './GroupDraftGuard.vue'
+import GroupEditorSurface from './GroupEditorSurface.vue'
 
 const props = defineProps<{
   title: string
@@ -27,51 +23,41 @@ const guard = ref<InstanceType<typeof GroupDraftGuard>>()
 async function close(): Promise<void> {
   if (!props.pending && (await guard.value?.confirm())) emit('close')
 }
+useLoadingActivity(() => Boolean(props.loading || props.pending))
 </script>
 
 <template>
-  <DialogRoot
-    :open="true"
-    @update:open="
-      (value) => {
-        if (!value) close()
-      }
-    "
+  <GroupEditorSurface
+    :pending="pending"
+    :size="wide === false ? 'default' : 'sheet'"
+    :title="title"
+    :description="description"
+    @close="close"
   >
-    <AppDialogContent
-      placement="editor"
-      :size="wide === false ? 'default' : 'sheet'"
-      :title="title"
-      :description="description"
-    >
-      <AppDialogHeader
-        :title="title"
-        :description="description"
-        :close-label="t('shell.close')"
-        :close-disabled="pending"
-        @close="close"
-      />
-      <form class="modern-workspace-panel-form" novalidate @submit.prevent="emit('save')">
-        <AppLoadingIndicator :loading="loading || pending" />
-        <div class="modern-workspace-panel-body" :class="{ 'is-filled': fill }"><slot /></div>
-        <footer class="modern-workspace-panel-footer">
-          <div class="modern-workspace-panel-feedback"><slot name="feedback" /></div>
-          <div class="modern-workspace-panel-actions">
-            <AppButton size="sm" :disabled="pending" @click="close">{{ t('ui.cancel') }}</AppButton>
-            <AppButton
-              type="submit"
-              variant="primary"
-              size="sm"
-              :loading="pending"
-              :disabled="saveDisabled || pending || !dirty"
-              >{{ saveLabel ?? t('groups.edit.save') }}</AppButton
-            >
-          </div>
-        </footer>
-      </form>
-    </AppDialogContent>
-  </DialogRoot>
-  <GroupDraftGuard ref="guard" :dirty="dirty" :pending="pending" />
+    <form class="modern-workspace-panel-form" novalidate @submit.prevent="emit('save')">
+      <div class="modern-workspace-panel-body" :class="{ 'is-filled': fill }"><slot /></div>
+      <footer class="modern-workspace-panel-footer">
+        <div class="modern-workspace-panel-feedback"><slot name="feedback" /></div>
+        <div class="modern-workspace-panel-actions">
+          <AppButton size="sm" :disabled="pending" @click="close">{{ t('ui.cancel') }}</AppButton>
+          <AppButton
+            type="submit"
+            variant="primary"
+            size="sm"
+            :loading="pending"
+            :disabled="saveDisabled || pending || !dirty"
+            >{{ saveLabel ?? t('groups.edit.save') }}</AppButton
+          >
+        </div>
+      </footer>
+    </form>
+  </GroupEditorSurface>
+  <GroupDraftGuard
+    ref="guard"
+    :dirty="dirty"
+    :pending="pending"
+    :query-scope="['panel', 'credential', 'credential_view']"
+  />
 </template>
 
 <style scoped>

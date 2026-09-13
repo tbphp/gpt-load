@@ -1,29 +1,26 @@
 <script setup lang="ts">
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
+import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import GroupDraftGuard from './GroupDraftGuard.vue'
+import GroupDeleteAction from './GroupDeleteAction.vue'
 import {
   updateGroupBasics,
   type GroupBasics,
   type GroupBasicsPatch,
   type GroupRow,
 } from '@modern/api/groups'
-import {
-  AppButton,
-  AppCollectionState,
-  AppNotice,
-  AppSwitch,
-  AppTextField,
-} from '@modern/components/ui'
+import { AppButton, AppCollectionState, AppSwitch, AppTextField } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import { getGroupSettings, groupSettingsKey, type GroupSettings } from '@modern/api/group-detail'
 
-const props = defineProps<{ group: GroupRow }>()
+const props = defineProps<{ group: GroupRow; operationPending?: boolean }>()
 const emit = defineEmits<{
   saved: [id: number, settings: GroupBasics]
   pending: [value: boolean]
   updatedAt: [value: number]
+  deleted: []
 }>()
 const client = useApiClient()
 const cache = useQueryClient()
@@ -34,6 +31,12 @@ const weight = ref('50')
 const price = ref('1')
 const enabled = ref(true)
 const saving = ref(false)
+const deleting = ref(false)
+const deleted = ref(false)
+function groupDeleted(): void {
+  deleted.value = true
+  emit('deleted')
+}
 const saveFailed = ref(false)
 const attempted = ref(false)
 const savedFeedback = ref(false)
@@ -59,6 +62,7 @@ const priceInvalid = computed(
 )
 const dirty = computed(
   () =>
+    !deleted.value &&
     saved.value !== undefined &&
     (name.value !== saved.value.name ||
       weight.value !== String(saved.value.weight ?? 50) ||
@@ -91,7 +95,7 @@ watch(
   { immediate: true },
 )
 watch(
-  () => query.isFetching.value || saving.value,
+  () => query.isFetching.value || saving.value || deleting.value,
   (value) => emit('pending', value),
   { immediate: true },
 )
@@ -156,6 +160,21 @@ async function save(): Promise<void> {
     if (!signal.aborted) saving.value = false
   }
 }
+useMessageSource(() =>
+  saveFailed.value ? { text: t('groups.edit.saveFailed'), tone: 'danger' } : undefined,
+)
+useMessageSource(() =>
+  savedFeedback.value ? { text: t('groupDetail.saved'), tone: 'success' } : undefined,
+)
+useMessageSource(() =>
+  loadFailed.value && saved.value
+    ? {
+        text: t('groupDetail.refreshFailed'),
+        tone: 'warning',
+        action: { label: t('ui.retry'), run: () => query.refetch() },
+      }
+    : undefined,
+)
 </script>
 
 <template>
@@ -204,30 +223,31 @@ async function save(): Promise<void> {
           ><AppSwitch v-model="enabled" :label="t('groups.edit.enabled')" :disabled="saving" />
         </div>
         <slot />
-        <AppNotice v-if="saveFailed" tone="danger">{{ t('groups.edit.saveFailed') }}</AppNotice>
-        <AppNotice v-else-if="loadFailed" tone="warning">{{
-          t('groupDetail.refreshFailed')
-        }}</AppNotice>
       </div>
       <footer class="modern-group-settings-footer">
-        <span class="modern-group-settings-feedback" role="status">{{
-          savedFeedback ? t('groupDetail.saved') : dirty ? t('credentialCards.unsaved') : ''
-        }}</span>
-        <AppButton v-if="dirty" size="sm" variant="ghost" :disabled="saving" @click="discard">{{
-          t('groupDetail.revert')
-        }}</AppButton>
-        <AppButton
-          type="submit"
-          variant="outline"
-          size="sm"
-          :loading="saving"
-          :disabled="!dirty || saving"
-          >{{ t('groups.edit.save') }}</AppButton
-        >
+        <GroupDeleteAction
+          :group="group"
+          :disabled="saving || operationPending"
+          @pending="deleting = $event"
+          @deleted="groupDeleted"
+        />
+        <div class="modern-group-settings-actions">
+          <AppButton v-if="dirty" size="sm" variant="ghost" :disabled="saving" @click="discard">{{
+            t('groupDetail.revert')
+          }}</AppButton>
+          <AppButton
+            type="submit"
+            variant="outline"
+            size="sm"
+            :loading="saving"
+            :disabled="!dirty || saving"
+            >{{ t('groups.edit.save') }}</AppButton
+          >
+        </div>
       </footer>
     </form>
   </div>
-  <GroupDraftGuard :dirty="dirty" :pending="saving" />
+  <GroupDraftGuard :dirty="!deleted && dirty" :pending="!deleted && (saving || deleting)" />
 </template>
 
 <style scoped>
@@ -271,10 +291,13 @@ async function save(): Promise<void> {
   padding: var(--modern-space-3) var(--modern-space-4);
   border-top: var(--modern-line-width) solid var(--modern-border);
 }
-.modern-group-settings-feedback {
-  flex: 1;
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
+.modern-group-settings-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--modern-space-2);
+  margin-left: auto;
+  white-space: nowrap;
 }
 .modern-group-settings-enabled {
   display: flex;
@@ -284,6 +307,7 @@ async function save(): Promise<void> {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
+
 @container modern-group-workspace (max-width: 980px) {
   .modern-group-settings-fields {
     overflow: visible;

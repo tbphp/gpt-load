@@ -2,6 +2,7 @@
 import { Plus, Trash2 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
+import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import {
   getGroupSettings,
@@ -255,6 +256,7 @@ async function save(): Promise<void> {
   }
 }
 onScopeDispose(() => controller.abort())
+useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : undefined))
 </script>
 
 <template>
@@ -273,7 +275,6 @@ onScopeDispose(() => controller.abort())
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
-      <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
       <AppFormSection :title="t('groupDetail.connection')">
         <AppTextField
           v-for="field in channel?.fields ?? []"

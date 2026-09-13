@@ -4,10 +4,14 @@ import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { AppConfirmDialog } from '@modern/components/ui'
 
-const props = defineProps<{ dirty: boolean; pending?: boolean }>()
+const props = withDefaults(
+  defineProps<{ dirty: boolean; pending?: boolean; queryScope?: readonly string[] }>(),
+  { queryScope: () => [] },
+)
 const { t } = useI18n()
 const open = ref(false)
 let resolve: ((value: boolean) => void) | undefined
+let approved = false
 function finish(value: boolean): void {
   open.value = false
   resolve?.(value)
@@ -27,14 +31,32 @@ function unload(event: BeforeUnloadEvent): void {
   event.preventDefault()
   event.returnValue = ''
 }
-onBeforeRouteLeave(confirm)
-onBeforeRouteUpdate((to, from) => to.params.id === from.params.id || confirm())
+function routeGuard(): boolean | Promise<boolean> {
+  if (approved) {
+    approved = false
+    return true
+  }
+  return confirm()
+}
+onBeforeRouteLeave(routeGuard)
+onBeforeRouteUpdate(
+  (to, from) =>
+    (to.params.id === from.params.id &&
+      props.queryScope.every((key) => to.query[key] === from.query[key])) ||
+    routeGuard(),
+)
 onMounted(() => window.addEventListener('beforeunload', unload))
 onScopeDispose(() => {
   finish(false)
   window.removeEventListener('beforeunload', unload)
 })
-defineExpose({ confirm })
+defineExpose({
+  confirm: async () => {
+    const allowed = await confirm()
+    if (allowed) approved = true
+    return allowed
+  },
+})
 </script>
 
 <template>

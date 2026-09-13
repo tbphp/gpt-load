@@ -1,4 +1,5 @@
 import { zhCN as credentialCards } from './credential-cards'
+import { zhCN as groupWorkflows } from './group-workflows'
 import { zhCN as parameterRules } from './parameter-rules'
 import { zhCN as groupDetail } from './group-detail'
 import { zhCN as groupMessages } from './groups'
@@ -8,6 +9,7 @@ import { zhCN as modelSelection } from './model-selection'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  groupWorkflows,
   parameterRules,
   credentialCards,
   groupDetail,

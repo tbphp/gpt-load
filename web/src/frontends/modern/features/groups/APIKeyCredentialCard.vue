@@ -77,10 +77,7 @@ const issues = computed(() =>
         </AppButton>
       </AppTooltip>
     </template>
-    <div v-if="error" class="modern-api-card-error" role="alert">
-      <AppOverflowText :text="error" />
-    </div>
-    <dl v-else class="modern-api-card-metadata">
+    <dl class="modern-api-card-metadata">
       <div>
         <dt>{{ t('groupDetail.lastUsed') }}</dt>
         <dd><AppOverflowText :text="credentialTime(row.lastUsed, locale)" /></dd>
@@ -140,11 +137,6 @@ const issues = computed(() =>
   margin: 0;
   font-size: var(--modern-font-size-small);
   font-variant-numeric: tabular-nums;
-}
-.modern-api-card-error {
-  min-width: 0;
-  color: var(--modern-danger);
-  font-size: var(--modern-font-size-small);
 }
 .modern-api-card-actions {
   display: flex;

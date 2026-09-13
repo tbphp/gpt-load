@@ -11,7 +11,8 @@ import {
   AppPagination,
   AppTextField,
 } from '@modern/components/ui'
-import { useLoadingFeedback } from '@modern/components/ui/loading'
+import { useURLState, positivePage } from '@modern/app/url-state'
+import { useLoadingActivity, useLoadingFeedback } from '@modern/components/ui/loading'
 import ModelSelectionDialog from '../models/ModelSelectionDialog.vue'
 import ModelSourceBadges from '../models/ModelSourceBadges.vue'
 import ModelPriceBadge from '../models/ModelPriceBadge.vue'
@@ -32,11 +33,48 @@ const props = defineProps<{
 const models = defineModel<GroupDraftModel[]>({ required: true })
 const emit = defineEmits<{ discover: []; cancelDiscovery: [] }>()
 const { t, n } = useI18n()
-const choosing = ref(false)
+const view = useURLState(
+  ['models_q', 'models_page', 'models_size', 'pick_models'],
+  (query) => ({
+    q: typeof query.models_q === 'string' ? query.models_q : '',
+    page: positivePage(query.models_page),
+    size: [10, 20, 50].includes(Number(query.models_size)) ? Number(query.models_size) : 10,
+    choosing: query.pick_models === '1',
+  }),
+  (value) => ({
+    ...(value.q ? { models_q: value.q } : {}),
+    ...(value.page > 1 ? { models_page: String(value.page) } : {}),
+    ...(value.size !== 10 ? { models_size: String(value.size) } : {}),
+    ...(value.choosing ? { pick_models: '1' } : {}),
+  }),
+)
+const choosing = computed({
+  get: () => view.value.choosing,
+  set: (value) => {
+    view.value.choosing = value
+  },
+})
 const loaded = ref(false)
-const search = ref('')
-const page = ref(1)
-const pageSize = ref(10)
+const search = computed({
+  get: () => view.value.q,
+  set: (value) => {
+    view.value.q = value
+    view.value.page = 1
+  },
+})
+const page = computed({
+  get: () => view.value.page,
+  set: (value) => {
+    view.value.page = value
+  },
+})
+const pageSize = computed({
+  get: () => view.value.size,
+  set: (value) => {
+    view.value.size = value
+    view.value.page = 1
+  },
+})
 const list = ref<InstanceType<typeof AppListFrame>>()
 const fields = new Map<number, { focus(): void; $el?: HTMLElement }>()
 const filtering = ref(false)
@@ -56,9 +94,7 @@ const filtered = computed(() => {
 const rows = computed(() =>
   filtered.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value),
 )
-watch([search, pageSize], () => {
-  page.value = 1
-})
+
 watch([search, page, pageSize], async () => {
   filtering.value = true
   list.value?.scrollToTop()
@@ -83,6 +119,13 @@ watch(
     loaded.value = false
     choosing.value = false
   },
+)
+watch(
+  [choosing, () => props.canDiscover],
+  ([open, allowed]) => {
+    if (open && allowed && !loaded.value && !props.loading) emit('discover')
+  },
+  { immediate: true },
 )
 function fieldRef(key: number, element: unknown): void {
   if (element && typeof element === 'object' && 'focus' in element)
@@ -116,7 +159,6 @@ function openSelection(event: MouseEvent): void {
   if (props.disabled || !props.canDiscover) return
   trigger = event.currentTarget as HTMLElement
   choosing.value = true
-  if (!loaded.value) emit('discover')
 }
 async function closeSelection(): Promise<void> {
   choosing.value = false
@@ -149,6 +191,7 @@ defineExpose({
     if (model) await focusModel(model)
   },
 })
+useLoadingActivity(() => filtering.value || props.loading)
 </script>
 
 <template>
@@ -183,6 +226,7 @@ defineExpose({
           @click="openSelection"
           >{{ t('modelSelection.title') }}</AppButton
         >
+        <slot name="actions" />
         <AppButton :icon="Plus" variant="ghost" size="sm" :disabled="disabled" @click="addManual">{{
           t('groupCreate.manualModel')
         }}</AppButton>
@@ -318,7 +362,6 @@ defineExpose({
   gap: var(--modern-space-2);
 }
 .modern-create-model-heading {
-  justify-content: space-between;
   flex-wrap: wrap;
   flex: none;
   padding-block: var(--modern-space-1);
@@ -333,8 +376,37 @@ defineExpose({
   font-weight: var(--modern-weight-regular);
 }
 .modern-create-model-search {
-  flex: 1;
-  min-width: var(--modern-menu-min-width);
+  flex: 1 1 180px;
+  width: 180px;
+  min-width: 160px;
+  max-width: 280px;
+}
+.modern-create-model-tools {
+  flex: 0 1 auto;
+  margin-left: auto;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.modern-create-models--list .modern-create-model-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+.modern-create-models--list .modern-create-model-search {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+.modern-create-models--list .modern-create-model-tools {
+  flex-wrap: nowrap;
+  margin-left: 0;
+}
+@container modern-workspace-panel (max-width: 460px) {
+  .modern-create-models--list .modern-create-model-heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .modern-create-models--list .modern-create-model-tools {
+    flex-wrap: wrap;
+  }
 }
 .modern-create-model-labels,
 .modern-create-model-row {

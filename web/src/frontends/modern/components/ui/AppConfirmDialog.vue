@@ -87,11 +87,12 @@ function focusCancel(event: Event): void {
             @click="cancel"
           />
         </header>
-        <div v-if="subject || description || error" class="modern-confirm-body">
+        <div v-if="subject || description || error || $slots.default" class="modern-confirm-body">
           <div v-if="subject" class="modern-confirm-subject">
             <AppOverflowText :text="subject" />
           </div>
           <p v-if="description">{{ description }}</p>
+          <slot />
           <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
         </div>
         <footer ref="actions" class="modern-confirm-actions">

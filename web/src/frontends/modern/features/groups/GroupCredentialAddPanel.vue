@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import type { GroupChannel, GroupCreateResult } from '@modern/api/group-create'
 import type { CredentialStage } from '@modern/api/credential-stages'
@@ -16,6 +17,7 @@ const emit = defineEmits<{ close: []; saved: [result: GroupCreateResult] }>()
 const { t, n, te } = useI18n()
 const client = useApiClient()
 const credentials = ref('')
+const completed = ref(false)
 const stages = ref<CredentialStage[]>([])
 const stageBusy = ref(false)
 const stageDirty = ref(false)
@@ -37,16 +39,20 @@ const uncertain = computed(() =>
   Boolean(outcome.value && !['success', 'rejected'].includes(outcome.value.kind)),
 )
 const locked = computed(() => operation.pending.value || uncertain.value)
-const dirty = computed(() =>
-  Boolean(
-    credentials.value || stages.value.length || stageDirty.value || operation.operation.value,
-  ),
+const dirty = computed(
+  () =>
+    !completed.value &&
+    Boolean(
+      credentials.value || stages.value.length || stageDirty.value || operation.operation.value,
+    ),
 )
 async function execute(): Promise<void> {
   const result = await operation.execute()
   if (!result) return
   if (result.kind === 'success') {
+    completed.value = true
     credentials.value = ''
+    operation.reset()
     emit('saved', result.result)
     emit('close')
   } else if (result.kind === 'rejected') {
@@ -82,6 +88,7 @@ async function save(): Promise<void> {
     })
   await execute()
 }
+useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : undefined))
 </script>
 
 <template>
@@ -114,7 +121,6 @@ async function save(): Promise<void> {
       autocomplete="off"
       spellcheck="false"
     />
-    <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
     <AppNotice v-if="uncertain" tone="warning">
       {{ t('groupCreate.outcome.' + outcome!.kind) }}
       <template #actions

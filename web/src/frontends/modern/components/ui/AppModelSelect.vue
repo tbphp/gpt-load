@@ -6,7 +6,9 @@ import { isModelPattern } from './model-match'
 import type { ControlSize, FieldProps } from './types'
 
 defineOptions({ inheritAttrs: false })
-const props = defineProps<FieldProps & { models: readonly string[]; size?: ControlSize }>()
+const props = defineProps<
+  FieldProps & { models: readonly string[]; size?: ControlSize; fuzzy?: boolean }
+>()
 const model = defineModel<string>({ required: true })
 const select = ref<InstanceType<typeof AppSearchSelect>>()
 const { t } = useI18n()
@@ -28,7 +30,7 @@ defineExpose({ focus: () => select.value?.focus() })
     :description="description"
     :described-by="describedBy"
     :invalid="invalid"
-    :error="error || (!isModelPattern(model) ? t('ui.select.modelPattern') : undefined)"
+    :error="error || (!fuzzy && !isModelPattern(model) ? t('ui.select.modelPattern') : undefined)"
     :disabled="disabled"
     :size="size"
     :options="options"

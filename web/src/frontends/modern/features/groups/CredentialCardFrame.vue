@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { AppLoadingIndicator } from '@modern/components/ui'
+import { useLoadingActivity } from '@modern/components/ui/loading'
 import './credential-card.css'
-defineProps<{ selected: boolean; pending?: boolean; compact?: boolean }>()
+const props = defineProps<{ selected: boolean; pending?: boolean; compact?: boolean }>()
+useLoadingActivity(() => Boolean(props.pending))
 </script>
 <template>
   <article
@@ -9,7 +10,6 @@ defineProps<{ selected: boolean; pending?: boolean; compact?: boolean }>()
     :class="{ 'is-selected': selected, 'is-compact': compact }"
     :aria-busy="pending || undefined"
   >
-    <AppLoadingIndicator :loading="pending" />
     <header class="modern-credential-card-heading"><slot name="heading" /></header>
     <div class="modern-credential-card-body"><slot /></div>
     <footer class="modern-credential-card-footer modern-credential-surface-footer">

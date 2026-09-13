@@ -7,6 +7,7 @@ import {
   Play,
   Plus,
   RotateCcw,
+  RefreshCw,
   Search,
   Trash2,
 } from '@lucide/vue'
@@ -29,6 +30,7 @@ import type { GroupRow } from '@modern/api/groups'
 import type { GroupChannel } from '@modern/api/group-create'
 import {
   credentialDetailKey,
+  getCredentialDetail,
   exportCredential,
   exportAllCredentials,
   refreshCredentialQuota,
@@ -52,7 +54,6 @@ import {
   AppFilterSummary,
   AppIconButton,
   AppListFrame,
-  AppNotice,
   AppPagination,
   AppSegmentedControl,
   AppSortMenu,
@@ -60,6 +61,8 @@ import {
   AppTextField,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
+import { useURLState, positivePage } from '@modern/app/url-state'
+import { useMessageSource } from '@modern/app/messages'
 import GroupDraftGuard from './GroupDraftGuard.vue'
 
 const props = defineProps<{ group: GroupRow; channel?: GroupChannel }>()
@@ -72,20 +75,83 @@ const emit = defineEmits<{
 const { t, n } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
-const filters = ref<CredentialFilters>({
-  q: '',
-  status: '',
-  page: 1,
-  pageSize: 20,
-  sort: 'priority',
-  proxy: '',
-  reset: '',
-})
-const search = ref('')
+const filters = useURLState<CredentialFilters>(
+  ['q', 'status', 'page', 'page_size', 'sort', 'proxy', 'reset'],
+  (query) => ({
+    q: typeof query.q === 'string' ? query.q : '',
+    status: credentialStates.find((value) => value === query.status) ?? '',
+    page: positivePage(query.page),
+    pageSize: [20, 50, 100].includes(Number(query.page_size)) ? Number(query.page_size) : 20,
+    sort: credentialSorts.find((value) => value === query.sort) ?? 'priority',
+    proxy:
+      query.proxy === 'inherit' || query.proxy === 'direct' || query.proxy === 'custom'
+        ? query.proxy
+        : '',
+    reset:
+      props.group.connectionType === 'subscription' &&
+      (query.reset === 'available' || query.reset === 'none' || query.reset === 'unknown')
+        ? query.reset
+        : '',
+  }),
+  (value) => ({
+    ...(value.q ? { q: value.q } : {}),
+    ...(value.status ? { status: value.status } : {}),
+    ...(value.page > 1 ? { page: String(value.page) } : {}),
+    ...(value.pageSize !== 20 ? { page_size: String(value.pageSize) } : {}),
+    ...(value.sort !== 'priority' ? { sort: value.sort } : {}),
+    ...(value.proxy ? { proxy: value.proxy } : {}),
+    ...(value.reset ? { reset: value.reset } : {}),
+  }),
+)
+const search = ref(filters.value.q)
+watch(
+  () => filters.value.q,
+  (value) => {
+    search.value = value
+  },
+)
 const composing = ref(false)
 const selected = ref(new Set<number>())
-const detail = ref<CredentialRow>()
-const testing = ref<CredentialRow>()
+const credentialView = useURLState(
+  ['credential', 'credential_view'],
+  (query) => ({
+    id: positivePage(query.credential, 0),
+    mode: query.credential_view === 'test' ? 'test' : 'details',
+  }),
+  (value) =>
+    value.id
+      ? {
+          credential: String(value.id),
+          ...(value.mode === 'test' ? { credential_view: 'test' } : {}),
+        }
+      : {},
+)
+const credentialQuery = useQuery(
+  computed(() => ({
+    queryKey: credentialDetailKey(props.group.id, credentialView.value.id),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      getCredentialDetail(client, props.group.id, credentialView.value.id, signal),
+    enabled: credentialView.value.id > 0,
+  })),
+)
+const detail = computed({
+  get: () =>
+    credentialView.value.id && credentialView.value.mode === 'details'
+      ? credentialQuery.data.value
+      : undefined,
+  set: (row: CredentialRow | undefined) => {
+    credentialView.value = { id: row?.id ?? 0, mode: 'details' }
+  },
+})
+const testing = computed({
+  get: () =>
+    credentialView.value.id && credentialView.value.mode === 'test'
+      ? credentialQuery.data.value
+      : undefined,
+  set: (row: CredentialRow | undefined) => {
+    credentialView.value = { id: row?.id ?? 0, mode: 'test' }
+  },
+})
 const resetTarget = ref<CredentialRow>()
 const resetKeys = new Map<number, string>()
 const cardErrors = ref(new Map<number, string>())
@@ -98,6 +164,13 @@ type FullAction = 'download' | 'enable' | 'disable' | 'restore'
 const fullTarget = ref<FullAction>()
 const error = ref('')
 const notice = ref('')
+type AccountBatchAction = 'sync' | 'download'
+const accountBatch = ref<{
+  action: AccountBatchAction
+  completed: number
+  total: number
+  failed: CredentialRow[]
+}>()
 const list = ref<InstanceType<typeof AppListFrame>>()
 const controller = new AbortController()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -194,6 +267,13 @@ const filterSummary = computed(() => [
 const allSelected = computed(
   () => rows.value.length > 0 && rows.value.every((row) => selected.value.has(row.id)),
 )
+const canSyncSelected = computed(
+  () =>
+    Boolean(props.channel?.quotaObservation) &&
+    rows.value
+      .filter((row) => selected.value.has(row.id))
+      .every((row) => row.authState === 'ready'),
+)
 watch(busy, (value) => emit('pending', value), { immediate: true })
 watch(query.dataUpdatedAt, (value) => emit('updatedAt', value), { immediate: true })
 watch(query.data, (data) => {
@@ -208,6 +288,7 @@ function change(value: Partial<typeof filters.value>): void {
   if (mutating.value !== undefined) return
   filters.value = { ...filters.value, ...value }
   selected.value = new Set()
+  accountBatch.value = undefined
   list.value?.scrollToTop()
 }
 function scheduleSearch(): void {
@@ -240,12 +321,79 @@ function select(id: number, value: boolean): void {
 async function refresh(): Promise<void> {
   await query.refetch()
 }
+async function runAccountBatch(
+  action: AccountBatchAction,
+  targets = rows.value.filter((row) => selected.value.has(row.id)),
+): Promise<void> {
+  if (busy.value || props.group.connectionType !== 'subscription' || !targets.length) return
+  if (
+    action === 'sync' &&
+    (!props.channel?.quotaObservation || targets.some((row) => row.authState !== 'ready'))
+  )
+    return
+  mutating.value = 'batch'
+  error.value = ''
+  notice.value = ''
+  const report = { action, completed: 0, total: targets.length, failed: [] as CredentialRow[] }
+  accountBatch.value = report
+  const exports: unknown[] = []
+  let cursor = 0
+  async function worker(): Promise<void> {
+    while (cursor < targets.length && !controller.signal.aborted) {
+      const row = targets[cursor++]!
+      cardErrors.value.delete(row.id)
+      try {
+        if (action === 'download') {
+          const file = await exportCredential(client, props.group.id, row.id, controller.signal)
+          if (!controller.signal.aborted) exports.push(JSON.parse(file.content))
+        } else {
+          const observation = await refreshCredentialQuota(
+            client,
+            props.group.id,
+            row.id,
+            controller.signal,
+          )
+          if (controller.signal.aborted) return
+          if (!observation) throw new Error('Missing observation')
+          cacheRow({ ...row, observation })
+          if (observation.state === 'error') throw new Error('Observation failed')
+        }
+      } catch {
+        if (controller.signal.aborted) return
+        report.failed.push(row)
+        cardErrors.value.set(row.id, t('credentialCards.actionFailed'))
+      }
+      report.completed++
+      accountBatch.value = { ...report }
+    }
+  }
+  try {
+    await Promise.all(Array.from({ length: Math.min(2, targets.length) }, worker))
+    if (controller.signal.aborted) return
+    if (exports.length)
+      downloadFile({
+        filename: `gpt-load-accounts-${Date.now()}.json`,
+        content: JSON.stringify(exports, null, 2),
+      })
+    if (action === 'sync') {
+      await changed()
+      void cache.invalidateQueries({ queryKey: ['modern', 'credential-detail', props.group.id] })
+    }
+    const visibleIDs = new Set(rows.value.map((row) => row.id))
+    selected.value = new Set(
+      report.failed.filter((row) => visibleIDs.has(row.id)).map((row) => row.id),
+    )
+  } finally {
+    mutating.value = undefined
+  }
+}
 async function changed(): Promise<void> {
   await cache.invalidateQueries({ queryKey: groupCredentialsKey(props.group.id) })
   emit('changed')
 }
 async function toggle(row: CredentialRow, value: boolean): Promise<void> {
   if (busy.value) return
+  accountBatch.value = undefined
   mutating.value = row.id
   pendingAction.value = 'toggle'
   error.value = ''
@@ -265,6 +413,7 @@ async function batch(
   ids = [...selected.value],
 ): Promise<void> {
   if (busy.value || !ids.length) return
+  accountBatch.value = undefined
   mutating.value = 'batch'
   error.value = ''
   notice.value = ''
@@ -396,6 +545,7 @@ async function action(row: CredentialRow, value: string): Promise<void> {
     return
   }
   if (!['quota', 'restore', 'refresh', 'download'].includes(value)) return
+  accountBatch.value = undefined
   mutating.value = row.id
   pendingAction.value = value
   cardErrors.value.delete(row.id)
@@ -480,6 +630,66 @@ onScopeDispose(() => {
   clearTimeout(searchTimer)
   downloads.forEach((url) => URL.revokeObjectURL(url))
 })
+useMessageSource(() => (notice.value ? { text: notice.value, tone: 'success' } : undefined))
+useMessageSource(() =>
+  credentialQuery.isError.value
+    ? {
+        text: t('groups.edit.loadFailed'),
+        tone: 'danger',
+        action: { label: t('ui.retry'), run: () => credentialQuery.refetch() },
+      }
+    : undefined,
+)
+useMessageSource(() =>
+  error.value && !fullTarget.value && !deleting.value.length
+    ? { text: error.value, tone: 'danger' }
+    : undefined,
+)
+useMessageSource(() =>
+  stale.value
+    ? {
+        text: t('groupDetail.refreshFailed'),
+        tone: 'warning',
+        action: { label: t('ui.retry'), run: refresh },
+      }
+    : undefined,
+)
+useMessageSource(() =>
+  accountBatch.value
+    ? {
+        text:
+          mutating.value === 'batch'
+            ? t('groupWorkflows.batchProgress', {
+                done: n(accountBatch.value.completed),
+                total: n(accountBatch.value.total),
+              })
+            : t('groupWorkflows.batchResult', {
+                success: n(accountBatch.value.total - accountBatch.value.failed.length),
+                failed: n(accountBatch.value.failed.length),
+              }),
+        tone: accountBatch.value.failed.length
+          ? 'warning'
+          : mutating.value === 'batch'
+            ? 'info'
+            : 'success',
+        action:
+          accountBatch.value.failed.length && mutating.value === undefined
+            ? {
+                label: t('groupWorkflows.retryFailed'),
+                run: () => runAccountBatch(accountBatch.value!.action, accountBatch.value!.failed),
+              }
+            : undefined,
+      }
+    : undefined,
+)
+useMessageSource(() =>
+  !accountBatch.value && !resetTarget.value && cardErrors.value.size
+    ? {
+        text: [...cardErrors.value.values()].at(-1)!,
+        tone: 'danger',
+      }
+    : undefined,
+)
 defineExpose({ refresh })
 </script>
 
@@ -550,14 +760,6 @@ defineExpose({ refresh })
         @reset="resetFilter()"
       />
     </div>
-    <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
-    <AppNotice v-else-if="stale" tone="warning"
-      >{{ t('groupDetail.refreshFailed')
-      }}<template #actions
-        ><AppButton size="sm" @click="refresh">{{ t('ui.retry') }}</AppButton></template
-      ></AppNotice
-    >
-    <AppNotice v-if="notice" tone="success">{{ notice }}</AppNotice>
     <AppListFrame
       ref="list"
       :label="t('groupDetail.credentials')"
@@ -582,18 +784,37 @@ defineExpose({ refresh })
                 :label="t('groupDetail.enableSelected')"
                 size="sm"
                 :disabled="busy"
-                @click="batch('enable')" /><AppIconButton
+                @click="batch('enable')"
+              /><AppIconButton
                 :icon="Pause"
                 :label="t('groupDetail.disableSelected')"
                 size="sm"
                 :disabled="busy"
-                @click="batch('disable')" /><AppIconButton
+                @click="batch('disable')"
+              /><AppIconButton
                 :icon="Trash2"
                 :label="t('groupDetail.deleteSelected')"
                 size="sm"
                 :disabled="busy"
                 @click="deleting = [...selected]"
-            /></template>
+              />
+              <AppIconButton
+                v-if="group.connectionType === 'subscription' && channel?.quotaObservation"
+                :icon="RefreshCw"
+                :label="t('groupWorkflows.syncSelected')"
+                size="sm"
+                :disabled="busy || !canSyncSelected"
+                @click="runAccountBatch('sync')"
+              />
+              <AppIconButton
+                v-if="group.connectionType === 'subscription'"
+                :icon="Download"
+                :label="t('groupWorkflows.downloadSelected')"
+                size="sm"
+                :disabled="busy"
+                @click="runAccountBatch('download')"
+              />
+            </template>
           </div>
           <AppActionMenu
             :label="t('groupDetail.full.actions')"

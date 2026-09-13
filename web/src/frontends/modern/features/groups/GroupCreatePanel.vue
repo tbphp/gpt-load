@@ -2,9 +2,9 @@
 import { channelSearchOption } from '@modern/components/channel-options'
 import { Eye, EyeOff, ChevronDown, KeyRound, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
-import { DialogRoot } from 'reka-ui'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
+import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import {
   discoverGroupDraftModels,
@@ -23,8 +23,6 @@ import {
   AppChannelIcon,
   AppCollectionState,
   AppConfirmDialog,
-  AppDialogContent,
-  AppDialogHeader,
   AppIcon,
   AppIconButton,
   AppNotice,
@@ -37,6 +35,7 @@ import { useLoadingFeedback } from '@modern/components/ui/loading'
 import { useApiClient } from '@shared/http/client-context'
 import { ApiError } from '@shared/http/errors'
 import GroupModelPicker from './GroupModelPicker.vue'
+import GroupEditorSurface from './GroupEditorSurface.vue'
 import SubscriptionCredentialStager from './SubscriptionCredentialStager.vue'
 import { useGroupCreateOperation } from './group-create-operation'
 import {
@@ -111,6 +110,7 @@ const errorBox = ref<HTMLElement>()
 const confirmAction = ref<'close' | 'channel'>()
 let requestedChannel = ''
 let resolveLeave: ((allow: boolean) => void) | undefined
+let approvedLeave = false
 let discoveryController: AbortController | undefined
 let initialized = false
 let disposed = false
@@ -492,12 +492,18 @@ function confirmDiscard(): void {
   confirmAction.value = undefined
   if (action === 'channel') selectChannel(requestedChannel)
   else {
+    if (!resolveLeave) approvedLeave = true
+    const controlledLeave = Boolean(resolveLeave)
     resolveLeave?.(true)
     resolveLeave = undefined
-    emit('close')
+    if (!controlledLeave) emit('close')
   }
 }
 function guardLeave(): boolean | Promise<boolean> {
+  if (approvedLeave) {
+    approvedLeave = false
+    return true
+  }
   if (busy.value) return false
   if (!dirty.value && !operation.operation.value) return true
   resolveLeave?.(false)
@@ -507,7 +513,9 @@ function guardLeave(): boolean | Promise<boolean> {
   })
 }
 onBeforeRouteLeave(guardLeave)
-onBeforeRouteUpdate(guardLeave)
+onBeforeRouteUpdate(
+  (to, from) => (to.path === from.path && to.query.panel === from.query.panel) || guardLeave(),
+)
 function beforeUnload(event: BeforeUnloadEvent): void {
   if (!dirty.value && !operation.operation.value) return
   event.preventDefault()
@@ -523,282 +531,261 @@ onScopeDispose(() => {
   stages.value = []
   params.value = {}
 })
+useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger' } : undefined))
 </script>
 
 <template>
-  <DialogRoot
-    :open="true"
-    @update:open="
-      (value) => {
-        if (!value) close()
-      }
-    "
+  <GroupEditorSurface
+    :pending="busy"
+    :title="t('groupCreate.title')"
+    :description="t('groupCreate.title')"
+    prevent-auto-focus
+    hide-description
+    @close="close"
   >
-    <AppDialogContent
-      placement="editor"
-      :title="t('groupCreate.title')"
-      :description="t('groupCreate.title')"
-      @open-auto-focus.prevent
+    <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
+    <AppCollectionState
+      v-else-if="!query.data.value"
+      :title="t('groupCreate.channelsFailed')"
+      error
     >
-      <AppDialogHeader
-        :title="t('groupCreate.title')"
-        :close-label="t('ui.close')"
-        :close-disabled="busy"
-        @close="close"
-      />
-      <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
-      <AppCollectionState
-        v-else-if="!query.data.value"
-        :title="t('groupCreate.channelsFailed')"
-        error
-      >
-        <AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton>
-      </AppCollectionState>
-      <form v-else class="modern-group-create-form" novalidate @submit.prevent="submit">
-        <div class="modern-group-create-body">
-          <AppSearchSelect
-            ref="channelInput"
-            :model-value="channelID"
-            :label="t('groupCreate.channel')"
-            :options="options"
+      <AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton>
+    </AppCollectionState>
+    <form v-else class="modern-group-create-form" novalidate @submit.prevent="submit">
+      <div class="modern-group-create-body">
+        <AppSearchSelect
+          ref="channelInput"
+          :model-value="channelID"
+          :label="t('groupCreate.channel')"
+          :options="options"
+          :disabled="inputLocked"
+          :error="attempted && !channel ? t('groupCreate.required') : undefined"
+          @update:model-value="requestChannel"
+        >
+          <template #option="{ option }">
+            <AppChannelIcon
+              :icon="channels.find((item) => item.id === option.value)?.icon"
+              :mark="channels.find((item) => item.id === option.value)?.mark"
+              :name="option.label"
+            />
+            <span>{{ option.label }}</span>
+            <AppBadge
+              size="xs"
+              :icon="
+                channels.find((item) => item.id === option.value)?.connectionType === 'subscription'
+                  ? UserRound
+                  : KeyRound
+              "
+              :tone="
+                channels.find((item) => item.id === option.value)?.connectionType === 'subscription'
+                  ? 'brand'
+                  : 'neutral'
+              "
+              >{{
+                t(
+                  channels.find((item) => item.id === option.value)?.connectionType ===
+                    'subscription'
+                    ? 'subscriptions.connectionType'
+                    : 'subscriptions.apiKey',
+                )
+              }}</AppBadge
+            >
+          </template>
+        </AppSearchSelect>
+        <AppTextField
+          ref="nameInput"
+          v-model="name"
+          :label="t('groups.edit.name')"
+          :placeholder="t('groupCreate.autoName')"
+          autocomplete="off"
+          :disabled="inputLocked"
+          :error="attempted ? nameError : undefined"
+        />
+        <template v-if="channel">
+          <AppTextField
+            v-for="field in channel.fields"
+            :key="field.key"
+            :ref="(element) => paramRef(field.key, element)"
+            :model-value="params[field.key] ?? ''"
+            :label="field.key === 'base_url' ? t('groupCreate.baseURL') : field.label"
+            :type="
+              (field.sensitive || field.inputKind === 'secret') && !secretsVisible.has(field.key)
+                ? 'password'
+                : 'text'
+            "
+            :placeholder="
+              field.defaultValue || (field.inputKind === 'url' ? 'https://' : undefined)
+            "
             :disabled="inputLocked"
-            :error="attempted && !channel ? t('groupCreate.required') : undefined"
-            @update:model-value="requestChannel"
+            :error="attempted ? paramErrors[field.key] : undefined"
+            autocomplete="off"
+            spellcheck="false"
+            @update:model-value="params[field.key] = $event"
           >
-            <template #option="{ option }">
-              <AppChannelIcon
-                :icon="channels.find((item) => item.id === option.value)?.icon"
-                :mark="channels.find((item) => item.id === option.value)?.mark"
-                :name="option.label"
-              />
-              <span>{{ option.label }}</span>
-              <AppBadge
-                size="xs"
-                :icon="
-                  channels.find((item) => item.id === option.value)?.connectionType ===
-                  'subscription'
-                    ? UserRound
-                    : KeyRound
-                "
-                :tone="
-                  channels.find((item) => item.id === option.value)?.connectionType ===
-                  'subscription'
-                    ? 'brand'
-                    : 'neutral'
-                "
-                >{{
+            <template v-if="field.sensitive || field.inputKind === 'secret'" #suffix>
+              <AppIconButton
+                :icon="secretsVisible.has(field.key) ? EyeOff : Eye"
+                :label="
                   t(
-                    channels.find((item) => item.id === option.value)?.connectionType ===
-                      'subscription'
-                      ? 'subscriptions.connectionType'
-                      : 'subscriptions.apiKey',
+                    secretsVisible.has(field.key)
+                      ? 'groupCreate.hideSecret'
+                      : 'groupCreate.showSecret',
                   )
-                }}</AppBadge
+                "
+                size="xs"
+                @click="toggleSecret(field.key)"
+              />
+            </template>
+          </AppTextField>
+          <AppTextArea
+            v-if="!subscription"
+            ref="credentialInput"
+            v-model="credentials"
+            :label="t('groupCreate.credentials')"
+            :description="
+              t(structured ? 'groupCreate.structuredHelp' : 'groupCreate.credentialsHelp')
+            "
+            :placeholder="credentialPlaceholder"
+            :rows="6"
+            mono
+            autocomplete="off"
+            spellcheck="false"
+            :disabled="inputLocked"
+            :error="attempted ? credentialError : undefined"
+          />
+          <p v-if="!subscription" class="modern-group-create-count">
+            {{ t('groupCreate.credentialCount', { count: n(count) }) }}
+          </p>
+          <SubscriptionCredentialStager
+            v-else
+            :key="channel.id"
+            ref="stager"
+            v-model="stages"
+            :channel="channel"
+            :proxy="proxyOverride"
+            :disabled="locked || discovering"
+            :entry-disabled="Boolean(proxyError) || Object.keys(paramErrors).length > 0"
+            :error="attempted ? credentialError : undefined"
+            @busy="stagingBusy = $event"
+            @dirty="stagingDirty = $event"
+          />
+          <GroupModelPicker
+            ref="modelPicker"
+            v-model="models"
+            :connection-revision="connectionRevision"
+            :candidates="candidates"
+            :loading="discoveryFeedback"
+            :discovery-supported="channel.discovery"
+            :can-discover="validConnection()"
+            :discovery-error="discoveryError"
+            :disabled="inputLocked"
+            :attempted="attempted"
+            @discover="discover"
+            @cancel-discovery="cancelDiscovery"
+          />
+          <details
+            class="modern-group-create-advanced"
+            :open="advanced"
+            @toggle="advanced = ($event.target as HTMLDetailsElement).open"
+          >
+            <summary>
+              <AppIcon :icon="ChevronDown" size="sm" />{{ t('groupCreate.moreSettings') }}
+            </summary>
+            <div class="modern-group-create-options">
+              <AppTextField
+                ref="priceInput"
+                v-model="price"
+                :label="t('groups.edit.price')"
+                inputmode="decimal"
+                :disabled="inputLocked"
+                :error="attempted ? priceError : undefined"
+              />
+              <AppSegmentedField
+                v-if="channel.proxy"
+                v-model="proxyMode"
+                :label="t('groupCreate.proxy')"
+                :options="proxyOptions"
+                :disabled="inputLocked || stages.length > 0"
+                :description="stages.length ? t('subscriptions.proxyLocked') : undefined"
+              />
+              <AppTextField
+                v-if="channel.proxy && proxyMode === 'custom'"
+                ref="proxyInput"
+                v-model="proxyURL"
+                :label="t('groupCreate.proxyURL')"
+                :disabled="inputLocked || stages.length > 0"
+                :error="attempted ? proxyError : undefined"
+                placeholder="http://127.0.0.1:7890"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </div>
+          </details>
+        </template>
+        <section
+          v-if="conflicts.length"
+          ref="errorBox"
+          class="modern-group-create-conflict"
+          tabindex="-1"
+        >
+          <AppNotice tone="warning">{{ t('groupCreate.targetConflict') }}</AppNotice>
+          <p>{{ t('groupCreate.appendHelp') }}</p>
+          <div v-for="group in conflicts" :key="group.id" class="modern-group-create-conflict-row">
+            <span>{{ group.name }}</span>
+            <AppButton size="sm" :disabled="operation.pending.value" @click="appendTo(group)">{{
+              t('groupCreate.append')
+            }}</AppButton>
+          </div>
+          <div class="modern-group-create-actions">
+            <AppButton size="sm" @click="editDraft">{{ t('groupCreate.editDraft') }}</AppButton>
+            <AppButton size="sm" variant="primary" @click="confirmSeparate">{{
+              t('groupCreate.createSeparate')
+            }}</AppButton>
+          </div>
+        </section>
+        <div v-else-if="unresolved" ref="errorBox" tabindex="-1">
+          <AppNotice tone="warning">
+            {{ t('groupCreate.outcome.' + outcome!.kind) }}
+            <template #actions>
+              <AppButton
+                v-if="outcome?.kind === 'expired' && outcome.groupID"
+                size="sm"
+                @click="emit('located', outcome.groupID!)"
+                >{{ t('groupCreate.viewGroup') }}</AppButton
+              >
+              <AppButton
+                v-else-if="outcome?.kind !== 'expired'"
+                size="sm"
+                :disabled="!operation.canRetry.value"
+                @click="execute"
+                >{{ t('groupCreate.checkResult') }}</AppButton
               >
             </template>
-          </AppSearchSelect>
-          <AppTextField
-            ref="nameInput"
-            v-model="name"
-            :label="t('groups.edit.name')"
-            :placeholder="t('groupCreate.autoName')"
-            autocomplete="off"
-            :disabled="inputLocked"
-            :error="attempted ? nameError : undefined"
-          />
-          <template v-if="channel">
-            <AppTextField
-              v-for="field in channel.fields"
-              :key="field.key"
-              :ref="(element) => paramRef(field.key, element)"
-              :model-value="params[field.key] ?? ''"
-              :label="field.key === 'base_url' ? t('groupCreate.baseURL') : field.label"
-              :type="
-                (field.sensitive || field.inputKind === 'secret') && !secretsVisible.has(field.key)
-                  ? 'password'
-                  : 'text'
-              "
-              :placeholder="
-                field.defaultValue || (field.inputKind === 'url' ? 'https://' : undefined)
-              "
-              :disabled="inputLocked"
-              :error="attempted ? paramErrors[field.key] : undefined"
-              autocomplete="off"
-              spellcheck="false"
-              @update:model-value="params[field.key] = $event"
-            >
-              <template v-if="field.sensitive || field.inputKind === 'secret'" #suffix>
-                <AppIconButton
-                  :icon="secretsVisible.has(field.key) ? EyeOff : Eye"
-                  :label="
-                    t(
-                      secretsVisible.has(field.key)
-                        ? 'groupCreate.hideSecret'
-                        : 'groupCreate.showSecret',
-                    )
-                  "
-                  size="xs"
-                  @click="toggleSecret(field.key)"
-                />
-              </template>
-            </AppTextField>
-            <AppTextArea
-              v-if="!subscription"
-              ref="credentialInput"
-              v-model="credentials"
-              :label="t('groupCreate.credentials')"
-              :description="
-                t(structured ? 'groupCreate.structuredHelp' : 'groupCreate.credentialsHelp')
-              "
-              :placeholder="credentialPlaceholder"
-              :rows="6"
-              mono
-              autocomplete="off"
-              spellcheck="false"
-              :disabled="inputLocked"
-              :error="attempted ? credentialError : undefined"
-            />
-            <p v-if="!subscription" class="modern-group-create-count">
-              {{ t('groupCreate.credentialCount', { count: n(count) }) }}
-            </p>
-            <SubscriptionCredentialStager
-              v-else
-              :key="channel.id"
-              ref="stager"
-              v-model="stages"
-              :channel="channel"
-              :proxy="proxyOverride"
-              :disabled="locked || discovering"
-              :entry-disabled="Boolean(proxyError) || Object.keys(paramErrors).length > 0"
-              :error="attempted ? credentialError : undefined"
-              @busy="stagingBusy = $event"
-              @dirty="stagingDirty = $event"
-            />
-            <GroupModelPicker
-              ref="modelPicker"
-              v-model="models"
-              :connection-revision="connectionRevision"
-              :candidates="candidates"
-              :loading="discoveryFeedback"
-              :discovery-supported="channel.discovery"
-              :can-discover="validConnection()"
-              :discovery-error="discoveryError"
-              :disabled="inputLocked"
-              :attempted="attempted"
-              @discover="discover"
-              @cancel-discovery="cancelDiscovery"
-            />
-            <details
-              class="modern-group-create-advanced"
-              :open="advanced"
-              @toggle="advanced = ($event.target as HTMLDetailsElement).open"
-            >
-              <summary>
-                <AppIcon :icon="ChevronDown" size="sm" />{{ t('groupCreate.moreSettings') }}
-              </summary>
-              <div class="modern-group-create-options">
-                <AppTextField
-                  ref="priceInput"
-                  v-model="price"
-                  :label="t('groups.edit.price')"
-                  inputmode="decimal"
-                  :disabled="inputLocked"
-                  :error="attempted ? priceError : undefined"
-                />
-                <AppSegmentedField
-                  v-if="channel.proxy"
-                  v-model="proxyMode"
-                  :label="t('groupCreate.proxy')"
-                  :options="proxyOptions"
-                  :disabled="inputLocked || stages.length > 0"
-                  :description="stages.length ? t('subscriptions.proxyLocked') : undefined"
-                />
-                <AppTextField
-                  v-if="channel.proxy && proxyMode === 'custom'"
-                  ref="proxyInput"
-                  v-model="proxyURL"
-                  :label="t('groupCreate.proxyURL')"
-                  :disabled="inputLocked || stages.length > 0"
-                  :error="attempted ? proxyError : undefined"
-                  placeholder="http://127.0.0.1:7890"
-                  autocomplete="off"
-                  spellcheck="false"
-                />
-              </div>
-            </details>
-          </template>
-          <div v-if="errorText" ref="errorBox" tabindex="-1">
-            <AppNotice tone="danger">{{ errorText }}</AppNotice>
-          </div>
-          <section
-            v-if="conflicts.length"
-            ref="errorBox"
-            class="modern-group-create-conflict"
-            tabindex="-1"
-          >
-            <AppNotice tone="warning">{{ t('groupCreate.targetConflict') }}</AppNotice>
-            <p>{{ t('groupCreate.appendHelp') }}</p>
-            <div
-              v-for="group in conflicts"
-              :key="group.id"
-              class="modern-group-create-conflict-row"
-            >
-              <span>{{ group.name }}</span>
-              <AppButton size="sm" :disabled="operation.pending.value" @click="appendTo(group)">{{
-                t('groupCreate.append')
-              }}</AppButton>
-            </div>
-            <div class="modern-group-create-actions">
-              <AppButton size="sm" @click="editDraft">{{ t('groupCreate.editDraft') }}</AppButton>
-              <AppButton size="sm" variant="primary" @click="confirmSeparate">{{
-                t('groupCreate.createSeparate')
-              }}</AppButton>
-            </div>
-          </section>
-          <div v-else-if="unresolved" ref="errorBox" tabindex="-1">
-            <AppNotice tone="warning">
-              {{ t('groupCreate.outcome.' + outcome!.kind) }}
-              <template #actions>
-                <AppButton
-                  v-if="outcome?.kind === 'expired' && outcome.groupID"
-                  size="sm"
-                  @click="emit('located', outcome.groupID!)"
-                  >{{ t('groupCreate.viewGroup') }}</AppButton
-                >
-                <AppButton
-                  v-else-if="outcome?.kind !== 'expired'"
-                  size="sm"
-                  :disabled="!operation.canRetry.value"
-                  @click="execute"
-                  >{{ t('groupCreate.checkResult') }}</AppButton
-                >
-              </template>
-            </AppNotice>
-          </div>
+          </AppNotice>
         </div>
-        <footer class="modern-group-create-footer">
-          <span v-if="channel">{{
-            authorizationPending
-              ? t('subscriptions.finishAuthorization')
-              : t(subscription ? 'subscriptions.createSummary' : 'groupCreate.summary', {
-                  credentials: n(count),
-                  models: n(models.length),
-                })
-          }}</span>
-          <div class="modern-group-create-actions">
-            <AppButton :disabled="busy" @click="close">{{ t('ui.cancel') }}</AppButton>
-            <AppButton
-              type="submit"
-              variant="primary"
-              :loading="operation.pending.value"
-              :disabled="inputLocked || !channels.length || authorizationPending"
-              >{{ t('groups.create') }}</AppButton
-            >
-          </div>
-        </footer>
-      </form>
-    </AppDialogContent>
-  </DialogRoot>
+      </div>
+      <footer class="modern-group-create-footer">
+        <span v-if="channel">{{
+          authorizationPending
+            ? t('subscriptions.finishAuthorization')
+            : t(subscription ? 'subscriptions.createSummary' : 'groupCreate.summary', {
+                credentials: n(count),
+                models: n(models.length),
+              })
+        }}</span>
+        <div class="modern-group-create-actions">
+          <AppButton :disabled="busy" @click="close">{{ t('ui.cancel') }}</AppButton>
+          <AppButton
+            type="submit"
+            variant="primary"
+            :loading="operation.pending.value"
+            :disabled="inputLocked || !channels.length || authorizationPending"
+            >{{ t('groups.create') }}</AppButton
+          >
+        </div>
+      </footer>
+    </form>
+  </GroupEditorSurface>
   <AppConfirmDialog
     :open="Boolean(confirmAction)"
     :title="t(confirmAction === 'channel' ? 'groupCreate.changeChannel' : 'groups.edit.unsaved')"

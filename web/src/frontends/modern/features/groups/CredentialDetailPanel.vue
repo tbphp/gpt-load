@@ -2,6 +2,7 @@
 import { Info } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
+import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import {
   credentialDetailKey,
@@ -16,7 +17,6 @@ import {
   AppButton,
   AppCollectionState,
   AppIcon,
-  AppNotice,
   AppOverflowText,
   AppSegmentedField,
   AppTextField,
@@ -45,11 +45,13 @@ const weight = ref('')
 const proxyMode = ref('inherit')
 const proxyURL = ref('')
 const saving = ref(false)
+const completed = ref(false)
 const attempted = ref(false)
 const error = ref('')
 const controller = new AbortController()
 const dirty = computed(
   () =>
+    !completed.value &&
     Boolean(saved.value) &&
     (weight.value !== String(saved.value!.weightManual ?? '') ||
       proxyMode.value !== saved.value!.proxy.mode ||
@@ -117,6 +119,7 @@ async function save(): Promise<void> {
       controller.signal,
     )
     if (controller.signal.aborted) return
+    completed.value = true
     emit('saved', result)
     emit('close')
   } catch {
@@ -126,6 +129,16 @@ async function save(): Promise<void> {
   }
 }
 onScopeDispose(() => controller.abort())
+useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : undefined))
+useMessageSource(() =>
+  query.isError.value && saved.value
+    ? {
+        text: t('groupDetail.refreshFailed'),
+        tone: 'warning',
+        action: { label: t('ui.retry'), run: () => query.refetch() },
+      }
+    : undefined,
+)
 </script>
 <template>
   <GroupWorkspacePanel
@@ -139,7 +152,6 @@ onScopeDispose(() => controller.abort())
     @close="emit('close')"
     @save="save"
   >
-    <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
     <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
     <AppCollectionState
       v-else-if="query.isError.value && !saved"
@@ -152,9 +164,6 @@ onScopeDispose(() => controller.abort())
         v-if="item.observation?.windows.length"
         :windows="item.observation.windows"
       />
-      <AppNotice v-if="query.isError.value" tone="warning">{{
-        t('groupDetail.refreshFailed')
-      }}</AppNotice>
       <section class="modern-credential-detail-section">
         <div class="modern-credential-detail-title">
           <h3>{{ t('credentialCards.runtime') }}</h3>
