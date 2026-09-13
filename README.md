@@ -154,6 +154,8 @@ Rerank uses the independent `rerank` protocol through `POST /v1/rerank` on the O
 - **Subscription** — Codex, Claude, Antigravity, Grok
 - **Custom** — OpenAI Compatible (any compatible relay)
 
+Within a group, Codex credentials are deduplicated by workspace and user IDs, and Claude credentials by account and organization IDs. Email is not used for identity. Missing identity metadata retains the previous single-field rule. This fix does not migrate existing credential identities; reimporting or reauthorizing an existing account after upgrading may create another record.
+
 ## Deployment and data
 
 Docker Compose uses application-managed SQLite by default. Data lives in the `gpt-load-data` named volume and includes the database, `auth.key`, and `encryption.key`.

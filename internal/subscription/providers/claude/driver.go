@@ -58,6 +58,19 @@ func (*claudeDriver) Refresh(ctx context.Context, current subscriptionruntime.Cr
 	return claudeRuntimeCredential(refreshed, canonical), nil
 }
 
+func (*claudeDriver) MatchesRefreshIdentity(current, refreshed subscriptionruntime.Credential) bool {
+	before, err := ParseCredentialJSON(current.Canonical())
+	if err != nil {
+		return false
+	}
+	after, err := ParseCredentialJSON(refreshed.Canonical())
+	if err != nil || before.AccountUUID != after.AccountUUID {
+		return false
+	}
+	return before.OrganizationUUID == "" || after.OrganizationUUID == "" ||
+		before.OrganizationUUID == after.OrganizationUUID
+}
+
 func (*claudeDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailureDecision {
 	var tokenErr *TokenEndpointError
 	if errors.Is(err, ErrCredentialIdentityChanged) ||
@@ -214,7 +227,7 @@ func claudeRuntimeCredential(value Credential, canonical []byte) subscriptionrun
 	}
 	return subscriptionruntime.NewCredential(
 		canonical,
-		strings.TrimSpace(value.AccountUUID),
+		credentialIdentity(value),
 		account,
 		expiresAt,
 		expires,
@@ -223,3 +236,11 @@ func claudeRuntimeCredential(value Credential, canonical []byte) subscriptionrun
 }
 
 var _ subscriptionruntime.BrowserAuthorizationDriver = (*claudeDriver)(nil)
+
+func credentialIdentity(value Credential) string {
+	accountID := strings.TrimSpace(value.AccountUUID)
+	if organizationID := strings.TrimSpace(value.OrganizationUUID); organizationID != "" {
+		return accountID + "/" + organizationID
+	}
+	return accountID
+}
