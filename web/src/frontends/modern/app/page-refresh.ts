@@ -25,16 +25,18 @@ const pageRefreshKey: InjectionKey<ShallowRef<PageRefreshSource | undefined>> =
 export function providePageRefresh() {
   const source = shallowRef<PageRefreshSource | undefined>()
   const running = ref(false)
-  const pending = useLoadingFeedback(
-    () => running.value || (toValue(source.value?.pending) ?? false),
-  )
+  const busy = computed(() => running.value || (toValue(source.value?.pending) ?? false))
+  // 刷新按钮只为手动整页刷新转动，局部请求仅用于防止重复刷新。
+  const pending = useLoadingFeedback(running)
   provide(pageRefreshKey, source)
   return {
     available: computed(() => source.value !== undefined),
+    busy,
+    running: computed(() => running.value),
     pending,
     updatedAt: computed(() => toValue(source.value?.updatedAt)),
     run: async () => {
-      if (running.value || !source.value) return
+      if (busy.value || !source.value) return
       running.value = true
       try {
         await source.value.refresh()

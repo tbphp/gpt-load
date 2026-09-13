@@ -11,7 +11,7 @@ import {
 } from '@lucide/vue'
 import { DialogClose, DialogRoot, DialogTrigger } from 'reka-ui'
 import { useIsFetching } from '@tanstack/vue-query'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
 import { desktopMediaQuery } from '@modern/app/breakpoints'
@@ -58,14 +58,39 @@ const pageRefresh = providePageRefresh()
 const fetching = useIsFetching()
 const localActivity = provideLoadingActivity()
 const navigating = ref(false)
+const loadingPage = ref(true)
 let navigationTarget: string | undefined
-const pageLoading = useLoadingFeedback(
-  () => navigating.value || pageRefresh.pending.value || fetching.value > 0 || localActivity.value,
+const contentPending = computed(
+  () => pageRefresh.busy.value || fetching.value > 0 || localActivity.value,
 )
-const removeBeforeEach = router.beforeEach((to) => {
+const pageLoading = useLoadingFeedback(
+  () => navigating.value || loadingPage.value || pageRefresh.running.value,
+)
+const removeBeforeEach = router.beforeEach((to, from) => {
   navigationTarget = to.fullPath
-  navigating.value = true
+  // query/hash 是页内状态，只有路径变化才作为页面导航。
+  navigating.value = to.path !== from.path
 })
+watch(
+  () => route.path,
+  () => {
+    loadingPage.value = true
+  },
+  { flush: 'sync' },
+)
+watch(
+  [navigating, contentPending, () => route.path],
+  async ([navigationPending, requestsPending]) => {
+    if (navigationPending || requestsPending) return
+    const path = route.path
+    // 等待新页面挂载并登记请求；首轮加载完成后，局部请求不再点亮顶部进度条。
+    await nextTick()
+    if (route.path === path && !navigating.value && !contentPending.value) {
+      loadingPage.value = false
+    }
+  },
+  { immediate: true, flush: 'post' },
+)
 const refreshedAt = computed(() =>
   pageRefresh.updatedAt.value === undefined
     ? ''
@@ -178,6 +203,7 @@ useMessageSource(() =>
             :icon="RefreshCw"
             :label="t('shell.refresh')"
             :loading="pageRefresh.pending.value"
+            :disabled="pageRefresh.busy.value"
             @click="pageRefresh.run()"
           />
         </div>
