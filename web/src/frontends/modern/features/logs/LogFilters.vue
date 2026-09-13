@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronUp, ListFilter } from '@lucide/vue'
+import { ChevronDown, ChevronUp } from '@lucide/vue'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LogAccessKeyOption, LogFilterName, LogQuery } from '@modern/api/logs'
@@ -314,13 +314,6 @@ const loadCredentials = computed(() => {
           >{{ t('logs.moreFilters') }}</AppButton
         >
         <slot name="actions" />
-        <AppButton
-          variant="primary"
-          :icon="ListFilter"
-          :disabled="pending || Boolean(Object.keys(errors).length)"
-          @click="apply"
-          >{{ t('logs.applyFilters') }}</AppButton
-        >
       </div>
     </div>
     <div v-show="more" id="modern-log-more-filters" class="modern-log-advanced-filters">

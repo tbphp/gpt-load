@@ -301,6 +301,7 @@ useMessageSource(() =>
             :key="cell.id"
             role="columnheader"
             class="modern-log-column-heading"
+            :class="{ 'is-numeric': cell.numeric }"
           >
             <AppOverflowText
               :text="
@@ -340,10 +341,17 @@ useMessageSource(() =>
         class="modern-log-row modern-log-record"
         :class="{ 'is-selected': state.detail === row.request_id }"
       >
-        <div v-for="cell in columns.cells.value" :key="cell.id" role="cell" class="modern-log-cell">
+        <div
+          v-for="cell in columns.cells.value"
+          :key="cell.id"
+          role="cell"
+          class="modern-log-cell"
+          :class="{ 'is-numeric': cell.numeric }"
+        >
           <LogTableCell
             :row="row"
             :fields="cell.fields"
+            :peer="cell.peer"
             :groups="groupMap"
             :channels="channelMap"
             @open="showDetail(row.request_id)"
@@ -435,19 +443,20 @@ useMessageSource(() =>
   display: grid;
   grid-template-columns: var(--modern-log-columns);
   align-items: center;
-  column-gap: var(--modern-space-4);
+  column-gap: var(--modern-space-3);
   min-width: var(--modern-log-width);
-  padding-inline: var(--modern-space-3);
+  padding-left: var(--modern-space-3);
   text-align: left;
 }
 .modern-log-table-head {
   --modern-log-row-surface: var(--modern-subtle);
-  min-height: var(--modern-control-nav);
+  min-height: var(--modern-control-sm);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-log-row-surface);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
+  color: var(--modern-control-placeholder);
+  font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-medium);
+  letter-spacing: var(--modern-tracking-label);
 }
 .modern-log-column-heading {
   display: flex;
@@ -457,7 +466,7 @@ useMessageSource(() =>
 }
 .modern-log-record {
   --modern-log-row-surface: var(--modern-surface);
-  min-height: calc(var(--modern-space-12) + var(--modern-space-4));
+  min-height: calc(var(--modern-space-12) + var(--modern-space-1));
   padding-block: var(--modern-space-2);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-log-row-surface);
@@ -482,10 +491,21 @@ useMessageSource(() =>
 .modern-log-cell {
   min-width: 0;
 }
+/* 数字按位比较，列与表头一起右对齐。 */
+.modern-log-cell.is-numeric {
+  justify-items: end;
+  text-align: right;
+}
+.modern-log-cell.is-numeric :deep(.modern-log-cell-stack) {
+  justify-items: end;
+}
+.modern-log-column-heading.is-numeric {
+  justify-content: flex-end;
+}
 .modern-log-row-action {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   align-self: stretch;
   position: sticky;
   right: 0;

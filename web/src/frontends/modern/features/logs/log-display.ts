@@ -7,7 +7,7 @@ export const logStatusTone: Record<LogEntry['status'], SemanticTone> = {
   incomplete: 'warning',
   canceled: 'neutral',
 }
-export function logNumber(value: string | number, locale: string, compact = true): string {
+export function logNumber(value: string | number, locale: string, compact = false): string {
   return new Intl.NumberFormat(
     locale,
     compact ? { notation: 'compact', maximumFractionDigits: 1 } : {},
@@ -32,9 +32,10 @@ export function exactLogMoney(value: string): string {
 export function logDuration(ms: number | null, locale: string): string {
   if (ms === null) return '—'
   return (
-    new Intl.NumberFormat(locale, { maximumFractionDigits: ms < 1000 ? 0 : 2 }).format(
-      ms < 1000 ? ms : ms / 1000,
-    ) + (ms < 1000 ? ' ms' : ' s')
+    new Intl.NumberFormat(locale, {
+      minimumFractionDigits: ms < 1000 ? 0 : 1,
+      maximumFractionDigits: ms < 1000 ? 0 : 1,
+    }).format(ms < 1000 ? ms : ms / 1000) + (ms < 1000 ? ' ms' : ' s')
   )
 }
 export function logTime(ms: number, locale: string, full = false): string {

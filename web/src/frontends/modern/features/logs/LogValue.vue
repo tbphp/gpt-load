@@ -96,18 +96,17 @@ const display = computed(() => {
       return n(Math.max(0, row.attempt_count - 1))
     case 'status_code':
       return row.status_code ? String(row.status_code) : '—'
-    case 'reasoning_mode':
-      return valueName(row.reasoning?.mode)
-    case 'reasoning_effort':
-      return valueName(row.reasoning?.effort)
-    case 'reasoning_budget':
-      return row.reasoning?.budget_tokens === '-1'
-        ? t('logs.values.auto')
-        : row.reasoning?.budget_tokens === '0'
-          ? t('logs.values.disabled')
-          : row.reasoning?.budget_tokens
-            ? logNumber(row.reasoning.budget_tokens, locale.value)
-            : '—'
+    case 'reasoning_mode': {
+      // 三者很少同时出现，按 强度 > 预算 > 开关 取其一；等级保留上游原值（low / high…）。
+      const reasoning = row.reasoning
+      if (!reasoning) return '—'
+      if (reasoning.effort) return reasoning.effort
+      if (reasoning.budget_tokens && reasoning.budget_tokens !== '0')
+        return reasoning.budget_tokens === '-1'
+          ? t('logs.values.auto')
+          : logNumber(reasoning.budget_tokens, locale.value)
+      return reasoning.mode || '—'
+    }
     case 'cache_hit_rate': {
       const rate = logCacheRate(row)
       return logHasUsage(row) && rate !== null ? n(rate, { maximumFractionDigits: 1 }) + '%' : '—'
@@ -145,11 +144,6 @@ const deleted = computed(() => {
 })
 const hint = computed(() => {
   const row = props.row
-  if (tokenValue.value !== undefined)
-    return logHasUsage(row)
-      ? `${logNumber(tokenValue.value, locale.value, false)} · ${valueName(row.usage_state)}`
-      : valueName(row.usage_state)
-  if (props.column === 'completed_at_ms') return logTime(row.completed_at_ms, locale.value, true)
   if (props.column === 'estimated_cost_nano_usd')
     return row.cost_state === 'priced'
       ? `${exactLogMoney(row.estimated_cost_nano_usd)} · ${valueName(row.pricing_completeness)}`
@@ -246,23 +240,27 @@ const hint = computed(() => {
   min-width: 0;
 }
 .modern-log-status-badge {
-  font-size: inherit;
+  font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-medium);
   padding-inline: var(--modern-space-1-5);
 }
+/* 每行都相同的值不需要描边和底色，降成一行小字。 */
 .modern-log-protocol {
   max-width: 100%;
-  min-height: var(--modern-badge-xs);
-  background: var(--modern-subtle);
-  border-color: var(--modern-border);
-  color: var(--modern-muted);
-  padding: 0 var(--modern-space-1-5);
-  font-size: inherit;
+  min-height: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--modern-control-placeholder);
+  padding: 0;
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-regular);
+  letter-spacing: var(--modern-tracking-label);
 }
 .modern-log-http {
-  color: var(--modern-muted);
-  font-size: inherit;
+  color: var(--modern-control-placeholder);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-caption);
   font-variant-numeric: tabular-nums;
 }
 .modern-log-http.is-failure {
@@ -283,9 +281,13 @@ const hint = computed(() => {
   font-variant-numeric: tabular-nums;
 }
 .modern-log-number {
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-small);
   font-variant-numeric: tabular-nums;
 }
 .modern-log-amount {
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-small);
   font-weight: var(--modern-weight-medium);
   font-variant-numeric: tabular-nums;
 }

@@ -6,7 +6,7 @@ import {
   TooltipTrigger,
   useForwardExpose,
 } from 'reka-ui'
-import { getCurrentInstance, ref, watch } from 'vue'
+import { computed, getCurrentInstance, ref, watch } from 'vue'
 import { overlaySideOffset, tooltipDelay } from './overlay'
 
 defineOptions({ inheritAttrs: false })
@@ -21,7 +21,7 @@ const instance = getCurrentInstance()
 
 // Tooltip 的浮层使根节点成为 Fragment；把单根组件链的 scoped 样式传给真实触发元素。
 // 只沿根节点向上传递，避免将页面样式作用域扩散到无关的祖先或浮层。
-function triggerScopeAttrs(): Record<string, string> {
+const triggerScopeAttrs = computed(() => {
   const attrs: Record<string, string> = {}
   let owner = instance
   while (owner) {
@@ -30,7 +30,7 @@ function triggerScopeAttrs(): Record<string, string> {
     owner = owner.parent
   }
   return attrs
-}
+})
 watch(
   () => props.disabled || !props.label,
   (disabled) => {
@@ -46,7 +46,7 @@ watch(
     :delay-duration="tooltipDelay"
     ignore-non-keyboard-focus
   >
-    <TooltipTrigger :ref="forwardRef" v-bind="{ ...triggerScopeAttrs(), ...$attrs }" as-child
+    <TooltipTrigger :ref="forwardRef" v-bind="{ ...triggerScopeAttrs, ...$attrs }" as-child
       ><slot
     /></TooltipTrigger>
     <TooltipPortal v-if="open && label && !disabled">

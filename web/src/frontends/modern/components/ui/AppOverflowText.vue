@@ -1,38 +1,45 @@
 <script setup lang="ts">
 import AppTooltip from './AppTooltip.vue'
-import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
+import { observeOverflow } from './overflow-observer'
 
 defineOptions({ inheritAttrs: false })
 const props = defineProps<{ text: string; fullText?: string }>()
 const element = ref<HTMLElement>()
 const overflow = ref(false)
-let observer: ResizeObserver | undefined
+let unobserve: (() => void) | undefined
 function measure(): void {
   overflow.value = Boolean(element.value && element.value.scrollWidth > element.value.clientWidth)
 }
-const tooltip = computed(() =>
-  overflow.value || (props.fullText && props.fullText !== props.text)
-    ? (props.fullText ?? props.text)
-    : undefined,
+// 只有文字被省略时才提示，避免每个字段都挂 tooltip。
+const tooltip = computed(() => (overflow.value ? (props.fullText ?? props.text) : undefined))
+watch(
+  element,
+  (node) => {
+    unobserve?.()
+    unobserve = undefined
+    if (!node) return
+    unobserve = observeOverflow(node, measure)
+    measure()
+  },
+  { immediate: true, flush: 'post' },
 )
-onMounted(() => {
-  observer = new ResizeObserver(measure)
-  if (element.value) observer.observe(element.value)
-  measure()
-})
 watch(
   () => [props.text, props.fullText],
   () => void nextTick(measure),
 )
-onScopeDispose(() => observer?.disconnect())
+onScopeDispose(() => unobserve?.())
 </script>
 
 <template>
-  <AppTooltip :label="tooltip">
+  <AppTooltip v-if="tooltip" :label="tooltip">
     <span ref="element" v-bind="$attrs" class="modern-overflow-text" @pointerenter="measure">{{
       text
     }}</span>
   </AppTooltip>
+  <span v-else ref="element" v-bind="$attrs" class="modern-overflow-text" @pointerenter="measure">{{
+    text
+  }}</span>
 </template>
 
 <style scoped>

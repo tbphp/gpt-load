@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { LoaderCircle } from '@lucide/vue'
-import { nextTick, onMounted, onScopeDispose, onUpdated, ref, watch } from 'vue'
+import { onMounted, onUpdated, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from './AppIcon.vue'
 import { useLoadingFeedback } from './loading'
@@ -14,10 +14,7 @@ const props = defineProps<{
 }>()
 const { t } = useI18n()
 const scroller = ref<HTMLElement>()
-const header = ref<HTMLElement>()
-const scrollbarWidth = ref(0)
 const busy = useLoadingFeedback(() => Boolean(props.loading))
-let observer: ResizeObserver | undefined
 let restoreTo = readListScroll(props.scrollKey)
 function restoreScroll(): void {
   if (restoreTo === undefined || props.loading || !scroller.value) return
@@ -25,24 +22,11 @@ function restoreScroll(): void {
   restoreTo = undefined
 }
 function onScroll(): void {
-  synchronize()
   if (restoreTo === undefined && scroller.value)
     saveListScroll(props.scrollKey, scroller.value.scrollTop)
 }
-function synchronize(): void {
-  if (!scroller.value) return
-  scrollbarWidth.value = scroller.value.offsetWidth - scroller.value.clientWidth
-  if (header.value) header.value.scrollLeft = scroller.value.scrollLeft
-}
-onMounted(() => {
-  observer = new ResizeObserver(synchronize)
-  if (scroller.value) observer.observe(scroller.value)
-  synchronize()
-  restoreScroll()
-})
+onMounted(restoreScroll)
 onUpdated(restoreScroll)
-onScopeDispose(() => observer?.disconnect())
-watch(scrollbarWidth, () => void nextTick(synchronize))
 defineExpose({
   scrollToTop: () => {
     restoreTo = undefined
@@ -58,13 +42,6 @@ defineExpose({
     :class="{ 'modern-list-frame--flow': flow }"
     :aria-label="label"
   >
-    <div
-      v-if="$slots.header"
-      class="modern-list-header"
-      :style="{ paddingRight: scrollbarWidth + 'px' }"
-    >
-      <div ref="header" class="modern-list-header-track"><slot name="header" /></div>
-    </div>
     <div class="modern-list-body">
       <div
         ref="scroller"
@@ -75,6 +52,7 @@ defineExpose({
         tabindex="0"
         @scroll="onScroll"
       >
+        <div v-if="$slots.header" class="modern-list-header"><slot name="header" /></div>
         <slot />
       </div>
       <div v-if="busy" class="modern-list-loading" role="status">
@@ -94,12 +72,12 @@ defineExpose({
   flex-direction: column;
   text-align: left;
 }
+/* 表头与内容同属一个滚动容器：横向滚动天然同步，纵向滚动时吸顶。
+   宽度交给插槽内容自己决定，避免与数据行用不同算法而错位。 */
 .modern-list-header {
-  min-width: 0;
-  flex: none;
-}
-.modern-list-header-track {
-  overflow: hidden;
+  position: sticky;
+  z-index: var(--modern-layer-raised);
+  top: 0;
 }
 .modern-list-body {
   position: relative;
@@ -125,9 +103,11 @@ defineExpose({
   display: block;
   flex: none;
 }
-.modern-list-frame--flow .modern-list-scroll,
-.modern-list-frame--flow .modern-list-header-track {
+.modern-list-frame--flow .modern-list-scroll {
   overflow: visible;
+}
+.modern-list-frame--flow .modern-list-header {
+  position: static;
 }
 .modern-list-loading {
   position: absolute;

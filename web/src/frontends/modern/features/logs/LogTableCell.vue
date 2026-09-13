@@ -13,6 +13,7 @@ import LogValue from './LogValue.vue'
 const props = defineProps<{
   row: LogEntry
   fields: readonly LogColumnId[]
+  peer?: boolean
   groups: ReadonlyMap<number, GroupRow>
   channels: ReadonlyMap<string, GroupChannel>
 }>()
@@ -52,29 +53,28 @@ const date = computed(() =>
     day: '2-digit',
   }).format(props.row.completed_at_ms),
 )
-const labeledFields: readonly LogColumnId[] = [
-  'stream',
-  'attempt_count',
-  'first_response_ms',
-  'duration_ms',
-  'input_tokens',
-  'output_tokens',
-]
 function identityIcon(field: LogColumnId) {
   return field === 'credential_name' ? UserRound : field === 'access_key' ? KeyRound : undefined
 }
 </script>
 
 <template>
-  <AppButton
-    v-if="fields[0] === 'completed_at_ms'"
-    variant="text"
-    class="modern-log-time"
-    @click="$emit('open')"
-  >
-    <AppOverflowText :text="clock" :full-text="logTime(row.completed_at_ms, locale, true)" />
-    <span>{{ date }}</span>
-  </AppButton>
+  <div v-if="fields[0] === 'completed_at_ms'" class="modern-log-cell-stack">
+    <AppButton variant="text" class="modern-log-time" @click="$emit('open')">
+      <AppOverflowText :text="clock" :full-text="logTime(row.completed_at_ms, locale, true)" />
+    </AppButton>
+    <div class="modern-log-cell-value is-secondary">
+      <LogValue
+        v-if="paired"
+        :row="row"
+        column="request_id"
+        :groups="groups"
+        :channels="channels"
+        table
+      />
+      <span v-else>{{ date }}</span>
+    </div>
+  </div>
   <div v-else-if="routing" class="modern-log-routing-cell">
     <div v-if="channelIdentity" class="modern-log-routing-mark">
       <AppChannelIcon
@@ -104,21 +104,12 @@ function identityIcon(field: LogColumnId) {
       </div>
     </div>
   </div>
-  <div
-    v-else
-    class="modern-log-cell-stack"
-    :class="{
-      'is-paired': paired,
-      'has-labels': paired && fields.some((field) => labeledFields.includes(field)),
-    }"
-  >
-    <template v-for="field in fields" :key="field">
-      <span v-if="paired && labeledFields.includes(field)" class="modern-log-cell-label">{{
-        t('logs.shortColumns.' + field)
-      }}</span>
+  <div v-else class="modern-log-cell-stack" :class="{ 'is-paired': paired }">
+    <template v-for="(field, index) in fields" :key="field">
       <div
         class="modern-log-cell-value"
         :class="{
+          'is-secondary': paired && index > 0 && !peer,
           'is-model': ['client_model', 'upstream_model', 'upstream_reported_model'].includes(field),
           'is-protocol': field === 'protocol' || field === 'upstream_protocol',
         }"
@@ -139,42 +130,33 @@ function identityIcon(field: LogColumnId) {
 <style scoped>
 .modern-log-time {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: var(--modern-space-1);
+  align-items: center;
+  justify-content: flex-start;
   max-width: 100%;
   font-size: inherit;
   line-height: var(--modern-leading-compact);
   font-variant-numeric: tabular-nums;
 }
-.modern-log-time > :first-child {
+.modern-log-time {
   color: var(--modern-text);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-small);
   font-weight: var(--modern-weight-medium);
 }
-.modern-log-time > :last-child {
-  color: var(--modern-muted);
-  font-weight: var(--modern-weight-regular);
-}
-.modern-log-time:hover > :first-child {
+.modern-log-time:hover {
   color: var(--modern-accent);
 }
 .modern-log-cell-stack,
 .modern-log-routing-lines {
   display: grid;
   min-width: 0;
-  gap: var(--modern-space-1-5);
+  gap: var(--modern-space-0-5);
   align-content: center;
 }
-.modern-log-cell-stack.has-labels {
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
-  gap: var(--modern-space-1-5) var(--modern-space-2);
-}
-.modern-log-cell-label {
-  color: var(--modern-muted);
-  font-size: inherit;
-  line-height: var(--modern-leading-compact);
+/* 配对单元格的第二行是附属信息，降一档字号与色阶。 */
+.modern-log-cell-value.is-secondary {
+  color: var(--modern-control-placeholder);
+  font-size: var(--modern-font-size-caption);
 }
 .modern-log-cell-value {
   display: flex;
@@ -189,7 +171,13 @@ function identityIcon(field: LogColumnId) {
   min-width: 0;
 }
 .modern-log-cell-value.is-model {
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-small);
   font-weight: var(--modern-weight-medium);
+}
+.modern-log-cell-value.is-secondary.is-model {
+  font-size: var(--modern-font-size-caption);
+  font-weight: var(--modern-weight-regular);
 }
 .modern-log-identity-icon {
   color: var(--modern-muted);
@@ -205,8 +193,8 @@ function identityIcon(field: LogColumnId) {
   align-items: center;
   justify-content: center;
   flex: none;
-  width: var(--modern-control-sm);
-  height: var(--modern-control-sm);
+  width: var(--modern-control-xxs);
+  height: var(--modern-control-xxs);
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-control);
   background: var(--modern-surface);
@@ -215,6 +203,7 @@ function identityIcon(field: LogColumnId) {
   font-weight: var(--modern-weight-medium);
 }
 .modern-log-secondary-line {
-  color: var(--modern-muted);
+  color: var(--modern-control-placeholder);
+  font-size: var(--modern-font-size-caption);
 }
 </style>

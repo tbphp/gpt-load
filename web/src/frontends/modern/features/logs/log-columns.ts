@@ -53,50 +53,59 @@ export interface LogColumn {
   admin: boolean
   grow: number
 }
+// 表格列：细分缓存写入与两个完整性状态只在详情面板展示，不进表格与列选择器。
 const definitions: readonly [LogColumnId, number, LogColumnSection, boolean, boolean?, number?][] =
   [
-    ['completed_at_ms', 112, 'request', true],
-    ['request_id', 260, 'request', false],
-    ['client_model', 180, 'request', true, false, 2],
-    ['protocol', 176, 'request', true],
-    ['operation', 132, 'request', false],
+    ['completed_at_ms', 80, 'request', true],
+    ['request_id', 180, 'request', false],
+    ['client_model', 136, 'request', true, false, 2],
+    ['protocol', 116, 'request', true],
+    ['operation', 72, 'request', false],
     ['group', 120, 'routing', true, true, 1],
-    ['channel', 150, 'routing', true, true],
-    ['credential_name', 146, 'routing', true, true, 1],
-    ['access_key', 124, 'request', true, true, 1],
-    ['status', 82, 'request', true],
+    ['channel', 104, 'routing', true, true],
+    ['credential_name', 132, 'routing', true, true, 1],
+    ['access_key', 108, 'request', true, true, 1],
+    ['status', 68, 'request', true],
     ['status_code', 64, 'request', true],
-    ['stream', 60, 'request', true],
-    ['attempt_count', 62, 'routing', true, true],
-    ['first_response_ms', 76, 'performance', true],
-    ['duration_ms', 76, 'performance', true],
-    ['input_tokens', 86, 'tokens', true],
-    ['output_tokens', 86, 'tokens', true],
-    ['cache_read_tokens', 96, 'tokens', true],
-    ['estimated_cost_nano_usd', 100, 'billing', true],
-    ['upstream_model', 180, 'routing', false, true],
-    ['upstream_reported_model', 180, 'routing', false, true],
-    ['model_consistency', 108, 'routing', false, true],
-    ['upstream_protocol', 176, 'routing', false, true],
-    ['route_mode', 92, 'routing', false, true],
-    ['affinity_hit', 76, 'routing', false, true],
-    ['reasoning_mode', 110, 'request', false],
-    ['reasoning_effort', 98, 'request', false],
-    ['reasoning_budget', 100, 'request', false],
-    ['cache_hit_rate', 94, 'tokens', false],
-    ['cache_write_tokens', 92, 'tokens', false],
-    ['cache_write_5m_tokens', 112, 'tokens', false],
-    ['cache_write_1h_tokens', 112, 'tokens', false],
-    ['cache_write_unknown_tokens', 112, 'tokens', false],
-    ['total_tokens', 94, 'tokens', false],
-    ['usage_state', 100, 'tokens', false],
-    ['cost_state', 100, 'billing', false],
-    ['pricing_completeness', 110, 'billing', false],
-    ['pricing_mode', 140, 'billing', false],
-    ['context_threshold_tokens', 112, 'billing', false],
-    ['error_code', 168, 'request', false],
-    ['error_summary', 280, 'request', false, false, 2],
+    ['stream', 48, 'request', true],
+    ['attempt_count', 48, 'routing', true, true],
+    ['duration_ms', 64, 'performance', true],
+    ['first_response_ms', 56, 'performance', true],
+    ['input_tokens', 56, 'tokens', true],
+    ['output_tokens', 56, 'tokens', true],
+    ['estimated_cost_nano_usd', 76, 'billing', true],
+    ['cost_state', 56, 'billing', false],
+    ['cache_read_tokens', 60, 'tokens', false],
+    ['cache_hit_rate', 56, 'tokens', false],
+    ['cache_write_tokens', 60, 'tokens', false],
+    ['total_tokens', 56, 'tokens', false],
+    ['upstream_model', 136, 'routing', false, true],
+    ['upstream_protocol', 116, 'routing', false, true],
+    ['upstream_reported_model', 152, 'routing', false, true],
+    ['model_consistency', 56, 'routing', false, true],
+    ['route_mode', 56, 'routing', false, true],
+    ['affinity_hit', 48, 'routing', false, true],
+    ['reasoning_mode', 120, 'request', false],
+    ['pricing_mode', 64, 'billing', false],
+    ['context_threshold_tokens', 64, 'billing', false],
+    ['error_code', 132, 'request', false],
+    ['error_summary', 200, 'request', false, false, 2],
   ]
+// 右对齐并使用等宽数字的字段，便于按位比较。
+export const numericColumns: ReadonlySet<LogColumnId> = new Set([
+  'status_code',
+  'attempt_count',
+  'duration_ms',
+  'first_response_ms',
+  'input_tokens',
+  'output_tokens',
+  'cache_read_tokens',
+  'cache_hit_rate',
+  'cache_write_tokens',
+  'total_tokens',
+  'estimated_cost_nano_usd',
+  'context_threshold_tokens',
+])
 export const logColumns: readonly LogColumn[] = definitions.map(
   ([id, width, section, defaultVisible, admin, grow]) => ({
     id,
@@ -138,14 +147,34 @@ export function useLogColumns(admin: boolean) {
   )
   const visible = computed(() => available.filter((column) => selected.value.includes(column.id)))
   // 选择仍按字段保存，只有同时可见的相关字段才合并为双行。
+  // 每个字段都归入一组语义相近的搭档，避免非默认列各占一列。
+  // 两边同等重要的配对，第二行不降级为附属信息。
+  const peerPairs: ReadonlySet<string> = new Set([
+    'stream-attempt_count',
+    'duration_ms-first_response_ms',
+    'input_tokens-output_tokens',
+    'cache_read_tokens-cache_hit_rate',
+    'cache_write_tokens-total_tokens',
+    'route_mode-affinity_hit',
+    'pricing_mode-context_threshold_tokens',
+  ])
   const pairs: readonly (readonly [LogColumnId, LogColumnId, number])[] = [
-    ['client_model', 'protocol', 200],
-    ['group', 'channel', 160],
-    ['credential_name', 'access_key', 184],
-    ['status', 'status_code', 96],
-    ['stream', 'attempt_count', 88],
-    ['duration_ms', 'first_response_ms', 112],
-    ['input_tokens', 'output_tokens', 112],
+    ['completed_at_ms', 'request_id', 152],
+    ['client_model', 'protocol', 144],
+    ['group', 'channel', 148],
+    ['credential_name', 'access_key', 156],
+    ['status', 'status_code', 76],
+    ['stream', 'attempt_count', 64],
+    ['duration_ms', 'first_response_ms', 72],
+    ['input_tokens', 'output_tokens', 68],
+    ['cache_read_tokens', 'cache_hit_rate', 68],
+    ['cache_write_tokens', 'total_tokens', 68],
+    ['estimated_cost_nano_usd', 'cost_state', 84],
+    ['pricing_mode', 'context_threshold_tokens', 80],
+    ['upstream_model', 'upstream_protocol', 144],
+    ['upstream_reported_model', 'model_consistency', 152],
+    ['route_mode', 'affinity_hit', 64],
+    ['error_code', 'error_summary', 200],
   ]
   const cells = computed(() => {
     const consumed = new Set<LogColumnId>()
@@ -159,7 +188,16 @@ export function useLogColumns(admin: boolean) {
       )
       const fields = pair ? [pair[0], pair[1]] : [column.id]
       fields.forEach((id) => consumed.add(id))
-      return [{ id: fields.join('-'), fields, width: pair?.[2] ?? column.width, grow: column.grow }]
+      return [
+        {
+          id: fields.join('-'),
+          fields,
+          width: pair?.[2] ?? column.width,
+          grow: column.grow,
+          numeric: fields.every((field) => numericColumns.has(field)),
+          peer: peerPairs.has(fields.join('-')),
+        },
+      ]
     })
   })
   const style = computed(() => {
@@ -173,7 +211,7 @@ export function useLogColumns(admin: boolean) {
         ),
         'var(--modern-log-action-width)',
       ].join(' '),
-      '--modern-log-width': `calc(${cells.value.reduce((width, cell) => width + cell.width + 16, 24)}px + var(--modern-log-action-width))`,
+      '--modern-log-width': `calc(${cells.value.reduce((width, cell) => width + cell.width + 12, 12)}px + var(--modern-log-action-width))`,
     }
   })
   function toggle(id: LogColumnId, checked: boolean): void {
