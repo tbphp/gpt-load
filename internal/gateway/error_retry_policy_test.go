@@ -154,3 +154,65 @@ func TestUnknownFirstStreamErrorRetriesBeforeOutput(t *testing.T) {
 		t.Fatalf("status=%d attempts=%v body=%s", response.Code, attempts, response.Body.String())
 	}
 }
+
+func TestConvertedStreamHTTPErrorRetriesBeforeOutput(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		status       int
+		partial      bool
+		wantAttempts string
+	}{
+		{name: "server error skips failed group", status: 503, wantAttempts: "sk-one,sk-next"},
+		{name: "unknown rejection switches credential", status: 403, wantAttempts: "sk-one,sk-two"},
+		{name: "server error after output stops", status: 503, partial: true, wantAttempts: "sk-one"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var attempts []string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1beta/models/model-a:streamGenerateContent" {
+					t.Errorf("upstream path = %s", r.URL.Path)
+				}
+				key := r.Header.Get("X-Goog-Api-Key")
+				mu.Lock()
+				attempts = append(attempts, key)
+				mu.Unlock()
+				w.Header().Set("Content-Type", "text/event-stream")
+				if key == "sk-one" {
+					if test.partial {
+						_, _ = fmt.Fprint(w, "data: "+`{"candidates":[{"content":{"parts":[{"text":"partial"}],"role":"model"},"index":0}],"modelVersion":"model-a","responseId":"resp_1"}`+"\n\n")
+					}
+					_, _ = fmt.Fprintf(w, "data: {\"error\":{\"code\":%d,\"message\":\"first candidate failed\"}}\n\n", test.status)
+					return
+				}
+				_, _ = fmt.Fprint(w, "data: "+`{"candidates":[{"content":{"parts":[{"text":"recovered"}],"role":"model"},"finishReason":"STOP","index":0}],"modelVersion":"model-a","responseId":"resp_2","usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}`+"\n\n")
+			}))
+			defer upstream.Close()
+			params, err := json.Marshal(map[string]string{"base_url": upstream.URL + "/v1beta"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			engine, _ := newDialectGatewayEngine(t, protocol.Anthropic, "model-a", dialect.NewSet(dialect.NewAnthropic()),
+				dialectGatewayGroup{id: 1, name: "first", channelID: channel.Gemini, params: params, apiKeys: []string{"sk-one", "sk-two"}},
+				dialectGatewayGroup{id: 2, name: "backup", channelID: channel.Gemini, params: params, apiKeys: []string{"sk-next"}},
+			)
+			request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"model-a","max_tokens":16,"stream":true,"messages":[{"role":"user","content":"hello"}]}`))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			mu.Lock()
+			defer mu.Unlock()
+			if strings.Join(attempts, ",") != test.wantAttempts {
+				t.Fatalf("attempts=%v, want %s; status=%d body=%s", attempts, test.wantAttempts, response.Code, response.Body.String())
+			}
+			body := response.Body.String()
+			if test.partial {
+				if !strings.Contains(body, "partial") || strings.Contains(body, "recovered") {
+					t.Fatalf("committed stream response=%s", body)
+				}
+			} else if response.Code != http.StatusOK || !strings.Contains(body, "recovered") || strings.Contains(body, "first candidate failed") {
+				t.Fatalf("retry response=%d %s", response.Code, body)
+			}
+		})
+	}
+}

@@ -472,7 +472,8 @@ func retryableUpstreamResponse(attempt ExecutionAttempt) bool {
 		if status == 0 {
 			status = evidence.StatusCode
 		}
-		return status >= http.StatusBadRequest && status <= 599
+		// 流建立后仍保留外层 2xx，流内 HTTP 错误由 Kind/Hint 承载。
+		return isSuccessStatus(status) || status >= http.StatusBadRequest && status <= 599
 	case execution.ErrorKindProvider:
 		switch evidence.Code {
 		case "upstream_protocol_error", "upstream_response_incomplete":

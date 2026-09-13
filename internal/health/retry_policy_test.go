@@ -52,6 +52,12 @@ func TestUpstreamResponseRetryPreservesExecutionBoundaries(t *testing.T) {
 		rule      RuleID
 	}{
 		{name: "generation server error", status: 503, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP}, retry: RetryNextCandidate, effect: EffectSkipGroup},
+		{name: "server error inside successful stream", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintHostError}, retry: RetryNextCandidate, effect: EffectSkipGroup},
+		{name: "unknown HTTP error inside successful stream", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP}, retry: RetryNextCandidate, effect: EffectNone},
+		{name: "stream HTTP error with unknown outcome", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintHostError, ReplaySafety: execution.ReplaySafetyUnknown}, retry: RetryNone, effect: EffectSkipGroup},
+		{name: "committed stream HTTP error", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintHostError}, committed: true, retry: RetryNone, effect: EffectNone},
+		{name: "stream HTTP error retains strict replay policy", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintHostError}, operation: execution.OperationImagesGenerate, retry: RetryNone, effect: EffectSkipGroup},
+		{name: "stream HTTP error retains resource boundary", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintHostError}, operation: execution.OperationResponsesCancel, retry: RetryNone, effect: EffectSkipGroup},
 		{name: "unknown error event", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindProvider, Code: "upstream_sse_error"}, retry: RetryNextCandidate, effect: EffectNone},
 		{name: "unknown provider code", status: 200, evidence: execution.ErrorEvidence{Kind: execution.ErrorKindProvider, Code: "new_provider_error"}, retry: RetryNextCandidate, effect: EffectNone},
 		{name: "response status in evidence", evidence: execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, StatusCode: 403}, retry: RetryNextCandidate, effect: EffectNone},
