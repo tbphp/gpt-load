@@ -154,8 +154,6 @@ Rerank は独立した `rerank` プロトコルを使用し、OpenAI Compatible�
 - **サブスクリプション**：Codex、Claude、Antigravity、Grok
 - **カスタム**：OpenAI Compatible（任意の互換中継）
 
-同一グループ内では、Codex はワークスペース ID とユーザー ID、Claude はアカウント ID と組織 ID で重複を判定し、メールアドレスは使いません。識別情報が不足する場合は従来の単一フィールドによる判定を維持します。この修正では既存アカウントの識別情報を移行しないため、更新後に既存アカウントを再インポートまたは再認可すると、別のレコードが追加される場合があります。
-
 ## デプロイとデータ
 
 Docker Compose は既定でアプリケーション管理の SQLite を使用します。データは `gpt-load-data` という名前付きボリュームに保存され、データベース、`auth.key`、`encryption.key` を含みます。

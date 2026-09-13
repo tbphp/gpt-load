@@ -154,8 +154,6 @@ Rerank 使用独立的 `rerank` 协议，在 OpenAI Compatible、New API、GPT-L
 - **订阅渠道**：Codex、Claude、Antigravity、Grok
 - **自定义**：OpenAI Compatible（任意兼容中转）
 
-同一分组内，Codex 按 workspace 与用户 ID 判重，Claude 按用户与组织 ID 判重，邮箱不参与身份判断。身份信息缺失时沿用原有单字段规则。本次修复不迁移已有账号身份；升级后重新导入或重新授权旧账号，可能新增一条记录。
-
 ## 部署与数据
 
 Docker Compose 默认使用应用管理的 SQLite，数据存放在 `gpt-load-data` 具名卷中，包含数据库、`auth.key` 和 `encryption.key`。
