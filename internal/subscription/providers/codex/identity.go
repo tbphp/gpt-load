@@ -18,7 +18,8 @@ func (*codexDriver) MatchesRefreshIdentity(current, refreshed subscriptionruntim
 		return false
 	}
 	beforeUser, afterUser := credentialUserID(before), credentialUserID(after)
-	return beforeUser == "" || afterUser == "" || beforeUser == afterUser
+	// 旧凭据允许补全身份，但不能把已经确认的用户降级为未知用户。
+	return beforeUser == "" || beforeUser == afterUser
 }
 
 // 身份只从既有令牌派生，不能改变参与持久化内容指纹计算的 canonical JSON。

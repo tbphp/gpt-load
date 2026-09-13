@@ -4,7 +4,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
+
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func identityTestToken(t *testing.T, claims map[string]string, padded bool) string {
@@ -72,6 +77,54 @@ func TestCodexIdentityRejectsConflictingTokenUsers(t *testing.T) {
 			}
 			if _, err := MarshalCredential(value); err == nil {
 				t.Fatal("conflicting token identities were canonicalized")
+			}
+		})
+	}
+}
+
+func TestCodexRefreshWithoutNewIDTokenPreservesKnownIdentity(t *testing.T) {
+	previous := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = previous })
+	http.DefaultTransport = targetRoundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.String() != "https://auth.openai.com/oauth/token" {
+			t.Errorf("unexpected refresh request: %s %s", r.Method, r.URL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header), Request: r,
+			Body: io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}`)),
+		}, nil
+	})
+	userToken := identityTestToken(t, map[string]string{"chatgpt_account_id": "workspace", "chatgpt_user_id": "user-one"}, false)
+	for _, test := range []struct {
+		name, idToken, accessToken string
+		allowed                    bool
+	}{
+		{"retained ID token", userToken, "old-access", true},
+		{"last user claim only in replaced access token", "", userToken, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := MarshalCredential(Credential{Type: "codex", AccountID: "workspace", IDToken: test.idToken, AccessToken: test.accessToken, RefreshToken: "old-refresh"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			driver := newCodexDriver()
+			current, err := driver.Parse(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			refreshed, err := driver.Refresh(t.Context(), current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value, err := ParseCredentialJSON(refreshed.Canonical())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if value.IDToken != test.idToken || value.AccessToken != "new-access" || value.RefreshToken != "new-refresh" {
+				t.Fatal("refresh did not retain the old ID token while replacing access and refresh tokens")
+			}
+			if allowed := subscriptionruntime.RefreshPreservesIdentity(driver, current, refreshed); allowed != test.allowed {
+				t.Fatalf("refresh allowed = %v, want %v", allowed, test.allowed)
 			}
 		})
 	}

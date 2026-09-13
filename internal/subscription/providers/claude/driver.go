@@ -67,8 +67,8 @@ func (*claudeDriver) MatchesRefreshIdentity(current, refreshed subscriptionrunti
 	if err != nil || before.AccountUUID != after.AccountUUID {
 		return false
 	}
-	return before.OrganizationUUID == "" || after.OrganizationUUID == "" ||
-		before.OrganizationUUID == after.OrganizationUUID
+	// 桥接会保留未返回的旧组织；已经确认的组织不能被清空或替换。
+	return before.OrganizationUUID == "" || before.OrganizationUUID == after.OrganizationUUID
 }
 
 func (*claudeDriver) ClassifyRefreshFailure(err error) subscriptionruntime.RefreshFailureDecision {

@@ -104,7 +104,7 @@ func TestSubscriptionConnectionUsesCompleteIdentity(t *testing.T) {
 	}
 }
 
-func TestSubscriptionRefreshIdentityAllowsOptionalMetadataChanges(t *testing.T) {
+func TestSubscriptionRefreshIdentityAllowsEnrichmentWithoutDowngrade(t *testing.T) {
 	t.Parallel()
 	for _, channelID := range []channel.ID{channel.Codex, channel.Claude} {
 		t.Run(string(channelID), func(t *testing.T) {
@@ -113,8 +113,9 @@ func TestSubscriptionRefreshIdentityAllowsOptionalMetadataChanges(t *testing.T) 
 				allowed                              bool
 			}{
 				{"same identity", "scope-one", "account-one", "scope-one", true},
+				{"legacy metadata still absent", "", "account-one", "", true},
 				{"enriched metadata", "", "account-one", "scope-one", true},
-				{"missing metadata", "scope-one", "account-one", "", true},
+				{"missing metadata", "scope-one", "account-one", "", false},
 				{"different scope", "scope-one", "account-one", "scope-two", false},
 				{"different account", "scope-one", "account-two", "scope-one", false},
 			} {

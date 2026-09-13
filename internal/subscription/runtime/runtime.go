@@ -157,7 +157,7 @@ type Driver interface {
 	ClassifyRefreshFailure(error) RefreshFailureDecision
 }
 
-// RefreshIdentityMatcher 由身份包含可选字段的渠道实现，区分元数据补全与真实换号。
+// RefreshIdentityMatcher 由身份包含可选字段的渠道实现；允许补全，但禁止已知身份丢失或变化。
 type RefreshIdentityMatcher interface {
 	MatchesRefreshIdentity(current, refreshed Credential) bool
 }

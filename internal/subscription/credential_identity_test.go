@@ -20,8 +20,9 @@ func TestCredentialRefreshPreservesStoredIdentityWithOptionalUserClaims(t *testi
 		allowed                            bool
 	}{
 		{"same identity", "user-one", "account-one", "user-one", true},
+		{"legacy metadata still absent", "", "account-one", "", true},
 		{"enriched metadata", "", "account-one", "user-one", true},
-		{"missing metadata", "user-one", "account-one", "", true},
+		{"missing metadata", "user-one", "account-one", "", false},
 		{"different user", "user-one", "account-one", "user-two", false},
 		{"different account", "user-one", "account-two", "user-one", false},
 	} {
@@ -70,7 +71,7 @@ func TestCredentialRefreshPreservesStoredIdentityWithOptionalUserClaims(t *testi
 			if test.allowed && (stored.SecretVersion != 2 || stored.AuthState != models.CredentialAuthStateReady) {
 				t.Fatal("refreshed credential was not persisted")
 			}
-			if !test.allowed && (stored.SecretVersion != 1 || stored.AuthState != models.CredentialAuthStateReauthorizationRequired) {
+			if !test.allowed && (stored.Data != row.Data || stored.SecretVersion != 1 || stored.AuthState != models.CredentialAuthStateReauthorizationRequired) {
 				t.Fatal("changed identity overwrote the credential")
 			}
 		})
