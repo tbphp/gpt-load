@@ -245,6 +245,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	var refreshSelection *scheduler.Selection
 	var refreshRef state.CredentialRef
 	authRefreshUsed := false
+	var finishRejectedAttempt func()
 	for sequence := 1; sequence <= limit; sequence++ {
 		if s.ctx.Err() != nil {
 			recorder.completeCanceled(s.ctx, 0, -1)
@@ -272,6 +273,10 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		} else {
 			selection, err = iterator.Next()
 			if err != nil {
+				if finishRejectedAttempt != nil {
+					finishRejectedAttempt()
+					return
+				}
 				reject(reasonNoCandidate)
 				return
 			}
@@ -418,7 +423,8 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			result.Err = s.ctx.Err()
 			result.ExecutionError = &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled, OriginHint: execution.ErrorOriginDownstream, Code: "websocket_canceled"}
 		} else if binding != nil {
-			result = s.runWebsocketAttempt(ctx, cancel, binding, turn.lane, selection, ref, input, recorder, unlock, firstByteDeadline)
+			bufferFirstError := newBinding && requiredRef == nil && !binding.capabilities.Multiplex
+			result = s.runWebsocketAttempt(ctx, cancel, binding, turn.lane, selection, ref, input, recorder, unlock, firstByteDeadline, bufferFirstError)
 		} else {
 			result.Err = executionFailureError(ctx, wsResult.Error)
 			result.StatusCode = wsResult.Error.StatusCode
@@ -434,15 +440,30 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		decision := judgeUpstreamResult(result, h.now(), health.DecisionContext{DefaultRateLimitCooldown: fixedCooldown, CredentialRefreshable: selection.Group.ConnectionType == "subscription", Method: http.MethodPost, Operation: execution.OperationResponsesCreate})
 		index := recorder.recordStreamAttempt(selection, credential.secrets, result, decision, started, recorder.now())
 		h.applyGroupDecisionEffect(selection.Group, ref, 0, decision, result.StatusCode, h.now(), input.UpstreamModelID)
+		if decision.Effect == health.EffectSkipGroup {
+			iterator.SkipGroup(selection.GroupID)
+		}
+		if len(result.Body) > 0 {
+			finishRejectedAttempt = func() {
+				unlock()
+				if err := s.emit(s.ctx, result.Body); err != nil {
+					recorder.completeCanceled(s.ctx, result.StatusCode, index)
+					return
+				}
+				recorder.completeStream(result, input.UpstreamModelID, index)
+			}
+		}
 		if result.Stream.EndReason == StreamEndCleanEOF {
 			h.recordCredentialSuccess(ref, h.now())
 			if requiredRef == nil {
 				h.recordAffinitySuccess(affinity, selection, ref)
 			}
 		}
-		// 延迟拨号的串行 Session 若首轮确实未发送，可释放失败句柄后继续既有候选迭代。
-		// 多流一旦共享连接，不能以某一轮未发送推断其他轮也未发送。
-		if result.DispatchState == execution.DispatchNotSent && !result.Committed && newBinding &&
+		// 未绑定的串行首轮允许重试未发送失败或尚未交付的上游错误事件。
+		// 是否可重放仍由错误规则决定；续接和共享连接不能随某一轮切换身份。
+		retryableTurn := result.DispatchState == execution.DispatchNotSent ||
+			(len(result.Body) > 0 && result.Stream.EndReason == StreamEndSSEError)
+		if retryableTurn && !result.Committed && newBinding &&
 			(binding == nil || !binding.capabilities.Multiplex) && decision.Retry != health.RetryNone &&
 			sequence < limit && requiredRef == nil && !authRefreshUsed && s.ctx.Err() == nil {
 			if decision.Retry == health.RetryRefreshCredential {
@@ -462,6 +483,8 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			recorder.completeStream(result, input.UpstreamModelID, index)
 		} else if s.ctx.Err() != nil {
 			recorder.completeCanceled(s.ctx, result.StatusCode, index)
+		} else if len(result.Body) > 0 {
+			finishRejectedAttempt()
 		} else {
 			value := reasonUpstreamConnect
 			if result.ExecutionError != nil {
@@ -536,7 +559,7 @@ type websocketCancelCloser struct {
 
 func (c websocketCancelCloser) Close() error { c.timedOut.Store(true); c.cancel(); return nil }
 
-func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel context.CancelFunc, binding *websocketBinding, lane string, selection scheduler.Selection, ref state.CredentialRef, input ForwardInput, recorder *requestRecorder, unlock func(), firstByteDeadline time.Time) UpstreamResult {
+func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel context.CancelFunc, binding *websocketBinding, lane string, selection scheduler.Selection, ref state.CredentialRef, input ForwardInput, recorder *requestRecorder, unlock func(), firstByteDeadline time.Time, bufferFirstError bool) UpstreamResult {
 	observer := newStreamEventObserver(input.Dialect, newUsageCaptureBoundary().newStreamForRequest(input.Dialect, input.ObserveUsage))
 	result := UpstreamResult{UpstreamProtocol: protocol.OpenAIResponses}
 	var responseID string
@@ -644,6 +667,23 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 				}
 			}
 		}
+		if responsealias.Needs(input.ExternalModel, input.UpstreamModelID) {
+			body, err = responsealias.RewriteJSON(protocol.OpenAIResponses, body, input.ExternalModel)
+			if err != nil {
+				return err
+			}
+		}
+		if response.Model != "" {
+			result.UpstreamReportedModel = response.Model
+			result.ResponseModelObserved = true
+			result.ResponseModelMismatch = response.Model != input.UpstreamModelID
+		}
+		if providerError && !result.Committed && bufferFirstError {
+			// 先保留已脱敏的错误，待分类及候选选择结束后再决定是否交付。
+			// 失败响应不能登记为后续请求的续接目标。
+			result.Body = append([]byte(nil), body...)
+			return nil
+		}
 		if len(event.Response) > 0 {
 			if response.ID != "" {
 				if len(response.ID) > 4096 {
@@ -665,11 +705,6 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 				}
 				s.mu.Unlock()
 			}
-			if response.Model != "" {
-				result.UpstreamReportedModel = response.Model
-				result.ResponseModelObserved = true
-				result.ResponseModelMismatch = response.Model != input.UpstreamModelID
-			}
 			if !providerError && binding.capabilities.StoredResponses && onResponse != nil {
 				if err := onResponse(event.Response); err != nil {
 					return err
@@ -678,12 +713,6 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 		}
 		if !result.Committed {
 			recorder.recordFirstResponse()
-		}
-		if responsealias.Needs(input.ExternalModel, input.UpstreamModelID) {
-			body, err = responsealias.RewriteJSON(protocol.OpenAIResponses, body, input.ExternalModel)
-			if err != nil {
-				return err
-			}
 		}
 		unlock()
 		if err = s.emit(ctx, body); err != nil {
@@ -729,6 +758,13 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 		}
 	}
 	knownUpstreamError := wsResult.Error != nil && (wsResult.Error.Kind == execution.ErrorKindHTTP || wsResult.Error.Kind == execution.ErrorKindProvider)
+	if len(result.Body) > 0 && knownUpstreamError {
+		replaySafety := result.ExecutionError.ReplaySafety
+		result.ExecutionError = firstStreamErrorEvidence(result.Body, result.ExecutionError,
+			result.StatusCode, "", result.ErrorSummary, recorder.redactor, input.CredentialSecrets)
+		// 仅复用错误字段解析，不引入 HTTP 启动缓冲特有的容量拒绝证明。
+		result.ExecutionError.ReplaySafety = replaySafety
+	}
 	if !observer.terminalForwarded && !knownUpstreamError && (timedOut.Load() || errors.Is(ctx.Err(), context.DeadlineExceeded)) {
 		result.Stream = streamTerminalObservation(StreamEndIdleTimeout)
 		result.Err = upstreamExecutionTimeoutError{}
