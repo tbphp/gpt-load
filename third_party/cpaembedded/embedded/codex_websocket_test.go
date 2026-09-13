@@ -569,13 +569,27 @@ func TestCodexWSSessionGuardsSDKSendRetry(t *testing.T) {
 
 func TestCodexWSSessionRejectsSDKReplacementConnection(t *testing.T) {
 	var frames, handshakes atomic.Int32
+	var handlersMu sync.Mutex
+	var handlers []chan struct{}
+	recordAfterSend := make(chan struct{})
+	releaseStats := sync.OnceFunc(func() { close(recordAfterSend) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		done := make(chan struct{})
+		handlersMu.Lock()
+		replacement := len(handlers) > 0
+		handlers = append(handlers, done)
+		handlersMu.Unlock()
+		defer close(done)
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
 			t.Error(err)
 			return
 		}
 		defer conn.Close()
+		if replacement {
+			// 握手已响应，但延后服务端统计，固定客户端先返回的调度顺序。
+			<-recordAfterSend
+		}
 		handshakes.Add(1)
 		if _, _, err := conn.ReadMessage(); err != nil {
 			return
@@ -587,6 +601,7 @@ func TestCodexWSSessionRejectsSDKReplacementConnection(t *testing.T) {
 		_, _, _ = conn.ReadMessage()
 	}))
 	defer server.Close()
+	defer releaseStats()
 	session := wsTestSession(t, server.URL)
 	if _, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil); err != nil {
 		t.Fatal(err)
@@ -602,8 +617,30 @@ func TestCodexWSSessionRejectsSDKReplacementConnection(t *testing.T) {
 		Metadata:           map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: session.id},
 		ExecutionLifecycle: session.resource,
 	})
-	if err == nil || frames.Load() != 1 || handshakes.Load() != 2 {
-		t.Fatalf("replacement sent a request: frames=%d handshakes=%d error=%v", frames.Load(), handshakes.Load(), err)
+	cancel()
+	releaseStats()
+	// 请求上下文已结束，使用独立期限等待服务端完成统计和业务帧读取。
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
+	handlersMu.Lock()
+	pendingHandlers := append([]chan struct{}(nil), handlers...)
+	handlersMu.Unlock()
+	for _, done := range pendingHandlers {
+		select {
+		case <-done:
+		case <-waitCtx.Done():
+			t.Fatal("server handlers did not finish after SDK replacement rejection")
+		}
+	}
+	var wsErr *CodexWSError
+	if !errors.As(err, &wsErr) || wsErr.Code != "session_closed" {
+		t.Fatalf("replacement binding error=%v, want session_closed", err)
+	}
+	if got := handshakes.Load(); got != 2 {
+		t.Fatalf("unexpected handshake count: got=%d want=2", got)
+	}
+	if got := frames.Load(); got != 1 {
+		t.Fatalf("unexpected business frame count: got=%d want=1", got)
 	}
 }
 
