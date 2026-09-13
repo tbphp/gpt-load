@@ -234,3 +234,44 @@ func TestSubscriptionBatchDeduplicatesIdentityAfterRefresh(t *testing.T) {
 		})
 	}
 }
+
+func TestSubscriptionBatchRefreshesBeforeCoarseIdentityDeduplication(t *testing.T) {
+	t.Parallel()
+	for _, ch := range []channel.ID{channel.Codex, channel.Claude} {
+		t.Run(string(ch), func(t *testing.T) {
+			f := newServiceFixture(t)
+			driver, ok := subscriptionsDriver(f.service.subscriptions, ch)
+			if !ok {
+				t.Fatal("driver missing")
+			}
+			f.service.refreshSubscriptionCredential = func(_ context.Context, _ channel.ID, current subscriptionruntime.Credential) (subscriptionruntime.Credential, error) {
+				var fields map[string]any
+				if err := json.Unmarshal(current.Canonical(), &fields); err != nil {
+					t.Fatal(err)
+				}
+				return driver.Parse(subscriptionIdentityJSON(t, ch, "account", "scope", fields["refresh_token"].(string), "2099-01-01T00:00:00Z"))
+			}
+			raw, err := json.Marshal([]json.RawMessage{
+				subscriptionIdentityJSON(t, ch, "account", "", "one", "2099-01-01T00:00:00Z"),
+				subscriptionIdentityJSON(t, ch, "account", "", "two", "2000-01-01T00:00:00Z"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := f.service.ImportCredentialBatch(t.Context(), ch, raw, 0, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Items) != 2 || result.Items[0].Status != "ready" || result.Items[1].Status != "ready" {
+				t.Fatal("batch skipped a credential before refresh could complete its identity")
+			}
+			var count int64
+			if err := f.db.Model(&models.CredentialStage{}).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 2 {
+				t.Fatalf("persisted stages = %d, want 2", count)
+			}
+		})
+	}
+}
