@@ -73,7 +73,10 @@ const { t, n, locale } = useI18n()
 }
 .modern-credential-outcomes.is-compact {
   flex-wrap: nowrap;
+  align-items: center;
   gap: var(--modern-space-1);
+  font-size: var(--modern-font-size-caption);
+  line-height: var(--modern-leading-compact);
 }
 .modern-credential-outcomes.is-compact .modern-credential-outcomes-count {
   align-items: center;
