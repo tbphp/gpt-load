@@ -131,10 +131,15 @@ function dateApply(): void {
 }
 onScopeDispose(() => clearTimeout(searchTimer))
 function rangeLabel(field: LogFilterDefinition): string {
+  // 下限字段代表整段范围；重试次数没有对应列，单独取筛选文案。
+  if (field.key === 'retry_count_min') return t('logs.filters.retry_count')
   const column = field.key.startsWith('cost_')
     ? 'estimated_cost_nano_usd'
     : field.key.replace('_min', '')
   return t('logs.columns.' + column)
+}
+function rangeUnit(field: LogFilterDefinition): string {
+  return field.key.endsWith('_ms') ? ' (ms)' : field.kind === 'money' ? ' ($)' : ''
 }
 function upperKey(key: LogFilterName): LogFilterName {
   return key.replace('_min', '_max') as LogFilterName
@@ -350,18 +355,10 @@ const loadCredentials = computed(() => {
               @update:model-value="update('credential_id', $event)"
             />
           </template>
-          <template v-if="section.id === 'metrics'">
-            <div
-              v-for="field in section.fields.filter((item) => item.key.includes('_min'))"
-              :key="field.key"
-              class="modern-log-filter-range"
-            >
-              <span
-                >{{ rangeLabel(field)
-                }}{{
-                  field.key.endsWith('_ms') ? ' (ms)' : field.kind === 'money' ? ' ($)' : ''
-                }}</span
-              >
+          <!-- 任意分段内的下限字段都渲染成一行范围，上限并入其中。 -->
+          <template v-for="field in section.fields" :key="field.key">
+            <div v-if="field.key.includes('_min')" class="modern-log-filter-range">
+              <span>{{ rangeLabel(field) }}{{ rangeUnit(field) }}</span>
               <div>
                 <AppTextField
                   :model-value="draft[field.key] ?? ''"
@@ -390,13 +387,8 @@ const loadCredentials = computed(() => {
                 />
               </div>
             </div>
-          </template>
-          <template
-            v-for="field in section.id === 'metrics' ? [] : section.fields"
-            :key="field.key"
-          >
             <AppSelect
-              v-if="field.kind === 'select'"
+              v-else-if="field.kind === 'select'"
               :model-value="draft[field.key] ?? ''"
               :options="options(field)"
               :label="t('logs.filters.' + field.key)"
@@ -404,7 +396,7 @@ const loadCredentials = computed(() => {
               @update:model-value="update(field.key, $event)"
             />
             <AppTextField
-              v-else
+              v-else-if="!field.key.includes('_max')"
               :model-value="draft[field.key] ?? ''"
               :label="t('logs.filters.' + field.key)"
               :placeholder="t('logs.any')"
@@ -462,54 +454,71 @@ const loadCredentials = computed(() => {
 }
 .modern-log-advanced-filters {
   display: grid;
-  gap: var(--modern-space-3);
   margin-top: var(--modern-space-3);
-  padding: var(--modern-space-3);
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-panel);
   background: var(--modern-surface);
-  max-height: 36dvh;
+  padding-inline: var(--modern-space-3);
+  /* 桌面下高度远低于此值，仅作小屏兜底，正常不会出现内层滚动。 */
+  max-height: 60dvh;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* 段标题留在左列而不是独占一行：展开后面板才不会把表格顶下去。 */
 .modern-log-filter-section {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   align-items: start;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-4);
+  padding-block: var(--modern-space-3);
+}
+.modern-log-filter-section + .modern-log-filter-section {
+  border-top: var(--modern-line-width) solid var(--modern-border);
 }
 .modern-log-filter-section h3 {
-  padding-top: var(--modern-space-1);
+  padding-top: var(--modern-space-1-5);
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
+  font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-medium);
+  letter-spacing: var(--modern-tracking-label);
 }
 .modern-log-filter-section > div {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
-  gap: var(--modern-space-2) var(--modern-space-3);
+  grid-template-columns: repeat(auto-fill, minmax(min(204px, 100%), 1fr));
+  gap: var(--modern-space-2) var(--modern-space-4);
   min-width: 0;
 }
+/* 标签列收窄并右对齐贴住控件，避免与左侧段标题形成第二条竖向基线。 */
 .modern-log-advanced-filters :deep(.modern-field:not(.modern-log-filter-range .modern-field)) {
-  grid-template-columns: 88px minmax(0, 1fr);
+  grid-template-columns: 58px minmax(0, 1fr);
   align-items: center;
   gap: var(--modern-space-2);
 }
-.modern-log-advanced-filters :deep(.modern-field label) {
-  font-size: var(--modern-font-size-small);
-  font-weight: var(--modern-weight-regular);
+.modern-log-advanced-filters :deep(.modern-field label:not(.modern-sr-only)) {
+  overflow: hidden;
   color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+  font-weight: var(--modern-weight-regular);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .modern-log-advanced-filters :deep(.modern-field-error) {
   grid-column: 1 / -1;
 }
 .modern-log-filter-range {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
-  gap: var(--modern-space-2);
+  grid-template-columns: 58px minmax(0, 1fr);
   align-items: center;
-  font-size: var(--modern-font-size-small);
+  gap: var(--modern-space-2);
   color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+}
+.modern-log-filter-range > span {
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .modern-log-filter-range > div {
   display: grid;
