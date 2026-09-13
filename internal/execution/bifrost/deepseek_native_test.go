@@ -20,10 +20,35 @@ import (
 )
 
 func TestDeepSeekNativeCompatibilityPreservesHistory(t *testing.T) {
-	for _, clientProtocol := range []protocol.Protocol{protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic} {
+	for _, test := range []struct {
+		protocol         protocol.Protocol
+		implicitThinking bool
+	}{
+		{protocol.OpenAICompletions, false}, {protocol.OpenAIResponses, false}, {protocol.Anthropic, false},
+		{protocol.OpenAICompletions, true}, {protocol.OpenAIResponses, true}, {protocol.Anthropic, true},
+	} {
+		clientProtocol, implicitThinking := test.protocol, test.implicitThinking
 		for _, stream := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/stream=%t", clientProtocol, stream), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/stream=%t/implicitThinking=%t", clientProtocol, stream, implicitThinking), func(t *testing.T) {
 				body, response, events := nativeFidelityFixture(clientProtocol)
+				if implicitThinking {
+					for _, field := range []string{"thinking", "reasoning_effort", "reasoning", "output_config"} {
+						var err error
+						body, err = sjson.Delete(body, field)
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+					choice := `"required"`
+					if clientProtocol == protocol.Anthropic {
+						choice = `{"type":"any"}`
+					}
+					var err error
+					body, err = sjson.SetRaw(body, "tool_choice", choice)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
 				field := "messages"
 				if clientProtocol == protocol.OpenAIResponses {
 					field = "input"
@@ -44,6 +69,13 @@ func TestDeepSeekNativeCompatibilityPreservesHistory(t *testing.T) {
 				want := nativeFidelityObject(t, original)
 				want["model"] = "upstream-model"
 				delete(want, "provider")
+				if implicitThinking {
+					if clientProtocol == protocol.OpenAIResponses {
+						want["reasoning"] = map[string]any{"effort": "none"}
+					} else {
+						want["thinking"] = map[string]any{"type": "disabled"}
+					}
+				}
 				if stream {
 					want["stream"] = true
 				}
@@ -136,6 +168,70 @@ func TestDeepSeekNativeCompatibilityPreservesHistory(t *testing.T) {
 					t.Fatal("appending a turn changed instructions, tools, thinking or affinity fields")
 				}
 			})
+		}
+	}
+}
+
+func TestDeepSeekForcedToolsRespectExplicitThinking(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		protocol protocol.Protocol
+		choice   string
+		control  string
+		added    string
+	}{
+		{"chat required", protocol.OpenAICompletions, `"required"`, ``, `,"thinking":{"type":"disabled"}`},
+		{"chat named", protocol.OpenAICompletions, `{"type":"function","function":{"name":"lookup"}}`, ``, `,"thinking":{"type":"disabled"}`},
+		{"chat auto", protocol.OpenAICompletions, `"auto"`, ``, ``},
+		{"chat none", protocol.OpenAICompletions, `"none"`, ``, ``},
+		{"chat enabled", protocol.OpenAICompletions, `"required"`, `,"thinking":{"type":"enabled"}`, ``},
+		{"chat disabled", protocol.OpenAICompletions, `"required"`, `,"thinking":{"type":"disabled"}`, ``},
+		{"chat effort", protocol.OpenAICompletions, `"required"`, `,"reasoning_effort":"high"`, ``},
+		{"chat invalid thinking", protocol.OpenAICompletions, `"required"`, `,"thinking":null`, ``},
+		{"responses required", protocol.OpenAIResponses, `"required"`, ``, `,"reasoning":{"effort":"none"}`},
+		{"responses named", protocol.OpenAIResponses, `{"type":"function","name":"lookup"}`, ``, `,"reasoning":{"effort":"none"}`},
+		{"responses effort", protocol.OpenAIResponses, `"required"`, `,"reasoning":{"effort":"high"}`, ``},
+		{"responses disabled", protocol.OpenAIResponses, `"required"`, `,"reasoning":{"effort":"none"}`, ``},
+		{"responses auto", protocol.OpenAIResponses, `"auto"`, ``, ``},
+		{"responses invalid reasoning", protocol.OpenAIResponses, `"required"`, `,"reasoning":"high"`, ``},
+		{"anthropic any", protocol.Anthropic, `{"type":"any"}`, ``, `,"thinking":{"type":"disabled"}`},
+		{"anthropic named", protocol.Anthropic, `{"type":"tool","name":"lookup","disable_parallel_tool_use":true}`, ``, `,"thinking":{"type":"disabled"}`},
+		{"anthropic auto", protocol.Anthropic, `{"type":"auto"}`, ``, ``},
+		{"anthropic adaptive", protocol.Anthropic, `{"type":"any"}`, `,"thinking":{"type":"adaptive"}`, ``},
+		{"anthropic effort", protocol.Anthropic, `{"type":"any"}`, `,"output_config":{"effort":"high"}`, ``},
+		{"unsupported protocol", protocol.Gemini, `"required"`, ``, ``},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := `{"tool_choice":` + test.choice + test.control + `}`
+			got, err := normalizeDeepSeekNativeRequest([]byte(body), test.protocol)
+			want := strings.TrimSuffix(body, "}") + test.added + "}"
+			if err != nil || string(got) != want {
+				t.Fatalf("tool/thinking compatibility: error=%v got=%s want=%s", err, got, want)
+			}
+			again, err := normalizeDeepSeekNativeRequest(got, test.protocol)
+			if err != nil || !bytes.Equal(got, again) {
+				t.Fatal("normalization changed an already prepared request")
+			}
+		})
+	}
+}
+
+func TestDeepSeekDefaultThinkingPreservesOtherOptions(t *testing.T) {
+	for _, test := range []struct {
+		protocol protocol.Protocol
+		body     string
+		want     string
+	}{
+		{protocol.OpenAIResponses,
+			`{"tool_choice":"required","reasoning":{"summary":"auto"}}`,
+			`{"tool_choice":"required","reasoning":{"summary":"auto","effort":"none"}}`},
+		{protocol.Anthropic,
+			`{"tool_choice":{"type":"any"},"output_config":{"format":{"type":"json_schema","schema":{"type":"object"}}}}`,
+			`{"tool_choice":{"type":"any"},"output_config":{"format":{"type":"json_schema","schema":{"type":"object"}}},"thinking":{"type":"disabled"}}`},
+	} {
+		got, err := normalizeDeepSeekNativeRequest([]byte(test.body), test.protocol)
+		if err != nil || string(got) != test.want {
+			t.Fatalf("changed unrelated options: error=%v body=%s", err, got)
 		}
 	}
 }

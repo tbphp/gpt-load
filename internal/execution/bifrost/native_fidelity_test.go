@@ -46,6 +46,8 @@ func TestNativeMessagesPreserveConversationAndExtensions(t *testing.T) {
 				if test.channel != channel.DeepSeek {
 					body = strings.ReplaceAll(body, `"role":"system"`, `"role":"developer"`)
 					body = strings.ReplaceAll(body, `"reasoning_content":"reasoning history"`, `"reasoning":"reasoning history"`)
+					body = strings.Replace(body, `,"thinking":{"type":"enabled"},"reasoning_effort":"high"`, "", 1)
+					body = strings.Replace(body, `,"reasoning":{"effort":"high"}`, `,"tool_choice":"required"`, 1)
 				}
 				var original map[string]json.RawMessage
 				if err := json.Unmarshal([]byte(body), &original); err != nil {

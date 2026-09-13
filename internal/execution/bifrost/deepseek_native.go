@@ -11,6 +11,11 @@ import (
 
 // 仅修正 DeepSeek 原生协议的字段差异，不重建或重排消息历史。
 func normalizeDeepSeekNativeRequest(body []byte, clientProtocol protocol.Protocol) ([]byte, error) {
+	var err error
+	body, err = normalizeDeepSeekDefaultThinking(body, clientProtocol)
+	if err != nil {
+		return nil, err
+	}
 	field := "messages"
 	switch clientProtocol {
 	case protocol.OpenAICompletions:
@@ -54,6 +59,45 @@ func normalizeDeepSeekNativeRequest(body []byte, clientProtocol protocol.Protoco
 		}
 	}
 	return body, nil
+}
+
+// 强制工具调用优先于上游默认思考；显式思考配置保持原样，由上游校验冲突。
+func normalizeDeepSeekDefaultThinking(body []byte, clientProtocol protocol.Protocol) ([]byte, error) {
+	choice := gjson.GetBytes(body, "tool_choice")
+	forced := false
+	switch clientProtocol {
+	case protocol.OpenAICompletions:
+		forced = choice.String() == "required" ||
+			(choice.Get("type").String() == "function" && choice.Get("function.name").String() != "")
+	case protocol.OpenAIResponses:
+		forced = choice.String() == "required" ||
+			(choice.Get("type").String() == "function" && choice.Get("name").String() != "")
+	case protocol.Anthropic:
+		forced = choice.Get("type").String() == "any" ||
+			(choice.Get("type").String() == "tool" && choice.Get("name").String() != "")
+	default:
+		return body, nil
+	}
+	if !forced {
+		return body, nil
+	}
+	if gjson.GetBytes(body, "thinking").Exists() || gjson.GetBytes(body, "reasoning_effort").Exists() {
+		return body, nil
+	}
+	if clientProtocol == protocol.OpenAIResponses {
+		reasoning := gjson.GetBytes(body, "reasoning")
+		if reasoning.Exists() && (!reasoning.IsObject() || reasoning.Get("effort").Exists()) {
+			return body, nil
+		}
+		return sjson.SetBytes(body, "reasoning.effort", "none")
+	}
+	if clientProtocol == protocol.Anthropic {
+		config := gjson.GetBytes(body, "output_config")
+		if config.Exists() && (!config.IsObject() || config.Get("effort").Exists()) {
+			return body, nil
+		}
+	}
+	return sjson.SetBytes(body, "thinking.type", "disabled")
 }
 
 func deepSeekTextOnlyContent(content gjson.Result, clientProtocol protocol.Protocol) bool {
