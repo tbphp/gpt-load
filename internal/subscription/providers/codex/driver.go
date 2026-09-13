@@ -266,7 +266,7 @@ func codexRuntimeCredential(value Credential, canonical []byte) subscriptionrunt
 	if refreshed, err := time.Parse(time.RFC3339, strings.TrimSpace(value.LastRefresh)); err == nil {
 		account.LastRefresh, account.LastRefreshKnown = refreshed, true
 	}
-	return subscriptionruntime.NewCredential(canonical, strings.TrimSpace(value.AccountID), account, expiresAt, expires, value.SecretValues())
+	return subscriptionruntime.NewCredential(canonical, credentialIdentity(value), account, expiresAt, expires, value.SecretValues())
 }
 
 var _ subscriptionruntime.BrowserAuthorizationDriver = (*codexDriver)(nil)

@@ -57,7 +57,7 @@ func NewCredential(canonical []byte, identity string, account Account, expiresAt
 // Canonical returns an independent copy suitable for encryption or adapter decoding.
 func (credential Credential) Canonical() []byte { return append([]byte(nil), credential.canonical...) }
 
-// Identity returns the stable provider account identity used across refreshes.
+// Identity returns the provider account identity used for duplicate checks.
 func (credential Credential) Identity() string { return credential.identity }
 
 // Account returns safe display metadata.
@@ -155,6 +155,22 @@ type Driver interface {
 	Parse([]byte) (Credential, error)
 	Refresh(context.Context, Credential) (Credential, error)
 	ClassifyRefreshFailure(error) RefreshFailureDecision
+}
+
+// RefreshIdentityMatcher 由身份包含可选字段的渠道实现；允许补全，但禁止已知身份丢失或变化。
+type RefreshIdentityMatcher interface {
+	MatchesRefreshIdentity(current, refreshed Credential) bool
+}
+
+// RefreshPreservesIdentity 默认要求身份完全相同；可选字段的规则由渠道负责。
+func RefreshPreservesIdentity(driver Driver, current, refreshed Credential) bool {
+	if current.Identity() == "" || refreshed.Identity() == "" {
+		return false
+	}
+	if matcher, ok := driver.(RefreshIdentityMatcher); ok {
+		return matcher.MatchesRefreshIdentity(current, refreshed)
+	}
+	return current.Identity() == refreshed.Identity()
 }
 
 // CredentialFileImporter is an optional, narrow preprocessing capability for

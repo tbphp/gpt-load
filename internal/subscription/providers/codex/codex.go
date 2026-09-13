@@ -44,7 +44,11 @@ func ParseCredentialJSON(raw []byte) (Credential, error) {
 	if err != nil {
 		return Credential{}, err
 	}
-	return credentialFromBridge(parsed), nil
+	value := credentialFromBridge(parsed)
+	if err := validateCredentialIdentity(value); err != nil {
+		return Credential{}, err
+	}
+	return value, nil
 }
 
 // MarshalCredential returns the canonical persisted representation.
