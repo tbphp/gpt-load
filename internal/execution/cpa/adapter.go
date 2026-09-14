@@ -112,9 +112,9 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 	if err != nil {
 		return unaryNotSent(execution.ErrorKindInvalidRequest, "unsupported subscription request", "", err)
 	}
-	spec, instructionFailure := prepareConvertedInstructions(spec, provider.ProviderKind())
-	if instructionFailure != nil {
-		return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: instructionFailure}
+	spec, fidelityFailure := prepareConvertedFidelity(spec, provider.ProviderKind())
+	if fidelityFailure != nil {
+		return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: fidelityFailure}
 	}
 	proxySettings, err := proxySettingsForAttempt(spec.Proxy)
 	if err != nil {
@@ -285,9 +285,9 @@ func (a *Adapter) ExecuteStream(
 	if countTokensOperation(spec.Operation) {
 		return streamNotSent(execution.ErrorKindInvalidRequest, "count tokens does not support streaming", "")
 	}
-	spec, instructionFailure := prepareConvertedInstructions(spec, provider.ProviderKind())
-	if instructionFailure != nil {
-		return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: instructionFailure}
+	spec, fidelityFailure := prepareConvertedFidelity(spec, provider.ProviderKind())
+	if fidelityFailure != nil {
+		return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: fidelityFailure}
 	}
 	proxySettings, err := proxySettingsForAttempt(spec.Proxy)
 	if err != nil {
