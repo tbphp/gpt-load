@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import {
   ChevronDown,
   ChevronUp,
@@ -415,7 +416,7 @@ function summary(items: CredentialImportItem[]): string {
   })
 }
 function expires(time: number): string {
-  return new Intl.DateTimeFormat(locale.value, { hour: '2-digit', minute: '2-digit' }).format(time)
+  return dateFormatter(locale.value, { hour: '2-digit', minute: '2-digit' }).format(time)
 }
 function remaining(time: number): string {
   const seconds = Math.max(0, Math.floor((time - status.now.value) / 1000))

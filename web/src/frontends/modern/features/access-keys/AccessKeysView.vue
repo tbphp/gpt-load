@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import {
   ChartNoAxesCombined,
   CopyPlus,
@@ -513,7 +514,7 @@ onScopeDispose(() => {
             :text="accessTime(row.last_request_at_ms, locale)"
             :full-text="
               row.last_request_at_ms
-                ? new Intl.DateTimeFormat(locale, {
+                ? dateFormatter(locale, {
                     dateStyle: 'medium',
                     timeStyle: 'medium',
                   }).format(row.last_request_at_ms)

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberFormatter, dateFormatter } from '@modern/components/ui/intl-formatters'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -43,7 +44,7 @@ const missing = computed(() => !props.usage || (props.incomplete && props.usage.
 const failureRate = computed(() =>
   missing.value || !props.usage?.requests
     ? '—'
-    : new Intl.NumberFormat(locale.value, { style: 'percent', maximumFractionDigits: 1 }).format(
+    : numberFormatter(locale.value, { style: 'percent', maximumFractionDigits: 1 }).format(
         (props.usage.requests - props.usage.successes) / props.usage.requests,
       ),
 )
@@ -53,8 +54,8 @@ const partial = computed(
 const trendPoints = computed(() => props.trend?.points ?? [])
 const trendValues = computed(() => trendPoints.value.map((point) => point.requests))
 const trendLabels = computed(() => {
-  const date = new Intl.DateTimeFormat(locale.value, { month: 'short', day: 'numeric' })
-  const time = new Intl.DateTimeFormat(locale.value, {
+  const date = dateFormatter(locale.value, { month: 'short', day: 'numeric' })
+  const time = dateFormatter(locale.value, {
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',

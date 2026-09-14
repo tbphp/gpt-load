@@ -246,7 +246,7 @@ useLoadingActivity(() => filtering.value || props.loading)
       ref="list"
       :label="t('groupCreate.models')"
       :flow="layout !== 'list'"
-      :loading="feedback"
+      :loading="filtering"
     >
       <template v-if="models.length" #header>
         <div class="modern-create-model-labels" aria-hidden="true">

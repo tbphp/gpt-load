@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberFormatter } from '@modern/components/ui/intl-formatters'
 import { RotateCcw } from '@lucide/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { nextTick, onScopeDispose, ref } from 'vue'
@@ -40,7 +41,7 @@ function ruleLabel(rule: CostRule): string {
   const seconds = rule.period_seconds!
   const unit = seconds % periodUnits.day === 0 ? 'day' : 'hour'
   return t('accessKeys.every', {
-    count: new Intl.NumberFormat(locale.value, { maximumFractionDigits: 12 }).format(
+    count: numberFormatter(locale.value, { maximumFractionDigits: 12 }).format(
       seconds / periodUnits[unit],
     ),
     unit: t('accessKeys.units.' + unit),

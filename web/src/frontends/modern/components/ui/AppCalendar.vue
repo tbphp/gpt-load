@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import { ChevronLeft, ChevronRight } from '@lucide/vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -74,16 +75,12 @@ const years = computed(() =>
 const months = computed(() =>
   Array.from({ length: 12 }, (_, index) => ({
     value: String(index),
-    label: new Intl.DateTimeFormat(locale.value, { month: 'long' }).format(
-      new Date(2024, index, 1),
-    ),
+    label: dateFormatter(locale.value, { month: 'long' }).format(new Date(2024, index, 1)),
   })),
 )
 const weekdays = computed(() =>
   Array.from({ length: 7 }, (_, index) =>
-    new Intl.DateTimeFormat(locale.value, { weekday: 'short' }).format(
-      new Date(2024, 0, 1 + index),
-    ),
+    dateFormatter(locale.value, { weekday: 'short' }).format(new Date(2024, 0, 1 + index)),
   ),
 )
 const weeks = computed(() => {
@@ -99,7 +96,7 @@ const weeks = computed(() => {
       day: date.getDate(),
       outside: date.getMonth() !== month.value.getMonth(),
       disabled: !allowed(value) || date.getFullYear() < 1 || date.getFullYear() > 9999,
-      label: new Intl.DateTimeFormat(locale.value, { dateStyle: 'full' }).format(date),
+      label: dateFormatter(locale.value, { dateStyle: 'full' }).format(date),
     }
   })
   return Array.from({ length: 6 }, (_, index) => cells.slice(index * 7, index * 7 + 7))

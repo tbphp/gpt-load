@@ -3,7 +3,6 @@ import { LoaderCircle } from '@lucide/vue'
 import { onMounted, onUpdated, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from './AppIcon.vue'
-import { useLoadingFeedback } from './loading'
 import { readListScroll, saveListScroll } from './list-scroll'
 
 const props = defineProps<{
@@ -14,7 +13,7 @@ const props = defineProps<{
 }>()
 const { t } = useI18n()
 const scroller = ref<HTMLElement>()
-const busy = useLoadingFeedback(() => Boolean(props.loading))
+// 遮罩和可交互状态跟随真实任务；防闪烁的延时只用于非阻塞的视觉提示。
 let restoreTo = readListScroll(props.scrollKey)
 function restoreScroll(): void {
   if (restoreTo === undefined || props.loading || !scroller.value) return
@@ -48,14 +47,14 @@ defineExpose({
         class="modern-list-scroll"
         role="region"
         :aria-label="label"
-        :aria-busy="busy || undefined"
+        :aria-busy="loading || undefined"
         tabindex="0"
         @scroll="onScroll"
       >
         <div v-if="$slots.header" class="modern-list-header"><slot name="header" /></div>
         <slot />
       </div>
-      <div v-if="busy" class="modern-list-loading" role="status">
+      <div v-if="loading" class="modern-list-loading" role="status">
         <span><AppIcon :icon="LoaderCircle" class="modern-spin" />{{ t('ui.loading') }}</span>
       </div>
     </div>

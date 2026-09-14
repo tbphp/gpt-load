@@ -62,7 +62,7 @@ const search = ref(filters.value.q)
 const filtering = ref(false)
 const refreshing = ref(false)
 const filterLoading = useLoadingFeedback(filtering)
-const listLoading = useLoadingFeedback(() => filtering.value || refreshing.value)
+const listLoading = computed(() => filtering.value || refreshing.value)
 const composing = ref(false)
 const expansion = useURLState(
   ['expanded'],

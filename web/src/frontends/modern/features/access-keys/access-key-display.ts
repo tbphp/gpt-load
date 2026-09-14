@@ -1,3 +1,4 @@
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import type { AccessKey } from '@modern/api/access-keys'
 import { formatNanoUSD } from '@modern/components/ui/format'
 import type { SemanticTone } from '@modern/components/ui'
@@ -13,7 +14,7 @@ export function accessState(row: AccessKey & { expired?: boolean }): {
 }
 export function accessTime(value: number | null | undefined, locale: string, time = true): string {
   if (!value) return '—'
-  return new Intl.DateTimeFormat(locale, {
+  return dateFormatter(locale, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

@@ -21,12 +21,20 @@ function stripTitle(markup: string): string {
 }
 
 const iconsByName = new Map<string, string>()
+const idsByName = new Map<string, readonly string[]>()
 for (const [path, source] of Object.entries(rawIcons)) {
   const name = path
     .split('/')
     .pop()
     ?.replace(/\.svg$/u, '')
-  if (name) iconsByName.set(name, stripTitle(source))
+  if (name) {
+    const markup = stripTitle(source)
+    iconsByName.set(name, markup)
+    // 静态素材的 ID 只解析一次，实例化时仍分别替换命名空间。
+    idsByName.set(name, [
+      ...new Set([...markup.matchAll(/\bid="([^"]+)"/gu)].map((match) => match[1])),
+    ])
+  }
 }
 
 const rasterIconsByName = new Map<string, string>()
@@ -44,16 +52,13 @@ for (const [path, source] of Object.entries(rasterIcons)) {
 export function namespacedChannelIconMarkup(icon: string, instanceId: string): string | null {
   const markup = iconsByName.get(icon)
   if (!markup) return null
-  const ids = new Set<string>()
-  const idPattern = /\bid="([^"]+)"/gu
-  for (const match of markup.matchAll(idPattern)) ids.add(match[1])
-  if (ids.size === 0) return markup
+  const ids = idsByName.get(icon) ?? []
+  if (ids.length === 0) return markup
   let namespaced = markup
   for (const id of ids) {
-    const escaped = id.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
     namespaced = namespaced
-      .replaceAll(new RegExp(`id="${escaped}"`, 'gu'), `id="${instanceId}-${id}"`)
-      .replaceAll(new RegExp(`url\\(#${escaped}\\)`, 'gu'), `url(#${instanceId}-${id})`)
+      .replaceAll(`id="${id}"`, `id="${instanceId}-${id}"`)
+      .replaceAll(`url(#${id})`, `url(#${instanceId}-${id})`)
   }
   return namespaced
 }

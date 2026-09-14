@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberFormatter, dateFormatter } from '@modern/components/ui/intl-formatters'
 import { ChevronDown, ChevronUp, KeyRound, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, useId } from 'vue'
@@ -137,14 +138,14 @@ const partial = computed(() => props.usageIncomplete || props.usage?.incomplete)
 const successRate = computed(() =>
   !props.usage?.requests || unknownCount.value
     ? '—'
-    : new Intl.NumberFormat(locale.value, { style: 'percent', maximumFractionDigits: 1 }).format(
+    : numberFormatter(locale.value, { style: 'percent', maximumFractionDigits: 1 }).format(
         props.usage.successes / props.usage.requests,
       ),
 )
 const lastActive = computed(() =>
   props.group.lastActiveHour === null
     ? t('groups.board.neverActive')
-    : new Intl.DateTimeFormat(locale.value, {
+    : dateFormatter(locale.value, {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',

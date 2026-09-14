@@ -24,7 +24,7 @@ export function useLoadingActivity(source: MaybeRefOrGetter<boolean>): void {
   onScopeDispose(() => sources.delete(source))
 }
 
-// 只延长视觉反馈，不延迟请求或数据更新，避免快请求的加载状态一闪而过。
+// 仅供非阻塞提示延长视觉反馈；列表遮罩、禁用状态应直接使用真实 pending。
 export function useLoadingFeedback(source: MaybeRefOrGetter<boolean>) {
   const visible = ref(false)
   let startedAt = 0

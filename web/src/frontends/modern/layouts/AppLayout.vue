@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import {
   ChevronLeft,
   ChevronRight,
@@ -95,7 +96,7 @@ const refreshedAt = computed(() =>
   pageRefresh.updatedAt.value === undefined
     ? ''
     : t('shell.refreshedAt', {
-        time: new Intl.DateTimeFormat(locale.value, {
+        time: dateFormatter(locale.value, {
           hour: '2-digit',
           minute: '2-digit',
           second: '2-digit',

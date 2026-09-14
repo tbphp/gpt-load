@@ -57,6 +57,13 @@ const from = ref('')
 const to = ref('')
 const draftPreset = ref<DateRangePreset>()
 const composing = ref(false)
+const moreMounted = ref(props.more)
+watch(
+  () => props.more,
+  (more) => {
+    if (more) moreMounted.value = true
+  },
+)
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let edited = false
 const credentialLabels = ref(new Map<string, string>())
@@ -342,7 +349,12 @@ const loadCredentials = computed(() => {
         <slot name="actions" />
       </div>
     </div>
-    <div v-show="more" id="modern-log-more-filters" class="modern-log-advanced-filters">
+    <div
+      v-if="moreMounted"
+      v-show="more"
+      id="modern-log-more-filters"
+      class="modern-log-advanced-filters"
+    >
       <section v-for="section in sections" :key="section.id" class="modern-log-filter-section">
         <h3>{{ t('logs.filterSections.' + section.id) }}</h3>
         <div>

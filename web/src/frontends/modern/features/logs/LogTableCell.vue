@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import { KeyRound, UserRound } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -63,7 +64,7 @@ const channelIdentity = computed(() =>
       : undefined,
 )
 const clock = computed(() =>
-  new Intl.DateTimeFormat(locale.value, {
+  dateFormatter(locale.value, {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -71,7 +72,7 @@ const clock = computed(() =>
   }).format(props.row.completed_at_ms),
 )
 const date = computed(() =>
-  new Intl.DateTimeFormat(locale.value, {
+  dateFormatter(locale.value, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

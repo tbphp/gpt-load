@@ -1,7 +1,6 @@
+import { numberFormatter } from '@modern/components/ui/intl-formatters'
 export function formatCompactNumber(value: number, locale: string): string {
-  return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(
-    value,
-  )
+  return numberFormatter(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
 export function formatNanoUSD(
@@ -10,7 +9,7 @@ export function formatNanoUSD(
   currencyDisplay: 'symbol' | 'narrowSymbol' = 'symbol',
 ): string {
   const amount = BigInt(value)
-  const formatter = new Intl.NumberFormat(locale, {
+  const formatter = numberFormatter(locale, {
     style: 'currency',
     currency: 'USD',
     currencyDisplay,

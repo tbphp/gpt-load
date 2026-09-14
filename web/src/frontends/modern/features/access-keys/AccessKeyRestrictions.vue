@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { numberFormatter } from '@modern/components/ui/intl-formatters'
 import { protocolLabel } from '@modern/i18n/protocols'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -94,7 +95,7 @@ const percent = computed(() => percentage(lowest.value))
 function percentText(entry: QuotaEntry): string {
   const value = percentage(entry)
   if (value === undefined) return '—'
-  const formatter = new Intl.NumberFormat(locale.value, {
+  const formatter = numberFormatter(locale.value, {
     style: 'percent',
     maximumFractionDigits: 2,
   })
@@ -107,7 +108,7 @@ function ruleName(rule: CostRule): string {
   if (!rule.period_seconds) return t('accessKeys.periodicQuota')
   const unit = rule.period_seconds % periodUnits.day === 0 ? 'day' : 'hour'
   return t('accessKeys.every', {
-    count: new Intl.NumberFormat(locale.value, { maximumFractionDigits: 12 }).format(
+    count: numberFormatter(locale.value, { maximumFractionDigits: 12 }).format(
       rule.period_seconds / periodUnits[unit],
     ),
     unit: t('accessKeys.units.' + unit),

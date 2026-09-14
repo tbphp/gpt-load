@@ -311,7 +311,11 @@ useLoadingActivity(() => filtering.value || props.loading)
         </div>
         <AppFilterSummary :items="filters" @remove="removeFilter" @reset="resetFilters" />
         <AppNotice v-if="error" tone="warning">{{ error }}</AppNotice>
-        <AppListFrame ref="frame" :label="t('modelSelection.title')" :loading="loading || feedback">
+        <AppListFrame
+          ref="frame"
+          :label="t('modelSelection.title')"
+          :loading="loading || filtering"
+        >
           <template #header>
             <div class="modern-model-selection-header">
               <AppTooltip

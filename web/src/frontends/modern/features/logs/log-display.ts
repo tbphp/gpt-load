@@ -1,3 +1,4 @@
+import { numberFormatter, dateFormatter } from '@modern/components/ui/intl-formatters'
 import type { LogEntry } from '@modern/api/logs'
 import type { SemanticTone } from '@modern/components/ui'
 
@@ -34,14 +35,14 @@ export function logCanMergeError(row: LogEntry): boolean {
   )
 }
 export function logNumber(value: string | number, locale: string, compact = false): string {
-  return new Intl.NumberFormat(
+  return numberFormatter(
     locale,
     compact ? { notation: 'compact', maximumFractionDigits: 1 } : {},
   ).format(typeof value === 'string' ? BigInt(value) : value)
 }
 export function logMoney(value: string, locale: string): string {
   const amount = BigInt(value)
-  const formatter = new Intl.NumberFormat(locale, {
+  const formatter = numberFormatter(locale, {
     style: 'currency',
     currency: 'USD',
     currencyDisplay: 'narrowSymbol',
@@ -58,14 +59,14 @@ export function exactLogMoney(value: string): string {
 export function logDuration(ms: number | null, locale: string): string {
   if (ms === null) return '—'
   return (
-    new Intl.NumberFormat(locale, {
+    numberFormatter(locale, {
       minimumFractionDigits: ms < 1000 ? 0 : 1,
       maximumFractionDigits: ms < 1000 ? 0 : 1,
     }).format(ms < 1000 ? ms : ms / 1000) + (ms < 1000 ? ' ms' : ' s')
   )
 }
 export function logTime(ms: number, locale: string, full = false): string {
-  return new Intl.DateTimeFormat(locale, {
+  return dateFormatter(locale, {
     ...(full ? { year: 'numeric' as const } : {}),
     month: '2-digit',
     day: '2-digit',

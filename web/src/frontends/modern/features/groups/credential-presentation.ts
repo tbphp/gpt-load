@@ -1,3 +1,4 @@
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import type { CredentialRow } from '@modern/api/group-detail'
 import type { CredentialQuota } from '@modern/api/credential-observation'
 import type { SemanticTone } from '@modern/components/ui'
@@ -19,7 +20,7 @@ export function credentialStatus(row: CredentialRow): { key: string; tone: Seman
 }
 export function credentialTime(value: number | null | undefined, locale: string): string {
   return value
-    ? new Intl.DateTimeFormat(locale, {
+    ? dateFormatter(locale, {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',

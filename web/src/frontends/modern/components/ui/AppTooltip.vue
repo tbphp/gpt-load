@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  Primitive,
   TooltipContent,
   TooltipPortal,
   TooltipRoot,
@@ -16,6 +17,8 @@ const props = defineProps<{
   disabled?: boolean
 }>()
 const open = ref(false)
+// 已启用过提示的控件保留组件树，避免菜单打开时禁用提示导致焦点节点被替换。
+const activated = ref(Boolean(props.label && !props.disabled))
 const { forwardRef } = useForwardExpose()
 const instance = getCurrentInstance()
 
@@ -35,12 +38,21 @@ watch(
   () => props.disabled || !props.label,
   (disabled) => {
     if (disabled) open.value = false
+    else activated.value = true
   },
 )
 </script>
 
 <template>
+  <Primitive
+    v-if="!activated"
+    :ref="forwardRef"
+    v-bind="{ ...triggerScopeAttrs, ...$attrs }"
+    as-child
+    ><slot
+  /></Primitive>
   <TooltipRoot
+    v-else
     v-model:open="open"
     :disabled="disabled || !label"
     :delay-duration="tooltipDelay"
