@@ -2,6 +2,7 @@ import { protocolMessages as protocols } from '../protocols'
 import { jaJP as accessKeys } from './access-keys'
 import { jaJP as logs } from './logs'
 import { jaJP as usage } from './usage'
+import { jaJP as health } from './health'
 import { jaJP as credentialCards } from './credential-cards'
 import { jaJP as groupWorkflows } from './group-workflows'
 import { jaJP as parameterRules } from './parameter-rules'
@@ -16,6 +17,7 @@ export default {
   protocols,
   logs,
   usage,
+  health,
   accessKeys,
   groupWorkflows,
   parameterRules,

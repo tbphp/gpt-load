@@ -2,6 +2,7 @@ import { protocolMessages as protocols } from '../protocols'
 import { enUS as accessKeys } from './access-keys'
 import { enUS as logs } from './logs'
 import { enUS as usage } from './usage'
+import { enUS as health } from './health'
 import { enUS as credentialCards } from './credential-cards'
 import { enUS as groupWorkflows } from './group-workflows'
 import { enUS as parameterRules } from './parameter-rules'
@@ -16,6 +17,7 @@ export default {
   protocols,
   logs,
   usage,
+  health,
   accessKeys,
   groupWorkflows,
   parameterRules,
