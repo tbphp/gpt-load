@@ -412,6 +412,27 @@ func TestConvertedToolCompatibilityPreservesHistoryAndIsolation(t *testing.T) {
 		})
 	}
 
+	for _, target := range []struct {
+		name         string
+		providerKind channel.ProviderKind
+		provider     schemas.ModelProvider
+		model        string
+	}{
+		{"Chat fallback", channel.ProviderOpenAICompatible, schemas.OpenAI, "compatible-model"},
+		{"Anthropic", channel.ProviderAnthropic, schemas.Anthropic, "claude-sonnet-4-6"},
+		{"Bedrock", channel.ProviderAWSBedrock, schemas.Bedrock, "anthropic.claude-sonnet-4-6"},
+	} {
+		t.Run(target.name+" rejects compaction history", func(t *testing.T) {
+			input := `[{"role":"user","content":"start"},{"type":"compaction","encrypted_content":"opaque-context"},{"role":"user","content":"continue"}]`
+			spec, request := convertedResponsesAllowedToolsRequest(t, target.provider, target.model, "required", input)
+			_, failure := finishConvertedPreparation(spec, target.providerKind, preparedAttempt{responsesRequest: request})
+			if failure == nil || failure.DispatchState != execution.DispatchNotSent || failure.Error == nil ||
+				failure.Error.Code != execution.ErrorCodeCriticalSemanticLoss {
+				t.Fatalf("compaction history was not rejected: %+v", failure)
+			}
+		})
+	}
+
 	for _, choice := range []string{`"none"`, `{"type":"function","name":"lookup"}`} {
 		t.Run("newly allowed branch rejects custom history "+choice, func(t *testing.T) {
 			body := []byte(fmt.Sprintf(`{"model":"client-model","input":[{"role":"user","content":"start"},{"type":"custom_tool_call","call_id":"call_1","name":"custom","input":"synthetic"}],"store":false,"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}},{"type":"custom","name":"custom","format":{"type":"text"}}],"tool_choice":%s}`, choice))

@@ -401,8 +401,7 @@ func chatFallbackPreservesToolHistory(request *schemas.BifrostResponsesRequest) 
 			schemas.ResponsesMessageTypeFunctionCall,
 			schemas.ResponsesMessageTypeFunctionCallOutput,
 			schemas.ResponsesMessageTypeItemReference,
-			schemas.ResponsesMessageTypeRefusal,
-			schemas.ResponsesMessageTypeCompaction:
+			schemas.ResponsesMessageTypeRefusal:
 			continue
 		case schemas.ResponsesMessageTypeFileSearchCall,
 			schemas.ResponsesMessageTypeComputerCall,
@@ -466,8 +465,7 @@ func responsesHistorySupportedBy(
 			schemas.ResponsesMessageTypeFunctionCall,
 			schemas.ResponsesMessageTypeFunctionCallOutput,
 			schemas.ResponsesMessageTypeItemReference,
-			schemas.ResponsesMessageTypeRefusal,
-			schemas.ResponsesMessageTypeCompaction:
+			schemas.ResponsesMessageTypeRefusal:
 			continue
 		}
 		supported := false
