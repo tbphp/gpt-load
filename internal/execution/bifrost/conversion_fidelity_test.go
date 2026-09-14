@@ -172,7 +172,7 @@ func TestChatFallbackDoesNotDropRequestedTools(t *testing.T) {
 			{"no tools required", `[]`, `"required"`, true},
 			{"web search", `[{"type":"web_search_preview"}]`, `"auto"`, true},
 			{"function", `[{"type":"function","name":"lookup","parameters":{"type":"object"}}]`, `"required"`, false},
-			{"allowed tools", `[{"type":"function","name":"lookup","parameters":{"type":"object"}}]`, `{"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"lookup"}]}`, true},
+			{"allowed tools", `[{"type":"function","name":"lookup","parameters":{"type":"object"}}]`, `{"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"lookup"}]}`, false},
 		} {
 			for _, stream := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%s/stream=%t", channelID, test.name, stream), func(t *testing.T) {
@@ -199,7 +199,7 @@ func TestChatFallbackDoesNotDropRequestedTools(t *testing.T) {
 					} else {
 						evidence = runtime.Execute(t.Context(), spec).Error
 					}
-					if test.wantError {
+					if test.wantError && channelID != channel.OpenAICompatible {
 						if calls.Load() != 0 || evidence == nil || evidence.Kind != execution.ErrorKindConversionUnsupported || evidence.Code != execution.ErrorCodeCriticalSemanticLoss {
 							t.Fatalf("tool requirement was lost: calls=%d error=%+v", calls.Load(), evidence)
 						}

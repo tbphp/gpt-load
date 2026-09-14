@@ -774,6 +774,23 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, conversionErr.Error())
 			return preparedAttempt{}, &failure
 		}
+		if spec.RouteMode == execution.RouteConverted {
+			toolPrepared, needsToolHistoryCheck, toolConstraintsValid := prepareConvertedToolConstraints(
+				spec.ClientProtocol,
+				providerKind,
+				spec.UpstreamModel,
+				preparedAttempt{responsesRequest: request},
+			)
+			if !toolConstraintsValid {
+				failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "conversion cannot preserve requested tools or tool choice")
+				return preparedAttempt{}, &failure
+			}
+			if needsToolHistoryCheck && !convertedTargetPreservesToolHistory(providerKind, spec.UpstreamModel, toolPrepared.responsesRequest) {
+				failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "conversion cannot preserve requested tool history")
+				return preparedAttempt{}, &failure
+			}
+			request = toolPrepared.responsesRequest
+		}
 		typedURL, upstreamProtocol, targetErr := countTokensTypedTarget(
 			providerKind,
 			customTargetBaseURL,
