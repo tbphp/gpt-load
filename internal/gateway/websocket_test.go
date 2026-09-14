@@ -597,7 +597,7 @@ func TestWebsocketForkAndParentCacheErrorBoundaries(t *testing.T) {
 			}
 			var event []byte
 			if code != "" {
-				event = []byte(fmt.Sprintf(`{"type":"error","stream_id":%q,"status":400,"error":{"code":%q,"message":"fixture failure"}}`, req.StreamID, code))
+				event = []byte(fmt.Sprintf(`{"type":"error","stream_id":%q,"status":400,"error":{"type":"invalid_parameter","code":%q,"message":"fixture failure"}}`, req.StreamID, code))
 			} else {
 				id := fmt.Sprintf("resp_%d", n)
 				cache[id] = req.StreamID

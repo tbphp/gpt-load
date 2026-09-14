@@ -109,12 +109,16 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	recorder := s.newTurnRecorder(turn)
 	requestID := recorder.requestID
 	admission := requestAccessQuotaAdmission{accessKeyID: s.keyID}
-	defer func() {
-		if admission.admitted && h.accessQuota != nil {
-			h.logAccessQuotaCompletionFault(s.keyID, h.accessQuota.Complete(admission.ticket, recorder.estimatedCostNanoUSD()))
-		}
-		recorder.emit()
-	}()
+	var finishOnce sync.Once
+	finish := func() {
+		finishOnce.Do(func() {
+			if admission.admitted && h.accessQuota != nil {
+				h.logAccessQuotaCompletionFault(s.keyID, h.accessQuota.Complete(admission.ticket, recorder.estimatedCostNanoUSD()))
+			}
+			recorder.emit()
+		})
+	}
+	defer finish()
 	reject := func(value reason) { recorder.completeReason(value); s.emitReason(turn.lane, value) }
 	if s.ctx.Err() != nil {
 		recorder.completeCanceled(s.ctx, 0, -1)
@@ -168,6 +172,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	binding := s.binding
 	parent, parentFound := s.parents[original.previous]
 	s.mu.Unlock()
+	startedBound := binding != nil
 	if binding != nil {
 		currentRef, exists := h.registry.CredentialRef(binding.ref.ID)
 		_, ready := h.registry.ActiveEncryptedCredentialDataIfMatch(currentRef)
@@ -423,7 +428,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			result.Err = s.ctx.Err()
 			result.ExecutionError = &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled, OriginHint: execution.ErrorOriginDownstream, Code: "websocket_canceled"}
 		} else if binding != nil {
-			bufferFirstError := newBinding && requiredRef == nil && !binding.capabilities.Multiplex
+			bufferFirstError := startedBound || (newBinding && requiredRef == nil && !binding.capabilities.Multiplex)
 			result = s.runWebsocketAttempt(ctx, cancel, binding, turn.lane, selection, ref, input, recorder, unlock, firstByteDeadline, bufferFirstError)
 		} else {
 			result.Err = executionFailureError(ctx, wsResult.Error)
@@ -478,6 +483,14 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			}
 			recorder.retryIfAnotherForward(index)
 			continue
+		}
+		if retryableTurn && !result.Committed && startedBound && decision.Retry != health.RetryNone &&
+			s.ctx.Err() == nil && s.reserveReconnect() {
+			unlock()
+			recorder.completeStream(result, input.UpstreamModelID, index)
+			finish()
+			s.requestClientReconnect(requestID, string(decision.RuleID), string(decision.Retry))
+			return
 		}
 		if result.Committed {
 			recorder.completeStream(result, input.UpstreamModelID, index)

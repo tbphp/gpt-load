@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/utils"
@@ -96,7 +97,12 @@ func (s *websocketConnection) watchBinding(binding *websocketBinding) {
 			defer s.workers.Done()
 			select {
 			case <-binding.session.Done():
-				s.cancel()
+				if s.markBindingUnavailable(binding) {
+					select {
+					case s.bindingStopped <- struct{}{}:
+					case <-s.ctx.Done():
+					}
+				}
 			case <-s.ctx.Done():
 			}
 		}()
@@ -104,22 +110,66 @@ func (s *websocketConnection) watchBinding(binding *websocketBinding) {
 }
 
 type websocketConnection struct {
-	inputBytes   int // 受 handler.websocketBudget.mu 保护。
-	handler      *Handler
-	conn         *websocket.Conn
-	request      *http.Request
-	keyID        uint
-	keyHash      string
-	ctx          context.Context
-	cancel       context.CancelFunc
-	write        chan struct{}
-	bind         chan struct{}
-	mu           sync.Mutex
-	binding      *websocketBinding
-	parents      map[string]websocketParent
-	parentOrder  []string
-	workers      sync.WaitGroup
-	firstRequest *time.Timer
+	inputBytes  int // 受 handler.websocketBudget.mu 保护。
+	handler     *Handler
+	conn        *websocket.Conn
+	request     *http.Request
+	keyID       uint
+	keyHash     string
+	ctx         context.Context
+	cancel      context.CancelFunc
+	write       chan struct{}
+	bind        chan struct{}
+	mu          sync.Mutex
+	binding     *websocketBinding
+	parents     map[string]websocketParent
+	parentOrder []string
+	// accepting 和 registered 由 mu 保护，覆盖读取、排队及执行中的请求。
+	accepting      bool
+	registered     int
+	closeOnce      sync.Once
+	closeErr       error
+	bindingStopped chan struct{}
+	workers        sync.WaitGroup
+	firstRequest   *time.Timer
+}
+
+func (s *websocketConnection) registerTurn() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.accepting || s.ctx.Err() != nil {
+		return false
+	}
+	s.registered++
+	return true
+}
+
+func (s *websocketConnection) finishTurn() {
+	s.mu.Lock()
+	if s.registered > 0 {
+		s.registered--
+	}
+	s.mu.Unlock()
+}
+
+func (s *websocketConnection) reserveReconnect() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.registered != 1 || s.ctx.Err() != nil {
+		return false
+	}
+	s.accepting = false
+	return true
+}
+
+func (s *websocketConnection) markBindingUnavailable(binding *websocketBinding) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.binding != binding {
+		return false
+	}
+	s.accepting = false
+	return true
 }
 
 func websocketIntent(request *http.Request) bool {
@@ -203,7 +253,7 @@ func (h *Handler) handleWebsocket(c *gin.Context, requestContext *dataPlaneReque
 		return
 	}
 	ctx, cancel := context.WithCancel(c.Request.Context())
-	s := &websocketConnection{handler: h, conn: conn, request: c.Request.Clone(ctx), ctx: ctx, cancel: cancel, keyID: requestContext.accessKey.ID, write: make(chan struct{}, 1), bind: make(chan struct{}, 1), parents: make(map[string]websocketParent)}
+	s := &websocketConnection{handler: h, conn: conn, request: c.Request.Clone(ctx), ctx: ctx, cancel: cancel, keyID: requestContext.accessKey.ID, write: make(chan struct{}, 1), bind: make(chan struct{}, 1), parents: make(map[string]websocketParent), accepting: true, bindingStopped: make(chan struct{}, 1)}
 	for hash, key := range requestContext.snapshot.AccessKeysByHash {
 		if key.ID == s.keyID {
 			s.keyHash = hash
@@ -267,12 +317,16 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 			s.closeWith(websocket.CloseUnsupportedData, "Text JSON is required.")
 			return
 		}
+		if !s.registerTurn() {
+			return
+		}
 		var body []byte
 		for {
 			n, readErr := reader.Read(scratch)
 			if n > 0 {
 				if len(body)+n > limits.message || !s.reserveInput(n) {
 					s.reserveInput(-len(body))
+					s.finishTurn()
 					s.closeWith(websocket.CloseTryAgainLater, "WebSocket input limit reached.")
 					return
 				}
@@ -281,6 +335,7 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 			if readErr != nil {
 				if !errors.Is(readErr, io.EOF) {
 					s.reserveInput(-len(body))
+					s.finishTurn()
 					return
 				}
 				break
@@ -290,11 +345,13 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 		var envelope map[string]json.RawMessage
 		if !utf8.Valid(body) || json.Unmarshal(body, &envelope) != nil || envelope == nil {
 			s.reserveInput(-len(body))
+			s.finishTurn()
 			s.closeWith(websocket.CloseInvalidFramePayloadData, "A JSON object is required.")
 			return
 		} else if raw, ok := envelope["stream_id"]; ok {
 			if json.Unmarshal(raw, &turn.lane) != nil || !validWebsocketLane(turn.lane) {
 				s.reserveInput(-len(body))
+				s.finishTurn()
 				s.closeWith(websocket.ClosePolicyViolation, "Invalid stream_id.")
 				return
 			}
@@ -308,6 +365,7 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 		case out <- turn:
 		case <-s.ctx.Done():
 			s.reserveInput(-len(body))
+			s.finishTurn()
 			return
 		}
 	}
@@ -382,16 +440,18 @@ func (s *websocketConnection) run() {
 				recorder.completeCanceled(s.ctx, 0, -1)
 				recorder.emit()
 				s.reserveInput(-len(turn.body))
+				s.finishTurn()
 			}
 		}
 	}()
+	bindingUnavailable := false
 	for {
 		if s.ctx.Err() != nil {
 			return
 		}
 		for _, lane := range lanes {
 			q := queues[lane]
-			if busy[lane] || len(q) == 0 || active >= limits.active {
+			if bindingUnavailable || busy[lane] || len(q) == 0 || active >= limits.active {
 				continue
 			}
 			turn := q[0]
@@ -405,6 +465,7 @@ func (s *websocketConnection) run() {
 				defer s.workers.Done()
 				defer s.reserveInput(-len(turn.body))
 				s.executeTurn(turn)
+				s.finishTurn()
 				select {
 				case finished <- websocketFinished{lane: turn.lane}:
 				case <-s.ctx.Done():
@@ -423,6 +484,7 @@ func (s *websocketConnection) run() {
 				}
 				if turn.lane != "" && named >= limits.lanes {
 					s.reserveInput(-len(turn.body))
+					s.finishTurn()
 					turn.body = nil
 					// 新流尚无活动轮，拒绝可直接归属，不占用新的历史流名。
 					value := reason{400, "websocket_stream_limit_reached", "WebSocket stream limit reached. Reuse an existing stream_id or open a new connection."}
@@ -446,6 +508,7 @@ func (s *websocketConnection) run() {
 			}
 			if pending >= limits.pending {
 				s.reserveInput(-len(turn.body))
+				s.finishTurn()
 				s.closeWith(websocket.CloseTryAgainLater, "WebSocket queue limit reached.")
 				return
 			}
@@ -454,8 +517,18 @@ func (s *websocketConnection) run() {
 		case done := <-finished:
 			active--
 			busy[done.lane] = false
+			if bindingUnavailable && active == 0 {
+				s.cancel()
+				return
+			}
 			if active == 0 && pending == 0 && limits.idle > 0 {
 				idle.Reset(limits.idle)
+			}
+		case <-s.bindingStopped:
+			bindingUnavailable = true
+			if active == 0 {
+				s.cancel()
+				return
 			}
 		case <-updates:
 			snapshot, updates = s.handler.manager.CurrentWithUpdates()
@@ -477,9 +550,32 @@ func (s *websocketConnection) run() {
 	}
 }
 
-func (s *websocketConnection) closeWith(code int, message string) {
-	_ = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, message), time.Now().Add(s.handler.writeTimeout))
-	s.cancel()
+func (s *websocketConnection) closeWith(code int, message string) (bool, error) {
+	wrote := false
+	s.closeOnce.Do(func() {
+		wrote = true
+		s.closeErr = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, message), time.Now().Add(s.handler.writeTimeout))
+		s.cancel()
+	})
+	return wrote, s.closeErr
+}
+
+func (s *websocketConnection) requestClientReconnect(requestID, ruleID, retryDirective string) {
+	wrote, err := s.closeWith(websocket.CloseTryAgainLater, "Reconnect to retry the request.")
+	result := "sent"
+	level := logrus.InfoLevel
+	if !wrote || err != nil {
+		result = "failed"
+		level = logrus.WarnLevel
+	}
+	utils.LogPlaneBestEffort(s.handler.logger, level, utils.LogPlaneData, logrus.Fields{
+		"event":           "ws_reconnect_requested",
+		"request_id":      requestID,
+		"rule_id":         ruleID,
+		"retry_directive": retryDirective,
+		"close_code":      websocket.CloseTryAgainLater,
+		"write_result":    result,
+	}, "Requested WebSocket client reconnect")
 }
 func (s *websocketConnection) emit(ctx context.Context, body []byte) error {
 	select {
