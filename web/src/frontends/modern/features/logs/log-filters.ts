@@ -52,7 +52,6 @@ export const advancedLogFilters: readonly LogFilterDefinition[] = [
   { key: 'request_id', section: 'request', kind: 'text' },
   { key: 'protocol', section: 'request', kind: 'select', values: accessProtocols },
   { key: 'stream', section: 'request', kind: 'select', values: logFilterOptions.stream },
-  { key: 'upstream_model', section: 'routing', kind: 'text', admin: true },
   {
     key: 'retry_state',
     section: 'routing',
@@ -163,6 +162,7 @@ export function parseLogState(query: LocationQuery, admin: boolean): LogRouteSta
   const range = readTimeRange(query)
   for (const key of logFilterNames) {
     const raw = query[key]
+    if (key === 'upstream_model') continue
     if (typeof raw === 'string' && raw.trim() && (admin || !internalLogFilters.includes(key)))
       filters[key] = raw.trim()
   }
@@ -193,6 +193,7 @@ export function parseLogState(query: LocationQuery, admin: boolean): LogRouteSta
 }
 export function serializeLogState(state: LogRouteState): LocationQueryRaw {
   const { from_ms, to_ms, ...filters } = state.filters
+  delete filters.upstream_model
   return {
     ...filters,
     ...timeRangeQuery({ preset: state.preset, from_ms, to_ms }),

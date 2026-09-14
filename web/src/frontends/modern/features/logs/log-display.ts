@@ -7,6 +7,32 @@ export const logStatusTone: Record<LogEntry['status'], SemanticTone> = {
   incomplete: 'warning',
   canceled: 'neutral',
 }
+export function logModelMismatch(row: LogEntry): boolean {
+  return (
+    row.model_consistency === 'mismatch' &&
+    Boolean(row.upstream_model) &&
+    Boolean(row.upstream_reported_model)
+  )
+}
+export function logCanMergeError(row: LogEntry): boolean {
+  // 中断或失败仍可能产生实际消耗；真实的零用量/零费用也不能当成缺失。
+  return (
+    row.status !== 'success' &&
+    Boolean(row.error_code.trim() || row.error_summary.trim()) &&
+    (row.usage_state === 'missing' || row.usage_state === 'not_applicable') &&
+    row.cost_state !== 'priced' &&
+    (row.pricing_completeness === 'unavailable' || row.pricing_completeness === 'not_applicable') &&
+    [
+      row.input_tokens,
+      row.output_tokens,
+      row.cache_read_tokens,
+      row.cache_write_5m_tokens,
+      row.cache_write_1h_tokens,
+      row.cache_write_unknown_tokens,
+      row.estimated_cost_nano_usd,
+    ].every((value) => BigInt(value) === 0n)
+  )
+}
 export function logNumber(value: string | number, locale: string, compact = false): string {
   return new Intl.NumberFormat(
     locale,

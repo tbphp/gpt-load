@@ -3,7 +3,7 @@ import { Columns3, Search } from '@lucide/vue'
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppCheckbox, AppTextField } from '@modern/components/ui'
+import { AppButton, AppCheckbox, AppIconButton, AppTextField } from '@modern/components/ui'
 import { matchesSearchOption } from '@modern/components/ui/search-options'
 import { overlaySideOffset } from '@modern/components/ui/overlay'
 import type { LogColumn, LogColumnId } from './log-columns'
@@ -13,7 +13,7 @@ defineEmits<{ toggle: [id: LogColumnId, checked: boolean]; reset: []; all: [] }>
 const { t, n } = useI18n()
 const search = ref('')
 const sections = computed(() =>
-  (['request', 'routing', 'performance', 'tokens', 'billing'] as const)
+  (['request', 'models', 'routing', 'result', 'performance', 'tokens', 'billing'] as const)
     .map((id) => ({
       id,
       columns: props.columns.filter(
@@ -31,9 +31,9 @@ const sections = computed(() =>
 
 <template>
   <PopoverRoot>
-    <PopoverTrigger as-child
-      ><AppButton :icon="Columns3">{{ t('logs.columnSettings') }}</AppButton></PopoverTrigger
-    >
+    <PopoverTrigger as-child>
+      <AppIconButton :icon="Columns3" :label="t('logs.columnSettings')" />
+    </PopoverTrigger>
     <PopoverPortal
       ><PopoverContent
         class="modern-log-column-picker"

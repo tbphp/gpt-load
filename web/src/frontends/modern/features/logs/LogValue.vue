@@ -157,23 +157,16 @@ const hint = computed(() => {
 
 <template>
   <span v-if="deleted" class="modern-log-deleted">{{ t('logs.deleted') }}</span>
-  <AppTooltip
+  <AppBadge
     v-else-if="column === 'status'"
-    :label="
-      [row.status_code ? 'HTTP ' + row.status_code : '', row.error_code, row.error_summary]
-        .filter(Boolean)
-        .join('\n')
-    "
+    :tone="logStatusTone[row.status]"
+    :variant="table ? 'soft' : 'plain'"
+    size="xs"
+    :class="{ 'modern-log-status-badge': table }"
+    dot
   >
-    <AppBadge
-      :tone="logStatusTone[row.status]"
-      :variant="table ? 'soft' : 'plain'"
-      size="xs"
-      :class="{ 'modern-log-status-badge': table }"
-      dot
-      >{{ t('logs.values.' + row.status) }}</AppBadge
-    >
-  </AppTooltip>
+    {{ t('logs.values.' + row.status) }}
+  </AppBadge>
   <AppCopyValue
     v-else-if="column === 'request_id'"
     :value="row.request_id"
@@ -181,11 +174,12 @@ const hint = computed(() => {
   />
   <div v-else-if="column === 'group' && group" class="modern-log-channel">
     <AppChannelIcon
-      v-if="!hideIcon"
+      v-if="!hideIcon && table"
       :icon="group.channelIcon"
       :name="group.channelName"
       :mark="group.channelMark"
       size="sm"
+      :tooltip="false"
     /><AppOverflowText :text="display" />
   </div>
   <div v-else-if="column === 'channel'" class="modern-log-channel">
@@ -195,12 +189,19 @@ const hint = computed(() => {
       :name="channel.name"
       :mark="channel.mark"
       size="sm"
+      :tooltip="false"
     /><AppOverflowText :text="display" />
   </div>
   <AppProtocolTag
     v-else-if="column === 'protocol' || column === 'upstream_protocol'"
     :protocol="row[column]"
   />
+  <span
+    v-else-if="table && (column === 'stream' || column === 'affinity_hit')"
+    class="modern-log-boolean"
+    :class="{ 'is-true': row[column] }"
+    >{{ display }}</span
+  >
   <span
     v-else-if="table && column === 'status_code'"
     class="modern-log-http"
@@ -232,13 +233,19 @@ const hint = computed(() => {
 .modern-log-channel {
   display: flex;
   align-items: center;
-  gap: var(--modern-space-1-5);
+  gap: var(--modern-space-1);
   min-width: 0;
 }
 .modern-log-status-badge {
   font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-medium);
   padding-inline: var(--modern-space-1-5);
+}
+.modern-log-boolean {
+  color: var(--modern-muted);
+}
+.modern-log-boolean.is-true {
+  color: color-mix(in srgb, var(--modern-info) 70%, var(--modern-muted));
 }
 .modern-log-http {
   color: var(--modern-control-placeholder);

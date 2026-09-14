@@ -37,6 +37,7 @@ const props = withDefaults(
       size?: ControlSize
       name?: string
       required?: boolean
+      loading?: boolean
     }
   >(),
   {
@@ -53,7 +54,8 @@ const { t } = useI18n()
 const open = ref(false)
 // 仅点击、输入或方向键打开；弹窗恢复焦点时保留已选标签，不自动进入空搜索态。
 const search = ref('')
-const loading = ref(false)
+const remoteLoading = ref(false)
+const loading = computed(() => props.loading || remoteLoading.value)
 useLoadingActivity(loading)
 const failed = ref(false)
 const remoteOptions = ref<readonly SearchSelectOption[]>([])
@@ -132,7 +134,7 @@ function handleCustomKeydown(event: KeyboardEvent): void {
 function cancelRequest(): void {
   clearTimeout(timer)
   controller?.abort()
-  loading.value = false
+  remoteLoading.value = false
 }
 function preventImplicitSubmit(event: KeyboardEvent): void {
   // 选择交给 Reka；无结果或加载中按回车也不能误提交外层表单。
@@ -143,7 +145,7 @@ async function load(): Promise<void> {
   if (!open.value || !props.loadOptions) return
   const request = new AbortController()
   controller = request
-  loading.value = true
+  remoteLoading.value = true
   failed.value = false
   try {
     const options = await props.loadOptions(search.value.trim(), request.signal)
@@ -151,7 +153,7 @@ async function load(): Promise<void> {
   } catch {
     if (!request.signal.aborted) failed.value = true
   } finally {
-    if (!request.signal.aborted) loading.value = false
+    if (!request.signal.aborted) remoteLoading.value = false
   }
 }
 watch(search, () => {
@@ -159,7 +161,7 @@ watch(search, () => {
   cancelRequest()
   remoteOptions.value = []
   failed.value = false
-  loading.value = true
+  remoteLoading.value = true
   timer = setTimeout(() => void load(), 200)
 })
 watch(open, async (value) => {
@@ -215,7 +217,7 @@ onScopeDispose(cancelRequest)
             :id="id"
             ref="input"
             class="modern-search-select-input"
-            :model-value="open ? search : allowCustom ? model : selectedLabel"
+            :model-value="open ? search : allowCustom && model ? model : selectedLabel"
             :placeholder="placeholder ?? (open ? t('ui.select.search') : label)"
             :aria-invalid="invalid || undefined"
             :aria-describedby="describedBy"
@@ -289,6 +291,7 @@ onScopeDispose(cancelRequest)
   outline: none;
   background: transparent;
   padding: var(--modern-space-1) 0;
+  color: var(--modern-text);
   font: inherit;
   text-overflow: ellipsis;
 }

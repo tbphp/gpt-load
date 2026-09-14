@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronUp } from '@lucide/vue'
+import { SlidersHorizontal } from '@lucide/vue'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LogAccessKeyOption, LogFilterName, LogQuery } from '@modern/api/logs'
@@ -8,12 +8,12 @@ import type { GroupChannel } from '@modern/api/group-create'
 import { getGroupCredentials } from '@modern/api/group-detail'
 import { channelSearchOption } from '@modern/components/channel-options'
 import {
-  AppButton,
   AppProtocolTag,
   AppOverflowText,
   AppChannelIcon,
   AppDateTimeRangePicker,
   AppModelSelect,
+  AppIconButton,
   AppSearchSelect,
   AppSelect,
   AppTextField,
@@ -44,7 +44,6 @@ const props = defineProps<{
   models: readonly string[]
   groupsLoading: boolean
   keysLoading: boolean
-  pending: boolean
   preset?: DateRangePreset
 }>()
 const emit = defineEmits<{
@@ -277,6 +276,7 @@ const loadCredentials = computed(() => {
         :model-value="draft.client_model ?? ''"
         :models="models"
         :label="t('logs.filters.client_model')"
+        :error="errors.client_model ? t('logs.errors.' + errors.client_model) : undefined"
         label-hidden
         fuzzy
         @update:model-value="update('client_model', $event, false)"
@@ -304,6 +304,25 @@ const loadCredentials = computed(() => {
       <AppSearchSelect
         v-if="admin"
         class="modern-log-filter-choice"
+        :model-value="draft.channel_id ?? ''"
+        :options="channelOptions"
+        :label="t('logs.filters.channel_id')"
+        :placeholder="t('logs.filters.channel_id')"
+        label-hidden
+        @update:model-value="update('channel_id', $event)"
+        ><template #option="{ option }"
+          ><AppChannelIcon
+            v-if="channelMap.get(option.value)"
+            :icon="channelMap.get(option.value)!.icon"
+            :name="channelMap.get(option.value)!.name"
+            :mark="channelMap.get(option.value)!.mark"
+            size="sm"
+          /><span>{{ option.label }}</span></template
+        ></AppSearchSelect
+      >
+      <AppSearchSelect
+        v-if="admin"
+        class="modern-log-filter-choice"
         :model-value="draft.access_key_id ?? ''"
         :options="keyOptions"
         :label="t('logs.filters.access_key_id')"
@@ -313,13 +332,13 @@ const loadCredentials = computed(() => {
         @update:model-value="update('access_key_id', $event)"
       />
       <div class="modern-log-filter-actions">
-        <AppButton
-          :icon="more ? ChevronUp : ChevronDown"
+        <AppIconButton
+          :icon="SlidersHorizontal"
+          :label="t('logs.moreFilters')"
           :aria-expanded="more"
           aria-controls="modern-log-more-filters"
           @click="emit('more', !more)"
-          >{{ t('logs.moreFilters') }}</AppButton
-        >
+        />
         <slot name="actions" />
       </div>
     </div>
@@ -328,22 +347,6 @@ const loadCredentials = computed(() => {
         <h3>{{ t('logs.filterSections.' + section.id) }}</h3>
         <div>
           <template v-if="section.id === 'routing' && admin">
-            <AppSearchSelect
-              :model-value="draft.channel_id ?? ''"
-              :options="channelOptions"
-              :label="t('logs.filters.channel_id')"
-              size="xs"
-              @update:model-value="update('channel_id', $event)"
-              ><template #option="{ option }"
-                ><AppChannelIcon
-                  v-if="channelMap.get(option.value)"
-                  :icon="channelMap.get(option.value)!.icon"
-                  :name="channelMap.get(option.value)!.name"
-                  :mark="channelMap.get(option.value)!.mark"
-                  size="sm"
-                /><span>{{ option.label }}</span></template
-              ></AppSearchSelect
-            >
             <AppSearchSelect
               :key="draft.group_id || 'all'"
               :model-value="draft.credential_id ?? ''"

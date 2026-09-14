@@ -27,6 +27,9 @@
   gap: var(--modern-space-1);
   margin-bottom: var(--modern-space-2);
 }
+.modern-date-shortcuts > .modern-button {
+  flex: 1 1 0;
+}
 .modern-date-footer {
   display: flex;
   flex-wrap: wrap;

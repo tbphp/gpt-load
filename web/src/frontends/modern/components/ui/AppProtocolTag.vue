@@ -35,8 +35,11 @@ const value = computed(() => props.protocol?.trim().toLowerCase() ?? '')
 <style scoped>
 .modern-tag.modern-protocol-tag {
   --modern-protocol-color: var(--modern-muted);
-  border-color: color-mix(in srgb, var(--modern-protocol-color) 24%, var(--modern-surface));
-  background: color-mix(in srgb, var(--modern-protocol-color) 7%, var(--modern-surface));
+  width: fit-content;
+  justify-self: start;
+  align-self: center;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--modern-protocol-color) 5%, var(--modern-surface));
   color: var(--modern-protocol-color);
   font-family: var(--modern-font-mono);
   font-weight: var(--modern-weight-regular);

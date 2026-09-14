@@ -4,15 +4,15 @@ import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { observeOverflow } from './overflow-observer'
 
 defineOptions({ inheritAttrs: false })
-const props = defineProps<{ text: string; fullText?: string }>()
+const props = defineProps<{ text: string; fullText?: string; hint?: string }>()
 const element = ref<HTMLElement>()
 const overflow = ref(false)
 let unobserve: (() => void) | undefined
 function measure(): void {
   overflow.value = Boolean(element.value && element.value.scrollWidth > element.value.clientWidth)
 }
-// 只有文字被省略时才提示，避免每个字段都挂 tooltip。
-const tooltip = computed(() => (overflow.value ? (props.fullText ?? props.text) : undefined))
+// 默认只在截断时提示；显式 hint 用于补充角色等未在正文显示的信息。
+const tooltip = computed(() => (overflow.value ? (props.fullText ?? props.text) : props.hint))
 watch(
   element,
   (node) => {

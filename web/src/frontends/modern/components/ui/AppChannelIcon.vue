@@ -11,8 +11,9 @@ const props = withDefaults(
     name?: string
     size?: 'inherit' | 'sm' | 'md' | 'hero'
     surface?: boolean
+    tooltip?: boolean
   }>(),
-  { icon: undefined, mark: undefined, name: undefined, size: 'inherit' },
+  { icon: undefined, mark: undefined, name: undefined, size: 'inherit', tooltip: true },
 )
 const id = `modern-channel-${useId()}`
 const markup = computed(() => namespacedChannelIconMarkup(props.icon ?? '', id))
@@ -28,7 +29,7 @@ const fallback = computed(
 </script>
 
 <template>
-  <AppTooltip :label="name || mark || icon">
+  <AppTooltip :label="name || mark || icon" :disabled="!tooltip">
     <span
       v-bind="$attrs"
       class="modern-channel-icon"

@@ -2,7 +2,7 @@
 import AppTooltip from './AppTooltip.vue'
 import { Check, Copy, LoaderCircle, TriangleAlert } from '@lucide/vue'
 import { DialogRoot } from 'reka-ui'
-import { computed, nextTick, onScopeDispose, ref, useId, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, useId, useSlots, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppButton from './AppButton.vue'
 import AppDialogContent from './AppDialogContent.vue'
@@ -20,13 +20,15 @@ const props = defineProps<{
   wrap?: boolean
   resolveValue?: () => string | Promise<string>
 }>()
+const emit = defineEmits<{ copied: []; failed: [] }>()
+const slots = useSlots()
 const { t } = useI18n()
 const id = useId()
 const pending = ref(false)
 const state = ref<'idle' | 'success' | 'failed'>('idle')
 const fallback = ref<string>()
 const textarea = ref<HTMLTextAreaElement>()
-const trigger = ref<HTMLButtonElement>()
+const trigger = ref<HTMLElement>()
 let sequence = 0
 let disposed = false
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -46,6 +48,8 @@ function reset(): void {
 }
 async function copy(manual = false): Promise<void> {
   if (pending.value) return
+  if (slots.trigger && !manual && document.activeElement instanceof HTMLElement)
+    trigger.value = document.activeElement
   clearTimeout(timer)
   const operation = ++sequence
   const isCurrent = () => !disposed && operation === sequence
@@ -61,12 +65,17 @@ async function copy(manual = false): Promise<void> {
     if (!isCurrent()) return
     state.value = copied ? 'success' : 'failed'
     if (!copied) fallback.value = value
-    else
+    else {
+      emit('copied')
       timer = setTimeout(() => {
         state.value = 'idle'
       }, 2000)
+    }
   } catch {
-    if (isCurrent()) state.value = 'failed'
+    if (isCurrent()) {
+      state.value = 'failed'
+      emit('failed')
+    }
   } finally {
     if (isCurrent()) pending.value = false
   }
@@ -106,37 +115,39 @@ onScopeDispose(() => {
 </script>
 
 <template>
-  <span v-bind="$attrs" class="modern-copy-value" :class="{ 'is-wrapped': wrap }">
-    <span v-if="wrap">{{ display ?? value }}</span>
-    <AppOverflowText v-else :text="display ?? value" />
-    <AppTooltip :label="label">
-      <button
-        ref="trigger"
-        type="button"
-        class="modern-copy-button"
-        :class="{ 'is-copied': state === 'success' }"
-        :aria-label="label"
-        :disabled="pending"
-        :aria-busy="pending || undefined"
-        @click.stop="copy()"
-      >
-        <AppIcon
-          :icon="
-            pending
-              ? LoaderCircle
-              : state === 'success'
-                ? Check
-                : state === 'failed'
-                  ? TriangleAlert
-                  : Copy
-          "
-          size="inherit"
-          :class="{ 'modern-spin': pending }"
-        />
-      </button>
-    </AppTooltip>
-    <span class="modern-sr-only" role="status">{{ state === 'idle' ? '' : label }}</span>
-  </span>
+  <slot name="trigger" :copy="copy" :pending="pending">
+    <span v-bind="$attrs" class="modern-copy-value" :class="{ 'is-wrapped': wrap }">
+      <span v-if="wrap">{{ display ?? value }}</span>
+      <AppOverflowText v-else :text="display ?? value" />
+      <AppTooltip :label="label">
+        <button
+          ref="trigger"
+          type="button"
+          class="modern-copy-button"
+          :class="{ 'is-copied': state === 'success' }"
+          :aria-label="label"
+          :disabled="pending"
+          :aria-busy="pending || undefined"
+          @click.stop="copy()"
+        >
+          <AppIcon
+            :icon="
+              pending
+                ? LoaderCircle
+                : state === 'success'
+                  ? Check
+                  : state === 'failed'
+                    ? TriangleAlert
+                    : Copy
+            "
+            size="inherit"
+            :class="{ 'modern-spin': pending }"
+          />
+        </button>
+      </AppTooltip>
+      <span class="modern-sr-only" role="status">{{ state === 'idle' ? '' : label }}</span>
+    </span>
+  </slot>
   <DialogRoot
     :open="fallback !== undefined"
     @update:open="

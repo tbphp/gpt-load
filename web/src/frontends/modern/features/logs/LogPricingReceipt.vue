@@ -48,6 +48,7 @@ function adjustment(line: LogPricingLine): string | undefined {
         />
         <AppOverflowText
           :text="rate(line)"
+          :hint="adjustment(line)"
           :full-text="[rate(line), adjustment(line)].filter(Boolean).join(' ')"
         />
         <AppOverflowText

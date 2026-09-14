@@ -260,7 +260,6 @@ useMessageSource(() =>
       :models="models"
       :groups-loading="admin && groups.isFetching.value"
       :keys-loading="admin && keys.isFetching.value"
-      :pending="query.isFetching.value"
       @change="submitFilters"
       @more="setMore"
     >
@@ -342,13 +341,25 @@ useMessageSource(() =>
         :class="{ 'is-selected': state.detail === row.request_id }"
       >
         <div
-          v-for="cell in columns.cells.value"
+          v-for="cell in columns.forRow(row)"
           :key="cell.id"
           role="cell"
+          :aria-colindex="cell.index + 1"
+          :aria-colspan="cell.span > 1 ? cell.span : undefined"
           class="modern-log-cell"
           :class="{ 'is-numeric': cell.numeric }"
+          :style="cell.span > 1 ? { gridColumn: 'span ' + cell.span } : undefined"
         >
+          <div v-if="cell.error" class="modern-log-error-summary">
+            <AppOverflowText
+              class="modern-log-error-code"
+              :text="row.error_code || '—'"
+              tabindex="0"
+            />
+            <AppOverflowText :text="row.error_summary || '—'" tabindex="0" />
+          </div>
           <LogTableCell
+            v-else
             :row="row"
             :fields="cell.fields"
             :peer="cell.peer"
@@ -357,7 +368,11 @@ useMessageSource(() =>
             @open="showDetail(row.request_id)"
           />
         </div>
-        <div class="modern-log-row-action" role="cell">
+        <div
+          class="modern-log-row-action"
+          role="cell"
+          :aria-colindex="columns.cells.value.length + 1"
+        >
           <AppIconButton
             class="modern-log-detail-action"
             :icon="Eye"
@@ -490,6 +505,23 @@ useMessageSource(() =>
 }
 .modern-log-cell {
   min-width: 0;
+}
+.modern-log-error-summary {
+  display: grid;
+  min-width: 0;
+  gap: var(--modern-space-0-5);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  line-height: var(--modern-leading-compact);
+}
+.modern-log-error-code {
+  color: var(--modern-danger);
+  font-family: var(--modern-font-mono);
+  font-weight: var(--modern-weight-medium);
+}
+.modern-log-error-summary > :focus-visible {
+  outline: var(--modern-focus-width) solid var(--modern-accent);
+  outline-offset: var(--modern-focus-offset);
 }
 /* 数字按位比较，列与表头一起右对齐。 */
 .modern-log-cell.is-numeric {

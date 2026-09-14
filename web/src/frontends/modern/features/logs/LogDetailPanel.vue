@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, ArrowDownToLine, Clock3, Coins } from '@lucide/vue'
+import { Activity, ArrowDownToLine, Clock3, Coins, ShieldCheck } from '@lucide/vue'
 import { timeRangeQuery } from '@modern/app/time-range'
 import type { DateRangePreset } from '@modern/components/ui/date-time'
 import { useQuery } from '@tanstack/vue-query'
@@ -10,7 +10,7 @@ import { RouterLink } from 'vue-router'
 import { getLogDetail, logDetailKey, type LogReasoning } from '@modern/api/logs'
 import type { GroupRow } from '@modern/api/groups'
 import type { GroupChannel } from '@modern/api/group-create'
-import { useMessageSource } from '@modern/app/messages'
+import { useMessages, useMessageSource } from '@modern/app/messages'
 import {
   AppBadge,
   AppProtocolTag,
@@ -27,8 +27,10 @@ import {
 import { useApiClient } from '@shared/http/client-context'
 import type { LogColumnId } from './log-columns'
 import { logCacheWrites, logDuration, logNumber, logStatusTone, logTime } from './log-display'
+import { createRedactedLogExport } from './log-redacted-export'
 import LogPricingReceipt from './LogPricingReceipt.vue'
 import LogValue from './LogValue.vue'
+import LogModelWarning from './LogModelWarning.vue'
 
 const props = defineProps<{
   id: string
@@ -42,6 +44,7 @@ const props = defineProps<{
 defineEmits<{ close: [] }>()
 const { t, te, n, locale } = useI18n()
 const client = useApiClient()
+const messages = useMessages()
 const query = useQuery({
   queryKey: [...logDetailKey(props.id), props.admin],
   queryFn: ({ signal }) => getLogDetail(client, props.id, signal),
@@ -127,6 +130,10 @@ useMessageSource(() =>
       }
     : undefined,
 )
+function resolveRedactedLog(): Promise<string> {
+  if (!log.value) throw new Error('LOG_NOT_AVAILABLE')
+  return createRedactedLogExport(log.value)
+}
 </script>
 
 <template>
@@ -163,20 +170,21 @@ useMessageSource(() =>
             class="modern-log-result"
             :class="'modern-log-result--' + logStatusTone[log.status]"
           >
-            <div class="modern-log-result-heading">
+            <header class="modern-log-result-heading">
+              <AppOverflowText class="modern-log-result-model" :text="log.client_model || '—'" />
               <AppBadge :tone="logStatusTone[log.status]" dot>{{
                 t('logs.values.' + log.status)
-              }}</AppBadge
-              ><time>{{ logTime(log.completed_at_ms, locale, true) }}</time>
-            </div>
-            <div class="modern-log-model-heading">
-              <AppOverflowText :text="log.client_model || '—'" />
-              <AppProtocolTag :protocol="log.protocol" size="sm" />
+              }}</AppBadge>
+            </header>
+            <div class="modern-log-result-context">
+              <AppProtocolTag :protocol="log.protocol" />
+              <time>{{ logTime(log.completed_at_ms, locale, true) }}</time>
             </div>
             <div class="modern-log-request-identity">
               <span>{{ t('logs.columns.request_id') }}</span
               ><AppCopyValue :value="log.request_id" :label="t('logs.copyRequest')" />
             </div>
+            <LogModelWarning v-if="admin" :row="log" detail />
             <div
               v-if="log.error_code || log.error_summary"
               class="modern-log-error"
@@ -199,7 +207,7 @@ useMessageSource(() =>
                 </dd>
               </div>
             </dl>
-            <dl class="modern-log-detail-grid modern-log-result-meta">
+            <dl class="modern-log-result-meta">
               <div v-for="field in outcomeFields" :key="field">
                 <dt>{{ t('logs.columns.' + field) }}</dt>
                 <dd>
@@ -222,6 +230,33 @@ useMessageSource(() =>
               </div>
             </dl>
           </AppFormSection>
+          <AppFormSection :title="t('logs.usageInfo')" compact>
+            <dl class="modern-log-detail-grid is-numeric">
+              <div v-for="field in tokenFields" :key="field">
+                <dt>{{ t('logs.columns.' + field) }}</dt>
+                <dd>
+                  <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
+                </dd>
+              </div>
+            </dl>
+          </AppFormSection>
+          <AppFormSection :title="t('logs.costInfo')" compact>
+            <dl class="modern-log-detail-grid is-numeric">
+              <div v-for="field in costFields" :key="field">
+                <dt>{{ t('logs.columns.' + field) }}</dt>
+                <dd>
+                  <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
+                </dd>
+              </div>
+            </dl>
+          </AppFormSection>
+          <AppFormSection
+            v-if="receipt"
+            :title="t('logs.pricingInfo')"
+            :description="t('logs.frozenPricing')"
+            compact
+            ><LogPricingReceipt :receipt="receipt"
+          /></AppFormSection>
           <AppFormSection v-if="admin && log.attempts.length" :title="t('logs.attempts')" compact>
             <template #actions
               ><span class="modern-log-detail-note">{{
@@ -242,6 +277,7 @@ useMessageSource(() =>
                     :name="channels.get(attempt.channel_id)!.name"
                     :mark="channels.get(attempt.channel_id)!.mark"
                     size="sm"
+                    :tooltip="false"
                   /><AppOverflowText
                     class="modern-log-attempt-group"
                     :class="{ 'is-deleted': !attempt.group_name }"
@@ -375,41 +411,10 @@ useMessageSource(() =>
                       </dd>
                     </div>
                   </dl>
-                  <LogPricingReceipt
-                    v-if="attempt.pricing_receipt"
-                    :receipt="attempt.pricing_receipt"
-                  />
                 </details>
               </li>
             </ol>
           </AppFormSection>
-          <AppFormSection :title="t('logs.usageInfo')" compact>
-            <dl class="modern-log-detail-grid is-numeric">
-              <div v-for="field in tokenFields" :key="field">
-                <dt>{{ t('logs.columns.' + field) }}</dt>
-                <dd>
-                  <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
-                </dd>
-              </div>
-            </dl>
-          </AppFormSection>
-          <AppFormSection :title="t('logs.costInfo')" compact>
-            <dl class="modern-log-detail-grid is-numeric">
-              <div v-for="field in costFields" :key="field">
-                <dt>{{ t('logs.columns.' + field) }}</dt>
-                <dd>
-                  <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
-                </dd>
-              </div>
-            </dl>
-          </AppFormSection>
-          <AppFormSection
-            v-if="receipt"
-            :title="t('logs.pricingInfo')"
-            :description="t('logs.frozenPricing')"
-            compact
-            ><LogPricingReceipt :receipt="receipt"
-          /></AppFormSection>
         </template>
       </div>
       <footer v-if="log" class="modern-log-detail-footer">
@@ -421,26 +426,6 @@ useMessageSource(() =>
           ><RouterLink :to="{ name: 'modern-group-detail', params: { id: log.group_id } }">{{
             t('logs.viewGroup')
           }}</RouterLink></AppButton
-        >
-        <AppButton
-          v-if="
-            admin &&
-            log.group_id &&
-            groups.has(log.group_id) &&
-            log.credential_id &&
-            log.credential_name
-          "
-          as-child
-          variant="ghost"
-          size="xs"
-          ><RouterLink
-            :to="{
-              name: 'modern-group-detail',
-              params: { id: log.group_id },
-              query: { credential: String(log.credential_id) },
-            }"
-            >{{ t('logs.viewCredential') }}</RouterLink
-          ></AppButton
         >
         <AppButton
           v-if="admin && log.access_key.id && !log.access_key.deleted"
@@ -458,6 +443,24 @@ useMessageSource(() =>
         <AppButton as-child variant="brand" size="xs"
           ><RouterLink :to="usageLocation">{{ t('logs.viewUsage') }}</RouterLink></AppButton
         >
+        <AppCopyValue
+          :value="log.request_id"
+          :resolve-value="resolveRedactedLog"
+          @copied="messages.show({ tone: 'success', text: t('logs.redactedCopySuccess') })"
+          @failed="messages.show({ tone: 'danger', text: t('logs.redactedCopyFailed') })"
+        >
+          <template #trigger="{ copy, pending }">
+            <AppButton
+              :icon="ShieldCheck"
+              :loading="pending"
+              variant="ghost"
+              size="xs"
+              @click="copy()"
+            >
+              {{ t('logs.copyRedactedLog') }}
+            </AppButton>
+          </template>
+        </AppCopyValue>
       </footer>
     </AppDialogContent>
   </DialogRoot>
@@ -494,22 +497,25 @@ useMessageSource(() =>
 .modern-log-result--warning {
   border-top-color: var(--modern-warning);
 }
-.modern-log-model-heading {
+.modern-log-result-context {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--modern-space-2);
+  gap: var(--modern-space-1) var(--modern-space-3);
   min-width: 0;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
 }
-.modern-log-model-heading > :first-child {
-  flex: 1 1 180px;
+.modern-log-result-model {
+  flex: 1;
+  min-width: 0;
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-semibold);
 }
 .modern-log-primary-metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(136px, 100%), 1fr));
-  gap: var(--modern-space-3) var(--modern-space-4);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--modern-space-3);
   margin: 0;
   padding: var(--modern-space-3);
   border: var(--modern-line-width) solid var(--modern-border);
@@ -533,12 +539,33 @@ useMessageSource(() =>
   margin: 0;
   color: var(--modern-text);
   font-family: var(--modern-font-mono);
-  font-size: var(--modern-font-size-section);
+  font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 .modern-log-result-meta {
-  padding-inline: var(--modern-space-1);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--modern-space-2) var(--modern-space-4);
+  margin: 0;
+}
+.modern-log-result-meta > div {
+  display: grid;
+  grid-template-columns: 4.5em minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--modern-space-2);
+  min-width: 0;
+  font-size: var(--modern-font-size-small);
+}
+.modern-log-result-meta dt {
+  color: var(--modern-muted);
+  overflow-wrap: anywhere;
+}
+.modern-log-result-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 .modern-log-error.is-note {
   background: var(--modern-subtle);
@@ -566,7 +593,6 @@ useMessageSource(() =>
   justify-content: space-between;
   gap: var(--modern-space-2);
 }
-.modern-log-result-heading time,
 .modern-log-detail-note {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
@@ -581,6 +607,9 @@ useMessageSource(() =>
 }
 .modern-log-request-identity > :first-child {
   flex: none;
+}
+.modern-log-request-identity > :last-child {
+  min-width: 0;
 }
 .modern-log-error {
   display: grid;
@@ -734,8 +763,23 @@ useMessageSource(() =>
   padding: var(--modern-space-3) var(--modern-space-4);
   border-top: var(--modern-line-width) solid var(--modern-border);
 }
+.modern-log-detail-footer > :deep(.modern-button) {
+  width: auto;
+  flex: 1 1 auto;
+  white-space: nowrap;
+}
 @container modern-log-detail (max-width: 400px) {
   .modern-log-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container modern-log-detail (max-width: 480px) {
+  .modern-log-primary-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container modern-log-detail (max-width: 360px) {
+  .modern-log-result-meta {
     grid-template-columns: minmax(0, 1fr);
   }
 }
