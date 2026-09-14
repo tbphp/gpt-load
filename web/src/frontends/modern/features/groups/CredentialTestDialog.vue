@@ -19,6 +19,7 @@ import {
   type CredentialTestResult,
 } from '@modern/api/credential-actions'
 import {
+  AppProtocolTag,
   AppButton,
   AppDialogContent,
   AppDialogHeader,
@@ -155,7 +156,18 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           :options="protocols"
           :disabled="pending || settings.isPending.value || protocols.length === 1"
           @update:model-value="updateProtocol"
-        />
+        >
+          <template #value="{ value, label }"
+            ><AppProtocolTag v-if="value" :protocol="value" /><span v-else>{{
+              label
+            }}</span></template
+          >
+          <template #option="{ option }"
+            ><AppProtocolTag v-if="option.value" :protocol="option.value" /><span v-else>{{
+              option.label
+            }}</span></template
+          >
+        </AppSelect>
         <AppSearchSelect
           :model-value="model"
           :label="t('groupDetail.validationModel')"

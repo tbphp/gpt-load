@@ -160,14 +160,21 @@ defineExpose({ focus: () => input.value?.$el.focus({ preventScroll: true }) })
       class="modern-multi-selected"
       :aria-label="t('ui.select.selected', { count: n(model.length) })"
     >
-      <AppTag
+      <slot
         v-for="value in model"
         :key="value"
-        :text="labels.get(value) ?? value"
-        removable
-        :disabled="disabled"
-        @remove="removeValue(value)"
-      />
+        name="tag"
+        :value="value"
+        :label="labels.get(value) ?? value"
+        :remove="() => removeValue(value)"
+      >
+        <AppTag
+          :text="labels.get(value) ?? value"
+          removable
+          :disabled="disabled"
+          @remove="removeValue(value)"
+        />
+      </slot>
     </div>
   </AppField>
 </template>

@@ -59,8 +59,9 @@ const selectedLabel = computed(
         >
           <AppIcon v-if="icon" :icon="icon" size="sm" :label="label" />
           <SelectValue class="modern-select-value"
-            ><AppOverflowText :text="selectedLabel"
-          /></SelectValue>
+            ><slot name="value" :value="model" :label="selectedLabel"
+              ><AppOverflowText :text="selectedLabel" /></slot
+          ></SelectValue>
           <AppIcon :icon="ChevronDown" size="sm" :label="label" />
         </SelectTrigger>
       </AppFieldControl>
@@ -73,9 +74,12 @@ const selectedLabel = computed(
                 :key="option.value"
                 :value="option.value === '' ? null : option.value"
                 :disabled="option.disabled"
+                :text-value="option.label"
                 class="modern-menu-option"
               >
-                <SelectItemText>{{ option.label }}</SelectItemText>
+                <SelectItemText
+                  ><slot name="option" :option="option">{{ option.label }}</slot></SelectItemText
+                >
                 <SelectItemIndicator><AppIcon :icon="Check" size="sm" /></SelectItemIndicator>
               </SelectItem>
             </SelectViewport>

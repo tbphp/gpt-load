@@ -19,6 +19,7 @@ import {
 import { getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
 import { useMessageSource } from '@modern/app/messages'
 import {
+  AppProtocolTag,
   AppBadge,
   AppDateTimePicker,
   AppButton,
@@ -601,7 +602,17 @@ onScopeDispose(() => {
               :options="protocolOptions"
               :disabled="scopeLocked"
               :error="fieldError('protocols')"
-            />
+            >
+              <template #option="{ option }"><AppProtocolTag :protocol="option.value" /></template>
+              <template #tag="{ value, remove: removeTag }"
+                ><AppProtocolTag
+                  :protocol="value"
+                  size="sm"
+                  removable
+                  :disabled="scopeLocked"
+                  @remove="removeTag"
+              /></template>
+            </AppMultiSelect>
             <div class="modern-access-setting">
               <span>{{ t('accessKeys.models') }}</span
               ><AppSegmentedControl

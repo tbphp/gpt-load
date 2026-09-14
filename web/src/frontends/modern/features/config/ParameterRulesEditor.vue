@@ -15,6 +15,7 @@ import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { GroupModel, ParameterRule } from '@modern/api/group-detail'
 import {
+  AppProtocolTag,
   AppBadge,
   AppButton,
   AppIconButton,
@@ -378,7 +379,18 @@ defineExpose({
             :options="protocolOptions"
             size="xs"
             :disabled="disabled"
-          />
+          >
+            <template #value="{ value, label }"
+              ><AppProtocolTag v-if="value" :protocol="value" /><span v-else>{{
+                label
+              }}</span></template
+            >
+            <template #option="{ option }"
+              ><AppProtocolTag v-if="option.value" :protocol="option.value" /><span v-else>{{
+                option.label
+              }}</span></template
+            >
+          </AppSelect>
           <AppModelSelect
             v-model="row.model"
             :label="t('parameterRules.model')"

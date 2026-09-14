@@ -7,6 +7,7 @@ import type { GroupRow } from '@modern/api/groups'
 import type { GroupChannel } from '@modern/api/group-create'
 import {
   AppBadge,
+  AppProtocolTag,
   AppChannelIcon,
   AppCopyValue,
   AppOverflowText,
@@ -196,15 +197,10 @@ const hint = computed(() => {
       size="sm"
     /><AppOverflowText :text="display" />
   </div>
-  <AppBadge
-    v-else-if="
-      table && (column === 'protocol' || column === 'upstream_protocol') && display !== '—'
-    "
-    variant="outline"
-    size="xs"
-    class="modern-log-protocol"
-    ><AppOverflowText :text="display"
-  /></AppBadge>
+  <AppProtocolTag
+    v-else-if="column === 'protocol' || column === 'upstream_protocol'"
+    :protocol="row[column]"
+  />
   <span
     v-else-if="table && column === 'status_code'"
     class="modern-log-http"
@@ -243,19 +239,6 @@ const hint = computed(() => {
   font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-medium);
   padding-inline: var(--modern-space-1-5);
-}
-/* 每行都相同的值不需要描边和底色，降成一行小字。 */
-.modern-log-protocol {
-  max-width: 100%;
-  min-height: 0;
-  border-color: transparent;
-  background: transparent;
-  color: var(--modern-control-placeholder);
-  padding: 0;
-  font-family: var(--modern-font-mono);
-  font-size: var(--modern-font-size-caption);
-  font-weight: var(--modern-weight-regular);
-  letter-spacing: var(--modern-tracking-label);
 }
 .modern-log-http {
   color: var(--modern-control-placeholder);

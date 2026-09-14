@@ -62,6 +62,15 @@
     var(--modern-accent-soft)
   );
 
+  /* 协议身份色固定，不复用请求成功、失败等状态含义。 */
+  --modern-protocol-completions: light-dark(#28734b, #88d0a5);
+  --modern-protocol-responses: light-dark(#3564ae, #95baff);
+  --modern-protocol-images: light-dark(#8752a8, #d0a7eb);
+  --modern-protocol-embeddings: light-dark(#177985, #80cdd7);
+  --modern-protocol-rerank: light-dark(#a34c70, #eda7c2);
+  --modern-protocol-anthropic: light-dark(#aa6132, #eeb38b);
+  --modern-protocol-gemini: light-dark(#6154ad, #b9aff2);
+
   /* 控件状态：按钮、字段与选择器共用边框、底色和焦点反馈。 */
   --modern-control-border: light-dark(#dcdcd6, #4a4a45);
   --modern-control-border-hover: light-dark(#bdbdb5, #707069);

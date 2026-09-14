@@ -9,6 +9,8 @@ import { getGroupCredentials } from '@modern/api/group-detail'
 import { channelSearchOption } from '@modern/components/channel-options'
 import {
   AppButton,
+  AppProtocolTag,
+  AppOverflowText,
   AppChannelIcon,
   AppDateTimeRangePicker,
   AppModelSelect,
@@ -394,7 +396,19 @@ const loadCredentials = computed(() => {
               :label="t('logs.filters.' + field.key)"
               size="xs"
               @update:model-value="update(field.key, $event)"
-            />
+            >
+              <template #value="{ value, label }"
+                ><AppProtocolTag
+                  v-if="field.key === 'protocol' && value"
+                  :protocol="value" /><AppOverflowText v-else :text="label"
+              /></template>
+              <template #option="{ option }"
+                ><AppProtocolTag
+                  v-if="field.key === 'protocol' && option.value"
+                  :protocol="option.value"
+                /><span v-else>{{ option.label }}</span></template
+              >
+            </AppSelect>
             <AppTextField
               v-else-if="!field.key.includes('_max')"
               :model-value="draft[field.key] ?? ''"

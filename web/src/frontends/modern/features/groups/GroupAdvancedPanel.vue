@@ -21,6 +21,7 @@ import {
 import type { GroupChannel } from '@modern/api/group-create'
 import type { GroupRow } from '@modern/api/groups'
 import {
+  AppProtocolTag,
   AppButton,
   AppCollectionState,
   AppIconButton,
@@ -309,7 +310,18 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             :options="protocolOptions"
             size="sm"
             :disabled="saving || protocolOptions.length === 1"
-          />
+          >
+            <template #value="{ value, label }"
+              ><AppProtocolTag v-if="value" :protocol="value" /><span v-else>{{
+                label
+              }}</span></template
+            >
+            <template #option="{ option }"
+              ><AppProtocolTag v-if="option.value" :protocol="option.value" /><span v-else>{{
+                option.label
+              }}</span></template
+            >
+          </AppSelect>
         </div>
         <template v-if="channel?.proxy">
           <div class="modern-advanced-columns">

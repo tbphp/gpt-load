@@ -27,8 +27,6 @@ export const logColumnIds = [
   'route_mode',
   'affinity_hit',
   'reasoning_mode',
-  'reasoning_effort',
-  'reasoning_budget',
   'cache_hit_rate',
   'cache_write_tokens',
   'cache_write_5m_tokens',

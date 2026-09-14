@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { Activity, ArrowDownToLine, Clock3, Coins } from '@lucide/vue'
-import { protocolLabel } from '@modern/i18n/protocols'
 import { timeRangeQuery } from '@modern/app/time-range'
 import type { DateRangePreset } from '@modern/components/ui/date-time'
 import { useQuery } from '@tanstack/vue-query'
@@ -8,12 +7,13 @@ import { DialogRoot } from 'reka-ui'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
-import { getLogDetail, logDetailKey } from '@modern/api/logs'
+import { getLogDetail, logDetailKey, type LogReasoning } from '@modern/api/logs'
 import type { GroupRow } from '@modern/api/groups'
 import type { GroupChannel } from '@modern/api/group-create'
 import { useMessageSource } from '@modern/app/messages'
 import {
   AppBadge,
+  AppProtocolTag,
   AppButton,
   AppCollectionState,
   AppCopyValue,
@@ -26,7 +26,7 @@ import {
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import type { LogColumnId } from './log-columns'
-import { logDuration, logStatusTone, logTime } from './log-display'
+import { logCacheWrites, logDuration, logNumber, logStatusTone, logTime } from './log-display'
 import LogPricingReceipt from './LogPricingReceipt.vue'
 import LogValue from './LogValue.vue'
 
@@ -50,6 +50,7 @@ const log = computed(() => query.data.value)
 const outcomeFields = computed<LogColumnId[]>(() => [
   'status_code',
   'stream',
+  'operation',
   ...(props.admin ? ['attempt_count' as const, 'affinity_hit' as const] : []),
 ])
 const routingFields: LogColumnId[] = [
@@ -63,22 +64,20 @@ const routingFields: LogColumnId[] = [
   'upstream_protocol',
   'route_mode',
 ]
-const requestFields: LogColumnId[] = [
-  'operation',
-  'reasoning_mode',
-  'reasoning_effort',
-  'reasoning_budget',
-]
-const usageFields: LogColumnId[] = [
+const tokenFields = computed<LogColumnId[]>(() => [
   'input_tokens',
   'output_tokens',
+  'total_tokens',
   'cache_read_tokens',
   'cache_hit_rate',
-  'cache_write_5m_tokens',
-  'cache_write_1h_tokens',
-  'cache_write_unknown_tokens',
-  'total_tokens',
+  'cache_write_tokens',
+  // 细分写入绝大多数请求都是 0，只在确实写过缓存时才展开。
+  ...(log.value && logCacheWrites(log.value) !== '0'
+    ? (['cache_write_5m_tokens', 'cache_write_1h_tokens', 'cache_write_unknown_tokens'] as const)
+    : []),
   'usage_state',
+])
+const costFields: LogColumnId[] = [
   'estimated_cost_nano_usd',
   'cost_state',
   'pricing_completeness',
@@ -99,6 +98,16 @@ const receipt = computed(
 )
 function valueName(value: string | null | undefined): string {
   return !value ? '—' : te('logs.values.' + value) ? t('logs.values.' + value) : value
+}
+// 表格按 强度 > 预算 > 开关 只取一个值，详情面板给出完整拆解。
+function reasoningText(value: LogReasoning): string {
+  const budget =
+    value.budget_tokens && value.budget_tokens !== '0'
+      ? value.budget_tokens === '-1'
+        ? t('logs.values.auto')
+        : logNumber(value.budget_tokens, locale.value)
+      : ''
+  return [value.mode && valueName(value.mode), value.effort, budget].filter(Boolean).join(' · ')
 }
 const usageLocation = computed(() => ({
   name: 'modern-usage',
@@ -161,11 +170,8 @@ useMessageSource(() =>
               ><time>{{ logTime(log.completed_at_ms, locale, true) }}</time>
             </div>
             <div class="modern-log-model-heading">
-              <AppOverflowText :text="log.client_model || '—'" /><AppBadge
-                tone="brand"
-                variant="outline"
-                >{{ protocolLabel(log.protocol, t) }}</AppBadge
-              >
+              <AppOverflowText :text="log.client_model || '—'" />
+              <AppProtocolTag :protocol="log.protocol" size="sm" />
             </div>
             <div class="modern-log-request-identity">
               <span>{{ t('logs.columns.request_id') }}</span
@@ -200,27 +206,15 @@ useMessageSource(() =>
                   <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
                 </dd>
               </div>
-            </dl>
-          </section>
-          <AppFormSection :title="t('logs.requestInfo')" compact>
-            <dl class="modern-log-detail-grid">
-              <div v-for="field in requestFields" :key="field">
-                <dt>{{ t('logs.columns.' + field) }}</dt>
-                <dd>
-                  <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
-                </dd>
+              <div v-if="log.reasoning">
+                <dt>{{ t('logs.reasoning') }}</dt>
+                <dd>{{ reasoningText(log.reasoning) || '—' }}</dd>
               </div>
             </dl>
-          </AppFormSection>
+          </section>
           <AppFormSection v-if="admin" :title="t('logs.routingInfo')" compact>
             <dl class="modern-log-detail-grid">
-              <div
-                v-for="field in routingFields"
-                :key="field"
-                :class="{
-                  'is-wide': ['upstream_model', 'upstream_reported_model'].includes(field),
-                }"
-              >
+              <div v-for="field in routingFields" :key="field">
                 <dt>{{ t('logs.columns.' + field) }}</dt>
                 <dd>
                   <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
@@ -272,10 +266,10 @@ useMessageSource(() =>
                   ><AppOverflowText :text="attempt.upstream_model ?? '—'" /><AppBadge
                     v-if="attempt.will_retry"
                     tone="warning"
-                    variant="plain"
+                    variant="soft"
                     size="xs"
                     >{{ t('logs.willRetry') }}</AppBadge
-                  ><AppBadge v-else-if="attempt.committed" tone="brand" variant="plain" size="xs">{{
+                  ><AppBadge v-else-if="attempt.committed" tone="brand" variant="soft" size="xs">{{
                     t('logs.committed')
                   }}</AppBadge>
                 </div>
@@ -311,7 +305,7 @@ useMessageSource(() =>
                     </div>
                     <div>
                       <dt>{{ t('logs.columns.upstream_protocol') }}</dt>
-                      <dd>{{ protocolLabel(attempt.upstream_protocol, t) }}</dd>
+                      <dd><AppProtocolTag :protocol="attempt.upstream_protocol" /></dd>
                     </div>
                     <div>
                       <dt>{{ t('logs.dispatchState') }}</dt>
@@ -390,8 +384,18 @@ useMessageSource(() =>
             </ol>
           </AppFormSection>
           <AppFormSection :title="t('logs.usageInfo')" compact>
-            <dl class="modern-log-detail-grid">
-              <div v-for="field in usageFields" :key="field">
+            <dl class="modern-log-detail-grid is-numeric">
+              <div v-for="field in tokenFields" :key="field">
+                <dt>{{ t('logs.columns.' + field) }}</dt>
+                <dd>
+                  <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
+                </dd>
+              </div>
+            </dl>
+          </AppFormSection>
+          <AppFormSection :title="t('logs.costInfo')" compact>
+            <dl class="modern-log-detail-grid is-numeric">
+              <div v-for="field in costFields" :key="field">
                 <dt>{{ t('logs.columns.' + field) }}</dt>
                 <dd>
                   <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
@@ -504,8 +508,8 @@ useMessageSource(() =>
 }
 .modern-log-primary-metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(136px, 100%), 1fr));
+  gap: var(--modern-space-3) var(--modern-space-4);
   margin: 0;
   padding: var(--modern-space-3);
   border: var(--modern-line-width) solid var(--modern-border);
@@ -522,12 +526,15 @@ useMessageSource(() =>
   gap: var(--modern-space-1-5);
   align-items: center;
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-secondary);
+  font-size: var(--modern-font-size-caption);
+  letter-spacing: var(--modern-tracking-label);
 }
 .modern-log-primary-metrics dd {
   margin: 0;
-  font-size: var(--modern-font-size-secondary);
-  font-weight: var(--modern-weight-medium);
+  color: var(--modern-text);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-section);
+  font-weight: var(--modern-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 .modern-log-result-meta {
@@ -591,30 +598,45 @@ useMessageSource(() =>
 }
 .modern-log-detail-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(216px, 100%), 1fr));
   gap: var(--modern-space-2) var(--modern-space-4);
   margin: 0;
-  font-size: var(--modern-font-size-small);
 }
+/* 标签列定宽右对齐：每行标签与取值都贴合，整个面板只有一条竖向基线。
+   非中文标签更长，允许换行而不是溢出。 */
+/* 取值里混着纯文本、20px 协议标签和 24px 渠道图标，基线对齐会被图标压低，
+   同一行的标签高低不齐；统一按行居中并锁定行高。 */
 .modern-log-detail-grid > div {
   display: grid;
-  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
-  align-items: baseline;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
   gap: var(--modern-space-2);
   min-width: 0;
+  min-height: var(--modern-space-6);
 }
 .modern-log-detail-grid dt {
   color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+  text-align: right;
+  overflow-wrap: break-word;
 }
 .modern-log-detail-grid dd {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--modern-text);
+  font-size: var(--modern-font-size-secondary);
   font-variant-numeric: tabular-nums;
 }
+/* 纯数值分段用等宽字，和列表里的数字列保持一致。 */
+.modern-log-detail-grid.is-numeric dd {
+  font-family: var(--modern-font-mono);
+}
+/* 整行字段（错误代码、上游请求 ID 等）取值会换行，且不含图标，
+   用基线让标签跟住首行，而不是被居中挤到多行的正中间。 */
 .modern-log-detail-grid .is-wide {
   grid-column: 1 / -1;
+  align-items: baseline;
 }
 .modern-log-attempts {
   list-style: none;
@@ -689,6 +711,17 @@ useMessageSource(() =>
 .modern-log-attempt-extra summary {
   cursor: pointer;
   width: fit-content;
+  border-radius: var(--modern-radius-small);
+  color: var(--modern-accent);
+  padding: var(--modern-space-0-5) var(--modern-space-1);
+  margin-inline-start: calc(-1 * var(--modern-space-1));
+}
+.modern-log-attempt-extra summary:hover {
+  background: var(--modern-control-hover);
+}
+.modern-log-attempt-extra summary:focus-visible {
+  outline: var(--modern-focus-width) solid var(--modern-accent);
+  outline-offset: var(--modern-space-0-5);
 }
 .modern-log-attempt-extra[open] > :not(summary) {
   margin-top: var(--modern-space-3);
