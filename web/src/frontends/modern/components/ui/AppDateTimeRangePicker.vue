@@ -199,7 +199,7 @@ function apply(): void {
 </template>
 <style>
 .modern-date-popover--range {
-  width: min(700px, calc(100vw - var(--modern-space-8)));
+  width: min(600px, calc(100vw - var(--modern-space-8)));
 }
 .modern-date-popover--range .modern-date-range-switch {
   display: none;
@@ -207,7 +207,7 @@ function apply(): void {
 .modern-date-range-editors {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-4);
+  gap: var(--modern-space-3);
 }
 .modern-date-range-editors h4 {
   margin: 0 0 var(--modern-space-2);
@@ -217,7 +217,7 @@ function apply(): void {
 }
 @media (max-width: 760px) {
   .modern-date-popover--range {
-    width: min(340px, calc(100vw - var(--modern-space-8)));
+    width: min(300px, calc(100vw - var(--modern-space-8)));
   }
   .modern-date-popover--range .modern-date-range-switch {
     display: inline-flex;

@@ -13,6 +13,7 @@ defineProps<{
   variant?: ButtonVariant
   loading?: boolean
   disabled?: boolean
+  tooltip?: boolean
 }>()
 const { forwardRef } = useForwardExpose()
 </script>
@@ -20,7 +21,9 @@ const { forwardRef } = useForwardExpose()
 <template>
   <AppTooltip
     :label="label"
-    :disabled="$attrs['aria-expanded'] === true || $attrs['aria-expanded'] === 'true'"
+    :disabled="
+      tooltip === false || $attrs['aria-expanded'] === true || $attrs['aria-expanded'] === 'true'
+    "
   >
     <AppButton
       :ref="forwardRef"

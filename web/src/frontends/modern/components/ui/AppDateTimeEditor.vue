@@ -80,7 +80,7 @@ async function adjustTime(event: KeyboardEvent): Promise<void> {
 .modern-date-editor-fields {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: var(--modern-space-2);
+  gap: var(--modern-space-1);
   align-items: start;
 }
 </style>

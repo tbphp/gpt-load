@@ -10,14 +10,14 @@
 }
 .modern-date-popover {
   z-index: var(--modern-layer-menu);
-  width: min(340px, calc(100vw - var(--modern-space-8)));
+  width: min(300px, calc(100vw - var(--modern-space-8)));
   max-height: calc(100dvh - var(--modern-space-8));
   overflow-y: auto;
   overscroll-behavior: contain;
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-panel);
   background: var(--modern-surface);
-  padding: var(--modern-space-3);
+  padding: var(--modern-space-2);
   color: var(--modern-text);
   box-shadow: var(--modern-shadow-menu);
 }
@@ -28,7 +28,7 @@
   margin-bottom: var(--modern-space-2);
 }
 .modern-date-shortcuts > .modern-button {
-  flex: 1 1 0;
+  flex: 1 1 auto;
 }
 .modern-date-footer {
   display: flex;

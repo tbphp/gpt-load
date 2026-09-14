@@ -29,6 +29,7 @@ const props = defineProps<
     size?: ControlSize
     name?: string
     required?: boolean
+    tooltip?: boolean
   }
 >()
 const model = defineModel<string>({ required: true })
@@ -57,12 +58,17 @@ const selectedLabel = computed(
           :aria-invalid="invalid || undefined"
           :aria-describedby="describedBy"
         >
-          <AppIcon v-if="icon" :icon="icon" size="sm" :label="label" />
+          <AppIcon
+            v-if="icon"
+            :icon="icon"
+            size="sm"
+            :label="tooltip === false ? undefined : label"
+          />
           <SelectValue class="modern-select-value"
             ><slot name="value" :value="model" :label="selectedLabel"
               ><AppOverflowText :text="selectedLabel" /></slot
           ></SelectValue>
-          <AppIcon :icon="ChevronDown" size="sm" :label="label" />
+          <AppIcon :icon="ChevronDown" size="sm" :label="tooltip === false ? undefined : label" />
         </SelectTrigger>
       </AppFieldControl>
       <SelectPortal>

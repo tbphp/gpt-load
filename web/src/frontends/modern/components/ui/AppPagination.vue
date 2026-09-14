@@ -96,13 +96,16 @@ function selectSize(value: string): void {
         <div class="modern-pagination-size">
           <AppSelect
             :label="t('ui.pagination.pageSize')"
+            :tooltip="false"
             label-hidden
             :model-value="String(pageSize)"
             :options="sizes"
             size="sm"
             :disabled="inactive"
             @update:model-value="selectSize"
-          />
+          >
+            <template #value="{ label }">{{ label }}</template>
+          </AppSelect>
         </div>
         <span class="modern-pagination-divider" aria-hidden="true" />
         <PaginationRoot
@@ -121,6 +124,7 @@ function selectSize(value: string): void {
             class="modern-pagination-compact"
             :icon="ChevronsLeft"
             :label="t('ui.pagination.first')"
+            :tooltip="false"
             size="sm"
             :disabled="!previous"
             @click="selectPage(1)"
@@ -128,6 +132,7 @@ function selectSize(value: string): void {
           <AppIconButton
             :icon="ChevronLeft"
             :label="t('ui.pagination.previous')"
+            :tooltip="false"
             size="sm"
             :disabled="!previous"
             @click="move(-1)"
@@ -155,7 +160,7 @@ function selectSize(value: string): void {
                 >
               </PaginationListItem>
               <span v-else class="modern-pagination-ellipsis">
-                <AppIcon :icon="Ellipsis" size="sm" :label="t('ui.pagination.omitted')" />
+                <AppIcon :icon="Ellipsis" size="sm" />
               </span>
             </template>
           </PaginationList>
@@ -166,6 +171,7 @@ function selectSize(value: string): void {
           <AppIconButton
             :icon="ChevronRight"
             :label="t('ui.pagination.next')"
+            :tooltip="false"
             size="sm"
             :disabled="!next"
             @click="move(1)"
@@ -174,6 +180,7 @@ function selectSize(value: string): void {
             class="modern-pagination-compact"
             :icon="ChevronsRight"
             :label="t('ui.pagination.last')"
+            :tooltip="false"
             size="sm"
             :disabled="!next"
             @click="selectPage(pages!)"
@@ -183,6 +190,7 @@ function selectSize(value: string): void {
           <AppIconButton
             :icon="ChevronLeft"
             :label="t('ui.pagination.previous')"
+            :tooltip="false"
             size="sm"
             :disabled="!previous"
             @click="move(-1)"
@@ -190,6 +198,7 @@ function selectSize(value: string): void {
           <AppIconButton
             :icon="ChevronRight"
             :label="t('ui.pagination.next')"
+            :tooltip="false"
             size="sm"
             :disabled="!next"
             @click="move(1)"

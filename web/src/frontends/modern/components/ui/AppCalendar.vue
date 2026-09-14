@@ -201,7 +201,7 @@ function inRange(value: string): boolean {
             class="modern-calendar-day"
             :class="{ 'is-outside': day.outside, 'is-today': day.value === localDay(new Date()) }"
             :variant="day.value === modelValue ? 'primary' : 'ghost'"
-            size="xs"
+            size="xxs"
             :disabled="day.disabled"
             :tabindex="day.value === focused ? 0 : -1"
             :aria-label="day.label"
@@ -239,7 +239,7 @@ function inRange(value: string): boolean {
   gap: var(--modern-space-0-5);
 }
 .modern-calendar-weekdays {
-  padding-block: var(--modern-space-1);
+  padding-block: var(--modern-space-0-5);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
   text-align: center;
