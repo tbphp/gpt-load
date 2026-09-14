@@ -27,6 +27,90 @@ type websocketTestLogBuffer struct {
 	bytes.Buffer
 }
 
+func TestWebsocketUnavailableBindingPreventsDispatch(t *testing.T) {
+	h, _, _ := websocketTestHandler(t, "http://127.0.0.1:1", channel.CLIProxyAPI)
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &websocketConnection{handler: h, ctx: ctx, cancel: cancel, accepting: true,
+		registered: 1, binding: &websocketBinding{}, bind: make(chan struct{}, 1),
+		bindingStopped: make(chan struct{}, 1)}
+	s.bind <- struct{}{}
+	defer func() { cancel(); s.workers.Wait() }()
+	// 通知仍未消费时，已经登记的排队请求也不得派发。
+	s.markBindingUnavailable(s.binding)
+	s.bindingStopped <- struct{}{}
+	if s.dispatchTurn(websocketTurn{}, make(chan websocketFinished, 1)) {
+		t.Fatal("dispatched a queued turn after binding became unavailable")
+	}
+}
+
+func TestWebsocketFrozenReaderPreservesFinalization(t *testing.T) {
+	for _, mode := range []string{"binding stopped", "reconnect reserved", "client disconnected"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ready := make(chan *websocketConnection, 1)
+			done := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer conn.Close()
+				s := &websocketConnection{handler: &Handler{writeTimeout: time.Second}, conn: conn,
+					ctx: ctx, cancel: cancel, accepting: true, registered: 1, binding: &websocketBinding{}}
+				s.workers.Add(1)
+				ready <- s
+				s.readMessages(make(chan websocketTurn))
+				close(done)
+				<-ctx.Done()
+			}))
+			defer server.Close()
+			defer cancel()
+			conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			s := <-ready
+			switch mode {
+			case "binding stopped":
+				s.markBindingUnavailable(s.binding)
+			case "reconnect reserved":
+				if !s.reserveReconnect() {
+					t.Fatal("could not reserve reconnect")
+				}
+			case "client disconnected":
+				conn.Close()
+			}
+			if mode != "client disconnected" {
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(`{}`)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("reader did not exit")
+			}
+			if mode == "client disconnected" {
+				if ctx.Err() == nil {
+					t.Fatal("real disconnect did not cancel")
+				}
+				return
+			}
+			if ctx.Err() != nil {
+				t.Fatal("frozen reader canceled the finalizing turn")
+			}
+			s.closeWith(websocket.CloseTryAgainLater, "Reconnect to retry the request.")
+			conn.SetReadDeadline(time.Now().Add(time.Second))
+			if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseTryAgainLater) {
+				t.Fatalf("close = %v, want 1013", err)
+			}
+		})
+	}
+}
+
 func (buffer *websocketTestLogBuffer) Write(value []byte) (int, error) {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
@@ -227,8 +311,8 @@ func testWebsocketBoundRetryableErrorRequestsClientReconnect(t *testing.T, paylo
 			turns++
 			if turns == 1 {
 				if err := emit(ctx, websocketCompleted("resp_prior", "")); err != nil {
-					t.Fatal(err)
-					return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent}
+					return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent,
+						Error: &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled}}
 				}
 			}
 			if err := emit(ctx, payload); err != nil {

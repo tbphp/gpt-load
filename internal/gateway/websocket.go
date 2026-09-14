@@ -305,7 +305,12 @@ func (s *websocketConnection) authorized(snapshot *state.ConfigSnapshot) (state.
 // 单个读协程只持有一条受预算约束的消息；队列与同流调度均由 run 持有。
 func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 	defer s.workers.Done()
-	defer s.cancel()
+	cancelOnExit := true
+	defer func() {
+		if cancelOnExit {
+			s.cancel()
+		}
+	}()
 	limits := s.handler.websocketLimits
 	scratch := make([]byte, 32<<10)
 	for {
@@ -318,6 +323,8 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 			return
 		}
 		if !s.registerTurn() {
+			// 服务端冻结后由当前请求完成收尾；真实读错误仍及时取消。
+			cancelOnExit = false
 			return
 		}
 		var body []byte
@@ -380,6 +387,27 @@ func validWebsocketLane(lane string) bool {
 			return false
 		}
 	}
+	return true
+}
+
+func (s *websocketConnection) dispatchTurn(turn websocketTurn, finished chan<- websocketFinished) bool {
+	// 派发与绑定失效共用锁，冻结后不再启动排队请求。
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.accepting || s.ctx.Err() != nil {
+		return false
+	}
+	s.workers.Add(1)
+	go func() {
+		defer s.workers.Done()
+		defer s.reserveInput(-len(turn.body))
+		s.executeTurn(turn)
+		s.finishTurn()
+		select {
+		case finished <- websocketFinished{lane: turn.lane}:
+		case <-s.ctx.Done():
+		}
+	}()
 	return true
 }
 
@@ -455,22 +483,14 @@ func (s *websocketConnection) run() {
 				continue
 			}
 			turn := q[0]
+			if !s.dispatchTurn(turn, finished) {
+				continue
+			}
 			q[0] = websocketTurn{}
 			queues[lane] = q[1:]
 			pending--
 			active++
 			busy[lane] = true
-			s.workers.Add(1)
-			go func() {
-				defer s.workers.Done()
-				defer s.reserveInput(-len(turn.body))
-				s.executeTurn(turn)
-				s.finishTurn()
-				select {
-				case finished <- websocketFinished{lane: turn.lane}:
-				case <-s.ctx.Done():
-				}
-			}()
 		}
 		select {
 		case turn := <-messages:
