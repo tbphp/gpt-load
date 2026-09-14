@@ -199,7 +199,7 @@ func TestChatFallbackDoesNotDropRequestedTools(t *testing.T) {
 					} else {
 						evidence = runtime.Execute(t.Context(), spec).Error
 					}
-					if test.wantError {
+					if test.wantError && channelID != channel.OpenAICompatible {
 						if calls.Load() != 0 || evidence == nil || evidence.Kind != execution.ErrorKindConversionUnsupported || evidence.Code != execution.ErrorCodeCriticalSemanticLoss {
 							t.Fatalf("tool requirement was lost: calls=%d error=%+v", calls.Load(), evidence)
 						}

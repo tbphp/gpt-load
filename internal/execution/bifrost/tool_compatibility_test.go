@@ -190,7 +190,7 @@ func TestChatFallbackRejectsOnlyCallableUnsupportedTools(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			prepared, failure := finishConvertedPreparation(spec, channel.ProviderOpenAICompatible, preparedAttempt{responsesRequest: request})
+			prepared, failure := finishConvertedPreparation(spec, channel.ProviderGroq, preparedAttempt{responsesRequest: request})
 			if test.wantError {
 				if failure == nil || failure.DispatchState != execution.DispatchNotSent {
 					t.Fatalf("callable unsupported tool was not rejected: %+v", failure)

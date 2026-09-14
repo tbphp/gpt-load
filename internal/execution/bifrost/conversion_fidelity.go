@@ -33,7 +33,9 @@ func finishConvertedPreparation(spec execution.AttemptSpec, providerKind channel
 	if chatFallback {
 		dropsTools, newlyAllowed := chatFallbackToolCompatibility(prepared.responsesRequest)
 		needsToolHistoryCheck = needsToolHistoryCheck || newlyAllowed
-		if dropsTools {
+		// Compatible 保持 SDK 的尽力转换行为：不支持的工具及选择可被过滤，
+		// 不因此拒绝整个请求；普通函数白名单仍由前面的准备阶段适配。
+		if dropsTools && providerKind != channel.ProviderOpenAICompatible {
 			failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "Chat conversion cannot preserve requested tools or tool choice")
 			return preparedAttempt{}, &failure
 		}

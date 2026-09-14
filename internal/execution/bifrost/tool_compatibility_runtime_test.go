@@ -16,7 +16,70 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/protocol"
 )
+
+func TestCompatibleBestEffortToolConversion(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name      string
+		client    protocol.Protocol
+		body      string
+		wantTools int64
+	}{
+		{"Codex mixed tools", protocol.OpenAIResponses, `{"model":"client-model","input":"hello","store":false,"tool_choice":"auto","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}},{"type":"namespace","name":"helpers","tools":[{"type":"function","name":"search","parameters":{"type":"object"}}]},{"type":"web_search"},{"type":"custom","name":"apply_patch","format":{"type":"text"}}]}`, 1},
+		{"Responses selected search", protocol.OpenAIResponses, `{"model":"client-model","input":"hello","store":false,"tools":[{"type":"web_search"}],"tool_choice":{"type":"function","name":"web_search"}}`, 0},
+		{"Claude selected search", protocol.Anthropic, `{"model":"client-model","max_tokens":64,"messages":[{"role":"user","content":"hello"}],"tools":[{"type":"web_search_20250305","name":"web_search"}],"tool_choice":{"type":"tool","name":"web_search"}}`, 0},
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", test.name, stream), func(t *testing.T) {
+				var calls atomic.Int64
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					body, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					if r.URL.Path != "/chat/completions" || gjson.GetBytes(body, "tools.#").Int() != test.wantTools {
+						t.Errorf("unexpected SDK fallback wire: path=%s body=%s", r.URL.Path, body)
+					}
+					if test.wantTools == 1 {
+						if gjson.GetBytes(body, "tools.0.function.name").String() != "lookup" || gjson.GetBytes(body, "tool_choice").String() != "auto" {
+							t.Errorf("function or mode lost: %s", body)
+						}
+					} else if gjson.GetBytes(body, "tool_choice").Exists() {
+						t.Errorf("SDK should omit unsupported choice: %s", body)
+					}
+					if stream {
+						w.Header().Set("Content-Type", "text/event-stream")
+						_, _ = io.WriteString(w, openAIChatFinalStream)
+					} else {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = io.WriteString(w, openAIChatFinalResponse)
+					}
+				}))
+				defer server.Close()
+				runtime := newRuntimeForTest(t, testRuntimeOptions{allowPrivateNetwork: true})
+				runtime.baseURLs[channel.OpenAICompatible] = server.URL
+				op, path := execution.OperationResponsesCreate, "/v1/responses"
+				if test.client == protocol.Anthropic {
+					op, path = execution.OperationChatCompletion, "/v1/messages"
+				}
+				spec := convertedSpec(channel.OpenAICompatible, test.client, op, path, []byte(test.body))
+				var failure *execution.ErrorEvidence
+				if stream {
+					failure = runtime.ExecuteStream(t.Context(), spec, func(execution.StreamEvent) error { return nil }).Error
+				} else {
+					failure = runtime.Execute(t.Context(), spec).Error
+				}
+				if failure != nil || calls.Load() != 1 {
+					t.Fatalf("best effort request blocked: calls=%d error=%+v", calls.Load(), failure)
+				}
+			})
+		}
+	}
+}
 
 func TestOpenAICompatibleAllowedToolsTwoTurnFunctionFlow(t *testing.T) {
 	t.Parallel()
