@@ -3,6 +3,7 @@ package cpa
 import (
 	"bytes"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/tidwall/gjson"
@@ -15,11 +16,12 @@ import (
 func TestSubscriptionConvertedFunctionAllowlistsPreserveConstraints(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name         string
-		providerKind channel.ProviderKind
-		protocol     protocol.Protocol
-		body         string
-		toolsPath    string
+		name          string
+		providerKind  channel.ProviderKind
+		protocol      protocol.Protocol
+		upstreamModel string
+		body          string
+		toolsPath     string
 	}{
 		{
 			name: "Responses to Claude", providerKind: channel.ProviderClaude, protocol: protocol.OpenAIResponses,
@@ -28,8 +30,9 @@ func TestSubscriptionConvertedFunctionAllowlistsPreserveConstraints(t *testing.T
 		},
 		{
 			name: "Responses to Antigravity", providerKind: channel.ProviderAntigravity, protocol: protocol.OpenAIResponses,
-			body:      `{"model":"client-model","input":"hello","store":false,"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}},{"type":"function","name":"summarize","parameters":{"type":"object"}}],"tool_choice":{"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"lookup"}]}}`,
-			toolsPath: "tools",
+			upstreamModel: "gemini-2.5-pro",
+			body:          `{"model":"client-model","input":"hello","store":false,"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}},{"type":"function","name":"summarize","parameters":{"type":"object"}}],"tool_choice":{"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"lookup"}]}}`,
+			toolsPath:     "tools",
 		},
 		{
 			name: "Chat to Claude", providerKind: channel.ProviderClaude, protocol: protocol.OpenAICompletions,
@@ -38,8 +41,9 @@ func TestSubscriptionConvertedFunctionAllowlistsPreserveConstraints(t *testing.T
 		},
 		{
 			name: "Chat to Antigravity", providerKind: channel.ProviderAntigravity, protocol: protocol.OpenAICompletions,
-			body:      `{"model":"client-model","messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}},{"type":"function","function":{"name":"summarize","parameters":{"type":"object"}}}],"tool_choice":{"type":"allowed_tools","allowed_tools":{"mode":"required","tools":[{"type":"function","function":{"name":"lookup"}}]}}}`,
-			toolsPath: "tools",
+			upstreamModel: "gemini-2.5-pro",
+			body:          `{"model":"client-model","messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}},{"type":"function","function":{"name":"summarize","parameters":{"type":"object"}}}],"tool_choice":{"type":"allowed_tools","allowed_tools":{"mode":"required","tools":[{"type":"function","function":{"name":"lookup"}}]}}}`,
+			toolsPath:     "tools",
 		},
 		{
 			name: "Chat to Codex", providerKind: channel.ProviderCodex, protocol: protocol.OpenAICompletions,
@@ -72,6 +76,7 @@ func TestSubscriptionConvertedFunctionAllowlistsPreserveConstraints(t *testing.T
 				ClientProtocol: test.protocol,
 				RouteMode:      execution.RouteConverted,
 				Operation:      execution.OperationChatCompletion,
+				UpstreamModel:  test.upstreamModel,
 				Body:           []byte(test.body),
 			}
 			if test.protocol == protocol.OpenAIResponses {
@@ -211,6 +216,107 @@ func TestSubscriptionConvertedFunctionAllowlistModes(t *testing.T) {
 			prepared, evidence := prepareConvertedFidelity(spec, channel.ProviderClaude)
 			if evidence != nil || gjson.GetBytes(prepared.Body, "tool_choice").String() != mode {
 				t.Fatalf("mode %q was not preserved: evidence=%+v body=%s", mode, evidence, prepared.Body)
+			}
+		})
+	}
+}
+
+func TestAdapterRejectsAntigravityClaudeRequiredFunctionAllowlistsBeforeDispatch(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		protocol  protocol.Protocol
+		operation execution.Operation
+		path      string
+		body      string
+	}{
+		{
+			name: "Responses", protocol: protocol.OpenAIResponses,
+			operation: execution.OperationResponsesCreate, path: "/v1/responses",
+			body: `{"model":"client-model","input":"hello","tools":[{"type":"function","name":"lookup"}],"tool_choice":{"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"lookup"}]}}`,
+		},
+		{
+			name: "Chat", protocol: protocol.OpenAICompletions,
+			operation: execution.OperationChatCompletion, path: "/v1/chat/completions",
+			body: `{"model":"client-model","messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"lookup"}}],"tool_choice":{"type":"allowed_tools","allowed_tools":{"mode":"required","tools":[{"type":"function","function":{"name":"lookup"}}]}}}`,
+		},
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", test.name, stream), func(t *testing.T) {
+				registry := channel.NewRegistry()
+				target, err := registry.Resolve(channel.Antigravity, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				preparer := &fakeCredentialPreparer{}
+				adapter := NewAdapter(nil, registry)
+				adapter.credentials = preparer
+				spec := execution.NewAttemptSpec(execution.AttemptSpec{
+					RequestID: "allowlist-request", AttemptID: "allowlist-attempt", Sequence: 1,
+					ChannelID: string(channel.Antigravity), TargetConfig: target.TargetConfig,
+					RouteMode: execution.RouteConverted, ClientProtocol: test.protocol, Operation: test.operation,
+					ClientModel: "client-model", UpstreamModel: "claude-sonnet-4-6",
+					Method: http.MethodPost, Path: test.path, Body: []byte(test.body),
+					Credential: execution.NewCredentialSnapshot(1, 1, 1, []byte(`{}`)),
+				})
+				var dispatchState execution.DispatchState
+				var evidence *execution.ErrorEvidence
+				if stream {
+					result := adapter.ExecuteStream(t.Context(), spec, func(execution.StreamEvent) error { return nil })
+					dispatchState, evidence = result.DispatchState, result.Error
+				} else {
+					result := adapter.Execute(t.Context(), spec)
+					dispatchState, evidence = result.DispatchState, result.Error
+				}
+				if preparer.calls != 0 || dispatchState != execution.DispatchNotSent || evidence == nil ||
+					evidence.Kind != execution.ErrorKindConversionUnsupported || evidence.Code != execution.ErrorCodeCriticalSemanticLoss {
+					t.Fatalf("required allowlist reached dispatch: credential_calls=%d state=%s evidence=%+v", preparer.calls, dispatchState, evidence)
+				}
+			})
+		}
+	}
+}
+
+func TestSubscriptionGeminiAllowlistUsesClaudeSDKAliasPriority(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		body     string
+		modePath string
+	}{
+		{
+			name:     "snake case",
+			body:     `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"tools":[{"functionDeclarations":[{"name":"lookup"},{"name":"summarize"},{"name":"remove_record"}]}],"tool_config":{"function_calling_config":{"mode":"ANY","allowed_function_names":["lookup","summarize"]}}}`,
+			modePath: "tool_config.function_calling_config.mode",
+		},
+		{
+			name:     "snake allowed names in camel config",
+			body:     `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"tools":[{"functionDeclarations":[{"name":"lookup"},{"name":"summarize"},{"name":"remove_record"}]}],"toolConfig":{"functionCallingConfig":{"mode":"ANY","allowed_function_names":["lookup","summarize"]}}}`,
+			modePath: "toolConfig.functionCallingConfig.mode",
+		},
+		{
+			name:     "snake top level takes priority",
+			body:     `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"tools":[{"functionDeclarations":[{"name":"lookup"},{"name":"summarize"},{"name":"remove_record"}]}],"tool_config":{"function_calling_config":{"mode":"ANY","allowed_function_names":["lookup","summarize"]}},"toolConfig":{"functionCallingConfig":{"mode":"AUTO","allowedFunctionNames":["remove_record"]}}}`,
+			modePath: "tool_config.function_calling_config.mode",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spec := execution.AttemptSpec{
+				ClientProtocol: protocol.Gemini,
+				RouteMode:      execution.RouteConverted,
+				Operation:      execution.OperationChatCompletion,
+				Body:           []byte(test.body),
+			}
+			prepared, evidence := prepareConvertedFidelity(spec, channel.ProviderClaude)
+			if evidence != nil {
+				t.Fatalf("valid Gemini allowlist rejected: %+v", evidence)
+			}
+			declarations := gjson.GetBytes(prepared.Body, "tools.0.functionDeclarations").Array()
+			if len(declarations) != 2 || declarations[0].Get("name").String() != "lookup" ||
+				declarations[1].Get("name").String() != "summarize" {
+				t.Fatalf("prepared declarations = %s, want lookup and summarize", prepared.Body)
+			}
+			if mode := gjson.GetBytes(prepared.Body, test.modePath).String(); mode != "ANY" {
+				t.Fatalf("prepared mode = %q, want ANY: %s", mode, prepared.Body)
 			}
 		})
 	}

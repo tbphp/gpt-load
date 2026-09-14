@@ -83,7 +83,7 @@ func prepareConvertedToolConstraints(
 	case protocol.OpenAICompletions:
 		body, present, valid = prepareChatFunctionAllowlist(spec.Body)
 	case protocol.Gemini:
-		body, present, valid = prepareGeminiFunctionAllowlist(spec.Body)
+		body, present, valid = prepareGeminiFunctionAllowlist(spec.Body, providerKind)
 	default:
 		return spec, nil
 	}
@@ -91,6 +91,14 @@ func prepareConvertedToolConstraints(
 		return spec, nil
 	}
 	if !valid || spec.ClientProtocol == protocol.OpenAIResponses && !subscriptionResponsesToolHistorySupported(spec.Body, providerKind) {
+		return spec, notSentEvidence(
+			execution.ErrorKindConversionUnsupported,
+			"subscription conversion cannot preserve requested tools or tool choice",
+			execution.ErrorCodeCriticalSemanticLoss,
+		)
+	}
+	if providerKind == channel.ProviderAntigravity && strings.Contains(spec.UpstreamModel, "claude") &&
+		gjson.GetBytes(body, "tool_choice").String() == "required" {
 		return spec, notSentEvidence(
 			execution.ErrorKindConversionUnsupported,
 			"subscription conversion cannot preserve requested tools or tool choice",
@@ -161,9 +169,15 @@ func prepareChatFunctionAllowlist(body []byte) ([]byte, bool, bool) {
 	return prepared, true, err == nil
 }
 
-func prepareGeminiFunctionAllowlist(body []byte) ([]byte, bool, bool) {
+func prepareGeminiFunctionAllowlist(body []byte, providerKind channel.ProviderKind) ([]byte, bool, bool) {
 	config := gjson.GetBytes(body, "toolConfig.functionCallingConfig")
+	if providerKind == channel.ProviderClaude && gjson.GetBytes(body, "tool_config").Exists() {
+		config = gjson.GetBytes(body, "tool_config.function_calling_config")
+	}
 	allowed := config.Get("allowedFunctionNames")
+	if providerKind == channel.ProviderClaude && !allowed.Exists() {
+		allowed = config.Get("allowed_function_names")
+	}
 	if !allowed.Exists() || !allowed.IsArray() || len(allowed.Array()) == 0 {
 		return body, false, true
 	}
