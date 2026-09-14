@@ -3,7 +3,7 @@ import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import { KeyRound, UserRound } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { LogEntry } from '@modern/api/logs'
+import type { LogEntry, LogQuery } from '@modern/api/logs'
 import type { GroupRow } from '@modern/api/groups'
 import type { GroupChannel } from '@modern/api/group-create'
 import {
@@ -18,15 +18,17 @@ import type { LogColumnId } from './log-columns'
 import { logTime } from './log-display'
 import LogValue from './LogValue.vue'
 import LogModelWarning from './LogModelWarning.vue'
+import LogFilterLink from './LogFilterLink.vue'
 
 const props = defineProps<{
   row: LogEntry
   fields: readonly LogColumnId[]
   peer?: boolean
+  admin: boolean
   groups: ReadonlyMap<number, GroupRow>
   channels: ReadonlyMap<string, GroupChannel>
 }>()
-defineEmits<{ open: [] }>()
+const emit = defineEmits<{ open: []; filter: [filters: LogQuery] }>()
 const { t, locale } = useI18n()
 const paired = computed(() => props.fields.length > 1)
 const protocolColumn = computed(() => props.fields.length === 1 && props.fields[0] === 'protocol')
@@ -38,11 +40,34 @@ const identityLines = computed(() => {
   const kind = protocolColumn.value ? 'protocol' : 'model'
   if (!request || !upstream || request === upstream) {
     const value = request || upstream
-    return value ? [{ value, label: undefined }] : []
+    const filter = request
+      ? protocolColumn.value
+        ? { protocol: request }
+        : { client_model: request }
+      : !protocolColumn.value && props.admin && upstream
+        ? { upstream_model: upstream }
+        : undefined
+    return value ? [{ value, label: undefined, filter }] : []
   }
   return [
-    ...(request ? [{ value: request, label: t(`logs.identityHints.${kind}Request`) }] : []),
-    ...(upstream ? [{ value: upstream, label: t(`logs.identityHints.${kind}Upstream`) }] : []),
+    ...(request
+      ? [
+          {
+            value: request,
+            label: t(`logs.identityHints.${kind}Request`),
+            filter: protocolColumn.value ? { protocol: request } : { client_model: request },
+          },
+        ]
+      : []),
+    ...(upstream
+      ? [
+          {
+            value: upstream,
+            label: t(`logs.identityHints.${kind}Upstream`),
+            filter: !protocolColumn.value && props.admin ? { upstream_model: upstream } : undefined,
+          },
+        ]
+      : []),
   ]
 })
 const routing = computed(() => props.fields.includes('group'))
@@ -81,6 +106,69 @@ const date = computed(() =>
 function identityIcon(field: LogColumnId) {
   return field === 'credential_name' ? UserRound : field === 'access_key' ? KeyRound : undefined
 }
+function fieldFilter(field: LogColumnId): LogQuery | undefined {
+  const row = props.row
+  switch (field) {
+    case 'group':
+      return row.group_id ? { group_id: String(row.group_id) } : undefined
+    case 'channel':
+      return row.channel_id ? { channel_id: row.channel_id } : undefined
+    case 'credential_name':
+      return row.credential_id
+        ? {
+            ...(row.group_id ? { group_id: String(row.group_id) } : {}),
+            credential_id: String(row.credential_id),
+          }
+        : undefined
+    case 'access_key':
+      return row.access_key.id ? { access_key_id: String(row.access_key.id) } : undefined
+    case 'status':
+      return { status: row.status }
+    case 'status_code':
+      return row.status_code ? { final_status_code: String(row.status_code) } : undefined
+    case 'stream':
+      return { stream: String(row.stream) }
+    case 'usage_state':
+      return { usage_state: row.usage_state }
+    case 'cost_state':
+      return { cost_state: row.cost_state }
+    case 'pricing_completeness':
+      return { pricing_completeness: row.pricing_completeness }
+    case 'error_code':
+      return row.error_code ? { error_code: row.error_code } : undefined
+    default:
+      return undefined
+  }
+}
+function filterLabel(value: string): string {
+  return t('logs.filterByValue', { value })
+}
+function fieldFilterValue(field: LogColumnId): string {
+  const row = props.row
+  switch (field) {
+    case 'group':
+      return group.value?.name ?? t('logs.deleted')
+    case 'channel':
+      return channel.value?.name ?? t('logs.deleted')
+    case 'credential_name':
+      return row.credential_name || t('logs.deleted')
+    case 'access_key':
+      return row.access_key.name || t('logs.deleted')
+    case 'status':
+    case 'usage_state':
+    case 'cost_state':
+    case 'pricing_completeness':
+      return t('logs.values.' + row[field])
+    case 'status_code':
+      return `HTTP ${row.status_code}`
+    case 'stream':
+      return t(row.stream ? 'logs.yes' : 'logs.no')
+    case 'error_code':
+      return row.error_code
+    default:
+      return field
+  }
+}
 </script>
 
 <template>
@@ -96,16 +184,33 @@ function identityIcon(field: LogColumnId) {
     <div class="modern-log-identity-values">
       <template v-for="(line, index) in identityLines" :key="line.value">
         <AppTooltip v-if="protocolColumn" :label="line.label">
-          <span
+          <LogFilterLink
+            v-if="line.filter"
+            :label="filterLabel(line.value)"
             class="modern-log-identity-line"
-            :tabindex="line.label ? 0 : undefined"
-            :aria-label="line.label"
+            @click="emit('filter', line.filter)"
           >
+            <AppProtocolTag :protocol="line.value" />
+          </LogFilterLink>
+          <span v-else class="modern-log-identity-line">
             <AppProtocolTag :protocol="line.value" />
           </span>
         </AppTooltip>
         <div v-else class="modern-log-model-line">
+          <LogFilterLink
+            v-if="line.filter"
+            :label="filterLabel(line.value)"
+            class="modern-log-identity-line is-model"
+            @click="emit('filter', line.filter)"
+          >
+            <AppOverflowText
+              :text="line.value"
+              :hint="line.label"
+              :full-text="line.label ? line.label + '\n' + line.value : line.value"
+            />
+          </LogFilterLink>
           <AppOverflowText
+            v-else
             class="modern-log-identity-line is-model"
             :text="line.value"
             :hint="line.label"
@@ -138,7 +243,22 @@ function identityIcon(field: LogColumnId) {
           'modern-log-secondary-line': field === 'channel',
         }"
       >
+        <LogFilterLink
+          v-if="fieldFilter(field)"
+          :label="filterLabel(fieldFilterValue(field))"
+          @click="emit('filter', fieldFilter(field)!)"
+        >
+          <LogValue
+            :row="row"
+            :column="field"
+            :groups="groups"
+            :channels="channels"
+            table
+            hide-icon
+          />
+        </LogFilterLink>
         <LogValue
+          v-else
           :row="row"
           :column="field"
           :groups="groups"
@@ -159,13 +279,28 @@ function identityIcon(field: LogColumnId) {
           'is-protocol': field === 'protocol' || field === 'upstream_protocol',
         }"
       >
-        <AppIcon
-          v-if="identityIcon(field)"
-          :icon="identityIcon(field)!"
-          size="sm"
-          class="modern-log-identity-icon"
-        />
-        <LogValue :row="row" :column="field" :groups="groups" :channels="channels" table />
+        <LogFilterLink
+          v-if="fieldFilter(field)"
+          :label="filterLabel(fieldFilterValue(field))"
+          @click="emit('filter', fieldFilter(field)!)"
+        >
+          <AppIcon
+            v-if="identityIcon(field)"
+            :icon="identityIcon(field)!"
+            size="sm"
+            class="modern-log-identity-icon"
+          />
+          <LogValue :row="row" :column="field" :groups="groups" :channels="channels" table />
+        </LogFilterLink>
+        <template v-else>
+          <AppIcon
+            v-if="identityIcon(field)"
+            :icon="identityIcon(field)!"
+            size="sm"
+            class="modern-log-identity-icon"
+          />
+          <LogValue :row="row" :column="field" :groups="groups" :channels="channels" table />
+        </template>
       </div>
     </template>
   </div>

@@ -34,6 +34,7 @@ import type { DateRangePreset } from '@modern/components/ui/date-time'
 import { useApiClient } from '@shared/http/client-context'
 import LogColumnPicker from './LogColumnPicker.vue'
 import LogDetailPanel from './LogDetailPanel.vue'
+import LogFilterLink from './LogFilterLink.vue'
 import LogFilters from './LogFilters.vue'
 import LogTableCell from './LogTableCell.vue'
 import { useLogColumns } from './log-columns'
@@ -137,6 +138,12 @@ function filterStatus(value: string): void {
   const filters = { ...state.value.filters }
   if (value) filters.status = value
   else delete filters.status
+  applyFilters(filters, state.value.preset)
+}
+function filterFromRow(input: LogQuery): void {
+  const filters = { ...state.value.filters, ...input }
+  if (input.group_id && input.group_id !== state.value.filters.group_id && !input.credential_id)
+    delete filters.credential_id
   applyFilters(filters, state.value.preset)
 }
 function setMore(value: boolean): void {
@@ -351,11 +358,14 @@ useMessageSource(() =>
           :style="cell.span > 1 ? { gridColumn: 'span ' + cell.span } : undefined"
         >
           <div v-if="cell.error" class="modern-log-error-summary">
-            <AppOverflowText
-              class="modern-log-error-code"
-              :text="row.error_code || '—'"
-              tabindex="0"
-            />
+            <LogFilterLink
+              v-if="row.error_code"
+              :label="t('logs.filterByValue', { value: row.error_code })"
+              @click="filterFromRow({ error_code: row.error_code })"
+            >
+              <AppOverflowText class="modern-log-error-code" :text="row.error_code" />
+            </LogFilterLink>
+            <AppOverflowText v-else class="modern-log-error-code" text="—" />
             <AppOverflowText :text="row.error_summary || '—'" tabindex="0" />
           </div>
           <LogTableCell
@@ -363,9 +373,11 @@ useMessageSource(() =>
             :row="row"
             :fields="cell.fields"
             :peer="cell.peer"
+            :admin="admin"
             :groups="groupMap"
             :channels="channelMap"
             @open="showDetail(row.request_id)"
+            @filter="filterFromRow"
           />
         </div>
         <div
