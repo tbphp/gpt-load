@@ -327,14 +327,15 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 			cancelOnExit = false
 			return
 		}
+		// 已登记消息在错误退出时先关闭或取消，再注销，避免其他请求抢先通知重连。
 		var body []byte
 		for {
 			n, readErr := reader.Read(scratch)
 			if n > 0 {
 				if len(body)+n > limits.message || !s.reserveInput(n) {
 					s.reserveInput(-len(body))
-					s.finishTurn()
 					s.closeWith(websocket.CloseTryAgainLater, "WebSocket input limit reached.")
+					s.finishTurn()
 					return
 				}
 				body = append(body, scratch[:n]...)
@@ -342,6 +343,7 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 			if readErr != nil {
 				if !errors.Is(readErr, io.EOF) {
 					s.reserveInput(-len(body))
+					s.cancel()
 					s.finishTurn()
 					return
 				}
@@ -352,14 +354,14 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 		var envelope map[string]json.RawMessage
 		if !utf8.Valid(body) || json.Unmarshal(body, &envelope) != nil || envelope == nil {
 			s.reserveInput(-len(body))
-			s.finishTurn()
 			s.closeWith(websocket.CloseInvalidFramePayloadData, "A JSON object is required.")
+			s.finishTurn()
 			return
 		} else if raw, ok := envelope["stream_id"]; ok {
 			if json.Unmarshal(raw, &turn.lane) != nil || !validWebsocketLane(turn.lane) {
 				s.reserveInput(-len(body))
-				s.finishTurn()
 				s.closeWith(websocket.ClosePolicyViolation, "Invalid stream_id.")
+				s.finishTurn()
 				return
 			}
 		}

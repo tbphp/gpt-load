@@ -112,6 +112,84 @@ func TestWebsocketFrozenReaderPreservesFinalization(t *testing.T) {
 	}
 }
 
+func TestWebsocketReadFailuresStayRegisteredUntilCanceled(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		body      []byte
+		closeCode int
+	}{
+		{name: "invalid JSON", body: []byte(`{`), closeCode: websocket.CloseInvalidFramePayloadData},
+		{name: "invalid stream ID", body: []byte(`{"stream_id":"invalid/id"}`), closeCode: websocket.ClosePolicyViolation},
+		{name: "input limit", body: bytes.Repeat([]byte(" "), (32<<10)+1), closeCode: websocket.CloseTryAgainLater},
+		{name: "read failure"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			stopping, release := make(chan struct{}), make(chan struct{})
+			resume := sync.OnceFunc(func() { close(release) })
+			ready, done := make(chan *websocketConnection, 1), make(chan struct{})
+			h := &Handler{websocketLimits: defaultWebsocketLimits(), writeTimeout: time.Second, requestNow: time.Now}
+			h.websocketLimits.input = 32 << 10
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer conn.Close()
+				s := &websocketConnection{handler: h, conn: conn, ctx: ctx, accepting: true, registered: 1}
+				// 保留一个活动请求，把读错误收尾停在取消前，检验并发重连门禁。
+				s.cancel = sync.OnceFunc(func() { close(stopping); <-release; cancel() })
+				s.workers.Add(1)
+				ready <- s
+				s.readMessages(make(chan websocketTurn))
+				close(done)
+			}))
+			defer server.Close()
+			defer resume()
+			conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			s := <-ready
+			if test.closeCode == 0 {
+				// 声明两个字节的掩码文本帧，只发送一个字节，触发正文读取失败。
+				if _, err := conn.UnderlyingConn().Write([]byte{0x81, 0x82, 1, 2, 3, 4, '{' ^ 1}); err != nil {
+					t.Fatal(err)
+				}
+				conn.Close()
+			} else if err := conn.WriteMessage(websocket.TextMessage, test.body); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-stopping:
+			case <-time.After(2 * time.Second):
+				t.Fatal("read failure did not reach cancellation")
+			}
+			if s.reserveReconnect() {
+				t.Error("allowed reconnect before the rejected turn finished closing/canceling")
+			}
+			resume()
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("reader did not finish")
+			}
+			if s.registered != 1 || s.inputBytes != 0 || h.websocketBudget.input != 0 || ctx.Err() == nil {
+				t.Fatalf("cleanup: registered=%d input=%d global_input=%d ctx=%v", s.registered, s.inputBytes, h.websocketBudget.input, ctx.Err())
+			}
+			if test.closeCode != 0 {
+				conn.SetReadDeadline(time.Now().Add(time.Second))
+				if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, test.closeCode) {
+					t.Fatalf("close=%v, want %d", err, test.closeCode)
+				}
+			}
+		})
+	}
+}
+
 func (buffer *websocketTestLogBuffer) Write(value []byte) (int, error) {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
