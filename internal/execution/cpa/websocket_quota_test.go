@@ -65,7 +65,7 @@ func TestWebsocketQuotaEventsRefreshBeforeTurnCompletesWithoutHeaders(t *testing
 				t.Fatal("quota observation changed the forwarded event")
 			}
 			dirty := manager.DirtyPassiveQuotaObservations(1)
-			if len(dirty) != 1 || len(dirty[0].Windows) != 2 {
+			if len(dirty) != 1 || len(dirty[0].Windows) != 3 {
 				t.Fatalf("quota event was not recorded before downstream delivery: %#v", dirty)
 			}
 			if dirty[0].ObservedAtMS < startedAt || dirty[0].Version <= lastVersion {
@@ -76,6 +76,87 @@ func TestWebsocketQuotaEventsRefreshBeforeTurnCompletesWithoutHeaders(t *testing
 		})
 		if result.Error != nil || len(result.Header) != 0 {
 			t.Fatalf("unexpected WS result: %+v", result)
+		}
+	}
+}
+
+func TestWebsocketQuotaReusedSessionRefreshesAccountPercentageWithoutHeaders(t *testing.T) {
+	adapter, db, _, crypt, credential := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	manager := adapter.credentials.(*subscription.CredentialManager)
+	active, err := os.ReadFile("../../subscription/providers/codex/testdata/quota-active.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := codex.NormalizeQuota(active, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot providerobservation.Snapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	for index := range snapshot.QuotaWindows {
+		window := &snapshot.QuotaWindows[index]
+		if window.SourceID == "codex" {
+			*window.Used, *window.Remaining, *window.Utilization = 93, 7, .93
+		}
+	}
+	raw, err = json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&models.CredentialObservation{}); err != nil {
+		t.Fatal(err)
+	}
+	storedAt := int64(1000)
+	row := models.CredentialObservation{CredentialID: credential.ID, State: models.CredentialObservationFresh,
+		SnapshotJSON: raw, ObservedAtMS: &storedAt, ObservationVersion: 1, UpdatedAtMS: storedAt}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	payload, err := os.ReadFile("../../subscription/providers/codex/testdata/quota-ws-account.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner := &quotaEventSession{}
+	session := &observedWebsocketSession{WebsocketSession: inner, adapter: adapter, spec: validSpec(t, credential, crypt)}
+	for _, used := range []int{94, 95} {
+		// 沿用实测事件结构，仅改变用量，模拟同一连接连续收到的新额度。
+		inner.event = bytes.Replace(payload, []byte(`"used_percent": 6`), fmt.Appendf(nil, `"used_percent": %d`, used), 1)
+		result := session.ExecuteTurn(t.Context(), session.spec.Body, func(_ context.Context, forwarded []byte) error {
+			if !bytes.Equal(forwarded, inner.event) {
+				t.Fatal("quota observation changed the forwarded event")
+			}
+			if pending, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || pending {
+				t.Fatalf("flush: pending=%t error=%v", pending, err)
+			}
+			if err := db.Take(&row, "credential_id = ?", credential.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(row.SnapshotJSON, &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if row.ObservedAtMS == nil || *row.ObservedAtMS <= storedAt || len(snapshot.QuotaWindows) != 3 {
+				t.Fatalf("quota observation was not refreshed: %+v", row)
+			}
+			for _, window := range snapshot.QuotaWindows {
+				want := float64(used)
+				if window.SourceID == "codex_bengalfox" {
+					want = 0
+				}
+				if window.Used == nil || *window.Used != want || window.Remaining == nil || *window.Remaining != 100-want {
+					t.Fatalf("source=%s want used=%.0f remaining=%.0f: %s", window.SourceID, want, 100-want, row.SnapshotJSON)
+				}
+			}
+			storedAt = *row.ObservedAtMS
+			return nil
+		})
+		if result.Error != nil {
+			t.Fatalf("turn failed: %+v", result.Error)
+		}
+		// 生产观测按毫秒排序，下一轮须具有更晚的信号时间。
+		for time.Now().UnixMilli() <= storedAt {
+			time.Sleep(time.Millisecond)
 		}
 	}
 }
@@ -102,7 +183,7 @@ func TestWebsocketQuotaKeepsHandshakeWhenEventOnlyUpdatesSpark(t *testing.T) {
 			if err := db.Create(&row).Error; err != nil {
 				t.Fatal(err)
 			}
-			event, err := os.ReadFile("../../subscription/providers/codex/testdata/quota-ws-account.json")
+			event, err := os.ReadFile("../../subscription/providers/codex/testdata/quota-ws-spark.json")
 			if err != nil {
 				t.Fatal(err)
 			}

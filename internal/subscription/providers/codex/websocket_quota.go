@@ -62,20 +62,23 @@ func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quot
 	if sourceID == "" {
 		sourceID = normalizeQuotaSourceID(event.LimitName)
 	}
-	if sourceID == "" && len(event.AdditionalRateLimits) > 0 {
-		// 与 HTTP 相同：有附加额度但缺少来源时不能采用顶层数据。
-		// 数值相等或不同均不能证明它属于普通账号或某个附加来源。
-		return additional
-	}
-	if sourceID == "" || sourceID == codexAccountActiveLimit {
+	matchByReset := sourceID == "" && len(event.AdditionalRateLimits) > 0
+	if !matchByReset && (sourceID == "" || sourceID == codexAccountActiveLimit) {
 		sourceID = codexAccountQuotaSourceID
 	}
 	primary := normalizeWebsocketQuotaRate(event.RateLimits, observedAt)
-	for index := range primary {
-		primary[index].SourceID = sourceID
+	result := make([]quotaWindow, 0, len(primary)+len(additional))
+	for _, window := range primary {
+		if matchByReset && window.ResetAtMS == nil {
+			continue
+		}
+		window.SourceID = sourceID
+		// 不按用量差异猜测普通账号来源，留给合并层匹配已有窗口。
+		window.MatchByReset = matchByReset
+		result = append(result, window)
 	}
 	// 具名来源尚未解析，不能在这里按数值去重；合并层按实际目标窗口处理副本。
-	return append(primary, additional...)
+	return append(result, additional...)
 }
 
 func normalizeWebsocketQuotaRate(rate *websocketQuotaRate, observedAt time.Time) []quotaWindow {

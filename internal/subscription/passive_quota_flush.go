@@ -203,6 +203,15 @@ func mergePassiveQuotaSnapshot(
 	matches := make(map[int]int, len(patches))
 	for index, patch := range patches {
 		position := matchPassiveQuotaWindow(existing, patch)
+		if patch.MatchByReset {
+			for _, other := range patches {
+				if other.SourceName != "" && samePassiveQuotaResetWindow(patch, other) {
+					// 事件中的具名副本即使尚未录入快照，也不能落到普通账号窗口。
+					position = -1
+					break
+				}
+			}
+		}
 		positions[index] = position
 		if position >= 0 && patch.SourceName != "" {
 			namedTargets[position] = true
@@ -235,6 +244,10 @@ func mergePassiveQuotaSnapshot(
 		}
 		outcome.Matched = true
 		patch.ID = previous.ID // 响应槽位可以变化，卡片窗口身份不变。
+		if patch.MatchByReset {
+			// 来源未明的窗口不能改写重置锚点，避免多轮匹配的秒级容差累积漂移。
+			patch.ResetAtMS = previous.ResetAtMS
+		}
 		next := providerobservation.MergeQuotaWindow(previous, patch)
 		if !reflect.DeepEqual(next, previous) {
 			outcome.Changed = true
@@ -260,6 +273,9 @@ func mergePassiveQuotaSnapshot(
 // matchPassiveQuotaWindow 按来源和实际周期对齐主动/被动数据；槽位不参与推断。
 // 其他未提供 SourceID 的渠道保留 ID 匹配，但不能覆盖带来源标识的窗口。
 func matchPassiveQuotaWindow(windows []providerobservation.QuotaWindow, patch providerobservation.QuotaWindow) int {
+	if patch.MatchByReset && patch.SourceID == "" && patch.SourceName == "" {
+		return matchPassiveQuotaWindowByReset(windows, patch)
+	}
 	if patch.SourceID == "" && patch.SourceName != "" {
 		patch.SourceID = passiveQuotaSourceByName(windows, patch)
 		if patch.SourceID == "" {
@@ -283,6 +299,41 @@ func matchPassiveQuotaWindow(windows []providerobservation.QuotaWindow, patch pr
 		matched = index
 	}
 	return matched
+}
+
+// 无来源的 Codex WS 顶层数据只能更新已有的同一周期，不推断账号或模型归属。
+// 同账号实测的主动/WS reset_at 相差 1 秒，允许该精度差；多个候选时拒绝匹配。
+func matchPassiveQuotaWindowByReset(windows []providerobservation.QuotaWindow, patch providerobservation.QuotaWindow) int {
+	if patch.WindowSeconds == nil || *patch.WindowSeconds <= 0 || patch.ResetAtMS == nil || *patch.ResetAtMS <= 0 {
+		return -1
+	}
+	matched := -1
+	for index, window := range windows {
+		if window.WindowSeconds == nil || *window.WindowSeconds != *patch.WindowSeconds {
+			continue
+		}
+		if window.ResetAtMS == nil || *window.ResetAtMS <= 0 {
+			return -1 // 同周期窗口缺少锚点，无法排除它也是候选。
+		}
+		if !samePassiveQuotaResetWindow(window, patch) {
+			continue
+		}
+		if matched >= 0 || window.SourceID == "" {
+			return -1
+		}
+		matched = index
+	}
+	return matched
+}
+
+func samePassiveQuotaResetWindow(left, right providerobservation.QuotaWindow) bool {
+	if left.WindowSeconds == nil || right.WindowSeconds == nil || *left.WindowSeconds <= 0 ||
+		*left.WindowSeconds != *right.WindowSeconds || left.ResetAtMS == nil || right.ResetAtMS == nil ||
+		*left.ResetAtMS <= 0 || *right.ResetAtMS <= 0 {
+		return false
+	}
+	delta := *left.ResetAtMS - *right.ResetAtMS
+	return delta >= -1000 && delta <= 1000
 }
 
 // Codex WS 的附加额度只报告原始 limit_name。利用主动观测已保存的名称和周期

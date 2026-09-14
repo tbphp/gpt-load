@@ -24,11 +24,11 @@ func TestWebsocketQuotaDoesNotGuessAccountSourceWhenMeteredValuesDiffer(t *testi
 		t.Fatal(err)
 	}
 	windows := NormalizeWebsocketQuotaWindows(payload, time.Unix(1000, 0))
-	if len(windows) != 2 {
-		t.Fatalf("windows = %#v, want both Spark windows", windows)
+	if len(windows) != 4 {
+		t.Fatalf("windows = %#v, want unresolved top-level and named Spark windows", windows)
 	}
 	for _, window := range windows {
-		if window.SourceID != "" || window.SourceName != "GPT-5.3-Codex-Spark" {
+		if window.SourceID != "" || (window.SourceName != "GPT-5.3-Codex-Spark" && !window.MatchByReset) {
 			t.Fatalf("unexpected Spark source: id=%q name=%q", window.SourceID, window.SourceName)
 		}
 	}
@@ -37,11 +37,11 @@ func TestWebsocketQuotaDoesNotGuessAccountSourceWhenMeteredValuesDiffer(t *testi
 // testdata 为 2026-09-12 对同一账号实测得到的额度字段，不包含身份和凭据。
 func TestWebsocketQuotaCapturedAccountAndSparkEvents(t *testing.T) {
 	for _, test := range []struct {
-		file         string
-		accountCount int
+		file            string
+		unresolvedCount int
 	}{
-		{"quota-ws-account.json", 0},
-		{"quota-ws-spark.json", 0},
+		{"quota-ws-account.json", 1},
+		{"quota-ws-spark.json", 2},
 	} {
 		t.Run(test.file, func(t *testing.T) {
 			payload, err := os.ReadFile("testdata/" + test.file)
@@ -49,14 +49,17 @@ func TestWebsocketQuotaCapturedAccountAndSparkEvents(t *testing.T) {
 				t.Fatal(err)
 			}
 			windows := NormalizeWebsocketQuotaWindows(payload, time.Unix(1789204875, 0))
-			if len(windows) != test.accountCount+2 {
+			if len(windows) != test.unresolvedCount+2 {
 				t.Fatalf("windows=%#v", windows)
 			}
-			account, spark := 0, 0
+			unresolved, spark := 0, 0
 			for _, window := range windows {
-				if window.SourceID == "codex" {
-					account++
-					if *window.Used != 6 || *window.Remaining != 94 || *window.WindowSeconds != 604800 {
+				if window.SourceID != "" {
+					t.Fatalf("event invented a source: %#v", window)
+				}
+				if window.MatchByReset {
+					unresolved++
+					if test.file == "quota-ws-account.json" && (*window.Used != 6 || *window.Remaining != 94 || *window.WindowSeconds != 604800) {
 						t.Fatalf("account quota=%#v", window)
 					}
 				} else if window.SourceName == "GPT-5.3-Codex-Spark" && window.SourceID == "" {
@@ -69,8 +72,8 @@ func TestWebsocketQuotaCapturedAccountAndSparkEvents(t *testing.T) {
 					t.Fatalf("passive event rewrites presentation: %#v", window)
 				}
 			}
-			if account != test.accountCount || spark != 2 {
-				t.Fatalf("account=%d spark=%d", account, spark)
+			if unresolved != test.unresolvedCount || spark != 2 {
+				t.Fatalf("unresolved=%d spark=%d", unresolved, spark)
 			}
 		})
 	}
@@ -106,13 +109,13 @@ func TestWebsocketQuotaRejectsUnusableOrAmbiguousSignals(t *testing.T) {
 	}
 }
 
-func TestWebsocketQuotaDropsMeteredCopyEvenWhenSlotsDiffer(t *testing.T) {
+func TestWebsocketQuotaLeavesMeteredCopyUnresolvedEvenWhenSlotsDiffer(t *testing.T) {
 	windows := NormalizeWebsocketQuotaWindows([]byte(`{
 		"type":"codex.rate_limits",
 		"rate_limits":{"primary":{"used_percent":5,"window_minutes":10080,"reset_at":1800000000}},
 		"additional_rate_limits":{"Spark":{"secondary":{"used_percent":5,"window_minutes":10080,"reset_at":1800000000}}}
 	}`), time.Unix(1000, 0))
-	if len(windows) != 1 || windows[0].SourceID != "" || windows[0].SourceName != "Spark" {
+	if len(windows) != 2 || windows[0].SourceID != "" || !windows[0].MatchByReset || windows[1].SourceName != "Spark" {
 		t.Fatalf("metered copy reached the account pool: %#v", windows)
 	}
 }

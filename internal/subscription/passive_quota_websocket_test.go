@@ -3,6 +3,7 @@ package subscription
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -73,7 +74,7 @@ func TestFlushWebsocketQuotaCapturedEventsKeepAccountAndSparkSeparate(t *testing
 	}
 }
 
-func TestCapturedHTTPAndWebsocketNamedQuotasAgreeAfterMatching(t *testing.T) {
+func TestCapturedHTTPAndWebsocketQuotasAgreeAfterMatching(t *testing.T) {
 	active, err := os.ReadFile("providers/codex/testdata/quota-active.json")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +83,7 @@ func TestCapturedHTTPAndWebsocketNamedQuotasAgreeAfterMatching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 故意留下旧的普通额度，验证 WS 不会靠数值推断无来源窗口。
+	// 故意留下旧的普通额度，验证 WS 能匹配普通窗口，又不会被 Spark 覆盖。
 	var baseline providerobservation.Snapshot
 	if err := json.Unmarshal(raw, &baseline); err != nil {
 		t.Fatal(err)
@@ -126,15 +127,67 @@ func TestCapturedHTTPAndWebsocketNamedQuotasAgreeAfterMatching(t *testing.T) {
 			}
 			for index, httpWindow := range httpMerged.Windows {
 				wsWindow := wsMerged.Windows[index]
-				if wsWindow.SourceID == "codex" {
-					if *wsWindow.Used != 90 {
-						t.Fatal("WS event without source changed account quota")
-					}
-					continue
-				}
 				if httpWindow.SourceID != wsWindow.SourceID || *httpWindow.WindowSeconds != *wsWindow.WindowSeconds ||
 					*httpWindow.Used != *wsWindow.Used || *httpWindow.Remaining != *wsWindow.Remaining || httpWindow.State != wsWindow.State {
 					t.Fatalf("HTTP and WS disagree for source=%s period=%d", httpWindow.SourceID, *httpWindow.WindowSeconds)
+				}
+			}
+		})
+	}
+}
+
+func TestMergeUnidentifiedWebsocketQuotaRequiresUniqueResetWindow(t *testing.T) {
+	const accountReset = int64(1800000000)
+	for _, test := range []struct {
+		name                                   string
+		topReset, storedSparkReset, namedReset int64
+		namedSource                            string
+		wantAccount, wantSpark                 float64
+	}{
+		{"same account window", accountReset, accountReset + 10000, accountReset + 10000, "Spark", 94, 5},
+		{"one second earlier", accountReset - 1, accountReset + 10000, accountReset + 10000, "Spark", 94, 5},
+		{"one second later", accountReset + 1, accountReset + 10000, accountReset + 10000, "Spark", 94, 5},
+		{"outside reset precision", accountReset + 2, accountReset + 10000, accountReset + 10000, "Spark", 93, 5},
+		{"missing event reset", 0, accountReset + 10000, accountReset + 10000, "Spark", 93, 5},
+		{"missing competing reset", accountReset, 0, accountReset + 10000, "Spark", 93, 5},
+		{"ambiguous sources", accountReset, accountReset + 1, accountReset + 1, "Spark", 93, 5},
+		{"named copy wins despite different usage", accountReset + 10001, accountReset + 10000, accountReset + 10000, "Spark", 93, 5},
+		{"unknown named source shares account reset", accountReset, accountReset + 10000, accountReset, "Unknown", 93, 7},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := codex.NormalizeQuota(fmt.Appendf(nil, `{
+				"rate_limit":{"primary_window":{"used_percent":93,"limit_window_seconds":604800,"reset_at":%d}},
+				"additional_rate_limits":[{"limit_name":"Spark","metered_feature":"codex_bengalfox",
+					"rate_limit":{"secondary_window":{"used_percent":7,"limit_window_seconds":604800,"reset_at":%d}}}]
+			}`, accountReset, test.storedSparkReset), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			patches := codex.NormalizeWebsocketQuotaWindows(fmt.Appendf(nil, `{
+				"type":"codex.rate_limits",
+				"rate_limits":{"secondary":{"used_percent":94,"window_minutes":10080,"reset_at":%d}},
+				"additional_rate_limits":{%q:{"primary":{"used_percent":5,"window_minutes":10080,"reset_at":%d}}}
+			}`, test.topReset, test.namedSource, test.namedReset), time.Unix(1000, 0))
+			merged, err := mergePassiveQuotaSnapshot(raw, patches)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(merged.Windows) != 2 {
+				t.Fatalf("window identity changed: %s", merged.Encoded)
+			}
+			for _, window := range merged.Windows {
+				want := test.wantSpark
+				if window.SourceID == "codex" {
+					want = test.wantAccount
+					if window.ResetAtMS == nil || *window.ResetAtMS != accountReset*1000 {
+						t.Fatalf("unidentified event moved the reset anchor: %#v", window)
+					}
+				}
+				if window.Used == nil || *window.Used != want || window.Remaining == nil || *window.Remaining != 100-want {
+					t.Fatalf("source=%s quota did not match: %s", window.SourceID, merged.Encoded)
+				}
+				if window.MatchByReset || window.SourceName != "" {
+					t.Fatal("transient matching hints reached the stored snapshot")
 				}
 			}
 		})
