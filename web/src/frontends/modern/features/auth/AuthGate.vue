@@ -83,7 +83,7 @@ function reload(): void {
 
 <template>
   <slot v-if="canRender" />
-  <PublicLayout v-else>
+  <PublicLayout v-else restoring-session>
     <AuthCard :title="t('auth.restoreTitle')">
       <template v-if="message">
         <AppNotice :tone="session.state.phase === 'locked' ? 'warning' : 'danger'">{{
