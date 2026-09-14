@@ -278,16 +278,6 @@ const loadCredentials = computed(() => {
         @update:preset="draftPreset = $event"
         @apply="dateApply"
       />
-      <AppModelSelect
-        class="modern-log-filter-model"
-        :model-value="draft.client_model ?? ''"
-        :models="models"
-        :label="t('logs.filters.client_model')"
-        :error="errors.client_model ? t('logs.errors.' + errors.client_model) : undefined"
-        label-hidden
-        fuzzy
-        @update:model-value="update('client_model', $event, false)"
-      />
       <AppSearchSelect
         v-if="admin"
         class="modern-log-filter-choice"
@@ -338,10 +328,21 @@ const loadCredentials = computed(() => {
         :loading="keysLoading"
         @update:model-value="update('access_key_id', $event)"
       />
+      <AppModelSelect
+        class="modern-log-filter-model"
+        :model-value="draft.client_model ?? ''"
+        :models="models"
+        :label="t('logs.filters.client_model')"
+        :error="errors.client_model ? t('logs.errors.' + errors.client_model) : undefined"
+        label-hidden
+        fuzzy
+        @update:model-value="update('client_model', $event, false)"
+      />
       <div class="modern-log-filter-actions">
         <AppIconButton
           :icon="SlidersHorizontal"
           :label="t('logs.moreFilters')"
+          :tooltip="true"
           :aria-expanded="more"
           aria-controls="modern-log-more-filters"
           @click="emit('more', !more)"

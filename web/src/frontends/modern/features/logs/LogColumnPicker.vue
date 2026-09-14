@@ -32,7 +32,7 @@ const sections = computed(() =>
 <template>
   <PopoverRoot>
     <PopoverTrigger as-child>
-      <AppIconButton :icon="Columns3" :label="t('logs.columnSettings')" />
+      <AppIconButton :icon="Columns3" :label="t('logs.columnSettings')" :tooltip="true" />
     </PopoverTrigger>
     <PopoverPortal
       ><PopoverContent

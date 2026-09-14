@@ -30,6 +30,13 @@
   --modern-warning-soft: light-dark(#fff8e8, #3b321f);
   --modern-info: light-dark(#377de2, #89b9ff);
   --modern-info-soft: light-dark(#edf5ff, #233247);
+  /* 用量图表的固定系列色，概览、构成与趋势保持一致。 */
+  --modern-chart-input: light-dark(#527eb2, #96b9e4);
+  --modern-chart-cache: light-dark(#318d91, #82ced0);
+  --modern-chart-write: light-dark(#b38b46, #dfbd82);
+  --modern-chart-output: light-dark(#8b72b0, #bea7de);
+  --modern-chart-area-fill: color-mix(in srgb, currentColor 10%, transparent);
+  --modern-chart-area-soft-fill: color-mix(in srgb, currentColor 8%, transparent);
   --modern-overlay: rgb(20 20 18 / 35%);
   --modern-scrollbar: light-dark(#cacac3, #565650);
   --modern-tooltip-surface: color-mix(
@@ -198,6 +205,7 @@
   --modern-key-card-height: 104px;
   --modern-trend-height: 64px;
   --modern-trend-stroke: 1.5px;
+  --modern-chart-donut-stroke: 12;
   --modern-credential-card-inset: var(--modern-space-4);
   --modern-credential-card-gap: var(--modern-space-3);
   --modern-credential-grid-gap: var(--modern-space-3);
@@ -213,6 +221,7 @@
   --modern-tooltip-max-width: 320px;
 
   /* 层级：壳层 < 遮罩 < 对话框 < 菜单 < 提示。 */
+  --modern-layer-underlay: -1;
   --modern-layer-raised: 1;
   --modern-layer-header: 10;
   --modern-layer-sidebar-toggle: 20;

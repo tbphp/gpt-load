@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { useId } from 'vue'
 
-defineProps<{ title: string; description?: string }>()
+defineProps<{ title: string; description?: string; compact?: boolean }>()
 const titleId = useId()
 </script>
 
 <template>
-  <section class="modern-panel" :aria-labelledby="titleId">
+  <section
+    class="modern-panel"
+    :class="{ 'modern-panel--compact': compact }"
+    :aria-labelledby="titleId"
+  >
     <header class="modern-panel-header">
       <div>
         <h2 :id="titleId">{{ title }}</h2>
@@ -54,5 +58,16 @@ const titleId = useId()
 }
 .modern-panel-body {
   padding: var(--modern-panel-inset);
+}
+.modern-panel--compact .modern-panel-header {
+  min-height: calc(var(--modern-control-sm) + var(--modern-space-6));
+  border-bottom: 0;
+  padding: var(--modern-space-3) var(--modern-space-4);
+}
+.modern-panel--compact .modern-panel-header h2 {
+  font-size: var(--modern-font-size-body);
+}
+.modern-panel--compact .modern-panel-body {
+  padding: var(--modern-space-1) var(--modern-space-4) var(--modern-space-4);
 }
 </style>

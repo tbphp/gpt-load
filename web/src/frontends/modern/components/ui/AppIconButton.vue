@@ -13,6 +13,7 @@ defineProps<{
   variant?: ButtonVariant
   loading?: boolean
   disabled?: boolean
+  // 显式开启时保留展开状态的提示，默认在菜单打开时隐藏。
   tooltip?: boolean
 }>()
 const { forwardRef } = useForwardExpose()
@@ -22,7 +23,8 @@ const { forwardRef } = useForwardExpose()
   <AppTooltip
     :label="label"
     :disabled="
-      tooltip === false || $attrs['aria-expanded'] === true || $attrs['aria-expanded'] === 'true'
+      tooltip === false ||
+      (tooltip !== true && ($attrs['aria-expanded'] === true || $attrs['aria-expanded'] === 'true'))
     "
   >
     <AppButton

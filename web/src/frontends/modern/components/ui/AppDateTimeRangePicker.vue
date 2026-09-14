@@ -81,10 +81,12 @@ watch(
   },
 )
 function shortcut(value: DateRangePreset): void {
+  if (props.disabled) return
   const range = dateRangeFor(value)
   start.value = range.from
   end.value = range.to
   chosen.value = value
+  submit(value)
 }
 function confirmKey(event: KeyboardEvent): void {
   if (
@@ -98,10 +100,14 @@ function confirmKey(event: KeyboardEvent): void {
   apply()
 }
 function apply(): void {
+  // 确认当前输入始终固定为自定义区间，即使它来自先前的快捷日期。
+  submit(undefined)
+}
+function submit(preset: DateRangePreset | undefined): void {
   if (!valid.value || props.disabled) return
   from.value = formatLocalDateTime(parseLocalDateTime(start.value)!)
   to.value = formatLocalDateTime(parseLocalDateTime(end.value)!)
-  emit('update:preset', chosen.value)
+  emit('update:preset', preset)
   emit('apply')
   open.value = false
 }

@@ -65,8 +65,10 @@ watch(
   },
 )
 function shortcut(value: DateTimeShortcut): void {
+  if (props.disabled) return
   draft.value = value.resolve()
   activeShortcut.value = value.label
+  apply()
 }
 function confirmKey(event: KeyboardEvent): void {
   if (

@@ -1,6 +1,7 @@
 import { protocolMessages as protocols } from '../protocols'
 import { zhCN as accessKeys } from './access-keys'
 import { zhCN as logs } from './logs'
+import { zhCN as usage } from './usage'
 import { zhCN as credentialCards } from './credential-cards'
 import { zhCN as groupWorkflows } from './group-workflows'
 import { zhCN as parameterRules } from './parameter-rules'
@@ -14,6 +15,7 @@ import { zhCN as subscriptions } from './subscriptions'
 export default {
   protocols,
   logs,
+  usage,
   accessKeys,
   groupWorkflows,
   parameterRules,

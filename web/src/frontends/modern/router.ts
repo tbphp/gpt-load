@@ -27,13 +27,16 @@ export function createModernRouter(
                   ? () => import('./features/access-keys/AccessKeysView.vue')
                   : item.id === 'logs'
                     ? () => import('./features/logs/LogsView.vue')
-                    : () => import('./features/workspace/WorkspaceView.vue'),
+                    : item.id === 'usage'
+                      ? () => import('./features/usage/UsageView.vue')
+                      : () => import('./features/workspace/WorkspaceView.vue'),
         props:
           item.id === 'home' ||
           item.id === 'settings' ||
           item.id === 'groups' ||
           item.id === 'accessKeys' ||
-          item.id === 'logs'
+          item.id === 'logs' ||
+          item.id === 'usage'
             ? undefined
             : { workspaceId: item.id },
         meta: { requiresAuth: true, adminOnly: item.adminOnly },
