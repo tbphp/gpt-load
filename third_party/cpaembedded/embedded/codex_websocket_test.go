@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -213,7 +214,20 @@ func TestCodexWSSessionContinuationAndIsolation(t *testing.T) {
 	defer server.Close()
 	session := wsTestSession(t, server.URL)
 	events := 0
+	headerCalls := 0
+	var headerAt time.Time
+	session.options.ObserveHeaders = func(headers http.Header, observedAt time.Time) {
+		if events != 0 || observedAt.IsZero() || headers.Get("X-Codex-Test") != "handshake" {
+			t.Error("handshake was not delivered before events with its original time")
+		}
+		headerCalls++
+		headerAt = observedAt
+		headers.Set("X-Codex-Test", "caller mutation")
+	}
 	consume := func(ctx context.Context, event json.RawMessage) error {
+		if headerCalls != 1 {
+			t.Error("event overtook handshake delivery")
+		}
 		if !json.Valid(event) {
 			t.Error("event is not native JSON")
 		}
@@ -237,7 +251,8 @@ func TestCodexWSSessionContinuationAndIsolation(t *testing.T) {
 	if second.ResponseID == first.ResponseID || events != 2 || connections.Load() != 1 {
 		t.Fatal("turns did not reuse one connection")
 	}
-	if first.Headers.Get("X-Codex-Test") == "" || second.Headers.Get("X-Codex-Test") != "" {
+	if first.Headers.Get("X-Codex-Test") != "handshake" || !first.HeaderObservedAt.Equal(headerAt) ||
+		len(second.Headers) != 0 || !second.HeaderObservedAt.IsZero() || headerCalls != 1 {
 		t.Fatal("handshake headers were lost or reused as fresh observation")
 	}
 	other := wsTestSession(t, server.URL)
@@ -491,13 +506,23 @@ func (lifecycle *closeFirstWSBinding) End(reason string) { lifecycle.resource.En
 
 func TestCodexWSSessionGuardsSDKSendRetry(t *testing.T) {
 	var frames, handshakes atomic.Int32
+	var handlersMu sync.Mutex
+	var handlers []chan struct{}
+	recordAfterSend := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		done := make(chan struct{})
+		handlersMu.Lock()
+		handlers = append(handlers, done)
+		handlersMu.Unlock()
+		defer close(done)
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
 			t.Error(err)
 			return
 		}
 		defer conn.Close()
+		// 握手响应已发出，但服务端统计尚未更新，复现客户端先返回的调度顺序。
+		<-recordAfterSend
 		handshakes.Add(1)
 		if _, _, err := conn.ReadMessage(); err == nil {
 			frames.Add(1)
@@ -515,11 +540,27 @@ func TestCodexWSSessionGuardsSDKSendRetry(t *testing.T) {
 		Metadata:           map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: session.id},
 		ExecutionLifecycle: lifecycle,
 	})
+	// 请求结束后立即撤销上下文，收尾统计仍必须有自己的等待时间。
+	cancel()
+	close(recordAfterSend)
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
 	if err == nil {
 		t.Fatal("failed send succeeded")
 	}
+	// 客户端返回不代表服务端已统计完连接和业务帧；等待真实处理结束再断言。
+	handlersMu.Lock()
+	pendingHandlers := append([]chan struct{}(nil), handlers...)
+	handlersMu.Unlock()
+	for _, done := range pendingHandlers {
+		select {
+		case <-done:
+		case <-waitCtx.Done():
+			t.Fatal("server handlers did not finish after SDK send failure")
+		}
+	}
 	if frames.Load() != 0 || handshakes.Load() < 1 || handshakes.Load() > 2 {
-		t.Fatal("SDK send failure escaped the lifecycle guard")
+		t.Fatalf("SDK send failure escaped the lifecycle guard: frames=%d handshakes=%d binds=%d", frames.Load(), handshakes.Load(), lifecycle.binds.Load())
 	}
 	if lifecycle.binds.Load() < 1 || lifecycle.binds.Load() > 2 {
 		t.Fatal("unexpected SDK binding attempts")
@@ -528,13 +569,27 @@ func TestCodexWSSessionGuardsSDKSendRetry(t *testing.T) {
 
 func TestCodexWSSessionRejectsSDKReplacementConnection(t *testing.T) {
 	var frames, handshakes atomic.Int32
+	var handlersMu sync.Mutex
+	var handlers []chan struct{}
+	recordAfterSend := make(chan struct{})
+	releaseStats := sync.OnceFunc(func() { close(recordAfterSend) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		done := make(chan struct{})
+		handlersMu.Lock()
+		replacement := len(handlers) > 0
+		handlers = append(handlers, done)
+		handlersMu.Unlock()
+		defer close(done)
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
 			t.Error(err)
 			return
 		}
 		defer conn.Close()
+		if replacement {
+			// 握手已响应，但延后服务端统计，固定客户端先返回的调度顺序。
+			<-recordAfterSend
+		}
 		handshakes.Add(1)
 		if _, _, err := conn.ReadMessage(); err != nil {
 			return
@@ -546,6 +601,7 @@ func TestCodexWSSessionRejectsSDKReplacementConnection(t *testing.T) {
 		_, _, _ = conn.ReadMessage()
 	}))
 	defer server.Close()
+	defer releaseStats()
 	session := wsTestSession(t, server.URL)
 	if _, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil); err != nil {
 		t.Fatal(err)
@@ -561,8 +617,30 @@ func TestCodexWSSessionRejectsSDKReplacementConnection(t *testing.T) {
 		Metadata:           map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: session.id},
 		ExecutionLifecycle: session.resource,
 	})
-	if err == nil || frames.Load() != 1 || handshakes.Load() != 2 {
-		t.Fatalf("replacement sent a request: frames=%d handshakes=%d error=%v", frames.Load(), handshakes.Load(), err)
+	cancel()
+	releaseStats()
+	// 请求上下文已结束，使用独立期限等待服务端完成统计和业务帧读取。
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWait()
+	handlersMu.Lock()
+	pendingHandlers := append([]chan struct{}(nil), handlers...)
+	handlersMu.Unlock()
+	for _, done := range pendingHandlers {
+		select {
+		case <-done:
+		case <-waitCtx.Done():
+			t.Fatal("server handlers did not finish after SDK replacement rejection")
+		}
+	}
+	var wsErr *CodexWSError
+	if !errors.As(err, &wsErr) || wsErr.Code != "session_closed" {
+		t.Fatalf("replacement binding error=%v, want session_closed", err)
+	}
+	if got := handshakes.Load(); got != 2 {
+		t.Fatalf("unexpected handshake count: got=%d want=2", got)
+	}
+	if got := frames.Load(); got != 1 {
+		t.Fatalf("unexpected business frame count: got=%d want=1", got)
 	}
 }
 

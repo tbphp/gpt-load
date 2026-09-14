@@ -78,3 +78,20 @@ func TestDeriveKeyUsesUnambiguousFieldBoundaries(t *testing.T) {
 		t.Fatalf("keys = %q / %q, want distinct non-empty values", left, right)
 	}
 }
+
+func TestPromptCacheKeyNamespacesAndIsolation(t *testing.T) {
+	base := DerivePromptCacheKey(testHasher{}, 7, protocol.OpenAICompletions, "same")
+	if !base.Valid() || base != DerivePromptCacheKey(testHasher{}, 7, protocol.OpenAICompletions, "same") {
+		t.Fatal("explicit affinity key is not stable")
+	}
+	for _, other := range []Key{
+		DeriveKey(testHasher{}, 7, protocol.OpenAICompletions, []byte("same")),
+		DerivePromptCacheKey(testHasher{}, 8, protocol.OpenAICompletions, "same"),
+		DerivePromptCacheKey(testHasher{}, 7, protocol.OpenAIResponses, "same"),
+		DerivePromptCacheKey(testHasher{}, 7, protocol.OpenAICompletions, "different"),
+	} {
+		if base == other {
+			t.Fatal("affinity namespace or tenant boundary collapsed")
+		}
+	}
+}

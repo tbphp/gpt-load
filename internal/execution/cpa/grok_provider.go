@@ -231,8 +231,6 @@ func (*grokProviderBridge) ClassifyError(
 	case status == http.StatusForbidden || status == http.StatusPaymentRequired:
 		evidence.Hint = execution.FailureHintCandidateUnavailable
 		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
-	case status == http.StatusBadRequest:
-		evidence.Hint = execution.FailureHintRequestRejected
 	case status == http.StatusTooManyRequests:
 		evidence.Hint = execution.FailureHintRateLimited
 	case status >= http.StatusInternalServerError:

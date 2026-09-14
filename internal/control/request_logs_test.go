@@ -385,6 +385,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					StatusCode:             200,
 					DurationMs:             1234,
 					AffinityHit:            true,
+					AffinityKind:           telemetry.AffinityPromptCacheKey,
 					GroupID:                12,
 					ChannelID:              channel.OpenAI,
 					CredentialID:           99,
@@ -452,7 +453,8 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	if _, exists := envelope.Data.Items[0]["attempts"]; exists {
 		t.Fatalf("list item unexpectedly exposes attempts: %#v", envelope.Data.Items[0])
 	}
-	if envelope.Data.Items[0]["upstream_reported_model"] != "reported-model" ||
+	if envelope.Data.Items[0]["affinity_kind"] != telemetry.AffinityPromptCacheKey ||
+		envelope.Data.Items[0]["upstream_reported_model"] != "reported-model" ||
 		envelope.Data.Items[0]["model_consistency"] != string(telemetry.ModelConsistencyMismatch) ||
 		envelope.Data.Items[0]["route_mode"] != string(channel.RouteNative) ||
 		envelope.Data.Items[0]["operation"] != string(execution.OperationChatCompletion) ||
@@ -1093,6 +1095,7 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 		DurationMs:            120,
 		AttemptCount:          2,
 		AffinityHit:           true,
+		AffinityKind:          telemetry.AffinityPromptCacheKey,
 		GroupID:               99,
 		ChannelID:             channel.OpenAI,
 		CredentialID:          101,
@@ -1201,6 +1204,7 @@ func assertAccessKeyLogRedaction(t *testing.T, body []byte, detail bool) {
 		"upstream_reported_model": "null",
 		"model_consistency":       `"not_applicable"`,
 		"affinity_hit":            "false",
+		"affinity_kind":           `""`,
 		"group_id":                "null",
 		"channel_id":              "null",
 		"credential_id":           "null",

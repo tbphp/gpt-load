@@ -20,6 +20,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/state"
+	"gpt-load/internal/telemetry"
 )
 
 func TestResponsesContinuationPinsCredentialWithoutSoftAffinity(t *testing.T) {
@@ -35,11 +36,14 @@ func TestResponsesContinuationPinsCredentialWithoutSoftAffinity(t *testing.T) {
 			handler.manager.Current().Settings.AffinityEnabled = enabled
 
 			serveContinuation(t, engine, "gl-client", `{"model":"gpt-4o","input":"initial","store":true}`, http.StatusOK)
-			serveContinuation(t, engine, "gl-client", `{"model":"gpt-4o","input":"continue","previous_response_id":"first"}`, http.StatusOK)
+			serveContinuation(t, engine, "gl-client", `{"model":"gpt-4o","input":"continue","previous_response_id":"first","prompt_cache_key":"other-cache"}`, http.StatusOK)
 			serveContinuation(t, engine, "gl-client", `{"model":"gpt-4o","input":"continue"}`, http.StatusOK)
 
 			assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-one", "sk-two"})
 			assertAffinityHits(t, sink.snapshot(), []bool{false, true, false})
+			if sink.snapshot()[1].AffinityKind != telemetry.AffinityResponseContinuity {
+				t.Fatal("missing continuation kind")
+			}
 			if got := handler.registry.SchedulingState().CaptureCheckpoint().Sequence; got != 3 {
 				t.Fatalf("scheduling allocations = %d, want 3", got)
 			}
@@ -386,4 +390,28 @@ func serveContinuation(t *testing.T, engine http.Handler, key, body string, stat
 		t.Fatalf("status = %d, want %d; body = %s", response.Code, status, response.Body.String())
 	}
 	return response
+}
+
+func TestResponsesPromptCacheKeyAffinityAndHardContinuationPriority(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{storedResponse("first"), storedResponse("second"), storedResponse("third"), storedResponse("fourth"), storedResponse("fifth")}}
+	handler, engine, sink := newContinuationFixture(t, forwarder)
+	group := handler.manager.Current().Groups[1]
+	group.AffinityEnabled = true
+	handler.manager.Current().Groups[1] = group
+	for _, body := range []string{
+		`{"model":"gpt-4o","input":"first-prefix","prompt_cache_key":"a"}`,
+		`{"model":"gpt-4o","input":"changed-prefix","prompt_cache_key":"a"}`,
+		`{"model":"gpt-4o","input":"changed-prefix","prompt_cache_key":"b"}`,
+		`{"model":"gpt-4o","input":"continue","previous_response_id":"first","prompt_cache_key":"b"}`,
+		`{"model":"gpt-4o","input":"another-prefix","prompt_cache_key":"b"}`,
+	} {
+		serveContinuation(t, engine, "gl-client", body, http.StatusOK)
+	}
+	assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-one", "sk-two", "sk-one", "sk-two"})
+	assertAffinityHits(t, sink.snapshot(), []bool{false, true, false, true, true})
+	for i, want := range []string{"", telemetry.AffinityPromptCacheKey, "", telemetry.AffinityResponseContinuity, telemetry.AffinityPromptCacheKey} {
+		if sink.snapshot()[i].AffinityKind != want {
+			t.Fatalf("event %d kind=%q want=%q", i, sink.snapshot()[i].AffinityKind, want)
+		}
+	}
 }

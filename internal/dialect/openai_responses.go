@@ -43,6 +43,9 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 			return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 		}
 		metadata = parsed
+		if req.Method == http.MethodPost && req.Path == openAIResponsesPath {
+			metadata.PromptCacheKey = inspectPromptCacheKey(req.Body)
+		}
 	}
 	if req.Method == http.MethodGet {
 		stream, present, err := inspectResponsesStreamQuery(req.RawQuery)

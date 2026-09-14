@@ -88,7 +88,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}
-		merge, mergeErr := mergePassiveQuotaSnapshot(row.SnapshotJSON, observation.Windows)
+		merge, observedAtMS, mergeErr := mergePassiveQuotaSamples(row.SnapshotJSON, row.ObservedAtMS, observation)
 		if mergeErr != nil {
 			// A snapshot this malformed cannot be repaired by retrying the
 			// same merge; drop the observation instead of retrying forever.
@@ -105,7 +105,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 		// credential was observed just now, so the sync time advances even
 		// when the snapshot itself stays byte-identical.
 		updates := map[string]any{
-			"observed_at_ms": observation.ObservedAtMS,
+			"observed_at_ms": observedAtMS,
 			"updated_at_ms":  manager.now().UnixMilli(),
 		}
 		if merge.Changed {
@@ -137,6 +137,33 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 		// write. Retry once against the row it left behind.
 	}
 	return fmt.Errorf("passive quota observation for credential %d conflicted with a concurrent write", observation.CredentialID)
+}
+
+// mergePassiveQuotaSamples 按原始时间处理握手和事件，再通过同一次 CAS 写入。
+// 每份样本都与数据库中的时间比较，避免把旧握手改记为事件时间、覆盖期间的主动刷新。
+func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation PassiveQuotaObservation) (passiveQuotaMerge, int64, error) {
+	result := passiveQuotaMerge{Encoded: raw}
+	var observedAtMS int64
+	samples := [2]*PassiveQuotaSample{
+		observation.Preceding,
+		{ObservedAtMS: observation.ObservedAtMS, Windows: observation.Windows},
+	}
+	for _, sample := range samples {
+		if sample == nil || (storedAtMS != nil && sample.ObservedAtMS <= *storedAtMS) {
+			continue
+		}
+		merged, err := mergePassiveQuotaSnapshot(result.Encoded, sample.Windows)
+		if err != nil {
+			return passiveQuotaMerge{}, 0, err
+		}
+		if merged.Matched {
+			observedAtMS = sample.ObservedAtMS
+		}
+		merged.Matched = merged.Matched || result.Matched
+		merged.Changed = merged.Changed || result.Changed
+		result = merged
+	}
+	return result, observedAtMS, nil
 }
 
 // passiveQuotaMerge is the outcome of overlaying one response's windows onto
@@ -172,13 +199,26 @@ func mergePassiveQuotaSnapshot(
 	}
 	merged := append([]providerobservation.QuotaWindow(nil), existing...)
 	positions := make([]int, len(patches))
+	namedTargets := make(map[int]bool)
 	matches := make(map[int]int, len(patches))
 	for index, patch := range patches {
 		position := matchPassiveQuotaWindow(existing, patch)
 		positions[index] = position
-		if position >= 0 {
-			matches[position]++
+		if position >= 0 && patch.SourceName != "" {
+			namedTargets[position] = true
 		}
+	}
+	for index, position := range positions {
+		if position < 0 {
+			continue
+		}
+		// 仅 WS 带有 SourceName。来源解析后，同一目标的顶层副本让位给具名窗口；
+		// 不同来源、不同周期不会互相去重，数值差异也不改变这一优先级。
+		if patches[index].SourceName == "" && namedTargets[position] {
+			positions[index] = -1
+			continue
+		}
+		matches[position]++
 	}
 	outcome := passiveQuotaMerge{Encoded: raw, Windows: existing}
 	for index, patch := range patches {
@@ -220,6 +260,12 @@ func mergePassiveQuotaSnapshot(
 // matchPassiveQuotaWindow 按来源和实际周期对齐主动/被动数据；槽位不参与推断。
 // 其他未提供 SourceID 的渠道保留 ID 匹配，但不能覆盖带来源标识的窗口。
 func matchPassiveQuotaWindow(windows []providerobservation.QuotaWindow, patch providerobservation.QuotaWindow) int {
+	if patch.SourceID == "" && patch.SourceName != "" {
+		patch.SourceID = passiveQuotaSourceByName(windows, patch)
+		if patch.SourceID == "" {
+			return -1
+		}
+	}
 	matched := -1
 	for index, window := range windows {
 		if patch.SourceID != "" {
@@ -237,4 +283,26 @@ func matchPassiveQuotaWindow(windows []providerobservation.QuotaWindow, patch pr
 		matched = index
 	}
 	return matched
+}
+
+// Codex WS 的附加额度只报告原始 limit_name。利用主动观测已保存的名称和周期
+// 解析来源，再走既有 SourceID 匹配；不使用格式化后的 Label，也不推测名称别名。
+func passiveQuotaSourceByName(windows []providerobservation.QuotaWindow, patch providerobservation.QuotaWindow) string {
+	if patch.WindowSeconds == nil || *patch.WindowSeconds <= 0 {
+		return ""
+	}
+	sourceID := ""
+	matched := false
+	for _, window := range windows {
+		if window.Scope == "account" || window.Scope != patch.SourceName ||
+			window.WindowSeconds == nil || *window.WindowSeconds != *patch.WindowSeconds {
+			continue
+		}
+		if matched {
+			return ""
+		}
+		matched = true
+		sourceID = window.SourceID
+	}
+	return sourceID
 }

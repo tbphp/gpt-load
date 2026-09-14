@@ -23,6 +23,7 @@ type RequestLog struct {
 	ErrorCode               string              `gorm:"type:varchar(64);not null;default:''"`
 	ErrorSummary            string              `gorm:"type:text;not null"`
 	AffinityHit             bool                `gorm:"not null;default:false"`
+	AffinityKind            string              `gorm:"type:varchar(32);not null;default:''"`
 	ReasoningMode           string              `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningEffort         string              `gorm:"type:varchar(64);not null;default:''"`
 	ReasoningBudgetTokens   *int64              `gorm:"column:reasoning_budget_tokens"`

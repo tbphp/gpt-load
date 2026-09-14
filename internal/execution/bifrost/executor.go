@@ -208,6 +208,11 @@ func (r *Runtime) ExecuteStream(
 			"count tokens does not support streaming",
 		))
 	}
+	if prepared.request != nil && prepared.upstreamProtocol == protocol.Anthropic {
+		// SDK 的 Chat 流会丢弃 message_delta；借用保留原始事件的读取路径，
+		// 请求仍按原有 Chat builder 生成，客户端仍使用原有 Anthropic→Chat 转换。
+		prepared.responsesRequest = prepared.request.ToResponsesRequest()
+	}
 	if prepared.responsesRequest != nil {
 		return r.executeConvertedResponsesStream(parent, spec, prepared, sink)
 	}
@@ -611,8 +616,25 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			clientProtocol: spec.ClientProtocol, directKey: directKey, secrets: secrets,
 		}, nil
 	}
-	if convertedImages || mode == channel.RouteNative && providerSupportsPassthrough(providerKind, customTargetBaseURL, spec.ClientProtocol) {
+	_, nativeMessagePassthrough := nativeMessageProvider(providerKind, spec)
+	if nativeMessagePassthrough && providerKind == channel.ProviderDeepSeek && spec.ClientProtocol == protocol.Anthropic {
+		var input struct {
+			Container json.RawMessage `json:"container"`
+		}
+		if err := json.Unmarshal(spec.Body, &input); err != nil {
+			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid Anthropic request body")
+			return preparedAttempt{}, &failure
+		}
+		if len(input.Container) > 0 && !bytes.Equal(bytes.TrimSpace(input.Container), []byte("null")) {
+			failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "DeepSeek Anthropic route cannot preserve container semantics")
+			return preparedAttempt{}, &failure
+		}
+	}
+	if convertedImages || mode == channel.RouteNative && (nativeMessagePassthrough || providerSupportsPassthrough(providerKind)) {
 		body, sanitizedHeaders, err := sanitizeNativePassthroughRequest(spec, stream)
+		if err == nil && mode == channel.RouteNative && providerKind == channel.ProviderDeepSeek {
+			body, err = normalizeDeepSeekNativeRequest(body, spec.ClientProtocol)
+		}
 		if err != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request body")
 			if spec.ClientProtocol == protocol.OpenAIImages {
@@ -645,6 +667,14 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}
 		passthroughHeaders := safePassthroughHeaders(sanitizedHeaders)
 		passthroughUpstreamURL := ""
+		if nativeMessagePassthrough && spec.ClientProtocol != protocol.Anthropic {
+			passthroughUpstreamURL = r.fixedConfig.targetBaseURL
+		}
+		if providerKind == channel.ProviderOpenAICompatible &&
+			(spec.ClientProtocol == protocol.OpenAICompletions || spec.ClientProtocol == protocol.OpenAIResponses) {
+			passthroughUpstreamURL = r.fixedConfig.targetBaseURL
+			passthroughPath = strings.TrimPrefix(passthroughPath, "/v1")
+		}
 		if providerKind == channel.ProviderMultiProtocolGateway &&
 			(spec.ClientProtocol == protocol.OpenAICompletions ||
 				spec.ClientProtocol == protocol.OpenAIResponses ||
@@ -784,7 +814,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 			return preparedAttempt{}, &failure
 		}
-		return preparedAttempt{
+		return finishConvertedPreparation(spec, providerKind, preparedAttempt{
 			provider:         provider,
 			mode:             mode,
 			upstreamProtocol: upstreamProtocol,
@@ -793,7 +823,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			clientProtocol:   spec.ClientProtocol,
 			directKey:        directKey,
 			secrets:          secrets,
-		}, nil
+		})
 	}
 
 	var openAIRequest openai.OpenAIChatRequest
@@ -822,10 +852,10 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid compatible channel target")
 		return preparedAttempt{}, &failure
 	}
-	return preparedAttempt{
+	return finishConvertedPreparation(spec, providerKind, preparedAttempt{
 		provider: provider, mode: mode, upstreamProtocol: upstreamProtocol, request: request, typedURL: typedURL,
 		clientProtocol: spec.ClientProtocol, directKey: directKey, secrets: secrets,
-	}, nil
+	})
 }
 
 func newProbeRequest(
@@ -852,24 +882,14 @@ func newProbeRequest(
 	}
 }
 
-func providerSupportsPassthrough(
-	providerKind channel.ProviderKind,
-	baseURL string,
-	clientProtocol protocol.Protocol,
-) bool {
+func providerSupportsPassthrough(providerKind channel.ProviderKind) bool {
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini, channel.ProviderGoogleVertex:
 		return true
 	case channel.ProviderMultiProtocolGateway:
 		return true
 	case channel.ProviderOpenAICompatible:
-		if clientProtocol == protocol.OpenAIImages {
-			return true
-		}
-		// Bifrost's OpenAI passthrough inserts /v1. A compatible
-		// full API prefix with another suffix must use the typed custom path,
-		// without changing the frozen route mode or channel capability.
-		return strings.HasSuffix(baseURL, "/v1")
+		return true
 	default:
 		return false
 	}
@@ -1068,6 +1088,11 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 		}
 		return spec.Path[:modelStart+len(marker)] + url.PathEscape(spec.UpstreamModel) + spec.Path[colon:], nil
 	case channel.ProviderAnthropic:
+		return spec.Path, nil
+	case channel.ProviderDeepSeek:
+		path, _, err := deepSeekNativeTypedTarget("", spec.ClientProtocol, "")
+		return path, err
+	case channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI:
 		return spec.Path, nil
 	case channel.ProviderGemini:
 		path, ok := strings.CutPrefix(spec.Path, "/v1beta")

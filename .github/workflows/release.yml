@@ -10,6 +10,8 @@ permissions:
 
 # 竖线分隔在任何错误（含网络错误）时回退到下一个源；默认的逗号只在
 # 404/410 时回退，proxy.golang.org 瞬时故障会直接让整个 job 失败。
+# 自托管 Runner 保留本机 Go 缓存；代码与编译参数变化由 Go 自动判定失效。
+# 不再下载/上传 setup-go 缓存，也无需 main push 预热。
 env:
   GOPROXY: https://proxy.golang.org|direct
 
@@ -19,7 +21,7 @@ concurrency:
 
 jobs:
   validate-tag:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -141,7 +143,7 @@ jobs:
 
   verify-and-build-web:
     needs: validate-tag
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -163,7 +165,7 @@ jobs:
 
   static-checks:
     needs: validate-tag
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 20
     steps:
       - name: Checkout tag commit
@@ -175,7 +177,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Check Go formatting
         run: |
@@ -206,7 +208,7 @@ jobs:
     needs: validate-tag
     # 同一 commit 的 CI 已全绿时跳过；publication-preflight 接受 skipped 结果。
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 20
     steps:
       - name: Checkout tag commit
@@ -214,21 +216,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Mark race-instrumented Go cache scope
-        # race-tests、test、database-contract(*) 默认共用同一个基于 go.sum 的
-        # setup-go 缓存 key；命中即不保存，race-instrumented GOCACHE 永远无法
-        # 写回，每次都要重新编译。加入这个 marker 文件参与 cache-dependency-path
-        # 哈希，让 race-tests 拥有独立 key 命名空间。
-        run: echo race-tests > .go-cache-scope
-
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            .go-cache-scope
+          cache: false
 
       - name: Run race-enabled tests
         run: go test -race -count=1 -timeout=15m . ./internal/...
@@ -236,7 +228,7 @@ jobs:
   race-cpa:
     needs: validate-tag
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -248,8 +240,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-          cache-dependency-path: third_party/cpaembedded/go.sum
+          cache: false
 
       - name: Run embedded CPA bridge race-enabled tests
         working-directory: third_party/cpaembedded
@@ -259,7 +250,7 @@ jobs:
     name: Database contract (${{ matrix.driver }})
     needs: validate-tag
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -267,31 +258,45 @@ jobs:
       matrix:
         include:
           - driver: mysql
-            dsn: mysql://root:root@127.0.0.1:3306/gpt_load?charset=utf8mb4&transaction_isolation=%27READ-COMMITTED%27
+            image: mysql:8.4
+            data-dir: /var/lib/mysql
+            port: "3306"
+            health: mysqladmin ping -h 127.0.0.1 -proot
+            dsn: mysql://root:root@127.0.0.1:{0}/gpt_load?charset=utf8mb4&transaction_isolation=%27READ-COMMITTED%27
           - driver: postgres
-            dsn: postgres://postgres:postgres@127.0.0.1:5432/gpt_load?sslmode=disable
+            image: postgres:18
+            data-dir: /var/lib/postgresql
+            port: "5432"
+            health: pg_isready -U postgres -d gpt_load
+            dsn: postgres://postgres:postgres@127.0.0.1:{0}/gpt_load?sslmode=disable
+    # 仅临时合同测试数据库使用内存盘；每个实例按实际使用量占用，最多 2 GiB。
     services:
-      mysql:
-        image: mysql:8.4
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: gpt_load
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gpt_load
+        ports:
+          - ${{ matrix.port }}
+        options: >-
+          --tmpfs ${{ matrix.data-dir }}:rw,nosuid,nodev,size=2g
+          --health-cmd="${{ matrix.health }}"
+          --health-interval=5s
+          --health-timeout=10s
+          --health-retries=20
+      # MySQL 两组使用独立实例，避免不同测试数据库争用同名 GET_LOCK。
+      secondary-mysql:
+        image: ${{ matrix.driver == 'mysql' && 'mysql:8.4' || '' }}
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: gpt_load
         ports:
-          - 3306:3306
+          - 3306
         options: >-
+          --tmpfs /var/lib/mysql:rw,nosuid,nodev,size=2g
           --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
-          --health-interval=5s
-          --health-timeout=10s
-          --health-retries=20
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: gpt_load
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d gpt_load"
           --health-interval=5s
           --health-timeout=10s
           --health-retries=20
@@ -305,17 +310,17 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Run external database contract
         env:
-          GPT_LOAD_DATABASE_TEST_DSN: ${{ matrix.dsn }}
-        run: |
-          go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog -run '^TestExternal'
+          GPT_LOAD_DATABASE_TEST_DSN: ${{ format(matrix.dsn, job.services.database.ports[format('{0}', matrix.port)]) }}
+          GPT_LOAD_DATABASE_SECONDARY_DSN: ${{ matrix.driver == 'mysql' && format(matrix.dsn, job.services.secondary-mysql.ports['3306']) || '' }}
+        run: .github/scripts/ci-database-contract.sh "${{ matrix.driver }}"
 
   build-binaries:
     needs: verify-and-build-web
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: true
@@ -323,18 +328,23 @@ jobs:
       matrix:
         include:
           - goos: linux
+            runner: [self-hosted, Linux, ARM64]
             goarch: amd64
             filename: gpt-load-linux-amd64
           - goos: linux
+            runner: [self-hosted, Linux, ARM64]
             goarch: arm64
             filename: gpt-load-linux-arm64
           - goos: darwin
+            runner: [self-hosted, macOS, ARM64]
             goarch: amd64
             filename: gpt-load-macos-amd64
           - goos: darwin
+            runner: [self-hosted, macOS, ARM64]
             goarch: arm64
             filename: gpt-load-macos-arm64
           - goos: windows
+            runner: [self-hosted, Windows, X64]
             goarch: amd64
             filename: gpt-load-windows-amd64.exe
     steps:
@@ -353,9 +363,10 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Build release binary
+        shell: bash
         env:
           CGO_ENABLED: 0
           GOOS: ${{ matrix.goos }}
@@ -378,7 +389,7 @@ jobs:
 
   build-windows-setup:
     needs: build-binaries
-    runs-on: windows-2025
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -422,7 +433,7 @@ jobs:
 
   package-metadata:
     needs: validate-tag
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -434,7 +445,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Generate release SBOM and license assets
         run: |
@@ -462,7 +473,7 @@ jobs:
       - build-binaries
       - build-windows-setup
       - package-metadata
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -522,15 +533,15 @@ jobs:
       max-parallel: 5
       matrix:
         include:
-          - runner: ubuntu-24.04
+          - runner: [self-hosted, Linux, X64]
             filename: gpt-load-linux-amd64
-          - runner: ubuntu-24.04-arm
+          - runner: [self-hosted, Linux, ARM64]
             filename: gpt-load-linux-arm64
           - runner: macos-15-intel
             filename: gpt-load-macos-amd64
-          - runner: macos-15
+          - runner: [self-hosted, macOS, ARM64]
             filename: gpt-load-macos-arm64
-          - runner: windows-2025
+          - runner: [self-hosted, Windows, X64]
             filename: gpt-load-windows-amd64.exe
     runs-on: ${{ matrix.runner }}
     steps:
@@ -573,7 +584,7 @@ jobs:
 
   windows-installer-smoke:
     needs: package-checksums
-    runs-on: windows-2025
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -612,9 +623,16 @@ jobs:
 
   docker-smoke:
     needs: validate-tag
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 30
     steps:
+      - name: Isolate Docker credentials
+        shell: bash
+        run: |
+          # 使用临时登录配置，避免覆盖宿主机 Docker 凭据。
+          docker_config="$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")"
+          echo "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
+
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -624,7 +642,7 @@ jobs:
         shell: bash
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
-          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}
+          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}
           RELEASE_SMOKE_TRIVY_IMAGE: aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f
         run: .github/scripts/release-docker-smoke.sh
 
@@ -642,12 +660,19 @@ jobs:
           # 路径 COPY 的是不同的二进制，必须各自验证。使用原生 arm64 runner 而非
           # QEMU：QEMU 模拟下的启动行为不能代表真实 arm64 运行时。
           - arch: amd64
-            runner: ubuntu-24.04
+            runner: [self-hosted, Linux, X64]
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: [self-hosted, Linux, ARM64]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
+      - name: Isolate Docker credentials
+        shell: bash
+        run: |
+          # 使用临时登录配置，避免覆盖宿主机 Docker 凭据。
+          docker_config="$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")"
+          echo "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
+
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -663,7 +688,7 @@ jobs:
         shell: bash
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
-          RELEASE_SMOKE_SUFFIX: prebuilt-${{ matrix.arch }}-${{ github.run_id }}
+          RELEASE_SMOKE_SUFFIX: prebuilt-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           RELEASE_SMOKE_TRIVY_IMAGE: aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f
           RELEASE_SMOKE_BUILD_TARGET: prebuilt
         run: .github/scripts/release-docker-smoke.sh
@@ -689,7 +714,7 @@ jobs:
     # race-tests、race-cpa 与 database-contract 在 CI 已验证同一 commit 时为 skipped，
     # 这里只拒绝真正失败的 gate，不把 skipped 当作缺失的验证。
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 20
     permissions:
       # Draft Releases are visible only to identities with push access.
@@ -710,6 +735,13 @@ jobs:
       ghcr_latest_digest: ${{ steps.inventory.outputs.ghcr_latest_digest }}
       dockerhub_latest_digest: ${{ steps.inventory.outputs.dockerhub_latest_digest }}
     steps:
+      - name: Isolate Docker credentials
+        shell: bash
+        run: |
+          # 使用临时登录配置，避免覆盖宿主机 Docker 凭据。
+          docker_config="$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")"
+          echo "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
+
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -945,12 +977,19 @@ jobs:
     # 间接祖先因 CI 结论复用而 skipped，publish-images 也会被默认条件连带跳过，
     # 即便这里列出的直接 needs 全部成功。显式条件只看直接 needs，绕开这个传播。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 45
     permissions:
       contents: read
       packages: write
     steps:
+      - name: Isolate Docker credentials
+        shell: bash
+        run: |
+          # 使用临时登录配置，避免覆盖宿主机 Docker 凭据。
+          docker_config="$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")"
+          echo "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
+
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -968,7 +1007,7 @@ jobs:
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
         with:
-          platforms: arm64
+          platforms: amd64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -1054,7 +1093,7 @@ jobs:
       - publish-images
     # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' && needs.publish-images.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     permissions:
       contents: write
@@ -1141,12 +1180,19 @@ jobs:
       - publish-images
     # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publish-images.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 30
     permissions:
       contents: read
       packages: read
     steps:
+      - name: Isolate Docker credentials
+        shell: bash
+        run: |
+          # 使用临时登录配置，避免覆盖宿主机 Docker 凭据。
+          docker_config="$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")"
+          echo "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
+
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1164,7 +1210,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
           RELEASE_SMOKE_SOURCE_IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}
-          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}-ghcr
+          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}-${{ github.run_attempt }}-ghcr
           # 同一 commit 的镜像已在 docker-smoke 扫描过，这里不重复扫描。
           RELEASE_SMOKE_SKIP_SCAN: "true"
         run: .github/scripts/release-docker-smoke.sh
@@ -1177,13 +1223,20 @@ jobs:
       - publish-images
     # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' && needs.publish-github.result == 'success' && needs.publish-images.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 45
     permissions:
       # Draft Releases are visible only to identities with push access.
       contents: write
       packages: read
     steps:
+      - name: Isolate Docker credentials
+        shell: bash
+        run: |
+          # 使用临时登录配置，避免覆盖宿主机 Docker 凭据。
+          docker_config="$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")"
+          echo "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
+
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1313,7 +1366,7 @@ jobs:
       group: gpt-load-v2-image-channels
       cancel-in-progress: false
       queue: max
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1322,6 +1375,13 @@ jobs:
       beta_current: ${{ steps.promote.outputs.beta_current }}
       major_current: ${{ steps.promote.outputs.major_current }}
     steps:
+      - name: Isolate Docker credentials
+        shell: bash
+        run: |
+          # 使用临时登录配置，避免覆盖宿主机 Docker 凭据。
+          docker_config="$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")"
+          echo "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
+
       - name: Checkout tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1376,7 +1436,7 @@ jobs:
     environment:
       name: render
       url: ${{ vars.RENDER_SERVICE_URL }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1386,7 +1446,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
       IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}
       RENDER_CLI_VERSION: "2.25.0"
-      RENDER_CLI_SHA256: "3b3f1f839ef36b81f12d84ac7288f1c96f9f7519b39c53fe6f866612f704e7cd"
+      RENDER_CLI_SHA256: "7c4dc66ded7acc75e2f828b02d3d6901e9f2e4175d25c4fe5fd6f3aaf66b071b"
     steps:
       - name: Validate deployment inputs
         shell: bash
@@ -1401,7 +1461,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive="cli_${RENDER_CLI_VERSION}_linux_amd64.zip"
+          archive="cli_${RENDER_CLI_VERSION}_linux_arm64.zip"
           archive_path="${RUNNER_TEMP}/${archive}"
           extract_dir="${RUNNER_TEMP}/render-cli-${RENDER_CLI_VERSION}"
           url="https://github.com/render-oss/cli/releases/download/v${RENDER_CLI_VERSION}/${archive}"
@@ -1496,13 +1556,20 @@ jobs:
       - post-publish-image-smoke
       - post-publish-verify
       - promote-image-channels
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     permissions:
       # Draft Releases are visible only to identities with push access.
       contents: write
       packages: read
     steps:
+      - name: Isolate Docker credentials
+        shell: bash
+        run: |
+          # 使用临时登录配置，避免覆盖宿主机 Docker 凭据。
+          docker_config="$(mktemp -d "${RUNNER_TEMP}/docker-config.XXXXXX")"
+          echo "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
+
       - name: Checkout tag commit for read-only reconciliation
         if: ${{ always() }}
         continue-on-error: true

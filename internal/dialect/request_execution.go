@@ -108,6 +108,47 @@ func hasMeaningfulField(object map[string]any, field string) bool {
 	}
 }
 
+// CountMidConversationSystemMessages 只观察真实角色，不把用户文本中的提示标签当作系统消息。
+func CountMidConversationSystemMessages(clientProtocol protocol.Protocol, body []byte) int {
+	root, ok := decodeExecutionFeatureObject(body)
+	if !ok {
+		return 0
+	}
+	field := "messages"
+	switch clientProtocol {
+	case protocol.OpenAICompletions, protocol.Anthropic:
+	case protocol.OpenAIResponses:
+		field = "input"
+	default:
+		return 0
+	}
+	messages, _ := root[field].([]any)
+	seenConversation, count := false, 0
+	for _, raw := range messages {
+		message, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := message["role"].(string)
+		if role == "system" || role == "developer" {
+			if seenConversation && hasMeaningfulField(message, "content") {
+				count++
+			}
+			continue
+		}
+		switch role {
+		case "user", "assistant", "tool":
+			seenConversation = true
+		}
+		itemType, _ := message["type"].(string)
+		if clientProtocol == protocol.OpenAIResponses && itemType != "" {
+			// 非指令项目也属于有序历史，不按部分工具类型枚举会话起点。
+			seenConversation = true
+		}
+	}
+	return count
+}
+
 func responsesCreateRequirements(
 	body []byte,
 ) (execution.RouteRequirement, execution.ResponsesStorePreference) {

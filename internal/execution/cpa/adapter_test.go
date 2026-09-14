@@ -87,6 +87,12 @@ func (f *fakeCredentialPreparer) RecordPassiveQuotaObservation(
 	}
 }
 
+func (f *fakeCredentialPreparer) RecordPassiveQuotaPair(credentialID uint, identityGeneration uint64, preceding, latest subscription.PassiveQuotaSample) {
+	if f.delegate != nil {
+		f.delegate.RecordPassiveQuotaPair(credentialID, identityGeneration, preceding, latest)
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {

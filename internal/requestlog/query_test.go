@@ -972,3 +972,23 @@ func containsJSONFragment(encoded []byte, fragment string) bool {
 	}
 	return false
 }
+
+func TestServiceListAndDetailPreserveAffinityKind(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	row := requestLogQueryRow("00000000-0000-4000-8000-000000000630", time.Now(), 71, "model", nil)
+	row.AffinityHit = true
+	row.AffinityKind = telemetry.AffinityPromptCacheKey
+	createRequestLogQueryRow(t, db, row)
+	service := newRequestLogTestService(db)
+	page, err := service.List(context.Background(), ListQuery{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := service.Get(context.Background(), row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].AffinityKind != row.AffinityKind || detail.AffinityKind != row.AffinityKind {
+		t.Fatal("affinity kind lost on query")
+	}
+}

@@ -297,7 +297,7 @@ func (s *Service) prepareTransientSubscriptionCredential(
 		}
 		return subscriptionruntime.Credential{}, app_errors.ErrCredentialAuthOutcomeUnknown
 	}
-	if refreshed.Identity() == "" || refreshed.Identity() != credential.Identity() {
+	if !subscriptionruntime.RefreshPreservesIdentity(driver, credential, refreshed) {
 		return subscriptionruntime.Credential{}, app_errors.ErrCredentialReauthorizationRequired
 	}
 	return refreshed, nil
@@ -393,8 +393,8 @@ func (s *Service) prepareReadySubscriptionStageCredential(
 		}
 		return subscriptionruntime.Credential{}, apiErr
 	}
-	if refreshed.Identity() == "" || refreshed.Identity() != credential.Identity() ||
-		s.subscriptionIdentityFingerprint(channel.ID(row.ChannelID), refreshed.Identity()) != row.IdentityFingerprint {
+	if !subscriptionruntime.RefreshPreservesIdentity(driver, credential, refreshed) ||
+		s.subscriptionIdentityFingerprint(channel.ID(row.ChannelID), credential.Identity()) != row.IdentityFingerprint {
 		if err := s.finishCredentialStageRefreshFailure(
 			ctx,
 			row.ID,
@@ -496,7 +496,7 @@ func (s *Service) finishCredentialStageRefresh(
 			"status": models.CredentialStageReady, "encrypted_payload": ciphertext,
 			"payload_schema_version": stagedSubscriptionSchemaV2,
 			"safe_summary_json":      models.JSON(summaryJSON),
-			"identity_fingerprint":   row.IdentityFingerprint,
+			"identity_fingerprint":   s.subscriptionIdentityFingerprint(channel.ID(row.ChannelID), credential.Identity()),
 			"expires_at_ms":          row.ExpiresAtMS,
 			"error_code":             "", "updated_at_ms": s.now().UnixMilli(),
 		})

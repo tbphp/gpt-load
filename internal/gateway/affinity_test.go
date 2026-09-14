@@ -255,6 +255,7 @@ func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
 		protocol.OpenAICompletions,
 		prefix,
 		map[uint]state.CredentialRef{1: oldRef},
+		"",
 	)
 	if initial.preferredCredentialID != 0 || !initial.key.Valid() {
 		t.Fatalf("initial affinity = %#v, want valid miss", initial)
@@ -273,6 +274,7 @@ func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
 		protocol.OpenAICompletions,
 		prefix,
 		map[uint]state.CredentialRef{1: oldRef},
+		"",
 	)
 	if hit.preferredCredentialID != 1 {
 		t.Fatalf("preferred credential = %d, want 1", hit.preferredCredentialID)
@@ -285,6 +287,7 @@ func TestHandlerIgnoresAffinityAfterCredentialIdentityChanges(t *testing.T) {
 		protocol.OpenAICompletions,
 		prefix,
 		map[uint]state.CredentialRef{1: changedRef},
+		"",
 	)
 	if stale.preferredCredentialID != 0 {
 		t.Fatalf("preferred credential after identity change = %d, want 0", stale.preferredCredentialID)
@@ -301,6 +304,7 @@ func TestHandlerDerivesPrivateContinuityWithoutReenablingDisabledAffinity(t *tes
 		protocol.OpenAICompletions,
 		[]byte(`{"v":1,"user":["hello"]}`),
 		map[uint]state.CredentialRef{1: {ID: 1, GroupID: 1, IdentityGeneration: 1}},
+		"",
 	)
 	if resolved.key.Valid() || resolved.preferredCredentialID != 0 || resolved.continuityKey == "" {
 		t.Fatalf("disabled affinity resolution = %#v", resolved)
@@ -445,5 +449,63 @@ func assertAffinityUpstreamModels(t *testing.T, inputs []ForwardInput, want []st
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("upstream models = %#v, want %#v", got, want)
+	}
+}
+
+func TestPromptCacheKeyAffinityPrecedesPromptPrefix(t *testing.T) {
+	forwarder := &scriptedForwarder{results: successfulAffinityResults(4)}
+	handler, _, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	engine := newAffinityTestEngine(t, handler)
+	for _, body := range []string{
+		`{"model":"gpt-4o","prompt_cache_key":"cache-a","messages":[{"role":"user","content":"first"}]}`,
+		`{"model":"gpt-4o","prompt_cache_key":"cache-a","messages":[{"role":"user","content":"changed"}]}`,
+		`{"model":"gpt-4o","prompt_cache_key":"cache-b","messages":[{"role":"user","content":"changed"}]}`,
+		`{"model":"gpt-4o","prompt_cache_key":"cache-b","messages":[{"role":"user","content":"another"}]}`,
+	} {
+		serveAffinityRequest(t, engine, body)
+	}
+	assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-one", "sk-two", "sk-two"})
+	assertAffinityHits(t, sink.snapshot(), []bool{false, true, false, true})
+	for _, i := range []int{1, 3} {
+		if sink.snapshot()[i].AffinityKind != telemetry.AffinityPromptCacheKey {
+			t.Fatal("wrong cache affinity kind")
+		}
+	}
+	// 客户端缓存分组不改变 provider-private replay 的提示词隔离。
+	if forwarder.inputs[0].ContinuityKey == forwarder.inputs[1].ContinuityKey {
+		t.Fatal("cache key became replay identity")
+	}
+}
+
+func TestPromptCacheKeyAffinityRespectsGroupSwitch(t *testing.T) {
+	forwarder := &scriptedForwarder{results: successfulAffinityResults(2)}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
+	group := manager.Current().Groups[1]
+	group.AffinityEnabled = false
+	manager.Current().Groups[1] = group
+	engine := newAffinityTestEngine(t, handler)
+	for range 2 {
+		serveAffinityRequest(t, engine, `{"model":"gpt-4o","prompt_cache_key":"cache-a","messages":[{"role":"user","content":"same"}]}`)
+	}
+	assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-two"})
+}
+
+func TestInvalidPromptCacheKeyFallsBackWithoutMutatingRequest(t *testing.T) {
+	forwarder := &scriptedForwarder{results: successfulAffinityResults(2)}
+	handler, _, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	engine := newAffinityTestEngine(t, handler)
+	body := `{"model":"gpt-4o","prompt_cache_key":" invalid ","messages":[{"role":"user","content":"hello"}]}`
+	serveAffinityRequest(t, engine, body)
+	serveAffinityRequest(t, engine, body)
+	assertAffinityAttemptKeys(t, forwarder.inputs, []string{"sk-one", "sk-one"})
+	if sink.snapshot()[1].AffinityKind != telemetry.AffinityPromptPrefix {
+		t.Fatal("invalid key did not fall back to prefix")
+	}
+	if !bytes.Contains(forwarder.inputs[1].Request.Body, []byte(`"prompt_cache_key":" invalid "`)) {
+		t.Fatal("client cache parameter changed")
 	}
 }

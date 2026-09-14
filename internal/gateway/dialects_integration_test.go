@@ -682,7 +682,7 @@ func TestGatewayAppliesEachGroupsParameterOverridesFromOriginal(t *testing.T) {
 	}
 }
 
-func TestHandlerHostFailureDoesNotReplayGenerationAcrossGroups(t *testing.T) {
+func TestHandlerHostFailureRetriesGenerationAcrossGroups(t *testing.T) {
 	primary := fakeupstream.New(
 		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
 		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
@@ -709,7 +709,7 @@ func TestHandlerHostFailureDoesNotReplayGenerationAcrossGroups(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusInternalServerError || recorder.Header().Get(debugHeaderAttempts) != "1" {
+		if recorder.Code != http.StatusOK || recorder.Header().Get(debugHeaderAttempts) != "2" {
 			t.Fatalf("response = %d attempts=%s body=%s",
 				recorder.Code, recorder.Header().Get(debugHeaderAttempts), recorder.Body.String())
 		}
@@ -717,8 +717,8 @@ func TestHandlerHostFailureDoesNotReplayGenerationAcrossGroups(t *testing.T) {
 	if got := len(primary.Requests()); got != 2 {
 		t.Fatalf("primary requests = %d, want one per downstream request", got)
 	}
-	if got := len(backup.Requests()); got != 0 {
-		t.Fatalf("backup requests = %d, want none for ambiguous generation failures", got)
+	if got := len(backup.Requests()); got != 2 {
+		t.Fatalf("backup requests = %d, want one per downstream request", got)
 	}
 }
 

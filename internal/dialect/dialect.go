@@ -22,6 +22,7 @@ type RequestMetadata struct {
 	Model                    *string
 	Stream                   bool
 	AffinityPrefix           []byte
+	PromptCacheKey           string `json:"-"`
 	Operation                execution.Operation
 	RouteRequirement         execution.RouteRequirement
 	ResponsesStorePreference execution.ResponsesStorePreference

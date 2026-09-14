@@ -26,7 +26,7 @@ func TestClaudeDriverProducesProviderNeutralCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if credential.Identity() != "account-one" || credential.Account().Email != "owner@example.com" ||
+	if credential.Identity() != "account-one/org-one" || credential.Account().Email != "owner@example.com" ||
 		!credential.Account().ExpiresAtKnown {
 		t.Fatalf("credential metadata = %q %#v", credential.Identity(), credential.Account())
 	}

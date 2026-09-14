@@ -181,13 +181,14 @@ func (s *Service) ImportCredentialFiles(
 				item.ErrorCode = credentialImportItemError(ctx, classifyCredentialImportError(driver, importErr))
 				break
 			}
-			if _, duplicate := identities[credential.Identity()]; duplicate {
-				item.Status, item.ErrorCode = "skipped", "duplicate_account"
-				break
-			}
+			// 刷新可能补全用户或组织身份，必须按准备完成后的身份判重。
 			credential, importErr = s.prepareTransientSubscriptionCredential(ctx, channelID, driver, credential)
 			if importErr != nil {
 				item.ErrorCode = credentialImportItemError(ctx, importErr)
+				break
+			}
+			if _, duplicate := identities[credential.Identity()]; duplicate {
+				item.Status, item.ErrorCode = "skipped", "duplicate_account"
 				break
 			}
 			stage, persistErr := s.persistReadyCredentialStage(ctx, channelID, "oauth_file", credential, network)

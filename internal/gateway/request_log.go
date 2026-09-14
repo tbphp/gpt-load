@@ -67,6 +67,7 @@ type requestRecorder struct {
 	requestedPricingMode pricing.Mode
 	usageDiagnostics     usage.Diagnostics
 	affinityHit          bool
+	affinityKind         string
 	attempts             []telemetry.Attempt
 	attemptPricing       []frozenAttemptPricing
 	pendingPricing       frozenAttemptPricing
@@ -147,6 +148,7 @@ func (recorder *requestRecorder) emit() {
 		FirstResponseMs:       recorder.firstResponseMs,
 		DurationMs:            duration.Milliseconds(),
 		AffinityHit:           recorder.affinityHit,
+		AffinityKind:          recorder.affinityKind,
 		Reasoning:             recorder.reasoning,
 		Operation:             recorder.operation,
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
@@ -179,9 +181,10 @@ func (recorder *requestRecorder) estimatedCostNanoUSD() int64 {
 	return recorder.usage.Pricing.EstimatedCostNanoUSD
 }
 
-func (recorder *requestRecorder) setAffinityHit(hit bool) {
+func (recorder *requestRecorder) setAffinityHit(hit bool, kind string) {
 	if recorder != nil && hit {
 		recorder.affinityHit = true
+		recorder.affinityKind = kind
 	}
 }
 

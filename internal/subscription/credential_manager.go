@@ -300,7 +300,7 @@ func (manager *CredentialManager) refreshCredentialLocked(
 		}
 		return subscriptionruntime.Credential{}, authEvidence(evidenceCode)
 	}
-	if refreshed.Identity() == "" || refreshed.Identity() != current.Identity() {
+	if !subscriptionruntime.RefreshPreservesIdentity(driver, current, refreshed) {
 		if err := manager.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateReauthorizationRequired, "refresh_identity_changed"); err != nil {
 			manager.registry.SetCredentialAuthState(row.ID, state.CredentialAuthStateOutcomeUnknown)
 			return subscriptionruntime.Credential{}, localEvidence("refresh_state_commit_failed", "subscription credential state could not be saved")

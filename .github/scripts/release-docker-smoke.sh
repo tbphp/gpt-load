@@ -38,8 +38,7 @@ fake_container="gpt-load-release-fake-${suffix}"
 fake_alias="fake-upstream"
 volume="gpt-load-release-smoke-${suffix}"
 network="gpt-load-release-network-${suffix}"
-app_port="${RELEASE_SMOKE_APP_PORT:-39413}"
-base_url="http://127.0.0.1:${app_port}"
+app_port="${RELEASE_SMOKE_APP_PORT:-0}"
 task_tmp="$(mktemp -d)"
 smoke_stage="preflight"
 
@@ -55,6 +54,8 @@ cleanup_temp() {
   fi
 }
 trap cleanup_temp EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 for target in "${container}" "${probe}" "${fake_container}"; do
   if docker container inspect "${target}" >/dev/null 2>&1; then
@@ -207,9 +208,14 @@ start_container() {
   docker run -d \
     --name "${container}" \
     --network "${network}" \
-    --publish "${app_port}:3001" \
+    --publish "127.0.0.1:${app_port}:3001" \
     --volume "${volume}:/app/data" \
     "${image}" >/dev/null
+  # Docker 原子分配可用端口；重建容器后也重新查询，避免多个 Runner 抢占端口。
+  local binding
+  binding="$(docker port "${container}" 3001/tcp)"
+  [[ "${binding}" =~ ^127\.0\.0\.1:[0-9]+$ ]]
+  base_url="http://${binding}"
 }
 
 wait_for_health() {

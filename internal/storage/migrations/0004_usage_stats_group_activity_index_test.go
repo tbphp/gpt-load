@@ -7,6 +7,7 @@ import (
 )
 
 func TestUsageStatsGroupActivityIndexMigrationCreatesAndValidatesIndex(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := migrations.Up0001(db); err != nil {
 		t.Fatal(err)
@@ -38,6 +39,7 @@ func TestUsageStatsGroupActivityIndexMigrationCreatesAndValidatesIndex(t *testin
 }
 
 func TestUsageStatsGroupActivityIndexMigrationRejectsMissingIndex(t *testing.T) {
+	t.Parallel()
 	db := openInitialTestDatabase(t)
 	if err := migrations.Up0001(db); err != nil {
 		t.Fatal(err)
