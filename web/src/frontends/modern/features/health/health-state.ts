@@ -36,7 +36,7 @@ export function parseHealthState(query: LocationQuery) {
     pageSize: [20, 50, 100].includes(Number(query.page_size)) ? Number(query.page_size) : 20,
     detail:
       typeof query.detail === 'string' &&
-      /^(pipeline|(?:group|isolated|cooldown|quota|credit|access_key):[1-9]\d*)$/.test(query.detail)
+      /^(?:group|isolated|cooldown|quota|credit|access_key):[1-9]\d*$/.test(query.detail)
         ? query.detail
         : '',
   }

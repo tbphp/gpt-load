@@ -52,7 +52,6 @@ import {
 } from './health-state'
 import HealthOverview from './HealthOverview.vue'
 import HealthDetailPanel from './HealthDetailPanel.vue'
-import HealthPipeline from './HealthPipeline.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -380,18 +379,21 @@ useMessageSource(() =>
             <AppIconButton
               :icon="Eye"
               :label="t('health.details')"
+              :tooltip="true"
               size="xs"
               variant="text"
               @click="open(row.key)"
             /><AppIconButton
               :icon="ScrollText"
               :label="t('health.logs')"
+              :tooltip="true"
               size="xs"
               variant="text"
               @click="logs(row)"
             /><AppIconButton
               :icon="ArrowUpRight"
               :label="t('health.manage')"
+              :tooltip="true"
               size="xs"
               variant="text"
               @click="manage(row)"
@@ -410,12 +412,10 @@ useMessageSource(() =>
           @update:page-size="change({ pageSize: $event })"
       /></template>
     </AppListFrame>
-    <HealthPipeline v-if="report" :report="report" @open="open('pipeline')" />
     <HealthDetailPanel
       v-if="state.detail && report"
       :key="state.detail"
       :issue="selected"
-      :pipeline="state.detail === 'pipeline'"
       :report="report"
       :groups="groupMap"
       @close="open('')"
@@ -430,7 +430,6 @@ useMessageSource(() =>
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  overflow: hidden;
 }
 .modern-health-filters {
   display: flex;

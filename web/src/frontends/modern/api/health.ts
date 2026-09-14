@@ -60,22 +60,6 @@ export interface HealthAccessKey {
   recoveryAt: number | null
   rules: HealthBlockingRule[]
 }
-export const pipelineCounters = [
-  'enqueued_total',
-  'persisted_total',
-  'dropped_total',
-  'write_failure_total',
-  'dropped_not_running_total',
-  'dropped_queue_full_total',
-  'dropped_stopping_total',
-  'dropped_persist_failed_total',
-  'dropped_shutdown_total',
-  'access_quota_checkpoint_write_failure_total',
-  'retention_delete_failure_total',
-  'queue_depth',
-  'queue_capacity',
-] as const
-export type PipelineCounter = (typeof pipelineCounters)[number]
 export interface HealthReport {
   observedAt: number
   statsWindow: number
@@ -86,12 +70,6 @@ export interface HealthReport {
   quotas: HealthQuota[]
   credits: HealthCredit[]
   accessKeys: HealthAccessKey[]
-  pipeline: Record<PipelineCounter, number> & {
-    checkpointDegraded: boolean
-    lastWriteFailure: number | null
-    lastCheckpointFailure: number | null
-    lastRetentionFailure: number | null
-  }
 }
 const timestamp = (value: unknown) => (value == null ? null : integer(value))
 function counts(value: unknown): HealthCounts {
@@ -137,7 +115,6 @@ function decimal(value: unknown): string {
 }
 export async function getHealth(client: ApiClient, signal: AbortSignal): Promise<HealthReport> {
   const row = record(await client.request('/api/health', { signal }))
-  const pipeline = record(row.request_log)
   return {
     observedAt: integer(row.observed_at_ms),
     statsWindow: integer(row.stats_window_seconds, 1),
@@ -205,14 +182,5 @@ export async function getHealth(client: ApiClient, signal: AbortSignal): Promise
         }),
       }
     }),
-    pipeline: {
-      ...(Object.fromEntries(
-        pipelineCounters.map((key) => [key, integer(pipeline[key])]),
-      ) as Record<PipelineCounter, number>),
-      checkpointDegraded: boolean(pipeline.access_quota_checkpoint_degraded),
-      lastWriteFailure: timestamp(pipeline.last_write_failure_at_ms),
-      lastCheckpointFailure: timestamp(pipeline.last_access_quota_checkpoint_write_failure_at_ms),
-      lastRetentionFailure: timestamp(pipeline.last_retention_failure_at_ms),
-    },
   }
 }

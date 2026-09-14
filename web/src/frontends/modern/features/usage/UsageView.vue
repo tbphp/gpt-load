@@ -644,7 +644,6 @@ const bucketLabel = computed(() => {
   min-height: 0;
   min-width: 0;
   flex-direction: column;
-  overflow: hidden;
 }
 .modern-usage-filters {
   display: flex;

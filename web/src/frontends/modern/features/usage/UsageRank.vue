@@ -117,6 +117,7 @@ const details = (row: UsageItem) =>
               v-if="!row.other"
               :icon="ScrollText"
               :label="t('usage.viewLogs')"
+              :tooltip="true"
               size="xs"
               :disabled="disabled || (dimension === 'model' && !row.model)"
               @click="emit('logs', row)"

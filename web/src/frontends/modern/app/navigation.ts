@@ -55,19 +55,19 @@ export const navigationItems = [
     adminOnly: true,
   },
   {
-    id: 'usage',
-    name: 'modern-usage',
-    path: pagePath('monitor-usage'),
-    section: 'observe',
-    icon: ChartNoAxesCombined,
-    adminOnly: false,
-  },
-  {
     id: 'logs',
     name: 'modern-logs',
     path: pagePath('monitor-logs'),
     section: 'observe',
     icon: ScrollText,
+    adminOnly: false,
+  },
+  {
+    id: 'usage',
+    name: 'modern-usage',
+    path: pagePath('monitor-usage'),
+    section: 'observe',
+    icon: ChartNoAxesCombined,
     adminOnly: false,
   },
   {

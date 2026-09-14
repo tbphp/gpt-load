@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   UserRound,
 } from '@lucide/vue'
-import type { HealthReport, PipelineCounter } from '@modern/api/health'
+import type { HealthReport } from '@modern/api/health'
 import type { GroupRow } from '@modern/api/groups'
 import { credentialDetailKey, getCredentialDetail } from '@modern/api/credential-actions'
 import { useApiClient } from '@shared/http/client-context'
@@ -39,7 +39,6 @@ import {
 
 const props = defineProps<{
   issue?: HealthIssue
-  pipeline: boolean
   report: HealthReport
   groups: ReadonlyMap<number, GroupRow>
 }>()
@@ -79,29 +78,6 @@ const recent = computed(() => {
       ]
     : []
 })
-const pipelineSections: { title: string; keys: PipelineCounter[] }[] = [
-  {
-    title: 'pipelineHistory',
-    keys: [
-      'enqueued_total',
-      'persisted_total',
-      'dropped_total',
-      'write_failure_total',
-      'access_quota_checkpoint_write_failure_total',
-      'retention_delete_failure_total',
-    ],
-  },
-  {
-    title: 'pipelineDrops',
-    keys: [
-      'dropped_not_running_total',
-      'dropped_queue_full_total',
-      'dropped_stopping_total',
-      'dropped_persist_failed_total',
-      'dropped_shutdown_total',
-    ],
-  },
-]
 function period(seconds: number): string {
   const unit =
     seconds % 86400 === 0
@@ -122,76 +98,16 @@ function period(seconds: number): string {
     <AppDialogContent
       placement="editor"
       size="sheet"
-      :title="t(pipeline ? 'health.pipelineDetail' : 'health.details')"
-      :description="t(pipeline ? 'health.pipelineDescription' : 'health.detailDescription')"
+      :title="t('health.details')"
+      :description="t('health.detailDescription')"
     >
       <AppDialogHeader
-        :title="t(pipeline ? 'health.pipelineDetail' : 'health.details')"
+        :title="t('health.details')"
         :close-label="t('ui.close')"
         @close="$emit('close')"
       />
       <div class="modern-health-detail-body">
-        <template v-if="pipeline">
-          <AppFormSection :title="t('health.pipelineCurrent')">
-            <dl class="modern-health-facts">
-              <div>
-                <dt>{{ t('health.queue') }}</dt>
-                <dd>
-                  {{ count(report.pipeline.queue_depth) }} /
-                  {{ count(report.pipeline.queue_capacity) }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t('health.checkpoint') }}</dt>
-                <dd>
-                  <AppBadge
-                    :tone="report.pipeline.checkpointDegraded ? 'danger' : 'neutral'"
-                    size="xs"
-                    dot
-                    >{{
-                      t(
-                        report.pipeline.checkpointDegraded
-                          ? 'health.degraded'
-                          : 'health.healthyCheckpoint',
-                      )
-                    }}</AppBadge
-                  >
-                </dd>
-              </div>
-            </dl>
-          </AppFormSection>
-          <AppFormSection
-            v-for="section in pipelineSections"
-            :key="section.title"
-            :title="t('health.' + section.title)"
-            :description="
-              section.title === 'pipelineHistory' ? t('health.processCounters') : undefined
-            "
-          >
-            <dl class="modern-health-facts">
-              <div v-for="key in section.keys" :key="key">
-                <dt>{{ t('health.counters.' + key) }}</dt>
-                <dd>{{ count(report.pipeline[key]) }}</dd>
-              </div>
-            </dl>
-          </AppFormSection>
-          <AppFormSection :title="t('health.pipelineTimes')">
-            <dl class="modern-health-facts">
-              <div
-                v-for="item in [
-                  { label: 'lastWrite', time: report.pipeline.lastWriteFailure },
-                  { label: 'lastCheckpoint', time: report.pipeline.lastCheckpointFailure },
-                  { label: 'lastRetention', time: report.pipeline.lastRetentionFailure },
-                ]"
-                :key="item.label"
-              >
-                <dt>{{ t('health.' + item.label) }}</dt>
-                <dd>{{ healthTime(item.time, locale, true) }}</dd>
-              </div>
-            </dl>
-          </AppFormSection>
-        </template>
-        <template v-else-if="issue">
+        <template v-if="issue">
           <section class="modern-health-detail-summary" :data-tone="issue.severity">
             <div class="modern-health-detail-identity">
               <span class="modern-health-object-icon"
@@ -330,7 +246,7 @@ function period(seconds: number): string {
         </p>
       </div>
       <footer class="modern-health-detail-footer">
-        <template v-if="issue && !pipeline">
+        <template v-if="issue">
           <AppButton as-child
             ><RouterLink :to="healthLogsLocation(issue)"
               ><AppIcon :icon="ScrollText" size="sm" />{{ t('health.logs') }}</RouterLink

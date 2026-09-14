@@ -163,12 +163,3 @@ export function healthLogsLocation(issue: HealthIssue): RouteLocationRaw {
     },
   }
 }
-export function pipelineHasHistory(report: HealthReport): boolean {
-  const p = report.pipeline
-  return Boolean(
-    p.dropped_total ||
-    p.write_failure_total ||
-    p.access_quota_checkpoint_write_failure_total ||
-    p.retention_delete_failure_total,
-  )
-}
