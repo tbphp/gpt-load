@@ -18,7 +18,7 @@ import (
 func prepareConvertedFidelity(spec execution.AttemptSpec, providerKind channel.ProviderKind) (execution.AttemptSpec, *execution.ErrorEvidence) {
 	if spec.RouteMode != execution.RouteConverted ||
 		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate &&
-			spec.Operation != execution.OperationCountTokens) {
+			!countTokensOperation(spec.Operation)) {
 		return spec, nil
 	}
 	var toolFailure *execution.ErrorEvidence
@@ -41,7 +41,7 @@ func prepareConvertedFidelity(spec execution.AttemptSpec, providerKind channel.P
 		}
 		return spec, nil
 	}
-	if spec.Operation == execution.OperationCountTokens ||
+	if countTokensOperation(spec.Operation) ||
 		dialect.CountMidConversationSystemMessages(spec.ClientProtocol, spec.Body) == 0 {
 		return spec, nil
 	}
@@ -62,7 +62,8 @@ func prepareConvertedToolConstraints(
 	providerKind channel.ProviderKind,
 ) (execution.AttemptSpec, *execution.ErrorEvidence) {
 	if spec.RouteMode != execution.RouteConverted ||
-		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate) {
+		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate &&
+			!countTokensOperation(spec.Operation)) {
 		return spec, nil
 	}
 	switch providerKind {

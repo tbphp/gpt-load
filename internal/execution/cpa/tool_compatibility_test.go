@@ -321,3 +321,45 @@ func TestSubscriptionGeminiAllowlistUsesClaudeSDKAliasPriority(t *testing.T) {
 		})
 	}
 }
+
+func TestSubscriptionTokenCountUsesGenerationToolConstraints(t *testing.T) {
+	t.Parallel()
+	const geminiBody = `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"tools":[{"functionDeclarations":[{"name":"lookup"},{"name":"summarize"},{"name":"remove_record"}]}],"toolConfig":{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["lookup","summarize"]}}}`
+	const responsesBody = `{"input":"hello","tools":[{"type":"function","name":"lookup"},{"type":"function","name":"summarize"},{"type":"function","name":"remove_record"}],"tool_choice":{"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"lookup"},{"type":"function","name":"summarize"}]}}`
+	for _, test := range []struct {
+		name                string
+		providerKind        channel.ProviderKind
+		clientProtocol      protocol.Protocol
+		generationOperation execution.Operation
+		countOperation      execution.Operation
+		upstreamModel       string
+		body                string
+		toolsPath           string
+	}{
+		{"Gemini to Claude", channel.ProviderClaude, protocol.Gemini, execution.OperationChatCompletion, execution.OperationCountTokens, "claude-sonnet-4-6", geminiBody, "tools.0.functionDeclarations"},
+		{"Gemini to Codex", channel.ProviderCodex, protocol.Gemini, execution.OperationChatCompletion, execution.OperationCountTokens, "gpt-5.2", geminiBody, "tools.0.functionDeclarations"},
+		{"Gemini to Grok", channel.ProviderGrok, protocol.Gemini, execution.OperationChatCompletion, execution.OperationCountTokens, "grok-4.3", geminiBody, "tools.0.functionDeclarations"},
+		{"Responses to Claude", channel.ProviderClaude, protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.OperationResponsesInputTokens, "claude-sonnet-4-6", responsesBody, "tools"},
+		{"Responses to Antigravity", channel.ProviderAntigravity, protocol.OpenAIResponses, execution.OperationResponsesCreate, execution.OperationResponsesInputTokens, "gemini-2.5-pro", responsesBody, "tools"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			generation := execution.AttemptSpec{
+				ClientProtocol: test.clientProtocol, RouteMode: execution.RouteConverted,
+				Operation: test.generationOperation, UpstreamModel: test.upstreamModel, Body: []byte(test.body),
+			}
+			want, evidence := prepareConvertedFidelity(generation, test.providerKind)
+			if evidence != nil {
+				t.Fatalf("generation constraints rejected: %+v", evidence)
+			}
+			count := generation
+			count.Operation = test.countOperation
+			got, evidence := prepareConvertedFidelity(count, test.providerKind)
+			if evidence != nil {
+				t.Fatalf("token-count constraints rejected: %+v", evidence)
+			}
+			if !bytes.Equal(got.Body, want.Body) || gjson.GetBytes(got.Body, test.toolsPath+".#").Int() != 2 {
+				t.Fatalf("token-count constraints differ from generation: got=%s want=%s", got.Body, want.Body)
+			}
+		})
+	}
+}
