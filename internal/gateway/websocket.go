@@ -318,16 +318,17 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 		if err != nil {
 			return
 		}
-		if kind != websocket.TextMessage {
-			s.closeWith(websocket.CloseUnsupportedData, "Text JSON is required.")
-			return
-		}
 		if !s.registerTurn() {
 			// 服务端冻结后由当前请求完成收尾；真实读错误仍及时取消。
 			cancelOnExit = false
 			return
 		}
 		// 已登记消息在错误退出时先关闭或取消，再注销，避免其他请求抢先通知重连。
+		if kind != websocket.TextMessage {
+			s.closeWith(websocket.CloseUnsupportedData, "Text JSON is required.")
+			s.finishTurn()
+			return
+		}
 		var body []byte
 		for {
 			n, readErr := reader.Read(scratch)

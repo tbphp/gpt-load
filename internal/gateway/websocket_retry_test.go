@@ -45,7 +45,7 @@ func TestWebsocketUnavailableBindingPreventsDispatch(t *testing.T) {
 }
 
 func TestWebsocketFrozenReaderPreservesFinalization(t *testing.T) {
-	for _, mode := range []string{"binding stopped", "reconnect reserved", "client disconnected"} {
+	for _, mode := range []string{"binding stopped", "reconnect reserved", "client disconnected", "binding stopped binary", "reconnect reserved binary"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -75,9 +75,9 @@ func TestWebsocketFrozenReaderPreservesFinalization(t *testing.T) {
 			defer conn.Close()
 			s := <-ready
 			switch mode {
-			case "binding stopped":
+			case "binding stopped", "binding stopped binary":
 				s.markBindingUnavailable(s.binding)
-			case "reconnect reserved":
+			case "reconnect reserved", "reconnect reserved binary":
 				if !s.reserveReconnect() {
 					t.Fatal("could not reserve reconnect")
 				}
@@ -85,7 +85,11 @@ func TestWebsocketFrozenReaderPreservesFinalization(t *testing.T) {
 				conn.Close()
 			}
 			if mode != "client disconnected" {
-				if err := conn.WriteMessage(websocket.TextMessage, []byte(`{}`)); err != nil {
+				kind := websocket.TextMessage
+				if strings.HasSuffix(mode, " binary") {
+					kind = websocket.BinaryMessage
+				}
+				if err := conn.WriteMessage(kind, []byte(`{}`)); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -117,7 +121,9 @@ func TestWebsocketReadFailuresStayRegisteredUntilCanceled(t *testing.T) {
 		name      string
 		body      []byte
 		closeCode int
+		binary    bool
 	}{
+		{name: "binary message", body: []byte(`{}`), closeCode: websocket.CloseUnsupportedData, binary: true},
 		{name: "invalid JSON", body: []byte(`{`), closeCode: websocket.CloseInvalidFramePayloadData},
 		{name: "invalid stream ID", body: []byte(`{"stream_id":"invalid/id"}`), closeCode: websocket.ClosePolicyViolation},
 		{name: "input limit", body: bytes.Repeat([]byte(" "), (32<<10)+1), closeCode: websocket.CloseTryAgainLater},
@@ -160,8 +166,14 @@ func TestWebsocketReadFailuresStayRegisteredUntilCanceled(t *testing.T) {
 					t.Fatal(err)
 				}
 				conn.Close()
-			} else if err := conn.WriteMessage(websocket.TextMessage, test.body); err != nil {
-				t.Fatal(err)
+			} else {
+				kind := websocket.TextMessage
+				if test.binary {
+					kind = websocket.BinaryMessage
+				}
+				if err := conn.WriteMessage(kind, test.body); err != nil {
+					t.Fatal(err)
+				}
 			}
 			select {
 			case <-stopping:
