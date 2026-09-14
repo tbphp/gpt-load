@@ -20,6 +20,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/state"
+	"gpt-load/internal/telemetry"
 )
 
 type websocketTestLogBuffer struct {
@@ -441,6 +442,99 @@ func TestWebsocketBoundErrorKeepsConnectionWhenAnotherTurnIsRegistered(t *testin
 	}
 	if strings.Contains(processLogs.String(), `"event":"ws_reconnect_requested"`) {
 		t.Fatalf("reconnect requested with another registered turn: %s", processLogs.String())
+	}
+}
+
+type websocketStreamLimitLogSink struct {
+	recordingRequestLogSink
+	blocked chan struct{}
+	release chan struct{}
+}
+
+func (sink *websocketStreamLimitLogSink) Emit(event telemetry.RequestEvent) {
+	if event.ErrorCode == "websocket_stream_limit_reached" {
+		close(sink.blocked)
+		<-sink.release
+	}
+	sink.recordingRequestLogSink.Emit(event)
+}
+
+func TestWebsocketStreamLimitRejectionStaysRegisteredUntilFinalized(t *testing.T) {
+	h, engine, _ := websocketTestHandler(t, "http://127.0.0.1:1", channel.OpenAI)
+	h.websocketLimits.lanes = 1
+	sink := &websocketStreamLimitLogSink{blocked: make(chan struct{}), release: make(chan struct{})}
+	h.requestLogSink = sink
+	releaseLog := sync.OnceFunc(func() { close(sink.release) })
+	secondStarted, releaseError := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	h.forwarder = websocketScriptForwarder{AttemptForwarder: h.forwarder, open: func(context.Context, ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
+		session := &websocketScriptSession{done: make(chan struct{})}
+		session.turn = func(ctx context.Context, _ []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
+			result := execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent}
+			if calls.Add(1) == 1 {
+				if err := emit(ctx, websocketCompleted("resp_prior", "active")); err != nil {
+					result.Error = &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled}
+				}
+				return result
+			}
+			close(secondStarted)
+			select {
+			case <-releaseError:
+			case <-ctx.Done():
+				result.Error = &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled}
+				return result
+			}
+			payload := []byte(`{"type":"error","stream_id":"active","status":429,"error":{"type":"usage_limit_reached","message":"quota exhausted"}}`)
+			if err := emit(ctx, payload); err != nil {
+				result.Error = &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled}
+			} else {
+				result.Error = &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, StatusCode: http.StatusTooManyRequests,
+					Code: "upstream_error", OriginHint: execution.ErrorOriginUpstream}
+			}
+			return result
+		}
+		return session, execution.WebsocketResult{DispatchState: execution.DispatchNotSent}
+	}}
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	defer releaseLog()
+	conn := dialGatewayWebsocket(t, server.URL)
+	defer conn.Close()
+	send := func(lane string) {
+		t.Helper()
+		if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "stream_id": lane, "input": "hello", "store": false}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send("active")
+	if _, body, err := conn.ReadMessage(); err != nil || !strings.Contains(string(body), "resp_prior") {
+		t.Fatalf("first turn body=%s err=%v", body, err)
+	}
+	waitWebsocketLogs(t, &sink.recordingRequestLogSink, 1)
+	send("active")
+	select {
+	case <-secondStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second turn did not start")
+	}
+	send("rejected")
+	select {
+	case <-sink.blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream-limit rejection did not reach finalization")
+	}
+	// 将超限请求停在日志提交处，再让活动请求遇到可重试错误。
+	close(releaseError)
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, body, err := conn.ReadMessage(); err != nil || !strings.Contains(string(body), "quota exhausted") {
+		t.Fatalf("active error body=%s err=%v; must not reconnect during another turn's finalization", body, err)
+	}
+	releaseLog()
+	if _, body, err := conn.ReadMessage(); err != nil || !strings.Contains(string(body), "websocket_stream_limit_reached") || !strings.Contains(string(body), `"stream_id":"rejected"`) {
+		t.Fatalf("stream-limit response body=%s err=%v", body, err)
+	}
+	if logs := waitWebsocketLogs(t, &sink.recordingRequestLogSink, 3); len(logs) != 3 || calls.Load() != 2 {
+		t.Fatalf("logs=%d upstream calls=%d, want 3 logs and 2 calls", len(logs), calls.Load())
 	}
 }
 

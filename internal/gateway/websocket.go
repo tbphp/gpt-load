@@ -504,7 +504,6 @@ func (s *websocketConnection) run() {
 				}
 				if turn.lane != "" && named >= limits.lanes {
 					s.reserveInput(-len(turn.body))
-					s.finishTurn()
 					turn.body = nil
 					// 新流尚无活动轮，拒绝可直接归属，不占用新的历史流名。
 					value := reason{400, "websocket_stream_limit_reached", "WebSocket stream limit reached. Reuse an existing stream_id or open a new connection."}
@@ -518,6 +517,8 @@ func (s *websocketConnection) run() {
 					recorder.completeReason(value)
 					recorder.emit()
 					s.emitReason(turn.lane, value)
+					// 错误交付完成前仍属未完成请求，阻止其他轮次提前关闭连接。
+					s.finishTurn()
 					if !authorized {
 						s.cancel()
 					}
