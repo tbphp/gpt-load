@@ -6,7 +6,6 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   ArrowUpRight,
   Eye,
-  Info,
   KeyRound,
   Layers2,
   ScrollText,
@@ -78,13 +77,6 @@ const issues = computed(() =>
     : [],
 )
 const unavailable = computed(() => issues.value.filter((row) => row.kind === 'group').length)
-const truncated = computed(() =>
-  Boolean(
-    report.value &&
-    (report.value.counts.cooldown > report.value.cooldown.length ||
-      report.value.counts.blacklisted > report.value.isolated.length),
-  ),
-)
 const groupOptions = computed(() => {
   const options = (report.value?.groups ?? []).map((row) => ({
     value: String(row.id),
@@ -278,12 +270,7 @@ useMessageSource(() =>
         "
       />
       <div class="modern-health-summary">
-        <AppIcon
-          v-if="truncated"
-          :icon="Info"
-          :label="t('health.limited')"
-          size="sm"
-        /><AppFilterSummary :items="summary" @remove="reset" @reset="reset()" />
+        <AppFilterSummary :items="summary" @remove="reset" @reset="reset()" />
       </div>
     </div>
     <AppListFrame

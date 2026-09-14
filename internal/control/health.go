@@ -130,10 +130,6 @@ const (
 	// healthLowQuotaRemainingRatio 是「额度快用完」的唯一阈值来源。
 	// 与管理 UI 账号卡的 danger 档保持一致，避免同一句结论在两处算出不同答案。
 	healthLowQuotaRemainingRatio = 0.3
-
-	// healthProblemCredentialDetailLimit 限制健康页「需要关注的凭据」中的
-	// 冷却和拉黑上游凭据明细，避免异常批量出现时放大接口响应和页面渲染。
-	healthProblemCredentialDetailLimit = 100
 )
 
 type healthBucket string
@@ -334,10 +330,6 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			}
 		}
 		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
-			continue
-		}
-		if (bucket == healthBucketCooldown && len(result.CooldownCredentials) >= healthProblemCredentialDetailLimit) ||
-			(bucket == healthBucketBlacklisted && len(result.BlacklistedCredentials) >= healthProblemCredentialDetailLimit) {
 			continue
 		}
 		groupView := observation.snapshot.Groups[key.GroupID]
