@@ -14,6 +14,9 @@ importers:
 
   .:
     dependencies:
+      '@internationalized/date':
+        specifier: 3.12.3
+        version: 3.12.3
       '@lucide/vue':
         specifier: 1.39.0
         version: 1.39.0(vue@3.5.42(typescript@6.0.3))
