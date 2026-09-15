@@ -4,9 +4,90 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestWebsocketQuotaComparisonUsesSharedClock(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		topReset     string
+		otherReset   string
+		accountCount int
+	}{
+		{"absolute copy", `"reset_at":1800000000`, `"reset_at":1800000001`, 0},
+		{"absolute distinct", `"reset_at":1800000000`, `"reset_at":1800000003`, 1},
+		{"relative copy", `"reset_after_seconds":100`, `"reset_after_seconds":101`, 0},
+		{"relative distinct", `"reset_after_seconds":100`, `"reset_after_seconds":103`, 1},
+		{"mixed clocks", `"reset_at":1800000000`, `"reset_after_seconds":100`, 0},
+		{"shared relative clock", `"reset_at":1800000000,"reset_after_seconds":100`, `"reset_after_seconds":100`, 0},
+		{"shared absolute clock", `"reset_at":1800000000,"reset_after_seconds":100`, `"reset_at":1800000000`, 0},
+		{"conflicting duplicate evidence", `"reset_at":1800000000,"reset_after_seconds":100`, `"reset_at":1800000003,"reset_after_seconds":100`, 0},
+		{"missing clock", `"reset_at":1800000000`, `"reset_at":null`, 0},
+		{"invalid absolute with relative copy", `"reset_at":"bad","reset_after_seconds":100`, `"reset_after_seconds":100`, 0},
+	} {
+		for _, swap := range []bool{false, true} {
+			for _, delay := range []int64{0, 5} {
+				t.Run(fmt.Sprintf("%s/swap=%t/delay=%d", test.name, swap, delay), func(t *testing.T) {
+					top, other := test.topReset, test.otherReset
+					if swap {
+						top, other = other, top
+					}
+					payload := []byte(fmt.Sprintf(`{
+						"type":"codex.rate_limits",
+						"rate_limits":{"primary":{"used_percent":5,"window_minutes":10080,%s}},
+						"additional_rate_limits":{"Spark":{"secondary":{"used_percent":20,"window_minutes":10080,%s}}}
+					}`, top, other))
+					windows := NormalizeWebsocketQuotaWindows(payload, time.Unix(1799999900+delay, 0))
+					account, named := 0, 0
+					for _, window := range windows {
+						if window.SourceID == "codex" {
+							account++
+						} else if window.SourceName == "Spark" && window.Used != nil && *window.Used == 20 {
+							named++
+						}
+					}
+					if account != test.accountCount || named != 1 {
+						t.Fatalf("account=%d named=%d, want account=%d named=1", account, named, test.accountCount)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestWebsocketQuotaNonQuotaEventsHaveBoundedAllocations(t *testing.T) {
+	text := strings.Repeat("x", 1<<20)
+	for _, payload := range [][]byte{
+		[]byte(`{"type":"response.output_text.delta","delta":"` + text + `"}`),
+		[]byte(`{"delta":"` + text + `","type":"response.output_text.delta"}`),
+	} {
+		allocs := testing.AllocsPerRun(5, func() {
+			if len(NormalizeWebsocketQuotaWindows(payload, time.Time{})) != 0 {
+				t.Fatal("non-quota event produced quota")
+			}
+		})
+		if allocs > 4 {
+			t.Fatalf("non-quota event allocated %.0f objects, want a lightweight type check (at most 4)", allocs)
+		}
+	}
+}
+
+func BenchmarkWebsocketQuotaNonQuotaEvent(b *testing.B) {
+	text := strings.Repeat("x", 1<<20)
+	for name, payload := range map[string][]byte{
+		"type_first": []byte(`{"type":"response.output_text.delta","delta":"` + text + `"}`),
+		"type_last":  []byte(`{"delta":"` + text + `","type":"response.output_text.delta"}`),
+	} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				NormalizeWebsocketQuotaWindows(payload, time.Time{})
+			}
+		})
+	}
+}
 
 func TestWebsocketQuotaDropsSameEventCopyWithinResetPrecision(t *testing.T) {
 	payload, err := os.ReadFile("testdata/quota-ws-spark.json")

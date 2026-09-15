@@ -3,6 +3,7 @@ package subscription
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -12,6 +13,51 @@ import (
 	"gpt-load/internal/subscription/providers/codex"
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
+
+func TestMergeDelayedWebsocketQuotaDoesNotOverwriteAccountWithSpark(t *testing.T) {
+	raw, err := codex.NormalizeQuota([]byte(`{
+		"rate_limit":{"primary_window":{"used_percent":93,"limit_window_seconds":604800,"reset_at":1800010000}},
+		"additional_rate_limits":[{"limit_name":"Spark","metered_feature":"codex_bengalfox",
+			"rate_limit":{"secondary_window":{"used_percent":7,"limit_window_seconds":604800,"reset_at":1800000000}}}]
+	}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, swap := range []bool{false, true} {
+		t.Run(fmt.Sprintf("swap=%t", swap), func(t *testing.T) {
+			top, named := `"reset_at":1800000000`, `"reset_after_seconds":100`
+			if swap {
+				top, named = named, top
+			}
+			payload := []byte(fmt.Sprintf(`{
+				"type":"codex.rate_limits",
+				"rate_limits":{"primary":{"used_percent":5,"window_minutes":10080,%s}},
+				"additional_rate_limits":{"Spark":{"secondary":{"used_percent":5,"window_minutes":10080,%s}}}
+			}`, top, named))
+			patches := codex.NormalizeWebsocketQuotaWindows(payload, time.Unix(1799999905, 0))
+			merged, err := mergePassiveQuotaSnapshot(raw, patches)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(merged.Windows) != 2 || !merged.Changed {
+				t.Fatalf("valid Spark update was lost: %s", merged.Encoded)
+			}
+			for _, window := range merged.Windows {
+				wantUsed, wantRemaining, wantReset := 5.0, 95.0, int64(1800000005000)
+				if swap {
+					wantReset = 1800000000000
+				}
+				if window.SourceID == "codex" {
+					wantUsed, wantRemaining, wantReset = 93, 7, 1800010000000
+				}
+				if window.Used == nil || *window.Used != wantUsed || window.Remaining == nil ||
+					*window.Remaining != wantRemaining || window.ResetAtMS == nil || *window.ResetAtMS != wantReset {
+					t.Fatalf("source=%s quota=%s", window.SourceID, merged.Encoded)
+				}
+			}
+		})
+	}
+}
 
 func TestFlushWebsocketQuotaCapturedEventsKeepAccountAndSparkSeparate(t *testing.T) {
 	for _, sample := range []string{"quota-ws-account.json", "quota-ws-spark.json"} {

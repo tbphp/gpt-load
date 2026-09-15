@@ -8,17 +8,30 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/buger/jsonparser"
 )
+
+// 原始绝对时间与同一事件中的倒计时分别比较，不能混入本地接收时间。
+type websocketQuotaWindowAnchor struct {
+	windowSeconds     int64
+	resetAtSeconds    int64
+	resetAfterSeconds int64
+}
 
 type websocketQuotaRateObservation struct {
 	windows              []quotaWindow
-	comparisonWindows    []quotaWindow
+	comparisonWindows    map[string]websocketQuotaWindowAnchor
 	comparisonIncomplete bool
 }
 
 // NormalizeWebsocketQuotaWindows 读取 Codex 原生额度事件，不改动发给客户端的消息。
 // WS 的具名附加额度由已有快照解析来源，不能按 HTTP 响应头命名空间推导 SourceID。
 func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quotaWindow {
+	kind, err := jsonparser.GetString(payload, "type")
+	if err != nil || kind != "codex.rate_limits" {
+		return nil
+	}
 	event, ok := decodeWebsocketQuotaEvent(payload)
 	if !ok || cleanString(event["type"]) != "codex.rate_limits" {
 		return nil
@@ -33,7 +46,7 @@ func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quot
 		return nil
 	}
 	additional := make([]quotaWindow, 0, 2*len(additionalRates))
-	comparisonWindows := make([]quotaWindow, 0, 2*len(additionalRates))
+	comparisonWindows := make([]websocketQuotaWindowAnchor, 0, 2*len(additionalRates))
 	comparisonIncomplete := !additionalValid
 	names := make([]string, 0, len(additionalRates))
 	for name := range additionalRates {
@@ -42,7 +55,9 @@ func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quot
 	sort.Strings(names)
 	for _, rawName := range names {
 		observation := normalizeWebsocketQuotaRate(additionalRates[rawName], observedAt)
-		comparisonWindows = append(comparisonWindows, observation.comparisonWindows...)
+		for _, anchor := range observation.comparisonWindows {
+			comparisonWindows = append(comparisonWindows, anchor)
+		}
 		comparisonIncomplete = comparisonIncomplete || observation.comparisonIncomplete
 		name := strings.TrimSpace(rawName)
 		if name == "" {
@@ -66,7 +81,7 @@ func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quot
 	result := make([]quotaWindow, 0, len(primary.windows)+len(additional))
 	for _, window := range primary.windows {
 		if sourceID == "" {
-			if !websocketQuotaTopLevelIsAccount(window, comparisonWindows, comparisonIncomplete) {
+			if !websocketQuotaTopLevelIsAccount(primary.comparisonWindows[window.ID], comparisonWindows, comparisonIncomplete) {
 				continue
 			}
 			window.SourceID = codexAccountQuotaSourceID
@@ -94,31 +109,36 @@ func decodeWebsocketQuotaEvent(payload []byte) (map[string]any, bool) {
 }
 
 // websocketQuotaTopLevelIsAccount 用同一事件内的附加窗口排除顶层副本。
-// 槽位和用量不代表身份；同周期的 reset_at 才能区分当前额度窗口。
-func websocketQuotaTopLevelIsAccount(window quotaWindow, additional []quotaWindow, comparisonIncomplete bool) bool {
-	for _, candidate := range additional {
-		if window.WindowSeconds == nil || candidate.WindowSeconds == nil ||
-			*window.WindowSeconds != *candidate.WindowSeconds {
-			continue
-		}
-		// 同周期附加窗口存在但缺少锚点时无法完成比较，保守跳过顶层窗口。
-		if window.ResetAtMS == nil || candidate.ResetAtMS == nil {
-			return false
-		}
-		if sameWebsocketQuotaReset(window, candidate) {
-			return false
-		}
-	}
+// 槽位和用量不代表身份；同周期窗口需要在共同时间基准下排除副本。
+func websocketQuotaTopLevelIsAccount(window websocketQuotaWindowAnchor, additional []websocketQuotaWindowAnchor, comparisonIncomplete bool) bool {
 	// 存在无法读取周期的附加窗口时，不能证明顶层窗口不属于该来源。
-	return !comparisonIncomplete
-}
-
-func sameWebsocketQuotaReset(left, right quotaWindow) bool {
-	if left.ResetAtMS == nil || right.ResetAtMS == nil || *left.ResetAtMS <= 0 || *right.ResetAtMS <= 0 {
+	if comparisonIncomplete {
 		return false
 	}
-	delta := *left.ResetAtMS - *right.ResetAtMS
-	return delta >= -1000 && delta <= 1000
+	for _, candidate := range additional {
+		if window.windowSeconds != candidate.windowSeconds {
+			continue
+		}
+		compared := false
+		for _, pair := range [][2]int64{
+			{window.resetAtSeconds, candidate.resetAtSeconds},
+			{window.resetAfterSeconds, candidate.resetAfterSeconds},
+		} {
+			if pair[0] == 0 || pair[1] == 0 {
+				continue
+			}
+			compared = true
+			delta := pair[0] - pair[1]
+			// 任一共同基准指向副本就跳过；两种基准的判断冲突也不会写入账号。
+			if delta >= -1 && delta <= 1 {
+				return false
+			}
+		}
+		if !compared {
+			return false
+		}
+	}
+	return true
 }
 
 // normalizeWebsocketQuotaRate 分开保留来源比较所需的窗口锚点和可写入的额度值。
@@ -135,6 +155,7 @@ func normalizeWebsocketQuotaRate(raw any, observedAt time.Time) websocketQuotaRa
 	}
 	allowed, hasAllowed := rate["allowed"].(bool)
 	limitReached, hasLimitReached := rate["limit_reached"].(bool)
+	result.comparisonWindows = make(map[string]websocketQuotaWindowAnchor, 2)
 	for _, slot := range []string{"primary", "secondary"} {
 		rawWindow, exists := rate[slot]
 		if !exists || rawWindow == nil {
@@ -151,11 +172,15 @@ func normalizeWebsocketQuotaRate(raw any, observedAt time.Time) websocketQuotaRa
 			continue
 		}
 		seconds := minutes * 60
-		resetAtMS := websocketQuotaResetAtMS(window, observedAt)
-		result.comparisonWindows = append(result.comparisonWindows, quotaWindow{
-			WindowSeconds: &seconds,
-			ResetAtMS:     resetAtMS,
-		})
+		anchor := websocketQuotaWindowAnchor{windowSeconds: seconds}
+		if absolute, ok := integer(window["reset_at"]); ok && absolute > 0 && absolute <= passiveQuotaMaxResetAtSeconds {
+			anchor.resetAtSeconds = absolute
+		}
+		if relative, ok := integer(window["reset_after_seconds"]); ok && relative > 0 && relative <= passiveQuotaMaxResetAtSeconds {
+			anchor.resetAfterSeconds = relative
+		}
+		result.comparisonWindows[slot] = anchor
+		resetAtMS := websocketQuotaResetAtMS(anchor, observedAt)
 
 		used, ok := number(window["used_percent"])
 		if !ok || math.IsNaN(used) || math.IsInf(used, 0) || used < 0 || used > 100 {
@@ -180,14 +205,13 @@ func normalizeWebsocketQuotaRate(raw any, observedAt time.Time) websocketQuotaRa
 	return result
 }
 
-func websocketQuotaResetAtMS(window map[string]any, observedAt time.Time) *int64 {
-	if absolute, ok := integer(window["reset_at"]); ok &&
-		absolute > 0 && absolute <= passiveQuotaMaxResetAtSeconds {
-		value := absolute * 1000
+func websocketQuotaResetAtMS(anchor websocketQuotaWindowAnchor, observedAt time.Time) *int64 {
+	if anchor.resetAtSeconds > 0 {
+		value := anchor.resetAtSeconds * 1000
 		return &value
 	}
-	relative, ok := integer(window["reset_after_seconds"])
-	if !ok || relative <= 0 {
+	relative := anchor.resetAfterSeconds
+	if relative == 0 {
 		return nil
 	}
 	base := observedAt.Unix()
