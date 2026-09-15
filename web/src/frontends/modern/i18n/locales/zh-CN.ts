@@ -12,6 +12,7 @@ import { zhCN as ui } from './ui'
 import { zhCN as groupCreate } from './group-create'
 import { zhCN as modelSelection } from './model-selection'
 import { zhCN as modelManager } from './model-manager'
+import { zhCN as settingsForm } from './settings-form'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
@@ -27,6 +28,7 @@ export default {
   subscriptions,
   modelSelection,
   modelManager,
+  settingsForm,
   groupCreate,
   ui,
   ...groupMessages,

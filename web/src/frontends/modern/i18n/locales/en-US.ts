@@ -12,6 +12,7 @@ import { enUS as ui } from './ui'
 import { enUS as groupCreate } from './group-create'
 import { enUS as modelSelection } from './model-selection'
 import { enUS as modelManager } from './model-manager'
+import { enUS as settingsForm } from './settings-form'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
@@ -27,6 +28,7 @@ export default {
   subscriptions,
   modelSelection,
   modelManager,
+  settingsForm,
   groupCreate,
   ui,
   ...groupMessages,

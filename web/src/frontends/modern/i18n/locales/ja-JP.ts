@@ -12,6 +12,7 @@ import { jaJP as ui } from './ui'
 import { jaJP as groupCreate } from './group-create'
 import { jaJP as modelSelection } from './model-selection'
 import { jaJP as modelManager } from './model-manager'
+import { jaJP as settingsForm } from './settings-form'
 import { jaJP as subscriptions } from './subscriptions'
 
 export default {
@@ -27,6 +28,7 @@ export default {
   subscriptions,
   modelSelection,
   modelManager,
+  settingsForm,
   groupCreate,
   ui,
   ...groupMessages,
