@@ -31,7 +31,9 @@ export function createModernRouter(
                       ? () => import('./features/usage/UsageView.vue')
                       : item.id === 'health'
                         ? () => import('./features/health/HealthView.vue')
-                        : () => import('./features/workspace/WorkspaceView.vue'),
+                        : item.id === 'models'
+                          ? () => import('./features/models/ModelsView.vue')
+                          : () => import('./features/workspace/WorkspaceView.vue'),
         props:
           item.id === 'home' ||
           item.id === 'settings' ||
@@ -39,7 +41,8 @@ export function createModernRouter(
           item.id === 'accessKeys' ||
           item.id === 'logs' ||
           item.id === 'usage' ||
-          item.id === 'health'
+          item.id === 'health' ||
+          item.id === 'models'
             ? undefined
             : { workspaceId: item.id },
         meta: { requiresAuth: true, adminOnly: item.adminOnly },
