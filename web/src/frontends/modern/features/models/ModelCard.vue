@@ -1,12 +1,25 @@
 <script setup lang="ts">
-import { ArrowRight } from '@lucide/vue'
+import { ChevronRight, PencilLine } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { RequestModel } from '@modern/api/models'
-import { AppButton, AppCopyValue, AppIcon, AppProtocolTag, AppTooltip } from '@modern/components/ui'
+import { RouterLink } from 'vue-router'
+import {
+  priceFields,
+  type ModelSource,
+  type PriceField,
+  type RequestModel,
+} from '@modern/api/models'
+import {
+  AppBadge,
+  AppChannelIcon,
+  AppCopyValue,
+  AppIcon,
+  AppIconButton,
+  AppOverflowText,
+  AppTooltip,
+} from '@modern/components/ui'
 import { protocolLabel } from '@modern/i18n/protocols'
-import { modelGroupCount } from './models-display'
-import ModelSourcePreview from './ModelSourcePreview.vue'
+import { modelGroupCount, modelUnitPrice, priceStatus } from './models-display'
 
 const props = defineProps<{
   model: RequestModel
@@ -15,56 +28,128 @@ const props = defineProps<{
   disabled?: boolean
 }>()
 const emit = defineEmits<{ open: [source?: number] }>()
-const { t, n } = useI18n()
-const groups = computed(() => modelGroupCount(props.model))
+const { t, n, locale } = useI18n()
+// 协议在同一批模型上重复度接近 100%，折成一行中性摘要，悬浮再看全量列表。
+const protocolsLabel = computed(() =>
+  props.model.protocols.map((value) => protocolLabel(value, t)).join('\n'),
+)
+const groupCount = computed(() => modelGroupCount(props.model))
+function price(source: ModelSource, field: PriceField): string {
+  return modelUnitPrice(source.price.prices[field], locale.value)
+}
+function visibleGroups(source: ModelSource) {
+  return source.groups.slice(0, 2)
+}
+function hiddenGroupsLabel(source: ModelSource): string {
+  return source.groups
+    .slice(2)
+    .map((group) => group.name || t('logs.deleted'))
+    .join('\n')
+}
 </script>
 
 <template>
   <article class="modern-model-card" :class="{ 'is-selected': selected }" :aria-label="model.name">
     <header class="modern-model-card-heading">
-      <h2><AppCopyValue :value="model.name" /></h2>
-      <div class="modern-model-card-protocols">
-        <AppProtocolTag
-          v-for="protocol in model.protocols.slice(0, 2)"
-          :key="protocol"
-          :protocol="protocol"
-        />
-        <AppTooltip
-          v-if="model.protocols.length > 2"
-          :label="
-            model.protocols
-              .slice(2)
-              .map((value) => protocolLabel(value, t))
-              .join('\n')
-          "
-        >
-          <span tabindex="0" class="modern-model-card-more">
-            +{{ n(model.protocols.length - 2) }}
-          </span>
-        </AppTooltip>
-      </div>
+      <span class="modern-model-card-name"><AppCopyValue :value="model.name" /></span>
+      <AppTooltip :label="protocolsLabel">
+        <span tabindex="0" class="modern-model-card-meta">{{
+          t('modelManager.protocolCount', { count: n(model.protocols.length) })
+        }}</span>
+      </AppTooltip>
+      <span class="modern-model-card-meta">{{
+        t('modelManager.sourceCount', { count: n(model.sources.length) })
+      }}</span>
+      <span v-if="admin" class="modern-model-card-meta">{{
+        t('modelManager.groupCount', { count: n(groupCount) })
+      }}</span>
     </header>
-    <div class="modern-model-card-sources">
-      <div v-if="model.sources.length > 1" class="modern-model-card-source-heading">
-        <AppButton variant="text" size="sm" :disabled="disabled" @click="emit('open', 0)">
-          {{
-            t(model.sources.length > 3 ? 'modelManager.allSources' : 'modelManager.sourceCount', {
-              count: n(model.sources.length),
-            })
-          }}
-          <AppIcon :icon="ArrowRight" size="xs" />
-        </AppButton>
-        <span v-if="admin">{{ t('modelManager.groupCount', { count: n(groups) }) }}</span>
+    <!-- 列宽在窄屏下有下限，超出卡片宽度时横向滚动而不是把标签挤到换行。 -->
+    <div class="modern-model-card-table">
+      <div class="modern-model-row modern-model-row--head" aria-hidden="true">
+        <span>{{ t('modelManager.sourceUnit') }}</span>
+        <span>{{ t('modelManager.groupUnit') }}</span>
+        <span class="r">{{ t('modelManager.slots.input') }}</span>
+        <span class="r">{{ t('modelManager.slots.output') }}</span>
+        <span class="r">{{ t('modelManager.columns.cacheRead') }}</span>
+        <span class="r">{{ t('modelManager.columns.cacheWrite') }}</span>
+        <span>{{ t('modelManager.columns.method') }}</span>
+        <span></span>
       </div>
-      <div class="modern-model-card-source-list">
-        <ModelSourcePreview
-          v-for="source in model.sources.slice(0, 3)"
-          :key="source.price.id"
-          :source="source"
-          :request-model="model.name"
-          :disabled="disabled"
-          @open="emit('open', source.price.id)"
-        />
+      <div class="modern-model-card-sources">
+        <div v-for="source in model.sources" :key="source.price.id" class="modern-model-row">
+          <span class="modern-model-source-name">
+            <AppChannelIcon
+              :icon="source.price.channel.icon"
+              :mark="source.price.channel.mark"
+              :name="source.price.channel.name"
+              :tooltip="false"
+              size="sm"
+            />
+            <AppOverflowText :text="source.price.channel.name || t('logs.deleted')" />
+            <AppBadge
+              v-if="source.price.context_tiers.length"
+              variant="plain"
+              size="xs"
+              class="modern-model-source-tiers"
+              >{{
+                t('modelManager.tierCount', { count: n(source.price.context_tiers.length) })
+              }}</AppBadge
+            >
+            <AppOverflowText
+              v-if="source.model !== model.name"
+              :text="source.model"
+              class="modern-model-source-upstream"
+            />
+          </span>
+          <span class="modern-model-source-groups">
+            <template v-for="group in visibleGroups(source)" :key="group.id">
+              <RouterLink
+                v-if="admin"
+                :to="{ name: 'modern-group-detail', params: { id: group.id } }"
+                class="modern-model-source-group"
+                :class="{ 'is-disabled': !group.enabled }"
+                ><AppOverflowText :text="group.name || t('logs.deleted')"
+              /></RouterLink>
+              <span
+                v-else
+                class="modern-model-source-group"
+                :class="{ 'is-disabled': !group.enabled }"
+                ><AppOverflowText :text="group.name || t('logs.deleted')"
+              /></span>
+            </template>
+            <AppTooltip v-if="source.groups.length > 2" :label="hiddenGroupsLabel(source)">
+              <span tabindex="0" class="modern-model-source-more"
+                >+{{ n(source.groups.length - 2) }}</span
+              >
+            </AppTooltip>
+          </span>
+          <span
+            v-for="field in priceFields"
+            :key="field"
+            class="r modern-model-source-price"
+            :class="{ 'is-empty': source.price.prices[field] === null }"
+            >{{ price(source, field) }}</span
+          >
+          <span class="modern-model-source-method" :class="'is-' + priceStatus(source.price)">
+            <AppBadge v-if="priceStatus(source.price) === 'pending'" tone="warning" size="xs">{{
+              t('modelManager.priceMethods.pending')
+            }}</AppBadge>
+            <template v-else>
+              <AppIcon v-if="priceStatus(source.price) === 'manual'" :icon="PencilLine" size="xs" />
+              <AppOverflowText
+                :text="t('modelManager.priceMethods.' + priceStatus(source.price))"
+              />
+            </template>
+          </span>
+          <AppIconButton
+            :icon="ChevronRight"
+            :label="t('modelManager.details')"
+            size="xs"
+            :disabled="disabled"
+            @click="emit('open', source.price.id)"
+          />
+        </div>
       </div>
     </div>
   </article>
@@ -90,51 +175,134 @@ const groups = computed(() => modelGroupCount(props.model))
   box-shadow: var(--modern-shadow-control);
 }
 .modern-model-card-heading {
-  display: grid;
-  gap: var(--modern-space-2);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--modern-space-1) var(--modern-space-3);
   min-width: 0;
-  padding: var(--modern-space-4);
+  padding: var(--modern-space-3) var(--modern-space-4);
 }
-.modern-model-card-heading h2 {
+.modern-model-card-name {
   min-width: 0;
   color: var(--modern-text);
   font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
   line-height: var(--modern-leading-compact);
 }
-.modern-model-card-protocols {
-  display: flex;
+.modern-model-card-meta {
+  flex: none;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+  letter-spacing: var(--modern-tracking-label);
+}
+/* 列宽有下限，卡片窄于内容时整体横向滚动，而不是挤压换行。 */
+.modern-model-card-table {
+  overflow-x: auto;
+}
+/* 表头与来源行共用同一套列定义：来源 / 分组 / 4 个价格 / 计价方式 / 操作，
+   多来源时价格天然对齐可比，这是这页配价工作的核心诉求。 */
+.modern-model-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) 96px repeat(4, 52px) 88px var(--modern-control-xs);
+  align-items: center;
+  gap: var(--modern-space-2);
   min-width: 0;
-  min-height: var(--modern-badge-xs);
+  padding-inline: var(--modern-space-4);
+}
+.modern-model-row--head {
+  min-height: var(--modern-space-6);
+  border-block: var(--modern-line-width) solid var(--modern-border);
+  background: var(--modern-subtle);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+  letter-spacing: var(--modern-tracking-label);
+}
+.modern-model-card-sources > .modern-model-row {
+  min-height: var(--modern-space-10);
+}
+.modern-model-card-sources > .modern-model-row + .modern-model-row {
+  border-top: var(--modern-line-width) solid
+    color-mix(in srgb, var(--modern-border) 55%, transparent);
+}
+.modern-model-row .r {
+  text-align: right;
+}
+.modern-model-source-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-0-5) var(--modern-space-1-5);
+  min-width: 0;
+  font-size: var(--modern-font-size-small);
+}
+.modern-model-source-tiers {
+  color: var(--modern-control-placeholder);
+}
+.modern-model-source-upstream {
+  flex-basis: 100%;
+  margin-inline-start: calc(var(--modern-channel-sm) + var(--modern-space-1-5));
+  color: var(--modern-muted);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-caption);
+}
+.modern-model-source-groups {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--modern-space-1);
+  min-width: 0;
 }
-.modern-model-card-sources {
-  margin-inline: var(--modern-space-4);
-  padding-block: var(--modern-space-2);
-  border-top: var(--modern-line-width) solid var(--modern-border);
-}
-.modern-model-card-source-heading {
-  display: flex;
+.modern-model-source-group {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--modern-badge-xs);
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--modern-space-2);
+  border: var(--modern-line-width) solid transparent;
+  border-radius: var(--modern-radius-small);
+  background: var(--modern-subtle);
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-}
-.modern-model-card-source-list {
-  display: grid;
-}
-.modern-model-card-source-list > :not(:last-child) {
-  border-bottom: var(--modern-line-width) solid
-    color-mix(in srgb, var(--modern-border) 55%, transparent);
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-.modern-model-card-more {
-  color: var(--modern-muted);
+  padding-inline: var(--modern-space-1-5);
   font-size: var(--modern-font-size-caption);
+  text-decoration: none;
+}
+a.modern-model-source-group:hover,
+a.modern-model-source-group:focus-visible {
+  border-color: color-mix(in srgb, var(--modern-accent) 40%, transparent);
+  background: var(--modern-accent-soft);
+  color: var(--modern-accent);
+}
+.modern-model-source-group.is-disabled {
+  opacity: var(--modern-opacity-quiet);
+}
+.modern-model-source-more {
+  flex: none;
+  color: var(--modern-control-placeholder);
+  font-size: var(--modern-font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+.modern-model-source-price {
+  min-width: 0;
+  color: var(--modern-text);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-small);
+  font-variant-numeric: tabular-nums;
+}
+.modern-model-source-price.is-empty {
+  color: var(--modern-control-placeholder);
+}
+.modern-model-source-method {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--modern-space-1);
+  color: var(--modern-control-placeholder);
+  font-size: var(--modern-font-size-caption);
+}
+.modern-model-source-method.is-manual {
+  color: var(--modern-muted);
+}
+.modern-model-source-method.is-unpriced {
+  text-decoration: line-through;
 }
 </style>
