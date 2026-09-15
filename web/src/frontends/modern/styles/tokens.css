@@ -62,8 +62,9 @@
     var(--modern-info-soft) 28%,
     var(--modern-surface)
   );
-  /* 模型卡卡头的冷灰蓝底。渐变两端都要保留色，淡出到白就和内容区分不开。 */
-  --modern-model-card-tint: light-dark(#e4ebf5, #2c3340);
+  /* 模型卡卡头的晕染基色。用饱和色，实际浓度由径向渐变的混合比例决定，
+     与用量统计顶部卡片同一套手法。这里只取成功色的色相做装饰，与状态语义无关。 */
+  --modern-model-card-tint: var(--modern-success);
   --modern-segmented-active-border: color-mix(
     in srgb,
     var(--modern-accent) 28%,

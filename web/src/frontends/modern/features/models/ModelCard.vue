@@ -190,20 +190,31 @@ function hiddenGroupsLabel(source: ModelSource): string {
   border-color: var(--modern-segmented-active-border);
   box-shadow: var(--modern-shadow-control);
 }
-/* 冷色底从右上斜向左下淡出：左侧留白给模型名，右上正好托住统计数字。 */
+/* 自右上角发散的椭圆晕染，向左下淡出——与用量统计顶部卡片同一套手法。
+   线性渐变在 15:1 的扁盒子里只会变成一条生硬的色带。 */
 .modern-model-card-heading {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--modern-space-1) var(--modern-space-2);
   min-width: 0;
+  overflow: hidden;
   border-radius: var(--modern-radius-panel) var(--modern-radius-panel) 0 0;
-  background: linear-gradient(
-    to bottom left,
-    var(--modern-model-card-tint),
-    color-mix(in srgb, var(--modern-model-card-tint) 55%, var(--modern-surface))
-  );
   padding: var(--modern-space-3) var(--modern-space-4);
+}
+.modern-model-card-heading::before {
+  position: absolute;
+  z-index: var(--modern-layer-underlay);
+  inset: 0;
+  background: radial-gradient(
+    ellipse at top right,
+    color-mix(in srgb, var(--modern-model-card-tint) 14%, var(--modern-surface)),
+    transparent 72%
+  );
+  content: '';
+  pointer-events: none;
 }
 /* 把后面三项统计推到右侧，模型名独占左端。 */
 .modern-model-card-name {
