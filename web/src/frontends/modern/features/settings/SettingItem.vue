@@ -8,25 +8,36 @@ withDefaults(
     label: string
     controlId?: string
     hint?: string
+    description?: string
     overridden?: boolean
     changed?: boolean
     resetting?: boolean
     locked?: boolean
     disabled?: boolean
     stacked?: boolean
+    wrapControl?: boolean
   }>(),
-  { controlId: undefined, hint: undefined },
+  { controlId: undefined, hint: undefined, description: undefined },
 )
 defineEmits<{ reset: []; undo: [] }>()
 const { t } = useI18n()
 </script>
 
 <template>
-  <div class="modern-setting-item" :class="{ 'is-stacked': stacked }">
+  <div
+    class="modern-setting-item"
+    :class="{ 'is-stacked': stacked, 'is-wrap-control': wrapControl }"
+  >
     <div class="modern-setting-heading">
       <div class="modern-setting-label">
         <label :for="controlId">{{ label }}</label>
-        <AppIcon v-if="hint" :icon="Info" size="xs" :label="hint" class="modern-setting-hint" />
+        <AppIcon
+          v-if="hint && !description"
+          :icon="Info"
+          size="xs"
+          :label="hint"
+          class="modern-setting-hint"
+        />
         <AppIcon
           v-if="locked"
           :icon="LockKeyhole"
@@ -35,8 +46,11 @@ const { t } = useI18n()
         />
       </div>
       <div v-if="locked || resetting || changed || overridden" class="modern-setting-source">
-        <!-- 不标「默认」：多数项都是默认值，标出来只是噪音，有状态才提示。 -->
-        <AppBadge variant="plain" size="xs" :tone="resetting ? 'warning' : 'neutral'">
+        <AppBadge
+          variant="plain"
+          size="xs"
+          :tone="resetting ? 'warning' : changed ? 'brand' : 'neutral'"
+        >
           {{
             t(
               locked
@@ -66,30 +80,30 @@ const { t } = useI18n()
           @click="resetting ? $emit('undo') : $emit('reset')"
         />
       </div>
+      <p v-if="description" class="modern-setting-description">{{ description }}</p>
     </div>
     <p v-if="resetting" class="modern-setting-reset">{{ t('settingsForm.restoreAfterSave') }}</p>
     <div v-else class="modern-setting-control"><slot /></div>
+    <div v-if="$slots.details && !resetting" class="modern-setting-details">
+      <slot name="details" />
+    </div>
   </div>
 </template>
 
 <style scoped>
-/* 控件列定宽而不是 auto：auto 会让每行按各自控件宽度收缩，右边缘参差不齐。 */
 .modern-setting-item {
-  /* 外层可覆盖以适配更宽的控件。 */
-  --modern-setting-control-width: 240px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, var(--modern-setting-control-width));
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--modern-space-3) var(--modern-space-5);
+  gap: var(--modern-space-3) var(--modern-space-4);
   min-width: 0;
-  padding-block: var(--modern-space-2);
 }
 .modern-setting-heading {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   min-width: 0;
-  min-height: var(--modern-control-xs);
+  min-height: var(--modern-control-xxs);
   gap: var(--modern-space-1) var(--modern-space-3);
 }
 .modern-setting-label {
@@ -99,6 +113,7 @@ const { t } = useI18n()
   gap: var(--modern-space-1-5);
 }
 .modern-setting-label label {
+  overflow-wrap: anywhere;
   color: var(--modern-text);
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-medium);
@@ -109,33 +124,54 @@ const { t } = useI18n()
 .modern-setting-source {
   display: flex;
   align-items: center;
-  flex: none;
+  flex-wrap: wrap;
   gap: var(--modern-space-1);
 }
 .modern-setting-control {
   display: grid;
   min-width: 0;
-  justify-items: stretch;
+  justify-items: end;
 }
+.modern-setting-description,
 .modern-setting-reset {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
+  line-height: var(--modern-leading-body);
+  overflow-wrap: anywhere;
+}
+.modern-setting-description {
+  flex-basis: 100%;
+}
+.modern-setting-reset {
+  min-height: var(--modern-control-md);
+  display: flex;
+  align-items: center;
+}
+.modern-setting-details {
+  grid-column: 1 / -1;
+  min-width: 0;
 }
 .modern-setting-item.is-stacked {
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
-  gap: var(--modern-space-1-5);
+  gap: var(--modern-space-2);
 }
 .is-stacked .modern-setting-heading {
   justify-content: space-between;
 }
-@media (max-width: 760px) {
-  .modern-setting-item {
+.is-stacked .modern-setting-control {
+  justify-items: stretch;
+}
+@container modern-settings-content (max-width: 620px) {
+  .modern-setting-item.is-wrap-control {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--modern-space-2);
   }
-  .modern-setting-heading {
+  .is-wrap-control .modern-setting-heading {
     justify-content: space-between;
+  }
+  .is-wrap-control .modern-setting-control {
+    justify-items: start;
   }
 }
 </style>

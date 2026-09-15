@@ -29,8 +29,8 @@ async function select(frontend: FrontendID): Promise<void> {
 </script>
 
 <template>
-  <div class="modern-frontend-body">
-    <div class="modern-frontend-options">
+  <div class="modern-frontend-body" :aria-busy="pending || undefined">
+    <div class="modern-frontend-options" role="group" :aria-label="t('settingsForm.frontend')">
       <AppChoiceCard
         v-for="frontend in frontendOptions"
         :key="frontend.id"
@@ -49,12 +49,18 @@ async function select(frontend: FrontendID): Promise<void> {
 <style scoped>
 .modern-frontend-body {
   display: grid;
+  min-width: 0;
   gap: var(--modern-space-4);
 }
 
 .modern-frontend-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 236px));
+  grid-template-columns: repeat(2, minmax(0, 280px));
   gap: var(--modern-space-4);
+}
+@container modern-settings-content (max-width: 500px) {
+  .modern-frontend-options {
+    grid-template-columns: minmax(0, 280px);
+  }
 }
 </style>

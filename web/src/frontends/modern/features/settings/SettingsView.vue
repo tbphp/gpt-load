@@ -3,7 +3,6 @@ import {
   Cable,
   Database,
   Globe,
-  Info,
   Monitor,
   RotateCcw,
   Route,
@@ -11,6 +10,7 @@ import {
   Search,
   Server,
   SlidersHorizontal,
+  X,
 } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
@@ -25,8 +25,9 @@ import {
   AppCollectionState,
   AppConfirmDialog,
   AppCopyValue,
-  AppFormSection,
   AppIcon,
+  AppIconButton,
+  AppPanel,
   AppSegmentedControl,
   AppSwitch,
   AppTextArea,
@@ -154,7 +155,7 @@ const visibleSections = computed(() =>
     if (sectionFields[id].length) return sectionFields[id].some(matches)
     const extra =
       id === 'interface'
-        ? [t('appearance.theme'), t('appearance.language'), t('settingsForm.frontend')]
+        ? [t('settingsForm.frontend'), t('frontend.modern.title'), t('frontend.classic.title')]
         : ['version', 'database', 'dataDir', 'authKeySource', 'encryptionSource', 'encryption'].map(
             (key) => t('settingsForm.system.' + key),
           )
@@ -199,13 +200,21 @@ function scrollToSection(id: SectionID): void {
   const target = body?.querySelector<HTMLElement>('#settings-section-' + id)
   if (!body || !target) return
   active.value = id
+  const inset = Number.parseFloat(getComputedStyle(body).paddingTop) || 0
   body.scrollTo({
-    top: target.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop,
+    top:
+      target.getBoundingClientRect().top -
+      body.getBoundingClientRect().top +
+      body.scrollTop -
+      inset,
   })
 }
 function selectSection(id: SectionID): void {
+  if (state.value.section === id) {
+    scrollToSection(id)
+    return
+  }
   state.value = { ...state.value, section: id }
-  void nextTick(() => scrollToSection(id))
 }
 function updateActive(): void {
   if (scrollFrame !== undefined) return
@@ -213,7 +222,8 @@ function updateActive(): void {
     scrollFrame = undefined
     const body = scroller.value
     if (!body) return
-    const top = body.getBoundingClientRect().top
+    const top =
+      body.getBoundingClientRect().top + (Number.parseFloat(getComputedStyle(body).paddingTop) || 0)
     const ids = visibleSections.value
     const atBottom =
       body.scrollHeight > body.clientHeight &&
@@ -299,7 +309,16 @@ onScopeDispose(() => {
         :icon="Search"
         type="search"
         label-hidden
-      />
+      >
+        <template v-if="state.q" #suffix>
+          <AppIconButton
+            :icon="X"
+            :label="t('settingsForm.clearSearch')"
+            size="xs"
+            @click="clearSearch"
+          />
+        </template>
+      </AppTextField>
     </form>
     <AppCollectionState
       v-if="!base"
@@ -311,23 +330,26 @@ onScopeDispose(() => {
     </AppCollectionState>
     <div v-else-if="draft" class="modern-settings-layout">
       <nav class="modern-settings-navigation" :aria-label="t('settingsForm.categories')">
-        <AppButton
-          v-for="id in visibleSections"
-          :key="id"
-          :variant="active === id ? 'brand' : 'ghost'"
-          :aria-current="active === id ? 'location' : undefined"
-          :icon="sectionIcons[id]"
-          class="modern-settings-nav-item"
-          @click="selectSection(id)"
-        >
-          <span class="modern-settings-nav-label">{{ t('settingsForm.sections.' + id) }}</span>
-          <AppBadge
-            v-if="sectionFields[id].some((key) => changed.includes(key))"
-            size="xs"
-            tone="brand"
-            >{{ n(sectionFields[id].filter((key) => changed.includes(key)).length) }}</AppBadge
+        <p class="modern-settings-nav-caption">{{ t('settingsForm.categories') }}</p>
+        <div class="modern-settings-nav-items">
+          <AppButton
+            v-for="id in visibleSections"
+            :key="id"
+            :variant="active === id ? 'brand' : 'ghost'"
+            :aria-current="active === id ? 'location' : undefined"
+            :icon="sectionIcons[id]"
+            class="modern-settings-nav-item"
+            @click="selectSection(id)"
           >
-        </AppButton>
+            <span class="modern-settings-nav-label">{{ t('settingsForm.sections.' + id) }}</span>
+            <AppBadge
+              v-if="sectionFields[id].some((key) => changed.includes(key))"
+              size="xs"
+              tone="brand"
+              >{{ n(sectionFields[id].filter((key) => changed.includes(key)).length) }}</AppBadge
+            >
+          </AppButton>
+        </div>
       </nav>
       <form
         id="modern-settings-form"
@@ -344,299 +366,317 @@ onScopeDispose(() => {
         >
           <AppButton @click="clearSearch">{{ t('settingsForm.clearSearch') }}</AppButton>
         </AppCollectionState>
-        <AppFormSection
+        <AppPanel
           v-for="id in visibleSections"
           :id="'settings-section-' + id"
           :key="id"
           :title="t('settingsForm.sections.' + id)"
           :description="t('settingsForm.sectionHelp.' + id)"
+          compact
           class="modern-settings-section"
         >
-          <template v-if="id === 'routing'">
-            <SettingItem
-              v-if="matches('route_strategy')"
-              v-bind="settingItem('route_strategy')"
-              @reset="restore('route_strategy')"
-              @undo="undoRestore('route_strategy')"
-            >
-              <AppSegmentedControl
-                id="settings-route_strategy"
-                :model-value="draft.route_strategy"
-                :label="t('settingsForm.fields.route_strategy')"
-                :options="strategyOptions"
-                appearance="field"
-                size="sm"
-                :disabled="disabled('route_strategy')"
-                @update:model-value="
-                  draft.route_strategy = $event === 'weighted_mix' ? 'weighted_mix' : 'native_first'
-                "
-              />
-            </SettingItem>
-            <SettingItem
-              v-if="matches('affinity_enabled')"
-              v-bind="settingItem('affinity_enabled')"
-              @reset="restore('affinity_enabled')"
-              @undo="undoRestore('affinity_enabled')"
-            >
-              <AppSwitch
-                id="settings-affinity_enabled"
-                v-model="draft.affinity_enabled"
-                :label="t('settingsForm.fields.affinity_enabled')"
-                :disabled="disabled('affinity_enabled')"
-              />
-            </SettingItem>
-            <div v-if="affinityNumbers.some(matches)" class="modern-settings-number-grid">
-              <SettingsNumberField
-                v-for="key in affinityNumbers.filter(matches)"
-                :key="key"
-                v-model="draft[key]"
-                :setting="key"
-                v-bind="settingState(key)"
-                :error="fieldErrors[key]"
-                @reset="restore(key)"
-                @undo="undoRestore(key)"
-              />
-            </div>
-          </template>
-          <template v-else-if="id === 'connection'">
-            <SettingItem
-              v-if="matches('responses_websocket_enabled')"
-              v-bind="settingItem('responses_websocket_enabled')"
-              @reset="restore('responses_websocket_enabled')"
-              @undo="undoRestore('responses_websocket_enabled')"
-            >
-              <AppSwitch
-                id="settings-responses_websocket_enabled"
-                v-model="draft.responses_websocket_enabled"
-                :label="t('settingsForm.fields.responses_websocket_enabled')"
-                :disabled="disabled('responses_websocket_enabled')"
-              />
-            </SettingItem>
-            <SettingItem
-              v-if="matches('proxy_config')"
-              v-bind="settingItem('proxy_config')"
-              stacked
-              @reset="restore('proxy_config')"
-              @undo="undoRestore('proxy_config')"
-            >
-              <div class="modern-settings-proxy">
+          <div class="modern-settings-fields">
+            <template v-if="id === 'routing'">
+              <SettingItem
+                v-if="matches('route_strategy')"
+                v-bind="settingItem('route_strategy')"
+                wrap-control
+                class="modern-settings-block"
+                @reset="restore('route_strategy')"
+                @undo="undoRestore('route_strategy')"
+              >
                 <AppSegmentedControl
+                  id="settings-route_strategy"
+                  :model-value="draft.route_strategy"
+                  :label="t('settingsForm.fields.route_strategy')"
+                  :options="strategyOptions"
+                  appearance="field"
+                  :disabled="disabled('route_strategy')"
+                  @update:model-value="
+                    draft.route_strategy =
+                      $event === 'weighted_mix' ? 'weighted_mix' : 'native_first'
+                  "
+                />
+              </SettingItem>
+              <div
+                v-if="matches('affinity_enabled') || affinityNumbers.some(matches)"
+                class="modern-settings-block modern-settings-group"
+              >
+                <SettingItem
+                  v-if="matches('affinity_enabled')"
+                  v-bind="settingItem('affinity_enabled')"
+                  :description="t('settingsForm.hints.affinity_enabled')"
+                  @reset="restore('affinity_enabled')"
+                  @undo="undoRestore('affinity_enabled')"
+                >
+                  <AppSwitch
+                    id="settings-affinity_enabled"
+                    v-model="draft.affinity_enabled"
+                    :label="t('settingsForm.fields.affinity_enabled')"
+                    :disabled="disabled('affinity_enabled')"
+                  />
+                </SettingItem>
+                <div v-if="affinityNumbers.some(matches)" class="modern-settings-number-grid">
+                  <SettingsNumberField
+                    v-for="key in affinityNumbers.filter(matches)"
+                    :key="key"
+                    v-model="draft[key]"
+                    :setting="key"
+                    v-bind="settingState(key)"
+                    :error="fieldErrors[key]"
+                    @reset="restore(key)"
+                    @undo="undoRestore(key)"
+                  />
+                </div>
+              </div>
+            </template>
+            <template v-else-if="id === 'connection'">
+              <SettingItem
+                v-if="matches('responses_websocket_enabled')"
+                v-bind="settingItem('responses_websocket_enabled')"
+                class="modern-settings-block"
+                @reset="restore('responses_websocket_enabled')"
+                @undo="undoRestore('responses_websocket_enabled')"
+              >
+                <AppSwitch
+                  id="settings-responses_websocket_enabled"
+                  v-model="draft.responses_websocket_enabled"
+                  :label="t('settingsForm.fields.responses_websocket_enabled')"
+                  :disabled="disabled('responses_websocket_enabled')"
+                />
+              </SettingItem>
+              <SettingItem
+                v-if="matches('proxy_config')"
+                v-bind="settingItem('proxy_config')"
+                :description="t('settingsForm.hints.proxy_config')"
+                wrap-control
+                class="modern-settings-block"
+                @reset="restore('proxy_config')"
+                @undo="undoRestore('proxy_config')"
+              >
+                <AppSegmentedControl
+                  id="settings-proxy_config"
                   :model-value="draft.proxy_config.mode"
                   :label="t('settingsForm.fields.proxy_config')"
                   :options="proxyOptions"
                   appearance="field"
-                  size="sm"
                   :disabled="disabled('proxy_config')"
                   @update:model-value="
                     draft.proxy_config.mode =
                       $event === 'custom' || $event === 'direct' ? $event : 'inherit'
                   "
                 />
-                <AppTextField
-                  v-if="draft.proxy_config.mode === 'custom'"
-                  id="settings-proxy_config"
-                  v-model="draft.proxy_config.url"
-                  :label="t('settingsForm.proxy.url')"
-                  label-hidden
-                  size="sm"
-                  :disabled="disabled('proxy_config')"
-                  :error="fieldErrors.proxy_config"
-                  :placeholder="
-                    base.values.proxy_config.configured_mode === 'custom'
-                      ? t('settingsForm.proxy.existing')
-                      : t('settingsForm.proxy.placeholder')
-                  "
-                  autocomplete="off"
-                  spellcheck="false"
-                  class="modern-settings-proxy-input"
-                />
-              </div>
-              <p class="modern-settings-proxy-effective">
-                <span>{{ t('settingsForm.proxy.effective') }}</span>
-                <AppCopyValue
-                  v-if="base.values.proxy_config.display_url"
-                  :value="base.values.proxy_config.display_url"
-                />
-                <span v-else>{{
-                  t(
-                    base.values.proxy_config.effective_mode === 'environment'
-                      ? 'settingsForm.proxy.environment'
-                      : 'settingsForm.proxy.directValue',
-                  )
-                }}</span>
-              </p>
-            </SettingItem>
-            <div v-if="timeouts.some(matches)" class="modern-settings-subgroup">
-              <h4>{{ t('settingsForm.timeouts') }}</h4>
-              <div class="modern-settings-number-grid">
-                <SettingsNumberField
-                  v-for="key in timeouts.filter(matches)"
-                  :key="key"
-                  v-model="draft[key]"
-                  :setting="key"
-                  v-bind="settingState(key)"
-                  :error="fieldErrors[key]"
-                  @reset="restore(key)"
-                  @undo="undoRestore(key)"
-                />
-              </div>
-            </div>
-            <div v-if="reliability.some(matches)" class="modern-settings-subgroup">
-              <h4>{{ t('settingsForm.reliability') }}</h4>
-              <div class="modern-settings-number-grid">
-                <SettingsNumberField
-                  v-for="key in reliability.filter(matches)"
-                  :key="key"
-                  v-model="draft[key]"
-                  :setting="key"
-                  v-bind="settingState(key)"
-                  :error="fieldErrors[key]"
-                  @reset="restore(key)"
-                  @undo="undoRestore(key)"
-                />
-              </div>
-            </div>
-          </template>
-          <template v-else-if="id === 'browser'">
-            <SettingItem
-              v-if="matches('cors')"
-              v-bind="settingItem('cors')"
-              stacked
-              @reset="restore('cors')"
-              @undo="undoRestore('cors')"
-            >
-              <div class="modern-settings-cors">
-                <div class="modern-settings-switch-row">
-                  <label for="settings-cors">{{ t('settingsForm.cors.enabled') }}</label>
-                  <AppSwitch
-                    id="settings-cors"
-                    v-model="draft.cors.enabled"
-                    :label="t('settingsForm.cors.enabled')"
-                    :disabled="disabled('cors')"
-                  />
-                </div>
-                <AppTextArea
-                  v-model="draft.cors.allowed_origins"
-                  :label="t('settingsForm.cors.allowed_origins')"
-                  :placeholder="t('settingsForm.cors.originsPlaceholder')"
-                  :description="t('settingsForm.cors.listHint')"
-                  :rows="2"
-                  size="sm"
-                  :error="fieldErrors['cors.allowed_origins']"
-                  :disabled="disabled('cors')"
-                  class="modern-settings-wide"
-                />
-                <AppTextField
-                  v-for="key in corsLists"
-                  :key="key"
-                  v-model="draft.cors[key]"
-                  :label="t('settingsForm.cors.' + key)"
-                  :placeholder="
-                    t(
-                      key === 'allowed_methods'
-                        ? 'settingsForm.cors.methodsPlaceholder'
-                        : key === 'allowed_headers'
-                          ? 'settingsForm.cors.headersPlaceholder'
-                          : 'settingsForm.cors.exposedPlaceholder',
-                    )
-                  "
-                  size="sm"
-                  :error="fieldErrors['cors.' + key]"
-                  :disabled="disabled('cors')"
-                />
-                <AppTextField
-                  v-model="draft.cors.max_age"
-                  :label="t('settingsForm.cors.max_age')"
-                  size="sm"
-                  inputmode="numeric"
-                  :error="fieldErrors['cors.max_age']"
-                  :disabled="disabled('cors')"
-                >
-                  <template #suffix
-                    ><span class="modern-settings-unit">{{
-                      t('settingsForm.seconds')
-                    }}</span></template
-                  >
-                </AppTextField>
-                <div class="modern-settings-switch-row modern-settings-wide">
-                  <span
-                    ><label for="settings-cors-credentials">{{
-                      t('settingsForm.cors.allow_credentials')
-                    }}</label
-                    ><AppIcon :icon="Info" size="xs" :label="t('settingsForm.cors.credentialHint')"
-                  /></span>
-                  <AppSwitch
-                    id="settings-cors-credentials"
-                    v-model="draft.cors.allow_credentials"
-                    :label="t('settingsForm.cors.allow_credentials')"
-                    :disabled="disabled('cors')"
-                  />
-                </div>
-              </div>
-            </SettingItem>
-            <template v-for="key in headerKeys" :key="key">
-              <SettingItem
-                v-if="matches(key)"
-                v-bind="settingItem(key)"
-                stacked
-                class="modern-settings-rule-block"
-                @reset="restore(key)"
-                @undo="undoRestore(key)"
+                <template #details>
+                  <div class="modern-settings-proxy">
+                    <AppTextField
+                      v-if="draft.proxy_config.mode === 'custom'"
+                      v-model="draft.proxy_config.url"
+                      :label="t('settingsForm.proxy.url')"
+                      :disabled="disabled('proxy_config')"
+                      :error="fieldErrors.proxy_config"
+                      :placeholder="
+                        base.values.proxy_config.configured_mode === 'custom'
+                          ? t('settingsForm.proxy.existing')
+                          : t('settingsForm.proxy.placeholder')
+                      "
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                    <p class="modern-settings-proxy-effective">
+                      <span>{{ t('settingsForm.proxy.effective') }}</span>
+                      <AppCopyValue
+                        v-if="base.values.proxy_config.display_url"
+                        :value="base.values.proxy_config.display_url"
+                      />
+                      <span v-else>{{
+                        t(
+                          base.values.proxy_config.effective_mode === 'environment'
+                            ? 'settingsForm.proxy.environment'
+                            : 'settingsForm.proxy.directValue',
+                        )
+                      }}</span>
+                    </p>
+                  </div>
+                </template>
+              </SettingItem>
+              <div
+                v-if="timeouts.some(matches)"
+                class="modern-settings-block modern-settings-group"
               >
-                <SettingsHeadersEditor
-                  v-model="draft[key]"
-                  :setting="key"
-                  :errors="fieldErrors"
-                  :disabled="disabled(key)"
+                <h3 class="modern-settings-group-title">{{ t('settingsForm.timeouts') }}</h3>
+                <div class="modern-settings-number-grid">
+                  <SettingsNumberField
+                    v-for="key in timeouts.filter(matches)"
+                    :key="key"
+                    v-model="draft[key]"
+                    :setting="key"
+                    v-bind="settingState(key)"
+                    :error="fieldErrors[key]"
+                    @reset="restore(key)"
+                    @undo="undoRestore(key)"
+                  />
+                </div>
+              </div>
+              <div
+                v-if="reliability.some(matches)"
+                class="modern-settings-block modern-settings-group"
+              >
+                <h3 class="modern-settings-group-title">{{ t('settingsForm.reliability') }}</h3>
+                <div class="modern-settings-number-grid">
+                  <SettingsNumberField
+                    v-for="key in reliability.filter(matches)"
+                    :key="key"
+                    v-model="draft[key]"
+                    :setting="key"
+                    v-bind="settingState(key)"
+                    :error="fieldErrors[key]"
+                    @reset="restore(key)"
+                    @undo="undoRestore(key)"
+                  />
+                </div>
+              </div>
+            </template>
+            <template v-else-if="id === 'browser'">
+              <SettingItem
+                v-if="matches('cors')"
+                v-bind="settingItem('cors')"
+                :description="t('settingsForm.hints.cors')"
+                class="modern-settings-block"
+                @reset="restore('cors')"
+                @undo="undoRestore('cors')"
+              >
+                <AppSwitch
+                  id="settings-cors"
+                  v-model="draft.cors.enabled"
+                  :label="t('settingsForm.cors.enabled')"
+                  :disabled="disabled('cors')"
+                />
+                <template #details>
+                  <div class="modern-settings-cors">
+                    <AppTextArea
+                      v-model="draft.cors.allowed_origins"
+                      :label="t('settingsForm.cors.allowed_origins')"
+                      :placeholder="t('settingsForm.cors.originsPlaceholder')"
+                      :description="t('settingsForm.cors.listHint')"
+                      :rows="2"
+                      :error="fieldErrors['cors.allowed_origins']"
+                      :disabled="disabled('cors')"
+                      class="modern-settings-wide"
+                    />
+                    <AppTextField
+                      v-for="key in corsLists"
+                      :key="key"
+                      v-model="draft.cors[key]"
+                      :label="t('settingsForm.cors.' + key)"
+                      :placeholder="
+                        t(
+                          key === 'allowed_methods'
+                            ? 'settingsForm.cors.methodsPlaceholder'
+                            : key === 'allowed_headers'
+                              ? 'settingsForm.cors.headersPlaceholder'
+                              : 'settingsForm.cors.exposedPlaceholder',
+                        )
+                      "
+                      :error="fieldErrors['cors.' + key]"
+                      :disabled="disabled('cors')"
+                    />
+                    <AppTextField
+                      v-model="draft.cors.max_age"
+                      :label="t('settingsForm.cors.max_age')"
+                      inputmode="numeric"
+                      :error="fieldErrors['cors.max_age']"
+                      :disabled="disabled('cors')"
+                    >
+                      <template #suffix>
+                        <span class="modern-settings-unit">{{ t('settingsForm.seconds') }}</span>
+                      </template>
+                    </AppTextField>
+                    <SettingItem
+                      :label="t('settingsForm.cors.allow_credentials')"
+                      :hint="t('settingsForm.cors.credentialHint')"
+                      control-id="settings-cors-credentials"
+                      class="modern-settings-wide"
+                    >
+                      <AppSwitch
+                        id="settings-cors-credentials"
+                        v-model="draft.cors.allow_credentials"
+                        :label="t('settingsForm.cors.allow_credentials')"
+                        :disabled="disabled('cors')"
+                      />
+                    </SettingItem>
+                  </div>
+                </template>
+              </SettingItem>
+              <template v-for="key in headerKeys" :key="key">
+                <SettingItem
+                  v-if="matches(key)"
+                  v-bind="settingItem(key)"
+                  :description="t('settingsForm.hints.' + key)"
+                  stacked
+                  class="modern-settings-block"
+                  @reset="restore(key)"
+                  @undo="undoRestore(key)"
+                >
+                  <SettingsHeadersEditor
+                    v-model="draft[key]"
+                    :setting="key"
+                    :errors="fieldErrors"
+                    :disabled="disabled(key)"
+                  />
+                </SettingItem>
+              </template>
+            </template>
+            <template v-else-if="id === 'maintenance'">
+              <div
+                v-if="matches('request_log_retention_days')"
+                class="modern-settings-block modern-settings-retention"
+              >
+                <SettingsNumberField
+                  v-model="draft.request_log_retention_days"
+                  setting="request_log_retention_days"
+                  v-bind="settingState('request_log_retention_days')"
+                  :error="fieldErrors.request_log_retention_days"
+                  @reset="restore('request_log_retention_days')"
+                  @undo="undoRestore('request_log_retention_days')"
+                />
+              </div>
+              <SettingItem
+                v-if="matches('models_dev_auto_sync_enabled')"
+                v-bind="settingItem('models_dev_auto_sync_enabled')"
+                :description="t('settingsForm.hints.models_dev_auto_sync_enabled')"
+                class="modern-settings-block"
+                @reset="restore('models_dev_auto_sync_enabled')"
+                @undo="undoRestore('models_dev_auto_sync_enabled')"
+              >
+                <AppSwitch
+                  id="settings-models_dev_auto_sync_enabled"
+                  v-model="draft.models_dev_auto_sync_enabled"
+                  :label="t('settingsForm.fields.models_dev_auto_sync_enabled')"
+                  :disabled="disabled('models_dev_auto_sync_enabled')"
                 />
               </SettingItem>
             </template>
-          </template>
-          <template v-else-if="id === 'maintenance'">
-            <div v-if="matches('request_log_retention_days')" class="modern-settings-retention">
-              <SettingsNumberField
-                v-model="draft.request_log_retention_days"
-                setting="request_log_retention_days"
-                v-bind="settingState('request_log_retention_days')"
-                :error="fieldErrors.request_log_retention_days"
-                @reset="restore('request_log_retention_days')"
-                @undo="undoRestore('request_log_retention_days')"
-              />
-            </div>
-            <SettingItem
-              v-if="matches('models_dev_auto_sync_enabled')"
-              v-bind="settingItem('models_dev_auto_sync_enabled')"
-              @reset="restore('models_dev_auto_sync_enabled')"
-              @undo="undoRestore('models_dev_auto_sync_enabled')"
-            >
-              <AppSwitch
-                id="settings-models_dev_auto_sync_enabled"
-                v-model="draft.models_dev_auto_sync_enabled"
-                :label="t('settingsForm.fields.models_dev_auto_sync_enabled')"
-                :disabled="disabled('models_dev_auto_sync_enabled')"
-              />
-            </SettingItem>
-          </template>
-          <template v-else-if="id === 'interface'">
-            <!-- 主题与语言在右上角已有入口，这里不再重复一份。 -->
-            <FrontendPicker :disabled="saving" :before-switch="beforeFrontendSwitch" />
-          </template>
-          <SettingsSystemInfo
-            v-else-if="id === 'system'"
-            :data="info.data.value"
-            :loading="info.isPending.value"
-            :failed="info.isError.value"
-            @retry="info.refetch()"
-          />
-        </AppFormSection>
+            <FrontendPicker
+              v-else-if="id === 'interface'"
+              :disabled="saving"
+              :before-switch="beforeFrontendSwitch"
+            />
+            <SettingsSystemInfo
+              v-else-if="id === 'system'"
+              :data="info.data.value"
+              :loading="info.isPending.value"
+              :failed="info.isError.value"
+              @retry="info.refetch()"
+            />
+          </div>
+        </AppPanel>
       </form>
     </div>
     <footer v-if="dirty" class="modern-settings-savebar">
-      <span
-        ><AppIcon :icon="SlidersHorizontal" size="sm" />{{
-          t('settingsForm.unsaved', { count: n(changed.length) })
-        }}</span
-      >
+      <span>
+        <AppIcon :icon="SlidersHorizontal" size="sm" />
+        {{ t('settingsForm.unsaved', { count: n(changed.length) }) }}
+      </span>
       <div>
         <AppButton :icon="RotateCcw" :disabled="saving" @click="discardOpen = true">{{
           t('settingsForm.discard')
@@ -682,16 +722,23 @@ onScopeDispose(() => {
   flex: 1;
   min-height: 0;
   min-width: 0;
-  gap: var(--modern-space-6);
+  gap: var(--modern-space-5);
 }
 .modern-settings-navigation {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
   min-width: 0;
-  gap: var(--modern-space-1);
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   padding: var(--modern-space-1);
+}
+.modern-settings-nav-caption {
+  padding: var(--modern-space-2) var(--modern-space-3) var(--modern-space-3);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-settings-nav-items {
+  display: grid;
+  gap: var(--modern-space-1);
 }
 .modern-settings-nav-item {
   width: 100%;
@@ -699,68 +746,51 @@ onScopeDispose(() => {
   justify-content: flex-start;
   gap: var(--modern-space-2);
 }
-.modern-settings-nav-item[aria-current='location'] {
-  background: var(--modern-accent-soft);
-  color: var(--modern-accent);
-}
 .modern-settings-nav-label {
   flex: 1;
   text-align: left;
+  white-space: normal;
 }
 .modern-settings-body {
+  container: modern-settings-content / inline-size;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--modern-space-4);
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: var(--modern-scrollbar-gutter);
   overscroll-behavior: contain;
-  padding: var(--modern-space-1) var(--modern-space-1) var(--modern-space-8);
+  padding: var(--modern-space-1) var(--modern-space-1) var(--modern-space-5);
 }
-/* 表单限宽：内容区有近 1000px，撑满会把标签和控件拉得太开。
-   分区之间用细线隔断，功能边界比单纯留白更清楚。 */
 .modern-settings-section {
-  max-width: 760px;
-  padding-bottom: var(--modern-space-6);
+  flex: none;
 }
-.modern-settings-section + .modern-settings-section {
+.modern-settings-fields,
+.modern-settings-group {
+  display: grid;
+  min-width: 0;
+  gap: var(--modern-space-4);
+}
+.modern-settings-block + .modern-settings-block {
   border-top: var(--modern-line-width) solid var(--modern-border);
-  padding-top: var(--modern-space-6);
+  padding-top: var(--modern-space-4);
+}
+.modern-settings-group-title {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-medium);
 }
 .modern-settings-number-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
-  gap: var(--modern-space-3) var(--modern-space-5);
-}
-.modern-settings-subgroup {
-  display: grid;
-  gap: var(--modern-space-2);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: var(--modern-space-2) var(--modern-space-5);
   min-width: 0;
-  padding-top: var(--modern-space-3);
-}
-/* 组标题原先比它统领的设置项标签还小还淡，层级是倒的。
-   缩到 caption 并拉开字距、补一条延伸线，改以「组标签」的质感区分。 */
-.modern-settings-subgroup h4 {
-  display: flex;
-  align-items: center;
-  gap: var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-caption);
-  font-weight: var(--modern-weight-medium);
-  letter-spacing: var(--modern-tracking-label);
-}
-.modern-settings-subgroup h4::after {
-  flex: 1;
-  height: var(--modern-line-width);
-  background: var(--modern-border);
-  content: '';
 }
 .modern-settings-proxy {
-  display: flex;
-  align-items: start;
-  flex-wrap: wrap;
+  display: grid;
   gap: var(--modern-space-3);
-}
-.modern-settings-proxy-input {
-  flex: 1 1 280px;
   min-width: 0;
 }
 .modern-settings-proxy-effective {
@@ -769,34 +799,20 @@ onScopeDispose(() => {
   align-items: center;
   min-width: 0;
   gap: var(--modern-space-2);
+  border-radius: var(--modern-radius-small);
+  background: var(--modern-subtle);
+  padding: var(--modern-space-2) var(--modern-space-3);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
-  margin-top: var(--modern-space-2);
+}
+.modern-settings-proxy-effective > :first-child {
+  flex: none;
 }
 .modern-settings-cors {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-4);
-  padding-top: var(--modern-space-1);
-}
-.modern-settings-switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--modern-space-3);
-  min-width: 0;
-}
-.modern-settings-switch-row:first-child {
-  grid-column: 1 / -1;
-}
-.modern-settings-switch-row > span {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--modern-space-1-5);
-}
-.modern-settings-switch-row label {
-  font-size: var(--modern-font-size-secondary);
-  font-weight: var(--modern-weight-medium);
+  align-items: start;
+  gap: var(--modern-space-4) var(--modern-space-5);
 }
 .modern-settings-wide {
   grid-column: 1 / -1;
@@ -806,34 +822,10 @@ onScopeDispose(() => {
   font-size: var(--modern-font-size-small);
   white-space: nowrap;
 }
-.modern-settings-rule-block {
-  border-top: var(--modern-line-width) solid var(--modern-border);
-  margin-top: var(--modern-space-3);
-  padding-top: var(--modern-space-4);
-}
 .modern-settings-retention {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--modern-space-5);
-}
-.modern-settings-preferences {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-5);
-}
-.modern-settings-preference {
-  display: grid;
-  justify-items: start;
-  align-content: start;
-  gap: var(--modern-space-1-5);
-}
-.modern-settings-preference > span {
-  font-size: var(--modern-font-size-secondary);
-  font-weight: var(--modern-weight-medium);
-}
-.modern-settings-local-note {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
+  grid-template-columns: minmax(0, 320px);
+  gap: var(--modern-space-2);
 }
 .modern-settings-savebar {
   display: flex;
@@ -860,10 +852,15 @@ onScopeDispose(() => {
 .modern-settings-savebar > div {
   margin-left: auto;
 }
+@container modern-settings-content (max-width: 560px) {
+  .modern-settings-cors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 @media (max-width: 1150px) {
   .modern-settings-layout {
-    grid-template-columns: 164px minmax(0, 1fr);
-    gap: var(--modern-space-4);
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: var(--modern-space-3);
   }
 }
 @media (max-width: 760px) {
@@ -874,20 +871,24 @@ onScopeDispose(() => {
   }
   .modern-settings-navigation {
     flex: none;
-    flex-direction: row;
     overflow-x: auto;
   }
+  .modern-settings-nav-caption {
+    display: none;
+  }
+  .modern-settings-nav-items {
+    display: flex;
+    width: max-content;
+  }
   .modern-settings-nav-item {
-    width: fit-content;
+    width: auto;
+    flex: none;
+  }
+  .modern-settings-nav-label {
     white-space: nowrap;
   }
   .modern-settings-body {
     flex: 1;
-  }
-  .modern-settings-cors,
-  .modern-settings-preferences,
-  .modern-settings-retention {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

@@ -17,13 +17,12 @@ defineEmits<{ retry: [] }>()
 const { t } = useI18n()
 const { checkState, update, checkForUpdate } = useSystemStatus()
 const databaseNames = { sqlite: 'SQLite', mysql: 'MySQL', postgres: 'PostgreSQL' }
-// 三种更新状态合成一行，避免版本下方堆三段样式各异的提示。
 const updateMessage = computed(() => {
+  if (checkState.value === 'failed') return { text: t('system.checkFailed'), error: true }
+  if (checkState.value === 'authRequired') return { text: t('system.authRequired'), error: true }
   if (update.value)
     return { text: t('system.updateAvailable', { version: update.value.version }), error: false }
   if (checkState.value === 'latest') return { text: t('system.latestVersion'), error: false }
-  if (checkState.value === 'failed') return { text: t('system.checkFailed'), error: true }
-  if (checkState.value === 'authRequired') return { text: t('system.authRequired'), error: true }
   return undefined
 })
 </script>
@@ -37,84 +36,115 @@ const updateMessage = computed(() => {
   >
     <AppButton v-if="failed" @click="$emit('retry')">{{ t('ui.retry') }}</AppButton>
   </AppCollectionState>
-  <dl v-else class="modern-settings-system">
-    <div class="modern-settings-system-version">
-      <dt>{{ t('settingsForm.system.version') }}</dt>
-      <dd>
+  <div v-else class="modern-settings-system">
+    <div class="modern-settings-system-release">
+      <div class="modern-settings-system-version">
+        <span>{{ t('settingsForm.system.version') }}</span>
         <strong>{{ data.version }}</strong>
         <AppBadge size="xs">{{ t('settingsForm.system.deploymentValue') }}</AppBadge>
-        <AppButton
-          :icon="RefreshCw"
-          size="xs"
-          :loading="checkState === 'checking'"
-          @click="checkForUpdate"
-          >{{ t('system.checkUpdate') }}</AppButton
-        >
-      </dd>
+      </div>
+      <AppButton
+        :icon="RefreshCw"
+        size="sm"
+        :loading="checkState === 'checking'"
+        @click="checkForUpdate"
+        >{{ t('system.checkUpdate') }}</AppButton
+      >
     </div>
-    <div v-if="updateMessage" class="modern-settings-system-note">
-      <dt></dt>
-      <dd :class="{ 'is-error': updateMessage.error }">
-        <AppExternalLink v-if="update" :href="update.releaseURL">{{
-          updateMessage.text
-        }}</AppExternalLink>
-        <span v-else :role="updateMessage.error ? 'alert' : 'status'">{{
-          updateMessage.text
-        }}</span>
-      </dd>
-    </div>
-    <div>
-      <dt>{{ t('settingsForm.system.database') }}</dt>
-      <dd>{{ databaseNames[data.database] }}</dd>
-    </div>
-    <div>
-      <dt>{{ t('settingsForm.system.encryption') }}</dt>
-      <dd>
-        <AppBadge size="xs" tone="info">{{ t('settingsForm.system.encryptionEnabled') }}</AppBadge>
-      </dd>
-    </div>
-    <div>
-      <dt>{{ t('settingsForm.system.dataDir') }}</dt>
-      <dd><AppCopyValue :value="data.dataDir" /></dd>
-    </div>
-    <div v-for="key in ['authKey', 'encryption'] as const" :key="key">
-      <dt>{{ t('settingsForm.system.' + key + 'Source') }}</dt>
-      <dd>
-        <span>{{ t('settingsForm.system.sources.' + data[key].source) }}</span>
-        <AppCopyValue v-if="data[key].path" :value="data[key].path!" />
-      </dd>
-    </div>
-    <div v-if="failed" class="modern-settings-system-note">
-      <dt></dt>
-      <dd class="is-error" role="status">{{ t('settingsForm.stale') }}</dd>
-    </div>
-  </dl>
+    <p
+      v-if="updateMessage"
+      class="modern-settings-system-note"
+      :class="{ 'is-error': updateMessage.error }"
+      :role="updateMessage.error ? 'alert' : 'status'"
+    >
+      <AppExternalLink v-if="update && !updateMessage.error" :href="update.releaseURL">{{
+        updateMessage.text
+      }}</AppExternalLink>
+      <span v-else>{{ updateMessage.text }}</span>
+    </p>
+    <dl class="modern-settings-system-facts">
+      <div>
+        <dt>{{ t('settingsForm.system.database') }}</dt>
+        <dd>{{ databaseNames[data.database] }}</dd>
+      </div>
+      <div>
+        <dt>{{ t('settingsForm.system.encryption') }}</dt>
+        <dd>
+          <AppBadge size="xs" tone="info">{{
+            t('settingsForm.system.encryptionEnabled')
+          }}</AppBadge>
+        </dd>
+      </div>
+      <div class="modern-settings-system-wide">
+        <dt>{{ t('settingsForm.system.dataDir') }}</dt>
+        <dd><AppCopyValue :value="data.dataDir" /></dd>
+      </div>
+      <div
+        v-for="key in ['authKey', 'encryption'] as const"
+        :key="key"
+        class="modern-settings-system-wide"
+      >
+        <dt>{{ t('settingsForm.system.' + key + 'Source') }}</dt>
+        <dd>
+          <AppBadge size="xs">{{ t('settingsForm.system.sources.' + data[key].source) }}</AppBadge>
+          <AppCopyValue v-if="data[key].path" :value="data[key].path!" />
+        </dd>
+      </div>
+    </dl>
+    <p v-if="failed" class="modern-settings-system-note is-error" role="status">
+      {{ t('settingsForm.stale') }}
+    </p>
+  </div>
 </template>
 
 <style scoped>
-/* 标签列定宽右对齐：原先 dt 用 flex:none 按各自文字宽度收缩，
-   「数据库」和「管理员密钥来源」差了一倍，取值起点全部错开。 */
 .modern-settings-system {
   display: grid;
   min-width: 0;
-  margin: 0;
-  gap: var(--modern-space-1);
+  gap: var(--modern-space-3);
 }
-.modern-settings-system > div {
-  display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
+.modern-settings-system-release,
+.modern-settings-system-version {
+  display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: var(--modern-space-2) var(--modern-space-3);
+}
+.modern-settings-system-release {
+  justify-content: space-between;
+}
+.modern-settings-system-version > span {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-secondary);
+}
+.modern-settings-system-version strong {
+  font-size: var(--modern-font-size-section);
+  font-weight: var(--modern-weight-semibold);
+  overflow-wrap: anywhere;
+}
+.modern-settings-system-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--modern-space-5);
+  min-width: 0;
+  margin: 0;
+}
+.modern-settings-system-facts > div {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr);
+  align-items: start;
   gap: var(--modern-space-3);
   min-width: 0;
-  min-height: var(--modern-space-8);
+  border-top: var(--modern-line-width) solid var(--modern-border);
+  padding-block: var(--modern-space-3);
 }
-.modern-settings-system dt {
-  overflow-wrap: break-word;
+.modern-settings-system-facts dt {
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-caption);
-  text-align: right;
+  font-size: var(--modern-font-size-secondary);
+  overflow-wrap: anywhere;
 }
-.modern-settings-system dd {
+.modern-settings-system-facts dd {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -123,35 +153,25 @@ const updateMessage = computed(() => {
   gap: var(--modern-space-2);
   font-size: var(--modern-font-size-secondary);
 }
-.modern-settings-system-version strong {
-  font-size: var(--modern-font-size-section);
-  font-weight: var(--modern-weight-semibold);
-}
-/* 检查更新与版本同排，推到右端。 */
-.modern-settings-system-version dd > :last-child {
-  margin-inline-start: auto;
+.modern-settings-system-wide {
+  grid-column: 1 / -1;
 }
 .modern-settings-system-note {
-  min-height: 0;
-}
-.modern-settings-system-note dd {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
-.modern-settings-system-note dd.is-error {
+.modern-settings-system-note.is-error {
   color: var(--modern-danger);
 }
-@media (max-width: 760px) {
-  .modern-settings-system > div {
+@container modern-settings-content (max-width: 700px) {
+  .modern-settings-system-facts {
     grid-template-columns: minmax(0, 1fr);
-    align-items: start;
+  }
+}
+@container modern-settings-content (max-width: 440px) {
+  .modern-settings-system-facts > div {
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--modern-space-1);
-  }
-  .modern-settings-system dt {
-    text-align: left;
-  }
-  .modern-settings-system-note dt {
-    display: none;
   }
 }
 </style>

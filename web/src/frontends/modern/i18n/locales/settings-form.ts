@@ -33,7 +33,7 @@ export const zhCN = {
     connection: '连接与稳定性',
     browser: '浏览器访问',
     maintenance: '数据维护',
-    interface: '界面偏好',
+    interface: '界面版式',
     system: '系统信息',
   },
   sectionHelp: {
@@ -41,7 +41,7 @@ export const zhCN = {
     connection: '代理、超时和失败处理',
     browser: '跨域访问与请求头规则',
     maintenance: '日志保留与价格同步',
-    interface: '当前浏览器的显示偏好',
+    interface: '选择当前浏览器使用的管理界面',
     system: '版本与部署信息',
   },
   fields: {
@@ -186,7 +186,7 @@ export const enUS = {
     connection: 'Connections & reliability',
     browser: 'Browser access',
     maintenance: 'Data maintenance',
-    interface: 'Appearance',
+    interface: 'Interface layout',
     system: 'System information',
   },
   sectionHelp: {
@@ -194,7 +194,7 @@ export const enUS = {
     connection: 'Proxy, timeouts and failure handling',
     browser: 'Cross-origin access and header rules',
     maintenance: 'Log retention and price sync',
-    interface: 'Display preferences for this browser',
+    interface: 'Choose the admin interface for this browser',
     system: 'Version and deployment',
   },
   fields: {
@@ -344,7 +344,7 @@ export const jaJP = {
     connection: '接続と安定性',
     browser: 'ブラウザアクセス',
     maintenance: 'データ管理',
-    interface: '表示設定',
+    interface: '画面レイアウト',
     system: 'システム情報',
   },
   sectionHelp: {
@@ -352,7 +352,7 @@ export const jaJP = {
     connection: 'プロキシ、タイムアウト、失敗時の処理',
     browser: 'クロスオリジンアクセスとヘッダールール',
     maintenance: 'ログ保持と料金同期',
-    interface: 'このブラウザの表示設定',
+    interface: 'このブラウザで使う管理画面を選択',
     system: 'バージョンと配置情報',
   },
   fields: {

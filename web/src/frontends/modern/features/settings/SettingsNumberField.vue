@@ -28,6 +28,7 @@ const { t } = useI18n()
     :resetting="resetting"
     :locked="locked"
     :disabled="disabled"
+    class="modern-settings-number-field"
     stacked
     @reset="$emit('reset')"
     @undo="$emit('undo')"
@@ -37,8 +38,8 @@ const { t } = useI18n()
       v-model="model"
       :label="t('settingsForm.fields.' + setting)"
       label-hidden
-      size="sm"
       inputmode="numeric"
+      autocomplete="off"
       :disabled="disabled || locked"
       :error="error"
     >
@@ -52,6 +53,11 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
+.modern-settings-number-field {
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  align-items: start;
+}
 .modern-settings-number-unit {
   flex: none;
   white-space: nowrap;
