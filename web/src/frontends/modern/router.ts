@@ -33,18 +33,7 @@ export function createModernRouter(
                         ? () => import('./features/health/HealthView.vue')
                         : item.id === 'models'
                           ? () => import('./features/models/ModelsView.vue')
-                          : () => import('./features/workspace/WorkspaceView.vue'),
-        props:
-          item.id === 'home' ||
-          item.id === 'settings' ||
-          item.id === 'groups' ||
-          item.id === 'accessKeys' ||
-          item.id === 'logs' ||
-          item.id === 'usage' ||
-          item.id === 'health' ||
-          item.id === 'models'
-            ? undefined
-            : { workspaceId: item.id },
+                          : () => import('./features/inspector/InspectorView.vue'),
         meta: { requiresAuth: true, adminOnly: item.adminOnly },
       })),
       {

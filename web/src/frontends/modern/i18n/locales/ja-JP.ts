@@ -1,4 +1,6 @@
 import { protocolMessages as protocols } from '../protocols'
+import { jaJP as inspector } from './inspector'
+import { jaJP as home } from './home'
 import { jaJP as accessKeys } from './access-keys'
 import { jaJP as logs } from './logs'
 import { jaJP as usage } from './usage'
@@ -16,6 +18,8 @@ import { jaJP as settingsForm } from './settings-form'
 import { jaJP as subscriptions } from './subscriptions'
 
 export default {
+  home,
+  inspector,
   protocols,
   logs,
   usage,

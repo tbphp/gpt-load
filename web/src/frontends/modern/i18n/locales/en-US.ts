@@ -1,4 +1,6 @@
 import { protocolMessages as protocols } from '../protocols'
+import { enUS as inspector } from './inspector'
+import { enUS as home } from './home'
 import { enUS as accessKeys } from './access-keys'
 import { enUS as logs } from './logs'
 import { enUS as usage } from './usage'
@@ -16,6 +18,8 @@ import { enUS as settingsForm } from './settings-form'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  home,
+  inspector,
   protocols,
   logs,
   usage,

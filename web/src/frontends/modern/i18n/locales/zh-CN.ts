@@ -1,4 +1,6 @@
 import { protocolMessages as protocols } from '../protocols'
+import { zhCN as inspector } from './inspector'
+import { zhCN as home } from './home'
 import { zhCN as accessKeys } from './access-keys'
 import { zhCN as logs } from './logs'
 import { zhCN as usage } from './usage'
@@ -16,6 +18,8 @@ import { zhCN as settingsForm } from './settings-form'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  home,
+  inspector,
   protocols,
   logs,
   usage,

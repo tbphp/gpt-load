@@ -137,7 +137,7 @@ function readAccessKey(value: unknown): AccessKey {
     updated_at_ms: integer(row.updated_at_ms),
   }
 }
-function readRow(value: unknown): AccessKeyRow {
+export function readAccessKeyRow(value: unknown): AccessKeyRow {
   const row = record(value)
   const usage = row.usage == null ? undefined : record(row.usage)
   const cost = usage ? text(usage.estimated_cost_nano_usd) : undefined
@@ -176,7 +176,7 @@ export async function getAccessKeys(
   const pagination = record(data.pagination)
   const window = record(data.usage_window)
   return {
-    items: list(data.items).map(readRow),
+    items: list(data.items).map(readAccessKeyRow),
     summary: {
       total: integer(summary.total),
       active: integer(summary.active),
