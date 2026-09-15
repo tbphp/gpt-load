@@ -50,6 +50,8 @@ const ownershipIntent = computed(
 const canSave = computed(() => dirty.value || ownershipIntent.value)
 const error = (key: string) =>
   submitted.value && errors.value[key] ? t('modelManager.' + errors.value[key]) : undefined
+// standard 固定存在；这两档后端一视同仁，前端也对称提供。
+const optionalModes = ['fast', 'ultrafast'] as const
 const modeLabel = (mode: string) =>
   ['standard', 'fast', 'ultrafast'].includes(mode) ? t('modelManager.' + mode) : mode
 const controller = new AbortController()
@@ -154,7 +156,7 @@ async function save(confirmed = false): Promise<void> {
             {{ t('modelManager.addTier') }}
           </AppButton>
           <AppIconButton
-            v-if="schedule.mode === 'ultrafast'"
+            v-if="schedule.mode !== 'standard'"
             :icon="Trash2"
             :label="t('modelManager.removeMode')"
             :tooltip="true"
@@ -217,14 +219,15 @@ async function save(confirmed = false): Promise<void> {
         </div>
       </AppFormSection>
       <AppButton
-        v-if="!draft.some((item) => item.mode === 'ultrafast')"
+        v-for="mode in optionalModes.filter((item) => !draft.some((row) => row.mode === item))"
+        :key="mode"
         variant="ghost"
         size="sm"
         :icon="Plus"
         :disabled="pending"
-        @click="draft.push({ mode: 'ultrafast', prices: draftSlots(), tiers: [] })"
+        @click="draft.push({ mode, prices: draftSlots(), tiers: [] })"
       >
-        {{ t('modelManager.addMode') }} · {{ t('modelManager.ultrafast') }}
+        {{ t('modelManager.addMode') }} · {{ t('modelManager.' + mode) }}
       </AppButton>
     </div>
     <footer class="modern-model-price-editor-footer">
