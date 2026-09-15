@@ -7,6 +7,7 @@ import {
   NetworkError,
   RequestCancelledError,
 } from '@shared/http/errors'
+import { clearFrontendPreference } from '@shared/frontend/preference'
 import type { AuthPrincipalType, AuthSessionPayload } from '@shared/http/types'
 import { controlQueryKeys } from '@/app/query-keys'
 
@@ -41,6 +42,7 @@ export interface AuthSession {
 
 export interface AuthSessionDependencies {
   storage?: Storage
+  sessionStorage?: Storage
   queryClient: QueryClient
   onClear?(): void
   validate(
@@ -50,9 +52,9 @@ export interface AuthSessionDependencies {
   ): Promise<AuthSessionPayload>
 }
 
-function readStoredCredential(storage?: Storage): string {
+function readStoredCredential(storage?: Storage, sessionStorage?: Storage): string {
   try {
-    return storage?.getItem(authStorageKey) || ''
+    return sessionStorage?.getItem(authStorageKey) || storage?.getItem(authStorageKey) || ''
   } catch {
     return ''
   }
@@ -66,9 +68,10 @@ function writeStoredCredential(storage: Storage | undefined, credential: string)
   }
 }
 
-function removeStoredCredential(storage?: Storage): void {
+function removeStoredCredential(storage?: Storage, sessionStorage?: Storage): void {
   try {
     storage?.removeItem(authStorageKey)
+    sessionStorage?.removeItem(authStorageKey)
   } catch {
     // Clearing the in-memory credential remains authoritative.
   }
@@ -83,7 +86,7 @@ export function clearAuthenticatedClientState(queryClient: QueryClient): Promise
 }
 
 export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
-  let credential = readStoredCredential(deps.storage)
+  let credential = readStoredCredential(deps.storage, deps.sessionStorage)
   let credentialRevision = 0
   const state = reactive<AuthState>({
     phase: credential ? 'unvalidated' : 'anonymous',
@@ -95,7 +98,8 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
   function clear(): void {
     credential = ''
     credentialRevision += 1
-    removeStoredCredential(deps.storage)
+    removeStoredCredential(deps.storage, deps.sessionStorage)
+    clearFrontendPreference()
     state.phase = 'anonymous'
     state.retryAfterSeconds = 0
     state.principalType = null

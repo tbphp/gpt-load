@@ -30,11 +30,9 @@ export async function bootstrap(): Promise<void> {
       return undefined
     }
   }
-  const appI18n = await createAppI18n(
-    getBrowserStorage('localStorage'),
-    navigator.languages,
-    navigator.language,
-  )
+  const localStorage = getBrowserStorage('localStorage')
+  const sessionStorage = getBrowserStorage('sessionStorage')
+  const appI18n = await createAppI18n(localStorage, navigator.languages, navigator.language)
   const importRecovery = createImportRecoveryService({
     storage: getBrowserStorage('sessionStorage'),
     now: Date.now,
@@ -88,9 +86,14 @@ export async function bootstrap(): Promise<void> {
   })
 
   authSession = createAuthSession({
-    storage: getBrowserStorage('localStorage'),
+    storage: localStorage,
+    sessionStorage,
     queryClient,
-    onClear: clearEphemeralState,
+    onClear: () => {
+      clearEphemeralState()
+      // 经典版会话结束后重新执行入口选择，认证页始终回到新版。
+      window.location.replace(window.location.href)
+    },
     validate: (key, globalUnauthorized, signal) =>
       apiClient.request<AuthSessionPayload>('/api/auth/session', {
         authKey: key,
