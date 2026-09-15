@@ -364,7 +364,8 @@ export default {
         targetApplication: 'Target application',
         primaryModel: 'Primary model',
         required: 'Required',
-        modelPlaceholder: 'Enter a model available to this access key',
+        modelPlaceholder: 'Select or enter a model available to this access key',
+        noModelMatches: 'No matching model; you can keep the current custom value',
         ccSwitchModelRequired:
           'This target needs an explicit model to produce a usable configuration. Enter an available model before importing',
         selectClient: 'Select a client',

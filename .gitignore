@@ -1,5 +1,6 @@
 # Go binaries, builds, and coverage
 gpt-load
+gpt-load-debug
 *.exe
 *.dll
 *.so
@@ -39,7 +40,8 @@ temp/
 
 # IDE files
 .idea/
-.vscode/
+.vscode/*
+!.vscode/launch.json
 *.code-workspace
 *.iml
 *.swp
