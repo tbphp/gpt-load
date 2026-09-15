@@ -161,11 +161,17 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 					protocol.OpenAICompletions,
 					protocol.Gemini,
 				},
+				Models: []string{
+					"client-primary", "client-secondary", "client-third", "ignored-empty",
+				},
 			},
 			{
 				ID: 9, Name: "all protocols",
 				MaskedKey: "sk-gl-****c0de",
 				Protocols: protocol.DataPlaneProtocols(),
+				Models: []string{
+					"client-primary", "client-secondary", "client-third", "ignored-empty",
+				},
 			},
 		},
 	}
@@ -236,6 +242,7 @@ func TestReadAccessKeyHomeBaseScopesInventoryToRoutableModels(t *testing.T) {
 	}
 	if result.Inventory != (HomeInventory{GroupCount: 1, ModelCount: 1}) ||
 		len(result.AccessKeys) != 1 || result.AccessKeys[0].ID != created.ID ||
+		!reflect.DeepEqual(result.AccessKeys[0].Models, []string{"client-allowed"}) ||
 		result.CurrentAccessKey == nil || result.CurrentAccessKey.ID != created.ID {
 		t.Fatalf("ReadAccessKeyHomeBase() = %#v", result)
 	}

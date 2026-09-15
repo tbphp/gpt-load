@@ -222,6 +222,48 @@ export function clientRequiredProtocol(
   return client.id === 'cc-switch' ? ccSwitchTarget.requiredProtocol : client.requiredProtocol
 }
 
+const modelNameCollator = new Intl.Collator('en-US', {
+  numeric: true,
+  sensitivity: 'base',
+})
+
+function gptVersion(model: string): number[] | null {
+  const match = /^gpt-(\d+(?:\.\d+)*)/i.exec(model.trim())
+  return match?.[1]?.split('.').map(Number) ?? null
+}
+
+function compareVersionsDescending(left: readonly number[], right: readonly number[]): number {
+  const length = Math.max(left.length, right.length)
+  for (let index = 0; index < length; index += 1) {
+    const difference = (right[index] ?? -1) - (left[index] ?? -1)
+    if (difference !== 0) return difference
+  }
+  return 0
+}
+
+/** GPT models first by newest numeric version, followed by the remaining model names. */
+export function orderModelSuggestions(models: readonly string[]): string[] {
+  return [...models].sort((left, right) => {
+    const leftVersion = gptVersion(left)
+    const rightVersion = gptVersion(right)
+    if (leftVersion && rightVersion) {
+      const versionOrder = compareVersionsDescending(leftVersion, rightVersion)
+      if (versionOrder !== 0) return versionOrder
+      const lengthOrder = left.length - right.length
+      if (lengthOrder !== 0) return lengthOrder
+    } else if (leftVersion) {
+      return -1
+    } else if (rightVersion) {
+      return 1
+    }
+    return modelNameCollator.compare(left, right)
+  })
+}
+
+export function preferredGPTModel(models: readonly string[]): string {
+  return orderModelSuggestions(models).find((model) => gptVersion(model) !== null) ?? ''
+}
+
 export function clientConfiguration(
   clientID: GatewayClientID,
   origin: string,

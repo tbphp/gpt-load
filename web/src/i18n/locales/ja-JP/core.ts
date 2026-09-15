@@ -363,7 +363,8 @@ export default {
         targetApplication: '対象アプリ',
         primaryModel: 'プライマリモデル',
         required: '必須',
-        modelPlaceholder: 'このアクセスキーで利用可能なモデルを入力',
+        modelPlaceholder: 'このアクセスキーで利用可能なモデルを選択または入力',
+        noModelMatches: '一致するモデルはありません。現在の入力値をそのまま使用できます',
         ccSwitchModelRequired:
           'この対象で利用可能な設定を作るにはモデルの指定が必要です。利用可能なモデルを入力してからインポートしてください',
         selectClient: 'クライアントを選択',

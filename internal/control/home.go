@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ type HomeAccessKey struct {
 	Name      string              `json:"name"`
 	MaskedKey string              `json:"masked_key"`
 	Protocols []protocol.Protocol `json:"protocols"`
+	Models    []string            `json:"models"`
 }
 
 type HomeBase struct {
@@ -179,7 +181,7 @@ func (s *Service) readHomeBase(
 			return HomeBase{}, app_errors.ErrUnauthorized
 		}
 	}
-	accessKeys, err := mapHomeAccessKeys(accessKeyRows)
+	accessKeys, err := mapHomeAccessKeys(accessKeyRows, snapshot)
 	if err != nil {
 		return HomeBase{}, err
 	}
@@ -338,6 +340,14 @@ func countScopedHomeModels(
 	allowedGroups map[uint]struct{},
 	accessKey state.AccessKeyView,
 ) int64 {
+	return int64(len(scopedHomeModelNames(snapshot, allowedGroups, accessKey)))
+}
+
+func scopedHomeModelNames(
+	snapshot *state.ConfigSnapshot,
+	allowedGroups map[uint]struct{},
+	accessKey state.AccessKeyView,
+) []string {
 	names := make(map[string]struct{})
 	for groupID := range allowedGroups {
 		group, exists := snapshot.Groups[groupID]
@@ -357,7 +367,12 @@ func countScopedHomeModels(
 			names[name] = struct{}{}
 		}
 	}
-	return int64(len(names))
+	result := make([]string, 0, len(names))
+	for name := range names {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func homeExternalModelName(model state.ModelConfig) string {
@@ -486,7 +501,10 @@ func countAvailableHomeCredentialsInGroups(
 	return available, nil
 }
 
-func mapHomeAccessKeys(rows []homeAccessKeyRow) ([]HomeAccessKey, error) {
+func mapHomeAccessKeys(
+	rows []homeAccessKeyRow,
+	snapshot *state.ConfigSnapshot,
+) ([]HomeAccessKey, error) {
 	result := make([]HomeAccessKey, 0, len(rows))
 	for _, row := range rows {
 		if uint64(row.ID) > uint64(maxSafeInteger) {
@@ -517,10 +535,24 @@ func mapHomeAccessKeys(rows []homeAccessKeyRow) ([]HomeAccessKey, error) {
 		} else {
 			protocols = append([]protocol.Protocol(nil), protocols...)
 		}
+		accessKey, exists := snapshot.AccessKeysByID[row.ID]
+		if !exists || accessKey.Status != state.AccessKeyStatusActive {
+			return nil, fmt.Errorf(
+				"map home access key %d: runtime configuration mismatch: %w",
+				row.ID,
+				app_errors.ErrInternalServer,
+			)
+		}
+		models := scopedHomeModelNames(
+			snapshot,
+			accessibleHomeGroups(snapshot, accessKey),
+			accessKey,
+		)
 		result = append(result, HomeAccessKey{
 			ID: row.ID, Name: row.Name,
 			MaskedKey: maskedAccessKey(row.KeyPrefix, row.KeySuffix),
 			Protocols: protocols,
+			Models:    models,
 		})
 	}
 	return result, nil
