@@ -139,7 +139,12 @@ async function save(confirmed = false): Promise<void> {
         compact
       >
         <template #actions>
+          <!-- 阶梯价只在标准档提供：Fast 后端直接驳回，Ultrafast 统一不做。 -->
+          <span v-if="schedule.mode !== 'standard'" class="modern-model-price-note">
+            {{ t('modelManager.noTierMode') }}
+          </span>
           <AppButton
+            v-else
             variant="text"
             size="xs"
             :icon="Plus"
@@ -248,6 +253,10 @@ async function save(confirmed = false): Promise<void> {
 </template>
 
 <style scoped>
+.modern-model-price-note {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+}
 .modern-model-price-editor {
   display: flex;
   flex: 1;
