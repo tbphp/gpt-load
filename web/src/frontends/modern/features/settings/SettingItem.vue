@@ -34,7 +34,8 @@ const { t } = useI18n()
           :label="t('settingsForm.lockedHelp')"
         />
       </div>
-      <div class="modern-setting-source">
+      <div v-if="locked || resetting || changed || overridden" class="modern-setting-source">
+        <!-- 不标「默认」：多数项都是默认值，标出来只是噪音，有状态才提示。 -->
         <AppBadge variant="plain" size="xs" :tone="resetting ? 'warning' : 'neutral'">
           {{
             t(
@@ -44,9 +45,7 @@ const { t } = useI18n()
                   ? 'settingsForm.pendingDefault'
                   : changed
                     ? 'settingsForm.modified'
-                    : overridden
-                      ? 'settingsForm.overridden'
-                      : 'settingsForm.default',
+                    : 'settingsForm.overridden',
             )
           }}
         </AppBadge>
@@ -74,9 +73,12 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
+/* 控件列定宽而不是 auto：auto 会让每行按各自控件宽度收缩，右边缘参差不齐。 */
 .modern-setting-item {
+  /* 外层可覆盖以适配更宽的控件。 */
+  --modern-setting-control-width: 240px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--modern-setting-control-width));
   align-items: center;
   gap: var(--modern-space-3) var(--modern-space-5);
   min-width: 0;
@@ -111,7 +113,9 @@ const { t } = useI18n()
   gap: var(--modern-space-1);
 }
 .modern-setting-control {
+  display: grid;
   min-width: 0;
+  justify-items: stretch;
 }
 .modern-setting-reset {
   color: var(--modern-muted);

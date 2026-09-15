@@ -18,7 +18,6 @@ import { useI18n } from 'vue-i18n'
 import { routeStrategies, type SettingKey, type SettingNumber } from '@modern/api/settings'
 import { getSystemInfo, systemInfoKey } from '@modern/api/system'
 import { usePageRefresh } from '@modern/app/page-refresh'
-import { themes, usePreferences, type Theme } from '@modern/app/preferences'
 import { useURLState } from '@modern/app/url-state'
 import {
   AppBadge,
@@ -28,9 +27,7 @@ import {
   AppCopyValue,
   AppFormSection,
   AppIcon,
-  AppNotice,
   AppSegmentedControl,
-  AppSelect,
   AppSwitch,
   AppTextArea,
   AppTextField,
@@ -38,7 +35,6 @@ import {
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import GroupDraftGuard from '@modern/features/groups/GroupDraftGuard.vue'
 import { useApiClient } from '@shared/http/client-context'
-import { supportedLocales, type AppLocale } from '@shared/preferences/locale'
 import FrontendPicker from './FrontendPicker.vue'
 import SettingItem from './SettingItem.vue'
 import SettingsHeadersEditor from './SettingsHeadersEditor.vue'
@@ -48,7 +44,6 @@ import { useSettingsEditor } from './use-settings-editor'
 
 const { t, n } = useI18n()
 const client = useApiClient()
-const preferences = usePreferences()
 const {
   query,
   base,
@@ -176,13 +171,6 @@ const proxyOptions = computed(() =>
     label: t('settingsForm.proxy.' + value),
   })),
 )
-const themeOptions = computed(() =>
-  themes.map((value) => ({ value, label: t('appearance.themes.' + value) })),
-)
-const localeOptions = supportedLocales.map((value) => ({
-  value,
-  label: { 'zh-CN': '简体中文', 'en-US': 'English', 'ja-JP': '日本語' }[value],
-}))
 function settingState(key: SettingKey) {
   return {
     overridden: owned(key),
@@ -285,12 +273,6 @@ async function beforeFrontendSwitch(): Promise<boolean> {
   discard()
   await nextTick()
   return true
-}
-function changeTheme(value: string): void {
-  if (themes.includes(value as Theme)) preferences.setTheme(value as Theme)
-}
-function changeLocale(value: string): void {
-  if (supportedLocales.includes(value as AppLocale)) preferences.setLocale(value as AppLocale)
 }
 async function refresh(): Promise<void> {
   await Promise.all([query.refetch(), info.refetch()])
@@ -636,34 +618,8 @@ onScopeDispose(() => {
             </SettingItem>
           </template>
           <template v-else-if="id === 'interface'">
-            <div class="modern-settings-preferences">
-              <div class="modern-settings-preference">
-                <span>{{ t('appearance.theme') }}</span>
-                <AppSegmentedControl
-                  :model-value="preferences.theme.value"
-                  :label="t('appearance.theme')"
-                  :options="themeOptions"
-                  appearance="field"
-                  size="sm"
-                  @update:model-value="changeTheme"
-                />
-              </div>
-              <AppSelect
-                :model-value="preferences.locale.value"
-                :options="localeOptions"
-                :label="t('appearance.language')"
-                size="sm"
-                @update:model-value="changeLocale"
-              />
-            </div>
-            <p class="modern-settings-local-note">{{ t('settingsForm.localOnly') }}</p>
-            <AppNotice v-if="preferences.persistenceFailed.value" tone="warning">{{
-              t('appearance.persistenceFailed')
-            }}</AppNotice>
-            <div class="modern-settings-subgroup">
-              <h4>{{ t('settingsForm.frontend') }}</h4>
-              <FrontendPicker :disabled="saving" :before-switch="beforeFrontendSwitch" />
-            </div>
+            <!-- 主题与语言在右上角已有入口，这里不再重复一份。 -->
+            <FrontendPicker :disabled="saving" :before-switch="beforeFrontendSwitch" />
           </template>
           <SettingsSystemInfo
             v-else-if="id === 'system'"
@@ -759,8 +715,15 @@ onScopeDispose(() => {
   overscroll-behavior: contain;
   padding: var(--modern-space-1) var(--modern-space-1) var(--modern-space-8);
 }
+/* 表单限宽：内容区有近 1000px，撑满会把标签和控件拉得太开。
+   分区之间用细线隔断，功能边界比单纯留白更清楚。 */
 .modern-settings-section {
-  padding-bottom: var(--modern-space-5);
+  max-width: 760px;
+  padding-bottom: var(--modern-space-6);
+}
+.modern-settings-section + .modern-settings-section {
+  border-top: var(--modern-line-width) solid var(--modern-border);
+  padding-top: var(--modern-space-6);
 }
 .modern-settings-number-grid {
   display: grid;
@@ -773,10 +736,22 @@ onScopeDispose(() => {
   min-width: 0;
   padding-top: var(--modern-space-3);
 }
+/* 组标题原先比它统领的设置项标签还小还淡，层级是倒的。
+   缩到 caption 并拉开字距、补一条延伸线，改以「组标签」的质感区分。 */
 .modern-settings-subgroup h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
+  font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-medium);
+  letter-spacing: var(--modern-tracking-label);
+}
+.modern-settings-subgroup h4::after {
+  flex: 1;
+  height: var(--modern-line-width);
+  background: var(--modern-border);
+  content: '';
 }
 .modern-settings-proxy {
   display: flex;

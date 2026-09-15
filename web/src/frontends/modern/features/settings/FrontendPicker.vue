@@ -2,7 +2,6 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import modernPreview from '@modern/assets/frontend-preview.jpg'
 import { AppChoiceCard, AppNotice } from '@modern/components/ui'
 import { frontendOptions } from '@shared/frontend/catalog'
 import { switchFrontend, type FrontendID } from '@shared/frontend/preference'
@@ -36,7 +35,7 @@ async function select(frontend: FrontendID): Promise<void> {
         v-for="frontend in frontendOptions"
         :key="frontend.id"
         :label="t(`frontend.${frontend.id}.title`)"
-        :image="frontend.id === 'modern' ? modernPreview : frontend.preview"
+        :image="frontend.preview"
         :selected="frontend.id === 'modern'"
         :selected-label="t('frontend.current')"
         :disabled="pending || disabled"
