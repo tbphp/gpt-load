@@ -42,6 +42,8 @@ export default {
     refreshedAt: '{time} 更新',
     importCredentials: 'キーをインポート',
     goHome: 'GPT-Load の概要',
+    mascotHint:
+      'マスコットを長押し、またはフォーカス中にスペースで遊べます。Enter で概要へ戻ります。',
     collapseSidebar: 'サイドバーを折りたたむ',
     expandSidebar: 'サイドバーを展開',
     close: '閉じる',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RefreshCw } from '@lucide/vue'
+import { ArrowUpRight, RefreshCw } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { SystemInfo } from '@modern/api/system'
@@ -9,6 +9,7 @@ import {
   AppCollectionState,
   AppCopyValue,
   AppExternalLink,
+  AppIcon,
 } from '@modern/components/ui'
 import { useSystemStatus } from '@modern/features/system/useSystemStatus'
 
@@ -20,8 +21,6 @@ const databaseNames = { sqlite: 'SQLite', mysql: 'MySQL', postgres: 'PostgreSQL'
 const updateMessage = computed(() => {
   if (checkState.value === 'failed') return { text: t('system.checkFailed'), error: true }
   if (checkState.value === 'authRequired') return { text: t('system.authRequired'), error: true }
-  if (update.value)
-    return { text: t('system.updateAvailable', { version: update.value.version }), error: false }
   if (checkState.value === 'latest') return { text: t('system.latestVersion'), error: false }
   return undefined
 })
@@ -43,13 +42,25 @@ const updateMessage = computed(() => {
         <strong>{{ data.version }}</strong>
         <AppBadge size="xs">{{ t('settingsForm.system.deploymentValue') }}</AppBadge>
       </div>
-      <AppButton
-        :icon="RefreshCw"
-        size="sm"
-        :loading="checkState === 'checking'"
-        @click="checkForUpdate"
-        >{{ t('system.checkUpdate') }}</AppButton
-      >
+      <div class="modern-settings-system-actions">
+        <div class="modern-settings-system-update" aria-live="polite">
+          <AppExternalLink
+            v-if="update"
+            :href="update.releaseURL"
+            class="modern-settings-system-release-link"
+          >
+            <AppIcon :icon="ArrowUpRight" size="sm" />
+            <span>{{ t('system.updateAvailable', { version: update.version }) }}</span>
+          </AppExternalLink>
+        </div>
+        <AppButton
+          :icon="RefreshCw"
+          size="sm"
+          :loading="checkState === 'checking'"
+          @click="checkForUpdate"
+          >{{ t('system.checkUpdate') }}</AppButton
+        >
+      </div>
     </div>
     <p
       v-if="updateMessage"
@@ -57,10 +68,7 @@ const updateMessage = computed(() => {
       :class="{ 'is-error': updateMessage.error }"
       :role="updateMessage.error ? 'alert' : 'status'"
     >
-      <AppExternalLink v-if="update && !updateMessage.error" :href="update.releaseURL">{{
-        updateMessage.text
-      }}</AppExternalLink>
-      <span v-else>{{ updateMessage.text }}</span>
+      {{ updateMessage.text }}
     </p>
     <dl class="modern-settings-system-facts">
       <div>
@@ -122,6 +130,50 @@ const updateMessage = computed(() => {
   font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
   overflow-wrap: anywhere;
+}
+.modern-settings-system-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+  gap: var(--modern-space-2);
+}
+.modern-settings-system-update {
+  min-width: 0;
+}
+.modern-settings-system-release-link {
+  display: flex;
+  align-items: center;
+  min-height: var(--modern-control-sm);
+  gap: var(--modern-space-1);
+  border: var(--modern-line-width) solid transparent;
+  border-radius: var(--modern-radius-control);
+  background: var(--modern-badge-brand-surface);
+  padding: var(--modern-space-1) var(--modern-space-2);
+  color: var(--modern-accent);
+  font-size: var(--modern-font-size-small);
+  font-weight: var(--modern-weight-medium);
+  text-decoration: none;
+}
+.modern-settings-system-release-link > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modern-settings-system-release-link:hover {
+  border-color: var(--modern-accent);
+  background: var(--modern-accent-soft);
+}
+.modern-settings-system-release-link:is(:hover, :focus-visible) > span {
+  text-decoration: underline;
+  text-underline-offset: var(--modern-space-1);
+}
+.modern-settings-system-release-link:focus-visible {
+  outline: var(--modern-focus-width) solid var(--modern-accent);
+  outline-offset: var(--modern-focus-offset);
+  box-shadow: var(--modern-shadow-focus);
 }
 .modern-settings-system-facts {
   display: grid;

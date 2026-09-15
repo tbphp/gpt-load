@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { BookOpen, Heart, Send } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 
 import { navigationSections } from '@modern/app/navigation'
+import { usePreferences } from '@modern/app/preferences'
 import { useNavigation } from '@modern/app/use-navigation'
 import BrandLogo from '@modern/components/BrandLogo.vue'
 import GitHubIcon from '@modern/components/GitHubIcon.vue'
@@ -16,6 +17,9 @@ defineProps<{ collapsed?: boolean }>()
 const emit = defineEmits<{ navigate: [] }>()
 const route = useRoute()
 const { t } = useI18n()
+const { resolvedTheme } = usePreferences()
+const mascot = ref<InstanceType<typeof BrandLogo>>()
+const mascotHint = useId()
 const navigation = useNavigation()
 const sections = computed(() =>
   navigationSections.filter((section) => navigation.value.some((item) => item.section === section)),
@@ -34,10 +38,13 @@ const footerLinks = computed(() => [
       class="modern-sidebar-brand"
       :to="{ name: 'modern-home' }"
       :aria-label="t('shell.goHome')"
+      :aria-describedby="mascotHint"
       @click="emit('navigate')"
+      @keydown.space.prevent="!$event.repeat && mascot?.nudge()"
     >
-      <BrandLogo :compact="collapsed" />
+      <BrandLogo ref="mascot" :compact="collapsed" :resolved-theme="resolvedTheme" />
     </RouterLink>
+    <span :id="mascotHint" class="modern-sr-only">{{ t('shell.mascotHint') }}</span>
     <nav class="modern-sidebar-navigation" :aria-label="t('navigation')">
       <div v-for="section in sections" :key="section" class="modern-nav-section">
         <p v-if="!collapsed" class="modern-nav-section__label">{{ t(`sections.${section}`) }}</p>
@@ -174,8 +181,8 @@ const footerLinks = computed(() => [
   color: var(--modern-text);
 }
 .is-collapsed .modern-sidebar-brand {
-  justify-content: center;
-  padding-inline: 0;
+  justify-content: flex-start;
+  padding-inline: var(--modern-space-2) 0;
   margin-bottom: var(--modern-space-6);
 }
 .is-collapsed .modern-nav-link {

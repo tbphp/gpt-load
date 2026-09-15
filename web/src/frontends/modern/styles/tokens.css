@@ -241,6 +241,17 @@
   --modern-motion-fast: 140ms;
   --modern-motion-spin: 1s;
   --modern-motion-ease: ease;
+  --modern-mascot-inverse: #f5f5f2;
+  --modern-mascot-backdrop: var(--modern-sidebar);
+  --modern-mascot-stroke: 7px;
+  --modern-mascot-hover-delay: 320ms;
+  --modern-mascot-charge-duration: 560ms;
+  --modern-mascot-sniff-duration: 1250ms;
+  --modern-mascot-nudge-duration: 1400ms;
+  --modern-mascot-fold-duration: 800ms;
+  --modern-mascot-theme-duration: 1450ms;
+  --modern-mascot-cooldown: 2400ms;
+  --modern-mascot-ease: cubic-bezier(0.22, 0.9, 0.24, 1);
   --modern-opacity-disabled: 0.55;
   --modern-opacity-quiet: 0.65;
 }

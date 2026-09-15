@@ -42,6 +42,8 @@ export default {
     refreshedAt: 'Updated {time}',
     importCredentials: 'Import credentials',
     goHome: 'GPT-Load overview',
+    mascotHint:
+      'Hold the mascot or press Space when focused to play. Press Enter for the overview.',
     collapseSidebar: 'Collapse sidebar',
     expandSidebar: 'Expand sidebar',
     close: 'Close',

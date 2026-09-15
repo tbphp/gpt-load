@@ -46,6 +46,7 @@ export async function bootstrap(): Promise<void> {
     .use(i18n)
     .use(VueQueryPlugin, { queryClient })
     .use(router)
+  app.onUnmount(preferences.dispose)
   await router.isReady()
   app.mount('#app')
 }

@@ -1,4 +1,4 @@
-import { inject, readonly, ref, type InjectionKey } from 'vue'
+import { computed, inject, readonly, ref, type InjectionKey } from 'vue'
 
 import type { AppLocale } from '@shared/preferences/locale'
 
@@ -21,6 +21,15 @@ export function createPreferences(
   const theme = ref<Theme>(
     themes.includes(storedTheme as Theme) ? (storedTheme as Theme) : 'system',
   )
+  const systemScheme = window.matchMedia('(prefers-color-scheme: dark)')
+  const systemDark = ref(systemScheme.matches)
+  const resolvedTheme = computed<'light' | 'dark'>(() =>
+    theme.value === 'system' ? (systemDark.value ? 'dark' : 'light') : theme.value,
+  )
+  function updateSystemTheme(event: MediaQueryListEvent): void {
+    systemDark.value = event.matches
+  }
+  systemScheme.addEventListener('change', updateSystemTheme)
   const locale = ref(initialLocale)
   const sidebarCollapsed = ref(readPreference('gpt-load.modern.sidebar-collapsed') === 'true')
   const persistenceFailed = ref(false)
@@ -44,9 +53,13 @@ export function createPreferences(
 
   return {
     theme: readonly(theme),
+    resolvedTheme,
     locale: readonly(locale),
     sidebarCollapsed: readonly(sidebarCollapsed),
     persistenceFailed: readonly(persistenceFailed),
+    dispose() {
+      systemScheme.removeEventListener('change', updateSystemTheme)
+    },
     setTheme(value: Theme) {
       theme.value = value
       applyTheme(value)

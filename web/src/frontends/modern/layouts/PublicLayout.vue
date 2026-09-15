@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
@@ -8,7 +9,9 @@ import AppearanceMenu from './AppearanceMenu.vue'
 
 defineProps<{ restoringSession?: boolean }>()
 const { t } = useI18n()
-const { sidebarCollapsed } = usePreferences()
+const { sidebarCollapsed, resolvedTheme } = usePreferences()
+const mascot = ref<InstanceType<typeof BrandLogo>>()
+const mascotHint = useId()
 </script>
 
 <template>
@@ -22,9 +25,16 @@ const { sidebarCollapsed } = usePreferences()
         }"
         :to="{ name: 'modern-home' }"
         :aria-label="t('shell.goHome')"
+        :aria-describedby="mascotHint"
+        @keydown.space.prevent="!$event.repeat && mascot?.nudge()"
       >
-        <BrandLogo :compact="restoringSession && sidebarCollapsed" />
+        <BrandLogo
+          ref="mascot"
+          :compact="restoringSession && sidebarCollapsed"
+          :resolved-theme="resolvedTheme"
+        />
       </RouterLink>
+      <span :id="mascotHint" class="modern-sr-only">{{ t('shell.mascotHint') }}</span>
       <div class="modern-public-actions"><AppearanceMenu /></div>
     </header>
     <main class="modern-public-content"><slot /></main>
@@ -47,6 +57,7 @@ const { sidebarCollapsed } = usePreferences()
   padding: 0 var(--modern-content-inset);
 }
 .modern-public-brand {
+  --modern-mascot-backdrop: var(--modern-surface);
   min-width: 0;
 }
 /* 恢复会话后会切到侧栏，品牌预先使用相同的位置和尺寸，避免刷新时横向跳动。 */
