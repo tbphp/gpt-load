@@ -3,7 +3,6 @@ package subscription
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -136,163 +135,35 @@ func TestCapturedHTTPAndWebsocketQuotasAgreeAfterMatching(t *testing.T) {
 	}
 }
 
-func TestMergeUnidentifiedWebsocketQuotaRequiresUniqueResetWindow(t *testing.T) {
-	const accountReset = int64(1800000000)
-	for _, test := range []struct {
-		name                                   string
-		topReset, storedSparkReset, namedReset int64
-		namedSource                            string
-		wantAccount, wantSpark                 float64
-	}{
-		{"same account window", accountReset, accountReset + 10000, accountReset + 10000, "Spark", 94, 5},
-		{"one second earlier", accountReset - 1, accountReset + 10000, accountReset + 10000, "Spark", 94, 5},
-		{"one second later", accountReset + 1, accountReset + 10000, accountReset + 10000, "Spark", 94, 5},
-		{"outside reset precision", accountReset + 2, accountReset + 10000, accountReset + 10000, "Spark", 93, 5},
-		{"missing event reset", 0, accountReset + 10000, accountReset + 10000, "Spark", 93, 5},
-		{"model reset does not affect account match", accountReset, 0, accountReset + 10000, "Spark", 94, 5},
-		{"ambiguous sources", accountReset, accountReset + 1, accountReset + 1, "Spark", 93, 5},
-		{"named copy wins despite different usage", accountReset + 10001, accountReset + 10000, accountReset + 10000, "Spark", 93, 5},
-		{"unknown named source shares account reset", accountReset, accountReset + 10000, accountReset, "Unknown", 93, 7},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			raw, err := codex.NormalizeQuota(fmt.Appendf(nil, `{
-				"rate_limit":{"primary_window":{"used_percent":93,"limit_window_seconds":604800,"reset_at":%d}},
-				"additional_rate_limits":[{"limit_name":"Spark","metered_feature":"codex_bengalfox",
-					"rate_limit":{"secondary_window":{"used_percent":7,"limit_window_seconds":604800,"reset_at":%d}}}]
-			}`, accountReset, test.storedSparkReset), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			patches := codex.NormalizeWebsocketQuotaWindows(fmt.Appendf(nil, `{
-				"type":"codex.rate_limits",
-				"rate_limits":{"secondary":{"used_percent":94,"window_minutes":10080,"reset_at":%d}},
-				"additional_rate_limits":{%q:{"primary":{"used_percent":5,"window_minutes":10080,"reset_at":%d}}}
-			}`, test.topReset, test.namedSource, test.namedReset), time.Unix(1000, 0))
-			merged, err := mergePassiveQuotaSnapshot(raw, patches)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(merged.Windows) != 2 {
-				t.Fatalf("window identity changed: %s", merged.Encoded)
-			}
-			for _, window := range merged.Windows {
-				want := test.wantSpark
-				if window.SourceID == "codex" {
-					want = test.wantAccount
-					if window.ResetAtMS == nil || *window.ResetAtMS != accountReset*1000 {
-						t.Fatalf("unidentified event moved the reset anchor: %#v", window)
-					}
-				}
-				if window.Used == nil || *window.Used != want || window.Remaining == nil || *window.Remaining != 100-want {
-					t.Fatalf("source=%s quota did not match: %s", window.SourceID, merged.Encoded)
-				}
-				if window.MatchByReset || window.SourceName != "" {
-					t.Fatal("transient matching hints reached the stored snapshot")
-				}
-			}
-		})
-	}
-}
-
-func TestMergeUnidentifiedWebsocketQuotaReanchorsExpiredAccountWindow(t *testing.T) {
-	const (
-		accountReset = int64(1800000000)
-		period       = int64(604800)
-		newReset     = accountReset + period
-	)
-	raw, err := codex.NormalizeQuota(fmt.Appendf(nil, `{
-		"rate_limit":{"primary_window":{"used_percent":93,"limit_window_seconds":604800,"reset_at":%d}},
+func TestMergeWebsocketQuotaUsesCurrentEventAcrossResetCycles(t *testing.T) {
+	raw, err := codex.NormalizeQuota([]byte(`{
+		"rate_limit":{"primary_window":{"used_percent":93,"limit_window_seconds":604800,"reset_at":1800000000}},
 		"additional_rate_limits":[{"limit_name":"Spark","metered_feature":"codex_bengalfox",
-			"rate_limit":{"secondary_window":{"used_percent":7,"limit_window_seconds":604800,"reset_at":%d}}}]
-	}`, accountReset, accountReset+10000), nil)
+			"rate_limit":{"secondary_window":{"used_percent":7,"limit_window_seconds":604800,"reset_at":1800010000}}}]
+	}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	patches := codex.NormalizeWebsocketQuotaWindows(fmt.Appendf(nil, `{
+	patches := codex.NormalizeWebsocketQuotaWindows([]byte(`{
 		"type":"codex.rate_limits",
-		"rate_limits":{"secondary":{"used_percent":94,"window_minutes":10080,"reset_at":%d}},
-		"additional_rate_limits":{"Spark":{"primary":{"used_percent":5,"window_minutes":10080,"reset_at":%d}}}
-	}`, newReset, accountReset+10000), time.Unix(accountReset+1, 0))
-	merged, err := mergePassiveQuotaSnapshotAt(raw, patches, (accountReset+1)*1000)
+		"rate_limits":{"secondary":{"used_percent":94,"window_minutes":10080,"reset_at":1800604800}},
+		"additional_rate_limits":{"Spark":{"primary":{"used_percent":5,"window_minutes":10080,"reset_at":1800610000}}}
+	}`), time.Unix(1800000001, 0))
+	merged, err := mergePassiveQuotaSnapshot(raw, patches)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, window := range merged.Windows {
-		if window.SourceID != "codex" {
-			continue
-		}
-		if window.Used == nil || *window.Used != 94 || window.ResetAtMS == nil || *window.ResetAtMS != newReset*1000 {
-			t.Fatalf("expired account window was not re-anchored: %#v", window)
-		}
-		return
-	}
-	t.Fatal("account window is missing")
-}
-
-func TestMergeUnidentifiedWebsocketQuotaNeverTargetsModelWindow(t *testing.T) {
-	const (
-		period       = int64(604800)
-		sparkReset   = int64(1800010000)
-		accountReset = sparkReset - period
-	)
-	raw, err := codex.NormalizeQuota(fmt.Appendf(nil, `{
-		"rate_limit":{"primary_window":{"used_percent":93,"limit_window_seconds":604800,"reset_at":%d}},
-		"additional_rate_limits":[{"limit_name":"Spark","metered_feature":"codex_bengalfox",
-			"rate_limit":{"secondary_window":{"used_percent":7,"limit_window_seconds":604800,"reset_at":%d}}}]
-	}`, accountReset, sparkReset), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	patches := codex.NormalizeWebsocketQuotaWindows(fmt.Appendf(nil, `{
-		"type":"codex.rate_limits",
-		"rate_limits":{"secondary":{"used_percent":94,"window_minutes":10080,"reset_at":%d}},
-		"additional_rate_limits":{"Unknown":{"primary":{"used_percent":5,"window_minutes":10080,"reset_at":%d}}}
-	}`, sparkReset, sparkReset+10000), time.Unix(accountReset+1, 0))
-	merged, err := mergePassiveQuotaSnapshotAt(raw, patches, (accountReset+1)*1000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(merged.Windows) != 2 {
-		t.Fatalf("window identity changed: %s", merged.Encoded)
-	}
-	for _, window := range merged.Windows {
-		want := 7.0
+		wantUsed, wantReset := 5.0, int64(1800610000000)
 		if window.SourceID == "codex" {
-			want = 93
+			wantUsed, wantReset = 94, 1800604800000
 		}
-		if window.Used == nil || *window.Used != want {
-			t.Fatalf("unidentified top-level quota changed source %s: %s", window.SourceID, merged.Encoded)
+		if window.Used == nil || *window.Used != wantUsed || window.ResetAtMS == nil || *window.ResetAtMS != wantReset {
+			t.Fatalf("source=%s was not refreshed from the current event: %s", window.SourceID, merged.Encoded)
 		}
-	}
-}
-
-func TestPassiveQuotaRolloverRequiresExpiredWindowAndPlausibleReset(t *testing.T) {
-	const (
-		periodSeconds = int64(604800)
-		periodMS      = periodSeconds * 1000
-		previousReset = int64(1800000000000)
-	)
-	for _, test := range []struct {
-		name         string
-		observedAtMS int64
-		nextReset    int64
-		want         bool
-	}{
-		{"fixed rollover", previousReset + 1000, previousReset + periodMS, true},
-		{"rolling rollover after idle", previousReset + 3600000, previousReset + 3600000 + periodMS, true},
-		{"old window has not expired", previousReset - 2000, previousReset + periodMS, false},
-		{"reset moved less than one period", previousReset + 1000, previousReset + periodMS - 2000, false},
-		{"new reset is already stale", previousReset + periodMS + 2000, previousReset + periodMS, false},
-		{"new reset exceeds one period horizon", previousReset + 1000, previousReset + 1000 + periodMS + 2000, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			period, oldReset, nextReset := periodSeconds, previousReset, test.nextReset
-			previous := providerobservation.QuotaWindow{WindowSeconds: &period, ResetAtMS: &oldReset}
-			patch := providerobservation.QuotaWindow{WindowSeconds: &period, ResetAtMS: &nextReset}
-			if got := isPassiveQuotaRollover(previous, patch, test.observedAtMS); got != test.want {
-				t.Fatalf("isPassiveQuotaRollover() = %t, want %t", got, test.want)
-			}
-		})
+		if window.SourceName != "" {
+			t.Fatal("transient source hint reached the stored snapshot")
+		}
 	}
 }
 

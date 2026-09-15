@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"reflect"
 
 	"gorm.io/gorm"
@@ -153,7 +152,7 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 		if sample == nil || (storedAtMS != nil && sample.ObservedAtMS <= *storedAtMS) {
 			continue
 		}
-		merged, err := mergePassiveQuotaSnapshotAt(result.Encoded, sample.Windows, sample.ObservedAtMS)
+		merged, err := mergePassiveQuotaSnapshot(result.Encoded, sample.Windows)
 		if err != nil {
 			return passiveQuotaMerge{}, 0, err
 		}
@@ -186,14 +185,6 @@ func mergePassiveQuotaSnapshot(
 	raw []byte,
 	patches []providerobservation.QuotaWindow,
 ) (result passiveQuotaMerge, err error) {
-	return mergePassiveQuotaSnapshotAt(raw, patches, 0)
-}
-
-func mergePassiveQuotaSnapshotAt(
-	raw []byte,
-	patches []providerobservation.QuotaWindow,
-	observedAtMS int64,
-) (result passiveQuotaMerge, err error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return passiveQuotaMerge{}, fmt.Errorf("decode credential observation snapshot: %w", err)
@@ -211,21 +202,7 @@ func mergePassiveQuotaSnapshotAt(
 	namedTargets := make(map[int]bool)
 	matches := make(map[int]int, len(patches))
 	for index, patch := range patches {
-		position := -1
-		if patch.MatchByReset && patch.SourceID == "" && patch.SourceName == "" {
-			position = matchPassiveQuotaWindowByReset(existing, patch, observedAtMS)
-		} else {
-			position = matchPassiveQuotaWindow(existing, patch)
-		}
-		if patch.MatchByReset {
-			for _, other := range patches {
-				if other.SourceName != "" && samePassiveQuotaResetWindow(patch, other) {
-					// 事件中的具名副本即使尚未录入快照，也不能落到普通账号窗口。
-					position = -1
-					break
-				}
-			}
-		}
+		position := matchPassiveQuotaWindow(existing, patch)
 		positions[index] = position
 		if position >= 0 && patch.SourceName != "" {
 			namedTargets[position] = true
@@ -258,10 +235,6 @@ func mergePassiveQuotaSnapshotAt(
 		}
 		outcome.Matched = true
 		patch.ID = previous.ID // 响应槽位可以变化，卡片窗口身份不变。
-		if patch.MatchByReset && samePassiveQuotaResetWindow(previous, patch) {
-			// 来源未明的窗口不能改写重置锚点，避免多轮匹配的秒级容差累积漂移。
-			patch.ResetAtMS = previous.ResetAtMS
-		}
 		next := providerobservation.MergeQuotaWindow(previous, patch)
 		if !reflect.DeepEqual(next, previous) {
 			outcome.Changed = true
@@ -310,86 +283,6 @@ func matchPassiveQuotaWindow(windows []providerobservation.QuotaWindow, patch pr
 		matched = index
 	}
 	return matched
-}
-
-// 无来源的 Codex WS 顶层数据只能更新唯一的同周期账号窗口，不能落到模型窗口。
-// 同一额度周期内按 reset_at 对齐；旧锚点已到期时，仅接受时间边界合理的新周期。
-func matchPassiveQuotaWindowByReset(
-	windows []providerobservation.QuotaWindow,
-	patch providerobservation.QuotaWindow,
-	observedAtMS int64,
-) int {
-	if patch.WindowSeconds == nil || *patch.WindowSeconds <= 0 || patch.ResetAtMS == nil || *patch.ResetAtMS <= 0 {
-		return -1
-	}
-	matched := -1
-	for index, window := range windows {
-		if window.WindowSeconds == nil || *window.WindowSeconds != *patch.WindowSeconds {
-			continue
-		}
-		if window.Scope != "account" {
-			// 顶层窗口若仍能对齐一个已有模型窗口，来源就不唯一；即使账号窗口
-			// 看似刚好跨周期，也必须拒绝，不能把模型数据改写到账号窗口。
-			if samePassiveQuotaResetWindow(window, patch) {
-				return -1
-			}
-			continue
-		}
-		if window.SourceID == "" {
-			continue
-		}
-		if matched >= 0 {
-			return -1
-		}
-		matched = index
-	}
-	if matched < 0 || windows[matched].ResetAtMS == nil || *windows[matched].ResetAtMS <= 0 {
-		return -1
-	}
-	if samePassiveQuotaResetWindow(windows[matched], patch) ||
-		isPassiveQuotaRollover(windows[matched], patch, observedAtMS) {
-		return matched
-	}
-	return -1
-}
-
-func isPassiveQuotaRollover(previous, patch providerobservation.QuotaWindow, observedAtMS int64) bool {
-	if observedAtMS <= 0 || previous.WindowSeconds == nil || patch.WindowSeconds == nil ||
-		*previous.WindowSeconds <= 0 || *previous.WindowSeconds != *patch.WindowSeconds ||
-		*previous.WindowSeconds > math.MaxInt64/1000 || previous.ResetAtMS == nil || patch.ResetAtMS == nil ||
-		*previous.ResetAtMS <= 0 || *patch.ResetAtMS <= *previous.ResetAtMS {
-		return false
-	}
-	const precisionMS = int64(1000)
-	previousReset, nextReset := *previous.ResetAtMS, *patch.ResetAtMS
-	if previousReset > observedAtMS && previousReset-observedAtMS > precisionMS {
-		return false
-	}
-	if nextReset < observedAtMS && observedAtMS-nextReset > precisionMS {
-		return false
-	}
-	periodMS := *previous.WindowSeconds * 1000
-	resetDelta := nextReset - previousReset
-	if resetDelta < periodMS && periodMS-resetDelta > precisionMS {
-		return false
-	}
-	if nextReset > observedAtMS {
-		resetHorizon := nextReset - observedAtMS
-		if resetHorizon > periodMS && resetHorizon-periodMS > precisionMS {
-			return false
-		}
-	}
-	return true
-}
-
-func samePassiveQuotaResetWindow(left, right providerobservation.QuotaWindow) bool {
-	if left.WindowSeconds == nil || right.WindowSeconds == nil || *left.WindowSeconds <= 0 ||
-		*left.WindowSeconds != *right.WindowSeconds || left.ResetAtMS == nil || right.ResetAtMS == nil ||
-		*left.ResetAtMS <= 0 || *right.ResetAtMS <= 0 {
-		return false
-	}
-	delta := *left.ResetAtMS - *right.ResetAtMS
-	return delta >= -1000 && delta <= 1000
 }
 
 // Codex WS 的附加额度只报告原始 limit_name。利用主动观测已保存的名称和周期

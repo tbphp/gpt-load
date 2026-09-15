@@ -62,23 +62,51 @@ func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quot
 	if sourceID == "" {
 		sourceID = normalizeQuotaSourceID(event.LimitName)
 	}
-	matchByReset := sourceID == "" && len(event.AdditionalRateLimits) > 0
-	if !matchByReset && (sourceID == "" || sourceID == codexAccountActiveLimit) {
+	if sourceID == codexAccountActiveLimit {
 		sourceID = codexAccountQuotaSourceID
 	}
 	primary := normalizeWebsocketQuotaRate(event.RateLimits, observedAt)
 	result := make([]quotaWindow, 0, len(primary)+len(additional))
 	for _, window := range primary {
-		if matchByReset && window.ResetAtMS == nil {
-			continue
+		if sourceID == "" {
+			if !websocketQuotaTopLevelIsAccount(window, additional) {
+				continue
+			}
+			window.SourceID = codexAccountQuotaSourceID
+		} else {
+			window.SourceID = sourceID
 		}
-		window.SourceID = sourceID
-		// 不按用量差异猜测普通账号来源，留给合并层匹配已有窗口。
-		window.MatchByReset = matchByReset
 		result = append(result, window)
 	}
-	// 具名来源尚未解析，不能在这里按数值去重；合并层按实际目标窗口处理副本。
+	// 具名来源仍由已有快照解析 SourceID；顶层副本已在本事件内完成去重。
 	return append(result, additional...)
+}
+
+// websocketQuotaTopLevelIsAccount 用同一事件内的附加窗口排除顶层副本。
+// 槽位和用量不代表身份；同周期的 reset_at 才能区分当前额度窗口。
+func websocketQuotaTopLevelIsAccount(window quotaWindow, additional []quotaWindow) bool {
+	for _, candidate := range additional {
+		if window.WindowSeconds == nil || candidate.WindowSeconds == nil ||
+			*window.WindowSeconds != *candidate.WindowSeconds {
+			continue
+		}
+		// 同周期附加窗口存在但缺少锚点时无法完成比较，保守跳过顶层窗口。
+		if window.ResetAtMS == nil || candidate.ResetAtMS == nil {
+			return false
+		}
+		if sameWebsocketQuotaReset(window, candidate) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameWebsocketQuotaReset(left, right quotaWindow) bool {
+	if left.ResetAtMS == nil || right.ResetAtMS == nil || *left.ResetAtMS <= 0 || *right.ResetAtMS <= 0 {
+		return false
+	}
+	delta := *left.ResetAtMS - *right.ResetAtMS
+	return delta >= -1000 && delta <= 1000
 }
 
 func normalizeWebsocketQuotaRate(rate *websocketQuotaRate, observedAt time.Time) []quotaWindow {

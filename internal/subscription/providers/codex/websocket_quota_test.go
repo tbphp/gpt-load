@@ -2,33 +2,35 @@ package codex
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 )
 
-func TestWebsocketQuotaDoesNotGuessAccountSourceWhenMeteredValuesDiffer(t *testing.T) {
+func TestWebsocketQuotaDropsSameEventCopyWithinResetPrecision(t *testing.T) {
 	payload, err := os.ReadFile("testdata/quota-ws-spark.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 同一事件的顶层与具名额度存在数值差异，也不能把无来源顶层归属普通账号。
+	// 同一事件里的副本允许 1 秒 reset_at 精度差；用量值不参与窗口身份判断。
 	var event map[string]any
 	if err := json.Unmarshal(payload, &event); err != nil {
 		t.Fatal(err)
 	}
 	weekly := event["rate_limits"].(map[string]any)["secondary"].(map[string]any)
+	weekly["used_percent"] = float64(42)
 	weekly["reset_at"] = weekly["reset_at"].(float64) + 1
 	payload, err = json.Marshal(event)
 	if err != nil {
 		t.Fatal(err)
 	}
 	windows := NormalizeWebsocketQuotaWindows(payload, time.Unix(1000, 0))
-	if len(windows) != 4 {
-		t.Fatalf("windows = %#v, want unresolved top-level and named Spark windows", windows)
+	if len(windows) != 2 {
+		t.Fatalf("windows = %#v, want only named Spark windows", windows)
 	}
 	for _, window := range windows {
-		if window.SourceID != "" || (window.SourceName != "GPT-5.3-Codex-Spark" && !window.MatchByReset) {
+		if window.SourceID != "" || window.SourceName != "GPT-5.3-Codex-Spark" {
 			t.Fatalf("unexpected Spark source: id=%q name=%q", window.SourceID, window.SourceName)
 		}
 	}
@@ -37,11 +39,11 @@ func TestWebsocketQuotaDoesNotGuessAccountSourceWhenMeteredValuesDiffer(t *testi
 // testdata 为 2026-09-12 对同一账号实测得到的额度字段，不包含身份和凭据。
 func TestWebsocketQuotaCapturedAccountAndSparkEvents(t *testing.T) {
 	for _, test := range []struct {
-		file            string
-		unresolvedCount int
+		file         string
+		accountCount int
 	}{
 		{"quota-ws-account.json", 1},
-		{"quota-ws-spark.json", 2},
+		{"quota-ws-spark.json", 0},
 	} {
 		t.Run(test.file, func(t *testing.T) {
 			payload, err := os.ReadFile("testdata/" + test.file)
@@ -49,16 +51,13 @@ func TestWebsocketQuotaCapturedAccountAndSparkEvents(t *testing.T) {
 				t.Fatal(err)
 			}
 			windows := NormalizeWebsocketQuotaWindows(payload, time.Unix(1789204875, 0))
-			if len(windows) != test.unresolvedCount+2 {
+			if len(windows) != test.accountCount+2 {
 				t.Fatalf("windows=%#v", windows)
 			}
-			unresolved, spark := 0, 0
+			account, spark := 0, 0
 			for _, window := range windows {
-				if window.SourceID != "" {
-					t.Fatalf("event invented a source: %#v", window)
-				}
-				if window.MatchByReset {
-					unresolved++
+				if window.SourceID == "codex" {
+					account++
 					if test.file == "quota-ws-account.json" && (*window.Used != 6 || *window.Remaining != 94 || *window.WindowSeconds != 604800) {
 						t.Fatalf("account quota=%#v", window)
 					}
@@ -72,8 +71,8 @@ func TestWebsocketQuotaCapturedAccountAndSparkEvents(t *testing.T) {
 					t.Fatalf("passive event rewrites presentation: %#v", window)
 				}
 			}
-			if unresolved != test.unresolvedCount || spark != 2 {
-				t.Fatalf("unresolved=%d spark=%d", unresolved, spark)
+			if account != test.accountCount || spark != 2 {
+				t.Fatalf("account=%d spark=%d", account, spark)
 			}
 		})
 	}
@@ -100,7 +99,6 @@ func TestWebsocketQuotaRejectsUnusableOrAmbiguousSignals(t *testing.T) {
 		`{"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":101,"window_minutes":300}}}`,
 		`{"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":1,"window_minutes":0}}}`,
 		`{"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":1}}}`,
-		`{"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":1,"window_minutes":300}},"additional_rate_limits":{"Unknown":null}}`,
 		`{"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":1,"window_minutes":300}}} {}`,
 	} {
 		if got := NormalizeWebsocketQuotaWindows([]byte(payload), time.Unix(1000, 0)); len(got) != 0 {
@@ -109,14 +107,100 @@ func TestWebsocketQuotaRejectsUnusableOrAmbiguousSignals(t *testing.T) {
 	}
 }
 
-func TestWebsocketQuotaLeavesMeteredCopyUnresolvedEvenWhenSlotsDiffer(t *testing.T) {
+func TestWebsocketQuotaDropsMeteredCopyEvenWhenSlotsDiffer(t *testing.T) {
 	windows := NormalizeWebsocketQuotaWindows([]byte(`{
 		"type":"codex.rate_limits",
 		"rate_limits":{"primary":{"used_percent":5,"window_minutes":10080,"reset_at":1800000000}},
 		"additional_rate_limits":{"Spark":{"secondary":{"used_percent":5,"window_minutes":10080,"reset_at":1800000000}}}
 	}`), time.Unix(1000, 0))
-	if len(windows) != 2 || windows[0].SourceID != "" || !windows[0].MatchByReset || windows[1].SourceName != "Spark" {
+	if len(windows) != 1 || windows[0].SourceID != "" || windows[0].SourceName != "Spark" {
 		t.Fatalf("metered copy reached the account pool: %#v", windows)
+	}
+}
+
+func TestWebsocketQuotaTreatsMissingOrEmptyAdditionalLimitsAsAccount(t *testing.T) {
+	for _, additional := range []string{"", `,"additional_rate_limits":null`, `,"additional_rate_limits":{}`, `,"additional_rate_limits":{"Unknown":null}`} {
+		payload := []byte(`{"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":1,"window_minutes":300,"reset_at":1800000000}}` + additional + `}`)
+		windows := NormalizeWebsocketQuotaWindows(payload, time.Unix(1000, 0))
+		if len(windows) != 1 || windows[0].SourceID != "codex" {
+			t.Fatalf("additional=%q windows=%#v, want one account window", additional, windows)
+		}
+	}
+	windows := NormalizeWebsocketQuotaWindows([]byte(`{
+		"type":"codex.rate_limits",
+		"rate_limits":{"primary":{"used_percent":1,"window_minutes":300}}
+	}`), time.Unix(1000, 0))
+	if len(windows) != 1 || windows[0].SourceID != "codex" || windows[0].ResetAtMS != nil {
+		t.Fatalf("top-level account window without reset was rejected: %#v", windows)
+	}
+}
+
+func TestWebsocketQuotaComparesEveryAdditionalWindow(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		topReset     int64
+		accountCount int
+	}{
+		{"matches second source", 1800000000, 0},
+		{"differs from every source", 1800000003, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			windows := NormalizeWebsocketQuotaWindows([]byte(fmt.Sprintf(`{
+				"type":"codex.rate_limits",
+				"rate_limits":{"primary":{"used_percent":40,"window_minutes":10080,"reset_at":%d}},
+				"additional_rate_limits":{
+					"FiveHour":{"primary":{"used_percent":10,"window_minutes":300,"reset_at":1700000000}},
+					"Weekly":{"secondary":{"used_percent":20,"window_minutes":10080,"reset_at":1800000000}}
+				}
+			}`, test.topReset)), time.Unix(1000, 0))
+			account := 0
+			for _, window := range windows {
+				if window.SourceID == "codex" {
+					account++
+				}
+			}
+			if len(windows) != 2+test.accountCount || account != test.accountCount {
+				t.Fatalf("windows=%#v, want account count %d", windows, test.accountCount)
+			}
+		})
+	}
+}
+
+func TestWebsocketQuotaSkipsTopLevelWhenSamePeriodAdditionalCannotBeCompared(t *testing.T) {
+	for _, payload := range []string{
+		`{"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":40,"window_minutes":10080,"reset_at":1800000000}},"additional_rate_limits":{"Unknown":{"secondary":{"used_percent":20,"window_minutes":10080}}}}`,
+		`{"type":"codex.rate_limits","rate_limits":{"primary":{"used_percent":40,"window_minutes":10080}},"additional_rate_limits":{"Unknown":{"secondary":{"used_percent":20,"window_minutes":10080,"reset_at":1800000000}}}}`,
+	} {
+		windows := NormalizeWebsocketQuotaWindows([]byte(payload), time.Unix(1000, 0))
+		if len(windows) != 1 || windows[0].SourceName != "Unknown" || windows[0].SourceID != "" {
+			t.Fatalf("ambiguous top-level window was retained: %#v", windows)
+		}
+	}
+}
+
+func TestWebsocketQuotaDeduplicatesTopLevelPerWindow(t *testing.T) {
+	windows := NormalizeWebsocketQuotaWindows([]byte(`{
+		"type":"codex.rate_limits",
+		"rate_limits":{
+			"primary":{"used_percent":40,"window_minutes":300,"reset_at":1700000000},
+			"secondary":{"used_percent":50,"window_minutes":10080,"reset_at":1800000000}
+		},
+		"additional_rate_limits":{"Spark":{
+			"primary":{"used_percent":10,"window_minutes":300,"reset_at":1700000000},
+			"secondary":{"used_percent":20,"window_minutes":10080,"reset_at":1800000100}
+		}}
+	}`), time.Unix(1000, 0))
+	account := 0
+	for _, window := range windows {
+		if window.SourceID == "codex" {
+			account++
+			if window.WindowSeconds == nil || *window.WindowSeconds != 604800 {
+				t.Fatalf("wrong top-level window retained: %#v", window)
+			}
+		}
+	}
+	if len(windows) != 3 || account != 1 {
+		t.Fatalf("windows=%#v, want one account window and two named windows", windows)
 	}
 }
 

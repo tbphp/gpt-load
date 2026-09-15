@@ -44,9 +44,7 @@ type QuotaWindow struct {
 	// SourceID 是提供方的额度来源标识，不是展示名称或请求模型。
 	SourceID string `json:"source_id,omitempty"`
 	// SourceName 仅用于 Codex WS 观测中尚未解析的上游额度名称，不持久化或对外返回。
-	SourceName string `json:"-"`
-	// MatchByReset 让无来源的 Codex WS 顶层窗口按账号周期和重置边界匹配，不持久化。
-	MatchByReset  bool     `json:"-"`
+	SourceName    string   `json:"-"`
 	ID            string   `json:"id"`
 	Label         string   `json:"label"`
 	LabelKey      string   `json:"label_key,omitempty"`
