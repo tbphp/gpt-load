@@ -97,7 +97,9 @@ const value = (prices: PriceSlots, field: (typeof priceFields)[number]) =>
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.modern-model-price-row + .modern-model-price-row:not(.modern-model-price-row--head) {
+/* 前一项必须也是数据行：否则紧跟表头的第一行会画出上边框，
+   与表头自己的下边框叠在同一像素上，那条线就显得格外粗。 */
+.modern-model-price-row:not(.modern-model-price-row--head) + .modern-model-price-row {
   border-top: var(--modern-line-width) solid
     color-mix(in srgb, var(--modern-border) 45%, transparent);
 }
