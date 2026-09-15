@@ -20,6 +20,7 @@ import {
 } from '@modern/components/ui'
 import { protocolLabel } from '@modern/i18n/protocols'
 import { modelGroupCount, modelUnitPrice, priceStatus } from './models-display'
+import './model-group-chip.css'
 
 const props = defineProps<{
   model: RequestModel
@@ -122,13 +123,13 @@ function hiddenGroupsLabel(source: ModelSource): string {
               <RouterLink
                 v-if="admin"
                 :to="{ name: 'modern-group-detail', params: { id: group.id } }"
-                class="modern-model-source-group"
+                class="modern-model-group-chip"
                 :class="{ 'is-disabled': !group.enabled }"
                 ><AppOverflowText :text="group.name || t('logs.deleted')"
               /></RouterLink>
               <span
                 v-else
-                class="modern-model-source-group"
+                class="modern-model-group-chip"
                 :class="{ 'is-disabled': !group.enabled }"
                 ><AppOverflowText :text="group.name || t('logs.deleted')"
               /></span>
@@ -302,30 +303,6 @@ function hiddenGroupsLabel(source: ModelSource): string {
   align-items: center;
   gap: var(--modern-space-1);
   min-width: 0;
-}
-.modern-model-source-group {
-  display: inline-flex;
-  min-width: 0;
-  max-width: 100%;
-  min-height: var(--modern-badge-xs);
-  align-items: center;
-  /* 常态就带描边：subtle 在亮色下几乎等于卡片白底，没有描边看不出这是个可点的标签。 */
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-small);
-  background: var(--modern-subtle);
-  color: var(--modern-muted);
-  padding-inline: var(--modern-space-1-5);
-  font-size: var(--modern-font-size-caption);
-  text-decoration: none;
-}
-a.modern-model-source-group:hover,
-a.modern-model-source-group:focus-visible {
-  border-color: color-mix(in srgb, var(--modern-accent) 40%, transparent);
-  background: var(--modern-accent-soft);
-  color: var(--modern-accent);
-}
-.modern-model-source-group.is-disabled {
-  opacity: var(--modern-opacity-quiet);
 }
 .modern-model-source-more {
   flex: none;

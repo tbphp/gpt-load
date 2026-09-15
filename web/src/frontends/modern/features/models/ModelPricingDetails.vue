@@ -1,31 +1,49 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { ModelPrice } from '@modern/api/models'
+import type { ModelPrice, PriceSlots } from '@modern/api/models'
 import { priceFields } from '@modern/api/models'
-import { AppBadge, AppOverflowText } from '@modern/components/ui'
+import { AppBadge } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
 import { modelUnitPrice, priceStatus } from './models-display'
 
-const props = defineProps<{ price: ModelPrice; summary?: boolean }>()
+const props = defineProps<{ price: ModelPrice }>()
 const { t, locale } = useI18n()
-const schedules = computed(() => [
-  { mode: 'standard', prices: props.price.prices, context_tiers: props.price.context_tiers },
-  ...(props.summary
-    ? []
-    : Object.entries(props.price.mode_schedules).map(([mode, schedule]) => ({
-        mode,
-        ...schedule,
-      }))),
-])
 const modeLabel = (mode: string) =>
   ['standard', 'fast', 'ultrafast'].includes(mode) ? t('modelManager.' + mode) : mode
+// 摊平成表格行：四个价格的表头只写一次，标准档与各阶梯档上下对齐可比。
+const rows = computed(() => {
+  const schedules = [
+    { mode: 'standard', prices: props.price.prices, context_tiers: props.price.context_tiers },
+    ...Object.entries(props.price.mode_schedules).map(([mode, schedule]) => ({
+      mode,
+      ...schedule,
+    })),
+  ]
+  const multiMode = schedules.length > 1
+  return schedules.flatMap((schedule) => [
+    {
+      key: schedule.mode,
+      label: multiMode ? modeLabel(schedule.mode) : t('modelManager.basePrices'),
+      prices: schedule.prices,
+      tier: false,
+    },
+    ...schedule.context_tiers.map((item) => ({
+      key: `${schedule.mode}-${item.threshold_tokens}`,
+      label: '> ' + formatCompactNumber(item.threshold_tokens, locale.value),
+      prices: item.prices,
+      tier: true,
+    })),
+  ])
+})
+const value = (prices: PriceSlots, field: (typeof priceFields)[number]) =>
+  modelUnitPrice(prices[field], locale.value)
 </script>
 
 <template>
-  <div class="modern-model-pricing" :class="{ 'is-summary': summary }">
+  <div class="modern-model-pricing">
     <div class="modern-model-pricing-caption">
-      <span>{{ t(summary ? 'modelManager.basePrices' : 'modelManager.unit') }}</span>
+      <span>{{ t('modelManager.unit') }}</span>
       <AppBadge
         :tone="price.status === 'pending' ? 'warning' : 'neutral'"
         size="xs"
@@ -34,36 +52,26 @@ const modeLabel = (mode: string) =>
         {{ t('modelManager.priceMethods.' + priceStatus(price)) }}
       </AppBadge>
     </div>
-    <div v-for="schedule in schedules" :key="schedule.mode" class="modern-model-price-schedule">
-      <div v-if="schedules.length > 1" class="modern-model-mode-title">
-        {{ modeLabel(schedule.mode) }}
+    <div class="modern-model-price-table">
+      <div class="modern-model-price-row modern-model-price-row--head" aria-hidden="true">
+        <span></span>
+        <span v-for="field in priceFields" :key="field">{{
+          t('modelManager.slots.' + field)
+        }}</span>
       </div>
-      <dl class="modern-model-price-values">
-        <div v-for="field in priceFields" :key="field">
-          <dt>{{ t('modelManager.slots.' + field) }}</dt>
-          <dd><AppOverflowText :text="modelUnitPrice(schedule.prices[field], locale)" /></dd>
-        </div>
-      </dl>
-      <div v-if="!summary && schedule.context_tiers.length" class="modern-model-tiers">
-        <div
-          v-for="tier in schedule.context_tiers"
-          :key="tier.threshold_tokens"
-          class="modern-model-tier"
+      <div
+        v-for="row in rows"
+        :key="row.key"
+        class="modern-model-price-row"
+        :class="{ 'is-tier': row.tier }"
+      >
+        <span class="modern-model-price-label">{{ row.label }}</span>
+        <span
+          v-for="field in priceFields"
+          :key="field"
+          :class="{ 'is-empty': row.prices[field] === null }"
+          >{{ value(row.prices, field) }}</span
         >
-          <p>
-            {{
-              t('modelManager.tierFrom', {
-                count: formatCompactNumber(tier.threshold_tokens, locale),
-              })
-            }}
-          </p>
-          <dl class="modern-model-price-values">
-            <div v-for="field in priceFields" :key="field">
-              <dt>{{ t('modelManager.slots.' + field) }}</dt>
-              <dd><AppOverflowText :text="modelUnitPrice(tier.prices[field], locale)" /></dd>
-            </div>
-          </dl>
-        </div>
       </div>
     </div>
   </div>
@@ -80,69 +88,57 @@ const modeLabel = (mode: string) =>
   justify-content: space-between;
   gap: var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-}
-.modern-model-price-schedule {
-  display: grid;
-  gap: var(--modern-space-3);
-}
-.modern-model-price-schedule + .modern-model-price-schedule {
-  padding-top: var(--modern-space-4);
-  border-top: var(--modern-line-width) solid var(--modern-border);
-}
-.modern-model-mode-title {
-  font-weight: var(--modern-weight-medium);
-  font-size: var(--modern-font-size-secondary);
-}
-.modern-model-price-values {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--modern-space-3);
-  margin: 0;
-  padding: var(--modern-space-3);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-subtle);
-}
-.modern-model-price-values > div {
-  display: grid;
-  min-width: 0;
-  gap: var(--modern-space-1);
-}
-.modern-model-price-values dt,
-.modern-model-tier > p {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-}
-.modern-model-price-values dd {
-  min-width: 0;
-  margin: 0;
-  font-size: var(--modern-font-size-secondary);
-  font-weight: var(--modern-weight-medium);
-  font-variant-numeric: tabular-nums;
-}
-.modern-model-tiers,
-.modern-model-tier {
-  display: grid;
-  gap: var(--modern-space-2);
-}
-.modern-model-tier {
-  padding-block: var(--modern-space-3);
-  border-top: var(--modern-line-width) solid var(--modern-border);
-}
-.modern-model-tier .modern-model-price-values {
-  background: transparent;
-  padding: 0;
-}
-.is-summary .modern-model-price-values {
-  background: transparent;
-  padding: 0;
-}
-.is-summary .modern-model-pricing-caption {
   font-size: var(--modern-font-size-caption);
 }
-@media (max-width: 760px) {
-  .modern-model-price-values {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.modern-model-price-table {
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-control);
+  background: var(--modern-surface);
+  overflow: hidden;
+}
+/* 档位一列在左，四个价格右对齐；表头与数据行共用同一套列。 */
+.modern-model-price-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(4, minmax(56px, auto));
+  align-items: center;
+  gap: var(--modern-space-2);
+  min-height: var(--modern-space-8);
+  padding-inline: var(--modern-space-3);
+}
+.modern-model-price-row > :not(.modern-model-price-label) {
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-small);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.modern-model-price-row--head {
+  min-height: var(--modern-space-6);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  background: var(--modern-subtle);
+  color: var(--modern-muted);
+}
+.modern-model-price-row--head > * {
+  font-family: inherit;
+  font-size: var(--modern-font-size-caption);
+  letter-spacing: var(--modern-tracking-label);
+}
+.modern-model-price-row + .modern-model-price-row:not(.modern-model-price-row--head) {
+  border-top: var(--modern-line-width) solid
+    color-mix(in srgb, var(--modern-border) 55%, transparent);
+}
+.modern-model-price-label {
+  overflow: hidden;
+  color: var(--modern-text);
+  font-size: var(--modern-font-size-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modern-model-price-row.is-tier .modern-model-price-label {
+  padding-inline-start: var(--modern-space-3);
+  color: var(--modern-muted);
+}
+.modern-model-price-row .is-empty {
+  color: var(--modern-control-placeholder);
 }
 </style>

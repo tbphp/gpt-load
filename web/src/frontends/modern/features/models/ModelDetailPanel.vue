@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Boxes, PencilLine, RotateCcw } from '@lucide/vue'
+import { Boxes, PencilLine, RotateCcw } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -26,7 +26,6 @@ import {
   AppDialogContent,
   AppDialogHeader,
   AppFormSection,
-  AppIconButton,
   AppOverflowText,
   AppProtocolTag,
   AppSearchSelect,
@@ -34,8 +33,8 @@ import {
 import { formatCompactNumber } from '@modern/components/ui/format'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import GroupDraftGuard from '@modern/features/groups/GroupDraftGuard.vue'
-import ModelSourcePreview from './ModelSourcePreview.vue'
 import ModelPricingDetails from './ModelPricingDetails.vue'
+import './model-group-chip.css'
 import ModelPriceEditor from './ModelPriceEditor.vue'
 
 const props = defineProps<{
@@ -45,7 +44,7 @@ const props = defineProps<{
   admin: boolean
 }>()
 const emit = defineEmits<{ close: []; select: [source: number]; changed: [] }>()
-const { t, n, locale } = useI18n()
+const { t, locale } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
 const messages = useMessages()
@@ -122,6 +121,14 @@ useMessageSource(() =>
     : undefined,
 )
 onScopeDispose(() => controller.abort())
+// 没有「全部来源」这一层了，未指定来源时直接落到第一个。
+watch(
+  [modelData, () => props.source],
+  ([data, current]) => {
+    if (!current && data?.sources.length) emit('select', data.sources[0]!.price.id)
+  },
+  { immediate: true },
+)
 watch(
   () => props.source,
   () => {
@@ -182,7 +189,6 @@ async function reset(): Promise<void> {
   <DialogRoot :open="true" @update:open="!$event && close()">
     <AppDialogContent
       placement="editor"
-      size="sheet"
       :title="model"
       :description="t('modelManager.detailDescription')"
       @escape-key-down="
@@ -234,46 +240,8 @@ async function reset(): Promise<void> {
             :icon="Boxes"
             :title="t('modelManager.missing')"
           />
-          <template v-else-if="!source">
-            <div class="modern-model-detail-intro">
-              <div class="modern-model-detail-overview">
-                <span>{{
-                  t('modelManager.sourceCount', { count: n(modelData.sources.length) })
-                }}</span>
-                <span>{{ t('modelManager.unit') }}</span>
-              </div>
-              <div class="modern-model-detail-tags">
-                <AppProtocolTag
-                  v-for="protocol in modelData.protocols"
-                  :key="protocol"
-                  :protocol="protocol"
-                />
-              </div>
-            </div>
-            <section
-              v-for="item in modelData.sources"
-              :key="item.price.id"
-              class="modern-model-detail-source"
-            >
-              <ModelSourcePreview
-                :source="item"
-                :request-model="model"
-                all-groups
-                @open="select(item.price.id)"
-              />
-              <ModelPricingDetails :price="item.price" summary />
-            </section>
-          </template>
           <template v-else>
             <div class="modern-model-detail-navigation">
-              <AppIconButton
-                v-if="modelData.sources.length > 1"
-                :icon="ArrowLeft"
-                :label="t('modelManager.backSources')"
-                :tooltip="true"
-                size="sm"
-                @click="select(0)"
-              />
               <AppSearchSelect
                 v-if="modelData.sources.length > 1"
                 :model-value="chosen ? String(source) : ''"
@@ -322,7 +290,12 @@ async function reset(): Promise<void> {
               </div>
             </div>
             <AppCollectionState
-              v-if="!chosen"
+              v-if="!chosen && !source"
+              :title="t('modelManager.loading')"
+              loading
+            />
+            <AppCollectionState
+              v-else-if="!chosen"
               :icon="Boxes"
               :title="t('modelManager.sourceMissing')"
             />
@@ -408,15 +381,11 @@ async function reset(): Promise<void> {
                   :class="{ 'has-shared-protocols': sharedProtocols !== null }"
                 >
                   <div v-for="group in groups" :key="group.id" class="modern-model-detail-group">
-                    <AppButton as-child variant="text">
-                      <RouterLink
-                        :to="{ name: 'modern-group-detail', params: { id: String(group.id) } }"
-                      >
-                        <AppBadge size="sm" tone="neutral">
-                          <AppOverflowText :text="group.name || t('logs.deleted')" />
-                        </AppBadge>
-                      </RouterLink>
-                    </AppButton>
+                    <RouterLink
+                      :to="{ name: 'modern-group-detail', params: { id: String(group.id) } }"
+                      class="modern-model-group-chip"
+                      ><AppOverflowText :text="group.name || t('logs.deleted')"
+                    /></RouterLink>
                     <AppBadge v-if="!group.enabled" size="xs" variant="plain">{{
                       t('modelManager.paused')
                     }}</AppBadge>
@@ -519,20 +488,7 @@ async function reset(): Promise<void> {
   gap: var(--modern-space-4);
   overflow-y: auto;
   scrollbar-gutter: var(--modern-scrollbar-gutter);
-  padding: var(--modern-space-5);
-}
-.modern-model-detail-intro {
-  display: grid;
-  gap: var(--modern-space-3);
-}
-.modern-model-detail-overview {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
+  padding: var(--modern-space-4);
 }
 .modern-model-detail-navigation {
   display: flex;
@@ -562,16 +518,6 @@ async function reset(): Promise<void> {
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-medium);
   overflow-wrap: anywhere;
-}
-.modern-model-detail-source {
-  display: grid;
-  min-width: 0;
-  gap: var(--modern-space-2);
-  padding-bottom: var(--modern-space-4);
-  border-bottom: var(--modern-line-width) solid var(--modern-border);
-}
-.modern-model-detail-source > :last-child {
-  padding-inline: var(--modern-space-2);
 }
 .modern-model-detail-tags {
   display: flex;
@@ -603,15 +549,18 @@ async function reset(): Promise<void> {
   margin: 0;
   font-size: var(--modern-font-size-secondary);
 }
+/* 标签列定宽右对齐：auto 会让每行按各自内容算宽，行与行对不齐。 */
 .modern-model-catalog-facts > div {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   align-items: baseline;
   gap: var(--modern-space-2);
 }
 .modern-model-catalog-facts dt {
+  overflow-wrap: break-word;
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
+  font-size: var(--modern-font-size-caption);
+  text-align: right;
 }
 .modern-model-catalog-facts dd {
   margin: 0;
@@ -644,13 +593,17 @@ async function reset(): Promise<void> {
   min-width: 0;
   max-width: 100%;
 }
+/* 详情里分组是独立段落，比表格行里的标签放大一档。 */
+.modern-model-detail-group .modern-model-group-chip {
+  --modern-model-chip-height: var(--modern-badge-sm);
+}
 .modern-model-detail-footer {
   display: flex;
   flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--modern-space-2);
-  padding: var(--modern-space-4) var(--modern-space-5);
+  padding: var(--modern-space-3) var(--modern-space-4);
   border-top: var(--modern-line-width) solid var(--modern-border);
 }
 .modern-model-detail-footer > div {
