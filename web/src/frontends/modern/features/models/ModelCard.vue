@@ -201,7 +201,7 @@ function hiddenGroupsLabel(source: ModelSource): string {
   background: linear-gradient(
     to bottom left,
     var(--modern-model-card-tint),
-    var(--modern-surface) 72%
+    color-mix(in srgb, var(--modern-model-card-tint) 55%, var(--modern-surface))
   );
   padding: var(--modern-space-3) var(--modern-space-4);
 }

@@ -31,6 +31,7 @@ import {
   AppSearchSelect,
 } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
+import { priceStatus } from './models-display'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import GroupDraftGuard from '@modern/features/groups/GroupDraftGuard.vue'
 import ModelPricingDetails from './ModelPricingDetails.vue'
@@ -309,6 +310,14 @@ async function reset(): Promise<void> {
             </AppCollectionState>
             <template v-else>
               <AppFormSection :title="t('modelManager.pricing')" compact>
+                <template #actions>
+                  <AppBadge
+                    :tone="price.status === 'pending' ? 'warning' : 'neutral'"
+                    size="xs"
+                    variant="plain"
+                    >{{ t('modelManager.priceMethods.' + priceStatus(price)) }}</AppBadge
+                  >
+                </template>
                 <ModelPricingDetails :price="price" />
               </AppFormSection>
               <AppFormSection v-if="catalog" :title="t('modelManager.catalog')" compact>

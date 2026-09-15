@@ -3,9 +3,8 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ModelPrice, PriceSlots } from '@modern/api/models'
 import { priceFields } from '@modern/api/models'
-import { AppBadge } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
-import { modelUnitPrice, priceStatus } from './models-display'
+import { modelUnitPrice } from './models-display'
 
 const props = defineProps<{ price: ModelPrice }>()
 const { t, locale } = useI18n()
@@ -41,81 +40,51 @@ const value = (prices: PriceSlots, field: (typeof priceFields)[number]) =>
 </script>
 
 <template>
-  <div class="modern-model-pricing">
-    <div class="modern-model-pricing-caption">
-      <span>{{ t('modelManager.unit') }}</span>
-      <AppBadge
-        :tone="price.status === 'pending' ? 'warning' : 'neutral'"
-        size="xs"
-        variant="plain"
-      >
-        {{ t('modelManager.priceMethods.' + priceStatus(price)) }}
-      </AppBadge>
+  <div class="modern-model-price-table">
+    <div class="modern-model-price-row modern-model-price-row--head">
+      <span class="modern-model-price-unit">{{ t('modelManager.unit') }}</span>
+      <span v-for="field in priceFields" :key="field">{{ t('modelManager.slots.' + field) }}</span>
     </div>
-    <div class="modern-model-price-table">
-      <div class="modern-model-price-row modern-model-price-row--head" aria-hidden="true">
-        <span></span>
-        <span v-for="field in priceFields" :key="field">{{
-          t('modelManager.slots.' + field)
-        }}</span>
-      </div>
-      <div
-        v-for="row in rows"
-        :key="row.key"
-        class="modern-model-price-row"
-        :class="{ 'is-tier': row.tier }"
+    <div
+      v-for="row in rows"
+      :key="row.key"
+      class="modern-model-price-row"
+      :class="{ 'is-tier': row.tier }"
+    >
+      <span class="modern-model-price-label">{{ row.label }}</span>
+      <span
+        v-for="field in priceFields"
+        :key="field"
+        :class="{ 'is-empty': row.prices[field] === null }"
+        >{{ value(row.prices, field) }}</span
       >
-        <span class="modern-model-price-label">{{ row.label }}</span>
-        <span
-          v-for="field in priceFields"
-          :key="field"
-          :class="{ 'is-empty': row.prices[field] === null }"
-          >{{ value(row.prices, field) }}</span
-        >
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.modern-model-pricing {
-  display: grid;
-  gap: var(--modern-space-2);
-}
-.modern-model-pricing-caption {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-caption);
-}
+/* 单位说明占住表头首列，否则标签列会空出近一半宽度。
+   不加外框与底色：540px 侧栏里那会显得过重。 */
 .modern-model-price-table {
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-surface);
-  overflow: hidden;
+  display: grid;
+  font-variant-numeric: tabular-nums;
 }
-/* 档位一列在左，四个价格右对齐；表头与数据行共用同一套列。 */
 .modern-model-price-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(4, minmax(56px, auto));
+  grid-template-columns: minmax(0, 1fr) repeat(4, minmax(64px, auto));
   align-items: center;
   gap: var(--modern-space-2);
   min-height: var(--modern-space-8);
-  padding-inline: var(--modern-space-3);
 }
-.modern-model-price-row > :not(.modern-model-price-label) {
+.modern-model-price-row > :not(.modern-model-price-label, .modern-model-price-unit) {
   font-family: var(--modern-font-mono);
   font-size: var(--modern-font-size-small);
-  font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
 }
 .modern-model-price-row--head {
   min-height: var(--modern-space-6);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
-  background: var(--modern-subtle);
   color: var(--modern-muted);
 }
 .modern-model-price-row--head > * {
@@ -123,9 +92,14 @@ const value = (prices: PriceSlots, field: (typeof priceFields)[number]) =>
   font-size: var(--modern-font-size-caption);
   letter-spacing: var(--modern-tracking-label);
 }
+.modern-model-price-unit {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .modern-model-price-row + .modern-model-price-row:not(.modern-model-price-row--head) {
   border-top: var(--modern-line-width) solid
-    color-mix(in srgb, var(--modern-border) 55%, transparent);
+    color-mix(in srgb, var(--modern-border) 45%, transparent);
 }
 .modern-model-price-label {
   overflow: hidden;

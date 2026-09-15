@@ -62,12 +62,8 @@
     var(--modern-info-soft) 28%,
     var(--modern-surface)
   );
-  /* 模型卡卡头的冷色底，与账号卡同一套蓝调，避开主色的橙。 */
-  --modern-model-card-tint: color-mix(
-    in srgb,
-    var(--modern-info-soft) 92%,
-    var(--modern-accent-soft)
-  );
+  /* 模型卡卡头的冷灰蓝底。渐变两端都要保留色，淡出到白就和内容区分不开。 */
+  --modern-model-card-tint: light-dark(#e4ebf5, #2c3340);
   --modern-segmented-active-border: color-mix(
     in srgb,
     var(--modern-accent) 28%,
