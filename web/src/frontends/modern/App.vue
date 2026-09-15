@@ -6,6 +6,7 @@ import { TooltipProvider } from 'reka-ui'
 import { tooltipDelay } from './components/ui/overlay'
 import { provideMessages } from './app/messages'
 import { clipboardRevision } from './components/ui/clipboard'
+import { useScrollbarActivity } from './components/ui/use-scrollbar-activity'
 import AppMessageHost from './components/ui/AppMessageHost.vue'
 
 import { usePageTitle } from './app/use-page-title'
@@ -15,6 +16,7 @@ import PublicLayout from './layouts/PublicLayout.vue'
 
 const { locale } = useI18n()
 const messages = provideMessages()
+useScrollbarActivity()
 const route = useRoute()
 watch(
   () => route.fullPath,

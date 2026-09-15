@@ -90,6 +90,7 @@ defineExpose({
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   overscroll-behavior: contain;
 }
 .modern-list-scroll:focus-visible {

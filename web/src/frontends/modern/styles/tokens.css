@@ -39,6 +39,10 @@
   --modern-chart-area-soft-fill: color-mix(in srgb, currentColor 8%, transparent);
   --modern-overlay: rgb(20 20 18 / 35%);
   --modern-scrollbar: light-dark(#cacac3, #565650);
+  --modern-scrollbar-hover: light-dark(#a5a59c, #797970);
+  --modern-scrollbar-size: 4px;
+  --modern-scrollbar-gutter: auto;
+  --modern-scrollbar-color-auto: auto;
   --modern-tooltip-surface: color-mix(
     in srgb,
     var(--modern-accent-soft) 25%,

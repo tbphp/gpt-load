@@ -264,6 +264,7 @@ useMessageSource(() =>
   flex-direction: column;
   gap: var(--modern-space-3);
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   padding: var(--modern-space-5) var(--modern-space-4);
   overscroll-behavior: contain;
 }

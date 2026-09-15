@@ -261,6 +261,7 @@ async function save(confirmed = false): Promise<void> {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   padding: var(--modern-space-5);
 }
 .modern-model-price-impact,

@@ -271,6 +271,7 @@ function period(seconds: number): string {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   padding: var(--modern-space-5);
 }
 .modern-health-detail-summary {

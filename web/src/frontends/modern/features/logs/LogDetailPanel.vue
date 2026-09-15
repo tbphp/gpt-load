@@ -475,6 +475,7 @@ function resolveRedactedLog(): Promise<string> {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   overscroll-behavior: contain;
   gap: var(--modern-space-4);
   padding: var(--modern-space-4) var(--modern-space-5);

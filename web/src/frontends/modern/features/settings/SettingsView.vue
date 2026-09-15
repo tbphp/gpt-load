@@ -755,6 +755,7 @@ onScopeDispose(() => {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   overscroll-behavior: contain;
   padding: var(--modern-space-1) var(--modern-space-1) var(--modern-space-8);
 }

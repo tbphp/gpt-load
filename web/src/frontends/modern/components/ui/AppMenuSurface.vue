@@ -14,6 +14,7 @@ import { Primitive } from 'reka-ui'
   max-width: calc(100vw - var(--modern-space-8));
   max-height: min(var(--modern-menu-max-height), var(--reka-popper-available-height, 80dvh));
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   overscroll-behavior: contain;
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-panel);

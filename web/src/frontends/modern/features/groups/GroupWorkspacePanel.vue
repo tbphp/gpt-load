@@ -77,6 +77,7 @@ useLoadingActivity(() => Boolean(props.loading || props.pending))
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   padding: var(--modern-space-5);
   overscroll-behavior: contain;
 }
@@ -84,6 +85,7 @@ useLoadingActivity(() => Boolean(props.loading || props.pending))
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  scrollbar-gutter: auto;
   padding-bottom: 0;
 }
 .modern-workspace-panel-footer {

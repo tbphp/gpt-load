@@ -144,6 +144,7 @@ useLoadingActivity(loading)
   gap: var(--modern-space-3);
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   padding: var(--modern-space-5);
 }
 .modern-access-handoff-fields {

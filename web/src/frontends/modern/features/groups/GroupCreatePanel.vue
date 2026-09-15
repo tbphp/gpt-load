@@ -834,6 +834,7 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   gap: var(--modern-space-4);
   padding: var(--modern-space-5);
 }

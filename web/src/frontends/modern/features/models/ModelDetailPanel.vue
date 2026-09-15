@@ -518,6 +518,7 @@ async function reset(): Promise<void> {
   min-height: 0;
   gap: var(--modern-space-4);
   overflow-y: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
   padding: var(--modern-space-5);
 }
 .modern-model-detail-intro {

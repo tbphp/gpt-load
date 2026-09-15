@@ -693,7 +693,7 @@ const bucketLabel = computed(() => {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-block: var(--modern-space-4) var(--modern-space-6);
-  scrollbar-gutter: stable;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
 }
 .modern-usage-report.is-updating {
   opacity: var(--modern-opacity-quiet);
