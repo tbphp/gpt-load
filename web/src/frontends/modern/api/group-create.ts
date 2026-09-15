@@ -2,6 +2,7 @@ import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
 import { readModelCandidates, type ModelCandidate } from './model-discovery'
+import { sortProtocols } from '@modern/i18n/protocols'
 
 export interface ChannelField {
   key: string
@@ -26,6 +27,7 @@ export interface GroupChannel {
   quotaObservation: boolean
   resetCredit: boolean
   parameterProtocols: string[]
+  nativeProtocols: string[]
   connectionType: 'api_key' | 'subscription'
   authorizationMethods: AuthorizationMethod[]
   notices: ('claude_oauth_risk' | 'antigravity_oauth_risk')[]
@@ -64,6 +66,27 @@ export async function getGroupChannels(
     )
       throw new InvalidResponseError()
     const capabilities = record(item.capabilities)
+    const protocolOperations = [
+      'chat_completion',
+      'responses_create',
+      'images_generate',
+      'embeddings_create',
+      'rerank',
+    ]
+    const routes = list(item.routes).map((raw) => {
+      const route = record(raw)
+      return {
+        protocol: text(route.client_protocol),
+        operation: text(route.operation),
+        modes: [
+          oneOf(route.route_mode, ['native', 'converted'] as const),
+          ...list(route.possible_modes ?? []).map((mode) =>
+            oneOf(mode, ['native', 'converted'] as const),
+          ),
+        ],
+      }
+    })
+    const requestRoutes = routes.filter((route) => protocolOperations.includes(route.operation))
     return {
       id: text(item.channel_id),
       name: text(item.name),
@@ -77,22 +100,12 @@ export async function getGroupChannels(
       proxy: boolean(capabilities.outbound_proxy),
       quotaObservation: boolean(capabilities.quota_observation),
       resetCredit: list(capabilities.credential_actions).includes('reset_credit'),
-      parameterProtocols: [
-        ...new Set(
-          list(item.routes)
-            .map(record)
-            .filter((route) =>
-              [
-                'chat_completion',
-                'responses_create',
-                'images_generate',
-                'embeddings_create',
-                'rerank',
-              ].includes(text(route.operation)),
-            )
-            .map((route) => text(route.client_protocol)),
-        ),
-      ],
+      parameterProtocols: sortProtocols(requestRoutes.map((route) => route.protocol)),
+      nativeProtocols: sortProtocols(
+        requestRoutes
+          .filter((route) => route.modes.includes('native'))
+          .map((route) => route.protocol),
+      ),
       connectionType,
       authorizationMethods,
       notices: list(item.notices).map((raw) =>

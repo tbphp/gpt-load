@@ -39,9 +39,11 @@ const actions = ref<HTMLElement>()
 function cancel(): void {
   if (!props.pending) emit('cancel')
 }
-function focusCancel(event: Event): void {
+function focusInitialAction(event: Event): void {
   event.preventDefault()
-  actions.value?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+  const action =
+    !props.disabled && !props.pending ? '[data-confirm-action]' : '[data-cancel-action]'
+  actions.value?.querySelector<HTMLButtonElement>(action)?.focus({ preventScroll: true })
 }
 </script>
 
@@ -58,7 +60,7 @@ function focusCancel(event: Event): void {
       size="confirm"
       :title="title"
       :description="description || title"
-      @open-auto-focus="focusCancel"
+      @open-auto-focus="focusInitialAction"
       @close-auto-focus="emit('closeAutoFocus', $event)"
       @escape-key-down="
         (event: Event) => {
@@ -96,10 +98,11 @@ function focusCancel(event: Event): void {
           <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
         </div>
         <footer ref="actions" class="modern-confirm-actions">
-          <AppButton :disabled="pending" @click="cancel">{{
+          <AppButton data-cancel-action :disabled="pending" @click="cancel">{{
             cancelLabel || t('ui.cancel')
           }}</AppButton>
           <AppButton
+            data-confirm-action
             :variant="tone === 'danger' ? 'danger' : 'primary'"
             :loading="pending"
             :disabled="disabled || pending"
@@ -167,5 +170,11 @@ function focusCancel(event: Event): void {
   flex-wrap: wrap;
   gap: var(--modern-space-2);
   padding-top: var(--modern-space-1);
+}
+.modern-confirm-actions :deep([data-cancel-action]:focus),
+.modern-confirm-actions :deep([data-confirm-action]:focus) {
+  outline: var(--modern-focus-width) solid var(--modern-accent);
+  outline-offset: var(--modern-focus-offset);
+  box-shadow: var(--modern-shadow-focus);
 }
 </style>

@@ -1,6 +1,7 @@
 export const zhCN = {
   title: '添加分组',
   channel: '渠道',
+  supportedProtocols: '原生协议',
   autoName: '留空时自动命名',
   baseURL: '上游地址',
   credentials: 'API 密钥',
@@ -48,6 +49,8 @@ export const zhCN = {
   summary: '{credentials} 条凭据 · {models} 个模型',
   changeChannel: '切换渠道？',
   changeChannelHelp: '将清除当前渠道的连接参数、凭据和模型配置。',
+  cancelChannelChange: '取消切换',
+  confirmChannelChange: '确认切换',
   abandonUnknown: '操作可能已经生效。离开不会撤销后端结果，建议先确认结果。',
   resultCreated: '已创建 {name}，导入 {added} 条凭据，跳过 {duplicated} 条重复凭据。',
   resultAppended: '已向 {name} 导入 {added} 条凭据，跳过 {duplicated} 条重复凭据。',
@@ -64,6 +67,7 @@ export const zhCN = {
 export const enUS: typeof zhCN = {
   title: 'Add group',
   channel: 'Channel',
+  supportedProtocols: 'Native protocols',
   autoName: 'Leave blank for an automatic name',
   baseURL: 'Upstream URL',
   credentials: 'API keys',
@@ -114,6 +118,8 @@ export const enUS: typeof zhCN = {
   changeChannel: 'Switch channel?',
   changeChannelHelp:
     'This clears the current channel parameters, credentials, and model configuration.',
+  cancelChannelChange: 'Cancel switch',
+  confirmChannelChange: 'Switch channel',
   abandonUnknown:
     'The operation may have taken effect. Leaving does not undo it. Check the result first.',
   resultCreated:
@@ -133,6 +139,7 @@ export const enUS: typeof zhCN = {
 export const jaJP: typeof zhCN = {
   title: 'グループを追加',
   channel: 'チャンネル',
+  supportedProtocols: 'ネイティブプロトコル',
   autoName: '空欄の場合は自動で命名',
   baseURL: '上流 URL',
   credentials: 'API キー',
@@ -182,6 +189,8 @@ export const jaJP: typeof zhCN = {
   summary: '認証情報 {credentials} 件 · モデル {models} 件',
   changeChannel: 'チャンネルを切り替えますか？',
   changeChannelHelp: '現在の接続設定、認証情報、モデル設定をクリアします。',
+  cancelChannelChange: '切り替えない',
+  confirmChannelChange: '切り替える',
   abandonUnknown:
     '操作が既に反映されている可能性があります。閉じても元に戻りません。先に結果をご確認ください。',
   resultCreated: '{name} を作成しました。{added} 件を追加し、重複 {duplicated} 件を除外しました。',

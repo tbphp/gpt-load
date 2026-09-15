@@ -26,6 +26,7 @@ import {
   AppIcon,
   AppIconButton,
   AppNotice,
+  AppProtocolTag,
   AppSearchSelect,
   AppSegmentedField,
   AppTextArea,
@@ -592,6 +593,16 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
             >
           </template>
         </AppSearchSelect>
+        <div v-if="channel?.nativeProtocols.length" class="modern-group-create-protocols">
+          <span>{{ t('groupCreate.supportedProtocols') }}</span>
+          <div>
+            <AppProtocolTag
+              v-for="protocol in channel.nativeProtocols"
+              :key="protocol"
+              :protocol="protocol"
+            />
+          </div>
+        </div>
         <AppTextField
           ref="nameInput"
           v-model="name"
@@ -798,8 +809,12 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
             : 'groups.edit.unsavedHelp',
       )
     "
-    :cancel-label="t('groups.edit.keepEditing')"
-    :confirm-label="t('groups.edit.discard')"
+    :cancel-label="
+      t(confirmAction === 'channel' ? 'groupCreate.cancelChannelChange' : 'groups.edit.keepEditing')
+    "
+    :confirm-label="
+      t(confirmAction === 'channel' ? 'groupCreate.confirmChannelChange' : 'groups.edit.discard')
+    "
     tone="danger"
     @cancel="cancelConfirm"
     @confirm="confirmDiscard"
@@ -821,6 +836,21 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
   overflow-y: auto;
   gap: var(--modern-space-4);
   padding: var(--modern-space-5);
+}
+.modern-group-create-protocols {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-group-create-protocols > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-1);
 }
 .modern-group-create-count {
   margin-top: calc(-1 * var(--modern-space-2));

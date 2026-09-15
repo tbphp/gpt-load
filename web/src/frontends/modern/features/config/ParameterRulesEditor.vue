@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { protocolLabel } from '@modern/i18n/protocols'
+import { protocolLabel, sortProtocols } from '@modern/i18n/protocols'
 import {
   ArrowDown,
   ArrowUp,
@@ -107,9 +107,10 @@ watch(
 
 const protocolOptions = computed(() => [
   { value: '', label: t('parameterRules.allProtocols') },
-  ...[
-    ...new Set([...props.protocols, ...rows.value.map((row) => row.protocol).filter(Boolean)]),
-  ].map((value) => ({ value, label: protocolLabel(value, t) })),
+  ...sortProtocols([
+    ...props.protocols,
+    ...rows.value.map((row) => row.protocol).filter(Boolean),
+  ]).map((value) => ({ value, label: protocolLabel(value, t) })),
 ])
 const modelNames = computed(() =>
   [...new Set(props.models.map((model) => model.clientModel))].sort(),

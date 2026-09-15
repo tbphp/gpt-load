@@ -1,6 +1,7 @@
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
+import { sortProtocols } from '@modern/i18n/protocols'
 
 export const modelsKey = ['modern', 'models'] as const
 export const modelContextKey = (model: string, groups: string) =>
@@ -134,7 +135,7 @@ function group(value: unknown): ModelGroup {
     id: integer(row.id, 1),
     name: text(row.name),
     enabled: boolean(row.enabled),
-    protocols: list(row.client_protocols).map(text),
+    protocols: sortProtocols(list(row.client_protocols).map(text)),
   }
 }
 function catalog(value: unknown): ModelCatalog | null {
@@ -204,7 +205,7 @@ export async function getModels(client: ApiClient, filters: ModelFilters, signal
       const model = record(value)
       return {
         name: text(model.client_model),
-        protocols: list(model.protocols).map(text),
+        protocols: sortProtocols(list(model.protocols).map(text)),
         sources: list(model.upstream_models).map(source),
       }
     }),

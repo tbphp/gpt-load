@@ -3,6 +3,7 @@ import { InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
 import { readModelCandidates } from './model-discovery'
 import type { ProxyOverride } from './group-create'
+import { sortProtocols } from '@modern/i18n/protocols'
 import { readObservation, type CredentialObservation } from './credential-observation'
 import { readGroupBasics, type GroupBasics } from './groups'
 
@@ -114,7 +115,7 @@ function readSettings(value: unknown): GroupSettings {
     params: stringMap(data.params),
     validationModel: data.validation_model === null ? null : text(data.validation_model),
     validationProtocol: data.validation_protocol === null ? null : text(data.validation_protocol),
-    validationProtocols: list(data.validation_protocols).map(text),
+    validationProtocols: sortProtocols(list(data.validation_protocols).map(text)),
     overrides: readRuntime(data.overrides),
     effective: effective as GroupSettings['effective'],
     proxy: {

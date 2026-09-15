@@ -1,4 +1,5 @@
 export const zhCN = {
+  supportedProtocols: '原生协议',
   filters: {
     channelType: '渠道类型',
     allChannelTypes: '全部类型',
@@ -132,6 +133,7 @@ export const zhCN = {
 }
 
 export const enUS: typeof zhCN = {
+  supportedProtocols: 'Native protocols',
   filters: {
     channelType: 'Channel type',
     allChannelTypes: 'All types',
@@ -272,6 +274,7 @@ export const enUS: typeof zhCN = {
 }
 
 export const jaJP: typeof zhCN = {
+  supportedProtocols: 'ネイティブプロトコル',
   filters: {
     channelType: 'チャネル種別',
     allChannelTypes: 'すべての種別',

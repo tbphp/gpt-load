@@ -1,17 +1,10 @@
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
+import { protocolOrder, sortProtocols } from '@modern/i18n/protocols'
 
 export const accessKeySorts = ['updated_desc', 'cost_desc', 'expires_asc'] as const
-export const accessProtocols = [
-  'openai-completions',
-  'openai-responses',
-  'openai-images',
-  'openai-embeddings',
-  'rerank',
-  'anthropic',
-  'gemini',
-] as const
+export const accessProtocols = protocolOrder
 export interface AccessScope {
   groups: number[]
   protocols: string[]
@@ -123,7 +116,7 @@ function readAccessKey(value: unknown): AccessKey {
     status: oneOf(row.status, ['active', 'disabled'] as const),
     filters: {
       groups: list(scope.groups).map((id) => integer(id, 1)),
-      protocols: list(scope.protocols).map(text),
+      protocols: sortProtocols(list(scope.protocols).map(text)),
       models: list(scope.models).map(text),
       allowed_cidrs: list(scope.allowed_cidrs).map(text),
     },

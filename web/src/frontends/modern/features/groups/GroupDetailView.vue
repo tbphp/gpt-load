@@ -23,6 +23,7 @@ import {
   AppCopyValue,
   AppIcon,
   AppIconButton,
+  AppProtocolTag,
 } from '@modern/components/ui'
 import type { SemanticTone } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
@@ -275,6 +276,16 @@ useMessageSource(() =>
                 >{{ t('groups.board.price', { value: group.priceMultiplier }) }}</span
               >
             </div>
+            <div v-if="channel?.nativeProtocols.length" class="modern-group-workspace-protocols">
+              <span>{{ t('groupDetail.supportedProtocols') }}</span>
+              <div>
+                <AppProtocolTag
+                  v-for="protocol in channel.nativeProtocols"
+                  :key="protocol"
+                  :protocol="protocol"
+                />
+              </div>
+            </div>
           </div>
         </header>
         <GroupCredentials
@@ -403,6 +414,22 @@ useMessageSource(() =>
   flex-wrap: wrap;
   gap: var(--modern-space-2);
   min-width: 0;
+}
+.modern-group-workspace-protocols {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-group-workspace-protocols > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-1);
 }
 .modern-group-workspace-name h1 {
   overflow-wrap: anywhere;
