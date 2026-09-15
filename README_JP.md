@@ -36,7 +36,7 @@ API キー、サブスクリプションアカウント、トラフィック制�
 <td><strong>OfoxAI：テキスト・画像・動画 AI を一つのプラットフォームで</strong><br>OfoxAI は、複数のプロバイダーのテキスト・画像・動画モデルを集約する AI API プラットフォームです。OpenAI 互換 API と Anthropic・Gemini のネイティブ API に対応。開発者は一つのプラットフォームから AI アプリ、エージェント、コンテンツ制作向けのモデルを利用し、タスクに合った機能を選べます。 <a href="https://ofox.ai/?utm_source=github&amp;utm_medium=sponsorship&amp;utm_content=gpt_load" target="_blank" rel="noopener noreferrer">OfoxAI のモデルと API を見る →</a></td>
 </tr>
 <tr>
-<td width="180"><a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer"><img src="./screenshot/packycode.png" alt="PackyCode" width="150"></a></td>
+<td width="180"><a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer"><picture><source media="(prefers-color-scheme: dark)" srcset="./screenshot/packycode-dark.png"><source media="(prefers-color-scheme: light)" srcset="./screenshot/packycode-light.png"><img src="./screenshot/packycode-light.png" alt="PackyCode" width="150"></picture></a></td>
 <td><strong>PackyCode</strong><br>PackyCode は、安定性と効率性を重視した AI API 中継サービスです。ひとつの API エンドポイントと API キーで主要な大規模モデルに接続できます。統一ドメイン、統一キー、スマートな障害切り替えに対応し、可用性は 97% としています。人民元で 1:1 チャージでき、為替差損や追加手数料の心配はありません。新規ユーザーは初回チャージ割引と $1 の無料体験クレジットを受け取れ、複数グループでは最大 80% の割引、Codex／Claude Code 専用の高速ルートも利用できます。<a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer">リンクから登録して、すぐに利用を開始できます。</a></td>
 </tr>
 <tr>
