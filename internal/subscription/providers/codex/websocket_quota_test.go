@@ -178,6 +178,54 @@ func TestWebsocketQuotaSkipsTopLevelWhenSamePeriodAdditionalCannotBeCompared(t *
 	}
 }
 
+func TestWebsocketQuotaMalformedAdditionalWindowDoesNotMakeTopLevelAccount(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		window string
+	}{
+		{"missing period", `{"used_percent":20,"reset_at":1800000000}`},
+		{"missing usage", `{"window_minutes":10080,"reset_at":1800000000}`},
+		{"null usage", `{"used_percent":null,"window_minutes":10080,"reset_at":1800000000}`},
+		{"out of range usage", `{"used_percent":101,"window_minutes":10080,"reset_at":1800000000}`},
+		{"invalid period", `{"used_percent":20,"window_minutes":0,"reset_at":1800000000}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload := []byte(fmt.Sprintf(`{
+				"type":"codex.rate_limits",
+				"rate_limits":{"primary":{"used_percent":5,"window_minutes":10080,"reset_at":1800000000}},
+				"additional_rate_limits":{"Spark":{"primary":%s}}
+			}`, test.window))
+			windows := NormalizeWebsocketQuotaWindows(payload, time.Unix(1000, 0))
+			if len(windows) != 0 {
+				t.Fatalf("malformed additional window produced an update: %#v", windows)
+			}
+		})
+	}
+}
+
+func TestWebsocketQuotaIsolatesMalformedWindowFields(t *testing.T) {
+	windows := NormalizeWebsocketQuotaWindows([]byte(`{
+		"type":"codex.rate_limits","metered_limit_name":"premium",
+		"rate_limits":{
+			"primary":{"used_percent":5,"window_minutes":10080,"reset_at":1800000000},
+			"secondary":{"used_percent":"bad","window_minutes":300,"reset_at":1700000000}
+		},
+		"additional_rate_limits":{
+			"Bad":{"primary":{"used_percent":"bad","window_minutes":10080,"reset_at":1800000000}},
+			"Good":{"allowed":"bad","primary":{"used_percent":20,"window_minutes":300,"reset_at":1700000000}}
+		}
+	}`), time.Unix(1000, 0))
+	if len(windows) != 2 {
+		t.Fatalf("windows=%#v, want valid top-level and named windows", windows)
+	}
+	if windows[0].SourceID != codexAccountQuotaSourceID || windows[0].Used == nil || *windows[0].Used != 5 {
+		t.Fatalf("valid top-level window was lost: %#v", windows)
+	}
+	if windows[1].SourceName != "Good" || windows[1].SourceID != "" || windows[1].Used == nil || *windows[1].Used != 20 {
+		t.Fatalf("valid additional window was lost: %#v", windows)
+	}
+}
+
 func TestWebsocketQuotaDeduplicatesTopLevelPerWindow(t *testing.T) {
 	windows := NormalizeWebsocketQuotaWindows([]byte(`{
 		"type":"codex.rate_limits",

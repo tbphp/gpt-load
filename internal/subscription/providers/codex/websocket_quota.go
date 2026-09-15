@@ -1,75 +1,72 @@
 package codex
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/buger/jsonparser"
 )
 
-type websocketQuotaWindow struct {
-	UsedPercent       *float64 `json:"used_percent"`
-	WindowMinutes     *int64   `json:"window_minutes"`
-	ResetAt           *int64   `json:"reset_at"`
-	ResetAfterSeconds *int64   `json:"reset_after_seconds"`
-}
-
-type websocketQuotaRate struct {
-	Allowed      *bool                 `json:"allowed"`
-	LimitReached *bool                 `json:"limit_reached"`
-	Primary      *websocketQuotaWindow `json:"primary"`
-	Secondary    *websocketQuotaWindow `json:"secondary"`
+type websocketQuotaRateObservation struct {
+	windows              []quotaWindow
+	comparisonWindows    []quotaWindow
+	comparisonIncomplete bool
 }
 
 // NormalizeWebsocketQuotaWindows 读取 Codex 原生额度事件，不改动发给客户端的消息。
 // WS 的具名附加额度由已有快照解析来源，不能按 HTTP 响应头命名空间推导 SourceID。
 func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quotaWindow {
-	kind, err := jsonparser.GetString(payload, "type")
-	if err != nil || kind != "codex.rate_limits" {
+	event, ok := decodeWebsocketQuotaEvent(payload)
+	if !ok || cleanString(event["type"]) != "codex.rate_limits" {
 		return nil
 	}
-	var event struct {
-		RateLimits           *websocketQuotaRate            `json:"rate_limits"`
-		MeteredLimitName     string                         `json:"metered_limit_name"`
-		LimitName            string                         `json:"limit_name"`
-		AdditionalRateLimits map[string]*websocketQuotaRate `json:"additional_rate_limits"`
+
+	var additionalRates map[string]any
+	additionalValid := true
+	if rawAdditional, present := event["additional_rate_limits"]; present && rawAdditional != nil {
+		additionalRates, additionalValid = object(rawAdditional)
 	}
-	if json.Unmarshal(payload, &event) != nil || len(event.AdditionalRateLimits) > 8 {
+	if additionalValid && len(additionalRates) > 8 {
 		return nil
 	}
-	additional := make([]quotaWindow, 0, 2*len(event.AdditionalRateLimits))
-	names := make([]string, 0, len(event.AdditionalRateLimits))
-	for name := range event.AdditionalRateLimits {
+	additional := make([]quotaWindow, 0, 2*len(additionalRates))
+	comparisonWindows := make([]quotaWindow, 0, 2*len(additionalRates))
+	comparisonIncomplete := !additionalValid
+	names := make([]string, 0, len(additionalRates))
+	for name := range additionalRates {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	for _, name := range names {
-		windows := normalizeWebsocketQuotaRate(event.AdditionalRateLimits[name], observedAt)
-		name = strings.TrimSpace(name)
+	for _, rawName := range names {
+		observation := normalizeWebsocketQuotaRate(additionalRates[rawName], observedAt)
+		comparisonWindows = append(comparisonWindows, observation.comparisonWindows...)
+		comparisonIncomplete = comparisonIncomplete || observation.comparisonIncomplete
+		name := strings.TrimSpace(rawName)
 		if name == "" {
 			continue
 		}
-		for _, window := range windows {
+		for _, window := range observation.windows {
 			window.SourceName = name
 			additional = append(additional, window)
 		}
 	}
-	sourceID := normalizeQuotaSourceID(event.MeteredLimitName)
+
+	sourceID := normalizeQuotaSourceID(cleanString(event["metered_limit_name"]))
 	if sourceID == "" {
-		sourceID = normalizeQuotaSourceID(event.LimitName)
+		sourceID = normalizeQuotaSourceID(cleanString(event["limit_name"]))
 	}
 	if sourceID == codexAccountActiveLimit {
 		sourceID = codexAccountQuotaSourceID
 	}
-	primary := normalizeWebsocketQuotaRate(event.RateLimits, observedAt)
-	result := make([]quotaWindow, 0, len(primary)+len(additional))
-	for _, window := range primary {
+
+	primary := normalizeWebsocketQuotaRate(event["rate_limits"], observedAt)
+	result := make([]quotaWindow, 0, len(primary.windows)+len(additional))
+	for _, window := range primary.windows {
 		if sourceID == "" {
-			if !websocketQuotaTopLevelIsAccount(window, additional) {
+			if !websocketQuotaTopLevelIsAccount(window, comparisonWindows, comparisonIncomplete) {
 				continue
 			}
 			window.SourceID = codexAccountQuotaSourceID
@@ -82,9 +79,23 @@ func NormalizeWebsocketQuotaWindows(payload []byte, observedAt time.Time) []quot
 	return append(result, additional...)
 }
 
+func decodeWebsocketQuotaEvent(payload []byte) (map[string]any, bool) {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	var event map[string]any
+	if decoder.Decode(&event) != nil || event == nil {
+		return nil, false
+	}
+	var trailing any
+	if decoder.Decode(&trailing) != io.EOF {
+		return nil, false
+	}
+	return event, true
+}
+
 // websocketQuotaTopLevelIsAccount 用同一事件内的附加窗口排除顶层副本。
 // 槽位和用量不代表身份；同周期的 reset_at 才能区分当前额度窗口。
-func websocketQuotaTopLevelIsAccount(window quotaWindow, additional []quotaWindow) bool {
+func websocketQuotaTopLevelIsAccount(window quotaWindow, additional []quotaWindow, comparisonIncomplete bool) bool {
 	for _, candidate := range additional {
 		if window.WindowSeconds == nil || candidate.WindowSeconds == nil ||
 			*window.WindowSeconds != *candidate.WindowSeconds {
@@ -98,7 +109,8 @@ func websocketQuotaTopLevelIsAccount(window quotaWindow, additional []quotaWindo
 			return false
 		}
 	}
-	return true
+	// 存在无法读取周期的附加窗口时，不能证明顶层窗口不属于该来源。
+	return !comparisonIncomplete
 }
 
 func sameWebsocketQuotaReset(left, right quotaWindow) bool {
@@ -109,46 +121,79 @@ func sameWebsocketQuotaReset(left, right quotaWindow) bool {
 	return delta >= -1000 && delta <= 1000
 }
 
-func normalizeWebsocketQuotaRate(rate *websocketQuotaRate, observedAt time.Time) []quotaWindow {
-	if rate == nil {
+// normalizeWebsocketQuotaRate 分开保留来源比较所需的窗口锚点和可写入的额度值。
+// 单个窗口的用量损坏不会抹掉其周期身份，也不会阻断同一事件里的其他有效窗口。
+func normalizeWebsocketQuotaRate(raw any, observedAt time.Time) websocketQuotaRateObservation {
+	var result websocketQuotaRateObservation
+	if raw == nil {
+		return result
+	}
+	rate, valid := object(raw)
+	if !valid {
+		result.comparisonIncomplete = true
+		return result
+	}
+	allowed, hasAllowed := rate["allowed"].(bool)
+	limitReached, hasLimitReached := rate["limit_reached"].(bool)
+	for _, slot := range []string{"primary", "secondary"} {
+		rawWindow, exists := rate[slot]
+		if !exists || rawWindow == nil {
+			continue
+		}
+		window, valid := object(rawWindow)
+		if !valid {
+			result.comparisonIncomplete = true
+			continue
+		}
+		minutes, ok := integer(window["window_minutes"])
+		if !ok || minutes <= 0 || minutes > passiveQuotaMaxResetAtSeconds/60 {
+			result.comparisonIncomplete = true
+			continue
+		}
+		seconds := minutes * 60
+		resetAtMS := websocketQuotaResetAtMS(window, observedAt)
+		result.comparisonWindows = append(result.comparisonWindows, quotaWindow{
+			WindowSeconds: &seconds,
+			ResetAtMS:     resetAtMS,
+		})
+
+		used, ok := number(window["used_percent"])
+		if !ok || math.IsNaN(used) || math.IsInf(used, 0) || used < 0 || used > 100 {
+			continue
+		}
+		limit, remaining, utilization := 100.0, 100-used, used/100
+		state := "available"
+		if used >= 100 || (hasAllowed && !allowed) || (hasLimitReached && limitReached) {
+			state = "exhausted"
+		}
+		result.windows = append(result.windows, quotaWindow{
+			ID:            slot,
+			Used:          &used,
+			Limit:         &limit,
+			Remaining:     &remaining,
+			Utilization:   &utilization,
+			ResetAtMS:     resetAtMS,
+			WindowSeconds: &seconds,
+			State:         state,
+		})
+	}
+	return result
+}
+
+func websocketQuotaResetAtMS(window map[string]any, observedAt time.Time) *int64 {
+	if absolute, ok := integer(window["reset_at"]); ok &&
+		absolute > 0 && absolute <= passiveQuotaMaxResetAtSeconds {
+		value := absolute * 1000
+		return &value
+	}
+	relative, ok := integer(window["reset_after_seconds"])
+	if !ok || relative <= 0 {
 		return nil
 	}
-	fields := map[string]any{}
-	if rate.Allowed != nil {
-		fields["allowed"] = *rate.Allowed
+	base := observedAt.Unix()
+	if base < 0 || relative > passiveQuotaMaxResetAtSeconds-base {
+		return nil
 	}
-	if rate.LimitReached != nil {
-		fields["limit_reached"] = *rate.LimitReached
-	}
-	for _, slot := range []struct {
-		name   string
-		window *websocketQuotaWindow
-	}{{"primary", rate.Primary}, {"secondary", rate.Secondary}} {
-		window := slot.window
-		if window == nil {
-			continue
-		}
-		if window.UsedPercent == nil || math.IsNaN(*window.UsedPercent) || math.IsInf(*window.UsedPercent, 0) ||
-			*window.UsedPercent < 0 || *window.UsedPercent > 100 || window.WindowMinutes == nil ||
-			*window.WindowMinutes <= 0 || *window.WindowMinutes > passiveQuotaMaxResetAtSeconds/60 {
-			continue
-		}
-		values := map[string]string{
-			"used-percent":   strconv.FormatFloat(*window.UsedPercent, 'f', -1, 64),
-			"window-minutes": strconv.FormatInt(*window.WindowMinutes, 10),
-		}
-		if window.ResetAt != nil {
-			values["reset-at"] = strconv.FormatInt(*window.ResetAt, 10)
-		}
-		if window.ResetAfterSeconds != nil {
-			values["reset-after-seconds"] = strconv.FormatInt(*window.ResetAfterSeconds, 10)
-		}
-		fields[slot.name+"_window"] = passiveQuotaWindowFields(values, observedAt)
-	}
-	windows := normalizeRateWindows(fields, "", "", "")
-	for index := range windows {
-		windows[index].Label, windows[index].LabelKey = "", ""
-		windows[index].Scope, windows[index].Unit = "", ""
-	}
-	return windows
+	value := (base + relative) * 1000
+	return &value
 }
