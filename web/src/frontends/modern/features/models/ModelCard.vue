@@ -189,15 +189,24 @@ function hiddenGroupsLabel(source: ModelSource): string {
   border-color: var(--modern-segmented-active-border);
   box-shadow: var(--modern-shadow-control);
 }
+/* 冷色底从右上斜向左下淡出：左侧留白给模型名，右上正好托住统计数字。 */
 .modern-model-card-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--modern-space-1) var(--modern-space-2);
   min-width: 0;
+  border-radius: var(--modern-radius-panel) var(--modern-radius-panel) 0 0;
+  background: linear-gradient(
+    to bottom left,
+    var(--modern-model-card-tint),
+    var(--modern-surface) 72%
+  );
   padding: var(--modern-space-3) var(--modern-space-4);
 }
+/* 把后面三项统计推到右侧，模型名独占左端。 */
 .modern-model-card-name {
+  margin-inline-end: auto;
   min-width: 0;
   color: var(--modern-text);
   font-size: var(--modern-font-size-section);

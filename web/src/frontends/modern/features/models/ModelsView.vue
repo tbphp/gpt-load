@@ -331,13 +331,16 @@ useMessageSource(() =>
   color: var(--modern-muted);
   font-size: var(--modern-font-size-secondary);
 }
-/* 卡片改为价格表头 + 来源行的宽卡布局，需要足够宽度让 4 个价格列不挤压来源名。 */
+/* 卡片改为价格表头 + 来源行的宽卡布局，需要足够宽度让 4 个价格列不挤压来源名。
+   用多列而不是网格：来源数不同导致卡高不一，网格会按行内最高的卡留出空洞。 */
 .modern-models-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 620px), 1fr));
-  align-items: start;
-  gap: var(--modern-space-4);
+  column-width: 620px;
+  column-gap: var(--modern-space-4);
   padding-block: var(--modern-space-1) var(--modern-space-4);
+}
+.modern-models-grid > * {
+  margin-bottom: var(--modern-space-4);
+  break-inside: avoid;
 }
 @media (max-width: 760px) {
   .modern-models-toolbar {
