@@ -3,41 +3,41 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import type { AccessKeyRow, CostWindow } from '@modern/api/access-keys'
-import { AppBadge, AppButton, AppPanel, AppProgressBar } from '@modern/components/ui'
 import {
-  accessNanoUSD,
-  accessState,
-  accessTime,
-} from '@modern/features/access-keys/access-key-display'
+  AppBadge,
+  AppButton,
+  AppOverflowText,
+  AppPanel,
+  AppProgressBar,
+} from '@modern/components/ui'
+import { accessNanoUSD, accessState } from '@modern/features/access-keys/access-key-display'
+import { credentialTime } from '@modern/features/groups/credential-presentation'
 
 const props = defineProps<{ rows: AccessKeyRow[]; selected: number }>()
 defineEmits<{ select: [number] }>()
 const { t, n, locale } = useI18n()
-/* 一个密钥可能配了多条额度规则，这里只挑最紧的那条：面板里放不下也不需要放下全部。 */
-function tightest(row: AccessKeyRow): CostWindow | undefined {
-  return row.cost_limit_status?.rules.reduce<CostWindow | undefined>((tight, window) => {
-    const limit = accessNanoUSD(window.limit_usd)
-    if (limit <= 0n) return tight
-    const share = Number((accessNanoUSD(window.remaining_usd) * 10000n) / limit)
-    if (!tight) return window
-    const current = accessNanoUSD(tight.limit_usd)
-    return share < Number((accessNanoUSD(tight.remaining_usd) * 10000n) / current) ? window : tight
-  }, undefined)
+/* 一个密钥可能配了多条额度规则，只画剩余最少的那条。 */
+function share(window: CostWindow): number | undefined {
+  const limit = accessNanoUSD(window.limit_usd)
+  if (limit <= 0n) return undefined
+  return Number((accessNanoUSD(window.remaining_usd) * 10000n) / limit) / 100
 }
 const items = computed(() =>
   props.rows.map((row) => {
-    const window = tightest(row)
-    const limit = window ? accessNanoUSD(window.limit_usd) : 0n
+    const tightest = row.cost_limit_status?.rules.reduce<
+      { window: CostWindow; percent: number } | undefined
+    >((tight, window) => {
+      const percent = share(window)
+      if (percent === undefined) return tight
+      return !tight || percent < tight.percent ? { window, percent } : tight
+    }, undefined)
+    const status = accessState(row)
     return {
       row,
-      status: accessState(row),
-      percent: window
-        ? Math.max(
-            0,
-            Math.min(100, Number((accessNanoUSD(window.remaining_usd) * 10000n) / limit) / 100),
-          )
-        : undefined,
-      exhausted: window?.status === 'exhausted',
+      percent: tightest ? Math.max(0, Math.min(100, tightest.percent)) : undefined,
+      exhausted: tightest?.window.status === 'exhausted',
+      // 已启用是常态，不标；只有停用、过期、额度用尽才出徽章。
+      status: status.key === 'active' ? undefined : status,
     }
   }),
 )
@@ -60,27 +60,25 @@ const items = computed(() =>
           @click="$emit('select', item.row.id)"
         >
           <span class="modern-home-key-head">
-            <span class="modern-home-key-name">{{ item.row.name }}</span>
-            <AppBadge :tone="item.status.tone" size="xs" variant="plain" dot>{{
+            <AppOverflowText class="modern-home-key-name" :text="item.row.name" />
+            <AppBadge v-if="item.status" :tone="item.status.tone" size="xs" variant="plain" dot>{{
               t('accessKeys.' + item.status.key)
             }}</AppBadge>
+            <span class="modern-home-key-fact">{{
+              item.percent !== undefined
+                ? t('home.quotaLeft', { percent: n(Math.round(item.percent)) })
+                : t('home.lastRequestAt', {
+                    time: credentialTime(item.row.last_request_at_ms, locale),
+                  })
+            }}</span>
           </span>
           <AppProgressBar
             v-if="item.percent !== undefined"
-            :label="t('home.quota')"
+            :label="t('home.quota') + ' · ' + item.row.name"
             :value="item.percent"
             :tone="item.exhausted ? 'danger' : 'info'"
             size="sm"
           />
-          <!-- 额度与上次请求合成一行：两条都是次要信息，各占一行会把面板拉长一截。 -->
-          <span class="modern-home-key-meta">
-            <span v-if="item.percent !== undefined">{{
-              t('home.quotaLeft', { percent: n(Math.round(item.percent)) })
-            }}</span>
-            <span>{{
-              t('home.lastRequestAt', { time: accessTime(item.row.last_request_at_ms, locale) })
-            }}</span>
-          </span>
         </AppButton>
       </li>
     </ul>
@@ -95,14 +93,19 @@ const items = computed(() =>
   padding: 0;
   list-style: none;
 }
-/* 整块可点：点一个密钥就把左边的接入配置切过去，两边说的是同一件事。 */
+/* grid 与 flex 子项默认 min-width:auto，长密钥名会把徽章顶出卡片；
+   这条链上每一层都要显式解开才收得住。 */
+.modern-home-keys > li {
+  min-width: 0;
+}
 .modern-home-keys :deep(.modern-button) {
   width: 100%;
+  min-width: 0;
   height: auto;
   flex-direction: column;
   align-items: stretch;
   gap: var(--modern-space-1-5);
-  padding: var(--modern-space-2) var(--modern-space-2);
+  padding: var(--modern-space-2);
   font-weight: var(--modern-weight-regular);
   text-align: start;
 }
@@ -111,31 +114,26 @@ const items = computed(() =>
 }
 .modern-home-key-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: baseline;
   gap: var(--modern-space-2);
   min-width: 0;
 }
 .modern-home-key-name {
-  overflow: hidden;
+  min-width: 0;
+  flex: 0 1 auto;
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-medium);
-  text-overflow: ellipsis;
+}
+/* 徽章是结论，不参与压缩；被挤窄就会折行把整行撑高。 */
+.modern-home-key-head :deep(.modern-badge) {
+  flex: none;
   white-space: nowrap;
 }
-.modern-home-key-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--modern-space-1);
+.modern-home-key-fact {
+  flex: none;
+  margin-inline-start: auto;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
-}
-.modern-home-key-meta {
   font-variant-numeric: tabular-nums;
-}
-.modern-home-key-meta > span + span::before {
-  margin-inline-end: var(--modern-space-1);
-  content: '·';
 }
 </style>

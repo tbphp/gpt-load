@@ -214,7 +214,7 @@ async function importClient(): Promise<void> {
 </script>
 
 <template>
-  <AppPanel :title="t('home.connection')" :description="t('home.connectionHelp')" compact>
+  <AppPanel :title="t('home.connection')" compact>
     <template #actions
       ><AppButton v-if="admin" as-child size="sm" variant="text"
         ><RouterLink :to="{ name: 'modern-access-keys' }">{{

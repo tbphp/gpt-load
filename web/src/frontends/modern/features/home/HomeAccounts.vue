@@ -3,43 +3,72 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import type { HomeAccount } from '@modern/api/home'
+import type { CredentialQuota } from '@modern/api/credential-observation'
 import {
   AppBadge,
   AppButton,
-  AppChannelIcon,
   AppOverflowText,
   AppPanel,
+  AppProgressBar,
   AppTooltip,
 } from '@modern/components/ui'
-import { credentialStatus, credentialTime } from '@modern/features/groups/credential-presentation'
-import CredentialQuotaRows from '@modern/features/groups/CredentialQuotaRows.vue'
+import {
+  credentialStatus,
+  credentialTime,
+  quotaRemaining,
+  quotaTone,
+  quotaWindowTitle,
+} from '@modern/features/groups/credential-presentation'
 
 const props = defineProps<{ accounts: HomeAccount[] }>()
-const { t, n, locale } = useI18n()
-/* 首页侧栏只放前几个，完整清单在分组页；账号多的时候这块会把下面三块全顶到折叠线以下。 */
-const visibleLimit = 3
+const { t, te, n, locale } = useI18n()
+/* 首页侧栏只列前几个，完整清单在分组页。 */
+const visibleLimit = 5
+/* 一个账号只画一条：剩余最少的那个窗口。其余窗口在分组页展开看，
+   侧栏 312px 里堆两三条进度条会把下面几块全顶到折叠线以下。 */
+function tightest(windows: readonly CredentialQuota[]): CredentialQuota | undefined {
+  return windows.reduce<CredentialQuota | undefined>((tight, window) => {
+    const percent = quotaRemaining(window)
+    if (percent === undefined) return tight
+    const current = tight ? quotaRemaining(tight) : undefined
+    return current === undefined || percent < current ? window : tight
+  }, undefined)
+}
+function windowTitle(window: CredentialQuota): string {
+  const key = 'credentialCards.quotaLabels.' + window.labelKey
+  return quotaWindowTitle(window, window.labelKey && te(key) ? t(key) : window.label)
+}
 const rows = computed(() =>
   props.accounts.slice(0, visibleLimit).map((account) => {
+    const observation = account.credential.observation
+    const window = observation ? tightest(observation.windows) : undefined
     const status = credentialStatus(account.credential)
-    const exhausted = account.credential.observation?.windows.some(
-      (window) => window.scope === 'account' && window.state === 'exhausted',
-    )
+    const percent = window ? quotaRemaining(window) : undefined
+    const tone = window ? quotaTone(window) : 'neutral'
     return {
-      ...account,
-      status:
-        status.key === 'groups.credentials.available' && exhausted
-          ? { key: 'accessKeys.exhausted', tone: 'warning' as const }
-          : status,
+      id: account.credential.id,
+      channelID: account.channelID,
+      name: account.credential.account || account.credential.mask || account.channelName,
+      plan: observation?.plan || account.channelName,
+      window,
+      title: window ? windowTitle(window) : '',
+      percent,
+      tone,
+      // 额度紧张时才写重置时刻：宽裕的时候这行只是噪音。
+      resetsAt: window && tone !== 'success' ? window.resetsAt : undefined,
+      credits: observation?.resetCredits ?? 0,
+      // 可用是常态，不标；只有需要处理的状态才出徽章。
+      status: status.tone === 'success' ? undefined : status,
     }
   }),
 )
-function creditHint(row: HomeAccount): string {
+function creditHint(row: (typeof rows.value)[number]): string {
+  const account = props.accounts.find((item) => item.credential.id === row.id)
   return (
-    row.credential.observation?.creditExpirations
+    account?.credential.observation?.creditExpirations
       .filter((time): time is number => time !== undefined)
       .map((time) => credentialTime(time, locale.value))
-      .join('\n') ||
-    t('credentialCards.resetCredits', { count: n(row.credential.observation?.resetCredits ?? 0) })
+      .join('\n') || t('credentialCards.resetCredits', { count: n(row.credits) })
   )
 }
 </script>
@@ -51,106 +80,105 @@ function creditHint(row: HomeAccount): string {
         ><RouterLink :to="{ name: 'modern-groups' }">{{ t('home.viewAll') }}</RouterLink></AppButton
       ></template
     >
-    <div class="modern-home-accounts">
-      <article v-for="row in rows" :key="row.credential.id" class="modern-home-account">
-        <header>
-          <AppChannelIcon
-            :icon="row.channelIcon"
-            :mark="row.channelMark"
-            :name="row.channelName"
-            size="md"
-            :tooltip="false"
+    <ul class="modern-home-accounts">
+      <li v-for="row in rows" :key="row.id">
+        <RouterLink :to="{ name: 'modern-groups', query: { channel: row.channelID } }">
+          <span class="modern-home-account-head">
+            <AppOverflowText class="modern-home-account-name" :text="row.name" />
+            <span class="modern-home-account-plan">{{ row.plan }}</span>
+            <AppBadge v-if="row.status" :tone="row.status.tone" size="xs" variant="plain" dot>{{
+              t(row.status.key)
+            }}</AppBadge>
+            <span
+              v-if="row.percent !== undefined"
+              class="modern-home-account-percent"
+              :data-tone="row.tone"
+              >{{
+                t('credentialCards.remaining', { value: n(Math.round(row.percent)) + '%' })
+              }}</span
+            >
+          </span>
+          <AppProgressBar
+            v-if="row.window"
+            :label="`${row.title} · ${row.name}`"
+            :value="row.percent"
+            :tone="row.tone"
+            size="sm"
           />
-          <div>
-            <AppOverflowText
-              :text="row.credential.account || row.credential.mask || row.channelName"
-            /><span>{{ row.credential.observation?.plan || row.channelName }}</span>
-          </div>
-          <AppBadge :tone="row.status.tone" size="xs" variant="plain" dot>{{
-            t(row.status.key)
-          }}</AppBadge>
-        </header>
-        <CredentialQuotaRows
-          v-if="row.credential.observation?.windows.length"
-          :windows="row.credential.observation.windows"
-        />
-        <p v-else class="modern-home-account-note">{{ t('home.noQuota') }}</p>
-        <p
-          v-if="row.credential.observation && row.credential.observation.state !== 'fresh'"
-          class="modern-home-account-note"
-        >
-          {{ t('credentialCards.observation.' + row.credential.observation.state) }}
-        </p>
-        <!-- 重置券并进页脚，并且不再重复「更新于」：页头已经有整页的刷新时间。 -->
-        <footer>
-          <span>{{
-            t('home.groupCount', { available: n(row.availableGroups), total: n(row.groups) })
+          <span v-else class="modern-home-account-note">{{ t('home.noQuota') }}</span>
+          <span v-if="row.resetsAt" class="modern-home-account-note">{{
+            t('credentialCards.resetsAt', { time: credentialTime(row.resetsAt, locale) })
           }}</span>
-          <AppTooltip v-if="row.credential.observation?.resetCredits" :label="creditHint(row)"
-            ><AppBadge size="xs" tabindex="0">{{
-              t('credentialCards.resetCreditsShort', {
-                count: n(row.credential.observation.resetCredits),
-              })
-            }}</AppBadge></AppTooltip
-          >
-          <AppButton as-child variant="text" size="xs"
-            ><RouterLink :to="{ name: 'modern-groups', query: { channel: row.channelID } }">{{
-              t('inspector.openGroup')
-            }}</RouterLink></AppButton
-          >
-        </footer>
-      </article>
-    </div>
+        </RouterLink>
+        <AppTooltip v-if="row.credits" :label="creditHint(row)"
+          ><AppBadge size="xs" tabindex="0">{{
+            t('credentialCards.resetCreditsShort', { count: n(row.credits) })
+          }}</AppBadge></AppTooltip
+        >
+      </li>
+    </ul>
   </AppPanel>
 </template>
 
 <style scoped>
 .modern-home-accounts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: var(--modern-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.modern-home-account {
-  display: flex;
-  flex-direction: column;
-  gap: var(--modern-space-3);
+.modern-home-accounts > li {
+  display: grid;
+  gap: var(--modern-space-1-5);
   min-width: 0;
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-control);
-  padding: var(--modern-space-3);
 }
-.modern-home-account header {
+.modern-home-accounts a {
+  display: grid;
+  gap: var(--modern-space-1-5);
+  min-width: 0;
+}
+.modern-home-account-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--modern-space-2);
   min-width: 0;
-}
-.modern-home-account header > div {
-  display: grid;
-  min-width: 0;
-  flex: 1;
-  gap: var(--modern-space-1);
   font-size: var(--modern-font-size-secondary);
+}
+/* 名字长就截断名字，套餐名先被挤掉；剩余百分比永远不收缩，它是这行的结论。 */
+.modern-home-account-name {
+  min-width: 0;
+  flex: 0 1 auto;
   font-weight: var(--modern-weight-medium);
 }
-.modern-home-account header > div > span:last-child {
+.modern-home-account-plan {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1 1 auto;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
-  font-weight: var(--modern-weight-regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.modern-home-account footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  margin-top: auto;
-  gap: var(--modern-space-2);
+.modern-home-account-head :deep(.modern-badge) {
+  flex: none;
+  white-space: nowrap;
 }
-.modern-home-account footer > :last-child {
+.modern-home-account-percent {
+  flex: none;
   margin-inline-start: auto;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  font-variant-numeric: tabular-nums;
 }
-.modern-home-account footer,
+.modern-home-account-percent[data-tone='danger'] {
+  color: var(--modern-danger);
+}
+.modern-home-account-percent[data-tone='warning'] {
+  color: var(--modern-warning);
+}
 .modern-home-account-note {
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
+  font-size: var(--modern-font-size-caption);
 }
 </style>

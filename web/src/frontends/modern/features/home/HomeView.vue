@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { getHome, getHomeAccounts, getHomeStatistics, homeStatisticsKey } from '@modern/api/home'
 import { getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
 import { accessKeysKey, getAccessKeys } from '@modern/api/access-keys'
+import { getHealth } from '@modern/api/health'
 import { getLogAccessKeys } from '@modern/api/logs'
 import { useApiClient } from '@shared/http/client-context'
 import { useAuthSession } from '@modern/features/auth/auth-session'
@@ -66,6 +67,13 @@ const accessKeys = useQuery({
     ),
   enabled: admin,
 })
+/* 需要处理读运行健康快照：分组列表只有凭据计数，推不出额度将尽、
+   充值卡临期、访问密钥被费用额度挡住这几类。 */
+const health = useQuery({
+  queryKey: ['modern', 'health'],
+  queryFn: ({ signal }) => getHealth(client, signal),
+  enabled: admin,
+})
 // 初始化只看配置是否齐全，不把停用、冷却等运行状态当成尚未配置。
 const showSetup = computed(() => {
   if (!admin.value || !groups.data.value || !keys.data.value) return false
@@ -77,9 +85,7 @@ const showSetup = computed(() => {
 const emptyProject = computed(
   () => admin.value && groups.data.value?.items.length === 0 && keys.data.value?.length === 0,
 )
-const attention = computed(() =>
-  admin.value && groups.data.value ? collectAttention(groups.data.value.items).length : 0,
-)
+const attention = computed(() => (admin.value ? collectAttention(health.data.value).length : 0))
 const selectedKeyID = computed(() =>
   typeof route.query.access_key_id === 'string' ? Number(route.query.access_key_id) : 0,
 )
@@ -100,7 +106,13 @@ async function refresh(): Promise<void> {
     baseQuery.refetch(),
     statistics.refetch(),
     ...(admin.value
-      ? [refreshOptions(), accounts.refetch(), accessKeys.refetch(), inspector.value?.refresh()]
+      ? [
+          refreshOptions(),
+          accounts.refetch(),
+          accessKeys.refetch(),
+          health.refetch(),
+          inspector.value?.refresh(),
+        ]
       : []),
   ])
 }
@@ -113,6 +125,7 @@ usePageRefresh({
     keys.isFetching.value ||
     accounts.isFetching.value ||
     accessKeys.isFetching.value ||
+    health.isFetching.value ||
     Boolean(inspector.value?.pending),
   updatedAt: () =>
     Math.max(
@@ -209,7 +222,12 @@ watch(
             :accounts="accounts.data.value.items"
           />
           <HomeAccessKey v-if="!admin && base.currentKey" :row="base.currentKey" />
-          <HomeAttention v-if="admin && groups.data.value" :groups="groups.data.value.items" />
+          <HomeAttention
+            v-if="admin"
+            :report="health.data.value"
+            :failed="health.isError.value"
+            @retry="health.refetch()"
+          />
           <HomeTrend v-if="statistics.data.value" :report="statistics.data.value" />
           <HomeAccessKeys
             v-if="admin && accessKeys.data.value?.items.length"
