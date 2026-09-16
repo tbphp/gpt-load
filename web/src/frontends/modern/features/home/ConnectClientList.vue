@@ -26,14 +26,16 @@ const sections = gatewayGroups.map((group) => ({
             :aria-pressed="client.id === selected"
             @click="$emit('select', client.id)"
           >
-            <AppIcon v-if="client.id === 'curl'" :icon="SquareTerminal" size="md" />
-            <AppChannelIcon
-              v-else
-              :icon="client.icon"
-              :name="client.name"
-              size="sm"
-              :tooltip="false"
-            />
+            <span class="modern-connect-client-icon">
+              <AppIcon v-if="client.id === 'curl'" :icon="SquareTerminal" size="md" />
+              <AppChannelIcon
+                v-else
+                :icon="client.icon"
+                :name="client.name"
+                size="sm"
+                :tooltip="false"
+              />
+            </span>
             <AppOverflowText class="modern-connect-client-name" :text="client.name" />
           </AppButton>
         </li>
@@ -78,8 +80,15 @@ const sections = gatewayGroups.map((group) => ({
 .modern-connect-client[aria-pressed='true'],
 .modern-connect-client[aria-pressed='true']:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--modern-accent-soft);
-  color: var(--modern-accent);
+  color: var(--modern-action);
   font-weight: var(--modern-weight-medium);
+}
+.modern-connect-client-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--modern-channel-sm);
 }
 .modern-connect-client-name {
   flex: 1;

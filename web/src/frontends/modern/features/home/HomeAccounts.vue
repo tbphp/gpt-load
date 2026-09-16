@@ -15,6 +15,7 @@ import {
   credentialStatus,
   credentialTime,
   quotaRemaining,
+  quotaTone,
   quotaWindowTitle,
 } from '@modern/features/groups/credential-presentation'
 import HomeSectionLink from './HomeSectionLink.vue'
@@ -95,7 +96,7 @@ const rows = computed(() =>
       name: account.credential.account || account.credential.mask || account.channelName,
       plan: observation?.plan || account.channelName,
       used,
-      tone: used === 100 ? ('danger' as const) : ('info' as const),
+      tone: window ? quotaTone(window) : ('neutral' as const),
       hint,
       reset: resetLabel(window),
     }
@@ -127,9 +128,11 @@ const rows = computed(() =>
         >
           <AppOverflowText class="modern-home-account-name" :text="row.name" />
           <AppOverflowText class="modern-home-account-plan" :text="row.plan" />
-          <span class="modern-home-account-percent" :class="{ 'is-exhausted': row.used === 100 }">{{
-            row.used === undefined ? '—' : n(Math.round(row.used)) + '%'
-          }}</span>
+          <span
+            class="modern-home-account-percent"
+            :class="{ 'is-tight': row.tone === 'danger' }"
+            >{{ row.used === undefined ? '—' : n(Math.round(row.used)) + '%' }}</span
+          >
         </RouterLink>
         <AppTooltip v-if="row.used !== undefined" :label="row.hint">
           <AppProgressBar
@@ -159,7 +162,7 @@ const rows = computed(() =>
 }
 .modern-home-accounts {
   display: grid;
-  gap: var(--modern-space-4);
+  gap: var(--modern-space-3);
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -170,7 +173,7 @@ const rows = computed(() =>
 }
 .modern-home-accounts > li {
   display: grid;
-  gap: var(--modern-space-1-5);
+  gap: var(--modern-space-1);
   min-width: 0;
 }
 .modern-home-account-head {
@@ -200,7 +203,7 @@ const rows = computed(() =>
   color: var(--modern-muted);
   font-variant-numeric: tabular-nums;
 }
-.modern-home-account-percent.is-exhausted {
+.modern-home-account-percent.is-tight {
   color: var(--modern-danger);
 }
 .modern-home-account-note {

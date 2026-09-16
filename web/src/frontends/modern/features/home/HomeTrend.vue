@@ -92,7 +92,7 @@ function endpointLabel(value: number): string {
 <style scoped>
 .modern-home-trend {
   display: grid;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-2);
 }
 .modern-home-trend-state {
   display: flex;
@@ -132,7 +132,7 @@ function endpointLabel(value: number): string {
   font-variant-numeric: tabular-nums;
 }
 .modern-home-trend-chart {
-  height: 104px;
+  height: 80px;
 }
 .modern-home-trend-axis {
   display: flex;

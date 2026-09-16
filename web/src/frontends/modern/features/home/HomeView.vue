@@ -225,6 +225,13 @@ watch(
           </div>
         </div>
         <div class="modern-home-side">
+          <HomeAccounts
+            v-if="admin"
+            :accounts="accounts.data.value?.items ?? []"
+            :failed="accounts.isError.value"
+            :loading="accounts.isPending.value"
+            @retry="accounts.refetch()"
+          />
           <div
             v-if="admin"
             id="home-attention"
@@ -243,13 +250,6 @@ watch(
             :report="statistics.data.value"
             :failed="statistics.isError.value"
             @retry="statistics.refetch()"
-          />
-          <HomeAccounts
-            v-if="admin"
-            :accounts="accounts.data.value?.items ?? []"
-            :failed="accounts.isError.value"
-            :loading="accounts.isPending.value"
-            @retry="accounts.refetch()"
           />
         </div>
       </div>

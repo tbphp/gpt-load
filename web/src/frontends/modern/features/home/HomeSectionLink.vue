@@ -18,7 +18,10 @@ withDefaults(defineProps<{ to: RouteLocationRaw; label: string; arrow?: boolean 
 
 <style scoped>
 .modern-home-section-link {
-  color: var(--modern-accent);
+  color: var(--modern-action);
   white-space: nowrap;
+}
+.modern-home-section-link:hover:not(:disabled, [aria-disabled='true']) {
+  color: var(--modern-action-hover);
 }
 </style>

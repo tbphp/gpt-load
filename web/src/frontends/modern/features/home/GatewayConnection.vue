@@ -178,7 +178,7 @@ async function importClient(): Promise<void> {
 </script>
 
 <template>
-  <AppPanel :title="t('home.connection')" :description="t('home.connectionHelp')" compact flush>
+  <AppPanel :title="t('home.connection')" compact flush>
     <template #actions>
       <HomeSectionLink
         v-if="admin"
@@ -195,7 +195,7 @@ async function importClient(): Promise<void> {
         />
         <div class="modern-connect-main">
           <div
-            v-if="admin || selectedClient.id === 'cc-switch' || needsModel"
+            v-if="admin || selectedClient.id === 'cc-switch' || needsModel || quickImport"
             class="modern-connect-controls"
           >
             <AppSearchSelect
@@ -204,6 +204,7 @@ async function importClient(): Promise<void> {
               :label="t('home.accessKey')"
               :options="keyOptions"
               size="xs"
+              class="modern-connect-field"
             />
             <AppSelect
               v-if="selectedClient.id === 'cc-switch'"
@@ -211,6 +212,7 @@ async function importClient(): Promise<void> {
               :label="t('home.target')"
               :options="targetOptions"
               size="xs"
+              class="modern-connect-field"
             />
             <AppSearchSelect
               v-if="needsModel"
@@ -220,7 +222,18 @@ async function importClient(): Promise<void> {
               :load-options="loadModels"
               size="xs"
               allow-custom
+              class="modern-connect-field"
             />
+            <AppButton
+              v-if="quickImport"
+              class="modern-connect-import"
+              variant="primary"
+              size="xs"
+              :icon="ArrowUpRight"
+              :disabled="!key || importModelMissing"
+              @click="importOpen = true"
+              >{{ t('home.importAction') }}</AppButton
+            >
           </div>
           <div class="modern-connect-content">
             <AppNotice v-if="!key" tone="info">
@@ -231,17 +244,6 @@ async function importClient(): Promise<void> {
                 }}</RouterLink>
               </AppButton>
             </AppNotice>
-            <div v-if="quickImport" class="modern-connect-import">
-              <strong>{{ t('home.importBanner', { client: selectedClient.name }) }}</strong>
-              <AppButton
-                variant="primary"
-                size="xs"
-                :icon="ArrowUpRight"
-                :disabled="!key || importModelMissing"
-                @click="importOpen = true"
-                >{{ t('home.importAction') }}</AppButton
-              >
-            </div>
             <p class="modern-connect-instruction">{{ t('home.steps.' + selectedClient.id) }}</p>
             <ConnectTerminal
               v-if="isTerminal"
@@ -332,11 +334,15 @@ async function importClient(): Promise<void> {
   padding: var(--modern-space-4);
 }
 .modern-connect-controls {
-  display: grid;
+  display: flex;
   flex: none;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 156px), 1fr));
-  align-items: start;
+  flex-wrap: wrap;
+  align-items: flex-end;
   gap: var(--modern-space-3);
+}
+.modern-connect-field {
+  flex: 1;
+  min-width: min(100%, 128px);
 }
 .modern-connect-content {
   display: flex;
@@ -360,19 +366,8 @@ async function importClient(): Promise<void> {
   line-height: var(--modern-leading-body);
 }
 .modern-connect-import {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--modern-space-2);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-accent-soft);
-  padding: var(--modern-space-1-5) var(--modern-space-2) var(--modern-space-1-5)
-    var(--modern-space-3);
-}
-.modern-connect-import strong {
-  font-size: var(--modern-font-size-small);
-  font-weight: var(--modern-weight-medium);
+  flex: none;
+  white-space: nowrap;
 }
 .modern-connect-code {
   min-width: 0;

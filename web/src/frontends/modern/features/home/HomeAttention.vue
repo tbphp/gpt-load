@@ -11,6 +11,7 @@ const props = defineProps<{ report?: HealthReport; failed: boolean }>()
 defineEmits<{ retry: [] }>()
 const { t, n } = useI18n()
 const items = computed(() => collectAttention(props.report))
+const visibleItems = computed(() => items.value.slice(0, 3))
 function detail(item: AttentionItem): string {
   const params = Object.fromEntries(
     Object.entries(item.params).map(([key, value]) => [
@@ -41,7 +42,7 @@ function detail(item: AttentionItem): string {
       <AppIcon :icon="CircleCheck" size="sm" />{{ t('home.attention.clearHelp') }}
     </p>
     <ul v-if="items.length" class="modern-home-attention">
-      <li v-for="item in items" :key="item.key">
+      <li v-for="item in visibleItems" :key="item.key">
         <RouterLink :to="item.to" class="modern-home-attention-link">
           <AppIcon :icon="item.icon" size="sm" :class="'is-' + item.tone" />
           <span class="modern-home-attention-copy">
@@ -67,13 +68,9 @@ function detail(item: AttentionItem): string {
   line-height: var(--modern-leading-body);
 }
 .modern-home-attention {
-  overflow-y: auto;
-  max-height: 176px;
   margin: 0;
   padding: 0;
   list-style: none;
-  scrollbar-gutter: var(--modern-scrollbar-gutter);
-  overscroll-behavior: contain;
 }
 .modern-home-attention-count {
   min-width: var(--modern-control-xs);
@@ -93,7 +90,7 @@ function detail(item: AttentionItem): string {
   align-items: center;
   gap: var(--modern-space-2);
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--modern-control-md);
   border-radius: var(--modern-radius-small);
   padding: var(--modern-space-2) var(--modern-space-1);
   color: var(--modern-text);
