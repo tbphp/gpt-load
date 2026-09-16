@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
@@ -87,6 +88,7 @@ const issues = computed(() =>
         <dd>{{ n(row.weight) }}<CredentialRoutingMeta :row="row" :weight="false" /></dd>
       </div>
     </dl>
+    <ConcurrencyControl :id="row.id" scope="credential" />
     <template #footer
       ><CredentialOutcomeSummary :usage="row.daily" compact />
       <div class="modern-api-card-actions">

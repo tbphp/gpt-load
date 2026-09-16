@@ -206,6 +206,7 @@ export default {
       sections: {
         general: 'General',
         routing: 'Scheduling',
+        concurrency: 'Group concurrency',
         runtime: 'Runtime overrides',
         parameters: 'Parameter overrides',
         headers: 'Upstream request header rules',
@@ -215,6 +216,9 @@ export default {
         description: 'Adjust the relative weight used for request allocation.',
         weightHelp:
           'Default: 50. Range: 1–100. Multiplied by credential weight to determine allocation shares.',
+      },
+      concurrency: {
+        description: 'Limit simultaneous upstream requests for this Group.',
       },
       headers: {
         description:

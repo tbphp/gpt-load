@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@/components/config/ConcurrencyControl.vue'
 import {
   Activity,
   ChevronDown,
@@ -157,6 +158,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
           />
           <ProxyScopeIndicator v-if="proxySupported" :view="item.proxy" />
         </span>
+        <ConcurrencyControl :id="item.credential_id" scope="credential" compact />
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__status" role="cell">
@@ -271,6 +273,12 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
           :aria-hidden="!expanded"
           :inert="!expanded || undefined"
         >
+          <ConcurrencyControl
+            :id="item.credential_id"
+            scope="credential"
+            editable
+            :disabled="busy"
+          />
           <div class="group-credential-record__settings">
             <div class="setting-panel">
               <span class="setting-panel__title">

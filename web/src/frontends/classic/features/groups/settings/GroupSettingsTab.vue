@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@/components/config/ConcurrencyControl.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -84,6 +85,9 @@ const initialLoading = useStableLoading(
 const queryRefreshing = computed(() => query.data.value !== undefined && query.isFetching.value)
 const saved = ref<GroupSettingsDto>()
 const draft = ref<GroupSettingsDraft>()
+const concurrencyControl = ref<InstanceType<typeof ConcurrencyControl>>()
+const concurrencyDirty = ref(false)
+const concurrencyValid = ref(true)
 const pending = ref(false)
 const deletePending = ref(false)
 const deleted = ref(false)
@@ -134,6 +138,7 @@ let controller: AbortController | undefined
 const navItems = computed(() => [
   { id: 'settings-general', label: t('group.settings.sections.general') },
   { id: 'settings-routing', label: t('group.settings.sections.routing') },
+  { id: 'settings-concurrency', label: t('group.settings.sections.concurrency') },
   { id: 'settings-runtime', label: t('group.settings.sections.runtime') },
   { id: 'settings-parameters', label: t('group.settings.sections.parameters') },
   { id: 'settings-headers', label: t('group.settings.sections.headers') },
@@ -174,14 +179,14 @@ function toggleProxyOverride(): void {
   if (base) proxyMode.value = proxyOverrideToggleMode(base, proxyOverridden.value)
   proxyEndpoint.value = ''
 }
-const dirty = computed(
+const settingsDirty = computed(
   () =>
-    !deleted.value &&
-    (Object.keys(patch.value).length > 0 ||
-      headerRulesInvalidEdits.value ||
-      parameterOverridesInvalidEdits.value ||
-      proxyState.value.dirty),
+    Object.keys(patch.value).length > 0 ||
+    headerRulesInvalidEdits.value ||
+    parameterOverridesInvalidEdits.value ||
+    proxyState.value.dirty,
 )
+const dirty = computed(() => !deleted.value && (settingsDirty.value || concurrencyDirty.value))
 const mutationPending = computed(() => pending.value || deletePending.value)
 const nameError = computed(() =>
   draft.value?.name.trim() ? '' : t('group.settings.base.nameError'),
@@ -238,7 +243,8 @@ const valid = computed(
     policyCountsValid.value &&
     headerRulesValid.value &&
     parameterOverridesValid.value &&
-    !proxyState.value.invalid,
+    !proxyState.value.invalid &&
+    concurrencyValid.value,
 )
 function isPendingRestore(key: GroupTimeoutKey | GroupPolicyCountKey): boolean {
   return draft.value?.overrides[key] === undefined && saved.value?.overrides[key] !== undefined
@@ -337,6 +343,7 @@ function sectionFromID(id: string): GroupSettingsSection | undefined {
   const value = id.replace(/^settings-/u, '')
   return value === 'general' ||
     value === 'routing' ||
+    value === 'concurrency' ||
     value === 'runtime' ||
     value === 'parameters' ||
     value === 'headers' ||
@@ -463,6 +470,11 @@ function setWebsocketValue(value: boolean): void {
   }
 }
 
+function updateConcurrencyState(state: { dirty: boolean; valid: boolean }): void {
+  concurrencyDirty.value = state.dirty
+  concurrencyValid.value = state.valid
+}
+
 function requestSave(): void {
   if (!dirty.value || !valid.value || mutationPending.value) return
   void save()
@@ -476,17 +488,27 @@ async function save(): Promise<void> {
   clearSavedFeedback()
   error.value = ''
   try {
+    const maxConcurrency = concurrencyDirty.value
+      ? concurrencyControl.value?.pendingValue()
+      : undefined
+    if (concurrencyDirty.value && maxConcurrency === undefined) {
+      throw new Error('Concurrency edit is not ready')
+    }
     const body = {
       ...patch.value,
       ...(proxyState.value.dirty && proxyState.value.value !== undefined
         ? { proxy: proxyState.value.value }
         : {}),
+      ...(maxConcurrency !== undefined ? { max_concurrency: maxConcurrency } : {}),
     }
-    const result = await updateGroupSettings(client, props.groupId, body, active.signal)
-    if (controller !== active) return
-    resetSavedDraft(result)
-    cacheGroupSettings(queryClient, props.groupId, result)
-    await invalidateGroupSettingsDependents(queryClient, props.groupId)
+    if (Object.keys(body).length > 0) {
+      const result = await updateGroupSettings(client, props.groupId, body, active.signal)
+      if (controller !== active) return
+      resetSavedDraft(result)
+      cacheGroupSettings(queryClient, props.groupId, result)
+      await invalidateGroupSettingsDependents(queryClient, props.groupId)
+      if (maxConcurrency !== undefined) concurrencyControl.value?.synchronize(maxConcurrency)
+    }
     showSavedFeedback()
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
@@ -504,6 +526,9 @@ function discard(): void {
   error.value = ''
   clearSavedFeedback()
   resetSavedDraft(saved.value)
+  concurrencyControl.value?.reset()
+  concurrencyDirty.value = false
+  concurrencyValid.value = true
   consumeCurrentQuery()
 }
 
@@ -617,6 +642,23 @@ onBeforeUnmount(() => {
             @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
           />
+          <section id="settings-concurrency" class="group-settings__section">
+            <header>
+              <h3>{{ t('group.settings.sections.concurrency') }}</h3>
+              <p>{{ t('group.settings.concurrency.description') }}</p>
+            </header>
+            <ConcurrencyControl
+              :id="groupId"
+              ref="concurrencyControl"
+              scope="group"
+              editable
+              expanded
+              deferred
+              :show-label="false"
+              :disabled="mutationPending"
+              @state-change="updateConcurrencyState"
+            />
+          </section>
           <section id="settings-runtime" class="group-settings__section">
             <header>
               <h3>{{ t('group.settings.sections.runtime') }}</h3>

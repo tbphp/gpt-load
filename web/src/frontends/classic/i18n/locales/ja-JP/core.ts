@@ -1,4 +1,43 @@
 export default {
+  concurrency: {
+    title: '同時実行数の制限',
+    description:
+      '実行中のリクエストを制限します。HTTP ストリームは終了まで、WebSocket は各リクエスト単位で数えます。',
+    unlimited: '無制限',
+    none: 'なし',
+    currentRequests: '現在',
+    limit: '上限',
+    default: 'システム既定（無制限）',
+    inherit: '既定値を継承',
+    custom: 'カスタム',
+    edit: '設定',
+    restoreDefault: '既定値に戻す',
+    resetPending: '保存すると既定値に戻ります',
+    mode: '制限方式',
+    maximum: '最大同時実行数',
+    help: '0 は無制限です。継承時はシステム既定値を使用します。個別に保存すると即時反映され、上限を下げても実行中のリクエストは中断しません。',
+    deferredHelp:
+      '0 は無制限です。継承時はシステム既定値を使用します。「変更を保存」でまとめて反映され、上限を下げても実行中のリクエストは中断しません。',
+    shared: '同じアカウントはグループ間で上限と実行数を共有します',
+    invalid: '1～1,000,000 の整数を入力してください',
+    loadFailed: '同時実行数を更新できませんでした',
+    saveFailed: '保存に失敗しました。もう一度お試しください。',
+    saved: '保存済み',
+    cancel: 'キャンセル',
+    save: '同時実行数の制限を保存',
+    inherited: '既定値を使用',
+    overridden: 'カスタム設定を使用',
+    scopes: {
+      upstream: '上流の実行数',
+      default_group: 'グループの既定同時実行上限',
+      default_access_key: 'キーの既定同時実行上限',
+      default_credential: 'アカウント・認証情報の既定同時実行上限',
+      group: 'グループ同時実行数',
+      access_key: 'AccessKey 同時実行数',
+      credential: 'アカウント・認証情報の同時実行数',
+      global: 'グローバル同時実行数',
+    },
+  },
   common: {
     upstreamUrl: {
       label: 'カスタム上流 URL',

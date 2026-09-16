@@ -28,12 +28,12 @@ export default defineConfigWithVueTs(
         {
           selector:
             'Property[key.name=/^(refetchInterval|refetchIntervalInBackground|refetchOnWindowFocus|refetchOnReconnect|refetchOnMount)$/]',
-          message: '新版禁止定时轮询；刷新策略统一由 app/query.ts 管理，不在页面覆盖。',
+          message: '刷新策略统一由 app/query.ts 管理，不在页面覆盖。',
         },
         {
           selector:
             'Property[key.value=/^(refetchInterval|refetchIntervalInBackground|refetchOnWindowFocus|refetchOnReconnect|refetchOnMount)$/]',
-          message: '新版禁止定时轮询；刷新策略统一由 app/query.ts 管理，不在页面覆盖。',
+          message: '刷新策略统一由 app/query.ts 管理，不在页面覆盖。',
         },
       ],
     },

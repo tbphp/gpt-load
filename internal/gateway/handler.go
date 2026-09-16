@@ -17,6 +17,7 @@ import (
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/affinity"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/concurrency"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
@@ -504,6 +505,17 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 
+	requestLease, blocked, current := handler.manager.AdmitConcurrency(snapshot, snapshot.RequestConcurrencyLimits(accessKey.ID))
+	if !current {
+		handler.completeConfigurationChanged(ginContext, recorder)
+		return
+	}
+	if blocked != "" {
+		handler.completeReason(ginContext, recorder, requestConcurrencyReason(blocked))
+		return
+	}
+	defer requestLease.Release()
+
 	selectedDialect, dialectReady := handler.dialects[selectedRoute.Protocol]
 	if !dialectReady || selectedRoute.Kind != endpointForward {
 		handler.logDataPlaneRouteNotFound(
@@ -638,6 +650,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	iterator := scheduler.New(snapshot, handler.registry, query)
 	handler.executeAttempts(
 		ginContext,
+		snapshot,
 		iterator,
 		retryAttemptLimit(snapshot.Settings.RetryCount),
 		allowedCredentialRefs,
@@ -810,6 +823,7 @@ func headerFieldValues(headers http.Header, name string) []string {
 
 func (handler *Handler) executeAttempts(
 	ginContext *gin.Context,
+	snapshot *state.ConfigSnapshot,
 	iterator *scheduler.Iterator,
 	forwardAttemptLimit int,
 	allowedCredentialRefs map[uint]state.CredentialRef,
@@ -836,6 +850,7 @@ func (handler *Handler) executeAttempts(
 	lastAttemptIndex := -1
 	attemptSequence := 0
 	forwardAttempts := 0
+	capacityBlocked := false
 	type credentialRefreshRetry struct {
 		selection scheduler.Selection
 		ref       state.CredentialRef
@@ -988,7 +1003,11 @@ func (handler *Handler) executeAttempts(
 		}
 		return decision.Retry != health.RetryNone
 	}
+	var attemptLease *concurrency.Lease
+	defer func() { attemptLease.Release() }()
 	for forwardAttempts < forwardAttemptLimit {
+		attemptLease.Release()
+		attemptLease = nil
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
 			return
@@ -1116,6 +1135,20 @@ func (handler *Handler) executeAttempts(
 			}
 			continue
 		}
+		var blocked concurrency.Subject
+		var current bool
+		attemptLease, blocked, current = handler.manager.AdmitConcurrency(snapshot, snapshot.UpstreamConcurrencyLimits(ref))
+		if !current {
+			handler.completeConfigurationChanged(ginContext, recorder)
+			return
+		}
+		if blocked != "" {
+			capacityBlocked = true
+			if blocked == concurrency.Group(selection.GroupID) {
+				iterator.SkipGroup(selection.GroupID)
+			}
+			continue
+		}
 		if quotaAdmission != nil && !quotaAdmission.admitted && handler.accessQuota != nil {
 			var ticket accessquota.Ticket
 			var decision accessquota.Decision
@@ -1202,12 +1235,7 @@ func (handler *Handler) executeAttempts(
 			)
 		}
 		attemptStarted := recorder.beforeForward()
-		var result UpstreamResult
-		if stream {
-			result = handler.forwarder.ForwardStream(ginContext.Request.Context(), input, ginContext.Writer)
-		} else {
-			result = handler.forwarder.Forward(ginContext.Request.Context(), input)
-		}
+		result := handler.forwardWithConcurrency(ginContext.Request.Context(), input, stream, ginContext.Writer, attemptLease)
 		result = normalizeUpstreamResultContract(result)
 		if !stream && result.HasResponse() && !result.ProviderErrorBeforeCommit &&
 			result.DispatchState != execution.DispatchLocal &&
@@ -1451,6 +1479,10 @@ func (handler *Handler) executeAttempts(
 	if until, limited := iterator.CooldownUntil(); limited {
 		setCooldownRetryAfter(ginContext, until, handler.now())
 		handler.completeReason(ginContext, recorder, reasonUpstreamRateLimited)
+		return
+	}
+	if capacityBlocked {
+		handler.completeReason(ginContext, recorder, reasonUpstreamConcurrency)
 		return
 	}
 	handler.completeReason(ginContext, recorder, reasonNoCandidate)

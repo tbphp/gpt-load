@@ -32,9 +32,11 @@ func TestAPIKeyImportAccepts5000AndReplaysWithoutDuplicates(t *testing.T) {
 		t.Fatalf("import result = %#v, want 5000 added and 0 duplicates", first)
 	}
 	assertImportedCredentialState(t, fixture, groupID, 5000)
-	if fixture.manager.Current() != beforeSnapshot {
-		t.Fatal("credential import republished the configuration snapshot")
+	if afterImport := fixture.manager.Current(); afterImport == beforeSnapshot ||
+		afterImport.Revision <= beforeSnapshot.Revision {
+		t.Fatal("credential import did not publish the configuration snapshot")
 	}
+	afterImport := fixture.manager.Current()
 	beforeReplay := countCreateImportRows(t, fixture)
 	replayed, err := fixture.service.ImportGroupCredentialsIdempotent(t.Context(), idempotencyKey, groupID, request)
 	if err != nil || replayed != first {
@@ -42,6 +44,9 @@ func TestAPIKeyImportAccepts5000AndReplaysWithoutDuplicates(t *testing.T) {
 	}
 	if afterReplay := countCreateImportRows(t, fixture); afterReplay != beforeReplay {
 		t.Fatalf("replay changed resource counts: before=%#v after=%#v", beforeReplay, afterReplay)
+	}
+	if fixture.manager.Current() != afterImport {
+		t.Fatal("credential import replay republished the configuration snapshot")
 	}
 	duplicate, err := fixture.service.ImportGroupCredentialsIdempotent(
 		t.Context(), "00000000-0000-4000-8000-000000005002", groupID, request,

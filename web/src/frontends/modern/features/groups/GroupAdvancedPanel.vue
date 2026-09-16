@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { protocolLabel } from '@modern/i18n/protocols'
 import { Plus, Trash2 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -49,6 +50,8 @@ const query = useQuery({
   queryKey: groupSettingsKey(props.group.id),
   queryFn: ({ signal }) => getGroupSettings(client, props.group.id, signal),
 })
+const concurrency = ref<InstanceType<typeof ConcurrencyControl>>()
+const concurrencyState = ref({ dirty: false, valid: true })
 const saved = ref<GroupSettings>()
 const params = ref<Record<string, string>>({})
 const validationModel = ref('')
@@ -85,7 +88,9 @@ function snapshot(): string {
   ])
 }
 const dirty = computed(
-  () => Boolean(saved.value) && (snapshot() !== baseline.value || !rulesValid.value),
+  () =>
+    Boolean(saved.value) &&
+    (snapshot() !== baseline.value || !rulesValid.value || concurrencyState.value.dirty),
 )
 watch(
   query.data,
@@ -197,6 +202,7 @@ async function save(): Promise<void> {
     return
   }
   if (
+    !concurrencyState.value.valid ||
     Object.keys(paramErrors.value).length ||
     runtimeNumbers.some(numberInvalid) ||
     proxyInvalid.value ||
@@ -225,6 +231,8 @@ async function save(): Promise<void> {
   if (rules.value.length) overrides.parameter_overrides = rules.value
   else delete overrides.parameter_overrides
   const patch: AdvancedSettingsPatch = {}
+  const maximum = concurrency.value?.pendingValue()
+  if (maximum !== undefined) patch.max_concurrency = maximum
   const nextParams = Object.fromEntries(
     Object.entries(params.value).map(([key, value]) => [key, value.trim()]),
   )
@@ -251,6 +259,7 @@ async function save(): Promise<void> {
     await cache.cancelQueries({ queryKey: groupSettingsKey(props.group.id) })
     const result = await saveGroupSettings(client, props.group.id, patch, controller.signal)
     if (controller.signal.aborted) return
+    if (maximum !== undefined) concurrency.value?.acceptSaved(maximum)
     baseline.value = snapshot()
     cache.setQueryData(groupSettingsKey(props.group.id), result)
     emit('saved')
@@ -382,6 +391,21 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             @update:model-value="switches[key] = $event"
           />
         </div>
+      </AppFormSection>
+      <AppFormSection
+        :title="t('concurrency.scopes.group')"
+        :description="t('concurrency.description')"
+      >
+        <ConcurrencyControl
+          :id="group.id"
+          ref="concurrency"
+          scope="group"
+          editable
+          segmented
+          :show-label="false"
+          :disabled="saving"
+          @state-change="concurrencyState = $event"
+        />
       </AppFormSection>
       <AppFormSection compact :title="t('groupDetail.headers')">
         <template #actions

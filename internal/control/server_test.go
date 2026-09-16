@@ -983,8 +983,9 @@ func TestImportGroupCredentialsEndpointReturnsSuccessEnvelope(t *testing.T) {
 	if result.GroupID != groupID || result.CredentialsAdded != 1 || result.CredentialsDuplicated != 2 {
 		t.Fatalf("result = %#v", result)
 	}
-	if fixture.manager.Current() != beforeSnapshot {
-		t.Fatal("endpoint import published Snapshot")
+	if afterSnapshot := fixture.manager.Current(); afterSnapshot == beforeSnapshot ||
+		afterSnapshot.Revision <= beforeSnapshot.Revision {
+		t.Fatal("endpoint import did not publish Snapshot")
 	}
 }
 

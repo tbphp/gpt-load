@@ -11,6 +11,7 @@ import (
 
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/concurrency"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
@@ -23,13 +24,14 @@ import (
 const maxSafeAccessKeyEpochMS = int64(9_007_199_254_740_991)
 
 type CompileInput struct {
-	SystemSettings   config.Settings
-	ChannelRegistry  *channel.Registry
-	Groups           []GroupConfig
-	Credentials      []CredentialConfig
-	AccessKeys       []AccessKeyConfig
-	GlobalProxy      *outboundproxy.Config
-	EnvironmentProxy *outboundproxy.Config
+	ConcurrencyPolicies map[concurrency.Subject]int64
+	SystemSettings      config.Settings
+	ChannelRegistry     *channel.Registry
+	Groups              []GroupConfig
+	Credentials         []CredentialConfig
+	AccessKeys          []AccessKeyConfig
+	GlobalProxy         *outboundproxy.Config
+	EnvironmentProxy    *outboundproxy.Config
 }
 
 type GroupConfig struct {
@@ -51,13 +53,14 @@ type GroupConfig struct {
 // CredentialConfig contains only non-secret credential metadata required to
 // validate a runtime configuration publication.
 type CredentialConfig struct {
-	ID                 uint
-	GroupID            uint
-	Status             CredentialStatus
-	WeightManual       *int
-	Version            uint64
-	IdentityGeneration uint64
-	Fingerprint        string
+	IdentityFingerprint string
+	ID                  uint
+	GroupID             uint
+	Status              CredentialStatus
+	WeightManual        *int
+	Version             uint64
+	IdentityGeneration  uint64
+	Fingerprint         string
 }
 
 type ModelConfig struct {
@@ -184,6 +187,8 @@ type AccessKeyView struct {
 }
 
 type ConfigSnapshot struct {
+	ConcurrencyPolicies   map[concurrency.Subject]int64
+	CredentialConcurrency map[uint]CredentialConcurrency
 	Revision              uint64
 	Settings              RuntimeSettings
 	ExecutionCandidates   ExecutionCandidateIndex
@@ -285,6 +290,9 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		}
 	}
 
+	if err := compileConcurrency(input, snapshot); err != nil {
+		return nil, err
+	}
 	sortExecutionRouteIndex(snapshot.ExecutionCandidates)
 	sortExecutionRouteIndex(snapshot.ExecutionRouteCatalog)
 	return snapshot, nil

@@ -31,9 +31,10 @@ type CredentialImportResult struct {
 }
 
 type CredentialUpdateRequest struct {
-	Status       optionalField[state.CredentialStatus] `json:"status"`
-	WeightManual optionalField[int]                    `json:"weight_manual"`
-	Proxy        optionalField[outboundproxy.Config]   `json:"proxy"`
+	Status         optionalField[state.CredentialStatus] `json:"status"`
+	WeightManual   optionalField[int]                    `json:"weight_manual"`
+	Proxy          optionalField[outboundproxy.Config]   `json:"proxy"`
+	MaxConcurrency optionalField[int64]                  `json:"max_concurrency"`
 }
 
 type CredentialRevealResult struct {

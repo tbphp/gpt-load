@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/concurrency"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
@@ -156,6 +157,7 @@ type AccessKeyUpdateRequest struct {
 	RPMLimit        OptionalRPMLimit                `json:"rpm_limit"`
 	CostLimitRules  OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
 	ExpiresAtMS     OptionalNullableEpochMS         `json:"expires_at_ms"`
+	MaxConcurrency  optionalField[int64]            `json:"max_concurrency"`
 }
 
 type AccessKeyCostLimitResetRequest struct {
@@ -389,8 +391,12 @@ func (s *Service) accessKeyUpdateMutation(
 	request AccessKeyUpdateRequest,
 ) (func(*gorm.DB) (AccessKeyMetadata, error), error) {
 	if id == 0 || (request.Key == "" && request.Name == nil && request.Status == nil && request.Filters == nil &&
-		!request.RPMLimit.Set && !request.CostLimitRules.Set && !request.ExpiresAtMS.Set && !request.PriceMultiplier.Set) {
+		!request.RPMLimit.Set && !request.CostLimitRules.Set && !request.ExpiresAtMS.Set &&
+		!request.PriceMultiplier.Set && !request.MaxConcurrency.Set) {
 		return nil, app_errors.ErrBadRequest
+	}
+	if err := validateConcurrencyOverride(request.MaxConcurrency); err != nil {
+		return nil, err
 	}
 	if _, err := normalizeRPMLimit(request.RPMLimit, 0); err != nil {
 		return nil, err
@@ -528,6 +534,9 @@ func (s *Service) accessKeyUpdateMutation(
 				Updates(updates).Error; err != nil {
 				return result, app_errors.ParseDBError(err)
 			}
+		}
+		if err := applyConcurrencyOverride(tx, concurrency.AccessKey(row.ID), request.MaxConcurrency); err != nil {
+			return result, err
 		}
 		var costLimitRows []models.AccessKeyCostLimitRule
 		if request.CostLimitRules.Set {
@@ -707,6 +716,9 @@ func (s *Service) DeleteAccessKey(ctx context.Context, id uint) error {
 			return app_errors.ParseDBError(err)
 		}
 		if err := tx.Delete(&row).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
+		if err := deleteConcurrencyPolicies(tx, concurrency.AccessKey(id)); err != nil {
 			return app_errors.ParseDBError(err)
 		}
 		return nil

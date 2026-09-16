@@ -162,6 +162,7 @@ export default {
       name: 'Name',
       key: 'Access key',
       status: 'Status',
+      concurrency: 'Concurrency',
       filters: 'Filters',
       scope: 'Scope',
       rpm: 'RPM limit',

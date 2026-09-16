@@ -65,6 +65,7 @@ export interface GroupSettings extends GroupBasics {
   proxy: { mode: 'inherit' | 'direct' | 'custom'; display: string; hasAuth: boolean }
 }
 export interface AdvancedSettingsPatch {
+  max_concurrency?: number | null
   params?: Record<string, string>
   validation_model?: string | null
   validation_protocol?: string

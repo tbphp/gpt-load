@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   Cable,
+  Gauge,
   Database,
   Globe,
   Monitor,
@@ -12,6 +13,8 @@ import {
   SlidersHorizontal,
   X,
 } from '@lucide/vue'
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
+import { settingsConcurrencyScopes, type SettingsConcurrencyPatch } from '@modern/api/concurrency'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -45,6 +48,19 @@ import { useSettingsEditor } from './use-settings-editor'
 
 const { t, n } = useI18n()
 const client = useApiClient()
+const concurrencyControls: Partial<
+  Record<(typeof settingsConcurrencyScopes)[number], InstanceType<typeof ConcurrencyControl>>
+> = {}
+const concurrencyStates = ref<
+  Partial<Record<(typeof settingsConcurrencyScopes)[number], { dirty: boolean; valid: boolean }>>
+>({})
+const concurrencyCount = computed(
+  () => Object.values(concurrencyStates.value).filter((state) => state.dirty).length,
+)
+const concurrencyDirty = computed(() => concurrencyCount.value > 0)
+const concurrencyValid = computed(() =>
+  Object.values(concurrencyStates.value).every((state) => state.valid),
+)
 const {
   query,
   base,
@@ -58,9 +74,13 @@ const {
   locked,
   restore,
   undoRestore,
-  discard,
+  discard: discardSettings,
   save,
-} = useSettingsEditor()
+} = useSettingsEditor(concurrencyDirty)
+function discard(): void {
+  discardSettings()
+  for (const control of Object.values(concurrencyControls)) control.reset()
+}
 const info = useQuery({
   queryKey: systemInfoKey,
   queryFn: ({ signal }) => getSystemInfo(client, signal),
@@ -68,6 +88,7 @@ const info = useQuery({
 const sectionIDs = [
   'routing',
   'connection',
+  'concurrency',
   'browser',
   'maintenance',
   'interface',
@@ -86,6 +107,7 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
     'blacklist_threshold',
     'validation_interval',
   ],
+  concurrency: [],
   browser: ['cors', 'header_rules', 'response_header_rules'],
   maintenance: ['request_log_retention_days', 'models_dev_auto_sync_enabled'],
   interface: [],
@@ -94,6 +116,7 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
 const sectionIcons = {
   routing: Route,
   connection: Cable,
+  concurrency: Gauge,
   browser: Globe,
   maintenance: Database,
   interface: Monitor,
@@ -154,11 +177,18 @@ const visibleSections = computed(() =>
   sectionIDs.filter((id) => {
     if (sectionFields[id].length) return sectionFields[id].some(matches)
     const extra =
-      id === 'interface'
-        ? [t('settingsForm.frontend'), t('frontend.modern.title'), t('frontend.classic.title')]
-        : ['version', 'database', 'dataDir', 'authKeySource', 'encryptionSource', 'encryption'].map(
-            (key) => t('settingsForm.system.' + key),
-          )
+      id === 'concurrency'
+        ? settingsConcurrencyScopes.map((scope) => t('concurrency.scopes.' + scope))
+        : id === 'interface'
+          ? [t('settingsForm.frontend'), t('frontend.modern.title'), t('frontend.classic.title')]
+          : [
+              'version',
+              'database',
+              'dataDir',
+              'authKeySource',
+              'encryptionSource',
+              'encryption',
+            ].map((key) => t('settingsForm.system.' + key))
     const text = (sectionText(id) + ' ' + extra.join(' ')).toLocaleLowerCase()
     return words.value.every((word) => text.includes(word))
   }),
@@ -266,7 +296,18 @@ watch(
   { immediate: true },
 )
 async function submit(): Promise<void> {
-  const result = await save()
+  const patch: SettingsConcurrencyPatch = {}
+  for (const scope of settingsConcurrencyScopes) {
+    const value = concurrencyControls[scope]?.pendingValue()
+    if (value !== undefined) patch[scope] = value
+  }
+  const result = concurrencyValid.value ? await save(patch) : 'invalid'
+  if (result === 'saved') {
+    for (const scope of settingsConcurrencyScopes) {
+      const value = patch[scope]
+      if (value !== undefined) concurrencyControls[scope]?.acceptSaved(value)
+    }
+  }
   if (result !== 'invalid') return
   clearSearch()
   await nextTick()
@@ -367,7 +408,8 @@ onScopeDispose(() => {
           <AppButton @click="clearSearch">{{ t('settingsForm.clearSearch') }}</AppButton>
         </AppCollectionState>
         <AppPanel
-          v-for="id in visibleSections"
+          v-for="id in sectionIDs"
+          v-show="visibleSections.includes(id)"
           :id="'settings-section-' + id"
           :key="id"
           :title="t('settingsForm.sections.' + id)"
@@ -656,6 +698,24 @@ onScopeDispose(() => {
                 />
               </SettingItem>
             </template>
+            <div v-else-if="id === 'concurrency'" class="modern-settings-concurrency-grid">
+              <ConcurrencyControl
+                v-for="scope in settingsConcurrencyScopes"
+                :key="scope"
+                :ref="
+                  (el) => {
+                    if (el)
+                      concurrencyControls[scope] = el as InstanceType<typeof ConcurrencyControl>
+                  }
+                "
+                :scope="scope"
+                editable
+                segmented
+                :show-help="false"
+                :disabled="saving"
+                @state-change="concurrencyStates[scope] = $event"
+              />
+            </div>
             <FrontendPicker
               v-else-if="id === 'interface'"
               :disabled="saving"
@@ -675,7 +735,7 @@ onScopeDispose(() => {
     <footer v-if="dirty" class="modern-settings-savebar">
       <span>
         <AppIcon :icon="SlidersHorizontal" size="sm" />
-        {{ t('settingsForm.unsaved', { count: n(changed.length) }) }}
+        {{ t('settingsForm.unsaved', { count: n(changed.length + concurrencyCount) }) }}
       </span>
       <div>
         <AppButton :icon="RotateCcw" :disabled="saving" @click="discardOpen = true">{{
@@ -808,7 +868,8 @@ onScopeDispose(() => {
 .modern-settings-proxy-effective > :first-child {
   flex: none;
 }
-.modern-settings-cors {
+.modern-settings-cors,
+.modern-settings-concurrency-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
@@ -854,6 +915,11 @@ onScopeDispose(() => {
 }
 @container modern-settings-content (max-width: 560px) {
   .modern-settings-cors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container modern-settings-content (max-width: 620px) {
+  .modern-settings-concurrency-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

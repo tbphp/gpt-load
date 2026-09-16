@@ -1187,6 +1187,8 @@ func serviceErrorMessageID(
 	apiErr *app_errors.APIError,
 ) string {
 	switch apiErr.Code {
+	case app_errors.ErrUpstreamConcurrencyLimit.Code:
+		return "concurrency.upstream_busy"
 	case app_errors.ErrIdempotencyKeyRequired.Code:
 		return "idempotency.required"
 	case app_errors.ErrInvalidIdempotencyKey.Code:

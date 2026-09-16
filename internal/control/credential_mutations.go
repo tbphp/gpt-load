@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -23,8 +24,11 @@ func normalizeCredentialUpdate(
 	request CredentialUpdateRequest,
 	encryptionService encryption.Service,
 ) (status *state.CredentialStatus, weight *int, weightSet bool, proxy *string, proxySet bool, err error) {
-	if !request.Status.Set && !request.WeightManual.Set && !request.Proxy.Set {
+	if !request.Status.Set && !request.WeightManual.Set && !request.Proxy.Set && !request.MaxConcurrency.Set {
 		return nil, nil, false, nil, false, app_errors.ErrBadRequest
+	}
+	if err := validateConcurrencyOverride(request.MaxConcurrency); err != nil {
+		return nil, nil, false, nil, false, err
 	}
 	if request.Status.Set {
 		if request.Status.Null ||
@@ -194,6 +198,13 @@ func (s *Service) UpdateGroupCredential(
 			Updates(updates).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
+		if request.MaxConcurrency.Set {
+			subject, _, _, err := resolveConcurrencyTarget(s.manager.Current(), concurrencyTarget{Scope: "credential", ID: credentialID})
+			if err != nil {
+				return err
+			}
+			return applyConcurrencyOverride(tx, subject, request.MaxConcurrency)
+		}
 		return nil
 	}, func() error {
 		committedProxyUpdate = proxySet
@@ -248,6 +259,9 @@ func (s *Service) DeleteGroupCredential(ctx context.Context, groupID, credential
 			return err
 		}
 		if err := tx.Delete(&row).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
+		if err := deleteCredentialConcurrencyPolicies(tx, []uint{credentialID}); err != nil {
 			return app_errors.ParseDBError(err)
 		}
 		return nil
@@ -588,6 +602,7 @@ func (s *Service) BatchGroupCredentials(
 		return CredentialBatchResponse{}, fmt.Errorf("batch mutation coordinator unavailable: %w", app_errors.ErrInternalServer)
 	}
 	var mutationErr error
+	var publication state.CompileInput
 	coordinator.DoMany(ids, func() {
 		before, snapshotErr := s.registry.SnapshotGroupCredentialEntriesExact(groupID, ids)
 		if snapshotErr != nil {
@@ -631,6 +646,21 @@ func (s *Service) BatchGroupCredentials(
 				}
 				if result.RowsAffected != int64(len(ids)) {
 					return fmt.Errorf("batch credential rows affected = %d, want %d: %w", result.RowsAffected, len(ids), app_errors.ErrDatabase)
+				}
+				if request.Action == CredentialBatchDelete {
+					if err := deleteCredentialConcurrencyPolicies(tx, ids); err != nil {
+						return app_errors.ParseDBError(err)
+					}
+					var err error
+					publication, err = stateloader.BuildCompileInputWithProxy(
+						ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
+					)
+					if err != nil {
+						return err
+					}
+					if _, err := state.Compile(publication); err != nil {
+						return err
+					}
 				}
 				return nil
 			})
@@ -695,6 +725,17 @@ func (s *Service) BatchGroupCredentials(
 	})
 	if mutationErr != nil {
 		return CredentialBatchResponse{}, mutationErr
+	}
+	if request.Action == CredentialBatchDelete {
+		if _, err := s.publishSnapshot(publication); err != nil {
+			operationErr := withControlOperationContext(
+				newControlOperationError(stagePublishCommittedSnapshot), groupID, 0,
+			)
+			return CredentialBatchResponse{}, joinCommittedRuntimeRecovery(
+				operationErr,
+				s.recoverCommittedRuntime(ctx, false),
+			)
+		}
 	}
 	return CredentialBatchResponse{
 		AffectedCredentialIDs: ids,

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { HomeAccount } from '@modern/api/home'
@@ -93,6 +94,7 @@ const rows = computed(() =>
             >{{ row.remaining === undefined ? '—' : n(Math.round(row.remaining)) + '%' }}</span
           >
         </div>
+        <ConcurrencyControl :id="row.id" scope="credential" />
         <div
           v-if="row.windows.length"
           class="modern-home-account-quotas"

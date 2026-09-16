@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/concurrency"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/epochms"
@@ -64,7 +65,15 @@ type SettingsResponse struct {
 }
 
 type SettingsUpdateRequest struct {
-	Settings map[string]json.RawMessage `json:"settings"`
+	Settings    map[string]json.RawMessage  `json:"settings"`
+	Concurrency *SettingsConcurrencyUpdates `json:"concurrency"`
+}
+
+type SettingsConcurrencyUpdates struct {
+	Global            optionalField[int64] `json:"global"`
+	DefaultGroup      optionalField[int64] `json:"default_group"`
+	DefaultAccessKey  optionalField[int64] `json:"default_access_key"`
+	DefaultCredential optionalField[int64] `json:"default_credential"`
 }
 
 type persistedSettingUpdate struct {
@@ -81,25 +90,39 @@ func (request *SettingsUpdateRequest) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &object); err != nil {
 		return err
 	}
-	if object == nil || len(object) != 1 {
-		return fmt.Errorf("request body must contain only settings")
+	if object == nil || len(object) == 0 || len(object) > 2 {
+		return fmt.Errorf("request body must contain settings or concurrency")
 	}
-	rawSettings, exists := object["settings"]
-	if !exists {
-		return fmt.Errorf("request body must contain settings")
+	for key := range object {
+		if key != "settings" && key != "concurrency" {
+			return fmt.Errorf("unknown request field %q", key)
+		}
 	}
-	trimmed := bytes.TrimSpace(rawSettings)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || trimmed[0] != '{' {
-		return fmt.Errorf("settings must be a non-null JSON object")
+	if rawSettings, exists := object["settings"]; exists {
+		trimmed := bytes.TrimSpace(rawSettings)
+		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || trimmed[0] != '{' {
+			return fmt.Errorf("settings must be a non-null JSON object")
+		}
+		var settings map[string]json.RawMessage
+		if err := json.Unmarshal(rawSettings, &settings); err != nil {
+			return err
+		}
+		if settings == nil {
+			return fmt.Errorf("settings must be a non-null JSON object")
+		}
+		request.Settings = settings
 	}
-	var settings map[string]json.RawMessage
-	if err := json.Unmarshal(rawSettings, &settings); err != nil {
-		return err
+	if rawConcurrency, exists := object["concurrency"]; exists {
+		trimmed := bytes.TrimSpace(rawConcurrency)
+		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || trimmed[0] != '{' {
+			return fmt.Errorf("concurrency must be a non-null JSON object")
+		}
+		var concurrencyUpdates SettingsConcurrencyUpdates
+		if err := decodeStrictControlJSONObject(rawConcurrency, &concurrencyUpdates); err != nil {
+			return err
+		}
+		request.Concurrency = &concurrencyUpdates
 	}
-	if settings == nil {
-		return fmt.Errorf("settings must be a non-null JSON object")
-	}
-	request.Settings = settings
 	return nil
 }
 
@@ -142,6 +165,9 @@ func (s *Service) UpdateSettings(
 	if err != nil {
 		return SettingsResponse{}, err
 	}
+	if err := validateSettingsConcurrencyUpdates(request.Concurrency); err != nil {
+		return SettingsResponse{}, err
+	}
 	if s.modelsDevAutoSyncOverride != nil && settingRequestContains(request, state.SettingModelsDevAutoSyncEnabled) {
 		return SettingsResponse{}, app_errors.ErrValidation
 	}
@@ -149,7 +175,10 @@ func (s *Service) UpdateSettings(
 	previousAutoSyncEnabled := false
 	snapshot, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
 		previousAutoSyncEnabled = s.modelsDevAutoSyncEnabled()
-		return s.applySettingUpdates(tx, updates)
+		if err := s.applySettingUpdates(tx, updates); err != nil {
+			return err
+		}
+		return applySettingsConcurrencyUpdates(tx, request.Concurrency)
 	}, nil)
 	if err != nil {
 		return SettingsResponse{}, err
@@ -202,7 +231,7 @@ func normalizeSettingUpdates(
 	request SettingsUpdateRequest,
 	encryptionService encryption.Service,
 ) ([]persistedSettingUpdate, error) {
-	if len(request.Settings) == 0 {
+	if len(request.Settings) == 0 && !settingsConcurrencyUpdatesSet(request.Concurrency) {
 		return nil, app_errors.ErrBadRequest
 	}
 	keys := make([]string, 0, len(request.Settings))
@@ -252,6 +281,48 @@ func normalizeSettingUpdates(
 		updates = append(updates, persistedSettingUpdate{key: key, value: &text})
 	}
 	return updates, nil
+}
+
+func settingsConcurrencyUpdatesSet(updates *SettingsConcurrencyUpdates) bool {
+	return updates != nil && (updates.Global.Set || updates.DefaultGroup.Set ||
+		updates.DefaultAccessKey.Set || updates.DefaultCredential.Set)
+}
+
+func validateSettingsConcurrencyUpdates(updates *SettingsConcurrencyUpdates) error {
+	if updates == nil {
+		return nil
+	}
+	for _, value := range []optionalField[int64]{
+		updates.Global,
+		updates.DefaultGroup,
+		updates.DefaultAccessKey,
+		updates.DefaultCredential,
+	} {
+		if err := validateConcurrencyOverride(value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applySettingsConcurrencyUpdates(tx *gorm.DB, updates *SettingsConcurrencyUpdates) error {
+	if updates == nil {
+		return nil
+	}
+	for _, update := range []struct {
+		subject concurrency.Subject
+		value   optionalField[int64]
+	}{
+		{subject: concurrency.Global, value: updates.Global},
+		{subject: concurrency.DefaultGroup, value: updates.DefaultGroup},
+		{subject: concurrency.DefaultAccessKey, value: updates.DefaultAccessKey},
+		{subject: concurrency.DefaultCredential, value: updates.DefaultCredential},
+	} {
+		if err := applyConcurrencyOverride(tx, update.subject, update.value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func settingRequestContains(request SettingsUpdateRequest, key string) bool {

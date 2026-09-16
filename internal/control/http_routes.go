@@ -144,6 +144,8 @@ func (s *Server) HTTPModule() httproute.Module {
 				)),
 				s.handleDeleteModelPrice,
 			),
+			controlRoute("control.concurrency.get", http.MethodGet, "/concurrency", s.handleGetConcurrency),
+			controlRoute("control.concurrency.update", http.MethodPut, "/concurrency/:scope/:id", s.auditMutation(newMutationDescriptor("concurrency_update", "concurrency", concurrencyMutationLocator)), s.handleUpdateConcurrency),
 			controlRoute("control.home", http.MethodGet, "/home", s.handleHome),
 			controlRoute(
 				"control.home.subscription-accounts",

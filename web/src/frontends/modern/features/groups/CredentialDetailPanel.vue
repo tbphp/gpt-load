@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { Info } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -49,13 +50,16 @@ const completed = ref(false)
 const attempted = ref(false)
 const error = ref('')
 const controller = new AbortController()
+const concurrency = ref<InstanceType<typeof ConcurrencyControl>>()
+const concurrencyState = ref({ dirty: false, valid: true })
 const dirty = computed(
   () =>
     !completed.value &&
     Boolean(saved.value) &&
     (weight.value !== String(saved.value!.weightManual ?? '') ||
       proxyMode.value !== saved.value!.proxy.mode ||
-      Boolean(proxyURL.value)),
+      Boolean(proxyURL.value) ||
+      concurrencyState.value.dirty),
 )
 watch(
   query.data,
@@ -96,8 +100,10 @@ function failure(): string {
 async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value) return
   attempted.value = true
-  if (weightInvalid.value || proxyInvalid.value) return
+  if (weightInvalid.value || proxyInvalid.value || !concurrencyState.value.valid) return
   const patch: Parameters<typeof updateCredential>[3] = {}
+  const maximum = concurrency.value?.pendingValue()
+  if (maximum !== undefined) patch.max_concurrency = maximum
   if (weight.value !== String(saved.value.weightManual ?? ''))
     patch.weight_manual = weight.value ? Number(weight.value) : null
   if (proxyChanged.value)
@@ -119,6 +125,7 @@ async function save(): Promise<void> {
       controller.signal,
     )
     if (controller.signal.aborted) return
+    if (maximum !== undefined) concurrency.value?.acceptSaved(maximum)
     completed.value = true
     emit('saved', result)
     emit('close')
@@ -159,6 +166,17 @@ useMessageSource(() =>
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
+      <section class="modern-credential-detail-section">
+        <ConcurrencyControl
+          :id="row.id"
+          ref="concurrency"
+          scope="credential"
+          editable
+          segmented
+          :disabled="saving"
+          @state-change="concurrencyState = $event"
+        />
+      </section>
       <CredentialWindowUsage
         v-if="item.observation?.windows.length"
         :windows="item.observation.windows"

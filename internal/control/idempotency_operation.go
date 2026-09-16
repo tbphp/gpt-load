@@ -89,6 +89,7 @@ func operationRequiredStages(kind operationKind) ([]operationStage, error) {
 		stages = []operationStage{
 			operationStageDBCommitted,
 			operationStageRegistryApplied,
+			operationStageSnapshotPublished,
 			operationStageCompleted,
 		}
 	default:
@@ -336,7 +337,7 @@ func (s *Service) recoverOperationLocked(
 	}
 	var storedStages []operationStage
 	if err := json.Unmarshal(operation.RequiredStages, &storedStages); err != nil ||
-		!sameOperationStages(storedStages, wantStages) {
+		!operationStagePlanMatches(kind, storedStages, wantStages) {
 		return fmt.Errorf("invalid durable operation stage plan")
 	}
 	currentIndex := -1
@@ -528,4 +529,23 @@ func sameOperationStages(left, right []operationStage) bool {
 		}
 	}
 	return true
+}
+
+func operationStagePlanMatches(
+	kind operationKind,
+	stored []operationStage,
+	current []operationStage,
+) bool {
+	if sameOperationStages(stored, current) {
+		return true
+	}
+	// Credential imports created before concurrency snapshots included
+	// credentials have no explicit snapshot stage. A restarted process has
+	// already loaded their committed rows, so the legacy recovery plan remains
+	// safe to finish.
+	return kind == operationKindCredentialImport && sameOperationStages(stored, []operationStage{
+		operationStageDBCommitted,
+		operationStageRegistryApplied,
+		operationStageCompleted,
+	})
 }

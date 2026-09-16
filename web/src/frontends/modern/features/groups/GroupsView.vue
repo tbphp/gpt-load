@@ -699,6 +699,7 @@ useMessageSource(() =>
           <span>{{ t('groups.row.group') }}</span>
           <span>{{ t('groups.row.credentialsHeader') }}</span>
           <span>{{ t('groups.columns.models') }}</span>
+          <span>{{ t('concurrency.title') }}</span>
           <span>{{ t('groups.row.requests24h') }}</span>
           <span>{{ t('groups.row.usage24h') }}</span>
           <span class="modern-group-list-actions-head"
@@ -783,9 +784,9 @@ useMessageSource(() =>
 
 <style scoped>
 .modern-groups-workspace {
-  --modern-group-list-width: 1024px;
+  --modern-group-list-width: 1128px;
   --modern-group-action-columns: 36px var(--modern-inline-number-width);
-  --modern-group-columns: minmax(260px, 2fr) minmax(168px, 1fr) 90px 114px 140px 138px;
+  --modern-group-columns: minmax(260px, 2fr) minmax(168px, 1fr) 90px 90px 114px 140px 138px;
   display: flex;
   flex: 1;
   min-width: 0;

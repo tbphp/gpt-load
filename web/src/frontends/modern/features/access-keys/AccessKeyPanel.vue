@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { protocolLabel } from '@modern/i18n/protocols'
 import { Eye, EyeOff, RefreshCw, Trash2 } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
@@ -13,6 +14,7 @@ import {
   getAccessKey,
   revealAccessKey,
   updateAccessKey,
+  type AccessUpdateInput,
   type AccessFilters,
   type AccessKey,
 } from '@modern/api/access-keys'
@@ -92,11 +94,15 @@ const revealing = ref(false)
 const deleteOpen = ref(false)
 const resetOpen = ref(false)
 let submission: { payload: string; operation: string } | undefined
+const concurrency = ref<InstanceType<typeof ConcurrencyControl>>()
+const concurrencyState = ref({ dirty: false, valid: true })
 const dirty = computed(
   () =>
     initialized.value &&
     !completed.value &&
-    (props.mode === 'copy' || JSON.stringify(draft.value) !== initial.value),
+    (props.mode === 'copy' ||
+      JSON.stringify(draft.value) !== initial.value ||
+      concurrencyState.value.dirty),
 )
 const errors = computed(() => draftErrors(draft.value, base.value))
 const fieldError = (key: string) =>
@@ -196,6 +202,7 @@ watch(
   { immediate: true },
 )
 function revert(): void {
+  concurrency.value?.reset()
   draft.value = JSON.parse(initial.value) as AccessDraft
   attempted.value = false
   secret.value = ''
@@ -238,7 +245,7 @@ async function requestSave(): Promise<void> {
   if (pending.value || revealing.value) return
   if (!dirty.value) return
   attempted.value = true
-  if (Object.keys(errors.value).length) {
+  if (Object.keys(errors.value).length || !concurrencyState.value.valid) {
     await nextTick()
     form.value?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
     return
@@ -260,7 +267,9 @@ async function requestSave(): Promise<void> {
     return
   }
   const current = base.value
-  const patch = current ? patchFor(current, input) : undefined
+  const patch: AccessUpdateInput | undefined = current ? patchFor(current, input) : undefined
+  const maximum = concurrency.value?.pendingValue()
+  if (patch && maximum !== undefined) patch.max_concurrency = maximum
   pending.value = true
   error.value = ''
   let saved: AccessKey | undefined
@@ -280,6 +289,7 @@ async function requestSave(): Promise<void> {
         )
       : await createAccessKey(client, input, submission!.operation, controller.signal)
     if (controller.signal.aborted) return
+    if (maximum !== undefined) concurrency.value?.acceptSaved(maximum)
     submission = undefined
     completed.value = true
     secret.value = ''
@@ -688,6 +698,22 @@ onScopeDispose(() => {
               :error="fieldError('cidrs')"
               placeholder="192.0.2.0/24"
               spellcheck="false"
+            />
+          </AppFormSection>
+          <AppFormSection
+            v-if="base"
+            :title="t('concurrency.scopes.access_key')"
+            :description="t('concurrency.description')"
+          >
+            <ConcurrencyControl
+              :id="base.id"
+              ref="concurrency"
+              scope="access_key"
+              editable
+              segmented
+              :show-label="false"
+              :disabled="pending"
+              @state-change="concurrencyState = $event"
             />
           </AppFormSection>
           <dl v-if="base" class="modern-access-timestamps">

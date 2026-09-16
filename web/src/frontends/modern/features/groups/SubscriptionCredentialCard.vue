@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { Check, RefreshCw, Ticket } from '@lucide/vue'
 import { computed } from 'vue'
@@ -114,6 +115,7 @@ useLoadingActivity(() => Boolean(props.pending))
       </div>
     </header>
     <div class="modern-subscription-card-body">
+      <ConcurrencyControl :id="row.id" scope="credential" />
       <div
         v-if="channel?.quotaObservation || observation?.windows.length"
         class="modern-subscription-card-quota"

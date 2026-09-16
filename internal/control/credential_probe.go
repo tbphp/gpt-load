@@ -377,6 +377,11 @@ func (s *Service) TestGroupCredential(
 		return CredentialProbeResponse{}, err
 	}
 
+	lease, admitted := s.manager.AdmitUpstreamConcurrency(credential.ref)
+	if !admitted {
+		return CredentialProbeResponse{}, app_errors.ErrUpstreamConcurrencyLimit
+	}
+	defer lease.Release()
 	probe := newCredentialProbeExecutor(s.encryption, s.channelRegistry, s.executor)
 	executed, err := probe.Probe(ctx, group, target, credential.ref)
 	if err != nil {
