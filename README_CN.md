@@ -60,7 +60,7 @@
 
 应用只需要配置一个地址和一个 AccessKey。后面的服务商、账号、凭据、模型与路由策略，全部在管理界面里完成。
 
-<img src="./screenshot/architecture-overview.png" alt="GPT-Load 统一接入与上游分流架构图" width="860">
+<img src="./screenshot/architecture-overview.svg" alt="GPT-Load 统一接入与上游分流架构图" width="860">
 
 - **统一入口，保留原生协议** — 官方 API、云平台、模型服务和兼容中转统一管理；客户端继续使用 OpenAI、Anthropic 或 Gemini 原生接口，无需改造代码。
 - **统一管理 API Key 与订阅账号** — Codex、Claude、Antigravity、Grok 等订阅渠道与 API Key 渠道共享凭据管理、调度和健康体系。
@@ -119,21 +119,13 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 
 ## 界面预览
 
-**分组总览** — 统一查看渠道、模型、凭据数量与健康状态
+**分组总览** — 统一查看渠道、模型、凭据数量、流量与健康状态
 
-<img src="./screenshot/groups-overview.png" alt="GPT-Load 分组总览" width="860">
+<img src="./screenshot/groups-zh-CN.png" alt="GPT-Load 新版分组总览" width="860">
 
-**订阅账号** — 查看账号可用性、额度窗口、重置时间与运行诊断
+**用量统计** — 查看请求趋势、缓存命中率、Token 分类与成本估算
 
-<img src="./screenshot/subscription-accounts.png" alt="GPT-Load 订阅账号与额度状态" width="860">
-
-**访问密钥只读首页** — 使用 AccessKey 登录，只查看该密钥自己的分组、模型、请求、用量与费用额度
-
-<img src="./screenshot/access-key-home.png" alt="GPT-Load 访问密钥只读首页" width="860">
-
-**用量与成本** — 查看请求趋势、缓存命中率、Token 分类与成本估算
-
-<img src="./screenshot/usage-cost.png" alt="GPT-Load 用量与成本监控" width="860">
+<img src="./screenshot/usage-zh-CN.png" alt="GPT-Load 新版用量统计" width="860">
 
 ## 支持范围
 

@@ -60,7 +60,7 @@ English · [中文](README_CN.md) · [日本語](README_JP.md) | [Official Websi
 
 Your application only needs one base URL and one AccessKey. Providers, accounts, credentials, models, and routing policy are all configured in the management UI.
 
-<img src="./screenshot/architecture-overview.png" alt="GPT-Load unified access and upstream routing architecture" width="860">
+<img src="./screenshot/architecture-overview.svg" alt="GPT-Load unified access and upstream routing architecture" width="860">
 
 - **One gateway, native protocols** — Manage official APIs, cloud platforms, model services, and compatible relays together while clients keep their OpenAI, Anthropic, or Gemini native interfaces.
 - **One mechanism for API keys and subscriptions** — Codex, Claude, Antigravity, Grok, and API-key channels share credential management, scheduling, and health handling.
@@ -119,21 +119,13 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 
 ## Screenshots
 
-**Groups** — View channels, models, credential counts, and health in one place
+**Groups** — View channels, models, credential counts, traffic, and health in one place
 
-<img src="./screenshot/groups-overview.png" alt="GPT-Load groups overview" width="860">
+<img src="./screenshot/groups-en-US.png" alt="GPT-Load modern groups overview" width="860">
 
-**Subscription accounts** — Track account availability, quota windows, reset times, and runtime diagnostics
+**Usage statistics** — Review request trends, cache hit rate, token categories, and cost estimates
 
-<img src="./screenshot/subscription-accounts.png" alt="GPT-Load subscription accounts and quota status" width="860">
-
-**AccessKey read-only home** — Sign in with an AccessKey to view only its own groups, models, requests, usage, and cost allowance
-
-<img src="./screenshot/access-key-home.png" alt="GPT-Load AccessKey read-only home" width="860">
-
-**Usage and cost** — Review request trends, cache hit rate, token categories, and cost estimates
-
-<img src="./screenshot/usage-cost.png" alt="GPT-Load usage and cost monitoring" width="860">
+<img src="./screenshot/usage-en-US.png" alt="GPT-Load modern usage statistics" width="860">
 
 ## Scope
 

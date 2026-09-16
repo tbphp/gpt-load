@@ -60,7 +60,7 @@ API キー、サブスクリプションアカウント、トラフィック制�
 
 アプリケーション側で必要なのは、一つの Base URL と一つの AccessKey だけです。プロバイダー、アカウント、認証情報、モデル、ルーティングポリシーはすべて管理画面で設定します。
 
-<img src="./screenshot/architecture-overview.png" alt="GPT-Load の統合アクセスとアップストリームルーティング構成図" width="860">
+<img src="./screenshot/architecture-overview.svg" alt="GPT-Load の統合アクセスとアップストリームルーティング構成図" width="860">
 
 - **単一ゲートウェイでネイティブプロトコルを維持** — 公式 API、クラウド基盤、モデルサービス、互換中継を一元管理しながら、クライアントは OpenAI、Anthropic、Gemini のネイティブインターフェイスをそのまま使えます。
 - **API キーとサブスクリプションを統一管理** — Codex、Claude、Antigravity、Grok と API キーチャネルで、認証情報管理・スケジューリング・健全性管理を共通化します。
@@ -119,21 +119,13 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 
 ## 画面プレビュー
 
-**グループ概要** — チャネル、モデル、認証情報数、健全性をまとめて確認
+**グループ概要** — チャネル、モデル、認証情報数、トラフィック、健全性をまとめて確認
 
-<img src="./screenshot/groups-overview.png" alt="GPT-Load グループ概要" width="860">
+<img src="./screenshot/groups-ja-JP.png" alt="GPT-Load の新しいグループ概要" width="860">
 
-**サブスクリプションアカウント** — アカウントの可用性、クォータ期間、リセット時刻、実行診断を確認
+**使用量統計** — リクエスト傾向、キャッシュヒット率、Token 分類、コスト概算を確認
 
-<img src="./screenshot/subscription-accounts.png" alt="GPT-Load サブスクリプションアカウントとクォータ状態" width="860">
-
-**AccessKey 読み取り専用ホーム** — AccessKey でログインし、そのキーに限定されたグループ、モデル、リクエスト、使用量、費用上限を表示
-
-<img src="./screenshot/access-key-home.png" alt="GPT-Load AccessKey 読み取り専用ホーム" width="860">
-
-**使用量とコスト** — リクエスト傾向、キャッシュヒット率、Token 分類、コスト概算を確認
-
-<img src="./screenshot/usage-cost.png" alt="GPT-Load 使用量とコストのモニタリング" width="860">
+<img src="./screenshot/usage-ja-JP.png" alt="GPT-Load の新しい使用量統計" width="860">
 
 ## サポート範囲
 
