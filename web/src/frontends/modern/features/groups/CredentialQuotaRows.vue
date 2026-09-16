@@ -6,7 +6,7 @@ import { AppOverflowText, AppProgressBar } from '@modern/components/ui'
 import { useClock } from '@modern/components/ui/clock'
 import { formatRemainingDuration } from '@modern/components/ui/format'
 import {
-  credentialTime,
+  quotaCycleTime,
   quotaWindowTitle,
   quotaWindowRange,
   quotaRemaining,
@@ -23,17 +23,15 @@ function label(window: CredentialQuota): string {
 }
 function value(window: CredentialQuota): string {
   const percent = quotaRemaining(window)
-  if (percent !== undefined)
-    return t('credentialCards.remaining', { value: n(Math.round(percent)) + '%' })
-  if (window.remaining !== undefined)
-    return t('credentialCards.remaining', { value: n(window.remaining) })
+  if (percent !== undefined) return n(Math.round(percent)) + '%'
+  if (window.remaining !== undefined) return n(window.remaining)
   return '—'
 }
 function period(window: CredentialQuota): string {
   const range = quotaWindowRange(window)
   return range
-    ? `${credentialTime(range.start, locale.value)} – ${credentialTime(range.end, locale.value)}`
-    : credentialTime(window.resetsAt, locale.value)
+    ? `${quotaCycleTime(range.start)} – ${quotaCycleTime(range.end)}`
+    : quotaCycleTime(window.resetsAt)
 }
 function countdown(window: CredentialQuota): string {
   const remaining = window.resetsAt! - now.value

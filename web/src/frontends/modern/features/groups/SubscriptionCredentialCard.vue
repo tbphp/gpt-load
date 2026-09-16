@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useLoadingActivity } from '@modern/components/ui/loading'
-import { RefreshCw, Ticket } from '@lucide/vue'
+import { Check, RefreshCw, Ticket } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
@@ -29,6 +29,7 @@ const props = defineProps<{
   disabled: boolean
   pending?: boolean
   pendingAction?: string
+  syncSucceeded?: boolean
   error?: string
 }>()
 defineEmits<{ select: [value: boolean]; toggle: [value: boolean]; action: [value: string] }>()
@@ -48,15 +49,18 @@ const creditLabel = computed(() => {
   return [t('credentialCards.resetCredits', { count: n(available) }), ...details].join('\n')
 })
 const syncLabel = computed(() =>
-  [
-    t('credentialCards.syncQuota'),
-    observation.value?.observedAt
-      ? `${t('credentialCards.quotaUpdated')} ${credentialTime(observation.value.observedAt, locale.value)}`
-      : '',
-  ]
-    .filter(Boolean)
-    .join('\n'),
+  props.syncSucceeded
+    ? t('credentialCards.syncSucceeded')
+    : [
+        t('credentialCards.syncQuota'),
+        observation.value?.observedAt
+          ? `${t('credentialCards.quotaUpdated')} ${credentialTime(observation.value.observedAt, locale.value)}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
 )
+const syncIcon = computed(() => (props.syncSucceeded ? Check : RefreshCw))
 useLoadingActivity(() => Boolean(props.pending))
 </script>
 
@@ -87,7 +91,9 @@ useLoadingActivity(() => Boolean(props.pending))
           <div class="modern-subscription-card-status-actions">
             <AppIconButton
               v-if="channel?.quotaObservation"
-              :icon="RefreshCw"
+              class="modern-subscription-card-sync"
+              :class="{ 'is-succeeded': syncSucceeded }"
+              :icon="syncIcon"
               :label="syncLabel"
               size="xs"
               :loading="pendingAction === 'quota'"
@@ -123,8 +129,10 @@ useLoadingActivity(() => Boolean(props.pending))
             >
             <AppButton
               v-if="channel?.quotaObservation"
+              class="modern-subscription-card-sync"
+              :class="{ 'is-succeeded': syncSucceeded }"
               size="xxs"
-              :icon="RefreshCw"
+              :icon="syncIcon"
               :loading="pendingAction === 'quota'"
               :disabled="disabled || row.authState !== 'ready'"
               @click="$emit('action', 'quota')"
@@ -206,6 +214,9 @@ useLoadingActivity(() => Boolean(props.pending))
 <style scoped>
 .modern-subscription-card-error {
   color: var(--modern-danger);
+}
+.modern-subscription-card-sync.is-succeeded {
+  color: var(--modern-success);
 }
 .modern-subscription-card {
   container: modern-subscription-card / inline-size;

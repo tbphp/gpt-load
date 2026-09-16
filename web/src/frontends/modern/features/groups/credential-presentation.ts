@@ -29,6 +29,13 @@ export function credentialTime(value: number | null | undefined, locale: string)
       }).format(value)
     : '—'
 }
+export function quotaCycleTime(value: number | null | undefined): string {
+  if (!value || !Number.isSafeInteger(value)) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 export function quotaRemaining(window: CredentialQuota): number | undefined {
   const remaining =
     window.utilization !== undefined

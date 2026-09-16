@@ -160,6 +160,7 @@ const downloads = new Set<string>()
 const mutating = ref<number | 'batch'>()
 const syncing = ref(new Set<number>())
 const queuedSync = ref(new Set<number>())
+const syncSucceeded = ref(new Set<number>())
 const accountBatchPending = ref(false)
 const pendingAction = ref('')
 const deleting = ref<number[]>([])
@@ -176,6 +177,7 @@ const accountBatch = ref<{
 }>()
 const list = ref<InstanceType<typeof AppListFrame>>()
 const controller = new AbortController()
+const syncSuccessTimers = new Map<number, ReturnType<typeof setTimeout>>()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 const query = useQuery(
   computed(() => ({
@@ -397,6 +399,10 @@ async function runAccountBatch(
   }
 }
 async function syncQuota(row: CredentialRow): Promise<void> {
+  const previous = syncSuccessTimers.get(row.id)
+  if (previous) clearTimeout(previous)
+  syncSuccessTimers.delete(row.id)
+  syncSucceeded.value.delete(row.id)
   syncing.value.add(row.id)
   cardErrors.value.delete(row.id)
   try {
@@ -421,6 +427,14 @@ async function syncQuota(row: CredentialRow): Promise<void> {
       data ? { ...data, observation } : undefined,
     )
     if (observation.state !== 'fresh') throw new Error('Observation failed')
+    syncSucceeded.value.add(row.id)
+    syncSuccessTimers.set(
+      row.id,
+      setTimeout(() => {
+        syncSucceeded.value.delete(row.id)
+        syncSuccessTimers.delete(row.id)
+      }, 3000),
+    )
   } finally {
     syncing.value.delete(row.id)
   }
@@ -673,6 +687,7 @@ async function resetQuota(): Promise<void> {
 onScopeDispose(() => {
   controller.abort()
   clearTimeout(searchTimer)
+  syncSuccessTimers.forEach((timer) => clearTimeout(timer))
   downloads.forEach((url) => URL.revokeObjectURL(url))
 })
 useMessageSource(() => (notice.value ? { text: notice.value, tone: 'success' } : undefined))
@@ -907,6 +922,7 @@ defineExpose({ refresh })
             :pending-action="
               syncPending(row.id) ? 'quota' : mutating === row.id ? pendingAction : undefined
             "
+            :sync-succeeded="syncSucceeded.has(row.id)"
             :disabled="busy || syncPending(row.id)"
             :error="cardErrors.get(row.id)"
             @select="select(row.id, $event)"

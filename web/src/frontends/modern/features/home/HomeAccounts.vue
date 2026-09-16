@@ -68,11 +68,7 @@ const rows = computed(() =>
         </div>
         <AppProgressBar
           v-if="row.remaining !== undefined"
-          :label="
-            row.name +
-            ' · ' +
-            t('credentialCards.remaining', { value: n(Math.round(row.remaining)) + '%' })
-          "
+          :label="row.name + ' · ' + n(Math.round(row.remaining)) + '%'"
           :value="row.remaining"
           :tone="row.tone"
           size="sm"
