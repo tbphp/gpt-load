@@ -1,15 +1,100 @@
+/* surface 决定配置怎么呈现：cli 给可直接粘贴执行的终端命令，gui 给「填到哪个框」的字段对照。
+   mirror 是该客户端设置界面里这几个框的原文标签，留空则退回通用标签。 */
 export const gatewayClients = [
-  { id: 'codex', name: 'Codex', protocol: 'openai-responses', kind: 'snippet' },
-  { id: 'claude-code', name: 'Claude Code', protocol: 'anthropic', kind: 'snippet' },
-  { id: 'gemini-cli', name: 'Gemini CLI', protocol: 'gemini', kind: 'snippet' },
-  { id: 'cc-switch', name: 'CC Switch', protocol: '', kind: 'snippet' },
-  { id: 'cherry-studio', name: 'Cherry Studio', protocol: 'openai-completions', kind: 'fields' },
-  { id: 'nextchat', name: 'NextChat', protocol: 'openai-completions', kind: 'fields' },
-  { id: 'open-webui', name: 'Open WebUI', protocol: 'openai-completions', kind: 'fields' },
-  { id: 'cline', name: 'Cline', protocol: 'openai-completions', kind: 'fields' },
-  { id: 'new-api', name: 'New API', protocol: '', kind: 'snippet' },
-  { id: 'curl', name: 'cURL', protocol: 'openai-completions', kind: 'snippet' },
+  {
+    id: 'codex',
+    name: 'Codex',
+    protocol: 'openai-responses',
+    kind: 'snippet',
+    surface: 'cli',
+    group: 'cli',
+  },
+  {
+    id: 'claude-code',
+    name: 'Claude Code',
+    protocol: 'anthropic',
+    kind: 'snippet',
+    surface: 'cli',
+    group: 'cli',
+  },
+  {
+    id: 'gemini-cli',
+    name: 'Gemini CLI',
+    protocol: 'gemini',
+    kind: 'snippet',
+    surface: 'cli',
+    group: 'cli',
+  },
+  {
+    id: 'cline',
+    name: 'Cline',
+    protocol: 'openai-completions',
+    kind: 'fields',
+    surface: 'gui',
+    group: 'cli',
+    mirror: [
+      { label: 'API Provider' },
+      { label: 'Base URL', slot: 'endpoint' },
+      { label: 'API Key', slot: 'apiKey' },
+      { label: 'Model ID', slot: 'model' },
+    ],
+  },
+  {
+    id: 'cc-switch',
+    name: 'CC Switch',
+    protocol: '',
+    kind: 'snippet',
+    surface: 'gui',
+    group: 'desktop',
+  },
+  {
+    id: 'cherry-studio',
+    name: 'Cherry Studio',
+    protocol: 'openai-completions',
+    kind: 'fields',
+    surface: 'gui',
+    group: 'desktop',
+  },
+  {
+    id: 'nextchat',
+    name: 'NextChat',
+    protocol: 'openai-completions',
+    kind: 'fields',
+    surface: 'gui',
+    group: 'desktop',
+  },
+  {
+    id: 'open-webui',
+    name: 'Open WebUI',
+    protocol: 'openai-completions',
+    kind: 'fields',
+    surface: 'gui',
+    group: 'desktop',
+    mirror: [
+      { label: 'OpenAI API' },
+      { label: 'Base URL', slot: 'endpoint' },
+      { label: 'API Key', slot: 'apiKey' },
+    ],
+  },
+  {
+    id: 'new-api',
+    name: 'New API',
+    protocol: '',
+    kind: 'snippet',
+    surface: 'gui',
+    group: 'relay',
+  },
+  {
+    id: 'curl',
+    name: 'cURL',
+    protocol: 'openai-completions',
+    kind: 'snippet',
+    surface: 'cli',
+    group: 'relay',
+  },
 ] as const
+export const gatewayGroups = ['cli', 'desktop', 'relay'] as const
+export type GatewayGroupID = (typeof gatewayGroups)[number]
 export type GatewayClientID = (typeof gatewayClients)[number]['id']
 export const gatewayTargets = [
   { id: 'claude', name: 'Claude Code', protocol: 'anthropic', requiresModel: false },
@@ -150,4 +235,75 @@ export function gatewayImportURL(config: GatewayConfig, key: string): string {
     return `cherrystudio://providers/api-keys?${new URLSearchParams({ v: '1', data })}`
   }
   throw new Error('UNSUPPORTED_GATEWAY_IMPORT')
+}
+
+/* 这几个客户端自己会向网关拉模型列表，配置里不写死模型名。 */
+const modelFreeClients: readonly string[] = [
+  'gemini-cli',
+  'new-api',
+  'nextchat',
+  'open-webui',
+  'cherry-studio',
+]
+export function gatewayNeedsModel(client: GatewayClientID): boolean {
+  return !modelFreeClients.includes(client)
+}
+
+export interface TerminalLine {
+  command: boolean
+  text: string
+}
+/**
+ * 把配置块改写成可以一次粘贴执行的终端内容。
+ *
+ * 文件块包成 heredoc，用 >> 追加而不是 > 覆盖：那个文件里通常还有用户自己的配置。
+ * shell 块里以反斜杠续行的部分不算新命令，提示符只画在真正的命令行前面。
+ */
+export function gatewayTerminal(config: GatewayConfig, key: string): TerminalLine[] {
+  return gatewayConfiguration(config, key).flatMap((block) => {
+    const lines = block.content.split('\n')
+    if (block.label === 'shell')
+      return lines.map((text, index) => ({
+        command: index === 0 || !lines[index - 1]!.endsWith('\\'),
+        text,
+      }))
+    return [
+      { command: true, text: `cat >> ${block.label} <<'GPT_LOAD_EOF'` },
+      ...lines.map((text) => ({ command: false, text })),
+      { command: false, text: 'GPT_LOAD_EOF' },
+    ]
+  })
+}
+
+export const gatewaySlots = ['endpoint', 'apiKey', 'model'] as const
+export type GatewaySlot = (typeof gatewaySlots)[number]
+export interface GatewayField {
+  slot: GatewaySlot
+  value: string
+}
+/* 图形客户端要手填的几项。模型名跟着 gatewayNeedsModel 走，
+   不再出现「界面让你选了模型、配置里却没有它」的情况。 */
+export function gatewayFields(config: GatewayConfig, key: string): GatewayField[] {
+  const model = config.model.trim()
+  return [
+    { slot: 'endpoint' as const, value: gatewayEndpoint(config) },
+    { slot: 'apiKey' as const, value: key },
+    ...(gatewayNeedsModel(config.client) ? [{ slot: 'model' as const, value: model }] : []),
+  ]
+}
+
+export interface MirrorRow {
+  label: string
+  slot?: GatewaySlot
+}
+/* 设置界面示意图的行。客户端登记了自己的字段原文就用它的，否则退回通用标签。 */
+export function gatewayMirror(
+  client: GatewayClientID,
+  fields: readonly GatewayField[],
+  fallback: (slot: GatewaySlot) => string,
+): MirrorRow[] {
+  const declared = gatewayClients.find((item) => item.id === client)
+  if (declared && 'mirror' in declared)
+    return (declared.mirror as readonly MirrorRow[]).map((row) => ({ ...row }))
+  return fields.map((field) => ({ label: fallback(field.slot), slot: field.slot }))
 }

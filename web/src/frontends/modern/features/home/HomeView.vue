@@ -1,27 +1,32 @@
 <script setup lang="ts">
-import { Boxes, KeyRound, Layers2 } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRoute } from 'vue-router'
-import { getHome, getHomeAccounts } from '@modern/api/home'
+import { useRoute, useRouter } from 'vue-router'
+import { getHome, getHomeAccounts, getHomeStatistics, homeStatisticsKey } from '@modern/api/home'
 import { getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
+import { accessKeysKey, getAccessKeys } from '@modern/api/access-keys'
 import { getLogAccessKeys } from '@modern/api/logs'
 import { useApiClient } from '@shared/http/client-context'
 import { useAuthSession } from '@modern/features/auth/auth-session'
 import { usePageRefresh } from '@modern/app/page-refresh'
-import { AppButton, AppCollectionState, AppIcon, AppPanel } from '@modern/components/ui'
-import { formatCompactNumber } from '@modern/components/ui/format'
+import { AppButton, AppCollectionState } from '@modern/components/ui'
 import RouteInspector from '@modern/features/inspector/RouteInspector.vue'
 import HomeAccessKey from './HomeAccessKey.vue'
+import HomeAccessKeys from './HomeAccessKeys.vue'
 import HomeAccounts from './HomeAccounts.vue'
+import HomeAttention from './HomeAttention.vue'
+import HomeRouteTool from './HomeRouteTool.vue'
 import HomeSetupGuide from './HomeSetupGuide.vue'
+import HomeStatusBar from './HomeStatusBar.vue'
+import HomeTrend from './HomeTrend.vue'
 import GatewayConnection from './GatewayConnection.vue'
 
-const { t, n, locale } = useI18n()
+const { t } = useI18n()
 const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
+const router = useRouter()
 const inspector = ref<InstanceType<typeof RouteInspector>>()
 const inspectorSection = ref<HTMLElement>()
 const admin = computed(() => session.state.principalType === 'admin')
@@ -45,6 +50,21 @@ const accounts = useQuery({
   queryFn: ({ signal }) => getHomeAccounts(client, signal),
   enabled: admin,
 })
+const statistics = useQuery({
+  queryKey: homeStatisticsKey,
+  queryFn: ({ signal }) => getHomeStatistics(client, signal),
+})
+// 首页只列最近更新的几个密钥，完整清单在访问密钥页。
+const accessKeys = useQuery({
+  queryKey: [...accessKeysKey, 'home'],
+  queryFn: ({ signal }) =>
+    getAccessKeys(
+      client,
+      { q: '', status: '', sort: 'updated_desc', page: 1, pageSize: 5, group: '', expiry: '' },
+      signal,
+    ),
+  enabled: admin,
+})
 // 初始化只看配置是否齐全，不把停用、冷却等运行状态当成尚未配置。
 const showSetup = computed(() => {
   if (!admin.value || !groups.data.value || !keys.data.value) return false
@@ -56,41 +76,17 @@ const showSetup = computed(() => {
 const emptyProject = computed(
   () => admin.value && groups.data.value?.items.length === 0 && keys.data.value?.length === 0,
 )
-const uptime = computed(() => {
-  const hours = base.value
-    ? Math.floor(Math.max(0, base.value.observedAt - base.value.startedAt) / 3600000)
-    : 0
-  return t('home.uptime', { days: n(Math.floor(hours / 24)), hours: n(hours % 24) })
-})
-const inventory = computed(() =>
-  base.value
-    ? [
-        {
-          key: 'groups',
-          icon: Layers2,
-          value: base.value.groups,
-          route: admin.value ? 'modern-groups' : undefined,
-        },
-        { key: 'models', icon: Boxes, value: base.value.models, route: 'modern-models' },
-        ...(admin.value
-          ? [
-              {
-                key: 'credentials',
-                icon: KeyRound,
-                value: base.value.available,
-                suffix: n(base.value.credentials),
-                route: 'modern-health',
-              },
-              {
-                key: 'keys',
-                icon: KeyRound,
-                value: base.value.keys.length,
-                route: 'modern-access-keys',
-              },
-            ]
-          : []),
-      ]
-    : [],
+const selectedKeyID = computed(() =>
+  typeof route.query.access_key_id === 'string' ? Number(route.query.access_key_id) : 0,
+)
+/* 接入面板通过 useURLState 读同一个查询参数，改地址栏就等于切换它选中的密钥。 */
+function selectKey(id: number): void {
+  void router.replace({ path: route.path, query: { ...route.query, access_key_id: String(id) } })
+}
+// 深链接 /monitor/inspector 会重定向到首页并带上 inspect_* 参数，那种情况直接展开。
+const inspectorOpen = ref(
+  route.hash === '#route-inspector' ||
+    Object.keys(route.query).some((key) => key.startsWith('inspect_')),
 )
 async function refreshOptions(): Promise<void> {
   await Promise.all([groups.refetch(), keys.refetch()])
@@ -98,20 +94,26 @@ async function refreshOptions(): Promise<void> {
 async function refresh(): Promise<void> {
   await Promise.all([
     baseQuery.refetch(),
-    ...(admin.value ? [refreshOptions(), accounts.refetch(), inspector.value?.refresh()] : []),
+    statistics.refetch(),
+    ...(admin.value
+      ? [refreshOptions(), accounts.refetch(), accessKeys.refetch(), inspector.value?.refresh()]
+      : []),
   ])
 }
 usePageRefresh({
   refresh,
   pending: () =>
     baseQuery.isFetching.value ||
+    statistics.isFetching.value ||
     groups.isFetching.value ||
     keys.isFetching.value ||
     accounts.isFetching.value ||
+    accessKeys.isFetching.value ||
     Boolean(inspector.value?.pending),
   updatedAt: () =>
     Math.max(
       base.value?.observedAt ?? 0,
+      statistics.data.value?.observedAt ?? 0,
       accounts.data.value?.observedAt ?? 0,
       inspector.value?.updatedAt ?? 0,
     ) || undefined,
@@ -128,6 +130,7 @@ watch(
   [() => route.hash, sectionReady],
   async ([hash, ready]) => {
     if (hash !== '#route-inspector' || !ready) return
+    inspectorOpen.value = true
     await nextTick()
     if (route.hash !== hash || !sectionReady.value) return
     inspectorSection.value?.scrollIntoView({ block: 'start' })
@@ -152,73 +155,65 @@ watch(
         <span>{{ t('home.baseFailed') }}</span>
         <AppButton size="xs" @click="baseQuery.refetch()">{{ t('ui.retry') }}</AppButton>
       </div>
-      <section class="modern-home-overview" :aria-label="t('home.overview')">
-        <div class="modern-home-overview-heading">
-          <div>
-            <span class="modern-home-eyebrow"
-              >GPT-Load <span>{{ base.version }}</span></span
-            >
-            <h2>{{ t('home.overview') }}</h2>
-          </div>
-          <span class="modern-home-overview-meta">{{ uptime }}</span>
-        </div>
-        <dl class="modern-home-inventory">
-          <div v-for="item in inventory" :key="item.key">
-            <dt><AppIcon :icon="item.icon" size="sm" />{{ t('home.' + item.key) }}</dt>
-            <dd>
-              <AppButton v-if="item.route" as-child variant="text">
-                <RouterLink :to="{ name: item.route }">{{
-                  formatCompactNumber(item.value, locale)
-                }}</RouterLink>
-              </AppButton>
-              <span v-else>{{ formatCompactNumber(item.value, locale) }}</span>
-              <small v-if="'suffix' in item">/ {{ item.suffix }}</small>
-            </dd>
-          </div>
-        </dl>
-      </section>
+      <HomeStatusBar :base="base" :admin="admin" />
       <HomeSetupGuide
         v-if="showSetup && groups.data.value && keys.data.value"
         :groups="groups.data.value.items"
         :key-count="keys.data.value.length"
       />
-      <HomeAccessKey v-if="!admin && base.currentKey" :row="base.currentKey" />
-      <div v-if="admin && accounts.isError.value" class="modern-home-error" role="status">
-        <span>{{ t('home.accountsFailed') }}</span>
-        <AppButton size="xs" @click="accounts.refetch()">{{ t('ui.retry') }}</AppButton>
-      </div>
-      <HomeAccounts
-        v-if="admin && accounts.data.value?.items.length"
-        :accounts="accounts.data.value.items"
-      />
-      <GatewayConnection
-        v-if="!admin || base.keys.length || (groups.data.value && keys.data.value && !showSetup)"
-        :keys="base.keys"
-        :admin="admin"
-      />
-      <div
-        v-if="admin"
-        id="route-inspector"
-        ref="inspectorSection"
-        class="modern-home-inspector"
-        tabindex="-1"
-      >
-        <AppPanel :title="t('pages.inspector.title')" compact>
-          <p v-if="emptyProject" class="modern-home-inspector-empty">
-            {{ t('home.setup.inspectorLater') }}
-          </p>
-          <RouteInspector
-            v-else
-            ref="inspector"
-            :groups="groups.data.value"
-            :groups-loading="groups.isFetching.value"
-            :groups-failed="groups.isError.value"
-            :access-keys="keys.data.value"
-            :keys-loading="keys.isFetching.value"
-            :keys-failed="keys.isError.value"
-            @retry-options="refreshOptions"
+      <div class="modern-home-columns">
+        <div class="modern-home-main">
+          <GatewayConnection
+            v-if="
+              !admin || base.keys.length || (groups.data.value && keys.data.value && !showSetup)
+            "
+            :keys="base.keys"
+            :admin="admin"
           />
-        </AppPanel>
+          <div
+            v-if="admin"
+            id="route-inspector"
+            ref="inspectorSection"
+            class="modern-home-inspector"
+            tabindex="-1"
+          >
+            <HomeRouteTool v-model:open="inspectorOpen">
+              <p v-if="emptyProject" class="modern-home-inspector-empty">
+                {{ t('home.setup.inspectorLater') }}
+              </p>
+              <RouteInspector
+                v-else
+                ref="inspector"
+                :groups="groups.data.value"
+                :groups-loading="groups.isFetching.value"
+                :groups-failed="groups.isError.value"
+                :access-keys="keys.data.value"
+                :keys-loading="keys.isFetching.value"
+                :keys-failed="keys.isError.value"
+                @retry-options="refreshOptions"
+              />
+            </HomeRouteTool>
+          </div>
+        </div>
+        <div class="modern-home-side">
+          <div v-if="admin && accounts.isError.value" class="modern-home-error" role="status">
+            <span>{{ t('home.accountsFailed') }}</span>
+            <AppButton size="xs" @click="accounts.refetch()">{{ t('ui.retry') }}</AppButton>
+          </div>
+          <HomeAccounts
+            v-if="admin && accounts.data.value?.items.length"
+            :accounts="accounts.data.value.items"
+          />
+          <HomeAccessKey v-if="!admin && base.currentKey" :row="base.currentKey" />
+          <HomeAttention v-if="admin && groups.data.value" :groups="groups.data.value.items" />
+          <HomeTrend v-if="statistics.data.value" :report="statistics.data.value" />
+          <HomeAccessKeys
+            v-if="admin && accessKeys.data.value?.items.length"
+            :rows="accessKeys.data.value.items"
+            :selected="selectedKeyID || (base.keys[0]?.id ?? 0)"
+            @select="selectKey"
+          />
+        </div>
       </div>
     </template>
   </div>
@@ -240,63 +235,19 @@ watch(
   color: var(--modern-danger);
   font-size: var(--modern-font-size-secondary);
 }
-.modern-home-overview {
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-panel);
-  background: var(--modern-subtle);
-  padding: var(--modern-space-5);
-}
-.modern-home-overview-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--modern-space-4);
-}
-.modern-home-eyebrow {
-  display: flex;
-  gap: var(--modern-space-2);
-  font-size: var(--modern-font-size-small);
-  color: var(--modern-muted);
-}
-.modern-home-eyebrow > span {
-  font-family: var(--modern-font-mono);
-}
-.modern-home-overview-heading h2 {
-  margin-top: var(--modern-space-2);
-  font-size: var(--modern-font-size-section);
-  font-weight: var(--modern-weight-semibold);
-}
-.modern-home-overview-meta {
-  font-size: var(--modern-font-size-small);
-  color: var(--modern-muted);
-}
-.modern-home-inventory {
+/* 左边是首页唯一的高频动作，右边是扫一眼的状态；侧栏定宽，主栏吃掉剩下的宽度。 */
+.modern-home-columns {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--modern-space-5);
-  margin: var(--modern-space-5) 0 0;
+  grid-template-columns: minmax(0, 1fr) var(--modern-home-side);
+  align-items: start;
+  gap: var(--modern-page-gap);
 }
-.modern-home-inventory dt {
-  display: flex;
-  align-items: center;
-  gap: var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-secondary);
-}
-.modern-home-inventory dd {
-  display: flex;
-  align-items: baseline;
-  gap: var(--modern-space-2);
-  margin: var(--modern-space-1) 0 0;
-  font-size: var(--modern-font-size-title);
-  font-weight: var(--modern-weight-semibold);
-  font-variant-numeric: tabular-nums;
-}
-.modern-home-inventory small {
-  font-size: var(--modern-font-size-secondary);
-  color: var(--modern-muted);
-  font-weight: var(--modern-weight-regular);
+.modern-home-main,
+.modern-home-side {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: var(--modern-page-gap);
 }
 .modern-home-inspector {
   min-width: 0;
@@ -305,5 +256,10 @@ watch(
 .modern-home-inspector-empty {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-secondary);
+}
+@media (max-width: 1150px) {
+  .modern-home-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

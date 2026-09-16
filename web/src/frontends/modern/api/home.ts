@@ -71,3 +71,41 @@ export async function getHomeAccounts(client: ApiClient, signal: AbortSignal) {
     }),
   }
 }
+
+export interface HomeTrendPoint {
+  startMs: number
+  requests: number
+  failures: number
+}
+export interface HomeStatistics {
+  observedAt: number
+  fromMs: number
+  toMs: number
+  requests: number
+  failures: number
+  series: HomeTrendPoint[]
+}
+export const homeStatisticsKey = ['modern', 'home', 'statistics'] as const
+/* 首页只要 24 小时的请求量与失败数；排行留给用量统计页，不在这里重复一份。 */
+export async function getHomeStatistics(
+  client: ApiClient,
+  signal: AbortSignal,
+): Promise<HomeStatistics> {
+  const data = record(await client.request('/api/home/statistics?range=24h', { signal }))
+  const summary = record(data.summary)
+  return {
+    observedAt: integer(data.observed_at_ms),
+    fromMs: integer(data.from_ms),
+    toMs: integer(data.to_ms),
+    requests: integer(summary.request_count),
+    failures: integer(summary.failure_count),
+    series: list(data.series).map((value) => {
+      const point = record(value)
+      return {
+        startMs: integer(point.bucket_start_ms),
+        requests: integer(point.request_count),
+        failures: integer(point.failure_count),
+      }
+    }),
+  }
+}
