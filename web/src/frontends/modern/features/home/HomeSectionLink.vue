@@ -3,16 +3,12 @@ import { ArrowRight } from '@lucide/vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { AppButton, AppIcon } from '@modern/components/ui'
 
-withDefaults(defineProps<{ to: RouteLocationRaw; label: string; arrow?: boolean }>(), {
-  arrow: true,
-})
+defineProps<{ to: RouteLocationRaw; label: string }>()
 </script>
 
 <template>
   <AppButton as-child variant="text" size="xs" class="modern-home-section-link">
-    <RouterLink :to="to">
-      {{ label }}<AppIcon v-if="arrow" :icon="ArrowRight" size="sm" />
-    </RouterLink>
+    <RouterLink :to="to"> {{ label }}<AppIcon :icon="ArrowRight" size="sm" /> </RouterLink>
   </AppButton>
 </template>
 

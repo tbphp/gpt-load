@@ -1,28 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
 import type { HomeAccount } from '@modern/api/home'
 import type { CredentialQuota } from '@modern/api/credential-observation'
-import {
-  AppButton,
-  AppOverflowText,
-  AppPanel,
-  AppProgressBar,
-  AppTooltip,
-} from '@modern/components/ui'
-import {
-  credentialStatus,
-  credentialTime,
-  quotaRemaining,
-  quotaTone,
-  quotaWindowTitle,
-} from '@modern/features/groups/credential-presentation'
-import HomeSectionLink from './HomeSectionLink.vue'
+import { AppButton, AppOverflowText, AppPanel, AppProgressBar } from '@modern/components/ui'
+import { quotaRemaining, quotaTone } from '@modern/features/groups/credential-presentation'
 
 const props = defineProps<{ accounts: HomeAccount[]; failed: boolean; loading: boolean }>()
 defineEmits<{ retry: [] }>()
-const { t, te, n, locale } = useI18n()
+const { t, n } = useI18n()
 const remaining = (window: CredentialQuota) =>
   window.state === 'exhausted' ? 0 : quotaRemaining(window)
 function tightest(windows: readonly CredentialQuota[]): CredentialQuota | undefined {
@@ -31,10 +17,6 @@ function tightest(windows: readonly CredentialQuota[]): CredentialQuota | undefi
     if (percent === undefined) return tight
     return !tight || percent < remaining(tight)! ? window : tight
   }, undefined)
-}
-function windowTitle(window: CredentialQuota): string {
-  const key = 'credentialCards.quotaLabels.' + (window.labelKey || window.label.toLowerCase())
-  return quotaWindowTitle(window, te(key) ? t(key) : window.label)
 }
 function resetLabel(window?: CredentialQuota): string | undefined {
   if (!window?.resetsAt || remaining(window) !== 0) return undefined
@@ -63,41 +45,12 @@ const rows = computed(() =>
     const observation = account.credential.observation
     const window = tightest(observation?.windows ?? [])
     const quota = window ? remaining(window) : undefined
-    const used = quota === undefined ? undefined : 100 - quota
-    const status = credentialStatus(account.credential)
-    const hint = [
-      ...(observation?.windows ?? []).map((window) => {
-        const value = remaining(window)
-        return [
-          windowTitle(window),
-          value === undefined
-            ? t('home.noQuota')
-            : t('home.quotaUsed', { percent: n(100 - value, { maximumFractionDigits: 1 }) }),
-          window.resetsAt
-            ? t('credentialCards.resetsAt', { time: credentialTime(window.resetsAt, locale.value) })
-            : undefined,
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      }),
-      status.tone !== 'success' ? t(status.key) : undefined,
-      observation && observation.state !== 'fresh'
-        ? t('credentialCards.observation.' + observation.state)
-        : undefined,
-      observation?.resetCredits
-        ? t('credentialCards.resetCredits', { count: n(observation.resetCredits) })
-        : undefined,
-    ]
-      .filter(Boolean)
-      .join('\n')
     return {
       id: account.credential.id,
-      channelID: account.channelID,
       name: account.credential.account || account.credential.mask || account.channelName,
       plan: observation?.plan || account.channelName,
-      used,
+      remaining: quota,
       tone: window ? quotaTone(window) : ('neutral' as const),
-      hint,
       reset: resetLabel(window),
     }
   }),
@@ -106,13 +59,6 @@ const rows = computed(() =>
 
 <template>
   <AppPanel :title="t('home.activeAccounts')" compact>
-    <template #actions>
-      <HomeSectionLink
-        :to="{ name: 'modern-groups', query: { connection: 'subscription' } }"
-        :label="t('home.all')"
-        :arrow="false"
-      />
-    </template>
     <div v-if="failed" class="modern-home-account-state" role="status">
       <span>{{ t(accounts.length ? 'home.refreshFailed' : 'home.accountsFailed') }}</span>
       <AppButton size="xs" variant="text" @click="$emit('retry')">{{ t('ui.retry') }}</AppButton>
@@ -122,26 +68,26 @@ const rows = computed(() =>
     </p>
     <ul v-if="accounts.length" class="modern-home-accounts">
       <li v-for="row in rows" :key="row.id">
-        <RouterLink
-          :to="{ name: 'modern-groups', query: { channel: row.channelID } }"
-          class="modern-home-account-head"
-        >
+        <div class="modern-home-account-head">
           <AppOverflowText class="modern-home-account-name" :text="row.name" />
           <AppOverflowText class="modern-home-account-plan" :text="row.plan" />
           <span
             class="modern-home-account-percent"
             :class="{ 'is-tight': row.tone === 'danger' }"
-            >{{ row.used === undefined ? '—' : n(Math.round(row.used)) + '%' }}</span
+            >{{ row.remaining === undefined ? '—' : n(Math.round(row.remaining)) + '%' }}</span
           >
-        </RouterLink>
-        <AppTooltip v-if="row.used !== undefined" :label="row.hint">
-          <AppProgressBar
-            :label="row.name + ' · ' + t('home.quotaUsed', { percent: n(Math.round(row.used)) })"
-            :value="row.used"
-            :tone="row.tone"
-            size="sm"
-          />
-        </AppTooltip>
+        </div>
+        <AppProgressBar
+          v-if="row.remaining !== undefined"
+          :label="
+            row.name +
+            ' · ' +
+            t('credentialCards.remaining', { value: n(Math.round(row.remaining)) + '%' })
+          "
+          :value="row.remaining"
+          :tone="row.tone"
+          size="sm"
+        />
         <span v-else class="modern-home-account-note">{{ t('home.noQuota') }}</span>
         <span v-if="row.reset" class="modern-home-account-note">{{ row.reset }}</span>
       </li>
@@ -187,11 +133,6 @@ const rows = computed(() =>
 .modern-home-account-name {
   flex: 0 1 auto;
   max-width: 52%;
-}
-.modern-home-account-head:hover .modern-home-account-name {
-  color: var(--modern-accent);
-  text-decoration: underline;
-  text-underline-offset: var(--modern-space-1);
 }
 .modern-home-account-plan {
   flex: 1;

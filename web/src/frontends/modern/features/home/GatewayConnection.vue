@@ -2,7 +2,7 @@
 import { ArrowUpRight, Copy } from '@lucide/vue'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import type { HomeKey } from '@modern/api/home'
 import { getModels } from '@modern/api/models'
 import { revealAccessKey } from '@modern/api/access-keys'
@@ -35,6 +35,7 @@ import ConnectClientList from './ConnectClientList.vue'
 import ConnectFields from './ConnectFields.vue'
 import HomeSectionLink from './HomeSectionLink.vue'
 import ConnectTerminal from './ConnectTerminal.vue'
+import { readGatewayPreferences, rememberGatewayPreferences } from './gateway-preferences'
 
 const props = defineProps<{ keys: HomeKey[]; admin: boolean }>()
 const emit = defineEmits<{ selection: [value: GatewaySelection] }>()
@@ -42,6 +43,8 @@ const { t } = useI18n()
 const client = useApiClient()
 const session = useAuthSession()
 const messages = useMessages()
+const route = useRoute()
+const remembered = readGatewayPreferences(props.admin)
 const state = useURLState(
   ['client', 'access_key_id'],
   (query) => ({
@@ -53,6 +56,11 @@ const state = useURLState(
     access_key_id: props.admin && value.id ? String(value.id) : undefined,
   }),
 )
+// 链接中明确指定的选择优先；普通返回首页时恢复浏览器记忆。
+state.value = {
+  client: route.query.client === undefined ? remembered.client : state.value.client,
+  id: route.query.access_key_id === undefined ? remembered.accessKeyID : state.value.id,
+}
 const key = computed(() => props.keys.find((key) => key.id === state.value.id) ?? props.keys[0])
 const selectedKey = computed({
   get: () => String(key.value?.id ?? ''),
@@ -63,8 +71,8 @@ const selectedKey = computed({
 const selectedClient = computed(() =>
   gatewayClients.find((client) => client.id === state.value.client)!,
 )
-const target = ref<GatewayConfig['target']>('claude')
-const model = ref('')
+const target = ref<GatewayConfig['target']>(remembered.target)
+const model = ref(remembered.model)
 const selectedTarget = computed(() => gatewayTargets.find((item) => item.id === target.value)!)
 const clientProtocol = computed(() =>
   selectedClient.value.id === 'cc-switch'
@@ -99,6 +107,17 @@ const importModelMissing = computed(
 const importOpen = ref(false)
 const importing = ref(false)
 const importError = ref('')
+watch(
+  () => [state.value.client, key.value?.id, target.value, model.value] as const,
+  ([client, id, target, model]) =>
+    rememberGatewayPreferences(props.admin, {
+      client,
+      accessKeyID: props.admin ? (id ?? state.value.id) : 0,
+      target,
+      model,
+    }),
+  { immediate: true, flush: 'sync' },
+)
 watch(
   () => [key.value?.id, key.value?.name, clientProtocol.value, model.value] as const,
   () =>

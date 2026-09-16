@@ -35,7 +35,7 @@ export function useURLState<T extends object>(
       keys.forEach((key) => delete query[key])
       Object.assign(query, serialize(value))
       try {
-        const failure = await router.replace({ path, query })
+        const failure = await router.replace({ path, query, hash: route.hash })
         if (isNavigationFailure(failure)) state.value = parse(route.query)
       } catch {
         state.value = parse(route.query)
