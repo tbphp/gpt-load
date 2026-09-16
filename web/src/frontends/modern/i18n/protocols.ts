@@ -30,7 +30,7 @@ export function sortProtocols<T extends string>(values: readonly T[]): T[] {
  */
 export function protocolShortLabel(value: string | null | undefined): string {
   if (!value) return '—'
-  return value.replace(/^openai-/u, '').replace(/^./u, (first) => first.toUpperCase())
+  return value.toLowerCase().replace(/^openai-/u, '')
 }
 
 export function protocolLabel(

@@ -6,6 +6,7 @@ const props = defineProps<{
   label: string
   values: readonly number[]
   pointLabels?: readonly string[]
+  tone?: 'accent' | 'info'
 }>()
 const gradientId = useId()
 const hovered = ref<number>()
@@ -73,6 +74,7 @@ watch(
 <template>
   <div
     class="modern-sparkline"
+    :data-tone="tone"
     :role="interactive ? 'group' : 'img'"
     :aria-label="label"
     @pointerleave="hovered = undefined"
@@ -134,9 +136,13 @@ watch(
 
 <style scoped>
 .modern-sparkline {
+  --modern-sparkline-color: var(--modern-accent);
   position: relative;
   width: 100%;
   height: var(--modern-trend-height);
+}
+.modern-sparkline[data-tone='info'] {
+  --modern-sparkline-color: var(--modern-chart-input);
 }
 .modern-sparkline > svg {
   display: block;
@@ -146,13 +152,13 @@ watch(
 }
 .modern-sparkline-line {
   fill: none;
-  stroke: var(--modern-accent);
+  stroke: var(--modern-sparkline-color);
   stroke-width: var(--modern-trend-stroke);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 .modern-sparkline-fill {
-  stop-color: var(--modern-accent);
+  stop-color: var(--modern-sparkline-color);
 }
 .modern-sparkline-guide {
   stroke: var(--modern-tooltip-border);
@@ -171,7 +177,7 @@ watch(
   height: var(--modern-space-1-5);
   border: var(--modern-line-width) solid var(--modern-surface);
   border-radius: var(--modern-radius-round);
-  background: var(--modern-accent);
+  background: var(--modern-sparkline-color);
   pointer-events: none;
   transform: translate(-50%, -50%);
 }

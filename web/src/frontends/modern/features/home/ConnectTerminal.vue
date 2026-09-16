@@ -1,94 +1,113 @@
 <script setup lang="ts">
-import { Copy, SquareTerminal } from '@lucide/vue'
+import { Copy } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppCopyValue, AppIcon } from '@modern/components/ui'
-import type { TerminalLine } from './gateway-config'
+import { AppButton, AppCopyValue, AppOverflowText } from '@modern/components/ui'
+import type { ConfigBlock } from './gateway-config'
 
 defineProps<{
-  lines: TerminalLine[]
-  content: string
-  resolve: () => Promise<string>
+  blocks: (ConfigBlock & { resolve: () => Promise<string> })[]
   copyable: boolean
-  note?: string
 }>()
-const { t } = useI18n()
+const { t, n } = useI18n()
 </script>
 
 <template>
-  <div class="modern-connect-terminal">
-    <header>
-      <AppIcon :icon="SquareTerminal" size="sm" />
-      <span>{{ t('home.terminal') }}</span>
-      <AppCopyValue v-if="copyable" :value="content" :resolve-value="resolve">
-        <template #trigger="{ copy, pending }">
-          <AppButton size="xs" variant="ghost" :icon="Copy" :loading="pending" @click="copy()">{{
-            t('home.copyAll')
-          }}</AppButton>
-        </template>
-      </AppCopyValue>
-    </header>
-    <div class="modern-connect-lines" tabindex="0" role="group" :aria-label="t('home.terminal')">
-      <p v-for="(line, index) in lines" :key="index" :class="{ 'is-continued': !line.command }">
-        <!-- 提示符只是排版记号，读屏时跳过，否则每行都会多念一个美元符。 -->
-        <i aria-hidden="true">{{ line.command ? '$' : '' }}</i
-        ><span>{{ line.text }}</span>
-      </p>
-    </div>
-    <p v-if="note" class="modern-connect-note">{{ note }}</p>
-  </div>
+  <ol class="modern-connect-steps">
+    <li v-for="(block, index) in blocks" :key="block.label" class="modern-connect-step">
+      <div class="modern-connect-step-heading">
+        <span class="modern-connect-step-number" aria-hidden="true">{{ n(index + 1) }}</span>
+        <h3>
+          <template v-if="block.label === 'shell'">{{ t('home.runInTerminal') }}</template>
+          <template v-else>
+            <span>{{ t('home.writeConfig') }}</span>
+            <AppOverflowText class="modern-connect-step-path" :text="block.label" />
+          </template>
+        </h3>
+        <AppCopyValue :value="block.content" :resolve-value="block.resolve">
+          <template #trigger="{ copy, pending }">
+            <AppButton
+              size="xs"
+              :icon="Copy"
+              :loading="pending"
+              :disabled="!copyable"
+              :aria-label="t('home.copyStep', { step: n(index + 1) })"
+              @click="copy()"
+              >{{ t('ui.copy.action') }}</AppButton
+            >
+          </template>
+        </AppCopyValue>
+      </div>
+      <pre
+        tabindex="0"
+        :aria-label="block.label === 'shell' ? t('home.terminal') : block.label"
+      ><code>{{ block.content }}</code></pre>
+    </li>
+  </ol>
 </template>
 
 <style scoped>
-.modern-connect-terminal {
+.modern-connect-steps {
   display: grid;
+  gap: var(--modern-space-5);
   min-width: 0;
-  overflow: hidden;
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-subtle);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.modern-connect-terminal > header {
+.modern-connect-step {
+  display: grid;
+  gap: var(--modern-space-2);
+  min-width: 0;
+}
+.modern-connect-step-heading {
   display: flex;
   align-items: center;
   gap: var(--modern-space-2);
-  border-bottom: var(--modern-line-width) solid var(--modern-border);
-  padding: var(--modern-space-1-5) var(--modern-space-2) var(--modern-space-1-5)
-    var(--modern-space-3);
+  min-width: 0;
+}
+.modern-connect-step-number {
+  display: grid;
+  width: var(--modern-space-5);
+  height: var(--modern-space-5);
+  flex: none;
+  place-items: center;
+  border-radius: var(--modern-radius-round);
+  background: var(--modern-subtle);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
+  font-weight: var(--modern-weight-medium);
 }
-.modern-connect-terminal > header > :last-child {
-  margin-inline-start: auto;
+.modern-connect-step-heading h3 {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-1-5);
+  min-width: 0;
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-medium);
 }
-.modern-connect-lines {
-  overflow-x: auto;
-  padding: var(--modern-space-3);
+.modern-connect-step-path {
+  border-radius: var(--modern-radius-small);
+  background: var(--modern-subtle);
+  padding: var(--modern-space-0-5) var(--modern-space-1);
   font-family: var(--modern-font-mono);
   font-size: var(--modern-font-size-small);
+}
+.modern-connect-step pre {
+  overflow-x: auto;
+  min-width: 0;
+  margin: 0;
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-control);
+  background: var(--modern-subtle);
+  padding: var(--modern-space-4);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-secondary);
   line-height: var(--modern-leading-body);
   scrollbar-gutter: var(--modern-scrollbar-gutter);
 }
-/* 空行也要占一行高，否则 heredoc 里的空行会塌掉，粘贴出来的内容和看到的对不上。 */
-.modern-connect-lines p {
-  display: flex;
-  gap: var(--modern-space-1-5);
-  min-height: 1lh;
-  white-space: pre;
-}
-.modern-connect-lines i {
-  width: var(--modern-space-2);
-  flex: none;
-  color: var(--modern-accent);
-  font-style: normal;
-}
-.modern-connect-lines .is-continued {
-  color: var(--modern-muted);
-}
-.modern-connect-note {
-  border-top: var(--modern-line-width) solid var(--modern-border);
-  padding: var(--modern-space-2) var(--modern-space-3);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-  line-height: var(--modern-leading-body);
+.modern-connect-step code {
+  font: inherit;
 }
 </style>

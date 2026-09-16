@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowUpRight, Copy } from '@lucide/vue'
+import { ArrowRight, ArrowUpRight, Copy } from '@lucide/vue'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -17,6 +17,7 @@ import {
   AppCollectionState,
   AppConfirmDialog,
   AppCopyValue,
+  AppIcon,
   AppNotice,
   AppPanel,
   AppSearchSelect,
@@ -30,15 +31,16 @@ import {
   gatewayMirror,
   gatewayNeedsModel,
   gatewayTargets,
-  gatewayTerminal,
   type GatewayClientID,
   type GatewayConfig,
+  type GatewaySelection,
 } from './gateway-config'
 import ConnectClientList, { type ClientEntry } from './ConnectClientList.vue'
 import ConnectMirror from './ConnectMirror.vue'
 import ConnectTerminal from './ConnectTerminal.vue'
 
 const props = defineProps<{ keys: HomeKey[]; admin: boolean }>()
+const emit = defineEmits<{ selection: [value: GatewaySelection] }>()
 const { t } = useI18n()
 const client = useApiClient()
 const session = useAuthSession()
@@ -102,10 +104,6 @@ const config = computed<GatewayConfig>(() => ({
 const signature = computed(() => JSON.stringify([config.value, key.value?.id, supported.value]))
 const mask = computed(() => key.value?.mask ?? '')
 const isTerminal = computed(() => selectedClient.value.surface === 'cli')
-const terminalLines = computed(() =>
-  isTerminal.value ? gatewayTerminal(config.value, mask.value) : [],
-)
-const terminalContent = computed(() => terminalLines.value.map((line) => line.text).join('\n'))
 const fields = computed(() => (isTerminal.value ? [] : gatewayFields(config.value, mask.value)))
 const slotLabel = (slot: string) => t('home.slots.' + slot)
 const mirrorRows = computed(() =>
@@ -119,16 +117,13 @@ const mirrorValues = computed(() =>
     secret: field.slot === 'apiKey',
   })),
 )
-/* 图形客户端里还要额外粘贴的整段配置（cc-switch 与 new-api 的 JSON）。 */
-const extraBlocks = computed(() =>
-  isTerminal.value ? [] : gatewayConfiguration(config.value, mask.value),
-)
+const configBlocks = computed(() => gatewayConfiguration(config.value, mask.value))
 const keyOptions = computed(() =>
   props.keys.map((key) => ({ value: String(key.id), label: key.name, description: key.mask })),
 )
 const targetOptions = gatewayTargets.map((target) => ({ value: target.id, label: target.name }))
 const quickImport = computed(() => ['cc-switch', 'cherry-studio'].includes(selectedClient.value.id))
-const needsModel = computed(() => gatewayNeedsModel(selectedClient.value.id))
+const needsModel = computed(() => gatewayNeedsModel(selectedClient.value.id, target.value))
 const missingModel = computed(() => needsModel.value && !model.value.trim())
 const importModelMissing = computed(
   () =>
@@ -139,6 +134,17 @@ const importModelMissing = computed(
 const importOpen = ref(false)
 const importing = ref(false)
 const importError = ref('')
+watch(
+  () => [key.value?.id, key.value?.name, requiredProtocol.value, model.value] as const,
+  () =>
+    emit('selection', {
+      accessKeyID: key.value?.id ?? 0,
+      keyName: key.value?.name ?? '',
+      protocol: requiredProtocol.value,
+      model: model.value.trim(),
+    }),
+  { immediate: true },
+)
 let controller: AbortController | undefined
 function cancel(): void {
   controller?.abort()
@@ -164,15 +170,8 @@ async function resolveKey(): Promise<string> {
   return secret
 }
 const copyKey = () => resolveKey()
-async function resolveTerminal(): Promise<string> {
-  const input = { ...config.value }
-  const secret = await resolveKey()
-  return gatewayTerminal(input, secret)
-    .map((line) => line.text)
-    .join('\n')
-}
 const blocks = computed(() =>
-  extraBlocks.value.map((block, index) => ({
+  configBlocks.value.map((block, index) => ({
     ...block,
     resolve: async () => {
       const input = { ...config.value }
@@ -214,14 +213,13 @@ async function importClient(): Promise<void> {
 </script>
 
 <template>
-  <AppPanel :title="t('home.connection')" compact>
+  <AppPanel :title="t('home.connection')" :description="t('home.connectionHelp')" compact flush>
     <template #actions
       ><AppButton v-if="admin" as-child size="sm" variant="text"
-        ><RouterLink :to="{ name: 'modern-access-keys' }">{{
-          t('home.keys')
-        }}</RouterLink></AppButton
-      ></template
-    >
+        ><RouterLink :to="{ name: 'modern-access-keys' }"
+          >{{ t('home.manageKeys')
+          }}<AppIcon :icon="ArrowRight" size="sm" /> </RouterLink></AppButton
+    ></template>
     <AppCollectionState v-if="!key" :title="t('home.noKeys')">
       <p>{{ t('home.noKeyHelp') }}</p>
       <AppButton v-if="admin" as-child variant="primary"
@@ -282,16 +280,12 @@ async function importClient(): Promise<void> {
                 >{{ t('home.importAction') }}</AppButton
               >
             </div>
-            <AppNotice v-if="missingModel" tone="info">{{ t('home.selectModel') }}</AppNotice>
-
+            <p class="modern-connect-instruction">{{ t('home.steps.' + selectedClient.id) }}</p>
             <ConnectTerminal
               v-if="isTerminal"
               :key="signature"
-              :lines="terminalLines"
-              :content="terminalContent"
-              :resolve="resolveTerminal"
-              :copyable="supported"
-              :note="t('home.steps.' + selectedClient.id)"
+              :blocks="blocks"
+              :copyable="supported && !missingModel"
             />
             <template v-else>
               <ConnectMirror
@@ -303,7 +297,6 @@ async function importClient(): Promise<void> {
                 :copyable="supported"
                 :resolve-key="copyKey"
               />
-              <p class="modern-connect-hint">{{ t('home.steps.' + selectedClient.id) }}</p>
               <div
                 v-for="block in blocks"
                 :key="signature + block.label"
@@ -318,6 +311,7 @@ async function importClient(): Promise<void> {
                         variant="ghost"
                         :icon="Copy"
                         :loading="pending"
+                        :disabled="missingModel"
                         @click="copy()"
                         >{{ t('home.copyConfig') }}</AppButton
                       ></template
@@ -352,30 +346,36 @@ async function importClient(): Promise<void> {
 .modern-connect {
   container: modern-connect / inline-size;
 }
-/* 目录列常驻，切客户端比较配置时不用滚回顶部。 */
 .modern-connect-split {
   display: grid;
-  grid-template-columns: 228px minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr);
+  border-top: var(--modern-line-width) solid var(--modern-border);
 }
 .modern-connect-aside {
+  min-width: 0;
   border-inline-end: var(--modern-line-width) solid var(--modern-border);
 }
 .modern-connect-main {
+  container: modern-connect-body / inline-size;
   display: grid;
   align-content: start;
   min-width: 0;
-  gap: var(--modern-space-3);
-  padding: var(--modern-space-3) var(--modern-space-4) var(--modern-space-4);
+  gap: var(--modern-space-5);
+  padding: var(--modern-space-5);
 }
 .modern-connect-controls {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 184px), 1fr));
   align-items: flex-start;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-4);
 }
 .modern-connect-controls > * {
-  flex: 1 1 180px;
   min-width: 0;
+}
+.modern-connect-instruction {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-secondary);
+  line-height: var(--modern-leading-body);
 }
 .modern-connect-import {
   display: flex;
@@ -402,6 +402,8 @@ async function importClient(): Promise<void> {
   font-size: var(--modern-font-size-small);
 }
 .modern-connect-hint {
+  border-top: var(--modern-line-width) solid var(--modern-border);
+  padding-top: var(--modern-space-3);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);
@@ -423,6 +425,9 @@ async function importClient(): Promise<void> {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
+.modern-connect-code header > span {
+  min-width: 0;
+}
 .modern-connect-code pre {
   overflow: auto;
   margin: 0;
@@ -432,8 +437,7 @@ async function importClient(): Promise<void> {
   line-height: var(--modern-leading-body);
   scrollbar-gutter: var(--modern-scrollbar-gutter);
 }
-/* 面板窄于 620px 时（200px 目录 + 约 420px 才够放下代码块），目录改成顶部横排。 */
-@container modern-connect (max-width: 620px) {
+@container modern-connect (max-width: 720px) {
   .modern-connect-split {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { useId } from 'vue'
+import AppOverflowText from './AppOverflowText.vue'
 
-defineProps<{ title: string; description?: string; compact?: boolean }>()
+defineProps<{ title: string; description?: string; compact?: boolean; flush?: boolean }>()
 const titleId = useId()
 </script>
 
 <template>
   <section
     class="modern-panel"
-    :class="{ 'modern-panel--compact': compact }"
+    :class="{ 'modern-panel--compact': compact, 'modern-panel--flush': flush }"
     :aria-labelledby="titleId"
   >
     <header class="modern-panel-header">
       <div>
-        <h2 :id="titleId">{{ title }}</h2>
+        <h2 :id="titleId"><AppOverflowText :text="title" /></h2>
         <p v-if="description">{{ description }}</p>
       </div>
       <div v-if="$slots.actions" class="modern-panel-actions"><slot name="actions" /></div>
@@ -45,6 +46,7 @@ const titleId = useId()
 }
 .modern-panel-header > div:first-child {
   min-width: 0;
+  flex: 1;
 }
 .modern-panel-header p {
   margin-top: var(--modern-space-1);
@@ -53,6 +55,9 @@ const titleId = useId()
 }
 .modern-panel-actions {
   display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  max-width: 100%;
   align-items: center;
   gap: var(--modern-space-2);
 }
@@ -69,5 +74,8 @@ const titleId = useId()
 }
 .modern-panel--compact .modern-panel-body {
   padding: var(--modern-space-1) var(--modern-space-4) var(--modern-space-4);
+}
+.modern-panel--flush .modern-panel-body {
+  padding: 0;
 }
 </style>

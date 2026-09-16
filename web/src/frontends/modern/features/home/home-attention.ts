@@ -100,7 +100,10 @@ export function collectAttention(report: HealthReport | undefined): AttentionIte
       subject: key.name,
       detail: 'keyBlocked',
       params: {},
-      to: { name: 'modern-access-keys' },
+      to: {
+        name: 'modern-access-keys',
+        query: { panel: 'detail', access_key: String(key.id) },
+      },
     })),
   ]
 }

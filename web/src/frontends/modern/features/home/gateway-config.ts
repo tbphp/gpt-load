@@ -110,6 +110,12 @@ export interface GatewayConfig {
   target: GatewayTargetID
   name: string
 }
+export interface GatewaySelection {
+  accessKeyID: number
+  keyName: string
+  protocol: string
+  model: string
+}
 export interface ConfigBlock {
   label: string
   content: string
@@ -245,34 +251,10 @@ const modelFreeClients: readonly string[] = [
   'open-webui',
   'cherry-studio',
 ]
-export function gatewayNeedsModel(client: GatewayClientID): boolean {
+export function gatewayNeedsModel(client: GatewayClientID, target?: GatewayTargetID): boolean {
+  if (client === 'cc-switch' && target)
+    return Boolean(gatewayTargets.find((entry) => entry.id === target)?.requiresModel)
   return !modelFreeClients.includes(client)
-}
-
-export interface TerminalLine {
-  command: boolean
-  text: string
-}
-/**
- * 把配置块改写成可以一次粘贴执行的终端内容。
- *
- * 文件块包成 heredoc，用 >> 追加而不是 > 覆盖：那个文件里通常还有用户自己的配置。
- * shell 块里以反斜杠续行的部分不算新命令，提示符只画在真正的命令行前面。
- */
-export function gatewayTerminal(config: GatewayConfig, key: string): TerminalLine[] {
-  return gatewayConfiguration(config, key).flatMap((block) => {
-    const lines = block.content.split('\n')
-    if (block.label === 'shell')
-      return lines.map((text, index) => ({
-        command: index === 0 || !lines[index - 1]!.endsWith('\\'),
-        text,
-      }))
-    return [
-      { command: true, text: `cat >> ${block.label} <<'GPT_LOAD_EOF'` },
-      ...lines.map((text) => ({ command: false, text })),
-      { command: false, text: 'GPT_LOAD_EOF' },
-    ]
-  })
 }
 
 export const gatewaySlots = ['endpoint', 'apiKey', 'model'] as const
@@ -288,7 +270,9 @@ export function gatewayFields(config: GatewayConfig, key: string): GatewayField[
   return [
     { slot: 'endpoint' as const, value: gatewayEndpoint(config) },
     { slot: 'apiKey' as const, value: key },
-    ...(gatewayNeedsModel(config.client) ? [{ slot: 'model' as const, value: model }] : []),
+    ...(gatewayNeedsModel(config.client, config.target)
+      ? [{ slot: 'model' as const, value: model }]
+      : []),
   ]
 }
 

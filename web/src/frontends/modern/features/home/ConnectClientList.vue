@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppProtocolTag, AppTag } from '@modern/components/ui'
+import { AppButton, AppOverflowText, AppProtocolTag, AppTag } from '@modern/components/ui'
 import { gatewayGroups, type GatewayClientID, type GatewayGroupID } from './gateway-config'
 
 export interface ClientEntry {
@@ -13,28 +14,29 @@ export interface ClientEntry {
 const props = defineProps<{ clients: ClientEntry[]; selected: GatewayClientID }>()
 defineEmits<{ select: [GatewayClientID] }>()
 const { t } = useI18n()
-const sections = gatewayGroups.map((group) => ({
-  group,
-  items: props.clients.filter((client) => client.group === group),
-}))
+const sections = computed(() =>
+  gatewayGroups.map((group) => ({
+    group,
+    items: props.clients.filter((client) => client.group === group),
+  })),
+)
 </script>
 
 <template>
   <div class="modern-connect-clients">
-    <template v-for="section in sections" :key="section.group">
-      <p class="modern-connect-clients-label">{{ t('home.clientGroups.' + section.group) }}</p>
+    <section v-for="section in sections" :key="section.group">
+      <h3 class="modern-connect-clients-label">{{ t('home.clientGroups.' + section.group) }}</h3>
       <ul>
         <li v-for="client in section.items" :key="client.id">
           <AppButton
             variant="ghost"
             size="sm"
+            class="modern-connect-client"
             :disabled="!client.supported"
             :aria-pressed="client.id === selected"
             @click="$emit('select', client.id)"
           >
-            <span>{{ client.name }}</span>
-            <!-- 协议用短名：全称有 16 个字符，会把客户端名挤没。
-                 空协议的客户端（CC Switch、New API）由目标应用决定，选之前无法预判。 -->
+            <AppOverflowText class="modern-connect-client-name" :text="client.name" />
             <AppProtocolTag
               v-if="client.supported && client.protocol"
               :protocol="client.protocol"
@@ -49,64 +51,79 @@ const sections = gatewayGroups.map((group) => ({
           </AppButton>
         </li>
       </ul>
-    </template>
+    </section>
   </div>
 </template>
 
 <style scoped>
 .modern-connect-clients {
-  padding: var(--modern-space-1-5) var(--modern-space-2) var(--modern-space-3);
+  display: grid;
+  align-content: start;
+  gap: var(--modern-space-4);
+  min-width: 0;
+  padding: var(--modern-space-4) var(--modern-space-3) var(--modern-space-5);
 }
 .modern-connect-clients ul {
+  display: grid;
+  gap: var(--modern-space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .modern-connect-clients-label {
-  padding: var(--modern-space-2) var(--modern-space-2) var(--modern-space-1);
+  margin-bottom: var(--modern-space-2);
+  padding-inline: var(--modern-space-2);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
+  font-weight: var(--modern-weight-medium);
   letter-spacing: var(--modern-tracking-label);
 }
 /* 按钮本身是居中的行内控件，列表里要变成整行、左对齐的目录项。 */
-.modern-connect-clients :deep(.modern-button) {
+.modern-connect-client {
+  display: flex;
   width: 100%;
-  justify-content: flex-start;
+  min-width: 0;
+  justify-content: space-between;
   gap: var(--modern-space-2);
+  padding: var(--modern-space-2);
+  color: var(--modern-text);
   font-weight: var(--modern-weight-regular);
 }
-.modern-connect-clients :deep(.modern-button[aria-pressed='true']) {
+.modern-connect-client[aria-pressed='true'] {
   background: var(--modern-accent-soft);
   color: var(--modern-accent);
   font-weight: var(--modern-weight-medium);
 }
-.modern-connect-clients :deep(.modern-button > span:first-child) {
-  overflow: hidden;
-  flex: 1;
+.modern-connect-client-name {
   min-width: 0;
+  flex: 1;
   text-align: start;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-/* 面板窄到无法分栏时，目录从纵向目录退化成横排；10 行纵向列表在窄屏上太占地方。
-分组标题一起隐藏：横排里它会把每组顶到新的一行，反而更乱。 */
-@container modern-connect (max-width: 620px) {
+@container modern-connect (max-width: 720px) {
   .modern-connect-clients {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--modern-space-1-5);
-    padding: var(--modern-space-3) var(--modern-space-4);
+    overflow-x: auto;
+    gap: var(--modern-space-2);
+    padding: var(--modern-space-3) var(--modern-space-5);
+    scrollbar-gutter: var(--modern-scrollbar-gutter);
   }
   .modern-connect-clients-label {
     display: none;
   }
+  .modern-connect-clients section,
   .modern-connect-clients ul {
     display: contents;
   }
-  .modern-connect-clients :deep(.modern-button) {
+  .modern-connect-clients li {
+    flex: none;
+  }
+  .modern-connect-client {
+    display: grid;
+    justify-items: start;
+    gap: var(--modern-space-1);
     width: auto;
-    border: var(--modern-line-width) solid var(--modern-border);
-    border-radius: var(--modern-radius-round);
+    min-width: 132px;
+    padding-inline: var(--modern-space-3);
   }
 }
 </style>

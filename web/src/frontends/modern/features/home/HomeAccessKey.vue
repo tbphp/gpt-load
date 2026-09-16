@@ -2,7 +2,14 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AccessKeyRow, CostRule, CostWindow } from '@modern/api/access-keys'
-import { AppBadge, AppPanel, AppProgressBar, AppProtocolTag, AppTag } from '@modern/components/ui'
+import {
+  AppBadge,
+  AppOverflowText,
+  AppPanel,
+  AppProgressBar,
+  AppProtocolTag,
+  AppTag,
+} from '@modern/components/ui'
 import {
   accessNanoUSD,
   accessState,
@@ -47,7 +54,7 @@ function percent(window?: CostWindow): number | undefined {
       }}</AppBadge></template
     >
     <div class="modern-home-key">
-      <span class="modern-home-key-mask">{{ row.masked_key }}</span>
+      <AppOverflowText class="modern-home-key-mask" :text="row.masked_key" />
       <dl class="modern-home-key-facts">
         <div>
           <dt>{{ t('home.expires') }}</dt>
@@ -155,15 +162,15 @@ function percent(window?: CostWindow): number | undefined {
 }
 .modern-home-key-facts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-3) var(--modern-space-5);
+  gap: var(--modern-space-3);
   margin: 0;
   font-size: var(--modern-font-size-secondary);
 }
 .modern-home-key-facts > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--modern-space-2);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--modern-space-3);
 }
 .modern-home-key-facts dt {
   color: var(--modern-muted);
@@ -206,10 +213,5 @@ function percent(window?: CostWindow): number | undefined {
 }
 .modern-home-key-quota strong {
   font-weight: var(--modern-weight-medium);
-}
-@media (max-width: 760px) {
-  .modern-home-key-facts {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>

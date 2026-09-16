@@ -11,7 +11,7 @@ import { getLogAccessKeys } from '@modern/api/logs'
 import { useApiClient } from '@shared/http/client-context'
 import { useAuthSession } from '@modern/features/auth/auth-session'
 import { usePageRefresh } from '@modern/app/page-refresh'
-import { AppButton, AppCollectionState } from '@modern/components/ui'
+import { AppButton, AppCollectionState, AppNotice } from '@modern/components/ui'
 import RouteInspector from '@modern/features/inspector/RouteInspector.vue'
 import HomeAccessKey from './HomeAccessKey.vue'
 import HomeAccessKeys from './HomeAccessKeys.vue'
@@ -23,6 +23,7 @@ import HomeStatusBar from './HomeStatusBar.vue'
 import HomeTrend from './HomeTrend.vue'
 import { collectAttention } from './home-attention'
 import GatewayConnection from './GatewayConnection.vue'
+import type { GatewaySelection } from './gateway-config'
 
 const { t } = useI18n()
 const client = useApiClient()
@@ -31,6 +32,8 @@ const route = useRoute()
 const router = useRouter()
 const inspector = ref<InstanceType<typeof RouteInspector>>()
 const inspectorSection = ref<HTMLElement>()
+const attentionSection = ref<HTMLElement>()
+const connectionSelection = ref<GatewaySelection>()
 const admin = computed(() => session.state.principalType === 'admin')
 const baseQuery = useQuery({
   queryKey: ['modern', 'home', 'base'],
@@ -91,6 +94,13 @@ const selectedKeyID = computed(() =>
 )
 /* 接入面板通过 useURLState 读同一个查询参数，改地址栏就等于切换它选中的密钥。 */
 function selectKey(id: number): void {
+  if (!base.value?.keys.some((key) => key.id === id)) {
+    void router.push({
+      name: 'modern-access-keys',
+      query: { panel: 'detail', access_key: String(id) },
+    })
+    return
+  }
   void router.replace({ path: route.path, query: { ...route.query, access_key_id: String(id) } })
 }
 // 深链接 /monitor/inspector 会重定向到首页并带上 inspect_* 参数，那种情况直接展开。
@@ -98,6 +108,20 @@ const inspectorOpen = ref(
   route.hash === '#route-inspector' ||
     Object.keys(route.query).some((key) => key.startsWith('inspect_')),
 )
+async function toggleInspector(open: boolean): Promise<void> {
+  const selection = connectionSelection.value
+  if (open && selection && !Object.keys(route.query).some((key) => key.startsWith('inspect_'))) {
+    await router.replace({
+      query: {
+        ...route.query,
+        inspect_protocol: selection.protocol || undefined,
+        inspect_external_model: selection.model || undefined,
+        inspect_access_key_id: selection.accessKeyID ? String(selection.accessKeyID) : undefined,
+      },
+    })
+  }
+  inspectorOpen.value = open
+}
 async function refreshOptions(): Promise<void> {
   await Promise.all([groups.refetch(), keys.refetch()])
 }
@@ -132,6 +156,8 @@ usePageRefresh({
       base.value?.observedAt ?? 0,
       statistics.data.value?.observedAt ?? 0,
       accounts.data.value?.observedAt ?? 0,
+      health.data.value?.observedAt ?? 0,
+      accessKeys.dataUpdatedAt.value,
       inspector.value?.updatedAt ?? 0,
     ) || undefined,
 })
@@ -155,6 +181,17 @@ watch(
   },
   { immediate: true },
 )
+watch(
+  [() => route.hash, () => Boolean(base.value)],
+  async ([hash, ready]) => {
+    if (hash !== '#home-attention' || !ready || !admin.value) return
+    await nextTick()
+    if (route.hash !== hash) return
+    attentionSection.value?.scrollIntoView({ block: 'start' })
+    attentionSection.value?.focus({ preventScroll: true })
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -173,6 +210,14 @@ watch(
         <AppButton size="xs" @click="baseQuery.refetch()">{{ t('ui.retry') }}</AppButton>
       </div>
       <HomeStatusBar :base="base" :admin="admin" :attention="attention" />
+      <AppNotice v-if="admin && (groups.isError.value || keys.isError.value)" tone="warning">
+        <div class="modern-home-options-error">
+          <span>{{ t('home.setupFailed') }}</span>
+          <AppButton size="xs" variant="text" @click="refreshOptions">{{
+            t('ui.retry')
+          }}</AppButton>
+        </div>
+      </AppNotice>
       <HomeSetupGuide
         v-if="showSetup && groups.data.value && keys.data.value"
         :groups="groups.data.value.items"
@@ -181,11 +226,9 @@ watch(
       <div class="modern-home-columns">
         <div class="modern-home-main">
           <GatewayConnection
-            v-if="
-              !admin || base.keys.length || (groups.data.value && keys.data.value && !showSetup)
-            "
             :keys="base.keys"
             :admin="admin"
+            @selection="connectionSelection = $event"
           />
           <div
             v-if="admin"
@@ -194,7 +237,11 @@ watch(
             class="modern-home-inspector"
             tabindex="-1"
           >
-            <HomeRouteTool v-model:open="inspectorOpen">
+            <HomeRouteTool
+              :open="inspectorOpen"
+              :selection="connectionSelection"
+              @update:open="toggleInspector"
+            >
               <p v-if="emptyProject" class="modern-home-inspector-empty">
                 {{ t('home.setup.inspectorLater') }}
               </p>
@@ -213,27 +260,40 @@ watch(
           </div>
         </div>
         <div class="modern-home-side">
-          <div v-if="admin && accounts.isError.value" class="modern-home-error" role="status">
-            <span>{{ t('home.accountsFailed') }}</span>
-            <AppButton size="xs" @click="accounts.refetch()">{{ t('ui.retry') }}</AppButton>
-          </div>
-          <HomeAccounts
-            v-if="admin && accounts.data.value?.items.length"
-            :accounts="accounts.data.value.items"
-          />
-          <HomeAccessKey v-if="!admin && base.currentKey" :row="base.currentKey" />
-          <HomeAttention
+          <div
             v-if="admin"
-            :report="health.data.value"
-            :failed="health.isError.value"
-            @retry="health.refetch()"
+            id="home-attention"
+            ref="attentionSection"
+            class="modern-home-attention-section"
+            tabindex="-1"
+          >
+            <HomeAttention
+              :report="health.data.value"
+              :failed="health.isError.value"
+              @retry="health.refetch()"
+            />
+          </div>
+          <HomeAccessKey v-if="!admin && base.currentKey" :row="base.currentKey" />
+          <HomeTrend
+            :report="statistics.data.value"
+            :failed="statistics.isError.value"
+            @retry="statistics.refetch()"
           />
-          <HomeTrend v-if="statistics.data.value" :report="statistics.data.value" />
+          <HomeAccounts
+            v-if="admin"
+            :accounts="accounts.data.value?.items ?? []"
+            :failed="accounts.isError.value"
+            :loading="accounts.isPending.value"
+            @retry="accounts.refetch()"
+          />
           <HomeAccessKeys
-            v-if="admin && accessKeys.data.value?.items.length"
-            :rows="accessKeys.data.value.items"
+            v-if="admin"
+            :rows="accessKeys.data.value?.items ?? []"
+            :failed="accessKeys.isError.value"
+            :loading="accessKeys.isPending.value"
             :selected="selectedKeyID || (base.keys[0]?.id ?? 0)"
             @select="selectKey"
+            @retry="accessKeys.refetch()"
           />
         </div>
       </div>
@@ -257,7 +317,12 @@ watch(
   color: var(--modern-danger);
   font-size: var(--modern-font-size-secondary);
 }
-/* 左边是首页唯一的高频动作，右边是扫一眼的状态；侧栏定宽，主栏吃掉剩下的宽度。 */
+.modern-home-options-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-3);
+}
 .modern-home-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--modern-home-side);
@@ -271,7 +336,8 @@ watch(
   min-width: 0;
   gap: var(--modern-page-gap);
 }
-.modern-home-inspector {
+.modern-home-inspector,
+.modern-home-attention-section {
   min-width: 0;
   scroll-margin-top: var(--modern-space-5);
 }
@@ -281,6 +347,15 @@ watch(
 }
 @media (max-width: 1150px) {
   .modern-home-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .modern-home-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+@media (max-width: 760px) {
+  .modern-home-side {
     grid-template-columns: minmax(0, 1fr);
   }
 }

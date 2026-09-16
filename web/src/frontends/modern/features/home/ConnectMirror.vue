@@ -2,7 +2,7 @@
 import { Copy } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppCopyValue, AppSvg } from '@modern/components/ui'
+import { AppCopyValue, AppIconButton, AppOverflowText, AppSvg } from '@modern/components/ui'
 import type { GatewaySlot, MirrorRow } from './gateway-config'
 
 interface MirrorValue {
@@ -19,7 +19,7 @@ const props = defineProps<{
   copyable: boolean
   resolveKey: () => Promise<string>
 }>()
-const { t } = useI18n()
+const { t, n } = useI18n()
 /* 示意图按行排布，行高与首行偏移固定，整幅高度由行数决定。 */
 const rowHeight = 26
 const top = 34
@@ -88,12 +88,15 @@ const marks = computed(() =>
     </figure>
     <div class="modern-connect-guide">
       <p>{{ t('home.mirrorGuide') }}</p>
-      <dl class="modern-connect-values">
-        <div v-for="(item, index) in values" :key="item.slot">
-          <span class="modern-connect-number">{{ index + 1 }}</span>
+      <ol class="modern-connect-values">
+        <li v-for="(item, index) in values" :key="item.slot">
+          <span class="modern-connect-number" aria-hidden="true">{{ n(index + 1) }}</span>
           <div>
-            <dt>{{ item.label }}</dt>
-            <dd>{{ item.value || t('home.modelPending') }}</dd>
+            <h3>{{ item.label }}</h3>
+            <AppOverflowText
+              :text="item.value || t('home.modelPending')"
+              class="modern-connect-value"
+            />
           </div>
           <AppCopyValue
             v-if="copyable && item.value"
@@ -101,18 +104,18 @@ const marks = computed(() =>
             :resolve-value="item.secret ? resolveKey : undefined"
           >
             <template #trigger="{ copy, pending }">
-              <AppButton
+              <AppIconButton
                 size="xs"
                 variant="ghost"
                 :icon="Copy"
                 :loading="pending"
-                :aria-label="t('ui.copy.action')"
+                :label="t('home.copyField', { field: item.label })"
                 @click="copy()"
               />
             </template>
           </AppCopyValue>
-        </div>
-      </dl>
+        </li>
+      </ol>
     </div>
   </div>
 </template>
@@ -121,10 +124,10 @@ const marks = computed(() =>
 /* 这两个是示意图的绘图单位（viewBox 尺度），不是界面字号：
    整幅图缩到约 230px 宽，套用 caption 的 11px 会比框还高。 */
 .modern-connect-mirror {
-  --modern-mirror-label-size: 7.5px;
-  --modern-mirror-number-size: 8.5px;
+  --modern-mirror-label-size: 9px;
+  --modern-mirror-number-size: 9px;
   display: grid;
-  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
   align-items: start;
   gap: var(--modern-space-5);
 }
@@ -197,9 +200,11 @@ const marks = computed(() =>
   display: grid;
   gap: var(--modern-space-2);
   margin: 0;
+  padding: 0;
   min-width: 0;
+  list-style: none;
 }
-.modern-connect-values > div {
+.modern-connect-values > li {
   display: grid;
   grid-template-columns: var(--modern-space-5) minmax(0, 1fr) auto;
   align-items: center;
@@ -207,9 +212,9 @@ const marks = computed(() =>
   min-width: 0;
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-control);
-  padding: var(--modern-space-2) var(--modern-space-1) var(--modern-space-2) var(--modern-space-3);
+  padding: var(--modern-space-3) var(--modern-space-2) var(--modern-space-3) var(--modern-space-3);
 }
-.modern-connect-values > div > div {
+.modern-connect-values > li > div {
   display: grid;
   gap: var(--modern-space-0-5);
   min-width: 0;
@@ -226,21 +231,21 @@ const marks = computed(() =>
   font-weight: var(--modern-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
-.modern-connect-values dt {
+.modern-connect-values h3 {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
+  font-weight: var(--modern-weight-medium);
 }
-.modern-connect-values dd {
-  overflow: hidden;
-  margin: 0;
+.modern-connect-value {
   font-family: var(--modern-font-mono);
   font-size: var(--modern-font-size-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-@container modern-connect (max-width: 620px) {
+@container modern-connect-body (max-width: 560px) {
   .modern-connect-mirror {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .modern-connect-mirror figure {
+    display: none;
   }
 }
 </style>

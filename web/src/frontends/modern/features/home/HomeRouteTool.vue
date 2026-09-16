@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ChevronDown, Route } from '@lucide/vue'
+import { ChevronDown, KeyRound, Route } from '@lucide/vue'
 import { useId } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppIcon } from '@modern/components/ui'
+import { AppButton, AppIcon, AppOverflowText, AppProtocolTag } from '@modern/components/ui'
+import type { GatewaySelection } from './gateway-config'
 
-defineProps<{ open: boolean }>()
+defineProps<{ open: boolean; selection?: GatewaySelection }>()
 defineEmits<{ 'update:open': [boolean] }>()
 const { t } = useI18n()
 const panelId = useId()
@@ -13,20 +14,33 @@ const panelId = useId()
 <template>
   <section class="modern-home-tool" :class="{ 'is-open': open }">
     <div class="modern-home-tool-bar">
-      <AppIcon :icon="Route" size="sm" />
-      <div>
+      <div class="modern-home-tool-title">
+        <AppIcon :icon="Route" size="sm" />
         <h2>{{ t('pages.inspector.title') }}</h2>
-        <p>{{ t('home.inspectorHelp') }}</p>
+      </div>
+      <div v-if="!open && selection" class="modern-home-tool-context">
+        <AppProtocolTag v-if="selection.protocol" :protocol="selection.protocol" />
+        <AppOverflowText
+          v-if="selection.model"
+          class="modern-home-tool-model"
+          :text="selection.model"
+        />
+        <span v-if="selection.keyName" class="modern-home-tool-key">
+          <AppIcon :icon="KeyRound" size="sm" />
+          <AppOverflowText :text="selection.keyName" />
+        </span>
       </div>
       <AppButton
-        variant="ghost"
+        variant="text"
         size="sm"
-        :icon="ChevronDown"
+        class="modern-home-tool-toggle"
         :aria-expanded="open"
         :aria-controls="panelId"
         @click="$emit('update:open', !open)"
-        >{{ t(open ? 'home.collapse' : 'home.expand') }}</AppButton
       >
+        {{ t(open ? 'home.collapse' : 'home.expand') }}
+        <AppIcon :icon="ChevronDown" size="sm" class="modern-home-tool-chevron" />
+      </AppButton>
     </div>
     <div v-if="open" :id="panelId" class="modern-home-tool-body"><slot /></div>
   </section>
@@ -41,39 +55,55 @@ const panelId = useId()
 }
 .modern-home-tool-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--modern-space-3);
-  padding: var(--modern-space-3) var(--modern-space-4);
+  gap: var(--modern-space-3) var(--modern-space-4);
+  padding: var(--modern-space-4) var(--modern-space-5);
+}
+.modern-home-tool-title {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
   color: var(--modern-muted);
 }
-.modern-home-tool-bar > div {
-  min-width: 0;
-  flex: 1;
-}
-.modern-home-tool-bar h2 {
+.modern-home-tool-title h2 {
   color: var(--modern-text);
   font-size: var(--modern-font-size-body);
   font-weight: var(--modern-weight-semibold);
 }
-.modern-home-tool-bar p {
-  margin-top: var(--modern-space-0-5);
+.modern-home-tool-context {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-2);
+  min-width: 0;
+  color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
-/* 收起时箭头朝右，展开时朝下；旋转的是图标本身，按钮文字位置不动。 */
-.modern-home-tool-bar :deep(.modern-button svg) {
+.modern-home-tool-model {
+  max-width: 180px;
+  font-family: var(--modern-font-mono);
+}
+.modern-home-tool-key {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-1);
+  min-width: 0;
+  max-width: 160px;
+}
+.modern-home-tool-toggle {
+  margin-inline-start: auto;
+}
+.modern-home-tool-chevron {
   transform: rotate(-90deg);
   transition: transform var(--modern-motion-fast) var(--modern-motion-ease);
 }
-.modern-home-tool.is-open .modern-home-tool-bar :deep(.modern-button svg) {
+.is-open .modern-home-tool-chevron {
   transform: none;
 }
 .modern-home-tool-body {
   border-top: var(--modern-line-width) solid var(--modern-border);
-  padding: 0 var(--modern-space-4) var(--modern-space-4);
-}
-@media (prefers-reduced-motion: reduce) {
-  .modern-home-tool-bar :deep(.modern-button svg) {
-    transition: none;
-  }
+  padding: 0 var(--modern-space-5) var(--modern-space-5);
 }
 </style>

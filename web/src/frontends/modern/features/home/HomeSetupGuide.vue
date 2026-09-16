@@ -108,13 +108,13 @@ const completed = computed(() => steps.value.filter((step) => step.done).length)
   flex-direction: column;
   min-width: 0;
   gap: var(--modern-space-3);
-  border: var(--modern-line-width) solid var(--modern-border);
+  border: var(--modern-line-width) solid transparent;
   border-radius: var(--modern-radius-control);
   padding: var(--modern-space-4);
 }
 .modern-home-setup-step.is-current {
-  border-color: var(--modern-tooltip-border);
-  background: var(--modern-subtle);
+  border-color: var(--modern-segmented-active-border);
+  background: var(--modern-accent-soft);
 }
 .modern-home-setup-heading {
   display: flex;

@@ -4,52 +4,61 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import type { HealthReport } from '@modern/api/health'
-import { AppBadge, AppButton, AppIcon, AppPanel } from '@modern/components/ui'
-import { collectAttention } from './home-attention'
+import { AppBadge, AppButton, AppIcon, AppOverflowText, AppPanel } from '@modern/components/ui'
+import { collectAttention, type AttentionItem } from './home-attention'
 
 const props = defineProps<{ report?: HealthReport; failed: boolean }>()
 defineEmits<{ retry: [] }>()
 const { t, n } = useI18n()
-/* 首页最多列这么多条，其余折成一行汇总，免得把接入面板顶下去。 */
 const visibleLimit = 4
 const items = computed(() => collectAttention(props.report))
 const visible = computed(() => items.value.slice(0, visibleLimit))
 const overflow = computed(() => items.value.length - visible.value.length)
+function detail(item: AttentionItem): string {
+  const params = Object.fromEntries(
+    Object.entries(item.params).map(([key, value]) => [
+      key,
+      typeof value === 'number' ? n(value) : value,
+    ]),
+  )
+  return t('home.attention.' + item.detail, params)
+}
 </script>
 
 <template>
   <AppPanel :title="t('home.attention.title')" compact>
     <template #actions>
       <AppBadge v-if="items.length" tone="warning" size="xs">{{ n(items.length) }}</AppBadge>
-      <AppBadge v-else-if="report" tone="success" size="xs" variant="plain" dot>{{
+      <AppBadge v-else-if="report && !failed" tone="success" size="xs" variant="plain" dot>{{
         t('home.attention.clear')
       }}</AppBadge>
     </template>
-    <div v-if="failed && !report" class="modern-home-attention-state" role="status">
-      <span>{{ t('home.attention.failed') }}</span>
-      <AppButton size="xs" @click="$emit('retry')">{{ t('ui.retry') }}</AppButton>
+    <div v-if="failed" class="modern-home-attention-state" role="status">
+      <span>{{ t(report ? 'home.refreshFailed' : 'home.attention.failed') }}</span>
+      <AppButton size="xs" variant="text" @click="$emit('retry')">{{ t('ui.retry') }}</AppButton>
     </div>
-    <p v-else-if="!report" class="modern-home-attention-state">{{ t('ui.loading') }}</p>
-    <p v-else-if="!items.length" class="modern-home-attention-state">
+    <p v-if="!report && !failed" class="modern-home-attention-state">{{ t('ui.loading') }}</p>
+    <p v-else-if="report && !items.length && !failed" class="modern-home-attention-state">
       <AppIcon :icon="CircleCheck" size="sm" />{{ t('home.attention.clearHelp') }}
     </p>
-    <ul v-else class="modern-home-attention">
+    <ul v-if="items.length" class="modern-home-attention">
       <li v-for="item in visible" :key="item.key">
-        <RouterLink :to="item.to">
-          <AppIcon :icon="item.icon" size="sm" :class="`is-${item.tone}`" />
-          <span>
-            <strong>{{ item.subject }}</strong>
-            <span>{{ t('home.attention.' + item.detail, item.params) }}</span>
+        <RouterLink :to="item.to" class="modern-home-attention-link">
+          <AppIcon :icon="item.icon" size="sm" :class="'is-' + item.tone" />
+          <span class="modern-home-attention-copy">
+            <AppOverflowText class="modern-home-attention-subject" :text="item.subject" />
+            <AppOverflowText class="modern-home-attention-detail" :text="detail(item)" />
           </span>
-          <AppIcon :icon="ChevronRight" size="sm" class="is-quiet" />
+          <AppIcon :icon="ChevronRight" size="sm" class="modern-home-attention-arrow" />
         </RouterLink>
       </li>
-      <li v-if="overflow" class="modern-home-attention-more">
-        <RouterLink :to="{ name: 'modern-health' }">{{
-          t('home.attention.more', { count: n(overflow) })
-        }}</RouterLink>
-      </li>
     </ul>
+    <AppButton v-if="overflow" as-child variant="text" size="xs" class="modern-home-attention-more">
+      <RouterLink :to="{ name: 'modern-health' }">
+        {{ t('home.attention.more', { count: n(overflow) }) }}
+        <AppIcon :icon="ChevronRight" size="sm" />
+      </RouterLink>
+    </AppButton>
   </AppPanel>
 </template>
 
@@ -57,53 +66,49 @@ const overflow = computed(() => items.value.length - visible.value.length)
 .modern-home-attention-state {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--modern-space-2);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-secondary);
+  line-height: var(--modern-leading-body);
 }
 .modern-home-attention {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.modern-home-attention li + li {
-  border-top: var(--modern-line-width) solid
-    color-mix(in srgb, var(--modern-border) 45%, transparent);
+.modern-home-attention-state + .modern-home-attention {
+  margin-top: var(--modern-space-2);
 }
-/* 只有条目行是三列栅格；「还有 N 项」那条也命中的话，
-   文字会被挤进 14px 的图标列，一个字一行。 */
-.modern-home-attention li:not(.modern-home-attention-more) a {
+.modern-home-attention li + li {
+  border-top: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-home-attention-link {
   display: grid;
   grid-template-columns: var(--modern-icon-sm) minmax(0, 1fr) var(--modern-icon-sm);
   align-items: center;
-  gap: var(--modern-space-2);
-  min-height: var(--modern-space-10);
+  gap: var(--modern-space-3);
+  min-width: 0;
+  border-radius: var(--modern-radius-small);
+  padding: var(--modern-space-3) var(--modern-space-1);
+  color: var(--modern-text);
+}
+.modern-home-attention-link:hover {
+  background: var(--modern-control-hover);
+}
+.modern-home-attention-copy {
+  display: grid;
+  gap: var(--modern-space-1);
+  min-width: 0;
+}
+.modern-home-attention-subject {
   font-size: var(--modern-font-size-secondary);
-}
-/* 分组名是要动的对象，优先保住；两边都能收缩，但说明文字收缩得快得多，
-   所以先被截的是说明而不是名字。 */
-.modern-home-attention a > span {
-  display: flex;
-  align-items: baseline;
-  gap: var(--modern-space-2);
-  min-width: 0;
-}
-.modern-home-attention strong {
-  overflow: hidden;
-  min-width: 0;
-  flex: 0 1 auto;
   font-weight: var(--modern-weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.modern-home-attention a > span > span {
-  overflow: hidden;
-  min-width: 0;
-  flex: 0 6 auto;
+.modern-home-attention-detail {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .modern-home-attention .is-danger {
   color: var(--modern-danger);
@@ -111,12 +116,14 @@ const overflow = computed(() => items.value.length - visible.value.length)
 .modern-home-attention .is-warning {
   color: var(--modern-warning);
 }
-.modern-home-attention .is-quiet {
+.modern-home-attention-arrow {
   color: var(--modern-muted);
 }
-.modern-home-attention-more {
-  padding-top: var(--modern-space-2);
+.modern-home-attention-link:hover .modern-home-attention-arrow,
+.modern-home-attention-link:hover .modern-home-attention-subject {
   color: var(--modern-accent);
-  font-size: var(--modern-font-size-small);
+}
+.modern-home-attention-more {
+  margin-top: var(--modern-space-3);
 }
 </style>
