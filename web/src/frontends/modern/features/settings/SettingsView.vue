@@ -34,7 +34,7 @@ import {
   AppTextField,
 } from '@modern/components/ui'
 import { useLoadingActivity } from '@modern/components/ui/loading'
-import GroupDraftGuard from '@modern/features/groups/GroupDraftGuard.vue'
+import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import { useApiClient } from '@shared/http/client-context'
 import FrontendPicker from './FrontendPicker.vue'
 import SettingItem from './SettingItem.vue'
@@ -127,7 +127,7 @@ const state = useURLState(
 )
 const active = ref<SectionID>(state.value.section)
 const scroller = ref<HTMLElement>()
-const guard = ref<InstanceType<typeof GroupDraftGuard>>()
+const guard = ref<InstanceType<typeof AppDraftGuard>>()
 const discardOpen = ref(false)
 let scrollFrame: number | undefined
 const words = computed(() => state.value.q.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean))
@@ -691,7 +691,7 @@ onScopeDispose(() => {
         >
       </div>
     </footer>
-    <GroupDraftGuard ref="guard" :dirty="dirty" :pending="saving" />
+    <AppDraftGuard ref="guard" :dirty="dirty" :pending="saving" />
     <AppConfirmDialog
       :open="discardOpen"
       :title="t('settingsForm.discardTitle')"

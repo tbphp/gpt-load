@@ -6,7 +6,7 @@ import { isNavigationFailure, useRoute, useRouter } from 'vue-router'
 
 import { AppButton, AppIcon, AppNotice } from '@modern/components/ui'
 import PublicLayout from '@modern/layouts/PublicLayout.vue'
-import { loginLocation } from '@modern/router'
+import { loginLocation } from '@modern/app/redirect'
 import AuthCard from './AuthCard.vue'
 import { useAuthSession } from './auth-session'
 import { useCountdown } from './use-countdown'

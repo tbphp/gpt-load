@@ -12,7 +12,7 @@ import {
   AppNotice,
   AppTextField,
 } from '@modern/components/ui'
-import { safeRedirect } from '@modern/router'
+import { safeRedirect } from '@modern/app/redirect'
 import { RequestCancelledError } from '@shared/http/errors'
 import AuthCard from './AuthCard.vue'
 import { authFailure, authRetrySeconds, type AuthFailure } from './auth-errors'

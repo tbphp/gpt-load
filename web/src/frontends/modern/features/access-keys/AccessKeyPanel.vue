@@ -42,7 +42,7 @@ import { formatCompactNumber, formatNanoUSD } from '@modern/components/ui/format
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { useApiClient } from '@shared/http/client-context'
 import { ApiError } from '@shared/http/errors'
-import GroupDraftGuard from '../groups/GroupDraftGuard.vue'
+import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import { createOperationKey } from '../groups/group-create-operation'
 import AccessKeyQuotaEditor from './AccessKeyQuotaEditor.vue'
 import AccessKeyQuotaResetDialog from './AccessKeyQuotaResetDialog.vue'
@@ -85,7 +85,7 @@ const pending = ref(false)
 const completed = ref(false)
 const error = ref('')
 const form = ref<HTMLFormElement>()
-const guard = ref<InstanceType<typeof GroupDraftGuard>>()
+const guard = ref<InstanceType<typeof AppDraftGuard>>()
 const secret = ref('')
 const showKey = ref(false)
 const revealing = ref(false)
@@ -728,7 +728,7 @@ onScopeDispose(() => {
       </form>
     </AppDialogContent>
   </DialogRoot>
-  <GroupDraftGuard
+  <AppDraftGuard
     ref="guard"
     :dirty="dirty"
     :pending="pending"

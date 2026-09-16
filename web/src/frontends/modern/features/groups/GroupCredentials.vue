@@ -63,7 +63,7 @@ import {
 import { useApiClient } from '@shared/http/client-context'
 import { useURLState, positivePage } from '@modern/app/url-state'
 import { useMessageSource } from '@modern/app/messages'
-import GroupDraftGuard from './GroupDraftGuard.vue'
+import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 
 const props = defineProps<{ group: GroupRow; channel?: GroupChannel }>()
 const emit = defineEmits<{
@@ -1018,7 +1018,7 @@ defineExpose({ refresh })
     @close="testing = undefined"
     @changed="changed"
   />
-  <GroupDraftGuard
+  <AppDraftGuard
     :dirty="false"
     :pending="mutating !== undefined || accountBatchPending || syncing.size > 0"
   />

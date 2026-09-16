@@ -34,7 +34,8 @@ import {
   AppTextField,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
-import { validBaseURL, validProxyURL } from './group-create-rules'
+import { validBaseURL } from './group-create-rules'
+import { validProxyURL } from '@modern/app/proxy'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import ParameterRulesEditor from '../config/ParameterRulesEditor.vue'
 import { groupValidationModelOptions } from './group-model-options'

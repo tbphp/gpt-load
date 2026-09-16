@@ -13,47 +13,18 @@ import {
   sortedQuotaWindows,
 } from './credential-presentation'
 
-const props = withDefaults(
-  defineProps<{ windows: readonly CredentialQuota[]; preview?: boolean }>(),
-  {
-    preview: false,
-  },
-)
+const props = defineProps<{ windows: readonly CredentialQuota[] }>()
 const { t, te, n, locale } = useI18n()
 const minimumUsedPercent = 5
 const minimumRequests = 10
 const minimumCostNanoUSD = 10_000_000n
-const preview = computed(() => Boolean(props.preview && import.meta.env.DEV))
 const rows = computed(() =>
   sortedQuotaWindows(
     props.windows.filter(
       (window) => window.scope === 'account' && quotaWindowRange(window) !== undefined,
     ),
-  ).map((window) => {
-    const display = preview.value ? previewWindow(window) : window
-    return { window: display, estimate: estimate(display) }
-  }),
+  ).map((window) => ({ window, estimate: estimate(window) })),
 )
-function previewWindow(window: CredentialQuota): CredentialQuota {
-  const longWindow = (window.windowSeconds ?? 0) >= 24 * 60 * 60
-  return {
-    ...window,
-    used: longWindow ? 44.2 : 28.4,
-    limit: 100,
-    remaining: longWindow ? 55.8 : 71.6,
-    utilization: longWindow ? 0.442 : 0.284,
-    usage: {
-      from: window.usage?.from,
-      to: window.usage?.to,
-      requests: longWindow ? 426 : 128,
-      tokens: longWindow ? 5_642_000 : 1_284_000,
-      cost: longWindow ? '2770000000' : '612000000',
-      complete: true,
-      usageComplete: true,
-      pricingComplete: true,
-    },
-  }
-}
 function usedPercent(window: CredentialQuota): string {
   const value = quotaRemaining(window)
   return value === undefined ? '—' : `${n(100 - value, { maximumFractionDigits: 1 })}%`

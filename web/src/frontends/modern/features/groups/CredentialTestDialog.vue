@@ -28,7 +28,7 @@ import {
   AppSelect,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
-import GroupDraftGuard from './GroupDraftGuard.vue'
+import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import { groupValidationModelOptions } from './group-model-options'
 const props = defineProps<{ groupId: number; row: CredentialRow }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
@@ -223,7 +223,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
       </form>
     </AppDialogContent>
   </DialogRoot>
-  <GroupDraftGuard :dirty="false" :pending="pending" />
+  <AppDraftGuard :dirty="false" :pending="pending" />
 </template>
 <style scoped>
 .modern-credential-test {

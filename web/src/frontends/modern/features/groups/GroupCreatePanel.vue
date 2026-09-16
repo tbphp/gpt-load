@@ -39,11 +39,11 @@ import GroupModelPicker from './GroupModelPicker.vue'
 import GroupEditorSurface from './GroupEditorSurface.vue'
 import SubscriptionCredentialStager from './SubscriptionCredentialStager.vue'
 import { useGroupCreateOperation } from './group-create-operation'
+import { validProxyURL } from '@modern/app/proxy'
 import {
   credentialCount,
   modelErrors,
   validBaseURL,
-  validProxyURL,
   type GroupDraftModel,
 } from './group-create-rules'
 

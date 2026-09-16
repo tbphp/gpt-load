@@ -33,7 +33,7 @@ import {
 import { formatCompactNumber } from '@modern/components/ui/format'
 import { priceStatus } from './models-display'
 import { useLoadingActivity } from '@modern/components/ui/loading'
-import GroupDraftGuard from '@modern/features/groups/GroupDraftGuard.vue'
+import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import ModelPricingDetails from './ModelPricingDetails.vue'
 import './model-group-chip.css'
 import ModelPriceEditor from './ModelPriceEditor.vue'
@@ -101,7 +101,7 @@ const resetting = ref(false)
 const resetOpen = ref(false)
 const resetError = ref('')
 const discardOpen = ref(false)
-const guard = ref<InstanceType<typeof GroupDraftGuard>>()
+const guard = ref<InstanceType<typeof AppDraftGuard>>()
 const body = ref<HTMLElement>()
 const capabilities = computed(() =>
   Object.entries(catalog.value?.capabilities ?? {})
@@ -457,7 +457,7 @@ async function reset(): Promise<void> {
       </template>
     </AppDialogContent>
   </DialogRoot>
-  <GroupDraftGuard
+  <AppDraftGuard
     ref="guard"
     :dirty="dirty"
     :pending="busy"

@@ -10,7 +10,7 @@ import {
   type RouteStrategy,
 } from '@modern/api/settings'
 import type { HeaderRules } from '@modern/api/group-detail'
-import { validProxyURL } from '@modern/features/groups/group-create-rules'
+import { validProxyURL } from '@modern/app/proxy'
 
 export type HeaderSetting = 'header_rules' | 'response_header_rules'
 export interface HeaderRow {

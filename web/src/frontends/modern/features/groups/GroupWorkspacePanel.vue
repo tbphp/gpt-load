@@ -3,7 +3,7 @@ import { useLoadingActivity } from '@modern/components/ui/loading'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AppButton } from '@modern/components/ui'
-import GroupDraftGuard from './GroupDraftGuard.vue'
+import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import GroupEditorSurface from './GroupEditorSurface.vue'
 
 const props = defineProps<{
@@ -19,7 +19,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: []; save: [] }>()
 const { t } = useI18n()
-const guard = ref<InstanceType<typeof GroupDraftGuard>>()
+const guard = ref<InstanceType<typeof AppDraftGuard>>()
 async function close(): Promise<void> {
   if (!props.pending && (await guard.value?.confirm())) emit('close')
 }
@@ -52,7 +52,7 @@ useLoadingActivity(() => Boolean(props.loading || props.pending))
       </footer>
     </form>
   </GroupEditorSurface>
-  <GroupDraftGuard
+  <AppDraftGuard
     ref="guard"
     :dirty="dirty"
     :pending="pending"

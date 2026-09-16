@@ -32,7 +32,7 @@ import {
 } from '@modern/components/ui'
 import { useAuthSession } from '@modern/features/auth/auth-session'
 import { provideSystemStatus } from '@modern/features/system/useSystemStatus'
-import { loginLocation } from '@modern/router'
+import { loginLocation } from '@modern/app/redirect'
 import AppearanceMenu from './AppearanceMenu.vue'
 import { provideLoadingActivity, useLoadingFeedback } from '@modern/components/ui/loading'
 import SidebarContent from './SidebarContent.vue'

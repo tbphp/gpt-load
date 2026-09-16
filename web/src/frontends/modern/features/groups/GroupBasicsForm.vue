@@ -3,7 +3,7 @@ import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import GroupDraftGuard from './GroupDraftGuard.vue'
+import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import GroupDeleteAction from './GroupDeleteAction.vue'
 import {
   updateGroupBasics,
@@ -247,7 +247,7 @@ useMessageSource(() =>
       </footer>
     </form>
   </div>
-  <GroupDraftGuard :dirty="!deleted && dirty" :pending="!deleted && (saving || deleting)" />
+  <AppDraftGuard :dirty="!deleted && dirty" :pending="!deleted && (saving || deleting)" />
 </template>
 
 <style scoped>
