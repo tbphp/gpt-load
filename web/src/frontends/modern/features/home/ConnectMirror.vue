@@ -14,6 +14,7 @@ interface MirrorValue {
 const props = defineProps<{
   rows: MirrorRow[]
   values: MirrorValue[]
+  title: string
   caption: string
   copyable: boolean
   resolveKey: () => Promise<string>
@@ -42,6 +43,8 @@ const marks = computed(() =>
         <circle class="modern-mirror-dot" cx="13" cy="12" r="3.2" />
         <circle class="modern-mirror-dot" cx="24" cy="12" r="3.2" />
         <circle class="modern-mirror-dot" cx="35" cy="12" r="3.2" />
+        <!-- 标题栏写出这是哪个客户端的哪个界面，只画三个点等于没说。 -->
+        <text class="modern-mirror-title" x="48" y="15.5">{{ title }}</text>
         <path class="modern-mirror-line" :d="`M46 23v${height - 23}`" />
         <rect
           v-for="index in 4"
@@ -53,8 +56,19 @@ const marks = computed(() =>
           height="5"
           rx="2.5"
         />
-        <template v-for="mark in marks" :key="mark.label">
-          <text class="modern-mirror-label" x="58" :y="mark.y + 6">{{ mark.label }}</text>
+        <template v-for="(mark, index) in marks" :key="index">
+          <text v-if="mark.label" class="modern-mirror-label" x="58" :y="mark.y + 6">{{
+            mark.label
+          }}</text>
+          <rect
+            v-else
+            class="modern-mirror-rail"
+            x="58"
+            :y="mark.y + 1"
+            width="38"
+            height="4"
+            rx="2"
+          />
           <rect
             class="modern-mirror-field"
             :class="{ 'is-marked': mark.number }"
@@ -72,31 +86,34 @@ const marks = computed(() =>
       </AppSvg>
       <figcaption>{{ caption }}</figcaption>
     </figure>
-    <dl class="modern-connect-values">
-      <div v-for="(item, index) in values" :key="item.slot">
-        <span class="modern-connect-number">{{ index + 1 }}</span>
-        <div>
-          <dt>{{ item.label }}</dt>
-          <dd>{{ item.value || t('home.modelPending') }}</dd>
+    <div class="modern-connect-guide">
+      <p>{{ t('home.mirrorGuide') }}</p>
+      <dl class="modern-connect-values">
+        <div v-for="(item, index) in values" :key="item.slot">
+          <span class="modern-connect-number">{{ index + 1 }}</span>
+          <div>
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value || t('home.modelPending') }}</dd>
+          </div>
+          <AppCopyValue
+            v-if="copyable && item.value"
+            :value="item.value"
+            :resolve-value="item.secret ? resolveKey : undefined"
+          >
+            <template #trigger="{ copy, pending }">
+              <AppButton
+                size="xs"
+                variant="ghost"
+                :icon="Copy"
+                :loading="pending"
+                :aria-label="t('ui.copy.action')"
+                @click="copy()"
+              />
+            </template>
+          </AppCopyValue>
         </div>
-        <AppCopyValue
-          v-if="copyable && item.value"
-          :value="item.value"
-          :resolve-value="item.secret ? resolveKey : undefined"
-        >
-          <template #trigger="{ copy, pending }">
-            <AppButton
-              size="xs"
-              variant="ghost"
-              :icon="Copy"
-              :loading="pending"
-              :aria-label="t('ui.copy.action')"
-              @click="copy()"
-            />
-          </template>
-        </AppCopyValue>
-      </div>
-    </dl>
+      </dl>
+    </div>
   </div>
 </template>
 
@@ -144,6 +161,11 @@ const marks = computed(() =>
   fill: var(--modern-muted);
   font-size: var(--modern-mirror-label-size);
 }
+.modern-mirror-title {
+  fill: var(--modern-muted);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-mirror-number-size);
+}
 .modern-mirror-field {
   fill: var(--modern-subtle);
   stroke: var(--modern-border);
@@ -160,6 +182,16 @@ const marks = computed(() =>
   font-size: var(--modern-mirror-number-size);
   font-weight: var(--modern-weight-semibold);
   text-anchor: middle;
+}
+.modern-connect-guide {
+  display: grid;
+  gap: var(--modern-space-2);
+  min-width: 0;
+}
+.modern-connect-guide > p {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  line-height: var(--modern-leading-body);
 }
 .modern-connect-values {
   display: grid;

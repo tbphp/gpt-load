@@ -270,8 +270,8 @@ async function importClient(): Promise<void> {
           <template v-else>
             <div v-if="quickImport" class="modern-connect-import">
               <div>
-                <strong>{{ t('home.importTitle', { client: selectedClient.name }) }}</strong>
-                <span>{{ t('home.importHelp') }}</span>
+                <strong>{{ t('home.importBanner', { client: selectedClient.name }) }}</strong>
+                <span>{{ t('home.importBannerHelp') }}</span>
               </div>
               <AppButton
                 variant="primary"
@@ -279,7 +279,7 @@ async function importClient(): Promise<void> {
                 :icon="ArrowUpRight"
                 :disabled="importModelMissing"
                 @click="importOpen = true"
-                >{{ t('home.quickImport') }}</AppButton
+                >{{ t('home.importAction') }}</AppButton
               >
             </div>
             <AppNotice v-if="missingModel" tone="info">{{ t('home.selectModel') }}</AppNotice>
@@ -298,6 +298,7 @@ async function importClient(): Promise<void> {
                 :key="signature"
                 :rows="mirrorRows"
                 :values="mirrorValues"
+                :title="t('home.mirrorTitle', { client: selectedClient.name })"
                 :caption="t('home.mirrorCaption', { client: selectedClient.name })"
                 :copyable="supported"
                 :resolve-key="copyKey"
@@ -309,7 +310,7 @@ async function importClient(): Promise<void> {
                 class="modern-connect-code"
               >
                 <header>
-                  <span>{{ block.label }}</span>
+                  <span>{{ t('home.fullConfig') }}</span>
                   <AppCopyValue :value="block.content" :resolve-value="block.resolve">
                     <template #trigger="{ copy, pending }"
                       ><AppButton
@@ -354,7 +355,7 @@ async function importClient(): Promise<void> {
 /* 目录列常驻，切客户端比较配置时不用滚回顶部。 */
 .modern-connect-split {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: 228px minmax(0, 1fr);
 }
 .modern-connect-aside {
   border-inline-end: var(--modern-line-width) solid var(--modern-border);

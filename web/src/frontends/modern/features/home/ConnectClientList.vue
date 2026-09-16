@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppTag } from '@modern/components/ui'
+import { AppButton, AppProtocolTag, AppTag } from '@modern/components/ui'
 import { gatewayGroups, type GatewayClientID, type GatewayGroupID } from './gateway-config'
 
 export interface ClientEntry {
@@ -33,13 +33,18 @@ const sections = gatewayGroups.map((group) => ({
             @click="$emit('select', client.id)"
           >
             <span>{{ client.name }}</span>
-            <!-- 目录里只回答「能不能用」。协议名（openai-responses 这种）有 16 个字符，
-                 200px 的列放不下，硬塞会把客户端名挤没；选中后的提示会写清是哪个协议。 -->
+            <!-- 协议用短名：全称有 16 个字符，会把客户端名挤没。
+                 空协议的客户端（CC Switch、New API）由目标应用决定，选之前无法预判。 -->
+            <AppProtocolTag
+              v-if="client.supported && client.protocol"
+              :protocol="client.protocol"
+              short
+            />
             <AppTag
-              v-if="!client.supported"
+              v-else
               size="xs"
               tone="neutral"
-              :text="t('home.protocolClosed')"
+              :text="t(client.supported ? 'home.byTarget' : 'home.protocolClosed')"
             />
           </AppButton>
         </li>

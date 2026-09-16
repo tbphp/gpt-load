@@ -16,8 +16,10 @@ import CredentialQuotaRows from '@modern/features/groups/CredentialQuotaRows.vue
 
 const props = defineProps<{ accounts: HomeAccount[] }>()
 const { t, n, locale } = useI18n()
+/* 首页侧栏只放前几个，完整清单在分组页；账号多的时候这块会把下面三块全顶到折叠线以下。 */
+const visibleLimit = 3
 const rows = computed(() =>
-  props.accounts.map((account) => {
+  props.accounts.slice(0, visibleLimit).map((account) => {
     const status = credentialStatus(account.credential)
     const exhausted = account.credential.observation?.windows.some(
       (window) => window.scope === 'account' && window.state === 'exhausted',
@@ -44,6 +46,11 @@ function creditHint(row: HomeAccount): string {
 
 <template>
   <AppPanel :title="t('home.activeAccounts')" :description="t('home.recentAccounts')" compact>
+    <template #actions
+      ><AppButton as-child size="xs" variant="text"
+        ><RouterLink :to="{ name: 'modern-groups' }">{{ t('home.viewAll') }}</RouterLink></AppButton
+      ></template
+    >
     <div class="modern-home-accounts">
       <article v-for="row in rows" :key="row.credential.id" class="modern-home-account">
         <header>
@@ -74,28 +81,24 @@ function creditHint(row: HomeAccount): string {
         >
           {{ t('credentialCards.observation.' + row.credential.observation.state) }}
         </p>
-        <AppTooltip v-if="row.credential.observation?.resetCredits" :label="creditHint(row)"
-          ><AppBadge size="xs" tabindex="0">{{
-            t('credentialCards.resetCreditsShort', {
-              count: n(row.credential.observation.resetCredits),
-            })
-          }}</AppBadge></AppTooltip
-        >
+        <!-- 重置券并进页脚，并且不再重复「更新于」：页头已经有整页的刷新时间。 -->
         <footer>
           <span>{{
             t('home.groupCount', { available: n(row.availableGroups), total: n(row.groups) })
           }}</span>
+          <AppTooltip v-if="row.credential.observation?.resetCredits" :label="creditHint(row)"
+            ><AppBadge size="xs" tabindex="0">{{
+              t('credentialCards.resetCreditsShort', {
+                count: n(row.credential.observation.resetCredits),
+              })
+            }}</AppBadge></AppTooltip
+          >
           <AppButton as-child variant="text" size="xs"
             ><RouterLink :to="{ name: 'modern-groups', query: { channel: row.channelID } }">{{
               t('inspector.openGroup')
             }}</RouterLink></AppButton
           >
         </footer>
-        <span v-if="row.credential.observation?.observedAt" class="modern-home-account-note">{{
-          t('shell.refreshedAt', {
-            time: credentialTime(row.credential.observation.observedAt, locale),
-          })
-        }}</span>
       </article>
     </div>
   </AppPanel>
@@ -105,7 +108,7 @@ function creditHint(row: HomeAccount): string {
 .modern-home-accounts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-  gap: var(--modern-space-4);
+  gap: var(--modern-space-3);
 }
 .modern-home-account {
   display: flex;
@@ -139,10 +142,11 @@ function creditHint(row: HomeAccount): string {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   margin-top: auto;
-  padding-top: var(--modern-space-2);
   gap: var(--modern-space-2);
+}
+.modern-home-account footer > :last-child {
+  margin-inline-start: auto;
 }
 .modern-home-account footer,
 .modern-home-account-note {

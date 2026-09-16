@@ -1,55 +1,17 @@
 <script setup lang="ts">
-import { ChevronRight, CircleCheck, CircleSlash, TriangleAlert } from '@lucide/vue'
-import { computed, type Component } from 'vue'
+import { ChevronRight, CircleCheck } from '@lucide/vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import type { GroupRow } from '@modern/api/groups'
 import { AppBadge, AppIcon, AppPanel } from '@modern/components/ui'
+import { collectAttention } from './home-attention'
 
 const props = defineProps<{ groups: GroupRow[] }>()
 const { t, n } = useI18n()
 /* 首页最多列这么多条，其余折成一行汇总，免得把接入面板顶下去。 */
 const visibleLimit = 4
-interface AttentionItem {
-  key: string
-  id: number
-  icon: Component
-  tone: 'danger' | 'warning'
-  subject: string
-  detail: string
-}
-/*
- * 只收「不处理就一直坏着」的两类：分组彻底没有可用凭据、以及个别凭据被拉黑。
- *
- * 刻意不收冷却：几分钟内自愈，看了也不用做任何事。
- * 也刻意不收额度：订阅账号那块已经按账号画了额度条，这里再说一遍就是同一件事两个说法。
- */
-const items = computed<AttentionItem[]>(() => {
-  const stalled: AttentionItem[] = []
-  const degraded: AttentionItem[] = []
-  for (const group of props.groups) {
-    if (!group.enabled || group.credentials.total === 0) continue
-    if (group.credentials.available === 0)
-      stalled.push({
-        key: 'stalled-' + group.id,
-        id: group.id,
-        icon: CircleSlash,
-        tone: 'danger',
-        subject: group.name,
-        detail: t('home.attention.stalled'),
-      })
-    else if (group.credentials.blacklisted > 0)
-      degraded.push({
-        key: 'blocked-' + group.id,
-        id: group.id,
-        icon: TriangleAlert,
-        tone: 'warning',
-        subject: group.name,
-        detail: t('home.attention.blocked', { count: n(group.credentials.blacklisted) }),
-      })
-  }
-  return [...stalled, ...degraded]
-})
+const items = computed(() => collectAttention(props.groups))
 const visible = computed(() => items.value.slice(0, visibleLimit))
 const overflow = computed(() => items.value.length - visible.value.length)
 </script>
@@ -71,7 +33,7 @@ const overflow = computed(() => items.value.length - visible.value.length)
           <AppIcon :icon="item.icon" size="sm" :class="`is-${item.tone}`" />
           <span>
             <strong>{{ item.subject }}</strong>
-            <span>{{ item.detail }}</span>
+            <span>{{ t('home.attention.' + item.detail, { count: n(item.count) }) }}</span>
           </span>
           <AppIcon :icon="ChevronRight" size="sm" class="is-quiet" />
         </RouterLink>

@@ -20,6 +20,7 @@ import HomeRouteTool from './HomeRouteTool.vue'
 import HomeSetupGuide from './HomeSetupGuide.vue'
 import HomeStatusBar from './HomeStatusBar.vue'
 import HomeTrend from './HomeTrend.vue'
+import { collectAttention } from './home-attention'
 import GatewayConnection from './GatewayConnection.vue'
 
 const { t } = useI18n()
@@ -75,6 +76,9 @@ const showSetup = computed(() => {
 })
 const emptyProject = computed(
   () => admin.value && groups.data.value?.items.length === 0 && keys.data.value?.length === 0,
+)
+const attention = computed(() =>
+  admin.value && groups.data.value ? collectAttention(groups.data.value.items).length : 0,
 )
 const selectedKeyID = computed(() =>
   typeof route.query.access_key_id === 'string' ? Number(route.query.access_key_id) : 0,
@@ -155,7 +159,7 @@ watch(
         <span>{{ t('home.baseFailed') }}</span>
         <AppButton size="xs" @click="baseQuery.refetch()">{{ t('ui.retry') }}</AppButton>
       </div>
-      <HomeStatusBar :base="base" :admin="admin" />
+      <HomeStatusBar :base="base" :admin="admin" :attention="attention" />
       <HomeSetupGuide
         v-if="showSetup && groups.data.value && keys.data.value"
         :groups="groups.data.value.items"

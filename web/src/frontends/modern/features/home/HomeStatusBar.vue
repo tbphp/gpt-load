@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { Boxes, KeyRound, Layers2 } from '@lucide/vue'
+import { Boxes, KeyRound, Layers2, TriangleAlert } from '@lucide/vue'
 import { computed, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import type { HomeBase } from '@modern/api/home'
-import { AppBadge, AppIcon } from '@modern/components/ui'
+import { AppBadge, AppIcon, AppButton } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
 
-const props = defineProps<{ base: HomeBase; admin: boolean }>()
+const props = defineProps<{ base: HomeBase; admin: boolean; attention: number }>()
 const { t, n, locale } = useI18n()
 const compact = (value: number) => formatCompactNumber(value, locale.value)
 interface Fact {
@@ -66,6 +66,19 @@ const uptime = computed(() => {
         </dd>
       </div>
     </dl>
+    <AppButton
+      v-if="attention"
+      as-child
+      size="xs"
+      variant="ghost"
+      class="modern-home-status-attention"
+    >
+      <RouterLink :to="{ name: 'modern-health' }"
+        ><AppIcon :icon="TriangleAlert" size="sm" />{{
+          t('home.attention.count', { count: n(attention) })
+        }}</RouterLink
+      >
+    </AppButton>
     <p class="modern-home-status-build">
       <span>{{ base.version }}</span
       >{{ uptime }}
@@ -120,6 +133,14 @@ const uptime = computed(() => {
 }
 .modern-home-status-facts a:hover {
   color: var(--modern-accent);
+}
+/* 与右栏「需要处理」读同一份计数，这里只做摘要与入口，不重复列条目。 */
+.modern-home-status-attention :deep(a) {
+  gap: var(--modern-space-1-5);
+  border: var(--modern-line-width) solid color-mix(in srgb, var(--modern-warning) 30%, transparent);
+  border-radius: var(--modern-radius-round);
+  background: var(--modern-warning-soft);
+  color: var(--modern-warning);
 }
 .modern-home-status-build {
   display: flex;

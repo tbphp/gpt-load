@@ -23,6 +23,16 @@ export function sortProtocols<T extends string>(values: readonly T[]): T[] {
   )
 }
 
+/**
+ * 紧凑位置用的短名：协议枚举全称（openai-responses）有 16 个字符，
+ * 首页客户端目录只有 200px，塞进去会把客户端名挤掉。
+ * 只收窄展示，接口值与筛选条件仍然用枚举原文。
+ */
+export function protocolShortLabel(value: string | null | undefined): string {
+  if (!value) return '—'
+  return value.replace(/^openai-/u, '').replace(/^./u, (first) => first.toUpperCase())
+}
+
 export function protocolLabel(
   value: string | null | undefined,
   translate: (key: string) => string,

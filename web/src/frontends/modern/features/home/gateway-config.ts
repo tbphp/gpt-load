@@ -293,10 +293,17 @@ export function gatewayFields(config: GatewayConfig, key: string): GatewayField[
 }
 
 export interface MirrorRow {
-  label: string
+  label?: string
   slot?: GatewaySlot
 }
-/* 设置界面示意图的行。客户端登记了自己的字段原文就用它的，否则退回通用标签。 */
+/**
+ * 设置界面示意图的行。
+ *
+ * 只有登记过字段原文的客户端才写标签（目前是 Cline 与 Open WebUI，它们的
+ * 英文标签在各语言界面里都一样）。其余客户端补两行无标签占位：示意图要读起来
+ * 像「一个设置表单，其中这几个框填这些值」，而不是「这个界面只有三个框」。
+ * 不替没核实过的客户端编字段名——那在别的语言界面下就是错的。
+ */
 export function gatewayMirror(
   client: GatewayClientID,
   fields: readonly GatewayField[],
@@ -305,5 +312,5 @@ export function gatewayMirror(
   const declared = gatewayClients.find((item) => item.id === client)
   if (declared && 'mirror' in declared)
     return (declared.mirror as readonly MirrorRow[]).map((row) => ({ ...row }))
-  return fields.map((field) => ({ label: fallback(field.slot), slot: field.slot }))
+  return [{}, {}, ...fields.map((field) => ({ label: fallback(field.slot), slot: field.slot }))]
 }
