@@ -5,7 +5,6 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { getHome, getHomeAccounts, getHomeStatistics, homeStatisticsKey } from '@modern/api/home'
 import { getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
-import { accessKeysKey, getAccessKeys } from '@modern/api/access-keys'
 import { getHealth } from '@modern/api/health'
 import { getLogAccessKeys } from '@modern/api/logs'
 import { useApiClient } from '@shared/http/client-context'
@@ -14,7 +13,6 @@ import { usePageRefresh } from '@modern/app/page-refresh'
 import { AppButton, AppCollectionState, AppNotice } from '@modern/components/ui'
 import RouteInspector from '@modern/features/inspector/RouteInspector.vue'
 import HomeAccessKey from './HomeAccessKey.vue'
-import HomeAccessKeys from './HomeAccessKeys.vue'
 import HomeAccounts from './HomeAccounts.vue'
 import HomeAttention from './HomeAttention.vue'
 import HomeRouteTool from './HomeRouteTool.vue'
@@ -59,17 +57,6 @@ const statistics = useQuery({
   queryKey: homeStatisticsKey,
   queryFn: ({ signal }) => getHomeStatistics(client, signal),
 })
-// 首页只列最近更新的几个密钥，完整清单在访问密钥页。
-const accessKeys = useQuery({
-  queryKey: [...accessKeysKey, 'home'],
-  queryFn: ({ signal }) =>
-    getAccessKeys(
-      client,
-      { q: '', status: '', sort: 'updated_desc', page: 1, pageSize: 5, group: '', expiry: '' },
-      signal,
-    ),
-  enabled: admin,
-})
 /* 需要处理读运行健康快照：分组列表只有凭据计数，推不出额度将尽、
    充值卡临期、访问密钥被费用额度挡住这几类。 */
 const health = useQuery({
@@ -89,20 +76,6 @@ const emptyProject = computed(
   () => admin.value && groups.data.value?.items.length === 0 && keys.data.value?.length === 0,
 )
 const attention = computed(() => (admin.value ? collectAttention(health.data.value).length : 0))
-const selectedKeyID = computed(() =>
-  typeof route.query.access_key_id === 'string' ? Number(route.query.access_key_id) : 0,
-)
-/* 接入面板通过 useURLState 读同一个查询参数，改地址栏就等于切换它选中的密钥。 */
-function selectKey(id: number): void {
-  if (!base.value?.keys.some((key) => key.id === id)) {
-    void router.push({
-      name: 'modern-access-keys',
-      query: { panel: 'detail', access_key: String(id) },
-    })
-    return
-  }
-  void router.replace({ path: route.path, query: { ...route.query, access_key_id: String(id) } })
-}
 // 深链接 /monitor/inspector 会重定向到首页并带上 inspect_* 参数，那种情况直接展开。
 const inspectorOpen = ref(
   route.hash === '#route-inspector' ||
@@ -130,13 +103,7 @@ async function refresh(): Promise<void> {
     baseQuery.refetch(),
     statistics.refetch(),
     ...(admin.value
-      ? [
-          refreshOptions(),
-          accounts.refetch(),
-          accessKeys.refetch(),
-          health.refetch(),
-          inspector.value?.refresh(),
-        ]
+      ? [refreshOptions(), accounts.refetch(), health.refetch(), inspector.value?.refresh()]
       : []),
   ])
 }
@@ -148,7 +115,6 @@ usePageRefresh({
     groups.isFetching.value ||
     keys.isFetching.value ||
     accounts.isFetching.value ||
-    accessKeys.isFetching.value ||
     health.isFetching.value ||
     Boolean(inspector.value?.pending),
   updatedAt: () =>
@@ -157,7 +123,6 @@ usePageRefresh({
       statistics.data.value?.observedAt ?? 0,
       accounts.data.value?.observedAt ?? 0,
       health.data.value?.observedAt ?? 0,
-      accessKeys.dataUpdatedAt.value,
       inspector.value?.updatedAt ?? 0,
     ) || undefined,
 })
@@ -285,15 +250,6 @@ watch(
             :failed="accounts.isError.value"
             :loading="accounts.isPending.value"
             @retry="accounts.refetch()"
-          />
-          <HomeAccessKeys
-            v-if="admin"
-            :rows="accessKeys.data.value?.items ?? []"
-            :failed="accessKeys.isError.value"
-            :loading="accessKeys.isPending.value"
-            :selected="selectedKeyID || (base.keys[0]?.id ?? 0)"
-            @select="selectKey"
-            @retry="accessKeys.refetch()"
           />
         </div>
       </div>

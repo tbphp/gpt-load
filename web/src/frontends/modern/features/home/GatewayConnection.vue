@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, ArrowUpRight, Copy } from '@lucide/vue'
+import { ArrowUpRight, Copy } from '@lucide/vue'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -11,13 +11,10 @@ import { useMessages } from '@modern/app/messages'
 import { useAuthSession } from '@modern/features/auth/auth-session'
 import { useApiClient } from '@shared/http/client-context'
 import { RequestCancelledError } from '@shared/http/errors'
-import { protocolLabel } from '@modern/i18n/protocols'
 import {
   AppButton,
-  AppCollectionState,
   AppConfirmDialog,
   AppCopyValue,
-  AppIcon,
   AppNotice,
   AppPanel,
   AppSearchSelect,
@@ -28,15 +25,15 @@ import {
   gatewayConfiguration,
   gatewayFields,
   gatewayImportURL,
-  gatewayMirror,
   gatewayNeedsModel,
   gatewayTargets,
   type GatewayClientID,
   type GatewayConfig,
   type GatewaySelection,
 } from './gateway-config'
-import ConnectClientList, { type ClientEntry } from './ConnectClientList.vue'
-import ConnectMirror from './ConnectMirror.vue'
+import ConnectClientList from './ConnectClientList.vue'
+import ConnectFields from './ConnectFields.vue'
+import HomeSectionLink from './HomeSectionLink.vue'
 import ConnectTerminal from './ConnectTerminal.vue'
 
 const props = defineProps<{ keys: HomeKey[]; admin: boolean }>()
@@ -69,30 +66,10 @@ const selectedClient = computed(() =>
 const target = ref<GatewayConfig['target']>('claude')
 const model = ref('')
 const selectedTarget = computed(() => gatewayTargets.find((item) => item.id === target.value)!)
-const requiredProtocol = computed(() =>
+const clientProtocol = computed(() =>
   selectedClient.value.id === 'cc-switch'
     ? selectedTarget.value.protocol
     : selectedClient.value.protocol,
-)
-const supported = computed(() =>
-  Boolean(
-    key.value?.protocols.length &&
-    (!requiredProtocol.value || key.value.protocols.includes(requiredProtocol.value)),
-  ),
-)
-/* 目录里逐个客户端判断能不能用：选之前就看得出来，不用选完再弹一条警告。
-   cc-switch 的协议由目标应用决定，这里无法预判，留给选中后的 supported。 */
-const clientEntries = computed<ClientEntry[]>(() =>
-  gatewayClients.map((entry) => ({
-    id: entry.id,
-    name: entry.name,
-    group: entry.group,
-    protocol: entry.protocol,
-    supported: Boolean(
-      key.value?.protocols.length &&
-      (!entry.protocol || key.value.protocols.includes(entry.protocol)),
-    ),
-  })),
 )
 const config = computed<GatewayConfig>(() => ({
   client: selectedClient.value.id,
@@ -101,22 +78,10 @@ const config = computed<GatewayConfig>(() => ({
   model: model.value,
   name: 'GPT-Load' + (key.value ? ' · ' + key.value.name : ''),
 }))
-const signature = computed(() => JSON.stringify([config.value, key.value?.id, supported.value]))
-const mask = computed(() => key.value?.mask ?? '')
+const signature = computed(() => JSON.stringify([config.value, key.value?.id]))
+const mask = computed(() => key.value?.mask ?? 'YOUR_API_KEY')
 const isTerminal = computed(() => selectedClient.value.surface === 'cli')
 const fields = computed(() => (isTerminal.value ? [] : gatewayFields(config.value, mask.value)))
-const slotLabel = (slot: string) => t('home.slots.' + slot)
-const mirrorRows = computed(() =>
-  isTerminal.value ? [] : gatewayMirror(selectedClient.value.id, fields.value, slotLabel),
-)
-const mirrorValues = computed(() =>
-  fields.value.map((field) => ({
-    slot: field.slot,
-    label: slotLabel(field.slot),
-    value: field.value,
-    secret: field.slot === 'apiKey',
-  })),
-)
 const configBlocks = computed(() => gatewayConfiguration(config.value, mask.value))
 const keyOptions = computed(() =>
   props.keys.map((key) => ({ value: String(key.id), label: key.name, description: key.mask })),
@@ -135,12 +100,12 @@ const importOpen = ref(false)
 const importing = ref(false)
 const importError = ref('')
 watch(
-  () => [key.value?.id, key.value?.name, requiredProtocol.value, model.value] as const,
+  () => [key.value?.id, key.value?.name, clientProtocol.value, model.value] as const,
   () =>
     emit('selection', {
       accessKeyID: key.value?.id ?? 0,
       keyName: key.value?.name ?? '',
-      protocol: requiredProtocol.value,
+      protocol: clientProtocol.value,
       model: model.value.trim(),
     }),
   { immediate: true },
@@ -156,7 +121,7 @@ function cancel(): void {
 watch(signature, cancel, { flush: 'sync' })
 onScopeDispose(cancel)
 async function resolveKey(): Promise<string> {
-  if (!key.value || !supported.value) throw new RequestCancelledError()
+  if (!key.value) throw new RequestCancelledError()
   controller?.abort()
   const request = new AbortController()
   controller = request
@@ -192,7 +157,7 @@ function selectClient(value: GatewayClientID): void {
   state.value = { ...state.value, client: value }
 }
 async function importClient(): Promise<void> {
-  if (importing.value || !supported.value || importModelMissing.value) return
+  if (importing.value || !key.value || importModelMissing.value) return
   importing.value = true
   importError.value = ''
   const current = signature.value
@@ -214,41 +179,38 @@ async function importClient(): Promise<void> {
 
 <template>
   <AppPanel :title="t('home.connection')" :description="t('home.connectionHelp')" compact flush>
-    <template #actions
-      ><AppButton v-if="admin" as-child size="sm" variant="text"
-        ><RouterLink :to="{ name: 'modern-access-keys' }"
-          >{{ t('home.manageKeys')
-          }}<AppIcon :icon="ArrowRight" size="sm" /> </RouterLink></AppButton
-    ></template>
-    <AppCollectionState v-if="!key" :title="t('home.noKeys')">
-      <p>{{ t('home.noKeyHelp') }}</p>
-      <AppButton v-if="admin" as-child variant="primary"
-        ><RouterLink :to="{ name: 'modern-access-keys', query: { panel: 'create' } }">{{
-          t('home.createKey')
-        }}</RouterLink></AppButton
-      >
-    </AppCollectionState>
-    <div v-else class="modern-connect">
+    <template #actions>
+      <HomeSectionLink
+        v-if="admin"
+        :to="{ name: 'modern-access-keys' }"
+        :label="t('home.manageKeys')"
+      />
+    </template>
+    <div class="modern-connect">
       <div class="modern-connect-split">
         <ConnectClientList
           class="modern-connect-aside"
-          :clients="clientEntries"
           :selected="selectedClient.id"
           @select="selectClient"
         />
         <div class="modern-connect-main">
-          <div class="modern-connect-controls">
+          <div
+            v-if="admin || selectedClient.id === 'cc-switch' || needsModel"
+            class="modern-connect-controls"
+          >
             <AppSearchSelect
               v-if="admin"
               v-model="selectedKey"
               :label="t('home.accessKey')"
               :options="keyOptions"
+              size="xs"
             />
             <AppSelect
               v-if="selectedClient.id === 'cc-switch'"
               v-model="target"
               :label="t('home.target')"
               :options="targetOptions"
+              size="xs"
             />
             <AppSearchSelect
               v-if="needsModel"
@@ -256,26 +218,26 @@ async function importClient(): Promise<void> {
               :label="t('home.model')"
               :placeholder="t('home.modelPlaceholder')"
               :load-options="loadModels"
+              size="xs"
               allow-custom
             />
           </div>
-
-          <AppNotice v-if="!supported" tone="warning">{{
-            key.protocols.length
-              ? t('home.unsupported', { protocol: protocolLabel(requiredProtocol, t) })
-              : t('home.noProtocols')
-          }}</AppNotice>
-          <template v-else>
+          <div class="modern-connect-content">
+            <AppNotice v-if="!key" tone="info">
+              {{ t('home.noKeys') }}
+              <AppButton v-if="admin" as-child variant="text" size="xs">
+                <RouterLink :to="{ name: 'modern-access-keys', query: { panel: 'create' } }">{{
+                  t('home.createKey')
+                }}</RouterLink>
+              </AppButton>
+            </AppNotice>
             <div v-if="quickImport" class="modern-connect-import">
-              <div>
-                <strong>{{ t('home.importBanner', { client: selectedClient.name }) }}</strong>
-                <span>{{ t('home.importBannerHelp') }}</span>
-              </div>
+              <strong>{{ t('home.importBanner', { client: selectedClient.name }) }}</strong>
               <AppButton
                 variant="primary"
-                size="sm"
+                size="xs"
                 :icon="ArrowUpRight"
-                :disabled="importModelMissing"
+                :disabled="!key || importModelMissing"
                 @click="importOpen = true"
                 >{{ t('home.importAction') }}</AppButton
               >
@@ -285,16 +247,13 @@ async function importClient(): Promise<void> {
               v-if="isTerminal"
               :key="signature"
               :blocks="blocks"
-              :copyable="supported && !missingModel"
+              :copyable="Boolean(key) && !missingModel"
             />
             <template v-else>
-              <ConnectMirror
+              <ConnectFields
                 :key="signature"
-                :rows="mirrorRows"
-                :values="mirrorValues"
-                :title="t('home.mirrorTitle', { client: selectedClient.name })"
-                :caption="t('home.mirrorCaption', { client: selectedClient.name })"
-                :copyable="supported"
+                :fields="fields"
+                :copyable="Boolean(key)"
                 :resolve-key="copyKey"
               />
               <div
@@ -305,24 +264,25 @@ async function importClient(): Promise<void> {
                 <header>
                   <span>{{ t('home.fullConfig') }}</span>
                   <AppCopyValue :value="block.content" :resolve-value="block.resolve">
-                    <template #trigger="{ copy, pending }"
-                      ><AppButton
+                    <template #trigger="{ copy, pending }">
+                      <AppButton
                         size="xs"
                         variant="ghost"
                         :icon="Copy"
                         :loading="pending"
-                        :disabled="missingModel"
+                        :disabled="!key || missingModel"
                         @click="copy()"
-                        >{{ t('home.copyConfig') }}</AppButton
-                      ></template
-                    >
+                      >
+                        {{ t('home.copyConfig') }}
+                      </AppButton>
+                    </template>
                   </AppCopyValue>
                 </header>
                 <pre tabindex="0">{{ block.content }}</pre>
               </div>
             </template>
             <p class="modern-connect-hint">{{ t('home.copyHint') }}</p>
-          </template>
+          </div>
         </div>
       </div>
     </div>
@@ -341,40 +301,62 @@ async function importClient(): Promise<void> {
 </template>
 
 <style scoped>
-/* 容器查询而不是媒体查询：决定能否分栏的是这块面板的宽度，不是视口。
-   容器自身不能被自己的容器查询改布局，所以分栏交给内层的 split。 */
 .modern-connect {
   container: modern-connect / inline-size;
+  height: clamp(360px, 52dvh, 480px);
+  min-width: 0;
 }
 .modern-connect-split {
   display: grid;
-  grid-template-columns: 216px minmax(0, 1fr);
+  grid-template-columns: 184px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   border-top: var(--modern-line-width) solid var(--modern-border);
 }
 .modern-connect-aside {
+  overflow: auto;
   min-width: 0;
+  min-height: 0;
   border-inline-end: var(--modern-line-width) solid var(--modern-border);
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
+  overscroll-behavior: contain;
 }
 .modern-connect-main {
-  container: modern-connect-body / inline-size;
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  gap: var(--modern-space-5);
-  padding: var(--modern-space-5);
+  min-height: 0;
+  gap: var(--modern-space-3);
+  padding: var(--modern-space-4);
 }
 .modern-connect-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 184px), 1fr));
-  align-items: flex-start;
-  gap: var(--modern-space-4);
+  flex: none;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 156px), 1fr));
+  align-items: start;
+  gap: var(--modern-space-3);
 }
-.modern-connect-controls > * {
+.modern-connect-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: auto;
   min-width: 0;
+  min-height: 0;
+  gap: var(--modern-space-3);
+  padding: var(--modern-space-1);
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
+  overscroll-behavior: contain;
 }
-.modern-connect-instruction {
+.modern-connect-content > * {
+  flex: none;
+}
+.modern-connect-instruction,
+.modern-connect-hint {
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-secondary);
+  font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);
 }
 .modern-connect-import {
@@ -382,31 +364,15 @@ async function importClient(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: var(--modern-space-3);
-  border: var(--modern-line-width) solid var(--modern-segmented-active-border);
+  gap: var(--modern-space-2);
   border-radius: var(--modern-radius-control);
   background: var(--modern-accent-soft);
-  padding: var(--modern-space-2) var(--modern-space-2) var(--modern-space-2) var(--modern-space-3);
-}
-.modern-connect-import > div {
-  display: grid;
-  gap: var(--modern-space-0-5);
-  min-width: 0;
+  padding: var(--modern-space-1-5) var(--modern-space-2) var(--modern-space-1-5)
+    var(--modern-space-3);
 }
 .modern-connect-import strong {
-  font-size: var(--modern-font-size-secondary);
-  font-weight: var(--modern-weight-semibold);
-}
-.modern-connect-import span {
-  color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
-}
-.modern-connect-hint {
-  border-top: var(--modern-line-width) solid var(--modern-border);
-  padding-top: var(--modern-space-3);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-  line-height: var(--modern-leading-body);
+  font-weight: var(--modern-weight-medium);
 }
 .modern-connect-code {
   min-width: 0;
@@ -418,10 +384,9 @@ async function importClient(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-2);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
-  padding: var(--modern-space-1-5) var(--modern-space-2) var(--modern-space-1-5)
-    var(--modern-space-3);
+  padding: var(--modern-space-1) var(--modern-space-2) var(--modern-space-1) var(--modern-space-3);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
@@ -429,19 +394,20 @@ async function importClient(): Promise<void> {
   min-width: 0;
 }
 .modern-connect-code pre {
-  overflow: auto;
+  overflow-x: auto;
   margin: 0;
   padding: var(--modern-space-3);
   font-family: var(--modern-font-mono);
   font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);
-  scrollbar-gutter: var(--modern-scrollbar-gutter);
 }
-@container modern-connect (max-width: 720px) {
+@container modern-connect (max-width: 620px) {
   .modern-connect-split {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
   .modern-connect-aside {
+    max-height: 64px;
     border-inline-end: 0;
     border-block-end: var(--modern-line-width) solid var(--modern-border);
   }

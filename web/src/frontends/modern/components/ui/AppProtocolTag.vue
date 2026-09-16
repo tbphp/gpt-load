@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { protocolLabel, protocolShortLabel } from '@modern/i18n/protocols'
+import { protocolLabel } from '@modern/i18n/protocols'
 import AppTag from './AppTag.vue'
 
 const props = withDefaults(
@@ -10,16 +10,13 @@ const props = withDefaults(
     size?: 'xs' | 'sm'
     removable?: boolean
     disabled?: boolean
-    short?: boolean
   }>(),
   { protocol: undefined, size: 'xs' },
 )
 defineEmits<{ remove: [] }>()
 const { t } = useI18n()
 const value = computed(() => props.protocol?.trim().toLowerCase() ?? '')
-const label = computed(() =>
-  props.short ? protocolShortLabel(value.value) : protocolLabel(value.value, t),
-)
+const label = computed(() => protocolLabel(value.value, t))
 </script>
 
 <template>

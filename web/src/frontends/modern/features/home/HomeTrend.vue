@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ArrowRight } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
 import type { HomeStatistics } from '@modern/api/home'
-import { AppButton, AppIcon, AppPanel, AppSparkline } from '@modern/components/ui'
+import { AppButton, AppPanel, AppSparkline } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
+import HomeSectionLink from './HomeSectionLink.vue'
 
 const props = defineProps<{ report?: HomeStatistics; failed: boolean }>()
 defineEmits<{ retry: [] }>()
@@ -39,16 +38,24 @@ const rate = computed(() => {
     : '—'
 })
 const midpoint = computed(() => (props.report ? (props.report.fromMs + props.report.toMs) / 2 : 0))
+function endpointLabel(value: number): string {
+  const current = new Date(props.report?.observedAt ?? value)
+  const date = new Date(value).toDateString()
+  if (date === current.toDateString()) return t('home.todayAt', { time: time(value) })
+  current.setDate(current.getDate() - 1)
+  return date === current.toDateString()
+    ? t('home.yesterdayAt', { time: time(value) })
+    : time(value, true)
+}
 </script>
 
 <template>
   <AppPanel :title="t('home.trend')" :description="t('home.trendWindow')" compact>
     <template #actions>
-      <AppButton as-child size="xs" variant="text">
-        <RouterLink :to="{ name: 'modern-usage', query: { preset: '24h' } }">
-          {{ t('pages.usage.title') }}<AppIcon :icon="ArrowRight" size="sm" />
-        </RouterLink>
-      </AppButton>
+      <HomeSectionLink
+        :to="{ name: 'modern-usage', query: { preset: '24h' } }"
+        :label="t('pages.usage.title')"
+      />
     </template>
     <div v-if="failed" class="modern-home-trend-state" role="status">
       <span>{{ t(report ? 'home.refreshFailed' : 'home.trendFailed') }}</span>
@@ -61,12 +68,8 @@ const midpoint = computed(() => (props.report ? (props.report.fromMs + props.rep
           <dt>{{ t('home.requests') }}</dt>
           <dd>{{ compact(report.requests) }}</dd>
         </div>
-        <div :class="{ 'is-failure': report.failures > 0 }">
-          <dt>{{ t('home.failedRequests') }}</dt>
-          <dd>{{ compact(report.failures) }}</dd>
-        </div>
         <div>
-          <dt>{{ t('home.successRate') }}</dt>
+          <dt>{{ t('credentialCards.successShort') }}</dt>
           <dd>{{ rate }}</dd>
         </div>
       </dl>
@@ -78,9 +81,9 @@ const midpoint = computed(() => (props.report ? (props.report.fromMs + props.rep
         class="modern-home-trend-chart"
       />
       <p class="modern-home-trend-axis">
-        <span>{{ time(report.fromMs, true) }}</span>
+        <span>{{ endpointLabel(report.fromMs) }}</span>
         <span>{{ time(midpoint) }}</span>
-        <span>{{ time(report.toMs, true) }}</span>
+        <span>{{ endpointLabel(report.toMs) }}</span>
       </p>
     </div>
   </AppPanel>
@@ -104,14 +107,15 @@ const midpoint = computed(() => (props.report ? (props.report.fromMs + props.rep
   margin-top: var(--modern-space-3);
 }
 .modern-home-trend-facts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--modern-space-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--modern-space-2) var(--modern-space-5);
   margin: 0;
 }
 .modern-home-trend-facts > div {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
   gap: var(--modern-space-1);
   min-width: 0;
 }
@@ -126,9 +130,6 @@ const midpoint = computed(() => (props.report ? (props.report.fromMs + props.rep
   font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
   font-variant-numeric: tabular-nums;
-}
-.modern-home-trend-facts .is-failure dd {
-  color: var(--modern-danger);
 }
 .modern-home-trend-chart {
   height: 104px;

@@ -1,9 +1,9 @@
-/* surface 决定配置怎么呈现：cli 给可直接粘贴执行的终端命令，gui 给「填到哪个框」的字段对照。
-   mirror 是该客户端设置界面里这几个框的原文标签，留空则退回通用标签。 */
+/* 客户端目录只决定配置格式和路由检查的默认协议，不限制访问密钥能选择的客户端。 */
 export const gatewayClients = [
   {
     id: 'codex',
     name: 'Codex',
+    icon: 'codex',
     protocol: 'openai-responses',
     kind: 'snippet',
     surface: 'cli',
@@ -12,6 +12,7 @@ export const gatewayClients = [
   {
     id: 'claude-code',
     name: 'Claude Code',
+    icon: 'claude',
     protocol: 'anthropic',
     kind: 'snippet',
     surface: 'cli',
@@ -20,6 +21,7 @@ export const gatewayClients = [
   {
     id: 'gemini-cli',
     name: 'Gemini CLI',
+    icon: 'gemini',
     protocol: 'gemini',
     kind: 'snippet',
     surface: 'cli',
@@ -28,20 +30,16 @@ export const gatewayClients = [
   {
     id: 'cline',
     name: 'Cline',
+    icon: 'cline',
     protocol: 'openai-completions',
     kind: 'fields',
     surface: 'gui',
     group: 'cli',
-    mirror: [
-      { label: 'API Provider' },
-      { label: 'Base URL', slot: 'endpoint' },
-      { label: 'API Key', slot: 'apiKey' },
-      { label: 'Model ID', slot: 'model' },
-    ],
   },
   {
     id: 'cc-switch',
     name: 'CC Switch',
+    icon: 'cc-switch',
     protocol: '',
     kind: 'snippet',
     surface: 'gui',
@@ -50,6 +48,7 @@ export const gatewayClients = [
   {
     id: 'cherry-studio',
     name: 'Cherry Studio',
+    icon: 'cherry-studio',
     protocol: 'openai-completions',
     kind: 'fields',
     surface: 'gui',
@@ -58,6 +57,7 @@ export const gatewayClients = [
   {
     id: 'nextchat',
     name: 'NextChat',
+    icon: 'nextchat',
     protocol: 'openai-completions',
     kind: 'fields',
     surface: 'gui',
@@ -66,19 +66,16 @@ export const gatewayClients = [
   {
     id: 'open-webui',
     name: 'Open WebUI',
+    icon: 'open-webui',
     protocol: 'openai-completions',
     kind: 'fields',
     surface: 'gui',
     group: 'desktop',
-    mirror: [
-      { label: 'OpenAI API' },
-      { label: 'Base URL', slot: 'endpoint' },
-      { label: 'API Key', slot: 'apiKey' },
-    ],
   },
   {
     id: 'new-api',
     name: 'New API',
+    icon: 'new-api',
     protocol: '',
     kind: 'snippet',
     surface: 'gui',
@@ -87,6 +84,7 @@ export const gatewayClients = [
   {
     id: 'curl',
     name: 'cURL',
+    icon: 'curl',
     protocol: 'openai-completions',
     kind: 'snippet',
     surface: 'cli',
@@ -274,27 +272,4 @@ export function gatewayFields(config: GatewayConfig, key: string): GatewayField[
       ? [{ slot: 'model' as const, value: model }]
       : []),
   ]
-}
-
-export interface MirrorRow {
-  label?: string
-  slot?: GatewaySlot
-}
-/**
- * 设置界面示意图的行。
- *
- * 只有登记过字段原文的客户端才写标签（目前是 Cline 与 Open WebUI，它们的
- * 英文标签在各语言界面里都一样）。其余客户端补两行无标签占位：示意图要读起来
- * 像「一个设置表单，其中这几个框填这些值」，而不是「这个界面只有三个框」。
- * 不替没核实过的客户端编字段名——那在别的语言界面下就是错的。
- */
-export function gatewayMirror(
-  client: GatewayClientID,
-  fields: readonly GatewayField[],
-  fallback: (slot: GatewaySlot) => string,
-): MirrorRow[] {
-  const declared = gatewayClients.find((item) => item.id === client)
-  if (declared && 'mirror' in declared)
-    return (declared.mirror as readonly MirrorRow[]).map((row) => ({ ...row }))
-  return [{}, {}, ...fields.map((field) => ({ label: fallback(field.slot), slot: field.slot }))]
 }

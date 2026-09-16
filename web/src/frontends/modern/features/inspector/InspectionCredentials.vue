@@ -167,9 +167,9 @@ function setPageSize(value: number): void {
 
 <style scoped>
 .modern-inspection-credentials {
-  padding: var(--modern-space-4);
+  padding: var(--modern-space-3);
   background: var(--modern-subtle);
-  border-block: var(--modern-line-width) solid var(--modern-border);
+  border-top: var(--modern-line-width) solid var(--modern-border);
 }
 .modern-inspection-name-error {
   display: flex;

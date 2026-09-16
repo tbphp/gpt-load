@@ -1,5 +1,10 @@
 // 沿用经典版素材与 SVG 命名空间规则；新版独立持有资源，保持前端边界。
 const rawIcons = {
+  ...import.meta.glob('../../assets/clients/*.svg', {
+    eager: true,
+    query: '?raw',
+    import: 'default',
+  }),
   ...import.meta.glob('../../assets/channels/*.svg', {
     eager: true,
     query: '?raw',

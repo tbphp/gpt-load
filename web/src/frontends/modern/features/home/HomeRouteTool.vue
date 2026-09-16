@@ -32,7 +32,7 @@ const panelId = useId()
       </div>
       <AppButton
         variant="text"
-        size="sm"
+        size="xs"
         class="modern-home-tool-toggle"
         :aria-expanded="open"
         :aria-controls="panelId"
@@ -58,7 +58,7 @@ const panelId = useId()
   flex-wrap: wrap;
   align-items: center;
   gap: var(--modern-space-3) var(--modern-space-4);
-  padding: var(--modern-space-4) var(--modern-space-5);
+  padding: var(--modern-space-3) var(--modern-space-4);
 }
 .modern-home-tool-title {
   display: flex;
@@ -94,6 +94,7 @@ const panelId = useId()
 }
 .modern-home-tool-toggle {
   margin-inline-start: auto;
+  color: var(--modern-accent);
 }
 .modern-home-tool-chevron {
   transform: rotate(-90deg);
@@ -103,7 +104,6 @@ const panelId = useId()
   transform: none;
 }
 .modern-home-tool-body {
-  border-top: var(--modern-line-width) solid var(--modern-border);
-  padding: 0 var(--modern-space-5) var(--modern-space-5);
+  padding: var(--modern-space-2) var(--modern-space-4) var(--modern-space-4);
 }
 </style>

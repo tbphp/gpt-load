@@ -304,6 +304,7 @@ defineExpose({ refresh, pending, updatedAt })
         :options="keyOptions"
         :error="keyError"
         :loading="keysLoading"
+        size="xs"
         label-hidden
         required
       />
@@ -311,6 +312,7 @@ defineExpose({ refresh, pending, updatedAt })
         v-model="draft.protocol"
         :label="t('inspector.protocol')"
         :options="protocolOptions"
+        size="xs"
         label-hidden
       />
       <AppSearchSelect
@@ -320,6 +322,7 @@ defineExpose({ refresh, pending, updatedAt })
         :options="modelOptions"
         :error="modelError"
         :loading="groupsLoading"
+        size="xs"
         allow-custom
         label-hidden
         required
@@ -327,6 +330,7 @@ defineExpose({ refresh, pending, updatedAt })
       <AppButton
         type="submit"
         variant="primary"
+        size="xs"
         :icon="Route"
         :loading="query.isFetching.value"
         :disabled="!accessKeys || keysFailed || !accessKeys.length"
@@ -337,7 +341,6 @@ defineExpose({ refresh, pending, updatedAt })
       <span>{{ t('inspector.optionsFailed') }}</span
       ><AppButton size="xs" @click="retryOptions">{{ t('ui.retry') }}</AppButton>
     </div>
-    <p class="modern-inspector-boundary">{{ t('inspector.boundary') }}</p>
     <AppCollectionState
       v-if="!result && (query.isFetching.value || query.isError.value)"
       :loading="query.isFetching.value"
@@ -349,7 +352,7 @@ defineExpose({ refresh, pending, updatedAt })
     <template v-if="result">
       <section class="modern-inspector-summary" :aria-label="t('inspector.result')">
         <div class="modern-inspector-verdict">
-          <AppBadge :tone="result.routable ? 'success' : 'danger'" dot>{{
+          <AppBadge :tone="result.routable ? 'success' : 'danger'" size="xs" dot>{{
             t(result.routable ? 'inspector.routable' : 'inspector.blocked')
           }}</AppBadge>
           <strong>{{
@@ -384,11 +387,12 @@ defineExpose({ refresh, pending, updatedAt })
       <div class="modern-inspector-result-tools">
         <AppTextField
           v-model="state.q"
+          class="modern-inspector-result-search"
           :label="t('inspector.search')"
           :placeholder="t('inspector.search')"
           :icon="Search"
           type="search"
-          size="sm"
+          size="xs"
           label-hidden
           @update:model-value="state.page = 1"
         />
@@ -444,10 +448,12 @@ defineExpose({ refresh, pending, updatedAt })
                   size="sm"
                 />
                 <div class="modern-inspector-name">
-                  <AppButton as-child variant="text"
+                  <AppButton as-child variant="text" class="modern-inspector-name-link"
                     ><RouterLink :to="{ name: 'modern-group-detail', params: { id: group.id } }"
                       ><AppOverflowText :text="group.name" /></RouterLink></AppButton
-                  ><span>{{ groupMap.get(group.id)?.channelName || group.channelID }}</span>
+                  ><AppOverflowText
+                    :text="groupMap.get(group.id)?.channelName || group.channelID"
+                  />
                 </div>
               </div>
               <div role="cell"><AppOverflowText :text="group.model ?? '—'" /></div>
@@ -518,25 +524,20 @@ defineExpose({ refresh, pending, updatedAt })
 
 <style scoped>
 .modern-inspector-workspace {
+  container: modern-inspector / inline-size;
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
 }
 .modern-inspector-form {
-  display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: start;
   gap: var(--modern-space-3);
 }
 .modern-inspector-form > :not(:last-child) {
-  flex: 1 1 220px;
   min-width: 0;
-}
-.modern-inspector-boundary {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-  margin-block: var(--modern-space-2) 0;
 }
 .modern-inspector-feedback {
   display: flex;
@@ -547,12 +548,11 @@ defineExpose({ refresh, pending, updatedAt })
 }
 .modern-inspector-summary {
   display: grid;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-2);
   background: var(--modern-subtle);
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-panel);
-  padding: var(--modern-space-4);
-  margin-top: var(--modern-space-4);
+  border-radius: var(--modern-radius-control);
+  padding: var(--modern-space-3);
+  margin-top: var(--modern-space-3);
 }
 .modern-inspector-table {
   min-width: 0;
@@ -569,8 +569,8 @@ defineExpose({ refresh, pending, updatedAt })
   min-width: 0;
 }
 .modern-inspector-verdict strong {
-  font-size: var(--modern-font-size-body);
-  font-weight: var(--modern-weight-semibold);
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-medium);
 }
 .modern-inspector-observed {
   margin-inline-start: auto;
@@ -588,9 +588,15 @@ defineExpose({ refresh, pending, updatedAt })
   color: var(--modern-warning);
 }
 .modern-inspector-result-tools {
-  display: grid;
-  gap: var(--modern-space-3);
-  padding-block: var(--modern-space-4) var(--modern-space-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-2) var(--modern-space-3);
+  padding-block: var(--modern-space-3);
+}
+.modern-inspector-result-search {
+  flex: 1 1 240px;
+  min-width: 0;
 }
 .modern-inspector-filterbar {
   display: flex;
@@ -604,12 +610,12 @@ defineExpose({ refresh, pending, updatedAt })
 .modern-inspector-columns {
   display: grid;
   grid-template-columns:
-    minmax(220px, 1.2fr) minmax(150px, 1fr) 105px minmax(170px, 1fr)
-    120px 120px 32px;
+    minmax(170px, 1.2fr) minmax(140px, 1fr) 64px minmax(120px, 1fr)
+    76px 80px 28px;
   align-items: center;
-  gap: var(--modern-space-4);
-  min-width: 1100px;
-  padding: var(--modern-space-4) var(--modern-space-3);
+  gap: var(--modern-space-2);
+  min-width: 760px;
+  padding: var(--modern-space-2) var(--modern-space-2);
   font-size: var(--modern-font-size-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -622,8 +628,15 @@ defineExpose({ refresh, pending, updatedAt })
   border-bottom: var(--modern-line-width) solid var(--modern-border);
 }
 .modern-inspector-row {
-  min-width: 1100px;
+  min-width: 760px;
   border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-inspector-row:last-child {
+  border-bottom: 0;
+}
+.modern-inspector-name-link {
+  min-width: 0;
+  max-width: 100%;
 }
 .modern-inspector-identity {
   display: flex;
@@ -641,5 +654,13 @@ defineExpose({ refresh, pending, updatedAt })
 .modern-inspector-status > :last-child:not(:first-child) {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
+}
+@container modern-inspector (max-width: 620px) {
+  .modern-inspector-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .modern-inspector-form > :last-child {
+    justify-self: end;
+  }
 }
 </style>

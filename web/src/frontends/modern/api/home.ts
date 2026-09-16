@@ -1,5 +1,4 @@
 import type { ApiClient } from '@shared/http/client'
-import { sortProtocols } from '@modern/i18n/protocols'
 import { readAccessKeyRow, type AccessKeyRow } from './access-keys'
 import { readCredential, type CredentialRow } from './group-detail'
 import { integer, list, record, text } from './response'
@@ -8,7 +7,6 @@ export interface HomeKey {
   id: number
   name: string
   mask: string
-  protocols: string[]
 }
 export interface HomeBase {
   observedAt: number
@@ -47,7 +45,6 @@ export async function getHome(client: ApiClient, signal: AbortSignal): Promise<H
         id: integer(key.id, 1),
         name: text(key.name),
         mask: text(key.masked_key),
-        protocols: sortProtocols(list(key.protocols).map(text)),
       }
     }),
     currentKey: data.current_access_key == null ? null : readAccessKeyRow(data.current_access_key),

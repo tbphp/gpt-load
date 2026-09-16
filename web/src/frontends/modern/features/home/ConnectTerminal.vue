@@ -48,7 +48,7 @@ const { t, n } = useI18n()
 <style scoped>
 .modern-connect-steps {
   display: grid;
-  gap: var(--modern-space-5);
+  gap: var(--modern-space-3);
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -101,9 +101,9 @@ const { t, n } = useI18n()
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-control);
   background: var(--modern-subtle);
-  padding: var(--modern-space-4);
+  padding: var(--modern-space-3);
   font-family: var(--modern-font-mono);
-  font-size: var(--modern-font-size-secondary);
+  font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);
   scrollbar-gutter: var(--modern-scrollbar-gutter);
 }
