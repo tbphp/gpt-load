@@ -11,9 +11,9 @@ import { revealAccessKey } from '@/app/resources/access-keys'
 import { registerEphemeralStateCleaner } from '@/app/ephemeral-state'
 import { type ClipboardCopyResult, useClipboardCopy } from '@/app/use-clipboard-copy'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppCombobox from '@/components/ui/AppCombobox.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
-import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import CopyAction from '@/components/ui/CopyAction.vue'
 import CopyFallbackDialog from '@/components/ui/CopyFallbackDialog.vue'
@@ -30,6 +30,8 @@ import {
   clientQuickImportURL,
   clientRequiredProtocol,
   gatewayClients,
+  orderModelSuggestions,
+  preferredGPTModel,
   type CCSwitchTargetID,
   type GatewayClientID,
 } from './gateway-clients'
@@ -84,6 +86,12 @@ const selectOptions = computed(() =>
   props.accessKeys.map((accessKey) => ({
     value: String(accessKey.id),
     label: `${accessKey.name} · ${accessKey.masked_key}`,
+  })),
+)
+const ccSwitchModelOptions = computed(() =>
+  orderModelSuggestions(selectedKey.value?.models ?? []).map((model) => ({
+    value: model,
+    label: model,
   })),
 )
 const currentClient = computed(
@@ -297,13 +305,17 @@ watch(
   { immediate: true },
 )
 
-watch(selectedKeyID, (value, previous) => {
-  if (value === previous) return
-  invalidateSensitiveAction()
-  quickImportConfirmationOpen.value = false
-  ccSwitchModel.value = ''
-  selectFirstSupportedCCSwitchTarget()
-})
+watch(
+  selectedKeyID,
+  (value, previous) => {
+    if (value === previous) return
+    invalidateSensitiveAction()
+    quickImportConfirmationOpen.value = false
+    ccSwitchModel.value = preferredGPTModel(selectedKey.value?.models ?? [])
+    selectFirstSupportedCCSwitchTarget()
+  },
+  { immediate: true },
+)
 
 watch(activeClient, (value, previous) => {
   if (value === previous) return
@@ -602,10 +614,12 @@ onBeforeUnmount(() => {
                   · {{ t('home.ledger.connection.required') }}
                 </span>
               </span>
-              <AppTextInput
+              <AppCombobox
                 id="cc-switch-primary-model"
                 v-model="ccSwitchModel"
                 :label="t('home.ledger.connection.primaryModel')"
+                :options="ccSwitchModelOptions"
+                :empty-text="t('home.ledger.connection.noModelMatches')"
                 :placeholder="t('home.ledger.connection.modelPlaceholder')"
                 :disabled="actionBusy"
                 :maxlength="200"

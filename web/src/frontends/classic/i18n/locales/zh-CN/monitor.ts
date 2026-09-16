@@ -580,6 +580,9 @@ export default {
         from: '开始时间',
         to: '结束时间',
         quickRanges: '快捷时间范围',
+        calendar: '日期范围',
+        previousMonth: '上一个月',
+        nextMonth: '下一个月',
         quickDisplay: {
           '1h': '最近 1 小时',
           '6h': '最近 6 小时',

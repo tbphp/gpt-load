@@ -45,6 +45,7 @@ export interface HomeBaseDto {
     name: string
     masked_key: string
     protocols: AccessProtocol[]
+    models: string[]
   }>
   current_access_key: AccessKeyCollectionItemDto | null
 }
@@ -145,7 +146,7 @@ const inventoryFields = [
   'available_credential_count',
   'model_count',
 ] as const
-const accessKeyFields = ['id', 'name', 'masked_key', 'protocols'] as const
+const accessKeyFields = ['id', 'name', 'masked_key', 'protocols', 'models'] as const
 const statisticsFields = [
   'range',
   'granularity',
@@ -236,12 +237,15 @@ function projectHomeAccessKey(value: unknown): HomeBaseDto['access_keys'][number
   const protocols = projectArray(record.protocols, (protocol) =>
     projectEnum(protocol, knownAccessProtocols),
   )
+  const models = projectArray(record.models, projectNonBlankTrimmedString)
   if (new Set(protocols).size !== protocols.length) invalidResponse()
+  if (new Set(models).size !== models.length) invalidResponse()
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankTrimmedString(record.name),
     masked_key: maskedKey,
     protocols,
+    models,
   }
 }
 

@@ -36,6 +36,14 @@ API キー、サブスクリプションアカウント、トラフィック制�
 <td><strong>OfoxAI：テキスト・画像・動画 AI を一つのプラットフォームで</strong><br>OfoxAI は、複数のプロバイダーのテキスト・画像・動画モデルを集約する AI API プラットフォームです。OpenAI 互換 API と Anthropic・Gemini のネイティブ API に対応。開発者は一つのプラットフォームから AI アプリ、エージェント、コンテンツ制作向けのモデルを利用し、タスクに合った機能を選べます。 <a href="https://ofox.ai/?utm_source=github&amp;utm_medium=sponsorship&amp;utm_content=gpt_load" target="_blank" rel="noopener noreferrer">OfoxAI のモデルと API を見る →</a></td>
 </tr>
 <tr>
+<td width="180"><a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer"><picture><source media="(prefers-color-scheme: dark)" srcset="./screenshot/packycode-dark.png"><source media="(prefers-color-scheme: light)" srcset="./screenshot/packycode-light.png"><img src="./screenshot/packycode-light.png" alt="PackyCode" width="150"></picture></a></td>
+<td><strong>PackyCode</strong><br>PackyCode は、安定性と効率性を重視した AI API 中継サービスです。ひとつの API エンドポイントと API キーで主要な大規模モデルに接続できます。統一ドメイン、統一キー、スマートな障害切り替えに対応し、可用性は 97% としています。人民元で 1:1 チャージでき、為替差損や追加手数料の心配はありません。新規ユーザーは初回チャージ割引と $1 の無料体験クレジットを受け取れ、複数グループでは最大 80% の割引、Codex／Claude Code 専用の高速ルートも利用できます。<a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer">リンクから登録して、すぐに利用を開始できます。</a></td>
+</tr>
+<tr>
+<td width="180"><a href="https://fluxionai.space/register?source=github&amp;campaign=gptload&amp;promo=GPTLOAD" target="_blank" rel="sponsored noopener noreferrer"><img src="./screenshot/fluxionai-horizontal.png" alt="Fluxion AI" width="150"></a></td>
+<td><strong>一つの入口で、世界の主要AIモデルに接続・管理</strong><br>Fluxion AIは、個人開発者、技術チーム、企業向けに、統一APIで世界の主要AIモデルへの接続と管理を提供します。複数経路の動的なスケジューリングで可用性を高め、モデルの性能、応答時間、料金を透明に確認できます。モデルや経路によっては、API利用料を公式価格または基準価格より40%〜98%抑えられます。今すぐアクセスして登録すると、$7分のAPIクレジットを受け取れます。（<a href="https://fluxionai.space/register?source=github&amp;campaign=gptload&amp;promo=GPTLOAD" target="_blank" rel="sponsored noopener noreferrer">専用リンク</a>）</td>
+</tr>
+<tr>
 <td width="180"><a href="https://www.axisnow.io/zh"><img src="./screenshot/axisnow.jpg" alt="AxisNow" width="150"></a></td>
 <td>ウェブサイトと API を保護・高速化し、<strong>中国本土</strong>および世界各地のアクセス体験にも配慮し、クライアント SDK を通じて高速化とセキュリティの機能をネイティブ／モバイルアプリにまで拡張します — <strong>自社構築・プライベート運用 CDN｜サブスクリプション型高防御 CDN｜自主的に制御でき、柔軟に組み合わせられる CDN ネットワーク。</strong></td>
 </tr>

@@ -601,6 +601,9 @@ export default {
         from: '開始時刻',
         to: '終了時刻',
         quickRanges: 'クイック時間範囲',
+        calendar: '日付範囲',
+        previousMonth: '前の月',
+        nextMonth: '次の月',
         quickDisplay: {
           '1h': '過去 1 時間',
           '6h': '過去 6 時間',
