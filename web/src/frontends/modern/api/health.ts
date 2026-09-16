@@ -33,6 +33,7 @@ export interface HealthQuota {
   id: number
   groupID: number
   groupName: string
+  identity: string
   remaining: number
   resetAt: number | null
 }
@@ -40,6 +41,7 @@ export interface HealthCredit {
   id: number
   groupID: number
   groupName: string
+  identity: string
   count: number
   expiresAt: number
 }
@@ -72,6 +74,8 @@ export interface HealthReport {
   accessKeys: HealthAccessKey[]
 }
 const timestamp = (value: unknown) => (value == null ? null : integer(value))
+// 无邮箱兜底中的数据库 ID 不进入新版展示。
+const identity = (value: unknown) => text(value).replace(/^Subscription #\d+$/, '')
 function counts(value: unknown): HealthCounts {
   const row = record(value)
   const result = {
@@ -91,8 +95,7 @@ function credential(value: unknown): HealthCredential {
     id: integer(row.credential_id, 1),
     groupID: integer(row.group_id, 1),
     groupName: text(row.group_name),
-    // 旧接口的无邮箱兜底包含数据库 ID，不进入新版展示。
-    identity: text(row.identity).replace(/^Subscription #\d+$/, ''),
+    identity: identity(row.identity),
     failureCategory: text(row.last_failure_category),
     statusCode: timestamp(row.last_status_code),
     failures: integer(row.failure_count),
@@ -146,6 +149,7 @@ export async function getHealth(client: ApiClient, signal: AbortSignal): Promise
         id: integer(item.credential_id, 1),
         groupID: integer(item.group_id, 1),
         groupName: text(item.group_name),
+        identity: identity(item.identity),
         remaining: item.remaining,
         resetAt: timestamp(item.reset_at_ms),
       }
@@ -156,6 +160,7 @@ export async function getHealth(client: ApiClient, signal: AbortSignal): Promise
         id: integer(item.credential_id, 1),
         groupID: integer(item.group_id, 1),
         groupName: text(item.group_name),
+        identity: identity(item.identity),
         count: integer(item.count, 1),
         expiresAt: integer(item.nearest_expires_at_ms),
       }

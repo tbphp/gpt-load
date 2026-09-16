@@ -78,7 +78,6 @@ defineExpose({
   z-index: var(--modern-layer-raised);
   top: 0;
   background: var(--modern-surface);
-  box-shadow: 0 var(--modern-line-width) 0 var(--modern-border);
 }
 .modern-list-body {
   position: relative;

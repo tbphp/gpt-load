@@ -1,14 +1,38 @@
 <script setup lang="ts">
 import { ChevronDown, KeyRound, Route } from '@lucide/vue'
-import { useId } from 'vue'
+import { computed, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
+import type { LogAccessKeyOption } from '@modern/api/logs'
+import { positivePage } from '@modern/app/url-state'
 import { AppButton, AppIcon, AppOverflowText, AppProtocolTag } from '@modern/components/ui'
-import type { GatewaySelection } from './gateway-config'
+import { protocolOrder } from '@modern/i18n/protocols'
 
-defineProps<{ open: boolean; selection?: GatewaySelection }>()
+const props = defineProps<{ open: boolean; accessKeys?: readonly LogAccessKeyOption[] }>()
 defineEmits<{ 'update:open': [boolean] }>()
 const { t } = useI18n()
+const route = useRoute()
 const panelId = useId()
+// 摘要读取路由检查保存的参数，与展开后的初始选项保持一致。
+const context = computed(() => {
+  const query = route.query
+  if (
+    query.inspect_protocol === undefined &&
+    query.inspect_external_model === undefined &&
+    query.inspect_access_key_id === undefined
+  )
+    return undefined
+  const keyID = positivePage(query.inspect_access_key_id, 0)
+  return {
+    protocol:
+      protocolOrder.find((protocol) => protocol === query.inspect_protocol) ?? protocolOrder[0],
+    model: typeof query.inspect_external_model === 'string' ? query.inspect_external_model : '',
+    keyName: keyID
+      ? (props.accessKeys?.find((key) => key.id === keyID)?.name ??
+        t(props.accessKeys ? 'logs.deleted' : 'ui.loading'))
+      : '',
+  }
+})
 </script>
 
 <template>
@@ -18,16 +42,16 @@ const panelId = useId()
         <AppIcon :icon="Route" size="sm" />
         <h2>{{ t('pages.inspector.title') }}</h2>
       </div>
-      <div v-if="!open && selection" class="modern-home-tool-context">
-        <AppProtocolTag v-if="selection.protocol" :protocol="selection.protocol" />
+      <div v-if="!open && context" class="modern-home-tool-context">
+        <AppProtocolTag :protocol="context.protocol" />
         <AppOverflowText
-          v-if="selection.model"
+          v-if="context.model"
           class="modern-home-tool-model"
-          :text="selection.model"
+          :text="context.model"
         />
-        <span v-if="selection.keyName" class="modern-home-tool-key">
+        <span v-if="context.keyName" class="modern-home-tool-key">
           <AppIcon :icon="KeyRound" size="sm" />
-          <AppOverflowText :text="selection.keyName" />
+          <AppOverflowText :text="context.keyName" />
         </span>
       </div>
       <AppButton

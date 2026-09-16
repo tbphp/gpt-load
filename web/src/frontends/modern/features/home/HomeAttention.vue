@@ -1,25 +1,30 @@
 <script setup lang="ts">
-import { ArrowRight, CircleCheck } from '@lucide/vue'
+import {
+  ArrowRight,
+  CircleCheck,
+  CircleSlash,
+  Clock,
+  Coins,
+  KeyRound,
+  TriangleAlert,
+} from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
-import type { HealthReport } from '@modern/api/health'
 import { AppBadge, AppButton, AppIcon, AppOverflowText, AppPanel } from '@modern/components/ui'
-import { collectAttention, type AttentionItem } from './home-attention'
+import type { HealthIssue } from '@modern/features/health/health-display'
 
-const props = defineProps<{ report?: HealthReport; failed: boolean }>()
+const props = defineProps<{ issues?: readonly HealthIssue[]; failed: boolean }>()
 defineEmits<{ retry: [] }>()
 const { t, n } = useI18n()
-const items = computed(() => collectAttention(props.report))
+const items = computed(() => props.issues ?? [])
 const visibleItems = computed(() => items.value.slice(0, 3))
-function detail(item: AttentionItem): string {
-  const params = Object.fromEntries(
-    Object.entries(item.params).map(([key, value]) => [
-      key,
-      typeof value === 'number' ? n(value) : value,
-    ]),
-  )
-  return t('home.attention.' + item.detail, params)
+function icon(item: HealthIssue) {
+  if (item.kind === 'group') return CircleSlash
+  if (item.kind === 'cooldown' || item.kind === 'credit') return Clock
+  if (item.kind === 'quota') return Coins
+  if (item.kind === 'access_key') return KeyRound
+  return TriangleAlert
 }
 </script>
 
@@ -29,25 +34,28 @@ function detail(item: AttentionItem): string {
       <AppBadge v-if="items.length" tone="warning" size="xs" class="modern-home-attention-count">{{
         n(items.length)
       }}</AppBadge>
-      <AppBadge v-else-if="report && !failed" tone="success" size="xs" variant="plain" dot>{{
+      <AppBadge v-else-if="issues && !failed" tone="success" size="xs" variant="plain" dot>{{
         t('home.attention.clear')
       }}</AppBadge>
     </template>
     <div v-if="failed" class="modern-home-attention-state" role="status">
-      <span>{{ t(report ? 'home.refreshFailed' : 'home.attention.failed') }}</span>
+      <span>{{ t(issues ? 'home.refreshFailed' : 'home.attention.failed') }}</span>
       <AppButton size="xs" variant="text" @click="$emit('retry')">{{ t('ui.retry') }}</AppButton>
     </div>
-    <p v-if="!report && !failed" class="modern-home-attention-state">{{ t('ui.loading') }}</p>
-    <p v-else-if="report && !items.length && !failed" class="modern-home-attention-state">
+    <p v-if="!issues && !failed" class="modern-home-attention-state">{{ t('ui.loading') }}</p>
+    <p v-else-if="issues && !items.length && !failed" class="modern-home-attention-state">
       <AppIcon :icon="CircleCheck" size="sm" />{{ t('home.attention.clearHelp') }}
     </p>
     <ul v-if="items.length" class="modern-home-attention">
       <li v-for="item in visibleItems" :key="item.key">
-        <RouterLink :to="item.to" class="modern-home-attention-link">
-          <AppIcon :icon="item.icon" size="sm" :class="'is-' + item.tone" />
+        <RouterLink
+          :to="{ name: 'modern-health', query: { detail: item.key } }"
+          class="modern-home-attention-link"
+        >
+          <AppIcon :icon="icon(item)" size="sm" :class="'is-' + item.severity" />
           <span class="modern-home-attention-copy">
-            <AppOverflowText class="modern-home-attention-subject" :text="item.subject" />
-            <AppOverflowText class="modern-home-attention-detail" :text="detail(item)" />
+            <AppOverflowText class="modern-home-attention-subject" :text="item.name" />
+            <AppOverflowText class="modern-home-attention-detail" :text="item.reason" />
           </span>
           <AppIcon :icon="ArrowRight" size="sm" class="modern-home-attention-arrow" />
         </RouterLink>

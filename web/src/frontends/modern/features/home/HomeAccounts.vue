@@ -3,14 +3,27 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { HomeAccount } from '@modern/api/home'
 import type { CredentialQuota } from '@modern/api/credential-observation'
-import { AppButton, AppOverflowText, AppPanel, AppProgressBar } from '@modern/components/ui'
+import {
+  AppButton,
+  AppOverflowText,
+  AppPanel,
+  AppProgressBar,
+  AppTooltip,
+} from '@modern/components/ui'
 import { useClock } from '@modern/components/ui/clock'
 import { formatRemainingDuration } from '@modern/components/ui/format'
-import { quotaRemaining, quotaTone } from '@modern/features/groups/credential-presentation'
+import {
+  quotaCycleTime,
+  quotaRemaining,
+  quotaTone,
+  quotaWindowRange,
+  quotaWindowTitle,
+  sortedQuotaWindows,
+} from '@modern/features/groups/credential-presentation'
 
 const props = defineProps<{ accounts: HomeAccount[]; failed: boolean; loading: boolean }>()
 defineEmits<{ retry: [] }>()
-const { t, n, locale } = useI18n()
+const { t, te, n, locale } = useI18n()
 const now = useClock()
 const remaining = (window: CredentialQuota) =>
   window.state === 'exhausted' ? 0 : quotaRemaining(window)
@@ -29,15 +42,29 @@ function resetLabel(window?: CredentialQuota): string | undefined {
     time: formatRemainingDuration(remainingMs, locale.value),
   })
 }
+function windowHint(window: CredentialQuota): string {
+  const key = 'credentialCards.quotaLabels.' + window.labelKey
+  const name = quotaWindowTitle(window, window.labelKey && te(key) ? t(key) : window.label)
+  const range = quotaWindowRange(window)
+  const percent = remaining(window)
+  return [
+    `${name || window.label || t('credentialCards.window')} - ${percent === undefined ? '—' : n(Math.round(percent)) + '%'}`,
+    range
+      ? `${quotaCycleTime(range.start)} – ${quotaCycleTime(range.end)}`
+      : quotaCycleTime(window.resetsAt),
+  ].join('\n')
+}
 const rows = computed(() =>
   props.accounts.map((account) => {
     const observation = account.credential.observation
-    const window = tightest(observation?.windows ?? [])
+    const windows = sortedQuotaWindows(observation?.windows ?? [])
+    const window = tightest(windows)
     const quota = window ? remaining(window) : undefined
     return {
       id: account.credential.id,
       name: account.credential.account || account.credential.mask || account.channelName,
       plan: observation?.plan || account.channelName,
+      windows,
       remaining: quota,
       tone: window ? quotaTone(window) : ('neutral' as const),
       reset: resetLabel(window),
@@ -66,13 +93,22 @@ const rows = computed(() =>
             >{{ row.remaining === undefined ? '—' : n(Math.round(row.remaining)) + '%' }}</span
           >
         </div>
-        <AppProgressBar
-          v-if="row.remaining !== undefined"
-          :label="row.name + ' · ' + n(Math.round(row.remaining)) + '%'"
-          :value="row.remaining"
-          :tone="row.tone"
-          size="sm"
-        />
+        <div
+          v-if="row.windows.length"
+          class="modern-home-account-quotas"
+          role="group"
+          :aria-label="row.name"
+        >
+          <AppTooltip v-for="window in row.windows" :key="window.id" :label="windowHint(window)">
+            <AppProgressBar
+              :label="windowHint(window)"
+              :value="remaining(window)"
+              :tone="quotaTone(window)"
+              size="sm"
+              tabindex="0"
+            />
+          </AppTooltip>
+        </div>
         <span v-else class="modern-home-account-note">{{ t('home.noQuota') }}</span>
         <span v-if="row.reset" class="modern-home-account-note">{{ row.reset }}</span>
       </li>
@@ -114,6 +150,13 @@ const rows = computed(() =>
   min-width: 0;
   color: var(--modern-text);
   font-size: var(--modern-font-size-secondary);
+}
+.modern-home-account-quotas {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--modern-space-2);
+  min-width: 0;
 }
 .modern-home-account-name {
   flex: 0 1 auto;

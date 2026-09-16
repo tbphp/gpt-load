@@ -43,9 +43,6 @@ export function healthIssues(
   t: Translate,
 ): HealthIssue[] {
   const issues: HealthIssue[] = []
-  const names = new Map(
-    [...report.cooldown, ...report.isolated].map((row) => [row.id, row.identity]),
-  )
   const unavailable = new Set(
     groups
       .filter((row) => ['no_credentials', 'no_models', 'unavailable'].includes(row.availability))
@@ -109,7 +106,7 @@ export function healthIssues(
       key: `quota:${row.id}`,
       kind: 'quota',
       identityType: 'credential',
-      name: names.get(row.id) || t('health.subscription'),
+      name: row.identity || t('health.subscription'),
       groupID: row.groupID,
       groupName: row.groupName,
       credentialID: row.id,
@@ -126,7 +123,7 @@ export function healthIssues(
       key: `credit:${row.id}`,
       kind: 'credit',
       identityType: 'credential',
-      name: names.get(row.id) || t('health.subscription'),
+      name: row.identity || t('health.subscription'),
       groupID: row.groupID,
       groupName: row.groupName,
       credentialID: row.id,
@@ -139,6 +136,18 @@ export function healthIssues(
       creditCount: row.count,
     })
   return issues
+}
+export function compareHealthIssues(
+  left: HealthIssue,
+  right: HealthIssue,
+  locale: string,
+  prioritize = true,
+): number {
+  return (
+    (prioritize ? left.priority - right.priority : 0) ||
+    left.name.localeCompare(right.name, locale) ||
+    left.key.localeCompare(right.key)
+  )
 }
 export function healthManageLocation(issue: HealthIssue): RouteLocationRaw {
   if (issue.accessKeyID)

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useQuery } from '@tanstack/vue-query'
 import {
   ArrowUpRight,
   Eye,
@@ -37,6 +37,7 @@ import {
   AppTextField,
 } from '@modern/components/ui'
 import {
+  compareHealthIssues,
   healthIssues,
   healthLogsLocation,
   healthManageLocation,
@@ -56,7 +57,6 @@ import HealthDetailPanel from './HealthDetailPanel.vue'
 const { t, locale } = useI18n()
 const router = useRouter()
 const client = useApiClient()
-const cache = useQueryClient()
 const state = useURLState(healthStateKeys, parseHealthState, serializeHealthState)
 const query = useQuery({
   queryKey: ['modern', 'health'],
@@ -130,12 +130,7 @@ const severityOptions = computed(() => [
 const filtered = computed(() =>
   matching.value
     .filter((row) => !state.value.severity || row.severity === state.value.severity)
-    .sort(
-      (a, b) =>
-        (state.value.sort === 'priority' ? a.priority - b.priority : 0) ||
-        a.name.localeCompare(b.name, locale.value) ||
-        a.key.localeCompare(b.key),
-    ),
+    .sort((a, b) => compareHealthIssues(a, b, locale.value, state.value.sort === 'priority')),
 )
 const page = computed(() =>
   Math.min(state.value.page, Math.max(1, Math.ceil(filtered.value.length / state.value.pageSize))),
@@ -199,11 +194,7 @@ function manage(issue: HealthIssue): void {
   void router.push(healthManageLocation(issue))
 }
 async function refresh(): Promise<void> {
-  await Promise.all([
-    query.refetch(),
-    groups.refetch(),
-    cache.refetchQueries({ queryKey: ['modern', 'credential-detail'], type: 'active' }),
-  ])
+  await Promise.all([query.refetch(), groups.refetch()])
 }
 usePageRefresh({ refresh, pending, updatedAt: () => report.value?.observedAt })
 useMessageSource(() =>

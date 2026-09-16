@@ -31,9 +31,9 @@ func TestRuntimeHealthReportsLowQuotaCredentials(t *testing.T) {
 	}
 
 	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
-		{ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "test-11", Status: state.CredentialStatusActive, EncryptedValue: "low"},
+		{ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "test-11", Status: state.CredentialStatusActive, EncryptedValue: encryptHealthKey(t, fixture, `{"api_key":"sk-low-quota"}`)},
 		{ID: 12, GroupID: 1, Version: 1, IdentityGeneration: 12, Fingerprint: "test-12", Status: state.CredentialStatusActive, EncryptedValue: "healthy"},
-		{ID: 13, GroupID: 1, Version: 1, IdentityGeneration: 13, Fingerprint: "test-13", Status: state.CredentialStatusActive, EncryptedValue: "stale"},
+		{ID: 13, GroupID: 1, Version: 1, IdentityGeneration: 13, Fingerprint: "test-13", Status: state.CredentialStatusActive, EncryptedValue: encryptHealthKey(t, fixture, `{"api_key":"sk-recorded-quota"}`)},
 	}); err != nil {
 		t.Fatalf("ReplaceCredentials() error = %v", err)
 	}
@@ -71,11 +71,52 @@ func TestRuntimeHealthReportsLowQuotaCredentials(t *testing.T) {
 	if got.GroupID != 1 || got.GroupName != "codex" {
 		t.Fatalf("group = %d/%q, want 1/\"codex\"", got.GroupID, got.GroupName)
 	}
+	if got.Identity != "****" {
+		t.Fatalf("Identity = %q, want masked credential", got.Identity)
+	}
 	if got.Remaining != low {
 		t.Fatalf("Remaining = %v, want %v", got.Remaining, low)
 	}
 	if got.ResetAtMS != resetAt.UnixMilli() {
 		t.Fatalf("ResetAtMS = %d, want %d", got.ResetAtMS, resetAt.UnixMilli())
+	}
+}
+
+func TestRuntimeHealthReportsLowQuotaAccountEmail(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	now := healthNow()
+	fixture.service.now = func() time.Time { return now }
+	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "codex", ChannelID: channel.Codex, ConnectionType: "subscription",
+			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "test-account",
+		Status: state.CredentialStatusActive,
+		EncryptedValue: encryptHealthKey(t, fixture,
+			`{"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret","account_id":"account-one","email":"owner@example.com"}`),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	remaining := 0.12
+	if !fixture.registry.SetCredentialQuotaObservation(11, &remaining, now.Add(3*time.Hour)) {
+		t.Fatal("SetCredentialQuotaObservation() = false")
+	}
+	result, err := fixture.service.RuntimeHealth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.LowQuotaCredentials) != 1 || result.LowQuotaCredentials[0].Identity != "owner@example.com" {
+		t.Fatalf("LowQuotaCredentials = %#v, want account email", result.LowQuotaCredentials)
+	}
+	if result.Counts.Available != 1 {
+		t.Fatalf("available credentials = %d, want 1", result.Counts.Available)
 	}
 }
 
@@ -130,6 +171,9 @@ func TestRuntimeHealthReportsResetCreditsExpiringWithinFortyEightHours(t *testin
 	if got.CredentialID != credential.ID || got.GroupID != groupID ||
 		got.Count != 2 || got.NearestExpiresAtMS != near {
 		t.Fatalf("expiring reset credit = %#v", got)
+	}
+	if got.Identity != "sk-e****edit" {
+		t.Fatalf("Identity = %q, want masked credential", got.Identity)
 	}
 }
 

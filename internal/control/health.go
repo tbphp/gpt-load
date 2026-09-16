@@ -62,13 +62,11 @@ type healthProblemCredentialResponse struct {
 }
 
 // healthQuotaCredentialResponse 描述额度即将耗尽的订阅凭据。
-//
-// 刻意不含掩码：调用方（首页「需要处理」）按分组说话，
-// 而生成掩码要对每条凭据逐条解密，为一行提示付这个代价不值得。
 type healthQuotaCredentialResponse struct {
 	CredentialID uint    `json:"credential_id"`
 	GroupID      uint    `json:"group_id"`
 	GroupName    string  `json:"group_name"`
+	Identity     string  `json:"identity"`
 	Remaining    float64 `json:"remaining"`
 	ResetAtMS    int64   `json:"reset_at_ms"`
 }
@@ -77,6 +75,7 @@ type healthExpiringResetCreditResponse struct {
 	CredentialID       uint   `json:"credential_id"`
 	GroupID            uint   `json:"group_id"`
 	GroupName          string `json:"group_name"`
+	Identity           string `json:"identity"`
 	Count              int    `json:"count"`
 	NearestExpiresAtMS int64  `json:"nearest_expires_at_ms"`
 }
@@ -292,6 +291,25 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			ID: group.ID, Name: group.Name, Enabled: group.Enabled,
 		})
 	}
+	// 仅解密实际进入问题列表的凭据，同一账号的多个问题共用展示身份。
+	identities := make(map[uint]string)
+	identityFor := func(credentialID, groupID uint) (string, error) {
+		if identity, exists := identities[credentialID]; exists {
+			return identity, nil
+		}
+		group := observation.snapshot.Groups[groupID]
+		identity, err := service.healthProblemCredentialIdentity(
+			observation.credentialCiphertexts,
+			credentialID,
+			group.ChannelID,
+			group.ConnectionType,
+		)
+		if err != nil {
+			return "", err
+		}
+		identities[credentialID] = identity
+		return identity, nil
+	}
 	resetCreditTargets := make(map[uint]healthResetCreditTarget)
 	for _, key := range observation.keys {
 		group := observation.snapshot.GroupCatalog[key.GroupID]
@@ -317,12 +335,17 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 						"map low quota credential %d reset_at_ms: %w", key.ID, err,
 					)
 				}
+				identity, err := identityFor(key.ID, key.GroupID)
+				if err != nil {
+					return runtimeHealthResponse{}, err
+				}
 				result.LowQuotaCredentials = append(
 					result.LowQuotaCredentials,
 					healthQuotaCredentialResponse{
 						CredentialID: key.ID,
 						GroupID:      key.GroupID,
 						GroupName:    group.Name,
+						Identity:     identity,
 						Remaining:    *remaining,
 						ResetAtMS:    resetAtMS,
 					},
@@ -332,13 +355,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
 			continue
 		}
-		groupView := observation.snapshot.Groups[key.GroupID]
-		identity, err := service.healthProblemCredentialIdentity(
-			observation.problemCiphertexts,
-			key.ID,
-			groupView.ChannelID,
-			groupView.ConnectionType,
-		)
+		identity, err := identityFor(key.ID, key.GroupID)
 		if err != nil {
 			return runtimeHealthResponse{}, err
 		}
@@ -395,6 +412,14 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 	)
 	if err != nil {
 		return runtimeHealthResponse{}, err
+	}
+	for index := range result.ExpiringResetCredits {
+		credit := &result.ExpiringResetCredits[index]
+		identity, err := identityFor(credit.CredentialID, credit.GroupID)
+		if err != nil {
+			return runtimeHealthResponse{}, err
+		}
+		credit.Identity = identity
 	}
 	if observation.accessQuotaViews != nil {
 		accessKeyIDs := make([]uint, 0, len(observation.snapshot.AccessKeysByID))

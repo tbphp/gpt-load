@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { getHome, getHomeAccounts, getHomeStatistics, homeStatisticsKey } from '@modern/api/home'
 import { getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
 import { getHealth } from '@modern/api/health'
@@ -12,6 +12,7 @@ import { useAuthSession } from '@modern/features/auth/auth-session'
 import { usePageRefresh } from '@modern/app/page-refresh'
 import { AppButton, AppCollectionState, AppNotice } from '@modern/components/ui'
 import RouteInspector from '@modern/features/inspector/RouteInspector.vue'
+import { compareHealthIssues, healthIssues } from '@modern/features/health/health-display'
 import HomeAccessKey from './HomeAccessKey.vue'
 import HomeAccounts from './HomeAccounts.vue'
 import HomeAttention from './HomeAttention.vue'
@@ -19,19 +20,14 @@ import HomeRouteTool from './HomeRouteTool.vue'
 import HomeSetupGuide from './HomeSetupGuide.vue'
 import HomeStatusBar from './HomeStatusBar.vue'
 import HomeTrend from './HomeTrend.vue'
-import { collectAttention } from './home-attention'
 import GatewayConnection from './GatewayConnection.vue'
-import type { GatewaySelection } from './gateway-config'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
-const router = useRouter()
 const inspector = ref<InstanceType<typeof RouteInspector>>()
 const inspectorSection = ref<HTMLElement>()
-const attentionSection = ref<HTMLElement>()
-const connectionSelection = ref<GatewaySelection>()
 const admin = computed(() => session.state.principalType === 'admin')
 const baseQuery = useQuery({
   queryKey: ['modern', 'home', 'base'],
@@ -57,8 +53,6 @@ const statistics = useQuery({
   queryKey: homeStatisticsKey,
   queryFn: ({ signal }) => getHomeStatistics(client, signal),
 })
-/* 需要处理读运行健康快照：分组列表只有凭据计数，推不出额度将尽、
-   充值卡临期、访问密钥被费用额度挡住这几类。 */
 const health = useQuery({
   queryKey: ['modern', 'health'],
   queryFn: ({ signal }) => getHealth(client, signal),
@@ -75,28 +69,23 @@ const showSetup = computed(() => {
 const emptyProject = computed(
   () => admin.value && groups.data.value?.items.length === 0 && keys.data.value?.length === 0,
 )
-const attention = computed(() => (admin.value ? collectAttention(health.data.value).length : 0))
+const attentionIssues = computed(() => {
+  if (!admin.value || !health.data.value || !groups.data.value) return undefined
+  return healthIssues(health.data.value, groups.data.value.items, (key, values) =>
+    t(key, values ?? {}),
+  ).sort((left, right) => compareHealthIssues(left, right, locale.value))
+})
+const attention = computed(() => attentionIssues.value?.length ?? 0)
 // 深链接 /monitor/inspector 会重定向到首页并带上 inspect_* 参数，那种情况直接展开。
 const inspectorOpen = ref(
   route.hash === '#route-inspector' ||
     Object.keys(route.query).some((key) => key.startsWith('inspect_')),
 )
-async function toggleInspector(open: boolean): Promise<void> {
-  const selection = connectionSelection.value
-  if (open && selection && !Object.keys(route.query).some((key) => key.startsWith('inspect_'))) {
-    await router.replace({
-      query: {
-        ...route.query,
-        inspect_protocol: selection.protocol || undefined,
-        inspect_external_model: selection.model || undefined,
-        inspect_access_key_id: selection.accessKeyID ? String(selection.accessKeyID) : undefined,
-      },
-    })
-  }
-  inspectorOpen.value = open
-}
 async function refreshOptions(): Promise<void> {
   await Promise.all([groups.refetch(), keys.refetch()])
+}
+async function refreshHealth(): Promise<void> {
+  await Promise.all([health.refetch(), groups.refetch()])
 }
 async function refresh(): Promise<void> {
   await Promise.all([
@@ -146,17 +135,6 @@ watch(
   },
   { immediate: true },
 )
-watch(
-  [() => route.hash, () => Boolean(base.value)],
-  async ([hash, ready]) => {
-    if (hash !== '#home-attention' || !ready || !admin.value) return
-    await nextTick()
-    if (route.hash !== hash) return
-    attentionSection.value?.scrollIntoView({ block: 'start' })
-    attentionSection.value?.focus({ preventScroll: true })
-  },
-  { immediate: true },
-)
 </script>
 
 <template>
@@ -190,11 +168,7 @@ watch(
       />
       <div class="modern-home-columns">
         <div class="modern-home-main">
-          <GatewayConnection
-            :keys="base.keys"
-            :admin="admin"
-            @selection="connectionSelection = $event"
-          />
+          <GatewayConnection :keys="base.keys" :admin="admin" />
           <div
             v-if="admin"
             id="route-inspector"
@@ -202,11 +176,7 @@ watch(
             class="modern-home-inspector"
             tabindex="-1"
           >
-            <HomeRouteTool
-              :open="inspectorOpen"
-              :selection="connectionSelection"
-              @update:open="toggleInspector"
-            >
+            <HomeRouteTool v-model:open="inspectorOpen" :access-keys="keys.data.value">
               <p v-if="emptyProject" class="modern-home-inspector-empty">
                 {{ t('home.setup.inspectorLater') }}
               </p>
@@ -225,6 +195,11 @@ watch(
           </div>
         </div>
         <div class="modern-home-side">
+          <HomeTrend
+            :report="statistics.data.value"
+            :failed="statistics.isError.value"
+            @retry="statistics.refetch()"
+          />
           <HomeAccounts
             v-if="admin"
             :accounts="accounts.data.value?.items ?? []"
@@ -232,25 +207,14 @@ watch(
             :loading="accounts.isPending.value"
             @retry="accounts.refetch()"
           />
-          <div
-            v-if="admin"
-            id="home-attention"
-            ref="attentionSection"
-            class="modern-home-attention-section"
-            tabindex="-1"
-          >
+          <div v-if="admin" class="modern-home-attention-section">
             <HomeAttention
-              :report="health.data.value"
-              :failed="health.isError.value"
-              @retry="health.refetch()"
+              :issues="attentionIssues"
+              :failed="health.isError.value || groups.isError.value"
+              @retry="refreshHealth"
             />
           </div>
           <HomeAccessKey v-if="!admin && base.currentKey" :row="base.currentKey" />
-          <HomeTrend
-            :report="statistics.data.value"
-            :failed="statistics.isError.value"
-            @retry="statistics.refetch()"
-          />
         </div>
       </div>
     </template>

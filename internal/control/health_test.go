@@ -386,8 +386,8 @@ func TestRuntimeHealthReturnsAllProblemCredentialDetails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("captureRuntimeHealthObservation() error = %v", err)
 	}
-	if len(observation.problemCiphertexts) != 2*(detailLimit+1) {
-		t.Fatalf("problem ciphertexts = %d, want %d", len(observation.problemCiphertexts), 2*(detailLimit+1))
+	if len(observation.credentialCiphertexts) != 2*(detailLimit+1) {
+		t.Fatalf("credential ciphertexts = %d, want %d", len(observation.credentialCiphertexts), 2*(detailLimit+1))
 	}
 
 	got, err := fixture.service.RuntimeHealth()

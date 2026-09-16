@@ -517,6 +517,7 @@ useMessageSource(() =>
 }
 .modern-log-cell {
   min-width: 0;
+  overflow: hidden;
 }
 .modern-log-error-summary {
   display: grid;

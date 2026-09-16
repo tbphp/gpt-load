@@ -333,6 +333,28 @@ function fieldFilterValue(field: LogColumnId): string {
   gap: var(--modern-space-0-5);
   align-content: center;
 }
+.modern-log-routing-lines {
+  width: 100%;
+  max-width: 100%;
+}
+.modern-log-routing-lines > div {
+  min-width: 0;
+  max-width: 100%;
+}
+.modern-log-routing-lines :deep(.modern-log-filter-link),
+.modern-log-routing-lines :deep(.modern-log-channel) {
+  width: 100%;
+  max-width: 100%;
+}
+.modern-log-routing-lines :deep(.modern-log-filter-link) {
+  display: flex;
+}
+.modern-log-routing-lines :deep(.modern-log-channel) {
+  overflow: hidden;
+}
+.modern-log-routing-lines :deep(.modern-log-channel > .modern-overflow-text) {
+  flex: 1;
+}
 .modern-log-identity-cell {
   min-width: 0;
 }

@@ -108,12 +108,6 @@ export interface GatewayConfig {
   target: GatewayTargetID
   name: string
 }
-export interface GatewaySelection {
-  accessKeyID: number
-  keyName: string
-  protocol: string
-  model: string
-}
 export interface ConfigBlock {
   label: string
   content: string

@@ -2,14 +2,13 @@
 import { ArrowRight, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRoute, type RouteLocationRaw } from 'vue-router'
+import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import type { HomeBase } from '@modern/api/home'
 import { AppBadge, AppIcon, AppButton } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
 
 const props = defineProps<{ base: HomeBase; admin: boolean; attention: number }>()
 const { t, n, locale } = useI18n()
-const route = useRoute()
 const compact = (value: number) => formatCompactNumber(value, locale.value)
 interface Fact {
   key: string
@@ -71,7 +70,7 @@ const uptime = computed(() => {
         variant="ghost"
         class="modern-home-status-attention"
       >
-        <RouterLink :to="{ path: route.path, query: route.query, hash: '#home-attention' }">
+        <RouterLink :to="{ name: 'modern-health' }">
           <AppIcon :icon="TriangleAlert" size="sm" />
           {{ t('home.attention.count', { count: n(attention) }) }}
           <AppIcon :icon="ArrowRight" size="xs" />

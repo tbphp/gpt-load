@@ -131,13 +131,7 @@ export const zhCN = {
     count: '{count} 项需要处理',
     clear: '一切正常',
     clearHelp: '暂无需要处理的事项。',
-    stalled: '无可用凭据',
-    blocked: '{count} 个凭据已隔离',
-    quota: '额度剩 {percent}%',
-    credits: '{count} 张重置券即将到期',
-    keyBlocked: '费用额度已用尽',
     failed: '运行健康加载失败',
-    more: '还有 {count} 项，查看运行健康',
   },
 }
 
@@ -283,13 +277,7 @@ export const enUS: typeof zhCN = {
     count: '{count} need attention',
     clear: 'All clear',
     clearHelp: 'Nothing needs attention right now.',
-    stalled: 'No credentials',
-    blocked: '{count} credentials blocked',
-    quota: '{percent}% quota left',
-    credits: '{count} credits expiring',
-    keyBlocked: 'Blocked by its cost limit',
     failed: 'Could not load runtime health',
-    more: '{count} more in runtime health',
   },
 }
 
@@ -432,12 +420,6 @@ export const jaJP: typeof zhCN = {
     count: '対応が必要な項目 {count} 件',
     clear: '問題なし',
     clearHelp: '現在、対応が必要な項目はありません。',
-    stalled: '利用可能な資格情報なし',
-    blocked: '資格情報 {count} 件がブロック中',
-    quota: '残り {percent}%',
-    credits: 'リセット券 {count} 枚が期限間近',
-    keyBlocked: '費用上限で停止中',
     failed: '稼働ヘルスの読み込みに失敗しました',
-    more: '他に {count} 件、稼働ヘルスで確認',
   },
 }

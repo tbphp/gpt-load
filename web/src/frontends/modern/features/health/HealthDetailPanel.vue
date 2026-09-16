@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { DialogRoot } from 'reka-ui'
-import { useQuery } from '@tanstack/vue-query'
 import {
   ArrowUpRight,
   Clock3,
@@ -15,8 +14,6 @@ import {
 } from '@lucide/vue'
 import type { HealthReport } from '@modern/api/health'
 import type { GroupRow } from '@modern/api/groups'
-import { credentialDetailKey, getCredentialDetail } from '@modern/api/credential-actions'
-import { useApiClient } from '@shared/http/client-context'
 import {
   AppBadge,
   AppButton,
@@ -44,24 +41,8 @@ const props = defineProps<{
 }>()
 defineEmits<{ close: [] }>()
 const { t, locale } = useI18n()
-const client = useApiClient()
 const count = (value: number) => formatCompactNumber(value, locale.value)
-const identityQuery = useQuery(
-  computed(() => ({
-    queryKey: credentialDetailKey(props.issue?.groupID ?? 0, props.issue?.credentialID ?? 0),
-    queryFn: ({ signal }: { signal: AbortSignal }) =>
-      getCredentialDetail(client, props.issue!.groupID!, props.issue!.credentialID!, signal),
-    enabled: Boolean(
-      props.issue?.credentialID &&
-      props.issue?.groupID &&
-      ['quota', 'credit'].includes(props.issue.kind),
-    ),
-  })),
-)
-const name = computed(
-  () =>
-    identityQuery.data.value?.account || identityQuery.data.value?.mask || props.issue?.name || '',
-)
+const name = computed(() => props.issue?.name ?? '')
 const group = computed(() =>
   props.issue?.groupID ? props.groups.get(props.issue.groupID) : undefined,
 )
@@ -228,12 +209,6 @@ function period(seconds: number): string {
               </p>
             </article>
           </AppFormSection>
-          <AppButton
-            v-if="identityQuery.isError.value"
-            variant="text"
-            @click="identityQuery.refetch()"
-            >{{ t('ui.retry') }}</AppButton
-          >
         </template>
         <AppCollectionState
           v-else

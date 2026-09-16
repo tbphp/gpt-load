@@ -29,7 +29,6 @@ import {
   gatewayTargets,
   type GatewayClientID,
   type GatewayConfig,
-  type GatewaySelection,
 } from './gateway-config'
 import ConnectClientList from './ConnectClientList.vue'
 import ConnectFields from './ConnectFields.vue'
@@ -38,7 +37,6 @@ import ConnectTerminal from './ConnectTerminal.vue'
 import { readGatewayPreferences, rememberGatewayPreferences } from './gateway-preferences'
 
 const props = defineProps<{ keys: HomeKey[]; admin: boolean }>()
-const emit = defineEmits<{ selection: [value: GatewaySelection] }>()
 const { t } = useI18n()
 const client = useApiClient()
 const session = useAuthSession()
@@ -74,11 +72,6 @@ const selectedClient = computed(() =>
 const target = ref<GatewayConfig['target']>(remembered.target)
 const model = ref(remembered.model)
 const selectedTarget = computed(() => gatewayTargets.find((item) => item.id === target.value)!)
-const clientProtocol = computed(() =>
-  selectedClient.value.id === 'cc-switch'
-    ? selectedTarget.value.protocol
-    : selectedClient.value.protocol,
-)
 const config = computed<GatewayConfig>(() => ({
   client: selectedClient.value.id,
   target: target.value,
@@ -117,17 +110,6 @@ watch(
       model,
     }),
   { immediate: true, flush: 'sync' },
-)
-watch(
-  () => [key.value?.id, key.value?.name, clientProtocol.value, model.value] as const,
-  () =>
-    emit('selection', {
-      accessKeyID: key.value?.id ?? 0,
-      keyName: key.value?.name ?? '',
-      protocol: clientProtocol.value,
-      model: model.value.trim(),
-    }),
-  { immediate: true },
 )
 let controller: AbortController | undefined
 function cancel(): void {
