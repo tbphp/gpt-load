@@ -155,6 +155,7 @@ export default {
       name: '名称',
       key: '访问密钥',
       status: '状态',
+      concurrency: '并发',
       filters: '过滤条件',
       scope: '范围',
       rpm: 'RPM 限制',

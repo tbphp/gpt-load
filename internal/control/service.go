@@ -465,22 +465,50 @@ func (s *Service) writeCredentialConfig(
 	}
 	var result error
 	apply := func() {
-		if err := s.withControlTransaction(ctx, mutate); err != nil {
+		var input state.CompileInput
+		if err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
+			if err := mutate(tx); err != nil {
+				return err
+			}
+			var err error
+			input, err = stateloader.BuildCompileInputWithProxy(
+				ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
+			)
+			if err != nil {
+				return err
+			}
+			_, err = state.Compile(input)
+			return err
+		}); err != nil {
 			result = err
 			return
 		}
-		if afterCommit == nil {
-			return
+		if afterCommit != nil {
+			if err := afterCommit(); err != nil {
+				operationErr := withControlOperationContext(
+					newControlOperationError(stageApplyCommittedRegistryMutation),
+					groupID,
+					credentialID,
+				)
+				result = joinCommittedRuntimeRecovery(
+					operationErr,
+					errors.Join(
+						s.recoverCommittedCredentialRegistryGroup(ctx, groupID),
+						s.recoverCommittedRuntime(ctx, false),
+					),
+				)
+				return
+			}
 		}
-		if err := afterCommit(); err != nil {
+		if _, err := s.publishSnapshot(input); err != nil {
 			operationErr := withControlOperationContext(
-				newControlOperationError(stageApplyCommittedRegistryMutation),
+				newControlOperationError(stagePublishCommittedSnapshot),
 				groupID,
 				credentialID,
 			)
 			result = joinCommittedRuntimeRecovery(
 				operationErr,
-				s.recoverCommittedCredentialRegistryGroup(ctx, groupID),
+				s.recoverCommittedRuntime(ctx, false),
 			)
 		}
 	}

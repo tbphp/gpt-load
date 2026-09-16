@@ -161,6 +161,7 @@ export type {
 
 export type GroupSettingsUpdateRequest = Partial<{
   name: string
+  max_concurrency: number | null
   price_multiplier: string
   params: ChannelParamsDto
   validation_model: string | null

@@ -4,14 +4,17 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
+
+	"gpt-load/internal/concurrency"
 )
 
 type Manager struct {
-	scheduling *SchedulingState
-	publishMu  sync.RWMutex
-	current    atomic.Pointer[ConfigSnapshot]
-	reconciler SnapshotReconciler
-	updates    chan struct{}
+	concurrency *concurrency.Runtime
+	scheduling  *SchedulingState
+	publishMu   sync.RWMutex
+	current     atomic.Pointer[ConfigSnapshot]
+	reconciler  SnapshotReconciler
+	updates     chan struct{}
 }
 
 // SnapshotReconciler synchronizes infrastructure resources derived from a
@@ -21,7 +24,7 @@ type SnapshotReconciler interface {
 }
 
 func NewManager() *Manager {
-	return &Manager{updates: make(chan struct{})}
+	return &Manager{updates: make(chan struct{}), concurrency: concurrency.New()}
 }
 
 // SetSnapshotReconciler installs the process-owned runtime reconciler during

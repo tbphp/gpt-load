@@ -115,6 +115,10 @@ export type SettingsPatch = Partial<{
   proxy_config: ProxyMutation
 }>
 
+export type SettingsConcurrencyPatch = Partial<
+  Record<'global' | 'default_group' | 'default_access_key' | 'default_credential', number | null>
+>
+
 export interface SettingsResource {
   settings: SettingsDto
 }
@@ -248,12 +252,16 @@ export async function updateSettings(
   client: ApiClient,
   patch: SettingsPatch,
   signal?: AbortSignal,
+  concurrency: SettingsConcurrencyPatch = {},
 ): Promise<SettingsResource> {
   return {
     settings: projectSettings(
       await client.request<unknown>('/api/settings', {
         method: 'PUT',
-        json: { settings: patch },
+        json: {
+          ...(Object.keys(patch).length > 0 ? { settings: patch } : {}),
+          ...(Object.keys(concurrency).length > 0 ? { concurrency } : {}),
+        },
         signal,
       }),
     ),

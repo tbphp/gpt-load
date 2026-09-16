@@ -70,6 +70,7 @@ export interface AccessKeyCostLimitRuleInput {
 
 export type UpdateAccessKeyRequest = Partial<{
   key: string
+  max_concurrency: number | null
   name: string
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto

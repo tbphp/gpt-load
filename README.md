@@ -244,6 +244,16 @@ Environment proxies apply only when no proxy is specified on the credential, gro
 
 </details>
 
+### Concurrency limits
+
+Settings → Concurrency limits configures the global request cap and defaults for Groups, AccessKeys, and accounts/credentials. Override these in Group settings, AccessKey editing, or credential details. Inherit uses the matching system default; `0` means unlimited; positive limits may be up to 1,000,000. All initial defaults are unlimited. Settings, Group, and AccessKey concurrency changes use the page's primary save action; credential detail changes use the editor's save action.
+
+An AccessKey holds one slot for the entire client request, including retries. Groups and credentials hold slots for each active upstream attempt, including the complete SSE stream. WebSocket slots are per active turn; idle connections, management APIs, and local model lists do not consume request slots. Existing WebSocket connection protections remain separate. Subscription accounts share their limit and counter across Groups using stable account identity; credential probes also obey upstream limits.
+
+AccessKey saturation returns `429 access_key_concurrency_limit`; global saturation returns `503 global_concurrency_limit`. Busy Groups/accounts are skipped without consuming retry budget or changing health; exhausted candidate capacity returns `503 upstream_concurrency_limit` without queuing. Identity-bound continuation never switches accounts to bypass a limit. Lowering a cap does not interrupt active requests. Policies persist; in-memory counters reset on restart.
+
+Home, Groups, credentials, and AccessKeys refresh concurrency approximately every three seconds. Home separates active client requests from upstream executions. AccessKey sessions can read only their own counts. Limits and counts apply to one application instance.
+
 ## Production considerations
 
 - The service listens on `127.0.0.1` only by default. For remote access, expose it through a controlled network or a TLS reverse proxy, and configure ACLs and firewall rules.

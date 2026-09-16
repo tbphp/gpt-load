@@ -162,6 +162,7 @@ export default {
       name: '名前',
       key: 'アクセスキー',
       status: '状態',
+      concurrency: '同時実行数',
       filters: 'フィルター',
       scope: '範囲',
       rpm: 'RPM 上限',

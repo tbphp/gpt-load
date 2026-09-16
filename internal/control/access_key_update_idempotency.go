@@ -61,10 +61,31 @@ func (s *Service) UpdateAccessKeyIdempotent(ctx context.Context, idempotencyKey 
 			Models: canonicalFilters.Models, AllowedCIDRs: canonicalFilters.AllowedCIDRs,
 		}
 	}
+	// Keep the digest for pre-existing operations unchanged when this optional
+	// field is absent, so a pending key replacement can still be replayed.
+	encodedRequest, err := json.Marshal(digestRequest)
+	if err != nil {
+		return AccessKeyMetadata{}, app_errors.ErrInternalServer
+	}
+	var requestForDigest map[string]json.RawMessage
+	if err := json.Unmarshal(encodedRequest, &requestForDigest); err != nil {
+		return AccessKeyMetadata{}, app_errors.ErrInternalServer
+	}
+	if !request.MaxConcurrency.Set {
+		delete(requestForDigest, "max_concurrency")
+	} else if request.MaxConcurrency.Null {
+		requestForDigest["max_concurrency"] = json.RawMessage("null")
+	} else {
+		encodedMaximum, marshalErr := json.Marshal(request.MaxConcurrency.Value)
+		if marshalErr != nil {
+			return AccessKeyMetadata{}, app_errors.ErrInternalServer
+		}
+		requestForDigest["max_concurrency"] = encodedMaximum
+	}
 	canonicalBody, err := canonicalIdempotencyBody(struct {
-		Request AccessKeyUpdateRequest `json:"request"`
-		KeyHash string                 `json:"key_hash"`
-	}{Request: digestRequest, KeyHash: s.encryption.Hash(request.Key)})
+		Request map[string]json.RawMessage `json:"request"`
+		KeyHash string                     `json:"key_hash"`
+	}{Request: requestForDigest, KeyHash: s.encryption.Hash(request.Key)})
 	if err != nil {
 		return AccessKeyMetadata{}, app_errors.ErrInternalServer
 	}

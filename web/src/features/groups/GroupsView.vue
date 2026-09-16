@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@/components/config/ConcurrencyControl.vue'
 import { ArrowRight, KeyRound, Layers3, Plus, Search, TriangleAlert, UserRound } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
@@ -320,7 +321,7 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
         v-if="groupsQuery.isPending.value || initialLoading"
         variant="collection"
         :rows="filters.page_size"
-        :columns="6"
+        :columns="7"
         row-height="96px"
         show-controls
         :concealed="!initialLoading"
@@ -426,7 +427,7 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
           v-if="collectionTransition"
           variant="collection"
           :rows="skeletonRows"
-          :columns="6"
+          :columns="7"
           row-height="96px"
           :label="t('groups.collection.loading')"
         />
@@ -470,6 +471,7 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
               <span role="columnheader">{{ t('groups.collection.columns.group') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.status') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.channel') }}</span>
+              <span role="columnheader">{{ t('concurrency.scopes.group') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.models') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.credentialHealth') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.actions') }}</span>
@@ -551,6 +553,17 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
                   :success-label="t('groups.collection.copySuccess')"
                   :failure-label="t('groups.collection.copyFailure')"
                   layout="trailing"
+                />
+              </div>
+
+              <div class="ledger-record-list__cell group-concurrency" role="cell">
+                <span class="mobile-label">{{ t('concurrency.scopes.group') }}</span>
+                <ConcurrencyControl
+                  :id="group.id"
+                  scope="group"
+                  compact
+                  :show-label="false"
+                  concise
                 />
               </div>
 
@@ -637,8 +650,8 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 }
 
 .groups-record-grid {
-  /* 状态列扩宽容纳开关，操作列去掉文案后收窄，总宽比改前更小。 */
-  --ledger-record-list-grid: minmax(0, 1fr) 140px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 96px;
+  --ledger-record-list-grid: minmax(0, 0.9fr) 140px minmax(0, 1.4fr) minmax(90px, 0.65fr) 92px
+    minmax(0, 1.2fr) 96px;
 }
 
 .group-status {
@@ -748,6 +761,21 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
   font-size: var(--text-sm);
 }
 
+.group-concurrency {
+  min-width: 0;
+}
+
+.group-concurrency :deep(.concurrency-control) {
+  padding: 0;
+}
+
+.group-concurrency :deep(.concurrency-control__summary strong) {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
 .model-count strong {
   color: var(--color-text);
   font-family: var(--font-mono);
@@ -787,7 +815,8 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 
 @media (max-width: 1040px) {
   .groups-record-grid {
-    --ledger-record-list-grid: minmax(0, 1fr) 124px minmax(0, 1.25fr) 76px minmax(0, 1.15fr) 72px;
+    --ledger-record-list-grid: minmax(0, 1fr) 124px minmax(0, 1.2fr) 86px 68px minmax(0, 1.05fr)
+      72px;
     --ledger-record-list-column-gap: 12px;
   }
 }
@@ -811,8 +840,20 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 
   .model-count {
     align-self: stretch;
+  }
+
+  .group-concurrency {
+    display: grid;
+    align-content: start;
+    gap: 5px;
     border-right: 1px solid var(--color-border-subtle);
     padding-right: 16px;
+  }
+
+  .credential-health {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--color-border-subtle);
+    padding-top: 12px;
   }
 
   .model-count strong {
@@ -857,6 +898,10 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
   }
 
   .model-count {
+    padding-right: 0;
+  }
+
+  .group-concurrency {
     padding-right: 12px;
   }
 

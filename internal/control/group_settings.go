@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/concurrency"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
@@ -47,6 +48,7 @@ type GroupSettingsUpdateRequest struct {
 	WeightManual       optionalField[int]                  `json:"weight_manual"`
 	Overrides          optionalField[config.Settings]      `json:"overrides"`
 	Proxy              optionalField[outboundproxy.Config] `json:"proxy"`
+	MaxConcurrency     optionalField[int64]                `json:"max_concurrency"`
 }
 
 type normalizedGroupSettingsUpdate struct {
@@ -179,8 +181,12 @@ func normalizeGroupSettingsUpdate(
 		}
 	}
 	if !request.ValidationProtocol.Set && !request.Name.Set && !request.Params.Set && !request.ValidationModel.Set &&
-		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set && !request.PriceMultiplier.Set {
+		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set &&
+		!request.PriceMultiplier.Set && !request.MaxConcurrency.Set {
 		return normalizedGroupSettingsUpdate{}, app_errors.ErrBadRequest
+	}
+	if err := validateConcurrencyOverride(request.MaxConcurrency); err != nil {
+		return normalizedGroupSettingsUpdate{}, err
 	}
 
 	if request.ValidationProtocol.Set && (request.ValidationProtocol.Null || !request.ValidationProtocol.Value.Valid()) {
@@ -337,6 +343,9 @@ func (s *Service) UpdateGroupSettings(
 			if err := tx.Model(&models.Group{}).Where("id = ?", groupID).Updates(updates).Error; err != nil {
 				return app_errors.ParseDBError(err)
 			}
+		}
+		if err := applyConcurrencyOverride(tx, concurrency.Group(groupID), request.MaxConcurrency); err != nil {
+			return err
 		}
 		if targetChanged {
 			targetEntries, err = stateloader.BuildGroupCredentialEntriesWithProxy(ctx, tx, groupID, s.encryption)

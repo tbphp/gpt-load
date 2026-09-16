@@ -3,11 +3,18 @@ import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import { isCanonicalRouteQuery, scalarRouteQuery } from '@/app/route-query'
 
 export type SettingsSection =
-  'routing' | 'connection' | 'reliability' | 'browser-access' | 'data-maintenance' | 'system'
+  | 'routing'
+  | 'connection'
+  | 'concurrency'
+  | 'reliability'
+  | 'browser-access'
+  | 'data-maintenance'
+  | 'system'
 
 const sections = new Set<SettingsSection>([
   'routing',
   'connection',
+  'concurrency',
   'reliability',
   'browser-access',
   'data-maintenance',

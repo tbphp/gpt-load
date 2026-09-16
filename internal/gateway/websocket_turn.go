@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/concurrency"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
@@ -161,6 +162,16 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		reject(reasonAccessKeyRateLimited)
 		return
 	}
+	requestLease, blocked, current := h.manager.AdmitConcurrency(snapshot, snapshot.RequestConcurrencyLimits(key.ID))
+	if !current {
+		reject(reasonConfigurationChanged)
+		return
+	}
+	if blocked != "" {
+		reject(requestConcurrencyReason(blocked))
+		return
+	}
+	defer requestLease.Release()
 	original, err := inspectWebsocketRequest(turn.body)
 	if err != nil {
 		reject(reasonInvalidProtocolRequest)
@@ -251,7 +262,12 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	var refreshRef state.CredentialRef
 	authRefreshUsed := false
 	var finishRejectedAttempt func()
-	for sequence := 1; sequence <= limit; sequence++ {
+	capacityBlocked := false
+	var attemptLease *concurrency.Lease
+	defer func() { attemptLease.Release() }()
+	for sequence := 1; sequence <= limit; {
+		attemptLease.Release()
+		attemptLease = nil
 		if s.ctx.Err() != nil {
 			recorder.completeCanceled(s.ctx, 0, -1)
 			return
@@ -268,7 +284,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				return
 			}
 			if !iterator.ChargeReplay(selection, currentRef) {
-				reject(reasonNoCandidate)
+				if capacityBlocked {
+					reject(reasonUpstreamConcurrency)
+				} else {
+					reject(reasonNoCandidate)
+				}
 				return
 			}
 			ref = currentRef
@@ -282,7 +302,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 					finishRejectedAttempt()
 					return
 				}
-				reject(reasonNoCandidate)
+				if capacityBlocked {
+					reject(reasonUpstreamConcurrency)
+				} else {
+					reject(reasonNoCandidate)
+				}
 				return
 			}
 			ref = query.AllowedCredentialRefs[selection.CredentialID]
@@ -348,6 +372,21 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			reject(reasonConfigurationChanged)
 			s.cancel()
 			return
+		}
+		var blocked concurrency.Subject
+		var current bool
+		attemptLease, blocked, current = h.manager.AdmitConcurrency(snapshot, snapshot.UpstreamConcurrencyLimits(ref))
+		if !current {
+			reject(reasonConfigurationChanged)
+			return
+		}
+		if blocked != "" {
+			releaseInput()
+			capacityBlocked = true
+			if blocked == concurrency.Group(selection.GroupID) {
+				iterator.SkipGroup(selection.GroupID)
+			}
+			continue
 		}
 		if !admission.admitted && h.accessQuota != nil {
 			var decision accessquota.Decision
@@ -435,6 +474,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			result.StatusCode = wsResult.Error.StatusCode
 		}
 		cancel()
+		attemptLease.Release()
 		releaseInput()
 		for _, name := range []string{"X-Request-Id", "Request-Id", "Openai-Request-Id", "X-Oai-Request-Id"} {
 			if value := result.Header.Get(name); value != "" && len(value) <= 1024 {
@@ -482,6 +522,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				binding = nil
 			}
 			recorder.retryIfAnotherForward(index)
+			sequence++
 			continue
 		}
 		if retryableTurn && !result.Committed && startedBound && decision.Retry != health.RetryNone &&
