@@ -1,6 +1,7 @@
 package control
 
 import (
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -75,8 +76,9 @@ func parseAccessKeyCollectionQuery(
 		query.Status = &status
 	}
 	if entries, exists := values["group_id"]; exists {
-		id, ok := parseAccessKeyCollectionPositiveInt(entries[0])
-		if !ok || uint64(id) > uint64(^uint(0)) {
+		id, err := strconv.ParseUint(entries[0], 10, strconv.IntSize)
+		if err != nil || id == 0 || id > math.MaxInt64 ||
+			strconv.FormatUint(id, 10) != entries[0] {
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
 		}
 		query.GroupID = uint(id)

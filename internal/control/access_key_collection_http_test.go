@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -107,6 +108,34 @@ func TestParseAccessKeyCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 			got, apiErr := parseAccessKeyCollectionQuery(test.rawQuery, test.forceQuery)
 			if apiErr == nil || apiErr.Code != "BAD_REQUEST" {
 				t.Fatalf("parseAccessKeyCollectionQuery() = %#v, %v; want BAD_REQUEST", got, apiErr)
+			}
+		})
+	}
+}
+
+func TestParseAccessKeyCollectionQueryPreservesGroupIDIntegerBounds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		value string
+		valid bool
+	}{
+		{value: "4294967295", valid: true},
+		{value: "4294967296", valid: strconv.IntSize == 64},
+		{value: "9223372036854775807", valid: strconv.IntSize == 64},
+		{value: "9223372036854775808", valid: false},
+		{value: "18446744073709551615", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.value, func(t *testing.T) {
+			got, apiErr := parseAccessKeyCollectionQuery("group_id="+test.value, false)
+			if !test.valid {
+				if apiErr == nil || apiErr.Code != "BAD_REQUEST" {
+					t.Fatalf("group_id=%s must be rejected: %#v, %v", test.value, got, apiErr)
+				}
+				return
+			}
+			if apiErr != nil || strconv.FormatUint(uint64(got.GroupID), 10) != test.value {
+				t.Fatalf("group_id=%s must round-trip without truncation: %#v, %v", test.value, got, apiErr)
 			}
 		})
 	}

@@ -4,12 +4,21 @@ export type FrontendID = 'classic' | 'modern'
 const frontendStorageKey = 'gpt-load.frontend.v2'
 const legacyFrontendStorageKey = 'gpt-load.frontend'
 const authStorageKey = 'gpt-load.auth-key'
+const frontendAuthTimeoutMS = 5000
 
 function getStorage(type: 'localStorage' | 'sessionStorage'): Storage | undefined {
   try {
     return window[type]
   } catch {
     return undefined
+  }
+}
+
+function readStorageKey(type: 'localStorage' | 'sessionStorage', key: string): string {
+  try {
+    return getStorage(type)?.getItem(key) ?? ''
+  } catch {
+    return ''
   }
 }
 
@@ -25,15 +34,10 @@ function sessionPrincipal(response: unknown): 'admin' | 'access_key' | undefined
 }
 
 function readAuthKey(): string {
-  try {
-    return (
-      getStorage('sessionStorage')?.getItem(authStorageKey) ??
-      getStorage('localStorage')?.getItem(authStorageKey) ??
-      ''
-    )
-  } catch {
-    return ''
-  }
+  return (
+    readStorageKey('sessionStorage', authStorageKey) ||
+    readStorageKey('localStorage', authStorageKey)
+  )
 }
 
 function removePreference(key: string): void {
@@ -52,26 +56,44 @@ export function clearFrontendPreference(): void {
 export async function getPreferredFrontend(): Promise<FrontendID> {
   // 旧版的全局缓存没有认证上下文，必须直接失效，避免访问密钥进入经典版。
   removePreference(legacyFrontendStorageKey)
-  if (getStorage('localStorage')?.getItem(frontendStorageKey) !== 'classic') return 'modern'
+  if (readStorageKey('localStorage', frontendStorageKey) !== 'classic') return 'modern'
 
   const credential = readAuthKey()
   if (!credential) return 'modern'
 
+  const controller = new AbortController()
+  let timeoutID: number | undefined
   try {
-    const response = await window.fetch('/api/auth/session', {
-      cache: 'no-store',
-      headers: { Authorization: `Bearer ${credential}` },
+    const timeout = new Promise<undefined>((resolve) => {
+      timeoutID = window.setTimeout(() => {
+        resolve(undefined)
+        controller.abort()
+      }, frontendAuthTimeoutMS)
     })
-    if (!response.ok) {
-      clearFrontendPreference()
-      return 'modern'
-    }
-    const principal = sessionPrincipal(await response.json())
+    // 截止时间覆盖响应正文读取；迟到结果只返回身份，不再修改浏览器偏好。
+    const principal = await Promise.race([
+      window
+        .fetch('/api/auth/session', {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${credential}` },
+          signal: controller.signal,
+        })
+        .then(async (response) => {
+          if (response.status === 401) return 'unauthorized' as const
+          if (!response.ok) return undefined
+          return sessionPrincipal(await response.json())
+        }),
+      timeout,
+    ])
     if (principal === 'admin') return 'classic'
+    if (principal === 'unauthorized' || principal === 'access_key') {
+      clearFrontendPreference()
+    }
   } catch {
-    // 认证状态暂时不可用时，保守回到新版，由新版认证页呈现具体错误。
+    // 临时网络、存储或响应异常保留管理员选择，由新版认证页提供恢复入口。
+  } finally {
+    if (timeoutID !== undefined) window.clearTimeout(timeoutID)
   }
-  clearFrontendPreference()
   return 'modern'
 }
 
