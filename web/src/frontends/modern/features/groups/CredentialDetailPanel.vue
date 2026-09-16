@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import {
   credentialDetailKey,
   getCredentialDetail,
@@ -32,6 +33,7 @@ import CredentialWindowUsage from './CredentialWindowUsage.vue'
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
 const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
 const { t, n, locale, te } = useI18n()
+const route = useRoute()
 const client = useApiClient()
 const cache = useQueryClient()
 const query = useQuery({
@@ -39,6 +41,7 @@ const query = useQuery({
   queryFn: ({ signal }) => getCredentialDetail(client, props.group.id, props.row.id, signal),
 })
 const item = computed(() => query.data.value ?? props.row)
+const previewWindowUsage = computed(() => route.query.preview_window_usage === '1')
 const state = computed(() => credentialStatus(item.value))
 const saved = ref<CredentialRow>()
 const weight = ref('')
@@ -162,6 +165,7 @@ useMessageSource(() =>
       <CredentialWindowUsage
         v-if="item.observation?.windows.length"
         :windows="item.observation.windows"
+        :preview="previewWindowUsage"
       />
       <section class="modern-credential-detail-section">
         <div class="modern-credential-detail-title">

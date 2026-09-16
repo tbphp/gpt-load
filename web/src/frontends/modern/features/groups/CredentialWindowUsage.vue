@@ -8,17 +8,94 @@ import { formatCompactNumber, formatNanoUSD } from '@modern/components/ui/format
 import {
   credentialTime,
   quotaRemaining,
+  quotaWindowRange,
   quotaWindowTitle,
   sortedQuotaWindows,
 } from './credential-presentation'
 
-const props = defineProps<{ windows: readonly CredentialQuota[] }>()
+const props = withDefaults(
+  defineProps<{ windows: readonly CredentialQuota[]; preview?: boolean }>(),
+  {
+    preview: false,
+  },
+)
 const { t, te, n, locale } = useI18n()
-const rows = computed(() => sortedQuotaWindows(props.windows))
-function remaining(window: CredentialQuota): string {
+const minimumUsedPercent = 5
+const minimumRequests = 10
+const minimumCostNanoUSD = 10_000_000n
+const preview = computed(() => Boolean(props.preview && import.meta.env.DEV))
+const rows = computed(() =>
+  sortedQuotaWindows(
+    props.windows.filter(
+      (window) => window.scope === 'account' && quotaWindowRange(window) !== undefined,
+    ),
+  ).map((window) => {
+    const display = preview.value ? previewWindow(window) : window
+    return { window: display, estimate: estimate(display) }
+  }),
+)
+function previewWindow(window: CredentialQuota): CredentialQuota {
+  const longWindow = (window.windowSeconds ?? 0) >= 24 * 60 * 60
+  return {
+    ...window,
+    used: longWindow ? 44.2 : 28.4,
+    limit: 100,
+    remaining: longWindow ? 55.8 : 71.6,
+    utilization: longWindow ? 0.442 : 0.284,
+    usage: {
+      from: window.usage?.from,
+      to: window.usage?.to,
+      requests: longWindow ? 426 : 128,
+      tokens: longWindow ? 5_642_000 : 1_284_000,
+      cost: longWindow ? '2770000000' : '612000000',
+      complete: true,
+      usageComplete: true,
+      pricingComplete: true,
+    },
+  }
+}
+function usedPercent(window: CredentialQuota): string {
   const value = quotaRemaining(window)
-  if (value !== undefined) return `${n(value, { maximumFractionDigits: 1 })}%`
-  return window.remaining === undefined ? '—' : n(window.remaining)
+  return value === undefined ? '—' : `${n(100 - value, { maximumFractionDigits: 1 })}%`
+}
+function estimate(window: CredentialQuota): { text: string; hint: string } {
+  const usage = window.usage
+  if (!usage) return { text: '—', hint: t('credentialCards.usageUnavailable') }
+  const remaining = quotaRemaining(window)
+  if (remaining === undefined) return { text: '—', hint: t('credentialCards.estimateQuotaUnknown') }
+  if (!usage.complete || !usage.pricingComplete)
+    return { text: '—', hint: t('credentialCards.estimateIncomplete') }
+  const used = 100 - remaining
+  const cost = BigInt(usage.cost)
+  if (used < minimumUsedPercent || usage.requests < minimumRequests || cost < minimumCostNanoUSD)
+    return {
+      text: '—',
+      hint: t('credentialCards.estimateSmallSample', {
+        percent: n(minimumUsedPercent),
+        requests: n(minimumRequests),
+        cost: formatNanoUSD(minimumCostNanoUSD.toString(), locale.value, 'narrowSymbol', 2),
+      }),
+    }
+  // 以万分之一的比例精度外推，金额保留纳美元整数，避免转换原始金额时丢失精度。
+  const usedBasisPoints = BigInt(Math.round(used * 100))
+  const fullCost = (cost * 10_000n + usedBasisPoints / 2n) / usedBasisPoints
+  const amount = formatNanoUSD(fullCost.toString(), locale.value, 'narrowSymbol', 2)
+  const hint = [
+    t('credentialCards.estimateOnly'),
+    t('credentialCards.estimateCost', { value: amount }),
+    usage.usageComplete
+      ? t('credentialCards.estimateTokens', {
+          value: formatCompactNumber(
+            (usage.tokens * 10_000) / Number(usedBasisPoints),
+            locale.value,
+          ),
+        })
+      : '',
+    t('credentialCards.estimateFormula'),
+  ]
+    .filter(Boolean)
+    .join('\n')
+  return { text: `≈ ${amount}`, hint }
 }
 function label(window: CredentialQuota): string {
   const key = 'credentialCards.quotaLabels.' + window.labelKey
@@ -28,7 +105,6 @@ function detail(window: CredentialQuota): string {
   const usage = window.usage
   return [
     label(window),
-    window.models.join(' · '),
     usage?.from && usage.to
       ? `${credentialTime(usage.from, locale.value)} – ${credentialTime(usage.to, locale.value)}`
       : '',
@@ -41,7 +117,6 @@ function warning(window: CredentialQuota): string | undefined {
   if (!usage) return t('credentialCards.usageUnavailable')
   const parts = [
     !usage.complete ? t('groups.row.partialHelp') : '',
-    !usage.usageComplete ? t('credentialCards.tokensIncomplete') : '',
     !usage.pricingComplete ? t('credentialCards.pricingIncomplete') : '',
   ].filter(Boolean)
   return parts.length ? parts.join('\n') : undefined
@@ -49,7 +124,7 @@ function warning(window: CredentialQuota): string | undefined {
 </script>
 
 <template>
-  <section class="modern-window-usage">
+  <section v-if="rows.length" class="modern-window-usage">
     <header class="modern-window-usage-heading">
       <h3>{{ t('credentialCards.windowUsage') }}</h3>
     </header>
@@ -60,27 +135,30 @@ function warning(window: CredentialQuota): string | undefined {
     >
       <div class="modern-window-usage-columns modern-window-usage-head" role="row">
         <span role="columnheader">{{ t('credentialCards.window') }}</span>
-        <span role="columnheader">{{ t('credentialCards.remainingShort') }}</span>
+        <span role="columnheader">{{ t('credentialCards.usedPercentShort') }}</span>
         <span role="columnheader">{{ t('credentialCards.requests') }}</span>
         <span role="columnheader">Tokens</span>
         <span role="columnheader">{{ t('credentialCards.costShort') }}</span>
+        <span role="columnheader">{{ t('credentialCards.fullWindowEstimate') }}</span>
       </div>
       <div
-        v-for="window in rows"
+        v-for="{ window, estimate: projection } in rows"
         :key="window.id"
         class="modern-window-usage-columns modern-window-usage-row"
         role="row"
       >
-        <div class="modern-window-usage-name" role="cell">
-          <AppOverflowText :text="label(window)" :full-text="detail(window)" />
-          <AppTooltip v-if="warning(window)" :label="warning(window)">
-            <span class="modern-window-usage-warning" tabindex="0" :aria-label="warning(window)"
-              ><AppIcon :icon="Info" size="xs"
-            /></span>
-          </AppTooltip>
+        <div class="modern-window-usage-identity" role="cell">
+          <div class="modern-window-usage-name">
+            <AppOverflowText :text="label(window)" :full-text="detail(window)" />
+            <AppTooltip v-if="warning(window)" :label="warning(window)">
+              <span class="modern-window-usage-warning" tabindex="0" :aria-label="warning(window)"
+                ><AppIcon :icon="Info" size="xs"
+              /></span>
+            </AppTooltip>
+          </div>
         </div>
-        <div role="cell" class="modern-window-usage-remaining">
-          <span>{{ remaining(window) }}</span>
+        <div role="cell" class="modern-window-usage-used">
+          <span>{{ usedPercent(window) }}</span>
         </div>
         <div role="cell" class="modern-window-usage-requests">
           <AppOverflowText
@@ -98,6 +176,9 @@ function warning(window: CredentialQuota): string | undefined {
           <AppOverflowText
             :text="window.usage ? formatNanoUSD(window.usage.cost, locale, 'narrowSymbol') : '—'"
           />
+        </div>
+        <div role="cell" class="modern-window-usage-estimate">
+          <AppOverflowText :text="projection.text" :hint="projection.hint" tabindex="0" />
         </div>
       </div>
     </div>
@@ -129,8 +210,8 @@ function warning(window: CredentialQuota): string | undefined {
 .modern-window-usage-columns {
   display: grid;
   grid-template-columns:
-    minmax(0, 1.35fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 0.85fr)
-    minmax(0, 1fr);
+    minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 0.8fr)
+    minmax(0, 0.85fr) minmax(0, 1.1fr);
   align-items: center;
   gap: var(--modern-space-2);
   padding: var(--modern-space-2);
@@ -152,9 +233,13 @@ function warning(window: CredentialQuota): string | undefined {
 .modern-window-usage-row > div {
   min-width: 0;
 }
-.modern-window-usage-remaining {
-  display: grid;
-  gap: var(--modern-space-1);
+.modern-window-usage-used {
+  color: var(--modern-text);
+}
+.modern-window-usage-estimate {
+  min-width: 0;
+  color: var(--modern-text);
+  font-weight: var(--modern-weight-medium);
 }
 .modern-window-usage-name {
   display: flex;
