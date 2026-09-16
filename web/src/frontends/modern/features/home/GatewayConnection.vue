@@ -302,7 +302,6 @@ async function importClient(): Promise<void> {
                 <pre tabindex="0">{{ block.content }}</pre>
               </div>
             </template>
-            <p class="modern-connect-hint">{{ t('home.copyHint') }}</p>
           </div>
         </div>
       </div>
@@ -378,8 +377,7 @@ async function importClient(): Promise<void> {
 .modern-connect-content > * {
   flex: none;
 }
-.modern-connect-instruction,
-.modern-connect-hint {
+.modern-connect-instruction {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);

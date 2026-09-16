@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { Copy } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
-import { AppCopyValue, AppIconButton, AppOverflowText } from '@modern/components/ui'
+import { AppCopyValue, AppTextField } from '@modern/components/ui'
 import type { GatewayField } from './gateway-config'
 
 defineProps<{
@@ -17,22 +16,24 @@ const { t } = useI18n()
     <div v-for="field in fields" :key="field.slot" class="modern-connect-field">
       <dt>{{ t('home.slots.' + field.slot) }}</dt>
       <dd>
-        <AppOverflowText :text="field.value || t('home.modelPending')" />
-        <AppCopyValue
-          v-if="copyable && field.value"
-          :value="field.value"
-          :resolve-value="field.slot === 'apiKey' ? resolveKey : undefined"
+        <AppTextField
+          :model-value="field.value"
+          :label="t('home.slots.' + field.slot)"
+          :placeholder="t('home.modelPending')"
+          size="xs"
+          label-hidden
+          readonly
         >
-          <template #trigger="{ copy, pending }">
-            <AppIconButton
-              :icon="Copy"
+          <template #suffix>
+            <AppCopyValue
+              v-if="copyable && field.value"
+              :value="field.value"
+              display=""
               :label="t('home.copyField', { field: t('home.slots.' + field.slot) })"
-              :loading="pending"
-              size="xxs"
-              @click="copy()"
+              :resolve-value="field.slot === 'apiKey' ? resolveKey : undefined"
             />
           </template>
-        </AppCopyValue>
+        </AppTextField>
       </dd>
     </div>
   </dl>
@@ -57,18 +58,8 @@ const { t } = useI18n()
   font-size: var(--modern-font-size-small);
 }
 .modern-connect-field dd {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--modern-space-2);
   min-width: 0;
-  min-height: var(--modern-control-sm);
   margin: 0;
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-subtle);
-  padding: var(--modern-space-1) var(--modern-space-1) var(--modern-space-1) var(--modern-space-3);
   font-family: var(--modern-font-mono);
-  font-size: var(--modern-font-size-small);
 }
 </style>

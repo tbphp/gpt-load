@@ -60,7 +60,7 @@ defineExpose({
   background: transparent;
   padding: var(--modern-space-1) 0;
   color: var(--modern-text);
-  font-size: var(--modern-font-size-secondary);
+  font-size: inherit;
   line-height: var(--modern-leading-compact);
 }
 .modern-text-field-control input:disabled {
