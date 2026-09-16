@@ -198,9 +198,7 @@ func (s *Service) loadGlobalProxyConfig(
 	db *gorm.DB,
 ) (*outboundproxy.Config, error) {
 	var row models.SystemSetting
-	err := db.WithContext(ctx).
-		Select("key", "value").
-		Where("key = ?", outboundproxy.SystemSettingKey).
+	err := globalProxyConfigScope(db.WithContext(ctx)).
 		Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -209,6 +207,12 @@ func (s *Service) loadGlobalProxyConfig(
 		return nil, app_errors.ParseDBError(err)
 	}
 	return decryptProxyOverride(s.encryption, &row.Value)
+}
+
+func globalProxyConfigScope(db *gorm.DB) *gorm.DB {
+	return db.Model(&models.SystemSetting{}).
+		Select("key", "value").
+		Where(&models.SystemSetting{Key: outboundproxy.SystemSettingKey})
 }
 
 func (s *Service) resolveGroupProxy(
