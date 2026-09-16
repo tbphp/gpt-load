@@ -90,6 +90,7 @@ export interface LogEntry {
   channel_id: string | null
   credential_id: number | null
   credential_name: string
+  credential_deleted: boolean
   route_mode: string | null
   usage_state: 'complete' | 'partial' | 'missing' | 'not_applicable'
   cost_state: 'priced' | 'unpriced' | 'not_applicable'
@@ -132,6 +133,7 @@ export interface LogAttempt {
   channel_id: string | null
   credential_id: number | null
   credential_name: string
+  credential_deleted: boolean
   operation: string | null
   route_mode: string | null
   upstream_model: string | null
@@ -256,6 +258,7 @@ function entry(value: unknown): LogEntry {
     channel_id: optionalText(row.channel_id),
     credential_id: optionalNumber(row.credential_id),
     credential_name: text(row.credential_name),
+    credential_deleted: boolean(row.credential_deleted),
     route_mode: optionalText(row.route_mode),
     usage_state: oneOf(row.usage_state, [
       'complete',
@@ -324,6 +327,7 @@ export async function getLogDetail(
         channel_id: optionalText(item.channel_id),
         credential_id: optionalNumber(item.credential_id),
         credential_name: text(item.credential_name),
+        credential_deleted: boolean(item.credential_deleted),
         operation: optionalText(item.operation),
         route_mode: optionalText(item.route_mode),
         upstream_model: optionalText(item.upstream_model),
