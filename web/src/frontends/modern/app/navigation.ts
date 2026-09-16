@@ -5,7 +5,6 @@ import {
   House,
   KeyRound,
   Layers2,
-  Route,
   ScrollText,
   Settings2,
 } from '@lucide/vue'
@@ -84,14 +83,6 @@ export const navigationItems = [
     path: pagePath('settings'),
     section: 'system',
     icon: Settings2,
-    adminOnly: true,
-  },
-  {
-    id: 'inspector',
-    name: 'modern-inspector',
-    path: pagePath('monitor-inspector'),
-    section: 'system',
-    icon: Route,
     adminOnly: true,
   },
 ] as const

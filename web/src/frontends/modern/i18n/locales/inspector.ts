@@ -11,8 +11,6 @@ export const zhCN = {
   invalidModel: '模型名称过长或包含控制字符',
   optionsFailed: '无法加载检查选项',
   failed: '路由检查失败，请重试',
-  idle: '检查请求会走哪条路径',
-  idleHelp: '选择访问密钥、协议和模型，查看可用分组及排除原因。',
   boundary: '仅分析当前路由，不发送上游请求。',
   changed: '请求条件已改变，结果仍对应上次检查',
   routable: '可以路由',
@@ -95,9 +93,6 @@ export const enUS = {
   invalidModel: 'The model name is too long or contains control characters',
   optionsFailed: 'Could not load inspection options',
   failed: 'Route inspection failed. Try again.',
-  idle: 'See where a request would go',
-  idleHelp:
-    'Choose an access key, protocol and model to see available groups and exclusion reasons.',
   boundary: 'Analyzes the current route without sending an upstream request.',
   changed: 'Inputs changed; showing the previous inspection',
   routable: 'Routable',
@@ -180,9 +175,6 @@ export const jaJP = {
   invalidModel: 'モデル名が長すぎるか、制御文字が含まれています',
   optionsFailed: '確認オプションを取得できませんでした',
   failed: 'ルートの確認に失敗しました。再試行してください。',
-  idle: 'リクエストの経路を確認',
-  idleHelp:
-    'アクセスキー、プロトコル、モデルを選択すると、利用可能なグループと除外理由を確認できます。',
   boundary: '現在のルートを解析するだけで、上流へリクエストは送信しません。',
   changed: '条件が変更されました。前回の結果を表示しています',
   routable: 'ルーティング可能',

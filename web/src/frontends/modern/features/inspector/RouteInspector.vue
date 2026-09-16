@@ -5,11 +5,10 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRouter } from 'vue-router'
 import { useApiClient } from '@shared/http/client-context'
-import { getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
-import { getLogAccessKeys } from '@modern/api/logs'
+import type { GroupWorkspace } from '@modern/api/groups'
+import type { LogAccessKeyOption } from '@modern/api/logs'
 import { inspectRoute, type InspectionGroup, type InspectionRequest } from '@modern/api/inspector'
 import { useURLState, positivePage } from '@modern/app/url-state'
-import { usePageRefresh } from '@modern/app/page-refresh'
 import { protocolOrder } from '@modern/i18n/protocols'
 import {
   AppBadge,
@@ -35,32 +34,52 @@ import { percentage } from '@modern/features/usage/usage-display'
 import { activeGroups, groupWeight, reasonLabel } from './inspection-display'
 import InspectionCredentials from './InspectionCredentials.vue'
 
+const props = defineProps<{
+  groups?: GroupWorkspace
+  groupsLoading: boolean
+  groupsFailed: boolean
+  accessKeys?: LogAccessKeyOption[]
+  keysLoading: boolean
+  keysFailed: boolean
+}>()
+const emit = defineEmits<{ retryOptions: [] }>()
 const client = useApiClient()
 const router = useRouter()
 const { t, te, n, locale } = useI18n()
 const state = useURLState(
-  ['protocol', 'external_model', 'access_key_id', 'run', 'view', 'q', 'page', 'page_size'],
+  [
+    'inspect_protocol',
+    'inspect_external_model',
+    'inspect_access_key_id',
+    'inspect_run',
+    'inspect_view',
+    'inspect_q',
+    'inspect_page',
+    'inspect_page_size',
+  ],
   (query) => ({
-    protocol: protocolOrder.find((value) => value === query.protocol) ?? protocolOrder[0],
-    model: typeof query.external_model === 'string' ? query.external_model : '',
-    key: positivePage(query.access_key_id, 0),
-    run: query.run === '1',
-    view: ['candidates', 'excluded'].includes(String(query.view)) ? String(query.view) : 'all',
-    q: typeof query.q === 'string' ? query.q : '',
-    page: positivePage(query.page),
-    pageSize: [20, 50, 100].includes(positivePage(query.page_size))
-      ? positivePage(query.page_size)
+    protocol: protocolOrder.find((value) => value === query.inspect_protocol) ?? protocolOrder[0],
+    model: typeof query.inspect_external_model === 'string' ? query.inspect_external_model : '',
+    key: positivePage(query.inspect_access_key_id, 0),
+    run: query.inspect_run === '1',
+    view: ['candidates', 'excluded'].includes(String(query.inspect_view))
+      ? String(query.inspect_view)
+      : 'all',
+    q: typeof query.inspect_q === 'string' ? query.inspect_q : '',
+    page: positivePage(query.inspect_page),
+    pageSize: [20, 50, 100].includes(positivePage(query.inspect_page_size))
+      ? positivePage(query.inspect_page_size)
       : 20,
   }),
   (value) => ({
-    protocol: value.protocol,
-    external_model: value.model || undefined,
-    access_key_id: value.key ? String(value.key) : undefined,
-    run: value.run ? '1' : undefined,
-    view: value.view === 'all' ? undefined : value.view,
-    q: value.q || undefined,
-    page: value.page > 1 ? String(value.page) : undefined,
-    page_size: value.pageSize === 20 ? undefined : String(value.pageSize),
+    inspect_protocol: value.protocol,
+    inspect_external_model: value.model || undefined,
+    inspect_access_key_id: value.key ? String(value.key) : undefined,
+    inspect_run: value.run ? '1' : undefined,
+    inspect_view: value.view === 'all' ? undefined : value.view,
+    inspect_q: value.q || undefined,
+    inspect_page: value.page > 1 ? String(value.page) : undefined,
+    inspect_page_size: value.pageSize === 20 ? undefined : String(value.pageSize),
   }),
 )
 const draft = ref({
@@ -77,25 +96,17 @@ watch([() => state.value.protocol, () => state.value.model, () => state.value.ke
   }
   touched.value = false
 })
-const groups = useQuery({
-  queryKey: groupQueryKey,
-  queryFn: ({ signal }) => getGroupWorkspace(client, signal),
-})
-const keys = useQuery({
-  queryKey: ['modern', 'log-access-key-options'],
-  queryFn: ({ signal }) => getLogAccessKeys(client, signal),
-})
 const keyOptions = computed(() => [
-  ...(draft.value.key && !keys.data.value?.some((key) => String(key.id) === draft.value.key)
+  ...(draft.value.key && !props.accessKeys?.some((key) => String(key.id) === draft.value.key)
     ? [
         {
           value: draft.value.key,
-          label: keys.isSuccess.value ? t('logs.deleted') : t('ui.loading'),
+          label: props.accessKeys ? t('logs.deleted') : t('ui.loading'),
           disabled: true,
         },
       ]
     : []),
-  ...(keys.data.value ?? []).map((key) => ({
+  ...(props.accessKeys ?? []).map((key) => ({
     value: String(key.id),
     label: key.name,
     description: key.suffix,
@@ -105,7 +116,7 @@ const protocolOptions = computed(() =>
   protocolOrder.map((protocol) => ({ value: protocol, label: t('protocols.' + protocol) })),
 )
 const modelOptions = computed(() =>
-  [...new Set(groups.data.value?.items.flatMap((group) => group.modelNames))]
+  [...new Set(props.groups?.items.flatMap((group) => group.modelNames))]
     .sort()
     .map((model) => ({ value: model, label: model })),
 )
@@ -115,8 +126,8 @@ const validModel = (model: string) =>
   !/[\u0000-\u001f\u007f-\u009f]/u.test(model)
 const keyError = computed(() =>
   (touched.value || state.value.run) &&
-  keys.isSuccess.value &&
-  !keys.data.value?.some((key) => String(key.id) === draft.value.key)
+  props.accessKeys !== undefined &&
+  !props.accessKeys.some((key) => String(key.id) === draft.value.key)
     ? t('inspector.requiredKey')
     : undefined,
 )
@@ -134,7 +145,7 @@ const canQuery = computed(
   () =>
     state.value.run &&
     validModel(state.value.model) &&
-    Boolean(keys.data.value?.some((key) => key.id === state.value.key)),
+    Boolean(props.accessKeys?.some((key) => key.id === state.value.key)),
 )
 const query = useQuery(
   computed(() => {
@@ -165,7 +176,7 @@ watch(result, (value) => {
   const available = new Set(value?.groups.map(rowKey))
   expanded.value = new Set([...expanded.value].filter((key) => available.has(key)))
 })
-const groupMap = computed(() => new Map(groups.data.value?.items.map((group) => [group.id, group])))
+const groupMap = computed(() => new Map(props.groups?.items.map((group) => [group.id, group])))
 const filtered = computed(() =>
   (result.value?.groups ?? [])
     .filter((group) => {
@@ -253,7 +264,7 @@ async function run(): Promise<void> {
   touched.value = true
   if (
     !validModel(draft.value.model) ||
-    !keys.data.value?.some((key) => String(key.id) === draft.value.key) ||
+    !props.accessKeys?.some((key) => String(key.id) === draft.value.key) ||
     query.isFetching.value
   )
     return
@@ -273,17 +284,14 @@ async function run(): Promise<void> {
   if (same) await query.refetch()
 }
 async function refresh(): Promise<void> {
-  await Promise.all([
-    groups.refetch(),
-    keys.refetch(),
-    ...(canQuery.value ? [query.refetch()] : []),
-  ])
+  if (canQuery.value) await query.refetch()
 }
-usePageRefresh({
-  refresh,
-  pending: () => query.isFetching.value || groups.isFetching.value || keys.isFetching.value,
-  updatedAt: () => result.value?.observedAt,
-})
+function retryOptions(): void {
+  emit('retryOptions')
+}
+const pending = computed(() => query.isFetching.value)
+const updatedAt = computed(() => result.value?.observedAt)
+defineExpose({ refresh, pending, updatedAt })
 </script>
 
 <template>
@@ -295,7 +303,7 @@ usePageRefresh({
         :placeholder="t('inspector.chooseKey')"
         :options="keyOptions"
         :error="keyError"
-        :loading="keys.isFetching.value"
+        :loading="keysLoading"
         label-hidden
         required
       />
@@ -311,7 +319,7 @@ usePageRefresh({
         :placeholder="t('inspector.chooseModel')"
         :options="modelOptions"
         :error="modelError"
-        :loading="groups.isFetching.value"
+        :loading="groupsLoading"
         allow-custom
         label-hidden
         required
@@ -321,29 +329,24 @@ usePageRefresh({
         variant="primary"
         :icon="Route"
         :loading="query.isFetching.value"
-        :disabled="keys.isPending.value || keys.isError.value"
+        :disabled="!accessKeys || keysFailed || !accessKeys.length"
         >{{ t('inspector.run') }}</AppButton
       >
     </form>
-    <div
-      v-if="groups.isError.value || keys.isError.value"
-      class="modern-inspector-feedback"
-      role="alert"
-    >
+    <div v-if="groupsFailed || keysFailed" class="modern-inspector-feedback" role="alert">
       <span>{{ t('inspector.optionsFailed') }}</span
-      ><AppButton size="xs" @click="refresh">{{ t('ui.retry') }}</AppButton>
+      ><AppButton size="xs" @click="retryOptions">{{ t('ui.retry') }}</AppButton>
     </div>
     <p class="modern-inspector-boundary">{{ t('inspector.boundary') }}</p>
     <AppCollectionState
-      v-if="!result"
+      v-if="!result && (query.isFetching.value || query.isError.value)"
       :loading="query.isFetching.value"
       :error="query.isError.value"
-      :title="t(query.isError.value ? 'inspector.failed' : 'inspector.idle')"
+      :title="t(query.isError.value ? 'inspector.failed' : 'ui.loading')"
     >
       <AppButton v-if="query.isError.value" @click="run">{{ t('ui.retry') }}</AppButton>
-      <p v-else>{{ t('inspector.idleHelp') }}</p>
     </AppCollectionState>
-    <template v-else>
+    <template v-if="result">
       <section class="modern-inspector-summary" :aria-label="t('inspector.result')">
         <div class="modern-inspector-verdict">
           <AppBadge :tone="result.routable ? 'success' : 'danger'" dot>{{
@@ -399,8 +402,13 @@ usePageRefresh({
           <AppFilterSummary :items="filters" @remove="reset" @reset="reset()" />
         </div>
       </div>
-      <AppListFrame role="table" :label="t('inspector.result')" :loading="query.isFetching.value">
-        <template #header>
+      <AppListFrame :label="t('inspector.result')" :loading="query.isFetching.value" flow>
+        <div
+          class="modern-inspector-table"
+          role="table"
+          :aria-label="t('inspector.result')"
+          tabindex="0"
+        >
           <div class="modern-inspector-columns modern-inspector-head" role="row">
             <span role="columnheader">{{ t('inspector.group') }}</span
             ><span role="columnheader">{{ t('inspector.upstream') }}</span>
@@ -412,84 +420,86 @@ usePageRefresh({
             >
             <span class="modern-sr-only" role="columnheader">{{ t('inspector.openGroup') }}</span>
           </div>
-        </template>
-        <AppCollectionState
-          v-if="!visible.length"
-          :title="t(result.groups.length ? 'inspector.emptyFiltered' : 'inspector.noGroups')"
-        />
-        <div v-for="group in visible" :key="rowKey(group)" class="modern-inspector-row">
-          <div class="modern-inspector-columns" role="row">
-            <div class="modern-inspector-identity" role="cell">
-              <AppIconButton
-                :icon="expanded.has(rowKey(group)) ? ChevronDown : ChevronRight"
-                :label="t(expanded.has(rowKey(group)) ? 'inspector.collapse' : 'inspector.details')"
-                :aria-expanded="expanded.has(rowKey(group))"
-                size="xs"
-                variant="ghost"
-                @click="toggle(group)"
-              />
-              <AppChannelIcon
-                :icon="groupMap.get(group.id)?.channelIcon"
-                :name="groupMap.get(group.id)?.channelName || group.channelID"
-                :tooltip="false"
-                size="sm"
-              />
-              <div class="modern-inspector-name">
-                <AppButton as-child variant="text"
-                  ><RouterLink :to="{ name: 'modern-group-detail', params: { id: group.id } }"
-                    ><AppOverflowText :text="group.name" /></RouterLink></AppButton
-                ><span>{{ groupMap.get(group.id)?.channelName || group.channelID }}</span>
+          <AppCollectionState
+            v-if="!visible.length"
+            :title="t(result.groups.length ? 'inspector.emptyFiltered' : 'inspector.noGroups')"
+          />
+          <div v-for="group in visible" :key="rowKey(group)" class="modern-inspector-row">
+            <div class="modern-inspector-columns" role="row">
+              <div class="modern-inspector-identity" role="cell">
+                <AppIconButton
+                  :icon="expanded.has(rowKey(group)) ? ChevronDown : ChevronRight"
+                  :label="
+                    t(expanded.has(rowKey(group)) ? 'inspector.collapse' : 'inspector.details')
+                  "
+                  :aria-expanded="expanded.has(rowKey(group))"
+                  size="xs"
+                  variant="ghost"
+                  @click="toggle(group)"
+                />
+                <AppChannelIcon
+                  :icon="groupMap.get(group.id)?.channelIcon"
+                  :name="groupMap.get(group.id)?.channelName || group.channelID"
+                  :tooltip="false"
+                  size="sm"
+                />
+                <div class="modern-inspector-name">
+                  <AppButton as-child variant="text"
+                    ><RouterLink :to="{ name: 'modern-group-detail', params: { id: group.id } }"
+                      ><AppOverflowText :text="group.name" /></RouterLink></AppButton
+                  ><span>{{ groupMap.get(group.id)?.channelName || group.channelID }}</span>
+                </div>
+              </div>
+              <div role="cell"><AppOverflowText :text="group.model ?? '—'" /></div>
+              <div role="cell">
+                <AppBadge size="xs" :tone="group.mode === 'native' ? 'info' : 'neutral'">{{
+                  t('inspector.' + group.mode)
+                }}</AppBadge>
+              </div>
+              <div class="modern-inspector-status" role="cell">
+                <AppBadge
+                  size="xs"
+                  variant="plain"
+                  :tone="
+                    active(group)
+                      ? 'success'
+                      : group.included && !group.routable
+                        ? 'warning'
+                        : 'neutral'
+                  "
+                  dot
+                  >{{ t('inspector.' + status(group)) }}</AppBadge
+                ><AppOverflowText v-if="group.reason" :text="reasonLabel(group.reason, t)" />
+              </div>
+              <span role="cell"
+                >{{ n(group.credentials.filter((row) => row.available).length) }} /
+                {{ n(group.credentials.length) }}</span
+              >
+              <div class="modern-inspector-share" role="cell">
+                <span>{{ active(group) ? percentage(share(group), locale) : '—' }}</span
+                ><AppProgressBar
+                  :label="t('inspector.share')"
+                  :value="share(group)"
+                  :tone="active(group) ? 'info' : 'neutral'"
+                  size="sm"
+                />
+              </div>
+              <div role="cell">
+                <AppIconButton
+                  :icon="Eye"
+                  :label="t('inspector.openGroup')"
+                  size="xs"
+                  variant="ghost"
+                  @click="router.push({ name: 'modern-group-detail', params: { id: group.id } })"
+                />
               </div>
             </div>
-            <div role="cell"><AppOverflowText :text="group.model ?? '—'" /></div>
-            <div role="cell">
-              <AppBadge size="xs" :tone="group.mode === 'native' ? 'info' : 'neutral'">{{
-                t('inspector.' + group.mode)
-              }}</AppBadge>
-            </div>
-            <div class="modern-inspector-status" role="cell">
-              <AppBadge
-                size="xs"
-                variant="plain"
-                :tone="
-                  active(group)
-                    ? 'success'
-                    : group.included && !group.routable
-                      ? 'warning'
-                      : 'neutral'
-                "
-                dot
-                >{{ t('inspector.' + status(group)) }}</AppBadge
-              ><AppOverflowText v-if="group.reason" :text="reasonLabel(group.reason, t)" />
-            </div>
-            <span role="cell"
-              >{{ n(group.credentials.filter((row) => row.available).length) }} /
-              {{ n(group.credentials.length) }}</span
-            >
-            <div class="modern-inspector-share" role="cell">
-              <span>{{ active(group) ? percentage(share(group), locale) : '—' }}</span
-              ><AppProgressBar
-                :label="t('inspector.share')"
-                :value="share(group)"
-                :tone="active(group) ? 'info' : 'neutral'"
-                size="sm"
-              />
-            </div>
-            <div role="cell">
-              <AppIconButton
-                :icon="Eye"
-                :label="t('inspector.openGroup')"
-                size="xs"
-                variant="ghost"
-                @click="router.push({ name: 'modern-group-detail', params: { id: group.id } })"
-              />
-            </div>
+            <InspectionCredentials
+              v-if="expanded.has(rowKey(group))"
+              :group="group"
+              :observed-at="result.observedAt"
+            />
           </div>
-          <InspectionCredentials
-            v-if="expanded.has(rowKey(group))"
-            :group="group"
-            :observed-at="result.observedAt"
-          />
         </div>
         <template #footer
           ><AppPagination
@@ -510,7 +520,6 @@ usePageRefresh({
 .modern-inspector-workspace {
   display: flex;
   flex-direction: column;
-  flex: 1;
   min-height: 0;
   min-width: 0;
 }
@@ -519,7 +528,6 @@ usePageRefresh({
   align-items: flex-start;
   flex-wrap: wrap;
   gap: var(--modern-space-3);
-  padding-top: var(--modern-space-5);
 }
 .modern-inspector-form > :not(:last-child) {
   flex: 1 1 220px;
@@ -528,7 +536,7 @@ usePageRefresh({
 .modern-inspector-boundary {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
-  margin-block: var(--modern-space-2) var(--modern-space-4);
+  margin-block: var(--modern-space-2) 0;
 }
 .modern-inspector-feedback {
   display: flex;
@@ -544,6 +552,13 @@ usePageRefresh({
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-panel);
   padding: var(--modern-space-4);
+  margin-top: var(--modern-space-4);
+}
+.modern-inspector-table {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
+  overscroll-behavior-x: contain;
 }
 .modern-inspector-verdict,
 .modern-inspector-request {

@@ -31,11 +31,23 @@ export function createModernRouter(
                       ? () => import('./features/usage/UsageView.vue')
                       : item.id === 'health'
                         ? () => import('./features/health/HealthView.vue')
-                        : item.id === 'models'
-                          ? () => import('./features/models/ModelsView.vue')
-                          : () => import('./features/inspector/InspectorView.vue'),
+                        : () => import('./features/models/ModelsView.vue'),
         meta: { requiresAuth: true, adminOnly: item.adminOnly },
       })),
+      {
+        path: pagePath('monitor-inspector'),
+        name: 'modern-inspector',
+        redirect: (to) => ({
+          name: 'modern-home',
+          hash: '#route-inspector',
+          query: Object.fromEntries(
+            ['protocol', 'external_model', 'access_key_id', 'run', 'view', 'q', 'page', 'page_size']
+              .filter((key) => to.query[key] !== undefined)
+              .map((key) => ['inspect_' + key, to.query[key]]),
+          ),
+        }),
+        meta: { requiresAuth: true, adminOnly: true },
+      },
       {
         path: pagePath('monitor'),
         redirect: { name: 'modern-usage' },
