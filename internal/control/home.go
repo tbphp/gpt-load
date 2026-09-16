@@ -251,14 +251,7 @@ func (s *Service) readHomeRows(
 		if err := tx.Model(&models.Group{}).Count(&result.groupCount).Error; err != nil {
 			return fmt.Errorf("count home groups: %w", err)
 		}
-		if err := tx.Model(&models.Credential{}).
-			Select(
-				"credentials.id", "credentials.group_id", "groups.channel_id", "groups.connection_type", "groups.params",
-				"credentials.fingerprint", "credentials.identity_fingerprint", "credentials.secret_version", "credentials.status",
-			).
-			Joins("JOIN groups ON groups.id = credentials.group_id").
-			Order("credentials.id ASC").
-			Find(&result.credentials).Error; err != nil {
+		if err := homeCredentialRowsScope(tx).Find(&result.credentials).Error; err != nil {
 			return fmt.Errorf("query home credentials: %w", err)
 		}
 		if err := tx.Model(&models.AccessKey{}).
@@ -279,6 +272,22 @@ func (s *Service) readHomeRows(
 		return homeReadRows{}, err
 	}
 	return result, nil
+}
+
+func homeCredentialRowsScope(db *gorm.DB) *gorm.DB {
+	homeGroups := db.Session(&gorm.Session{NewDB: true}).
+		Model(&models.Group{}).
+		Select("id", "channel_id", "connection_type", "params")
+	return db.Model(&models.Credential{}).
+		Select(
+			"credentials.id", "credentials.group_id", "home_groups.channel_id", "home_groups.connection_type", "home_groups.params",
+			"credentials.fingerprint", "credentials.identity_fingerprint", "credentials.secret_version", "credentials.status",
+		).
+		Joins(
+			"JOIN (?) AS home_groups ON home_groups.id = credentials.group_id",
+			homeGroups,
+		).
+		Order("credentials.id ASC")
 }
 
 func countHomeModels(snapshot *state.ConfigSnapshot) int64 {
