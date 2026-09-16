@@ -176,6 +176,10 @@ func (s *Server) HTTPModule() httproute.Module {
 			),
 			controlRoute("control.system.info", http.MethodGet, "/system/info", s.handleSystemInfo),
 			controlRoute("control.system.update", http.MethodGet, "/system/update", s.handleSystemUpdate),
+			controlRoute("control.modern.groups", http.MethodGet, "/modern/groups", s.handleListModernGroups),
+			controlRoute("control.modern.groups.usage", http.MethodGet, "/modern/groups/usage", s.handleModernGroupUsage),
+			controlRoute("control.modern.credentials.list", http.MethodGet, "/modern/groups/:group_id/credentials", s.handleListModernCredentials),
+			controlRoute("control.modern.credentials.get", http.MethodGet, "/modern/groups/:group_id/credentials/:credential_id", s.handleGetModernCredential),
 			controlRoute(
 				"control.groups.list",
 				http.MethodGet,

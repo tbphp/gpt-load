@@ -2,6 +2,8 @@ package webui
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +18,10 @@ import (
 
 func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
 	const wantCSP = "default-src 'self'; script-src 'self'; style-src 'self'; " +
-		"style-src-elem 'self'; style-src-attr 'unsafe-inline'; " +
+		"style-src-elem 'self' " +
+		"'sha256-60LHlRjW/B3CtzIoE/Lf1/NEDvko9efWMFaGVhHu/cs=' " +
+		"'sha256-0sLsI2a+NIcumVvBF9zD/ArGqlZR2xfnxsALPmK7nj8='; " +
+		"style-src-attr 'unsafe-inline'; " +
 		"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
 		"base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 
@@ -28,6 +33,7 @@ func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
 	var firstBody string
 	for _, target := range []string{
 		"/", "/login", "/import", "/groups/42", "/access-keys", "/monitor?tab=logs", "/models", "/settings",
+		"/monitor/usage", "/monitor/logs", "/monitor/health", "/monitor/inspector",
 	} {
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
@@ -59,6 +65,35 @@ func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
 		if got != wantCSP {
 			t.Fatalf("GET %s CSP = %q, want %q", target, got, wantCSP)
 		}
+	}
+}
+
+func TestServerCSPAllowsDropdownViewportStyles(t *testing.T) {
+	server := newServer(fstest.MapFS{
+		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>test index</title>")},
+	}, "dist")
+	recorder := httptest.NewRecorder()
+	testEngine(server).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/groups", nil))
+
+	var styleSources string
+	for _, directive := range strings.Split(recorder.Header().Get("Content-Security-Policy"), ";") {
+		if strings.HasPrefix(strings.TrimSpace(directive), "style-src-elem ") {
+			styleSources = directive
+		}
+	}
+	// Reka UI 2.10.4 实际注入的文本，首尾空格也参与 CSP 哈希计算。
+	for _, component := range []string{"select", "combobox"} {
+		t.Run(component, func(t *testing.T) {
+			selector := "[data-reka-" + component + "-viewport]"
+			css := " /* Hide scrollbars cross-browser and enable momentum scroll for touch devices */ " +
+				selector + " { scrollbar-width:none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; } " +
+				selector + "::-webkit-scrollbar { display: none; } "
+			hash := sha256.Sum256([]byte(css))
+			source := "'sha256-" + base64.StdEncoding.EncodeToString(hash[:]) + "'"
+			if !strings.Contains(styleSources, source) {
+				t.Fatalf("CSP blocks %s viewport style: missing %s in %q", component, source, styleSources)
+			}
+		})
 	}
 }
 

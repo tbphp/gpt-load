@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1774" height="887" viewBox="0 0 1774 887" role="img" aria-labelledby="title description">
+  <title id="title">GPT-Load unified access and upstream routing architecture</title>
+  <desc id="description">AI clients connect to GPT-Load through one base URL and one AccessKey. GPT-Load routes requests across official APIs, cloud platforms, compatible relays, and subscription accounts.</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#242B35" flood-opacity=".08"/>
+    </filter>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#242B35" flood-opacity=".07"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF4F1F"/>
+    </marker>
+    <symbol id="mascot" viewBox="0 0 548 296">
+      <path fill="currentColor" fill-rule="evenodd" d="M257.47.47C280.84-.99 304.38.1 327.65 2.35c18.99 1.84 38.67 4.51 55.23 14.77 25.09 15.53 42.46 41.16 68.59 55.41 17.94 9.78 37.67 14.36 56.78 21.23 9.2 3.32 19.76 6.68 27.54 12.83 10.51 8.31 12.21 21.45 12.21 34.41 0 14.44-1.3 30.02-12.06 40.94-9.07 9.07-25.54 11.44-37.47 14.53-13.41 3.48-26.71 7.31-40.12 10.78-8.26 2.15-18.41 3.69-25.76 8.24-9 5.57-12.36 19.4-6.71 28.53 3.73 6.01 11.07 6.62 17.18 8.82 12.3 4.43 22.63 17.4 19.06 31.18-3.33 12.85-18.86 10.88-29.12 10.88h-70c-9.74 0-22.83 2.21-31.88-2.12-6.86-3.28-9.16-10.33-8.65-17.53.76-10.65 6.93-21.11 4.12-31.94-8.63-33.26-37.28-50.04-69.65-54.35-36.54-4.87-79.47.64-100.41 34.47-3.63 5.87-7.93 14.28-8.24 21.29-.26 6.02 6.33 8.33 9.95 11.94 7.5 7.5 13.19 21.96 5.82 31.3-6.28 7.95-22.3 4.95-31.06 4.95H55c-9.26 0-22.86 2.38-30.12-4.88-8.53-8.53-3.69-21.02-1.94-31.18 2.82-16.34 7.5-32.34 11.65-48.35 1.55-5.97 6.88-15.58 4.65-21.65-1.63-4.41-8.94-6.13-12.53-8.65C9.06 165.94 0 146.4 0 125c0-7.69.74-17.69 6.53-23.47 4.94-4.94 11.55-1.86 14.71 3.23 7.17 11.6 12.07 21.95 25.47 27.53 4.27 1.79 10.2 4.07 14.58 1.53 5.27-3.04 7.86-13.45 11-18.53 9.16-14.79 18.5-29.03 29.3-42.7 24.24-30.7 59.01-55.15 97-65C217.75 2.62 237.8 1.7 257.47.47Zm201.41 135.65c2.33 9.86 12.4 16.25 22.36 14.12 10.2-2.19 16.21-12.16 13.82-22.3-2.38-10.04-11.96-16.26-22.12-14-10.04 2.23-16.44 12.12-14.06 22.18Z"/>
+    </symbol>
+    <style>
+      .heading { fill: #1F2933; font-family: Arial, Helvetica, sans-serif; font-size: 28px; font-weight: 700; }
+      .brand { fill: #1F2933; font-family: Arial, Helvetica, sans-serif; font-size: 48px; font-weight: 800; letter-spacing: -1.2px; }
+      .eyebrow { fill: #FF4F1F; font-family: Arial, Helvetica, sans-serif; font-size: 17px; font-weight: 700; letter-spacing: 1.8px; }
+      .label { fill: #303943; font-family: Arial, Helvetica, sans-serif; font-size: 21px; font-weight: 700; }
+      .muted { fill: #68737F; font-family: Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 500; }
+      .pill { fill: #303943; font-family: Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 700; }
+      .node { fill: #FFFFFF; stroke: #E2E7EB; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect width="1774" height="887" fill="#FBFAF8"/>
+
+  <g filter="url(#soft-shadow)">
+    <rect class="node" x="74" y="276" width="276" height="336" rx="28"/>
+    <circle cx="212" cy="402" r="72" fill="#FFF0EA"/>
+    <rect x="163" y="365" width="94" height="66" rx="10" fill="none" stroke="#FF4F1F" stroke-width="7"/>
+    <path d="M184 454h52m-30 0v20m8-20v20" fill="none" stroke="#FF4F1F" stroke-width="7" stroke-linecap="round"/>
+    <text class="heading" x="212" y="532" text-anchor="middle">AI CLIENTS</text>
+    <text class="muted" x="212" y="563" text-anchor="middle">CLI, apps &amp; integrations</text>
+  </g>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="391" y="330" width="236" height="66" rx="20" fill="#FFFFFF" stroke="#FF4F1F" stroke-width="2"/>
+    <circle cx="429" cy="363" r="18" fill="#FFF0EA"/>
+    <path d="M421 363h16m-8-8v16" stroke="#FF4F1F" stroke-width="3" stroke-linecap="round"/>
+    <text class="pill" x="469" y="369">ONE BASE URL</text>
+    <rect x="391" y="440" width="236" height="66" rx="20" fill="#FFFFFF" stroke="#FF4F1F" stroke-width="2"/>
+    <circle cx="429" cy="473" r="18" fill="#FFF0EA"/>
+    <path d="M421 474c0-7 16-7 16 0v9h-16zM425 468v-5a4 4 0 0 1 8 0v5" fill="none" stroke="#FF4F1F" stroke-width="3" stroke-linejoin="round"/>
+    <text class="pill" x="469" y="479">ONE ACCESSKEY</text>
+  </g>
+
+  <path d="M350 390h39" fill="none" stroke="#FF4F1F" stroke-width="3"/>
+  <path d="M350 498h39" fill="none" stroke="#FF4F1F" stroke-width="3"/>
+  <path d="M627 363h32c20 0 18 80 42 80h26" fill="none" stroke="#FF4F1F" stroke-width="3" stroke-dasharray="8 8" marker-end="url(#arrow)"/>
+  <path d="M627 473h74c12 0 14-22 26-22" fill="none" stroke="#FF4F1F" stroke-width="3" stroke-dasharray="8 8" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="727" y="137" width="487" height="596" rx="36" fill="#FFFFFF" stroke="#FF4F1F" stroke-width="3"/>
+    <rect x="759" y="176" width="116" height="116" rx="28" fill="#FF4F1F"/>
+    <use href="#mascot" x="778" y="206" width="79" height="43" color="#FFFFFF"/>
+    <text class="brand" x="905" y="222">GPT-Load</text>
+    <text class="eyebrow" x="907" y="258">NATIVE PROTOCOL GATEWAY</text>
+    <path d="M759 322h423" stroke="#E8ECEF" stroke-width="2"/>
+
+    <g>
+      <rect x="759" y="352" width="423" height="72" rx="18" fill="#FFF7F3"/>
+      <circle cx="798" cy="388" r="20" fill="#FFE0D5"/>
+      <path d="M788 388h20m-10-10v20m-18 0 8 8m20-28 8 8" fill="none" stroke="#FF4F1F" stroke-width="3" stroke-linecap="round"/>
+      <text class="label" x="838" y="395">CREDENTIAL ROUTING</text>
+    </g>
+    <g>
+      <rect x="759" y="442" width="423" height="72" rx="18" fill="#FFF7F3"/>
+      <circle cx="798" cy="478" r="20" fill="#FFE0D5"/>
+      <path d="M810 467a16 16 0 0 0-24 2m-1-1v-8m1 8h8m-8 21a16 16 0 0 0 24-2m1 1v8m-1-8h-8" fill="none" stroke="#FF4F1F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text class="label" x="838" y="485">RETRY &amp; ISOLATION</text>
+    </g>
+    <g>
+      <rect x="759" y="532" width="423" height="72" rx="18" fill="#FFF7F3"/>
+      <circle cx="798" cy="568" r="20" fill="#FFE0D5"/>
+      <path d="M789 557h18v22h-18zM793 552h10m-7 10h4m-4 7h4" fill="none" stroke="#FF4F1F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text class="label" x="838" y="575">LOGS &amp; USAGE</text>
+    </g>
+    <g>
+      <rect x="759" y="622" width="423" height="72" rx="18" fill="#FFF7F3"/>
+      <circle cx="798" cy="658" r="20" fill="#FFE0D5"/>
+      <path d="M787 669v-14m11 14v-25m11 25v-34" fill="none" stroke="#FF4F1F" stroke-width="4" stroke-linecap="round"/>
+      <text class="label" x="838" y="665">COST ESTIMATES</text>
+    </g>
+  </g>
+
+  <path d="M1214 435h97" fill="none" stroke="#FF4F1F" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="1320" y="137" width="381" height="596" rx="36" fill="#FFFDFC" stroke="#F0D8CF" stroke-width="2"/>
+    <g>
+      <rect class="node" x="1350" y="174" width="155" height="231" rx="24"/>
+      <circle cx="1428" cy="253" r="43" fill="#FFF0EA"/>
+      <path d="M1400 261c0-17 12-29 28-29s28 12 28 29v13h-56z" fill="none" stroke="#FF4F1F" stroke-width="5" stroke-linejoin="round"/>
+      <text class="label" x="1428" y="340" text-anchor="middle">OFFICIAL</text>
+      <text class="label" x="1428" y="367" text-anchor="middle">APIs</text>
+    </g>
+    <g>
+      <rect class="node" x="1518" y="174" width="155" height="231" rx="24"/>
+      <circle cx="1596" cy="253" r="43" fill="#FFF0EA"/>
+      <path d="M1565 263h62v15h-62zM1575 263v-20h42v20m-30 15v13m18-13v13" fill="none" stroke="#FF4F1F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text class="label" x="1596" y="340" text-anchor="middle">CLOUD</text>
+      <text class="label" x="1596" y="367" text-anchor="middle">PLATFORMS</text>
+    </g>
+    <g>
+      <rect class="node" x="1350" y="452" width="155" height="231" rx="24"/>
+      <circle cx="1428" cy="531" r="43" fill="#FFF0EA"/>
+      <path d="M1400 541h28m0 0 24-19m-24 19 24 19M1400 525h18m0 0 18-16m-18 16 18 16" fill="none" stroke="#FF4F1F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text class="label" x="1428" y="618" text-anchor="middle">COMPATIBLE</text>
+      <text class="label" x="1428" y="645" text-anchor="middle">RELAYS</text>
+    </g>
+    <g>
+      <rect class="node" x="1518" y="452" width="155" height="231" rx="24"/>
+      <circle cx="1596" cy="531" r="43" fill="#FFF0EA"/>
+      <circle cx="1596" cy="518" r="13" fill="none" stroke="#FF4F1F" stroke-width="5"/>
+      <path d="M1568 556c4-17 16-25 28-25s24 8 28 25" fill="none" stroke="#FF4F1F" stroke-width="5" stroke-linecap="round"/>
+      <text class="label" x="1596" y="618" text-anchor="middle">SUBSCRIPTION</text>
+      <text class="label" x="1596" y="645" text-anchor="middle">ACCOUNTS</text>
+    </g>
+  </g>
+</svg>

@@ -15,8 +15,13 @@ import (
 
 const (
 	distRoot = "dist"
+	// Reka UI 的下拉视口会注入固定样式，只按内容哈希放行。
+	// 升级依赖时需核对 SelectViewport / ComboboxViewport 的样式文本。
 	indexCSP = "default-src 'self'; script-src 'self'; style-src 'self'; " +
-		"style-src-elem 'self'; style-src-attr 'unsafe-inline'; " +
+		"style-src-elem 'self' " +
+		"'sha256-60LHlRjW/B3CtzIoE/Lf1/NEDvko9efWMFaGVhHu/cs=' " +
+		"'sha256-0sLsI2a+NIcumVvBF9zD/ArGqlZR2xfnxsALPmK7nj8='; " +
+		"style-src-attr 'unsafe-inline'; " +
 		"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
 		"base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 	fallbackIndex = `<!doctype html>

@@ -338,7 +338,7 @@ func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
 	}
 }
 
-func TestRuntimeHealthCapsProblemCredentialDetails(t *testing.T) {
+func TestRuntimeHealthReturnsAllProblemCredentialDetails(t *testing.T) {
 	t.Parallel()
 	const detailLimit = 100
 
@@ -386,8 +386,8 @@ func TestRuntimeHealthCapsProblemCredentialDetails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("captureRuntimeHealthObservation() error = %v", err)
 	}
-	if len(observation.problemCiphertexts) != 2*detailLimit {
-		t.Fatalf("problem ciphertexts = %d, want %d", len(observation.problemCiphertexts), 2*detailLimit)
+	if len(observation.credentialCiphertexts) != 2*(detailLimit+1) {
+		t.Fatalf("credential ciphertexts = %d, want %d", len(observation.credentialCiphertexts), 2*(detailLimit+1))
 	}
 
 	got, err := fixture.service.RuntimeHealth()
@@ -399,12 +399,12 @@ func TestRuntimeHealthCapsProblemCredentialDetails(t *testing.T) {
 	}) {
 		t.Fatalf("counts = %#v", got.Counts)
 	}
-	if len(got.CooldownCredentials) != detailLimit || len(got.BlacklistedCredentials) != detailLimit ||
+	if len(got.CooldownCredentials) != detailLimit+1 || len(got.BlacklistedCredentials) != detailLimit+1 ||
 		len(got.LowQuotaCredentials) != detailLimit+1 {
 		t.Fatalf(
 			"detail lengths = cooldown:%d blacklisted:%d low_quota:%d, want %d/%d/%d",
 			len(got.CooldownCredentials), len(got.BlacklistedCredentials), len(got.LowQuotaCredentials),
-			detailLimit, detailLimit, detailLimit+1,
+			detailLimit+1, detailLimit+1, detailLimit+1,
 		)
 	}
 }

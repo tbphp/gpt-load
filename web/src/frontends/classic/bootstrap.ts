@@ -1,0 +1,118 @@
+import { VueQueryPlugin } from '@tanstack/vue-query'
+import { createApp } from 'vue'
+import type { Router } from 'vue-router'
+
+import App from './App.vue'
+import { createApiClient } from '@shared/http/client'
+import { apiClientKey } from '@shared/http/client-context'
+import type { AuthSessionPayload } from '@shared/http/types'
+import { createAppQueryClient } from './app/query'
+import { createAppRouter } from './app/router'
+import { createToastController, toastKey } from './app/toast'
+import { handleGlobalUnauthorized } from './app/unauthorized'
+import { clearEphemeralState } from './app/ephemeral-state'
+import { authSessionKey, createAuthSession, type AuthSession } from './features/auth/auth-session'
+import { createImportRecoveryService, importRecoveryKey } from './features/import/import-recovery'
+import { createUnsavedChangesController, unsavedChangesKey } from './app/unsaved-changes'
+import { createBrowserThemeController, themeControllerKey } from './features/preferences/theme'
+import { createAppI18n } from './i18n'
+import { appI18nKey } from './i18n/context'
+import './styles/tokens.css'
+import './styles/base.css'
+import './styles/components.css'
+
+export async function bootstrap(): Promise<void> {
+  const queryClient = createAppQueryClient()
+  const getBrowserStorage = (name: 'localStorage' | 'sessionStorage') => {
+    try {
+      return window[name]
+    } catch {
+      return undefined
+    }
+  }
+  const localStorage = getBrowserStorage('localStorage')
+  const sessionStorage = getBrowserStorage('sessionStorage')
+  const appI18n = await createAppI18n(localStorage, navigator.languages, navigator.language)
+  const importRecovery = createImportRecoveryService({
+    storage: getBrowserStorage('sessionStorage'),
+    now: Date.now,
+    setTimer: window.setTimeout.bind(window),
+    clearTimer: window.clearTimeout.bind(window),
+  })
+  const unsavedChanges = createUnsavedChangesController()
+  const toast = createToastController({
+    setTimer: window.setTimeout.bind(window),
+    clearTimer: window.clearTimeout.bind(window),
+  })
+  importRecovery.sweep()
+  const themeController = createBrowserThemeController(
+    window,
+    document.documentElement,
+    getBrowserStorage('localStorage'),
+  )
+  window.addEventListener(
+    'pagehide',
+    () => {
+      themeController.dispose()
+      importRecovery.dispose()
+      toast.dispose()
+      clearEphemeralState()
+    },
+    { once: true },
+  )
+
+  let authSession: AuthSession | undefined = undefined
+  let router: Router | undefined = undefined
+
+  const apiClient = createApiClient({
+    fetch: window.fetch.bind(window),
+    getAuthKey: () => authSession?.getAuthKey() ?? '',
+    getLocale: () => appI18n.getLocale(),
+    onUnauthorized: () => {
+      const redirect =
+        router?.currentRoute.value.meta.requiresAuth === true
+          ? router.currentRoute.value.fullPath
+          : '/'
+      if (authSession && router) {
+        void handleGlobalUnauthorized({
+          recovery: importRecovery,
+          unsavedChanges,
+          session: authSession,
+          router,
+          redirect,
+        })
+      }
+    },
+  })
+
+  authSession = createAuthSession({
+    storage: localStorage,
+    sessionStorage,
+    queryClient,
+    onClear: () => {
+      clearEphemeralState()
+      // 经典版会话结束后重新执行入口选择，认证页始终回到新版。
+      window.location.replace(window.location.href)
+    },
+    validate: (key, globalUnauthorized, signal) =>
+      apiClient.request<AuthSessionPayload>('/api/auth/session', {
+        authKey: key,
+        handleUnauthorized: globalUnauthorized,
+        signal,
+      }),
+  })
+  router = createAppRouter(authSession, undefined, appI18n)
+
+  createApp(App)
+    .provide(authSessionKey, authSession)
+    .provide(importRecoveryKey, importRecovery)
+    .provide(unsavedChangesKey, unsavedChanges)
+    .provide(toastKey, toast)
+    .provide(apiClientKey, apiClient)
+    .provide(appI18nKey, appI18n)
+    .provide(themeControllerKey, themeController)
+    .use(appI18n.plugin)
+    .use(VueQueryPlugin, { queryClient })
+    .use(router)
+    .mount('#app')
+}

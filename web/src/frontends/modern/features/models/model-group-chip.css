@@ -1,0 +1,26 @@
+/* 可点击的分组标签：模型卡的来源行与详情面板的关联分组共用同一套外观。
+   高度用变量控制，密集表格行里收窄、独立段落里放大。 */
+.modern-model-group-chip {
+  --modern-model-chip-height: var(--modern-badge-xs);
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--modern-model-chip-height);
+  align-items: center;
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-small);
+  background: var(--modern-subtle);
+  padding-inline: var(--modern-space-1-5);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+  text-decoration: none;
+}
+a.modern-model-group-chip:hover,
+a.modern-model-group-chip:focus-visible {
+  border-color: color-mix(in srgb, var(--modern-accent) 40%, transparent);
+  background: var(--modern-accent-soft);
+  color: var(--modern-accent);
+}
+.modern-model-group-chip.is-disabled {
+  opacity: var(--modern-opacity-quiet);
+}

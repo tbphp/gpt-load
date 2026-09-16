@@ -17,6 +17,8 @@ type AccessKeyCollectionQuery struct {
 	Sort     string
 	Query    string
 	Status   *state.AccessKeyStatus
+	Expiry   string
+	GroupID  uint
 	Page     int64
 	PageSize int64
 }
@@ -78,6 +80,33 @@ func matchesAccessKeyCollectionQuery(
 ) bool {
 	if query.Status != nil && record.Status != *query.Status {
 		return false
+	}
+	switch query.Expiry {
+	case "never":
+		if record.ExpiresAtMS != nil {
+			return false
+		}
+	case "active":
+		if record.ExpiresAtMS == nil || record.Expired {
+			return false
+		}
+	case "expired":
+		if !record.Expired {
+			return false
+		}
+	}
+	// 未限制分组的密钥同样可以访问所选分组。
+	if query.GroupID != 0 && len(record.Filters.Groups) > 0 {
+		matched := false
+		for _, id := range record.Filters.Groups {
+			if id == query.GroupID {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
 	}
 	return query.Query == "" ||
 		accessKeyCollectionContainsFold(record.Name, query.Query) ||
