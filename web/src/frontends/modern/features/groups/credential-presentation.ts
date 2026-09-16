@@ -58,6 +58,14 @@ export function quotaPeriod(seconds?: number): string {
   if (seconds % 60 === 0) return `${seconds / 60}min`
   return `${seconds}s`
 }
+export function quotaWindowRange(
+  window: CredentialQuota,
+): { start: number; end: number } | undefined {
+  if (!window.resetsAt || !window.windowSeconds) return undefined
+  const duration = window.windowSeconds * 1000
+  if (!Number.isSafeInteger(duration) || duration > window.resetsAt) return undefined
+  return { start: window.resetsAt - duration, end: window.resetsAt }
+}
 export function sortedQuotaWindows(windows: readonly CredentialQuota[]): CredentialQuota[] {
   const groups = new Map<string, number>()
   function key(window: CredentialQuota): string {
@@ -76,6 +84,7 @@ export function sortedQuotaWindows(windows: readonly CredentialQuota[]): Credent
 
 export function quotaWindowTitle(window: CredentialQuota, subject = window.label): string {
   const period = quotaPeriod(window.windowSeconds)
+  if (window.scope === 'account' && window.labelKey === 'session') return period
   if (window.scope === 'account' && period)
     return subject && !subject.toLowerCase().includes(period.toLowerCase())
       ? `${subject} · ${period}`

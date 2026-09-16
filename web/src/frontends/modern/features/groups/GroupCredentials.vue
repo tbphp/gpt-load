@@ -158,6 +158,9 @@ const cardErrors = ref(new Map<number, string>())
 const copyResolvers = new Map<number, () => Promise<string>>()
 const downloads = new Set<string>()
 const mutating = ref<number | 'batch'>()
+const syncing = ref(new Set<number>())
+const queuedSync = ref(new Set<number>())
+const accountBatchPending = ref(false)
 const pendingAction = ref('')
 const deleting = ref<number[]>([])
 type FullAction = 'download' | 'enable' | 'disable' | 'restore'
@@ -184,6 +187,8 @@ const query = useQuery(
 )
 const rows = computed(() => query.data.value?.items ?? [])
 const busy = computed(() => query.isFetching.value || mutating.value !== undefined)
+const syncPending = (id: number) => syncing.value.has(id) || queuedSync.value.has(id)
+const bulkBusy = computed(() => busy.value || accountBatchPending.value || syncing.value.size > 0)
 const stale = computed(() => query.isError.value && Boolean(query.data.value))
 const summary = computed(() => query.data.value?.counts)
 const fullActions = computed(() => [
@@ -272,9 +277,10 @@ const canSyncSelected = computed(
     Boolean(props.channel?.quotaObservation) &&
     rows.value
       .filter((row) => selected.value.has(row.id))
-      .every((row) => row.authState === 'ready'),
+      .every((row) => row.authState === 'ready') &&
+    rows.value.some((row) => selected.value.has(row.id) && !syncPending(row.id)),
 )
-watch(busy, (value) => emit('pending', value), { immediate: true })
+watch(bulkBusy, (value) => emit('pending', value), { immediate: true })
 watch(query.dataUpdatedAt, (value) => emit('updatedAt', value), { immediate: true })
 watch(query.data, (data) => {
   if (!data || query.isPlaceholderData.value) return
@@ -285,7 +291,7 @@ watch(query.data, (data) => {
   )
 })
 function change(value: Partial<typeof filters.value>): void {
-  if (mutating.value !== undefined) return
+  if (mutating.value !== undefined || accountBatchPending.value) return
   filters.value = { ...filters.value, ...value }
   selected.value = new Set()
   accountBatch.value = undefined
@@ -325,13 +331,18 @@ async function runAccountBatch(
   action: AccountBatchAction,
   targets = rows.value.filter((row) => selected.value.has(row.id)),
 ): Promise<void> {
-  if (busy.value || props.group.connectionType !== 'subscription' || !targets.length) return
+  if (busy.value || accountBatchPending.value || props.group.connectionType !== 'subscription')
+    return
+  if (action === 'sync') targets = targets.filter((row) => !syncPending(row.id))
+  if (!targets.length) return
   if (
     action === 'sync' &&
     (!props.channel?.quotaObservation || targets.some((row) => row.authState !== 'ready'))
   )
     return
-  mutating.value = 'batch'
+  accountBatchPending.value = true
+  if (action === 'download') mutating.value = 'batch'
+  else queuedSync.value = new Set(targets.map((row) => row.id))
   error.value = ''
   notice.value = ''
   const report = { action, completed: 0, total: targets.length, failed: [] as CredentialRow[] }
@@ -347,22 +358,15 @@ async function runAccountBatch(
           const file = await exportCredential(client, props.group.id, row.id, controller.signal)
           if (!controller.signal.aborted) exports.push(JSON.parse(file.content))
         } else {
-          const observation = await refreshCredentialQuota(
-            client,
-            props.group.id,
-            row.id,
-            controller.signal,
-          )
-          if (controller.signal.aborted) return
-          if (!observation) throw new Error('Missing observation')
-          cacheRow({ ...row, observation })
-          if (observation.state === 'error') throw new Error('Observation failed')
+          queuedSync.value.delete(row.id)
+          await syncQuota(row)
         }
       } catch {
         if (controller.signal.aborted) return
         report.failed.push(row)
         cardErrors.value.set(row.id, t('credentialCards.actionFailed'))
       }
+      if (controller.signal.aborted) return
       report.completed++
       accountBatch.value = { ...report }
     }
@@ -376,15 +380,49 @@ async function runAccountBatch(
         content: JSON.stringify(exports, null, 2),
       })
     if (action === 'sync') {
-      await changed()
-      void cache.invalidateQueries({ queryKey: ['modern', 'credential-detail', props.group.id] })
+      emit('changed')
     }
     const visibleIDs = new Set(rows.value.map((row) => row.id))
+    const targetIDs = new Set(targets.map((row) => row.id))
     selected.value = new Set(
-      report.failed.filter((row) => visibleIDs.has(row.id)).map((row) => row.id),
+      [
+        ...[...selected.value].filter((id) => !targetIDs.has(id)),
+        ...report.failed.map((row) => row.id),
+      ].filter((id) => visibleIDs.has(id)),
     )
   } finally {
-    mutating.value = undefined
+    queuedSync.value.clear()
+    accountBatchPending.value = false
+    if (action === 'download') mutating.value = undefined
+  }
+}
+async function syncQuota(row: CredentialRow): Promise<void> {
+  syncing.value.add(row.id)
+  cardErrors.value.delete(row.id)
+  try {
+    const observation = await refreshCredentialQuota(
+      client,
+      props.group.id,
+      row.id,
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+    if (!observation) throw new Error('Missing observation')
+    // 同步只更新该账号的观测数据，不覆盖其他并行操作，也不刷新整个列表。
+    cache.setQueriesData<CredentialCollection>(
+      { queryKey: groupCredentialsKey(props.group.id) },
+      (data) =>
+        data && {
+          ...data,
+          items: data.items.map((item) => (item.id === row.id ? { ...item, observation } : item)),
+        },
+    )
+    cache.setQueryData<CredentialRow>(credentialDetailKey(props.group.id, row.id), (data) =>
+      data ? { ...data, observation } : undefined,
+    )
+    if (observation.state !== 'fresh') throw new Error('Observation failed')
+  } finally {
+    syncing.value.delete(row.id)
   }
 }
 async function changed(): Promise<void> {
@@ -392,8 +430,8 @@ async function changed(): Promise<void> {
   emit('changed')
 }
 async function toggle(row: CredentialRow, value: boolean): Promise<void> {
-  if (busy.value) return
-  accountBatch.value = undefined
+  if (busy.value || syncPending(row.id)) return
+  if (!accountBatchPending.value) accountBatch.value = undefined
   mutating.value = row.id
   pendingAction.value = 'toggle'
   error.value = ''
@@ -412,7 +450,7 @@ async function batch(
   action: 'enable' | 'disable' | 'delete',
   ids = [...selected.value],
 ): Promise<void> {
-  if (busy.value || !ids.length) return
+  if (bulkBusy.value || !ids.length) return
   accountBatch.value = undefined
   mutating.value = 'batch'
   error.value = ''
@@ -479,14 +517,18 @@ function downloadFile(file: { filename: string; content: string; type?: string }
   }, 1000)
 }
 function openFullAction(value: string): void {
-  if (busy.value || !summary.value?.total || !fullActions.value.some((item) => item.id === value))
+  if (
+    bulkBusy.value ||
+    !summary.value?.total ||
+    !fullActions.value.some((item) => item.id === value)
+  )
     return
   error.value = ''
   fullTarget.value = value as FullAction
 }
 async function applyFullAction(): Promise<void> {
   const value = fullTarget.value
-  if (!value || busy.value) return
+  if (!value || bulkBusy.value) return
   mutating.value = 'batch'
   error.value = ''
   notice.value = ''
@@ -524,7 +566,19 @@ function saved(row: CredentialRow): void {
   void cache.invalidateQueries({ queryKey: credentialDetailKey(props.group.id, row.id) })
 }
 async function action(row: CredentialRow, value: string): Promise<void> {
-  if (busy.value) return
+  if (busy.value || syncPending(row.id)) return
+  if (value === 'quota') {
+    if (!props.channel?.quotaObservation || row.authState !== 'ready') return
+    if (!accountBatchPending.value) accountBatch.value = undefined
+    try {
+      await syncQuota(row)
+      if (!controller.signal.aborted) emit('changed')
+    } catch {
+      if (!controller.signal.aborted)
+        cardErrors.value.set(row.id, t('credentialCards.actionFailed'))
+    }
+    return
+  }
   if (value === 'details') {
     detail.value = row
     return
@@ -544,8 +598,8 @@ async function action(row: CredentialRow, value: string): Promise<void> {
     resetTarget.value = row
     return
   }
-  if (!['quota', 'restore', 'refresh', 'download'].includes(value)) return
-  accountBatch.value = undefined
+  if (!['restore', 'refresh', 'download'].includes(value)) return
+  if (!accountBatchPending.value) accountBatch.value = undefined
   mutating.value = row.id
   pendingAction.value = value
   cardErrors.value.delete(row.id)
@@ -556,24 +610,15 @@ async function action(row: CredentialRow, value: string): Promise<void> {
       downloadFile(file)
       return
     }
-    if (value === 'quota') {
-      const observation = await refreshCredentialQuota(
+    cacheRow(
+      await runCredentialAction(
         client,
         props.group.id,
         row.id,
+        value as 'restore' | 'refresh',
         controller.signal,
-      )
-      if (observation) cacheRow({ ...row, observation })
-    } else
-      cacheRow(
-        await runCredentialAction(
-          client,
-          props.group.id,
-          row.id,
-          value as 'restore' | 'refresh',
-          controller.signal,
-        ),
-      )
+      ),
+    )
     await changed()
     void cache.invalidateQueries({ queryKey: credentialDetailKey(props.group.id, row.id) })
   } catch {
@@ -584,7 +629,7 @@ async function action(row: CredentialRow, value: string): Promise<void> {
 }
 async function resetQuota(): Promise<void> {
   const row = resetTarget.value
-  if (!row || busy.value) return
+  if (!row || busy.value || syncPending(row.id)) return
   const key = resetKeys.get(row.id)
   if (!key) return
   mutating.value = row.id
@@ -657,23 +702,22 @@ useMessageSource(() =>
 useMessageSource(() =>
   accountBatch.value
     ? {
-        text:
-          mutating.value === 'batch'
-            ? t('groupWorkflows.batchProgress', {
-                done: n(accountBatch.value.completed),
-                total: n(accountBatch.value.total),
-              })
-            : t('groupWorkflows.batchResult', {
-                success: n(accountBatch.value.total - accountBatch.value.failed.length),
-                failed: n(accountBatch.value.failed.length),
-              }),
+        text: accountBatchPending.value
+          ? t('groupWorkflows.batchProgress', {
+              done: n(accountBatch.value.completed),
+              total: n(accountBatch.value.total),
+            })
+          : t('groupWorkflows.batchResult', {
+              success: n(accountBatch.value.total - accountBatch.value.failed.length),
+              failed: n(accountBatch.value.failed.length),
+            }),
         tone: accountBatch.value.failed.length
           ? 'warning'
-          : mutating.value === 'batch'
+          : accountBatchPending.value
             ? 'info'
             : 'success',
         action:
-          accountBatch.value.failed.length && mutating.value === undefined
+          accountBatch.value.failed.length && !bulkBusy.value
             ? {
                 label: t('groupWorkflows.retryFailed'),
                 run: () => runAccountBatch(accountBatch.value!.action, accountBatch.value!.failed),
@@ -703,7 +747,7 @@ defineExpose({ refresh })
         :placeholder="t('groupDetail.searchCredentials')"
         :icon="Search"
         :loading="query.isFetching.value"
-        :disabled="mutating !== undefined"
+        :disabled="mutating !== undefined || accountBatchPending"
         type="search"
         @input="scheduleSearch"
         @compositionstart="composing = true"
@@ -716,7 +760,7 @@ defineExpose({ refresh })
         :label="t('groupDetail.filters.reset')"
         label-hidden
         :options="resetOptions"
-        :disabled="mutating !== undefined"
+        :disabled="mutating !== undefined || accountBatchPending"
         @update:model-value="change({ reset: $event as CredentialFilters['reset'], page: 1 })"
       />
       <AppSelect
@@ -725,7 +769,7 @@ defineExpose({ refresh })
         :label="t('groupDetail.filters.proxy')"
         label-hidden
         :options="proxyOptions"
-        :disabled="mutating !== undefined"
+        :disabled="mutating !== undefined || accountBatchPending"
         @update:model-value="change({ proxy: $event as CredentialFilters['proxy'], page: 1 })"
       />
       <div class="modern-credentials-toolbar-actions">
@@ -733,7 +777,7 @@ defineExpose({ refresh })
           :model-value="filters.sort"
           :label="t('groups.sort.label')"
           :options="sortOptions"
-          :disabled="mutating !== undefined"
+          :disabled="mutating !== undefined || accountBatchPending"
           @update:model-value="change({ sort: $event as CredentialFilters['sort'], page: 1 })"
         />
         <AppButton :icon="Plus" variant="primary" :disabled="!channel" @click="emit('add')">{{
@@ -750,12 +794,12 @@ defineExpose({ refresh })
         :model-value="filters.status"
         :label="t('groupDetail.status')"
         :options="segments"
-        :disabled="mutating !== undefined"
+        :disabled="mutating !== undefined || accountBatchPending"
         @update:model-value="change({ status: $event, page: 1 })"
       /><AppFilterSummary
         class="modern-credentials-filter-summary"
         :items="filterSummary"
-        :disabled="mutating !== undefined"
+        :disabled="mutating !== undefined || accountBatchPending"
         @remove="resetFilter"
         @reset="resetFilter()"
       />
@@ -772,7 +816,7 @@ defineExpose({ refresh })
               :model-value="allSelected"
               :indeterminate="selected.size > 0 && !allSelected"
               :label="t('groupDetail.selectPage')"
-              :disabled="busy || !rows.length"
+              :disabled="bulkBusy || !rows.length"
               @update:model-value="
                 selected = $event ? new Set(rows.map((row) => row.id)) : new Set()
               "
@@ -783,19 +827,19 @@ defineExpose({ refresh })
                 :icon="Play"
                 :label="t('groupDetail.enableSelected')"
                 size="sm"
-                :disabled="busy"
+                :disabled="bulkBusy"
                 @click="batch('enable')"
               /><AppIconButton
                 :icon="Pause"
                 :label="t('groupDetail.disableSelected')"
                 size="sm"
-                :disabled="busy"
+                :disabled="bulkBusy"
                 @click="batch('disable')"
               /><AppIconButton
                 :icon="Trash2"
                 :label="t('groupDetail.deleteSelected')"
                 size="sm"
-                :disabled="busy"
+                :disabled="bulkBusy"
                 @click="deleting = [...selected]"
               />
               <AppIconButton
@@ -803,7 +847,8 @@ defineExpose({ refresh })
                 :icon="RefreshCw"
                 :label="t('groupWorkflows.syncSelected')"
                 size="sm"
-                :disabled="busy || !canSyncSelected"
+                :loading="accountBatchPending && accountBatch?.action === 'sync'"
+                :disabled="busy || accountBatchPending || !canSyncSelected"
                 @click="runAccountBatch('sync')"
               />
               <AppIconButton
@@ -811,7 +856,7 @@ defineExpose({ refresh })
                 :icon="Download"
                 :label="t('groupWorkflows.downloadSelected')"
                 size="sm"
-                :disabled="busy"
+                :disabled="bulkBusy"
                 @click="runAccountBatch('download')"
               />
             </template>
@@ -819,7 +864,7 @@ defineExpose({ refresh })
           <AppActionMenu
             :label="t('groupDetail.full.actions')"
             :items="fullActions"
-            :disabled="busy || !summary?.total"
+            :disabled="bulkBusy || !summary?.total"
             @select="openFullAction"
           >
             <template #trigger>
@@ -827,7 +872,7 @@ defineExpose({ refresh })
                 :icon="Layers"
                 variant="ghost"
                 size="sm"
-                :disabled="busy || !summary?.total"
+                :disabled="bulkBusy || !summary?.total"
               >
                 {{ t('groupDetail.full.actions') }}<AppIcon :icon="ChevronDown" size="xs" />
               </AppButton>
@@ -858,9 +903,11 @@ defineExpose({ refresh })
             :row="row"
             :channel="channel"
             :selected="selected.has(row.id)"
-            :pending="mutating === row.id"
-            :pending-action="mutating === row.id ? pendingAction : undefined"
-            :disabled="busy"
+            :pending="mutating === row.id || syncPending(row.id)"
+            :pending-action="
+              syncPending(row.id) ? 'quota' : mutating === row.id ? pendingAction : undefined
+            "
+            :disabled="busy || syncPending(row.id)"
             :error="cardErrors.get(row.id)"
             @select="select(row.id, $event)"
             @toggle="toggle(row, $event)"
@@ -887,7 +934,7 @@ defineExpose({ refresh })
           mode="total"
           :total="query.data.value?.total"
           :pending="query.isFetching.value"
-          :disabled="mutating !== undefined"
+          :disabled="mutating !== undefined || accountBatchPending"
           @update:page="change({ page: $event })"
           @update:page-size="change({ pageSize: $event, page: 1 })"
       /></template>
@@ -907,7 +954,7 @@ defineExpose({ refresh })
     "
     :confirm-label="fullTarget ? t('groupDetail.full.' + fullTarget) : ''"
     :pending="mutating !== undefined"
-    :disabled="busy"
+    :disabled="bulkBusy"
     :error="error"
     @cancel="fullTarget = undefined"
     @confirm="applyFullAction"
@@ -920,7 +967,7 @@ defineExpose({ refresh })
     :description="t('groupDetail.deleteConfirmation', { count: n(deleting.length) })"
     :confirm-label="t('groupDetail.deleteCredential')"
     :pending="mutating !== undefined"
-    :disabled="busy"
+    :disabled="bulkBusy"
     :error="error"
     @cancel="deleting = []"
     @confirm="batch('delete', deleting)"
@@ -955,7 +1002,10 @@ defineExpose({ refresh })
     @close="testing = undefined"
     @changed="changed"
   />
-  <GroupDraftGuard :dirty="false" :pending="mutating !== undefined" />
+  <GroupDraftGuard
+    :dirty="false"
+    :pending="mutating !== undefined || accountBatchPending || syncing.size > 0"
+  />
 </template>
 
 <style scoped>

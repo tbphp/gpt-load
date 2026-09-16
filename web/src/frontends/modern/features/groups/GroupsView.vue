@@ -276,7 +276,7 @@ const activeFilters = computed(() => [
         },
       ]
     : []),
-  ...(filters.value.sort !== 'priority'
+  ...(filters.value.sort !== 'recent'
     ? [
         {
           key: 'sort',
@@ -295,7 +295,7 @@ function removeFilter(key: string): void {
     void updateFilters({ q: '' })
   } else if (key === 'view') void updateFilters({ view: 'all' })
   else if (key === 'channel') void updateFilters({ channel: '' })
-  else if (key === 'sort') void updateFilters({ sort: 'priority' })
+  else if (key === 'sort') void updateFilters({ sort: 'recent' })
 }
 
 usePageRefresh({
@@ -365,7 +365,7 @@ function resetFilters(): void {
     connection: '',
     model: '',
     view: 'all',
-    sort: 'priority',
+    sort: 'recent',
   })
 }
 function toggleExpanded(id: number): void {

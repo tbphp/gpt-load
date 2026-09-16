@@ -4,11 +4,14 @@ import { useI18n } from 'vue-i18n'
 import type { HomeAccount } from '@modern/api/home'
 import type { CredentialQuota } from '@modern/api/credential-observation'
 import { AppButton, AppOverflowText, AppPanel, AppProgressBar } from '@modern/components/ui'
+import { useClock } from '@modern/components/ui/clock'
+import { formatRemainingDuration } from '@modern/components/ui/format'
 import { quotaRemaining, quotaTone } from '@modern/features/groups/credential-presentation'
 
 const props = defineProps<{ accounts: HomeAccount[]; failed: boolean; loading: boolean }>()
 defineEmits<{ retry: [] }>()
-const { t, n } = useI18n()
+const { t, n, locale } = useI18n()
+const now = useClock()
 const remaining = (window: CredentialQuota) =>
   window.state === 'exhausted' ? 0 : quotaRemaining(window)
 function tightest(windows: readonly CredentialQuota[]): CredentialQuota | undefined {
@@ -20,24 +23,10 @@ function tightest(windows: readonly CredentialQuota[]): CredentialQuota | undefi
 }
 function resetLabel(window?: CredentialQuota): string | undefined {
   if (!window?.resetsAt || remaining(window) !== 0) return undefined
-  const minutes = Math.ceil((window.resetsAt - Date.now()) / 60000)
-  if (minutes <= 0) return t('credentialCards.windowExpired')
-  const hours = Math.floor(minutes / 60)
-  const duration =
-    hours >= 24
-      ? ([
-          [Math.floor(hours / 24), 'day'],
-          [hours % 24, 'hour'],
-        ] as const)
-      : ([
-          [hours, 'hour'],
-          [minutes % 60, 'minute'],
-        ] as const)
+  const remainingMs = window.resetsAt - now.value
+  if (remainingMs <= 0) return t('credentialCards.windowExpired')
   return t('home.recoversIn', {
-    time: duration
-      .filter(([value]) => value > 0)
-      .map(([value, unit]) => n(value, { style: 'unit', unit, unitDisplay: 'short' }))
-      .join(' '),
+    time: formatRemainingDuration(remainingMs, locale.value),
   })
 }
 const rows = computed(() =>

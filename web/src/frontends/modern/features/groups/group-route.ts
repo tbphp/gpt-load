@@ -13,7 +13,7 @@ export function parseGroupFilters(query: LocationQuery): GroupFilters {
     connection:
       query.connection === 'api_key' || query.connection === 'subscription' ? query.connection : '',
     model: typeof query.model === 'string' ? query.model.trim() : '',
-    sort: groupSorts.find((value) => value === query.sort) ?? 'priority',
+    sort: groupSorts.find((value) => value === query.sort) ?? 'recent',
   }
 }
 export function groupFilterQuery(filters: GroupFilters): Record<string, string> {
@@ -25,6 +25,6 @@ export function groupFilterQuery(filters: GroupFilters): Record<string, string> 
   if (filters.channel) query.channel = filters.channel
   if (filters.connection) query.connection = filters.connection
   if (filters.model) query.model = filters.model
-  if (filters.sort !== 'priority') query.sort = filters.sort
+  if (filters.sort !== 'recent') query.sort = filters.sort
   return query
 }

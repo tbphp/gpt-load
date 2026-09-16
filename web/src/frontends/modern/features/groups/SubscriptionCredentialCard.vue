@@ -135,6 +135,7 @@ useLoadingActivity(() => Boolean(props.pending))
       </div>
       <div
         v-if="
+          error ||
           (observation?.windows.length && observation.state !== 'fresh') ||
           row.modelCooldowns.length ||
           row.cooldownUntil ||
@@ -142,7 +143,8 @@ useLoadingActivity(() => Boolean(props.pending))
         "
         class="modern-subscription-card-notices"
       >
-        <span v-if="observation?.windows.length && observation.state !== 'fresh'">{{
+        <span v-if="error" class="modern-subscription-card-error" role="alert">{{ error }}</span>
+        <span v-else-if="observation?.windows.length && observation.state !== 'fresh'">{{
           t('credentialCards.observation.' + observation.state)
         }}</span>
         <span v-if="row.cooldownUntil">{{
@@ -202,6 +204,9 @@ useLoadingActivity(() => Boolean(props.pending))
 </template>
 
 <style scoped>
+.modern-subscription-card-error {
+  color: var(--modern-danger);
+}
 .modern-subscription-card {
   container: modern-subscription-card / inline-size;
   position: relative;
