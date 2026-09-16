@@ -602,6 +602,9 @@ export default {
         from: 'From',
         to: 'To',
         quickRanges: 'Quick time ranges',
+        calendar: 'Date range',
+        previousMonth: 'Previous month',
+        nextMonth: 'Next month',
         quickDisplay: {
           '1h': 'Last 1 hour',
           '6h': 'Last 6 hours',
