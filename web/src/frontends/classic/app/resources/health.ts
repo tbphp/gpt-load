@@ -68,6 +68,7 @@ const quotaCredentialFields = [
   'credential_id',
   'group_id',
   'group_name',
+  'identity',
   'remaining',
   'reset_at_ms',
 ] as const
@@ -75,6 +76,7 @@ const expiringResetCreditFields = [
   'credential_id',
   'group_id',
   'group_name',
+  'identity',
   'count',
   'nearest_expires_at_ms',
 ] as const
