@@ -3,6 +3,8 @@ import { RadioGroupItem, RadioGroupRoot } from 'reka-ui'
 import AppOverflowText from './AppOverflowText.vue'
 import type { ControlSize, SelectOption } from './types'
 
+type SegmentedSize = 'xxs' | ControlSize
+
 withDefaults(
   defineProps<{
     label: string
@@ -10,7 +12,7 @@ withDefaults(
     options: readonly (SelectOption & { count?: string | number })[]
     disabled?: boolean
     appearance?: 'filter' | 'field'
-    size?: ControlSize
+    size?: SegmentedSize
   }>(),
   { appearance: 'filter', size: 'md' },
 )
@@ -99,6 +101,14 @@ function select(value: unknown): void {
   cursor: not-allowed;
   opacity: var(--modern-opacity-disabled);
 }
+.modern-segmented--xxs {
+  padding: var(--modern-space-0-5);
+}
+.modern-segmented--xxs .modern-segmented-option {
+  min-height: var(--modern-control-xxs);
+  padding: 0 var(--modern-space-2);
+  font-size: var(--modern-font-size-caption);
+}
 .modern-segmented--field {
   --modern-segmented-size: var(--modern-control-md);
   width: fit-content;
@@ -113,9 +123,16 @@ function select(value: unknown): void {
 .modern-segmented--field.modern-segmented--xs {
   --modern-segmented-size: var(--modern-control-xs);
 }
+.modern-segmented--field.modern-segmented--xxs {
+  --modern-segmented-size: var(--modern-control-xxs);
+}
 .modern-segmented--field.modern-segmented--xs .modern-segmented-option {
   font-size: var(--modern-font-size-small);
   padding-inline: var(--modern-space-1-5);
+}
+.modern-segmented--field.modern-segmented--xxs .modern-segmented-option {
+  font-size: var(--modern-font-size-caption);
+  padding-inline: var(--modern-space-1);
 }
 .modern-segmented--field .modern-segmented-option {
   flex: 0 1 auto;
@@ -140,7 +157,8 @@ function select(value: unknown): void {
     padding: var(--modern-space-0-5);
   }
   .modern-segmented--field.modern-segmented--sm,
-  .modern-segmented--field.modern-segmented--xs {
+  .modern-segmented--field.modern-segmented--xs,
+  .modern-segmented--field.modern-segmented--xxs {
     --modern-segmented-size: var(--modern-touch-target);
   }
 }

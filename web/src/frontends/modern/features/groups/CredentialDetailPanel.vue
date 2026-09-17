@@ -164,6 +164,7 @@ useMessageSource(() =>
         :subscription="group.connectionType === 'subscription'"
         :group="group.id"
         :credential="row.id"
+        :quota-windows="item.observation?.windows ?? []"
       />
       <CredentialWindowUsage
         v-if="item.observation?.windows.length"

@@ -17,7 +17,7 @@ func ResolveUsageTimeBucket(fromMS, toMS int64) (UsageGranularity, int64, error)
 	spanMS := toMS - fromMS
 	hour, day := epochms.MillisecondsPerHour, epochms.MillisecondsPerDay
 	switch {
-	case spanMS <= hour:
+	case spanMS <= 6*hour:
 		return UsageGranularityMinute, UsageFiveMinuteBucketMS, nil
 	case spanMS <= day:
 		return UsageGranularityHour, hour, nil

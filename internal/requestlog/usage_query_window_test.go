@@ -23,10 +23,10 @@ func TestQueryUsageExactWindowBoundaries(t *testing.T) {
 		{"short across hour", 57 * time.Minute, 63 * time.Minute, 5 * time.Minute},
 		{"exact aligned hour", 0, time.Hour, 5 * time.Minute},
 		{"exact rolling hour", 17 * time.Minute, 77 * time.Minute, 5 * time.Minute},
-		{"aligned hour plus millisecond", 0, time.Hour + time.Millisecond, time.Hour},
-		{"rolling hour plus millisecond", 17 * time.Minute, 77*time.Minute + time.Millisecond, time.Hour},
-		{"full hours and boundaries", 17 * time.Minute, 190 * time.Minute, time.Hour},
-		{"aligned full hours", 0, 3 * time.Hour, time.Hour},
+		{"aligned hour plus millisecond", 0, time.Hour + time.Millisecond, 5 * time.Minute},
+		{"rolling hour plus millisecond", 17 * time.Minute, 77*time.Minute + time.Millisecond, 5 * time.Minute},
+		{"full hours and boundaries", 17 * time.Minute, 190 * time.Minute, 5 * time.Minute},
+		{"aligned full hours", 0, 3 * time.Hour, 5 * time.Minute},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			db := openRequestLogQueryDB(t)
@@ -71,7 +71,8 @@ func TestResolveUsageTimeBucket(t *testing.T) {
 	}{
 		{1, UsageGranularityMinute, UsageFiveMinuteBucketMS},
 		{hour, UsageGranularityMinute, UsageFiveMinuteBucketMS},
-		{hour + 1, UsageGranularityHour, hour},
+		{6 * hour, UsageGranularityMinute, UsageFiveMinuteBucketMS},
+		{6*hour + 1, UsageGranularityHour, hour},
 		{day, UsageGranularityHour, hour},
 		{day + 1, UsageGranularityHour, 3 * hour},
 		{3 * day, UsageGranularityHour, 3 * hour},

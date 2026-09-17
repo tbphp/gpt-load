@@ -31,22 +31,22 @@ func TestQuotaHistorySamplesLatestWindowIndependentlyAndSurvivesRestart(t *testi
 	record(20_000, "primary", 0.2)
 	record(30_000, "secondary", 0.4)
 	flush()
-	record(3_609_999, "primary", 0.3)
+	record(909_999, "primary", 0.3)
 	flush()
-	record(3_610_000, "primary", 0.5)
+	record(910_000, "primary", 0.5)
 	flush()
-	// 新进程依然从持久化的最后观测时间限流，不会在一小时内重复记点。
+	// 新进程依然从持久化的最后观测时间限流，不会在十五分钟内重复记点。
 	manager.passiveQuota = newPassiveQuotaPending()
-	record(3_620_000, "primary", 0.6)
+	record(920_000, "primary", 0.6)
 	flush()
-	record(7_210_000, "primary", 0.9)
+	record(1_810_000, "primary", 0.9)
 	flush()
 	var rows []models.CredentialQuotaHistory
 	if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) != 4 || rows[0].ObservedAtMS != 10_000 || rows[0].UsedBasisPoints != 1000 ||
-		rows[1].WindowID != "secondary" || rows[2].ObservedAtMS != 3_610_000 || rows[3].ObservedAtMS != 7_210_000 {
+		rows[1].WindowID != "secondary" || rows[2].ObservedAtMS != 910_000 || rows[3].ObservedAtMS != 1_810_000 {
 		t.Fatalf("unexpected real samples: %+v", rows)
 	}
 }
@@ -222,19 +222,19 @@ func TestQuotaHistoryPreservesReboundAndPrecedingObservation(t *testing.T) {
 	record(50_000, 0.015)
 	record(45_000, 0)
 	flush()
-	record(3_629_999, 0.3)
+	record(929_999, 0.3)
 	flush()
-	record(3_630_000, 0.4)
+	record(930_000, 0.4)
 	flush()
 	// 重启后仍能够从持久化的百分比检测回升。
 	manager.passiveQuota = newPassiveQuotaPending()
-	record(3_640_000, 0.39)
+	record(940_000, 0.39)
 	flush()
 	var rows []models.CredentialQuotaHistory
 	if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	wantTimes := []int64{10_000, 20_000, 30_000, 3_630_000, 3_640_000}
+	wantTimes := []int64{10_000, 20_000, 30_000, 930_000, 940_000}
 	wantUsed := []int64{5000, 9000, 100, 4000, 3900}
 	if len(rows) != len(wantTimes) {
 		t.Fatalf("unexpected rebound history: %+v", rows)

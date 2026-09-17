@@ -18,7 +18,7 @@ import (
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
-const quotaHistoryIntervalMS int64 = 60 * 60_000
+const quotaHistoryIntervalMS int64 = 15 * 60_000
 const quotaHistoryReboundBasisPoints int64 = 100
 const quotaHistoryCapacity = 4096
 
@@ -71,7 +71,7 @@ func quotaHistoryWindowKey(window providerobservation.QuotaWindow) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// recordHistorySampleLocked 对已统一来源的观测每小时采样；明显回升保留前后真实点。
+// recordHistorySampleLocked 对已统一来源的观测每十五分钟采样；明显回升保留前后真实点。
 // 最新观测与待写历史分别有界，跳过普通历史不影响实时额度更新。
 func (pending *passiveQuotaPending) recordHistorySampleLocked(groupID, credentialID uint, identity uint64, observedAtMS int64, version uint64, windows []providerobservation.QuotaWindow) {
 	if observedAtMS < 0 {

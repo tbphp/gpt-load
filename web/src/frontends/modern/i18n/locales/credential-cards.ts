@@ -1,4 +1,6 @@
 export const zhCN = {
+  trends: '趋势',
+  trendRange: '趋势时间范围',
   localUsage: '用量趋势',
   statisticsFailed: '用量趋势加载失败',
   quotaHistory: '额度趋势',
@@ -129,6 +131,8 @@ export const zhCN = {
   },
 }
 export const enUS: typeof zhCN = {
+  trends: 'Trends',
+  trendRange: 'Trend time range',
   localUsage: 'Usage trend',
   statisticsFailed: 'Failed to load usage trend',
   quotaHistory: 'Quota trend',
@@ -264,6 +268,8 @@ export const enUS: typeof zhCN = {
   },
 }
 export const jaJP: typeof zhCN = {
+  trends: '推移',
+  trendRange: '推移の期間',
   localUsage: '使用量の推移',
   statisticsFailed: '使用量の読み込みに失敗しました',
   quotaHistory: 'クォータの推移',
