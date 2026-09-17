@@ -10,6 +10,8 @@ export interface QuotaHistoryWindow {
   key: string
   label: string
   labelKey: string
+  scope: string
+  windowSeconds: number
   points: QuotaHistoryPoint[]
 }
 export interface QuotaHistoryReport {
@@ -45,6 +47,8 @@ export async function getCredentialQuotaHistory(
           key: text(window.key),
           label: text(window.label),
           labelKey: text(window.label_key),
+          scope: text(window.scope),
+          windowSeconds: integer(window.window_seconds, 1),
           points: list(window.points).map((value) => {
             const point = record(value),
               at = integer(point.observed_at_ms),
