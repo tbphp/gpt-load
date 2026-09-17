@@ -36,6 +36,7 @@ const rangeOptions = computed(() =>
     label: t('ui.date.ranges.' + value),
   })),
 )
+const rangeLabel = computed(() => t('ui.date.ranges.' + range.value))
 const query = useQuery(
   computed(() => ({
     queryKey: [
@@ -156,7 +157,7 @@ const date = computed(() =>
 )
 function quotaTooltipAt(at: number): string {
   const data = report.value
-  if (!data) return t('ui.date.ranges.7d')
+  if (!data) return rangeLabel.value
   const windows = quotaHistory.value?.windows.filter((window) => window.points.length) ?? []
   const lines: string[] = []
   for (const window of windows) {
@@ -183,7 +184,7 @@ function quotaPointAt(window: QuotaHistoryWindow, at: number) {
 }
 function usageTooltipAt(at: number, metric: UsageMetric): string {
   const data = report.value
-  if (!data) return t('ui.date.ranges.7d')
+  if (!data) return rangeLabel.value
   const lines: string[] = []
   const point = points.value.find((item) => item.from <= at && at < item.to)
   if (point) {
@@ -202,7 +203,9 @@ function usageTooltipAt(at: number, metric: UsageMetric): string {
       )
     if (
       metric !== 'tokens' &&
-      (data.usage?.collectionIncomplete || point.row?.usage_missing_count || point.row?.partial_count)
+      (data.usage?.collectionIncomplete ||
+        point.row?.usage_missing_count ||
+        point.row?.partial_count)
     )
       lines.push(t('usage.incomplete'))
     if (
@@ -225,7 +228,7 @@ const selectedAt = computed(() => {
   return Math.min(data.to - 1, Math.round(data.from + cursor.value * (data.to - data.from)))
 })
 const quotaTooltip = computed(() =>
-  selectedAt.value === undefined ? t('ui.date.ranges.7d') : quotaTooltipAt(selectedAt.value),
+  selectedAt.value === undefined ? rangeLabel.value : quotaTooltipAt(selectedAt.value),
 )
 const usageTooltips = computed(() => ({
   tokens: selectedAt.value === undefined ? undefined : usageTooltipAt(selectedAt.value, 'tokens'),
@@ -266,7 +269,9 @@ const pointLabels = computed(() => ({
           role="alert"
         >
           <span>{{ t('credentialCards.quotaHistoryFailed') }}</span>
-          <AppButton size="xs" variant="text" @click="query.refetch()">{{ t('ui.retry') }}</AppButton>
+          <AppButton size="xs" variant="text" @click="query.refetch()">{{
+            t('ui.retry')
+          }}</AppButton>
         </div>
         <CredentialQuotaTrend
           v-else-if="quotaHistory"
@@ -292,7 +297,9 @@ const pointLabels = computed(() => ({
           role="alert"
         >
           <span>{{ t('credentialCards.statisticsFailed') }}</span>
-          <AppButton size="xs" variant="text" @click="query.refetch()">{{ t('ui.retry') }}</AppButton>
+          <AppButton size="xs" variant="text" @click="query.refetch()">{{
+            t('ui.retry')
+          }}</AppButton>
         </div>
         <AppSparkline
           v-else-if="report?.usage"

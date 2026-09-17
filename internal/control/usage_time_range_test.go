@@ -21,8 +21,8 @@ func TestUsageAPIExplicitTimeRange(t *testing.T) {
 	}{
 		{"one millisecond", 1, 5 * 60 * 1000, "minute"},
 		{"one hour", hourMS, 5 * 60 * 1000, "minute"},
-		{"over one hour", hourMS + 1, hourMS, "hour"},
-		{"six hours", 6 * hourMS, hourMS, "hour"},
+		{"over one hour", hourMS + 1, 5 * 60 * 1000, "minute"},
+		{"six hours", 6 * hourMS, 5 * 60 * 1000, "minute"},
 		{"one day", dayMS, hourMS, "hour"},
 		{"three days", 3 * dayMS, 3 * hourMS, "hour"},
 		{"seven days", 7 * dayMS, 6 * hourMS, "hour"},

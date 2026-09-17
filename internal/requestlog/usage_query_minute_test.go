@@ -242,7 +242,7 @@ func TestQueryUsageDerivesWidthFromTimeRange(t *testing.T) {
 		want     time.Duration
 	}{
 		{"short range", 59 * time.Minute, 5 * time.Minute, 5 * time.Minute},
-		{"long range", 61 * time.Minute, 5 * time.Minute, time.Hour},
+		{"over-six-hour range", 6*time.Hour + time.Millisecond, 5 * time.Minute, time.Hour},
 		{"caller bucket is ignored", time.Hour, time.Minute, 5 * time.Minute},
 	} {
 		t.Run(test.name, func(t *testing.T) {
