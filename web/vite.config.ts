@@ -8,7 +8,14 @@ export const webRootPath = fileURLToPath(new URL('.', import.meta.url))
 export const pageRouteManifestPath = fileURLToPath(
   new URL('../internal/webui/page_routes.json', import.meta.url),
 )
-export const devServerFileSystemAllow = [webRootPath, pageRouteManifestPath]
+export const modernPageRouteManifestPath = fileURLToPath(
+  new URL('../internal/webui/modern_page_routes.json', import.meta.url),
+)
+export const devServerFileSystemAllow = [
+  webRootPath,
+  pageRouteManifestPath,
+  modernPageRouteManifestPath,
+]
 
 const proxyTarget = process.env.VITE_DEV_PROXY_TARGET || 'http://127.0.0.1:3001'
 
@@ -17,7 +24,9 @@ export default defineConfig({
   plugins: [vue(), tailwindcss()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@': fileURLToPath(new URL('./src/frontends/classic', import.meta.url)),
+      '@modern': fileURLToPath(new URL('./src/frontends/modern', import.meta.url)),
+      '@shared': fileURLToPath(new URL('./src/shared', import.meta.url)),
     },
   },
   server: {

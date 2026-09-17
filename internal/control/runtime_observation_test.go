@@ -198,10 +198,11 @@ func TestCaptureRuntimeHealthObservationWaitsForPublishedConfigPair(t *testing.T
 	if !found {
 		t.Fatalf("captured keys = %#v, want key %d", result.value.keys, key.ID)
 	}
-	if len(result.value.problemCiphertexts) != 0 {
+	if len(result.value.credentialCiphertexts) != 1 || result.value.credentialCiphertexts[key.ID] == "" {
 		t.Fatalf(
-			"captured available-key ciphertexts = %#v, want none",
-			result.value.problemCiphertexts,
+			"captured credential ciphertexts = %#v, want available key %d",
+			result.value.credentialCiphertexts,
+			key.ID,
 		)
 	}
 }

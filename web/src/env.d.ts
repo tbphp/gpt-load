@@ -7,5 +7,6 @@ declare module 'vue-router' {
     requiresAuth?: boolean
     adminOnly?: boolean
     titleKey?: string
+    primaryNav?: string
   }
 }

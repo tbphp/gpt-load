@@ -35,10 +35,10 @@ func ResolveUsageTimeBucket(fromMS, toMS int64) (UsageGranularity, int64, error)
 
 // usageWindowScope 先按时间拆分来源，再合并行集供总览、趋势和分布使用。
 // 数据缺失不会改变分段，也不会把首尾小时的整桶统计带入精确区间。
-func usageWindowScope(db *gorm.DB, input UsageQuery) *gorm.DB {
+func usageWindowScope(db *gorm.DB, input UsageQuery, groupIDs ...uint) *gorm.DB {
 	hour := epochms.MillisecondsPerHour
 	if input.ToMS-input.FromMS <= hour {
-		return usageRequestLogScope(db, input)
+		return usageRequestLogScope(db, input, groupIDs...)
 	}
 	fullFromMS := input.FromMS
 	if remainder := fullFromMS % hour; remainder != 0 {
@@ -48,7 +48,7 @@ func usageWindowScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 	full := input
 	full.FromMS, full.ToMS = fullFromMS, fullToMS
 	// 数值运算固定参数类型，避免 PostgreSQL 把 SELECT 中的独立参数推断为 text。
-	parts := []any{usageStatScope(db, full).Select(usageWindowColumns+", ? + 0 AS bucket_alignment_ms", hour)}
+	parts := []any{usageStatScope(db, full, groupIDs...).Select(usageWindowColumns+", ? + 0 AS bucket_alignment_ms", hour)}
 	unionSQL := "?"
 	for _, boundary := range [][2]int64{{input.FromMS, fullFromMS}, {fullToMS, input.ToMS}} {
 		if boundary[0] >= boundary[1] {
@@ -56,7 +56,7 @@ func usageWindowScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 		}
 		part := input
 		part.FromMS, part.ToMS = boundary[0], boundary[1]
-		parts = append(parts, usageRequestLogScope(db, part).Select(usageWindowColumns+", bucket_alignment_ms"))
+		parts = append(parts, usageRequestLogScope(db, part, groupIDs...).Select(usageWindowColumns+", bucket_alignment_ms"))
 		unionSQL += " UNION ALL ?"
 	}
 	return db.Session(&gorm.Session{NewDB: true}).Table("("+unionSQL+") AS usage_rows", parts...)

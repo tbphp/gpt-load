@@ -107,6 +107,36 @@ func TestEmbeddedPageRouteManifestContainsCurrentPages(t *testing.T) {
 		got[route.Name] = route.Path
 	}
 	want := map[string]string{
+		"home":              "/",
+		"login":             "/login",
+		"import":            "/import",
+		"groups":            "/groups",
+		"group-detail":      "/groups/:id",
+		"access-keys":       "/access-keys",
+		"monitor":           "/monitor",
+		"monitor-usage":     "/monitor/usage",
+		"monitor-logs":      "/monitor/logs",
+		"monitor-health":    "/monitor/health",
+		"monitor-inspector": "/monitor/inspector",
+		"models":            "/models",
+		"settings":          "/settings",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("embedded routes = %#v, want %#v", got, want)
+	}
+	for name, path := range want {
+		if got[name] != path {
+			t.Fatalf("embedded route %q = %q, want %q", name, got[name], path)
+		}
+	}
+}
+
+func TestClassicPageRouteManifestKeepsOriginalPages(t *testing.T) {
+	routes, err := parsePageRouteManifest(embeddedPageRouteManifest)
+	if err != nil {
+		t.Fatalf("parse classic page route manifest: %v", err)
+	}
+	want := map[string]string{
 		"home":         "/",
 		"login":        "/login",
 		"import":       "/import",
@@ -117,12 +147,12 @@ func TestEmbeddedPageRouteManifestContainsCurrentPages(t *testing.T) {
 		"models":       "/models",
 		"settings":     "/settings",
 	}
-	if len(got) != len(want) {
-		t.Fatalf("embedded routes = %#v, want %#v", got, want)
+	if len(routes) != len(want) {
+		t.Fatalf("classic page manifest has %d routes, want %d original routes", len(routes), len(want))
 	}
-	for name, path := range want {
-		if got[name] != path {
-			t.Fatalf("embedded route %q = %q, want %q", name, got[name], path)
+	for _, route := range routes {
+		if want[route.Name] != route.Path {
+			t.Errorf("classic route %q = %q, want %q", route.Name, route.Path, want[route.Name])
 		}
 	}
 }

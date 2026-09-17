@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/utils"
@@ -96,7 +97,12 @@ func (s *websocketConnection) watchBinding(binding *websocketBinding) {
 			defer s.workers.Done()
 			select {
 			case <-binding.session.Done():
-				s.cancel()
+				if s.markBindingUnavailable(binding) {
+					select {
+					case s.bindingStopped <- struct{}{}:
+					case <-s.ctx.Done():
+					}
+				}
 			case <-s.ctx.Done():
 			}
 		}()
@@ -104,22 +110,66 @@ func (s *websocketConnection) watchBinding(binding *websocketBinding) {
 }
 
 type websocketConnection struct {
-	inputBytes   int // 受 handler.websocketBudget.mu 保护。
-	handler      *Handler
-	conn         *websocket.Conn
-	request      *http.Request
-	keyID        uint
-	keyHash      string
-	ctx          context.Context
-	cancel       context.CancelFunc
-	write        chan struct{}
-	bind         chan struct{}
-	mu           sync.Mutex
-	binding      *websocketBinding
-	parents      map[string]websocketParent
-	parentOrder  []string
-	workers      sync.WaitGroup
-	firstRequest *time.Timer
+	inputBytes  int // 受 handler.websocketBudget.mu 保护。
+	handler     *Handler
+	conn        *websocket.Conn
+	request     *http.Request
+	keyID       uint
+	keyHash     string
+	ctx         context.Context
+	cancel      context.CancelFunc
+	write       chan struct{}
+	bind        chan struct{}
+	mu          sync.Mutex
+	binding     *websocketBinding
+	parents     map[string]websocketParent
+	parentOrder []string
+	// accepting 和 registered 由 mu 保护，覆盖读取、排队及执行中的请求。
+	accepting      bool
+	registered     int
+	closeOnce      sync.Once
+	closeErr       error
+	bindingStopped chan struct{}
+	workers        sync.WaitGroup
+	firstRequest   *time.Timer
+}
+
+func (s *websocketConnection) registerTurn() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.accepting || s.ctx.Err() != nil {
+		return false
+	}
+	s.registered++
+	return true
+}
+
+func (s *websocketConnection) finishTurn() {
+	s.mu.Lock()
+	if s.registered > 0 {
+		s.registered--
+	}
+	s.mu.Unlock()
+}
+
+func (s *websocketConnection) reserveReconnect() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.registered != 1 || s.ctx.Err() != nil {
+		return false
+	}
+	s.accepting = false
+	return true
+}
+
+func (s *websocketConnection) markBindingUnavailable(binding *websocketBinding) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.binding != binding {
+		return false
+	}
+	s.accepting = false
+	return true
 }
 
 func websocketIntent(request *http.Request) bool {
@@ -203,7 +253,7 @@ func (h *Handler) handleWebsocket(c *gin.Context, requestContext *dataPlaneReque
 		return
 	}
 	ctx, cancel := context.WithCancel(c.Request.Context())
-	s := &websocketConnection{handler: h, conn: conn, request: c.Request.Clone(ctx), ctx: ctx, cancel: cancel, keyID: requestContext.accessKey.ID, write: make(chan struct{}, 1), bind: make(chan struct{}, 1), parents: make(map[string]websocketParent)}
+	s := &websocketConnection{handler: h, conn: conn, request: c.Request.Clone(ctx), ctx: ctx, cancel: cancel, keyID: requestContext.accessKey.ID, write: make(chan struct{}, 1), bind: make(chan struct{}, 1), parents: make(map[string]websocketParent), accepting: true, bindingStopped: make(chan struct{}, 1)}
 	for hash, key := range requestContext.snapshot.AccessKeysByHash {
 		if key.ID == s.keyID {
 			s.keyHash = hash
@@ -255,7 +305,12 @@ func (s *websocketConnection) authorized(snapshot *state.ConfigSnapshot) (state.
 // 单个读协程只持有一条受预算约束的消息；队列与同流调度均由 run 持有。
 func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 	defer s.workers.Done()
-	defer s.cancel()
+	cancelOnExit := true
+	defer func() {
+		if cancelOnExit {
+			s.cancel()
+		}
+	}()
 	limits := s.handler.websocketLimits
 	scratch := make([]byte, 32<<10)
 	for {
@@ -263,8 +318,15 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 		if err != nil {
 			return
 		}
+		if !s.registerTurn() {
+			// 服务端冻结后由当前请求完成收尾；真实读错误仍及时取消。
+			cancelOnExit = false
+			return
+		}
+		// 已登记消息在错误退出时先关闭或取消，再注销，避免其他请求抢先通知重连。
 		if kind != websocket.TextMessage {
 			s.closeWith(websocket.CloseUnsupportedData, "Text JSON is required.")
+			s.finishTurn()
 			return
 		}
 		var body []byte
@@ -274,6 +336,7 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 				if len(body)+n > limits.message || !s.reserveInput(n) {
 					s.reserveInput(-len(body))
 					s.closeWith(websocket.CloseTryAgainLater, "WebSocket input limit reached.")
+					s.finishTurn()
 					return
 				}
 				body = append(body, scratch[:n]...)
@@ -281,6 +344,8 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 			if readErr != nil {
 				if !errors.Is(readErr, io.EOF) {
 					s.reserveInput(-len(body))
+					s.cancel()
+					s.finishTurn()
 					return
 				}
 				break
@@ -291,11 +356,13 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 		if !utf8.Valid(body) || json.Unmarshal(body, &envelope) != nil || envelope == nil {
 			s.reserveInput(-len(body))
 			s.closeWith(websocket.CloseInvalidFramePayloadData, "A JSON object is required.")
+			s.finishTurn()
 			return
 		} else if raw, ok := envelope["stream_id"]; ok {
 			if json.Unmarshal(raw, &turn.lane) != nil || !validWebsocketLane(turn.lane) {
 				s.reserveInput(-len(body))
 				s.closeWith(websocket.ClosePolicyViolation, "Invalid stream_id.")
+				s.finishTurn()
 				return
 			}
 		}
@@ -308,6 +375,7 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 		case out <- turn:
 		case <-s.ctx.Done():
 			s.reserveInput(-len(body))
+			s.finishTurn()
 			return
 		}
 	}
@@ -322,6 +390,27 @@ func validWebsocketLane(lane string) bool {
 			return false
 		}
 	}
+	return true
+}
+
+func (s *websocketConnection) dispatchTurn(turn websocketTurn, finished chan<- websocketFinished) bool {
+	// 派发与绑定失效共用锁，冻结后不再启动排队请求。
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.accepting || s.ctx.Err() != nil {
+		return false
+	}
+	s.workers.Add(1)
+	go func() {
+		defer s.workers.Done()
+		defer s.reserveInput(-len(turn.body))
+		s.executeTurn(turn)
+		s.finishTurn()
+		select {
+		case finished <- websocketFinished{lane: turn.lane}:
+		case <-s.ctx.Done():
+		}
+	}()
 	return true
 }
 
@@ -382,34 +471,29 @@ func (s *websocketConnection) run() {
 				recorder.completeCanceled(s.ctx, 0, -1)
 				recorder.emit()
 				s.reserveInput(-len(turn.body))
+				s.finishTurn()
 			}
 		}
 	}()
+	bindingUnavailable := false
 	for {
 		if s.ctx.Err() != nil {
 			return
 		}
 		for _, lane := range lanes {
 			q := queues[lane]
-			if busy[lane] || len(q) == 0 || active >= limits.active {
+			if bindingUnavailable || busy[lane] || len(q) == 0 || active >= limits.active {
 				continue
 			}
 			turn := q[0]
+			if !s.dispatchTurn(turn, finished) {
+				continue
+			}
 			q[0] = websocketTurn{}
 			queues[lane] = q[1:]
 			pending--
 			active++
 			busy[lane] = true
-			s.workers.Add(1)
-			go func() {
-				defer s.workers.Done()
-				defer s.reserveInput(-len(turn.body))
-				s.executeTurn(turn)
-				select {
-				case finished <- websocketFinished{lane: turn.lane}:
-				case <-s.ctx.Done():
-				}
-			}()
 		}
 		select {
 		case turn := <-messages:
@@ -436,6 +520,8 @@ func (s *websocketConnection) run() {
 					recorder.completeReason(value)
 					recorder.emit()
 					s.emitReason(turn.lane, value)
+					// 错误交付完成前仍属未完成请求，阻止其他轮次提前关闭连接。
+					s.finishTurn()
 					if !authorized {
 						s.cancel()
 					}
@@ -446,6 +532,7 @@ func (s *websocketConnection) run() {
 			}
 			if pending >= limits.pending {
 				s.reserveInput(-len(turn.body))
+				s.finishTurn()
 				s.closeWith(websocket.CloseTryAgainLater, "WebSocket queue limit reached.")
 				return
 			}
@@ -454,8 +541,18 @@ func (s *websocketConnection) run() {
 		case done := <-finished:
 			active--
 			busy[done.lane] = false
+			if bindingUnavailable && active == 0 {
+				s.cancel()
+				return
+			}
 			if active == 0 && pending == 0 && limits.idle > 0 {
 				idle.Reset(limits.idle)
+			}
+		case <-s.bindingStopped:
+			bindingUnavailable = true
+			if active == 0 {
+				s.cancel()
+				return
 			}
 		case <-updates:
 			snapshot, updates = s.handler.manager.CurrentWithUpdates()
@@ -477,9 +574,32 @@ func (s *websocketConnection) run() {
 	}
 }
 
-func (s *websocketConnection) closeWith(code int, message string) {
-	_ = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, message), time.Now().Add(s.handler.writeTimeout))
-	s.cancel()
+func (s *websocketConnection) closeWith(code int, message string) (bool, error) {
+	wrote := false
+	s.closeOnce.Do(func() {
+		wrote = true
+		s.closeErr = s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, message), time.Now().Add(s.handler.writeTimeout))
+		s.cancel()
+	})
+	return wrote, s.closeErr
+}
+
+func (s *websocketConnection) requestClientReconnect(requestID, ruleID, retryDirective string) {
+	wrote, err := s.closeWith(websocket.CloseTryAgainLater, "Reconnect to retry the request.")
+	result := "sent"
+	level := logrus.InfoLevel
+	if !wrote || err != nil {
+		result = "failed"
+		level = logrus.WarnLevel
+	}
+	utils.LogPlaneBestEffort(s.handler.logger, level, utils.LogPlaneData, logrus.Fields{
+		"event":           "ws_reconnect_requested",
+		"request_id":      requestID,
+		"rule_id":         ruleID,
+		"retry_directive": retryDirective,
+		"close_code":      websocket.CloseTryAgainLater,
+		"write_result":    result,
+	}, "Requested WebSocket client reconnect")
 }
 func (s *websocketConnection) emit(ctx context.Context, body []byte) error {
 	select {

@@ -1,0 +1,380 @@
+import type { ApiClient } from '@shared/http/client'
+import type { ProxyConfigInput } from '@/api/control/types'
+import { InvalidResponseError } from '@shared/http/errors'
+
+import {
+  assertNoSecretLikeFields,
+  projectArray,
+  projectEpochMilliseconds,
+  projectEnum,
+  projectHTTPURL,
+  projectRecord,
+  projectSafeInteger,
+  projectString,
+} from './projector'
+
+export type CredentialStageStatus =
+  | 'pending_authorization'
+  | 'exchanging'
+  | 'ready'
+  | 'consumed'
+  | 'failed'
+  | 'cancelled'
+  | 'expired'
+  | 'outcome_unknown'
+
+export interface CredentialStageAccount {
+  email_mask?: string
+  expires_at_ms?: number
+  last_refresh_at_ms?: number
+}
+
+export interface CredentialStage {
+  stage_id: string
+  status: CredentialStageStatus
+  authorization_method?: 'browser_oauth' | 'device_oauth' | 'oauth_file'
+  authorization_url?: string
+  redirect_uri?: string
+  user_code?: string
+  next_poll_at_ms?: number
+  account: CredentialStageAccount
+  expires_at_ms: number
+  error_code?: string
+  duplicate?: boolean
+}
+
+export type CredentialImportFormat = 'cpa' | 'codex' | 'claude-code' | 'sub2api'
+
+export interface CredentialImportItem {
+  index: number
+  file_index: number
+  import_id?: string
+  format?: CredentialImportFormat
+  channel_id?: string
+  status: 'ready' | 'skipped' | 'failed'
+  stage?: CredentialStage
+  error_code?: string
+}
+
+export interface CredentialImportBatchResult {
+  items: CredentialImportItem[]
+}
+
+export interface CredentialConnectInspection {
+  duplicated_stage_ids: string[]
+}
+
+export interface CredentialConnectResult {
+  group_id: number
+  credentials_added: number
+  credentials_duplicated: number
+}
+
+export type CredentialStageNetworkInput =
+  { proxy: ProxyConfigInput; group_id?: never } | { group_id: number; proxy?: never }
+
+const stageFields = [
+  'stage_id',
+  'status',
+  'authorization_method',
+  'authorization_url',
+  'redirect_uri',
+  'user_code',
+  'next_poll_at_ms',
+  'account',
+  'expires_at_ms',
+  'error_code',
+] as const
+const accountFields = ['email_mask', 'expires_at_ms', 'last_refresh_at_ms'] as const
+const stageStatuses = [
+  'pending_authorization',
+  'exchanging',
+  'ready',
+  'consumed',
+  'failed',
+  'cancelled',
+  'expired',
+  'outcome_unknown',
+] as const
+const authorizationMethods = ['browser_oauth', 'device_oauth', 'oauth_file'] as const
+
+function invalidResponse(): never {
+  throw new InvalidResponseError()
+}
+
+function projectStageID(value: unknown): string {
+  const id = projectString(value)
+  if (!/^[a-zA-Z0-9_-]{1,100}$/u.test(id)) invalidResponse()
+  return id
+}
+
+function projectAccount(value: unknown): CredentialStageAccount {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, accountFields)
+  const emailMask = record.email_mask === undefined ? undefined : projectString(record.email_mask)
+  return {
+    ...(emailMask === undefined ? {} : { email_mask: emailMask }),
+    ...(record.expires_at_ms === undefined
+      ? {}
+      : { expires_at_ms: projectEpochMilliseconds(record.expires_at_ms) }),
+    ...(record.last_refresh_at_ms === undefined
+      ? {}
+      : { last_refresh_at_ms: projectEpochMilliseconds(record.last_refresh_at_ms) }),
+  }
+}
+
+function projectInternalErrorCode(value: unknown): string {
+  const code = projectString(value)
+  if (!/^[a-z0-9_]{1,64}$/u.test(code)) invalidResponse()
+  return code
+}
+
+export function projectCredentialStage(value: unknown): CredentialStage {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, stageFields)
+  const authorizationURL =
+    record.authorization_url === undefined ? undefined : projectHTTPURL(record.authorization_url)
+  const redirectURI =
+    record.redirect_uri === undefined ? undefined : projectHTTPURL(record.redirect_uri)
+  const authorizationMethod =
+    record.authorization_method === undefined
+      ? undefined
+      : projectEnum(record.authorization_method, authorizationMethods)
+  const userCode = record.user_code === undefined ? undefined : projectString(record.user_code)
+  if (
+    userCode !== undefined &&
+    (!/^[\x21-\x7e ]{1,128}$/u.test(userCode) || userCode.trim() !== userCode)
+  ) {
+    invalidResponse()
+  }
+  return {
+    stage_id: projectStageID(record.stage_id),
+    status: projectEnum(record.status, stageStatuses),
+    ...(authorizationMethod === undefined ? {} : { authorization_method: authorizationMethod }),
+    ...(authorizationURL === undefined ? {} : { authorization_url: authorizationURL }),
+    ...(redirectURI === undefined ? {} : { redirect_uri: redirectURI }),
+    ...(userCode === undefined ? {} : { user_code: userCode }),
+    ...(record.next_poll_at_ms === undefined
+      ? {}
+      : { next_poll_at_ms: projectEpochMilliseconds(record.next_poll_at_ms) }),
+    account: projectAccount(record.account),
+    expires_at_ms: projectEpochMilliseconds(record.expires_at_ms),
+    ...(record.error_code === undefined
+      ? {}
+      : { error_code: projectInternalErrorCode(record.error_code) }),
+  }
+}
+
+function projectCredentialImportBatch(
+  value: unknown,
+  fileCount: number,
+): CredentialImportBatchResult {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['items'])
+  const items = projectArray(record.items, (value): CredentialImportItem => {
+    const item = projectRecord(value)
+    assertNoSecretLikeFields(item, [
+      'index',
+      'file_index',
+      'import_id',
+      'format',
+      'channel_id',
+      'status',
+      'stage',
+      'error_code',
+    ])
+    const status = projectEnum(item.status, ['ready', 'skipped', 'failed'] as const)
+    const stage = item.stage === undefined ? undefined : projectCredentialStage(item.stage)
+    const errorCode =
+      item.error_code === undefined ? undefined : projectInternalErrorCode(item.error_code)
+    const importID = item.import_id === undefined ? undefined : projectString(item.import_id)
+    if (importID !== undefined && !/^[a-f0-9]{64}$/u.test(importID)) invalidResponse()
+    if (
+      (status === 'ready' && (stage?.status !== 'ready' || errorCode !== undefined)) ||
+      (status !== 'ready' && (stage !== undefined || errorCode === undefined))
+    ) {
+      invalidResponse()
+    }
+    return {
+      index: projectSafeInteger(item.index, { minimum: 1 }),
+      file_index: projectSafeInteger(item.file_index, { minimum: 1, maximum: fileCount }),
+      status,
+      ...(importID === undefined ? {} : { import_id: importID }),
+      ...(item.format === undefined
+        ? {}
+        : {
+            format: projectEnum(item.format, ['cpa', 'codex', 'claude-code', 'sub2api'] as const),
+          }),
+      ...(item.channel_id === undefined ? {} : { channel_id: projectString(item.channel_id) }),
+      ...(stage === undefined ? {} : { stage }),
+      ...(errorCode === undefined ? {} : { error_code: errorCode }),
+    }
+  })
+  if (
+    items.length === 0 ||
+    new Set(items.map(({ file_index, index }) => `${file_index}:${index}`)).size !== items.length
+  ) {
+    invalidResponse()
+  }
+  return { items }
+}
+
+function projectConnectResult(value: unknown): CredentialConnectResult {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['group_id', 'credentials_added', 'credentials_duplicated'])
+  return {
+    group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
+    credentials_added: projectSafeInteger(record.credentials_added, { minimum: 0 }),
+    credentials_duplicated: projectSafeInteger(record.credentials_duplicated, { minimum: 0 }),
+  }
+}
+
+function projectConnectInspection(value: unknown): CredentialConnectInspection {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['duplicated_stage_ids'])
+  const duplicatedStageIDs = projectArray(record.duplicated_stage_ids, projectStageID)
+  if (new Set(duplicatedStageIDs).size !== duplicatedStageIDs.length) invalidResponse()
+  return { duplicated_stage_ids: duplicatedStageIDs }
+}
+
+export async function beginCredentialAuthorization(
+  client: ApiClient,
+  channelID: string,
+  network?: CredentialStageNetworkInput,
+  signal?: AbortSignal,
+): Promise<CredentialStage> {
+  return projectCredentialStage(
+    await client.request('/api/credential-stages/authorizations', {
+      method: 'POST',
+      json: { channel_id: channelID, ...network },
+      signal,
+    }),
+  )
+}
+
+export async function completeCredentialAuthorization(
+  client: ApiClient,
+  stageID: string,
+  callbackURL: string,
+  signal?: AbortSignal,
+): Promise<CredentialStage> {
+  const id = projectStageID(stageID)
+  return projectCredentialStage(
+    await client.request(`/api/credential-stages/${id}/oauth-callback`, {
+      method: 'POST',
+      json: { callback_url: callbackURL },
+      signal,
+    }),
+  )
+}
+
+export async function pollCredentialDeviceAuthorization(
+  client: ApiClient,
+  stageID: string,
+  signal?: AbortSignal,
+): Promise<CredentialStage> {
+  const id = projectStageID(stageID)
+  return projectCredentialStage(
+    await client.request(`/api/credential-stages/${id}/device-poll`, {
+      method: 'POST',
+      signal,
+    }),
+  )
+}
+
+export async function importCredentialStage(
+  client: ApiClient,
+  channelID: string,
+  file: File,
+  network?: CredentialStageNetworkInput,
+  signal?: AbortSignal,
+): Promise<CredentialStage> {
+  const body = new FormData()
+  body.set('channel_id', channelID)
+  if (network?.proxy !== undefined) body.set('proxy', JSON.stringify(network.proxy))
+  if (network?.group_id !== undefined) body.set('group_id', String(network.group_id))
+  body.set('file', file, file.name)
+  return projectCredentialStage(
+    await client.request('/api/credential-stages/import', { method: 'POST', body, signal }),
+  )
+}
+
+export async function importCredentialBatch(
+  client: ApiClient,
+  channelID: string,
+  files: File[],
+  network?: CredentialStageNetworkInput,
+  preparedImportIDs: string[] = [],
+  signal?: AbortSignal,
+): Promise<CredentialImportBatchResult> {
+  const body = new FormData()
+  body.set('channel_id', channelID)
+  if (network?.proxy !== undefined) body.set('proxy', JSON.stringify(network.proxy))
+  if (network?.group_id !== undefined) body.set('group_id', String(network.group_id))
+  for (const file of files) body.append('file', file, file.name)
+  if (preparedImportIDs.length > 0) {
+    body.set('prepared_import_ids', JSON.stringify(preparedImportIDs))
+  }
+  return projectCredentialImportBatch(
+    await client.request('/api/credential-stages/import-batch', { method: 'POST', body, signal }),
+    files.length,
+  )
+}
+
+export async function getCredentialStage(
+  client: ApiClient,
+  stageID: string,
+  signal?: AbortSignal,
+): Promise<CredentialStage> {
+  const id = projectStageID(stageID)
+  return projectCredentialStage(
+    await client.request(`/api/credential-stages/${id}`, { method: 'GET', signal }),
+  )
+}
+
+export async function cancelCredentialStage(
+  client: ApiClient,
+  stageID: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const id = projectStageID(stageID)
+  await client.request(`/api/credential-stages/${id}`, { method: 'DELETE', signal })
+}
+
+export async function connectGroupCredentials(
+  client: ApiClient,
+  groupID: number,
+  stageIDs: string[],
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<CredentialConnectResult> {
+  const result = projectConnectResult(
+    await client.request(`/api/groups/${groupID}/credentials/connect`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      json: { staged_credential_ids: stageIDs.map(projectStageID) },
+      signal,
+    }),
+  )
+  if (result.group_id !== groupID) invalidResponse()
+  return result
+}
+
+export async function inspectGroupCredentialConnection(
+  client: ApiClient,
+  groupID: number,
+  stageIDs: string[],
+  signal?: AbortSignal,
+): Promise<CredentialConnectInspection> {
+  const requestedStageIDs = stageIDs.map(projectStageID)
+  const requested = new Set(requestedStageIDs)
+  const result = projectConnectInspection(
+    await client.request(`/api/groups/${groupID}/credentials/connect/inspect`, {
+      method: 'POST',
+      json: { staged_credential_ids: requestedStageIDs },
+      signal,
+    }),
+  )
+  if (result.duplicated_stage_ids.some((stageID) => !requested.has(stageID))) invalidResponse()
+  return result
+}

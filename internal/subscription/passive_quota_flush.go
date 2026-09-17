@@ -97,7 +97,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 		}
 		if !merge.Matched {
 			// 未能唯一匹配已有窗口的样本不能推进同步时间。
-			// 窗口创建和周期变更仍由主动观测负责。
+			// 窗口创建和身份变更仍由主动观测负责。
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
 		}

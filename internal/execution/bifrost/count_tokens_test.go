@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/tidwall/gjson"
+
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
@@ -178,6 +180,46 @@ func TestConvertedCountTokensUsesBifrostProviderEndpointAndClientShape(t *testin
 			}
 			if result.UpstreamProtocol != test.upstreamProtocol {
 				t.Fatalf("upstream protocol = %q, want %q", result.UpstreamProtocol, test.upstreamProtocol)
+			}
+		})
+	}
+}
+
+func TestConvertedCountTokensUsesGenerationToolConstraints(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name           string
+		clientProtocol protocol.Protocol
+		operation      execution.Operation
+		path           string
+		body           string
+	}{
+		{
+			name: "OpenAI Responses", clientProtocol: protocol.OpenAIResponses,
+			operation: execution.OperationResponsesInputTokens, path: "/v1/responses/input_tokens",
+			body: `{"model":"client-model","input":"hello","store":false,"tools":[{"type":"function","name":"lookup"},{"type":"function","name":"summarize"},{"type":"function","name":"remove_record"}],"tool_choice":{"type":"allowed_tools","mode":"required","tools":[{"type":"function","name":"lookup"},{"type":"function","name":"summarize"}]}}`,
+		},
+		{
+			name: "Gemini", clientProtocol: protocol.Gemini,
+			operation: execution.OperationCountTokens, path: "/v1beta/models/client-model:countTokens",
+			body: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"tools":[{"functionDeclarations":[{"name":"lookup"},{"name":"summarize"},{"name":"remove_record"}]}],"toolConfig":{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["lookup","summarize"]}}}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := newProtocolTestRuntime(t, testRuntimeOptions{})
+			spec := countTokensSpec(channel.Anthropic, test.clientProtocol, test.path, test.body, execution.RouteConverted)
+			spec.Operation = test.operation
+			spec = freezeTestAttempt(spec)
+			prepared, failure := runtime.prepare(spec, false)
+			if failure != nil {
+				t.Fatalf("prepare token-count request: %+v", failure.Error)
+			}
+			wire := convertedToolTargetWire(t, channel.ProviderAnthropic, spec.UpstreamModel, prepared.countTokensRequest)
+			if gjson.GetBytes(wire, "tools.#").Int() != 2 ||
+				gjson.GetBytes(wire, "tools.0.name").String() != "lookup" ||
+				gjson.GetBytes(wire, "tools.1.name").String() != "summarize" ||
+				gjson.GetBytes(wire, "tool_choice.type").String() != "any" {
+				t.Fatalf("token-count constraints differ from generation: %s", wire)
 			}
 		})
 	}

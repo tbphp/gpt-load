@@ -228,6 +228,11 @@ func TestQueryUsageGroupDistributionKeepsOnlyPersistedGroupsInTopFive(t *testing
 		}).Error; err != nil {
 			t.Fatalf("create known group %d: %v", groupID, err)
 		}
+		if groupID == 2 {
+			if err := db.Model(&models.Group{}).Where("id = ?", groupID).Update("enabled", false).Error; err != nil {
+				t.Fatalf("disable known group: %v", err)
+			}
+		}
 	}
 
 	knownFirst := usageStat(start, 1, "known-first", 30)
@@ -278,7 +283,7 @@ func TestQueryUsageAccessKeyTokenDistributionKeepsOnlyPersistedKeys(t *testing.T
 		},
 		{
 			Name: "token-heavy", KeyValue: "cipher-0002", KeyHash: "hash-0002",
-			KeySuffix: "0002", Status: "active", Filters: models.JSON(`{}`),
+			KeySuffix: "0002", Status: "disabled", Filters: models.JSON(`{}`),
 		},
 	}
 	if err := db.Create(&knownKeys).Error; err != nil {

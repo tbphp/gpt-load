@@ -1,0 +1,47 @@
+/* 不支持精确宽度的浏览器，以及触屏、高对比度模式，保留原生滚动条。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--modern-scrollbar) transparent;
+}
+
+@supports selector(::-webkit-scrollbar) {
+  @media (hover: hover) and (pointer: fine) and (forced-colors: none) {
+    :root {
+      --modern-scrollbar-gutter: stable both-edges;
+    }
+
+    * {
+      /* 标准属性的非 auto 值会覆盖 WebKit 滚动条的精确尺寸与颜色。 */
+      scrollbar-width: auto;
+      scrollbar-color: var(--modern-scrollbar-color-auto);
+    }
+
+    *::-webkit-scrollbar {
+      width: var(--modern-scrollbar-size);
+      height: var(--modern-scrollbar-size);
+    }
+
+    *::-webkit-scrollbar-track,
+    *::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+
+    *::-webkit-scrollbar-button {
+      display: none;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      border-radius: var(--modern-radius-small);
+      background: transparent;
+    }
+
+    [data-modern-scroll-active]::-webkit-scrollbar-thumb {
+      background: var(--modern-scrollbar);
+    }
+
+    *::-webkit-scrollbar-thumb:hover,
+    *::-webkit-scrollbar-thumb:active {
+      background: var(--modern-scrollbar-hover);
+    }
+  }
+}

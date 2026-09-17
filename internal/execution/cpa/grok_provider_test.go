@@ -40,7 +40,10 @@ func TestGrokProviderClassifiesOAuthAndQuotaFailures(t *testing.T) {
 		{name: "unauthorized", err: grokProviderTestError{status: http.StatusUnauthorized}, hint: execution.FailureHintRefreshRequired, scope: execution.ErrorScopeCredential, replay: execution.ReplaySafetyRejectedBeforeProcessing},
 		{name: "forbidden", err: grokProviderTestError{status: http.StatusForbidden}, hint: execution.FailureHintCandidateUnavailable, scope: execution.ErrorScopeModel, replay: execution.ReplaySafetyRejectedBeforeProcessing},
 		{name: "payment required", err: grokProviderTestError{status: http.StatusPaymentRequired}, hint: execution.FailureHintCandidateUnavailable, scope: execution.ErrorScopeModel, replay: execution.ReplaySafetyRejectedBeforeProcessing},
-		{name: "invalid request", err: grokProviderTestError{status: http.StatusBadRequest}, hint: execution.FailureHintRequestRejected, scope: execution.ErrorScopeRequest},
+		{name: "generic bad request", err: grokProviderTestError{status: http.StatusBadRequest}},
+		{name: "explicit invalid parameter", err: grokProviderTestError{status: http.StatusBadRequest, code: "invalid_parameter"}, hint: execution.FailureHintRequestRejected, scope: execution.ErrorScopeRequest},
+		{name: "unsupported model", err: grokProviderTestError{status: http.StatusBadRequest, code: "unsupported_model"}, hint: execution.FailureHintModelUnavailable, scope: execution.ErrorScopeModel},
+		{name: "unsupported model alias", err: grokProviderTestError{status: http.StatusBadRequest, code: "unsupported-model"}, hint: execution.FailureHintModelUnavailable, scope: execution.ErrorScopeModel},
 		{name: "free usage", err: grokProviderTestError{status: http.StatusTooManyRequests, code: "subscription:free-usage-exhausted", retry: 24 * time.Hour}, hint: execution.FailureHintRateLimited, scope: execution.ErrorScopeCredential},
 		{name: "host", err: grokProviderTestError{status: http.StatusServiceUnavailable}, hint: execution.FailureHintHostError, scope: execution.ErrorScopeGroup},
 	} {

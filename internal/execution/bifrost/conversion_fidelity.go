@@ -16,6 +16,13 @@ func finishConvertedPreparation(spec execution.AttemptSpec, providerKind channel
 		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate) {
 		return prepared, nil
 	}
+	var toolConstraintsValid bool
+	var needsToolHistoryCheck bool
+	prepared, needsToolHistoryCheck, toolConstraintsValid = prepareConvertedToolConstraints(spec.ClientProtocol, providerKind, spec.UpstreamModel, prepared)
+	if !toolConstraintsValid {
+		failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "conversion cannot preserve requested tools or tool choice")
+		return preparedAttempt{}, &failure
+	}
 	vertexChat := providerKind == channel.ProviderGoogleVertex && vertexUsesChatFallback(spec.UpstreamModel)
 	if providerKind == channel.ProviderAnthropic || providerKind == channel.ProviderGemini ||
 		providerKind == channel.ProviderAWSBedrock || (providerKind == channel.ProviderGoogleVertex && !vertexChat) {
@@ -24,15 +31,22 @@ func finishConvertedPreparation(spec execution.AttemptSpec, providerKind channel
 	chatFallback := providerKind == channel.ProviderOpenAICompatible || providerKind == channel.ProviderGroq ||
 		providerKind == channel.ProviderDeepSeek || vertexChat
 	if chatFallback {
-		if chatFallbackDropsTools(prepared.responsesRequest) {
+		dropsTools, newlyAllowed := chatFallbackToolCompatibility(prepared.responsesRequest)
+		needsToolHistoryCheck = needsToolHistoryCheck || newlyAllowed
+		// Compatible 保持 SDK 的尽力转换行为：不支持的工具及选择可被过滤，
+		// 不因此拒绝整个请求；普通函数白名单仍由前面的准备阶段适配。
+		if dropsTools && providerKind != channel.ProviderOpenAICompatible {
 			failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "Chat conversion cannot preserve requested tools or tool choice")
 			return preparedAttempt{}, &failure
 		}
-		normalizeChatFallbackToolMode(prepared.responsesRequest)
 		if providerKind == channel.ProviderDeepSeek && deepSeekConversionDisablesThinking(prepared.responsesRequest) {
 			failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "DeepSeek conversion cannot preserve explicit thinking with this tool choice or history")
 			return preparedAttempt{}, &failure
 		}
+	}
+	if needsToolHistoryCheck && !convertedTargetPreservesToolHistory(providerKind, spec.UpstreamModel, prepared.responsesRequest) {
+		failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "conversion cannot preserve requested tool history")
+		return preparedAttempt{}, &failure
 	}
 	wantSystems := dialect.CountMidConversationSystemMessages(spec.ClientProtocol, spec.Body)
 	if wantSystems == 0 {
@@ -93,44 +107,6 @@ func preserveResponsesGlobalInstructions(request *schemas.BifrostResponsesReques
 		Content: &schemas.ResponsesMessageContent{ContentStr: request.Params.Instructions},
 	}}, request.Input...)
 	request.Params.Instructions = nil
-}
-
-func chatFallbackDropsTools(request *schemas.BifrostResponsesRequest) bool {
-	if request == nil || request.Params == nil {
-		return false
-	}
-	// 仅检查 SDK 的参数映射；不重复转换消息，也不自行维护工具能力表。
-	converted := (&schemas.BifrostResponsesRequest{Params: request.Params}).ToChatRequest()
-	if len(converted.Params.Tools) != len(request.Params.Tools) {
-		return true
-	}
-	choice := request.Params.ToolChoice
-	if choice == nil || converted.Params.ToolChoice != nil {
-		return false
-	}
-	// 没有声明工具时，省略 auto/none 不会改变行为；强制调用约束仍不能丢失。
-	mode := ""
-	if choice.ResponsesToolChoiceStr != nil {
-		mode = *choice.ResponsesToolChoiceStr
-	} else if value := choice.ResponsesToolChoiceStruct; value != nil && len(value.Tools) == 0 && value.Name == nil && value.ServerLabel == nil {
-		mode = string(value.Type)
-	}
-	return mode != "auto" && mode != "none"
-}
-
-func normalizeChatFallbackToolMode(request *schemas.BifrostResponsesRequest) {
-	if request == nil || request.Params == nil || request.Params.ToolChoice == nil {
-		return
-	}
-	choice := request.Params.ToolChoice.ResponsesToolChoiceStruct
-	if choice == nil || len(choice.Tools) != 0 || choice.Name != nil || choice.ServerLabel != nil {
-		return
-	}
-	switch choice.Type {
-	case schemas.ResponsesToolChoiceTypeAuto, schemas.ResponsesToolChoiceTypeNone, schemas.ResponsesToolChoiceTypeRequired:
-		// SDK 的结构化 mode:auto 会误映射为 any；采用同义字符串保留原始约束。
-		request.Params.ToolChoice = &schemas.ResponsesToolChoice{ResponsesToolChoiceStr: schemas.Ptr(string(choice.Type))}
-	}
 }
 
 func deepSeekConversionDisablesThinking(request *schemas.BifrostResponsesRequest) bool {

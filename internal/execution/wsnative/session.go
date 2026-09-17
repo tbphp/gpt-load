@@ -337,6 +337,11 @@ func (s *session) ExecuteTurn(ctx context.Context, payload []byte, emit func(con
 						code = "upstream_response_failed"
 					}
 					result.Error = failure(execution.ErrorKindProvider, code, event.Status)
+					if event.Type == "error" || event.Type == "response.failed" ||
+						(event.Type == "response.done" && event.Response.Status == "failed") {
+						// 明确错误事件交由共享规则判断；断流和不完整响应仍保持结果未知。
+						result.Error.ReplaySafety = ""
+					}
 					// 原生请求错误的健康作用域由既有分类器结合错误码确定。
 					result.Error.ScopeHint = ""
 				}

@@ -309,6 +309,7 @@ func requestLogQueryUsesInternalFields(rawQuery string) bool {
 		"channel_id",
 		"credential_id",
 		"upstream_model",
+		"model_consistency",
 		"access_key_id",
 		"attempt_status_code",
 		"failure_category",
@@ -347,7 +348,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 	}
 	allowed := map[string]struct{}{
 		"from_ms": {}, "to_ms": {}, "group_id": {}, "channel_id": {}, "credential_id": {},
-		"client_model": {}, "upstream_model": {}, "access_key_id": {},
+		"client_model": {}, "upstream_model": {}, "model_consistency": {}, "access_key_id": {},
 		"status": {}, "request_id": {}, "protocol": {}, "stream": {}, "final_status_code": {},
 		"usage_state": {}, "cost_state": {}, "pricing_completeness": {}, "cache_present": {},
 		"attempt_status_code": {}, "failure_category": {}, "error_code": {},
@@ -415,6 +416,18 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 			return requestlog.ListQuery{}, app_errors.ErrValidation
 		}
 		query.UpstreamModel = value
+	}
+	if value, ok := singleQueryValue(values, "model_consistency"); ok {
+		consistency := telemetry.ModelConsistency(value)
+		switch consistency {
+		case telemetry.ModelConsistencyNotApplicable,
+			telemetry.ModelConsistencyMatch,
+			telemetry.ModelConsistencyUnknown,
+			telemetry.ModelConsistencyMismatch:
+			query.ModelConsistency = consistency
+		default:
+			return requestlog.ListQuery{}, app_errors.ErrValidation
+		}
 	}
 	if value, ok := singleQueryValue(values, "access_key_id"); ok {
 		parsed, apiErr := parseRequestLogID(value)
@@ -820,10 +833,18 @@ func encodeRequestLogCursor(cursor requestlog.Cursor) (string, error) {
 }
 
 func credentialLabelFor(labels map[uint]string, credentialID *uint) string {
-	if labels == nil || credentialID == nil {
+	if credentialID == nil {
 		return ""
 	}
-	return labels[*credentialID]
+	// 保持既有响应结构：未知或不可读标识用占位，只有确认不存在才留空。
+	if labels == nil {
+		return "—"
+	}
+	label, exists := labels[*credentialID]
+	if exists && label == "" {
+		return "—"
+	}
+	return label
 }
 
 // 一页日志里的凭据数远小于条数：同一个号会被反复使用，去重后通常只剩几个。
@@ -1377,15 +1398,16 @@ func mapRequestLogUsageCost(record requestlog.Record) (requestLogUsageCostRespon
 }
 
 // CredentialLabels 把凭据 ID 翻译成可读标识：API 密钥给掩码，订阅账号给邮箱掩码。
-// 密文常驻凭据注册表，整个过程不读数据库；注册表里没有的凭据（已删除）不出现在
-// 结果里，由调用方决定如何呈现。入参允许重复，每个 ID 至多解密一次。
+// 密文常驻凭据注册表，整个过程不读数据库；只按持久身份判断存在，不按运行状态过滤。
+// 已存在但标识无法解析的凭据保留空值，只有注册表中不存在的凭据才省略。
+// 入参允许重复，每个 ID 至多解密一次；nil 结果表示关联信息尚不可查询，而非删除。
 func (s *Service) CredentialLabels(credentialIDs []uint) map[uint]string {
-	if s == nil || s.registry == nil || s.encryption == nil || len(credentialIDs) == 0 {
+	if s == nil || s.manager == nil || s.registry == nil || s.encryption == nil || len(credentialIDs) == 0 {
 		return nil
 	}
 	s.writeMu.RLock()
+	defer s.writeMu.RUnlock()
 	snapshot := s.manager.Current()
-	s.writeMu.RUnlock()
 	if snapshot == nil {
 		return nil
 	}
@@ -1400,10 +1422,11 @@ func (s *Service) CredentialLabels(credentialIDs []uint) map[uint]string {
 		}
 		seen[credentialID] = struct{}{}
 		ref, known := s.registry.CredentialRef(credentialID)
-		if !known || ref.EncryptedValue == "" {
+		if !known {
 			continue
 		}
-		group, exists := snapshot.Groups[ref.GroupID]
+		labels[credentialID] = ""
+		group, exists := snapshot.GroupCatalog[ref.GroupID]
 		if !exists {
 			continue
 		}

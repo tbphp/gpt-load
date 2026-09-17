@@ -56,7 +56,7 @@ func codexUpstreamProtocol(requestPath string) protocol.Protocol {
 	case strings.HasSuffix(requestPath, "/images/generations"),
 		strings.HasSuffix(requestPath, "/images/edits"):
 		return protocol.OpenAIImages
-	case strings.HasSuffix(requestPath, "/responses"):
+	case strings.HasSuffix(requestPath, "/responses"), strings.HasSuffix(requestPath, "/alpha/search"):
 		return protocol.OpenAIResponses
 	default:
 		return ""
@@ -66,7 +66,8 @@ func codexUpstreamProtocol(requestPath string) protocol.Protocol {
 func (*codexProviderBridge) ValidateRouteCapability(route channel.RouteDescriptor) error {
 	valid := route.ClientProtocol == protocol.OpenAIResponses &&
 		(route.Operation == execution.OperationResponsesCreate ||
-			route.Operation == execution.OperationResponsesInputTokens) &&
+			route.Operation == execution.OperationResponsesInputTokens ||
+			route.Operation == execution.OperationWebSearch) &&
 		route.RouteMode == execution.RouteNative
 	if route.ClientProtocol == protocol.OpenAICompletions ||
 		route.ClientProtocol == protocol.Anthropic ||
@@ -312,7 +313,8 @@ func (bridge *codexProviderBridge) Execute(
 		BaseURL:           request.BaseURL, ProxyURL: request.ProxyURL, ProxyFromEnvironment: request.ProxyFromEnvironment,
 	})
 	return providerResponse{
-		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
+		StatusCode: response.StatusCode,
+		Payload:    append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,
 		UpstreamProtocol:       codexUpstreamProtocol(response.UpstreamRequestPath),
 		QuotaObservedAt:        response.QuotaObservedAt,
