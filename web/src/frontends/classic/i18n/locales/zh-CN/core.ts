@@ -1,4 +1,10 @@
 export default {
+  frontend: {
+    title: '界面设置',
+    modern: '新版',
+    classic: '经典版',
+    saveFailed: '无法保存界面偏好，请允许本站使用浏览器存储后重试。',
+  },
   concurrency: {
     title: '并发限制',
     description: '限制正在执行的请求。HTTP 流式请求持续占用至结束；WebSocket 按每轮请求计数。',

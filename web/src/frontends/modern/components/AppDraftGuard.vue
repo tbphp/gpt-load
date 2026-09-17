@@ -2,6 +2,7 @@
 import { onMounted, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
+import { registerDraftGuard } from './draft-guards'
 import { AppConfirmDialog } from '@modern/components/ui'
 
 const props = withDefaults(
@@ -27,10 +28,12 @@ function confirm(): boolean | Promise<boolean> {
   })
 }
 function unload(event: BeforeUnloadEvent): void {
+  if (leaving()) return
   if (!props.dirty && !props.pending) return
   event.preventDefault()
   event.returnValue = ''
 }
+const leaving = registerDraftGuard({ pending: () => Boolean(props.pending), confirm })
 function routeGuard(): boolean | Promise<boolean> {
   if (approved) {
     approved = false

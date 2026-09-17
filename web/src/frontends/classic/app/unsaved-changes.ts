@@ -7,6 +7,9 @@ export interface UnsavedChangesController {
   consumeBypass(): boolean
   requestConfirmation(): Promise<boolean>
   resolveConfirmation(confirmed: boolean): void
+  registerGuard(dirty: Readonly<Ref<boolean>>, blocked?: Readonly<Ref<boolean>>): () => void
+  runBeforeUnload(action: () => void): Promise<boolean>
+  allowUnload(): boolean
 }
 
 export interface UnsavedChangesOptions {
@@ -23,6 +26,8 @@ export function createUnsavedChangesController(): UnsavedChangesController {
   let bypass = false
   let resolvePending: ((confirmed: boolean) => void) | undefined
   const dialogOpen = ref(false)
+  const guards = new Set<{ dirty: Readonly<Ref<boolean>>; blocked?: Readonly<Ref<boolean>> }>()
+  let leaving = false
   return {
     dialogOpen,
     bypassNext() {
@@ -49,6 +54,30 @@ export function createUnsavedChangesController(): UnsavedChangesController {
       dialogOpen.value = false
       resolve?.(confirmed)
     },
+    registerGuard(dirty, blocked) {
+      const guard = { dirty, blocked }
+      guards.add(guard)
+      return () => {
+        guards.delete(guard)
+      }
+    },
+    async runBeforeUnload(action) {
+      if (leaving || [...guards].some((guard) => guard.blocked?.value)) return false
+      if ([...guards].some((guard) => guard.dirty.value) && !(await this.requestConfirmation()))
+        return false
+      if ([...guards].some((guard) => guard.blocked?.value)) return false
+      leaving = true
+      try {
+        action()
+        return true
+      } catch (error) {
+        leaving = false
+        throw error
+      }
+    },
+    allowUnload() {
+      return leaving
+    },
   }
 }
 
@@ -59,15 +88,20 @@ export function useUnsavedChanges(
   options: UnsavedChangesOptions = {},
 ): UnsavedChangesGuard {
   const controller = useUnsavedChangesController()
+  const unregister = controller.registerGuard(dirty, options.blocked)
 
   const beforeUnload = (event: BeforeUnloadEvent | Event) => {
+    if (controller.allowUnload()) return
     if (!dirty.value && !options.blocked?.value) return
     event.preventDefault()
     if ('returnValue' in event) event.returnValue = ''
   }
 
   onMounted(() => window.addEventListener('beforeunload', beforeUnload))
-  onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
+  onBeforeUnmount(() => {
+    unregister()
+    window.removeEventListener('beforeunload', beforeUnload)
+  })
 
   async function confirmDiscard(): Promise<boolean> {
     if (options.blocked?.value) return false

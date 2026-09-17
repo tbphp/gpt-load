@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { useMessageSource } from '@modern/app/messages'
+import { registerDraftGuard } from '@modern/components/draft-guards'
 import { useI18n } from 'vue-i18n'
 import {
   discoverGroupDraftModels,
@@ -517,7 +518,9 @@ onBeforeRouteLeave(guardLeave)
 onBeforeRouteUpdate(
   (to, from) => (to.path === from.path && to.query.panel === from.query.panel) || guardLeave(),
 )
+const leaving = registerDraftGuard({ pending: () => busy.value, confirm: guardLeave })
 function beforeUnload(event: BeforeUnloadEvent): void {
+  if (leaving()) return
   if (!dirty.value && !operation.operation.value) return
   event.preventDefault()
   event.returnValue = ''

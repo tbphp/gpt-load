@@ -8,6 +8,7 @@ import { provideMessages } from './app/messages'
 import { clipboardRevision } from './components/ui/clipboard'
 import { useScrollbarActivity } from './components/ui/use-scrollbar-activity'
 import AppMessageHost from './components/ui/AppMessageHost.vue'
+import { provideDraftGuards } from './components/draft-guards'
 
 import { usePageTitle } from './app/use-page-title'
 import AuthGate from './features/auth/AuthGate.vue'
@@ -16,6 +17,7 @@ import PublicLayout from './layouts/PublicLayout.vue'
 
 const { locale } = useI18n()
 const messages = provideMessages()
+provideDraftGuards()
 useScrollbarActivity()
 const route = useRoute()
 watch(
