@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getCredentialQuotaHistory } from '@modern/api/credential-quota-history'
-import { getUsage } from '@modern/api/usage'
+import { getUsage, type UsageMetric } from '@modern/api/usage'
 import { resolveTimeRange } from '@modern/app/time-range'
 import { AppButton, AppSparkline } from '@modern/components/ui'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
@@ -73,19 +73,19 @@ const points = computed(() => {
 })
 const charts = computed(() => [
   {
-    key: 'tokens',
+    key: 'tokens' as const,
     label: t('usage.tokens'),
     tone: 'info' as const,
     values: points.value.map((point) => point.value),
   },
   {
-    key: 'requests',
+    key: 'requests' as const,
     label: t('usage.requests'),
     tone: 'accent' as const,
     values: points.value.map((point) => point.requests),
   },
   {
-    key: 'cost',
+    key: 'cost' as const,
     label: t('usage.cost'),
     tone: 'cost' as const,
     values: points.value.map((point) => point.cost),
@@ -108,7 +108,7 @@ const date = computed(() =>
     hourCycle: 'h23',
   }),
 )
-function tooltipAt(at: number): string {
+function quotaTooltipAt(at: number): string {
   const data = report.value
   if (!data) return t('ui.date.ranges.7d')
   const lines = [date.value.format(at)]
@@ -133,21 +133,33 @@ function tooltipAt(at: number): string {
         t('credentialCards.quotaObservedAt', { time: date.value.format(point.observedAt) }),
       )
   }
+  return lines.join('\n')
+}
+function usageTooltipAt(at: number, metric: UsageMetric): string {
+  const data = report.value
+  if (!data) return t('ui.date.ranges.7d')
+  const lines = [date.value.format(at)]
   const point = points.value.find((item) => item.from <= at && at < item.to)
   if (point) {
-    lines.push(
-      `${date.value.format(point.from)} – ${date.value.format(point.to)}`,
-      `${t('usage.tokens')} ${point.value === null ? '—' : n(point.value)}`,
-      `${t('usage.requests')} · ${t('usage.trendSeries.success')} ${n(point.requests)}`,
-      `${t('usage.cost')} ${point.cost === null ? '—' : formatUsageCost(point.row?.estimated_cost_nano_usd ?? '0', locale.value)}`,
-    )
+    lines.push(`${date.value.format(point.from)} – ${date.value.format(point.to)}`)
+    if (metric === 'tokens')
+      lines.push(`${t('usage.tokens')} ${point.value === null ? '—' : n(point.value)}`)
+    else if (metric === 'requests')
+      lines.push(`${t('usage.requests')} · ${t('usage.trendSeries.success')} ${n(point.requests)}`)
+    else
+      lines.push(
+        `${t('usage.cost')} ${point.cost === null ? '—' : formatUsageCost(point.row?.estimated_cost_nano_usd ?? '0', locale.value)}`,
+      )
     if (
       data.usage?.collectionIncomplete ||
-      point.row?.usage_missing_count ||
-      point.row?.partial_count
+      (metric === 'tokens' && (point.row?.usage_missing_count || point.row?.partial_count))
     )
       lines.push(t('usage.incomplete'))
-    if (point.row && (point.row.unpriced_request_count || point.row.pricing_partial_count))
+    if (
+      metric === 'cost' &&
+      point.row &&
+      (point.row.unpriced_request_count || point.row.pricing_partial_count)
+    )
       lines.push(
         t('usage.unpriced', {
           count: n(point.row.unpriced_request_count),
@@ -155,24 +167,32 @@ function tooltipAt(at: number): string {
         }),
       )
   } else if (data.usageFailed) lines.push(t('credentialCards.statisticsFailed'))
-  if (data.quotaFailed) lines.push(t('credentialCards.quotaHistoryFailed'))
   return lines.join('\n')
 }
-const tooltip = computed(() => {
+const selectedAt = computed(() => {
   const data = report.value
   if (!data || cursor.value === undefined) return undefined
-  return tooltipAt(
-    Math.min(data.to - 1, Math.round(data.from + cursor.value * (data.to - data.from))),
-  )
+  return Math.min(data.to - 1, Math.round(data.from + cursor.value * (data.to - data.from)))
 })
-const pointLabels = computed(() =>
-  points.value.map((point) => tooltipAt((point.from + point.to) / 2)),
+const quotaTooltip = computed(() =>
+  selectedAt.value === undefined ? t('ui.date.ranges.7d') : quotaTooltipAt(selectedAt.value),
 )
+const usageTooltips = computed(() => ({
+  tokens: selectedAt.value === undefined ? undefined : usageTooltipAt(selectedAt.value, 'tokens'),
+  requests:
+    selectedAt.value === undefined ? undefined : usageTooltipAt(selectedAt.value, 'requests'),
+  cost: selectedAt.value === undefined ? undefined : usageTooltipAt(selectedAt.value, 'cost'),
+}))
+const pointLabels = computed(() => ({
+  tokens: points.value.map((point) => usageTooltipAt((point.from + point.to) / 2, 'tokens')),
+  requests: points.value.map((point) => usageTooltipAt((point.from + point.to) / 2, 'requests')),
+  cost: points.value.map((point) => usageTooltipAt((point.from + point.to) / 2, 'cost')),
+}))
 </script>
 
 <template>
   <section class="modern-credential-trends" :aria-label="t('credentialCards.localUsage')">
-    <section v-if="quotaVisible" class="modern-credential-trends-cell">
+    <section v-if="quotaVisible" class="modern-credential-trends-cell" data-tone="accent">
       <h3>{{ t('credentialCards.quotaHistory') }}</h3>
       <div v-if="query.isPending.value" class="modern-credential-trends-state" role="status">
         {{ t('collection.loading') }}
@@ -189,7 +209,7 @@ const pointLabels = computed(() =>
         v-else-if="report?.quota"
         :report="report.quota"
         :cursor="cursor"
-        :tooltip="tooltip ?? t('ui.date.ranges.7d')"
+        :tooltip="quotaTooltip"
         @cursor-change="cursor = $event"
       />
     </section>
@@ -215,12 +235,12 @@ const pointLabels = computed(() =>
         v-else-if="report?.usage"
         :values="chart.values"
         :ranges="ranges"
-        :point-labels="pointLabels"
+        :point-labels="pointLabels[chart.key]"
         :tone="chart.tone"
         :show-marker="false"
         :label="chart.label"
         :cursor="cursor"
-        :cursor-label="tooltip"
+        :cursor-label="usageTooltips[chart.key]"
         @cursor-change="cursor = $event"
       />
     </section>

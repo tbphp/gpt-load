@@ -1,22 +1,19 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { QuotaHistoryReport, QuotaHistoryWindow } from '@modern/api/credential-quota-history'
+import type { QuotaHistoryReport } from '@modern/api/credential-quota-history'
 import { AppSvg, AppTooltip } from '@modern/components/ui'
 
 const props = defineProps<{ report: QuotaHistoryReport; cursor?: number; tooltip: string }>()
 const emit = defineEmits<{ cursorChange: [position: number | undefined] }>()
-const { t, te } = useI18n()
+const { t } = useI18n()
+const gradientId = useId()
 const focused = ref(0)
 const height = 100,
   top = 8,
   bottom = 96
 const x = (at: number) => ((at - props.report.from) / (props.report.to - props.report.from)) * 1000
 const y = (used: number) => top + (used / 10_000) * (bottom - top)
-function windowLabel(window: QuotaHistoryWindow): string {
-  const key = 'credentialCards.quotaLabels.' + window.labelKey
-  return window.labelKey && te(key) ? t(key) : window.label
-}
 const windows = computed(() => props.report.windows.filter((window) => window.points.length))
 const curves = computed(() =>
   windows.value.map((window, index) => {
@@ -26,7 +23,15 @@ const curves = computed(() =>
           `${pointIndex ? 'L' : 'M'}${x(point.observedAt)},${y(point.usedBasisPoints)}`,
       )
       .join(' ')
-    return { window, label: windowLabel(window), tone: index % 6, path }
+    const start = x(window.points[0]!.observedAt)
+    const end = x(window.points[window.points.length - 1]!.observedAt)
+    return {
+      key: window.key,
+      gradientId: `${gradientId}-${index}`,
+      tone: index % 6,
+      path,
+      area: `${path} L${end},100 L${start},100 Z`,
+    }
   }),
 )
 const times = computed(() =>
@@ -68,10 +73,23 @@ function navigate(event: KeyboardEvent): void {
         aria-hidden="true"
         focusable="false"
       >
-        <g v-for="used in [0, 5000, 10000]" :key="used" class="modern-quota-trend-grid">
-          <line x1="0" x2="1000" :y1="y(used)" :y2="y(used)" vector-effect="non-scaling-stroke" />
-        </g>
-        <g v-for="series in curves" :key="series.window.key" :data-tone="series.tone">
+        <defs>
+          <linearGradient
+            v-for="series in curves"
+            :id="series.gradientId"
+            :key="series.key"
+            :data-tone="series.tone"
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="1"
+          >
+            <stop offset="0" class="modern-quota-trend-fill" stop-opacity="0.2" />
+            <stop offset="1" class="modern-quota-trend-fill" stop-opacity="0.015" />
+          </linearGradient>
+        </defs>
+        <g v-for="series in curves" :key="series.key" :data-tone="series.tone">
+          <path :d="series.area" :fill="`url(#${series.gradientId})`" />
           <path
             :d="series.path"
             class="modern-quota-trend-line"
@@ -103,11 +121,6 @@ function navigate(event: KeyboardEvent): void {
         />
       </AppTooltip>
     </div>
-    <div class="modern-quota-trend-legend">
-      <span v-for="series in curves" :key="series.window.key" :data-tone="series.tone"
-        ><i aria-hidden="true" />{{ series.label }}</span
-      >
-    </div>
   </div>
 </template>
 <style scoped>
@@ -115,23 +128,6 @@ function navigate(event: KeyboardEvent): void {
   display: grid;
   gap: var(--modern-space-2);
   min-width: 0;
-}
-.modern-quota-trend-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--modern-space-2) var(--modern-space-3);
-  font-size: var(--modern-font-size-small);
-}
-.modern-quota-trend-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--modern-space-1);
-}
-.modern-quota-trend-legend i {
-  width: var(--modern-space-1-5);
-  height: var(--modern-space-1-5);
-  background: currentColor;
-  border-radius: var(--modern-radius-round);
 }
 .modern-quota-trend-plot {
   position: relative;
@@ -143,14 +139,15 @@ function navigate(event: KeyboardEvent): void {
   height: var(--modern-trend-height);
   overflow: visible;
 }
-.modern-quota-trend-grid line {
-  stroke: var(--modern-border);
-  stroke-width: var(--modern-line-width);
+.modern-quota-trend-fill {
+  stop-color: currentColor;
 }
 .modern-quota-trend-line {
   fill: none;
   stroke: currentColor;
-  stroke-width: var(--modern-line-width);
+  stroke-width: var(--modern-trend-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .modern-quota-trend-cursor {
   stroke: var(--modern-tooltip-border);
