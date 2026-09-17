@@ -3,14 +3,19 @@ package requestlog
 import (
 	"gorm.io/gorm"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/storage/models"
 )
 
 // 将请求级已保存数据投影为小时聚合相同的统计字段，在数据库内复用总览和分布查询。
-func usageRequestLogScope(db *gorm.DB, input UsageQuery) *gorm.DB {
+func usageRequestLogScope(db *gorm.DB, input UsageQuery, groupIDs ...uint) *gorm.DB {
 	logs := db.Session(&gorm.Session{NewDB: true}).Model(&models.RequestLog{}).
 		Where("completed_at_ms >= ? AND completed_at_ms < ?", input.FromMS, input.ToMS).
-		Where("attempt_count > 0")
+		Where("attempt_count > 0").
+		Where("operation <> ?", string(execution.OperationWebSearch))
+	if len(groupIDs) > 0 {
+		logs = logs.Where("group_id IN ?", groupIDs)
+	}
 	if input.GroupID != nil {
 		logs = logs.Where("group_id = ?", *input.GroupID)
 	}

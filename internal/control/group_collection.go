@@ -54,6 +54,9 @@ type GroupCollectionItem struct {
 
 type groupCollectionRecord struct {
 	GroupCollectionItem
+	Enabled                    bool
+	Weight                     int
+	ModelNames                 []string
 	CreatedAtMS                int64
 	LastActiveAtMS             *int64
 	LastActiveHourRequestCount int64
@@ -364,6 +367,16 @@ func mapGroupCollectionRecords(
 				ModelCount:     int64(len(groupModels)),
 			},
 			CreatedAtMS: group.CreatedAtMS,
+			Enabled:     group.Enabled,
+			Weight:      state.ConfiguredWeight(group.WeightManual),
+			ModelNames:  make([]string, 0, len(groupModels)),
+		}
+		for _, model := range groupModels {
+			name := model.ID
+			if model.Alias != "" {
+				name = model.Alias
+			}
+			record.ModelNames = append(record.ModelNames, name)
 		}
 		if activity, exists := activityByGroup[group.ID]; exists {
 			lastActiveAtMS := activity.LastActiveAtMS

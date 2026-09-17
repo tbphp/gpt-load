@@ -2,15 +2,38 @@ package control
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	"gpt-load/internal/channel"
 	"gpt-load/internal/storage/models"
 )
+
+// TestExternalDatabaseReservedIdentifierQueries verifies that runtime query
+// scopes quote table and column names which are reserved by supported drivers.
+func TestExternalDatabaseReservedIdentifierQueries(t *testing.T) {
+	// 不标记 t.Parallel()：依赖 GPT_LOAD_DATABASE_TEST_DSN 的共享外部数据库。
+	dsn := strings.TrimSpace(os.Getenv("GPT_LOAD_DATABASE_TEST_DSN"))
+	if dsn == "" {
+		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
+	}
+	db := openControlTestDBWithDSN(t, dsn)
+
+	if err := homeCredentialRowsScope(db).Find(&[]homeCredentialRow{}).Error; err != nil {
+		t.Fatalf("query home credentials: %v", err)
+	}
+	var setting models.SystemSetting
+	if err := globalProxyConfigScope(db).Take(&setting).Error; err != nil &&
+		!errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("query global proxy config: %v", err)
+	}
+}
 
 // TestExternalDatabaseAccessKeyCostLimitPeriodPermutation verifies that the
 // retained-rule two-phase period move obeys the real MySQL/PostgreSQL unique

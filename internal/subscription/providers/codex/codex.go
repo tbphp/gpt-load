@@ -286,6 +286,7 @@ type ExecuteRequest struct {
 
 // ExecuteResponse is one converted non-streaming bridge response.
 type ExecuteResponse struct {
+	StatusCode             int
 	Payload                []byte
 	Headers                http.Header
 	AppliedReasoningEffort string
@@ -339,6 +340,7 @@ func (e *executor) Execute(
 		executeRequestToBridge(request),
 	)
 	return ExecuteResponse{
+		StatusCode:             response.StatusCode,
 		Payload:                append([]byte(nil), response.Payload...),
 		Headers:                response.Headers.Clone(),
 		AppliedReasoningEffort: response.AppliedReasoningEffort,

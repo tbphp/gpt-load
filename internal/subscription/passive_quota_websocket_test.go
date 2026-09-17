@@ -3,6 +3,7 @@ package subscription
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -12,6 +13,51 @@ import (
 	"gpt-load/internal/subscription/providers/codex"
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
+
+func TestMergeDelayedWebsocketQuotaDoesNotOverwriteAccountWithSpark(t *testing.T) {
+	raw, err := codex.NormalizeQuota([]byte(`{
+		"rate_limit":{"primary_window":{"used_percent":93,"limit_window_seconds":604800,"reset_at":1800010000}},
+		"additional_rate_limits":[{"limit_name":"Spark","metered_feature":"codex_bengalfox",
+			"rate_limit":{"secondary_window":{"used_percent":7,"limit_window_seconds":604800,"reset_at":1800000000}}}]
+	}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, swap := range []bool{false, true} {
+		t.Run(fmt.Sprintf("swap=%t", swap), func(t *testing.T) {
+			top, named := `"reset_at":1800000000`, `"reset_after_seconds":100`
+			if swap {
+				top, named = named, top
+			}
+			payload := []byte(fmt.Sprintf(`{
+				"type":"codex.rate_limits",
+				"rate_limits":{"primary":{"used_percent":5,"window_minutes":10080,%s}},
+				"additional_rate_limits":{"Spark":{"secondary":{"used_percent":5,"window_minutes":10080,%s}}}
+			}`, top, named))
+			patches := codex.NormalizeWebsocketQuotaWindows(payload, time.Unix(1799999905, 0))
+			merged, err := mergePassiveQuotaSnapshot(raw, patches)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(merged.Windows) != 2 || !merged.Changed {
+				t.Fatalf("valid Spark update was lost: %s", merged.Encoded)
+			}
+			for _, window := range merged.Windows {
+				wantUsed, wantRemaining, wantReset := 5.0, 95.0, int64(1800000005000)
+				if swap {
+					wantReset = 1800000000000
+				}
+				if window.SourceID == "codex" {
+					wantUsed, wantRemaining, wantReset = 93, 7, 1800010000000
+				}
+				if window.Used == nil || *window.Used != wantUsed || window.Remaining == nil ||
+					*window.Remaining != wantRemaining || window.ResetAtMS == nil || *window.ResetAtMS != wantReset {
+					t.Fatalf("source=%s quota=%s", window.SourceID, merged.Encoded)
+				}
+			}
+		})
+	}
+}
 
 func TestFlushWebsocketQuotaCapturedEventsKeepAccountAndSparkSeparate(t *testing.T) {
 	for _, sample := range []string{"quota-ws-account.json", "quota-ws-spark.json"} {
@@ -73,7 +119,7 @@ func TestFlushWebsocketQuotaCapturedEventsKeepAccountAndSparkSeparate(t *testing
 	}
 }
 
-func TestCapturedHTTPAndWebsocketNamedQuotasAgreeAfterMatching(t *testing.T) {
+func TestCapturedHTTPAndWebsocketQuotasAgreeAfterMatching(t *testing.T) {
 	active, err := os.ReadFile("providers/codex/testdata/quota-active.json")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +128,7 @@ func TestCapturedHTTPAndWebsocketNamedQuotasAgreeAfterMatching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 故意留下旧的普通额度，验证 WS 不会靠数值推断无来源窗口。
+	// 故意留下旧的普通额度，验证 WS 能匹配普通窗口，又不会被 Spark 覆盖。
 	var baseline providerobservation.Snapshot
 	if err := json.Unmarshal(raw, &baseline); err != nil {
 		t.Fatal(err)
@@ -126,18 +172,44 @@ func TestCapturedHTTPAndWebsocketNamedQuotasAgreeAfterMatching(t *testing.T) {
 			}
 			for index, httpWindow := range httpMerged.Windows {
 				wsWindow := wsMerged.Windows[index]
-				if wsWindow.SourceID == "codex" {
-					if *wsWindow.Used != 90 {
-						t.Fatal("WS event without source changed account quota")
-					}
-					continue
-				}
 				if httpWindow.SourceID != wsWindow.SourceID || *httpWindow.WindowSeconds != *wsWindow.WindowSeconds ||
 					*httpWindow.Used != *wsWindow.Used || *httpWindow.Remaining != *wsWindow.Remaining || httpWindow.State != wsWindow.State {
 					t.Fatalf("HTTP and WS disagree for source=%s period=%d", httpWindow.SourceID, *httpWindow.WindowSeconds)
 				}
 			}
 		})
+	}
+}
+
+func TestMergeWebsocketQuotaUsesCurrentEventAcrossResetCycles(t *testing.T) {
+	raw, err := codex.NormalizeQuota([]byte(`{
+		"rate_limit":{"primary_window":{"used_percent":93,"limit_window_seconds":604800,"reset_at":1800000000}},
+		"additional_rate_limits":[{"limit_name":"Spark","metered_feature":"codex_bengalfox",
+			"rate_limit":{"secondary_window":{"used_percent":7,"limit_window_seconds":604800,"reset_at":1800010000}}}]
+	}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patches := codex.NormalizeWebsocketQuotaWindows([]byte(`{
+		"type":"codex.rate_limits",
+		"rate_limits":{"secondary":{"used_percent":94,"window_minutes":10080,"reset_at":1800604800}},
+		"additional_rate_limits":{"Spark":{"primary":{"used_percent":5,"window_minutes":10080,"reset_at":1800610000}}}
+	}`), time.Unix(1800000001, 0))
+	merged, err := mergePassiveQuotaSnapshot(raw, patches)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, window := range merged.Windows {
+		wantUsed, wantReset := 5.0, int64(1800610000000)
+		if window.SourceID == "codex" {
+			wantUsed, wantReset = 94, 1800604800000
+		}
+		if window.Used == nil || *window.Used != wantUsed || window.ResetAtMS == nil || *window.ResetAtMS != wantReset {
+			t.Fatalf("source=%s was not refreshed from the current event: %s", window.SourceID, merged.Encoded)
+		}
+		if window.SourceName != "" {
+			t.Fatal("transient source hint reached the stored snapshot")
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -33,6 +34,11 @@ func TestParseAccessKeyCollectionQueryAcceptsStrictContract(t *testing.T) {
 		{name: "q accepts 200 Unicode code points", rawQuery: "q=" + q200, want: AccessKeyCollectionQuery{Query: q200, Page: 1, PageSize: 20}},
 		{name: "status active", rawQuery: "status=active", want: AccessKeyCollectionQuery{Status: &active, Page: 1, PageSize: 20}},
 		{name: "status disabled", rawQuery: "status=disabled", want: AccessKeyCollectionQuery{Status: &disabled, Page: 1, PageSize: 20}},
+		{name: "group", rawQuery: "group_id=12", want: AccessKeyCollectionQuery{GroupID: 12, Page: 1, PageSize: 20}},
+		{name: "never expires", rawQuery: "expiry=never", want: AccessKeyCollectionQuery{Expiry: "never", Page: 1, PageSize: 20}},
+		{name: "not expired", rawQuery: "expiry=active", want: AccessKeyCollectionQuery{Expiry: "active", Page: 1, PageSize: 20}},
+		{name: "expired", rawQuery: "expiry=expired", want: AccessKeyCollectionQuery{Expiry: "expired", Page: 1, PageSize: 20}},
+		{name: "group and expiry combine with sorting", rawQuery: "q=alpha&status=disabled&group_id=12&expiry=expired&sort=expires_asc&page=2&page_size=50", want: AccessKeyCollectionQuery{Query: "alpha", Status: &disabled, GroupID: 12, Expiry: "expired", Sort: "expires_asc", Page: 2, PageSize: 50}},
 		{name: "page accepts maximum signed integer", rawQuery: "page=9223372036854775807", want: AccessKeyCollectionQuery{Page: 9223372036854775807, PageSize: 20}},
 		{name: "page size accepts maximum", rawQuery: "page_size=100", want: AccessKeyCollectionQuery{Page: 1, PageSize: 100}},
 		{name: "all filters combine", rawQuery: "q=+alpha+&status=active&page=2&page_size=100", want: AccessKeyCollectionQuery{Query: "alpha", Status: &active, Page: 2, PageSize: 100}},
@@ -69,6 +75,17 @@ func TestParseAccessKeyCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 		{name: "q exceeds 200 Unicode code points", rawQuery: "q=" + strings.Repeat("猫", 201)},
 		{name: "status empty", rawQuery: "status="},
 		{name: "status unknown", rawQuery: "status=unavailable"},
+		{name: "group zero", rawQuery: "group_id=0"},
+		{name: "group negative", rawQuery: "group_id=-1"},
+		{name: "group signed", rawQuery: "group_id=%2B1"},
+		{name: "group leading zero", rawQuery: "group_id=01"},
+		{name: "group empty", rawQuery: "group_id="},
+		{name: "group non numeric", rawQuery: "group_id=one"},
+		{name: "group overflow", rawQuery: "group_id=9223372036854775808"},
+		{name: "group repeated", rawQuery: "group_id=1&group_id=2"},
+		{name: "expiry empty", rawQuery: "expiry="},
+		{name: "expiry unknown", rawQuery: "expiry=expiring"},
+		{name: "expiry repeated", rawQuery: "expiry=active&expiry=expired"},
 		{name: "page signed", rawQuery: "page=%2B1"},
 		{name: "page leading zero", rawQuery: "page=01"},
 		{name: "page empty", rawQuery: "page="},
@@ -91,6 +108,34 @@ func TestParseAccessKeyCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 			got, apiErr := parseAccessKeyCollectionQuery(test.rawQuery, test.forceQuery)
 			if apiErr == nil || apiErr.Code != "BAD_REQUEST" {
 				t.Fatalf("parseAccessKeyCollectionQuery() = %#v, %v; want BAD_REQUEST", got, apiErr)
+			}
+		})
+	}
+}
+
+func TestParseAccessKeyCollectionQueryPreservesGroupIDIntegerBounds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		value string
+		valid bool
+	}{
+		{value: "4294967295", valid: true},
+		{value: "4294967296", valid: strconv.IntSize == 64},
+		{value: "9223372036854775807", valid: strconv.IntSize == 64},
+		{value: "9223372036854775808", valid: false},
+		{value: "18446744073709551615", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.value, func(t *testing.T) {
+			got, apiErr := parseAccessKeyCollectionQuery("group_id="+test.value, false)
+			if !test.valid {
+				if apiErr == nil || apiErr.Code != "BAD_REQUEST" {
+					t.Fatalf("group_id=%s must be rejected: %#v, %v", test.value, got, apiErr)
+				}
+				return
+			}
+			if apiErr != nil || strconv.FormatUint(uint64(got.GroupID), 10) != test.value {
+				t.Fatalf("group_id=%s must round-trip without truncation: %#v, %v", test.value, got, apiErr)
 			}
 		})
 	}
@@ -251,7 +296,8 @@ func TestAccessKeyCollectionHTTPRejectsInvalidQueryBeforeServiceAccess(t *testin
 
 func assertAccessKeyCollectionQueryEqual(t *testing.T, got, want AccessKeyCollectionQuery) {
 	t.Helper()
-	if got.Query != want.Query || got.Page != want.Page || got.PageSize != want.PageSize {
+	if got.Query != want.Query || got.Page != want.Page || got.PageSize != want.PageSize ||
+		got.GroupID != want.GroupID || got.Expiry != want.Expiry || got.Sort != want.Sort {
 		t.Fatalf("query = %#v, want %#v", got, want)
 	}
 	if (got.Status == nil) != (want.Status == nil) || got.Status != nil && *got.Status != *want.Status {

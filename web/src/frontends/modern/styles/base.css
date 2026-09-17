@@ -1,0 +1,114 @@
+@import './tokens.css';
+@import './scrollbars.css';
+
+* {
+  box-sizing: border-box;
+}
+body {
+  min-width: var(--modern-viewport-min);
+  margin: 0;
+  background: var(--modern-canvas);
+  color: var(--modern-text);
+  font-family: var(--modern-font-sans);
+  font-size: var(--modern-font-size-body);
+  font-weight: var(--modern-weight-regular);
+  line-height: var(--modern-leading-body);
+  -webkit-font-smoothing: antialiased;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+button,
+a,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+button,
+a {
+  touch-action: manipulation;
+}
+th,
+td,
+[role='columnheader'],
+[role='cell'] {
+  text-align: left;
+}
+button {
+  cursor: pointer;
+}
+button:disabled,
+[aria-disabled='true'] {
+  opacity: var(--modern-opacity-disabled);
+  cursor: not-allowed;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button,
+a,
+input,
+textarea,
+select {
+  transition:
+    background-color var(--modern-motion-fast) var(--modern-motion-ease),
+    border-color var(--modern-motion-fast) var(--modern-motion-ease),
+    color var(--modern-motion-fast) var(--modern-motion-ease),
+    box-shadow var(--modern-motion-fast) var(--modern-motion-ease);
+}
+:focus-visible {
+  outline: var(--modern-focus-width) solid var(--modern-accent);
+  outline-offset: var(--modern-focus-offset);
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+svg {
+  flex-shrink: 0;
+}
+.modern-sr-only {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.modern-page {
+  display: grid;
+  gap: var(--modern-page-gap);
+}
+.modern-spin {
+  animation: modern-spin var(--modern-motion-spin) linear infinite;
+}
+@keyframes modern-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes modern-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}

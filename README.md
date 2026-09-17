@@ -36,6 +36,14 @@ English · [中文](README_CN.md) · [日本語](README_JP.md) | [Official Websi
 <td><strong>OfoxAI: Text, image, and video AI in one platform</strong><br>OfoxAI is a unified AI API platform bringing together text, image, and video models from multiple providers. With OpenAI-compatible endpoints and native Anthropic and Gemini interfaces, developers can access models for AI applications, agents, and content creation through one platform. <a href="https://ofox.ai/?utm_source=github&amp;utm_medium=sponsorship&amp;utm_content=gpt_load" target="_blank" rel="noopener noreferrer">Explore OfoxAI models and APIs →</a></td>
 </tr>
 <tr>
+<td width="180"><a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer"><picture><source media="(prefers-color-scheme: dark)" srcset="./screenshot/packycode-dark.png"><source media="(prefers-color-scheme: light)" srcset="./screenshot/packycode-light.png"><img src="./screenshot/packycode-light.png" alt="PackyCode" width="150"></picture></a></td>
+<td><strong>PackyCode</strong><br>Access leading AI models through PackyCode with one API endpoint and one API key. Enjoy fast, reliable access with automatic failover and dedicated high-speed routes for Codex and Claude Code. Get started with $1 in free credits, a discount on your first top-up, and savings of up to 80% on eligible routes. Pay in RMB with no currency conversion markups or extra top-up fees. <a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer">Sign up through the link and start building today.</a></td>
+</tr>
+<tr>
+<td width="180"><a href="https://fluxionai.space/register?source=github&amp;campaign=gptload&amp;promo=GPTLOAD" target="_blank" rel="sponsored noopener noreferrer"><img src="./screenshot/fluxionai-horizontal.png" alt="Fluxion AI" width="150"></a></td>
+<td><strong>One entry point to connect and manage the world's leading AI models</strong><br>Fluxion AI serves individual developers, technical teams, and enterprises with a unified API for connecting to and managing leading AI models worldwide. Dynamic multi-route scheduling improves availability, while model performance, response times, and costs remain transparent and easy to review. Depending on the model and route, API calls can cost 40%–98% less than official or benchmark prices. Visit and sign up now to receive $7 in API credits. (<a href="https://fluxionai.space/register?source=github&amp;campaign=gptload&amp;promo=GPTLOAD" target="_blank" rel="sponsored noopener noreferrer">Dedicated link</a>)</td>
+</tr>
+<tr>
 <td width="180"><a href="https://www.axisnow.io/zh"><img src="./screenshot/axisnow.jpg" alt="AxisNow" width="150"></a></td>
 <td>Protect and accelerate websites and APIs, <strong>serving users in mainland China</strong> and around the world, and extend acceleration and security capabilities to native/mobile apps through a client SDK — <strong>self-built private-deployment CDN | subscription-based high-protection CDN | an independently controllable, flexibly composable CDN network.</strong></td>
 </tr>
@@ -52,7 +60,7 @@ English · [中文](README_CN.md) · [日本語](README_JP.md) | [Official Websi
 
 Your application only needs one base URL and one AccessKey. Providers, accounts, credentials, models, and routing policy are all configured in the management UI.
 
-<img src="./screenshot/architecture-overview.png" alt="GPT-Load unified access and upstream routing architecture" width="860">
+<img src="./screenshot/architecture-overview.svg" alt="GPT-Load unified access and upstream routing architecture" width="860">
 
 - **One gateway, native protocols** — Manage official APIs, cloud platforms, model services, and compatible relays together while clients keep their OpenAI, Anthropic, or Gemini native interfaces.
 - **One mechanism for API keys and subscriptions** — Codex, Claude, Antigravity, Grok, and API-key channels share credential management, scheduling, and health handling.
@@ -111,21 +119,13 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 
 ## Screenshots
 
-**Groups** — View channels, models, credential counts, and health in one place
+**Groups** — View channels, models, credential counts, traffic, and health in one place
 
-<img src="./screenshot/groups-overview.png" alt="GPT-Load groups overview" width="860">
+<img src="./screenshot/groups-en-US.png" alt="GPT-Load modern groups overview" width="860">
 
-**Subscription accounts** — Track account availability, quota windows, reset times, and runtime diagnostics
+**Usage statistics** — Review request trends, cache hit rate, token categories, and cost estimates
 
-<img src="./screenshot/subscription-accounts.png" alt="GPT-Load subscription accounts and quota status" width="860">
-
-**AccessKey read-only home** — Sign in with an AccessKey to view only its own groups, models, requests, usage, and cost allowance
-
-<img src="./screenshot/access-key-home.png" alt="GPT-Load AccessKey read-only home" width="860">
-
-**Usage and cost** — Review request trends, cache hit rate, token categories, and cost estimates
-
-<img src="./screenshot/usage-cost.png" alt="GPT-Load usage and cost monitoring" width="860">
+<img src="./screenshot/usage-en-US.png" alt="GPT-Load modern usage statistics" width="860">
 
 ## Scope
 

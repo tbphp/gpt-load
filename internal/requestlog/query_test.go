@@ -467,6 +467,34 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 	}
 }
 
+func TestServiceListFiltersModelConsistency(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	base := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	mismatch := requestLogQueryRow(
+		"00000000-0000-4000-8000-000000000218", base, 71, "client-model", nil,
+	)
+	mismatch.UpstreamModel = "expected-model"
+	mismatch.UpstreamReportedModel = "returned-model"
+	mismatch.ModelConsistency = string(telemetry.ModelConsistencyMismatch)
+	createRequestLogQueryRow(t, db, mismatch)
+
+	match := requestLogQueryRow(
+		"00000000-0000-4000-8000-000000000219", base.Add(time.Second), 71, "client-model", nil,
+	)
+	createRequestLogQueryRow(t, db, match)
+
+	page, err := newRequestLogTestService(db).List(context.Background(), ListQuery{
+		ModelConsistency: telemetry.ModelConsistencyMismatch,
+		Limit:            50,
+	})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if got, want := requestIDs(page.Items), []string{mismatch.ID}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("mismatch IDs = %v, want %v", got, want)
+	}
+}
+
 func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	event := testEvent("00000000-0000-4000-8000-000000000210")
@@ -755,7 +783,7 @@ func TestServiceListBatchLoadsCurrentAccessKeyNames(t *testing.T) {
 	createRequestLogQueryRow(t, db, requestLogQueryRow(
 		"00000000-0000-4000-8000-000000000303", base.Add(2*time.Second), deleted.ID, "three", nil,
 	))
-	if err := db.Model(&current).Update("name", "after-rename").Error; err != nil {
+	if err := db.Model(&current).Updates(map[string]any{"name": "after-rename", "status": "disabled"}).Error; err != nil {
 		t.Fatalf("rename AccessKey: %v", err)
 	}
 	if err := db.Delete(&deleted).Error; err != nil {

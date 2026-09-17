@@ -11,12 +11,14 @@
   "scripts": {
     "dev": "vite",
     "build": "pnpm run type-check && vite build",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "eslint . --max-warnings=0 && pnpm run check:styles",
+    "check:styles": "node scripts/check-modern-styles.mjs",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
+    "@internationalized/date": "3.12.3",
     "@lucide/vue": "1.39.0",
     "@tanstack/vue-query": "5.102.8",
     "reka-ui": "2.10.4",

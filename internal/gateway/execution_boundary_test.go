@@ -42,6 +42,28 @@ func TestNormalizeChannelCredentialRequiresCanonicalStoredObject(t *testing.T) {
 	}
 }
 
+func TestCodexSearchErrorsDoNotAffectModelHealth(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusTooManyRequests, http.StatusBadGateway} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			evidence := &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, StatusCode: status, Summary: "search unavailable"}
+			if status == http.StatusTooManyRequests {
+				evidence.Hint = execution.FailureHintRateLimited
+				evidence.ScopeHint = execution.ErrorScopeModel
+			}
+			decision := judgeUpstreamResult(UpstreamResult{
+				DispatchState: execution.DispatchMaybeSent, ResponseStarted: true, StatusCode: status, ExecutionError: evidence,
+			}, time.Now(), health.DecisionContext{Method: http.MethodPost, Operation: execution.OperationWebSearch})
+			wantEffect := health.EffectNone
+			if status == http.StatusBadGateway {
+				wantEffect = health.EffectSkipGroup
+			}
+			if decision.Effect != wantEffect || !decision.CooldownUntil.IsZero() {
+				t.Fatalf("search must not penalize model health: %#v", decision)
+			}
+		})
+	}
+}
+
 func TestNormalizeChannelCredentialPreservesStructuredCloudSecrets(t *testing.T) {
 	t.Parallel()
 	channels, subscriptions := testCredentialRuntimes(t)
@@ -177,7 +199,7 @@ func TestJudgeUpstreamResultUsesStableStreamTerminalRules(t *testing.T) {
 		wantOrigin execution.ErrorOrigin
 		wantScope  execution.ErrorScope
 	}{
-		{name: "provider error", endReason: StreamEndSSEError, wantRule: "stream.provider_error", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
+		{name: "provider error", endReason: StreamEndSSEError, wantRule: "safety.committed", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
 		{name: "upstream terminated", endReason: StreamEndUpstreamTerminated, wantRule: "stream.upstream_terminated", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
 		{name: "protocol error", endReason: StreamEndUpstreamProtocolError, wantRule: "stream.protocol_error", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
 		{name: "idle timeout", endReason: StreamEndIdleTimeout, wantRule: "stream.idle_timeout", wantOrigin: execution.ErrorOriginUpstream, wantScope: execution.ErrorScopeRequest},
@@ -192,7 +214,7 @@ func TestJudgeUpstreamResultUsesStableStreamTerminalRules(t *testing.T) {
 				StatusCode:      http.StatusOK,
 				Committed:       true,
 				Stream:          streamTerminalObservation(test.endReason),
-			}, time.Now(), health.DecisionContext{})
+			}, time.Now(), health.DecisionContext{Method: http.MethodPost, Operation: execution.OperationChatCompletion})
 			if decision.Category != health.FailureCategoryAmbiguous ||
 				decision.Origin != test.wantOrigin || decision.Scope != test.wantScope ||
 				decision.Retry != health.RetryNone || decision.Effect != health.EffectNone ||

@@ -1,0 +1,301 @@
+/* 新版视觉基础。公共视觉值只在此定义，页面与组件使用语义变量。 */
+:root {
+  color-scheme: light dark;
+
+  /* 颜色：亮橙红搭配白色与中性灰；前景与背景成对维护。 */
+  --modern-canvas: light-dark(#ffffff, #202020);
+  --modern-sidebar: light-dark(#f0f0ed, #181818);
+  --modern-surface: light-dark(#ffffff, #272727);
+  --modern-subtle: color-mix(in srgb, var(--modern-accent-soft) 15%, var(--modern-surface));
+  --modern-text: light-dark(#1c1c1b, #f5f5f2);
+  --modern-muted: light-dark(#6c6c67, #b5b5b0);
+  --modern-border: light-dark(#e4e4df, #40403c);
+  --modern-coral: var(--modern-action);
+  --modern-accent: light-dark(#e84518, #ff845e);
+  --modern-accent-soft: light-dark(#fff3ed, #3e2a23);
+  --modern-badge-brand-text: color-mix(in srgb, var(--modern-accent) 80%, var(--modern-muted));
+  --modern-badge-brand-surface: color-mix(
+    in srgb,
+    var(--modern-accent-soft) 55%,
+    var(--modern-surface)
+  );
+  --modern-action: #ff4f1f;
+  --modern-action-hover: #f04012;
+  --modern-on-action: #ffffff;
+  --modern-danger: light-dark(#dc3737, #ff8a80);
+  --modern-danger-soft: light-dark(#fff1f0, #3e2624);
+  --modern-success: light-dark(#1a9b55, #68d99a);
+  --modern-success-soft: light-dark(#edf9f1, #21362a);
+  --modern-warning: light-dark(#b87408, #f4bc52);
+  --modern-warning-soft: light-dark(#fff8e8, #3b321f);
+  --modern-info: light-dark(#377de2, #89b9ff);
+  --modern-info-soft: light-dark(#edf5ff, #233247);
+  /* 用量图表的固定系列色，概览、构成与趋势保持一致。 */
+  --modern-chart-input: light-dark(#527eb2, #96b9e4);
+  --modern-chart-cache: light-dark(#318d91, #82ced0);
+  --modern-chart-write: light-dark(#b38b46, #dfbd82);
+  --modern-chart-output: light-dark(#8b72b0, #bea7de);
+  --modern-chart-area-fill: color-mix(in srgb, currentColor 10%, transparent);
+  --modern-chart-area-soft-fill: color-mix(in srgb, currentColor 8%, transparent);
+  --modern-overlay: rgb(20 20 18 / 35%);
+  --modern-scrollbar: light-dark(#cacac3, #565650);
+  --modern-scrollbar-hover: light-dark(#a5a59c, #797970);
+  --modern-scrollbar-size: 4px;
+  --modern-scrollbar-gutter: auto;
+  --modern-scrollbar-color-auto: auto;
+  --modern-tooltip-surface: color-mix(
+    in srgb,
+    var(--modern-accent-soft) 25%,
+    var(--modern-surface)
+  );
+  --modern-tooltip-text: var(--modern-muted);
+  --modern-tooltip-border: color-mix(in srgb, var(--modern-accent) 18%, var(--modern-border));
+  --modern-key-card-glow: color-mix(in srgb, var(--modern-accent-soft) 65%, var(--modern-surface));
+  --modern-key-card-tint: color-mix(in srgb, var(--modern-accent-soft) 35%, var(--modern-surface));
+  --modern-account-card-glow: color-mix(
+    in srgb,
+    var(--modern-info-soft) 55%,
+    var(--modern-surface)
+  );
+  --modern-account-card-tint: color-mix(
+    in srgb,
+    var(--modern-info-soft) 28%,
+    var(--modern-surface)
+  );
+  --modern-login-mascot-shadow: light-dark(rgb(90 39 16 / 24%), rgb(0 0 0 / 42%));
+  --modern-login-mascot-shadow-soft: light-dark(rgb(98 44 19 / 8%), rgb(0 0 0 / 16%));
+  --modern-login-card-surface: color-mix(
+    in srgb,
+    var(--modern-accent-soft) 12%,
+    var(--modern-surface)
+  );
+  --modern-login-card-highlight: light-dark(rgb(255 255 255 / 90%), rgb(255 255 255 / 5%));
+  --modern-login-card-border: color-mix(in srgb, var(--modern-accent) 8%, var(--modern-border));
+  /* 模型卡卡头的晕染基色。用饱和色，实际浓度由径向渐变的混合比例决定，
+     与用量统计顶部卡片同一套手法（那里的 Token 卡用的也是这支蓝）。 */
+  --modern-model-card-tint: var(--modern-chart-input);
+  --modern-segmented-active-border: color-mix(
+    in srgb,
+    var(--modern-accent) 28%,
+    var(--modern-border)
+  );
+  --modern-segmented-active-hover: color-mix(
+    in srgb,
+    var(--modern-accent) 7%,
+    var(--modern-accent-soft)
+  );
+
+  /* 协议身份色固定，不复用请求成功、失败等状态含义。 */
+  --modern-protocol-completions: light-dark(#28734b, #88d0a5);
+  --modern-protocol-responses: light-dark(#3564ae, #95baff);
+  --modern-protocol-images: light-dark(#8752a8, #d0a7eb);
+  --modern-protocol-embeddings: light-dark(#177985, #80cdd7);
+  --modern-protocol-rerank: light-dark(#a34c70, #eda7c2);
+  --modern-protocol-anthropic: light-dark(#aa6132, #eeb38b);
+  --modern-protocol-gemini: light-dark(#6154ad, #b9aff2);
+
+  /* 控件状态：按钮、字段与选择器共用边框、底色和焦点反馈。 */
+  --modern-control-border: light-dark(#dcdcd6, #4a4a45);
+  --modern-control-border-hover: light-dark(#bdbdb5, #707069);
+  --modern-control-hover: color-mix(in srgb, var(--modern-accent-soft) 40%, var(--modern-surface));
+  --modern-control-pressed: color-mix(
+    in srgb,
+    var(--modern-accent-soft) 80%,
+    var(--modern-surface)
+  );
+  --modern-control-disabled: light-dark(#f4f4f1, #2b2b29);
+  --modern-control-placeholder: light-dark(#85857d, #999991);
+  --modern-switch-off: light-dark(#ccccc4, #62625b);
+
+  /* 字体：沿用系统字体，不增加远端字体请求。 */
+  --modern-font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  --modern-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --modern-font-size-caption: 11px;
+  --modern-font-size-small: 12px;
+  --modern-font-size-secondary: 13px;
+  --modern-font-size-body: 14px;
+  --modern-font-size-section: 15px;
+  --modern-font-size-input-mobile: 16px;
+  --modern-font-size-title: 24px;
+  --modern-weight-regular: 400;
+  --modern-weight-medium: 500;
+  --modern-weight-semibold: 600;
+  --modern-leading-body: 1.6;
+  --modern-leading-compact: 1.4;
+  --modern-leading-title: 1.35;
+  --modern-tracking-title: -0.035em;
+  --modern-tracking-label: 0.04em;
+
+  /* 间距：以 4px 为主，2px / 6px 用于紧凑控件内部。 */
+  --modern-space-0-5: 2px;
+  --modern-space-1: 4px;
+  --modern-space-1-5: 6px;
+  --modern-space-2: 8px;
+  --modern-space-3: 12px;
+  --modern-space-4: 16px;
+  --modern-space-5: 20px;
+  --modern-space-6: 24px;
+  --modern-space-8: 32px;
+  --modern-space-10: 40px;
+  --modern-space-12: 48px;
+
+  /* 边框、圆角和阴影。普通面板不使用阴影。 */
+  --modern-line-width: 1px;
+  --modern-focus-width: 2px;
+  --modern-focus-offset: 2px;
+  --modern-radius-small: 6px;
+  --modern-radius-control: 8px;
+  --modern-radius-panel: 10px;
+  --modern-radius-dialog: 12px;
+  --modern-radius-round: 50%;
+  --modern-shadow-tooltip: 0 2px 8px rgb(0 0 0 / 6%);
+  --modern-shadow-menu: 0 8px 28px rgb(0 0 0 / 12%);
+  --modern-shadow-dialog: 0 20px 75px rgb(0 0 0 / 20%);
+  --modern-shadow-control: 0 1px 2px rgb(0 0 0 / 4%);
+  --modern-shadow-thumb: 0 1px 3px rgb(0 0 0 / 18%);
+  --modern-shadow-focus: 0 0 0 3px color-mix(in srgb, var(--modern-accent) 15%, transparent);
+  --modern-shadow-focus-danger: 0 0 0 3px color-mix(in srgb, var(--modern-danger) 15%, transparent);
+  --modern-shadow-login:
+    0 16px 48px light-dark(rgb(92 51 30 / 7%), rgb(0 0 0 / 20%)),
+    0 2px 8px light-dark(rgb(92 51 30 / 3%), rgb(0 0 0 / 10%)),
+    inset 0 1px 0 var(--modern-login-card-highlight);
+
+  /* 控件与图标：尺寸由公共组件选择，不在调用处传像素。 */
+  --modern-control-xxs: 24px;
+  --modern-control-xs: 28px;
+  --modern-control-sm: 32px;
+  --modern-control-md: 36px;
+  --modern-control-nav: 40px;
+  --modern-touch-target: 44px;
+  --modern-switch-width: 36px;
+  --modern-switch-height: 20px;
+  --modern-switch-thumb: 16px;
+  --modern-switch-sm-width: 30px;
+  --modern-switch-sm-height: 16px;
+  --modern-switch-sm-thumb: 12px;
+  --modern-checkbox-size: 18px;
+  --modern-badge-sm: 24px;
+  --modern-badge-xs: 20px;
+  --modern-icon-xs: 12px;
+  --modern-icon-sm: 14px;
+  --modern-icon-md: 18px;
+  --modern-icon-lg: 20px;
+  --modern-icon-stroke: 1.8;
+  --modern-channel-mark-ratio: 0.7em;
+  --modern-channel-avatar: 28px;
+  --modern-channel-sm: 24px;
+  --modern-channel-md: 36px;
+  --modern-channel-hero: 48px;
+  --modern-channel-hero-glyph: 32px;
+  --modern-inline-action-target: 24px;
+  --modern-inline-number-width: 104px;
+  --modern-status-bar-height: 8px;
+  --modern-status-success: var(--modern-success);
+  --modern-status-warning: light-dark(#eeae36, #eab84f);
+  --modern-status-danger: var(--modern-danger);
+  --modern-status-neutral: light-dark(#b9b9b1, #6d6d66);
+  --modern-progress-track: color-mix(
+    in srgb,
+    var(--modern-status-neutral) 18%,
+    var(--modern-surface)
+  );
+  --modern-progress-track-border: color-mix(
+    in srgb,
+    var(--modern-status-neutral) 28%,
+    var(--modern-surface)
+  );
+  --modern-loading-line: 3px;
+  --modern-motion-loading: 1100ms;
+  --modern-loading-overlay: color-mix(in srgb, var(--modern-surface) 78%, transparent);
+
+  /* 布局语义值；宽工作区不设全局最大宽度。 */
+  --modern-viewport-min: 320px;
+  --modern-sidebar-expanded: 232px;
+  --modern-sidebar-collapsed: 72px;
+  --modern-topbar-height: 56px;
+  --modern-content-inset: 32px;
+  --modern-content-bottom: 36px;
+  --modern-panel-inset: 24px;
+  --modern-page-gap: 24px;
+  --modern-context-sidebar: 280px;
+  --modern-home-side: clamp(304px, 28%, 432px);
+  --modern-key-card-min: 240px;
+  --modern-account-card-min: 340px;
+  --modern-key-card-height: 104px;
+  --modern-trend-height: 64px;
+  --modern-trend-stroke: 1.5px;
+  --modern-chart-donut-stroke: 12;
+  --modern-credential-card-inset: var(--modern-space-4);
+  --modern-credential-card-gap: var(--modern-space-3);
+  --modern-credential-grid-gap: var(--modern-space-3);
+  --modern-progress-bar-sm: 6px;
+  --modern-logo-width: 192px;
+  --modern-dialog-width: 540px;
+  --modern-dialog-wide-width: 900px;
+  --modern-dialog-sheet-width: 660px;
+  --modern-dialog-confirm-width: 420px;
+  --modern-drawer-width: 280px;
+  --modern-menu-min-width: 176px;
+  --modern-menu-max-height: 320px;
+  --modern-tooltip-max-width: 320px;
+
+  /* 层级：壳层 < 遮罩 < 对话框 < 菜单 < 提示。 */
+  --modern-layer-underlay: -1;
+  --modern-layer-raised: 1;
+  --modern-layer-header: 10;
+  --modern-layer-sidebar-toggle: 20;
+  --modern-layer-overlay: 30;
+  --modern-layer-dialog: 40;
+  --modern-layer-menu: 50;
+  --modern-layer-tooltip: 60;
+  --modern-layer-message: 65;
+  --modern-layer-skip-link: 70;
+  --modern-motion-fast: 140ms;
+  --modern-motion-spin: 1s;
+  --modern-motion-ease: ease;
+  --modern-mascot-inverse: #f5f5f2;
+  --modern-mascot-backdrop: var(--modern-sidebar);
+  --modern-mascot-stroke: 7px;
+  --modern-mascot-hover-delay: 320ms;
+  --modern-mascot-charge-duration: 560ms;
+  --modern-mascot-sniff-duration: 1250ms;
+  --modern-mascot-nudge-duration: 1400ms;
+  --modern-mascot-fold-duration: 800ms;
+  --modern-mascot-theme-duration: 1450ms;
+  --modern-mascot-cooldown: 2400ms;
+  --modern-login-mascot-breath-duration: 5.8s;
+  --modern-login-mascot-tail-duration: 4s;
+  --modern-login-mascot-blink-duration: 7s;
+  --modern-mascot-ease: cubic-bezier(0.22, 0.9, 0.24, 1);
+  --modern-opacity-disabled: 0.55;
+  --modern-opacity-quiet: 0.65;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* CSS 媒体条件不能引用 var()；阈值与 app/breakpoints.ts 由样式检查共同约束。 */
+@media (min-width: 1700px) {
+  :root {
+    --modern-content-inset: 40px;
+  }
+}
+@media (max-width: 1150px) {
+  :root {
+    --modern-content-inset: 24px;
+  }
+}
+@media (max-width: 760px) {
+  :root {
+    --modern-content-inset: 16px;
+    --modern-content-bottom: 28px;
+    --modern-panel-inset: 16px;
+    --modern-logo-width: 176px;
+  }
+}

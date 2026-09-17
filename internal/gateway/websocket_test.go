@@ -597,7 +597,7 @@ func TestWebsocketForkAndParentCacheErrorBoundaries(t *testing.T) {
 			}
 			var event []byte
 			if code != "" {
-				event = []byte(fmt.Sprintf(`{"type":"error","stream_id":%q,"status":400,"error":{"code":%q,"message":"fixture failure"}}`, req.StreamID, code))
+				event = []byte(fmt.Sprintf(`{"type":"error","stream_id":%q,"status":400,"error":{"type":"invalid_parameter","code":%q,"message":"fixture failure"}}`, req.StreamID, code))
 			} else {
 				id := fmt.Sprintf("resp_%d", n)
 				cache[id] = req.StreamID
@@ -861,12 +861,15 @@ func TestWebsocketRetriesOnlyUnsentUnboundTurns(t *testing.T) {
 	for _, dispatch := range []execution.DispatchState{execution.DispatchNotSent, execution.DispatchMaybeSent} {
 		t.Run(string(dispatch), func(t *testing.T) {
 			h, engine, input := websocketTestHandler(t, "http://127.0.0.1:1", channel.CLIProxyAPI)
-			input.Credentials = append(input.Credentials, testCredentialConfig(2, 1))
+			backup := input.Groups[0]
+			backup.ID, backup.Name = 2, "backup"
+			input.Groups = append(input.Groups, backup)
+			input.Credentials = append(input.Credentials, testCredentialConfig(2, 2))
 			if _, err := h.manager.Publish(input); err != nil {
 				t.Fatal(err)
 			}
 			registry := h.registry.(*state.CredentialRegistry)
-			if err := registry.ReplaceCredentials([]state.CredentialEntry{testCredentialEntry(t, h.encryption, 1, 1, "first-key"), testCredentialEntry(t, h.encryption, 2, 1, "second-key")}); err != nil {
+			if err := registry.ReplaceCredentials([]state.CredentialEntry{testCredentialEntry(t, h.encryption, 1, 1, "first-key"), testCredentialEntry(t, h.encryption, 2, 2, "second-key")}); err != nil {
 				t.Fatal(err)
 			}
 			sink := &recordingRequestLogSink{}

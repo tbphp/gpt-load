@@ -36,6 +36,14 @@
 <td><strong>OfoxAI：一个平台，连接文本、图像与视频 AI</strong><br>OfoxAI 是统一的 AI API 平台，汇集多家文本、图像和视频模型，支持 OpenAI 兼容接口及 Anthropic、Gemini 原生接口。开发者可通过一个平台为 AI 应用、智能体和内容创作接入模型，按任务选择合适的能力。 <a href="https://ofox.ai/?utm_source=github&amp;utm_medium=sponsorship&amp;utm_content=gpt_load" target="_blank" rel="noopener noreferrer">探索 OfoxAI 模型与 API →</a></td>
 </tr>
 <tr>
+<td width="180"><a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer"><picture><source media="(prefers-color-scheme: dark)" srcset="./screenshot/packycode-dark.png"><source media="(prefers-color-scheme: light)" srcset="./screenshot/packycode-light.png"><img src="./screenshot/packycode-light.png" alt="PackyCode" width="150"></picture></a></td>
+<td><strong>PackyCode</strong><br>PackyCode 是一家稳定、高效的 API 中转服务商。一句话接入主流大模型。统一域名、统一密钥、智能容灾切换，97% 可用性。人民币1:1充值，无汇率无手续费坑，新用户首充立享折扣 + $1免费体验额度，多分组折扣低至 2 折起，提供专属Codex/Claude Code高速通道。<a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer">点此链接注册，立即开始使用！</a></td>
+</tr>
+<tr>
+<td width="180"><a href="https://fluxionai.space/register?source=github&amp;campaign=gptload&amp;promo=GPTLOAD" target="_blank" rel="sponsored noopener noreferrer"><img src="./screenshot/fluxionai-horizontal.png" alt="Fluxion AI" width="150"></a></td>
+<td><strong>一个入口，接入并管理全球主流AI模型</strong><br>Fluxion AI面向个人开发者、技术团队与企业，通过统一API接入并管理全球主流AI模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。根据不同模型与线路，API调用成本较官方或基准价格可降低40%—98%。立即访问并注册，即可获得 $7 API 额度。（<a href="https://fluxionai.space/register?source=github&amp;campaign=gptload&amp;promo=GPTLOAD" target="_blank" rel="sponsored noopener noreferrer">专属链接</a>）</td>
+</tr>
+<tr>
 <td width="180"><a href="https://www.axisnow.io/zh"><img src="./screenshot/axisnow.jpg" alt="AxisNow" width="150"></a></td>
 <td>保护并加速网站与 API，<strong>兼顾中国大陆</strong>及全球的访问体验，并通过客户端 SDK，将加速与安全能力延伸至原生/移动 App — <strong>自建私有部署 CDN｜订阅式高防 CDN｜自主可控、灵活组合的 CDN 网络。</strong></td>
 </tr>
@@ -52,7 +60,7 @@
 
 应用只需要配置一个地址和一个 AccessKey。后面的服务商、账号、凭据、模型与路由策略，全部在管理界面里完成。
 
-<img src="./screenshot/architecture-overview.png" alt="GPT-Load 统一接入与上游分流架构图" width="860">
+<img src="./screenshot/architecture-overview.svg" alt="GPT-Load 统一接入与上游分流架构图" width="860">
 
 - **统一入口，保留原生协议** — 官方 API、云平台、模型服务和兼容中转统一管理；客户端继续使用 OpenAI、Anthropic 或 Gemini 原生接口，无需改造代码。
 - **统一管理 API Key 与订阅账号** — Codex、Claude、Antigravity、Grok 等订阅渠道与 API Key 渠道共享凭据管理、调度和健康体系。
@@ -111,21 +119,13 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 
 ## 界面预览
 
-**分组总览** — 统一查看渠道、模型、凭据数量与健康状态
+**分组总览** — 统一查看渠道、模型、凭据数量、流量与健康状态
 
-<img src="./screenshot/groups-overview.png" alt="GPT-Load 分组总览" width="860">
+<img src="./screenshot/groups-zh-CN.png" alt="GPT-Load 新版分组总览" width="860">
 
-**订阅账号** — 查看账号可用性、额度窗口、重置时间与运行诊断
+**用量统计** — 查看请求趋势、缓存命中率、Token 分类与成本估算
 
-<img src="./screenshot/subscription-accounts.png" alt="GPT-Load 订阅账号与额度状态" width="860">
-
-**访问密钥只读首页** — 使用 AccessKey 登录，只查看该密钥自己的分组、模型、请求、用量与费用额度
-
-<img src="./screenshot/access-key-home.png" alt="GPT-Load 访问密钥只读首页" width="860">
-
-**用量与成本** — 查看请求趋势、缓存命中率、Token 分类与成本估算
-
-<img src="./screenshot/usage-cost.png" alt="GPT-Load 用量与成本监控" width="860">
+<img src="./screenshot/usage-zh-CN.png" alt="GPT-Load 新版用量统计" width="860">
 
 ## 支持范围
 

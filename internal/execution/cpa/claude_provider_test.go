@@ -62,6 +62,17 @@ type classifiedClaudeError struct {
 	summary          string
 }
 
+func TestClaudeContextLimitIsAnExplicitRequestRejection(t *testing.T) {
+	bridge := newClaudeProviderBridge()
+	_, evidence := bridge.ClassifyError(t.Context(), &classifiedClaudeError{
+		status: http.StatusBadRequest, typeValue: "invalid_request_error",
+		summary: "prompt is too long: 210000 tokens > 200000 maximum",
+	}, claudeProviderCredential{})
+	if evidence == nil || evidence.Hint != execution.FailureHintRequestRejected || evidence.ScopeHint != execution.ErrorScopeRequest {
+		t.Fatalf("context limit evidence=%#v, want request rejection", evidence)
+	}
+}
+
 func (err *classifiedClaudeError) Error() string              { return err.summary }
 func (err *classifiedClaudeError) StatusCode() int            { return err.status }
 func (err *classifiedClaudeError) ErrorType() string          { return err.typeValue }

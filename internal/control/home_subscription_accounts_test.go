@@ -31,7 +31,7 @@ func TestReadHomeSubscriptionAccountsUsesBoundedHourlyActivityAndDeduplicates(t 
 	sharedTwoGroupID, sharedTwo := createHomeSubscriptionCredential(
 		t, fixture, "shared-two", "shared-account", "shared@example.com",
 	)
-	_, other := createHomeSubscriptionCredential(
+	otherGroupID, other := createHomeSubscriptionCredential(
 		t, fixture, "other", "other-account", "other@example.com",
 	)
 	_, failureOnly := createHomeSubscriptionCredential(
@@ -96,6 +96,21 @@ func TestReadHomeSubscriptionAccountsUsesBoundedHourlyActivityAndDeduplicates(t 
 	}
 	if sharedOneGroupID == sharedTwoGroupID {
 		t.Fatal("duplicate account fixture unexpectedly reused one group")
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var navigation struct {
+		Items []struct {
+			GroupID *uint `json:"group_id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(payload, &navigation); err != nil {
+		t.Fatal(err)
+	}
+	if navigation.Items[0].GroupID != nil || navigation.Items[1].GroupID == nil || *navigation.Items[1].GroupID != otherGroupID {
+		t.Fatal("home account navigation must target a detail only for single-group accounts")
 	}
 }
 

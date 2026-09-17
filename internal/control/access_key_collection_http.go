@@ -1,6 +1,7 @@
 package control
 
 import (
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -52,7 +53,7 @@ func parseAccessKeyCollectionQuery(
 	}
 	for key, entries := range values {
 		switch key {
-		case "q", "status", "page", "page_size", "sort":
+		case "q", "status", "page", "page_size", "sort", "group_id", "expiry":
 		default:
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
 		}
@@ -73,6 +74,22 @@ func parseAccessKeyCollectionQuery(
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
 		}
 		query.Status = &status
+	}
+	if entries, exists := values["group_id"]; exists {
+		id, err := strconv.ParseUint(entries[0], 10, strconv.IntSize)
+		if err != nil || id == 0 || id > math.MaxInt64 ||
+			strconv.FormatUint(id, 10) != entries[0] {
+			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
+		}
+		query.GroupID = uint(id)
+	}
+	if entries, exists := values["expiry"]; exists {
+		switch entries[0] {
+		case "never", "active", "expired":
+			query.Expiry = entries[0]
+		default:
+			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
+		}
 	}
 	if entries, exists := values["page"]; exists {
 		page, ok := parseAccessKeyCollectionPositiveInt(entries[0])
