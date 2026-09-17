@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
-import { KeyRound, UserRound } from '@lucide/vue'
+import { Globe, KeyRound, UserRound } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LogEntry, LogQuery } from '@modern/api/logs'
@@ -224,6 +224,19 @@ function fieldFilterValue(field: LogColumnId): string {
             tabindex="0"
             :aria-label="line.label ? line.label + ' ' + line.value : undefined"
           />
+          <AppTooltip
+            v-if="row.operation === 'web_search' && line.value === row.client_model"
+            :label="t('logs.standaloneSearchHint')"
+          >
+            <span
+              class="modern-log-search-indicator"
+              role="img"
+              tabindex="0"
+              :aria-label="t('logs.standaloneSearchHint')"
+            >
+              <AppIcon :icon="Globe" size="inherit" />
+            </span>
+          </AppTooltip>
           <LogModelWarning v-if="index === 0" :row="row" />
         </div>
       </template>
@@ -370,6 +383,17 @@ function fieldFilterValue(field: LogColumnId): string {
   align-items: center;
   gap: var(--modern-space-1-5);
   font-size: var(--modern-font-size-small);
+}
+.modern-log-search-indicator {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--modern-info);
+  cursor: help;
+}
+.modern-log-search-indicator:focus-visible {
+  outline: var(--modern-focus-width) solid var(--modern-info);
+  outline-offset: var(--modern-focus-offset);
 }
 .modern-log-identity-line {
   display: flex;

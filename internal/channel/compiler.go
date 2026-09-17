@@ -451,6 +451,7 @@ func validProtocolOperation(clientProtocol protocol.Protocol, operation executio
 		execution.OperationResponsesInputItems,
 		execution.OperationResponsesCompact,
 		execution.OperationResponsesInputTokens,
+		execution.OperationWebSearch,
 		execution.OperationResponsesPassthrough:
 		return clientProtocol == protocol.OpenAIResponses
 	case execution.OperationImagesGenerate,

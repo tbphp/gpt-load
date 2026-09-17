@@ -166,6 +166,7 @@ type QuotaSignalObservation struct {
 }
 
 type ExecuteResponse struct {
+	StatusCode             int
 	Payload                []byte
 	Headers                http.Header
 	AppliedReasoningEffort string
@@ -392,6 +393,9 @@ func (e *CodexHTTPExecutor) Identifier() string { return ProviderCodex }
 // ExecuteCanonical runs one unary Codex request through CPA's stateless HTTP
 // executor and captures request-path, reasoning, and quota observations.
 func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (ExecuteResponse, error) {
+	if request.RequestPath == "/v1/alpha/search" {
+		return e.executeSearchCanonical(ctx, credentialID, credential, request)
+	}
 	request.Headers = normalizedCodexHeaders(request.Headers)
 	format := sdktranslator.FromString(request.Format)
 	endpoints, err := ResolveCodexAPIEndpoints(request.BaseURL)
