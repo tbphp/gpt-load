@@ -7,7 +7,7 @@ export default {
       previewNote: '缩略图为布局示意。新版预览将在正式设计确定后更新。',
       blocked: '请先保存或放弃当前修改，并等待正在进行的操作完成后再切换。',
       saveFailed: '无法保存界面偏好，请允许本站使用浏览器存储后重试。',
-      modern: { title: '新版', description: '正在建设中的全新管理界面。' },
+      modern: { title: '现代版', description: '采用侧边导航的现代管理界面。' },
       classic: { title: '经典版', description: '使用现有布局和完整管理功能。' },
     },
     title: '设置',

@@ -142,7 +142,7 @@ export default {
     description: '切り替えると再読み込みされ、このブラウザにのみ適用されます。',
     current: '現在の画面',
     saveFailed: '設定を保存できません。このサイトのブラウザストレージを許可してください。',
-    modern: { title: '新版' },
+    modern: { title: 'モダン版' },
     classic: { title: 'クラシック版' },
   },
 }

@@ -163,9 +163,10 @@ type credentialObservation struct {
 }
 
 type credentialCollectionRecord struct {
-	createdAtMS int64
-	item        CredentialItemResponse
-	bucket      healthBucket
+	credentialKey string
+	createdAtMS   int64
+	item          CredentialItemResponse
+	bucket        healthBucket
 }
 
 func normalizeGroupConnectionType(value models.ConnectionType) models.ConnectionType {
@@ -440,7 +441,14 @@ func (s *Service) mapCredentialCollection(
 		if item.ConnectionType == string(models.ConnectionTypeSubscription) {
 			item.Observation = presentCredentialObservation(observation.subscription[row.ID], row.IdentityFingerprint)
 		}
-		records = append(records, credentialCollectionRecord{item: item, bucket: bucket, createdAtMS: row.CreatedAtMS})
+		var filterKey string
+		if query.modern != nil && query.modern.credentialKey != "" {
+			filterKey, err = s.credentialFilterKey(observation.group, row, canonical)
+			if err != nil {
+				return CredentialCollectionResponse{}, err
+			}
+		}
+		records = append(records, credentialCollectionRecord{item: item, bucket: bucket, createdAtMS: row.CreatedAtMS, credentialKey: filterKey})
 	}
 	summary := summarizeCredentialCollection(records)
 	filtered := make([]credentialCollectionRecord, 0, len(records))
@@ -487,7 +495,7 @@ func summarizeCredentialCollection(records []credentialCollectionRecord) Credent
 }
 
 func credentialCollectionMatches(record credentialCollectionRecord, query CredentialCollectionQuery) bool {
-	if query.modern != nil && !matchesModernCredential(record.item, *query.modern) {
+	if query.modern != nil && !matchesModernCredential(record, *query.modern) {
 		return false
 	}
 	if query.Status != nil && record.item.EffectiveStatus != *query.Status {
