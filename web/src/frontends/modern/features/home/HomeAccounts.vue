@@ -62,11 +62,11 @@ const rows = computed(() =>
     const window = tightest(windows)
     const quota = window ? remaining(window) : undefined
     return {
-      id: account.credential.id,
+      key: account.key,
       to: {
         name: account.groups === 1 && account.groupID ? 'modern-group-detail' : 'modern-groups',
         ...(account.groups === 1 && account.groupID ? { params: { id: account.groupID } } : {}),
-        query: { credential_id: String(account.credential.id) },
+        query: { credential_key: account.key },
       },
       name: account.credential.account || account.channelName,
       plan: observation?.plan || account.channelName,
@@ -89,7 +89,7 @@ const rows = computed(() =>
       {{ t(loading ? 'ui.loading' : 'home.noRecentAccounts') }}
     </p>
     <ul v-if="accounts.length" class="modern-home-accounts">
-      <li v-for="row in rows" :key="row.id">
+      <li v-for="row in rows" :key="row.key">
         <div class="modern-home-account-head">
           <AppButton as-child variant="text" size="xs" class="modern-home-account-name">
             <RouterLink :to="row.to"><AppOverflowText :text="row.name" /></RouterLink>

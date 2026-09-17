@@ -39,6 +39,7 @@ func TestModernCredentialFiltersRunBeforePagination(t *testing.T) {
 	}
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+	credentialKey := fixture.encryption.Hash("credential-filter/v1|openai|api_key|" + last.Fingerprint)
 	updated := serveGroupDetailLedgerRoute(t, engine, http.MethodPut,
 		fmt.Sprintf("/api/groups/%d/credentials/%d", created.GroupID, last.ID),
 		`{"weight_manual":99,"proxy":{"mode":"direct"}}`, "Bearer test-auth-key")
@@ -50,7 +51,7 @@ func TestModernCredentialFiltersRunBeforePagination(t *testing.T) {
 	}{
 		{"sort=weight_desc&page_size=20", 21, 20},
 		{"proxy=direct&page_size=20", 1, 1},
-		{fmt.Sprintf("credential_id=%d&page_size=20", last.ID), 1, 1},
+		{"credential_key=" + credentialKey + "&page_size=20", 1, 1},
 	} {
 		path := fmt.Sprintf("/api/modern/groups/%d/credentials?%s", created.GroupID, test.query)
 		recorder := serveGroupDetailLedgerRoute(t, engine, http.MethodGet, path, "", "Bearer test-auth-key")
@@ -74,7 +75,7 @@ func TestModernCredentialFiltersRunBeforePagination(t *testing.T) {
 	classic := serveGroupDetailLedgerRoute(t, engine, http.MethodGet,
 		fmt.Sprintf("/api/groups/%d/credentials?proxy=direct", created.GroupID), "", "Bearer test-auth-key")
 	assertGroupDetailLedgerEnvelope(t, classic, http.StatusBadRequest, "")
-	for _, query := range []string{"credential_id=0", "credential_id=-1", "credential_id=abc", "credential_id=1&credential_id=2"} {
+	for _, query := range []string{"credential_key=0", "credential_key=abc", "credential_key=" + credentialKey + "&credential_key=" + credentialKey, "credential_id=1"} {
 		recorder := serveGroupDetailLedgerRoute(t, engine, http.MethodGet,
 			fmt.Sprintf("/api/modern/groups/%d/credentials?%s", created.GroupID, query), "", "Bearer test-auth-key")
 		assertGroupDetailLedgerEnvelope(t, recorder, http.StatusBadRequest, "")
@@ -88,7 +89,7 @@ func TestModernCredentialFiltersRunBeforePagination(t *testing.T) {
 		t.Fatal(err)
 	}
 	foreign := serveGroupDetailLedgerRoute(t, engine, http.MethodGet,
-		fmt.Sprintf("/api/modern/groups/%d/credentials?credential_id=%d", otherGroup.GroupID, last.ID), "", "Bearer test-auth-key")
+		fmt.Sprintf("/api/modern/groups/%d/credentials?credential_key=%s", otherGroup.GroupID, credentialKey), "", "Bearer test-auth-key")
 	assertGroupDetailLedgerEnvelope(t, foreign, http.StatusOK, "")
 	var foreignEnvelope struct {
 		Data CredentialCollectionResponse `json:"data"`
@@ -100,7 +101,7 @@ func TestModernCredentialFiltersRunBeforePagination(t *testing.T) {
 		t.Fatal("credential filter leaked a credential from another group")
 	}
 	classicExact := serveGroupDetailLedgerRoute(t, engine, http.MethodGet,
-		fmt.Sprintf("/api/groups/%d/credentials?credential_id=%d", created.GroupID, last.ID), "", "Bearer test-auth-key")
+		fmt.Sprintf("/api/groups/%d/credentials?credential_key=%s", created.GroupID, credentialKey), "", "Bearer test-auth-key")
 	assertGroupDetailLedgerEnvelope(t, classicExact, http.StatusBadRequest, "")
 }
 

@@ -1,6 +1,7 @@
 package control
 
 import (
+	"encoding/hex"
 	"net/url"
 	"strings"
 
@@ -18,10 +19,10 @@ type ModernCredentialItem struct {
 
 // 仅新版集合接口接受这些展示条件；经典接口仍使用原查询合同。
 type modernCredentialFilters struct {
-	sort         string
-	proxy        string
-	reset        string
-	credentialID uint
+	sort          string
+	proxy         string
+	reset         string
+	credentialKey string
 }
 
 func parseModernCredentialQuery(raw string) (CredentialCollectionQuery, *app_errors.APIError) {
@@ -30,16 +31,16 @@ func parseModernCredentialQuery(raw string) (CredentialCollectionQuery, *app_err
 		return CredentialCollectionQuery{}, app_errors.ErrBadRequest
 	}
 	filters := modernCredentialFilters{sort: "priority"}
-	if entries, exists := values["credential_id"]; exists {
+	if entries, exists := values["credential_key"]; exists {
 		if len(entries) != 1 {
 			return CredentialCollectionQuery{}, app_errors.ErrBadRequest
 		}
-		id, valid := parseCredentialCollectionPositiveInt(entries[0])
-		if !valid {
+		key := entries[0]
+		if _, err := hex.DecodeString(key); err != nil || len(key) != 64 || key != strings.ToLower(key) {
 			return CredentialCollectionQuery{}, app_errors.ErrBadRequest
 		}
-		filters.credentialID = uint(id)
-		values.Del("credential_id")
+		filters.credentialKey = key
+		values.Del("credential_key")
 	}
 	for _, field := range []struct {
 		name    string
@@ -78,10 +79,11 @@ func parseModernCredentialQuery(raw string) (CredentialCollectionQuery, *app_err
 	return query, nil
 }
 
-func matchesModernCredential(item CredentialItemResponse, filters modernCredentialFilters) bool {
-	if filters.credentialID != 0 && item.CredentialID != filters.credentialID {
+func matchesModernCredential(record credentialCollectionRecord, filters modernCredentialFilters) bool {
+	if filters.credentialKey != "" && record.credentialKey != filters.credentialKey {
 		return false
 	}
+	item := record.item
 	if filters.proxy != "" && string(item.Proxy.ConfiguredMode) != filters.proxy {
 		return false
 	}

@@ -22,7 +22,7 @@ export const credentialSorts = [
   'failures',
 ] as const
 export interface CredentialFilters {
-  credentialID?: number
+  credential?: string
   q: string
   status: string
   page: number
@@ -296,7 +296,7 @@ export async function getGroupCredentials(
     page_size: String(filters.pageSize),
   })
   if (filters.q.trim()) params.set('q', filters.q.trim())
-  if (filters.credentialID) params.set('credential_id', String(filters.credentialID))
+  if (filters.credential) params.set('credential_key', filters.credential)
   if (filters.status) params.set('status', filters.status)
   if (filters.sort !== 'priority') params.set('sort', filters.sort)
   if (filters.proxy) params.set('proxy', filters.proxy)

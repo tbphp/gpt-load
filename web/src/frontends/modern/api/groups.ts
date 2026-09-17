@@ -72,10 +72,16 @@ export const groupQueryKey = ['modern', 'groups', 'workspace'] as const
 export const credentialOptionsKey = ['modern', 'credential-options'] as const
 
 export interface CredentialOption {
-  id: number
+  key: string
   channelID: string
   label: string
-  memberships: { groupID: number; credentialID: number }[]
+  groupIDs: number[]
+}
+
+export function readCredentialFilterKey(value: unknown): string {
+  const key = text(value)
+  if (!/^[a-f0-9]{64}$/u.test(key)) throw new InvalidResponseError()
+  return key
 }
 
 export async function getCredentialOptions(client: ApiClient, signal: AbortSignal) {
@@ -83,16 +89,10 @@ export async function getCredentialOptions(client: ApiClient, signal: AbortSigna
   return list(data.items).map((value): CredentialOption => {
     const option = record(value)
     return {
-      id: integer(option.id, 1),
+      key: readCredentialFilterKey(option.key),
       channelID: text(option.channel_id),
       label: text(option.label),
-      memberships: list(option.memberships).map((value) => {
-        const membership = record(value)
-        return {
-          groupID: integer(membership.group_id, 1),
-          credentialID: integer(membership.credential_id, 1),
-        }
-      }),
+      groupIDs: list(option.group_ids).map((value) => integer(value, 1)),
     }
   })
 }

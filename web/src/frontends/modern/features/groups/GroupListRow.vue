@@ -33,7 +33,7 @@ const props = defineProps<{
   usageLoading: boolean
   usageIncomplete: boolean
   weightError?: string
-  credentialFilterId?: number
+  credentialFilterKey?: string
 }>()
 const emit = defineEmits<{
   expand: []
@@ -175,7 +175,7 @@ const lastActive = computed(() =>
                     params: { id: group.id },
                     query: {
                       from: route.fullPath,
-                      ...(credentialFilterId ? { credential_id: String(credentialFilterId) } : {}),
+                      ...(credentialFilterKey ? { credential_key: credentialFilterKey } : {}),
                     },
                   }"
                   ><AppOverflowText :text="group.name"

@@ -120,6 +120,7 @@ function workspaceQuery(value: GroupFilters) {
     'connection',
     'model',
     'credential_id',
+    'credential_key',
     'protocol',
   ])
     delete query[key]
@@ -169,22 +170,16 @@ const credentialCatalog = useQuery({
   enabled: computed(() => moreFilters.value || Boolean(filters.value.credential)),
 })
 const selectedCredential = computed(() =>
-  credentialCatalog.data.value?.find((option) =>
-    option.memberships.some(
-      (membership) => String(membership.credentialID) === filters.value.credential,
-    ),
-  ),
+  credentialCatalog.data.value?.find((option) => option.key === filters.value.credential),
 )
 const credentialOptions = computed(() => [
   { value: '', label: t('groups.board.allCredentials') },
   ...(credentialCatalog.data.value ?? []).map((option) => ({
-    value: option === selectedCredential.value ? filters.value.credential : String(option.id),
+    value: option.key,
     label: option.label,
     keywords: [
       channelInfo.value.get(option.channelID)?.name ?? option.channelID,
-      ...option.memberships.map(
-        (membership) => groups.value.find((group) => group.id === membership.groupID)?.name ?? '',
-      ),
+      ...option.groupIDs.map((id) => groups.value.find((group) => group.id === id)?.name ?? ''),
     ],
   })),
   ...(filters.value.credential && !selectedCredential.value
@@ -267,11 +262,7 @@ const filtered = computed(() => {
           ?.nativeProtocols.includes(f.protocol)
       )
         return false
-      if (
-        f.credential &&
-        !selectedCredential.value?.memberships.some((membership) => membership.groupID === group.id)
-      )
-        return false
+      if (f.credential && !selectedCredential.value?.groupIDs.includes(group.id)) return false
       if (
         f.model &&
         !group.modelNames.some((name) =>
@@ -928,10 +919,7 @@ useMessageSource(() =>
           :usage-loading="usage.isFetching.value"
           :usage-incomplete="usage.data.value?.incomplete ?? false"
           :weight-error="weightErrors.get(group.id)"
-          :credential-filter-id="
-            selectedCredential?.memberships.find((membership) => membership.groupID === group.id)
-              ?.credentialID
-          "
+          :credential-filter-key="filters.credential || undefined"
           @expand="toggleExpanded(group.id)"
           @toggle="mutate(group, { enabled: $event }, 'toggle')"
           @weight="mutate(group, { weight_manual: $event }, 'weight')"

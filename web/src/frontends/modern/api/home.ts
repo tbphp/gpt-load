@@ -1,6 +1,7 @@
 import type { ApiClient } from '@shared/http/client'
 import { readAccessKeyRow, type AccessKeyRow } from './access-keys'
 import { readCredential, type CredentialRow } from './group-detail'
+import { readCredentialFilterKey } from './groups'
 import { integer, list, record, text } from './response'
 
 export interface HomeKey {
@@ -20,6 +21,7 @@ export interface HomeBase {
   currentKey: AccessKeyRow | null
 }
 export interface HomeAccount {
+  key: string
   channelID: string
   channelName: string
   channelIcon: string
@@ -58,6 +60,7 @@ export async function getHomeAccounts(client: ApiClient, signal: AbortSignal) {
     items: list(data.items).map((value): HomeAccount => {
       const account = record(value)
       return {
+        key: readCredentialFilterKey(account.credential_key),
         channelID: text(account.channel_id),
         channelName: text(account.channel_name),
         channelIcon: text(account.channel_icon),
