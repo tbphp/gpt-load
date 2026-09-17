@@ -62,11 +62,6 @@
     var(--modern-info-soft) 28%,
     var(--modern-surface)
   );
-  /* 登录页极光沿用暖色品牌，深色模式降低光幕亮度。 */
-  --modern-login-canvas: light-dark(#fdfbf9, #1d1c1b);
-  --modern-login-aurora-primary: light-dark(#ed9b72, #a85e3a);
-  --modern-login-aurora-secondary: light-dark(#e8c399, #a88958);
-  --modern-login-aurora-opacity: 0.85;
   --modern-login-mascot-shadow: light-dark(rgb(90 39 16 / 24%), rgb(0 0 0 / 42%));
   --modern-login-mascot-shadow-soft: light-dark(rgb(98 44 19 / 8%), rgb(0 0 0 / 16%));
   --modern-login-card-surface: color-mix(

@@ -15,7 +15,6 @@ import {
 import { safeRedirect } from '@modern/app/redirect'
 import { RequestCancelledError } from '@shared/http/errors'
 import AuthCard from './AuthCard.vue'
-import LoginBackdrop from './LoginBackdrop.vue'
 import LoginMascot from './LoginMascot.vue'
 import { authFailure, authRetrySeconds, type AuthFailure } from './auth-errors'
 import { useAuthSession } from './auth-session'
@@ -138,7 +137,6 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <LoginBackdrop />
   <div class="modern-login-stage">
     <LoginMascot :quiet="typing || submitting" />
     <AuthCard
