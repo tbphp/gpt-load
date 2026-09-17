@@ -14,8 +14,6 @@ const host = ref<HTMLElement>()
 const width = ref(720)
 const hovered = ref<number>()
 const focused = ref<number>()
-const tabStop = ref(0)
-const elements = new Map<number, HTMLElement>()
 let observer: ResizeObserver | undefined
 onMounted(() => {
   observer = new ResizeObserver(([entry]) => {
@@ -29,7 +27,6 @@ watch(
   () => {
     hovered.value = undefined
     focused.value = undefined
-    tabStop.value = Math.min(tabStop.value, Math.max(0, points.value.length - 1))
   },
 )
 const points = computed(() => {
@@ -221,22 +218,32 @@ const pointLabels = computed(() => {
     return lines.join('\n')
   })
 })
-function element(index: number, node: unknown): void {
-  if (node instanceof HTMLElement) elements.set(index, node)
-  else elements.delete(index)
+const tooltip = computed(() => pointLabels.value[selected.value ?? 0])
+function move(event: PointerEvent): void {
+  const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  if (!bounds.width || !points.value.length) return
+  const fraction = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
+  const at = props.report.from_ms + fraction * (props.report.to_ms - props.report.from_ms)
+  let low = 0,
+    high = points.value.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (points.value[middle]!.to <= at) low = middle + 1
+    else high = middle
+  }
+  hovered.value = Math.min(low, points.value.length - 1)
 }
-function focus(index: number): void {
-  focused.value = index
-  tabStop.value = index
+function focus(): void {
+  focused.value = selected.value ?? 0
 }
-function navigate(event: KeyboardEvent, index: number): void {
+function navigate(event: KeyboardEvent): void {
   if (event.altKey || event.ctrlKey || event.metaKey) return
   if (event.key === 'Escape') {
     hovered.value = undefined
     focused.value = undefined
     return
   }
-  let next = index
+  let next = selected.value ?? 0
   if (event.key === 'ArrowLeft') next--
   else if (event.key === 'ArrowRight') next++
   else if (event.key === 'Home') next = 0
@@ -244,7 +251,7 @@ function navigate(event: KeyboardEvent, index: number): void {
   else return
   event.preventDefault()
   hovered.value = undefined
-  elements.get(Math.max(0, Math.min(points.value.length - 1, next)))?.focus({ preventScroll: true })
+  focused.value = Math.max(0, Math.min(points.value.length - 1, next))
 }
 </script>
 
@@ -255,7 +262,6 @@ function navigate(event: KeyboardEvent, index: number): void {
     :data-metric="metric"
     role="group"
     :aria-label="t('usage.chartKeyboard', { metric: t('usage.' + metric) })"
-    @pointerleave="hovered = undefined"
   >
     <div v-if="legend.length" class="modern-usage-chart-legend">
       <span v-for="item in legend" :key="item.id" class="modern-usage-chart-legend-item">
@@ -328,28 +334,23 @@ function navigate(event: KeyboardEvent, index: number): void {
     <span v-if="!report.summary.request_count || !segments.length" class="modern-usage-chart-empty">
       {{ t(!report.summary.request_count ? 'usage.empty' : 'usage.noMeasuredData') }}
     </span>
-    <AppTooltip
-      v-for="(point, index) in coordinates"
-      :key="point.from"
-      :label="pointLabels[index]"
-      side="top"
-    >
+    <AppTooltip v-if="coordinates.length" :label="tooltip" side="top">
       <span
-        :ref="(node) => element(index, node)"
         class="modern-usage-chart-hit"
         role="img"
-        :aria-label="pointLabels[index]"
-        :tabindex="index === tabStop ? 0 : -1"
+        :aria-label="tooltip"
+        tabindex="0"
         :style="{
-          left: (point.start / width) * 100 + '%',
-          width: ((point.end - point.start) / width) * 100 + '%',
+          left: (left / width) * 100 + '%',
+          width: ((right - left) / width) * 100 + '%',
           top: (top / height) * 100 + '%',
           height: ((bottom - top) / height) * 100 + '%',
         }"
-        @pointerenter="hovered = index"
-        @focus="focus(index)"
+        @pointermove="move"
+        @pointerleave="hovered = undefined"
+        @focus="focus"
         @blur="focused = undefined"
-        @keydown="navigate($event, index)"
+        @keydown="navigate"
       />
     </AppTooltip>
   </div>
