@@ -233,6 +233,7 @@ const pointLabels = computed(() => ({
       </div>
       <AppSparkline
         v-else-if="report?.usage"
+        size="sm"
         :values="chart.values"
         :ranges="ranges"
         :point-labels="pointLabels[chart.key]"
@@ -251,14 +252,16 @@ const pointLabels = computed(() => ({
 .modern-credential-trends {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-4);
-  padding-bottom: var(--modern-space-3);
-  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  gap: var(--modern-space-2) var(--modern-space-4);
+  padding: var(--modern-space-2);
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-control);
+  background: var(--modern-subtle);
 }
 .modern-credential-trends-cell {
   display: grid;
   align-content: start;
-  gap: var(--modern-space-2);
+  gap: var(--modern-space-1);
   min-width: 0;
 }
 .modern-credential-trends-cell h3 {
@@ -280,7 +283,7 @@ const pointLabels = computed(() => ({
   align-content: center;
   justify-items: start;
   gap: var(--modern-space-1);
-  min-height: var(--modern-trend-height);
+  min-height: var(--modern-trend-sm-height);
   font-size: var(--modern-font-size-small);
   color: var(--modern-muted);
 }

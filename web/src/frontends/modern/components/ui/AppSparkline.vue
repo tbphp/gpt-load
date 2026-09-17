@@ -7,6 +7,7 @@ const props = defineProps<{
   values: readonly (number | null)[]
   pointLabels?: readonly string[]
   tone?: 'accent' | 'info' | 'cost'
+  size?: 'sm'
   showMarker?: boolean
   ranges?: readonly { from: number; to: number }[]
   cursor?: number
@@ -120,6 +121,7 @@ watch(
   <div
     class="modern-sparkline"
     :data-tone="tone"
+    :data-size="size"
     :role="interactive ? 'group' : 'img'"
     :aria-label="label"
     @pointermove="move"
@@ -193,6 +195,9 @@ watch(
 }
 .modern-sparkline[data-tone='info'] {
   --modern-sparkline-color: var(--modern-chart-input);
+}
+.modern-sparkline[data-size='sm'] {
+  height: var(--modern-trend-sm-height);
 }
 .modern-sparkline[data-tone='cost'] {
   --modern-sparkline-color: var(--modern-chart-cost);

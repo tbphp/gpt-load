@@ -136,7 +136,7 @@ function navigate(event: KeyboardEvent): void {
 .modern-quota-trend-plot :deep(svg) {
   display: block;
   width: 100%;
-  height: var(--modern-trend-height);
+  height: var(--modern-trend-sm-height);
   overflow: visible;
 }
 .modern-quota-trend-fill {

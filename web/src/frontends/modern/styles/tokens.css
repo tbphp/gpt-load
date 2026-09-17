@@ -213,6 +213,7 @@
   --modern-account-card-min: 340px;
   --modern-key-card-height: 104px;
   --modern-trend-height: 64px;
+  --modern-trend-sm-height: 32px;
   --modern-trend-stroke: 1.5px;
   --modern-chart-donut-stroke: 12;
   --modern-credential-card-inset: var(--modern-space-4);
