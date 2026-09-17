@@ -7,7 +7,7 @@ RUN corepack enable \
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./web/
 RUN pnpm --dir web install --frozen-lockfile
 
-COPY internal/webui/page_routes.json ./internal/webui/page_routes.json
+COPY internal/webui/page_routes.json internal/webui/modern_page_routes.json ./internal/webui/
 COPY web ./web
 RUN pnpm --dir web run build
 
@@ -24,6 +24,7 @@ ENV GO111MODULE=on \
     GOPROXY="https://proxy.golang.org|direct"
 
 WORKDIR /build
+RUN apk add --no-cache git
 
 COPY go.mod go.sum ./
 COPY third_party/cpaembedded/go.mod third_party/cpaembedded/go.sum ./third_party/cpaembedded/
