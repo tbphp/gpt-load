@@ -66,7 +66,7 @@ func testQuotaHistoryMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 			if err := applyMigrations(db); err != nil {
 				t.Fatal(err)
 			}
-			row := models.CredentialQuotaHistory{GroupID: 1, CredentialID: 1, TargetIdentity: "identity", WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", ObservedAtMS: 60_000, UsedBasisPoints: 100}
+			row := models.CredentialQuotaHistory{GroupID: 1, CredentialID: 1, TargetIdentity: "identity", WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", ObservedAtMS: 60_000, UsedBasisPoints: 1000}
 			if err := db.Create(&row).Error; err != nil {
 				t.Fatal(err)
 			}
@@ -85,11 +85,29 @@ func testQuotaHistoryMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 			if err := applyMigrations(db); err != nil {
 				t.Fatalf("repeat with existing history: %v", err)
 			}
+			for index, used := range []int64{5000, 9900, 100, 2000} {
+				sample := row
+				sample.ID = 0
+				sample.ObservedAtMS = int64(index+2) * 60_000
+				sample.UsedBasisPoints = used
+				resetAt := sample.ObservedAtMS + 3600_000
+				sample.ResetAtMS = &resetAt
+				if err := db.Create(&sample).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
 			var points []models.CredentialQuotaHistory
-			if err := db.Raw("SELECT * FROM (SELECT credential_quota_histories.*, ROW_NUMBER() OVER (PARTITION BY window_key, reset_at_ms, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms DESC) AS sample_rank FROM credential_quota_histories WHERE credential_id = ? AND target_identity = ?) AS samples WHERE sample_rank = 1", 60_000, 1, "identity").Scan(&points).Error; err != nil {
+			if err := db.Raw(`SELECT * FROM (
+				SELECT credential_quota_histories.*,
+				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms ASC) AS first_rank,
+				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms DESC) AS last_rank,
+				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY used_basis_points ASC, observed_at_ms DESC) AS low_rank,
+				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY used_basis_points DESC, observed_at_ms DESC) AS high_rank
+				FROM credential_quota_histories WHERE credential_id = ? AND target_identity = ?
+			) AS samples WHERE first_rank = 1 OR last_rank = 1 OR low_rank = 1 OR high_rank = 1 ORDER BY observed_at_ms ASC`, 3600_000, 3600_000, 3600_000, 3600_000, 1, "identity").Scan(&points).Error; err != nil {
 				t.Fatal(err)
 			}
-			if len(points) != 1 || points[0].UsedBasisPoints != 100 {
+			if len(points) != 4 || points[0].UsedBasisPoints != 1000 || points[1].UsedBasisPoints != 9900 || points[2].UsedBasisPoints != 100 || points[3].UsedBasisPoints != 2000 {
 				t.Fatalf("history query: %+v", points)
 			}
 		})

@@ -355,14 +355,10 @@ async function refresh(): Promise<void> {
       type: 'active',
     }),
     cache.refetchQueries({
-      queryKey: ['modern', 'credential-usage', props.group.id],
+      queryKey: ['modern', 'credential-quota-history', props.group.id],
       type: 'active',
     }),
   ])
-  await cache.refetchQueries({
-    queryKey: ['modern', 'credential-quota-history', props.group.id],
-    type: 'active',
-  })
 }
 async function runAccountBatch(
   action: AccountBatchAction,

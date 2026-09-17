@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -72,5 +73,63 @@ func TestCredentialQuotaHistoryScopesCurrentAccountAndTime(t *testing.T) {
 	}
 	if got := performGroupCollectionRequest(engine, url, "Bearer "+authTestKey); got.Code != http.StatusBadRequest {
 		t.Fatalf("API key history status=%d", got.Code)
+	}
+}
+
+func TestCredentialQuotaHistorySevenDaysBoundsPointsWithChangingResetTimes(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	group := models.Group{Name: "bounded quota history", ChannelID: "codex", ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`)}
+	if err := fixture.db.Create(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	credential := models.Credential{GroupID: group.ID, Data: "encrypted-test", Fingerprint: "bounded-history", Status: models.CredentialStatusDisabled}
+	if err := fixture.db.Create(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	identity := subscription.QuotaHistoryTargetIdentity(stateloader.CredentialIdentityGeneration(credential.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params)))
+	from := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC).UnixMilli()
+	rows := make([]models.CredentialQuotaHistory, 0, 120)
+	for index := 0; index < 120; index++ {
+		at := from + int64(index)*60_000
+		reset := from + 18_000_000 + int64(index)*1000
+		used := int64(4000)
+		if index%60 == 20 {
+			used = 9900
+		}
+		if index%60 == 40 {
+			used = 100
+		}
+		rows = append(rows, models.CredentialQuotaHistory{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", ObservedAtMS: at, UsedBasisPoints: used, ResetAtMS: &reset})
+	}
+	if err := fixture.db.CreateInBatches(rows, 100).Error; err != nil {
+		t.Fatal(err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+	result := performGroupCollectionRequest(engine, fmt.Sprintf("/api/groups/%d/credentials/%d/quota-history?from_ms=%d&to_ms=%d", group.ID, credential.ID, from, from+7*24*3_600_000), "Bearer "+authTestKey)
+	if result.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+	}
+	var data struct {
+		BucketWidthMS int64 `json:"bucket_width_ms"`
+		Windows       []struct {
+			Points []struct {
+				ObservedAtMS    int64 `json:"observed_at_ms"`
+				UsedBasisPoints int64 `json:"used_basis_points"`
+			} `json:"points"`
+		} `json:"windows"`
+	}
+	if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.BucketWidthMS != 3_600_000 || len(data.Windows) != 1 || len(data.Windows[0].Points) != 8 {
+		t.Fatalf("seven-day aggregation is not bounded: %+v", data)
+	}
+	for hour := 0; hour < 2; hour++ {
+		points := data.Windows[0].Points[hour*4 : (hour+1)*4]
+		if points[0].ObservedAtMS != from+int64(hour)*3_600_000 || points[1].UsedBasisPoints != 9900 || points[2].UsedBasisPoints != 100 || points[3].ObservedAtMS != from+int64(hour)*3_600_000+59*60_000 {
+			t.Fatalf("hour %d lost endpoints or extremes: %+v", hour, points)
+		}
 	}
 }

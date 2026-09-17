@@ -16,6 +16,30 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
+func TestModernCredentialDetailDoesNotQueryRemovedWindowUsage(t *testing.T) {
+	initControlI18n(t)
+	fixture, group, id := newSubscriptionCredentialFixture(t)
+	var credential models.Credential
+	if err := fixture.db.Take(&credential, id).Error; err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UnixMilli()
+	if err := fixture.db.Create(&models.CredentialObservation{CredentialID: id, IdentityFingerprint: credential.IdentityFingerprint, SchemaVersion: 1, ObservationVersion: 1, State: models.CredentialObservationFresh, ObservedAtMS: &at, UpdatedAtMS: at, SnapshotJSON: models.JSON(fmt.Sprintf(`{"quota_windows":[{"id":"primary","scope":"account","unit":"percent","state":"available","window_seconds":18000,"reset_at_ms":%d}]}`, at+3_600_000))}).Error; err != nil {
+		t.Fatal(err)
+	}
+	reader := &recordingCredentialWindowUsageReader{}
+	fixture.service.credentialWindowUsage = reader
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+	result := performGroupCollectionRequest(engine, fmt.Sprintf("/api/modern/groups/%d/credentials/%d", group, id), "Bearer "+authTestKey)
+	if result.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", result.Code, result.Body.String())
+	}
+	if len(reader.queries) != 0 {
+		t.Fatalf("removed usage still triggers queries: %+v", reader.queries)
+	}
+}
+
 func TestModernCredentialFiltersRunBeforePagination(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)

@@ -72,8 +72,14 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 		return
 	}
 	result := quotaHistoryResponse{FromMS: query.FromMS, ToMS: query.ToMS, ObservedAtMS: observedAt, Windows: []quotaHistoryWindowResponse{}}
-	// 每窗口约 240 个点；仍按重置周期分桶，防止抽样跨越重置边界。
-	result.BucketWidthMS = max(int64(60_000), ((query.ToMS-query.FromMS-1)/240/60_000+1)*60_000)
+	spanMS := query.ToMS - query.FromMS
+	result.BucketWidthMS = 60_000
+	if spanMS > epochms.MillisecondsPerHour {
+		result.BucketWidthMS = 5 * 60_000
+	}
+	if spanMS > epochms.MillisecondsPerDay {
+		result.BucketWidthMS = ((spanMS-1)/(168*epochms.MillisecondsPerHour) + 1) * epochms.MillisecondsPerHour
+	}
 	err = server.service.withReadSnapshot(c.Request.Context(), func(tx *gorm.DB) error {
 		var group models.Group
 		if err := tx.Take(&group, groupID).Error; err != nil {
@@ -98,10 +104,14 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 		}
 		result.HasHistory = first.ID != 0
 		var rows []models.CredentialQuotaHistory
-		// 排名在数据库内完成，不把一分钟的全部历史搬进应用再降采样。
+		// 每桶最多四个真实点：首尾、最低和最高。重置时间的抖动不增加桶数。
 		ranked := scope().Where("observed_at_ms >= ? AND observed_at_ms < ?", query.FromMS, query.ToMS).
-			Select("credential_quota_histories.*, ROW_NUMBER() OVER (PARTITION BY window_key, reset_at_ms, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms DESC) AS sample_rank", result.BucketWidthMS)
-		if err := tx.Table("(?) AS history_samples", ranked).Where("sample_rank = 1").Order("observed_at_ms ASC").Find(&rows).Error; err != nil {
+			Select(`credential_quota_histories.*,
+				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms ASC) AS first_rank,
+				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms DESC) AS last_rank,
+				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY used_basis_points ASC, observed_at_ms DESC) AS low_rank,
+				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY used_basis_points DESC, observed_at_ms DESC) AS high_rank`, result.BucketWidthMS, result.BucketWidthMS, result.BucketWidthMS, result.BucketWidthMS)
+		if err := tx.Table("(?) AS history_samples", ranked).Where("first_rank = 1 OR last_rank = 1 OR low_rank = 1 OR high_rank = 1").Order("observed_at_ms ASC").Find(&rows).Error; err != nil {
 			return err
 		}
 		windows := make(map[string]*quotaHistoryWindowResponse)

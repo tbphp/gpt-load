@@ -177,22 +177,24 @@ func (s *Server) handleGetModernCredential(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := s.service.GetCredentialDetail(c.Request.Context(), group, id)
+	item, err := s.service.loadCredentialItem(c.Request.Context(), group, id)
 	if err != nil {
 		writeServiceError(c, "get_modern_credential", err)
 		return
 	}
-	// 经典详情已补充订阅账号活动；新版 API 密钥也展示同一来源的统计。
-	if result.Credential.ConnectionType == "api_key" {
-		items := []CredentialItemResponse{result.Credential}
+	// 新版详情只保留运行诊断，不计算已移除的窗口 Token 与费用统计。
+	if item.ConnectionType == "api_key" {
+		items := []CredentialItemResponse{item}
 		s.service.enrichCredentialActivityIDs(c.Request.Context(), items, []uint{id})
-		result.Credential = items[0]
+		item = items[0]
+	} else {
+		s.service.enrichCredentialDailyUsage(c.Request.Context(), id, &item)
 	}
 	response.SuccessI18n(c, "common.success", struct {
 		Credential  ModernCredentialItem          `json:"credential"`
 		Observation CredentialObservationResponse `json:"observation"`
 	}{
-		Credential:  ModernCredentialItem{CredentialItemResponse: result.Credential, WeightManual: result.Credential.WeightManual},
-		Observation: result.Observation,
+		Credential:  ModernCredentialItem{CredentialItemResponse: item, WeightManual: item.WeightManual},
+		Observation: observationResponseValue(item.Observation),
 	})
 }

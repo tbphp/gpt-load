@@ -27,8 +27,7 @@ import { credentialStatus, credentialTime } from './credential-presentation'
 import { validProxyURL } from '@modern/app/proxy'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import CredentialAccountInfo from './CredentialAccountInfo.vue'
-import CredentialWindowUsage from './CredentialWindowUsage.vue'
-import CredentialUsageStats from './CredentialUsageStats.vue'
+import CredentialQuotaHistory from './CredentialQuotaHistory.vue'
 
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
 const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
@@ -160,14 +159,10 @@ useMessageSource(() =>
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
-      <CredentialUsageStats
+      <CredentialQuotaHistory
+        v-if="group.connectionType === 'subscription'"
         :group="group.id"
         :credential="row.id"
-        :subscription="group.connectionType === 'subscription'"
-      />
-      <CredentialWindowUsage
-        v-if="group.connectionType === 'subscription' && item.observation?.windows.length"
-        :windows="item.observation.windows"
       />
       <section class="modern-credential-detail-section">
         <div class="modern-credential-detail-title">
@@ -296,7 +291,6 @@ useMessageSource(() =>
   display: grid;
   gap: var(--modern-space-3);
 }
-.modern-window-usage + .modern-credential-detail-section,
 .modern-credential-detail-section + .modern-credential-detail-section {
   padding-top: var(--modern-space-3);
   border-top: var(--modern-line-width) solid var(--modern-border);
