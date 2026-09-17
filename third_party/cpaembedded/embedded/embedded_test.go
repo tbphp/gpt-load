@@ -747,10 +747,10 @@ func TestListCodexModelsRequestsOnceAndNormalizesIDs(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		if r.Header.Get("Version") != "0.153.3" || r.Header.Get("User-Agent") != "codex_cli_rs/0.153.3" {
+		if r.Header.Get("Version") != "0.154.0" || r.Header.Get("User-Agent") != "codex_cli_rs/0.154.0" {
 			t.Errorf("Codex version headers = %q / %q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
 		}
-		if r.URL.Path != "/models" || r.URL.Query().Get("client_version") != "0.153.3" ||
+		if r.URL.Path != "/models" || r.URL.Query().Get("client_version") != "0.154.0" ||
 			r.Header.Get("Authorization") != "Bearer access" || r.Header.Get("Chatgpt-Account-Id") != "account-123" {
 			t.Errorf("request = %s %s %#v", r.Method, r.URL.String(), r.Header)
 		}
@@ -775,7 +775,7 @@ func TestObserveCodexAccountUsesFixedUsagePathOnce(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		if r.Header.Get("Version") != "0.153.3" || r.Header.Get("User-Agent") != "codex_cli_rs/0.153.3" {
+		if r.Header.Get("Version") != "0.154.0" || r.Header.Get("User-Agent") != "codex_cli_rs/0.154.0" {
 			t.Errorf("Codex version headers = %q / %q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
 		}
 		if r.URL.Path != "/wham/usage" {
@@ -803,7 +803,7 @@ func TestObserveCodexResetCreditsUsesFixedDetailsPathOnce(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		if r.Header.Get("Version") != "0.153.3" || r.Header.Get("User-Agent") != "codex_cli_rs/0.153.3" {
+		if r.Header.Get("Version") != "0.154.0" || r.Header.Get("User-Agent") != "codex_cli_rs/0.154.0" {
 			t.Errorf("Codex version headers = %q / %q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
 		}
 		if r.Method != http.MethodGet || r.URL.Path != "/wham/rate-limit-reset-credits" {
@@ -834,7 +834,7 @@ func TestConsumeCodexResetCreditUsesStableRedeemRequestIDOnce(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		if r.Header.Get("Version") != "0.153.3" || r.Header.Get("User-Agent") != "codex_cli_rs/0.153.3" {
+		if r.Header.Get("Version") != "0.154.0" || r.Header.Get("User-Agent") != "codex_cli_rs/0.154.0" {
 			t.Errorf("Codex version headers = %q / %q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
 		}
 		if r.Method != http.MethodPost || r.URL.Path != "/wham/rate-limit-reset-credits/consume" ||

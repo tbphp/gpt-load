@@ -9,7 +9,7 @@ import (
 )
 
 func TestCodexHTTPFixedIdentityOnImagesAndWire(t *testing.T) {
-	const defaultUA = "codex-tui/0.153.3 (Mac OS 26.5.1; arm64) iTerm.app/3.6.11 (codex-tui; 0.153.3)"
+	const defaultUA = "codex-tui/0.154.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.154.0)"
 	const customUA = "codex-tui/0.200.0 (Mac OS 26.5.0; arm64)"
 	for _, test := range []struct {
 		name     string
@@ -26,7 +26,7 @@ func TestCodexHTTPFixedIdentityOnImagesAndWire(t *testing.T) {
 				ConfiguredHeaders: []string{"User-Agent", "Originator"},
 			},
 			response: `{"created":1,"data":[{"b64_json":"aA=="}]}`,
-			want:     http.Header{"User-Agent": {defaultUA}, "Originator": {"custom-client"}, "Version": {"0.153.3"}, "Session-Id": {"image-session"}},
+			want:     http.Header{"User-Agent": {defaultUA}, "Originator": {"custom-client"}, "Version": {"0.154.0"}, "Session-Id": {"image-session"}},
 		},
 		{
 			name: "empty version rules preserve fixed identity and empty originator",
@@ -36,7 +36,7 @@ func TestCodexHTTPFixedIdentityOnImagesAndWire(t *testing.T) {
 				ConfiguredHeaders: []string{"User-Agent", "Originator", "Version"},
 			},
 			response: "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5\",\"output\":[]}}\n\n",
-			want:     http.Header{"User-Agent": {defaultUA}, "Originator": {""}, "Version": {"0.153.3"}},
+			want:     http.Header{"User-Agent": {defaultUA}, "Originator": {""}, "Version": {"0.154.0"}},
 		},
 		{
 			name: "removed identity remains fixed",
@@ -45,7 +45,7 @@ func TestCodexHTTPFixedIdentityOnImagesAndWire(t *testing.T) {
 				ConfiguredHeaders: []string{"User-Agent", "Originator", "Version"},
 			},
 			response: "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5\",\"output\":[]}}\n\n",
-			want:     http.Header{"User-Agent": {defaultUA}, "Version": {"0.153.3"}},
+			want:     http.Header{"User-Agent": {defaultUA}, "Version": {"0.154.0"}},
 		},
 		{
 			name: "image 2.5 uses existing direct image execution",
@@ -56,7 +56,7 @@ func TestCodexHTTPFixedIdentityOnImagesAndWire(t *testing.T) {
 				ConfiguredHeaders: []string{"User-Agent", "Version"},
 			},
 			response: `{"created":1,"data":[{"b64_json":"aA=="}]}`,
-			want:     http.Header{"User-Agent": {defaultUA}, "Originator": {"codex-tui"}, "Version": {"0.153.3"}},
+			want:     http.Header{"User-Agent": {defaultUA}, "Originator": {"codex-tui"}, "Version": {"0.154.0"}},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -342,9 +342,11 @@ func normalizeAntigravityConvertedUsage(format string, stream bool, raw []byte) 
 	format = strings.TrimSpace(format)
 	switch format {
 	case "openai":
-		return addAntigravityUsageIntegers(result, "usage.completion_tokens", "usage.completion_tokens_details.reasoning_tokens")
-	case "openai-response":
-		return addAntigravityUsageIntegers(result, "usage.output_tokens", "usage.output_tokens_details.reasoning_tokens")
+		// CPA 的 Chat 流式转换仍单独报告思考 tokens；非流式及 Responses 已计入输出总数。
+		if stream {
+			return addAntigravityUsageIntegers(result, "usage.completion_tokens", "usage.completion_tokens_details.reasoning_tokens")
+		}
+		return result
 	case "claude":
 		if stream {
 			return result
