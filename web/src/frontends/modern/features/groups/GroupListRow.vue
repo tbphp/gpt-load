@@ -33,6 +33,7 @@ const props = defineProps<{
   usageLoading: boolean
   usageIncomplete: boolean
   weightError?: string
+  credentialFilterId?: number
 }>()
 const emit = defineEmits<{
   expand: []
@@ -172,7 +173,10 @@ const lastActive = computed(() =>
                   :to="{
                     name: 'modern-group-detail',
                     params: { id: group.id },
-                    query: { from: route.fullPath },
+                    query: {
+                      from: route.fullPath,
+                      ...(credentialFilterId ? { credential_id: String(credentialFilterId) } : {}),
+                    },
                   }"
                   ><AppOverflowText :text="group.name"
                 /></RouterLink>

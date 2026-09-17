@@ -21,6 +21,8 @@ export interface GroupFilters {
   channel: string
   connection: '' | 'api_key' | 'subscription'
   model: string
+  credential: string
+  protocol: string
   sort: (typeof groupSorts)[number]
 }
 export interface CredentialCounts {
@@ -67,6 +69,33 @@ export type GroupBasicsPatch = Partial<{
   price_multiplier: string
 }>
 export const groupQueryKey = ['modern', 'groups', 'workspace'] as const
+export const credentialOptionsKey = ['modern', 'credential-options'] as const
+
+export interface CredentialOption {
+  id: number
+  channelID: string
+  label: string
+  memberships: { groupID: number; credentialID: number }[]
+}
+
+export async function getCredentialOptions(client: ApiClient, signal: AbortSignal) {
+  const data = record(await client.request('/api/modern/credentials/options', { signal }))
+  return list(data.items).map((value): CredentialOption => {
+    const option = record(value)
+    return {
+      id: integer(option.id, 1),
+      channelID: text(option.channel_id),
+      label: text(option.label),
+      memberships: list(option.memberships).map((value) => {
+        const membership = record(value)
+        return {
+          groupID: integer(membership.group_id, 1),
+          credentialID: integer(membership.credential_id, 1),
+        }
+      }),
+    }
+  })
+}
 
 export async function deleteGroup(
   client: ApiClient,

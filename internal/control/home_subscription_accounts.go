@@ -33,6 +33,7 @@ type HomeSubscriptionAccountResponse struct {
 	ChannelIcon         string                       `json:"channel_icon"`
 	Capabilities        channel.CapabilityDescriptor `json:"capabilities"`
 	GroupCount          int                          `json:"group_count"`
+	GroupID             *uint                        `json:"group_id"`
 	AvailableGroupCount int                          `json:"available_group_count"`
 	Credential          CredentialItemResponse       `json:"credential"`
 }
@@ -312,8 +313,13 @@ func (s *Service) mapHomeSubscriptionAccount(
 		return HomeSubscriptionAccountResponse{}, err
 	}
 	item.Proxy = proxyViews[credential.ID]
+	var groupID *uint
+	if len(memberships) == 1 {
+		groupID = &group.ID
+	}
 	return HomeSubscriptionAccountResponse{
 		GroupCount:          len(memberships),
+		GroupID:             groupID,
 		AvailableGroupCount: available,
 		Credential:          item,
 	}, nil

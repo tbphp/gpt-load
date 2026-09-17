@@ -143,7 +143,7 @@ export default {
     description: 'Reloads the page and applies only to this browser.',
     current: 'Current interface',
     saveFailed: 'Unable to save your preference. Allow browser storage for this site and retry.',
-    modern: { title: 'New' },
+    modern: { title: 'Modern' },
     classic: { title: 'Classic' },
   },
 }

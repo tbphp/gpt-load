@@ -8,7 +8,7 @@ export default {
       previewNote: 'サムネイルは概略図です。新版のプレビューはデザイン確定後に更新されます。',
       blocked: '変更を保存または破棄し、進行中の操作が完了してから切り替えてください。',
       saveFailed: '設定を保存できません。このサイトのブラウザストレージを許可してください。',
-      modern: { title: '新版', description: '開発中の新しい管理画面。' },
+      modern: { title: 'モダン版', description: 'サイドバーで操作するモダンな管理画面。' },
       classic: { title: 'クラシック版', description: '従来のレイアウトとすべての管理機能。' },
     },
     title: '設定',

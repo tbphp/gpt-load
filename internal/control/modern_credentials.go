@@ -18,9 +18,10 @@ type ModernCredentialItem struct {
 
 // 仅新版集合接口接受这些展示条件；经典接口仍使用原查询合同。
 type modernCredentialFilters struct {
-	sort  string
-	proxy string
-	reset string
+	sort         string
+	proxy        string
+	reset        string
+	credentialID uint
 }
 
 func parseModernCredentialQuery(raw string) (CredentialCollectionQuery, *app_errors.APIError) {
@@ -29,6 +30,17 @@ func parseModernCredentialQuery(raw string) (CredentialCollectionQuery, *app_err
 		return CredentialCollectionQuery{}, app_errors.ErrBadRequest
 	}
 	filters := modernCredentialFilters{sort: "priority"}
+	if entries, exists := values["credential_id"]; exists {
+		if len(entries) != 1 {
+			return CredentialCollectionQuery{}, app_errors.ErrBadRequest
+		}
+		id, valid := parseCredentialCollectionPositiveInt(entries[0])
+		if !valid {
+			return CredentialCollectionQuery{}, app_errors.ErrBadRequest
+		}
+		filters.credentialID = uint(id)
+		values.Del("credential_id")
+	}
 	for _, field := range []struct {
 		name    string
 		target  *string
@@ -67,6 +79,9 @@ func parseModernCredentialQuery(raw string) (CredentialCollectionQuery, *app_err
 }
 
 func matchesModernCredential(item CredentialItemResponse, filters modernCredentialFilters) bool {
+	if filters.credentialID != 0 && item.CredentialID != filters.credentialID {
+		return false
+	}
 	if filters.proxy != "" && string(item.Proxy.ConfiguredMode) != filters.proxy {
 		return false
 	}

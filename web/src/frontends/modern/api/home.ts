@@ -26,6 +26,7 @@ export interface HomeAccount {
   channelMark: string
   groups: number
   availableGroups: number
+  groupID: number | null
   credential: CredentialRow
 }
 export async function getHome(client: ApiClient, signal: AbortSignal): Promise<HomeBase> {
@@ -62,6 +63,7 @@ export async function getHomeAccounts(client: ApiClient, signal: AbortSignal) {
         channelIcon: text(account.channel_icon),
         channelMark: text(account.channel_mark),
         groups: integer(account.group_count),
+        groupID: account.group_id == null ? null : integer(account.group_id, 1),
         availableGroups: integer(account.available_group_count),
         credential: readCredential(account.credential),
       }

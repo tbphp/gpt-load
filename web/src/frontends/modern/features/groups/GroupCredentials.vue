@@ -76,8 +76,9 @@ const { t, n } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
 const filters = useURLState<CredentialFilters>(
-  ['q', 'status', 'page', 'page_size', 'sort', 'proxy', 'reset'],
+  ['q', 'status', 'page', 'page_size', 'sort', 'proxy', 'reset', 'credential_id'],
   (query) => ({
+    credentialID: positivePage(query.credential_id, 0) || undefined,
     q: typeof query.q === 'string' ? query.q : '',
     status: credentialStates.find((value) => value === query.status) ?? '',
     page: positivePage(query.page),
@@ -94,6 +95,7 @@ const filters = useURLState<CredentialFilters>(
         : '',
   }),
   (value) => ({
+    ...(value.credentialID ? { credential_id: String(value.credentialID) } : {}),
     ...(value.q ? { q: value.q } : {}),
     ...(value.status ? { status: value.status } : {}),
     ...(value.page > 1 ? { page: String(value.page) } : {}),
@@ -188,6 +190,9 @@ const query = useQuery(
   })),
 )
 const rows = computed(() => query.data.value?.items ?? [])
+const filteredCredential = computed(() =>
+  rows.value.find((row) => row.id === filters.value.credentialID),
+)
 const busy = computed(() => query.isFetching.value || mutating.value !== undefined)
 const syncPending = (id: number) => syncing.value.has(id) || queuedSync.value.has(id)
 const bulkBusy = computed(() => busy.value || accountBatchPending.value || syncing.value.size > 0)
@@ -231,6 +236,20 @@ const resetOptions = computed(() => [
   })),
 ])
 const filterSummary = computed(() => [
+  ...(filters.value.credentialID
+    ? [
+        {
+          key: 'credential',
+          label: t('groups.board.credentialFilter'),
+          value: filteredCredential.value
+            ? filteredCredential.value.account ||
+              (props.group.connectionType === 'api_key'
+                ? filteredCredential.value.mask
+                : props.group.channelName)
+            : t('groups.board.selectedCredential'),
+        },
+      ]
+    : []),
   ...(filters.value.sort !== 'priority'
     ? [
         {
@@ -313,6 +332,7 @@ function resetFilter(key?: string): void {
   if (!key || key === 'q') search.value = ''
   change({
     page: 1,
+    ...(!key || key === 'credential' ? { credentialID: undefined } : {}),
     ...(!key || key === 'q' ? { q: '' } : {}),
     ...(!key || key === 'status' ? { status: '' } : {}),
     ...(!key || key === 'sort' ? { sort: 'priority' as const } : {}),
