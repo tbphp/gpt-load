@@ -212,7 +212,7 @@ watch(
 }
 .modern-sparkline[data-tone='cost'],
 .modern-sparkline-series[data-tone='cost'] {
-  --modern-sparkline-color: var(--modern-chart-output);
+  --modern-sparkline-color: var(--modern-chart-cost);
 }
 .modern-sparkline > svg {
   display: block;

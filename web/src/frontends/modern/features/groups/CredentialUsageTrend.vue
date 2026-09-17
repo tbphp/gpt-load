@@ -153,7 +153,7 @@ const pointLabels = computed(() => {
   color: var(--modern-chart-input);
 }
 .modern-credential-usage-legend [data-tone='cost'] {
-  color: var(--modern-chart-output);
+  color: var(--modern-chart-cost);
 }
 .modern-credential-usage-legend i {
   width: var(--modern-space-1-5);
