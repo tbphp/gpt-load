@@ -31,22 +31,22 @@ func TestQuotaHistorySamplesLatestWindowIndependentlyAndSurvivesRestart(t *testi
 	record(20_000, "primary", 0.2)
 	record(30_000, "secondary", 0.4)
 	flush()
-	record(3_609_999, "primary", 0.3)
+	record(909_999, "primary", 0.3)
 	flush()
-	record(3_610_000, "primary", 0.5)
+	record(910_000, "primary", 0.5)
 	flush()
-	// 新进程依然从持久化的最后观测时间限流，不会在一小时内重复记点。
+	// 新进程依然从持久化的最后观测时间限流，不会在十五分钟内重复记点。
 	manager.passiveQuota = newPassiveQuotaPending()
-	record(3_620_000, "primary", 0.6)
+	record(920_000, "primary", 0.6)
 	flush()
-	record(7_210_000, "primary", 0.9)
+	record(1_810_000, "primary", 0.9)
 	flush()
 	var rows []models.CredentialQuotaHistory
 	if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) != 4 || rows[0].ObservedAtMS != 10_000 || rows[0].UsedBasisPoints != 1000 ||
-		rows[1].WindowID != "secondary" || rows[2].ObservedAtMS != 3_610_000 || rows[3].ObservedAtMS != 7_210_000 {
+		rows[1].WindowID != "secondary" || rows[2].ObservedAtMS != 910_000 || rows[3].ObservedAtMS != 1_810_000 {
 		t.Fatalf("unexpected real samples: %+v", rows)
 	}
 }

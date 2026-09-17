@@ -71,7 +71,8 @@ func TestResolveUsageTimeBucket(t *testing.T) {
 	}{
 		{1, UsageGranularityMinute, UsageFiveMinuteBucketMS},
 		{hour, UsageGranularityMinute, UsageFiveMinuteBucketMS},
-		{hour + 1, UsageGranularityHour, hour},
+		{6 * hour, UsageGranularityMinute, UsageFiveMinuteBucketMS},
+		{6*hour + 1, UsageGranularityHour, hour},
 		{day, UsageGranularityHour, hour},
 		{day + 1, UsageGranularityHour, 3 * hour},
 		{3 * day, UsageGranularityHour, 3 * hour},
