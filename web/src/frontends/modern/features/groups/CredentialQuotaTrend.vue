@@ -34,21 +34,13 @@ function windowLabel(window: QuotaHistoryWindow): string {
 const windows = computed(() => props.report.windows.filter((window) => window.points.length))
 const curves = computed(() =>
   windows.value.map((window, index) => {
-    const paths: string[] = []
-    let path = ''
-    function finish(): void {
-      if (path) paths.push(path)
-      path = ''
-    }
-    window.points.forEach((point, pointIndex) => {
-      const previous = window.points[pointIndex - 1]
-      if (previous && point.observedAt - previous.observedAt > props.report.bucketWidth * 2)
-        finish()
-      const position = { x: x(point.observedAt), y: y(point.usedBasisPoints) }
-      path += `${path ? ' L' : 'M'}${position.x},${position.y}`
-    })
-    finish()
-    return { window, label: windowLabel(window), tone: index % 6, paths }
+    const path = window.points
+      .map(
+        (point, pointIndex) =>
+          `${pointIndex ? 'L' : 'M'}${x(point.observedAt)},${y(point.usedBasisPoints)}`,
+      )
+      .join(' ')
+    return { window, label: windowLabel(window), tone: index % 6, path }
   }),
 )
 const times = computed(() =>
@@ -150,12 +142,7 @@ function navigate(event: KeyboardEvent): void {
           <line :x1="left" :x2="width - 6" :y1="y(used)" :y2="y(used)" />
         </g>
         <g v-for="series in curves" :key="series.window.key" :data-tone="series.tone">
-          <path
-            v-for="(path, index) in series.paths"
-            :key="index"
-            :d="path"
-            class="modern-quota-trend-line"
-          />
+          <path :d="series.path" class="modern-quota-trend-line" />
         </g>
         <line
           v-if="hoveredAt !== undefined"

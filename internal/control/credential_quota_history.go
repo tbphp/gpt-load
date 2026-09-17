@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"slices"
 	"sort"
 
 	"github.com/gin-gonic/gin"
@@ -74,13 +75,7 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 	}
 	result := quotaHistoryResponse{FromMS: query.FromMS, ToMS: query.ToMS, ObservedAtMS: observedAt, MinimumWindowSeconds: subscription.QuotaHistoryMinimumWindowSeconds, Windows: []quotaHistoryWindowResponse{}}
 	spanMS := query.ToMS - query.FromMS
-	result.BucketWidthMS = 60_000
-	if spanMS > epochms.MillisecondsPerHour {
-		result.BucketWidthMS = 5 * 60_000
-	}
-	if spanMS > epochms.MillisecondsPerDay {
-		result.BucketWidthMS = ((spanMS-1)/(168*epochms.MillisecondsPerHour) + 1) * epochms.MillisecondsPerHour
-	}
+	result.BucketWidthMS = ((spanMS-1)/(168*epochms.MillisecondsPerHour) + 1) * epochms.MillisecondsPerHour
 	err = server.service.withReadSnapshot(c.Request.Context(), func(tx *gorm.DB) error {
 		var group models.Group
 		if err := tx.Take(&group, groupID).Error; err != nil {
@@ -106,14 +101,11 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 		}
 		result.HasHistory = first.ID != 0
 		var rows []models.CredentialQuotaHistory
-		// 每桶最多四个真实点：首尾、最低和最高。重置时间的抖动不增加桶数。
+		// 每桶只取最新真实观测，先限制查询返回量，再确保跨桶的实际点间隔。
 		ranked := scope().Where("observed_at_ms >= ? AND observed_at_ms < ?", query.FromMS, query.ToMS).
 			Select(`credential_quota_histories.*,
-				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms ASC) AS first_rank,
-				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms DESC) AS last_rank,
-				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY used_basis_points ASC, observed_at_ms DESC) AS low_rank,
-				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY used_basis_points DESC, observed_at_ms DESC) AS high_rank`, result.BucketWidthMS, result.BucketWidthMS, result.BucketWidthMS, result.BucketWidthMS)
-		if err := tx.Table("(?) AS history_samples", ranked).Where("first_rank = 1 OR last_rank = 1 OR low_rank = 1 OR high_rank = 1").Order("observed_at_ms ASC").Find(&rows).Error; err != nil {
+				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms DESC) AS last_rank`, result.BucketWidthMS)
+		if err := tx.Table("(?) AS history_samples", ranked).Where("last_rank = 1").Order("observed_at_ms DESC").Find(&rows).Error; err != nil {
 			return err
 		}
 		windows := make(map[string]*quotaHistoryWindowResponse)
@@ -125,12 +117,17 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 			window := windows[row.WindowKey]
 			if window == nil {
 				window = &quotaHistoryWindowResponse{Key: row.WindowKey, ID: row.WindowID, SourceID: row.SourceID, Scope: row.Scope, WindowSeconds: row.WindowSeconds, Points: []quotaHistoryPointResponse{}}
+				window.Label, window.LabelKey = row.Label, row.LabelKey
 				windows[row.WindowKey] = window
 			}
-			window.Label, window.LabelKey = row.Label, row.LabelKey
+			// 从最新观测向前取点，避免整点两侧仍出现只差一分钟的点。
+			if len(window.Points) > 0 && window.Points[len(window.Points)-1].ObservedAtMS-row.ObservedAtMS < result.BucketWidthMS {
+				continue
+			}
 			window.Points = append(window.Points, quotaHistoryPointResponse{ObservedAtMS: row.ObservedAtMS, UsedBasisPoints: row.UsedBasisPoints, ResetAtMS: row.ResetAtMS})
 		}
 		for _, window := range windows {
+			slices.Reverse(window.Points)
 			result.Windows = append(result.Windows, *window)
 		}
 		sort.Slice(result.Windows, func(i, j int) bool {

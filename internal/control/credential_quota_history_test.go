@@ -45,8 +45,9 @@ func TestCredentialQuotaHistoryScopesCurrentAccountAndTime(t *testing.T) {
 		t.Fatalf("history status=%d body=%s", result.Code, result.Body.String())
 	}
 	var data struct {
-		HasHistory bool `json:"has_history"`
-		Windows    []struct {
+		HasHistory    bool  `json:"has_history"`
+		BucketWidthMS int64 `json:"bucket_width_ms"`
+		Windows       []struct {
 			Points []struct {
 				UsedBasisPoints int64 `json:"used_basis_points"`
 			} `json:"points"`
@@ -55,7 +56,7 @@ func TestCredentialQuotaHistoryScopesCurrentAccountAndTime(t *testing.T) {
 	if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
 		t.Fatal(err)
 	}
-	if !data.HasHistory || len(data.Windows) != 1 || len(data.Windows[0].Points) != 1 || data.Windows[0].Points[0].UsedBasisPoints != 1200 {
+	if data.BucketWidthMS < 3_600_000 || !data.HasHistory || len(data.Windows) != 1 || len(data.Windows[0].Points) != 1 || data.Windows[0].Points[0].UsedBasisPoints != 1200 {
 		t.Fatalf("history leaked another identity or boundary: %+v", data)
 	}
 	for _, auth := range []string{""} {
@@ -104,6 +105,9 @@ func TestCredentialQuotaHistorySevenDaysBoundsPointsWithChangingResetTimes(t *te
 		}
 		rows = append(rows, models.CredentialQuotaHistory{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: at, UsedBasisPoints: used, ResetAtMS: &reset})
 	}
+	for _, minute := range []int64{59, 60, 240, 277, 314, 351} {
+		rows = append(rows, models.CredentialQuotaHistory{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "sparse", WindowID: "secondary", Label: "Sparse", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: from + minute*60_000, UsedBasisPoints: minute})
+	}
 	if err := fixture.db.CreateInBatches(rows, 100).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +120,7 @@ func TestCredentialQuotaHistorySevenDaysBoundsPointsWithChangingResetTimes(t *te
 	var data struct {
 		BucketWidthMS int64 `json:"bucket_width_ms"`
 		Windows       []struct {
+			Key    string `json:"key"`
 			Points []struct {
 				ObservedAtMS    int64 `json:"observed_at_ms"`
 				UsedBasisPoints int64 `json:"used_basis_points"`
@@ -125,13 +130,24 @@ func TestCredentialQuotaHistorySevenDaysBoundsPointsWithChangingResetTimes(t *te
 	if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
 		t.Fatal(err)
 	}
-	if data.BucketWidthMS != 3_600_000 || len(data.Windows) != 1 || len(data.Windows[0].Points) != 8 {
+	if data.BucketWidthMS != 3_600_000 || len(data.Windows) != 2 {
 		t.Fatalf("seven-day aggregation is not bounded: %+v", data)
 	}
-	for hour := 0; hour < 2; hour++ {
-		points := data.Windows[0].Points[hour*4 : (hour+1)*4]
-		if points[0].ObservedAtMS != from+int64(hour)*3_600_000 || points[1].UsedBasisPoints != 9900 || points[2].UsedBasisPoints != 100 || points[3].ObservedAtMS != from+int64(hour)*3_600_000+59*60_000 {
-			t.Fatalf("hour %d lost endpoints or extremes: %+v", hour, points)
+	for _, window := range data.Windows {
+		want := map[string][]int64{"session": {59, 119}, "sparse": {60, 277, 351}}[window.Key]
+		if len(window.Points) != len(want) {
+			t.Fatalf("window %s: got %d points, want %d", window.Key, len(window.Points), len(want))
+		}
+		for index, point := range window.Points {
+			if point.ObservedAtMS != from+want[index]*60_000 {
+				t.Fatalf("window %s: point %d is not the expected real observation: %+v", window.Key, index, point)
+			}
+			if index > 0 && point.ObservedAtMS-window.Points[index-1].ObservedAtMS < 3_600_000 {
+				t.Fatalf("window %s: points across hour boundaries are less than one hour apart", window.Key)
+			}
+			if window.Key == "sparse" && point.UsedBasisPoints != want[index] {
+				t.Fatalf("sparse observation value changed: %+v", point)
+			}
 		}
 	}
 }
