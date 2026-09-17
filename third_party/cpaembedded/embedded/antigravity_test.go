@@ -975,25 +975,26 @@ func TestAntigravityExecutionOnlyBridgeConvertsDeclaredStreamingProtocols(t *tes
 		Expire: "2030-01-01T00:00:00Z",
 	}
 	tests := []struct {
-		name   string
-		format string
-		body   string
-		want   string
+		name      string
+		format    string
+		body      string
+		want      string
+		wantUsage string
 	}{
 		{
-			name: "Gemini", format: "gemini", want: `"candidates"`,
+			name: "Gemini", format: "gemini", want: `"candidates"`, wantUsage: `"thoughtsTokenCount":4`,
 			body: `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`,
 		},
 		{
-			name: "Anthropic", format: "claude", want: `"content_block"`,
+			name: "Anthropic", format: "claude", want: `"content_block"`, wantUsage: `"output_tokens":7`,
 			body: `{"model":"gemini-live","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`,
 		},
 		{
-			name: "OpenAI Chat", format: "openai", want: `"choices"`,
+			name: "OpenAI Chat", format: "openai", want: `"choices"`, wantUsage: `"completion_tokens":7`,
 			body: `{"model":"gemini-live","messages":[{"role":"user","content":"hello"}]}`,
 		},
 		{
-			name: "OpenAI Responses", format: "openai-response", want: "response.",
+			name: "OpenAI Responses", format: "openai-response", want: "response.", wantUsage: `"output_tokens":7`,
 			body: `{"model":"gemini-live","input":"hello"}`,
 		},
 	}
@@ -1012,8 +1013,8 @@ func TestAntigravityExecutionOnlyBridgeConvertsDeclaredStreamingProtocols(t *tes
 				}
 				wire.Write(chunk.Payload)
 			}
-			if !strings.Contains(wire.String(), test.want) {
-				t.Fatalf("stream wire = %q, want %q", wire.String(), test.want)
+			if !strings.Contains(wire.String(), test.want) || !strings.Contains(wire.String(), test.wantUsage) {
+				t.Fatalf("stream wire = %q, want %q and usage %q", wire.String(), test.want, test.wantUsage)
 			}
 		})
 	}
@@ -1132,13 +1133,23 @@ func TestNormalizeAntigravityConvertedUsagePreservesReasoningAndCacheSemantics(t
 		want   string
 	}{
 		{
-			name: "OpenAI chat adds reasoning tokens", format: "openai",
+			name: "OpenAI chat unary already includes reasoning tokens", format: "openai",
+			body: `{"usage":{"prompt_tokens":10,"completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":6}}}`,
+			want: `{"usage":{"prompt_tokens":10,"completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":6}}}`,
+		},
+		{
+			name: "OpenAI chat stream adds reasoning tokens", format: "openai", stream: true,
 			body: `{"usage":{"prompt_tokens":10,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":6}}}`,
 			want: `{"usage":{"prompt_tokens":10,"completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":6}}}`,
 		},
 		{
-			name: "Responses adds reasoning tokens", format: "openai-response",
-			body: `{"usage":{"input_tokens":10,"output_tokens":4,"output_tokens_details":{"reasoning_tokens":6}}}`,
+			name: "Responses unary already includes reasoning tokens", format: "openai-response",
+			body: `{"usage":{"input_tokens":10,"output_tokens":10,"output_tokens_details":{"reasoning_tokens":6}}}`,
+			want: `{"usage":{"input_tokens":10,"output_tokens":10,"output_tokens_details":{"reasoning_tokens":6}}}`,
+		},
+		{
+			name: "Responses stream already includes reasoning tokens", format: "openai-response", stream: true,
+			body: `{"usage":{"input_tokens":10,"output_tokens":10,"output_tokens_details":{"reasoning_tokens":6}}}`,
 			want: `{"usage":{"input_tokens":10,"output_tokens":10,"output_tokens_details":{"reasoning_tokens":6}}}`,
 		},
 		{
