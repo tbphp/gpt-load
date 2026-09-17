@@ -24,7 +24,6 @@ ENV GO111MODULE=on \
     GOPROXY="https://proxy.golang.org|direct"
 
 WORKDIR /build
-RUN apk add --no-cache git
 
 COPY go.mod go.sum ./
 COPY third_party/cpaembedded/go.mod third_party/cpaembedded/go.sum ./third_party/cpaembedded/
