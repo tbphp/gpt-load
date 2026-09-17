@@ -309,6 +309,7 @@ func requestLogQueryUsesInternalFields(rawQuery string) bool {
 		"channel_id",
 		"credential_id",
 		"upstream_model",
+		"model_consistency",
 		"access_key_id",
 		"attempt_status_code",
 		"failure_category",
@@ -347,7 +348,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 	}
 	allowed := map[string]struct{}{
 		"from_ms": {}, "to_ms": {}, "group_id": {}, "channel_id": {}, "credential_id": {},
-		"client_model": {}, "upstream_model": {}, "access_key_id": {},
+		"client_model": {}, "upstream_model": {}, "model_consistency": {}, "access_key_id": {},
 		"status": {}, "request_id": {}, "protocol": {}, "stream": {}, "final_status_code": {},
 		"usage_state": {}, "cost_state": {}, "pricing_completeness": {}, "cache_present": {},
 		"attempt_status_code": {}, "failure_category": {}, "error_code": {},
@@ -415,6 +416,18 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 			return requestlog.ListQuery{}, app_errors.ErrValidation
 		}
 		query.UpstreamModel = value
+	}
+	if value, ok := singleQueryValue(values, "model_consistency"); ok {
+		consistency := telemetry.ModelConsistency(value)
+		switch consistency {
+		case telemetry.ModelConsistencyNotApplicable,
+			telemetry.ModelConsistencyMatch,
+			telemetry.ModelConsistencyUnknown,
+			telemetry.ModelConsistencyMismatch:
+			query.ModelConsistency = consistency
+		default:
+			return requestlog.ListQuery{}, app_errors.ErrValidation
+		}
 	}
 	if value, ok := singleQueryValue(values, "access_key_id"); ok {
 		parsed, apiErr := parseRequestLogID(value)
