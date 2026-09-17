@@ -67,9 +67,17 @@ const route = useRoute()
 const router = useRouter()
 const filters = computed(() => parseGroupFilters(route.query))
 const search = ref(filters.value.q)
-const moreFilters = ref(
-  Boolean(filters.value.connection || filters.value.credential || filters.value.protocol),
+const moreFilterState = useURLState(
+  ['filters'],
+  (query) => ({ more: query.filters === '1' }),
+  (value) => (value.more ? { filters: '1' } : {}),
 )
+const moreFilters = computed({
+  get: () => moreFilterState.value.more,
+  set: (more: boolean) => {
+    moreFilterState.value = { more }
+  },
+})
 const filtering = ref(false)
 const refreshing = ref(false)
 const filterLoading = useLoadingFeedback(filtering)
