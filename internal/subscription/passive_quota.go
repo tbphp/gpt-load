@@ -40,12 +40,14 @@ type passiveQuotaEntry struct {
 type passiveQuotaPending struct {
 	mu            sync.Mutex
 	entries       map[uint]*passiveQuotaEntry
+	history       map[quotaHistoryKey]quotaHistorySample
+	historyTimes  map[quotaHistoryKey]int64
 	nextVersion   uint64
 	dirtyNotifier func()
 }
 
 func newPassiveQuotaPending() *passiveQuotaPending {
-	return &passiveQuotaPending{entries: make(map[uint]*passiveQuotaEntry)}
+	return &passiveQuotaPending{entries: make(map[uint]*passiveQuotaEntry), history: make(map[quotaHistoryKey]quotaHistorySample), historyTimes: make(map[quotaHistoryKey]int64)}
 }
 
 // RecordPassiveQuotaObservation stores one response's passive quota windows
@@ -95,13 +97,13 @@ func (manager *CredentialManager) recordPassiveQuotaObservation(
 	if manager == nil || manager.passiveQuota == nil || manager.registry == nil || credentialID == 0 || len(windows) == 0 {
 		return
 	}
-	manager.mutations.Do(credentialID, func() {
-		// 排队与目标切换共用互斥边界，防止旧请求迟到时挤掉新目标的待写观测。
+	manager.passiveQuota.record(credentialID, identityGeneration, observedAtMS, windows, preceding, func() (uint, bool) {
+		// 在短内存锁内核对当前身份；不等待后台持有的数据库 mutation 锁。
 		ref, ok := manager.registry.CredentialRef(credentialID)
 		if !ok || ref.IdentityGeneration != identityGeneration {
-			return
+			return 0, false
 		}
-		manager.passiveQuota.record(credentialID, identityGeneration, observedAtMS, windows, preceding)
+		return ref.GroupID, true
 	})
 }
 
@@ -131,8 +133,14 @@ func (pending *passiveQuotaPending) record(
 	observedAtMS int64,
 	windows []providerobservation.QuotaWindow,
 	preceding *PassiveQuotaSample,
+	current func() (uint, bool),
 ) {
 	pending.mu.Lock()
+	groupID, accepted := current()
+	if !accepted {
+		pending.mu.Unlock()
+		return
+	}
 	entry, exists := pending.entries[credentialID]
 	if !exists || entry.identityGeneration != identityGeneration {
 		entry = &passiveQuotaEntry{identityGeneration: identityGeneration}
@@ -147,6 +155,7 @@ func (pending *passiveQuotaPending) record(
 	pending.nextVersion++
 	entry.version = pending.nextVersion
 	entry.dirty = true
+	pending.recordHistoryLocked(groupID, credentialID, identityGeneration, observedAtMS, windows)
 	notifier := pending.dirtyNotifier
 	pending.mu.Unlock()
 	if notifier != nil {

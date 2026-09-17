@@ -28,6 +28,7 @@ import { validProxyURL } from '@modern/app/proxy'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import CredentialAccountInfo from './CredentialAccountInfo.vue'
 import CredentialWindowUsage from './CredentialWindowUsage.vue'
+import CredentialUsageStats from './CredentialUsageStats.vue'
 
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
 const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
@@ -159,8 +160,13 @@ useMessageSource(() =>
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
+      <CredentialUsageStats
+        :group="group.id"
+        :credential="row.id"
+        :subscription="group.connectionType === 'subscription'"
+      />
       <CredentialWindowUsage
-        v-if="item.observation?.windows.length"
+        v-if="group.connectionType === 'subscription' && item.observation?.windows.length"
         :windows="item.observation.windows"
       />
       <section class="modern-credential-detail-section">

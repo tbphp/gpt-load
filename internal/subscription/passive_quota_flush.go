@@ -33,12 +33,15 @@ func (manager *CredentialManager) FlushPassiveQuotaObservations(ctx context.Cont
 		return false, nil
 	}
 	batch := manager.passiveQuota.dirtyObservations(passiveQuotaFlushBatchSize)
+	var snapshotErr error
 	for _, observation := range batch {
 		if err := manager.flushOnePassiveQuotaObservation(ctx, observation); err != nil {
-			return true, err
+			snapshotErr = err
+			break
 		}
 	}
-	return len(manager.passiveQuota.dirtyObservations(1)) > 0, nil
+	historyRemaining, err := manager.flushQuotaHistory(ctx)
+	return len(manager.passiveQuota.dirtyObservations(1)) > 0 || historyRemaining, errors.Join(snapshotErr, err)
 }
 
 func (manager *CredentialManager) flushOnePassiveQuotaObservation(

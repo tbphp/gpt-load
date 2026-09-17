@@ -1,4 +1,15 @@
 export const zhCN = {
+  usageStatistics: '用量统计',
+  statisticsRange: '统计时间范围',
+  statisticsMetric: '用量指标',
+  statisticsFailed: '用量统计加载失败',
+  quotaHistory: '剩余额度趋势',
+  remainingPercent: '剩余额度',
+  quotaHistoryFailed: '额度历史加载失败',
+  quotaHistoryEmpty: '此时间范围内没有额度观测',
+  quotaHistoryHint: '仅记录实际额度观测；重置与长时间缺测分段显示。',
+  localUsage: '本地用量趋势',
+  statisticsBucket: '用量按 {minutes} 分钟汇总，仅包含经过 GPT-Load 的请求。',
   usedPercentShort: '已用比例',
   fullWindowEstimate: '满额预估',
   estimateOnly: '按当前用量比例推算，仅为预估值。',
@@ -123,6 +134,18 @@ export const zhCN = {
   },
 }
 export const enUS: typeof zhCN = {
+  usageStatistics: 'Usage statistics',
+  statisticsRange: 'Time range',
+  statisticsMetric: 'Usage metric',
+  statisticsFailed: 'Failed to load usage statistics',
+  quotaHistory: 'Remaining quota trend',
+  remainingPercent: 'Remaining quota',
+  quotaHistoryFailed: 'Failed to load quota history',
+  quotaHistoryEmpty: 'No quota observations in this time range',
+  quotaHistoryHint: 'Actual observations only. Resets and long gaps are shown separately.',
+  localUsage: 'Local usage trend',
+  statisticsBucket:
+    'Usage is grouped into {minutes}-minute buckets and includes requests through GPT-Load only.',
   usedPercentShort: 'Used %',
   fullWindowEstimate: 'Full estimate',
   estimateOnly: 'Projected from current usage proportions; an estimate only.',
@@ -252,6 +275,18 @@ export const enUS: typeof zhCN = {
   },
 }
 export const jaJP: typeof zhCN = {
+  usageStatistics: '使用量統計',
+  statisticsRange: '統計期間',
+  statisticsMetric: '使用量指標',
+  statisticsFailed: '使用量統計の読み込みに失敗しました',
+  quotaHistory: '残りクォータの推移',
+  remainingPercent: '残りクォータ',
+  quotaHistoryFailed: 'クォータ履歴の読み込みに失敗しました',
+  quotaHistoryEmpty: 'この期間にはクォータの観測がありません',
+  quotaHistoryHint: '実際の観測のみ記録します。リセットと長い未観測期間は区切って表示します。',
+  localUsage: 'ローカル使用量の推移',
+  statisticsBucket:
+    '使用量は {minutes} 分ごとに集計し、GPT-Load を経由したリクエストのみを含みます。',
   usedPercentShort: '使用率',
   fullWindowEstimate: '全量推計',
   estimateOnly: '現在の使用割合から算出した推計値です。',

@@ -8,7 +8,13 @@ import { formatCompactNumber } from '@modern/components/ui/format'
 import { chartPoints, formatUsageCost, inputTokens, percentage } from './usage-display'
 import type { TrendMetric } from './usage-state'
 
-const props = defineProps<{ report: UsageReport; metric: TrendMetric }>()
+const props = defineProps<{
+  report: UsageReport
+  metric: TrendMetric
+  cursorAtMS?: number
+  alignLeft?: number
+}>()
+const emit = defineEmits<{ cursor: [time: number | undefined] }>()
 const { t, locale } = useI18n()
 const host = ref<HTMLElement>()
 const width = ref(720)
@@ -80,6 +86,7 @@ const height = 240,
   bottom = 204
 const top = computed(() => (bars.value ? (width.value < 340 ? 56 : 32) : 12))
 const left = computed(() => {
+  if (props.alignLeft !== undefined) return props.alignLeft
   const longest = Math.max(
     ...Array.from({ length: 5 }, (_, index) => formatted((ceiling.value * index) / 4).length),
   )
@@ -139,7 +146,20 @@ const segments = computed(() => {
 })
 const selected = computed(() => hovered.value ?? focused.value)
 const active = computed(() =>
-  selected.value === undefined ? undefined : coordinates.value[selected.value],
+  selected.value === undefined
+    ? props.cursorAtMS === undefined
+      ? undefined
+      : coordinates.value.find(
+          (point) => point.from <= props.cursorAtMS! && point.to > props.cursorAtMS!,
+        )
+    : coordinates.value[selected.value],
+)
+watch(
+  () => (selected.value === undefined ? undefined : coordinates.value[selected.value]),
+  (point) => emit('cursor', point ? (point.from + point.to) / 2 : undefined),
+)
+const cursor = computed(
+  () => props.cursorAtMS ?? (active.value ? (active.value.from + active.value.to) / 2 : undefined),
 )
 const ticks = computed(() => {
   const count = width.value < 450 ? 3 : 5
@@ -305,10 +325,16 @@ function navigate(event: KeyboardEvent, index: number): void {
           class="modern-usage-dot"
         />
       </g>
-      <g v-if="active">
-        <line :x1="active.x" :x2="active.x" :y1="top" :y2="bottom" class="modern-usage-crosshair" />
+      <g v-if="cursor !== undefined">
+        <line
+          :x1="position(cursor)"
+          :x2="position(cursor)"
+          :y1="top"
+          :y2="bottom"
+          class="modern-usage-crosshair"
+        />
         <circle
-          v-if="!bars && active.value !== null"
+          v-if="!bars && active && active.value !== null"
           :cx="active.x"
           :cy="active.y"
           r="4"
