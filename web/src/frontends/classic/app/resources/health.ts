@@ -68,6 +68,7 @@ const quotaCredentialFields = [
   'credential_id',
   'group_id',
   'group_name',
+  'identity',
   'remaining',
   'reset_at_ms',
 ] as const
@@ -75,6 +76,7 @@ const expiringResetCreditFields = [
   'credential_id',
   'group_id',
   'group_name',
+  'identity',
   'count',
   'nearest_expires_at_ms',
 ] as const
@@ -242,6 +244,7 @@ function projectQuotaCredential(value: unknown): HealthQuotaCredentialDto {
     credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
+    identity: projectString(record.identity),
     remaining,
     reset_at_ms: projectEpochMilliseconds(record.reset_at_ms),
   }
@@ -254,6 +257,7 @@ function projectExpiringResetCredit(value: unknown): HealthExpiringResetCreditDt
     credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
+    identity: projectString(record.identity),
     count: projectSafeInteger(record.count, { minimum: 1 }),
     nearest_expires_at_ms: projectEpochMilliseconds(record.nearest_expires_at_ms),
   }

@@ -480,6 +480,7 @@ export interface HealthExpiringResetCreditDto {
   credential_id: number
   group_id: number
   group_name: string
+  identity: string
   count: number
   nearest_expires_at_ms: number
 }
@@ -488,6 +489,7 @@ export interface HealthQuotaCredentialDto {
   credential_id: number
   group_id: number
   group_name: string
+  identity: string
   /** 剩余额度比例，0..1 */
   remaining: number
   reset_at_ms: number
