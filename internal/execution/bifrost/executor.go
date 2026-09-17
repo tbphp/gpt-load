@@ -70,6 +70,9 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 		normalizeImagesAttemptResult(spec, &result)
 		normalizeEmbeddingsAttemptResult(spec, &result)
 		normalizeRerankAttemptResult(spec, &result)
+		if r.providerKind(spec) == channel.ProviderMultiProtocolGateway {
+			normalizeGatewayProtocolProbeResult(spec, &result)
+		}
 	}()
 	prepared, preflightError := r.prepare(spec, false)
 	if preflightError != nil {
@@ -547,47 +550,26 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				secrets:   secrets,
 			}, nil
 		}
+		if providerKind == channel.ProviderMultiProtocolGateway && spec.ClientProtocol != protocol.OpenAICompletions {
+			return prepareGatewayProtocolProbe(spec, resolved, provider, directKey, secrets)
+		}
 		request := newProbeRequest(provider, providerKind, spec.UpstreamModel)
 		if providerKind == channel.ProviderMultiProtocolGateway {
-			var path string
-			switch spec.ClientProtocol {
-			case protocol.OpenAICompletions:
-				path = "/v1/chat/completions"
-			case protocol.OpenAIResponses:
-				path = "/v1/responses"
-			case protocol.Anthropic:
-				path = "/v1/messages"
-			case protocol.Gemini:
-				path = "/v1beta/models/" + url.PathEscape(spec.UpstreamModel) + ":generateContent"
-			default:
-				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported multi-protocol gateway probe protocol")
-				return preparedAttempt{}, &failure
-			}
 			baseURL, configured, targetErr := targetBaseURL(resolved.TargetConfig)
 			if targetErr != nil || !configured {
 				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")
 				return preparedAttempt{}, &failure
 			}
-			typedURL, targetErr := resolveMultiProtocolGatewayTargetURL(baseURL, path, "")
+			typedURL, targetErr := resolveMultiProtocolGatewayTargetURL(baseURL, "/v1/chat/completions", "")
 			if targetErr != nil {
 				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")
 				return preparedAttempt{}, &failure
 			}
-			if spec.ClientProtocol == protocol.Gemini {
-				// Gemini SDK 将 context path 拼接在 BaseURL 后，不能传入绝对 URL。
-				typedURL = path
-			}
-			prepared := preparedAttempt{
-				provider: provider, mode: mode, upstreamProtocol: spec.ClientProtocol,
+			return preparedAttempt{
+				provider: provider, mode: mode, upstreamProtocol: protocol.OpenAICompletions,
 				request: request, typedURL: typedURL, clientProtocol: spec.ClientProtocol,
 				directKey: directKey, secrets: secrets,
-			}
-			if spec.ClientProtocol == protocol.OpenAIResponses {
-				prepared.request = nil
-				prepared.responsesRequest = request.ToResponsesRequest()
-				prepared.responsesRequest.Params.Store = schemas.Ptr(false)
-			}
-			return prepared, nil
+			}, nil
 		}
 		responses := spec.ClientProtocol == protocol.OpenAIResponses
 		typedURL, upstreamProtocol, targetErr := convertedTypedTarget(

@@ -58,7 +58,6 @@ func TestMultiProtocolGatewayProbesUseSelectedProtocol(t *testing.T) {
 					}
 					switch selected {
 					case protocol.OpenAIResponses:
-						// OpenAI SDK 对 Responses 的最小输出预算为 16。
 						if payload["store"] != false || payload["max_output_tokens"] != float64(16) || payload["input"] == nil {
 							t.Errorf("Responses probe = %#v", payload)
 						}
@@ -81,6 +80,50 @@ func TestMultiProtocolGatewayProbesUseSelectedProtocol(t *testing.T) {
 				if err := result.Validate(); err != nil || result.Error != nil || result.StatusCode != http.StatusOK ||
 					result.UpstreamProtocol != selected || calls.Load() != 1 {
 					t.Fatalf("calls = %d; result = %+v; validation = %v", calls.Load(), result, err)
+				}
+			})
+		}
+	}
+}
+
+func TestGatewayProtocolProbeResponseValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		selected protocol.Protocol
+		body     string
+		valid    bool
+	}{
+		{"responses-completed", protocol.OpenAIResponses, `{"object":"response","status":"completed","output":[]}`, true},
+		{"responses-output-limit", protocol.OpenAIResponses, `{"object":"response","status":"incomplete","output":[],"incomplete_details":{"reason":"max_output_tokens"}}`, true},
+		{"responses-failed", protocol.OpenAIResponses, `{"object":"response","status":"failed","output":[]}`, false},
+		{"anthropic-empty-content", protocol.Anthropic, `{"type":"message","content":[]}`, true},
+		{"gemini-no-candidates", protocol.Gemini, `{"candidates":[]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validGatewayProtocolProbeResponse(tc.selected, []byte(tc.body)); got != tc.valid {
+				t.Errorf("valid = %v, want %v", got, tc.valid)
+			}
+		})
+	}
+}
+
+func TestMultiProtocolGatewayProbeRejectsInvalidSuccessResponses(t *testing.T) {
+	t.Parallel()
+
+	for _, selected := range []protocol.Protocol{protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini} {
+		for _, body := range []string{`{}`, `{"error":{"message":"upstream rejected probe"}}`, `null`, `[]`} {
+			t.Run(string(selected)+"/"+body, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, body)
+				}))
+				defer server.Close()
+				manager, spec := gatewayProbeForTest(t, channel.NewAPI, selected, server.URL)
+				result := manager.Execute(t.Context(), spec)
+				if err := result.Validate(); err != nil || result.Error == nil {
+					t.Fatalf("invalid probe response %s succeeded: %+v; validation = %v", body, result, err)
 				}
 			})
 		}
