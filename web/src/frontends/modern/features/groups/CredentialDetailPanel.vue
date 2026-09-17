@@ -29,6 +29,7 @@ import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import CredentialAccountInfo from './CredentialAccountInfo.vue'
 import CredentialQuotaHistory from './CredentialQuotaHistory.vue'
 import CredentialUsageTrend from './CredentialUsageTrend.vue'
+import CredentialWindowUsage from './CredentialWindowUsage.vue'
 
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
 const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
@@ -166,6 +167,10 @@ useMessageSource(() =>
         :credential="row.id"
       />
       <CredentialUsageTrend :group="group.id" :credential="row.id" />
+      <CredentialWindowUsage
+        v-if="item.observation?.windows.length"
+        :windows="item.observation.windows"
+      />
       <section class="modern-credential-detail-section">
         <div class="modern-credential-detail-title">
           <h3>{{ t('credentialCards.runtime') }}</h3>
@@ -293,6 +298,7 @@ useMessageSource(() =>
   display: grid;
   gap: var(--modern-space-3);
 }
+.modern-window-usage + .modern-credential-detail-section,
 .modern-credential-detail-section + .modern-credential-detail-section {
   padding-top: var(--modern-space-3);
   border-top: var(--modern-line-width) solid var(--modern-border);
