@@ -1,9 +1,11 @@
 import { numberFormatter } from '@modern/components/ui/intl-formatters'
 export function formatCompactNumber(value: number, locale: string): string {
-  return numberFormatter(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+  void locale
+  return numberFormatter('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
 export function formatRemainingDuration(milliseconds: number, locale: string): string {
+  void locale
   const minutes = Math.max(0, Math.ceil(milliseconds / 60000))
   const hours = Math.floor(minutes / 60)
   const duration =
@@ -20,9 +22,7 @@ export function formatRemainingDuration(milliseconds: number, locale: string): s
         : ([[minutes, 'minute']] as const)
   return duration
     .filter(([value]) => value > 0 || minutes === 0)
-    .map(([value, unit]) =>
-      numberFormatter(locale, { style: 'unit', unit, unitDisplay: 'short' }).format(value),
-    )
+    .map(([value, unit]) => `${value}${{ day: 'd', hour: 'h', minute: 'm' }[unit]}`)
     .join(' ')
 }
 

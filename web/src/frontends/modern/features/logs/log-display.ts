@@ -36,7 +36,7 @@ export function logCanMergeError(row: LogEntry): boolean {
 }
 export function logNumber(value: string | number, locale: string, compact = false): string {
   return numberFormatter(
-    locale,
+    compact ? 'en-US' : locale,
     compact ? { notation: 'compact', maximumFractionDigits: 1 } : {},
   ).format(typeof value === 'string' ? BigInt(value) : value)
 }
