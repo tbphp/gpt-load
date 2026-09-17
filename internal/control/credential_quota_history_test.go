@@ -45,9 +45,7 @@ func TestCredentialQuotaHistoryScopesCurrentAccountAndTime(t *testing.T) {
 		t.Fatalf("history status=%d body=%s", result.Code, result.Body.String())
 	}
 	var data struct {
-		HasHistory    bool  `json:"has_history"`
-		BucketWidthMS int64 `json:"bucket_width_ms"`
-		Windows       []struct {
+		Windows []struct {
 			Points []struct {
 				UsedBasisPoints int64 `json:"used_basis_points"`
 			} `json:"points"`
@@ -56,7 +54,7 @@ func TestCredentialQuotaHistoryScopesCurrentAccountAndTime(t *testing.T) {
 	if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
 		t.Fatal(err)
 	}
-	if data.BucketWidthMS < 3_600_000 || !data.HasHistory || len(data.Windows) != 1 || len(data.Windows[0].Points) != 1 || data.Windows[0].Points[0].UsedBasisPoints != 1200 {
+	if len(data.Windows) != 1 || len(data.Windows[0].Points) != 1 || data.Windows[0].Points[0].UsedBasisPoints != 1200 {
 		t.Fatalf("history leaked another identity or boundary: %+v", data)
 	}
 	for _, auth := range []string{""} {
@@ -118,8 +116,7 @@ func TestCredentialQuotaHistoryReturnsAllStoredPointsWithoutResampling(t *testin
 		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 	}
 	var data struct {
-		BucketWidthMS int64 `json:"bucket_width_ms"`
-		Windows       []struct {
+		Windows []struct {
 			Key    string `json:"key"`
 			Points []struct {
 				ObservedAtMS    int64 `json:"observed_at_ms"`
@@ -130,7 +127,7 @@ func TestCredentialQuotaHistoryReturnsAllStoredPointsWithoutResampling(t *testin
 	if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
 		t.Fatal(err)
 	}
-	if data.BucketWidthMS != 3_600_000 || len(data.Windows) != 2 {
+	if len(data.Windows) != 2 {
 		t.Fatalf("unexpected history windows: %+v", data)
 	}
 	for _, window := range data.Windows {
@@ -184,15 +181,14 @@ func TestCredentialQuotaHistoryFiltersStoredShortAndUnknownPeriods(t *testing.T)
 		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
 	}
 	var data struct {
-		MinimumWindowSeconds int64 `json:"minimum_window_seconds"`
-		Windows              []struct {
+		Windows []struct {
 			WindowSeconds int64 `json:"window_seconds"`
 		} `json:"windows"`
 	}
 	if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
 		t.Fatal(err)
 	}
-	if data.MinimumWindowSeconds != 86_400 || len(data.Windows) != 2 || data.Windows[0].WindowSeconds != 86_400 || data.Windows[1].WindowSeconds != 604_800 {
+	if len(data.Windows) != 2 || data.Windows[0].WindowSeconds != 86_400 || data.Windows[1].WindowSeconds != 604_800 {
 		t.Fatalf("old short or unknown periods are visible: %+v", data)
 	}
 }

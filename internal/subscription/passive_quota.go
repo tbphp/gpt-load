@@ -38,17 +38,24 @@ type passiveQuotaEntry struct {
 // never grows with request volume, only with the number of accounts that
 // have produced a valid quota signal.
 type passiveQuotaPending struct {
-	mu            sync.Mutex
-	entries       map[uint]*passiveQuotaEntry
-	history       map[quotaHistorySampleKey]quotaHistorySample
-	historyTimes  map[quotaHistoryKey]int64
-	historyStates map[quotaHistoryKey]quotaHistoryState
-	nextVersion   uint64
-	dirtyNotifier func()
+	mu             sync.Mutex
+	entries        map[uint]*passiveQuotaEntry
+	history        map[quotaHistorySampleKey]quotaHistorySample
+	historyTimes   map[quotaHistoryKey]int64
+	historyStates  map[quotaHistoryKey]quotaHistoryState
+	historySources map[quotaHistoryKey]quotaHistorySource
+	nextVersion    uint64
+	dirtyNotifier  func()
 }
 
 func newPassiveQuotaPending() *passiveQuotaPending {
-	return &passiveQuotaPending{entries: make(map[uint]*passiveQuotaEntry), history: make(map[quotaHistorySampleKey]quotaHistorySample), historyTimes: make(map[quotaHistoryKey]int64), historyStates: make(map[quotaHistoryKey]quotaHistoryState)}
+	return &passiveQuotaPending{
+		entries:        make(map[uint]*passiveQuotaEntry),
+		history:        make(map[quotaHistorySampleKey]quotaHistorySample),
+		historyTimes:   make(map[quotaHistoryKey]int64),
+		historyStates:  make(map[quotaHistoryKey]quotaHistoryState),
+		historySources: make(map[quotaHistoryKey]quotaHistorySource),
+	}
 }
 
 // RecordPassiveQuotaObservation stores one response's passive quota windows
@@ -156,6 +163,9 @@ func (pending *passiveQuotaPending) record(
 	pending.nextVersion++
 	entry.version = pending.nextVersion
 	entry.dirty = true
+	if preceding != nil {
+		pending.recordHistoryLocked(groupID, credentialID, identityGeneration, preceding.ObservedAtMS, preceding.Windows)
+	}
 	pending.recordHistoryLocked(groupID, credentialID, identityGeneration, observedAtMS, windows)
 	notifier := pending.dirtyNotifier
 	pending.mu.Unlock()

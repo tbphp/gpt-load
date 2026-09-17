@@ -37,13 +37,10 @@ type quotaHistoryWindowResponse struct {
 }
 
 type quotaHistoryResponse struct {
-	FromMS               int64                        `json:"from_ms"`
-	ToMS                 int64                        `json:"to_ms"`
-	ObservedAtMS         int64                        `json:"observed_at_ms"`
-	BucketWidthMS        int64                        `json:"bucket_width_ms"`
-	MinimumWindowSeconds int64                        `json:"minimum_window_seconds"`
-	HasHistory           bool                         `json:"has_history"`
-	Windows              []quotaHistoryWindowResponse `json:"windows"`
+	FromMS       int64                        `json:"from_ms"`
+	ToMS         int64                        `json:"to_ms"`
+	ObservedAtMS int64                        `json:"observed_at_ms"`
+	Windows      []quotaHistoryWindowResponse `json:"windows"`
 }
 
 func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
@@ -72,8 +69,7 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 		writeServiceError(c, "quota_history", err)
 		return
 	}
-	result := quotaHistoryResponse{FromMS: query.FromMS, ToMS: query.ToMS, ObservedAtMS: observedAt, MinimumWindowSeconds: subscription.QuotaHistoryMinimumWindowSeconds, Windows: []quotaHistoryWindowResponse{}}
-	result.BucketWidthMS = epochms.MillisecondsPerHour
+	result := quotaHistoryResponse{FromMS: query.FromMS, ToMS: query.ToMS, ObservedAtMS: observedAt, Windows: []quotaHistoryWindowResponse{}}
 	err = server.service.withReadSnapshot(c.Request.Context(), func(tx *gorm.DB) error {
 		var group models.Group
 		if err := tx.Take(&group, groupID).Error; err != nil {
@@ -88,19 +84,12 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 		}
 		identity := subscription.QuotaHistoryTargetIdentity(stateloader.CredentialIdentityGeneration(
 			credential.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params)))
-		scope := func() *gorm.DB {
-			return tx.Model(&models.CredentialQuotaHistory{}).
-				Where("group_id = ? AND credential_id = ? AND target_identity = ?", groupID, credentialID, identity).
-				Where("window_seconds >= ?", subscription.QuotaHistoryMinimumWindowSeconds)
-		}
-		var first models.CredentialQuotaHistory
-		if err := scope().Select("id").Take(&first).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		result.HasHistory = first.ID != 0
+		history := tx.Model(&models.CredentialQuotaHistory{}).
+			Where("group_id = ? AND credential_id = ? AND target_identity = ?", groupID, credentialID, identity).
+			Where("window_seconds >= ?", subscription.QuotaHistoryMinimumWindowSeconds)
 		var rows []models.CredentialQuotaHistory
 		// 采样限制在写入端执行；查询原样返回真实历史，包括周期回升关键点。
-		if err := scope().Where("observed_at_ms >= ? AND observed_at_ms < ?", query.FromMS, query.ToMS).
+		if err := history.Where("observed_at_ms >= ? AND observed_at_ms < ?", query.FromMS, query.ToMS).
 			Order("observed_at_ms ASC").Find(&rows).Error; err != nil {
 			return err
 		}

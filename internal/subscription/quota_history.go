@@ -49,6 +49,11 @@ type quotaHistoryState struct {
 	admittedAtMS int64
 }
 
+type quotaHistorySource struct {
+	window       string
+	observedAtMS int64
+}
+
 // QuotaHistoryTargetIdentity 与 Token 版本独立，切换账号或上游目标时隔离历史。
 func QuotaHistoryTargetIdentity(generation uint64) string {
 	return fmt.Sprintf("%016x", generation)
@@ -64,8 +69,8 @@ func quotaHistoryWindowKey(window providerobservation.QuotaWindow) string {
 		source = window.SourceName
 	}
 	value := fmt.Sprintf("%s\x00%s\x00%d", source, window.ID, seconds)
-	if window.SourceID != "" && seconds > 0 {
-		value = fmt.Sprintf("%s\x00%d", window.SourceID, seconds)
+	if source != "" && seconds > 0 {
+		value = fmt.Sprintf("%s\x00%d", source, seconds)
 	}
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
@@ -100,6 +105,7 @@ func (pending *passiveQuotaPending) recordHistoryLocked(groupID, credentialID ui
 			continue
 		}
 		key := quotaHistoryKey{credentialID: credentialID, identity: identity, window: quotaHistoryWindowKey(window)}
+		key = pending.historySourceKeyLocked(key)
 		state, known := pending.historyStates[key]
 		if known && observedAtMS <= state.latest.row.ObservedAtMS {
 			continue
@@ -119,21 +125,17 @@ func (pending *passiveQuotaPending) recordHistoryLocked(groupID, credentialID ui
 		rebound := known && state.latest.row.UsedBasisPoints-sample.row.UsedBasisPoints >= quotaHistoryReboundBasisPoints
 		admit := rebound || (!known && !persisted) || observedAtMS-last >= quotaHistoryIntervalMS
 		if admit {
-			needed := 1
-			precedingKey := quotaHistorySampleKey{window: key, atMS: state.latest.row.ObservedAtMS}
+			queued := false
 			if rebound {
-				if _, queued := pending.history[precedingKey]; !queued {
-					needed++
-				}
-			}
-			if len(pending.history)+needed <= quotaHistoryCapacity {
-				if rebound {
-					preceding := state.latest
-					preceding.critical = true
-					pending.history[precedingKey] = preceding
+				queued = pending.queueHistoryReboundLocked(state.latest, sample)
+				if queued {
 					sample.critical = true
 				}
+			} else if len(pending.history) < quotaHistoryCapacity {
 				pending.history[quotaHistorySampleKey{window: key, atMS: observedAtMS}] = sample
+				queued = true
+			}
+			if queued {
 				last = observedAtMS
 			}
 		}
@@ -149,6 +151,26 @@ func (pending *passiveQuotaPending) recordHistoryLocked(groupID, credentialID ui
 		}
 		pending.historyStates[key] = quotaHistoryState{latest: sample, admittedAtMS: last}
 	}
+}
+
+// 回升前后点一起入队，容量不足时不保留不完整的边界。
+func (pending *passiveQuotaPending) queueHistoryReboundLocked(preceding, sample quotaHistorySample) bool {
+	samples := [2]quotaHistorySample{preceding, sample}
+	needed := 0
+	for _, point := range samples {
+		key := quotaHistorySampleKey{window: point.key, atMS: point.row.ObservedAtMS}
+		if _, queued := pending.history[key]; !queued {
+			needed++
+		}
+	}
+	if len(pending.history)+needed > quotaHistoryCapacity {
+		return false
+	}
+	for _, point := range samples {
+		point.critical = true
+		pending.history[quotaHistorySampleKey{window: point.key, atMS: point.row.ObservedAtMS}] = point
+	}
+	return true
 }
 
 func (pending *passiveQuotaPending) historyBatch(limit int) []quotaHistorySample {
@@ -193,6 +215,11 @@ func (pending *passiveQuotaPending) hasPendingHistory() bool {
 func (pending *passiveQuotaPending) rememberHistoryTime(key quotaHistoryKey, at int64) {
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
+	key = pending.historySourceKeyLocked(key)
+	pending.rememberHistoryTimeLocked(key, at)
+}
+
+func (pending *passiveQuotaPending) rememberHistoryTimeLocked(key quotaHistoryKey, at int64) {
 	if _, exists := pending.historyTimes[key]; !exists && len(pending.historyTimes) >= quotaHistoryCapacity {
 		var oldest quotaHistoryKey
 		oldestAt := int64(math.MaxInt64)
@@ -207,6 +234,76 @@ func (pending *passiveQuotaPending) rememberHistoryTime(key quotaHistoryKey, at 
 	if old, ok := pending.historyTimes[key]; !ok || at > old {
 		pending.historyTimes[key] = at
 	}
+}
+
+func (pending *passiveQuotaPending) historySourceKeyLocked(key quotaHistoryKey) quotaHistoryKey {
+	if source, ok := pending.historySources[key]; ok {
+		key.window = source.window
+	}
+	return key
+}
+
+// 来源名称仅从主动观测的唯一匹配解析；后台缓存后，HTTP/WS 共用采样状态。
+func (pending *passiveQuotaPending) rememberHistorySources(credentialID uint, identity uint64, at int64, windows []providerobservation.QuotaWindow) bool {
+	pending.mu.Lock()
+	defer pending.mu.Unlock()
+	reordered := false
+	for _, window := range windows {
+		if window.SourceID == "" || window.Scope == "" || window.Scope == "account" || window.WindowSeconds == nil || *window.WindowSeconds < QuotaHistoryMinimumWindowSeconds {
+			continue
+		}
+		patch := providerobservation.QuotaWindow{SourceName: window.Scope, WindowSeconds: window.WindowSeconds}
+		raw := quotaHistoryKey{credentialID: credentialID, identity: identity, window: quotaHistoryWindowKey(patch)}
+		if passiveQuotaSourceByName(windows, patch) == "" {
+			delete(pending.historySources, raw)
+			continue
+		}
+		canonical := quotaHistoryKey{credentialID: credentialID, identity: identity, window: quotaHistoryWindowKey(window)}
+		if raw == canonical {
+			continue
+		}
+		if _, exists := pending.historySources[raw]; !exists && len(pending.historySources) >= quotaHistoryCapacity {
+			var oldest quotaHistoryKey
+			oldestAt := int64(math.MaxInt64)
+			for candidate, source := range pending.historySources {
+				if source.observedAtMS < oldestAt {
+					oldest, oldestAt = candidate, source.observedAtMS
+				}
+			}
+			delete(pending.historySources, oldest)
+		}
+		pending.historySources[raw] = quotaHistorySource{window: canonical.window, observedAtMS: at}
+		if state, exists := pending.historyStates[raw]; exists {
+			previous, known := pending.historyStates[canonical]
+			boundary := state.latest
+			for key, queued := range pending.history {
+				if key.window == raw && queued.row.ObservedAtMS > previous.latest.row.ObservedAtMS && queued.row.ObservedAtMS < boundary.row.ObservedAtMS {
+					boundary = queued
+				}
+			}
+			// 缓存淘汰后重新解析来源，也要与另一传输的最新真实观测比较。
+			// 使用最早的待写点，不能被重置后继续消耗的最新值覆盖。
+			if known && previous.latest.row.ObservedAtMS < boundary.row.ObservedAtMS &&
+				previous.latest.row.UsedBasisPoints-boundary.row.UsedBasisPoints >= quotaHistoryReboundBasisPoints &&
+				pending.queueHistoryReboundLocked(previous.latest, boundary) {
+				state.admittedAtMS = max(state.admittedAtMS, boundary.row.ObservedAtMS)
+				reordered = true
+			}
+			admitted := max(state.admittedAtMS, previous.admittedAtMS)
+			if known && previous.latest.row.ObservedAtMS > state.latest.row.ObservedAtMS {
+				state = previous
+			}
+			state.latest.key, state.latest.row.WindowKey = canonical, canonical.window
+			state.admittedAtMS = admitted
+			delete(pending.historyStates, raw)
+			pending.historyStates[canonical] = state
+		}
+		if last, exists := pending.historyTimes[raw]; exists {
+			delete(pending.historyTimes, raw)
+			pending.rememberHistoryTimeLocked(canonical, last)
+		}
+	}
+	return reordered
 }
 
 // flushQuotaHistory 不持有入队内存锁或凭据 mutation 锁执行数据库操作。
@@ -229,6 +326,10 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 		}
 		var snapshot providerobservation.Snapshot
 		if json.Unmarshal(observation.SnapshotJSON, &snapshot) == nil {
+			if manager.passiveQuota.rememberHistorySources(sample.row.CredentialID, sample.key.identity, sample.row.ObservedAtMS, snapshot.QuotaWindows) {
+				// 新补入的回升前点必须先写；重新按真实观测时间取批次。
+				return true, nil
+			}
 			if index := matchPassiveQuotaWindow(snapshot.QuotaWindows, sample.window); index >= 0 {
 				window := snapshot.QuotaWindows[index]
 				// 解析来源以统一 HTTP/WS 历史窗口，周期仍取该次真实观测。
@@ -268,9 +369,10 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 			(!sample.critical && sample.row.ObservedAtMS-latest.ObservedAtMS < quotaHistoryIntervalMS && latest.UsedBasisPoints-sample.row.UsedBasisPoints < quotaHistoryReboundBasisPoints)) {
 			manager.passiveQuota.rememberHistoryTime(sample.key, latest.ObservedAtMS)
 			manager.passiveQuota.mu.Lock()
-			if state, ok := manager.passiveQuota.historyStates[sample.key]; ok && state.admittedAtMS == sample.row.ObservedAtMS {
+			key := manager.passiveQuota.historySourceKeyLocked(sample.key)
+			if state, ok := manager.passiveQuota.historyStates[key]; ok && state.admittedAtMS == sample.row.ObservedAtMS {
 				state.admittedAtMS = latest.ObservedAtMS
-				manager.passiveQuota.historyStates[sample.key] = state
+				manager.passiveQuota.historyStates[key] = state
 			}
 			manager.passiveQuota.mu.Unlock()
 			manager.passiveQuota.ackHistory(sample)

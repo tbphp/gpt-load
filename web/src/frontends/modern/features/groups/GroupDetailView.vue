@@ -178,6 +178,7 @@ async function groupDeleted(): Promise<void> {
     'group-model-names',
     'group-credentials',
     'credential-detail',
+    'credential-trends',
     'group-overview-usage',
     'group-usage-trend',
   ]) {

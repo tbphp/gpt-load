@@ -15,7 +15,6 @@ export interface QuotaHistoryWindow {
 export interface QuotaHistoryReport {
   from: number
   to: number
-  bucketWidth: number
   windows: QuotaHistoryWindow[]
 }
 
@@ -35,18 +34,11 @@ export async function getCredentialQuotaHistory(
   const from = integer(row.from_ms),
     to = integer(row.to_ms)
   if (from !== Number(range.from_ms) || to !== Number(range.to_ms)) throw new InvalidResponseError()
-  const minimumWindowSeconds = integer(row.minimum_window_seconds, 1)
   return {
     from,
     to,
-    bucketWidth: integer(row.bucket_width_ms, 60_000),
     windows: list(row.windows)
       .map(record)
-      .filter(
-        (window) =>
-          window.window_seconds != null &&
-          integer(window.window_seconds, 1) >= minimumWindowSeconds,
-      )
       .map((window) => {
         let previous = -1
         return {

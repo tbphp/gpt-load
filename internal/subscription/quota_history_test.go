@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -272,5 +273,129 @@ func TestQuotaHistoryKeepsConsecutiveReboundsAndBoundsPendingMemory(t *testing.T
 	}
 	if len(pending.history) != quotaHistoryCapacity || len(pending.historyStates) != quotaHistoryCapacity {
 		t.Fatalf("unbounded history memory: queued=%d states=%d", len(pending.history), len(pending.historyStates))
+	}
+}
+
+func TestQuotaHistoryPreservesWebsocketHandshakeSample(t *testing.T) {
+	for _, reset := range []bool{false, true} {
+		t.Run(fmt.Sprint("reset=", reset), func(t *testing.T) {
+			manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh, `{"quota_windows":[]}`)
+			ref, _ := registry.CredentialRef(credential.ID)
+			seconds := int64(604_800)
+			window := func(used float64) []providerobservation.QuotaWindow {
+				return []providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, Utilization: &used}}
+			}
+			if reset {
+				manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, 10_000, window(.9))
+				if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			headerUsed, eventUsed := 0.0, 0.3
+			if reset {
+				headerUsed, eventUsed = .95, .01
+			}
+			manager.RecordPassiveQuotaPair(credential.ID, ref.IdentityGeneration,
+				PassiveQuotaSample{ObservedAtMS: 20_000, Windows: window(headerUsed)},
+				PassiveQuotaSample{ObservedAtMS: 30_000, Windows: window(eventUsed)})
+			if remaining, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || remaining {
+				t.Fatalf("flush: %t %v", remaining, err)
+			}
+			var rows []models.CredentialQuotaHistory
+			if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
+				t.Fatal(err)
+			}
+			if reset {
+				if len(rows) != 3 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 9500 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != 100 {
+					t.Fatalf("lost reset boundary: %+v", rows)
+				}
+			} else if len(rows) != 1 || rows[0].ObservedAtMS != 20_000 || rows[0].UsedBasisPoints != 0 {
+				t.Fatalf("lost first 100-percent observation: %+v", rows)
+			}
+		})
+	}
+}
+
+func TestQuotaHistoryDetectsReboundAcrossHTTPAndNamedWebsocket(t *testing.T) {
+	for _, namedFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint("named-first=", namedFirst), func(t *testing.T) {
+			manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
+				`{"quota_windows":[{"id":"spark-primary","source_id":"codex_spark","scope":"Spark","label":"Spark","unit":"percent","window_seconds":604800,"state":"available"}]}`)
+			ref, _ := registry.CredentialRef(credential.ID)
+			seconds := int64(604_800)
+			for index, used := range []float64{.2, .9, .8} {
+				window := providerobservation.QuotaWindow{ID: "primary", WindowSeconds: &seconds, Utilization: &used}
+				if (index%2 == 0) == namedFirst {
+					window.SourceName = "Spark"
+				} else {
+					window.SourceID = "codex_spark"
+				}
+				manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, int64(index+1)*10_000, []providerobservation.QuotaWindow{window})
+				if remaining, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || remaining {
+					t.Fatalf("flush: %t %v", remaining, err)
+				}
+			}
+			var rows []models.CredentialQuotaHistory
+			if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 3 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 9000 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != 8000 || rows[0].WindowKey != rows[2].WindowKey {
+				t.Fatalf("cross-transport rebound lost: %+v", rows)
+			}
+		})
+	}
+}
+
+func TestQuotaHistoryDetectsReboundAfterSourceCacheEviction(t *testing.T) {
+	for _, burst := range []bool{false, true} {
+		t.Run(fmt.Sprint("burst=", burst), func(t *testing.T) {
+			manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
+				`{"quota_windows":[{"id":"spark-primary","source_id":"codex_spark","scope":"Spark","label":"Spark","unit":"percent","window_seconds":604800,"state":"available"}]}`)
+			ref, _ := registry.CredentialRef(credential.ID)
+			seconds := int64(604_800)
+			for index, used := range []float64{.2, .9, .8} {
+				window := providerobservation.QuotaWindow{ID: "primary", SourceID: "codex_spark", WindowSeconds: &seconds, Utilization: &used}
+				if index == 2 {
+					manager.passiveQuota.mu.Lock()
+					clear(manager.passiveQuota.historySources)
+					manager.passiveQuota.mu.Unlock()
+					window.SourceID, window.SourceName = "", "Spark"
+					if burst {
+						used = .01
+					}
+				}
+				manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, int64(index+1)*10_000, []providerobservation.QuotaWindow{window})
+				if index == 2 && burst {
+					used = .95
+					manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, 40_000, []providerobservation.QuotaWindow{window})
+				}
+				for attempt := 0; attempt < 3; attempt++ {
+					remaining, err := manager.FlushPassiveQuotaObservations(t.Context())
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !remaining {
+						break
+					}
+					if attempt == 2 {
+						t.Fatal("history did not drain")
+					}
+				}
+			}
+			var rows []models.CredentialQuotaHistory
+			if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
+				t.Fatal(err)
+			}
+			wantUsed := int64(8000)
+			if burst {
+				wantUsed = 100
+			}
+			if len(rows) != 3 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 9000 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != wantUsed {
+				t.Fatalf("rebound lost after source cache eviction: %+v", rows)
+			}
+		})
 	}
 }

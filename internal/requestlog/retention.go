@@ -68,7 +68,7 @@ func (service *Service) Sweep(ctx context.Context, now time.Time) {
 	service.deleteExpiredQuotaHistory(ctx, quotaHistoryCutoffMS)
 }
 
-// 分钟级额度历史独立保留 35 天，小时用量聚合仍长期保留。
+// 额度历史独立保留 35 天，小时用量聚合仍长期保留。
 func (service *Service) deleteExpiredQuotaHistory(ctx context.Context, cutoffMS int64) {
 	for ctx.Err() == nil {
 		var ids []uint

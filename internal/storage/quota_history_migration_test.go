@@ -97,17 +97,10 @@ func testQuotaHistoryMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 				}
 			}
 			var points []models.CredentialQuotaHistory
-			if err := db.Raw(`SELECT * FROM (
-				SELECT credential_quota_histories.*,
-				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms ASC) AS first_rank,
-				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms DESC) AS last_rank,
-				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY used_basis_points ASC, observed_at_ms DESC) AS low_rank,
-				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY used_basis_points DESC, observed_at_ms DESC) AS high_rank
-				FROM credential_quota_histories WHERE credential_id = ? AND target_identity = ?
-			) AS samples WHERE first_rank = 1 OR last_rank = 1 OR low_rank = 1 OR high_rank = 1 ORDER BY observed_at_ms ASC`, 3600_000, 3600_000, 3600_000, 3600_000, 1, "identity").Scan(&points).Error; err != nil {
+			if err := db.Where("credential_id = ? AND target_identity = ?", 1, "identity").Order("observed_at_ms ASC").Find(&points).Error; err != nil {
 				t.Fatal(err)
 			}
-			if len(points) != 4 || points[0].UsedBasisPoints != 1000 || points[1].UsedBasisPoints != 9900 || points[2].UsedBasisPoints != 100 || points[3].UsedBasisPoints != 2000 {
+			if len(points) != 5 || points[0].UsedBasisPoints != 1000 || points[1].UsedBasisPoints != 5000 || points[2].UsedBasisPoints != 9900 || points[3].UsedBasisPoints != 100 || points[4].UsedBasisPoints != 2000 {
 				t.Fatalf("history query: %+v", points)
 			}
 		})
