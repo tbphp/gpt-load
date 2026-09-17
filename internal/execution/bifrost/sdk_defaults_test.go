@@ -53,6 +53,7 @@ func TestSDKDefaultBaseURLReportsOnlyUniqueSDKDefaults(t *testing.T) {
 		channel.ZhipuAI,
 		channel.Alibaba,
 		channel.Volcengine,
+		channel.Requesty,
 	} {
 		t.Run(string(channelID), func(t *testing.T) {
 			got, unique, err := manager.DefaultBaseURL(channelID)

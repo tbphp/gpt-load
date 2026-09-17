@@ -43,6 +43,7 @@ const (
 	Alibaba          = spec.Alibaba
 	Volcengine       = spec.Volcengine
 	OpenRouter       = spec.OpenRouter
+	Requesty         = spec.Requesty
 	Groq             = spec.Groq
 	XAI              = spec.XAI
 )

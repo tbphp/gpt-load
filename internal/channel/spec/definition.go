@@ -35,6 +35,7 @@ const (
 	Alibaba          ID = "alibaba"
 	Volcengine       ID = "volcengine"
 	OpenRouter       ID = "openrouter"
+	Requesty         ID = "requesty"
 	Groq             ID = "groq"
 	XAI              ID = "xai"
 )

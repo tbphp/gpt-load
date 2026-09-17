@@ -143,14 +143,14 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 
 各チャネルは実行可能なプロトコルと機能を明示的に宣言します。GPT-Load はサポート対象の機能間で変換を行いますが、任意のプロトコル・任意の JSON を扱う汎用コンバーターではありません。
 
-Embeddings は初期段階では OpenAI、OpenRouter、OpenAI Compatible の API Key チャネルでのみネイティブな OpenAI 互換ワイヤーを提供し、サブスクリプションチャネルとプロトコル変換には対応していません。プロトコルフィルターを設定していない AccessKey は既存の「有効なプロトコルをすべて許可する」動作を維持するため、アップグレード後に Embeddings へのアクセス権も得ます。最小権限で運用する場合は、プロトコルフィルターを明示的に設定してください。
+Embeddings は初期段階では OpenAI、OpenRouter、Requesty、OpenAI Compatible の API Key チャネルでのみネイティブな OpenAI 互換ワイヤーを提供し、サブスクリプションチャネルとプロトコル変換には対応していません。プロトコルフィルターを設定していない AccessKey は既存の「有効なプロトコルをすべて許可する」動作を維持するため、アップグレード後に Embeddings へのアクセス権も得ます。最小権限で運用する場合は、プロトコルフィルターを明示的に設定してください。
 
 Rerank は独立した `rerank` プロトコルを使用し、OpenAI Compatible、New API、GPT-Load の API Key チャネルで `POST /v1/rerank` に対応します。リクエストには `model`、`query`、テキストのみの `documents` 配列を指定し、`top_n` や `return_documents` などの上流パラメーターも利用できます。ストリーミング、サブスクリプション、プロトコル変換には対応しません。OpenAI Compatible には完全な API プレフィックス（例：`https://host/v1`）、New API / GPT-Load にはゲートウェイのルートを設定します。上流は互換 Rerank API を提供する必要があります。プロトコルフィルターのない AccessKey は Rerank へのアクセス権も得ます。`search_units` など Token 以外の単位のみが返る場合は未計価とし、Token 数や無料リクエストとして扱いません。
 
 ### 組み込みチャネル
 
 - **公式・クラウド**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
-- **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq
+- **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Requesty、Groq
 - **サブスクリプション**：Codex、Claude、Antigravity、Grok
 - **カスタム**：OpenAI Compatible（任意の互換中継）
 

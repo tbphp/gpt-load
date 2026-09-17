@@ -26,6 +26,7 @@ func builtInModules() []spec.Module {
 		modules.Alibaba(),
 		modules.Volcengine(),
 		modules.OpenRouter(),
+		modules.Requesty(),
 		modules.Groq(),
 		modules.XAI(),
 		modules.GPTLoad(),
