@@ -154,6 +154,79 @@ func TestMultiProtocolGatewayProbeRejectsInvalidSuccessResponses(t *testing.T) {
 	}
 }
 
+func TestMultiProtocolGatewayProbePayloadValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		selected protocol.Protocol
+		payload  string
+		valid    bool
+	}{
+		{"missing-text", protocol.Anthropic, `{"type":"text"}`, false},
+		{"null-text", protocol.Anthropic, `{"type":"text","text":null}`, false},
+		{"number-text", protocol.Anthropic, `{"type":"text","text":123}`, false},
+		{"empty-text", protocol.Anthropic, `{"type":"text","text":""}`, true},
+		{"thinking", protocol.Anthropic, `{"type":"thinking","thinking":"","signature":"sig"}`, true},
+		{"missing-thinking", protocol.Anthropic, `{"type":"thinking","signature":"sig"}`, false},
+		{"redacted-thinking", protocol.Anthropic, `{"type":"redacted_thinking","data":"opaque"}`, true},
+		{"tool-use", protocol.Anthropic, `{"type":"tool_use","id":"tool_1","name":"clock","input":{}}`, true},
+		{"missing-tool-input", protocol.Anthropic, `{"type":"tool_use","id":"tool_1","name":"clock"}`, false},
+		{"missing-message-content", protocol.OpenAIResponses, `{"type":"message"}`, false},
+		{"null-text", protocol.OpenAIResponses, `{"type":"message","content":[{"type":"output_text","text":null}]}`, false},
+		{"number-text", protocol.OpenAIResponses, `{"type":"message","content":[{"type":"output_text","text":123}]}`, false},
+		{"empty-message-content", protocol.OpenAIResponses, `{"type":"message","content":[]}`, true},
+		{"empty-text", protocol.OpenAIResponses, `{"type":"message","content":[{"type":"output_text","text":"","annotations":[]}]}`, true},
+		{"refusal", protocol.OpenAIResponses, `{"type":"message","content":[{"type":"refusal","refusal":""}]}`, true},
+		{"missing-refusal", protocol.OpenAIResponses, `{"type":"message","content":[{"type":"refusal"}]}`, false},
+		{"reasoning-summary", protocol.OpenAIResponses, `{"type":"reasoning","summary":[{"type":"summary_text","text":""}]}`, true},
+		{"missing-summary-text", protocol.OpenAIResponses, `{"type":"reasoning","summary":[{"type":"summary_text"}]}`, false},
+		{"function-call", protocol.OpenAIResponses, `{"type":"function_call","call_id":"call_1","name":"clock","arguments":""}`, true},
+		{"missing-function-arguments", protocol.OpenAIResponses, `{"type":"function_call","call_id":"call_1","name":"clock"}`, false},
+		{"file-search", protocol.OpenAIResponses, `{"type":"file_search_call","id":"fs_1","status":"completed","queries":[]}`, true},
+		{"missing-search-queries", protocol.OpenAIResponses, `{"type":"file_search_call","id":"fs_1","status":"completed"}`, false},
+		{"scalar-search-query", protocol.OpenAIResponses, `{"type":"file_search_call","id":"fs_1","status":"completed","queries":[1]}`, false},
+		{"web-search", protocol.OpenAIResponses, `{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"ping"}}`, true},
+		{"missing-search-action", protocol.OpenAIResponses, `{"type":"web_search_call","id":"ws_1","status":"completed"}`, false},
+		{"mcp-list-tools", protocol.OpenAIResponses, `{"type":"mcp_list_tools","id":"mcp_1","server_label":"test","tools":[]}`, true},
+		{"missing-mcp-tools", protocol.OpenAIResponses, `{"type":"mcp_list_tools","id":"mcp_1","server_label":"test"}`, false},
+		{"local-shell", protocol.OpenAIResponses, `{"type":"local_shell_call","id":"shell_1","call_id":"call_1","status":"completed","action":{"type":"exec","command":["pwd"],"env":{"PATH":"/usr/bin"}}}`, true},
+		{"scalar-shell-env", protocol.OpenAIResponses, `{"type":"local_shell_call","id":"shell_1","call_id":"call_1","status":"completed","action":{"type":"exec","command":["pwd"],"env":{"PATH":123}}}`, false},
+		{"code-interpreter-null-output", protocol.OpenAIResponses, `{"type":"code_interpreter_call","id":"ci_1","status":"incomplete","container_id":"container_1","code":null,"outputs":null}`, true},
+		{"code-interpreter-null-log", protocol.OpenAIResponses, `{"type":"code_interpreter_call","id":"ci_1","status":"completed","container_id":"container_1","code":"","outputs":[{"type":"logs","logs":null}]}`, false},
+		{"mcp-null-tool", protocol.OpenAIResponses, `{"type":"mcp_list_tools","id":"mcp_1","server_label":"test","tools":[null]}`, false},
+		{"null-image-result", protocol.OpenAIResponses, `{"type":"image_generation_call","id":"ig_1","status":"completed","result":null}`, false},
+		{"null-text", protocol.Gemini, `{"text":null}`, false},
+		{"number-text", protocol.Gemini, `{"text":123}`, false},
+		{"unknown-payload", protocol.Gemini, `{"unexpected":true}`, false},
+		{"empty-text", protocol.Gemini, `{"text":""}`, true},
+		{"inline-data", protocol.Gemini, `{"inlineData":{"mimeType":"image/png","data":"AA=="}}`, true},
+		{"missing-inline-data", protocol.Gemini, `{"inlineData":{"mimeType":"image/png"}}`, false},
+		{"function-call", protocol.Gemini, `{"functionCall":{"name":"clock","args":{}}}`, true},
+		{"missing-function-name", protocol.Gemini, `{"functionCall":{"args":{}}}`, false},
+	} {
+		t.Run(string(tc.selected)+"/"+tc.name, func(t *testing.T) {
+			body := `{"type":"message","content":[` + tc.payload + `]}`
+			switch tc.selected {
+			case protocol.OpenAIResponses:
+				body = `{"object":"response","status":"completed","output":[` + tc.payload + `]}`
+			case protocol.Gemini:
+				body = `{"candidates":[{"content":{"parts":[` + tc.payload + `]}}]}`
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, body)
+			}))
+			defer server.Close()
+			manager, spec := gatewayProbeForTest(t, channel.NewAPI, tc.selected, server.URL)
+			result := manager.Execute(t.Context(), spec)
+			if err := result.Validate(); err != nil || (result.Error == nil) != tc.valid {
+				t.Fatalf("valid = %v, want %v; upstream error = %v; validation = %v", result.Error == nil, tc.valid, result.Error, err)
+			}
+		})
+	}
+}
+
 func TestMultiProtocolGatewayProbeFailuresDoNotSucceed(t *testing.T) {
 	t.Parallel()
 
