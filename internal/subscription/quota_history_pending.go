@@ -6,12 +6,15 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"time"
 
 	"gorm.io/gorm"
 
 	"gpt-load/internal/storage/models"
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
+
+const quotaHistorySourceRetryInterval = time.Minute
 
 type quotaHistoryCredential struct {
 	credentialID uint
@@ -106,8 +109,11 @@ func (pending *passiveQuotaPending) historyObservationCredentials(limit int) []q
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
 	keys := make([]quotaHistoryCredential, 0, len(pending.historyObservations))
+	now := time.Now()
 	for key := range pending.historyObservations {
-		keys = append(keys, key)
+		if pending.historyObservationReadyLocked(key, now) {
+			keys = append(keys, key)
+		}
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		if keys[i].credentialID != keys[j].credentialID {
@@ -118,9 +124,14 @@ func (pending *passiveQuotaPending) historyObservationCredentials(limit int) []q
 	return keys[:min(limit, len(keys))]
 }
 
+func (pending *passiveQuotaPending) historyObservationReadyLocked(key quotaHistoryCredential, now time.Time) bool {
+	return !now.Before(pending.historyRetryAt[key])
+}
+
 func (pending *passiveQuotaPending) discardHistoryObservationsLocked(key quotaHistoryCredential) {
 	pending.historyObservationCount -= len(pending.historyObservations[key])
 	delete(pending.historyObservations, key)
+	delete(pending.historyRetryAt, key)
 }
 
 // 数据库解析在后台完成；同一账号积累的观测在一个内存锁内按时间处理完再开放直接采样。
@@ -155,17 +166,30 @@ func (manager *CredentialManager) resolveQuotaHistoryObservations(ctx context.Co
 			}
 			return observations[i].version < observations[j].version
 		})
-		for _, observation := range observations {
+		processed := len(observations)
+		for index, observation := range observations {
 			if observation.groupID != ref.GroupID {
 				continue
 			}
-			normalized, _ := normalizeQuotaHistoryWindows(observation.windows, snapshot.QuotaWindows)
+			normalized, complete := normalizeQuotaHistoryWindows(observation.windows, snapshot.QuotaWindows)
+			if !complete {
+				// 同一事件的副本必须一起解析；后续观测也不能越过这个时间点。
+				processed = index
+				break
+			}
 			manager.passiveQuota.recordHistorySampleLocked(observation.groupID, key.credentialID, key.identity, observation.observedAtMS, observation.version, normalized)
 		}
 		if len(observations) > 0 {
 			manager.passiveQuota.rememberHistorySourcesLocked(key, observations[len(observations)-1].observedAtMS, snapshot.QuotaWindows)
 		}
 		manager.passiveQuota.discardHistoryObservationsLocked(key)
+		if processed < len(observations) {
+			clear(observations[:processed])
+			retained := observations[processed:]
+			manager.passiveQuota.historyObservations[key] = retained
+			manager.passiveQuota.historyObservationCount += len(retained)
+			manager.passiveQuota.historyRetryAt[key] = time.Now().Add(quotaHistorySourceRetryInterval)
+		}
 		manager.passiveQuota.mu.Unlock()
 	}
 	return nil

@@ -3,6 +3,7 @@ package subscription
 import (
 	"sort"
 	"sync"
+	"time"
 
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
@@ -42,6 +43,7 @@ type passiveQuotaPending struct {
 	historyStates           map[quotaHistoryKey]quotaHistoryState
 	historySources          map[quotaHistoryCredential]quotaHistorySource
 	historyObservations     map[quotaHistoryCredential][]quotaHistoryObservation
+	historyRetryAt          map[quotaHistoryCredential]time.Time
 	historyObservationCount int
 	nextVersion             uint64
 	dirtyNotifier           func()
@@ -55,6 +57,7 @@ func newPassiveQuotaPending() *passiveQuotaPending {
 		historyStates:       make(map[quotaHistoryKey]quotaHistoryState),
 		historySources:      make(map[quotaHistoryCredential]quotaHistorySource),
 		historyObservations: make(map[quotaHistoryCredential][]quotaHistoryObservation),
+		historyRetryAt:      make(map[quotaHistoryCredential]time.Time),
 	}
 }
 

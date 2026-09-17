@@ -219,3 +219,98 @@ func TestQuotaHistoryReplaysArrivalsDuringSourceLookupBeforeDirectSampling(t *te
 		t.Fatal("resolved account continued buffering observations")
 	}
 }
+
+func TestQuotaHistoryWaitsForCompleteSourceMapping(t *testing.T) {
+	for _, dualCopies := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dual-copies=%t", dualCopies), func(t *testing.T) {
+			manager, id, identity := newQuotaHistoryExtendedFixture(t)
+			missing := models.JSON(`{"quota_windows":[{"id":"secondary","source_id":"codex","scope":"account","unit":"percent","window_seconds":604800,"state":"available"}]}`)
+			if err := manager.db.Model(&models.CredentialObservation{}).Where("credential_id = ?", id).Update("snapshot_json", missing).Error; err != nil {
+				t.Fatal(err)
+			}
+			lookups := 0
+			if err := manager.db.Callback().Query().Before("gorm:query").Register("test:count_incomplete_source_lookups", func(tx *gorm.DB) {
+				if tx.Statement.Table == "credential_observations" && len(tx.Statement.Selects) == 1 && tx.Statement.Selects[0] == "snapshot_json" {
+					lookups++
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			seconds := int64(604800)
+			for index, pair := range [][2]int{{2, 2}, {1, 3}, {4, 4}} {
+				at := int64(index+1) * 10000
+				used := float64(pair[1]) / 100
+				windows := []providerobservation.QuotaWindow{{ID: "primary", SourceName: "Spark", WindowSeconds: &seconds, Utilization: &used}}
+				if dualCopies {
+					payload := fmt.Sprintf(`{"type":"codex.rate_limits","metered_limit_name":"codex_bengalfox","rate_limits":{"secondary":{"used_percent":%d,"window_minutes":10080,"reset_at":1800000001}},"additional_rate_limits":{"Spark":{"primary":{"used_percent":%d,"window_minutes":10080,"reset_at":1800000000}}}}`, pair[0], pair[1])
+					windows = codex.NormalizeWebsocketQuotaWindows([]byte(payload), time.UnixMilli(at))
+				}
+				manager.RecordPassiveQuotaObservation(id, identity, at, windows)
+			}
+			if remaining, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || remaining {
+				t.Fatalf("incomplete mapping must wait without a retry loop: remaining=%t error=%v", remaining, err)
+			}
+			var count int64
+			if err := manager.db.Model(&models.CredentialQuotaHistory{}).Count(&count).Error; err != nil || count != 0 || manager.passiveQuota.historyObservationCount != 3 {
+				t.Fatalf("unresolved events must remain buffered, not persisted: rows=%d buffered=%d error=%v", count, manager.passiveQuota.historyObservationCount, err)
+			}
+			complete := models.JSON(`{"quota_windows":[{"id":"secondary","source_id":"codex","scope":"account","unit":"percent","window_seconds":604800,"state":"available"},{"id":"spark-primary","source_id":"codex_bengalfox","scope":"Spark","unit":"percent","window_seconds":604800,"state":"available"}]}`)
+			if err := manager.db.Model(&models.CredentialObservation{}).Where("credential_id = ?", id).Update("snapshot_json", complete).Error; err != nil {
+				t.Fatal(err)
+			}
+			used := .05
+			manager.RecordPassiveQuotaObservation(id, identity, 40000, []providerobservation.QuotaWindow{{ID: "primary", SourceID: "codex_bengalfox", WindowSeconds: &seconds, Utilization: &used}})
+			// The retry interval must also apply when another request wakes the worker.
+			if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || manager.passiveQuota.historyObservationCount != 4 || lookups != 1 {
+				t.Fatalf("retry interval bypassed: buffered=%d lookups=%d error=%v", manager.passiveQuota.historyObservationCount, lookups, err)
+			}
+			// Simulate the next eligible worker wake without sleeping.
+			manager.passiveQuota.mu.Lock()
+			manager.passiveQuota.historyRetryAt[quotaHistoryCredential{credentialID: id, identity: identity}] = time.Now().Add(-time.Second)
+			manager.passiveQuota.mu.Unlock()
+			drainQuotaHistoryObservations(t, manager)
+			var rows []models.CredentialQuotaHistory
+			if err := manager.db.Find(&rows).Error; err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 1 || rows[0].SourceID != "codex_bengalfox" || rows[0].ObservedAtMS != 10000 || rows[0].UsedBasisPoints != 200 || manager.passiveQuota.historyObservationCount != 0 {
+				t.Fatalf("resolved history must have one canonical series without a false rebound: %+v", rows)
+			}
+			if len(manager.passiveQuota.historyRetryAt) != 0 {
+				t.Fatal("resolved observations retained retry state")
+			}
+		})
+	}
+}
+
+func TestQuotaHistoryKeepsLaterResolvedEventsBehindUnresolvedEvent(t *testing.T) {
+	manager, id, identity := newQuotaHistoryExtendedFixture(t)
+	if err := manager.db.Model(&models.CredentialObservation{}).Where("credential_id = ?", id).Update("snapshot_json", models.JSON(`{"quota_windows":[]}`)).Error; err != nil {
+		t.Fatal(err)
+	}
+	seconds := int64(604800)
+	for index, used := range []float64{.2, .22, .21, .23} {
+		window := providerobservation.QuotaWindow{ID: "primary", SourceID: "codex_bengalfox", WindowSeconds: &seconds, Utilization: &used}
+		if index == 2 {
+			window.SourceID, window.SourceName = "", "Spark"
+		}
+		manager.RecordPassiveQuotaObservation(id, identity, int64(index+1)*10000, []providerobservation.QuotaWindow{window})
+	}
+	if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || manager.passiveQuota.historyObservationCount != 2 {
+		t.Fatalf("unresolved observation and subsequent event must stay in order: buffered=%d error=%v", manager.passiveQuota.historyObservationCount, err)
+	}
+	if err := manager.db.Model(&models.CredentialObservation{}).Where("credential_id = ?", id).Update("snapshot_json", models.JSON(`{"quota_windows":[{"id":"spark-primary","source_id":"codex_bengalfox","scope":"Spark","unit":"percent","window_seconds":604800,"state":"available"}]}`)).Error; err != nil {
+		t.Fatal(err)
+	}
+	manager.passiveQuota.mu.Lock()
+	manager.passiveQuota.historyRetryAt[quotaHistoryCredential{credentialID: id, identity: identity}] = time.Now().Add(-time.Second)
+	manager.passiveQuota.mu.Unlock()
+	drainQuotaHistoryObservations(t, manager)
+	var rows []models.CredentialQuotaHistory
+	if err := manager.db.Order("observed_at_ms").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 || rows[1].ObservedAtMS != 20000 || rows[1].UsedBasisPoints != 2200 || rows[2].ObservedAtMS != 30000 || rows[2].UsedBasisPoints != 2100 {
+		t.Fatalf("later resolved observation overtook quota rebound: %+v", rows)
+	}
+}

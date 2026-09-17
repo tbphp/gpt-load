@@ -218,10 +218,20 @@ func (pending *passiveQuotaPending) ackHistory(sample quotaHistorySample) {
 	}
 }
 
-func (pending *passiveQuotaPending) hasPendingHistory() bool {
+func (pending *passiveQuotaPending) hasReadyHistory() bool {
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
-	return len(pending.history) > 0 || pending.historyObservationCount > 0
+	if len(pending.history) > 0 {
+		return true
+	}
+	// 未解析观测等待后续工作线程唤醒；冷却期间不触发立即自重试。
+	now := time.Now()
+	for key := range pending.historyObservations {
+		if pending.historyObservationReadyLocked(key, now) {
+			return true
+		}
+	}
+	return false
 }
 
 func (pending *passiveQuotaPending) rememberHistoryTime(key quotaHistoryKey, at int64) {
@@ -328,5 +338,5 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 		manager.passiveQuota.rememberHistoryTime(sample.key, sample.row.ObservedAtMS)
 		manager.passiveQuota.ackHistory(sample)
 	}
-	return manager.passiveQuota.hasPendingHistory(), nil
+	return manager.passiveQuota.hasReadyHistory(), nil
 }
