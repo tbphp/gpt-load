@@ -50,6 +50,7 @@ func Codex() spec.Module {
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesEdit, execution.RouteNative),
 				spec.NewResponsesCreateRoute(execution.RouteNative, spec.ResponsesStoreHandlingStateless),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesInputTokens, execution.RouteNative),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationWebSearch, execution.RouteNative),
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.Anthropic, execution.OperationCountTokens, execution.RouteConverted),
 				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteConverted),

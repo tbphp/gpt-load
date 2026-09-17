@@ -82,6 +82,7 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 			path:    "/v1/embeddings",
 		},
 		{name: "data.rerank", methods: []string{http.MethodPost}, path: "/v1/rerank"},
+		{name: "data.codex.search", methods: []string{http.MethodPost}, path: "/v1/alpha/search"},
 	}
 
 	catalog := dataPlaneEndpointCatalog()

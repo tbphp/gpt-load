@@ -214,6 +214,9 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 		result := unaryExecutionError(execCtx, provider, err, credential)
 		if result.ResponseStarted {
 			result.Header = subscriptionResponseHeaders(response.Headers, "application/json")
+			if spec.Operation == execution.OperationWebSearch {
+				result.Body = append([]byte(nil), response.Payload...)
+			}
 		}
 		if result.Error != nil && execution.UpstreamCountTokensUnsupported(
 			spec.Operation,
@@ -249,9 +252,13 @@ func unaryProviderSuccess(
 		cloned := response.Usage.Clone()
 		observedUsage = &cloned
 	}
+	statusCode := response.StatusCode
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-		UpstreamProtocol: effectiveUpstreamProtocol(provider, response.UpstreamProtocol), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: http.StatusOK,
+		UpstreamProtocol: effectiveUpstreamProtocol(provider, response.UpstreamProtocol), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: statusCode,
 		Header: headers, Body: body, Model: responseModel(body, spec.UpstreamModel),
 		UpstreamRequestID: upstreamRequestID(headers), Usage: observedUsage,
 	}
@@ -474,7 +481,7 @@ func countTokensOperation(operation execution.Operation) bool {
 }
 
 func responseUsage(spec execution.AttemptSpec, body []byte) *execution.UsageEvidence {
-	if countTokensOperation(spec.Operation) || spec.ClientProtocol == protocol.OpenAIImages {
+	if countTokensOperation(spec.Operation) || spec.Operation == execution.OperationWebSearch || spec.ClientProtocol == protocol.OpenAIImages {
 		return nil
 	}
 	return usageEvidence(spec.ClientProtocol, body)
@@ -545,6 +552,21 @@ func bridgeRequest(
 	payload := append([]byte(nil), spec.Body...)
 	headers := spec.Header.Clone()
 	requestPath := ""
+	if spec.Operation == execution.OperationWebSearch {
+		if spec.Method != http.MethodPost || spec.Path != "/v1/alpha/search" || stream {
+			return providerRequest{}, fmt.Errorf("unsupported Codex search request")
+		}
+		requestPath = spec.Path
+		if spec.ClientModel != spec.UpstreamModel {
+			rewritten, err := dialect.NewOpenAIResponses().RewriteRequestModel(&dialect.ParsedRequest{
+				Method: spec.Method, Path: spec.Path, Header: headers, Body: payload,
+			}, spec.UpstreamModel)
+			if err != nil {
+				return providerRequest{}, err
+			}
+			payload = rewritten.Body
+		}
+	}
 	if spec.ClientProtocol == protocol.OpenAIImages {
 		var err error
 		requestPath, err = canonicalCPAImagesRequestPath(spec)
