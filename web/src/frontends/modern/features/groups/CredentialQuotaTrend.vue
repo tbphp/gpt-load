@@ -1,31 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { QuotaHistoryReport, QuotaHistoryWindow } from '@modern/api/credential-quota-history'
 import { AppSvg, AppTooltip } from '@modern/components/ui'
-import { dateFormatter } from '@modern/components/ui/intl-formatters'
 
-const props = defineProps<{ report: QuotaHistoryReport }>()
-const { t, n, locale, te } = useI18n()
-const host = ref<HTMLElement>()
-const width = ref(480)
-const hoveredAt = ref<number>()
+const props = defineProps<{ report: QuotaHistoryReport; cursor?: number; tooltip: string }>()
+const emit = defineEmits<{ cursorChange: [position: number | undefined] }>()
+const { t, te } = useI18n()
 const focused = ref(0)
-let observer: ResizeObserver | undefined
-onMounted(() => {
-  observer = new ResizeObserver(([entry]) => {
-    if (entry) width.value = Math.max(220, entry.contentRect.width)
-  })
-  if (host.value) observer.observe(host.value)
-})
-onBeforeUnmount(() => observer?.disconnect())
 const height = 100,
-  left = 8,
-  top = 6,
-  bottom = 94
-const x = (at: number) =>
-  left +
-  ((at - props.report.from) / (props.report.to - props.report.from)) * (width.value - left - 6)
+  top = 8,
+  bottom = 96
+const x = (at: number) => ((at - props.report.from) / (props.report.to - props.report.from)) * 1000
 const y = (used: number) => top + (used / 10_000) * (bottom - top)
 function windowLabel(window: QuotaHistoryWindow): string {
   const key = 'credentialCards.quotaLabels.' + window.labelKey
@@ -48,70 +34,14 @@ const times = computed(() =>
     ...new Set(windows.value.flatMap((window) => window.points.map((point) => point.observedAt))),
   ].sort((a, b) => a - b),
 )
-function nearest<T>(
-  values: readonly T[],
-  at: number,
-  observedAt: (value: T) => number,
-): T | undefined {
-  let low = 0,
-    high = values.length
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2)
-    if (observedAt(values[middle]!) < at) low = middle + 1
-    else high = middle
-  }
-  const before = values[low - 1],
-    after = values[low]
-  if (before === undefined) return after
-  if (after === undefined) return before
-  return at - observedAt(before) <= observedAt(after) - at ? before : after
-}
-const selected = computed(() => {
-  const at = hoveredAt.value
-  if (at === undefined) return []
-  return windows.value.map((window) => {
-    const candidate = nearest(window.points, at, (point) => point.observedAt)
-    return {
-      label: windowLabel(window),
-      point:
-        candidate && Math.abs(candidate.observedAt - at) <= props.report.bucketWidth * 2
-          ? candidate
-          : undefined,
-    }
-  })
-})
-const timestamp = (at: number) =>
-  dateFormatter(locale.value, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(at)
-const tooltip = computed(() => {
-  if (hoveredAt.value === undefined) return t('ui.date.ranges.7d')
-  return [
-    timestamp(hoveredAt.value),
-    ...selected.value.map((series) => {
-      const point = series.point
-      return `${series.label}  ${point ? n((10_000 - point.usedBasisPoints) / 100, { maximumFractionDigits: 2 }) + '%' : '—'}${point && point.observedAt !== hoveredAt.value ? ' · ' + timestamp(point.observedAt) : ''}`
-    }),
-  ].join('\n')
-})
 function move(event: PointerEvent): void {
-  if (!times.value.length) return
-  const at =
-    props.report.from +
-    Math.max(0, Math.min(1, event.offsetX / (width.value - left - 6))) *
-      (props.report.to - props.report.from)
-  const candidate = nearest(times.value, at, (time) => time)
-  hoveredAt.value =
-    candidate !== undefined && Math.abs(candidate - at) <= props.report.bucketWidth * 2
-      ? candidate
-      : undefined
+  const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  if (bounds.width)
+    emit('cursorChange', Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)))
 }
 function focus(): void {
-  hoveredAt.value = times.value[Math.min(focused.value, times.value.length - 1)]
+  const at = times.value[Math.min(focused.value, times.value.length - 1)]
+  if (at !== undefined) emit('cursorChange', x(at) / 1000)
 }
 function navigate(event: KeyboardEvent): void {
   if (event.altKey || event.ctrlKey || event.metaKey) return
@@ -121,7 +51,7 @@ function navigate(event: KeyboardEvent): void {
   else if (event.key === 'Home') next = 0
   else if (event.key === 'End') next = times.value.length - 1
   else if (event.key === 'Escape') {
-    hoveredAt.value = undefined
+    emit('cursorChange', undefined)
     return
   } else return
   event.preventDefault()
@@ -131,26 +61,32 @@ function navigate(event: KeyboardEvent): void {
 </script>
 <template>
   <div class="modern-quota-trend">
-    <div class="modern-quota-trend-legend">
-      <span v-for="series in curves" :key="series.window.key" :data-tone="series.tone"
-        ><i aria-hidden="true" />{{ series.label }}</span
+    <div class="modern-quota-trend-plot">
+      <AppSvg
+        :viewBox="`0 0 1000 ${height}`"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        focusable="false"
       >
-    </div>
-    <div ref="host" class="modern-quota-trend-plot">
-      <AppSvg :viewBox="`0 0 ${width} ${height}`" aria-hidden="true" focusable="false">
         <g v-for="used in [0, 5000, 10000]" :key="used" class="modern-quota-trend-grid">
-          <line :x1="left" :x2="width - 6" :y1="y(used)" :y2="y(used)" />
+          <line x1="0" x2="1000" :y1="y(used)" :y2="y(used)" vector-effect="non-scaling-stroke" />
         </g>
         <g v-for="series in curves" :key="series.window.key" :data-tone="series.tone">
-          <path :d="series.path" class="modern-quota-trend-line" />
+          <path
+            :d="series.path"
+            class="modern-quota-trend-line"
+            vector-effect="non-scaling-stroke"
+          />
         </g>
         <line
-          v-if="hoveredAt !== undefined"
-          :x1="x(hoveredAt)"
-          :x2="x(hoveredAt)"
-          :y1="top"
-          :y2="bottom"
+          v-if="cursor !== undefined"
+          :x1="cursor * 1000"
+          :x2="cursor * 1000"
+          y1="0"
+          y2="100"
           class="modern-quota-trend-cursor"
+          stroke-dasharray="2 3"
+          vector-effect="non-scaling-stroke"
         />
       </AppSvg>
       <AppTooltip :label="tooltip" side="top">
@@ -160,12 +96,17 @@ function navigate(event: KeyboardEvent): void {
           :aria-label="t('credentialCards.quotaHistory') + ' · ' + tooltip"
           tabindex="0"
           @pointermove="move"
-          @pointerleave="hoveredAt = undefined"
+          @pointerleave="emit('cursorChange', undefined)"
           @focus="focus"
-          @blur="hoveredAt = undefined"
+          @blur="emit('cursorChange', undefined)"
           @keydown="navigate"
         />
       </AppTooltip>
+    </div>
+    <div class="modern-quota-trend-legend">
+      <span v-for="series in curves" :key="series.window.key" :data-tone="series.tone"
+        ><i aria-hidden="true" />{{ series.label }}</span
+      >
     </div>
   </div>
 </template>
@@ -199,7 +140,8 @@ function navigate(event: KeyboardEvent): void {
 .modern-quota-trend-plot :deep(svg) {
   display: block;
   width: 100%;
-  height: 100px;
+  height: var(--modern-trend-height);
+  overflow: visible;
 }
 .modern-quota-trend-grid line {
   stroke: var(--modern-border);
@@ -211,16 +153,13 @@ function navigate(event: KeyboardEvent): void {
   stroke-width: var(--modern-line-width);
 }
 .modern-quota-trend-cursor {
-  stroke: var(--modern-muted);
+  stroke: var(--modern-tooltip-border);
   stroke-width: var(--modern-line-width);
-  stroke-dasharray: 3 3;
 }
 .modern-quota-trend-hit {
   position: absolute;
-  left: 8px;
-  right: 6px;
-  top: 6px;
-  bottom: 6px;
+  inset: 0;
+  cursor: crosshair;
 }
 .modern-quota-trend-hit:focus-visible {
   outline: var(--modern-focus-width) solid var(--modern-accent);

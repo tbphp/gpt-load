@@ -355,11 +355,7 @@ async function refresh(): Promise<void> {
       type: 'active',
     }),
     cache.refetchQueries({
-      queryKey: ['modern', 'credential-quota-history', props.group.id],
-      type: 'active',
-    }),
-    cache.refetchQueries({
-      queryKey: ['modern', 'credential-usage', props.group.id],
+      queryKey: ['modern', 'credential-trends', props.group.id],
       type: 'active',
     }),
   ])

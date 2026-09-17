@@ -8,11 +8,11 @@ const props = defineProps<{
   pointLabels?: readonly string[]
   tone?: 'accent' | 'info' | 'cost'
   showMarker?: boolean
-  overlays?: readonly {
-    values: readonly (number | null)[]
-    tone: 'accent' | 'info' | 'cost'
-  }[]
+  ranges?: readonly { from: number; to: number }[]
+  cursor?: number
+  cursorLabel?: string
 }>()
+const emit = defineEmits<{ cursorChange: [position: number | undefined] }>()
 const gradientId = useId()
 const hovered = ref<number>()
 const focused = ref<number>()
@@ -23,9 +23,10 @@ function seriesCoordinates(values: readonly (number | null)[]) {
   const peak = Math.max(0, ...values.filter((value): value is number => value !== null)) || 1
   const step = values.length > 1 ? 100 / (values.length - 1) : 100
   return values.map((value, index) => {
-    const x = values.length === 1 ? 50 : index * step
-    const left = index === 0 ? 0 : x - step / 2
-    const right = index === values.length - 1 ? 100 : x + step / 2
+    const range = props.ranges?.[index]
+    const x = range ? ((range.from + range.to) / 2) * 100 : values.length === 1 ? 50 : index * step
+    const left = range ? range.from * 100 : index === 0 ? 0 : x - step / 2
+    const right = range ? range.to * 100 : index === values.length - 1 ? 100 : x + step / 2
     return { x, y: value === null ? null : 96 - (value / peak) * 88, left, width: right - left }
   })
 }
@@ -54,28 +55,29 @@ function seriesSegments(coordinates: ReturnType<typeof seriesCoordinates>) {
   finish()
   return result
 }
-// 叠加序列共享时间桶，各自缩放；一组命中区域提供统一提示。
-const series = computed(() =>
-  [{ values: props.values, tone: props.tone ?? 'accent' }, ...(props.overlays ?? [])].map(
-    (item, index) => {
-      const coordinates = seriesCoordinates(item.values)
-      return {
-        tone: item.tone,
-        gradientId: `${gradientId}-${index}`,
-        coordinates,
-        segments: seriesSegments(coordinates),
-      }
-    },
-  ),
-)
-const coordinates = computed(() => series.value[0]!.coordinates)
+const coordinates = computed(() => seriesCoordinates(props.values))
+const segments = computed(() => seriesSegments(coordinates.value))
 const activePoint = computed(() => {
   const index = hovered.value ?? focused.value
-  if (index === undefined) return undefined
-  return series.value
-    .map((item) => item.coordinates[index])
-    .find((point) => point && point.y !== null)
+  const point = index === undefined ? undefined : coordinates.value[index]
+  return point?.y === null ? undefined : point
 })
+const cursorX = computed(() =>
+  props.cursor === undefined ? activePoint.value?.x : props.cursor * 100,
+)
+function move(event: PointerEvent): void {
+  const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  if (bounds.width)
+    emit('cursorChange', Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)))
+}
+function leave(): void {
+  hovered.value = undefined
+  emit('cursorChange', undefined)
+}
+function blur(): void {
+  focused.value = undefined
+  emit('cursorChange', undefined)
+}
 function pointRef(index: number, element: unknown): void {
   if (element instanceof HTMLElement) pointElements.set(index, element)
   else pointElements.delete(index)
@@ -83,12 +85,14 @@ function pointRef(index: number, element: unknown): void {
 function focusPoint(index: number): void {
   focused.value = index
   tabStop.value = index
+  emit('cursorChange', coordinates.value[index]!.x / 100)
 }
 function navigate(event: KeyboardEvent, index: number): void {
   if (event.altKey || event.ctrlKey || event.metaKey) return
   if (event.key === 'Escape') {
     hovered.value = undefined
     focused.value = undefined
+    emit('cursorChange', undefined)
     return
   }
   let next = index
@@ -118,47 +122,31 @@ watch(
     :data-tone="tone"
     :role="interactive ? 'group' : 'img'"
     :aria-label="label"
-    @pointerleave="hovered = undefined"
+    @pointermove="move"
+    @pointerleave="leave"
   >
     <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
       <defs>
-        <linearGradient
-          v-for="item in series"
-          :id="item.gradientId"
-          :key="item.gradientId"
-          class="modern-sparkline-series"
-          :data-tone="item.tone"
-          x1="0"
-          y1="0"
-          x2="0"
-          y2="1"
-        >
+        <linearGradient :id="gradientId" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" class="modern-sparkline-fill" stop-opacity="0.2" />
           <stop offset="1" class="modern-sparkline-fill" stop-opacity="0.015" />
         </linearGradient>
       </defs>
-      <g
-        v-for="item in series"
-        :key="item.gradientId"
-        class="modern-sparkline-series"
-        :data-tone="item.tone"
-      >
-        <g v-for="(segment, index) in item.segments" :key="index">
-          <polygon
-            :points="`${segment.start},100 ${segment.points} ${segment.end},100`"
-            :fill="`url(#${item.gradientId})`"
-          />
-          <polyline
-            :points="segment.points"
-            class="modern-sparkline-line"
-            vector-effect="non-scaling-stroke"
-          />
-        </g>
+      <g v-for="(segment, index) in segments" :key="index">
+        <polygon
+          :points="`${segment.start},100 ${segment.points} ${segment.end},100`"
+          :fill="`url(#${gradientId})`"
+        />
+        <polyline
+          :points="segment.points"
+          class="modern-sparkline-line"
+          vector-effect="non-scaling-stroke"
+        />
       </g>
       <line
-        v-if="activePoint"
-        :x1="activePoint.x * 10"
-        :x2="activePoint.x * 10"
+        v-if="cursorX !== undefined"
+        :x1="cursorX * 10"
+        :x2="cursorX * 10"
         y1="0"
         y2="100"
         class="modern-sparkline-guide"
@@ -170,7 +158,7 @@ watch(
       <AppTooltip
         v-for="(point, index) in coordinates"
         :key="index"
-        :label="pointLabels?.[index]"
+        :label="cursorLabel ?? pointLabels?.[index]"
         side="top"
       >
         <span
@@ -182,7 +170,7 @@ watch(
           :style="{ left: `${point.left}%`, width: `${point.width}%` }"
           @pointerenter="hovered = index"
           @focus="focusPoint(index)"
-          @blur="focused = undefined"
+          @blur="blur"
           @keydown="navigate($event, index)"
         />
       </AppTooltip>
@@ -203,15 +191,10 @@ watch(
   width: 100%;
   height: var(--modern-trend-height);
 }
-.modern-sparkline-series {
-  --modern-sparkline-color: var(--modern-accent);
-}
-.modern-sparkline[data-tone='info'],
-.modern-sparkline-series[data-tone='info'] {
+.modern-sparkline[data-tone='info'] {
   --modern-sparkline-color: var(--modern-chart-input);
 }
-.modern-sparkline[data-tone='cost'],
-.modern-sparkline-series[data-tone='cost'] {
+.modern-sparkline[data-tone='cost'] {
   --modern-sparkline-color: var(--modern-chart-cost);
 }
 .modern-sparkline > svg {
