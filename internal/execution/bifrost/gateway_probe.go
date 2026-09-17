@@ -389,7 +389,7 @@ func validGatewayProbeGeminiPart(raw json.RawMessage) bool {
 	if err != nil || json.Unmarshal(raw, &part) != nil {
 		return false
 	}
-	hasPayload := false
+	payloadCount := 0
 	for _, name := range []string{"text", "inlineData", "fileData", "functionCall", "functionResponse", "executableCode", "codeExecutionResult", "toolCall", "toolResponse"} {
 		if _, exists := fields[name]; !exists {
 			continue
@@ -427,7 +427,7 @@ func validGatewayProbeGeminiPart(raw json.RawMessage) bool {
 		if !valid {
 			return false
 		}
-		hasPayload = true
+		payloadCount++
 	}
-	return hasPayload
+	return payloadCount == 1
 }

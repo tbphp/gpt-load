@@ -240,6 +240,7 @@ func TestGatewayMalformedProbeDoesNotRecoverCredential(t *testing.T) {
 		{protocol.OpenAIResponses, `{"object":"response","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":null}]}]}`, `{"object":"response","status":"incomplete","output":[]}`},
 		{protocol.Anthropic, `{"type":"message","content":[{"type":"text"}]}`, `{"type":"message","content":[]}`},
 		{protocol.Gemini, `{"candidates":[{"content":{"parts":[{"text":null}]}}]}`, `{"candidates":[{"finishReason":"MAX_TOKENS"}]}`},
+		{protocol.Gemini, `{"candidates":[{"content":{"parts":[{"text":"pong","functionCall":{"name":"clock","args":{}}}]}}]}`, `{"candidates":[{"content":{"parts":[{"text":"","thought":true,"thoughtSignature":"c2ln"}]}}]}`},
 	} {
 		t.Run(string(tc.selected), func(t *testing.T) {
 			var healthy atomic.Bool
