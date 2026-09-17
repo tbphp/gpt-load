@@ -78,7 +78,9 @@ const identities = useQuery(
   })),
 )
 function identity(id: number): string {
-  return identities.data.value?.get(id) || (identities.isSuccess.value ? t('logs.deleted') : '—')
+  const values = identities.data.value
+  if (!values) return '—'
+  return values.has(id) ? values.get(id) || t('logs.unavailableCredential') : t('logs.deleted')
 }
 function setPageSize(value: number): void {
   pageSize.value = value

@@ -791,7 +791,7 @@ function costLabel(log: RequestLogItemDto): string {
               :credential-id="log.credential_id"
               :credential-name="log.credential_name"
               :group-deleted="groupDeleted(log)"
-              :credential-deleted="log.credential_id !== null && log.credential_name === ''"
+              :credential-deleted="log.credential_deleted"
               filterable
               @filter-group="filterByGroup"
               @filter-credential="filterByCredential"
