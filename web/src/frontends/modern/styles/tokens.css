@@ -62,6 +62,15 @@
     var(--modern-info-soft) 28%,
     var(--modern-surface)
   );
+  --modern-login-mascot-shadow: light-dark(rgb(90 39 16 / 24%), rgb(0 0 0 / 42%));
+  --modern-login-mascot-shadow-soft: light-dark(rgb(98 44 19 / 8%), rgb(0 0 0 / 16%));
+  --modern-login-card-surface: color-mix(
+    in srgb,
+    var(--modern-accent-soft) 12%,
+    var(--modern-surface)
+  );
+  --modern-login-card-highlight: light-dark(rgb(255 255 255 / 90%), rgb(255 255 255 / 5%));
+  --modern-login-card-border: color-mix(in srgb, var(--modern-accent) 8%, var(--modern-border));
   /* 模型卡卡头的晕染基色。用饱和色，实际浓度由径向渐变的混合比例决定，
      与用量统计顶部卡片同一套手法（那里的 Token 卡用的也是这支蓝）。 */
   --modern-model-card-tint: var(--modern-chart-input);
@@ -148,6 +157,10 @@
   --modern-shadow-thumb: 0 1px 3px rgb(0 0 0 / 18%);
   --modern-shadow-focus: 0 0 0 3px color-mix(in srgb, var(--modern-accent) 15%, transparent);
   --modern-shadow-focus-danger: 0 0 0 3px color-mix(in srgb, var(--modern-danger) 15%, transparent);
+  --modern-shadow-login:
+    0 16px 48px light-dark(rgb(92 51 30 / 7%), rgb(0 0 0 / 20%)),
+    0 2px 8px light-dark(rgb(92 51 30 / 3%), rgb(0 0 0 / 10%)),
+    inset 0 1px 0 var(--modern-login-card-highlight);
 
   /* 控件与图标：尺寸由公共组件选择，不在调用处传像素。 */
   --modern-control-xxs: 24px;
@@ -252,6 +265,9 @@
   --modern-mascot-fold-duration: 800ms;
   --modern-mascot-theme-duration: 1450ms;
   --modern-mascot-cooldown: 2400ms;
+  --modern-login-mascot-breath-duration: 5.8s;
+  --modern-login-mascot-tail-duration: 4s;
+  --modern-login-mascot-blink-duration: 7s;
   --modern-mascot-ease: cubic-bezier(0.22, 0.9, 0.24, 1);
   --modern-opacity-disabled: 0.55;
   --modern-opacity-quiet: 0.65;

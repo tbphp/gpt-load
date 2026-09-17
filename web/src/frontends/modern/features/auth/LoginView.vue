@@ -15,6 +15,7 @@ import {
 import { safeRedirect } from '@modern/app/redirect'
 import { RequestCancelledError } from '@shared/http/errors'
 import AuthCard from './AuthCard.vue'
+import LoginMascot from './LoginMascot.vue'
 import { authFailure, authRetrySeconds, type AuthFailure } from './auth-errors'
 import { useAuthSession } from './auth-session'
 import { useCountdown } from './use-countdown'
@@ -27,6 +28,7 @@ const candidate = ref('')
 const remember = ref(false)
 const input = ref<InstanceType<typeof AppTextField>>()
 const visible = ref(false)
+const typing = ref(false)
 const submitting = ref(false)
 const fieldError = ref<'required' | 'invalidFormat'>()
 const feedback = ref<AuthFailure>()
@@ -34,6 +36,7 @@ const authenticated = ref(false)
 const navigationFailed = ref(false)
 const controller = new AbortController()
 const countdown = useCountdown()
+let typingTimer: ReturnType<typeof setTimeout> | undefined
 const helpOpen = computed(() => route.query.help === 'auth')
 const locked = computed(() => feedback.value === 'locked' && countdown.active.value)
 const disabled = computed(() => submitting.value || locked.value)
@@ -60,6 +63,11 @@ watch(
   { immediate: true },
 )
 watch(candidate, () => {
+  typing.value = true
+  clearTimeout(typingTimer)
+  typingTimer = setTimeout(() => {
+    typing.value = false
+  }, 1200)
   fieldError.value = undefined
   if (feedback.value !== 'locked') feedback.value = undefined
 })
@@ -72,7 +80,10 @@ watch(countdown.active, (active) => {
 onMounted(() => {
   void focusInput()
 })
-onScopeDispose(() => controller.abort())
+onScopeDispose(() => {
+  controller.abort()
+  clearTimeout(typingTimer)
+})
 
 async function focusInput(): Promise<void> {
   await nextTick()
@@ -126,96 +137,117 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <AuthCard :title="t('auth.title')" :description="t('auth.description')">
-    <form class="modern-login-form" novalidate @submit.prevent="submit">
-      <template v-if="!authenticated">
-        <AppTextField
-          ref="input"
-          v-model="candidate"
-          :label="t('auth.keyLabel')"
-          name="auth-key"
-          :type="visible ? 'text' : 'password'"
-          autocomplete="current-password"
-          autocapitalize="none"
-          :spellcheck="false"
-          :placeholder="t('auth.keyPlaceholder')"
-          :disabled="disabled"
-          :error="fieldError ? t(`auth.${fieldError}`) : undefined"
-          :invalid="feedback === 'invalid'"
-          :described-by="message ? 'modern-auth-feedback' : undefined"
-        >
-          <template #suffix>
-            <AppIconButton
-              :icon="visible ? EyeOff : Eye"
-              :label="t(visible ? 'auth.conceal' : 'auth.reveal')"
-              size="xs"
-              :aria-pressed="visible"
-              :disabled="disabled"
-              @click="visible = !visible"
-            />
-          </template>
-        </AppTextField>
-        <AppCheckbox
-          v-model="remember"
-          name="remember-login"
-          :label="t('auth.remember')"
-          :disabled="disabled"
-        />
-        <AppNotice
-          v-if="message"
-          id="modern-auth-feedback"
-          :tone="feedback === 'locked' ? 'warning' : 'danger'"
-          >{{ message }}</AppNotice
-        >
-        <AppButton
-          class="modern-login-submit"
-          variant="primary"
-          type="submit"
-          :loading="submitting"
-          :disabled="disabled"
-        >
-          {{ t(submitting ? 'auth.submitting' : 'auth.submit') }}
-        </AppButton>
-      </template>
-      <template v-else>
-        <AppNotice :tone="navigationFailed ? 'danger' : 'info'">{{
-          navigationFailed ? message : t('auth.signedIn')
-        }}</AppNotice>
-        <AppButton v-if="navigationFailed" variant="primary" @click="continueToPage">{{
-          t('auth.continue')
-        }}</AppButton>
-      </template>
-    </form>
+  <div class="modern-login-stage">
+    <LoginMascot :quiet="typing || submitting" />
+    <AuthCard
+      class="modern-login-card"
+      :title="t('auth.title')"
+      :description="t('auth.description')"
+    >
+      <form class="modern-login-form" novalidate @submit.prevent="submit">
+        <template v-if="!authenticated">
+          <AppTextField
+            ref="input"
+            v-model="candidate"
+            :label="t('auth.keyLabel')"
+            name="auth-key"
+            :type="visible ? 'text' : 'password'"
+            autocomplete="current-password"
+            autocapitalize="none"
+            :spellcheck="false"
+            :placeholder="t('auth.keyPlaceholder')"
+            :disabled="disabled"
+            :error="fieldError ? t(`auth.${fieldError}`) : undefined"
+            :invalid="feedback === 'invalid'"
+            :described-by="message ? 'modern-auth-feedback' : undefined"
+          >
+            <template #suffix>
+              <AppIconButton
+                :icon="visible ? EyeOff : Eye"
+                :label="t(visible ? 'auth.conceal' : 'auth.reveal')"
+                size="xs"
+                :aria-pressed="visible"
+                :disabled="disabled"
+                @click="visible = !visible"
+              />
+            </template>
+          </AppTextField>
+          <AppCheckbox
+            v-model="remember"
+            name="remember-login"
+            :label="t('auth.remember')"
+            :disabled="disabled"
+          />
+          <AppNotice
+            v-if="message"
+            id="modern-auth-feedback"
+            :tone="feedback === 'locked' ? 'warning' : 'danger'"
+            >{{ message }}</AppNotice
+          >
+          <AppButton
+            class="modern-login-submit"
+            variant="primary"
+            type="submit"
+            :loading="submitting"
+            :disabled="disabled"
+          >
+            {{ t(submitting ? 'auth.submitting' : 'auth.submit') }}
+          </AppButton>
+        </template>
+        <template v-else>
+          <AppNotice :tone="navigationFailed ? 'danger' : 'info'">{{
+            navigationFailed ? message : t('auth.signedIn')
+          }}</AppNotice>
+          <AppButton v-if="navigationFailed" variant="primary" @click="continueToPage">{{
+            t('auth.continue')
+          }}</AppButton>
+        </template>
+      </form>
 
-    <details class="modern-login-help" :open="helpOpen" @toggle="toggleHelp">
-      <summary>{{ t('auth.help.title') }}</summary>
-      <div class="modern-login-help-content">
-        <p>
-          <strong>{{ t('auth.help.accessKeyTitle') }}</strong
-          >{{ t('auth.help.accessKey') }}
-        </p>
-        <p>
-          <strong>{{ t('auth.help.adminTitle') }}</strong
-          >{{ t('auth.help.admin') }}
-        </p>
-        <p>
-          {{
-            t('auth.help.file', {
-              path: '${DATA_DIR}/auth.key',
-              containerPath: '/app/data/auth.key',
-            })
-          }}
-        </p>
-        <p>{{ t('auth.help.docker') }}<code>docker exec -it gpt-load sh</code></p>
-        <AppExternalLink href="https://www.gpt-load.com/docs">{{
-          t('shell.documentation')
-        }}</AppExternalLink>
-      </div>
-    </details>
-  </AuthCard>
+      <details class="modern-login-help" :open="helpOpen" @toggle="toggleHelp">
+        <summary>{{ t('auth.help.title') }}</summary>
+        <div class="modern-login-help-content">
+          <p>
+            <strong>{{ t('auth.help.accessKeyTitle') }}</strong
+            >{{ t('auth.help.accessKey') }}
+          </p>
+          <p>
+            <strong>{{ t('auth.help.adminTitle') }}</strong
+            >{{ t('auth.help.admin') }}
+          </p>
+          <p>
+            {{
+              t('auth.help.file', {
+                path: '${DATA_DIR}/auth.key',
+                containerPath: '/app/data/auth.key',
+              })
+            }}
+          </p>
+          <p>{{ t('auth.help.docker') }}<code>docker exec -it gpt-load sh</code></p>
+          <AppExternalLink href="https://www.gpt-load.com/docs">{{
+            t('shell.documentation')
+          }}</AppExternalLink>
+        </div>
+      </details>
+    </AuthCard>
+  </div>
 </template>
 
 <style scoped>
+.modern-login-stage {
+  --modern-login-mascot-width: 120px;
+  --modern-login-mascot-seat: 0.435;
+  position: relative;
+  width: min(100%, 440px);
+  padding-top: calc(var(--modern-login-mascot-width) * var(--modern-login-mascot-seat));
+}
+.modern-login-card {
+  border-color: var(--modern-login-card-border);
+  border-radius: var(--modern-radius-dialog);
+  background: var(--modern-login-card-surface);
+  padding-top: var(--modern-space-6);
+  box-shadow: var(--modern-shadow-login);
+}
 .modern-login-form {
   display: grid;
   gap: var(--modern-space-4);
@@ -255,5 +287,10 @@ async function submit(): Promise<void> {
   width: fit-content;
   color: var(--modern-accent);
   text-decoration: underline;
+}
+@media (max-width: 760px) {
+  .modern-login-stage {
+    --modern-login-mascot-width: 108px;
+  }
 }
 </style>
