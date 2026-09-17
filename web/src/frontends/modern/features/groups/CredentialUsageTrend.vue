@@ -1,28 +1,23 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getUsage, type UsageMetric } from '@modern/api/usage'
+import { getUsage } from '@modern/api/usage'
 import { resolveTimeRange } from '@modern/app/time-range'
-import {
-  AppButton,
-  AppCollectionState,
-  AppSegmentedControl,
-  AppSparkline,
-} from '@modern/components/ui'
+import { AppButton, AppCollectionState, AppSparkline } from '@modern/components/ui'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
-import { chartPoints, formatUsageCost } from '@modern/features/usage/usage-display'
+import { chartPoints, formatUsageCost, metricValue } from '@modern/features/usage/usage-display'
 import { useApiClient } from '@shared/http/client-context'
 
 const props = defineProps<{ group: number; credential: number }>()
 const { t, n, locale } = useI18n()
 const client = useApiClient()
-const metric = ref<UsageMetric>('tokens')
 const metrics = computed(() =>
   (['tokens', 'requests', 'cost'] as const).map((value) => ({
     value,
     label: t('usage.' + value),
+    tone: value === 'tokens' ? 'info' : value === 'cost' ? 'cost' : 'accent',
   })),
 )
 const query = useQuery(
@@ -45,16 +40,21 @@ const report = computed(() => query.data.value)
 const points = computed(() => {
   if (!report.value) return []
   const rows = new Map(report.value.series.map((row) => [row.bucket_start_ms, row]))
-  return chartPoints(report.value, metric.value).map((point) => ({
-    ...point,
-    value: metric.value === 'requests' ? (rows.get(point.from)?.success_count ?? 0) : point.value,
-    row: rows.get(point.from),
-  }))
+  return chartPoints(report.value, 'tokens').map((point) => {
+    const row = rows.get(point.from)
+    return {
+      ...point,
+      requests: row?.success_count ?? 0,
+      cost: row ? metricValue(row, 'cost') : 0,
+      row,
+    }
+  })
 })
 const values = computed(() => points.value.map((point) => point.value))
-const tone = computed(() =>
-  metric.value === 'tokens' ? 'info' : metric.value === 'cost' ? 'cost' : 'accent',
-)
+const overlays = computed(() => [
+  { values: points.value.map((point) => point.requests), tone: 'accent' as const },
+  { values: points.value.map((point) => point.cost), tone: 'cost' as const },
+])
 const pointLabels = computed(() => {
   const date = dateFormatter(locale.value, {
     month: 'short',
@@ -64,26 +64,19 @@ const pointLabels = computed(() => {
     hourCycle: 'h23',
   })
   return points.value.map((point) => {
-    const value =
-      point.value === null
-        ? '—'
-        : metric.value === 'cost'
-          ? formatUsageCost(point.row?.estimated_cost_nano_usd ?? '0', locale.value)
-          : n(point.value)
     const lines = [
       `${date.format(point.from)} – ${date.format(point.to)}`,
-      `${t(metric.value === 'requests' ? 'usage.trendSeries.success' : 'usage.' + metric.value)} ${value}`,
+      `${t('usage.tokens')} ${point.value === null ? '—' : n(point.value)}`,
+      `${t('usage.requests')} · ${t('usage.trendSeries.success')} ${n(point.requests)}`,
+      `${t('usage.cost')} ${point.cost === null ? '—' : formatUsageCost(point.row?.estimated_cost_nano_usd ?? '0', locale.value)}`,
     ]
     if (
       report.value?.collectionIncomplete ||
-      (metric.value === 'tokens' && (point.row?.usage_missing_count || point.row?.partial_count))
+      point.row?.usage_missing_count ||
+      point.row?.partial_count
     )
       lines.push(t('usage.incomplete'))
-    if (
-      metric.value === 'cost' &&
-      point.row &&
-      (point.row.unpriced_request_count || point.row.pricing_partial_count)
-    )
+    if (point.row && (point.row.unpriced_request_count || point.row.pricing_partial_count))
       lines.push(
         t('usage.unpriced', {
           count: n(point.row.unpriced_request_count),
@@ -99,13 +92,11 @@ const pointLabels = computed(() => {
   <section class="modern-credential-usage-trend">
     <header>
       <h3>{{ t('credentialCards.localUsage') }}</h3>
-      <AppSegmentedControl
-        v-model="metric"
-        :label="t('credentialCards.statisticsMetric')"
-        appearance="field"
-        size="xs"
-        :options="metrics"
-      />
+      <div class="modern-credential-usage-legend">
+        <span v-for="metric in metrics" :key="metric.value" :data-tone="metric.tone">
+          <i aria-hidden="true" />{{ metric.label }}
+        </span>
+      </div>
     </header>
     <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
     <AppCollectionState
@@ -119,7 +110,8 @@ const pointLabels = computed(() => {
       v-else-if="report"
       :values="values"
       :point-labels="pointLabels"
-      :tone="tone"
+      tone="info"
+      :overlays="overlays"
       :show-marker="false"
       :label="t('credentialCards.localUsage')"
     />
@@ -139,9 +131,34 @@ const pointLabels = computed(() => {
   align-items: center;
   justify-content: space-between;
   gap: var(--modern-space-2);
+  flex-wrap: wrap;
 }
 .modern-credential-usage-trend h3 {
   font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
+}
+.modern-credential-usage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--modern-space-2);
+  font-size: var(--modern-font-size-small);
+}
+.modern-credential-usage-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--modern-space-1);
+  color: var(--modern-accent);
+}
+.modern-credential-usage-legend [data-tone='info'] {
+  color: var(--modern-chart-input);
+}
+.modern-credential-usage-legend [data-tone='cost'] {
+  color: var(--modern-chart-output);
+}
+.modern-credential-usage-legend i {
+  width: var(--modern-space-1-5);
+  height: var(--modern-space-1-5);
+  border-radius: var(--modern-radius-round);
+  background: currentColor;
 }
 </style>

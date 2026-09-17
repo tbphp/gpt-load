@@ -1,6 +1,5 @@
 export const zhCN = {
   localUsage: '用量趋势',
-  statisticsMetric: '用量指标',
   statisticsFailed: '用量趋势加载失败',
   quotaHistory: '剩余额度趋势',
   quotaHistoryFailed: '额度历史加载失败',
@@ -130,7 +129,6 @@ export const zhCN = {
 }
 export const enUS: typeof zhCN = {
   localUsage: 'Usage trend',
-  statisticsMetric: 'Usage metric',
   statisticsFailed: 'Failed to load usage trend',
   quotaHistory: 'Remaining quota trend',
   quotaHistoryFailed: 'Failed to load quota history',
@@ -265,7 +263,6 @@ export const enUS: typeof zhCN = {
 }
 export const jaJP: typeof zhCN = {
   localUsage: '使用量の推移',
-  statisticsMetric: '使用量指標',
   statisticsFailed: '使用量の読み込みに失敗しました',
   quotaHistory: '残りクォータの推移',
   quotaHistoryFailed: 'クォータ履歴の読み込みに失敗しました',
