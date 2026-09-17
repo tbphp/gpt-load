@@ -33,28 +33,28 @@ type passiveQuotaEntry struct {
 	dirty              bool
 }
 
-// passiveQuotaPending is the process-local, credential-keyed dirty set for
-// passive quota observations. It holds at most one entry per credential and
-// never grows with request volume, only with the number of accounts that
-// have produced a valid quota signal.
+// passiveQuotaPending 每个凭据仅保留一份实时快照；历史待解析观测与待写点分别有界。
 type passiveQuotaPending struct {
-	mu             sync.Mutex
-	entries        map[uint]*passiveQuotaEntry
-	history        map[quotaHistorySampleKey]quotaHistorySample
-	historyTimes   map[quotaHistoryKey]int64
-	historyStates  map[quotaHistoryKey]quotaHistoryState
-	historySources map[quotaHistoryKey]quotaHistorySource
-	nextVersion    uint64
-	dirtyNotifier  func()
+	mu                      sync.Mutex
+	entries                 map[uint]*passiveQuotaEntry
+	history                 map[quotaHistorySampleKey]quotaHistorySample
+	historyTimes            map[quotaHistoryKey]int64
+	historyStates           map[quotaHistoryKey]quotaHistoryState
+	historySources          map[quotaHistoryCredential]quotaHistorySource
+	historyObservations     map[quotaHistoryCredential][]quotaHistoryObservation
+	historyObservationCount int
+	nextVersion             uint64
+	dirtyNotifier           func()
 }
 
 func newPassiveQuotaPending() *passiveQuotaPending {
 	return &passiveQuotaPending{
-		entries:        make(map[uint]*passiveQuotaEntry),
-		history:        make(map[quotaHistorySampleKey]quotaHistorySample),
-		historyTimes:   make(map[quotaHistoryKey]int64),
-		historyStates:  make(map[quotaHistoryKey]quotaHistoryState),
-		historySources: make(map[quotaHistoryKey]quotaHistorySource),
+		entries:             make(map[uint]*passiveQuotaEntry),
+		history:             make(map[quotaHistorySampleKey]quotaHistorySample),
+		historyTimes:        make(map[quotaHistoryKey]int64),
+		historyStates:       make(map[quotaHistoryKey]quotaHistoryState),
+		historySources:      make(map[quotaHistoryCredential]quotaHistorySource),
+		historyObservations: make(map[quotaHistoryCredential][]quotaHistoryObservation),
 	}
 }
 

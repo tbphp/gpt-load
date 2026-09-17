@@ -164,7 +164,7 @@ func TestQuotaHistoryTimeCacheDoesNotStopSamplingWhenFull(t *testing.T) {
 	}
 	used := 0.25
 	seconds := int64(604_800)
-	pending.recordHistoryLocked(1, 1, 1, 120_000, []providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, Utilization: &used}})
+	pending.recordHistorySampleLocked(1, 1, 1, 120_000, pending.nextVersion, []providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, Utilization: &used}})
 	if len(pending.historyBatch(20)) != 1 {
 		t.Fatal("full time cache stopped history admission")
 	}
@@ -251,7 +251,7 @@ func TestQuotaHistoryKeepsConsecutiveReboundsAndBoundsPendingMemory(t *testing.T
 	seconds := int64(604_800)
 	for index, used := range []float64{0.9, 0.5, 0.1} {
 		pending.nextVersion++
-		pending.recordHistoryLocked(1, 1, 1, int64(index+1)*10_000,
+		pending.recordHistorySampleLocked(1, 1, 1, int64(index+1)*10_000, pending.nextVersion,
 			[]providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, Utilization: &used}})
 	}
 	samples := pending.historyBatch(20)
@@ -268,7 +268,7 @@ func TestQuotaHistoryKeepsConsecutiveReboundsAndBoundsPendingMemory(t *testing.T
 	for index := 0; index < quotaHistoryCapacity+10; index++ {
 		used := 0.5
 		pending.nextVersion++
-		pending.recordHistoryLocked(1, uint(index+2), 1, int64(index+4)*10_000,
+		pending.recordHistorySampleLocked(1, uint(index+2), 1, int64(index+4)*10_000, pending.nextVersion,
 			[]providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, Utilization: &used}})
 	}
 	if len(pending.history) != quotaHistoryCapacity || len(pending.historyStates) != quotaHistoryCapacity {

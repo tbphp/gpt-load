@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useId } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { QuotaHistoryReport } from '@modern/api/credential-quota-history'
 import { AppSvg, AppTooltip } from '@modern/components/ui'
@@ -38,6 +38,12 @@ const times = computed(() =>
   [
     ...new Set(windows.value.flatMap((window) => window.points.map((point) => point.observedAt))),
   ].sort((a, b) => a - b),
+)
+watch(
+  () => times.value.length,
+  (length) => {
+    focused.value = length ? Math.min(focused.value, length - 1) : 0
+  },
 )
 function move(event: PointerEvent): void {
   const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
