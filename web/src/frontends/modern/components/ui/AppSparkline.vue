@@ -12,6 +12,7 @@ const props = defineProps<{
   ranges?: readonly { from: number; to: number }[]
   cursor?: number
   cursorLabel?: string
+  tooltipSide?: 'top' | 'bottom'
 }>()
 const emit = defineEmits<{ cursorChange: [position: number | undefined] }>()
 const gradientId = useId()
@@ -161,7 +162,7 @@ watch(
         vector-effect="non-scaling-stroke"
       />
     </svg>
-    <AppTooltip v-if="interactive" :label="tooltip" side="top">
+    <AppTooltip v-if="interactive" :label="tooltip" :side="tooltipSide ?? 'top'">
       <span
         class="modern-sparkline-hit"
         role="img"

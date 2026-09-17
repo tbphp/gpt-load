@@ -246,6 +246,7 @@ const pointLabels = computed(() => ({
         :label="chart.label"
         :cursor="cursor"
         :cursor-label="usageTooltips[chart.key]"
+        :tooltip-side="quotaVisible && chart.key !== 'tokens' ? 'bottom' : 'top'"
         @cursor-change="cursor = $event"
       />
     </section>
