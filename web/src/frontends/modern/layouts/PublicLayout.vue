@@ -84,6 +84,8 @@ const mascotHint = useId()
   margin-left: auto;
 }
 .modern-public-content {
+  position: relative;
+  isolation: isolate;
   display: grid;
   min-height: calc(100dvh - var(--modern-topbar-height));
   align-items: center;
