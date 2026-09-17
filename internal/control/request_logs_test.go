@@ -1527,24 +1527,26 @@ func TestHistoricalCredentialLabelFailuresAreNotDeletion(t *testing.T) {
 	}
 }
 
-func TestRequestLogCredentialDeletionDependsOnExistenceNotLabel(t *testing.T) {
+func TestRequestLogCredentialLabelsPreserveExistingWireSchema(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []struct {
-		name    string
-		labels  map[uint]string
-		deleted bool
+		name         string
+		labels       map[uint]string
+		credentialID uint
+		wantLabel    string
 	}{
-		{name: "named", labels: map[uint]string{41: "masked"}},
-		{name: "unreadable", labels: map[uint]string{41: ""}},
-		{name: "unknown catalog"},
-		{name: "deleted", labels: map[uint]string{}, deleted: true},
+		{name: "named", labels: map[uint]string{41: "masked"}, credentialID: 41, wantLabel: "masked"},
+		{name: "unreadable", labels: map[uint]string{41: ""}, credentialID: 41, wantLabel: "—"},
+		{name: "unknown catalog", credentialID: 41, wantLabel: "—"},
+		{name: "deleted", labels: map[uint]string{}, credentialID: 41},
+		{name: "unassociated", labels: map[uint]string{}},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			record := requestlog.Record{
 				RequestID: "11111111-1111-4111-8111-111111111111", CompletedAtMS: 1_700_000_000_000,
-				GroupID: 3, CredentialID: 41, UsageState: usage.StateComplete,
+				GroupID: 3, CredentialID: scenario.credentialID, UsageState: usage.StateComplete,
 				CostState: pricing.CostStatePriced, PricingCompleteness: pricing.CompletenessComplete,
-				Attempts: []requestlog.Attempt{{Sequence: 1, GroupID: 3, CredentialID: 41}},
+				Attempts: []requestlog.Attempt{{Sequence: 1, GroupID: 3, CredentialID: scenario.credentialID}},
 			}
 			detail, err := mapRequestLogDetailResponse(record, scenario.labels)
 			if err != nil {
@@ -1559,9 +1561,19 @@ func TestRequestLogCredentialDeletionDependsOnExistenceNotLabel(t *testing.T) {
 				t.Fatal(err)
 			}
 			attempt := result["attempts"].([]any)[0].(map[string]any)
+			list, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}}, scenario.labels)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(list.Items) != 1 || list.Items[0].CredentialName != scenario.wantLabel {
+				t.Fatalf("list credential_name = %#v, want %q", list.Items, scenario.wantLabel)
+			}
 			for _, item := range []map[string]any{result, attempt} {
-				if deleted, exists := item["credential_deleted"]; !exists || deleted != scenario.deleted {
-					t.Fatalf("credential_deleted = %v, exists = %t, want %t", deleted, exists, scenario.deleted)
+				if label := item["credential_name"]; label != scenario.wantLabel {
+					t.Fatalf("credential_name = %v, want %q", label, scenario.wantLabel)
+				}
+				if _, exists := item["credential_deleted"]; exists {
+					t.Fatal("response added credential_deleted to the existing wire schema")
 				}
 			}
 		})

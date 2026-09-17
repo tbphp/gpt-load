@@ -133,6 +133,7 @@ export interface RequestLogAttemptDto {
   credential_id: number | null
   /** 凭据的可读标识（掩码）；无法取得标识不代表删除。 */
   credential_name: string
+  /** 仅供前端展示，由既有名称字段推导，不属于响应字段。 */
   credential_deleted: boolean
   operation: RequestLogOperation | null
   route_mode: RequestLogRouteMode | null
@@ -192,6 +193,7 @@ export interface RequestLogItemDto {
   credential_id: number | null
   /** 凭据的可读标识（掩码）；无法取得标识不代表删除。 */
   credential_name: string
+  /** 仅供前端展示，由既有名称字段推导，不属于响应字段。 */
   credential_deleted: boolean
   route_mode: RequestLogRouteMode | null
   usage_state: RequestLogUsageState
@@ -297,7 +299,6 @@ const itemFields = [
   'channel_id',
   'credential_id',
   'credential_name',
-  'credential_deleted',
   'route_mode',
   'usage_state',
   'cost_state',
@@ -461,7 +462,6 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'channel_id',
     'credential_id',
     'credential_name',
-    'credential_deleted',
     'operation',
     'route_mode',
     'upstream_model',
@@ -496,7 +496,7 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
         ? null
         : projectSafeInteger(record.credential_id, { minimum: 1 }),
     credential_name: projectString(record.credential_name, { allowEmpty: true }),
-    credential_deleted: projectBoolean(record.credential_deleted),
+    credential_deleted: record.credential_id !== null && record.credential_name === '',
     operation: record.operation === null ? null : projectEnum(record.operation, operations),
     route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
     upstream_model: projectNullableModel(record.upstream_model),
@@ -648,7 +648,7 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
         ? null
         : projectSafeInteger(record.credential_id, { minimum: 1 }),
     credential_name: projectString(record.credential_name, { allowEmpty: true }),
-    credential_deleted: projectBoolean(record.credential_deleted),
+    credential_deleted: record.credential_id !== null && record.credential_name === '',
     route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
     pricing_mode: record.pricing_mode === null ? null : projectPricingMode(record.pricing_mode),
     context_threshold_tokens:

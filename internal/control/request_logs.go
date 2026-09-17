@@ -69,7 +69,6 @@ type requestLogAttemptResponse struct {
 	ChannelID         *channel.ID                       `json:"channel_id"`
 	CredentialID      *uint                             `json:"credential_id"`
 	CredentialName    string                            `json:"credential_name"`
-	CredentialDeleted bool                              `json:"credential_deleted"`
 	Operation         *execution.Operation              `json:"operation"`
 	RouteMode         *channel.RouteMode                `json:"route_mode"`
 	UpstreamModel     *string                           `json:"upstream_model"`
@@ -155,7 +154,6 @@ type requestLogItemResponse struct {
 	ChannelID               *channel.ID                  `json:"channel_id"`
 	CredentialID            *uint                        `json:"credential_id"`
 	CredentialName          string                       `json:"credential_name"`
-	CredentialDeleted       bool                         `json:"credential_deleted"`
 	RouteMode               *channel.RouteMode           `json:"route_mode"`
 	UsageState              usage.State                  `json:"usage_state"`
 	CostState               pricing.CostState            `json:"cost_state"`
@@ -822,18 +820,18 @@ func encodeRequestLogCursor(cursor requestlog.Cursor) (string, error) {
 }
 
 func credentialLabelFor(labels map[uint]string, credentialID *uint) string {
-	if labels == nil || credentialID == nil {
+	if credentialID == nil {
 		return ""
 	}
-	return labels[*credentialID]
-}
-
-func credentialDeletedFor(labels map[uint]string, credentialID *uint) bool {
-	if labels == nil || credentialID == nil {
-		return false
+	// 保持既有响应结构：未知或不可读标识用占位，只有确认不存在才留空。
+	if labels == nil {
+		return "—"
 	}
-	_, exists := labels[*credentialID]
-	return !exists
+	label, exists := labels[*credentialID]
+	if exists && label == "" {
+		return "—"
+	}
+	return label
 }
 
 // 一页日志里的凭据数远小于条数：同一个号会被反复使用，去重后通常只剩几个。
@@ -942,7 +940,6 @@ func mapRequestLogItemResponse(
 		ChannelID:               usageCost.channelID,
 		CredentialID:            usageCost.credentialID,
 		CredentialName:          credentialLabelFor(credentialLabels, usageCost.credentialID),
-		CredentialDeleted:       credentialDeletedFor(credentialLabels, usageCost.credentialID),
 		RouteMode:               routeMode,
 		UsageState:              record.UsageState,
 		CostState:               record.CostState,
@@ -1110,7 +1107,6 @@ func mapRequestLogAttempt(
 		ChannelID:         channelID,
 		CredentialID:      credentialID,
 		CredentialName:    credentialLabelFor(credentialLabels, credentialID),
-		CredentialDeleted: credentialDeletedFor(credentialLabels, credentialID),
 		Operation:         operation,
 		RouteMode:         routeMode,
 		UpstreamModel:     nullableRequestLogModel(attempt.UpstreamModel),
