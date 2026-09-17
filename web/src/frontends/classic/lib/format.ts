@@ -215,7 +215,7 @@ export function formatTokens(value: number, locale: string): string {
     { threshold: 1_000, suffix: 'K' },
   ] as const
   const unit = units.find((candidate) => value >= candidate.threshold) ?? units[units.length - 1]
-  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(
+  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(
     value / unit.threshold,
   )}${unit.suffix}`
 }
