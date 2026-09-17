@@ -82,7 +82,26 @@ func (pending *passiveQuotaPending) recordHistoryLocked(groupID, credentialID ui
 	if observedAtMS < 0 {
 		return
 	}
-	for _, window := range windows {
+	keys := make([]quotaHistoryKey, len(windows))
+	named := make(map[quotaHistoryKey]bool)
+	counts := make(map[quotaHistoryKey]int)
+	for index, window := range windows {
+		keys[index] = pending.historySourceKeyLocked(quotaHistoryKey{credentialID: credentialID, identity: identity, window: quotaHistoryWindowKey(window)})
+		if window.SourceName != "" {
+			named[keys[index]] = true
+		}
+	}
+	for index, window := range windows {
+		if window.SourceName != "" || !named[keys[index]] {
+			counts[keys[index]]++
+		}
+	}
+	for index, window := range windows {
+		key := keys[index]
+		// 与实时快照一致：具名窗口优先，多个同级副本属于歧义。
+		if counts[key] != 1 || (window.SourceName == "" && named[key]) {
+			continue
+		}
 		if window.WindowSeconds == nil || *window.WindowSeconds < QuotaHistoryMinimumWindowSeconds {
 			continue
 		}
@@ -104,8 +123,6 @@ func (pending *passiveQuotaPending) recordHistoryLocked(groupID, credentialID ui
 			(window.ResetAtMS != nil && *window.ResetAtMS < 0) {
 			continue
 		}
-		key := quotaHistoryKey{credentialID: credentialID, identity: identity, window: quotaHistoryWindowKey(window)}
-		key = pending.historySourceKeyLocked(key)
 		state, known := pending.historyStates[key]
 		if known && observedAtMS <= state.latest.row.ObservedAtMS {
 			continue
@@ -273,30 +290,8 @@ func (pending *passiveQuotaPending) rememberHistorySources(credentialID uint, id
 			delete(pending.historySources, oldest)
 		}
 		pending.historySources[raw] = quotaHistorySource{window: canonical.window, observedAtMS: at}
-		if state, exists := pending.historyStates[raw]; exists {
-			previous, known := pending.historyStates[canonical]
-			boundary := state.latest
-			for key, queued := range pending.history {
-				if key.window == raw && queued.row.ObservedAtMS > previous.latest.row.ObservedAtMS && queued.row.ObservedAtMS < boundary.row.ObservedAtMS {
-					boundary = queued
-				}
-			}
-			// 缓存淘汰后重新解析来源，也要与另一传输的最新真实观测比较。
-			// 使用最早的待写点，不能被重置后继续消耗的最新值覆盖。
-			if known && previous.latest.row.ObservedAtMS < boundary.row.ObservedAtMS &&
-				previous.latest.row.UsedBasisPoints-boundary.row.UsedBasisPoints >= quotaHistoryReboundBasisPoints &&
-				pending.queueHistoryReboundLocked(previous.latest, boundary) {
-				state.admittedAtMS = max(state.admittedAtMS, boundary.row.ObservedAtMS)
-				reordered = true
-			}
-			admitted := max(state.admittedAtMS, previous.admittedAtMS)
-			if known && previous.latest.row.ObservedAtMS > state.latest.row.ObservedAtMS {
-				state = previous
-			}
-			state.latest.key, state.latest.row.WindowKey = canonical, canonical.window
-			state.admittedAtMS = admitted
-			delete(pending.historyStates, raw)
-			pending.historyStates[canonical] = state
+		if pending.mergeHistorySourceLocked(raw, canonical) {
+			reordered = true
 		}
 		if last, exists := pending.historyTimes[raw]; exists {
 			delete(pending.historyTimes, raw)
@@ -304,6 +299,75 @@ func (pending *passiveQuotaPending) rememberHistorySources(credentialID uint, id
 		}
 	}
 	return reordered
+}
+
+// 来源首次解析或缓存淘汰后，按真实时间合并两种传输的待写点和最新观测。
+// 同事件副本仍以具名值为准；重新判断回升，避免被丢弃的副本制造关键点。
+func (pending *passiveQuotaPending) mergeHistorySourceLocked(raw, canonical quotaHistoryKey) bool {
+	state, exists := pending.historyStates[raw]
+	if !exists {
+		return false
+	}
+	previous, known := pending.historyStates[canonical]
+	type candidate struct {
+		sample quotaHistorySample
+		queued bool
+	}
+	byTime := make(map[int64]candidate)
+	add := func(sample quotaHistorySample, queued bool) {
+		at := sample.row.ObservedAtMS
+		current, exists := byTime[at]
+		if !exists || sample.version < current.sample.version ||
+			(sample.version == current.sample.version && sample.window.SourceName != "" && current.sample.window.SourceName == "") {
+			sample.critical = false
+			current.sample = sample
+		}
+		current.queued = current.queued || queued
+		byTime[at] = current
+	}
+	add(state.latest, false)
+	if known {
+		add(previous.latest, false)
+	}
+	old := make(map[quotaHistorySampleKey]quotaHistorySample)
+	for key, sample := range pending.history {
+		if key.window == raw || key.window == canonical {
+			old[key] = sample
+			add(sample, true)
+			delete(pending.history, key)
+		}
+	}
+	points := make([]candidate, 0, len(byTime))
+	for _, point := range byTime {
+		points = append(points, point)
+		if point.queued {
+			pending.history[quotaHistorySampleKey{window: point.sample.key, atMS: point.sample.row.ObservedAtMS}] = point.sample
+		}
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].sample.row.ObservedAtMS < points[j].sample.row.ObservedAtMS })
+	admitted := max(state.admittedAtMS, previous.admittedAtMS)
+	for index := 1; index < len(points); index++ {
+		before, after := points[index-1].sample, points[index].sample
+		if before.row.UsedBasisPoints-after.row.UsedBasisPoints >= quotaHistoryReboundBasisPoints && pending.queueHistoryReboundLocked(before, after) {
+			admitted = max(admitted, after.row.ObservedAtMS)
+		}
+	}
+	latest := points[len(points)-1].sample
+	latest.key, latest.row.WindowKey = canonical, canonical.window
+	delete(pending.historyStates, raw)
+	pending.historyStates[canonical] = quotaHistoryState{latest: latest, admittedAtMS: admitted}
+	count := 0
+	for key, sample := range pending.history {
+		if key.window != raw && key.window != canonical {
+			continue
+		}
+		count++
+		original, exists := old[key]
+		if !exists || original.version != sample.version || original.critical != sample.critical || original.row.UsedBasisPoints != sample.row.UsedBasisPoints {
+			return true
+		}
+	}
+	return count != len(old)
 }
 
 // flushQuotaHistory 不持有入队内存锁或凭据 mutation 锁执行数据库操作。
