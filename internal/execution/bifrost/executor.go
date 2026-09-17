@@ -549,7 +549,17 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}
 		request := newProbeRequest(provider, providerKind, spec.UpstreamModel)
 		if providerKind == channel.ProviderMultiProtocolGateway {
-			if spec.ClientProtocol != protocol.OpenAICompletions {
+			var path string
+			switch spec.ClientProtocol {
+			case protocol.OpenAICompletions:
+				path = "/v1/chat/completions"
+			case protocol.OpenAIResponses:
+				path = "/v1/responses"
+			case protocol.Anthropic:
+				path = "/v1/messages"
+			case protocol.Gemini:
+				path = "/v1beta/models/" + url.PathEscape(spec.UpstreamModel) + ":generateContent"
+			default:
 				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported multi-protocol gateway probe protocol")
 				return preparedAttempt{}, &failure
 			}
@@ -558,16 +568,26 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")
 				return preparedAttempt{}, &failure
 			}
-			typedURL, targetErr := resolveMultiProtocolGatewayTargetURL(baseURL, "/v1/chat/completions", "")
+			typedURL, targetErr := resolveMultiProtocolGatewayTargetURL(baseURL, path, "")
 			if targetErr != nil {
 				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")
 				return preparedAttempt{}, &failure
 			}
-			return preparedAttempt{
-				provider: provider, mode: mode, upstreamProtocol: protocol.OpenAICompletions,
+			if spec.ClientProtocol == protocol.Gemini {
+				// Gemini SDK 将 context path 拼接在 BaseURL 后，不能传入绝对 URL。
+				typedURL = path
+			}
+			prepared := preparedAttempt{
+				provider: provider, mode: mode, upstreamProtocol: spec.ClientProtocol,
 				request: request, typedURL: typedURL, clientProtocol: spec.ClientProtocol,
 				directKey: directKey, secrets: secrets,
-			}, nil
+			}
+			if spec.ClientProtocol == protocol.OpenAIResponses {
+				prepared.request = nil
+				prepared.responsesRequest = request.ToResponsesRequest()
+				prepared.responsesRequest.Params.Store = schemas.Ptr(false)
+			}
+			return prepared, nil
 		}
 		responses := spec.ClientProtocol == protocol.OpenAIResponses
 		typedURL, upstreamProtocol, targetErr := convertedTypedTarget(

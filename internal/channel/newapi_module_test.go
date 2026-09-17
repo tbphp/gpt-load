@@ -61,6 +61,7 @@ func TestNewAPIChannelContract(t *testing.T) {
 			execution.OperationProbe:          RouteNative,
 		},
 		protocol.OpenAIResponses: {
+			execution.OperationProbe:            RouteNative,
 			execution.OperationResponsesCreate:  RouteNative,
 			execution.OperationResponsesCompact: RouteNative,
 		},
@@ -74,9 +75,11 @@ func TestNewAPIChannelContract(t *testing.T) {
 			execution.OperationProbe:            RouteNative,
 		},
 		protocol.Anthropic: {
+			execution.OperationProbe:          RouteNative,
 			execution.OperationChatCompletion: RouteNative,
 		},
 		protocol.Gemini: {
+			execution.OperationProbe:          RouteNative,
 			execution.OperationChatCompletion: RouteNative,
 		},
 	}

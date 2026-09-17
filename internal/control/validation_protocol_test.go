@@ -129,6 +129,82 @@ func TestValidationProtocolOptionsUseChannelDeclarations(t *testing.T) {
 	}
 }
 
+func TestGatewayValidationProtocolsAndExplicitSelection(t *testing.T) {
+	for _, id := range []channel.ID{channel.NewAPI, channel.GPTLoad, channel.CLIProxyAPI, channel.Sub2API} {
+		t.Run(string(id), func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+				ChannelID: id, Params: json.RawMessage(`{"base_url":"https://gateway.example/team-a"}`),
+				ConnectionType: "api_key", Credentials: "gateway-probe-test-secret",
+				Models: optionalGroupModels{Set: true, Values: []GroupModel{{ID: "probe-model", Alias: "client-alias", AliasEnabled: true}}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			settings, err := fixture.service.GetGroupSettings(t.Context(), created.GroupID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []protocol.Protocol{protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini}
+			if id == channel.NewAPI || id == channel.GPTLoad {
+				want = append(want, protocol.OpenAIEmbeddings, protocol.Rerank)
+			}
+			if len(settings.ValidationProtocols) != len(want) {
+				t.Fatalf("test protocols = %v, want %v", settings.ValidationProtocols, want)
+			}
+			for _, selected := range want {
+				if !slices.Contains(settings.ValidationProtocols, selected) {
+					t.Errorf("missing test protocol %s", selected)
+				}
+			}
+			if settings.ValidationProtocol == nil || *settings.ValidationProtocol != protocol.OpenAICompletions {
+				t.Fatal("default test protocol must remain openai-completions")
+			}
+			var credential models.Credential
+			if err := fixture.db.Where("group_id = ?", created.GroupID).Take(&credential).Error; err != nil {
+				t.Fatal(err)
+			}
+			for _, selected := range []protocol.Protocol{protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini} {
+				executor := &credentialProbeTestExecutor{result: failedCredentialProbeResult(http.StatusNotFound, execution.ErrorKindHTTP, execution.FailureHintModelUnavailable)}
+				fixture.service.executor = executor
+				response, err := fixture.service.TestGroupCredential(t.Context(), created.GroupID, credential.ID, CredentialProbeRequest{
+					Protocol: optionalField[protocol.Protocol]{Set: true, Value: selected},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				calls := executor.recordedCalls()
+				if len(calls) != 1 || calls[0].ClientProtocol != selected || calls[0].UpstreamModel != "probe-model" ||
+					response.Protocol != selected || response.Outcome == CredentialProbeOutcomePassed || response.CanRestore {
+					t.Fatalf("explicit %s probe = %#v; calls = %#v", selected, response, calls)
+				}
+			}
+			settings, err = fixture.service.GetGroupSettings(t.Context(), created.GroupID)
+			if err != nil || settings.ValidationProtocol == nil || *settings.ValidationProtocol != protocol.OpenAICompletions {
+				t.Fatalf("temporary selection changed default: %#v; error = %v", settings, err)
+			}
+			for _, selected := range []protocol.Protocol{protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini} {
+				settings, err = fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
+					ValidationProtocol: optionalField[protocol.Protocol]{Set: true, Value: selected},
+				})
+				if err != nil || settings.ValidationProtocol == nil || *settings.ValidationProtocol != selected {
+					t.Fatalf("save %s test protocol: %#v; error = %v", selected, settings, err)
+				}
+				target, valid := buildGroupValidationTarget(fixture.service.manager.Current().Groups[created.GroupID])
+				if !valid || target.protocol != selected || len(target.fallbackProtocols) != 0 {
+					t.Fatalf("automatic test target = %#v; valid = %t", target, valid)
+				}
+				executor := &credentialProbeTestExecutor{result: successfulCredentialProbeResult()}
+				fixture.service.executor = executor
+				response, err := fixture.service.TestGroupCredential(t.Context(), created.GroupID, credential.ID)
+				if err != nil || response.Protocol != selected || response.Outcome != CredentialProbeOutcomePassed || len(executor.recordedCalls()) != 1 {
+					t.Fatalf("default %s probe = %#v; error = %v", selected, response, err)
+				}
+			}
+		})
+	}
+}
+
 func TestCredentialProbeRejectsInvalidTemporaryModel(t *testing.T) {
 	fixture := newServiceFixture(t)
 	groupID := createGroupWithCredentials(t, fixture, "invalid-model-secret")
