@@ -1,5 +1,6 @@
 import type { LocationQuery } from 'vue-router'
 import { groupSorts, groupViews, type GroupFilters } from '@modern/api/groups'
+import { protocolOrder } from '@modern/i18n/protocols'
 
 export function parseGroupFilters(query: LocationQuery): GroupFilters {
   const page = typeof query.page === 'string' ? Number(query.page) : 1
@@ -13,6 +14,11 @@ export function parseGroupFilters(query: LocationQuery): GroupFilters {
     connection:
       query.connection === 'api_key' || query.connection === 'subscription' ? query.connection : '',
     model: typeof query.model === 'string' ? query.model.trim() : '',
+    credential:
+      typeof query.credential_key === 'string' && /^[a-f0-9]{64}$/u.test(query.credential_key)
+        ? query.credential_key
+        : '',
+    protocol: protocolOrder.find((value) => value === query.protocol) ?? '',
     sort: groupSorts.find((value) => value === query.sort) ?? 'recent',
   }
 }
@@ -25,6 +31,8 @@ export function groupFilterQuery(filters: GroupFilters): Record<string, string> 
   if (filters.channel) query.channel = filters.channel
   if (filters.connection) query.connection = filters.connection
   if (filters.model) query.model = filters.model
+  if (filters.credential) query.credential_key = filters.credential
+  if (filters.protocol) query.protocol = filters.protocol
   if (filters.sort !== 'recent') query.sort = filters.sort
   return query
 }

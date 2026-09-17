@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Layers2, Plus, Search, TriangleAlert } from '@lucide/vue'
+import { Layers2, Plus, Search, SlidersHorizontal, TriangleAlert } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -12,6 +12,8 @@ import {
 } from 'vue-router'
 import {
   getGroupUsage,
+  getCredentialOptions,
+  credentialOptionsKey,
   getGroupWorkspace,
   groupQueryKey,
   groupSorts,
@@ -31,6 +33,8 @@ import { useURLState } from '@modern/app/url-state'
 import { usePageRefresh } from '@modern/app/page-refresh'
 import { useLoadingFeedback } from '@modern/components/ui/loading'
 import {
+  AppAdvancedFilters,
+  AppAdvancedFilterSection,
   AppButton,
   AppChannelIcon,
   AppCollectionState,
@@ -38,7 +42,10 @@ import {
   AppFilterSummary,
   AppListFrame,
   AppModelSelect,
+  AppIconButton,
   AppPagination,
+  AppProtocolTag,
+  AppOverflowText,
   AppSearchSelect,
   AppSegmentedControl,
   AppSortMenu,
@@ -50,6 +57,7 @@ import GroupListRow from './GroupListRow.vue'
 import GroupCreatePanel from './GroupCreatePanel.vue'
 import { getGroupChannels, type GroupCreateResult } from '@modern/api/group-create'
 import { channelSearchOption } from '@modern/components/channel-options'
+import { protocolLabel, protocolOrder } from '@modern/i18n/protocols'
 import { groupFilterQuery as serializeGroupFilters, parseGroupFilters } from './group-route'
 
 const { t, n, locale } = useI18n()
@@ -59,6 +67,17 @@ const route = useRoute()
 const router = useRouter()
 const filters = computed(() => parseGroupFilters(route.query))
 const search = ref(filters.value.q)
+const moreFilterState = useURLState(
+  ['filters'],
+  (query) => ({ more: query.filters === '1' }),
+  (value) => (value.more ? { filters: '1' } : {}),
+)
+const moreFilters = computed({
+  get: () => moreFilterState.value.more,
+  set: (more: boolean) => {
+    moreFilterState.value = { more }
+  },
+})
 const filtering = ref(false)
 const refreshing = ref(false)
 const filterLoading = useLoadingFeedback(filtering)
@@ -99,7 +118,19 @@ function setCreating(value: boolean) {
 }
 function workspaceQuery(value: GroupFilters) {
   const query = { ...route.query }
-  for (const key of ['page', 'page_size', 'q', 'view', 'channel', 'sort', 'connection', 'model'])
+  for (const key of [
+    'page',
+    'page_size',
+    'q',
+    'view',
+    'channel',
+    'sort',
+    'connection',
+    'model',
+    'credential_id',
+    'credential_key',
+    'protocol',
+  ])
     delete query[key]
   return { ...query, ...serializeGroupFilters(value) }
 }
@@ -141,6 +172,41 @@ const channelKeywords = computed(
   () => new Map(channelCatalog.data.value?.map((channel) => [channel.id, channel.keywords])),
 )
 const groups = computed(() => data.value?.items ?? [])
+const credentialCatalog = useQuery({
+  queryKey: credentialOptionsKey,
+  queryFn: ({ signal }) => getCredentialOptions(client, signal),
+  enabled: computed(() => moreFilters.value || Boolean(filters.value.credential)),
+})
+const selectedCredential = computed(() =>
+  credentialCatalog.data.value?.find((option) => option.key === filters.value.credential),
+)
+const credentialOptions = computed(() => [
+  { value: '', label: t('groups.board.allCredentials') },
+  ...(credentialCatalog.data.value ?? []).map((option) => ({
+    value: option.key,
+    label: option.label,
+    keywords: [
+      channelInfo.value.get(option.channelID)?.name ?? option.channelID,
+      ...option.groupIDs.map((id) => groups.value.find((group) => group.id === id)?.name ?? ''),
+    ],
+  })),
+  ...(filters.value.credential && !selectedCredential.value
+    ? [{ value: filters.value.credential, label: t('groups.board.selectedCredential') }]
+    : []),
+])
+const protocolOptions = computed(() => [
+  { value: '', label: t('groups.board.allProtocols') },
+  ...protocolOrder.map((value) => ({ value, label: protocolLabel(value, t) })),
+])
+const credentialFiltering = computed(() => Boolean(filters.value.credential))
+const credentialFilterLoading = computed(
+  () => credentialFiltering.value && credentialCatalog.isPending.value,
+)
+const filterDataReady = computed(
+  () =>
+    (!filters.value.credential || Boolean(credentialCatalog.data.value)) &&
+    (!filters.value.protocol || Boolean(channelCatalog.data.value)),
+)
 const counts = computed(() => ({
   all: groups.value.length,
   serving: groups.value.filter(isServing).length,
@@ -198,6 +264,14 @@ const filtered = computed(() => {
       if (f.channel && f.channel !== group.channelID) return false
       if (f.connection && f.connection !== group.connectionType) return false
       if (
+        f.protocol &&
+        !channelCatalog.data.value
+          ?.find((channel) => channel.id === group.channelID)
+          ?.nativeProtocols.includes(f.protocol)
+      )
+        return false
+      if (f.credential && !selectedCredential.value?.groupIDs.includes(group.id)) return false
+      if (
         f.model &&
         !group.modelNames.some((name) =>
           name.toLocaleLowerCase().includes(f.model.toLocaleLowerCase()),
@@ -220,7 +294,9 @@ const maxPage = computed(() =>
   Math.max(1, Math.ceil(filtered.value.length / filters.value.pageSize)),
 )
 const page = computed(() =>
-  data.value ? Math.min(filters.value.page, maxPage.value) : filters.value.page,
+  data.value && filterDataReady.value
+    ? Math.min(filters.value.page, maxPage.value)
+    : filters.value.page,
 )
 const visible = computed(() =>
   filtered.value.slice(
@@ -243,6 +319,24 @@ const usageByID = computed(
   () => new Map(usage.data.value?.items.map((item) => [item.id, item]) ?? []),
 )
 const activeFilters = computed(() => [
+  ...(filters.value.credential
+    ? [
+        {
+          key: 'credential',
+          label: t('groups.board.credentialFilter'),
+          value: selectedCredential.value?.label ?? t('groups.board.selectedCredential'),
+        },
+      ]
+    : []),
+  ...(filters.value.protocol
+    ? [
+        {
+          key: 'protocol',
+          label: t('groups.board.protocolFilter'),
+          value: protocolLabel(filters.value.protocol, t),
+        },
+      ]
+    : []),
   ...(filters.value.connection
     ? [
         {
@@ -288,7 +382,9 @@ const activeFilters = computed(() => [
 ])
 const changedFilters = computed(() => activeFilters.value.length > 0)
 function removeFilter(key: string): void {
-  if (key === 'connection') void updateFilters({ connection: '' })
+  if (key === 'credential') void updateFilters({ credential: '' })
+  else if (key === 'protocol') void updateFilters({ protocol: '' })
+  else if (key === 'connection') void updateFilters({ connection: '' })
   else if (key === 'model') void updateFilters({ model: '' })
   else if (key === 'q') {
     search.value = ''
@@ -301,7 +397,12 @@ function removeFilter(key: string): void {
 usePageRefresh({
   refresh: refresh,
   pending: () =>
-    query.isFetching.value || usage.isFetching.value || filtering.value || pending.value.size > 0,
+    query.isFetching.value ||
+    usage.isFetching.value ||
+    channelCatalog.isFetching.value ||
+    credentialCatalog.isFetching.value ||
+    filtering.value ||
+    pending.value.size > 0,
   updatedAt: () => data.value?.observedAt,
 })
 async function refresh(): Promise<void> {
@@ -316,6 +417,7 @@ async function refresh(): Promise<void> {
     if (!controller.signal.aborted) {
       await Promise.all([
         channelCatalog.refetch(),
+        moreFilters.value || credentialFiltering.value ? credentialCatalog.refetch() : undefined,
         usageIDs.value.length ? usage.refetch() : undefined,
         queryClient.invalidateQueries({
           queryKey: ['modern', 'group-model-names'],
@@ -364,6 +466,8 @@ function resetFilters(): void {
     channel: '',
     connection: '',
     model: '',
+    credential: '',
+    protocol: '',
     view: 'all',
     sort: 'recent',
   })
@@ -446,9 +550,10 @@ watch(
   },
   { immediate: true },
 )
-watch([page, () => data.value !== undefined], () => {
+watch([page, () => data.value !== undefined, filterDataReady], () => {
   if (
     data.value &&
+    filterDataReady.value &&
     page.value !== filters.value.page &&
     !dirtyWeights.value.size &&
     !pending.value.size
@@ -529,6 +634,7 @@ async function closeCreate(): Promise<void> {
 async function locateCreated(id: number): Promise<void> {
   await closeCreate()
   const result = await query.refetch()
+  if (moreFilters.value || credentialFiltering.value) await credentialCatalog.refetch()
   if (controller.signal.aborted) return
   if (result.isError) {
     notice.value = {
@@ -546,6 +652,8 @@ async function locateCreated(id: number): Promise<void> {
       channel: '',
       connection: '',
       model: '',
+      credential: '',
+      protocol: '',
       view: 'all',
       page: 1,
     })
@@ -577,6 +685,24 @@ useMessageSource(() =>
         text: t('collection.stale'),
         tone: 'warning',
         action: { label: t('collection.retry'), run: refresh },
+      }
+    : undefined,
+)
+useMessageSource(() =>
+  credentialCatalog.isError.value
+    ? {
+        text: t('groups.board.credentialsFailed'),
+        tone: 'warning',
+        action: { label: t('collection.retry'), run: () => credentialCatalog.refetch() },
+      }
+    : undefined,
+)
+useMessageSource(() =>
+  channelCatalog.isError.value && filters.value.protocol
+    ? {
+        text: t('groupDetail.channelFailed'),
+        tone: 'warning',
+        action: { label: t('collection.retry'), run: () => channelCatalog.refetch() },
       }
     : undefined,
 )
@@ -631,14 +757,6 @@ useMessageSource(() =>
           <span>{{ option.label }}</span>
         </template>
       </AppSearchSelect>
-      <AppSelect
-        class="modern-groups-type"
-        :model-value="filters.connection"
-        :label="t('groupDetail.filters.channelType')"
-        label-hidden
-        :options="connectionOptions"
-        @update:model-value="updateFilters({ connection: $event as GroupFilters['connection'] })"
-      />
       <AppModelSelect
         class="modern-groups-model"
         :model-value="filters.model"
@@ -649,6 +767,13 @@ useMessageSource(() =>
         @update:model-value="updateFilters({ model: $event }, true)"
       />
       <div class="modern-groups-toolbar-actions">
+        <AppIconButton
+          :icon="SlidersHorizontal"
+          :label="t('groups.board.moreFilters')"
+          :aria-expanded="moreFilters"
+          aria-controls="modern-groups-more-filters"
+          @click="moreFilters = !moreFilters"
+        />
         <AppSortMenu
           :model-value="filters.sort"
           :label="t('groups.sort.label')"
@@ -665,6 +790,42 @@ useMessageSource(() =>
         >
       </div>
     </form>
+    <AppAdvancedFilters id="modern-groups-more-filters" :open="moreFilters">
+      <AppAdvancedFilterSection :title="t('groups.board.filterSection')">
+        <AppSelect
+          :model-value="filters.connection"
+          :label="t('groupDetail.filters.channelType')"
+          :options="connectionOptions"
+          size="xs"
+          @update:model-value="updateFilters({ connection: $event as GroupFilters['connection'] })"
+        />
+        <AppSearchSelect
+          :model-value="filters.credential"
+          :label="t('groups.board.credentials')"
+          :placeholder="t('groups.board.searchCredentials')"
+          :options="credentialOptions"
+          :loading="credentialCatalog.isFetching.value"
+          size="xs"
+          @update:model-value="updateFilters({ credential: $event })"
+        />
+        <AppSelect
+          :model-value="filters.protocol"
+          :label="t('groups.board.protocolFilter')"
+          :options="protocolOptions"
+          size="xs"
+          @update:model-value="updateFilters({ protocol: $event })"
+        >
+          <template #value="{ value, label }">
+            <AppProtocolTag v-if="value" :protocol="value" />
+            <AppOverflowText v-else :text="label" />
+          </template>
+          <template #option="{ option }">
+            <AppProtocolTag v-if="option.value" :protocol="option.value" />
+            <span v-else>{{ option.label }}</span>
+          </template>
+        </AppSelect>
+      </AppAdvancedFilterSection>
+    </AppAdvancedFilters>
     <div class="modern-groups-filterbar">
       <AppSegmentedControl
         :label="t('groups.statusFilter')"
@@ -692,7 +853,12 @@ useMessageSource(() =>
       ref="listFrame"
       :label="t('groups.list')"
       :scroll-key="route.fullPath"
-      :loading="listLoading && Boolean(data)"
+      :loading="
+        Boolean(data) &&
+        (listLoading ||
+          credentialFilterLoading ||
+          (Boolean(filters.protocol) && channelCatalog.isFetching.value))
+      "
     >
       <template #header>
         <div class="modern-group-list-head" aria-hidden="true">
@@ -707,7 +873,15 @@ useMessageSource(() =>
           >
         </div>
       </template>
-      <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
+      <AppCollectionState
+        v-if="
+          query.isPending.value ||
+          credentialFilterLoading ||
+          (filters.protocol && channelCatalog.isPending.value)
+        "
+        :title="t('collection.loading')"
+        loading
+      />
       <AppCollectionState
         v-else-if="!data"
         :title="t('groups.loadFailed')"
@@ -717,6 +891,19 @@ useMessageSource(() =>
         ><AppButton @click="query.refetch()">{{
           t('collection.retry')
         }}</AppButton></AppCollectionState
+      >
+      <AppCollectionState
+        v-else-if="!filterDataReady"
+        :title="
+          t(
+            filters.credential && !credentialCatalog.data.value
+              ? 'groups.board.credentialsFailed'
+              : 'groupDetail.channelFailed',
+          )
+        "
+        :icon="TriangleAlert"
+        error
+        ><AppButton @click="refresh">{{ t('collection.retry') }}</AppButton></AppCollectionState
       >
       <AppCollectionState
         v-else-if="!filtered.length"
@@ -753,8 +940,8 @@ useMessageSource(() =>
           mode="total"
           :page="page"
           :page-size="filters.pageSize"
-          :total="data ? filtered.length : undefined"
-          :pending="query.isPending.value || filtering || pending.size > 0"
+          :total="data && filterDataReady ? filtered.length : undefined"
+          :pending="query.isPending.value || !filterDataReady || filtering || pending.size > 0"
           @update:page="updateFilters({ page: $event })"
           @update:page-size="updateFilters({ pageSize: $event })"
         />
@@ -810,10 +997,6 @@ useMessageSource(() =>
 }
 .modern-groups-model {
   flex: 1.3 1 200px;
-  min-width: 0;
-}
-.modern-groups-type {
-  flex: 1 1 144px;
   min-width: 0;
 }
 .modern-groups-toolbar > :last-child {

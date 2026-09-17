@@ -29,17 +29,17 @@ import {
 const props = defineProps<{
   row: LogEntry
   column: LogColumnId
-  groups: ReadonlyMap<number, GroupRow>
-  channels: ReadonlyMap<string, GroupChannel>
+  groups?: ReadonlyMap<number, GroupRow>
+  channels?: ReadonlyMap<string, GroupChannel>
   hideIcon?: boolean
   table?: boolean
 }>()
 const { t, te, locale, n } = useI18n()
 const group = computed(() =>
-  props.row.group_id ? props.groups.get(props.row.group_id) : undefined,
+  props.row.group_id ? props.groups?.get(props.row.group_id) : undefined,
 )
 const channel = computed(() =>
-  props.row.channel_id ? props.channels.get(props.row.channel_id) : undefined,
+  props.row.channel_id ? props.channels?.get(props.row.channel_id) : undefined,
 )
 function valueName(value: string | null | undefined): string {
   return !value ? '—' : te('logs.values.' + value) ? t('logs.values.' + value) : value
@@ -71,15 +71,16 @@ const display = computed(() => {
     case 'completed_at_ms':
       return logTime(row.completed_at_ms, locale.value)
     case 'group':
-      return row.group_id
-        ? (props.groups.get(row.group_id)?.name ?? t('logs.unavailableGroup'))
-        : '—'
+      return row.group_id ? (group.value?.name ?? (props.groups ? t('logs.deleted') : '—')) : '—'
     case 'channel':
-      return row.channel_id ? (channel.value?.name ?? t('logs.deleted')) : '—'
+      return row.channel_id
+        ? (channel.value?.name ?? (props.channels ? t('logs.deleted') : '—'))
+        : '—'
     case 'protocol':
     case 'upstream_protocol':
       return protocolLabel(row[column], t)
     case 'access_key':
+      if (!row.access_key.id) return '—'
       return (
         row.access_key.name ||
         t(row.access_key.deleted ? 'logs.deletedAccessKey' : 'logs.unavailableAccessKey')
@@ -137,10 +138,13 @@ const display = computed(() => {
 const deleted = computed(() => {
   const row = props.row
   return (
-    (props.column === 'group' && row.group_id !== null && !props.groups.has(row.group_id)) ||
-    (props.column === 'channel' && Boolean(row.channel_id) && !channel.value) ||
-    (props.column === 'access_key' && !row.access_key.name) ||
-    (props.column === 'credential_name' && Boolean(row.credential_id) && !row.credential_name)
+    (props.column === 'group' &&
+      row.group_id !== null &&
+      props.groups &&
+      !props.groups.has(row.group_id)) ||
+    (props.column === 'channel' && Boolean(row.channel_id) && props.channels && !channel.value) ||
+    (props.column === 'access_key' && Boolean(row.access_key.id) && row.access_key.deleted) ||
+    (props.column === 'credential_name' && row.credential_deleted)
   )
 })
 const hint = computed(() => {

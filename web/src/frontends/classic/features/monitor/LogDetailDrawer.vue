@@ -476,7 +476,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 :channel="finalChannel()"
                 :credential-id="log.credential_id"
                 :credential-name="log.credential_name"
-                :credential-deleted="log.credential_id !== null && log.credential_name === ''"
+                :credential-deleted="log.credential_deleted"
                 appearance="plain"
               />
               <CopyChip
@@ -679,9 +679,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                     :channel="channelDefinition(attempt.channel_id)"
                     :credential-id="attempt.credential_id"
                     :credential-name="attempt.credential_name"
-                    :credential-deleted="
-                      attempt.credential_id !== null && attempt.credential_name === ''
-                    "
+                    :credential-deleted="attempt.credential_deleted"
                     appearance="plain"
                   />
                 </dd>
