@@ -97,9 +97,18 @@ func TestGatewayProtocolProbeResponseValidation(t *testing.T) {
 	}{
 		{"responses-completed", protocol.OpenAIResponses, `{"object":"response","status":"completed","output":[]}`, true},
 		{"responses-output-limit", protocol.OpenAIResponses, `{"object":"response","status":"incomplete","output":[],"incomplete_details":{"reason":"max_output_tokens"}}`, true},
+		{"responses-reasoning-only", protocol.OpenAIResponses, `{"object":"response","status":"completed","output":[{"type":"reasoning","summary":[]}]}`, true},
 		{"responses-failed", protocol.OpenAIResponses, `{"object":"response","status":"failed","output":[]}`, false},
 		{"anthropic-empty-content", protocol.Anthropic, `{"type":"message","content":[]}`, true},
+		{"anthropic-empty-text", protocol.Anthropic, `{"type":"message","content":[{"type":"text","text":""}]}`, true},
+		{"gemini-output-limit", protocol.Gemini, `{"candidates":[{"finishReason":"MAX_TOKENS"}]}`, true},
+		{"gemini-empty-parts", protocol.Gemini, `{"candidates":[{"content":{"parts":[]},"finishReason":"MAX_TOKENS"}]}`, true},
 		{"gemini-no-candidates", protocol.Gemini, `{"candidates":[]}`, false},
+		{"gemini-missing-content-parts", protocol.Gemini, `{"candidates":[{"content":{}}]}`, false},
+		{"gemini-null-part", protocol.Gemini, `{"candidates":[{"content":{"parts":[null]}}]}`, false},
+		{"gemini-scalar-part", protocol.Gemini, `{"candidates":[{"content":{"parts":[1]}}]}`, false},
+		{"gemini-empty-part", protocol.Gemini, `{"candidates":[{"content":{"parts":[{}]}}]}`, false},
+		{"gemini-scalar-content", protocol.Gemini, `{"candidates":[{"content":1,"finishReason":"MAX_TOKENS"}]}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := validGatewayProtocolProbeResponse(tc.selected, []byte(tc.body)); got != tc.valid {
@@ -113,7 +122,22 @@ func TestMultiProtocolGatewayProbeRejectsInvalidSuccessResponses(t *testing.T) {
 	t.Parallel()
 
 	for _, selected := range []protocol.Protocol{protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini} {
-		for _, body := range []string{`{}`, `{"error":{"message":"upstream rejected probe"}}`, `null`, `[]`} {
+		bodies := []string{`{}`, `{"error":{"message":"upstream rejected probe"}}`, `null`, `[]`}
+		var response map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(gatewayProbeResponse(selected)), &response); err != nil {
+			t.Fatal(err)
+		}
+		key := map[protocol.Protocol]string{protocol.OpenAIResponses: "output", protocol.Anthropic: "content", protocol.Gemini: "candidates"}[selected]
+		validItems := string(response[key])
+		for _, items := range []string{`[null]`, `[1]`, `["invalid"]`, `[[]]`, `[{}]`, `[{"type":null}]`, `[{"type":1}]`, `[{"type":""}]`, validItems[:len(validItems)-1] + `,null]`} {
+			response[key] = json.RawMessage(items)
+			body, err := json.Marshal(response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bodies = append(bodies, string(body))
+		}
+		for _, body := range bodies {
 			t.Run(string(selected)+"/"+body, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.Header().Set("Content-Type", "application/json")

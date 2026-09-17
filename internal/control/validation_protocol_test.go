@@ -3,16 +3,21 @@ package control
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"slices"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/bifrost"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/provideradapter"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -218,5 +223,59 @@ func TestCredentialProbeRejectsInvalidTemporaryModel(t *testing.T) {
 		if _, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID, CredentialProbeRequest{Model: model}); err == nil {
 			t.Fatalf("invalid model accepted: %#v", model)
 		}
+	}
+}
+
+func TestGatewayMalformedProbeDoesNotRecoverCredential(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		selected protocol.Protocol
+		invalid  string
+		valid    string
+	}{
+		{protocol.OpenAIResponses, `{"object":"response","status":"completed","output":[null]}`, `{"object":"response","status":"incomplete","output":[]}`},
+		{protocol.Anthropic, `{"type":"message","content":[1]}`, `{"type":"message","content":[]}`},
+		{protocol.Gemini, `{"candidates":[null]}`, `{"candidates":[{"finishReason":"MAX_TOKENS"}]}`},
+	} {
+		t.Run(string(tc.selected), func(t *testing.T) {
+			var healthy atomic.Bool
+			var calls atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				body := tc.invalid
+				if healthy.Load() {
+					body = tc.valid
+				}
+				_, _ = io.WriteString(w, body)
+			}))
+			defer server.Close()
+			params, err := json.Marshal(map[string]string{"base_url": server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			group := state.GroupView{ID: 1, ValidationModel: "probe-model", ValidationProtocol: tc.selected}
+			setValidationChannel(&group, channel.NewAPI, params)
+			worker := newValidationWorkerForTest(validationSnapshot(map[uint]state.GroupView{1: group}), []state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}}, &validationProbeRecorder{})
+			runtime, err := bifrost.NewRuntime(t.Context(), worker.channels)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(runtime.Shutdown)
+			if err := runtime.Reconcile([]provideradapter.RuntimeTarget{{Target: group.ResolvedTarget}}); err != nil {
+				t.Fatal(err)
+			}
+			worker.executor = runtime
+			worker.Validate(t.Context())
+			if calls.Load() != 1 || len(worker.recorder.events()) != 0 {
+				t.Errorf("malformed response: calls = %d; recovery events = %v", calls.Load(), worker.recorder.events())
+			}
+			healthy.Store(true)
+			worker.Validate(t.Context())
+			if calls.Load() != 2 || !slices.Equal(worker.recorder.events(), []string{"registry.recover:7", "stats.reset:7"}) {
+				t.Errorf("valid response: calls = %d; recovery events = %v", calls.Load(), worker.recorder.events())
+			}
+		})
 	}
 }

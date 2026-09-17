@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/maximhq/bifrost/core/schemas"
 
@@ -105,12 +106,52 @@ func validGatewayProtocolProbeResponse(selected protocol.Protocol, body []byte) 
 	switch selected {
 	case protocol.OpenAIResponses:
 		return response.Object == "response" && response.Output != nil &&
-			(response.Status == "completed" || response.Status == "incomplete")
+			(response.Status == "completed" || response.Status == "incomplete") &&
+			validGatewayProbeTypedItems(response.Output)
 	case protocol.Anthropic:
-		return response.Type == "message" && response.Content != nil
+		return response.Type == "message" && response.Content != nil && validGatewayProbeTypedItems(response.Content)
 	case protocol.Gemini:
-		return len(response.Candidates) > 0
+		return len(response.Candidates) > 0 && validGatewayProbeCandidates(response.Candidates)
 	default:
 		return false
 	}
+}
+
+// 仅校验协议结构，不要求生成文本非空，保留低输出预算下的合法响应。
+func validGatewayProbeTypedItems(items []json.RawMessage) bool {
+	for _, item := range items {
+		var output struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(item, &output) != nil || strings.TrimSpace(output.Type) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func validGatewayProbeCandidates(items []json.RawMessage) bool {
+	for _, item := range items {
+		var candidate struct {
+			Content *struct {
+				Parts []map[string]json.RawMessage `json:"parts"`
+			} `json:"content"`
+			FinishReason string `json:"finishReason"`
+		}
+		if json.Unmarshal(item, &candidate) != nil {
+			return false
+		}
+		hasContent := candidate.Content != nil && candidate.Content.Parts != nil
+		if !hasContent && strings.TrimSpace(candidate.FinishReason) == "" {
+			return false
+		}
+		if candidate.Content != nil {
+			for _, part := range candidate.Content.Parts {
+				if len(part) == 0 {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
