@@ -191,7 +191,11 @@ const pointLabels = computed(() => ({
 </script>
 
 <template>
-  <section class="modern-credential-trends" :aria-label="t('credentialCards.localUsage')">
+  <section
+    class="modern-credential-trends"
+    :class="{ 'modern-credential-trends-three': !quotaVisible }"
+    :aria-label="t('credentialCards.localUsage')"
+  >
     <section v-if="quotaVisible" class="modern-credential-trends-cell" data-tone="accent">
       <h3>{{ t('credentialCards.quotaHistory') }}</h3>
       <div v-if="query.isPending.value" class="modern-credential-trends-state" role="status">
@@ -257,6 +261,9 @@ const pointLabels = computed(() => ({
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-control);
   background: var(--modern-subtle);
+}
+.modern-credential-trends-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .modern-credential-trends-cell {
   display: grid;
