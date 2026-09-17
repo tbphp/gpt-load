@@ -1,30 +1,21 @@
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
-import { boolean, integer, list, record, text } from './response'
-
-const optionalInteger = (value: unknown) => (value == null ? undefined : integer(value))
+import { integer, list, record, text } from './response'
 
 export interface QuotaHistoryPoint {
   observedAt: number
   usedBasisPoints: number
-  resetAt?: number
 }
 export interface QuotaHistoryWindow {
   key: string
-  id: string
-  sourceID: string
   label: string
   labelKey: string
-  scope: string
-  seconds?: number
   points: QuotaHistoryPoint[]
 }
 export interface QuotaHistoryReport {
   from: number
   to: number
-  observedAt: number
   bucketWidth: number
-  hasHistory: boolean
   windows: QuotaHistoryWindow[]
 }
 
@@ -47,20 +38,14 @@ export async function getCredentialQuotaHistory(
   return {
     from,
     to,
-    observedAt: integer(row.observed_at_ms),
     bucketWidth: integer(row.bucket_width_ms, 60_000),
-    hasHistory: boolean(row.has_history),
     windows: list(row.windows).map((value) => {
       const window = record(value)
       let previous = -1
       return {
         key: text(window.key),
-        id: text(window.id),
-        sourceID: text(window.source_id),
         label: text(window.label),
         labelKey: text(window.label_key),
-        scope: text(window.scope),
-        seconds: optionalInteger(window.window_seconds),
         points: list(window.points).map((value) => {
           const point = record(value),
             at = integer(point.observed_at_ms),
@@ -71,7 +56,6 @@ export async function getCredentialQuotaHistory(
           return {
             observedAt: at,
             usedBasisPoints: used,
-            resetAt: optionalInteger(point.reset_at_ms),
           }
         }),
       }

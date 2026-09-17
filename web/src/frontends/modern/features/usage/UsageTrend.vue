@@ -48,7 +48,7 @@ const bars = computed(
   () => !props.compact && (props.metric === 'requests' || props.metric === 'tokens'),
 )
 const barSeries = computed(() => {
-  if (props.compact) return []
+  if (!bars.value) return []
   if (props.metric === 'requests')
     return [
       { id: 'success', value: (row: UsageAggregate) => row.success_count },
@@ -107,7 +107,7 @@ const coordinates = computed(() =>
       end = position(point.to)
     let cumulative = 0
     const stack =
-      point.value === null
+      !bars.value || point.value === null
         ? []
         : barSeries.value.map((series) => {
             const value = point.summary ? series.value(point.summary) : 0
@@ -122,7 +122,7 @@ const coordinates = computed(() =>
       end,
       x: (start + end) / 2,
       y: y(point.value ?? 0),
-      barWidth: Math.max(1, Math.min(44, (end - start) * 0.72)),
+      barWidth: bars.value ? Math.max(1, Math.min(44, (end - start) * 0.72)) : 0,
     }
   }),
 )
@@ -133,7 +133,10 @@ const segments = computed(() => {
     last = 0
   function finish(): void {
     if (line)
-      result.push({ line, area: `${line} L${last},${bottom.value} L${first},${bottom.value} Z` })
+      result.push({
+        line,
+        area: props.compact ? '' : `${line} L${last},${bottom.value} L${first},${bottom.value} Z`,
+      })
     line = ''
   }
   coordinates.value.forEach((point) => {
@@ -153,7 +156,7 @@ const active = computed(() =>
   selected.value === undefined ? undefined : coordinates.value[selected.value],
 )
 const ticks = computed(() => {
-  const count = props.compact || width.value < 450 ? 3 : 5
+  const count = width.value < 450 ? 3 : 5
   return Array.from({ length: count }, (_, index) => {
     const fraction = index / (count - 1)
     return {
@@ -285,7 +288,7 @@ function move(event: PointerEvent): void {
       <span v-for="item in legend" :key="item.id" class="modern-usage-chart-legend-item">
         <i :data-series="item.id" aria-hidden="true" />
         <span>{{ item.label }}</span>
-        <strong v-if="!compact">{{ item.value }}</strong>
+        <strong>{{ item.value }}</strong>
       </span>
     </div>
     <AppSvg :viewBox="`0 0 ${width} ${height}`" aria-hidden="true" focusable="false">

@@ -44,7 +44,11 @@ func quotaHistoryWindowKey(window providerobservation.QuotaWindow) string {
 	if window.WindowSeconds != nil {
 		seconds = *window.WindowSeconds
 	}
-	value := fmt.Sprintf("%s\x00%s\x00%d", window.SourceID, window.ID, seconds)
+	source := window.SourceID
+	if source == "" {
+		source = window.SourceName
+	}
+	value := fmt.Sprintf("%s\x00%s\x00%d", source, window.ID, seconds)
 	if window.SourceID != "" && seconds > 0 {
 		value = fmt.Sprintf("%s\x00%d", window.SourceID, seconds)
 	}
@@ -128,6 +132,12 @@ func (pending *passiveQuotaPending) ackHistory(sample quotaHistorySample) {
 	}
 }
 
+func (pending *passiveQuotaPending) hasPendingHistory() bool {
+	pending.mu.Lock()
+	defer pending.mu.Unlock()
+	return len(pending.history) > 0
+}
+
 func (pending *passiveQuotaPending) rememberHistoryTime(key quotaHistoryKey, at int64) {
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
@@ -160,7 +170,7 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 		}
 		// 在后台补充展示元数据；只保存该次响应实际观测到的百分比。
 		var observation models.CredentialObservation
-		if err := manager.db.WithContext(ctx).Take(&observation, "credential_id = ?", sample.row.CredentialID).Error; err != nil {
+		if err := manager.db.WithContext(ctx).Select("snapshot_json").Take(&observation, "credential_id = ?", sample.row.CredentialID).Error; err != nil {
 			if !errors.Is(err, gorm.ErrRecordNotFound) {
 				return true, err
 			}
@@ -169,16 +179,25 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 		if json.Unmarshal(observation.SnapshotJSON, &snapshot) == nil {
 			if index := matchPassiveQuotaWindow(snapshot.QuotaWindows, sample.window); index >= 0 {
 				window := snapshot.QuotaWindows[index]
+				// 解析来源以统一 HTTP/WS 历史窗口，周期仍取该次真实观测。
+				canonical := sample.window
+				canonical.ID, canonical.SourceID = window.ID, window.SourceID
+				sample.row.WindowKey = quotaHistoryWindowKey(canonical)
 				sample.row.WindowID, sample.row.SourceID = window.ID, window.SourceID
 				sample.row.Label, sample.row.LabelKey, sample.row.Scope = window.Label, window.LabelKey, window.Scope
 			}
 		}
 		if sample.row.Label == "" {
 			sample.row.Label = sample.row.WindowID
+			if sample.window.SourceName != "" {
+				sample.row.Label = sample.window.SourceName
+			}
 		}
 		if sample.row.Scope == "" {
 			sample.row.Scope = "account"
-			if sample.row.SourceID != "" && sample.row.SourceID != "codex" {
+			if sample.window.SourceName != "" {
+				sample.row.Scope = sample.window.SourceName
+			} else if sample.row.SourceID != "" && sample.row.SourceID != "codex" {
 				sample.row.Scope = sample.row.SourceID
 			}
 		}
@@ -187,7 +206,7 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 			continue
 		}
 		var latest models.CredentialQuotaHistory
-		err := manager.db.WithContext(ctx).Where("credential_id = ? AND target_identity = ? AND window_key = ?",
+		err := manager.db.WithContext(ctx).Select("observed_at_ms").Where("credential_id = ? AND target_identity = ? AND window_key = ?",
 			sample.row.CredentialID, sample.row.TargetIdentity, sample.row.WindowKey).
 			Order("observed_at_ms DESC").Take(&latest).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -210,5 +229,5 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 		manager.passiveQuota.rememberHistoryTime(sample.key, sample.row.ObservedAtMS)
 		manager.passiveQuota.ackHistory(sample)
 	}
-	return len(manager.passiveQuota.historyBatch(1)) > 0, nil
+	return manager.passiveQuota.hasPendingHistory(), nil
 }

@@ -87,6 +87,56 @@ type testQuotaHistoryWriteError struct{}
 
 func (testQuotaHistoryWriteError) Error() string { return "history write failed" }
 
+func TestQuotaHistoryUsesOneWindowForNamedWebsocketAndHTTPObservations(t *testing.T) {
+	manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
+		`{"quota_windows":[{"id":"spark-primary","source_id":"codex_spark","scope":"Spark","label":"Spark","unit":"percent","window_seconds":18000,"state":"available"}]}`)
+	ref, _ := registry.CredentialRef(credential.ID)
+	seconds := int64(18_000)
+	for index, at := range []int64{10_000, 20_000, 70_000} {
+		used := float64(index+2) / 10
+		window := providerobservation.QuotaWindow{ID: "primary", WindowSeconds: &seconds, Utilization: &used}
+		if index == 0 {
+			window.SourceName = "Spark"
+		} else {
+			window.SourceID = "codex_spark"
+		}
+		manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, at, []providerobservation.QuotaWindow{window})
+		if remaining, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || remaining {
+			t.Fatalf("flush: remaining=%t error=%v", remaining, err)
+		}
+	}
+	var rows []models.CredentialQuotaHistory
+	if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].WindowKey != rows[1].WindowKey || rows[0].ObservedAtMS != 10_000 || rows[1].ObservedAtMS != 70_000 || rows[0].UsedBasisPoints != 2000 || rows[1].UsedBasisPoints != 4000 {
+		t.Fatalf("one source was split or sampled within a minute: %+v", rows)
+	}
+}
+
+func TestQuotaHistoryKeepsNamedWebsocketSourcesSeparate(t *testing.T) {
+	manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
+		`{"quota_windows":[{"id":"spark-primary","source_id":"codex_spark","scope":"Spark","label":"Spark","unit":"percent","window_seconds":18000,"state":"available"},{"id":"other-primary","source_id":"other","scope":"Other","label":"Other","unit":"percent","window_seconds":18000,"state":"available"}]}`)
+	ref, _ := registry.CredentialRef(credential.ID)
+	seconds, sparkUsed, otherUsed := int64(18_000), 0.2, 0.5
+	manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, 10_000, []providerobservation.QuotaWindow{
+		{ID: "primary", SourceName: "Spark", WindowSeconds: &seconds, Utilization: &sparkUsed},
+		{ID: "primary", SourceName: "Other", WindowSeconds: &seconds, Utilization: &otherUsed},
+	})
+	if remaining, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || remaining {
+		t.Fatalf("flush: remaining=%t error=%v", remaining, err)
+	}
+	var rows []models.CredentialQuotaHistory
+	if err := db.Order("source_id").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].WindowKey == rows[1].WindowKey || rows[0].SourceID != "codex_spark" || rows[0].UsedBasisPoints != 2000 || rows[1].SourceID != "other" || rows[1].UsedBasisPoints != 5000 {
+		t.Fatalf("different named sources replaced each other: %+v", rows)
+	}
+}
+
 func TestQuotaHistoryTimeCacheDoesNotStopSamplingWhenFull(t *testing.T) {
 	pending := newPassiveQuotaPending()
 	for index := 0; index < quotaHistoryCapacity; index++ {

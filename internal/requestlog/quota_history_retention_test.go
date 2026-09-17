@@ -10,7 +10,7 @@ import (
 func TestQuotaHistoryRetentionDoesNotFollowRequestLogRetention(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
-	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 9, 17, 12, 34, 0, 0, time.UTC)
 	cutoff := now.Add(-35 * 24 * time.Hour).UnixMilli()
 	for _, at := range []int64{cutoff - 1, cutoff, now.Add(-10 * 24 * time.Hour).UnixMilli()} {
 		row := models.CredentialQuotaHistory{GroupID: 1, CredentialID: 1, TargetIdentity: "identity", WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", ObservedAtMS: at, UsedBasisPoints: 1200}

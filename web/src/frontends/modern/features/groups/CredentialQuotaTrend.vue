@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type {
-  QuotaHistoryPoint,
-  QuotaHistoryReport,
-  QuotaHistoryWindow,
-} from '@modern/api/credential-quota-history'
+import type { QuotaHistoryReport, QuotaHistoryWindow } from '@modern/api/credential-quota-history'
 import { AppSvg, AppTooltip } from '@modern/components/ui'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
 
@@ -35,78 +31,63 @@ function windowLabel(window: QuotaHistoryWindow): string {
   const key = 'credentialCards.quotaLabels.' + window.labelKey
   return window.labelKey && te(key) ? t(key) : window.label
 }
+const windows = computed(() => props.report.windows.filter((window) => window.points.length))
 const curves = computed(() =>
-  props.report.windows
-    .filter((window) => window.points.length)
-    .map((window, index) => {
-      const paths: string[] = []
-      let path = ''
-      function finish(): void {
-        if (path) paths.push(path)
-        path = ''
-      }
-      window.points.forEach((point, pointIndex) => {
-        const previous = window.points[pointIndex - 1]
-        if (previous && point.observedAt - previous.observedAt > props.report.bucketWidth * 2)
-          finish()
-        const position = { x: x(point.observedAt), y: y(point.usedBasisPoints) }
-        path += `${path ? ' L' : 'M'}${position.x},${position.y}`
-      })
-      finish()
-      return { window, label: windowLabel(window), tone: index % 6, paths }
-    }),
+  windows.value.map((window, index) => {
+    const paths: string[] = []
+    let path = ''
+    function finish(): void {
+      if (path) paths.push(path)
+      path = ''
+    }
+    window.points.forEach((point, pointIndex) => {
+      const previous = window.points[pointIndex - 1]
+      if (previous && point.observedAt - previous.observedAt > props.report.bucketWidth * 2)
+        finish()
+      const position = { x: x(point.observedAt), y: y(point.usedBasisPoints) }
+      path += `${path ? ' L' : 'M'}${position.x},${position.y}`
+    })
+    finish()
+    return { window, label: windowLabel(window), tone: index % 6, paths }
+  }),
 )
 const times = computed(() =>
   [
-    ...new Set(
-      curves.value.flatMap((series) => series.window.points.map((point) => point.observedAt)),
-    ),
+    ...new Set(windows.value.flatMap((window) => window.points.map((point) => point.observedAt))),
   ].sort((a, b) => a - b),
 )
-function nearestIndex(values: readonly number[], at: number): number {
+function nearest<T>(
+  values: readonly T[],
+  at: number,
+  observedAt: (value: T) => number,
+): T | undefined {
   let low = 0,
     high = values.length
   while (low < high) {
     const middle = Math.floor((low + high) / 2)
-    if (values[middle]! < at) low = middle + 1
+    if (observedAt(values[middle]!) < at) low = middle + 1
     else high = middle
   }
-  if (!low) return 0
-  if (low === values.length) return low - 1
-  return at - values[low - 1]! <= values[low]! - at ? low - 1 : low
+  const before = values[low - 1],
+    after = values[low]
+  if (before === undefined) return after
+  if (after === undefined) return before
+  return at - observedAt(before) <= observedAt(after) - at ? before : after
 }
-function nearestPoint(
-  points: readonly QuotaHistoryPoint[],
-  at: number,
-): QuotaHistoryPoint | undefined {
-  let low = 0,
-    high = points.length
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2)
-    if (points[middle]!.observedAt < at) low = middle + 1
-    else high = middle
-  }
-  const before = points[low - 1],
-    after = points[low]
-  const point = !before
-    ? after
-    : !after
-      ? before
-      : at - before.observedAt <= after.observedAt - at
-        ? before
-        : after
-  return point && Math.abs(point.observedAt - at) <= props.report.bucketWidth * 2
-    ? point
-    : undefined
-}
-const selected = computed(() =>
-  hoveredAt.value === undefined
-    ? []
-    : curves.value.map((series) => ({
-        ...series,
-        point: nearestPoint(series.window.points, hoveredAt.value!),
-      })),
-)
+const selected = computed(() => {
+  const at = hoveredAt.value
+  if (at === undefined) return []
+  return windows.value.map((window) => {
+    const candidate = nearest(window.points, at, (point) => point.observedAt)
+    return {
+      label: windowLabel(window),
+      point:
+        candidate && Math.abs(candidate.observedAt - at) <= props.report.bucketWidth * 2
+          ? candidate
+          : undefined,
+    }
+  })
+})
 const timestamp = (at: number) =>
   dateFormatter(locale.value, {
     month: 'short',
@@ -131,9 +112,11 @@ function move(event: PointerEvent): void {
     props.report.from +
     Math.max(0, Math.min(1, event.offsetX / (width.value - left - 6))) *
       (props.report.to - props.report.from)
-  const index = nearestIndex(times.value, at)
-  const nearest = times.value[index]!
-  hoveredAt.value = Math.abs(nearest - at) <= props.report.bucketWidth * 2 ? nearest : undefined
+  const candidate = nearest(times.value, at, (time) => time)
+  hoveredAt.value =
+    candidate !== undefined && Math.abs(candidate - at) <= props.report.bucketWidth * 2
+      ? candidate
+      : undefined
 }
 function focus(): void {
   hoveredAt.value = times.value[Math.min(focused.value, times.value.length - 1)]
