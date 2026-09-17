@@ -927,7 +927,6 @@ useMessageSource(() =>
           :usage-loading="usage.isFetching.value"
           :usage-incomplete="usage.data.value?.incomplete ?? false"
           :weight-error="weightErrors.get(group.id)"
-          :credential-filter-key="filters.credential || undefined"
           @expand="toggleExpanded(group.id)"
           @toggle="mutate(group, { enabled: $event }, 'toggle')"
           @weight="mutate(group, { weight_manual: $event }, 'weight')"
