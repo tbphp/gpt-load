@@ -33,6 +33,8 @@ import { useURLState } from '@modern/app/url-state'
 import { usePageRefresh } from '@modern/app/page-refresh'
 import { useLoadingFeedback } from '@modern/components/ui/loading'
 import {
+  AppAdvancedFilters,
+  AppAdvancedFilterSection,
   AppButton,
   AppChannelIcon,
   AppCollectionState,
@@ -42,6 +44,8 @@ import {
   AppModelSelect,
   AppIconButton,
   AppPagination,
+  AppProtocolTag,
+  AppOverflowText,
   AppSearchSelect,
   AppSegmentedControl,
   AppSortMenu,
@@ -787,31 +791,42 @@ useMessageSource(() =>
         >
       </div>
     </form>
-    <div v-if="moreFilters" id="modern-groups-more-filters" class="modern-groups-more-filters">
-      <AppSelect
-        :model-value="filters.connection"
-        :label="t('groupDetail.filters.channelType')"
-        :options="connectionOptions"
-        size="sm"
-        @update:model-value="updateFilters({ connection: $event as GroupFilters['connection'] })"
-      />
-      <AppSearchSelect
-        :model-value="filters.credential"
-        :label="t('groups.board.credentialFilter')"
-        :placeholder="t('groups.board.searchCredentials')"
-        :options="credentialOptions"
-        :loading="credentialCatalog.isFetching.value"
-        size="sm"
-        @update:model-value="updateFilters({ credential: $event })"
-      />
-      <AppSelect
-        :model-value="filters.protocol"
-        :label="t('groups.board.protocolFilter')"
-        :options="protocolOptions"
-        size="sm"
-        @update:model-value="updateFilters({ protocol: $event })"
-      />
-    </div>
+    <AppAdvancedFilters id="modern-groups-more-filters" :open="moreFilters">
+      <AppAdvancedFilterSection :title="t('groups.board.filterSection')">
+        <AppSelect
+          :model-value="filters.connection"
+          :label="t('groupDetail.filters.channelType')"
+          :options="connectionOptions"
+          size="xs"
+          @update:model-value="updateFilters({ connection: $event as GroupFilters['connection'] })"
+        />
+        <AppSearchSelect
+          :model-value="filters.credential"
+          :label="t('groups.board.credentials')"
+          :placeholder="t('groups.board.searchCredentials')"
+          :options="credentialOptions"
+          :loading="credentialCatalog.isFetching.value"
+          size="xs"
+          @update:model-value="updateFilters({ credential: $event })"
+        />
+        <AppSelect
+          :model-value="filters.protocol"
+          :label="t('groups.board.protocolFilter')"
+          :options="protocolOptions"
+          size="xs"
+          @update:model-value="updateFilters({ protocol: $event })"
+        >
+          <template #value="{ value, label }">
+            <AppProtocolTag v-if="value" :protocol="value" />
+            <AppOverflowText v-else :text="label" />
+          </template>
+          <template #option="{ option }">
+            <AppProtocolTag v-if="option.value" :protocol="option.value" />
+            <span v-else>{{ option.label }}</span>
+          </template>
+        </AppSelect>
+      </AppAdvancedFilterSection>
+    </AppAdvancedFilters>
     <div class="modern-groups-filterbar">
       <AppSegmentedControl
         :label="t('groups.statusFilter')"
@@ -988,17 +1003,6 @@ useMessageSource(() =>
 .modern-groups-model {
   flex: 1.3 1 200px;
   min-width: 0;
-}
-.modern-groups-more-filters {
-  display: grid;
-  flex: none;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
-  gap: var(--modern-space-3);
-  padding: var(--modern-space-3);
-  margin-bottom: var(--modern-space-3);
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-panel);
-  background: var(--modern-surface);
 }
 .modern-groups-toolbar > :last-child {
   flex: none;
