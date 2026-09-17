@@ -18,7 +18,8 @@ import (
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
-const quotaHistoryIntervalMS int64 = 60_000
+const quotaHistoryIntervalMS int64 = 60 * 60_000
+const quotaHistoryReboundBasisPoints int64 = 100
 const quotaHistoryCapacity = 4096
 
 // QuotaHistoryMinimumWindowSeconds 仅为日级及更长周期保留额度历史。
@@ -31,10 +32,21 @@ type quotaHistoryKey struct {
 }
 
 type quotaHistorySample struct {
-	key     quotaHistoryKey
-	version uint64
-	row     models.CredentialQuotaHistory
-	window  providerobservation.QuotaWindow
+	key      quotaHistoryKey
+	version  uint64
+	row      models.CredentialQuotaHistory
+	window   providerobservation.QuotaWindow
+	critical bool
+}
+
+type quotaHistorySampleKey struct {
+	window quotaHistoryKey
+	atMS   int64
+}
+
+type quotaHistoryState struct {
+	latest       quotaHistorySample
+	admittedAtMS int64
 }
 
 // QuotaHistoryTargetIdentity 与 Token 版本独立，切换账号或上游目标时隔离历史。
@@ -59,7 +71,8 @@ func quotaHistoryWindowKey(window providerobservation.QuotaWindow) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// recordHistoryLocked 只保留各窗口最新真实样本，内存上限不随请求数增长。
+// recordHistoryLocked 普通历史每小时采样；明显回升保留前后真实点。
+// 最新观测与待写历史分别有界，跳过普通历史不影响实时额度更新。
 func (pending *passiveQuotaPending) recordHistoryLocked(groupID, credentialID uint, identity uint64, observedAtMS int64, windows []providerobservation.QuotaWindow) {
 	if observedAtMS < 0 {
 		return
@@ -87,28 +100,61 @@ func (pending *passiveQuotaPending) recordHistoryLocked(groupID, credentialID ui
 			continue
 		}
 		key := quotaHistoryKey{credentialID: credentialID, identity: identity, window: quotaHistoryWindowKey(window)}
-		if last, known := pending.historyTimes[key]; known && observedAtMS-last < quotaHistoryIntervalMS {
-			continue
-		}
-		previous, exists := pending.history[key]
-		if (!exists && len(pending.history) >= quotaHistoryCapacity) || (exists && previous.row.ObservedAtMS > observedAtMS) {
+		state, known := pending.historyStates[key]
+		if known && observedAtMS <= state.latest.row.ObservedAtMS {
 			continue
 		}
 		copied := cloneQuotaWindows([]providerobservation.QuotaWindow{window})[0]
-		pending.history[key] = quotaHistorySample{key: key, version: pending.nextVersion, window: copied, row: models.CredentialQuotaHistory{
+		sample := quotaHistorySample{key: key, version: pending.nextVersion, window: copied, row: models.CredentialQuotaHistory{
 			GroupID: groupID, CredentialID: credentialID, TargetIdentity: QuotaHistoryTargetIdentity(identity),
 			WindowKey: key.window, WindowID: window.ID, SourceID: window.SourceID,
 			Label: window.Label, LabelKey: window.LabelKey, Scope: window.Scope,
 			ObservedAtMS: observedAtMS, UsedBasisPoints: int64(math.Round(utilization * 10_000)),
 			ResetAtMS: copied.ResetAtMS, WindowSeconds: copied.WindowSeconds,
 		}}
+		last, persisted := pending.historyTimes[key]
+		if known && state.admittedAtMS > last {
+			last = state.admittedAtMS
+		}
+		rebound := known && state.latest.row.UsedBasisPoints-sample.row.UsedBasisPoints >= quotaHistoryReboundBasisPoints
+		admit := rebound || (!known && !persisted) || observedAtMS-last >= quotaHistoryIntervalMS
+		if admit {
+			needed := 1
+			precedingKey := quotaHistorySampleKey{window: key, atMS: state.latest.row.ObservedAtMS}
+			if rebound {
+				if _, queued := pending.history[precedingKey]; !queued {
+					needed++
+				}
+			}
+			if len(pending.history)+needed <= quotaHistoryCapacity {
+				if rebound {
+					preceding := state.latest
+					preceding.critical = true
+					pending.history[precedingKey] = preceding
+					sample.critical = true
+				}
+				pending.history[quotaHistorySampleKey{window: key, atMS: observedAtMS}] = sample
+				last = observedAtMS
+			}
+		}
+		if !known && len(pending.historyStates) >= quotaHistoryCapacity {
+			var oldest quotaHistoryKey
+			oldestAt := int64(math.MaxInt64)
+			for candidate, cached := range pending.historyStates {
+				if cached.latest.row.ObservedAtMS < oldestAt {
+					oldest, oldestAt = candidate, cached.latest.row.ObservedAtMS
+				}
+			}
+			delete(pending.historyStates, oldest)
+		}
+		pending.historyStates[key] = quotaHistoryState{latest: sample, admittedAtMS: last}
 	}
 }
 
 func (pending *passiveQuotaPending) historyBatch(limit int) []quotaHistorySample {
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
-	keys := make([]quotaHistoryKey, 0, len(pending.history))
+	keys := make([]quotaHistorySampleKey, 0, len(pending.history))
 	for key := range pending.history {
 		keys = append(keys, key)
 	}
@@ -117,10 +163,10 @@ func (pending *passiveQuotaPending) historyBatch(limit int) []quotaHistorySample
 		if left.row.ObservedAtMS != right.row.ObservedAtMS {
 			return left.row.ObservedAtMS < right.row.ObservedAtMS
 		}
-		if keys[i].credentialID != keys[j].credentialID {
-			return keys[i].credentialID < keys[j].credentialID
+		if keys[i].window.credentialID != keys[j].window.credentialID {
+			return keys[i].window.credentialID < keys[j].window.credentialID
 		}
-		return keys[i].window < keys[j].window
+		return keys[i].window.window < keys[j].window.window
 	})
 	result := make([]quotaHistorySample, 0, min(limit, len(keys)))
 	for _, key := range keys[:min(limit, len(keys))] {
@@ -132,8 +178,9 @@ func (pending *passiveQuotaPending) historyBatch(limit int) []quotaHistorySample
 func (pending *passiveQuotaPending) ackHistory(sample quotaHistorySample) {
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
-	if current, ok := pending.history[sample.key]; ok && current.version == sample.version {
-		delete(pending.history, sample.key)
+	key := quotaHistorySampleKey{window: sample.key, atMS: sample.row.ObservedAtMS}
+	if current, ok := pending.history[key]; ok && current.version == sample.version && current.critical == sample.critical {
+		delete(pending.history, key)
 	}
 }
 
@@ -211,14 +258,21 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 			continue
 		}
 		var latest models.CredentialQuotaHistory
-		err := manager.db.WithContext(ctx).Select("observed_at_ms").Where("credential_id = ? AND target_identity = ? AND window_key = ?",
+		err := manager.db.WithContext(ctx).Select("observed_at_ms", "used_basis_points").Where("credential_id = ? AND target_identity = ? AND window_key = ?",
 			sample.row.CredentialID, sample.row.TargetIdentity, sample.row.WindowKey).
 			Order("observed_at_ms DESC").Take(&latest).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return true, err
 		}
-		if err == nil && sample.row.ObservedAtMS-latest.ObservedAtMS < quotaHistoryIntervalMS {
+		if err == nil && (sample.row.ObservedAtMS <= latest.ObservedAtMS ||
+			(!sample.critical && sample.row.ObservedAtMS-latest.ObservedAtMS < quotaHistoryIntervalMS && latest.UsedBasisPoints-sample.row.UsedBasisPoints < quotaHistoryReboundBasisPoints)) {
 			manager.passiveQuota.rememberHistoryTime(sample.key, latest.ObservedAtMS)
+			manager.passiveQuota.mu.Lock()
+			if state, ok := manager.passiveQuota.historyStates[sample.key]; ok && state.admittedAtMS == sample.row.ObservedAtMS {
+				state.admittedAtMS = latest.ObservedAtMS
+				manager.passiveQuota.historyStates[sample.key] = state
+			}
+			manager.passiveQuota.mu.Unlock()
 			manager.passiveQuota.ackHistory(sample)
 			continue
 		}

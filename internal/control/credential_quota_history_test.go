@@ -78,7 +78,7 @@ func TestCredentialQuotaHistoryScopesCurrentAccountAndTime(t *testing.T) {
 	}
 }
 
-func TestCredentialQuotaHistorySevenDaysBoundsPointsWithChangingResetTimes(t *testing.T) {
+func TestCredentialQuotaHistoryReturnsAllStoredPointsWithoutResampling(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	group := models.Group{Name: "bounded quota history", ChannelID: "codex", ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`)}
@@ -131,19 +131,22 @@ func TestCredentialQuotaHistorySevenDaysBoundsPointsWithChangingResetTimes(t *te
 		t.Fatal(err)
 	}
 	if data.BucketWidthMS != 3_600_000 || len(data.Windows) != 2 {
-		t.Fatalf("seven-day aggregation is not bounded: %+v", data)
+		t.Fatalf("unexpected history windows: %+v", data)
 	}
 	for _, window := range data.Windows {
-		want := map[string][]int64{"session": {59, 119}, "sparse": {60, 277, 351}}[window.Key]
+		want := []int64{59, 60, 240, 277, 314, 351}
+		if window.Key == "session" {
+			want = make([]int64, 120)
+			for index := range want {
+				want[index] = int64(index)
+			}
+		}
 		if len(window.Points) != len(want) {
 			t.Fatalf("window %s: got %d points, want %d", window.Key, len(window.Points), len(want))
 		}
 		for index, point := range window.Points {
 			if point.ObservedAtMS != from+want[index]*60_000 {
 				t.Fatalf("window %s: point %d is not the expected real observation: %+v", window.Key, index, point)
-			}
-			if index > 0 && point.ObservedAtMS-window.Points[index-1].ObservedAtMS < 3_600_000 {
-				t.Fatalf("window %s: points across hour boundaries are less than one hour apart", window.Key)
 			}
 			if window.Key == "sparse" && point.UsedBasisPoints != want[index] {
 				t.Fatalf("sparse observation value changed: %+v", point)

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
-	"slices"
 	"sort"
 
 	"github.com/gin-gonic/gin"
@@ -74,8 +73,7 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 		return
 	}
 	result := quotaHistoryResponse{FromMS: query.FromMS, ToMS: query.ToMS, ObservedAtMS: observedAt, MinimumWindowSeconds: subscription.QuotaHistoryMinimumWindowSeconds, Windows: []quotaHistoryWindowResponse{}}
-	spanMS := query.ToMS - query.FromMS
-	result.BucketWidthMS = ((spanMS-1)/(168*epochms.MillisecondsPerHour) + 1) * epochms.MillisecondsPerHour
+	result.BucketWidthMS = epochms.MillisecondsPerHour
 	err = server.service.withReadSnapshot(c.Request.Context(), func(tx *gorm.DB) error {
 		var group models.Group
 		if err := tx.Take(&group, groupID).Error; err != nil {
@@ -101,11 +99,9 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 		}
 		result.HasHistory = first.ID != 0
 		var rows []models.CredentialQuotaHistory
-		// 每桶只取最新真实观测，先限制查询返回量，再确保跨桶的实际点间隔。
-		ranked := scope().Where("observed_at_ms >= ? AND observed_at_ms < ?", query.FromMS, query.ToMS).
-			Select(`credential_quota_histories.*,
-				ROW_NUMBER() OVER (PARTITION BY window_key, observed_at_ms - observed_at_ms % ? ORDER BY observed_at_ms DESC) AS last_rank`, result.BucketWidthMS)
-		if err := tx.Table("(?) AS history_samples", ranked).Where("last_rank = 1").Order("observed_at_ms DESC").Find(&rows).Error; err != nil {
+		// 采样限制在写入端执行；查询原样返回真实历史，包括周期回升关键点。
+		if err := scope().Where("observed_at_ms >= ? AND observed_at_ms < ?", query.FromMS, query.ToMS).
+			Order("observed_at_ms ASC").Find(&rows).Error; err != nil {
 			return err
 		}
 		windows := make(map[string]*quotaHistoryWindowResponse)
@@ -117,17 +113,12 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 			window := windows[row.WindowKey]
 			if window == nil {
 				window = &quotaHistoryWindowResponse{Key: row.WindowKey, ID: row.WindowID, SourceID: row.SourceID, Scope: row.Scope, WindowSeconds: row.WindowSeconds, Points: []quotaHistoryPointResponse{}}
-				window.Label, window.LabelKey = row.Label, row.LabelKey
 				windows[row.WindowKey] = window
 			}
-			// 从最新观测向前取点，避免整点两侧仍出现只差一分钟的点。
-			if len(window.Points) > 0 && window.Points[len(window.Points)-1].ObservedAtMS-row.ObservedAtMS < result.BucketWidthMS {
-				continue
-			}
+			window.Label, window.LabelKey = row.Label, row.LabelKey
 			window.Points = append(window.Points, quotaHistoryPointResponse{ObservedAtMS: row.ObservedAtMS, UsedBasisPoints: row.UsedBasisPoints, ResetAtMS: row.ResetAtMS})
 		}
 		for _, window := range windows {
-			slices.Reverse(window.Points)
 			result.Windows = append(result.Windows, *window)
 		}
 		sort.Slice(result.Windows, func(i, j int) bool {

@@ -40,14 +40,15 @@ type passiveQuotaEntry struct {
 type passiveQuotaPending struct {
 	mu            sync.Mutex
 	entries       map[uint]*passiveQuotaEntry
-	history       map[quotaHistoryKey]quotaHistorySample
+	history       map[quotaHistorySampleKey]quotaHistorySample
 	historyTimes  map[quotaHistoryKey]int64
+	historyStates map[quotaHistoryKey]quotaHistoryState
 	nextVersion   uint64
 	dirtyNotifier func()
 }
 
 func newPassiveQuotaPending() *passiveQuotaPending {
-	return &passiveQuotaPending{entries: make(map[uint]*passiveQuotaEntry), history: make(map[quotaHistoryKey]quotaHistorySample), historyTimes: make(map[quotaHistoryKey]int64)}
+	return &passiveQuotaPending{entries: make(map[uint]*passiveQuotaEntry), history: make(map[quotaHistorySampleKey]quotaHistorySample), historyTimes: make(map[quotaHistoryKey]int64), historyStates: make(map[quotaHistoryKey]quotaHistoryState)}
 }
 
 // RecordPassiveQuotaObservation stores one response's passive quota windows
