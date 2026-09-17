@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
 
@@ -34,6 +35,9 @@ func (d *OpenAIResponses) Protocol() protocol.Protocol {
 func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 	if req == nil {
 		return RequestMetadata{}, fmt.Errorf("parsed request is required")
+	}
+	if req.Path == "/v1/alpha/search" {
+		return inspectCodexSearchRequest(req)
 	}
 
 	metadata := RequestMetadata{}
@@ -72,6 +76,26 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 	}
 	metadata.Operation, metadata.RouteRequirement, metadata.ResponsesStorePreference =
 		responsesExecutionMetadata(req)
+	return metadata, nil
+}
+
+func inspectCodexSearchRequest(req *ParsedRequest) (RequestMetadata, error) {
+	metadata, err := inspectJSONRequestFields(req.Body, true, false)
+	if err != nil {
+		return RequestMetadata{}, err
+	}
+	if req.Method != http.MethodPost || metadata.Stream {
+		return RequestMetadata{}, fmt.Errorf("Codex search requires a non-streaming POST")
+	}
+	var fields struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(req.Body, &fields); err != nil || fields.ID == "" {
+		return RequestMetadata{}, fmt.Errorf("Codex search id must be a non-empty string")
+	}
+	metadata.Operation = execution.OperationWebSearch
+	metadata.RouteRequirement = execution.RouteRequirementNative
+	metadata.AffinityPrefix = []byte("codex-search\x00" + fields.ID)
 	return metadata, nil
 }
 

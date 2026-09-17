@@ -9,6 +9,7 @@ export const zhCN = {
     modelUpstream: '上游模型',
   },
   returnedModelMismatch: '返回模型不一致',
+  standaloneSearchHint: 'Codex 独立搜索请求',
   returnedModelMismatchHint: '请求上游模型：{requested}\n上游返回模型：{returned}',
   columnGroups: {
     group: '分组 / 渠道',
@@ -290,6 +291,7 @@ export const enUS: typeof zhCN = {
     modelUpstream: 'Upstream model',
   },
   returnedModelMismatch: 'Returned model mismatch',
+  standaloneSearchHint: 'Codex standalone search request',
   returnedModelMismatchHint:
     'Requested upstream model: {requested}\nReported upstream model: {returned}',
   columnGroups: {
@@ -574,6 +576,7 @@ export const jaJP: typeof zhCN = {
     modelUpstream: '上流モデル',
   },
   returnedModelMismatch: '返却モデルが不一致',
+  standaloneSearchHint: 'Codex の独立検索リクエスト',
   returnedModelMismatchHint: '要求した上流モデル：{requested}\n上流が返却したモデル：{returned}',
   columnGroups: {
     group: 'グループ / チャネル',

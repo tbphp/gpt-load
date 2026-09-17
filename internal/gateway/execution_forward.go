@@ -587,6 +587,9 @@ func (forwarder *ExecutionForwarder) prepareBufferedResult(
 	if forwarder == nil || !result.HasResponse() {
 		return result
 	}
+	if input.Operation == execution.OperationWebSearch && result.ProviderErrorBeforeCommit {
+		return result
+	}
 	representation := forwarder.representation
 	if representation == nil {
 		representation = &responseProcessor{redactor: redact.New()}
