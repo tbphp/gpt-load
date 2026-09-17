@@ -134,7 +134,7 @@ func (handler *Handler) freezeAttemptPricing(
 		usageDiagnostics: observations.UsageDiagnostics,
 		reasoning:        observations.Reasoning.Clone(),
 	}
-	if observationsAvailable && handler != nil && handler.priceTables != nil {
+	if observations.Operation != execution.OperationWebSearch && observationsAvailable && handler != nil && handler.priceTables != nil {
 		frozen.table = handler.priceTables.Load()
 	}
 	return frozen
@@ -432,8 +432,11 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		ginContext.Writer.Header().Set(requestIDHeader, requestID)
 	}
 
-	quotaAdmission := requestAccessQuotaAdmission{accessKeyID: accessKey.ID}
-	if len(accessKey.CostLimitRules) > 0 {
+	quotaAdmission := &requestAccessQuotaAdmission{accessKeyID: accessKey.ID}
+	if ginContext.Request.URL.Path == "/v1/alpha/search" {
+		quotaAdmission = nil
+	}
+	if quotaAdmission != nil && len(accessKey.CostLimitRules) > 0 {
 		quotaAdmission.snapshot = snapshot
 	}
 	var recorder *requestRecorder
@@ -452,7 +455,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 				ginContext.Writer.Written(),
 				ginContext.Writer.Status(),
 			)
-			if quotaAdmission.admitted && handler.accessQuota != nil {
+			if quotaAdmission != nil && quotaAdmission.admitted && handler.accessQuota != nil {
 				completion := handler.accessQuota.Complete(
 					quotaAdmission.ticket,
 					recorder.estimatedCostNanoUSD(),
@@ -463,7 +466,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		}()
 	}
 
-	if handler.accessQuota != nil {
+	if quotaAdmission != nil && handler.accessQuota != nil {
 		quotaDecision := accessquota.Decision{}
 		if quotaAdmission.snapshot == nil {
 			quotaDecision = handler.accessQuota.Check(accessKey.ID, handler.quotaNow())
@@ -647,7 +650,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		metadata,
 		requestAffinity,
 		recorder,
-		&quotaAdmission,
+		quotaAdmission,
 	)
 }
 
@@ -861,6 +864,9 @@ func (handler *Handler) executeAttempts(
 		preparedGroupID = selection.GroupID
 		prepared := preparedRequest{
 			request: parsed, observations: originalMetadata, observationsAvailable: true,
+		}
+		if operation == execution.OperationWebSearch {
+			return prepared
 		}
 		body, applied, err := selection.Group.ParameterOverrides.Apply(
 			selectedDialect.Protocol(),
@@ -1286,7 +1292,7 @@ func (handler *Handler) executeAttempts(
 			}
 			return
 		}
-		if !stream && result.DispatchState != execution.DispatchLocal &&
+		if operation != execution.OperationWebSearch && !stream && result.DispatchState != execution.DispatchLocal &&
 			!result.ProviderErrorBeforeCommit && result.HasResponse() &&
 			result.StatusCode >= http.StatusOK &&
 			result.StatusCode < http.StatusMultipleChoices {

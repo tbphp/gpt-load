@@ -34,6 +34,7 @@ export const logFilterOptions: Partial<Record<LogFilterName, readonly string[]>>
   usage_state: ['complete', 'partial', 'missing', 'not_applicable'],
   cost_state: ['priced', 'unpriced', 'not_applicable'],
   pricing_completeness: ['complete', 'partial', 'unavailable', 'not_applicable'],
+  model_consistency: ['match', 'mismatch', 'unknown'],
   retry_state: ['retried', 'not_retried'],
   failure_category: [
     'ok',
@@ -62,6 +63,13 @@ export const advancedLogFilters: readonly LogFilterDefinition[] = [
   { key: 'retry_count_min', section: 'routing', kind: 'number', admin: true },
   { key: 'retry_count_max', section: 'routing', kind: 'number', admin: true },
   { key: 'final_status_code', section: 'result', kind: 'number' },
+  {
+    key: 'model_consistency',
+    section: 'result',
+    kind: 'select',
+    values: logFilterOptions.model_consistency,
+    admin: true,
+  },
   { key: 'attempt_status_code', section: 'result', kind: 'number', admin: true },
   {
     key: 'failure_category',

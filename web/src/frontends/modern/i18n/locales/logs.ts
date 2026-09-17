@@ -9,6 +9,7 @@ export const zhCN = {
     modelUpstream: '上游模型',
   },
   returnedModelMismatch: '返回模型不一致',
+  standaloneSearchHint: 'Codex 独立搜索请求',
   returnedModelMismatchHint: '请求上游模型：{requested}\n上游返回模型：{returned}',
   columnGroups: {
     group: '分组 / 渠道',
@@ -152,6 +153,7 @@ export const zhCN = {
     access_key_id: '访问密钥',
     client_model: '模型',
     upstream_model: '上游模型',
+    model_consistency: '返回模型',
     status: '结果',
     request_id: '请求 ID',
     protocol: '协议',
@@ -289,6 +291,7 @@ export const enUS: typeof zhCN = {
     modelUpstream: 'Upstream model',
   },
   returnedModelMismatch: 'Returned model mismatch',
+  standaloneSearchHint: 'Codex standalone search request',
   returnedModelMismatchHint:
     'Requested upstream model: {requested}\nReported upstream model: {returned}',
   columnGroups: {
@@ -435,6 +438,7 @@ export const enUS: typeof zhCN = {
     access_key_id: 'Access key',
     client_model: 'Model',
     upstream_model: 'Upstream model',
+    model_consistency: 'Returned model',
     status: 'Outcome',
     request_id: 'Request ID',
     protocol: 'Protocol',
@@ -572,6 +576,7 @@ export const jaJP: typeof zhCN = {
     modelUpstream: '上流モデル',
   },
   returnedModelMismatch: '返却モデルが不一致',
+  standaloneSearchHint: 'Codex の独立検索リクエスト',
   returnedModelMismatchHint: '要求した上流モデル：{requested}\n上流が返却したモデル：{returned}',
   columnGroups: {
     group: 'グループ / チャネル',
@@ -716,6 +721,7 @@ export const jaJP: typeof zhCN = {
     access_key_id: 'アクセスキー',
     client_model: '要求モデル',
     upstream_model: '上流モデル',
+    model_consistency: '応答モデル',
     status: '結果',
     request_id: 'リクエスト ID',
     protocol: 'プロトコル',

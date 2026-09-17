@@ -64,6 +64,7 @@ func TestCLIProxyAPIChannelContract(t *testing.T) {
 			execution.OperationProbe:          RouteNative,
 		},
 		protocol.OpenAIResponses: {
+			execution.OperationProbe:            RouteNative,
 			execution.OperationResponsesCreate:  RouteNative,
 			execution.OperationResponsesCompact: RouteNative,
 		},
@@ -72,10 +73,12 @@ func TestCLIProxyAPIChannelContract(t *testing.T) {
 			execution.OperationImagesEdit:     RouteNative,
 		},
 		protocol.Anthropic: {
+			execution.OperationProbe:          RouteNative,
 			execution.OperationChatCompletion: RouteNative,
 			execution.OperationCountTokens:    RouteNative,
 		},
 		protocol.Gemini: {
+			execution.OperationProbe:          RouteNative,
 			execution.OperationChatCompletion: RouteNative,
 			execution.OperationCountTokens:    RouteNative,
 		},

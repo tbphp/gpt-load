@@ -42,6 +42,28 @@ func TestNormalizeChannelCredentialRequiresCanonicalStoredObject(t *testing.T) {
 	}
 }
 
+func TestCodexSearchErrorsDoNotAffectModelHealth(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusTooManyRequests, http.StatusBadGateway} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			evidence := &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, StatusCode: status, Summary: "search unavailable"}
+			if status == http.StatusTooManyRequests {
+				evidence.Hint = execution.FailureHintRateLimited
+				evidence.ScopeHint = execution.ErrorScopeModel
+			}
+			decision := judgeUpstreamResult(UpstreamResult{
+				DispatchState: execution.DispatchMaybeSent, ResponseStarted: true, StatusCode: status, ExecutionError: evidence,
+			}, time.Now(), health.DecisionContext{Method: http.MethodPost, Operation: execution.OperationWebSearch})
+			wantEffect := health.EffectNone
+			if status == http.StatusBadGateway {
+				wantEffect = health.EffectSkipGroup
+			}
+			if decision.Effect != wantEffect || !decision.CooldownUntil.IsZero() {
+				t.Fatalf("search must not penalize model health: %#v", decision)
+			}
+		})
+	}
+}
+
 func TestNormalizeChannelCredentialPreservesStructuredCloudSecrets(t *testing.T) {
 	t.Parallel()
 	channels, subscriptions := testCredentialRuntimes(t)

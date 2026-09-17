@@ -265,6 +265,7 @@ func TestRequestLogEndpointParsesAdvancedFilters(t *testing.T) {
 		"cache_present=true",
 		"channel_id=openai",
 		"credential_id=9",
+		"model_consistency=mismatch",
 		"attempt_status_code=429",
 		"failure_category=rate_limited",
 		"error_code=provider_rate_limit",
@@ -297,6 +298,7 @@ func TestRequestLogEndpointParsesAdvancedFilters(t *testing.T) {
 		got.CachePresent == nil || !*got.CachePresent ||
 		got.ChannelID != channel.OpenAI ||
 		got.CredentialID == nil || *got.CredentialID != 9 ||
+		got.ModelConsistency != telemetry.ModelConsistencyMismatch ||
 		got.AttemptStatusCode == nil || *got.AttemptStatusCode != 429 ||
 		got.FailureCategory != telemetry.FailureCategoryRateLimited ||
 		got.AttemptErrorCode != "provider_rate_limit" || got.RetryState != requestlog.RetryStateRetried ||
@@ -316,6 +318,25 @@ func TestRequestLogEndpointParsesAdvancedFilters(t *testing.T) {
 	}
 }
 
+func TestRequestLogEndpointAcceptsModelConsistencyMismatchFilter(t *testing.T) {
+	t.Parallel()
+	reader := &recordingRequestLogReader{}
+	recorder := performRequestLogRequest(
+		newRequestLogTestEngine(t, reader),
+		"test-auth-key",
+		"model_consistency=mismatch",
+	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 {
+		t.Fatalf("Reader calls = %d, want one", len(reader.queries))
+	}
+	if reader.queries[0].ModelConsistency != telemetry.ModelConsistencyMismatch {
+		t.Fatalf("ModelConsistency = %q, want mismatch", reader.queries[0].ModelConsistency)
+	}
+}
+
 func TestRequestLogEndpointRejectsInvalidAdvancedFilters(t *testing.T) {
 	t.Parallel()
 	tests := []string{
@@ -328,6 +349,7 @@ func TestRequestLogEndpointRejectsInvalidAdvancedFilters(t *testing.T) {
 		"cache_present=yes",
 		"channel_id=unknown",
 		"credential_id=0",
+		"model_consistency=invalid",
 		"attempt_status_code=-1",
 		"failure_category=unknown",
 		"error_code=",
@@ -1143,6 +1165,7 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 		"channel_id=openai",
 		"credential_id=101",
 		"upstream_model=private-upstream-model",
+		"model_consistency=mismatch",
 		"retry_state=retried",
 	} {
 		recorder := performRequestLogRequest(engine, current.Key, query)

@@ -155,6 +155,7 @@ func proxySettingsForAttempt(effective outboundproxy.Effective) (cpaProxySetting
 }
 
 type providerResponse struct {
+	StatusCode             int
 	Payload                []byte
 	Headers                http.Header
 	Usage                  *execution.UsageEvidence
