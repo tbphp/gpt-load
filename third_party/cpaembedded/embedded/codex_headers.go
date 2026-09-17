@@ -6,7 +6,7 @@ import (
 )
 
 // codexClientVersion 必须与固定 CPA 依赖的默认及模型 UA 版本一致，由出站请求测试校验。
-const codexClientVersion = "0.153.3"
+const codexClientVersion = "0.154.0"
 
 // codexHeadersRoundTripper 保留 CPA 的 UA，并固定版本及 HTTP 会话头。
 type codexHeadersRoundTripper struct {
