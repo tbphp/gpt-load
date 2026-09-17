@@ -17,7 +17,7 @@ const props = defineProps<{
   errors: UsageFilterErrors
   accessKeys: AccessKeyOptionDto[]
   accessKeysFailed: boolean
-  groups: GroupOptionDto[]
+  groups?: GroupOptionDto[]
   channels: ChannelDto[]
   groupsFailed: boolean
   channelsFailed: boolean
@@ -37,18 +37,22 @@ function groupOptions() {
   const options = [option('', t('monitor.usage.filters.anyGroup'))]
   if (
     props.draft.group_id &&
-    !props.groups.some((group) => String(group.id) === props.draft.group_id)
+    !props.groups?.some((group) => String(group.id) === props.draft.group_id)
   ) {
     options.push(
       option(
         props.draft.group_id,
-        t('monitor.usage.filters.deletedOrUnknown', { id: props.draft.group_id }),
+        props.groups
+          ? t('monitor.usage.filters.deletedOrUnknown', { id: props.draft.group_id })
+          : `G${props.draft.group_id}`,
       ),
     )
   }
   return [
     ...options,
-    ...props.groups.map((group) => option(String(group.id), `${group.name} · #${group.id}`)),
+    ...(props.groups ?? []).map((group) =>
+      option(String(group.id), `${group.name} · #${group.id}`),
+    ),
   ]
 }
 

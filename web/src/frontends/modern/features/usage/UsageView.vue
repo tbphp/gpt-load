@@ -100,10 +100,15 @@ const groupMap = computed(
 const channelMap = computed(() => new Map(channels.data.value?.map((row) => [row.id, row])))
 const credentialLabels = ref(new Map<string, string>())
 function label(key: UsageFilterKey, value: string): string {
-  if (key === 'group_id') return groupMap.value.get(value)?.name ?? t('logs.deleted')
-  if (key === 'channel_id') return channelMap.value.get(value)?.name ?? t('logs.deleted')
+  if (key === 'group_id')
+    return groupMap.value.get(value)?.name ?? (groups.data.value ? t('logs.deleted') : '—')
+  if (key === 'channel_id')
+    return channelMap.value.get(value)?.name ?? (channels.data.value ? t('logs.deleted') : '—')
   if (key === 'access_key_id')
-    return keys.data.value?.find((row) => String(row.id) === value)?.name ?? t('logs.deleted')
+    return (
+      keys.data.value?.find((row) => String(row.id) === value)?.name ??
+      (keys.data.value ? t('logs.deleted') : '—')
+    )
   if (key === 'credential_id')
     return credentialLabels.value.get(value) ?? t('logs.selectedCredential')
   return value
@@ -533,8 +538,8 @@ const bucketLabel = computed(() => {
                 (report.summary.unpriced_request_count > 0 ||
                   report.summary.pricing_partial_count > 0)
               "
-              :groups="groups.data.value?.items ?? []"
-              :access-keys="keys.data.value ?? []"
+              :groups="groups.data.value?.items"
+              :access-keys="keys.data.value"
               :disabled="query.isPlaceholderData.value"
               @select="drill(dimension, $event)"
               @logs="logs(dimension, $event)"

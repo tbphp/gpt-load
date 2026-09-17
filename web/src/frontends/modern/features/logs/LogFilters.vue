@@ -38,9 +38,9 @@ const props = defineProps<{
   filters: LogQuery
   more: boolean
   admin: boolean
-  groups: readonly GroupRow[]
-  channels: readonly GroupChannel[]
-  accessKeys: readonly LogAccessKeyOption[]
+  groups?: readonly GroupRow[]
+  channels?: readonly GroupChannel[]
+  accessKeys?: readonly LogAccessKeyOption[]
   models: readonly string[]
   groupsLoading: boolean
   keysLoading: boolean
@@ -182,37 +182,37 @@ function withCurrent(
       : []),
   ]
 }
-const groupMap = computed(() => new Map(props.groups.map((row) => [String(row.id), row])))
-const channelMap = computed(() => new Map(props.channels.map((row) => [row.id, row])))
+const groupMap = computed(() => new Map(props.groups?.map((row) => [String(row.id), row])))
+const channelMap = computed(() => new Map(props.channels?.map((row) => [row.id, row])))
 const groupOptions = computed(() =>
   withCurrent(
-    props.groups.map((row) => ({
+    (props.groups ?? []).map((row) => ({
       value: String(row.id),
       label: row.name,
       keywords: [row.channelName, row.channelID],
     })),
     draft.value.group_id,
-    t('logs.unavailableGroup'),
+    props.groups ? t('logs.deleted') : '—',
     t('logs.allGroups'),
   ),
 )
 const keyOptions = computed(() =>
   withCurrent(
-    props.accessKeys.map((row) => ({
+    (props.accessKeys ?? []).map((row) => ({
       value: String(row.id),
       label: row.name,
       keywords: [row.suffix],
     })),
     draft.value.access_key_id,
-    t('logs.unavailableAccessKey'),
+    props.accessKeys ? t('logs.deleted') : '—',
     t('logs.allAccessKeys'),
   ),
 )
 const channelOptions = computed(() =>
   withCurrent(
-    props.channels.map(channelSearchOption),
+    (props.channels ?? []).map(channelSearchOption),
     draft.value.channel_id,
-    t('logs.deleted'),
+    props.channels ? t('logs.deleted') : '—',
     t('logs.allChannels'),
   ),
 )

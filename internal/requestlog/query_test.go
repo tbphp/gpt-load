@@ -755,7 +755,7 @@ func TestServiceListBatchLoadsCurrentAccessKeyNames(t *testing.T) {
 	createRequestLogQueryRow(t, db, requestLogQueryRow(
 		"00000000-0000-4000-8000-000000000303", base.Add(2*time.Second), deleted.ID, "three", nil,
 	))
-	if err := db.Model(&current).Update("name", "after-rename").Error; err != nil {
+	if err := db.Model(&current).Updates(map[string]any{"name": "after-rename", "status": "disabled"}).Error; err != nil {
 		t.Fatalf("rename AccessKey: %v", err)
 	}
 	if err := db.Delete(&deleted).Error; err != nil {

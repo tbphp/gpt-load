@@ -27,6 +27,8 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/requestlog"
+	"gpt-load/internal/scheduler"
+	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
@@ -1343,7 +1345,7 @@ func Example_requestLogOpaqueCursor() {
 }
 
 // 日志里的凭据要显示成人话：密文常驻凭据注册表，按 ID 取出解密即可，
-// 不额外读库；注册表里没有的（已删除）留空，交由前端显示“已删除 · #id”。
+// 不额外读库；注册表里没有的（已删除）留空，交由前端显示“已删除”。
 func TestCredentialLabelsMasksFromRegistryWithoutDatabaseReads(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
@@ -1445,5 +1447,180 @@ func TestRequestLogCredentialIDsCollectsItemAndAttempts(t *testing.T) {
 		if ids[index] != want[index] {
 			t.Fatalf("ids = %v, want %v", ids, want)
 		}
+	}
+}
+
+func TestHistoricalCredentialLabelsPreserveUnavailableDataWithoutSchedulingIt(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []string{
+		"disabled group", "zero group weight", "no models", "disabled credential",
+		"cooldown", "blacklisted", "refreshing", "reauthorization required", "outcome unknown",
+		"model cooldown", "zero credential weight",
+	} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
+			fixture := newServiceFixture(t)
+			zero := 0
+			var groupWeight *int
+			if scenario == "zero group weight" {
+				groupWeight = &zero
+			}
+			group := createGroupCollectionGroup(t, fixture, scenario, scenario != "disabled group", groupWeight)
+			setGroupCollectionRoute(t, fixture, group, "", `[{"id":"model-a"}]`)
+			if scenario == "no models" {
+				setGroupCollectionRoute(t, fixture, group, "", `[]`)
+			}
+			entry := createGroupCollectionKey(t, fixture, group.ID, models.CredentialStatusActive, nil)
+			switch scenario {
+			case "disabled credential":
+				entry.Status = state.CredentialStatusDisabled
+			case "cooldown":
+				entry.CooldownUntil = time.Now().Add(time.Hour)
+			case "blacklisted":
+				entry.Blacklisted = true
+			case "refreshing":
+				entry.AuthState = state.CredentialAuthStateRefreshing
+			case "reauthorization required":
+				entry.AuthState = state.CredentialAuthStateReauthorizationRequired
+			case "outcome unknown":
+				entry.AuthState = state.CredentialAuthStateOutcomeUnknown
+			case "model cooldown":
+				entry.ModelCooldowns = map[string]time.Time{"model-a": time.Now().Add(time.Hour)}
+			case "zero credential weight":
+				entry.WeightManual = &zero
+			}
+			publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{entry})
+			labels := fixture.service.CredentialLabels([]uint{entry.ID})
+			if label := labels[entry.ID]; label == "" {
+				t.Fatalf("existing unavailable credential has no historical label: %q", label)
+			}
+			snapshot := fixture.manager.Current()
+			if snapshot.GroupCatalog[group.ID].Name != group.Name {
+				t.Fatal("historical group identity disappeared")
+			}
+			model := "model-a"
+			query := scheduler.Query{
+				ClientProtocol: protocol.OpenAICompletions,
+				Operation:      execution.OperationChatCompletion, ExternalModel: &model,
+				AccessKey: state.AccessKeyView{Status: state.AccessKeyStatusActive},
+			}
+			if _, err := scheduler.New(snapshot, fixture.registry, query).Next(); !errors.Is(err, scheduler.ErrExhausted) {
+				t.Fatalf("unavailable data became schedulable: %v", err)
+			}
+		})
+	}
+}
+
+func TestHistoricalCredentialLabelFailuresAreNotDeletion(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	group := createGroupCollectionGroup(t, fixture, "unreadable identity", true, nil)
+	entry := createGroupCollectionKey(t, fixture, group.ID, models.CredentialStatusActive, nil)
+	entry.EncryptedValue = "invalid-ciphertext"
+	publishGroupCollectionRuntime(t, fixture, []state.CredentialEntry{entry})
+	labels := fixture.service.CredentialLabels([]uint{entry.ID, 9_999})
+	if _, exists := labels[entry.ID]; !exists {
+		t.Fatal("existing credential with unreadable identity was treated as deleted")
+	}
+	if _, exists := labels[9_999]; exists {
+		t.Fatal("missing credential was treated as existing")
+	}
+}
+
+func TestRequestLogCredentialLabelsPreserveExistingWireSchema(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []struct {
+		name         string
+		labels       map[uint]string
+		credentialID uint
+		wantLabel    string
+	}{
+		{name: "named", labels: map[uint]string{41: "masked"}, credentialID: 41, wantLabel: "masked"},
+		{name: "unreadable", labels: map[uint]string{41: ""}, credentialID: 41, wantLabel: "—"},
+		{name: "unknown catalog", credentialID: 41, wantLabel: "—"},
+		{name: "deleted", labels: map[uint]string{}, credentialID: 41},
+		{name: "unassociated", labels: map[uint]string{}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			record := requestlog.Record{
+				RequestID: "11111111-1111-4111-8111-111111111111", CompletedAtMS: 1_700_000_000_000,
+				GroupID: 3, CredentialID: scenario.credentialID, UsageState: usage.StateComplete,
+				CostState: pricing.CostStatePriced, PricingCompleteness: pricing.CompletenessComplete,
+				Attempts: []requestlog.Attempt{{Sequence: 1, GroupID: 3, CredentialID: scenario.credentialID}},
+			}
+			detail, err := mapRequestLogDetailResponse(record, scenario.labels)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(detail)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result map[string]any
+			if err := json.Unmarshal(raw, &result); err != nil {
+				t.Fatal(err)
+			}
+			attempt := result["attempts"].([]any)[0].(map[string]any)
+			list, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}}, scenario.labels)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(list.Items) != 1 || list.Items[0].CredentialName != scenario.wantLabel {
+				t.Fatalf("list credential_name = %#v, want %q", list.Items, scenario.wantLabel)
+			}
+			for _, item := range []map[string]any{result, attempt} {
+				if label := item["credential_name"]; label != scenario.wantLabel {
+					t.Fatalf("credential_name = %v, want %q", label, scenario.wantLabel)
+				}
+				if _, exists := item["credential_deleted"]; exists {
+					t.Fatal("response added credential_deleted to the existing wire schema")
+				}
+			}
+		})
+	}
+}
+
+func TestHistoricalSubscriptionLabelsSurviveDisableUntilActualDeletion(t *testing.T) {
+	t.Parallel()
+	for _, email := range []string{"history@example.com", ""} {
+		t.Run(email, func(t *testing.T) {
+			t.Parallel()
+			fixture := newServiceFixture(t)
+			raw := []byte(fmt.Sprintf(`{"type":"codex","access_token":"history-access","refresh_token":"history-refresh","account_id":"history-account","email":%q,"expired":"2035-01-01T00:00:00Z"}`, email))
+			stage, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+				Name: stringPointer("history subscription"), ChannelID: channel.Codex,
+				ConnectionType: models.ConnectionTypeSubscription,
+				Models:         optionalGroupModels{Set: true}, StagedCredentialIDs: []string{stage.StageID},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var credential models.Credential
+			if err := fixture.db.Where("group_id = ?", created.GroupID).Take(&credential).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.db.Model(&models.Group{}).Where("id = ?", created.GroupID).Update("enabled", false).Error; err != nil {
+				t.Fatal(err)
+			}
+			entries, err := fixture.registry.SnapshotGroupCredentialEntriesExact(created.GroupID, []uint{credential.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			publishGroupCollectionRuntime(t, fixture, entries)
+			labels := fixture.service.CredentialLabels([]uint{credential.ID})
+			if label, exists := labels[credential.ID]; !exists || label != email {
+				t.Fatalf("disabled subscription label = %q, exists = %t", label, exists)
+			}
+			if err := fixture.service.DeleteGroupCredential(t.Context(), created.GroupID, credential.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := fixture.service.CredentialLabels([]uint{credential.ID})[credential.ID]; exists {
+				t.Fatal("actually deleted credential remains associated")
+			}
+		})
 	}
 }

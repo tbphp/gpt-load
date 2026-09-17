@@ -82,7 +82,12 @@ const groupOptions = computed(() => {
     label: row.name,
   }))
   if (state.value.group && !options.some((row) => row.value === state.value.group))
-    options.push({ value: state.value.group, label: t('logs.deleted') })
+    options.push({
+      value: state.value.group,
+      label:
+        groupMap.value.get(Number(state.value.group))?.name ??
+        (report.value ? t('logs.deleted') : '—'),
+    })
   return [{ value: '', label: t('health.allGroups') }, ...options]
 })
 const kindOptions = computed(() => [
