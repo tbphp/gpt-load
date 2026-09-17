@@ -17,14 +17,24 @@ const y = (used: number) => top + (used / 10_000) * (bottom - top)
 const windows = computed(() => props.report.windows.filter((window) => window.points.length))
 const curves = computed(() =>
   windows.value.map((window, index) => {
-    const path = window.points
+    const points =
+      window.points[0]!.observedAt > props.report.from
+        ? [
+            {
+              observedAt: props.report.from,
+              usedBasisPoints: window.points[0]!.usedBasisPoints,
+            },
+            ...window.points,
+          ]
+        : window.points
+    const path = points
       .map(
         (point, pointIndex) =>
           `${pointIndex ? 'L' : 'M'}${x(point.observedAt)},${y(point.usedBasisPoints)}`,
       )
       .join(' ')
-    const start = x(window.points[0]!.observedAt)
-    const end = x(window.points[window.points.length - 1]!.observedAt)
+    const start = x(points[0]!.observedAt)
+    const end = x(points[points.length - 1]!.observedAt)
     return {
       key: window.key,
       gradientId: `${gradientId}-${index}`,

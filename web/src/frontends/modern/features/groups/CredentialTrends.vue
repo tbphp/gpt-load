@@ -2,15 +2,20 @@
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getCredentialQuotaHistory } from '@modern/api/credential-quota-history'
+import {
+  getCredentialQuotaHistory,
+  type QuotaHistoryWindow,
+} from '@modern/api/credential-quota-history'
 import { getUsage, type UsageMetric } from '@modern/api/usage'
 import { resolveTimeRange } from '@modern/app/time-range'
 import { AppButton, AppSparkline } from '@modern/components/ui'
+import { formatCompactNumber } from '@modern/components/ui/format'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { chartPoints, formatUsageCost, metricValue } from '@modern/features/usage/usage-display'
 import { useApiClient } from '@shared/http/client-context'
 import CredentialQuotaTrend from './CredentialQuotaTrend.vue'
+import { quotaWindowTitle } from './credential-presentation'
 
 const props = defineProps<{ group: number; credential: number; subscription: boolean }>()
 const { t, n, locale, te } = useI18n()
@@ -111,41 +116,45 @@ const date = computed(() =>
 function quotaTooltipAt(at: number): string {
   const data = report.value
   if (!data) return t('ui.date.ranges.7d')
-  const lines = [date.value.format(at)]
-  for (const window of data.quota?.windows ?? []) {
-    if (!window.points.length) continue
-    // 只用选中时刻之前的真实观测，不能拿后续重置后的值解释之前的额度。
-    let low = 0,
-      high = window.points.length
-    while (low < high) {
-      const middle = Math.floor((low + high) / 2)
-      if (window.points[middle]!.observedAt <= at) low = middle + 1
-      else high = middle
-    }
-    const point = window.points[low - 1]
+  const windows = data.quota?.windows.filter((window) => window.points.length) ?? []
+  const lines: string[] = []
+  for (const window of windows) {
+    // 首个真实观测前以其作为图表范围内的已知初值；之后不使用后续重置后的值解释此前额度。
+    const point = quotaPointAt(window, at)
     const key = 'credentialCards.quotaLabels.' + window.labelKey
-    const label = window.labelKey && te(key) ? t(key) : window.label
+    const label = quotaWindowTitle(window, window.labelKey && te(key) ? t(key) : window.label)
+    lines.push(date.value.format(point.observedAt))
     lines.push(
-      `${label}  ${point ? n((10_000 - point.usedBasisPoints) / 100, { maximumFractionDigits: 2 }) + '%' : '—'}`,
+      `${label}  ${n((10_000 - point.usedBasisPoints) / 100, { maximumFractionDigits: 2 })}%`,
     )
-    if (point)
-      lines.push(
-        t('credentialCards.quotaObservedAt', { time: date.value.format(point.observedAt) }),
-      )
   }
   return lines.join('\n')
+}
+function quotaPointAt(window: QuotaHistoryWindow, at: number) {
+  let low = 0,
+    high = window.points.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (window.points[middle]!.observedAt <= at) low = middle + 1
+    else high = middle
+  }
+  return window.points[Math.max(0, low - 1)]!
 }
 function usageTooltipAt(at: number, metric: UsageMetric): string {
   const data = report.value
   if (!data) return t('ui.date.ranges.7d')
-  const lines = [date.value.format(at)]
+  const lines: string[] = []
   const point = points.value.find((item) => item.from <= at && at < item.to)
   if (point) {
     lines.push(`${date.value.format(point.from)} – ${date.value.format(point.to)}`)
     if (metric === 'tokens')
-      lines.push(`${t('usage.tokens')} ${point.value === null ? '—' : n(point.value)}`)
+      lines.push(
+        `${t('usage.tokens')} ${point.value === null ? '—' : formatCompactNumber(point.value, locale.value)}`,
+      )
     else if (metric === 'requests')
-      lines.push(`${t('usage.requests')} · ${t('usage.trendSeries.success')} ${n(point.requests)}`)
+      lines.push(
+        `${t('usage.requests')} · ${t('usage.trendSeries.success')} ${formatCompactNumber(point.requests, locale.value)}`,
+      )
     else
       lines.push(
         `${t('usage.cost')} ${point.cost === null ? '—' : formatUsageCost(point.row?.estimated_cost_nano_usd ?? '0', locale.value)}`,
@@ -162,8 +171,8 @@ function usageTooltipAt(at: number, metric: UsageMetric): string {
     )
       lines.push(
         t('usage.unpriced', {
-          count: n(point.row.unpriced_request_count),
-          partial: n(point.row.pricing_partial_count),
+          count: formatCompactNumber(point.row.unpriced_request_count, locale.value),
+          partial: formatCompactNumber(point.row.pricing_partial_count, locale.value),
         }),
       )
   } else if (data.usageFailed) lines.push(t('credentialCards.statisticsFailed'))
