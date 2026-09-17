@@ -28,6 +28,7 @@ import { validProxyURL } from '@modern/app/proxy'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import CredentialAccountInfo from './CredentialAccountInfo.vue'
 import CredentialQuotaHistory from './CredentialQuotaHistory.vue'
+import CredentialUsageTrend from './CredentialUsageTrend.vue'
 
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
 const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
@@ -164,6 +165,7 @@ useMessageSource(() =>
         :group="group.id"
         :credential="row.id"
       />
+      <CredentialUsageTrend :group="group.id" :credential="row.id" />
       <section class="modern-credential-detail-section">
         <div class="modern-credential-detail-title">
           <h3>{{ t('credentialCards.runtime') }}</h3>

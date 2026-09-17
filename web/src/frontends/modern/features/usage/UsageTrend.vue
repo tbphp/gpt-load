@@ -8,7 +8,7 @@ import { formatCompactNumber } from '@modern/components/ui/format'
 import { chartPoints, formatUsageCost, inputTokens, percentage } from './usage-display'
 import type { TrendMetric } from './usage-state'
 
-const props = defineProps<{ report: UsageReport; metric: TrendMetric }>()
+const props = defineProps<{ report: UsageReport; metric: TrendMetric; compact?: boolean }>()
 const { t, locale } = useI18n()
 const host = ref<HTMLElement>()
 const width = ref(720)
@@ -76,9 +76,22 @@ const ceiling = computed(() => {
   const maximum = Math.ceil(peak / unit) * unit
   return props.metric === 'cost' ? Math.max(0.04, maximum) : Math.max(4, Math.ceil(maximum / 4) * 4)
 })
-const height = 240,
-  bottom = 204
-const top = computed(() => (bars.value ? (width.value < 340 ? 56 : 32) : 12))
+const height = computed(() => (props.compact ? 128 : 240))
+const bottom = computed(() => (props.compact ? 105 : 204))
+const top = computed(() =>
+  props.compact
+    ? bars.value
+      ? width.value < 340
+        ? 44
+        : 28
+      : 8
+    : bars.value
+      ? width.value < 340
+        ? 56
+        : 32
+      : 12,
+)
+const steps = computed(() => (props.compact ? 3 : 5))
 const left = computed(() => {
   const longest = Math.max(
     ...Array.from({ length: 5 }, (_, index) => formatted((ceiling.value * index) / 4).length),
@@ -90,7 +103,7 @@ const position = (time: number) =>
   left.value +
   ((right.value - left.value) * (time - props.report.from_ms)) /
     (props.report.to_ms - props.report.from_ms)
-const y = (value: number) => bottom - ((bottom - top.value) * value) / ceiling.value
+const y = (value: number) => bottom.value - ((bottom.value - top.value) * value) / ceiling.value
 const coordinates = computed(() =>
   points.value.map((point) => {
     const start = position(point.from),
@@ -122,7 +135,8 @@ const segments = computed(() => {
     first = 0,
     last = 0
   function finish(): void {
-    if (line) result.push({ line, area: `${line} L${last},${bottom} L${first},${bottom} Z` })
+    if (line)
+      result.push({ line, area: `${line} L${last},${bottom.value} L${first},${bottom.value} Z` })
     line = ''
   }
   coordinates.value.forEach((point) => {
@@ -142,7 +156,7 @@ const active = computed(() =>
   selected.value === undefined ? undefined : coordinates.value[selected.value],
 )
 const ticks = computed(() => {
-  const count = width.value < 450 ? 3 : 5
+  const count = props.compact || width.value < 450 ? 3 : 5
   return Array.from({ length: count }, (_, index) => {
     const fraction = index / (count - 1)
     return {
@@ -215,7 +229,9 @@ const pointLabels = computed(() => {
     }
     if (
       (props.metric === 'tokens' || props.metric === 'cache') &&
-      (point.summary?.usage_missing_count || point.summary?.partial_count)
+      (point.summary?.usage_missing_count ||
+        point.summary?.partial_count ||
+        (props.compact && props.report.collectionIncomplete))
     )
       lines.push(t('usage.incomplete'))
     return lines.join('\n')
@@ -244,7 +260,17 @@ function navigate(event: KeyboardEvent, index: number): void {
   else return
   event.preventDefault()
   hovered.value = undefined
-  elements.get(Math.max(0, Math.min(points.value.length - 1, next)))?.focus({ preventScroll: true })
+  const target = Math.max(0, Math.min(points.value.length - 1, next))
+  if (props.compact) focus(target)
+  else elements.get(target)?.focus({ preventScroll: true })
+}
+function move(event: PointerEvent): void {
+  const fraction = Math.max(0, Math.min(1, event.offsetX / (right.value - left.value)))
+  const at = props.report.from_ms + fraction * (props.report.to_ms - props.report.from_ms)
+  const index =
+    Math.floor(at / props.report.bucket_width_ms) -
+    Math.floor(props.report.from_ms / props.report.bucket_width_ms)
+  hovered.value = Math.max(0, Math.min(points.value.length - 1, index))
 }
 </script>
 
@@ -253,6 +279,7 @@ function navigate(event: KeyboardEvent, index: number): void {
     ref="host"
     class="modern-usage-chart"
     :data-metric="metric"
+    :data-compact="compact || undefined"
     role="group"
     :aria-label="t('usage.chartKeyboard', { metric: t('usage.' + metric) })"
     @pointerleave="hovered = undefined"
@@ -261,19 +288,19 @@ function navigate(event: KeyboardEvent, index: number): void {
       <span v-for="item in legend" :key="item.id" class="modern-usage-chart-legend-item">
         <i :data-series="item.id" aria-hidden="true" />
         <span>{{ item.label }}</span>
-        <strong>{{ item.value }}</strong>
+        <strong v-if="!compact">{{ item.value }}</strong>
       </span>
     </div>
     <AppSvg :viewBox="`0 0 ${width} ${height}`" aria-hidden="true" focusable="false">
-      <g v-for="step in 5" :key="step" class="modern-usage-gridline">
+      <g v-for="step in steps" :key="step" class="modern-usage-gridline">
         <line
           :x1="left"
           :x2="right"
-          :y1="y((ceiling * (step - 1)) / 4)"
-          :y2="y((ceiling * (step - 1)) / 4)"
+          :y1="y((ceiling * (step - 1)) / (steps - 1))"
+          :y2="y((ceiling * (step - 1)) / (steps - 1))"
         />
-        <text :x="left - 10" :y="y((ceiling * (step - 1)) / 4) + 4" text-anchor="end">{{
-          formatted((ceiling * (step - 1)) / 4)
+        <text :x="left - 10" :y="y((ceiling * (step - 1)) / (steps - 1)) + 4" text-anchor="end">{{
+          formatted((ceiling * (step - 1)) / (steps - 1))
         }}</text>
       </g>
       <g v-if="bars">
@@ -293,7 +320,7 @@ function navigate(event: KeyboardEvent, index: number): void {
       </g>
       <g v-else>
         <template v-for="(segment, index) in segments" :key="index">
-          <path :d="segment.area" class="modern-usage-area" />
+          <path v-if="!compact" :d="segment.area" class="modern-usage-area" />
           <path :d="segment.line" class="modern-usage-line" />
         </template>
         <circle
@@ -329,29 +356,53 @@ function navigate(event: KeyboardEvent, index: number): void {
       {{ t(!report.summary.request_count ? 'usage.empty' : 'usage.noMeasuredData') }}
     </span>
     <AppTooltip
-      v-for="(point, index) in coordinates"
-      :key="point.from"
-      :label="pointLabels[index]"
+      v-if="compact && coordinates.length"
+      :label="pointLabels[selected ?? tabStop]"
       side="top"
     >
       <span
-        :ref="(node) => element(index, node)"
         class="modern-usage-chart-hit"
         role="img"
-        :aria-label="pointLabels[index]"
-        :tabindex="index === tabStop ? 0 : -1"
+        :aria-label="pointLabels[selected ?? tabStop]"
+        tabindex="0"
         :style="{
-          left: (point.start / width) * 100 + '%',
-          width: ((point.end - point.start) / width) * 100 + '%',
+          left: (left / width) * 100 + '%',
+          width: ((right - left) / width) * 100 + '%',
           top: (top / height) * 100 + '%',
           height: ((bottom - top) / height) * 100 + '%',
         }"
-        @pointerenter="hovered = index"
-        @focus="focus(index)"
+        @pointermove="move"
+        @focus="focus(tabStop)"
         @blur="focused = undefined"
-        @keydown="navigate($event, index)"
+        @keydown="navigate($event, tabStop)"
       />
     </AppTooltip>
+    <template v-else>
+      <AppTooltip
+        v-for="(point, index) in coordinates"
+        :key="point.from"
+        :label="pointLabels[index]"
+        side="top"
+      >
+        <span
+          :ref="(node) => element(index, node)"
+          class="modern-usage-chart-hit"
+          role="img"
+          :aria-label="pointLabels[index]"
+          :tabindex="index === tabStop ? 0 : -1"
+          :style="{
+            left: (point.start / width) * 100 + '%',
+            width: ((point.end - point.start) / width) * 100 + '%',
+            top: (top / height) * 100 + '%',
+            height: ((bottom - top) / height) * 100 + '%',
+          }"
+          @pointerenter="hovered = index"
+          @focus="focus(index)"
+          @blur="focused = undefined"
+          @keydown="navigate($event, index)"
+        />
+      </AppTooltip>
+    </template>
   </div>
 </template>
 
@@ -416,6 +467,12 @@ function navigate(event: KeyboardEvent, index: number): void {
   width: 100%;
   height: 240px;
   overflow: visible;
+}
+.modern-usage-chart[data-compact] svg {
+  height: 128px;
+}
+.modern-usage-chart[data-compact] .modern-usage-line {
+  stroke-width: var(--modern-line-width);
 }
 .modern-usage-gridline line {
   stroke: color-mix(in srgb, var(--modern-border) 75%, var(--modern-surface));

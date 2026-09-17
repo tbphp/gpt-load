@@ -358,6 +358,10 @@ async function refresh(): Promise<void> {
       queryKey: ['modern', 'credential-quota-history', props.group.id],
       type: 'active',
     }),
+    cache.refetchQueries({
+      queryKey: ['modern', 'credential-usage', props.group.id],
+      type: 'active',
+    }),
   ])
 }
 async function runAccountBatch(
