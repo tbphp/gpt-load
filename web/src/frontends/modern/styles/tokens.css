@@ -35,6 +35,7 @@
   --modern-chart-cache: light-dark(#318d91, #82ced0);
   --modern-chart-write: light-dark(#b38b46, #dfbd82);
   --modern-chart-output: light-dark(#8b72b0, #bea7de);
+  --modern-chart-cost: light-dark(#318d91, #82ced0);
   --modern-chart-area-fill: color-mix(in srgb, currentColor 10%, transparent);
   --modern-chart-area-soft-fill: color-mix(in srgb, currentColor 8%, transparent);
   --modern-overlay: rgb(20 20 18 / 35%);
@@ -225,6 +226,7 @@
   --modern-account-card-min: 340px;
   --modern-key-card-height: 104px;
   --modern-trend-height: 64px;
+  --modern-trend-sm-height: 32px;
   --modern-trend-stroke: 1.5px;
   --modern-chart-donut-stroke: 12;
   --modern-credential-card-inset: var(--modern-space-4);

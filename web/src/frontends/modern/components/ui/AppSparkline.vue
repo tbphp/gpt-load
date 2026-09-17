@@ -4,53 +4,107 @@ import AppTooltip from './AppTooltip.vue'
 
 const props = defineProps<{
   label: string
-  values: readonly number[]
+  values: readonly (number | null)[]
   pointLabels?: readonly string[]
-  tone?: 'accent' | 'info'
+  tone?: 'accent' | 'info' | 'cost'
+  size?: 'sm'
+  showMarker?: boolean
+  ranges?: readonly { from: number; to: number }[]
+  cursor?: number
+  cursorLabel?: string
+  tooltipSide?: 'top' | 'bottom'
 }>()
+const emit = defineEmits<{ cursorChange: [position: number | undefined] }>()
 const gradientId = useId()
 const hovered = ref<number>()
 const focused = ref<number>()
-const tabStop = ref(0)
-const pointElements = new Map<number, HTMLElement>()
 const interactive = computed(() => Boolean(props.pointLabels?.length))
-const coordinates = computed(() => {
-  const peak = Math.max(1, ...props.values)
-  const step = props.values.length > 1 ? 100 / (props.values.length - 1) : 100
-  return props.values.map((value, index) => {
-    const x = props.values.length === 1 ? 50 : index * step
-    const left = index === 0 ? 0 : x - step / 2
-    const right = index === props.values.length - 1 ? 100 : x + step / 2
-    return { x, y: 96 - (value / peak) * 88, left, width: right - left }
+function seriesCoordinates(values: readonly (number | null)[]) {
+  const peak = Math.max(0, ...values.filter((value): value is number => value !== null)) || 1
+  const step = values.length > 1 ? 100 / (values.length - 1) : 100
+  return values.map((value, index) => {
+    const range = props.ranges?.[index]
+    const x = range ? ((range.from + range.to) / 2) * 100 : values.length === 1 ? 50 : index * step
+    const left = range ? range.from * 100 : index === 0 ? 0 : x - step / 2
+    const right = range ? range.to * 100 : index === values.length - 1 ? 100 : x + step / 2
+    return { x, y: value === null ? null : 96 - (value / peak) * 88, left, width: right - left }
   })
-})
-const points = computed(() => {
-  if (coordinates.value.length === 1) {
-    const y = coordinates.value[0]!.y
-    return `0,${y} 1000,${y}`
+}
+function seriesSegments(coordinates: ReturnType<typeof seriesCoordinates>) {
+  if (coordinates.length === 1 && coordinates[0]!.y !== null) {
+    const y = coordinates[0]!.y
+    return [{ points: `0,${y} 1000,${y}`, start: 0, end: 1000 }]
   }
-  return coordinates.value.map((point) => `${point.x * 10},${point.y}`).join(' ')
-})
+  const result: { points: string; start: number; end: number }[] = []
+  let points = '',
+    start = 0,
+    end = 0
+  function finish(): void {
+    if (points) result.push({ points, start, end })
+    points = ''
+  }
+  for (const point of coordinates) {
+    if (point.y === null) {
+      finish()
+      continue
+    }
+    if (!points) start = point.x * 10
+    end = point.x * 10
+    points += `${points ? ' ' : ''}${end},${point.y}`
+  }
+  finish()
+  return result
+}
+const coordinates = computed(() => seriesCoordinates(props.values))
+const segments = computed(() => seriesSegments(coordinates.value))
 const activePoint = computed(() => {
   const index = hovered.value ?? focused.value
-  return index === undefined ? undefined : coordinates.value[index]
+  const point = index === undefined ? undefined : coordinates.value[index]
+  return point?.y === null ? undefined : point
 })
-function pointRef(index: number, element: unknown): void {
-  if (element instanceof HTMLElement) pointElements.set(index, element)
-  else pointElements.delete(index)
+const tooltip = computed(
+  () => props.cursorLabel ?? props.pointLabels?.[hovered.value ?? focused.value ?? 0],
+)
+const cursorX = computed(() =>
+  props.cursor === undefined ? activePoint.value?.x : props.cursor * 100,
+)
+function move(event: PointerEvent): void {
+  const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  if (!bounds.width || !coordinates.value.length) return
+  const position = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
+  let low = 0,
+    high = coordinates.value.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    const point = coordinates.value[middle]!
+    if (position * 100 >= point.left + point.width) low = middle + 1
+    else high = middle
+  }
+  hovered.value = Math.min(low, coordinates.value.length - 1)
+  emit('cursorChange', position)
 }
-function focusPoint(index: number): void {
+function leave(): void {
+  hovered.value = undefined
+  emit('cursorChange', undefined)
+}
+function blur(): void {
+  focused.value = undefined
+  emit('cursorChange', undefined)
+}
+function focusPoint(): void {
+  const index = hovered.value ?? focused.value ?? 0
   focused.value = index
-  tabStop.value = index
+  emit('cursorChange', coordinates.value[index]!.x / 100)
 }
-function navigate(event: KeyboardEvent, index: number): void {
+function navigate(event: KeyboardEvent): void {
   if (event.altKey || event.ctrlKey || event.metaKey) return
   if (event.key === 'Escape') {
     hovered.value = undefined
     focused.value = undefined
+    emit('cursorChange', undefined)
     return
   }
-  let next = index
+  let next = hovered.value ?? focused.value ?? 0
   if (event.key === 'ArrowLeft') next--
   else if (event.key === 'ArrowRight') next++
   else if (event.key === 'Home') next = 0
@@ -59,12 +113,12 @@ function navigate(event: KeyboardEvent, index: number): void {
   event.preventDefault()
   hovered.value = undefined
   next = Math.max(0, Math.min(props.values.length - 1, next))
-  pointElements.get(next)?.focus({ preventScroll: true })
+  focused.value = next
+  emit('cursorChange', coordinates.value[next]!.x / 100)
 }
 watch(
   () => props.values.length,
   (length) => {
-    tabStop.value = Math.min(tabStop.value, Math.max(0, length - 1))
     if (hovered.value !== undefined && hovered.value >= length) hovered.value = undefined
     if (focused.value !== undefined && focused.value >= length) focused.value = undefined
   },
@@ -75,9 +129,9 @@ watch(
   <div
     class="modern-sparkline"
     :data-tone="tone"
+    :data-size="size"
     :role="interactive ? 'group' : 'img'"
     :aria-label="label"
-    @pointerleave="hovered = undefined"
   >
     <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
       <defs>
@@ -86,17 +140,21 @@ watch(
           <stop offset="1" class="modern-sparkline-fill" stop-opacity="0.015" />
         </linearGradient>
       </defs>
-      <polygon v-if="points" :points="`0,100 ${points} 1000,100`" :fill="`url(#${gradientId})`" />
-      <polyline
-        v-if="points"
-        :points="points"
-        class="modern-sparkline-line"
-        vector-effect="non-scaling-stroke"
-      />
+      <g v-for="(segment, index) in segments" :key="index">
+        <polygon
+          :points="`${segment.start},100 ${segment.points} ${segment.end},100`"
+          :fill="`url(#${gradientId})`"
+        />
+        <polyline
+          :points="segment.points"
+          class="modern-sparkline-line"
+          vector-effect="non-scaling-stroke"
+        />
+      </g>
       <line
-        v-if="activePoint"
-        :x1="activePoint.x * 10"
-        :x2="activePoint.x * 10"
+        v-if="cursorX !== undefined"
+        :x1="cursorX * 10"
+        :x2="cursorX * 10"
         y1="0"
         y2="100"
         class="modern-sparkline-guide"
@@ -104,29 +162,21 @@ watch(
         vector-effect="non-scaling-stroke"
       />
     </svg>
-    <template v-if="interactive">
-      <AppTooltip
-        v-for="(point, index) in coordinates"
-        :key="index"
-        :label="pointLabels?.[index]"
-        side="top"
-      >
-        <span
-          :ref="(element) => pointRef(index, element)"
-          class="modern-sparkline-hit"
-          role="img"
-          :aria-label="pointLabels?.[index]"
-          :tabindex="index === tabStop ? 0 : -1"
-          :style="{ left: `${point.left}%`, width: `${point.width}%` }"
-          @pointerenter="hovered = index"
-          @focus="focusPoint(index)"
-          @blur="focused = undefined"
-          @keydown="navigate($event, index)"
-        />
-      </AppTooltip>
-    </template>
+    <AppTooltip v-if="interactive" :label="tooltip" :side="tooltipSide ?? 'top'">
+      <span
+        class="modern-sparkline-hit"
+        role="img"
+        :aria-label="tooltip"
+        tabindex="0"
+        @pointermove="move"
+        @pointerleave="leave"
+        @focus="focusPoint"
+        @blur="blur"
+        @keydown="navigate"
+      />
+    </AppTooltip>
     <span
-      v-if="activePoint"
+      v-if="activePoint && showMarker !== false"
       class="modern-sparkline-marker"
       :style="{ left: `${activePoint.x}%`, top: `${activePoint.y}%` }"
       aria-hidden="true"
@@ -143,6 +193,12 @@ watch(
 }
 .modern-sparkline[data-tone='info'] {
   --modern-sparkline-color: var(--modern-chart-input);
+}
+.modern-sparkline[data-size='sm'] {
+  height: var(--modern-trend-sm-height);
+}
+.modern-sparkline[data-tone='cost'] {
+  --modern-sparkline-color: var(--modern-chart-cost);
 }
 .modern-sparkline > svg {
   display: block;
@@ -166,10 +222,13 @@ watch(
 }
 .modern-sparkline-hit {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  inset: 0;
   cursor: crosshair;
   outline: none;
+}
+.modern-sparkline-hit:focus-visible {
+  outline: var(--modern-line-width) dashed var(--modern-tooltip-border);
+  outline-offset: 0;
 }
 .modern-sparkline-marker {
   position: absolute;

@@ -3,6 +3,7 @@ package subscription
 import (
 	"sort"
 	"sync"
+	"time"
 
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
@@ -33,19 +34,31 @@ type passiveQuotaEntry struct {
 	dirty              bool
 }
 
-// passiveQuotaPending is the process-local, credential-keyed dirty set for
-// passive quota observations. It holds at most one entry per credential and
-// never grows with request volume, only with the number of accounts that
-// have produced a valid quota signal.
+// passiveQuotaPending 每个凭据仅保留一份实时快照；历史待解析观测与待写点分别有界。
 type passiveQuotaPending struct {
-	mu            sync.Mutex
-	entries       map[uint]*passiveQuotaEntry
-	nextVersion   uint64
-	dirtyNotifier func()
+	mu                      sync.Mutex
+	entries                 map[uint]*passiveQuotaEntry
+	history                 map[quotaHistorySampleKey]quotaHistorySample
+	historyTimes            map[quotaHistoryKey]int64
+	historyStates           map[quotaHistoryKey]quotaHistoryState
+	historySources          map[quotaHistoryCredential]quotaHistorySource
+	historyObservations     map[quotaHistoryCredential][]quotaHistoryObservation
+	historyRetryAt          map[quotaHistoryCredential]time.Time
+	historyObservationCount int
+	nextVersion             uint64
+	dirtyNotifier           func()
 }
 
 func newPassiveQuotaPending() *passiveQuotaPending {
-	return &passiveQuotaPending{entries: make(map[uint]*passiveQuotaEntry)}
+	return &passiveQuotaPending{
+		entries:             make(map[uint]*passiveQuotaEntry),
+		history:             make(map[quotaHistorySampleKey]quotaHistorySample),
+		historyTimes:        make(map[quotaHistoryKey]int64),
+		historyStates:       make(map[quotaHistoryKey]quotaHistoryState),
+		historySources:      make(map[quotaHistoryCredential]quotaHistorySource),
+		historyObservations: make(map[quotaHistoryCredential][]quotaHistoryObservation),
+		historyRetryAt:      make(map[quotaHistoryCredential]time.Time),
+	}
 }
 
 // RecordPassiveQuotaObservation stores one response's passive quota windows
@@ -95,13 +108,13 @@ func (manager *CredentialManager) recordPassiveQuotaObservation(
 	if manager == nil || manager.passiveQuota == nil || manager.registry == nil || credentialID == 0 || len(windows) == 0 {
 		return
 	}
-	manager.mutations.Do(credentialID, func() {
-		// 排队与目标切换共用互斥边界，防止旧请求迟到时挤掉新目标的待写观测。
+	manager.passiveQuota.record(credentialID, identityGeneration, observedAtMS, windows, preceding, func() (uint, bool) {
+		// 在短内存锁内核对当前身份；不等待后台持有的数据库 mutation 锁。
 		ref, ok := manager.registry.CredentialRef(credentialID)
 		if !ok || ref.IdentityGeneration != identityGeneration {
-			return
+			return 0, false
 		}
-		manager.passiveQuota.record(credentialID, identityGeneration, observedAtMS, windows, preceding)
+		return ref.GroupID, true
 	})
 }
 
@@ -131,8 +144,14 @@ func (pending *passiveQuotaPending) record(
 	observedAtMS int64,
 	windows []providerobservation.QuotaWindow,
 	preceding *PassiveQuotaSample,
+	current func() (uint, bool),
 ) {
 	pending.mu.Lock()
+	groupID, accepted := current()
+	if !accepted {
+		pending.mu.Unlock()
+		return
+	}
 	entry, exists := pending.entries[credentialID]
 	if !exists || entry.identityGeneration != identityGeneration {
 		entry = &passiveQuotaEntry{identityGeneration: identityGeneration}
@@ -147,6 +166,10 @@ func (pending *passiveQuotaPending) record(
 	pending.nextVersion++
 	entry.version = pending.nextVersion
 	entry.dirty = true
+	if preceding != nil {
+		pending.recordHistoryLocked(groupID, credentialID, identityGeneration, preceding.ObservedAtMS, preceding.Windows)
+	}
+	pending.recordHistoryLocked(groupID, credentialID, identityGeneration, observedAtMS, windows)
 	notifier := pending.dirtyNotifier
 	pending.mu.Unlock()
 	if notifier != nil {

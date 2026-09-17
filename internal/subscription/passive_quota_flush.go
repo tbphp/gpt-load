@@ -20,8 +20,10 @@ const passiveQuotaFlushBatchSize = 20
 
 // FlushPassiveQuotaObservations persists up to one bounded batch of pending
 // passive quota observations into credential_observations and reports
-// whether pending observations still remain for another wake-up. Each
-// credential is its own independent transaction-free conditional update: it
+// whether work is ready for another wake-up.
+// Unresolved history remains buffered but does not request an immediate wake;
+// a later worker wake retries source lookup after its cooldown.
+// Each credential is its own independent transaction-free conditional update: it
 // only ever touches snapshot_json, observed_at_ms, and updated_at_ms. State,
 // plan/account summaries, reset credits, and the most recent active
 // attempt/error metadata are always left untouched. A credential with no
@@ -33,12 +35,15 @@ func (manager *CredentialManager) FlushPassiveQuotaObservations(ctx context.Cont
 		return false, nil
 	}
 	batch := manager.passiveQuota.dirtyObservations(passiveQuotaFlushBatchSize)
+	var snapshotErr error
 	for _, observation := range batch {
 		if err := manager.flushOnePassiveQuotaObservation(ctx, observation); err != nil {
-			return true, err
+			snapshotErr = err
+			break
 		}
 	}
-	return len(manager.passiveQuota.dirtyObservations(1)) > 0, nil
+	historyRemaining, err := manager.flushQuotaHistory(ctx)
+	return len(manager.passiveQuota.dirtyObservations(1)) > 0 || historyRemaining, errors.Join(snapshotErr, err)
 }
 
 func (manager *CredentialManager) flushOnePassiveQuotaObservation(

@@ -27,6 +27,7 @@ import { credentialStatus, credentialTime } from './credential-presentation'
 import { validProxyURL } from '@modern/app/proxy'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import CredentialAccountInfo from './CredentialAccountInfo.vue'
+import CredentialTrends from './CredentialTrends.vue'
 import CredentialWindowUsage from './CredentialWindowUsage.vue'
 
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
@@ -159,6 +160,11 @@ useMessageSource(() =>
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
+      <CredentialTrends
+        :subscription="group.connectionType === 'subscription'"
+        :group="group.id"
+        :credential="row.id"
+      />
       <CredentialWindowUsage
         v-if="item.observation?.windows.length"
         :windows="item.observation.windows"

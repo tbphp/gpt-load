@@ -279,6 +279,7 @@ func (s *Server) HTTPModule() httproute.Module {
 				"/groups/:group_id/credentials/:credential_id",
 				s.handleGetGroupCredential,
 			),
+			controlRoute("control.group-credentials.quota-history", http.MethodGet, "/groups/:group_id/credentials/:credential_id/quota-history", s.handleCredentialQuotaHistory),
 			controlRoute(
 				"control.group-credentials.observation-refresh",
 				http.MethodPost,

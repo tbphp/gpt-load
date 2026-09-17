@@ -348,7 +348,17 @@ function select(id: number, value: boolean): void {
   selected.value = next
 }
 async function refresh(): Promise<void> {
-  await query.refetch()
+  await Promise.all([
+    query.refetch(),
+    cache.refetchQueries({
+      queryKey: ['modern', 'credential-detail', props.group.id],
+      type: 'active',
+    }),
+    cache.refetchQueries({
+      queryKey: ['modern', 'credential-trends', props.group.id],
+      type: 'active',
+    }),
+  ])
 }
 async function runAccountBatch(
   action: AccountBatchAction,

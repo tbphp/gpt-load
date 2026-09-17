@@ -1,4 +1,9 @@
 export const zhCN = {
+  localUsage: '用量趋势',
+  statisticsFailed: '用量趋势加载失败',
+  quotaHistory: '额度趋势',
+  quotaObservedAt: '最近观测：{time}',
+  quotaHistoryFailed: '额度历史加载失败',
   usedPercentShort: '已用比例',
   fullWindowEstimate: '满额预估',
   estimateOnly: '按当前用量比例推算，仅为预估值。',
@@ -19,6 +24,7 @@ export const zhCN = {
   pricingIncomplete: '部分请求缺少价格，费用统计不完整。',
   accountInfo: '账号与凭据信息',
   diagnosticsAndSettings: '运行诊断与配置',
+  viewDetails: '查看详情',
   resetCreditsShort: '重置券 {count}',
   resetAction: '重置',
   creditExpiry: '第 {index} 张：{time}',
@@ -123,6 +129,11 @@ export const zhCN = {
   },
 }
 export const enUS: typeof zhCN = {
+  localUsage: 'Usage trend',
+  statisticsFailed: 'Failed to load usage trend',
+  quotaHistory: 'Quota trend',
+  quotaObservedAt: 'Last observed: {time}',
+  quotaHistoryFailed: 'Failed to load quota history',
   usedPercentShort: 'Used %',
   fullWindowEstimate: 'Full estimate',
   estimateOnly: 'Projected from current usage proportions; an estimate only.',
@@ -143,6 +154,7 @@ export const enUS: typeof zhCN = {
   pricingIncomplete: 'Some requests have no pricing; the cost is incomplete.',
   accountInfo: 'Account and credential info',
   diagnosticsAndSettings: 'Diagnostics and configuration',
+  viewDetails: 'View details',
   resetCreditsShort: '{count} reset credits',
   resetAction: 'Reset',
   creditExpiry: 'Credit {index}: {time}',
@@ -252,6 +264,11 @@ export const enUS: typeof zhCN = {
   },
 }
 export const jaJP: typeof zhCN = {
+  localUsage: '使用量の推移',
+  statisticsFailed: '使用量の読み込みに失敗しました',
+  quotaHistory: 'クォータの推移',
+  quotaObservedAt: '最終観測：{time}',
+  quotaHistoryFailed: 'クォータ履歴の読み込みに失敗しました',
   usedPercentShort: '使用率',
   fullWindowEstimate: '全量推計',
   estimateOnly: '現在の使用割合から算出した推計値です。',
@@ -272,6 +289,7 @@ export const jaJP: typeof zhCN = {
   pricingIncomplete: '一部のリクエストに価格がなく、費用統計は不完全です。',
   accountInfo: 'アカウント・認証情報',
   diagnosticsAndSettings: '実行診断と設定',
+  viewDetails: '詳細を表示',
   resetCreditsShort: 'リセット券 {count}',
   resetAction: 'リセット',
   creditExpiry: '{index} 枚目：{time}',

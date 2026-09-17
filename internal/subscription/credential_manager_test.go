@@ -574,7 +574,7 @@ func newCredentialManagerFixture(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Group{}, &models.Credential{}); err != nil {
+	if err := db.AutoMigrate(&models.Group{}, &models.Credential{}, &models.CredentialQuotaHistory{}); err != nil {
 		t.Fatal(err)
 	}
 	keyService := encryptiontest.Service(t, "subscription-manager-test-encryption-key-material")

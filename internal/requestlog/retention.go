@@ -16,6 +16,7 @@ type RetentionPolicyProvider interface {
 const (
 	retentionBatchSize                   = 1000
 	usageAggregationJournalRetentionDays = 35
+	quotaHistoryRetentionDays            = 35
 )
 
 // Sweep removes request logs and aggregation journals strictly older than
@@ -45,6 +46,11 @@ func (service *Service) Sweep(ctx context.Context, now time.Time) {
 		service.recordRetentionDeleteFailure(now)
 		return
 	}
+	quotaHistoryCutoffMS, err := retentionCutoffMS(nowMS, quotaHistoryRetentionDays)
+	if err != nil {
+		service.recordRetentionDeleteFailure(now)
+		return
+	}
 	journalCutoffMS, err = epochms.AlignDown(
 		journalCutoffMS,
 		epochms.MillisecondsPerHour,
@@ -59,6 +65,30 @@ func (service *Service) Sweep(ctx context.Context, now time.Time) {
 		return
 	}
 	service.deleteExpiredUsageJournals(ctx, journalCutoffMS, now)
+	service.deleteExpiredQuotaHistory(ctx, quotaHistoryCutoffMS, now)
+}
+
+// 额度历史独立保留 35 天，小时用量聚合仍长期保留。
+func (service *Service) deleteExpiredQuotaHistory(ctx context.Context, cutoffMS int64, now time.Time) {
+	for ctx.Err() == nil {
+		var ids []uint
+		if err := service.db.WithContext(ctx).Model(&models.CredentialQuotaHistory{}).
+			Where("observed_at_ms < ?", cutoffMS).Order("observed_at_ms ASC").Limit(retentionBatchSize).Pluck("id", &ids).Error; err != nil {
+			if ctx.Err() == nil {
+				service.recordRetentionDeleteFailure(now)
+			}
+			return
+		}
+		if len(ids) == 0 {
+			return
+		}
+		if err := service.db.WithContext(ctx).Where("id IN ?", ids).Delete(&models.CredentialQuotaHistory{}).Error; err != nil {
+			if ctx.Err() == nil {
+				service.recordRetentionDeleteFailure(now)
+			}
+			return
+		}
+	}
 }
 
 func retentionCutoffMS(nowMS int64, days int) (int64, error) {
