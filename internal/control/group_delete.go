@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/concurrency"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/storage/models"
 )
@@ -88,6 +89,12 @@ func (s *Service) DeleteGroup(ctx context.Context, groupID uint) error {
 			Where("group_id = ?", groupID).
 			Order("id ASC").
 			Pluck("id", &deletedCredentialIDs).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
+		if err := deleteConcurrencyPolicies(tx, concurrency.Group(groupID)); err != nil {
+			return app_errors.ParseDBError(err)
+		}
+		if err := deleteCredentialConcurrencyPolicies(tx, deletedCredentialIDs); err != nil {
 			return app_errors.ParseDBError(err)
 		}
 		if err := tx.Delete(&group).Error; err != nil {

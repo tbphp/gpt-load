@@ -5,6 +5,7 @@ import { isCanonicalRouteQuery, scalarRouteQuery } from '@/app/route-query'
 export type SettingsSection =
   | 'routing'
   | 'connection'
+  | 'concurrency'
   | 'reliability'
   | 'browser-access'
   | 'data-maintenance'
@@ -14,6 +15,7 @@ export type SettingsSection =
 const sections = new Set<SettingsSection>([
   'routing',
   'connection',
+  'concurrency',
   'reliability',
   'browser-access',
   'data-maintenance',

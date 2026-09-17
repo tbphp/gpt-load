@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@/components/config/ConcurrencyControl.vue'
 import {
   Check,
   CircleCheck,
@@ -888,6 +889,13 @@ function runMenuAction(
             {{ accountName }}
           </OverflowTooltip>
         </div>
+        <ConcurrencyControl
+          :id="item.credential_id"
+          scope="credential"
+          editable
+          compact
+          :disabled="busy"
+        />
       </header>
 
       <div v-if="authIssue" class="subscription-account__alert">

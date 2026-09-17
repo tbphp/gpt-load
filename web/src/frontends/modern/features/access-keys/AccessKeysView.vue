@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import {
   ChartNoAxesCombined,
@@ -453,6 +454,7 @@ onScopeDispose(() => {
           <span>{{ t('accessKeys.name') }}</span
           ><span>{{ t('accessKeys.key') }}</span
           ><span>{{ t('accessKeys.restrictions') }}</span
+          ><span>{{ t('concurrency.title') }}</span
           ><span>{{ t('accessKeys.state') }}</span
           ><span>{{ t('accessKeys.expires') }}</span
           ><span>{{ t('accessKeys.lastRequest') }}</span
@@ -494,6 +496,7 @@ onScopeDispose(() => {
           />
         </div>
         <AccessKeyRestrictions :row="row" :groups="groupMap" />
+        <ConcurrencyControl :id="row.id" scope="access_key" :show-label="false" />
         <div>
           <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
             t('accessKeys.' + accessState(row).key)
@@ -640,10 +643,10 @@ onScopeDispose(() => {
   display: grid;
   grid-template-columns:
     minmax(150px, 1.5fr) minmax(150px, 1.1fr) minmax(480px, 3fr)
-    96px 110px minmax(148px, 1fr) 116px;
+    90px 96px 110px minmax(148px, 1fr) 116px;
   align-items: center;
   gap: var(--modern-space-3);
-  min-width: 1340px;
+  min-width: 1442px;
   padding-inline: var(--modern-space-2);
   text-align: left;
 }
@@ -692,8 +695,8 @@ onScopeDispose(() => {
   .modern-access-row {
     grid-template-columns:
       minmax(140px, 1.4fr) minmax(140px, 1.2fr) minmax(420px, 3fr)
-      96px 104px 148px 148px;
-    min-width: 1260px;
+      90px 96px 104px 148px 148px;
+    min-width: 1358px;
     gap: var(--modern-space-2);
   }
   .modern-access-row-actions {

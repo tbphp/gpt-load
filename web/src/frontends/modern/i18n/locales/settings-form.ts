@@ -29,6 +29,7 @@ export const zhCN = {
   entries: '条',
   days: '天',
   sections: {
+    concurrency: '并发限制',
     routing: '路由调度',
     connection: '连接与稳定性',
     browser: '浏览器访问',
@@ -37,6 +38,7 @@ export const zhCN = {
     system: '系统信息',
   },
   sectionHelp: {
+    concurrency: '限制正在执行的请求。HTTP 流式请求持续占用至结束；WebSocket 按每轮请求计数。',
     routing: '路由选择与请求亲和',
     connection: '代理、超时和失败处理',
     browser: '跨域访问与请求头规则',
@@ -182,6 +184,7 @@ export const enUS = {
   entries: 'entries',
   days: 'days',
   sections: {
+    concurrency: 'Concurrency limits',
     routing: 'Routing',
     connection: 'Connections & reliability',
     browser: 'Browser access',
@@ -190,6 +193,8 @@ export const enUS = {
     system: 'System information',
   },
   sectionHelp: {
+    concurrency:
+      'Limit active requests. HTTP streams occupy a slot until completion; WebSocket requests are counted per turn.',
     routing: 'Route selection and request affinity',
     connection: 'Proxy, timeouts and failure handling',
     browser: 'Cross-origin access and header rules',
@@ -340,6 +345,7 @@ export const jaJP = {
   entries: '件',
   days: '日',
   sections: {
+    concurrency: '同時実行制限',
     routing: 'ルーティング',
     connection: '接続と安定性',
     browser: 'ブラウザアクセス',
@@ -348,6 +354,8 @@ export const jaJP = {
     system: 'システム情報',
   },
   sectionHelp: {
+    concurrency:
+      '実行中のリクエストを制限します。HTTP ストリームは終了まで枠を占有し、WebSocket はターンごとに計数します。',
     routing: 'ルート選択とリクエスト親和性',
     connection: 'プロキシ、タイムアウト、失敗時の処理',
     browser: 'クロスオリジンアクセスとヘッダールール',

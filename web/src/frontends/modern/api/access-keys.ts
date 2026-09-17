@@ -243,10 +243,11 @@ export async function createAccessKey(
     }),
   )
 }
+export type AccessUpdateInput = Partial<AccessInput> & { max_concurrency?: number | null }
 export async function updateAccessKey(
   client: ApiClient,
   id: number,
-  patch: Partial<AccessInput>,
+  patch: AccessUpdateInput,
   signal: AbortSignal,
   operation?: string,
 ): Promise<AccessKey> {

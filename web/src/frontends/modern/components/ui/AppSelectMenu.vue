@@ -8,6 +8,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuRoot,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from 'reka-ui'
 import { computed, type Component } from 'vue'
@@ -25,15 +26,27 @@ const props = defineProps<{
   options: readonly SelectOption[]
   showValue?: boolean
   disabled?: boolean
+  secondaryGroup?: {
+    label: string
+    modelValue: string
+    options: readonly SelectOption[]
+    disabled?: boolean
+  }
 }>()
 const selectedLabel = computed(
   () => props.options.find((option) => option.value === props.modelValue)?.label ?? props.label,
 )
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const groups = computed(() => [props, ...(props.secondaryGroup ? [props.secondaryGroup] : [])])
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+  'update:secondaryValue': [value: string]
+}>()
 
-function select(value: unknown): void {
-  if (!props.disabled && typeof value === 'string' && value !== props.modelValue)
-    emit('update:modelValue', value)
+function select(index: number, value: unknown): void {
+  const group = groups.value[index]
+  if (!group || group.disabled || typeof value !== 'string' || value === group.modelValue) return
+  if (index === 0) emit('update:modelValue', value)
+  else emit('update:secondaryValue', value)
 }
 </script>
 
@@ -56,21 +69,27 @@ function select(value: unknown): void {
     <DropdownMenuPortal>
       <AppMenuSurface>
         <DropdownMenuContent align="end" :side-offset="overlaySideOffset">
-          <DropdownMenuLabel class="modern-menu-label">{{ label }}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup :model-value="modelValue" @update:model-value="select">
-            <DropdownMenuRadioItem
-              v-for="option in options"
-              :key="option.value"
-              class="modern-menu-option"
-              :value="option.value"
-              :disabled="disabled || option.disabled"
+          <template v-for="(group, index) in groups" :key="index">
+            <DropdownMenuSeparator v-if="index > 0" class="modern-menu-separator" />
+            <DropdownMenuLabel class="modern-menu-label">{{ group.label }}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              :model-value="group.modelValue"
+              @update:model-value="select(index, $event)"
             >
-              {{ option.label }}
-              <DropdownMenuItemIndicator
-                ><AppIcon :icon="Check" size="sm"
-              /></DropdownMenuItemIndicator>
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
+              <DropdownMenuRadioItem
+                v-for="option in group.options"
+                :key="option.value"
+                class="modern-menu-option"
+                :value="option.value"
+                :disabled="group.disabled || option.disabled"
+              >
+                {{ option.label }}
+                <DropdownMenuItemIndicator
+                  ><AppIcon :icon="Check" size="sm"
+                /></DropdownMenuItemIndicator>
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </template>
         </DropdownMenuContent>
       </AppMenuSurface>
     </DropdownMenuPortal>

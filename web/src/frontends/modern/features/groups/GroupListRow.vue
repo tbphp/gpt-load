@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { numberFormatter, dateFormatter } from '@modern/components/ui/intl-formatters'
 import { ChevronDown, ChevronUp, KeyRound, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
@@ -225,6 +226,10 @@ const lastActive = computed(() =>
           class="modern-group-secondary"
           :text="t('groups.board.price', { value: group.priceMultiplier })"
         />
+      </div>
+      <div class="modern-group-metric" role="group" :aria-label="t('concurrency.title')">
+        <span class="modern-group-mobile-label">{{ t('concurrency.title') }}</span>
+        <ConcurrencyControl :id="group.id" scope="group" :show-label="false" stacked />
       </div>
       <div
         class="modern-group-metric"

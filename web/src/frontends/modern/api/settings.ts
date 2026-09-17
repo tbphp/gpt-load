@@ -1,3 +1,4 @@
+import type { SettingsConcurrencyPatch } from './concurrency'
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
 import type { HeaderRules } from './group-detail'
@@ -145,8 +146,13 @@ export async function saveSettings(
   client: ApiClient,
   settings: SettingsPatch,
   signal: AbortSignal,
+  concurrency: SettingsConcurrencyPatch = {},
 ): Promise<SettingsData> {
   return readSettings(
-    await client.request('/api/settings', { method: 'PUT', json: { settings }, signal }),
+    await client.request('/api/settings', {
+      method: 'PUT',
+      json: { settings, concurrency },
+      signal,
+    }),
   )
 }

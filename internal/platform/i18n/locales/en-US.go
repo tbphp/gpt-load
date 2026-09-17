@@ -2,6 +2,7 @@ package locales
 
 // MessagesEnUS contains English (US) control-plane translations.
 var MessagesEnUS = map[string]string{
+	"concurrency.upstream_busy":                  "The upstream account or group is at its concurrency limit; try again later",
 	"access_key.custom_invalid":                  "Use up to 256 visible ASCII characters without spaces or control characters.",
 	"access_key.admin_conflict":                  "The administrator key cannot be used as an access key.",
 	"access_key.exists":                          "This access key already exists. Use a different key.",

@@ -672,6 +672,7 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 		"0013_validation_protocol",
 		"0014_affinity_kind",
 		"0015_group_usage_index",
+		"0016_concurrency",
 	}
 	if !reflect.DeepEqual(migrationIDs, wantMigrationIDs) {
 		t.Fatalf("schema_migrations IDs = %v, want %v", migrationIDs, wantMigrationIDs)

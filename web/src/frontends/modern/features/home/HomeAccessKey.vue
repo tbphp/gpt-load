@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AccessKeyRow, CostRule, CostWindow } from '@modern/api/access-keys'
@@ -56,6 +57,10 @@ function percent(window?: CostWindow): number | undefined {
     <div class="modern-home-key">
       <AppOverflowText class="modern-home-key-mask" :text="row.masked_key" />
       <dl class="modern-home-key-facts">
+        <div>
+          <dt>{{ t('concurrency.scopes.access_key') }}</dt>
+          <dd><ConcurrencyControl :id="row.id" scope="access_key" :show-label="false" /></dd>
+        </div>
         <div>
           <dt>{{ t('home.expires') }}</dt>
           <dd>{{ row.expires_at_ms ? accessTime(row.expires_at_ms, locale) : t('home.never') }}</dd>

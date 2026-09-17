@@ -106,6 +106,7 @@ var migrations = []migration{
 	{ID: migrationfiles.ID0013, Up: migrationfiles.Up0013, Validate: migrationfiles.Validate0013, ValidateRecoverable: migrationfiles.ValidateRecoverable0013},
 	{ID: migrationfiles.ID0014, Up: migrationfiles.Up0014, Validate: migrationfiles.Validate0014, ValidateRecoverable: migrationfiles.ValidateRecoverable0014},
 	{ID: migrationfiles.ID0015, Up: migrationfiles.Up0015, Validate: migrationfiles.Validate0015, ValidateRecoverable: migrationfiles.ValidateRecoverable0015},
+	{ID: migrationfiles.ID0016, Up: migrationfiles.Up0016, Validate: migrationfiles.Validate0016, ValidateRecoverable: migrationfiles.ValidateRecoverable0016},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -187,6 +188,11 @@ func applyMigrationsLocked(db *gorm.DB, entries []migration, useMigrationTransac
 	if err := db.Table(migrationLedgerTable).Order("id ASC").Pluck("id", &applied).Error; err != nil {
 		return fmt.Errorf("read schema_migrations: %w", err)
 	}
+	var err error
+	applied, err = rebaseLegacyConcurrencyMigration(db, entries, applied)
+	if err != nil {
+		return err
+	}
 	if len(applied) > 0 {
 		lastIndex := len(applied) - 1
 		if lastIndex < len(entries) &&
@@ -215,6 +221,36 @@ func applyMigrationsLocked(db *gorm.DB, entries []migration, useMigrationTransac
 		}
 	}
 	return validateMigrationForeignKeys(db)
+}
+
+// The original concurrency feature used 0015 before upstream assigned that
+// number to the group usage index. Under the migration lock, retain its table
+// and policies, then let the normal runner apply the index and register 0016.
+func rebaseLegacyConcurrencyMigration(db *gorm.DB, entries []migration, applied []string) ([]string, error) {
+	const legacyID = "0015_concurrency"
+	if len(entries) < 16 || entries[14].ID != migrationfiles.ID0015 || entries[15].ID != migrationfiles.ID0016 || len(applied) != 15 {
+		return applied, nil
+	}
+	legacy := applied[14]
+	if legacy != legacyID && legacy != migrationResumeMarker(legacyID) {
+		return applied, nil
+	}
+	for index, id := range applied[:14] {
+		if id != entries[index].ID {
+			return applied, nil // Leave unrelated ledger errors to the normal validator.
+		}
+	}
+	validate := migrationfiles.Validate0016
+	if legacy != legacyID {
+		validate = migrationfiles.ValidateRecoverable0016
+	}
+	if err := validate(db); err != nil {
+		return nil, fmt.Errorf("validate legacy concurrency migration: %w", err)
+	}
+	if err := db.Where("id = ?", legacy).Delete(&schemaMigration{}).Error; err != nil {
+		return nil, fmt.Errorf("rebase legacy concurrency migration: %w", err)
+	}
+	return applied[:14], nil
 }
 
 func applyMigration(db *gorm.DB, entry migration, useMigrationTransactions bool) error {

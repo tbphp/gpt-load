@@ -41,6 +41,7 @@ func TestOperationRequiredStagesAreKindSpecificAndDetached(t *testing.T) {
 			want: []operationStage{
 				operationStageDBCommitted,
 				operationStageRegistryApplied,
+				operationStageSnapshotPublished,
 				operationStageCompleted,
 			},
 		},
@@ -67,6 +68,25 @@ func TestOperationRequiredStagesAreKindSpecificAndDetached(t *testing.T) {
 
 	if _, err := operationRequiredStages(operationKind("unknown")); err == nil {
 		t.Fatal("operationRequiredStages(unknown) error = nil, want rejection")
+	}
+}
+
+func TestCredentialImportAcceptsLegacyRecoveryStagePlan(t *testing.T) {
+	t.Parallel()
+	current, err := operationRequiredStages(operationKindCredentialImport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := []operationStage{
+		operationStageDBCommitted,
+		operationStageRegistryApplied,
+		operationStageCompleted,
+	}
+	if !operationStagePlanMatches(operationKindCredentialImport, legacy, current) {
+		t.Fatal("legacy credential import recovery plan was rejected")
+	}
+	if operationStagePlanMatches(operationKindAccessKeyCreate, legacy, current) {
+		t.Fatal("legacy credential import plan was accepted for another operation kind")
 	}
 }
 

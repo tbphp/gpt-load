@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@/components/config/ConcurrencyControl.vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -189,6 +190,16 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
           :update="releaseUpdate"
           :observed-at-ms="statistics.lastSuccessfulObservedAtMS.value"
           :uptime-now-ms="uptimeNowMS"
+        />
+
+        <div v-if="!isAccessKey" class="home-concurrency">
+          <ConcurrencyControl scope="global" />
+          <ConcurrencyControl scope="upstream" />
+        </div>
+        <ConcurrencyControl
+          v-else-if="baseQuery.data.value.current_access_key"
+          :id="baseQuery.data.value.current_access_key.id"
+          scope="access_key"
         />
 
         <!-- 紧贴事实行：它是那句「X/Y 个凭据可用」的注解，隔开就变成孤立的红条。 -->

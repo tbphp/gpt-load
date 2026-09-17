@@ -23,6 +23,7 @@ func (e *APIError) Error() string {
 
 // Predefined API errors
 var (
+	ErrUpstreamConcurrencyLimit               = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "UPSTREAM_CONCURRENCY_LIMIT", Message: "Upstream concurrency limit reached"}
 	ErrBadRequest                             = &APIError{HTTPStatus: http.StatusBadRequest, Code: "BAD_REQUEST", Message: "Invalid request parameters"}
 	ErrInvalidJSON                            = &APIError{HTTPStatus: http.StatusBadRequest, Code: "INVALID_JSON", Message: "Invalid JSON format"}
 	ErrRequestTooLarge                        = &APIError{HTTPStatus: http.StatusRequestEntityTooLarge, Code: "REQUEST_TOO_LARGE", Message: "Request body is too large"}

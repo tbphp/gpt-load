@@ -16,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/concurrency"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/outboundproxy"
@@ -175,6 +176,15 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 	if worker.stats == nil {
 		logValidationFailure(ref, string(target.protocol), "conditional_recover")
 		return
+	}
+	if admission, ok := worker.snapshots.(interface {
+		AdmitUpstreamConcurrency(state.CredentialRef) (*concurrency.Lease, bool)
+	}); ok {
+		lease, admitted := admission.AdmitUpstreamConcurrency(ref)
+		if !admitted {
+			return
+		}
+		defer lease.Release()
 	}
 	probe := newCredentialProbeExecutor(
 		worker.decryptor,

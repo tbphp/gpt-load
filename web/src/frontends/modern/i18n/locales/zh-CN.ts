@@ -1,3 +1,4 @@
+import { zhCN as concurrency } from './concurrency'
 import { protocolMessages as protocols } from '../protocols'
 import { zhCN as inspector } from './inspector'
 import { zhCN as home } from './home'
@@ -18,6 +19,7 @@ import { zhCN as settingsForm } from './settings-form'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  concurrency,
   home,
   inspector,
   protocols,

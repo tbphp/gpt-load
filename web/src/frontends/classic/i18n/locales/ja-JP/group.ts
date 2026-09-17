@@ -206,6 +206,7 @@ export default {
       sections: {
         general: '基本情報',
         routing: 'スケジューリング',
+        concurrency: 'グループ同時実行数',
         runtime: 'ランタイム上書き',
         parameters: 'パラメーター上書き',
         headers: 'アップストリームリクエストヘッダールール',
@@ -215,6 +216,9 @@ export default {
         description: 'リクエスト分配に使うグループの相対的な重みを設定します。',
         weightHelp:
           '既定値は 50、範囲は 1–100 です。認証情報の重みと掛け合わせて分配比率を決定します。',
+      },
+      concurrency: {
+        description: 'このグループで同時に実行するアップストリームリクエスト数を制限します。',
       },
       headers: {
         description:

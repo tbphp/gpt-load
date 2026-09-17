@@ -48,6 +48,7 @@ type authSessionResponse struct {
 }
 
 var accessKeyControlRoutes = map[string]struct{}{
+	"/api/concurrency":      {},
 	"/api/auth/session":     {},
 	"/api/home":             {},
 	"/api/home/statistics":  {},

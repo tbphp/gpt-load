@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@/components/config/ConcurrencyControl.vue'
 import { Save } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -94,6 +95,9 @@ const client = useApiClient()
 const queryClient = useQueryClient()
 const { t } = useI18n()
 const formFields = ref<InstanceType<typeof AccessKeyFormFields>>()
+const concurrencyControl = ref<InstanceType<typeof ConcurrencyControl>>()
+const concurrencyDirty = ref(false)
+const concurrencyValid = ref(true)
 const base = ref<AccessKeyDto | null>(null)
 const draft = ref<AccessKeyDraft>(createAccessKeyDraft())
 const operationID = ref('')
@@ -175,7 +179,8 @@ const modelMismatch = computed(
     draft.value.scopeModes.models === 'restricted' &&
     draft.value.filters.models.some((model) => !catalogModelOptions.value.includes(model)),
 )
-const dirty = computed(() => isAccessKeyDraftDirty(draft.value, base.value))
+const accessKeyDirty = computed(() => isAccessKeyDraftDirty(draft.value, base.value))
+const dirty = computed(() => accessKeyDirty.value || concurrencyDirty.value)
 const unsavedDirty = computed(
   () =>
     dirty.value &&
@@ -198,7 +203,8 @@ const valid = computed(
   () =>
     isAccessKeyDraftValid(draft.value, base.value, groupCatalog.value) &&
     isValidCustomAccessKey(draft.value.key) &&
-    !groupProtocolMismatch.value,
+    !groupProtocolMismatch.value &&
+    concurrencyValid.value,
 )
 const mutationFeedbackKey = computed(() => {
   if (mutationState.value === 'idle') return ''
@@ -307,6 +313,8 @@ function clearLocalState(): void {
   editReconciliation.value = null
   editNotApplied.value = false
   modelInput.value = ''
+  concurrencyDirty.value = false
+  concurrencyValid.value = true
 }
 
 async function resetForOpen(): Promise<void> {
@@ -460,6 +468,11 @@ function updateCustomKey(value: string): void {
   customKeyError.value = ''
 }
 
+function updateConcurrencyState(state: { dirty: boolean; valid: boolean }): void {
+  concurrencyDirty.value = state.dirty
+  concurrencyValid.value = state.valid
+}
+
 function reportCustomKeyError(error: unknown): void {
   if (!(error instanceof ApiError)) return
   if (error.code === 'DUPLICATE_RESOURCE')
@@ -476,7 +489,7 @@ async function requestSave(): Promise<void> {
     !createOperationActive.value &&
     !editReconciliation.value &&
     valid.value &&
-    dirty.value &&
+    accessKeyDirty.value &&
     (editing.value ? draft.value.key !== '' : estimateAccessKeyStrength(draft.value.key) === 'weak')
   ) {
     keyConfirmationOpen.value = true
@@ -509,10 +522,19 @@ async function save(): Promise<void> {
   if (!createOperationActive.value && (!valid.value || !dirty.value)) return
   const currentBase = base.value
   const updateBody = currentBase ? buildAccessKeyUpdatePatch(currentBase, draft.value) : null
+  if (updateBody && concurrencyDirty.value) {
+    const maximum = concurrencyControl.value?.pendingValue()
+    if (maximum === undefined) {
+      failed.value = true
+      return
+    }
+    updateBody.max_concurrency = maximum
+  }
+  const accessKeyHasChanges = updateBody !== null && Object.keys(updateBody).length > 0
   const activeCreatePayload = currentBase
     ? null
     : (createPayload.value ?? buildCreateAccessKeyInput(draft.value))
-  if (updateBody && Object.keys(updateBody).length === 0) return
+  if (currentBase && !accessKeyHasChanges) return
 
   if (activeCreatePayload && !createPayload.value) {
     createPayload.value = cloneAccessKeyCreatePayload(activeCreatePayload)
@@ -531,26 +553,32 @@ async function save(): Promise<void> {
   let createdAccessKey: AccessKeyDto | null = null
   try {
     if (currentBase) {
-      const saved = await updateAccessKey(
-        client,
-        currentBase.id,
-        updateBody!,
-        activeController.signal,
-        updateBody?.key ? activeOperationID : undefined,
-      )
-      if (
-        controller !== activeController ||
-        !props.open ||
-        operationID.value !== activeOperationID
-      ) {
-        return
+      let saved = currentBase
+      if (accessKeyHasChanges) {
+        saved = await updateAccessKey(
+          client,
+          currentBase.id,
+          updateBody!,
+          activeController.signal,
+          updateBody?.key ? activeOperationID : undefined,
+        )
+        if (
+          controller !== activeController ||
+          !props.open ||
+          operationID.value !== activeOperationID
+        ) {
+          return
+        }
+        if (updateBody?.max_concurrency !== undefined)
+          concurrencyControl.value?.synchronize(updateBody.max_concurrency)
+        base.value = saved
+        draft.value = createAccessKeyDraft(saved)
+        editReconciliation.value = null
+        editOperationRetained.value = false
+        emit('update:editOperation', null)
+        await applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.update)
       }
-      base.value = saved
-      draft.value = createAccessKeyDraft(saved)
       savedName = saved.name
-      editReconciliation.value = null
-      editOperationRetained.value = false
-      emit('update:editOperation', null)
     } else {
       const saved = await createAccessKey(
         client,
@@ -571,10 +599,9 @@ async function save(): Promise<void> {
       createOperationRetained.value = false
       emit('update:createOperation', null)
     }
-    await applyInvalidationPlan(
-      queryClient,
-      mutationInvalidationPlans.accessKey[currentBase ? 'update' : 'create'],
-    )
+    if (!currentBase) {
+      await applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.create)
+    }
     if (createdAccessKey) {
       base.value = createdAccessKey
       draft.value = createAccessKeyDraft(createdAccessKey)
@@ -586,6 +613,12 @@ async function save(): Promise<void> {
     }
     if (error instanceof RequestCancelledError) return
     if (updateBody?.key || activeCreatePayload?.key) reportCustomKeyError(error)
+    if (currentBase && updateBody?.max_concurrency !== undefined && !updateBody.key) {
+      // The whole edit is one transaction. Keep the draft and retry the same request.
+      failed.value = true
+      mutationState.value = 'idle'
+      return
+    }
     const outcome = classifyMutationOutcome({
       kind: 'error',
       error,
@@ -683,6 +716,15 @@ async function reconcileEdit(): Promise<void> {
           activeController.signal,
         )
       }
+    } else if (attempt.patch.max_concurrency !== undefined) {
+      // The ordinary metadata endpoint has no durable idempotency record. Retry
+      // the same atomic update so a successful first request remains harmless.
+      latest = await updateAccessKey(
+        client,
+        attempt.base.id,
+        attempt.patch,
+        activeController.signal,
+      )
     } else {
       latest = await findAccessKeyForReconciliation(
         client,
@@ -713,6 +755,9 @@ async function reconcileEdit(): Promise<void> {
       attempt.idempotencyKey ||
       accessKeyMatchesUpdatePatch(latest, attempt.patch, attempt.base)
     ) {
+      if (attempt.patch.max_concurrency !== undefined) {
+        concurrencyControl.value?.synchronize(attempt.patch.max_concurrency)
+      }
       base.value = latest
       draft.value = createAccessKeyDraft(latest)
       editReconciliation.value = null
@@ -835,6 +880,19 @@ onBeforeUnmount(clearLocalState)
             />
           </template>
         </AccessKeyFormFields>
+      </section>
+
+      <section v-if="base && open" class="drawer-section drawer-section--concurrency">
+        <ConcurrencyControl
+          :id="base.id"
+          ref="concurrencyControl"
+          scope="access_key"
+          editable
+          expanded
+          deferred
+          :disabled="pending"
+          @state-change="updateConcurrencyState"
+        />
       </section>
 
       <section class="drawer-section">
@@ -983,6 +1041,19 @@ onBeforeUnmount(clearLocalState)
   margin-top: 22px;
   border-top: 1px solid var(--color-border-subtle);
   padding-top: 20px;
+}
+.drawer-section + .drawer-section--concurrency {
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.drawer-section--concurrency + .drawer-section {
+  margin-top: 12px;
+}
+.drawer-section--concurrency :deep(.concurrency-control) {
+  padding: 0;
+}
+.drawer-section--concurrency :deep(.concurrency-control__editor) {
+  padding: 4px 0 0;
 }
 .drawer-section h3 {
   margin: 0 0 4px;

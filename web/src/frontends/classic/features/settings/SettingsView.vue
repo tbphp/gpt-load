@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@/components/config/ConcurrencyControl.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -12,6 +13,7 @@ import {
   runtimeSettingKeys,
   settingsQueryOptions,
   type RuntimeSettingKey,
+  type SettingsConcurrencyPatch,
 } from '@/app/resources/settings'
 import { controlQueryKeys } from '@/app/query-keys'
 import { settingsLocation } from '@/app/route-locations'
@@ -68,6 +70,27 @@ const headerRulesInvalidEdits = ref(false)
 const responseRulesInvalidEdits = ref(false)
 const browserAccessEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
+type SettingsConcurrencyScope =
+  'global' | 'default_group' | 'default_access_key' | 'default_credential'
+type ConcurrencyState = { dirty: boolean; valid: boolean }
+const globalConcurrencyControl = ref<InstanceType<typeof ConcurrencyControl>>()
+const groupConcurrencyControl = ref<InstanceType<typeof ConcurrencyControl>>()
+const accessKeyConcurrencyControl = ref<InstanceType<typeof ConcurrencyControl>>()
+const credentialConcurrencyControl = ref<InstanceType<typeof ConcurrencyControl>>()
+const concurrencyStates = ref<Record<SettingsConcurrencyScope, ConcurrencyState>>({
+  global: { dirty: false, valid: true },
+  default_group: { dirty: false, valid: true },
+  default_access_key: { dirty: false, valid: true },
+  default_credential: { dirty: false, valid: true },
+})
+const concurrencyPending = ref(false)
+const concurrencySaveFailed = ref(false)
+const concurrencyDirty = computed(() =>
+  Object.values(concurrencyStates.value).some(({ dirty }) => dirty),
+)
+const concurrencyValid = computed(() =>
+  Object.values(concurrencyStates.value).every(({ valid }) => valid),
+)
 const {
   value: savedFeedback,
   clear: clearSavedFeedback,
@@ -82,7 +105,11 @@ const proxyState = computed(() =>
     : { dirty: false, invalid: false, value: undefined },
 )
 const hasLocalEdits = computed(
-  () => headerRulesInvalidEdits.value || responseRulesInvalidEdits.value || proxyState.value.dirty,
+  () =>
+    headerRulesInvalidEdits.value ||
+    responseRulesInvalidEdits.value ||
+    proxyState.value.dirty ||
+    concurrencyDirty.value,
 )
 const {
   base,
@@ -117,6 +144,7 @@ watch(
 const navItems = computed(() => [
   { id: 'settings-routing', label: t('settings.navigation.routing') },
   { id: 'settings-connection', label: t('settings.navigation.connection') },
+  { id: 'settings-concurrency', label: t('concurrency.title') },
   { id: 'settings-reliability', label: t('settings.navigation.reliability') },
   { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
   { id: 'settings-data-maintenance', label: t('settings.navigation.dataMaintenance') },
@@ -133,16 +161,21 @@ const headerRulesValid = ref(true)
 const browserAccessValid = ref(true)
 const corsValid = ref(true)
 const responseHeaderRulesValid = ref(true)
-const pageOperationLocked = computed(() => operationLocked.value)
-const dirty = computed(
+const pageOperationLocked = computed(() => operationLocked.value || concurrencyPending.value)
+const settingsDirty = computed(
   () =>
     controllerDirty.value ||
     headerRulesInvalidEdits.value ||
     responseRulesInvalidEdits.value ||
     proxyState.value.dirty,
 )
+const dirty = computed(() => settingsDirty.value || concurrencyDirty.value)
 const valid = computed(
-  () => controllerValid.value && browserAccessValid.value && !proxyState.value.invalid,
+  () =>
+    controllerValid.value &&
+    browserAccessValid.value &&
+    !proxyState.value.invalid &&
+    concurrencyValid.value,
 )
 const timeoutKeys = [
   'first_byte_timeout',
@@ -164,6 +197,9 @@ const changedKeys = computed(() => {
 const changedLabels = computed(() => [
   ...changedKeys.value.map(settingLabel),
   ...(proxyState.value.dirty ? [t('common.proxy.title')] : []),
+  ...(Object.entries(concurrencyStates.value) as [SettingsConcurrencyScope, ConcurrencyState][])
+    .filter(([, state]) => state.dirty)
+    .map(([scope]) => t(`concurrency.scopes.${scope}`)),
 ])
 const invalidKeys = computed<RuntimeSettingKey[]>(() => {
   const current = draft.value
@@ -187,7 +223,15 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
 const savedAtLabel = computed(() =>
   savedAt.value ? formatLocalInstant(savedAt.value.getTime(), locale.value) : '',
 )
-const saveBarError = computed(() => (failed.value ? t('settings.saveFailed') : ''))
+const pagePending = computed(() => pending.value || concurrencyPending.value)
+const pageSaveFailed = computed(() => failed.value || concurrencySaveFailed.value)
+const saveBarError = computed(() =>
+  failed.value
+    ? t('settings.saveFailed')
+    : concurrencySaveFailed.value
+      ? t('concurrency.saveFailed')
+      : '',
+)
 
 useUnsavedChanges(dirty, {
   blocked: pageOperationLocked,
@@ -256,6 +300,7 @@ function sectionFromID(id: string): SettingsSection | undefined {
   return section === 'routing' ||
     section === 'connection' ||
     section === 'reliability' ||
+    section === 'concurrency' ||
     section === 'browser-access' ||
     section === 'data-maintenance' ||
     section === 'system' ||
@@ -278,10 +323,21 @@ function discard(): void {
   responseRulesInvalidEdits.value = false
   browserAccessEditorRevision.value += 1
   if (proxyBaseView.value) resetProxyDraft(proxyBaseView.value)
+  globalConcurrencyControl.value?.reset()
+  groupConcurrencyControl.value?.reset()
+  accessKeyConcurrencyControl.value?.reset()
+  credentialConcurrencyControl.value?.reset()
+  concurrencyStates.value = {
+    global: { dirty: false, valid: true },
+    default_group: { dirty: false, valid: true },
+    default_access_key: { dirty: false, valid: true },
+    default_credential: { dirty: false, valid: true },
+  }
+  concurrencySaveFailed.value = false
 }
 
 function requestDiscard(): void {
-  if (!dirty.value || operationLocked.value) return
+  if (!dirty.value || pageOperationLocked.value) return
   discardDialogOpen.value = true
 }
 
@@ -344,11 +400,49 @@ async function focusTarget(key: RuntimeSettingKey): Promise<void> {
 }
 
 async function handleSaveAll(): Promise<void> {
+  if (!dirty.value || !valid.value || pageOperationLocked.value) return
   const extra =
     proxyState.value.dirty && proxyState.value.value !== undefined
       ? { proxy_config: proxyState.value.value }
       : {}
-  await saveAll(extra)
+  concurrencyPending.value = true
+  concurrencySaveFailed.value = false
+  clearSavedFeedback()
+  try {
+    const controls: Array<
+      [SettingsConcurrencyScope, InstanceType<typeof ConcurrencyControl> | undefined]
+    > = [
+      ['global', globalConcurrencyControl.value],
+      ['default_group', groupConcurrencyControl.value],
+      ['default_access_key', accessKeyConcurrencyControl.value],
+      ['default_credential', credentialConcurrencyControl.value],
+    ]
+    const concurrency: SettingsConcurrencyPatch = {}
+    for (const [scope, control] of controls) {
+      if (!concurrencyStates.value[scope].dirty) continue
+      const maximum = control?.pendingValue()
+      if (maximum === undefined) {
+        concurrencySaveFailed.value = true
+        return
+      }
+      concurrency[scope] = maximum
+    }
+    await saveAll(extra, concurrency)
+    if (failed.value) return
+    for (const [scope, control] of controls) {
+      const maximum = concurrency[scope]
+      if (maximum === undefined) continue
+      control?.synchronize(maximum)
+      concurrencyStates.value = {
+        ...concurrencyStates.value,
+        [scope]: { dirty: false, valid: true },
+      }
+    }
+  } catch {
+    concurrencySaveFailed.value = true
+  } finally {
+    concurrencyPending.value = false
+  }
 }
 
 onBeforeUnmount(() => {
@@ -428,6 +522,46 @@ onBeforeUnmount(() => {
               @update:proxy-mode="proxyMode = $event"
               @update:proxy-endpoint="proxyEndpoint = $event"
             />
+            <section id="settings-concurrency" class="settings-section" tabindex="-1">
+              <header class="settings-section__heading">
+                <h2>{{ t('concurrency.title') }}</h2>
+                <p>{{ t('concurrency.description') }}</p>
+              </header>
+              <div class="settings-concurrency__rows">
+                <ConcurrencyControl
+                  ref="globalConcurrencyControl"
+                  scope="global"
+                  editable
+                  deferred
+                  :disabled="pageOperationLocked"
+                  @state-change="concurrencyStates.global = $event"
+                />
+                <ConcurrencyControl
+                  ref="groupConcurrencyControl"
+                  scope="default_group"
+                  editable
+                  deferred
+                  :disabled="pageOperationLocked"
+                  @state-change="concurrencyStates.default_group = $event"
+                />
+                <ConcurrencyControl
+                  ref="accessKeyConcurrencyControl"
+                  scope="default_access_key"
+                  editable
+                  deferred
+                  :disabled="pageOperationLocked"
+                  @state-change="concurrencyStates.default_access_key = $event"
+                />
+                <ConcurrencyControl
+                  ref="credentialConcurrencyControl"
+                  scope="default_credential"
+                  editable
+                  deferred
+                  :disabled="pageOperationLocked"
+                  @state-change="concurrencyStates.default_credential = $event"
+                />
+              </div>
+            </section>
             <ReliabilitySettingsSection
               :base="base"
               :draft="draft"
@@ -481,15 +615,15 @@ onBeforeUnmount(() => {
         appearance="ledger"
         always-visible
         :dirty="dirty"
-        :pending="pending"
-        :status="failed ? 'error' : savedFeedback ? 'saved' : 'idle'"
+        :pending="pagePending"
+        :status="pageSaveFailed ? 'error' : savedFeedback ? 'saved' : 'idle'"
         :error="saveBarError"
       >
         <template #status>
           <div>
             <strong>
               {{
-                pending
+                pagePending
                   ? t('settings.saveState.saving')
                   : dirty
                     ? t('settings.dirtySummary', { count: changedLabels.length })
@@ -500,7 +634,7 @@ onBeforeUnmount(() => {
             </strong>
             <span>
               {{
-                pending
+                pagePending
                   ? t('settings.saveState.savingNote')
                   : dirty
                     ? changedLabels.join(', ')
@@ -524,7 +658,7 @@ onBeforeUnmount(() => {
         <template #save="{ disabled }">
           <AppButton
             size="sm"
-            :busy="pending"
+            :busy="pagePending"
             :disabled="disabled || !dirty || !valid || pageOperationLocked"
             @click="handleSaveAll"
           >
@@ -568,6 +702,39 @@ onBeforeUnmount(() => {
 .settings__content > :deep(.settings-section):first-child {
   border-top: 0;
   padding-top: 0;
+}
+
+.settings__content > .settings-section,
+.settings__content > .settings-section > .settings-section__heading {
+  display: grid;
+}
+
+.settings__content > .settings-section {
+  gap: var(--space-4);
+}
+
+.settings__content > .settings-section > .settings-section__heading h2,
+.settings__content > .settings-section > .settings-section__heading p {
+  margin: 0;
+}
+
+.settings__content > .settings-section > .settings-section__heading h2 {
+  font-size: var(--title-section);
+  font-weight: 650;
+}
+
+.settings__content > .settings-section > .settings-section__heading p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.settings-concurrency__rows {
+  display: grid;
+}
+
+.settings-concurrency__rows > :deep(.concurrency-control) {
+  border-bottom: 1px dashed var(--color-border-subtle);
 }
 
 .settings__validation {

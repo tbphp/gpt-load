@@ -17,6 +17,7 @@ import (
 
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/concurrency"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
@@ -70,11 +71,12 @@ func NewWithCredentialValidation(
 }
 
 type compileRows struct {
-	settings       []models.SystemSetting
-	groups         []models.Group
-	credentials    []models.Credential
-	accessKeys     []models.AccessKey
-	costLimitRules []models.AccessKeyCostLimitRule
+	concurrencyPolicies []models.ConcurrencyPolicy
+	settings            []models.SystemSetting
+	groups              []models.Group
+	credentials         []models.Credential
+	accessKeys          []models.AccessKey
+	costLimitRules      []models.AccessKeyCostLimitRule
 }
 
 type modelDTO struct {
@@ -239,6 +241,9 @@ func (l *Loader) validatePersistedCredentials(
 func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 	db = db.WithContext(ctx)
 	var rows compileRows
+	if err := db.Order("subject ASC").Find(&rows.concurrencyPolicies).Error; err != nil {
+		return compileRows{}, fmt.Errorf("query concurrency policies: %w", err)
+	}
 	if err := db.
 		Order(clause.OrderBy{Columns: []clause.OrderByColumn{{Column: clause.Column{Name: "key"}}}}).
 		Find(&rows.settings).Error; err != nil {
@@ -596,6 +601,10 @@ func mapSystemAndGroups(
 		Groups:           make([]state.GroupConfig, 0, len(rows.groups)),
 		EnvironmentProxy: environmentProxy,
 	}
+	input.ConcurrencyPolicies = make(map[concurrency.Subject]int64, len(rows.concurrencyPolicies))
+	for _, row := range rows.concurrencyPolicies {
+		input.ConcurrencyPolicies[concurrency.Subject(row.Subject)] = row.MaxConcurrency
+	}
 	for _, row := range rows.settings {
 		if row.Key == outboundproxy.SystemSettingKey {
 			config, err := decodePersistedProxy(row.Value, encryptionService)
@@ -767,7 +776,8 @@ func mapCredentialConfigs(
 	for _, row := range rows {
 		target := targets[row.GroupID]
 		result = append(result, state.CredentialConfig{
-			ID: row.ID, GroupID: row.GroupID, WeightManual: cloneWeight(row.WeightManual),
+			IdentityFingerprint: row.IdentityFingerprint,
+			ID:                  row.ID, GroupID: row.GroupID, WeightManual: cloneWeight(row.WeightManual),
 			Status:  state.CredentialStatus(row.Status),
 			Version: credentialVersion(row.SecretVersion),
 			IdentityGeneration: CredentialIdentityGeneration(

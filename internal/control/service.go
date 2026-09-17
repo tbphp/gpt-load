@@ -463,25 +463,38 @@ func (s *Service) writeCredentialConfig(
 	if err := s.enforceOperationRecoveryBarrierLocked(ctx, 0); err != nil {
 		return err
 	}
-	var result error
+	var input state.CompileInput
+	var transactionErr, registryErr error
 	apply := func() {
-		if err := s.withControlTransaction(ctx, mutate); err != nil {
-			result = err
+		transactionErr = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
+			if err := mutate(tx); err != nil {
+				return err
+			}
+			var err error
+			input, err = stateloader.BuildCompileInputWithProxy(
+				ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry,
+			)
+			if err != nil {
+				return err
+			}
+			_, err = state.Compile(input)
+			return err
+		})
+		if transactionErr != nil {
 			return
 		}
-		if afterCommit == nil {
-			return
-		}
-		if err := afterCommit(); err != nil {
-			operationErr := withControlOperationContext(
-				newControlOperationError(stageApplyCommittedRegistryMutation),
-				groupID,
-				credentialID,
-			)
-			result = joinCommittedRuntimeRecovery(
-				operationErr,
-				s.recoverCommittedCredentialRegistryGroup(ctx, groupID),
-			)
+		if afterCommit != nil {
+			if err := afterCommit(); err != nil {
+				operationErr := withControlOperationContext(
+					newControlOperationError(stageApplyCommittedRegistryMutation),
+					groupID,
+					credentialID,
+				)
+				registryErr = joinCommittedRuntimeRecovery(
+					operationErr,
+					s.recoverCommittedCredentialRegistryGroup(ctx, groupID),
+				)
+			}
 		}
 	}
 	if credentialID != 0 && s.mutations != nil {
@@ -489,7 +502,24 @@ func (s *Service) writeCredentialConfig(
 	} else {
 		apply()
 	}
-	return result
+	if transactionErr != nil {
+		return transactionErr
+	}
+	// Publication takes publishMu, which validation recovery acquires before
+	// the credential stripe. Keep writeMu held, but release the stripe before
+	// either normal publication or snapshot recovery to preserve that order.
+	if registryErr != nil {
+		return joinCommittedRuntimeRecovery(registryErr, s.recoverCommittedRuntime(ctx, false))
+	}
+	if _, err := s.publishSnapshot(input); err != nil {
+		operationErr := withControlOperationContext(
+			newControlOperationError(stagePublishCommittedSnapshot),
+			groupID,
+			credentialID,
+		)
+		return joinCommittedRuntimeRecovery(operationErr, s.recoverCommittedRuntime(ctx, false))
+	}
+	return nil
 }
 
 func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices bool) error {

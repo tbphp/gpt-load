@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@/components/config/ConcurrencyControl.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -518,6 +519,7 @@ const resetCreditsTooltip = computed(() => {
         </span>
       </AppTooltip>
     </div>
+    <ConcurrencyControl :id="credential.credential_id" scope="credential" compact />
   </article>
 </template>
 

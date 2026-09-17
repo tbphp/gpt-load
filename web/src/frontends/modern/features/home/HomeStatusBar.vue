@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@modern/features/concurrency/ConcurrencyControl.vue'
 import { ArrowRight, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -62,6 +63,12 @@ const uptime = computed(() => {
             <span v-else>{{ fact.value }}</span>
           </dd>
         </div>
+        <template v-if="admin">
+          <div v-for="scope in ['global', 'upstream'] as const" :key="scope">
+            <dt>{{ t('concurrency.scopes.' + scope) }}</dt>
+            <dd><ConcurrencyControl :scope="scope" :show-label="false" /></dd>
+          </div>
+        </template>
       </dl>
       <AppButton
         v-if="attention"

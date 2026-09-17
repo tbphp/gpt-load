@@ -1,3 +1,4 @@
+import { enUS as concurrency } from './concurrency'
 import { protocolMessages as protocols } from '../protocols'
 import { enUS as inspector } from './inspector'
 import { enUS as home } from './home'
@@ -18,6 +19,7 @@ import { enUS as settingsForm } from './settings-form'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  concurrency,
   home,
   inspector,
   protocols,

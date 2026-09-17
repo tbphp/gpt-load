@@ -31,6 +31,7 @@ import {
 import { useMessageSource } from '@modern/app/messages'
 import { useURLState } from '@modern/app/url-state'
 import { usePageRefresh } from '@modern/app/page-refresh'
+import { registerDraftGuard } from '@modern/components/draft-guards'
 import { useLoadingFeedback } from '@modern/components/ui/loading'
 import {
   AppAdvancedFilters,
@@ -145,6 +146,7 @@ const notice = ref<{ text: string; tone: 'success' | 'warning' | 'danger' }>()
 const listFrame = ref<InstanceType<typeof AppListFrame>>()
 const discardRequested = ref(false)
 let resolveLeave: ((allow: boolean) => void) | undefined
+let resetWeightsOnDiscard = true
 let discardTrigger: HTMLElement | null = null
 let createTrigger: HTMLElement | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -494,9 +496,13 @@ function weightDirty(id: number, dirty: boolean): void {
   else dirtyWeights.value.delete(id)
 }
 function guardNavigation(): boolean | Promise<boolean> {
+  return confirmWeightChanges(true)
+}
+function confirmWeightChanges(resetWeights: boolean): boolean | Promise<boolean> {
   if (pending.value.size) return false
   if (!dirtyWeights.value.size) return true
   resolveLeave?.(false)
+  resetWeightsOnDiscard = resetWeights
   discardTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
   discardRequested.value = true
   return new Promise((resolve) => {
@@ -504,7 +510,7 @@ function guardNavigation(): boolean | Promise<boolean> {
   })
 }
 function finishDiscard(allow: boolean): void {
-  if (allow) {
+  if (allow && resetWeightsOnDiscard) {
     dirtyWeights.value.clear()
     weightEditors.value.clear()
     weightErrors.value.clear()
@@ -521,7 +527,12 @@ function restoreDiscardFocus(event: Event): void {
 }
 onBeforeRouteLeave(guardNavigation)
 onBeforeRouteUpdate(guardNavigation)
+const leaving = registerDraftGuard({
+  pending: () => pending.value.size > 0,
+  confirm: () => confirmWeightChanges(false),
+})
 function beforeUnload(event: BeforeUnloadEvent): void {
+  if (leaving()) return
   if (!dirtyWeights.value.size && !pending.value.size) return
   event.preventDefault()
   event.returnValue = ''
@@ -865,6 +876,7 @@ useMessageSource(() =>
           <span>{{ t('groups.row.group') }}</span>
           <span>{{ t('groups.row.credentialsHeader') }}</span>
           <span>{{ t('groups.columns.models') }}</span>
+          <span>{{ t('concurrency.title') }}</span>
           <span>{{ t('groups.row.requests24h') }}</span>
           <span>{{ t('groups.row.usage24h') }}</span>
           <span class="modern-group-list-actions-head"
@@ -970,9 +982,9 @@ useMessageSource(() =>
 
 <style scoped>
 .modern-groups-workspace {
-  --modern-group-list-width: 1024px;
+  --modern-group-list-width: 1128px;
   --modern-group-action-columns: 36px var(--modern-inline-number-width);
-  --modern-group-columns: minmax(260px, 2fr) minmax(168px, 1fr) 90px 114px 140px 138px;
+  --modern-group-columns: minmax(260px, 2fr) minmax(168px, 1fr) 90px 90px 114px 140px 138px;
   display: flex;
   flex: 1;
   min-width: 0;

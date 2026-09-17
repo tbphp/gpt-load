@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ConcurrencyControl from '@/components/config/ConcurrencyControl.vue'
 import { ArrowRight, Ellipsis } from '@lucide/vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -191,6 +192,7 @@ watch(
       <span role="columnheader">{{ t('accessKeys.columns.name') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.key') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.status') }}</span>
+      <span role="columnheader">{{ t('accessKeys.columns.concurrency') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.scope') }}</span>
       <span role="columnheader">{{ t('accessKeys.distribution.usageQuota') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.lastRequest') }}</span>
@@ -241,6 +243,17 @@ watch(
         <StatusBadge v-if="record.quotaExhausted" tone="danger" size="compact">
           {{ t('accessKeys.costLimits.exhausted') }}
         </StatusBadge>
+      </div>
+
+      <div class="ledger-record-list__cell access-key-concurrency" role="cell">
+        <span class="mobile-label">{{ t('accessKeys.columns.concurrency') }}</span>
+        <ConcurrencyControl
+          :id="record.id"
+          scope="access_key"
+          compact
+          :show-label="false"
+          detailed
+        />
       </div>
 
       <div class="ledger-record-list__cell access-key-scope" role="cell">
@@ -422,8 +435,8 @@ watch(
 }
 
 .access-keys-record-grid {
-  --ledger-record-list-grid: minmax(100px, 0.8fr) minmax(145px, 1fr) 136px minmax(148px, 1fr)
-    minmax(145px, 1fr) minmax(120px, 0.9fr) 64px;
+  --ledger-record-list-grid: minmax(100px, 0.8fr) minmax(145px, 1fr) 136px minmax(90px, 0.65fr)
+    minmax(148px, 1fr) minmax(145px, 1fr) minmax(120px, 0.9fr) 64px;
   --ledger-record-list-column-gap: 14px;
 }
 
@@ -436,6 +449,7 @@ watch(
 
 .access-key-secret-cell,
 .access-key-status,
+.access-key-concurrency,
 .access-key-scope,
 .access-key-rpm,
 .access-key-last-request {
@@ -445,6 +459,10 @@ watch(
 .access-key-rpm {
   display: grid;
   gap: 2px;
+}
+
+.access-key-concurrency :deep(.concurrency-control) {
+  padding: 0;
 }
 
 .access-key-status {
@@ -504,7 +522,7 @@ watch(
 
 @media (max-width: 1120px) {
   .access-keys-record-grid {
-    --ledger-record-list-grid: minmax(95px, 1fr) minmax(125px, 1fr) 136px minmax(130px, 1fr)
+    --ledger-record-list-grid: minmax(95px, 1fr) minmax(125px, 1fr) 136px 84px minmax(130px, 1fr)
       minmax(130px, 1fr) minmax(115px, 1fr) 64px;
     --ledger-record-list-column-gap: 10px;
   }
@@ -518,11 +536,12 @@ watch(
 
 @media (max-width: 1023px) and (min-width: 861px) {
   .access-keys-record-grid {
-    --ledger-record-list-grid: minmax(90px, 0.8fr) minmax(125px, 1fr) 136px minmax(130px, 1fr) 64px;
+    --ledger-record-list-grid: minmax(90px, 0.8fr) minmax(125px, 1fr) 136px 90px minmax(130px, 1fr)
+      64px;
   }
 
-  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(4)),
-  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(6)),
+  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(5)),
+  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(7)),
   .access-key-scope,
   .access-key-last-request {
     display: none;
@@ -543,6 +562,12 @@ watch(
 
   .access-key-scope {
     grid-column: 1 / -1;
+  }
+
+  .access-key-concurrency {
+    display: grid;
+    align-content: start;
+    gap: 5px;
   }
 
   .access-key-rpm,

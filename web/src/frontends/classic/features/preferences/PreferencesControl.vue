@@ -2,13 +2,17 @@
 import { Languages, LogOut, Menu, Monitor, Moon, Sun } from '@lucide/vue'
 import { useId, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 
+import { useToast } from '@/app/toast'
+import { useUnsavedChangesController } from '@/app/unsaved-changes'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import type { AppLocale } from '@/i18n'
 
 import type { AppTheme } from './theme'
+import { switchFrontend } from '@shared/frontend/preference'
 
 const props = withDefaults(
   defineProps<{
@@ -32,7 +36,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const route = useRoute()
+const toast = useToast()
+const unsavedChanges = useUnsavedChangesController()
 const open = ref(false)
+const switchingFrontend = ref(false)
 const identity = useId()
 const githubURL = 'https://github.com/tbphp/gpt-load'
 const telegramURL = 'https://t.me/+GHpy5SwEllg3MTUx'
@@ -68,6 +76,20 @@ function signOut(): void {
 
 function close(): void {
   open.value = false
+}
+
+async function changeFrontend(): Promise<void> {
+  if (switchingFrontend.value) return
+  close()
+  switchingFrontend.value = true
+  try {
+    const path = route.meta.requiresAuth ? '/' : '/login'
+    if (!(await unsavedChanges.runBeforeUnload(() => switchFrontend('modern', path))))
+      switchingFrontend.value = false
+  } catch {
+    switchingFrontend.value = false
+    toast.show({ message: t('frontend.saveFailed'), tone: 'danger' })
+  }
 }
 </script>
 
@@ -126,6 +148,32 @@ function close(): void {
             />
             <span>{{ t(option.compactLabelKey) }}</span>
           </label>
+        </div>
+      </div>
+      <div class="preferences-panel__group">
+        <span class="preferences-panel__label">{{ t('frontend.title') }}</span>
+        <div
+          class="preferences-panel__segments preferences-panel__segments--frontend"
+          role="group"
+          :aria-label="t('frontend.title')"
+        >
+          <button
+            class="preferences-panel__frontend-option"
+            type="button"
+            :aria-pressed="false"
+            :disabled="switchingFrontend"
+            @click="changeFrontend"
+          >
+            {{ t('frontend.modern') }}
+          </button>
+          <button
+            class="preferences-panel__frontend-option"
+            type="button"
+            :aria-pressed="true"
+            :disabled="switchingFrontend"
+          >
+            {{ t('frontend.classic') }}
+          </button>
         </div>
       </div>
       <div class="preferences-panel__divider"></div>
@@ -288,17 +336,24 @@ function close(): void {
   border-radius: var(--radius-control);
 }
 
-.preferences-panel label {
+.preferences-panel__segments--frontend {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.preferences-panel label,
+.preferences-panel__frontend-option {
   position: relative;
   display: flex;
   min-width: 0;
   align-items: center;
   justify-content: center;
   gap: 4px;
+  border: 0;
   border-left: 1px solid var(--color-border-control);
   background: var(--color-surface);
   color: var(--color-text-muted);
   padding: 6px 4px;
+  font: inherit;
   font-size: var(--text-sm);
   cursor: pointer;
   text-align: center;
@@ -307,14 +362,26 @@ function close(): void {
     background-color var(--duration-fast) var(--easing-standard);
 }
 
-.preferences-panel label:first-of-type {
+.preferences-panel label:first-of-type,
+.preferences-panel__frontend-option:first-of-type {
   border-left: 0;
 }
 
-.preferences-panel label:has(input:checked) {
+.preferences-panel label:has(input:checked),
+.preferences-panel__frontend-option[aria-pressed='true'] {
   background: var(--color-text);
   color: var(--color-surface);
   font-weight: 560;
+}
+
+.preferences-panel__frontend-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.preferences-panel__frontend-option:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: -2px;
 }
 
 .preferences-panel input {
@@ -429,6 +496,7 @@ function close(): void {
   }
 
   .preferences-panel label,
+  .preferences-panel__frontend-option,
   .preferences-panel__action {
     min-height: var(--touch-target);
   }

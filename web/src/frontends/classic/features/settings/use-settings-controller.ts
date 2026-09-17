@@ -10,6 +10,7 @@ import type { SettingsResource } from '@/app/resources/settings'
 import {
   updateSettings,
   type RuntimeSettingKey,
+  type SettingsConcurrencyPatch,
   type SettingsPatch,
 } from '@/app/resources/settings'
 
@@ -37,7 +38,7 @@ export interface SettingsPageController {
   savedAt: Readonly<Ref<Date | null>>
   updateDraft(change: SettingsDraftChange): void
   discard(): void
-  saveAll(extra?: SettingsPatch): Promise<void>
+  saveAll(extra?: SettingsPatch, concurrency?: SettingsConcurrencyPatch): Promise<void>
 }
 
 export interface SettingsControllerOptions {
@@ -140,20 +141,29 @@ export function useSettingsController(
     reset(resource.value ?? base.value)
   }
 
+  function recordSavedAt(): void {
+    savedAt.value = new Date(now().getTime())
+  }
+
   async function markSaved(next: SettingsResource): Promise<void> {
     reset(next)
-    savedAt.value = new Date(now().getTime())
+    recordSavedAt()
     queryClient.setQueryData(settingsQueryKey(), next)
     await applyInvalidationPlan(queryClient, mutationInvalidationPlans.settings.update())
   }
 
-  async function saveAll(extra: SettingsPatch = {}): Promise<void> {
+  async function saveAll(
+    extra: SettingsPatch = {},
+    concurrency: SettingsConcurrencyPatch = {},
+  ): Promise<void> {
     if (
       operationLocked.value ||
       !valid.value ||
       !base.value ||
       !draft.value ||
-      (Object.keys(patch.value).length === 0 && Object.keys(extra).length === 0)
+      (Object.keys(patch.value).length === 0 &&
+        Object.keys(extra).length === 0 &&
+        Object.keys(concurrency).length === 0)
     ) {
       return
     }
@@ -170,7 +180,7 @@ export function useSettingsController(
     failed.value = false
 
     try {
-      const response = await updateSettings(client, normalizedPatch, controller.signal)
+      const response = await updateSettings(client, normalizedPatch, controller.signal, concurrency)
       if (!isCurrent(owner, controller)) return
       await queryClient.cancelQueries({ queryKey: settingsQueryKey(), exact: true })
       if (!isCurrent(owner, controller)) return

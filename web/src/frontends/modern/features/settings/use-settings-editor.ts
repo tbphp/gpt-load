@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import type { SettingsConcurrencyPatch } from '@modern/api/concurrency'
+import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   getSettings,
@@ -22,7 +23,7 @@ import {
   type SettingsDraft,
 } from './settings-draft'
 
-export function useSettingsEditor() {
+export function useSettingsEditor(externalDirty: Ref<boolean> = ref(false)) {
   const { t, n } = useI18n()
   const client = useApiClient()
   const cache = useQueryClient()
@@ -43,7 +44,7 @@ export function useSettingsEditor() {
   const changed = computed(() =>
     baseline.value && draft.value ? changedSettings(baseline.value, draft.value, resets.value) : [],
   )
-  const dirty = computed(() => changed.value.length > 0)
+  const dirty = computed(() => changed.value.length > 0 || externalDirty.value)
   const effectiveBase = computed(() =>
     base.value
       ? { ...base.value, readOnly: query.data.value?.readOnly ?? base.value.readOnly }
@@ -112,12 +113,14 @@ export function useSettingsEditor() {
   function undoRestore(key: SettingKey): void {
     if (!saving.value && !locked(key)) resets.value.delete(key)
   }
-  async function save(): Promise<'invalid' | 'saved' | undefined> {
+  async function save(
+    concurrency: SettingsConcurrencyPatch = {},
+  ): Promise<'invalid' | 'saved' | undefined> {
     if (!effectiveBase.value || !draft.value || saving.value || !dirty.value) return
     attempted.value = true
     if (Object.keys(errors.value).length) return 'invalid'
     const patch = buildSettingsPatch(effectiveBase.value, draft.value, changed.value, resets.value)
-    if (!Object.keys(patch).length) {
+    if (!Object.keys(patch).length && !Object.keys(concurrency).length) {
       discard()
       return
     }
@@ -125,7 +128,7 @@ export function useSettingsEditor() {
     saveError.value = ''
     try {
       await cache.cancelQueries({ queryKey: settingsKey })
-      const data = await saveSettings(client, patch, controller.signal)
+      const data = await saveSettings(client, patch, controller.signal, concurrency)
       if (controller.signal.aborted) return
       // 保存期间可能发生页面可见性刷新；写入确认结果前先取消旧读取。
       await cache.cancelQueries({ queryKey: settingsKey })

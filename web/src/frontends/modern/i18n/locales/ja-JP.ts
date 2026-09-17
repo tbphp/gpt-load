@@ -1,3 +1,4 @@
+import { jaJP as concurrency } from './concurrency'
 import { protocolMessages as protocols } from '../protocols'
 import { jaJP as inspector } from './inspector'
 import { jaJP as home } from './home'
@@ -18,6 +19,7 @@ import { jaJP as settingsForm } from './settings-form'
 import { jaJP as subscriptions } from './subscriptions'
 
 export default {
+  concurrency,
   home,
   inspector,
   protocols,
