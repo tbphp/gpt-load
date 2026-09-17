@@ -7,7 +7,19 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
+
+type searchFailingBody struct {
+	io.Reader
+}
+
+func (body searchFailingBody) Read(buffer []byte) (int, error) {
+	n, _ := body.Reader.Read(buffer)
+	return n, io.ErrUnexpectedEOF
+}
+
+func (body searchFailingBody) Close() error { return nil }
 
 func TestCodexStandaloneSearchPreservesNativeHTTP(t *testing.T) {
 	const body = `{"id":"session","model":"gpt-5","commands":{"search_query":[{"q":"OpenAI"}]},"settings":{"external_web_access":true},"future":42}`
@@ -91,4 +103,32 @@ func TestCodexStandaloneSearchHTTPFailureAndCancellation(t *testing.T) {
 			t.Fatalf("redirect error = %v, calls = %d", err, calls)
 		}
 	})
+}
+
+func TestCodexStandaloneSearchBodyReadFailure(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusOK} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			transport := targetRoundTripper(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: status, Header: http.Header{"Retry-After": {"17"}},
+					Body: searchFailingBody{Reader: strings.NewReader(`{"output":"must not succeed"}`)}, Request: req}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			response, err := NewExecutor().Execute(ctx, "credential", Credential{
+				Type: Provider, AccessToken: "test-access", RefreshToken: "test-refresh", AccountID: "account-one",
+			}, ExecuteRequest{Model: "gpt-5", Payload: []byte(`{"id":"session","model":"gpt-5"}`),
+				Format: "openai-response", RequestPath: "/v1/alpha/search"})
+			if !errors.Is(err, io.ErrUnexpectedEOF) || response.StatusCode != status ||
+				response.Headers.Get("Retry-After") != "17" || len(response.Payload) != 0 {
+				t.Fatalf("read failure = %#v, error = %v", response, err)
+			}
+			if status != http.StatusOK {
+				var statusError interface{ StatusCode() int }
+				var retryError interface{ RetryAfter() *time.Duration }
+				if !errors.As(err, &statusError) || statusError.StatusCode() != status ||
+					!errors.As(err, &retryError) || retryError.RetryAfter() == nil || *retryError.RetryAfter() != 17*time.Second {
+					t.Fatalf("HTTP read failure lost status or retry delay: %v", err)
+				}
+			}
+		})
+	}
 }

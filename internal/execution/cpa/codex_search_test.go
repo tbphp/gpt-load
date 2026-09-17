@@ -2,7 +2,9 @@ package cpa
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,6 +31,47 @@ import (
 
 type searchRequestLogSink struct {
 	events []telemetry.RequestEvent
+}
+
+type searchReadFailureBody struct{}
+
+func (searchReadFailureBody) Read(buffer []byte) (int, error) {
+	return copy(buffer, `{"output":"must not succeed"}`), io.ErrUnexpectedEOF
+}
+
+func (searchReadFailureBody) Close() error { return nil }
+
+func TestCodexSearchAdapterPreservesReadFailureMetadata(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusOK} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			adapter, _, _, encryption, credential := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+			spec := validSpec(t, credential, encryption)
+			spec.Operation, spec.Path = execution.OperationWebSearch, "/v1/alpha/search"
+			spec.Body = []byte(`{"id":"session","model":"gpt-5"}`)
+			calls := 0
+			transport := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				calls++
+				return &http.Response{StatusCode: status, Header: http.Header{"Retry-After": {"17"}},
+					Body: searchReadFailureBody{}, Request: req}, nil
+			})
+			ctx := context.WithValue(t.Context(), "cliproxy.roundtripper", http.RoundTripper(transport))
+			result := adapter.Execute(ctx, spec)
+			if err := result.Validate(); err != nil || result.Error == nil || !result.ResponseStarted ||
+				result.StatusCode != status || result.Header.Get("Retry-After") != "17" || len(result.Body) != 0 || calls != 1 {
+				t.Fatalf("read failure result = %#v, validation = %v, calls = %d", result, err, calls)
+			}
+			decision := health.JudgeExecution(health.ExecutionAttempt{
+				DispatchState: result.DispatchState, StatusCode: result.StatusCode, Header: result.Header,
+				Evidence: result.Error, Now: time.Now(),
+			}, health.DecisionContext{Method: http.MethodPost, Operation: execution.OperationWebSearch, CredentialRefreshable: true})
+			if status == http.StatusUnauthorized && decision.Retry != health.RetryRefreshCredential {
+				t.Fatalf("truncated 401 did not request credential refresh: %#v", decision)
+			}
+			if status == http.StatusOK && (result.Error.Kind != execution.ErrorKindTransport || decision.ShouldRetry() || decision.Category == health.FailureCategoryOK) {
+				t.Fatalf("failed 200 became successful or replayable: result=%#v, decision=%#v", result, decision)
+			}
+		})
+	}
 }
 
 func (sink *searchRequestLogSink) Emit(event telemetry.RequestEvent) {
@@ -144,6 +187,17 @@ func TestCodexStandaloneSearchGateway(t *testing.T) {
 			}
 		})
 	}
+	readFailure := &fakeExecutor{result: codex.ExecuteResponse{StatusCode: http.StatusOK, Headers: http.Header{"Retry-After": {"17"}}}, err: io.ErrUnexpectedEOF}
+	setCodexExecutor(t, adapter, readFailure)
+	request = httptest.NewRequest(http.MethodPost, "/v1/alpha/search", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer gl-search-client")
+	response = httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusBadGateway || readFailure.calls != 1 ||
+		!strings.Contains(response.Body.String(), `"code":"upstream_protocol_error"`) {
+		t.Fatalf("failed successful body = %d %s, calls = %d", response.Code, response.Body.String(), readFailure.calls)
+	}
+	setCodexExecutor(t, adapter, fake)
 	input.AccessKeys[0].Filters = state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}}}
 	if _, err := manager.Publish(input); err != nil {
 		t.Fatal(err)

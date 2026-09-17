@@ -212,6 +212,14 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 	}
 	if err != nil {
 		result := unaryExecutionError(execCtx, provider, err, credential)
+		if spec.Operation == execution.OperationWebSearch && response.StatusCode != 0 && !result.ResponseStarted {
+			// 成功状态下读体失败仍是执行错误，保留已收到的元数据但不提供可重放证据。
+			result.DispatchState = execution.DispatchMaybeSent
+			result.StatusCode = response.StatusCode
+			result.ResponseStarted = true
+			result.Error.StatusCode = response.StatusCode
+			result.Error.ReplaySafety = execution.ReplaySafetyUnknown
+		}
 		if result.ResponseStarted {
 			result.Header = subscriptionResponseHeaders(response.Headers, "application/json")
 			if spec.Operation == execution.OperationWebSearch {
