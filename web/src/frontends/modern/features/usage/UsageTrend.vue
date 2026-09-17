@@ -34,13 +34,21 @@ watch(
 )
 const points = computed(() => {
   const summaries = new Map(props.report.series.map((row) => [row.bucket_start_ms, row]))
-  return chartPoints(props.report, props.metric).map((point) => ({
-    ...point,
-    summary: summaries.get(point.from),
-  }))
+  return chartPoints(props.report, props.metric).map((point) => {
+    const summary = summaries.get(point.from)
+    return {
+      ...point,
+      value:
+        props.compact && props.metric === 'requests' ? (summary?.success_count ?? 0) : point.value,
+      summary,
+    }
+  })
 })
-const bars = computed(() => props.metric === 'requests' || props.metric === 'tokens')
+const bars = computed(
+  () => !props.compact && (props.metric === 'requests' || props.metric === 'tokens'),
+)
 const barSeries = computed(() => {
+  if (props.compact) return []
   if (props.metric === 'requests')
     return [
       { id: 'success', value: (row: UsageAggregate) => row.success_count },
@@ -76,23 +84,12 @@ const ceiling = computed(() => {
   const maximum = Math.ceil(peak / unit) * unit
   return props.metric === 'cost' ? Math.max(0.04, maximum) : Math.max(4, Math.ceil(maximum / 4) * 4)
 })
-const height = computed(() => (props.compact ? 128 : 240))
-const bottom = computed(() => (props.compact ? 105 : 204))
-const top = computed(() =>
-  props.compact
-    ? bars.value
-      ? width.value < 340
-        ? 44
-        : 28
-      : 8
-    : bars.value
-      ? width.value < 340
-        ? 56
-        : 32
-      : 12,
-)
+const height = computed(() => (props.compact ? 100 : 240))
+const bottom = computed(() => (props.compact ? 94 : 204))
+const top = computed(() => (props.compact ? 6 : bars.value ? (width.value < 340 ? 56 : 32) : 12))
 const steps = computed(() => (props.compact ? 3 : 5))
 const left = computed(() => {
+  if (props.compact) return 8
   const longest = Math.max(
     ...Array.from({ length: 5 }, (_, index) => formatted((ceiling.value * index) / 4).length),
   )
@@ -197,7 +194,7 @@ const pointLabels = computed(() => {
         : formatted(point.value)
     const lines = [
       `${day.format(point.from)} ${time.format(point.from)} – ${endDay}${time.format(point.to)}`,
-      `${t('usage.' + props.metric)} ${metricValue}`,
+      `${t(props.compact && props.metric === 'requests' ? 'usage.trendSeries.success' : 'usage.' + props.metric)} ${metricValue}`,
     ]
     for (const series of barSeries.value) {
       const value = point.value === null ? null : point.summary ? series.value(point.summary) : 0
@@ -299,9 +296,13 @@ function move(event: PointerEvent): void {
           :y1="y((ceiling * (step - 1)) / (steps - 1))"
           :y2="y((ceiling * (step - 1)) / (steps - 1))"
         />
-        <text :x="left - 10" :y="y((ceiling * (step - 1)) / (steps - 1)) + 4" text-anchor="end">{{
-          formatted((ceiling * (step - 1)) / (steps - 1))
-        }}</text>
+        <text
+          v-if="!compact"
+          :x="left - 10"
+          :y="y((ceiling * (step - 1)) / (steps - 1)) + 4"
+          text-anchor="end"
+          >{{ formatted((ceiling * (step - 1)) / (steps - 1)) }}</text
+        >
       </g>
       <g v-if="bars">
         <g v-for="point in coordinates" :key="point.from">
@@ -323,34 +324,38 @@ function move(event: PointerEvent): void {
           <path v-if="!compact" :d="segment.area" class="modern-usage-area" />
           <path :d="segment.line" class="modern-usage-line" />
         </template>
-        <circle
-          v-for="point in coordinates.filter((point) => point.value !== null)"
-          :key="point.from"
-          :cx="point.x"
-          :cy="point.y"
-          r="2"
-          class="modern-usage-dot"
-        />
+        <template v-if="!compact">
+          <circle
+            v-for="point in coordinates.filter((point) => point.value !== null)"
+            :key="point.from"
+            :cx="point.x"
+            :cy="point.y"
+            r="2"
+            class="modern-usage-dot"
+          />
+        </template>
       </g>
       <g v-if="active">
         <line :x1="active.x" :x2="active.x" :y1="top" :y2="bottom" class="modern-usage-crosshair" />
         <circle
-          v-if="!bars && active.value !== null"
+          v-if="!compact && !bars && active.value !== null"
           :cx="active.x"
           :cy="active.y"
           r="4"
           class="modern-usage-selected-dot"
         />
       </g>
-      <text
-        v-for="(tick, index) in ticks"
-        :key="index"
-        :x="tick.x"
-        :y="height - 10"
-        :text-anchor="index === 0 ? 'start' : index === ticks.length - 1 ? 'end' : 'middle'"
-        class="modern-usage-axis"
-        >{{ clock(tick.time) }}</text
-      >
+      <template v-if="!compact">
+        <text
+          v-for="(tick, index) in ticks"
+          :key="index"
+          :x="tick.x"
+          :y="height - 10"
+          :text-anchor="index === 0 ? 'start' : index === ticks.length - 1 ? 'end' : 'middle'"
+          class="modern-usage-axis"
+          >{{ clock(tick.time) }}</text
+        >
+      </template>
     </AppSvg>
     <span v-if="!report.summary.request_count || !segments.length" class="modern-usage-chart-empty">
       {{ t(!report.summary.request_count ? 'usage.empty' : 'usage.noMeasuredData') }}
@@ -469,7 +474,7 @@ function move(event: PointerEvent): void {
   overflow: visible;
 }
 .modern-usage-chart[data-compact] svg {
-  height: 128px;
+  height: 100px;
 }
 .modern-usage-chart[data-compact] .modern-usage-line {
   stroke-width: var(--modern-line-width);

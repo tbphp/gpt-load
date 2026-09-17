@@ -23,10 +23,10 @@ onMounted(() => {
   if (host.value) observer.observe(host.value)
 })
 onBeforeUnmount(() => observer?.disconnect())
-const height = 128,
-  left = 42,
-  top = 8,
-  bottom = 105
+const height = 100,
+  left = 8,
+  top = 6,
+  bottom = 94
 const x = (at: number) =>
   left +
   ((at - props.report.from) / (props.report.to - props.report.from)) * (width.value - left - 6)
@@ -40,27 +40,20 @@ const curves = computed(() =>
     .filter((window) => window.points.length)
     .map((window, index) => {
       const paths: string[] = []
-      const singles: { x: number; y: number }[] = []
-      let path = '',
-        length = 0,
-        first = { x: 0, y: 0 }
+      let path = ''
       function finish(): void {
-        if (length === 1) singles.push(first)
-        else if (path) paths.push(path)
+        if (path) paths.push(path)
         path = ''
-        length = 0
       }
       window.points.forEach((point, pointIndex) => {
         const previous = window.points[pointIndex - 1]
         if (previous && point.observedAt - previous.observedAt > props.report.bucketWidth * 2)
           finish()
         const position = { x: x(point.observedAt), y: y(point.usedBasisPoints) }
-        if (!length) first = position
-        path += `${length ? ' L' : 'M'}${position.x},${position.y}`
-        length++
+        path += `${path ? ' L' : 'M'}${position.x},${position.y}`
       })
       finish()
-      return { window, label: windowLabel(window), tone: index % 6, paths, singles }
+      return { window, label: windowLabel(window), tone: index % 6, paths }
     }),
 )
 const times = computed(() =>
@@ -160,8 +153,6 @@ function navigate(event: KeyboardEvent): void {
   focused.value = Math.max(0, Math.min(times.value.length - 1, next))
   focus()
 }
-const clock = (at: number) =>
-  dateFormatter(locale.value, { month: 'short', day: 'numeric' }).format(at)
 </script>
 <template>
   <div class="modern-quota-trend">
@@ -174,7 +165,6 @@ const clock = (at: number) =>
       <AppSvg :viewBox="`0 0 ${width} ${height}`" aria-hidden="true" focusable="false">
         <g v-for="used in [0, 5000, 10000]" :key="used" class="modern-quota-trend-grid">
           <line :x1="left" :x2="width - 6" :y1="y(used)" :y2="y(used)" />
-          <text :x="left - 8" :y="y(used) + 4" text-anchor="end">{{ n(100 - used / 100) }}%</text>
         </g>
         <g v-for="series in curves" :key="series.window.key" :data-tone="series.tone">
           <path
@@ -182,14 +172,6 @@ const clock = (at: number) =>
             :key="index"
             :d="path"
             class="modern-quota-trend-line"
-          />
-          <circle
-            v-for="(point, index) in series.singles"
-            :key="index"
-            :cx="point.x"
-            :cy="point.y"
-            r="2"
-            class="modern-quota-trend-dot"
           />
         </g>
         <line
@@ -200,25 +182,6 @@ const clock = (at: number) =>
           :y2="bottom"
           class="modern-quota-trend-cursor"
         />
-        <template v-for="series in selected" :key="series.window.key">
-          <circle
-            v-if="series.point"
-            :cx="x(series.point.observedAt)"
-            :cy="y(series.point.usedBasisPoints)"
-            r="3"
-            :data-tone="series.tone"
-            class="modern-quota-trend-dot"
-          />
-        </template>
-        <text
-          v-for="fraction in [0, 0.5, 1]"
-          :key="fraction"
-          :x="x(report.from + (report.to - report.from) * fraction)"
-          :y="height - 4"
-          :text-anchor="fraction === 0 ? 'start' : fraction === 1 ? 'end' : 'middle'"
-          class="modern-quota-trend-axis"
-          >{{ clock(report.from + (report.to - report.from) * fraction) }}</text
-        >
       </AppSvg>
       <AppTooltip :label="tooltip" side="top">
         <span
@@ -266,24 +229,16 @@ const clock = (at: number) =>
 .modern-quota-trend-plot :deep(svg) {
   display: block;
   width: 100%;
-  height: 128px;
+  height: 100px;
 }
 .modern-quota-trend-grid line {
   stroke: var(--modern-border);
   stroke-width: var(--modern-line-width);
 }
-.modern-quota-trend-grid text,
-.modern-quota-trend-axis {
-  fill: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-}
 .modern-quota-trend-line {
   fill: none;
   stroke: currentColor;
   stroke-width: var(--modern-line-width);
-}
-.modern-quota-trend-dot {
-  fill: currentColor;
 }
 .modern-quota-trend-cursor {
   stroke: var(--modern-muted);
@@ -292,10 +247,10 @@ const clock = (at: number) =>
 }
 .modern-quota-trend-hit {
   position: absolute;
-  left: 42px;
+  left: 8px;
   right: 6px;
-  top: 8px;
-  bottom: 23px;
+  top: 6px;
+  bottom: 6px;
 }
 .modern-quota-trend-hit:focus-visible {
   outline: var(--modern-focus-width) solid var(--modern-accent);

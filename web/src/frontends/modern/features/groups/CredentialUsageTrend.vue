@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getUsage, type UsageMetric } from '@modern/api/usage'
 import { resolveTimeRange } from '@modern/app/time-range'
-import { AppButton, AppCollectionState, AppSelect } from '@modern/components/ui'
+import { AppButton, AppCollectionState, AppSegmentedControl } from '@modern/components/ui'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import UsageTrend from '@modern/features/usage/UsageTrend.vue'
 import { useApiClient } from '@shared/http/client-context'
@@ -41,11 +41,11 @@ useLoadingActivity(query.isFetching)
   <section class="modern-credential-usage-trend">
     <header>
       <h3>{{ t('credentialCards.localUsage') }}</h3>
-      <AppSelect
+      <AppSegmentedControl
         v-model="metric"
         :label="t('credentialCards.statisticsMetric')"
-        label-hidden
-        size="sm"
+        appearance="field"
+        size="xs"
         :options="metrics"
       />
     </header>
