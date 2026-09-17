@@ -89,7 +89,10 @@ export function sortedQuotaWindows(windows: readonly CredentialQuota[]): Credent
   )
 }
 
-export function quotaWindowTitle(window: CredentialQuota, subject = window.label): string {
+export function quotaWindowTitle(
+  window: Pick<CredentialQuota, 'label' | 'labelKey' | 'scope' | 'windowSeconds'>,
+  subject = window.label,
+): string {
   const period = quotaPeriod(window.windowSeconds)
   if (window.scope === 'account' && window.labelKey === 'session') return period
   if (window.scope === 'account' && period)
