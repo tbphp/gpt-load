@@ -21,6 +21,9 @@ import (
 const quotaHistoryIntervalMS int64 = 60_000
 const quotaHistoryCapacity = 4096
 
+// QuotaHistoryMinimumWindowSeconds 仅为日级及更长周期保留额度历史。
+const QuotaHistoryMinimumWindowSeconds int64 = 24 * 60 * 60
+
 type quotaHistoryKey struct {
 	credentialID uint
 	identity     uint64
@@ -62,6 +65,9 @@ func (pending *passiveQuotaPending) recordHistoryLocked(groupID, credentialID ui
 		return
 	}
 	for _, window := range windows {
+		if window.WindowSeconds == nil || *window.WindowSeconds < QuotaHistoryMinimumWindowSeconds {
+			continue
+		}
 		if window.ID == "" || len(window.ID) > 128 || len(window.SourceID) > 128 {
 			continue
 		}
@@ -77,8 +83,7 @@ func (pending *passiveQuotaPending) recordHistoryLocked(groupID, credentialID ui
 			continue
 		}
 		if math.IsNaN(utilization) || math.IsInf(utilization, 0) || utilization < 0 || utilization > 1 ||
-			(window.ResetAtMS != nil && *window.ResetAtMS < 0) ||
-			(window.WindowSeconds != nil && *window.WindowSeconds <= 0) {
+			(window.ResetAtMS != nil && *window.ResetAtMS < 0) {
 			continue
 		}
 		key := quotaHistoryKey{credentialID: credentialID, identity: identity, window: quotaHistoryWindowKey(window)}

@@ -15,9 +15,10 @@ func TestQuotaHistorySamplesLatestWindowIndependentlyAndSurvivesRestart(t *testi
 	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
 		`{"quota_windows":[{"id":"primary","scope":"account","label":"Session","unit":"percent","state":"available"},{"id":"secondary","scope":"account","label":"Weekly","unit":"percent","state":"available"}]}`)
 	ref, _ := registry.CredentialRef(credential.ID)
+	seconds := int64(604_800)
 	record := func(at int64, id string, used float64) {
 		manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, at,
-			[]providerobservation.QuotaWindow{{ID: id, Utilization: &used}})
+			[]providerobservation.QuotaWindow{{ID: id, WindowSeconds: &seconds, Utilization: &used}})
 	}
 	flush := func() {
 		t.Helper()
@@ -53,14 +54,15 @@ func TestQuotaHistoryIgnoresMissingPercentAndKeepsSamplesAfterWriteFailure(t *te
 	manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh, `{"quota_windows":[]}`)
 	ref, _ := registry.CredentialRef(credential.ID)
+	seconds := int64(604_800)
 	manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, 10_000,
-		[]providerobservation.QuotaWindow{{ID: "primary", State: "available"}})
+		[]providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, State: "available"}})
 	if len(manager.passiveQuota.historyBatch(20)) != 0 {
 		t.Fatal("missing percentage fabricated a sample")
 	}
 	used := 0.25
 	manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, 20_000,
-		[]providerobservation.QuotaWindow{{ID: "primary", Utilization: &used}})
+		[]providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, Utilization: &used}})
 	if err := db.Callback().Create().Before("gorm:create").Register("test:history_write_failure", func(tx *gorm.DB) {
 		if tx.Statement.Table == "credential_quota_histories" {
 			tx.AddError(testQuotaHistoryWriteError{})
@@ -90,9 +92,9 @@ func (testQuotaHistoryWriteError) Error() string { return "history write failed"
 func TestQuotaHistoryUsesOneWindowForNamedWebsocketAndHTTPObservations(t *testing.T) {
 	manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
-		`{"quota_windows":[{"id":"spark-primary","source_id":"codex_spark","scope":"Spark","label":"Spark","unit":"percent","window_seconds":18000,"state":"available"}]}`)
+		`{"quota_windows":[{"id":"spark-primary","source_id":"codex_spark","scope":"Spark","label":"Spark","unit":"percent","window_seconds":604800,"state":"available"}]}`)
 	ref, _ := registry.CredentialRef(credential.ID)
-	seconds := int64(18_000)
+	seconds := int64(604_800)
 	for index, at := range []int64{10_000, 20_000, 70_000} {
 		used := float64(index+2) / 10
 		window := providerobservation.QuotaWindow{ID: "primary", WindowSeconds: &seconds, Utilization: &used}
@@ -118,9 +120,9 @@ func TestQuotaHistoryUsesOneWindowForNamedWebsocketAndHTTPObservations(t *testin
 func TestQuotaHistoryKeepsNamedWebsocketSourcesSeparate(t *testing.T) {
 	manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
-		`{"quota_windows":[{"id":"spark-primary","source_id":"codex_spark","scope":"Spark","label":"Spark","unit":"percent","window_seconds":18000,"state":"available"},{"id":"other-primary","source_id":"other","scope":"Other","label":"Other","unit":"percent","window_seconds":18000,"state":"available"}]}`)
+		`{"quota_windows":[{"id":"spark-primary","source_id":"codex_spark","scope":"Spark","label":"Spark","unit":"percent","window_seconds":604800,"state":"available"},{"id":"other-primary","source_id":"other","scope":"Other","label":"Other","unit":"percent","window_seconds":604800,"state":"available"}]}`)
 	ref, _ := registry.CredentialRef(credential.ID)
-	seconds, sparkUsed, otherUsed := int64(18_000), 0.2, 0.5
+	seconds, sparkUsed, otherUsed := int64(604_800), 0.2, 0.5
 	manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, 10_000, []providerobservation.QuotaWindow{
 		{ID: "primary", SourceName: "Spark", WindowSeconds: &seconds, Utilization: &sparkUsed},
 		{ID: "primary", SourceName: "Other", WindowSeconds: &seconds, Utilization: &otherUsed},
@@ -148,8 +150,34 @@ func TestQuotaHistoryTimeCacheDoesNotStopSamplingWhenFull(t *testing.T) {
 		t.Fatal("bounded time cache did not accept a new account")
 	}
 	used := 0.25
-	pending.recordHistoryLocked(1, 1, 1, 120_000, []providerobservation.QuotaWindow{{ID: "primary", Utilization: &used}})
+	seconds := int64(604_800)
+	pending.recordHistoryLocked(1, 1, 1, 120_000, []providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, Utilization: &used}})
 	if len(pending.historyBatch(20)) != 1 {
 		t.Fatal("full time cache stopped history admission")
+	}
+}
+
+func TestQuotaHistoryOnlyPersistsWindowsOfAtLeastOneDay(t *testing.T) {
+	manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh, `{"quota_windows":[]}`)
+	ref, _ := registry.CredentialRef(credential.ID)
+	fiveHours, belowDay, oneDay, oneWeek := int64(18_000), int64(86_399), int64(86_400), int64(604_800)
+	used := 0.25
+	manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, 10_000, []providerobservation.QuotaWindow{
+		{ID: "unknown", Utilization: &used},
+		{ID: "five-hours", WindowSeconds: &fiveHours, Utilization: &used},
+		{ID: "below-day", WindowSeconds: &belowDay, Utilization: &used},
+		{ID: "one-day", WindowSeconds: &oneDay, Utilization: &used},
+		{ID: "one-week", WindowSeconds: &oneWeek, Utilization: &used},
+	})
+	if remaining, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil || remaining {
+		t.Fatalf("flush: remaining=%t error=%v", remaining, err)
+	}
+	var rows []models.CredentialQuotaHistory
+	if err := db.Order("window_seconds").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].WindowID != "one-day" || rows[1].WindowID != "one-week" {
+		t.Fatalf("short or unknown periods entered history: %+v", rows)
 	}
 }

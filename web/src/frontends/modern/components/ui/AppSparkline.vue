@@ -4,9 +4,10 @@ import AppTooltip from './AppTooltip.vue'
 
 const props = defineProps<{
   label: string
-  values: readonly number[]
+  values: readonly (number | null)[]
   pointLabels?: readonly string[]
-  tone?: 'accent' | 'info'
+  tone?: 'accent' | 'info' | 'cost'
+  showMarker?: boolean
 }>()
 const gradientId = useId()
 const hovered = ref<number>()
@@ -15,25 +16,44 @@ const tabStop = ref(0)
 const pointElements = new Map<number, HTMLElement>()
 const interactive = computed(() => Boolean(props.pointLabels?.length))
 const coordinates = computed(() => {
-  const peak = Math.max(1, ...props.values)
+  const peak = Math.max(0, ...props.values.filter((value): value is number => value !== null)) || 1
   const step = props.values.length > 1 ? 100 / (props.values.length - 1) : 100
   return props.values.map((value, index) => {
     const x = props.values.length === 1 ? 50 : index * step
     const left = index === 0 ? 0 : x - step / 2
     const right = index === props.values.length - 1 ? 100 : x + step / 2
-    return { x, y: 96 - (value / peak) * 88, left, width: right - left }
+    return { x, y: value === null ? null : 96 - (value / peak) * 88, left, width: right - left }
   })
 })
-const points = computed(() => {
-  if (coordinates.value.length === 1) {
+const segments = computed(() => {
+  if (coordinates.value.length === 1 && coordinates.value[0]!.y !== null) {
     const y = coordinates.value[0]!.y
-    return `0,${y} 1000,${y}`
+    return [{ points: `0,${y} 1000,${y}`, start: 0, end: 1000 }]
   }
-  return coordinates.value.map((point) => `${point.x * 10},${point.y}`).join(' ')
+  const result: { points: string; start: number; end: number }[] = []
+  let points = '',
+    start = 0,
+    end = 0
+  function finish(): void {
+    if (points) result.push({ points, start, end })
+    points = ''
+  }
+  for (const point of coordinates.value) {
+    if (point.y === null) {
+      finish()
+      continue
+    }
+    if (!points) start = point.x * 10
+    end = point.x * 10
+    points += `${points ? ' ' : ''}${end},${point.y}`
+  }
+  finish()
+  return result
 })
 const activePoint = computed(() => {
   const index = hovered.value ?? focused.value
-  return index === undefined ? undefined : coordinates.value[index]
+  const point = index === undefined ? undefined : coordinates.value[index]
+  return point?.y === null ? undefined : point
 })
 function pointRef(index: number, element: unknown): void {
   if (element instanceof HTMLElement) pointElements.set(index, element)
@@ -86,13 +106,17 @@ watch(
           <stop offset="1" class="modern-sparkline-fill" stop-opacity="0.015" />
         </linearGradient>
       </defs>
-      <polygon v-if="points" :points="`0,100 ${points} 1000,100`" :fill="`url(#${gradientId})`" />
-      <polyline
-        v-if="points"
-        :points="points"
-        class="modern-sparkline-line"
-        vector-effect="non-scaling-stroke"
-      />
+      <g v-for="(segment, index) in segments" :key="index">
+        <polygon
+          :points="`${segment.start},100 ${segment.points} ${segment.end},100`"
+          :fill="`url(#${gradientId})`"
+        />
+        <polyline
+          :points="segment.points"
+          class="modern-sparkline-line"
+          vector-effect="non-scaling-stroke"
+        />
+      </g>
       <line
         v-if="activePoint"
         :x1="activePoint.x * 10"
@@ -126,7 +150,7 @@ watch(
       </AppTooltip>
     </template>
     <span
-      v-if="activePoint"
+      v-if="activePoint && showMarker !== false"
       class="modern-sparkline-marker"
       :style="{ left: `${activePoint.x}%`, top: `${activePoint.y}%` }"
       aria-hidden="true"
@@ -143,6 +167,9 @@ watch(
 }
 .modern-sparkline[data-tone='info'] {
   --modern-sparkline-color: var(--modern-chart-input);
+}
+.modern-sparkline[data-tone='cost'] {
+  --modern-sparkline-color: var(--modern-chart-output);
 }
 .modern-sparkline > svg {
   display: block;

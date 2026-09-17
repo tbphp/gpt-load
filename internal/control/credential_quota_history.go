@@ -37,12 +37,13 @@ type quotaHistoryWindowResponse struct {
 }
 
 type quotaHistoryResponse struct {
-	FromMS        int64                        `json:"from_ms"`
-	ToMS          int64                        `json:"to_ms"`
-	ObservedAtMS  int64                        `json:"observed_at_ms"`
-	BucketWidthMS int64                        `json:"bucket_width_ms"`
-	HasHistory    bool                         `json:"has_history"`
-	Windows       []quotaHistoryWindowResponse `json:"windows"`
+	FromMS               int64                        `json:"from_ms"`
+	ToMS                 int64                        `json:"to_ms"`
+	ObservedAtMS         int64                        `json:"observed_at_ms"`
+	BucketWidthMS        int64                        `json:"bucket_width_ms"`
+	MinimumWindowSeconds int64                        `json:"minimum_window_seconds"`
+	HasHistory           bool                         `json:"has_history"`
+	Windows              []quotaHistoryWindowResponse `json:"windows"`
 }
 
 func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
@@ -71,7 +72,7 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 		writeServiceError(c, "quota_history", err)
 		return
 	}
-	result := quotaHistoryResponse{FromMS: query.FromMS, ToMS: query.ToMS, ObservedAtMS: observedAt, Windows: []quotaHistoryWindowResponse{}}
+	result := quotaHistoryResponse{FromMS: query.FromMS, ToMS: query.ToMS, ObservedAtMS: observedAt, MinimumWindowSeconds: subscription.QuotaHistoryMinimumWindowSeconds, Windows: []quotaHistoryWindowResponse{}}
 	spanMS := query.ToMS - query.FromMS
 	result.BucketWidthMS = 60_000
 	if spanMS > epochms.MillisecondsPerHour {
@@ -96,7 +97,8 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 			credential.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params)))
 		scope := func() *gorm.DB {
 			return tx.Model(&models.CredentialQuotaHistory{}).
-				Where("group_id = ? AND credential_id = ? AND target_identity = ?", groupID, credentialID, identity)
+				Where("group_id = ? AND credential_id = ? AND target_identity = ?", groupID, credentialID, identity).
+				Where("window_seconds >= ?", subscription.QuotaHistoryMinimumWindowSeconds)
 		}
 		var first models.CredentialQuotaHistory
 		if err := scope().Select("id").Take(&first).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {

@@ -27,10 +27,11 @@ func TestCredentialQuotaHistoryScopesCurrentAccountAndTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity := subscription.QuotaHistoryTargetIdentity(stateloader.CredentialIdentityGeneration(credential.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params)))
+	seconds := int64(604_800)
 	for _, row := range []models.CredentialQuotaHistory{
-		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", ObservedAtMS: 60_000, UsedBasisPoints: 1200},
-		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", ObservedAtMS: 120_000, UsedBasisPoints: 2000},
-		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: "old-account", WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", ObservedAtMS: 60_000, UsedBasisPoints: 9900},
+		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: 60_000, UsedBasisPoints: 1200},
+		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: 120_000, UsedBasisPoints: 2000},
+		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: "old-account", WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: 60_000, UsedBasisPoints: 9900},
 	} {
 		if err := fixture.db.Create(&row).Error; err != nil {
 			t.Fatal(err)
@@ -89,6 +90,7 @@ func TestCredentialQuotaHistorySevenDaysBoundsPointsWithChangingResetTimes(t *te
 	}
 	identity := subscription.QuotaHistoryTargetIdentity(stateloader.CredentialIdentityGeneration(credential.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params)))
 	from := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC).UnixMilli()
+	seconds := int64(604_800)
 	rows := make([]models.CredentialQuotaHistory, 0, 120)
 	for index := 0; index < 120; index++ {
 		at := from + int64(index)*60_000
@@ -100,7 +102,7 @@ func TestCredentialQuotaHistorySevenDaysBoundsPointsWithChangingResetTimes(t *te
 		if index%60 == 40 {
 			used = 100
 		}
-		rows = append(rows, models.CredentialQuotaHistory{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", ObservedAtMS: at, UsedBasisPoints: used, ResetAtMS: &reset})
+		rows = append(rows, models.CredentialQuotaHistory{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "session", WindowID: "primary", Label: "Session", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: at, UsedBasisPoints: used, ResetAtMS: &reset})
 	}
 	if err := fixture.db.CreateInBatches(rows, 100).Error; err != nil {
 		t.Fatal(err)
@@ -131,5 +133,47 @@ func TestCredentialQuotaHistorySevenDaysBoundsPointsWithChangingResetTimes(t *te
 		if points[0].ObservedAtMS != from+int64(hour)*3_600_000 || points[1].UsedBasisPoints != 9900 || points[2].UsedBasisPoints != 100 || points[3].ObservedAtMS != from+int64(hour)*3_600_000+59*60_000 {
 			t.Fatalf("hour %d lost endpoints or extremes: %+v", hour, points)
 		}
+	}
+}
+
+func TestCredentialQuotaHistoryFiltersStoredShortAndUnknownPeriods(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	group := models.Group{Name: "long quota history", ChannelID: "codex", ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`)}
+	if err := fixture.db.Create(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	credential := models.Credential{GroupID: group.ID, Data: "encrypted-test", Fingerprint: "long-history", Status: models.CredentialStatusDisabled}
+	if err := fixture.db.Create(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	identity := subscription.QuotaHistoryTargetIdentity(stateloader.CredentialIdentityGeneration(credential.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params)))
+	for _, seconds := range []int64{0, 18_000, 86_399, 86_400, 604_800} {
+		row := models.CredentialQuotaHistory{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: fmt.Sprint(seconds), WindowID: "window", Label: "Window", Scope: "account", ObservedAtMS: 60_000, UsedBasisPoints: 1200}
+		if seconds != 0 {
+			row.WindowSeconds = &seconds
+		}
+		if err := fixture.db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+	url := fmt.Sprintf("/api/groups/%d/credentials/%d/quota-history?from_ms=0&to_ms=120000", group.ID, credential.ID)
+	result := performGroupCollectionRequest(engine, url, "Bearer "+authTestKey)
+	if result.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+	}
+	var data struct {
+		MinimumWindowSeconds int64 `json:"minimum_window_seconds"`
+		Windows              []struct {
+			WindowSeconds int64 `json:"window_seconds"`
+		} `json:"windows"`
+	}
+	if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.MinimumWindowSeconds != 86_400 || len(data.Windows) != 2 || data.Windows[0].WindowSeconds != 86_400 || data.Windows[1].WindowSeconds != 604_800 {
+		t.Fatalf("old short or unknown periods are visible: %+v", data)
 	}
 }
