@@ -70,6 +70,9 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 		normalizeImagesAttemptResult(spec, &result)
 		normalizeEmbeddingsAttemptResult(spec, &result)
 		normalizeRerankAttemptResult(spec, &result)
+		if r.providerKind(spec) == channel.ProviderMultiProtocolGateway {
+			normalizeGatewayProtocolProbeResult(spec, &result)
+		}
 	}()
 	prepared, preflightError := r.prepare(spec, false)
 	if preflightError != nil {
@@ -547,12 +550,11 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				secrets:   secrets,
 			}, nil
 		}
+		if providerKind == channel.ProviderMultiProtocolGateway && spec.ClientProtocol != protocol.OpenAICompletions {
+			return prepareGatewayProtocolProbe(spec, resolved, provider, directKey, secrets)
+		}
 		request := newProbeRequest(provider, providerKind, spec.UpstreamModel)
 		if providerKind == channel.ProviderMultiProtocolGateway {
-			if spec.ClientProtocol != protocol.OpenAICompletions {
-				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported multi-protocol gateway probe protocol")
-				return preparedAttempt{}, &failure
-			}
 			baseURL, configured, targetErr := targetBaseURL(resolved.TargetConfig)
 			if targetErr != nil || !configured {
 				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")

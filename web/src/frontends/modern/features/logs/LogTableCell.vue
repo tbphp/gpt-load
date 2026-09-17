@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
-import { KeyRound, UserRound } from '@lucide/vue'
+import { Globe, KeyRound, UserRound } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LogEntry, LogQuery } from '@modern/api/logs'
@@ -25,8 +25,8 @@ const props = defineProps<{
   fields: readonly LogColumnId[]
   peer?: boolean
   admin: boolean
-  groups: ReadonlyMap<number, GroupRow>
-  channels: ReadonlyMap<string, GroupChannel>
+  groups?: ReadonlyMap<number, GroupRow>
+  channels?: ReadonlyMap<string, GroupChannel>
 }>()
 const emit = defineEmits<{ open: []; filter: [filters: LogQuery] }>()
 const { t, locale } = useI18n()
@@ -72,10 +72,10 @@ const identityLines = computed(() => {
 })
 const routing = computed(() => props.fields.includes('group'))
 const group = computed(() =>
-  props.row.group_id ? props.groups.get(props.row.group_id) : undefined,
+  props.row.group_id ? props.groups?.get(props.row.group_id) : undefined,
 )
 const channel = computed(() =>
-  props.row.channel_id ? props.channels.get(props.row.channel_id) : undefined,
+  props.row.channel_id ? props.channels?.get(props.row.channel_id) : undefined,
 )
 const channelIdentity = computed(() =>
   channel.value
@@ -147,13 +147,19 @@ function fieldFilterValue(field: LogColumnId): string {
   const row = props.row
   switch (field) {
     case 'group':
-      return group.value?.name ?? t('logs.deleted')
+      return group.value?.name ?? (props.groups ? t('logs.deleted') : '—')
     case 'channel':
-      return channel.value?.name ?? t('logs.deleted')
+      return channel.value?.name ?? (props.channels ? t('logs.deleted') : '—')
     case 'credential_name':
-      return row.credential_name || t('logs.deleted')
+      return (
+        row.credential_name ||
+        t(row.credential_deleted ? 'logs.deleted' : 'logs.unavailableCredential')
+      )
     case 'access_key':
-      return row.access_key.name || t('logs.deleted')
+      return (
+        row.access_key.name ||
+        t(row.access_key.deleted ? 'logs.deleted' : 'logs.unavailableAccessKey')
+      )
     case 'status':
     case 'usage_state':
     case 'cost_state':
@@ -218,6 +224,19 @@ function fieldFilterValue(field: LogColumnId): string {
             tabindex="0"
             :aria-label="line.label ? line.label + ' ' + line.value : undefined"
           />
+          <AppTooltip
+            v-if="row.operation === 'web_search' && line.value === row.client_model"
+            :label="t('logs.standaloneSearchHint')"
+          >
+            <span
+              class="modern-log-search-indicator"
+              role="img"
+              tabindex="0"
+              :aria-label="t('logs.standaloneSearchHint')"
+            >
+              <AppIcon :icon="Globe" size="inherit" />
+            </span>
+          </AppTooltip>
           <LogModelWarning v-if="index === 0" :row="row" />
         </div>
       </template>
@@ -364,6 +383,17 @@ function fieldFilterValue(field: LogColumnId): string {
   align-items: center;
   gap: var(--modern-space-1-5);
   font-size: var(--modern-font-size-small);
+}
+.modern-log-search-indicator {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--modern-info);
+  cursor: help;
+}
+.modern-log-search-indicator:focus-visible {
+  outline: var(--modern-focus-width) solid var(--modern-info);
+  outline-offset: var(--modern-focus-offset);
 }
 .modern-log-identity-line {
   display: flex;

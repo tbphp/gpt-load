@@ -35,8 +35,8 @@ import LogModelWarning from './LogModelWarning.vue'
 const props = defineProps<{
   id: string
   admin: boolean
-  groups: ReadonlyMap<number, GroupRow>
-  channels: ReadonlyMap<string, GroupChannel>
+  groups?: ReadonlyMap<number, GroupRow>
+  channels?: ReadonlyMap<string, GroupChannel>
   from: string
   to: string
   preset?: DateRangePreset
@@ -272,7 +272,7 @@ function resolveRedactedLog(): Promise<string> {
                 <div class="modern-log-attempt-heading">
                   <span class="modern-log-attempt-number">{{ n(attempt.sequence) }}</span
                   ><AppChannelIcon
-                    v-if="attempt.channel_id && channels.has(attempt.channel_id)"
+                    v-if="attempt.channel_id && channels?.has(attempt.channel_id)"
                     :icon="channels.get(attempt.channel_id)!.icon"
                     :name="channels.get(attempt.channel_id)!.name"
                     :mark="channels.get(attempt.channel_id)!.mark"
@@ -280,8 +280,14 @@ function resolveRedactedLog(): Promise<string> {
                     :tooltip="false"
                   /><AppOverflowText
                     class="modern-log-attempt-group"
-                    :class="{ 'is-deleted': !attempt.group_name }"
-                    :text="attempt.group_name || t('logs.deleted')"
+                    :class="{
+                      'is-deleted': !attempt.group_name && groups && !groups.has(attempt.group_id),
+                    }"
+                    :text="
+                      attempt.group_name ||
+                      groups?.get(attempt.group_id)?.name ||
+                      (groups ? t('logs.deleted') : '—')
+                    "
                   /><AppBadge
                     :tone="
                       attempt.status_code >= 400
@@ -296,8 +302,15 @@ function resolveRedactedLog(): Promise<string> {
                   ><span>{{ logDuration(attempt.duration_ms, locale) }}</span>
                 </div>
                 <div class="modern-log-attempt-route">
-                  <span :class="{ 'is-deleted': !attempt.credential_name }">{{
-                    attempt.credential_name || t('logs.deleted')
+                  <span :class="{ 'is-deleted': attempt.credential_deleted }">{{
+                    attempt.credential_name ||
+                    (attempt.credential_id
+                      ? t(
+                          attempt.credential_deleted
+                            ? 'logs.deleted'
+                            : 'logs.unavailableCredential',
+                        )
+                      : '—')
                   }}</span
                   ><AppOverflowText :text="attempt.upstream_model ?? '—'" /><AppBadge
                     v-if="attempt.will_retry"
@@ -419,7 +432,7 @@ function resolveRedactedLog(): Promise<string> {
       </div>
       <footer v-if="log" class="modern-log-detail-footer">
         <AppButton
-          v-if="admin && log.group_id && groups.has(log.group_id)"
+          v-if="admin && log.group_id && groups?.has(log.group_id)"
           as-child
           variant="ghost"
           size="xs"

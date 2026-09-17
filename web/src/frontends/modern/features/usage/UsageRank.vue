@@ -19,14 +19,14 @@ const props = defineProps<{
   distribution: UsageDistribution
   metric: UsageMetric
   costUnavailable: boolean
-  groups: readonly GroupRow[]
-  accessKeys: readonly LogAccessKeyOption[]
+  groups?: readonly GroupRow[]
+  accessKeys?: readonly LogAccessKeyOption[]
   disabled?: boolean
 }>()
 const emit = defineEmits<{ select: [item: UsageItem]; logs: [item: UsageItem] }>()
 const { t, locale } = useI18n()
-const groupMap = computed(() => new Map(props.groups.map((row) => [row.id, row])))
-const keyMap = computed(() => new Map(props.accessKeys.map((row) => [row.id, row])))
+const groupMap = computed(() => new Map(props.groups?.map((row) => [row.id, row])))
+const keyMap = computed(() => new Map(props.accessKeys?.map((row) => [row.id, row])))
 const rows = computed(() => [
   ...props.distribution.items.map((row) => ({ ...row, other: false })),
   ...(props.distribution.other ? [{ ...props.distribution.other, other: true }] : []),
@@ -44,8 +44,9 @@ const name = (row: UsageItem & { other: boolean }) =>
     : props.dimension === 'model'
       ? row.model || t('usage.unknownModel')
       : props.dimension === 'group'
-        ? (groupMap.value.get(row.group_id!)?.name ?? t('logs.deleted'))
-        : (keyMap.value.get(row.access_key_id!)?.name ?? t('logs.deleted'))
+        ? (groupMap.value.get(row.group_id!)?.name ?? (props.groups ? t('logs.deleted') : '—'))
+        : (keyMap.value.get(row.access_key_id!)?.name ??
+          (props.accessKeys ? t('logs.deleted') : '—'))
 const details = (row: UsageItem) =>
   `${t('usage.requests')} ${formatCompactNumber(row.request_count, locale.value)}\n${t('usage.tokens')} ${formatCompactNumber(row.total_tokens, locale.value)}\n${t('usage.cost')} ${display(row, 'cost')}`
 </script>

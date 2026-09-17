@@ -40,6 +40,7 @@ const (
 	OperationResponsesInputTokens Operation = "responses_input_tokens"
 	OperationCountTokens          Operation = "count_tokens"
 	OperationResponsesPassthrough Operation = "responses_passthrough"
+	OperationWebSearch            Operation = "web_search"
 	OperationImagesGenerate       Operation = "images_generate"
 	OperationImagesEdit           Operation = "images_edit"
 	OperationEmbeddingsCreate     Operation = "embeddings_create"
@@ -61,6 +62,7 @@ func (o Operation) Valid() bool {
 		OperationResponsesInputTokens,
 		OperationCountTokens,
 		OperationResponsesPassthrough,
+		OperationWebSearch,
 		OperationImagesGenerate,
 		OperationImagesEdit,
 		OperationEmbeddingsCreate,

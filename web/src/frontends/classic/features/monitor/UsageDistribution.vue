@@ -27,9 +27,9 @@ type DistributionRow = {
 const props = defineProps<{
   distribution: UsageDistributionDto
   summary: UsageAggregateDto
-  groups: GroupOptionDto[]
+  groups?: GroupOptionDto[]
   channels: ChannelDto[]
-  accessKeys: AccessKeyOptionDto[]
+  accessKeys?: AccessKeyOptionDto[]
 }>()
 
 const emit = defineEmits<{ selectAccessKey: [id: number] }>()
@@ -54,7 +54,7 @@ const rows = computed<DistributionRow[]>(() => {
 })
 
 function group(item: DistributionItem): GroupOptionDto | undefined {
-  return props.groups.find(({ id }) => id === item.group_id)
+  return props.groups?.find(({ id }) => id === item.group_id)
 }
 
 function channel(item: DistributionItem): ChannelDto | undefined {
@@ -63,7 +63,7 @@ function channel(item: DistributionItem): ChannelDto | undefined {
 }
 
 function accessKey(item: DistributionItem): AccessKeyOptionDto | undefined {
-  return props.accessKeys.find(({ id }) => id === item.access_key_id)
+  return props.accessKeys?.find(({ id }) => id === item.access_key_id)
 }
 
 function identityLabel(row: DistributionRow): string {
@@ -75,11 +75,16 @@ function identityLabel(row: DistributionRow): string {
     const accessKeyID = row.identity.access_key_id ?? 0
     return (
       accessKey(row.identity)?.name ??
-      t('monitor.usage.distribution.deletedOrUnknownAccessKey', { id: accessKeyID })
+      (props.accessKeys
+        ? t('monitor.usage.distribution.deletedOrUnknownAccessKey', { id: accessKeyID })
+        : `#${accessKeyID}`)
     )
   }
   const groupID = row.identity.group_id ?? 0
-  return group(row.identity)?.name ?? t('monitor.usage.filters.deletedOrUnknown', { id: groupID })
+  return (
+    group(row.identity)?.name ??
+    (props.groups ? t('monitor.usage.filters.deletedOrUnknown', { id: groupID }) : `G${groupID}`)
+  )
 }
 
 function identityMeta(row: DistributionRow): string {

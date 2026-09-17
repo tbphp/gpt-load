@@ -94,8 +94,12 @@ const keys = useQuery({
   queryFn: ({ signal }) => getLogAccessKeys(client, signal),
   enabled: admin,
 })
-const groupMap = computed(() => new Map(groups.data.value?.items.map((row) => [row.id, row])))
-const channelMap = computed(() => new Map(channels.data.value?.map((row) => [row.id, row])))
+const groupMap = computed(
+  () => groups.data.value && new Map(groups.data.value.items.map((row) => [row.id, row])),
+)
+const channelMap = computed(
+  () => channels.data.value && new Map(channels.data.value.map((row) => [row.id, row])),
+)
 const rows = computed(() => query.data.value?.items ?? [])
 const models = computed(() => [
   ...new Set([
@@ -179,19 +183,21 @@ function reset(key?: string): void {
 }
 function filterValue(key: string, value: string): string {
   if (key === 'group_id')
-    return groupMap.value.get(Number(value))?.name ?? t('logs.unavailableGroup')
-  if (key === 'access_key_id')
-    return (
-      keys.data.value?.find((row) => String(row.id) === value)?.name ??
-      rows.value.find((row) => String(row.access_key.id) === value)?.access_key.name ??
-      t('logs.unavailableAccessKey')
-    )
+    return groupMap.value?.get(Number(value))?.name ?? (groupMap.value ? t('logs.deleted') : '—')
+  if (key === 'access_key_id') {
+    const key = keys.data.value?.find((row) => String(row.id) === value)
+    const loggedKey = rows.value.find((row) => String(row.access_key.id) === value)?.access_key
+    if (key || (loggedKey && !loggedKey.deleted))
+      return key?.name || loggedKey?.name || t('logs.unavailableAccessKey')
+    return keys.data.value || loggedKey?.deleted ? t('logs.deleted') : '—'
+  }
   if (key === 'credential_id')
     return (
       rows.value.find((row) => String(row.credential_id) === value)?.credential_name ||
       t('logs.selectedCredential')
     )
-  if (key === 'channel_id') return channelMap.value.get(value)?.name ?? t('logs.deleted')
+  if (key === 'channel_id')
+    return channelMap.value?.get(value)?.name ?? (channelMap.value ? t('logs.deleted') : '—')
   if (key === 'protocol') return protocolLabel(value, t)
   if (key.startsWith('cost_') && key.endsWith('_nano_usd')) return '$' + nanoToUSD(value)
   if ((key === 'stream' || key === 'cache_present') && (value === 'true' || value === 'false'))
@@ -261,9 +267,9 @@ useMessageSource(() =>
       :preset="state.preset"
       :more="state.more"
       :admin="admin"
-      :groups="groups.data.value?.items ?? []"
-      :channels="channels.data.value ?? []"
-      :access-keys="keys.data.value ?? []"
+      :groups="groups.data.value?.items"
+      :channels="channels.data.value"
+      :access-keys="keys.data.value"
       :models="models"
       :groups-loading="admin && groups.isFetching.value"
       :keys-loading="admin && keys.isFetching.value"

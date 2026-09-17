@@ -688,9 +688,9 @@ defineExpose({ openFilters, refresh, navigationReport, navigationPending })
             v-if="distribution"
             :distribution="distribution"
             :summary="report.summary"
-            :groups="groupsQuery.data.value ?? []"
+            :groups="groupsQuery.data.value"
             :channels="channelsQuery.data.value?.items ?? []"
-            :access-keys="accessKeysQuery.data.value ?? []"
+            :access-keys="accessKeysQuery.data.value"
             @select-access-key="
               navigate({
                 ...appliedFilters,
@@ -758,7 +758,7 @@ defineExpose({ openFilters, refresh, navigationReport, navigationPending })
       :open="filterOpen"
       :draft="draft"
       :errors="filterErrors"
-      :groups="groupsQuery.data.value ?? []"
+      :groups="groupsQuery.data.value"
       :channels="channelsQuery.data.value?.items ?? []"
       :access-keys="accessKeysQuery.data.value ?? []"
       :access-keys-failed="accessKeysQuery.isError.value"

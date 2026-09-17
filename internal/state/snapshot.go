@@ -372,6 +372,7 @@ func appendExecutionTargets(
 				execution.OperationResponsesCreate,
 				execution.OperationResponsesCompact,
 				execution.OperationResponsesInputTokens,
+				execution.OperationWebSearch,
 				execution.OperationCountTokens,
 				execution.OperationImagesGenerate,
 				execution.OperationImagesEdit,

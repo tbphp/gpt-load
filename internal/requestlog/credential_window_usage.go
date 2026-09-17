@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/storage/dbtx"
 	"gpt-load/internal/storage/models"
@@ -83,6 +84,7 @@ func (service *Service) queryCredentialRequestLogUsage(
 	var row credentialRequestLogUsageRow
 	query := db.Model(&models.RequestLog{}).
 		Where("credential_id = ?", input.CredentialID).
+		Where("operation <> ?", string(execution.OperationWebSearch)).
 		Where("completed_at_ms >= ? AND completed_at_ms < ?", input.FromMS, input.ToMS)
 	if err := query.Select(credentialRequestLogUsageSelect).Find(&row).Error; err != nil {
 		return CredentialWindowUsage{}, fmt.Errorf("query request logs: %w", err)

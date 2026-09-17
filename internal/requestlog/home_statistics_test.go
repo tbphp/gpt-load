@@ -76,6 +76,12 @@ func TestQueryHomeStatisticsBuildsTopFiveRankingsAndExcludesLegacyZeroAttemptAgg
 	groupB := createHomeStatisticsGroup(t, db, "Group B")
 	accessA := createHomeStatisticsAccessKey(t, db, "Access A", "0001")
 	accessB := createHomeStatisticsAccessKey(t, db, "Access B", "0002")
+	if err := db.Model(&groupB).Update("enabled", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&accessB).Update("status", "disabled").Error; err != nil {
+		t.Fatal(err)
+	}
 	const bucketStartMS int64 = 1_784_894_400_000
 
 	legacyZeroAttempt := models.UsageStat{
@@ -146,14 +152,18 @@ func TestQueryHomeStatisticsBuildsTopFiveRankingsAndExcludesLegacyZeroAttemptAgg
 	if report.TopGroups[0].Group.ID != groupA.ID ||
 		report.TopGroups[0].EstimatedCostNanoUSD != 1_000 ||
 		report.TopGroups[1].Group.ID != groupB.ID ||
-		report.TopGroups[1].EstimatedCostNanoUSD != 800 {
+		report.TopGroups[1].EstimatedCostNanoUSD != 800 ||
+		report.TopGroups[1].Group.Name == nil || *report.TopGroups[1].Group.Name != "Group B" ||
+		report.TopGroups[1].Group.Deleted {
 		t.Fatalf("TopGroups = %#v", report.TopGroups)
 	}
 	if report.TopAccessKeys[0].AccessKey.ID != accessA.ID ||
 		report.TopAccessKeys[0].AccessKey.Name == nil ||
 		*report.TopAccessKeys[0].AccessKey.Name != "Access A" ||
 		report.TopAccessKeys[0].AccessKey.Deleted ||
-		report.TopAccessKeys[1].AccessKey.ID != accessB.ID {
+		report.TopAccessKeys[1].AccessKey.ID != accessB.ID ||
+		report.TopAccessKeys[1].AccessKey.Name == nil || *report.TopAccessKeys[1].AccessKey.Name != "Access B" ||
+		report.TopAccessKeys[1].AccessKey.Deleted {
 		t.Fatalf(
 			"TopAccessKeys = %#v; first name = %q",
 			report.TopAccessKeys,
