@@ -165,7 +165,8 @@ watch(
   },
 )
 
-function statusTone(status: string): 'success' | 'danger' | 'warning' | 'neutral' {
+function statusTone(status: string): 'success' | 'info' | 'danger' | 'warning' | 'neutral' {
+  if (status === 'processing') return 'info'
   if (status === 'success') return 'success'
   if (status === 'error') return 'danger'
   if (status === 'incomplete') return 'warning'

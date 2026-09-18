@@ -7,6 +7,7 @@ import (
 
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/telemetry"
 )
 
 type RetentionPolicyProvider interface {
@@ -85,7 +86,7 @@ func (service *Service) deleteExpiredRequestLogs(
 		var ids []string
 		result := service.db.WithContext(ctx).
 			Model(&models.RequestLog{}).
-			Where("completed_at_ms < ?", cutoffMS).
+			Where("completed_at_ms < ? AND status <> ?", cutoffMS, telemetry.RequestStatusProcessing).
 			Order("completed_at_ms ASC").
 			Order("id ASC").
 			Limit(retentionBatchSize).

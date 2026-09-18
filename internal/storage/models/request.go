@@ -1,8 +1,11 @@
 package models
 
+import "gorm.io/gorm"
+
 // RequestLog is the durable request-level audit and usage record.
 type RequestLog struct {
-	ID                      string              `gorm:"type:varchar(36);primaryKey;not null;index:idx_request_logs_completed_id,priority:2,sort:desc;index:idx_request_logs_access_completed_id,priority:3,sort:desc;index:idx_request_logs_status_completed_id,priority:3,sort:desc;index:idx_request_logs_model_completed_id,priority:3,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:3,sort:desc"`
+	ID                      string              `gorm:"type:varchar(36);primaryKey;not null;index:idx_request_logs_completed_id,priority:2,sort:desc;index:idx_request_logs_started_id,priority:2,sort:desc;index:idx_request_logs_access_completed_id,priority:3,sort:desc;index:idx_request_logs_status_completed_id,priority:3,sort:desc;index:idx_request_logs_model_completed_id,priority:3,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:3,sort:desc"`
+	StartedAtMS             int64               `gorm:"column:started_at_ms;not null;default:0;check:chk_request_log_started_at,started_at_ms >= 0;index:idx_request_logs_started_id,priority:1,sort:desc"`
 	CompletedAtMS           int64               `gorm:"column:completed_at_ms;not null;check:chk_request_log_completed_at,completed_at_ms >= 0;index:idx_request_logs_completed_id,priority:1,sort:desc;index:idx_request_logs_access_completed_id,priority:2,sort:desc;index:idx_request_logs_status_completed_id,priority:2,sort:desc;index:idx_request_logs_model_completed_id,priority:2,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:2,sort:desc;index:idx_request_logs_group_completed,priority:2,sort:desc"`
 	AccessKeyID             uint                `gorm:"not null;index:idx_request_logs_access_completed_id,priority:1"`
 	GroupID                 uint                `gorm:"not null;default:0;index:idx_request_logs_group_completed,priority:1"`
@@ -14,7 +17,7 @@ type RequestLog struct {
 	UpstreamModel           string              `gorm:"type:varchar(255);not null;index:idx_request_logs_upstream_model_completed_id,priority:1"`
 	UpstreamReportedModel   string              `gorm:"type:varchar(255);not null;default:''"`
 	ModelConsistency        string              `gorm:"type:varchar(32);not null;default:'not_applicable';check:chk_request_log_model_consistency,model_consistency IN ('not_applicable','match','unknown','mismatch')"`
-	Status                  string              `gorm:"type:varchar(32);not null;check:chk_request_log_status,status IN ('success','error','incomplete','canceled');index:idx_request_logs_status_completed_id,priority:1"`
+	Status                  string              `gorm:"type:varchar(32);not null;check:chk_request_log_status,status IN ('processing','success','error','incomplete','canceled');index:idx_request_logs_status_completed_id,priority:1"`
 	StatusCode              int                 `gorm:"not null"`
 	Stream                  bool                `gorm:"not null;default:false"`
 	FirstResponseMs         *int64              `gorm:"column:first_response_ms;check:chk_request_log_first_response,first_response_ms IS NULL OR first_response_ms >= 0"`
@@ -38,6 +41,16 @@ type RequestLog struct {
 	CostState               string              `gorm:"type:varchar(32);not null;default:'not_applicable';check:chk_request_log_cost_state,cost_state IN ('priced','unpriced','not_applicable')"`
 	PricingCompleteness     string              `gorm:"type:varchar(32);not null;default:'not_applicable';check:chk_request_log_pricing_completeness,pricing_completeness IN ('complete','partial','unavailable','not_applicable');check:chk_request_log_usage_pricing_state,(usage_state = 'not_applicable' AND cost_state = 'not_applicable' AND pricing_completeness = 'not_applicable' AND estimated_cost_nano_usd = 0) OR (usage_state = 'missing' AND cost_state = 'unpriced' AND pricing_completeness = 'unavailable' AND estimated_cost_nano_usd = 0) OR (usage_state IN ('complete','partial') AND ((cost_state = 'unpriced' AND pricing_completeness = 'unavailable' AND estimated_cost_nano_usd = 0) OR (cost_state = 'priced' AND pricing_completeness IN ('complete','partial'))))"`
 	AttemptRows             []RequestLogAttempt `gorm:"-"`
+}
+
+// Older incremental migration tests and operators can briefly have a schema
+// without started_at_ms. Omitting its zero value lets those legacy writes use
+// the database default while real request events always carry a start time.
+func (row *RequestLog) BeforeCreate(tx *gorm.DB) error {
+	if row != nil && row.StartedAtMS == 0 && tx != nil {
+		tx.Statement.Omits = append(tx.Statement.Omits, "started_at_ms")
+	}
+	return nil
 }
 
 // RequestLogAttempt is one durable upstream attempt belonging to a client

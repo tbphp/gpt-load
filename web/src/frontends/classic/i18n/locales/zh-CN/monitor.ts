@@ -938,6 +938,7 @@ export default {
         actions: '操作',
       },
       status: {
+        processing: '处理中',
         success: '成功',
         error: '错误',
         incomplete: '未完成',

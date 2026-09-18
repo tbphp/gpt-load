@@ -25,7 +25,7 @@ import {
   projectString,
 } from './projector'
 
-export type RequestLogStatus = 'success' | 'error' | 'incomplete' | 'canceled'
+export type RequestLogStatus = 'processing' | 'success' | 'error' | 'incomplete' | 'canceled'
 export type RequestLogModelConsistency = 'not_applicable' | 'match' | 'unknown' | 'mismatch'
 export type RequestLogAction =
   'terminate' | 'retry' | 'cooldown_credential' | 'fail_credential' | 'skip_group'
@@ -216,7 +216,7 @@ export interface RequestLogPageDto {
 }
 
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const statuses = ['success', 'error', 'incomplete', 'canceled'] as const
+const statuses = ['processing', 'success', 'error', 'incomplete', 'canceled'] as const
 const modelConsistencyValues = ['not_applicable', 'match', 'unknown', 'mismatch'] as const
 const failureCategories = [
   'ok',

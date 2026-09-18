@@ -213,6 +213,12 @@ func (service *Service) Start() error {
 		service.state = lifecycleStopped
 		return fmt.Errorf("start request log service: incomplete worker configuration")
 	}
+	if service.db != nil {
+		if err := service.recoverProcessingLogs(); err != nil {
+			service.state = lifecycleStopped
+			return fmt.Errorf("recover processing request logs: %w", err)
+		}
+	}
 	workerContext, cancel := context.WithCancel(context.Background())
 	service.workerCancel = cancel
 	service.workerDone = make(chan struct{})
@@ -225,18 +231,37 @@ func (service *Service) Start() error {
 }
 
 func (service *Service) Emit(event telemetry.RequestEvent) {
+	if event.Status == telemetry.RequestStatusProcessing {
+		service.EmitProcessing(event)
+		return
+	}
+	cloned := cloneEvent(event)
+	// Preserve the existing completion-log contract: completed events are
+	// logged whenever the service is active, including when the durable queue
+	// is full, but never before Start or after Stop.
+	if service.enqueue(cloned) {
+		service.logCompletedRequest(cloned)
+	}
+}
+
+// EmitProcessing is an optional sink method used by the gateway to persist a
+// request-start observation without changing the public telemetry interface.
+func (service *Service) EmitProcessing(event telemetry.RequestEvent) {
+	service.enqueue(event)
+}
+
+func (service *Service) enqueue(event telemetry.RequestEvent) bool {
 	service.stateMu.Lock()
 	switch service.state {
 	case lifecycleNew:
 		service.droppedNotRunningTotal.Add(1)
 		service.stateMu.Unlock()
-		return
+		return false
 	case lifecycleStopping, lifecycleStopped:
 		service.droppedStoppingTotal.Add(1)
 		service.stateMu.Unlock()
-		return
+		return false
 	}
-
 	cloned := cloneEvent(event)
 	queueFull := false
 	select {
@@ -251,7 +276,34 @@ func (service *Service) Emit(event telemetry.RequestEvent) {
 	if queueFull {
 		service.warn("queue_full", 0)
 	}
-	service.logCompletedRequest(cloned)
+	return true
+}
+
+func (service *Service) recoverProcessingLogs() error {
+	if service == nil || service.db == nil {
+		return nil
+	}
+	if !service.db.Migrator().HasColumn("request_logs", "started_at_ms") {
+		return nil
+	}
+	now := service.now().UTC()
+	nowMS := now.UnixMilli()
+	result := service.db.Model(&models.RequestLog{}).
+		Where("status = ?", telemetry.RequestStatusProcessing).
+		Updates(map[string]any{
+			"status":          string(telemetry.RequestStatusIncomplete),
+			"completed_at_ms": gorm.Expr("CASE WHEN completed_at_ms > ? THEN completed_at_ms ELSE ? END", nowMS, nowMS),
+			"duration_ms": gorm.Expr(
+				"CASE WHEN ? >= COALESCE(NULLIF(started_at_ms, 0), completed_at_ms) THEN ? - COALESCE(NULLIF(started_at_ms, 0), completed_at_ms) ELSE 0 END",
+				nowMS, nowMS,
+			),
+			"error_code":    "request_log_recovered_after_restart",
+			"error_summary": "Request was still processing when the service restarted.",
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	return nil
 }
 
 func (service *Service) Stop(ctx context.Context) error {

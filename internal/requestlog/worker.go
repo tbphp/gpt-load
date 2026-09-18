@@ -2,6 +2,7 @@ package requestlog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -43,7 +44,46 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	newRows, err := writer.prepareNewRequestLogRows(ctx, rows)
+	allIDs := make([]string, 0, len(rows))
+	seenIDs := make(map[string]struct{}, len(rows))
+	containsProcessing := false
+	for _, row := range rows {
+		if _, seen := seenIDs[row.ID]; seen {
+			continue
+		}
+		seenIDs[row.ID] = struct{}{}
+		allIDs = append(allIDs, row.ID)
+		containsProcessing = containsProcessing || row.Status == string(telemetry.RequestStatusProcessing)
+	}
+	var existingRows []struct {
+		ID     string
+		Status string
+	}
+	if err := writer.db.WithContext(ctx).Model(&models.RequestLog{}).
+		Select("id", "status").Where("id IN ?", allIDs).Find(&existingRows).Error; err != nil {
+		return fmt.Errorf("query existing request logs: %w", err)
+	}
+	existingStatuses := make(map[string]string, len(existingRows))
+	for _, row := range existingRows {
+		existingStatuses[row.ID] = row.Status
+	}
+	if containsProcessing || existingProcessing(existingStatuses) {
+		return writer.writeRequestLogOperations(ctx, rows)
+	}
+	return writer.writeCompletedBatch(ctx, rows, existingStatuses)
+}
+
+func existingProcessing(statuses map[string]string) bool {
+	for _, status := range statuses {
+		if status == string(telemetry.RequestStatusProcessing) {
+			return true
+		}
+	}
+	return false
+}
+
+func (writer *gormBatchWriter) writeCompletedBatch(ctx context.Context, rows []models.RequestLog, existingStatuses map[string]string) error {
+	newRows, err := writer.prepareNewRequestLogRows(rows, existingStatuses)
 	if err != nil {
 		return err
 	}
@@ -66,12 +106,118 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 	})
 }
 
+// writeRequestLogOperations handles the two-step processing -> terminal
+// lifecycle. Starts are idempotent inserts and may refresh routing identity;
+// terminal events update a matching processing row, or insert a terminal row
+// when the start was dropped.
+func (writer *gormBatchWriter) writeRequestLogOperations(ctx context.Context, rows []models.RequestLog) error {
+	return dbtx.Run(ctx, writer.db, dbtx.Options{
+		Mode:           dbtx.Write,
+		CleanupTimeout: requestLogTransactionCleanupTimeout,
+		Operation:      "request log operation transaction",
+	}, func(tx *gorm.DB) error {
+		starts := make([]models.RequestLog, 0, len(rows))
+		completions := make([]models.RequestLog, 0, len(rows))
+		for _, row := range rows {
+			if row.Status == string(telemetry.RequestStatusProcessing) {
+				starts = append(starts, row)
+			} else {
+				completions = append(completions, row)
+			}
+		}
+		if len(starts) > 0 {
+			for _, row := range starts {
+				var current models.RequestLog
+				err := tx.Where("id = ?", row.ID).First(&current).Error
+				switch {
+				case errors.Is(err, gorm.ErrRecordNotFound):
+					if err := tx.Create(&row).Error; err != nil {
+						return fmt.Errorf("insert processing request log: %w", err)
+					}
+				case err != nil:
+					return fmt.Errorf("query processing request log %q: %w", row.ID, err)
+				case current.Status == string(telemetry.RequestStatusProcessing):
+					row.StartedAtMS = current.StartedAtMS
+					if err := tx.Model(&models.RequestLog{}).Where("id = ?", row.ID).
+						Select("*").Omit("id").Updates(&row).Error; err != nil {
+						return fmt.Errorf("update processing request log: %w", err)
+					}
+				}
+			}
+		}
+
+		completed := make([]models.RequestLog, 0, len(completions))
+		updatedIDs := make([]string, 0, len(completions))
+		for _, row := range completions {
+			var current models.RequestLog
+			err := tx.Where("id = ?", row.ID).First(&current).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if err := tx.Create(&row).Error; err != nil {
+					return fmt.Errorf("insert terminal request log: %w", err)
+				}
+				completed = append(completed, row)
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("query request log operation %q: %w", row.ID, err)
+			}
+			if current.Status != string(telemetry.RequestStatusProcessing) {
+				continue
+			}
+			row.StartedAtMS = current.StartedAtMS
+			if err := tx.Model(&models.RequestLog{}).Where("id = ?", row.ID).
+				Select("*").Omit("id").Updates(&row).Error; err != nil {
+				return fmt.Errorf("update terminal request log: %w", err)
+			}
+			updatedIDs = append(updatedIDs, row.ID)
+			completed = append(completed, row)
+		}
+
+		journals, err := buildUsageAggregationJournals(completed)
+		if err != nil {
+			return err
+		}
+		if err := stageUsageAggregationJournals(tx, journals); err != nil {
+			return err
+		}
+		attemptRows := make([]models.RequestLogAttempt, 0)
+		for _, row := range completed {
+			attemptRows = append(attemptRows, row.AttemptRows...)
+		}
+		if len(updatedIDs) > 0 {
+			if err := tx.Where("request_id IN ?", updatedIDs).Delete(&models.RequestLogAttempt{}).Error; err != nil {
+				return fmt.Errorf("replace request log attempts: %w", err)
+			}
+		}
+		if len(attemptRows) > 0 {
+			if err := tx.CreateInBatches(attemptRows, batchSize).Error; err != nil {
+				return fmt.Errorf("insert request log attempts: %w", err)
+			}
+		}
+		if len(attemptRows) > 0 && len(journals) > 0 {
+			pendingRequestIDs := make(map[string]struct{}, len(journals))
+			for _, journal := range journals {
+				pendingRequestIDs[journal.RequestID] = struct{}{}
+			}
+			pendingAttempts := make([]models.RequestLogAttempt, 0, len(attemptRows))
+			for _, attempt := range attemptRows {
+				if _, pending := pendingRequestIDs[attempt.RequestID]; pending {
+					pendingAttempts = append(pendingAttempts, attempt)
+				}
+			}
+			if err := applyCredentialAttemptStats(tx, pendingAttempts); err != nil {
+				return err
+			}
+		}
+		return applyUsageJournalBatch(tx, journals)
+	})
+}
+
 func (writer *gormBatchWriter) prepareNewRequestLogRows(
-	ctx context.Context,
 	rows []models.RequestLog,
+	existingStatuses map[string]string,
 ) ([]models.RequestLog, error) {
 	uniqueRows := make([]models.RequestLog, 0, len(rows))
-	ids := make([]string, 0, len(rows))
 	seen := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		if _, exists := seen[row.ID]; exists {
@@ -79,26 +225,14 @@ func (writer *gormBatchWriter) prepareNewRequestLogRows(
 		}
 		seen[row.ID] = struct{}{}
 		uniqueRows = append(uniqueRows, row)
-		ids = append(ids, row.ID)
 	}
 	if len(uniqueRows) == 0 {
 		return nil, nil
 	}
 
-	var existingIDs []string
-	if err := writer.db.WithContext(ctx).
-		Model(&models.RequestLog{}).
-		Where("id IN ?", ids).
-		Pluck("id", &existingIDs).Error; err != nil {
-		return nil, fmt.Errorf("query existing request log IDs: %w", err)
-	}
-	existingSet := make(map[string]struct{}, len(existingIDs))
-	for _, id := range existingIDs {
-		existingSet[id] = struct{}{}
-	}
-	newRows := make([]models.RequestLog, 0, len(uniqueRows)-len(existingIDs))
+	newRows := make([]models.RequestLog, 0, len(uniqueRows)-len(existingStatuses))
 	for _, row := range uniqueRows {
-		if _, exists := existingSet[row.ID]; !exists {
+		if _, exists := existingStatuses[row.ID]; !exists {
 			newRows = append(newRows, row)
 		}
 	}

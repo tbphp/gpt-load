@@ -28,14 +28,14 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 
 	query := service.db.WithContext(ctx).
 		Model(&models.RequestLog{}).
-		Order("completed_at_ms DESC").
+		Order(requestLogStartTimeExpression + " DESC").
 		Order("id DESC").
 		Limit(limit + 1)
 	if input.FromMS != nil {
-		query = query.Where("completed_at_ms >= ?", *input.FromMS)
+		query = query.Where(requestLogStartTimeExpression+" >= ?", *input.FromMS)
 	}
 	if input.ToMS != nil {
-		query = query.Where("completed_at_ms < ?", *input.ToMS)
+		query = query.Where(requestLogStartTimeExpression+" < ?", *input.ToMS)
 	}
 	if input.ClientModel != "" {
 		query = query.Where("client_model = ?", input.ClientModel)
@@ -99,9 +99,9 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	query = applyAttemptFilters(query, input)
 	if input.Cursor != nil {
 		query = query.Where(
-			"completed_at_ms < ? OR (completed_at_ms = ? AND id < ?)",
-			input.Cursor.CompletedAtMS,
-			input.Cursor.CompletedAtMS,
+			requestLogStartTimeExpression+" < ? OR ("+requestLogStartTimeExpression+" = ? AND id < ?)",
+			input.Cursor.StartedAtMSValue(),
+			input.Cursor.StartedAtMSValue(),
 			input.Cursor.RequestID,
 		)
 	}
@@ -130,12 +130,15 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if hasNext {
 		last := records[len(records)-1]
 		page.NextCursor = &Cursor{
+			StartedAtMS:   last.StartedAtMS,
 			CompletedAtMS: last.CompletedAtMS,
 			RequestID:     last.RequestID,
 		}
 	}
 	return page, nil
 }
+
+const requestLogStartTimeExpression = "COALESCE(NULLIF(started_at_ms, 0), completed_at_ms)"
 
 func applyNullableRange[T int | int64](
 	query *gorm.DB,
@@ -315,6 +318,7 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 		}
 		records = append(records, Record{
 			RequestID:             row.ID,
+			StartedAtMS:           row.StartedAtMS,
 			CompletedAtMS:         row.CompletedAtMS,
 			AccessKey:             AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
 			Protocol:              protocol.Protocol(row.Protocol),
@@ -358,6 +362,9 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 }
 
 func validateStoredModelObservation(row models.RequestLog) error {
+	if row.Status == string(telemetry.RequestStatusProcessing) {
+		return nil
+	}
 	successfulModeledRequest := row.Status == string(telemetry.RequestStatusSuccess) &&
 		row.UpstreamModel != ""
 	reported := row.UpstreamReportedModel != ""

@@ -22,6 +22,9 @@ func projectProcessLog(
 	if event.RequestID == "" {
 		return logrus.InfoLevel, nil, false
 	}
+	if event.Status == telemetry.RequestStatusProcessing {
+		return logrus.InfoLevel, nil, false
+	}
 
 	row, err := mapEvent(redactor, event)
 	if err != nil {

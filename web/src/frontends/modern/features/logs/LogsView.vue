@@ -104,7 +104,7 @@ const models = computed(() => [
   ]),
 ])
 const states = computed(() =>
-  ['', 'success', 'error', 'incomplete', 'canceled'].map((value) => ({
+  ['', 'processing', 'success', 'error', 'incomplete', 'canceled'].map((value) => ({
     value,
     label: t(value ? 'logs.values.' + value : 'logs.all'),
   })),

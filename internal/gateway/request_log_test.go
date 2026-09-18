@@ -1140,6 +1140,60 @@ func TestRequestRecorderUsesFrozenAttemptMetadata(t *testing.T) {
 	}
 }
 
+func TestRequestRecorderPromotesReturnedReasoning(t *testing.T) {
+	startedAt := time.Unix(100, 0)
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(
+		sink, "returned-reasoning", startedAt, 1,
+		protocol.OpenAIResponses, func() time.Time { return startedAt.Add(time.Second) },
+	)
+	requested := reasoning.Config{Effort: "xhigh"}
+	recorder.setReasoning(requested)
+	budget := int64(4096)
+	returned := reasoning.Config{Mode: "enabled", Effort: "high", BudgetTokens: &budget}
+	selection := requestLogSelection(1, 2, "group")
+	model := "gpt-5.6"
+	selection.UpstreamModelID = &model
+	result := UpstreamResult{StatusCode: http.StatusOK, AppliedReasoning: returned}
+	attempt := recorder.appendAttempt(
+		selection, result, telemetry.FailureCategoryOK, telemetry.ActionTerminate,
+		"", "", startedAt, startedAt.Add(100*time.Millisecond),
+	)
+	recorder.completeResponse(result, health.Decision{}, model, attempt)
+
+	if !reflect.DeepEqual(recorder.reasoning, returned) {
+		t.Fatalf("request reasoning = %#v, want returned reasoning %#v", recorder.reasoning, returned)
+	}
+	recorder.emit()
+	events := sink.snapshot()
+	if len(events) != 1 || !reflect.DeepEqual(events[0].Reasoning, returned) {
+		t.Fatalf("event reasoning = %#v, want %#v", events, returned)
+	}
+}
+
+func TestRequestRecorderKeepsRequestedReasoningWhenUpstreamDoesNotReportIt(t *testing.T) {
+	startedAt := time.Unix(100, 0)
+	recorder := newRequestRecorder(
+		&recordingRequestLogSink{}, "requested-reasoning", startedAt, 1,
+		protocol.OpenAICompletions, func() time.Time { return startedAt.Add(time.Second) },
+	)
+	requested := reasoning.Config{Effort: "high"}
+	recorder.setReasoning(requested)
+	selection := requestLogSelection(1, 2, "group")
+	model := "gpt-4o"
+	selection.UpstreamModelID = &model
+	result := UpstreamResult{StatusCode: http.StatusOK}
+	attempt := recorder.appendAttempt(
+		selection, result, telemetry.FailureCategoryOK, telemetry.ActionTerminate,
+		"", "", startedAt, startedAt.Add(100*time.Millisecond),
+	)
+	recorder.completeResponse(result, health.Decision{}, model, attempt)
+
+	if !reflect.DeepEqual(recorder.reasoning, requested) {
+		t.Fatalf("request reasoning = %#v, want requested reasoning %#v", recorder.reasoning, requested)
+	}
+}
+
 func TestRequestRecorderDoesNotReuseClientMetadataWhenAttemptObservationIsUnavailable(t *testing.T) {
 	recorder := newRequestRecorder(
 		&recordingRequestLogSink{}, "attempt-metadata-unavailable", time.Unix(100, 0), 1,

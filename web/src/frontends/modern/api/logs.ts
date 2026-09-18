@@ -2,7 +2,7 @@ import type { ApiClient } from '@shared/http/client'
 import { ApiError, InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
 
-export const logStatuses = ['success', 'error', 'incomplete', 'canceled'] as const
+export const logStatuses = ['processing', 'success', 'error', 'incomplete', 'canceled'] as const
 export const logFilterNames = [
   'from_ms',
   'to_ms',

@@ -956,6 +956,7 @@ export default {
         actions: '操作',
       },
       status: {
+        processing: '処理中',
         success: '成功',
         error: 'エラー',
         incomplete: '未完了',

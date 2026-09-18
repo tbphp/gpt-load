@@ -13,6 +13,7 @@ import (
 type RequestStatus string
 
 const (
+	RequestStatusProcessing RequestStatus = "processing"
 	RequestStatusSuccess    RequestStatus = "success"
 	RequestStatusError      RequestStatus = "error"
 	RequestStatusIncomplete RequestStatus = "incomplete"

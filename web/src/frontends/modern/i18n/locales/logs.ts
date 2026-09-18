@@ -189,6 +189,7 @@ export const zhCN = {
     invalidStatusCode: '请输入 100～599，未响应使用 0。',
   },
   values: {
+    processing: '处理中',
     success: '成功',
     error: '失败',
     incomplete: '未完成',
@@ -472,6 +473,7 @@ export const enUS: typeof zhCN = {
     invalidStatusCode: 'Enter 100–599, or 0 for no response.',
   },
   values: {
+    processing: 'Processing',
     success: 'Success',
     error: 'Failed',
     incomplete: 'Incomplete',
@@ -753,6 +755,7 @@ export const jaJP: typeof zhCN = {
     invalidStatusCode: '100～599、応答なしは 0 を入力してください。',
   },
   values: {
+    processing: '処理中',
     success: '成功',
     error: '失敗',
     incomplete: '未完了',

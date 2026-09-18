@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/redact"
@@ -156,6 +157,61 @@ func (recorder *requestRecorder) emit() {
 	})
 }
 
+func (recorder *requestRecorder) emitProcessing() {
+	if recorder == nil || recorder.requestID == "" || recorder.sink == nil {
+		return
+	}
+	sink, ok := recorder.sink.(interface{ EmitProcessing(telemetry.RequestEvent) })
+	if !ok {
+		return
+	}
+	event := telemetry.RequestEvent{
+		RequestID:   recorder.requestID,
+		CompletedAt: recorder.startedAt.UTC(),
+		AccessKeyID: recorder.accessKeyID,
+		Protocol:    recorder.protocol,
+		Operation:   recorder.operation,
+		ClientModel: recorder.clientModel,
+		Status:      telemetry.RequestStatusProcessing,
+		Stream:      recorder.stream,
+		Reasoning:   recorder.reasoning,
+	}
+	sink.EmitProcessing(event)
+}
+
+// emitProcessingRoute refreshes the durable processing row once the scheduler
+// has selected a concrete upstream route. The request is still in progress,
+// so usage and pricing remain not applicable; only routing identity changes.
+func (recorder *requestRecorder) emitProcessingRoute(
+	groupID uint,
+	channelID channel.ID,
+	credentialID uint,
+) {
+	if recorder == nil || recorder.requestID == "" || recorder.sink == nil {
+		return
+	}
+	sink, ok := recorder.sink.(interface{ EmitProcessing(telemetry.RequestEvent) })
+	if !ok {
+		return
+	}
+	observation := notApplicableUsageObservation()
+	observation.GroupID = groupID
+	observation.ChannelID = channelID
+	observation.CredentialID = credentialID
+	sink.EmitProcessing(telemetry.RequestEvent{
+		RequestID:   recorder.requestID,
+		CompletedAt: recorder.startedAt.UTC(),
+		AccessKeyID: recorder.accessKeyID,
+		Protocol:    recorder.protocol,
+		Operation:   recorder.operation,
+		ClientModel: recorder.clientModel,
+		Status:      telemetry.RequestStatusProcessing,
+		Stream:      recorder.stream,
+		Reasoning:   recorder.reasoning,
+		Usage:       observation,
+	})
+}
+
 func (recorder *requestRecorder) freezeSensitiveInputErrorSummaries() {
 	if recorder == nil ||
 		(recorder.protocol != protocol.OpenAIImages &&
@@ -230,6 +286,23 @@ func (recorder *requestRecorder) setReasoning(config reasoning.Config) {
 		config.BudgetTokens = &budget
 	}
 	recorder.reasoning = config
+}
+
+// applyReturnedReasoning promotes reasoning reported by the upstream execution
+// result to the request-level observation. The request metadata remains the
+// fallback when the upstream did not report an applied configuration.
+func (recorder *requestRecorder) applyReturnedReasoning(config reasoning.Config) {
+	if recorder == nil || !config.Present() {
+		return
+	}
+	recorder.setReasoning(config)
+}
+
+func (recorder *requestRecorder) applyAttemptReasoning(attemptIndex int) {
+	if recorder == nil || attemptIndex < 0 || attemptIndex >= len(recorder.attempts) {
+		return
+	}
+	recorder.applyReturnedReasoning(recorder.attempts[attemptIndex].Reasoning)
 }
 
 func (recorder *requestRecorder) recordFirstResponse() {
@@ -451,6 +524,10 @@ func (recorder *requestRecorder) completeStream(
 	}
 	recorder.outcome = outcome
 	recorder.bindUsage(attemptIndex, result.Usage, true)
+	recorder.applyReturnedReasoning(result.AppliedReasoning)
+	if !result.AppliedReasoning.Present() {
+		recorder.applyAttemptReasoning(attemptIndex)
+	}
 }
 
 func (recorder *requestRecorder) completeResponse(
@@ -472,6 +549,10 @@ func (recorder *requestRecorder) completeResponse(
 			responseModelMismatch: result.ResponseModelMismatch,
 		}
 		recorder.bindUsage(attemptIndex, result.Usage, true)
+		recorder.applyReturnedReasoning(result.AppliedReasoning)
+		if !result.AppliedReasoning.Present() {
+			recorder.applyAttemptReasoning(attemptIndex)
+		}
 		return
 	}
 	code := upstreamErrorCode(result, decision.Category)
@@ -487,6 +568,10 @@ func (recorder *requestRecorder) completeResponse(
 		errorCode: code, errorSummary: summary, upstreamModel: upstreamModel,
 	}
 	recorder.bindUsage(attemptIndex, result.Usage, false)
+	recorder.applyReturnedReasoning(result.AppliedReasoning)
+	if !result.AppliedReasoning.Present() {
+		recorder.applyAttemptReasoning(attemptIndex)
+	}
 }
 
 func (recorder *requestRecorder) completeProviderError(
@@ -514,6 +599,10 @@ func (recorder *requestRecorder) completeProviderError(
 		result.Usage,
 		true,
 	)
+	recorder.applyReturnedReasoning(result.AppliedReasoning)
+	if !result.AppliedReasoning.Present() {
+		recorder.applyAttemptReasoning(attemptIndex)
+	}
 }
 
 func (recorder *requestRecorder) bindUsage(
@@ -622,6 +711,7 @@ func (recorder *requestRecorder) completeTransport(
 		errorCode: value.Code, errorSummary: summary, upstreamModel: upstreamModel,
 	}
 	recorder.bindUsage(attemptIndex, usage.Result{}, false)
+	recorder.applyAttemptReasoning(attemptIndex)
 }
 
 func (recorder *requestRecorder) completeCanceled(
@@ -645,6 +735,7 @@ func (recorder *requestRecorder) completeCanceled(
 		upstreamModel: upstreamModel,
 	}
 	recorder.bindUsage(attemptIndex, usage.Result{}, false)
+	recorder.applyAttemptReasoning(attemptIndex)
 }
 
 func (recorder *requestRecorder) completeDownstreamWrite(status int) {

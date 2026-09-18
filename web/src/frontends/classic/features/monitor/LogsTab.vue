@@ -564,7 +564,8 @@ function responseLabel(log: RequestLogItemDto): string {
 
 function statusTone(
   status: RequestLogItemDto['status'],
-): 'success' | 'danger' | 'warning' | 'neutral' {
+): 'success' | 'info' | 'danger' | 'warning' | 'neutral' {
+  if (status === 'processing') return 'info'
   if (status === 'success') return 'success'
   if (status === 'error') return 'danger'
   if (status === 'incomplete') return 'warning'

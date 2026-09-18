@@ -450,7 +450,8 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		case telemetry.RequestStatusSuccess,
 			telemetry.RequestStatusError,
 			telemetry.RequestStatusIncomplete,
-			telemetry.RequestStatusCanceled:
+			telemetry.RequestStatusCanceled,
+			telemetry.RequestStatusProcessing:
 			query.Status = status
 		default:
 			return requestlog.ListQuery{}, app_errors.ErrValidation
@@ -730,13 +731,15 @@ func decodeRequestLogCursor(encoded string) (*requestlog.Cursor, error) {
 	if payload.Version != requestLogCursorV2 {
 		return nil, fmt.Errorf("unsupported request log cursor version")
 	}
-	if err := validateSafeMilliseconds(payload.CompletedAtMS); err != nil {
-		return nil, fmt.Errorf("invalid request log cursor completed_at_ms: %w", err)
+	startedAtMS := payload.CompletedAtMS
+	if err := validateSafeMilliseconds(startedAtMS); err != nil {
+		return nil, fmt.Errorf("invalid request log cursor started_at_ms: %w", err)
 	}
 	if !canonicalLowercaseUUIDv4.MatchString(payload.RequestID) {
 		return nil, fmt.Errorf("invalid request log cursor request_id")
 	}
 	return &requestlog.Cursor{
+		StartedAtMS:   startedAtMS,
 		CompletedAtMS: payload.CompletedAtMS,
 		RequestID:     payload.RequestID,
 	}, nil
@@ -801,15 +804,18 @@ func errorsIsEOF(err error) bool {
 }
 
 func encodeRequestLogCursor(cursor requestlog.Cursor) (string, error) {
-	if err := validateSafeMilliseconds(cursor.CompletedAtMS); err != nil {
-		return "", fmt.Errorf("encode request log cursor: invalid completed_at_ms: %w", err)
+	startedAtMS := cursor.StartedAtMSValue()
+	if err := validateSafeMilliseconds(startedAtMS); err != nil {
+		return "", fmt.Errorf("encode request log cursor: invalid started_at_ms: %w", err)
 	}
 	if !canonicalLowercaseUUIDv4.MatchString(cursor.RequestID) {
 		return "", fmt.Errorf("encode request log cursor: invalid request ID")
 	}
 	payload := requestLogCursorPayload{
-		Version:       requestLogCursorV2,
-		CompletedAtMS: cursor.CompletedAtMS,
+		Version: requestLogCursorV2,
+		// Keep the opaque cursor shape stable. The timestamp in this field now
+		// represents the list's start-time ordering key.
+		CompletedAtMS: startedAtMS,
 		RequestID:     cursor.RequestID,
 	}
 	raw, err := json.Marshal(payload)
@@ -877,6 +883,9 @@ func mapRequestLogItemResponse(
 	usageCost requestLogUsageCostResponse,
 	credentialLabels map[uint]string,
 ) (requestLogItemResponse, error) {
+	if err := validateSafeMilliseconds(record.CompletedAtMS); err != nil {
+		return requestLogItemResponse{}, fmt.Errorf("map request log completed_at_ms: %w", err)
+	}
 	inputTokens, ok := checkedRequestLogInputTokens(record)
 	if !ok {
 		return requestLogItemResponse{}, fmt.Errorf("map request log input tokens: overflow")
