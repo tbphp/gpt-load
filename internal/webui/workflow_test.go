@@ -1394,7 +1394,7 @@ func TestReleaseWorkflowDeploysCurrentMajorChannelToRender(t *testing.T) {
 		"RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}",
 		"IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}",
 		`RENDER_CLI_VERSION: "2.25.0"`,
-		`RENDER_CLI_SHA256: "7c4dc66ded7acc75e2f828b02d3d6901e9f2e4175d25c4fe5fd6f3aaf66b071b"`,
+		`RENDER_CLI_SHA256: "3b3f1f839ef36b81f12d84ac7288f1c96f9f7519b39c53fe6f866612f704e7cd"`,
 	} {
 		if !strings.Contains(job, required) {
 			t.Fatalf("Render deployment job does not contain %q:\n%s", required, job)
@@ -1411,7 +1411,7 @@ func TestReleaseWorkflowDeploysCurrentMajorChannelToRender(t *testing.T) {
 		"RENDER_CLI_VERSION",
 		"RENDER_CLI_SHA256",
 		"sha256sum --check",
-		"cli_${RENDER_CLI_VERSION}_linux_arm64.zip",
+		"cli_${RENDER_CLI_VERSION}_linux_amd64.zip",
 		"--retry-all-errors",
 	} {
 		if !strings.Contains(install, required) {
@@ -2144,11 +2144,11 @@ func TestReleaseWorkflowPostPublishVerifiesDraftAssetsAgainstCurrentRun(t *testi
 	// 发布前的五平台原生 smoke 仍然是必须的门禁。
 	nativeJob := workflowJobBlock(t, content, "native-artifact-smoke")
 	for _, required := range []string{
-		"[self-hosted, Linux, X64]",
-		"[self-hosted, Linux, ARM64]",
+		"ubuntu-24.04",
+		"ubuntu-24.04-arm",
 		"macos-15-intel",
-		"[self-hosted, macOS, ARM64]",
-		"[self-hosted, Windows, X64]",
+		"macos-15",
+		"windows-2025",
 		"gpt-load-linux-amd64",
 		"gpt-load-linux-arm64",
 		"gpt-load-macos-amd64",
