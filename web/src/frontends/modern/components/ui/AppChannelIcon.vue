@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppTooltip from './AppTooltip.vue'
 import { computed, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { channelIconRasterURL, namespacedChannelIconMarkup } from './channel-icons'
 
 defineOptions({ inheritAttrs: false })
@@ -23,6 +24,7 @@ const props = withDefaults(
     tooltip: true,
   },
 )
+const { t } = useI18n()
 const id = `modern-channel-${useId()}`
 const markup = computed(() => namespacedChannelIconMarkup(props.icon ?? '', id))
 const raster = computed(() => channelIconRasterURL(props.icon ?? ''))
@@ -37,7 +39,12 @@ const fallback = computed(
 const tooltipLabel = computed(() => {
   const channelName = (props.name || props.mark || props.icon || '').trim()
   const groupName = props.groupName?.trim()
-  return [channelName, groupName].filter(Boolean).join(' · ')
+  return [
+    channelName ? t('ui.channelTooltip.channel', { name: channelName }) : '',
+    groupName ? t('ui.channelTooltip.group', { name: groupName }) : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 })
 </script>
 
