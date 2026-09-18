@@ -212,6 +212,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				reject(reasonResponseBindingNotFound)
 				return
 			}
+			boundAuto = parent.autoSelection
 		} else {
 			stored, found := h.responseBindings.Lookup(key.ID, original.previous)
 			if !found {
@@ -232,9 +233,9 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	}
 	requestCtx := s.ctx
 	if _, automatic := snapshot.AutoModels.Lookup(model); automatic || boundAuto != nil {
-		if (binding != nil || original.previous != "") && boundAuto == nil {
-			reject(reasonResponseBindingNotFound)
-			return
+		autoQuery := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required}
+		if requiredRef != nil {
+			autoQuery.AllowedCredentialRefs = map[uint]state.CredentialRef{requiredRef.ID: *requiredRef}
 		}
 		var cancel context.CancelFunc
 		requestCtx, cancel = context.WithDeadline(s.ctx, turn.started.Add(snapshot.Settings.RequestTimeout))
@@ -243,7 +244,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		var failure *reason
 		parsed, _, recorder.autoDecision, failure = h.prepareAutoModel(requestCtx, snapshot, key, dialect.NewOpenAIResponses(), parsed, original.metadata, boundAuto, func() *reason {
 			return h.admitAutoQuota(snapshot, &admission)
-		}, scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required})
+		}, autoQuery)
 		if failure != nil {
 			reject(*failure)
 			return
@@ -748,7 +749,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 				if !exists {
 					s.parentOrder = append(s.parentOrder, response.ID)
 				}
-				s.parents[response.ID] = websocketParent{lane: lane, complete: observer.sawTerminal && !providerError && observer.terminalDisposition == dialect.StreamEventCompleted}
+				s.parents[response.ID] = websocketParent{lane: lane, complete: observer.sawTerminal && !providerError && observer.terminalDisposition == dialect.StreamEventCompleted, autoSelection: recorder.autoSelection()}
 				for len(s.parentOrder) > s.handler.websocketLimits.responses {
 					delete(s.parents, s.parentOrder[0])
 					s.parentOrder = s.parentOrder[1:]

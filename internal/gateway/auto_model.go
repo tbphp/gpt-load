@@ -72,7 +72,7 @@ func allowedAutoPresets(snapshot *state.ConfigSnapshot, key state.AccessKeyView,
 		query.ExternalModel, query.AccessKey = &model, key
 		query.Operation, query.RouteRequirement = metadata.Operation, metadata.RouteRequirement
 		query.ResponsesStorePreference = metadata.ResponsesStorePreference
-		if len(scheduler.CandidateGroupIDsForQuery(snapshot, query)) == 0 {
+		if !hasAutoModelCandidates(snapshot, query) {
 			continue
 		}
 		presets = append(presets, preset)
@@ -81,7 +81,22 @@ func allowedAutoPresets(snapshot *state.ConfigSnapshot, key state.AccessKeyView,
 	return presets, fallback
 }
 
-func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.ConfigSnapshot, key state.AccessKeyView, selectedDialect dialect.Dialect, parsed *dialect.ParsedRequest, metadata dialect.RequestMetadata, bound *automodel.Selection, admit func() *reason, websocketQueries ...scheduler.Query) (*dialect.ParsedRequest, dialect.RequestMetadata, *automodel.Decision, *reason) {
+// 续接仍限制原凭据所在的 Group，不能把其他 Group 的模型交给 Jev 选择。
+func hasAutoModelCandidates(snapshot *state.ConfigSnapshot, query scheduler.Query) bool {
+	for _, groupID := range scheduler.CandidateGroupIDsForQuery(snapshot, query) {
+		if query.AllowedCredentialRefs == nil {
+			return true
+		}
+		for _, ref := range query.AllowedCredentialRefs {
+			if ref.GroupID == groupID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.ConfigSnapshot, key state.AccessKeyView, selectedDialect dialect.Dialect, parsed *dialect.ParsedRequest, metadata dialect.RequestMetadata, bound *automodel.Selection, admit func() *reason, executionQueries ...scheduler.Query) (*dialect.ParsedRequest, dialect.RequestMetadata, *automodel.Decision, *reason) {
 	entry, exists := snapshot.AutoModels.Lookup(optionalModelValue(metadata.Model))
 	if !exists || !entry.Enabled || !snapshot.AutoModels.Enabled() {
 		return parsed, metadata, nil, &reasonAutoModelUnavailable
@@ -90,9 +105,24 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 		return parsed, metadata, nil, &reasonAutoModelUnsupported
 	}
 	query := scheduler.Query{ClientProtocol: selectedDialect.Protocol()}
-	if len(websocketQueries) > 0 {
-		query = websocketQueries[0]
+	if len(executionQueries) > 0 {
+		query = executionQueries[0]
 	}
+	query.ClientProtocol, query.AccessKey = selectedDialect.Protocol(), key
+	query.Operation, query.RouteRequirement = metadata.Operation, metadata.RouteRequirement
+	query.ResponsesStorePreference = metadata.ResponsesStorePreference
+	view, extractReason := automodel.Extract(selectedDialect.Protocol(), parsed.Body)
+	prewarm := false
+	if metadata.Operation == execution.OperationResponsesCreate {
+		var options struct {
+			Generate *bool `json:"generate"`
+		}
+		if err := json.Unmarshal(parsed.Body, &options); err != nil {
+			return parsed, metadata, nil, &reasonInvalidProtocolRequest
+		}
+		prewarm = options.Generate != nil && !*options.Generate
+	}
+	reuse := bound != nil && (prewarm || extractReason == "task_missing")
 	presets, fallbackAllowed := allowedAutoPresets(snapshot, key, entry, metadata, query)
 	decision := &automodel.Decision{Source: "fallback", Status: "fallback", PromptVersion: automodel.PromptVersion,
 		CostState: "not_applicable", PricingCompleteness: "not_applicable"}
@@ -101,16 +131,17 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 		if bound.EntryID != entry.ID || bound.EntryName != entry.Name {
 			return parsed, metadata, nil, &reasonResponseBindingNotFound
 		}
-		// 续接保留已保存的预设内容，不根据管理员的新预设重新映射。
+	}
+	if bound != nil && (reuse || !fallbackAllowed) {
+		// 只有无新任务的工具续接沿用上一档；新任务会重新判断。
 		model := bound.TargetModel
-		query.ExternalModel, query.AccessKey, query.Operation = &model, key, metadata.Operation
-		query.RouteRequirement, query.ResponsesStorePreference = metadata.RouteRequirement, metadata.ResponsesStorePreference
+		query.ExternalModel = &model
 		if len(key.Filters.Models) > 0 {
 			if _, allowed := key.Filters.Models[entry.Name]; !allowed {
 				return parsed, metadata, nil, &reasonAutoModelForbidden
 			}
 		}
-		if len(scheduler.CandidateGroupIDsForQuery(snapshot, query)) == 0 {
+		if !hasAutoModelCandidates(snapshot, query) {
 			return parsed, metadata, nil, &reasonAutoModelForbidden
 		}
 		var raw any
@@ -124,7 +155,6 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 			return parsed, metadata, nil, &reasonResponseBindingNotFound
 		}
 		chosen = automodel.CompiledPreset{Preset: automodel.Preset{ID: bound.PresetID, Name: bound.PresetName, Model: bound.TargetModel, ParameterOverrides: bound.ParameterOverrides}, Rules: rules}
-		decision.Source, decision.Status, decision.Selection = "binding", "reused", *bound
 	} else {
 		if !fallbackAllowed {
 			return parsed, metadata, nil, &reasonAutoModelForbidden
@@ -139,10 +169,13 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	if failure := admit(); failure != nil {
 		return parsed, metadata, nil, failure
 	}
-	if bound == nil {
-		view, reason := automodel.Extract(selectedDialect.Protocol(), parsed.Body)
-		decision.Reason, decision.ContextTruncated = reason, view.ContextTruncated
-		if reason == "" {
+	decision.Reason, decision.ContextTruncated = extractReason, view.ContextTruncated
+	if prewarm {
+		decision.Source, decision.Status, decision.Reason = "prewarm", "skipped", "prewarm"
+	} else if reuse {
+		decision.Source, decision.Status, decision.Reason, decision.Selection = "binding", "reused", "no_new_task", *bound
+	} else {
+		if extractReason == "" {
 			client, err := handler.autoDecisionClient(snapshot)
 			if err != nil {
 				decision.Reason = "proxy_unavailable"
@@ -160,6 +193,8 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 				}
 			}
 		}
+	}
+	if decision.Source != "binding" {
 		decision.Selection = automodel.Selection{EntryID: entry.ID, EntryName: entry.Name, PresetID: chosen.ID, PresetName: chosen.Name, TargetModel: chosen.Model, ParameterOverrides: chosen.ParameterOverrides, ConfigRevision: snapshot.Revision}
 	}
 	if ctx.Err() != nil {

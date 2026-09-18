@@ -602,6 +602,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 	recorder.setClientModel(model)
 	var boundAuto *automodel.Selection
+	autoQuery := scheduler.Query{}
 	if metadata.PreviousResponseID != "" {
 		binding, found := handler.responseBindings.Lookup(accessKey.ID, metadata.PreviousResponseID)
 		if !found {
@@ -609,10 +610,9 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 			return
 		}
 		boundAuto = binding.AutoSelection
-		if _, automatic := snapshot.AutoModels.Lookup(model); automatic && boundAuto == nil {
-			handler.completeReason(ginContext, recorder, reasonResponseBindingNotFound)
-			return
-		}
+		autoQuery.AllowedCredentialRefs = map[uint]state.CredentialRef{binding.CredentialID: {
+			ID: binding.CredentialID, GroupID: binding.GroupID, IdentityGeneration: binding.IdentityGeneration,
+		}}
 	}
 	if _, automatic := snapshot.AutoModels.Lookup(model); automatic || boundAuto != nil {
 		ctx, cancel := context.WithDeadline(ginContext.Request.Context(), requestStarted.Add(snapshot.Settings.RequestTimeout))
@@ -621,7 +621,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		var failure *reason
 		parsed, metadata, recorder.autoDecision, failure = handler.prepareAutoModel(ctx, snapshot, accessKey, selectedDialect, parsed, metadata, boundAuto, func() *reason {
 			return handler.admitAutoQuota(snapshot, quotaAdmission)
-		})
+		}, autoQuery)
 		if failure != nil {
 			handler.completeReason(ginContext, recorder, *failure)
 			return

@@ -77,8 +77,9 @@ type websocketTurn struct {
 }
 type websocketFinished struct{ lane string }
 type websocketParent struct {
-	lane     string
-	complete bool
+	lane          string
+	complete      bool
+	autoSelection *automodel.Selection
 }
 type websocketBinding struct {
 	autoSelection *automodel.Selection
