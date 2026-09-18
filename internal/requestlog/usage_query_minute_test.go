@@ -133,7 +133,7 @@ func TestQueryUsageMinuteMatchesFrozenHourlyAccounting(t *testing.T) {
 	}
 	hourQuery := minuteUsageQuery(start)
 	hourQuery.Granularity = UsageGranularityHour
-	hourQuery.ToMS = start.Add(2 * time.Hour).UnixMilli()
+	hourQuery.ToMS = start.Add(7 * time.Hour).UnixMilli()
 	hour, err := service.QueryUsage(context.Background(), hourQuery)
 	if err != nil {
 		t.Fatalf("hour QueryUsage() error = %v", err)
@@ -182,19 +182,25 @@ func TestQueryUsageMinuteFiltersFinalAttributionAndAccessKey(t *testing.T) {
 	query.GroupID, query.ChannelID, query.CredentialID = &groupID, channel.OpenAI, &credentialID
 	query.AccessKeyID, query.UpstreamModel = &accessKeyID, "final-model"
 	query.SelfScoped = true
-	report, err := newRequestLogTestService(db).QueryUsage(context.Background(), query)
-	if err != nil {
-		t.Fatalf("QueryUsage() error = %v", err)
-	}
-	if report.Summary.RequestCount != 1 || len(report.Distributions.Group) != 0 || len(report.Distributions.AccessKey) != 0 {
-		t.Fatalf("scoped report = %#v", report)
-	}
-	assertMinuteUsageReportTotals(t, report)
-	query.GroupID, query.ChannelID, query.CredentialID = nil, "", nil
-	query.UpstreamModel = "earlier-model"
-	report, err = newRequestLogTestService(db).QueryUsage(context.Background(), query)
-	if err != nil || report.Summary.RequestCount != 0 {
-		t.Fatalf("earlier attempt filter = %#v/%v, want empty report", report, err)
+	for _, span := range []time.Duration{time.Hour, 3 * time.Hour, 6 * time.Hour} {
+		t.Run(span.String(), func(t *testing.T) {
+			input := query
+			input.ToMS = start.Add(span).UnixMilli()
+			report, err := newRequestLogTestService(db).QueryUsage(t.Context(), input)
+			if err != nil {
+				t.Fatalf("QueryUsage() error = %v", err)
+			}
+			if report.Summary.RequestCount != 1 || len(report.Distributions.Group) != 0 || len(report.Distributions.AccessKey) != 0 {
+				t.Fatalf("scoped report = %#v", report)
+			}
+			assertMinuteUsageReportTotals(t, report)
+			input.GroupID, input.ChannelID, input.CredentialID = nil, "", nil
+			input.UpstreamModel = "earlier-model"
+			report, err = newRequestLogTestService(db).QueryUsage(t.Context(), input)
+			if err != nil || report.Summary.RequestCount != 0 {
+				t.Fatalf("earlier attempt filter = %#v/%v, want empty report", report, err)
+			}
+		})
 	}
 }
 

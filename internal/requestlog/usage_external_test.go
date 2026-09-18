@@ -137,6 +137,37 @@ func TestExternalDatabaseUsageExactWindow(t *testing.T) {
 	short := query
 	short.ToMS = from.Add(time.Hour).UnixMilli()
 	assertCount(short, 23)
+	for _, test := range []struct {
+		span  time.Duration
+		count int64
+	}{
+		{3 * time.Hour, 23},
+		{6 * time.Hour, 45},
+	} {
+		t.Run("five-minute buckets over "+test.span.String(), func(t *testing.T) {
+			input := query
+			input.ToMS = from.Add(test.span).UnixMilli()
+			report := assertCount(input, test.count)
+			want := make(map[int64]int64)
+			for _, row := range rows {
+				if row.CompletedAtMS >= input.FromMS && row.CompletedAtMS < input.ToMS {
+					bucket := row.CompletedAtMS - row.CompletedAtMS%UsageFiveMinuteBucketMS
+					want[max(bucket, input.FromMS)]++
+				}
+			}
+			if len(report.Series) != len(want) {
+				t.Fatalf("five-minute bucket count = %d, want %d", len(report.Series), len(want))
+			}
+			for _, point := range report.Series {
+				bucket := point.BucketStartMS - point.BucketStartMS%UsageFiveMinuteBucketMS
+				if point.RequestCount != want[point.BucketStartMS] ||
+					point.BucketStartMS != max(bucket, input.FromMS) ||
+					point.BucketEndMS != min(bucket+UsageFiveMinuteBucketMS, input.ToMS) {
+					t.Fatalf("five-minute bucket = %+v, want actual completion-time distribution %v", point, want)
+				}
+			}
+		})
+	}
 
 	// 中间日志已清理时仍只取小时聚合；首尾日志清理后直接返回剩余数据。
 	fullFrom, fullTo := base.Add(time.Hour).UnixMilli(), to.Truncate(time.Hour).UnixMilli()
