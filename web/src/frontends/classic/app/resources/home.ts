@@ -191,6 +191,8 @@ const subscriptionAccountFields = [
   'channel_icon',
   'capabilities',
   'group_count',
+  'group_id',
+  'credential_key',
   'available_group_count',
   'credential',
 ] as const

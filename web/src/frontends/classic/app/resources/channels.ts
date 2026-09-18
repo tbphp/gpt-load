@@ -52,6 +52,7 @@ export type ChannelOperation =
   | 'responses_input_items'
   | 'responses_compact'
   | 'responses_input_tokens'
+  | 'web_search'
   | 'count_tokens'
   | 'responses_passthrough'
   | 'images_generate'
@@ -158,6 +159,7 @@ const operations = [
   'responses_input_items',
   'responses_compact',
   'responses_input_tokens',
+  'web_search',
   'count_tokens',
   'responses_passthrough',
   'images_generate',
