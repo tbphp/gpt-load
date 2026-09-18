@@ -7,6 +7,7 @@ import { useURLState } from '@modern/app/url-state'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { getGroupModelNames, type GroupRow, type GroupUsage } from '@modern/api/groups'
+import { formatBalanceEntries, type GroupBalanceTotal } from '@modern/api/balances'
 import {
   AppBadge,
   AppButton,
@@ -33,6 +34,7 @@ const props = defineProps<{
   usageLoading: boolean
   usageIncomplete: boolean
   weightError?: string
+  balance?: GroupBalanceTotal
 }>()
 const emit = defineEmits<{
   expand: []
@@ -152,6 +154,11 @@ const lastActive = computed(() =>
         hour12: false,
       }).format(props.group.lastActiveHour),
 )
+const balanceText = computed(() =>
+  props.balance?.known && props.balance.totals.length
+    ? formatBalanceEntries(props.balance.totals)
+    : '',
+)
 </script>
 
 <template>
@@ -204,6 +211,9 @@ const lastActive = computed(() =>
         <div class="modern-group-bar-line">
           <AppSegmentedBar :segments="credentialSegments" :label="credentialSummary" />
         </div>
+        <AppTooltip v-if="balanceText" :label="balanceText">
+          <span class="modern-group-secondary modern-group-balance">{{ balanceText }}</span>
+        </AppTooltip>
       </div>
       <div class="modern-group-metric">
         <span class="modern-group-mobile-label">{{ t('groups.columns.models') }}</span>
@@ -420,6 +430,11 @@ const lastActive = computed(() =>
   display: flex;
   min-height: var(--modern-badge-xs);
   align-items: center;
+}
+.modern-group-balance {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modern-group-mobile-label {

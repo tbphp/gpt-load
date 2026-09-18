@@ -66,6 +66,7 @@ Your application only needs one base URL and one AccessKey. Providers, accounts,
 - **One mechanism for API keys and subscriptions** — Codex, Claude, Antigravity, Grok, and API-key channels share credential management, scheduling, and health handling.
 - **Scheduling and failure isolation built in** — Multi-credential scheduling, configurable weights, retries, cooldown, blacklisting, and session affinity reduce the impact of overloaded or failing credentials.
 - **Observable, self-hosted, and simple to deploy** — Inspect health, routes, logs, usage, and cost estimates in an embedded UI backed by SQLite, MySQL, or PostgreSQL with local credential encryption.
+- **Credential balance visibility** — API-key channels with a public balance endpoint (DeepSeek, Moonshot AI) report their upstream account balance, shown per key on its credential card and aggregated per group in the group list.
 
 ## Quick start
 
