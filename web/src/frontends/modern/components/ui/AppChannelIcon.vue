@@ -9,11 +9,19 @@ const props = withDefaults(
     icon?: string
     mark?: string
     name?: string
+    groupName?: string
     size?: 'inherit' | 'sm' | 'md' | 'hero'
     surface?: boolean
     tooltip?: boolean
   }>(),
-  { icon: undefined, mark: undefined, name: undefined, size: 'inherit', tooltip: true },
+  {
+    icon: undefined,
+    mark: undefined,
+    name: undefined,
+    groupName: undefined,
+    size: 'inherit',
+    tooltip: true,
+  },
 )
 const id = `modern-channel-${useId()}`
 const markup = computed(() => namespacedChannelIconMarkup(props.icon ?? '', id))
@@ -26,10 +34,15 @@ const fallback = computed(
       .join('')
       .toUpperCase(),
 )
+const tooltipLabel = computed(() => {
+  const channelName = (props.name || props.mark || props.icon || '').trim()
+  const groupName = props.groupName?.trim()
+  return [channelName, groupName].filter(Boolean).join(' · ')
+})
 </script>
 
 <template>
-  <AppTooltip :label="name || mark || icon" :disabled="!tooltip">
+  <AppTooltip :label="tooltipLabel" :disabled="!tooltip">
     <span
       v-bind="$attrs"
       class="modern-channel-icon"
