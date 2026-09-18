@@ -397,6 +397,14 @@ const loadCredentials = computed(() => {
               />
             </div>
           </div>
+          <AppSearchSelect
+            v-else-if="field.key === 'operation'"
+            :model-value="draft.operation ?? ''"
+            :options="options(field)"
+            :label="t('logs.filters.operation')"
+            size="xs"
+            @update:model-value="update('operation', $event)"
+          />
           <AppSelect
             v-else-if="field.kind === 'select'"
             :model-value="draft[field.key] ?? ''"

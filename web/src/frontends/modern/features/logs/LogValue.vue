@@ -22,9 +22,11 @@ import {
   logHasUsage,
   logMoney,
   logNumber,
+  logOutputRate,
   logStatusTone,
   logTime,
 } from './log-display'
+import LogCredentialValue from './LogCredentialValue.vue'
 
 const props = defineProps<{
   row: LogEntry
@@ -44,6 +46,11 @@ const channel = computed(() =>
 function valueName(value: string | null | undefined): string {
   return !value ? '—' : te('logs.values.' + value) ? t('logs.values.' + value) : value
 }
+const affinityReason = computed(() => {
+  if (!props.row.affinity_hit) return ''
+  const key = 'logs.affinityKinds.' + props.row.affinity_kind
+  return te(key) ? t(key) : t('logs.affinityKinds.other')
+})
 const tokenValue = computed(() => {
   const row = props.row
   if (props.column === 'cache_write_tokens') return logCacheWrites(row)
@@ -176,6 +183,14 @@ const hint = computed(() => {
     :value="row.request_id"
     :label="t('logs.copyRequest')"
   />
+  <LogCredentialValue
+    v-else-if="column === 'credential_name' && !table"
+    :name="row.credential_name"
+    :group-id="row.group_id"
+    :credential-id="row.credential_id"
+    :deleted="row.credential_deleted"
+    :connection-type="channel?.connectionType ?? group?.connectionType"
+  />
   <div v-else-if="column === 'group' && group" class="modern-log-channel">
     <AppChannelIcon
       v-if="!hideIcon && table"
@@ -200,6 +215,22 @@ const hint = computed(() => {
     v-else-if="column === 'protocol' || column === 'upstream_protocol'"
     :protocol="row[column]"
   />
+  <AppTooltip v-else-if="column === 'affinity_hit' && row.affinity_hit" :label="affinityReason">
+    <span
+      tabindex="0"
+      :aria-label="display + ': ' + affinityReason"
+      :class="{ 'modern-log-boolean': table, 'is-true': row.affinity_hit }"
+      >{{ display }}</span
+    >
+  </AppTooltip>
+  <span v-else-if="column === 'duration_ms' && !table" class="modern-log-value-stack">
+    <span>{{ display }}</span>
+    <AppTooltip :label="t('logs.outputRate')">
+      <span tabindex="0" :aria-label="t('logs.outputRate') + ': ' + logOutputRate(row, locale)">{{
+        logOutputRate(row, locale)
+      }}</span>
+    </AppTooltip>
+  </span>
   <span
     v-else-if="table && (column === 'stream' || column === 'affinity_hit')"
     class="modern-log-boolean"
@@ -233,6 +264,12 @@ const hint = computed(() => {
 <style scoped>
 .modern-log-deleted {
   color: var(--modern-muted);
+}
+.modern-log-value-stack {
+  display: inline-grid;
+  min-width: 0;
+  max-width: 100%;
+  gap: var(--modern-space-0-5);
 }
 .modern-log-channel {
   display: flex;

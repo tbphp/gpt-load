@@ -15,7 +15,7 @@ import {
   AppTooltip,
 } from '@modern/components/ui'
 import type { LogColumnId } from './log-columns'
-import { logTime } from './log-display'
+import { logOutputRate, logTime } from './log-display'
 import LogValue from './LogValue.vue'
 import LogModelWarning from './LogModelWarning.vue'
 import LogFilterLink from './LogFilterLink.vue'
@@ -128,6 +128,8 @@ function fieldFilter(field: LogColumnId): LogQuery | undefined {
       return row.status_code ? { final_status_code: String(row.status_code) } : undefined
     case 'stream':
       return { stream: String(row.stream) }
+    case 'operation':
+      return row.operation ? { operation: row.operation } : undefined
     case 'usage_state':
       return { usage_state: row.usage_state }
     case 'cost_state':
@@ -171,6 +173,8 @@ function fieldFilterValue(field: LogColumnId): string {
       return t(row.stream ? 'logs.yes' : 'logs.no')
     case 'error_code':
       return row.error_code
+    case 'operation':
+      return row.operation ? t('logs.values.' + row.operation) : '—'
     default:
       return field
   }
@@ -287,6 +291,24 @@ function fieldFilterValue(field: LogColumnId): string {
         />
       </div>
     </div>
+  </div>
+  <div v-else-if="fields.includes('duration_ms')" class="modern-log-cell-stack is-paired">
+    <div class="modern-log-cell-value">
+      <LogValue :row="row" column="duration_ms" table />
+      <template v-if="fields.includes('first_response_ms')">
+        <span aria-hidden="true">/</span>
+        <LogValue :row="row" column="first_response_ms" table />
+      </template>
+    </div>
+    <AppTooltip :label="t('logs.outputRate')">
+      <div
+        class="modern-log-cell-value modern-log-speed"
+        tabindex="0"
+        :aria-label="t('logs.outputRate') + ': ' + logOutputRate(row, locale)"
+      >
+        <AppOverflowText :text="logOutputRate(row, locale)" />
+      </div>
+    </AppTooltip>
   </div>
   <div v-else class="modern-log-cell-stack" :class="{ 'is-paired': paired }">
     <template v-for="(field, index) in fields" :key="field">
@@ -433,6 +455,11 @@ function fieldFilterValue(field: LogColumnId): string {
 }
 .modern-log-cell-value > :last-child {
   min-width: 0;
+}
+.modern-log-speed {
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-small);
+  font-variant-numeric: tabular-nums;
 }
 .modern-log-cell-value.is-model {
   font-family: var(--modern-font-mono);

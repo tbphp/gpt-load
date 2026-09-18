@@ -3,6 +3,25 @@ import { ApiError, InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
 
 export const logStatuses = ['success', 'error', 'incomplete', 'canceled'] as const
+export const logOperations = [
+  'chat_completion',
+  'responses_create',
+  'responses_retrieve',
+  'responses_delete',
+  'responses_cancel',
+  'responses_input_items',
+  'responses_compact',
+  'responses_input_tokens',
+  'count_tokens',
+  'responses_passthrough',
+  'web_search',
+  'images_generate',
+  'images_edit',
+  'embeddings_create',
+  'rerank',
+  'list_models',
+  'probe',
+] as const
 export const logFilterNames = [
   'from_ms',
   'to_ms',
@@ -17,6 +36,7 @@ export const logFilterNames = [
   'status',
   'request_id',
   'protocol',
+  'operation',
   'stream',
   'final_status_code',
   'usage_state',
@@ -88,6 +108,7 @@ export interface LogEntry {
   error_code: string
   error_summary: string
   affinity_hit: boolean
+  affinity_kind: string
   group_id: number | null
   channel_id: string | null
   credential_id: number | null
@@ -258,6 +279,7 @@ function entry(value: unknown): LogEntry {
     error_code: text(row.error_code),
     error_summary: text(row.error_summary),
     affinity_hit: boolean(row.affinity_hit),
+    affinity_kind: text(row.affinity_kind),
     group_id: optionalNumber(row.group_id),
     channel_id: optionalText(row.channel_id),
     credential_id: optionalNumber(row.credential_id),

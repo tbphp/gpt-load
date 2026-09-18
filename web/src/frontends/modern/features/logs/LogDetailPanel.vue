@@ -31,6 +31,7 @@ import { createRedactedLogExport } from './log-redacted-export'
 import LogPricingReceipt from './LogPricingReceipt.vue'
 import LogValue from './LogValue.vue'
 import LogModelWarning from './LogModelWarning.vue'
+import LogCredentialValue from './LogCredentialValue.vue'
 
 const props = defineProps<{
   id: string
@@ -302,17 +303,18 @@ function resolveRedactedLog(): Promise<string> {
                   ><span>{{ logDuration(attempt.duration_ms, locale) }}</span>
                 </div>
                 <div class="modern-log-attempt-route">
-                  <span :class="{ 'is-deleted': attempt.credential_deleted }">{{
-                    attempt.credential_name ||
-                    (attempt.credential_id
-                      ? t(
-                          attempt.credential_deleted
-                            ? 'logs.deleted'
-                            : 'logs.unavailableCredential',
-                        )
-                      : '—')
-                  }}</span
-                  ><AppOverflowText :text="attempt.upstream_model ?? '—'" /><AppBadge
+                  <LogCredentialValue
+                    :name="attempt.credential_name"
+                    :group-id="attempt.group_id"
+                    :credential-id="attempt.credential_id"
+                    :deleted="attempt.credential_deleted"
+                    :connection-type="
+                      (attempt.channel_id
+                        ? channels?.get(attempt.channel_id)?.connectionType
+                        : undefined) ?? groups?.get(attempt.group_id)?.connectionType
+                    "
+                  />
+                  <AppOverflowText :text="attempt.upstream_model ?? '—'" /><AppBadge
                     v-if="attempt.will_retry"
                     tone="warning"
                     variant="soft"

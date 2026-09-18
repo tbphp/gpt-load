@@ -9,6 +9,16 @@ export const zhCN = {
     modelUpstream: '上游模型',
   },
   returnedModelMismatch: '返回模型不一致',
+  returnedModelUnknown: '返回模型未知',
+  returnedModelUnknownHint: '请求上游模型：{requested}\n上游未返回模型标识，无法确认模型是否一致。',
+  modelNotObserved: '未观测到',
+  outputRate: '输出速度',
+  affinityKinds: {
+    prompt_prefix: '提示词前缀',
+    prompt_cache_key: '缓存键',
+    response_continuity: '响应连续性',
+    other: '亲和命中',
+  },
   standaloneSearchHint: 'Codex 独立搜索请求',
   returnedModelMismatchHint: '请求上游模型：{requested}\n上游返回模型：{returned}',
   columnGroups: {
@@ -58,6 +68,7 @@ export const zhCN = {
   selectGroupFirst: '先选择分组',
   copyRequest: '复制请求 ID',
   copyError: '复制错误代码',
+  copyCredential: '复制凭据',
   copyRedactedLog: '复制脱敏日志',
   redactedCopySuccess: '已复制脱敏副本，账号、密钥等标识已匿名化，常见敏感内容已处理。',
   redactedCopyFailed: '脱敏日志复制失败，请重试。',
@@ -147,6 +158,7 @@ export const zhCN = {
     error_summary: '错误详情',
   },
   filters: {
+    operation: '操作',
     group_id: '分组',
     channel_id: '渠道',
     credential_id: '账号',
@@ -264,6 +276,7 @@ export const zhCN = {
     responses_input_tokens: '输入 Token 统计',
     count_tokens: 'Token 统计',
     responses_passthrough: '响应透传',
+    web_search: '独立搜索',
     images_generate: '图片生成',
     images_edit: '图片编辑',
     embeddings_create: '向量生成',
@@ -291,6 +304,17 @@ export const enUS: typeof zhCN = {
     modelUpstream: 'Upstream model',
   },
   returnedModelMismatch: 'Returned model mismatch',
+  returnedModelUnknown: 'Returned model unknown',
+  returnedModelUnknownHint:
+    'Requested upstream model: {requested}\nThe upstream did not report a model identifier, so consistency cannot be verified.',
+  modelNotObserved: 'Not observed',
+  outputRate: 'Output speed',
+  affinityKinds: {
+    prompt_prefix: 'Prompt prefix',
+    prompt_cache_key: 'Cache key',
+    response_continuity: 'Response continuity',
+    other: 'Affinity match',
+  },
   standaloneSearchHint: 'Codex standalone search request',
   returnedModelMismatchHint:
     'Requested upstream model: {requested}\nReported upstream model: {returned}',
@@ -342,6 +366,7 @@ export const enUS: typeof zhCN = {
   selectGroupFirst: 'Select a group first',
   copyRequest: 'Copy request ID',
   copyError: 'Copy error code',
+  copyCredential: 'Copy credential',
   copyRedactedLog: 'Copy sanitized log',
   redactedCopySuccess:
     'Sanitized log copied. Account and key identities are anonymized; common sensitive content has been redacted.',
@@ -433,6 +458,7 @@ export const enUS: typeof zhCN = {
   },
   filters: {
     group_id: 'Group',
+    operation: 'Operation',
     channel_id: 'Channel',
     credential_id: 'Account',
     access_key_id: 'Access key',
@@ -549,6 +575,7 @@ export const enUS: typeof zhCN = {
     responses_input_tokens: 'Input token count',
     count_tokens: 'Count tokens',
     responses_passthrough: 'Response passthrough',
+    web_search: 'Standalone search',
     images_generate: 'Generate image',
     images_edit: 'Edit image',
     embeddings_create: 'Create embedding',
@@ -576,6 +603,17 @@ export const jaJP: typeof zhCN = {
     modelUpstream: '上流モデル',
   },
   returnedModelMismatch: '返却モデルが不一致',
+  returnedModelUnknown: '返却モデルが不明',
+  returnedModelUnknownHint:
+    '要求した上流モデル：{requested}\n上流からモデル識別子が返されなかったため、一致を確認できません。',
+  modelNotObserved: '未観測',
+  outputRate: '出力速度',
+  affinityKinds: {
+    prompt_prefix: 'プロンプト接頭辞',
+    prompt_cache_key: 'キャッシュキー',
+    response_continuity: '応答の連続性',
+    other: 'アフィニティ一致',
+  },
   standaloneSearchHint: 'Codex の独立検索リクエスト',
   returnedModelMismatchHint: '要求した上流モデル：{requested}\n上流が返却したモデル：{returned}',
   columnGroups: {
@@ -625,6 +663,7 @@ export const jaJP: typeof zhCN = {
   selectGroupFirst: '先にグループを選択',
   copyRequest: 'リクエスト ID をコピー',
   copyError: 'エラーコードをコピー',
+  copyCredential: '認証情報をコピー',
   copyRedactedLog: '匿名化ログをコピー',
   redactedCopySuccess:
     '匿名化ログをコピーしました。アカウントとキーの識別情報を匿名化し、一般的な機密情報を処理しました。',
@@ -716,6 +755,7 @@ export const jaJP: typeof zhCN = {
   },
   filters: {
     group_id: 'グループ',
+    operation: '操作',
     channel_id: 'チャネル',
     credential_id: 'アカウント',
     access_key_id: 'アクセスキー',
@@ -832,6 +872,7 @@ export const jaJP: typeof zhCN = {
     responses_input_tokens: '入力 Token 数',
     count_tokens: 'Token 計数',
     responses_passthrough: '応答パススルー',
+    web_search: '独立検索',
     images_generate: '画像生成',
     images_edit: '画像編集',
     embeddings_create: '埋め込み生成',

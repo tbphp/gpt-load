@@ -198,7 +198,7 @@ export function useLogColumns(admin: boolean) {
     ['route_mode', 'affinity_hit', 62],
     ['status', 'status_code', 76],
     ['error_code', 'error_summary', 200],
-    ['duration_ms', 'first_response_ms', 72],
+    ['duration_ms', 'first_response_ms', 132],
     ['input_tokens', 'output_tokens', 68],
     ['cache_read_tokens', 'cache_hit_rate', 68],
     ['cache_write_tokens', 'total_tokens', 68],
