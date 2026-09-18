@@ -9,6 +9,8 @@ import (
 )
 
 func TestAffinityKindMigrationContract(t *testing.T) {
+	t.Parallel()
+
 	testAffinityKindMigration(t, openInternalMigrationTestDatabase)
 }
 func TestExternalAffinityKindMigrationContract(t *testing.T) {
@@ -22,6 +24,9 @@ func testAffinityKindMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if scenario != "fresh" {
 				if err := applyMigrationRegistry(db, migrations[:13]); err != nil {
 					t.Fatal(err)
