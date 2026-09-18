@@ -27,6 +27,7 @@ import (
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
@@ -589,6 +590,29 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	if ginContext.Request.Context().Err() != nil {
 		recorder.completeCanceled(ginContext.Request.Context(), 0, -1)
 		return
+	}
+	// 临时 Jev 环节：Chat Completions 的 auto 先选模型，再进入原有调度链路。
+	if model == "auto" && selectedRoute.Protocol == protocol.OpenAICompletions {
+		var decision jevPrototypeDecision
+		parsed, decision, err = routeJevPrototype(ginContext.Request.Context(), parsed)
+		if err != nil {
+			handler.logger.WithError(err).Warn("Temporary Jev routing failed")
+			handler.completeReason(ginContext, recorder, reasonUpstreamConnect)
+			return
+		}
+		metadata, err = selectedDialect.InspectRequest(parsed)
+		if err != nil {
+			handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
+			return
+		}
+		model = decision.Model
+		ginContext.Writer.Header().Set("X-GPTLoad-Jev-Tier", decision.Tier)
+		ginContext.Writer.Header().Set("X-GPTLoad-Jev-Model", decision.Model)
+		ginContext.Writer.Header().Set("X-GPTLoad-Jev-Ms", strconv.FormatInt(decision.ElapsedMS, 10))
+		handler.logger.WithFields(logrus.Fields{
+			"tier": decision.Tier, "model": decision.Model,
+			"confidence": decision.Confidence, "duration_ms": decision.ElapsedMS,
+		}).Info("Temporary Jev routing selected a model")
 	}
 	query := scheduler.Query{
 		ClientProtocol:           selectedRoute.Protocol,
