@@ -10,8 +10,8 @@ permissions:
 
 # 竖线分隔在任何错误（含网络错误）时回退到下一个源；默认的逗号只在
 # 404/410 时回退，proxy.golang.org 瞬时故障会直接让整个 job 失败。
-# 自托管 Runner 保留本机 Go 缓存；代码与编译参数变化由 Go 自动判定失效。
-# 不再下载/上传 setup-go 缓存，也无需 main push 预热。
+# CI 保留自托管 Runner 的本机 Go 缓存；Release 使用 GitHub 托管的临时 Runner。
+# 两条流程都不下载/上传 setup-go 缓存，也无需 main push 预热。
 env:
   GOPROXY: https://proxy.golang.org|direct
 
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   validate-tag:
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -143,7 +143,7 @@ jobs:
 
   verify-and-build-web:
     needs: validate-tag
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -165,7 +165,7 @@ jobs:
 
   static-checks:
     needs: validate-tag
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout tag commit
@@ -208,7 +208,7 @@ jobs:
     needs: validate-tag
     # 同一 commit 的 CI 已全绿时跳过；publication-preflight 接受 skipped 结果。
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout tag commit
@@ -228,7 +228,7 @@ jobs:
   race-cpa:
     needs: validate-tag
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -250,7 +250,7 @@ jobs:
     name: Database contract (${{ matrix.driver }})
     needs: validate-tag
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -328,23 +328,23 @@ jobs:
       matrix:
         include:
           - goos: linux
-            runner: [self-hosted, Linux, ARM64]
+            runner: ubuntu-24.04
             goarch: amd64
             filename: gpt-load-linux-amd64
           - goos: linux
-            runner: [self-hosted, Linux, ARM64]
+            runner: ubuntu-24.04
             goarch: arm64
             filename: gpt-load-linux-arm64
           - goos: darwin
-            runner: [self-hosted, macOS, ARM64]
+            runner: macos-15
             goarch: amd64
             filename: gpt-load-macos-amd64
           - goos: darwin
-            runner: [self-hosted, macOS, ARM64]
+            runner: macos-15
             goarch: arm64
             filename: gpt-load-macos-arm64
           - goos: windows
-            runner: [self-hosted, Windows, X64]
+            runner: windows-2025
             goarch: amd64
             filename: gpt-load-windows-amd64.exe
     steps:
@@ -389,7 +389,7 @@ jobs:
 
   build-windows-setup:
     needs: build-binaries
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-2025
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -433,7 +433,7 @@ jobs:
 
   package-metadata:
     needs: validate-tag
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -473,7 +473,7 @@ jobs:
       - build-binaries
       - build-windows-setup
       - package-metadata
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -533,15 +533,15 @@ jobs:
       max-parallel: 5
       matrix:
         include:
-          - runner: [self-hosted, Linux, X64]
+          - runner: ubuntu-24.04
             filename: gpt-load-linux-amd64
-          - runner: [self-hosted, Linux, ARM64]
+          - runner: ubuntu-24.04-arm
             filename: gpt-load-linux-arm64
           - runner: macos-15-intel
             filename: gpt-load-macos-amd64
-          - runner: [self-hosted, macOS, ARM64]
+          - runner: macos-15
             filename: gpt-load-macos-arm64
-          - runner: [self-hosted, Windows, X64]
+          - runner: windows-2025
             filename: gpt-load-windows-amd64.exe
     runs-on: ${{ matrix.runner }}
     steps:
@@ -584,7 +584,7 @@ jobs:
 
   windows-installer-smoke:
     needs: package-checksums
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-2025
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -623,7 +623,7 @@ jobs:
 
   docker-smoke:
     needs: validate-tag
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Isolate Docker credentials
@@ -660,9 +660,9 @@ jobs:
           # 路径 COPY 的是不同的二进制，必须各自验证。使用原生 arm64 runner 而非
           # QEMU：QEMU 模拟下的启动行为不能代表真实 arm64 运行时。
           - arch: amd64
-            runner: [self-hosted, Linux, X64]
+            runner: ubuntu-24.04
           - arch: arm64
-            runner: [self-hosted, Linux, ARM64]
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -714,7 +714,7 @@ jobs:
     # race-tests、race-cpa 与 database-contract 在 CI 已验证同一 commit 时为 skipped，
     # 这里只拒绝真正失败的 gate，不把 skipped 当作缺失的验证。
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       # Draft Releases are visible only to identities with push access.
@@ -977,7 +977,7 @@ jobs:
     # 间接祖先因 CI 结论复用而 skipped，publish-images 也会被默认条件连带跳过，
     # 即便这里列出的直接 needs 全部成功。显式条件只看直接 needs，绕开这个传播。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' }}
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
@@ -1007,7 +1007,7 @@ jobs:
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
         with:
-          platforms: amd64
+          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -1093,7 +1093,7 @@ jobs:
       - publish-images
     # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' && needs.publish-images.result == 'success' }}
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -1162,6 +1162,9 @@ jobs:
           make_latest: false
           generate_release_notes: true
           fail_on_unmatched_files: true
+          # 串行上传避免单个 runner 的并发连接中断拖垮整组资产；重试时保留已成功资产。
+          preserve_order: true
+          overwrite_files: false
           # 目录内容已由上面的清单校验锁定为 .github/release-assets.txt 的全集。
           files: release/*
           body: |
@@ -1180,7 +1183,7 @@ jobs:
       - publish-images
     # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publish-images.result == 'success' }}
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1223,7 +1226,7 @@ jobs:
       - publish-images
     # 同上：显式条件只看直接 needs，避免默认条件把间接祖先的 skip 传播下来。
     if: ${{ !cancelled() && needs.validate-tag.result == 'success' && needs.publication-preflight.result == 'success' && needs.publish-github.result == 'success' && needs.publish-images.result == 'success' }}
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       # Draft Releases are visible only to identities with push access.
@@ -1366,7 +1369,7 @@ jobs:
       group: gpt-load-v2-image-channels
       cancel-in-progress: false
       queue: max
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1436,7 +1439,7 @@ jobs:
     environment:
       name: render
       url: ${{ vars.RENDER_SERVICE_URL }}
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1446,7 +1449,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
       IMAGE: ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}
       RENDER_CLI_VERSION: "2.25.0"
-      RENDER_CLI_SHA256: "7c4dc66ded7acc75e2f828b02d3d6901e9f2e4175d25c4fe5fd6f3aaf66b071b"
+      RENDER_CLI_SHA256: "3b3f1f839ef36b81f12d84ac7288f1c96f9f7519b39c53fe6f866612f704e7cd"
     steps:
       - name: Validate deployment inputs
         shell: bash
@@ -1461,7 +1464,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive="cli_${RENDER_CLI_VERSION}_linux_arm64.zip"
+          archive="cli_${RENDER_CLI_VERSION}_linux_amd64.zip"
           archive_path="${RUNNER_TEMP}/${archive}"
           extract_dir="${RUNNER_TEMP}/render-cli-${RENDER_CLI_VERSION}"
           url="https://github.com/render-oss/cli/releases/download/v${RENDER_CLI_VERSION}/${archive}"
@@ -1556,7 +1559,7 @@ jobs:
       - post-publish-image-smoke
       - post-publish-verify
       - promote-image-channels
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       # Draft Releases are visible only to identities with push access.

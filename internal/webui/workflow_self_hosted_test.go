@@ -36,7 +36,7 @@ func TestSelfHostedCIKeepsPlatformGatesAndLocalCaches(t *testing.T) {
 	}
 }
 
-func TestSelfHostedReleaseIsolatesDockerCredentials(t *testing.T) {
+func TestReleaseIsolatesDockerCredentials(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	for _, job := range []string{
 		"docker-smoke", "prebuilt-image-smoke", "publication-preflight", "publish-images",
@@ -56,22 +56,85 @@ func TestSelfHostedReleaseIsolatesDockerCredentials(t *testing.T) {
 	}
 }
 
-func TestReleaseKeepsX64OnlyForNativeAMD64Validation(t *testing.T) {
+func TestReleaseUsesGitHubHostedRunners(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
-	const x64 = "[self-hosted, Linux, X64]"
-	if strings.Count(content, x64) != 2 {
-		t.Fatal("Linux X64 must only run the native binary and prebuilt image AMD64 gates")
+	if strings.Contains(content, "self-hosted") {
+		t.Fatal("release workflow must not route release-specific jobs to self-hosted runners")
 	}
-	for _, job := range []string{"native-artifact-smoke", "prebuilt-image-smoke"} {
+	for _, job := range []string{
+		"validate-tag", "verify-and-build-web", "static-checks", "race-tests", "race-cpa",
+		"database-contract", "package-metadata", "package-checksums", "docker-smoke",
+		"publication-preflight", "publish-images", "publish-github", "post-publish-image-smoke",
+		"post-publish-verify", "promote-image-channels", "deploy-render", "reconcile-publication",
+	} {
 		block := workflowJobBlock(t, content, job)
-		if !strings.Contains(block, x64) || !strings.Contains(block, "[self-hosted, Linux, ARM64]") {
-			t.Errorf("%s must retain both native Linux architectures", job)
+		if !strings.Contains(block, "runs-on: ubuntu-24.04") {
+			t.Errorf("%s is not assigned to the GitHub-hosted Ubuntu runner", job)
+		}
+	}
+	for _, job := range []string{"build-windows-setup", "windows-installer-smoke"} {
+		block := workflowJobBlock(t, content, job)
+		if !strings.Contains(block, "runs-on: windows-2025") {
+			t.Errorf("%s is not assigned to the GitHub-hosted Windows runner", job)
+		}
+	}
+	for _, test := range []struct {
+		job      string
+		required []string
+	}{
+		{
+			job: "build-binaries",
+			required: []string{
+				"runner: ubuntu-24.04\n            goarch: amd64",
+				"runner: ubuntu-24.04\n            goarch: arm64",
+				"runner: macos-15\n            goarch: amd64",
+				"runner: macos-15\n            goarch: arm64",
+				"runner: windows-2025\n            goarch: amd64",
+			},
+		},
+		{
+			job: "native-artifact-smoke",
+			required: []string{
+				"runner: ubuntu-24.04\n            filename: gpt-load-linux-amd64",
+				"runner: ubuntu-24.04-arm\n            filename: gpt-load-linux-arm64",
+				"runner: macos-15-intel\n            filename: gpt-load-macos-amd64",
+				"runner: macos-15\n            filename: gpt-load-macos-arm64",
+				"runner: windows-2025\n            filename: gpt-load-windows-amd64.exe",
+			},
+		},
+		{
+			job: "prebuilt-image-smoke",
+			required: []string{
+				"runner: ubuntu-24.04\n          - arch: arm64",
+				"runner: ubuntu-24.04-arm",
+			},
+		},
+	} {
+		block := workflowJobBlock(t, content, test.job)
+		for _, required := range test.required {
+			if !strings.Contains(block, required) {
+				t.Errorf("%s does not include %s", test.job, required)
+			}
 		}
 	}
 	publish := workflowJobBlock(t, content, "publish-images")
 	qemu := workflowStepBlock(t, publish, "Set up QEMU")
-	if !strings.Contains(publish, "runs-on: [self-hosted, Linux, ARM64]") ||
-		!strings.Contains(qemu, "platforms: amd64") {
-		t.Fatal("ARM64 image publisher must enable AMD64 emulation for the other target")
+	if !strings.Contains(qemu, "platforms: arm64") {
+		t.Fatal("AMD64 hosted image publisher must enable ARM64 emulation for the other target")
+	}
+	publishGitHub := workflowStepBlock(t, workflowJobBlock(t, content, "publish-github"), "Create or update GitHub Release draft")
+	for _, required := range []string{"preserve_order: true", "overwrite_files: false"} {
+		if !strings.Contains(publishGitHub, required) {
+			t.Errorf("GitHub Release asset upload does not contain %q", required)
+		}
+	}
+	deployRender := workflowJobBlock(t, content, "deploy-render")
+	for _, required := range []string{
+		"cli_${RENDER_CLI_VERSION}_linux_amd64.zip",
+		"3b3f1f839ef36b81f12d84ac7288f1c96f9f7519b39c53fe6f866612f704e7cd",
+	} {
+		if !strings.Contains(deployRender, required) {
+			t.Errorf("Render deployment does not contain %q", required)
+		}
 	}
 }
