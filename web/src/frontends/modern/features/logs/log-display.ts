@@ -9,11 +9,7 @@ export const logStatusTone: Record<LogEntry['status'], SemanticTone> = {
   canceled: 'neutral',
 }
 export function logModelMismatch(row: LogEntry): boolean {
-  return (
-    row.model_consistency === 'mismatch' &&
-    Boolean(row.upstream_model) &&
-    Boolean(row.upstream_reported_model)
-  )
+  return row.model_consistency === 'mismatch'
 }
 export function logCanMergeError(row: LogEntry): boolean {
   // 中断或失败仍可能产生实际消耗；真实的零用量/零费用也不能当成缺失。
@@ -64,6 +60,21 @@ export function logDuration(ms: number | null, locale: string): string {
       maximumFractionDigits: ms < 1000 ? 0 : 1,
     }).format(ms < 1000 ? ms : ms / 1000) + (ms < 1000 ? ' ms' : ' s')
   )
+}
+export function logOutputRate(row: LogEntry, locale: string): string {
+  if (
+    !row.stream ||
+    !logHasUsage(row) ||
+    row.first_response_ms === null ||
+    row.duration_ms <= row.first_response_ms
+  )
+    return '—'
+  const output = Number(row.output_tokens)
+  if (!Number.isSafeInteger(output) || output <= 0) return '—'
+  const rate = output / ((row.duration_ms - row.first_response_ms) / 1000)
+  return Number.isFinite(rate)
+    ? numberFormatter(locale, { maximumFractionDigits: 1 }).format(rate) + ' t/s'
+    : '—'
 }
 export function logTime(ms: number, locale: string, full = false): string {
   return dateFormatter(locale, {

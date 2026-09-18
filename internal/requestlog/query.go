@@ -55,6 +55,9 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if input.Protocol != "" {
 		query = query.Where("protocol = ?", input.Protocol)
 	}
+	if input.Operation != "" {
+		query = query.Where("operation = ?", input.Operation)
+	}
 	if input.Stream != nil {
 		query = query.Where("stream = ?", *input.Stream)
 	}

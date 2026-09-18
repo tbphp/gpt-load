@@ -82,6 +82,7 @@ type ListQuery struct {
 	Status              telemetry.RequestStatus
 	RequestID           string
 	Protocol            protocol.Protocol
+	Operation           execution.Operation
 	Stream              *bool
 	FinalStatusCode     *int
 	UsageState          usage.State

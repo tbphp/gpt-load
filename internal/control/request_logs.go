@@ -349,7 +349,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 	allowed := map[string]struct{}{
 		"from_ms": {}, "to_ms": {}, "group_id": {}, "channel_id": {}, "credential_id": {},
 		"client_model": {}, "upstream_model": {}, "model_consistency": {}, "access_key_id": {},
-		"status": {}, "request_id": {}, "protocol": {}, "stream": {}, "final_status_code": {},
+		"status": {}, "request_id": {}, "protocol": {}, "operation": {}, "stream": {}, "final_status_code": {},
 		"usage_state": {}, "cost_state": {}, "pricing_completeness": {}, "cache_present": {},
 		"attempt_status_code": {}, "failure_category": {}, "error_code": {},
 		"retry_state": {}, "retry_count_min": {}, "retry_count_max": {},
@@ -442,6 +442,13 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 			return requestlog.ListQuery{}, app_errors.ErrValidation
 		}
 		query.Protocol = parsed
+	}
+	if value, ok := singleQueryValue(values, "operation"); ok {
+		operation := execution.Operation(value)
+		if !operation.Valid() {
+			return requestlog.ListQuery{}, app_errors.ErrValidation
+		}
+		query.Operation = operation
 	}
 	if value, ok := singleQueryValue(values, "stream"); ok {
 		parsed, valid := parseRequestLogBool(value)

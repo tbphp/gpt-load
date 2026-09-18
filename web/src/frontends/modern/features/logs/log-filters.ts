@@ -4,6 +4,7 @@ import {
   internalLogFilters,
   logCursorPattern,
   logFilterNames,
+  logOperations,
   logRequestPattern,
   logStatuses,
   type LogFilterName,
@@ -29,6 +30,7 @@ export interface LogFilterDefinition {
 export const logFilterOptions: Partial<Record<LogFilterName, readonly string[]>> = {
   status: logStatuses,
   protocol: accessProtocols,
+  operation: logOperations,
   stream: ['true', 'false'],
   cache_present: ['true', 'false'],
   usage_state: ['complete', 'partial', 'missing', 'not_applicable'],
@@ -52,6 +54,7 @@ export const logFilterOptions: Partial<Record<LogFilterName, readonly string[]>>
 export const advancedLogFilters: readonly LogFilterDefinition[] = [
   { key: 'request_id', section: 'request', kind: 'text' },
   { key: 'protocol', section: 'request', kind: 'select', values: accessProtocols },
+  { key: 'operation', section: 'request', kind: 'select', values: logOperations },
   { key: 'stream', section: 'request', kind: 'select', values: logFilterOptions.stream },
   {
     key: 'retry_state',
@@ -62,6 +65,7 @@ export const advancedLogFilters: readonly LogFilterDefinition[] = [
   },
   { key: 'retry_count_min', section: 'routing', kind: 'number', admin: true },
   { key: 'retry_count_max', section: 'routing', kind: 'number', admin: true },
+  { key: 'upstream_model', section: 'routing', kind: 'text', admin: true },
   { key: 'final_status_code', section: 'result', kind: 'number' },
   {
     key: 'model_consistency',
