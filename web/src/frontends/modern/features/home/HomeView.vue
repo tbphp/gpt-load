@@ -39,6 +39,7 @@ const groups = useQuery({
   queryFn: ({ signal }) => getGroupWorkspace(client, signal),
   enabled: admin,
 })
+const groupMap = computed(() => new Map(groups.data.value?.items.map((group) => [group.id, group])))
 const keys = useQuery({
   queryKey: ['modern', 'log-access-key-options'],
   queryFn: ({ signal }) => getLogAccessKeys(client, signal),
@@ -203,6 +204,7 @@ watch(
           <HomeAccounts
             v-if="admin"
             :accounts="accounts.data.value?.items ?? []"
+            :groups="groupMap"
             :failed="accounts.isError.value"
             :loading="accounts.isPending.value"
             @retry="accounts.refetch()"
@@ -210,6 +212,7 @@ watch(
           <div v-if="admin" class="modern-home-attention-section">
             <HomeAttention
               :issues="attentionIssues"
+              :groups="groupMap"
               :failed="health.isError.value || groups.isError.value"
               @retry="refreshHealth"
             />

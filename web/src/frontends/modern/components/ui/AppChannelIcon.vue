@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppTooltip from './AppTooltip.vue'
 import { computed, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { channelIconRasterURL, namespacedChannelIconMarkup } from './channel-icons'
 
 defineOptions({ inheritAttrs: false })
@@ -9,12 +10,21 @@ const props = withDefaults(
     icon?: string
     mark?: string
     name?: string
+    groupName?: string
     size?: 'inherit' | 'sm' | 'md' | 'hero'
     surface?: boolean
     tooltip?: boolean
   }>(),
-  { icon: undefined, mark: undefined, name: undefined, size: 'inherit', tooltip: true },
+  {
+    icon: undefined,
+    mark: undefined,
+    name: undefined,
+    groupName: undefined,
+    size: 'inherit',
+    tooltip: true,
+  },
 )
+const { t } = useI18n()
 const id = `modern-channel-${useId()}`
 const markup = computed(() => namespacedChannelIconMarkup(props.icon ?? '', id))
 const raster = computed(() => channelIconRasterURL(props.icon ?? ''))
@@ -26,10 +36,20 @@ const fallback = computed(
       .join('')
       .toUpperCase(),
 )
+const tooltipLabel = computed(() => {
+  const channelName = (props.name || props.mark || props.icon || '').trim()
+  const groupName = props.groupName?.trim()
+  return [
+    channelName ? t('ui.channelTooltip.channel', { name: channelName }) : '',
+    groupName ? t('ui.channelTooltip.group', { name: groupName }) : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+})
 </script>
 
 <template>
-  <AppTooltip :label="name || mark || icon" :disabled="!tooltip">
+  <AppTooltip :label="tooltipLabel" :disabled="!tooltip">
     <span
       v-bind="$attrs"
       class="modern-channel-icon"
