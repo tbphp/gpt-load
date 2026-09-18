@@ -56,14 +56,24 @@ func TestReleaseIsolatesDockerCredentials(t *testing.T) {
 	}
 }
 
-func TestReleaseUsesGitHubHostedRunners(t *testing.T) {
+func TestReleaseUsesSelfHostedValidationAndHostedPublicationRunners(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
-	if strings.Contains(content, "self-hosted") {
-		t.Fatal("release workflow must not route release-specific jobs to self-hosted runners")
+	for job, runner := range map[string]string{
+		"static-checks":     "[self-hosted, macOS, ARM64]",
+		"race-tests":        "[self-hosted, macOS, ARM64]",
+		"race-cpa":          "[self-hosted, Linux, ARM64]",
+		"database-contract": "[self-hosted, Linux, ARM64]",
+	} {
+		block := workflowJobBlock(t, content, job)
+		if !strings.Contains(block, "runs-on: "+runner) {
+			t.Errorf("%s is not assigned to %s", job, runner)
+		}
+	}
+	if count := strings.Count(content, "self-hosted"); count != 4 {
+		t.Fatalf("release workflow contains %d self-hosted runner assignments, want 4", count)
 	}
 	for _, job := range []string{
-		"validate-tag", "verify-and-build-web", "static-checks", "race-tests", "race-cpa",
-		"database-contract", "package-metadata", "package-checksums", "docker-smoke",
+		"validate-tag", "verify-and-build-web", "package-metadata", "package-checksums", "docker-smoke",
 		"publication-preflight", "publish-images", "publish-github", "post-publish-image-smoke",
 		"post-publish-verify", "promote-image-channels", "deploy-render", "reconcile-publication",
 	} {
