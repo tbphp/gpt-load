@@ -301,7 +301,11 @@ function fieldFilterValue(field: LogColumnId): string {
       </template>
     </div>
     <AppTooltip :label="t('logs.outputRate')">
-      <div class="modern-log-cell-value modern-log-speed">
+      <div
+        class="modern-log-cell-value modern-log-speed"
+        tabindex="0"
+        :aria-label="t('logs.outputRate') + ': ' + logOutputRate(row, locale)"
+      >
         <AppOverflowText :text="logOutputRate(row, locale)" />
       </div>
     </AppTooltip>

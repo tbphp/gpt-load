@@ -2,7 +2,6 @@ package migrations
 
 import (
 	"fmt"
-	"reflect"
 
 	"gorm.io/gorm"
 )
@@ -17,6 +16,13 @@ type requestLog0017 struct {
 }
 
 func (requestLog0017) TableName() string { return "request_logs" }
+
+type requestLogOperationIndexColumn0017 struct {
+	Name       string
+	Descending bool
+	IsUnique   bool
+	IsValid    bool
+}
 
 // Up0017 为操作筛选增加与游标顺序一致的索引，不改历史日志。
 func Up0017(db *gorm.DB) error {
@@ -42,16 +48,40 @@ func ValidateRecoverable0017(db *gorm.DB) error {
 }
 
 func Validate0017(db *gorm.DB) error {
-	if db.Dialector.Name() == "postgres" {
-		// GORM 的 PostgreSQL GetIndexes 未按 indkey 的位置排序，不能据此验证复合索引。
-		var columns []struct {
-			Name     string
-			IsUnique bool
-			IsValid  bool
+	columns, err := requestLogOperationIndexColumns0017(db)
+	if err != nil {
+		return err
+	}
+	want := []struct {
+		name string
+		desc bool
+	}{
+		{name: "operation"},
+		{name: "completed_at_ms", desc: true},
+		{name: "id", desc: true},
+	}
+	if len(columns) != len(want) {
+		return fmt.Errorf("request log operation index is missing or has an unexpected definition")
+	}
+	for position, column := range columns {
+		if column.Name != want[position].name || column.Descending != want[position].desc || column.IsUnique || !column.IsValid {
+			return fmt.Errorf("request log operation index has an unexpected definition")
 		}
-		if err := db.Raw(`
-			SELECT attribute.attname AS name, definition.indisunique AS is_unique,
-				definition.indisvalid AS is_valid
+	}
+	return nil
+}
+
+func requestLogOperationIndexColumns0017(db *gorm.DB) ([]requestLogOperationIndexColumn0017, error) {
+	var columns []requestLogOperationIndexColumn0017
+	var query string
+	var arguments []any
+	switch db.Dialector.Name() {
+	case "postgres":
+		// GORM 的 PostgreSQL GetIndexes 未按 indkey 的位置排序，也不返回排序方向。
+		query = `
+			SELECT attribute.attname AS name,
+				(definition.indoption[key.position - 1] & 1) <> 0 AS descending,
+				definition.indisunique AS is_unique, definition.indisvalid AS is_valid
 			FROM pg_index AS definition
 			JOIN pg_class AS table_relation ON table_relation.oid = definition.indrelid
 			JOIN pg_namespace AS namespace ON namespace.oid = table_relation.relnamespace
@@ -61,33 +91,30 @@ func Validate0017(db *gorm.DB) error {
 				AND attribute.attnum = key.attnum
 			WHERE namespace.nspname = current_schema() AND table_relation.relname = 'request_logs'
 				AND index_relation.relname = ?
-			ORDER BY key.position`, requestLogOperationIndex0017).Scan(&columns).Error; err != nil {
-			return fmt.Errorf("read PostgreSQL request log operation index: %w", err)
-		}
-		want := []string{"operation", "completed_at_ms", "id"}
-		if len(columns) != len(want) {
-			return fmt.Errorf("request log operation index is missing or has an unexpected definition")
-		}
-		for position, column := range columns {
-			if column.Name != want[position] || column.IsUnique || !column.IsValid {
-				return fmt.Errorf("request log operation index has an unexpected definition")
-			}
-		}
-		return nil
+			ORDER BY key.position`
+		arguments = []any{requestLogOperationIndex0017}
+	case "mysql":
+		query = `
+			SELECT column_name AS name, collation = 'D' AS descending,
+				non_unique = 0 AS is_unique, 1 AS is_valid
+			FROM information_schema.statistics
+			WHERE table_schema = DATABASE() AND table_name = 'request_logs' AND index_name = ?
+			ORDER BY seq_in_index`
+		arguments = []any{requestLogOperationIndex0017}
+	case "sqlite":
+		query = `
+			SELECT column_info.name AS name, column_info.desc <> 0 AS descending,
+				index_list."unique" <> 0 AS is_unique, 1 AS is_valid
+			FROM pragma_index_xinfo(?) AS column_info
+			JOIN pragma_index_list('request_logs') AS index_list ON index_list.name = ?
+			WHERE column_info.key = 1
+			ORDER BY column_info.seqno`
+		arguments = []any{requestLogOperationIndex0017, requestLogOperationIndex0017}
+	default:
+		return nil, fmt.Errorf("request log operation index: unsupported database driver %q", db.Dialector.Name())
 	}
-	indexes, err := db.Migrator().GetIndexes(&requestLog0017{})
-	if err != nil {
-		return fmt.Errorf("read request log indexes: %w", err)
+	if err := db.Raw(query, arguments...).Scan(&columns).Error; err != nil {
+		return nil, fmt.Errorf("read request log operation index: %w", err)
 	}
-	for _, index := range indexes {
-		if index.Name() != requestLogOperationIndex0017 {
-			continue
-		}
-		unique, known := index.Unique()
-		if !known || unique || !reflect.DeepEqual(index.Columns(), []string{"operation", "completed_at_ms", "id"}) {
-			return fmt.Errorf("request log operation index has an unexpected definition")
-		}
-		return nil
-	}
-	return fmt.Errorf("request log operation index is missing")
+	return columns, nil
 }

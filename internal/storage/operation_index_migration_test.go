@@ -81,4 +81,18 @@ func testOperationIndexMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 			t.Fatal("unexpected operation index definition accepted")
 		}
 	})
+	t.Run("unexpected index direction", func(t *testing.T) {
+		db := open(t)
+		if err := applyMigrationRegistry(db, migrations[:len(migrations)-1]); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Exec(
+			"CREATE INDEX idx_request_logs_operation_completed_id ON request_logs (operation, completed_at_ms DESC, id ASC)",
+		).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := AutoMigrate(db); err == nil {
+			t.Fatal("unexpected operation index direction accepted")
+		}
+	})
 }

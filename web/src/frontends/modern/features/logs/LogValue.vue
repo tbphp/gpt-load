@@ -216,12 +216,19 @@ const hint = computed(() => {
     :protocol="row[column]"
   />
   <AppTooltip v-else-if="column === 'affinity_hit' && row.affinity_hit" :label="affinityReason">
-    <span :class="{ 'modern-log-boolean': table, 'is-true': row.affinity_hit }">{{ display }}</span>
+    <span
+      tabindex="0"
+      :aria-label="display + ': ' + affinityReason"
+      :class="{ 'modern-log-boolean': table, 'is-true': row.affinity_hit }"
+      >{{ display }}</span
+    >
   </AppTooltip>
   <span v-else-if="column === 'duration_ms' && !table" class="modern-log-value-stack">
     <span>{{ display }}</span>
     <AppTooltip :label="t('logs.outputRate')">
-      <span>{{ logOutputRate(row, locale) }}</span>
+      <span tabindex="0" :aria-label="t('logs.outputRate') + ': ' + logOutputRate(row, locale)">{{
+        logOutputRate(row, locale)
+      }}</span>
     </AppTooltip>
   </span>
   <span
