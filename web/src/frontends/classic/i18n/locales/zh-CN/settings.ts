@@ -1,4 +1,7 @@
+import { zhCN as autoModel } from '../auto-model'
+
 export default {
+  autoModel,
   settings: {
     frontend: {
       title: '界面设置',

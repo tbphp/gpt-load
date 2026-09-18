@@ -22,6 +22,7 @@ import {
   projectPriceMultiplier,
   projectRecord,
   projectSafeInteger,
+  projectFiniteNumber,
   projectString,
 } from './projector'
 
@@ -168,6 +169,9 @@ export interface RequestLogReasoningDto {
 }
 
 export interface RequestLogItemDto {
+  auto_decision?: AutoDecisionDto
+  answer_cost_nano_usd?: string
+  answer_cost_state?: string
   request_id: string
   completed_at_ms: number
   access_key: { id: number; name: string | null; deleted: boolean }
@@ -209,6 +213,21 @@ export interface RequestLogItemDto {
   cache_write_unknown_tokens: string
   output_tokens: string
   estimated_cost_nano_usd: string
+}
+
+export interface AutoDecisionDto {
+  selection: { preset_name: string; target_model: string }
+  source: string
+  status: string
+  reason: string
+  provider: string
+  requested_model: string
+  reported_model: string
+  duration_ms: number
+  confidence: number | null
+  estimated_cost_nano_usd: string
+  cost_state: string
+  pricing_completeness: string
 }
 
 export interface RequestLogDetailDto extends RequestLogItemDto {
@@ -276,6 +295,10 @@ const receiptCodes = [
 ] as const
 const receiptLineStates = ['priced', 'unpriced'] as const
 const itemFields = [
+  'auto_decision',
+  'total_estimated_cost_nano_usd',
+  'total_cost_state',
+  'total_pricing_completeness',
   'request_id',
   'completed_at_ms',
   'access_key',
@@ -658,6 +681,44 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
         ? null
         : projectNonNegativeInt64String(record.context_threshold_tokens),
     ...projectUsageCost(record),
+    auto_decision:
+      record.auto_decision === undefined ? undefined : projectAutoDecision(record.auto_decision),
+    answer_cost_nano_usd: projectNonNegativeInt64String(record.estimated_cost_nano_usd),
+    answer_cost_state: projectString(record.cost_state),
+    estimated_cost_nano_usd: projectNonNegativeInt64String(
+      record.total_estimated_cost_nano_usd ?? record.estimated_cost_nano_usd,
+    ),
+    cost_state: projectEnum(record.total_cost_state ?? record.cost_state, costStates),
+    pricing_completeness: projectEnum(
+      record.total_pricing_completeness ?? record.pricing_completeness,
+      pricingCompletenessValues,
+    ),
+  }
+}
+
+function projectAutoDecision(value: unknown): AutoDecisionDto {
+  const row = projectRecord(value),
+    selection = projectRecord(row.selection)
+  const optional = (value: unknown) => projectString(value ?? '', { allowEmpty: true })
+  return {
+    selection: {
+      preset_name: projectString(selection.preset_name),
+      target_model: projectString(selection.target_model),
+    },
+    source: projectString(row.source),
+    status: projectString(row.status),
+    reason: optional(row.reason),
+    provider: optional(row.provider),
+    requested_model: optional(row.requested_model),
+    reported_model: optional(row.reported_model),
+    duration_ms: projectSafeInteger(row.duration_ms, { minimum: 0 }),
+    confidence:
+      row.confidence === undefined
+        ? null
+        : projectFiniteNumber(row.confidence, { minimum: 0, maximum: 1 }),
+    estimated_cost_nano_usd: projectNonNegativeInt64String(row.estimated_cost_nano_usd),
+    cost_state: projectString(row.cost_state),
+    pricing_completeness: projectString(row.pricing_completeness),
   }
 }
 

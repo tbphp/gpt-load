@@ -1,4 +1,7 @@
+import { jaJP as autoModel } from '../auto-model'
+
 export default {
+  autoModel,
   settings: {
     frontend: {
       title: '画面設定',

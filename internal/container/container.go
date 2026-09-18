@@ -65,7 +65,7 @@ func BuildContainer() (*dig.Container, error) {
 		app.NewEngineWithLifecycle,
 		webui.NewServer,
 		state.NewCredentialRegistry,
-		state.NewResponseBindings,
+		storage.NewResponseBindings,
 		accessquota.NewRuntime,
 		channel.CompileRegistry,
 		control.NewPriceRuntime,

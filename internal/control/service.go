@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
@@ -365,6 +366,9 @@ func (s *Service) writeGroupConfigLocked(
 			return err
 		}
 		if _, err := state.Compile(input); err != nil {
+			if errors.Is(err, automodel.ErrInvalidConfig) {
+				return app_errors.ErrValidation
+			}
 			return err
 		}
 		priceTable, err := loadPriceTable(ctx, tx)

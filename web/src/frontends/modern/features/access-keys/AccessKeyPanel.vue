@@ -153,14 +153,15 @@ const protocolOptions = computed(() =>
 )
 const modelOptions = computed(() =>
   [
-    ...new Set(
-      (groups.data.value?.items ?? [])
+    ...new Set([
+      ...(groups.data.value?.autoModels ?? []),
+      ...(groups.data.value?.items ?? [])
         .filter(
           (group) =>
             draft.value.modes.groups === 'all' || draft.value.scope.groups.includes(group.id),
         )
         .flatMap((group) => group.modelNames),
-    ),
+    ]),
   ]
     .sort()
     .map((value) => ({ value, label: value })),
@@ -636,6 +637,9 @@ onScopeDispose(() => {
               :error="fieldError('models')"
             />
             <p v-if="modelMismatch" class="modern-access-note">{{ t('accessKeys.mismatch') }}</p>
+            <p v-if="groups.data.value?.autoModels?.length" class="modern-access-note">
+              {{ t('autoModel.permissionsHint') }}
+            </p>
           </AppFormSection>
           <AccessKeyQuotaEditor
             v-model="draft.rules"

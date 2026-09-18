@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
@@ -173,6 +174,10 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	parent, parentFound := s.parents[original.previous]
 	s.mu.Unlock()
 	startedBound := binding != nil
+	var boundAuto *automodel.Selection
+	if binding != nil {
+		boundAuto = binding.autoSelection
+	}
 	if binding != nil {
 		currentRef, exists := h.registry.CredentialRef(binding.ref.ID)
 		_, ready := h.registry.ActiveEncryptedCredentialDataIfMatch(currentRef)
@@ -213,6 +218,9 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				reject(reasonResponseBindingNotFound)
 				return
 			}
+			if boundAuto == nil {
+				boundAuto = stored.AutoSelection
+			}
 			ref := state.CredentialRef{ID: stored.CredentialID, GroupID: stored.GroupID, IdentityGeneration: stored.IdentityGeneration}
 			if requiredRef != nil && !sameWebsocketIdentity(*requiredRef, ref) {
 				reject(reasonResponseBindingNotFound)
@@ -220,6 +228,35 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			}
 			requiredRef = &ref
 			original.required.StoredResponses = true
+		}
+	}
+	requestCtx := s.ctx
+	if _, automatic := snapshot.AutoModels.Lookup(model); automatic || boundAuto != nil {
+		if (binding != nil || original.previous != "") && boundAuto == nil {
+			reject(reasonResponseBindingNotFound)
+			return
+		}
+		var cancel context.CancelFunc
+		requestCtx, cancel = context.WithDeadline(s.ctx, turn.started.Add(snapshot.Settings.RequestTimeout))
+		defer cancel()
+		parsed := &dialect.ParsedRequest{Method: http.MethodPost, Path: "/v1/responses", Body: turn.body}
+		var failure *reason
+		parsed, _, recorder.autoDecision, failure = h.prepareAutoModel(requestCtx, snapshot, key, dialect.NewOpenAIResponses(), parsed, original.metadata, boundAuto, func() *reason {
+			return h.admitAutoQuota(snapshot, &admission)
+		}, scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required})
+		if failure != nil {
+			reject(*failure)
+			return
+		}
+		if requestCtx.Err() != nil {
+			recorder.completeCanceled(requestCtx, 0, -1)
+			return
+		}
+		turn.body = parsed.Body
+		original, err = inspectWebsocketRequest(turn.body)
+		if err != nil {
+			reject(reasonParameterOverrideUnavailable)
+			return
 		}
 	}
 	query := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative, ResponsesStorePreference: original.metadata.ResponsesStorePreference, ExternalModel: original.metadata.Model, AccessKey: key, AllowedCredentialIDs: make(map[uint]struct{}), AllowedCredentialRefs: make(map[uint]state.CredentialRef)}
@@ -376,7 +413,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			recorder.setAffinityHit(requiredRef != nil || selection.CredentialID == affinity.preferredCredentialID, kind)
 		}
 		started := recorder.beforeForward()
-		ctx, cancel := context.WithTimeout(s.ctx, selection.Group.Timeouts.Request)
+		ctx, cancel := context.WithTimeout(requestCtx, selection.Group.Timeouts.Request)
 		var firstByteDeadline time.Time
 		if selection.Group.Timeouts.FirstByte > 0 {
 			firstByteDeadline = time.Now().Add(selection.Group.Timeouts.FirstByte)
@@ -405,7 +442,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				openCancel()
 			}
 			if session != nil {
-				binding = &websocketBinding{session: session, ref: ref, channel: string(selection.ChannelID), target: string(spec.TargetConfig), proxy: fingerprint, headers: headerHash, capabilities: selection.ResolvedTarget.ResponsesWebsocket}
+				binding = &websocketBinding{autoSelection: recorder.autoSelection(), session: session, ref: ref, channel: string(selection.ChannelID), target: string(spec.TargetConfig), proxy: fingerprint, headers: headerHash, capabilities: selection.ResolvedTarget.ResponsesWebsocket}
 				s.mu.Lock()
 				s.binding = binding
 				s.mu.Unlock()
@@ -592,7 +629,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			idle.stop()
 		}
 	}()
-	onResponse := s.handler.responseBindingObserver(s.keyID, selection, ref, input.Request)
+	onResponse := s.handler.responseBindingObserver(s.keyID, selection, ref, input.Request, recorder.autoSelection())
 	wsResult := binding.session.ExecuteTurn(ctx, input.Request.Body, func(ctx context.Context, body []byte) error {
 		var event struct {
 			Type       string          `json:"type"`

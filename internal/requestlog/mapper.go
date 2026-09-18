@@ -105,44 +105,64 @@ func mapEvent(
 
 	result := event.Usage.Result
 	pricingObservation := event.Usage.Pricing
+	var autoJSON models.JSON
+	var decisionCost int64
+	decisionCompleteness, decisionModel := "not_applicable", ""
+	if event.AutoDecision != nil {
+		decision := *event.AutoDecision
+		decision.Selection.ParameterOverrides = nil
+		decision.Selection.PresetName = redactIdentityValue(redactor, decision.Selection.PresetName)
+		if decision.EstimatedCostNanoUSD < 0 {
+			return models.RequestLog{}, fmt.Errorf("negative automatic decision cost")
+		}
+		autoJSON, _ = json.Marshal(decision)
+		decisionCost, decisionCompleteness = decision.EstimatedCostNanoUSD, decision.PricingCompleteness
+		if decision.Called {
+			decisionModel = "jev/" + decision.Provider + "/" + decision.RequestedModel
+		}
+	}
 
 	return models.RequestLog{
-		ID:                      event.RequestID,
-		CompletedAtMS:           completedAtMS,
-		AccessKeyID:             event.AccessKeyID,
-		GroupID:                 event.Usage.GroupID,
-		ChannelID:               string(event.Usage.ChannelID),
-		CredentialID:            event.Usage.CredentialID,
-		Protocol:                string(event.Protocol),
-		Operation:               string(event.Operation),
-		ClientModel:             redactIdentityValue(redactor, projectModel(event.ClientModel)),
-		UpstreamModel:           redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
-		UpstreamReportedModel:   redactIdentityValue(redactor, projectModel(event.UpstreamReportedModel)),
-		ModelConsistency:        string(event.ModelConsistency),
-		Status:                  string(event.Status),
-		StatusCode:              event.StatusCode,
-		Stream:                  event.Stream,
-		FirstResponseMs:         event.FirstResponseMs,
-		DurationMs:              event.DurationMs,
-		AttemptCount:            len(attempts),
-		ErrorCode:               event.ErrorCode,
-		ErrorSummary:            sanitizeSummary(redactor, event.ErrorSummary),
-		AffinityHit:             event.AffinityHit,
-		AffinityKind:            event.AffinityKind,
-		ReasoningMode:           event.Reasoning.Mode,
-		ReasoningEffort:         event.Reasoning.Effort,
-		ReasoningBudgetTokens:   event.Reasoning.BudgetTokens,
-		UncachedInputTokens:     result.Tokens.UncachedInput,
-		OutputTokens:            result.Tokens.Output,
-		CacheReadTokens:         result.Tokens.CacheRead,
-		CacheWrite5MTokens:      result.Tokens.CacheWrite5M,
-		CacheWrite1HTokens:      result.Tokens.CacheWrite1H,
-		CacheWriteUnknownTokens: result.Tokens.CacheWriteUnknown,
-		EstimatedCostNanoUSD:    pricingObservation.EstimatedCostNanoUSD,
-		UsageState:              string(result.State),
-		CostState:               pricingObservation.CostState,
-		PricingCompleteness:     pricingObservation.PricingCompleteness,
-		AttemptRows:             attempts,
+		AutoDecision:                autoJSON,
+		DecisionModel:               decisionModel,
+		DecisionCostNanoUSD:         decisionCost,
+		DecisionPricingCompleteness: decisionCompleteness,
+		ID:                          event.RequestID,
+		CompletedAtMS:               completedAtMS,
+		AccessKeyID:                 event.AccessKeyID,
+		GroupID:                     event.Usage.GroupID,
+		ChannelID:                   string(event.Usage.ChannelID),
+		CredentialID:                event.Usage.CredentialID,
+		Protocol:                    string(event.Protocol),
+		Operation:                   string(event.Operation),
+		ClientModel:                 redactIdentityValue(redactor, projectModel(event.ClientModel)),
+		UpstreamModel:               redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
+		UpstreamReportedModel:       redactIdentityValue(redactor, projectModel(event.UpstreamReportedModel)),
+		ModelConsistency:            string(event.ModelConsistency),
+		Status:                      string(event.Status),
+		StatusCode:                  event.StatusCode,
+		Stream:                      event.Stream,
+		FirstResponseMs:             event.FirstResponseMs,
+		DurationMs:                  event.DurationMs,
+		AttemptCount:                len(attempts),
+		ErrorCode:                   event.ErrorCode,
+		ErrorSummary:                sanitizeSummary(redactor, event.ErrorSummary),
+		AffinityHit:                 event.AffinityHit,
+		AffinityKind:                event.AffinityKind,
+		ReasoningMode:               event.Reasoning.Mode,
+		ReasoningEffort:             event.Reasoning.Effort,
+		ReasoningBudgetTokens:       event.Reasoning.BudgetTokens,
+		UncachedInputTokens:         result.Tokens.UncachedInput,
+		OutputTokens:                result.Tokens.Output,
+		CacheReadTokens:             result.Tokens.CacheRead,
+		CacheWrite5MTokens:          result.Tokens.CacheWrite5M,
+		CacheWrite1HTokens:          result.Tokens.CacheWrite1H,
+		CacheWriteUnknownTokens:     result.Tokens.CacheWriteUnknown,
+		EstimatedCostNanoUSD:        pricingObservation.EstimatedCostNanoUSD,
+		UsageState:                  string(result.State),
+		CostState:                   pricingObservation.CostState,
+		PricingCompleteness:         pricingObservation.PricingCompleteness,
+		AttemptRows:                 attempts,
 	}, nil
 }
 

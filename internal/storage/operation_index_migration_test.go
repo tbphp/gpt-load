@@ -71,7 +71,7 @@ func testOperationIndexMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	}
 	t.Run("unexpected index definition", func(t *testing.T) {
 		db := open(t)
-		if err := applyMigrationRegistry(db, migrations[:len(migrations)-1]); err != nil {
+		if err := applyMigrationRegistry(db, migrations[:16]); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Exec("CREATE INDEX idx_request_logs_operation_completed_id ON request_logs (status)").Error; err != nil {
@@ -83,7 +83,7 @@ func testOperationIndexMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	})
 	t.Run("unexpected index direction", func(t *testing.T) {
 		db := open(t)
-		if err := applyMigrationRegistry(db, migrations[:len(migrations)-1]); err != nil {
+		if err := applyMigrationRegistry(db, migrations[:16]); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Exec(

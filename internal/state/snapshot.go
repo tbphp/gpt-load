@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
@@ -23,6 +24,7 @@ import (
 const maxSafeAccessKeyEpochMS = int64(9_007_199_254_740_991)
 
 type CompileInput struct {
+	AutoModel        *automodel.Config
 	SystemSettings   config.Settings
 	ChannelRegistry  *channel.Registry
 	Groups           []GroupConfig
@@ -184,6 +186,7 @@ type AccessKeyView struct {
 }
 
 type ConfigSnapshot struct {
+	AutoModels            *automodel.Compiled
 	Revision              uint64
 	Settings              RuntimeSettings
 	ExecutionCandidates   ExecutionCandidateIndex
@@ -203,12 +206,27 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	autoConfig := automodel.DefaultConfig()
+	if input.AutoModel != nil {
+		autoConfig = *input.AutoModel
+	}
+	ordinaryModels := map[string]struct{}{}
+	for _, group := range input.Groups {
+		for _, model := range group.Models {
+			ordinaryModels[externalModelName(model)] = struct{}{}
+		}
+	}
+	autoModels, err := automodel.Compile(autoConfig, ordinaryModels)
+	if err != nil {
+		return nil, fmt.Errorf("compile automatic models: %w", err)
+	}
 	globalProxy, err := outboundproxy.Resolve(nil, nil, input.GlobalProxy, input.EnvironmentProxy)
 	if err != nil {
 		return nil, fmt.Errorf("compile global proxy: %w", err)
 	}
 
 	snapshot := &ConfigSnapshot{
+		AutoModels:            autoModels,
 		Settings:              runtimeSettings,
 		ExecutionCandidates:   make(ExecutionCandidateIndex),
 		ExecutionRouteCatalog: make(ExecutionCandidateIndex),

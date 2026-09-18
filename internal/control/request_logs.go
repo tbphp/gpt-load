@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
@@ -129,44 +130,81 @@ type requestLogPricingReceiptResponse struct {
 }
 
 type requestLogItemResponse struct {
-	RequestID               string                       `json:"request_id"`
-	CompletedAtMS           int64                        `json:"completed_at_ms"`
-	AccessKey               requestLogAccessKeyResponse  `json:"access_key"`
-	Protocol                string                       `json:"protocol"`
-	Operation               *execution.Operation         `json:"operation"`
-	UpstreamProtocol        *protocol.Protocol           `json:"upstream_protocol"`
-	ClientModel             *string                      `json:"client_model"`
-	UpstreamModel           *string                      `json:"upstream_model"`
-	UpstreamReportedModel   *string                      `json:"upstream_reported_model"`
-	ModelConsistency        telemetry.ModelConsistency   `json:"model_consistency"`
-	Reasoning               *requestLogReasoningResponse `json:"reasoning"`
-	Status                  telemetry.RequestStatus      `json:"status"`
-	StatusCode              int                          `json:"status_code"`
-	Stream                  bool                         `json:"stream"`
-	FirstResponseMs         *int64                       `json:"first_response_ms"`
-	DurationMs              int64                        `json:"duration_ms"`
-	AttemptCount            int                          `json:"attempt_count"`
-	ErrorCode               string                       `json:"error_code"`
-	ErrorSummary            string                       `json:"error_summary"`
-	AffinityHit             bool                         `json:"affinity_hit"`
-	AffinityKind            string                       `json:"affinity_kind"`
-	GroupID                 *uint                        `json:"group_id"`
-	ChannelID               *channel.ID                  `json:"channel_id"`
-	CredentialID            *uint                        `json:"credential_id"`
-	CredentialName          string                       `json:"credential_name"`
-	RouteMode               *channel.RouteMode           `json:"route_mode"`
-	UsageState              usage.State                  `json:"usage_state"`
-	CostState               pricing.CostState            `json:"cost_state"`
-	PricingCompleteness     pricing.Completeness         `json:"pricing_completeness"`
-	PricingMode             *pricing.Mode                `json:"pricing_mode"`
-	ContextThresholdTokens  *string                      `json:"context_threshold_tokens"`
-	InputTokens             string                       `json:"input_tokens"`
-	CacheReadTokens         string                       `json:"cache_read_tokens"`
-	CacheWrite5MTokens      string                       `json:"cache_write_5m_tokens"`
-	CacheWrite1HTokens      string                       `json:"cache_write_1h_tokens"`
-	CacheWriteUnknownTokens string                       `json:"cache_write_unknown_tokens"`
-	OutputTokens            string                       `json:"output_tokens"`
-	EstimatedCostNanoUSD    string                       `json:"estimated_cost_nano_usd"`
+	AutoDecision              *autoDecisionResponse        `json:"auto_decision,omitempty"`
+	TotalEstimatedCostNanoUSD string                       `json:"total_estimated_cost_nano_usd"`
+	TotalCostState            string                       `json:"total_cost_state"`
+	TotalPricingCompleteness  string                       `json:"total_pricing_completeness"`
+	RequestID                 string                       `json:"request_id"`
+	CompletedAtMS             int64                        `json:"completed_at_ms"`
+	AccessKey                 requestLogAccessKeyResponse  `json:"access_key"`
+	Protocol                  string                       `json:"protocol"`
+	Operation                 *execution.Operation         `json:"operation"`
+	UpstreamProtocol          *protocol.Protocol           `json:"upstream_protocol"`
+	ClientModel               *string                      `json:"client_model"`
+	UpstreamModel             *string                      `json:"upstream_model"`
+	UpstreamReportedModel     *string                      `json:"upstream_reported_model"`
+	ModelConsistency          telemetry.ModelConsistency   `json:"model_consistency"`
+	Reasoning                 *requestLogReasoningResponse `json:"reasoning"`
+	Status                    telemetry.RequestStatus      `json:"status"`
+	StatusCode                int                          `json:"status_code"`
+	Stream                    bool                         `json:"stream"`
+	FirstResponseMs           *int64                       `json:"first_response_ms"`
+	DurationMs                int64                        `json:"duration_ms"`
+	AttemptCount              int                          `json:"attempt_count"`
+	ErrorCode                 string                       `json:"error_code"`
+	ErrorSummary              string                       `json:"error_summary"`
+	AffinityHit               bool                         `json:"affinity_hit"`
+	AffinityKind              string                       `json:"affinity_kind"`
+	GroupID                   *uint                        `json:"group_id"`
+	ChannelID                 *channel.ID                  `json:"channel_id"`
+	CredentialID              *uint                        `json:"credential_id"`
+	CredentialName            string                       `json:"credential_name"`
+	RouteMode                 *channel.RouteMode           `json:"route_mode"`
+	UsageState                usage.State                  `json:"usage_state"`
+	CostState                 pricing.CostState            `json:"cost_state"`
+	PricingCompleteness       pricing.Completeness         `json:"pricing_completeness"`
+	PricingMode               *pricing.Mode                `json:"pricing_mode"`
+	ContextThresholdTokens    *string                      `json:"context_threshold_tokens"`
+	InputTokens               string                       `json:"input_tokens"`
+	CacheReadTokens           string                       `json:"cache_read_tokens"`
+	CacheWrite5MTokens        string                       `json:"cache_write_5m_tokens"`
+	CacheWrite1HTokens        string                       `json:"cache_write_1h_tokens"`
+	CacheWriteUnknownTokens   string                       `json:"cache_write_unknown_tokens"`
+	OutputTokens              string                       `json:"output_tokens"`
+	EstimatedCostNanoUSD      string                       `json:"estimated_cost_nano_usd"`
+}
+
+type autoDecisionResponse struct {
+	automodel.Decision
+	PresetReasoning      *requestLogReasoningResponse      `json:"preset_reasoning"`
+	EstimatedCostNanoUSD string                            `json:"estimated_cost_nano_usd"`
+	InputTokens          *string                           `json:"input_tokens,omitempty"`
+	OutputTokens         *string                           `json:"output_tokens,omitempty"`
+	Receipt              *requestLogPricingReceiptResponse `json:"receipt,omitempty"`
+}
+
+func mapAutoDecisionResponse(value *automodel.Decision) *autoDecisionResponse {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	copy.Selection.ParameterOverrides = nil
+	response := &autoDecisionResponse{Decision: copy, PresetReasoning: mapRequestLogReasoningConfig(copy.PresetReasoning), EstimatedCostNanoUSD: strconv.FormatInt(copy.EstimatedCostNanoUSD, 10), InputTokens: nullableInt64String(copy.InputTokens), OutputTokens: nullableInt64String(copy.OutputTokens)}
+	if len(copy.Receipt) > 0 {
+		var receipt pricing.Receipt
+		if json.Unmarshal(copy.Receipt, &receipt) == nil && pricing.ValidateReceipt(receipt) == nil {
+			response.Receipt, _ = mapRequestLogPricingReceipt(&receipt)
+		}
+	}
+	return response
+}
+
+func nullableInt64String(value *int64) *string {
+	if value == nil {
+		return nil
+	}
+	text := strconv.FormatInt(*value, 10)
+	return &text
 }
 
 type requestLogDetailResponse struct {
@@ -930,9 +968,14 @@ func mapRequestLogItemResponse(
 		value := strconv.FormatInt(*record.ContextThresholdTokens, 10)
 		contextThresholdTokens = &value
 	}
+	total := telemetry.TotalPricing(telemetry.PricingObservation{CostState: string(record.CostState), PricingCompleteness: string(record.PricingCompleteness), EstimatedCostNanoUSD: record.EstimatedCostNanoUSD}, record.AutoDecision)
 	return requestLogItemResponse{
-		RequestID:     record.RequestID,
-		CompletedAtMS: record.CompletedAtMS,
+		AutoDecision:              mapAutoDecisionResponse(record.AutoDecision),
+		TotalEstimatedCostNanoUSD: strconv.FormatInt(total.EstimatedCostNanoUSD, 10),
+		TotalCostState:            total.CostState,
+		TotalPricingCompleteness:  total.PricingCompleteness,
+		RequestID:                 record.RequestID,
+		CompletedAtMS:             record.CompletedAtMS,
 		AccessKey: requestLogAccessKeyResponse{
 			ID:      record.AccessKey.ID,
 			Name:    record.AccessKey.Name,

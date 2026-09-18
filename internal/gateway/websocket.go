@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
@@ -80,14 +81,15 @@ type websocketParent struct {
 	complete bool
 }
 type websocketBinding struct {
-	monitor      sync.Once
-	session      execution.WebsocketSession
-	ref          state.CredentialRef
-	channel      string
-	target       string
-	proxy        string
-	headers      string
-	capabilities execution.WebsocketCapabilities
+	autoSelection *automodel.Selection
+	monitor       sync.Once
+	session       execution.WebsocketSession
+	ref           state.CredentialRef
+	channel       string
+	target        string
+	proxy         string
+	headers       string
+	capabilities  execution.WebsocketCapabilities
 }
 
 func (s *websocketConnection) watchBinding(binding *websocketBinding) {

@@ -31,6 +31,7 @@ import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { formatLocalInstant } from '@/lib/format'
 
 import BrowserAccessSection from './BrowserAccessSection.vue'
+import AutoModelSettingsSection from './AutoModelSettingsSection.vue'
 import ConnectionSettingsSection from './ConnectionSettingsSection.vue'
 import DataMaintenanceSection from './DataMaintenanceSection.vue'
 import FrontendSettingsSection from './FrontendSettingsSection.vue'
@@ -65,6 +66,7 @@ const settingsRefreshing = computed(
   () => settingsQuery.data.value !== undefined && settingsQuery.isFetching.value,
 )
 const headerRulesInvalidEdits = ref(false)
+const autoModelInvalidEdits = ref(false)
 const responseRulesInvalidEdits = ref(false)
 const browserAccessEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
@@ -82,7 +84,11 @@ const proxyState = computed(() =>
     : { dirty: false, invalid: false, value: undefined },
 )
 const hasLocalEdits = computed(
-  () => headerRulesInvalidEdits.value || responseRulesInvalidEdits.value || proxyState.value.dirty,
+  () =>
+    headerRulesInvalidEdits.value ||
+    responseRulesInvalidEdits.value ||
+    autoModelInvalidEdits.value ||
+    proxyState.value.dirty,
 )
 const {
   base,
@@ -116,6 +122,7 @@ watch(
 
 const navItems = computed(() => [
   { id: 'settings-routing', label: t('settings.navigation.routing') },
+  { id: 'settings-auto-models', label: t('autoModel.title') },
   { id: 'settings-connection', label: t('settings.navigation.connection') },
   { id: 'settings-reliability', label: t('settings.navigation.reliability') },
   { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
@@ -137,12 +144,17 @@ const pageOperationLocked = computed(() => operationLocked.value)
 const dirty = computed(
   () =>
     controllerDirty.value ||
+    autoModelInvalidEdits.value ||
     headerRulesInvalidEdits.value ||
     responseRulesInvalidEdits.value ||
     proxyState.value.dirty,
 )
 const valid = computed(
-  () => controllerValid.value && browserAccessValid.value && !proxyState.value.invalid,
+  () =>
+    controllerValid.value &&
+    browserAccessValid.value &&
+    !autoModelInvalidEdits.value &&
+    !proxyState.value.invalid,
 )
 const timeoutKeys = [
   'first_byte_timeout',
@@ -254,6 +266,7 @@ function sectionID(section: SettingsSection): string {
 function sectionFromID(id: string): SettingsSection | undefined {
   const section = id.replace(/^settings-/u, '')
   return section === 'routing' ||
+    section === 'auto-models' ||
     section === 'connection' ||
     section === 'reliability' ||
     section === 'browser-access' ||
@@ -291,6 +304,7 @@ function confirmDiscard(): void {
 }
 
 function settingLabel(key: RuntimeSettingKey): string {
+  if (key === 'auto_model') return t('autoModel.title')
   if (key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity')
     return t(`settings.affinity.${key}`)
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
@@ -301,12 +315,14 @@ function settingLabel(key: RuntimeSettingKey): string {
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
+  if (key === 'auto_model') return 'settings-auto-models'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'settings-browser-access'
   return `settings-value-${key}`
 }
 
 function sectionForKey(key: RuntimeSettingKey): SettingsSection {
+  if (key === 'auto_model') return 'auto-models'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'browser-access'
   if (
@@ -416,6 +432,14 @@ onBeforeUnmount(() => {
               :draft="draft"
               :disabled="pageOperationLocked"
               @change="updateDraft"
+            />
+            <AutoModelSettingsSection
+              :base="base"
+              :draft="draft"
+              :disabled="pageOperationLocked"
+              :revision="browserAccessEditorRevision"
+              @change="updateDraft"
+              @invalid="autoModelInvalidEdits = $event"
             />
             <ConnectionSettingsSection
               :base="base"

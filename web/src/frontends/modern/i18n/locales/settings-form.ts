@@ -30,6 +30,7 @@ export const zhCN = {
   days: '天',
   sections: {
     routing: '路由调度',
+    autoModels: '自动模型（实验性）',
     connection: '连接与稳定性',
     browser: '浏览器访问',
     maintenance: '数据维护',
@@ -38,6 +39,7 @@ export const zhCN = {
   },
   sectionHelp: {
     routing: '路由选择与请求亲和',
+    autoModels: 'Jev 接入、预设与判断费用',
     connection: '代理、超时和失败处理',
     browser: '跨域访问与请求头规则',
     maintenance: '日志保留与价格同步',
@@ -46,6 +48,7 @@ export const zhCN = {
   },
   fields: {
     route_strategy: '路由策略',
+    auto_model: '自动模型',
     affinity_enabled: '请求亲和',
     affinity_ttl: '亲和有效期',
     affinity_capacity: '亲和缓存容量',
@@ -64,6 +67,7 @@ export const zhCN = {
     cors: '跨域访问（CORS）',
   },
   hints: {
+    auto_model: 'Jev 选择预设，现有调度选择分组和凭据。',
     route_strategy:
       '原生优先先选择原生协议；混合权重让原生与转换候选按有效权重竞争，请求亲和仍生效。',
     affinity_enabled: '复用上次命中的路由目标；分组可单独覆盖。',
@@ -127,6 +131,7 @@ export const zhCN = {
   localOnly: '只影响当前浏览器，即时生效',
   errors: {
     number: '请输入 {min}–{max} 之间的整数。',
+    autoModel: '请补全自动入口、兜底、预设与合法参数覆盖。',
     proxy: '请输入有效的 http:// 或 socks5:// 代理地址。',
     origins: '来源须唯一且包含协议；* 只能单独使用，且不能同时允许凭据。',
     methods: '请输入不重复的有效 HTTP 方法。',
@@ -183,6 +188,7 @@ export const enUS = {
   days: 'days',
   sections: {
     routing: 'Routing',
+    autoModels: 'Automatic models (experimental)',
     connection: 'Connections & reliability',
     browser: 'Browser access',
     maintenance: 'Data maintenance',
@@ -191,6 +197,7 @@ export const enUS = {
   },
   sectionHelp: {
     routing: 'Route selection and request affinity',
+    autoModels: 'Jev connection, presets and decision pricing',
     connection: 'Proxy, timeouts and failure handling',
     browser: 'Cross-origin access and header rules',
     maintenance: 'Log retention and price sync',
@@ -199,6 +206,7 @@ export const enUS = {
   },
   fields: {
     route_strategy: 'Routing strategy',
+    auto_model: 'Automatic models',
     affinity_enabled: 'Request affinity',
     affinity_ttl: 'Affinity lifetime',
     affinity_capacity: 'Affinity cache capacity',
@@ -220,6 +228,7 @@ export const enUS = {
     route_strategy:
       'Native first prefers native protocols. Weighted mix lets native and converted candidates compete by effective weight. Request affinity still applies.',
     affinity_enabled: 'Reuse the previously selected route. Individual groups may override this.',
+    auto_model: 'Jev selects a preset; existing scheduling chooses the Group and credential.',
     affinity_ttl: 'Default lifetime of affinity records.',
     affinity_capacity: 'Maximum affinity records, from 1 to 1,000,000.',
     responses_websocket_enabled:
@@ -284,6 +293,7 @@ export const enUS = {
   localOnly: 'Applies immediately to this browser only',
   errors: {
     number: 'Enter an integer between {min} and {max}.',
+    autoModel: 'Complete automatic entries, fallbacks, presets and valid override rules.',
     proxy: 'Enter a valid http:// or socks5:// proxy URL.',
     origins:
       'Origins must be unique and include a scheme. * must stand alone and cannot allow credentials.',
@@ -341,6 +351,7 @@ export const jaJP = {
   days: '日',
   sections: {
     routing: 'ルーティング',
+    autoModels: '自動モデル（実験的）',
     connection: '接続と安定性',
     browser: 'ブラウザアクセス',
     maintenance: 'データ管理',
@@ -349,6 +360,7 @@ export const jaJP = {
   },
   sectionHelp: {
     routing: 'ルート選択とリクエスト親和性',
+    autoModels: 'Jev 接続、プリセット、判定料金',
     connection: 'プロキシ、タイムアウト、失敗時の処理',
     browser: 'クロスオリジンアクセスとヘッダールール',
     maintenance: 'ログ保持と料金同期',
@@ -357,6 +369,7 @@ export const jaJP = {
   },
   fields: {
     route_strategy: 'ルーティング方式',
+    auto_model: '自動モデル',
     affinity_enabled: 'リクエスト親和性',
     affinity_ttl: '親和性の有効期間',
     affinity_capacity: '親和性キャッシュ容量',
@@ -378,6 +391,7 @@ export const jaJP = {
     route_strategy:
       'ネイティブ優先は元のプロトコルを優先し、重み付き混合は変換候補も含めて選択します。親和性は引き続き適用されます。',
     affinity_enabled: '前回選択したルートを再利用します。グループごとに上書きできます。',
+    auto_model: 'Jev がプリセットを選び、既存の経路がグループと認証情報を選択します。',
     affinity_ttl: '親和性レコードの既定保持時間。',
     affinity_capacity: '親和性レコードの上限。1～1,000,000 件。',
     responses_websocket_enabled:
@@ -442,6 +456,7 @@ export const jaJP = {
   localOnly: 'このブラウザのみに即時適用',
   errors: {
     number: '{min}～{max} の整数を入力してください。',
+    autoModel: '自動入口、フォールバック、プリセット、有効な上書きルールを入力してください。',
     proxy: '有効な http:// または socks5:// プロキシ URL を入力してください。',
     origins:
       '重複のないスキーム付きオリジンを入力してください。* は単独で、認証情報を許可しない場合のみ利用できます。',

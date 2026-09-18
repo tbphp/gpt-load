@@ -10,7 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 )
 
@@ -105,6 +108,24 @@ func collectVisibleModelIDs(
 					continue
 				}
 				visible[modelID] = struct{}{}
+			}
+		}
+		if snapshot.AutoModels.Enabled() {
+			operation := execution.OperationChatCompletion
+			if selectedProtocol == protocol.OpenAIResponses {
+				operation = execution.OperationResponsesCreate
+			}
+			if selectedProtocol == protocol.OpenAICompletions || selectedProtocol == protocol.OpenAIResponses || selectedProtocol == protocol.Anthropic || selectedProtocol == protocol.Gemini {
+				for _, entry := range snapshot.AutoModels.Config().Models {
+					compiled, _ := snapshot.AutoModels.Lookup(entry.Name)
+					if !compiled.Enabled {
+						continue
+					}
+					_, allowed := allowedAutoPresets(snapshot, accessKey, compiled, dialect.RequestMetadata{Operation: operation}, scheduler.Query{ClientProtocol: selectedProtocol})
+					if allowed {
+						visible[entry.Name] = struct{}{}
+					}
+				}
 			}
 		}
 	}

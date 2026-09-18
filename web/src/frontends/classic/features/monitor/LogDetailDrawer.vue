@@ -463,6 +463,79 @@ function toggleAttemptErrorMessage(sequence: number): void {
         </dl>
       </section>
 
+      <section v-if="log.auto_decision" class="log-detail__section">
+        <h3>{{ t('autoModel.log') }}</h3>
+        <dl class="log-detail__grid">
+          <div>
+            <dt>{{ t('autoModel.selected') }}</dt>
+            <dd>
+              {{ log.auto_decision.selection.preset_name }} ·
+              {{ log.auto_decision.selection.target_model }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.source') }}</dt>
+            <dd>{{ log.auto_decision.source }} · {{ log.auto_decision.status }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.decisionModel') }}</dt>
+            <dd>
+              {{ log.auto_decision.provider }} ·
+              {{ log.auto_decision.reported_model || log.auto_decision.requested_model || '—' }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.duration') }}</dt>
+            <dd>
+              {{ log.auto_decision.duration_ms }} ms · {{ log.auto_decision.confidence ?? '—' }}
+            </dd>
+          </div>
+          <div v-if="log.auto_decision.reason">
+            <dt>{{ t('autoModel.reason') }}</dt>
+            <dd>{{ log.auto_decision.reason }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.answerCost') }}</dt>
+            <dd>
+              {{
+                log.answer_cost_state === 'unpriced'
+                  ? t('monitor.logs.cost.unpriced')
+                  : formatExactNanoUSD(log.answer_cost_nano_usd ?? '0', locale)
+              }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.decisionCost') }}</dt>
+            <dd>
+              {{
+                log.auto_decision.cost_state === 'unpriced'
+                  ? t('monitor.logs.cost.unpriced')
+                  : formatExactNanoUSD(log.auto_decision.estimated_cost_nano_usd, locale)
+              }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.totalCost') }}</dt>
+            <dd>
+              {{
+                log.cost_state === 'unpriced'
+                  ? t('monitor.logs.cost.unpriced')
+                  : formatExactNanoUSD(log.estimated_cost_nano_usd, locale)
+              }}
+              ·
+              {{ log.pricing_completeness }}
+            </dd>
+          </div>
+        </dl>
+        <p
+          v-if="
+            log.pricing_completeness !== 'complete' && log.pricing_completeness !== 'not_applicable'
+          "
+        >
+          {{ t('autoModel.incompleteCost') }}
+        </p>
+      </section>
+
       <section v-if="!selfScoped" class="log-detail__section">
         <h3>{{ t('monitor.logs.drawer.finalExecution') }}</h3>
         <dl class="log-detail__grid">

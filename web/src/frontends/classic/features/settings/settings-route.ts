@@ -4,6 +4,7 @@ import { isCanonicalRouteQuery, scalarRouteQuery } from '@/app/route-query'
 
 export type SettingsSection =
   | 'routing'
+  | 'auto-models'
   | 'connection'
   | 'reliability'
   | 'browser-access'
@@ -13,6 +14,7 @@ export type SettingsSection =
 
 const sections = new Set<SettingsSection>([
   'routing',
+  'auto-models',
   'connection',
   'reliability',
   'browser-access',

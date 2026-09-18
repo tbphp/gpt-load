@@ -37,6 +37,7 @@ import { useLoadingActivity } from '@modern/components/ui/loading'
 import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import { useApiClient } from '@shared/http/client-context'
 import FrontendPicker from './FrontendPicker.vue'
+import AutoModelEditor from './AutoModelEditor.vue'
 import SettingItem from './SettingItem.vue'
 import SettingsHeadersEditor from './SettingsHeadersEditor.vue'
 import SettingsNumberField from './SettingsNumberField.vue'
@@ -67,6 +68,7 @@ const info = useQuery({
 })
 const sectionIDs = [
   'routing',
+  'autoModels',
   'connection',
   'browser',
   'maintenance',
@@ -75,6 +77,7 @@ const sectionIDs = [
 ] as const
 type SectionID = (typeof sectionIDs)[number]
 const sectionFields: Record<SectionID, readonly SettingKey[]> = {
+  autoModels: ['auto_model'],
   routing: ['route_strategy', 'affinity_enabled', 'affinity_ttl', 'affinity_capacity'],
   connection: [
     'proxy_config',
@@ -92,6 +95,7 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
   system: [],
 }
 const sectionIcons = {
+  autoModels: SlidersHorizontal,
   routing: Route,
   connection: Cable,
   browser: Globe,
@@ -376,6 +380,14 @@ onScopeDispose(() => {
           class="modern-settings-section"
         >
           <div class="modern-settings-fields">
+            <AutoModelEditor
+              v-if="id === 'autoModels'"
+              v-model="draft.auto_model"
+              :template="base?.autoModelTemplate"
+              :disabled="disabled('auto_model')"
+              :error="fieldErrors.auto_model"
+              class="modern-settings-block"
+            />
             <template v-if="id === 'routing'">
               <SettingItem
                 v-if="matches('route_strategy')"

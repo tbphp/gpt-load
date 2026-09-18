@@ -26,7 +26,14 @@ import {
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import type { LogColumnId } from './log-columns'
-import { logCacheWrites, logDuration, logNumber, logStatusTone, logTime } from './log-display'
+import {
+  exactLogMoney,
+  logCacheWrites,
+  logDuration,
+  logNumber,
+  logStatusTone,
+  logTime,
+} from './log-display'
 import { createRedactedLogExport } from './log-redacted-export'
 import LogPricingReceipt from './LogPricingReceipt.vue'
 import LogValue from './LogValue.vue'
@@ -240,6 +247,82 @@ function resolveRedactedLog(): Promise<string> {
                 </dd>
               </div>
             </dl>
+          </AppFormSection>
+          <AppFormSection v-if="log.auto_decision" :title="t('autoModel.log')" compact>
+            <dl class="modern-log-detail-grid">
+              <div>
+                <dt>{{ t('autoModel.selected') }}</dt>
+                <dd>
+                  {{ log.auto_decision.selection.preset_name }} ·
+                  {{ log.auto_decision.selection.target_model }}
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t('autoModel.source') }}</dt>
+                <dd>{{ log.auto_decision.source }} · {{ log.auto_decision.status }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('autoModel.decisionModel') }}</dt>
+                <dd>
+                  {{ log.auto_decision.provider }} ·
+                  {{ log.auto_decision.reported_model || log.auto_decision.requested_model || '—' }}
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t('autoModel.duration') }}</dt>
+                <dd>
+                  {{ log.auto_decision.duration_ms }} ms · {{ log.auto_decision.confidence ?? '—' }}
+                </dd>
+              </div>
+              <div v-if="log.auto_decision.reason">
+                <dt>{{ t('autoModel.reason') }}</dt>
+                <dd>{{ log.auto_decision.reason }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('autoModel.answerCost') }}</dt>
+                <dd>
+                  {{
+                    log.answer_cost_state === 'unpriced'
+                      ? t('logs.values.unpriced')
+                      : exactLogMoney(log.answer_cost_nano_usd ?? '0')
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t('autoModel.decisionCost') }}</dt>
+                <dd>
+                  {{
+                    log.auto_decision.cost_state === 'unpriced'
+                      ? t('logs.values.unpriced')
+                      : exactLogMoney(log.auto_decision.estimated_cost_nano_usd)
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>{{ t('autoModel.totalCost') }}</dt>
+                <dd>
+                  {{
+                    log.cost_state === 'unpriced'
+                      ? t('logs.values.unpriced')
+                      : exactLogMoney(log.estimated_cost_nano_usd)
+                  }}
+                  ·
+                  {{ log.pricing_completeness }}
+                </dd>
+              </div>
+            </dl>
+            <p
+              v-if="
+                log.pricing_completeness !== 'complete' &&
+                log.pricing_completeness !== 'not_applicable'
+              "
+            >
+              {{ t('autoModel.incompleteCost') }}
+            </p>
+            <LogPricingReceipt
+              v-if="log.auto_decision.receipt"
+              :receipt="log.auto_decision.receipt"
+            />
           </AppFormSection>
           <AppFormSection :title="t('logs.costInfo')" compact>
             <dl class="modern-log-detail-grid is-numeric">

@@ -34,6 +34,7 @@ type ModernGroupItem struct {
 }
 
 type ModernGroupsResponse struct {
+	AutoModels   []string          `json:"auto_models"`
 	ObservedAtMS int64             `json:"observed_at_ms"`
 	Items        []ModernGroupItem `json:"items"`
 }
@@ -51,7 +52,7 @@ func (s *Service) ListModernGroups(ctx context.Context) (ModernGroupsResponse, e
 	for _, item := range channels.Items {
 		byID[item.ID] = item
 	}
-	result := ModernGroupsResponse{ObservedAtMS: observedAt, Items: make([]ModernGroupItem, 0, len(records))}
+	result := ModernGroupsResponse{AutoModels: s.autoModelNames(), ObservedAtMS: observedAt, Items: make([]ModernGroupItem, 0, len(records))}
 	for _, record := range records {
 		var params struct {
 			BaseURL string `json:"base_url"`

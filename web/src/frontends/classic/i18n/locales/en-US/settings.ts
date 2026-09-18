@@ -1,4 +1,7 @@
+import { enUS as autoModel } from '../auto-model'
+
 export default {
+  autoModel,
   settings: {
     frontend: {
       title: 'Interface',
