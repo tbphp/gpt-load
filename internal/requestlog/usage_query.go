@@ -38,6 +38,10 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		Operation:      "usage read transaction",
 	}, func(connection *gorm.DB) error {
 		scope := usageWindowScope(connection, input)
+		// 5 分钟趋势不能由小时汇总还原；总览、趋势与分布共用请求明细来源。
+		if bucketWidthMS == UsageFiveMinuteBucketMS {
+			scope = usageRequestLogScope(connection, input)
+		}
 		if err := validateUsageIntegrity(scope, 0); err != nil {
 			return err
 		}
