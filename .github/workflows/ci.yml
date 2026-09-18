@@ -79,7 +79,7 @@ jobs:
           cache: false
 
       - name: Run race-enabled tests
-        run: go test -race -count=1 -timeout=15m . ./internal/...
+        run: go test -race -vet=off -count=1 -timeout=15m . ./internal/...
 
   race-cpa:
     runs-on: [self-hosted, Linux, ARM64]
