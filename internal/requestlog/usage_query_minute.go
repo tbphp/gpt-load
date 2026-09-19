@@ -12,6 +12,7 @@ func usageRequestLogScope(db *gorm.DB, input UsageQuery, groupIDs ...uint) *gorm
 	logs := db.Session(&gorm.Session{NewDB: true}).Model(&models.RequestLog{}).
 		Where("completed_at_ms >= ? AND completed_at_ms < ?", input.FromMS, input.ToMS).
 		Where("attempt_count > 0").
+		Where("NOT (group_id = ? AND upstream_model = ?)", 0, "").
 		Where("operation <> ?", string(execution.OperationWebSearch))
 	if len(groupIDs) > 0 {
 		logs = logs.Where("group_id IN ?", groupIDs)
