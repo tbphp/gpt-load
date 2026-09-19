@@ -101,7 +101,10 @@ function autoDecisionTooltip(log: RequestLogItemDto): string {
     log.auto_decision.confidence === null
       ? ''
       : `${t('autoModel.confidenceValue')} ${formatPercent(Math.round(log.auto_decision.confidence * 10_000), 10_000, locale.value)}`
-  return [strategy, reason, confidence].filter(Boolean).join(' · ')
+  const duration = log.auto_decision.called
+    ? `${t('autoModel.duration')} ${log.auto_decision.duration_ms.toLocaleString(locale.value)} ms`
+    : ''
+  return [strategy, reason, confidence, duration].filter(Boolean).join(' · ')
 }
 
 function autoDecisionTone(log: RequestLogItemDto): 'selected' | 'passive' | 'fallback' {

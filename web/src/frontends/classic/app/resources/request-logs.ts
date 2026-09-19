@@ -223,6 +223,7 @@ export interface AutoDecisionDto {
   requested_model: string
   reported_model: string
   duration_ms: number
+  called: boolean
   confidence: number | null
   input_tokens: string | null
   output_tokens: string | null
@@ -713,6 +714,7 @@ function projectAutoDecision(value: unknown): AutoDecisionDto {
     requested_model: optional(row.requested_model),
     reported_model: optional(row.reported_model),
     duration_ms: projectSafeInteger(row.duration_ms, { minimum: 0 }),
+    called: projectBoolean(row.called),
     confidence:
       row.confidence === undefined
         ? null

@@ -141,6 +141,7 @@ export interface LogAutoDecision {
   requested_model: string
   reported_model: string
   duration_ms: number
+  called: boolean
   confidence: number | null
   input_tokens: string | null
   output_tokens: string | null
@@ -363,6 +364,7 @@ function autoDecision(value: unknown): LogAutoDecision {
     requested_model: text(row.requested_model ?? ''),
     reported_model: text(row.reported_model ?? ''),
     duration_ms: integer(row.duration_ms),
+    called: boolean(row.called),
     confidence,
     input_tokens: row.input_tokens === undefined ? null : count(row.input_tokens),
     output_tokens: row.output_tokens === undefined ? null : count(row.output_tokens),
