@@ -37,7 +37,6 @@ type responseBindingKey struct {
 
 // ResponseBindings 是有界的内存归属索引，不持有 DB、文件或软亲和配置。
 type ResponseBindings struct {
-	store    ResponseBindingStore
 	mu       sync.Mutex
 	entries  map[responseBindingKey]*list.Element
 	order    list.List
@@ -46,14 +45,6 @@ type ResponseBindings struct {
 	ttl      time.Duration
 	now      func() time.Time
 }
-
-type ResponseBindingStore interface {
-	Lookup(uint, string) (ResponseBinding, bool)
-	Record(ResponseBinding) bool
-}
-
-// SetStore 仅在启动时注入；普通请求仍使用原有内存绑定。
-func (bindings *ResponseBindings) SetStore(store ResponseBindingStore) { bindings.store = store }
 
 func cloneBinding(value ResponseBinding) ResponseBinding {
 	if value.AutoSelection != nil {
@@ -90,20 +81,12 @@ func (bindings *ResponseBindings) Lookup(accessKeyID uint, responseID string) (R
 	defer bindings.mu.Unlock()
 	element := bindings.entries[responseBindingKey{accessKeyID, responseID}]
 	if element == nil {
-		if bindings.store != nil {
-			value, found := bindings.store.Lookup(accessKeyID, responseID)
-			return cloneBinding(value), found
-		}
 		return ResponseBinding{}, false
 	}
 	binding := element.Value.(ResponseBinding)
 	if !binding.ExpiresAt.After(bindings.now()) {
 		bindings.remove(element)
 		return ResponseBinding{}, false
-	}
-	if binding.AutoSelection != nil && bindings.store != nil {
-		value, found := bindings.store.Lookup(accessKeyID, responseID)
-		return cloneBinding(value), found
 	}
 	return cloneBinding(binding), true
 }
@@ -129,9 +112,6 @@ func (bindings *ResponseBindings) Record(accessKeyID uint, responseID string, re
 		AccessKeyID:   accessKeyID, ResponseID: responseID,
 		GroupID: ref.GroupID, CredentialID: ref.ID, IdentityGeneration: ref.IdentityGeneration,
 		ExpiresAt: now.Add(bindings.ttl),
-	}
-	if auto != nil && bindings.store != nil && !bindings.store.Record(binding) {
-		return false
 	}
 	return bindings.insert(binding)
 }

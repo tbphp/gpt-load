@@ -615,9 +615,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		}}
 	}
 	if _, automatic := snapshot.AutoModels.Lookup(model); automatic || boundAuto != nil {
-		ctx, cancel := context.WithDeadline(ginContext.Request.Context(), requestStarted.Add(snapshot.Settings.RequestTimeout))
-		defer cancel()
-		ginContext.Request = ginContext.Request.WithContext(ctx)
+		ctx := ginContext.Request.Context()
 		var failure *reason
 		parsed, metadata, recorder.autoDecision, failure = handler.prepareAutoModel(ctx, snapshot, accessKey, selectedDialect, parsed, metadata, boundAuto, func() *reason {
 			return handler.admitAutoQuota(snapshot, quotaAdmission)

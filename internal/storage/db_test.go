@@ -651,6 +651,9 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 			t.Errorf("AutoMigrate() did not create table %q", table)
 		}
 	}
+	if db.Migrator().HasTable("auto_response_bindings") {
+		t.Fatal("AutoMigrate() created an unnecessary shared binding table")
+	}
 
 	var migrationIDs []string
 	if err := db.Table("schema_migrations").Order("id ASC").Pluck("id", &migrationIDs).Error; err != nil {

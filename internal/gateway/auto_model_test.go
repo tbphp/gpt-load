@@ -69,6 +69,7 @@ func TestAutoModelWebsocketContinuationClassifiesEachTask(t *testing.T) {
 	if _, err := handler.manager.Publish(input); err != nil {
 		t.Fatal(err)
 	}
+	handler.manager.Current().Settings.RequestTimeout = time.Nanosecond
 	var calls atomic.Int32
 	handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
 		calls.Add(1)
@@ -225,6 +226,26 @@ func TestAutoModelRunsOnceBeforeAnswerRetryAndPreservesAlias(t *testing.T) {
 		if input.ExternalModel != "auto-probe" || !strings.Contains(string(input.Request.Body), `"reasoning_effort":"medium"`) || !strings.Contains(string(input.Request.Body), `"keep":true`) {
 			t.Fatalf("answer parameters/alias changed incorrectly: %#v", input)
 		}
+	}
+}
+
+func TestAutoModelDecisionDoesNotCapGroupRequestTimeout(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"model":"gpt-4o","choices":[{"message":{"content":"ok"}}]}`)}}}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "key-a", "key-b")
+	configureAutoModelTest(t, handler, manager, state.FilterSet{})
+	// 模拟比目标 Group 更短的全局默认值；Group 已编译的执行超时保持不变。
+	handler.manager.Current().Settings.RequestTimeout = time.Nanosecond
+	handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"answers":{"preset":{"choice":"balanced","confidence":0.9}},"usage":{"input_tokens":1,"output_tokens":0}}`))}, nil
+	})
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"auto-probe","messages":[{"role":"user","content":"task"}]}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 1 {
+		t.Fatalf("status=%d attempts=%d body=%s", response.Code, len(forwarder.inputs), response.Body)
 	}
 }
 

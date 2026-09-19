@@ -91,11 +91,14 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		"jobs", "control_operations", "credential_stages", "credential_observations",
 		"credential_reset_operations", "credential_attempt_stats", "schema_migrations",
 		"access_key_cost_limit_rules", "access_key_cost_limit_states",
-		"auto_response_bindings", "auto_decision_usage_stats",
+		"auto_decision_usage_stats",
 	} {
 		if !db.Migrator().HasTable(table) {
 			t.Fatalf("table %q is missing", table)
 		}
+	}
+	if db.Migrator().HasTable("auto_response_bindings") {
+		t.Fatal("automatic model migration created an unnecessary shared binding table")
 	}
 	for table, columns := range map[string][]string{
 		"groups":      {"connection_type", "proxy_config", "price_multiplier_micros"},
@@ -141,9 +144,6 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	}
 	if !db.Migrator().HasIndex("usage_stats", "idx_usage_stats_group_bucket") {
 		t.Fatal("usage_stats group activity index is missing")
-	}
-	if !db.Migrator().HasIndex("auto_response_bindings", "idx_auto_response_bindings_expiry") {
-		t.Fatal("automatic response binding expiry index is missing")
 	}
 
 	expiresAtMS := time.Now().Add(24 * time.Hour).UnixMilli()

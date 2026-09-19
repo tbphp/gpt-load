@@ -56,3 +56,17 @@ func TestExtractKeepsNewestToolContextWithinBudget(t *testing.T) {
 		t.Fatalf("bounded recent view: reason=%s bytes=%d truncated=%v", reason, len(encoded), state.ContextTruncated)
 	}
 }
+
+func TestExtractKeepsBoundedLongClientInstruction(t *testing.T) {
+	instruction := strings.Repeat("quoted \"instruction\"\n", 200)
+	body, _ := json.Marshal(map[string]any{
+		"instructions": instruction,
+		"input":        "implement the requested change",
+	})
+	state, reason := Extract(protocol.OpenAIResponses, body)
+	if reason != "" || len(state.ClientInstructions) != 1 || state.ClientInstructions[0].Text == "" ||
+		len(state.ClientInstructions[0].Text) >= len(instruction) || !state.ContextTruncated ||
+		size(state.ClientInstructions) > 2048 {
+		t.Fatalf("instruction view=%#v reason=%q encoded=%d", state.ClientInstructions, reason, size(state.ClientInstructions))
+	}
+}

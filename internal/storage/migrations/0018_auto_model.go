@@ -22,15 +22,6 @@ type autoLog0018 struct {
 
 func (autoLog0018) TableName() string { return "request_logs" }
 
-type autoBinding0018 struct {
-	AccessKeyID  uint        `gorm:"primaryKey;not null"`
-	ResponseHash string      `gorm:"type:varchar(64);primaryKey;not null"`
-	ExpiresAtMS  int64       `gorm:"not null;index:idx_auto_response_bindings_expiry"`
-	Payload      models.JSON `gorm:"type:json;not null"`
-}
-
-func (autoBinding0018) TableName() string { return "auto_response_bindings" }
-
 type autoUsage0018 struct {
 	BucketStartMS        int64  `gorm:"primaryKey;not null"`
 	AccessKeyID          uint   `gorm:"primaryKey;not null"`
@@ -53,7 +44,7 @@ func Up0018(db *gorm.DB) error {
 			}
 		}
 	}
-	for _, table := range []any{&autoBinding0018{}, &autoUsage0018{}} {
+	for _, table := range []any{&autoUsage0018{}} {
 		if !db.Migrator().HasTable(table) {
 			if err := db.Migrator().CreateTable(table); err != nil {
 				return err
@@ -91,7 +82,6 @@ func Validate0018(db *gorm.DB) error {
 		model  any
 		fields []string
 	}{
-		{&autoBinding0018{}, []string{"AccessKeyID", "ResponseHash", "ExpiresAtMS", "Payload"}},
 		{&autoUsage0018{}, []string{"BucketStartMS", "AccessKeyID", "Model", "EstimatedCostNanoUSD", "UnpricedRequestCount", "PricingPartialCount"}},
 	} {
 		if !db.Migrator().HasTable(definition.model) {
@@ -102,9 +92,6 @@ func Validate0018(db *gorm.DB) error {
 				return fmt.Errorf("automatic model field %s missing", name)
 			}
 		}
-	}
-	if !db.Migrator().HasIndex(&autoBinding0018{}, "idx_auto_response_bindings_expiry") {
-		return fmt.Errorf("automatic response binding expiry index missing")
 	}
 	return nil
 }

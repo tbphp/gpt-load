@@ -162,16 +162,16 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 	instructions := state.ClientInstructions
 	state.ClientInstructions = []TextMessage{}
 	for _, message := range instructions {
-		clipped := clip(message.Text, 2048)
-		if clipped != message.Text {
+		originalText := message.Text
+		fitted, ok := fitInstruction(state.ClientInstructions, message, 2048)
+		if !ok {
+			state.ContextTruncated = true
+			continue
+		}
+		if fitted.Text != originalText {
 			state.ContextTruncated = true
 		}
-		message.Text = clipped
-		if size(append(state.ClientInstructions, message)) > 2048 {
-			state.ContextTruncated = true
-			break
-		}
-		state.ClientInstructions = append(state.ClientInstructions, message)
+		state.ClientInstructions = append(state.ClientInstructions, fitted)
 	}
 	// 序列化一次后按删除项的编码大小扣减，长工具循环不会反复编码整段历史。
 	encodedSize := size(state)
@@ -197,6 +197,26 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 		return state, "task_too_large"
 	}
 	return state, ""
+}
+
+func fitInstruction(existing []TextMessage, message TextMessage, budget int) (TextMessage, bool) {
+	if size(append(existing, message)) <= budget {
+		return message, true
+	}
+	low, high := len("\n[truncated]\n")+2, len(message.Text)
+	var best TextMessage
+	found := false
+	for low <= high {
+		limit := low + (high-low)/2
+		candidate := message
+		candidate.Text = clip(message.Text, limit)
+		if size(append(existing, candidate)) <= budget {
+			best, found, low = candidate, true, limit+1
+		} else {
+			high = limit - 1
+		}
+	}
+	return best, found
 }
 
 func array(value any) []any { result, _ := value.([]any); return result }

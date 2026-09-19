@@ -237,9 +237,6 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		if requiredRef != nil {
 			autoQuery.AllowedCredentialRefs = map[uint]state.CredentialRef{requiredRef.ID: *requiredRef}
 		}
-		var cancel context.CancelFunc
-		requestCtx, cancel = context.WithDeadline(s.ctx, turn.started.Add(snapshot.Settings.RequestTimeout))
-		defer cancel()
 		parsed := &dialect.ParsedRequest{Method: http.MethodPost, Path: "/v1/responses", Body: turn.body}
 		var failure *reason
 		parsed, _, recorder.autoDecision, failure = h.prepareAutoModel(requestCtx, snapshot, key, dialect.NewOpenAIResponses(), parsed, original.metadata, boundAuto, func() *reason {
@@ -254,11 +251,12 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			return
 		}
 		turn.body = parsed.Body
-		original, err = inspectWebsocketRequest(turn.body)
-		if err != nil {
+		effective, inspectErr := inspectWebsocketRequest(turn.body)
+		if inspectErr != nil || validateWebsocketControlMutation(original, effective) != nil {
 			reject(reasonParameterOverrideUnavailable)
 			return
 		}
+		original = effective
 	}
 	query := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative, ResponsesStorePreference: original.metadata.ResponsesStorePreference, ExternalModel: original.metadata.Model, AccessKey: key, AllowedCredentialIDs: make(map[uint]struct{}), AllowedCredentialRefs: make(map[uint]state.CredentialRef)}
 	query.ResponsesWebsocket = &original.required
@@ -574,17 +572,8 @@ func prepareWebsocketPayload(body []byte, original websocketRequest, selection s
 		return nil, original, err
 	}
 	effective, err := inspectWebsocketRequest(effectiveBody)
-	if err != nil || effective.previous != original.previous || effective.lane != original.lane {
+	if err != nil || validateWebsocketControlMutation(original, effective) != nil {
 		return nil, original, ErrUpstreamProtocol
-	}
-	for _, key := range []string{"store", "generate"} {
-		if raw, exists := original.fields[key]; exists {
-			var oldValue, newValue bool
-			_ = json.Unmarshal(raw, &oldValue)
-			if json.Unmarshal(effective.fields[key], &newValue) != nil || oldValue != newValue {
-				return nil, original, ErrUpstreamProtocol
-			}
-		}
 	}
 	model, _ := json.Marshal(optionalModelValue(selection.UpstreamModelID))
 	effective.fields["model"] = model
@@ -601,6 +590,27 @@ func prepareWebsocketPayload(body []byte, original websocketRequest, selection s
 		return nil, original, ErrUpstreamProtocol
 	}
 	return payload, effective, err
+}
+
+func validateWebsocketControlMutation(original, effective websocketRequest) error {
+	if effective.previous != original.previous || effective.lane != original.lane {
+		return ErrUpstreamProtocol
+	}
+	for _, key := range []string{"store", "generate"} {
+		oldRaw, oldExists := original.fields[key]
+		newRaw, newExists := effective.fields[key]
+		if oldExists != newExists {
+			return ErrUpstreamProtocol
+		}
+		if !oldExists {
+			continue
+		}
+		var oldValue, newValue bool
+		if json.Unmarshal(oldRaw, &oldValue) != nil || json.Unmarshal(newRaw, &newValue) != nil || oldValue != newValue {
+			return ErrUpstreamProtocol
+		}
+	}
+	return nil
 }
 
 type websocketCancelCloser struct {
