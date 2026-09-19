@@ -111,6 +111,7 @@ func mapEvent(
 	if event.AutoDecision != nil {
 		decision := *event.AutoDecision
 		decision.Selection.ParameterOverrides = nil
+		decision.Selection.TaskFingerprint = ""
 		decision.Selection.PresetName = redactIdentityValue(redactor, decision.Selection.PresetName)
 		if decision.EstimatedCostNanoUSD < 0 {
 			return models.RequestLog{}, fmt.Errorf("negative automatic decision cost")

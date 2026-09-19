@@ -189,6 +189,7 @@ func mapAutoDecisionResponse(value *automodel.Decision) *autoDecisionResponse {
 	}
 	copy := *value
 	copy.Selection.ParameterOverrides = nil
+	copy.Selection.TaskFingerprint = ""
 	response := &autoDecisionResponse{Decision: copy, PresetReasoning: mapRequestLogReasoningConfig(copy.PresetReasoning), EstimatedCostNanoUSD: strconv.FormatInt(copy.EstimatedCostNanoUSD, 10), InputTokens: nullableInt64String(copy.InputTokens), OutputTokens: nullableInt64String(copy.OutputTokens)}
 	if len(copy.Receipt) > 0 {
 		var receipt pricing.Receipt

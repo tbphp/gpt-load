@@ -29,6 +29,7 @@ type Selection struct {
 	TargetModel        string          `json:"target_model"`
 	ParameterOverrides json.RawMessage `json:"parameter_overrides"`
 	ConfigRevision     uint64          `json:"config_revision"`
+	TaskFingerprint    string          `json:"task_fingerprint,omitempty"`
 }
 
 type Decision struct {
@@ -43,6 +44,7 @@ type Decision struct {
 	ReportedModel         string           `json:"reported_model,omitempty"`
 	RequestID             string           `json:"request_id,omitempty"`
 	PromptVersion         string           `json:"prompt_version"`
+	ExecutionPhase        string           `json:"execution_phase,omitempty"`
 	Choice                string           `json:"choice,omitempty"`
 	Confidence            *float64         `json:"confidence,omitempty"`
 	DurationMs            int64            `json:"duration_ms"`
@@ -60,7 +62,7 @@ type Decision struct {
 func Decide(ctx context.Context, client HTTPDoer, compiled *Compiled, presets []CompiledPreset, state TaskState, multiplier pricing.PriceMultiplier) Decision {
 	config := compiled.Config()
 	decision := Decision{Source: "fallback", Status: "fallback", Provider: config.Provider,
-		RequestedModel: config.Model, PromptVersion: PromptVersion, ContextTruncated: state.ContextTruncated,
+		RequestedModel: config.Model, PromptVersion: PromptVersion, ExecutionPhase: state.ExecutionPhase, ContextTruncated: state.ContextTruncated,
 		CostState: "not_applicable", PricingCompleteness: "not_applicable"}
 	criteria := map[string]string{Uncertain: UncertainCriteria}
 	for _, preset := range presets {

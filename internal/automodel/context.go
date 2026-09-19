@@ -1,11 +1,22 @@
 package automodel
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
 	"gpt-load/internal/protocol"
+)
+
+const (
+	ExecutionPhaseUserTask         = "user_task"
+	ExecutionPhaseToolContinuation = "tool_continuation"
+	ExecutionPhaseOther            = "other"
+	maxClientInstructionBytes      = 1 << 10
+	maxRecentConversationBytes     = 2 << 10
+	maxRecentToolBytes             = 1 << 10
 )
 
 type TextMessage struct {
@@ -15,6 +26,8 @@ type TextMessage struct {
 }
 
 type TaskState struct {
+	ExecutionPhase     string        `json:"execution_phase"`
+	TaskFingerprint    string        `json:"-"`
 	CurrentTask        string        `json:"current_task"`
 	RecentContext      []TextMessage `json:"recent_context"`
 	ClientInstructions []TextMessage `json:"client_instructions"`
@@ -26,13 +39,15 @@ type TaskState struct {
 }
 
 func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
-	state := TaskState{RecentContext: []TextMessage{}, ClientInstructions: []TextMessage{}}
+	state := TaskState{ExecutionPhase: ExecutionPhaseOther, RecentContext: []TextMessage{}, ClientInstructions: []TextMessage{}}
 	var raw map[string]any
 	if json.Unmarshal(body, &raw) != nil {
 		return state, "task_missing"
 	}
 	state.InputFeatures.HasTools = raw["tools"] != nil
 	var messages []TextMessage
+	latestTaskMessage := -1
+	var taskPrefix any
 	add := func(role, kind, text string) {
 		if strings.TrimSpace(text) == "" {
 			return
@@ -44,9 +59,10 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 			messages = append(messages, message)
 		}
 	}
-	readContent := func(role string, content any) {
+	readContent := func(role string, content any) (bool, bool, int) {
 		text, tools, nonText := contentText(content)
 		state.InputFeatures.HasNonTextContent = state.InputFeatures.HasNonTextContent || nonText
+		before := len(messages)
 		kind := "message"
 		if role == "tool" {
 			state.InputFeatures.HasTools = true
@@ -57,32 +73,51 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 			state.InputFeatures.HasTools = true
 			add("tool", "tool_result", result)
 		}
+		isTask := role == "user" && (strings.TrimSpace(text) != "" || nonText)
+		isTool := role == "tool" || len(tools) > 0
+		textIndex := -1
+		if isTask && strings.TrimSpace(text) != "" {
+			textIndex = before
+		}
+		return isTask, isTool, textIndex
 	}
 	switch value {
 	case protocol.OpenAICompletions, protocol.Anthropic:
 		if value == protocol.Anthropic {
 			readContent("system", raw["system"])
 		}
-		for _, item := range array(raw["messages"]) {
+		items := array(raw["messages"])
+		for index, item := range items {
 			message, _ := item.(map[string]any)
 			role, _ := message["role"].(string)
 			if message["tool_calls"] != nil {
 				state.InputFeatures.HasTools = true
 			}
-			readContent(role, message["content"])
+			isTask, isTool, textIndex := readContent(role, message["content"])
+			if isTask {
+				state.ExecutionPhase, latestTaskMessage = ExecutionPhaseUserTask, textIndex
+				taskPrefix = append([]any(nil), items[:index+1]...)
+			} else if isTool {
+				state.ExecutionPhase = ExecutionPhaseToolContinuation
+			}
 		}
 	case protocol.OpenAIResponses:
 		readContent("system", raw["instructions"])
 		if input, ok := raw["input"].(string); ok {
-			add("user", "message", input)
+			if strings.TrimSpace(input) != "" {
+				add("user", "message", input)
+				state.ExecutionPhase, latestTaskMessage, taskPrefix = ExecutionPhaseUserTask, len(messages)-1, input
+			}
 		} else {
-			for _, item := range array(raw["input"]) {
+			items := array(raw["input"])
+			for index, item := range items {
 				message, _ := item.(map[string]any)
 				kind, _ := message["type"].(string)
-				if kind == "function_call_output" {
+				if kind == "function_call_output" || kind == "custom_tool_call_output" {
 					state.InputFeatures.HasTools = true
 					text, _, _ := contentText(message["output"])
 					add("tool", "tool_result", text)
+					state.ExecutionPhase = ExecutionPhaseToolContinuation
 					continue
 				}
 				if kind == "function_call" {
@@ -96,7 +131,13 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 				if role == "" {
 					role = "user"
 				}
-				readContent(role, message["content"])
+				isTask, isTool, textIndex := readContent(role, message["content"])
+				if isTask {
+					state.ExecutionPhase, latestTaskMessage = ExecutionPhaseUserTask, textIndex
+					taskPrefix = append([]any(nil), items[:index+1]...)
+				} else if isTool {
+					state.ExecutionPhase = ExecutionPhaseToolContinuation
+				}
 			}
 		}
 	case protocol.Gemini:
@@ -105,7 +146,8 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 			instruction, _ = raw["system_instruction"].(map[string]any)
 		}
 		readContent("system", instruction["parts"])
-		for _, item := range array(raw["contents"]) {
+		items := array(raw["contents"])
+		for index, item := range items {
 			message, _ := item.(map[string]any)
 			role, _ := message["role"].(string)
 			if role == "" {
@@ -114,27 +156,33 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 			if role == "model" {
 				role = "assistant"
 			}
-			readContent(role, message["parts"])
+			isTask, isTool, textIndex := readContent(role, message["parts"])
+			if isTask {
+				state.ExecutionPhase, latestTaskMessage = ExecutionPhaseUserTask, textIndex
+				taskPrefix = append([]any(nil), items[:index+1]...)
+			} else if isTool {
+				state.ExecutionPhase = ExecutionPhaseToolContinuation
+			}
 		}
 	default:
 		return state, "unsupported_operation"
 	}
-	latest, previous := -1, -1
-	for index := len(messages) - 1; index >= 0; index-- {
+	state.TaskFingerprint = fingerprintTask(value, raw, taskPrefix)
+	if state.ExecutionPhase == ExecutionPhaseUserTask && latestTaskMessage < 0 {
+		return state, "non_text_task"
+	}
+	latest, previous := latestTaskMessage, -1
+	for index := latest - 1; index >= 0; index-- {
 		if messages[index].Role == "user" && messages[index].Kind == "message" {
-			if latest < 0 {
-				latest = index
-			} else {
-				previous = index
-				break
-			}
+			previous = index
+			break
 		}
 	}
 	if latest < 0 {
 		return state, "task_missing"
 	}
 	state.CurrentTask = messages[latest].Text
-	base := TaskState{CurrentTask: state.CurrentTask}
+	base := TaskState{ExecutionPhase: state.ExecutionPhase, CurrentTask: state.CurrentTask}
 	encoded, _ := json.Marshal(base)
 	if len(encoded) > MaxStateBytes {
 		return state, "task_too_large"
@@ -143,35 +191,23 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 	if previous >= 0 {
 		start = previous
 	}
+	var recent []TextMessage
 	for index := start; index < len(messages); index++ {
 		if index != latest {
-			state.RecentContext = append(state.RecentContext, messages[index])
+			recent = append(recent, messages[index])
 		}
 	}
 	if start > 0 {
 		state.ContextTruncated = true
 	}
-	// 单段保留头尾；移除最早的背景，始终保留完整当前任务。
-	for index := range state.RecentContext {
-		text := clip(state.RecentContext[index].Text, 4096)
-		if text != state.RecentContext[index].Text {
-			state.ContextTruncated = true
-		}
-		state.RecentContext[index].Text = text
+	var truncated bool
+	state.RecentContext, truncated = compactRecentContext(recent)
+	if truncated {
+		state.ContextTruncated = true
 	}
-	instructions := state.ClientInstructions
-	state.ClientInstructions = []TextMessage{}
-	for _, message := range instructions {
-		originalText := message.Text
-		fitted, ok := fitInstruction(state.ClientInstructions, message, 2048)
-		if !ok {
-			state.ContextTruncated = true
-			continue
-		}
-		if fitted.Text != originalText {
-			state.ContextTruncated = true
-		}
-		state.ClientInstructions = append(state.ClientInstructions, fitted)
+	state.ClientInstructions, truncated = compactFair(state.ClientInstructions, maxClientInstructionBytes)
+	if truncated {
+		state.ContextTruncated = true
 	}
 	// 序列化一次后按删除项的编码大小扣减，长工具循环不会反复编码整段历史。
 	encodedSize := size(state)
@@ -199,10 +235,136 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 	return state, ""
 }
 
-func fitInstruction(existing []TextMessage, message TextMessage, budget int) (TextMessage, bool) {
-	if size(append(existing, message)) <= budget {
-		return message, true
+func fingerprintTask(value protocol.Protocol, raw map[string]any, taskPrefix any) string {
+	if taskPrefix == nil {
+		return ""
 	}
+	material := map[string]any{"protocol": value, "prompt_version": PromptVersion, "task_prefix": taskPrefix}
+	for _, key := range []string{"instructions", "system", "systemInstruction", "system_instruction", "tools", "tool_choice", "parallel_tool_calls"} {
+		if field, exists := raw[key]; exists {
+			material[key] = field
+		}
+	}
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
+}
+
+type indexedMessage struct {
+	index   int
+	message TextMessage
+}
+
+func compactRecentContext(messages []TextMessage) ([]TextMessage, bool) {
+	regular, tools := []indexedMessage{}, []indexedMessage{}
+	for index, message := range messages {
+		item := indexedMessage{index: index, message: message}
+		if message.Kind == "tool_result" {
+			tools = append(tools, item)
+		} else {
+			regular = append(regular, item)
+		}
+	}
+	selected := map[int]TextMessage{}
+	regularSelected, regularTruncated := compactNewest(regular, maxRecentConversationBytes)
+	toolSelected, toolTruncated := compactNewest(tools, maxRecentToolBytes)
+	for index, message := range regularSelected {
+		selected[index] = message
+	}
+	for index, message := range toolSelected {
+		selected[index] = message
+	}
+	result := make([]TextMessage, 0, len(selected))
+	for index := range messages {
+		if message, exists := selected[index]; exists {
+			result = append(result, message)
+		}
+	}
+	return result, regularTruncated || toolTruncated
+}
+
+func compactNewest(messages []indexedMessage, budget int) (map[int]TextMessage, bool) {
+	selected := map[int]TextMessage{}
+	used, count, truncated := 2, 0, false
+	for index := len(messages) - 1; index >= 0; index-- {
+		item := messages[index]
+		separator := 0
+		if count > 0 {
+			separator = 1
+		}
+		remaining := budget - used - separator
+		if remaining <= 0 {
+			truncated = true
+			continue
+		}
+		message := item.message
+		if size(message) > remaining {
+			var ok bool
+			message, ok = fitTextMessage(message, remaining)
+			if !ok {
+				truncated = true
+				continue
+			}
+			truncated = true
+		}
+		selected[item.index] = message
+		used += separator + size(message)
+		count++
+	}
+	return selected, truncated
+}
+
+func compactFair(messages []TextMessage, budget int) ([]TextMessage, bool) {
+	if size(messages) <= budget {
+		return messages, false
+	}
+	if len(messages) == 0 || budget <= 2+len(messages)-1 {
+		return []TextMessage{}, len(messages) > 0
+	}
+	available := budget - 2 - (len(messages) - 1)
+	allocations := make([]int, len(messages))
+	active := make(map[int]struct{}, len(messages))
+	for index := range messages {
+		active[index] = struct{}{}
+	}
+	for len(active) > 0 {
+		share := available / len(active)
+		settled := false
+		for index := range active {
+			amount := size(messages[index])
+			if amount <= share {
+				allocations[index] = amount
+				available -= amount
+				delete(active, index)
+				settled = true
+			}
+		}
+		if settled {
+			continue
+		}
+		for index := range active {
+			allocations[index] = share
+		}
+		break
+	}
+	result := make([]TextMessage, 0, len(messages))
+	for index, message := range messages {
+		if size(message) <= allocations[index] {
+			result = append(result, message)
+			continue
+		}
+		fitted, ok := fitTextMessage(message, allocations[index])
+		if ok {
+			result = append(result, fitted)
+		}
+	}
+	return result, true
+}
+
+func fitTextMessage(message TextMessage, budget int) (TextMessage, bool) {
 	low, high := len("\n[truncated]\n")+2, len(message.Text)
 	var best TextMessage
 	found := false
@@ -210,7 +372,7 @@ func fitInstruction(existing []TextMessage, message TextMessage, budget int) (Te
 		limit := low + (high-low)/2
 		candidate := message
 		candidate.Text = clip(message.Text, limit)
-		if size(append(existing, candidate)) <= budget {
+		if size(candidate) <= budget {
 			best, found, low = candidate, true, limit+1
 		} else {
 			high = limit - 1

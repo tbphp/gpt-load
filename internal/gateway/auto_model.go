@@ -122,10 +122,14 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 		}
 		prewarm = options.Generate != nil && !*options.Generate
 	}
-	reuse := bound != nil && (prewarm || extractReason == "task_missing")
+	sameTask := bound != nil && view.ExecutionPhase == automodel.ExecutionPhaseToolContinuation &&
+		view.TaskFingerprint != "" && bound.TaskFingerprint == view.TaskFingerprint &&
+		bound.ConfigRevision == snapshot.Revision
+	reuse := bound != nil && (prewarm ||
+		(extractReason == "task_missing" && view.ExecutionPhase != automodel.ExecutionPhaseUserTask) || sameTask)
 	presets, fallbackAllowed := allowedAutoPresets(snapshot, key, entry, metadata, query)
 	decision := &automodel.Decision{Source: "fallback", Status: "fallback", PromptVersion: automodel.PromptVersion,
-		CostState: "not_applicable", PricingCompleteness: "not_applicable"}
+		ExecutionPhase: view.ExecutionPhase, CostState: "not_applicable", PricingCompleteness: "not_applicable"}
 	var chosen automodel.CompiledPreset
 	if bound != nil {
 		if bound.EntryID != entry.ID || bound.EntryName != entry.Name {
@@ -169,11 +173,19 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	if failure := admit(); failure != nil {
 		return parsed, metadata, nil, failure
 	}
+	singlePreset := len(presets) == 1 && fallbackAllowed && !prewarm && !reuse && extractReason == ""
 	decision.Reason, decision.ContextTruncated = extractReason, view.ContextTruncated
 	if prewarm {
 		decision.Source, decision.Status, decision.Reason = "prewarm", "skipped", "prewarm"
 	} else if reuse {
-		decision.Source, decision.Status, decision.Reason, decision.Selection = "binding", "reused", "no_new_task", *bound
+		reason := "no_new_task"
+		if sameTask {
+			reason = "same_task"
+		}
+		decision.Source, decision.Status, decision.Reason, decision.Selection = "binding", "reused", reason, *bound
+	} else if singlePreset {
+		chosen = presets[0]
+		decision.Source, decision.Status, decision.Reason = "single_preset", "selected", ""
 	} else {
 		if extractReason == "" {
 			client, err := handler.autoDecisionClient(snapshot)
@@ -195,7 +207,7 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 		}
 	}
 	if decision.Source != "binding" {
-		decision.Selection = automodel.Selection{EntryID: entry.ID, EntryName: entry.Name, PresetID: chosen.ID, PresetName: chosen.Name, TargetModel: chosen.Model, ParameterOverrides: chosen.ParameterOverrides, ConfigRevision: snapshot.Revision}
+		decision.Selection = automodel.Selection{EntryID: entry.ID, EntryName: entry.Name, PresetID: chosen.ID, PresetName: chosen.Name, TargetModel: chosen.Model, ParameterOverrides: chosen.ParameterOverrides, ConfigRevision: snapshot.Revision, TaskFingerprint: view.TaskFingerprint}
 	}
 	if ctx.Err() != nil {
 		return parsed, metadata, decision, nil
@@ -235,6 +247,7 @@ func (recorder *requestRecorder) autoLogDecision() *automodel.Decision {
 	}
 	copy := *recorder.autoDecision
 	copy.Selection.ParameterOverrides = nil
+	copy.Selection.TaskFingerprint = ""
 	return &copy
 }
 

@@ -20,7 +20,7 @@ const SettingKey = "auto_model"
 
 var ErrInvalidConfig = errors.New("invalid automatic model configuration")
 
-const PromptVersion = "jev-presets-v2"
+const PromptVersion = "jev-presets-v3"
 const Uncertain = "uncertain"
 const MaxStateBytes = 16 << 10
 const MaxRequestBytes = 24 << 10
@@ -245,10 +245,10 @@ func (compiled *Compiled) Enabled() bool { return compiled != nil && compiled.co
 func Template() Entry {
 	entry := Entry{ID: "auto", Name: "auto", Enabled: true, Fallback: "medium", Presets: []Preset{}}
 	for _, value := range []struct{ id, model, description string }{
-		{"low", "gpt-5.6-luna", "Choose this only for a narrow, fully specified task that can be completed with one direct operation and little or no investigation. Examples include extraction, straightforward translation, reformatting supplied content, a basic factual answer, or a small mechanical edit. Do not choose it when the request needs multi-step planning, debugging, trade-offs, or coordination across multiple constraints."},
-		{"medium", "gpt-5.6-terra", "Choose this for a bounded task with a clear objective that needs several connected but conventional steps. Examples include ordinary implementation, explanation, analysis, or debugging with enough local context and a standard approach. Do not choose it for broad investigation, ambiguous root causes, architectural trade-offs, or many strongly interacting constraints."},
-		{"high", "gpt-5.6-sol", "Choose this for a difficult task that requires substantial investigation or deep reasoning across multiple files, systems, or constraints. Examples include nontrivial root-cause analysis, complex algorithms, security-sensitive review, or architecture work that must compare meaningful trade-offs. Do not choose it for ordinary multi-step work, and reserve the max preset for exceptional breadth, ambiguity, or consequence."},
-		{"max", "gpt-6-astra", "Choose this only for the most demanding tasks: unusually broad or ambiguous scope, novel problems, many strongly interacting constraints, difficult multi-hop root-cause analysis, or high-consequence architecture and migration decisions where missing subtle interactions would be costly. The task requires exhaustive investigation, careful comparison of alternatives, and strong validation. Do not choose it merely because the request is long, contains code, or asks for detailed output."},
+		{"low", "gpt-5.6-luna", "Fully specified, routine transformations or direct answers requiring no diagnosis or trade-off decisions: extraction, straightforward translation, formatting, or an exact mechanical edit."},
+		{"medium", "gpt-5.6-terra", "Bounded work using established methods and available context: routine implementation, explanation, comparison, or debugging with clear evidence. Needs several connected steps, without open-ended investigation."},
+		{"high", "gpt-5.6-sol", "Difficult but bounded work requiring investigation of uncertain causes, nontrivial reasoning, or meaningful trade-offs across components. The goal is known; the solution path is not."},
+		{"max", "gpt-6-astra", "Open-ended work with many coupled constraints or systems, difficult multi-hop diagnosis, or novel architecture and migration trade-offs. Requires broad investigation and careful validation of subtle interactions."},
 	} {
 		rules, _ := json.Marshal([]any{
 			map[string]any{"match": map[string]string{"protocol": "openai-completions"}, "set": map[string]string{"reasoning_effort": value.id}},

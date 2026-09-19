@@ -20,7 +20,9 @@ func TestExtractLatestTaskAcrossProtocols(t *testing.T) {
 	} {
 		t.Run(string(test.protocol), func(t *testing.T) {
 			state, reason := Extract(test.protocol, []byte(test.body))
-			if reason != "" || state.CurrentTask != "最新任务" || len(state.ClientInstructions) != 1 || state.ClientInstructions[0].Text != "background" {
+			if reason != "" || state.ExecutionPhase != ExecutionPhaseToolContinuation ||
+				state.CurrentTask != "最新任务" || state.TaskFingerprint == "" ||
+				len(state.ClientInstructions) != 1 || state.ClientInstructions[0].Text != "background" {
 				t.Fatalf("task view = %#v, reason=%s", state, reason)
 			}
 			encoded, _ := json.Marshal(state)
@@ -28,6 +30,49 @@ func TestExtractLatestTaskAcrossProtocols(t *testing.T) {
 				t.Fatal("necessary visible tool and previous-turn context was lost")
 			}
 		})
+	}
+}
+
+func TestExtractDistinguishesUserTasksFromToolContinuations(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		body        string
+		wantPhase   string
+		wantTask    string
+		wantReason  string
+		wantContext string
+	}{
+		{"user task", `{"input":[{"role":"user","content":[{"type":"input_text","text":"fix the parser"}]}]}`, ExecutionPhaseUserTask, "fix the parser", "", ""},
+		{"custom tool continuation", `{"input":[{"role":"user","content":"fix the parser"},{"type":"custom_tool_call_output","call_id":"call-1","output":"tests failed"}]}`, ExecutionPhaseToolContinuation, "fix the parser", "", "tests failed"},
+		{"pure tool continuation", `{"input":[{"type":"function_call_output","call_id":"call-1","output":"done"}]}`, ExecutionPhaseToolContinuation, "", "task_missing", ""},
+		{"image task", `{"input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,AA=="}]}]}`, ExecutionPhaseUserTask, "", "non_text_task", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state, reason := Extract(protocol.OpenAIResponses, []byte(test.body))
+			if state.ExecutionPhase != test.wantPhase || state.CurrentTask != test.wantTask || reason != test.wantReason {
+				t.Fatalf("state=%#v reason=%q", state, reason)
+			}
+			if test.wantContext != "" {
+				encoded, _ := json.Marshal(state.RecentContext)
+				if !strings.Contains(string(encoded), test.wantContext) {
+					t.Fatalf("recent context = %s", encoded)
+				}
+			}
+		})
+	}
+}
+
+func TestExtractTaskFingerprintIgnoresLaterToolProgress(t *testing.T) {
+	initial := `{"instructions":"keep compatibility","tools":[{"type":"function","name":"test"}],"input":[{"role":"user","content":"fix the parser"}]}`
+	continued := `{"instructions":"keep compatibility","tools":[{"type":"function","name":"test"}],"input":[{"role":"user","content":"fix the parser"},{"type":"function_call","name":"test","arguments":"{}"},{"type":"function_call_output","call_id":"call-1","output":"first result"}]}`
+	changed := `{"instructions":"keep compatibility","tools":[{"type":"function","name":"test"}],"input":[{"role":"user","content":"replace the parser"},{"type":"function_call_output","call_id":"call-1","output":"first result"}]}`
+	first, firstReason := Extract(protocol.OpenAIResponses, []byte(initial))
+	second, secondReason := Extract(protocol.OpenAIResponses, []byte(continued))
+	third, thirdReason := Extract(protocol.OpenAIResponses, []byte(changed))
+	if firstReason != "" || secondReason != "" || thirdReason != "" ||
+		first.TaskFingerprint == "" || first.TaskFingerprint != second.TaskFingerprint ||
+		first.TaskFingerprint == third.TaskFingerprint {
+		t.Fatalf("fingerprints initial=%q continued=%q changed=%q reasons=%q/%q/%q", first.TaskFingerprint, second.TaskFingerprint, third.TaskFingerprint, firstReason, secondReason, thirdReason)
 	}
 }
 
@@ -66,7 +111,21 @@ func TestExtractKeepsBoundedLongClientInstruction(t *testing.T) {
 	state, reason := Extract(protocol.OpenAIResponses, body)
 	if reason != "" || len(state.ClientInstructions) != 1 || state.ClientInstructions[0].Text == "" ||
 		len(state.ClientInstructions[0].Text) >= len(instruction) || !state.ContextTruncated ||
-		size(state.ClientInstructions) > 2048 {
+		size(state.ClientInstructions) > maxClientInstructionBytes {
+		t.Fatalf("instruction view=%#v reason=%q encoded=%d", state.ClientInstructions, reason, size(state.ClientInstructions))
+	}
+}
+
+func TestExtractSharesInstructionBudgetAcrossSources(t *testing.T) {
+	body, _ := json.Marshal(map[string]any{"messages": []any{
+		map[string]string{"role": "system", "content": strings.Repeat("system ", 600)},
+		map[string]string{"role": "developer", "content": strings.Repeat("developer ", 600)},
+		map[string]string{"role": "user", "content": "implement the task"},
+	}})
+	state, reason := Extract(protocol.OpenAICompletions, body)
+	if reason != "" || len(state.ClientInstructions) != 2 ||
+		state.ClientInstructions[0].Text == "" || state.ClientInstructions[1].Text == "" ||
+		size(state.ClientInstructions) > maxClientInstructionBytes {
 		t.Fatalf("instruction view=%#v reason=%q encoded=%d", state.ClientInstructions, reason, size(state.ClientInstructions))
 	}
 }

@@ -14,7 +14,7 @@ import (
 
 func TestAutoDecisionLogKeepsAnswerCostAndStripsOverridePayload(t *testing.T) {
 	event := testEvent("00000000-0000-4000-8000-000000000592")
-	event.AutoDecision = &automodel.Decision{Selection: automodel.Selection{EntryID: "auto", EntryName: "auto", PresetID: "medium", TargetModel: "upstream-model", ParameterOverrides: json.RawMessage(`[{"set":{"messages":[{"role":"user","content":"private task"}]}}]`)}, Source: "jev", Status: "selected", Provider: "openrouter", RequestedModel: "~typesafe/jev-latest", PromptVersion: automodel.PromptVersion, Called: true, CostState: "priced", PricingCompleteness: "complete", EstimatedCostNanoUSD: 84000}
+	event.AutoDecision = &automodel.Decision{Selection: automodel.Selection{EntryID: "auto", EntryName: "auto", PresetID: "medium", TargetModel: "upstream-model", ParameterOverrides: json.RawMessage(`[{"set":{"messages":[{"role":"user","content":"private task"}]}}]`), TaskFingerprint: "private-fingerprint"}, Source: "jev", Status: "selected", Provider: "openrouter", RequestedModel: "~typesafe/jev-latest", PromptVersion: automodel.PromptVersion, Called: true, CostState: "priced", PricingCompleteness: "complete", EstimatedCostNanoUSD: 84000}
 	row, err := mapEvent(redact.New(), event)
 	if err != nil {
 		t.Fatal(err)
@@ -22,8 +22,8 @@ func TestAutoDecisionLogKeepsAnswerCostAndStripsOverridePayload(t *testing.T) {
 	if row.EstimatedCostNanoUSD != event.Usage.Pricing.EstimatedCostNanoUSD || row.DecisionCostNanoUSD != 84000 || row.DecisionPricingCompleteness != "complete" || len(row.AutoDecision) == 0 {
 		t.Fatalf("decision quote not saved separately: %#v", row)
 	}
-	if strings.Contains(string(row.AutoDecision), "private task") {
-		t.Fatal("decision log persisted parameter override prompt content")
+	if strings.Contains(string(row.AutoDecision), "private task") || strings.Contains(string(row.AutoDecision), "private-fingerprint") {
+		t.Fatal("decision log persisted private automatic-selection state")
 	}
 }
 

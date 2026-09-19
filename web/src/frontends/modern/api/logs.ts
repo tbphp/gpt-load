@@ -137,6 +137,7 @@ export interface LogAutoDecision {
   selection: { preset_name: string; target_model: string }
   source: string
   status: string
+  execution_phase: string
   reason: string
   provider: string
   requested_model: string
@@ -360,6 +361,7 @@ function autoDecision(value: unknown): LogAutoDecision {
     },
     source: text(row.source),
     status: text(row.status),
+    execution_phase: text(row.execution_phase ?? ''),
     reason: text(row.reason ?? ''),
     provider: text(row.provider ?? ''),
     requested_model: text(row.requested_model ?? ''),

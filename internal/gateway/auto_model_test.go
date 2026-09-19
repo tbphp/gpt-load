@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
 
@@ -64,7 +65,10 @@ func TestAutoModelWebsocketContinuationClassifiesEachTask(t *testing.T) {
 	config := automodel.DefaultConfig()
 	config.Enabled = true
 	config.APIKey = "decision-secret"
-	config.Models = []automodel.Entry{{ID: "auto-web", Name: "auto-web", Enabled: true, Fallback: "high", Presets: []automodel.Preset{{ID: "high", Name: "high", Description: "Complex tasks", Model: "public", ParameterOverrides: json.RawMessage(`[]`)}}}}
+	config.Models = []automodel.Entry{{ID: "auto-web", Name: "auto-web", Enabled: true, Fallback: "high", Presets: []automodel.Preset{
+		{ID: "low", Name: "low", Description: "Simple tasks", Model: "public", ParameterOverrides: json.RawMessage(`[]`)},
+		{ID: "high", Name: "high", Description: "Complex tasks", Model: "public", ParameterOverrides: json.RawMessage(`[]`)},
+	}}}
 	input.AutoModel = &config
 	if _, err := handler.manager.Publish(input); err != nil {
 		t.Fatal(err)
@@ -300,6 +304,105 @@ func TestAutoModelResponsesContinuationReusesFrozenSelection(t *testing.T) {
 	}
 }
 
+func TestAutoModelResponsesFullHistoryToolContinuationReusesMatchingTask(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"id":"resp-next","object":"response","model":"gpt-4o"}`)}}}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "key-a", "key-b")
+	handler.dialects = dialect.NewSet(dialect.NewOpenAI(), dialect.NewOpenAIResponses())
+	configureAutoModelTest(t, handler, manager, state.FilterSet{})
+	initialBody := []byte(`{"model":"auto-probe","instructions":"keep compatibility","input":[{"role":"user","content":"fix the parser"}]}`)
+	view, reason := automodel.Extract(protocol.OpenAIResponses, initialBody)
+	if reason != "" || view.TaskFingerprint == "" {
+		t.Fatalf("initial view=%#v reason=%q", view, reason)
+	}
+	selection := &automodel.Selection{EntryID: "auto-probe", EntryName: "auto-probe", PresetID: "balanced", PresetName: "balanced", TargetModel: "gpt-4o", ParameterOverrides: json.RawMessage(`[]`), ConfigRevision: manager.Current().Revision, TaskFingerprint: view.TaskFingerprint}
+	if !handler.responseBindings.Record(1, "resp-before", state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, selection) {
+		t.Fatal("cannot store binding")
+	}
+	handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
+		t.Fatal("matching tool continuation must reuse the bound preset")
+		return nil, nil
+	})
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"auto-probe","instructions":"keep compatibility","previous_response_id":"resp-before","input":[{"role":"user","content":"fix the parser"},{"type":"function_call","name":"test","arguments":"{}"},{"type":"function_call_output","call_id":"call-1","output":"tests failed"}]}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != 200 || len(forwarder.inputs) != 1 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body)
+	}
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].AutoDecision == nil || events[0].AutoDecision.Source != "binding" || events[0].AutoDecision.Reason != "same_task" {
+		t.Fatalf("decision=%#v", events)
+	}
+}
+
+func TestAutoModelResponsesFullHistoryToolContinuationReclassifiesDifferentTask(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"id":"resp-next","object":"response","model":"gpt-4.1"}`)}}}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "key-a", "key-b")
+	handler.dialects = dialect.NewSet(dialect.NewOpenAI(), dialect.NewOpenAIResponses())
+	configureAutoModelTest(t, handler, manager, state.FilterSet{})
+	view, reason := automodel.Extract(protocol.OpenAIResponses, []byte(`{"model":"auto-probe","input":[{"role":"user","content":"fix the parser"}]}`))
+	if reason != "" || view.TaskFingerprint == "" {
+		t.Fatalf("initial view=%#v reason=%q", view, reason)
+	}
+	selection := &automodel.Selection{EntryID: "auto-probe", EntryName: "auto-probe", PresetID: "balanced", PresetName: "balanced", TargetModel: "gpt-4o", ParameterOverrides: json.RawMessage(`[]`), ConfigRevision: manager.Current().Revision, TaskFingerprint: view.TaskFingerprint}
+	if !handler.responseBindings.Record(1, "resp-before", state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1}, selection) {
+		t.Fatal("cannot store binding")
+	}
+	calls := 0
+	handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"answers":{"preset":{"choice":"strong","confidence":0.9}},"usage":{"input_tokens":100,"output_tokens":0}}`))}, nil
+	})
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"auto-probe","previous_response_id":"resp-before","input":[{"role":"user","content":"replace the parser"},{"type":"function_call_output","call_id":"call-1","output":"tests failed"}]}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != 200 || calls != 1 || len(forwarder.inputs) != 1 || forwarder.inputs[0].UpstreamModelID != "gpt-4.1" {
+		t.Fatalf("status=%d calls=%d inputs=%#v body=%s", response.Code, calls, forwarder.inputs, response.Body)
+	}
+}
+
+func TestAutoModelSkipsJevWhenOnlyFallbackPresetIsAvailable(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"model":"gpt-4o","choices":[{"message":{"content":"ok"}}]}`)}}}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "key-a")
+	config := automodel.DefaultConfig()
+	config.Enabled, config.APIKey = true, "decision-secret"
+	config.Models = []automodel.Entry{{ID: "auto-one", Name: "auto-one", Enabled: true, Fallback: "only", Presets: []automodel.Preset{{ID: "only", Name: "only", Description: "All permitted work", Model: "gpt-4o", ParameterOverrides: json.RawMessage(`[]`)}}}}
+	_, err := manager.Publish(state.CompileInput{AutoModel: &config, ChannelRegistry: channel.NewRegistry(),
+		Groups:      []state.GroupConfig{{ID: 1, Name: "openai", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true}},
+		Credentials: []state.CredentialConfig{{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"}},
+		AccessKeys:  []state.AccessKeyConfig{{ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
+		t.Fatal("single permitted preset must not call Jev")
+		return nil, nil
+	})
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"auto-one","messages":[{"role":"user","content":"task"}]}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != 200 || len(forwarder.inputs) != 1 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body)
+	}
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].AutoDecision == nil || events[0].AutoDecision.Source != "single_preset" || events[0].AutoDecision.Called {
+		t.Fatalf("decision=%#v", events)
+	}
+}
+
 func TestAutoModelResponsesNewTaskCanChangeModelOnBoundCredential(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"id":"resp-next","object":"response","model":"gpt-4.1"}`)}}}
 	handler, manager, _ := newHandlerForTest(t, forwarder, "key-a", "key-b")
@@ -339,6 +442,7 @@ func TestAutoModelContinuationDecisionExcludesOtherGroups(t *testing.T) {
 	handler.dialects = dialect.NewSet(dialect.NewOpenAI(), dialect.NewOpenAIResponses())
 	configureAutoModelTest(t, handler, manager, state.FilterSet{})
 	config := manager.Current().AutoModels.Config()
+	config.Models[0].Presets = append(config.Models[0].Presets, automodel.Preset{ID: "alternate", Name: "alternate", Description: "Another permitted task class", Model: "gpt-4o", ParameterOverrides: json.RawMessage(`[]`)})
 	_, err := manager.Publish(state.CompileInput{AutoModel: &config, ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
 			{ID: 1, Name: "bound", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true},

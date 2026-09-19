@@ -177,6 +177,11 @@ function decisionStrategy(source: string): string {
   return te(key) ? t(key) : `${t('autoModel.sources.unknown')} · ${source}`
 }
 
+function decisionPhase(phase: string): string {
+  const key = 'autoModel.phases.' + phase
+  return te(key) ? t(key) : `${t('autoModel.phases.unknown')} · ${phase}`
+}
+
 function decisionReason(reason: string): string {
   if (!reason) return ''
   if (/^http_\d+$/u.test(reason))
@@ -496,6 +501,10 @@ function toggleAttemptErrorMessage(sequence: number): void {
           <div>
             <dt>{{ t('autoModel.source') }}</dt>
             <dd>{{ decisionStrategy(log.auto_decision.source) }}</dd>
+          </div>
+          <div v-if="log.auto_decision.execution_phase">
+            <dt>{{ t('autoModel.phase') }}</dt>
+            <dd>{{ decisionPhase(log.auto_decision.execution_phase) }}</dd>
           </div>
           <div>
             <dt>{{ t('autoModel.selected') }}</dt>

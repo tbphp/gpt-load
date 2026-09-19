@@ -219,6 +219,7 @@ export interface AutoDecisionDto {
   selection: { preset_name: string; target_model: string }
   source: string
   status: string
+  execution_phase: string
   reason: string
   provider: string
   requested_model: string
@@ -707,6 +708,7 @@ function projectAutoDecision(value: unknown): AutoDecisionDto {
     },
     source: projectString(row.source),
     status: projectString(row.status),
+    execution_phase: optional(row.execution_phase),
     reason: optional(row.reason),
     provider: optional(row.provider),
     requested_model: optional(row.requested_model),
