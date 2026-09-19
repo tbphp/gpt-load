@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -20,8 +19,7 @@ const SettingKey = "auto_model"
 
 var ErrInvalidConfig = errors.New("invalid automatic model configuration")
 
-const PromptVersion = "jev-presets-v3"
-const Uncertain = "uncertain"
+const PromptVersion = "jev-presets-v4"
 const MaxStateBytes = 16 << 10
 const MaxRequestBytes = 24 << 10
 
@@ -31,7 +29,6 @@ type Config struct {
 	Model          string  `json:"model"`
 	APIKey         string  `json:"api_key"`
 	TimeoutSeconds int     `json:"timeout_seconds"`
-	MinConfidence  float64 `json:"min_confidence"`
 	InputPrice     string  `json:"input_price"`
 	OutputPrice    string  `json:"output_price"`
 	Models         []Entry `json:"models"`
@@ -74,7 +71,7 @@ type Compiled struct {
 
 func DefaultConfig() Config {
 	return Config{Provider: "typesafe", Model: "jev-latest", TimeoutSeconds: 2,
-		MinConfidence: 0.5, InputPrice: "0.042", OutputPrice: "0", Models: []Entry{}}
+		InputPrice: "0.042", OutputPrice: "0", Models: []Entry{}}
 }
 
 func Decode(raw []byte) (Config, error) {
@@ -114,9 +111,8 @@ func Compile(config Config, ordinaryModels map[string]struct{}) (result *Compile
 	if config.Models == nil {
 		return nil, fmt.Errorf("automatic models must be an array")
 	}
-	if !validName(config.Model) || config.TimeoutSeconds < 1 || config.TimeoutSeconds > 60 ||
-		math.IsNaN(config.MinConfidence) || math.IsInf(config.MinConfidence, 0) || config.MinConfidence < 0 || config.MinConfidence > 1 {
-		return nil, fmt.Errorf("invalid Jev model, timeout or confidence threshold")
+	if !validName(config.Model) || config.TimeoutSeconds < 1 || config.TimeoutSeconds > 60 {
+		return nil, fmt.Errorf("invalid Jev model or timeout")
 	}
 	if strings.ContainsAny(config.APIKey, "\r\n") || (config.Enabled && strings.TrimSpace(config.APIKey) == "") {
 		return nil, fmt.Errorf("Jev API key is required")
@@ -160,9 +156,9 @@ func Compile(config Config, ordinaryModels map[string]struct{}) (result *Compile
 			return nil, fmt.Errorf("automatic model requires 1 through 254 presets")
 		}
 		value := CompiledEntry{ID: entry.ID, Name: entry.Name, Enabled: entry.Enabled, Fallback: entry.Fallback}
-		criteria := map[string]string{Uncertain: UncertainCriteria}
+		criteria := map[string]string{}
 		for _, preset := range entry.Presets {
-			if !validName(preset.ID) || preset.ID == Uncertain || strings.TrimSpace(preset.Name) == "" ||
+			if !validName(preset.ID) || strings.TrimSpace(preset.Name) == "" ||
 				strings.TrimSpace(preset.Description) == "" || !validName(preset.Model) {
 				return nil, fmt.Errorf("invalid preset ID, name, description or target model")
 			}
@@ -190,7 +186,7 @@ func Compile(config Config, ordinaryModels map[string]struct{}) (result *Compile
 			}
 			value.Presets = append(value.Presets, CompiledPreset{Preset: preset, Rules: compiledRules})
 		}
-		if _, exists := criteria[entry.Fallback]; !exists || entry.Fallback == Uncertain {
+		if _, exists := criteria[entry.Fallback]; !exists {
 			return nil, fmt.Errorf("fallback preset does not exist")
 		}
 		payload, _ := json.Marshal(map[string]any{"model": config.Model, "state": map[string]any{}, "questions": map[string]any{
@@ -245,10 +241,10 @@ func (compiled *Compiled) Enabled() bool { return compiled != nil && compiled.co
 func Template() Entry {
 	entry := Entry{ID: "auto", Name: "auto", Enabled: true, Fallback: "medium", Presets: []Preset{}}
 	for _, value := range []struct{ id, model, description string }{
-		{"low", "gpt-5.6-luna", "Fully specified, routine transformations or direct answers requiring no diagnosis or trade-off decisions: extraction, straightforward translation, formatting, or an exact mechanical edit."},
-		{"medium", "gpt-5.6-terra", "Bounded work using established methods and available context: routine implementation, explanation, comparison, or debugging with clear evidence. Needs several connected steps, without open-ended investigation."},
-		{"high", "gpt-5.6-sol", "Difficult but bounded work requiring investigation of uncertain causes, nontrivial reasoning, or meaningful trade-offs across components. The goal is known; the solution path is not."},
-		{"max", "gpt-6-astra", "Open-ended work with many coupled constraints or systems, difficult multi-hop diagnosis, or novel architecture and migration trade-offs. Requires broad investigation and careful validation of subtle interactions."},
+		{"low", "gpt-5.6-luna", "Fully specified routine work with one clear path and no diagnosis or trade-offs: direct answers, extraction, translation, formatting, or an exact mechanical edit."},
+		{"medium", "gpt-5.6-terra", "Bounded work using established methods: explanation, comparison, routine implementation, or debugging from clear evidence. It needs several connected steps but no broad investigation."},
+		{"high", "gpt-5.6-sol", "Difficult but bounded work where the goal is known and the path requires investigating uncertain causes, nontrivial reasoning, or meaningful trade-offs across components."},
+		{"max", "gpt-6-astra", "The highest capability level for open-ended or high-risk work with many coupled constraints, multi-system architecture or migration decisions, difficult multi-hop diagnosis, or subtle interactions requiring broad investigation and careful validation."},
 	} {
 		rules, _ := json.Marshal([]any{
 			map[string]any{"match": map[string]string{"protocol": "openai-completions"}, "set": map[string]string{"reasoning_effort": value.id}},

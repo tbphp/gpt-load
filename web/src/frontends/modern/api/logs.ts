@@ -89,8 +89,6 @@ export interface LogReasoning {
 }
 export interface LogEntry {
   auto_decision?: LogAutoDecision
-  answer_cost_nano_usd?: string
-  answer_cost_state?: string
   request_id: string
   completed_at_ms: number
   access_key: { id: number; name: string | null; deleted: boolean }
@@ -315,8 +313,6 @@ function entry(value: unknown): LogEntry {
       'not_applicable',
     ] as const),
     auto_decision: row.auto_decision === undefined ? undefined : autoDecision(row.auto_decision),
-    answer_cost_nano_usd: count(row.estimated_cost_nano_usd),
-    answer_cost_state: text(row.cost_state),
     cost_state: oneOf(row.total_cost_state ?? row.cost_state, [
       'priced',
       'unpriced',

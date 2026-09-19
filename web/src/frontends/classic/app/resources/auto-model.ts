@@ -4,7 +4,6 @@ import {
   projectString,
   projectBoolean,
   projectSafeInteger,
-  projectFiniteNumber,
   projectEnum,
   projectArray,
 } from './projector'
@@ -30,7 +29,6 @@ export interface AutoModelConfigDto {
   api_key: string
   api_key_configured?: boolean
   timeout_seconds: number
-  min_confidence: number
   input_price: string
   output_price: string
   models: AutoEntryDto[]
@@ -41,7 +39,6 @@ export const defaultAutoModel = (): AutoModelConfigDto => ({
   model: 'jev-latest',
   api_key: '',
   timeout_seconds: 2,
-  min_confidence: 0.5,
   input_price: '0.042',
   output_price: '0',
   models: [],
@@ -78,7 +75,6 @@ export function projectAutoModel(value: unknown): AutoModelConfigDto {
     api_key: '',
     api_key_configured: projectBoolean(row.api_key_configured),
     timeout_seconds: projectSafeInteger(row.timeout_seconds, { minimum: 1, maximum: 60 }),
-    min_confidence: projectFiniteNumber(row.min_confidence, { minimum: 0, maximum: 1 }),
     input_price: projectString(row.input_price),
     output_price: projectString(row.output_price),
     models: projectArray(row.models, projectAutoEntry),
@@ -91,9 +87,6 @@ export function validAutoModel(value: AutoModelConfigDto): boolean {
       Number.isInteger(value.timeout_seconds) &&
       value.timeout_seconds >= 1 &&
       value.timeout_seconds <= 60 &&
-      Number.isFinite(value.min_confidence) &&
-      value.min_confidence >= 0 &&
-      value.min_confidence <= 1 &&
       value.models.every(
         (entry) =>
           entry.name.trim() &&

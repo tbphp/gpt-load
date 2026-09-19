@@ -61,7 +61,6 @@ function addEntry() {
     const entry = autoModelDraft({
       ...draft,
       timeout_seconds: Number(draft.timeout_seconds),
-      min_confidence: Number(draft.min_confidence),
       models: [props.template!],
     }).models[0]!
     entry.id = crypto.randomUUID()
@@ -133,14 +132,6 @@ function validRules(value: string): boolean {
         :label="t('autoModel.timeout')"
         :disabled="disabled"
         @update:model-value="update((draft) => (draft.timeout_seconds = $event))"
-      />
-      <AppTextField
-        :model-value="modelValue.min_confidence"
-        inputmode="decimal"
-        :label="t('autoModel.confidence')"
-        :description="t('autoModel.confidenceHint')"
-        :disabled="disabled"
-        @update:model-value="update((draft) => (draft.min_confidence = $event))"
       />
     </div>
     <AppFormSection :title="t('autoModel.pricing')" :description="t('autoModel.pricingHint')">

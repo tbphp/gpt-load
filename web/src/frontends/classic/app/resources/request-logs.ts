@@ -170,8 +170,6 @@ export interface RequestLogReasoningDto {
 
 export interface RequestLogItemDto {
   auto_decision?: AutoDecisionDto
-  answer_cost_nano_usd?: string
-  answer_cost_state?: string
   request_id: string
   completed_at_ms: number
   access_key: { id: number; name: string | null; deleted: boolean }
@@ -226,9 +224,12 @@ export interface AutoDecisionDto {
   reported_model: string
   duration_ms: number
   confidence: number | null
+  input_tokens: string | null
+  output_tokens: string | null
   estimated_cost_nano_usd: string
   cost_state: string
   pricing_completeness: string
+  receipt: RequestLogPricingReceiptDto | null
 }
 
 export interface RequestLogDetailDto extends RequestLogItemDto {
@@ -684,8 +685,6 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     ...projectUsageCost(record),
     auto_decision:
       record.auto_decision === undefined ? undefined : projectAutoDecision(record.auto_decision),
-    answer_cost_nano_usd: projectNonNegativeInt64String(record.estimated_cost_nano_usd),
-    answer_cost_state: projectString(record.cost_state),
     estimated_cost_nano_usd: projectNonNegativeInt64String(
       record.total_estimated_cost_nano_usd ?? record.estimated_cost_nano_usd,
     ),
@@ -718,9 +717,14 @@ function projectAutoDecision(value: unknown): AutoDecisionDto {
       row.confidence === undefined
         ? null
         : projectFiniteNumber(row.confidence, { minimum: 0, maximum: 1 }),
+    input_tokens:
+      row.input_tokens === undefined ? null : projectNonNegativeInt64String(row.input_tokens),
+    output_tokens:
+      row.output_tokens === undefined ? null : projectNonNegativeInt64String(row.output_tokens),
     estimated_cost_nano_usd: projectNonNegativeInt64String(row.estimated_cost_nano_usd),
     cost_state: projectString(row.cost_state),
     pricing_completeness: projectString(row.pricing_completeness),
+    receipt: row.receipt === undefined ? null : projectPricingReceipt(row.receipt),
   }
 }
 

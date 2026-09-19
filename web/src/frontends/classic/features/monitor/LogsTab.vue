@@ -29,7 +29,12 @@ import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedCost, formatISOInstant, formatLocalInstantWithSeconds } from '@/lib/format'
+import {
+  formatEstimatedCost,
+  formatISOInstant,
+  formatLocalInstantWithSeconds,
+  formatPercent,
+} from '@/lib/format'
 import { resolveDateTimePreset, type DateTimePreset } from '@/lib/time'
 import { useAuthSession } from '@/features/auth/auth-session'
 
@@ -76,13 +81,35 @@ const route = useRoute()
 const router = useRouter()
 const { locale, t, te } = useI18n()
 
-function autoDecisionSummary(log: RequestLogItemDto): string {
+function autoDecisionTooltip(log: RequestLogItemDto): string {
   if (!log.auto_decision) return ''
   const key = 'autoModel.sources.' + log.auto_decision.source
   const strategy = te(key)
     ? t(key)
     : `${t('autoModel.sources.unknown')} · ${log.auto_decision.source}`
-  return `${strategy} · ${log.auto_decision.selection.preset_name}`
+  const reasonKey = 'autoModel.reasons.' + log.auto_decision.reason
+  const reason = !log.auto_decision.reason
+    ? ''
+    : /^http_\d+$/u.test(log.auto_decision.reason)
+      ? t('autoModel.reasons.httpError', {
+          status: log.auto_decision.reason.slice('http_'.length),
+        })
+      : te(reasonKey)
+        ? t(reasonKey)
+        : `${t('autoModel.reasons.unknown')} · ${log.auto_decision.reason}`
+  const confidence =
+    log.auto_decision.confidence === null
+      ? ''
+      : `${t('autoModel.confidenceValue')} ${formatPercent(Math.round(log.auto_decision.confidence * 10_000), 10_000, locale.value)}`
+  return [strategy, reason, confidence].filter(Boolean).join(' · ')
+}
+
+function autoDecisionTone(log: RequestLogItemDto): 'selected' | 'passive' | 'fallback' {
+  const decision = log.auto_decision
+  if (!decision) return 'passive'
+  if (decision.source === 'jev' && decision.status === 'selected') return 'selected'
+  if (['binding', 'prewarm', 'single_preset'].includes(decision.source)) return 'passive'
+  return 'fallback'
 }
 
 function affinityTooltip(log: RequestLogItemDto): string {
@@ -828,9 +855,10 @@ function costLabel(log: RequestLogItemDto): string {
                 v-if="log.auto_decision"
                 as="small"
                 class="logs-list__auto-decision"
-                :content="autoDecisionSummary(log)"
+                :class="`is-${autoDecisionTone(log)}`"
+                :content="autoDecisionTooltip(log)"
               >
-                {{ autoDecisionSummary(log) }}
+                {{ log.auto_decision.selection.preset_name }}
               </OverflowTooltip>
               <OverflowTooltip
                 v-if="reasoningLabel(log)"
@@ -1184,6 +1212,14 @@ function costLabel(log: RequestLogItemDto): string {
   font-size: var(--text-label-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.logs-list__auto-decision.is-selected {
+  color: var(--color-success);
+}
+
+.logs-list__auto-decision.is-fallback {
+  color: var(--color-warning);
 }
 
 .logs-list__inline > .logs-list__hint {

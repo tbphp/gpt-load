@@ -44,7 +44,7 @@ func TestDecideUsesProviderContractAndQuotesOnce(t *testing.T) {
 					t.Fatalf("endpoint = %s", request.URL)
 				}
 				body, _ := io.ReadAll(request.Body)
-				if strings.Contains(string(body), "gpt-5.6") || !strings.Contains(string(body), "uncertain") || !strings.Contains(string(body), "最新任务") {
+				if strings.Contains(string(body), "gpt-5.6") || strings.Contains(string(body), `"uncertain"`) || !strings.Contains(string(body), "最新任务") {
 					t.Fatalf("decision payload violates task/preset boundary: %s", body)
 				}
 				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"model":"jev-pinned","answers":{"preset":{"choice":"medium","confidence":0.9}},"usage":{"input_tokens":2000,"output_tokens":10,"cost":0.000084}}`))}, nil
@@ -56,6 +56,24 @@ func TestDecideUsesProviderContractAndQuotesOnce(t *testing.T) {
 				t.Fatalf("decision = %s, calls=%d", encoded, calls)
 			}
 		})
+	}
+}
+
+func TestDecideAcceptsValidChoiceRegardlessOfConfidence(t *testing.T) {
+	config := DefaultConfig()
+	config.APIKey = "secret"
+	config.Models = []Entry{Template()}
+	compiled, err := Compile(config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := compiled.Lookup("auto")
+	client := decisionDoer(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"answers":{"preset":{"choice":"low","confidence":0.01}},"usage":{"input_tokens":100,"output_tokens":1}}`))}, nil
+	})
+	result := Decide(t.Context(), client, compiled, entry.Presets, TaskState{CurrentTask: "task"}, pricing.DefaultPriceMultiplier)
+	if result.Status != "selected" || result.Source != "jev" || result.Choice != "low" || result.Confidence == nil || *result.Confidence != 0.01 {
+		t.Fatalf("decision = %#v", result)
 	}
 }
 

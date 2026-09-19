@@ -11,7 +11,7 @@ import (
 func TestAutoModelSettingsEncryptAndPreserveSecret(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
-	const raw = `{"enabled":false,"provider":"openrouter","model":"~typesafe/jev-latest","api_key":"decision-test-secret","timeout_seconds":2,"min_confidence":0.5,"input_price":"0.042","output_price":"0","models":[]}`
+	const raw = `{"enabled":false,"provider":"openrouter","model":"~typesafe/jev-latest","api_key":"decision-test-secret","timeout_seconds":2,"input_price":"0.042","output_price":"0","models":[]}`
 	response, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{"auto_model": json.RawMessage(raw)},
 	})

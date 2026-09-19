@@ -64,7 +64,7 @@ func Decide(ctx context.Context, client HTTPDoer, compiled *Compiled, presets []
 	decision := Decision{Source: "fallback", Status: "fallback", Provider: config.Provider,
 		RequestedModel: config.Model, PromptVersion: PromptVersion, ExecutionPhase: state.ExecutionPhase, ContextTruncated: state.ContextTruncated,
 		CostState: "not_applicable", PricingCompleteness: "not_applicable"}
-	criteria := map[string]string{Uncertain: UncertainCriteria}
+	criteria := map[string]string{}
 	for _, preset := range presets {
 		criteria[preset.ID] = preset.Description
 	}
@@ -156,14 +156,6 @@ func Decide(ctx context.Context, client HTTPDoer, compiled *Compiled, presets []
 		return decision
 	}
 	decision.Confidence = answer.Confidence
-	if answer.Choice == Uncertain {
-		decision.Reason = "uncertain"
-		return decision
-	}
-	if *answer.Confidence < config.MinConfidence {
-		decision.Reason = "low_confidence"
-		return decision
-	}
 	decision.Source, decision.Status = "jev", "selected"
 	return decision
 }

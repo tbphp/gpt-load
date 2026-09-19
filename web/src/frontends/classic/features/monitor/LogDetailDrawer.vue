@@ -190,10 +190,33 @@ function decisionReason(reason: string): string {
   return te(key) ? t(key) : `${t('autoModel.reasons.unknown')} · ${reason}`
 }
 
-function decisionCost(value: string, state: string): string {
-  if (state === 'unpriced') return t('monitor.logs.cost.unpriced')
-  if (state === 'not_applicable') return t('autoModel.costNotApplicable')
+function decisionCost(value: string): string {
   return formatExactNanoUSD(value, locale.value)
+}
+
+function decisionFormula(): string {
+  const decision = log.value?.auto_decision
+  if (!decision?.receipt) return '—'
+  const quantities = [
+    decision.input_tokens === null
+      ? ''
+      : `${t('monitor.logs.receipt.input')} ${formatLogTokenCount(decision.input_tokens, locale.value)}`,
+    decision.output_tokens === null
+      ? ''
+      : `${t('monitor.logs.receipt.output')} ${formatLogTokenCount(decision.output_tokens, locale.value)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const rates = decision.receipt.line_items
+    .filter((line) => line.rate_nano_usd_per_million !== null)
+    .map(
+      (line) =>
+        `${line.code === 'output' ? t('monitor.logs.receipt.output') : t('monitor.logs.receipt.input')} ${formatExactNanoUSD(line.rate_nano_usd_per_million!, locale.value)}/1M`,
+    )
+    .join(' · ')
+  const multipliers = decision.receipt.price_multipliers
+  const multiplier = multipliers ? ` × ${multipliers.group} × ${multipliers.access_key}` : ''
+  return `${quantities || '—'} · ${rates || '—'}${multiplier} = ${decisionCost(decision.estimated_cost_nano_usd)}`
 }
 
 function decisionConfidence(value: number): string {
@@ -547,12 +570,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
           <div>
             <dt>{{ t('autoModel.decisionCost') }}</dt>
             <dd>
-              {{
-                decisionCost(
-                  log.auto_decision.estimated_cost_nano_usd,
-                  log.auto_decision.cost_state,
-                )
-              }}
+              {{ decisionCost(log.auto_decision.estimated_cost_nano_usd) }}
             </dd>
           </div>
         </dl>
@@ -678,33 +696,8 @@ function toggleAttemptErrorMessage(sequence: number): void {
             <dt>{{ t('monitor.logs.tokens.cacheHitRate') }}</dt>
             <dd>{{ cacheRateLabel }}</dd>
           </div>
-          <div v-if="log.auto_decision">
-            <dt>{{ t('autoModel.decisionCost') }}</dt>
-            <dd>
-              {{
-                decisionCost(
-                  log.auto_decision.estimated_cost_nano_usd,
-                  log.auto_decision.cost_state,
-                )
-              }}
-            </dd>
-          </div>
-          <div v-if="log.auto_decision">
-            <dt>{{ t('autoModel.answerCost') }}</dt>
-            <dd>
-              {{ decisionCost(log.answer_cost_nano_usd ?? '0', log.answer_cost_state ?? '') }}
-            </dd>
-          </div>
           <div>
-            <dt>
-              {{
-                t(
-                  log.auto_decision
-                    ? 'autoModel.totalCost'
-                    : 'monitor.logs.drawer.usage.estimatedCost',
-                )
-              }}
-            </dt>
+            <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
             <dd class="log-detail__cost">
               <span>{{ costAmountLabel }}</span>
               <PricingModeIndicator
@@ -731,18 +724,24 @@ function toggleAttemptErrorMessage(sequence: number): void {
           <div
             v-if="
               !selfScoped &&
-              costDisplayState !== 'unpriced' &&
-              receipt &&
-              usageDisplayState === 'reported'
+              (log.auto_decision ||
+                (costDisplayState !== 'unpriced' && receipt && usageDisplayState === 'reported'))
             "
             class="log-detail__wide"
           >
             <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
             <dd class="log-detail__formula">
-              <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
-              <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
+              <span v-if="log.auto_decision"
+                >{{ t('autoModel.decisionPriceItem') }} = {{ decisionFormula() }}</span
+              >
+              <template v-if="receipt && usageDisplayState === 'reported'">
+                <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
+                <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
+              </template>
               <template
                 v-if="
+                  receipt &&
+                  usageDisplayState === 'reported' &&
                   receipt.schema_version === 6 &&
                   receipt.base_total_nano_usd !== undefined &&
                   receipt.price_multipliers
@@ -761,7 +760,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 </span>
                 <small>{{ t('monitor.logs.receipt.totalRounding') }}</small>
               </template>
-              <template v-else>
+              <template v-else-if="receipt && usageDisplayState === 'reported'">
                 <span>
                   {{ t('monitor.logs.receipt.total') }} =
                   {{ formatExactNanoUSD(receipt.total_nano_usd, locale) }}

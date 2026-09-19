@@ -89,7 +89,7 @@ const tokenFields = computed<LogColumnId[]>(() => [
   'usage_state',
 ])
 const costFields = computed<LogColumnId[]>(() => [
-  ...(log.value?.auto_decision ? [] : (['estimated_cost_nano_usd'] as const)),
+  'estimated_cost_nano_usd',
   'cost_state',
   'pricing_completeness',
   'pricing_mode',
@@ -124,11 +124,6 @@ function decisionReason(reason: string): string {
     return t('autoModel.reasons.httpError', { status: reason.slice('http_'.length) })
   const key = 'autoModel.reasons.' + reason
   return te(key) ? t(key) : `${t('autoModel.reasons.unknown')} · ${reason}`
-}
-function costText(value: string, state: string): string {
-  if (state === 'unpriced') return t('logs.values.unpriced')
-  if (state === 'not_applicable') return t('autoModel.costNotApplicable')
-  return exactLogMoney(value)
 }
 function confidenceText(value: number): string {
   return n(value, { style: 'percent', maximumFractionDigits: 1 })
@@ -305,12 +300,7 @@ function resolveRedactedLog(): Promise<string> {
               <div>
                 <dt>{{ t('autoModel.decisionCost') }}</dt>
                 <dd>
-                  {{
-                    costText(
-                      log.auto_decision.estimated_cost_nano_usd,
-                      log.auto_decision.cost_state,
-                    )
-                  }}
+                  {{ exactLogMoney(log.auto_decision.estimated_cost_nano_usd) }}
                 </dd>
               </div>
             </dl>
@@ -337,29 +327,6 @@ function resolveRedactedLog(): Promise<string> {
           </AppFormSection>
           <AppFormSection :title="t('logs.costInfo')" compact>
             <dl class="modern-log-detail-grid is-numeric">
-              <template v-if="log.auto_decision">
-                <div>
-                  <dt>{{ t('autoModel.decisionCost') }}</dt>
-                  <dd>
-                    {{
-                      costText(
-                        log.auto_decision.estimated_cost_nano_usd,
-                        log.auto_decision.cost_state,
-                      )
-                    }}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{{ t('autoModel.answerCost') }}</dt>
-                  <dd>
-                    {{ costText(log.answer_cost_nano_usd ?? '0', log.answer_cost_state ?? '') }}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{{ t('autoModel.totalCost') }}</dt>
-                  <dd>{{ costText(log.estimated_cost_nano_usd, log.cost_state) }}</dd>
-                </div>
-              </template>
               <div v-for="field in costFields" :key="field">
                 <dt>{{ t('logs.columns.' + field) }}</dt>
                 <dd>
@@ -367,17 +334,16 @@ function resolveRedactedLog(): Promise<string> {
                 </dd>
               </div>
             </dl>
-            <template v-if="log.auto_decision?.receipt">
-              <p class="modern-log-detail-note">{{ t('autoModel.decisionReceipt') }}</p>
-              <LogPricingReceipt :receipt="log.auto_decision.receipt" />
-            </template>
           </AppFormSection>
           <AppFormSection
-            v-if="receipt"
-            :title="t(log.auto_decision ? 'autoModel.answerReceipt' : 'logs.pricingInfo')"
+            v-if="receipt || log.auto_decision"
+            :title="t('logs.pricingInfo')"
             :description="t('logs.frozenPricing')"
             compact
-            ><LogPricingReceipt :receipt="receipt"
+            ><LogPricingReceipt
+              :receipt="receipt"
+              :decision="log.auto_decision"
+              :total-cost="log.estimated_cost_nano_usd"
           /></AppFormSection>
           <AppFormSection v-if="admin && log.attempts.length" :title="t('logs.attempts')" compact>
             <template #actions

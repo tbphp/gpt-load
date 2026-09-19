@@ -22,7 +22,6 @@ export interface AutoModelConfig {
   api_key: string
   api_key_configured?: boolean
   timeout_seconds: number
-  min_confidence: number
   input_price: string
   output_price: string
   models: AutoEntry[]
@@ -33,7 +32,6 @@ export const defaultAutoModel = (): AutoModelConfig => ({
   model: 'jev-latest',
   api_key: '',
   timeout_seconds: 2,
-  min_confidence: 0.5,
   input_price: '0.042',
   output_price: '0',
   models: [],
@@ -60,15 +58,7 @@ export function readAutoEntry(value: unknown): AutoEntry {
 export function readAutoModel(value: unknown): AutoModelConfig {
   if (value === undefined) return defaultAutoModel()
   const row = record(value)
-  const confidence = row.min_confidence
-  if (
-    typeof confidence !== 'number' ||
-    !Number.isFinite(confidence) ||
-    confidence < 0 ||
-    confidence > 1 ||
-    row.api_key !== ''
-  )
-    throw new InvalidResponseError()
+  if (row.api_key !== '') throw new InvalidResponseError()
   return {
     enabled: boolean(row.enabled),
     provider: oneOf(row.provider, ['typesafe', 'openrouter']),
@@ -76,19 +66,14 @@ export function readAutoModel(value: unknown): AutoModelConfig {
     api_key: '',
     api_key_configured: boolean(row.api_key_configured),
     timeout_seconds: integer(row.timeout_seconds, 1),
-    min_confidence: confidence,
     input_price: text(row.input_price),
     output_price: text(row.output_price),
     models: list(row.models).map(readAutoEntry),
   }
 }
 
-export type AutoModelDraft = Omit<
-  AutoModelConfig,
-  'models' | 'timeout_seconds' | 'min_confidence'
-> & {
+export type AutoModelDraft = Omit<AutoModelConfig, 'models' | 'timeout_seconds'> & {
   timeout_seconds: string
-  min_confidence: string
   models: (Omit<AutoEntry, 'presets'> & {
     presets: (Omit<AutoPreset, 'parameter_overrides'> & { parameter_overrides: string })[]
   })[]
@@ -97,7 +82,6 @@ export function autoModelDraft(config: AutoModelConfig): AutoModelDraft {
   return {
     ...config,
     timeout_seconds: String(config.timeout_seconds),
-    min_confidence: String(config.min_confidence),
     models: config.models.map((entry) => ({
       ...entry,
       enabled: true,
@@ -112,7 +96,6 @@ export function autoModelValue(draft: AutoModelDraft): AutoModelConfig {
   return {
     ...draft,
     timeout_seconds: Number(draft.timeout_seconds),
-    min_confidence: Number(draft.min_confidence),
     models: draft.models.map((entry) => ({
       ...entry,
       enabled: true,
@@ -130,9 +113,6 @@ export function validAutoDraft(draft: AutoModelDraft): boolean {
       Number.isInteger(value.timeout_seconds) &&
       value.timeout_seconds >= 1 &&
       value.timeout_seconds <= 60 &&
-      Number.isFinite(value.min_confidence) &&
-      value.min_confidence >= 0 &&
-      value.min_confidence <= 1 &&
       value.models.every(
         (entry) =>
           entry.name.trim() &&

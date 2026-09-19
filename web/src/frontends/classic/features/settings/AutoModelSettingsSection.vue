@@ -218,18 +218,6 @@ function addTemplate() {
             :disabled="controlsDisabled"
             @update:model-value="update((value) => (value.timeout_seconds = Number($event)))"
         /></FormField>
-        <FormField
-          id="auto-confidence"
-          :label="t('autoModel.confidence')"
-          :description="t('autoModel.confidenceHint')"
-          ><AppTextInput
-            id="auto-confidence"
-            :label="t('autoModel.confidence')"
-            :model-value="String(config.min_confidence)"
-            inputmode="decimal"
-            :disabled="controlsDisabled"
-            @update:model-value="update((value) => (value.min_confidence = Number($event)))"
-        /></FormField>
       </div>
       <h3>{{ t('autoModel.pricing') }}</h3>
       <p>{{ t('autoModel.pricingHint') }}</p>
