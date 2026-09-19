@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
@@ -18,6 +19,7 @@ func (handler *Handler) responseBindingObserver(
 	selection scheduler.Selection,
 	ref state.CredentialRef,
 	request *dialect.ParsedRequest,
+	autoSelections ...*automodel.Selection,
 ) func([]byte) error {
 	if request == nil || request.Method != http.MethodPost || request.Path != "/v1/responses" ||
 		selection.RouteMode != execution.RouteNative || selection.ResponsesStoreDowngraded ||
@@ -42,7 +44,7 @@ func (handler *Handler) responseBindingObserver(
 			response.ID == "" || (response.Store != nil && !*response.Store) {
 			return nil
 		}
-		if !handler.responseBindings.Record(accessKeyID, response.ID, ref) {
+		if !handler.responseBindings.Record(accessKeyID, response.ID, ref, autoSelections...) {
 			return fmt.Errorf("%w: response ownership could not be recorded", ErrUpstreamProtocol)
 		}
 		return nil

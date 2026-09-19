@@ -161,6 +161,64 @@ func TestUsageAPIReturnsDistributionWithoutCredentialIdentity(t *testing.T) {
 	}
 }
 
+func TestUsageAPIAcceptsAutomaticDecisionCostOutsideGroupDistribution(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.September, 19, 12, 0, 0, 0, time.UTC)
+	summary := requestlog.UsageAggregate{
+		RequestCount: 1, SuccessCount: 1, UncachedInputTokens: 10,
+		EstimatedCostNanoUSD: 108,
+	}
+	distributions := usageTestDistributions(summary, requestlog.UsageDistribution{})
+	for _, metric := range []requestlog.UsageDistributionMetric{
+		requestlog.UsageDistributionMetricRequests,
+		requestlog.UsageDistributionMetricTokens,
+		requestlog.UsageDistributionMetricCost,
+	} {
+		distributions.Group[metric] = requestlog.UsageDistribution{
+			Dimension: requestlog.UsageDistributionDimensionGroup,
+			Metric:    metric,
+			Items: []requestlog.UsageDistributionItem{{
+				GroupID: 7,
+				UsageDistributionAggregate: requestlog.UsageDistributionAggregate{
+					RequestCount: 1, TotalTokens: 10, EstimatedCostNanoUSD: 100,
+				},
+			}},
+		}
+	}
+	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
+		Summary: summary, Distributions: distributions,
+	}}
+	engine, _ := newUsageTestEngine(t, now, reader)
+	recorder := performUsageRequest(engine, "test-auth-key", usageTestDayQuery)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("automatic decision usage response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Summary struct {
+				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+			} `json:"summary"`
+			Distributions struct {
+				Group struct {
+					Cost struct {
+						Items []struct {
+							EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+						} `json:"items"`
+					} `json:"cost"`
+				} `json:"group"`
+			} `json:"distributions"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode automatic decision usage response: %v", err)
+	}
+	if envelope.Data.Summary.EstimatedCostNanoUSD != "108" ||
+		len(envelope.Data.Distributions.Group.Cost.Items) != 1 ||
+		envelope.Data.Distributions.Group.Cost.Items[0].EstimatedCostNanoUSD != "100" {
+		t.Fatalf("automatic decision usage response = %#v", envelope.Data)
+	}
+}
+
 func TestUsageAPIReturnsExplicitWindowAndZeroArrays(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60))

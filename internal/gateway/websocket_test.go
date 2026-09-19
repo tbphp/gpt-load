@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/httplifecycle"
 	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
@@ -465,6 +466,54 @@ func TestWebsocketPreparationPreservesExplicitControls(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWebsocketControlMutationRejectsAutomaticOverrides(t *testing.T) {
+	body := []byte(`{"type":"response.create","model":"auto","stream_id":"lane","input":"warm","generate":false}`)
+	original, err := inspectWebsocketRequest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		field string
+		value any
+	}{
+		{"generate", "generate", true},
+		{"stream id", "stream_id", "other"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rules, err := parameteroverride.Compile([]any{map[string]any{
+				"match": map[string]any{"protocol": "openai-responses"},
+				"set":   map[string]any{test.field: test.value},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			effectiveBody, _, err := rules.Apply(protocol.OpenAIResponses, execution.OperationResponsesCreate, "auto", body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			effective, err := inspectWebsocketRequest(effectiveBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if validateWebsocketControlMutation(original, effective) == nil {
+				t.Fatal("automatic override changed an immutable WebSocket control")
+			}
+		})
+	}
+	withoutGenerate, err := inspectWebsocketRequest([]byte(`{"type":"response.create","model":"auto","input":"task"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withGenerate, err := inspectWebsocketRequest([]byte(`{"type":"response.create","model":"auto","input":"task","generate":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validateWebsocketControlMutation(withoutGenerate, withGenerate) == nil {
+		t.Fatal("automatic override added an immutable WebSocket control")
 	}
 }
 

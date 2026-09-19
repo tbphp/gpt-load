@@ -1,4 +1,7 @@
+import { zhCN as autoModel } from '../auto-model'
+
 export default {
+  autoModel,
   monitor: {
     clearKeySearch: '清除密钥搜索',
     title: '监控',

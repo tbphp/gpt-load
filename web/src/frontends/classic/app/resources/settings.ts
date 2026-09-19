@@ -22,6 +22,12 @@ import {
   projectString,
 } from './projector'
 import { projectProxyView } from './proxy'
+import {
+  projectAutoModel,
+  projectAutoEntry,
+  type AutoModelConfigDto,
+  type AutoEntryDto,
+} from './auto-model'
 
 export const runtimeSettingKeys = [
   'route_strategy',
@@ -40,6 +46,7 @@ export const runtimeSettingKeys = [
   'validation_interval',
   'request_log_retention_days',
   'models_dev_auto_sync_enabled',
+  'auto_model',
 ] as const
 
 export type RuntimeSettingKey = (typeof runtimeSettingKeys)[number]
@@ -56,6 +63,7 @@ export type TimeoutSettingKey = Exclude<
   | 'affinity_capacity'
   | 'request_log_retention_days'
   | 'models_dev_auto_sync_enabled'
+  | 'auto_model'
 >
 export type PolicyCountSettingKey = 'retry_count' | 'blacklist_threshold'
 
@@ -70,6 +78,7 @@ export interface CORSConfigDto {
 }
 
 export interface SettingsValues {
+  auto_model?: AutoModelConfigDto
   route_strategy: RouteStrategy
   first_byte_timeout: number
   request_timeout: number
@@ -90,12 +99,14 @@ export interface SettingsValues {
 }
 
 export interface SettingsDto {
+  auto_model_template?: AutoEntryDto
   values: SettingsValues
   overrides: RuntimeSettingKey[]
   read_only: RuntimeSettingKey[]
 }
 
 export type SettingsPatch = Partial<{
+  auto_model: AutoModelConfigDto | null
   route_strategy: RouteStrategy | null
   first_byte_timeout: number | null
   request_timeout: number | null
@@ -119,7 +130,7 @@ export interface SettingsResource {
   settings: SettingsDto
 }
 
-const settingsFields = ['values', 'overrides', 'read_only'] as const
+const settingsFields = ['values', 'overrides', 'read_only', 'auto_model_template'] as const
 const settingsValueFields = [...runtimeSettingKeys, 'proxy_config'] as const
 
 function invalidResponse(): never {
@@ -195,7 +206,12 @@ export function projectSettings(value: unknown): SettingsDto {
   if (new Set(readOnly).size !== readOnly.length) invalidResponse()
 
   return {
+    auto_model_template:
+      record.auto_model_template === undefined
+        ? undefined
+        : projectAutoEntry(record.auto_model_template),
     values: {
+      auto_model: projectAutoModel(values.auto_model),
       route_strategy: projectEnum(values.route_strategy, routeStrategies),
       first_byte_timeout: projectSafeInteger(values.first_byte_timeout, { minimum: 1 }),
       request_timeout: projectSafeInteger(values.request_timeout, { minimum: 1 }),

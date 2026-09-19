@@ -14,6 +14,7 @@ import (
 )
 
 type GroupOption struct {
+	AutoModels     []string              `json:"auto_models,omitempty"`
 	ID             uint                  `json:"id"`
 	Name           string                `json:"name"`
 	ChannelID      channel.ID            `json:"channel_id"`
@@ -60,7 +61,23 @@ func (s *Service) ListGroupOptions(ctx context.Context) ([]GroupOption, error) {
 	if err != nil {
 		return nil, err
 	}
+	for index := range options {
+		options[index].AutoModels = s.autoModelNames()
+	}
 	return options, nil
+}
+
+func (s *Service) autoModelNames() []string {
+	names := []string{}
+	snapshot := s.manager.Current()
+	if snapshot != nil && snapshot.AutoModels.Enabled() {
+		for _, entry := range snapshot.AutoModels.Config().Models {
+			if entry.Enabled {
+				names = append(names, entry.Name)
+			}
+		}
+	}
+	return names
 }
 
 func (s *Service) readGroupOptionRows(ctx context.Context) ([]groupOptionRow, error) {

@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/pricing"
@@ -19,6 +20,9 @@ import (
 )
 
 const defaultListLimit = 50
+
+const requestTotalCostStateSQL = `CASE WHEN cost_state = 'priced' OR decision_pricing_completeness IN ('complete','partial') THEN 'priced' WHEN cost_state = 'unpriced' OR decision_pricing_completeness = 'unavailable' THEN 'unpriced' ELSE 'not_applicable' END`
+const requestTotalCompletenessSQL = `CASE WHEN (` + requestTotalCostStateSQL + `) = 'priced' THEN CASE WHEN pricing_completeness IN ('partial','unavailable') OR decision_pricing_completeness IN ('partial','unavailable') THEN 'partial' ELSE 'complete' END WHEN (` + requestTotalCostStateSQL + `) = 'unpriced' THEN 'unavailable' ELSE 'not_applicable' END`
 
 func (service *Service) List(ctx context.Context, input ListQuery) (Page, error) {
 	limit := input.Limit
@@ -68,10 +72,10 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		query = query.Where("usage_state = ?", input.UsageState)
 	}
 	if input.CostState != "" {
-		query = query.Where("cost_state = ?", input.CostState)
+		query = query.Where("("+requestTotalCostStateSQL+") = ?", input.CostState)
 	}
 	if input.PricingCompleteness != "" {
-		query = query.Where("pricing_completeness = ?", input.PricingCompleteness)
+		query = query.Where("("+requestTotalCompletenessSQL+") = ?", input.PricingCompleteness)
 	}
 	if input.CachePresent != nil {
 		expression := `(cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens + cache_write_unknown_tokens) > 0`
@@ -101,7 +105,7 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		input.InputTokensMax,
 	)
 	query = applyNullableRange(query, "output_tokens", input.OutputTokensMin, input.OutputTokensMax)
-	query = applyNullableRange(query, "estimated_cost_nano_usd", input.CostMinNanoUSD, input.CostMaxNanoUSD)
+	query = applyNullableRange(query, "(estimated_cost_nano_usd + decision_cost_nano_usd)", input.CostMinNanoUSD, input.CostMaxNanoUSD)
 	query = applyAttemptFilters(query, input)
 	if input.Cursor != nil {
 		query = query.Where(
@@ -319,7 +323,17 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 		if err := validateRequestLogUsageCost(row); err != nil {
 			return nil, err
 		}
+		var decision *automodel.Decision
+		if len(row.AutoDecision) > 0 && string(row.AutoDecision) != "null" {
+			decision = new(automodel.Decision)
+			if err := json.Unmarshal(row.AutoDecision, decision); err != nil {
+				return nil, fmt.Errorf("decode automatic decision: %w", err)
+			}
+		}
+		total := telemetry.TotalPricing(telemetry.PricingObservation{CostState: row.CostState, PricingCompleteness: row.PricingCompleteness, EstimatedCostNanoUSD: row.EstimatedCostNanoUSD}, decision)
 		records = append(records, Record{
+			AutoDecision:          decision,
+			TotalPricing:          total,
 			RequestID:             row.ID,
 			CompletedAtMS:         row.CompletedAtMS,
 			AccessKey:             AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
