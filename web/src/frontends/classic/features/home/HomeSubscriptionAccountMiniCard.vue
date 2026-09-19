@@ -465,12 +465,9 @@ const resetCreditsTooltip = computed(() => {
       </span>
     </div>
 
-    <div
-      v-if="quotaWindows.length > 1 || hasResetCredits"
-      class="home-subscription-mini__resources"
-    >
+    <div v-if="quotaWindows.length || hasResetCredits" class="home-subscription-mini__resources">
       <div
-        v-if="quotaWindows.length > 1"
+        v-if="quotaWindows.length"
         class="home-subscription-mini__strip"
         role="group"
         :aria-label="t('group.credentials.subscription.title')"
