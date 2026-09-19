@@ -48,6 +48,18 @@ func TestCPAAnthropicStreamUsageBoundaries(t *testing.T) {
 			want: usage.Tokens{UncachedInput: 902, CacheRead: 900, Output: 10}, state: usage.StateComplete},
 		{name: "read failure cannot bill the estimate", wire: start, err: io.ErrUnexpectedEOF, state: usage.StatePartial},
 		{name: "cancellation cannot bill the estimate", wire: start, err: context.Canceled, state: usage.StatePartial},
+		// Two disjoint deltas: each delta replaces only the buckets it
+		// carries; buckets absent from a delta are retained from earlier
+		// events. Guards the partial-bucket replacement hazard.
+		{name: "two disjoint deltas retain absent buckets", wire: start +
+			strings.Replace(strings.Replace(delta, `"input_tokens":100,`, "", 1), `"cache_read_input_tokens":900,`, "", 1) +
+			strings.Replace(delta, `"output_tokens":10,`, "", 1) + stop,
+			want: usage.Tokens{UncachedInput: 100, CacheRead: 900, Output: 10}, state: usage.StateComplete},
+		// The same delta frame delivered twice (retry confirmation on the
+		// wire) must be idempotent under ReplaceSnapshot — identical values
+		// re-applied cannot double-count.
+		{name: "identical delta re-delivery is idempotent", wire: start + delta + delta + stop,
+			want: usage.Tokens{UncachedInput: 100, CacheRead: 900, Output: 10}, state: usage.StateComplete},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
