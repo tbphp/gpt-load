@@ -5,14 +5,16 @@ import {
   defaultAutoModel,
   type AutoModelConfigDto,
   type AutoEntryDto,
+  validAutoModel,
 } from '@/app/resources/auto-model'
 import type { SettingsResource } from '@/app/resources/settings'
+import SettingRow from '@/components/config/SettingRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import FormField from '@/components/ui/FormField.vue'
-import { createSettingsDraft, type SettingsDraft } from './settings-patch'
+import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
 import type { SettingsDraftChange } from './use-settings-controller'
 
 const props = defineProps<{
@@ -24,18 +26,26 @@ const props = defineProps<{
 const emit = defineEmits<{ change: [value: SettingsDraftChange]; invalid: [value: boolean] }>()
 const { t } = useI18n()
 const config = computed(() => props.draft.values.auto_model ?? defaultAutoModel())
-const entries = ref(JSON.stringify(config.value.models, null, 2))
+const controlsDisabled = computed(() => props.disabled || !hasOverride())
+function editableEntries(models: AutoEntryDto[]) {
+  return models.map((entry) => {
+    const editable: Partial<AutoEntryDto> = { ...entry }
+    delete editable.enabled
+    return editable
+  })
+}
+const entries = ref(JSON.stringify(editableEntries(config.value.models), null, 2))
 const entriesError = ref(false)
 watch(
   () => [props.base, props.revision],
   () => {
-    entries.value = JSON.stringify(config.value.models, null, 2)
+    entries.value = JSON.stringify(editableEntries(config.value.models), null, 2)
     entriesError.value = false
     emit('invalid', false)
   },
 )
 function update(change: (value: AutoModelConfigDto) => void) {
-  if (props.disabled) return
+  if (controlsDisabled.value) return
   const draft = createSettingsDraft({
     values: props.draft.values,
     overrides: [...props.draft.overrides],
@@ -43,8 +53,33 @@ function update(change: (value: AutoModelConfigDto) => void) {
   })
   draft.values.auto_model ??= defaultAutoModel()
   change(draft.values.auto_model)
+  draft.values.auto_model.models.forEach((entry) => (entry.enabled = true))
   draft.overrides.add('auto_model')
   emit('change', { key: 'auto_model', draft })
+}
+function hasOverride(): boolean {
+  return props.draft.overrides.has('auto_model')
+}
+function isPendingRestore(): boolean {
+  return !hasOverride() && props.base.settings.overrides.includes('auto_model')
+}
+function sourceLabel(): string {
+  if (hasOverride()) return t('settings.runtime.overrideSource')
+  if (isPendingRestore()) return t('settings.runtime.pendingRestoreSource')
+  return t('settings.runtime.defaultSource')
+}
+function actionLabel(): string {
+  return hasOverride() ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')
+}
+function toggleOverride() {
+  const draft = setSettingsOverride(props.base.settings, props.draft, 'auto_model', !hasOverride())
+  entries.value = JSON.stringify(editableEntries(draft.values.auto_model?.models ?? []), null, 2)
+  entriesError.value = false
+  emit('invalid', false)
+  emit('change', {
+    key: 'auto_model',
+    draft,
+  })
 }
 function provider(value: string) {
   update((draft) => {
@@ -56,12 +91,34 @@ function provider(value: string) {
     draft.output_price = '0'
   })
 }
+function setEnabled(enabled: boolean) {
+  if (!enabled && entriesError.value) {
+    entries.value = JSON.stringify(editableEntries(config.value.models), null, 2)
+    entriesError.value = false
+    emit('invalid', false)
+  }
+  if (!enabled && !validAutoModel(config.value)) {
+    const fallback = JSON.parse(
+      JSON.stringify(props.base.settings.values.auto_model ?? defaultAutoModel()),
+    ) as AutoModelConfigDto
+    update((draft) => Object.assign(draft, fallback, { enabled: false }))
+    return
+  }
+  update((draft) => (draft.enabled = enabled))
+}
 function editEntries(value: string) {
   entries.value = value
   try {
     const parsed: unknown = JSON.parse(value)
-    if (!Array.isArray(parsed)) throw new Error('array required')
-    update((draft) => (draft.models = parsed as AutoEntryDto[]))
+    if (
+      !Array.isArray(parsed) ||
+      parsed.some((entry) => typeof entry !== 'object' || entry === null || Array.isArray(entry))
+    )
+      throw new Error('array required')
+    update(
+      (draft) =>
+        (draft.models = parsed.map((entry) => ({ ...entry, enabled: true })) as AutoEntryDto[]),
+    )
     entriesError.value = false
   } catch {
     entriesError.value = true
@@ -73,25 +130,45 @@ function addTemplate() {
   if (!template) return
   const copy = JSON.parse(JSON.stringify(template)) as AutoEntryDto
   copy.id = crypto.randomUUID()
+  copy.enabled = true
   if (config.value.models.some((entry) => entry.name === copy.name)) copy.name = ''
   copy.presets.forEach((preset) => (preset.name = t('autoModel.tiers.' + preset.id)))
-  editEntries(JSON.stringify([...config.value.models, copy], null, 2))
+  editEntries(JSON.stringify(editableEntries([...config.value.models, copy]), null, 2))
 }
 </script>
 
 <template>
-  <section id="settings-auto-models" class="settings-section" tabindex="-1">
-    <header class="settings-section__heading">
-      <h2>{{ t('autoModel.title') }}</h2>
-      <p>{{ t('autoModel.experimental') }}</p>
+  <div id="settings-auto-model" class="auto-model-section" tabindex="-1">
+    <header class="auto-model-section__heading">
+      <h3>{{ t('autoModel.experimentalSection') }}</h3>
+      <p>{{ t('autoModel.experimentalSectionHelp') }}</p>
     </header>
-    <div class="auto-model-fields">
-      <AppSwitch
-        :model-value="config.enabled"
-        :label="t('autoModel.enabled')"
-        :disabled="disabled"
-        @update:model-value="update((value) => (value.enabled = $event))"
-      />
+    <SettingRow
+      :label="t('autoModel.title')"
+      :value="
+        isPendingRestore()
+          ? t('settings.runtime.resetPending')
+          : t(config.enabled ? 'settings.runtime.enabled' : 'settings.runtime.disabled')
+      "
+      :help="t('autoModel.experimental')"
+      :source-label="sourceLabel()"
+      :action-label="actionLabel()"
+      :overridden="hasOverride()"
+      :pending-restore="isPendingRestore()"
+      :disabled="disabled"
+      :divided="false"
+      @toggle="toggleOverride"
+    >
+      <template #control>
+        <AppSwitch
+          :model-value="config.enabled"
+          :label="t('autoModel.enabled')"
+          :disabled="disabled"
+          @update:model-value="setEnabled"
+        />
+      </template>
+    </SettingRow>
+    <div v-if="config.enabled" class="auto-model-fields">
       <div class="auto-model-grid">
         <FormField id="auto-provider" :label="t('autoModel.provider')"
           ><AppSelect
@@ -102,7 +179,7 @@ function addTemplate() {
               { value: 'typesafe', label: t('autoModel.official') },
               { value: 'openrouter', label: 'OpenRouter' },
             ]"
-            :disabled="disabled"
+            :disabled="controlsDisabled"
             @update:model-value="provider"
         /></FormField>
         <FormField id="auto-model" :label="t('autoModel.decisionModel')"
@@ -110,7 +187,7 @@ function addTemplate() {
             id="auto-model"
             :label="t('autoModel.decisionModel')"
             :model-value="config.model"
-            :disabled="disabled"
+            :disabled="controlsDisabled"
             @update:model-value="update((value) => (value.model = $event))"
         /></FormField>
         <FormField
@@ -124,7 +201,7 @@ function addTemplate() {
             type="password"
             autocomplete="new-password"
             :placeholder="config.api_key_configured ? t('autoModel.keepKey') : ''"
-            :disabled="disabled"
+            :disabled="controlsDisabled"
             @update:model-value="update((value) => (value.api_key = $event))"
         /></FormField>
         <FormField id="auto-timeout" :label="t('autoModel.timeout')"
@@ -133,7 +210,7 @@ function addTemplate() {
             :label="t('autoModel.timeout')"
             :model-value="String(config.timeout_seconds)"
             inputmode="numeric"
-            :disabled="disabled"
+            :disabled="controlsDisabled"
             @update:model-value="update((value) => (value.timeout_seconds = Number($event)))"
         /></FormField>
         <FormField
@@ -145,7 +222,7 @@ function addTemplate() {
             :label="t('autoModel.confidence')"
             :model-value="String(config.min_confidence)"
             inputmode="decimal"
-            :disabled="disabled"
+            :disabled="controlsDisabled"
             @update:model-value="update((value) => (value.min_confidence = Number($event)))"
         /></FormField>
       </div>
@@ -158,7 +235,7 @@ function addTemplate() {
             :label="t('autoModel.inputPrice')"
             :model-value="config.input_price"
             inputmode="decimal"
-            :disabled="disabled"
+            :disabled="controlsDisabled"
             @update:model-value="update((value) => (value.input_price = $event))"
         /></FormField>
         <FormField id="auto-output-price" :label="t('autoModel.outputPrice')"
@@ -167,7 +244,7 @@ function addTemplate() {
             :label="t('autoModel.outputPrice')"
             :model-value="config.output_price"
             inputmode="decimal"
-            :disabled="disabled"
+            :disabled="controlsDisabled"
             @update:model-value="update((value) => (value.output_price = $event))"
         /></FormField>
       </div>
@@ -175,7 +252,7 @@ function addTemplate() {
         <h3>{{ t('autoModel.entries') }}</h3>
         <AppButton
           variant="secondary"
-          :disabled="disabled || entriesError || !base.settings.auto_model_template"
+          :disabled="controlsDisabled || entriesError || !base.settings.auto_model_template"
           @click="addTemplate"
           >{{ t('autoModel.addTemplate') }}</AppButton
         >
@@ -193,18 +270,33 @@ function addTemplate() {
           class="auto-model-json"
           :value="entries"
           rows="18"
-          :disabled="disabled"
+          :disabled="controlsDisabled"
           @input="editEntries(($event.target as HTMLTextAreaElement).value)"
         />
       </FormField>
     </div>
-  </section>
+  </div>
 </template>
 
 <style scoped>
+.auto-model-section,
+.auto-model-section__heading,
 .auto-model-fields {
   display: grid;
   gap: var(--space-4);
+}
+.auto-model-section__heading h3,
+.auto-model-section__heading p {
+  margin: 0;
+}
+.auto-model-section__heading h3 {
+  font-size: var(--title-section);
+  font-weight: 650;
+}
+.auto-model-section__heading p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 .auto-model-grid {
   display: grid;

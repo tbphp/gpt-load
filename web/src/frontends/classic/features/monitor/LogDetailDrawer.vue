@@ -23,7 +23,7 @@ import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedCost, formatExactNanoUSD } from '@/lib/format'
+import { formatEstimatedCost, formatExactNanoUSD, formatPercent } from '@/lib/format'
 
 import { formatCacheHitRate } from '@/lib/cache-rate'
 import {
@@ -46,7 +46,7 @@ const props = defineProps<{
 }>()
 defineEmits<{ 'update:open': [open: boolean] }>()
 const client = useApiClient()
-const { locale, t } = useI18n()
+const { locale, t, te } = useI18n()
 const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
 const initialLoading = useStableLoading(() => props.open && query.isPending.value)
 const log = computed(() => query.data.value)
@@ -170,6 +170,33 @@ function statusTone(status: string): 'success' | 'danger' | 'warning' | 'neutral
   if (status === 'error') return 'danger'
   if (status === 'incomplete') return 'warning'
   return 'neutral'
+}
+
+function decisionStrategy(source: string): string {
+  const key = 'autoModel.sources.' + source
+  return te(key) ? t(key) : `${t('autoModel.sources.unknown')} · ${source}`
+}
+
+function decisionReason(reason: string): string {
+  if (!reason) return ''
+  if (/^http_\d+$/u.test(reason))
+    return t('autoModel.reasons.httpError', { status: reason.slice('http_'.length) })
+  const key = 'autoModel.reasons.' + reason
+  return te(key) ? t(key) : `${t('autoModel.reasons.unknown')} · ${reason}`
+}
+
+function decisionCost(value: string, state: string): string {
+  if (state === 'unpriced') return t('monitor.logs.cost.unpriced')
+  if (state === 'not_applicable') return t('autoModel.costNotApplicable')
+  return formatExactNanoUSD(value, locale.value)
+}
+
+function decisionConfidence(value: number): string {
+  return formatPercent(Math.round(value * 10_000), 10_000, locale.value)
+}
+
+function decisionModelText(provider: string, reported: string, requested: string): string {
+  return [provider, reported || requested].filter(Boolean).join(' · ') || '—'
 }
 
 function attemptTone(attempt: RequestLogAttemptDto): 'success' | 'danger' | 'warning' {
@@ -467,73 +494,59 @@ function toggleAttemptErrorMessage(sequence: number): void {
         <h3>{{ t('autoModel.log') }}</h3>
         <dl class="log-detail__grid">
           <div>
-            <dt>{{ t('autoModel.selected') }}</dt>
-            <dd>
-              {{ log.auto_decision.selection.preset_name }} ·
-              {{ log.auto_decision.selection.target_model }}
-            </dd>
-          </div>
-          <div>
             <dt>{{ t('autoModel.source') }}</dt>
-            <dd>{{ log.auto_decision.source }} · {{ log.auto_decision.status }}</dd>
+            <dd>{{ decisionStrategy(log.auto_decision.source) }}</dd>
           </div>
           <div>
+            <dt>{{ t('autoModel.selected') }}</dt>
+            <dd>{{ log.auto_decision.selection.preset_name }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.targetModelLog') }}</dt>
+            <dd>{{ log.auto_decision.selection.target_model }}</dd>
+          </div>
+          <div
+            v-if="
+              log.auto_decision.provider ||
+              log.auto_decision.reported_model ||
+              log.auto_decision.requested_model
+            "
+          >
             <dt>{{ t('autoModel.decisionModel') }}</dt>
             <dd>
-              {{ log.auto_decision.provider }} ·
-              {{ log.auto_decision.reported_model || log.auto_decision.requested_model || '—' }}
+              {{
+                decisionModelText(
+                  log.auto_decision.provider,
+                  log.auto_decision.reported_model,
+                  log.auto_decision.requested_model,
+                )
+              }}
             </dd>
           </div>
-          <div>
+          <div v-if="log.auto_decision.provider">
             <dt>{{ t('autoModel.duration') }}</dt>
-            <dd>
-              {{ log.auto_decision.duration_ms }} ms · {{ log.auto_decision.confidence ?? '—' }}
-            </dd>
+            <dd>{{ log.auto_decision.duration_ms }} ms</dd>
+          </div>
+          <div v-if="log.auto_decision.confidence !== null">
+            <dt>{{ t('autoModel.confidenceValue') }}</dt>
+            <dd>{{ decisionConfidence(log.auto_decision.confidence) }}</dd>
           </div>
           <div v-if="log.auto_decision.reason">
             <dt>{{ t('autoModel.reason') }}</dt>
-            <dd>{{ log.auto_decision.reason }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('autoModel.answerCost') }}</dt>
-            <dd>
-              {{
-                log.answer_cost_state === 'unpriced'
-                  ? t('monitor.logs.cost.unpriced')
-                  : formatExactNanoUSD(log.answer_cost_nano_usd ?? '0', locale)
-              }}
-            </dd>
+            <dd>{{ decisionReason(log.auto_decision.reason) }}</dd>
           </div>
           <div>
             <dt>{{ t('autoModel.decisionCost') }}</dt>
             <dd>
               {{
-                log.auto_decision.cost_state === 'unpriced'
-                  ? t('monitor.logs.cost.unpriced')
-                  : formatExactNanoUSD(log.auto_decision.estimated_cost_nano_usd, locale)
+                decisionCost(
+                  log.auto_decision.estimated_cost_nano_usd,
+                  log.auto_decision.cost_state,
+                )
               }}
-            </dd>
-          </div>
-          <div>
-            <dt>{{ t('autoModel.totalCost') }}</dt>
-            <dd>
-              {{
-                log.cost_state === 'unpriced'
-                  ? t('monitor.logs.cost.unpriced')
-                  : formatExactNanoUSD(log.estimated_cost_nano_usd, locale)
-              }}
-              ·
-              {{ log.pricing_completeness }}
             </dd>
           </div>
         </dl>
-        <p
-          v-if="
-            log.pricing_completeness !== 'complete' && log.pricing_completeness !== 'not_applicable'
-          "
-        >
-          {{ t('autoModel.incompleteCost') }}
-        </p>
       </section>
 
       <section v-if="!selfScoped" class="log-detail__section">
@@ -656,8 +669,33 @@ function toggleAttemptErrorMessage(sequence: number): void {
             <dt>{{ t('monitor.logs.tokens.cacheHitRate') }}</dt>
             <dd>{{ cacheRateLabel }}</dd>
           </div>
-          <div v-if="costDisplayState !== 'unpriced'">
-            <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
+          <div v-if="log.auto_decision">
+            <dt>{{ t('autoModel.decisionCost') }}</dt>
+            <dd>
+              {{
+                decisionCost(
+                  log.auto_decision.estimated_cost_nano_usd,
+                  log.auto_decision.cost_state,
+                )
+              }}
+            </dd>
+          </div>
+          <div v-if="log.auto_decision">
+            <dt>{{ t('autoModel.answerCost') }}</dt>
+            <dd>
+              {{ decisionCost(log.answer_cost_nano_usd ?? '0', log.answer_cost_state ?? '') }}
+            </dd>
+          </div>
+          <div>
+            <dt>
+              {{
+                t(
+                  log.auto_decision
+                    ? 'autoModel.totalCost'
+                    : 'monitor.logs.drawer.usage.estimatedCost',
+                )
+              }}
+            </dt>
             <dd class="log-detail__cost">
               <span>{{ costAmountLabel }}</span>
               <PricingModeIndicator

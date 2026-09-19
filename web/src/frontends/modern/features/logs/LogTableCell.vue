@@ -29,7 +29,7 @@ const props = defineProps<{
   channels?: ReadonlyMap<string, GroupChannel>
 }>()
 const emit = defineEmits<{ open: []; filter: [filters: LogQuery] }>()
-const { t, locale } = useI18n()
+const { t, te, locale } = useI18n()
 const paired = computed(() => props.fields.length > 1)
 const protocolColumn = computed(() => props.fields.length === 1 && props.fields[0] === 'protocol')
 const modelColumn = computed(() => props.fields.length === 1 && props.fields[0] === 'client_model')
@@ -103,6 +103,13 @@ const date = computed(() =>
     day: '2-digit',
   }).format(props.row.completed_at_ms),
 )
+const autoDecisionSummary = computed(() => {
+  const decision = props.row.auto_decision
+  if (!decision) return ''
+  const key = 'autoModel.sources.' + decision.source
+  const strategy = te(key) ? t(key) : `${t('autoModel.sources.unknown')} · ${decision.source}`
+  return `${strategy} · ${decision.selection.preset_name}`
+})
 function identityIcon(field: LogColumnId) {
   return field === 'credential_name' ? UserRound : field === 'access_key' ? KeyRound : undefined
 }
@@ -227,6 +234,11 @@ function fieldFilterValue(field: LogColumnId): string {
             :full-text="line.label ? line.label + '\n' + line.value : line.value"
             tabindex="0"
             :aria-label="line.label ? line.label + ' ' + line.value : undefined"
+          />
+          <AppOverflowText
+            v-if="index === 0 && autoDecisionSummary"
+            class="modern-log-auto-decision"
+            :text="autoDecisionSummary"
           />
           <AppTooltip
             v-if="row.operation === 'web_search' && line.value === row.client_model"
@@ -405,6 +417,13 @@ function fieldFilterValue(field: LogColumnId): string {
   align-items: center;
   gap: var(--modern-space-1-5);
   font-size: var(--modern-font-size-small);
+}
+.modern-log-auto-decision {
+  min-width: 0;
+  color: var(--modern-muted);
+  font-family: var(--modern-font-sans);
+  font-size: var(--modern-font-size-caption);
+  font-weight: var(--modern-weight-regular);
 }
 .modern-log-search-indicator {
   display: inline-flex;

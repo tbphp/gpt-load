@@ -176,7 +176,8 @@ export default {
     },
     system: {
       title: 'System information',
-      description: 'Read-only deployment and secret-source metadata with manual update checks.',
+      description:
+        'View deployment and secret-source metadata, check for updates, and manage experimental features.',
       loading: 'Loading system information…',
       loadFailed: 'Unable to load system information.',
       stale: 'System information may be stale because the background refresh failed.',

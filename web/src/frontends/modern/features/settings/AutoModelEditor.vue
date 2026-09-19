@@ -12,7 +12,6 @@ import {
   AppNotice,
   AppSearchSelect,
   AppSelect,
-  AppSwitch,
   AppTextArea,
   AppTextField,
 } from '@modern/components/ui'
@@ -67,6 +66,7 @@ function addEntry() {
     }).models[0]!
     entry.id = crypto.randomUUID()
     entry.name = draft.models.some((item) => item.name === 'auto') ? '' : 'auto'
+    entry.enabled = true
     entry.presets.forEach((preset) => {
       preset.name = t('autoModel.tiers.' + preset.id)
     })
@@ -101,15 +101,8 @@ function validRules(value: string): boolean {
 </script>
 
 <template>
-  <div id="settings-auto_model" class="modern-auto-model" tabindex="-1">
+  <div class="modern-auto-model">
     <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
-    <AppNotice tone="warning">{{ t('autoModel.experimental') }}</AppNotice>
-    <AppSwitch
-      :model-value="modelValue.enabled"
-      :label="t('autoModel.enabled')"
-      :disabled="disabled"
-      @update:model-value="update((draft) => (draft.enabled = $event))"
-    />
     <div class="modern-auto-model-grid">
       <AppSelect
         :model-value="modelValue.provider"
@@ -181,12 +174,7 @@ function validRules(value: string): boolean {
         class="modern-auto-model-entry"
       >
         <div class="modern-auto-model-actions">
-          <AppSwitch
-            :model-value="entry.enabled"
-            :label="t('autoModel.entryEnabled')"
-            :disabled="disabled"
-            @update:model-value="update((draft) => (draft.models[index]!.enabled = $event))"
-          />
+          <strong>{{ entry.name || t('autoModel.unnamedEntry') }}</strong>
           <AppIconButton
             :icon="Trash2"
             :label="t('autoModel.removeEntry')"

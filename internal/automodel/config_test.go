@@ -5,16 +5,20 @@ import (
 	"testing"
 )
 
-func TestConfigRejectsNameCollisionAndMissingEnabledTargets(t *testing.T) {
+func TestConfigUsesSingleEnableSwitchAndRejectsMissingTargets(t *testing.T) {
 	config := DefaultConfig()
 	config.Enabled = true
 	config.APIKey = "secret"
 	entry := Template()
-	entry.Enabled = true
+	entry.Enabled = false
 	config.Models = []Entry{entry}
-	names := map[string]struct{}{"gpt-5.6-luna": {}, "gpt-5.6-terra": {}, "gpt-5.6-sol": {}}
-	if _, err := Compile(config, names); err != nil {
+	names := map[string]struct{}{"gpt-5.6-luna": {}, "gpt-5.6-terra": {}, "gpt-5.6-sol": {}, "gpt-6-astra": {}}
+	compiled, err := Compile(config, names)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if selected, exists := compiled.Lookup("auto"); !exists || !selected.Enabled {
+		t.Fatal("automatic entry did not follow the system enable switch")
 	}
 	names["auto"] = struct{}{}
 	if _, err := Compile(config, names); err == nil {

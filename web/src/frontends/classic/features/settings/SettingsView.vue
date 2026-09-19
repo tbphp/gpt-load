@@ -122,7 +122,6 @@ watch(
 
 const navItems = computed(() => [
   { id: 'settings-routing', label: t('settings.navigation.routing') },
-  { id: 'settings-auto-models', label: t('autoModel.title') },
   { id: 'settings-connection', label: t('settings.navigation.connection') },
   { id: 'settings-reliability', label: t('settings.navigation.reliability') },
   { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
@@ -266,7 +265,6 @@ function sectionID(section: SettingsSection): string {
 function sectionFromID(id: string): SettingsSection | undefined {
   const section = id.replace(/^settings-/u, '')
   return section === 'routing' ||
-    section === 'auto-models' ||
     section === 'connection' ||
     section === 'reliability' ||
     section === 'browser-access' ||
@@ -315,14 +313,14 @@ function settingLabel(key: RuntimeSettingKey): string {
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
-  if (key === 'auto_model') return 'settings-auto-models'
+  if (key === 'auto_model') return 'settings-auto-model'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'settings-browser-access'
   return `settings-value-${key}`
 }
 
 function sectionForKey(key: RuntimeSettingKey): SettingsSection {
-  if (key === 'auto_model') return 'auto-models'
+  if (key === 'auto_model') return 'system'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'browser-access'
   if (
@@ -433,14 +431,6 @@ onBeforeUnmount(() => {
               :disabled="pageOperationLocked"
               @change="updateDraft"
             />
-            <AutoModelSettingsSection
-              :base="base"
-              :draft="draft"
-              :disabled="pageOperationLocked"
-              :revision="browserAccessEditorRevision"
-              @change="updateDraft"
-              @invalid="autoModelInvalidEdits = $event"
-            />
             <ConnectionSettingsSection
               :base="base"
               :draft="draft"
@@ -479,7 +469,18 @@ onBeforeUnmount(() => {
             />
           </template>
 
-          <SystemInfoSection />
+          <SystemInfoSection>
+            <template v-if="base && draft" #experimental>
+              <AutoModelSettingsSection
+                :base="base"
+                :draft="draft"
+                :disabled="pageOperationLocked"
+                :revision="browserAccessEditorRevision"
+                @change="updateDraft"
+                @invalid="autoModelInvalidEdits = $event"
+              />
+            </template>
+          </SystemInfoSection>
           <FrontendSettingsSection :disabled="dirty || pageOperationLocked" />
         </div>
       </div>

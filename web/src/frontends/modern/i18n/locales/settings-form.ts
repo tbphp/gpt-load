@@ -30,7 +30,6 @@ export const zhCN = {
   days: '天',
   sections: {
     routing: '路由调度',
-    autoModels: '自动模型（实验性）',
     connection: '连接与稳定性',
     browser: '浏览器访问',
     maintenance: '数据维护',
@@ -39,12 +38,11 @@ export const zhCN = {
   },
   sectionHelp: {
     routing: '路由选择与请求亲和',
-    autoModels: 'Jev 接入、预设与判断费用',
     connection: '代理、超时和失败处理',
     browser: '跨域访问与请求头规则',
     maintenance: '日志保留与价格同步',
     interface: '选择当前浏览器使用的管理界面',
-    system: '版本与部署信息',
+    system: '版本、部署信息与实验性功能',
   },
   fields: {
     route_strategy: '路由策略',
@@ -188,7 +186,6 @@ export const enUS = {
   days: 'days',
   sections: {
     routing: 'Routing',
-    autoModels: 'Automatic models (experimental)',
     connection: 'Connections & reliability',
     browser: 'Browser access',
     maintenance: 'Data maintenance',
@@ -197,12 +194,11 @@ export const enUS = {
   },
   sectionHelp: {
     routing: 'Route selection and request affinity',
-    autoModels: 'Jev connection, presets and decision pricing',
     connection: 'Proxy, timeouts and failure handling',
     browser: 'Cross-origin access and header rules',
     maintenance: 'Log retention and price sync',
     interface: 'Choose the admin interface for this browser',
-    system: 'Version and deployment',
+    system: 'Version, deployment and experimental features',
   },
   fields: {
     route_strategy: 'Routing strategy',
@@ -351,7 +347,6 @@ export const jaJP = {
   days: '日',
   sections: {
     routing: 'ルーティング',
-    autoModels: '自動モデル（実験的）',
     connection: '接続と安定性',
     browser: 'ブラウザアクセス',
     maintenance: 'データ管理',
@@ -360,12 +355,11 @@ export const jaJP = {
   },
   sectionHelp: {
     routing: 'ルート選択とリクエスト親和性',
-    autoModels: 'Jev 接続、プリセット、判定料金',
     connection: 'プロキシ、タイムアウト、失敗時の処理',
     browser: 'クロスオリジンアクセスとヘッダールール',
     maintenance: 'ログ保持と料金同期',
     interface: 'このブラウザで使う管理画面を選択',
-    system: 'バージョンと配置情報',
+    system: 'バージョン、配置情報、実験的機能',
   },
   fields: {
     route_strategy: 'ルーティング方式',

@@ -4,7 +4,6 @@ import { isCanonicalRouteQuery, scalarRouteQuery } from '@/app/route-query'
 
 export type SettingsSection =
   | 'routing'
-  | 'auto-models'
   | 'connection'
   | 'reliability'
   | 'browser-access'
@@ -14,7 +13,6 @@ export type SettingsSection =
 
 const sections = new Set<SettingsSection>([
   'routing',
-  'auto-models',
   'connection',
   'reliability',
   'browser-access',
@@ -25,6 +23,7 @@ const sections = new Set<SettingsSection>([
 
 export function parseSettingsSection(query: LocationQuery): SettingsSection {
   const value = scalarRouteQuery(query.section)
+  if (value === 'auto-models') return 'system'
   return value !== undefined && sections.has(value as SettingsSection)
     ? (value as SettingsSection)
     : 'routing'

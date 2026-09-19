@@ -160,7 +160,7 @@ export default {
     },
     system: {
       title: '系统信息',
-      description: '只读展示部署与密钥来源元数据，也可以手动检查版本更新。',
+      description: '查看部署与密钥来源、手动检查版本更新，并集中管理实验性功能。',
       loading: '正在加载系统信息…',
       loadFailed: '无法加载系统信息。',
       stale: '后台刷新失败，系统信息可能已过期。',

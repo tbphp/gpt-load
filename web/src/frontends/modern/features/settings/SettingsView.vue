@@ -16,6 +16,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { routeStrategies, type SettingKey, type SettingNumber } from '@modern/api/settings'
+import { autoModelDraft, defaultAutoModel, validAutoDraft } from '@modern/api/auto-model'
 import { getSystemInfo, systemInfoKey } from '@modern/api/system'
 import { usePageRefresh } from '@modern/app/page-refresh'
 import { useURLState } from '@modern/app/url-state'
@@ -25,6 +26,7 @@ import {
   AppCollectionState,
   AppConfirmDialog,
   AppCopyValue,
+  AppFormSection,
   AppIcon,
   AppIconButton,
   AppPanel,
@@ -68,7 +70,6 @@ const info = useQuery({
 })
 const sectionIDs = [
   'routing',
-  'autoModels',
   'connection',
   'browser',
   'maintenance',
@@ -77,7 +78,6 @@ const sectionIDs = [
 ] as const
 type SectionID = (typeof sectionIDs)[number]
 const sectionFields: Record<SectionID, readonly SettingKey[]> = {
-  autoModels: ['auto_model'],
   routing: ['route_strategy', 'affinity_enabled', 'affinity_ttl', 'affinity_capacity'],
   connection: [
     'proxy_config',
@@ -92,10 +92,9 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
   browser: ['cors', 'header_rules', 'response_header_rules'],
   maintenance: ['request_log_retention_days', 'models_dev_auto_sync_enabled'],
   interface: [],
-  system: [],
+  system: ['auto_model'],
 }
 const sectionIcons = {
-  autoModels: SlidersHorizontal,
   routing: Route,
   connection: Cable,
   browser: Globe,
@@ -120,9 +119,12 @@ const state = useURLState(
   ['q', 'section'],
   (query) => ({
     q: typeof query.q === 'string' ? query.q : '',
-    section: sectionIDs.includes(query.section as SectionID)
-      ? (query.section as SectionID)
-      : ('routing' as SectionID),
+    section:
+      query.section === 'autoModels'
+        ? ('system' as SectionID)
+        : sectionIDs.includes(query.section as SectionID)
+          ? (query.section as SectionID)
+          : ('routing' as SectionID),
   }),
   (value) => ({
     ...(value.q ? { q: value.q } : {}),
@@ -156,15 +158,21 @@ function matches(key: SettingKey): boolean {
 }
 const visibleSections = computed(() =>
   sectionIDs.filter((id) => {
-    if (sectionFields[id].length) return sectionFields[id].some(matches)
     const extra =
       id === 'interface'
         ? [t('settingsForm.frontend'), t('frontend.modern.title'), t('frontend.classic.title')]
-        : ['version', 'database', 'dataDir', 'authKeySource', 'encryptionSource', 'encryption'].map(
-            (key) => t('settingsForm.system.' + key),
-          )
+        : id === 'system'
+          ? [
+              'version',
+              'database',
+              'dataDir',
+              'authKeySource',
+              'encryptionSource',
+              'encryption',
+            ].map((key) => t('settingsForm.system.' + key))
+          : []
     const text = (sectionText(id) + ' ' + extra.join(' ')).toLocaleLowerCase()
-    return words.value.every((word) => text.includes(word))
+    return sectionFields[id].some(matches) || words.value.every((word) => text.includes(word))
   }),
 )
 const strategyOptions = computed(() =>
@@ -195,6 +203,12 @@ function settingItem(key: SettingKey) {
 }
 function disabled(key: SettingKey): boolean {
   return saving.value || locked(key)
+}
+function setAutoModelEnabled(enabled: boolean): void {
+  if (!draft.value || !base.value) return
+  if (!enabled && !validAutoDraft(draft.value.auto_model))
+    draft.value.auto_model = autoModelDraft(base.value.values.auto_model ?? defaultAutoModel())
+  draft.value.auto_model.enabled = enabled
 }
 function clearSearch(): void {
   state.value = { ...state.value, q: '' }
@@ -380,14 +394,6 @@ onScopeDispose(() => {
           class="modern-settings-section"
         >
           <div class="modern-settings-fields">
-            <AutoModelEditor
-              v-if="id === 'autoModels'"
-              v-model="draft.auto_model"
-              :template="base?.autoModelTemplate"
-              :disabled="disabled('auto_model')"
-              :error="fieldErrors.auto_model"
-              class="modern-settings-block"
-            />
             <template v-if="id === 'routing'">
               <SettingItem
                 v-if="matches('route_strategy')"
@@ -673,13 +679,43 @@ onScopeDispose(() => {
               :disabled="saving"
               :before-switch="beforeFrontendSwitch"
             />
-            <SettingsSystemInfo
-              v-else-if="id === 'system'"
-              :data="info.data.value"
-              :loading="info.isPending.value"
-              :failed="info.isError.value"
-              @retry="info.refetch()"
-            />
+            <template v-else-if="id === 'system'">
+              <SettingsSystemInfo
+                :data="info.data.value"
+                :loading="info.isPending.value"
+                :failed="info.isError.value"
+                class="modern-settings-block"
+                @retry="info.refetch()"
+              />
+              <AppFormSection
+                :title="t('autoModel.experimentalSection')"
+                :description="t('autoModel.experimentalSectionHelp')"
+                class="modern-settings-block"
+              >
+                <SettingItem
+                  v-bind="settingItem('auto_model')"
+                  :hint="t('autoModel.experimental')"
+                  @reset="restore('auto_model')"
+                  @undo="undoRestore('auto_model')"
+                >
+                  <AppSwitch
+                    id="settings-auto_model"
+                    :model-value="draft.auto_model.enabled"
+                    :label="t('autoModel.enabled')"
+                    :disabled="disabled('auto_model')"
+                    @update:model-value="setAutoModelEnabled"
+                  />
+                  <template v-if="draft.auto_model.enabled" #details>
+                    <AutoModelEditor
+                      v-model="draft.auto_model"
+                      :template="base?.autoModelTemplate"
+                      :disabled="disabled('auto_model')"
+                      :error="fieldErrors.auto_model"
+                    />
+                  </template>
+                </SettingItem>
+              </AppFormSection>
+            </template>
           </div>
         </AppPanel>
       </form>

@@ -100,6 +100,7 @@ export function autoModelDraft(config: AutoModelConfig): AutoModelDraft {
     min_confidence: String(config.min_confidence),
     models: config.models.map((entry) => ({
       ...entry,
+      enabled: true,
       presets: entry.presets.map((preset) => ({
         ...preset,
         parameter_overrides: JSON.stringify(preset.parameter_overrides, null, 2),
@@ -114,6 +115,7 @@ export function autoModelValue(draft: AutoModelDraft): AutoModelConfig {
     min_confidence: Number(draft.min_confidence),
     models: draft.models.map((entry) => ({
       ...entry,
+      enabled: true,
       presets: entry.presets.map((preset) => ({
         ...preset,
         parameter_overrides: JSON.parse(preset.parameter_overrides) as unknown[],

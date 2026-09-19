@@ -20,7 +20,7 @@ const SettingKey = "auto_model"
 
 var ErrInvalidConfig = errors.New("invalid automatic model configuration")
 
-const PromptVersion = "jev-presets-v1"
+const PromptVersion = "jev-presets-v2"
 const Uncertain = "uncertain"
 const MaxStateBytes = 16 << 10
 const MaxRequestBytes = 24 << 10
@@ -136,6 +136,10 @@ func Compile(config Config, ordinaryModels map[string]struct{}) (result *Compile
 	if err != nil {
 		return nil, err
 	}
+	// 自动模型只有系统级总开关；保留字段用于读取早期实验配置，但入口始终随总开关启用。
+	for index := range config.Models {
+		config.Models[index].Enabled = true
+	}
 	compiled := &Compiled{config: config, entries: map[string]CompiledEntry{}, Prices: prices}
 	ids := map[string]struct{}{}
 	for _, entry := range config.Models {
@@ -166,7 +170,7 @@ func Compile(config Config, ordinaryModels map[string]struct{}) (result *Compile
 				return nil, fmt.Errorf("duplicate preset ID")
 			}
 			criteria[preset.ID] = preset.Description
-			if config.Enabled && entry.Enabled {
+			if config.Enabled {
 				if _, exists := ordinaryModels[preset.Model]; !exists {
 					return nil, fmt.Errorf("enabled preset target model does not exist")
 				}
@@ -239,11 +243,12 @@ func (compiled *Compiled) Lookup(name string) (CompiledEntry, bool) {
 func (compiled *Compiled) Enabled() bool { return compiled != nil && compiled.config.Enabled }
 
 func Template() Entry {
-	entry := Entry{ID: "auto", Name: "auto", Fallback: "medium", Presets: []Preset{}}
+	entry := Entry{ID: "auto", Name: "auto", Enabled: true, Fallback: "medium", Presets: []Preset{}}
 	for _, value := range []struct{ id, model, description string }{
-		{"low", "gpt-5.6-luna", "Use for a narrow, well-specified task with an obvious solution: extracting fields, translating straightforward text, reformatting supplied content, answering a basic question, or applying a small mechanical edit. The task does not require substantial investigation or interacting trade-offs."},
-		{"medium", "gpt-5.6-terra", "Use for ordinary implementation, explanation, analysis, or debugging that requires several connected steps. The objective is clear, the scope is bounded, and the constraints can be handled without deep investigation or major architectural reasoning."},
-		{"high", "gpt-5.6-sol", "Use for difficult root-cause analysis, architecture decisions, complex algorithms, or work that must reconcile many interacting constraints. Substantial investigation, deep reasoning, or careful evaluation of trade-offs is needed to complete the current task reliably."},
+		{"low", "gpt-5.6-luna", "Choose this only for a narrow, fully specified task that can be completed with one direct operation and little or no investigation. Examples include extraction, straightforward translation, reformatting supplied content, a basic factual answer, or a small mechanical edit. Do not choose it when the request needs multi-step planning, debugging, trade-offs, or coordination across multiple constraints."},
+		{"medium", "gpt-5.6-terra", "Choose this for a bounded task with a clear objective that needs several connected but conventional steps. Examples include ordinary implementation, explanation, analysis, or debugging with enough local context and a standard approach. Do not choose it for broad investigation, ambiguous root causes, architectural trade-offs, or many strongly interacting constraints."},
+		{"high", "gpt-5.6-sol", "Choose this for a difficult task that requires substantial investigation or deep reasoning across multiple files, systems, or constraints. Examples include nontrivial root-cause analysis, complex algorithms, security-sensitive review, or architecture work that must compare meaningful trade-offs. Do not choose it for ordinary multi-step work, and reserve the max preset for exceptional breadth, ambiguity, or consequence."},
+		{"max", "gpt-6-astra", "Choose this only for the most demanding tasks: unusually broad or ambiguous scope, novel problems, many strongly interacting constraints, difficult multi-hop root-cause analysis, or high-consequence architecture and migration decisions where missing subtle interactions would be costly. The task requires exhaustive investigation, careful comparison of alternatives, and strong validation. Do not choose it merely because the request is long, contains code, or asks for detailed output."},
 	} {
 		rules, _ := json.Marshal([]any{
 			map[string]any{"match": map[string]string{"protocol": "openai-completions"}, "set": map[string]string{"reasoning_effort": value.id}},

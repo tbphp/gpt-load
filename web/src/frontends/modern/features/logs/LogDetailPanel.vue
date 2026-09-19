@@ -88,13 +88,13 @@ const tokenFields = computed<LogColumnId[]>(() => [
     : []),
   'usage_state',
 ])
-const costFields: LogColumnId[] = [
-  'estimated_cost_nano_usd',
+const costFields = computed<LogColumnId[]>(() => [
+  ...(log.value?.auto_decision ? [] : (['estimated_cost_nano_usd'] as const)),
   'cost_state',
   'pricing_completeness',
   'pricing_mode',
   'context_threshold_tokens',
-]
+])
 const primaryFields = [
   { field: 'duration_ms', icon: Clock3 },
   { field: 'first_response_ms', icon: Activity },
@@ -109,6 +109,28 @@ const receipt = computed(
 )
 function valueName(value: string | null | undefined): string {
   return !value ? '—' : te('logs.values.' + value) ? t('logs.values.' + value) : value
+}
+function decisionStrategy(source: string): string {
+  const key = 'autoModel.sources.' + source
+  return te(key) ? t(key) : `${t('autoModel.sources.unknown')} · ${source}`
+}
+function decisionReason(reason: string): string {
+  if (!reason) return ''
+  if (/^http_\d+$/u.test(reason))
+    return t('autoModel.reasons.httpError', { status: reason.slice('http_'.length) })
+  const key = 'autoModel.reasons.' + reason
+  return te(key) ? t(key) : `${t('autoModel.reasons.unknown')} · ${reason}`
+}
+function costText(value: string, state: string): string {
+  if (state === 'unpriced') return t('logs.values.unpriced')
+  if (state === 'not_applicable') return t('autoModel.costNotApplicable')
+  return exactLogMoney(value)
+}
+function confidenceText(value: number): string {
+  return n(value, { style: 'percent', maximumFractionDigits: 1 })
+}
+function decisionModelText(provider: string, reported: string, requested: string): string {
+  return [provider, reported || requested].filter(Boolean).join(' · ') || '—'
 }
 // 表格按 强度 > 预算 > 开关 只取一个值，详情面板给出完整拆解。
 function reasoningText(value: LogReasoning): string {
@@ -228,6 +250,63 @@ function resolveRedactedLog(): Promise<string> {
               </div>
             </dl>
           </section>
+          <AppFormSection v-if="log.auto_decision" :title="t('autoModel.log')" compact>
+            <dl class="modern-log-detail-grid">
+              <div>
+                <dt>{{ t('autoModel.source') }}</dt>
+                <dd>{{ decisionStrategy(log.auto_decision.source) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('autoModel.selected') }}</dt>
+                <dd>{{ log.auto_decision.selection.preset_name }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('autoModel.targetModelLog') }}</dt>
+                <dd>{{ log.auto_decision.selection.target_model }}</dd>
+              </div>
+              <div
+                v-if="
+                  log.auto_decision.provider ||
+                  log.auto_decision.reported_model ||
+                  log.auto_decision.requested_model
+                "
+              >
+                <dt>{{ t('autoModel.decisionModel') }}</dt>
+                <dd>
+                  {{
+                    decisionModelText(
+                      log.auto_decision.provider,
+                      log.auto_decision.reported_model,
+                      log.auto_decision.requested_model,
+                    )
+                  }}
+                </dd>
+              </div>
+              <div v-if="log.auto_decision.provider">
+                <dt>{{ t('autoModel.duration') }}</dt>
+                <dd>{{ log.auto_decision.duration_ms }} ms</dd>
+              </div>
+              <div v-if="log.auto_decision.confidence !== null">
+                <dt>{{ t('autoModel.confidenceValue') }}</dt>
+                <dd>{{ confidenceText(log.auto_decision.confidence) }}</dd>
+              </div>
+              <div v-if="log.auto_decision.reason">
+                <dt>{{ t('autoModel.reason') }}</dt>
+                <dd>{{ decisionReason(log.auto_decision.reason) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('autoModel.decisionCost') }}</dt>
+                <dd>
+                  {{
+                    costText(
+                      log.auto_decision.estimated_cost_nano_usd,
+                      log.auto_decision.cost_state,
+                    )
+                  }}
+                </dd>
+              </div>
+            </dl>
+          </AppFormSection>
           <AppFormSection v-if="admin" :title="t('logs.routingInfo')" compact>
             <dl class="modern-log-detail-grid">
               <div v-for="field in routingFields" :key="field">
@@ -248,84 +327,31 @@ function resolveRedactedLog(): Promise<string> {
               </div>
             </dl>
           </AppFormSection>
-          <AppFormSection v-if="log.auto_decision" :title="t('autoModel.log')" compact>
-            <dl class="modern-log-detail-grid">
-              <div>
-                <dt>{{ t('autoModel.selected') }}</dt>
-                <dd>
-                  {{ log.auto_decision.selection.preset_name }} ·
-                  {{ log.auto_decision.selection.target_model }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t('autoModel.source') }}</dt>
-                <dd>{{ log.auto_decision.source }} · {{ log.auto_decision.status }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('autoModel.decisionModel') }}</dt>
-                <dd>
-                  {{ log.auto_decision.provider }} ·
-                  {{ log.auto_decision.reported_model || log.auto_decision.requested_model || '—' }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t('autoModel.duration') }}</dt>
-                <dd>
-                  {{ log.auto_decision.duration_ms }} ms · {{ log.auto_decision.confidence ?? '—' }}
-                </dd>
-              </div>
-              <div v-if="log.auto_decision.reason">
-                <dt>{{ t('autoModel.reason') }}</dt>
-                <dd>{{ log.auto_decision.reason }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('autoModel.answerCost') }}</dt>
-                <dd>
-                  {{
-                    log.answer_cost_state === 'unpriced'
-                      ? t('logs.values.unpriced')
-                      : exactLogMoney(log.answer_cost_nano_usd ?? '0')
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t('autoModel.decisionCost') }}</dt>
-                <dd>
-                  {{
-                    log.auto_decision.cost_state === 'unpriced'
-                      ? t('logs.values.unpriced')
-                      : exactLogMoney(log.auto_decision.estimated_cost_nano_usd)
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t('autoModel.totalCost') }}</dt>
-                <dd>
-                  {{
-                    log.cost_state === 'unpriced'
-                      ? t('logs.values.unpriced')
-                      : exactLogMoney(log.estimated_cost_nano_usd)
-                  }}
-                  ·
-                  {{ log.pricing_completeness }}
-                </dd>
-              </div>
-            </dl>
-            <p
-              v-if="
-                log.pricing_completeness !== 'complete' &&
-                log.pricing_completeness !== 'not_applicable'
-              "
-            >
-              {{ t('autoModel.incompleteCost') }}
-            </p>
-            <LogPricingReceipt
-              v-if="log.auto_decision.receipt"
-              :receipt="log.auto_decision.receipt"
-            />
-          </AppFormSection>
           <AppFormSection :title="t('logs.costInfo')" compact>
             <dl class="modern-log-detail-grid is-numeric">
+              <template v-if="log.auto_decision">
+                <div>
+                  <dt>{{ t('autoModel.decisionCost') }}</dt>
+                  <dd>
+                    {{
+                      costText(
+                        log.auto_decision.estimated_cost_nano_usd,
+                        log.auto_decision.cost_state,
+                      )
+                    }}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{{ t('autoModel.answerCost') }}</dt>
+                  <dd>
+                    {{ costText(log.answer_cost_nano_usd ?? '0', log.answer_cost_state ?? '') }}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{{ t('autoModel.totalCost') }}</dt>
+                  <dd>{{ costText(log.estimated_cost_nano_usd, log.cost_state) }}</dd>
+                </div>
+              </template>
               <div v-for="field in costFields" :key="field">
                 <dt>{{ t('logs.columns.' + field) }}</dt>
                 <dd>
@@ -333,10 +359,14 @@ function resolveRedactedLog(): Promise<string> {
                 </dd>
               </div>
             </dl>
+            <template v-if="log.auto_decision?.receipt">
+              <p class="modern-log-detail-note">{{ t('autoModel.decisionReceipt') }}</p>
+              <LogPricingReceipt :receipt="log.auto_decision.receipt" />
+            </template>
           </AppFormSection>
           <AppFormSection
             v-if="receipt"
-            :title="t('logs.pricingInfo')"
+            :title="t(log.auto_decision ? 'autoModel.answerReceipt' : 'logs.pricingInfo')"
             :description="t('logs.frozenPricing')"
             compact
             ><LogPricingReceipt :receipt="receipt"
