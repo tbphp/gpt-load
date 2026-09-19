@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Eye, KeyRound, RotateCcw, Stethoscope, Trash2 } from '@lucide/vue'
+import { Download, Eye, KeyRound, RotateCcw, Stethoscope, Trash2, Wallet } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
@@ -18,7 +18,10 @@ const actions = computed(() => [
         },
         { id: 'download', label: t('credentialCards.export'), icon: Download },
       ]
-    : [{ id: 'test', label: t('credentialCards.test'), icon: Stethoscope }]),
+    : [
+        { id: 'test', label: t('credentialCards.test'), icon: Stethoscope },
+        { id: 'balance', label: t('credentialCards.queryBalance'), icon: Wallet },
+      ]),
   ...(props.row.state === 'cooldown' ||
   props.row.state === 'blacklisted' ||
   props.row.modelCooldowns.length

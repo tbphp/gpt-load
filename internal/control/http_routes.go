@@ -274,12 +274,24 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleDownloadAllGroupCredentials,
 			),
 			controlRoute(
+				"control.group-credentials.balances",
+				http.MethodGet,
+				"/groups/:group_id/credentials/balances",
+				s.handleGroupCredentialBalances,
+			),
+			controlRoute(
 				"control.group-credentials.detail",
 				http.MethodGet,
 				"/groups/:group_id/credentials/:credential_id",
 				s.handleGetGroupCredential,
 			),
 			controlRoute("control.group-credentials.quota-history", http.MethodGet, "/groups/:group_id/credentials/:credential_id/quota-history", s.handleCredentialQuotaHistory),
+			controlRoute(
+				"control.group-credentials.balance",
+				http.MethodGet,
+				"/groups/:group_id/credentials/:credential_id/balance",
+				s.handleCredentialBalance,
+			),
 			controlRoute(
 				"control.group-credentials.observation-refresh",
 				http.MethodPost,
@@ -373,6 +385,12 @@ func (s *Server) HTTPModule() httproute.Module {
 					groupCredentialMutationLocator,
 				)),
 				s.handleRestoreTestedGroupCredential,
+			),
+			controlRoute(
+				"control.balance.group-totals",
+				http.MethodGet,
+				"/balances/groups",
+				s.handleGroupBalanceTotals,
 			),
 			controlRoute(
 				"control.group-credentials.batch",

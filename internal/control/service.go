@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -50,6 +51,8 @@ type Service struct {
 	environmentProxy                  *outboundproxy.Config
 	encryption                        encryption.Service
 	executor                          execution.Executor
+	httpClient                        *http.Client
+	balances                          *balanceCache
 	subscriptions                     *subscriptionruntime.Runtime
 	requestLogs                       RequestLogReader
 	usageStats                        UsageStatReader
@@ -153,6 +156,7 @@ func NewService(
 	cfg *config.Config,
 	encryptionService encryption.Service,
 	executor execution.Executor,
+	httpClient *http.Client,
 	subscriptionCredentials *subscription.CredentialManager,
 	requestLogs RequestLogReader,
 	usageStats UsageStatReader,
@@ -179,7 +183,7 @@ func NewService(
 		channelRegistry: channelRegistry,
 		priceRuntime:    priceRuntime,
 		catalogRuntime:  catalogRuntime,
-		encryption:      encryptionService, executor: executor, subscriptions: subscriptions, requestLogs: requestLogs,
+		encryption:      encryptionService, executor: executor, httpClient: httpClient, subscriptions: subscriptions, requestLogs: requestLogs,
 		usageStats: usageStats, homeStatistics: homeStatistics,
 		stats: stats, mutations: mutations, requestLogStats: requestLogStats, accessQuota: accessQuota,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
@@ -248,6 +252,7 @@ func NewService(
 			return capability.Consume(ctx, credential, target, requestID)
 		},
 		now:                   time.Now,
+		balances:              newBalanceCache(credentialBalanceTTL, time.Now),
 		operationRecoveryWake: make(chan struct{}, 1),
 		observationFlights:    make(map[observationFlightKey]*observationFlight),
 		observationSemaphore:  make(chan struct{}, 1),

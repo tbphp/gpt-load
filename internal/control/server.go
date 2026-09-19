@@ -733,6 +733,63 @@ func (s *Server) handleTestGroupCredential(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+// balanceRefreshRequested reports an explicit cache bypass via ?refresh=1.
+func balanceRefreshRequested(c *gin.Context) bool {
+	value := strings.TrimSpace(c.Query("refresh"))
+	return value == "1" || value == "true"
+}
+
+func (s *Server) handleCredentialBalance(c *gin.Context) {
+	groupID, ok := groupID(c, "credential_balance")
+	if !ok {
+		return
+	}
+	credentialID, ok := credentialID(c, "credential_balance")
+	if !ok {
+		return
+	}
+	result, err := s.service.QueryCredentialBalance(
+		c.Request.Context(),
+		groupID,
+		credentialID,
+		balanceRefreshRequested(c),
+	)
+	if err != nil {
+		writeServiceError(c, "credential_balance", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleGroupCredentialBalances(c *gin.Context) {
+	groupID, ok := groupID(c, "group_credential_balances")
+	if !ok {
+		return
+	}
+	result, err := s.service.QueryGroupCredentialBalances(
+		c.Request.Context(),
+		groupID,
+		balanceRefreshRequested(c),
+	)
+	if err != nil {
+		writeServiceError(c, "group_credential_balances", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleGroupBalanceTotals(c *gin.Context) {
+	result, err := s.service.QueryGroupBalanceTotals(
+		c.Request.Context(),
+		balanceRefreshRequested(c),
+	)
+	if err != nil {
+		writeServiceError(c, "group_balance_totals", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", GroupBalanceTotalsResponse{Items: result})
+}
+
 func (s *Server) handleRestoreTestedGroupCredential(c *gin.Context) {
 	groupID, ok := groupID(c, "restore_tested_group_credential")
 	if !ok {
