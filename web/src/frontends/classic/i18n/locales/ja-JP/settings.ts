@@ -45,6 +45,7 @@ export default {
       reliability: '再試行と認証情報の健全性',
       browserAccess: 'Header とクロスオリジン',
       dataMaintenance: 'データとメンテナンス',
+      experimental: '実験的機能',
       system: 'システム情報',
     },
     validation: {
@@ -169,8 +170,7 @@ export default {
     },
     system: {
       title: 'システム情報',
-      description:
-        'デプロイとシークレット取得元の確認、手動更新チェック、実験的機能の管理を行います。',
+      description: 'デプロイとシークレット取得元を表示し、手動で更新を確認できます。',
       loading: 'システム情報を読み込み中…',
       loadFailed: 'システム情報を読み込めません。',
       stale: 'バックグラウンド更新に失敗したため、システム情報が古い可能性があります。',

@@ -138,9 +138,14 @@ function addTemplate() {
 </script>
 
 <template>
-  <div id="settings-auto-model" class="auto-model-section" tabindex="-1">
+  <section
+    id="settings-experimental"
+    class="auto-model-section"
+    aria-labelledby="settings-experimental-title"
+    tabindex="-1"
+  >
     <header class="auto-model-section__heading">
-      <h3>{{ t('autoModel.experimentalSection') }}</h3>
+      <h2 id="settings-experimental-title">{{ t('autoModel.experimentalSection') }}</h2>
       <p>{{ t('autoModel.experimentalSectionHelp') }}</p>
     </header>
     <SettingRow
@@ -275,7 +280,7 @@ function addTemplate() {
         />
       </FormField>
     </div>
-  </div>
+  </section>
 </template>
 
 <style scoped>
@@ -285,11 +290,14 @@ function addTemplate() {
   display: grid;
   gap: var(--space-4);
 }
-.auto-model-section__heading h3,
+.auto-model-section {
+  scroll-margin-top: 76px;
+}
+.auto-model-section__heading h2,
 .auto-model-section__heading p {
   margin: 0;
 }
-.auto-model-section__heading h3 {
+.auto-model-section__heading h2 {
   font-size: var(--title-section);
   font-weight: 650;
 }

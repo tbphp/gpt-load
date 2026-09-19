@@ -2,6 +2,7 @@
 import {
   Cable,
   Database,
+  FlaskConical,
   Globe,
   Monitor,
   RotateCcw,
@@ -26,7 +27,6 @@ import {
   AppCollectionState,
   AppConfirmDialog,
   AppCopyValue,
-  AppFormSection,
   AppIcon,
   AppIconButton,
   AppPanel,
@@ -74,6 +74,7 @@ const sectionIDs = [
   'browser',
   'maintenance',
   'interface',
+  'experimental',
   'system',
 ] as const
 type SectionID = (typeof sectionIDs)[number]
@@ -92,7 +93,8 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
   browser: ['cors', 'header_rules', 'response_header_rules'],
   maintenance: ['request_log_retention_days', 'models_dev_auto_sync_enabled'],
   interface: [],
-  system: ['auto_model'],
+  experimental: ['auto_model'],
+  system: [],
 }
 const sectionIcons = {
   routing: Route,
@@ -100,6 +102,7 @@ const sectionIcons = {
   browser: Globe,
   maintenance: Database,
   interface: Monitor,
+  experimental: FlaskConical,
   system: Server,
 }
 const timeouts: readonly SettingNumber[] = [
@@ -121,7 +124,7 @@ const state = useURLState(
     q: typeof query.q === 'string' ? query.q : '',
     section:
       query.section === 'autoModels'
-        ? ('system' as SectionID)
+        ? ('experimental' as SectionID)
         : sectionIDs.includes(query.section as SectionID)
           ? (query.section as SectionID)
           : ('routing' as SectionID),
@@ -679,43 +682,39 @@ onScopeDispose(() => {
               :disabled="saving"
               :before-switch="beforeFrontendSwitch"
             />
-            <template v-else-if="id === 'system'">
-              <SettingsSystemInfo
-                :data="info.data.value"
-                :loading="info.isPending.value"
-                :failed="info.isError.value"
+            <template v-else-if="id === 'experimental'">
+              <SettingItem
+                v-bind="settingItem('auto_model')"
+                :hint="t('autoModel.experimental')"
                 class="modern-settings-block"
-                @retry="info.refetch()"
-              />
-              <AppFormSection
-                :title="t('autoModel.experimentalSection')"
-                :description="t('autoModel.experimentalSectionHelp')"
-                class="modern-settings-block"
+                @reset="restore('auto_model')"
+                @undo="undoRestore('auto_model')"
               >
-                <SettingItem
-                  v-bind="settingItem('auto_model')"
-                  :hint="t('autoModel.experimental')"
-                  @reset="restore('auto_model')"
-                  @undo="undoRestore('auto_model')"
-                >
-                  <AppSwitch
-                    id="settings-auto_model"
-                    :model-value="draft.auto_model.enabled"
-                    :label="t('autoModel.enabled')"
+                <AppSwitch
+                  id="settings-auto_model"
+                  :model-value="draft.auto_model.enabled"
+                  :label="t('autoModel.enabled')"
+                  :disabled="disabled('auto_model')"
+                  @update:model-value="setAutoModelEnabled"
+                />
+                <template v-if="draft.auto_model.enabled" #details>
+                  <AutoModelEditor
+                    v-model="draft.auto_model"
+                    :template="base?.autoModelTemplate"
                     :disabled="disabled('auto_model')"
-                    @update:model-value="setAutoModelEnabled"
+                    :error="fieldErrors.auto_model"
                   />
-                  <template v-if="draft.auto_model.enabled" #details>
-                    <AutoModelEditor
-                      v-model="draft.auto_model"
-                      :template="base?.autoModelTemplate"
-                      :disabled="disabled('auto_model')"
-                      :error="fieldErrors.auto_model"
-                    />
-                  </template>
-                </SettingItem>
-              </AppFormSection>
+                </template>
+              </SettingItem>
             </template>
+            <SettingsSystemInfo
+              v-else-if="id === 'system'"
+              :data="info.data.value"
+              :loading="info.isPending.value"
+              :failed="info.isError.value"
+              class="modern-settings-block"
+              @retry="info.refetch()"
+            />
           </div>
         </AppPanel>
       </form>

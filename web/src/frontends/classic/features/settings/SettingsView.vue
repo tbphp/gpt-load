@@ -126,8 +126,9 @@ const navItems = computed(() => [
   { id: 'settings-reliability', label: t('settings.navigation.reliability') },
   { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
   { id: 'settings-data-maintenance', label: t('settings.navigation.dataMaintenance') },
-  { id: 'settings-system', label: t('settings.navigation.system') },
   { id: 'settings-interface', label: t('settings.frontend.title') },
+  { id: 'settings-experimental', label: t('settings.navigation.experimental') },
+  { id: 'settings-system', label: t('settings.navigation.system') },
 ])
 const routeSection = computed(() => parseSettingsSection(route.query))
 const { activeSection, selectSection } = useSectionNavigation({
@@ -269,8 +270,9 @@ function sectionFromID(id: string): SettingsSection | undefined {
     section === 'reliability' ||
     section === 'browser-access' ||
     section === 'data-maintenance' ||
-    section === 'system' ||
-    section === 'interface'
+    section === 'interface' ||
+    section === 'experimental' ||
+    section === 'system'
     ? section
     : undefined
 }
@@ -313,14 +315,14 @@ function settingLabel(key: RuntimeSettingKey): string {
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
-  if (key === 'auto_model') return 'settings-auto-model'
+  if (key === 'auto_model') return 'settings-experimental'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'settings-browser-access'
   return `settings-value-${key}`
 }
 
 function sectionForKey(key: RuntimeSettingKey): SettingsSection {
-  if (key === 'auto_model') return 'system'
+  if (key === 'auto_model') return 'experimental'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'browser-access'
   if (
@@ -469,19 +471,17 @@ onBeforeUnmount(() => {
             />
           </template>
 
-          <SystemInfoSection>
-            <template v-if="base && draft" #experimental>
-              <AutoModelSettingsSection
-                :base="base"
-                :draft="draft"
-                :disabled="pageOperationLocked"
-                :revision="browserAccessEditorRevision"
-                @change="updateDraft"
-                @invalid="autoModelInvalidEdits = $event"
-              />
-            </template>
-          </SystemInfoSection>
           <FrontendSettingsSection :disabled="dirty || pageOperationLocked" />
+          <AutoModelSettingsSection
+            v-if="base && draft"
+            :base="base"
+            :draft="draft"
+            :disabled="pageOperationLocked"
+            :revision="browserAccessEditorRevision"
+            @change="updateDraft"
+            @invalid="autoModelInvalidEdits = $event"
+          />
+          <SystemInfoSection />
         </div>
       </div>
 

@@ -52,6 +52,7 @@ export default {
       reliability: 'Retries and credential health',
       browserAccess: 'Headers and CORS',
       dataMaintenance: 'Data and maintenance',
+      experimental: 'Experimental features',
       system: 'System information',
     },
     validation: {
@@ -176,8 +177,7 @@ export default {
     },
     system: {
       title: 'System information',
-      description:
-        'View deployment and secret-source metadata, check for updates, and manage experimental features.',
+      description: 'Read-only deployment and secret-source metadata with manual update checks.',
       loading: 'Loading system information…',
       loadFailed: 'Unable to load system information.',
       stale: 'System information may be stale because the background refresh failed.',

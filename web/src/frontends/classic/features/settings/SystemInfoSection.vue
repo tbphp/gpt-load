@@ -245,9 +245,6 @@ async function checkForUpdate(): Promise<void> {
       </Surface>
       <p class="settings-system__security-note">{{ t('settings.system.securityNote') }}</p>
     </template>
-    <div v-if="$slots.experimental" class="settings-system__experimental">
-      <slot name="experimental" />
-    </div>
   </section>
 </template>
 
@@ -267,12 +264,6 @@ async function checkForUpdate(): Promise<void> {
 .settings-system__definition dd,
 .settings-system__security-note {
   margin: 0;
-}
-
-.settings-system__experimental {
-  margin-top: var(--space-2);
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-5);
 }
 
 .settings-section__heading h2 {

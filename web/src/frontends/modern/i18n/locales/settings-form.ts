@@ -34,6 +34,7 @@ export const zhCN = {
     browser: '浏览器访问',
     maintenance: '数据维护',
     interface: '界面版式',
+    experimental: '实验性功能',
     system: '系统信息',
   },
   sectionHelp: {
@@ -42,7 +43,8 @@ export const zhCN = {
     browser: '跨域访问与请求头规则',
     maintenance: '日志保留与价格同步',
     interface: '选择当前浏览器使用的管理界面',
-    system: '版本、部署信息与实验性功能',
+    experimental: '集中管理默认关闭且可能调整的实验性功能',
+    system: '版本与部署信息',
   },
   fields: {
     route_strategy: '路由策略',
@@ -190,6 +192,7 @@ export const enUS = {
     browser: 'Browser access',
     maintenance: 'Data maintenance',
     interface: 'Interface layout',
+    experimental: 'Experimental features',
     system: 'System information',
   },
   sectionHelp: {
@@ -198,7 +201,8 @@ export const enUS = {
     browser: 'Cross-origin access and header rules',
     maintenance: 'Log retention and price sync',
     interface: 'Choose the admin interface for this browser',
-    system: 'Version, deployment and experimental features',
+    experimental: 'Manage disabled-by-default features that may change',
+    system: 'Version and deployment',
   },
   fields: {
     route_strategy: 'Routing strategy',
@@ -351,6 +355,7 @@ export const jaJP = {
     browser: 'ブラウザアクセス',
     maintenance: 'データ管理',
     interface: '画面レイアウト',
+    experimental: '実験的機能',
     system: 'システム情報',
   },
   sectionHelp: {
@@ -359,7 +364,8 @@ export const jaJP = {
     browser: 'クロスオリジンアクセスとヘッダールール',
     maintenance: 'ログ保持と料金同期',
     interface: 'このブラウザで使う管理画面を選択',
-    system: 'バージョン、配置情報、実験的機能',
+    experimental: '初期状態で無効かつ変更される可能性がある機能を管理',
+    system: 'バージョンと配置情報',
   },
   fields: {
     route_strategy: 'ルーティング方式',

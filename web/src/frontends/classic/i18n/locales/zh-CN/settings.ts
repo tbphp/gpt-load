@@ -44,6 +44,7 @@ export default {
       reliability: '重试与凭据健康',
       browserAccess: 'Header 与跨域',
       dataMaintenance: '数据与维护',
+      experimental: '实验性功能',
       system: '系统信息',
     },
     validation: {
@@ -160,7 +161,7 @@ export default {
     },
     system: {
       title: '系统信息',
-      description: '查看部署与密钥来源、手动检查版本更新，并集中管理实验性功能。',
+      description: '只读展示部署与密钥来源元数据，也可以手动检查版本更新。',
       loading: '正在加载系统信息…',
       loadFailed: '无法加载系统信息。',
       stale: '后台刷新失败，系统信息可能已过期。',
