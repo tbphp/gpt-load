@@ -54,11 +54,13 @@ type CodexWSTurnResult struct {
 }
 
 // CodexWSError 的文本不包含上游响应、凭据、地址或代理密码。
-// UpstreamCode 和 HTTPStatus 仅提供调用者所需的错误分类证据。
+// UpstreamType、UpstreamCode、HTTPStatus 和 RetryAfter 仅提供调用者所需的错误分类证据。
 type CodexWSError struct {
 	Code          string
+	UpstreamType  string
 	UpstreamCode  string
 	HTTPStatus    int
+	RetryAfter    time.Duration
 	DispatchState string
 	cause         error
 }
@@ -261,6 +263,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		}
 		failure := codexWSError("upstream_error")
 		failure.DispatchState, failure.UpstreamCode = result.DispatchState, observation.upstreamCode
+		failure.UpstreamType, failure.RetryAfter = codexWSErrorMetadata(executionErr)
 		var status interface{ StatusCode() int }
 		if errors.As(executionErr, &status) {
 			failure.HTTPStatus = status.StatusCode()
@@ -291,6 +294,36 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	s.started = true
 	s.mu.Unlock()
 	return result, nil
+}
+
+func codexWSErrorMetadata(err error) (string, time.Duration) {
+	upstreamType := ""
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		var payload struct {
+			Type  string `json:"type"`
+			Error struct {
+				Type string `json:"type"`
+			} `json:"error"`
+		}
+		if json.Unmarshal([]byte(current.Error()), &payload) != nil {
+			continue
+		}
+		upstreamType = payload.Error.Type
+		if upstreamType == "" {
+			upstreamType = payload.Type
+		}
+		upstreamType = safeCodexWSCode(upstreamType)
+		if upstreamType != "" {
+			break
+		}
+	}
+	var retry interface{ RetryAfter() *time.Duration }
+	if errors.As(err, &retry) && retry != nil {
+		if value := retry.RetryAfter(); value != nil && *value > 0 {
+			return upstreamType, *value
+		}
+	}
+	return upstreamType, 0
 }
 
 func (s *CodexWSSession) validateRequest(payload []byte) (string, string, error) {
