@@ -87,6 +87,40 @@ func TestDecisionsRuntimeUsesNativeWireAndProviderSpecificPath(t *testing.T) {
 	}
 }
 
+func TestJevListModelsUsesNativeTypeSafeEndpoint(t *testing.T) {
+	const responseBody = `{"models":[{"name":"jev-latest","description":"Latest stable Jev","release_date":"2026-09-15"}]}`
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/models" || request.URL.RawQuery != "tenant=a%2Bb" {
+			t.Errorf("target = %s %s", request.Method, request.URL.String())
+		}
+		if request.Header.Get("Authorization") != "Bearer "+testAPIKey {
+			t.Errorf("Authorization = %q", request.Header.Get("Authorization"))
+		}
+		if body, err := io.ReadAll(request.Body); err != nil || len(body) != 0 {
+			t.Errorf("body = %q, err = %v", body, err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("X-Request-Id", "models-jev")
+		_, _ = io.WriteString(writer, responseBody)
+	}))
+	defer server.Close()
+
+	spec := utilitySpec(channel.Jev, protocol.Decisions, execution.OperationListModels, http.MethodGet, "/v1/models", nil)
+	spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/v1"}`)
+	spec.RawQuery = "tenant=a%2Bb&api_key=injected"
+	spec.Query = nil
+	spec = freezeTestAttempt(spec)
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
+	result := runtime.Execute(context.Background(), spec)
+	if err := result.Validate(); err != nil || result.Error != nil {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+	if result.StatusCode != http.StatusOK || result.UpstreamProtocol != protocol.Decisions ||
+		result.UpstreamRequestID != "models-jev" || string(result.Body) != responseBody {
+		t.Fatalf("result = %+v, body = %s", result, result.Body)
+	}
+}
+
 func TestDecisionsProbeUsesMinimalBodyAndValidatesAnswer(t *testing.T) {
 	for _, response := range []struct {
 		body  string

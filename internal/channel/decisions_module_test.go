@@ -20,10 +20,23 @@ func TestDecisionsNativeCapabilitiesAreExplicit(t *testing.T) {
 			}
 		}
 	}
-
 	jev, err := registry.Resolve(Jev, nil)
 	if err != nil {
 		t.Fatalf("Resolve(Jev) error = %v", err)
+	}
+	if mode, ok := jev.Mode(protocol.Decisions, execution.OperationListModels); !ok || mode != RouteNative {
+		t.Fatalf("Jev ListModels mode = %q, %t", mode, ok)
+	}
+	openRouter, err := registry.Resolve(OpenRouter, nil)
+	if err != nil {
+		t.Fatalf("Resolve(OpenRouter) error = %v", err)
+	}
+	if _, ok := openRouter.Mode(protocol.Decisions, execution.OperationListModels); ok {
+		t.Fatal("OpenRouter unexpectedly exposes Decisions model discovery")
+	}
+	descriptor, ok := registry.Get(Jev)
+	if !ok || !descriptor.Capabilities.ModelDiscovery {
+		t.Fatalf("Jev model discovery capability = %#v, %t", descriptor.Capabilities, ok)
 	}
 	baseURL, ok := registry.FixedBaseURL(Jev)
 	if jev.ProviderKind != ProviderJev || !ok || baseURL != "https://api.typesafe.ai/v1" {

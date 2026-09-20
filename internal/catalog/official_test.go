@@ -47,6 +47,31 @@ func TestOfficialSnapshotProvidesRepresentableVolcengineArkPrices(t *testing.T) 
 	}
 }
 
+func TestOfficialSnapshotProvidesTypeSafeJevModelsAndPrices(t *testing.T) {
+	snapshot, err := OfficialSnapshot()
+	if err != nil {
+		t.Fatalf("OfficialSnapshot() error = %v", err)
+	}
+	provider, ok := snapshot.Providers["jev"]
+	if !ok || provider.ID != "jev" || provider.Name != "TypeSafe Jev" {
+		t.Fatalf("Jev provider = %#v", provider)
+	}
+	if len(provider.Models) != 3 {
+		t.Fatalf("Jev model count = %d, want 3", len(provider.Models))
+	}
+	for _, modelID := range []string{"jev-1.13.0", "jev-latest", "jev-preview"} {
+		model, exists := provider.Models[modelID]
+		if !exists || model.Cost == nil {
+			t.Fatalf("Jev model %q = %#v", modelID, model)
+		}
+		assertPrice(t, modelID+" input", model.Cost.Prices.Input, 42_000_000, true)
+		assertPrice(t, modelID+" output", model.Cost.Prices.Output, 0, true)
+		if model.Metadata.Limits.Context == nil || *model.Metadata.Limits.Context != 64_000 {
+			t.Fatalf("Jev model %q context limit = %#v", modelID, model.Metadata.Limits.Context)
+		}
+	}
+}
+
 func TestOfficialSnapshotReturnsIndependentCopies(t *testing.T) {
 	first, err := OfficialSnapshot()
 	if err != nil {

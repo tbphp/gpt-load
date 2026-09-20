@@ -951,6 +951,8 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		switch spec.ClientProtocol {
 		case protocol.OpenAICompletions, protocol.Anthropic:
 			return spec.Path == "/v1/models"
+		case protocol.Decisions:
+			return spec.Path == "/v1/models"
 		case protocol.Gemini:
 			return spec.Path == "/v1beta/models"
 		default:

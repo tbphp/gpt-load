@@ -40,7 +40,8 @@ func convertedRouteImplemented(providerKind channel.ProviderKind, clientProtocol
 	case execution.OperationImagesGenerate:
 		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIImages
 	case execution.OperationListModels:
-		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.Rerank && clientProtocol.Valid()
+		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.Rerank &&
+			clientProtocol != protocol.Decisions && clientProtocol.Valid()
 	case execution.OperationProbe:
 		return clientProtocol != protocol.Rerank && clientProtocol.Valid()
 	case execution.OperationChatCompletion:
@@ -64,6 +65,9 @@ func nativeRouteImplemented(
 	operation execution.Operation,
 ) bool {
 	if clientProtocol == protocol.Decisions {
+		if providerKind == channel.ProviderJev && operation == execution.OperationListModels {
+			return true
+		}
 		return (providerKind == channel.ProviderJev || providerKind == channel.ProviderOpenRouter) &&
 			(operation == execution.OperationDecisionsCreate || operation == execution.OperationProbe)
 	}

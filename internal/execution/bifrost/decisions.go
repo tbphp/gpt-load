@@ -32,7 +32,15 @@ func prepareDecisions(
 		Header: spec.Header.Clone(),
 		Body:   spec.Body,
 	}
-	if spec.Operation == execution.OperationProbe {
+	if spec.Operation == execution.OperationListModels {
+		if resolved.ProviderKind != channel.ProviderJev {
+			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported decisions model-list provider")
+			return preparedAttempt{}, &failure
+		}
+		request.Method = http.MethodGet
+		request.Path = "/v1/models"
+		request.Body = nil
+	} else if spec.Operation == execution.OperationProbe {
 		body, err := json.Marshal(map[string]any{
 			"model": spec.UpstreamModel,
 			"state": "ping",
@@ -49,23 +57,31 @@ func prepareDecisions(
 		}
 		request.Body = body
 	}
-	request, err := dialect.NewDecisions().RewriteRequestModel(request, spec.UpstreamModel)
-	if err != nil {
-		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid decisions request body")
-		failure.Error.OriginHint = execution.ErrorOriginClient
-		failure.Error.ScopeHint = execution.ErrorScopeRequest
-		return preparedAttempt{}, &failure
+	if spec.Operation != execution.OperationListModels {
+		var err error
+		request, err = dialect.NewDecisions().RewriteRequestModel(request, spec.UpstreamModel)
+		if err != nil {
+			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid decisions request body")
+			failure.Error.OriginHint = execution.ErrorOriginClient
+			failure.Error.ScopeHint = execution.ErrorScopeRequest
+			return preparedAttempt{}, &failure
+		}
 	}
 	baseURL, path, err := decisionsTarget(resolved)
 	if err != nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid decisions target")
 		return preparedAttempt{}, &failure
 	}
+	model := spec.UpstreamModel
+	if spec.Operation == execution.OperationListModels {
+		path = "/models"
+		model = ""
+	}
 	return preparedAttempt{
 		provider: provider, mode: channel.RouteNative, upstreamProtocol: protocol.Decisions,
 		clientProtocol: protocol.Decisions, directKey: directKey, secrets: secrets,
 		passthrough: &schemas.BifrostPassthroughRequest{
-			Provider: provider, Model: spec.UpstreamModel, Method: http.MethodPost,
+			Provider: provider, Model: model, Method: request.Method,
 			Path: path, UpstreamURL: baseURL, RawQuery: safeAttemptQuery(spec),
 			Body: request.Body, SafeHeaders: safePassthroughHeaders(request.Header),
 		},

@@ -465,7 +465,7 @@ func validProtocolOperation(clientProtocol protocol.Protocol, operation executio
 		return clientProtocol == protocol.OpenAIEmbeddings
 	case execution.OperationListModels:
 		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.OpenAIImages &&
-			clientProtocol != protocol.OpenAIEmbeddings && clientProtocol != protocol.Rerank && clientProtocol != protocol.Decisions
+			clientProtocol != protocol.OpenAIEmbeddings && clientProtocol != protocol.Rerank
 	case execution.OperationProbe:
 		return clientProtocol != protocol.OpenAIImages
 	default:

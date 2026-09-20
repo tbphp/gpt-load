@@ -36,6 +36,7 @@ func Jev() spec.Module {
 			},
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.Decisions, execution.OperationDecisionsCreate, execution.RouteNative),
+				spec.NewRoute(protocol.Decisions, execution.OperationListModels, execution.RouteNative),
 				spec.NewRoute(protocol.Decisions, execution.OperationProbe, execution.RouteNative),
 			},
 		},
