@@ -56,6 +56,36 @@ func TestQueryUsageMinuteReadsRollingLogsAndClampsBuckets(t *testing.T) {
 	}
 }
 
+func TestQueryUsageMinuteExcludesAttemptWithoutFinalAttribution(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	start := time.Date(2026, time.September, 18, 14, 41, 11, 0, time.UTC)
+	attributed := aggregationRow(aggregationRequestID(106), start.Add(3*time.Minute), 7, "model")
+	unattributed := aggregationRow(aggregationRequestID(107), start.Add(2*time.Minute), 0, "")
+	unattributed.ChannelID = ""
+	unattributed.CredentialID = 0
+	unattributed.Status = "error"
+	unattributed.StatusCode = 426
+	unattributed.UncachedInputTokens = 0
+	unattributed.OutputTokens = 0
+	unattributed.EstimatedCostNanoUSD = 0
+	unattributed.UsageState = "not_applicable"
+	unattributed.CostState = "not_applicable"
+	unattributed.PricingCompleteness = "not_applicable"
+	if err := db.Create(&[]models.RequestLog{attributed, unattributed}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := newRequestLogTestService(db).QueryUsage(context.Background(), minuteUsageQuery(start))
+	if err != nil {
+		t.Fatalf("QueryUsage() error = %v", err)
+	}
+	if report.Summary.RequestCount != 1 || report.Summary.SuccessCount != 1 ||
+		report.Summary.EstimatedCostNanoUSD != attributed.EstimatedCostNanoUSD {
+		t.Fatalf("summary = %#v, want only the request with final attribution", report.Summary)
+	}
+	assertMinuteUsageReportTotals(t, report)
+}
+
 func TestQueryUsageMinuteCanIncludeThirteenPartialAndFullBuckets(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	start := time.Date(2026, time.September, 7, 13, 2, 0, 0, time.UTC)

@@ -152,6 +152,9 @@ func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
 	if err := tx.CreateInBatches(rows, batchSize).Error; err != nil {
 		return fmt.Errorf("insert request logs: %w", err)
 	}
+	if err := writeAutoDecisionUsage(tx, rows); err != nil {
+		return err
+	}
 	attemptRows := make([]models.RequestLogAttempt, 0)
 	ids := make([]string, 0, len(rows))
 	for _, row := range rows {

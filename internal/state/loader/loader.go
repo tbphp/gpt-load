@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/outboundproxy"
@@ -527,6 +528,7 @@ func decodeSettingValue(raw string) (any, error) {
 
 func isIgnoredSystemSetting(key string) bool {
 	return strings.HasPrefix(key, models.InternalSystemSettingPrefix) ||
+		key == automodel.SettingKey ||
 		key == outboundproxy.SystemSettingKey ||
 		key == "contact_info" // 兼容本分支旧版本保存的已移除设置。
 }
@@ -597,6 +599,21 @@ func mapSystemAndGroups(
 		EnvironmentProxy: environmentProxy,
 	}
 	for _, row := range rows.settings {
+		if row.Key == automodel.SettingKey {
+			if encryptionService == nil {
+				return state.CompileInput{}, fmt.Errorf("missing automatic model encryption service")
+			}
+			plaintext, err := encryptionService.Decrypt(row.Value)
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("decrypt automatic model configuration")
+			}
+			config, err := automodel.Decode([]byte(plaintext))
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("decode automatic model configuration")
+			}
+			input.AutoModel = &config
+			continue
+		}
 		if row.Key == outboundproxy.SystemSettingKey {
 			config, err := decodePersistedProxy(row.Value, encryptionService)
 			if err != nil {

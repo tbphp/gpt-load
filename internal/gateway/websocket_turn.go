@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
@@ -173,6 +174,10 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	parent, parentFound := s.parents[original.previous]
 	s.mu.Unlock()
 	startedBound := binding != nil
+	var boundAuto *automodel.Selection
+	if binding != nil {
+		boundAuto = binding.autoSelection
+	}
 	if binding != nil {
 		currentRef, exists := h.registry.CredentialRef(binding.ref.ID)
 		_, ready := h.registry.ActiveEncryptedCredentialDataIfMatch(currentRef)
@@ -207,11 +212,15 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				reject(reasonResponseBindingNotFound)
 				return
 			}
+			boundAuto = parent.autoSelection
 		} else {
 			stored, found := h.responseBindings.Lookup(key.ID, original.previous)
 			if !found {
 				reject(reasonResponseBindingNotFound)
 				return
+			}
+			if boundAuto == nil {
+				boundAuto = stored.AutoSelection
 			}
 			ref := state.CredentialRef{ID: stored.CredentialID, GroupID: stored.GroupID, IdentityGeneration: stored.IdentityGeneration}
 			if requiredRef != nil && !sameWebsocketIdentity(*requiredRef, ref) {
@@ -221,6 +230,33 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			requiredRef = &ref
 			original.required.StoredResponses = true
 		}
+	}
+	requestCtx := s.ctx
+	if _, automatic := snapshot.AutoModels.Lookup(model); automatic {
+		autoQuery := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required}
+		if requiredRef != nil {
+			autoQuery.AllowedCredentialRefs = map[uint]state.CredentialRef{requiredRef.ID: *requiredRef}
+		}
+		parsed := &dialect.ParsedRequest{Method: http.MethodPost, Path: "/v1/responses", Body: turn.body}
+		var failure *reason
+		parsed, _, recorder.autoDecision, failure = h.prepareAutoModel(requestCtx, snapshot, key, dialect.NewOpenAIResponses(), parsed, original.metadata, boundAuto, func() *reason {
+			return h.admitAutoQuota(snapshot, &admission)
+		}, autoQuery)
+		if failure != nil {
+			reject(*failure)
+			return
+		}
+		if requestCtx.Err() != nil {
+			recorder.completeCanceled(requestCtx, 0, -1)
+			return
+		}
+		turn.body = parsed.Body
+		effective, inspectErr := inspectWebsocketRequest(turn.body)
+		if inspectErr != nil || validateWebsocketControlMutation(original, effective) != nil {
+			reject(reasonParameterOverrideUnavailable)
+			return
+		}
+		original = effective
 	}
 	query := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative, ResponsesStorePreference: original.metadata.ResponsesStorePreference, ExternalModel: original.metadata.Model, AccessKey: key, AllowedCredentialIDs: make(map[uint]struct{}), AllowedCredentialRefs: make(map[uint]state.CredentialRef)}
 	query.ResponsesWebsocket = &original.required
@@ -376,7 +412,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			recorder.setAffinityHit(requiredRef != nil || selection.CredentialID == affinity.preferredCredentialID, kind)
 		}
 		started := recorder.beforeForward()
-		ctx, cancel := context.WithTimeout(s.ctx, selection.Group.Timeouts.Request)
+		ctx, cancel := context.WithTimeout(requestCtx, selection.Group.Timeouts.Request)
 		var firstByteDeadline time.Time
 		if selection.Group.Timeouts.FirstByte > 0 {
 			firstByteDeadline = time.Now().Add(selection.Group.Timeouts.FirstByte)
@@ -405,7 +441,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				openCancel()
 			}
 			if session != nil {
-				binding = &websocketBinding{session: session, ref: ref, channel: string(selection.ChannelID), target: string(spec.TargetConfig), proxy: fingerprint, headers: headerHash, capabilities: selection.ResolvedTarget.ResponsesWebsocket}
+				binding = &websocketBinding{autoSelection: recorder.autoSelection(), session: session, ref: ref, channel: string(selection.ChannelID), target: string(spec.TargetConfig), proxy: fingerprint, headers: headerHash, capabilities: selection.ResolvedTarget.ResponsesWebsocket}
 				s.mu.Lock()
 				s.binding = binding
 				s.mu.Unlock()
@@ -536,17 +572,8 @@ func prepareWebsocketPayload(body []byte, original websocketRequest, selection s
 		return nil, original, err
 	}
 	effective, err := inspectWebsocketRequest(effectiveBody)
-	if err != nil || effective.previous != original.previous || effective.lane != original.lane {
+	if err != nil || validateWebsocketControlMutation(original, effective) != nil {
 		return nil, original, ErrUpstreamProtocol
-	}
-	for _, key := range []string{"store", "generate"} {
-		if raw, exists := original.fields[key]; exists {
-			var oldValue, newValue bool
-			_ = json.Unmarshal(raw, &oldValue)
-			if json.Unmarshal(effective.fields[key], &newValue) != nil || oldValue != newValue {
-				return nil, original, ErrUpstreamProtocol
-			}
-		}
 	}
 	model, _ := json.Marshal(optionalModelValue(selection.UpstreamModelID))
 	effective.fields["model"] = model
@@ -563,6 +590,27 @@ func prepareWebsocketPayload(body []byte, original websocketRequest, selection s
 		return nil, original, ErrUpstreamProtocol
 	}
 	return payload, effective, err
+}
+
+func validateWebsocketControlMutation(original, effective websocketRequest) error {
+	if effective.previous != original.previous || effective.lane != original.lane {
+		return ErrUpstreamProtocol
+	}
+	for _, key := range []string{"store", "generate"} {
+		oldRaw, oldExists := original.fields[key]
+		newRaw, newExists := effective.fields[key]
+		if oldExists != newExists {
+			return ErrUpstreamProtocol
+		}
+		if !oldExists {
+			continue
+		}
+		var oldValue, newValue bool
+		if json.Unmarshal(oldRaw, &oldValue) != nil || json.Unmarshal(newRaw, &newValue) != nil || oldValue != newValue {
+			return ErrUpstreamProtocol
+		}
+	}
+	return nil
 }
 
 type websocketCancelCloser struct {
@@ -592,7 +640,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			idle.stop()
 		}
 	}()
-	onResponse := s.handler.responseBindingObserver(s.keyID, selection, ref, input.Request)
+	onResponse := s.handler.responseBindingObserver(s.keyID, selection, ref, input.Request, recorder.autoSelection())
 	wsResult := binding.session.ExecuteTurn(ctx, input.Request.Body, func(ctx context.Context, body []byte) error {
 		var event struct {
 			Type       string          `json:"type"`
@@ -711,7 +759,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 				if !exists {
 					s.parentOrder = append(s.parentOrder, response.ID)
 				}
-				s.parents[response.ID] = websocketParent{lane: lane, complete: observer.sawTerminal && !providerError && observer.terminalDisposition == dialect.StreamEventCompleted}
+				s.parents[response.ID] = websocketParent{lane: lane, complete: observer.sawTerminal && !providerError && observer.terminalDisposition == dialect.StreamEventCompleted, autoSelection: recorder.autoSelection()}
 				for len(s.parentOrder) > s.handler.websocketLimits.responses {
 					delete(s.parents, s.parentOrder[0])
 					s.parentOrder = s.parentOrder[1:]

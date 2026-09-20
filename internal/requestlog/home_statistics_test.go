@@ -221,7 +221,7 @@ func TestQueryHomeStatisticsUsesOneReadSnapshot(t *testing.T) {
 	inserted := false
 	const callbackName = "test:home_statistics_snapshot_insert"
 	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		if inserted || tx.Statement.Table != "usage_stats" {
+		if inserted || tx.DryRun || (tx.Statement.Table != "usage_stats" && tx.Statement.Table != "usage_rows") {
 			return
 		}
 		inserted = true

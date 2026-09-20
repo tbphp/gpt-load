@@ -53,6 +53,7 @@ export interface GroupRow {
   lastActiveHourRequests: number
 }
 export interface GroupWorkspace {
+  autoModels?: string[]
   observedAt: number
   items: GroupRow[]
 }
@@ -151,7 +152,11 @@ export async function getGroupWorkspace(
     }
   })
   if (new Set(items.map((item) => item.id)).size !== items.length) throw new InvalidResponseError()
-  return { observedAt: integer(data.observed_at_ms), items }
+  return {
+    observedAt: integer(data.observed_at_ms),
+    autoModels: data.auto_models === undefined ? [] : list(data.auto_models).map(text),
+    items,
+  }
 }
 
 export async function getGroupModelNames(client: ApiClient, id: number, signal: AbortSignal) {

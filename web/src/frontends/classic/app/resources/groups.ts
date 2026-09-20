@@ -96,6 +96,7 @@ const groupCollectionItemFields = [
 ] as const
 const groupCollectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
 const groupOptionFields = [
+  'auto_models',
   'id',
   'name',
   'channel_id',
@@ -587,6 +588,10 @@ function projectGroupOption(value: unknown): GroupOptionDto {
   const models = projectArray(record.models, projectNonBlankString)
   if (new Set(models).size !== models.length) throw new InvalidResponseError()
   return {
+    auto_models:
+      record.auto_models === undefined
+        ? []
+        : projectArray(record.auto_models, (value) => projectString(value)),
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
     channel_id: projectChannelID(record.channel_id),

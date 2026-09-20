@@ -481,8 +481,13 @@ func validateMappedUsageDistribution(
 		}
 		cost = int64(costValue)
 	}
-	if requestCount != summary.RequestCount || totalTokens != summary.TotalTokens ||
-		strconv.FormatInt(cost, 10) != summary.EstimatedCostNanoUSD {
+	costMatches := strconv.FormatInt(cost, 10) == summary.EstimatedCostNanoUSD
+	if distribution.Dimension == requestlog.UsageDistributionDimensionGroup {
+		// 自动判断费用属于访问密钥和决策模型，不归属回答 Group；Group 分布可以少于全局费用。
+		summaryCost, err := strconv.ParseInt(summary.EstimatedCostNanoUSD, 10, 64)
+		costMatches = err == nil && cost <= summaryCost
+	}
+	if requestCount != summary.RequestCount || totalTokens != summary.TotalTokens || !costMatches {
 		return fmt.Errorf("map usage distribution: total mismatch")
 	}
 	return nil
