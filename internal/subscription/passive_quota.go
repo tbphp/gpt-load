@@ -39,7 +39,6 @@ type passiveQuotaPending struct {
 	mu                      sync.Mutex
 	entries                 map[uint]*passiveQuotaEntry
 	history                 map[quotaHistorySampleKey]quotaHistorySample
-	historyTimes            map[quotaHistoryKey]int64
 	historyStates           map[quotaHistoryKey]quotaHistoryState
 	historySources          map[quotaHistoryCredential]quotaHistorySource
 	historyObservations     map[quotaHistoryCredential][]quotaHistoryObservation
@@ -53,7 +52,6 @@ func newPassiveQuotaPending() *passiveQuotaPending {
 	return &passiveQuotaPending{
 		entries:             make(map[uint]*passiveQuotaEntry),
 		history:             make(map[quotaHistorySampleKey]quotaHistorySample),
-		historyTimes:        make(map[quotaHistoryKey]int64),
 		historyStates:       make(map[quotaHistoryKey]quotaHistoryState),
 		historySources:      make(map[quotaHistoryCredential]quotaHistorySource),
 		historyObservations: make(map[quotaHistoryCredential][]quotaHistoryObservation),

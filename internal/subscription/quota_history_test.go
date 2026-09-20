@@ -11,7 +11,7 @@ import (
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
-func TestQuotaHistorySamplesLatestWindowIndependentlyAndSurvivesRestart(t *testing.T) {
+func TestQuotaHistoryRecordsDisplayedPercentChangesAndSurvivesRestart(t *testing.T) {
 	manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
 		`{"quota_windows":[{"id":"primary","scope":"account","label":"Session","unit":"percent","state":"available"},{"id":"secondary","scope":"account","label":"Weekly","unit":"percent","state":"available"}]}`)
@@ -28,25 +28,28 @@ func TestQuotaHistorySamplesLatestWindowIndependentlyAndSurvivesRestart(t *testi
 		}
 	}
 	record(10_000, "primary", 0.1)
-	record(20_000, "primary", 0.2)
+	// 剩余 89.51% 与 89.50% 都显示为 90%，不应新增历史点。
+	record(20_000, "primary", 0.1049)
 	record(30_000, "secondary", 0.4)
 	flush()
-	record(909_999, "primary", 0.3)
+	record(40_000, "primary", 0.105)
 	flush()
-	record(910_000, "primary", 0.5)
+	// 剩余 89.49% 显示为 89%，即使相隔不到十五分钟也必须记录。
+	record(50_000, "primary", 0.1051)
 	flush()
-	// 新进程依然从持久化的最后观测时间限流，不会在十五分钟内重复记点。
+	// 重启后使用持久化的最后显示值去重。
 	manager.passiveQuota = newPassiveQuotaPending()
-	record(920_000, "primary", 0.6)
+	record(60_000, "primary", 0.1052)
 	flush()
-	record(1_810_000, "primary", 0.9)
+	record(70_000, "primary", 0.095)
 	flush()
 	var rows []models.CredentialQuotaHistory
 	if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) != 4 || rows[0].ObservedAtMS != 10_000 || rows[0].UsedBasisPoints != 1000 ||
-		rows[1].WindowID != "secondary" || rows[2].ObservedAtMS != 910_000 || rows[3].ObservedAtMS != 1_810_000 {
+		rows[1].WindowID != "secondary" || rows[2].ObservedAtMS != 50_000 || rows[2].UsedBasisPoints != 1051 ||
+		rows[3].ObservedAtMS != 70_000 || rows[3].UsedBasisPoints != 950 {
 		t.Fatalf("unexpected real samples: %+v", rows)
 	}
 }
@@ -74,7 +77,7 @@ func TestQuotaHistoryIgnoresMissingPercentAndKeepsSamplesAfterWriteFailure(t *te
 	if remaining, err := manager.FlushPassiveQuotaObservations(t.Context()); err == nil || !remaining {
 		t.Fatal("history failure must remain pending")
 	}
-	// 写入失败期间继续观测，回升前后的关键点仍应保留，后续普通值不能覆盖它们。
+	// 写入失败期间继续观测，每次显示值变化都必须保留。
 	for index, utilization := range []float64{0.9, 0.01, 0.02} {
 		manager.RecordPassiveQuotaObservation(credential.ID, ref.IdentityGeneration, 30_000+int64(index)*10_000,
 			[]providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, Utilization: &utilization}})
@@ -86,15 +89,16 @@ func TestQuotaHistoryIgnoresMissingPercentAndKeepsSamplesAfterWriteFailure(t *te
 		t.Fatalf("retry: %t %v", remaining, err)
 	}
 	var count int64
-	if err := db.Model(&models.CredentialQuotaHistory{}).Count(&count).Error; err != nil || count != 3 {
+	if err := db.Model(&models.CredentialQuotaHistory{}).Count(&count).Error; err != nil || count != 4 {
 		t.Fatalf("count=%d error=%v", count, err)
 	}
 	var rows []models.CredentialQuotaHistory
 	if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if rows[0].ObservedAtMS != 20_000 || rows[1].ObservedAtMS != 30_000 || rows[2].ObservedAtMS != 40_000 || rows[2].UsedBasisPoints != 100 {
-		t.Fatalf("retry lost real critical samples: %+v", rows)
+	if rows[0].ObservedAtMS != 20_000 || rows[1].ObservedAtMS != 30_000 || rows[2].ObservedAtMS != 40_000 ||
+		rows[2].UsedBasisPoints != 100 || rows[3].ObservedAtMS != 50_000 || rows[3].UsedBasisPoints != 200 {
+		t.Fatalf("retry lost real changed samples: %+v", rows)
 	}
 }
 
@@ -125,8 +129,8 @@ func TestQuotaHistoryUsesOneWindowForNamedWebsocketAndHTTPObservations(t *testin
 	if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0].WindowKey != rows[1].WindowKey || rows[0].ObservedAtMS != 10_000 || rows[1].ObservedAtMS != 3_610_000 || rows[0].UsedBasisPoints != 2000 || rows[1].UsedBasisPoints != 4000 {
-		t.Fatalf("one source was split or sampled within an hour: %+v", rows)
+	if len(rows) != 3 || rows[0].WindowKey != rows[1].WindowKey || rows[1].WindowKey != rows[2].WindowKey || rows[0].ObservedAtMS != 10_000 || rows[1].ObservedAtMS != 20_000 || rows[2].ObservedAtMS != 3_610_000 || rows[0].UsedBasisPoints != 2000 || rows[1].UsedBasisPoints != 3000 || rows[2].UsedBasisPoints != 4000 {
+		t.Fatalf("one source was split or changed values were dropped: %+v", rows)
 	}
 }
 
@@ -149,24 +153,6 @@ func TestQuotaHistoryKeepsNamedWebsocketSourcesSeparate(t *testing.T) {
 	}
 	if len(rows) != 2 || rows[0].WindowKey == rows[1].WindowKey || rows[0].SourceID != "codex_spark" || rows[0].UsedBasisPoints != 2000 || rows[1].SourceID != "other" || rows[1].UsedBasisPoints != 5000 {
 		t.Fatalf("different named sources replaced each other: %+v", rows)
-	}
-}
-
-func TestQuotaHistoryTimeCacheDoesNotStopSamplingWhenFull(t *testing.T) {
-	pending := newPassiveQuotaPending()
-	for index := 0; index < quotaHistoryCapacity; index++ {
-		pending.rememberHistoryTime(quotaHistoryKey{credentialID: uint(index + 1), window: "session"}, int64(index))
-	}
-	key := quotaHistoryKey{credentialID: 5000, window: "new"}
-	pending.rememberHistoryTime(key, 60_000)
-	if len(pending.historyTimes) != quotaHistoryCapacity || pending.historyTimes[key] != 60_000 {
-		t.Fatal("bounded time cache did not accept a new account")
-	}
-	used := 0.25
-	seconds := int64(604_800)
-	pending.recordHistorySampleLocked(1, 1, 1, 120_000, pending.nextVersion, []providerobservation.QuotaWindow{{ID: "primary", WindowSeconds: &seconds, Utilization: &used}})
-	if len(pending.historyBatch(20)) != 1 {
-		t.Fatal("full time cache stopped history admission")
 	}
 }
 
@@ -195,7 +181,7 @@ func TestQuotaHistoryOnlyPersistsWindowsOfAtLeastOneDay(t *testing.T) {
 	}
 }
 
-func TestQuotaHistoryPreservesReboundAndPrecedingObservation(t *testing.T) {
+func TestQuotaHistoryRecordsEveryDisplayedChangeAndDropsOutOfOrderObservation(t *testing.T) {
 	manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh, `{"quota_windows":[]}`)
 	ref, _ := registry.CredentialRef(credential.ID)
@@ -215,10 +201,10 @@ func TestQuotaHistoryPreservesReboundAndPrecedingObservation(t *testing.T) {
 	record(20_000, 0.9)
 	flush()
 	record(30_000, 0.01)
-	// 回升点不能被尚未刷新的后续普通观测覆盖。
+	// 未刷新的相邻显示值变化都必须保留。
 	record(40_000, 0.02)
 	flush()
-	// 不足一个百分点的回升不记点；乱序响应不能成为重置证据。
+	// 乱序观测不能替换较新的额度值。
 	record(50_000, 0.015)
 	record(45_000, 0)
 	flush()
@@ -226,7 +212,7 @@ func TestQuotaHistoryPreservesReboundAndPrecedingObservation(t *testing.T) {
 	flush()
 	record(930_000, 0.4)
 	flush()
-	// 重启后仍能够从持久化的百分比检测回升。
+	// 重启后仍从持久化的最后显示值继续去重。
 	manager.passiveQuota = newPassiveQuotaPending()
 	record(940_000, 0.39)
 	flush()
@@ -234,10 +220,10 @@ func TestQuotaHistoryPreservesReboundAndPrecedingObservation(t *testing.T) {
 	if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	wantTimes := []int64{10_000, 20_000, 30_000, 930_000, 940_000}
-	wantUsed := []int64{5000, 9000, 100, 4000, 3900}
+	wantTimes := []int64{10_000, 20_000, 30_000, 40_000, 50_000, 929_999, 930_000, 940_000}
+	wantUsed := []int64{5000, 9000, 100, 200, 150, 3000, 4000, 3900}
 	if len(rows) != len(wantTimes) {
-		t.Fatalf("unexpected rebound history: %+v", rows)
+		t.Fatalf("unexpected changed history: %+v", rows)
 	}
 	for index, row := range rows {
 		if row.ObservedAtMS != wantTimes[index] || row.UsedBasisPoints != wantUsed[index] {
@@ -246,7 +232,7 @@ func TestQuotaHistoryPreservesReboundAndPrecedingObservation(t *testing.T) {
 	}
 }
 
-func TestQuotaHistoryKeepsConsecutiveReboundsAndBoundsPendingMemory(t *testing.T) {
+func TestQuotaHistoryKeepsConsecutiveDisplayedChangesAndBoundsPendingMemory(t *testing.T) {
 	pending := newPassiveQuotaPending()
 	seconds := int64(604_800)
 	for index, used := range []float64{0.9, 0.5, 0.1} {
@@ -256,14 +242,17 @@ func TestQuotaHistoryKeepsConsecutiveReboundsAndBoundsPendingMemory(t *testing.T
 	}
 	samples := pending.historyBatch(20)
 	if len(samples) != 3 {
-		t.Fatalf("consecutive rebounds replaced pending points: %+v", samples)
+		t.Fatalf("consecutive displayed changes replaced pending points: %+v", samples)
 	}
-	// 两点批次可以被后续回升升级为关键点；旧批次不能误删升级后的样本。
-	old := samples[0]
-	old.critical = false
-	pending.ackHistory(old)
+	stale := samples[0]
+	stale.version--
+	pending.ackHistory(stale)
 	if len(pending.historyBatch(20)) != 3 {
-		t.Fatal("stale acknowledgement discarded upgraded critical point")
+		t.Fatal("stale acknowledgement discarded a newer sample")
+	}
+	pending.ackHistory(samples[0])
+	if len(pending.historyBatch(20)) != 2 {
+		t.Fatal("current acknowledgement did not discard the sample")
 	}
 	for index := 0; index < quotaHistoryCapacity+10; index++ {
 		used := 0.5
@@ -310,8 +299,8 @@ func TestQuotaHistoryPreservesWebsocketHandshakeSample(t *testing.T) {
 				if len(rows) != 3 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 9500 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != 100 {
 					t.Fatalf("lost reset boundary: %+v", rows)
 				}
-			} else if len(rows) != 1 || rows[0].ObservedAtMS != 20_000 || rows[0].UsedBasisPoints != 0 {
-				t.Fatalf("lost first 100-percent observation: %+v", rows)
+			} else if len(rows) != 2 || rows[0].ObservedAtMS != 20_000 || rows[0].UsedBasisPoints != 0 || rows[1].ObservedAtMS != 30_000 || rows[1].UsedBasisPoints != 3000 {
+				t.Fatalf("lost websocket changed observation: %+v", rows)
 			}
 		})
 	}
@@ -389,12 +378,11 @@ func TestQuotaHistoryDetectsReboundAfterSourceCacheEviction(t *testing.T) {
 			if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 				t.Fatal(err)
 			}
-			wantUsed := int64(8000)
-			if burst {
-				wantUsed = 100
+			if !burst && (len(rows) != 3 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 9000 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != 8000) {
+				t.Fatalf("changed values were lost after source cache eviction: %+v", rows)
 			}
-			if len(rows) != 3 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 9000 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != wantUsed {
-				t.Fatalf("rebound lost after source cache eviction: %+v", rows)
+			if burst && (len(rows) != 4 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 9000 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != 100 || rows[3].ObservedAtMS != 40_000 || rows[3].UsedBasisPoints != 9500) {
+				t.Fatalf("burst changes were lost after source cache eviction: %+v", rows)
 			}
 		})
 	}

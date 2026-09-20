@@ -44,6 +44,7 @@ export async function getCredentialQuotaHistory(
       .map(record)
       .map((window) => {
         let previous = -1
+        let hasAnchor = false
         return {
           key: text(window.key),
           id: text(window.id),
@@ -55,8 +56,9 @@ export async function getCredentialQuotaHistory(
             const point = record(value),
               at = integer(point.observed_at_ms),
               used = integer(point.used_basis_points)
-            if (at < from || at >= to || at <= previous || used > 10_000)
+            if (at >= to || at <= previous || used > 10_000 || (at < from && hasAnchor))
               throw new InvalidResponseError()
+            if (at < from) hasAnchor = true
             previous = at
             return {
               observedAt: at,

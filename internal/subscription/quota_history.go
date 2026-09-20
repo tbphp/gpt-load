@@ -18,8 +18,6 @@ import (
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
-const quotaHistoryIntervalMS int64 = 15 * 60_000
-const quotaHistoryReboundBasisPoints int64 = 100
 const quotaHistoryCapacity = 4096
 
 // QuotaHistoryMinimumWindowSeconds 仅为日级及更长周期保留额度历史。
@@ -32,11 +30,10 @@ type quotaHistoryKey struct {
 }
 
 type quotaHistorySample struct {
-	key      quotaHistoryKey
-	version  uint64
-	row      models.CredentialQuotaHistory
-	window   providerobservation.QuotaWindow
-	critical bool
+	key     quotaHistoryKey
+	version uint64
+	row     models.CredentialQuotaHistory
+	window  providerobservation.QuotaWindow
 }
 
 type quotaHistorySampleKey struct {
@@ -45,8 +42,7 @@ type quotaHistorySampleKey struct {
 }
 
 type quotaHistoryState struct {
-	latest       quotaHistorySample
-	admittedAtMS int64
+	latest quotaHistorySample
 }
 
 // QuotaHistoryTargetIdentity 与 Token 版本独立，切换账号或上游目标时隔离历史。
@@ -71,8 +67,13 @@ func quotaHistoryWindowKey(window providerobservation.QuotaWindow) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// recordHistorySampleLocked 对已统一来源的观测每十五分钟采样；明显回升保留前后真实点。
-// 最新观测与待写历史分别有界，跳过普通历史不影响实时额度更新。
+// quotaHistoryDisplayedRemainingPercent 与前端额度标签的 Math.round 保持一致。
+func quotaHistoryDisplayedRemainingPercent(usedBasisPoints int64) int64 {
+	return (10_000 - usedBasisPoints + 50) / 100
+}
+
+// recordHistorySampleLocked 仅在前端显示的剩余额度整数变化时保留真实观测。
+// 最新观测与待写历史分别有界，跳过同一显示值不影响实时额度更新。
 func (pending *passiveQuotaPending) recordHistorySampleLocked(groupID, credentialID uint, identity uint64, observedAtMS int64, version uint64, windows []providerobservation.QuotaWindow) {
 	if observedAtMS < 0 {
 		return
@@ -130,26 +131,9 @@ func (pending *passiveQuotaPending) recordHistorySampleLocked(groupID, credentia
 			ObservedAtMS: observedAtMS, UsedBasisPoints: int64(math.Round(utilization * 10_000)),
 			ResetAtMS: copied.ResetAtMS, WindowSeconds: copied.WindowSeconds,
 		}}
-		last, persisted := pending.historyTimes[key]
-		if known && state.admittedAtMS > last {
-			last = state.admittedAtMS
-		}
-		rebound := known && state.latest.row.UsedBasisPoints-sample.row.UsedBasisPoints >= quotaHistoryReboundBasisPoints
-		admit := rebound || (!known && !persisted) || observedAtMS-last >= quotaHistoryIntervalMS
-		if admit {
-			queued := false
-			if rebound {
-				queued = pending.queueHistoryReboundLocked(state.latest, sample)
-				if queued {
-					sample.critical = true
-				}
-			} else if len(pending.history) < quotaHistoryCapacity {
-				pending.history[quotaHistorySampleKey{window: key, atMS: observedAtMS}] = sample
-				queued = true
-			}
-			if queued {
-				last = observedAtMS
-			}
+		if (!known || quotaHistoryDisplayedRemainingPercent(state.latest.row.UsedBasisPoints) != quotaHistoryDisplayedRemainingPercent(sample.row.UsedBasisPoints)) &&
+			len(pending.history) < quotaHistoryCapacity {
+			pending.history[quotaHistorySampleKey{window: key, atMS: observedAtMS}] = sample
 		}
 		if !known && len(pending.historyStates) >= quotaHistoryCapacity {
 			var oldest quotaHistoryKey
@@ -161,28 +145,8 @@ func (pending *passiveQuotaPending) recordHistorySampleLocked(groupID, credentia
 			}
 			delete(pending.historyStates, oldest)
 		}
-		pending.historyStates[key] = quotaHistoryState{latest: sample, admittedAtMS: last}
+		pending.historyStates[key] = quotaHistoryState{latest: sample}
 	}
-}
-
-// 回升前后点一起入队，容量不足时不保留不完整的边界。
-func (pending *passiveQuotaPending) queueHistoryReboundLocked(preceding, sample quotaHistorySample) bool {
-	samples := [2]quotaHistorySample{preceding, sample}
-	needed := 0
-	for _, point := range samples {
-		key := quotaHistorySampleKey{window: point.key, atMS: point.row.ObservedAtMS}
-		if _, queued := pending.history[key]; !queued {
-			needed++
-		}
-	}
-	if len(pending.history)+needed > quotaHistoryCapacity {
-		return false
-	}
-	for _, point := range samples {
-		point.critical = true
-		pending.history[quotaHistorySampleKey{window: point.key, atMS: point.row.ObservedAtMS}] = point
-	}
-	return true
 }
 
 func (pending *passiveQuotaPending) historyBatch(limit int) []quotaHistorySample {
@@ -213,7 +177,7 @@ func (pending *passiveQuotaPending) ackHistory(sample quotaHistorySample) {
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
 	key := quotaHistorySampleKey{window: sample.key, atMS: sample.row.ObservedAtMS}
-	if current, ok := pending.history[key]; ok && current.version == sample.version && current.critical == sample.critical {
+	if current, ok := pending.history[key]; ok && current.version == sample.version {
 		delete(pending.history, key)
 	}
 }
@@ -232,29 +196,6 @@ func (pending *passiveQuotaPending) hasReadyHistory() bool {
 		}
 	}
 	return false
-}
-
-func (pending *passiveQuotaPending) rememberHistoryTime(key quotaHistoryKey, at int64) {
-	pending.mu.Lock()
-	defer pending.mu.Unlock()
-	pending.rememberHistoryTimeLocked(key, at)
-}
-
-func (pending *passiveQuotaPending) rememberHistoryTimeLocked(key quotaHistoryKey, at int64) {
-	if _, exists := pending.historyTimes[key]; !exists && len(pending.historyTimes) >= quotaHistoryCapacity {
-		var oldest quotaHistoryKey
-		oldestAt := int64(math.MaxInt64)
-		for candidate, observedAt := range pending.historyTimes {
-			if observedAt < oldestAt {
-				oldest, oldestAt = candidate, observedAt
-			}
-		}
-		// 淘汰仅影响查询缓存；再次出现的窗口仍从数据库恢复采样间隔。
-		delete(pending.historyTimes, oldest)
-	}
-	if old, ok := pending.historyTimes[key]; !ok || at > old {
-		pending.historyTimes[key] = at
-	}
 }
 
 // flushQuotaHistory 不持有入队内存锁或凭据 mutation 锁执行数据库操作。
@@ -314,15 +255,7 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 			return true, err
 		}
 		if err == nil && (sample.row.ObservedAtMS <= latest.ObservedAtMS ||
-			(!sample.critical && sample.row.ObservedAtMS-latest.ObservedAtMS < quotaHistoryIntervalMS && latest.UsedBasisPoints-sample.row.UsedBasisPoints < quotaHistoryReboundBasisPoints)) {
-			manager.passiveQuota.rememberHistoryTime(sample.key, latest.ObservedAtMS)
-			manager.passiveQuota.mu.Lock()
-			key := sample.key
-			if state, ok := manager.passiveQuota.historyStates[key]; ok && state.admittedAtMS == sample.row.ObservedAtMS {
-				state.admittedAtMS = latest.ObservedAtMS
-				manager.passiveQuota.historyStates[key] = state
-			}
-			manager.passiveQuota.mu.Unlock()
+			quotaHistoryDisplayedRemainingPercent(sample.row.UsedBasisPoints) == quotaHistoryDisplayedRemainingPercent(latest.UsedBasisPoints)) {
 			manager.passiveQuota.ackHistory(sample)
 			continue
 		}
@@ -335,7 +268,6 @@ func (manager *CredentialManager) flushQuotaHistory(ctx context.Context) (bool, 
 		if err := manager.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&sample.row).Error; err != nil {
 			return true, fmt.Errorf("persist quota history: %w", err)
 		}
-		manager.passiveQuota.rememberHistoryTime(sample.key, sample.row.ObservedAtMS)
 		manager.passiveQuota.ackHistory(sample)
 	}
 	return manager.passiveQuota.hasReadyHistory(), nil
