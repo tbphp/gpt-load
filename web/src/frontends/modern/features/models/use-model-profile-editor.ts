@@ -48,9 +48,7 @@ export function useModelProfileEditor(model: MaybeRefOrGetter<string>) {
       Boolean(base.value && draft.value) &&
       JSON.stringify(overrides.value) !== JSON.stringify(base.value?.overrides ?? {}),
   )
-  const errors = computed(() =>
-    base.value && draft.value ? modelProfileDraftErrors(base.value, draft.value) : {},
-  )
+  const errors = computed(() => (draft.value ? modelProfileDraftErrors(draft.value) : {}))
   const fieldErrors = computed<Partial<Record<ModelProfileField, string>>>(() =>
     attempted.value
       ? Object.fromEntries(

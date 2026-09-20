@@ -10,8 +10,7 @@ type Runtime struct {
 }
 
 type runtimeGeneration struct {
-	catalog  *Snapshot
-	profiles *ClientModelProfiles
+	catalog *Snapshot
 }
 
 // Load returns a caller-owned deep clone of the current snapshot.
@@ -43,5 +42,5 @@ func (runtime *Runtime) Publish(snapshot *Snapshot) {
 		return
 	}
 	cloned := cloneSnapshot(snapshot)
-	runtime.snapshot.Store(&runtimeGeneration{catalog: cloned, profiles: compileClientModelProfiles(cloned)})
+	runtime.snapshot.Store(&runtimeGeneration{catalog: cloned})
 }

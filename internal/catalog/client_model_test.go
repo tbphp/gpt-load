@@ -1,51 +1,75 @@
 package catalog
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 )
 
-func TestClientModelProfileIntersectionAndOverrides(t *testing.T) {
-	large, small := int64(200000), int64(64000)
-	profiles := []ClientModelProfile{
-		{ContextWindow: &large, SupportedReasoningLevels: []string{"low", "high"}, DefaultReasoningLevel: "high",
-			InputModalities: []string{"text", "image"}, SupportsReasoningSummary: true, SupportVerbosity: true},
-		{ContextWindow: &small, SupportedReasoningLevels: []string{"high"}, DefaultReasoningLevel: "high",
-			InputModalities: []string{"text"}, SupportsReasoningSummary: true},
+func TestCodexModelCatalogSnapshotDigest(t *testing.T) {
+	if digest := fmt.Sprintf("%x", sha256.Sum256(codexClientModelsJSON)); digest != codexModelCatalogSHA256 {
+		t.Fatalf("Codex model catalog digest = %q, want %q", digest, codexModelCatalogSHA256)
 	}
-	automatic := IntersectClientModelProfiles("client", profiles)
-	if automatic.DisplayName != "client" || *automatic.ContextWindow != small || automatic.DefaultReasoningLevel != "high" ||
-		!reflect.DeepEqual(automatic.SupportedReasoningLevels, []string{"high"}) ||
-		!reflect.DeepEqual(automatic.InputModalities, []string{"text"}) || !automatic.SupportsReasoningSummary || automatic.SupportVerbosity {
-		t.Fatalf("intersection = %#v", automatic)
+}
+
+func TestCodexClientModelUsesExactTemplateAndFourOverrides(t *testing.T) {
+	contextWindow := int64(64000)
+	reasoning := []string{"low", "high"}
+	modalities := []string{"text"}
+	overrides := ClientModelOverrides{
+		DisplayName:              ptr("Custom Sol"),
+		ContextWindow:            &contextWindow,
+		SupportedReasoningLevels: &reasoning,
+		InputModalities:          &modalities,
 	}
-	var overrides ClientModelOverrides
-	if err := json.Unmarshal([]byte(`{"context_window":32000,"supported_reasoning_levels":[],"supports_reasoning_summary":false}`), &overrides); err != nil {
+	model, automatic, effective, err := BuildCodexClientModel("gpt-5.6-sol", 7, overrides)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := overrides.Validate(); err != nil {
+	if automatic.DisplayName != "GPT-5.6-Sol" || automatic.ContextWindow == nil || *automatic.ContextWindow != 272000 ||
+		!reflect.DeepEqual(automatic.SupportedReasoningLevels, []string{"low", "medium", "high", "xhigh", "max", "ultra"}) ||
+		!reflect.DeepEqual(automatic.InputModalities, []string{"text", "image"}) {
+		t.Fatalf("automatic profile = %#v", automatic)
+	}
+	if effective.DisplayName != "Custom Sol" || effective.ContextWindow == nil || *effective.ContextWindow != contextWindow ||
+		!reflect.DeepEqual(effective.SupportedReasoningLevels, reasoning) || !reflect.DeepEqual(effective.InputModalities, modalities) {
+		t.Fatalf("effective profile = %#v", effective)
+	}
+	if model["slug"] != "gpt-5.6-sol" || model["display_name"] != "Custom Sol" || model["priority"] != 7 ||
+		model["context_window"] != int64(64000) || model["max_context_window"] != int64(64000) ||
+		model["tool_mode"] != "code_mode_only" || model["use_responses_lite"] != true {
+		t.Fatalf("resolved model = %#v", model)
+	}
+	levels := model["supported_reasoning_levels"].([]any)
+	if len(levels) != 2 || levels[0].(map[string]any)["effort"] != "low" || levels[1].(map[string]any)["effort"] != "high" {
+		t.Fatalf("reasoning levels = %#v", levels)
+	}
+	assertCodexInstructionFields(t, model)
+}
+
+func TestCodexClientModelFallsBackToGPT55(t *testing.T) {
+	model, automatic, effective, err := BuildCodexClientModel("vendor/new-model", 3, ClientModelOverrides{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	effective := automatic.Apply(overrides)
-	if *effective.ContextWindow != 32000 || len(effective.SupportedReasoningLevels) != 0 || effective.DefaultReasoningLevel != "" || effective.SupportsReasoningSummary {
-		t.Fatalf("explicit zero values lost: %#v", effective)
+	if automatic.DisplayName != "vendor/new-model" || effective.DisplayName != "vendor/new-model" ||
+		automatic.ContextWindow == nil || *automatic.ContextWindow != 272000 {
+		t.Fatalf("fallback profile = %#v / %#v", automatic, effective)
 	}
-	if *automatic.ContextWindow != small || *profiles[0].ContextWindow != large || len(automatic.SupportedReasoningLevels) != 1 {
-		t.Fatal("profile calculation mutated source")
+	if model["slug"] != "vendor/new-model" || model["display_name"] != "vendor/new-model" ||
+		model["description"] != "vendor/new-model" || model["use_responses_lite"] != false || model["tool_mode"] != nil {
+		t.Fatalf("fallback model = %#v", model)
 	}
-	unknown := IntersectClientModelProfiles("client", append(profiles, DefaultClientModelProfile("unknown")))
-	if unknown.ContextWindow != nil || len(unknown.SupportedReasoningLevels) != 0 || unknown.SupportsReasoningSummary {
-		t.Fatalf("unknown source was omitted: %#v", unknown)
-	}
+	assertCodexInstructionFields(t, model)
 }
 
 func TestClientModelOverridesValidation(t *testing.T) {
 	for _, raw := range []string{
 		`{"context_window":0}`, `{"context_window":9007199254740992}`,
-		`{"display_name":" "}`, `{"supported_reasoning_levels":["future"]}`,
-		`{"supported_reasoning_levels":["high","high"]}`, `{"default_reasoning_level":"high"}`,
-		`{"supported_reasoning_levels":["low"],"default_reasoning_level":"high"}`,
+		`{"display_name":" "}`, `{"supported_reasoning_levels":[]}`,
+		`{"supported_reasoning_levels":["future"]}`, `{"supported_reasoning_levels":["high","high"]}`,
 		`{"input_modalities":[]}`, `{"input_modalities":["text","video"]}`,
 	} {
 		t.Run(raw, func(t *testing.T) {
@@ -67,31 +91,25 @@ func TestClientModelOverridesValidation(t *testing.T) {
 	}
 }
 
-func TestClientModelCatalogProfilesResolveAndFreezeGeneration(t *testing.T) {
-	contextLimit := int64(64000)
-	runtime := &Runtime{}
-	runtime.Publish(&Snapshot{Providers: map[string]Provider{
-		"openai": {Models: map[string]Model{"shared": {Metadata: ModelMetadata{Limits: ModelLimits{Context: &contextLimit}, Modalities: ModelModalities{Input: []string{"text", "image", "video"}}}}}},
-		"other":  {Models: map[string]Model{"shared": {Metadata: ModelMetadata{Modalities: ModelModalities{Input: []string{"text"}}}}}},
-	}})
-	generation := runtime.ClientProfiles()
-	profile, found := generation.Resolve("other", "shared")
-	if !found || profile.ContextWindow != nil || !reflect.DeepEqual(profile.InputModalities, []string{"text"}) {
-		t.Fatalf("exact provider = %#v, %v", profile, found)
+func assertCodexInstructionFields(t *testing.T, model map[string]any) {
+	t.Helper()
+	base, ok := model["base_instructions"].(string)
+	if !ok || base == "" {
+		t.Fatal("base_instructions is missing")
 	}
-	profile, found = generation.Resolve("unknown", "shared")
-	if !found || profile.ContextWindow == nil || *profile.ContextWindow != contextLimit ||
-		!reflect.DeepEqual(profile.InputModalities, []string{"text", "image"}) {
-		t.Fatalf("priority fallback = %#v, %v", profile, found)
+	messages, ok := model["model_messages"].(map[string]any)
+	if !ok {
+		t.Fatal("model_messages is missing")
 	}
-	*profile.ContextWindow = 1
-	profile.InputModalities[0] = "mutated"
-	runtime.Publish(nil)
-	profile, found = generation.Resolve("openai", "shared")
-	if !found || *profile.ContextWindow != contextLimit || profile.InputModalities[0] != "text" {
-		t.Fatal("captured generation was mutated")
+	template, ok := messages["instructions_template"].(string)
+	if !ok || template == "" {
+		t.Fatal("instructions_template is missing")
 	}
-	if _, found = runtime.ClientProfiles().Resolve("openai", "shared"); found {
-		t.Fatal("cleared runtime still exposes a profile")
+	variables, _ := messages["instructions_variables"].(map[string]any)
+	defaultPersonality, _ := variables["personality_default"].(string)
+	if base != replacePersonality(template, defaultPersonality) {
+		t.Fatal("base_instructions is not the default rendered instructions_template")
 	}
 }
+
+func ptr(value string) *string { return &value }

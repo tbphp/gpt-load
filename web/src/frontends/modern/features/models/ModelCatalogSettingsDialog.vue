@@ -10,7 +10,6 @@ import {
 } from '@modern/api/models'
 import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import {
-  AppBadge,
   AppButton,
   AppCheckbox,
   AppCollectionState,
@@ -19,9 +18,6 @@ import {
   AppFormSection,
   AppMultiSelect,
   AppNotice,
-  AppSelect,
-  AppSwitch,
-  AppTextArea,
   AppTextField,
 } from '@modern/components/ui'
 import { useModelProfileEditor } from './use-model-profile-editor'
@@ -51,26 +47,12 @@ const reasoningOptions = computed(() =>
     label: t(`modelManager.profile.reasoningLevels.${value}`),
   })),
 )
-const defaultReasoningOptions = computed(() => {
-  const supported = draft.value?.custom.supported_reasoning_levels
-    ? draft.value.values.supported_reasoning_levels
-    : []
-  return [
-    { value: '', label: t('modelManager.profile.noDefault') },
-    ...reasoningOptions.value.map((option) => ({
-      ...option,
-      disabled: !supported.includes(option.value),
-    })),
-  ]
-})
-
 function automaticValue(field: ModelProfileFieldName): string {
   const automatic = base.value?.automatic
   if (!automatic) return ''
   switch (field) {
     case 'display_name':
-    case 'description':
-      return automatic[field] || t('modelManager.profile.unset')
+      return automatic.display_name
     case 'context_window':
       return automatic.context_window === null
         ? t('modelManager.profile.unknownContext')
@@ -81,19 +63,10 @@ function automaticValue(field: ModelProfileFieldName): string {
             .map((value) => t(`modelManager.profile.reasoningLevels.${value}`))
             .join(' / ')
         : t('modelManager.profile.none')
-    case 'default_reasoning_level':
-      return automatic.default_reasoning_level
-        ? t(`modelManager.profile.reasoningLevels.${automatic.default_reasoning_level}`)
-        : t('modelManager.profile.noDefault')
     case 'input_modalities':
       return automatic.input_modalities
         .map((value) => t(`modelManager.modality.${value}`))
         .join(' / ')
-    case 'supports_reasoning_summary':
-    case 'support_verbosity':
-      return automatic[field]
-        ? t('modelManager.profile.enabled')
-        : t('modelManager.profile.disabled')
   }
   return ''
 }
@@ -153,20 +126,6 @@ async function close(): Promise<void> {
       </AppCollectionState>
       <form v-else-if="draft" class="modern-model-profile-form" novalidate @submit.prevent="save">
         <div class="modern-model-profile-body">
-          <div class="modern-model-profile-summary">
-            <AppBadge variant="outline" size="xs">{{
-              t('modelManager.profile.sourceCount', { count: n(base.sourceCount) })
-            }}</AppBadge>
-            <AppBadge v-if="base.unknownSourceCount" tone="warning" variant="outline" size="xs">{{
-              t('modelManager.profile.unknownSourceCount', { count: n(base.unknownSourceCount) })
-            }}</AppBadge>
-          </div>
-          <AppNotice tone="info">
-            <div class="modern-model-profile-notice-copy">
-              <p>{{ t('modelManager.profile.scopeNotice') }}</p>
-              <p>{{ t('modelManager.profile.capabilityNotice') }}</p>
-            </div>
-          </AppNotice>
           <AppNotice v-if="!editable" tone="warning">
             {{ t('modelManager.profile.readOnly') }}
           </AppNotice>
@@ -192,24 +151,6 @@ async function close(): Promise<void> {
                   :label="t('modelManager.profile.fields.displayName')"
                   label-hidden
                   size="sm"
-                  :disabled="fieldDisabled"
-                />
-              </template>
-            </ModelProfileField>
-            <ModelProfileField
-              :label="t('modelManager.profile.fields.description')"
-              :automatic="automaticValue('description')"
-              :custom="draft.custom.description"
-              :disabled="disabled"
-              @update:custom="setCustom('description', $event)"
-            >
-              <template #default="{ disabled: fieldDisabled }">
-                <AppTextArea
-                  v-model="draft.values.description"
-                  :label="t('modelManager.profile.fields.description')"
-                  label-hidden
-                  size="sm"
-                  :rows="3"
                   :disabled="fieldDisabled"
                 />
               </template>
@@ -249,6 +190,7 @@ async function close(): Promise<void> {
               :automatic="automaticValue('supported_reasoning_levels')"
               :custom="draft.custom.supported_reasoning_levels"
               :disabled="disabled"
+              :error="fieldErrors.supported_reasoning_levels"
               @update:custom="setCustom('supported_reasoning_levels', $event)"
             >
               <template #default="{ disabled: fieldDisabled }">
@@ -258,60 +200,6 @@ async function close(): Promise<void> {
                   label-hidden
                   :options="reasoningOptions"
                   :disabled="fieldDisabled"
-                />
-              </template>
-            </ModelProfileField>
-            <ModelProfileField
-              :label="t('modelManager.profile.fields.defaultReasoningLevel')"
-              :description="t('modelManager.profile.fieldHelp.defaultReasoningLevel')"
-              :automatic="automaticValue('default_reasoning_level')"
-              :custom="draft.custom.default_reasoning_level"
-              :disabled="disabled"
-              :error="fieldErrors.default_reasoning_level"
-              @update:custom="setCustom('default_reasoning_level', $event)"
-            >
-              <template #default="{ disabled: fieldDisabled }">
-                <AppSelect
-                  v-model="draft.values.default_reasoning_level"
-                  :label="t('modelManager.profile.fields.defaultReasoningLevel')"
-                  label-hidden
-                  size="sm"
-                  :options="defaultReasoningOptions"
-                  :disabled="fieldDisabled"
-                />
-              </template>
-            </ModelProfileField>
-            <ModelProfileField
-              :label="t('modelManager.profile.fields.supportsReasoningSummary')"
-              :automatic="automaticValue('supports_reasoning_summary')"
-              :custom="draft.custom.supports_reasoning_summary"
-              :disabled="disabled"
-              @update:custom="setCustom('supports_reasoning_summary', $event)"
-            >
-              <template #default="{ disabled: fieldDisabled }">
-                <AppSwitch
-                  :model-value="draft.values.supports_reasoning_summary"
-                  :label="t('modelManager.profile.fields.supportsReasoningSummary')"
-                  size="sm"
-                  :disabled="fieldDisabled"
-                  @update:model-value="draft.values.supports_reasoning_summary = $event"
-                />
-              </template>
-            </ModelProfileField>
-            <ModelProfileField
-              :label="t('modelManager.profile.fields.supportVerbosity')"
-              :automatic="automaticValue('support_verbosity')"
-              :custom="draft.custom.support_verbosity"
-              :disabled="disabled"
-              @update:custom="setCustom('support_verbosity', $event)"
-            >
-              <template #default="{ disabled: fieldDisabled }">
-                <AppSwitch
-                  :model-value="draft.values.support_verbosity"
-                  :label="t('modelManager.profile.fields.supportVerbosity')"
-                  size="sm"
-                  :disabled="fieldDisabled"
-                  @update:model-value="draft.values.support_verbosity = $event"
                 />
               </template>
             </ModelProfileField>
@@ -399,17 +287,12 @@ async function close(): Promise<void> {
   overscroll-behavior: contain;
   padding: var(--modern-space-5);
 }
-.modern-model-profile-summary,
 .modern-model-profile-modalities,
 .modern-model-profile-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--modern-space-2);
-}
-.modern-model-profile-notice-copy {
-  display: grid;
-  gap: var(--modern-space-1);
 }
 .modern-model-profile-footer {
   display: flex;

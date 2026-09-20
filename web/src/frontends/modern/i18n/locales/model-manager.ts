@@ -102,7 +102,7 @@ export const zhCN = {
       metadata: '显示与上下文',
       metadataHelp: '只调整客户端模型的目录资料，不会重命名请求模型标识。',
       reasoning: '思考能力',
-      reasoningHelp: '非空默认等级必须同时显式覆盖支持等级，并将该等级包含在内。',
+      reasoningHelp: '选择 Codex 客户端可用的思考等级。',
       modalities: '输入类型',
       modalitiesHelp: '文本始终是必选输入类型，可按需补充图片或音频。',
     },
@@ -144,8 +144,8 @@ export const zhCN = {
     },
     errors: {
       invalidContextWindow: '请输入正的安全整数。',
+      invalidReasoningLevels: '请至少选择一个思考等级。',
       invalidModalities: '输入类型必须包含文本。',
-      unsupportedDefault: '非空默认等级必须由自定义的支持等级明确包含。',
     },
     resetAll: '全部恢复自动',
     save: '保存目录设置',
@@ -285,8 +285,7 @@ export const enUS = {
       metadataHelp:
         'Only client-model catalog metadata changes; the request model identifier stays unchanged.',
       reasoning: 'Reasoning capabilities',
-      reasoningHelp:
-        'A nonempty default level must be explicitly included by a custom supported-levels override.',
+      reasoningHelp: 'Choose the reasoning levels available in the Codex client.',
       modalities: 'Input modalities',
       modalitiesHelp: 'Text is always required; image and audio can be added when needed.',
     },
@@ -328,9 +327,8 @@ export const enUS = {
     },
     errors: {
       invalidContextWindow: 'Enter a positive safe integer.',
+      invalidReasoningLevels: 'Select at least one reasoning level.',
       invalidModalities: 'Input modalities must include text.',
-      unsupportedDefault:
-        'A nonempty default level must be explicitly included by custom supported levels.',
     },
     resetAll: 'Restore all automatic values',
     save: 'Save catalog settings',
@@ -475,8 +473,7 @@ export const jaJP = {
       metadataHelp:
         'クライアントモデルのカタログ情報のみ変更し、リクエストモデル識別子は変更しません。',
       reasoning: '推論機能',
-      reasoningHelp:
-        '空でない既定レベルは、カスタムの対応レベル上書きで明示的に含める必要があります。',
+      reasoningHelp: 'Codex クライアントで利用できる推論レベルを選択します。',
       modalities: '入力タイプ',
       modalitiesHelp: 'テキストは必須です。必要に応じて画像と音声を追加できます。',
     },
@@ -519,9 +516,8 @@ export const jaJP = {
     },
     errors: {
       invalidContextWindow: '正の安全な整数を入力してください。',
+      invalidReasoningLevels: '推論レベルを1つ以上選択してください。',
       invalidModalities: '入力タイプにはテキストを含める必要があります。',
-      unsupportedDefault:
-        '空でない既定レベルは、カスタムの対応レベルに明示的に含める必要があります。',
     },
     resetAll: 'すべて自動値に戻す',
     save: 'カタログ設定を保存',

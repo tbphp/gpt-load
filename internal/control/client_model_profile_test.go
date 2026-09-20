@@ -22,15 +22,6 @@ func TestClientModelProfileHTTPPersistsAndResetsOverrides(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	contextWindow := int64(128000)
-	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
-		"openai": {Models: map[string]catalog.Model{
-			"upstream": {Metadata: catalog.ModelMetadata{
-				Description: "Automatic description", Limits: catalog.ModelLimits{Context: &contextWindow},
-				Modalities: catalog.ModelModalities{Input: []string{"text", "image"}},
-			}},
-		}},
-	}})
 	createPriceTestGroup(t, fixture.db, models.Group{
 		Name: "enabled", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
 		Models: models.JSON(`[{"id":"upstream","alias":"client"}]`), Overrides: models.JSON(`{}`), Enabled: true,
@@ -48,27 +39,27 @@ func TestClientModelProfileHTTPPersistsAndResetsOverrides(t *testing.T) {
 	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
 
 	initial := readClientModelProfile(t, engine, http.MethodGet, "/api/models/profile?model=client", "", authTestKey)
-	if initial.HasOverrides || initial.SourceCount != 1 || initial.UnknownSourceCount != 0 ||
-		initial.Automatic.Description != "Automatic description" || initial.Automatic.ContextWindow == nil || *initial.Automatic.ContextWindow != contextWindow ||
+	if initial.HasOverrides || initial.Automatic.ContextWindow == nil || *initial.Automatic.ContextWindow != 272000 ||
 		initial.Effective.DisplayName != "client" {
 		t.Fatalf("initial profile = %#v", initial)
 	}
 
 	updated := readClientModelProfile(t, engine, http.MethodPut, "/api/models/profile", `{
 		"client_model":"client",
-		"overrides":{"display_name":"Client name","context_window":64000,"input_modalities":["text"]}
+		"overrides":{"display_name":"Client name","context_window":64000,"supported_reasoning_levels":["low","high"],"input_modalities":["text"]}
 	}`, authTestKey)
 	if !updated.HasOverrides || updated.Overrides.DisplayName == nil || *updated.Overrides.DisplayName != "Client name" ||
 		updated.Effective.DisplayName != "Client name" || updated.Effective.ContextWindow == nil || *updated.Effective.ContextWindow != 64000 ||
+		len(updated.Effective.SupportedReasoningLevels) != 2 || updated.Effective.SupportedReasoningLevels[1] != "high" ||
 		len(updated.Effective.InputModalities) != 1 || updated.Effective.InputModalities[0] != "text" ||
-		updated.Automatic.ContextWindow == nil || *updated.Automatic.ContextWindow != contextWindow {
+		updated.Automatic.ContextWindow == nil || *updated.Automatic.ContextWindow != 272000 {
 		t.Fatalf("updated profile = %#v", updated)
 	}
 	var row models.ClientModelOverride
 	if err := fixture.db.Where("model_hash = ?", models.ClientModelHash("client")).Take(&row).Error; err != nil {
 		t.Fatalf("load persisted override: %v", err)
 	}
-	if row.ClientModel != "client" || string(row.Overrides) != `{"context_window":64000,"display_name":"Client name","input_modalities":["text"]}` {
+	if row.ClientModel != "client" || string(row.Overrides) != `{"context_window":64000,"display_name":"Client name","input_modalities":["text"],"supported_reasoning_levels":["low","high"]}` {
 		t.Fatalf("persisted override = %#v", row)
 	}
 	modelsResponse := readProjectModelList(t, engine, authTestKey)
@@ -78,16 +69,15 @@ func TestClientModelProfileHTTPPersistsAndResetsOverrides(t *testing.T) {
 
 	reset := readClientModelProfile(t, engine, http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{}}`, authTestKey)
 	if reset.HasOverrides || !reset.Overrides.IsEmpty() || reset.Effective.DisplayName != "client" ||
-		reset.Effective.ContextWindow == nil || *reset.Effective.ContextWindow != contextWindow {
+		reset.Effective.ContextWindow == nil || *reset.Effective.ContextWindow != 272000 {
 		t.Fatalf("reset profile = %#v", reset)
 	}
 	if err := fixture.db.Where("model_hash = ?", models.ClientModelHash("client")).Take(&row).Error; err == nil {
 		t.Fatal("reset retained persisted override")
 	}
 
-	disabled := readClientModelProfile(t, engine, http.MethodPut, "/api/models/profile", `{"client_model":"disabled-only","overrides":{"description":"disabled configuration is editable"}}`, authTestKey)
-	if !disabled.HasOverrides || disabled.SourceCount != 0 || disabled.UnknownSourceCount != 0 ||
-		disabled.Effective.Description != "disabled configuration is editable" {
+	disabled := readClientModelProfile(t, engine, http.MethodPut, "/api/models/profile", `{"client_model":"disabled-only","overrides":{"display_name":"Disabled model"}}`, authTestKey)
+	if !disabled.HasOverrides || disabled.Effective.DisplayName != "Disabled model" {
 		t.Fatalf("disabled-only profile = %#v", disabled)
 	}
 }

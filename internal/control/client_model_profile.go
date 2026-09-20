@@ -17,13 +17,11 @@ import (
 )
 
 type ClientModelProfileDTO struct {
-	ClientModel        string                       `json:"client_model"`
-	Automatic          catalog.ClientModelProfile   `json:"automatic"`
-	Overrides          catalog.ClientModelOverrides `json:"overrides"`
-	Effective          catalog.ClientModelProfile   `json:"effective"`
-	SourceCount        int                          `json:"source_count"`
-	UnknownSourceCount int                          `json:"unknown_source_count"`
-	HasOverrides       bool                         `json:"has_overrides"`
+	ClientModel  string                       `json:"client_model"`
+	Automatic    catalog.ClientModelProfile   `json:"automatic"`
+	Overrides    catalog.ClientModelOverrides `json:"overrides"`
+	Effective    catalog.ClientModelProfile   `json:"effective"`
+	HasOverrides bool                         `json:"has_overrides"`
 }
 
 type ClientModelProfileUpdateRequest struct {
@@ -55,19 +53,20 @@ func (s *Service) GetClientModelProfile(ctx context.Context, model string) (Clie
 	if s.manager != nil {
 		snapshot = s.manager.Current()
 	}
-	result := state.ResolveClientModelProfile(snapshot, s.catalogRuntime, model, state.FilterSet{}, nil)
 	overrides := catalog.ClientModelOverrides{}
 	if snapshot != nil {
 		overrides = snapshot.ClientModelOverrides[model].Clone()
 	}
+	automatic, effective, err := catalog.ResolveClientModelProfile(model, overrides)
+	if err != nil {
+		return ClientModelProfileDTO{}, err
+	}
 	return ClientModelProfileDTO{
-		ClientModel:        model,
-		Automatic:          result.Automatic.Clone(),
-		Overrides:          overrides,
-		Effective:          result.Effective.Clone(),
-		SourceCount:        result.SourceCount,
-		UnknownSourceCount: result.UnknownSourceCount,
-		HasOverrides:       !overrides.IsEmpty(),
+		ClientModel:  model,
+		Automatic:    automatic,
+		Overrides:    overrides,
+		Effective:    effective,
+		HasOverrides: !overrides.IsEmpty(),
 	}, nil
 }
 

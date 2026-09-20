@@ -18,7 +18,7 @@ export interface ModelProfileDraft {
 }
 
 export type ModelProfileDraftError =
-  'invalidContextWindow' | 'invalidModalities' | 'unsupportedDefault'
+  'invalidContextWindow' | 'invalidReasoningLevels' | 'invalidModalities'
 
 const owns = (value: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(value, key)
 
@@ -29,14 +29,10 @@ export function createModelProfileDraft(profile: ModelProfile): ModelProfileDraf
     ) as Record<ModelProfileField, boolean>,
     values: {
       display_name: profile.effective.display_name,
-      description: profile.effective.description,
       context_window:
         profile.effective.context_window === null ? '' : String(profile.effective.context_window),
       supported_reasoning_levels: [...profile.effective.supported_reasoning_levels],
-      default_reasoning_level: profile.effective.default_reasoning_level,
       input_modalities: [...profile.effective.input_modalities],
-      supports_reasoning_summary: profile.effective.supports_reasoning_summary,
-      support_verbosity: profile.effective.support_verbosity,
     },
   }
 }
@@ -44,21 +40,14 @@ export function createModelProfileDraft(profile: ModelProfile): ModelProfileDraf
 export function modelProfileDraftOverrides(draft: ModelProfileDraft): ModelProfileOverrides {
   const overrides: ModelProfileOverrides = {}
   if (draft.custom.display_name) overrides.display_name = draft.values.display_name
-  if (draft.custom.description) overrides.description = draft.values.description
   if (draft.custom.context_window) overrides.context_window = Number(draft.values.context_window)
   if (draft.custom.supported_reasoning_levels)
     overrides.supported_reasoning_levels = [...draft.values.supported_reasoning_levels]
-  if (draft.custom.default_reasoning_level)
-    overrides.default_reasoning_level = draft.values.default_reasoning_level
   if (draft.custom.input_modalities) overrides.input_modalities = [...draft.values.input_modalities]
-  if (draft.custom.supports_reasoning_summary)
-    overrides.supports_reasoning_summary = draft.values.supports_reasoning_summary
-  if (draft.custom.support_verbosity) overrides.support_verbosity = draft.values.support_verbosity
   return overrides
 }
 
 export function modelProfileDraftErrors(
-  profile: ModelProfile,
   draft: ModelProfileDraft,
 ): Partial<Record<ModelProfileField, ModelProfileDraftError>> {
   const errors: Partial<Record<ModelProfileField, ModelProfileDraftError>> = {}
@@ -68,6 +57,8 @@ export function modelProfileDraftErrors(
     if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(contextWindow))
       errors.context_window = 'invalidContextWindow'
   }
+  if (draft.custom.supported_reasoning_levels && !draft.values.supported_reasoning_levels.length)
+    errors.supported_reasoning_levels = 'invalidReasoningLevels'
   if (
     draft.custom.input_modalities &&
     (!draft.values.input_modalities.length ||
@@ -77,15 +68,6 @@ export function modelProfileDraftErrors(
       ))
   )
     errors.input_modalities = 'invalidModalities'
-  const defaultReasoningLevel = draft.custom.default_reasoning_level
-    ? draft.values.default_reasoning_level
-    : ''
-  if (
-    defaultReasoningLevel !== '' &&
-    (!draft.custom.supported_reasoning_levels ||
-      !draft.values.supported_reasoning_levels.includes(defaultReasoningLevel))
-  )
-    errors.default_reasoning_level = 'unsupportedDefault'
   return errors
 }
 
@@ -98,9 +80,6 @@ function restoreAutomaticValue(
     case 'display_name':
       draft.values.display_name = automatic.display_name
       break
-    case 'description':
-      draft.values.description = automatic.description
-      break
     case 'context_window':
       draft.values.context_window =
         automatic.context_window === null ? '' : String(automatic.context_window)
@@ -108,17 +87,8 @@ function restoreAutomaticValue(
     case 'supported_reasoning_levels':
       draft.values.supported_reasoning_levels = [...automatic.supported_reasoning_levels]
       break
-    case 'default_reasoning_level':
-      draft.values.default_reasoning_level = automatic.default_reasoning_level
-      break
     case 'input_modalities':
       draft.values.input_modalities = [...automatic.input_modalities]
-      break
-    case 'supports_reasoning_summary':
-      draft.values.supports_reasoning_summary = automatic.supports_reasoning_summary
-      break
-    case 'support_verbosity':
-      draft.values.support_verbosity = automatic.support_verbosity
       break
   }
 }

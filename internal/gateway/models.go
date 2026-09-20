@@ -190,7 +190,7 @@ func (handler *Handler) writeVisibleModelList(
 	var err error
 	codexRequest := value == protocol.OpenAICompletions && ginContext.Query("client_version") != ""
 	if codexRequest {
-		body, err = buildCodexModelList(snapshot, handler.catalog, accessKey, handler.modelListLimit)
+		body, err = buildCodexModelList(snapshot, accessKey, handler.modelListLimit)
 	} else {
 		body, err = buildVisibleModelList(snapshot, accessKey, value, handler.modelListLimit)
 	}

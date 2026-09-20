@@ -40,6 +40,7 @@ func TestCodexModelCatalogResponseContract(t *testing.T) {
 			"slug", "display_name", "description", "supported_reasoning_levels", "shell_type",
 			"visibility", "supported_in_api", "priority", "support_verbosity", "truncation_policy",
 			"experimental_supported_tools", "input_modalities", "supports_reasoning_summary_parameter",
+			"base_instructions", "model_messages",
 		} {
 			if _, exists := model[field]; !exists {
 				t.Errorf("missing Codex model field %s", field)
@@ -59,6 +60,10 @@ func TestCodexModelCatalogResponseContract(t *testing.T) {
 			t.Fatal(err)
 		}
 		slugs = append(slugs, slug)
+		var baseInstructions string
+		if err := json.Unmarshal(model["base_instructions"], &baseInstructions); err != nil || baseInstructions == "" {
+			t.Fatalf("base instructions = %q, %v", baseInstructions, err)
+		}
 	}
 	if !reflect.DeepEqual(slugs, []string{"alpha", "beta", "zeta"}) {
 		t.Fatalf("catalog changed visible models: %v", slugs)
@@ -100,21 +105,13 @@ func TestCodexCatalogNegotiationKeepsOtherFormats(t *testing.T) {
 }
 
 func TestCodexCatalogUsesExistingVisibilityAndScopedMetadata(t *testing.T) {
-	large, small := int64(200000), int64(64000)
-	runtime := &catalog.Runtime{}
-	runtime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
-		"openai": {Models: map[string]catalog.Model{
-			"upstream-large": {Metadata: catalog.ModelMetadata{Limits: catalog.ModelLimits{Context: &large}, Modalities: catalog.ModelModalities{Input: []string{"text", "image"}}}},
-			"upstream-small": {Metadata: catalog.ModelMetadata{Limits: catalog.ModelLimits{Context: &small}, Modalities: catalog.ModelModalities{Input: []string{"text"}}}},
-		}},
-	}})
 	snapshot, err := state.Compile(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{
 			{ID: 1, Name: "large", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Enabled: true,
-				Models: []state.ModelConfig{{ID: "upstream-large", Alias: "客户端/模型"}}},
+				Models: []state.ModelConfig{{ID: "upstream-large", Alias: "gpt-5.6-sol"}}},
 			{ID: 2, Name: "small", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Enabled: true,
-				Models: []state.ModelConfig{{ID: "upstream-small", Alias: "客户端/模型"}, {ID: "private"}}},
+				Models: []state.ModelConfig{{ID: "upstream-small", Alias: "gpt-5.6-sol"}, {ID: "private"}}},
 		},
 	})
 	if err != nil {
@@ -125,24 +122,33 @@ func TestCodexCatalogUsesExistingVisibilityAndScopedMetadata(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		key  state.AccessKeyView
-		want int64
 	}{
-		{"one group", key, large},
-		{"intersection", state.AccessKeyView{Filters: state.FilterSet{Models: map[string]struct{}{"客户端/模型": {}}}}, small},
+		{"one group", key},
+		{"all groups", state.AccessKeyView{Filters: state.FilterSet{Models: map[string]struct{}{"gpt-5.6-sol": {}}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			body, err := buildCodexModelList(snapshot, runtime, test.key, math.MaxInt64)
+			body, err := buildCodexModelList(snapshot, test.key, math.MaxInt64)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var response struct {
-				Models []codexModel `json:"models"`
+				Models []struct {
+					Slug                     string   `json:"slug"`
+					DisplayName              string   `json:"display_name"`
+					ContextWindow            int64    `json:"context_window"`
+					InputModalities          []string `json:"input_modalities"`
+					BaseInstructions         string   `json:"base_instructions"`
+					SupportedReasoningLevels []struct {
+						Effort string `json:"effort"`
+					} `json:"supported_reasoning_levels"`
+				} `json:"models"`
 			}
 			if err := json.Unmarshal(body, &response); err != nil {
 				t.Fatal(err)
 			}
-			if len(response.Models) != 1 || response.Models[0].Slug != "客户端/模型" ||
-				response.Models[0].ContextWindow == nil || *response.Models[0].ContextWindow != test.want {
+			if len(response.Models) != 1 || response.Models[0].Slug != "gpt-5.6-sol" ||
+				response.Models[0].DisplayName != "GPT-5.6-Sol" || response.Models[0].ContextWindow != 272000 ||
+				response.Models[0].BaseInstructions == "" {
 				t.Fatalf("catalog = %s", body)
 			}
 			if strings.Contains(string(body), "upstream-") || strings.Contains(string(body), "private") {
@@ -155,50 +161,50 @@ func TestCodexCatalogUsesExistingVisibilityAndScopedMetadata(t *testing.T) {
 		})
 	}
 	var overrides catalog.ClientModelOverrides
-	if err := json.Unmarshal([]byte(`{"display_name":"Friendly","context_window":32000,"supported_reasoning_levels":["low","high"],"default_reasoning_level":"low","input_modalities":["text"],"supports_reasoning_summary":true}`), &overrides); err != nil {
+	if err := json.Unmarshal([]byte(`{"display_name":"Friendly","context_window":32000,"supported_reasoning_levels":["low","high"],"input_modalities":["text"]}`), &overrides); err != nil {
 		t.Fatal(err)
 	}
-	snapshot.ClientModelOverrides["客户端/模型"] = overrides
-	body, err := buildCodexModelList(snapshot, runtime, key, math.MaxInt64)
+	snapshot.ClientModelOverrides["gpt-5.6-sol"] = overrides
+	body, err := buildCodexModelList(snapshot, key, math.MaxInt64)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var response struct {
-		Models []codexModel `json:"models"`
+		Models []struct {
+			DisplayName              string   `json:"display_name"`
+			ContextWindow            int64    `json:"context_window"`
+			InputModalities          []string `json:"input_modalities"`
+			SupportedReasoningLevels []struct {
+				Effort string `json:"effort"`
+			} `json:"supported_reasoning_levels"`
+		} `json:"models"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatal(err)
 	}
 	model := response.Models[0]
-	if model.DisplayName != "Friendly" || *model.ContextWindow != 32000 || model.DefaultReasoningLevel == nil || *model.DefaultReasoningLevel != "low" ||
-		len(model.SupportedReasoningLevels) != 2 || model.SupportedReasoningLevels[1].Effort != "high" || !model.SupportsReasoningSummaryParameter {
+	if model.DisplayName != "Friendly" || model.ContextWindow != 32000 ||
+		len(model.SupportedReasoningLevels) != 2 || model.SupportedReasoningLevels[1].Effort != "high" ||
+		!reflect.DeepEqual(model.InputModalities, []string{"text"}) {
 		t.Fatalf("overrides absent from wire catalog: %s", body)
 	}
-	if bounded, err := buildCodexModelList(snapshot, runtime, key, int64(len(body))); err != nil || string(bounded) != string(body) {
+	if bounded, err := buildCodexModelList(snapshot, key, int64(len(body))); err != nil || string(bounded) != string(body) {
 		t.Fatalf("exact byte boundary failed: %v", err)
 	}
-	if partial, err := buildCodexModelList(snapshot, runtime, key, int64(len(body)-1)); !errors.Is(err, errModelListTooLarge) || partial != nil {
+	if partial, err := buildCodexModelList(snapshot, key, int64(len(body)-1)); !errors.Is(err, errModelListTooLarge) || partial != nil {
 		t.Fatalf("overflow leaked partial JSON: %s, %v", partial, err)
 	}
 }
 
 func TestCodexCatalogEmptyAndUnknownValues(t *testing.T) {
 	for _, limit := range []int64{-1, 0, 12} {
-		if body, err := buildCodexModelList(nil, nil, state.AccessKeyView{}, limit); !errors.Is(err, errModelListTooLarge) || body != nil {
+		if body, err := buildCodexModelList(nil, state.AccessKeyView{}, limit); !errors.Is(err, errModelListTooLarge) || body != nil {
 			t.Fatalf("limit %d = %s, %v", limit, body, err)
 		}
 	}
-	body, err := buildCodexModelList(nil, nil, state.AccessKeyView{}, 13)
+	body, err := buildCodexModelList(nil, state.AccessKeyView{}, 13)
 	if err != nil || string(body) != `{"models":[]}` {
 		t.Fatalf("empty catalog = %s, %v", body, err)
-	}
-	model := newCodexModel("unknown", 0, catalog.DefaultClientModelProfile("unknown"))
-	encoded, err := json.Marshal(model)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), "context_window\":") || model.DefaultReasoningLevel != nil || len(model.SupportedReasoningLevels) != 0 || model.SupportsReasoningSummaryParameter {
-		t.Fatalf("unknown capabilities fabricated: %s", encoded)
 	}
 }
 
