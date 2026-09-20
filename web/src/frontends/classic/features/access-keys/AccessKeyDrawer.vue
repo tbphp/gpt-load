@@ -342,6 +342,8 @@ async function resetForOpen(): Promise<void> {
       kind: rule.kind,
       limit_usd: rule.limit_usd,
       period_seconds: rule.period_seconds,
+      ...(rule.period_anchor ? { period_anchor: rule.period_anchor } : {}),
+      ...(rule.period_timezone ? { period_timezone: rule.period_timezone } : {}),
     }))
   }
   operationID.value = props.accessKey

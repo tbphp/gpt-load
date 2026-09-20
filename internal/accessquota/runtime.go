@@ -14,6 +14,7 @@ const (
 	MinPeriodSeconds int64 = 60
 	MaxPeriodSeconds int64 = 365 * 24 * 60 * 60
 	MaxPeriodicRules       = 10
+	secondsPerDay    int64 = 24 * 60 * 60
 )
 
 type Kind string
@@ -23,12 +24,22 @@ const (
 	KindPeriodic Kind = "periodic"
 )
 
+type PeriodAnchor string
+
+const (
+	PeriodAnchorFirstRequest PeriodAnchor = "first_request"
+	PeriodAnchorCalendarDay  PeriodAnchor = "calendar_day"
+)
+
 type Rule struct {
-	ID            uint
-	Revision      uint64
-	Kind          Kind
-	LimitNanoUSD  int64
-	PeriodSeconds int64
+	ID             uint
+	Revision       uint64
+	Kind           Kind
+	LimitNanoUSD   int64
+	PeriodSeconds  int64
+	PeriodAnchor   PeriodAnchor
+	PeriodTimezone string
+	CreatedAtMS    int64
 }
 
 type RestoredState struct {
@@ -119,6 +130,7 @@ type accessKeyEntry struct {
 
 type runtimeRule struct {
 	definition        Rule
+	periodLocation    *time.Location
 	usedNanoUSD       int64
 	windowStartedAtMS *int64
 	windowEndsAtMS    *int64
@@ -211,10 +223,13 @@ func (runtime *Runtime) Reconcile(definitions map[uint][]Rule) error {
 					continue
 				}
 				if previous.definition.Kind != rule.definition.Kind ||
-					previous.definition.PeriodSeconds != rule.definition.PeriodSeconds {
+					previous.definition.PeriodSeconds != rule.definition.PeriodSeconds ||
+					previous.definition.PeriodAnchor != rule.definition.PeriodAnchor ||
+					previous.definition.PeriodTimezone != rule.definition.PeriodTimezone ||
+					previous.definition.CreatedAtMS != rule.definition.CreatedAtMS {
 					current.mu.Unlock()
 					return fmt.Errorf(
-						"reconcile access quota rule %d: kind or period changed without revision",
+						"reconcile access quota rule %d: semantics changed without revision",
 						rule.definition.ID,
 					)
 				}
@@ -233,8 +248,13 @@ func (runtime *Runtime) Check(accessKeyID uint, now time.Time) Decision {
 	if entry == nil {
 		return allowedDecision()
 	}
-	defer entry.mu.Unlock()
-	return decisionLocked(entry, now.UnixMilli())
+	dirty := refreshCalendarWindowsLocked(entry, now)
+	decision := decisionLocked(entry, now.UnixMilli())
+	entry.mu.Unlock()
+	if dirty {
+		runtime.notifyDirty()
+	}
+	return decision
 }
 
 func (runtime *Runtime) Admit(accessKeyID uint, now time.Time) (Ticket, Decision) {
@@ -243,13 +263,16 @@ func (runtime *Runtime) Admit(accessKeyID uint, now time.Time) (Ticket, Decision
 		return Ticket{AccessKeyID: accessKeyID}, allowedDecision()
 	}
 	nowMS := now.UnixMilli()
+	dirty := refreshCalendarWindowsLocked(entry, now)
 	decision := decisionLocked(entry, nowMS)
 	if !decision.Allowed {
 		entry.mu.Unlock()
+		if dirty {
+			runtime.notifyDirty()
+		}
 		return Ticket{AccessKeyID: accessKeyID}, decision
 	}
 
-	dirty := false
 	for _, rule := range entry.rules {
 		if rule.definition.Kind != KindPeriodic || !periodicInactive(rule, nowMS) {
 			continue
@@ -337,7 +360,7 @@ func (runtime *Runtime) Snapshot(accessKeyID uint, now time.Time) View {
 	if entry == nil {
 		return view
 	}
-	defer entry.mu.Unlock()
+	dirty := refreshCalendarWindowsLocked(entry, now)
 	view.Rules = make([]RuleView, 0, len(entry.rules))
 	for _, rule := range entry.rules {
 		view.Rules = append(view.Rules, ruleViewLocked(rule, view.ObservedAtMS))
@@ -346,6 +369,10 @@ func (runtime *Runtime) Snapshot(accessKeyID uint, now time.Time) View {
 	view.Allowed = decision.Allowed
 	view.Recoverable = decision.Recoverable
 	view.NextAvailableAtMS = cloneInt64(decision.NextAvailableAtMS)
+	entry.mu.Unlock()
+	if dirty {
+		runtime.notifyDirty()
+	}
 	return view
 }
 
@@ -438,6 +465,11 @@ func normalizeDefinitions(definitions map[uint][]Rule) (map[uint][]Rule, error) 
 			continue
 		}
 		rules := append([]Rule(nil), source...)
+		for index := range rules {
+			if rules[index].PeriodAnchor == "" {
+				rules[index].PeriodAnchor = PeriodAnchorFirstRequest
+			}
+		}
 		if err := validateRules(accessKeyID, rules, globalRuleIDs); err != nil {
 			return nil, err
 		}
@@ -451,6 +483,8 @@ func validateRules(accessKeyID uint, rules []Rule, globalRuleIDs map[uint]uint) 
 	totalCount := 0
 	periodicCount := 0
 	periods := make(map[int64]struct{})
+	var sharedAnchor PeriodAnchor
+	var sharedTimezone string
 	for _, rule := range rules {
 		if rule.ID == 0 || rule.Revision == 0 || rule.LimitNanoUSD <= 0 {
 			return fmt.Errorf("reconcile access quota rule for key %d: invalid identity, revision, or limit", accessKeyID)
@@ -462,8 +496,9 @@ func validateRules(accessKeyID uint, rules []Rule, globalRuleIDs map[uint]uint) 
 		switch rule.Kind {
 		case KindTotal:
 			totalCount++
-			if rule.PeriodSeconds != 0 {
-				return fmt.Errorf("reconcile total access quota rule %d: period must be zero", rule.ID)
+			if rule.PeriodSeconds != 0 || rule.PeriodAnchor != PeriodAnchorFirstRequest ||
+				rule.PeriodTimezone != "" {
+				return fmt.Errorf("reconcile total access quota rule %d: periodic fields are not allowed", rule.ID)
 			}
 		case KindPeriodic:
 			periodicCount++
@@ -474,6 +509,26 @@ func validateRules(accessKeyID uint, rules []Rule, globalRuleIDs map[uint]uint) 
 				return fmt.Errorf("reconcile periodic access quota rule %d: duplicate period", rule.ID)
 			}
 			periods[rule.PeriodSeconds] = struct{}{}
+			switch rule.PeriodAnchor {
+			case PeriodAnchorFirstRequest:
+				if rule.PeriodTimezone != "" {
+					return fmt.Errorf("reconcile periodic access quota rule %d: first-request timezone is not allowed", rule.ID)
+				}
+			case PeriodAnchorCalendarDay:
+				if rule.PeriodSeconds%secondsPerDay != 0 {
+					return fmt.Errorf("reconcile periodic access quota rule %d: calendar period must use whole days", rule.ID)
+				}
+				if _, err := loadPeriodLocation(rule.PeriodTimezone); err != nil {
+					return fmt.Errorf("reconcile periodic access quota rule %d: %w", rule.ID, err)
+				}
+			default:
+				return fmt.Errorf("reconcile periodic access quota rule %d: invalid period anchor %q", rule.ID, rule.PeriodAnchor)
+			}
+			if periodicCount == 1 {
+				sharedAnchor, sharedTimezone = rule.PeriodAnchor, rule.PeriodTimezone
+			} else if rule.PeriodAnchor != sharedAnchor || rule.PeriodTimezone != sharedTimezone {
+				return fmt.Errorf("reconcile access quota rules for key %d: periodic anchors must match", accessKeyID)
+			}
 		default:
 			return fmt.Errorf("reconcile access quota rule %d: invalid kind %q", rule.ID, rule.Kind)
 		}
@@ -538,6 +593,9 @@ func newAccessKeyEntry(rules []Rule) *accessKeyEntry {
 	entry := &accessKeyEntry{rules: make([]*runtimeRule, 0, len(rules)), byID: make(map[uint]*runtimeRule, len(rules))}
 	for _, definition := range rules {
 		rule := &runtimeRule{definition: definition, snapshotVersion: 1}
+		if definition.PeriodAnchor == PeriodAnchorCalendarDay {
+			rule.periodLocation, _ = loadPeriodLocation(definition.PeriodTimezone)
+		}
 		entry.rules = append(entry.rules, rule)
 		entry.byID[definition.ID] = rule
 	}
@@ -572,9 +630,16 @@ func applyRestoredState(rule *runtimeRule, state RestoredState) error {
 		if state.WindowGeneration == 0 {
 			return fmt.Errorf("restore periodic access quota rule %d: active state has no generation", rule.definition.ID)
 		}
-		windowDurationMS := *state.WindowEndsAtMS - *state.WindowStartedAtMS
-		if windowDurationMS != rule.definition.PeriodSeconds*int64(time.Second/time.Millisecond) {
-			return fmt.Errorf("restore periodic access quota rule %d: window duration does not match period", rule.definition.ID)
+		if rule.definition.PeriodAnchor == PeriodAnchorCalendarDay {
+			startedAt, endsAt := calendarWindow(rule, time.UnixMilli(*state.WindowStartedAtMS))
+			if startedAt != *state.WindowStartedAtMS || endsAt != *state.WindowEndsAtMS {
+				return fmt.Errorf("restore periodic access quota rule %d: window does not match calendar period", rule.definition.ID)
+			}
+		} else {
+			windowDurationMS := *state.WindowEndsAtMS - *state.WindowStartedAtMS
+			if windowDurationMS != rule.definition.PeriodSeconds*int64(time.Second/time.Millisecond) {
+				return fmt.Errorf("restore periodic access quota rule %d: window duration does not match period", rule.definition.ID)
+			}
 		}
 	}
 	rule.usedNanoUSD = state.UsedNanoUSD
@@ -643,7 +708,74 @@ func ruleViewLocked(rule *runtimeRule, nowMS int64) RuleView {
 }
 
 func periodicInactive(rule *runtimeRule, nowMS int64) bool {
+	if rule.definition.PeriodAnchor == PeriodAnchorCalendarDay {
+		return false
+	}
 	return rule.windowStartedAtMS == nil || rule.windowEndsAtMS == nil || nowMS >= *rule.windowEndsAtMS
+}
+
+func loadPeriodLocation(name string) (*time.Location, error) {
+	if name == "" || name == "Local" {
+		return nil, fmt.Errorf("calendar timezone is required")
+	}
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, fmt.Errorf("invalid calendar timezone %q", name)
+	}
+	return location, nil
+}
+
+func refreshCalendarWindowsLocked(entry *accessKeyEntry, now time.Time) bool {
+	dirty := false
+	for _, rule := range entry.rules {
+		if rule.definition.Kind != KindPeriodic || rule.definition.PeriodAnchor != PeriodAnchorCalendarDay {
+			continue
+		}
+		startedAt, endsAt := calendarWindow(rule, now)
+		if rule.windowStartedAtMS != nil && rule.windowEndsAtMS != nil &&
+			*rule.windowStartedAtMS == startedAt && *rule.windowEndsAtMS == endsAt {
+			continue
+		}
+		rule.windowStartedAtMS = &startedAt
+		rule.windowEndsAtMS = &endsAt
+		rule.usedNanoUSD = 0
+		if rule.windowGeneration < math.MaxUint64 {
+			rule.windowGeneration++
+		}
+		advanceVersion(rule)
+		dirty = true
+	}
+	return dirty
+}
+
+func calendarWindow(rule *runtimeRule, now time.Time) (int64, int64) {
+	location := rule.periodLocation
+	if location == nil {
+		location = time.UTC
+	}
+	created := time.UnixMilli(rule.definition.CreatedAtMS).In(location)
+	current := now.In(location)
+	anchorDay := civilDayNumber(created)
+	currentDay := civilDayNumber(current)
+	periodDays := rule.definition.PeriodSeconds / secondsPerDay
+	periodIndex := floorDivision(currentDay-anchorDay, periodDays)
+	startOffset := periodIndex * periodDays
+	anchorMidnight := time.Date(created.Year(), created.Month(), created.Day(), 0, 0, 0, 0, location)
+	startedAt := anchorMidnight.AddDate(0, 0, int(startOffset))
+	endsAt := startedAt.AddDate(0, 0, int(periodDays))
+	return startedAt.UnixMilli(), endsAt.UnixMilli()
+}
+
+func civilDayNumber(value time.Time) int64 {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC).Unix() / secondsPerDay
+}
+
+func floorDivision(value, divisor int64) int64 {
+	quotient, remainder := value/divisor, value%divisor
+	if remainder < 0 {
+		quotient--
+	}
+	return quotient
 }
 
 func remaining(limit, used int64) int64 {

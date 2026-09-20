@@ -1,4 +1,8 @@
-import { formatLocalDateTime, parseLocalDateTime } from '@modern/components/ui/date-time'
+import {
+  formatLocalDateTime,
+  localTimeZone,
+  parseLocalDateTime,
+} from '@modern/components/ui/date-time'
 import type { AccessInput, AccessKey, AccessScope, CostRule } from '@modern/api/access-keys'
 import { createOperationKey } from '../groups/group-create-operation'
 
@@ -31,6 +35,14 @@ export function ruleDraft(rule: CostRule): RuleDraft {
   const unit = seconds % 86400 === 0 ? 'day' : 'hour'
   return {
     ...rule,
+    ...(rule.kind === 'periodic'
+      ? {
+          period_anchor: rule.period_anchor ?? 'first_request',
+          ...(rule.period_anchor === 'calendar_day'
+            ? { period_timezone: rule.period_timezone ?? localTimeZone() }
+            : {}),
+        }
+      : {}),
     clientKey: rule.id === undefined ? createOperationKey() : 'rule-' + rule.id,
     period: String(seconds / periodUnits[unit]),
     unit,
@@ -100,6 +112,12 @@ export function inputFor(draft: AccessDraft): AccessInput {
       kind: rule.kind,
       limit_usd: normalizeDecimal(rule.limit_usd),
       ...(rule.kind === 'periodic' ? { period_seconds: periodSeconds(rule) } : {}),
+      ...(rule.kind === 'periodic'
+        ? {
+            period_anchor: rule.period_anchor ?? 'first_request',
+            ...(rule.period_timezone ? { period_timezone: rule.period_timezone } : {}),
+          }
+        : {}),
     })),
   }
 }
@@ -116,6 +134,8 @@ const ruleJSON = (rules: CostRule[]) =>
         kind: rule.kind,
         limit_usd: normalizeDecimal(rule.limit_usd),
         period_seconds: rule.kind === 'periodic' ? rule.period_seconds : 0,
+        period_anchor: rule.kind === 'periodic' ? (rule.period_anchor ?? 'first_request') : '',
+        period_timezone: rule.kind === 'periodic' ? (rule.period_timezone ?? '') : '',
       }))
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
   )
@@ -167,6 +187,8 @@ export function draftErrors(draft: AccessDraft, base?: AccessKey): Record<string
   const periods = new Set<number>()
   let totals = 0
   let periodic = 0
+  let periodAnchor: 'first_request' | 'calendar_day' | undefined
+  let periodTimezone: string | undefined
   for (const rule of input.cost_limit_rules) {
     if (!/^(0|[1-9]\d*)(\.\d{1,9})?$/.test(rule.limit_usd) || /^0(?:\.0+)?$/.test(rule.limit_usd))
       errors.rules = 'invalidQuota'
@@ -174,18 +196,37 @@ export function draftErrors(draft: AccessDraft, base?: AccessKey): Record<string
     else {
       periodic++
       const seconds = rule.period_seconds!
+      const anchor = rule.period_anchor ?? 'first_request'
+      const timezone = rule.period_timezone ?? ''
       if (
         !Number.isSafeInteger(seconds) ||
         seconds < 60 ||
         seconds > 31536000 ||
-        periods.has(seconds)
+        periods.has(seconds) ||
+        (anchor === 'first_request' && timezone !== '') ||
+        (anchor === 'calendar_day' && (seconds % periodUnits.day !== 0 || !validTimeZone(timezone)))
       )
         errors.rules = 'invalidQuota'
       periods.add(seconds)
+      if (periodAnchor === undefined) {
+        periodAnchor = anchor
+        periodTimezone = timezone
+      } else if (periodAnchor !== anchor || periodTimezone !== timezone) {
+        errors.rules = 'invalidQuota'
+      }
     }
   }
   if (totals > 1 || periodic > 10) errors.rules = 'invalidQuota'
   return errors
+}
+function validTimeZone(value: string): boolean {
+  if (!value || value === 'Local' || value.length > 64) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(0)
+    return true
+  } catch {
+    return false
+  }
 }
 export function keyStrength(value: string): 'weak' | 'fair' | 'strong' | undefined {
   if (!value) return undefined

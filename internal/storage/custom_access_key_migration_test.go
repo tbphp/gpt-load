@@ -42,7 +42,7 @@ func testCustomAccessKeyMigration(t *testing.T, open func(*testing.T) *gorm.DB) 
 					t.Fatal(err)
 				}
 				rule = models.AccessKeyCostLimitRule{AccessKeyID: key.ID, Kind: models.AccessKeyCostLimitKindTotal, LimitNanoUSD: 100, RuleRevision: 1}
-				if err := db.Create(&rule).Error; err != nil {
+				if err := db.Omit("PeriodAnchor", "PeriodTimezone").Create(&rule).Error; err != nil {
 					t.Fatal(err)
 				}
 				state := models.AccessKeyCostLimitState{RuleID: rule.ID, RuleRevision: 1, UsedNanoUSD: 17, SnapshotVersion: 1}

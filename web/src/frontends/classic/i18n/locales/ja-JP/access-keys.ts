@@ -262,8 +262,17 @@ export default {
         enablePeriodic: '周期上限を有効化',
         totalDescription:
           'グループ・アクセスキー倍率適用後の累積推定コストを制限します。合計上限は自動リセットされません。',
-        periodicDescription:
-          '最初のリクエストから始まる固定期間で倍率適用後の推定コストを制限します。最大 10 ルール。',
+        periodicDescription: '固定期間で倍率適用後の推定コストを制限します。最大 10 ルール。',
+        periodAnchor: '周期の開始点',
+        periodAnchors: { firstRequest: '最初のリクエスト', calendarDay: '暦日' },
+        firstRequestDescription:
+          '最初に許可されたリクエストで周期を開始し、期限後の次のリクエストで新しい周期を開始します。',
+        calendarDayDescription:
+          '選択したタイムゾーンの午前 0 時に揃え、整数日だけを使用します。切り替えると現在の周期値を日数に変換します。',
+        periodTimezone: '暦日のタイムゾーン',
+        periodTimezoneDescription:
+          'Asia/Shanghai などの IANA タイムゾーンを選択または入力してください。',
+        periodTimezoneEmpty: '一致する項目がありません。有効な IANA タイムゾーンを入力できます',
         addPeriodic: '周期上限を追加',
         total: '総額上限',
         periodic: '周期上限',
@@ -284,7 +293,7 @@ export default {
       saveBlockedPending: '保存中…',
       saveBlockedName: '名前を入力してください',
       saveBlockedRPM: 'RPM は 0 以上の整数で入力してください',
-      saveBlockedCostLimits: '上限額または周期を確認してください',
+      saveBlockedCostLimits: '上限額、周期、タイムゾーンを確認してください',
       saveBlockedGroupProtocol: 'グループとプロトコルをルーティングできません',
       saveBlockedGroupUnavailable: 'グループカタログを利用できません',
       saveBlockedStaleScope: '現在のグループ範囲は無効です',
@@ -334,7 +343,7 @@ export default {
       periodMinutes: '{count} 分',
       periodSeconds: '{count} 秒',
       impact:
-        '選択したルールの使用額はゼロになります。周期ルールは未開始となり、次の上流リクエストで新しい周期が始まります。',
+        '選択したルールの使用額はゼロになります。周期ルールは設定された開始点から再計算されます。',
       confirm: '{count} 件をリセット',
       failed: '費用枠をリセットできません。',
     },

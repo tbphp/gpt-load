@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -14,10 +15,12 @@ import (
 )
 
 type normalizedAccessKeyCostLimitRule struct {
-	ID            uint
-	Kind          accessquota.Kind
-	LimitNanoUSD  int64
-	PeriodSeconds int64
+	ID             uint
+	Kind           accessquota.Kind
+	LimitNanoUSD   int64
+	PeriodSeconds  int64
+	PeriodAnchor   accessquota.PeriodAnchor
+	PeriodTimezone string
 }
 
 type accessKeyCostLimitPeriodMove struct {
@@ -36,6 +39,8 @@ func normalizeAccessKeyCostLimitRules(
 	totalCount := 0
 	periods := make(map[int64]struct{})
 	ids := make(map[uint]struct{})
+	var sharedAnchor accessquota.PeriodAnchor
+	var sharedTimezone string
 	for _, input := range field.Values {
 		if input.ID != 0 && !allowExistingIDs {
 			return nil, app_errors.ErrValidation
@@ -52,12 +57,17 @@ func normalizeAccessKeyCostLimitRules(
 		}
 		rule := normalizedAccessKeyCostLimitRule{
 			ID: input.ID, Kind: input.Kind, LimitNanoUSD: int64(parsed),
-			PeriodSeconds: input.PeriodSeconds,
+			PeriodSeconds: input.PeriodSeconds, PeriodAnchor: input.PeriodAnchor,
+			PeriodTimezone: input.PeriodTimezone,
+		}
+		if rule.PeriodAnchor == "" {
+			rule.PeriodAnchor = accessquota.PeriodAnchorFirstRequest
 		}
 		switch rule.Kind {
 		case accessquota.KindTotal:
 			totalCount++
-			if totalCount > 1 || rule.PeriodSeconds != 0 {
+			if totalCount > 1 || rule.PeriodSeconds != 0 ||
+				rule.PeriodAnchor != accessquota.PeriodAnchorFirstRequest || rule.PeriodTimezone != "" {
 				return nil, app_errors.ErrValidation
 			}
 		case accessquota.KindPeriodic:
@@ -69,6 +79,27 @@ func normalizeAccessKeyCostLimitRules(
 				return nil, app_errors.ErrValidation
 			}
 			periods[rule.PeriodSeconds] = struct{}{}
+			switch rule.PeriodAnchor {
+			case accessquota.PeriodAnchorFirstRequest:
+				if rule.PeriodTimezone != "" {
+					return nil, app_errors.ErrValidation
+				}
+			case accessquota.PeriodAnchorCalendarDay:
+				if rule.PeriodSeconds%(24*60*60) != 0 ||
+					len(rule.PeriodTimezone) > 64 || rule.PeriodTimezone == "Local" {
+					return nil, app_errors.ErrValidation
+				}
+				if _, err := time.LoadLocation(rule.PeriodTimezone); err != nil {
+					return nil, app_errors.ErrValidation
+				}
+			default:
+				return nil, app_errors.ErrValidation
+			}
+			if len(periods) == 1 {
+				sharedAnchor, sharedTimezone = rule.PeriodAnchor, rule.PeriodTimezone
+			} else if rule.PeriodAnchor != sharedAnchor || rule.PeriodTimezone != sharedTimezone {
+				return nil, app_errors.ErrValidation
+			}
 		default:
 			return nil, app_errors.ErrValidation
 		}
@@ -107,7 +138,9 @@ func createAccessKeyCostLimitRules(
 		rule := models.AccessKeyCostLimitRule{
 			AccessKeyID: accessKeyID, Kind: models.AccessKeyCostLimitKind(definition.Kind),
 			LimitNanoUSD: definition.LimitNanoUSD, PeriodSeconds: definition.PeriodSeconds,
-			RuleRevision: 1,
+			PeriodAnchor:   models.AccessKeyCostLimitPeriodAnchor(definition.PeriodAnchor),
+			PeriodTimezone: definition.PeriodTimezone,
+			RuleRevision:   1,
 		}
 		if err := tx.Create(&rule).Error; err != nil {
 			return nil, app_errors.ParseDBError(err)
@@ -185,7 +218,9 @@ func reconcileAccessKeyCostLimitRules(
 			continue
 		}
 		currentRule := currentByID[definition.ID]
-		semanticsChanged := currentRule.PeriodSeconds != definition.PeriodSeconds
+		semanticsChanged := currentRule.PeriodSeconds != definition.PeriodSeconds ||
+			accessquota.PeriodAnchor(currentRule.PeriodAnchor) != definition.PeriodAnchor ||
+			currentRule.PeriodTimezone != definition.PeriodTimezone
 		updates := map[string]any{"limit_nano_usd": definition.LimitNanoUSD}
 		if semanticsChanged {
 			if currentRule.RuleRevision == ^uint64(0) {
@@ -193,6 +228,8 @@ func reconcileAccessKeyCostLimitRules(
 			}
 			updates["kind"] = string(definition.Kind)
 			updates["period_seconds"] = definition.PeriodSeconds
+			updates["period_anchor"] = string(definition.PeriodAnchor)
+			updates["period_timezone"] = definition.PeriodTimezone
 			updates["rule_revision"] = currentRule.RuleRevision + 1
 		}
 		if err := tx.Model(&models.AccessKeyCostLimitRule{}).
@@ -377,11 +414,17 @@ func loadAccessKeyCostLimitRuleRows(
 func mapAccessKeyCostLimitRules(rows []models.AccessKeyCostLimitRule) []AccessKeyCostLimitRule {
 	result := make([]AccessKeyCostLimitRule, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, AccessKeyCostLimitRule{
+		mapped := AccessKeyCostLimitRule{
 			ID: row.ID, Kind: accessquota.Kind(row.Kind),
 			LimitUSD:      pricing.FormatUSD(pricing.NanoUSD(row.LimitNanoUSD)),
 			PeriodSeconds: row.PeriodSeconds,
-		})
+		}
+		if row.Kind == models.AccessKeyCostLimitKindPeriodic &&
+			accessquota.PeriodAnchor(row.PeriodAnchor) == accessquota.PeriodAnchorCalendarDay {
+			mapped.PeriodAnchor = accessquota.PeriodAnchorCalendarDay
+			mapped.PeriodTimezone = row.PeriodTimezone
+		}
+		result = append(result, mapped)
 	}
 	return result
 }
@@ -391,10 +434,15 @@ func costLimitRuleRequestsForDigest(
 ) []AccessKeyCostLimitRuleRequest {
 	result := make([]AccessKeyCostLimitRuleRequest, 0, len(rules))
 	for _, rule := range rules {
-		result = append(result, AccessKeyCostLimitRuleRequest{
+		mapped := AccessKeyCostLimitRuleRequest{
 			Kind: rule.Kind, LimitUSD: pricing.FormatUSD(pricing.NanoUSD(rule.LimitNanoUSD)),
 			PeriodSeconds: rule.PeriodSeconds,
-		})
+		}
+		if rule.Kind == accessquota.KindPeriodic && rule.PeriodAnchor == accessquota.PeriodAnchorCalendarDay {
+			mapped.PeriodAnchor = rule.PeriodAnchor
+			mapped.PeriodTimezone = rule.PeriodTimezone
+		}
+		result = append(result, mapped)
 	}
 	return result
 }
@@ -408,7 +456,7 @@ func mapAccessKeyCostLimitStatus(view accessquota.View) AccessKeyCostLimitStatus
 		Rules:             make([]AccessKeyCostLimitRuleStatus, 0, len(view.Rules)),
 	}
 	for _, rule := range view.Rules {
-		result.Rules = append(result.Rules, AccessKeyCostLimitRuleStatus{
+		mapped := AccessKeyCostLimitRuleStatus{
 			ID: rule.ID, Kind: rule.Kind,
 			LimitUSD:     pricing.FormatUSD(pricing.NanoUSD(rule.LimitNanoUSD)),
 			UsedUSD:      pricing.FormatUSD(pricing.NanoUSD(rule.UsedNanoUSD)),
@@ -416,7 +464,12 @@ func mapAccessKeyCostLimitStatus(view accessquota.View) AccessKeyCostLimitStatus
 			Status:       rule.Status, PeriodSeconds: rule.PeriodSeconds,
 			WindowStartedAtMS: cloneCostLimitMilliseconds(rule.WindowStartedAtMS),
 			WindowEndsAtMS:    cloneCostLimitMilliseconds(rule.WindowEndsAtMS),
-		})
+		}
+		if rule.Kind == accessquota.KindPeriodic && rule.PeriodAnchor == accessquota.PeriodAnchorCalendarDay {
+			mapped.PeriodAnchor = rule.PeriodAnchor
+			mapped.PeriodTimezone = rule.PeriodTimezone
+		}
+		result.Rules = append(result.Rules, mapped)
 	}
 	return result
 }
@@ -426,7 +479,8 @@ func costLimitDefinitionsFromStatus(status AccessKeyCostLimitStatus) []AccessKey
 	for _, rule := range status.Rules {
 		rules = append(rules, AccessKeyCostLimitRule{
 			ID: rule.ID, Kind: rule.Kind, LimitUSD: rule.LimitUSD,
-			PeriodSeconds: rule.PeriodSeconds,
+			PeriodSeconds: rule.PeriodSeconds, PeriodAnchor: rule.PeriodAnchor,
+			PeriodTimezone: rule.PeriodTimezone,
 		})
 	}
 	return rules

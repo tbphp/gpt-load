@@ -81,12 +81,14 @@ var (
 )
 
 type accessKeyCostLimitRuleError struct {
-	ID             uint             `json:"id"`
-	Kind           accessquota.Kind `json:"kind"`
-	LimitUSD       string           `json:"limit_usd"`
-	UsedUSD        string           `json:"used_usd"`
-	PeriodSeconds  int64            `json:"period_seconds,omitempty"`
-	WindowEndsAtMS *int64           `json:"window_ends_at_ms,omitempty"`
+	ID             uint                     `json:"id"`
+	Kind           accessquota.Kind         `json:"kind"`
+	LimitUSD       string                   `json:"limit_usd"`
+	UsedUSD        string                   `json:"used_usd"`
+	PeriodSeconds  int64                    `json:"period_seconds,omitempty"`
+	PeriodAnchor   accessquota.PeriodAnchor `json:"period_anchor,omitempty"`
+	PeriodTimezone string                   `json:"period_timezone,omitempty"`
+	WindowEndsAtMS *int64                   `json:"window_ends_at_ms,omitempty"`
 }
 
 type accessKeyCostLimitClientError struct {
@@ -113,13 +115,18 @@ func (handler *Handler) writeAccessQuotaReason(
 ) error {
 	blocking := make([]accessKeyCostLimitRuleError, 0, len(decision.BlockingRules))
 	for _, rule := range decision.BlockingRules {
-		blocking = append(blocking, accessKeyCostLimitRuleError{
+		mapped := accessKeyCostLimitRuleError{
 			ID: rule.ID, Kind: rule.Kind,
 			LimitUSD:       pricing.FormatUSD(pricing.NanoUSD(rule.LimitNanoUSD)),
 			UsedUSD:        pricing.FormatUSD(pricing.NanoUSD(rule.UsedNanoUSD)),
 			PeriodSeconds:  rule.PeriodSeconds,
 			WindowEndsAtMS: cloneReasonInt64(rule.WindowEndsAtMS),
-		})
+		}
+		if rule.PeriodAnchor == accessquota.PeriodAnchorCalendarDay {
+			mapped.PeriodAnchor = rule.PeriodAnchor
+			mapped.PeriodTimezone = rule.PeriodTimezone
+		}
+		blocking = append(blocking, mapped)
 	}
 	message := accessKeyCostLimitMessage(decision)
 	var resetsAt *int64

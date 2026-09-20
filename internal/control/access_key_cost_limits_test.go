@@ -126,6 +126,71 @@ func TestAccessKeyCostLimitRulesCreateAndReconcileDesiredList(t *testing.T) {
 	}
 }
 
+func TestAccessKeyCostLimitRulesPersistCalendarAnchorAndResetOnAnchorChange(t *testing.T) {
+	t.Parallel()
+	fixture, engine := newAccessKeyCostLimitHTTPFixture(t)
+	created := serveAccessKeyCostLimitRequest(t, engine, http.MethodPost, "/api/access-keys", `{
+		"name":"calendar",
+		"cost_limit_rules":[
+			{"kind":"periodic","limit_usd":"20","period_seconds":86400,"period_anchor":"calendar_day","period_timezone":"Asia/Shanghai"},
+			{"kind":"periodic","limit_usd":"30","period_seconds":604800,"period_anchor":"calendar_day","period_timezone":"Asia/Shanghai"}
+		]
+	}`, "00000000-0000-4000-8000-000000009010")
+	if created.Code != http.StatusOK {
+		t.Fatalf("POST calendar = %d %s, want 200", created.Code, created.Body.String())
+	}
+	var envelope struct {
+		Data AccessKeyCreateResult `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Data.CostLimitRules) != 2 {
+		t.Fatalf("calendar rules = %#v", envelope.Data.CostLimitRules)
+	}
+	for _, rule := range envelope.Data.CostLimitRules {
+		if rule.PeriodAnchor != accessquota.PeriodAnchorCalendarDay || rule.PeriodTimezone != "Asia/Shanghai" {
+			t.Fatalf("calendar response rule = %#v", rule)
+		}
+	}
+	stored := loadAccessKeyCostLimitRules(t, fixture, envelope.Data.ID)
+	for _, rule := range stored {
+		if rule.PeriodAnchor != models.AccessKeyCostLimitPeriodAnchorCalendarDay ||
+			rule.PeriodTimezone != "Asia/Shanghai" {
+			t.Fatalf("stored calendar rule = %#v", rule)
+		}
+	}
+
+	updated := serveAccessKeyCostLimitRequest(
+		t,
+		engine,
+		http.MethodPut,
+		fmt.Sprintf("/api/access-keys/%d", envelope.Data.ID),
+		fmt.Sprintf(`{"cost_limit_rules":[
+			{"id":%d,"kind":"periodic","limit_usd":"20","period_seconds":86400},
+			{"id":%d,"kind":"periodic","limit_usd":"30","period_seconds":604800}
+		]}`, stored[0].ID, stored[1].ID),
+		"",
+	)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("PUT first request = %d %s, want 200", updated.Code, updated.Body.String())
+	}
+	changed := loadAccessKeyCostLimitRules(t, fixture, envelope.Data.ID)
+	for _, rule := range changed {
+		if rule.PeriodAnchor != models.AccessKeyCostLimitPeriodAnchorFirstRequest ||
+			rule.PeriodTimezone != "" || rule.RuleRevision != 2 {
+			t.Fatalf("changed anchor rule = %#v", rule)
+		}
+		var state models.AccessKeyCostLimitState
+		if err := fixture.db.First(&state, rule.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if state.RuleRevision != 2 || state.UsedNanoUSD != 0 || state.WindowStartedAtMS != nil {
+			t.Fatalf("changed anchor state = %#v", state)
+		}
+	}
+}
+
 func TestAccessKeyCostLimitRulesResetOnlySelectedRules(t *testing.T) {
 	t.Parallel()
 	fixture, engine := newAccessKeyCostLimitHTTPFixture(t)
@@ -274,6 +339,9 @@ func TestAccessKeyCostLimitRulesAreValidatedAndIdempotent(t *testing.T) {
 		`{"name":"zero","cost_limit_rules":[{"kind":"total","limit_usd":"0"}]}`,
 		`{"name":"duplicate","cost_limit_rules":[{"kind":"periodic","limit_usd":"1","period_seconds":300},{"kind":"periodic","limit_usd":"2","period_seconds":300}]}`,
 		`{"name":"null","cost_limit_rules":null}`,
+		`{"name":"calendar-hours","cost_limit_rules":[{"kind":"periodic","limit_usd":"1","period_seconds":3600,"period_anchor":"calendar_day","period_timezone":"Asia/Shanghai"}]}`,
+		`{"name":"calendar-zone","cost_limit_rules":[{"kind":"periodic","limit_usd":"1","period_seconds":86400,"period_anchor":"calendar_day","period_timezone":"Local"}]}`,
+		`{"name":"mixed-anchor","cost_limit_rules":[{"kind":"periodic","limit_usd":"1","period_seconds":86400},{"kind":"periodic","limit_usd":"2","period_seconds":172800,"period_anchor":"calendar_day","period_timezone":"Asia/Shanghai"}]}`,
 	}
 	for index, body := range invalid {
 		response := serveAccessKeyCostLimitRequest(

@@ -1,10 +1,13 @@
 package models
 
 type AccessKeyCostLimitKind string
+type AccessKeyCostLimitPeriodAnchor string
 
 const (
-	AccessKeyCostLimitKindTotal    AccessKeyCostLimitKind = "total"
-	AccessKeyCostLimitKindPeriodic AccessKeyCostLimitKind = "periodic"
+	AccessKeyCostLimitKindTotal                AccessKeyCostLimitKind         = "total"
+	AccessKeyCostLimitKindPeriodic             AccessKeyCostLimitKind         = "periodic"
+	AccessKeyCostLimitPeriodAnchorFirstRequest AccessKeyCostLimitPeriodAnchor = "first_request"
+	AccessKeyCostLimitPeriodAnchorCalendarDay  AccessKeyCostLimitPeriodAnchor = "calendar_day"
 
 	AccessKeyCostLimitMinPeriodSeconds int64 = 60
 	AccessKeyCostLimitMaxPeriodSeconds int64 = 365 * 24 * 60 * 60
@@ -12,15 +15,17 @@ const (
 
 // AccessKeyCostLimitRule stores one immutable-definition revision for an AccessKey limit.
 type AccessKeyCostLimitRule struct {
-	ID            uint                   `gorm:"primaryKey;autoIncrement"`
-	AccessKeyID   uint                   `gorm:"not null;uniqueIndex:idx_access_key_cost_limit_rules_identity,priority:1"`
-	Kind          AccessKeyCostLimitKind `gorm:"type:varchar(16);not null;uniqueIndex:idx_access_key_cost_limit_rules_identity,priority:2;check:chk_ak_cost_rule_kind,kind IN ('total','periodic')"`
-	LimitNanoUSD  int64                  `gorm:"column:limit_nano_usd;not null;check:chk_ak_cost_rule_limit,limit_nano_usd > 0"`
-	PeriodSeconds int64                  `gorm:"not null;default:0;uniqueIndex:idx_access_key_cost_limit_rules_identity,priority:3;check:chk_ak_cost_rule_period,(kind = 'total' AND period_seconds = 0) OR (kind = 'periodic' AND period_seconds BETWEEN 60 AND 31536000)"`
-	RuleRevision  uint64                 `gorm:"not null;default:1;check:chk_ak_cost_rule_revision,rule_revision > 0"`
-	AccessKey     *AccessKey             `gorm:"foreignKey:AccessKeyID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
-	CreatedAtMS   int64                  `gorm:"column:created_at_ms;not null;autoCreateTime:milli;check:chk_ak_cost_rule_created_at,created_at_ms >= 0"`
-	UpdatedAtMS   int64                  `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli;check:chk_ak_cost_rule_updated_at,updated_at_ms >= 0"`
+	ID             uint                           `gorm:"primaryKey;autoIncrement"`
+	AccessKeyID    uint                           `gorm:"not null;uniqueIndex:idx_access_key_cost_limit_rules_identity,priority:1"`
+	Kind           AccessKeyCostLimitKind         `gorm:"type:varchar(16);not null;uniqueIndex:idx_access_key_cost_limit_rules_identity,priority:2;check:chk_ak_cost_rule_kind,kind IN ('total','periodic')"`
+	LimitNanoUSD   int64                          `gorm:"column:limit_nano_usd;not null;check:chk_ak_cost_rule_limit,limit_nano_usd > 0"`
+	PeriodSeconds  int64                          `gorm:"not null;default:0;uniqueIndex:idx_access_key_cost_limit_rules_identity,priority:3;check:chk_ak_cost_rule_period,(kind = 'total' AND period_seconds = 0) OR (kind = 'periodic' AND period_seconds BETWEEN 60 AND 31536000)"`
+	PeriodAnchor   AccessKeyCostLimitPeriodAnchor `gorm:"type:varchar(16);not null;default:first_request;check:chk_ak_cost_rule_anchor,period_anchor IN ('first_request','calendar_day')"`
+	PeriodTimezone string                         `gorm:"type:varchar(64);not null;default:''"`
+	RuleRevision   uint64                         `gorm:"not null;default:1;check:chk_ak_cost_rule_revision,rule_revision > 0"`
+	AccessKey      *AccessKey                     `gorm:"foreignKey:AccessKeyID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	CreatedAtMS    int64                          `gorm:"column:created_at_ms;not null;autoCreateTime:milli;check:chk_ak_cost_rule_created_at,created_at_ms >= 0"`
+	UpdatedAtMS    int64                          `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli;check:chk_ak_cost_rule_updated_at,updated_at_ms >= 0"`
 }
 
 func (AccessKeyCostLimitRule) TableName() string {

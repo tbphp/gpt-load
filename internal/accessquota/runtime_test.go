@@ -64,6 +64,78 @@ func TestRuntimeAppliesTotalAndActivityTriggeredPeriodicLimits(t *testing.T) {
 	}
 }
 
+func TestRuntimeCalendarDayWindowExistsBeforeFirstRequestAndRotatesAtMidnight(t *testing.T) {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := time.Date(2026, time.August, 18, 13, 0, 0, 0, location)
+	runtime := NewRuntime()
+	if err := runtime.Reconcile(map[uint][]Rule{1: {{
+		ID: 13, Revision: 1, Kind: KindPeriodic, LimitNanoUSD: 20,
+		PeriodSeconds: 24 * 60 * 60, PeriodAnchor: PeriodAnchorCalendarDay,
+		PeriodTimezone: "Asia/Shanghai", CreatedAtMS: created.UnixMilli(),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	beforeMidnight := time.Date(2026, time.August, 20, 23, 59, 0, 0, location)
+	view := ruleViewByID(t, runtime.Snapshot(1, beforeMidnight).Rules, 13)
+	wantStart := time.Date(2026, time.August, 20, 0, 0, 0, 0, location).UnixMilli()
+	wantEnd := time.Date(2026, time.August, 21, 0, 0, 0, 0, location).UnixMilli()
+	if view.Status != RuleStatusAvailable || view.WindowStartedAtMS == nil ||
+		*view.WindowStartedAtMS != wantStart || view.WindowEndsAtMS == nil ||
+		*view.WindowEndsAtMS != wantEnd || view.WindowGeneration != 1 {
+		t.Fatalf("initial calendar view = %#v", view)
+	}
+
+	ticket, decision := runtime.Admit(1, beforeMidnight)
+	if !decision.Allowed {
+		t.Fatalf("Admit() = %#v", decision)
+	}
+	runtime.Complete(ticket, 20)
+	decision = runtime.Check(1, beforeMidnight)
+	if decision.Allowed || decision.NextAvailableAtMS == nil || *decision.NextAvailableAtMS != wantEnd {
+		t.Fatalf("exhausted calendar decision = %#v", decision)
+	}
+
+	atMidnight := time.Date(2026, time.August, 21, 0, 0, 0, 0, location)
+	if decision = runtime.Check(1, atMidnight); !decision.Allowed {
+		t.Fatalf("Check(at midnight) = %#v", decision)
+	}
+	runtime.Complete(ticket, 5)
+	view = ruleViewByID(t, runtime.Snapshot(1, atMidnight).Rules, 13)
+	if view.UsedNanoUSD != 0 || view.WindowGeneration != 2 ||
+		view.WindowStartedAtMS == nil || *view.WindowStartedAtMS != wantEnd {
+		t.Fatalf("rotated calendar view = %#v", view)
+	}
+}
+
+func TestRuntimeCalendarDayUsesCivilMidnightAcrossDST(t *testing.T) {
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := time.Date(2026, time.March, 1, 12, 0, 0, 0, location)
+	runtime := NewRuntime()
+	if err := runtime.Reconcile(map[uint][]Rule{1: {{
+		ID: 14, Revision: 1, Kind: KindPeriodic, LimitNanoUSD: 20,
+		PeriodSeconds: 24 * 60 * 60, PeriodAnchor: PeriodAnchorCalendarDay,
+		PeriodTimezone: "America/New_York", CreatedAtMS: created.UnixMilli(),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, time.March, 8, 12, 0, 0, 0, location)
+	view := ruleViewByID(t, runtime.Snapshot(1, now).Rules, 14)
+	if view.WindowStartedAtMS == nil || view.WindowEndsAtMS == nil {
+		t.Fatalf("DST calendar view = %#v", view)
+	}
+	if got := *view.WindowEndsAtMS - *view.WindowStartedAtMS; got != int64(23*time.Hour/time.Millisecond) {
+		t.Fatalf("DST window duration = %dms, want 23h", got)
+	}
+}
+
 func TestRuntimeReturnsEveryBlockingRuleAndLatestPeriodicRecovery(t *testing.T) {
 	runtime := NewRuntime()
 	if err := runtime.Reconcile(map[uint][]Rule{1: {

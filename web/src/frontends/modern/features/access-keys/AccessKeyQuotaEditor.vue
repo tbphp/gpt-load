@@ -7,9 +7,13 @@ import {
   AppButton,
   AppFormSection,
   AppIconButton,
+  AppSearchSelect,
+  AppSegmentedControl,
   AppSegmentedField,
   AppTextField,
 } from '@modern/components/ui'
+import { localTimeZone } from '@modern/components/ui/date-time'
+import { ianaTimeZoneOptions } from '@shared/iana-time-zones'
 import { accessTime, accessUSD } from './access-key-display'
 import { periodUnits, ruleDraft, type RuleDraft } from './access-key-draft'
 const props = defineProps<{
@@ -21,19 +25,93 @@ const props = defineProps<{
 const rules = defineModel<RuleDraft[]>({ required: true })
 defineEmits<{ reset: [] }>()
 const { t, locale } = useI18n()
+type PeriodAnchor = 'first_request' | 'calendar_day'
+const periodicRules = computed(() => rules.value.filter((rule) => rule.kind === 'periodic'))
+const periodAnchor = computed<PeriodAnchor>(
+  () => periodicRules.value[0]?.period_anchor ?? 'first_request',
+)
+const periodTimezone = computed({
+  get: () => periodicRules.value[0]?.period_timezone ?? localTimeZone(),
+  set: (timezone: string) => {
+    if (props.disabled || periodAnchor.value !== 'calendar_day') return
+    rules.value = rules.value.map((rule) =>
+      rule.kind === 'periodic' ? { ...rule, period_timezone: timezone } : rule,
+    )
+  },
+})
+const periodTimezoneOptions = computed(() => ianaTimeZoneOptions(locale.value))
+const anchorOptions = computed(() => [
+  { value: 'first_request', label: t('accessKeys.firstRequest') },
+  { value: 'calendar_day', label: t('accessKeys.calendarDay') },
+])
 const units = computed(() =>
-  Object.keys(periodUnits).map((value) => ({ value, label: t('accessKeys.units.' + value) })),
+  Object.keys(periodUnits)
+    .filter((value) => periodAnchor.value !== 'calendar_day' || value === 'day')
+    .map((value) => ({ value, label: t('accessKeys.units.' + value) })),
 )
 const byID = computed(() => new Map(props.runtime?.rules.map((rule) => [rule.id, rule])))
+function updatePeriodAnchor(value: string): void {
+  if (
+    props.disabled ||
+    (value !== 'first_request' && value !== 'calendar_day') ||
+    value === periodAnchor.value
+  )
+    return
+  const anchor = value as PeriodAnchor
+  const timezone = anchor === 'calendar_day' ? localTimeZone() : undefined
+  const usedDays = new Set<number>()
+  rules.value = rules.value.map((rule) => {
+    if (rule.kind !== 'periodic') return rule
+    if (anchor === 'first_request') {
+      const next = { ...rule }
+      delete next.period_timezone
+      return { ...next, period_anchor: anchor }
+    }
+    let days = Math.max(1, Math.min(365, Math.floor(Number(rule.period) || 1)))
+    while (days <= 365 && usedDays.has(days)) days += 1
+    if (days > 365) {
+      days = 1
+      while (usedDays.has(days)) days += 1
+    }
+    usedDays.add(days)
+    return {
+      ...rule,
+      period: String(days),
+      unit: 'day',
+      period_seconds: days * periodUnits.day,
+      period_anchor: anchor,
+      period_timezone: timezone,
+    }
+  })
+}
 function add(kind: 'total' | 'periodic'): void {
   if (
     props.disabled ||
     rules.value.filter((rule) => rule.kind === kind).length >= (kind === 'total' ? 1 : 10)
   )
     return
+  let calendarPeriod = periodUnits.day
+  const usedPeriods = new Set(
+    periodicRules.value.map(
+      (rule) => Number(rule.period) * periodUnits[rule.unit as keyof typeof periodUnits],
+    ),
+  )
+  while (usedPeriods.has(calendarPeriod)) calendarPeriod += periodUnits.day
   rules.value = [
     ...rules.value,
-    ruleDraft({ kind, limit_usd: '', ...(kind === 'periodic' ? { period_seconds: 18000 } : {}) }),
+    ruleDraft({
+      kind,
+      limit_usd: '',
+      ...(kind === 'periodic'
+        ? {
+            period_seconds: periodAnchor.value === 'calendar_day' ? calendarPeriod : 18_000,
+            period_anchor: periodAnchor.value,
+            ...(periodAnchor.value === 'calendar_day'
+              ? { period_timezone: periodTimezone.value }
+              : {}),
+          }
+        : {}),
+    }),
   ]
 }
 </script>
@@ -50,6 +128,39 @@ function add(kind: 'total' | 'periodic'): void {
         >{{ t('accessKeys.reset') }}</AppButton
       ></template
     >
+    <div v-if="periodicRules.length" class="modern-access-quota-anchor">
+      <AppSegmentedControl
+        :model-value="periodAnchor"
+        :label="t('accessKeys.periodAnchor')"
+        :options="anchorOptions"
+        appearance="field"
+        size="xs"
+        :disabled="disabled"
+        @update:model-value="updatePeriodAnchor"
+      />
+      <p>
+        {{
+          t(
+            periodAnchor === 'calendar_day'
+              ? 'accessKeys.calendarDayHelp'
+              : 'accessKeys.firstRequestHelp',
+          )
+        }}
+      </p>
+      <AppSearchSelect
+        v-if="periodAnchor === 'calendar_day'"
+        v-model="periodTimezone"
+        class="modern-access-quota-timezone"
+        :label="t('accessKeys.periodTimezone')"
+        :description="t('accessKeys.periodTimezoneHelp')"
+        :options="periodTimezoneOptions"
+        allow-custom
+        placeholder="Asia/Shanghai"
+        size="xs"
+        :disabled="disabled"
+        :invalid="Boolean(error)"
+      />
+    </div>
     <div v-for="rule in rules" :key="rule.clientKey" class="modern-access-quota-rule">
       <div class="modern-access-quota-fields" :class="{ 'is-total': rule.kind === 'total' }">
         <span class="modern-access-quota-kind">{{
@@ -141,6 +252,19 @@ function add(kind: 'total' | 'periodic'): void {
   </AppFormSection>
 </template>
 <style scoped>
+.modern-access-quota-anchor {
+  display: grid;
+  justify-items: start;
+  gap: var(--modern-space-2);
+}
+.modern-access-quota-anchor > p {
+  margin: 0;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-access-quota-timezone {
+  width: min(320px, 100%);
+}
 .modern-access-quota-rule {
   container: modern-access-quota / inline-size;
   min-width: 0;

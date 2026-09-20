@@ -503,6 +503,7 @@ export interface AccessKeyFiltersDto {
 }
 
 export type AccessKeyCostLimitKind = 'total' | 'periodic'
+export type AccessKeyCostLimitPeriodAnchor = 'first_request' | 'calendar_day'
 export type AccessKeyCostLimitRuleState = 'available' | 'inactive' | 'exhausted'
 
 export interface AccessKeyCostLimitRuleDto {
@@ -510,6 +511,8 @@ export interface AccessKeyCostLimitRuleDto {
   kind: AccessKeyCostLimitKind
   limit_usd: string
   period_seconds: number
+  period_anchor?: AccessKeyCostLimitPeriodAnchor
+  period_timezone?: string
 }
 
 export interface AccessKeyCostLimitRuleStatusDto extends AccessKeyCostLimitRuleDto {

@@ -197,7 +197,13 @@ function canonicalCostLimitRules(
       ...(rule.id === undefined ? {} : { id: rule.id }),
       kind: rule.kind,
       limit_usd: rule.limit_usd,
-      ...(rule.kind === 'periodic' ? { period_seconds: rule.period_seconds } : {}),
+      ...(rule.kind === 'periodic'
+        ? {
+            period_seconds: rule.period_seconds,
+            period_anchor: rule.period_anchor ?? 'first_request',
+            ...(rule.period_timezone ? { period_timezone: rule.period_timezone } : {}),
+          }
+        : {}),
     }))
     .sort((left, right) => {
       if (left.kind !== right.kind) return left.kind === 'total' ? -1 : 1
@@ -227,7 +233,13 @@ function costLimitInputs(
       ...(includeIDs && rule.id !== undefined ? { id: rule.id } : {}),
       kind: rule.kind,
       limit_usd: rule.limit_usd,
-      ...(rule.kind === 'periodic' ? { period_seconds: rule.period_seconds } : {}),
+      ...(rule.kind === 'periodic'
+        ? {
+            period_seconds: rule.period_seconds,
+            period_anchor: rule.period_anchor ?? 'first_request',
+            ...(rule.period_timezone ? { period_timezone: rule.period_timezone } : {}),
+          }
+        : {}),
     })),
   )
 }
@@ -239,6 +251,8 @@ export function areAccessKeyCostLimitRulesValid(
   let periodicCount = 0
   const periods = new Set<number>()
   const ids = new Set<number>()
+  let periodAnchor: 'first_request' | 'calendar_day' | undefined
+  let periodTimezone: string | undefined
   for (const rule of rules) {
     if (!/^(?:0|[1-9]\d*)(?:\.\d{1,9})?$/.test(rule.limit_usd)) return false
     if (/^0(?:\.0+)?$/.test(rule.limit_usd)) return false
@@ -253,18 +267,38 @@ export function areAccessKeyCostLimitRulesValid(
     }
     periodicCount += 1
     const period = rule.period_seconds
+    const anchor = rule.period_anchor ?? 'first_request'
+    const timezone = rule.period_timezone ?? ''
     if (
       period === undefined ||
       !Number.isSafeInteger(period) ||
       period < 60 ||
       period > 31_536_000 ||
-      periods.has(period)
+      periods.has(period) ||
+      (anchor === 'first_request' && timezone !== '') ||
+      (anchor === 'calendar_day' && (period % 86_400 !== 0 || !isValidTimeZone(timezone)))
     ) {
       return false
     }
     periods.add(period)
+    if (periodAnchor === undefined) {
+      periodAnchor = anchor
+      periodTimezone = timezone
+    } else if (periodAnchor !== anchor || periodTimezone !== timezone) {
+      return false
+    }
   }
   return totalCount <= 1 && periodicCount <= 10
+}
+
+function isValidTimeZone(value: string): boolean {
+  if (!value || value === 'Local' || value.length > 64) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(0)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function isAccessKeyDraftDirty(draft: AccessKeyDraft, base?: AccessKeyDto | null): boolean {
@@ -331,6 +365,8 @@ function sameCostLimitRuleValue(
   return (
     left.kind === right.kind &&
     (left.period_seconds ?? 0) === (right.period_seconds ?? 0) &&
+    (left.period_anchor ?? 'first_request') === (right.period_anchor ?? 'first_request') &&
+    (left.period_timezone ?? '') === (right.period_timezone ?? '') &&
     normalizedUSD(left.limit_usd) === normalizedUSD(right.limit_usd)
   )
 }

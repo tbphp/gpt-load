@@ -7,13 +7,18 @@ import type {
   AccessKeyCostLimitRuleStatusDto,
   AccessKeyCostLimitStatusDto,
 } from '@/api/control/types'
+import AppCombobox from '@/components/ui/AppCombobox.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
+import FormField from '@/components/ui/FormField.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import QuotaProgressBar from '@/components/ui/QuotaProgressBar.vue'
+import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import { quotaProgressTone } from '@/lib/quota-progress'
+import { currentTimeZone } from '@/lib/time'
 import { createUUID } from '@/lib/uuid'
+import { ianaTimeZoneOptions } from '@shared/iana-time-zones'
 
 import AccessKeyCostLimitWindowTime from './AccessKeyCostLimitWindowTime.vue'
 import type { AccessKeyCostLimitRuleDraft } from './access-key-patch'
@@ -26,7 +31,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: AccessKeyCostLimitRuleDraft[]]
 }>()
-const { n, t } = useI18n()
+const { locale, n, t } = useI18n()
 
 const totalCount = computed(() => props.modelValue.filter((rule) => rule.kind === 'total').length)
 const periodicCount = computed(
@@ -37,6 +42,65 @@ const runtimeByID = computed(
 )
 const totalRules = computed(() => props.modelValue.filter((rule) => rule.kind === 'total'))
 const periodicRules = computed(() => props.modelValue.filter((rule) => rule.kind === 'periodic'))
+type PeriodAnchor = 'first_request' | 'calendar_day'
+const periodAnchor = computed<PeriodAnchor>({
+  get: () => periodicRules.value[0]?.period_anchor ?? 'first_request',
+  set: (anchor) => {
+    if (props.disabled || periodAnchor.value === anchor) return
+    const timezone = anchor === 'calendar_day' ? currentTimeZone() : undefined
+    const usedDays = new Set<number>()
+    emit(
+      'update:modelValue',
+      props.modelValue.map((rule) => {
+        if (rule.kind !== 'periodic') return rule
+        if (anchor === 'first_request') {
+          const next = { ...rule }
+          delete next.period_timezone
+          return { ...next, period_anchor: anchor }
+        }
+        const currentValue = Math.max(1, Math.min(365, periodValue(rule.period_seconds)))
+        let days = currentValue
+        while (days <= 365 && usedDays.has(days)) days += 1
+        if (days > 365) {
+          days = 1
+          while (usedDays.has(days)) days += 1
+        }
+        usedDays.add(days)
+        return {
+          ...rule,
+          period_seconds: days * 86_400,
+          period_anchor: anchor,
+          period_timezone: timezone,
+        }
+      }),
+    )
+  },
+})
+const periodTimezone = computed({
+  get: () => periodicRules.value[0]?.period_timezone ?? currentTimeZone(),
+  set: (timezone: string) => {
+    if (props.disabled || periodAnchor.value !== 'calendar_day') return
+    emit(
+      'update:modelValue',
+      props.modelValue.map((rule) =>
+        rule.kind === 'periodic' ? { ...rule, period_timezone: timezone } : rule,
+      ),
+    )
+  },
+})
+const periodTimezoneOptions = computed(() => ianaTimeZoneOptions(locale.value))
+const periodAnchorOptions = computed(() => [
+  {
+    value: 'first_request',
+    label: t('accessKeys.drawer.costLimits.periodAnchors.firstRequest'),
+    disabled: props.disabled,
+  },
+  {
+    value: 'calendar_day',
+    label: t('accessKeys.drawer.costLimits.periodAnchors.calendarDay'),
+    disabled: props.disabled,
+  },
+])
 const totalEnabled = computed({
   get: () => totalCount.value > 0,
   set: (enabled: boolean) => {
@@ -68,7 +132,10 @@ const periodUnits: ReadonlyArray<{ value: PeriodUnit; seconds: number }> = [
   { value: 'days', seconds: 86_400 },
 ]
 const periodUnitOptions = computed(() =>
-  periodUnits.map((unit) => ({
+  (periodAnchor.value === 'calendar_day'
+    ? periodUnits.filter((unit) => unit.value === 'days')
+    : periodUnits
+  ).map((unit) => ({
     value: unit.value,
     label: t(`accessKeys.drawer.costLimits.units.${unit.value}`),
   })),
@@ -99,13 +166,23 @@ function addRule(kind: 'total' | 'periodic'): void {
   if (props.disabled || (kind === 'total' ? totalCount.value >= 1 : periodicCount.value >= 10)) {
     return
   }
+  const anchor = periodAnchor.value
+  const usedPeriods = new Set(periodicRules.value.map((rule) => rule.period_seconds))
+  let calendarPeriod = 86_400
+  while (usedPeriods.has(calendarPeriod)) calendarPeriod += 86_400
   emit('update:modelValue', [
     ...props.modelValue,
     {
       clientKey: createUUID(),
       kind,
       limit_usd: kind === 'total' ? '100' : '20',
-      ...(kind === 'periodic' ? { period_seconds: 18_000 } : {}),
+      ...(kind === 'periodic'
+        ? {
+            period_seconds: anchor === 'calendar_day' ? calendarPeriod : 18_000,
+            period_anchor: anchor,
+            ...(anchor === 'calendar_day' ? { period_timezone: periodTimezone.value } : {}),
+          }
+        : {}),
     },
   ])
 }
@@ -137,6 +214,7 @@ function updatePeriodValue(rule: AccessKeyCostLimitRuleDraft, raw: string): void
 }
 
 function updatePeriodUnit(rule: AccessKeyCostLimitRuleDraft, unit: PeriodUnit): void {
+  if (periodAnchor.value === 'calendar_day' && unit !== 'days') return
   updateRule(rule.clientKey, {
     period_seconds: periodValue(rule.period_seconds) * unitSeconds(unit),
   })
@@ -243,6 +321,47 @@ function runtimeValueText(runtime: AccessKeyCostLimitRuleStatusDto): string {
       </header>
 
       <div v-if="periodicEnabled" class="cost-limit-section__content">
+        <div class="cost-limit-period-anchor">
+          <SegmentedControl
+            v-model="periodAnchor"
+            :label="t('accessKeys.drawer.costLimits.periodAnchor')"
+            :options="periodAnchorOptions"
+            appearance="drawer"
+            size="xs"
+          />
+          <p>
+            {{
+              t(
+                periodAnchor === 'calendar_day'
+                  ? 'accessKeys.drawer.costLimits.calendarDayDescription'
+                  : 'accessKeys.drawer.costLimits.firstRequestDescription',
+              )
+            }}
+          </p>
+          <FormField
+            v-if="periodAnchor === 'calendar_day'"
+            id="cost-limit-period-timezone"
+            :label="t('accessKeys.drawer.costLimits.periodTimezone')"
+            :description="t('accessKeys.drawer.costLimits.periodTimezoneDescription')"
+            size="compact"
+          >
+            <template #default="{ describedBy }">
+              <AppCombobox
+                id="cost-limit-period-timezone"
+                v-model="periodTimezone"
+                :label="t('accessKeys.drawer.costLimits.periodTimezone')"
+                :options="periodTimezoneOptions"
+                :empty-text="t('accessKeys.drawer.costLimits.periodTimezoneEmpty')"
+                :described-by="describedBy"
+                placeholder="Asia/Shanghai"
+                size="sm"
+                :disabled="disabled"
+                :spellcheck="false"
+                monospace
+              />
+            </template>
+          </FormField>
+        </div>
         <div class="cost-limit-fields-header cost-limit-fields-header--periodic">
           <span>{{ t('accessKeys.drawer.costLimits.amount') }}</span>
           <span>{{ t('accessKeys.drawer.costLimits.period') }}</span>
@@ -392,6 +511,20 @@ function runtimeValueText(runtime: AccessKeyCostLimitRuleStatusDto): string {
   display: grid;
   min-width: 0;
   gap: var(--space-2);
+}
+.cost-limit-period-anchor {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+.cost-limit-period-anchor p {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+  line-height: 1.45;
+}
+.cost-limit-period-anchor :deep(.form-field) {
+  width: min(300px, 100%);
 }
 .cost-limit-rule {
   display: grid;

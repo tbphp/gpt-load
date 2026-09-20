@@ -264,8 +264,16 @@ export default {
         enablePeriodic: 'Enable periodic limits',
         totalDescription:
           'Limit cumulative estimated cost after Group and access key multipliers. The total limit does not reset automatically.',
-        periodicDescription:
-          'Limit adjusted estimated cost in fixed periods triggered by the first request. Up to 10 rules.',
+        periodicDescription: 'Limit adjusted estimated cost in fixed periods. Up to 10 rules.',
+        periodAnchor: 'Period start',
+        periodAnchors: { firstRequest: 'First request', calendarDay: 'Calendar day' },
+        firstRequestDescription:
+          'The first admitted request starts a period; the next request after expiry starts another.',
+        calendarDayDescription:
+          'Aligns to midnight in the selected timezone and accepts whole days only. Switching converts each current period value to days.',
+        periodTimezone: 'Calendar timezone',
+        periodTimezoneDescription: 'Select or enter an IANA timezone, such as Asia/Shanghai.',
+        periodTimezoneEmpty: 'No match; enter a valid IANA timezone directly',
         addPeriodic: 'Add periodic limit',
         total: 'Total limit',
         periodic: 'Periodic limit',
@@ -286,7 +294,7 @@ export default {
       saveBlockedPending: 'Saving…',
       saveBlockedName: 'Enter a name',
       saveBlockedRPM: 'RPM must be a non-negative integer',
-      saveBlockedCostLimits: 'Check cost amounts or periods',
+      saveBlockedCostLimits: 'Check cost amounts, periods, or timezone',
       saveBlockedGroupProtocol: 'Group and protocol cannot route',
       saveBlockedGroupUnavailable: 'Group catalog unavailable',
       saveBlockedStaleScope: 'Current Group scope is invalid',
@@ -338,7 +346,7 @@ export default {
       periodMinutes: '{count} minutes',
       periodSeconds: '{count} seconds',
       impact:
-        'Used cost for selected rules will be cleared. Periodic rules become inactive and the next upstream request starts a new period.',
+        'Used cost for selected rules will be cleared. Periodic rules are recalculated from their configured start.',
       confirm: 'Reset {count} rules',
       failed: 'Unable to reset cost allowances.',
     },

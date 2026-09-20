@@ -64,10 +64,12 @@ func (value *OptionalNullableEpochMS) UnmarshalJSON(data []byte) error {
 }
 
 type AccessKeyCostLimitRuleRequest struct {
-	ID            uint             `json:"id,omitempty"`
-	Kind          accessquota.Kind `json:"kind"`
-	LimitUSD      string           `json:"limit_usd"`
-	PeriodSeconds int64            `json:"period_seconds,omitempty"`
+	ID             uint                     `json:"id,omitempty"`
+	Kind           accessquota.Kind         `json:"kind"`
+	LimitUSD       string                   `json:"limit_usd"`
+	PeriodSeconds  int64                    `json:"period_seconds,omitempty"`
+	PeriodAnchor   accessquota.PeriodAnchor `json:"period_anchor,omitempty"`
+	PeriodTimezone string                   `json:"period_timezone,omitempty"`
 }
 
 type OptionalAccessKeyCostLimitRules struct {
@@ -98,22 +100,26 @@ func (value *OptionalAccessKeyCostLimitRules) UnmarshalJSON(data []byte) error {
 }
 
 type AccessKeyCostLimitRule struct {
-	ID            uint             `json:"id"`
-	Kind          accessquota.Kind `json:"kind"`
-	LimitUSD      string           `json:"limit_usd"`
-	PeriodSeconds int64            `json:"period_seconds,omitempty"`
+	ID             uint                     `json:"id"`
+	Kind           accessquota.Kind         `json:"kind"`
+	LimitUSD       string                   `json:"limit_usd"`
+	PeriodSeconds  int64                    `json:"period_seconds,omitempty"`
+	PeriodAnchor   accessquota.PeriodAnchor `json:"period_anchor,omitempty"`
+	PeriodTimezone string                   `json:"period_timezone,omitempty"`
 }
 
 type AccessKeyCostLimitRuleStatus struct {
-	ID                uint                   `json:"id"`
-	Kind              accessquota.Kind       `json:"kind"`
-	LimitUSD          string                 `json:"limit_usd"`
-	UsedUSD           string                 `json:"used_usd"`
-	RemainingUSD      string                 `json:"remaining_usd"`
-	Status            accessquota.RuleStatus `json:"status"`
-	PeriodSeconds     int64                  `json:"period_seconds,omitempty"`
-	WindowStartedAtMS *int64                 `json:"window_started_at_ms,omitempty"`
-	WindowEndsAtMS    *int64                 `json:"window_ends_at_ms,omitempty"`
+	ID                uint                     `json:"id"`
+	Kind              accessquota.Kind         `json:"kind"`
+	LimitUSD          string                   `json:"limit_usd"`
+	UsedUSD           string                   `json:"used_usd"`
+	RemainingUSD      string                   `json:"remaining_usd"`
+	Status            accessquota.RuleStatus   `json:"status"`
+	PeriodSeconds     int64                    `json:"period_seconds,omitempty"`
+	PeriodAnchor      accessquota.PeriodAnchor `json:"period_anchor,omitempty"`
+	PeriodTimezone    string                   `json:"period_timezone,omitempty"`
+	WindowStartedAtMS *int64                   `json:"window_started_at_ms,omitempty"`
+	WindowEndsAtMS    *int64                   `json:"window_ends_at_ms,omitempty"`
 }
 
 type AccessKeyCostLimitStatus struct {

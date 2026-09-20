@@ -16,6 +16,8 @@ export interface CostRule {
   kind: 'total' | 'periodic'
   limit_usd: string
   period_seconds?: number
+  period_anchor?: 'first_request' | 'calendar_day'
+  period_timezone?: string
 }
 export interface CostWindow extends CostRule {
   id: number
@@ -86,11 +88,30 @@ const decimal = (value: unknown) => {
 function readRule(value: unknown): CostRule {
   const row = record(value)
   const kind = oneOf(row.kind, ['total', 'periodic'] as const)
+  const anchor = oneOf(row.period_anchor ?? 'first_request', [
+    'first_request',
+    'calendar_day',
+  ] as const)
+  const timezone = row.period_timezone == null ? '' : text(row.period_timezone)
+  if (
+    (kind === 'total' && (anchor !== 'first_request' || timezone)) ||
+    (kind === 'periodic' && anchor === 'first_request' && timezone) ||
+    (kind === 'periodic' &&
+      anchor === 'calendar_day' &&
+      (!timezone || timezone === 'Local' || timezone.length > 64))
+  )
+    throw new InvalidResponseError()
   return {
     id: integer(row.id, 1),
     kind,
     limit_usd: decimal(row.limit_usd),
-    ...(kind === 'periodic' ? { period_seconds: integer(row.period_seconds, 60) } : {}),
+    ...(kind === 'periodic'
+      ? {
+          period_seconds: integer(row.period_seconds, 60),
+          period_anchor: anchor,
+          ...(timezone ? { period_timezone: timezone } : {}),
+        }
+      : {}),
   }
 }
 function readWindow(value: unknown): CostWindow {

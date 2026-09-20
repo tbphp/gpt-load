@@ -10,6 +10,7 @@ import type {
   AccessKeyCollectionResponseDto,
   AccessKeyCollectionSummaryDto,
   AccessKeyCostLimitKind,
+  AccessKeyCostLimitPeriodAnchor,
   AccessKeyCostLimitRuleDto,
   AccessKeyCostLimitRuleStatusDto,
   AccessKeyCostLimitStatusDto,
@@ -66,6 +67,8 @@ export interface AccessKeyCostLimitRuleInput {
   kind: AccessKeyCostLimitKind
   limit_usd: string
   period_seconds?: number
+  period_anchor?: AccessKeyCostLimitPeriodAnchor
+  period_timezone?: string
 }
 
 export type UpdateAccessKeyRequest = Partial<{
@@ -99,7 +102,14 @@ const collectionFields = ['summary', 'items', 'pagination', 'usage_window'] as c
 const collectionSummaryFields = ['total', 'active', 'disabled'] as const
 const collectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
 const collectionItemFields = [...metadataFields, 'expired', 'last_request_at_ms', 'usage'] as const
-const costLimitRuleFields = ['id', 'kind', 'limit_usd', 'period_seconds'] as const
+const costLimitRuleFields = [
+  'id',
+  'kind',
+  'limit_usd',
+  'period_seconds',
+  'period_anchor',
+  'period_timezone',
+] as const
 const costLimitRuleStatusFields = [
   ...costLimitRuleFields,
   'used_usd',
@@ -166,11 +176,32 @@ export function projectAccessKeyCostLimitRule(value: unknown): AccessKeyCostLimi
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, costLimitRuleFields)
   const kind = projectEnum(record.kind, ['total', 'periodic'] as const)
+  const periodAnchor = projectEnum(record.period_anchor ?? 'first_request', [
+    'first_request',
+    'calendar_day',
+  ] as const)
+  const periodTimezone =
+    record.period_timezone === undefined ? '' : projectString(record.period_timezone)
+  if (
+    (kind === 'total' && (periodAnchor !== 'first_request' || periodTimezone !== '')) ||
+    (kind === 'periodic' && periodAnchor === 'first_request' && periodTimezone !== '') ||
+    (kind === 'periodic' &&
+      periodAnchor === 'calendar_day' &&
+      (!periodTimezone || periodTimezone === 'Local' || periodTimezone.length > 64))
+  ) {
+    invalidResponse()
+  }
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     kind,
     limit_usd: projectUSD(record.limit_usd, true),
     period_seconds: projectCostLimitPeriod(record.period_seconds, kind),
+    ...(kind === 'periodic'
+      ? {
+          period_anchor: periodAnchor,
+          ...(periodTimezone ? { period_timezone: periodTimezone } : {}),
+        }
+      : {}),
   }
 }
 
@@ -218,6 +249,8 @@ function validCostLimitRuleSet(rules: readonly AccessKeyCostLimitRuleDto[]): boo
   const periods = new Set<number>()
   let totalCount = 0
   let periodicCount = 0
+  let periodAnchor: AccessKeyCostLimitPeriodAnchor | undefined
+  let periodTimezone: string | undefined
   for (const rule of rules) {
     if (ids.has(rule.id)) return false
     ids.add(rule.id)
@@ -226,6 +259,13 @@ function validCostLimitRuleSet(rules: readonly AccessKeyCostLimitRuleDto[]): boo
       periodicCount += 1
       if (periods.has(rule.period_seconds)) return false
       periods.add(rule.period_seconds)
+      const anchor = rule.period_anchor ?? 'first_request'
+      const timezone = rule.period_timezone ?? ''
+      if (anchor === 'calendar_day' && rule.period_seconds % 86_400 !== 0) return false
+      if (periodAnchor === undefined) {
+        periodAnchor = anchor
+        periodTimezone = timezone
+      } else if (periodAnchor !== anchor || periodTimezone !== timezone) return false
     }
   }
   return totalCount <= 1 && periodicCount <= 10
@@ -269,12 +309,16 @@ export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
     costLimitStatus !== null &&
     JSON.stringify(costLimitRules) !==
       JSON.stringify(
-        costLimitStatus.rules.map(({ id, kind, limit_usd, period_seconds }) => ({
-          id,
-          kind,
-          limit_usd,
-          period_seconds,
-        })),
+        costLimitStatus.rules.map(
+          ({ id, kind, limit_usd, period_seconds, period_anchor, period_timezone }) => ({
+            id,
+            kind,
+            limit_usd,
+            period_seconds,
+            ...(period_anchor ? { period_anchor } : {}),
+            ...(period_timezone ? { period_timezone } : {}),
+          }),
+        ),
       )
   ) {
     invalidResponse()
