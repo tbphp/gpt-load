@@ -19,7 +19,8 @@ func (manager *RuntimeManager) ValidateRouteCapability(
 		return fmt.Errorf("runtime manager is unavailable")
 	}
 	if _, sdkBacked := sdkProviderSpecFor(providerKind); !sdkBacked &&
-		providerKind != channel.ProviderOpenAICompatible && providerKind != channel.ProviderMultiProtocolGateway {
+		providerKind != channel.ProviderOpenAICompatible && providerKind != channel.ProviderMultiProtocolGateway &&
+		providerKind != channel.ProviderJev {
 		return fmt.Errorf("provider is not implemented by Bifrost")
 	}
 	if route.RouteMode == execution.RouteConverted {
@@ -39,7 +40,8 @@ func convertedRouteImplemented(providerKind channel.ProviderKind, clientProtocol
 	case execution.OperationImagesGenerate:
 		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIImages
 	case execution.OperationListModels:
-		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.Rerank && clientProtocol.Valid()
+		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.Rerank &&
+			clientProtocol != protocol.Decisions && clientProtocol.Valid()
 	case execution.OperationProbe:
 		return clientProtocol != protocol.Rerank && clientProtocol.Valid()
 	case execution.OperationChatCompletion:
@@ -62,6 +64,13 @@ func nativeRouteImplemented(
 	clientProtocol protocol.Protocol,
 	operation execution.Operation,
 ) bool {
+	if clientProtocol == protocol.Decisions {
+		if providerKind == channel.ProviderJev && operation == execution.OperationListModels {
+			return true
+		}
+		return (providerKind == channel.ProviderJev || providerKind == channel.ProviderOpenRouter) &&
+			(operation == execution.OperationDecisionsCreate || operation == execution.OperationProbe)
+	}
 	if clientProtocol == protocol.Rerank {
 		return (providerKind == channel.ProviderOpenAICompatible || providerKind == channel.ProviderMultiProtocolGateway) && (operation == execution.OperationRerank || operation == execution.OperationProbe)
 	}

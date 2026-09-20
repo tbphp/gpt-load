@@ -8,16 +8,19 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/automodel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -60,6 +63,7 @@ type SettingsValuesResponse struct {
 
 type SettingsResponse struct {
 	AutoModelTemplate automodel.Entry        `json:"auto_model_template"`
+	DecisionModels    []string               `json:"decision_models"`
 	Revision          uint64                 `json:"-"`
 	Values            SettingsValuesResponse `json:"values"`
 	Overrides         []string               `json:"overrides"`
@@ -345,6 +349,7 @@ func mapSettingsResponse(
 	}
 	return SettingsResponse{
 		AutoModelTemplate: automodel.Template(),
+		DecisionModels:    decisionModelNames(snapshot),
 		Revision:          snapshot.Revision,
 		Values: SettingsValuesResponse{
 			AutoModel:         newAutoModelSettingsView(snapshot.AutoModels),
@@ -383,6 +388,22 @@ func mapSettingsResponse(
 		Overrides: overrides,
 		ReadOnly:  readOnly,
 	}, nil
+}
+
+func decisionModelNames(snapshot *state.ConfigSnapshot) []string {
+	if snapshot == nil {
+		return []string{}
+	}
+	byOperation := snapshot.ExecutionCandidates[protocol.Decisions]
+	byModel := byOperation[execution.OperationDecisionsCreate]
+	names := make([]string, 0, len(byModel))
+	for name, targets := range byModel {
+		if strings.TrimSpace(name) != "" && len(targets) > 0 {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func durationSeconds(value time.Duration) int64 {

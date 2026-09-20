@@ -223,8 +223,27 @@ function decisionConfidence(value: number): string {
   return formatPercent(Math.round(value * 10_000), 10_000, locale.value)
 }
 
-function decisionModelText(provider: string, reported: string, requested: string): string {
-  return [provider, reported || requested].filter(Boolean).join(' · ') || '—'
+function decisionModelText(requested: string, upstream: string, reported: string): string {
+  const selected =
+    requested && upstream && requested !== upstream
+      ? `${requested} → ${upstream}`
+      : upstream || requested
+  const observed =
+    reported && reported !== upstream ? `${t('autoModel.reportedModel')} ${reported}` : ''
+  return [selected, observed].filter(Boolean).join(' · ') || '—'
+}
+
+function decisionRouteText(
+  group: string,
+  channel: string,
+  credential: string,
+  credentialDeleted: boolean,
+): string {
+  return (
+    [group, channel, credential || (credentialDeleted ? t('autoModel.deletedCredential') : '')]
+      .filter(Boolean)
+      .join(' · ') || '—'
+  )
 }
 
 function attemptTone(attempt: RequestLogAttemptDto): 'success' | 'danger' | 'warning' {
@@ -539,7 +558,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
           </div>
           <div
             v-if="
-              log.auto_decision.provider ||
+              log.auto_decision.upstream_model ||
               log.auto_decision.reported_model ||
               log.auto_decision.requested_model
             "
@@ -548,14 +567,34 @@ function toggleAttemptErrorMessage(sequence: number): void {
             <dd>
               {{
                 decisionModelText(
-                  log.auto_decision.provider,
-                  log.auto_decision.reported_model,
                   log.auto_decision.requested_model,
+                  log.auto_decision.upstream_model,
+                  log.auto_decision.reported_model,
                 )
               }}
             </dd>
           </div>
-          <div v-if="log.auto_decision.provider">
+          <div
+            v-if="
+              log.auto_decision.group_name ||
+              log.auto_decision.channel_name ||
+              log.auto_decision.credential_name ||
+              log.auto_decision.credential_deleted
+            "
+          >
+            <dt>{{ t('autoModel.decisionRoute') }}</dt>
+            <dd>
+              {{
+                decisionRouteText(
+                  log.auto_decision.group_name,
+                  log.auto_decision.channel_name,
+                  log.auto_decision.credential_name,
+                  log.auto_decision.credential_deleted,
+                )
+              }}
+            </dd>
+          </div>
+          <div v-if="log.auto_decision.called">
             <dt>{{ t('autoModel.duration') }}</dt>
             <dd>{{ log.auto_decision.duration_ms }} ms</dd>
           </div>

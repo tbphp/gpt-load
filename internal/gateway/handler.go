@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,10 +23,8 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
-	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
-	platformhttp "gpt-load/internal/platform/httpclient"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
@@ -91,11 +88,7 @@ type runtimeCredentialRegistry interface {
 
 type Handler struct {
 	autoTasks           autoTaskCache
-	decisionClient      automodel.HTTPDoer
-	decisionClients     *platformhttp.HTTPClientManager
-	decisionMu          sync.Mutex
-	decisionHTTP        *http.Client
-	decisionProxy       outboundproxy.Effective
+	decisionClient      autoDecisionRunner
 	manager             *state.Manager
 	channels            *channel.Registry
 	subscriptions       *subscriptionruntime.Runtime
@@ -173,8 +166,7 @@ func NewHandler(
 	channels := channel.NewRegistry()
 	subscriptions, _ := subscriptionruntime.NewRuntime(channels, subscriptionproviders.Implementations()...)
 	handler := &Handler{
-		decisionClients: platformhttp.NewHTTPClientManager(),
-		manager:         manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
+		manager: manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
 		affinityCache:    affinity.NewCache(),

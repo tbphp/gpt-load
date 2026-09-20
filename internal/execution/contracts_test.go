@@ -31,6 +31,7 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 		OperationImagesEdit,
 		OperationEmbeddingsCreate,
 		OperationRerank,
+		OperationDecisionsCreate,
 		OperationListModels,
 		OperationProbe,
 	}
@@ -47,6 +48,7 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 		OperationImagesEdit,
 		OperationEmbeddingsCreate,
 		OperationRerank,
+		OperationDecisionsCreate,
 	} {
 		if !operationRequiresModel(operation) {
 			t.Fatalf("operation %q must require a model", operation)
@@ -499,6 +501,7 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		OperationCountTokens,
 		OperationEmbeddingsCreate,
 		OperationRerank,
+		OperationDecisionsCreate,
 		OperationProbe,
 	} {
 		modelRequired := spec.Clone()

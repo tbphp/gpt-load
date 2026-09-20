@@ -441,7 +441,7 @@ func validProtocolOperation(clientProtocol protocol.Protocol, operation executio
 	switch operation {
 	case execution.OperationChatCompletion:
 		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.OpenAIImages &&
-			clientProtocol != protocol.OpenAIEmbeddings && clientProtocol != protocol.Rerank
+			clientProtocol != protocol.OpenAIEmbeddings && clientProtocol != protocol.Rerank && clientProtocol != protocol.Decisions
 	case execution.OperationCountTokens:
 		return clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini
 	case execution.OperationResponsesCreate,
@@ -459,6 +459,8 @@ func validProtocolOperation(clientProtocol protocol.Protocol, operation executio
 		return clientProtocol == protocol.OpenAIImages
 	case execution.OperationRerank:
 		return clientProtocol == protocol.Rerank
+	case execution.OperationDecisionsCreate:
+		return clientProtocol == protocol.Decisions
 	case execution.OperationEmbeddingsCreate:
 		return clientProtocol == protocol.OpenAIEmbeddings
 	case execution.OperationListModels:

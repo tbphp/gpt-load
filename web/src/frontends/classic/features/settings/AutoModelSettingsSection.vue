@@ -10,8 +10,8 @@ import {
 import type { SettingsResource } from '@/app/resources/settings'
 import SettingRow from '@/components/config/SettingRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppCombobox from '@/components/ui/AppCombobox.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import FormField from '@/components/ui/FormField.vue'
 import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
@@ -26,6 +26,9 @@ const props = defineProps<{
 const emit = defineEmits<{ change: [value: SettingsDraftChange]; invalid: [value: boolean] }>()
 const { t } = useI18n()
 const config = computed(() => props.draft.values.auto_model ?? defaultAutoModel())
+const decisionModelOptions = computed(() =>
+  props.base.settings.decision_models.map((value) => ({ value, label: value })),
+)
 const controlsDisabled = computed(() => props.disabled || !hasOverride())
 function editableEntries(models: AutoEntryDto[]) {
   return models.map((entry) => {
@@ -79,16 +82,6 @@ function toggleOverride() {
   emit('change', {
     key: 'auto_model',
     draft,
-  })
-}
-function provider(value: string) {
-  update((draft) => {
-    draft.provider = value === 'openrouter' ? 'openrouter' : 'typesafe'
-    draft.model = draft.provider === 'openrouter' ? '~typesafe/jev-latest' : 'jev-latest'
-    draft.api_key = ''
-    draft.api_key_configured = false
-    draft.input_price = '0.042'
-    draft.output_price = '0'
   })
 }
 function setEnabled(enabled: boolean) {
@@ -174,40 +167,22 @@ function addTemplate() {
       </template>
     </SettingRow>
     <div v-if="config.enabled" class="auto-model-fields">
+      <p v-if="!base.settings.decision_models.length" class="auto-model-empty">
+        {{ t('autoModel.decisionModelEmpty') }}
+      </p>
       <div class="auto-model-grid">
-        <FormField id="auto-provider" :label="t('autoModel.provider')"
-          ><AppSelect
-            id="auto-provider"
-            :model-value="config.provider"
-            :label="t('autoModel.provider')"
-            :options="[
-              { value: 'typesafe', label: t('autoModel.official') },
-              { value: 'openrouter', label: 'OpenRouter' },
-            ]"
-            :disabled="controlsDisabled"
-            @update:model-value="provider"
-        /></FormField>
-        <FormField id="auto-model" :label="t('autoModel.decisionModel')"
-          ><AppTextInput
+        <FormField
+          id="auto-model"
+          :label="t('autoModel.decisionModel')"
+          :description="t('autoModel.decisionModelHint')"
+          ><AppCombobox
             id="auto-model"
             :label="t('autoModel.decisionModel')"
             :model-value="config.model"
+            :options="decisionModelOptions"
+            :empty-text="t('autoModel.decisionModelEmpty')"
             :disabled="controlsDisabled"
             @update:model-value="update((value) => (value.model = $event))"
-        /></FormField>
-        <FormField
-          id="auto-key"
-          :label="t('autoModel.apiKey')"
-          :description="t('autoModel.keyHint')"
-          ><AppTextInput
-            id="auto-key"
-            :label="t('autoModel.apiKey')"
-            :model-value="config.api_key"
-            type="password"
-            autocomplete="new-password"
-            :placeholder="config.api_key_configured ? t('autoModel.keepKey') : ''"
-            :disabled="controlsDisabled"
-            @update:model-value="update((value) => (value.api_key = $event))"
         /></FormField>
         <FormField id="auto-timeout" :label="t('autoModel.timeout')"
           ><AppTextInput
@@ -217,28 +192,6 @@ function addTemplate() {
             inputmode="numeric"
             :disabled="controlsDisabled"
             @update:model-value="update((value) => (value.timeout_seconds = Number($event)))"
-        /></FormField>
-      </div>
-      <h3>{{ t('autoModel.pricing') }}</h3>
-      <p>{{ t('autoModel.pricingHint') }}</p>
-      <div class="auto-model-grid">
-        <FormField id="auto-input-price" :label="t('autoModel.inputPrice')"
-          ><AppTextInput
-            id="auto-input-price"
-            :label="t('autoModel.inputPrice')"
-            :model-value="config.input_price"
-            inputmode="decimal"
-            :disabled="controlsDisabled"
-            @update:model-value="update((value) => (value.input_price = $event))"
-        /></FormField>
-        <FormField id="auto-output-price" :label="t('autoModel.outputPrice')"
-          ><AppTextInput
-            id="auto-output-price"
-            :label="t('autoModel.outputPrice')"
-            :model-value="config.output_price"
-            inputmode="decimal"
-            :disabled="controlsDisabled"
-            @update:model-value="update((value) => (value.output_price = $event))"
         /></FormField>
       </div>
       <div class="auto-model-heading">
@@ -284,6 +237,11 @@ function addTemplate() {
 .auto-model-section__heading h2,
 .auto-model-section__heading p {
   margin: 0;
+}
+.auto-model-empty {
+  margin: 0;
+  color: var(--color-warning);
+  font-size: var(--text-sm);
 }
 .auto-model-section__heading h2 {
   font-size: var(--title-section);

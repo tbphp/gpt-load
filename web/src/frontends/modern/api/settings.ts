@@ -63,6 +63,7 @@ export const settingKeys: readonly SettingKey[] = [
 ]
 export interface SettingsData {
   autoModelTemplate?: AutoEntry
+  decisionModels: string[]
   values: SettingsValues
   overrides: SettingKey[]
   readOnly: SettingKey[]
@@ -130,6 +131,7 @@ function readSettings(value: unknown): SettingsData {
   return {
     autoModelTemplate:
       row.auto_model_template === undefined ? undefined : readAutoEntry(row.auto_model_template),
+    decisionModels: list(row.decision_models).map(text),
     values: {
       ...numbers,
       ...switches,

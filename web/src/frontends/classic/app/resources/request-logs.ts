@@ -58,6 +58,7 @@ export type RequestLogOperation =
   | 'images_edit'
   | 'embeddings_create'
   | 'rerank'
+  | 'decisions_create'
   | 'list_models'
   | 'probe'
 export type RequestLogRouteMode = 'native' | 'converted'
@@ -220,7 +221,12 @@ export interface AutoDecisionDto {
   execution_phase: string
   reason: string
   provider: string
+  group_name: string
+  channel_name: string
+  credential_name: string
+  credential_deleted: boolean
   requested_model: string
+  upstream_model: string
   reported_model: string
   duration_ms: number
   called: boolean
@@ -280,6 +286,7 @@ const operations = [
   'images_edit',
   'embeddings_create',
   'rerank',
+  'decisions_create',
   'list_models',
   'probe',
 ] as const
@@ -711,7 +718,12 @@ function projectAutoDecision(value: unknown): AutoDecisionDto {
     execution_phase: optional(row.execution_phase),
     reason: optional(row.reason),
     provider: optional(row.provider),
+    group_name: optional(row.group_name),
+    channel_name: optional(row.channel_name),
+    credential_name: optional(row.credential_name),
+    credential_deleted: projectBoolean(row.credential_deleted ?? false),
     requested_model: optional(row.requested_model),
+    upstream_model: optional(row.upstream_model),
     reported_model: optional(row.reported_model),
     duration_ms: projectSafeInteger(row.duration_ms, { minimum: 0 }),
     called: projectBoolean(row.called),

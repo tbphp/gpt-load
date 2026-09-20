@@ -43,6 +43,7 @@ const (
 	Alibaba          = spec.Alibaba
 	Volcengine       = spec.Volcengine
 	OpenRouter       = spec.OpenRouter
+	Jev              = spec.Jev
 	Groq             = spec.Groq
 	XAI              = spec.XAI
 )
@@ -213,6 +214,7 @@ const (
 	ProviderGoogleVertex         = spec.ProviderGoogleVertex
 	ProviderDeepSeek             = spec.ProviderDeepSeek
 	ProviderOpenRouter           = spec.ProviderOpenRouter
+	ProviderJev                  = spec.ProviderJev
 	ProviderGroq                 = spec.ProviderGroq
 	ProviderXAI                  = spec.ProviderXAI
 )
