@@ -111,7 +111,8 @@ function autoDecisionTone(log: RequestLogItemDto): 'selected' | 'passive' | 'fal
   const decision = log.auto_decision
   if (!decision) return 'passive'
   if (decision.source === 'jev' && decision.status === 'selected') return 'selected'
-  if (['binding', 'prewarm', 'single_preset'].includes(decision.source)) return 'passive'
+  if (['binding', 'task_cache', 'prewarm', 'single_preset'].includes(decision.source))
+    return 'passive'
   return 'fallback'
 }
 

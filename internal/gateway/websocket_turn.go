@@ -232,7 +232,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		}
 	}
 	requestCtx := s.ctx
-	if _, automatic := snapshot.AutoModels.Lookup(model); automatic || boundAuto != nil {
+	if _, automatic := snapshot.AutoModels.Lookup(model); automatic {
 		autoQuery := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required}
 		if requiredRef != nil {
 			autoQuery.AllowedCredentialRefs = map[uint]state.CredentialRef{requiredRef.ID: *requiredRef}

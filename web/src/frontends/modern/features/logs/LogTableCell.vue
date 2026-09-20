@@ -128,7 +128,8 @@ const autoDecisionTone = computed(() => {
   const decision = props.row.auto_decision
   if (!decision) return 'passive'
   if (decision.source === 'jev' && decision.status === 'selected') return 'selected'
-  if (['binding', 'prewarm', 'single_preset'].includes(decision.source)) return 'passive'
+  if (['binding', 'task_cache', 'prewarm', 'single_preset'].includes(decision.source))
+    return 'passive'
   return 'fallback'
 })
 function identityIcon(field: LogColumnId) {

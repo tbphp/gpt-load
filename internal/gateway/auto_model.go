@@ -122,12 +122,26 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 		}
 		prewarm = options.Generate != nil && !*options.Generate
 	}
+	skipPrewarm := prewarm && extractReason != ""
 	sameTask := bound != nil && view.ExecutionPhase == automodel.ExecutionPhaseToolContinuation &&
 		view.TaskFingerprint != "" && bound.TaskFingerprint == view.TaskFingerprint &&
 		bound.ConfigRevision == snapshot.Revision
-	reuse := bound != nil && (prewarm ||
+	reuse := bound != nil && (skipPrewarm ||
 		(extractReason == "task_missing" && view.ExecutionPhase != automodel.ExecutionPhaseUserTask) || sameTask)
 	presets, fallbackAllowed := allowedAutoPresets(snapshot, key, entry, metadata, query)
+	cacheKey := autoTaskKey{accessKeyID: key.ID, entryID: entry.ID, revision: snapshot.Revision, fingerprint: view.TaskFingerprint}
+	var cachedPreset *automodel.CompiledPreset
+	if !reuse && !skipPrewarm && extractReason == "" && fallbackAllowed {
+		if value, found := handler.autoTasks.lookup(cacheKey, handler.now()); found &&
+			(view.ExecutionPhase == automodel.ExecutionPhaseToolContinuation || value.prewarm) {
+			for index := range presets {
+				if presets[index].ID == value.presetID {
+					cachedPreset = &presets[index]
+					break
+				}
+			}
+		}
+	}
 	decision := &automodel.Decision{Source: "fallback", Status: "fallback", PromptVersion: automodel.PromptVersion,
 		ExecutionPhase: view.ExecutionPhase, CostState: "not_applicable", PricingCompleteness: "not_applicable"}
 	var chosen automodel.CompiledPreset
@@ -159,6 +173,8 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 			return parsed, metadata, nil, &reasonResponseBindingNotFound
 		}
 		chosen = automodel.CompiledPreset{Preset: automodel.Preset{ID: bound.PresetID, Name: bound.PresetName, Model: bound.TargetModel, ParameterOverrides: bound.ParameterOverrides}, Rules: rules}
+	} else if cachedPreset != nil {
+		chosen = *cachedPreset
 	} else {
 		if !fallbackAllowed {
 			return parsed, metadata, nil, &reasonAutoModelForbidden
@@ -173,9 +189,9 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	if failure := admit(); failure != nil {
 		return parsed, metadata, nil, failure
 	}
-	singlePreset := len(presets) == 1 && fallbackAllowed && !prewarm && !reuse && extractReason == ""
+	singlePreset := len(presets) == 1 && fallbackAllowed && !skipPrewarm && !reuse && extractReason == ""
 	decision.Reason, decision.ContextTruncated = extractReason, view.ContextTruncated
-	if prewarm {
+	if skipPrewarm {
 		decision.Source, decision.Status, decision.Reason = "prewarm", "skipped", "prewarm"
 	} else if reuse {
 		reason := "no_new_task"
@@ -183,6 +199,8 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 			reason = "same_task"
 		}
 		decision.Source, decision.Status, decision.Reason, decision.Selection = "binding", "reused", reason, *bound
+	} else if cachedPreset != nil {
+		decision.Source, decision.Status, decision.Reason = "task_cache", "reused", "same_task"
 	} else if singlePreset {
 		chosen = presets[0]
 		decision.Source, decision.Status, decision.Reason = "single_preset", "selected", ""
@@ -230,6 +248,19 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 		return parsed, metadata, decision, &reasonParameterOverrideUnavailable
 	}
 	decision.PresetReasoning = updated.Reasoning.Clone()
+	if decision.Source == "jev" && decision.Status == "selected" {
+		handler.autoTasks.record(cacheKey, autoTaskPreset{presetID: chosen.ID, prewarm: prewarm}, handler.now())
+	}
+	if !prewarm {
+		// 正式请求到达后消费关联的预热选择，新任务不能重新捡起旧预热。
+		for _, selection := range []*automodel.Selection{bound, &decision.Selection} {
+			if selection == nil {
+				continue
+			}
+			usedKey := autoTaskKey{accessKeyID: key.ID, entryID: selection.EntryID, revision: selection.ConfigRevision, fingerprint: selection.TaskFingerprint}
+			handler.autoTasks.consumePrewarm(usedKey, selection.PresetID)
+		}
+	}
 	return rewritten, updated, decision, nil
 }
 

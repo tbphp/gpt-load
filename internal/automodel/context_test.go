@@ -77,11 +77,19 @@ func TestExtractTaskFingerprintIgnoresLaterToolProgress(t *testing.T) {
 }
 
 func TestExtractBudgetDoesNotAlterOriginalRequest(t *testing.T) {
-	current := strings.Repeat("任", MaxStateBytes)
-	body, _ := json.Marshal(map[string]any{"messages": []any{map[string]string{"role": "user", "content": current}}})
+	current := "TASK START" + strings.Repeat("任\"\n", MaxStateBytes) + "TASK END"
+	body, _ := json.Marshal(map[string]any{"messages": []any{
+		map[string]string{"role": "system", "content": "keep constraints"},
+		map[string]string{"role": "user", "content": "previous task"},
+		map[string]string{"role": "user", "content": current},
+		map[string]string{"role": "tool", "content": "latest tool result"},
+	}})
 	original := string(body)
-	if _, reason := Extract(protocol.OpenAICompletions, body); reason != "task_too_large" {
-		t.Fatalf("large current task reason = %q", reason)
+	state, reason := Extract(protocol.OpenAICompletions, body)
+	if reason != "" || !state.ContextTruncated || size(state) > MaxStateBytes ||
+		!strings.HasPrefix(state.CurrentTask, "TASK START") || !strings.HasSuffix(state.CurrentTask, "TASK END") ||
+		len(state.ClientInstructions) != 1 || len(state.RecentContext) != 2 {
+		t.Fatalf("long task reason=%q bytes=%d instructions=%d context=%d", reason, size(state), len(state.ClientInstructions), len(state.RecentContext))
 	}
 	if string(body) != original {
 		t.Fatal("extractor changed answer request")

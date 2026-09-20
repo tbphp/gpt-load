@@ -90,6 +90,7 @@ type runtimeCredentialRegistry interface {
 }
 
 type Handler struct {
+	autoTasks           autoTaskCache
 	decisionClient      automodel.HTTPDoer
 	decisionClients     *platformhttp.HTTPClientManager
 	decisionMu          sync.Mutex
@@ -614,7 +615,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 			ID: binding.CredentialID, GroupID: binding.GroupID, IdentityGeneration: binding.IdentityGeneration,
 		}}
 	}
-	if _, automatic := snapshot.AutoModels.Lookup(model); automatic || boundAuto != nil {
+	if _, automatic := snapshot.AutoModels.Lookup(model); automatic {
 		ctx := ginContext.Request.Context()
 		var failure *reason
 		parsed, metadata, recorder.autoDecision, failure = handler.prepareAutoModel(ctx, snapshot, accessKey, selectedDialect, parsed, metadata, boundAuto, func() *reason {

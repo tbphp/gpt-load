@@ -96,7 +96,7 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 			isTask, isTool, textIndex := readContent(role, message["content"])
 			if isTask {
 				state.ExecutionPhase, latestTaskMessage = ExecutionPhaseUserTask, textIndex
-				taskPrefix = append([]any(nil), items[:index+1]...)
+				taskPrefix = items[:index+1]
 			} else if isTool {
 				state.ExecutionPhase = ExecutionPhaseToolContinuation
 			}
@@ -134,7 +134,7 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 				isTask, isTool, textIndex := readContent(role, message["content"])
 				if isTask {
 					state.ExecutionPhase, latestTaskMessage = ExecutionPhaseUserTask, textIndex
-					taskPrefix = append([]any(nil), items[:index+1]...)
+					taskPrefix = items[:index+1]
 				} else if isTool {
 					state.ExecutionPhase = ExecutionPhaseToolContinuation
 				}
@@ -159,7 +159,7 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 			isTask, isTool, textIndex := readContent(role, message["parts"])
 			if isTask {
 				state.ExecutionPhase, latestTaskMessage = ExecutionPhaseUserTask, textIndex
-				taskPrefix = append([]any(nil), items[:index+1]...)
+				taskPrefix = items[:index+1]
 			} else if isTool {
 				state.ExecutionPhase = ExecutionPhaseToolContinuation
 			}
@@ -182,10 +182,15 @@ func Extract(value protocol.Protocol, body []byte) (TaskState, string) {
 		return state, "task_missing"
 	}
 	state.CurrentTask = messages[latest].Text
-	base := TaskState{ExecutionPhase: state.ExecutionPhase, CurrentTask: state.CurrentTask}
-	encoded, _ := json.Marshal(base)
-	if len(encoded) > MaxStateBytes {
-		return state, "task_too_large"
+	// 给其他证据和 JSON 包装预留预算；只裁剪决策副本，保留任务头尾。
+	const taskBudget = MaxStateBytes - maxClientInstructionBytes - maxRecentConversationBytes - maxRecentToolBytes - 512
+	if size(messages[latest]) > taskBudget {
+		fitted, ok := fitTextMessage(messages[latest], taskBudget)
+		if !ok {
+			return state, "task_too_large"
+		}
+		state.CurrentTask = fitted.Text
+		state.ContextTruncated = true
 	}
 	start := latest
 	if previous >= 0 {

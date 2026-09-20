@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -83,17 +84,20 @@ func TestAutoModelWebsocketContinuationClassifiesEachTask(t *testing.T) {
 	defer server.Close()
 	conn := dialGatewayWebsocket(t, server.URL)
 	defer conn.Close()
-	for index := range 2 {
+	for index := range 3 {
 		request := map[string]any{"type": "response.create", "model": "auto-web", "input": "task", "store": false}
 		if index > 0 {
 			request["previous_response_id"] = "resp_0"
+		}
+		if index == 2 {
+			request["model"] = "public"
 		}
 		if err := conn.WriteJSON(request); err != nil {
 			t.Fatal(err)
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		_, body, err := conn.ReadMessage()
-		if err != nil || !strings.Contains(string(body), `"type":"response.completed"`) || !strings.Contains(string(body), `"model":"auto-web"`) {
+		if err != nil || !strings.Contains(string(body), `"type":"response.completed"`) || !strings.Contains(string(body), fmt.Sprintf(`"model":%q`, request["model"])) {
 			t.Fatalf("WebSocket automatic response=%s, %v", body, err)
 		}
 	}
@@ -103,86 +107,101 @@ func TestAutoModelWebsocketContinuationClassifiesEachTask(t *testing.T) {
 }
 
 func TestAutoModelWebsocketPrewarmDoesNotFreezeLaterTask(t *testing.T) {
-	requests := make(chan map[string]any, 4)
-	var connections atomic.Int32
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		connections.Add(1)
-		for index := 0; ; index++ {
-			var request map[string]any
-			if conn.ReadJSON(&request) != nil {
-				return
+	for _, withTask := range []bool{false, true} {
+		t.Run(fmt.Sprintf("with_task=%t", withTask), func(t *testing.T) {
+			requests := make(chan map[string]any, 4)
+			var connections atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				connections.Add(1)
+				for index := 0; ; index++ {
+					var request map[string]any
+					if conn.ReadJSON(&request) != nil {
+						return
+					}
+					requests <- request
+					response := map[string]any{"type": "response.completed", "response": map[string]any{"id": fmt.Sprintf("resp_%d", index), "object": "response", "status": "completed", "model": request["model"], "usage": map[string]int{"input_tokens": 2, "output_tokens": 0}}}
+					if conn.WriteJSON(response) != nil {
+						return
+					}
+				}
+			}))
+			defer upstream.Close()
+			handler, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+			input.Groups[0].Models = append(input.Groups[0].Models, state.ModelConfig{ID: "upstream-strong", Alias: "strong"})
+			config := automodel.DefaultConfig()
+			config.Enabled, config.APIKey = true, "decision-secret"
+			config.Models = []automodel.Entry{{ID: "auto-web", Name: "auto-web", Enabled: true, Fallback: "balanced", Presets: []automodel.Preset{
+				{ID: "balanced", Name: "balanced", Description: "Simple work", Model: "public", ParameterOverrides: json.RawMessage(`[]`)},
+				{ID: "strong", Name: "strong", Description: "Complex work", Model: "strong", ParameterOverrides: json.RawMessage(`[]`)},
+			}}}
+			input.AutoModel = &config
+			if _, err := handler.manager.Publish(input); err != nil {
+				t.Fatal(err)
 			}
-			requests <- request
-			response := map[string]any{"type": "response.completed", "response": map[string]any{"id": fmt.Sprintf("resp_%d", index), "object": "response", "status": "completed", "model": request["model"], "usage": map[string]int{"input_tokens": 2, "output_tokens": 0}}}
-			if conn.WriteJSON(response) != nil {
-				return
+			var calls atomic.Int32
+			handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
+				choice := "strong"
+				if calls.Add(1) > 1 {
+					choice = "balanced"
+				}
+				body := fmt.Sprintf(`{"answers":{"preset":{"choice":%q,"confidence":0.9}},"usage":{"input_tokens":100,"output_tokens":0}}`, choice)
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})
+			sink := &recordingRequestLogSink{}
+			handler.requestLogSink = sink
+			server := httptest.NewServer(engine)
+			defer server.Close()
+			conn := dialGatewayWebsocket(t, server.URL)
+			defer conn.Close()
+			warmInput := `[]`
+			if withTask {
+				warmInput = `"Design the architecture"`
 			}
-		}
-	}))
-	defer upstream.Close()
-	handler, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
-	input.Groups[0].Models = append(input.Groups[0].Models, state.ModelConfig{ID: "upstream-strong", Alias: "strong"})
-	config := automodel.DefaultConfig()
-	config.Enabled, config.APIKey = true, "decision-secret"
-	config.Models = []automodel.Entry{{ID: "auto-web", Name: "auto-web", Enabled: true, Fallback: "balanced", Presets: []automodel.Preset{
-		{ID: "balanced", Name: "balanced", Description: "Simple work", Model: "public", ParameterOverrides: json.RawMessage(`[]`)},
-		{ID: "strong", Name: "strong", Description: "Complex work", Model: "strong", ParameterOverrides: json.RawMessage(`[]`)},
-	}}}
-	input.AutoModel = &config
-	if _, err := handler.manager.Publish(input); err != nil {
-		t.Fatal(err)
-	}
-	var calls atomic.Int32
-	handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
-		choice := "strong"
-		if calls.Add(1) > 1 {
-			choice = "balanced"
-		}
-		body := fmt.Sprintf(`{"answers":{"preset":{"choice":%q,"confidence":0.9}},"usage":{"input_tokens":100,"output_tokens":0}}`, choice)
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})
-	sink := &recordingRequestLogSink{}
-	handler.requestLogSink = sink
-	server := httptest.NewServer(engine)
-	defer server.Close()
-	conn := dialGatewayWebsocket(t, server.URL)
-	defer conn.Close()
-	for index, body := range []string{
-		`{"type":"response.create","model":"auto-web","generate":false,"input":[],"store":false}`,
-		`{"type":"response.create","model":"auto-web","previous_response_id":"resp_0","input":"Design the architecture","store":false}`,
-		`{"type":"response.create","model":"auto-web","previous_response_id":"resp_1","input":[{"type":"function_call_output","call_id":"call_1","output":"tool result"}],"store":false}`,
-		`{"type":"response.create","model":"auto-web","previous_response_id":"resp_2","input":"Say hello","store":false}`,
-	} {
-		if conn.WriteMessage(websocket.TextMessage, []byte(body)) != nil {
-			t.Fatal("write automatic request")
-		}
-		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		_, response, err := conn.ReadMessage()
-		if err != nil || !strings.Contains(string(response), `"type":"response.completed"`) {
-			t.Fatalf("turn %d response=%s error=%v", index, response, err)
-		}
-		request := <-requests
-		want := []string{"upstream", "upstream-strong", "upstream-strong", "upstream"}[index]
-		if request["model"] != want {
-			t.Fatalf("turn %d model=%v want=%s", index, request["model"], want)
-		}
-		if index == 0 && request["generate"] != false {
-			t.Fatal("prewarm payload was altered")
-		}
-	}
-	events := waitWebsocketLogs(t, sink, 4)
-	if calls.Load() != 2 || connections.Load() != 1 {
-		t.Fatalf("decisions=%d connections=%d", calls.Load(), connections.Load())
-	}
-	for index, source := range []string{"prewarm", "jev", "binding", "jev"} {
-		if events[index].AutoDecision == nil || events[index].AutoDecision.Source != source {
-			t.Fatalf("turn %d decision=%#v", index, events[index].AutoDecision)
-		}
+			for index, body := range []string{
+				fmt.Sprintf(`{"type":"response.create","model":"auto-web","generate":false,"input":%s,"store":false}`, warmInput),
+				`{"type":"response.create","model":"auto-web","previous_response_id":"resp_0","input":"Design the architecture","store":false}`,
+				`{"type":"response.create","model":"auto-web","previous_response_id":"resp_1","input":[{"type":"function_call_output","call_id":"call_1","output":"tool result"}],"store":false}`,
+				`{"type":"response.create","model":"auto-web","previous_response_id":"resp_2","input":"Say hello","store":false}`,
+			} {
+				if conn.WriteMessage(websocket.TextMessage, []byte(body)) != nil {
+					t.Fatal("write automatic request")
+				}
+				_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+				_, response, err := conn.ReadMessage()
+				if err != nil || !strings.Contains(string(response), `"type":"response.completed"`) {
+					t.Fatalf("turn %d response=%s error=%v", index, response, err)
+				}
+				request := <-requests
+				want := []string{"upstream", "upstream-strong", "upstream-strong", "upstream"}[index]
+				if withTask && index == 0 {
+					want = "upstream-strong"
+				}
+				if request["model"] != want {
+					t.Fatalf("turn %d model=%v want=%s", index, request["model"], want)
+				}
+				if index == 0 && request["generate"] != false {
+					t.Fatal("prewarm payload was altered")
+				}
+			}
+			events := waitWebsocketLogs(t, sink, 4)
+			if calls.Load() != 2 || connections.Load() != 1 {
+				t.Fatalf("decisions=%d connections=%d", calls.Load(), connections.Load())
+			}
+			sources := []string{"prewarm", "jev", "binding", "jev"}
+			if withTask {
+				sources[0], sources[1] = "jev", "task_cache"
+			}
+			for index, source := range sources {
+				if events[index].AutoDecision == nil || events[index].AutoDecision.Source != source {
+					t.Fatalf("turn %d decision=%#v", index, events[index].AutoDecision)
+				}
+			}
+		})
 	}
 }
 
@@ -510,6 +529,189 @@ func TestAutoModelRequestsSupportFourTextProtocols(t *testing.T) {
 			engine.ServeHTTP(response, request)
 			if response.Code != 200 || calls != 1 || len(forwarder.inputs) != 1 || forwarder.inputs[0].UpstreamModelID != "gpt-4o" || forwarder.inputs[0].ExternalModel != "auto-probe" {
 				t.Fatalf("protocol status=%d calls=%d inputs=%d body=%s", response.Code, calls, len(forwarder.inputs), response.Body)
+			}
+		})
+	}
+}
+
+func TestAutoModelBindingDoesNotInterceptOrdinaryResponse(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disabled=%t", disabled), func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"id":"resp-next","object":"response","model":"gpt-4.1"}`)}}}
+			handler, manager, _ := newHandlerForTest(t, forwarder, "key-a", "key-b")
+			handler.dialects = dialect.NewSet(dialect.NewOpenAI(), dialect.NewOpenAIResponses())
+			configureAutoModelTest(t, handler, manager, state.FilterSet{})
+			selection := &automodel.Selection{EntryID: "auto-probe", EntryName: "auto-probe", PresetID: "balanced", TargetModel: "gpt-4o", ParameterOverrides: json.RawMessage(`[]`)}
+			if !handler.responseBindings.Record(1, "resp-before", state.CredentialRef{ID: 2, GroupID: 1, IdentityGeneration: 2}, selection) {
+				t.Fatal("cannot store binding")
+			}
+			if disabled {
+				config := manager.Current().AutoModels.Config()
+				config.Enabled = false
+				compiled, err := automodel.Compile(config, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				manager.Current().AutoModels = compiled
+			}
+			handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
+				t.Fatal("ordinary model must not call Jev")
+				return nil, nil
+			})
+			sink := &recordingRequestLogSink{}
+			handler.requestLogSink = sink
+			engine := gin.New()
+			bindGatewayRoutesForTest(t, engine, handler)
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-4.1","previous_response_id":"resp-before","input":"new task"}`))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			if response.Code != 200 || len(forwarder.inputs) != 1 || forwarder.inputs[0].APIKey != "key-b" || forwarder.inputs[0].UpstreamModelID != "gpt-4.1" {
+				t.Fatalf("ordinary continuation status=%d body=%s inputs=%#v", response.Code, response.Body, forwarder.inputs)
+			}
+			if events := sink.snapshot(); len(events) != 1 || events[0].AutoDecision != nil {
+				t.Fatalf("unexpected auto decision: %#v", events)
+			}
+		})
+	}
+}
+
+func TestAutoModelReusesTaskAcrossStatelessToolRequests(t *testing.T) {
+	for _, test := range []struct{ name, path, initial, continued string }{
+		{"chat", "/v1/chat/completions", `{"model":"auto-probe","messages":[{"role":"user","content":"fix parser"}]}`, `{"model":"auto-probe","messages":[{"role":"user","content":"fix parser"},{"role":"tool","content":"tests failed"}]}`},
+		{"responses", "/v1/responses", `{"model":"auto-probe","input":[{"role":"user","content":"fix parser"}],"store":false}`, `{"model":"auto-probe","input":[{"role":"user","content":"fix parser"},{"type":"function_call_output","call_id":"call-1","output":"tests failed"}],"store":false}`},
+		{"anthropic", "/v1/messages", `{"model":"auto-probe","max_tokens":32,"messages":[{"role":"user","content":"fix parser"}]}`, `{"model":"auto-probe","max_tokens":32,"messages":[{"role":"user","content":"fix parser"},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-1","content":"tests failed"}]}]}`},
+		{"gemini", "/v1beta/models/auto-probe:generateContent", `{"contents":[{"role":"user","parts":[{"text":"fix parser"}]}]}`, `{"contents":[{"role":"user","parts":[{"text":"fix parser"}]},{"role":"user","parts":[{"functionResponse":{"name":"test","response":{"text":"tests failed"}}}]}]}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{}
+			for range 4 {
+				forwarder.results = append(forwarder.results, UpstreamResult{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"model":"gpt-4.1"}`)})
+			}
+			handler, manager, _ := newHandlerForTest(t, forwarder, "key-a", "key-b")
+			handler.dialects = dialect.NewSet(dialect.NewOpenAI(), dialect.NewOpenAIResponses(), dialect.NewAnthropic(), dialect.NewGemini())
+			configureAutoModelTest(t, handler, manager, state.FilterSet{})
+			calls := 0
+			handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
+				calls++
+				choice := "strong"
+				if calls > 1 {
+					choice = "balanced"
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"answers":{"preset":{"choice":%q,"confidence":0.9}},"usage":{"input_tokens":1,"output_tokens":0}}`, choice)))}, nil
+			})
+			sink := &recordingRequestLogSink{}
+			handler.requestLogSink = sink
+			engine := gin.New()
+			bindGatewayRoutesForTest(t, engine, handler)
+			for index, body := range []string{test.initial, test.continued, test.continued, test.initial} {
+				request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(body))
+				request.Header.Set("Authorization", "Bearer gl-client")
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+				wantModel, wantCalls := "gpt-4.1", 1
+				if index == 3 {
+					wantModel, wantCalls = "gpt-4o", 2
+				}
+				if response.Code != 200 || calls != wantCalls || len(forwarder.inputs) != index+1 || forwarder.inputs[index].UpstreamModelID != wantModel {
+					t.Fatalf("turn=%d status=%d calls=%d body=%s", index, response.Code, calls, response.Body)
+				}
+			}
+			for _, event := range sink.snapshot()[1:3] {
+				if event.AutoDecision == nil || event.AutoDecision.Source != "task_cache" || event.AutoDecision.Called || event.AutoDecision.EstimatedCostNanoUSD != 0 {
+					t.Fatalf("reused selection must not bill a decision: %#v", event.AutoDecision)
+				}
+			}
+		})
+	}
+}
+
+func TestAutoModelCacheDoesNotReuseFailedOrForbiddenChoice(t *testing.T) {
+	for _, failed := range []bool{true, false} {
+		t.Run(fmt.Sprintf("failed=%t", failed), func(t *testing.T) {
+			handler, manager, _ := newHandlerForTest(t, &scriptedForwarder{}, "key-a", "key-b")
+			configureAutoModelTest(t, handler, manager, state.FilterSet{})
+			calls := 0
+			handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
+				calls++
+				status, choice := 200, "strong"
+				if calls == 1 && failed {
+					status = 503
+				}
+				if calls == 2 && !failed {
+					choice = "balanced"
+				}
+				return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"answers":{"preset":{"choice":%q,"confidence":0.9}}}`, choice)))}, nil
+			})
+			snapshot := manager.Current()
+			key := snapshot.AccessKeysByID[1]
+			selectedDialect := dialect.NewOpenAI()
+			for index, body := range []string{
+				`{"model":"auto-probe","messages":[{"role":"user","content":"fix parser"}]}`,
+				`{"model":"auto-probe","messages":[{"role":"user","content":"fix parser"},{"role":"tool","content":"result"}]}`,
+			} {
+				if index == 1 && !failed {
+					key.Filters.Models = map[string]struct{}{"auto-probe": {}, "gpt-4o": {}}
+				}
+				request := &dialect.ParsedRequest{Method: http.MethodPost, Path: "/v1/chat/completions", Body: []byte(body)}
+				metadata, err := selectedDialect.InspectRequest(request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _, decision, failure := handler.prepareAutoModel(context.Background(), snapshot, key, selectedDialect, request, metadata, nil, func() *reason { return nil })
+				if failure != nil || decision == nil {
+					t.Fatalf("failure=%v decision=%#v", failure, decision)
+				}
+				if index == 1 && (decision.Source == "task_cache" || (!failed && decision.Selection.TargetModel != "gpt-4o")) {
+					t.Fatalf("unsafe reused decision=%#v", decision)
+				}
+			}
+			if failed && calls != 2 {
+				t.Fatalf("failed decision was cached: calls=%d", calls)
+			}
+		})
+	}
+}
+
+func TestAutoModelPrewarmReuseDoesNotFreezeNextUserTask(t *testing.T) {
+	for _, test := range []struct{ name, warmInput, continuation string }{
+		{"same task", `"fix parser"`, `"fix parser"`},
+		{"incremental", `"fix parser"`, `[]`},
+		{"new task", `"fix parser"`, `"different task"`},
+		{"tool task", `[{"role":"user","content":"fix parser"},{"type":"function_call_output","call_id":"call-1","output":"result"}]`, `[]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handler, manager, _ := newHandlerForTest(t, &scriptedForwarder{}, "key-a", "key-b")
+			configureAutoModelTest(t, handler, manager, state.FilterSet{})
+			calls := 0
+			handler.decisionClient = autoDecisionClient(func(*http.Request) (*http.Response, error) {
+				calls++
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"answers":{"preset":{"choice":"strong","confidence":0.9}}}`))}, nil
+			})
+			selectedDialect := dialect.NewOpenAIResponses()
+			var bound *automodel.Selection
+			for index, body := range []string{
+				fmt.Sprintf(`{"model":"auto-probe","input":%s,"generate":false}`, test.warmInput),
+				fmt.Sprintf(`{"model":"auto-probe","input":%s,"previous_response_id":"resp-warm"}`, test.continuation),
+				`{"model":"auto-probe","input":"fix parser","previous_response_id":"resp-answer"}`,
+			} {
+				request := &dialect.ParsedRequest{Method: http.MethodPost, Path: "/v1/responses", Body: []byte(body)}
+				metadata, err := selectedDialect.InspectRequest(request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _, decision, failure := handler.prepareAutoModel(context.Background(), manager.Current(), manager.Current().AccessKeysByID[1], selectedDialect, request, metadata, bound, func() *reason { return nil })
+				wantCalls := 1
+				if index == 2 {
+					wantCalls = 2
+				}
+				if test.continuation == `"different task"` && index > 0 {
+					wantCalls++
+				}
+				if failure != nil || decision == nil || calls != wantCalls {
+					t.Fatalf("turn=%d calls=%d failure=%v decision=%#v", index, calls, failure, decision)
+				}
+				bound = &decision.Selection
 			}
 		})
 	}
