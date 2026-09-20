@@ -10,8 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -205,6 +207,77 @@ func TestCodexCatalogEmptyAndUnknownValues(t *testing.T) {
 	body, err := buildCodexModelList(nil, state.AccessKeyView{}, 13)
 	if err != nil || string(body) != `{"models":[]}` {
 		t.Fatalf("empty catalog = %s, %v", body, err)
+	}
+}
+
+func TestCodexCatalogOnlyListsResponsesCreateModelsAndUsesGPT55ForAutoModels(t *testing.T) {
+	autoModels, err := automodel.Compile(automodel.Config{
+		Enabled: true, Model: "decision-model", TimeoutSeconds: 2,
+		Models: []automodel.Entry{{
+			ID: "auto-id", Name: "smart-auto", Fallback: "balanced",
+			Presets: []automodel.Preset{{
+				ID: "balanced", Name: "Balanced", Description: "General tasks",
+				Model: "responses-model", ParameterOverrides: json.RawMessage(`[]`),
+			}},
+		}},
+	}, map[string]struct{}{"responses-model": {}}, map[string]struct{}{"decision-model": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := &state.ConfigSnapshot{
+		ExecutionCandidates: state.ExecutionCandidateIndex{
+			protocol.OpenAIResponses: {
+				execution.OperationResponsesCreate: {
+					"responses-model": {{GroupID: 1, Mode: channel.RouteNative}},
+				},
+				execution.OperationResponsesInputTokens: {
+					"responses-input-only": {{GroupID: 1}},
+				},
+			},
+			protocol.OpenAIEmbeddings: {
+				execution.OperationEmbeddingsCreate: {
+					"embedding-only": {{GroupID: 2}},
+				},
+			},
+		},
+		GroupCatalog: map[uint]state.GroupCatalogView{1: {ID: 1, Enabled: true}, 2: {ID: 2, Enabled: true}},
+		AutoModels:   autoModels,
+	}
+	body, err := buildCodexModelList(snapshot, state.AccessKeyView{}, math.MaxInt64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Models []struct {
+			Slug                     string   `json:"slug"`
+			DisplayName              string   `json:"display_name"`
+			Description              string   `json:"description"`
+			Visibility               string   `json:"visibility"`
+			ContextWindow            int64    `json:"context_window"`
+			InputModalities          []string `json:"input_modalities"`
+			SupportedReasoningLevels []struct {
+				Effort string `json:"effort"`
+			} `json:"supported_reasoning_levels"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Models) != 2 || response.Models[0].Slug != "responses-model" || response.Models[1].Slug != "smart-auto" {
+		t.Fatalf("catalog = %s", body)
+	}
+	auto := response.Models[1]
+	if auto.DisplayName != "smart-auto" || auto.Description != "smart-auto" || auto.Visibility != "list" ||
+		auto.ContextWindow != 272000 || !reflect.DeepEqual(auto.InputModalities, []string{"text", "image"}) ||
+		len(auto.SupportedReasoningLevels) != 4 || auto.SupportedReasoningLevels[0].Effort != "low" ||
+		auto.SupportedReasoningLevels[3].Effort != "xhigh" {
+		t.Fatalf("automatic model did not inherit gpt-5.5: %#v", auto)
+	}
+	body, err = buildCodexModelList(snapshot, state.AccessKeyView{Filters: state.FilterSet{
+		Protocols: map[protocol.Protocol]struct{}{protocol.OpenAIEmbeddings: {}},
+	}}, math.MaxInt64)
+	if err != nil || string(body) != `{"models":[]}` {
+		t.Fatalf("protocol-filtered catalog = %s, %v", body, err)
 	}
 }
 

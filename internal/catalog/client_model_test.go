@@ -65,6 +65,16 @@ func TestCodexClientModelFallsBackToGPT55(t *testing.T) {
 	assertCodexInstructionFields(t, model)
 }
 
+func TestCodexClientModelMakesConfiguredHiddenTemplateSelectable(t *testing.T) {
+	model, _, _, err := BuildCodexClientModel("gpt-5.4", 0, ClientModelOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model["visibility"] != "list" {
+		t.Fatalf("visibility = %#v, want list", model["visibility"])
+	}
+}
+
 func TestClientModelOverridesValidation(t *testing.T) {
 	for _, raw := range []string{
 		`{"context_window":0}`, `{"context_window":9007199254740992}`,

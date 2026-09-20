@@ -54,6 +54,7 @@ func BuildCodexClientModel(
 	resolved := cloneCodexModelMap(template)
 	resolved["slug"] = model
 	resolved["priority"] = priority
+	resolved["visibility"] = "list"
 	if !matched {
 		resolved["display_name"] = model
 		resolved["description"] = model
