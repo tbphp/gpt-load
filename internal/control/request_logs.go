@@ -699,11 +699,14 @@ func parseRequestLogPage(value string) (int, *app_errors.APIError) {
 		}
 		return 0, app_errors.ErrBadRequest
 	}
-	if parsed == 0 || parsed > uint64(maxSafeInteger/int64(maxRequestLogLimit)) ||
-		parsed > uint64(^uint(0)>>1) {
+	if parsed == 0 || parsed > uint64(maxSafeInteger/int64(maxRequestLogLimit)) {
 		return 0, app_errors.ErrValidation
 	}
-	return int(parsed), nil
+	page, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, app_errors.ErrValidation
+	}
+	return page, nil
 }
 
 func parseRequestLogPageSize(value string) (int, *app_errors.APIError) {
