@@ -166,7 +166,9 @@ func codexWebsocketEvidence(ctx context.Context, err error) *execution.ErrorEvid
 	var failure *codex.WSError
 	if errors.As(err, &failure) {
 		e.Code = failure.Code
+		e.Type = safeScalar(failure.UpstreamType)
 		e.StatusCode = failure.HTTPStatus
+		e.RetryAfter = failure.RetryAfter
 		if failure.UpstreamCode != "" {
 			e.Code = failure.UpstreamCode
 			e.Kind = execution.ErrorKindProvider
@@ -178,6 +180,10 @@ func codexWebsocketEvidence(ctx context.Context, err error) *execution.ErrorEvid
 			if e.StatusCode == http.StatusUnauthorized && failure.DispatchState == codex.WSNotSent {
 				e.Hint = execution.FailureHintRefreshRequired
 				e.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+			}
+			if e.StatusCode == http.StatusTooManyRequests && strings.EqualFold(e.Type, "usage_limit_reached") {
+				e.Hint = execution.FailureHintRateLimited
+				e.ScopeHint = execution.ErrorScopeModel
 			}
 		}
 		if failure.DispatchState == codex.WSNotSent && e.StatusCode == 0 {
