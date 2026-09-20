@@ -9,6 +9,7 @@ import (
 var (
 	_ ResponseModelInspector = (*OpenAI)(nil)
 	_ ResponseModelInspector = (*OpenAIResponses)(nil)
+	_ ResponseModelInspector = (*Decisions)(nil)
 	_ ResponseModelInspector = (*Anthropic)(nil)
 	_ ResponseModelInspector = (*Gemini)(nil)
 )
@@ -36,6 +37,14 @@ func (*OpenAIResponses) InspectResponseModels(payload []byte) []string {
 		return models
 	}
 	return appendJSONModel(models, response, "model")
+}
+
+func (*Decisions) InspectResponseModels(payload []byte) []string {
+	object, err := decodeJSONObject(payload)
+	if err != nil {
+		return nil
+	}
+	return appendJSONModel(nil, object, "model")
 }
 
 func (*Anthropic) InspectResponseModels(payload []byte) []string {

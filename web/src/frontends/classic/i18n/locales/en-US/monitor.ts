@@ -412,6 +412,7 @@ export default {
         images_edit: 'Edit image',
         embeddings_create: 'Create embeddings',
         rerank: 'Rerank documents',
+        decisions_create: 'Create decision',
       },
       routeRequirements: {
         any: 'Allow protocol conversion (possibly lossy)',
@@ -819,6 +820,7 @@ export default {
         images_edit: 'Edit image',
         embeddings_create: 'Create embeddings',
         rerank: 'Rerank documents',
+        decisions_create: 'Create decision',
         list_models: 'List models',
         probe: 'Health probe',
       },

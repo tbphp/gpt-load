@@ -1,10 +1,8 @@
-import { InvalidResponseError } from '@shared/http/errors'
 import {
   projectRecord,
   projectString,
   projectBoolean,
   projectSafeInteger,
-  projectEnum,
   projectArray,
 } from './projector'
 
@@ -24,23 +22,14 @@ export interface AutoEntryDto {
 }
 export interface AutoModelConfigDto {
   enabled: boolean
-  provider: 'typesafe' | 'openrouter'
   model: string
-  api_key: string
-  api_key_configured?: boolean
   timeout_seconds: number
-  input_price: string
-  output_price: string
   models: AutoEntryDto[]
 }
 export const defaultAutoModel = (): AutoModelConfigDto => ({
   enabled: false,
-  provider: 'typesafe',
-  model: 'jev-latest',
-  api_key: '',
+  model: '',
   timeout_seconds: 2,
-  input_price: '0.042',
-  output_price: '0',
   models: [],
 })
 export function projectAutoEntry(value: unknown): AutoEntryDto {
@@ -67,16 +56,10 @@ export function projectAutoEntry(value: unknown): AutoEntryDto {
 export function projectAutoModel(value: unknown): AutoModelConfigDto {
   if (value === undefined) return defaultAutoModel()
   const row = projectRecord(value)
-  if (row.api_key !== '') throw new InvalidResponseError()
   return {
     enabled: projectBoolean(row.enabled),
-    provider: projectEnum(row.provider, ['typesafe', 'openrouter']),
     model: projectString(row.model),
-    api_key: '',
-    api_key_configured: projectBoolean(row.api_key_configured),
     timeout_seconds: projectSafeInteger(row.timeout_seconds, { minimum: 1, maximum: 60 }),
-    input_price: projectString(row.input_price),
-    output_price: projectString(row.output_price),
     models: projectArray(row.models, projectAutoEntry),
   }
 }
@@ -87,6 +70,7 @@ export function validAutoModel(value: AutoModelConfigDto): boolean {
       Number.isInteger(value.timeout_seconds) &&
       value.timeout_seconds >= 1 &&
       value.timeout_seconds <= 60 &&
+      (!value.enabled || Boolean(value.model.trim())) &&
       value.models.every(
         (entry) =>
           entry.name.trim() &&

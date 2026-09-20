@@ -156,6 +156,7 @@ func TestAccessKeyCreateAcceptsAllEnabledProtocolsInCanonicalOrder(t *testing.T)
 				protocol.OpenAIImages,
 				protocol.OpenAIEmbeddings,
 				protocol.Rerank,
+				protocol.Decisions,
 				protocol.OpenAIResponses,
 				protocol.Anthropic,
 				protocol.OpenAICompletions,

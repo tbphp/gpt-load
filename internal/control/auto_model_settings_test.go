@@ -5,13 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/storage/models"
 )
 
-func TestAutoModelSettingsEncryptAndPreserveSecret(t *testing.T) {
+func TestAutoModelSettingsPersistOnlyChannelBackedConfig(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
-	const raw = `{"enabled":false,"provider":"openrouter","model":"~typesafe/jev-latest","api_key":"decision-test-secret","timeout_seconds":2,"input_price":"0.042","output_price":"0","models":[]}`
+	const raw = `{"enabled":false,"model":"jev-router","timeout_seconds":4,"models":[]}`
 	response, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
 		Settings: map[string]json.RawMessage{"auto_model": json.RawMessage(raw)},
 	})
@@ -19,27 +20,29 @@ func TestAutoModelSettingsEncryptAndPreserveSecret(t *testing.T) {
 		t.Fatalf("save automatic model settings: %v", err)
 	}
 	encoded, _ := json.Marshal(response)
-	if strings.Contains(string(encoded), "decision-test-secret") || !strings.Contains(string(encoded), `"api_key_configured":true`) {
-		t.Fatalf("secret must be masked in response: %s", encoded)
+	for _, removed := range []string{"api_key", "api_key_configured", "provider", "input_price", "output_price"} {
+		if strings.Contains(string(encoded), `"`+removed+`"`) {
+			t.Fatalf("removed field %q returned: %s", removed, encoded)
+		}
 	}
+
 	var row models.SystemSetting
-	if err := fixture.db.Where("key = ?", "auto_model").Take(&row).Error; err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(row.Value, "decision-test-secret") {
-		t.Fatal("decision secret stored as plaintext")
-	}
-	withoutKey := strings.Replace(raw, `"decision-test-secret"`, `""`, 1)
-	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
-		Settings: map[string]json.RawMessage{"auto_model": json.RawMessage(withoutKey)},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := fixture.db.Where("key = ?", "auto_model").Take(&row).Error; err != nil {
+	if err := fixture.db.Where("key = ?", automodel.SettingKey).Take(&row).Error; err != nil {
 		t.Fatal(err)
 	}
 	plaintext, err := fixture.encryption.Decrypt(row.Value)
-	if err != nil || !strings.Contains(plaintext, "decision-test-secret") {
-		t.Fatal("saving with empty key must preserve the existing same-provider secret")
+	if err != nil || plaintext != raw {
+		t.Fatalf("stored config = %q, error = %v", plaintext, err)
+	}
+}
+
+func TestAutoModelSettingsRejectLegacyDirectCredentials(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	legacy := json.RawMessage(`{"enabled":false,"provider":"openrouter","model":"jev-router","api_key":"secret","timeout_seconds":2,"input_price":"0.042","output_price":"0","models":[]}`)
+	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{"auto_model": legacy},
+	}); err == nil {
+		t.Fatal("legacy direct credential fields were accepted")
 	}
 }

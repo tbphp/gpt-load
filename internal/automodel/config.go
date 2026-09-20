@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"gpt-load/internal/parameteroverride"
-	"gpt-load/internal/pricing"
 )
 
 const SettingKey = "auto_model"
@@ -25,12 +24,8 @@ const MaxRequestBytes = 24 << 10
 
 type Config struct {
 	Enabled        bool    `json:"enabled"`
-	Provider       string  `json:"provider"`
 	Model          string  `json:"model"`
-	APIKey         string  `json:"api_key"`
 	TimeoutSeconds int     `json:"timeout_seconds"`
-	InputPrice     string  `json:"input_price"`
-	OutputPrice    string  `json:"output_price"`
 	Models         []Entry `json:"models"`
 }
 
@@ -66,31 +61,61 @@ type CompiledEntry struct {
 type Compiled struct {
 	config  Config
 	entries map[string]CompiledEntry
-	Prices  *pricing.Table
 }
 
 func DefaultConfig() Config {
-	return Config{Provider: "typesafe", Model: "jev-latest", TimeoutSeconds: 2,
-		InputPrice: "0.042", OutputPrice: "0", Models: []Entry{}}
+	return Config{TimeoutSeconds: 2, Models: []Entry{}}
 }
 
 func Decode(raw []byte) (Config, error) {
-	if len(raw) > 1<<20 {
-		return Config{}, fmt.Errorf("automatic model configuration is too large")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	config := DefaultConfig()
-	if err := decoder.Decode(&config); err != nil {
+	config, legacy, err := DecodeStored(raw)
+	if err != nil {
 		return Config{}, err
 	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return Config{}, fmt.Errorf("invalid configuration JSON")
+	if legacy {
+		return Config{}, fmt.Errorf("legacy direct Jev configuration is not accepted")
 	}
 	return config, nil
 }
 
-func Compile(config Config, ordinaryModels map[string]struct{}) (result *Compiled, compileErr error) {
+// DecodeStored accepts the previously persisted experimental shape only so
+// startup recovery can replace it with the current channel-backed shape.
+func DecodeStored(raw []byte) (Config, bool, error) {
+	if len(raw) > 1<<20 {
+		return Config{}, false, fmt.Errorf("automatic model configuration is too large")
+	}
+	type storedConfig struct {
+		Enabled        bool    `json:"enabled"`
+		Model          string  `json:"model"`
+		TimeoutSeconds int     `json:"timeout_seconds"`
+		Models         []Entry `json:"models"`
+		Provider       *string `json:"provider,omitempty"`
+		APIKey         *string `json:"api_key,omitempty"`
+		InputPrice     *string `json:"input_price,omitempty"`
+		OutputPrice    *string `json:"output_price,omitempty"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	stored := storedConfig{TimeoutSeconds: DefaultConfig().TimeoutSeconds, Models: []Entry{}}
+	if err := decoder.Decode(&stored); err != nil {
+		return Config{}, false, err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return Config{}, false, fmt.Errorf("invalid configuration JSON")
+	}
+	legacy := stored.Provider != nil || stored.APIKey != nil || stored.InputPrice != nil || stored.OutputPrice != nil
+	config := Config{
+		Enabled: stored.Enabled, Model: stored.Model,
+		TimeoutSeconds: stored.TimeoutSeconds, Models: stored.Models,
+	}
+	if legacy {
+		config.Enabled = false
+		config.Model = ""
+	}
+	return config, legacy, nil
+}
+
+func Compile(config Config, ordinaryModels, decisionModels map[string]struct{}) (result *Compiled, compileErr error) {
 	defer func() {
 		if compileErr != nil {
 			compileErr = fmt.Errorf("%w: %v", ErrInvalidConfig, compileErr)
@@ -105,38 +130,25 @@ func Compile(config Config, ordinaryModels map[string]struct{}) (result *Compile
 	if err != nil {
 		return nil, err
 	}
-	if config.Provider != "typesafe" && config.Provider != "openrouter" {
-		return nil, fmt.Errorf("unsupported Jev provider")
-	}
 	if config.Models == nil {
 		return nil, fmt.Errorf("automatic models must be an array")
 	}
-	if !validName(config.Model) || config.TimeoutSeconds < 1 || config.TimeoutSeconds > 60 {
+	if config.TimeoutSeconds < 1 || config.TimeoutSeconds > 60 || config.Model != "" && !validName(config.Model) {
 		return nil, fmt.Errorf("invalid Jev model or timeout")
 	}
-	if strings.ContainsAny(config.APIKey, "\r\n") || (config.Enabled && strings.TrimSpace(config.APIKey) == "") {
-		return nil, fmt.Errorf("Jev API key is required")
-	}
-	input, err := pricing.ParseUSD(config.InputPrice)
-	if err != nil || input < 0 {
-		return nil, fmt.Errorf("invalid Jev input price")
-	}
-	output, err := pricing.ParseUSD(config.OutputPrice)
-	if err != nil || output < 0 {
-		return nil, fmt.Errorf("invalid Jev output price")
-	}
-	identity := pricing.Identity{ChannelID: "jev-" + config.Provider, ModelID: config.Model}
-	prices, err := pricing.NewTable([]pricing.Rule{{Identity: identity, IsManual: true, Prices: pricing.Prices{
-		Input: pricing.Price{Set: true, NanoUSDPerMillion: input}, Output: pricing.Price{Set: true, NanoUSDPerMillion: output},
-	}}})
-	if err != nil {
-		return nil, err
+	if config.Enabled {
+		if !validName(config.Model) {
+			return nil, fmt.Errorf("Jev decision model is required")
+		}
+		if _, exists := decisionModels[config.Model]; !exists {
+			return nil, fmt.Errorf("Jev decision model does not have an enabled Decisions route")
+		}
 	}
 	// 自动模型只有系统级总开关；保留字段用于读取早期实验配置，但入口始终随总开关启用。
 	for index := range config.Models {
 		config.Models[index].Enabled = true
 	}
-	compiled := &Compiled{config: config, entries: map[string]CompiledEntry{}, Prices: prices}
+	compiled := &Compiled{config: config, entries: map[string]CompiledEntry{}}
 	ids := map[string]struct{}{}
 	for _, entry := range config.Models {
 		if !validName(entry.ID) || !validName(entry.Name) {

@@ -20,14 +20,48 @@ import (
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/usage"
 )
 
 type autoDecisionClient func(*http.Request) (*http.Response, error)
 
-func (call autoDecisionClient) Do(request *http.Request) (*http.Response, error) {
-	return call(request)
+func (call autoDecisionClient) Decide(
+	ctx context.Context,
+	snapshot *state.ConfigSnapshot,
+	_ state.AccessKeyView,
+	presets []automodel.CompiledPreset,
+	view automodel.TaskState,
+) automodel.Decision {
+	payload, decision := automodel.BuildDecisionRequest(snapshot.AutoModels, presets, view)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://decision.test/v1/systemone", bytes.NewReader(payload))
+	if err != nil {
+		decision.Reason = "invalid_request"
+		return decision
+	}
+	response, err := call(request)
+	if err != nil || response == nil {
+		decision.Reason = "transport_error"
+		return decision
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		decision.Reason = "invalid_response"
+		return decision
+	}
+	observed, _ := dialect.NewDecisions().ExtractUsage(body)
+	decision.Called = true
+	decision = automodel.InterpretDecisionResponse(decision, presets, response.StatusCode, response.Header, body, observed)
+	if decision.InputTokens != nil {
+		decision.EstimatedCostNanoUSD = *decision.InputTokens * 42
+		decision.CostState = "priced"
+		decision.PricingCompleteness = "complete"
+	}
+	return decision
 }
 
 func TestAutoModelDecisionCostSettlesWhenAnswerFails(t *testing.T) {
@@ -65,12 +99,13 @@ func TestAutoModelWebsocketContinuationClassifiesEachTask(t *testing.T) {
 	handler, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
 	config := automodel.DefaultConfig()
 	config.Enabled = true
-	config.APIKey = "decision-secret"
+	config.Model = "jev-router"
 	config.Models = []automodel.Entry{{ID: "auto-web", Name: "auto-web", Enabled: true, Fallback: "high", Presets: []automodel.Preset{
 		{ID: "low", Name: "low", Description: "Simple tasks", Model: "public", ParameterOverrides: json.RawMessage(`[]`)},
 		{ID: "high", Name: "high", Description: "Complex tasks", Model: "public", ParameterOverrides: json.RawMessage(`[]`)},
 	}}}
 	input.AutoModel = &config
+	input.Groups = append(input.Groups, state.GroupConfig{ID: 99, Name: "jev", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, Enabled: true})
 	if _, err := handler.manager.Publish(input); err != nil {
 		t.Fatal(err)
 	}
@@ -134,12 +169,13 @@ func TestAutoModelWebsocketPrewarmDoesNotFreezeLaterTask(t *testing.T) {
 			handler, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
 			input.Groups[0].Models = append(input.Groups[0].Models, state.ModelConfig{ID: "upstream-strong", Alias: "strong"})
 			config := automodel.DefaultConfig()
-			config.Enabled, config.APIKey = true, "decision-secret"
+			config.Enabled, config.Model = true, "jev-router"
 			config.Models = []automodel.Entry{{ID: "auto-web", Name: "auto-web", Enabled: true, Fallback: "balanced", Presets: []automodel.Preset{
 				{ID: "balanced", Name: "balanced", Description: "Simple work", Model: "public", ParameterOverrides: json.RawMessage(`[]`)},
 				{ID: "strong", Name: "strong", Description: "Complex work", Model: "strong", ParameterOverrides: json.RawMessage(`[]`)},
 			}}}
 			input.AutoModel = &config
+			input.Groups = append(input.Groups, state.GroupConfig{ID: 99, Name: "jev", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, Enabled: true})
 			if _, err := handler.manager.Publish(input); err != nil {
 				t.Fatal(err)
 			}
@@ -209,18 +245,183 @@ func configureAutoModelTest(t *testing.T, handler *Handler, manager *state.Manag
 	t.Helper()
 	config := automodel.DefaultConfig()
 	config.Enabled = true
-	config.APIKey = "decision-secret"
+	config.Model = "jev-router"
 	config.Models = []automodel.Entry{{ID: "auto-probe", Name: "auto-probe", Enabled: true, Fallback: "balanced", Presets: []automodel.Preset{
 		{ID: "balanced", Name: "balanced", Description: "Ordinary bounded implementation", Model: "gpt-4o", ParameterOverrides: json.RawMessage(`[{"match":{"protocol":"openai-completions"},"set":{"reasoning_effort":"medium"}}]`)},
 		{ID: "strong", Name: "strong", Description: "Complex architecture", Model: "gpt-4.1", ParameterOverrides: json.RawMessage(`[{"match":{"protocol":"openai-responses"},"set":{"reasoning":{"effort":"high"}}}]`)},
 	}}}
 	_, err := manager.Publish(state.CompileInput{AutoModel: &config, ChannelRegistry: channel.NewRegistry(),
-		Groups:      []state.GroupConfig{{ID: 1, Name: "openai", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}, {ID: "gpt-4.1"}}, Enabled: true}},
-		Credentials: []state.CredentialConfig{{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"}, {ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"}},
+		Groups: []state.GroupConfig{
+			{ID: 1, Name: "openai", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}, {ID: "gpt-4.1"}}, Enabled: true},
+			{ID: 2, Name: "jev", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, Enabled: true},
+		},
+		Credentials: []state.CredentialConfig{{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"}, {ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"}, {ID: 3, GroupID: 2, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 3, Fingerprint: "credential-3"}},
 		AccessKeys:  []state.AccessKeyConfig{{ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive, Filters: filters}},
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAutoModelUsesInternalDecisionsRouteOutsideClientFilters(t *testing.T) {
+	groupMultiplier, _ := pricing.ParsePriceMultiplier("2")
+	accessMultiplier, _ := pricing.ParsePriceMultiplier("3")
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			StatusCode:            http.StatusOK,
+			Header:                http.Header{"Content-Type": {"application/json"}, "X-Request-Id": {"decision-1"}},
+			Body:                  []byte(`{"model":"jev-latest","answers":{"preset":{"choice":"strong","confidence":0.9}},"usage":{"input_tokens":7,"output_tokens":1}}`),
+			Usage:                 usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 7, Output: 1}},
+			UpstreamReportedModel: "decision-key-model",
+			ResponseModelObserved: true,
+			UpstreamProtocol:      protocol.Decisions,
+			UpstreamRequestID:     "decision-key-request",
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       []byte(`{"model":"gpt-4.1","choices":[{"message":{"content":"ok"}}]}`),
+		},
+	}}
+	handler, manager, registry := newHandlerForTest(t, forwarder, "answer-key")
+	config := automodel.DefaultConfig()
+	config.Enabled = true
+	config.Model = "jev-router"
+	config.Models = []automodel.Entry{{
+		ID: "auto-probe", Name: "auto-probe", Enabled: true, Fallback: "balanced",
+		Presets: []automodel.Preset{
+			{ID: "balanced", Name: "balanced", Description: "Routine", Model: "gpt-4o", ParameterOverrides: json.RawMessage(`[]`)},
+			{ID: "strong", Name: "strong", Description: "Complex", Model: "gpt-4.1", ParameterOverrides: json.RawMessage(`[]`)},
+		},
+	}}
+	input := state.CompileInput{
+		AutoModel:       &config,
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{ID: 1, Name: "answers", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}, {ID: "gpt-4.1"}}, Enabled: true},
+			{ID: 2, Name: "decisions", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, PriceMultiplier: &groupMultiplier, Enabled: true},
+		},
+		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1), testCredentialConfig(2, 2)},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive, PriceMultiplier: &accessMultiplier,
+			Filters: state.FilterSet{
+				Groups:    map[uint]struct{}{1: {}},
+				Protocols: map[protocol.Protocol]struct{}{protocol.OpenAICompletions: {}},
+				Models:    map[string]struct{}{"auto-probe": {}, "gpt-4o": {}, "gpt-4.1": {}},
+			},
+		}},
+	}
+	if _, err := manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{
+		testCredentialEntry(t, handler.encryption, 1, 1, "answer-key"),
+		testCredentialEntry(t, handler.encryption, 2, 2, "decision-key"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := registry.IncrFailure(2); !ok {
+		t.Fatal("cannot seed decision credential failure")
+	}
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ChannelID: string(channel.Jev), ModelID: "jev-latest"},
+		Prices:   pricing.Prices{Input: pricing.Price{NanoUSDPerMillion: 42_000_000, Set: true}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	handler.dialects = dialect.NewSet(dialect.NewOpenAI())
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"auto-probe","messages":[{"role":"user","content":"Design a migration"}]}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body)
+	}
+	decisionInput, answerInput := forwarder.inputs[0], forwarder.inputs[1]
+	if decisionInput.ClientProtocol != protocol.Decisions || decisionInput.Operation != execution.OperationDecisionsCreate ||
+		decisionInput.Group.ID != 2 || decisionInput.Credential.ID != 2 || decisionInput.ExternalModel != "jev-router" ||
+		decisionInput.UpstreamModelID != "jev-latest" {
+		t.Fatalf("decision input = %#v", decisionInput)
+	}
+	if answerInput.Group.ID != 1 || answerInput.UpstreamModelID != "gpt-4.1" {
+		t.Fatalf("answer input = %#v", answerInput)
+	}
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].AutoDecision == nil ||
+		events[0].AutoDecision.EstimatedCostNanoUSD != 1_764 ||
+		events[0].AutoDecision.GroupID != 2 || events[0].AutoDecision.ChannelID != "jev" ||
+		events[0].AutoDecision.CredentialID != 2 {
+		t.Fatalf("decision observation = %#v", events)
+	}
+	encoded, err := json.Marshal(events[0].AutoDecision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("decision-key")) {
+		t.Fatalf("decision observation leaked its credential: %s", encoded)
+	}
+	for _, credential := range registry.Snapshot() {
+		if credential.ID == 2 && credential.FailureCount != 0 {
+			t.Fatalf("successful decision did not clear credential failures: %#v", credential)
+		}
+	}
+}
+
+func TestAutoModelLocalDecisionFailureIsNotBilledAsAnUpstreamCall(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		DispatchState: execution.DispatchNotSent,
+		ExecutionError: &execution.ErrorEvidence{
+			Kind: execution.ErrorKindInvalidRequest, OriginHint: execution.ErrorOriginInternal,
+			ScopeHint: execution.ErrorScopeRequest, Summary: "invalid decision target",
+		},
+	}}}
+	handler, manager, registry := newHandlerForTest(t, forwarder, "answer-key")
+	config := automodel.DefaultConfig()
+	config.Enabled = true
+	config.Model = "jev-router"
+	config.Models = []automodel.Entry{{
+		ID: "auto-probe", Name: "auto-probe", Fallback: "balanced",
+		Presets: []automodel.Preset{
+			{ID: "balanced", Name: "balanced", Description: "Routine", Model: "gpt-4o", ParameterOverrides: json.RawMessage(`[]`)},
+			{ID: "strong", Name: "strong", Description: "Complex", Model: "gpt-4.1", ParameterOverrides: json.RawMessage(`[]`)},
+		},
+	}}
+	if _, err := manager.Publish(state.CompileInput{
+		AutoModel: &config, ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{ID: 1, Name: "answers", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}, {ID: "gpt-4.1"}}, Enabled: true},
+			{ID: 2, Name: "decisions", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, Enabled: true},
+		},
+		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1), testCredentialConfig(2, 2)},
+		AccessKeys:  []state.AccessKeyConfig{{ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{
+		testCredentialEntry(t, handler.encryption, 1, 1, "answer-key"),
+		testCredentialEntry(t, handler.encryption, 2, 2, "decision-key"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := manager.Current()
+	entry, ok := snapshot.AutoModels.Lookup("auto-probe")
+	if !ok {
+		t.Fatal("automatic model is missing")
+	}
+	decision := handler.executeAutoDecision(
+		t.Context(), snapshot, snapshot.AccessKeysByID[1], entry.Presets,
+		automodel.TaskState{CurrentTask: "classify this task"},
+	)
+	if decision.Called || decision.Reason != "invalid_request" ||
+		decision.CostState != "not_applicable" || decision.PricingCompleteness != "not_applicable" ||
+		decision.EstimatedCostNanoUSD != 0 {
+		t.Fatalf("decision = %#v", decision)
 	}
 }
 
@@ -391,10 +592,13 @@ func TestAutoModelSkipsJevWhenOnlyFallbackPresetIsAvailable(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"model":"gpt-4o","choices":[{"message":{"content":"ok"}}]}`)}}}
 	handler, manager, _ := newHandlerForTest(t, forwarder, "key-a")
 	config := automodel.DefaultConfig()
-	config.Enabled, config.APIKey = true, "decision-secret"
+	config.Enabled, config.Model = true, "jev-router"
 	config.Models = []automodel.Entry{{ID: "auto-one", Name: "auto-one", Enabled: true, Fallback: "only", Presets: []automodel.Preset{{ID: "only", Name: "only", Description: "All permitted work", Model: "gpt-4o", ParameterOverrides: json.RawMessage(`[]`)}}}}
 	_, err := manager.Publish(state.CompileInput{AutoModel: &config, ChannelRegistry: channel.NewRegistry(),
-		Groups:      []state.GroupConfig{{ID: 1, Name: "openai", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true}},
+		Groups: []state.GroupConfig{
+			{ID: 1, Name: "openai", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true},
+			{ID: 2, Name: "jev", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, Enabled: true},
+		},
 		Credentials: []state.CredentialConfig{{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"}},
 		AccessKeys:  []state.AccessKeyConfig{{ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive}},
 	})
@@ -466,6 +670,7 @@ func TestAutoModelContinuationDecisionExcludesOtherGroups(t *testing.T) {
 		Groups: []state.GroupConfig{
 			{ID: 1, Name: "bound", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true},
 			{ID: 2, Name: "other", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4.1"}}, Enabled: true},
+			{ID: 3, Name: "jev", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, Enabled: true},
 		},
 		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
 		AccessKeys:  []state.AccessKeyConfig{{ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive}},
@@ -548,7 +753,7 @@ func TestAutoModelBindingDoesNotInterceptOrdinaryResponse(t *testing.T) {
 			if disabled {
 				config := manager.Current().AutoModels.Config()
 				config.Enabled = false
-				compiled, err := automodel.Compile(config, nil)
+				compiled, err := automodel.Compile(config, nil, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

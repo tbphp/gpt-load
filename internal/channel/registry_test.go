@@ -31,6 +31,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 		ZhipuAI,
 		Alibaba,
 		Volcengine,
+		Jev,
 		OpenRouter,
 		Groq,
 		XAI,

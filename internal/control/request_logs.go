@@ -181,16 +181,28 @@ type autoDecisionResponse struct {
 	InputTokens          *string                           `json:"input_tokens,omitempty"`
 	OutputTokens         *string                           `json:"output_tokens,omitempty"`
 	Receipt              *requestLogPricingReceiptResponse `json:"receipt,omitempty"`
+	CredentialName       string                            `json:"credential_name,omitempty"`
+	CredentialDeleted    bool                              `json:"credential_deleted,omitempty"`
 }
 
-func mapAutoDecisionResponse(value *automodel.Decision) *autoDecisionResponse {
+func mapAutoDecisionResponse(value *automodel.Decision, credentialLabels map[uint]string) *autoDecisionResponse {
 	if value == nil {
 		return nil
 	}
 	copy := *value
 	copy.Selection.ParameterOverrides = nil
 	copy.Selection.TaskFingerprint = ""
-	response := &autoDecisionResponse{Decision: copy, PresetReasoning: mapRequestLogReasoningConfig(copy.PresetReasoning), EstimatedCostNanoUSD: strconv.FormatInt(copy.EstimatedCostNanoUSD, 10), InputTokens: nullableInt64String(copy.InputTokens), OutputTokens: nullableInt64String(copy.OutputTokens)}
+	credentialID := copy.CredentialID
+	copy.GroupID = 0
+	copy.ChannelID = ""
+	copy.CredentialID = 0
+	credentialName := ""
+	credentialDeleted := false
+	if credentialID != 0 {
+		credentialName = credentialLabelFor(credentialLabels, &credentialID)
+		credentialDeleted = credentialName == ""
+	}
+	response := &autoDecisionResponse{Decision: copy, PresetReasoning: mapRequestLogReasoningConfig(copy.PresetReasoning), EstimatedCostNanoUSD: strconv.FormatInt(copy.EstimatedCostNanoUSD, 10), InputTokens: nullableInt64String(copy.InputTokens), OutputTokens: nullableInt64String(copy.OutputTokens), CredentialName: credentialName, CredentialDeleted: credentialDeleted}
 	if len(copy.Receipt) > 0 {
 		var receipt pricing.Receipt
 		if json.Unmarshal(copy.Receipt, &receipt) == nil && pricing.ValidateReceipt(receipt) == nil {
@@ -385,6 +397,20 @@ func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
 	record.RouteMode = ""
 	record.UpstreamProtocol = ""
 	record.Attempts = []requestlog.Attempt{}
+	if record.AutoDecision != nil {
+		copy := *record.AutoDecision
+		copy.Provider = ""
+		copy.GroupID = 0
+		copy.GroupName = ""
+		copy.ChannelID = ""
+		copy.ChannelName = ""
+		copy.CredentialID = 0
+		copy.RequestedModel = ""
+		copy.UpstreamModel = ""
+		copy.ReportedModel = ""
+		copy.RequestID = ""
+		record.AutoDecision = &copy
+	}
 	return record
 }
 
@@ -969,6 +995,9 @@ func requestLogCredentialIDs(records []requestlog.Record) []uint {
 	ids := make([]uint, 0, len(records))
 	for _, record := range records {
 		ids = append(ids, record.CredentialID)
+		if record.AutoDecision != nil {
+			ids = append(ids, record.AutoDecision.CredentialID)
+		}
 		for _, attempt := range record.Attempts {
 			ids = append(ids, attempt.CredentialID)
 		}
@@ -1068,7 +1097,7 @@ func mapRequestLogItemResponse(
 	}
 	total := telemetry.TotalPricing(telemetry.PricingObservation{CostState: string(record.CostState), PricingCompleteness: string(record.PricingCompleteness), EstimatedCostNanoUSD: record.EstimatedCostNanoUSD}, record.AutoDecision)
 	return requestLogItemResponse{
-		AutoDecision:              mapAutoDecisionResponse(record.AutoDecision),
+		AutoDecision:              mapAutoDecisionResponse(record.AutoDecision, credentialLabels),
 		TotalEstimatedCostNanoUSD: strconv.FormatInt(total.EstimatedCostNanoUSD, 10),
 		TotalCostState:            total.CostState,
 		TotalPricingCompleteness:  total.PricingCompleteness,
