@@ -94,24 +94,6 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 			Order("observed_at_ms ASC").Find(&rows).Error; err != nil {
 			return err
 		}
-		var windowKeys []string
-		if err := history().Where("observed_at_ms < ?", query.FromMS).Distinct("window_key").Pluck("window_key", &windowKeys).Error; err != nil {
-			return err
-		}
-		for _, windowKey := range windowKeys {
-			var anchor models.CredentialQuotaHistory
-			if err := history().Where("window_key = ? AND observed_at_ms < ?", windowKey, query.FromMS).
-				Order("observed_at_ms DESC").Take(&anchor).Error; err != nil {
-				return err
-			}
-			rows = append(rows, anchor)
-		}
-		sort.Slice(rows, func(i, j int) bool {
-			if rows[i].ObservedAtMS != rows[j].ObservedAtMS {
-				return rows[i].ObservedAtMS < rows[j].ObservedAtMS
-			}
-			return rows[i].WindowKey < rows[j].WindowKey
-		})
 		windows := make(map[string]*quotaHistoryWindowResponse)
 		for _, row := range rows {
 			if row.ObservedAtMS > maxSafeInteger || row.UsedBasisPoints < 0 || row.UsedBasisPoints > 10_000 ||

@@ -16,9 +16,12 @@ import { useLoadingActivity } from '@modern/components/ui/loading'
 import { chartPoints, formatUsageCost, metricValue } from '@modern/features/usage/usage-display'
 import { useApiClient } from '@shared/http/client-context'
 import CredentialQuotaTrend from './CredentialQuotaTrend.vue'
-import { quotaWindowTitle, sortedQuotaWindows } from './credential-presentation'
+import { quotaRemaining, quotaWindowTitle, sortedQuotaWindows } from './credential-presentation'
 
 type TrendRange = '6h' | '24h' | '7d'
+type QuotaWindowIdentity = Pick<CredentialQuota, 'id' | 'sourceId' | 'scope' | 'windowSeconds'>
+
+const quotaHistoryMinimumWindowSeconds = 24 * 60 * 60
 
 const props = defineProps<{
   group: number
@@ -77,33 +80,44 @@ const report = computed(() => query.data.value)
 watch(report, () => {
   cursor.value = undefined
 })
-function quotaWindowKey(window: Pick<CredentialQuota, 'id' | 'scope' | 'windowSeconds'>): string {
-  return `${window.id}\u0000${window.scope}\u0000${window.windowSeconds ?? ''}`
+function quotaWindowKey(window: QuotaWindowIdentity): string {
+  return `${window.sourceId || window.id}\u0000${window.scope}\u0000${window.windowSeconds ?? ''}`
 }
-function orderedQuotaWindows(windows: readonly QuotaHistoryWindow[]): QuotaHistoryWindow[] {
-  const positions = new Map<string, number>()
-  sortedQuotaWindows(props.quotaWindows).forEach((window, index) => {
-    const key = quotaWindowKey(window)
-    if (!positions.has(key)) positions.set(key, index)
-  })
-  return [...windows].sort(
-    (left, right) =>
-      (positions.get(quotaWindowKey(left)) ?? Number.MAX_SAFE_INTEGER) -
-      (positions.get(quotaWindowKey(right)) ?? Number.MAX_SAFE_INTEGER),
-  )
-}
+const currentQuotaWindows = computed(() =>
+  sortedQuotaWindows(props.quotaWindows).filter(
+    (window) =>
+      (window.windowSeconds ?? 0) >= quotaHistoryMinimumWindowSeconds &&
+      quotaRemaining(window) !== undefined,
+  ),
+)
 const quotaHistory = computed(() => {
   const quota = report.value?.quota
-  return quota ? { ...quota, windows: orderedQuotaWindows(quota.windows) } : undefined
+  if (!quota) return undefined
+  const history = new Map(quota.windows.map((window) => [quotaWindowKey(window), window]))
+  const windows = currentQuotaWindows.value.map((window): QuotaHistoryWindow => {
+    const existing = history.get(quotaWindowKey(window))
+    const remaining = quotaRemaining(window)!
+    return {
+      key: existing?.key ?? `current:${quotaWindowKey(window)}`,
+      id: window.id,
+      sourceId: window.sourceId ?? '',
+      label: window.label,
+      labelKey: window.labelKey ?? '',
+      scope: window.scope,
+      windowSeconds: window.windowSeconds!,
+      points: existing?.points.length
+        ? existing.points
+        : [
+            {
+              observedAt: quota.from,
+              usedBasisPoints: Math.round((100 - remaining) * 100),
+            },
+          ],
+    }
+  })
+  return { ...quota, windows }
 })
-const quotaVisible = computed(
-  () =>
-    props.subscription &&
-    (query.isPending.value ||
-      query.isError.value ||
-      report.value?.quotaFailed ||
-      quotaHistory.value?.windows.some((window) => window.points.length)),
-)
+const quotaVisible = computed(() => props.subscription && currentQuotaWindows.value.length > 0)
 const points = computed(() => {
   const usage = report.value?.usage
   if (!usage) return []
@@ -161,7 +175,7 @@ function quotaTooltipAt(at: number): string {
   const windows = quotaHistory.value?.windows.filter((window) => window.points.length) ?? []
   const lines: string[] = []
   for (const window of windows) {
-    // 首个真实观测前以其作为图表范围内的已知初值；之后不使用后续重置后的值解释此前额度。
+    // 无历史时当前额度以查询起点为展示时间；其余时间使用最近一次真实观测。
     const point = quotaPointAt(window, at)
     const key = 'credentialCards.quotaLabels.' + window.labelKey
     const label = quotaWindowTitle(window, window.labelKey && te(key) ? t(key) : window.label)
