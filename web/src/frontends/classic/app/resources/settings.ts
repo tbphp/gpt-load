@@ -100,6 +100,7 @@ export interface SettingsValues {
 
 export interface SettingsDto {
   auto_model_template?: AutoEntryDto
+  decision_models: string[]
   values: SettingsValues
   overrides: RuntimeSettingKey[]
   read_only: RuntimeSettingKey[]
@@ -130,7 +131,13 @@ export interface SettingsResource {
   settings: SettingsDto
 }
 
-const settingsFields = ['values', 'overrides', 'read_only', 'auto_model_template'] as const
+const settingsFields = [
+  'values',
+  'overrides',
+  'read_only',
+  'auto_model_template',
+  'decision_models',
+] as const
 const settingsValueFields = [...runtimeSettingKeys, 'proxy_config'] as const
 
 function invalidResponse(): never {
@@ -210,6 +217,7 @@ export function projectSettings(value: unknown): SettingsDto {
       record.auto_model_template === undefined
         ? undefined
         : projectAutoEntry(record.auto_model_template),
+    decision_models: projectArray(record.decision_models, projectString),
     values: {
       auto_model: projectAutoModel(values.auto_model),
       route_strategy: projectEnum(values.route_strategy, routeStrategies),

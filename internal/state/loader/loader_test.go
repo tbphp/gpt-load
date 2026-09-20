@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
@@ -25,6 +26,54 @@ import (
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/testutil/sqlitetest"
 )
+
+func TestLoaderMigratesLegacyAutomaticModelConfigOnce(t *testing.T) {
+	db := openMigratedDatabase(t)
+	crypto, err := encryption.NewService("loader-auto-model-migration-key-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"enabled":true,"provider":"openrouter","model":"~typesafe/jev-latest","api_key":"secret","timeout_seconds":4,"input_price":"0.042","output_price":"0","models":[]}`
+	ciphertext, err := crypto.Encrypt(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustCreate(t, db, &models.SystemSetting{Key: automodel.SettingKey, Value: ciphertext})
+
+	load := func() {
+		t.Helper()
+		manager := state.NewManager()
+		registry := state.NewCredentialRegistry()
+		value := loader.NewWithCredentialValidation(db, manager, registry, channel.NewRegistry(), nil, crypto)
+		if err := value.Load(t.Context()); err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if manager.Current().AutoModels.Enabled() {
+			t.Fatal("legacy automatic model remained enabled")
+		}
+	}
+	load()
+	var row models.SystemSetting
+	if err := db.Where("key = ?", automodel.SettingKey).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	migratedCiphertext := row.Value
+	plaintext, err := crypto.Decrypt(row.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, legacyShape, err := automodel.DecodeStored([]byte(plaintext))
+	if err != nil || legacyShape || config.Enabled || config.Model != "" || config.TimeoutSeconds != 4 {
+		t.Fatalf("config=%#v legacy=%t error=%v", config, legacyShape, err)
+	}
+	load()
+	if err := db.Where("key = ?", automodel.SettingKey).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Value != migratedCiphertext {
+		t.Fatal("idempotent startup rewrote the migrated configuration")
+	}
+}
 
 func TestBuildCompileInputWithProxyDecryptsGlobalAndGroupPolicies(t *testing.T) {
 	db := openMigratedDatabase(t)

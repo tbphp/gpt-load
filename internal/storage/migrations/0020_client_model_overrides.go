@@ -8,49 +8,49 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-const ID0019 = "0019_client_model_overrides"
+const ID0020 = "0020_client_model_overrides"
 
-type clientModelOverride0019 struct {
+type clientModelOverride0020 struct {
 	ModelHash   string              `gorm:"type:varchar(64);primaryKey;not null"`
-	ClientModel clientModelText0019 `gorm:"not null"`
-	Overrides   clientModelText0019 `gorm:"not null"`
+	ClientModel clientModelText0020 `gorm:"not null"`
+	Overrides   clientModelText0020 `gorm:"not null"`
 }
 
-func (clientModelOverride0019) TableName() string { return "client_model_overrides" }
+func (clientModelOverride0020) TableName() string { return "client_model_overrides" }
 
-type clientModelText0019 string
+type clientModelText0020 string
 
-func (clientModelText0019) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
+func (clientModelText0020) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
 	if strings.EqualFold(db.Dialector.Name(), "mysql") {
 		return "longtext"
 	}
 	return "text"
 }
 
-func Up0019(db *gorm.DB) error {
-	if db.Migrator().HasTable(&clientModelOverride0019{}) {
-		return Validate0019(db)
+func Up0020(db *gorm.DB) error {
+	if db.Migrator().HasTable(&clientModelOverride0020{}) {
+		return Validate0020(db)
 	}
 	switch strings.ToLower(db.Dialector.Name()) {
 	case "mysql", "postgres", "sqlite":
 	default:
 		return fmt.Errorf("client model overrides: unsupported database driver %q", db.Dialector.Name())
 	}
-	if err := db.Migrator().CreateTable(&clientModelOverride0019{}); err != nil {
+	if err := db.Migrator().CreateTable(&clientModelOverride0020{}); err != nil {
 		return fmt.Errorf("create client model overrides: %w", err)
 	}
-	return Validate0019(db)
+	return Validate0020(db)
 }
 
-func ValidateRecoverable0019(db *gorm.DB) error {
-	if !db.Migrator().HasTable(&clientModelOverride0019{}) {
+func ValidateRecoverable0020(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&clientModelOverride0020{}) {
 		return nil
 	}
-	return Validate0019(db)
+	return Validate0020(db)
 }
 
-func Validate0019(db *gorm.DB) error {
-	model := &clientModelOverride0019{}
+func Validate0020(db *gorm.DB) error {
+	model := &clientModelOverride0020{}
 	if !db.Migrator().HasTable(model) {
 		return fmt.Errorf("client model overrides table is missing")
 	}

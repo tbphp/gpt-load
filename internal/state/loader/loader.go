@@ -143,6 +143,9 @@ func NewWithAccessQuota(
 }
 
 func (l *Loader) Load(ctx context.Context) error {
+	if err := l.migrateLegacyAutoModel(ctx); err != nil {
+		return fmt.Errorf("migrate automatic model configuration: %w", err)
+	}
 	input, entries, costLimitStates, err := l.read(ctx)
 	if err != nil {
 		return fmt.Errorf("read runtime state: %w", err)
@@ -174,6 +177,45 @@ func (l *Loader) Load(ctx context.Context) error {
 		"credentials": len(entries),
 	}).Info("credential registry loaded")
 	return nil
+}
+
+func (l *Loader) migrateLegacyAutoModel(ctx context.Context) error {
+	if l == nil || l.db == nil || l.encryption == nil {
+		return nil
+	}
+	return l.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row models.SystemSetting
+		if err := tx.Where("key = ?", automodel.SettingKey).Take(&row).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		plaintext, err := l.encryption.Decrypt(row.Value)
+		if err != nil {
+			return fmt.Errorf("decrypt legacy configuration")
+		}
+		config, legacy, err := automodel.DecodeStored([]byte(plaintext))
+		plaintext = ""
+		if err != nil {
+			return fmt.Errorf("decode persisted configuration: %w", err)
+		}
+		if !legacy {
+			return nil
+		}
+		encoded, err := json.Marshal(config)
+		if err != nil {
+			return fmt.Errorf("encode migrated configuration: %w", err)
+		}
+		ciphertext, err := l.encryption.Encrypt(string(encoded))
+		clear(encoded)
+		if err != nil {
+			return fmt.Errorf("encrypt migrated configuration")
+		}
+		return tx.Model(&models.SystemSetting{}).
+			Where("key = ?", automodel.SettingKey).
+			Update("value", ciphertext).Error
+	})
 }
 
 func (l *Loader) validatePersistedCredentials(

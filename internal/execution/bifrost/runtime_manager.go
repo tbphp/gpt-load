@@ -112,6 +112,22 @@ func buildEffectiveProviderConfigForAttempt(
 	if err != nil {
 		return base, err
 	}
+	if spec.ClientProtocol == protocol.Decisions && resolved.ProviderKind == channel.ProviderOpenRouter {
+		baseURL, configured, targetErr := targetBaseURL(resolved.TargetConfig)
+		if targetErr != nil {
+			return effectiveProviderConfig{}, targetErr
+		}
+		if !configured {
+			baseURL = openRouterDecisionsDefaultBaseURL
+		}
+		provider := customProviderKey(schemas.OpenAI, baseURL)
+		config := buildProviderConfig(provider, baseURL, true, schemas.OpenAI, allowPrivateNetwork)
+		base, err = newEffectiveProviderConfig(provider, baseURL, true, config)
+		if err != nil {
+			return effectiveProviderConfig{}, err
+		}
+		return applyAttemptProxy(base, spec.Proxy)
+	}
 	if nativeProvider, ok := nativeMessageProvider(resolved.ProviderKind, spec); ok {
 		provider := customProviderKey(nativeProvider, base.targetBaseURL)
 		config := buildProviderConfig(provider, base.targetBaseURL, true, nativeProvider, allowPrivateNetwork)
@@ -260,6 +276,13 @@ func resolveSDKProviderConfig(resolved channel.ResolvedTarget) (schemas.ModelPro
 			}
 		}
 		return preset.provider, baseURL, false, nil
+	}
+	if resolved.ProviderKind == channel.ProviderJev {
+		baseURL, configured, err := targetBaseURL(resolved.TargetConfig)
+		if err != nil || !configured {
+			return "", "", false, fmt.Errorf("Jev base URL is required")
+		}
+		return customProviderKey(schemas.OpenAI, baseURL), baseURL, true, nil
 	}
 	if resolved.ProviderKind != channel.ProviderOpenAICompatible {
 		return "", "", false, fmt.Errorf("unsupported provider kind %q", resolved.ProviderKind)

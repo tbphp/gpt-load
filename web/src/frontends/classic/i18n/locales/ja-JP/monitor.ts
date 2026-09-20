@@ -412,6 +412,7 @@ export default {
         images_edit: '画像を編集',
         embeddings_create: '埋め込みを作成',
         rerank: 'ドキュメントを再ランキング',
+        decisions_create: '判定を作成',
       },
       routeRequirements: {
         any: 'プロトコル変換を許可（損失の可能性あり）',
@@ -818,6 +819,7 @@ export default {
         images_edit: '画像を編集',
         embeddings_create: '埋め込みを作成',
         rerank: 'ドキュメントを再ランキング',
+        decisions_create: '判定を作成',
         list_models: 'モデル一覧',
         probe: 'ヘルスプローブ',
       },

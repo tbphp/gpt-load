@@ -259,21 +259,34 @@ func TestRouteInspectDerivesStandardRequestMetadataFromProtocol(t *testing.T) {
 	fixture := newServiceFixture(t)
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		ChannelRegistry: fixture.channelRegistry,
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "openai", ChannelID: channel.OpenAI, ConnectionType: "api_key",
-			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "provider-model", Alias: "public"}},
-			Enabled: true,
-		}},
+		Groups: []state.GroupConfig{
+			{
+				ID: 1, Name: "openai", ChannelID: channel.OpenAI, ConnectionType: "api_key",
+				Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "provider-model", Alias: "public"}},
+				Enabled: true,
+			},
+			{
+				ID: 2, Name: "jev", ChannelID: channel.Jev, ConnectionType: "api_key",
+				Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "public"}},
+				Enabled: true,
+			},
+		},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 10, Name: "client", KeyHash: "hash", Status: state.AccessKeyStatusActive,
 		}},
 	}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
-		ID: 100, GroupID: 1, Status: state.CredentialStatusActive,
-		Version: 1, IdentityGeneration: 1, Fingerprint: "credential", EncryptedValue: "encrypted",
-	}}); err != nil {
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{
+		{
+			ID: 100, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "credential", EncryptedValue: "encrypted",
+		},
+		{
+			ID: 101, GroupID: 2, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 2, Fingerprint: "decision-credential", EncryptedValue: "encrypted",
+		},
+	}); err != nil {
 		t.Fatalf("ReplaceCredentials() error = %v", err)
 	}
 	engine := gin.New()
@@ -289,6 +302,7 @@ func TestRouteInspectDerivesStandardRequestMetadataFromProtocol(t *testing.T) {
 		{protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.OpenAIImages, operation: execution.OperationImagesGenerate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.OpenAIEmbeddings, operation: execution.OperationEmbeddingsCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementNative},
+		{protocol: protocol.Decisions, operation: execution.OperationDecisionsCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementNative},
 		{protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.Gemini, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted, routeRequirement: execution.RouteRequirementAny},
 	}

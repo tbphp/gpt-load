@@ -70,6 +70,7 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 		normalizeImagesAttemptResult(spec, &result)
 		normalizeEmbeddingsAttemptResult(spec, &result)
 		normalizeRerankAttemptResult(spec, &result)
+		normalizeDecisionsAttemptResult(spec, &result)
 		if r.providerKind(spec) == channel.ProviderMultiProtocolGateway {
 			normalizeGatewayProtocolProbeResult(spec, &result)
 		}
@@ -512,6 +513,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	if spec.ClientProtocol == protocol.Rerank {
 		return prepareRerank(spec, resolved, provider, directKey, secrets)
 	}
+	if spec.ClientProtocol == protocol.Decisions {
+		return prepareDecisions(spec, resolved, provider, directKey, secrets)
+	}
 	if spec.Operation == execution.OperationProbe {
 		if spec.ClientProtocol == protocol.OpenAIEmbeddings {
 			typedURL, targetErr := embeddingTypedTarget(providerKind, resolved.TargetConfig, "")
@@ -929,7 +933,9 @@ func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtoc
 		return clientProtocol == protocol.Gemini
 	case channel.ProviderOpenRouter:
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses ||
-			clientProtocol == protocol.OpenAIEmbeddings
+			clientProtocol == protocol.OpenAIEmbeddings || clientProtocol == protocol.Decisions
+	case channel.ProviderJev:
+		return clientProtocol == protocol.Decisions
 	case channel.ProviderDeepSeek, channel.ProviderGroq, channel.ProviderXAI:
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses
 	default:
@@ -945,6 +951,8 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		switch spec.ClientProtocol {
 		case protocol.OpenAICompletions, protocol.Anthropic:
 			return spec.Path == "/v1/models"
+		case protocol.Decisions:
+			return spec.Path == "/v1/models"
 		case protocol.Gemini:
 			return spec.Path == "/v1beta/models"
 		default:
@@ -957,7 +965,7 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 			return false
 		}
 		switch spec.ClientProtocol {
-		case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.OpenAIEmbeddings, protocol.Rerank,
+		case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.OpenAIEmbeddings, protocol.Rerank, protocol.Decisions,
 			protocol.Anthropic, protocol.Gemini:
 			return true
 		default:
@@ -1002,6 +1010,8 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		}
 	case protocol.Rerank:
 		return !stream && spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationRerank && spec.Method == http.MethodPost && spec.Path == "/v1/rerank"
+	case protocol.Decisions:
+		return !stream && spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationDecisionsCreate && spec.Method == http.MethodPost && spec.Path == "/v1/systemone"
 	case protocol.OpenAIEmbeddings:
 		return !stream && spec.RouteMode == execution.RouteNative &&
 			spec.Operation == execution.OperationEmbeddingsCreate &&
@@ -1203,7 +1213,7 @@ func directKeyForAttempt(
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini, channel.ProviderMultiProtocolGateway,
 		channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI,
-		channel.ProviderOpenAICompatible:
+		channel.ProviderOpenAICompatible, channel.ProviderJev:
 		if apiKey == "" {
 			return schemas.Key{}, nil, fmt.Errorf("api_key is required")
 		}

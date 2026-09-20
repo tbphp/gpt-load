@@ -311,7 +311,7 @@ func assertJSONEqual(t *testing.T, got, want string) {
 	}
 }
 
-func TestVisibleOpenAIModelIDsIncludesRerankRoutes(t *testing.T) {
+func TestVisibleOpenAIModelIDsIncludesUtilityRoutes(t *testing.T) {
 	t.Parallel()
 
 	snapshot := &state.ConfigSnapshot{ExecutionCandidates: state.ExecutionCandidateIndex{
@@ -327,6 +327,12 @@ func TestVisibleOpenAIModelIDsIncludesRerankRoutes(t *testing.T) {
 				"shared":      {{GroupID: 2}},
 			},
 		},
+		protocol.Decisions: {
+			execution.OperationDecisionsCreate: {
+				"decision-only": {{GroupID: 3}},
+				"shared":        {{GroupID: 3}},
+			},
+		},
 	}}
 
 	tests := []struct {
@@ -336,7 +342,14 @@ func TestVisibleOpenAIModelIDsIncludesRerankRoutes(t *testing.T) {
 	}{
 		{
 			name: "unrestricted union",
-			want: []string{"chat-only", "rerank-only", "shared"},
+			want: []string{"chat-only", "decision-only", "rerank-only", "shared"},
+		},
+		{
+			name: "decisions protocol filter",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{
+				protocol.Decisions: {},
+			}}},
+			want: []string{"decision-only", "shared"},
 		},
 		{
 			name: "rerank protocol filter",

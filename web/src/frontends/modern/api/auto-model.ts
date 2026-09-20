@@ -1,5 +1,4 @@
-import { InvalidResponseError } from '@shared/http/errors'
-import { boolean, integer, list, oneOf, record, text } from './response'
+import { boolean, integer, list, record, text } from './response'
 
 export interface AutoPreset {
   id: string
@@ -17,23 +16,14 @@ export interface AutoEntry {
 }
 export interface AutoModelConfig {
   enabled: boolean
-  provider: 'typesafe' | 'openrouter'
   model: string
-  api_key: string
-  api_key_configured?: boolean
   timeout_seconds: number
-  input_price: string
-  output_price: string
   models: AutoEntry[]
 }
 export const defaultAutoModel = (): AutoModelConfig => ({
   enabled: false,
-  provider: 'typesafe',
-  model: 'jev-latest',
-  api_key: '',
+  model: '',
   timeout_seconds: 2,
-  input_price: '0.042',
-  output_price: '0',
   models: [],
 })
 export function readAutoEntry(value: unknown): AutoEntry {
@@ -58,16 +48,10 @@ export function readAutoEntry(value: unknown): AutoEntry {
 export function readAutoModel(value: unknown): AutoModelConfig {
   if (value === undefined) return defaultAutoModel()
   const row = record(value)
-  if (row.api_key !== '') throw new InvalidResponseError()
   return {
     enabled: boolean(row.enabled),
-    provider: oneOf(row.provider, ['typesafe', 'openrouter']),
     model: text(row.model),
-    api_key: '',
-    api_key_configured: boolean(row.api_key_configured),
     timeout_seconds: integer(row.timeout_seconds, 1),
-    input_price: text(row.input_price),
-    output_price: text(row.output_price),
     models: list(row.models).map(readAutoEntry),
   }
 }
@@ -113,6 +97,7 @@ export function validAutoDraft(draft: AutoModelDraft): boolean {
       Number.isInteger(value.timeout_seconds) &&
       value.timeout_seconds >= 1 &&
       value.timeout_seconds <= 60 &&
+      (!value.enabled || Boolean(value.model.trim())) &&
       value.models.every(
         (entry) =>
           entry.name.trim() &&

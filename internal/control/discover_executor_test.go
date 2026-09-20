@@ -107,12 +107,14 @@ func encodeDiscoveryModelsForTest(value protocol.Protocol, models []string) []by
 	for _, model := range models {
 		if value == protocol.Gemini {
 			items = append(items, map[string]string{"name": "models/" + model})
+		} else if value == protocol.Decisions {
+			items = append(items, map[string]string{"name": model})
 		} else {
 			items = append(items, map[string]string{"id": model})
 		}
 	}
 	payload := map[string]any{"data": items}
-	if value == protocol.Gemini {
+	if value == protocol.Gemini || value == protocol.Decisions {
 		payload = map[string]any{"models": items}
 	}
 	body, _ := json.Marshal(payload)
@@ -128,6 +130,7 @@ func TestUtilityRequestShapeUsesSelectedProtocol(t *testing.T) {
 		{clientProtocol: protocol.OpenAICompletions, path: "/v1/models"},
 		{clientProtocol: protocol.Anthropic, path: "/v1/models"},
 		{clientProtocol: protocol.Gemini, path: "/v1beta/models"},
+		{clientProtocol: protocol.Decisions, path: "/v1/models"},
 	} {
 		t.Run(string(test.clientProtocol), func(t *testing.T) {
 			clientProtocol, method, path, body, err := utilityRequestShape(
@@ -153,6 +156,24 @@ func TestUtilityRequestShapeUsesSelectedProtocol(t *testing.T) {
 		execution.OperationListModels,
 	); err == nil {
 		t.Fatal("utilityRequestShape() accepted an OpenAI Responses model-list request")
+	}
+}
+
+func TestDecisionsModelDiscoveryParsesTypeSafeModels(t *testing.T) {
+	t.Parallel()
+
+	page, err := parseDiscoveredModelsPage(protocol.Decisions, []byte(`{
+		"models":[
+			{"name":"jev-latest","description":"Latest stable Jev","release_date":"2026-09-15"},
+			{"name":"jev-preview","description":"Latest Jev preview","release_date":"2026-09-15"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("parseDiscoveredModelsPage() error = %v", err)
+	}
+	want := []string{"jev-latest", "jev-preview"}
+	if !reflect.DeepEqual(page.models, want) || page.nextRawQuery != "" {
+		t.Fatalf("page = %#v, want models %#v", page, want)
 	}
 }
 

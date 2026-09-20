@@ -33,15 +33,15 @@ func testClientModelOverrideMigration(t *testing.T, open func(*testing.T) *gorm.
 				t.Parallel()
 			}
 			if scenario != "fresh" {
-				if err := applyMigrationRegistry(db, migrations[:18]); err != nil {
+				if err := applyMigrationRegistry(db, migrations[:19]); err != nil {
 					t.Fatal(err)
 				}
 			}
 			if scenario == "interrupted" {
-				if len(migrations) < 19 {
+				if len(migrations) < 20 {
 					t.Fatal("client model override migration is not registered")
 				}
-				entry := migrations[18]
+				entry := migrations[19]
 				up := entry.Up
 				entry.Up = func(tx *gorm.DB) error {
 					if err := up(tx); err != nil {
@@ -49,7 +49,7 @@ func testClientModelOverrideMigration(t *testing.T, open func(*testing.T) *gorm.
 					}
 					return fmt.Errorf("interrupted client model override DDL")
 				}
-				registry := append(append([]migration(nil), migrations[:18]...), entry)
+				registry := append(append([]migration(nil), migrations[:19]...), entry)
 				if err := applyMigrationRegistry(db, registry); err == nil {
 					t.Fatal("expected interruption")
 				}

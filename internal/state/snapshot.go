@@ -215,12 +215,29 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		autoConfig = *input.AutoModel
 	}
 	ordinaryModels := map[string]struct{}{}
+	decisionModels := map[string]struct{}{}
 	for _, group := range input.Groups {
 		for _, model := range group.Models {
 			ordinaryModels[externalModelName(model)] = struct{}{}
 		}
+		if !group.Enabled {
+			continue
+		}
+		target, resolveErr := input.ChannelRegistry.Resolve(group.ChannelID, group.Params)
+		if resolveErr != nil {
+			continue
+		}
+		for _, model := range group.Models {
+			if _, supported := target.ModeForModel(
+				protocol.Decisions,
+				execution.OperationDecisionsCreate,
+				model.ID,
+			); supported {
+				decisionModels[externalModelName(model)] = struct{}{}
+			}
+		}
 	}
-	autoModels, err := automodel.Compile(autoConfig, ordinaryModels)
+	autoModels, err := automodel.Compile(autoConfig, ordinaryModels, decisionModels)
 	if err != nil {
 		return nil, fmt.Errorf("compile automatic models: %w", err)
 	}
@@ -399,7 +416,8 @@ func appendExecutionTargets(
 				execution.OperationCountTokens,
 				execution.OperationImagesGenerate,
 				execution.OperationImagesEdit,
-				execution.OperationEmbeddingsCreate, execution.OperationRerank:
+				execution.OperationEmbeddingsCreate, execution.OperationRerank,
+				execution.OperationDecisionsCreate:
 				for _, model := range group.Models {
 					modelMode, supported := target.ModeForModel(clientProtocol, operation, model.ID)
 					if !supported {
