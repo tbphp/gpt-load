@@ -2,8 +2,10 @@ package migrations
 
 import (
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const ID0019 = "0019_auto_decision_attribution"
@@ -54,7 +56,7 @@ func Up0019(db *gorm.DB) error {
 	hasBuild := db.Migrator().HasTable(&autoUsageBuild0019{})
 	if hasCurrent && autoDecisionUsageHasAttribution0019(db) {
 		if hasBuild {
-			if err := db.Migrator().DropTable(&autoUsageBuild0019{}); err != nil {
+			if err := dropAutoDecisionUsageTable0019(db, autoDecisionUsageBuildTable0019, &autoUsageBuild0019{}); err != nil {
 				return fmt.Errorf("drop stale automatic decision attribution table: %w", err)
 			}
 		}
@@ -70,7 +72,7 @@ func Up0019(db *gorm.DB) error {
 		return fmt.Errorf("automatic decision attribution migration requires auto_decision_usage_stats")
 	}
 	if hasBuild {
-		if err := db.Migrator().DropTable(&autoUsageBuild0019{}); err != nil {
+		if err := dropAutoDecisionUsageTable0019(db, autoDecisionUsageBuildTable0019, &autoUsageBuild0019{}); err != nil {
 			return fmt.Errorf("reset automatic decision attribution build table: %w", err)
 		}
 	}
@@ -85,13 +87,20 @@ func Up0019(db *gorm.DB) error {
 		FROM auto_decision_usage_stats`).Error; err != nil {
 		return fmt.Errorf("copy automatic decision usage history: %w", err)
 	}
-	if err := db.Migrator().DropTable(&autoUsage0019{}); err != nil {
+	if err := dropAutoDecisionUsageTable0019(db, "auto_decision_usage_stats", &autoUsage0019{}); err != nil {
 		return fmt.Errorf("drop old automatic decision usage table: %w", err)
 	}
 	if err := db.Migrator().RenameTable(autoDecisionUsageBuildTable0019, "auto_decision_usage_stats"); err != nil {
 		return fmt.Errorf("rename automatic decision attribution table: %w", err)
 	}
 	return Validate0019(db)
+}
+
+func dropAutoDecisionUsageTable0019(db *gorm.DB, table string, model any) error {
+	if strings.EqualFold(db.Dialector.Name(), "mysql") {
+		return db.Exec("DROP TABLE IF EXISTS ?", clause.Table{Name: table}).Error
+	}
+	return db.Migrator().DropTable(model)
 }
 
 func ValidateRecoverable0019(db *gorm.DB) error {

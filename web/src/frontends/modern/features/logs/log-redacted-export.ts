@@ -145,6 +145,7 @@ export async function createRedactedLogExport(log: LogDetail): Promise<string> {
   const decision = log.auto_decision
     ? {
         ...log.auto_decision,
+        receipt: await redactReceipt(log.auto_decision.receipt),
         group_name: (await identityReference('group', null, log.auto_decision.group_name)) ?? '',
         credential_name:
           (await identityReference('credential', null, log.auto_decision.credential_name)) ?? '',
