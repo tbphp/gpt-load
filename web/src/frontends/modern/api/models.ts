@@ -7,8 +7,35 @@ export const modelsKey = ['modern', 'models'] as const
 export const modelContextKey = (model: string, groups: string) =>
   [...modelsKey, 'context', model, groups] as const
 export const modelSourceKey = (id: number) => [...modelsKey, 'source', id] as const
+export const modelProfileKey = (model: string) => [...modelsKey, 'profile', model] as const
 export const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
+export const modelProfileFields = [
+  'display_name',
+  'description',
+  'context_window',
+  'supported_reasoning_levels',
+  'default_reasoning_level',
+  'input_modalities',
+  'supports_reasoning_summary',
+  'support_verbosity',
+] as const
+export const modelReasoningLevels = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+  'persistent',
+] as const
+export const modelInputModalities = ['text', 'image', 'audio'] as const
+const modelDefaultReasoningLevels = ['', ...modelReasoningLevels] as const
 export type PriceField = (typeof priceFields)[number]
+export type ModelProfileField = (typeof modelProfileFields)[number]
+export type ModelReasoningLevel = (typeof modelReasoningLevels)[number]
+export type ModelInputModality = (typeof modelInputModalities)[number]
 export type PriceSlots = Record<PriceField, string | null>
 export interface PriceTier {
   threshold_tokens: number
@@ -59,6 +86,29 @@ export interface RequestModel {
   name: string
   protocols: string[]
   sources: ModelSource[]
+  hasOverrides?: boolean
+}
+export interface ModelProfileValues {
+  display_name: string
+  description: string
+  context_window: number | null
+  supported_reasoning_levels: ModelReasoningLevel[]
+  default_reasoning_level: '' | ModelReasoningLevel
+  input_modalities: ModelInputModality[]
+  supports_reasoning_summary: boolean
+  support_verbosity: boolean
+}
+export type ModelProfileOverrides = Partial<{
+  [Field in ModelProfileField]: ModelProfileValues[Field]
+}>
+export interface ModelProfile {
+  clientModel: string
+  automatic: ModelProfileValues
+  overrides: ModelProfileOverrides
+  effective: ModelProfileValues
+  sourceCount: number
+  unknownSourceCount: number
+  hasOverrides: boolean
 }
 export interface ModelSourceDetail {
   model: string
@@ -174,6 +224,78 @@ function catalog(value: unknown): ModelCatalog | null {
     status: text(model.status),
   }
 }
+function uniqueOptions<T extends string>(value: unknown, options: readonly T[]): T[] {
+  const values = list(value).map((item) => oneOf(item, options))
+  if (new Set(values).size !== values.length) throw new InvalidResponseError()
+  return values
+}
+function inputModalities(value: unknown): ModelInputModality[] {
+  const values = uniqueOptions(value, modelInputModalities)
+  if (!values.length || !values.includes('text')) throw new InvalidResponseError()
+  return values
+}
+function profileValues(value: unknown): ModelProfileValues {
+  const row = record(value)
+  const supportedReasoningLevels = uniqueOptions(
+    row.supported_reasoning_levels,
+    modelReasoningLevels,
+  )
+  const defaultReasoningLevel = oneOf(row.default_reasoning_level, modelDefaultReasoningLevels)
+  if (defaultReasoningLevel && !supportedReasoningLevels.includes(defaultReasoningLevel))
+    throw new InvalidResponseError()
+  return {
+    display_name: text(row.display_name),
+    description: text(row.description),
+    context_window: row.context_window === null ? null : integer(row.context_window, 1),
+    supported_reasoning_levels: supportedReasoningLevels,
+    default_reasoning_level: defaultReasoningLevel,
+    input_modalities: inputModalities(row.input_modalities),
+    supports_reasoning_summary: boolean(row.supports_reasoning_summary),
+    support_verbosity: boolean(row.support_verbosity),
+  }
+}
+function profileOverrides(value: unknown): ModelProfileOverrides {
+  const row = record(value)
+  const overrides: ModelProfileOverrides = {}
+  if (row.display_name !== undefined && row.display_name !== null)
+    overrides.display_name = text(row.display_name)
+  if (row.description !== undefined && row.description !== null)
+    overrides.description = text(row.description)
+  if (row.context_window !== undefined && row.context_window !== null)
+    overrides.context_window = integer(row.context_window, 1)
+  if (row.supported_reasoning_levels !== undefined && row.supported_reasoning_levels !== null)
+    overrides.supported_reasoning_levels = uniqueOptions(
+      row.supported_reasoning_levels,
+      modelReasoningLevels,
+    )
+  if (row.default_reasoning_level !== undefined && row.default_reasoning_level !== null)
+    overrides.default_reasoning_level = oneOf(
+      row.default_reasoning_level,
+      modelDefaultReasoningLevels,
+    )
+  if (row.input_modalities !== undefined && row.input_modalities !== null)
+    overrides.input_modalities = inputModalities(row.input_modalities)
+  if (row.supports_reasoning_summary !== undefined && row.supports_reasoning_summary !== null)
+    overrides.supports_reasoning_summary = boolean(row.supports_reasoning_summary)
+  if (row.support_verbosity !== undefined && row.support_verbosity !== null)
+    overrides.support_verbosity = boolean(row.support_verbosity)
+  return overrides
+}
+export function readModelProfile(value: unknown): ModelProfile {
+  const row = record(value)
+  const sourceCount = integer(row.source_count)
+  const unknownSourceCount = integer(row.unknown_source_count)
+  if (unknownSourceCount > sourceCount) throw new InvalidResponseError()
+  return {
+    clientModel: text(row.client_model),
+    automatic: profileValues(row.automatic),
+    overrides: profileOverrides(row.overrides),
+    effective: profileValues(row.effective),
+    sourceCount,
+    unknownSourceCount,
+    hasOverrides: boolean(row.has_overrides),
+  }
+}
 function source(value: unknown): ModelSource {
   const row = record(value)
   const price = readModelPrice(row.price)
@@ -207,11 +329,39 @@ export async function getModels(client: ApiClient, filters: ModelFilters, signal
         name: text(model.client_model),
         protocols: sortProtocols(list(model.protocols).map(text)),
         sources: list(model.upstream_models).map(source),
+        hasOverrides: model.has_overrides === undefined ? undefined : boolean(model.has_overrides),
       }
     }),
     total: integer(pagination.total_items),
     pages: integer(pagination.total_pages),
   }
+}
+export async function getModelProfile(
+  client: ApiClient,
+  model: string,
+  signal: AbortSignal,
+): Promise<ModelProfile> {
+  const params = new URLSearchParams({ model })
+  const path = `/api/models/profile?${params}` as const
+  const profile = readModelProfile(await client.request(path, { signal }))
+  if (profile.clientModel !== model) throw new InvalidResponseError()
+  return profile
+}
+export async function saveModelProfile(
+  client: ApiClient,
+  model: string,
+  overrides: ModelProfileOverrides,
+  signal: AbortSignal,
+): Promise<ModelProfile> {
+  const profile = readModelProfile(
+    await client.request('/api/models/profile', {
+      method: 'PUT',
+      json: { client_model: model, overrides },
+      signal,
+    }),
+  )
+  if (profile.clientModel !== model) throw new InvalidResponseError()
+  return profile
 }
 // 详情不依赖列表当前页或计价筛选，硬刷新与跨页进入同样能取到完整来源。
 export async function getModelContext(

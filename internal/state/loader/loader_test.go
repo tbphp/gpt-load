@@ -1034,3 +1034,48 @@ func createRuntimeGroup(t *testing.T, db *gorm.DB, name string, p protocol.Proto
 func stringPtr(value string) *string {
 	return &value
 }
+
+func TestBuildCompileInputLoadsStrictClientModelOverrides(t *testing.T) {
+	db := openMigratedDatabase(t)
+	mustCreate(t, db, &models.ClientModelOverride{
+		ModelHash: models.ClientModelHash("模型🚀"), ClientModel: "模型🚀",
+		Overrides: models.JSON(`{"display_name":"显示名","input_modalities":["text","image"]}`),
+	})
+
+	input, err := loader.BuildCompileInput(context.Background(), db, channel.NewRegistry())
+	if err != nil {
+		t.Fatalf("BuildCompileInput() error = %v", err)
+	}
+	overrides := input.ClientModelOverrides["模型🚀"]
+	if overrides.DisplayName == nil || *overrides.DisplayName != "显示名" ||
+		overrides.InputModalities == nil || !reflect.DeepEqual(*overrides.InputModalities, []string{"text", "image"}) {
+		t.Fatalf("ClientModelOverrides = %#v", input.ClientModelOverrides)
+	}
+	if _, err := state.Compile(input); err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	manager := state.NewManager()
+	if err := loader.New(db, manager, state.NewCredentialRegistry(), channel.NewRegistry()).Load(context.Background()); err != nil {
+		t.Fatalf("Loader.Load() error = %v", err)
+	}
+	loaded := manager.Current().ClientModelOverrides["模型🚀"]
+	if loaded.DisplayName == nil || *loaded.DisplayName != "显示名" {
+		t.Fatalf("startup overrides = %#v", manager.Current().ClientModelOverrides)
+	}
+
+	mustCreate(t, db, &models.ClientModelOverride{
+		ModelHash: models.ClientModelHash("invalid"), ClientModel: "invalid",
+		Overrides: models.JSON(`{"unsupported":true}`),
+	})
+	if _, err := loader.BuildCompileInput(context.Background(), db, channel.NewRegistry()); err == nil {
+		t.Fatal("BuildCompileInput() accepted unknown client model override field")
+	}
+	if err := db.Model(&models.ClientModelOverride{}).
+		Where("model_hash = ?", models.ClientModelHash("invalid")).
+		Update("overrides", models.JSON(`{"display_name":"first","display_name":"second"}`)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loader.BuildCompileInput(context.Background(), db, channel.NewRegistry()); err == nil {
+		t.Fatal("BuildCompileInput() accepted duplicate client model override field")
+	}
+}

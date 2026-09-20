@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/affinity"
 	"gpt-load/internal/automodel"
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/dialect"
@@ -97,6 +98,7 @@ type Handler struct {
 	decisionHTTP        *http.Client
 	decisionProxy       outboundproxy.Effective
 	manager             *state.Manager
+	catalog             *catalog.Runtime
 	channels            *channel.Registry
 	subscriptions       *subscriptionruntime.Runtime
 	registry            runtimeCredentialRegistry
@@ -223,6 +225,7 @@ func NewHandlerWithLifecycle(
 	accessQuota *accessquota.Runtime,
 	lifecycle *httplifecycle.Coordinator,
 	responseBindings *state.ResponseBindings,
+	catalogRuntime *catalog.Runtime,
 ) *Handler {
 	handler := NewHandler(
 		manager,
@@ -245,6 +248,7 @@ func NewHandlerWithLifecycle(
 	}
 	handler.lifecycle = lifecycle
 	handler.responseBindings = responseBindings
+	handler.catalog = catalogRuntime
 	return handler
 }
 

@@ -6,7 +6,12 @@ import "sync/atomic"
 // generations are never exposed or mutated; every public data-returning read
 // copies only the caller-visible boundary it returns.
 type Runtime struct {
-	snapshot atomic.Pointer[Snapshot]
+	snapshot atomic.Pointer[runtimeGeneration]
+}
+
+type runtimeGeneration struct {
+	catalog  *Snapshot
+	profiles *ClientModelProfiles
 }
 
 // Load returns a caller-owned deep clone of the current snapshot.
@@ -14,7 +19,11 @@ func (runtime *Runtime) Load() *Snapshot {
 	if runtime == nil {
 		return nil
 	}
-	return cloneSnapshot(runtime.snapshot.Load())
+	generation := runtime.snapshot.Load()
+	if generation == nil {
+		return nil
+	}
+	return cloneSnapshot(generation.catalog)
 }
 
 // HasGeneration reports whether a catalog generation is currently published.
@@ -29,5 +38,10 @@ func (runtime *Runtime) Publish(snapshot *Snapshot) {
 	if runtime == nil {
 		return
 	}
-	runtime.snapshot.Store(cloneSnapshot(snapshot))
+	if snapshot == nil {
+		runtime.snapshot.Store(nil)
+		return
+	}
+	cloned := cloneSnapshot(snapshot)
+	runtime.snapshot.Store(&runtimeGeneration{catalog: cloned, profiles: compileClientModelProfiles(cloned)})
 }
