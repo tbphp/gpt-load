@@ -11,7 +11,7 @@ permissions:
 # 竖线分隔在任何错误（含网络错误）时回退到下一个源；默认的逗号只在
 # 404/410 时回退，proxy.golang.org 瞬时故障会直接让整个 job 失败。
 # 自托管 Runner 保留本机 Go 缓存；代码与编译参数变化由 Go 自动判定失效。
-# 不再下载/上传 setup-go 缓存，也无需 main push 预热。
+# GitHub 托管的 Windows gate 恢复 setup-go 缓存，避免每次从空实例重新编译。
 env:
   GOPROXY: https://proxy.golang.org|direct
 
@@ -171,7 +171,7 @@ jobs:
         run: .github/scripts/ci-database-contract.sh "${{ matrix.driver }}"
 
   windows-encryption-acl:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-2025
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -183,7 +183,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: false
+          cache: true
 
       - name: Test Windows secure file and storage ACLs
         run: go test -v -count=1 ./internal/platform/securefile ./internal/platform/encryption ./internal/storage

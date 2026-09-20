@@ -244,7 +244,7 @@ func TestBranchAndReleaseWorkflowsRunRaceInParallelGates(t *testing.T) {
 func TestWindowsCIExecutesManagedStorageACLTests(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/ci.yml")
 	job := workflowJobBlock(t, content, "windows-encryption-acl")
-	if count := strings.Count(job, "runs-on: [self-hosted, Windows, X64]"); count != 1 {
+	if count := strings.Count(job, "runs-on: windows-2025"); count != 1 {
 		t.Fatalf("Windows ACL job contains runs-on declaration %d times, want exactly once", count)
 	}
 	assertWorkflowGateStep(
@@ -291,7 +291,7 @@ func TestWorkflowsPinExternalActionsAndHostedRunners(t *testing.T) {
 	}
 
 	ci := readRepositoryFile(t, ".github/workflows/ci.yml")
-	for _, required := range []string{"runs-on: [self-hosted, Linux, ARM64]", "runs-on: [self-hosted, macOS, ARM64]", "runs-on: [self-hosted, Windows, X64]"} {
+	for _, required := range []string{"runs-on: [self-hosted, Linux, ARM64]", "runs-on: [self-hosted, macOS, ARM64]", "runs-on: windows-2025"} {
 		if !strings.Contains(ci, required) {
 			t.Errorf("branch CI does not contain %q", required)
 		}

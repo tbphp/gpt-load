@@ -5,24 +5,36 @@ import (
 	"testing"
 )
 
-func TestSelfHostedCIKeepsPlatformGatesAndLocalCaches(t *testing.T) {
+func TestCIUsesSelfHostedUnixGatesAndHostedWindowsCache(t *testing.T) {
 	ci := readRepositoryFile(t, ".github/workflows/ci.yml")
 	for job, runner := range map[string]string{
-		"test":                   "[self-hosted, macOS, ARM64]",
-		"race-tests":             "[self-hosted, macOS, ARM64]",
-		"race-cpa":               "[self-hosted, Linux, ARM64]",
-		"database-contract":      "[self-hosted, Linux, ARM64]",
-		"windows-encryption-acl": "[self-hosted, Windows, X64]",
+		"test":              "[self-hosted, macOS, ARM64]",
+		"race-tests":        "[self-hosted, macOS, ARM64]",
+		"race-cpa":          "[self-hosted, Linux, ARM64]",
+		"database-contract": "[self-hosted, Linux, ARM64]",
 	} {
 		block := workflowJobBlock(t, ci, job)
 		if !strings.Contains(block, "runs-on: "+runner) {
 			t.Errorf("%s is not assigned to %s", job, runner)
 		}
 	}
+	windows := workflowJobBlock(t, ci, "windows-encryption-acl")
+	if !strings.Contains(windows, "runs-on: windows-2025") {
+		t.Fatal("Windows ACL job is not assigned to the GitHub-hosted Windows runner")
+	}
+	if !strings.Contains(workflowStepBlock(t, windows, "Set up Go"), "cache: true") {
+		t.Fatal("GitHub-hosted Windows ACL job does not restore the Go cache")
+	}
+	if count := strings.Count(ci, "cache: true"); count != 1 {
+		t.Fatalf("CI workflow contains %d remote Go cache declarations, want 1 for the hosted Windows job", count)
+	}
 	for _, file := range []string{"ci.yml", "release.yml"} {
 		content := readRepositoryFile(t, ".github/workflows/"+file)
-		if strings.Contains(content, "cache: true") || strings.Contains(content, ".go-cache-scope") {
-			t.Errorf("%s still restores remote Go caches over persistent local caches", file)
+		if strings.Contains(content, ".go-cache-scope") {
+			t.Errorf("%s still declares a remote Go cache scope", file)
+		}
+		if file == "release.yml" && strings.Contains(content, "cache: true") {
+			t.Errorf("%s restores remote Go caches over persistent local caches", file)
 		}
 		database := workflowJobBlock(t, content, "database-contract")
 		for _, fixedPort := range []string{"3306:3306", "5432:5432"} {
