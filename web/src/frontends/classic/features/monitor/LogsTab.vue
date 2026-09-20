@@ -99,7 +99,6 @@ const routeState = computed(() => parseLogsMonitorState(route.query))
 const selectedRequestID = computed(() => routeState.value.selectedRequestID)
 const advancedOpen = computed(() => routeState.value.filtersOpen)
 const draft = ref(createLogFilterDraft(appliedFilters.value))
-let draftBeforeAdvanced: LogFilterDraft | undefined
 const filterErrors = ref<LogFilterErrors>({})
 const filterCommitPending = ref(false)
 const paginationPending = ref(false)
@@ -231,25 +230,17 @@ watch(filterSignature, () => {
   pageTransitionOrigin.value = null
 })
 
-// 时间和分页变化不丢弃常用搜索栏中尚未应用的条件。
 watch(
   () => JSON.stringify(createLogFilterDraft(appliedFilters.value)),
   () => {
     draft.value = createLogFilterDraft(appliedFilters.value)
-    draftBeforeAdvanced = undefined
     filterErrors.value = {}
   },
 )
 
 watch(
   advancedOpen,
-  (open) => {
-    if (open) {
-      draftBeforeAdvanced = { ...draft.value }
-    } else {
-      if (draftBeforeAdvanced) draft.value = draftBeforeAdvanced
-      draftBeforeAdvanced = undefined
-    }
+  () => {
     filterErrors.value = {}
   },
   { immediate: true },
@@ -347,7 +338,6 @@ async function commitFilters(filters: AppliedLogFilters): Promise<void> {
   const serialized = serializeAppliedLogFilters(filters)
   const nextSignature = JSON.stringify([serialized, filters.from_ms, filters.to_ms])
   draft.value = createLogFilterDraft(filters)
-  draftBeforeAdvanced = undefined
   filterErrors.value = {}
 
   if (
@@ -363,7 +353,7 @@ async function commitFilters(filters: AppliedLogFilters): Promise<void> {
   await router.push(
     monitorLocation(
       logsMonitorQuery(filters, {
-        filtersOpen: false,
+        filtersOpen: advancedOpen.value,
         cursorHistory: [],
       }),
     ),

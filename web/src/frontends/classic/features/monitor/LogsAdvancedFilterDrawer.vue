@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import AppButton from '@/components/ui/AppButton.vue'
@@ -80,15 +80,45 @@ const retryOptions = () => [
     option(value, t(`monitor.logs.filters.retryState.${value}`)),
   ),
 ]
+const composing = ref(false)
+let applyTimer: ReturnType<typeof setTimeout> | undefined
+let applyPending = false
 
 function error(field: keyof LogFilterDraft): string | undefined {
   const key = props.errors[field]
   return key ? t(key) : undefined
 }
 
-function update(field: keyof LogFilterDraft, value: string): void {
-  emit('updateField', field, value)
+function applyNow(): void {
+  clearTimeout(applyTimer)
+  applyPending = false
+  if (!composing.value) emit('apply')
 }
+
+function scheduleApply(): void {
+  clearTimeout(applyTimer)
+  applyPending = true
+  if (!composing.value) applyTimer = setTimeout(applyNow, 200)
+}
+
+function update(field: keyof LogFilterDraft, value: string, immediate = true): void {
+  emit('updateField', field, value)
+  if (immediate) applyNow()
+  else scheduleApply()
+}
+
+function endComposition(): void {
+  composing.value = false
+  if (applyPending) scheduleApply()
+}
+
+function reset(): void {
+  clearTimeout(applyTimer)
+  applyPending = false
+  emit('reset')
+}
+
+onScopeDispose(() => clearTimeout(applyTimer))
 </script>
 
 <template>
@@ -101,7 +131,12 @@ function update(field: keyof LogFilterDraft, value: string): void {
     @update:open="emit('update:open', $event)"
   >
     <InlineFeedback v-if="commonError" tone="danger">{{ commonError }}</InlineFeedback>
-    <form class="logs-advanced" @submit.prevent="emit('apply')">
+    <form
+      class="logs-advanced"
+      @submit.prevent="applyNow"
+      @compositionstart="composing = true"
+      @compositionend="endComposition"
+    >
       <section class="logs-advanced__section">
         <h3>{{ t('monitor.logs.filters.sections.request') }}</h3>
         <div class="logs-advanced__grid">
@@ -121,7 +156,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 :spellcheck="false"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update('request_id', ($event.target as HTMLInputElement).value)"
+                @input="update('request_id', ($event.target as HTMLInputElement).value, false)"
               />
             </template>
           </FormField>
@@ -148,7 +183,9 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 inputmode="numeric"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update('final_status_code', ($event.target as HTMLInputElement).value)"
+                @input="
+                  update('final_status_code', ($event.target as HTMLInputElement).value, false)
+                "
               />
             </template>
           </FormField>
@@ -171,7 +208,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 inputmode="numeric"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update('credential_id', ($event.target as HTMLInputElement).value)"
+                @input="update('credential_id', ($event.target as HTMLInputElement).value, false)"
               />
             </template>
           </FormField>
@@ -188,7 +225,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 autocomplete="off"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update('upstream_model', ($event.target as HTMLInputElement).value)"
+                @input="update('upstream_model', ($event.target as HTMLInputElement).value, false)"
               />
             </template>
           </FormField>
@@ -205,7 +242,9 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 inputmode="numeric"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update('attempt_status_code', ($event.target as HTMLInputElement).value)"
+                @input="
+                  update('attempt_status_code', ($event.target as HTMLInputElement).value, false)
+                "
               />
             </template>
           </FormField>
@@ -236,7 +275,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 autocomplete="off"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update('error_code', ($event.target as HTMLInputElement).value)"
+                @input="update('error_code', ($event.target as HTMLInputElement).value, false)"
               />
             </template>
           </FormField>
@@ -267,7 +306,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 inputmode="numeric"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update('retry_count_min', ($event.target as HTMLInputElement).value)"
+                @input="update('retry_count_min', ($event.target as HTMLInputElement).value, false)"
               />
             </template>
           </FormField>
@@ -284,7 +323,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 inputmode="numeric"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update('retry_count_max', ($event.target as HTMLInputElement).value)"
+                @input="update('retry_count_max', ($event.target as HTMLInputElement).value, false)"
               />
             </template>
           </FormField>
@@ -314,7 +353,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 inputmode="numeric"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update(field, ($event.target as HTMLInputElement).value)"
+                @input="update(field, ($event.target as HTMLInputElement).value, false)"
               />
             </template>
           </FormField>
@@ -368,7 +407,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 inputmode="numeric"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update(field, ($event.target as HTMLInputElement).value)"
+                @input="update(field, ($event.target as HTMLInputElement).value, false)"
               />
             </template>
           </FormField>
@@ -421,7 +460,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
                 inputmode="decimal"
                 :aria-describedby="describedBy"
                 :aria-invalid="invalid || undefined"
-                @input="update(field, ($event.target as HTMLInputElement).value)"
+                @input="update(field, ($event.target as HTMLInputElement).value, false)"
               />
             </template>
           </FormField>
@@ -430,15 +469,12 @@ function update(field: keyof LogFilterDraft, value: string): void {
     </form>
 
     <template #footer>
-      <AppButton variant="secondary" size="compact" @click="emit('reset')">{{
+      <AppButton variant="secondary" size="compact" @click="reset">{{
         t('monitor.logs.filters.reset')
       }}</AppButton>
       <span class="logs-advanced__footer-actions">
         <AppButton variant="secondary" size="compact" @click="emit('update:open', false)">{{
-          t('common.cancel')
-        }}</AppButton>
-        <AppButton size="compact" @click="emit('apply')">{{
-          t('monitor.logs.filters.apply')
+          t('common.close')
         }}</AppButton>
       </span>
     </template>
@@ -500,11 +536,6 @@ function update(field: keyof LogFilterDraft, value: string): void {
 @media (max-width: 520px) {
   .logs-advanced__grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .logs-advanced__footer-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>
