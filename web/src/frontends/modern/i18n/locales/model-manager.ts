@@ -93,11 +93,6 @@ export const zhCN = {
     failed: '目录设置加载失败',
     stale: '刷新失败，当前保留上次目录设置。',
     readOnly: '当前访问密钥仅可查看目录设置，不能修改。',
-    sourceCount: '{count} 个分组/上游组合',
-    unknownSourceCount: '{count} 个组合缺少目录资料',
-    scopeNotice:
-      '自动值预览汇总当前已启用分组的分组/上游组合；实际请求会按 AccessKey 范围重新计算。',
-    capabilityNotice: '自定义覆盖对相同请求模型全局生效；修改目录资料不会开启上游不支持的能力。',
     sections: {
       metadata: '显示与上下文',
       metadataHelp: '只调整客户端模型的目录资料，不会重命名请求模型标识。',
@@ -108,28 +103,19 @@ export const zhCN = {
     },
     fields: {
       displayName: '显示名称',
-      description: '说明',
       contextWindow: '上下文窗口',
       supportedReasoningLevels: '支持的思考等级',
-      defaultReasoningLevel: '默认思考等级',
       inputModalities: '输入类型',
-      supportsReasoningSummary: '支持思考摘要',
-      supportVerbosity: '支持详细程度',
     },
     fieldHelp: {
       contextWindow: '自定义值必须是正的安全整数；未知时保持自动。',
-      defaultReasoningLevel: '留空表示不设置默认等级。',
       inputModalities: '文本为必选，可额外选择图片和音频。',
     },
     modes: { automatic: '自动', custom: '自定义' },
     modeLabel: '{field}的值来源',
     automaticPreview: '自动值：{value}',
-    unset: '未提供',
     unknownContext: '未知',
-    noDefault: '无默认等级',
     none: '无',
-    enabled: '支持',
-    disabled: '不支持',
     contextPlaceholder: '输入正整数',
     reasoningLevels: {
       none: '无',
@@ -274,12 +260,6 @@ export const enUS = {
     failed: 'Unable to load catalog settings',
     stale: 'Refresh failed. Showing previous catalog settings.',
     readOnly: 'This access key can view catalog settings but cannot change them.',
-    sourceCount: '{count} group/upstream pairs',
-    unknownSourceCount: '{count} pairs have no catalog metadata',
-    scopeNotice:
-      'The automatic preview aggregates group/upstream pairs from enabled groups. Requests recalculate it for the AccessKey scope.',
-    capabilityNotice:
-      'Custom overrides apply globally to this request model. Editing catalog metadata does not enable unsupported upstream capabilities.',
     sections: {
       metadata: 'Display and context',
       metadataHelp:
@@ -291,28 +271,19 @@ export const enUS = {
     },
     fields: {
       displayName: 'Display name',
-      description: 'Description',
       contextWindow: 'Context window',
       supportedReasoningLevels: 'Supported reasoning levels',
-      defaultReasoningLevel: 'Default reasoning level',
       inputModalities: 'Input modalities',
-      supportsReasoningSummary: 'Supports reasoning summary',
-      supportVerbosity: 'Supports verbosity',
     },
     fieldHelp: {
       contextWindow: 'A custom value must be a positive safe integer. Keep automatic when unknown.',
-      defaultReasoningLevel: 'Leave empty to set no default level.',
       inputModalities: 'Text is required. Image and audio are optional.',
     },
     modes: { automatic: 'Automatic', custom: 'Custom' },
     modeLabel: 'Value source for {field}',
     automaticPreview: 'Automatic value: {value}',
-    unset: 'Not provided',
     unknownContext: 'Unknown',
-    noDefault: 'No default level',
     none: 'None',
-    enabled: 'Supported',
-    disabled: 'Unsupported',
     contextPlaceholder: 'Enter a positive integer',
     reasoningLevels: {
       none: 'None',
@@ -462,12 +433,6 @@ export const jaJP = {
     failed: 'カタログ設定を読み込めません',
     stale: '更新失敗。前回のカタログ設定を表示しています。',
     readOnly: 'このアクセスキーではカタログ設定を閲覧できますが、変更はできません。',
-    sourceCount: '{count} 件のグループ/上流ペア',
-    unknownSourceCount: '{count} 件のペアにカタログ情報がありません',
-    scopeNotice:
-      '自動値のプレビューは有効なグループのグループ/上流ペアを集計します。実際のリクエストでは AccessKey の範囲で再計算されます。',
-    capabilityNotice:
-      'カスタム上書きはこのリクエストモデル全体に適用されます。カタログ情報を編集しても、上流が未対応の機能は有効になりません。',
     sections: {
       metadata: '表示とコンテキスト',
       metadataHelp:
@@ -479,29 +444,20 @@ export const jaJP = {
     },
     fields: {
       displayName: '表示名',
-      description: '説明',
       contextWindow: 'コンテキストウィンドウ',
       supportedReasoningLevels: '対応する推論レベル',
-      defaultReasoningLevel: '既定の推論レベル',
       inputModalities: '入力タイプ',
-      supportsReasoningSummary: '推論要約に対応',
-      supportVerbosity: '詳細度に対応',
     },
     fieldHelp: {
       contextWindow:
         'カスタム値は正の安全な整数である必要があります。不明な場合は自動のままにします。',
-      defaultReasoningLevel: '既定レベルを設定しない場合は空のままにします。',
       inputModalities: 'テキストは必須です。画像と音声は任意です。',
     },
     modes: { automatic: '自動', custom: 'カスタム' },
     modeLabel: '{field} の値のソース',
     automaticPreview: '自動値：{value}',
-    unset: '未提供',
     unknownContext: '不明',
-    noDefault: '既定レベルなし',
     none: 'なし',
-    enabled: '対応',
-    disabled: '未対応',
     contextPlaceholder: '正の整数を入力',
     reasoningLevels: {
       none: 'なし',
