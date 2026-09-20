@@ -379,6 +379,7 @@ func (handler *Handler) executeAutoDecision(
 		decision.Reason = "internal_error"
 		return decision
 	}
+	frozenPricing := handler.freezeAttemptPricing(selection, metadata, true, key.PriceMultiplier)
 	result := handler.forwarder.Forward(decisionCtx, ForwardInput{
 		Dialect: decisionDialect, ObserveUsage: true,
 		Group: selection.Group, APIKey: credential.apiKey,
@@ -459,7 +460,7 @@ func (handler *Handler) executeAutoDecision(
 		return decision
 	}
 	quote := quoteFrozenAttempt(
-		handler.freezeAttemptPricing(selection, metadata, true, key.PriceMultiplier),
+		frozenPricing,
 		result.Usage,
 		effectivePricingMode(metadata.PricingMode),
 	)

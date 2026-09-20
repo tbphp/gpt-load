@@ -1169,6 +1169,7 @@ func TestRequestLogEndpointsBindAccessKeyScopeAndRedactRoutingInternals(t *testi
 			CredentialID: 102, RequestedModel: "private-decision-model",
 			UpstreamModel: "private-decision-upstream", ReportedModel: "private-decision-reported",
 			RequestID: "private-decision-request",
+			Receipt:   json.RawMessage(`{"schema_version":4,"method":"unit_rate_sum","method_version":1,"currency":"USD","pricing_mode":"standard","rule":{"channel_id":"openrouter","model_id":"private-receipt-model"},"line_items":[],"total_nano_usd":0}`),
 		},
 		Attempts: []requestlog.Attempt{{
 			Sequence: 1, GroupID: 99, GroupName: "private group",
@@ -1288,7 +1289,7 @@ func assertAccessKeyLogRedaction(t *testing.T, body []byte, detail bool) {
 		"private-upstream-model", "private-reported-model", "private group",
 		"private-decision-provider", "private decision group", "private-decision-channel",
 		"private decision channel", "private-decision-model", "private-decision-upstream",
-		"private-decision-reported", "private-decision-request",
+		"private-decision-reported", "private-decision-request", "private-receipt-model",
 	} {
 		if bytes.Contains(body, []byte(secret)) {
 			t.Fatalf("AccessKey log exposes %q: %s", secret, body)

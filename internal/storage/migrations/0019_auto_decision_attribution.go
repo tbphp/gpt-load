@@ -10,7 +10,11 @@ import (
 
 const ID0019 = "0019_auto_decision_attribution"
 
-const autoDecisionUsageBuildTable0019 = "auto_decision_usage_stats_0019"
+const (
+	autoDecisionUsageTable0019       = "auto_decision_usage_stats"
+	autoDecisionUsageBuildTable0019  = "auto_decision_usage_stats_0019"
+	autoDecisionUsageBackupTable0019 = "auto_decision_usage_stats_0019_old"
+)
 
 var autoDecisionLogColumns0019 = []string{"DecisionGroupID", "DecisionChannelID", "DecisionCredentialID"}
 
@@ -54,22 +58,36 @@ func Up0019(db *gorm.DB) error {
 
 	hasCurrent := db.Migrator().HasTable(&autoUsage0019{})
 	hasBuild := db.Migrator().HasTable(&autoUsageBuild0019{})
+	hasBackup := db.Migrator().HasTable(autoDecisionUsageBackupTable0019)
 	if hasCurrent && autoDecisionUsageHasAttribution0019(db) {
 		if hasBuild {
 			if err := dropAutoDecisionUsageTable0019(db, autoDecisionUsageBuildTable0019, &autoUsageBuild0019{}); err != nil {
 				return fmt.Errorf("drop stale automatic decision attribution table: %w", err)
 			}
 		}
+		if hasBackup {
+			if err := dropAutoDecisionUsageTable0019(db, autoDecisionUsageBackupTable0019, autoDecisionUsageBackupTable0019); err != nil {
+				return fmt.Errorf("drop automatic decision attribution swap backup: %w", err)
+			}
+		}
 		return Validate0019(db)
 	}
 	if !hasCurrent && hasBuild {
-		if err := db.Migrator().RenameTable(autoDecisionUsageBuildTable0019, "auto_decision_usage_stats"); err != nil {
+		if err := db.Migrator().RenameTable(autoDecisionUsageBuildTable0019, autoDecisionUsageTable0019); err != nil {
 			return fmt.Errorf("finish automatic decision attribution table rename: %w", err)
+		}
+		if hasBackup {
+			if err := dropAutoDecisionUsageTable0019(db, autoDecisionUsageBackupTable0019, autoDecisionUsageBackupTable0019); err != nil {
+				return fmt.Errorf("drop automatic decision attribution recovery backup: %w", err)
+			}
 		}
 		return Validate0019(db)
 	}
 	if !hasCurrent {
 		return fmt.Errorf("automatic decision attribution migration requires auto_decision_usage_stats")
+	}
+	if hasBackup {
+		return fmt.Errorf("automatic decision attribution migration found an unexpected swap backup")
 	}
 	if hasBuild {
 		if err := dropAutoDecisionUsageTable0019(db, autoDecisionUsageBuildTable0019, &autoUsageBuild0019{}); err != nil {
@@ -87,11 +105,26 @@ func Up0019(db *gorm.DB) error {
 		FROM auto_decision_usage_stats`).Error; err != nil {
 		return fmt.Errorf("copy automatic decision usage history: %w", err)
 	}
-	if err := dropAutoDecisionUsageTable0019(db, "auto_decision_usage_stats", &autoUsage0019{}); err != nil {
-		return fmt.Errorf("drop old automatic decision usage table: %w", err)
-	}
-	if err := db.Migrator().RenameTable(autoDecisionUsageBuildTable0019, "auto_decision_usage_stats"); err != nil {
-		return fmt.Errorf("rename automatic decision attribution table: %w", err)
+	if strings.EqualFold(db.Dialector.Name(), "mysql") {
+		if err := db.Exec(
+			"RENAME TABLE ? TO ?, ? TO ?",
+			clause.Table{Name: autoDecisionUsageTable0019},
+			clause.Table{Name: autoDecisionUsageBackupTable0019},
+			clause.Table{Name: autoDecisionUsageBuildTable0019},
+			clause.Table{Name: autoDecisionUsageTable0019},
+		).Error; err != nil {
+			return fmt.Errorf("swap automatic decision attribution table: %w", err)
+		}
+		if err := dropAutoDecisionUsageTable0019(db, autoDecisionUsageBackupTable0019, autoDecisionUsageBackupTable0019); err != nil {
+			return fmt.Errorf("drop old automatic decision usage table: %w", err)
+		}
+	} else {
+		if err := dropAutoDecisionUsageTable0019(db, autoDecisionUsageTable0019, &autoUsage0019{}); err != nil {
+			return fmt.Errorf("drop old automatic decision usage table: %w", err)
+		}
+		if err := db.Migrator().RenameTable(autoDecisionUsageBuildTable0019, autoDecisionUsageTable0019); err != nil {
+			return fmt.Errorf("rename automatic decision attribution table: %w", err)
+		}
 	}
 	return Validate0019(db)
 }

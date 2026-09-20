@@ -409,6 +409,7 @@ func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
 		copy.UpstreamModel = ""
 		copy.ReportedModel = ""
 		copy.RequestID = ""
+		copy.Receipt = nil
 		record.AutoDecision = &copy
 	}
 	return record

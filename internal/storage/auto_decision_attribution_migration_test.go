@@ -25,6 +25,31 @@ func TestExternalAutoDecisionAttributionMigrationContract(t *testing.T) {
 	})
 }
 
+func TestAutoDecisionAttributionMigrationCleansInterruptedSwapBackup(t *testing.T) {
+	db := openInternalMigrationTestDatabase(t)
+	if err := applyMigrationRegistry(db, migrations[:18]); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&schemaMigration{ID: migrationResumeMarker(migrations[18].ID)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations[18].Up(db); err != nil {
+		t.Fatal(err)
+	}
+	const backupTable = "auto_decision_usage_stats_0019_old"
+	if err := db.Exec(`CREATE TABLE auto_decision_usage_stats_0019_old AS
+		SELECT * FROM auto_decision_usage_stats WHERE 1 = 0`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if db.Migrator().HasTable(backupTable) {
+		t.Fatal("interrupted automatic decision attribution swap backup was not removed")
+	}
+}
+
 func testAutoDecisionAttributionMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	t.Helper()
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted"} {

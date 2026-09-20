@@ -330,7 +330,20 @@ func TestAutoModelUsesInternalDecisionsRouteOutsideClientFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+	replacementTable, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ChannelID: string(channel.Jev), ModelID: "jev-latest"},
+		Prices:   pricing.Prices{Input: pricing.Price{NanoUSDPerMillion: 420_000_000, Set: true}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	priceTables := &mutableGatewayPriceTableProvider{table: table}
+	handler.priceTables = priceTables
+	forwarder.onCall = func(index int) {
+		if index == 0 {
+			priceTables.Publish(replacementTable)
+		}
+	}
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
 	handler.dialects = dialect.NewSet(dialect.NewOpenAI())
@@ -358,6 +371,19 @@ func TestAutoModelUsesInternalDecisionsRouteOutsideClientFilters(t *testing.T) {
 		events[0].AutoDecision.GroupID != 2 || events[0].AutoDecision.ChannelID != "jev" ||
 		events[0].AutoDecision.CredentialID != 2 {
 		t.Fatalf("decision observation = %#v", events)
+	}
+	var decisionReceipt pricing.Receipt
+	if err := json.Unmarshal(events[0].AutoDecision.Receipt, &decisionReceipt); err != nil {
+		t.Fatal(err)
+	}
+	var inputRate *int64
+	for _, line := range decisionReceipt.LineItems {
+		if line.Code == "input" {
+			inputRate = line.RateNanoUSDPerMillion
+		}
+	}
+	if inputRate == nil || *inputRate != 42_000_000 {
+		t.Fatalf("decision receipt = %#v", decisionReceipt)
 	}
 	encoded, err := json.Marshal(events[0].AutoDecision)
 	if err != nil {
