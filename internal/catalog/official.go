@@ -8,6 +8,9 @@ import (
 )
 
 // TypeSafe Jev model and price source: https://docs.typesafe.ai/models
+// OpenRouter Jev model and price sources:
+// https://openrouter.ai/api/v1/model/typesafe/jev-1.13
+// https://openrouter.ai/api/v1/model/~typesafe/jev-latest
 //
 // Volcengine Ark publishes prices in CNY while GPT-Load's pricing contract is
 // fixed to USD. The embedded catalog uses the ECB reference rates from

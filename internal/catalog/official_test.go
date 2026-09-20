@@ -72,6 +72,31 @@ func TestOfficialSnapshotProvidesTypeSafeJevModelsAndPrices(t *testing.T) {
 	}
 }
 
+func TestOfficialSnapshotProvidesOpenRouterJevModelsAndPrices(t *testing.T) {
+	snapshot, err := OfficialSnapshot()
+	if err != nil {
+		t.Fatalf("OfficialSnapshot() error = %v", err)
+	}
+	provider, ok := snapshot.Providers["openrouter"]
+	if !ok || provider.ID != "openrouter" || provider.Name != "OpenRouter" {
+		t.Fatalf("OpenRouter provider = %#v", provider)
+	}
+	if len(provider.Models) != 2 {
+		t.Fatalf("OpenRouter Jev model count = %d, want 2", len(provider.Models))
+	}
+	for _, modelID := range []string{"typesafe/jev-1.13", "~typesafe/jev-latest"} {
+		model, exists := provider.Models[modelID]
+		if !exists || model.Cost == nil {
+			t.Fatalf("OpenRouter Jev model %q = %#v", modelID, model)
+		}
+		assertPrice(t, modelID+" input", model.Cost.Prices.Input, 42_000_000, true)
+		assertPrice(t, modelID+" output", model.Cost.Prices.Output, 0, true)
+		if model.Metadata.Limits.Context == nil || *model.Metadata.Limits.Context != 32_000 {
+			t.Fatalf("OpenRouter Jev model %q context limit = %#v", modelID, model.Metadata.Limits.Context)
+		}
+	}
+}
+
 func TestOfficialSnapshotReturnsIndependentCopies(t *testing.T) {
 	first, err := OfficialSnapshot()
 	if err != nil {
