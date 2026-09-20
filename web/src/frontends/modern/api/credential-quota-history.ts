@@ -9,6 +9,7 @@ export interface QuotaHistoryPoint {
 export interface QuotaHistoryWindow {
   key: string
   id: string
+  sourceId: string
   label: string
   labelKey: string
   scope: string
@@ -44,10 +45,10 @@ export async function getCredentialQuotaHistory(
       .map(record)
       .map((window) => {
         let previous = -1
-        let hasAnchor = false
         return {
           key: text(window.key),
           id: text(window.id),
+          sourceId: text(window.source_id),
           label: text(window.label),
           labelKey: text(window.label_key),
           scope: text(window.scope),
@@ -56,9 +57,8 @@ export async function getCredentialQuotaHistory(
             const point = record(value),
               at = integer(point.observed_at_ms),
               used = integer(point.used_basis_points)
-            if (at >= to || at <= previous || used > 10_000 || (at < from && hasAnchor))
+            if (at < from || at >= to || at <= previous || used > 10_000)
               throw new InvalidResponseError()
-            if (at < from) hasAnchor = true
             previous = at
             return {
               observedAt: at,

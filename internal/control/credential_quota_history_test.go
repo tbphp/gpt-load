@@ -152,14 +152,14 @@ func TestCredentialQuotaHistoryReturnsAllStoredPointsWithoutResampling(t *testin
 	}
 }
 
-func TestCredentialQuotaHistoryIncludesLatestAnchorBeforeRange(t *testing.T) {
+func TestCredentialQuotaHistoryReturnsOnlyPointsWithinRange(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	group := models.Group{Name: "quota history anchors", ChannelID: "codex", ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`)}
+	group := models.Group{Name: "quota history range", ChannelID: "codex", ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`)}
 	if err := fixture.db.Create(&group).Error; err != nil {
 		t.Fatal(err)
 	}
-	credential := models.Credential{GroupID: group.ID, Data: "encrypted-test", Fingerprint: "history-anchors", Status: models.CredentialStatusDisabled}
+	credential := models.Credential{GroupID: group.ID, Data: "encrypted-test", Fingerprint: "history-range", Status: models.CredentialStatusDisabled}
 	if err := fixture.db.Create(&credential).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -191,10 +191,9 @@ func TestCredentialQuotaHistoryIncludesLatestAnchorBeforeRange(t *testing.T) {
 	if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
 		t.Fatal(err)
 	}
-	if len(data.Windows) != 2 || data.Windows[0].Key != "primary" || data.Windows[1].Key != "secondary" ||
-		len(data.Windows[0].Points) != 2 || data.Windows[0].Points[0].ObservedAtMS != 2_000 || data.Windows[0].Points[1].ObservedAtMS != 4_000 ||
-		len(data.Windows[1].Points) != 1 || data.Windows[1].Points[0].ObservedAtMS != 1_000 {
-		t.Fatalf("unexpected anchors: %+v", data)
+	if len(data.Windows) != 1 || data.Windows[0].Key != "primary" ||
+		len(data.Windows[0].Points) != 1 || data.Windows[0].Points[0].ObservedAtMS != 4_000 {
+		t.Fatalf("unexpected out-of-range history: %+v", data)
 	}
 }
 
