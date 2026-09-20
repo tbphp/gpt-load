@@ -8,9 +8,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/automodel"
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
@@ -24,14 +26,15 @@ import (
 const maxSafeAccessKeyEpochMS = int64(9_007_199_254_740_991)
 
 type CompileInput struct {
-	AutoModel        *automodel.Config
-	SystemSettings   config.Settings
-	ChannelRegistry  *channel.Registry
-	Groups           []GroupConfig
-	Credentials      []CredentialConfig
-	AccessKeys       []AccessKeyConfig
-	GlobalProxy      *outboundproxy.Config
-	EnvironmentProxy *outboundproxy.Config
+	AutoModel            *automodel.Config
+	SystemSettings       config.Settings
+	ChannelRegistry      *channel.Registry
+	Groups               []GroupConfig
+	Credentials          []CredentialConfig
+	AccessKeys           []AccessKeyConfig
+	ClientModelOverrides map[string]catalog.ClientModelOverrides
+	GlobalProxy          *outboundproxy.Config
+	EnvironmentProxy     *outboundproxy.Config
 }
 
 type GroupConfig struct {
@@ -195,6 +198,7 @@ type ConfigSnapshot struct {
 	AccessKeysByHash      map[string]AccessKeyView
 	GroupCatalog          map[uint]GroupCatalogView
 	AccessKeysByID        map[uint]AccessKeyView
+	ClientModelOverrides  map[string]catalog.ClientModelOverrides
 	GlobalProxy           outboundproxy.Effective
 }
 
@@ -251,6 +255,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		AccessKeysByHash:      make(map[string]AccessKeyView),
 		GroupCatalog:          make(map[uint]GroupCatalogView),
 		AccessKeysByID:        make(map[uint]AccessKeyView),
+		ClientModelOverrides:  cloneClientModelOverrides(input.ClientModelOverrides),
 		GlobalProxy:           globalProxy,
 	}
 
@@ -475,6 +480,17 @@ func sortExecutionRouteIndex(index ExecutionCandidateIndex) {
 }
 
 func validateCompileInput(input CompileInput) error {
+	for model, overrides := range input.ClientModelOverrides {
+		if !utf8.ValidString(model) || model == "" || strings.TrimSpace(model) != model {
+			return fmt.Errorf("client model override has invalid model name")
+		}
+		if err := overrides.Validate(); err != nil {
+			return fmt.Errorf("client model override %q: %w", model, err)
+		}
+		if overrides.IsEmpty() {
+			return fmt.Errorf("client model override %q is empty", model)
+		}
+	}
 	groupIDs := make(map[uint]struct{}, len(input.Groups))
 	for _, group := range input.Groups {
 		if group.ID == 0 {
@@ -682,4 +698,15 @@ func resolvePriceMultiplier(value *pricing.PriceMultiplier) pricing.PriceMultipl
 		return pricing.DefaultPriceMultiplier
 	}
 	return *value
+}
+
+func cloneClientModelOverrides(input map[string]catalog.ClientModelOverrides) map[string]catalog.ClientModelOverrides {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]catalog.ClientModelOverrides, len(input))
+	for model, overrides := range input {
+		cloned[model] = overrides.Clone()
+	}
+	return cloned
 }

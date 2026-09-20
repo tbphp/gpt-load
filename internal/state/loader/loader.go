@@ -17,9 +17,11 @@ import (
 
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/automodel"
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/outboundproxy"
+	"gpt-load/internal/platform/canonicaljson"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/utils"
@@ -71,11 +73,12 @@ func NewWithCredentialValidation(
 }
 
 type compileRows struct {
-	settings       []models.SystemSetting
-	groups         []models.Group
-	credentials    []models.Credential
-	accessKeys     []models.AccessKey
-	costLimitRules []models.AccessKeyCostLimitRule
+	settings             []models.SystemSetting
+	groups               []models.Group
+	credentials          []models.Credential
+	accessKeys           []models.AccessKey
+	costLimitRules       []models.AccessKeyCostLimitRule
+	clientModelOverrides []models.ClientModelOverride
 }
 
 type modelDTO struct {
@@ -307,6 +310,9 @@ func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 		Order("access_key_id ASC, id ASC").
 		Find(&rows.costLimitRules).Error; err != nil {
 		return compileRows{}, fmt.Errorf("query access key cost limit rules: %w", err)
+	}
+	if err := db.Order("model_hash ASC").Find(&rows.clientModelOverrides).Error; err != nil {
+		return compileRows{}, fmt.Errorf("query client model overrides: %w", err)
 	}
 	return rows, nil
 }
@@ -636,9 +642,33 @@ func mapSystemAndGroups(
 	environmentProxy *outboundproxy.Config,
 ) (state.CompileInput, error) {
 	input := state.CompileInput{
-		SystemSettings:   make(config.Settings, len(rows.settings)),
-		Groups:           make([]state.GroupConfig, 0, len(rows.groups)),
-		EnvironmentProxy: environmentProxy,
+		SystemSettings:       make(config.Settings, len(rows.settings)),
+		Groups:               make([]state.GroupConfig, 0, len(rows.groups)),
+		ClientModelOverrides: make(map[string]catalog.ClientModelOverrides, len(rows.clientModelOverrides)),
+		EnvironmentProxy:     environmentProxy,
+	}
+	for _, row := range rows.clientModelOverrides {
+		if models.ClientModelHash(row.ClientModel) != row.ModelHash {
+			return state.CompileInput{}, fmt.Errorf("client model override has invalid identity")
+		}
+		var overrides catalog.ClientModelOverrides
+		canonical, err := canonicaljson.Canonicalize(row.Overrides)
+		if err != nil {
+			return state.CompileInput{}, fmt.Errorf("decode client model override %q: %w", row.ClientModel, err)
+		}
+		if err := decodeJSONDocument(models.JSON(canonical), &overrides, true); err != nil {
+			return state.CompileInput{}, fmt.Errorf("decode client model override %q: %w", row.ClientModel, err)
+		}
+		if err := overrides.Validate(); err != nil || overrides.IsEmpty() {
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("validate client model override %q: %w", row.ClientModel, err)
+			}
+			return state.CompileInput{}, fmt.Errorf("client model override %q is empty", row.ClientModel)
+		}
+		if _, duplicate := input.ClientModelOverrides[row.ClientModel]; duplicate {
+			return state.CompileInput{}, fmt.Errorf("duplicate client model override %q", row.ClientModel)
+		}
+		input.ClientModelOverrides[row.ClientModel] = overrides
 	}
 	for _, row := range rows.settings {
 		if row.Key == automodel.SettingKey {
