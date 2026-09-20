@@ -40,7 +40,8 @@ export function createModelProfileDraft(profile: ModelProfile): ModelProfileDraf
 export function modelProfileDraftOverrides(draft: ModelProfileDraft): ModelProfileOverrides {
   const overrides: ModelProfileOverrides = {}
   if (draft.custom.display_name) overrides.display_name = draft.values.display_name
-  if (draft.custom.context_window) overrides.context_window = Number(draft.values.context_window)
+  if (draft.custom.context_window)
+    overrides.context_window = Number(String(draft.values.context_window).trim())
   if (draft.custom.supported_reasoning_levels)
     overrides.supported_reasoning_levels = [...draft.values.supported_reasoning_levels]
   if (draft.custom.input_modalities) overrides.input_modalities = [...draft.values.input_modalities]
@@ -52,7 +53,7 @@ export function modelProfileDraftErrors(
 ): Partial<Record<ModelProfileField, ModelProfileDraftError>> {
   const errors: Partial<Record<ModelProfileField, ModelProfileDraftError>> = {}
   if (draft.custom.context_window) {
-    const value = draft.values.context_window.trim()
+    const value = String(draft.values.context_window).trim()
     const contextWindow = Number(value)
     if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(contextWindow))
       errors.context_window = 'invalidContextWindow'

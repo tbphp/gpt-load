@@ -44,7 +44,7 @@ const disabled = computed(() => saving.value || !props.editable)
 const reasoningOptions = computed(() =>
   modelReasoningLevels.map((value) => ({
     value,
-    label: t(`modelManager.profile.reasoningLevels.${value}`),
+    label: value,
   })),
 )
 function automaticValue(field: ModelProfileFieldName): string {
@@ -59,9 +59,7 @@ function automaticValue(field: ModelProfileFieldName): string {
         : n(automatic.context_window)
     case 'supported_reasoning_levels':
       return automatic.supported_reasoning_levels.length
-        ? automatic.supported_reasoning_levels
-            .map((value) => t(`modelManager.profile.reasoningLevels.${value}`))
-            .join(' / ')
+        ? automatic.supported_reasoning_levels.join(' / ')
         : t('modelManager.profile.none')
     case 'input_modalities':
       return automatic.input_modalities
@@ -170,9 +168,7 @@ async function close(): Promise<void> {
                   :label="t('modelManager.profile.fields.contextWindow')"
                   label-hidden
                   size="sm"
-                  type="number"
-                  min="1"
-                  step="1"
+                  type="text"
                   inputmode="numeric"
                   :placeholder="t('modelManager.profile.contextPlaceholder')"
                   :disabled="fieldDisabled"
