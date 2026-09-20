@@ -251,6 +251,37 @@ func TestRequestLogEndpointAcceptsCanonicalNumericBoundaries(t *testing.T) {
 	}
 }
 
+func TestRequestLogEndpointParsesOffsetPagination(t *testing.T) {
+	t.Parallel()
+	reader := &recordingRequestLogReader{pages: []requestlog.Page{{
+		Items: []requestlog.Record{},
+		Pagination: &requestlog.Pagination{
+			Page: 2, PageSize: 20, TotalItems: 31, TotalPages: 2,
+		},
+	}}}
+	engine := newRequestLogTestEngine(t, reader)
+	recorder := performRequestLogRequest(engine, "test-auth-key", "page=2&page_size=20")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 || reader.queries[0].Page != 2 || reader.queries[0].PageSize != 20 {
+		t.Fatalf("List() queries = %#v", reader.queries)
+	}
+	var envelope struct {
+		Data struct {
+			Pagination requestLogPaginationResponse `json:"pagination"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if envelope.Data.Pagination != (requestLogPaginationResponse{
+		Page: 2, PageSize: 20, TotalItems: 31, TotalPages: 2,
+	}) {
+		t.Fatalf("pagination = %#v", envelope.Data.Pagination)
+	}
+}
+
 func TestRequestLogEndpointParsesAdvancedFilters(t *testing.T) {
 	t.Parallel()
 	reader := &recordingRequestLogReader{}

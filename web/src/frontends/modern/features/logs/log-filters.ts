@@ -2,7 +2,6 @@ import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import { accessProtocols } from '@modern/api/access-keys'
 import {
   internalLogFilters,
-  logCursorPattern,
   logFilterNames,
   logOperations,
   logRequestPattern,
@@ -10,12 +9,13 @@ import {
   type LogFilterName,
   type LogQuery,
 } from '@modern/api/logs'
+import { positivePage } from '@modern/app/url-state'
 import type { DateRangePreset } from '@modern/components/ui/date-time'
 import { readTimeRange, timeRangeQuery } from '@modern/app/time-range'
 
 export interface LogRouteState {
   filters: LogQuery
-  history: string[]
+  page: number
   more: boolean
   detail: string
   preset?: DateRangePreset
@@ -122,7 +122,14 @@ export const advancedLogFilters: readonly LogFilterDefinition[] = [
 ]
 const maximumInteger = 9223372036854775807n
 const unsigned = /^(?:0|[1-9]\d*)$/
-export const logStateKeys = [...logFilterNames, 'preset', 'history', 'filters', 'detail'] as const
+export const logStateKeys = [
+  ...logFilterNames,
+  'preset',
+  'page',
+  'history',
+  'filters',
+  'detail',
+] as const
 export function logFilterErrors(filters: LogQuery): Partial<Record<LogFilterName, string>> {
   const errors: Partial<Record<LogFilterName, string>> = {}
   for (const key of logFilterNames) {
@@ -186,17 +193,9 @@ export function parseLogState(query: LocationQuery, admin: boolean): LogRouteSta
     filters.to_ms = range.to_ms
   }
   filters.limit ??= '20'
-  const rawHistory = Array.isArray(query.history)
-    ? query.history
-    : query.history
-      ? [query.history]
-      : []
-  const history = rawHistory.filter(
-    (value): value is string => typeof value === 'string' && logCursorPattern.test(value),
-  )
   return {
     filters,
-    history,
+    page: positivePage(query.page),
     more: query.filters === '1',
     detail:
       typeof query.detail === 'string' && logRequestPattern.test(query.detail) ? query.detail : '',
@@ -208,7 +207,7 @@ export function serializeLogState(state: LogRouteState): LocationQueryRaw {
   return {
     ...filters,
     ...timeRangeQuery({ preset: state.preset, from_ms, to_ms }),
-    ...(state.history.length ? { history: state.history } : {}),
+    ...(state.page > 1 ? { page: String(state.page) } : {}),
     ...(state.more ? { filters: '1' } : {}),
     ...(state.detail ? { detail: state.detail } : {}),
   }

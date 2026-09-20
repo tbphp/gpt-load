@@ -80,7 +80,6 @@ export const logsKey = ['modern', 'logs'] as const
 export const logDetailKey = (id: string) => ['modern', 'log-detail', id] as const
 export const logRequestPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-export const logCursorPattern = /^[A-Za-z0-9_-]{1,512}$/
 
 export interface LogReasoning {
   mode: string | null
@@ -209,7 +208,7 @@ export interface LogDetail extends LogEntry {
 }
 export interface LogPage {
   items: LogEntry[]
-  next_cursor: string | null
+  pagination: { page: number; page_size: number; total_items: number; total_pages: number }
 }
 export interface LogAccessKeyOption {
   id: number
@@ -377,19 +376,28 @@ function autoDecision(value: unknown): LogAutoDecision {
 export async function getLogs(
   client: ApiClient,
   filters: LogQuery,
-  cursor: string | undefined,
+  page: number,
   signal: AbortSignal,
 ): Promise<LogPage> {
   const params = new URLSearchParams()
-  for (const key of logFilterNames) if (filters[key]) params.set(key, filters[key]!)
-  if (cursor) params.set('cursor', cursor)
+  for (const key of logFilterNames)
+    if (key !== 'limit' && filters[key]) params.set(key, filters[key]!)
+  params.set('page', String(page))
+  params.set('page_size', filters.limit ?? '20')
   const data = record(await client.request(`/api/logs?${params}`, { signal }))
-  const next = optionalText(data.next_cursor)
-  if (next !== null && !logCursorPattern.test(next)) throw new InvalidResponseError()
+  const pagination = record(data.pagination)
   const items = list(data.items).map(entry)
   if (new Set(items.map((row) => row.request_id)).size !== items.length)
     throw new InvalidResponseError()
-  return { items, next_cursor: next }
+  return {
+    items,
+    pagination: {
+      page: integer(pagination.page, 1),
+      page_size: integer(pagination.page_size, 1),
+      total_items: integer(pagination.total_items),
+      total_pages: integer(pagination.total_pages),
+    },
+  }
 }
 export async function getLogDetail(
   client: ApiClient,
