@@ -27,10 +27,7 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	}
 
 	query := service.db.WithContext(ctx).
-		Model(&models.RequestLog{}).
-		Order("completed_at_ms DESC").
-		Order("id DESC").
-		Limit(limit + 1)
+		Model(&models.RequestLog{})
 	if input.FromMS != nil {
 		query = query.Where("completed_at_ms >= ?", *input.FromMS)
 	}
@@ -112,12 +109,34 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		)
 	}
 
+	page := Page{}
+	if input.Page > 0 {
+		pageSize := input.PageSize
+		if pageSize <= 0 {
+			pageSize = defaultListLimit
+		}
+		var totalItems int64
+		if err := query.Count(&totalItems).Error; err != nil {
+			return Page{}, fmt.Errorf("count request logs: %w", err)
+		}
+		page.Pagination = &Pagination{
+			Page:       input.Page,
+			PageSize:   pageSize,
+			TotalItems: totalItems,
+			TotalPages: requestLogTotalPages(totalItems, pageSize),
+		}
+		query = query.Offset((input.Page - 1) * pageSize).Limit(pageSize)
+	} else {
+		query = query.Limit(limit + 1)
+	}
+	query = query.Order("completed_at_ms DESC").Order("id DESC")
+
 	var rows []models.RequestLog
 	if err := query.Find(&rows).Error; err != nil {
 		return Page{}, fmt.Errorf("query request logs: %w", err)
 	}
 
-	hasNext := len(rows) > limit
+	hasNext := input.Page <= 0 && len(rows) > limit
 	if hasNext {
 		rows = rows[:limit]
 	}
@@ -132,7 +151,7 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		return Page{}, err
 	}
 
-	page := Page{Items: records}
+	page.Items = records
 	if hasNext {
 		last := records[len(records)-1]
 		page.NextCursor = &Cursor{
@@ -141,6 +160,17 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		}
 	}
 	return page, nil
+}
+
+func requestLogTotalPages(totalItems int64, pageSize int) int64 {
+	if totalItems == 0 || pageSize <= 0 {
+		return 0
+	}
+	pages := totalItems / int64(pageSize)
+	if totalItems%int64(pageSize) != 0 {
+		pages++
+	}
+	return pages
 }
 
 func applyNullableRange[T int | int64](

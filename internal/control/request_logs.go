@@ -174,9 +174,17 @@ type requestLogDetailResponse struct {
 	Attempts []requestLogAttemptResponse `json:"attempts"`
 }
 
+type requestLogPaginationResponse struct {
+	Page       int64 `json:"page"`
+	PageSize   int64 `json:"page_size"`
+	TotalItems int64 `json:"total_items"`
+	TotalPages int64 `json:"total_pages"`
+}
+
 type requestLogListResponse struct {
-	Items      []requestLogItemResponse `json:"items"`
-	NextCursor *string                  `json:"next_cursor"`
+	Items      []requestLogItemResponse      `json:"items"`
+	NextCursor *string                       `json:"next_cursor"`
+	Pagination *requestLogPaginationResponse `json:"pagination,omitempty"`
 }
 
 func (service *Service) ListRequestLogs(
@@ -358,7 +366,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		"input_tokens_min": {}, "input_tokens_max": {},
 		"output_tokens_min": {}, "output_tokens_max": {},
 		"cost_min_nano_usd": {}, "cost_max_nano_usd": {},
-		"limit": {}, "cursor": {},
+		"limit": {}, "cursor": {}, "page": {}, "page_size": {},
 	}
 	for key, value := range values {
 		if _, ok := allowed[key]; !ok || len(value) != 1 {
@@ -590,7 +598,35 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		}
 		query.RequestID = value
 	}
+	paginationRequested := false
+	if value, ok := singleQueryValue(values, "page"); ok {
+		parsed, apiErr := parseRequestLogPage(value)
+		if apiErr != nil {
+			return requestlog.ListQuery{}, apiErr
+		}
+		query.Page = parsed
+		paginationRequested = true
+	}
+	if value, ok := singleQueryValue(values, "page_size"); ok {
+		parsed, apiErr := parseRequestLogPageSize(value)
+		if apiErr != nil {
+			return requestlog.ListQuery{}, apiErr
+		}
+		query.PageSize = parsed
+		paginationRequested = true
+	}
+	if paginationRequested {
+		if query.Page == 0 {
+			query.Page = 1
+		}
+		if query.PageSize == 0 {
+			query.PageSize = defaultRequestLogLimit
+		}
+	}
 	if value, ok := singleQueryValue(values, "limit"); ok {
+		if paginationRequested {
+			return requestlog.ListQuery{}, app_errors.ErrBadRequest
+		}
 		parsed, err := parseCanonicalSafeUint(value)
 		if err != nil {
 			if errors.Is(err, errUnsafeCanonicalUint) {
@@ -604,6 +640,9 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		query.Limit = int(parsed)
 	}
 	if value, ok := singleQueryValue(values, "cursor"); ok {
+		if paginationRequested {
+			return requestlog.ListQuery{}, app_errors.ErrBadRequest
+		}
 		cursor, err := decodeRequestLogCursor(value)
 		if err != nil {
 			return requestlog.ListQuery{}, app_errors.ErrBadRequest
@@ -611,6 +650,35 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		query.Cursor = cursor
 	}
 	return query, nil
+}
+
+func parseRequestLogPage(value string) (int, *app_errors.APIError) {
+	parsed, err := parseCanonicalSafeUint(value)
+	if err != nil {
+		if errors.Is(err, errUnsafeCanonicalUint) {
+			return 0, app_errors.ErrValidation
+		}
+		return 0, app_errors.ErrBadRequest
+	}
+	if parsed == 0 || parsed > uint64(maxSafeInteger/int64(maxRequestLogLimit)) ||
+		parsed > uint64(^uint(0)>>1) {
+		return 0, app_errors.ErrValidation
+	}
+	return int(parsed), nil
+}
+
+func parseRequestLogPageSize(value string) (int, *app_errors.APIError) {
+	parsed, err := parseCanonicalSafeUint(value)
+	if err != nil {
+		if errors.Is(err, errUnsafeCanonicalUint) {
+			return 0, app_errors.ErrValidation
+		}
+		return 0, app_errors.ErrBadRequest
+	}
+	if parsed == 0 || parsed > maxRequestLogLimit {
+		return 0, app_errors.ErrValidation
+	}
+	return int(parsed), nil
 }
 
 func singleQueryValue(values url.Values, key string) (string, bool) {
@@ -897,7 +965,33 @@ func mapRequestLogListResponse(
 		}
 		result.NextCursor = &encoded
 	}
+	if page.Pagination != nil {
+		pagination := *page.Pagination
+		if pagination.Page <= 0 || pagination.PageSize <= 0 || pagination.TotalItems < 0 ||
+			pagination.TotalPages != requestLogTotalPages(pagination.TotalItems, pagination.PageSize) ||
+			int64(pagination.Page) > maxSafeInteger || int64(pagination.PageSize) > maxSafeInteger ||
+			pagination.TotalItems > maxSafeInteger || pagination.TotalPages > maxSafeInteger {
+			return requestLogListResponse{}, fmt.Errorf("map request log pagination: invalid value")
+		}
+		result.Pagination = &requestLogPaginationResponse{
+			Page:       int64(pagination.Page),
+			PageSize:   int64(pagination.PageSize),
+			TotalItems: pagination.TotalItems,
+			TotalPages: pagination.TotalPages,
+		}
+	}
 	return result, nil
+}
+
+func requestLogTotalPages(totalItems int64, pageSize int) int64 {
+	if totalItems == 0 || pageSize <= 0 {
+		return 0
+	}
+	pages := totalItems / int64(pageSize)
+	if totalItems%int64(pageSize) != 0 {
+		pages++
+	}
+	return pages
 }
 
 func mapRequestLogItemResponse(

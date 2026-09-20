@@ -67,13 +67,13 @@ const query = useQuery(
   computed(() => {
     const filters = { ...state.value.filters }
     const preset = state.value.preset
-    const cursor = state.value.history.at(-1)
+    const page = state.value.page
     return {
-      queryKey: [...logsKey, admin.value, filters, preset ?? null, cursor ?? null],
+      queryKey: [...logsKey, admin.value, filters, preset ?? null, page],
       queryFn: ({ signal }: { signal: AbortSignal }) => {
         // URL 保存相对预设，实际请求（包括页面重新可见）始终按当前时间解析。
         range.value = resolveTimeRange({ ...filters, preset })
-        return getLogs(client, { ...filters, ...range.value }, cursor, signal)
+        return getLogs(client, { ...filters, ...range.value }, page, signal)
       },
       placeholderData: keepPreviousData,
     }
@@ -113,11 +113,7 @@ const states = computed(() =>
     label: t(value ? 'logs.values.' + value : 'logs.all'),
   })),
 )
-const requestIdentity = computed(() => JSON.stringify([state.value.filters, state.value.history]))
-const nextCursor = computed(() => query.data.value?.next_cursor)
-const hasNext = computed(() =>
-  Boolean(nextCursor.value && !state.value.history.includes(nextCursor.value)),
-)
+const requestIdentity = computed(() => JSON.stringify([state.value.filters, state.value.page]))
 
 function applyFilters(input: LogQuery, preset: DateRangePreset | undefined): void {
   const filters = { ...input }
@@ -130,7 +126,7 @@ function applyFilters(input: LogQuery, preset: DateRangePreset | undefined): voi
     preset === state.value.preset
   )
     return
-  state.value = { ...state.value, filters, preset, history: [] }
+  state.value = { ...state.value, filters, preset, page: 1 }
   frame.value?.scrollToTop()
 }
 function submitFilters(filters: LogQuery, preset: DateRangePreset | undefined): void {
@@ -156,12 +152,9 @@ function setMore(value: boolean): void {
 function showDetail(id = ''): void {
   state.value = { ...state.value, detail: id }
 }
-function page(direction: -1 | 1): void {
+function changePage(value: number): void {
   if (query.isFetching.value) return
-  if (direction < 0 && state.value.history.length)
-    state.value = { ...state.value, history: state.value.history.slice(0, -1) }
-  else if (direction > 0 && hasNext.value)
-    state.value = { ...state.value, history: [...state.value.history, nextCursor.value!] }
+  state.value = { ...state.value, page: value }
   frame.value?.scrollToTop()
 }
 function pageSize(value: number): void {
@@ -402,14 +395,12 @@ useMessageSource(() =>
       </article>
       <template #footer
         ><AppPagination
-          mode="cursor"
-          :page="state.history.length + 1"
+          mode="total"
+          :page="state.page"
           :page-size="Number(state.filters.limit)"
-          :has-previous="state.history.length > 0"
-          :has-next="hasNext"
+          :total="query.data.value?.pagination.total_items"
           :pending="query.isFetching.value"
-          @previous="page(-1)"
-          @next="page(1)"
+          @update:page="changePage"
           @update:page-size="pageSize"
       /></template>
     </AppListFrame>

@@ -108,6 +108,8 @@ type ListQuery struct {
 	CostMaxNanoUSD      *int64
 	Limit               int
 	Cursor              *Cursor
+	Page                int
+	PageSize            int
 }
 
 type AccessKeyRef struct {
@@ -160,6 +162,14 @@ type Record struct {
 type Page struct {
 	Items      []Record
 	NextCursor *Cursor
+	Pagination *Pagination
+}
+
+type Pagination struct {
+	Page       int
+	PageSize   int
+	TotalItems int64
+	TotalPages int64
 }
 
 type UsageGranularity string
