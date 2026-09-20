@@ -32,7 +32,16 @@ func buildCodexModelList(
 		if snapshot != nil {
 			overrides = snapshot.ClientModelOverrides[id].Clone()
 		}
-		model, _, _, err := catalog.BuildCodexClientModel(id, index, overrides)
+		var model map[string]any
+		var err error
+		if snapshot != nil && snapshot.AutoModels != nil {
+			if _, automatic := snapshot.AutoModels.Lookup(id); automatic {
+				model, err = catalog.BuildCodexFallbackClientModel(id, index)
+			}
+		}
+		if model == nil && err == nil {
+			model, _, _, err = catalog.BuildCodexClientModel(id, index, overrides)
+		}
 		if err != nil {
 			return nil, err
 		}

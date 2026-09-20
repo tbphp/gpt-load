@@ -214,7 +214,7 @@ func TestCodexCatalogOnlyListsResponsesCreateModelsAndUsesGPT55ForAutoModels(t *
 	autoModels, err := automodel.Compile(automodel.Config{
 		Enabled: true, Model: "decision-model", TimeoutSeconds: 2,
 		Models: []automodel.Entry{{
-			ID: "auto-id", Name: "smart-auto", Fallback: "balanced",
+			ID: "auto-id", Name: "gpt-5.4", Fallback: "balanced",
 			Presets: []automodel.Preset{{
 				ID: "balanced", Name: "Balanced", Description: "General tasks",
 				Model: "responses-model", ParameterOverrides: json.RawMessage(`[]`),
@@ -263,11 +263,11 @@ func TestCodexCatalogOnlyListsResponsesCreateModelsAndUsesGPT55ForAutoModels(t *
 	if err := json.Unmarshal(body, &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Models) != 2 || response.Models[0].Slug != "responses-model" || response.Models[1].Slug != "smart-auto" {
+	if len(response.Models) != 2 || response.Models[0].Slug != "gpt-5.4" || response.Models[1].Slug != "responses-model" {
 		t.Fatalf("catalog = %s", body)
 	}
-	auto := response.Models[1]
-	if auto.DisplayName != "smart-auto" || auto.Description != "smart-auto" || auto.Visibility != "list" ||
+	auto := response.Models[0]
+	if auto.DisplayName != "gpt-5.4" || auto.Description != "gpt-5.4" || auto.Visibility != "list" ||
 		auto.ContextWindow != 272000 || !reflect.DeepEqual(auto.InputModalities, []string{"text", "image"}) ||
 		len(auto.SupportedReasoningLevels) != 4 || auto.SupportedReasoningLevels[0].Effort != "low" ||
 		auto.SupportedReasoningLevels[3].Effort != "xhigh" {

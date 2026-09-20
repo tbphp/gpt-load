@@ -43,13 +43,29 @@ func BuildCodexClientModel(
 	priority int,
 	overrides ClientModelOverrides,
 ) (map[string]any, ClientModelProfile, ClientModelProfile, error) {
+	return buildCodexClientModel(model, priority, overrides, false)
+}
+
+// BuildCodexFallbackClientModel resolves a virtual client model from the pinned fallback template.
+func BuildCodexFallbackClientModel(model string, priority int) (map[string]any, error) {
+	resolved, _, _, err := buildCodexClientModel(model, priority, ClientModelOverrides{}, true)
+	return resolved, err
+}
+
+func buildCodexClientModel(
+	model string,
+	priority int,
+	overrides ClientModelOverrides,
+	forceFallback bool,
+) (map[string]any, ClientModelProfile, ClientModelProfile, error) {
 	catalog, err := loadCodexModelCatalog()
 	if err != nil {
 		return nil, ClientModelProfile{}, ClientModelProfile{}, err
 	}
 	template, matched := catalog.models[model]
-	if !matched {
+	if !matched || forceFallback {
 		template = catalog.fallback
+		matched = false
 	}
 	resolved := cloneCodexModelMap(template)
 	resolved["slug"] = model
