@@ -1,11 +1,15 @@
 package state
 
 import (
+	"bytes"
 	"container/list"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
+
+	"gpt-load/internal/automodel"
 )
 
 const (
@@ -17,12 +21,13 @@ const (
 
 // ResponseBinding 只保存响应归属；可用性仍由当前路由和凭据运行态决定。
 type ResponseBinding struct {
-	AccessKeyID        uint      `json:"access_key_id"`
-	ResponseID         string    `json:"response_id"`
-	GroupID            uint      `json:"group_id"`
-	CredentialID       uint      `json:"credential_id"`
-	IdentityGeneration uint64    `json:"identity_generation"`
-	ExpiresAt          time.Time `json:"expires_at"`
+	AutoSelection      *automodel.Selection `json:"auto_selection,omitempty"`
+	AccessKeyID        uint                 `json:"access_key_id"`
+	ResponseID         string               `json:"response_id"`
+	GroupID            uint                 `json:"group_id"`
+	CredentialID       uint                 `json:"credential_id"`
+	IdentityGeneration uint64               `json:"identity_generation"`
+	ExpiresAt          time.Time            `json:"expires_at"`
 }
 
 type responseBindingKey struct {
@@ -39,6 +44,24 @@ type ResponseBindings struct {
 	capacity int
 	ttl      time.Duration
 	now      func() time.Time
+}
+
+func cloneBinding(value ResponseBinding) ResponseBinding {
+	if value.AutoSelection != nil {
+		copy := *value.AutoSelection
+		copy.ParameterOverrides = append(json.RawMessage(nil), copy.ParameterOverrides...)
+		value.AutoSelection = &copy
+	}
+	return value
+}
+
+func bindingBytes(value ResponseBinding) int {
+	amount := len(value.ResponseID)
+	if value.AutoSelection != nil {
+		raw, _ := json.Marshal(value.AutoSelection)
+		amount += len(raw)
+	}
+	return amount
 }
 
 func NewResponseBindings() *ResponseBindings {
@@ -65,11 +88,11 @@ func (bindings *ResponseBindings) Lookup(accessKeyID uint, responseID string) (R
 		bindings.remove(element)
 		return ResponseBinding{}, false
 	}
-	return binding, true
+	return cloneBinding(binding), true
 }
 
 // Record 在响应下发前登记；不同归属冲突时拒绝当前响应，不覆盖已有归属。
-func (bindings *ResponseBindings) Record(accessKeyID uint, responseID string, ref CredentialRef) bool {
+func (bindings *ResponseBindings) Record(accessKeyID uint, responseID string, ref CredentialRef, autoSelections ...*automodel.Selection) bool {
 	if bindings == nil || accessKeyID == 0 || responseID == "" || ref.ID == 0 ||
 		ref.GroupID == 0 || ref.IdentityGeneration == 0 || len(responseID) > maxResponseIDBytes {
 		return false
@@ -78,28 +101,42 @@ func (bindings *ResponseBindings) Record(accessKeyID uint, responseID string, re
 	defer bindings.mu.Unlock()
 	now := bindings.now()
 	bindings.expire(now)
-	return bindings.insert(ResponseBinding{
-		AccessKeyID: accessKeyID, ResponseID: responseID,
+	var auto *automodel.Selection
+	if len(autoSelections) > 0 && autoSelections[0] != nil {
+		raw, _ := json.Marshal(autoSelections[0])
+		auto = new(automodel.Selection)
+		_ = json.Unmarshal(raw, auto)
+	}
+	binding := ResponseBinding{
+		AutoSelection: auto,
+		AccessKeyID:   accessKeyID, ResponseID: responseID,
 		GroupID: ref.GroupID, CredentialID: ref.ID, IdentityGeneration: ref.IdentityGeneration,
 		ExpiresAt: now.Add(bindings.ttl),
-	})
+	}
+	return bindings.insert(binding)
 }
 
 func (bindings *ResponseBindings) insert(binding ResponseBinding) bool {
 	key := responseBindingKey{binding.AccessKeyID, binding.ResponseID}
 	if element := bindings.entries[key]; element != nil {
 		existing := element.Value.(ResponseBinding)
+		existingAuto, _ := json.Marshal(existing.AutoSelection)
+		incomingAuto, _ := json.Marshal(binding.AutoSelection)
 		return existing.GroupID == binding.GroupID && existing.CredentialID == binding.CredentialID &&
-			existing.IdentityGeneration == binding.IdentityGeneration
+			existing.IdentityGeneration == binding.IdentityGeneration && bytes.Equal(existingAuto, incomingAuto)
 	}
 	if bindings.capacity <= 0 || bindings.ttl <= 0 {
 		return false
 	}
-	for len(bindings.entries) >= bindings.capacity || bindings.idBytes+len(binding.ResponseID) > maxResponseBindingIDBytes {
+	amount := bindingBytes(binding)
+	if amount > maxResponseBindingIDBytes {
+		return false
+	}
+	for len(bindings.entries) >= bindings.capacity || bindings.idBytes+amount > maxResponseBindingIDBytes {
 		bindings.remove(bindings.order.Front())
 	}
-	bindings.entries[key] = bindings.order.PushBack(binding)
-	bindings.idBytes += len(binding.ResponseID)
+	bindings.entries[key] = bindings.order.PushBack(cloneBinding(binding))
+	bindings.idBytes += amount
 	return true
 }
 
@@ -109,7 +146,7 @@ func (bindings *ResponseBindings) CaptureCheckpoint() []ResponseBinding {
 	bindings.expire(bindings.now())
 	checkpoint := make([]ResponseBinding, 0, len(bindings.entries))
 	for element := bindings.order.Front(); element != nil; element = element.Next() {
-		checkpoint = append(checkpoint, element.Value.(ResponseBinding))
+		checkpoint = append(checkpoint, cloneBinding(element.Value.(ResponseBinding)))
 	}
 	return checkpoint
 }
@@ -154,6 +191,6 @@ func (bindings *ResponseBindings) expire(now time.Time) {
 func (bindings *ResponseBindings) remove(element *list.Element) {
 	binding := element.Value.(ResponseBinding)
 	delete(bindings.entries, responseBindingKey{binding.AccessKeyID, binding.ResponseID})
-	bindings.idBytes -= len(binding.ResponseID)
+	bindings.idBytes -= bindingBytes(binding)
 	bindings.order.Remove(element)
 }

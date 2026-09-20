@@ -1,4 +1,7 @@
+import { jaJP as autoModel } from '../auto-model'
+
 export default {
+  autoModel,
   monitor: {
     clearKeySearch: 'キー検索をクリア',
     title: 'モニター',

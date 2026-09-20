@@ -385,6 +385,7 @@ export interface CredentialBatchResultDto {
 }
 
 export interface GroupOptionDto {
+  auto_models?: string[]
   id: number
   name: string
   channel_id: string

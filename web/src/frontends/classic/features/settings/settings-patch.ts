@@ -10,6 +10,7 @@ import type {
   TimeoutSettingKey,
 } from '@/app/resources/settings'
 import { runtimeSettingKeys } from '@/app/resources/settings'
+import { defaultAutoModel, type AutoModelConfigDto } from '@/app/resources/auto-model'
 
 export type SettingsSection =
   'request-forwarding' | 'affinity' | 'browser-access' | 'logs-maintenance' | 'model-prices'
@@ -54,6 +55,12 @@ function cloneCORSConfig(value: CORSConfigDto): CORSConfigDto {
 function cloneValues(value: SettingsValues): SettingsValues {
   return {
     ...value,
+    auto_model: {
+      ...(value.auto_model ?? defaultAutoModel()),
+      models: JSON.parse(
+        JSON.stringify(value.auto_model?.models ?? []),
+      ) as AutoModelConfigDto['models'],
+    },
     header_rules: cloneHeaderRules(value.header_rules),
     cors: cloneCORSConfig(value.cors),
     response_header_rules: cloneHeaderRules(value.response_header_rules),
@@ -92,6 +99,10 @@ export function setSettingsOverride(
       next.values.models_dev_auto_sync_enabled = base.values.models_dev_auto_sync_enabled
     } else if (key === 'cors') {
       next.values.cors = cloneCORSConfig(base.values.cors)
+    } else if (key === 'auto_model') {
+      next.values.auto_model = JSON.parse(
+        JSON.stringify(base.values.auto_model ?? defaultAutoModel()),
+      ) as AutoModelConfigDto
     } else if (key === 'header_rules') {
       next.values.header_rules = cloneHeaderRules(base.values.header_rules)
     } else if (key === 'response_header_rules') {
@@ -118,7 +129,14 @@ function normalizeHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
 function normalizedWireValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
-): number | boolean | RouteStrategy | HeaderRulesDto | CORSConfigDto {
+):
+  | number
+  | boolean
+  | RouteStrategy
+  | HeaderRulesDto
+  | CORSConfigDto
+  | AutoModelConfigDto
+  | undefined {
   if (key === 'header_rules' || key === 'response_header_rules')
     return normalizeHeaderRules(settings[key])
   if (key === 'cors') return normalizeCORSConfig(settings.cors)
@@ -150,7 +168,14 @@ function canonicalHeaderRulesIdentity(value: HeaderRulesDto): HeaderRulesDto {
 function normalizedIdentityValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
-): number | boolean | RouteStrategy | HeaderRulesDto | CORSConfigDto {
+):
+  | number
+  | boolean
+  | RouteStrategy
+  | HeaderRulesDto
+  | CORSConfigDto
+  | AutoModelConfigDto
+  | undefined {
   if (key === 'header_rules' || key === 'response_header_rules')
     return canonicalHeaderRulesIdentity(settings[key])
   if (key === 'cors') return canonicalCORSIdentity(settings.cors)

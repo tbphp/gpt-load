@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/pricing"
@@ -119,6 +120,8 @@ type AccessKeyRef struct {
 }
 
 type Record struct {
+	AutoDecision            *automodel.Decision
+	TotalPricing            telemetry.PricingObservation
 	RequestID               string
 	CompletedAtMS           int64
 	AccessKey               AccessKeyRef

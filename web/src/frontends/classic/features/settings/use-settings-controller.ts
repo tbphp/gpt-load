@@ -7,6 +7,7 @@ import { useApiClient } from '@shared/http/client-context'
 import { controlQueryKeys } from '@/app/query-keys'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import type { SettingsResource } from '@/app/resources/settings'
+import { defaultAutoModel, validAutoModel } from '@/app/resources/auto-model'
 import {
   updateSettings,
   type RuntimeSettingKey,
@@ -81,6 +82,7 @@ export function useSettingsController(
   const valid = computed(
     () =>
       draft.value !== null &&
+      validAutoModel(draft.value.values.auto_model ?? defaultAutoModel()) &&
       validateSettingsSection(draft.value, 'request-forwarding') &&
       validateSettingsSection(draft.value, 'affinity') &&
       validateSettingsSection(draft.value, 'browser-access') &&

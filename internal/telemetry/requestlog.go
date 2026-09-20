@@ -3,6 +3,7 @@ package telemetry
 import (
 	"time"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
@@ -132,6 +133,7 @@ type UsageObservation struct {
 }
 
 type RequestEvent struct {
+	AutoDecision          *automodel.Decision
 	RequestID             string
 	CompletedAt           time.Time
 	AccessKeyID           uint

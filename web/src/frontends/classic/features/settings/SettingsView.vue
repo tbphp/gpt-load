@@ -31,6 +31,7 @@ import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { formatLocalInstant } from '@/lib/format'
 
 import BrowserAccessSection from './BrowserAccessSection.vue'
+import AutoModelSettingsSection from './AutoModelSettingsSection.vue'
 import ConnectionSettingsSection from './ConnectionSettingsSection.vue'
 import DataMaintenanceSection from './DataMaintenanceSection.vue'
 import FrontendSettingsSection from './FrontendSettingsSection.vue'
@@ -65,6 +66,7 @@ const settingsRefreshing = computed(
   () => settingsQuery.data.value !== undefined && settingsQuery.isFetching.value,
 )
 const headerRulesInvalidEdits = ref(false)
+const autoModelInvalidEdits = ref(false)
 const responseRulesInvalidEdits = ref(false)
 const browserAccessEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
@@ -82,7 +84,11 @@ const proxyState = computed(() =>
     : { dirty: false, invalid: false, value: undefined },
 )
 const hasLocalEdits = computed(
-  () => headerRulesInvalidEdits.value || responseRulesInvalidEdits.value || proxyState.value.dirty,
+  () =>
+    headerRulesInvalidEdits.value ||
+    responseRulesInvalidEdits.value ||
+    autoModelInvalidEdits.value ||
+    proxyState.value.dirty,
 )
 const {
   base,
@@ -120,8 +126,9 @@ const navItems = computed(() => [
   { id: 'settings-reliability', label: t('settings.navigation.reliability') },
   { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
   { id: 'settings-data-maintenance', label: t('settings.navigation.dataMaintenance') },
-  { id: 'settings-system', label: t('settings.navigation.system') },
   { id: 'settings-interface', label: t('settings.frontend.title') },
+  { id: 'settings-experimental', label: t('settings.navigation.experimental') },
+  { id: 'settings-system', label: t('settings.navigation.system') },
 ])
 const routeSection = computed(() => parseSettingsSection(route.query))
 const { activeSection, selectSection } = useSectionNavigation({
@@ -137,12 +144,17 @@ const pageOperationLocked = computed(() => operationLocked.value)
 const dirty = computed(
   () =>
     controllerDirty.value ||
+    autoModelInvalidEdits.value ||
     headerRulesInvalidEdits.value ||
     responseRulesInvalidEdits.value ||
     proxyState.value.dirty,
 )
 const valid = computed(
-  () => controllerValid.value && browserAccessValid.value && !proxyState.value.invalid,
+  () =>
+    controllerValid.value &&
+    browserAccessValid.value &&
+    !autoModelInvalidEdits.value &&
+    !proxyState.value.invalid,
 )
 const timeoutKeys = [
   'first_byte_timeout',
@@ -258,8 +270,9 @@ function sectionFromID(id: string): SettingsSection | undefined {
     section === 'reliability' ||
     section === 'browser-access' ||
     section === 'data-maintenance' ||
-    section === 'system' ||
-    section === 'interface'
+    section === 'interface' ||
+    section === 'experimental' ||
+    section === 'system'
     ? section
     : undefined
 }
@@ -291,6 +304,7 @@ function confirmDiscard(): void {
 }
 
 function settingLabel(key: RuntimeSettingKey): string {
+  if (key === 'auto_model') return t('autoModel.title')
   if (key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity')
     return t(`settings.affinity.${key}`)
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
@@ -301,12 +315,14 @@ function settingLabel(key: RuntimeSettingKey): string {
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
+  if (key === 'auto_model') return 'settings-experimental'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'settings-browser-access'
   return `settings-value-${key}`
 }
 
 function sectionForKey(key: RuntimeSettingKey): SettingsSection {
+  if (key === 'auto_model') return 'experimental'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'browser-access'
   if (
@@ -455,8 +471,17 @@ onBeforeUnmount(() => {
             />
           </template>
 
-          <SystemInfoSection />
           <FrontendSettingsSection :disabled="dirty || pageOperationLocked" />
+          <AutoModelSettingsSection
+            v-if="base && draft"
+            :base="base"
+            :draft="draft"
+            :disabled="pageOperationLocked"
+            :revision="browserAccessEditorRevision"
+            @change="updateDraft"
+            @invalid="autoModelInvalidEdits = $event"
+          />
+          <SystemInfoSection />
         </div>
       </div>
 

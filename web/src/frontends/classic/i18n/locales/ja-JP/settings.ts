@@ -1,4 +1,7 @@
+import { jaJP as autoModel } from '../auto-model'
+
 export default {
+  autoModel,
   settings: {
     frontend: {
       title: '画面設定',
@@ -42,6 +45,7 @@ export default {
       reliability: '再試行と認証情報の健全性',
       browserAccess: 'Header とクロスオリジン',
       dataMaintenance: 'データとメンテナンス',
+      experimental: '実験的機能',
       system: 'システム情報',
     },
     validation: {
