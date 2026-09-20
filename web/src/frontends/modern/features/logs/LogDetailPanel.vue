@@ -23,6 +23,7 @@ import {
   AppOverflowText,
   AppIcon,
   AppChannelIcon,
+  AppTooltip,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import type { LogColumnId } from './log-columns'
@@ -31,6 +32,7 @@ import {
   logCacheWrites,
   logDuration,
   logNumber,
+  logOutputRate,
   logStatusTone,
   logTime,
 } from './log-display'
@@ -58,6 +60,7 @@ const query = useQuery({
   queryFn: ({ signal }) => getLogDetail(client, props.id, signal),
 })
 const log = computed(() => query.data.value)
+const outputRate = computed(() => (log.value ? logOutputRate(log.value, locale.value) : '—'))
 const outcomeFields = computed<LogColumnId[]>(() => [
   'status_code',
   'stream',
@@ -258,7 +261,24 @@ function resolveRedactedLog(): Promise<string> {
               <div v-for="field in outcomeFields" :key="field">
                 <dt>{{ t('logs.columns.' + field) }}</dt>
                 <dd>
-                  <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
+                  <template v-if="field === 'stream'">
+                    {{ t(log.stream ? 'logs.yes' : 'logs.no') }}
+                    <AppTooltip v-if="outputRate !== '—'" :label="t('logs.outputRate')">
+                      <span
+                        class="modern-log-stream-rate"
+                        tabindex="0"
+                        :aria-label="t('logs.outputRate') + ': ' + outputRate"
+                        >&nbsp;·&nbsp;{{ outputRate }}</span
+                      >
+                    </AppTooltip>
+                  </template>
+                  <LogValue
+                    v-else
+                    :row="log"
+                    :column="field"
+                    :groups="groups"
+                    :channels="channels"
+                  />
                 </dd>
               </div>
               <div v-if="log.reasoning">
@@ -707,6 +727,12 @@ function resolveRedactedLog(): Promise<string> {
   margin: 0;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
+}
+.modern-log-stream-rate {
+  color: var(--modern-muted);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-caption);
+  white-space: nowrap;
 }
 .modern-log-error.is-note {
   background: var(--modern-subtle);
