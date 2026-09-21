@@ -26,6 +26,8 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 		methods []string
 		path    string
 	}{
+		{name: "data.usage", methods: []string{http.MethodGet}, path: "/v1/user/balance"},
+		{name: "data.usage.unversioned", methods: []string{http.MethodGet}, path: "/user/balance"},
 		{
 			name:    "data.openai.completions",
 			methods: []string{http.MethodPost},
