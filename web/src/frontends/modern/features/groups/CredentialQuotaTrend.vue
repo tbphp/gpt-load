@@ -17,36 +17,47 @@ const y = (used: number) => top + (used / 10_000) * (bottom - top)
 const windows = computed(() => props.report.windows.filter((window) => window.points.length))
 const curves = computed(() =>
   windows.value.map((window, index) => {
-    const points =
-      window.points[0]!.observedAt > props.report.from
-        ? [
-            {
-              observedAt: props.report.from,
-              usedBasisPoints: window.points[0]!.usedBasisPoints,
-            },
-            ...window.points,
-          ]
-        : window.points
+    let leadingPoint = window.points[0]!
+    for (const point of window.points) {
+      if (point.observedAt > props.report.from) break
+      leadingPoint = point
+    }
+    const last = window.points[window.points.length - 1]!
+    const points = [
+      { observedAt: props.report.from, usedBasisPoints: leadingPoint.usedBasisPoints },
+      ...window.points.filter(
+        (point) => point.observedAt > props.report.from && point.observedAt < props.report.to,
+      ),
+      { observedAt: props.report.to, usedBasisPoints: last.usedBasisPoints },
+    ]
     const path = points
       .map(
         (point, pointIndex) =>
           `${pointIndex ? 'L' : 'M'}${x(point.observedAt)},${y(point.usedBasisPoints)}`,
       )
       .join(' ')
-    const start = x(points[0]!.observedAt)
+    const startX = x(points[0]!.observedAt)
     const end = x(points[points.length - 1]!.observedAt)
     return {
       key: window.key,
       gradientId: `${gradientId}-${index}`,
       tone: index % 6,
       path,
-      area: `${path} L${end},100 L${start},100 Z`,
+      area: `${path} L${end},100 L${startX},100 Z`,
     }
   }),
 )
 const times = computed(() =>
   [
-    ...new Set(windows.value.flatMap((window) => window.points.map((point) => point.observedAt))),
+    ...new Set(
+      windows.value.flatMap((window) =>
+        window.points
+          .filter(
+            (point) => point.observedAt >= props.report.from && point.observedAt < props.report.to,
+          )
+          .map((point) => point.observedAt),
+      ),
+    ),
   ].sort((a, b) => a - b),
 )
 watch(

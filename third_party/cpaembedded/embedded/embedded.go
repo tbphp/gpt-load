@@ -615,7 +615,7 @@ func ListCodexModels(ctx context.Context, credential CodexCredential, baseURL st
 		return nil, err
 	}
 	query := target.Query()
-	query.Set("client_version", codexClientVersion)
+	query.Set("client_version", CodexClientVersion)
 	target.RawQuery = query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
@@ -770,8 +770,8 @@ func applyCodexReadHeaders(req *http.Request, credential CodexCredential) {
 	req.Header.Set("Authorization", "Bearer "+credential.AccessToken)
 	req.Header.Set("Chatgpt-Account-Id", credential.AccountID)
 	req.Header.Set("Originator", "codex_cli_rs")
-	req.Header.Set("User-Agent", "codex_cli_rs/"+codexClientVersion)
-	req.Header.Set("Version", codexClientVersion)
+	req.Header.Set("User-Agent", "codex_cli_rs/"+CodexClientVersion)
+	req.Header.Set("Version", CodexClientVersion)
 }
 
 func (e *CodexHTTPExecutor) executionContext(

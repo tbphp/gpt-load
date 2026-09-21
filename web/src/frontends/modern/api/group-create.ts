@@ -72,6 +72,7 @@ export async function getGroupChannels(
       'images_generate',
       'embeddings_create',
       'rerank',
+      'decisions_create',
     ]
     const routes = list(item.routes).map((raw) => {
       const route = record(raw)

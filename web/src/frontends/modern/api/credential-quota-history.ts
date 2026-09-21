@@ -9,6 +9,7 @@ export interface QuotaHistoryPoint {
 export interface QuotaHistoryWindow {
   key: string
   id: string
+  sourceId: string
   label: string
   labelKey: string
   scope: string
@@ -47,6 +48,7 @@ export async function getCredentialQuotaHistory(
         return {
           key: text(window.key),
           id: text(window.id),
+          sourceId: text(window.source_id),
           label: text(window.label),
           labelKey: text(window.label_key),
           scope: text(window.scope),

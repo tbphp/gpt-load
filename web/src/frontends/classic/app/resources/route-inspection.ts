@@ -64,6 +64,7 @@ export type RouteInspectOperation =
   | 'images_edit'
   | 'embeddings_create'
   | 'rerank'
+  | 'decisions_create'
 export type RouteInspectRequirement = 'any' | 'native'
 export type RouteInspectMode = 'native' | 'converted'
 
@@ -124,6 +125,7 @@ export const routeInspectOperations = [
   'images_edit',
   'embeddings_create',
   'rerank',
+  'decisions_create',
 ] as const
 export const routeInspectRequirements = ['any', 'native'] as const
 const routeModes = ['native', 'converted'] as const

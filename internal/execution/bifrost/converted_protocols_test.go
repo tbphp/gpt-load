@@ -760,14 +760,18 @@ func TestConvertedOpenAIChatStreamUsesSelectedProvider(t *testing.T) {
 func TestConvertedOpenAIChatStreamWaitsForFirstClientFrame(t *testing.T) {
 	t.Parallel()
 
+	started := make(chan struct{})
+	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		writer.WriteHeader(http.StatusOK)
 		writer.(http.Flusher).Flush()
-		time.Sleep(100 * time.Millisecond)
+		close(started)
+		<-release
 		_, _ = io.WriteString(writer, geminiResponsesStreamFixture)
 	}))
 	defer server.Close()
+	defer close(release)
 
 	runtime := newProtocolTestRuntime(t, testRuntimeOptions{
 		allowPrivateNetwork: true,
@@ -780,17 +784,25 @@ func TestConvertedOpenAIChatStreamWaitsForFirstClientFrame(t *testing.T) {
 		"/v1/chat/completions",
 		[]byte(`{"model":"client-model","stream":true,"messages":[{"role":"user","content":"hello"}]}`),
 	)
-	spec.Timeouts.FirstByte = 20 * time.Millisecond
-	spec.Timeouts.Request = time.Second
+	spec.Timeouts.FirstByte = 250 * time.Millisecond
+	// 总请求超时晚于测试保护时间，避免首事件超时失效后仍由其他超时通过。
+	spec.Timeouts.Request = 30 * time.Second
+	spec.Timeouts.StreamIdle = 30 * time.Second
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	var events []execution.StreamEvent
-	started := time.Now()
-	result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
+	result := runtime.ExecuteStream(ctx, spec, func(event execution.StreamEvent) error {
 		events = append(events, event.Clone())
 		return nil
 	})
 
-	if elapsed := time.Since(started); elapsed > 90*time.Millisecond {
-		t.Fatalf("first-frame timeout returned after %s", elapsed)
+	if ctx.Err() != nil {
+		t.Fatal("first-frame timeout did not finish before the test deadline")
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("request timed out before upstream response headers")
 	}
 	if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout ||
 		result.ResponseStarted || len(events) != 0 {

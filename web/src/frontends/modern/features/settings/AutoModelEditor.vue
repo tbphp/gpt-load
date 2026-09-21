@@ -20,6 +20,7 @@ import { useApiClient } from '@shared/http/client-context'
 const props = defineProps<{
   modelValue: AutoModelDraft
   template?: AutoEntry
+  decisionModels: string[]
   disabled?: boolean
   error?: string
 }>()
@@ -35,25 +36,14 @@ const modelOptions = computed(() =>
     .sort()
     .map((value) => ({ value, label: value })),
 )
-const providers = computed(() => [
-  { value: 'typesafe', label: t('autoModel.official') },
-  { value: 'openrouter', label: 'OpenRouter' },
-])
+const decisionModelOptions = computed(() =>
+  props.decisionModels.map((value) => ({ value, label: value })),
+)
 function update(change: (draft: AutoModelDraft) => void) {
   if (props.disabled) return
   const draft = JSON.parse(JSON.stringify(props.modelValue)) as AutoModelDraft
   change(draft)
   emit('update:modelValue', draft)
-}
-function provider(value: string) {
-  update((draft) => {
-    draft.provider = value === 'openrouter' ? 'openrouter' : 'typesafe'
-    draft.model = draft.provider === 'openrouter' ? '~typesafe/jev-latest' : 'jev-latest'
-    draft.api_key = ''
-    draft.api_key_configured = false
-    draft.input_price = '0.042'
-    draft.output_price = '0'
-  })
 }
 function addEntry() {
   if (!props.template) return
@@ -102,29 +92,16 @@ function validRules(value: string): boolean {
 <template>
   <div class="modern-auto-model">
     <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
+    <AppNotice v-if="!decisionModels.length">{{ t('autoModel.decisionModelEmpty') }}</AppNotice>
     <div class="modern-auto-model-grid">
-      <AppSelect
-        :model-value="modelValue.provider"
-        :label="t('autoModel.provider')"
-        :options="providers"
-        :disabled="disabled"
-        @update:model-value="provider"
-      />
-      <AppTextField
+      <AppSearchSelect
         :model-value="modelValue.model"
         :label="t('autoModel.decisionModel')"
+        :options="decisionModelOptions"
+        :selected-option="{ value: modelValue.model, label: modelValue.model }"
+        :description="t('autoModel.decisionModelHint')"
         :disabled="disabled"
         @update:model-value="update((draft) => (draft.model = $event))"
-      />
-      <AppTextField
-        :model-value="modelValue.api_key"
-        type="password"
-        autocomplete="new-password"
-        :label="t('autoModel.apiKey')"
-        :placeholder="modelValue.api_key_configured ? t('autoModel.keepKey') : ''"
-        :description="t('autoModel.keyHint')"
-        :disabled="disabled"
-        @update:model-value="update((draft) => (draft.api_key = $event))"
       />
       <AppTextField
         :model-value="modelValue.timeout_seconds"
@@ -134,24 +111,6 @@ function validRules(value: string): boolean {
         @update:model-value="update((draft) => (draft.timeout_seconds = $event))"
       />
     </div>
-    <AppFormSection :title="t('autoModel.pricing')" :description="t('autoModel.pricingHint')">
-      <div class="modern-auto-model-grid">
-        <AppTextField
-          :model-value="modelValue.input_price"
-          inputmode="decimal"
-          :label="t('autoModel.inputPrice')"
-          :disabled="disabled"
-          @update:model-value="update((draft) => (draft.input_price = $event))"
-        />
-        <AppTextField
-          :model-value="modelValue.output_price"
-          inputmode="decimal"
-          :label="t('autoModel.outputPrice')"
-          :disabled="disabled"
-          @update:model-value="update((draft) => (draft.output_price = $event))"
-        />
-      </div>
-    </AppFormSection>
     <AppFormSection :title="t('autoModel.entries')" :description="t('autoModel.permissionsHint')">
       <template #actions
         ><AppButton :icon="Plus" :disabled="disabled || !template" @click="addEntry">{{

@@ -1,4 +1,137 @@
 {
+  "jev": {
+    "id": "jev",
+    "name": "TypeSafe Jev",
+    "api": "https://api.typesafe.ai/v1",
+    "npm": "@typesafe-ai/sdk",
+    "models": {
+      "jev-1.13.0": {
+        "id": "jev-1.13.0",
+        "name": "Jev 1.13",
+        "family": "jev",
+        "description": "TypeSafe System One model for typed probabilistic decisions",
+        "attachment": false,
+        "reasoning": false,
+        "tool_call": false,
+        "structured_output": true,
+        "temperature": false,
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
+        },
+        "open_weights": false,
+        "limit": {
+          "context": 64000
+        },
+        "cost": {
+          "input": 0.042,
+          "output": 0
+        }
+      },
+      "jev-latest": {
+        "id": "jev-latest",
+        "name": "Jev Latest",
+        "family": "jev",
+        "description": "Alias for the latest stable TypeSafe Jev release",
+        "attachment": false,
+        "reasoning": false,
+        "tool_call": false,
+        "structured_output": true,
+        "temperature": false,
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
+        },
+        "open_weights": false,
+        "limit": {
+          "context": 64000
+        },
+        "cost": {
+          "input": 0.042,
+          "output": 0
+        }
+      },
+      "jev-preview": {
+        "id": "jev-preview",
+        "name": "Jev Preview",
+        "family": "jev",
+        "description": "Alias for the latest TypeSafe Jev release, including previews",
+        "attachment": false,
+        "reasoning": false,
+        "tool_call": false,
+        "structured_output": true,
+        "temperature": false,
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
+        },
+        "open_weights": false,
+        "limit": {
+          "context": 64000
+        },
+        "cost": {
+          "input": 0.042,
+          "output": 0
+        }
+      }
+    }
+  },
+  "openrouter": {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "api": "https://openrouter.ai/api/v1",
+    "npm": "@openrouter/sdk",
+    "models": {
+      "typesafe/jev-1.13": {
+        "id": "typesafe/jev-1.13",
+        "name": "TypeSafe: Jev 1.13",
+        "family": "jev",
+        "description": "TypeSafe System One model for fast structured decisions through OpenRouter",
+        "release_date": "2026-09-17",
+        "attachment": false,
+        "reasoning": false,
+        "tool_call": false,
+        "structured_output": true,
+        "temperature": false,
+        "modalities": {
+          "input": ["text"],
+          "output": ["decisions"]
+        },
+        "open_weights": false,
+        "limit": {
+          "context": 32000
+        },
+        "cost": {
+          "input": 0.042,
+          "output": 0
+        }
+      },
+      "~typesafe/jev-latest": {
+        "id": "~typesafe/jev-latest",
+        "name": "TypeSafe: Jev Latest",
+        "family": "jev",
+        "description": "Alias for the latest TypeSafe Jev release through OpenRouter",
+        "release_date": "2026-09-17",
+        "attachment": false,
+        "reasoning": false,
+        "tool_call": false,
+        "structured_output": true,
+        "temperature": false,
+        "modalities": {
+          "input": ["text"],
+          "output": ["decisions"]
+        },
+        "open_weights": false,
+        "limit": {
+          "context": 32000
+        },
+        "cost": {
+          "input": 0.042,
+          "output": 0
+        }
+      }
+    }
+  },
   "volcengine": {
     "id": "volcengine",
     "name": "Volcengine Ark",

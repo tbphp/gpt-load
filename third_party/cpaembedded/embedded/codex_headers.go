@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// codexClientVersion 必须与固定 CPA 依赖的默认及模型 UA 版本一致，由出站请求测试校验。
-const codexClientVersion = "0.154.0"
+// CodexClientVersion 必须与固定 CPA 依赖及 GPT-Load 的 Codex 模型目录版本一致，由测试校验。
+const CodexClientVersion = "0.154.0"
 
 // codexHeadersRoundTripper 保留 CPA 的 UA，并固定版本及 HTTP 会话头。
 type codexHeadersRoundTripper struct {
@@ -29,7 +29,7 @@ func (transport codexHeadersRoundTripper) RoundTrip(request *http.Request) (*htt
 			}
 		}
 	}
-	request.Header.Set("Version", codexClientVersion)
+	request.Header.Set("Version", CodexClientVersion)
 	normalizeCodexSessionHeader(request.Header)
 	// CPA 的直接图片路径不读取 opts.Headers，补回调用者显式提供的会话。
 	if request.Header.Get("Session-Id") == "" {
@@ -51,7 +51,7 @@ func normalizedCodexHeaders(headers http.Header) http.Header {
 			delete(cloned, name)
 		}
 	}
-	cloned.Set("Version", codexClientVersion)
+	cloned.Set("Version", CodexClientVersion)
 	normalizeCodexSessionHeader(cloned)
 	return cloned
 }
