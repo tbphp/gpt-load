@@ -1,16 +1,14 @@
 <script setup lang="ts">
-import { ArrowRight, ArrowUpRight, TriangleAlert } from '@lucide/vue'
+import { ArrowRight, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import type { HomeBase } from '@modern/api/home'
-import { AppBadge, AppButton, AppExternalLink, AppIcon } from '@modern/components/ui'
+import { AppBadge, AppButton, AppIcon } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
-import { useSystemStatus } from '@modern/features/system/useSystemStatus'
 
 const props = defineProps<{ base: HomeBase; admin: boolean; attention: number }>()
 const { t, n, locale } = useI18n()
-const { update } = useSystemStatus()
 const compact = (value: number) => formatCompactNumber(value, locale.value)
 interface Fact {
   key: string
@@ -81,10 +79,6 @@ const uptime = computed(() => {
     </div>
     <p class="modern-home-status-build">
       <span>{{ base.version }}</span>
-      <AppExternalLink v-if="update" class="modern-home-status-update" :href="update.releaseURL">
-        <span>{{ t('system.updateAvailable', { version: update.version }) }}</span>
-        <AppIcon :icon="ArrowUpRight" size="xs" />
-      </AppExternalLink>
       <span>{{ uptime }}</span>
     </p>
   </section>
@@ -161,17 +155,6 @@ const uptime = computed(() => {
 }
 .modern-home-status-build > span:first-child {
   font-family: var(--modern-font-mono);
-}
-.modern-home-status-update {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--modern-space-1);
-  color: var(--modern-accent);
-  font-weight: var(--modern-weight-medium);
-}
-.modern-home-status-update:hover {
-  text-decoration: underline;
-  text-underline-offset: var(--modern-space-1);
 }
 @media (max-width: 760px) {
   .modern-home-status-facts {
