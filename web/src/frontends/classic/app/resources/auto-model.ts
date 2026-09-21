@@ -58,7 +58,7 @@ export function projectAutoModel(value: unknown): AutoModelConfigDto {
   const row = projectRecord(value)
   return {
     enabled: projectBoolean(row.enabled),
-    model: projectString(row.model),
+    model: projectString(row.model, { allowEmpty: true }),
     timeout_seconds: projectSafeInteger(row.timeout_seconds, { minimum: 1, maximum: 60 }),
     models: projectArray(row.models, projectAutoEntry),
   }
