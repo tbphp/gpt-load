@@ -287,57 +287,26 @@ function resolveRedactedLog(): Promise<string> {
               </div>
             </dl>
           </section>
-          <AppFormSection v-if="log.request_audit" :title="t('requestAudit.title')" compact
-            ><dl class="modern-log-detail-grid">
-              <div>
-                <dt>{{ t('requestAudit.mode') }}</dt>
-                <dd>{{ t('requestAudit.modes.' + log.request_audit.mode) }}</dd>
-              </div>
+          <AppFormSection
+            v-if="log.request_audit && log.request_audit.status !== 'passed'"
+            :title="t('requestAudit.title')"
+            compact
+          >
+            <dl class="modern-log-detail-grid">
               <div>
                 <dt>{{ t('requestAudit.result') }}</dt>
                 <dd>{{ t('requestAudit.statuses.' + log.request_audit.status) }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('requestAudit.duration') }}</dt>
-                <dd>{{ log.request_audit.duration_ms }} ms</dd>
-              </div>
-              <div>
-                <dt>{{ t('requestAudit.checks') }}</dt>
-                <dd>{{ log.request_audit.checks }}</dd>
               </div>
               <div v-if="log.request_audit.reason">
                 <dt>{{ t('autoModel.reason') }}</dt>
                 <dd>{{ t('requestAudit.reasons.' + log.request_audit.reason) }}</dd>
               </div>
-              <div v-for="(finding, index) in log.request_audit.findings" :key="index">
-                <dt>
-                  {{
-                    finding.source === 'local'
-                      ? t('requestAudit.localRules.' + finding.rule_id)
-                      : finding.name
-                  }}
-                </dt>
-                <dd>
-                  {{ t('requestAudit.statuses.' + finding.status)
-                  }}<template v-if="finding.probability !== undefined">
-                    · {{ Math.round(finding.probability * 100) }}%</template
-                  >
-                </dd>
+              <div v-for="finding in log.request_audit.findings" :key="finding.rule_id">
+                <dt>{{ finding.name }}</dt>
+                <dd>{{ t('requestAudit.actions.' + finding.action) }}</dd>
               </div>
-              <div v-for="(call, index) in log.request_audit.calls" :key="'call-' + index">
-                <dt>
-                  {{ t('requestAudit.cost')
-                  }}<template v-if="call.model"> · {{ call.model }}</template>
-                </dt>
-                <dd>
-                  {{
-                    call.cost_state === 'priced' ? exactLogMoney(call.estimated_cost_nano_usd) : '—'
-                  }}
-                  · {{ call.duration_ms }} ms
-                </dd>
-              </div>
-            </dl></AppFormSection
-          >
+            </dl>
+          </AppFormSection>
           <AppFormSection v-if="log.auto_decision" :title="t('autoModel.log')" compact>
             <dl class="modern-log-detail-grid">
               <div>

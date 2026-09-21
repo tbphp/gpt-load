@@ -1,8 +1,9 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
+	"encoding/json"
 	"net/http"
 
 	"gpt-load/internal/execution"
@@ -11,76 +12,88 @@ import (
 	"gpt-load/internal/state"
 )
 
-var reasonAuditBlocked = reason{http.StatusForbidden, "request_audit_blocked", "Request blocked by an audit rule."}
-var reasonAuditIncomplete = reason{http.StatusServiceUnavailable, "request_audit_incomplete", "Request audit could not be completed."}
+var reasonAuditBlocked = reason{http.StatusForbidden, "request_audit_blocked", "Request blocked by a guardrail rule."}
+var reasonAuditIncomplete = reason{http.StatusServiceUnavailable, "request_audit_incomplete", "Guardrail review could not be completed."}
 
-// 只在单次客户端请求内复用相同完整内容；新一轮工具结果不会沿用旧结论。
-func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigSnapshot, key state.AccessKeyView, operation execution.Operation, body []byte, recorder *requestRecorder, admit func() *reason, semantic bool) *reason {
+func auditHasContent(operation execution.Operation, body []byte) bool {
+	switch operation {
+	case execution.OperationListModels, execution.OperationProbe,
+		execution.OperationResponsesRetrieve, execution.OperationResponsesDelete,
+		execution.OperationResponsesCancel, execution.OperationResponsesInputItems:
+		return false
+	}
+	return len(bytes.TrimSpace(body)) != 0
+}
+
+// 在业务外发前审查最终内容。自动模型的沿用/预热不构成护栏通过证明。
+func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigSnapshot, key state.AccessKeyView, operation execution.Operation, body []byte, recorder *requestRecorder, admit func() *reason) *reason {
 	cfg := snapshot.RequestAudit
-	if !cfg.Applies(key.ID) || recorder == nil {
+	if !cfg.Applies(key.ID) || recorder == nil || !auditHasContent(operation, body) {
 		return nil
 	}
-	started := h.now()
-	content, findings, incomplete := requestaudit.Inspect(body)
-	if !cfg.LocalSecrets {
-		findings = nil
-	}
-	if incomplete == "content_too_large" && !cfg.SemanticEnabled {
-		incomplete = ""
-	}
-	if operation != execution.OperationChatCompletion && operation != execution.OperationResponsesCreate {
-		incomplete = "unsupported_operation"
-	}
-	digest := sha256.Sum256(append([]byte(string(operation)+":"), content...))
-	if recorder.auditCache[digest] {
-		return nil
-	}
-	matched := len(findings) > 0
-	if !semantic && cfg.SemanticEnabled && !matched && incomplete == "" {
+	doc, incomplete := requestaudit.Extract(body)
+	if incomplete == "" && recorder.auditCache[doc.Digest] {
 		return nil
 	}
 	if recorder.audit == nil {
-		recorder.audit = &requestaudit.Result{Mode: cfg.Mode, Status: "passed", Findings: []requestaudit.Finding{}, Calls: []jev.Observation{}}
+		recorder.audit = &requestaudit.Result{Status: "passed", Findings: []requestaudit.Finding{}, Calls: []jev.Observation{}}
 	}
 	result := recorder.audit
-	result.Checks++
-	defer func() { result.DurationMs += max(0, h.now().Sub(started).Milliseconds()) }()
-	if !matched && incomplete == "" && cfg.SemanticEnabled {
+	fail := func(cause string) *reason {
+		result.Status, result.Reason = "incomplete", cause
+		return &reasonAuditIncomplete
+	}
+	if incomplete != "" {
+		return fail(incomplete)
+	}
+	group := snapshot.Groups[snapshot.Jev.GroupID]
+	// 规则动作/名称变更不必重审；JEV 模型、组及其路由变化不能沿用旧证明。
+	namespace, err := json.Marshal([]any{key.ID, recorder.protocol, snapshot.Jev, group.ChannelID, group.Params, group.Models})
+	if err != nil {
+		return fail("internal_error")
+	}
+	review := h.guardrails.Prepare(namespace, snapshot.Jev.Model, doc, cfg.Rules, h.now())
+	if review.Reason != "" {
+		return fail(review.Reason)
+	}
+	if len(review.Payload) != 0 {
+		if recorder.auditCalled {
+			return fail("content_changed")
+		}
 		if failure := admit(); failure != nil {
 			return failure
 		}
-		call, upstream := h.executeJevDecision(ctx, snapshot, key, requestaudit.BuildRequest(snapshot.Jev.Model, content, cfg.Rules), true)
+		recorder.auditCalled = true
+		call, upstream := h.executeJevDecision(ctx, snapshot, key, review.Payload, true)
 		result.Calls = append(result.Calls, call)
-		incomplete = call.Reason
-		if incomplete == "" {
-			findings, incomplete = requestaudit.Interpret(upstream.Body, cfg.Rules)
-			for _, finding := range findings {
-				matched = matched || finding.Status == "matched"
-			}
+		if call.Reason != "" {
+			return fail(call.Reason)
+		}
+		if ctx.Err() != nil {
+			return fail("canceled")
+		}
+		if reason := review.Resolve(upstream.Body, h.now()); reason != "" {
+			return fail(reason)
 		}
 	}
-	result.Findings = append(result.Findings, findings...)
-	if matched {
-		result.Status = "matched"
-		result.Reason = "rule_matched"
-	} else if incomplete != "" && result.Status != "matched" {
-		result.Status = "incomplete"
-		result.Reason = incomplete
-	}
-	if ctx.Err() != nil {
-		return &reasonAuditIncomplete
-	}
-	if cfg.Mode == "enforce" {
-		if matched {
-			return &reasonAuditBlocked
+	for _, finding := range review.Findings {
+		found := false
+		for _, old := range result.Findings {
+			found = found || old.RuleID == finding.RuleID
 		}
-		if incomplete != "" {
-			return &reasonAuditIncomplete
+		if !found {
+			result.Findings = append(result.Findings, finding)
 		}
+	}
+	if review.Status != "passed" {
+		result.Status = review.Status
+	}
+	if review.Status == "blocked" {
+		return &reasonAuditBlocked
 	}
 	if recorder.auditCache == nil {
 		recorder.auditCache = map[[32]byte]bool{}
 	}
-	recorder.auditCache[digest] = true
+	recorder.auditCache[doc.Digest] = true
 	return nil
 }

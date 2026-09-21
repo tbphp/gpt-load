@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Plus, Trash2 } from '@lucide/vue'
+import { computed, ref } from 'vue'
+import { ChevronDown, ChevronRight, Plus, Trash2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
-import type { AuditConfig, AuditAccessKey } from '@modern/api/experimental'
+import type { AuditConfig, AuditAccessKey, AuditRule } from '@modern/api/experimental'
 import {
+  AppBadge,
   AppButton,
-  AppFormSection,
   AppIconButton,
   AppMultiSelect,
   AppNotice,
@@ -23,6 +23,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: AuditConfig] }>()
 const { t } = useI18n()
+const expanded = ref<string[]>([])
 const scope = computed(() => {
   const options = props.accessKeys.map((k) => ({ value: String(k.id), label: k.name }))
   for (const id of props.modelValue.access_key_ids)
@@ -30,20 +31,33 @@ const scope = computed(() => {
       options.push({ value: String(id), label: t('requestAudit.deletedKey') })
   return options
 })
-const modes = computed(() =>
-  ['observe', 'enforce'].map((value) => ({ value, label: t('requestAudit.modes.' + value) })),
+const actions = computed(() =>
+  ['block', 'warn'].map((value) => ({ value, label: t('requestAudit.actions.' + value) })),
 )
 function update(change: (value: AuditConfig) => void) {
+  if (props.disabled) return
   const draft = JSON.parse(JSON.stringify(props.modelValue)) as AuditConfig
   change(draft)
   emit('update:modelValue', draft)
 }
+function isOpen(rule: AuditRule) {
+  return expanded.value.includes(rule.id) || !rule.name.trim() || !rule.instructions.trim()
+}
+function toggle(id: string) {
+  expanded.value = expanded.value.includes(id)
+    ? expanded.value.filter((v) => v !== id)
+    : [...expanded.value, id]
+}
 function addRule() {
+  const id = 'rule_' + crypto.randomUUID().replaceAll('-', '')
+  expanded.value.push(id)
   update((value) =>
     value.rules.push({
-      id: 'rule_' + crypto.randomUUID().replaceAll('-', ''),
+      id,
       name: '',
+      enabled: true,
       instructions: '',
+      action: 'block',
       threshold: 0.8,
     }),
   )
@@ -53,14 +67,6 @@ function addRule() {
 <template>
   <div class="modern-request-audit">
     <AppNotice v-if="error" tone="danger">{{ t('requestAudit.invalid') }}</AppNotice>
-    <AppSelect
-      :model-value="modelValue.mode"
-      :options="modes"
-      :label="t('requestAudit.mode')"
-      :disabled="disabled"
-      @update:model-value="update((v) => (v.mode = $event as AuditConfig['mode']))"
-    />
-    <AppNotice>{{ t('requestAudit.modeHelp') }}</AppNotice>
     <AppMultiSelect
       :model-value="modelValue.access_key_ids.map(String)"
       :options="scope"
@@ -69,89 +75,137 @@ function addRule() {
       :disabled="disabled"
       @update:model-value="update((v) => (v.access_key_ids = $event.map(Number)))"
     />
-    <AppSwitch
-      :model-value="modelValue.local_secrets"
-      :label="t('requestAudit.localSecrets')"
-      :disabled="disabled"
-      @update:model-value="update((v) => (v.local_secrets = $event))"
-    />
-    <AppSwitch
-      :model-value="modelValue.semantic_enabled"
-      :label="t('requestAudit.semantic')"
-      :disabled="disabled"
-      @update:model-value="update((v) => (v.semantic_enabled = $event))"
-    />
-    <template v-if="modelValue.semantic_enabled">
-      <AppNotice>{{ t('requestAudit.remoteHelp') }}</AppNotice>
-      <AppFormSection
-        :title="t('requestAudit.rulesTitle')"
-        :description="t('requestAudit.rulesHelp')"
+    <div class="modern-request-audit-heading">
+      <span>{{ t('requestAudit.rulesTitle') }} · {{ modelValue.rules.length }}/16</span>
+      <AppButton
+        :icon="Plus"
+        size="sm"
+        :disabled="disabled || modelValue.rules.length >= 16"
+        @click="addRule"
+        >{{ t('requestAudit.addRule') }}</AppButton
       >
-        <template #actions
-          ><AppButton
-            :icon="Plus"
-            :disabled="disabled || modelValue.rules.length >= 16"
-            @click="addRule"
-            >{{ t('requestAudit.addRule') }}</AppButton
-          ></template
+    </div>
+    <p class="modern-request-audit-help">{{ t('requestAudit.rulesHelp') }}</p>
+    <div v-for="(rule, index) in modelValue.rules" :key="rule.id" class="modern-request-audit-rule">
+      <div class="modern-request-audit-heading">
+        <AppButton
+          variant="text"
+          size="sm"
+          :icon="isOpen(rule) ? ChevronDown : ChevronRight"
+          :aria-expanded="isOpen(rule)"
+          :aria-controls="'guardrail-' + rule.id"
+          class="modern-request-audit-name"
+          @click="toggle(rule.id)"
+          >{{ rule.name || t('requestAudit.unnamed') }}</AppButton
         >
-        <div
-          v-for="(rule, index) in modelValue.rules"
-          :key="rule.id"
-          class="modern-request-audit-rule"
+        <AppBadge
+          :tone="rule.action === 'block' ? 'danger' : 'warning'"
+          size="xs"
+          variant="plain"
+          >{{ t('requestAudit.actions.' + rule.action) }}</AppBadge
         >
-          <div class="modern-request-audit-rule-heading">
-            <AppTextField
-              :model-value="rule.name"
-              :label="t('requestAudit.ruleName')"
-              :disabled="disabled"
-              @update:model-value="update((v) => (v.rules[index]!.name = $event))"
-            />
-            <AppIconButton
-              :icon="Trash2"
-              :label="t('requestAudit.removeRule')"
-              :disabled="disabled"
-              @click="update((v) => v.rules.splice(index, 1))"
-            />
-          </div>
-          <AppTextArea
-            :model-value="rule.instructions"
-            :label="t('requestAudit.instructions')"
+        <AppSwitch
+          :model-value="rule.enabled"
+          :label="t('requestAudit.ruleEnabled')"
+          :disabled="disabled"
+          @update:model-value="update((v) => (v.rules[index]!.enabled = $event))"
+        />
+        <AppIconButton
+          :icon="Trash2"
+          size="xs"
+          :label="t('requestAudit.removeRule')"
+          :disabled="disabled"
+          @click="update((v) => v.rules.splice(index, 1))"
+        />
+      </div>
+      <div v-if="isOpen(rule)" :id="'guardrail-' + rule.id" class="modern-request-audit-fields">
+        <div class="modern-request-audit-grid">
+          <AppTextField
+            :model-value="rule.name"
+            :label="t('requestAudit.ruleName')"
             :disabled="disabled"
-            @update:model-value="update((v) => (v.rules[index]!.instructions = $event))"
+            @update:model-value="update((v) => (v.rules[index]!.name = $event))"
+          />
+          <AppSelect
+            :model-value="rule.action"
+            :options="actions"
+            :label="t('requestAudit.action')"
+            :disabled="disabled"
+            @update:model-value="
+              update((v) => (v.rules[index]!.action = $event as AuditRule['action']))
+            "
           />
           <AppTextField
             :model-value="String(rule.threshold)"
-            inputmode="decimal"
+            type="number"
+            min="0.01"
+            max="1"
+            step="0.05"
             :label="t('requestAudit.threshold')"
-            :description="t('requestAudit.thresholdHelp')"
             :disabled="disabled"
             @update:model-value="update((v) => (v.rules[index]!.threshold = Number($event)))"
           />
         </div>
-      </AppFormSection>
-    </template>
-    <AppNotice>{{ t('requestAudit.coverageHelp') }}</AppNotice>
+        <AppTextArea
+          :model-value="rule.instructions"
+          :rows="2"
+          :label="t('requestAudit.instructions')"
+          :disabled="disabled"
+          @update:model-value="update((v) => (v.rules[index]!.instructions = $event))"
+        />
+      </div>
+    </div>
+    <p class="modern-request-audit-help">{{ t('requestAudit.coverageHelp') }}</p>
   </div>
 </template>
 
 <style scoped>
 .modern-request-audit,
-.modern-request-audit-rule {
+.modern-request-audit-fields {
   display: grid;
-  gap: var(--modern-space-4);
-}
-.modern-request-audit-rule {
-  padding-block: var(--modern-space-4);
-  border-top: var(--modern-line-width) solid var(--modern-border);
-}
-.modern-request-audit-rule-heading {
-  display: flex;
-  align-items: end;
   gap: var(--modern-space-3);
+  min-width: 0;
 }
-.modern-request-audit-rule-heading > :first-child {
+.modern-request-audit-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
+  min-width: 0;
+}
+.modern-request-audit-heading > :first-child {
   flex: 1;
   min-width: 0;
+}
+.modern-request-audit-name {
+  justify-content: flex-start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.modern-request-audit-heading > span:first-child {
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-medium);
+}
+.modern-request-audit-rule {
+  display: grid;
+  gap: var(--modern-space-3);
+  min-width: 0;
+  border-top: var(--modern-line-width) solid var(--modern-border);
+  padding-top: var(--modern-space-2);
+}
+.modern-request-audit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--modern-space-3);
+}
+.modern-request-audit-help {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  line-height: var(--modern-leading-body);
+}
+@container modern-settings-content (max-width: 620px) {
+  .modern-request-audit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

@@ -56,6 +56,7 @@ type frozenAttemptPricing struct {
 type requestRecorder struct {
 	audit                *requestaudit.Result
 	auditCache           map[[32]byte]bool
+	auditCalled          bool
 	autoDecision         *automodel.Decision
 	sink                 telemetry.RequestLogSink
 	requestID            string

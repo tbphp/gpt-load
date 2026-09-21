@@ -696,6 +696,7 @@ onScopeDispose(() => {
             <template v-else-if="id === 'experimental'">
               <SettingItem
                 v-bind="settingItem('jev')"
+                :hint="t('jev.help')"
                 class="modern-settings-block"
                 @reset="restore('jev')"
                 @undo="undoRestore('jev')"
@@ -734,6 +735,7 @@ onScopeDispose(() => {
               </SettingItem>
               <SettingItem
                 v-bind="settingItem('request_audit')"
+                :hint="t('requestAudit.help')"
                 class="modern-settings-block"
                 @reset="restore('request_audit')"
                 @undo="undoRestore('request_audit')"

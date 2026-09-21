@@ -12,6 +12,7 @@ import ExperimentalSettingsFields from './ExperimentalSettingsFields.vue'
 import SettingRow from '@/components/config/SettingRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
+import DisclosurePanel from '@/components/ui/DisclosurePanel.vue'
 import FormField from '@/components/ui/FormField.vue'
 import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
 import type { SettingsDraftChange } from './use-settings-controller'
@@ -36,13 +37,14 @@ function editableEntries(models: AutoEntryDto[]) {
 const entries = ref(JSON.stringify(editableEntries(config.value.models), null, 2))
 const entriesError = ref(false)
 const experimentalInvalid = ref(false)
-watch([entriesError, experimentalInvalid], ([a, b]) => emit('invalid', a || b))
+const jevInvalid = ref(false)
+watch([entriesError, experimentalInvalid, jevInvalid], ([a, b, c]) => emit('invalid', a || b || c))
 watch(
   () => [props.base, props.revision],
   () => {
     entries.value = JSON.stringify(editableEntries(config.value.models), null, 2)
     entriesError.value = false
-    emit('invalid', experimentalInvalid.value)
+    emit('invalid', experimentalInvalid.value || jevInvalid.value)
   },
 )
 function update(change: (value: AutoModelConfigDto) => void) {
@@ -76,7 +78,7 @@ function toggleOverride() {
   const draft = setSettingsOverride(props.base.settings, props.draft, 'auto_model', !hasOverride())
   entries.value = JSON.stringify(editableEntries(draft.values.auto_model?.models ?? []), null, 2)
   entriesError.value = false
-  emit('invalid', experimentalInvalid.value)
+  emit('invalid', experimentalInvalid.value || jevInvalid.value)
   emit('change', {
     key: 'auto_model',
     draft,
@@ -86,7 +88,7 @@ function setEnabled(enabled: boolean) {
   if (!enabled && entriesError.value) {
     entries.value = JSON.stringify(editableEntries(config.value.models), null, 2)
     entriesError.value = false
-    emit('invalid', experimentalInvalid.value)
+    emit('invalid', experimentalInvalid.value || jevInvalid.value)
   }
   if (!enabled && !validAutoModel(config.value)) {
     const fallback = JSON.parse(
@@ -114,7 +116,7 @@ function editEntries(value: string) {
   } catch {
     entriesError.value = true
   }
-  emit('invalid', entriesError.value || experimentalInvalid.value)
+  emit('invalid', entriesError.value || experimentalInvalid.value || jevInvalid.value)
 }
 function addTemplate() {
   const template = props.base.settings.auto_model_template
@@ -146,62 +148,68 @@ function addTemplate() {
       :disabled="disabled"
       :revision="revision"
       @change="emit('change', $event)"
+      @invalid="jevInvalid = $event"
     />
-    <SettingRow
-      :label="t('autoModel.title')"
-      :value="
-        isPendingRestore()
-          ? t('settings.runtime.resetPending')
-          : t(config.enabled ? 'settings.runtime.enabled' : 'settings.runtime.disabled')
-      "
-      :help="t('autoModel.experimental')"
-      :source-label="sourceLabel()"
-      :action-label="actionLabel()"
-      :overridden="hasOverride()"
-      :pending-restore="isPendingRestore()"
-      :disabled="disabled"
-      :divided="false"
-      @toggle="toggleOverride"
-    >
-      <template #control>
-        <AppSwitch
-          :model-value="config.enabled"
-          :label="t('autoModel.enabled')"
-          :disabled="disabled"
-          @update:model-value="setEnabled"
-        />
-      </template>
-    </SettingRow>
-    <div v-if="config.enabled" class="auto-model-fields">
-      <p v-if="!base.settings.decision_models.length" class="auto-model-empty">
-        {{ t('autoModel.decisionModelEmpty') }}
-      </p>
-      <div class="auto-model-heading">
-        <h3>{{ t('autoModel.entries') }}</h3>
-        <AppButton
-          variant="secondary"
-          :disabled="controlsDisabled || entriesError || !base.settings.auto_model_template"
-          @click="addTemplate"
-          >{{ t('autoModel.addTemplate') }}</AppButton
-        >
-      </div>
-      <p>{{ t('autoModel.permissionsHint') }}</p>
-      <p>{{ t('autoModel.englishHint') }}</p>
-      <p>{{ t('autoModel.overrideHint') }}</p>
-      <FormField
-        id="auto-entries"
-        :label="t('autoModel.entries')"
-        :error="entriesError ? t('autoModel.invalidJSON') : undefined"
+    <div class="auto-model-feature">
+      <SettingRow
+        :label="t('autoModel.title')"
+        :value="
+          isPendingRestore()
+            ? t('settings.runtime.resetPending')
+            : t(config.enabled ? 'settings.runtime.enabled' : 'settings.runtime.disabled')
+        "
+        :help="t('autoModel.experimental')"
+        :source-label="sourceLabel()"
+        :action-label="actionLabel()"
+        :overridden="hasOverride()"
+        :pending-restore="isPendingRestore()"
+        :disabled="disabled"
+        :divided="false"
+        @toggle="toggleOverride"
       >
-        <textarea
-          id="auto-entries"
-          class="auto-model-json"
-          :value="entries"
-          rows="18"
-          :disabled="controlsDisabled"
-          @input="editEntries(($event.target as HTMLTextAreaElement).value)"
-        />
-      </FormField>
+        <template #control>
+          <AppSwitch
+            :model-value="config.enabled"
+            :label="t('autoModel.enabled')"
+            :disabled="disabled"
+            @update:model-value="setEnabled"
+          />
+        </template>
+      </SettingRow>
+      <div v-if="config.enabled" class="auto-model-fields">
+        <p v-if="!base.settings.decision_models.length" class="auto-model-empty">
+          {{ t('autoModel.decisionModelEmpty') }}
+        </p>
+        <div class="auto-model-heading">
+          <h3>{{ t('autoModel.entries') }} · {{ config.models.length }}</h3>
+          <AppButton
+            variant="secondary"
+            size="compact"
+            :disabled="controlsDisabled || entriesError || !base.settings.auto_model_template"
+            @click="addTemplate"
+            >{{ t('autoModel.addTemplate') }}</AppButton
+          >
+        </div>
+        <DisclosurePanel :summary="t('autoModel.entries') + ' · JSON'" :open="entriesError">
+          <p>{{ t('autoModel.permissionsHint') }}</p>
+          <p>{{ t('autoModel.englishHint') }}</p>
+          <p>{{ t('autoModel.overrideHint') }}</p>
+          <FormField
+            id="auto-entries"
+            :label="t('autoModel.entries')"
+            :error="entriesError ? t('autoModel.invalidJSON') : undefined"
+          >
+            <textarea
+              id="auto-entries"
+              class="auto-model-json"
+              :value="entries"
+              rows="8"
+              :disabled="controlsDisabled"
+              @input="editEntries(($event.target as HTMLTextAreaElement).value)"
+            />
+          </FormField>
+        </DisclosurePanel>
+      </div>
     </div>
     <ExperimentalSettingsFields
       kind="request_audit"
@@ -220,7 +228,7 @@ function addTemplate() {
 .auto-model-section__heading,
 .auto-model-fields {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 .auto-model-section {
   scroll-margin-top: 76px;
@@ -246,7 +254,7 @@ function addTemplate() {
 .auto-model-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 .auto-model-heading {
   display: flex;
@@ -264,5 +272,25 @@ function addTemplate() {
   font: inherit;
   font-family: var(--font-mono);
   resize: vertical;
+}
+.auto-model-feature {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+  border-block: 1px solid var(--color-border-subtle);
+  padding-block: var(--space-3);
+}
+.auto-model-fields p {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.auto-model-heading h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.auto-model-json {
+  box-sizing: border-box;
+  font-size: var(--text-sm);
 }
 </style>

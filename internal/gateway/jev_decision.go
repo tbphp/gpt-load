@@ -253,7 +253,11 @@ func sameDecisionContent(before, after []byte) bool {
 	}
 	for _, field := range []string{"state", "questions"} {
 		var av, bv any
-		if json.Unmarshal(a[field], &av) != nil || json.Unmarshal(b[field], &bv) != nil {
+		beforeDecoder := json.NewDecoder(bytes.NewReader(a[field]))
+		afterDecoder := json.NewDecoder(bytes.NewReader(b[field]))
+		beforeDecoder.UseNumber()
+		afterDecoder.UseNumber()
+		if beforeDecoder.Decode(&av) != nil || afterDecoder.Decode(&bv) != nil {
 			return false
 		}
 		ar, _ := json.Marshal(av)

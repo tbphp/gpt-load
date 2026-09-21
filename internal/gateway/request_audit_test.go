@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,30 +21,17 @@ import (
 	"gpt-load/internal/state"
 )
 
-func TestRequestAuditLocalBlockPreventsEveryUpstreamCall(t *testing.T) {
-	for _, mode := range []string{"observe", "enforce"} {
-		t.Run(mode, func(t *testing.T) {
-			forwarder := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{}, Body: []byte(`{"choices":[]}`)}}}
-			handler, manager, _ := newHandlerForTest(t, forwarder, "key-a")
-			config := requestaudit.DefaultConfig()
-			config.Enabled = true
-			config.Mode = mode
-			manager.Current().RequestAudit = config
-			engine := gin.New()
-			bindGatewayRoutesForTest(t, engine, handler)
-			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"-----BEGIN PRIVATE KEY-----"}]}`))
-			request.Header.Set("Authorization", "Bearer gl-client")
-			response := httptest.NewRecorder()
-			engine.ServeHTTP(response, request)
-			if mode == "enforce" {
-				if response.Code != 403 || len(forwarder.inputs) != 0 {
-					t.Fatalf("blocked request sent: status %d calls %d", response.Code, len(forwarder.inputs))
-				}
-			} else if response.Code != 200 || len(forwarder.inputs) != 1 {
-				t.Fatalf("observation changed request: %d", response.Code)
-			}
-		})
+const auditPass = `{"answers":{"personal_data":{"type":"noul","noul":0.01},"prompt_injection":{"type":"noul","noul":0.01}}}`
+const auditHit = `{"answers":{"personal_data":{"type":"noul","noul":0.99},"prompt_injection":{"type":"noul","noul":0.01}}}`
+
+func TestProtectedJevContentPreservesNumericIdentity(t *testing.T) {
+	if sameDecisionContent([]byte(`{"state":{"value":9007199254740992},"questions":{}}`), []byte(`{"state":{"value":9007199254740993},"questions":{}}`)) {
+		t.Fatal("numeric precision loss hid a content override")
 	}
+}
+
+func auditReply(body string) UpstreamResult {
+	return UpstreamResult{StatusCode: 200, Header: http.Header{}, Body: []byte(body)}
 }
 
 func auditEngine(t *testing.T, forwarder *scriptedForwarder) (*Handler, *gin.Engine) {
@@ -54,8 +43,9 @@ func auditEngine(t *testing.T, forwarder *scriptedForwarder) (*Handler, *gin.Eng
 	}
 	cfg := requestaudit.DefaultConfig()
 	cfg.Enabled = true
-	cfg.Mode = "enforce"
-	cfg.SemanticEnabled = true
+	for i := range cfg.Rules {
+		cfg.Rules[i].Action = requestaudit.ActionBlock
+	}
 	manager.Current().RequestAudit = cfg
 	manager.Current().Jev = jev.Config{Model: "jev-router", GroupID: 2, TimeoutSeconds: 2}
 	engine := gin.New()
@@ -71,44 +61,37 @@ func sendAuditRequest(engine *gin.Engine, body string) *httptest.ResponseRecorde
 	return w
 }
 
-func TestRequestAuditSemanticOutcomesAndExplicitRoute(t *testing.T) {
+func TestRequestAuditOutcomesAndExplicitRoute(t *testing.T) {
 	for _, test := range []struct {
-		name, answer  string
-		status, calls int
+		name, answer, action string
+		status, calls        int
 	}{
-		{"passed", `{"answers":{"personal_data":{"type":"noul","noul":0.01},"prompt_injection":{"type":"noul","noul":0.01}}}`, 200, 2},
-		{"matched", `{"answers":{"personal_data":{"type":"noul","noul":0.99},"prompt_injection":{"type":"noul","noul":0.01}}}`, 403, 1},
-		{"uncertain", `{"answers":{"personal_data":{"type":"noul","noul":0.5},"prompt_injection":{"type":"noul","noul":0.01}}}`, 503, 1},
-		{"invalid", `{"answers":{}}`, 503, 1},
+		{"passed", auditPass, "block", 200, 2},
+		{"blocked", auditHit, "block", 403, 1},
+		{"warned", auditHit, "warn", 200, 2},
+		{"below threshold", `{"answers":{"personal_data":{"type":"noul","noul":0.5},"prompt_injection":{"type":"noul","noul":0.01}}}`, "block", 200, 2},
+		{"invalid", `{"answers":{}}`, "warn", 503, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			forwarder := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{}, Body: []byte(test.answer)}, {StatusCode: 200, Header: http.Header{}, Body: []byte(`{"choices":[]}`)}}}
-			_, engine := auditEngine(t, forwarder)
-			response := sendAuditRequest(engine, `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`)
+			forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(test.answer), auditReply(`{"choices":[]}`)}}
+			h, engine := auditEngine(t, forwarder)
+			h.manager.Current().RequestAudit.Rules[0].Action = test.action
+			response := sendAuditRequest(engine, `{"model":"gpt-4o","messages":[{"role":"user","content":"password=example-value"}]}`)
 			if response.Code != test.status || len(forwarder.inputs) != test.calls {
 				t.Fatalf("status=%d calls=%d body=%s", response.Code, len(forwarder.inputs), response.Body)
 			}
 			if forwarder.inputs[0].Group.ID != 2 || forwarder.inputs[0].Operation != execution.OperationDecisionsCreate {
-				t.Fatal("audit escaped its configured route")
+				t.Fatal("guardrail escaped its configured route")
 			}
 		})
 	}
 }
 
-func TestRequestAuditChecksLocalSecretsBeforeAutomaticSelection(t *testing.T) {
-	forwarder := &scriptedForwarder{}
-	_, engine := auditEngine(t, forwarder)
-	response := sendAuditRequest(engine, `{"model":"auto-probe","messages":[{"role":"tool","content":"-----BEGIN PRIVATE KEY-----"}]}`)
-	if response.Code != 403 || len(forwarder.inputs) != 0 {
-		t.Fatalf("secret reached decision model: %d / %d", response.Code, len(forwarder.inputs))
-	}
-}
-
 func TestRequestAuditInspectsParameterOverrides(t *testing.T) {
-	forwarder := &scriptedForwarder{}
+	forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditHit)}}
 	h, engine := auditEngine(t, forwarder)
 	var raw any
-	if err := json.Unmarshal([]byte(`[{"set":{"messages":[{"role":"user","content":"-----BEGIN PRIVATE KEY-----"}]}}]`), &raw); err != nil {
+	if err := json.Unmarshal([]byte(`[{"set":{"messages":[{"role":"user","content":"overridden-content"}]}}]`), &raw); err != nil {
 		t.Fatal(err)
 	}
 	rules, err := parameteroverride.Compile(raw)
@@ -119,42 +102,104 @@ func TestRequestAuditInspectsParameterOverrides(t *testing.T) {
 	group.ParameterOverrides = rules
 	h.manager.Current().Groups[1] = group
 	response := sendAuditRequest(engine, `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`)
-	if response.Code != 403 || len(forwarder.inputs) != 0 {
-		t.Fatalf("overridden secret escaped: %d / %d", response.Code, len(forwarder.inputs))
+	if response.Code != 403 || len(forwarder.inputs) != 1 || !bytes.Contains(forwarder.inputs[0].Request.Body, []byte("overridden-content")) {
+		t.Fatalf("final content escaped review: %d / %d", response.Code, len(forwarder.inputs))
 	}
 }
 
-func TestRequestAuditDoesNotTrustCachedToolContinuations(t *testing.T) {
-	forwarder := &scriptedForwarder{results: []UpstreamResult{
-		{StatusCode: 200, Header: http.Header{}, Body: []byte(`{"answers":{"personal_data":{"type":"noul","noul":0.01},"prompt_injection":{"type":"noul","noul":0.01}}}`)},
-		{StatusCode: 200, Header: http.Header{}, Body: []byte(`{"choices":[]}`)},
-	}}
+func TestRequestAuditReusesHistoryButChecksNewToolContent(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditPass), auditReply(`{"choices":[]}`), auditReply(`{"choices":[]}`), auditReply(auditHit)}}
 	_, engine := auditEngine(t, forwarder)
-	if r := sendAuditRequest(engine, `{"model":"gpt-4o","messages":[{"role":"user","content":"read config"}]}`); r.Code != 200 {
-		t.Fatal(r.Body)
+	for range 2 {
+		if r := sendAuditRequest(engine, `{"model":"gpt-4o","messages":[{"role":"user","content":"read config"}]}`); r.Code != 200 {
+			t.Fatal(r.Body)
+		}
 	}
-	r := sendAuditRequest(engine, `{"model":"gpt-4o","messages":[{"role":"user","content":"read config"},{"role":"tool","content":"-----BEGIN PRIVATE KEY-----"}]}`)
-	if r.Code != 403 || len(forwarder.inputs) != 2 {
-		t.Fatal("new tool content reused an earlier audit")
+	if len(forwarder.inputs) != 3 {
+		t.Fatal("unchanged history triggered another Jev call")
+	}
+	r := sendAuditRequest(engine, `{"model":"gpt-4o","messages":[{"role":"user","content":"read config"},{"role":"tool","content":"new-tool-result"}]}`)
+	if r.Code != 403 || len(forwarder.inputs) != 4 {
+		t.Fatal("new tool content reused an earlier review")
 	}
 }
 
-func TestRequestAuditWebsocketChecksEveryTurn(t *testing.T) {
+func TestRequestAuditOneCallAcrossRetriesAndChangedContentFails(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditPass)}}
+	h, _ := auditEngine(t, forwarder)
+	snapshot := h.manager.Current()
+	recorder := &requestRecorder{}
+	admit := func() *reason { return nil }
+	body := []byte(`{"input":"original"}`)
+	for range 2 {
+		if failure := h.checkRequestAudit(t.Context(), snapshot, snapshot.AccessKeysByID[1], execution.OperationResponsesCreate, body, recorder, admit); failure != nil {
+			t.Fatal(failure)
+		}
+	}
+	failure := h.checkRequestAudit(t.Context(), snapshot, snapshot.AccessKeysByID[1], execution.OperationResponsesCreate, []byte(`{"input":"changed"}`), recorder, admit)
+	if failure != &reasonAuditIncomplete || recorder.audit.Reason != "content_changed" || len(forwarder.inputs) != 1 {
+		t.Fatal("retry changed content or caused a second review")
+	}
+}
+
+func TestRequestAuditAncillaryContentIsReviewedAndResourceOperationsSkip(t *testing.T) {
+	for _, operation := range []execution.Operation{execution.OperationCountTokens, execution.OperationResponsesCompact, execution.OperationResponsesInputTokens, execution.OperationEmbeddingsCreate} {
+		forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditHit)}}
+		h, _ := auditEngine(t, forwarder)
+		s := h.manager.Current()
+		failure := h.checkRequestAudit(t.Context(), s, s.AccessKeysByID[1], operation, []byte(`{"input":"new-content","previous_response_id":"opaque"}`), &requestRecorder{}, func() *reason { return nil })
+		if failure != &reasonAuditBlocked || len(forwarder.inputs) != 1 {
+			t.Fatalf("content-bearing operation skipped: %s", operation)
+		}
+	}
+	for _, operation := range []execution.Operation{execution.OperationListModels, execution.OperationResponsesRetrieve, execution.OperationResponsesCancel, execution.OperationResponsesDelete} {
+		if auditHasContent(operation, []byte(`{}`)) {
+			t.Fatal("resource operation reviewed")
+		}
+	}
+}
+
+type auditWebsocketForwarder struct {
+	*scriptedForwarder
+	opener interface {
+		OpenWebsocket(context.Context, ForwardInput) (execution.WebsocketSession, execution.WebsocketResult)
+	}
+}
+
+func (f *auditWebsocketForwarder) OpenWebsocket(ctx context.Context, input ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
+	return f.opener.OpenWebsocket(ctx, input)
+}
+
+func TestRequestAuditWebsocketChecksCurrentPayloadOnEveryTurn(t *testing.T) {
 	upstream := websocketSettingsUpstream(t, false)
 	h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
 	cfg := requestaudit.DefaultConfig()
 	cfg.Enabled = true
-	cfg.Mode = "enforce"
+	cfg.Rules[0].Action = requestaudit.ActionBlock
 	input.RequestAudit = &cfg
+	input.Jev = &jev.Config{Model: "jev-latest", GroupID: 2, TimeoutSeconds: 2}
+	input.Groups = append(input.Groups, state.GroupConfig{ID: 2, Name: "jev", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest"}}, Enabled: true})
+	input.Credentials = append(input.Credentials, testCredentialConfig(2, 2))
 	if _, err := h.manager.Publish(input); err != nil {
 		t.Fatal(err)
 	}
+	if err := h.registry.(*state.CredentialRegistry).ReplaceCredentials([]state.CredentialEntry{testCredentialEntry(t, h.encryption, 1, 1, "upstream-key"), testCredentialEntry(t, h.encryption, 2, 2, "decision-key")}); err != nil {
+		t.Fatal(err)
+	}
+	forwarder := &auditWebsocketForwarder{scriptedForwarder: &scriptedForwarder{results: []UpstreamResult{auditReply(auditPass), auditReply(auditHit)}}, opener: h.forwarder.(interface {
+		OpenWebsocket(context.Context, ForwardInput) (execution.WebsocketSession, execution.WebsocketResult)
+	})}
+	h.forwarder = forwarder
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	conn := dialGatewayWebsocket(t, server.URL)
 	defer conn.Close()
-	for index, content := range []string{"hello", "-----BEGIN PRIVATE KEY-----"} {
-		if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": content, "store": false}); err != nil {
+	for index, content := range []string{"hello", "new-tool-result"} {
+		payload := map[string]any{"type": "response.create", "model": "public", "input": content, "store": false}
+		if index == 1 {
+			payload["previous_response_id"] = "resp_0"
+		}
+		if err := conn.WriteJSON(payload); err != nil {
 			t.Fatal(err)
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -170,8 +215,10 @@ func TestRequestAuditWebsocketChecksEveryTurn(t *testing.T) {
 			t.Fatalf("unexpected WebSocket result %s", body)
 		}
 	}
+	if len(forwarder.inputs) != 2 || bytes.Contains(forwarder.inputs[1].Request.Body, []byte("hello")) {
+		t.Fatal("continuation retained history or skipped new content")
+	}
 }
-
 func TestSharedJevPreservesSanitizedResponseMetadata(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{{
 		StatusCode: 200, Header: http.Header{"X-Request-Id": {"decision-key-header"}},

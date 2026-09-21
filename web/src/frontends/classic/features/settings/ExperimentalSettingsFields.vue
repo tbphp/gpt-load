@@ -1,19 +1,24 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { ChevronDown, ChevronRight, Plus, Trash2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import type { SettingsResource } from '@/app/resources/settings'
 import {
   validAudit,
+  validJev,
   type AuditConfig,
   type AuditRule,
   type JevConfig,
 } from '@/app/resources/experimental'
 import SettingRow from '@/components/config/SettingRow.vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import AppCombobox from '@/components/ui/AppCombobox.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import FormField from '@/components/ui/FormField.vue'
+import IconButton from '@/components/ui/IconButton.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SearchableMultiSelect from '@/components/ui/SearchableMultiSelect.vue'
 import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
 import type { SettingsDraftChange } from './use-settings-controller'
@@ -27,10 +32,13 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ change: [value: SettingsDraftChange]; invalid: [value: boolean] }>()
 const { t } = useI18n()
+const expanded = ref<string[]>([])
 const jev = computed(() => props.draft.values.jev)
 const audit = computed(() => props.draft.values.request_audit)
 const overridden = computed(() => props.draft.overrides.has(props.kind))
-const controlsDisabled = computed(() => props.disabled || !overridden.value)
+const controlsDisabled = computed(
+  () => props.disabled || props.draft.readOnly.has(props.kind) || !overridden.value,
+)
 const pendingRestore = computed(
   () => !overridden.value && props.base.settings.overrides.includes(props.kind),
 )
@@ -59,29 +67,17 @@ const scope = computed(() => {
       options.push({ value: id, label: t('requestAudit.deletedKey') })
   return options
 })
-const modes = computed(() =>
-  ['observe', 'enforce'].map((value) => ({ value, label: t('requestAudit.modes.' + value) })),
+const actions = computed(() =>
+  ['block', 'warn'].map((value) => ({ value, label: t('requestAudit.actions.' + value) })),
 )
-const rules = ref(JSON.stringify(audit.value.rules, null, 2))
-const rulesInvalid = ref(false)
-watch(
-  () => [props.base, props.revision],
-  () => {
-    rules.value = JSON.stringify(audit.value.rules, null, 2)
-    rulesInvalid.value = false
-  },
+const invalid = computed(() =>
+  props.kind === 'jev'
+    ? !validJev(jev.value) ||
+      ((audit.value.enabled || (props.draft.values.auto_model?.enabled ?? false)) &&
+        !jev.value.model)
+    : !validAudit(audit.value) || (audit.value.enabled && !jev.value.group_id),
 )
-watch(
-  () => [rulesInvalid.value, audit.value, overridden.value],
-  () =>
-    emit(
-      'invalid',
-      props.kind === 'request_audit' &&
-        overridden.value &&
-        (rulesInvalid.value || !validAudit(audit.value)),
-    ),
-  { deep: true },
-)
+watch(invalid, (value) => emit('invalid', value), { immediate: true })
 function update(change: (draft: SettingsDraft) => void) {
   if (controlsDisabled.value) return
   const draft = createSettingsDraft({
@@ -106,28 +102,42 @@ function selectGroup(value: string) {
   })
 }
 function setAudit(value: Partial<AuditConfig>) {
-  if (value.enabled === false) {
-    rules.value = JSON.stringify(audit.value.rules, null, 2)
-    rulesInvalid.value = false
-  }
-  update((d) => Object.assign(d.values.request_audit, value))
+  update((d) => {
+    if (value.enabled === false && !validAudit(audit.value))
+      d.values.request_audit = JSON.parse(
+        JSON.stringify(props.base.settings.values.request_audit),
+      ) as AuditConfig
+    Object.assign(d.values.request_audit, value)
+  })
+}
+function editRule(index: number, value: Partial<AuditRule>) {
+  update((d) => Object.assign(d.values.request_audit.rules[index]!, value))
 }
 function toggleOverride() {
   const draft = setSettingsOverride(props.base.settings, props.draft, props.kind, !overridden.value)
   emit('change', { key: props.kind, draft })
 }
-function editRules(value: string) {
-  rules.value = value
-  try {
-    const parsed: unknown = JSON.parse(value)
-    if (!Array.isArray(parsed)) throw new Error('array required')
-    const config = { ...audit.value, rules: parsed as AuditRule[] }
-    if (!validAudit(config)) throw new Error('invalid rules')
-    setAudit({ rules: config.rules })
-    rulesInvalid.value = false
-  } catch {
-    rulesInvalid.value = true
-  }
+function isOpen(rule: AuditRule) {
+  return expanded.value.includes(rule.id) || !rule.name.trim() || !rule.instructions.trim()
+}
+function toggle(id: string) {
+  expanded.value = expanded.value.includes(id)
+    ? expanded.value.filter((v) => v !== id)
+    : [...expanded.value, id]
+}
+function addRule() {
+  const id = 'rule_' + crypto.randomUUID().replaceAll('-', '')
+  expanded.value.push(id)
+  update((d) =>
+    d.values.request_audit.rules.push({
+      id,
+      name: '',
+      enabled: true,
+      instructions: '',
+      action: 'block',
+      threshold: 0.8,
+    }),
+  )
 }
 </script>
 
@@ -149,7 +159,9 @@ function editRules(value: string) {
       "
       :overridden="overridden"
       :pending-restore="pendingRestore"
+      :locked="draft.readOnly.has(kind)"
       :disabled="disabled"
+      :divided="false"
       @toggle="toggleOverride"
     >
       <template v-if="kind === 'request_audit'" #control
@@ -160,7 +172,7 @@ function editRules(value: string) {
           @update:model-value="setAudit({ enabled: $event })"
       /></template>
     </SettingRow>
-    <template v-if="kind === 'jev'">
+    <div v-if="kind === 'jev'" class="experimental-settings-grid">
       <FormField id="experimental-jev-group" :label="t('jev.group')"
         ><AppCombobox
           id="experimental-jev-group"
@@ -186,24 +198,14 @@ function editRules(value: string) {
           id="experimental-jev-timeout"
           :model-value="String(jev.timeout_seconds)"
           type="number"
+          min="1"
+          max="60"
           :label="t('jev.timeout')"
           :disabled="controlsDisabled"
           @update:model-value="setJev({ timeout_seconds: Number($event) })"
       /></FormField>
-    </template>
+    </div>
     <template v-else-if="audit.enabled">
-      <FormField
-        id="audit-mode"
-        :label="t('requestAudit.mode')"
-        :description="t('requestAudit.modeHelp')"
-        ><AppSelect
-          id="audit-mode"
-          :model-value="audit.mode"
-          :label="t('requestAudit.mode')"
-          :options="modes"
-          :disabled="controlsDisabled"
-          @update:model-value="setAudit({ mode: $event as AuditConfig['mode'] })"
-      /></FormField>
       <FormField
         id="audit-scope"
         :label="t('requestAudit.scope')"
@@ -227,59 +229,175 @@ function editRules(value: string) {
           @update:model-value="setAudit({ access_key_ids: $event.map(Number) })"
         />
       </FormField>
-      <AppSwitch
-        :model-value="audit.local_secrets"
-        :label="t('requestAudit.localSecrets')"
-        :disabled="controlsDisabled"
-        @update:model-value="setAudit({ local_secrets: $event })"
-      />
-      <AppSwitch
-        :model-value="audit.semantic_enabled"
-        :label="t('requestAudit.semantic')"
-        :disabled="controlsDisabled"
-        @update:model-value="setAudit({ semantic_enabled: $event })"
-      />
-      <template v-if="audit.semantic_enabled">
-        <p>{{ t('requestAudit.remoteHelp') }}</p>
-        <FormField
-          id="audit-rules"
-          :label="t('requestAudit.rulesTitle')"
-          :description="t('requestAudit.rulesHelp')"
-          :error="rulesInvalid ? t('requestAudit.invalid') : undefined"
+      <div class="experimental-settings-heading">
+        <strong>{{ t('requestAudit.rulesTitle') }} · {{ audit.rules.length }}/16</strong
+        ><AppButton
+          size="compact"
+          variant="secondary"
+          :disabled="controlsDisabled || audit.rules.length >= 16"
+          @click="addRule"
+          ><Plus :size="14" />{{ t('requestAudit.addRule') }}</AppButton
         >
-          <textarea
-            id="audit-rules"
-            class="experimental-settings-json"
-            :value="rules"
-            rows="16"
+      </div>
+      <p>{{ t('requestAudit.rulesHelp') }}</p>
+      <div v-for="(rule, index) in audit.rules" :key="rule.id" class="experimental-settings-rule">
+        <div class="experimental-settings-heading">
+          <AppButton
+            size="sm"
+            variant="ghost"
+            class="experimental-settings-name"
+            :aria-expanded="isOpen(rule)"
+            :aria-controls="'guardrail-' + rule.id"
+            @click="toggle(rule.id)"
+            ><ChevronDown v-if="isOpen(rule)" :size="14" /><ChevronRight v-else :size="14" />{{
+              rule.name || t('requestAudit.unnamed')
+            }}</AppButton
+          >
+          <StatusBadge size="compact" :tone="rule.action === 'block' ? 'danger' : 'warning'">{{
+            t('requestAudit.actions.' + rule.action)
+          }}</StatusBadge>
+          <AppSwitch
+            :model-value="rule.enabled"
+            :label="t('requestAudit.ruleEnabled')"
             :disabled="controlsDisabled"
-            @input="editRules(($event.target as HTMLTextAreaElement).value)"
+            @update:model-value="editRule(index, { enabled: $event })"
           />
-        </FormField>
-      </template>
+          <IconButton
+            size="xs"
+            variant="ghost"
+            :label="t('requestAudit.removeRule')"
+            :disabled="controlsDisabled"
+            @click="update((d) => d.values.request_audit.rules.splice(index, 1))"
+            ><Trash2 :size="14"
+          /></IconButton>
+        </div>
+        <div
+          v-if="isOpen(rule)"
+          :id="'guardrail-' + rule.id"
+          class="experimental-settings-rule-body"
+        >
+          <div class="experimental-settings-grid">
+            <FormField :id="rule.id + '-name'" :label="t('requestAudit.ruleName')"
+              ><AppTextInput
+                :id="rule.id + '-name'"
+                :model-value="rule.name"
+                :label="t('requestAudit.ruleName')"
+                :disabled="controlsDisabled"
+                @update:model-value="editRule(index, { name: $event })"
+            /></FormField>
+            <FormField :id="rule.id + '-action'" :label="t('requestAudit.action')"
+              ><AppSelect
+                :id="rule.id + '-action'"
+                :model-value="rule.action"
+                :label="t('requestAudit.action')"
+                :options="actions"
+                :disabled="controlsDisabled"
+                @update:model-value="editRule(index, { action: $event as AuditRule['action'] })"
+            /></FormField>
+            <FormField :id="rule.id + '-threshold'" :label="t('requestAudit.threshold')"
+              ><AppTextInput
+                :id="rule.id + '-threshold'"
+                :model-value="String(rule.threshold)"
+                type="number"
+                min="0.01"
+                max="1"
+                step="0.05"
+                :label="t('requestAudit.threshold')"
+                :disabled="controlsDisabled"
+                @update:model-value="editRule(index, { threshold: Number($event) })"
+            /></FormField>
+          </div>
+          <FormField :id="rule.id + '-instructions'" :label="t('requestAudit.instructions')">
+            <textarea
+              :id="rule.id + '-instructions'"
+              class="experimental-settings-textarea"
+              :value="rule.instructions"
+              rows="2"
+              :disabled="controlsDisabled"
+              @input="
+                editRule(index, { instructions: ($event.target as HTMLTextAreaElement).value })
+              "
+            />
+          </FormField>
+        </div>
+      </div>
       <p>{{ t('requestAudit.coverageHelp') }}</p>
     </template>
+    <p v-if="invalid" class="experimental-settings-error" role="alert">
+      {{ t('requestAudit.invalid') }}
+    </p>
   </div>
 </template>
 
 <style scoped>
-.experimental-settings-fields {
+.experimental-settings-fields,
+.experimental-settings-rule-body {
   display: grid;
-  gap: var(--space-4);
+  min-width: 0;
+  gap: var(--space-3);
+}
+.experimental-settings-fields {
+  padding-bottom: var(--space-3);
 }
 .experimental-settings-fields p {
   margin: 0;
   color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
-.experimental-settings-json {
+.experimental-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: var(--space-3);
+}
+.experimental-settings-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--space-2);
+}
+.experimental-settings-heading > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.experimental-settings-heading strong {
+  font-size: var(--text-sm);
+}
+.experimental-settings-name {
+  justify-content: flex-start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.experimental-settings-rule {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-2);
+}
+.experimental-settings-textarea {
   box-sizing: border-box;
   width: 100%;
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   color: var(--color-text);
   background: var(--color-surface);
-  font-family: var(--font-mono);
+  font: inherit;
+  font-size: var(--text-sm);
   resize: vertical;
+}
+.experimental-settings-textarea:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.experimental-settings-fields .experimental-settings-error {
+  color: var(--color-danger);
+}
+@media (max-width: 760px) {
+  .experimental-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

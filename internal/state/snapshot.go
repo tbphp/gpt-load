@@ -264,10 +264,10 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			}
 		}
 	}
-	if audit.Enabled && audit.SemanticEnabled && (shared.GroupID == 0 || shared.Model == "") {
-		return nil, fmt.Errorf("%w: semantic audit requires an explicit Jev group and model", requestaudit.ErrInvalidConfig)
+	if audit.Enabled && (shared.GroupID == 0 || shared.Model == "") {
+		return nil, fmt.Errorf("%w: guardrails require an explicit Jev group and model", requestaudit.ErrInvalidConfig)
 	}
-	if (autoConfig.Enabled || audit.Enabled && audit.SemanticEnabled) && shared.GroupID != 0 {
+	if (autoConfig.Enabled || audit.Enabled) && shared.GroupID != 0 {
 		available := false
 		for _, group := range input.Groups {
 			if group.ID != shared.GroupID || !group.Enabled {

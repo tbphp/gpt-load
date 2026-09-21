@@ -252,15 +252,10 @@ export function settingsErrors(
   if (changed.some((key) => ['jev', 'auto_model', 'request_audit'].includes(key))) {
     if (
       !validJev(draft.jev) ||
-      ((draft.auto_model.enabled ||
-        (draft.request_audit.enabled && draft.request_audit.semantic_enabled)) &&
-        !draft.jev.model)
+      ((draft.auto_model.enabled || draft.request_audit.enabled) && !draft.jev.model)
     )
       errors.jev = 'experimental'
-    if (
-      !validAudit(draft.request_audit) ||
-      (draft.request_audit.enabled && draft.request_audit.semantic_enabled && !draft.jev.group_id)
-    )
+    if (!validAudit(draft.request_audit) || (draft.request_audit.enabled && !draft.jev.group_id))
       errors.request_audit = 'experimental'
   }
   for (const key of changed) {

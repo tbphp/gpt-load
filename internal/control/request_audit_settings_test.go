@@ -6,25 +6,25 @@ import (
 	"testing"
 )
 
-func TestExperimentalSettingsPersistSharedJevAndLocalAudit(t *testing.T) {
+func TestExperimentalSettingsPersistSharedJevAndGuardrails(t *testing.T) {
 	fixture := newServiceFixture(t)
 	response, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{Settings: map[string]json.RawMessage{
 		"jev":           json.RawMessage(`{"model":"","group_id":0,"timeout_seconds":3}`),
-		"request_audit": json.RawMessage(`{"enabled":true,"mode":"observe","local_secrets":true,"semantic_enabled":false,"access_key_ids":[],"rules":[]}`),
+		"request_audit": json.RawMessage(`{"enabled":false,"access_key_ids":[],"rules":[]}`),
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	encoded, _ := json.Marshal(response)
-	if !strings.Contains(string(encoded), `"request_audit":{"enabled":true`) || !strings.Contains(string(encoded), `"jev":{"model":""`) {
+	if !strings.Contains(string(encoded), `"request_audit":{"enabled":false`) || !strings.Contains(string(encoded), `"jev":{"model":""`) {
 		t.Fatalf("missing experimental settings: %s", encoded)
 	}
 }
 
-func TestSemanticAuditRequiresExplicitJevRoute(t *testing.T) {
+func TestGuardrailsRequireExplicitJevRoute(t *testing.T) {
 	fixture := newServiceFixture(t)
 	_, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{Settings: map[string]json.RawMessage{
-		"request_audit": json.RawMessage(`{"enabled":true,"mode":"enforce","semantic_enabled":true}`),
+		"request_audit": json.RawMessage(`{"enabled":true}`),
 	}})
 	if err == nil {
 		t.Fatal("semantic audit enabled without an explicit route")

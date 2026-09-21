@@ -30,6 +30,7 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/ratelimit"
+	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	subscriptionproviders "gpt-load/internal/subscription/providers"
@@ -88,6 +89,7 @@ type runtimeCredentialRegistry interface {
 }
 
 type Handler struct {
+	guardrails          requestaudit.Cache
 	autoTasks           autoTaskCache
 	decisionClient      autoDecisionRunner
 	manager             *state.Manager
@@ -600,10 +602,6 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	recorder.setClientModel(model)
 	recorder.setOperation(metadata.Operation)
 	recorder.setStream(metadata.Stream)
-	if failure := handler.checkRequestAudit(ginContext.Request.Context(), snapshot, accessKey, metadata.Operation, parsed.Body, recorder, func() *reason { return handler.admitAutoQuota(snapshot, quotaAdmission) }, false); failure != nil {
-		handler.completeReason(ginContext, recorder, *failure)
-		return
-	}
 	var boundAuto *automodel.Selection
 	autoQuery := scheduler.Query{}
 	if metadata.PreviousResponseID != "" {
@@ -1197,7 +1195,7 @@ func (handler *Handler) executeAttempts(
 			quotaAdmission.admitted = true
 		}
 
-		if failure := handler.checkRequestAudit(ginContext.Request.Context(), snapshot, snapshot.AccessKeysByID[recorder.accessKeyID], operation, prepared.request.Body, recorder, func() *reason { return handler.admitAutoQuota(snapshot, quotaAdmission) }, true); failure != nil {
+		if failure := handler.checkRequestAudit(ginContext.Request.Context(), snapshot, snapshot.AccessKeysByID[recorder.accessKeyID], operation, prepared.request.Body, recorder, func() *reason { return handler.admitAutoQuota(snapshot, quotaAdmission) }); failure != nil {
 			handler.completeReason(ginContext, recorder, *failure)
 			return
 		}

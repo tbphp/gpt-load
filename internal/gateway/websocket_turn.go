@@ -232,10 +232,6 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		}
 	}
 	requestCtx := s.ctx
-	if failure := h.checkRequestAudit(requestCtx, snapshot, key, original.metadata.Operation, turn.body, recorder, func() *reason { return h.admitAutoQuota(snapshot, &admission) }, false); failure != nil {
-		reject(*failure)
-		return
-	}
 	if _, automatic := snapshot.AutoModels.Lookup(model); automatic {
 		autoQuery := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required}
 		if requiredRef != nil {
@@ -403,7 +399,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			}
 			admission.admitted = true
 		}
-		if failure := h.checkRequestAudit(requestCtx, snapshot, key, effective.metadata.Operation, payload, recorder, func() *reason { return h.admitAutoQuota(snapshot, &admission) }, true); failure != nil {
+		if failure := h.checkRequestAudit(requestCtx, snapshot, key, effective.metadata.Operation, payload, recorder, func() *reason { return h.admitAutoQuota(snapshot, &admission) }); failure != nil {
 			reject(*failure)
 			return
 		}

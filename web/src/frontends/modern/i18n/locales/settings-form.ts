@@ -48,7 +48,7 @@ export const zhCN = {
   },
   fields: {
     jev: 'JEV 公共配置',
-    request_audit: '请求审计（实验性）',
+    request_audit: '智能护栏',
     route_strategy: '路由策略',
     auto_model: '自动模型',
     affinity_enabled: '请求亲和',
@@ -70,7 +70,7 @@ export const zhCN = {
   },
   hints: {
     jev: '自动模型与语义审计共用。请求文本会发送到所选分组；语义审计需要明确指定分组。',
-    request_audit: '检查外发文本中的敏感信息与规则风险。',
+    request_audit: '使用 JEV 按自定义规则拦截或告警。',
     auto_model: 'Jev 选择预设，现有调度选择分组和凭据。',
     route_strategy:
       '原生优先先选择原生协议；混合权重让原生与转换候选按有效权重竞争，请求亲和仍生效。',
@@ -211,7 +211,7 @@ export const enUS = {
   },
   fields: {
     jev: 'Shared JEV configuration',
-    request_audit: 'Request audit (experimental)',
+    request_audit: 'AI Guardrails',
     route_strategy: 'Routing strategy',
     auto_model: 'Automatic models',
     affinity_enabled: 'Request affinity',
@@ -233,7 +233,7 @@ export const enUS = {
   },
   hints: {
     jev: 'Used by automatic models and semantic auditing. Request text is sent to this route; semantic auditing requires an explicit group.',
-    request_audit: 'Check outbound text for secrets and policy risks.',
+    request_audit: 'Use JEV to block or warn on custom rules.',
     route_strategy:
       'Native first prefers native protocols. Weighted mix lets native and converted candidates compete by effective weight. Request affinity still applies.',
     affinity_enabled: 'Reuse the previously selected route. Individual groups may override this.',
@@ -379,7 +379,7 @@ export const jaJP = {
   },
   fields: {
     jev: 'JEV 共通設定',
-    request_audit: 'リクエスト監査（実験的）',
+    request_audit: 'AI ガードレール',
     route_strategy: 'ルーティング方式',
     auto_model: '自動モデル',
     affinity_enabled: 'リクエスト親和性',
@@ -401,7 +401,7 @@ export const jaJP = {
   },
   hints: {
     jev: '自動モデルと意味監査で共用します。リクエスト本文を選択したグループに送信します。意味監査にはグループの指定が必要です。',
-    request_audit: '送信するテキストの秘密情報とルール違反を確認します。',
+    request_audit: 'JEV が独自ルールでブロックまたは警告します。',
     route_strategy:
       'ネイティブ優先は元のプロトコルを優先し、重み付き混合は変換候補も含めて選択します。親和性は引き続き適用されます。',
     affinity_enabled: '前回選択したルートを再利用します。グループごとに上書きできます。',

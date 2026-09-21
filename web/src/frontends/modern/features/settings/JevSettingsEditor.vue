@@ -49,8 +49,9 @@ function selectGroup(value: string) {
 
 <template>
   <div class="modern-jev-settings">
-    <AppNotice>{{ t('jev.help') }}</AppNotice>
-    <AppNotice v-if="error" tone="danger">{{ t('requestAudit.invalid') }}</AppNotice>
+    <AppNotice v-if="error" class="modern-jev-error" tone="danger">{{
+      t('requestAudit.invalid')
+    }}</AppNotice>
     <AppSearchSelect
       :model-value="String(modelValue.group_id)"
       :options="groups"
@@ -79,6 +80,16 @@ function selectGroup(value: string) {
 <style scoped>
 .modern-jev-settings {
   display: grid;
-  gap: var(--modern-space-4);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.6fr);
+  gap: var(--modern-space-3);
+  min-width: 0;
+}
+.modern-jev-error {
+  grid-column: 1 / -1;
+}
+@container modern-settings-content (max-width: 620px) {
+  .modern-jev-settings {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

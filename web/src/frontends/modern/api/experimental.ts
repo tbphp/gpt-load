@@ -9,15 +9,14 @@ export interface JevConfig {
 export interface AuditRule {
   id: string
   name: string
+  enabled: boolean
   instructions: string
+  action: 'block' | 'warn'
   threshold: number
 }
 export interface AuditConfig {
   enabled: boolean
-  mode: 'observe' | 'enforce'
   access_key_ids: number[]
-  local_secrets: boolean
-  semantic_enabled: boolean
   rules: AuditRule[]
 }
 export interface DecisionRoute {
@@ -32,10 +31,7 @@ export interface AuditAccessKey {
 export const defaultJev = (): JevConfig => ({ model: '', group_id: 0, timeout_seconds: 2 })
 export const defaultAudit = (): AuditConfig => ({
   enabled: false,
-  mode: 'observe',
   access_key_ids: [],
-  local_secrets: true,
-  semantic_enabled: false,
   rules: [],
 })
 export function readJev(value: unknown): JevConfig {
@@ -52,10 +48,7 @@ export function readAudit(value: unknown): AuditConfig {
   const row = record(value)
   return {
     enabled: boolean(row.enabled),
-    mode: oneOf(row.mode, ['observe', 'enforce']),
     access_key_ids: list(row.access_key_ids).map((id) => integer(id, 1)),
-    local_secrets: boolean(row.local_secrets),
-    semantic_enabled: boolean(row.semantic_enabled),
     rules: list(row.rules).map((value) => {
       const rule = record(value)
       if (typeof rule.threshold !== 'number' || !Number.isFinite(rule.threshold))
@@ -63,6 +56,8 @@ export function readAudit(value: unknown): AuditConfig {
       return {
         id: text(rule.id),
         name: text(rule.name),
+        enabled: boolean(rule.enabled),
+        action: oneOf(rule.action, ['block', 'warn']),
         instructions: text(rule.instructions),
         threshold: rule.threshold,
       }
@@ -94,34 +89,32 @@ export function validJev(value: JevConfig): boolean {
 }
 export function validAudit(value: AuditConfig): boolean {
   return (
-    (!value.enabled || value.local_secrets || value.semantic_enabled) &&
-    (!value.semantic_enabled || value.rules.length > 0) &&
+    (!value.enabled || value.rules.some((r) => r.enabled)) &&
     value.rules.length <= 16 &&
+    new Set(value.rules.map((r) => r.id)).size === value.rules.length &&
     value.rules.every(
-      (r) => r.name.trim() && r.instructions.trim() && r.threshold > 0.5 && r.threshold <= 1,
+      (r) =>
+        /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/u.test(r.id) &&
+        r.name.trim() &&
+        new TextEncoder().encode(r.name).length <= 128 &&
+        r.instructions.trim() &&
+        new TextEncoder().encode(r.instructions).length <= 4096 &&
+        typeof r.enabled === 'boolean' &&
+        ['block', 'warn'].includes(r.action) &&
+        r.threshold > 0 &&
+        r.threshold <= 1,
     )
   )
 }
 
 export interface AuditResult {
-  mode: string
   status: string
   reason: string
-  checks: number
-  duration_ms: number
-  findings: {
-    rule_id: string
-    name: string
-    source: string
-    status: string
-    probability?: number
-  }[]
+  findings: { rule_id: string; name: string; action: string }[]
   calls: {
     model: string
     group_name: string
     called: boolean
-    reason: string
-    duration_ms: number
     estimated_cost_nano_usd: string
     cost_state: string
     pricing_completeness: string
@@ -130,28 +123,11 @@ export interface AuditResult {
 export function readAuditResult(value: unknown): AuditResult {
   const row = record(value)
   return {
-    mode: text(row.mode),
     status: text(row.status),
     reason: row.reason === undefined ? '' : text(row.reason),
-    checks: integer(row.checks),
-    duration_ms: integer(row.duration_ms),
     findings: list(row.findings).map((value) => {
       const f = record(value)
-      if (
-        f.probability !== undefined &&
-        (typeof f.probability !== 'number' ||
-          !Number.isFinite(f.probability) ||
-          f.probability < 0 ||
-          f.probability > 1)
-      )
-        throw new InvalidResponseError()
-      return {
-        rule_id: text(f.rule_id),
-        name: text(f.name),
-        source: text(f.source),
-        status: text(f.status),
-        probability: f.probability as number | undefined,
-      }
+      return { rule_id: text(f.rule_id), name: text(f.name), action: text(f.action) }
     }),
     calls: list(row.calls).map((value) => {
       const c = record(value)
@@ -161,8 +137,6 @@ export function readAuditResult(value: unknown): AuditResult {
         model: text(c.model),
         group_name: text(c.group_name),
         called: boolean(c.called),
-        reason: c.reason === undefined ? '' : text(c.reason),
-        duration_ms: integer(c.duration_ms),
         estimated_cost_nano_usd: amount,
         cost_state: text(c.cost_state),
         pricing_completeness: text(c.pricing_completeness),
