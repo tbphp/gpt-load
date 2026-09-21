@@ -74,7 +74,7 @@ func TestUpdateGroupChannelKeepsOperatorConfiguredBaseURL(t *testing.T) {
 	}
 }
 
-func TestUpdateGroupChannelDropsPreviousChannelDefaultBaseURL(t *testing.T) {
+func TestUpdateGroupChannelKeepsABaseURLThatMatchesTheChannelPreset(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
 	fixedBaseURL, ok := fixture.channelRegistry.FixedBaseURL(channel.ZhipuAI)
@@ -83,7 +83,7 @@ func TestUpdateGroupChannelDropsPreviousChannelDefaultBaseURL(t *testing.T) {
 	}
 	groupID := createChannelGroup(
 		t, fixture, channel.ZhipuAI,
-		fmt.Sprintf(`{"base_url":%q}`, fixedBaseURL), "sk-drop-default",
+		fmt.Sprintf(`{"base_url":%q}`, fixedBaseURL), "sk-keep-preset",
 	)
 
 	got, err := fixture.service.UpdateGroupChannel(t.Context(), groupID, GroupChannelUpdateRequest{
@@ -92,8 +92,31 @@ func TestUpdateGroupChannelDropsPreviousChannelDefaultBaseURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateGroupChannel() error = %v", err)
 	}
-	if string(got.Params) != `{}` {
-		t.Fatalf("response params = %s, want the previous channel default dropped", got.Params)
+	// A stored address is the operator's, even when it equals a channel preset:
+	// nothing distinguishes a prefilled value from a typed one.
+	if string(got.Params) != fmt.Sprintf(`{"base_url":%q}`, fixedBaseURL) {
+		t.Fatalf("response params = %s, want the stored address kept", got.Params)
+	}
+}
+
+func TestUpdateGroupChannelKeepsTheAddressWhenTheTargetRequiresOne(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	groupID := createChannelGroup(
+		t, fixture, channel.OpenAI,
+		`{"base_url":"https://api.openai.com/v1"}`, "sk-required-target",
+	)
+
+	// Dropping the address here would leave a channel whose base URL is
+	// mandatory with nothing to validate, failing a switch the operator can do.
+	got, err := fixture.service.UpdateGroupChannel(t.Context(), groupID, GroupChannelUpdateRequest{
+		ChannelID: channel.NewAPI,
+	})
+	if err != nil {
+		t.Fatalf("UpdateGroupChannel() error = %v", err)
+	}
+	if string(got.Params) != `{"base_url":"https://api.openai.com/v1"}` {
+		t.Fatalf("response params = %s, want the stored address kept", got.Params)
 	}
 }
 
@@ -393,32 +416,31 @@ func TestMigrateGroupParamsKeepsSharedKeysAndDropsTheRest(t *testing.T) {
 	}
 	cases := []struct {
 		name    string
-		from    channel.ID
 		to      channel.ID
 		current string
 		want    string
 	}{
 		{
-			name: "operator base URL survives",
-			from: channel.OpenAICompatible, to: channel.OpenAI,
+			name:    "operator base URL survives",
+			to:      channel.OpenAI,
 			current: `{"base_url":"https://relay.example/v1"}`,
 			want:    `{"base_url":"https://relay.example/v1"}`,
 		},
 		{
-			name: "previous channel default is dropped",
-			from: channel.ZhipuAI, to: channel.OpenAI,
+			name:    "a base URL matching the previous preset is still the operator's",
+			to:      channel.OpenAI,
 			current: fmt.Sprintf(`{"base_url":%q}`, fixedBaseURL),
-			want:    `{}`,
+			want:    fmt.Sprintf(`{"base_url":%q}`, fixedBaseURL),
 		},
 		{
-			name: "unknown key is dropped",
-			from: channel.AzureOpenAI, to: channel.OpenAI,
+			name:    "unknown key is dropped",
+			to:      channel.OpenAI,
 			current: `{"endpoint":"https://contoso.openai.azure.com"}`,
 			want:    `{}`,
 		},
 		{
-			name: "target default fills a declared key",
-			from: channel.OpenAI, to: channel.GoogleVertex,
+			name:    "target default fills a declared key",
+			to:      channel.GoogleVertex,
 			current: `{"base_url":"https://relay.example/v1"}`,
 			want:    `{"location":"global"}`,
 		},
@@ -427,7 +449,7 @@ func TestMigrateGroupParamsKeepsSharedKeysAndDropsTheRest(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := migrateGroupParams(
-				registry, nil, testCase.from, testCase.to, models.JSON(testCase.current),
+				registry, testCase.to, models.JSON(testCase.current),
 			)
 			if err != nil {
 				t.Fatalf("migrateGroupParams() error = %v", err)
@@ -443,7 +465,7 @@ func TestMigrateGroupParamsRejectsAMissingRequiredTargetKey(t *testing.T) {
 	t.Parallel()
 	registry := channel.NewRegistry()
 
-	_, err := migrateGroupParams(registry, nil, channel.OpenAI, channel.NewAPI, models.JSON(`{}`))
+	_, err := migrateGroupParams(registry, channel.NewAPI, models.JSON(`{}`))
 	if !errors.Is(err, app_errors.ErrValidation) {
 		t.Fatalf("migrateGroupParams() error = %v, want %v", err, app_errors.ErrValidation)
 	}
@@ -526,96 +548,5 @@ func TestGroupChannelHTTPMissingGroupDoesNotMutate(t *testing.T) {
 	}
 	if got := fixture.manager.Current().Revision; got != beforeRevision {
 		t.Fatalf("missing group published revision %d, want %d", got, beforeRevision)
-	}
-}
-
-// fakeChannelDefaultBaseURLs stands in for the SDK-backed provider so tests can
-// pin a channel default without initializing a real upstream SDK.
-type fakeChannelDefaultBaseURLs struct {
-	byChannel map[channel.ID]string
-	err       error
-}
-
-func (fake fakeChannelDefaultBaseURLs) DefaultBaseURL(id channel.ID) (string, bool, error) {
-	if fake.err != nil {
-		return "", false, fake.err
-	}
-	value, ok := fake.byChannel[id]
-	return value, ok, nil
-}
-
-func TestMigrateGroupParamsDropsTheSDKDefaultBaseURL(t *testing.T) {
-	t.Parallel()
-	registry := channel.NewRegistry()
-	// Creating an OpenAI group in the modern UI stores the channel default that
-	// /api/channels reported, which comes from the SDK rather than the descriptor.
-	defaults := fakeChannelDefaultBaseURLs{
-		byChannel: map[channel.ID]string{channel.OpenAI: "https://api.openai.com/v1"},
-	}
-
-	got, err := migrateGroupParams(
-		registry, defaults, channel.OpenAI, channel.DeepSeek,
-		models.JSON(`{"base_url":"https://api.openai.com/v1"}`),
-	)
-	if err != nil {
-		t.Fatalf("migrateGroupParams() error = %v", err)
-	}
-	if string(got) != `{}` {
-		t.Fatalf("migrateGroupParams() = %s, want the previous SDK default dropped", got)
-	}
-}
-
-func TestMigrateGroupParamsKeepsAnOperatorBaseURLWhenAnSDKDefaultExists(t *testing.T) {
-	t.Parallel()
-	registry := channel.NewRegistry()
-	defaults := fakeChannelDefaultBaseURLs{
-		byChannel: map[channel.ID]string{channel.OpenAI: "https://api.openai.com/v1"},
-	}
-
-	got, err := migrateGroupParams(
-		registry, defaults, channel.OpenAI, channel.DeepSeek,
-		models.JSON(`{"base_url":"https://relay.example/v1"}`),
-	)
-	if err != nil {
-		t.Fatalf("migrateGroupParams() error = %v", err)
-	}
-	if string(got) != `{"base_url":"https://relay.example/v1"}` {
-		t.Fatalf("migrateGroupParams() = %s, want the operator value kept", got)
-	}
-}
-
-func TestMigrateGroupParamsPropagatesADefaultBaseURLFailure(t *testing.T) {
-	t.Parallel()
-	registry := channel.NewRegistry()
-	defaults := fakeChannelDefaultBaseURLs{err: errors.New("sdk unavailable")}
-
-	_, err := migrateGroupParams(
-		registry, defaults, channel.OpenAI, channel.DeepSeek,
-		models.JSON(`{"base_url":"https://relay.example/v1"}`),
-	)
-	if err == nil {
-		t.Fatal("migrateGroupParams() error = nil, want the provider failure surfaced")
-	}
-}
-
-func TestUpdateGroupChannelDropsTheSDKDefaultBaseURL(t *testing.T) {
-	t.Parallel()
-	fixture := newServiceFixture(t)
-	fixture.service.channelDefaultBaseURLs = fakeChannelDefaultBaseURLs{
-		byChannel: map[channel.ID]string{channel.OpenAI: "https://api.openai.com/v1"},
-	}
-	groupID := createChannelGroup(
-		t, fixture, channel.OpenAI,
-		`{"base_url":"https://api.openai.com/v1"}`, "sk-sdk-default",
-	)
-
-	got, err := fixture.service.UpdateGroupChannel(t.Context(), groupID, GroupChannelUpdateRequest{
-		ChannelID: channel.DeepSeek,
-	})
-	if err != nil {
-		t.Fatalf("UpdateGroupChannel() error = %v", err)
-	}
-	if string(got.Params) != `{}` {
-		t.Fatalf("response params = %s, want the previous SDK default dropped", got.Params)
 	}
 }

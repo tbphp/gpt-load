@@ -280,13 +280,13 @@ export default {
       base: {
         description: '名称、渠道参数与启用状态影响整个分组。',
         channel: '渠道',
-        channelHelp: '只能在 API 密钥渠道之间切换；自定义参数保留，渠道默认值换成新渠道的。',
+        channelHelp: '只能在 API 密钥渠道之间切换；上游地址与参数原样保留，切换后按需修改。',
         channelSwitchBlocked: '有未保存的修改，请先保存或放弃后再切换渠道。',
         channelSwitch: '切换到 {channel}？',
         channelSwitchHelp:
           '凭据保持不变，但健康统计、冷却和会话亲和会重置。模型列表不变，请确认新渠道支持这些模型。',
         channelSwitchBaseURL:
-          '你自定义的上游地址会原样保留，但各渠道对地址格式的要求不同，切换后请检查它是否仍然正确。',
+          '上游地址会原样保留，但各渠道对地址格式的要求不同，切换后请检查它是否仍然正确。',
         channelSwitchConfirm: '确认切换',
         channelSwitchAnyway: '仍然切换',
         channelSwitchConflict: '{groups} 已经使用相同的上游目标。',

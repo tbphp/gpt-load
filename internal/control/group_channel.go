@@ -61,9 +61,7 @@ func (s *Service) UpdateGroupChannel(
 		if group.ProxyConfig != nil && !s.channelRegistry.SupportsOutboundProxy(targetChannel) {
 			return app_errors.ErrValidation
 		}
-		params, err := migrateGroupParams(
-			s.channelRegistry, s.channelDefaultBaseURLs, previousChannel, targetChannel, group.Params,
-		)
+		params, err := migrateGroupParams(s.channelRegistry, targetChannel, group.Params)
 		if err != nil {
 			return err
 		}
@@ -166,13 +164,14 @@ func (s *Service) validateGroupCredentialsForChannel(
 }
 
 // migrateGroupParams reshapes stored parameters for the target channel. Keys the
-// target does not declare are dropped, and a base URL that still equals the
-// previous channel default gives way to the target channel default. Every other
-// operator-entered value survives the switch untouched.
+// target does not declare are dropped; every value it does declare survives the
+// switch untouched. A stored address is always treated as the operator's, since
+// nothing distinguishes a value the create form prefilled from a typed one, and
+// dropping it would both discard operator data and break a switch to a channel
+// whose base URL is mandatory.
 func migrateGroupParams(
 	registry *channel.Registry,
-	defaults channelDefaultBaseURLProvider,
-	previous, target channel.ID,
+	target channel.ID,
 	current models.JSON,
 ) (json.RawMessage, error) {
 	if registry == nil {
@@ -194,15 +193,6 @@ func migrateGroupParams(
 		if !exists || value == "" {
 			continue
 		}
-		if field.Key == "base_url" {
-			inherited, err := isChannelDefaultBaseURL(registry, defaults, previous, value)
-			if err != nil {
-				return nil, err
-			}
-			if inherited {
-				continue
-			}
-		}
 		migrated[field.Key] = value
 	}
 	encoded, err := json.Marshal(migrated)
@@ -214,35 +204,4 @@ func migrateGroupParams(
 		return nil, app_errors.ErrValidation
 	}
 	return params.CanonicalJSON(), nil
-}
-
-// isChannelDefaultBaseURL reports whether a stored base URL is the value the
-// channel itself would have supplied, which marks it as inherited rather than
-// operator-entered. It reads the same three sources the channel listing does:
-// a fixed preset, a descriptor hint, and the base URL the locked SDK writes
-// into an empty channel configuration.
-func isChannelDefaultBaseURL(
-	registry *channel.Registry,
-	defaults channelDefaultBaseURLProvider,
-	channelID channel.ID,
-	value string,
-) (bool, error) {
-	if fixed, ok := registry.FixedBaseURL(channelID); ok && fixed == value {
-		return true, nil
-	}
-	descriptor, ok := registry.Get(channelID)
-	if !ok {
-		return false, nil
-	}
-	if slices.Contains(descriptor.DefaultBaseURLs, value) {
-		return true, nil
-	}
-	if defaults == nil || len(descriptor.DefaultBaseURLs) > 0 {
-		return false, nil
-	}
-	sdkDefault, unique, err := defaults.DefaultBaseURL(channelID)
-	if err != nil {
-		return false, err
-	}
-	return unique && sdkDefault == value, nil
 }

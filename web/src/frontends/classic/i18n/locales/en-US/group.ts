@@ -288,13 +288,13 @@ export default {
         description: 'Name, channel parameters, and enabled status affect the entire Group.',
         channel: 'Channel',
         channelHelp:
-          'Switching is limited to API key channels. Custom parameters are kept; channel defaults become the new channel defaults.',
+          'Switching is limited to API key channels. The upstream address and parameters are kept as they are; adjust them after the switch.',
         channelSwitchBlocked: 'Save or discard the unsaved changes before switching channels.',
         channelSwitch: 'Switch to {channel}?',
         channelSwitchHelp:
           'Credentials stay as they are, but health statistics, cooldowns, and session affinity reset. The model list is unchanged, so confirm the new channel serves these models.',
         channelSwitchBaseURL:
-          'Your custom upstream URL is kept as is, but channels differ in the URL shape they expect, so check it after the switch.',
+          'The upstream address is kept as is, but channels differ in the URL shape they expect, so check it after the switch.',
         channelSwitchConfirm: 'Switch',
         channelSwitchAnyway: 'Switch anyway',
         channelSwitchConflict: '{groups} already use the same upstream target.',

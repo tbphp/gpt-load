@@ -282,11 +282,8 @@ const switchConflict = ref<{ id: number; name: string }[]>()
 const switching = ref(false)
 const switchError = ref('')
 const busy = computed(() => saving.value || switching.value)
-// 自定义地址按原样保留，但各渠道对地址格式的要求不同，切换时提醒复核。
-const keepsCustomBaseURL = computed(() => {
-  const value = (saved.value?.params.base_url ?? '').trim()
-  return Boolean(value) && value !== (props.channel?.defaultBaseURL ?? '')
-})
+// 地址按原样保留，但各渠道对地址格式的要求不同，切换时提醒复核。
+const keepsBaseURL = computed(() => Boolean((saved.value?.params.base_url ?? '').trim()))
 const pendingChannelName = computed(
   () => switchableChannels.value.find((item) => item.id === requestedChannel.value)?.name ?? '',
 )
@@ -548,7 +545,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
         ? t('groupDetail.channelSwitchConflict', {
             groups: switchConflict.map((item) => item.name).join(', '),
           })
-        : keepsCustomBaseURL
+        : keepsBaseURL
           ? t('groupDetail.channelSwitchHelp') + ' ' + t('groupDetail.channelSwitchBaseURL')
           : t('groupDetail.channelSwitchHelp')
     "

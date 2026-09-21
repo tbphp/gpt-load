@@ -487,11 +487,8 @@ const requestedChannelName = computed(
     switchableChannels.value.find(({ channel_id }) => channel_id === requestedChannel.value)
       ?.name ?? '',
 )
-// 自定义地址按原样保留，但各渠道对地址格式的要求不同，切换时提醒复核。
-const keepsCustomBaseURL = computed(() => {
-  const value = (draft.value?.params.base_url ?? '').trim()
-  return Boolean(value) && value !== (selectedChannel.value?.default_base_url ?? '')
-})
+// 地址按原样保留，但各渠道对地址格式的要求不同，切换时提醒复核。
+const keepsBaseURL = computed(() => Boolean((draft.value?.params.base_url ?? '').trim()))
 function requestChannelSwitch(value: string): void {
   if (!value || value === saved.value?.channel_id || mutationPending.value || dirty.value) {
     return
@@ -1062,7 +1059,7 @@ onBeforeUnmount(() => {
       :description="
         channelConflict
           ? t('group.settings.base.channelSwitchConflict', { groups: channelConflict.join(', ') })
-          : keepsCustomBaseURL
+          : keepsBaseURL
             ? t('group.settings.base.channelSwitchHelp') +
               ' ' +
               t('group.settings.base.channelSwitchBaseURL')
