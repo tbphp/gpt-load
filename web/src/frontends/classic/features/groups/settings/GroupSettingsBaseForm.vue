@@ -16,6 +16,9 @@ import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 const props = defineProps<{
   section: 'general' | 'routing'
   channelId: string
+  channelOptions?: { id: string; name: string }[]
+  channelSwitchDisabled?: boolean
+  channelSwitchHint?: string
   connectionType: ConnectionType
   defaultBaseUrl: string
   defaultBaseUrls: string[]
@@ -35,6 +38,7 @@ const props = defineProps<{
   paramErrors: Record<string, string>
 }>()
 const emit = defineEmits<{
+  'switch:channel': [value: string]
   'update:param': [key: string, value: string | null]
   'update:name': [value: string]
   'update:validationProtocol': [value: AccessProtocol]
@@ -106,6 +110,13 @@ function parameterLabel(field: ChannelFieldDto): string {
   return t('common.upstreamUrl.label')
 }
 
+// 切换由父组件确认后才落库，所以这里立即把控件恢复成当前渠道。
+function requestChannelSwitch(event: Event): void {
+  const select = event.target as HTMLSelectElement
+  const value = select.value
+  select.value = props.channelId
+  emit('switch:channel', value)
+}
 function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
   if (field.input_kind !== 'url') return undefined
   return field.key === 'base_url' ? defaultBaseUrls.value[0] || 'https://' : 'https://'
@@ -143,6 +154,19 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
           {{ t('common.priceMultiplier.invalid') }}
         </small>
         <small v-else>{{ t('common.priceMultiplier.groupHelp') }}</small>
+      </label>
+      <label v-if="(channelOptions?.length ?? 0) > 1" class="group-settings__field">
+        <span>{{ t('group.settings.base.channel') }}</span>
+        <select
+          :value="channelId"
+          :disabled="pending || channelSwitchDisabled"
+          @change="requestChannelSwitch($event)"
+        >
+          <option v-for="option in channelOptions" :key="option.id" :value="option.id">
+            {{ option.name }}
+          </option>
+        </select>
+        <small>{{ channelSwitchHint || t('group.settings.base.channelHelp') }}</small>
       </label>
       <GroupTestFields
         v-if="!isSubscription"

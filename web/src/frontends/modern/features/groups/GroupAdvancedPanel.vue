@@ -6,11 +6,13 @@ import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import {
+  ChannelSwitchConflictError,
   getGroupSettings,
   groupSettingsKey,
   runtimeNumbers,
   runtimeSwitches,
   saveGroupSettings,
+  switchGroupChannel,
   type AdvancedSettingsPatch,
   type GroupModel,
   type GroupSettings,
@@ -18,12 +20,13 @@ import {
   type RuntimeNumber,
   type RuntimeSettings,
 } from '@modern/api/group-detail'
-import type { GroupChannel } from '@modern/api/group-create'
+import { getGroupChannels, type GroupChannel } from '@modern/api/group-create'
 import type { GroupRow } from '@modern/api/groups'
 import {
   AppProtocolTag,
   AppButton,
   AppCollectionState,
+  AppConfirmDialog,
   AppIconButton,
   AppNotice,
   AppFormSection,
@@ -33,6 +36,7 @@ import {
   AppTextArea,
   AppTextField,
 } from '@modern/components/ui'
+import { channelSearchOption } from '@modern/components/channel-options'
 import { useApiClient } from '@shared/http/client-context'
 import { validBaseURL } from './group-create-rules'
 import { validProxyURL } from '@modern/app/proxy'
@@ -261,6 +265,69 @@ async function save(): Promise<void> {
     saving.value = false
   }
 }
+// 切换渠道是独立的高危写入：不进入统一草稿，保存后由后端回填参数。
+const channelsQuery = useQuery({
+  queryKey: ['modern', 'group-channels'],
+  queryFn: ({ signal }) => getGroupChannels(client, signal),
+  enabled: computed(() => props.group.connectionType === 'api_key'),
+})
+const switchableChannels = computed(() =>
+  (channelsQuery.data.value ?? []).filter((item) => item.connectionType === 'api_key'),
+)
+const channelOptions = computed(() => switchableChannels.value.map(channelSearchOption))
+const switchable = computed(
+  () => props.group.connectionType === 'api_key' && channelOptions.value.length > 1,
+)
+const requestedChannel = ref('')
+const switchConflict = ref<{ id: number; name: string }[]>()
+const switching = ref(false)
+const switchError = ref('')
+const pendingChannelName = computed(
+  () => switchableChannels.value.find((item) => item.id === requestedChannel.value)?.name ?? '',
+)
+function requestChannelSwitch(value: string): void {
+  if (!value || value === saved.value?.channelID || switching.value || dirty.value) return
+  switchConflict.value = undefined
+  switchError.value = ''
+  requestedChannel.value = value
+}
+function cancelChannelSwitch(): void {
+  if (switching.value) return
+  requestedChannel.value = ''
+  switchConflict.value = undefined
+  switchError.value = ''
+}
+async function confirmChannelSwitch(): Promise<void> {
+  if (!requestedChannel.value || switching.value) return
+  switching.value = true
+  switchError.value = ''
+  try {
+    await cache.cancelQueries({ queryKey: groupSettingsKey(props.group.id) })
+    const result = await switchGroupChannel(
+      client,
+      props.group.id,
+      requestedChannel.value,
+      switchConflict.value !== undefined,
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+    // 草稿此时与切换前一致（dirty 为真时不允许切换），watch 会用新数据重建。
+    cache.setQueryData(groupSettingsKey(props.group.id), result)
+    requestedChannel.value = ''
+    switchConflict.value = undefined
+    emit('saved')
+  } catch (cause) {
+    if (controller.signal.aborted) return
+    if (cause instanceof ChannelSwitchConflictError) {
+      switchConflict.value = cause.conflict.groups
+      return
+    }
+    switchError.value = t('groupDetail.channelSwitchFailed')
+  } finally {
+    switching.value = false
+  }
+}
+
 onScopeDispose(() => controller.abort())
 useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : undefined))
 </script>
@@ -282,6 +349,19 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
     >
     <template v-else>
       <AppFormSection :title="t('groupDetail.connection')">
+        <AppSearchSelect
+          v-if="switchable"
+          :model-value="saved.channelID"
+          :label="t('groupDetail.channel')"
+          :description="
+            dirty ? t('groupDetail.channelSwitchBlocked') : t('groupDetail.channelHelp')
+          "
+          :options="channelOptions"
+          size="sm"
+          :disabled="saving || switching || dirty"
+          @update:model-value="requestChannelSwitch($event)"
+        />
+        <AppNotice v-if="switchError" tone="danger">{{ switchError }}</AppNotice>
         <AppTextField
           v-for="field in channel?.fields ?? []"
           :key="field.key"
@@ -454,6 +534,26 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
       </AppFormSection>
     </template>
   </GroupWorkspacePanel>
+  <AppConfirmDialog
+    :open="Boolean(requestedChannel)"
+    :title="t('groupDetail.channelSwitch')"
+    :subject="pendingChannelName"
+    :description="
+      switchConflict
+        ? t('groupDetail.channelSwitchConflict', {
+            groups: switchConflict.map((item) => item.name).join(', '),
+          })
+        : t('groupDetail.channelSwitchHelp')
+    "
+    :cancel-label="t('ui.cancel')"
+    :confirm-label="
+      t(switchConflict ? 'groupDetail.channelSwitchAnyway' : 'groupDetail.channelSwitchConfirm')
+    "
+    tone="danger"
+    :pending="switching"
+    @cancel="cancelChannelSwitch"
+    @confirm="confirmChannelSwitch"
+  />
 </template>
 
 <style scoped>

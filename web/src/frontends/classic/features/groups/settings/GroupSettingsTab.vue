@@ -12,7 +12,7 @@ import type {
   ProxyConfiguredMode,
 } from '@/api/control/types'
 
-import { RequestCancelledError } from '@shared/http/errors'
+import { ApiError, RequestCancelledError } from '@shared/http/errors'
 import { useApiClient } from '@shared/http/client-context'
 import { useStableLoading } from '@/app/loading-state'
 import { proxyDraftState, proxyOverrideToggleMode } from '@/app/resources/proxy'
@@ -22,6 +22,7 @@ import {
   groupModelsQueryOptions,
   groupSettingsQueryOptions,
   invalidateGroupSettingsDependents,
+  switchGroupChannel,
   updateGroupSettings,
 } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
@@ -33,6 +34,7 @@ import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import SettingBlock from '@/components/config/SettingBlock.vue'
 import SettingRow from '@/components/config/SettingRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
@@ -468,6 +470,85 @@ function requestSave(): void {
   void save()
 }
 
+// 切换渠道是独立写入：不并入设置草稿，成功后由后端回填参数与测试协议。
+const switchableChannels = computed(() =>
+  (channelsQuery.data.value?.items ?? [])
+    .filter(({ connection }) => connection.type === 'api_key')
+    .map(({ channel_id, name }) => ({ id: channel_id, name })),
+)
+const channelOptions = computed(() =>
+  draft.value?.connection_type === 'api_key' ? switchableChannels.value : [],
+)
+const requestedChannel = ref('')
+const channelConflict = ref<string[]>()
+const channelSwitchPending = ref(false)
+const requestedChannelName = computed(
+  () => switchableChannels.value.find(({ id }) => id === requestedChannel.value)?.name ?? '',
+)
+function requestChannelSwitch(value: string): void {
+  if (!value || value === saved.value?.channel_id || channelSwitchPending.value || dirty.value) {
+    return
+  }
+  channelConflict.value = undefined
+  error.value = ''
+  requestedChannel.value = value
+}
+function cancelChannelSwitch(): void {
+  if (channelSwitchPending.value) return
+  requestedChannel.value = ''
+  channelConflict.value = undefined
+}
+async function confirmChannelSwitch(): Promise<void> {
+  if (!requestedChannel.value || channelSwitchPending.value) return
+  const active = new AbortController()
+  controller = active
+  channelSwitchPending.value = true
+  error.value = ''
+  try {
+    const result = await switchGroupChannel(
+      client,
+      props.groupId,
+      requestedChannel.value,
+      channelConflict.value !== undefined,
+      active.signal,
+    )
+    if (controller !== active) return
+    resetSavedDraft(result)
+    cacheGroupSettings(queryClient, props.groupId, result)
+    await invalidateGroupSettingsDependents(queryClient, props.groupId)
+    requestedChannel.value = ''
+    channelConflict.value = undefined
+    showSavedFeedback()
+  } catch (cause: unknown) {
+    if (cause instanceof RequestCancelledError || controller !== active) return
+    const conflict = channelTargetConflictGroups(cause)
+    if (conflict) {
+      channelConflict.value = conflict
+      return
+    }
+    error.value = t('group.settings.base.channelSwitchFailed')
+  } finally {
+    if (controller === active) {
+      controller = undefined
+      channelSwitchPending.value = false
+    }
+  }
+}
+function channelTargetConflictGroups(cause: unknown): string[] | undefined {
+  if (!(cause instanceof ApiError) || cause.code !== 'CHANNEL_TARGET_CONFLICT') return undefined
+  const data = cause.data
+  if (typeof data !== 'object' || data === null || !('groups' in data)) return []
+  const groups = (data as { groups: unknown }).groups
+  if (!Array.isArray(groups)) return []
+  return groups.flatMap((value) =>
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { name?: unknown }).name === 'string'
+      ? [(value as { name: string }).name]
+      : [],
+  )
+}
+
 async function save(): Promise<void> {
   if (!saved.value || !draft.value || mutationPending.value || !valid.value) return
   const active = new AbortController()
@@ -564,6 +645,9 @@ onBeforeUnmount(() => {
           <GroupSettingsBaseForm
             section="general"
             :channel-id="draft.channel_id"
+            :channel-options="channelOptions"
+            :channel-switch-disabled="dirty || channelSwitchPending"
+            :channel-switch-hint="dirty ? t('group.settings.base.channelSwitchBlocked') : undefined"
             :connection-type="draft.connection_type"
             :default-base-url="selectedChannel?.default_base_url ?? ''"
             :default-base-urls="selectedChannel?.default_base_urls ?? []"
@@ -581,6 +665,7 @@ onBeforeUnmount(() => {
             :params-disabled="channelParamsDisabled"
             :name-error="nameError"
             :param-errors="paramErrors"
+            @switch:channel="requestChannelSwitch"
             @update:param="updateParam"
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
@@ -964,6 +1049,28 @@ onBeforeUnmount(() => {
         ></StickySaveBar
       >
     </template>
+    <AppConfirmDialog
+      :open="Boolean(requestedChannel)"
+      :title="t('group.settings.base.channelSwitch', { channel: requestedChannelName })"
+      :description="
+        channelConflict
+          ? t('group.settings.base.channelSwitchConflict', { groups: channelConflict.join(', ') })
+          : t('group.settings.base.channelSwitchHelp')
+      "
+      :close-label="t('common.close')"
+      :cancel-label="t('common.cancel')"
+      :confirm-label="
+        t(
+          channelConflict
+            ? 'group.settings.base.channelSwitchAnyway'
+            : 'group.settings.base.channelSwitchConfirm',
+        )
+      "
+      tone="danger"
+      :pending="channelSwitchPending"
+      @cancel="cancelChannelSwitch"
+      @confirm="confirmChannelSwitch"
+    />
   </section>
 </template>
 

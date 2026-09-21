@@ -122,6 +122,16 @@ export const zhCN = {
     reauthorization_required: '需要重新授权',
     outcome_unknown: '授权状态待确认',
   },
+  channel: '渠道',
+  channelHelp: '只能在 API 密钥渠道之间切换；自定义参数保留，渠道默认值换成新渠道的。',
+  channelSwitchBlocked: '有未保存的修改，请先保存或放弃后再切换渠道。',
+  channelSwitch: '切换渠道',
+  channelSwitchHelp:
+    '凭据保持不变，但健康统计、冷却和会话亲和会重置。模型列表不变，请确认新渠道支持这些模型。',
+  channelSwitchConfirm: '确认切换',
+  channelSwitchAnyway: '仍然切换',
+  channelSwitchConflict: '{groups} 已经使用相同的上游目标。',
+  channelSwitchFailed: '切换渠道失败，请重试。',
   runtimeFields: {
     first_byte_timeout: '首响应超时',
     request_timeout: '单次请求超时',
@@ -263,6 +273,17 @@ export const enUS: typeof zhCN = {
     reauthorization_required: 'Reauthorization required',
     outcome_unknown: 'Authorization status unknown',
   },
+  channel: 'Channel',
+  channelHelp:
+    'Switching is limited to API key channels. Custom parameters are kept; channel defaults become the new channel defaults.',
+  channelSwitchBlocked: 'Save or discard the unsaved changes before switching channels.',
+  channelSwitch: 'Switch channel',
+  channelSwitchHelp:
+    'Credentials stay as they are, but health statistics, cooldowns and session affinity reset. The model list is unchanged, so confirm the new channel serves these models.',
+  channelSwitchConfirm: 'Switch',
+  channelSwitchAnyway: 'Switch anyway',
+  channelSwitchConflict: '{groups} already use the same upstream target.',
+  channelSwitchFailed: 'Could not switch the channel. Try again.',
   runtimeFields: {
     first_byte_timeout: 'First response timeout',
     request_timeout: 'Request timeout',
@@ -400,6 +421,17 @@ export const jaJP: typeof zhCN = {
     reauthorization_required: '再認証が必要',
     outcome_unknown: '認証状態を確認できません',
   },
+  channel: 'チャネル',
+  channelHelp:
+    'API キーチャネル間でのみ切り替えられます。カスタムパラメータは保持され、チャネル既定値は新しいチャネルの既定値になります。',
+  channelSwitchBlocked: '未保存の変更を保存または破棄してからチャネルを切り替えてください。',
+  channelSwitch: 'チャネルを切り替える',
+  channelSwitchHelp:
+    '認証情報はそのままですが、ヘルス統計・クールダウン・セッションアフィニティはリセットされます。モデル一覧は変わらないため、新しいチャネルが対応しているか確認してください。',
+  channelSwitchConfirm: '切り替える',
+  channelSwitchAnyway: 'それでも切り替える',
+  channelSwitchConflict: '{groups} が同じ上流ターゲットを使用しています。',
+  channelSwitchFailed: 'チャネルを切り替えられませんでした。再試行してください。',
   runtimeFields: {
     first_byte_timeout: '初回応答タイムアウト',
     request_timeout: 'リクエストタイムアウト',
