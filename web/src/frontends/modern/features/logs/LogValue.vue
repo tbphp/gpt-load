@@ -22,7 +22,6 @@ import {
   logHasUsage,
   logMoney,
   logNumber,
-  logOutputRate,
   logStatusTone,
   logTime,
 } from './log-display'
@@ -223,14 +222,6 @@ const hint = computed(() => {
       >{{ display }}</span
     >
   </AppTooltip>
-  <span v-else-if="column === 'duration_ms' && !table" class="modern-log-value-stack">
-    <span>{{ display }}</span>
-    <AppTooltip :label="t('logs.outputRate')">
-      <span tabindex="0" :aria-label="t('logs.outputRate') + ': ' + logOutputRate(row, locale)">{{
-        logOutputRate(row, locale)
-      }}</span>
-    </AppTooltip>
-  </span>
   <span
     v-else-if="table && (column === 'stream' || column === 'affinity_hit')"
     class="modern-log-boolean"
@@ -264,12 +255,6 @@ const hint = computed(() => {
 <style scoped>
 .modern-log-deleted {
   color: var(--modern-muted);
-}
-.modern-log-value-stack {
-  display: inline-grid;
-  min-width: 0;
-  max-width: 100%;
-  gap: var(--modern-space-0-5);
 }
 .modern-log-channel {
   display: flex;

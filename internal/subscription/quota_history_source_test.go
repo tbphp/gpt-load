@@ -156,7 +156,7 @@ func TestQuotaHistoryDiscardedTopCopyDoesNotCreateRebound(t *testing.T) {
 	if err := db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0].ObservedAtMS != 10_000 || rows[1].ObservedAtMS != 3_610_000 || rows[1].UsedBasisPoints != 600 {
-		t.Fatalf("discarded top copy created a false rebound or shifted hourly sampling: %+v", rows)
+	if len(rows) != 4 || rows[0].ObservedAtMS != 10_000 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 300 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != 400 || rows[3].ObservedAtMS != 3_610_000 || rows[3].UsedBasisPoints != 600 {
+		t.Fatalf("discarded top copy changed the canonical history series: %+v", rows)
 	}
 }

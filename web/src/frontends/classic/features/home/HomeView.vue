@@ -69,11 +69,7 @@ watch(
 )
 
 const uptimeNowMS = computed(() => nowMS.value + serverClockOffsetMS.value)
-const releaseUpdate = computed(() =>
-  updateQuery.isSuccess.value && !updateQuery.isFetching.value
-    ? (updateQuery.data.value?.update ?? null)
-    : null,
-)
+const releaseUpdate = computed(() => updateQuery.data.value?.update ?? null)
 const snapshot = computed(() => {
   const state = statistics.state.value
   return state.kind === 'initial' ? null : state.snapshot

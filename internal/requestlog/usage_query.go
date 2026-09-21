@@ -153,11 +153,8 @@ func usageStatScope(db *gorm.DB, input UsageQuery, groupIDs ...uint) *gorm.DB {
 	if input.UpstreamModel != "" {
 		scope = scope.Where("model = ?", input.UpstreamModel)
 	}
-	if includeDecisionUsage(input, groupIDs) {
-		return db.Session(&gorm.Session{NewDB: true}).Table("(? UNION ALL ?) AS usage_rows",
-			scope.Select(usageWindowColumns+", channel_id, credential_id"), decisionUsageScope(db, input).Select(decisionUsageProjection))
-	}
-	return scope
+	return db.Session(&gorm.Session{NewDB: true}).Table("(? UNION ALL ?) AS usage_rows",
+		scope.Select(usageWindowColumns+", channel_id, credential_id"), decisionUsageScope(db, input, groupIDs...).Select(decisionUsageProjection))
 }
 
 func validateUsageStatIntegrity(scope *gorm.DB) error {

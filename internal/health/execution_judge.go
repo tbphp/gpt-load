@@ -376,6 +376,9 @@ func decisionForExecutionCategory(
 			if decisionContext.Operation == execution.OperationRerank {
 				ruleID = "rerank.model_unavailable"
 			}
+			if decisionContext.Operation == execution.OperationDecisionsCreate {
+				ruleID = "decisions.model_unavailable"
+			}
 			return decision(
 				category,
 				origin,

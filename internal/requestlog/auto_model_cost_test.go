@@ -14,12 +14,12 @@ import (
 
 func TestAutoDecisionLogKeepsAnswerCostAndStripsOverridePayload(t *testing.T) {
 	event := testEvent("00000000-0000-4000-8000-000000000592")
-	event.AutoDecision = &automodel.Decision{Selection: automodel.Selection{EntryID: "auto", EntryName: "auto", PresetID: "medium", TargetModel: "upstream-model", ParameterOverrides: json.RawMessage(`[{"set":{"messages":[{"role":"user","content":"private task"}]}}]`), TaskFingerprint: "private-fingerprint"}, Source: "jev", Status: "selected", Provider: "openrouter", RequestedModel: "~typesafe/jev-latest", PromptVersion: automodel.PromptVersion, Called: true, CostState: "priced", PricingCompleteness: "complete", EstimatedCostNanoUSD: 84000}
+	event.AutoDecision = &automodel.Decision{Selection: automodel.Selection{EntryID: "auto", EntryName: "auto", PresetID: "medium", TargetModel: "upstream-model", ParameterOverrides: json.RawMessage(`[{"set":{"messages":[{"role":"user","content":"private task"}]}}]`), TaskFingerprint: "private-fingerprint"}, Source: "jev", Status: "selected", Provider: "openrouter", GroupID: 8, ChannelID: "openrouter", CredentialID: 9, RequestedModel: "jev-router", UpstreamModel: "typesafe/jev-latest", PromptVersion: automodel.PromptVersion, Called: true, CostState: "priced", PricingCompleteness: "complete", EstimatedCostNanoUSD: 84000}
 	row, err := mapEvent(redact.New(), event)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.EstimatedCostNanoUSD != event.Usage.Pricing.EstimatedCostNanoUSD || row.DecisionCostNanoUSD != 84000 || row.DecisionPricingCompleteness != "complete" || len(row.AutoDecision) == 0 {
+	if row.EstimatedCostNanoUSD != event.Usage.Pricing.EstimatedCostNanoUSD || row.DecisionCostNanoUSD != 84000 || row.DecisionPricingCompleteness != "complete" || row.DecisionModel != "typesafe/jev-latest" || row.DecisionGroupID != 8 || row.DecisionChannelID != "openrouter" || row.DecisionCredentialID != 9 || len(row.AutoDecision) == 0 {
 		t.Fatalf("decision quote not saved separately: %#v", row)
 	}
 	if strings.Contains(string(row.AutoDecision), "private task") || strings.Contains(string(row.AutoDecision), "private-fingerprint") {
@@ -27,10 +27,10 @@ func TestAutoDecisionLogKeepsAnswerCostAndStripsOverridePayload(t *testing.T) {
 	}
 }
 
-func TestDecisionFeeIsCountedGloballyOnceAndExcludedFromGroup(t *testing.T) {
+func TestDecisionFeeIsCountedOnceAndAttributedToDecisionRoute(t *testing.T) {
 	db, _ := openRequestLogFileDB(t)
 	event := testEvent("00000000-0000-4000-8000-000000000593")
-	event.AutoDecision = &automodel.Decision{Selection: automodel.Selection{EntryID: "auto", EntryName: "auto", PresetID: "medium", TargetModel: "upstream-model"}, Source: "jev", Status: "selected", Provider: "openrouter", RequestedModel: "~typesafe/jev-latest", PromptVersion: automodel.PromptVersion, Called: true, CostState: "priced", PricingCompleteness: "complete", EstimatedCostNanoUSD: 84000}
+	event.AutoDecision = &automodel.Decision{Selection: automodel.Selection{EntryID: "auto", EntryName: "auto", PresetID: "medium", TargetModel: "upstream-model"}, Source: "jev", Status: "selected", Provider: "openrouter", GroupID: 8, ChannelID: "openrouter", CredentialID: 9, RequestedModel: "jev-router", UpstreamModel: "typesafe/jev-latest", PromptVersion: automodel.PromptVersion, Called: true, CostState: "priced", PricingCompleteness: "complete", EstimatedCostNanoUSD: 84000}
 	row := mustMapEvent(t, redact.New(), event)
 	writer := &gormBatchWriter{db: db}
 	for range 2 {
@@ -54,8 +54,24 @@ func TestDecisionFeeIsCountedGloballyOnceAndExcludedFromGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	if report.Summary.EstimatedCostNanoUSD != 0 || report.Summary.RequestCount != 1 {
-		t.Fatalf("decision fee leaked into answer Group = %#v", report.Summary)
+		t.Fatalf("answer Group aggregate = %#v", report.Summary)
 	}
+	decisionGroup := uint(8)
+	query.GroupID = &decisionGroup
+	report, err = service.QueryUsage(t.Context(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Summary.EstimatedCostNanoUSD != 84000 || report.Summary.RequestCount != 0 {
+		t.Fatalf("decision Group aggregate = %#v", report.Summary)
+	}
+	query.GroupID = nil
+	query.ChannelID = "openrouter"
+	report, err = service.QueryUsage(t.Context(), query)
+	if err != nil || report.Summary.EstimatedCostNanoUSD != 84000 || report.Summary.RequestCount != 0 {
+		t.Fatalf("decision channel aggregate = %#v, %v", report.Summary, err)
+	}
+	query.ChannelID = ""
 	query.GroupID = nil
 	query.ToMS = row.CompletedAtMS + 1000
 	report, err = service.QueryUsage(t.Context(), query)

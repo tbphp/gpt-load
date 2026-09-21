@@ -154,6 +154,7 @@ func completeBindings(bifrost execution.Executor, codex execution.Executor) []Bi
 		{ProviderKind: channel.ProviderGoogleVertex, Adapter: bifrost},
 		{ProviderKind: channel.ProviderDeepSeek, Adapter: bifrost},
 		{ProviderKind: channel.ProviderOpenRouter, Adapter: bifrost},
+		{ProviderKind: channel.ProviderJev, Adapter: bifrost},
 		{ProviderKind: channel.ProviderGroq, Adapter: bifrost},
 		{ProviderKind: channel.ProviderXAI, Adapter: bifrost},
 		{ProviderKind: channel.ProviderCodex, Adapter: codex},

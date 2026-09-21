@@ -37,6 +37,9 @@ const infoRefreshing = computed(
   () => infoQuery.data.value !== undefined && infoQuery.isFetching.value,
 )
 const updateQuery = useQuery(systemUpdateQueryOptions(client))
+const isDevelopmentBuild = computed(() =>
+  /^v?\d+\.\d+\.\d+-dev(?:\.|$)/.test(infoQuery.data.value?.version ?? ''),
+)
 type UpdateCheckState =
   | { kind: 'checking' }
   | { kind: 'latest' }
@@ -73,6 +76,7 @@ function databaseLabel(database: DatabaseDriver): string {
 
 async function checkForUpdate(): Promise<void> {
   if (updateCheckPending.value) return
+  const previousCheck = updateCheck.value
   updateCheckPending.value = true
   manualUpdateCheck.value = { kind: 'checking' }
   try {
@@ -83,12 +87,10 @@ async function checkForUpdate(): Promise<void> {
       : { kind: 'latest' }
   } catch (error) {
     if (error instanceof RequestCancelledError) {
-      manualUpdateCheck.value = null
+      manualUpdateCheck.value = previousCheck
       return
     }
-    // 后端失败时会清空更新结果；同步前端查询缓存，避免继续显示旧提示。
-    queryClient.setQueryData(controlQueryKeys.systemUpdate(), { update: null })
-    manualUpdateCheck.value = { kind: 'failed' }
+    manualUpdateCheck.value = previousCheck ?? { kind: 'failed' }
   } finally {
     updateCheckPending.value = false
   }
@@ -132,7 +134,7 @@ async function checkForUpdate(): Promise<void> {
             <dt>{{ t('settings.system.version') }}</dt>
             <dd class="settings-system__version">
               <span class="settings-system__mono">{{ infoQuery.data.value.version }}</span>
-              <div class="settings-system__update-controls">
+              <div v-if="!isDevelopmentBuild" class="settings-system__update-controls">
                 <AppButton
                   variant="secondary"
                   size="compact"

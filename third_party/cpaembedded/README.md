@@ -42,7 +42,7 @@ the existing HTTP executor remains separate.
 
 Codex HTTP inference (including streaming and images) and WebSocket handshakes
 use the pinned CPA default User-Agent. `Version` is fixed to the matching
-`codexClientVersion` constant, currently `0.154.0`. Downstream and GPT-Load group
+`CodexClientVersion` constant, currently `0.154.0`. Downstream and GPT-Load group
 header rules cannot override, clear, or remove these two identity headers.
 This restriction applies only to Codex; other providers retain their header rules.
 HTTP continues to honor explicit `Originator` rules, including empty values and
