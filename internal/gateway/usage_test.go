@@ -17,11 +17,14 @@ import (
 func TestUsageReturnsOnlyTotalQuotaEvenWhenExhausted(t *testing.T) {
 	for _, test := range []struct {
 		name      string
+		path      string
 		used      int64
 		remaining float64
 	}{
-		{"periodic exhausted", 8_000_000_000, 92},
-		{"total exceeded", 110_000_000_000, 0},
+		{"periodic exhausted", "/v1/user/balance", 8_000_000_000, 92},
+		{"unversioned periodic exhausted", "/user/balance", 8_000_000_000, 92},
+		{"total exceeded", "/v1/user/balance", 110_000_000_000, 0},
+		{"unversioned total exceeded", "/user/balance", 110_000_000_000, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			forwarder := &scriptedForwarder{}
@@ -40,7 +43,7 @@ func TestUsageReturnsOnlyTotalQuotaEvenWhenExhausted(t *testing.T) {
 			runtime.Complete(ticket, test.used)
 			handler.accessQuota = runtime
 			handler.now = func() time.Time { return now.Add(time.Minute) }
-			req := httptest.NewRequest(http.MethodGet, "/user/balance?access_key_id=2", nil)
+			req := httptest.NewRequest(http.MethodGet, test.path+"?access_key_id=2", nil)
 			req.Header.Set("Authorization", "Bearer gl-client")
 			response := httptest.NewRecorder()
 			engine.ServeHTTP(response, req)
@@ -91,7 +94,7 @@ func TestUsageWithoutTotalQuotaReturnsCumulativeCost(t *testing.T) {
 			ticket, _ := handler.accessQuota.Admit(1, time.Now())
 			handler.accessQuota.Complete(ticket, 2_000_000_000)
 		}
-		req := httptest.NewRequest(http.MethodGet, "/user/balance?access_key_id=99", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/user/balance?access_key_id=99", nil)
 		req.Header.Set("Authorization", "Bearer gl-client")
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, req)
@@ -106,10 +109,12 @@ func TestUsageWithoutTotalQuotaReturnsCumulativeCost(t *testing.T) {
 
 func TestUsagePreservesAuthenticationAndErrors(t *testing.T) {
 	for _, test := range []struct {
-		name, key, method string
-		status            int
-		failure           bool
+		name, key, method, path string
+		status                  int
+		failure                 bool
 	}{
+		{name: "unversioned missing key", path: "/user/balance", method: http.MethodGet, status: http.StatusUnauthorized},
+		{name: "unversioned invalid key", path: "/user/balance", key: "invalid", method: http.MethodGet, status: http.StatusUnauthorized},
 		{name: "missing key", method: http.MethodGet, status: http.StatusUnauthorized},
 		{name: "invalid key", key: "invalid", method: http.MethodGet, status: http.StatusUnauthorized},
 		{name: "wrong method", key: "gl-client", method: http.MethodPost, status: http.StatusMethodNotAllowed},
@@ -122,7 +127,11 @@ func TestUsagePreservesAuthenticationAndErrors(t *testing.T) {
 				reader.err = errors.New("private storage detail")
 			}
 			handler.usageReader = reader
-			req := httptest.NewRequest(test.method, "/user/balance", nil)
+			path := test.path
+			if path == "" {
+				path = "/v1/user/balance"
+			}
+			req := httptest.NewRequest(test.method, path, nil)
 			if test.key != "" {
 				req.Header.Set("Authorization", "Bearer "+test.key)
 			}
@@ -153,7 +162,7 @@ func TestUsageRejectsDisabledAndExpiredKeys(t *testing.T) {
 		}
 		reader := &testAccessKeyUsageReader{}
 		handler.usageReader = reader
-		req := httptest.NewRequest(http.MethodGet, "/user/balance", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/user/balance", nil)
 		req.Header.Set("Authorization", "Bearer gl-client")
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, req)
