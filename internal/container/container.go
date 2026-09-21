@@ -97,6 +97,9 @@ func BuildContainer() (*dig.Container, error) {
 		func(service *requestlog.Service) telemetry.RequestLogSink {
 			return service
 		},
+		func(service *requestlog.Service) gateway.AccessKeyUsageReader {
+			return service
+		},
 		func(service *requestlog.Service) control.RequestLogReader {
 			return service
 		},
