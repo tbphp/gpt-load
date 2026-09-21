@@ -327,9 +327,9 @@ func TestCompileRejectsInvalidCoreConfiguration(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "duplicate external model",
-			input:   CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "a"}, {ID: "b", Alias: "a"}}, Enabled: true}}},
-			wantErr: "duplicate external model",
+			name:    "duplicate model mapping",
+			input:   CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "a"}, {ID: "a", Alias: "a"}}, Enabled: true}}},
+			wantErr: "duplicate model mapping",
 		},
 		{
 			name: "duplicate group id",

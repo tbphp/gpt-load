@@ -140,13 +140,8 @@ func evaluateTargets(
 	}
 
 	decisions := make([]targetDecision, 0, len(routes))
-	seenGroups := make(map[uint]struct{}, len(routes))
 	included := 0
 	for _, route := range routes {
-		if _, duplicate := seenGroups[route.GroupID]; duplicate {
-			continue
-		}
-		seenGroups[route.GroupID] = struct{}{}
 		group, exists := snapshot.GroupCatalog[route.GroupID]
 		if !exists {
 			return nil, "", fmt.Errorf(

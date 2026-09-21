@@ -6,6 +6,16 @@ export function groupWeight(group: InspectionGroup): number {
     0,
   )
 }
+// 同组多个模型目标共享凭据，每份凭据权重只累计一次。
+export function groupsWeight(groups: readonly InspectionGroup[]): number {
+  const weights = new Map<number, number>()
+  for (const group of groups) {
+    for (const credential of group.credentials) {
+      if (credential.available) weights.set(credential.id, credential.effectiveWeight)
+    }
+  }
+  return [...weights.values()].reduce((total, weight) => total + weight, 0)
+}
 export function activeGroups(result: Inspection): InspectionGroup[] {
   if (!result.routable) return []
   const available = result.groups.filter((group) => group.included && group.routable)

@@ -12,12 +12,19 @@ type SchedulingMemberCheckpoint struct {
 }
 
 type SchedulingCheckpoint struct {
-	Version     int                          `json:"version"`
-	Watermark   SchedulingProgress           `json:"watermark"`
-	Sequence    uint64                       `json:"sequence"`
-	LastMember  uint                         `json:"last_member"`
-	Consecutive uint64                       `json:"consecutive"`
-	Members     []SchedulingMemberCheckpoint `json:"members"`
+	Version      int                          `json:"version"`
+	Watermark    SchedulingProgress           `json:"watermark"`
+	Sequence     uint64                       `json:"sequence"`
+	LastMember   uint                         `json:"last_member"`
+	Consecutive  uint64                       `json:"consecutive"`
+	Members      []SchedulingMemberCheckpoint `json:"members"`
+	ModelCursors []ModelCursorCheckpoint      `json:"model_cursors,omitempty"`
+}
+
+type ModelCursorCheckpoint struct {
+	GroupID       uint   `json:"group_id"`
+	ExternalModel string `json:"external_model"`
+	LastModel     string `json:"last_model"`
 }
 
 func (s *SchedulingState) CaptureCheckpoint() SchedulingCheckpoint {
@@ -25,6 +32,13 @@ func (s *SchedulingState) CaptureCheckpoint() SchedulingCheckpoint {
 	s.WithLock(func(d *SchedulingLedger) {
 		checkpoint.Watermark, checkpoint.Sequence = d.Watermark, d.Sequence
 		checkpoint.LastMember, checkpoint.Consecutive = d.LastMember, d.Consecutive
+		for key, last := range d.ModelCursors {
+			if last != "" {
+				checkpoint.ModelCursors = append(checkpoint.ModelCursors, ModelCursorCheckpoint{
+					GroupID: key.GroupID, ExternalModel: key.ExternalModel, LastModel: last,
+				})
+			}
+		}
 		checkpoint.Members = make([]SchedulingMemberCheckpoint, 0, len(d.Members))
 		for _, m := range d.Members {
 			checkpoint.Members = append(checkpoint.Members, SchedulingMemberCheckpoint{
@@ -34,6 +48,13 @@ func (s *SchedulingState) CaptureCheckpoint() SchedulingCheckpoint {
 		}
 	})
 	sort.Slice(checkpoint.Members, func(i, j int) bool { return checkpoint.Members[i].ID < checkpoint.Members[j].ID })
+	sort.Slice(checkpoint.ModelCursors, func(i, j int) bool {
+		a, b := checkpoint.ModelCursors[i], checkpoint.ModelCursors[j]
+		if a.GroupID != b.GroupID {
+			return a.GroupID < b.GroupID
+		}
+		return a.ExternalModel < b.ExternalModel
+	})
 	return checkpoint
 }
 
@@ -44,6 +65,12 @@ func (s *SchedulingState) RestoreCheckpoint(checkpoint SchedulingCheckpoint) int
 	}
 	restored := 0
 	s.WithLock(func(d *SchedulingLedger) {
+		for _, saved := range checkpoint.ModelCursors {
+			key := GroupModelKey{GroupID: saved.GroupID, ExternalModel: saved.ExternalModel}
+			if _, exists := d.ModelCursors[key]; exists {
+				d.ModelCursors[key] = saved.LastModel
+			}
+		}
 		d.Started = checkpoint.Sequence != 0
 		d.Watermark, d.Sequence = checkpoint.Watermark, checkpoint.Sequence
 		d.LastMember, d.Consecutive = 0, 0

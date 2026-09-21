@@ -91,112 +91,32 @@ func TestMapGroupModelsResponseTreatsContextTierOnlyPriceAsConfigured(t *testing
 	}
 }
 
-func TestNormalizeGroupModelsAppliesAliasSwitchAndReportsStableConflicts(t *testing.T) {
+func TestNormalizeGroupModelsAllowsSharedNamesAndDeduplicatesMappings(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name          string
-		values        []GroupModel
-		want          []GroupModel
-		wantConflicts []ModelNameConflict
-		wantError     error
+	for _, test := range []struct {
+		name         string
+		values, want []GroupModel
 	}{
-		{
-			name: "disabled alias uses upstream ID and conflicts with enabled alias",
-			values: []GroupModel{
-				{ID: "a", Alias: ""},
-				{ID: "b", Alias: "a", AliasEnabled: true},
-			},
-			wantConflicts: []ModelNameConflict{{ClientModel: "a", Indexes: []int{0, 1}}},
-			wantError:     app_errors.ErrModelNameConflict,
-		},
-		{
-			name: "enabled aliases conflict",
-			values: []GroupModel{
-				{ID: "a", Alias: "x", AliasEnabled: true},
-				{ID: "b", Alias: "x", AliasEnabled: true},
-			},
-			wantConflicts: []ModelNameConflict{{ClientModel: "x", Indexes: []int{0, 1}}},
-			wantError:     app_errors.ErrModelNameConflict,
-		},
-		{
-			name: "model names remain case sensitive",
-			values: []GroupModel{
-				{ID: "a", Alias: "X", AliasEnabled: true},
-				{ID: "b", Alias: "x", AliasEnabled: true},
-			},
-			want: []GroupModel{
-				{ID: "a", Alias: "X"},
-				{ID: "b", Alias: "x"},
-			},
-		},
-		{
-			name: "trimmed IDs and aliases conflict",
-			values: []GroupModel{
-				{ID: " a ", Alias: ""},
-				{ID: "b", Alias: " a ", AliasEnabled: true},
-			},
-			wantConflicts: []ModelNameConflict{{ClientModel: "a", Indexes: []int{0, 1}}},
-			wantError:     app_errors.ErrModelNameConflict,
-		},
-		{
-			name:      "enabled alias cannot be blank after trimming",
-			values:    []GroupModel{{ID: "a", Alias: " ", AliasEnabled: true}},
-			wantError: app_errors.ErrValidation,
-		},
-		{
-			name: "multiple conflicts use first occurrence order",
-			values: []GroupModel{
-				{ID: "a"},
-				{ID: "b", Alias: "a", AliasEnabled: true},
-				{ID: "c"},
-				{ID: "d", Alias: "c", AliasEnabled: true},
-			},
-			wantConflicts: []ModelNameConflict{
-				{ClientModel: "a", Indexes: []int{0, 1}},
-				{ClientModel: "c", Indexes: []int{2, 3}},
-			},
-			wantError: app_errors.ErrModelNameConflict,
-		},
-	}
-
-	for _, test := range tests {
+		{"shared alias", []GroupModel{{ID: "a", Alias: "x", AliasEnabled: true}, {ID: "b", Alias: "x", AliasEnabled: true}}, []GroupModel{{ID: "a", Alias: "x"}, {ID: "b", Alias: "x"}}},
+		{"alias matches another ID", []GroupModel{{ID: " a ", Alias: "discarded"}, {ID: "b", Alias: " a ", AliasEnabled: true}}, []GroupModel{{ID: "a"}, {ID: "b", Alias: "a"}}},
+		{"case sensitive", []GroupModel{{ID: "a", Alias: "X", AliasEnabled: true}, {ID: "a", Alias: "x", AliasEnabled: true}}, []GroupModel{{ID: "a", Alias: "X"}, {ID: "a", Alias: "x"}}},
+		{"duplicate mapping", []GroupModel{{ID: "a", Alias: "x", AliasEnabled: true}, {ID: " a ", Alias: " x ", AliasEnabled: true}}, []GroupModel{{ID: "a", Alias: "x"}}},
+		{"ID and identical alias", []GroupModel{{ID: "a"}, {ID: "a", Alias: "a", AliasEnabled: true}}, []GroupModel{{ID: "a"}}},
+	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := normalizeGroupModels(test.values)
-			if test.wantError == nil {
-				if err != nil {
-					t.Fatalf("normalizeGroupModels() error = %v", err)
-				}
-				if !reflect.DeepEqual(got, test.want) {
-					t.Fatalf("normalizeGroupModels() = %#v, want %#v", got, test.want)
-				}
-				return
+			if err != nil || !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("normalized models = %#v, %v; want %#v", got, err, test.want)
 			}
-
-			var apiErr *app_errors.APIError
-			if !errors.As(err, &apiErr) || apiErr.Code != test.wantError.(*app_errors.APIError).Code {
-				t.Fatalf("normalizeGroupModels() error = %#v, want %q", err, test.wantError)
-			}
-			if test.wantConflicts == nil {
-				return
-			}
-			data, ok := apiErr.Data.(ModelNameConflictData)
-			if !ok || !reflect.DeepEqual(data.Conflicts, test.wantConflicts) {
-				t.Fatalf("conflict data = %#v, want %#v", apiErr.Data, test.wantConflicts)
+			if err := validateGroupCollectionModels(got); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
-}
-
-func TestNormalizeGroupModelsRejectsDuplicateExternalNames(t *testing.T) {
-	t.Parallel()
-	for _, values := range [][]GroupModel{
-		{{ID: "provider-a", Alias: "public", AliasEnabled: true}, {ID: "provider-b", Alias: "public", AliasEnabled: true}},
-		{{ID: "public"}, {ID: "provider-b", Alias: "public", AliasEnabled: true}},
-	} {
+	for _, values := range [][]GroupModel{{{ID: "a", Alias: " ", AliasEnabled: true}}, {{ID: " "}}} {
 		var apiErr *app_errors.APIError
-		if _, err := normalizeGroupModels(values); !errors.As(err, &apiErr) ||
-			apiErr.Code != app_errors.ErrModelNameConflict.Code {
-			t.Fatalf("normalizeGroupModels(%#v) error = %#v", values, err)
+		if _, err := normalizeGroupModels(values); !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrValidation.Code {
+			t.Fatalf("invalid models accepted: %v", err)
 		}
 	}
 }
@@ -448,7 +368,7 @@ func TestUpdateGroupModelsNeverCallsDiscoveryOrChangesAccessKeyFilters(t *testin
 
 func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 	t.Parallel()
-	t.Run("external collision", func(t *testing.T) {
+	t.Run("empty enabled alias", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		groupID := createGroupForCredentialImport(t, fixture, "sk-invalid-models")
 		beforeRevision := fixture.manager.Current().Revision
@@ -460,13 +380,13 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 				Set: true,
 				Values: []GroupModel{
 					{ID: "provider-a", Alias: "public", AliasEnabled: true},
-					{ID: "provider-b", Alias: "public", AliasEnabled: true},
+					{ID: "provider-b", Alias: " ", AliasEnabled: true},
 				},
 			},
 		})
 		var apiErr *app_errors.APIError
-		if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrModelNameConflict.Code {
-			t.Fatalf("UpdateGroupModels() error = %#v, want MODEL_NAME_CONFLICT", err)
+		if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrValidation.Code {
+			t.Fatalf("UpdateGroupModels() error = %#v, want VALIDATION_ERROR", err)
 		}
 		assertModelsUpdateStateUnchanged(t, fixture, groupID, beforeRevision, beforeRegistry, beforeModels)
 	})
