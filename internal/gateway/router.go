@@ -45,7 +45,7 @@ type dataPlaneEndpoint struct {
 
 func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 	return []dataPlaneEndpoint{
-		{name: "data.usage", methods: []string{http.MethodGet}, path: "/v1/usage", resolve: staticRoute("", endpointUsage)},
+		{name: "data.usage", methods: []string{http.MethodGet}, path: "/user/balance", resolve: staticRoute("", endpointUsage)},
 		{
 			name:    "data.openai.completions",
 			methods: []string{http.MethodPost},

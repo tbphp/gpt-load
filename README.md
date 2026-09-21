@@ -117,14 +117,6 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 
 </details>
 
-### CC Switch usage query
-
-Enable a custom **Usage Query** script in CC Switch and paste the [query script](examples/cc-switch-usage.js). Use your GPT-Load base URL (with or without `/v1`) and AccessKey; no management key is needed.
-
-`GET /v1/usage` authenticates the AccessKey and returns only its own `isValid`, `total`, `used`, and `remaining` fields. Amounts are estimated costs in USD. When a total limit exists, values follow that total-limit rule's counter, including its existing manual-reset behavior, with remaining credit clamped to zero. Periodic limits never participate. Without a total limit, `total` and `remaining` are `0`; `used` comes from retained lifetime usage aggregates, including automatic model-selection decision costs, and may lag asynchronous persistence. The script then displays only usage.
-
-Successful authenticated queries return `isValid: true`, even when quota is exhausted. Invalid, disabled, expired, or IP-restricted keys receive an authentication error; storage failures return an error instead of zero usage. Queries bypass and do not consume inference quota or RPM limits.
-
 ## Screenshots
 
 **Groups** — View channels, models, credential counts, traffic, and health in one place

@@ -18,15 +18,15 @@ type AccessKeyUsageReader interface {
 }
 
 type accessKeyUsageResponse struct {
-	IsValid   bool    `json:"isValid"`
-	Remaining float64 `json:"remaining"`
-	Used      float64 `json:"used"`
-	Total     float64 `json:"total"`
+	IsActive bool    `json:"is_active"`
+	Balance  float64 `json:"balance"`
+	Used     float64 `json:"used"`
+	Total    float64 `json:"total"`
 }
 
 func (handler *Handler) handleUsage(c *gin.Context, request *dataPlaneRequestContext) {
 	c.Header("Cache-Control", "no-store")
-	result := accessKeyUsageResponse{IsValid: true}
+	result := accessKeyUsageResponse{IsActive: true}
 	var totalRule *accessquota.RuleView
 	// 与配置发布同步，避免读到另一次配置的额度状态。
 	current := handler.manager.WithCurrentSnapshotRead(func(snapshot *state.ConfigSnapshot) bool {
@@ -50,7 +50,7 @@ func (handler *Handler) handleUsage(c *gin.Context, request *dataPlaneRequestCon
 	if totalRule != nil {
 		result.Total = float64(totalRule.LimitNanoUSD) / 1e9
 		result.Used = float64(totalRule.UsedNanoUSD) / 1e9
-		result.Remaining = float64(totalRule.RemainingNanoUSD) / 1e9
+		result.Balance = float64(totalRule.RemainingNanoUSD) / 1e9
 	} else {
 		if handler.usageReader == nil {
 			handler.writeUsageUnavailable(c)

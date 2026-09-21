@@ -40,7 +40,7 @@ func TestUsageReturnsOnlyTotalQuotaEvenWhenExhausted(t *testing.T) {
 			runtime.Complete(ticket, test.used)
 			handler.accessQuota = runtime
 			handler.now = func() time.Time { return now.Add(time.Minute) }
-			req := httptest.NewRequest(http.MethodGet, "/v1/usage?access_key_id=2", nil)
+			req := httptest.NewRequest(http.MethodGet, "/user/balance?access_key_id=2", nil)
 			req.Header.Set("Authorization", "Bearer gl-client")
 			response := httptest.NewRecorder()
 			engine.ServeHTTP(response, req)
@@ -51,7 +51,7 @@ func TestUsageReturnsOnlyTotalQuotaEvenWhenExhausted(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &data); err != nil {
 				t.Fatal(err)
 			}
-			if len(data) != 4 || data["isValid"] != true || data["total"] != float64(100) || data["used"] != float64(test.used)/1e9 || data["remaining"] != test.remaining {
+			if len(data) != 4 || data["is_active"] != true || data["total"] != float64(100) || data["used"] != float64(test.used)/1e9 || data["balance"] != test.remaining {
 				t.Fatalf("unexpected usage: %v", data)
 			}
 			if response.Header().Get("Cache-Control") != "no-store" {
@@ -91,11 +91,11 @@ func TestUsageWithoutTotalQuotaReturnsCumulativeCost(t *testing.T) {
 			ticket, _ := handler.accessQuota.Admit(1, time.Now())
 			handler.accessQuota.Complete(ticket, 2_000_000_000)
 		}
-		req := httptest.NewRequest(http.MethodGet, "/v1/usage?access_key_id=99", nil)
+		req := httptest.NewRequest(http.MethodGet, "/user/balance?access_key_id=99", nil)
 		req.Header.Set("Authorization", "Bearer gl-client")
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, req)
-		if response.Code != http.StatusOK || response.Body.String() != `{"isValid":true,"remaining":0,"used":12.5,"total":0}` {
+		if response.Code != http.StatusOK || response.Body.String() != `{"is_active":true,"balance":0,"used":12.5,"total":0}` {
 			t.Fatalf("periodic=%v: %d %s", periodic, response.Code, response.Body.String())
 		}
 		if len(reader.ids) != 1 || reader.ids[0] != 1 {
@@ -122,7 +122,7 @@ func TestUsagePreservesAuthenticationAndErrors(t *testing.T) {
 				reader.err = errors.New("private storage detail")
 			}
 			handler.usageReader = reader
-			req := httptest.NewRequest(test.method, "/v1/usage", nil)
+			req := httptest.NewRequest(test.method, "/user/balance", nil)
 			if test.key != "" {
 				req.Header.Set("Authorization", "Bearer "+test.key)
 			}
@@ -153,7 +153,7 @@ func TestUsageRejectsDisabledAndExpiredKeys(t *testing.T) {
 		}
 		reader := &testAccessKeyUsageReader{}
 		handler.usageReader = reader
-		req := httptest.NewRequest(http.MethodGet, "/v1/usage", nil)
+		req := httptest.NewRequest(http.MethodGet, "/user/balance", nil)
 		req.Header.Set("Authorization", "Bearer gl-client")
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, req)
