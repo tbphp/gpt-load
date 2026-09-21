@@ -36,10 +36,10 @@ import {
   AppTextArea,
   AppTextField,
 } from '@modern/components/ui'
-import { channelSearchOption } from '@modern/components/channel-options'
 import { useApiClient } from '@shared/http/client-context'
 import { validBaseURL } from './group-create-rules'
 import { validProxyURL } from '@modern/app/proxy'
+import GroupChannelSelect from './GroupChannelSelect.vue'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import ParameterRulesEditor from '../config/ParameterRulesEditor.vue'
 import { groupValidationModelOptions } from './group-model-options'
@@ -274,9 +274,8 @@ const channelsQuery = useQuery({
 const switchableChannels = computed(() =>
   (channelsQuery.data.value ?? []).filter((item) => item.connectionType === 'api_key'),
 )
-const channelOptions = computed(() => switchableChannels.value.map(channelSearchOption))
 const switchable = computed(
-  () => props.group.connectionType === 'api_key' && channelOptions.value.length > 1,
+  () => props.group.connectionType === 'api_key' && switchableChannels.value.length > 1,
 )
 const requestedChannel = ref('')
 const switchConflict = ref<{ id: number; name: string }[]>()
@@ -355,14 +354,14 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
     >
     <template v-else>
       <AppFormSection :title="t('groupDetail.connection')">
-        <AppSearchSelect
+        <GroupChannelSelect
           v-if="switchable"
           :model-value="saved.channelID"
+          :channels="switchableChannels"
           :label="t('groupDetail.channel')"
           :description="
             dirty ? t('groupDetail.channelSwitchBlocked') : t('groupDetail.channelHelp')
           "
-          :options="channelOptions"
           size="sm"
           :disabled="busy || dirty"
           @update:model-value="requestChannelSwitch($event)"

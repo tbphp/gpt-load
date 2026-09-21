@@ -475,9 +475,7 @@ function requestSave(): void {
 
 // 切换渠道是独立写入：不并入设置草稿，成功后由后端回填参数与测试协议。
 const switchableChannels = computed(() =>
-  (channelsQuery.data.value?.items ?? [])
-    .filter(({ connection }) => connection.type === 'api_key')
-    .map(({ channel_id, name }) => ({ id: channel_id, name })),
+  (channelsQuery.data.value?.items ?? []).filter(({ connection }) => connection.type === 'api_key'),
 )
 const channelOptions = computed(() =>
   draft.value?.connection_type === 'api_key' ? switchableChannels.value : [],
@@ -485,7 +483,9 @@ const channelOptions = computed(() =>
 const requestedChannel = ref('')
 const channelConflict = ref<string[]>()
 const requestedChannelName = computed(
-  () => switchableChannels.value.find(({ id }) => id === requestedChannel.value)?.name ?? '',
+  () =>
+    switchableChannels.value.find(({ channel_id }) => channel_id === requestedChannel.value)
+      ?.name ?? '',
 )
 // 自定义地址按原样保留，但各渠道对地址格式的要求不同，切换时提醒复核。
 const keepsCustomBaseURL = computed(() => {
@@ -652,7 +652,7 @@ onBeforeUnmount(() => {
           <GroupSettingsBaseForm
             section="general"
             :channel-id="draft.channel_id"
-            :channel-options="channelOptions"
+            :switchable-channels="channelOptions"
             :channel-switch-disabled="dirty || channelSwitchPending"
             :channel-switch-hint="dirty ? t('group.settings.base.channelSwitchBlocked') : undefined"
             :connection-type="draft.connection_type"

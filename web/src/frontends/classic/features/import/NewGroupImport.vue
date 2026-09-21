@@ -64,7 +64,7 @@ import CredentialTextarea from './CredentialTextarea.vue'
 import SubscriptionCredentialStager from './SubscriptionCredentialStager.vue'
 import type { ImportDraft, ModelDraftItem } from './model-draft'
 import { createDiscoveredModelDraft, toGroupModels } from './model-draft'
-import ChannelPresetPicker from './ChannelPresetPicker.vue'
+import ChannelPresetPicker from '@/components/config/ChannelPresetPicker.vue'
 import {
   parseImportRouteQuery,
   serializeImportRouteQuery,

@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { channelSearchOption } from '@modern/components/channel-options'
-import { Eye, EyeOff, ChevronDown, KeyRound, UserRound } from '@lucide/vue'
+import { Eye, EyeOff, ChevronDown } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
@@ -19,8 +18,6 @@ import type { ModelCandidate } from '@modern/api/model-discovery'
 import { integer, list, record, text } from '@modern/api/response'
 import {
   AppButton,
-  AppBadge,
-  AppChannelIcon,
   AppCollectionState,
   AppConfirmDialog,
   AppIcon,
@@ -35,6 +32,7 @@ import {
 import { useLoadingFeedback } from '@modern/components/ui/loading'
 import { useApiClient } from '@shared/http/client-context'
 import { ApiError } from '@shared/http/errors'
+import GroupChannelSelect from './GroupChannelSelect.vue'
 import GroupModelPicker from './GroupModelPicker.vue'
 import GroupEditorSurface from './GroupEditorSurface.vue'
 import SubscriptionCredentialStager from './SubscriptionCredentialStager.vue'
@@ -60,7 +58,6 @@ const query = useQuery({
   queryFn: ({ signal }) => getGroupChannels(client, signal),
 })
 const channels = computed(() => query.data.value ?? [])
-const options = computed(() => channels.value.map(channelSearchOption))
 const channelID = ref('')
 const channel = computed(() => channels.value.find((item) => item.id === channelID.value))
 const subscription = computed(() => channel.value?.connectionType === 'subscription')
@@ -554,45 +551,15 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
     </AppCollectionState>
     <form v-else class="modern-group-create-form" novalidate @submit.prevent="submit">
       <div class="modern-group-create-body">
-        <AppSearchSelect
+        <GroupChannelSelect
           ref="channelInput"
           :model-value="channelID"
+          :channels="channels"
           :label="t('groupCreate.channel')"
-          :options="options"
           :disabled="inputLocked"
           :error="attempted && !channel ? t('groupCreate.required') : undefined"
           @update:model-value="requestChannel"
-        >
-          <template #option="{ option }">
-            <AppChannelIcon
-              :icon="channels.find((item) => item.id === option.value)?.icon"
-              :mark="channels.find((item) => item.id === option.value)?.mark"
-              :name="option.label"
-            />
-            <span>{{ option.label }}</span>
-            <AppBadge
-              size="xs"
-              :icon="
-                channels.find((item) => item.id === option.value)?.connectionType === 'subscription'
-                  ? UserRound
-                  : KeyRound
-              "
-              :tone="
-                channels.find((item) => item.id === option.value)?.connectionType === 'subscription'
-                  ? 'brand'
-                  : 'neutral'
-              "
-              >{{
-                t(
-                  channels.find((item) => item.id === option.value)?.connectionType ===
-                    'subscription'
-                    ? 'subscriptions.connectionType'
-                    : 'subscriptions.apiKey',
-                )
-              }}</AppBadge
-            >
-          </template>
-        </AppSearchSelect>
+        />
         <div v-if="channel?.nativeProtocols.length" class="modern-group-create-protocols">
           <span>{{ t('groupCreate.supportedProtocols') }}</span>
           <div>

@@ -8,7 +8,8 @@ import type {
   ConnectionType,
   GroupModelItemDto,
 } from '@/api/control/types'
-import type { ChannelFieldDto } from '@/app/resources/channels'
+import type { ChannelDto, ChannelFieldDto } from '@/app/resources/channels'
+import ChannelPresetPicker from '@/components/config/ChannelPresetPicker.vue'
 import GroupTestFields from '../GroupTestFields.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
 import { isValidPriceMultiplier } from '@/lib/price-multiplier'
@@ -16,7 +17,7 @@ import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 const props = defineProps<{
   section: 'general' | 'routing'
   channelId: string
-  channelOptions?: { id: string; name: string }[]
+  switchableChannels?: readonly ChannelDto[]
   channelSwitchDisabled?: boolean
   channelSwitchHint?: string
   connectionType: ConnectionType
@@ -49,6 +50,9 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const isSubscription = computed(() => props.connectionType === 'subscription')
+const currentChannel = computed(
+  () => props.switchableChannels?.find(({ channel_id }) => channel_id === props.channelId) ?? null,
+)
 // 验活直接把该值当成上游模型 ID 使用，所以候选取 id 而不是可能被别名替换的 client_model。
 const validationModelOptions = computed(() =>
   [...props.models]
@@ -110,13 +114,6 @@ function parameterLabel(field: ChannelFieldDto): string {
   return t('common.upstreamUrl.label')
 }
 
-// 切换由父组件确认后才落库，所以这里立即把控件恢复成当前渠道。
-function requestChannelSwitch(event: Event): void {
-  const select = event.target as HTMLSelectElement
-  const value = select.value
-  select.value = props.channelId
-  emit('switch:channel', value)
-}
 function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
   if (field.input_kind !== 'url') return undefined
   return field.key === 'base_url' ? defaultBaseUrls.value[0] || 'https://' : 'https://'
@@ -155,19 +152,24 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
         </small>
         <small v-else>{{ t('common.priceMultiplier.groupHelp') }}</small>
       </label>
-      <label v-if="(channelOptions?.length ?? 0) > 1" class="group-settings__field">
+      <div
+        v-if="(switchableChannels?.length ?? 0) > 1"
+        class="group-settings__field group-settings__wide"
+      >
         <span>{{ t('group.settings.base.channel') }}</span>
-        <select
-          :value="channelId"
+        <ChannelPresetPicker
+          :model-value="channelId"
+          :channels="switchableChannels ?? []"
+          :selected-channel="currentChannel"
+          :loading="false"
+          :error="false"
           :disabled="pending || channelSwitchDisabled"
-          @change="requestChannelSwitch($event)"
-        >
-          <option v-for="option in channelOptions" :key="option.id" :value="option.id">
-            {{ option.name }}
-          </option>
-        </select>
+          hide-header
+          compact
+          @select="emit('switch:channel', $event.channel_id)"
+        />
         <small>{{ channelSwitchHint || t('group.settings.base.channelHelp') }}</small>
-      </label>
+      </div>
       <GroupTestFields
         v-if="!isSubscription"
         class="group-settings__wide"
