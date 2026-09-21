@@ -117,6 +117,14 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 
 </details>
 
+### CC Switch 额度查询
+
+在 CC Switch 的「用量查询」中启用自定义脚本，粘贴 [查询脚本](examples/cc-switch-usage.js)，使用 GPT-Load 的服务地址（可带 `/v1`）和 AccessKey，无需管理密钥。
+
+`GET /v1/usage` 使用 AccessKey 认证，只查询当前 Key，固定返回 `isValid`、`total`、`used`、`remaining`。金额单位为 USD，表示预估成本。配置总额度时使用该总额度规则的限额和累计已用量（包括已有的手动重置语义），剩余额度最低为零；周期额度完全不参与计算。没有总额度时，`total` 和 `remaining` 均为 `0`，`used` 来自长期保留的用量汇总，包含自动选模决策成本，可能有异步入库延迟；脚本只展示已用量。
+
+有效 Key 查询成功时 `isValid` 为 `true`，额度耗尽不改变此值。无效、禁用、过期或不满足来源 IP 限制的 Key 返回认证错误；数据读取失败返回错误，不伪装为零用量。额度查询不受模型请求的额度和 RPM 拦截，也不消耗这些额度。
+
 ## 界面预览
 
 **分组总览** — 统一查看渠道、模型、凭据数量、流量与健康状态

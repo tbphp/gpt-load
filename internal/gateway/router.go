@@ -26,6 +26,7 @@ type endpointKind uint8
 const (
 	endpointForward endpointKind = iota + 1
 	endpointModels
+	endpointUsage
 )
 
 type route struct {
@@ -44,6 +45,7 @@ type dataPlaneEndpoint struct {
 
 func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 	return []dataPlaneEndpoint{
+		{name: "data.usage", methods: []string{http.MethodGet}, path: "/v1/usage", resolve: staticRoute("", endpointUsage)},
 		{
 			name:    "data.openai.completions",
 			methods: []string{http.MethodPost},
