@@ -1,4 +1,9 @@
-import type { JevConfig, AuditConfig } from '@/app/resources/experimental'
+import {
+  defaultJev,
+  defaultAudit,
+  type JevConfig,
+  type AuditConfig,
+} from '@/app/resources/experimental'
 import type { RouteStrategy } from '@/api/control/types'
 import type { HeaderRulesDto } from '@/app/resources/groups'
 import type {
@@ -123,6 +128,14 @@ export function setSettingsOverride(
     }
   } else {
     next.overrides.delete(key)
+    const persisted = base.overrides.includes(key)
+    if (key === 'jev') next.values.jev = persisted ? defaultJev() : { ...base.values.jev }
+    if (key === 'request_audit')
+      next.values.request_audit = persisted
+        ? defaultAudit()
+        : cloneValues(base.values).request_audit
+    if (key === 'auto_model')
+      next.values.auto_model = persisted ? defaultAutoModel() : cloneValues(base.values).auto_model
     if (key === 'header_rules') next.values.header_rules = { set: {}, remove: [] }
     if (key === 'response_header_rules') next.values.response_header_rules = { set: {}, remove: [] }
   }

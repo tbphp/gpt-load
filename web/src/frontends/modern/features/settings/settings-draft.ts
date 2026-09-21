@@ -9,7 +9,14 @@ import {
   type SettingsPatch,
   type RouteStrategy,
 } from '@modern/api/settings'
-import { validJev, validAudit, type JevConfig, type AuditConfig } from '@modern/api/experimental'
+import {
+  defaultJev,
+  defaultAudit,
+  validJev,
+  validAudit,
+  type JevConfig,
+  type AuditConfig,
+} from '@modern/api/experimental'
 import type { HeaderRules } from '@modern/api/group-detail'
 import { validProxyURL } from '@modern/app/proxy'
 import {
@@ -250,12 +257,12 @@ export function settingsErrors(
 ): Record<string, string> {
   const errors: Record<string, string> = {}
   if (changed.some((key) => ['jev', 'auto_model', 'request_audit'].includes(key))) {
-    if (
-      !validJev(draft.jev) ||
-      ((draft.auto_model.enabled || draft.request_audit.enabled) && !draft.jev.model)
-    )
+    const jev = resets.has('jev') ? defaultJev() : draft.jev
+    const audit = resets.has('request_audit') ? defaultAudit() : draft.request_audit
+    const autoEnabled = !resets.has('auto_model') && draft.auto_model.enabled
+    if (!validJev(jev) || ((autoEnabled || audit.enabled) && !jev.model))
       errors.jev = 'experimental'
-    if (!validAudit(draft.request_audit) || (draft.request_audit.enabled && !draft.jev.group_id))
+    if (!validAudit(audit) || (audit.enabled && !jev.group_id))
       errors.request_audit = 'experimental'
   }
   for (const key of changed) {

@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/jev"
 	"gpt-load/internal/parameteroverride"
@@ -124,6 +125,33 @@ func TestRequestAuditReusesHistoryButChecksNewToolContent(t *testing.T) {
 	}
 }
 
+func TestRequestAuditKeepsCachedFindingsWhenOtherRulesCannotFinish(t *testing.T) {
+	for _, action := range []string{requestaudit.ActionBlock, requestaudit.ActionWarn} {
+		t.Run(action, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditHit), auditReply(`{"answers":{}}`)}}
+			h, _ := auditEngine(t, forwarder)
+			snapshot := h.manager.Current()
+			body := []byte(`{"input":"review this"}`)
+			admit := func() *reason { return nil }
+			h.checkRequestAudit(t.Context(), snapshot, snapshot.AccessKeysByID[1], body, &requestRecorder{}, admit)
+			snapshot.RequestAudit.Rules[0].Action = action
+			snapshot.RequestAudit.Rules = append(snapshot.RequestAudit.Rules, requestaudit.Rule{ID: "extra", Name: "Extra", Enabled: true, Action: requestaudit.ActionBlock, Instructions: "Check another condition", Threshold: .8})
+			recorder := &requestRecorder{}
+			failure := h.checkRequestAudit(t.Context(), snapshot, snapshot.AccessKeysByID[1], body, recorder, admit)
+			if len(recorder.audit.Findings) != 1 || recorder.audit.Findings[0].RuleID != "personal_data" || recorder.audit.Findings[0].Action != action {
+				t.Fatalf("cached finding was lost: %+v", recorder.audit)
+			}
+			if action == requestaudit.ActionBlock {
+				if failure != &reasonAuditBlocked || len(forwarder.inputs) != 1 || recorder.audit.Status != "blocked" {
+					t.Fatal("known block triggered an unnecessary call or was replaced by an error")
+				}
+			} else if failure != &reasonAuditIncomplete || len(forwarder.inputs) != 2 || recorder.audit.Status != "incomplete" {
+				t.Fatal("warning permitted an incomplete review")
+			}
+		})
+	}
+}
+
 func TestRequestAuditOneCallAcrossRetriesAndChangedContentFails(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditPass)}}
 	h, _ := auditEngine(t, forwarder)
@@ -132,29 +160,40 @@ func TestRequestAuditOneCallAcrossRetriesAndChangedContentFails(t *testing.T) {
 	admit := func() *reason { return nil }
 	body := []byte(`{"input":"original"}`)
 	for range 2 {
-		if failure := h.checkRequestAudit(t.Context(), snapshot, snapshot.AccessKeysByID[1], execution.OperationResponsesCreate, body, recorder, admit); failure != nil {
+		if failure := h.checkRequestAudit(t.Context(), snapshot, snapshot.AccessKeysByID[1], body, recorder, admit); failure != nil {
 			t.Fatal(failure)
 		}
 	}
-	failure := h.checkRequestAudit(t.Context(), snapshot, snapshot.AccessKeysByID[1], execution.OperationResponsesCreate, []byte(`{"input":"changed"}`), recorder, admit)
+	failure := h.checkRequestAudit(t.Context(), snapshot, snapshot.AccessKeysByID[1], []byte(`{"input":"changed"}`), recorder, admit)
 	if failure != &reasonAuditIncomplete || recorder.audit.Reason != "content_changed" || len(forwarder.inputs) != 1 {
 		t.Fatal("retry changed content or caused a second review")
 	}
 }
 
-func TestRequestAuditAncillaryContentIsReviewedAndResourceOperationsSkip(t *testing.T) {
-	for _, operation := range []execution.Operation{execution.OperationCountTokens, execution.OperationResponsesCompact, execution.OperationResponsesInputTokens, execution.OperationEmbeddingsCreate} {
-		forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditHit)}}
-		h, _ := auditEngine(t, forwarder)
-		s := h.manager.Current()
-		failure := h.checkRequestAudit(t.Context(), s, s.AccessKeysByID[1], operation, []byte(`{"input":"new-content","previous_response_id":"opaque"}`), &requestRecorder{}, func() *reason { return nil })
-		if failure != &reasonAuditBlocked || len(forwarder.inputs) != 1 {
-			t.Fatalf("content-bearing operation skipped: %s", operation)
-		}
-	}
-	for _, operation := range []execution.Operation{execution.OperationListModels, execution.OperationResponsesRetrieve, execution.OperationResponsesCancel, execution.OperationResponsesDelete} {
-		if auditHasContent(operation, []byte(`{}`)) {
-			t.Fatal("resource operation reviewed")
+func TestRequestAuditResourceRoutesCannotBypassContentReview(t *testing.T) {
+	for _, endpoint := range []struct{ method, path string }{
+		{http.MethodGet, "/v1/responses/resp_test"},
+		{http.MethodDelete, "/v1/responses/resp_test"},
+		{http.MethodPost, "/v1/responses/resp_test/cancel"},
+		{http.MethodGet, "/v1/responses/resp_test/input_items"},
+	} {
+		for _, body := range []string{"", `{"input":"content that needs review"}`} {
+			t.Run(endpoint.method+endpoint.path+body, func(t *testing.T) {
+				forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditHit)}}
+				h, engine := auditEngine(t, forwarder)
+				h.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
+				request := httptest.NewRequest(endpoint.method, endpoint.path, strings.NewReader(body))
+				request.Header.Set("Authorization", "Bearer gl-client")
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+				status := http.StatusOK
+				if body != "" {
+					status = http.StatusForbidden
+				}
+				if response.Code != status || len(forwarder.inputs) != 1 || (body != "" && forwarder.inputs[0].Operation != execution.OperationDecisionsCreate) {
+					t.Fatalf("resource body bypassed review or empty resource was reviewed: status=%d calls=%d", response.Code, len(forwarder.inputs))
+				}
+			})
 		}
 	}
 }

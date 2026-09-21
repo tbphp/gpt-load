@@ -42,6 +42,39 @@ func TestCurrentPayloadReviewDoesNotDetectLocallyOrRequireStoredHistory(t *testi
 	}
 }
 
+func TestTextSchemasAndStructuredToolDataAreNotAttachments(t *testing.T) {
+	for _, body := range []string{
+		`{"messages":[{"role":"user","content":"read the file"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"file_id":{"type":"string"}}}}]}`,
+		`{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"call_a","name":"read_file","input":{"file_id":"file_a"}}]}]}`,
+		`{"contents":[{"role":"user","parts":[{"functionResponse":{"name":"read_file","response":{"type":"file","file_id":"file_a","content":"plain-text-tool-output"}}}]}]}`,
+		`{"input":"return JSON","text":{"format":{"type":"json_schema","name":"file","schema":{"type":"object","properties":{"file_id":{"type":"string"}}}}}}`,
+		`{"contents":[{"parts":[{"text":"return JSON"}]}],"generationConfig":{"responseSchema":{"type":"OBJECT","properties":{"file_id":{"type":"STRING"}}}}}`,
+	} {
+		doc := document(t, body)
+		var cache Cache
+		review := cache.Prepare(nil, "jev", doc, DefaultConfig().Rules, time.Now())
+		if !bytes.Contains(review.Payload, []byte("file_id")) || review.Reason != "" {
+			t.Fatal("textual data was dropped from the review")
+		}
+	}
+	for _, body := range []string{
+		`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_a","content":[{"type":"image","source":{"type":"base64","data":"opaque"}}]}]}]}`,
+		`{"contents":[{"parts":[{"functionResponse":{"name":"tool","response":{"ok":true},"parts":[{"inlineData":{"mimeType":"image/png","data":"opaque"}}]}}]}]}`,
+	} {
+		if _, reason := Extract([]byte(body)); reason != "unsupported_content" {
+			t.Fatal("real tool attachment was accepted as text")
+		}
+	}
+}
+
+func TestTokenizedInputsAreNotDeclaredReviewedAsText(t *testing.T) {
+	for _, body := range []string{`{"input":[123,456]}`, `{"input":[[123,456],[789]]}`} {
+		if _, reason := Extract([]byte(body)); reason != "unsupported_content" {
+			t.Fatal("token IDs cannot be reviewed without decoding their text")
+		}
+	}
+}
+
 func TestRuleThresholdIsTheOnlyClassificationBoundary(t *testing.T) {
 	_, reason := Interpret([]byte(`{"answers":{"personal_data":{"type":"noul","noul":0.5},"prompt_injection":{"type":"noul","noul":0.01}}}`), DefaultConfig().Rules)
 	if reason != "" {

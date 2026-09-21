@@ -1195,7 +1195,7 @@ func (handler *Handler) executeAttempts(
 			quotaAdmission.admitted = true
 		}
 
-		if failure := handler.checkRequestAudit(ginContext.Request.Context(), snapshot, snapshot.AccessKeysByID[recorder.accessKeyID], operation, prepared.request.Body, recorder, func() *reason { return handler.admitAutoQuota(snapshot, quotaAdmission) }); failure != nil {
+		if failure := handler.checkRequestAudit(ginContext.Request.Context(), snapshot, snapshot.AccessKeysByID[recorder.accessKeyID], prepared.request.Body, recorder, func() *reason { return handler.admitAutoQuota(snapshot, quotaAdmission) }); failure != nil {
 			handler.completeReason(ginContext, recorder, *failure)
 			return
 		}

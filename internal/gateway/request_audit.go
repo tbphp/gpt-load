@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"gpt-load/internal/execution"
 	"gpt-load/internal/jev"
 	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/state"
@@ -15,24 +14,14 @@ import (
 var reasonAuditBlocked = reason{http.StatusForbidden, "request_audit_blocked", "Request blocked by a guardrail rule."}
 var reasonAuditIncomplete = reason{http.StatusServiceUnavailable, "request_audit_incomplete", "Guardrail review could not be completed."}
 
-func auditHasContent(operation execution.Operation, body []byte) bool {
-	switch operation {
-	case execution.OperationListModels, execution.OperationProbe,
-		execution.OperationResponsesRetrieve, execution.OperationResponsesDelete,
-		execution.OperationResponsesCancel, execution.OperationResponsesInputItems:
-		return false
-	}
-	return len(bytes.TrimSpace(body)) != 0
-}
-
 // 在业务外发前审查最终内容。自动模型的沿用/预热不构成护栏通过证明。
-func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigSnapshot, key state.AccessKeyView, operation execution.Operation, body []byte, recorder *requestRecorder, admit func() *reason) *reason {
+func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigSnapshot, key state.AccessKeyView, body []byte, recorder *requestRecorder, admit func() *reason) *reason {
 	cfg := snapshot.RequestAudit
-	if !cfg.Applies(key.ID) || recorder == nil || !auditHasContent(operation, body) {
+	if !cfg.Applies(key.ID) || recorder == nil || len(bytes.TrimSpace(body)) == 0 {
 		return nil
 	}
 	doc, incomplete := requestaudit.Extract(body)
-	if incomplete == "" && recorder.auditCache[doc.Digest] {
+	if incomplete == "" && (len(doc.Units) == 0 || recorder.auditCache[doc.Digest]) {
 		return nil
 	}
 	if recorder.audit == nil {
@@ -53,6 +42,25 @@ func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigS
 		return fail("internal_error")
 	}
 	review := h.guardrails.Prepare(namespace, snapshot.Jev.Model, doc, cfg.Rules, h.now())
+	recordFindings := func() {
+		for _, finding := range review.Findings {
+			found := false
+			for _, old := range result.Findings {
+				found = found || old.RuleID == finding.RuleID
+			}
+			if !found {
+				result.Findings = append(result.Findings, finding)
+			}
+		}
+		if review.Status != "passed" {
+			result.Status = review.Status
+		}
+	}
+	// 已知命中先记录。有效拦截无需再调用 JEV，告警也不能被后续失败抹掉。
+	recordFindings()
+	if review.Status == "blocked" {
+		return &reasonAuditBlocked
+	}
 	if review.Reason != "" {
 		return fail(review.Reason)
 	}
@@ -76,18 +84,7 @@ func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigS
 			return fail(reason)
 		}
 	}
-	for _, finding := range review.Findings {
-		found := false
-		for _, old := range result.Findings {
-			found = found || old.RuleID == finding.RuleID
-		}
-		if !found {
-			result.Findings = append(result.Findings, finding)
-		}
-	}
-	if review.Status != "passed" {
-		result.Status = review.Status
-	}
+	recordFindings()
 	if review.Status == "blocked" {
 		return &reasonAuditBlocked
 	}

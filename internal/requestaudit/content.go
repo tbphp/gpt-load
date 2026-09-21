@@ -44,6 +44,13 @@ func Extract(body []byte) (Document, string) {
 			list = []any{items}
 		}
 		for _, item := range list {
+			if key == "input" {
+				switch item.(type) {
+				case json.Number, []any:
+					// Embeddings 的 token ID 输入不是可直接审查的文本。
+					return doc, "unsupported_content"
+				}
+			}
 			if unsupported(item) {
 				return doc, "unsupported_content"
 			}
@@ -127,6 +134,27 @@ func unsupported(value any) bool {
 		}
 		for key, item := range v {
 			switch key {
+			case "parameters", "input_schema", "schema", "responseSchema", "response_schema":
+				// Schema 中的 file_id 等只是字段定义；正文仍完整送给 JEV。
+				continue
+			case "input":
+				if kind == "tool_use" {
+					continue
+				}
+			case "functionResponse", "function_response":
+				if response, ok := item.(map[string]any); ok {
+					// 结构化工具返回是文本数据，parts 中的实际附件继续检查。
+					envelope := make(map[string]any, len(response))
+					for field, value := range response {
+						if field != "response" {
+							envelope[field] = value
+						}
+					}
+					if unsupported(envelope) {
+						return true
+					}
+					continue
+				}
 			case "encrypted_content", "inlineData", "inline_data", "fileData", "file_data", "file_id":
 				if item != nil && item != "" {
 					return true
