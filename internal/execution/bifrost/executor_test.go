@@ -1190,39 +1190,36 @@ func TestRuntimeFirstByteAndStreamIdleTimeouts(t *testing.T) {
 	})
 
 	t.Run("stream first byte requires a complete data event", func(t *testing.T) {
-		finished := make(chan struct{})
-		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		started := make(chan struct{})
+		release := make(chan struct{})
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 			writer.Header().Set("Content-Type", "text/event-stream")
 			_, _ = io.WriteString(writer, "data: partial\n")
 			writer.(http.Flusher).Flush()
-			// Core v1.7.7 returns cancellation to its caller but does not
-			// guarantee that fasthttp closes an already-open body stream. Keep
-			// the fake finite while the assertion below verifies our logical
-			// first-event timeout boundary.
-			select {
-			case <-request.Context().Done():
-			case <-time.After(200 * time.Millisecond):
-			}
-			close(finished)
+			close(started)
+			<-release
 		}))
 		defer server.Close()
+		defer close(release)
 
 		runtime := newTestRuntime(t)
 		spec := compatibleSpec(server.URL)
-		spec.Timeouts.FirstByte = 20 * time.Millisecond
-		spec.Timeouts.Request = time.Second
-		started := time.Now()
-		result := runtime.ExecuteStream(context.Background(), spec, func(execution.StreamEvent) error { return nil })
-		if elapsed := time.Since(started); elapsed > 120*time.Millisecond {
-			t.Fatalf("first-event gate returned after %s", elapsed)
+		spec.Timeouts.FirstByte = 250 * time.Millisecond
+		spec.Timeouts.Request = 30 * time.Second
+		spec.Timeouts.StreamIdle = 30 * time.Second
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		result := runtime.ExecuteStream(ctx, spec, func(execution.StreamEvent) error { return nil })
+		if ctx.Err() != nil {
+			t.Fatal("first-event timeout did not finish before the test deadline")
 		}
 		if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout || result.ResponseStarted {
 			t.Fatalf("unexpected first-event result: %+v", result)
 		}
 		select {
-		case <-finished:
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for finite upstream fixture")
+		case <-started:
+		default:
+			t.Fatal("request timed out before upstream partial event")
 		}
 	})
 
