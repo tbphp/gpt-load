@@ -7,6 +7,7 @@ export const protocolOrder = [
   'openai-images',
   'openai-embeddings',
   'rerank',
+  'decisions',
 ] as const
 export const protocolMessages = Object.fromEntries(
   protocolOrder.map((protocol) => [protocol, protocol]),

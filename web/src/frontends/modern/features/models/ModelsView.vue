@@ -29,6 +29,7 @@ import {
 } from '@modern/components/ui'
 import { modelStateKeys, parseModelsState, serializeModelsState } from './models-state'
 import ModelCard from './ModelCard.vue'
+import ModelCatalogSettingsDialog from './ModelCatalogSettingsDialog.vue'
 import ModelDetailPanel from './ModelDetailPanel.vue'
 
 const { t } = useI18n()
@@ -54,6 +55,7 @@ const query = useQuery(
 )
 const data = computed(() => query.data.value)
 const search = ref(state.value.q)
+const profileModel = ref('')
 const composing = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
 const frame = ref<InstanceType<typeof AppListFrame>>()
@@ -268,6 +270,7 @@ useMessageSource(() =>
           :selected="model.name === state.model"
           :disabled="query.isPlaceholderData.value"
           @open="open(model, $event)"
+          @settings="profileModel = model.name"
         />
       </div>
       <template #footer>
@@ -292,6 +295,13 @@ useMessageSource(() =>
       @close="state = { ...state, model: '', source: 0 }"
       @select="state = { ...state, source: $event }"
       @changed="changed"
+    />
+    <ModelCatalogSettingsDialog
+      v-if="admin && profileModel"
+      :key="profileModel"
+      :model="profileModel"
+      :editable="admin"
+      @close="profileModel = ''"
     />
   </div>
 </template>

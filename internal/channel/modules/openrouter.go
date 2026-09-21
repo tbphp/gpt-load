@@ -33,6 +33,8 @@ func OpenRouter() spec.Module {
 				EndpointPolicy:    spec.EndpointSDKDefault,
 			},
 			Routes: []spec.Route{
+				spec.NewRoute(protocol.Decisions, execution.OperationDecisionsCreate, execution.RouteNative),
+				spec.NewRoute(protocol.Decisions, execution.OperationProbe, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIEmbeddings, execution.OperationEmbeddingsCreate, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIEmbeddings, execution.OperationProbe, execution.RouteNative),

@@ -18,6 +18,7 @@ const (
 	openAIImagesGenerationsPath = "/v1/images/generations"
 	openAIImagesEditsPath       = "/v1/images/edits"
 	openAIEmbeddingsPath        = "/v1/embeddings"
+	decisionsPath               = "/v1/systemone"
 )
 
 type endpointKind uint8
@@ -113,6 +114,7 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			resolve: staticRoute(protocol.OpenAIEmbeddings, endpointForward),
 		},
 		{name: "data.rerank", methods: []string{http.MethodPost}, path: "/v1/rerank", resolve: staticRoute(protocol.Rerank, endpointForward)},
+		{name: "data.decisions", methods: []string{http.MethodPost}, path: decisionsPath, resolve: staticRoute(protocol.Decisions, endpointForward)},
 		{name: "data.codex.search", methods: []string{http.MethodPost}, path: "/v1/alpha/search", resolve: staticRoute(protocol.OpenAIResponses, endpointForward)},
 	}
 }

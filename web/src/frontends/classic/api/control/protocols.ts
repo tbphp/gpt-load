@@ -20,6 +20,10 @@ export const protocolCatalog = [
     supportsProtocolOnlyRouting: false,
   },
   {
+    value: 'decisions',
+    supportsProtocolOnlyRouting: false,
+  },
+  {
     value: 'anthropic',
     supportsProtocolOnlyRouting: false,
   },

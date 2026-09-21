@@ -84,12 +84,13 @@ func (server *Server) handleCredentialQuotaHistory(c *gin.Context) {
 		}
 		identity := subscription.QuotaHistoryTargetIdentity(stateloader.CredentialIdentityGeneration(
 			credential.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params)))
-		history := tx.Model(&models.CredentialQuotaHistory{}).
-			Where("group_id = ? AND credential_id = ? AND target_identity = ?", groupID, credentialID, identity).
-			Where("window_seconds >= ?", subscription.QuotaHistoryMinimumWindowSeconds)
+		history := func() *gorm.DB {
+			return tx.Model(&models.CredentialQuotaHistory{}).
+				Where("group_id = ? AND credential_id = ? AND target_identity = ?", groupID, credentialID, identity).
+				Where("window_seconds >= ?", subscription.QuotaHistoryMinimumWindowSeconds)
+		}
 		var rows []models.CredentialQuotaHistory
-		// 采样限制在写入端执行；查询原样返回真实历史，包括周期回升关键点。
-		if err := history.Where("observed_at_ms >= ? AND observed_at_ms < ?", query.FromMS, query.ToMS).
+		if err := history().Where("observed_at_ms >= ? AND observed_at_ms < ?", query.FromMS, query.ToMS).
 			Order("observed_at_ms ASC").Find(&rows).Error; err != nil {
 			return err
 		}

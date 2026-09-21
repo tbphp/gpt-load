@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, PencilLine } from '@lucide/vue'
+import { ChevronRight, PencilLine, Settings2 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -28,7 +28,7 @@ const props = defineProps<{
   selected?: boolean
   disabled?: boolean
 }>()
-const emit = defineEmits<{ open: [source?: number] }>()
+const emit = defineEmits<{ open: [source?: number]; settings: [] }>()
 const { t, n, locale } = useI18n()
 // 协议在同一批模型上重复度接近 100%，折成一行中性摘要，悬浮再看全量列表。
 const protocolsLabel = computed(() =>
@@ -66,6 +66,20 @@ function hiddenGroupsLabel(source: ModelSource): string {
   <article class="modern-model-card" :class="{ 'is-selected': selected }" :aria-label="model.name">
     <header class="modern-model-card-heading">
       <span class="modern-model-card-name"><AppCopyValue :value="model.name" /></span>
+      <AppBadge
+        v-if="model.hasOverrides !== undefined"
+        class="modern-model-card-profile"
+        variant="outline"
+        size="xs"
+        :tone="model.hasOverrides ? 'brand' : 'neutral'"
+        >{{
+          t(
+            model.hasOverrides
+              ? 'modelManager.profile.badgeCustom'
+              : 'modelManager.profile.badgeAutomatic',
+          )
+        }}</AppBadge
+      >
       <AppTooltip :label="protocolsLabel">
         <span tabindex="0" class="modern-model-card-meta">{{
           t('modelManager.protocolCount', { count: n(model.protocols.length) })
@@ -77,6 +91,15 @@ function hiddenGroupsLabel(source: ModelSource): string {
       <span v-if="admin" class="modern-model-card-meta">{{
         t('modelManager.groupCount', { count: n(groupCount) })
       }}</span>
+      <AppIconButton
+        v-if="admin"
+        :icon="Settings2"
+        :label="t('modelManager.profile.action')"
+        size="xxs"
+        class="modern-model-card-profile-action"
+        :disabled="disabled"
+        @click="emit('settings')"
+      />
     </header>
     <!-- 列宽在窄屏下有下限，超出卡片宽度时横向滚动而不是把标签挤到换行。 -->
     <div class="modern-model-card-table" :style="{ '--modern-model-price-width': priceWidth }">
@@ -230,6 +253,11 @@ function hiddenGroupsLabel(source: ModelSource): string {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
   letter-spacing: var(--modern-tracking-label);
+}
+.modern-model-card-profile,
+.modern-model-card-profile-action {
+  flex: none;
+  align-self: center;
 }
 /* 摘要读成一句而不是三个孤立标签。 */
 .modern-model-card-meta + .modern-model-card-meta::before {

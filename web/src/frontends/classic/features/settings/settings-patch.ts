@@ -67,7 +67,9 @@ function cloneValues(value: SettingsValues): SettingsValues {
   }
 }
 
-export function createSettingsDraft(settings: SettingsDto): SettingsDraft {
+export function createSettingsDraft(
+  settings: Pick<SettingsDto, 'values' | 'overrides' | 'read_only'>,
+): SettingsDraft {
   return {
     values: cloneValues(settings.values),
     overrides: new Set(settings.overrides),

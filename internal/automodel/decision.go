@@ -1,25 +1,15 @@
 package automodel
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
-	"io"
 	"math"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
-	"gpt-load/internal/pricing"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
 )
-
-type HTTPDoer interface {
-	Do(*http.Request) (*http.Response, error)
-}
 
 type Selection struct {
 	EntryID            string          `json:"entry_id"`
@@ -40,7 +30,13 @@ type Decision struct {
 	Status                string           `json:"status"`
 	Reason                string           `json:"reason,omitempty"`
 	Provider              string           `json:"provider,omitempty"`
+	GroupID               uint             `json:"group_id,omitempty"`
+	GroupName             string           `json:"group_name,omitempty"`
+	ChannelID             string           `json:"channel_id,omitempty"`
+	ChannelName           string           `json:"channel_name,omitempty"`
+	CredentialID          uint             `json:"credential_id,omitempty"`
 	RequestedModel        string           `json:"requested_model,omitempty"`
+	UpstreamModel         string           `json:"upstream_model,omitempty"`
 	ReportedModel         string           `json:"reported_model,omitempty"`
 	RequestID             string           `json:"request_id,omitempty"`
 	PromptVersion         string           `json:"prompt_version"`
@@ -59,76 +55,69 @@ type Decision struct {
 	Receipt               json.RawMessage  `json:"receipt,omitempty"`
 }
 
-func Decide(ctx context.Context, client HTTPDoer, compiled *Compiled, presets []CompiledPreset, state TaskState, multiplier pricing.PriceMultiplier) Decision {
+// BuildDecisionRequest creates the native Decisions payload and its initial
+// fallback observation. Transport, scheduling and pricing remain in gateway.
+func BuildDecisionRequest(compiled *Compiled, presets []CompiledPreset, state TaskState) ([]byte, Decision) {
 	config := compiled.Config()
-	decision := Decision{Source: "fallback", Status: "fallback", Provider: config.Provider,
-		RequestedModel: config.Model, PromptVersion: PromptVersion, ExecutionPhase: state.ExecutionPhase, ContextTruncated: state.ContextTruncated,
-		CostState: "not_applicable", PricingCompleteness: "not_applicable"}
-	criteria := map[string]string{}
+	decision := Decision{
+		Source: "fallback", Status: "fallback", RequestedModel: config.Model,
+		PromptVersion: PromptVersion, ExecutionPhase: state.ExecutionPhase,
+		ContextTruncated: state.ContextTruncated,
+		CostState:        "not_applicable", PricingCompleteness: "not_applicable",
+	}
+	criteria := make(map[string]string, len(presets))
 	for _, preset := range presets {
 		criteria[preset.ID] = preset.Description
 	}
-	payload, err := json.Marshal(map[string]any{"model": config.Model, "state": state, "questions": map[string]any{
-		"preset": map[string]any{"type": "choice", "instructions": Instructions, "criteria": criteria},
-	}})
+	payload, err := json.Marshal(map[string]any{
+		"model": config.Model,
+		"state": state,
+		"questions": map[string]any{
+			"preset": map[string]any{
+				"type": "choice", "instructions": Instructions,
+				"criteria": criteria,
+			},
+		},
+	})
 	if err != nil || len(payload) > MaxRequestBytes {
 		decision.Reason = "request_too_large"
-		return decision
+		return nil, decision
 	}
-	if ctx.Err() != nil {
-		decision.Reason = "canceled"
-		return decision
-	}
-	endpoint := "https://api.typesafe.ai/v1/systemone"
-	if config.Provider == "openrouter" {
-		endpoint = "https://openrouter.ai/api/alpha/decisions"
-	}
-	callCtx, cancel := context.WithTimeout(ctx, time.Duration(config.TimeoutSeconds)*time.Second)
-	defer cancel()
-	request, err := http.NewRequestWithContext(callCtx, http.MethodPost, endpoint, bytes.NewReader(payload))
-	if err != nil {
-		decision.Reason = "invalid_request"
-		return decision
-	}
-	request.Header.Set("Authorization", "Bearer "+config.APIKey)
-	request.Header.Set("Content-Type", "application/json")
-	decision.Called = true
-	decision.CostState, decision.PricingCompleteness = "unpriced", "unavailable"
-	started := time.Now()
-	response, err := client.Do(request)
-	decision.DurationMs = time.Since(started).Milliseconds()
-	if err != nil {
-		decision.Reason = "transport_error"
-		if ctx.Err() != nil {
-			decision.Reason = "canceled"
-		} else if errors.Is(err, context.DeadlineExceeded) || callCtx.Err() != nil {
-			decision.Reason = "timeout"
+	return payload, decision
+}
+
+// InterpretDecisionResponse applies only the automatic-model answer contract.
+// The caller supplies normalized usage and later attaches the local quote.
+func InterpretDecisionResponse(
+	decision Decision,
+	presets []CompiledPreset,
+	statusCode int,
+	header http.Header,
+	body []byte,
+	observed usage.Result,
+) Decision {
+	if observed.State == usage.StateComplete || observed.State == usage.StatePartial {
+		input := observed.Tokens.UncachedInput
+		decision.InputTokens = &input
+		if observed.State == usage.StateComplete {
+			output := observed.Tokens.Output
+			decision.OutputTokens = &output
 		}
-		return decision
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
-	decision.DurationMs = time.Since(started).Milliseconds()
-	if err != nil || len(body) > 1<<20 {
-		decision.Reason = "invalid_response"
-		return decision
 	}
 	var result map[string]json.RawMessage
 	if json.Unmarshal(body, &result) != nil {
 		decision.Reason = "invalid_response"
 		return decision
 	}
-	var reportedModel string
-	if json.Unmarshal(result["model"], &reportedModel) == nil && len(reportedModel) <= 255 {
-		decision.ReportedModel = maskDecisionSecret(reportedModel, config.APIKey)
+	if reportedModel, ok := jsonString(result["model"]); ok && len(reportedModel) <= 255 {
+		decision.ReportedModel = reportedModel
 	}
-	if id := response.Header.Get("X-Request-Id"); len(id) <= 255 {
-		decision.RequestID = maskDecisionSecret(id, config.APIKey)
+	if requestID := strings.TrimSpace(header.Get("X-Request-Id")); len(requestID) <= 255 {
+		decision.RequestID = requestID
 	}
-	// 用量独立解析，答案结构异常也不能丢掉已知的判断费用。
-	decision.quote(compiled, result["usage"], multiplier)
-	if response.StatusCode != 200 {
-		decision.Reason = "http_" + strconv.Itoa(response.StatusCode)
+	decision.ProviderCostUSD = providerCost(result["usage"])
+	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+		decision.Reason = "http_" + strconv.Itoa(statusCode)
 		return decision
 	}
 	var answers map[string]json.RawMessage
@@ -145,59 +134,47 @@ func Decide(ctx context.Context, client HTTPDoer, compiled *Compiled, presets []
 		return decision
 	}
 	if len(answer.Choice) <= 255 {
-		decision.Choice = maskDecisionSecret(answer.Choice, config.APIKey)
+		decision.Choice = answer.Choice
 	}
-	if _, exists := criteria[answer.Choice]; !exists {
+	configured := false
+	for _, preset := range presets {
+		if preset.ID == answer.Choice {
+			configured = true
+			break
+		}
+	}
+	if !configured {
 		decision.Reason = "invalid_choice"
 		return decision
 	}
-	if answer.Confidence == nil || math.IsNaN(*answer.Confidence) || math.IsInf(*answer.Confidence, 0) || *answer.Confidence < 0 || *answer.Confidence > 1 {
+	if answer.Confidence == nil || math.IsNaN(*answer.Confidence) || math.IsInf(*answer.Confidence, 0) ||
+		*answer.Confidence < 0 || *answer.Confidence > 1 {
 		decision.Reason = "invalid_confidence"
 		return decision
 	}
 	decision.Confidence = answer.Confidence
-	decision.Source, decision.Status = "jev", "selected"
+	decision.Source, decision.Status, decision.Reason = "jev", "selected", ""
 	return decision
 }
 
-func maskDecisionSecret(value, key string) string {
-	if key == "" {
-		return value
+func jsonString(raw json.RawMessage) (string, bool) {
+	var value string
+	if json.Unmarshal(raw, &value) != nil {
+		return "", false
 	}
-	return strings.ReplaceAll(value, key, "[REDACTED]")
+	return value, true
 }
 
-func (decision *Decision) quote(compiled *Compiled, raw json.RawMessage, multiplier pricing.PriceMultiplier) {
-	var result struct {
-		Input  *int64      `json:"input_tokens"`
-		Output *int64      `json:"output_tokens"`
-		Cost   json.Number `json:"cost"`
+func providerCost(raw json.RawMessage) string {
+	var value struct {
+		Cost json.Number `json:"cost"`
 	}
-	if json.Unmarshal(raw, &result) != nil {
-		return
+	if json.Unmarshal(raw, &value) != nil || value.Cost == "" || len(value.Cost) > 128 {
+		return ""
 	}
-	if result.Cost != "" {
-		if amount, err := strconv.ParseFloat(string(result.Cost), 64); err == nil && !math.IsNaN(amount) && !math.IsInf(amount, 0) && amount >= 0 && len(result.Cost) <= 128 {
-			decision.ProviderCostUSD = string(result.Cost)
-		}
+	amount, err := strconv.ParseFloat(string(value.Cost), 64)
+	if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 {
+		return ""
 	}
-	if result.Input == nil || *result.Input < 0 || (result.Output != nil && *result.Output < 0) {
-		return
-	}
-	decision.InputTokens, decision.OutputTokens = result.Input, result.Output
-	observed := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: *result.Input}}
-	if result.Output != nil {
-		observed.Tokens.Output = *result.Output
-	} else {
-		observed.State = usage.StatePartial
-	}
-	quote, receipt := compiled.Prices.QuoteForModeWithMultipliers(
-		pricing.Identity{ChannelID: "jev-" + decision.Provider, ModelID: decision.RequestedModel}, observed, pricing.ModeStandard,
-		pricing.PriceMultipliers{Group: pricing.DefaultPriceMultiplier, AccessKey: multiplier},
-	)
-	decision.CostState, decision.PricingCompleteness = string(quote.State), string(quote.Completeness)
-	decision.EstimatedCostNanoUSD = int64(quote.EstimatedCostNanoUSD)
-	if receipt != nil {
-		decision.Receipt, _ = json.Marshal(receipt)
-	}
+	return string(value.Cost)
 }

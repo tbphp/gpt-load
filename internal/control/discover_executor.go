@@ -177,6 +177,8 @@ func utilityRequestShape(
 		switch clientProtocol {
 		case protocol.OpenAICompletions, protocol.Anthropic:
 			return clientProtocol, http.MethodGet, "/v1/models", nil, nil
+		case protocol.Decisions:
+			return clientProtocol, http.MethodGet, "/v1/models", nil, nil
 		case protocol.Gemini:
 			return clientProtocol, http.MethodGet, "/v1beta/models", nil, nil
 		default:
@@ -263,6 +265,20 @@ func parseDiscoveredModelsPage(
 			return discoveredModelsPage{}, err
 		}
 		return discoveredModelsPage{models: models, nextRawQuery: query}, nil
+	case protocol.Decisions:
+		var payload struct {
+			Models []struct {
+				Name string `json:"name"`
+			} `json:"models"`
+		}
+		if err := decodeSingleJSON(body, &payload); err != nil {
+			return discoveredModelsPage{}, err
+		}
+		models := make([]string, 0, len(payload.Models))
+		for _, item := range payload.Models {
+			models = append(models, item.Name)
+		}
+		return discoveredModelsPage{models: models}, nil
 	default:
 		return discoveredModelsPage{}, app_errors.ErrValidation
 	}

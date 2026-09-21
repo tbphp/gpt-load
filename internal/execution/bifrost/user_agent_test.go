@@ -23,7 +23,9 @@ func TestNewAPIModelDiscoveryUserAgentOnWire(t *testing.T) {
 		want       string
 	}{
 		{name: "system default", want: "GPT-Load/" + version.Version},
-		{name: "ignore client", header: http.Header{"User-Agent": {"client/1.0"}}, want: "GPT-Load/" + version.Version},
+		{name: "preserve client", header: http.Header{"User-Agent": {"client/1.0"}}, want: "client/1.0"},
+		{name: "empty client", header: http.Header{"User-Agent": {""}}, want: "GPT-Load/" + version.Version},
+		{name: "whitespace client", header: http.Header{"User-Agent": {" \t "}}, want: "GPT-Load/" + version.Version},
 		{name: "configured override", header: http.Header{"User-Agent": {"operator/2.0"}}, configured: []string{"user-agent"}, want: "operator/2.0"},
 		{name: "explicit removal", configured: []string{"User-Agent"}, want: "GPT-Load/" + version.Version},
 		{name: "explicit empty", header: http.Header{"User-Agent": {""}}, configured: []string{"User-Agent"}, want: "GPT-Load/" + version.Version},
@@ -62,11 +64,13 @@ func TestNewAPIModelDiscoveryUserAgentOnWire(t *testing.T) {
 func TestRequestUserAgentOnWire(t *testing.T) {
 	for _, route := range []string{"native", "typed"} {
 		for _, operation := range []string{"unary", "stream", "probe"} {
-			for _, policy := range []string{"default", "configured", "removed", "empty", "whitespace"} {
+			for _, policy := range []string{"default", "client", "configured", "removed", "empty", "whitespace"} {
 				name := route + "/" + operation + "/" + policy
 				want := "GPT-Load/" + version.Version
 				if policy == "configured" {
 					want = "operator/2.0"
+				} else if policy == "client" {
+					want = "client/1.0"
 				}
 				t.Run(name, func(t *testing.T) {
 					seen := make(chan string, 1)
@@ -87,12 +91,12 @@ func TestRequestUserAgentOnWire(t *testing.T) {
 						spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/tenant/openai"}`)
 					}
 					spec.Header.Set("User-Agent", "client/1.0")
-					if policy != "default" {
+					if policy != "default" && policy != "client" {
 						spec.Header.Set("User-Agent", want)
 						spec.ConfiguredHeaders = []string{"User-Agent"}
 					}
 					switch policy {
-					case "removed":
+					case "default", "removed":
 						spec.Header.Del("User-Agent")
 					case "empty":
 						spec.Header.Set("User-Agent", "")
@@ -130,10 +134,12 @@ func TestRequestUserAgentOnWire(t *testing.T) {
 }
 
 func TestWebsocketUserAgentOnWire(t *testing.T) {
-	for _, policy := range []string{"default", "configured", "removed", "empty", "whitespace"} {
+	for _, policy := range []string{"default", "client", "configured", "removed", "empty", "whitespace"} {
 		want := "GPT-Load/" + version.Version
 		if policy == "configured" {
 			want = "operator/2.0"
+		} else if policy == "client" {
+			want = "client/1.0"
 		}
 		t.Run(policy, func(t *testing.T) {
 			seen := make(chan string, 1)
@@ -156,12 +162,12 @@ func TestWebsocketUserAgentOnWire(t *testing.T) {
 			spec.Path = "/v1/responses"
 			spec.Body = []byte(`{"model":"upstream-model","input":"hello"}`)
 			spec.Header.Set("User-Agent", "client/1.0")
-			if policy != "default" {
+			if policy != "default" && policy != "client" {
 				spec.Header.Set("User-Agent", want)
 				spec.ConfiguredHeaders = []string{"user-agent"}
 			}
 			switch policy {
-			case "removed":
+			case "default", "removed":
 				spec.Header.Del("User-Agent")
 			case "empty":
 				spec.Header.Set("User-Agent", "")

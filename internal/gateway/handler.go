@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,16 +17,15 @@ import (
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/affinity"
 	"gpt-load/internal/automodel"
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
-	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
-	platformhttp "gpt-load/internal/platform/httpclient"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
@@ -91,12 +89,9 @@ type runtimeCredentialRegistry interface {
 
 type Handler struct {
 	autoTasks           autoTaskCache
-	decisionClient      automodel.HTTPDoer
-	decisionClients     *platformhttp.HTTPClientManager
-	decisionMu          sync.Mutex
-	decisionHTTP        *http.Client
-	decisionProxy       outboundproxy.Effective
+	decisionClient      autoDecisionRunner
 	manager             *state.Manager
+	catalog             *catalog.Runtime
 	channels            *channel.Registry
 	subscriptions       *subscriptionruntime.Runtime
 	registry            runtimeCredentialRegistry
@@ -173,8 +168,7 @@ func NewHandler(
 	channels := channel.NewRegistry()
 	subscriptions, _ := subscriptionruntime.NewRuntime(channels, subscriptionproviders.Implementations()...)
 	handler := &Handler{
-		decisionClients: platformhttp.NewHTTPClientManager(),
-		manager:         manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
+		manager: manager, channels: channels, subscriptions: subscriptions, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
 		affinityCache:    affinity.NewCache(),
@@ -223,6 +217,7 @@ func NewHandlerWithLifecycle(
 	accessQuota *accessquota.Runtime,
 	lifecycle *httplifecycle.Coordinator,
 	responseBindings *state.ResponseBindings,
+	catalogRuntime *catalog.Runtime,
 ) *Handler {
 	handler := NewHandler(
 		manager,
@@ -245,6 +240,7 @@ func NewHandlerWithLifecycle(
 	}
 	handler.lifecycle = lifecycle
 	handler.responseBindings = responseBindings
+	handler.catalog = catalogRuntime
 	return handler
 }
 

@@ -152,6 +152,51 @@ func TestCredentialQuotaHistoryReturnsAllStoredPointsWithoutResampling(t *testin
 	}
 }
 
+func TestCredentialQuotaHistoryReturnsOnlyPointsWithinRange(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	group := models.Group{Name: "quota history range", ChannelID: "codex", ConnectionType: models.ConnectionTypeSubscription, Params: models.JSON(`{}`), Models: models.JSON(`[]`), Overrides: models.JSON(`{}`)}
+	if err := fixture.db.Create(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	credential := models.Credential{GroupID: group.ID, Data: "encrypted-test", Fingerprint: "history-range", Status: models.CredentialStatusDisabled}
+	if err := fixture.db.Create(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	identity := subscription.QuotaHistoryTargetIdentity(stateloader.CredentialIdentityGeneration(credential.IdentityFingerprint, group.ChannelID, string(group.ConnectionType), json.RawMessage(group.Params)))
+	seconds := int64(604_800)
+	rows := []models.CredentialQuotaHistory{
+		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "primary", WindowID: "primary", Label: "Primary", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: 1_000, UsedBasisPoints: 1000},
+		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "primary", WindowID: "primary", Label: "Primary", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: 2_000, UsedBasisPoints: 2000},
+		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "secondary", WindowID: "secondary", Label: "Secondary", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: 1_000, UsedBasisPoints: 3000},
+		{GroupID: group.ID, CredentialID: credential.ID, TargetIdentity: identity, WindowKey: "primary", WindowID: "primary", Label: "Primary", Scope: "account", WindowSeconds: &seconds, ObservedAtMS: 4_000, UsedBasisPoints: 4000},
+	}
+	if err := fixture.db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+	result := performGroupCollectionRequest(engine, fmt.Sprintf("/api/groups/%d/credentials/%d/quota-history?from_ms=3000&to_ms=5000", group.ID, credential.ID), "Bearer "+authTestKey)
+	if result.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", result.Code, result.Body.String())
+	}
+	var data struct {
+		Windows []struct {
+			Key    string `json:"key"`
+			Points []struct {
+				ObservedAtMS int64 `json:"observed_at_ms"`
+			} `json:"points"`
+		} `json:"windows"`
+	}
+	if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Windows) != 1 || data.Windows[0].Key != "primary" ||
+		len(data.Windows[0].Points) != 1 || data.Windows[0].Points[0].ObservedAtMS != 4_000 {
+		t.Fatalf("unexpected out-of-range history: %+v", data)
+	}
+}
+
 func TestCredentialQuotaHistoryFiltersStoredShortAndUnknownPeriods(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
