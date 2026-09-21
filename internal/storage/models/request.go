@@ -4,6 +4,9 @@ package models
 type RequestLog struct {
 	AutoDecision                JSON                `gorm:"type:json"`
 	DecisionModel               string              `gorm:"type:varchar(512);not null;default:''"`
+	DecisionGroupID             uint                `gorm:"not null;default:0"`
+	DecisionChannelID           string              `gorm:"type:varchar(64);not null;default:''"`
+	DecisionCredentialID        uint                `gorm:"not null;default:0"`
 	DecisionCostNanoUSD         int64               `gorm:"column:decision_cost_nano_usd;not null;default:0"`
 	DecisionPricingCompleteness string              `gorm:"type:varchar(32);not null;default:'not_applicable'"`
 	ID                          string              `gorm:"type:varchar(36);primaryKey;not null;index:idx_request_logs_completed_id,priority:2,sort:desc;index:idx_request_logs_access_completed_id,priority:3,sort:desc;index:idx_request_logs_status_completed_id,priority:3,sort:desc;index:idx_request_logs_model_completed_id,priority:3,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:3,sort:desc"`

@@ -59,6 +59,7 @@ export type ChannelOperation =
   | 'images_edit'
   | 'embeddings_create'
   | 'rerank'
+  | 'decisions_create'
   | 'list_models'
   | 'probe'
 
@@ -166,6 +167,7 @@ const operations = [
   'images_edit',
   'embeddings_create',
   'rerank',
+  'decisions_create',
   'list_models',
   'probe',
 ] as const

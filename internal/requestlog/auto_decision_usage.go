@@ -16,7 +16,12 @@ func writeAutoDecisionUsage(tx *gorm.DB, rows []models.RequestLog) error {
 		if row.DecisionModel == "" || row.DecisionPricingCompleteness == "not_applicable" {
 			continue
 		}
-		stat := models.AutoDecisionUsageStat{BucketStartMS: row.CompletedAtMS - row.CompletedAtMS%epochms.MillisecondsPerHour, AccessKeyID: row.AccessKeyID, Model: row.DecisionModel, EstimatedCostNanoUSD: row.DecisionCostNanoUSD}
+		stat := models.AutoDecisionUsageStat{
+			BucketStartMS: row.CompletedAtMS - row.CompletedAtMS%epochms.MillisecondsPerHour,
+			AccessKeyID:   row.AccessKeyID, GroupID: row.DecisionGroupID,
+			ChannelID: row.DecisionChannelID, CredentialID: row.DecisionCredentialID,
+			Model: row.DecisionModel, EstimatedCostNanoUSD: row.DecisionCostNanoUSD,
+		}
 		if row.DecisionPricingCompleteness == "unavailable" && !(row.CostState == "unpriced" && (row.UsageState == "complete" || row.UsageState == "partial")) {
 			stat.UnpricedRequestCount = 1
 		}
@@ -28,19 +33,30 @@ func writeAutoDecisionUsage(tx *gorm.DB, rows []models.RequestLog) error {
 			column := clause.Column{Name: name, Table: clause.CurrentTable}
 			updates[name] = gorm.Expr("CASE WHEN ? > ? THEN -1 ELSE ? + ? END", column, math.MaxInt64-amount, column, amount)
 		}
-		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "bucket_start_ms"}, {Name: "access_key_id"}, {Name: "model"}}, DoUpdates: clause.Assignments(updates)}).Create(&stat).Error; err != nil {
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{
+			{Name: "bucket_start_ms"}, {Name: "access_key_id"}, {Name: "group_id"},
+			{Name: "channel_id"}, {Name: "credential_id"}, {Name: "model"},
+		}, DoUpdates: clause.Assignments(updates)}).Create(&stat).Error; err != nil {
 			return fmt.Errorf("save automatic decision usage: %w", err)
 		}
 	}
 	return nil
 }
 
-func includeDecisionUsage(input UsageQuery, groupIDs []uint) bool {
-	return len(groupIDs) == 0 && input.GroupID == nil && input.ChannelID == "" && input.CredentialID == nil
-}
-
-func decisionUsageScope(db *gorm.DB, input UsageQuery) *gorm.DB {
+func decisionUsageScope(db *gorm.DB, input UsageQuery, groupIDs ...uint) *gorm.DB {
 	scope := db.Session(&gorm.Session{NewDB: true}).Model(&models.AutoDecisionUsageStat{}).Where("bucket_start_ms >= ? AND bucket_start_ms < ?", input.FromMS, input.ToMS)
+	if len(groupIDs) > 0 {
+		scope = scope.Where("group_id IN ?", groupIDs)
+	}
+	if input.GroupID != nil {
+		scope = scope.Where("group_id = ?", *input.GroupID)
+	}
+	if input.ChannelID != "" {
+		scope = scope.Where("channel_id = ?", input.ChannelID)
+	}
+	if input.CredentialID != nil {
+		scope = scope.Where("credential_id = ?", *input.CredentialID)
+	}
 	if input.AccessKeyID != nil {
 		scope = scope.Where("access_key_id = ?", *input.AccessKeyID)
 	}
@@ -50,15 +66,15 @@ func decisionUsageScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 	return scope
 }
 
-const decisionUsageProjection = `bucket_start_ms, 0 AS group_id, access_key_id, model,
+const decisionUsageProjection = `bucket_start_ms, group_id, access_key_id, model,
 	0 AS request_count, 0 AS success_count, 0 AS failure_count,
 	0 AS uncached_input_tokens, 0 AS cache_read_tokens, 0 AS cache_write_5m_tokens,
 	0 AS cache_write_1h_tokens, 0 AS cache_write_unknown_tokens, 0 AS output_tokens,
 	estimated_cost_nano_usd, 0 AS usage_missing_count, 0 AS partial_count,
-	unpriced_request_count, pricing_partial_count, '' AS channel_id, 0 AS credential_id`
+	unpriced_request_count, pricing_partial_count, channel_id, credential_id`
 
 const decisionRequestProjection = `completed_at_ms - completed_at_ms % ? AS bucket_start_ms,
-	0 AS group_id, access_key_id, decision_model AS model,
+	decision_group_id AS group_id, access_key_id, decision_model AS model,
 	0 AS request_count, 0 AS success_count, 0 AS failure_count,
 	0 AS uncached_input_tokens, 0 AS cache_read_tokens, 0 AS cache_write_5m_tokens,
 	0 AS cache_write_1h_tokens, 0 AS cache_write_unknown_tokens, 0 AS output_tokens,
@@ -67,9 +83,21 @@ const decisionRequestProjection = `completed_at_ms - completed_at_ms % ? AS buck
 	CASE WHEN decision_pricing_completeness = 'partial' AND pricing_completeness <> 'partial' THEN 1 ELSE 0 END AS pricing_partial_count,
 	? + 0 AS bucket_alignment_ms`
 
-func decisionRequestScope(db *gorm.DB, input UsageQuery) *gorm.DB {
+func decisionRequestScope(db *gorm.DB, input UsageQuery, groupIDs ...uint) *gorm.DB {
 	scope := db.Session(&gorm.Session{NewDB: true}).Model(&models.RequestLog{}).
 		Where("completed_at_ms >= ? AND completed_at_ms < ? AND decision_model <> '' AND decision_pricing_completeness <> 'not_applicable'", input.FromMS, input.ToMS)
+	if len(groupIDs) > 0 {
+		scope = scope.Where("decision_group_id IN ?", groupIDs)
+	}
+	if input.GroupID != nil {
+		scope = scope.Where("decision_group_id = ?", *input.GroupID)
+	}
+	if input.ChannelID != "" {
+		scope = scope.Where("decision_channel_id = ?", input.ChannelID)
+	}
+	if input.CredentialID != nil {
+		scope = scope.Where("decision_credential_id = ?", *input.CredentialID)
+	}
 	if input.AccessKeyID != nil {
 		scope = scope.Where("access_key_id = ?", *input.AccessKeyID)
 	}

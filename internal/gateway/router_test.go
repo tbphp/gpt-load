@@ -82,6 +82,7 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 			path:    "/v1/embeddings",
 		},
 		{name: "data.rerank", methods: []string{http.MethodPost}, path: "/v1/rerank"},
+		{name: "data.decisions", methods: []string{http.MethodPost}, path: "/v1/systemone"},
 		{name: "data.codex.search", methods: []string{http.MethodPost}, path: "/v1/alpha/search"},
 	}
 
@@ -223,6 +224,12 @@ func TestDataPlaneEndpointCatalogResolvesProtocolAndKind(t *testing.T) {
 			name: "OpenAI embeddings", endpoint: "data.openai.embeddings",
 			method: http.MethodPost, path: "/v1/embeddings",
 			want:      route{Protocol: protocol.OpenAIEmbeddings, Kind: endpointForward},
+			validPath: true,
+		},
+		{
+			name: "Decisions", endpoint: "data.decisions",
+			method: http.MethodPost, path: "/v1/systemone",
+			want:      route{Protocol: protocol.Decisions, Kind: endpointForward},
 			validPath: true,
 		},
 	}

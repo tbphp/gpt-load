@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-const supportedMajor uint64 = 2
-
 const maxSafeInteger int64 = 1<<53 - 1
 
 var releaseVersionPattern = regexp.MustCompile(
@@ -31,10 +29,10 @@ type Update struct {
 	PublishedAtMS int64
 }
 
-// SelectUpdate returns the highest eligible V2 release newer than current.
+// SelectUpdate returns the highest eligible same-major release newer than current.
 func SelectUpdate(current string, releases []Release) *Update {
 	currentVersion, ok := parseVersion(current)
-	if !ok || currentVersion.major != supportedMajor {
+	if !ok || isDevelopmentVersion(current) {
 		return nil
 	}
 
@@ -43,7 +41,7 @@ func SelectUpdate(current string, releases []Release) *Update {
 	for index := range releases {
 		candidate := &releases[index]
 		candidateVersion, valid := validCandidate(*candidate)
-		if !valid || candidateVersion.major != supportedMajor ||
+		if !valid || candidateVersion.major != currentVersion.major ||
 			compareVersions(candidateVersion, currentVersion) <= 0 ||
 			(currentVersion.stable() && !candidateVersion.stable()) {
 			continue
@@ -61,6 +59,11 @@ func SelectUpdate(current string, releases []Release) *Update {
 		ReleaseURL:    selected.HTMLURL,
 		PublishedAtMS: selected.PublishedAt.UnixMilli(),
 	}
+}
+
+func isDevelopmentVersion(raw string) bool {
+	version, ok := parseVersion(raw)
+	return ok && len(version.prerelease) > 0 && version.prerelease[0].raw == "dev"
 }
 
 type semanticVersion struct {

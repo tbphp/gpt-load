@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -3231,33 +3232,36 @@ func TestHandlerDoesNotRetryDownstreamWriteDeadline(t *testing.T) {
 }
 
 func TestHandlerDoesNotAdvanceCandidatesAfterRequestDeadline(t *testing.T) {
-	forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
-		{Err: context.DeadlineExceeded, RequestWritten: true},
-		{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
-	}}
-	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/v1/chat/completions",
-		bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
-	)
-	request.Header.Set("Authorization", "Bearer gl-client")
-	ctx, cancel := context.WithTimeout(request.Context(), 20*time.Millisecond)
-	defer cancel()
-	request = request.WithContext(ctx)
-	forwarder.onStreamCall = func(_ int, _ http.ResponseWriter) {
-		<-ctx.Done()
-	}
-	recorder := httptest.NewRecorder()
+	// 虚拟时间在转发器等待 deadline 后才推进，避免路由阶段提前耗尽预算。
+	synctest.Test(t, func(t *testing.T) {
+		forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
+			{Err: context.DeadlineExceeded, RequestWritten: true},
+			{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
+		}}
+		engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/chat/completions",
+			bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+		)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		ctx, cancel := context.WithTimeout(request.Context(), 20*time.Millisecond)
+		defer cancel()
+		request = request.WithContext(ctx)
+		forwarder.onStreamCall = func(_ int, _ http.ResponseWriter) {
+			<-ctx.Done()
+		}
+		recorder := httptest.NewRecorder()
 
-	engine.ServeHTTP(recorder, request)
+		engine.ServeHTTP(recorder, request)
 
-	if len(forwarder.streamInputs) != 1 {
-		t.Fatalf("stream attempts = %d, want 1 after downstream deadline", len(forwarder.streamInputs))
-	}
-	if recorder.Body.Len() != 0 {
-		t.Fatalf("deadline path appended a response: %s", recorder.Body.String())
-	}
+		if len(forwarder.streamInputs) != 1 {
+			t.Fatalf("stream attempts = %d, want 1 after downstream deadline", len(forwarder.streamInputs))
+		}
+		if recorder.Body.Len() != 0 {
+			t.Fatalf("deadline path appended a response: %s", recorder.Body.String())
+		}
+	})
 }
 
 func TestHandlerUsesClassifierForStreamingNonSuccess(t *testing.T) {

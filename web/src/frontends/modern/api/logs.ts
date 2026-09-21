@@ -19,6 +19,7 @@ export const logOperations = [
   'images_edit',
   'embeddings_create',
   'rerank',
+  'decisions_create',
   'list_models',
   'probe',
 ] as const
@@ -137,7 +138,12 @@ export interface LogAutoDecision {
   execution_phase: string
   reason: string
   provider: string
+  group_name: string
+  channel_name: string
+  credential_name: string
+  credential_deleted: boolean
   requested_model: string
+  upstream_model: string
   reported_model: string
   duration_ms: number
   called: boolean
@@ -360,7 +366,12 @@ function autoDecision(value: unknown): LogAutoDecision {
     execution_phase: text(row.execution_phase ?? ''),
     reason: text(row.reason ?? ''),
     provider: text(row.provider ?? ''),
+    group_name: text(row.group_name ?? ''),
+    channel_name: text(row.channel_name ?? ''),
+    credential_name: text(row.credential_name ?? ''),
+    credential_deleted: boolean(row.credential_deleted ?? false),
     requested_model: text(row.requested_model ?? ''),
+    upstream_model: text(row.upstream_model ?? ''),
     reported_model: text(row.reported_model ?? ''),
     duration_ms: integer(row.duration_ms),
     called: boolean(row.called),

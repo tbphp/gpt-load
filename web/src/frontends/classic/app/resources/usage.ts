@@ -323,10 +323,16 @@ export function projectUsageReport(value: unknown): UsageReportDto {
       0n,
     )
     const distributedTokens = visibleAndOther.reduce((total, item) => total + item.total_tokens, 0)
+    const summaryCost = BigInt(summary.estimated_cost_nano_usd)
+    // 自动决策费用可能没有回答 Group 归属，因此分组成本只要求不超过总成本。
+    const costMatches =
+      distributionDimension === 'group'
+        ? distributedCost <= summaryCost
+        : distributedCost === summaryCost
     if (
       distributedRequests !== summary.request_count ||
       distributedTokens !== summary.total_tokens ||
-      distributedCost !== BigInt(summary.estimated_cost_nano_usd)
+      !costMatches
     ) {
       invalidResponse()
     }

@@ -27,3 +27,19 @@ func TestRerankRetryRequiresProofAndKeepsModelFailuresScoped(t *testing.T) {
 		})
 	}
 }
+
+func TestDecisionsModelFailureUsesProtocolRule(t *testing.T) {
+	evidence := execution.ErrorEvidence{
+		Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintModelUnavailable,
+		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeModel,
+		StatusCode: http.StatusNotFound, ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+	}
+	got := JudgeExecution(
+		ExecutionAttempt{DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusNotFound, Evidence: &evidence},
+		DecisionContext{Method: http.MethodPost, Operation: execution.OperationDecisionsCreate},
+	)
+	if got.Retry != RetryNextCandidate || got.Effect != EffectNone ||
+		got.Scope != execution.ErrorScopeModel || got.RuleID != "decisions.model_unavailable" {
+		t.Fatalf("decision=%#v", got)
+	}
+}

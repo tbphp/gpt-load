@@ -15,6 +15,7 @@ export interface QuotaUsage {
 }
 export interface CredentialQuota {
   id: string
+  sourceId?: string
   label: string
   labelKey?: string
   scope: string
@@ -106,6 +107,7 @@ export function readObservation(value: unknown): CredentialObservation | undefin
           if (!/^\d+$/u.test(cost)) throw new InvalidResponseError()
           return {
             id: text(window.id),
+            sourceId: window.source_id === undefined ? undefined : text(window.source_id),
             label: text(window.label),
             labelKey: window.label_key === undefined ? undefined : text(window.label_key),
             scope: text(window.scope),

@@ -108,6 +108,8 @@ func mapEvent(
 	var autoJSON models.JSON
 	var decisionCost int64
 	decisionCompleteness, decisionModel := "not_applicable", ""
+	var decisionGroupID, decisionCredentialID uint
+	decisionChannelID := ""
 	if event.AutoDecision != nil {
 		decision := *event.AutoDecision
 		decision.Selection.ParameterOverrides = nil
@@ -119,13 +121,19 @@ func mapEvent(
 		autoJSON, _ = json.Marshal(decision)
 		decisionCost, decisionCompleteness = decision.EstimatedCostNanoUSD, decision.PricingCompleteness
 		if decision.Called {
-			decisionModel = "jev/" + decision.Provider + "/" + decision.RequestedModel
+			decisionModel = decision.UpstreamModel
+			decisionGroupID = decision.GroupID
+			decisionChannelID = decision.ChannelID
+			decisionCredentialID = decision.CredentialID
 		}
 	}
 
 	return models.RequestLog{
 		AutoDecision:                autoJSON,
 		DecisionModel:               decisionModel,
+		DecisionGroupID:             decisionGroupID,
+		DecisionChannelID:           decisionChannelID,
+		DecisionCredentialID:        decisionCredentialID,
 		DecisionCostNanoUSD:         decisionCost,
 		DecisionPricingCompleteness: decisionCompleteness,
 		ID:                          event.RequestID,

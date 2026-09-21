@@ -23,6 +23,7 @@ import {
   AppOverflowText,
   AppIcon,
   AppChannelIcon,
+  AppTooltip,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import type { LogColumnId } from './log-columns'
@@ -31,6 +32,7 @@ import {
   logCacheWrites,
   logDuration,
   logNumber,
+  logOutputRate,
   logStatusTone,
   logTime,
 } from './log-display'
@@ -58,6 +60,7 @@ const query = useQuery({
   queryFn: ({ signal }) => getLogDetail(client, props.id, signal),
 })
 const log = computed(() => query.data.value)
+const outputRate = computed(() => (log.value ? logOutputRate(log.value, locale.value) : '—'))
 const outcomeFields = computed<LogColumnId[]>(() => [
   'status_code',
   'stream',
@@ -128,8 +131,26 @@ function decisionReason(reason: string): string {
 function confidenceText(value: number): string {
   return n(value, { style: 'percent', maximumFractionDigits: 1 })
 }
-function decisionModelText(provider: string, reported: string, requested: string): string {
-  return [provider, reported || requested].filter(Boolean).join(' · ') || '—'
+function decisionModelText(requested: string, upstream: string, reported: string): string {
+  const selected =
+    requested && upstream && requested !== upstream
+      ? `${requested} → ${upstream}`
+      : upstream || requested
+  const observed =
+    reported && reported !== upstream ? `${t('autoModel.reportedModel')} ${reported}` : ''
+  return [selected, observed].filter(Boolean).join(' · ') || '—'
+}
+function decisionRouteText(
+  group: string,
+  channel: string,
+  credential: string,
+  credentialDeleted: boolean,
+): string {
+  return (
+    [group, channel, credential || (credentialDeleted ? t('autoModel.deletedCredential') : '')]
+      .filter(Boolean)
+      .join(' · ') || '—'
+  )
 }
 // 表格按 强度 > 预算 > 开关 只取一个值，详情面板给出完整拆解。
 function reasoningText(value: LogReasoning): string {
@@ -240,7 +261,24 @@ function resolveRedactedLog(): Promise<string> {
               <div v-for="field in outcomeFields" :key="field">
                 <dt>{{ t('logs.columns.' + field) }}</dt>
                 <dd>
-                  <LogValue :row="log" :column="field" :groups="groups" :channels="channels" />
+                  <template v-if="field === 'stream'">
+                    {{ t(log.stream ? 'logs.yes' : 'logs.no') }}
+                    <AppTooltip v-if="outputRate !== '—'" :label="t('logs.outputRate')">
+                      <span
+                        class="modern-log-stream-rate"
+                        tabindex="0"
+                        :aria-label="t('logs.outputRate') + ': ' + outputRate"
+                        >&nbsp;·&nbsp;{{ outputRate }}</span
+                      >
+                    </AppTooltip>
+                  </template>
+                  <LogValue
+                    v-else
+                    :row="log"
+                    :column="field"
+                    :groups="groups"
+                    :channels="channels"
+                  />
                 </dd>
               </div>
               <div v-if="log.reasoning">
@@ -269,7 +307,7 @@ function resolveRedactedLog(): Promise<string> {
               </div>
               <div
                 v-if="
-                  log.auto_decision.provider ||
+                  log.auto_decision.upstream_model ||
                   log.auto_decision.reported_model ||
                   log.auto_decision.requested_model
                 "
@@ -278,14 +316,34 @@ function resolveRedactedLog(): Promise<string> {
                 <dd>
                   {{
                     decisionModelText(
-                      log.auto_decision.provider,
-                      log.auto_decision.reported_model,
                       log.auto_decision.requested_model,
+                      log.auto_decision.upstream_model,
+                      log.auto_decision.reported_model,
                     )
                   }}
                 </dd>
               </div>
-              <div v-if="log.auto_decision.provider">
+              <div
+                v-if="
+                  log.auto_decision.group_name ||
+                  log.auto_decision.channel_name ||
+                  log.auto_decision.credential_name ||
+                  log.auto_decision.credential_deleted
+                "
+              >
+                <dt>{{ t('autoModel.decisionRoute') }}</dt>
+                <dd>
+                  {{
+                    decisionRouteText(
+                      log.auto_decision.group_name,
+                      log.auto_decision.channel_name,
+                      log.auto_decision.credential_name,
+                      log.auto_decision.credential_deleted,
+                    )
+                  }}
+                </dd>
+              </div>
+              <div v-if="log.auto_decision.called">
                 <dt>{{ t('autoModel.duration') }}</dt>
                 <dd>{{ log.auto_decision.duration_ms }} ms</dd>
               </div>
@@ -669,6 +727,12 @@ function resolveRedactedLog(): Promise<string> {
   margin: 0;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
+}
+.modern-log-stream-rate {
+  color: var(--modern-muted);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-caption);
+  white-space: nowrap;
 }
 .modern-log-error.is-note {
   background: var(--modern-subtle);

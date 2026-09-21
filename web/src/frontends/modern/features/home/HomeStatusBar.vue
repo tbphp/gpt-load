@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import type { HomeBase } from '@modern/api/home'
-import { AppBadge, AppIcon, AppButton } from '@modern/components/ui'
+import { AppBadge, AppButton, AppIcon } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
 
 const props = defineProps<{ base: HomeBase; admin: boolean; attention: number }>()

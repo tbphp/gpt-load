@@ -64,8 +64,8 @@ func TestQuotaHistoryPreservesFourMixedObservations(t *testing.T) {
 				if err := manager.db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 					t.Fatal(err)
 				}
-				if len(rows) != 3 || rows[1].ObservedAtMS != 20000 || rows[1].UsedBasisPoints != 2200 || rows[2].ObservedAtMS != 30000 || rows[2].UsedBasisPoints != 2100 {
-					t.Fatalf("four-observation rebound lost: %+v", rows)
+				if len(rows) != 4 || rows[1].ObservedAtMS != 20000 || rows[1].UsedBasisPoints != 2200 || rows[2].ObservedAtMS != 30000 || rows[2].UsedBasisPoints != 2100 || rows[3].ObservedAtMS != 40000 || rows[3].UsedBasisPoints != 2300 {
+					t.Fatalf("four changed observations were not retained: %+v", rows)
 				}
 			})
 		}
@@ -97,8 +97,8 @@ func TestQuotaHistoryPrefersNamedCopiesAcrossThreeEvents(t *testing.T) {
 			if err := manager.db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 				t.Fatal(err)
 			}
-			if len(rows) != 1 || rows[0].ObservedAtMS != 10000 || rows[0].UsedBasisPoints != 200 {
-				t.Fatalf("duplicate events created false rebound: %+v", rows)
+			if len(rows) != 3 || rows[0].ObservedAtMS != 10000 || rows[0].UsedBasisPoints != 200 || rows[1].ObservedAtMS != 20000 || rows[1].UsedBasisPoints != 300 || rows[2].ObservedAtMS != 30000 || rows[2].UsedBasisPoints != 400 {
+				t.Fatalf("named copies did not retain the canonical changed series: %+v", rows)
 			}
 		})
 	}
@@ -124,7 +124,7 @@ func TestQuotaHistoryPendingBufferIsBoundedAndSnapshotsKeepUpdating(t *testing.T
 		t.Fatal(err)
 	}
 	if pending.historyObservationCount != 0 || len(rows) != 1 || rows[0].ObservedAtMS != 10_000 {
-		t.Fatalf("pending buffer did not drain through hourly sampling: pending=%d rows=%+v", pending.historyObservationCount, rows)
+		t.Fatalf("pending buffer did not drain through display-value sampling: pending=%d rows=%+v", pending.historyObservationCount, rows)
 	}
 }
 
@@ -157,8 +157,8 @@ func TestQuotaHistorySourceLookupFailureKeepsCompleteObservations(t *testing.T) 
 	if err := manager.db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 3 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 2200 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != 2100 {
-		t.Fatalf("source lookup retry lost rebound evidence: %+v", rows)
+	if len(rows) != 4 || rows[1].ObservedAtMS != 20_000 || rows[1].UsedBasisPoints != 2200 || rows[2].ObservedAtMS != 30_000 || rows[2].UsedBasisPoints != 2100 || rows[3].ObservedAtMS != 40_000 || rows[3].UsedBasisPoints != 2300 {
+		t.Fatalf("source lookup retry lost changed observations: %+v", rows)
 	}
 }
 
@@ -212,8 +212,8 @@ func TestQuotaHistoryReplaysArrivalsDuringSourceLookupBeforeDirectSampling(t *te
 	if err := manager.db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 3 || rows[1].ObservedAtMS != 20_000 || rows[2].ObservedAtMS != 30_000 {
-		t.Fatalf("new arrival overtook unresolved rebound evidence: %+v", rows)
+	if len(rows) != 4 || rows[1].ObservedAtMS != 20_000 || rows[2].ObservedAtMS != 30_000 || rows[3].ObservedAtMS != 40_000 {
+		t.Fatalf("new arrival overtook unresolved changed observations: %+v", rows)
 	}
 	if manager.passiveQuota.historyObservationCount != 0 {
 		t.Fatal("resolved account continued buffering observations")
@@ -273,8 +273,8 @@ func TestQuotaHistoryWaitsForCompleteSourceMapping(t *testing.T) {
 			if err := manager.db.Find(&rows).Error; err != nil {
 				t.Fatal(err)
 			}
-			if len(rows) != 1 || rows[0].SourceID != "codex_bengalfox" || rows[0].ObservedAtMS != 10000 || rows[0].UsedBasisPoints != 200 || manager.passiveQuota.historyObservationCount != 0 {
-				t.Fatalf("resolved history must have one canonical series without a false rebound: %+v", rows)
+			if len(rows) != 4 || rows[0].SourceID != "codex_bengalfox" || rows[0].ObservedAtMS != 10000 || rows[0].UsedBasisPoints != 200 || rows[1].ObservedAtMS != 20000 || rows[1].UsedBasisPoints != 300 || rows[2].ObservedAtMS != 30000 || rows[2].UsedBasisPoints != 400 || rows[3].ObservedAtMS != 40000 || rows[3].UsedBasisPoints != 500 || manager.passiveQuota.historyObservationCount != 0 {
+				t.Fatalf("resolved history did not retain the canonical changed series: %+v", rows)
 			}
 			if len(manager.passiveQuota.historyRetryAt) != 0 {
 				t.Fatal("resolved observations retained retry state")
@@ -310,7 +310,7 @@ func TestQuotaHistoryKeepsLaterResolvedEventsBehindUnresolvedEvent(t *testing.T)
 	if err := manager.db.Order("observed_at_ms").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 3 || rows[1].ObservedAtMS != 20000 || rows[1].UsedBasisPoints != 2200 || rows[2].ObservedAtMS != 30000 || rows[2].UsedBasisPoints != 2100 {
-		t.Fatalf("later resolved observation overtook quota rebound: %+v", rows)
+	if len(rows) != 4 || rows[1].ObservedAtMS != 20000 || rows[1].UsedBasisPoints != 2200 || rows[2].ObservedAtMS != 30000 || rows[2].UsedBasisPoints != 2100 || rows[3].ObservedAtMS != 40000 || rows[3].UsedBasisPoints != 2300 {
+		t.Fatalf("later resolved observation overtook quota changes: %+v", rows)
 	}
 }
