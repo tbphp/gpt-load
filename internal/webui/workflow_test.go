@@ -20,11 +20,11 @@ const (
 	pnpmSetupActionRef        = "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
 	uploadArtifactActionRef   = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 	downloadArtifactActionRef = "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
-	qemuActionRef             = "docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a"
-	buildxActionRef           = "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e"
+	qemuActionRef             = "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1"
+	buildxActionRef           = "docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069"
 	dockerLoginActionRef      = "docker/login-action@dbcb813823bdd20940b903addbd779551569679f"
 	dockerMetadataActionRef   = "docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302"
-	dockerBuildActionRef      = "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a"
+	dockerBuildActionRef      = "docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc"
 	githubReleaseActionRef    = "softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64"
 )
 
