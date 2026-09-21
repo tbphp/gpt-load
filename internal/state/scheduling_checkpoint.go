@@ -1,6 +1,9 @@
 package state
 
-import "sort"
+import (
+	"slices"
+	"sort"
+)
 
 type SchedulingMemberCheckpoint struct {
 	ID                 uint               `json:"id"`
@@ -22,9 +25,9 @@ type SchedulingCheckpoint struct {
 }
 
 type ModelCursorCheckpoint struct {
-	GroupID       uint   `json:"group_id"`
-	ExternalModel string `json:"external_model"`
-	LastModel     string `json:"last_model"`
+	GroupID       uint     `json:"group_id"`
+	ExternalModel string   `json:"external_model"`
+	Order         []string `json:"model_order"`
 }
 
 func (s *SchedulingState) CaptureCheckpoint() SchedulingCheckpoint {
@@ -32,10 +35,10 @@ func (s *SchedulingState) CaptureCheckpoint() SchedulingCheckpoint {
 	s.WithLock(func(d *SchedulingLedger) {
 		checkpoint.Watermark, checkpoint.Sequence = d.Watermark, d.Sequence
 		checkpoint.LastMember, checkpoint.Consecutive = d.LastMember, d.Consecutive
-		for key, last := range d.ModelCursors {
-			if last != "" {
+		for key, order := range d.ModelCursors {
+			if len(order) > 0 {
 				checkpoint.ModelCursors = append(checkpoint.ModelCursors, ModelCursorCheckpoint{
-					GroupID: key.GroupID, ExternalModel: key.ExternalModel, LastModel: last,
+					GroupID: key.GroupID, ExternalModel: key.ExternalModel, Order: slices.Clone(order),
 				})
 			}
 		}
@@ -67,8 +70,8 @@ func (s *SchedulingState) RestoreCheckpoint(checkpoint SchedulingCheckpoint) int
 	s.WithLock(func(d *SchedulingLedger) {
 		for _, saved := range checkpoint.ModelCursors {
 			key := GroupModelKey{GroupID: saved.GroupID, ExternalModel: saved.ExternalModel}
-			if _, exists := d.ModelCursors[key]; exists {
-				d.ModelCursors[key] = saved.LastModel
+			if configured, exists := d.ModelCursors[key]; exists {
+				d.ModelCursors[key] = reconcileModelOrder(saved.Order, configured)
 			}
 		}
 		d.Started = checkpoint.Sequence != 0
