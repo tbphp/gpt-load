@@ -34,8 +34,6 @@ function estimate(window: CredentialQuota): { text: string; hint: string } {
   if (!usage) return { text: '—', hint: t('credentialCards.usageUnavailable') }
   const remaining = quotaRemaining(window)
   if (remaining === undefined) return { text: '—', hint: t('credentialCards.estimateQuotaUnknown') }
-  if (!usage.complete || !usage.pricingComplete)
-    return { text: '—', hint: t('credentialCards.estimateIncomplete') }
   const used = 100 - remaining
   const cost = BigInt(usage.cost)
   if (used < minimumUsedPercent || usage.requests < minimumRequests || cost < minimumCostNanoUSD)
@@ -53,6 +51,7 @@ function estimate(window: CredentialQuota): { text: string; hint: string } {
   const amount = formatNanoUSD(fullCost.toString(), locale.value, 'narrowSymbol', 2)
   const hint = [
     t('credentialCards.estimateOnly'),
+    !usage.complete || !usage.pricingComplete ? t('credentialCards.estimateIncomplete') : '',
     t('credentialCards.estimateCost', { value: amount }),
     usage.usageComplete
       ? t('credentialCards.estimateTokens', {
@@ -145,7 +144,7 @@ function warning(window: CredentialQuota): string | undefined {
         </div>
         <div role="cell">
           <AppOverflowText
-            :text="window.usage ? formatNanoUSD(window.usage.cost, locale, 'narrowSymbol') : '—'"
+            :text="window.usage ? formatNanoUSD(window.usage.cost, locale, 'narrowSymbol', 2) : '—'"
           />
         </div>
         <div role="cell" class="modern-window-usage-estimate">

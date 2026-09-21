@@ -13,7 +13,7 @@ export const zhCN = {
   estimateTokens: '满额 Token：{value}',
   estimateFormula: '满额预估 = 当前窗口累计值 ÷ 已用比例。',
   estimateQuotaUnknown: '尚无已用比例，暂无法预估。',
-  estimateIncomplete: '当前窗口的记录或计价不完整，暂不预估。',
+  estimateIncomplete: '当前窗口的记录或计价不完整，按已统计费用预估。',
   estimateSmallSample:
     '当前样本较少，暂不预估。\n已用至少 {percent}%、累计至少 {requests} 次请求且费用达到 {cost} 后显示。',
   dailySuccess: '24 小时成功',
@@ -145,7 +145,7 @@ export const enUS: typeof zhCN = {
   estimateTokens: 'Tokens at full quota: {value}',
   estimateFormula: 'Full estimate = window total ÷ proportion used.',
   estimateQuotaUnknown: 'The proportion used is unavailable; an estimate cannot be calculated yet.',
-  estimateIncomplete: 'Window records or pricing are incomplete; no estimate is shown.',
+  estimateIncomplete: 'Window records or pricing are incomplete; the estimate uses recorded costs.',
   estimateSmallSample:
     'Too little data to estimate yet.\nShown after at least {percent}% usage, {requests} requests, and {cost} in cost.',
   dailySuccess: 'Successes · 24h',
