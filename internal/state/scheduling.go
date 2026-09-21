@@ -58,6 +58,7 @@ func (m *SchedulingMember) Admit(baseline SchedulingProgress) {
 // 凭据事实属于 Registry；本表独立保存分配历史，不随凭据配置替换而回退。
 type SchedulingLedger struct {
 	Members       map[uint]*SchedulingMember
+	ModelCursors  map[GroupModelKey][]string
 	Groups        map[uint]bool
 	GroupRevision uint64
 	GroupsKnown   bool
@@ -76,6 +77,7 @@ type SchedulingState struct {
 func NewSchedulingState() *SchedulingState {
 	return &SchedulingState{ledger: SchedulingLedger{
 		Members: make(map[uint]*SchedulingMember), Groups: make(map[uint]bool),
+		ModelCursors: make(map[GroupModelKey][]string),
 	}}
 }
 
@@ -164,6 +166,7 @@ func (s *SchedulingState) SyncGroups(snapshot *ConfigSnapshot) {
 			}
 		}
 		d.Groups, d.GroupRevision, d.GroupsKnown = groups, snapshot.Revision, true
+		s.syncModelCursorsLocked(snapshot)
 	})
 }
 

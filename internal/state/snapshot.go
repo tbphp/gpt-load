@@ -528,16 +528,17 @@ func validateCompileInput(input CompileInput) error {
 		if err := validateManualWeight(fmt.Sprintf("group %d", group.ID), group.WeightManual); err != nil {
 			return err
 		}
-		seenModels := make(map[string]struct{}, len(group.Models))
+		seenModels := make(map[[2]string]struct{}, len(group.Models))
 		for _, model := range group.Models {
 			if strings.TrimSpace(model.ID) == "" {
 				return fmt.Errorf("group %d model id is required", group.ID)
 			}
 			external := externalModelName(model)
-			if _, duplicate := seenModels[external]; duplicate {
-				return fmt.Errorf("group %d has duplicate external model %q", group.ID, external)
+			mapping := [2]string{external, strings.TrimSpace(model.ID)}
+			if _, duplicate := seenModels[mapping]; duplicate {
+				return fmt.Errorf("group %d has duplicate model mapping %q -> %q", group.ID, external, model.ID)
 			}
-			seenModels[external] = struct{}{}
+			seenModels[mapping] = struct{}{}
 		}
 	}
 

@@ -450,7 +450,7 @@ func equalGroupCollectionWeight(left, right *int) bool {
 }
 
 func validateGroupCollectionModels(values []GroupModel) error {
-	seen := make(map[string]struct{}, len(values))
+	seen := make(map[[2]string]struct{}, len(values))
 	for _, value := range values {
 		id := strings.TrimSpace(value.ID)
 		if id == "" {
@@ -460,10 +460,11 @@ func validateGroupCollectionModels(values []GroupModel) error {
 		if external == "" {
 			external = id
 		}
-		if _, duplicate := seen[external]; duplicate {
-			return fmt.Errorf("duplicate external model %q", external)
+		mapping := [2]string{external, id}
+		if _, duplicate := seen[mapping]; duplicate {
+			return fmt.Errorf("duplicate model mapping %q -> %q", external, id)
 		}
-		seen[external] = struct{}{}
+		seen[mapping] = struct{}{}
 	}
 	return nil
 }

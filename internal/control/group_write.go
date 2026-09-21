@@ -189,49 +189,28 @@ func normalizeUpstreamBaseURL(raw string) (normalized, hostname string, err erro
 
 func normalizeGroupModels(values []GroupModel) ([]GroupModel, error) {
 	result := make([]GroupModel, 0, len(values))
-	indexesByClientModel := make(map[string][]int, len(values))
-	clientModelOrder := make([]string, 0, len(values))
-	for index, value := range values {
-		normalized := GroupModel{
-			ID: strings.TrimSpace(value.ID),
-		}
+	seen := make(map[[2]string]struct{}, len(values))
+	for _, value := range values {
+		normalized := GroupModel{ID: strings.TrimSpace(value.ID)}
 		if normalized.ID == "" {
 			return nil, app_errors.ErrValidation
 		}
-		alias := strings.TrimSpace(value.Alias)
-		aliasEnabled := value.AliasEnabled
-		if aliasEnabled {
-			if alias == "" {
+		if value.AliasEnabled {
+			normalized.Alias = strings.TrimSpace(value.Alias)
+			if normalized.Alias == "" {
 				return nil, app_errors.ErrValidation
 			}
-			normalized.Alias = alias
 		}
-		clientModel := normalized.ID
-		if normalized.Alias != "" {
-			clientModel = normalized.Alias
+		external := normalized.Alias
+		if external == "" {
+			external = normalized.ID
 		}
-		if _, exists := indexesByClientModel[clientModel]; !exists {
-			clientModelOrder = append(clientModelOrder, clientModel)
-		}
-		indexesByClientModel[clientModel] = append(indexesByClientModel[clientModel], index)
-		result = append(result, normalized)
-	}
-	conflicts := make([]ModelNameConflict, 0)
-	for _, clientModel := range clientModelOrder {
-		indexes := indexesByClientModel[clientModel]
-		if len(indexes) < 2 {
+		mapping := [2]string{external, normalized.ID}
+		if _, duplicate := seen[mapping]; duplicate {
 			continue
 		}
-		conflicts = append(conflicts, ModelNameConflict{
-			ClientModel: clientModel,
-			Indexes:     append([]int(nil), indexes...),
-		})
-	}
-	if len(conflicts) > 0 {
-		return nil, app_errors.NewAPIErrorWithData(
-			app_errors.ErrModelNameConflict,
-			ModelNameConflictData{Conflicts: conflicts},
-		)
+		seen[mapping] = struct{}{}
+		result = append(result, normalized)
 	}
 	return result, nil
 }

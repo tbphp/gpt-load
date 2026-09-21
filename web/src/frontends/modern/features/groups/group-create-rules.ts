@@ -7,13 +7,16 @@ export interface GroupDraftModel extends ModelDraft {
 export function modelErrors(models: readonly GroupDraftModel[]): Map<number, 'id' | 'duplicate'> {
   const counts = new Map<string, number>()
   for (const model of models) {
-    const name = model.alias.trim() || model.id.trim()
+    const name = JSON.stringify([model.id.trim(), model.alias.trim() || model.id.trim()])
     counts.set(name, (counts.get(name) ?? 0) + 1)
   }
   const errors = new Map<number, 'id' | 'duplicate'>()
   for (const model of models) {
     if (!model.id.trim()) errors.set(model.key, 'id')
-    else if ((counts.get(model.alias.trim() || model.id.trim()) ?? 0) > 1)
+    else if (
+      (counts.get(JSON.stringify([model.id.trim(), model.alias.trim() || model.id.trim()])) ?? 0) >
+      1
+    )
       errors.set(model.key, 'duplicate')
   }
   return errors

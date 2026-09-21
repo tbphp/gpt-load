@@ -1494,41 +1494,35 @@ func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *t
 	}
 }
 
-func TestGroupModelsHTTPReturnsStructuredConflictWithoutMutation(t *testing.T) {
+func TestGroupModelsHTTPAcceptsSharedNamesAndDeduplicatesMappings(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
-	groupID := createGroupForCredentialImport(t, fixture, "sk-model-conflict-http")
+	groupID := createGroupForCredentialImport(t, fixture, "sk-model-alias-http")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 	beforeRevision := fixture.manager.Current().Revision
-	beforeModels := loadCreatedGroupModels(t, fixture, groupID)
-
-	recorder := serveRawGroupModelsUpdateRequest(
-		t,
-		engine,
-		"test-auth-key",
-		"en-US",
-		strconv.FormatUint(uint64(groupID), 10),
-		`{"models":[{"id":"a","alias":"discarded","alias_enabled":false},{"id":"b","alias":"a","alias_enabled":true}]}`,
-	)
+	recorder := serveRawGroupModelsUpdateRequest(t, engine, "test-auth-key", "en-US", strconv.FormatUint(uint64(groupID), 10),
+		`{"models":[{"id":"a","alias":"discarded","alias_enabled":false},{"id":"b","alias":"a","alias_enabled":true},{"id":"b","alias":"a","alias_enabled":true}]}`)
 	var envelope struct {
-		Code string                `json:"code"`
-		Data ModelNameConflictData `json:"data"`
+		Code int                 `json:"code"`
+		Data GroupModelsResponse `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	wantConflicts := []ModelNameConflict{{ClientModel: "a", Indexes: []int{0, 1}}}
-	if recorder.Code != http.StatusConflict || envelope.Code != app_errors.ErrModelNameConflict.Code ||
-		!reflect.DeepEqual(envelope.Data.Conflicts, wantConflicts) {
-		t.Fatalf("response = %d %#v, want 409 %#v", recorder.Code, envelope, wantConflicts)
+	if recorder.Code != http.StatusOK || envelope.Code != 0 || envelope.Data.Total != 2 {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body)
 	}
-	if fixture.manager.Current().Revision != beforeRevision {
-		t.Fatal("model conflict published a Snapshot")
+	if fixture.manager.Current().Revision <= beforeRevision {
+		t.Fatal("models not published")
 	}
-	if got := loadCreatedGroupModels(t, fixture, groupID); !reflect.DeepEqual(got, beforeModels) {
-		t.Fatalf("model conflict changed persistence: got=%#v want=%#v", got, beforeModels)
+	want := []GroupModel{{ID: "a"}, {ID: "b", Alias: "a"}}
+	if got := loadCreatedGroupModels(t, fixture, groupID); !reflect.DeepEqual(got, want) {
+		t.Fatalf("models = %#v", got)
+	}
+	if _, _, err := fixture.service.captureGroupCollectionRecords(t.Context(), false); err != nil {
+		t.Fatal(err)
 	}
 }
 
