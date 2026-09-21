@@ -285,6 +285,8 @@ export default {
         channelSwitch: '切换到 {channel}？',
         channelSwitchHelp:
           '凭据保持不变，但健康统计、冷却和会话亲和会重置。模型列表不变，请确认新渠道支持这些模型。',
+        channelSwitchBaseURL:
+          '你自定义的上游地址会原样保留，但各渠道对地址格式的要求不同，切换后请检查它是否仍然正确。',
         channelSwitchConfirm: '确认切换',
         channelSwitchAnyway: '仍然切换',
         channelSwitchConflict: '{groups} 已经使用相同的上游目标。',

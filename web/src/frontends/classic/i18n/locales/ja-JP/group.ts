@@ -293,6 +293,8 @@ export default {
         channelSwitch: '{channel} に切り替えますか？',
         channelSwitchHelp:
           '認証情報はそのままですが、ヘルス統計・クールダウン・セッションアフィニティはリセットされます。モデル一覧は変わらないため、新しいチャネルが対応しているか確認してください。',
+        channelSwitchBaseURL:
+          'カスタムの上流 URL はそのまま保持されますが、チャネルによって想定する URL 形式が異なるため、切り替え後に確認してください。',
         channelSwitchConfirm: '切り替える',
         channelSwitchAnyway: 'それでも切り替える',
         channelSwitchConflict: '{groups} が同じ上流ターゲットを使用しています。',

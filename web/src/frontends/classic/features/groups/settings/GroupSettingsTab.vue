@@ -88,6 +88,7 @@ const saved = ref<GroupSettingsDto>()
 const draft = ref<GroupSettingsDraft>()
 const pending = ref(false)
 const deletePending = ref(false)
+const channelSwitchPending = ref(false)
 const deleted = ref(false)
 const error = ref('')
 const headerRulesValid = ref(true)
@@ -184,7 +185,9 @@ const dirty = computed(
       parameterOverridesInvalidEdits.value ||
       proxyState.value.dirty),
 )
-const mutationPending = computed(() => pending.value || deletePending.value)
+const mutationPending = computed(
+  () => pending.value || deletePending.value || channelSwitchPending.value,
+)
 const nameError = computed(() =>
   draft.value?.name.trim() ? '' : t('group.settings.base.nameError'),
 )
@@ -481,12 +484,16 @@ const channelOptions = computed(() =>
 )
 const requestedChannel = ref('')
 const channelConflict = ref<string[]>()
-const channelSwitchPending = ref(false)
 const requestedChannelName = computed(
   () => switchableChannels.value.find(({ id }) => id === requestedChannel.value)?.name ?? '',
 )
+// 自定义地址按原样保留，但各渠道对地址格式的要求不同，切换时提醒复核。
+const keepsCustomBaseURL = computed(() => {
+  const value = (draft.value?.params.base_url ?? '').trim()
+  return Boolean(value) && value !== (selectedChannel.value?.default_base_url ?? '')
+})
 function requestChannelSwitch(value: string): void {
-  if (!value || value === saved.value?.channel_id || channelSwitchPending.value || dirty.value) {
+  if (!value || value === saved.value?.channel_id || mutationPending.value || dirty.value) {
     return
   }
   channelConflict.value = undefined
@@ -1035,14 +1042,14 @@ onBeforeUnmount(() => {
           ><AppButton
             variant="ghost"
             size="sm"
-            :disabled="disabled || !dirty || deletePending"
+            :disabled="disabled || !dirty || mutationPending"
             @click="discard"
             >{{ t('common.discard') }}</AppButton
           ></template
         ><template #save="{ disabled }"
           ><AppButton
             size="sm"
-            :disabled="disabled || !dirty || !valid || deletePending"
+            :disabled="disabled || !dirty || !valid || mutationPending"
             @click="requestSave"
             >{{ t('group.settings.save') }}</AppButton
           ></template
@@ -1055,7 +1062,11 @@ onBeforeUnmount(() => {
       :description="
         channelConflict
           ? t('group.settings.base.channelSwitchConflict', { groups: channelConflict.join(', ') })
-          : t('group.settings.base.channelSwitchHelp')
+          : keepsCustomBaseURL
+            ? t('group.settings.base.channelSwitchHelp') +
+              ' ' +
+              t('group.settings.base.channelSwitchBaseURL')
+            : t('group.settings.base.channelSwitchHelp')
       "
       :close-label="t('common.close')"
       :cancel-label="t('common.cancel')"

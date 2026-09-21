@@ -128,6 +128,8 @@ export const zhCN = {
   channelSwitch: '切换渠道',
   channelSwitchHelp:
     '凭据保持不变，但健康统计、冷却和会话亲和会重置。模型列表不变，请确认新渠道支持这些模型。',
+  channelSwitchBaseURL:
+    '你自定义的上游地址会原样保留，但各渠道对地址格式的要求不同，切换后请检查它是否仍然正确。',
   channelSwitchConfirm: '确认切换',
   channelSwitchAnyway: '仍然切换',
   channelSwitchConflict: '{groups} 已经使用相同的上游目标。',
@@ -280,6 +282,8 @@ export const enUS: typeof zhCN = {
   channelSwitch: 'Switch channel',
   channelSwitchHelp:
     'Credentials stay as they are, but health statistics, cooldowns and session affinity reset. The model list is unchanged, so confirm the new channel serves these models.',
+  channelSwitchBaseURL:
+    'Your custom upstream URL is kept as is, but channels differ in the URL shape they expect, so check it after the switch.',
   channelSwitchConfirm: 'Switch',
   channelSwitchAnyway: 'Switch anyway',
   channelSwitchConflict: '{groups} already use the same upstream target.',
@@ -428,6 +432,8 @@ export const jaJP: typeof zhCN = {
   channelSwitch: 'チャネルを切り替える',
   channelSwitchHelp:
     '認証情報はそのままですが、ヘルス統計・クールダウン・セッションアフィニティはリセットされます。モデル一覧は変わらないため、新しいチャネルが対応しているか確認してください。',
+  channelSwitchBaseURL:
+    'カスタムの上流 URL はそのまま保持されますが、チャネルによって想定する URL 形式が異なるため、切り替え後に確認してください。',
   channelSwitchConfirm: '切り替える',
   channelSwitchAnyway: 'それでも切り替える',
   channelSwitchConflict: '{groups} が同じ上流ターゲットを使用しています。',

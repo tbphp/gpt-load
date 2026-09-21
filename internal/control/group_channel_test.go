@@ -427,7 +427,7 @@ func TestMigrateGroupParamsKeepsSharedKeysAndDropsTheRest(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := migrateGroupParams(
-				registry, testCase.from, testCase.to, models.JSON(testCase.current),
+				registry, nil, testCase.from, testCase.to, models.JSON(testCase.current),
 			)
 			if err != nil {
 				t.Fatalf("migrateGroupParams() error = %v", err)
@@ -443,7 +443,7 @@ func TestMigrateGroupParamsRejectsAMissingRequiredTargetKey(t *testing.T) {
 	t.Parallel()
 	registry := channel.NewRegistry()
 
-	_, err := migrateGroupParams(registry, channel.OpenAI, channel.NewAPI, models.JSON(`{}`))
+	_, err := migrateGroupParams(registry, nil, channel.OpenAI, channel.NewAPI, models.JSON(`{}`))
 	if !errors.Is(err, app_errors.ErrValidation) {
 		t.Fatalf("migrateGroupParams() error = %v, want %v", err, app_errors.ErrValidation)
 	}
@@ -526,5 +526,96 @@ func TestGroupChannelHTTPMissingGroupDoesNotMutate(t *testing.T) {
 	}
 	if got := fixture.manager.Current().Revision; got != beforeRevision {
 		t.Fatalf("missing group published revision %d, want %d", got, beforeRevision)
+	}
+}
+
+// fakeChannelDefaultBaseURLs stands in for the SDK-backed provider so tests can
+// pin a channel default without initializing a real upstream SDK.
+type fakeChannelDefaultBaseURLs struct {
+	byChannel map[channel.ID]string
+	err       error
+}
+
+func (fake fakeChannelDefaultBaseURLs) DefaultBaseURL(id channel.ID) (string, bool, error) {
+	if fake.err != nil {
+		return "", false, fake.err
+	}
+	value, ok := fake.byChannel[id]
+	return value, ok, nil
+}
+
+func TestMigrateGroupParamsDropsTheSDKDefaultBaseURL(t *testing.T) {
+	t.Parallel()
+	registry := channel.NewRegistry()
+	// Creating an OpenAI group in the modern UI stores the channel default that
+	// /api/channels reported, which comes from the SDK rather than the descriptor.
+	defaults := fakeChannelDefaultBaseURLs{
+		byChannel: map[channel.ID]string{channel.OpenAI: "https://api.openai.com/v1"},
+	}
+
+	got, err := migrateGroupParams(
+		registry, defaults, channel.OpenAI, channel.DeepSeek,
+		models.JSON(`{"base_url":"https://api.openai.com/v1"}`),
+	)
+	if err != nil {
+		t.Fatalf("migrateGroupParams() error = %v", err)
+	}
+	if string(got) != `{}` {
+		t.Fatalf("migrateGroupParams() = %s, want the previous SDK default dropped", got)
+	}
+}
+
+func TestMigrateGroupParamsKeepsAnOperatorBaseURLWhenAnSDKDefaultExists(t *testing.T) {
+	t.Parallel()
+	registry := channel.NewRegistry()
+	defaults := fakeChannelDefaultBaseURLs{
+		byChannel: map[channel.ID]string{channel.OpenAI: "https://api.openai.com/v1"},
+	}
+
+	got, err := migrateGroupParams(
+		registry, defaults, channel.OpenAI, channel.DeepSeek,
+		models.JSON(`{"base_url":"https://relay.example/v1"}`),
+	)
+	if err != nil {
+		t.Fatalf("migrateGroupParams() error = %v", err)
+	}
+	if string(got) != `{"base_url":"https://relay.example/v1"}` {
+		t.Fatalf("migrateGroupParams() = %s, want the operator value kept", got)
+	}
+}
+
+func TestMigrateGroupParamsPropagatesADefaultBaseURLFailure(t *testing.T) {
+	t.Parallel()
+	registry := channel.NewRegistry()
+	defaults := fakeChannelDefaultBaseURLs{err: errors.New("sdk unavailable")}
+
+	_, err := migrateGroupParams(
+		registry, defaults, channel.OpenAI, channel.DeepSeek,
+		models.JSON(`{"base_url":"https://relay.example/v1"}`),
+	)
+	if err == nil {
+		t.Fatal("migrateGroupParams() error = nil, want the provider failure surfaced")
+	}
+}
+
+func TestUpdateGroupChannelDropsTheSDKDefaultBaseURL(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	fixture.service.channelDefaultBaseURLs = fakeChannelDefaultBaseURLs{
+		byChannel: map[channel.ID]string{channel.OpenAI: "https://api.openai.com/v1"},
+	}
+	groupID := createChannelGroup(
+		t, fixture, channel.OpenAI,
+		`{"base_url":"https://api.openai.com/v1"}`, "sk-sdk-default",
+	)
+
+	got, err := fixture.service.UpdateGroupChannel(t.Context(), groupID, GroupChannelUpdateRequest{
+		ChannelID: channel.DeepSeek,
+	})
+	if err != nil {
+		t.Fatalf("UpdateGroupChannel() error = %v", err)
+	}
+	if string(got.Params) != `{}` {
+		t.Fatalf("response params = %s, want the previous SDK default dropped", got.Params)
 	}
 }

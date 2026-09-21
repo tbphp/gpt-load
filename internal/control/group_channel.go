@@ -62,7 +62,7 @@ func (s *Service) UpdateGroupChannel(
 			return app_errors.ErrValidation
 		}
 		params, err := migrateGroupParams(
-			s.channelRegistry, previousChannel, targetChannel, group.Params,
+			s.channelRegistry, s.channelDefaultBaseURLs, previousChannel, targetChannel, group.Params,
 		)
 		if err != nil {
 			return err
@@ -171,6 +171,7 @@ func (s *Service) validateGroupCredentialsForChannel(
 // operator-entered value survives the switch untouched.
 func migrateGroupParams(
 	registry *channel.Registry,
+	defaults channelDefaultBaseURLProvider,
 	previous, target channel.ID,
 	current models.JSON,
 ) (json.RawMessage, error) {
@@ -193,8 +194,14 @@ func migrateGroupParams(
 		if !exists || value == "" {
 			continue
 		}
-		if field.Key == "base_url" && isChannelDefaultBaseURL(registry, previous, value) {
-			continue
+		if field.Key == "base_url" {
+			inherited, err := isChannelDefaultBaseURL(registry, defaults, previous, value)
+			if err != nil {
+				return nil, err
+			}
+			if inherited {
+				continue
+			}
 		}
 		migrated[field.Key] = value
 	}
@@ -211,14 +218,31 @@ func migrateGroupParams(
 
 // isChannelDefaultBaseURL reports whether a stored base URL is the value the
 // channel itself would have supplied, which marks it as inherited rather than
-// operator-entered.
-func isChannelDefaultBaseURL(registry *channel.Registry, channelID channel.ID, value string) bool {
+// operator-entered. It reads the same three sources the channel listing does:
+// a fixed preset, a descriptor hint, and the base URL the locked SDK writes
+// into an empty channel configuration.
+func isChannelDefaultBaseURL(
+	registry *channel.Registry,
+	defaults channelDefaultBaseURLProvider,
+	channelID channel.ID,
+	value string,
+) (bool, error) {
 	if fixed, ok := registry.FixedBaseURL(channelID); ok && fixed == value {
-		return true
+		return true, nil
 	}
 	descriptor, ok := registry.Get(channelID)
 	if !ok {
-		return false
+		return false, nil
 	}
-	return slices.Contains(descriptor.DefaultBaseURLs, value)
+	if slices.Contains(descriptor.DefaultBaseURLs, value) {
+		return true, nil
+	}
+	if defaults == nil || len(descriptor.DefaultBaseURLs) > 0 {
+		return false, nil
+	}
+	sdkDefault, unique, err := defaults.DefaultBaseURL(channelID)
+	if err != nil {
+		return false, err
+	}
+	return unique && sdkDefault == value, nil
 }

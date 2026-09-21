@@ -194,7 +194,7 @@ const headerInvalid = computed(() => {
   )
 })
 async function save(): Promise<void> {
-  if (!saved.value || !dirty.value || saving.value) return
+  if (!saved.value || !dirty.value || saving.value || switching.value) return
   attempted.value = true
   if (!rulesValid.value) {
     await rulesEditor.value?.focusFirstInvalid()
@@ -282,6 +282,12 @@ const requestedChannel = ref('')
 const switchConflict = ref<{ id: number; name: string }[]>()
 const switching = ref(false)
 const switchError = ref('')
+const busy = computed(() => saving.value || switching.value)
+// 自定义地址按原样保留，但各渠道对地址格式的要求不同，切换时提醒复核。
+const keepsCustomBaseURL = computed(() => {
+  const value = (saved.value?.params.base_url ?? '').trim()
+  return Boolean(value) && value !== (props.channel?.defaultBaseURL ?? '')
+})
 const pendingChannelName = computed(
   () => switchableChannels.value.find((item) => item.id === requestedChannel.value)?.name ?? '',
 )
@@ -337,7 +343,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
     :title="t('groupDetail.advanced')"
     :description="group.name"
     :dirty="dirty"
-    :pending="saving"
+    :pending="saving || switching"
     :loading="query.isFetching.value"
     :save-disabled="!saved"
     @close="emit('close')"
@@ -358,7 +364,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           "
           :options="channelOptions"
           size="sm"
-          :disabled="saving || switching || dirty"
+          :disabled="busy || dirty"
           @update:model-value="requestChannelSwitch($event)"
         />
         <AppNotice v-if="switchError" tone="danger">{{ switchError }}</AppNotice>
@@ -370,7 +376,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           :placeholder="field.defaultValue"
           :type="field.sensitive ? 'password' : 'text'"
           size="sm"
-          :disabled="saving"
+          :disabled="busy"
           :error="attempted ? paramErrors[field.key] : undefined"
           autocomplete="off"
           @update:model-value="params[field.key] = $event"
@@ -382,7 +388,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             :options="modelOptions"
             allow-custom
             size="sm"
-            :disabled="saving"
+            :disabled="busy"
           />
           <AppSelect
             v-if="protocolOptions.length"
@@ -390,7 +396,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             :label="t('groupDetail.validationProtocol')"
             :options="protocolOptions"
             size="sm"
-            :disabled="saving || protocolOptions.length === 1"
+            :disabled="busy || protocolOptions.length === 1"
           >
             <template #value="{ value, label }"
               ><AppProtocolTag v-if="value" :protocol="value" /><span v-else>{{
@@ -411,7 +417,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
               :label="t('groupCreate.proxy')"
               :options="proxyOptions"
               size="sm"
-              :disabled="saving"
+              :disabled="busy"
             />
             <AppTextField
               v-if="proxyMode === 'custom'"
@@ -425,7 +431,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
               "
               :error="attempted && proxyInvalid ? t('groupCreate.proxyError') : undefined"
               size="sm"
-              :disabled="saving"
+              :disabled="busy"
               autocomplete="off"
             />
           </div>
@@ -443,7 +449,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             :error="attempted && numberInvalid(key) ? t('groupDetail.invalidNumber') : undefined"
             inputmode="numeric"
             size="sm"
-            :disabled="saving"
+            :disabled="busy"
             @update:model-value="numbers[key] = $event"
           />
           <AppSegmentedField
@@ -458,7 +464,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
               })
             "
             size="sm"
-            :disabled="saving"
+            :disabled="busy"
             @update:model-value="switches[key] = $event"
           />
         </div>
@@ -472,11 +478,11 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             label-hidden
             :options="inheritOptions"
             size="xs"
-            :disabled="saving" /><AppIconButton
+            :disabled="busy" /><AppIconButton
             :icon="Plus"
             :label="t('groupDetail.addHeader')"
             size="xs"
-            :disabled="saving || headersMode === 'inherit'"
+            :disabled="busy || headersMode === 'inherit'"
             @click="headers.push({ key: nextHeader++, name: '', value: '' })"
         /></template>
         <div v-if="headers.length" class="modern-advanced-header-labels" aria-hidden="true">
@@ -490,7 +496,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             label-hidden
             :placeholder="t('groupDetail.headerName')"
             size="xs"
-            :disabled="saving || headersMode === 'inherit'"
+            :disabled="busy || headersMode === 'inherit'"
           />
           <AppTextField
             v-model="header.value"
@@ -498,13 +504,13 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             label-hidden
             :placeholder="t('groupDetail.headerValue')"
             size="xs"
-            :disabled="saving || headersMode === 'inherit'"
+            :disabled="busy || headersMode === 'inherit'"
           />
           <AppIconButton
             :icon="Trash2"
             :label="t('groupDetail.removeHeader')"
             size="xs"
-            :disabled="saving || headersMode === 'inherit'"
+            :disabled="busy || headersMode === 'inherit'"
             @click="headers = headers.filter((row) => row.key !== header.key)"
           />
         </div>
@@ -515,7 +521,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           size="xs"
           :placeholder="t('groupDetail.oneHeaderPerLine')"
           mono
-          :disabled="saving || headersMode === 'inherit'"
+          :disabled="busy || headersMode === 'inherit'"
         />
         <AppNotice v-if="attempted && headerInvalid" tone="danger">{{
           t('groupDetail.invalidHeaders')
@@ -527,7 +533,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           v-model="rules"
           :protocols="channel?.parameterProtocols ?? []"
           :models="models"
-          :disabled="saving"
+          :disabled="busy"
           :attempted="attempted"
           @update:valid="rulesValid = $event"
         />
@@ -543,7 +549,9 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
         ? t('groupDetail.channelSwitchConflict', {
             groups: switchConflict.map((item) => item.name).join(', '),
           })
-        : t('groupDetail.channelSwitchHelp')
+        : keepsCustomBaseURL
+          ? t('groupDetail.channelSwitchHelp') + ' ' + t('groupDetail.channelSwitchBaseURL')
+          : t('groupDetail.channelSwitchHelp')
     "
     :cancel-label="t('ui.cancel')"
     :confirm-label="
