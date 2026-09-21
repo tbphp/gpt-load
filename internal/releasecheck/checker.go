@@ -25,6 +25,7 @@ type Checker struct {
 
 	mu        sync.Mutex
 	update    *Update
+	hasResult bool
 	cachedErr error
 	expiresAt time.Time
 	now       func() time.Time
@@ -46,7 +47,13 @@ func newChecker(fetcher releaseFetcher, current string) *Checker {
 // Check returns the cached result or synchronously refreshes it from GitHub.
 // When force is true, it ignores an unexpired cache and fetches GitHub again.
 func (checker *Checker) Check(ctx context.Context, force bool) (*Update, error) {
-	if checker == nil || checker.fetcher == nil {
+	if checker == nil {
+		return nil, errors.New("check GitHub releases: checker is unavailable")
+	}
+	if isDevelopmentVersion(checker.current) {
+		return nil, nil
+	}
+	if checker.fetcher == nil {
 		return nil, errors.New("check GitHub releases: checker is unavailable")
 	}
 	if ctx == nil {
@@ -68,13 +75,18 @@ func (checker *Checker) Check(ctx context.Context, force bool) (*Update, error) 
 		return nil, ctx.Err()
 	}
 	if err != nil {
+		checker.expiresAt = checker.currentTime().Add(failureCacheDuration)
+		if checker.hasResult {
+			checker.cachedErr = nil
+			return cloneUpdate(checker.update), nil
+		}
 		checker.update = nil
 		checker.cachedErr = err
-		checker.expiresAt = checker.currentTime().Add(failureCacheDuration)
 		return nil, err
 	}
 
 	checker.update = SelectUpdate(checker.current, releases)
+	checker.hasResult = true
 	checker.cachedErr = nil
 	checker.expiresAt = checker.currentTime().Add(successCacheDuration)
 	return cloneUpdate(checker.update), nil
