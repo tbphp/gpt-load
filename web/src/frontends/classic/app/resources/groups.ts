@@ -842,6 +842,23 @@ export async function updateGroupSettings(
   )
 }
 
+// 切换渠道只提交目标渠道；参数由后端按目标渠道字段重新推导。
+export async function switchGroupChannel(
+  client: ApiClient,
+  groupID: number,
+  channelID: string,
+  confirmSameTarget: boolean,
+  signal?: AbortSignal,
+): Promise<GroupSettingsDto> {
+  return projectGroupSettings(
+    await client.request(`/api/groups/${groupID}/channel`, {
+      method: 'PUT',
+      json: { channel_id: channelID, confirm_same_target: confirmSameTarget },
+      signal,
+    }),
+  )
+}
+
 export async function deleteGroup(
   client: ApiClient,
   groupID: number,

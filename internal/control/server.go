@@ -435,6 +435,24 @@ func (s *Server) handleUpdateGroupSettings(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleUpdateGroupChannel(c *gin.Context) {
+	id, ok := groupID(c, "update_group_channel")
+	if !ok {
+		return
+	}
+	var request GroupChannelUpdateRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "update_group_channel", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.UpdateGroupChannel(c.Request.Context(), id, request)
+	if err != nil {
+		writeServiceError(c, "update_group_channel", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleUpdateGroupModels(c *gin.Context) {
 	id, ok := groupID(c, "update_group_models")
 	if !ok {
