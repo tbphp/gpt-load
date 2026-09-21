@@ -3,7 +3,7 @@ module github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded
 go 1.26.6
 
 require (
-	github.com/andybalholm/brotli v1.2.3
+	github.com/andybalholm/brotli v1.2.4
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/router-for-me/CLIProxyAPI/v7 v7.3.6
