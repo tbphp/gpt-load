@@ -5,8 +5,9 @@ import (
 	"time"
 )
 
-func TestSelectUpdateStableCurrentOnlyAcceptsNewerStableV2(t *testing.T) {
+func TestSelectUpdateStableCurrentOnlyAcceptsNewerStableFromSameMajor(t *testing.T) {
 	releases := []Release{
+		testRelease("v1.4.12", "2026-08-17T00:00:00Z"),
 		testRelease("v2.0.1-beta.1", "2026-08-18T00:00:00Z"),
 		testRelease("v2.0.1", "2026-08-19T00:00:00Z"),
 		testRelease("v2.2.0-rc.1", "2026-08-20T00:00:00Z"),
@@ -18,7 +19,17 @@ func TestSelectUpdateStableCurrentOnlyAcceptsNewerStableV2(t *testing.T) {
 	assertUpdate(t, got, "v2.1.0", "2026-08-21T00:00:00Z")
 }
 
-func TestSelectUpdateTestCurrentAcceptsAnyNewerV2Release(t *testing.T) {
+func TestSelectUpdateSupportsParallelMajorReleaseLines(t *testing.T) {
+	releases := []Release{
+		testRelease("v1.4.12", "2026-08-20T00:00:00Z"),
+		testRelease("v2.0.0-rc.26", "2026-08-21T00:00:00Z"),
+	}
+
+	assertUpdate(t, SelectUpdate("v1.4.11", releases), "v1.4.12", "2026-08-20T00:00:00Z")
+	assertUpdate(t, SelectUpdate("v2.0.0-rc.25", releases), "v2.0.0-rc.26", "2026-08-21T00:00:00Z")
+}
+
+func TestSelectUpdateTestCurrentAcceptsAnyNewerReleaseFromSameMajor(t *testing.T) {
 	tests := []struct {
 		name     string
 		current  string
@@ -44,15 +55,6 @@ func TestSelectUpdateTestCurrentAcceptsAnyNewerV2Release(t *testing.T) {
 			},
 			want: "v2.0.0",
 		},
-		{
-			name:    "dev participates as an ordinary test version",
-			current: "2.0.0-dev",
-			releases: []Release{
-				testRelease("v2.0.0-rc.1", "2026-08-18T00:00:00Z"),
-				testRelease("v2.0.0", "2026-08-19T00:00:00Z"),
-			},
-			want: "v2.0.0",
-		},
 	}
 
 	for _, test := range tests {
@@ -62,6 +64,19 @@ func TestSelectUpdateTestCurrentAcceptsAnyNewerV2Release(t *testing.T) {
 				t.Fatalf("SelectUpdate(%q) = %#v, want %q", test.current, got, test.want)
 			}
 		})
+	}
+}
+
+func TestSelectUpdateSkipsDevelopmentVersions(t *testing.T) {
+	releases := []Release{
+		testRelease("v2.0.0-rc.1", "2026-08-18T00:00:00Z"),
+		testRelease("v2.0.0", "2026-08-19T00:00:00Z"),
+	}
+
+	for _, current := range []string{"2.0.0-dev", "v2.0.0-dev.3"} {
+		if got := SelectUpdate(current, releases); got != nil {
+			t.Fatalf("SelectUpdate(%q) = %#v, want nil", current, got)
+		}
 	}
 }
 
@@ -89,7 +104,7 @@ func TestSelectUpdateRejectsIneligibleReleases(t *testing.T) {
 	if got := SelectUpdate("v2.0.0-beta.7", releases); got != nil {
 		t.Fatalf("SelectUpdate() = %#v, want nil", got)
 	}
-	for _, current := range []string{"", "latest", "v1.4.9", "v3.0.0-beta.1"} {
+	for _, current := range []string{"", "latest", "v3.0.0-beta.1"} {
 		if got := SelectUpdate(current, []Release{testRelease("v2.1.0", "2026-08-23T00:00:00Z")}); got != nil {
 			t.Fatalf("SelectUpdate(%q) = %#v, want nil", current, got)
 		}

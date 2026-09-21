@@ -17,9 +17,9 @@ import (
 const githubReleasesEndpoint = "https://api.github.com/repos/tbphp/gpt-load/releases"
 
 const (
-	githubReleasesPerPage  = 30
+	githubReleasesPerPage  = 100
 	maxGitHubReleasePages  = 10
-	maxGitHubResponseBytes = int64(1 << 20)
+	maxGitHubResponseBytes = int64(4 << 20)
 )
 
 type httpDoer interface {

@@ -16,7 +16,7 @@ import { useSystemStatus } from '@modern/features/system/useSystemStatus'
 defineProps<{ data?: SystemInfo; loading: boolean; failed: boolean }>()
 defineEmits<{ retry: [] }>()
 const { t } = useI18n()
-const { checkState, update, checkForUpdate } = useSystemStatus()
+const { canCheckUpdate, checkState, update, checkForUpdate } = useSystemStatus()
 const databaseNames = { sqlite: 'SQLite', mysql: 'MySQL', postgres: 'PostgreSQL' }
 const updateMessage = computed(() => {
   if (checkState.value === 'failed') return { text: t('system.checkFailed'), error: true }
@@ -54,6 +54,7 @@ const updateMessage = computed(() => {
           </AppExternalLink>
         </div>
         <AppButton
+          v-if="canCheckUpdate"
           :icon="RefreshCw"
           size="sm"
           :loading="checkState === 'checking'"
