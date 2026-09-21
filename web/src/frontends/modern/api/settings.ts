@@ -78,6 +78,7 @@ export const settingKeys: readonly SettingKey[] = [
 export interface SettingsData {
   decisionRoutes: DecisionRoute[]
   auditAccessKeys: AuditAccessKey[]
+  requestAuditPreset: AuditConfig
   autoModelTemplate?: AutoEntry
   decisionModels: string[]
   values: SettingsValues
@@ -150,6 +151,7 @@ function readSettings(value: unknown): SettingsData {
     decisionModels: list(row.decision_models).map(text),
     decisionRoutes: readDecisionRoutes(row.decision_routes),
     auditAccessKeys: readAuditAccessKeys(row.audit_access_keys),
+    requestAuditPreset: readAudit(row.request_audit_preset),
     values: {
       ...numbers,
       ...switches,

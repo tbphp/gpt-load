@@ -4,7 +4,35 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"gpt-load/internal/requestaudit"
 )
+
+func TestSettingsExposeGuardrailPresetAlongsideSavedRules(t *testing.T) {
+	fixture := newServiceFixture(t)
+	response, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{Settings: map[string]json.RawMessage{
+		"request_audit": json.RawMessage(`{"enabled":false,"access_key_ids":[],"rules":[]}`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Values.RequestAudit.Rules) != 0 {
+		t.Fatal("preset replaced saved rules")
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Preset requestaudit.Config `json:"request_audit_preset"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Preset.Rules) != 3 || payload.Preset.Enabled || len(payload.Preset.AccessKeyIDs) != 0 {
+		t.Fatalf("missing reusable guardrail preset: %+v", payload.Preset)
+	}
+}
 
 func TestExperimentalSettingsPersistSharedJevAndGuardrails(t *testing.T) {
 	fixture := newServiceFixture(t)

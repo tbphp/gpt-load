@@ -751,6 +751,7 @@ onScopeDispose(() => {
                   ><RequestAuditEditor
                     v-model="draft.request_audit"
                     :access-keys="base?.auditAccessKeys ?? []"
+                    :preset="base?.requestAuditPreset"
                     :disabled="disabled('request_audit')"
                     :error="fieldErrors.request_audit"
                 /></template>

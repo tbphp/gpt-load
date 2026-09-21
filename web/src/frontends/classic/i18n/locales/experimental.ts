@@ -15,7 +15,9 @@ export const zhCN = {
     scope: '生效访问密钥',
     scopeHelp: '留空表示全部访问密钥。',
     rulesTitle: '审查规则',
-    rulesHelp: '每条规则描述一个命中条件，所有待检规则合并调用一次 JEV。',
+    rulesHelp:
+      '常用预设包含凭据泄露、个人隐私与提示注入，默认告警，可自行改为拦截。添加时仅补齐缺少的规则。所有待检规则合并调用一次 JEV。',
+    addPreset: '添加常用预设',
     addRule: '添加规则',
     removeRule: '删除规则',
     ruleName: '规则名称',
@@ -86,7 +88,9 @@ export const enUS = {
     scope: 'Access key scope',
     scopeHelp: 'Leave empty to apply to all access keys.',
     rulesTitle: 'Review rules',
-    rulesHelp: 'Describe one matching condition per rule. All pending rules share one JEV call.',
+    rulesHelp:
+      'The common preset covers credential leakage, personal data and prompt injection. It defaults to warnings; change actions to block as needed. Adding it fills only missing rules. All pending rules share one JEV call.',
+    addPreset: 'Add common preset',
     addRule: 'Add rule',
     removeRule: 'Remove rule',
     ruleName: 'Rule name',
@@ -159,7 +163,8 @@ export const jaJP = {
     scopeHelp: '未選択の場合はすべてのアクセスキーが対象です。',
     rulesTitle: '確認ルール',
     rulesHelp:
-      '各ルールに一つの検出条件を記述します。未確認の全ルールを一回の JEV 呼び出しで判定します。',
+      '標準プリセットは認証情報の漏洩・個人情報・プロンプトインジェクションを警告します。必要に応じてブロックに変更できます。追加時は不足しているルールだけを補います。未確認の全ルールを一回の JEV 呼び出しで判定します。',
+    addPreset: '標準プリセットを追加',
     addRule: 'ルールを追加',
     removeRule: 'ルールを削除',
     ruleName: 'ルール名',

@@ -117,6 +117,7 @@ export interface SettingsValues {
 export interface SettingsDto {
   decision_routes: DecisionRoute[]
   audit_access_keys: AuditAccessKey[]
+  request_audit_preset: AuditConfig
   auto_model_template?: AutoEntryDto
   decision_models: string[]
   values: SettingsValues
@@ -159,6 +160,7 @@ const settingsFields = [
   'decision_models',
   'decision_routes',
   'audit_access_keys',
+  'request_audit_preset',
 ] as const
 const settingsValueFields = [...runtimeSettingKeys, 'proxy_config'] as const
 
@@ -242,6 +244,7 @@ export function projectSettings(value: unknown): SettingsDto {
     decision_models: projectArray(record.decision_models, projectString),
     decision_routes: readDecisionRoutes(record.decision_routes),
     audit_access_keys: readAuditAccessKeys(record.audit_access_keys),
+    request_audit_preset: readAudit(record.request_audit_preset),
     values: {
       auto_model: projectAutoModel(values.auto_model),
       jev: readJev(values.jev),

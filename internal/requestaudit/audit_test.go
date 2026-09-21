@@ -33,6 +33,45 @@ func answer(t *testing.T, review *Review, now time.Time, probabilities ...float6
 	}
 }
 
+func TestDefaultPresetIsReadyForWarningOnlyReview(t *testing.T) {
+	defaults := DefaultConfig()
+	if defaults.Enabled {
+		t.Fatal("guardrails must remain opt-in")
+	}
+	config, err := Decode([]byte(`{"enabled":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"credential_leakage": true, "personal_data": true, "prompt_injection": true}
+	if len(config.Rules) != len(want) {
+		t.Fatalf("default preset has %d rules, want %d", len(config.Rules), len(want))
+	}
+	for _, rule := range config.Rules {
+		if !want[rule.ID] || !rule.Enabled || rule.Action != ActionWarn || rule.Threshold != 0.8 {
+			t.Fatalf("default rule is not ready for warning-only review: %+v", rule)
+		}
+		delete(want, rule.ID)
+	}
+	var cache Cache
+	now := time.Now()
+	review := cache.Prepare(nil, "jev", document(t, `{"input":"sample text"}`), config.Rules, now)
+	answer(t, review, now, .99, .99, .99)
+	if review.Status != "warned" || len(review.Findings) != 3 {
+		t.Fatal("preset hits should record all matching rules without blocking")
+	}
+}
+
+func TestPresetDoesNotReplaceExplicitRules(t *testing.T) {
+	config, err := Decode([]byte(`{"enabled":true,"rules":[{"id":"personal_data","name":"Custom policy","instructions":"Custom condition","enabled":true,"action":"block","threshold":0.9}]}`))
+	if err != nil || len(config.Rules) != 1 || config.Rules[0].Name != "Custom policy" || config.Rules[0].Instructions != "Custom condition" || config.Rules[0].Action != ActionBlock || config.Rules[0].Threshold != .9 {
+		t.Fatalf("preset replaced an explicit rule: %+v, %v", config, err)
+	}
+	config, err = Decode([]byte(`{"rules":[]}`))
+	if err != nil || len(config.Rules) != 0 {
+		t.Fatalf("preset restored explicitly removed rules: %+v, %v", config, err)
+	}
+}
+
 func TestCurrentPayloadReviewDoesNotDetectLocallyOrRequireStoredHistory(t *testing.T) {
 	doc := document(t, `{"previous_response_id":"resp_old","conversation":"conv_old","input":"password=example-password"}`)
 	var cache Cache
@@ -76,7 +115,7 @@ func TestTokenizedInputsAreNotDeclaredReviewedAsText(t *testing.T) {
 }
 
 func TestRuleThresholdIsTheOnlyClassificationBoundary(t *testing.T) {
-	_, reason := Interpret([]byte(`{"answers":{"personal_data":{"type":"noul","noul":0.5},"prompt_injection":{"type":"noul","noul":0.01}}}`), DefaultConfig().Rules)
+	_, reason := Interpret([]byte(`{"answers":{"personal_data":{"type":"noul","noul":0.5},"prompt_injection":{"type":"noul","noul":0.01},"credential_leakage":{"type":"noul","noul":0.01}}}`), DefaultConfig().Rules)
 	if reason != "" {
 		t.Fatalf("valid below-threshold answers are not failed reviews: %s", reason)
 	}
@@ -101,7 +140,7 @@ func TestReviewReusesHistoryPerRuleAndIncludesNecessaryContext(t *testing.T) {
 	rules := DefaultConfig().Rules
 	body := `{"system":"trusted","messages":[{"role":"user","content":"initial"},{"role":"assistant","content":"old-unneeded"},{"role":"user","content":"middle"},{"role":"assistant","content":"neighbor-a"},{"role":"user","content":"neighbor-b"}]}`
 	first := cache.Prepare([]byte("key-1"), "jev", document(t, body), rules, now)
-	if len(first.Rules) != 2 || first.Reason != "" {
+	if len(first.Rules) != len(rules) || first.Reason != "" {
 		t.Fatal("rules were not combined into one review")
 	}
 	answer(t, first, now)
@@ -221,7 +260,7 @@ func TestSingleReviewBudgetAndInvalidResultsNeverCreateProofs(t *testing.T) {
 		t.Fatal("oversized content was truncated or split")
 	}
 	doc := document(t, `{"input":"hello"}`)
-	for _, body := range []string{`{"answers":{}}`, `{"answers":{"personal_data":{"type":"noul","noul":2},"prompt_injection":{"type":"noul","noul":0}}}`, `{"answers":{"personal_data":{"type":"noul","noul":0},"personal_data":{"type":"noul","noul":1},"prompt_injection":{"type":"noul","noul":0}}}`} {
+	for _, body := range []string{`{"answers":{}}`, `{"answers":{"personal_data":{"type":"noul","noul":2},"prompt_injection":{"type":"noul","noul":0},"credential_leakage":{"type":"noul","noul":0}}}`, `{"answers":{"personal_data":{"type":"noul","noul":0},"personal_data":{"type":"noul","noul":1},"prompt_injection":{"type":"noul","noul":0},"credential_leakage":{"type":"noul","noul":0}}}`} {
 		review := cache.Prepare(nil, "jev", doc, rules, now)
 		if reason := review.Resolve([]byte(body), now); reason != "invalid_response" || len(cache.entries) != 0 {
 			t.Fatal("invalid response produced cached proof")

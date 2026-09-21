@@ -18,6 +18,7 @@ import {
 const props = defineProps<{
   modelValue: AuditConfig
   accessKeys: AuditAccessKey[]
+  preset?: AuditConfig
   disabled?: boolean
   error?: string
 }>()
@@ -33,6 +34,11 @@ const scope = computed(() => {
 })
 const actions = computed(() =>
   ['block', 'warn'].map((value) => ({ value, label: t('requestAudit.actions.' + value) })),
+)
+const missingPresetRules = computed(() =>
+  (props.preset?.rules ?? []).filter(
+    (preset) => !props.modelValue.rules.some((rule) => rule.id === preset.id),
+  ),
 )
 function update(change: (value: AuditConfig) => void) {
   if (props.disabled) return
@@ -62,6 +68,10 @@ function addRule() {
     }),
   )
 }
+function addPreset() {
+  if (props.modelValue.rules.length + missingPresetRules.value.length > 16) return
+  update((value) => value.rules.push(...missingPresetRules.value.map((rule) => ({ ...rule }))))
+}
 </script>
 
 <template>
@@ -75,8 +85,18 @@ function addRule() {
       :disabled="disabled"
       @update:model-value="update((v) => (v.access_key_ids = $event.map(Number)))"
     />
-    <div class="modern-request-audit-heading">
+    <div class="modern-request-audit-heading modern-request-audit-toolbar">
       <span>{{ t('requestAudit.rulesTitle') }} · {{ modelValue.rules.length }}/16</span>
+      <AppButton
+        size="sm"
+        :disabled="
+          disabled ||
+          !missingPresetRules.length ||
+          modelValue.rules.length + missingPresetRules.length > 16
+        "
+        @click="addPreset"
+        >{{ t('requestAudit.addPreset') }}</AppButton
+      >
       <AppButton
         :icon="Plus"
         size="sm"
@@ -175,6 +195,9 @@ function addRule() {
 .modern-request-audit-heading > :first-child {
   flex: 1;
   min-width: 0;
+}
+.modern-request-audit-toolbar {
+  flex-wrap: wrap;
 }
 .modern-request-audit-name {
   justify-content: flex-start;

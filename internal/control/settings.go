@@ -76,14 +76,15 @@ type AuditAccessKeyOption struct {
 }
 
 type SettingsResponse struct {
-	DecisionRoutes    []DecisionRouteOption  `json:"decision_routes"`
-	AuditAccessKeys   []AuditAccessKeyOption `json:"audit_access_keys"`
-	AutoModelTemplate automodel.Entry        `json:"auto_model_template"`
-	DecisionModels    []string               `json:"decision_models"`
-	Revision          uint64                 `json:"-"`
-	Values            SettingsValuesResponse `json:"values"`
-	Overrides         []string               `json:"overrides"`
-	ReadOnly          []string               `json:"read_only,omitempty"`
+	DecisionRoutes     []DecisionRouteOption  `json:"decision_routes"`
+	AuditAccessKeys    []AuditAccessKeyOption `json:"audit_access_keys"`
+	RequestAuditPreset requestaudit.Config    `json:"request_audit_preset"`
+	AutoModelTemplate  automodel.Entry        `json:"auto_model_template"`
+	DecisionModels     []string               `json:"decision_models"`
+	Revision           uint64                 `json:"-"`
+	Values             SettingsValuesResponse `json:"values"`
+	Overrides          []string               `json:"overrides"`
+	ReadOnly           []string               `json:"read_only,omitempty"`
 }
 
 type SettingsUpdateRequest struct {
@@ -399,8 +400,9 @@ func mapSettingsResponse(
 		readOnly = append(readOnly, state.SettingModelsDevAutoSyncEnabled)
 	}
 	return SettingsResponse{
-		AutoModelTemplate: automodel.Template(),
-		DecisionRoutes:    decisionRouteOptions(snapshot), AuditAccessKeys: auditAccessKeyOptions(snapshot),
+		RequestAuditPreset: requestaudit.DefaultConfig(),
+		AutoModelTemplate:  automodel.Template(),
+		DecisionRoutes:     decisionRouteOptions(snapshot), AuditAccessKeys: auditAccessKeyOptions(snapshot),
 		DecisionModels: decisionModelNames(snapshot),
 		Revision:       snapshot.Revision,
 		Values: SettingsValuesResponse{

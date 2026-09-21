@@ -22,8 +22,8 @@ import (
 	"gpt-load/internal/state"
 )
 
-const auditPass = `{"answers":{"personal_data":{"type":"noul","noul":0.01},"prompt_injection":{"type":"noul","noul":0.01}}}`
-const auditHit = `{"answers":{"personal_data":{"type":"noul","noul":0.99},"prompt_injection":{"type":"noul","noul":0.01}}}`
+const auditPass = `{"answers":{"personal_data":{"type":"noul","noul":0.01},"prompt_injection":{"type":"noul","noul":0.01},"credential_leakage":{"type":"noul","noul":0.01}}}`
+const auditHit = `{"answers":{"personal_data":{"type":"noul","noul":0.99},"prompt_injection":{"type":"noul","noul":0.01},"credential_leakage":{"type":"noul","noul":0.01}}}`
 
 func TestProtectedJevContentPreservesNumericIdentity(t *testing.T) {
 	if sameDecisionContent([]byte(`{"state":{"value":9007199254740992},"questions":{}}`), []byte(`{"state":{"value":9007199254740993},"questions":{}}`)) {
@@ -70,7 +70,7 @@ func TestRequestAuditOutcomesAndExplicitRoute(t *testing.T) {
 		{"passed", auditPass, "block", 200, 2},
 		{"blocked", auditHit, "block", 403, 1},
 		{"warned", auditHit, "warn", 200, 2},
-		{"below threshold", `{"answers":{"personal_data":{"type":"noul","noul":0.5},"prompt_injection":{"type":"noul","noul":0.01}}}`, "block", 200, 2},
+		{"below threshold", `{"answers":{"personal_data":{"type":"noul","noul":0.5},"prompt_injection":{"type":"noul","noul":0.01},"credential_leakage":{"type":"noul","noul":0.01}}}`, "block", 200, 2},
 		{"invalid", `{"answers":{}}`, "warn", 503, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {

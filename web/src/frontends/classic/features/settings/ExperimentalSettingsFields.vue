@@ -70,6 +70,11 @@ const scope = computed(() => {
 const actions = computed(() =>
   ['block', 'warn'].map((value) => ({ value, label: t('requestAudit.actions.' + value) })),
 )
+const missingPresetRules = computed(() =>
+  props.base.settings.request_audit_preset.rules.filter(
+    (preset) => !audit.value.rules.some((rule) => rule.id === preset.id),
+  ),
+)
 const invalid = computed(() =>
   props.kind === 'jev'
     ? !validJev(jev.value) ||
@@ -137,6 +142,12 @@ function addRule() {
       action: 'block',
       threshold: 0.8,
     }),
+  )
+}
+function addPreset() {
+  if (audit.value.rules.length + missingPresetRules.value.length > 16) return
+  update((d) =>
+    d.values.request_audit.rules.push(...missingPresetRules.value.map((rule) => ({ ...rule }))),
   )
 }
 </script>
@@ -229,8 +240,18 @@ function addRule() {
           @update:model-value="setAudit({ access_key_ids: $event.map(Number) })"
         />
       </FormField>
-      <div class="experimental-settings-heading">
+      <div class="experimental-settings-heading experimental-settings-toolbar">
         <strong>{{ t('requestAudit.rulesTitle') }} · {{ audit.rules.length }}/16</strong
+        ><AppButton
+          size="compact"
+          variant="secondary"
+          :disabled="
+            controlsDisabled ||
+            !missingPresetRules.length ||
+            audit.rules.length + missingPresetRules.length > 16
+          "
+          @click="addPreset"
+          >{{ t('requestAudit.addPreset') }}</AppButton
         ><AppButton
           size="compact"
           variant="secondary"
@@ -338,6 +359,9 @@ function addRule() {
 }
 .experimental-settings-fields {
   padding-bottom: var(--space-3);
+}
+.experimental-settings-toolbar {
+  flex-wrap: wrap;
 }
 .experimental-settings-fields p {
   margin: 0;
