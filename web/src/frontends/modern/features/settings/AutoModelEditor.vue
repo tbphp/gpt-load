@@ -36,9 +36,6 @@ const modelOptions = computed(() =>
     .sort()
     .map((value) => ({ value, label: value })),
 )
-const decisionModelOptions = computed(() =>
-  props.decisionModels.map((value) => ({ value, label: value })),
-)
 function update(change: (draft: AutoModelDraft) => void) {
   if (props.disabled) return
   const draft = JSON.parse(JSON.stringify(props.modelValue)) as AutoModelDraft
@@ -93,24 +90,6 @@ function validRules(value: string): boolean {
   <div class="modern-auto-model">
     <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
     <AppNotice v-if="!decisionModels.length">{{ t('autoModel.decisionModelEmpty') }}</AppNotice>
-    <div class="modern-auto-model-grid">
-      <AppSearchSelect
-        :model-value="modelValue.model"
-        :label="t('autoModel.decisionModel')"
-        :options="decisionModelOptions"
-        :selected-option="{ value: modelValue.model, label: modelValue.model }"
-        :description="t('autoModel.decisionModelHint')"
-        :disabled="disabled"
-        @update:model-value="update((draft) => (draft.model = $event))"
-      />
-      <AppTextField
-        :model-value="modelValue.timeout_seconds"
-        inputmode="numeric"
-        :label="t('autoModel.timeout')"
-        :disabled="disabled"
-        @update:model-value="update((draft) => (draft.timeout_seconds = $event))"
-      />
-    </div>
     <AppFormSection :title="t('autoModel.entries')" :description="t('autoModel.permissionsHint')">
       <template #actions
         ><AppButton :icon="Plus" :disabled="disabled || !template" @click="addEntry">{{

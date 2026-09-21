@@ -11,6 +11,7 @@ import (
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
@@ -128,7 +129,43 @@ func mapEvent(
 		}
 	}
 
+	var auditJSON models.JSON
+	auditTotal := telemetry.PricingObservation{CostState: "not_applicable", PricingCompleteness: "not_applicable"}
+	auditRows := []models.RequestAuditUsage{}
+	if event.RequestAudit != nil {
+		auditCopy := *event.RequestAudit
+		auditCopy.Findings = append([]requestaudit.Finding{}, event.RequestAudit.Findings...)
+		for index := range auditCopy.Findings {
+			auditCopy.Findings[index].Name = redactIdentityValue(redactor, auditCopy.Findings[index].Name)
+		}
+		unpricedRecorded := decisionCompleteness == "unavailable" || pricingObservation.CostState == "unpriced" && (result.State == usage.StateComplete || result.State == usage.StatePartial)
+		partialRecorded := decisionCompleteness == "partial" || pricingObservation.PricingCompleteness == "partial"
+		for index, call := range auditCopy.Calls {
+			if call.EstimatedCostNanoUSD < 0 {
+				return models.RequestLog{}, fmt.Errorf("negative audit cost")
+			}
+			if !call.Called {
+				continue
+			}
+			var unpricedCount, partialCount int64
+			if call.PricingCompleteness == "unavailable" && !unpricedRecorded {
+				unpricedCount = 1
+				unpricedRecorded = true
+			}
+			if call.PricingCompleteness == "partial" && !partialRecorded {
+				partialCount = 1
+				partialRecorded = true
+			}
+			auditRows = append(auditRows, models.RequestAuditUsage{UnpricedRequestCount: unpricedCount, PricingPartialCount: partialCount, RequestID: event.RequestID, Sequence: index + 1, CompletedAtMS: completedAtMS, AccessKeyID: event.AccessKeyID, GroupID: call.GroupID, ChannelID: call.ChannelID, CredentialID: call.CredentialID, Model: call.UpstreamModel, EstimatedCostNanoUSD: call.EstimatedCostNanoUSD, PricingCompleteness: call.PricingCompleteness})
+		}
+		auditJSON, err = json.Marshal(auditCopy)
+		if err != nil {
+			return models.RequestLog{}, err
+		}
+		auditTotal = telemetry.TotalPricing(auditTotal, nil, &auditCopy)
+	}
 	return models.RequestLog{
+		RequestAudit: auditJSON, AuditCostNanoUSD: auditTotal.EstimatedCostNanoUSD, AuditPricingCompleteness: auditTotal.PricingCompleteness, AuditUsageRows: auditRows,
 		AutoDecision:                autoJSON,
 		DecisionModel:               decisionModel,
 		DecisionGroupID:             decisionGroupID,

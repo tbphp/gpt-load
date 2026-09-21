@@ -1,6 +1,8 @@
+import { jaJP as experimental } from '../experimental'
 import { jaJP as autoModel } from '../auto-model'
 
 export default {
+  ...experimental,
   autoModel,
   monitor: {
     clearKeySearch: 'キー検索をクリア',

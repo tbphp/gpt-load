@@ -10,6 +10,7 @@ import (
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
+	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
@@ -120,6 +121,7 @@ type AccessKeyRef struct {
 }
 
 type Record struct {
+	RequestAudit            *requestaudit.Result
 	AutoDecision            *automodel.Decision
 	TotalPricing            telemetry.PricingObservation
 	RequestID               string

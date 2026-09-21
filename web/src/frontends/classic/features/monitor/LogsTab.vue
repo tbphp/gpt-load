@@ -856,6 +856,17 @@ function costLabel(log: RequestLogItemDto): string {
               </OverflowTooltip>
               <code v-else class="logs-list__model">—</code>
               <OverflowTooltip
+                v-if="log.request_audit"
+                as="small"
+                class="logs-list__auto-decision"
+                :content="
+                  t('requestAudit.title') +
+                  ' · ' +
+                  t('requestAudit.modes.' + log.request_audit.mode)
+                "
+                >{{ t('requestAudit.statuses.' + log.request_audit.status) }}</OverflowTooltip
+              >
+              <OverflowTooltip
                 v-if="log.auto_decision"
                 as="small"
                 class="logs-list__auto-decision"

@@ -537,6 +537,55 @@ function toggleAttemptErrorMessage(sequence: number): void {
         </dl>
       </section>
 
+      <section v-if="log.request_audit" class="log-detail__section">
+        <h3>{{ t('requestAudit.title') }}</h3>
+        <dl class="log-detail__grid">
+          <div>
+            <dt>{{ t('requestAudit.mode') }}</dt>
+            <dd>{{ t('requestAudit.modes.' + log.request_audit.mode) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('requestAudit.result') }}</dt>
+            <dd>{{ t('requestAudit.statuses.' + log.request_audit.status) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('requestAudit.duration') }}</dt>
+            <dd>{{ log.request_audit.duration_ms }} ms</dd>
+          </div>
+          <div>
+            <dt>{{ t('requestAudit.checks') }}</dt>
+            <dd>{{ log.request_audit.checks }}</dd>
+          </div>
+          <div v-if="log.request_audit.reason">
+            <dt>{{ t('autoModel.reason') }}</dt>
+            <dd>{{ t('requestAudit.reasons.' + log.request_audit.reason) }}</dd>
+          </div>
+          <div v-for="(finding, index) in log.request_audit.findings" :key="index">
+            <dt>
+              {{
+                finding.source === 'local'
+                  ? t('requestAudit.localRules.' + finding.rule_id)
+                  : finding.name
+              }}
+            </dt>
+            <dd>
+              {{ t('requestAudit.statuses.' + finding.status)
+              }}<template v-if="finding.probability !== undefined">
+                · {{ Math.round(finding.probability * 100) }}%</template
+              >
+            </dd>
+          </div>
+          <div v-for="(call, index) in log.request_audit.calls" :key="'call-' + index">
+            <dt>
+              {{ t('requestAudit.cost') }}<template v-if="call.model"> · {{ call.model }}</template>
+            </dt>
+            <dd>
+              {{ call.cost_state === 'priced' ? decisionCost(call.estimated_cost_nano_usd) : '—' }}
+              · {{ call.duration_ms }} ms
+            </dd>
+          </div>
+        </dl>
+      </section>
       <section v-if="log.auto_decision" class="log-detail__section">
         <h3>{{ t('autoModel.log') }}</h3>
         <dl class="log-detail__grid">
@@ -764,12 +813,19 @@ function toggleAttemptErrorMessage(sequence: number): void {
             v-if="
               !selfScoped &&
               (log.auto_decision ||
+                log.request_audit?.calls.length ||
                 (costDisplayState !== 'unpriced' && receipt && usageDisplayState === 'reported'))
             "
             class="log-detail__wide"
           >
             <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
             <dd class="log-detail__formula">
+              <span v-for="(call, index) in log.request_audit?.calls ?? []" :key="'audit-' + index"
+                >{{ t('requestAudit.cost') }} · {{ call.model }} =
+                {{
+                  call.cost_state === 'priced' ? decisionCost(call.estimated_cost_nano_usd) : '—'
+                }}</span
+              >
               <span v-if="log.auto_decision"
                 >{{ t('autoModel.decisionPriceItem') }} = {{ decisionFormula() }}</span
               >
