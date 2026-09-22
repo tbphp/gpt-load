@@ -31,6 +31,7 @@ import (
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/requestaudit"
+	"gpt-load/internal/requestredact"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	subscriptionproviders "gpt-load/internal/subscription/providers"
@@ -904,15 +905,21 @@ func (handler *Handler) executeAttempts(
 	var cachedPrepared *preparedRequest
 	loggedOverrideFailures := make(map[uint]struct{})
 	var parameterOverrideFailure *reason
-	prepareRequest := func(selection scheduler.Selection) preparedRequest {
+	prepareRequest := func(selection scheduler.Selection) (prepared preparedRequest) {
 		if cachedPrepared != nil && preparedGroupID == selection.GroupID {
 			return *cachedPrepared
 		}
 		cachedPrepared = nil
 		preparedGroupID = selection.GroupID
-		prepared := preparedRequest{
+		prepared = preparedRequest{
 			request: parsed, observations: originalMetadata, observationsAvailable: true,
 		}
+		defer func() {
+			if prepared.err == nil {
+				prepared.request, prepared.err = redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), prepared.request)
+			}
+			cachedPrepared = &prepared
+		}()
 		if operation == execution.OperationWebSearch {
 			return prepared
 		}
@@ -1092,6 +1099,10 @@ func (handler *Handler) executeAttempts(
 		}
 		prepared := prepareRequest(selection)
 		if prepared.err != nil {
+			if errors.Is(prepared.err, requestredact.ErrContent) {
+				handler.completeReason(ginContext, recorder, reasonRedactionFailed)
+				return
+			}
 			if errors.Is(prepared.err, errRequestTooLarge) {
 				if parameterOverrideFailure == nil {
 					parameterOverrideFailure = &reasonRequestTooLarge

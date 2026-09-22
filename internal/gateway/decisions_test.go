@@ -17,6 +17,7 @@ import (
 	bifrostexecutor "gpt-load/internal/execution/bifrost"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/requestredact"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
@@ -27,8 +28,10 @@ func TestDecisionsGatewayRoutesObservesAndProtectsAccess(t *testing.T) {
 		filters state.FilterSet
 		status  int
 		calls   int64
+		redact  bool
 	}{
 		{name: "allowed", status: http.StatusOK, calls: 1},
+		{name: "redacted state", status: http.StatusOK, calls: 1, redact: true},
 		{name: "protocol denied", filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.OpenAICompletions: {}}}, status: http.StatusServiceUnavailable},
 		{name: "model denied", filters: state.FilterSet{Models: map[string]struct{}{"other": {}}}, status: http.StatusServiceUnavailable},
 	} {
@@ -41,9 +44,13 @@ func TestDecisionsGatewayRoutesObservesAndProtectsAccess(t *testing.T) {
 					t.Error(err)
 					return
 				}
+				stateText := `"task":"decision-input-sentinel"`
+				if test.redact {
+					stateText = `"task":"[VALUE]"`
+				}
 				if request.URL.Path != "/v1/systemone" || request.Header.Get("Authorization") != "Bearer sk-upstream" ||
 					!bytes.Contains(body, []byte(`"model":"jev-latest"`)) ||
-					!bytes.Contains(body, []byte(`"task":"decision-input-sentinel"`)) ||
+					!bytes.Contains(body, []byte(stateText)) ||
 					!bytes.Contains(body, []byte(`"future":1.2300`)) {
 					t.Errorf("upstream request %s %s", request.URL, body)
 				}
@@ -68,8 +75,13 @@ func TestDecisionsGatewayRoutesObservesAndProtectsAccess(t *testing.T) {
 			)
 			handler.dialects = dialect.NewSet(dialect.NewDecisions())
 			params, _ := json.Marshal(map[string]string{"base_url": server.URL + "/v1"})
+			redactionRules := []requestredact.Rule{}
+			if test.redact {
+				redactionRules = []requestredact.Rule{{Pattern: "decision-input-sentinel", Replacement: "[VALUE]"}}
+			}
 			_, err = manager.Publish(state.CompileInput{
-				ChannelRegistry: channel.NewRegistry(),
+				ChannelRegistry:  channel.NewRegistry(),
+				RequestRedaction: redactionRules,
 				Groups: []state.GroupConfig{{
 					ConnectionType: "api_key", ID: 1, Name: "jev", ChannelID: channel.Jev,
 					Params: params, Models: []state.ModelConfig{{ID: "jev-latest", Alias: "public"}}, Enabled: true,

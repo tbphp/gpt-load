@@ -37,7 +37,7 @@ func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigS
 	}
 	group := snapshot.Groups[snapshot.Jev.GroupID]
 	// 规则动作/名称变更不必重审；JEV 模型、组及其路由变化不能沿用旧证明。
-	namespace, err := json.Marshal([]any{key.ID, recorder.protocol, snapshot.Jev, group.ChannelID, group.Params, group.Models})
+	namespace, err := json.Marshal([]any{key.ID, recorder.protocol, snapshot.RequestRedaction.Rules(), snapshot.Jev, group.ChannelID, group.Params, group.Models})
 	if err != nil {
 		return fail("internal_error")
 	}

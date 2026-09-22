@@ -3,6 +3,7 @@ import {
   Cable,
   Database,
   FlaskConical,
+  ScanText,
   Globe,
   Monitor,
   RotateCcw,
@@ -43,6 +44,7 @@ import { validAudit } from '@modern/api/experimental'
 import AutoModelEditor from './AutoModelEditor.vue'
 import JevSettingsEditor from './JevSettingsEditor.vue'
 import RequestAuditEditor from './RequestAuditEditor.vue'
+import RequestRedactionEditor from './RequestRedactionEditor.vue'
 import SettingItem from './SettingItem.vue'
 import SettingsHeadersEditor from './SettingsHeadersEditor.vue'
 import SettingsNumberField from './SettingsNumberField.vue'
@@ -50,6 +52,7 @@ import SettingsSystemInfo from './SettingsSystemInfo.vue'
 import { useSettingsEditor } from './use-settings-editor'
 
 const { t, n } = useI18n()
+const redactionInvalid = ref(false)
 const client = useApiClient()
 const {
   query,
@@ -67,6 +70,12 @@ const {
   discard,
   save,
 } = useSettingsEditor()
+const redactionBlocksSave = computed(
+  () =>
+    redactionInvalid.value &&
+    changed.value.includes('request_redaction') &&
+    !resets.value.has('request_redaction'),
+)
 const info = useQuery({
   queryKey: systemInfoKey,
   queryFn: ({ signal }) => getSystemInfo(client, signal),
@@ -76,8 +85,9 @@ const sectionIDs = [
   'connection',
   'browser',
   'maintenance',
-  'interface',
+  'redaction',
   'experimental',
+  'interface',
   'system',
 ] as const
 type SectionID = (typeof sectionIDs)[number]
@@ -96,6 +106,7 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
   browser: ['cors', 'header_rules', 'response_header_rules'],
   maintenance: ['request_log_retention_days', 'models_dev_auto_sync_enabled'],
   interface: [],
+  redaction: ['request_redaction'],
   experimental: ['jev', 'auto_model', 'request_audit'],
   system: [],
 }
@@ -105,6 +116,7 @@ const sectionIcons = {
   browser: Globe,
   maintenance: Database,
   interface: Monitor,
+  redaction: ScanText,
   experimental: FlaskConical,
   system: Server,
 }
@@ -298,6 +310,7 @@ watch(
   { immediate: true },
 )
 async function submit(): Promise<void> {
+  if (redactionBlocksSave.value) return
   const result = await save()
   if (result !== 'invalid') return
   clearSearch()
@@ -408,6 +421,23 @@ onScopeDispose(() => {
           class="modern-settings-section"
         >
           <div class="modern-settings-fields">
+            <template v-if="id === 'redaction'">
+              <SettingItem
+                v-bind="settingItem('request_redaction')"
+                :label="t('requestRedaction.quickAdd')"
+                :hint="undefined"
+                stacked
+                class="modern-settings-wide"
+                @reset="restore('request_redaction')"
+                @undo="undoRestore('request_redaction')"
+              >
+                <RequestRedactionEditor
+                  v-model="draft.request_redaction"
+                  :disabled="disabled('request_redaction')"
+                  @invalid="redactionInvalid = $event"
+                />
+              </SettingItem>
+            </template>
             <template v-if="id === 'routing'">
               <SettingItem
                 v-if="matches('route_strategy')"
@@ -784,6 +814,7 @@ onScopeDispose(() => {
           variant="primary"
           :icon="Save"
           :loading="saving"
+          :disabled="redactionBlocksSave"
           >{{ t('settingsForm.save') }}</AppButton
         >
       </div>

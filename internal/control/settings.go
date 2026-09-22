@@ -23,6 +23,7 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestaudit"
+	"gpt-load/internal/requestredact"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -43,6 +44,7 @@ type CORSConfigResponse struct {
 }
 
 type SettingsValuesResponse struct {
+	RequestRedaction          []requestredact.Rule  `json:"request_redaction"`
 	Jev                       jev.Config            `json:"jev"`
 	RequestAudit              requestaudit.Config   `json:"request_audit"`
 	AutoModel                 AutoModelSettingsView `json:"auto_model"`
@@ -253,7 +255,7 @@ func normalizeSettingUpdates(
 		if key == automodel.SettingKey {
 			continue
 		}
-		if key != outboundproxy.SystemSettingKey && key != jev.SettingKey && key != requestaudit.SettingKey && !state.IsRuntimeSettingKey(key) {
+		if key != requestredact.SettingKey && key != outboundproxy.SystemSettingKey && key != jev.SettingKey && key != requestaudit.SettingKey && !state.IsRuntimeSettingKey(key) {
 			return nil, app_errors.ErrValidation
 		}
 		raw := bytes.TrimSpace(request.Settings[key])
@@ -261,12 +263,24 @@ func normalizeSettingUpdates(
 			updates = append(updates, persistedSettingUpdate{key: key})
 			continue
 		}
-		if key == jev.SettingKey || key == requestaudit.SettingKey {
+		if key == jev.SettingKey || key == requestaudit.SettingKey || key == requestredact.SettingKey {
 			if encryptionService == nil || rejectDuplicateJSONFields(raw) != nil {
 				return nil, app_errors.ErrValidation
 			}
 			var value any
-			if key == jev.SettingKey {
+			if key == requestredact.SettingKey {
+				decoded, err := requestredact.Decode(raw)
+				if err != nil {
+					return nil, app_errors.ErrValidation
+				}
+				issues := requestredact.Validate(decoded)
+				for _, issue := range issues {
+					if issue.Error != "" {
+						return nil, app_errors.NewAPIErrorWithData(app_errors.ErrValidation, map[string]any{"request_redaction": issues})
+					}
+				}
+				value = decoded
+			} else if key == jev.SettingKey {
 				decoded, err := jev.Decode(raw)
 				if err != nil {
 					return nil, app_errors.ErrValidation
@@ -366,7 +380,7 @@ func mapSettingsResponse(
 	overrides := make([]string, 0, len(rows))
 	var configuredProxy *outboundproxy.Config
 	for _, row := range rows {
-		if state.IsRuntimeSettingKey(row.Key) || row.Key == automodel.SettingKey || row.Key == jev.SettingKey || row.Key == requestaudit.SettingKey {
+		if row.Key == requestredact.SettingKey || state.IsRuntimeSettingKey(row.Key) || row.Key == automodel.SettingKey || row.Key == jev.SettingKey || row.Key == requestaudit.SettingKey {
 			overrides = append(overrides, row.Key)
 		}
 		if row.Key == outboundproxy.SystemSettingKey {
@@ -406,8 +420,9 @@ func mapSettingsResponse(
 		DecisionModels: decisionModelNames(snapshot),
 		Revision:       snapshot.Revision,
 		Values: SettingsValuesResponse{
-			AutoModel: newAutoModelSettingsView(snapshot.AutoModels),
-			Jev:       snapshot.Jev, RequestAudit: snapshot.RequestAudit,
+			RequestRedaction: snapshot.RequestRedaction.Rules(),
+			AutoModel:        newAutoModelSettingsView(snapshot.AutoModels),
+			Jev:              snapshot.Jev, RequestAudit: snapshot.RequestAudit,
 			FirstByteTimeout:  durationSeconds(settings.FirstByteTimeout),
 			RequestTimeout:    durationSeconds(settings.RequestTimeout),
 			StreamIdleTimeout: durationSeconds(settings.StreamIdleTimeout),

@@ -118,7 +118,7 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 		decision.Reason = "parameter_override_unavailable"
 		return decision, result
 	}
-	if protected && !sameDecisionContent(payload, body) {
+	if (protected || !snapshot.RequestRedaction.Empty()) && !sameDecisionContent(payload, body) {
 		decision.Reason = "parameter_override_unavailable"
 		return decision, result
 	}

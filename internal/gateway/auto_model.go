@@ -100,6 +100,15 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	query.Operation, query.RouteRequirement = metadata.Operation, metadata.RouteRequirement
 	query.ResponsesStorePreference = metadata.ResponsesStorePreference
 	view, extractReason := automodel.Extract(selectedDialect.Protocol(), parsed.Body)
+	if !snapshot.RequestRedaction.Empty() {
+		clean, err := redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), parsed)
+		if err != nil {
+			return parsed, metadata, nil, &reasonRedactionFailed
+		}
+		fingerprint := view.TaskFingerprint
+		view, extractReason = automodel.Extract(selectedDialect.Protocol(), clean.Body)
+		view.TaskFingerprint = fingerprint
+	}
 	prewarm := false
 	if metadata.Operation == execution.OperationResponsesCreate {
 		var options struct {

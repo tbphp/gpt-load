@@ -29,6 +29,7 @@ import (
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestaudit"
+	"gpt-load/internal/requestredact"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 
@@ -581,7 +582,7 @@ func decodeSettingValue(raw string) (any, error) {
 
 func isIgnoredSystemSetting(key string) bool {
 	return strings.HasPrefix(key, models.InternalSystemSettingPrefix) ||
-		key == automodel.SettingKey || key == jev.SettingKey || key == requestaudit.SettingKey ||
+		key == requestredact.SettingKey || key == automodel.SettingKey || key == jev.SettingKey || key == requestaudit.SettingKey ||
 		key == outboundproxy.SystemSettingKey ||
 		key == "contact_info" // 兼容本分支旧版本保存的已移除设置。
 }
@@ -676,6 +677,20 @@ func mapSystemAndGroups(
 		input.ClientModelOverrides[row.ClientModel] = overrides
 	}
 	for _, row := range rows.settings {
+		if row.Key == requestredact.SettingKey {
+			if encryptionService == nil {
+				return state.CompileInput{}, fmt.Errorf("missing redaction encryption service")
+			}
+			plaintext, err := encryptionService.Decrypt(row.Value)
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("decrypt redaction configuration")
+			}
+			input.RequestRedaction, err = requestredact.Decode([]byte(plaintext))
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("invalid redaction configuration")
+			}
+			continue
+		}
 		if row.Key == jev.SettingKey || row.Key == requestaudit.SettingKey {
 			if encryptionService == nil {
 				return state.CompileInput{}, fmt.Errorf("missing experimental configuration encryption service")

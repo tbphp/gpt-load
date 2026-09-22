@@ -34,11 +34,14 @@ import BrowserAccessSection from './BrowserAccessSection.vue'
 import AutoModelSettingsSection from './AutoModelSettingsSection.vue'
 import ConnectionSettingsSection from './ConnectionSettingsSection.vue'
 import DataMaintenanceSection from './DataMaintenanceSection.vue'
+import RequestRedactionSection from './RequestRedactionSection.vue'
+import type { RedactionRule } from '@/app/resources/request-redaction'
 import FrontendSettingsSection from './FrontendSettingsSection.vue'
 import ReliabilitySettingsSection from './ReliabilitySettingsSection.vue'
 import RoutingSettingsSection from './RoutingSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
 import {
+  createSettingsDraft,
   isValidAffinityCapacity,
   isValidNonNegativeInteger,
   isValidRetention,
@@ -67,6 +70,7 @@ const settingsRefreshing = computed(
 )
 const headerRulesInvalidEdits = ref(false)
 const autoModelInvalidEdits = ref(false)
+const redactionInvalid = ref(false)
 const responseRulesInvalidEdits = ref(false)
 const browserAccessEditorRevision = ref(0)
 const discardDialogOpen = ref(false)
@@ -105,6 +109,18 @@ const {
   saveAll,
 } = useSettingsController(resource, { hasLocalEdits })
 
+function updateRedaction(rules: RedactionRule[]): void {
+  if (!draft.value) return
+  const next = createSettingsDraft({
+    values: draft.value.values,
+    overrides: [...draft.value.overrides],
+    read_only: [...draft.value.readOnly],
+  })
+  next.values.request_redaction = rules
+  next.overrides.add('request_redaction')
+  updateDraft({ key: 'request_redaction', draft: next })
+}
+
 function resetProxyDraft(view: ProxyViewDto): void {
   proxyMode.value = view.configured_mode
   proxyEndpoint.value = ''
@@ -126,8 +142,9 @@ const navItems = computed(() => [
   { id: 'settings-reliability', label: t('settings.navigation.reliability') },
   { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
   { id: 'settings-data-maintenance', label: t('settings.navigation.dataMaintenance') },
-  { id: 'settings-interface', label: t('settings.frontend.title') },
+  { id: 'settings-redaction', label: t('requestRedaction.title') },
   { id: 'settings-experimental', label: t('settings.navigation.experimental') },
+  { id: 'settings-interface', label: t('settings.frontend.title') },
   { id: 'settings-system', label: t('settings.navigation.system') },
 ])
 const routeSection = computed(() => parseSettingsSection(route.query))
@@ -151,6 +168,7 @@ const dirty = computed(
 )
 const valid = computed(
   () =>
+    !(redactionInvalid.value && patch.value.request_redaction != null) &&
     controllerValid.value &&
     browserAccessValid.value &&
     !autoModelInvalidEdits.value &&
@@ -271,6 +289,7 @@ function sectionFromID(id: string): SettingsSection | undefined {
     section === 'browser-access' ||
     section === 'data-maintenance' ||
     section === 'interface' ||
+    section === 'redaction' ||
     section === 'experimental' ||
     section === 'system'
     ? section
@@ -304,6 +323,7 @@ function confirmDiscard(): void {
 }
 
 function settingLabel(key: RuntimeSettingKey): string {
+  if (key === 'request_redaction') return t('requestRedaction.title')
   if (key === 'jev') return t('jev.title')
   if (key === 'request_audit') return t('requestAudit.title')
   if (key === 'auto_model') return t('autoModel.title')
@@ -317,6 +337,7 @@ function settingLabel(key: RuntimeSettingKey): string {
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
+  if (key === 'request_redaction') return 'settings-redaction'
   if (['auto_model', 'jev', 'request_audit'].includes(key)) return 'settings-experimental'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'settings-browser-access'
@@ -324,6 +345,7 @@ function settingTarget(key: RuntimeSettingKey): string {
 }
 
 function sectionForKey(key: RuntimeSettingKey): SettingsSection {
+  if (key === 'request_redaction') return 'redaction'
   if (['auto_model', 'jev', 'request_audit'].includes(key)) return 'experimental'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'browser-access'
@@ -473,7 +495,13 @@ onBeforeUnmount(() => {
             />
           </template>
 
-          <FrontendSettingsSection :disabled="dirty || pageOperationLocked" />
+          <RequestRedactionSection
+            v-if="base && draft"
+            :model-value="draft.values.request_redaction"
+            :disabled="pageOperationLocked"
+            @update:model-value="updateRedaction"
+            @invalid="redactionInvalid = $event"
+          />
           <AutoModelSettingsSection
             v-if="base && draft"
             :base="base"
@@ -483,6 +511,7 @@ onBeforeUnmount(() => {
             @change="updateDraft"
             @invalid="autoModelInvalidEdits = $event"
           />
+          <FrontendSettingsSection :disabled="dirty || pageOperationLocked" />
           <SystemInfoSection />
         </div>
       </div>
