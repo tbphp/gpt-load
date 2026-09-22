@@ -185,7 +185,7 @@ func (l *Loader) migrateLegacyAutoModel(ctx context.Context) error {
 	}
 	return l.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row models.SystemSetting
-		if err := tx.Where("key = ?", automodel.SettingKey).Take(&row).Error; err != nil {
+		if err := systemSettingKeyScope(tx, automodel.SettingKey).Take(&row).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil
 			}
@@ -212,10 +212,13 @@ func (l *Loader) migrateLegacyAutoModel(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("encrypt migrated configuration")
 		}
-		return tx.Model(&models.SystemSetting{}).
-			Where("key = ?", automodel.SettingKey).
+		return systemSettingKeyScope(tx.Model(&models.SystemSetting{}), automodel.SettingKey).
 			Update("value", ciphertext).Error
 	})
+}
+
+func systemSettingKeyScope(db *gorm.DB, key string) *gorm.DB {
+	return db.Where(&models.SystemSetting{Key: key})
 }
 
 func (l *Loader) validatePersistedCredentials(
