@@ -37,6 +37,7 @@ const requestForwardingKeys: RuntimeSettingKey[] = [
   'stream_idle_timeout',
   'retry_count',
   'blacklist_threshold',
+  'empty_response_retry',
   'header_rules',
   'validation_interval',
 ]
@@ -107,6 +108,8 @@ export function setSettingsOverride(
       next.values.affinity_enabled = base.values.affinity_enabled
     } else if (key === 'responses_websocket_enabled') {
       next.values.responses_websocket_enabled = base.values.responses_websocket_enabled
+    } else if (key === 'empty_response_retry') {
+      next.values.empty_response_retry = base.values.empty_response_retry
     } else if (key === 'models_dev_auto_sync_enabled') {
       next.values.models_dev_auto_sync_enabled = base.values.models_dev_auto_sync_enabled
     } else if (key === 'cors') {

@@ -59,6 +59,7 @@ type SettingsValuesResponse struct {
 	BlacklistThreshold        int                   `json:"blacklist_threshold"`
 	AffinityEnabled           bool                  `json:"affinity_enabled"`
 	ResponsesWebsocketEnabled bool                  `json:"responses_websocket_enabled"`
+	EmptyResponseRetry        bool                  `json:"empty_response_retry"`
 	AffinityTTL               int64                 `json:"affinity_ttl"`
 	AffinityCapacity          int                   `json:"affinity_capacity"`
 	ValidationInterval        int64                 `json:"validation_interval"`
@@ -448,6 +449,7 @@ func mapSettingsResponse(
 			BlacklistThreshold:        settings.BlacklistThreshold,
 			AffinityEnabled:           settings.AffinityEnabled,
 			ResponsesWebsocketEnabled: settings.ResponsesWebsocketEnabled,
+			EmptyResponseRetry:        settings.EmptyResponseRetry,
 			AffinityTTL:               durationSeconds(settings.AffinityTTL),
 			AffinityCapacity:          settings.AffinityCapacity,
 			ValidationInterval:        durationSeconds(settings.ValidationInterval),

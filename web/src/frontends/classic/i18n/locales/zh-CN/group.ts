@@ -351,6 +351,9 @@ export default {
         headerStorageNoticeEnd: '。',
         headerReplacementWarning:
           '此分组覆盖会完整替换全局 HeaderRules；后续全局更改不会合并到这里。',
+        empty_response_retry: '空回检测',
+        emptyResponseRetryHelp:
+          '仅对流式对话请求生效。上游正常结束但没有任何产出时，视为一次失败并换下一个候选重试，不冷却也不拉黑凭据；重试用尽后仍把空响应交给客户端。预热与会话续接请求不参与判定。',
         responses_websocket_enabled: 'Responses WebSocket',
         websocketHelp: '关闭会立即断开本分组的 WS 连接并中断生成，HTTP/SSE 不受影响。',
         affinity_enabled: '请求亲和',

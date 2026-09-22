@@ -11,6 +11,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/health"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
@@ -194,6 +195,10 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		errorBody     []byte
 		streamUsage   *execution.UsageEvidence
 	)
+	preread := newEmptyResponsePreread(
+		input.EmptyResponseRetry && streamEvents.observeContent(input.Dialect),
+		nil,
+	)
 	sink := func(event execution.StreamEvent) error {
 		if err := event.Validate(); err != nil {
 			downstreamErr = fmt.Errorf("%w: invalid execution stream event", ErrUpstreamProtocol)
@@ -264,15 +269,25 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 					errorBody = appendExecutionErrorBody(errorBody, forwardData)
 					return nil
 				}
+				if !streamEvents.producedContent() &&
+					preread.hold(forwardData, streamEvents.eventCount, terminalInChunk) {
+					// 还没有任何产出，继续压住以保留换候选重试的可能。
+					return nil
+				}
 				committed = true
-				if err := commitStream(controller, ready.StatusCode, ready.Header, forwardData); err != nil {
+				payload := forwardData
+				held, heldTerminal := preread.flush()
+				if len(held) > 0 {
+					payload = append(held, forwardData...)
+				}
+				if err := commitStream(controller, ready.StatusCode, ready.Header, payload); err != nil {
 					downstreamErr = err
 					return err
 				}
 				if input.OnStreamReady != nil {
 					input.OnStreamReady()
 				}
-				if terminalInChunk {
+				if terminalInChunk || heldTerminal {
 					streamEvents.markTerminalForwarded()
 				}
 				return nil
@@ -327,6 +342,26 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 			}
 		}
 	}
+	emptyResponse := !committed && downstreamErr == nil && terminal.Error == nil &&
+		ready != nil && ready.StatusCode >= http.StatusOK && ready.StatusCode < http.StatusMultipleChoices &&
+		preread.active() && streamEvents.endedWithoutContent()
+	if !committed && !emptyResponse && ready != nil && preread.holding() {
+		// 不是空回：按关闭开关时的结果把压住的数据照常提交，开关只改变空回的处理。
+		held, heldTerminal := preread.flush()
+		committed = true
+		if err := commitStream(controller, ready.StatusCode, ready.Header, held); err != nil {
+			if downstreamErr == nil {
+				downstreamErr = err
+			}
+		} else {
+			if input.OnStreamReady != nil {
+				input.OnStreamReady()
+			}
+			if heldTerminal {
+				streamEvents.markTerminalForwarded()
+			}
+		}
+	}
 	capturedUsage := streamEvents.finalizeUsage()
 	result := upstreamFromExecutionStreamResult(ctx, input, terminal, streamUsage)
 	if input.ObserveUsage && input.ClientProtocol == protocol.Anthropic &&
@@ -354,6 +389,23 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		result.ResponseStarted = true
 		result.UpstreamRequestID = ready.UpstreamRequestID
 	}
+	if emptyResponse {
+		// 上游自然结束却没有任何产出。保留已压住的原始字节，
+		// 以便重试耗尽后仍能把这次空响应原样交付给客户端。
+		summary := fixedErrorSummary(health.EmptyResponseCode)
+		held, _ := preread.flush()
+		result.EmptyResponseBeforeCommit = true
+		result.Body = held
+		result.ErrorSummary = summary
+		result.ExecutionError = &execution.ErrorEvidence{
+			Kind:       execution.ErrorKindProvider,
+			OriginHint: execution.ErrorOriginUpstream,
+			ScopeHint:  execution.ErrorScopeRequest,
+			StatusCode: ready.StatusCode,
+			Code:       health.EmptyResponseCode,
+			Summary:    summary,
+		}
+	}
 	if !committed && streamEvents.firstEventWasProviderError() {
 		summary := streamEvents.firstSummary
 		if summary == "" {
@@ -371,7 +423,8 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 			summarySecrets,
 		)
 	}
-	if !committed && result.HasResponse() && !result.ProviderErrorBeforeCommit {
+	if !committed && result.HasResponse() && !result.ProviderErrorBeforeCommit &&
+		!result.EmptyResponseBeforeCommit {
 		result = forwarder.prepareBufferedResult(input, result)
 	}
 	return result

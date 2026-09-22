@@ -95,6 +95,18 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 			"safety.execution_canceled",
 		)
 	}
+	if attempt.Evidence.Code == EmptyResponseCode {
+		// 上游正常完成了一次请求，只是没有产出内容。换下一个候选值得一试，
+		// 但这不是凭据故障：不冷却、不拉黑，也不计入失败统计。
+		return constrainCommittedDecision(decision(
+			FailureCategoryAmbiguous,
+			execution.ErrorOriginUpstream,
+			execution.ErrorScopeRequest,
+			RetryNextCandidate,
+			EffectNone,
+			"content.empty_response",
+		), attempt)
+	}
 	if attempt.DispatchState == execution.DispatchNotSent {
 		if result, ok := candidatePreparationDecision(attempt.Evidence); ok {
 			return result

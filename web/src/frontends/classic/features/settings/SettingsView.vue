@@ -363,7 +363,12 @@ function sectionForKey(key: RuntimeSettingKey): SettingsSection {
     key === 'responses_websocket_enabled'
   )
     return 'connection'
-  if (key === 'retry_count' || key === 'blacklist_threshold' || key === 'validation_interval')
+  if (
+    key === 'retry_count' ||
+    key === 'blacklist_threshold' ||
+    key === 'empty_response_retry' ||
+    key === 'validation_interval'
+  )
     return 'reliability'
   return 'data-maintenance'
 }
