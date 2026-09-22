@@ -21,7 +21,6 @@ const databaseNames = { sqlite: 'SQLite', mysql: 'MySQL', postgres: 'PostgreSQL'
 const updateMessage = computed(() => {
   if (checkState.value === 'failed') return { text: t('system.checkFailed'), error: true }
   if (checkState.value === 'authRequired') return { text: t('system.authRequired'), error: true }
-  if (checkState.value === 'latest') return { text: t('system.latestVersion'), error: false }
   return undefined
 })
 </script>
@@ -52,6 +51,9 @@ const updateMessage = computed(() => {
             <AppIcon :icon="ArrowUpRight" size="sm" />
             <span>{{ t('system.updateAvailable', { version: update.version }) }}</span>
           </AppExternalLink>
+          <span v-else-if="checkState === 'latest'" class="modern-settings-system-note">
+            {{ t('system.latestVersion') }}
+          </span>
         </div>
         <AppButton
           v-if="canCheckUpdate"
