@@ -27,16 +27,21 @@ import { useApiClient } from '@shared/http/client-context'
 const props = defineProps<{
   group: GroupRow
   expanded: boolean
-  pending?: 'toggle' | 'weight'
+  pending?: 'toggle' | 'priority' | 'weight'
   enabledOverride?: boolean
   usage?: GroupUsage
   usageLoading: boolean
   usageIncomplete: boolean
+  priorityError?: string
   weightError?: string
 }>()
 const emit = defineEmits<{
   expand: []
   toggle: [value: boolean]
+  priority: [value: number]
+  priorityEditing: [value: boolean]
+  priorityDirty: [value: boolean]
+  clearPriorityError: []
   weight: [value: number]
   weightEditing: [value: boolean]
   weightDirty: [value: boolean]
@@ -275,6 +280,19 @@ const lastActive = computed(() =>
           :loading="pending === 'toggle'"
           :disabled="Boolean(pending)"
           @update:model-value="emit('toggle', $event)"
+        />
+        <AppInlineNumber
+          :model-value="group.priority"
+          :label="t('groups.edit.priority')"
+          :min="1"
+          :max="100"
+          :pending="pending === 'priority'"
+          :disabled="Boolean(pending)"
+          :error="priorityError"
+          @submit="emit('priority', $event)"
+          @editing="emit('priorityEditing', $event)"
+          @dirty="emit('priorityDirty', $event)"
+          @clear-error="emit('clearPriorityError')"
         />
         <AppInlineNumber
           :model-value="group.weight"

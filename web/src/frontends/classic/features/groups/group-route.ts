@@ -18,6 +18,7 @@ export type GroupModelDiscoveryFilter = 'unadded' | 'all'
 
 export interface CredentialRouteState {
   expandedCredentialIDs: number[]
+  priorityCredentialID?: number
   weightCredentialID?: number
 }
 
@@ -86,6 +87,7 @@ export function parseCredentialRouteQuery(query: LocationQuery): CredentialColle
 export function parseCredentialRouteState(query: LocationQuery): CredentialRouteState {
   return {
     expandedCredentialIDs: parsePositiveRouteIntegerList(query.expanded_credential_ids),
+    priorityCredentialID: parsePositiveRouteInteger(query.priority_credential_id),
     weightCredentialID: parsePositiveRouteInteger(query.weight_credential_id),
   }
 }
@@ -102,6 +104,8 @@ export function serializeCredentialRouteQuery(
   if (filters.page_size !== 20) query.page_size = String(filters.page_size)
   const expanded = serializePositiveRouteIntegerList(state.expandedCredentialIDs)
   if (expanded !== undefined) query.expanded_credential_ids = expanded
+  if (state.priorityCredentialID !== undefined)
+    query.priority_credential_id = String(state.priorityCredentialID)
   if (state.weightCredentialID !== undefined)
     query.weight_credential_id = String(state.weightCredentialID)
   return query

@@ -446,6 +446,7 @@ export default {
       diagnostics: '运行诊断',
       moreActions: '更多操作',
       editWeightHint: '点击调整权重',
+      editPriorityHint: '点击调整优先级',
       priorityChipTooltip: '优先级 {priority}',
       weightChipTooltip: '权重 {weight}，点击编辑',
       expand: '展开凭据详情',

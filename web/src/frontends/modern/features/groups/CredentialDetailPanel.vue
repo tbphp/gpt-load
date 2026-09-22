@@ -271,7 +271,7 @@ useMessageSource(() =>
         <div class="modern-credential-detail-routing">
           <AppTextField
             v-model="priority"
-            :label="t('groups.edit.priority')"
+            :label="t('credentialCards.priority')"
             :placeholder="t('credentialCards.automatic')"
             size="sm"
             inputmode="numeric"
@@ -280,7 +280,7 @@ useMessageSource(() =>
           />
           <AppTextField
             v-model="weight"
-            :label="t('groups.edit.weight')"
+            :label="t('credentialCards.weight')"
             :placeholder="t('credentialCards.automatic')"
             size="sm"
             inputmode="numeric"
@@ -383,9 +383,12 @@ useMessageSource(() =>
 }
 .modern-credential-detail-routing {
   display: grid;
-  grid-template-columns: minmax(0, 112px) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
   gap: var(--modern-space-3);
+}
+.modern-credential-detail-routing > :nth-child(3) {
+  grid-column: 1 / -1;
 }
 @container modern-workspace-panel (max-width: 380px) {
   .modern-credential-detail-metrics {
@@ -396,8 +399,8 @@ useMessageSource(() =>
   .modern-credential-detail-routing {
     grid-template-columns: minmax(0, 1fr);
   }
-  .modern-credential-detail-routing > :first-child {
-    max-width: 112px;
+  .modern-credential-detail-routing > :nth-child(3) {
+    grid-column: auto;
   }
 }
 </style>

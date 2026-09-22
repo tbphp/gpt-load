@@ -107,8 +107,15 @@ const issues = computed(() =>
         </dd>
       </div>
       <div>
+        <dt>{{ t('credentialCards.priority') }}</dt>
+        <dd>{{ n(row.priority) }}</dd>
+      </div>
+      <div>
         <dt>{{ t('credentialCards.weight') }}</dt>
-        <dd>{{ n(row.weight) }}<CredentialRoutingMeta :row="row" :weight="false" /></dd>
+        <dd
+          >{{ n(row.weight)
+          }}<CredentialRoutingMeta :row="row" :priority="false" :weight="false"
+        /></dd>
       </div>
       <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
         <div tabindex="0">

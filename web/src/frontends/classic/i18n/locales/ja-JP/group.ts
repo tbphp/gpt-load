@@ -465,6 +465,7 @@ export default {
       diagnostics: '実行診断',
       moreActions: 'その他の操作',
       editWeightHint: 'クリックして重みを調整',
+      editPriorityHint: 'クリックして優先度を調整',
       priorityChipTooltip: '優先度 {priority}',
       weightChipTooltip: 'ウェイト {weight}。クリックで編集',
       expand: '認証情報の詳細を展開',

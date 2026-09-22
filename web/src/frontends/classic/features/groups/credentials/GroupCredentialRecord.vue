@@ -32,6 +32,7 @@ const props = defineProps<{
   selected: boolean
   busy: boolean
   expanded: boolean
+  priorityEditorOpen: boolean
   weightEditorOpen: boolean
   resolveCopyValue: (id: number) => Promise<string>
   saveProxy: (value: ProxyMutation) => Promise<void>
@@ -40,7 +41,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:selected': [selected: boolean]
   'update:expanded': [expanded: boolean]
+  'update:priorityEditorOpen': [open: boolean]
   'update:weightEditorOpen': [open: boolean]
+  'open-priority': [item: CredentialItemDto]
   'open-weight': [item: CredentialItemDto]
   weight: [payload: { item: CredentialItemDto; value: string }]
   priority: [payload: { item: CredentialItemDto; value: string }]
@@ -53,7 +56,6 @@ const { locale, n, t } = useI18n()
 const menuOpen = ref(false)
 const draftWeight = ref('50')
 const draftPriority = ref('50')
-const priorityEditing = ref(false)
 const detailId = computed(() => `group-credential-details-${props.item.credential_id}`)
 const weightInputId = computed(() => `group-credential-weight-${props.item.credential_id}`)
 const priorityInputId = computed(() => `group-credential-priority-${props.item.credential_id}`)
@@ -62,6 +64,9 @@ const isProblem = computed(
     props.item.effective_status === 'cooldown' ||
     props.item.effective_status === 'blacklisted' ||
     props.item.model_cooldowns.length > 0,
+)
+const priorityLabel = computed(() =>
+  t('group.credentials.priority', { priority: n(props.item.priority) }),
 )
 const weightLabel = computed(() => t('group.credentials.weight', { weight: n(props.item.weight) }))
 const recentLabel = computed(() =>
@@ -97,16 +102,17 @@ const priorityValid = computed(() => {
 })
 
 watch(
+  () => props.priorityEditorOpen,
+  (open) => {
+    if (!open) return
+    draftPriority.value = String(props.item.priority)
+  },
+)
+watch(
   () => props.weightEditorOpen,
   (open) => {
     if (!open) return
     draftWeight.value = String(props.item.weight)
-  },
-)
-watch(
-  () => props.item.priority,
-  (value) => {
-    if (!priorityEditing.value) draftPriority.value = String(value)
   },
 )
 
@@ -125,15 +131,15 @@ function savePriority(): void {
     item: props.item,
     value: String(Number(draftPriority.value)),
   })
-  priorityEditing.value = false
+  emit('update:priorityEditorOpen', false)
 }
 
-function openPriorityEditor(): void {
-  draftPriority.value = String(props.item.priority)
-  priorityEditing.value = true
+// 优先级/权重列的值可点：展开该行并直接进入编辑，作为折叠区设置的发现入口。
+function openPriorityFromColumn(): void {
+  if (props.busy || props.item.configured_status === 'disabled') return
+  emit('open-priority', props.item)
 }
 
-// 权重列的值可点：展开该行并直接进入权重编辑，作为折叠区设置的发现入口。
 function openWeightFromColumn(): void {
   if (props.busy || props.item.configured_status === 'disabled') return
   emit('open-weight', props.item)
@@ -199,6 +205,22 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
             t('group.credentials.modelCooldown.count', { count: n(item.model_cooldowns.length) })
           }}</StatusBadge>
         </div>
+      </div>
+
+      <div class="ledger-record-list__cell group-credential-record__weight" role="cell">
+        <span class="group-credential-record__mobile-label">{{
+          t('group.credentials.columns.priority')
+        }}</span>
+        <AppTooltip :content="t('group.credentials.editPriorityHint')">
+          <button
+            type="button"
+            class="group-credential-record__weight-value"
+            :disabled="busy || item.configured_status === 'disabled'"
+            @click="openPriorityFromColumn"
+          >
+            {{ priorityLabel }}
+          </button>
+        </AppTooltip>
       </div>
 
       <div class="ledger-record-list__cell group-credential-record__weight" role="cell">
@@ -305,7 +327,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
                 {{ t('group.credentials.columns.priority') }}
               </span>
               <div class="setting-panel__body">
-                <template v-if="!priorityEditing">
+                <template v-if="!priorityEditorOpen">
                   <span class="setting-panel__value">
                     {{ n(item.priority) }}
                   </span>
@@ -316,7 +338,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
                     size="xs"
                     :label="t('group.credentials.editPriority')"
                     :disabled="busy || item.configured_status === 'disabled'"
-                    @click="openPriorityEditor"
+                    @click="emit('update:priorityEditorOpen', true)"
                   >
                     <PencilLine :size="12" aria-hidden="true" />
                   </IconButton>
@@ -341,7 +363,11 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
                     :aria-invalid="!priorityValid || undefined"
                   />
                   <div class="setting-panel__actions">
-                    <AppButton variant="ghost" size="compact" @click="priorityEditing = false">
+                    <AppButton
+                      variant="ghost"
+                      size="compact"
+                      @click="emit('update:priorityEditorOpen', false)"
+                    >
                       {{ t('group.credentials.priorityEditor.cancel') }}
                     </AppButton>
                     <AppButton type="submit" size="compact" :disabled="busy || !priorityValid">

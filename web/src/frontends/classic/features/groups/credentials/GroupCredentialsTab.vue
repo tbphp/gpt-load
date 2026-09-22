@@ -414,7 +414,11 @@ function setExpanded(id: number, expanded: boolean): void {
   const next = new Set(routeState.value.expandedCredentialIDs)
   if (expanded) next.add(id)
   else next.delete(id)
-  // 收起时一并关掉权重编辑，避免下次展开直接落在遗留的编辑态里。
+  // 收起时一并关掉优先级/权重编辑，避免下次展开直接落在遗留的编辑态里。
+  const priorityCredentialID =
+    !expanded && routeState.value.priorityCredentialID === id
+      ? undefined
+      : routeState.value.priorityCredentialID
   const weightCredentialID =
     !expanded && routeState.value.weightCredentialID === id
       ? undefined
@@ -422,10 +426,24 @@ function setExpanded(id: number, expanded: boolean): void {
   updateRoute(filters.value, false, {
     ...routeState.value,
     expandedCredentialIDs: [...next],
+    priorityCredentialID,
     weightCredentialID,
   })
 }
-// 权重列的值可点：一次操作完成“展开 + 进入编辑”，让折叠区里的设置被发现。
+// 优先级/权重列的值可点：一次操作完成“展开 + 进入编辑”，让折叠区里的设置被发现。
+function openPriorityEditor(id: number): void {
+  const expanded = new Set(routeState.value.expandedCredentialIDs)
+  expanded.add(id)
+  updateRoute(filters.value, false, {
+    ...routeState.value,
+    expandedCredentialIDs: [...expanded],
+    priorityCredentialID: id,
+    weightCredentialID:
+      routeState.value.weightCredentialID === id
+        ? undefined
+        : routeState.value.weightCredentialID,
+  })
+}
 function openWeightEditor(id: number): void {
   const expanded = new Set(routeState.value.expandedCredentialIDs)
   expanded.add(id)
@@ -433,15 +451,33 @@ function openWeightEditor(id: number): void {
     ...routeState.value,
     expandedCredentialIDs: [...expanded],
     weightCredentialID: id,
+    priorityCredentialID:
+      routeState.value.priorityCredentialID === id
+        ? undefined
+        : routeState.value.priorityCredentialID,
   })
 }
 function credentialExpanded(id: number): boolean {
   return routeState.value.expandedCredentialIDs.includes(id)
 }
+function setPriorityEditor(id: number, open: boolean): void {
+  updateRoute(filters.value, false, {
+    ...routeState.value,
+    priorityCredentialID: open ? id : undefined,
+    weightCredentialID:
+      open && routeState.value.weightCredentialID === id
+        ? undefined
+        : routeState.value.weightCredentialID,
+  })
+}
 function setWeightEditor(id: number, open: boolean): void {
   updateRoute(filters.value, false, {
     ...routeState.value,
     weightCredentialID: open ? id : undefined,
+    priorityCredentialID:
+      open && routeState.value.priorityCredentialID === id
+        ? undefined
+        : routeState.value.priorityCredentialID,
   })
 }
 function setSelected(id: number, checked: boolean): void {
@@ -1244,6 +1280,11 @@ function clearDeletedRouteState(ids: readonly number[]): void {
   const deleted = new Set(ids)
   const next: CredentialRouteState = {
     expandedCredentialIDs: routeState.value.expandedCredentialIDs.filter((id) => !deleted.has(id)),
+    priorityCredentialID:
+      routeState.value.priorityCredentialID !== undefined &&
+      deleted.has(routeState.value.priorityCredentialID)
+        ? undefined
+        : routeState.value.priorityCredentialID,
     weightCredentialID:
       routeState.value.weightCredentialID !== undefined &&
       deleted.has(routeState.value.weightCredentialID)
@@ -1865,6 +1906,7 @@ async function runBatch(
             <span role="columnheader" aria-hidden="true"></span>
             <span role="columnheader">{{ t('group.credentials.columns.credential') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.status') }}</span>
+            <span role="columnheader">{{ t('group.credentials.columns.priority') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.weight') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.recent') }}</span>
             <span role="columnheader">{{ t('group.credentials.columns.actions') }}</span>
@@ -1880,13 +1922,16 @@ async function runBatch(
             :selected="selectedIds.has(item.credential_id)"
             :busy="rowBusy(item.credential_id)"
             :expanded="credentialExpanded(item.credential_id)"
+            :priority-editor-open="routeState.priorityCredentialID === item.credential_id"
             :weight-editor-open="routeState.weightCredentialID === item.credential_id"
             :resolve-copy-value="resolveCopyValue"
             :save-proxy="(value) => saveCredentialProxy(item, value)"
             :proxy-supported="channelCapabilities.outbound_proxy"
             @update:selected="setSelected(item.credential_id, $event)"
             @update:expanded="setExpanded(item.credential_id, $event)"
+            @update:priority-editor-open="setPriorityEditor(item.credential_id, $event)"
             @update:weight-editor-open="setWeightEditor(item.credential_id, $event)"
+            @open-priority="openPriorityEditor($event.credential_id)"
             @open-weight="openWeightEditor($event.credential_id)"
             @weight="mutateItem($event.item, 'weight', $event.value)"
             @priority="mutateItem($event.item, 'priority', $event.value)"
@@ -2091,22 +2136,22 @@ async function runBatch(
 .group-credential-record-grid {
   --ledger-record-list-record-min-height: 52px;
   --ledger-record-list-record-padding: 8px 0;
-  --ledger-record-list-grid: 48px minmax(140px, 1fr) minmax(256px, max-content) 80px
+  --ledger-record-list-grid: 48px minmax(140px, 1fr) minmax(256px, max-content) 72px 80px
     minmax(112px, 0.55fr) 80px;
   --ledger-record-list-column-gap: 12px;
 }
 @media (max-width: 1120px) {
   .group-credential-record-grid {
-    --ledger-record-list-grid: 44px minmax(120px, 1fr) minmax(256px, max-content) 70px
+    --ledger-record-list-grid: 44px minmax(120px, 1fr) minmax(256px, max-content) 64px 70px
       minmax(90px, 0.65fr) 76px;
     --ledger-record-list-column-gap: 9px;
   }
 }
 @media (max-width: 1023px) and (min-width: 861px) {
   .group-credential-record-grid {
-    --ledger-record-list-grid: 44px minmax(120px, 1fr) minmax(256px, max-content) 70px 76px;
+    --ledger-record-list-grid: 44px minmax(120px, 1fr) minmax(256px, max-content) 64px 70px 76px;
   }
-  .group-credential-record-grid :deep(.ledger-record-list__header > :nth-child(5)),
+  .group-credential-record-grid :deep(.ledger-record-list__header > :nth-child(6)),
   .group-credential-record-grid :deep(.group-credential-record__recent) {
     display: none;
   }

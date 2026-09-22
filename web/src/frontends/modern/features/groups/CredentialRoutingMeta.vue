@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { Network, Scale, Unplug } from '@lucide/vue'
+import { ArrowUpNarrowWide, Network, Scale, Unplug } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
 import { AppIcon, AppTooltip } from '@modern/components/ui'
 
-const props = withDefaults(defineProps<{ row: CredentialRow; weight?: boolean }>(), {
-  weight: true,
-})
+const props = withDefaults(
+  defineProps<{ row: CredentialRow; priority?: boolean; weight?: boolean }>(),
+  {
+    priority: true,
+    weight: true,
+  },
+)
 const { t, n } = useI18n()
 const proxyLabel = computed(() =>
   [
@@ -19,13 +23,24 @@ const proxyLabel = computed(() =>
     .filter(Boolean)
     .join('\n'),
 )
+const visible = computed(
+  () =>
+    (props.priority && props.row.priorityManual != null) ||
+    (props.weight && props.row.weightManual != null) ||
+    props.row.proxy.mode !== 'inherit',
+)
 </script>
 
 <template>
-  <span
-    v-if="(weight && row.weightManual != null) || row.proxy.mode !== 'inherit'"
-    class="modern-credential-routing-meta"
-  >
+  <span v-if="visible" class="modern-credential-routing-meta">
+    <AppTooltip
+      v-if="priority && row.priorityManual != null"
+      :label="t('credentialCards.manualPriority', { value: n(row.priorityManual) })"
+    >
+      <span class="modern-credential-routing-item" tabindex="0">
+        <AppIcon :icon="ArrowUpNarrowWide" size="xs" />{{ n(row.priorityManual) }}
+      </span>
+    </AppTooltip>
     <AppTooltip
       v-if="weight && row.weightManual != null"
       :label="t('credentialCards.manualWeight', { value: n(row.weightManual) })"

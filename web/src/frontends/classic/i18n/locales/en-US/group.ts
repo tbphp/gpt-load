@@ -464,6 +464,7 @@ export default {
       diagnostics: 'Diagnostics',
       moreActions: 'More actions',
       editWeightHint: 'Click to adjust weight',
+      editPriorityHint: 'Click to adjust priority',
       priorityChipTooltip: 'Priority {priority}',
       weightChipTooltip: 'Weight {weight}. Click to edit.',
       expand: 'Expand credential details',

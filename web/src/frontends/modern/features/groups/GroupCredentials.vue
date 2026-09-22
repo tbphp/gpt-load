@@ -541,6 +541,8 @@ function cacheRow(row: CredentialRow): void {
             ? {
                 ...row,
                 weightManual: row.weightManual === undefined ? item.weightManual : row.weightManual,
+                priorityManual:
+                  row.priorityManual === undefined ? item.priorityManual : row.priorityManual,
                 daily: row.daily ?? item.daily,
                 lastUsed: row.lastUsed ?? item.lastUsed,
               }

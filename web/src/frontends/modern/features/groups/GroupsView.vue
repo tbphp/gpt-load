@@ -134,11 +134,13 @@ function workspaceQuery(value: GroupFilters) {
     delete query[key]
   return { ...query, ...serializeGroupFilters(value) }
 }
-const pending = ref(new Map<number, 'toggle' | 'weight'>())
+const pending = ref(new Map<number, 'toggle' | 'priority' | 'weight'>())
 const enabledOverrides = ref(new Map<number, boolean>())
+const priorityErrors = ref(new Map<number, string>())
 const weightErrors = ref(new Map<number, string>())
+const priorityEditors = ref(new Set<number>())
 const weightEditors = ref(new Set<number>())
-const dirtyWeights = ref(new Set<number>())
+const dirtyInline = ref(new Set<number>())
 const frozenGroups = ref<GroupRow[]>()
 const rowRevision = ref(0)
 const notice = ref<{ text: string; tone: 'success' | 'warning' | 'danger' }>()
@@ -150,6 +152,9 @@ let createTrigger: HTMLElement | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let filterSequence = 0
 const controller = new AbortController()
+function inlineEditingCount(): number {
+  return priorityEditors.value.size + weightEditors.value.size
+}
 const query = useQuery(
   computed(() => ({
     queryKey: groupQueryKey,
@@ -406,7 +411,7 @@ usePageRefresh({
   updatedAt: () => data.value?.observedAt,
 })
 async function refresh(): Promise<void> {
-  if (weightEditors.value.size) {
+  if (inlineEditingCount()) {
     notice.value = { tone: 'warning', text: t('groups.row.finishEditing') }
     return
   }
@@ -479,23 +484,31 @@ function toggleExpanded(id: number): void {
       : [...expansion.value.ids, id],
   }
 }
-function weightEditing(id: number, active: boolean): void {
+function setPriorityEditing(id: number, active: boolean): void {
   if (active) {
-    if (!weightEditors.value.size) frozenGroups.value = [...filtered.value]
+    if (!inlineEditingCount()) frozenGroups.value = [...filtered.value]
+    priorityEditors.value.add(id)
+  } else {
+    priorityEditors.value.delete(id)
+    if (!inlineEditingCount()) frozenGroups.value = undefined
+  }
+}
+function setWeightEditing(id: number, active: boolean): void {
+  if (active) {
+    if (!inlineEditingCount()) frozenGroups.value = [...filtered.value]
     weightEditors.value.add(id)
   } else {
     weightEditors.value.delete(id)
-    dirtyWeights.value.delete(id)
-    if (!weightEditors.value.size) frozenGroups.value = undefined
+    if (!inlineEditingCount()) frozenGroups.value = undefined
   }
 }
-function weightDirty(id: number, dirty: boolean): void {
-  if (dirty) dirtyWeights.value.add(id)
-  else dirtyWeights.value.delete(id)
+function setInlineDirty(id: number, dirty: boolean): void {
+  if (dirty) dirtyInline.value.add(id)
+  else dirtyInline.value.delete(id)
 }
 function guardNavigation(): boolean | Promise<boolean> {
   if (pending.value.size) return false
-  if (!dirtyWeights.value.size) return true
+  if (!dirtyInline.value.size) return true
   resolveLeave?.(false)
   discardTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
   discardRequested.value = true
@@ -505,8 +518,10 @@ function guardNavigation(): boolean | Promise<boolean> {
 }
 function finishDiscard(allow: boolean): void {
   if (allow) {
-    dirtyWeights.value.clear()
+    dirtyInline.value.clear()
+    priorityEditors.value.clear()
     weightEditors.value.clear()
+    priorityErrors.value.clear()
     weightErrors.value.clear()
     frozenGroups.value = undefined
     rowRevision.value++
@@ -522,7 +537,7 @@ function restoreDiscardFocus(event: Event): void {
 onBeforeRouteLeave(guardNavigation)
 onBeforeRouteUpdate(guardNavigation)
 function beforeUnload(event: BeforeUnloadEvent): void {
-  if (!dirtyWeights.value.size && !pending.value.size) return
+  if (!dirtyInline.value.size && !pending.value.size) return
   event.preventDefault()
   event.returnValue = ''
 }
@@ -532,11 +547,13 @@ watch(
   (_path, previousPath) => {
     if (route.name !== 'modern-groups') return
     // 仅重置仍在编辑的行内控件；普通筛选复用已有列表行，避免图标重复挂载。
-    if (weightEditors.value.size) rowRevision.value++
+    if (inlineEditingCount()) rowRevision.value++
     clearTimeout(searchTimer)
     search.value = filters.value.q
+    priorityEditors.value.clear()
     weightEditors.value.clear()
-    dirtyWeights.value.clear()
+    dirtyInline.value.clear()
+    priorityErrors.value.clear()
     weightErrors.value.clear()
     frozenGroups.value = undefined
     if (previousPath !== undefined) void nextTick(() => listFrame.value?.scrollToTop())
@@ -555,7 +572,7 @@ watch([page, () => data.value !== undefined, filterDataReady], () => {
     data.value &&
     filterDataReady.value &&
     page.value !== filters.value.page &&
-    !dirtyWeights.value.size &&
+    !dirtyInline.value.size &&
     !pending.value.size
   )
     void router.replace({
@@ -583,6 +600,7 @@ async function refreshGroup(id: number, settings: GroupBasics): Promise<void> {
                 ...group,
                 name: settings.name,
                 enabled: settings.enabled,
+                priority: settings.priority ?? 50,
                 weight: settings.weight ?? 50,
                 priceMultiplier: settings.priceMultiplier,
               }
@@ -596,10 +614,11 @@ async function refreshGroup(id: number, settings: GroupBasics): Promise<void> {
 async function mutate(
   group: GroupRow,
   patch: GroupBasicsPatch,
-  kind: 'toggle' | 'weight',
+  kind: 'toggle' | 'priority' | 'weight',
 ): Promise<void> {
   if (pending.value.has(group.id)) return
   pending.value.set(group.id, kind)
+  priorityErrors.value.delete(group.id)
   weightErrors.value.delete(group.id)
   notice.value = undefined
   if (patch.enabled !== undefined) enabledOverrides.value.set(group.id, patch.enabled)
@@ -612,7 +631,8 @@ async function mutate(
   } catch {
     if (!controller.signal.aborted) {
       enabledOverrides.value.delete(group.id)
-      if (kind === 'weight') weightErrors.value.set(group.id, t('groups.row.weightFailed'))
+      if (kind === 'priority') priorityErrors.value.set(group.id, t('groups.row.priorityFailed'))
+      else if (kind === 'weight') weightErrors.value.set(group.id, t('groups.row.weightFailed'))
       else notice.value = { tone: 'danger', text: t('groups.operationFailed') }
     }
   } finally {
@@ -869,6 +889,7 @@ useMessageSource(() =>
           <span>{{ t('groups.row.usage24h') }}</span>
           <span class="modern-group-list-actions-head"
             ><span>{{ t('groups.row.enabled') }}</span
+            ><span>{{ t('groups.row.priority') }}</span
             ><span>{{ t('groups.row.weight') }}</span></span
           >
         </div>
@@ -926,12 +947,17 @@ useMessageSource(() =>
           :usage="usageByID.get(group.id)"
           :usage-loading="usage.isFetching.value"
           :usage-incomplete="usage.data.value?.incomplete ?? false"
+          :priority-error="priorityErrors.get(group.id)"
           :weight-error="weightErrors.get(group.id)"
           @expand="toggleExpanded(group.id)"
           @toggle="mutate(group, { enabled: $event }, 'toggle')"
+          @priority="mutate(group, { priority_manual: $event }, 'priority')"
+          @priority-editing="setPriorityEditing(group.id, $event)"
+          @priority-dirty="setInlineDirty(group.id, $event)"
+          @clear-priority-error="priorityErrors.delete(group.id)"
           @weight="mutate(group, { weight_manual: $event }, 'weight')"
-          @weight-editing="weightEditing(group.id, $event)"
-          @weight-dirty="weightDirty(group.id, $event)"
+          @weight-editing="setWeightEditing(group.id, $event)"
+          @weight-dirty="setInlineDirty(group.id, $event)"
           @clear-weight-error="weightErrors.delete(group.id)"
         />
       </template>
@@ -971,8 +997,9 @@ useMessageSource(() =>
 <style scoped>
 .modern-groups-workspace {
   --modern-group-list-width: 1024px;
-  --modern-group-action-columns: 36px var(--modern-inline-number-width);
-  --modern-group-columns: minmax(260px, 2fr) minmax(168px, 1fr) 90px 114px 140px 138px;
+  --modern-group-action-columns: 36px var(--modern-inline-number-width)
+    var(--modern-inline-number-width);
+  --modern-group-columns: minmax(260px, 2fr) minmax(168px, 1fr) 90px 114px 140px 250px;
   display: flex;
   flex: 1;
   min-width: 0;
@@ -1060,7 +1087,7 @@ useMessageSource(() =>
 }
 @media (max-width: 760px) {
   .modern-groups-workspace {
-    --modern-group-action-columns: 44px 112px;
+    --modern-group-action-columns: 44px 96px 96px;
   }
   .modern-groups-toolbar {
     gap: var(--modern-space-2);
