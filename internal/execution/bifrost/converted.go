@@ -773,6 +773,52 @@ func newConvertedResponsesStreamEncoder(clientProtocol protocol.Protocol) *conve
 	return encoder
 }
 
+// ensureResponsesReasoningSummary gives Chat→Responses reasoning items the
+// summary array Grok CLI requires. Bifrost puts reasoning text on content and
+// leaves ResponsesReasoning nil, so output_item.done marshals without summary.
+// CLIProxyAPI always emits summary: [{type: summary_text, text: ...}].
+func ensureResponsesReasoningSummary(response *schemas.BifrostResponsesStreamResponse) {
+	if response == nil {
+		return
+	}
+	fillReasoningSummary(response.Item)
+	if response.Response != nil {
+		for i := range response.Response.Output {
+			fillReasoningSummary(&response.Response.Output[i])
+		}
+	}
+}
+
+func fillReasoningSummary(item *schemas.ResponsesMessage) {
+	if item == nil || item.Type == nil || *item.Type != schemas.ResponsesMessageTypeReasoning {
+		return
+	}
+	if item.ResponsesReasoning != nil && item.ResponsesReasoning.Summary != nil {
+		return
+	}
+	var text string
+	if item.Content != nil {
+		for _, block := range item.Content.ContentBlocks {
+			if block.Text != nil && *block.Text != "" {
+				text = *block.Text
+				break
+			}
+		}
+	}
+	summaries := []schemas.ResponsesReasoningSummary{}
+	if text != "" {
+		summaries = append(summaries, schemas.ResponsesReasoningSummary{
+			Type: schemas.ResponsesReasoningContentBlockTypeSummaryText,
+			Text: text,
+		})
+	}
+	if item.ResponsesReasoning == nil {
+		item.ResponsesReasoning = &schemas.ResponsesReasoning{Summary: summaries}
+		return
+	}
+	item.ResponsesReasoning.Summary = summaries
+}
+
 func (e *convertedResponsesStreamEncoder) encode(
 	ctx *schemas.BifrostContext,
 	response *schemas.BifrostResponsesStreamResponse,
@@ -786,6 +832,7 @@ func (e *convertedResponsesStreamEncoder) encode(
 		if wire == nil {
 			return nil, nil
 		}
+		ensureResponsesReasoningSummary(wire)
 		body, err := marshalClientWire(protocol.OpenAIResponses, wire)
 		if err != nil {
 			return nil, err
