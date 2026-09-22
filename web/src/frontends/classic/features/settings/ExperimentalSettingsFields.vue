@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight, Plus, Trash2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
+import { createUUID } from '@shared/uuid'
 import type { SettingsResource } from '@/app/resources/settings'
 import {
   validAudit,
@@ -131,7 +132,7 @@ function toggle(id: string) {
     : [...expanded.value, id]
 }
 function addRule() {
-  const id = 'rule_' + crypto.randomUUID().replaceAll('-', '')
+  const id = 'rule_' + createUUID().replaceAll('-', '')
   expanded.value.push(id)
   update((d) =>
     d.values.request_audit.rules.push({

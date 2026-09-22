@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { createUUID } from '@shared/uuid'
 import {
   defaultAutoModel,
   type AutoModelConfigDto,
@@ -122,7 +123,7 @@ function addTemplate() {
   const template = props.base.settings.auto_model_template
   if (!template) return
   const copy = JSON.parse(JSON.stringify(template)) as AutoEntryDto
-  copy.id = crypto.randomUUID()
+  copy.id = createUUID()
   copy.enabled = true
   if (config.value.models.some((entry) => entry.name === copy.name)) copy.name = ''
   copy.presets.forEach((preset) => (preset.name = t('autoModel.tiers.' + preset.id)))

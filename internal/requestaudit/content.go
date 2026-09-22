@@ -63,6 +63,10 @@ func Extract(body []byte) (Document, string) {
 			role := ""
 			if message, ok := item.(map[string]any); ok {
 				role, _ = message["role"].(string)
+				if key == "contents" && role == "" {
+					// Gemini 允许省略用户角色，初始任务仍需作为后续审查锚点。
+					role = "user"
+				}
 			} else if _, ok := item.(string); ok {
 				role = "user"
 			}

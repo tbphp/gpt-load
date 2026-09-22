@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { ChevronDown, ChevronRight, Plus, Trash2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
+import { createUUID } from '@shared/uuid'
 import type { AuditConfig, AuditAccessKey, AuditRule } from '@modern/api/experimental'
 import {
   AppBadge,
@@ -55,7 +56,7 @@ function toggle(id: string) {
     : [...expanded.value, id]
 }
 function addRule() {
-  const id = 'rule_' + crypto.randomUUID().replaceAll('-', '')
+  const id = 'rule_' + createUUID().replaceAll('-', '')
   expanded.value.push(id)
   update((value) =>
     value.rules.push({

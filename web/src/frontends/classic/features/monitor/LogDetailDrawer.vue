@@ -50,6 +50,9 @@ const { locale, t, te } = useI18n()
 const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
 const initialLoading = useStableLoading(() => props.open && query.isPending.value)
 const log = computed(() => query.data.value)
+const auditCalls = computed(
+  () => log.value?.request_audit?.calls.filter((call) => call.called) ?? [],
+)
 const errorMessageExpanded = ref(false)
 const expandedAttemptErrorMessages = ref<Set<number>>(new Set())
 const finalAttempt = computed(() => {
@@ -784,14 +787,14 @@ function toggleAttemptErrorMessage(sequence: number): void {
             v-if="
               !selfScoped &&
               (log.auto_decision ||
-                log.request_audit?.calls.length ||
+                auditCalls.length ||
                 (costDisplayState !== 'unpriced' && receipt && usageDisplayState === 'reported'))
             "
             class="log-detail__wide"
           >
             <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
             <dd class="log-detail__formula">
-              <span v-for="(call, index) in log.request_audit?.calls ?? []" :key="'audit-' + index"
+              <span v-for="(call, index) in auditCalls" :key="'audit-' + index"
                 >{{ t('requestAudit.cost') }} · {{ call.model }} =
                 {{
                   call.cost_state === 'priced' ? decisionCost(call.estimated_cost_nano_usd) : '—'

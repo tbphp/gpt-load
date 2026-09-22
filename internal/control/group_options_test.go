@@ -63,6 +63,32 @@ func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 	}
 }
 
+func TestListGroupOptionsDeduplicatesSharedModelNames(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	rawModels := `[{"id":"upstream-a","alias":" shared "},{"id":"shared","alias":""},{"id":"upstream-b","alias":"shared"},{"id":"unique","alias":""},{"id":"upstream-c","alias":"unique"}]`
+	createGroupOptionGroup(t, fixture, 10, "shared aliases", true, channel.OpenAI, `{}`, rawModels)
+
+	options, err := fixture.service.ListGroupOptions(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options) != 1 || !reflect.DeepEqual(options[0].Models, []string{"shared", "unique"}) {
+		t.Fatalf("model options = %+v, want unique names in first-seen order", options)
+	}
+	var stored models.Group
+	if err := fixture.db.Select("models").First(&stored, 10).Error; err != nil {
+		t.Fatal(err)
+	}
+	var mappings []GroupModel
+	if err := json.Unmarshal(stored.Models, &mappings); err != nil {
+		t.Fatal(err)
+	}
+	if len(mappings) != 5 {
+		t.Fatalf("reading options changed the stored model mappings: %+v", mappings)
+	}
+}
+
 func TestListGroupOptionsFailsClosedForInvalidDataDatabaseAndCancellation(t *testing.T) {
 	t.Parallel()
 	t.Run("invalid models JSON", func(t *testing.T) {

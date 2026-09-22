@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Plus, Trash2 } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { createUUID } from '@shared/uuid'
 import { autoModelDraft, type AutoEntry, type AutoModelDraft } from '@modern/api/auto-model'
 import { getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
 import {
@@ -56,7 +57,7 @@ function addEntry() {
       timeout_seconds: Number(draft.timeout_seconds),
       models: [props.template!],
     }).models[0]!
-    entry.id = crypto.randomUUID()
+    entry.id = createUUID()
     entry.name = draft.models.some((item) => item.name === 'auto') ? '' : 'auto'
     entry.enabled = true
     expandedEntries.value.push(entry.id)
@@ -67,7 +68,7 @@ function addEntry() {
   })
 }
 function addPreset(index: number) {
-  const id = crypto.randomUUID()
+  const id = createUUID()
   expandedPresets.value.push(id)
   update((draft) =>
     draft.models[index]!.presets.push({

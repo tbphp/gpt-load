@@ -167,6 +167,38 @@ func TestReviewReusesHistoryPerRuleAndIncludesNecessaryContext(t *testing.T) {
 	}
 }
 
+func TestGeminiIncrementalReviewKeepsImplicitInitialUserContext(t *testing.T) {
+	for _, role := range []string{"", `"role":"",`, `"role":"user",`} {
+		t.Run(role, func(t *testing.T) {
+			var cache Cache
+			now := time.Now()
+			rules := DefaultConfig().Rules
+			body := `{"contents":[{` + role + `"parts":[{"text":"initial-task"}]},{"role":"model","parts":[{"text":"old-unneeded"}]},{"role":"user","parts":[{"text":"middle"}]},{"role":"model","parts":[{"text":"neighbor-reply"}]},{"role":"user","parts":[{"text":"neighbor-task"}]}]}`
+			initial := document(t, body)
+			answer(t, cache.Prepare(nil, "jev", initial, rules, now), now)
+			body = strings.Replace(body, `"neighbor-task"}]}]}`, `"neighbor-task"}]},{"role":"model","parts":[{"text":"latest-reply"}]},{"role":"user","parts":[{"text":"new-task"}]}]}`, 1)
+			doc := document(t, body)
+			if len(doc.Anchors) == 0 || doc.Anchors[0] != 0 {
+				t.Fatalf("initial Gemini task was not anchored: %v", doc.Anchors)
+			}
+			review := cache.Prepare(nil, "jev", doc, rules, now.Add(time.Minute))
+			for _, text := range []string{"initial-task", "neighbor-reply", "neighbor-task", "latest-reply", "new-task"} {
+				if !bytes.Contains(review.Payload, []byte(text)) {
+					t.Fatalf("incremental review omitted %s", text)
+				}
+			}
+			if bytes.Contains(review.Payload, []byte("old-unneeded")) || bytes.Contains(review.Payload, []byte("middle")) {
+				t.Fatal("incremental review repeated unrelated history")
+			}
+			for _, check := range review.checks {
+				if len(check.targets) != 2 || check.targets[0] != 5 || check.targets[1] != 6 {
+					t.Fatalf("cached history was re-reviewed: %v", check.targets)
+				}
+			}
+		})
+	}
+}
+
 func TestHistoryMutationsInvalidateAffectedSuffix(t *testing.T) {
 	var cache Cache
 	now := time.Now()

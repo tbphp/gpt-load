@@ -414,7 +414,9 @@ function resolveRedactedLog(): Promise<string> {
             </dl>
           </AppFormSection>
           <AppFormSection
-            v-if="receipt || log.auto_decision || log.request_audit?.calls.length"
+            v-if="
+              receipt || log.auto_decision || log.request_audit?.calls.some((call) => call.called)
+            "
             :title="t('logs.pricingInfo')"
             :description="t('logs.frozenPricing')"
             compact

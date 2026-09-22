@@ -12,6 +12,7 @@ const props = defineProps<{
   audit?: AuditResult
 }>()
 const { t, te, locale } = useI18n()
+const auditCalls = computed(() => props.audit?.calls.filter((call) => call.called) ?? [])
 function lineName(value: string): string {
   return te('logs.priceLines.' + value) ? t('logs.priceLines.' + value) : value
 }
@@ -86,11 +87,7 @@ const total = computed(
           :full-text="exactLogMoney(decision.estimated_cost_nano_usd)"
         />
       </div>
-      <div
-        v-for="(call, index) in audit?.calls ?? []"
-        :key="'audit-' + index"
-        class="modern-log-price-row"
-      >
+      <div v-for="(call, index) in auditCalls" :key="'audit-' + index" class="modern-log-price-row">
         <span>{{ t('requestAudit.cost') }}</span>
         <AppOverflowText :text="call.model || '—'" />
         <span>—</span>
@@ -134,7 +131,7 @@ const total = computed(
     </div>
     <div class="modern-log-receipt-total">
       <span
-        v-if="!decision && !audit?.calls.length && receipt && receipt.base_total_nano_usd !== null"
+        v-if="!decision && !auditCalls.length && receipt && receipt.base_total_nano_usd !== null"
         >{{ t('logs.baseCost') }} {{ exactLogMoney(receipt.base_total_nano_usd) }}</span
       ><span
         >{{ t('logs.totalCost') }} <strong>{{ exactLogMoney(total) }}</strong></span
