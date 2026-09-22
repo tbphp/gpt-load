@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { Trash2 } from '@lucide/vue'
 import { onScopeDispose, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { redactionPresets, type RedactionRule } from '@/app/resources/request-redaction'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import { useRedactionValidation } from './use-redaction-validation'
 
 const props = defineProps<{ modelValue: RedactionRule[]; disabled?: boolean }>()
@@ -12,7 +14,7 @@ const emit = defineEmits<{
   invalid: [value: boolean]
 }>()
 const { t } = useI18n()
-const { issues, checking, failed, invalid } = useRedactionValidation(() => props.modelValue)
+const { issues, failed, invalid } = useRedactionValidation(() => props.modelValue)
 watch(invalid, (value) => emit('invalid', value), { immediate: true })
 onScopeDispose(() => emit('invalid', false))
 function add(rule: RedactionRule = { pattern: '', replacement: '[REDACTED]' }) {
@@ -55,10 +57,14 @@ function error(index: number): string | undefined {
       >
     </div>
     <p v-if="!modelValue.length" class="redaction-note">{{ t('requestRedaction.empty') }}</p>
+    <div v-if="modelValue.length" class="redaction-heading">
+      <span>{{ t('requestRedaction.pattern') }}</span>
+      <span>{{ t('requestRedaction.replacement') }}</span>
+    </div>
     <div v-for="(rule, index) in modelValue" :key="index" class="redaction-row">
       <div class="redaction-field">
-        <span>{{ t('requestRedaction.pattern') }}</span
-        ><AppTextInput
+        <span class="redaction-mobile-label">{{ t('requestRedaction.pattern') }}</span>
+        <AppTextInput
           :model-value="rule.pattern"
           :label="t('requestRedaction.pattern')"
           :invalid="Boolean(error(index))"
@@ -68,10 +74,18 @@ function error(index: number): string | undefined {
           size="sm"
           @update:model-value="update(index, { pattern: $event })"
         />
+        <p v-if="error(index)" class="redaction-error" role="alert">{{ error(index) }}</p>
+        <p
+          v-if="issues.some((issue) => issue.index === index && issue.warning)"
+          class="redaction-warning"
+          role="status"
+        >
+          {{ t('requestRedaction.broad') }}
+        </p>
       </div>
       <div class="redaction-field">
-        <span>{{ t('requestRedaction.replacement') }}</span
-        ><AppTextInput
+        <span class="redaction-mobile-label">{{ t('requestRedaction.replacement') }}</span>
+        <AppTextInput
           :model-value="rule.replacement"
           :label="t('requestRedaction.replacement')"
           :disabled="disabled"
@@ -80,9 +94,10 @@ function error(index: number): string | undefined {
           @update:model-value="update(index, { replacement: $event })"
         />
       </div>
-      <AppButton
+      <IconButton
         variant="ghost"
-        size="sm"
+        size="compact"
+        :label="t('requestRedaction.remove')"
         class="redaction-remove"
         :disabled="disabled"
         @click="
@@ -91,16 +106,9 @@ function error(index: number): string | undefined {
             modelValue.filter((_, i) => i !== index),
           )
         "
-        >{{ t('requestRedaction.remove') }}</AppButton
       >
-      <p v-if="error(index)" class="redaction-error" role="alert">{{ error(index) }}</p>
-      <p
-        v-if="issues.some((issue) => issue.index === index && issue.warning)"
-        class="redaction-warning"
-        role="status"
-      >
-        {{ t('requestRedaction.broad') }}
-      </p>
+        <Trash2 :size="16" />
+      </IconButton>
     </div>
     <div>
       <AppButton
@@ -120,9 +128,6 @@ function error(index: number): string | undefined {
             : 'requestRedaction.limit',
         )
       }}
-    </p>
-    <p v-else-if="checking" class="redaction-note" role="status">
-      {{ t('requestRedaction.checking') }}
     </p>
     <p class="redaction-note">{{ t('requestRedaction.syntax') }}</p>
   </section>
@@ -156,21 +161,26 @@ function error(index: number): string | undefined {
 .redaction-tag {
   border-radius: var(--radius-tag);
 }
+.redaction-heading,
 .redaction-row {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) var(--control-compact);
   align-items: start;
   gap: var(--space-2);
 }
-.redaction-field > span {
+.redaction-heading {
+  color: var(--color-text);
   font-size: var(--text-sm);
 }
+.redaction-mobile-label {
+  display: none;
+}
 .redaction-remove {
-  align-self: end;
+  align-self: start;
+  margin-top: var(--space-0-5);
 }
 .redaction-error,
 .redaction-warning {
-  grid-column: 1 / -1;
   margin: 0;
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
@@ -182,11 +192,22 @@ function error(index: number): string | undefined {
   color: var(--color-warning);
 }
 @media (max-width: 640px) {
+  .redaction-heading {
+    display: none;
+  }
   .redaction-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) var(--control-compact);
   }
   .redaction-field:first-child {
     grid-column: 1 / -1;
+  }
+  .redaction-mobile-label {
+    display: block;
+    color: var(--color-text);
+    font-size: var(--text-sm);
+  }
+  .redaction-remove {
+    margin-top: var(--space-6);
   }
 }
 </style>

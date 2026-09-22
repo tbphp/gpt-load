@@ -12,7 +12,7 @@ const emit = defineEmits<{
   invalid: [value: boolean]
 }>()
 const { t } = useI18n()
-const { issues, checking, failed, invalid } = useRedactionValidation(() => props.modelValue)
+const { issues, failed, invalid } = useRedactionValidation(() => props.modelValue)
 watch(invalid, (value) => emit('invalid', value), { immediate: true })
 onScopeDispose(() => emit('invalid', false))
 function add(rule: RedactionRule = { pattern: '', replacement: '[REDACTED]' }) {
@@ -52,27 +52,47 @@ function error(index: number): string | undefined {
       </AppButton>
     </div>
     <p v-if="!modelValue.length" class="modern-redaction-note">{{ t('requestRedaction.empty') }}</p>
+    <div v-if="modelValue.length" class="modern-redaction-heading">
+      <span>{{ t('requestRedaction.pattern') }}</span>
+      <span>{{ t('requestRedaction.replacement') }}</span>
+    </div>
     <div v-for="(rule, index) in modelValue" :key="index" class="modern-redaction-row">
-      <AppTextField
-        :model-value="rule.pattern"
-        :label="t('requestRedaction.pattern')"
-        :error="error(index)"
-        :disabled="disabled"
-        :spellcheck="false"
-        autocomplete="off"
-        @update:model-value="update(index, { pattern: $event })"
-      />
-      <AppTextField
-        :model-value="rule.replacement"
-        :label="t('requestRedaction.replacement')"
-        :disabled="disabled"
-        :spellcheck="false"
-        autocomplete="off"
-        @update:model-value="update(index, { replacement: $event })"
-      />
+      <div class="modern-redaction-field">
+        <span class="modern-redaction-mobile-label">{{ t('requestRedaction.pattern') }}</span>
+        <AppTextField
+          :model-value="rule.pattern"
+          :label="t('requestRedaction.pattern')"
+          label-hidden
+          :error="error(index)"
+          :disabled="disabled"
+          :spellcheck="false"
+          autocomplete="off"
+          @update:model-value="update(index, { pattern: $event })"
+        />
+        <p
+          v-if="issues.some((issue) => issue.index === index && issue.warning)"
+          class="modern-redaction-warning"
+          role="status"
+        >
+          {{ t('requestRedaction.broad') }}
+        </p>
+      </div>
+      <div class="modern-redaction-field">
+        <span class="modern-redaction-mobile-label">{{ t('requestRedaction.replacement') }}</span>
+        <AppTextField
+          :model-value="rule.replacement"
+          :label="t('requestRedaction.replacement')"
+          label-hidden
+          :disabled="disabled"
+          :spellcheck="false"
+          autocomplete="off"
+          @update:model-value="update(index, { replacement: $event })"
+        />
+      </div>
       <AppIconButton
         :icon="Trash2"
         :label="t('requestRedaction.remove')"
+        size="sm"
         :disabled="disabled"
         class="modern-redaction-remove"
         @click="
@@ -82,13 +102,6 @@ function error(index: number): string | undefined {
           )
         "
       />
-      <p
-        v-if="issues.some((issue) => issue.index === index && issue.warning)"
-        class="modern-redaction-warning"
-        role="status"
-      >
-        {{ t('requestRedaction.broad') }}
-      </p>
     </div>
     <div>
       <AppButton
@@ -116,9 +129,6 @@ function error(index: number): string | undefined {
         )
       }}
     </p>
-    <p v-else-if="checking" class="modern-redaction-note" role="status">
-      {{ t('requestRedaction.checking') }}
-    </p>
     <p class="modern-redaction-note">{{ t('requestRedaction.syntax') }}</p>
   </div>
 </template>
@@ -138,14 +148,30 @@ function error(index: number): string | undefined {
 .modern-redaction-tag {
   border-radius: var(--modern-radius-small);
 }
+.modern-redaction-heading,
 .modern-redaction-row {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) var(--modern-control-sm);
   align-items: start;
   gap: var(--modern-space-2);
 }
+.modern-redaction-heading {
+  color: var(--modern-text);
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-medium);
+  line-height: var(--modern-leading-compact);
+}
+.modern-redaction-field {
+  display: grid;
+  min-width: 0;
+  gap: var(--modern-space-1-5);
+}
+.modern-redaction-mobile-label {
+  display: none;
+}
 .modern-redaction-remove {
-  align-self: end;
+  align-self: start;
+  margin-top: var(--modern-space-0-5);
 }
 .modern-redaction-note,
 .modern-redaction-warning,
@@ -160,17 +186,29 @@ function error(index: number): string | undefined {
 }
 .modern-redaction-warning {
   color: var(--modern-warning);
-  grid-column: 1 / -1;
 }
 .modern-redaction-error {
   color: var(--modern-danger);
 }
 @media (max-width: 760px) {
+  .modern-redaction-heading {
+    display: none;
+  }
   .modern-redaction-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) var(--modern-control-sm);
   }
   .modern-redaction-row > :first-child {
     grid-column: 1 / -1;
+  }
+  .modern-redaction-mobile-label {
+    display: block;
+    color: var(--modern-text);
+    font-size: var(--modern-font-size-secondary);
+    font-weight: var(--modern-weight-medium);
+    line-height: var(--modern-leading-compact);
+  }
+  .modern-redaction-remove {
+    margin-top: var(--modern-space-6);
   }
 }
 </style>
