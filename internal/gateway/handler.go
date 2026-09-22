@@ -106,6 +106,7 @@ type Handler struct {
 	requestLogSink      telemetry.RequestLogSink
 	priceTables         PriceTableProvider
 	accessQuota         *accessquota.Runtime
+	usageReader         AccessKeyUsageReader
 	newRequestID        func() (string, error)
 	requestNow          func() time.Time
 	now                 func() time.Time
@@ -220,6 +221,7 @@ func NewHandlerWithLifecycle(
 	lifecycle *httplifecycle.Coordinator,
 	responseBindings *state.ResponseBindings,
 	catalogRuntime *catalog.Runtime,
+	usageReader AccessKeyUsageReader,
 ) *Handler {
 	handler := NewHandler(
 		manager,
@@ -243,6 +245,7 @@ func NewHandlerWithLifecycle(
 	handler.lifecycle = lifecycle
 	handler.responseBindings = responseBindings
 	handler.catalog = catalogRuntime
+	handler.usageReader = usageReader
 	return handler
 }
 
@@ -416,6 +419,10 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 	if requestContext.locallyRejected {
 		handler.dataPlaneRouteNotFound(ginContext)
+		return
+	}
+	if requestContext.selectedRoute.Kind == endpointUsage {
+		handler.handleUsage(ginContext, requestContext)
 		return
 	}
 	if websocketIntent(ginContext.Request) {

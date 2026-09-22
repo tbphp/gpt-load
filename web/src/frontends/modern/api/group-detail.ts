@@ -1,5 +1,5 @@
 import type { ApiClient } from '@shared/http/client'
-import { InvalidResponseError } from '@shared/http/errors'
+import { ApiError, InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
 import { readModelCandidates } from './model-discovery'
 import type { ProxyOverride } from './group-create'
@@ -138,6 +138,50 @@ export async function saveGroupSettings(
   return readSettings(
     await client.request(`/api/groups/${id}/settings`, { method: 'PUT', json: patch, signal }),
   )
+}
+
+export interface ChannelSwitchConflict {
+  groups: { id: number; name: string }[]
+}
+export class ChannelSwitchConflictError extends Error {
+  constructor(readonly conflict: ChannelSwitchConflict) {
+    super('channel target conflict')
+  }
+}
+// 切换渠道只提交目标渠道；参数由后端按目标渠道的字段重新推导。
+export async function switchGroupChannel(
+  client: ApiClient,
+  id: number,
+  channelID: string,
+  confirmSameTarget: boolean,
+  signal: AbortSignal,
+) {
+  try {
+    return readSettings(
+      await client.request(`/api/groups/${id}/channel`, {
+        method: 'PUT',
+        json: { channel_id: channelID, confirm_same_target: confirmSameTarget },
+        signal,
+      }),
+    )
+  } catch (error) {
+    const conflict = readChannelSwitchConflict(error)
+    if (conflict) throw new ChannelSwitchConflictError(conflict)
+    throw error
+  }
+}
+function readChannelSwitchConflict(error: unknown): ChannelSwitchConflict | undefined {
+  if (!(error instanceof ApiError) || error.code !== 'CHANNEL_TARGET_CONFLICT') return undefined
+  try {
+    return {
+      groups: list(record(error.data).groups).map((value) => {
+        const group = record(value)
+        return { id: integer(group.id), name: text(group.name) }
+      }),
+    }
+  } catch {
+    return { groups: [] }
+  }
 }
 
 export interface GroupModel {

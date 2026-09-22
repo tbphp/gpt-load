@@ -235,6 +235,17 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleUpdateGroupSettings,
 			),
 			controlRoute(
+				"control.groups.channel.update",
+				http.MethodPut,
+				"/groups/:group_id/channel",
+				s.auditMutation(newMutationDescriptor(
+					"group_channel_update",
+					"group",
+					groupMutationLocator,
+				)),
+				s.handleUpdateGroupChannel,
+			),
+			controlRoute(
 				"control.groups.retired-update",
 				http.MethodPut,
 				"/groups/:group_id",
