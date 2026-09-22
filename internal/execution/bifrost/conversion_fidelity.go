@@ -39,6 +39,12 @@ func finishConvertedPreparation(spec execution.AttemptSpec, providerKind channel
 			failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "Chat conversion cannot preserve requested tools or tool choice")
 			return preparedAttempt{}, &failure
 		}
+		// Responses 的 reasoning.effort 会被 Chat Completions 序列化成
+		// reasoning_effort。OpenAI Compatible 上游常把它当成大额 reasoning budget，
+		// 小输出上限模型会直接 400。兼容目标不转发这个字段。
+		if providerKind == channel.ProviderOpenAICompatible {
+			dropCompatibleResponsesReasoning(prepared.responsesRequest)
+		}
 		if providerKind == channel.ProviderDeepSeek && deepSeekConversionDisablesThinking(prepared.responsesRequest) {
 			failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "DeepSeek conversion cannot preserve explicit thinking with this tool choice or history")
 			return preparedAttempt{}, &failure
@@ -107,6 +113,13 @@ func preserveResponsesGlobalInstructions(request *schemas.BifrostResponsesReques
 		Content: &schemas.ResponsesMessageContent{ContentStr: request.Params.Instructions},
 	}}, request.Input...)
 	request.Params.Instructions = nil
+}
+
+func dropCompatibleResponsesReasoning(request *schemas.BifrostResponsesRequest) {
+	if request == nil || request.Params == nil {
+		return
+	}
+	request.Params.Reasoning = nil
 }
 
 func deepSeekConversionDisablesThinking(request *schemas.BifrostResponsesRequest) bool {
