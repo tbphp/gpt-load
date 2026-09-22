@@ -509,7 +509,7 @@ func TestChannelGroupCollectionDetailAndOptionsUseChannelCredentialContract(t *t
 	if legacyCredentialQueries != 0 {
 		t.Fatalf("legacy upstream key queries = %d, want 0", legacyCredentialQueries)
 	}
-	if want := []string{"id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "weight_manual"}; !reflect.DeepEqual(credentialSelects, want) {
+	if want := []string{"id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "priority_manual", "weight_manual"}; !reflect.DeepEqual(credentialSelects, want) {
 		t.Fatalf("credential SELECT columns = %#v, want %#v", credentialSelects, want)
 	}
 	item := collection.Items[0]

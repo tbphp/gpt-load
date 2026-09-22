@@ -213,6 +213,8 @@ export default {
       },
       routing: {
         description: 'リクエスト分配に使うグループの相対的な重みを設定します。',
+        priorityHelp:
+          '既定値 50、範囲 1～100。値が大きいほど優先され、同優先度では重みで配分します。',
         weightHelp:
           '既定値は 50、範囲は 1–100 です。認証情報の重みと掛け合わせて分配比率を決定します。',
       },
@@ -324,9 +326,11 @@ export default {
         validationModelPlaceholder: 'モデル ID を検索または入力',
         validationModelHelp:
           '空欄の場合はグループの最初のモデルを使用します。エイリアスではなくアップストリームのモデル ID を入力してください。',
+        priority: 'グループの優先度',
         weight: 'グループの重み',
         auto: '自動',
         manual: '手動',
+        priorityError: '1～100 の整数を入力してください',
         weightError: '1～100 の整数を入力してください',
         enabled: 'グループを有効化',
         enabledHelp: '無効にすると新しいリクエストではこのグループを選択しません',
@@ -434,8 +438,16 @@ export default {
       copy: 'キーをコピー',
       cardLabel: 'チャネル認証情報 {mask}',
       weightFor: '{mask} のウェイト',
+      priority: '{priority}',
       weight: '{weight}',
+      editPriority: '優先度を編集',
       editWeight: 'ウェイトを編集',
+      priorityEditor: {
+        value: '優先度',
+        cancel: 'キャンセル',
+        save: '保存',
+        invalid: '1～100 の整数を入力してください',
+      },
       weightEditor: {
         title: 'スケジューリングウェイト',
         value: 'ウェイト',
@@ -453,6 +465,7 @@ export default {
       diagnostics: '実行診断',
       moreActions: 'その他の操作',
       editWeightHint: 'クリックして重みを調整',
+      priorityChipTooltip: '優先度 {priority}',
       weightChipTooltip: 'ウェイト {weight}。クリックで編集',
       expand: '認証情報の詳細を展開',
       collapse: '認証情報の詳細を折りたたむ',
@@ -538,6 +551,7 @@ export default {
       columns: {
         credential: 'キー',
         status: 'ステータス',
+        priority: '優先度',
         weight: 'ウェイト',
         recent: '直近 5 分',
         failure: '最近の失敗',

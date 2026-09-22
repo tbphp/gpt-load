@@ -24,7 +24,11 @@ export async function updateCredential(
   client: ApiClient,
   group: number,
   id: number,
-  patch: { weight_manual?: number | null; proxy?: ProxyOverride | null },
+  patch: {
+    priority_manual?: number | null
+    weight_manual?: number | null
+    proxy?: ProxyOverride | null
+  },
   signal: AbortSignal,
 ) {
   const row = readCredential(
@@ -34,7 +38,11 @@ export async function updateCredential(
       signal,
     }),
   )
-  return Object.hasOwn(patch, 'weight_manual') ? { ...row, weightManual: patch.weight_manual } : row
+  let next = row
+  if (Object.hasOwn(patch, 'priority_manual'))
+    next = { ...next, priorityManual: patch.priority_manual }
+  if (Object.hasOwn(patch, 'weight_manual')) next = { ...next, weightManual: patch.weight_manual }
+  return next
 }
 
 export async function exportAllCredentials(client: ApiClient, group: number, signal: AbortSignal) {

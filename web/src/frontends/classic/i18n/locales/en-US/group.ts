@@ -212,9 +212,11 @@ export default {
         danger: 'Danger zone',
       },
       routing: {
-        description: 'Adjust the relative weight used for request allocation.',
+        description: 'Adjust this group\'s scheduling priority and request share.',
+        priorityHelp:
+          'Default: 50. Range: 1–100. Higher values are preferred; equal priorities share by weight.',
         weightHelp:
-          'Default: 50. Range: 1–100. Multiplied by credential weight to determine allocation shares.',
+          'Default: 50. Range: 1–100. Multiplied by credential weight within the same priority.',
       },
       headers: {
         description:
@@ -324,9 +326,11 @@ export default {
         validationModelPlaceholder: 'Search or enter a model ID',
         validationModelHelp:
           'Leave empty to use the first model in this Group; enter the upstream model ID, not an alias.',
+        priority: 'Group priority',
         weight: 'Group weight',
         auto: 'Auto',
         manual: 'Manual',
+        priorityError: 'Enter a whole number from 1 to 100',
         weightError: 'Enter a whole number from 1 to 100',
         enabled: 'Group enabled',
         enabledHelp: 'When disabled, new requests no longer select this Group',
@@ -433,8 +437,16 @@ export default {
       copy: 'Copy key',
       cardLabel: 'Channel credential {mask}',
       weightFor: 'Weight for {mask}',
+      priority: '{priority}',
       weight: '{weight}',
+      editPriority: 'Edit priority',
       editWeight: 'Edit weight',
+      priorityEditor: {
+        value: 'Priority',
+        cancel: 'Cancel',
+        save: 'Save',
+        invalid: 'Enter a whole number from 1 to 100',
+      },
       weightEditor: {
         title: 'Scheduling weight',
         value: 'Weight',
@@ -452,6 +464,7 @@ export default {
       diagnostics: 'Diagnostics',
       moreActions: 'More actions',
       editWeightHint: 'Click to adjust weight',
+      priorityChipTooltip: 'Priority {priority}',
       weightChipTooltip: 'Weight {weight}. Click to edit.',
       expand: 'Expand credential details',
       collapse: 'Collapse credential details',
@@ -536,6 +549,7 @@ export default {
       columns: {
         credential: 'Key',
         status: 'Status',
+        priority: 'Priority',
         weight: 'Weight',
         recent: 'Last 5 minutes',
         failure: 'Latest failure',

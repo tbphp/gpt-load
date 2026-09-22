@@ -70,6 +70,7 @@ export type {
 
 export interface CredentialPatch {
   status?: CredentialConfiguredStatus
+  priority_manual?: number | null
   weight_manual?: number | null
   proxy?: ProxyMutation
 }
@@ -106,6 +107,7 @@ const credentialItemFields = [
   'observation',
   'configured_status',
   'effective_status',
+  'priority',
   'weight',
   'recent_success_count',
   'recent_failure_count',
@@ -552,6 +554,7 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
   const connectionType = projectEnum(record.connection_type, connectionTypes)
   const configuredStatus = projectEnum(record.configured_status, configuredStatuses)
   const effectiveStatus = projectEnum(record.effective_status, effectiveStatuses)
+  const priority = projectSafeInteger(record.priority, { minimum: 1, maximum: 100 })
   const weight = projectSafeInteger(record.weight, { minimum: 0, maximum: 100 })
   const cooldownUntil = projectNullableEpochMilliseconds(record.cooldown_until_ms)
   const recovery = projectRecovery(record.recovery)
@@ -580,6 +583,7 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
       : { observation: projectObservation(record.observation) }),
     configured_status: configuredStatus,
     effective_status: effectiveStatus,
+    priority,
     weight,
     recent_success_count: projectSafeInteger(record.recent_success_count, { minimum: 0 }),
     recent_failure_count: projectSafeInteger(record.recent_failure_count, { minimum: 0 }),
@@ -672,13 +676,29 @@ function normalizePatch(patch: CredentialPatch): CredentialPatch {
   const keys = Object.keys(patch)
   if (
     keys.length === 0 ||
-    keys.some((key) => key !== 'status' && key !== 'weight_manual' && key !== 'proxy')
+    keys.some(
+      (key) =>
+        key !== 'status' &&
+        key !== 'priority_manual' &&
+        key !== 'weight_manual' &&
+        key !== 'proxy',
+    )
   ) {
     throw new Error('INVALID_CREDENTIAL_PATCH')
   }
   const body: CredentialPatch = {}
   if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
     body.status = projectEnum(patch.status, configuredStatuses)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'priority_manual')) {
+    const priority = patch.priority_manual
+    if (
+      priority === undefined ||
+      (priority !== null && (!Number.isInteger(priority) || priority < 1 || priority > 100))
+    ) {
+      throw new Error('INVALID_CREDENTIAL_PRIORITY')
+    }
+    body.priority_manual = priority
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'weight_manual')) {
     const weight = patch.weight_manual

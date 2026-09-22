@@ -44,6 +44,7 @@ const item = computed(() => query.data.value ?? props.row)
 const state = computed(() => credentialStatus(item.value))
 const saved = ref<CredentialRow>()
 const weight = ref('')
+const priority = ref('')
 const proxyMode = ref('inherit')
 const proxyURL = ref('')
 const saving = ref(false)
@@ -55,7 +56,8 @@ const dirty = computed(
   () =>
     !completed.value &&
     Boolean(saved.value) &&
-    (weight.value !== String(saved.value!.weightManual ?? '') ||
+    (priority.value !== String(saved.value!.priorityManual ?? '') ||
+      weight.value !== String(saved.value!.weightManual ?? '') ||
       proxyMode.value !== saved.value!.proxy.mode ||
       Boolean(proxyURL.value)),
 )
@@ -64,11 +66,17 @@ watch(
   (value) => {
     if (!value || dirty.value || saving.value) return
     saved.value = value
+    priority.value = String(value.priorityManual ?? '')
     weight.value = String(value.weightManual ?? '')
     proxyMode.value = value.proxy.mode
     proxyURL.value = ''
   },
   { immediate: true },
+)
+const priorityInvalid = computed(
+  () =>
+    Boolean(priority.value) &&
+    (!/^\d+$/u.test(priority.value) || Number(priority.value) < 1 || Number(priority.value) > 100),
 )
 const weightInvalid = computed(
   () =>
@@ -98,8 +106,10 @@ function failure(): string {
 async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value) return
   attempted.value = true
-  if (weightInvalid.value || proxyInvalid.value) return
+  if (priorityInvalid.value || weightInvalid.value || proxyInvalid.value) return
   const patch: Parameters<typeof updateCredential>[3] = {}
+  if (priority.value !== String(saved.value.priorityManual ?? ''))
+    patch.priority_manual = priority.value ? Number(priority.value) : null
   if (weight.value !== String(saved.value.weightManual ?? ''))
     patch.weight_manual = weight.value ? Number(weight.value) : null
   if (proxyChanged.value)
@@ -248,17 +258,26 @@ useMessageSource(() =>
       <section class="modern-credential-detail-section">
         <div class="modern-credential-detail-settings-title">
           <h3>{{ t('credentialCards.settings') }}</h3>
-          <AppTooltip :label="t('credentialCards.autoWeight')">
+          <AppTooltip :label="t('credentialCards.autoRouting')">
             <span
               class="modern-credential-detail-help"
               tabindex="0"
-              :aria-label="t('credentialCards.autoWeight')"
+              :aria-label="t('credentialCards.autoRouting')"
             >
               <AppIcon :icon="Info" size="sm" />
             </span>
           </AppTooltip>
         </div>
         <div class="modern-credential-detail-routing">
+          <AppTextField
+            v-model="priority"
+            :label="t('groups.edit.priority')"
+            :placeholder="t('credentialCards.automatic')"
+            size="sm"
+            inputmode="numeric"
+            :disabled="saving"
+            :error="attempted && priorityInvalid ? t('groups.edit.priorityError') : undefined"
+          />
           <AppTextField
             v-model="weight"
             :label="t('groups.edit.weight')"

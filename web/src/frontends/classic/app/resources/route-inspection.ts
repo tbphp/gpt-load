@@ -72,6 +72,7 @@ export interface RouteInspectCredentialDto {
   credential_id: number
   available: boolean
   reason_code: RouteInspectReasonCode | null
+  priority: number
   weight: number
   effective_weight: number
   cooldown_until_ms: number | null
@@ -84,6 +85,7 @@ export interface RouteInspectGroupDto {
   route_mode: RouteInspectMode
   route_requirement_satisfied: boolean
   upstream_model: string | null
+  priority_manual: number | null
   weight_manual: number | null
   included: boolean
   routable: boolean
@@ -181,6 +183,7 @@ function projectRouteCredential(value: unknown): RouteInspectCredentialDto {
     'credential_id',
     'available',
     'reason_code',
+    'priority',
     'weight',
     'effective_weight',
     'cooldown_until_ms',
@@ -189,6 +192,7 @@ function projectRouteCredential(value: unknown): RouteInspectCredentialDto {
     credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
     available: projectBoolean(record.available),
     reason_code: projectReason(record.reason_code),
+    priority: projectSafeInteger(record.priority, { minimum: 1, maximum: 100 }),
     weight: projectSafeInteger(record.weight, { minimum: 0, maximum: 100 }),
     effective_weight: projectSafeInteger(record.effective_weight, { minimum: 0 }),
     cooldown_until_ms: projectNullableEpochMilliseconds(record.cooldown_until_ms),
@@ -204,6 +208,7 @@ function projectRouteGroup(value: unknown): RouteInspectGroupDto {
     'route_mode',
     'route_requirement_satisfied',
     'upstream_model',
+    'priority_manual',
     'weight_manual',
     'included',
     'routable',
@@ -217,6 +222,10 @@ function projectRouteGroup(value: unknown): RouteInspectGroupDto {
     route_mode: projectEnum(record.route_mode, routeModes),
     route_requirement_satisfied: projectBoolean(record.route_requirement_satisfied),
     upstream_model: projectNullableNonBlankString(record.upstream_model),
+    priority_manual:
+      record.priority_manual === null
+        ? null
+        : projectSafeInteger(record.priority_manual, { minimum: 1, maximum: 100 }),
     weight_manual: projectNullableWeight(record.weight_manual),
     included: projectBoolean(record.included),
     routable: projectBoolean(record.routable),

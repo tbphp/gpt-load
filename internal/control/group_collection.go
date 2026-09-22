@@ -55,6 +55,7 @@ type GroupCollectionItem struct {
 type groupCollectionRecord struct {
 	GroupCollectionItem
 	Enabled                    bool
+	Priority                   int
 	Weight                     int
 	ModelNames                 []string
 	CreatedAtMS                int64
@@ -82,6 +83,10 @@ func cloneGroupRows(rows []models.Group) []models.Group {
 		cloned[index].Params = append(models.JSON(nil), rows[index].Params...)
 		cloned[index].Models = append(models.JSON(nil), rows[index].Models...)
 		cloned[index].Overrides = append(models.JSON(nil), rows[index].Overrides...)
+		if rows[index].PriorityManual != nil {
+			value := *rows[index].PriorityManual
+			cloned[index].PriorityManual = &value
+		}
 		if rows[index].WeightManual != nil {
 			value := *rows[index].WeightManual
 			cloned[index].WeightManual = &value
@@ -172,7 +177,7 @@ func (s *Service) readGroupCollectionRows(
 		}
 		var credentials []models.Credential
 		if err := tx.Model(&models.Credential{}).
-			Select("id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "weight_manual").
+			Select("id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "priority_manual", "weight_manual").
 			Order("group_id ASC, id ASC").Find(&credentials).Error; err != nil {
 			return err
 		}
@@ -239,7 +244,8 @@ func mapGroupCollectionRecords(
 		if catalog.ID != group.ID ||
 			catalog.Name != group.Name ||
 			catalog.Enabled != group.Enabled ||
-			!equalGroupCollectionWeight(catalog.WeightManual, group.WeightManual) {
+			!equalGroupCollectionWeight(catalog.WeightManual, group.WeightManual) ||
+			!equalGroupCollectionWeight(catalog.PriorityManual, group.PriorityManual) {
 			return nil, groupCollectionDataError(
 				"persisted group %d differs from runtime catalog",
 				groupID,
@@ -320,7 +326,8 @@ func mapGroupCollectionRecords(
 				persistedCredential.IdentityFingerprint,
 				persistedGroups[persistedCredential.GroupID],
 			) ||
-			!equalGroupCollectionWeight(runtimeCredential.WeightManual, persistedCredential.WeightManual) {
+			!equalGroupCollectionWeight(runtimeCredential.WeightManual, persistedCredential.WeightManual) ||
+			!equalGroupCollectionWeight(runtimeCredential.PriorityManual, persistedCredential.PriorityManual) {
 			return nil, groupCollectionDataError(
 				"persisted credential %d differs from runtime registry",
 				credentialID,
@@ -368,6 +375,7 @@ func mapGroupCollectionRecords(
 			},
 			CreatedAtMS: group.CreatedAtMS,
 			Enabled:     group.Enabled,
+			Priority:    state.ConfiguredPriority(group.PriorityManual),
 			Weight:      state.ConfiguredWeight(group.WeightManual),
 			ModelNames:  make([]string, 0, len(groupModels)),
 		}
@@ -406,6 +414,7 @@ func cloneCredentialRows(rows []models.Credential) []models.Credential {
 		cloned[index] = rows[index]
 		cloned[index].Group = nil
 		cloned[index].Data = ""
+		cloned[index].PriorityManual = cloneInt(rows[index].PriorityManual)
 		cloned[index].WeightManual = cloneInt(rows[index].WeightManual)
 	}
 	return cloned

@@ -71,27 +71,42 @@ const emit = defineEmits<{
   'refresh-credential': [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
   weight: [payload: { item: CredentialItemDto; value: string }]
+  priority: [payload: { item: CredentialItemDto; value: string }]
 }>()
 const { locale, n, t, te } = useI18n()
 const menuOpen = ref(false)
 const detailsExpanded = ref(false)
 const proxyEditor = ref<{ beginEdit: () => void } | null>(null)
 const weightEditing = ref(false)
+const priorityEditing = ref(false)
 const draftWeight = ref('50')
+const draftPriority = ref('50')
 const weightInputId = computed(() => `subscription-account-weight-${props.item.credential_id}`)
+const priorityInputId = computed(() => `subscription-account-priority-${props.item.credential_id}`)
 
 // 默认权重保持简洁，非默认值显示快捷编辑入口。
 const showWeightChip = computed(() => props.item.weight !== 50)
+const showPriorityChip = computed(() => props.item.priority !== 50)
 const weightChipTooltip = computed(() =>
   t('group.credentials.weightChipTooltip', { weight: n(props.item.weight) }),
+)
+const priorityChipTooltip = computed(() =>
+  t('group.credentials.priorityChipTooltip', { priority: n(props.item.priority) }),
 )
 const weightValid = computed(() => {
   const value = Number(draftWeight.value)
   return Number.isInteger(value) && value >= 1 && value <= 100
 })
+const priorityValid = computed(() => {
+  const value = Number(draftPriority.value)
+  return Number.isInteger(value) && value >= 1 && value <= 100
+})
 
 function resetWeightDraft(): void {
   draftWeight.value = String(props.item.weight)
+}
+function resetPriorityDraft(): void {
+  draftPriority.value = String(props.item.priority)
 }
 
 // 一次完成“展开 + 进入编辑”，与密钥列表点权重值一致。
@@ -100,6 +115,13 @@ function editWeight(): void {
   resetWeightDraft()
   detailsExpanded.value = true
   weightEditing.value = true
+}
+
+function editPriority(): void {
+  if (props.busy) return
+  resetPriorityDraft()
+  detailsExpanded.value = true
+  priorityEditing.value = true
 }
 
 function editProxy(): void {
@@ -117,6 +139,15 @@ function saveWeight(): void {
   weightEditing.value = false
 }
 
+function savePriority(): void {
+  if (props.busy || !priorityValid.value) return
+  emit('priority', {
+    item: props.item,
+    value: String(Number(draftPriority.value)),
+  })
+  priorityEditing.value = false
+}
+
 // 收起卡片时退出编辑，避免下次展开停在旧草稿。
 watch(
   () => props.item.weight,
@@ -125,8 +156,18 @@ watch(
   },
   { immediate: true },
 )
+watch(
+  () => props.item.priority,
+  () => {
+    if (!priorityEditing.value) resetPriorityDraft()
+  },
+  { immediate: true },
+)
 watch(detailsExpanded, (expanded) => {
-  if (!expanded) weightEditing.value = false
+  if (!expanded) {
+    weightEditing.value = false
+    priorityEditing.value = false
+  }
 })
 const nowMs = ref(Date.now())
 let clockTimer: number | undefined
@@ -767,6 +808,17 @@ function runMenuAction(
             <StatusBadge v-if="item.model_cooldowns.length > 0" tone="warning" size="compact">{{
               t('group.credentials.modelCooldown.count', { count: n(item.model_cooldowns.length) })
             }}</StatusBadge>
+            <AppTooltip v-if="showPriorityChip" :content="priorityChipTooltip">
+              <button
+                class="subscription-account__weight-chip"
+                type="button"
+                :disabled="busy"
+                :aria-label="priorityChipTooltip"
+                @click="editPriority"
+              >
+                <b>{{ n(item.priority as number) }}</b>
+              </button>
+            </AppTooltip>
             <AppTooltip v-if="showWeightChip" :content="weightChipTooltip">
               <button
                 class="subscription-account__weight-chip"
@@ -1305,6 +1357,55 @@ function runMenuAction(
         </section>
       </div>
       <div class="subscription-account__panels">
+        <div class="setting-panel">
+          <span class="setting-panel__title">{{ t('group.credentials.columns.priority') }}</span>
+          <div class="setting-panel__body">
+            <template v-if="!priorityEditing">
+              <span class="setting-panel__value">
+                {{ n(item.priority) }}
+              </span>
+              <IconButton
+                class="setting-panel__edit"
+                variant="ghost"
+                tone="action"
+                size="xs"
+                :label="t('group.credentials.editPriority')"
+                :disabled="busy || displayDisabled"
+                @click="editPriority"
+              >
+                <PencilLine :size="12" aria-hidden="true" />
+              </IconButton>
+            </template>
+            <form v-else class="setting-panel__form" @submit.prevent="savePriority">
+              <label class="sr-only" :for="priorityInputId">
+                {{ t('group.credentials.priorityEditor.value') }}
+              </label>
+              <input
+                :id="priorityInputId"
+                v-model="draftPriority"
+                class="subscription-account__weight-input"
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                inputmode="numeric"
+                :disabled="busy"
+                :aria-invalid="!priorityValid || undefined"
+              />
+              <div class="setting-panel__actions">
+                <AppButton variant="ghost" size="compact" @click="priorityEditing = false">
+                  {{ t('group.credentials.priorityEditor.cancel') }}
+                </AppButton>
+                <AppButton type="submit" size="compact" :disabled="busy || !priorityValid">
+                  {{ t('group.credentials.priorityEditor.save') }}
+                </AppButton>
+              </div>
+              <p v-if="!priorityValid" class="setting-panel__error" role="alert">
+                {{ t('group.credentials.priorityEditor.invalid') }}
+              </p>
+            </form>
+          </div>
+        </div>
         <div class="setting-panel">
           <span class="setting-panel__title">{{ t('group.credentials.columns.weight') }}</span>
           <div class="setting-panel__body">

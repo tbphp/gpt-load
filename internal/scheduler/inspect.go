@@ -58,6 +58,7 @@ type GroupInspection struct {
 	RouteMode                 channel.RouteMode
 	RouteRequirementSatisfied bool
 	UpstreamModelID           *string
+	PriorityManual            *int
 	WeightManual              *int
 	Included                  bool
 	Routable                  bool
@@ -69,6 +70,7 @@ type CredentialInspection struct {
 	CredentialID    uint
 	Available       bool
 	Reason          ReasonCode
+	PriorityManual  *int
 	WeightManual    *int
 	EffectiveWeight int64
 	CooldownUntil   time.Time
@@ -266,8 +268,9 @@ func inspectCredential(
 	operation execution.Operation,
 ) CredentialInspection {
 	result := CredentialInspection{
-		CredentialID: credential.ID,
-		WeightManual: cloneWeight(credential.WeightManual),
+		CredentialID:   credential.ID,
+		PriorityManual: cloneWeight(credential.PriorityManual),
+		WeightManual:   cloneWeight(credential.WeightManual),
 	}
 	if group.WeightManual != nil && *group.WeightManual == 0 {
 		result.Reason = ReasonGroupWeightZero
@@ -347,6 +350,7 @@ func Inspect(
 			)
 		}
 		cloned := credential
+		cloned.PriorityManual = cloneWeight(credential.PriorityManual)
 		cloned.WeightManual = cloneWeight(credential.WeightManual)
 		credentialsByGroup[credential.GroupID] = append(credentialsByGroup[credential.GroupID], cloned)
 	}
@@ -371,6 +375,7 @@ func Inspect(
 			RouteMode:                 decision.target.Mode,
 			RouteRequirementSatisfied: decision.requirementOK,
 			UpstreamModelID:           optionalModel(decision.target.UpstreamModelID),
+			PriorityManual:            cloneWeight(decision.group.PriorityManual),
 			WeightManual:              cloneWeight(decision.group.WeightManual),
 			Included:                  decision.included, Reason: decision.reason,
 			Credentials: []CredentialInspection{},

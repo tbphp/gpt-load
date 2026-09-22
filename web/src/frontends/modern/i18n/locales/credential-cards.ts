@@ -49,7 +49,7 @@ export const zhCN = {
 
   unsaved: '未保存',
   more: '更多操作',
-  settings: '权重与代理',
+  settings: '优先级、权重与代理',
   runtime: '运行诊断',
   test: '模型测试',
   testShort: '测试',
@@ -87,6 +87,7 @@ export const zhCN = {
   windowUsage: '额度窗口内用量',
   requests: '请求数',
   cooldownModels: '冷却中的模型',
+  autoRouting: '留空使用默认优先级/权重（50）。手动值范围 1–100；先比优先级，同优先级再按权重。',
   autoWeight: '留空使用默认权重；手动权重范围为 1–100。',
   automatic: '默认',
   observation: {
@@ -181,7 +182,7 @@ export const enUS: typeof zhCN = {
 
   unsaved: 'Unsaved',
   more: 'More actions',
-  settings: 'Weight and proxy',
+  settings: 'Priority, weight and proxy',
   runtime: 'Runtime diagnostics',
   test: 'Model test',
   testShort: 'Test',
@@ -220,6 +221,7 @@ export const enUS: typeof zhCN = {
   windowUsage: 'Usage within quota windows',
   requests: 'Requests',
   cooldownModels: 'Models cooling down',
+  autoRouting: 'Leave empty for default priority/weight (50). Manual values: 1–100. Higher priority wins; equal priorities share by weight.',
   autoWeight: 'Leave empty to use the default weight. Manual weight: 1–100.',
   automatic: 'Default',
   observation: {
@@ -318,7 +320,7 @@ export const jaJP: typeof zhCN = {
 
   unsaved: '未保存',
   more: 'その他の操作',
-  settings: '重みとプロキシ',
+  settings: '優先度・重み・プロキシ',
   runtime: '実行診断',
   test: 'モデルテスト',
   testShort: 'テスト',
@@ -357,6 +359,7 @@ export const jaJP: typeof zhCN = {
   windowUsage: 'クォータ期間内の使用量',
   requests: 'リクエスト数',
   cooldownModels: 'クールダウン中のモデル',
+  autoRouting: '空欄は既定の優先度/重み（50）。手動値は 1–100。優先度が高いほど先に使われ、同優先度では重みで配分します。',
   autoWeight: '空欄の場合は既定の重みを使用します。手動の重みは 1–100。',
   automatic: '既定',
   observation: {

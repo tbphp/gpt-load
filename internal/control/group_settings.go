@@ -31,6 +31,7 @@ type GroupSettingsResponse struct {
 	ValidationProtocols []protocol.Protocol          `json:"validation_protocols"`
 	ValidationModel     *string                      `json:"validation_model"`
 	Enabled             bool                         `json:"enabled"`
+	PriorityManual      *int                         `json:"priority_manual"`
 	WeightManual        *int                         `json:"weight_manual"`
 	Overrides           config.Settings              `json:"overrides"`
 	Effective           GroupEffectiveConfigResponse `json:"effective"`
@@ -44,6 +45,7 @@ type GroupSettingsUpdateRequest struct {
 	ValidationProtocol optionalField[protocol.Protocol]    `json:"validation_protocol"`
 	ValidationModel    optionalField[string]               `json:"validation_model"`
 	Enabled            optionalField[bool]                 `json:"enabled"`
+	PriorityManual     optionalField[int]                  `json:"priority_manual"`
 	WeightManual       optionalField[int]                  `json:"weight_manual"`
 	Overrides          optionalField[config.Settings]      `json:"overrides"`
 	Proxy              optionalField[outboundproxy.Config] `json:"proxy"`
@@ -57,6 +59,8 @@ type normalizedGroupSettingsUpdate struct {
 	validationModel       *string
 	validationModelSet    bool
 	enabled               *bool
+	priorityManual        *int
+	priorityManualSet     bool
 	weightManual          *int
 	weightManualSet       bool
 	encodedOverrides      models.JSON
@@ -150,6 +154,7 @@ func groupSettingsResponse(
 		Name:            group.Name,
 		ValidationModel: cloneString(group.ValidationModel),
 		Enabled:         group.Enabled,
+		PriorityManual:  cloneInt(group.PriorityManual),
 		WeightManual:    cloneInt(group.WeightManual),
 		Overrides:       overrides,
 		Effective:       effective,
@@ -179,7 +184,7 @@ func normalizeGroupSettingsUpdate(
 		}
 	}
 	if !request.ValidationProtocol.Set && !request.Name.Set && !request.Params.Set && !request.ValidationModel.Set &&
-		!request.Enabled.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set && !request.PriceMultiplier.Set {
+		!request.Enabled.Set && !request.PriorityManual.Set && !request.WeightManual.Set && !request.Overrides.Set && !request.Proxy.Set && !request.PriceMultiplier.Set {
 		return normalizedGroupSettingsUpdate{}, app_errors.ErrBadRequest
 	}
 
@@ -218,6 +223,16 @@ func normalizeGroupSettingsUpdate(
 	if request.Enabled.Set {
 		value := request.Enabled.Value
 		result.enabled = &value
+	}
+	if request.PriorityManual.Set {
+		result.priorityManualSet = true
+		if !request.PriorityManual.Null {
+			if request.PriorityManual.Value < state.MinPriority || request.PriorityManual.Value > state.MaxPriority {
+				return normalizedGroupSettingsUpdate{}, app_errors.ErrValidation
+			}
+			value := request.PriorityManual.Value
+			result.priorityManual = &value
+		}
 	}
 	if request.WeightManual.Set {
 		result.weightManualSet = true
@@ -317,6 +332,10 @@ func (s *Service) UpdateGroupSettings(
 		if normalized.enabled != nil {
 			group.Enabled = *normalized.enabled
 			updates["enabled"] = group.Enabled
+		}
+		if normalized.priorityManualSet {
+			group.PriorityManual = normalized.priorityManual
+			updates["priority_manual"] = normalized.priorityManual
 		}
 		if normalized.weightManualSet {
 			group.WeightManual = normalized.weightManual

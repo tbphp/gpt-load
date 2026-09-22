@@ -982,7 +982,7 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 				if err := registry.SetCredentialStatus(credentialID, CredentialStatusDisabled); err != nil {
 					errors <- fmt.Errorf("SetCredentialStatus(%d, disabled): %w", credentialID, err)
 				}
-				if err := registry.UpdateCredentialConfig(credentialID, CredentialStatusActive, new(operation%MaxWeight+1)); err != nil {
+				if err := registry.UpdateCredentialConfig(credentialID, CredentialStatusActive, new(operation%MaxWeight+1), nil); err != nil {
 					errors <- fmt.Errorf("UpdateCredentialConfig(%d): %w", credentialID, err)
 				}
 				if ok := registry.SetCooldown(credentialID, time.Unix(int64(operation+1), 0)); !ok {
@@ -1226,7 +1226,7 @@ func TestKeyRegistryUpdateKeyConfigAtomicallyPreservesRuntimeState(t *testing.T)
 		Blacklisted: true, FailureCount: 3, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-secret",
 	}})
 
-	if err := registry.UpdateCredentialConfig(11, CredentialStatusDisabled, &newWeight); err != nil {
+	if err := registry.UpdateCredentialConfig(11, CredentialStatusDisabled, &newWeight, nil); err != nil {
 		t.Fatalf("UpdateCredentialConfig() error = %v", err)
 	}
 	newWeight = 99
@@ -1242,7 +1242,7 @@ func TestKeyRegistryUpdateKeyConfigAtomicallyPreservesRuntimeState(t *testing.T)
 		t.Fatalf("runtime fields changed = %#v", got)
 	}
 
-	if err := registry.UpdateCredentialConfig(11, CredentialStatusActive, nil); err != nil {
+	if err := registry.UpdateCredentialConfig(11, CredentialStatusActive, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	view := registry.Snapshot()[0]
@@ -1266,14 +1266,17 @@ func TestKeyRegistryUpdateKeyConfigRejectsInvalidInputWithoutPartialMutation(t *
 		credentialID uint
 		status       CredentialStatus
 		weight       *int
+		priority     *int
 	}{
 		{name: "missing", credentialID: 99, status: CredentialStatusDisabled},
 		{name: "invalid status", credentialID: 1, status: CredentialStatus("cooldown")},
 		{name: "negative weight", credentialID: 1, status: CredentialStatusDisabled, weight: intPointer(-1)},
 		{name: "large weight", credentialID: 1, status: CredentialStatusDisabled, weight: intPointer(101)},
+		{name: "zero priority", credentialID: 1, status: CredentialStatusDisabled, priority: intPointer(0)},
+		{name: "large priority", credentialID: 1, status: CredentialStatusDisabled, priority: intPointer(101)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := registry.UpdateCredentialConfig(test.credentialID, test.status, test.weight); err == nil {
+			if err := registry.UpdateCredentialConfig(test.credentialID, test.status, test.weight, test.priority); err == nil {
 				t.Fatal("UpdateCredentialConfig() error = nil")
 			}
 			if got := registry.Snapshot(); !reflect.DeepEqual(got, before) {
@@ -1298,7 +1301,7 @@ func TestKeyRegistryUpdateKeyConfigIsRaceSafeWithRuntimeMutations(t *testing.T) 
 			<-start
 			for index := 0; index < 100; index++ {
 				weight := (worker + index) % (MaxWeight + 1)
-				_ = registry.UpdateCredentialConfig(1, CredentialStatusActive, &weight)
+				_ = registry.UpdateCredentialConfig(1, CredentialStatusActive, &weight, nil)
 				_ = registry.SetCooldown(1, time.Unix(int64(index), 0))
 				_, _ = registry.IncrFailure(1)
 			}

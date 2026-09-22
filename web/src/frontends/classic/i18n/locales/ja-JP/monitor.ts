@@ -534,6 +534,7 @@ export default {
         columns: {
           credential: '認証情報',
           status: '状態',
+          priority: '優先度',
           weight: 'ウェイト',
           effective: '有効ウェイト',
           cooldown: 'クールダウン期限',
@@ -544,6 +545,7 @@ export default {
         effective: '生の有効ウェイト',
         null: 'null',
         none: '—',
+        groupPriority: 'グループ優先度 {value}',
         group: 'グループウェイト {value}',
       },
       excluded: {

@@ -130,6 +130,10 @@ func cloneDiscoveryCredentialRows(rows []models.Credential) []models.Credential 
 	for index := range rows {
 		cloned[index] = rows[index]
 		cloned[index].Group = nil
+		if rows[index].PriorityManual != nil {
+			value := *rows[index].PriorityManual
+			cloned[index].PriorityManual = &value
+		}
 		if rows[index].WeightManual != nil {
 			value := *rows[index].WeightManual
 			cloned[index].WeightManual = &value

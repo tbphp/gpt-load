@@ -53,8 +53,10 @@ type candidateTarget struct {
 }
 
 type weightedCredential struct {
-	meta   state.CredentialMeta
-	weight int64
+	meta               state.CredentialMeta
+	weight             int64
+	groupPriority      int
+	credentialPriority int
 }
 
 type candidatePool struct {
@@ -264,7 +266,12 @@ func (iterator *Iterator) withWeightedPool(candidates *candidatePool, modes []ch
 				}
 				weight := effectiveWeight(target.group.WeightManual, credential.WeightManual)
 				if weight > 0 {
-					weighted = append(weighted, weightedCredential{meta: credential, weight: weight})
+					weighted = append(weighted, weightedCredential{
+						meta:               credential,
+						weight:             weight,
+						groupPriority:      state.ConfiguredPriority(target.group.PriorityManual),
+						credentialPriority: state.ConfiguredPriority(credential.PriorityManual),
+					})
 				}
 				break
 			}
@@ -291,7 +298,10 @@ func (iterator *Iterator) Next() (Selection, error) {
 			var found bool
 			now := iterator.now()
 			iterator.withWeightedPool(pool, modes, now, func(weighted []weightedCredential) {
-				selected, found = iterator.selectCredential(weighted, iterator.preferredCredentialID)
+				selected, found = iterator.selectCredential(
+					filterHighestPriority(weighted),
+					iterator.preferredCredentialID,
+				)
 				if !found {
 					return
 				}
@@ -305,6 +315,39 @@ func (iterator *Iterator) Next() (Selection, error) {
 		}
 	}
 	return Selection{}, ErrExhausted
+}
+
+// filterHighestPriority keeps only the highest group priority tier, then the
+// highest credential priority within that tier. Same-tier candidates keep their
+// relative weights for fair selection.
+func filterHighestPriority(candidates []weightedCredential) []weightedCredential {
+	if len(candidates) <= 1 {
+		return candidates
+	}
+	maxGroup := candidates[0].groupPriority
+	for _, candidate := range candidates[1:] {
+		if candidate.groupPriority > maxGroup {
+			maxGroup = candidate.groupPriority
+		}
+	}
+	maxCredential := 0
+	haveCredential := false
+	for _, candidate := range candidates {
+		if candidate.groupPriority != maxGroup {
+			continue
+		}
+		if !haveCredential || candidate.credentialPriority > maxCredential {
+			maxCredential = candidate.credentialPriority
+			haveCredential = true
+		}
+	}
+	result := make([]weightedCredential, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.groupPriority == maxGroup && candidate.credentialPriority == maxCredential {
+			result = append(result, candidate)
+		}
+	}
+	return result
 }
 
 func (iterator *Iterator) targetAvailable(target candidateTarget, credential state.CredentialMeta, modes []channel.RouteMode, now time.Time) bool {
@@ -435,6 +478,7 @@ func cloneGroupView(group state.GroupView) state.GroupView {
 	group.Params = append([]byte(nil), group.Params...)
 	group.ClientProtocols = append([]protocol.Protocol(nil), group.ClientProtocols...)
 	group.Models = append([]state.ModelConfig(nil), group.Models...)
+	group.PriorityManual = cloneWeight(group.PriorityManual)
 	group.WeightManual = cloneWeight(group.WeightManual)
 	group.HeaderRules.Set = cloneStringMap(group.HeaderRules.Set)
 	group.HeaderRules.Remove = append([]string(nil), group.HeaderRules.Remove...)

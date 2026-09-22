@@ -245,6 +245,8 @@ export interface CredentialRow {
   enabled: boolean
   weight: number
   weightManual?: number | null
+  priority: number
+  priorityManual?: number | null
   successes: number
   failures: number
   failuresInRow: number
@@ -294,6 +296,13 @@ export function readCredential(value: unknown): CredentialRow {
         : row.weight_manual === null
           ? null
           : integer(row.weight_manual),
+    priority: integer(row.priority),
+    priorityManual:
+      row.priority_manual === undefined
+        ? undefined
+        : row.priority_manual === null
+          ? null
+          : integer(row.priority_manual),
     successes: integer(row.recent_success_count),
     failures: integer(row.recent_failure_count),
     failuresInRow: integer(row.consecutive_failure_count),

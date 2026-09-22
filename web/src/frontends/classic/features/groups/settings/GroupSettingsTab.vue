@@ -215,6 +215,12 @@ const paramErrors = computed<Record<string, string>>(() => {
   }
   return result
 })
+const priorityValid = computed(() => {
+  const value = draft.value?.priority_manual
+  return (
+    value === null || (Number.isInteger(value) && value !== undefined && value >= 1 && value <= 100)
+  )
+})
 const weightValid = computed(() => {
   const value = draft.value?.weight_manual
   return (
@@ -237,6 +243,7 @@ const valid = computed(
   () =>
     !nameError.value &&
     Object.keys(paramErrors.value).length === 0 &&
+    priorityValid.value &&
     weightValid.value &&
     isValidPriceMultiplier(draft.value?.price_multiplier ?? '') &&
     timeoutValid.value &&
@@ -691,6 +698,7 @@ onBeforeUnmount(() => {
             :validation-protocol="draft.validation_protocol"
             :validation-protocols="saved?.validation_protocols ?? []"
             :models="modelsQuery.data.value?.items ?? []"
+            :priority-manual="draft.priority_manual"
             :weight-manual="draft.weight_manual"
             :price-multiplier="draft.price_multiplier"
             :enabled="draft.enabled"
@@ -703,6 +711,7 @@ onBeforeUnmount(() => {
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:validation-protocol="draft.validation_protocol = $event"
+            @update:priority-manual="draft.priority_manual = $event"
             @update:weight-manual="draft.weight_manual = $event"
             @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
@@ -720,6 +729,7 @@ onBeforeUnmount(() => {
             :validation-protocol="draft.validation_protocol"
             :validation-protocols="saved?.validation_protocols ?? []"
             :models="modelsQuery.data.value?.items ?? []"
+            :priority-manual="draft.priority_manual"
             :weight-manual="draft.weight_manual"
             :price-multiplier="draft.price_multiplier"
             :enabled="draft.enabled"
@@ -731,6 +741,7 @@ onBeforeUnmount(() => {
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:validation-protocol="draft.validation_protocol = $event"
+            @update:priority-manual="draft.priority_manual = $event"
             @update:weight-manual="draft.weight_manual = $event"
             @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"

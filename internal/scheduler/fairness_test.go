@@ -125,10 +125,10 @@ func TestFairnessLifecycleRetainsOrCalibratesProgress(t *testing.T) {
 		}, true},
 		{"zero weight", func(t *testing.T, r *state.CredentialRegistry) {
 			zero := 0
-			if err := r.UpdateCredentialConfig(12, state.CredentialStatusActive, &zero); err != nil {
+			if err := r.UpdateCredentialConfig(12, state.CredentialStatusActive, &zero, nil); err != nil {
 				t.Fatal(err)
 			}
-			if err := r.UpdateCredentialConfig(12, state.CredentialStatusActive, nil); err != nil {
+			if err := r.UpdateCredentialConfig(12, state.CredentialStatusActive, nil, nil); err != nil {
 				t.Fatal(err)
 			}
 		}, true},
@@ -351,7 +351,7 @@ func TestFairnessHeavyWeightIsNotLimitedToOneHundred(t *testing.T) {
 	group = snapshot.Groups[2]
 	group.WeightManual = &light
 	snapshot.Groups[2] = group
-	if err := r.UpdateCredentialConfig(11, state.CredentialStatusActive, &heavy); err != nil {
+	if err := r.UpdateCredentialConfig(11, state.CredentialStatusActive, &heavy, nil); err != nil {
 		t.Fatal(err)
 	}
 	r.RemoveCredential(12)

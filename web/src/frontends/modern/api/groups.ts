@@ -44,6 +44,7 @@ export interface GroupRow {
   endpoint: string
   enabled: boolean
   availability: GroupAvailability
+  priority: number
   weight: number
   priceMultiplier: string
   modelCount: number
@@ -60,12 +61,14 @@ export interface GroupWorkspace {
 export interface GroupBasics {
   name: string
   enabled: boolean
+  priority: number | null
   weight: number | null
   priceMultiplier: string
 }
 export type GroupBasicsPatch = Partial<{
   name: string
   enabled: boolean
+  priority_manual: number | null
   weight_manual: number | null
   price_multiplier: string
 }>
@@ -135,6 +138,7 @@ export async function getGroupWorkspace(
       endpoint: text(item.endpoint),
       enabled: boolean(item.enabled),
       availability: oneOf(item.availability, availabilityStates),
+      priority: integer(item.priority),
       weight: integer(item.weight),
       priceMultiplier: text(item.price_multiplier),
       modelCount: integer(item.model_count),
@@ -166,11 +170,14 @@ export async function getGroupModelNames(client: ApiClient, id: number, signal: 
 
 export function readGroupBasics(value: unknown): GroupBasics {
   const data = record(value)
+  const priority = data.priority_manual === null ? null : integer(data.priority_manual)
+  if (priority !== null && (priority < 1 || priority > 100)) throw new InvalidResponseError()
   const weight = data.weight_manual === null ? null : integer(data.weight_manual)
   if (weight !== null && weight > 100) throw new InvalidResponseError()
   return {
     name: text(data.name),
     enabled: boolean(data.enabled),
+    priority,
     weight,
     priceMultiplier: text(data.price_multiplier),
   }

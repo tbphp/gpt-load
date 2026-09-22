@@ -24,6 +24,7 @@ type ModernGroupItem struct {
 	Endpoint               string                          `json:"endpoint"`
 	Enabled                bool                            `json:"enabled"`
 	Availability           string                          `json:"availability"`
+	Priority               int                             `json:"priority"`
 	Weight                 int                             `json:"weight"`
 	PriceMultiplier        string                          `json:"price_multiplier"`
 	ModelCount             int64                           `json:"model_count"`
@@ -70,7 +71,7 @@ func (s *Service) ListModernGroups(ctx context.Context) (ModernGroupsResponse, e
 			ChannelName: definition.Name, ChannelMark: definition.Mark, ChannelIcon: definition.Icon,
 			ConnectionType: record.ConnectionType, Endpoint: endpoint,
 			Enabled: record.Enabled, Availability: modernGroupAvailability(record),
-			Weight: record.Weight, PriceMultiplier: record.PriceMultiplier,
+			Priority: record.Priority, Weight: record.Weight, PriceMultiplier: record.PriceMultiplier,
 			ModelCount:             record.ModelCount,
 			ModelNames:             record.ModelNames,
 			Credentials:            record.CredentialCounts,

@@ -43,6 +43,7 @@ const emit = defineEmits<{
   'update:weightEditorOpen': [open: boolean]
   'open-weight': [item: CredentialItemDto]
   weight: [payload: { item: CredentialItemDto; value: string }]
+  priority: [payload: { item: CredentialItemDto; value: string }]
   toggle: [item: CredentialItemDto]
   test: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
@@ -51,8 +52,11 @@ const emit = defineEmits<{
 const { locale, n, t } = useI18n()
 const menuOpen = ref(false)
 const draftWeight = ref('50')
+const draftPriority = ref('50')
+const priorityEditing = ref(false)
 const detailId = computed(() => `group-credential-details-${props.item.credential_id}`)
 const weightInputId = computed(() => `group-credential-weight-${props.item.credential_id}`)
+const priorityInputId = computed(() => `group-credential-priority-${props.item.credential_id}`)
 const isProblem = computed(
   () =>
     props.item.effective_status === 'cooldown' ||
@@ -87,12 +91,22 @@ const weightValid = computed(() => {
   const value = Number(draftWeight.value)
   return Number.isInteger(value) && value >= 1 && value <= 100
 })
+const priorityValid = computed(() => {
+  const value = Number(draftPriority.value)
+  return Number.isInteger(value) && value >= 1 && value <= 100
+})
 
 watch(
   () => props.weightEditorOpen,
   (open) => {
     if (!open) return
     draftWeight.value = String(props.item.weight)
+  },
+)
+watch(
+  () => props.item.priority,
+  (value) => {
+    if (!priorityEditing.value) draftPriority.value = String(value)
   },
 )
 
@@ -103,6 +117,20 @@ function saveWeight(): void {
     value: String(Number(draftWeight.value)),
   })
   emit('update:weightEditorOpen', false)
+}
+
+function savePriority(): void {
+  if (props.busy || !priorityValid.value) return
+  emit('priority', {
+    item: props.item,
+    value: String(Number(draftPriority.value)),
+  })
+  priorityEditing.value = false
+}
+
+function openPriorityEditor(): void {
+  draftPriority.value = String(props.item.priority)
+  priorityEditing.value = true
 }
 
 // 权重列的值可点：展开该行并直接进入权重编辑，作为折叠区设置的发现入口。
@@ -272,6 +300,61 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
           :inert="!expanded || undefined"
         >
           <div class="group-credential-record__settings">
+            <div class="setting-panel">
+              <span class="setting-panel__title">
+                {{ t('group.credentials.columns.priority') }}
+              </span>
+              <div class="setting-panel__body">
+                <template v-if="!priorityEditing">
+                  <span class="setting-panel__value">
+                    {{ n(item.priority) }}
+                  </span>
+                  <IconButton
+                    class="setting-panel__edit"
+                    variant="ghost"
+                    tone="action"
+                    size="xs"
+                    :label="t('group.credentials.editPriority')"
+                    :disabled="busy || item.configured_status === 'disabled'"
+                    @click="openPriorityEditor"
+                  >
+                    <PencilLine :size="12" aria-hidden="true" />
+                  </IconButton>
+                </template>
+                <form
+                  v-else
+                  class="setting-panel__form group-credential-record__weight-form"
+                  @submit.prevent="savePriority"
+                >
+                  <label class="sr-only" :for="priorityInputId">
+                    {{ t('group.credentials.priorityEditor.value') }}
+                  </label>
+                  <input
+                    :id="priorityInputId"
+                    v-model="draftPriority"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    inputmode="numeric"
+                    :disabled="busy"
+                    :aria-invalid="!priorityValid || undefined"
+                  />
+                  <div class="setting-panel__actions">
+                    <AppButton variant="ghost" size="compact" @click="priorityEditing = false">
+                      {{ t('group.credentials.priorityEditor.cancel') }}
+                    </AppButton>
+                    <AppButton type="submit" size="compact" :disabled="busy || !priorityValid">
+                      {{ t('group.credentials.priorityEditor.save') }}
+                    </AppButton>
+                  </div>
+                  <p v-if="!priorityValid" class="setting-panel__error" role="alert">
+                    {{ t('group.credentials.priorityEditor.invalid') }}
+                  </p>
+                </form>
+              </div>
+            </div>
+
             <div class="setting-panel">
               <span class="setting-panel__title">
                 {{ t('group.credentials.columns.weight') }}

@@ -95,7 +95,7 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 				t.Fatalf("default price multiplier = %s, want string 1", fields["price_multiplier"])
 			}
 			for _, forbidden := range []string{
-				"models", "config", "effective_config", "enabled", "weight_manual", "validation_model",
+				"models", "config", "effective_config", "enabled", "priority_manual", "weight_manual", "validation_model",
 			} {
 				if containsJSONToken(encoded, forbidden) {
 					t.Fatalf("summary exposes %q: %s", forbidden, encoded)
@@ -173,7 +173,7 @@ func TestGetGroupHTTPContractAndAuthentication(t *testing.T) {
 				if !ok {
 					t.Fatalf("summary data = %#v", envelope["data"])
 				}
-				for _, name := range []string{"models", "config", "effective_config", "enabled", "weight_manual", "validation_model"} {
+				for _, name := range []string{"models", "config", "effective_config", "enabled", "priority_manual", "weight_manual", "validation_model"} {
 					if _, exists := data[name]; exists {
 						t.Fatalf("summary HTTP response exposes %q: %#v", name, data)
 					}

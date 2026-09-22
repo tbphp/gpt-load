@@ -10,6 +10,7 @@ type CredentialRuntimeView struct {
 	GroupID            uint
 	Version            uint64
 	IdentityGeneration uint64
+	PriorityManual     *int
 	WeightManual       *int
 	Status             CredentialStatus
 	AuthState          CredentialAuthState
@@ -57,6 +58,7 @@ func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
 		GroupID:            entry.GroupID,
 		Version:            entry.Version,
 		IdentityGeneration: entry.IdentityGeneration,
+		PriorityManual:     clonePriority(entry.PriorityManual),
 		WeightManual:       cloneWeight(entry.WeightManual),
 		Status:             entry.Status,
 		AuthState:          entry.AuthState.normalize(),

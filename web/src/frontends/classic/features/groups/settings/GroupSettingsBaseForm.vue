@@ -30,6 +30,7 @@ const props = defineProps<{
   validationProtocol: AccessProtocol | null
   validationProtocols: AccessProtocol[]
   models: GroupModelItemDto[]
+  priorityManual: number | null
   weightManual: number | null
   priceMultiplier: string
   enabled: boolean
@@ -44,6 +45,7 @@ const emit = defineEmits<{
   'update:name': [value: string]
   'update:validationProtocol': [value: AccessProtocol]
   'update:validationModel': [value: string | null]
+  'update:priorityManual': [value: number | null]
   'update:weightManual': [value: number | null]
   'update:priceMultiplier': [value: string]
   'update:enabled': [value: boolean]
@@ -58,6 +60,13 @@ const validationModelOptions = computed(() =>
   [...props.models]
     .map(({ id, alias, alias_enabled }) => ({ id, alias: alias_enabled ? alias : '' }))
     .sort((left, right) => left.id.localeCompare(right.id)),
+)
+const priorityValid = computed(
+  () =>
+    props.priorityManual === null ||
+    (Number.isInteger(props.priorityManual) &&
+      props.priorityManual >= 1 &&
+      props.priorityManual <= 100),
 )
 const weightValid = computed(
   () =>
@@ -234,6 +243,26 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
       <h3>{{ t('group.settings.sections.routing') }}</h3>
       <p>{{ t('group.settings.routing.description') }}</p>
     </header>
+    <div class="group-settings__field group-settings__wide">
+      <span>{{ t('group.settings.base.priority') }}</span>
+      <div class="group-settings__weight-editor">
+        <input
+          class="group-settings__mono"
+          type="number"
+          min="1"
+          max="100"
+          step="1"
+          inputmode="numeric"
+          :value="priorityManual ?? 50"
+          :disabled="pending"
+          :aria-label="t('group.settings.base.priority')"
+          :aria-invalid="!priorityValid || undefined"
+          @input="emit('update:priorityManual', Number(($event.target as HTMLInputElement).value))"
+        />
+      </div>
+      <small>{{ t('group.settings.routing.priorityHelp') }}</small>
+      <small v-if="!priorityValid" role="alert">{{ t('group.settings.base.priorityError') }}</small>
+    </div>
     <div class="group-settings__field group-settings__wide">
       <span>{{ t('group.settings.base.weight') }}</span>
       <div class="group-settings__weight-editor">

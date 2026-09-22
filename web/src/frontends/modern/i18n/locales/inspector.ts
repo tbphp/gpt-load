@@ -1,5 +1,6 @@
 export const zhCN = {
   groupWeight: '分组权重',
+  groupPriority: '分组优先级',
   run: '检查路由',
   accessKey: '访问密钥',
   protocol: '协议',
@@ -28,6 +29,7 @@ export const zhCN = {
   status: '状态 / 原因',
   credentials: '可用凭据',
   weight: '配置权重',
+  priority: '配置优先级',
   effectiveWeight: '有效权重',
   share: '权重占比',
   shareHint: '按当前可用凭据的有效权重计算，不代表已经发生的流量。',
@@ -82,6 +84,7 @@ export const zhCN = {
 
 export const enUS = {
   groupWeight: 'Group weight',
+  groupPriority: 'Group priority',
   run: 'Inspect route',
   accessKey: 'Access key',
   protocol: 'Protocol',
@@ -110,6 +113,7 @@ export const enUS = {
   status: 'Status / Reason',
   credentials: 'Available credentials',
   weight: 'Configured weight',
+  priority: 'Configured priority',
   effectiveWeight: 'Effective weight',
   share: 'Weight share',
   shareHint: 'Based on current available credential weights; this is not measured traffic.',
@@ -164,6 +168,7 @@ export const enUS = {
 
 export const jaJP = {
   groupWeight: 'グループウェイト',
+  groupPriority: 'グループ優先度',
   run: 'ルートを確認',
   accessKey: 'アクセスキー',
   protocol: 'プロトコル',
@@ -192,6 +197,7 @@ export const jaJP = {
   status: '状態 / 理由',
   credentials: '利用可能な認証情報',
   weight: '設定ウェイト',
+  priority: '設定優先度',
   effectiveWeight: '有効ウェイト',
   share: 'ウェイト比率',
   shareHint: '現在利用可能な認証情報のウェイトによる計算値です。実際の通信量ではありません。',

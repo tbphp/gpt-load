@@ -32,9 +32,10 @@ type CredentialImportResult struct {
 }
 
 type CredentialUpdateRequest struct {
-	Status       optionalField[state.CredentialStatus] `json:"status"`
-	WeightManual optionalField[int]                    `json:"weight_manual"`
-	Proxy        optionalField[outboundproxy.Config]   `json:"proxy"`
+	Status         optionalField[state.CredentialStatus] `json:"status"`
+	PriorityManual optionalField[int]                    `json:"priority_manual"`
+	WeightManual   optionalField[int]                    `json:"weight_manual"`
+	Proxy          optionalField[outboundproxy.Config]   `json:"proxy"`
 }
 
 type CredentialRevealResult struct {
@@ -87,6 +88,8 @@ type CredentialItemResponse struct {
 	Observation             *CredentialObservationResponse `json:"observation,omitempty"`
 	ConfiguredStatus        string                         `json:"configured_status"`
 	EffectiveStatus         string                         `json:"effective_status"`
+	Priority                int                            `json:"priority"`
+	PriorityManual          *int                           `json:"-"` // 仅新版展示投影使用，经典接口不增加字段。
 	Weight                  int                            `json:"weight"`
 	WeightManual            *int                           `json:"-"` // 仅新版展示投影使用，经典接口不增加字段。
 	RecentSuccessCount      uint64                         `json:"recent_success_count"`
@@ -344,6 +347,9 @@ func validateCredentialCapture(capture credentialCapture) (credentialObservation
 		if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
 			return credentialObservation{}, dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
 		}
+		if !equalOptionalWeight(view.PriorityManual, row.PriorityManual) {
+			return credentialObservation{}, dbRegistryMismatch(mismatchPriorityManual, groupID, row.ID)
+		}
 		if view.Version != groupCollectionCredentialVersion(row.SecretVersion) ||
 			view.IdentityGeneration != groupCollectionCredentialIdentity(row.IdentityFingerprint, capture.group) {
 			return credentialObservation{}, dbRegistryMismatch(mismatchIdentity, groupID, row.ID)
@@ -411,7 +417,7 @@ func (s *Service) mapCredentialCollection(
 		return CredentialCollectionResponse{}, err
 	}
 	group := state.GroupCatalogView{ID: observation.group.ID, Name: observation.group.Name,
-		Enabled: observation.group.Enabled, WeightManual: cloneInt(observation.group.WeightManual)}
+		Enabled: observation.group.Enabled, PriorityManual: cloneInt(observation.group.PriorityManual), WeightManual: cloneInt(observation.group.WeightManual)}
 	records := make([]credentialCollectionRecord, 0, len(observation.rows))
 	proxyViews, err := s.credentialProxyViews(ctx, s.db, observation.group, observation.rows)
 	if err != nil {

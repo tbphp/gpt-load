@@ -156,7 +156,9 @@ func (s *Service) readHomeSubscriptionAccounts(
 		}
 		catalog := state.GroupCatalogView{
 			ID: credential.Group.ID, Name: credential.Group.Name,
-			Enabled: credential.Group.Enabled, WeightManual: cloneInt(credential.Group.WeightManual),
+			Enabled: credential.Group.Enabled,
+			PriorityManual: cloneInt(credential.Group.PriorityManual),
+			WeightManual:   cloneInt(credential.Group.WeightManual),
 		}
 		canonical, _, err := s.decodeCredential(*credential.Group, credential)
 		if err != nil {

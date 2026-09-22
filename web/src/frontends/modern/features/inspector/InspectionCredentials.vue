@@ -92,6 +92,10 @@ function setPageSize(value: number): void {
   <div class="modern-inspection-credentials">
     <div class="modern-inspection-weights">
       <span
+        >{{ t('inspector.groupPriority') }}
+        <strong>{{ n(group.priority ?? 50) }}</strong></span
+      >
+      <span
         >{{ t('inspector.groupWeight') }} <strong>{{ n(group.weight ?? 50) }}</strong></span
       >
       <span
@@ -115,6 +119,7 @@ function setPageSize(value: number): void {
         >
           <span role="columnheader">{{ t('inspector.credential') }}</span>
           <span role="columnheader">{{ t('inspector.status') }}</span>
+          <span role="columnheader">{{ t('inspector.priority') }}</span>
           <span role="columnheader">{{ t('inspector.weight') }}</span>
           <span role="columnheader">{{ t('inspector.effectiveWeight') }}</span>
           <span role="columnheader">{{ t('inspector.cooldown') }}</span>
@@ -134,6 +139,7 @@ function setPageSize(value: number): void {
               {{ row.available ? t('inspector.available') : reasonLabel(row.reason, t) }}
             </AppBadge>
           </div>
+          <span role="cell">{{ n(row.priority) }}</span>
           <span role="cell">{{ n(row.weight) }}</span>
           <span role="cell">{{ n(row.effectiveWeight) }}</span>
           <span role="cell">{{ credentialTime(row.cooldownUntil, locale) }}</span>
@@ -202,7 +208,7 @@ function setPageSize(value: number): void {
 }
 .modern-inspection-credential-columns {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) minmax(180px, 1fr) 110px 110px 160px 32px;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(180px, 1fr) 90px 90px 110px 160px 32px;
   align-items: center;
   gap: var(--modern-space-3);
   padding-block: var(--modern-space-2);

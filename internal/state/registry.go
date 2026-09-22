@@ -33,6 +33,7 @@ type CredentialEntry struct {
 	Version                 uint64
 	IdentityGeneration      uint64
 	Fingerprint             string
+	PriorityManual          *int
 	WeightManual            *int
 	Status                  CredentialStatus
 	AuthState               CredentialAuthState
@@ -54,6 +55,7 @@ type CredentialMeta struct {
 	GroupID            uint
 	Version            uint64
 	IdentityGeneration uint64
+	PriorityManual     *int
 	WeightManual       *int
 	ModelCooldowns     map[string]time.Time
 }
@@ -102,6 +104,9 @@ func ValidateCredentialEntries(entries []CredentialEntry) error {
 			return fmt.Errorf("credential %d has invalid auth state %q", entry.ID, entry.AuthState)
 		}
 		if err := validateManualWeight(fmt.Sprintf("credential %d", entry.ID), entry.WeightManual); err != nil {
+			return err
+		}
+		if err := validateManualPriority(fmt.Sprintf("credential %d", entry.ID), entry.PriorityManual); err != nil {
 			return err
 		}
 		if entry.EncryptedValue == "" {
@@ -354,10 +359,10 @@ func samePersistedCredentialConfig(left, right CredentialEntry) bool {
 		left.ProxyFingerprint != right.ProxyFingerprint {
 		return false
 	}
-	if left.WeightManual == nil || right.WeightManual == nil {
-		return left.WeightManual == nil && right.WeightManual == nil
+	if !equalOptionalInt(left.WeightManual, right.WeightManual) {
+		return false
 	}
-	return *left.WeightManual == *right.WeightManual
+	return equalOptionalInt(left.PriorityManual, right.PriorityManual)
 }
 
 func (r *CredentialRegistry) RemoveCredential(credentialID uint) bool {
@@ -480,6 +485,7 @@ func (r *CredentialRegistry) UpdateCredentialConfig(
 	credentialID uint,
 	status CredentialStatus,
 	weightManual *int,
+	priorityManual *int,
 ) error {
 	if status != CredentialStatusActive && status != CredentialStatusDisabled {
 		return fmt.Errorf("invalid credential status %q", status)
@@ -487,7 +493,11 @@ func (r *CredentialRegistry) UpdateCredentialConfig(
 	if err := validateManualWeight(fmt.Sprintf("credential %d", credentialID), weightManual); err != nil {
 		return err
 	}
+	if err := validateManualPriority(fmt.Sprintf("credential %d", credentialID), priorityManual); err != nil {
+		return err
+	}
 	clonedWeight := cloneWeight(weightManual)
+	clonedPriority := clonePriority(priorityManual)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry, ok := r.entryLocked(credentialID)
@@ -496,6 +506,7 @@ func (r *CredentialRegistry) UpdateCredentialConfig(
 	}
 	entry.Status = status
 	entry.WeightManual = clonedWeight
+	entry.PriorityManual = clonedPriority
 	r.scheduling.SyncCredential(runtimeView(entry))
 	return nil
 }
@@ -712,6 +723,7 @@ func (r *CredentialRegistry) collectCredentialCandidatesLocked(groupIDs []uint, 
 			meta := CredentialMeta{
 				ID: view.ID, GroupID: view.GroupID,
 				Version: view.Version, IdentityGeneration: view.IdentityGeneration,
+				PriorityManual: clonePriority(view.PriorityManual),
 				WeightManual:   cloneWeight(view.WeightManual),
 				ModelCooldowns: view.ModelCooldowns,
 			}
@@ -1026,6 +1038,7 @@ func (r *CredentialRegistry) entryLocked(credentialID uint) (*CredentialEntry, b
 }
 
 func cloneCredentialEntry(entry CredentialEntry) CredentialEntry {
+	entry.PriorityManual = clonePriority(entry.PriorityManual)
 	entry.WeightManual = cloneWeight(entry.WeightManual)
 	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	entry.FailureGeneration = 0
@@ -1051,6 +1064,7 @@ func (state CredentialAuthState) valid() bool {
 }
 
 func detachCredentialEntryExact(entry CredentialEntry) CredentialEntry {
+	entry.PriorityManual = clonePriority(entry.PriorityManual)
 	entry.WeightManual = cloneWeight(entry.WeightManual)
 	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	entry.ModelCooldowns = cloneModelCooldowns(entry.ModelCooldowns)

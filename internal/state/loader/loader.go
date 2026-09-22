@@ -779,6 +779,7 @@ func mapSystemAndGroups(
 			ValidationModel:    validationModel,
 			Models:             runtimeModels,
 			Settings:           settings,
+			PriorityManual:     clonePriority(row.PriorityManual),
 			WeightManual:       cloneWeight(row.WeightManual),
 			Enabled:            row.Enabled,
 		}
@@ -899,9 +900,11 @@ func mapCredentialConfigs(
 	for _, row := range rows {
 		target := targets[row.GroupID]
 		result = append(result, state.CredentialConfig{
-			ID: row.ID, GroupID: row.GroupID, WeightManual: cloneWeight(row.WeightManual),
-			Status:  state.CredentialStatus(row.Status),
-			Version: credentialVersion(row.SecretVersion),
+			ID: row.ID, GroupID: row.GroupID,
+			PriorityManual: clonePriority(row.PriorityManual),
+			WeightManual:   cloneWeight(row.WeightManual),
+			Status:         state.CredentialStatus(row.Status),
+			Version:        credentialVersion(row.SecretVersion),
 			IdentityGeneration: CredentialIdentityGeneration(
 				row.IdentityFingerprint,
 				target.channelID,
@@ -928,7 +931,9 @@ func mapCredentials(rows []models.Credential, groups []models.Group) []state.Cre
 				target.connectionType,
 				target.params,
 			),
-			Fingerprint: row.Fingerprint, WeightManual: cloneWeight(row.WeightManual),
+			Fingerprint: row.Fingerprint,
+			PriorityManual: clonePriority(row.PriorityManual),
+			WeightManual:   cloneWeight(row.WeightManual),
 			Status: state.CredentialStatus(row.Status), AuthState: state.CredentialAuthState(row.AuthState), EncryptedValue: row.Data,
 		})
 	}
@@ -1019,6 +1024,10 @@ func cloneWeight(value *int) *int {
 	}
 	cloned := *value
 	return &cloned
+}
+
+func clonePriority(value *int) *int {
+	return cloneWeight(value)
 }
 
 func persistedPriceMultiplier(value *int64) (pricing.PriceMultiplier, error) {

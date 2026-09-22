@@ -862,6 +862,12 @@ onBeforeUnmount(() => {
                   </div>
                   <span>
                     {{
+                      t('monitor.inspector.weights.groupPriority', {
+                        value: formattedInteger(group.priority_manual ?? 50),
+                      })
+                    }}
+                    ·
+                    {{
                       t('monitor.inspector.weights.group', {
                         value: formattedInteger(group.weight_manual ?? 50),
                       })
@@ -886,6 +892,9 @@ onBeforeUnmount(() => {
                     }}</span>
                     <span role="columnheader">{{
                       t('monitor.inspector.credentials.columns.status')
+                    }}</span>
+                    <span role="columnheader">{{
+                      t('monitor.inspector.credentials.columns.priority')
                     }}</span>
                     <span role="columnheader">{{
                       t('monitor.inspector.credentials.columns.weight')
@@ -925,6 +934,15 @@ onBeforeUnmount(() => {
                         {{ credentialStatusLabel(credential) }}
                       </StatusBadge>
                       <code v-if="credential.reason_code">{{ credential.reason_code }}</code>
+                    </div>
+                    <div
+                      class="ledger-record-list__cell route-credential-record__weight"
+                      role="cell"
+                    >
+                      <span class="route-credential-label">{{
+                        t('monitor.inspector.credentials.columns.priority')
+                      }}</span>
+                      <span>{{ formattedInteger(credential.priority) }}</span>
                     </div>
                     <div
                       class="ledger-record-list__cell route-credential-record__weight"
@@ -1397,7 +1415,7 @@ onBeforeUnmount(() => {
 }
 
 .route-credential-grid {
-  --ledger-record-list-grid: 88px minmax(170px, 1.4fr) 92px 108px minmax(148px, 1fr);
+  --ledger-record-list-grid: 88px minmax(170px, 1.4fr) 72px 92px 108px minmax(148px, 1fr);
   --ledger-record-list-column-gap: 14px;
 }
 

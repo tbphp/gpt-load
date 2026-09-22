@@ -22,23 +22,33 @@ import (
 func normalizeCredentialUpdate(
 	request CredentialUpdateRequest,
 	encryptionService encryption.Service,
-) (status *state.CredentialStatus, weight *int, weightSet bool, proxy *string, proxySet bool, err error) {
-	if !request.Status.Set && !request.WeightManual.Set && !request.Proxy.Set {
-		return nil, nil, false, nil, false, app_errors.ErrBadRequest
+) (status *state.CredentialStatus, priority *int, prioritySet bool, weight *int, weightSet bool, proxy *string, proxySet bool, err error) {
+	if !request.Status.Set && !request.PriorityManual.Set && !request.WeightManual.Set && !request.Proxy.Set {
+		return nil, nil, false, nil, false, nil, false, app_errors.ErrBadRequest
 	}
 	if request.Status.Set {
 		if request.Status.Null ||
 			(request.Status.Value != state.CredentialStatusActive && request.Status.Value != state.CredentialStatusDisabled) {
-			return nil, nil, false, nil, false, app_errors.ErrValidation
+			return nil, nil, false, nil, false, nil, false, app_errors.ErrValidation
 		}
 		value := request.Status.Value
 		status = &value
+	}
+	if request.PriorityManual.Set {
+		prioritySet = true
+		if !request.PriorityManual.Null {
+			if request.PriorityManual.Value < state.MinPriority || request.PriorityManual.Value > state.MaxPriority {
+				return nil, nil, false, nil, false, nil, false, app_errors.ErrValidation
+			}
+			value := request.PriorityManual.Value
+			priority = &value
+		}
 	}
 	if request.WeightManual.Set {
 		weightSet = true
 		if !request.WeightManual.Null {
 			if request.WeightManual.Value < 1 || request.WeightManual.Value > state.MaxWeight {
-				return nil, nil, false, nil, false, app_errors.ErrValidation
+				return nil, nil, false, nil, false, nil, false, app_errors.ErrValidation
 			}
 			value := request.WeightManual.Value
 			weight = &value
@@ -46,9 +56,9 @@ func normalizeCredentialUpdate(
 	}
 	proxy, proxySet, err = normalizeProxyOverride(request.Proxy, encryptionService)
 	if err != nil {
-		return nil, nil, false, nil, false, err
+		return nil, nil, false, nil, false, nil, false, err
 	}
-	return status, weight, weightSet, proxy, proxySet, nil
+	return status, priority, prioritySet, weight, weightSet, proxy, proxySet, nil
 }
 
 func nextCredentialUpdatedAtMS(now time.Time, previous int64) (int64, error) {
@@ -108,7 +118,7 @@ func (s *Service) RevealGroupCredential(
 		return CredentialRevealResult{}, app_errors.ErrForbidden
 	}
 	var row models.Credential
-	if err := s.db.WithContext(ctx).Select("id", "group_id", "data", "fingerprint", "identity_fingerprint", "secret_version", "auth_state", "status", "weight_manual", "updated_at_ms").
+	if err := s.db.WithContext(ctx).Select("id", "group_id", "data", "fingerprint", "identity_fingerprint", "secret_version", "auth_state", "status", "priority_manual", "weight_manual", "updated_at_ms").
 		Where("id = ? AND group_id = ?", credentialID, groupID).Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return CredentialRevealResult{}, credentialNotFoundError()
@@ -137,7 +147,7 @@ func (s *Service) UpdateGroupCredential(
 	if groupID == 0 || credentialID == 0 {
 		return CredentialItemResponse{}, app_errors.ErrBadRequest
 	}
-	status, weight, weightSet, proxy, proxySet, err := normalizeCredentialUpdate(request, s.encryption)
+	status, priority, prioritySet, weight, weightSet, proxy, proxySet, err := normalizeCredentialUpdate(request, s.encryption)
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}
@@ -177,6 +187,10 @@ func (s *Service) UpdateGroupCredential(
 			committed.Status = models.CredentialStatus(*status)
 			updates["status"] = committed.Status
 		}
+		if prioritySet {
+			committed.PriorityManual = cloneInt(priority)
+			updates["priority_manual"] = committed.PriorityManual
+		}
 		if weightSet {
 			committed.WeightManual = cloneInt(weight)
 			updates["weight_manual"] = committed.WeightManual
@@ -203,6 +217,7 @@ func (s *Service) UpdateGroupCredential(
 		}
 		entry := entries[0]
 		entry.Status = state.CredentialStatus(committed.Status)
+		entry.PriorityManual = cloneInt(committed.PriorityManual)
 		entry.WeightManual = cloneInt(committed.WeightManual)
 		entry.Version = groupCollectionCredentialVersion(committed.SecretVersion)
 		entry.IdentityGeneration = groupCollectionCredentialIdentity(
@@ -303,7 +318,7 @@ func (s *Service) restoreGroupCredential(
 		return CredentialItemResponse{}, err
 	}
 	groupView := state.GroupCatalogView{ID: group.ID, Name: group.Name, Enabled: group.Enabled,
-		WeightManual: cloneInt(group.WeightManual)}
+		PriorityManual: cloneInt(group.PriorityManual), WeightManual: cloneInt(group.WeightManual)}
 	var (
 		observedAt time.Time
 		restoreErr error
@@ -425,6 +440,9 @@ func validateCredentialRuntimeRow(
 	if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
 		return dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
 	}
+	if !equalOptionalWeight(view.PriorityManual, row.PriorityManual) {
+		return dbRegistryMismatch(mismatchPriorityManual, groupID, row.ID)
+	}
 	if view.Version != groupCollectionCredentialVersion(row.SecretVersion) ||
 		view.IdentityGeneration != groupCollectionCredentialIdentity(row.IdentityFingerprint, group) {
 		return dbRegistryMismatch(mismatchIdentity, groupID, row.ID)
@@ -467,7 +485,7 @@ func (s *Service) mapCredentialItem(
 		return CredentialItemResponse{}, err
 	}
 	bucket := classifyHealthKey(state.GroupCatalogView{ID: group.ID, Name: group.Name, Enabled: group.Enabled,
-		WeightManual: cloneInt(group.WeightManual)}, view, observedAt)
+		PriorityManual: cloneInt(group.PriorityManual), WeightManual: cloneInt(group.WeightManual)}, view, observedAt)
 	item, err := mapCredentialRuntimeItem(mask, row.ID, view, bucket, stats, observedAt)
 	if err != nil {
 		return CredentialItemResponse{}, err
@@ -703,12 +721,12 @@ func (s *Service) BatchGroupCredentials(
 }
 
 func (s *Service) restoreCredentialBatchRuntime(group models.Group, entries []state.CredentialEntry) ([]uint, error) {
-	groupView := state.GroupCatalogView{ID: group.ID, Enabled: group.Enabled, WeightManual: group.WeightManual}
+	groupView := state.GroupCatalogView{ID: group.ID, Enabled: group.Enabled, PriorityManual: group.PriorityManual, WeightManual: group.WeightManual}
 	now := s.now().UTC()
 	restored := make([]uint, 0, len(entries))
 	for _, entry := range entries {
 		view := state.CredentialRuntimeView{
-			Status: entry.Status, AuthState: entry.AuthState, WeightManual: entry.WeightManual,
+			Status: entry.Status, AuthState: entry.AuthState, PriorityManual: entry.PriorityManual, WeightManual: entry.WeightManual,
 			CooldownUntil: entry.CooldownUntil, Blacklisted: entry.Blacklisted,
 		}
 		bucket := classifyHealthKey(groupView, view, now)
@@ -778,7 +796,7 @@ func summarizeGroupRuntimeCredentials(
 	summary := CredentialSummaryResponse{}
 	groupView := state.GroupCatalogView{
 		ID: group.ID, Name: group.Name, Enabled: group.Enabled,
-		WeightManual: cloneInt(group.WeightManual),
+		PriorityManual: cloneInt(group.PriorityManual), WeightManual: cloneInt(group.WeightManual),
 	}
 	for _, view := range views {
 		if view.GroupID != group.ID {

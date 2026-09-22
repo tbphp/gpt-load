@@ -1255,7 +1255,7 @@ function clearDeletedRouteState(ids: readonly number[]): void {
 
 async function mutateItem(
   item: CredentialItemDto,
-  action: 'weight' | 'toggle' | 'restore',
+  action: 'priority' | 'weight' | 'toggle' | 'restore',
   value?: string,
 ): Promise<void> {
   if (batchBusy.value || pending(item.credential_id)) return
@@ -1270,9 +1270,11 @@ async function mutateItem(
             client,
             props.groupId,
             item.credential_id,
-            action === 'weight'
-              ? { weight_manual: Number(value) }
-              : { status: item.configured_status === 'active' ? 'disabled' : 'active' },
+            action === 'priority'
+              ? { priority_manual: Number(value) }
+              : action === 'weight'
+                ? { weight_manual: Number(value) }
+                : { status: item.configured_status === 'active' ? 'disabled' : 'active' },
           )
   } catch {
     feedback.value = t(
@@ -1282,7 +1284,7 @@ async function mutateItem(
     return
   }
   try {
-    await reconcileItem(result, action !== 'weight')
+    await reconcileItem(result, action !== 'weight' && action !== 'priority')
   } finally {
     setPending(item.credential_id, action, false)
   }
@@ -1838,6 +1840,7 @@ async function runBatch(
               @toggle="mutateItem($event, 'toggle')"
               @restore="mutateItem($event, 'restore')"
               @weight="mutateItem($event.item, 'weight', $event.value)"
+              @priority="mutateItem($event.item, 'priority', $event.value)"
               @refresh="refreshObservation"
               @load-details="loadCredentialUsage"
               @reset="openResetCreditDialog"
@@ -1886,6 +1889,7 @@ async function runBatch(
             @update:weight-editor-open="setWeightEditor(item.credential_id, $event)"
             @open-weight="openWeightEditor($event.credential_id)"
             @weight="mutateItem($event.item, 'weight', $event.value)"
+            @priority="mutateItem($event.item, 'priority', $event.value)"
             @test="openCredentialTest"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"

@@ -68,6 +68,7 @@ const groupSettingsFields = [
   'validation_protocol',
   'validation_protocols',
   'enabled',
+  'priority_manual',
   'weight_manual',
   'overrides',
   'effective',
@@ -170,6 +171,7 @@ export type GroupSettingsUpdateRequest = Partial<{
   validation_model: string | null
   validation_protocol: AccessProtocol | null
   enabled: boolean
+  priority_manual: number | null
   weight_manual: number | null
   overrides: GroupRuntimeConfigDto
   proxy: ProxyMutation
@@ -438,6 +440,10 @@ export function projectGroupSettings(value: unknown): GroupSettingsDto {
       projectEnum(value, enabledDataProtocols),
     ),
     enabled: projectBoolean(record.enabled),
+    priority_manual:
+      record.priority_manual === null
+        ? null
+        : projectSafeInteger(record.priority_manual, { minimum: 1, maximum: 100 }),
     weight_manual:
       record.weight_manual === null
         ? null
