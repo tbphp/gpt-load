@@ -36,6 +36,8 @@ export const logFilterNames = [
   'model_consistency',
   'access_key_id',
   'status',
+  'audit_status',
+  'audit_rule',
   'request_id',
   'protocol',
   'operation',

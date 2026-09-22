@@ -31,6 +31,8 @@ export interface LogFilterDraft {
   channel_id: string
   credential_id: string
   status: string
+  audit_status: string
+  audit_rule: string
   client_model: string
   upstream_model: string
   access_key_id: string
@@ -63,6 +65,7 @@ export interface LogFilterDraft {
 export type LogFilterErrors = Partial<Record<keyof LogFilterDraft, string>>
 
 export const requestLogStatuses = ['success', 'error', 'incomplete', 'canceled'] as const
+export const requestLogAuditStatuses = ['warned', 'blocked', 'incomplete'] as const
 export const requestLogUsageStates = ['complete', 'partial', 'missing', 'not_applicable'] as const
 export const requestLogCostStates = ['priced', 'unpriced', 'not_applicable'] as const
 export const requestLogPricingCompleteness = [
@@ -130,6 +133,8 @@ export function createLogFilterDraft(filters: RequestLogFilters): LogFilterDraft
     channel_id: filters.channel_id ?? '',
     credential_id: filters.credential_id === undefined ? '' : String(filters.credential_id),
     status: filters.status ?? '',
+    audit_status: filters.audit_status ?? '',
+    audit_rule: filters.audit_rule ?? '',
     client_model: filters.client_model ?? '',
     upstream_model: filters.upstream_model ?? '',
     access_key_id: filters.access_key_id === undefined ? '' : String(filters.access_key_id),
@@ -182,6 +187,9 @@ export function applyLogFilterDraft(
   if (draft.channel_id) filters.channel_id = draft.channel_id
   if (draft.credential_id) filters.credential_id = Number(draft.credential_id)
   if (draft.status) filters.status = draft.status as RequestLogStatus
+  if (draft.audit_status)
+    filters.audit_status = draft.audit_status as RequestLogFilters['audit_status']
+  if (draft.audit_rule) filters.audit_rule = draft.audit_rule
   if (draft.client_model) filters.client_model = draft.client_model
   if (draft.upstream_model) filters.upstream_model = draft.upstream_model
   if (draft.access_key_id) filters.access_key_id = Number(draft.access_key_id)
@@ -268,7 +276,7 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): AppliedL
     const value = parseSafeInteger(query[field], 0, 999)
     if (value !== undefined) Object.assign(filters, { [field]: value })
   }
-  for (const field of ['client_model', 'upstream_model', 'error_code'] as const) {
+  for (const field of ['client_model', 'upstream_model', 'error_code', 'audit_rule'] as const) {
     const value = parseText(query[field])
     if (value !== undefined) Object.assign(filters, { [field]: value })
   }
@@ -278,6 +286,8 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): AppliedL
   if (requestID && requestIDPattern.test(requestID)) filters.request_id = requestID
   const status = parseEnum(query.status, requestLogStatuses)
   if (status) filters.status = status
+  const auditStatus = parseEnum(query.audit_status, requestLogAuditStatuses)
+  if (auditStatus) filters.audit_status = auditStatus
   const protocol = parseEnum(query.protocol, enabledDataProtocols)
   if (protocol) filters.protocol = protocol
   const usageState = parseEnum(query.usage_state, requestLogUsageStates)
@@ -345,7 +355,7 @@ export function validateLogFilterDraft(draft: LogFilterDraft): LogFilterErrors {
   for (const field of ['final_status_code', 'attempt_status_code'] as const) {
     validateIntegerField(errors, draft, field, 999)
   }
-  for (const field of ['client_model', 'upstream_model', 'error_code'] as const) {
+  for (const field of ['client_model', 'upstream_model', 'error_code', 'audit_rule'] as const) {
     if (draft[field] && !isValidMonitorText(draft[field])) {
       errors[field] = 'monitor.logs.errors.text'
     }

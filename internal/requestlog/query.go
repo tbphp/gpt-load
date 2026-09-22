@@ -51,6 +51,10 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if input.Status != "" {
 		query = query.Where("status = ?", input.Status)
 	}
+	query, err := applyRequestAuditFilters(query, input)
+	if err != nil {
+		return Page{}, err
+	}
 	if input.RequestID != "" {
 		query = query.Where("id = ?", input.RequestID)
 	}

@@ -445,6 +445,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		"from_ms": {}, "to_ms": {}, "group_id": {}, "channel_id": {}, "credential_id": {},
 		"client_model": {}, "upstream_model": {}, "model_consistency": {}, "access_key_id": {},
 		"status": {}, "request_id": {}, "protocol": {}, "operation": {}, "stream": {}, "final_status_code": {},
+		"audit_status": {}, "audit_rule": {},
 		"usage_state": {}, "cost_state": {}, "pricing_completeness": {}, "cache_present": {},
 		"attempt_status_code": {}, "failure_category": {}, "error_code": {},
 		"retry_state": {}, "retry_count_min": {}, "retry_count_max": {},
@@ -462,6 +463,20 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 	}
 
 	query := requestlog.ListQuery{Limit: defaultRequestLogLimit}
+	if value, ok := singleQueryValue(values, "audit_status"); ok {
+		switch value {
+		case "warned", "blocked", "incomplete":
+			query.AuditStatus = value
+		default:
+			return requestlog.ListQuery{}, app_errors.ErrValidation
+		}
+	}
+	if value, ok := singleQueryValue(values, "audit_rule"); ok {
+		if !validUsageModel(value) {
+			return requestlog.ListQuery{}, app_errors.ErrValidation
+		}
+		query.AuditRule = value
+	}
 	if value, ok := singleQueryValue(values, "from_ms"); ok {
 		parsed, err := parseCanonicalSafeMilliseconds(value)
 		if err != nil {

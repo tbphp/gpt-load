@@ -192,6 +192,7 @@ function filterValue(key: string, value: string): string {
   if (key === 'channel_id')
     return channelMap.value?.get(value)?.name ?? (channelMap.value ? t('logs.deleted') : '—')
   if (key === 'protocol') return protocolLabel(value, t)
+  if (key === 'audit_status') return t('requestAudit.statuses.' + value)
   if (key.startsWith('cost_') && key.endsWith('_nano_usd')) return '$' + nanoToUSD(value)
   if ((key === 'stream' || key === 'cache_present') && (value === 'true' || value === 'false'))
     return t(value === 'true' ? 'logs.yes' : 'logs.no')

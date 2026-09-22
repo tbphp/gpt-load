@@ -82,6 +82,8 @@ type ListQuery struct {
 	ModelConsistency    telemetry.ModelConsistency
 	AccessKeyID         *uint
 	Status              telemetry.RequestStatus
+	AuditStatus         string
+	AuditRule           string
 	RequestID           string
 	Protocol            protocol.Protocol
 	Operation           execution.Operation

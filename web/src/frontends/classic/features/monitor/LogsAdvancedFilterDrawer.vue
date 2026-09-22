@@ -9,6 +9,7 @@ import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 import {
+  requestLogAuditStatuses,
   requestLogCostStates,
   requestLogFailureCategories,
   requestLogPricingCompleteness,
@@ -80,6 +81,10 @@ const retryOptions = () => [
     option(value, t(`monitor.logs.filters.retryState.${value}`)),
   ),
 ]
+const auditOptions = () => [
+  option('', t('monitor.logs.filters.any')),
+  ...requestLogAuditStatuses.map((value) => option(value, t('requestAudit.statuses.' + value))),
+]
 
 function error(field: keyof LogFilterDraft): string | undefined {
   const key = props.errors[field]
@@ -134,6 +139,37 @@ function update(field: keyof LogFilterDraft, value: string): void {
               size="sm"
               @update:model-value="update('stream', $event)"
             />
+          </FormField>
+          <FormField
+            id="logs-audit-status"
+            :label="t('monitor.logs.filters.auditStatus')"
+            size="compact"
+          >
+            <AppSelect
+              id="logs-audit-status"
+              :model-value="draft.audit_status"
+              :label="t('monitor.logs.filters.auditStatus')"
+              :options="auditOptions()"
+              size="sm"
+              @update:model-value="update('audit_status', $event)"
+            />
+          </FormField>
+          <FormField
+            id="logs-audit-rule"
+            :label="t('monitor.logs.filters.auditRule')"
+            size="compact"
+            :error="error('audit_rule')"
+          >
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-audit-rule"
+                :value="draft.audit_rule"
+                :placeholder="t('requestAudit.ruleSearch')"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('audit_rule', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
           </FormField>
           <FormField
             id="logs-final-code"

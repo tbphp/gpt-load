@@ -159,7 +159,12 @@ function options(field: LogFilterDefinition) {
     { value: '', label: t('logs.all') },
     ...(field.values ?? []).map((value) => ({
       value,
-      label: field.key === 'protocol' ? protocolLabel(value, t) : valueLabel(value),
+      label:
+        field.key === 'protocol'
+          ? protocolLabel(value, t)
+          : field.key === 'audit_status'
+            ? t('requestAudit.statuses.' + value)
+            : valueLabel(value),
     })),
   ]
 }
@@ -429,7 +434,7 @@ const loadCredentials = computed(() => {
             v-else-if="!field.key.includes('_max')"
             :model-value="draft[field.key] ?? ''"
             :label="t('logs.filters.' + field.key)"
-            :placeholder="t('logs.any')"
+            :placeholder="t(field.key === 'audit_rule' ? 'requestAudit.ruleSearch' : 'logs.any')"
             :inputmode="
               field.kind === 'money' ? 'decimal' : field.kind === 'number' ? 'numeric' : undefined
             "
