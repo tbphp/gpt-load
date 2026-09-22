@@ -49,12 +49,12 @@ function createSystemStatus() {
     }
   }
 
-  async function loadUpdate(force: boolean): Promise<void> {
+  async function loadUpdate(force: boolean): Promise<CheckState | undefined> {
     if (checkState.value === 'checking') return
     if (!canCheckUpdate.value) {
       update.value = null
       checkState.value = 'authRequired'
-      return
+      return checkState.value
     }
     checkState.value = 'checking'
     try {
@@ -67,10 +67,11 @@ function createSystemStatus() {
           ? 'authRequired'
           : 'failed'
     }
+    return checkState.value
   }
 
-  function checkForUpdate(): void {
-    void loadUpdate(true)
+  function checkForUpdate(): Promise<CheckState | undefined> {
+    return loadUpdate(true)
   }
 
   onMounted(() => {
