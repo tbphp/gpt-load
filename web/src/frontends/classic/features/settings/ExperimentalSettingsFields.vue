@@ -158,13 +158,21 @@ function addPreset() {
     <SettingRow
       :label="t(kind === 'jev' ? 'jev.title' : 'requestAudit.title')"
       :value="
-        kind === 'jev'
-          ? jev.model
-          : t(audit.enabled ? 'settings.runtime.enabled' : 'settings.runtime.disabled')
+        pendingRestore
+          ? t('settings.runtime.resetPending')
+          : kind === 'jev'
+            ? jev.model || '—'
+            : t(audit.enabled ? 'settings.runtime.enabled' : 'settings.runtime.disabled')
       "
       :help="t(kind === 'jev' ? 'jev.help' : 'requestAudit.help')"
       :source-label="
-        t(overridden ? 'settings.runtime.overrideSource' : 'settings.runtime.defaultSource')
+        t(
+          overridden
+            ? 'settings.runtime.overrideSource'
+            : pendingRestore
+              ? 'settings.runtime.pendingRestoreSource'
+              : 'settings.runtime.defaultSource',
+        )
       "
       :action-label="
         t(overridden ? 'settings.runtime.restoreDefault' : 'settings.runtime.override')
@@ -176,36 +184,46 @@ function addPreset() {
       :divided="false"
       @toggle="toggleOverride"
     >
-      <template v-if="kind === 'request_audit'" #control
-        ><AppSwitch
+      <template #control>
+        <span v-if="kind === 'jev'" class="experimental-settings-value">{{
+          jev.model || '—'
+        }}</span>
+        <AppSwitch
+          v-else
           :model-value="audit.enabled"
           :label="t('requestAudit.enabled')"
           :disabled="controlsDisabled"
           @update:model-value="setAudit({ enabled: $event })"
-      /></template>
+        />
+      </template>
     </SettingRow>
-    <div v-if="kind === 'jev'" class="experimental-settings-grid">
-      <FormField id="experimental-jev-group" :label="t('jev.group')"
+    <div
+      v-if="kind === 'jev' && overridden"
+      class="experimental-settings-grid experimental-settings-content"
+    >
+      <FormField id="experimental-jev-group" :label="t('jev.group')" size="compact"
         ><AppCombobox
           id="experimental-jev-group"
           :model-value="String(jev.group_id)"
           :label="t('jev.group')"
+          size="sm"
           :options="groups"
           :empty-text="t('autoModel.decisionModelEmpty')"
           :disabled="controlsDisabled"
           @update:model-value="selectGroup"
       /></FormField>
-      <FormField id="experimental-jev-model" :label="t('jev.model')"
+      <FormField id="experimental-jev-model" :label="t('jev.model')" size="compact"
         ><AppCombobox
           id="experimental-jev-model"
           :model-value="jev.model"
           :label="t('jev.model')"
+          size="sm"
           :options="models"
           :empty-text="t('autoModel.decisionModelEmpty')"
           :disabled="controlsDisabled"
           @update:model-value="setJev({ model: $event })"
       /></FormField>
-      <FormField id="experimental-jev-timeout" :label="t('jev.timeout')"
+      <FormField id="experimental-jev-timeout" :label="t('jev.timeout')" size="compact"
         ><AppTextInput
           id="experimental-jev-timeout"
           :model-value="String(jev.timeout_seconds)"
@@ -213,18 +231,24 @@ function addPreset() {
           min="1"
           max="60"
           :label="t('jev.timeout')"
+          size="sm"
           :disabled="controlsDisabled"
           @update:model-value="setJev({ timeout_seconds: Number($event) })"
       /></FormField>
     </div>
-    <template v-else-if="audit.enabled">
+    <div
+      v-else-if="kind === 'request_audit' && audit.enabled"
+      class="experimental-settings-content experimental-settings-audit"
+    >
       <FormField
         id="audit-scope"
         :label="t('requestAudit.scope')"
         :description="t('requestAudit.scopeHelp')"
+        size="compact"
       >
         <SearchableMultiSelect
           id="audit-scope"
+          size="compact"
           :label="t('requestAudit.scope')"
           :options="scope"
           :model-value="audit.access_key_ids"
@@ -241,110 +265,129 @@ function addPreset() {
           @update:model-value="setAudit({ access_key_ids: $event.map(Number) })"
         />
       </FormField>
-      <div class="experimental-settings-heading experimental-settings-toolbar">
-        <strong>{{ t('requestAudit.rulesTitle') }} · {{ audit.rules.length }}/16</strong
-        ><AppButton
-          size="compact"
-          variant="secondary"
-          :disabled="
-            controlsDisabled ||
-            !missingPresetRules.length ||
-            audit.rules.length + missingPresetRules.length > 16
-          "
-          @click="addPreset"
-          >{{ t('requestAudit.addPreset') }}</AppButton
-        ><AppButton
-          size="compact"
-          variant="secondary"
-          :disabled="controlsDisabled || audit.rules.length >= 16"
-          @click="addRule"
-          ><Plus :size="14" />{{ t('requestAudit.addRule') }}</AppButton
-        >
-      </div>
-      <p>{{ t('requestAudit.rulesHelp') }}</p>
-      <div v-for="(rule, index) in audit.rules" :key="rule.id" class="experimental-settings-rule">
-        <div class="experimental-settings-heading">
-          <AppButton
-            size="sm"
-            variant="ghost"
-            class="experimental-settings-name"
-            :aria-expanded="isOpen(rule)"
-            :aria-controls="'guardrail-' + rule.id"
-            @click="toggle(rule.id)"
-            ><ChevronDown v-if="isOpen(rule)" :size="14" /><ChevronRight v-else :size="14" />{{
-              rule.name || t('requestAudit.unnamed')
-            }}</AppButton
-          >
-          <StatusBadge size="compact" :tone="rule.action === 'block' ? 'danger' : 'warning'">{{
-            t('requestAudit.actions.' + rule.action)
-          }}</StatusBadge>
-          <AppSwitch
-            :model-value="rule.enabled"
-            :label="t('requestAudit.ruleEnabled')"
-            :disabled="controlsDisabled"
-            @update:model-value="editRule(index, { enabled: $event })"
-          />
-          <IconButton
-            size="xs"
-            variant="ghost"
-            :label="t('requestAudit.removeRule')"
-            :disabled="controlsDisabled"
-            @click="update((d) => d.values.request_audit.rules.splice(index, 1))"
-            ><Trash2 :size="14"
-          /></IconButton>
+      <div class="experimental-settings-toolbar">
+        <div class="experimental-settings-intro">
+          <h3>{{ t('requestAudit.rulesTitle') }} · {{ audit.rules.length }}/16</h3>
+          <p>{{ t('requestAudit.rulesHelp') }}</p>
         </div>
-        <div
-          v-if="isOpen(rule)"
-          :id="'guardrail-' + rule.id"
-          class="experimental-settings-rule-body"
-        >
-          <div class="experimental-settings-grid">
-            <FormField :id="rule.id + '-name'" :label="t('requestAudit.ruleName')"
-              ><AppTextInput
-                :id="rule.id + '-name'"
-                :model-value="rule.name"
-                :label="t('requestAudit.ruleName')"
+        <div class="experimental-settings-actions">
+          <AppButton
+            size="compact"
+            variant="secondary"
+            :disabled="
+              controlsDisabled ||
+              !missingPresetRules.length ||
+              audit.rules.length + missingPresetRules.length > 16
+            "
+            @click="addPreset"
+            >{{ t('requestAudit.addPreset') }}</AppButton
+          ><AppButton
+            size="compact"
+            variant="secondary"
+            :disabled="controlsDisabled || audit.rules.length >= 16"
+            @click="addRule"
+            ><Plus :size="14" />{{ t('requestAudit.addRule') }}</AppButton
+          >
+        </div>
+      </div>
+      <div class="experimental-settings-rules">
+        <div v-for="(rule, index) in audit.rules" :key="rule.id" class="experimental-settings-rule">
+          <div class="experimental-settings-heading">
+            <AppButton
+              size="compact"
+              variant="ghost"
+              class="experimental-settings-name"
+              :aria-expanded="isOpen(rule)"
+              :aria-controls="'guardrail-' + rule.id"
+              @click="toggle(rule.id)"
+              ><ChevronDown v-if="isOpen(rule)" :size="14" /><ChevronRight
+                v-else
+                :size="14"
+              /><span>{{ rule.name || t('requestAudit.unnamed') }}</span></AppButton
+            >
+            <div class="experimental-settings-actions">
+              <StatusBadge size="compact" :tone="rule.action === 'block' ? 'danger' : 'warning'">{{
+                t('requestAudit.actions.' + rule.action)
+              }}</StatusBadge>
+              <AppSwitch
+                :model-value="rule.enabled"
+                :label="t('requestAudit.ruleEnabled')"
                 :disabled="controlsDisabled"
-                @update:model-value="editRule(index, { name: $event })"
-            /></FormField>
-            <FormField :id="rule.id + '-action'" :label="t('requestAudit.action')"
-              ><AppSelect
-                :id="rule.id + '-action'"
-                :model-value="rule.action"
-                :label="t('requestAudit.action')"
-                :options="actions"
+                @update:model-value="editRule(index, { enabled: $event })"
+              />
+              <IconButton
+                size="xs"
+                variant="ghost"
+                :label="t('requestAudit.removeRule')"
                 :disabled="controlsDisabled"
-                @update:model-value="editRule(index, { action: $event as AuditRule['action'] })"
-            /></FormField>
-            <FormField :id="rule.id + '-threshold'" :label="t('requestAudit.threshold')"
-              ><AppTextInput
-                :id="rule.id + '-threshold'"
-                :model-value="String(rule.threshold)"
-                type="number"
-                min="0.01"
-                max="1"
-                step="0.05"
-                :label="t('requestAudit.threshold')"
-                :disabled="controlsDisabled"
-                @update:model-value="editRule(index, { threshold: Number($event) })"
-            /></FormField>
+                @click="update((d) => d.values.request_audit.rules.splice(index, 1))"
+                ><Trash2 :size="14"
+              /></IconButton>
+            </div>
           </div>
-          <FormField :id="rule.id + '-instructions'" :label="t('requestAudit.instructions')">
-            <textarea
+          <div
+            v-if="isOpen(rule)"
+            :id="'guardrail-' + rule.id"
+            class="experimental-settings-rule-body"
+          >
+            <div class="experimental-settings-grid">
+              <FormField :id="rule.id + '-name'" :label="t('requestAudit.ruleName')" size="compact"
+                ><AppTextInput
+                  :id="rule.id + '-name'"
+                  :model-value="rule.name"
+                  :label="t('requestAudit.ruleName')"
+                  size="sm"
+                  :disabled="controlsDisabled"
+                  @update:model-value="editRule(index, { name: $event })"
+              /></FormField>
+              <FormField :id="rule.id + '-action'" :label="t('requestAudit.action')" size="compact"
+                ><AppSelect
+                  :id="rule.id + '-action'"
+                  :model-value="rule.action"
+                  :label="t('requestAudit.action')"
+                  size="sm"
+                  :options="actions"
+                  :disabled="controlsDisabled"
+                  @update:model-value="editRule(index, { action: $event as AuditRule['action'] })"
+              /></FormField>
+              <FormField
+                :id="rule.id + '-threshold'"
+                :label="t('requestAudit.threshold')"
+                size="compact"
+                ><AppTextInput
+                  :id="rule.id + '-threshold'"
+                  :model-value="String(rule.threshold)"
+                  type="number"
+                  min="0.01"
+                  max="1"
+                  step="0.05"
+                  :label="t('requestAudit.threshold')"
+                  size="sm"
+                  :disabled="controlsDisabled"
+                  @update:model-value="editRule(index, { threshold: Number($event) })"
+              /></FormField>
+            </div>
+            <FormField
               :id="rule.id + '-instructions'"
-              class="experimental-settings-textarea"
-              :value="rule.instructions"
-              rows="2"
-              :disabled="controlsDisabled"
-              @input="
-                editRule(index, { instructions: ($event.target as HTMLTextAreaElement).value })
-              "
-            />
-          </FormField>
+              :label="t('requestAudit.instructions')"
+              size="compact"
+            >
+              <textarea
+                :id="rule.id + '-instructions'"
+                class="experimental-settings-textarea"
+                :value="rule.instructions"
+                rows="2"
+                :disabled="controlsDisabled"
+                @input="
+                  editRule(index, { instructions: ($event.target as HTMLTextAreaElement).value })
+                "
+              />
+            </FormField>
+          </div>
         </div>
       </div>
       <p>{{ t('requestAudit.coverageHelp') }}</p>
-    </template>
+    </div>
     <p v-if="invalid" class="experimental-settings-error" role="alert">
       {{ t('requestAudit.invalid') }}
     </p>
@@ -353,16 +396,21 @@ function addPreset() {
 
 <style scoped>
 .experimental-settings-fields,
+.experimental-settings-audit,
 .experimental-settings-rule-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   gap: var(--space-3);
 }
-.experimental-settings-fields {
-  padding-bottom: var(--space-3);
+.experimental-settings-content {
+  padding-inline: var(--space-3);
 }
-.experimental-settings-toolbar {
-  flex-wrap: wrap;
+.experimental-settings-value {
+  display: block;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
 }
 .experimental-settings-fields p {
   margin: 0;
@@ -372,57 +420,101 @@ function addPreset() {
 }
 .experimental-settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(90px, 120px);
+  align-items: start;
   gap: var(--space-3);
+  min-width: 0;
 }
+.experimental-settings-grid > * {
+  min-width: 0;
+}
+.experimental-settings-toolbar,
 .experimental-settings-heading {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   min-width: 0;
   gap: var(--space-2);
 }
-.experimental-settings-heading > :first-child {
+.experimental-settings-toolbar {
+  flex-wrap: wrap;
+}
+.experimental-settings-intro {
+  display: grid;
+  flex: 1 1 180px;
+  min-width: 0;
+  gap: var(--space-1);
+}
+.experimental-settings-intro h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+.experimental-settings-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+.experimental-settings-toolbar > .experimental-settings-actions {
+  flex-wrap: wrap;
+}
+.experimental-settings-heading > .experimental-settings-name {
   flex: 1;
   min-width: 0;
-}
-.experimental-settings-heading strong {
-  font-size: var(--text-sm);
-}
-.experimental-settings-name {
   justify-content: flex-start;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  padding-inline: var(--space-1);
   text-align: left;
+  white-space: normal;
+}
+.experimental-settings-name span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.experimental-settings-name :deep(svg) {
+  flex: none;
+}
+.experimental-settings-rules {
+  display: grid;
+  min-width: 0;
 }
 .experimental-settings-rule {
   display: grid;
   min-width: 0;
-  gap: var(--space-3);
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-2);
+  gap: var(--space-2);
+  border-top: 1px dashed var(--color-border-subtle);
+  padding-block: var(--space-2);
 }
-.experimental-settings-textarea {
+.experimental-settings-rule-body {
+  padding: var(--space-1) var(--space-1) var(--space-2);
+}
+.experimental-settings-fields .experimental-settings-textarea {
   box-sizing: border-box;
   width: 100%;
+  min-height: 72px;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  color: var(--color-text);
-  background: var(--color-surface);
-  font: inherit;
   font-size: var(--text-sm);
+  line-height: 1.5;
   resize: vertical;
 }
-.experimental-settings-textarea:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
-}
 .experimental-settings-fields .experimental-settings-error {
+  padding-inline: var(--space-3);
   color: var(--color-danger);
 }
-@media (max-width: 760px) {
+@media (max-width: 800px) {
   .experimental-settings-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .experimental-settings-heading {
+    flex-wrap: wrap;
+  }
+  .experimental-settings-heading > .experimental-settings-name {
+    flex-basis: 100%;
+  }
+  .experimental-settings-heading > .experimental-settings-actions {
+    margin-left: auto;
   }
 }
 </style>

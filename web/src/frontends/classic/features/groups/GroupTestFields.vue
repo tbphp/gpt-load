@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { useId } from 'vue'
+import { computed, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessProtocol } from '@/api/control/types'
 import AppSelect from '@/components/ui/AppSelect.vue'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     protocol?: AccessProtocol | null
     protocols: AccessProtocol[]
@@ -23,6 +23,15 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const modelInputId = `${useId()}-test-model`
 const modelListId = `${modelInputId}-options`
+const modelOptions = computed(() => {
+  const aliases = new Map<string, Set<string>>()
+  for (const model of props.models) {
+    const names = aliases.get(model.id) ?? new Set<string>()
+    if (model.alias) names.add(model.alias)
+    aliases.set(model.id, names)
+  }
+  return [...aliases].map(([id, names]) => ({ id, alias: [...names].join(' · ') }))
+})
 </script>
 
 <template>
@@ -53,7 +62,7 @@ const modelListId = `${modelInputId}-options`
       />
       <datalist :id="modelListId">
         <option
-          v-for="option in models"
+          v-for="option in modelOptions"
           :key="option.id"
           :value="option.id"
           :label="option.alias || undefined"

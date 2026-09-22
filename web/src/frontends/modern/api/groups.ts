@@ -161,10 +161,7 @@ export async function getGroupWorkspace(
 
 export async function getGroupModelNames(client: ApiClient, id: number, signal: AbortSignal) {
   const data = record(await client.request<unknown>(`/api/groups/${id}/models`, { signal }))
-  return list(data.items).map((value) => {
-    const model = record(value)
-    return { id: text(model.id), name: text(model.client_model) }
-  })
+  return [...new Set(list(data.items).map((value) => text(record(value).client_model)))]
 }
 
 export function readGroupBasics(value: unknown): GroupBasics {

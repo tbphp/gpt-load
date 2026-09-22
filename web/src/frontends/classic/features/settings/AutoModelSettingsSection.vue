@@ -27,7 +27,9 @@ const props = defineProps<{
 const emit = defineEmits<{ change: [value: SettingsDraftChange]; invalid: [value: boolean] }>()
 const { t } = useI18n()
 const config = computed(() => props.draft.values.auto_model ?? defaultAutoModel())
-const controlsDisabled = computed(() => props.disabled || !hasOverride())
+const controlsDisabled = computed(
+  () => props.disabled || props.draft.readOnly.has('auto_model') || !hasOverride(),
+)
 function editableEntries(models: AutoEntryDto[]) {
   return models.map((entry) => {
     const editable: Partial<AutoEntryDto> = { ...entry }
@@ -134,7 +136,7 @@ function addTemplate() {
 <template>
   <section
     id="settings-experimental"
-    class="auto-model-section"
+    class="settings-section auto-model-section"
     aria-labelledby="settings-experimental-title"
     tabindex="-1"
   >
@@ -143,6 +145,7 @@ function addTemplate() {
       <p>{{ t('autoModel.experimentalSectionHelp') }}</p>
     </header>
     <ExperimentalSettingsFields
+      class="auto-model-feature"
       kind="jev"
       :base="base"
       :draft="draft"
@@ -164,6 +167,7 @@ function addTemplate() {
         :action-label="actionLabel()"
         :overridden="hasOverride()"
         :pending-restore="isPendingRestore()"
+        :locked="draft.readOnly.has('auto_model')"
         :disabled="disabled"
         :divided="false"
         @toggle="toggleOverride"
@@ -172,7 +176,7 @@ function addTemplate() {
           <AppSwitch
             :model-value="config.enabled"
             :label="t('autoModel.enabled')"
-            :disabled="disabled"
+            :disabled="controlsDisabled"
             @update:model-value="setEnabled"
           />
         </template>
@@ -191,28 +195,40 @@ function addTemplate() {
             >{{ t('autoModel.addTemplate') }}</AppButton
           >
         </div>
-        <DisclosurePanel :summary="t('autoModel.entries') + ' · JSON'" :open="entriesError">
-          <p>{{ t('autoModel.permissionsHint') }}</p>
-          <p>{{ t('autoModel.englishHint') }}</p>
-          <p>{{ t('autoModel.overrideHint') }}</p>
-          <FormField
-            id="auto-entries"
-            :label="t('autoModel.entries')"
-            :error="entriesError ? t('autoModel.invalidJSON') : undefined"
-          >
-            <textarea
+        <DisclosurePanel
+          class="auto-model-details"
+          :summary="t('autoModel.entries') + ' · JSON'"
+          :open="entriesError"
+        >
+          <div class="auto-model-editor">
+            <FormField
               id="auto-entries"
-              class="auto-model-json"
-              :value="entries"
-              rows="8"
-              :disabled="controlsDisabled"
-              @input="editEntries(($event.target as HTMLTextAreaElement).value)"
-            />
-          </FormField>
+              :label="t('autoModel.entries')"
+              :error="entriesError ? t('autoModel.invalidJSON') : undefined"
+              size="compact"
+              label-hidden
+            >
+              <textarea
+                id="auto-entries"
+                class="auto-model-json"
+                :value="entries"
+                rows="8"
+                :disabled="controlsDisabled"
+                spellcheck="false"
+                @input="editEntries(($event.target as HTMLTextAreaElement).value)"
+              />
+            </FormField>
+            <div class="auto-model-help">
+              <p>{{ t('autoModel.permissionsHint') }}</p>
+              <p>{{ t('autoModel.englishHint') }}</p>
+              <p>{{ t('autoModel.overrideHint') }}</p>
+            </div>
+          </div>
         </DisclosurePanel>
       </div>
     </div>
     <ExperimentalSettingsFields
+      class="auto-model-feature"
       kind="request_audit"
       :base="base"
       :draft="draft"
@@ -227,21 +243,23 @@ function addTemplate() {
 <style scoped>
 .auto-model-section,
 .auto-model-section__heading,
-.auto-model-fields {
+.auto-model-fields,
+.auto-model-editor {
   display: grid;
+  min-width: 0;
   gap: var(--space-3);
 }
 .auto-model-section {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
   scroll-margin-top: 76px;
+}
+.auto-model-section__heading {
+  gap: var(--space-1);
 }
 .auto-model-section__heading h2,
 .auto-model-section__heading p {
   margin: 0;
-}
-.auto-model-empty {
-  margin: 0;
-  color: var(--color-warning);
-  font-size: var(--text-sm);
 }
 .auto-model-section__heading h2 {
   font-size: var(--title-section);
@@ -252,19 +270,17 @@ function addTemplate() {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
-.auto-model-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-  gap: var(--space-3);
-}
 .auto-model-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
-.auto-model-json {
+.auto-model-editor .auto-model-json {
+  box-sizing: border-box;
   width: 100%;
+  min-height: 160px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   padding: var(--space-3);
@@ -272,26 +288,41 @@ function addTemplate() {
   background: var(--color-surface);
   font: inherit;
   font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
   resize: vertical;
 }
 .auto-model-feature {
   display: grid;
   min-width: 0;
   gap: var(--space-3);
-  border-block: 1px solid var(--color-border-subtle);
-  padding-block: var(--space-3);
+}
+.auto-model-feature + .auto-model-feature {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-3);
+}
+.auto-model-fields {
+  padding-inline: var(--space-3);
+}
+.auto-model-details {
+  border-top: 0;
+  padding-top: 0;
+}
+.auto-model-help {
+  display: grid;
+  gap: var(--space-1);
 }
 .auto-model-fields p {
-  margin: 0 0 var(--space-2);
+  margin: 0;
   font-size: var(--text-sm);
   color: var(--color-text-muted);
+  line-height: 1.5;
+}
+.auto-model-fields .auto-model-empty {
+  color: var(--color-warning);
 }
 .auto-model-heading h3 {
   margin: 0;
-  font-size: var(--text-sm);
-}
-.auto-model-json {
-  box-sizing: border-box;
   font-size: var(--text-sm);
 }
 </style>
