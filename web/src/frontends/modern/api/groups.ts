@@ -53,6 +53,7 @@ export interface GroupRow {
   lastActiveHourRequests: number
 }
 export interface GroupWorkspace {
+  autoModels?: string[]
   observedAt: number
   items: GroupRow[]
 }
@@ -151,15 +152,16 @@ export async function getGroupWorkspace(
     }
   })
   if (new Set(items.map((item) => item.id)).size !== items.length) throw new InvalidResponseError()
-  return { observedAt: integer(data.observed_at_ms), items }
+  return {
+    observedAt: integer(data.observed_at_ms),
+    autoModels: data.auto_models === undefined ? [] : list(data.auto_models).map(text),
+    items,
+  }
 }
 
 export async function getGroupModelNames(client: ApiClient, id: number, signal: AbortSignal) {
   const data = record(await client.request<unknown>(`/api/groups/${id}/models`, { signal }))
-  return list(data.items).map((value) => {
-    const model = record(value)
-    return { id: text(model.id), name: text(model.client_model) }
-  })
+  return [...new Set(list(data.items).map((value) => text(record(value).client_model)))]
 }
 
 export function readGroupBasics(value: unknown): GroupBasics {

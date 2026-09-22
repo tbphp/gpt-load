@@ -2,7 +2,6 @@ import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import { accessProtocols } from '@modern/api/access-keys'
 import {
   internalLogFilters,
-  logCursorPattern,
   logFilterNames,
   logOperations,
   logRequestPattern,
@@ -10,12 +9,13 @@ import {
   type LogFilterName,
   type LogQuery,
 } from '@modern/api/logs'
+import { positivePage } from '@modern/app/url-state'
 import type { DateRangePreset } from '@modern/components/ui/date-time'
 import { readTimeRange, timeRangeQuery } from '@modern/app/time-range'
 
 export interface LogRouteState {
   filters: LogQuery
-  history: string[]
+  page: number
   more: boolean
   detail: string
   preset?: DateRangePreset
@@ -29,6 +29,7 @@ export interface LogFilterDefinition {
 }
 export const logFilterOptions: Partial<Record<LogFilterName, readonly string[]>> = {
   status: logStatuses,
+  audit_status: ['warned', 'blocked', 'incomplete'],
   protocol: accessProtocols,
   operation: logOperations,
   stream: ['true', 'false'],
@@ -67,6 +68,8 @@ export const advancedLogFilters: readonly LogFilterDefinition[] = [
   { key: 'retry_count_max', section: 'routing', kind: 'number', admin: true },
   { key: 'upstream_model', section: 'routing', kind: 'text', admin: true },
   { key: 'final_status_code', section: 'result', kind: 'number' },
+  { key: 'audit_status', section: 'result', kind: 'select', values: logFilterOptions.audit_status },
+  { key: 'audit_rule', section: 'result', kind: 'text' },
   {
     key: 'model_consistency',
     section: 'result',
@@ -122,7 +125,14 @@ export const advancedLogFilters: readonly LogFilterDefinition[] = [
 ]
 const maximumInteger = 9223372036854775807n
 const unsigned = /^(?:0|[1-9]\d*)$/
-export const logStateKeys = [...logFilterNames, 'preset', 'history', 'filters', 'detail'] as const
+export const logStateKeys = [
+  ...logFilterNames,
+  'preset',
+  'page',
+  'history',
+  'filters',
+  'detail',
+] as const
 export function logFilterErrors(filters: LogQuery): Partial<Record<LogFilterName, string>> {
   const errors: Partial<Record<LogFilterName, string>> = {}
   for (const key of logFilterNames) {
@@ -134,6 +144,8 @@ export function logFilterErrors(filters: LogQuery): Partial<Record<LogFilterName
     }
     if (logFilterOptions[key] && !logFilterOptions[key]!.includes(value))
       errors[key] = 'invalidValue'
+    if (key === 'audit_rule' && new TextEncoder().encode(value).length > 255)
+      errors[key] = 'invalidText'
     if (key === 'request_id' && !logRequestPattern.test(value)) errors[key] = 'invalidRequest'
     if (key === 'channel_id' && !/^[a-z][a-z0-9_]{0,99}$/.test(value)) errors[key] = 'invalidValue'
     if (key === 'limit' && !['20', '50', '100'].includes(value)) errors[key] = 'invalidValue'
@@ -186,17 +198,9 @@ export function parseLogState(query: LocationQuery, admin: boolean): LogRouteSta
     filters.to_ms = range.to_ms
   }
   filters.limit ??= '20'
-  const rawHistory = Array.isArray(query.history)
-    ? query.history
-    : query.history
-      ? [query.history]
-      : []
-  const history = rawHistory.filter(
-    (value): value is string => typeof value === 'string' && logCursorPattern.test(value),
-  )
   return {
     filters,
-    history,
+    page: positivePage(query.page),
     more: query.filters === '1',
     detail:
       typeof query.detail === 'string' && logRequestPattern.test(query.detail) ? query.detail : '',
@@ -208,7 +212,7 @@ export function serializeLogState(state: LogRouteState): LocationQueryRaw {
   return {
     ...filters,
     ...timeRangeQuery({ preset: state.preset, from_ms, to_ms }),
-    ...(state.history.length ? { history: state.history } : {}),
+    ...(state.page > 1 ? { page: String(state.page) } : {}),
     ...(state.more ? { filters: '1' } : {}),
     ...(state.detail ? { detail: state.detail } : {}),
   }

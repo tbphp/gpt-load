@@ -15,8 +15,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/jev"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/pricing"
@@ -129,44 +131,95 @@ type requestLogPricingReceiptResponse struct {
 }
 
 type requestLogItemResponse struct {
-	RequestID               string                       `json:"request_id"`
-	CompletedAtMS           int64                        `json:"completed_at_ms"`
-	AccessKey               requestLogAccessKeyResponse  `json:"access_key"`
-	Protocol                string                       `json:"protocol"`
-	Operation               *execution.Operation         `json:"operation"`
-	UpstreamProtocol        *protocol.Protocol           `json:"upstream_protocol"`
-	ClientModel             *string                      `json:"client_model"`
-	UpstreamModel           *string                      `json:"upstream_model"`
-	UpstreamReportedModel   *string                      `json:"upstream_reported_model"`
-	ModelConsistency        telemetry.ModelConsistency   `json:"model_consistency"`
-	Reasoning               *requestLogReasoningResponse `json:"reasoning"`
-	Status                  telemetry.RequestStatus      `json:"status"`
-	StatusCode              int                          `json:"status_code"`
-	Stream                  bool                         `json:"stream"`
-	FirstResponseMs         *int64                       `json:"first_response_ms"`
-	DurationMs              int64                        `json:"duration_ms"`
-	AttemptCount            int                          `json:"attempt_count"`
-	ErrorCode               string                       `json:"error_code"`
-	ErrorSummary            string                       `json:"error_summary"`
-	AffinityHit             bool                         `json:"affinity_hit"`
-	AffinityKind            string                       `json:"affinity_kind"`
-	GroupID                 *uint                        `json:"group_id"`
-	ChannelID               *channel.ID                  `json:"channel_id"`
-	CredentialID            *uint                        `json:"credential_id"`
-	CredentialName          string                       `json:"credential_name"`
-	RouteMode               *channel.RouteMode           `json:"route_mode"`
-	UsageState              usage.State                  `json:"usage_state"`
-	CostState               pricing.CostState            `json:"cost_state"`
-	PricingCompleteness     pricing.Completeness         `json:"pricing_completeness"`
-	PricingMode             *pricing.Mode                `json:"pricing_mode"`
-	ContextThresholdTokens  *string                      `json:"context_threshold_tokens"`
-	InputTokens             string                       `json:"input_tokens"`
-	CacheReadTokens         string                       `json:"cache_read_tokens"`
-	CacheWrite5MTokens      string                       `json:"cache_write_5m_tokens"`
-	CacheWrite1HTokens      string                       `json:"cache_write_1h_tokens"`
-	CacheWriteUnknownTokens string                       `json:"cache_write_unknown_tokens"`
-	OutputTokens            string                       `json:"output_tokens"`
-	EstimatedCostNanoUSD    string                       `json:"estimated_cost_nano_usd"`
+	RequestAudit              *requestAuditResponse        `json:"request_audit,omitempty"`
+	AutoDecision              *autoDecisionResponse        `json:"auto_decision,omitempty"`
+	TotalEstimatedCostNanoUSD string                       `json:"total_estimated_cost_nano_usd"`
+	TotalCostState            string                       `json:"total_cost_state"`
+	TotalPricingCompleteness  string                       `json:"total_pricing_completeness"`
+	RequestID                 string                       `json:"request_id"`
+	CompletedAtMS             int64                        `json:"completed_at_ms"`
+	AccessKey                 requestLogAccessKeyResponse  `json:"access_key"`
+	Protocol                  string                       `json:"protocol"`
+	Operation                 *execution.Operation         `json:"operation"`
+	UpstreamProtocol          *protocol.Protocol           `json:"upstream_protocol"`
+	ClientModel               *string                      `json:"client_model"`
+	UpstreamModel             *string                      `json:"upstream_model"`
+	UpstreamReportedModel     *string                      `json:"upstream_reported_model"`
+	ModelConsistency          telemetry.ModelConsistency   `json:"model_consistency"`
+	Reasoning                 *requestLogReasoningResponse `json:"reasoning"`
+	Status                    telemetry.RequestStatus      `json:"status"`
+	StatusCode                int                          `json:"status_code"`
+	Stream                    bool                         `json:"stream"`
+	FirstResponseMs           *int64                       `json:"first_response_ms"`
+	DurationMs                int64                        `json:"duration_ms"`
+	AttemptCount              int                          `json:"attempt_count"`
+	ErrorCode                 string                       `json:"error_code"`
+	ErrorSummary              string                       `json:"error_summary"`
+	AffinityHit               bool                         `json:"affinity_hit"`
+	AffinityKind              string                       `json:"affinity_kind"`
+	GroupID                   *uint                        `json:"group_id"`
+	ChannelID                 *channel.ID                  `json:"channel_id"`
+	CredentialID              *uint                        `json:"credential_id"`
+	CredentialName            string                       `json:"credential_name"`
+	RouteMode                 *channel.RouteMode           `json:"route_mode"`
+	UsageState                usage.State                  `json:"usage_state"`
+	CostState                 pricing.CostState            `json:"cost_state"`
+	PricingCompleteness       pricing.Completeness         `json:"pricing_completeness"`
+	PricingMode               *pricing.Mode                `json:"pricing_mode"`
+	ContextThresholdTokens    *string                      `json:"context_threshold_tokens"`
+	InputTokens               string                       `json:"input_tokens"`
+	CacheReadTokens           string                       `json:"cache_read_tokens"`
+	CacheWrite5MTokens        string                       `json:"cache_write_5m_tokens"`
+	CacheWrite1HTokens        string                       `json:"cache_write_1h_tokens"`
+	CacheWriteUnknownTokens   string                       `json:"cache_write_unknown_tokens"`
+	OutputTokens              string                       `json:"output_tokens"`
+	EstimatedCostNanoUSD      string                       `json:"estimated_cost_nano_usd"`
+}
+
+type autoDecisionResponse struct {
+	automodel.Decision
+	PresetReasoning      *requestLogReasoningResponse      `json:"preset_reasoning"`
+	EstimatedCostNanoUSD string                            `json:"estimated_cost_nano_usd"`
+	InputTokens          *string                           `json:"input_tokens,omitempty"`
+	OutputTokens         *string                           `json:"output_tokens,omitempty"`
+	Receipt              *requestLogPricingReceiptResponse `json:"receipt,omitempty"`
+	CredentialName       string                            `json:"credential_name,omitempty"`
+	CredentialDeleted    bool                              `json:"credential_deleted,omitempty"`
+}
+
+func mapAutoDecisionResponse(value *automodel.Decision, credentialLabels map[uint]string) *autoDecisionResponse {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	copy.Selection.ParameterOverrides = nil
+	copy.Selection.TaskFingerprint = ""
+	credentialID := copy.CredentialID
+	copy.GroupID = 0
+	copy.ChannelID = ""
+	copy.CredentialID = 0
+	credentialName := ""
+	credentialDeleted := false
+	if credentialID != 0 {
+		credentialName = credentialLabelFor(credentialLabels, &credentialID)
+		credentialDeleted = credentialName == ""
+	}
+	response := &autoDecisionResponse{Decision: copy, PresetReasoning: mapRequestLogReasoningConfig(copy.PresetReasoning), EstimatedCostNanoUSD: strconv.FormatInt(copy.EstimatedCostNanoUSD, 10), InputTokens: nullableInt64String(copy.InputTokens), OutputTokens: nullableInt64String(copy.OutputTokens), CredentialName: credentialName, CredentialDeleted: credentialDeleted}
+	if len(copy.Receipt) > 0 {
+		var receipt pricing.Receipt
+		if json.Unmarshal(copy.Receipt, &receipt) == nil && pricing.ValidateReceipt(receipt) == nil {
+			response.Receipt, _ = mapRequestLogPricingReceipt(&receipt)
+		}
+	}
+	return response
+}
+
+func nullableInt64String(value *int64) *string {
+	if value == nil {
+		return nil
+	}
+	text := strconv.FormatInt(*value, 10)
+	return &text
 }
 
 type requestLogDetailResponse struct {
@@ -174,9 +227,17 @@ type requestLogDetailResponse struct {
 	Attempts []requestLogAttemptResponse `json:"attempts"`
 }
 
+type requestLogPaginationResponse struct {
+	Page       int64 `json:"page"`
+	PageSize   int64 `json:"page_size"`
+	TotalItems int64 `json:"total_items"`
+	TotalPages int64 `json:"total_pages"`
+}
+
 type requestLogListResponse struct {
-	Items      []requestLogItemResponse `json:"items"`
-	NextCursor *string                  `json:"next_cursor"`
+	Items      []requestLogItemResponse      `json:"items"`
+	NextCursor *string                       `json:"next_cursor"`
+	Pagination *requestLogPaginationResponse `json:"pagination,omitempty"`
 }
 
 func (service *Service) ListRequestLogs(
@@ -338,6 +399,40 @@ func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
 	record.RouteMode = ""
 	record.UpstreamProtocol = ""
 	record.Attempts = []requestlog.Attempt{}
+	if record.RequestAudit != nil {
+		auditCopy := *record.RequestAudit
+		auditCopy.Calls = append([]jev.Observation{}, record.RequestAudit.Calls...)
+		for i := range auditCopy.Calls {
+			c := &auditCopy.Calls[i]
+			c.Provider = ""
+			c.GroupID = 0
+			c.GroupName = ""
+			c.ChannelID = ""
+			c.ChannelName = ""
+			c.CredentialID = 0
+			c.RequestedModel = ""
+			c.UpstreamModel = ""
+			c.ReportedModel = ""
+			c.RequestID = ""
+			c.Receipt = nil
+		}
+		record.RequestAudit = &auditCopy
+	}
+	if record.AutoDecision != nil {
+		copy := *record.AutoDecision
+		copy.Provider = ""
+		copy.GroupID = 0
+		copy.GroupName = ""
+		copy.ChannelID = ""
+		copy.ChannelName = ""
+		copy.CredentialID = 0
+		copy.RequestedModel = ""
+		copy.UpstreamModel = ""
+		copy.ReportedModel = ""
+		copy.RequestID = ""
+		copy.Receipt = nil
+		record.AutoDecision = &copy
+	}
 	return record
 }
 
@@ -350,6 +445,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		"from_ms": {}, "to_ms": {}, "group_id": {}, "channel_id": {}, "credential_id": {},
 		"client_model": {}, "upstream_model": {}, "model_consistency": {}, "access_key_id": {},
 		"status": {}, "request_id": {}, "protocol": {}, "operation": {}, "stream": {}, "final_status_code": {},
+		"audit_status": {}, "audit_rule": {},
 		"usage_state": {}, "cost_state": {}, "pricing_completeness": {}, "cache_present": {},
 		"attempt_status_code": {}, "failure_category": {}, "error_code": {},
 		"retry_state": {}, "retry_count_min": {}, "retry_count_max": {},
@@ -358,7 +454,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		"input_tokens_min": {}, "input_tokens_max": {},
 		"output_tokens_min": {}, "output_tokens_max": {},
 		"cost_min_nano_usd": {}, "cost_max_nano_usd": {},
-		"limit": {}, "cursor": {},
+		"limit": {}, "cursor": {}, "page": {}, "page_size": {},
 	}
 	for key, value := range values {
 		if _, ok := allowed[key]; !ok || len(value) != 1 {
@@ -367,6 +463,20 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 	}
 
 	query := requestlog.ListQuery{Limit: defaultRequestLogLimit}
+	if value, ok := singleQueryValue(values, "audit_status"); ok {
+		switch value {
+		case "warned", "blocked", "incomplete":
+			query.AuditStatus = value
+		default:
+			return requestlog.ListQuery{}, app_errors.ErrValidation
+		}
+	}
+	if value, ok := singleQueryValue(values, "audit_rule"); ok {
+		if !validUsageModel(value) {
+			return requestlog.ListQuery{}, app_errors.ErrValidation
+		}
+		query.AuditRule = value
+	}
 	if value, ok := singleQueryValue(values, "from_ms"); ok {
 		parsed, err := parseCanonicalSafeMilliseconds(value)
 		if err != nil {
@@ -590,7 +700,35 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		}
 		query.RequestID = value
 	}
+	paginationRequested := false
+	if value, ok := singleQueryValue(values, "page"); ok {
+		parsed, apiErr := parseRequestLogPage(value)
+		if apiErr != nil {
+			return requestlog.ListQuery{}, apiErr
+		}
+		query.Page = parsed
+		paginationRequested = true
+	}
+	if value, ok := singleQueryValue(values, "page_size"); ok {
+		parsed, apiErr := parseRequestLogPageSize(value)
+		if apiErr != nil {
+			return requestlog.ListQuery{}, apiErr
+		}
+		query.PageSize = parsed
+		paginationRequested = true
+	}
+	if paginationRequested {
+		if query.Page == 0 {
+			query.Page = 1
+		}
+		if query.PageSize == 0 {
+			query.PageSize = defaultRequestLogLimit
+		}
+	}
 	if value, ok := singleQueryValue(values, "limit"); ok {
+		if paginationRequested {
+			return requestlog.ListQuery{}, app_errors.ErrBadRequest
+		}
 		parsed, err := parseCanonicalSafeUint(value)
 		if err != nil {
 			if errors.Is(err, errUnsafeCanonicalUint) {
@@ -604,6 +742,9 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		query.Limit = int(parsed)
 	}
 	if value, ok := singleQueryValue(values, "cursor"); ok {
+		if paginationRequested {
+			return requestlog.ListQuery{}, app_errors.ErrBadRequest
+		}
 		cursor, err := decodeRequestLogCursor(value)
 		if err != nil {
 			return requestlog.ListQuery{}, app_errors.ErrBadRequest
@@ -611,6 +752,38 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		query.Cursor = cursor
 	}
 	return query, nil
+}
+
+func parseRequestLogPage(value string) (int, *app_errors.APIError) {
+	parsed, err := parseCanonicalSafeUint(value)
+	if err != nil {
+		if errors.Is(err, errUnsafeCanonicalUint) {
+			return 0, app_errors.ErrValidation
+		}
+		return 0, app_errors.ErrBadRequest
+	}
+	if parsed == 0 || parsed > uint64(maxSafeInteger/int64(maxRequestLogLimit)) {
+		return 0, app_errors.ErrValidation
+	}
+	page, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, app_errors.ErrValidation
+	}
+	return page, nil
+}
+
+func parseRequestLogPageSize(value string) (int, *app_errors.APIError) {
+	parsed, err := parseCanonicalSafeUint(value)
+	if err != nil {
+		if errors.Is(err, errUnsafeCanonicalUint) {
+			return 0, app_errors.ErrValidation
+		}
+		return 0, app_errors.ErrBadRequest
+	}
+	if parsed == 0 || parsed > maxRequestLogLimit {
+		return 0, app_errors.ErrValidation
+	}
+	return int(parsed), nil
 }
 
 func singleQueryValue(values url.Values, key string) (string, bool) {
@@ -859,6 +1032,9 @@ func requestLogCredentialIDs(records []requestlog.Record) []uint {
 	ids := make([]uint, 0, len(records))
 	for _, record := range records {
 		ids = append(ids, record.CredentialID)
+		if record.AutoDecision != nil {
+			ids = append(ids, record.AutoDecision.CredentialID)
+		}
 		for _, attempt := range record.Attempts {
 			ids = append(ids, attempt.CredentialID)
 		}
@@ -897,7 +1073,33 @@ func mapRequestLogListResponse(
 		}
 		result.NextCursor = &encoded
 	}
+	if page.Pagination != nil {
+		pagination := *page.Pagination
+		if pagination.Page <= 0 || pagination.PageSize <= 0 || pagination.TotalItems < 0 ||
+			pagination.TotalPages != requestLogTotalPages(pagination.TotalItems, pagination.PageSize) ||
+			int64(pagination.Page) > maxSafeInteger || int64(pagination.PageSize) > maxSafeInteger ||
+			pagination.TotalItems > maxSafeInteger || pagination.TotalPages > maxSafeInteger {
+			return requestLogListResponse{}, fmt.Errorf("map request log pagination: invalid value")
+		}
+		result.Pagination = &requestLogPaginationResponse{
+			Page:       int64(pagination.Page),
+			PageSize:   int64(pagination.PageSize),
+			TotalItems: pagination.TotalItems,
+			TotalPages: pagination.TotalPages,
+		}
+	}
 	return result, nil
+}
+
+func requestLogTotalPages(totalItems int64, pageSize int) int64 {
+	if totalItems == 0 || pageSize <= 0 {
+		return 0
+	}
+	pages := totalItems / int64(pageSize)
+	if totalItems%int64(pageSize) != 0 {
+		pages++
+	}
+	return pages
 }
 
 func mapRequestLogItemResponse(
@@ -930,9 +1132,15 @@ func mapRequestLogItemResponse(
 		value := strconv.FormatInt(*record.ContextThresholdTokens, 10)
 		contextThresholdTokens = &value
 	}
+	total := telemetry.TotalPricing(telemetry.PricingObservation{CostState: string(record.CostState), PricingCompleteness: string(record.PricingCompleteness), EstimatedCostNanoUSD: record.EstimatedCostNanoUSD}, record.AutoDecision, record.RequestAudit)
 	return requestLogItemResponse{
-		RequestID:     record.RequestID,
-		CompletedAtMS: record.CompletedAtMS,
+		AutoDecision:              mapAutoDecisionResponse(record.AutoDecision, credentialLabels),
+		RequestAudit:              mapRequestAudit(record.RequestAudit),
+		TotalEstimatedCostNanoUSD: strconv.FormatInt(total.EstimatedCostNanoUSD, 10),
+		TotalCostState:            total.CostState,
+		TotalPricingCompleteness:  total.PricingCompleteness,
+		RequestID:                 record.RequestID,
+		CompletedAtMS:             record.CompletedAtMS,
 		AccessKey: requestLogAccessKeyResponse{
 			ID:      record.AccessKey.ID,
 			Name:    record.AccessKey.Name,

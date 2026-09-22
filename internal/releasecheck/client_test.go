@@ -74,7 +74,7 @@ func TestClientFetchUsesFixedPublicGitHubContract(t *testing.T) {
 	published := "2026-08-19T13:09:53Z"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet || request.URL.Path != "/repos/tbphp/gpt-load/releases" ||
-			request.URL.Query().Get("per_page") != "30" || len(request.URL.Query()) != 1 {
+			request.URL.Query().Get("per_page") != "100" || len(request.URL.Query()) != 1 {
 			t.Errorf("request = %s %s", request.Method, request.URL.String())
 		}
 		if request.Header.Get("Accept") != "application/vnd.github+json" ||
@@ -92,7 +92,7 @@ func TestClientFetchUsesFixedPublicGitHubContract(t *testing.T) {
 
 	client := &Client{
 		httpClient:       server.Client(),
-		endpoint:         server.URL + "/repos/tbphp/gpt-load/releases?per_page=30",
+		endpoint:         server.URL + "/repos/tbphp/gpt-load/releases?per_page=100",
 		maxResponseBytes: maxGitHubResponseBytes,
 	}
 	releases, err := client.Fetch(t.Context())
@@ -111,7 +111,7 @@ func TestClientFetchReadsEligibleV2ReleaseFromSecondPage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
 		if request.URL.Path != "/repos/tbphp/gpt-load/releases" ||
-			request.URL.Query().Get("per_page") != "30" {
+			request.URL.Query().Get("per_page") != "100" {
 			t.Errorf("request = %s %s", request.Method, request.URL.String())
 		}
 		page := request.URL.Query().Get("page")
@@ -136,7 +136,7 @@ func TestClientFetchReadsEligibleV2ReleaseFromSecondPage(t *testing.T) {
 
 	client := &Client{
 		httpClient:       server.Client(),
-		endpoint:         server.URL + "/repos/tbphp/gpt-load/releases?per_page=30",
+		endpoint:         server.URL + "/repos/tbphp/gpt-load/releases?per_page=100",
 		maxResponseBytes: maxGitHubResponseBytes,
 	}
 	releases, err := client.Fetch(t.Context())
@@ -167,7 +167,7 @@ func TestClientFetchRejectsReleaseHistoryBeyondPageLimit(t *testing.T) {
 
 	client := &Client{
 		httpClient:       server.Client(),
-		endpoint:         server.URL + "/repos/tbphp/gpt-load/releases?per_page=30",
+		endpoint:         server.URL + "/repos/tbphp/gpt-load/releases?per_page=100",
 		maxResponseBytes: maxGitHubResponseBytes,
 	}
 	if releases, err := client.Fetch(t.Context()); err == nil || releases != nil ||
@@ -179,6 +179,52 @@ func TestClientFetchRejectsReleaseHistoryBeyondPageLimit(t *testing.T) {
 			requests,
 			maxGitHubReleasePages+1,
 		)
+	}
+}
+
+func TestClientFetchAcceptsCurrentReleaseHistoryInOnePage(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.URL.Query().Get("per_page") != "100" || request.URL.Query().Get("page") != "" {
+			t.Errorf("request = %s %s", request.Method, request.URL.String())
+		}
+		writeGitHubReleasePage(t, writer, releasePageTags("v2.0.0-history", 92))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		httpClient:       server.Client(),
+		endpoint:         server.URL + "/repos/tbphp/gpt-load/releases",
+		maxResponseBytes: maxGitHubResponseBytes,
+	}
+	releases, err := client.Fetch(t.Context())
+	if err != nil || len(releases) != 92 || requests != 1 {
+		t.Fatalf("Fetch() = %d releases, %v after %d requests, want 92, nil, 1", len(releases), err, requests)
+	}
+}
+
+func TestClientFetchAcceptsBoundedHundredReleasePayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(writer, `[{
+			"tag_name":"v2.0.1",
+			"html_url":"%s",
+			"published_at":"2026-08-19T13:09:53Z",
+			"draft":false,
+			"body":%q
+		}]`, testReleaseURL("v2.0.1"), strings.Repeat("x", 2<<20))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		httpClient:       server.Client(),
+		endpoint:         server.URL,
+		maxResponseBytes: maxGitHubResponseBytes,
+	}
+	releases, err := client.Fetch(t.Context())
+	if err != nil || len(releases) != 1 {
+		t.Fatalf("Fetch() = %#v, %v, want one release", releases, err)
 	}
 }
 

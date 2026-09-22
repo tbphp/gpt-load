@@ -1,3 +1,4 @@
+import { readAuditResult, type AuditResult } from './experimental'
 import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
@@ -22,6 +23,7 @@ import {
   projectPriceMultiplier,
   projectRecord,
   projectSafeInteger,
+  projectFiniteNumber,
   projectString,
 } from './projector'
 
@@ -57,6 +59,7 @@ export type RequestLogOperation =
   | 'images_edit'
   | 'embeddings_create'
   | 'rerank'
+  | 'decisions_create'
   | 'list_models'
   | 'probe'
 export type RequestLogRouteMode = 'native' | 'converted'
@@ -77,6 +80,8 @@ export interface RequestLogFilters {
   upstream_model?: string
   access_key_id?: number
   status?: RequestLogStatus
+  audit_status?: 'warned' | 'blocked' | 'incomplete'
+  audit_rule?: string
   request_id?: string
   protocol?: AccessProtocol
   stream?: boolean
@@ -168,6 +173,8 @@ export interface RequestLogReasoningDto {
 }
 
 export interface RequestLogItemDto {
+  request_audit?: AuditResult
+  auto_decision?: AutoDecisionDto
   request_id: string
   completed_at_ms: number
   access_key: { id: number; name: string | null; deleted: boolean }
@@ -209,6 +216,31 @@ export interface RequestLogItemDto {
   cache_write_unknown_tokens: string
   output_tokens: string
   estimated_cost_nano_usd: string
+}
+
+export interface AutoDecisionDto {
+  selection: { preset_name: string; target_model: string }
+  source: string
+  status: string
+  execution_phase: string
+  reason: string
+  provider: string
+  group_name: string
+  channel_name: string
+  credential_name: string
+  credential_deleted: boolean
+  requested_model: string
+  upstream_model: string
+  reported_model: string
+  duration_ms: number
+  called: boolean
+  confidence: number | null
+  input_tokens: string | null
+  output_tokens: string | null
+  estimated_cost_nano_usd: string
+  cost_state: string
+  pricing_completeness: string
+  receipt: RequestLogPricingReceiptDto | null
 }
 
 export interface RequestLogDetailDto extends RequestLogItemDto {
@@ -258,6 +290,7 @@ const operations = [
   'images_edit',
   'embeddings_create',
   'rerank',
+  'decisions_create',
   'list_models',
   'probe',
 ] as const
@@ -276,6 +309,11 @@ const receiptCodes = [
 ] as const
 const receiptLineStates = ['priced', 'unpriced'] as const
 const itemFields = [
+  'request_audit',
+  'auto_decision',
+  'total_estimated_cost_nano_usd',
+  'total_cost_state',
+  'total_pricing_completeness',
   'request_id',
   'completed_at_ms',
   'access_key',
@@ -658,6 +696,56 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
         ? null
         : projectNonNegativeInt64String(record.context_threshold_tokens),
     ...projectUsageCost(record),
+    request_audit:
+      record.request_audit === undefined ? undefined : readAuditResult(record.request_audit),
+    auto_decision:
+      record.auto_decision === undefined ? undefined : projectAutoDecision(record.auto_decision),
+    estimated_cost_nano_usd: projectNonNegativeInt64String(
+      record.total_estimated_cost_nano_usd ?? record.estimated_cost_nano_usd,
+    ),
+    cost_state: projectEnum(record.total_cost_state ?? record.cost_state, costStates),
+    pricing_completeness: projectEnum(
+      record.total_pricing_completeness ?? record.pricing_completeness,
+      pricingCompletenessValues,
+    ),
+  }
+}
+
+function projectAutoDecision(value: unknown): AutoDecisionDto {
+  const row = projectRecord(value),
+    selection = projectRecord(row.selection)
+  const optional = (value: unknown) => projectString(value ?? '', { allowEmpty: true })
+  return {
+    selection: {
+      preset_name: projectString(selection.preset_name),
+      target_model: projectString(selection.target_model),
+    },
+    source: projectString(row.source),
+    status: projectString(row.status),
+    execution_phase: optional(row.execution_phase),
+    reason: optional(row.reason),
+    provider: optional(row.provider),
+    group_name: optional(row.group_name),
+    channel_name: optional(row.channel_name),
+    credential_name: optional(row.credential_name),
+    credential_deleted: projectBoolean(row.credential_deleted ?? false),
+    requested_model: optional(row.requested_model),
+    upstream_model: optional(row.upstream_model),
+    reported_model: optional(row.reported_model),
+    duration_ms: projectSafeInteger(row.duration_ms, { minimum: 0 }),
+    called: projectBoolean(row.called),
+    confidence:
+      row.confidence === undefined
+        ? null
+        : projectFiniteNumber(row.confidence, { minimum: 0, maximum: 1 }),
+    input_tokens:
+      row.input_tokens === undefined ? null : projectNonNegativeInt64String(row.input_tokens),
+    output_tokens:
+      row.output_tokens === undefined ? null : projectNonNegativeInt64String(row.output_tokens),
+    estimated_cost_nano_usd: projectNonNegativeInt64String(row.estimated_cost_nano_usd),
+    cost_state: projectString(row.cost_state),
+    pricing_completeness: projectString(row.pricing_completeness),
+    receipt: row.receipt === undefined ? null : projectPricingReceipt(row.receipt),
   }
 }
 

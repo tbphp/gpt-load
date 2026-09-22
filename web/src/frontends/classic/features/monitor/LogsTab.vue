@@ -29,7 +29,12 @@ import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedCost, formatISOInstant, formatLocalInstantWithSeconds } from '@/lib/format'
+import {
+  formatEstimatedCost,
+  formatISOInstant,
+  formatLocalInstantWithSeconds,
+  formatPercent,
+} from '@/lib/format'
 import { resolveDateTimePreset, type DateTimePreset } from '@/lib/time'
 import { useAuthSession } from '@/features/auth/auth-session'
 
@@ -74,7 +79,42 @@ const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
-const { locale, t } = useI18n()
+const { locale, t, te } = useI18n()
+
+function autoDecisionTooltip(log: RequestLogItemDto): string {
+  if (!log.auto_decision) return ''
+  const key = 'autoModel.sources.' + log.auto_decision.source
+  const strategy = te(key)
+    ? t(key)
+    : `${t('autoModel.sources.unknown')} · ${log.auto_decision.source}`
+  const reasonKey = 'autoModel.reasons.' + log.auto_decision.reason
+  const reason = !log.auto_decision.reason
+    ? ''
+    : /^http_\d+$/u.test(log.auto_decision.reason)
+      ? t('autoModel.reasons.httpError', {
+          status: log.auto_decision.reason.slice('http_'.length),
+        })
+      : te(reasonKey)
+        ? t(reasonKey)
+        : `${t('autoModel.reasons.unknown')} · ${log.auto_decision.reason}`
+  const confidence =
+    log.auto_decision.confidence === null
+      ? ''
+      : `${t('autoModel.confidenceValue')} ${formatPercent(Math.round(log.auto_decision.confidence * 10_000), 10_000, locale.value)}`
+  const duration = log.auto_decision.called
+    ? `${t('autoModel.duration')} ${log.auto_decision.duration_ms.toLocaleString(locale.value)} ms`
+    : ''
+  return [strategy, reason, confidence, duration].filter(Boolean).join(' · ')
+}
+
+function autoDecisionTone(log: RequestLogItemDto): 'selected' | 'passive' | 'fallback' {
+  const decision = log.auto_decision
+  if (!decision) return 'passive'
+  if (decision.source === 'jev' && decision.status === 'selected') return 'selected'
+  if (['binding', 'task_cache', 'prewarm', 'single_preset'].includes(decision.source))
+    return 'passive'
+  return 'fallback'
+}
 
 function affinityTooltip(log: RequestLogItemDto): string {
   switch (log.affinity_kind) {
@@ -816,6 +856,27 @@ function costLabel(log: RequestLogItemDto): string {
               </OverflowTooltip>
               <code v-else class="logs-list__model">—</code>
               <OverflowTooltip
+                v-if="log.request_audit && log.request_audit.status !== 'passed'"
+                as="small"
+                class="logs-list__auto-decision"
+                :class="log.request_audit.status === 'warned' ? 'is-warning' : 'is-danger'"
+                :content="
+                  t('requestAudit.title') +
+                  ' · ' +
+                  log.request_audit.findings.map((finding) => finding.name).join(' / ')
+                "
+                >{{ t('requestAudit.statuses.' + log.request_audit.status) }}</OverflowTooltip
+              >
+              <OverflowTooltip
+                v-if="log.auto_decision"
+                as="small"
+                class="logs-list__auto-decision"
+                :class="`is-${autoDecisionTone(log)}`"
+                :content="autoDecisionTooltip(log)"
+              >
+                {{ log.auto_decision.selection.preset_name }}
+              </OverflowTooltip>
+              <OverflowTooltip
                 v-if="reasoningLabel(log)"
                 as="small"
                 class="logs-list__reasoning"
@@ -1158,6 +1219,25 @@ function costLabel(log: RequestLogItemDto): string {
   flex: 0 0 auto;
 }
 
+.logs-list__auto-decision {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0 5px;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logs-list__auto-decision.is-selected {
+  color: var(--color-success);
+}
+
+.logs-list__auto-decision.is-fallback {
+  color: var(--color-warning);
+}
+
 .logs-list__inline > .logs-list__hint {
   margin-left: 5px;
 }
@@ -1286,5 +1366,11 @@ function costLabel(log: RequestLogItemDto): string {
   .logs-list__action :deep(.icon-button) {
     justify-self: end;
   }
+}
+.logs-list__auto-decision.is-warning {
+  color: var(--color-warning);
+}
+.logs-list__auto-decision.is-danger {
+  color: var(--color-danger);
 }
 </style>

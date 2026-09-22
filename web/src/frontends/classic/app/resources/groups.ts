@@ -96,6 +96,7 @@ const groupCollectionItemFields = [
 ] as const
 const groupCollectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
 const groupOptionFields = [
+  'auto_models',
   'id',
   'name',
   'channel_id',
@@ -469,7 +470,8 @@ export function projectGroupModels(value: unknown): GroupModelsDto {
   if (
     items.length !== total ||
     pending > total ||
-    new Set(items.map(({ client_model }) => client_model)).size !== items.length ||
+    new Set(items.map(({ id, client_model }) => JSON.stringify([id, client_model]))).size !==
+      items.length ||
     items.filter(({ pricing_status }) => pricing_status === 'pending').length !== pending
   ) {
     throw new InvalidResponseError()
@@ -587,6 +589,10 @@ function projectGroupOption(value: unknown): GroupOptionDto {
   const models = projectArray(record.models, projectNonBlankString)
   if (new Set(models).size !== models.length) throw new InvalidResponseError()
   return {
+    auto_models:
+      record.auto_models === undefined
+        ? []
+        : projectArray(record.auto_models, (value) => projectString(value)),
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
     channel_id: projectChannelID(record.channel_id),
@@ -837,6 +843,23 @@ export async function updateGroupSettings(
   )
 }
 
+// 切换渠道只提交目标渠道；参数由后端按目标渠道字段重新推导。
+export async function switchGroupChannel(
+  client: ApiClient,
+  groupID: number,
+  channelID: string,
+  confirmSameTarget: boolean,
+  signal?: AbortSignal,
+): Promise<GroupSettingsDto> {
+  return projectGroupSettings(
+    await client.request(`/api/groups/${groupID}/channel`, {
+      method: 'PUT',
+      json: { channel_id: channelID, confirm_same_target: confirmSameTarget },
+      signal,
+    }),
+  )
+}
+
 export async function deleteGroup(
   client: ApiClient,
   groupID: number,
@@ -981,7 +1004,7 @@ export function cacheGroupModels(
   queryClient.setQueryData<GroupSummaryDto>(controlQueryKeys.groups.summary(groupID), (summary) =>
     summary === undefined ? summary : { ...summary, model_count: models.total },
   )
-  const clientModels = models.items.map(({ client_model: clientModel }) => clientModel)
+  const clientModels = [...new Set(models.items.map(({ client_model }) => client_model))]
   queryClient.setQueryData<GroupOptionDto[]>(controlQueryKeys.groups.options(), (options) =>
     options?.map((option) =>
       option.id === groupID ? { ...option, models: clientModels } : option,

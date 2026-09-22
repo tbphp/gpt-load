@@ -153,7 +153,8 @@ func usageStatScope(db *gorm.DB, input UsageQuery, groupIDs ...uint) *gorm.DB {
 	if input.UpstreamModel != "" {
 		scope = scope.Where("model = ?", input.UpstreamModel)
 	}
-	return scope
+	return db.Session(&gorm.Session{NewDB: true}).Table("(? UNION ALL ?) AS usage_rows",
+		scope.Select(usageWindowColumns+", channel_id, credential_id"), decisionUsageScope(db, input, groupIDs...).Select(decisionUsageProjection))
 }
 
 func validateUsageStatIntegrity(scope *gorm.DB) error {
@@ -253,6 +254,14 @@ func queryUsageDistribution(
 	dimension UsageDistributionDimension,
 	metric UsageDistributionMetric,
 ) (UsageDistribution, error) {
+	if dimension == UsageDistributionDimensionGroup {
+		scope = scope.Where("group_id > 0")
+		var err error
+		summary, err = queryUsageSummary(scope.Session(&gorm.Session{}))
+		if err != nil {
+			return UsageDistribution{}, err
+		}
+	}
 	var rows []usageDistributionRow
 	query := scope.Session(&gorm.Session{})
 	switch dimension {

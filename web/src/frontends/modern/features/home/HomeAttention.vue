@@ -11,10 +11,22 @@ import {
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
-import { AppBadge, AppButton, AppIcon, AppOverflowText, AppPanel } from '@modern/components/ui'
+import type { GroupRow } from '@modern/api/groups'
+import {
+  AppBadge,
+  AppButton,
+  AppChannelIcon,
+  AppIcon,
+  AppOverflowText,
+  AppPanel,
+} from '@modern/components/ui'
 import type { HealthIssue } from '@modern/features/health/health-display'
 
-const props = defineProps<{ issues?: readonly HealthIssue[]; failed: boolean }>()
+const props = defineProps<{
+  issues?: readonly HealthIssue[]
+  groups: ReadonlyMap<number, GroupRow>
+  failed: boolean
+}>()
 defineEmits<{ retry: [] }>()
 const { t, n } = useI18n()
 const items = computed(() => props.issues ?? [])
@@ -52,7 +64,17 @@ function icon(item: HealthIssue) {
           :to="{ name: 'modern-health', query: { detail: item.key } }"
           class="modern-home-attention-link"
         >
-          <AppIcon :icon="icon(item)" size="sm" :class="'is-' + item.severity" />
+          <AppChannelIcon
+            v-if="
+              item.identityType === 'credential' && item.groupID && props.groups.get(item.groupID)
+            "
+            :icon="props.groups.get(item.groupID)!.channelIcon"
+            :mark="props.groups.get(item.groupID)!.channelMark"
+            :name="props.groups.get(item.groupID)!.channelName"
+            :group-name="item.groupName"
+            size="sm"
+          />
+          <AppIcon v-else :icon="icon(item)" size="sm" :class="'is-' + item.severity" />
           <span class="modern-home-attention-copy">
             <AppOverflowText class="modern-home-attention-subject" :text="item.name" />
             <AppOverflowText class="modern-home-attention-detail" :text="item.reason" />
@@ -94,7 +116,7 @@ function icon(item: HealthIssue) {
 }
 .modern-home-attention-link {
   display: grid;
-  grid-template-columns: var(--modern-icon-sm) minmax(0, 1fr) var(--modern-icon-sm);
+  grid-template-columns: var(--modern-channel-sm) minmax(0, 1fr) var(--modern-icon-sm);
   align-items: center;
   gap: var(--modern-space-2);
   min-width: 0;

@@ -124,8 +124,8 @@ export default {
       empty: 'No models have been added',
       noMatches: 'No models match the current search',
       addInline: 'Add a model',
-      nameConflict: 'Client name “{name}” is duplicated',
-      conflictSummary: 'Duplicate client model names must be resolved before saving',
+      nameConflict: 'Model mapping for “{name}” is duplicated',
+      conflictSummary: 'Duplicate model mappings must be removed before saving',
       emptyAliasSummary: 'Enabled aliases without a client name must be completed before saving',
       locateFirstInvalid: 'Clear search and locate the first issue',
       pricingStatus: {
@@ -169,7 +169,7 @@ export default {
         noAdditions: 'No models to add',
         noRemovals: 'No models to remove',
         more: '{count} more',
-        conflict: 'New models conflict with existing client aliases: {names}',
+        conflict: 'Duplicate model mappings: {names}',
         dirty: 'Save or discard the current changes first.',
         confirm: 'Confirm',
         saveFailed: 'Unable to sync the Group model list.',
@@ -287,7 +287,18 @@ export default {
       base: {
         description: 'Name, channel parameters, and enabled status affect the entire Group.',
         channel: 'Channel',
-        channelHelp: 'The channel is fixed when the Group is created.',
+        channelHelp:
+          'Switching is limited to API key channels. The upstream address and parameters are kept as they are; adjust them after the switch.',
+        channelSwitchBlocked: 'Save or discard the unsaved changes before switching channels.',
+        channelSwitch: 'Switch to {channel}?',
+        channelSwitchHelp:
+          'Credentials stay as they are, but health statistics, cooldowns, and session affinity reset. The model list is unchanged, so confirm the new channel serves these models.',
+        channelSwitchBaseURL:
+          'The upstream address is kept as is, but channels differ in the URL shape they expect, so check it after the switch.',
+        channelSwitchConfirm: 'Switch',
+        channelSwitchAnyway: 'Switch anyway',
+        channelSwitchConflict: '{groups} already use the same upstream target.',
+        channelSwitchFailed: 'Unable to switch the channel. Try again.',
         channelCatalogUnavailable:
           'The channel directory is unavailable. Channel parameters are locked; other settings remain editable.',
         name: 'Name',

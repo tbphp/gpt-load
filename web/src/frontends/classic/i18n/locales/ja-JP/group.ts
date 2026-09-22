@@ -124,8 +124,8 @@ export default {
       empty: 'モデルはまだ追加されていません',
       noMatches: '現在の検索条件に一致するモデルはありません',
       addInline: 'モデルを 1 件追加',
-      nameConflict: 'クライアント名「{name}」が重複しています',
-      conflictSummary: '保存前に重複するクライアントモデル名を解消してください',
+      nameConflict: '「{name}」のモデルマッピングが重複しています',
+      conflictSummary: '保存前に重複するモデルマッピングを削除してください',
       emptyAliasSummary: '有効な別名にクライアント名がないモデルを保存前に修正してください',
       locateFirstInvalid: '検索をクリアして最初の問題に移動',
       pricingStatus: {
@@ -169,7 +169,7 @@ export default {
         noAdditions: '追加するモデルはありません',
         noRemovals: '削除するモデルはありません',
         more: 'ほか {count} 件',
-        conflict: '新しいモデルが既存のクライアント別名と競合しています：{names}',
+        conflict: 'モデルのマッピングが重複しています：{names}',
         dirty: '現在の変更を保存または破棄してください。',
         confirm: '確認',
         saveFailed: 'グループのモデル一覧を同期できません。',
@@ -287,7 +287,18 @@ export default {
       base: {
         description: '名前、チャネルパラメータ、有効状態はグループ全体に適用されます。',
         channel: 'チャネル',
-        channelHelp: 'チャネルはグループ作成時に確定し、後から変更できません。',
+        channelHelp:
+          'API キーチャネル間でのみ切り替えられます。上流アドレスとパラメータはそのまま保持されるため、切り替え後に必要に応じて変更してください。',
+        channelSwitchBlocked: '未保存の変更を保存または破棄してからチャネルを切り替えてください。',
+        channelSwitch: '{channel} に切り替えますか？',
+        channelSwitchHelp:
+          '認証情報はそのままですが、ヘルス統計・クールダウン・セッションアフィニティはリセットされます。モデル一覧は変わらないため、新しいチャネルが対応しているか確認してください。',
+        channelSwitchBaseURL:
+          '上流アドレスはそのまま保持されますが、チャネルによって想定する URL 形式が異なるため、切り替え後に確認してください。',
+        channelSwitchConfirm: '切り替える',
+        channelSwitchAnyway: 'それでも切り替える',
+        channelSwitchConflict: '{groups} が同じ上流ターゲットを使用しています。',
+        channelSwitchFailed: 'チャネルを切り替えられませんでした。再試行してください。',
         channelCatalogUnavailable:
           'チャネル一覧を読み込めないため、チャネルパラメータをロックしました。他の設定は編集できます。',
         name: '名前',

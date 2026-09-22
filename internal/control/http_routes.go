@@ -88,6 +88,18 @@ func (s *Server) HTTPModule() httproute.Module {
 			),
 			controlRoute("control.channels.list", http.MethodGet, "/channels", s.handleListChannels),
 			controlRoute("control.models.list", http.MethodGet, "/models", s.handleListProjectModels),
+			controlRoute("control.models.profile.get", http.MethodGet, "/models/profile", s.handleGetClientModelProfile),
+			controlRoute(
+				"control.models.profile.update",
+				http.MethodPut,
+				"/models/profile",
+				s.auditMutation(newMutationDescriptor(
+					"client_model_profile_update",
+					"client_model",
+					staticMutationLocator("client-model:unknown"),
+				)),
+				s.handleUpdateClientModelProfile,
+			),
 			controlRoute(
 				"control.model-prices.detail",
 				http.MethodGet,
@@ -221,6 +233,17 @@ func (s *Server) HTTPModule() httproute.Module {
 					groupMutationLocator,
 				)),
 				s.handleUpdateGroupSettings,
+			),
+			controlRoute(
+				"control.groups.channel.update",
+				http.MethodPut,
+				"/groups/:group_id/channel",
+				s.auditMutation(newMutationDescriptor(
+					"group_channel_update",
+					"group",
+					groupMutationLocator,
+				)),
+				s.handleUpdateGroupChannel,
 			),
 			controlRoute(
 				"control.groups.retired-update",

@@ -313,10 +313,10 @@ export default {
       empty: 'モデルは未追加です — このままグループを作成できます',
       noMatches: '一致するモデルはありません',
       resolveErrors: 'モデル設定の問題を修正してください',
-      conflictSummary: '公開モデル名に完全一致の重複があります',
+      conflictSummary: 'モデルのマッピングが重複しています',
       emptyAliasSummary: '有効化されたエイリアスに公開モデル名がありません',
       locateFirstInvalid: '最初の問題へ移動',
-      nameConflict: '公開モデル名「{name}」が重複しています',
+      nameConflict: '「{name}」のモデルマッピングが重複しています',
       sources: {
         catalog: 'カタログ',
         live: '上流から取得',

@@ -31,7 +31,7 @@ import {
 } from '@modern/components/ui'
 import { credentialTime } from '@modern/features/groups/credential-presentation'
 import { percentage } from '@modern/features/usage/usage-display'
-import { activeGroups, groupWeight, reasonLabel } from './inspection-display'
+import { activeGroups, groupWeight, groupsWeight, reasonLabel } from './inspection-display'
 import InspectionCredentials from './InspectionCredentials.vue'
 
 const props = defineProps<{
@@ -166,12 +166,10 @@ const changed = computed(
       Number(draft.value.key) !== state.value.key),
 )
 const candidates = computed(() => (result.value ? activeGroups(result.value) : []))
-const totalWeight = computed(() =>
-  candidates.value.reduce((sum, group) => sum + groupWeight(group), 0),
-)
+const totalWeight = computed(() => groupsWeight(candidates.value))
 const active = (group: InspectionGroup) => candidates.value.includes(group)
 const expanded = ref(new Set<string>())
-const rowKey = (group: InspectionGroup) => `${group.id}:${group.mode}`
+const rowKey = (group: InspectionGroup) => JSON.stringify([group.id, group.mode, group.model])
 watch(result, (value) => {
   const available = new Set(value?.groups.map(rowKey))
   expanded.value = new Set([...expanded.value].filter((key) => available.has(key)))
@@ -242,7 +240,11 @@ function reset(key?: string): void {
   }
 }
 function share(group: InspectionGroup): number {
-  return active(group) && totalWeight.value ? (groupWeight(group) / totalWeight.value) * 100 : 0
+  return active(group) && totalWeight.value
+    ? (groupsWeight(candidates.value.filter((candidate) => candidate.id === group.id)) /
+        totalWeight.value) *
+        100
+    : 0
 }
 function status(group: InspectionGroup): string {
   return !group.included

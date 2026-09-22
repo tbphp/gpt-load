@@ -8,8 +8,9 @@ export type SettingsSection =
   | 'reliability'
   | 'browser-access'
   | 'data-maintenance'
-  | 'system'
   | 'interface'
+  | 'experimental'
+  | 'system'
 
 const sections = new Set<SettingsSection>([
   'routing',
@@ -17,12 +18,14 @@ const sections = new Set<SettingsSection>([
   'reliability',
   'browser-access',
   'data-maintenance',
-  'system',
   'interface',
+  'experimental',
+  'system',
 ])
 
 export function parseSettingsSection(query: LocationQuery): SettingsSection {
   const value = scalarRouteQuery(query.section)
+  if (value === 'auto-models') return 'experimental'
   return value !== undefined && sections.has(value as SettingsSection)
     ? (value as SettingsSection)
     : 'routing'

@@ -29,7 +29,7 @@ export function buildAccessKeyModelOptions(
 ): string[] {
   const values: string[] = []
   for (const group of selectAccessKeyGroups(groups, selectedGroupIDs)) {
-    values.push(...group.models)
+    values.push(...group.models, ...(group.auto_models ?? []))
   }
   values.push(...preserved)
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]

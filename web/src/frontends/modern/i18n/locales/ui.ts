@@ -4,6 +4,7 @@ export const zhCN = {
   close: '关闭',
   edit: '编辑',
   loading: '正在加载…',
+  channelTooltip: { channel: '渠道：{name}', group: '分组：{name}' },
   filters: {
     active: '当前筛选条件',
     keyword: '关键词',
@@ -55,6 +56,7 @@ export const enUS: typeof zhCN = {
   close: 'Close',
   edit: 'Edit',
   loading: 'Loading…',
+  channelTooltip: { channel: 'Channel: {name}', group: 'Group: {name}' },
   filters: {
     active: 'Active filters',
     keyword: 'Keyword',
@@ -107,6 +109,7 @@ export const jaJP: typeof zhCN = {
   close: '閉じる',
   edit: '編集',
   loading: '読み込み中…',
+  channelTooltip: { channel: 'チャネル：{name}', group: 'グループ：{name}' },
   filters: {
     active: '現在の絞り込み条件',
     keyword: 'キーワード',

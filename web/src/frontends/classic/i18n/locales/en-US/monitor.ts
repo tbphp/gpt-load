@@ -1,4 +1,9 @@
+import { enUS as experimental } from '../experimental'
+import { enUS as autoModel } from '../auto-model'
+
 export default {
+  ...experimental,
+  autoModel,
   monitor: {
     clearKeySearch: 'Clear key search',
     title: 'Monitor',
@@ -409,6 +414,7 @@ export default {
         images_edit: 'Edit image',
         embeddings_create: 'Create embeddings',
         rerank: 'Rerank documents',
+        decisions_create: 'Create decision',
       },
       routeRequirements: {
         any: 'Allow protocol conversion (possibly lossy)',
@@ -641,6 +647,8 @@ export default {
         anyStatus: 'Any status',
         requestId: 'Request ID',
         finalStatusCode: 'Final HTTP status',
+        auditStatus: 'Guardrail result',
+        auditRule: 'Matched rule',
         channel: 'Any-attempt channel',
         anyChannel: 'Any channel',
         credential: 'Any-attempt credential ID',
@@ -816,6 +824,7 @@ export default {
         images_edit: 'Edit image',
         embeddings_create: 'Create embeddings',
         rerank: 'Rerank documents',
+        decisions_create: 'Create decision',
         list_models: 'List models',
         probe: 'Health probe',
       },

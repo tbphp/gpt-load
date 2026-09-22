@@ -14,6 +14,7 @@ import (
 )
 
 type GroupOption struct {
+	AutoModels     []string              `json:"auto_models,omitempty"`
 	ID             uint                  `json:"id"`
 	Name           string                `json:"name"`
 	ChannelID      channel.ID            `json:"channel_id"`
@@ -60,7 +61,23 @@ func (s *Service) ListGroupOptions(ctx context.Context) ([]GroupOption, error) {
 	if err != nil {
 		return nil, err
 	}
+	for index := range options {
+		options[index].AutoModels = s.autoModelNames()
+	}
 	return options, nil
+}
+
+func (s *Service) autoModelNames() []string {
+	names := []string{}
+	snapshot := s.manager.Current()
+	if snapshot != nil && snapshot.AutoModels.Enabled() {
+		for _, entry := range snapshot.AutoModels.Config().Models {
+			if entry.Enabled {
+				names = append(names, entry.Name)
+			}
+		}
+	}
+	return names
 }
 
 func (s *Service) readGroupOptionRows(ctx context.Context) ([]groupOptionRow, error) {
@@ -117,13 +134,17 @@ func mapGroupOptions(rows []groupOptionRow, registries ...*channel.Registry) ([]
 			Params:         append(json.RawMessage(nil), params...), Enabled: row.Enabled,
 			Models: make([]string, 0, len(models)),
 		}
+		seenModels := make(map[string]struct{}, len(models))
 		for _, model := range models {
-			alias := strings.TrimSpace(model.Alias)
-			if alias != "" {
-				option.Models = append(option.Models, alias)
+			name := strings.TrimSpace(model.Alias)
+			if name == "" {
+				name = strings.TrimSpace(model.ID)
+			}
+			if _, exists := seenModels[name]; exists {
 				continue
 			}
-			option.Models = append(option.Models, strings.TrimSpace(model.ID))
+			seenModels[name] = struct{}{}
+			option.Models = append(option.Models, name)
 		}
 		options = append(options, option)
 	}

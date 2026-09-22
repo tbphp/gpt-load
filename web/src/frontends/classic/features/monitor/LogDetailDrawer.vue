@@ -23,7 +23,7 @@ import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedCost, formatExactNanoUSD } from '@/lib/format'
+import { formatEstimatedCost, formatExactNanoUSD, formatPercent } from '@/lib/format'
 
 import { formatCacheHitRate } from '@/lib/cache-rate'
 import {
@@ -46,10 +46,13 @@ const props = defineProps<{
 }>()
 defineEmits<{ 'update:open': [open: boolean] }>()
 const client = useApiClient()
-const { locale, t } = useI18n()
+const { locale, t, te } = useI18n()
 const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
 const initialLoading = useStableLoading(() => props.open && query.isPending.value)
 const log = computed(() => query.data.value)
+const auditCalls = computed(
+  () => log.value?.request_audit?.calls.filter((call) => call.called) ?? [],
+)
 const errorMessageExpanded = ref(false)
 const expandedAttemptErrorMessages = ref<Set<number>>(new Set())
 const finalAttempt = computed(() => {
@@ -170,6 +173,80 @@ function statusTone(status: string): 'success' | 'danger' | 'warning' | 'neutral
   if (status === 'error') return 'danger'
   if (status === 'incomplete') return 'warning'
   return 'neutral'
+}
+
+function decisionStrategy(source: string): string {
+  const key = 'autoModel.sources.' + source
+  return te(key) ? t(key) : `${t('autoModel.sources.unknown')} · ${source}`
+}
+
+function decisionPhase(phase: string): string {
+  const key = 'autoModel.phases.' + phase
+  return te(key) ? t(key) : `${t('autoModel.phases.unknown')} · ${phase}`
+}
+
+function decisionReason(reason: string): string {
+  if (!reason) return ''
+  if (/^http_\d+$/u.test(reason))
+    return t('autoModel.reasons.httpError', { status: reason.slice('http_'.length) })
+  const key = 'autoModel.reasons.' + reason
+  return te(key) ? t(key) : `${t('autoModel.reasons.unknown')} · ${reason}`
+}
+
+function decisionCost(value: string): string {
+  return formatExactNanoUSD(value, locale.value)
+}
+
+function decisionFormula(): string {
+  const decision = log.value?.auto_decision
+  if (!decision?.receipt) return '—'
+  const quantities = [
+    decision.input_tokens === null
+      ? ''
+      : `${t('monitor.logs.receipt.input')} ${formatLogTokenCount(decision.input_tokens, locale.value)}`,
+    decision.output_tokens === null
+      ? ''
+      : `${t('monitor.logs.receipt.output')} ${formatLogTokenCount(decision.output_tokens, locale.value)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const rates = decision.receipt.line_items
+    .filter((line) => line.rate_nano_usd_per_million !== null)
+    .map(
+      (line) =>
+        `${line.code === 'output' ? t('monitor.logs.receipt.output') : t('monitor.logs.receipt.input')} ${formatExactNanoUSD(line.rate_nano_usd_per_million!, locale.value)}/1M`,
+    )
+    .join(' · ')
+  const multipliers = decision.receipt.price_multipliers
+  const multiplier = multipliers ? ` × ${multipliers.group} × ${multipliers.access_key}` : ''
+  return `${quantities || '—'} · ${rates || '—'}${multiplier} = ${decisionCost(decision.estimated_cost_nano_usd)}`
+}
+
+function decisionConfidence(value: number): string {
+  return formatPercent(Math.round(value * 10_000), 10_000, locale.value)
+}
+
+function decisionModelText(requested: string, upstream: string, reported: string): string {
+  const selected =
+    requested && upstream && requested !== upstream
+      ? `${requested} → ${upstream}`
+      : upstream || requested
+  const observed =
+    reported && reported !== upstream ? `${t('autoModel.reportedModel')} ${reported}` : ''
+  return [selected, observed].filter(Boolean).join(' · ') || '—'
+}
+
+function decisionRouteText(
+  group: string,
+  channel: string,
+  credential: string,
+  credentialDeleted: boolean,
+): string {
+  return (
+    [group, channel, credential || (credentialDeleted ? t('autoModel.deletedCredential') : '')]
+      .filter(Boolean)
+      .join(' · ') || '—'
+  )
 }
 
 function attemptTone(attempt: RequestLogAttemptDto): 'success' | 'danger' | 'warning' {
@@ -463,6 +540,104 @@ function toggleAttemptErrorMessage(sequence: number): void {
         </dl>
       </section>
 
+      <section
+        v-if="log.request_audit && log.request_audit.status !== 'passed'"
+        class="log-detail__section"
+      >
+        <h3>{{ t('requestAudit.title') }}</h3>
+        <dl class="log-detail__grid">
+          <div>
+            <dt>{{ t('requestAudit.result') }}</dt>
+            <dd>{{ t('requestAudit.statuses.' + log.request_audit.status) }}</dd>
+          </div>
+          <div v-if="log.request_audit.reason">
+            <dt>{{ t('autoModel.reason') }}</dt>
+            <dd>{{ t('requestAudit.reasons.' + log.request_audit.reason) }}</dd>
+          </div>
+          <div v-for="finding in log.request_audit.findings" :key="finding.rule_id">
+            <dt>{{ finding.name }}</dt>
+            <dd>{{ t('requestAudit.actions.' + finding.action) }}</dd>
+          </div>
+        </dl>
+      </section>
+      <section v-if="log.auto_decision" class="log-detail__section">
+        <h3>{{ t('autoModel.log') }}</h3>
+        <dl class="log-detail__grid">
+          <div>
+            <dt>{{ t('autoModel.source') }}</dt>
+            <dd>{{ decisionStrategy(log.auto_decision.source) }}</dd>
+          </div>
+          <div v-if="log.auto_decision.execution_phase">
+            <dt>{{ t('autoModel.phase') }}</dt>
+            <dd>{{ decisionPhase(log.auto_decision.execution_phase) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.selected') }}</dt>
+            <dd>{{ log.auto_decision.selection.preset_name }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.targetModelLog') }}</dt>
+            <dd>{{ log.auto_decision.selection.target_model }}</dd>
+          </div>
+          <div
+            v-if="
+              log.auto_decision.upstream_model ||
+              log.auto_decision.reported_model ||
+              log.auto_decision.requested_model
+            "
+          >
+            <dt>{{ t('autoModel.decisionModel') }}</dt>
+            <dd>
+              {{
+                decisionModelText(
+                  log.auto_decision.requested_model,
+                  log.auto_decision.upstream_model,
+                  log.auto_decision.reported_model,
+                )
+              }}
+            </dd>
+          </div>
+          <div
+            v-if="
+              log.auto_decision.group_name ||
+              log.auto_decision.channel_name ||
+              log.auto_decision.credential_name ||
+              log.auto_decision.credential_deleted
+            "
+          >
+            <dt>{{ t('autoModel.decisionRoute') }}</dt>
+            <dd>
+              {{
+                decisionRouteText(
+                  log.auto_decision.group_name,
+                  log.auto_decision.channel_name,
+                  log.auto_decision.credential_name,
+                  log.auto_decision.credential_deleted,
+                )
+              }}
+            </dd>
+          </div>
+          <div v-if="log.auto_decision.called">
+            <dt>{{ t('autoModel.duration') }}</dt>
+            <dd>{{ log.auto_decision.duration_ms }} ms</dd>
+          </div>
+          <div v-if="log.auto_decision.confidence !== null">
+            <dt>{{ t('autoModel.confidenceValue') }}</dt>
+            <dd>{{ decisionConfidence(log.auto_decision.confidence) }}</dd>
+          </div>
+          <div v-if="log.auto_decision.reason">
+            <dt>{{ t('autoModel.reason') }}</dt>
+            <dd>{{ decisionReason(log.auto_decision.reason) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('autoModel.decisionCost') }}</dt>
+            <dd>
+              {{ decisionCost(log.auto_decision.estimated_cost_nano_usd) }}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
       <section v-if="!selfScoped" class="log-detail__section">
         <h3>{{ t('monitor.logs.drawer.finalExecution') }}</h3>
         <dl class="log-detail__grid">
@@ -583,7 +758,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
             <dt>{{ t('monitor.logs.tokens.cacheHitRate') }}</dt>
             <dd>{{ cacheRateLabel }}</dd>
           </div>
-          <div v-if="costDisplayState !== 'unpriced'">
+          <div>
             <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
             <dd class="log-detail__cost">
               <span>{{ costAmountLabel }}</span>
@@ -611,18 +786,31 @@ function toggleAttemptErrorMessage(sequence: number): void {
           <div
             v-if="
               !selfScoped &&
-              costDisplayState !== 'unpriced' &&
-              receipt &&
-              usageDisplayState === 'reported'
+              (log.auto_decision ||
+                auditCalls.length ||
+                (costDisplayState !== 'unpriced' && receipt && usageDisplayState === 'reported'))
             "
             class="log-detail__wide"
           >
             <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
             <dd class="log-detail__formula">
-              <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
-              <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
+              <span v-for="(call, index) in auditCalls" :key="'audit-' + index"
+                >{{ t('requestAudit.cost') }} · {{ call.model }} =
+                {{
+                  call.cost_state === 'priced' ? decisionCost(call.estimated_cost_nano_usd) : '—'
+                }}</span
+              >
+              <span v-if="log.auto_decision"
+                >{{ t('autoModel.decisionPriceItem') }} = {{ decisionFormula() }}</span
+              >
+              <template v-if="receipt && usageDisplayState === 'reported'">
+                <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
+                <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
+              </template>
               <template
                 v-if="
+                  receipt &&
+                  usageDisplayState === 'reported' &&
                   receipt.schema_version === 6 &&
                   receipt.base_total_nano_usd !== undefined &&
                   receipt.price_multipliers
@@ -641,7 +829,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 </span>
                 <small>{{ t('monitor.logs.receipt.totalRounding') }}</small>
               </template>
-              <template v-else>
+              <template v-else-if="receipt && usageDisplayState === 'reported'">
                 <span>
                   {{ t('monitor.logs.receipt.total') }} =
                   {{ formatExactNanoUSD(receipt.total_nano_usd, locale) }}

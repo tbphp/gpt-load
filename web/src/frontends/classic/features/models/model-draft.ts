@@ -132,19 +132,20 @@ export function clientModel(model: GroupModelUpdateDto): string {
   return normalized === undefined ? '' : normalized.alias_enabled ? normalized.alias : normalized.id
 }
 
-/** Client names are intentionally exact and case sensitive, matching the API contract. */
+/** 同一上游模型与对外名称的重复映射不增加轮询份额。 */
 export function findModelNameConflicts(
   models: readonly GroupModelUpdateDto[],
 ): ModelNameConflict[] {
-  const byClientModel = new Map<string, number[]>()
+  const mappings = new Map<string, ModelNameConflict>()
   for (const [index, model] of models.entries()) {
     const name = clientModel(model)
     if (!name) continue
-    byClientModel.set(name, [...(byClientModel.get(name) ?? []), index])
+    const key = JSON.stringify([model.id.trim(), name])
+    const mapping = mappings.get(key) ?? { client_model: name, indexes: [] }
+    mapping.indexes.push(index)
+    mappings.set(key, mapping)
   }
-  return [...byClientModel.entries()]
-    .filter(([, indexes]) => indexes.length > 1)
-    .map(([client_model, indexes]) => ({ client_model, indexes }))
+  return [...mappings.values()].filter(({ indexes }) => indexes.length > 1)
 }
 
 export function indexesWithConflicts(conflicts: readonly ModelNameConflict[]): Set<number> {

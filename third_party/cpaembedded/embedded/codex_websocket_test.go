@@ -321,6 +321,56 @@ func TestCodexWSSessionPreservesUpstreamFailure(t *testing.T) {
 	}
 }
 
+func TestCodexWSSessionPreservesUsageLimitRetryAfter(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		payload string
+	}{
+		{name: "error event", payload: `{"type":"error","status":429,"error":{"type":"usage_limit_reached","message":"quota exhausted","resets_in_seconds":7200}}`},
+		{name: "failed response", payload: `{"type":"response.failed","response":{"id":"resp_failed","status":"failed","error":{"type":"usage_limit_reached","message":"quota exhausted","resets_in_seconds":7200}}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer conn.Close()
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(test.payload))
+				_, _, _ = conn.ReadMessage()
+			}))
+			defer server.Close()
+			session := wsTestSession(t, server.URL)
+			_, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
+			var failure *CodexWSError
+			if !errors.As(err, &failure) || failure.HTTPStatus != http.StatusTooManyRequests ||
+				failure.UpstreamType != "usage_limit_reached" || failure.RetryAfter != 2*time.Hour {
+				t.Fatalf("usage-limit metadata was lost: error=%v failure=%+v", err, failure)
+			}
+		})
+	}
+}
+
+func TestCodexWSSessionPreservesHandshakeUsageLimitRetryAfter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"error":{"type":"usage_limit_reached","message":"quota exhausted","resets_in_seconds":7200}}`)
+	}))
+	defer server.Close()
+	session := wsTestSession(t, server.URL)
+	_, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
+	var failure *CodexWSError
+	if !errors.As(err, &failure) || failure.HTTPStatus != http.StatusTooManyRequests ||
+		failure.UpstreamType != "usage_limit_reached" || failure.RetryAfter != 2*time.Hour {
+		t.Fatalf("handshake usage-limit metadata was lost: error=%v failure=%+v", err, failure)
+	}
+}
+
 func TestCodexWSSessionCancellationAndBusy(t *testing.T) {
 	for _, mode := range []string{"cancel", "timeout", "close"} {
 		t.Run(mode, func(t *testing.T) {

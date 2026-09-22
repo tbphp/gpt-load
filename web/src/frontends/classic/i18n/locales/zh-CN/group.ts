@@ -123,8 +123,8 @@ export default {
       empty: '尚未添加模型',
       noMatches: '没有符合当前搜索条件的模型',
       addInline: '添加一个模型',
-      nameConflict: '对外名称“{name}”重复',
-      conflictSummary: '存在重复的对外模型名称，修正后才能保存',
+      nameConflict: '“{name}”的模型映射重复',
+      conflictSummary: '存在重复的模型映射，删除重复项后才能保存',
       emptyAliasSummary: '存在已启用但未填写对外别名的模型，修正后才能保存',
       locateFirstInvalid: '清除搜索并定位首个问题',
       pricingStatus: {
@@ -168,7 +168,7 @@ export default {
         noAdditions: '没有新增模型',
         noRemovals: '没有需要移除的模型',
         more: '另有 {count} 个',
-        conflict: '新增模型与现有对外别名冲突：{names}',
+        conflict: '存在重复的模型映射：{names}',
         dirty: '请先保存或放弃当前修改。',
         confirm: '确认',
         saveFailed: '无法同步分组模型列表。',
@@ -280,7 +280,17 @@ export default {
       base: {
         description: '名称、渠道参数与启用状态影响整个分组。',
         channel: '渠道',
-        channelHelp: '渠道由创建分组时确定，后续不可切换。',
+        channelHelp: '只能在 API 密钥渠道之间切换；上游地址与参数原样保留，切换后按需修改。',
+        channelSwitchBlocked: '有未保存的修改，请先保存或放弃后再切换渠道。',
+        channelSwitch: '切换到 {channel}？',
+        channelSwitchHelp:
+          '凭据保持不变，但健康统计、冷却和会话亲和会重置。模型列表不变，请确认新渠道支持这些模型。',
+        channelSwitchBaseURL:
+          '上游地址会原样保留，但各渠道对地址格式的要求不同，切换后请检查它是否仍然正确。',
+        channelSwitchConfirm: '确认切换',
+        channelSwitchAnyway: '仍然切换',
+        channelSwitchConflict: '{groups} 已经使用相同的上游目标。',
+        channelSwitchFailed: '切换渠道失败，请重试。',
         channelCatalogUnavailable: '无法加载渠道目录，渠道参数已锁定；其他设置仍可编辑。',
         name: '分组名称',
         nameError: '请输入分组名称。',

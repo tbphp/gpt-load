@@ -18,6 +18,7 @@ const (
 	openAIImagesGenerationsPath = "/v1/images/generations"
 	openAIImagesEditsPath       = "/v1/images/edits"
 	openAIEmbeddingsPath        = "/v1/embeddings"
+	decisionsPath               = "/v1/systemone"
 )
 
 type endpointKind uint8
@@ -25,6 +26,7 @@ type endpointKind uint8
 const (
 	endpointForward endpointKind = iota + 1
 	endpointModels
+	endpointUsage
 )
 
 type route struct {
@@ -43,6 +45,8 @@ type dataPlaneEndpoint struct {
 
 func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 	return []dataPlaneEndpoint{
+		{name: "data.usage", methods: []string{http.MethodGet}, path: "/v1/user/balance", resolve: staticRoute("", endpointUsage)},
+		{name: "data.usage.unversioned", methods: []string{http.MethodGet}, path: "/user/balance", resolve: staticRoute("", endpointUsage)},
 		{
 			name:    "data.openai.completions",
 			methods: []string{http.MethodPost},
@@ -113,6 +117,7 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			resolve: staticRoute(protocol.OpenAIEmbeddings, endpointForward),
 		},
 		{name: "data.rerank", methods: []string{http.MethodPost}, path: "/v1/rerank", resolve: staticRoute(protocol.Rerank, endpointForward)},
+		{name: "data.decisions", methods: []string{http.MethodPost}, path: decisionsPath, resolve: staticRoute(protocol.Decisions, endpointForward)},
 		{name: "data.codex.search", methods: []string{http.MethodPost}, path: "/v1/alpha/search", resolve: staticRoute(protocol.OpenAIResponses, endpointForward)},
 	}
 }

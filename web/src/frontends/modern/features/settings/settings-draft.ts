@@ -9,8 +9,23 @@ import {
   type SettingsPatch,
   type RouteStrategy,
 } from '@modern/api/settings'
+import {
+  defaultJev,
+  defaultAudit,
+  validJev,
+  validAudit,
+  type JevConfig,
+  type AuditConfig,
+} from '@modern/api/experimental'
 import type { HeaderRules } from '@modern/api/group-detail'
 import { validProxyURL } from '@modern/app/proxy'
+import {
+  autoModelDraft,
+  autoModelValue,
+  defaultAutoModel,
+  validAutoDraft,
+  type AutoModelDraft,
+} from '@modern/api/auto-model'
 
 export type HeaderSetting = 'header_rules' | 'response_header_rules'
 export interface HeaderRow {
@@ -35,6 +50,9 @@ export type SettingsDraft = Record<SettingNumber, string> &
     response_header_rules: HeaderRow[]
     cors: CORSDraft
     proxy_config: { mode: 'inherit' | 'direct' | 'custom'; url: string }
+    auto_model: AutoModelDraft
+    jev: JevConfig
+    request_audit: AuditConfig
   }
 let nextHeader = 0
 export function newHeader(): HeaderRow {
@@ -66,6 +84,9 @@ export function createSettingsDraft(data: SettingsData): SettingsDraft {
     header_rules: headerRows(values.header_rules),
     response_header_rules: headerRows(values.response_header_rules),
     proxy_config: { mode: values.proxy_config.configured_mode, url: '' },
+    auto_model: autoModelDraft(values.auto_model ?? defaultAutoModel()),
+    jev: cloneDraft(values.jev),
+    request_audit: cloneDraft(values.request_audit),
     cors: {
       ...values.cors,
       allowed_origins: values.cors.allowed_origins.join('\n'),
@@ -235,8 +256,18 @@ export function settingsErrors(
   resets: ReadonlySet<SettingKey>,
 ): Record<string, string> {
   const errors: Record<string, string> = {}
+  if (changed.some((key) => ['jev', 'auto_model', 'request_audit'].includes(key))) {
+    const jev = resets.has('jev') ? defaultJev() : draft.jev
+    const audit = resets.has('request_audit') ? defaultAudit() : draft.request_audit
+    const autoEnabled = !resets.has('auto_model') && draft.auto_model.enabled
+    if (!validJev(jev) || ((autoEnabled || audit.enabled) && !jev.model))
+      errors.jev = 'experimental'
+    if (!validAudit(audit) || (audit.enabled && !jev.group_id))
+      errors.request_audit = 'experimental'
+  }
   for (const key of changed) {
     if (resets.has(key) || base.readOnly.includes(key)) continue
+    if (key === 'auto_model' && !validAutoDraft(draft.auto_model)) errors.auto_model = 'autoModel'
     if (key in settingNumbers) {
       const number = key as SettingNumber
       const rule = settingNumbers[number]
@@ -299,7 +330,8 @@ export function buildSettingsPatch(
         ),
         remove: draft[key].filter((row) => row.action === 'remove').map((row) => row.name.trim()),
       }
-    } else if (key === 'cors') patch[key] = corsValue(draft.cors)
+    } else if (key === 'auto_model') patch[key] = autoModelValue(draft.auto_model)
+    else if (key === 'cors') patch[key] = corsValue(draft.cors)
     else if (key === 'proxy_config') {
       const proxy = draft.proxy_config
       if (

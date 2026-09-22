@@ -1,3 +1,9 @@
+import {
+  defaultJev,
+  defaultAudit,
+  type JevConfig,
+  type AuditConfig,
+} from '@/app/resources/experimental'
 import type { RouteStrategy } from '@/api/control/types'
 import type { HeaderRulesDto } from '@/app/resources/groups'
 import type {
@@ -10,6 +16,7 @@ import type {
   TimeoutSettingKey,
 } from '@/app/resources/settings'
 import { runtimeSettingKeys } from '@/app/resources/settings'
+import { defaultAutoModel, type AutoModelConfigDto } from '@/app/resources/auto-model'
 
 export type SettingsSection =
   'request-forwarding' | 'affinity' | 'browser-access' | 'logs-maintenance' | 'model-prices'
@@ -54,13 +61,23 @@ function cloneCORSConfig(value: CORSConfigDto): CORSConfigDto {
 function cloneValues(value: SettingsValues): SettingsValues {
   return {
     ...value,
+    jev: { ...value.jev },
+    request_audit: JSON.parse(JSON.stringify(value.request_audit)) as AuditConfig,
+    auto_model: {
+      ...(value.auto_model ?? defaultAutoModel()),
+      models: JSON.parse(
+        JSON.stringify(value.auto_model?.models ?? []),
+      ) as AutoModelConfigDto['models'],
+    },
     header_rules: cloneHeaderRules(value.header_rules),
     cors: cloneCORSConfig(value.cors),
     response_header_rules: cloneHeaderRules(value.response_header_rules),
   }
 }
 
-export function createSettingsDraft(settings: SettingsDto): SettingsDraft {
+export function createSettingsDraft(
+  settings: Pick<SettingsDto, 'values' | 'overrides' | 'read_only'>,
+): SettingsDraft {
   return {
     values: cloneValues(settings.values),
     overrides: new Set(settings.overrides),
@@ -92,6 +109,16 @@ export function setSettingsOverride(
       next.values.models_dev_auto_sync_enabled = base.values.models_dev_auto_sync_enabled
     } else if (key === 'cors') {
       next.values.cors = cloneCORSConfig(base.values.cors)
+    } else if (key === 'jev') {
+      next.values.jev = { ...base.values.jev }
+    } else if (key === 'request_audit') {
+      next.values.request_audit = JSON.parse(
+        JSON.stringify(base.values.request_audit),
+      ) as AuditConfig
+    } else if (key === 'auto_model') {
+      next.values.auto_model = JSON.parse(
+        JSON.stringify(base.values.auto_model ?? defaultAutoModel()),
+      ) as AutoModelConfigDto
     } else if (key === 'header_rules') {
       next.values.header_rules = cloneHeaderRules(base.values.header_rules)
     } else if (key === 'response_header_rules') {
@@ -101,6 +128,14 @@ export function setSettingsOverride(
     }
   } else {
     next.overrides.delete(key)
+    const persisted = base.overrides.includes(key)
+    if (key === 'jev') next.values.jev = persisted ? defaultJev() : { ...base.values.jev }
+    if (key === 'request_audit')
+      next.values.request_audit = persisted
+        ? defaultAudit()
+        : cloneValues(base.values).request_audit
+    if (key === 'auto_model')
+      next.values.auto_model = persisted ? defaultAutoModel() : cloneValues(base.values).auto_model
     if (key === 'header_rules') next.values.header_rules = { set: {}, remove: [] }
     if (key === 'response_header_rules') next.values.response_header_rules = { set: {}, remove: [] }
   }
@@ -118,7 +153,16 @@ function normalizeHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
 function normalizedWireValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
-): number | boolean | RouteStrategy | HeaderRulesDto | CORSConfigDto {
+):
+  | number
+  | boolean
+  | RouteStrategy
+  | HeaderRulesDto
+  | CORSConfigDto
+  | AutoModelConfigDto
+  | JevConfig
+  | AuditConfig
+  | undefined {
   if (key === 'header_rules' || key === 'response_header_rules')
     return normalizeHeaderRules(settings[key])
   if (key === 'cors') return normalizeCORSConfig(settings.cors)
@@ -150,7 +194,16 @@ function canonicalHeaderRulesIdentity(value: HeaderRulesDto): HeaderRulesDto {
 function normalizedIdentityValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
-): number | boolean | RouteStrategy | HeaderRulesDto | CORSConfigDto {
+):
+  | number
+  | boolean
+  | RouteStrategy
+  | HeaderRulesDto
+  | CORSConfigDto
+  | AutoModelConfigDto
+  | JevConfig
+  | AuditConfig
+  | undefined {
   if (key === 'header_rules' || key === 'response_header_rules')
     return canonicalHeaderRulesIdentity(settings[key])
   if (key === 'cors') return canonicalCORSIdentity(settings.cors)

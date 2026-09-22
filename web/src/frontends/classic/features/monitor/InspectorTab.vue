@@ -202,12 +202,17 @@ const activeRouteMode = computed<'native' | 'converted' | null>(() => {
   return null
 })
 const activeGroups = computed(() => includedGroups.value.filter(isActiveCandidate))
-const availableCredentialCount = computed(() =>
-  activeGroups.value.reduce((total, group) => total + groupAvailableCredentialCount(group), 0),
+const availableCredentialCount = computed(
+  () =>
+    new Set(
+      activeGroups.value.flatMap((group) =>
+        group.credentials
+          .filter((credential) => credential.available)
+          .map((credential) => credential.credential_id),
+      ),
+    ).size,
 )
-const totalEffectiveWeight = computed(() =>
-  activeGroups.value.reduce((total, group) => total + groupEffectiveWeight(group), 0),
-)
+const totalEffectiveWeight = computed(() => groupsEffectiveWeight(activeGroups.value))
 
 function readProtocol(raw: unknown): AccessProtocol | '' {
   return typeof raw === 'string' && enabledDataProtocols.some((protocol) => protocol === raw)
@@ -482,16 +487,32 @@ function groupEffectiveWeight(group: RouteInspectGroupDto): number {
   )
 }
 
+function groupsEffectiveWeight(groups: readonly RouteInspectGroupDto[]): number {
+  const weights = new Map<number, number>()
+  for (const group of groups) {
+    for (const credential of group.credentials) {
+      if (credential.available) weights.set(credential.credential_id, credential.effective_weight)
+    }
+  }
+  return [...weights.values()].reduce((total, weight) => total + weight, 0)
+}
+
+function activeGroupWeight(group: RouteInspectGroupDto): number {
+  return groupsEffectiveWeight(
+    activeGroups.value.filter((candidate) => candidate.group_id === group.group_id),
+  )
+}
+
 function groupShare(group: RouteInspectGroupDto): number {
   if (!isActiveCandidate(group)) return 0
   const total = totalEffectiveWeight.value
   if (total <= 0) return 0
-  return Math.round((groupEffectiveWeight(group) / total) * 1_000) / 10
+  return Math.round((activeGroupWeight(group) / total) * 1_000) / 10
 }
 
 function groupShareLabel(group: RouteInspectGroupDto): string {
   if (!isActiveCandidate(group)) return t('monitor.inspector.groups.standbyShare')
-  return formatPercent(groupEffectiveWeight(group), totalEffectiveWeight.value, locale.value)
+  return formatPercent(activeGroupWeight(group), totalEffectiveWeight.value, locale.value)
 }
 
 function candidateCredentialSummary(group: RouteInspectGroupDto): string {
@@ -765,7 +786,7 @@ onBeforeUnmount(() => {
 
             <details
               v-for="(group, index) in orderedIncludedGroups"
-              :key="group.group_id"
+              :key="JSON.stringify([group.group_id, group.route_mode, group.upstream_model])"
               class="route-candidate"
               role="row"
               :aria-rowindex="index + 2"
@@ -989,7 +1010,7 @@ onBeforeUnmount(() => {
 
             <article
               v-for="(group, index) in excludedGroups"
-              :key="group.group_id"
+              :key="JSON.stringify([group.group_id, group.route_mode, group.upstream_model])"
               class="ledger-record-list__record route-exclusion-record"
               role="row"
               :aria-rowindex="index + 2"

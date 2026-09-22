@@ -314,10 +314,10 @@ export default {
       empty: 'No models added; you can create the Group now',
       noMatches: 'No models match',
       resolveErrors: 'Resolve the issues in the model settings',
-      conflictSummary: 'Public model names contain exact duplicates',
+      conflictSummary: 'Model mappings contain duplicates',
       emptyAliasSummary: 'An enabled alias has no public model name',
       locateFirstInvalid: 'Go to first issue',
-      nameConflict: 'Public model name “{name}” is duplicated',
+      nameConflict: 'Model mapping for “{name}” is duplicated',
       sources: {
         catalog: 'Catalog',
         live: 'Live discovery',

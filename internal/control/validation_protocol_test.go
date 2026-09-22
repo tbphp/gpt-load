@@ -114,7 +114,7 @@ func TestExplicitProbeProtocolDoesNotFallback(t *testing.T) {
 
 func TestValidationProtocolOptionsUseChannelDeclarations(t *testing.T) {
 	registry := channel.NewRegistry()
-	for _, id := range []channel.ID{channel.Alibaba, channel.Groq, channel.OpenAI} {
+	for _, id := range []channel.ID{channel.Alibaba, channel.Groq, channel.OpenAI, channel.Jev, channel.OpenRouter} {
 		t.Run(string(id), func(t *testing.T) {
 			response, err := groupSettingsResponse(models.Group{ChannelID: string(id), Models: models.JSON(`[]`)}, state.RuntimeSettings{}, registry)
 			if err != nil {

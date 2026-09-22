@@ -9,6 +9,8 @@ export const requestLogFilterFields = [
   'upstream_model',
   'access_key_id',
   'status',
+  'audit_status',
+  'audit_rule',
   'request_id',
   'protocol',
   'stream',

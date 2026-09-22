@@ -11,6 +11,7 @@ import (
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
@@ -105,44 +106,109 @@ func mapEvent(
 
 	result := event.Usage.Result
 	pricingObservation := event.Usage.Pricing
+	var autoJSON models.JSON
+	var decisionCost int64
+	decisionCompleteness, decisionModel := "not_applicable", ""
+	var decisionGroupID, decisionCredentialID uint
+	decisionChannelID := ""
+	if event.AutoDecision != nil {
+		decision := *event.AutoDecision
+		decision.Selection.ParameterOverrides = nil
+		decision.Selection.TaskFingerprint = ""
+		decision.Selection.PresetName = redactIdentityValue(redactor, decision.Selection.PresetName)
+		if decision.EstimatedCostNanoUSD < 0 {
+			return models.RequestLog{}, fmt.Errorf("negative automatic decision cost")
+		}
+		autoJSON, _ = json.Marshal(decision)
+		decisionCost, decisionCompleteness = decision.EstimatedCostNanoUSD, decision.PricingCompleteness
+		if decision.Called {
+			decisionModel = decision.UpstreamModel
+			decisionGroupID = decision.GroupID
+			decisionChannelID = decision.ChannelID
+			decisionCredentialID = decision.CredentialID
+		}
+	}
 
+	var auditJSON models.JSON
+	auditTotal := telemetry.PricingObservation{CostState: "not_applicable", PricingCompleteness: "not_applicable"}
+	auditRows := []models.RequestAuditUsage{}
+	if event.RequestAudit != nil {
+		auditCopy := *event.RequestAudit
+		auditCopy.Findings = append([]requestaudit.Finding{}, event.RequestAudit.Findings...)
+		for index := range auditCopy.Findings {
+			auditCopy.Findings[index].Name = redactIdentityValue(redactor, auditCopy.Findings[index].Name)
+		}
+		unpricedRecorded := decisionCompleteness == "unavailable" || pricingObservation.CostState == "unpriced" && (result.State == usage.StateComplete || result.State == usage.StatePartial)
+		partialRecorded := decisionCompleteness == "partial" || pricingObservation.PricingCompleteness == "partial"
+		for index, call := range auditCopy.Calls {
+			if call.EstimatedCostNanoUSD < 0 {
+				return models.RequestLog{}, fmt.Errorf("negative audit cost")
+			}
+			if !call.Called {
+				continue
+			}
+			var unpricedCount, partialCount int64
+			if call.PricingCompleteness == "unavailable" && !unpricedRecorded {
+				unpricedCount = 1
+				unpricedRecorded = true
+			}
+			if call.PricingCompleteness == "partial" && !partialRecorded {
+				partialCount = 1
+				partialRecorded = true
+			}
+			auditRows = append(auditRows, models.RequestAuditUsage{UnpricedRequestCount: unpricedCount, PricingPartialCount: partialCount, RequestID: event.RequestID, Sequence: index + 1, CompletedAtMS: completedAtMS, AccessKeyID: event.AccessKeyID, GroupID: call.GroupID, ChannelID: call.ChannelID, CredentialID: call.CredentialID, Model: call.UpstreamModel, EstimatedCostNanoUSD: call.EstimatedCostNanoUSD, PricingCompleteness: call.PricingCompleteness})
+		}
+		auditJSON, err = json.Marshal(auditCopy)
+		if err != nil {
+			return models.RequestLog{}, err
+		}
+		auditTotal = telemetry.TotalPricing(auditTotal, nil, &auditCopy)
+	}
 	return models.RequestLog{
-		ID:                      event.RequestID,
-		CompletedAtMS:           completedAtMS,
-		AccessKeyID:             event.AccessKeyID,
-		GroupID:                 event.Usage.GroupID,
-		ChannelID:               string(event.Usage.ChannelID),
-		CredentialID:            event.Usage.CredentialID,
-		Protocol:                string(event.Protocol),
-		Operation:               string(event.Operation),
-		ClientModel:             redactIdentityValue(redactor, projectModel(event.ClientModel)),
-		UpstreamModel:           redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
-		UpstreamReportedModel:   redactIdentityValue(redactor, projectModel(event.UpstreamReportedModel)),
-		ModelConsistency:        string(event.ModelConsistency),
-		Status:                  string(event.Status),
-		StatusCode:              event.StatusCode,
-		Stream:                  event.Stream,
-		FirstResponseMs:         event.FirstResponseMs,
-		DurationMs:              event.DurationMs,
-		AttemptCount:            len(attempts),
-		ErrorCode:               event.ErrorCode,
-		ErrorSummary:            sanitizeSummary(redactor, event.ErrorSummary),
-		AffinityHit:             event.AffinityHit,
-		AffinityKind:            event.AffinityKind,
-		ReasoningMode:           event.Reasoning.Mode,
-		ReasoningEffort:         event.Reasoning.Effort,
-		ReasoningBudgetTokens:   event.Reasoning.BudgetTokens,
-		UncachedInputTokens:     result.Tokens.UncachedInput,
-		OutputTokens:            result.Tokens.Output,
-		CacheReadTokens:         result.Tokens.CacheRead,
-		CacheWrite5MTokens:      result.Tokens.CacheWrite5M,
-		CacheWrite1HTokens:      result.Tokens.CacheWrite1H,
-		CacheWriteUnknownTokens: result.Tokens.CacheWriteUnknown,
-		EstimatedCostNanoUSD:    pricingObservation.EstimatedCostNanoUSD,
-		UsageState:              string(result.State),
-		CostState:               pricingObservation.CostState,
-		PricingCompleteness:     pricingObservation.PricingCompleteness,
-		AttemptRows:             attempts,
+		RequestAudit: auditJSON, AuditCostNanoUSD: auditTotal.EstimatedCostNanoUSD, AuditPricingCompleteness: auditTotal.PricingCompleteness, AuditUsageRows: auditRows,
+		AutoDecision:                autoJSON,
+		DecisionModel:               decisionModel,
+		DecisionGroupID:             decisionGroupID,
+		DecisionChannelID:           decisionChannelID,
+		DecisionCredentialID:        decisionCredentialID,
+		DecisionCostNanoUSD:         decisionCost,
+		DecisionPricingCompleteness: decisionCompleteness,
+		ID:                          event.RequestID,
+		CompletedAtMS:               completedAtMS,
+		AccessKeyID:                 event.AccessKeyID,
+		GroupID:                     event.Usage.GroupID,
+		ChannelID:                   string(event.Usage.ChannelID),
+		CredentialID:                event.Usage.CredentialID,
+		Protocol:                    string(event.Protocol),
+		Operation:                   string(event.Operation),
+		ClientModel:                 redactIdentityValue(redactor, projectModel(event.ClientModel)),
+		UpstreamModel:               redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
+		UpstreamReportedModel:       redactIdentityValue(redactor, projectModel(event.UpstreamReportedModel)),
+		ModelConsistency:            string(event.ModelConsistency),
+		Status:                      string(event.Status),
+		StatusCode:                  event.StatusCode,
+		Stream:                      event.Stream,
+		FirstResponseMs:             event.FirstResponseMs,
+		DurationMs:                  event.DurationMs,
+		AttemptCount:                len(attempts),
+		ErrorCode:                   event.ErrorCode,
+		ErrorSummary:                sanitizeSummary(redactor, event.ErrorSummary),
+		AffinityHit:                 event.AffinityHit,
+		AffinityKind:                event.AffinityKind,
+		ReasoningMode:               event.Reasoning.Mode,
+		ReasoningEffort:             event.Reasoning.Effort,
+		ReasoningBudgetTokens:       event.Reasoning.BudgetTokens,
+		UncachedInputTokens:         result.Tokens.UncachedInput,
+		OutputTokens:                result.Tokens.Output,
+		CacheReadTokens:             result.Tokens.CacheRead,
+		CacheWrite5MTokens:          result.Tokens.CacheWrite5M,
+		CacheWrite1HTokens:          result.Tokens.CacheWrite1H,
+		CacheWriteUnknownTokens:     result.Tokens.CacheWriteUnknown,
+		EstimatedCostNanoUSD:        pricingObservation.EstimatedCostNanoUSD,
+		UsageState:                  string(result.State),
+		CostState:                   pricingObservation.CostState,
+		PricingCompleteness:         pricingObservation.PricingCompleteness,
+		AttemptRows:                 attempts,
 	}, nil
 }
 

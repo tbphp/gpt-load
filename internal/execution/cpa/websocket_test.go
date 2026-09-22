@@ -42,6 +42,27 @@ func TestWebsocketHTTPErrorEvidenceSurvivesCancellation(t *testing.T) {
 	}
 }
 
+func TestWebsocketUsageLimitUsesUpstreamModelCooldownDeadline(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	evidence := codexWebsocketEvidence(t.Context(), &codex.WSError{
+		Code: "upstream_error", UpstreamType: "usage_limit_reached",
+		HTTPStatus: http.StatusTooManyRequests, RetryAfter: 2 * time.Hour,
+		DispatchState: codex.WSMaybeSent,
+	})
+	if evidence.Type != "usage_limit_reached" || evidence.Hint != execution.FailureHintRateLimited ||
+		evidence.ScopeHint != execution.ErrorScopeModel || evidence.RetryAfter != 2*time.Hour {
+		t.Fatalf("usage-limit evidence=%+v", evidence)
+	}
+	decision := health.JudgeExecution(health.ExecutionAttempt{
+		DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusTooManyRequests,
+		Evidence: evidence, Now: now,
+	}, health.DecisionContext{Method: http.MethodPost, Operation: execution.OperationResponsesCreate})
+	if decision.Effect != health.EffectCooldownModel || decision.Scope != execution.ErrorScopeModel ||
+		decision.RuleID != "rate_limit.retry_after" || !decision.CooldownUntil.Equal(now.Add(2*time.Hour)) {
+		t.Fatalf("usage-limit decision=%+v", decision)
+	}
+}
+
 func TestWebsocketForwardsForceCredentialRefresh(t *testing.T) {
 	adapter, _, _, service, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	preparer := &fakeCredentialPreparer{evidence: &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, Code: "prepare_stopped"}}

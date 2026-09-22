@@ -61,7 +61,7 @@ func TestCheckerCheckRunsOnlyOnDemandAndCachesSuccess(t *testing.T) {
 	}
 }
 
-func TestCheckerCachesSuccessForSixHoursAndFailureForThirtyMinutes(t *testing.T) {
+func TestCheckerServesLastSuccessWhenRefreshFails(t *testing.T) {
 	base := time.Date(2026, time.August, 19, 12, 0, 0, 0, time.UTC)
 	now := base
 	offlineErr := errors.New("offline")
@@ -86,19 +86,62 @@ func TestCheckerCachesSuccessForSixHoursAndFailureForThirtyMinutes(t *testing.T)
 
 	now = base.Add(6 * time.Hour)
 	update, err = checker.Check(t.Context(), false)
-	if update != nil || !errors.Is(err, offlineErr) || fetcher.callCount() != 2 {
-		t.Fatalf("failed Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
+	if err != nil || update == nil || update.Version != "v2.0.1" || fetcher.callCount() != 2 {
+		t.Fatalf("stale Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
 	}
 
 	now = base.Add(6*time.Hour + 15*time.Minute)
 	update, err = checker.Check(t.Context(), false)
-	if update != nil || !errors.Is(err, offlineErr) || fetcher.callCount() != 2 {
-		t.Fatalf("cached failure Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
+	if err != nil || update == nil || update.Version != "v2.0.1" || fetcher.callCount() != 2 {
+		t.Fatalf("cached stale Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
 	}
 
 	now = base.Add(6*time.Hour + 30*time.Minute)
 	update, err = checker.Check(t.Context(), false)
 	if err != nil || update == nil || update.Version != "v2.0.2" || fetcher.callCount() != 3 {
+		t.Fatalf("recovered Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
+	}
+}
+
+func TestCheckerServesSuccessfulNoUpdateWhenRefreshFails(t *testing.T) {
+	offlineErr := errors.New("offline")
+	fetcher := &sequenceFetcher{results: []fetchResult{
+		{releases: []Release{testRelease("v2.0.0-beta.8", "2026-08-19T11:00:00Z")}},
+		{err: offlineErr},
+	}}
+	checker := newChecker(fetcher, "v2.0.0")
+
+	if update, err := checker.Check(t.Context(), false); err != nil || update != nil {
+		t.Fatalf("initial Check() = %#v, %v", update, err)
+	}
+	if update, err := checker.Check(t.Context(), true); err != nil || update != nil || fetcher.callCount() != 2 {
+		t.Fatalf("stale no-update Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
+	}
+	if update, err := checker.Check(t.Context(), false); err != nil || update != nil || fetcher.callCount() != 2 {
+		t.Fatalf("cached stale no-update Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
+	}
+}
+
+func TestCheckerCachesInitialFailureForThirtyMinutes(t *testing.T) {
+	base := time.Date(2026, time.August, 20, 8, 0, 0, 0, time.UTC)
+	now := base
+	offlineErr := errors.New("offline")
+	fetcher := &sequenceFetcher{results: []fetchResult{
+		{err: offlineErr},
+		{releases: []Release{testRelease("v2.0.1", "2026-08-20T08:30:00Z")}},
+	}}
+	checker := newChecker(fetcher, "v2.0.0")
+	checker.now = func() time.Time { return now }
+
+	if update, err := checker.Check(t.Context(), false); update != nil || !errors.Is(err, offlineErr) {
+		t.Fatalf("initial Check() = %#v, %v", update, err)
+	}
+	now = base.Add(15 * time.Minute)
+	if update, err := checker.Check(t.Context(), false); update != nil || !errors.Is(err, offlineErr) || fetcher.callCount() != 1 {
+		t.Fatalf("cached failure Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
+	}
+	now = base.Add(30 * time.Minute)
+	if update, err := checker.Check(t.Context(), false); err != nil || update == nil || update.Version != "v2.0.1" || fetcher.callCount() != 2 {
 		t.Fatalf("recovered Check() = %#v, %v, calls=%d", update, err, fetcher.callCount())
 	}
 }
@@ -144,7 +187,7 @@ func TestCheckerForceCheckBypassesAndReplacesCachedResult(t *testing.T) {
 	}
 }
 
-func TestCheckerForceCheckCachesFailure(t *testing.T) {
+func TestCheckerForceCheckKeepsLastSuccessOnFailure(t *testing.T) {
 	offlineErr := errors.New("offline")
 	fetcher := &sequenceFetcher{results: []fetchResult{
 		{releases: []Release{testRelease("v2.0.1", "2026-08-20T07:00:00Z")}},
@@ -157,16 +200,26 @@ func TestCheckerForceCheckCachesFailure(t *testing.T) {
 		t.Fatalf("initial Check() error = %v", err)
 	}
 	forced, err := checker.Check(t.Context(), true)
-	if forced != nil || !errors.Is(err, offlineErr) || fetcher.callCount() != 2 {
+	if err != nil || forced == nil || forced.Version != "v2.0.1" || fetcher.callCount() != 2 {
 		t.Fatalf("forced failure = %#v, %v, calls=%d", forced, err, fetcher.callCount())
 	}
 	cached, err := checker.Check(t.Context(), false)
-	if cached != nil || !errors.Is(err, offlineErr) || fetcher.callCount() != 2 {
+	if err != nil || cached == nil || cached.Version != "v2.0.1" || fetcher.callCount() != 2 {
 		t.Fatalf("cached forced failure = %#v, %v, calls=%d", cached, err, fetcher.callCount())
 	}
 	recovered, err := checker.Check(t.Context(), true)
 	if err != nil || recovered == nil || recovered.Version != "v2.0.2" || fetcher.callCount() != 3 {
 		t.Fatalf("forced recovery = %#v, %v, calls=%d", recovered, err, fetcher.callCount())
+	}
+}
+
+func TestCheckerSkipsDevelopmentVersionWithoutFetching(t *testing.T) {
+	fetcher := &sequenceFetcher{}
+	checker := newChecker(fetcher, "2.0.0-dev")
+
+	update, err := checker.Check(t.Context(), true)
+	if err != nil || update != nil || fetcher.callCount() != 0 {
+		t.Fatalf("Check() = %#v, %v, calls=%d, want nil, nil, 0", update, err, fetcher.callCount())
 	}
 }
 

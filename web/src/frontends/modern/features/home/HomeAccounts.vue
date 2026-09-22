@@ -4,8 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import type { HomeAccount } from '@modern/api/home'
 import type { CredentialQuota } from '@modern/api/credential-observation'
+import type { GroupRow } from '@modern/api/groups'
 import {
   AppButton,
+  AppChannelIcon,
   AppOverflowText,
   AppPanel,
   AppProgressBar,
@@ -22,7 +24,12 @@ import {
   sortedQuotaWindows,
 } from '@modern/features/groups/credential-presentation'
 
-const props = defineProps<{ accounts: HomeAccount[]; failed: boolean; loading: boolean }>()
+const props = defineProps<{
+  accounts: HomeAccount[]
+  groups: ReadonlyMap<number, GroupRow>
+  failed: boolean
+  loading: boolean
+}>()
 defineEmits<{ retry: [] }>()
 const { t, te, n, locale } = useI18n()
 const now = useClock()
@@ -69,6 +76,10 @@ const rows = computed(() =>
         query: { credential_key: account.key },
       },
       name: account.credential.account || account.channelName,
+      channelIcon: account.channelIcon,
+      channelMark: account.channelMark,
+      channelName: account.channelName,
+      groupName: account.groupID ? props.groups.get(account.groupID)?.name : undefined,
       plan: observation?.plan || account.channelName,
       windows,
       remaining: quota,
@@ -91,6 +102,14 @@ const rows = computed(() =>
     <ul v-if="accounts.length" class="modern-home-accounts">
       <li v-for="row in rows" :key="row.key">
         <div class="modern-home-account-head">
+          <AppChannelIcon
+            :icon="row.channelIcon"
+            :mark="row.channelMark"
+            :name="row.channelName"
+            :group-name="row.groupName"
+            size="sm"
+            class="modern-home-account-channel"
+          />
           <AppButton as-child variant="text" size="xs" class="modern-home-account-name">
             <RouterLink :to="row.to"><AppOverflowText :text="row.name" /></RouterLink>
           </AppButton>
@@ -158,6 +177,9 @@ const rows = computed(() =>
   min-width: 0;
   color: var(--modern-text);
   font-size: var(--modern-font-size-secondary);
+}
+.modern-home-account-channel {
+  align-self: center;
 }
 .modern-home-account-quotas {
   display: grid;

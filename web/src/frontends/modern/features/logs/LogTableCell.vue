@@ -29,7 +29,7 @@ const props = defineProps<{
   channels?: ReadonlyMap<string, GroupChannel>
 }>()
 const emit = defineEmits<{ open: []; filter: [filters: LogQuery] }>()
-const { t, locale } = useI18n()
+const { t, te, n, locale } = useI18n()
 const paired = computed(() => props.fields.length > 1)
 const protocolColumn = computed(() => props.fields.length === 1 && props.fields[0] === 'protocol')
 const modelColumn = computed(() => props.fields.length === 1 && props.fields[0] === 'client_model')
@@ -103,6 +103,35 @@ const date = computed(() =>
     day: '2-digit',
   }).format(props.row.completed_at_ms),
 )
+const autoDecisionPreset = computed(() => props.row.auto_decision?.selection.preset_name ?? '')
+const autoDecisionTooltip = computed(() => {
+  const decision = props.row.auto_decision
+  if (!decision) return ''
+  const key = 'autoModel.sources.' + decision.source
+  const strategy = te(key) ? t(key) : `${t('autoModel.sources.unknown')} · ${decision.source}`
+  const reasonKey = 'autoModel.reasons.' + decision.reason
+  const reason = !decision.reason
+    ? ''
+    : /^http_\d+$/u.test(decision.reason)
+      ? t('autoModel.reasons.httpError', { status: decision.reason.slice('http_'.length) })
+      : te(reasonKey)
+        ? t(reasonKey)
+        : `${t('autoModel.reasons.unknown')} · ${decision.reason}`
+  const confidence =
+    decision.confidence === null
+      ? ''
+      : `${t('autoModel.confidenceValue')} ${n(decision.confidence, { style: 'percent', maximumFractionDigits: 1 })}`
+  const duration = decision.called ? `${t('autoModel.duration')} ${n(decision.duration_ms)} ms` : ''
+  return [strategy, reason, confidence, duration].filter(Boolean).join(' · ')
+})
+const autoDecisionTone = computed(() => {
+  const decision = props.row.auto_decision
+  if (!decision) return 'passive'
+  if (decision.source === 'jev' && decision.status === 'selected') return 'selected'
+  if (['binding', 'task_cache', 'prewarm', 'single_preset'].includes(decision.source))
+    return 'passive'
+  return 'fallback'
+})
 function identityIcon(field: LogColumnId) {
   return field === 'credential_name' ? UserRound : field === 'access_key' ? KeyRound : undefined
 }
@@ -228,6 +257,29 @@ function fieldFilterValue(field: LogColumnId): string {
             tabindex="0"
             :aria-label="line.label ? line.label + ' ' + line.value : undefined"
           />
+          <AppTooltip
+            v-if="index === 0 && row.request_audit && row.request_audit.status !== 'passed'"
+            :label="
+              t('requestAudit.title') +
+              ' · ' +
+              row.request_audit.findings.map((finding) => finding.name).join(' / ')
+            "
+            ><small
+              class="modern-log-auto-decision"
+              :class="row.request_audit.status === 'warned' ? 'is-warning' : 'is-danger'"
+              tabindex="0"
+              >{{ t('requestAudit.statuses.' + row.request_audit.status) }}</small
+            ></AppTooltip
+          >
+          <AppTooltip v-if="index === 0 && autoDecisionPreset" :label="autoDecisionTooltip">
+            <small
+              class="modern-log-auto-decision"
+              :class="`is-${autoDecisionTone}`"
+              tabindex="0"
+              :aria-label="autoDecisionTooltip"
+              >{{ autoDecisionPreset }}</small
+            >
+          </AppTooltip>
           <AppTooltip
             v-if="row.operation === 'web_search' && line.value === row.client_model"
             :label="t('logs.standaloneSearchHint')"
@@ -405,6 +457,29 @@ function fieldFilterValue(field: LogColumnId): string {
   align-items: center;
   gap: var(--modern-space-1-5);
   font-size: var(--modern-font-size-small);
+}
+.modern-log-auto-decision {
+  min-width: 0;
+  color: var(--modern-muted);
+  font-family: var(--modern-font-sans);
+  font-size: var(--modern-font-size-caption);
+  font-weight: var(--modern-weight-regular);
+}
+.modern-log-auto-decision.is-selected {
+  color: var(--modern-success);
+}
+.modern-log-auto-decision.is-fallback {
+  color: var(--modern-warning);
+}
+.modern-log-auto-decision.is-warning {
+  color: var(--modern-warning);
+}
+.modern-log-auto-decision.is-danger {
+  color: var(--modern-danger);
+}
+.modern-log-auto-decision:focus-visible {
+  outline: var(--modern-focus-width) solid currentColor;
+  outline-offset: var(--modern-focus-offset);
 }
 .modern-log-search-indicator {
   display: inline-flex;

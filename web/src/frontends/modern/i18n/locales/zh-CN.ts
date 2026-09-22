@@ -1,3 +1,4 @@
+import { zhCN as experimental } from './experimental'
 import { protocolMessages as protocols } from '../protocols'
 import { zhCN as inspector } from './inspector'
 import { zhCN as home } from './home'
@@ -15,9 +16,11 @@ import { zhCN as groupCreate } from './group-create'
 import { zhCN as modelSelection } from './model-selection'
 import { zhCN as modelManager } from './model-manager'
 import { zhCN as settingsForm } from './settings-form'
+import { zhCN as autoModel } from './auto-model'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  ...experimental,
   home,
   inspector,
   protocols,
@@ -33,6 +36,7 @@ export default {
   modelSelection,
   modelManager,
   settingsForm,
+  autoModel,
   groupCreate,
   ui,
   ...groupMessages,

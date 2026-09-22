@@ -8,17 +8,22 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
+	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
 
 const defaultListLimit = 50
+
+const requestTotalCostStateSQL = `CASE WHEN cost_state = 'priced' OR decision_pricing_completeness IN ('complete','partial') OR audit_pricing_completeness IN ('complete','partial') THEN 'priced' WHEN cost_state = 'unpriced' OR decision_pricing_completeness = 'unavailable' OR audit_pricing_completeness = 'unavailable' THEN 'unpriced' ELSE 'not_applicable' END`
+const requestTotalCompletenessSQL = `CASE WHEN (` + requestTotalCostStateSQL + `) = 'priced' THEN CASE WHEN pricing_completeness IN ('partial','unavailable') OR decision_pricing_completeness IN ('partial','unavailable') OR audit_pricing_completeness IN ('partial','unavailable') THEN 'partial' ELSE 'complete' END WHEN (` + requestTotalCostStateSQL + `) = 'unpriced' THEN 'unavailable' ELSE 'not_applicable' END`
 
 func (service *Service) List(ctx context.Context, input ListQuery) (Page, error) {
 	limit := input.Limit
@@ -27,10 +32,7 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	}
 
 	query := service.db.WithContext(ctx).
-		Model(&models.RequestLog{}).
-		Order("completed_at_ms DESC").
-		Order("id DESC").
-		Limit(limit + 1)
+		Model(&models.RequestLog{})
 	if input.FromMS != nil {
 		query = query.Where("completed_at_ms >= ?", *input.FromMS)
 	}
@@ -48,6 +50,10 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	}
 	if input.Status != "" {
 		query = query.Where("status = ?", input.Status)
+	}
+	query, err := applyRequestAuditFilters(query, input)
+	if err != nil {
+		return Page{}, err
 	}
 	if input.RequestID != "" {
 		query = query.Where("id = ?", input.RequestID)
@@ -68,10 +74,10 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		query = query.Where("usage_state = ?", input.UsageState)
 	}
 	if input.CostState != "" {
-		query = query.Where("cost_state = ?", input.CostState)
+		query = query.Where("("+requestTotalCostStateSQL+") = ?", input.CostState)
 	}
 	if input.PricingCompleteness != "" {
-		query = query.Where("pricing_completeness = ?", input.PricingCompleteness)
+		query = query.Where("("+requestTotalCompletenessSQL+") = ?", input.PricingCompleteness)
 	}
 	if input.CachePresent != nil {
 		expression := `(cache_read_tokens + cache_write_5m_tokens + cache_write_1h_tokens + cache_write_unknown_tokens) > 0`
@@ -101,7 +107,7 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		input.InputTokensMax,
 	)
 	query = applyNullableRange(query, "output_tokens", input.OutputTokensMin, input.OutputTokensMax)
-	query = applyNullableRange(query, "estimated_cost_nano_usd", input.CostMinNanoUSD, input.CostMaxNanoUSD)
+	query = applyNullableRange(query, "(estimated_cost_nano_usd + decision_cost_nano_usd + audit_cost_nano_usd)", input.CostMinNanoUSD, input.CostMaxNanoUSD)
 	query = applyAttemptFilters(query, input)
 	if input.Cursor != nil {
 		query = query.Where(
@@ -112,12 +118,34 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		)
 	}
 
+	page := Page{}
+	if input.Page > 0 {
+		pageSize := input.PageSize
+		if pageSize <= 0 {
+			pageSize = defaultListLimit
+		}
+		var totalItems int64
+		if err := query.Count(&totalItems).Error; err != nil {
+			return Page{}, fmt.Errorf("count request logs: %w", err)
+		}
+		page.Pagination = &Pagination{
+			Page:       input.Page,
+			PageSize:   pageSize,
+			TotalItems: totalItems,
+			TotalPages: requestLogTotalPages(totalItems, pageSize),
+		}
+		query = query.Offset((input.Page - 1) * pageSize).Limit(pageSize)
+	} else {
+		query = query.Limit(limit + 1)
+	}
+	query = query.Order("completed_at_ms DESC").Order("id DESC")
+
 	var rows []models.RequestLog
 	if err := query.Find(&rows).Error; err != nil {
 		return Page{}, fmt.Errorf("query request logs: %w", err)
 	}
 
-	hasNext := len(rows) > limit
+	hasNext := input.Page <= 0 && len(rows) > limit
 	if hasNext {
 		rows = rows[:limit]
 	}
@@ -132,7 +160,7 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		return Page{}, err
 	}
 
-	page := Page{Items: records}
+	page.Items = records
 	if hasNext {
 		last := records[len(records)-1]
 		page.NextCursor = &Cursor{
@@ -141,6 +169,17 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 		}
 	}
 	return page, nil
+}
+
+func requestLogTotalPages(totalItems int64, pageSize int) int64 {
+	if totalItems == 0 || pageSize <= 0 {
+		return 0
+	}
+	pages := totalItems / int64(pageSize)
+	if totalItems%int64(pageSize) != 0 {
+		pages++
+	}
+	return pages
 }
 
 func applyNullableRange[T int | int64](
@@ -319,7 +358,25 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 		if err := validateRequestLogUsageCost(row); err != nil {
 			return nil, err
 		}
+		var decision *automodel.Decision
+		if len(row.AutoDecision) > 0 && string(row.AutoDecision) != "null" {
+			decision = new(automodel.Decision)
+			if err := json.Unmarshal(row.AutoDecision, decision); err != nil {
+				return nil, fmt.Errorf("decode automatic decision: %w", err)
+			}
+		}
+		var audit *requestaudit.Result
+		if len(row.RequestAudit) > 0 && string(row.RequestAudit) != "null" {
+			audit = new(requestaudit.Result)
+			if err := json.Unmarshal(row.RequestAudit, audit); err != nil {
+				return nil, fmt.Errorf("decode request audit: %w", err)
+			}
+		}
+		total := telemetry.TotalPricing(telemetry.PricingObservation{CostState: row.CostState, PricingCompleteness: row.PricingCompleteness, EstimatedCostNanoUSD: row.EstimatedCostNanoUSD}, decision, audit)
 		records = append(records, Record{
+			AutoDecision:          decision,
+			RequestAudit:          audit,
+			TotalPricing:          total,
 			RequestID:             row.ID,
 			CompletedAtMS:         row.CompletedAtMS,
 			AccessKey:             AccessKeyRef{ID: row.AccessKeyID, Deleted: true},

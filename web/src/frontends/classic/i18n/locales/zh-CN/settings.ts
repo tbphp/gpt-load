@@ -1,4 +1,9 @@
+import { zhCN as experimental } from '../experimental'
+import { zhCN as autoModel } from '../auto-model'
+
 export default {
+  ...experimental,
+  autoModel,
   settings: {
     frontend: {
       title: '界面设置',
@@ -41,6 +46,7 @@ export default {
       reliability: '重试与凭据健康',
       browserAccess: 'Header 与跨域',
       dataMaintenance: '数据与维护',
+      experimental: '实验性功能',
       system: '系统信息',
     },
     validation: {

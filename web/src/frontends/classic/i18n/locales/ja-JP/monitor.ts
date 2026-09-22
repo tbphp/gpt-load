@@ -1,4 +1,9 @@
+import { jaJP as experimental } from '../experimental'
+import { jaJP as autoModel } from '../auto-model'
+
 export default {
+  ...experimental,
+  autoModel,
   monitor: {
     clearKeySearch: 'キー検索をクリア',
     title: 'モニター',
@@ -409,6 +414,7 @@ export default {
         images_edit: '画像を編集',
         embeddings_create: '埋め込みを作成',
         rerank: 'ドキュメントを再ランキング',
+        decisions_create: '判定を作成',
       },
       routeRequirements: {
         any: 'プロトコル変換を許可（損失の可能性あり）',
@@ -640,6 +646,8 @@ export default {
         anyStatus: 'すべての状態',
         requestId: 'リクエスト ID',
         finalStatusCode: '最終 HTTP ステータス',
+        auditStatus: 'ガードレール結果',
+        auditRule: '該当ルール',
         channel: 'いずれかの試行のチャネル',
         anyChannel: 'すべてのチャネル',
         credential: 'いずれかの試行のクレデンシャル ID',
@@ -815,6 +823,7 @@ export default {
         images_edit: '画像を編集',
         embeddings_create: '埋め込みを作成',
         rerank: 'ドキュメントを再ランキング',
+        decisions_create: '判定を作成',
         list_models: 'モデル一覧',
         probe: 'ヘルスプローブ',
       },

@@ -1,3 +1,4 @@
+import { enUS as experimental } from './experimental'
 import { protocolMessages as protocols } from '../protocols'
 import { enUS as inspector } from './inspector'
 import { enUS as home } from './home'
@@ -15,9 +16,11 @@ import { enUS as groupCreate } from './group-create'
 import { enUS as modelSelection } from './model-selection'
 import { enUS as modelManager } from './model-manager'
 import { enUS as settingsForm } from './settings-form'
+import { enUS as autoModel } from './auto-model'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  ...experimental,
   home,
   inspector,
   protocols,
@@ -33,6 +36,7 @@ export default {
   modelSelection,
   modelManager,
   settingsForm,
+  autoModel,
   groupCreate,
   ui,
   ...groupMessages,

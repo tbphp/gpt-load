@@ -10,8 +10,9 @@ permissions:
 
 # 竖线分隔在任何错误（含网络错误）时回退到下一个源；默认的逗号只在
 # 404/410 时回退，proxy.golang.org 瞬时故障会直接让整个 job 失败。
-# CI 保留自托管 Runner 的本机 Go 缓存；Release 使用 GitHub 托管的临时 Runner。
-# 两条流程都不下载/上传 setup-go 缓存，也无需 main push 预热。
+# CI 与 Release 的确定性验证保留自托管 Runner 的本机 Go 缓存；Release 的制品、
+# 发布和外部服务节点使用 GitHub 托管的临时 Runner。两条流程都不下载/上传
+# setup-go 缓存，也无需 main push 预热。
 env:
   GOPROXY: https://proxy.golang.org|direct
 
@@ -165,7 +166,7 @@ jobs:
 
   static-checks:
     needs: validate-tag
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 20
     steps:
       - name: Checkout tag commit
@@ -208,7 +209,7 @@ jobs:
     needs: validate-tag
     # 同一 commit 的 CI 已全绿时跳过；publication-preflight 接受 skipped 结果。
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 20
     steps:
       - name: Checkout tag commit
@@ -228,7 +229,7 @@ jobs:
   race-cpa:
     needs: validate-tag
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
       - name: Checkout tag commit
@@ -250,7 +251,7 @@ jobs:
     name: Database contract (${{ matrix.driver }})
     needs: validate-tag
     if: ${{ needs.validate-tag.outputs.ci_verified != 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -1005,12 +1006,12 @@ jobs:
 
       - name: Set up QEMU
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: arm64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to Docker Hub for exact verification
         if: ${{ needs.publication-preflight.outputs.write_mode == 'verify' }}
@@ -1050,7 +1051,7 @@ jobs:
 
       - name: Build and publish exact multi-platform images
         if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           # prebuilt 直接打包 build-binaries 已交叉编译好的产物，不在镜像内重复
@@ -1391,7 +1392,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR for channel promotion
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0

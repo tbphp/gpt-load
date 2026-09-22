@@ -10,7 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 )
 
@@ -107,6 +110,24 @@ func collectVisibleModelIDs(
 				visible[modelID] = struct{}{}
 			}
 		}
+		if snapshot.AutoModels.Enabled() {
+			operation := execution.OperationChatCompletion
+			if selectedProtocol == protocol.OpenAIResponses {
+				operation = execution.OperationResponsesCreate
+			}
+			if selectedProtocol == protocol.OpenAICompletions || selectedProtocol == protocol.OpenAIResponses || selectedProtocol == protocol.Anthropic || selectedProtocol == protocol.Gemini {
+				for _, entry := range snapshot.AutoModels.Config().Models {
+					compiled, _ := snapshot.AutoModels.Lookup(entry.Name)
+					if !compiled.Enabled {
+						continue
+					}
+					_, allowed := allowedAutoPresets(snapshot, accessKey, compiled, dialect.RequestMetadata{Operation: operation}, scheduler.Query{ClientProtocol: selectedProtocol})
+					if allowed {
+						visible[entry.Name] = struct{}{}
+					}
+				}
+			}
+		}
 	}
 	result := make([]string, 0, len(visible))
 	for modelID := range visible {
@@ -138,6 +159,7 @@ func modelListProtocols(value protocol.Protocol) []protocol.Protocol {
 			protocol.OpenAIImages,
 			protocol.OpenAIEmbeddings,
 			protocol.Rerank,
+			protocol.Decisions,
 		}
 	}
 	return []protocol.Protocol{value}
@@ -164,7 +186,14 @@ func (handler *Handler) writeVisibleModelList(
 	accessKey state.AccessKeyView,
 	value protocol.Protocol,
 ) {
-	body, err := buildVisibleModelList(snapshot, accessKey, value, handler.modelListLimit)
+	var body []byte
+	var err error
+	codexRequest := value == protocol.OpenAICompletions && ginContext.Query("client_version") != ""
+	if codexRequest {
+		body, err = buildCodexModelList(snapshot, accessKey, handler.modelListLimit)
+	} else {
+		body, err = buildVisibleModelList(snapshot, accessKey, value, handler.modelListLimit)
+	}
 	if err != nil {
 		_ = handler.writeReason(ginContext, reasonModelListTooLarge)
 		return
@@ -172,6 +201,9 @@ func (handler *Handler) writeVisibleModelList(
 	headers := http.Header{
 		"Content-Length": {strconv.Itoa(len(body))},
 		"Content-Type":   {"application/json; charset=utf-8"},
+	}
+	if codexRequest {
+		headers.Set("Cache-Control", "private, no-store")
 	}
 	if err := handler.writeBufferedResponse(ginContext, http.StatusOK, headers, body); err != nil {
 		return

@@ -8,28 +8,37 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/automodel"
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/jev"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/requestaudit"
 )
 
 const maxSafeAccessKeyEpochMS = int64(9_007_199_254_740_991)
 
 type CompileInput struct {
-	SystemSettings   config.Settings
-	ChannelRegistry  *channel.Registry
-	Groups           []GroupConfig
-	Credentials      []CredentialConfig
-	AccessKeys       []AccessKeyConfig
-	GlobalProxy      *outboundproxy.Config
-	EnvironmentProxy *outboundproxy.Config
+	Jev                  *jev.Config
+	RequestAudit         *requestaudit.Config
+	AutoModel            *automodel.Config
+	SystemSettings       config.Settings
+	ChannelRegistry      *channel.Registry
+	Groups               []GroupConfig
+	Credentials          []CredentialConfig
+	AccessKeys           []AccessKeyConfig
+	ClientModelOverrides map[string]catalog.ClientModelOverrides
+	GlobalProxy          *outboundproxy.Config
+	EnvironmentProxy     *outboundproxy.Config
 }
 
 type GroupConfig struct {
@@ -184,6 +193,9 @@ type AccessKeyView struct {
 }
 
 type ConfigSnapshot struct {
+	Jev                   jev.Config
+	RequestAudit          requestaudit.Config
+	AutoModels            *automodel.Compiled
 	Revision              uint64
 	Settings              RuntimeSettings
 	ExecutionCandidates   ExecutionCandidateIndex
@@ -192,6 +204,7 @@ type ConfigSnapshot struct {
 	AccessKeysByHash      map[string]AccessKeyView
 	GroupCatalog          map[uint]GroupCatalogView
 	AccessKeysByID        map[uint]AccessKeyView
+	ClientModelOverrides  map[string]catalog.ClientModelOverrides
 	GlobalProxy           outboundproxy.Effective
 }
 
@@ -203,12 +216,89 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	autoConfig := automodel.DefaultConfig()
+	if input.AutoModel != nil {
+		autoConfig = *input.AutoModel
+	}
+	shared := jev.DefaultConfig()
+	if input.Jev != nil {
+		shared = *input.Jev
+	} else {
+		shared.Model, shared.TimeoutSeconds = autoConfig.Model, autoConfig.TimeoutSeconds
+	}
+	sharedRaw, _ := json.Marshal(shared)
+	shared, err = jev.Decode(sharedRaw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", jev.ErrInvalidConfig, err)
+	}
+	autoConfig.Model, autoConfig.TimeoutSeconds = shared.Model, shared.TimeoutSeconds
+	audit := requestaudit.DefaultConfig()
+	if input.RequestAudit != nil {
+		audit = *input.RequestAudit
+	}
+	auditRaw, _ := json.Marshal(audit)
+	audit, err = requestaudit.Decode(auditRaw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", requestaudit.ErrInvalidConfig, err)
+	}
+	ordinaryModels := map[string]struct{}{}
+	decisionModels := map[string]struct{}{}
+	for _, group := range input.Groups {
+		for _, model := range group.Models {
+			ordinaryModels[externalModelName(model)] = struct{}{}
+		}
+		if !group.Enabled {
+			continue
+		}
+		target, resolveErr := input.ChannelRegistry.Resolve(group.ChannelID, group.Params)
+		if resolveErr != nil {
+			continue
+		}
+		for _, model := range group.Models {
+			if _, supported := target.ModeForModel(
+				protocol.Decisions,
+				execution.OperationDecisionsCreate,
+				model.ID,
+			); supported {
+				decisionModels[externalModelName(model)] = struct{}{}
+			}
+		}
+	}
+	if audit.Enabled && (shared.GroupID == 0 || shared.Model == "") {
+		return nil, fmt.Errorf("%w: guardrails require an explicit Jev group and model", requestaudit.ErrInvalidConfig)
+	}
+	if (autoConfig.Enabled || audit.Enabled) && shared.GroupID != 0 {
+		available := false
+		for _, group := range input.Groups {
+			if group.ID != shared.GroupID || !group.Enabled {
+				continue
+			}
+			target, resolveErr := input.ChannelRegistry.Resolve(group.ChannelID, group.Params)
+			if resolveErr != nil {
+				continue
+			}
+			for _, model := range group.Models {
+				if _, supported := target.ModeForModel(protocol.Decisions, execution.OperationDecisionsCreate, model.ID); supported && externalModelName(model) == shared.Model {
+					available = true
+				}
+			}
+		}
+		if !available {
+			return nil, fmt.Errorf("%w: configured Jev route unavailable", jev.ErrInvalidConfig)
+		}
+	}
+	autoModels, err := automodel.Compile(autoConfig, ordinaryModels, decisionModels)
+	if err != nil {
+		return nil, fmt.Errorf("compile automatic models: %w", err)
+	}
 	globalProxy, err := outboundproxy.Resolve(nil, nil, input.GlobalProxy, input.EnvironmentProxy)
 	if err != nil {
 		return nil, fmt.Errorf("compile global proxy: %w", err)
 	}
 
 	snapshot := &ConfigSnapshot{
+		Jev: shared, RequestAudit: audit,
+		AutoModels:            autoModels,
 		Settings:              runtimeSettings,
 		ExecutionCandidates:   make(ExecutionCandidateIndex),
 		ExecutionRouteCatalog: make(ExecutionCandidateIndex),
@@ -216,6 +306,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		AccessKeysByHash:      make(map[string]AccessKeyView),
 		GroupCatalog:          make(map[uint]GroupCatalogView),
 		AccessKeysByID:        make(map[uint]AccessKeyView),
+		ClientModelOverrides:  cloneClientModelOverrides(input.ClientModelOverrides),
 		GlobalProxy:           globalProxy,
 	}
 
@@ -376,7 +467,8 @@ func appendExecutionTargets(
 				execution.OperationCountTokens,
 				execution.OperationImagesGenerate,
 				execution.OperationImagesEdit,
-				execution.OperationEmbeddingsCreate, execution.OperationRerank:
+				execution.OperationEmbeddingsCreate, execution.OperationRerank,
+				execution.OperationDecisionsCreate:
 				for _, model := range group.Models {
 					modelMode, supported := target.ModeForModel(clientProtocol, operation, model.ID)
 					if !supported {
@@ -439,6 +531,17 @@ func sortExecutionRouteIndex(index ExecutionCandidateIndex) {
 }
 
 func validateCompileInput(input CompileInput) error {
+	for model, overrides := range input.ClientModelOverrides {
+		if !utf8.ValidString(model) || model == "" || strings.TrimSpace(model) != model {
+			return fmt.Errorf("client model override has invalid model name")
+		}
+		if err := overrides.Validate(); err != nil {
+			return fmt.Errorf("client model override %q: %w", model, err)
+		}
+		if overrides.IsEmpty() {
+			return fmt.Errorf("client model override %q is empty", model)
+		}
+	}
 	groupIDs := make(map[uint]struct{}, len(input.Groups))
 	for _, group := range input.Groups {
 		if group.ID == 0 {
@@ -476,16 +579,17 @@ func validateCompileInput(input CompileInput) error {
 		if err := validateManualWeight(fmt.Sprintf("group %d", group.ID), group.WeightManual); err != nil {
 			return err
 		}
-		seenModels := make(map[string]struct{}, len(group.Models))
+		seenModels := make(map[[2]string]struct{}, len(group.Models))
 		for _, model := range group.Models {
 			if strings.TrimSpace(model.ID) == "" {
 				return fmt.Errorf("group %d model id is required", group.ID)
 			}
 			external := externalModelName(model)
-			if _, duplicate := seenModels[external]; duplicate {
-				return fmt.Errorf("group %d has duplicate external model %q", group.ID, external)
+			mapping := [2]string{external, strings.TrimSpace(model.ID)}
+			if _, duplicate := seenModels[mapping]; duplicate {
+				return fmt.Errorf("group %d has duplicate model mapping %q -> %q", group.ID, external, model.ID)
 			}
-			seenModels[external] = struct{}{}
+			seenModels[mapping] = struct{}{}
 		}
 	}
 
@@ -646,4 +750,15 @@ func resolvePriceMultiplier(value *pricing.PriceMultiplier) pricing.PriceMultipl
 		return pricing.DefaultPriceMultiplier
 	}
 	return *value
+}
+
+func cloneClientModelOverrides(input map[string]catalog.ClientModelOverrides) map[string]catalog.ClientModelOverrides {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]catalog.ClientModelOverrides, len(input))
+	for model, overrides := range input {
+		cloned[model] = overrides.Clone()
+	}
+	return cloned
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"gpt-load/internal/accessquota"
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
@@ -245,6 +246,7 @@ func TestCompileOwnsInputData(t *testing.T) {
 				ID: 7, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 100,
 			}},
 		}},
+		ClientModelOverrides: map[string]catalog.ClientModelOverrides{"public": {DisplayName: stringPointer("Public")}},
 	}
 	snapshot, err := Compile(input)
 	if err != nil {
@@ -258,6 +260,8 @@ func TestCompileOwnsInputData(t *testing.T) {
 	expiresAtMS = 1
 	input.AccessKeys[0].AllowedPeerCIDRs[0] = netip.MustParsePrefix("198.51.100.0/24")
 	input.AccessKeys[0].CostLimitRules[0].LimitNanoUSD = 1
+	displayName := "Changed"
+	input.ClientModelOverrides["public"] = catalog.ClientModelOverrides{DisplayName: &displayName}
 
 	view := snapshot.Groups[1]
 	if !reflect.DeepEqual(view.Models, []ModelConfig{{ID: "upstream", Alias: "public"}}) || view.WeightManual == nil || *view.WeightManual != 25 {
@@ -283,6 +287,35 @@ func TestCompileOwnsInputData(t *testing.T) {
 	if !reflect.DeepEqual(accessKey.AllowedPeerCIDRs, []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")}) {
 		t.Fatalf("access key CIDRs changed with input = %#v", accessKey.AllowedPeerCIDRs)
 	}
+	if profile := snapshot.ClientModelOverrides["public"]; profile.DisplayName == nil || *profile.DisplayName != "Public" {
+		t.Fatalf("client model override changed with input = %#v", profile)
+	}
+}
+
+func TestCompileValidatesClientModelOverrides(t *testing.T) {
+	t.Parallel()
+
+	name := "Public"
+	input := CompileInput{ClientModelOverrides: map[string]catalog.ClientModelOverrides{
+		"public": {DisplayName: &name},
+	}}
+	snapshot, err := Compile(input)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if got := snapshot.ClientModelOverrides["public"].DisplayName; got == nil || *got != "Public" {
+		t.Fatalf("compiled overrides = %#v", snapshot.ClientModelOverrides)
+	}
+	for model, overrides := range map[string]catalog.ClientModelOverrides{
+		"":        {DisplayName: &name},
+		" public": {DisplayName: &name},
+		"public":  {},
+	} {
+		input.ClientModelOverrides = map[string]catalog.ClientModelOverrides{model: overrides}
+		if _, err := Compile(input); err == nil {
+			t.Fatalf("Compile() accepted invalid client model override %q: %#v", model, overrides)
+		}
+	}
 }
 
 func TestCompileRejectsInvalidCoreConfiguration(t *testing.T) {
@@ -294,9 +327,9 @@ func TestCompileRejectsInvalidCoreConfiguration(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "duplicate external model",
-			input:   CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "a"}, {ID: "b", Alias: "a"}}, Enabled: true}}},
-			wantErr: "duplicate external model",
+			name:    "duplicate model mapping",
+			input:   CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "a"}, {ID: "a", Alias: "a"}}, Enabled: true}}},
+			wantErr: "duplicate model mapping",
 		},
 		{
 			name: "duplicate group id",
@@ -370,3 +403,5 @@ func TestCompileRejectsInvalidCoreConfiguration(t *testing.T) {
 }
 
 func int64Pointer(value int64) *int64 { return &value }
+
+func stringPointer(value string) *string { return &value }

@@ -256,6 +256,7 @@ func queryHomeModelRankings(scope *gorm.DB) ([]homeModelRankingRow, error) {
 }
 
 func queryHomeGroupRankings(scope *gorm.DB) ([]homeGroupRankingRow, error) {
+	scope = scope.Where("group_id > 0")
 	var rows []homeGroupRankingRow
 	if err := scope.
 		Select("group_id, " + usageAggregateSelect).

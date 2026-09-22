@@ -18,26 +18,26 @@
     "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
-    "@internationalized/date": "3.12.3",
-    "@lucide/vue": "1.39.0",
-    "@tanstack/vue-query": "5.102.8",
+    "@internationalized/date": "3.12.4",
+    "@lucide/vue": "1.46.0",
+    "@tanstack/vue-query": "5.103.1",
     "reka-ui": "2.10.4",
     "vue": "3.5.42",
-    "vue-i18n": "11.4.10",
+    "vue-i18n": "11.4.12",
     "vue-router": "5.3.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",
-    "@types/node": "24.13.3",
-    "@vitejs/plugin-vue": "6.0.8",
+    "@types/node": "24.13.5",
+    "@vitejs/plugin-vue": "6.0.9",
     "@vue/eslint-config-typescript": "14.9.0",
-    "eslint": "10.9.1",
+    "eslint": "10.10.0",
     "eslint-config-prettier": "10.1.8",
-    "eslint-plugin-vue": "10.10.0",
-    "prettier": "3.9.6",
+    "eslint-plugin-vue": "10.11.0",
+    "prettier": "3.9.7",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
-    "vite": "8.2.2",
+    "vite": "8.3.0",
     "vue-tsc": "3.3.11"
   }
 }

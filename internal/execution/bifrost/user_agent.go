@@ -8,18 +8,17 @@ import (
 	"gpt-load/internal/platform/version"
 )
 
-// withUserAgent 仅对普通渠道统一出站身份；订阅渠道由各自适配器处理。
+// withUserAgent 仅为普通渠道补齐出站身份；订阅渠道由各自适配器处理。
 func withUserAgent(spec execution.AttemptSpec) execution.AttemptSpec {
-	for _, name := range spec.ConfiguredHeaders {
-		if strings.EqualFold(name, "User-Agent") && strings.TrimSpace(spec.Header.Get("User-Agent")) != "" {
-			return spec
-		}
+	// 系统或分组规则已先应用，保留其配置值或客户端原始身份。
+	if strings.TrimSpace(spec.Header.Get("User-Agent")) != "" {
+		return spec
 	}
 	spec.Header = spec.Header.Clone()
 	if spec.Header == nil {
 		spec.Header = make(http.Header)
 	}
-	// 未配置、删除或留空都使用系统身份，不继承客户端或 HTTP 库的默认值。
+	// 没有有效 UA 时使用项目身份，包括规则明确删除或留空的情况。
 	spec.Header.Set("User-Agent", "GPT-Load/"+version.Version)
 	return spec
 }
