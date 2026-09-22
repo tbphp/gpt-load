@@ -214,9 +214,9 @@ export default {
       routing: {
         description: 'Adjust this group\'s scheduling priority and request share.',
         priorityHelp:
-          'Default: 50. Range: 1–100. Higher values are preferred; equal priorities share by weight.',
+          'Default: 50. Range: 1–100. Higher values win first. Order: group priority → group weight → credential priority → credential weight.',
         weightHelp:
-          'Default: 50. Range: 1–100. Multiplied by credential weight within the same priority.',
+          'Default: 50. Range: 1–100. Within the same group priority, higher group weight is preferred before credential priority/weight.',
       },
       headers: {
         description:

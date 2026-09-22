@@ -341,15 +341,16 @@ func TestFairnessInitiallyDisabledGroupJoinsCurrentProgress(t *testing.T) {
 	}
 }
 
-func TestFairnessHeavyWeightIsNotLimitedToOneHundred(t *testing.T) {
+func TestFairnessHeavyCredentialWeightIsNotLimitedToOneHundred(t *testing.T) {
 	r := newFairnessRegistry(t)
 	snapshot := schedulerSnapshot()
 	heavy, light := 100, 1
+	groupWeight := 50
 	group := snapshot.Groups[1]
-	group.WeightManual = &heavy
+	group.WeightManual = &groupWeight
 	snapshot.Groups[1] = group
 	group = snapshot.Groups[2]
-	group.WeightManual = &light
+	group.WeightManual = &groupWeight
 	snapshot.Groups[2] = group
 	if err := r.UpdateCredentialConfig(11, state.CredentialStatusActive, &heavy, nil); err != nil {
 		t.Fatal(err)
@@ -360,11 +361,14 @@ func TestFairnessHeavyWeightIsNotLimitedToOneHundred(t *testing.T) {
 		t.Fatal(err)
 	}
 	counts := map[uint]int{}
-	for range 20002 {
+	for range 202 {
 		counts[fairnessPick(t, snapshot, r, 0)]++
 	}
-	if counts[12] < 1 || counts[12] > 3 {
-		t.Fatalf("10000:1 weights distorted by streak limit: %v", counts)
+	if counts[12] < 1 || counts[12] > 5 {
+		t.Fatalf("100:1 credential weights distorted: %v", counts)
+	}
+	if counts[11] < 150 {
+		t.Fatalf("heavy credential under-selected: %v", counts)
 	}
 }
 

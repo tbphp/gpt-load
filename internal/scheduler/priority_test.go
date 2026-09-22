@@ -9,17 +9,18 @@ import (
 	"gpt-load/internal/state"
 )
 
-func TestFilterHighestPriorityPrefersGroupThenCredential(t *testing.T) {
+func TestFilterHighestRoutingTierOrder(t *testing.T) {
 	t.Parallel()
 	high, mid, low := 90, 50, 10
-	got := filterHighestPriority([]weightedCredential{
-		{meta: state.CredentialMeta{ID: 1}, groupPriority: mid, credentialPriority: high, weight: 1},
-		{meta: state.CredentialMeta{ID: 2}, groupPriority: high, credentialPriority: low, weight: 1},
-		{meta: state.CredentialMeta{ID: 3}, groupPriority: high, credentialPriority: mid, weight: 1},
-		{meta: state.CredentialMeta{ID: 4}, groupPriority: high, credentialPriority: mid, weight: 2},
+	got := filterHighestRoutingTier([]weightedCredential{
+		{meta: state.CredentialMeta{ID: 1}, groupPriority: mid, groupWeight: high, credentialPriority: high, weight: 1},
+		{meta: state.CredentialMeta{ID: 2}, groupPriority: high, groupWeight: low, credentialPriority: high, weight: 1},
+		{meta: state.CredentialMeta{ID: 3}, groupPriority: high, groupWeight: mid, credentialPriority: low, weight: 1},
+		{meta: state.CredentialMeta{ID: 4}, groupPriority: high, groupWeight: mid, credentialPriority: mid, weight: 1},
+		{meta: state.CredentialMeta{ID: 5}, groupPriority: high, groupWeight: mid, credentialPriority: mid, weight: 2},
 	})
-	if len(got) != 2 || got[0].meta.ID != 3 || got[1].meta.ID != 4 {
-		t.Fatalf("filterHighestPriority() = %#v, want credentials 3 and 4", got)
+	if len(got) != 2 || got[0].meta.ID != 4 || got[1].meta.ID != 5 {
+		t.Fatalf("filterHighestRoutingTier() = %#v, want credentials 4 and 5", got)
 	}
 }
 
@@ -50,6 +51,45 @@ func TestIteratorPrefersHigherGroupPriority(t *testing.T) {
 		}
 		if selection.CredentialID != 21 || selection.GroupID != 2 {
 			t.Fatalf("selection = %#v, want higher-priority group credential 21", selection)
+		}
+	}
+}
+
+func TestIteratorPrefersHigherGroupWeightBeforeCredentialPriority(t *testing.T) {
+	t.Parallel()
+	priority := 70
+	snapshot := schedulerSnapshot()
+	for _, groupID := range []uint{1, 2} {
+		group := snapshot.Groups[groupID]
+		group.PriorityManual = &priority
+		snapshot.Groups[groupID] = group
+	}
+	group := snapshot.Groups[1]
+	light := 10
+	group.WeightManual = &light
+	snapshot.Groups[1] = group
+	group = snapshot.Groups[2]
+	heavy := 100
+	group.WeightManual = &heavy
+	snapshot.Groups[2] = group
+
+	high, low := 90, 10
+	source := fakeCredentialSource{keys: []state.CredentialMeta{
+		{ID: 11, GroupID: 1, PriorityManual: &high, WeightManual: new(100)},
+		{ID: 21, GroupID: 2, PriorityManual: &low, WeightManual: new(1)},
+	}}
+	source.progress = state.NewSchedulingState()
+	for range 40 {
+		selection, err := New(snapshot, source, Query{
+			ClientProtocol: protocol.OpenAICompletions,
+			Operation:      execution.OperationChatCompletion,
+			ExternalModel:  modelPointer("gpt-4o"),
+		}).Next()
+		if err != nil {
+			t.Fatalf("Next() error = %v", err)
+		}
+		if selection.CredentialID != 21 || selection.GroupID != 2 {
+			t.Fatalf("selection = %#v, want heavier group 2 over higher credential priority in lighter group", selection)
 		}
 	}
 }
@@ -88,7 +128,7 @@ func TestIteratorFallsBackToLowerPriorityAfterTried(t *testing.T) {
 	}
 }
 
-func TestIteratorPrefersHigherCredentialPriorityWithinGroupTier(t *testing.T) {
+func TestIteratorPrefersHigherCredentialPriorityWithinGroupTiers(t *testing.T) {
 	t.Parallel()
 	high, low := 90, 10
 	source := fakeCredentialSource{keys: []state.CredentialMeta{
@@ -138,7 +178,42 @@ func TestIteratorPreferredCredentialDoesNotCrossPriorityTier(t *testing.T) {
 	}
 }
 
-func TestIteratorSamePriorityStillUsesWeights(t *testing.T) {
+func TestIteratorSameRoutingTierStillUsesCredentialWeights(t *testing.T) {
+	t.Parallel()
+	priority := 70
+	groupWeight := 80
+	snapshot := schedulerSnapshot()
+	for _, groupID := range []uint{1, 2} {
+		group := snapshot.Groups[groupID]
+		group.PriorityManual = &priority
+		group.WeightManual = &groupWeight
+		snapshot.Groups[groupID] = group
+	}
+
+	source := fakeCredentialSource{keys: []state.CredentialMeta{
+		{ID: 11, GroupID: 1, WeightManual: new(100)},
+		{ID: 21, GroupID: 2, WeightManual: new(50)},
+	}}
+	source.progress = state.NewSchedulingState()
+	counts := map[uint]int{}
+	for range 12000 {
+		selection, err := New(snapshot, source, Query{
+			ClientProtocol: protocol.OpenAICompletions,
+			Operation:      execution.OperationChatCompletion,
+			ExternalModel:  modelPointer("gpt-4o"),
+		}).Next()
+		if err != nil {
+			t.Fatalf("Next() error = %v", err)
+		}
+		counts[selection.CredentialID]++
+	}
+	ratio := float64(counts[11]) / float64(counts[21])
+	if ratio < 1.85 || ratio > 2.15 {
+		t.Fatalf("same-tier credential-weight counts = %#v, ratio = %.3f, want about 2:1", counts, ratio)
+	}
+}
+
+func TestIteratorHigherGroupWeightExcludesLighterGroupUntilExhausted(t *testing.T) {
 	t.Parallel()
 	priority := 70
 	snapshot := schedulerSnapshot()
@@ -157,12 +232,11 @@ func TestIteratorSamePriorityStillUsesWeights(t *testing.T) {
 	snapshot.Groups[2] = group
 
 	source := fakeCredentialSource{keys: []state.CredentialMeta{
-		{ID: 11, GroupID: 1, WeightManual: new(100)},
+		{ID: 11, GroupID: 1, WeightManual: new(1)},
 		{ID: 21, GroupID: 2, WeightManual: new(100)},
 	}}
 	source.progress = state.NewSchedulingState()
-	counts := map[uint]int{}
-	for range 12000 {
+	for range 30 {
 		selection, err := New(snapshot, source, Query{
 			ClientProtocol: protocol.OpenAICompletions,
 			Operation:      execution.OperationChatCompletion,
@@ -171,10 +245,8 @@ func TestIteratorSamePriorityStillUsesWeights(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Next() error = %v", err)
 		}
-		counts[selection.CredentialID]++
-	}
-	ratio := float64(counts[11]) / float64(counts[21])
-	if ratio < 1.85 || ratio > 2.15 {
-		t.Fatalf("same-priority weighted counts = %#v, ratio = %.3f, want about 2:1", counts, ratio)
+		if selection.CredentialID != 11 {
+			t.Fatalf("selection = %#v, want heavier group credential 11 before lighter group", selection)
+		}
 	}
 }

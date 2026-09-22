@@ -295,7 +295,7 @@ func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {
 	}
 }
 
-func TestIteratorUsesEffectiveWeights(t *testing.T) {
+func TestIteratorUsesGroupWeightAsHardTier(t *testing.T) {
 	snapshot := schedulerSnapshot()
 	heavyGroup, lightGroup := 100, 50
 	group := snapshot.Groups[1]
@@ -306,22 +306,19 @@ func TestIteratorUsesEffectiveWeights(t *testing.T) {
 	snapshot.Groups[2] = group
 
 	source := fakeCredentialSource{keys: []state.CredentialMeta{
-		{ID: 1, GroupID: 1, WeightManual: new(100)},
+		{ID: 1, GroupID: 1, WeightManual: new(1)},
 		{ID: 2, GroupID: 2, WeightManual: new(100)},
 	}}
-	counts := map[uint]int{}
 	source.progress = state.NewSchedulingState()
-	for range 12000 {
+	for range 100 {
 		iterator := New(snapshot, source, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")})
 		selection, err := iterator.Next()
 		if err != nil {
 			t.Fatalf("Next() error = %v", err)
 		}
-		counts[selection.CredentialID]++
-	}
-	ratio := float64(counts[1]) / float64(counts[2])
-	if ratio < 1.85 || ratio > 2.15 {
-		t.Fatalf("weighted counts = %#v, ratio = %.3f, want about 2:1", counts, ratio)
+		if selection.CredentialID != 1 {
+			t.Fatalf("selection = %#v, want heavier group credential 1 before lighter group", selection)
+		}
 	}
 }
 

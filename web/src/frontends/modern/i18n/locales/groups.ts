@@ -92,8 +92,8 @@ export const zhCN = {
       weight: '分组权重',
       price: '价格倍率',
       enabled: '启用分组',
-      priorityHelp: '优先级范围 1–100，默认 50；数值越大越优先，同优先级再按权重分配。',
-      weightHelp: '权重范围 1–100，默认 50；相同优先级下按权重分配流量。',
+      priorityHelp: '优先级范围 1–100，默认 50；数值越大越优先。顺序：分组优先级 → 分组权重 → 凭据优先级 → 凭据权重。',
+      weightHelp: '权重范围 1–100，默认 50；同分组优先级下越大越先用，之后再比凭据优先级与权重。',
       priceHelp: '分组价格倍率沿用现有计价规则，0 表示免费。',
       nameError: '请输入有效名称，不能包含控制字符或超过 255 字节。',
       priorityError: '请输入 1–100 之间的整数。',
@@ -214,9 +214,9 @@ export const enUS: typeof zhCN = {
       price: 'Price multiplier',
       enabled: 'Enable group',
       priorityHelp:
-        'Priority ranges from 1 to 100 (default 50). Higher values are preferred; equal priorities share traffic by weight.',
+        'Priority ranges from 1 to 100 (default 50). Order: group priority → group weight → credential priority → credential weight.',
       weightHelp:
-        'Weight ranges from 1 to 100 (default 50), used for traffic share within the same priority.',
+        'Weight ranges from 1 to 100 (default 50). Within the same group priority, higher group weight wins before credential priority/weight.',
       priceHelp: 'The group multiplier follows existing pricing rules. Use 0 for free usage.',
       nameError: 'Enter a valid name without control characters, up to 255 bytes.',
       priorityError: 'Enter an integer from 1 to 100.',
@@ -332,8 +332,9 @@ export const jaJP: typeof zhCN = {
       price: '価格倍率',
       enabled: 'グループを有効にする',
       priorityHelp:
-        '優先度は 1～100（既定値 50）。値が大きいほど優先され、同優先度では重みで配分します。',
-      weightHelp: '重みは 1～100（既定値 50）で、同じ優先度内の流量配分に使われます。',
+        '優先度は 1～100（既定値 50）。順序：グループ優先度 → グループ重み → 認証情報優先度 → 認証情報重み。',
+      weightHelp:
+        '重みは 1～100（既定値 50）。同じグループ優先度では大きいほど先に使われ、その後に認証情報の優先度と重みを見ます。',
       priceHelp: '既存の料金計算規則に適用されます。0 は無料です。',
       nameError: '制御文字を含まない、255 バイト以内の名前を入力してください。',
       priorityError: '1～100 の整数を入力してください。',

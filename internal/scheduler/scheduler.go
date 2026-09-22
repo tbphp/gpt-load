@@ -54,8 +54,9 @@ type candidateTarget struct {
 
 type weightedCredential struct {
 	meta               state.CredentialMeta
-	weight             int64
+	weight             int64 // credential weight used for final-tier fairness
 	groupPriority      int
+	groupWeight        int
 	credentialPriority int
 }
 
@@ -264,12 +265,14 @@ func (iterator *Iterator) withWeightedPool(candidates *candidatePool, modes []ch
 				if !iterator.targetAvailable(target, credential, modes, now) {
 					continue
 				}
-				weight := effectiveWeight(target.group.WeightManual, credential.WeightManual)
-				if weight > 0 {
+				groupWeight := state.ConfiguredWeight(target.group.WeightManual)
+				credentialWeight := state.ConfiguredWeight(credential.WeightManual)
+				if groupWeight > 0 && credentialWeight > 0 {
 					weighted = append(weighted, weightedCredential{
 						meta:               credential,
-						weight:             weight,
+						weight:             int64(credentialWeight),
 						groupPriority:      state.ConfiguredPriority(target.group.PriorityManual),
+						groupWeight:        groupWeight,
 						credentialPriority: state.ConfiguredPriority(credential.PriorityManual),
 					})
 				}
@@ -299,7 +302,7 @@ func (iterator *Iterator) Next() (Selection, error) {
 			now := iterator.now()
 			iterator.withWeightedPool(pool, modes, now, func(weighted []weightedCredential) {
 				selected, found = iterator.selectCredential(
-					filterHighestPriority(weighted),
+					filterHighestRoutingTier(weighted),
 					iterator.preferredCredentialID,
 				)
 				if !found {
@@ -317,33 +320,46 @@ func (iterator *Iterator) Next() (Selection, error) {
 	return Selection{}, ErrExhausted
 }
 
-// filterHighestPriority keeps only the highest group priority tier, then the
-// highest credential priority within that tier. Same-tier candidates keep their
-// relative weights for fair selection.
-func filterHighestPriority(candidates []weightedCredential) []weightedCredential {
+// filterHighestRoutingTier keeps candidates by:
+// group priority → group weight → credential priority.
+// Remaining peers then compete by credential weight fairness.
+func filterHighestRoutingTier(candidates []weightedCredential) []weightedCredential {
 	if len(candidates) <= 1 {
 		return candidates
 	}
-	maxGroup := candidates[0].groupPriority
+	maxGroupPriority := candidates[0].groupPriority
 	for _, candidate := range candidates[1:] {
-		if candidate.groupPriority > maxGroup {
-			maxGroup = candidate.groupPriority
+		if candidate.groupPriority > maxGroupPriority {
+			maxGroupPriority = candidate.groupPriority
 		}
 	}
-	maxCredential := 0
-	haveCredential := false
+	maxGroupWeight := 0
+	haveGroupWeight := false
 	for _, candidate := range candidates {
-		if candidate.groupPriority != maxGroup {
+		if candidate.groupPriority != maxGroupPriority {
 			continue
 		}
-		if !haveCredential || candidate.credentialPriority > maxCredential {
-			maxCredential = candidate.credentialPriority
-			haveCredential = true
+		if !haveGroupWeight || candidate.groupWeight > maxGroupWeight {
+			maxGroupWeight = candidate.groupWeight
+			haveGroupWeight = true
+		}
+	}
+	maxCredentialPriority := 0
+	haveCredentialPriority := false
+	for _, candidate := range candidates {
+		if candidate.groupPriority != maxGroupPriority || candidate.groupWeight != maxGroupWeight {
+			continue
+		}
+		if !haveCredentialPriority || candidate.credentialPriority > maxCredentialPriority {
+			maxCredentialPriority = candidate.credentialPriority
+			haveCredentialPriority = true
 		}
 	}
 	result := make([]weightedCredential, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.groupPriority == maxGroup && candidate.credentialPriority == maxCredential {
+		if candidate.groupPriority == maxGroupPriority &&
+			candidate.groupWeight == maxGroupWeight &&
+			candidate.credentialPriority == maxCredentialPriority {
 			result = append(result, candidate)
 		}
 	}
