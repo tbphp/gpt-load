@@ -1,6 +1,7 @@
 export const zhCN = {
   title: '请求脱敏',
   help: '按规则替换发送给上游和 JEV 的消息文本。没有规则时不处理。',
+  quickAdd: '快捷添加',
   pattern: '规则内容',
   replacement: '替换文本',
   add: '添加规则',
@@ -21,6 +22,7 @@ export const zhCN = {
 export const enUS = {
   title: 'Request redaction',
   help: 'Replace matching message text sent to upstream providers and JEV. No rules means no redaction.',
+  quickAdd: 'Quick add',
   pattern: 'Pattern',
   replacement: 'Replacement text',
   add: 'Add rule',
@@ -47,6 +49,7 @@ export const enUS = {
 export const jaJP = {
   title: 'リクエストのマスキング',
   help: '上流と JEV に送信するメッセージの一致箇所を置換します。ルールがなければ処理しません。',
+  quickAdd: 'クイック追加',
   pattern: '正規表現',
   replacement: '置換テキスト',
   add: 'ルールを追加',

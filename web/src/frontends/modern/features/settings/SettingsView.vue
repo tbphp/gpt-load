@@ -70,6 +70,12 @@ const {
   discard,
   save,
 } = useSettingsEditor()
+const redactionBlocksSave = computed(
+  () =>
+    redactionInvalid.value &&
+    changed.value.includes('request_redaction') &&
+    !resets.value.has('request_redaction'),
+)
 const info = useQuery({
   queryKey: systemInfoKey,
   queryFn: ({ signal }) => getSystemInfo(client, signal),
@@ -79,9 +85,9 @@ const sectionIDs = [
   'connection',
   'browser',
   'maintenance',
-  'interface',
   'redaction',
   'experimental',
+  'interface',
   'system',
 ] as const
 type SectionID = (typeof sectionIDs)[number]
@@ -304,7 +310,7 @@ watch(
   { immediate: true },
 )
 async function submit(): Promise<void> {
-  if (redactionInvalid.value && !resets.value.has('request_redaction')) return
+  if (redactionBlocksSave.value) return
   const result = await save()
   if (result !== 'invalid') return
   clearSearch()
@@ -418,6 +424,8 @@ onScopeDispose(() => {
             <template v-if="id === 'redaction'">
               <SettingItem
                 v-bind="settingItem('request_redaction')"
+                :label="t('requestRedaction.quickAdd')"
+                :hint="undefined"
                 stacked
                 class="modern-settings-wide"
                 @reset="restore('request_redaction')"
@@ -806,7 +814,7 @@ onScopeDispose(() => {
           variant="primary"
           :icon="Save"
           :loading="saving"
-          :disabled="redactionInvalid && !resets.has('request_redaction')"
+          :disabled="redactionBlocksSave"
           >{{ t('settingsForm.save') }}</AppButton
         >
       </div>

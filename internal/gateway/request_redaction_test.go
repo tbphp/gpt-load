@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/parameteroverride"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestredact"
 	"gpt-load/internal/state"
 )
@@ -47,7 +48,7 @@ func TestRequestRedactionMultipartOnlyReplacesPrompt(t *testing.T) {
 	}
 	c, _ := requestredact.Compile([]requestredact.Rule{{Pattern: "private-value", Replacement: "[VALUE]"}})
 	request := &dialect.ParsedRequest{Body: body.Bytes(), Header: http.Header{"Content-Type": {w.FormDataContentType()}, "Content-Length": {"123"}}}
-	clean, err := redactOutboundRequest(c, request)
+	clean, err := redactOutboundRequest(c, protocol.OpenAIImages, request)
 	if err != nil {
 		t.Fatal(err)
 	}

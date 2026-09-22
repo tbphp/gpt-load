@@ -43,7 +43,7 @@ function error(index: number): string | undefined {
         v-for="preset in redactionPresets"
         :key="preset.key"
         variant="outline"
-        size="xs"
+        size="xxs"
         class="modern-redaction-tag"
         :disabled="disabled || modelValue.length >= 64"
         @click="add(preset)"

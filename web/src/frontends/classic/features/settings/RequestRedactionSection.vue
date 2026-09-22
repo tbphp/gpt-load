@@ -44,6 +44,7 @@ function error(index: number): string | undefined {
       <h2>{{ t('requestRedaction.title') }}</h2>
       <p>{{ t('requestRedaction.help') }}</p>
     </header>
+    <h3 class="redaction-quick-title">{{ t('requestRedaction.quickAdd') }}</h3>
     <div class="redaction-presets">
       <AppButton
         v-for="preset in redactionPresets"
@@ -151,6 +152,11 @@ function error(index: number): string | undefined {
 .redaction-note {
   color: var(--color-text-muted);
   margin: 0;
+  font-size: var(--text-sm);
+}
+.redaction-quick-title {
+  margin: 0;
+  color: var(--color-text);
   font-size: var(--text-sm);
 }
 .redaction-presets {

@@ -142,9 +142,9 @@ const navItems = computed(() => [
   { id: 'settings-reliability', label: t('settings.navigation.reliability') },
   { id: 'settings-browser-access', label: t('settings.navigation.browserAccess') },
   { id: 'settings-data-maintenance', label: t('settings.navigation.dataMaintenance') },
-  { id: 'settings-interface', label: t('settings.frontend.title') },
   { id: 'settings-redaction', label: t('requestRedaction.title') },
   { id: 'settings-experimental', label: t('settings.navigation.experimental') },
+  { id: 'settings-interface', label: t('settings.frontend.title') },
   { id: 'settings-system', label: t('settings.navigation.system') },
 ])
 const routeSection = computed(() => parseSettingsSection(route.query))
@@ -168,7 +168,7 @@ const dirty = computed(
 )
 const valid = computed(
   () =>
-    !redactionInvalid.value &&
+    !(redactionInvalid.value && patch.value.request_redaction != null) &&
     controllerValid.value &&
     browserAccessValid.value &&
     !autoModelInvalidEdits.value &&
@@ -502,7 +502,6 @@ onBeforeUnmount(() => {
             @update:model-value="updateRedaction"
             @invalid="redactionInvalid = $event"
           />
-          <FrontendSettingsSection :disabled="dirty || pageOperationLocked" />
           <AutoModelSettingsSection
             v-if="base && draft"
             :base="base"
@@ -512,6 +511,7 @@ onBeforeUnmount(() => {
             @change="updateDraft"
             @invalid="autoModelInvalidEdits = $event"
           />
+          <FrontendSettingsSection :disabled="dirty || pageOperationLocked" />
           <SystemInfoSection />
         </div>
       </div>

@@ -9,13 +9,14 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/platform/httpheader"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestredact"
 )
 
 var reasonRedactionFailed = reason{http.StatusBadRequest, "request_redaction_failed", "Request content could not be redacted safely."}
 
 // 每次从本次请求的原始内容构造外发副本，缓存副本可复用于同组重试。
-func redactOutboundRequest(c *requestredact.Compiled, request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Protocol, request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
 	if c.Empty() || request == nil || len(request.Body) == 0 {
 		return request, nil
 	}
@@ -24,6 +25,8 @@ func redactOutboundRequest(c *requestredact.Compiled, request *dialect.ParsedReq
 	mediaType, params, _ := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if mediaType == "multipart/form-data" {
 		body, err = redactMultipart(c, request.Body, params["boundary"])
+	} else if clientProtocol == protocol.Decisions {
+		body, err = c.ApplyDecisions(request.Body)
 	} else {
 		body, err = c.Apply(request.Body)
 	}

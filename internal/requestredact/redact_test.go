@@ -84,6 +84,45 @@ func TestRedactionCoversNativeContentAndKeepsHistoryStable(t *testing.T) {
 	}
 }
 
+func TestRedactionCoversDecisionsStateWithoutChangingQuestionIdentifiers(t *testing.T) {
+	c, _ := Compile([]Rule{{Pattern: "private-value", Replacement: "[VALUE]"}})
+	for _, state := range []string{
+		`"private-value"`,
+		`{"customer":"private-value","nested":[{"note":"private-value"}]}`,
+		`["private-value",{"note":"private-value"}]`,
+	} {
+		body := []byte(`{"model":"public","state":` + state + `,"questions":{"private-value":{"type":"choice","instructions":{"note":"private-value"},"criteria":{"private-value":"private-value"}}}}`)
+		got, err := c.ApplyDecisions(body)
+		if err != nil || bytes.Contains(got, []byte(`"state":`+state)) || !bytes.Contains(got, []byte(`"questions":{"private-value"`)) || !bytes.Contains(got, []byte(`"note":"[VALUE]"`)) || !bytes.Contains(got, []byte(`"private-value":"[VALUE]"`)) {
+			t.Fatalf("state=%s, got=%s / %v", state, got, err)
+		}
+	}
+}
+
+func TestRedactionPreservesResponsesToolOutputContentBlockMetadata(t *testing.T) {
+	c, _ := Compile([]Rule{{Pattern: `private|[0-9]+|input_image|input_file`, Replacement: "[VALUE]"}})
+	body := []byte(`{"input":[{"type":"function_call_output","call_id":"call-123","output":[{"type":"input_text","text":"private 123"},{"type":"input_image","file_id":"file-123","image_url":"https://example.com/private/123"},{"type":"input_file","file_id":"file-456","file_data":"private123","filename":"private123.txt"}]}]}`)
+	want := []byte(`{"input":[{"type":"function_call_output","call_id":"call-123","output":[{"type":"input_text","text":"[VALUE] [VALUE]"},{"type":"input_image","file_id":"file-123","image_url":"https://example.com/private/123"},{"type":"input_file","file_id":"file-456","file_data":"private123","filename":"private123.txt"}]}]}`)
+	got, err := c.Apply(body)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("got %s / %v", got, err)
+	}
+}
+
+func TestRedactionLimitsTotalPatchesIncludingNestedArguments(t *testing.T) {
+	c, _ := Compile([]Rule{{Pattern: "x", Replacement: "y"}})
+	values := strings.Repeat(`"x",`, 65536)
+	inner := `{"values":[` + values[:len(values)-1] + `]}`
+	arguments, err := json.Marshal(inner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"input":"x","arguments":` + string(arguments) + `}`)
+	if _, err := c.Apply(body); !errors.Is(err, ErrContent) {
+		t.Fatalf("patch budget not enforced: %v", err)
+	}
+}
+
 func TestRedactionMergesOverlapsAndDoesNotRewriteReplacements(t *testing.T) {
 	c, _ := Compile([]Rule{{Pattern: "abc", Replacement: "[ONE]"}, {Pattern: "bcde", Replacement: "[TWO]"}, {Pattern: "ONE", Replacement: "changed"}})
 	got, err := c.Apply([]byte(`{"input":"abcde abc"}`))

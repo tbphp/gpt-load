@@ -916,7 +916,7 @@ func (handler *Handler) executeAttempts(
 		}
 		defer func() {
 			if prepared.err == nil {
-				prepared.request, prepared.err = redactOutboundRequest(snapshot.RequestRedaction, prepared.request)
+				prepared.request, prepared.err = redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), prepared.request)
 			}
 			cachedPrepared = &prepared
 		}()

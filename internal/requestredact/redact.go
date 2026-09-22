@@ -19,6 +19,7 @@ import (
 const SettingKey = "request_redaction"
 const MaxRules = 64
 const maxTextBytes = 128 << 20
+const maxDocumentPatches = 65536
 
 var ErrContent = errors.New("request content cannot be redacted")
 
@@ -189,19 +190,38 @@ type patch struct {
 	value      []byte
 }
 
-func (c *Compiled) Apply(body []byte) ([]byte, error) { return c.apply(body, false) }
+func (c *Compiled) Apply(body []byte) ([]byte, error) {
+	patchCount := 0
+	return c.apply(body, false, false, 0, &patchCount)
+}
+
+func (c *Compiled) ApplyDecisions(body []byte) ([]byte, error) {
+	patchCount := 0
+	return c.apply(body, false, true, 0, &patchCount)
+}
 
 // apply 只拼接发生变化的 JSON 字符串；保留未命中字节、属性和消息顺序。
-func (c *Compiled) apply(body []byte, data bool) ([]byte, error) {
+func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCount *int) ([]byte, error) {
 	if c.Empty() || len(bytes.TrimSpace(body)) == 0 {
 		return body, nil
+	}
+	if depth > 64 {
+		return nil, ErrContent
 	}
 	if !json.Valid(body) || !utf8.Valid(body) {
 		return nil, ErrContent
 	}
 	patches := []patch{}
-	var walk func(gjson.Result, bool, bool, int) error
-	walk = func(v gjson.Result, content, data bool, depth int) error {
+	addPatch := func(p patch) error {
+		if *patchCount >= maxDocumentPatches {
+			return ErrContent
+		}
+		*patchCount++
+		patches = append(patches, p)
+		return nil
+	}
+	var walk func(gjson.Result, bool, bool, int, bool) error
+	walk = func(v gjson.Result, content, data bool, depth int, questions bool) error {
 		if depth > 64 {
 			return ErrContent
 		}
@@ -218,7 +238,7 @@ func (c *Compiled) apply(body []byte, data bool) ([]byte, error) {
 				if err != nil {
 					return err
 				}
-				patches = append(patches, patch{v.Index, v.Index + len(v.Raw), encoded})
+				return addPatch(patch{v.Index, v.Index + len(v.Raw), encoded})
 			}
 			return nil
 		}
@@ -235,33 +255,46 @@ func (c *Compiled) apply(body []byte, data bool) ([]byte, error) {
 		var failure error
 		v.ForEach(func(k, child gjson.Result) bool {
 			if v.IsArray() || data {
-				failure = walk(child, content, data, depth+1)
+				failure = walk(child, content, data, depth+1, questions)
 				return failure == nil
 			}
 			switch k.Str {
+			case "questions":
+				failure = walk(child, false, false, depth+1, decisions && depth == 0)
+			case "state":
+				isDecisionsState := decisions && depth == 0
+				failure = walk(child, isDecisionsState, isDecisionsState, depth+1, false)
+			case "criteria":
+				isDecisionsContent := questions && depth == 2
+				failure = walk(child, isDecisionsContent, isDecisionsContent, depth+1, questions)
 			case "cache_control", "metadata", "signature", "thoughtSignature", "thought_signature", "encrypted_content", "image_url", "audio_url", "file_url", "inlineData", "inline_data", "fileData", "file_data", "source":
 				return true
 			case "arguments":
 				if child.Type == gjson.String && json.Valid([]byte(child.Str)) {
 					var rewritten []byte
-					rewritten, failure = c.apply([]byte(child.Str), true)
+					rewritten, failure = c.apply([]byte(child.Str), true, false, depth+1, patchCount)
 					if failure == nil && string(rewritten) != child.Str {
 						var encoded []byte
 						encoded, failure = json.Marshal(string(rewritten))
-						patches = append(patches, patch{child.Index, child.Index + len(child.Raw), encoded})
+						if failure == nil {
+							failure = addPatch(patch{child.Index, child.Index + len(child.Raw), encoded})
+						}
 					}
 				} else {
-					failure = walk(child, true, true, depth+1)
+					failure = walk(child, true, true, depth+1, questions)
 				}
-			case "args", "output", "response":
-				failure = walk(child, true, true, depth+1)
+			case "output":
+				isResponsesContent := v.Get("type").Str == "function_call_output" && child.IsArray()
+				failure = walk(child, true, !isResponsesContent, depth+1, questions)
+			case "args", "response":
+				failure = walk(child, true, true, depth+1, questions)
 			case "input":
 				kind := v.Get("type").Str
-				failure = walk(child, true, kind == "tool_use" || kind == "server_tool_use" || kind == "mcp_tool_use", depth+1)
+				failure = walk(child, true, kind == "tool_use" || kind == "server_tool_use" || kind == "mcp_tool_use", depth+1, questions)
 			case "content", "text", "system", "system_instruction", "systemInstruction", "instructions", "prompt", "query", "thinking", "summary", "code", "refusal", "description", "title", "documents", "texts":
-				failure = walk(child, true, false, depth+1)
+				failure = walk(child, true, questions && depth == 2 && k.Str == "instructions", depth+1, questions)
 			default:
-				failure = walk(child, false, false, depth+1)
+				failure = walk(child, false, false, depth+1, questions)
 			}
 			return failure == nil
 		})
@@ -273,7 +306,7 @@ func (c *Compiled) apply(body []byte, data bool) ([]byte, error) {
 		}
 		return nil
 	}
-	if err := walk(gjson.ParseBytes(body), false, data, 0); err != nil {
+	if err := walk(gjson.ParseBytes(body), false, data, depth, false); err != nil {
 		return nil, err
 	}
 	if len(patches) == 0 {

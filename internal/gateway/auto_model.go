@@ -101,7 +101,7 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	query.ResponsesStorePreference = metadata.ResponsesStorePreference
 	view, extractReason := automodel.Extract(selectedDialect.Protocol(), parsed.Body)
 	if !snapshot.RequestRedaction.Empty() {
-		clean, err := redactOutboundRequest(snapshot.RequestRedaction, parsed)
+		clean, err := redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), parsed)
 		if err != nil {
 			return parsed, metadata, nil, &reasonRedactionFailed
 		}
