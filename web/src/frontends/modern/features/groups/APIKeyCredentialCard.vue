@@ -106,16 +106,13 @@ const issues = computed(() =>
           <span v-else>—</span>
         </dd>
       </div>
-      <div>
+      <div v-if="row.priorityManual != null">
         <dt>{{ t('credentialCards.priority') }}</dt>
-        <dd>{{ n(row.priority) }}</dd>
+        <dd>{{ n(row.priorityManual) }}</dd>
       </div>
-      <div>
+      <div v-if="row.weightManual != null">
         <dt>{{ t('credentialCards.weight') }}</dt>
-        <dd
-          >{{ n(row.weight)
-          }}<CredentialRoutingMeta :row="row" :priority="false" :weight="false"
-        /></dd>
+        <dd>{{ n(row.weightManual) }}</dd>
       </div>
       <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
         <div tabindex="0">

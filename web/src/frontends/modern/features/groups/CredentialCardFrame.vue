@@ -63,18 +63,13 @@ useLoadingActivity(() => Boolean(props.pending))
 }
 .modern-credential-card.is-compact {
   --modern-credential-card-inset: var(--modern-space-3);
-  height: var(--modern-key-card-height);
-  display: grid;
-  grid-template-rows: calc(var(--modern-control-xs) + var(--modern-space-2)) minmax(0, 1fr) var(
-      --modern-control-sm
-    );
 }
 .is-compact .modern-credential-card-heading {
   padding-top: var(--modern-space-1);
 }
 .is-compact .modern-credential-card-body {
-  min-height: 0;
-  align-content: center;
+  flex: none;
+  align-content: start;
   gap: var(--modern-space-1);
   padding-block: var(--modern-space-1);
 }
@@ -82,13 +77,5 @@ useLoadingActivity(() => Boolean(props.pending))
   flex-wrap: nowrap;
   gap: var(--modern-space-1);
   padding-block: var(--modern-space-0-5);
-}
-@media (max-width: 760px) {
-  .modern-credential-card.is-compact {
-    height: calc(var(--modern-key-card-height) + var(--modern-space-10));
-    grid-template-rows:
-      calc(var(--modern-touch-target) + var(--modern-space-2)) minmax(0, 1fr)
-      calc(var(--modern-touch-target) + var(--modern-space-2));
-  }
 }
 </style>
