@@ -1,7 +1,9 @@
+import { jaJP as requestRedaction } from '../request-redaction'
 import { jaJP as experimental } from '../experimental'
 import { jaJP as autoModel } from '../auto-model'
 
 export default {
+  requestRedaction,
   ...experimental,
   autoModel,
   settings: {

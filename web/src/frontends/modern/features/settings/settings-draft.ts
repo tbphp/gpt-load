@@ -1,3 +1,4 @@
+import type { RedactionRule } from '@modern/api/request-redaction'
 import {
   settingKeys,
   settingNumbers,
@@ -52,6 +53,7 @@ export type SettingsDraft = Record<SettingNumber, string> &
     proxy_config: { mode: 'inherit' | 'direct' | 'custom'; url: string }
     auto_model: AutoModelDraft
     jev: JevConfig
+    request_redaction: RedactionRule[]
     request_audit: AuditConfig
   }
 let nextHeader = 0
@@ -87,6 +89,7 @@ export function createSettingsDraft(data: SettingsData): SettingsDraft {
     auto_model: autoModelDraft(values.auto_model ?? defaultAutoModel()),
     jev: cloneDraft(values.jev),
     request_audit: cloneDraft(values.request_audit),
+    request_redaction: cloneDraft(values.request_redaction),
     cors: {
       ...values.cors,
       allowed_origins: values.cors.allowed_origins.join('\n'),

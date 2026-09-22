@@ -1,3 +1,4 @@
+import { zhCN as requestRedaction } from './request-redaction'
 import { zhCN as experimental } from './experimental'
 import { protocolMessages as protocols } from '../protocols'
 import { zhCN as inspector } from './inspector'
@@ -20,6 +21,7 @@ import { zhCN as autoModel } from './auto-model'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  requestRedaction,
   ...experimental,
   home,
   inspector,

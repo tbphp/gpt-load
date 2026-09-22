@@ -1,3 +1,4 @@
+import type { RedactionRule } from '@/app/resources/request-redaction'
 import {
   defaultJev,
   defaultAudit,
@@ -62,6 +63,7 @@ function cloneValues(value: SettingsValues): SettingsValues {
   return {
     ...value,
     jev: { ...value.jev },
+    request_redaction: value.request_redaction.map((rule) => ({ ...rule })),
     request_audit: JSON.parse(JSON.stringify(value.request_audit)) as AuditConfig,
     auto_model: {
       ...(value.auto_model ?? defaultAutoModel()),
@@ -115,6 +117,8 @@ export function setSettingsOverride(
       next.values.request_audit = JSON.parse(
         JSON.stringify(base.values.request_audit),
       ) as AuditConfig
+    } else if (key === 'request_redaction') {
+      next.values.request_redaction = base.values.request_redaction.map((rule) => ({ ...rule }))
     } else if (key === 'auto_model') {
       next.values.auto_model = JSON.parse(
         JSON.stringify(base.values.auto_model ?? defaultAutoModel()),
@@ -129,6 +133,8 @@ export function setSettingsOverride(
   } else {
     next.overrides.delete(key)
     const persisted = base.overrides.includes(key)
+    if (key === 'request_redaction')
+      next.values.request_redaction = persisted ? [] : cloneValues(base.values).request_redaction
     if (key === 'jev') next.values.jev = persisted ? defaultJev() : { ...base.values.jev }
     if (key === 'request_audit')
       next.values.request_audit = persisted
@@ -162,6 +168,7 @@ function normalizedWireValue(
   | AutoModelConfigDto
   | JevConfig
   | AuditConfig
+  | RedactionRule[]
   | undefined {
   if (key === 'header_rules' || key === 'response_header_rules')
     return normalizeHeaderRules(settings[key])
@@ -203,6 +210,7 @@ function normalizedIdentityValue(
   | AutoModelConfigDto
   | JevConfig
   | AuditConfig
+  | RedactionRule[]
   | undefined {
   if (key === 'header_rules' || key === 'response_header_rules')
     return canonicalHeaderRulesIdentity(settings[key])

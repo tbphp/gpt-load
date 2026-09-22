@@ -29,6 +29,7 @@ export const zhCN = {
   entries: '条',
   days: '天',
   sections: {
+    redaction: '请求脱敏',
     routing: '路由调度',
     connection: '连接与稳定性',
     browser: '浏览器访问',
@@ -38,6 +39,7 @@ export const zhCN = {
     system: '系统信息',
   },
   sectionHelp: {
+    redaction: '配置发送给上游与 JEV 的文本替换规则',
     routing: '路由选择与请求亲和',
     connection: '代理、超时和失败处理',
     browser: '跨域访问与请求头规则',
@@ -47,6 +49,7 @@ export const zhCN = {
     system: '版本与部署信息',
   },
   fields: {
+    request_redaction: '请求脱敏',
     jev: 'JEV 公共配置',
     request_audit: '智能护栏',
     route_strategy: '路由策略',
@@ -69,6 +72,7 @@ export const zhCN = {
     cors: '跨域访问（CORS）',
   },
   hints: {
+    request_redaction: '配置发送给上游与 JEV 的文本替换规则',
     jev: '自动模型与语义审计共用。请求文本会发送到所选分组；语义审计需要明确指定分组。',
     request_audit: '使用 JEV 按自定义规则拦截或告警。',
     auto_model: 'Jev 选择预设，现有调度选择分组和凭据。',
@@ -192,6 +196,7 @@ export const enUS = {
   entries: 'entries',
   days: 'days',
   sections: {
+    redaction: 'Request redaction',
     routing: 'Routing',
     connection: 'Connections & reliability',
     browser: 'Browser access',
@@ -201,6 +206,7 @@ export const enUS = {
     system: 'System information',
   },
   sectionHelp: {
+    redaction: 'Configure text replacement for upstream providers and JEV',
     routing: 'Route selection and request affinity',
     connection: 'Proxy, timeouts and failure handling',
     browser: 'Cross-origin access and header rules',
@@ -210,6 +216,7 @@ export const enUS = {
     system: 'Version and deployment',
   },
   fields: {
+    request_redaction: 'Request redaction',
     jev: 'Shared JEV configuration',
     request_audit: 'AI Guardrails',
     route_strategy: 'Routing strategy',
@@ -232,6 +239,7 @@ export const enUS = {
     cors: 'Cross-origin access (CORS)',
   },
   hints: {
+    request_redaction: 'Configure text replacement for upstream providers and JEV',
     jev: 'Used by automatic models and semantic auditing. Request text is sent to this route; semantic auditing requires an explicit group.',
     request_audit: 'Use JEV to block or warn on custom rules.',
     route_strategy:
@@ -360,6 +368,7 @@ export const jaJP = {
   entries: '件',
   days: '日',
   sections: {
+    redaction: 'リクエストのマスキング',
     routing: 'ルーティング',
     connection: '接続と安定性',
     browser: 'ブラウザアクセス',
@@ -369,6 +378,7 @@ export const jaJP = {
     system: 'システム情報',
   },
   sectionHelp: {
+    redaction: '上流と JEV に送信するテキストの置換ルールを設定',
     routing: 'ルート選択とリクエスト親和性',
     connection: 'プロキシ、タイムアウト、失敗時の処理',
     browser: 'クロスオリジンアクセスとヘッダールール',
@@ -378,6 +388,7 @@ export const jaJP = {
     system: 'バージョンと配置情報',
   },
   fields: {
+    request_redaction: 'リクエストのマスキング',
     jev: 'JEV 共通設定',
     request_audit: 'AI ガードレール',
     route_strategy: 'ルーティング方式',
@@ -400,6 +411,7 @@ export const jaJP = {
     cors: 'クロスオリジンアクセス（CORS）',
   },
   hints: {
+    request_redaction: '上流と JEV に送信するテキストの置換ルールを設定',
     jev: '自動モデルと意味監査で共用します。リクエスト本文を選択したグループに送信します。意味監査にはグループの指定が必要です。',
     request_audit: 'JEV が独自ルールでブロックまたは警告します。',
     route_strategy:

@@ -1,3 +1,4 @@
+import { readRedactionRules, type RedactionRule } from './request-redaction'
 import {
   readJev,
   readAudit,
@@ -59,6 +60,7 @@ export const runtimeSettingKeys = [
   'auto_model',
   'jev',
   'request_audit',
+  'request_redaction',
 ] as const
 
 export type RuntimeSettingKey = (typeof runtimeSettingKeys)[number]
@@ -78,6 +80,7 @@ export type TimeoutSettingKey = Exclude<
   | 'auto_model'
   | 'jev'
   | 'request_audit'
+  | 'request_redaction'
 >
 export type PolicyCountSettingKey = 'retry_count' | 'blacklist_threshold'
 
@@ -92,6 +95,7 @@ export interface CORSConfigDto {
 }
 
 export interface SettingsValues {
+  request_redaction: RedactionRule[]
   jev: JevConfig
   request_audit: AuditConfig
   auto_model?: AutoModelConfigDto
@@ -128,6 +132,7 @@ export interface SettingsDto {
 export type SettingsPatch = Partial<{
   auto_model: AutoModelConfigDto | null
   jev: JevConfig | null
+  request_redaction: RedactionRule[] | null
   request_audit: AuditConfig | null
   route_strategy: RouteStrategy | null
   first_byte_timeout: number | null
@@ -249,6 +254,7 @@ export function projectSettings(value: unknown): SettingsDto {
       auto_model: projectAutoModel(values.auto_model),
       jev: readJev(values.jev),
       request_audit: readAudit(values.request_audit),
+      request_redaction: readRedactionRules(values.request_redaction),
       route_strategy: projectEnum(values.route_strategy, routeStrategies),
       first_byte_timeout: projectSafeInteger(values.first_byte_timeout, { minimum: 1 }),
       request_timeout: projectSafeInteger(values.request_timeout, { minimum: 1 }),
