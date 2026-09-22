@@ -140,7 +140,8 @@ const priorityErrors = ref(new Map<number, string>())
 const weightErrors = ref(new Map<number, string>())
 const priorityEditors = ref(new Set<number>())
 const weightEditors = ref(new Set<number>())
-const dirtyInline = ref(new Set<number>())
+const dirtyPriority = ref(new Set<number>())
+const dirtyWeight = ref(new Set<number>())
 const frozenGroups = ref<GroupRow[]>()
 const rowRevision = ref(0)
 const notice = ref<{ text: string; tone: 'success' | 'warning' | 'danger' }>()
@@ -154,6 +155,9 @@ let filterSequence = 0
 const controller = new AbortController()
 function inlineEditingCount(): number {
   return priorityEditors.value.size + weightEditors.value.size
+}
+function inlineDirtyCount(): number {
+  return dirtyPriority.value.size + dirtyWeight.value.size
 }
 const query = useQuery(
   computed(() => ({
@@ -502,13 +506,17 @@ function setWeightEditing(id: number, active: boolean): void {
     if (!inlineEditingCount()) frozenGroups.value = undefined
   }
 }
-function setInlineDirty(id: number, dirty: boolean): void {
-  if (dirty) dirtyInline.value.add(id)
-  else dirtyInline.value.delete(id)
+function setPriorityDirty(id: number, dirty: boolean): void {
+  if (dirty) dirtyPriority.value.add(id)
+  else dirtyPriority.value.delete(id)
+}
+function setWeightDirty(id: number, dirty: boolean): void {
+  if (dirty) dirtyWeight.value.add(id)
+  else dirtyWeight.value.delete(id)
 }
 function guardNavigation(): boolean | Promise<boolean> {
   if (pending.value.size) return false
-  if (!dirtyInline.value.size) return true
+  if (!inlineDirtyCount()) return true
   resolveLeave?.(false)
   discardTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
   discardRequested.value = true
@@ -518,7 +526,8 @@ function guardNavigation(): boolean | Promise<boolean> {
 }
 function finishDiscard(allow: boolean): void {
   if (allow) {
-    dirtyInline.value.clear()
+    dirtyPriority.value.clear()
+    dirtyWeight.value.clear()
     priorityEditors.value.clear()
     weightEditors.value.clear()
     priorityErrors.value.clear()
@@ -537,7 +546,7 @@ function restoreDiscardFocus(event: Event): void {
 onBeforeRouteLeave(guardNavigation)
 onBeforeRouteUpdate(guardNavigation)
 function beforeUnload(event: BeforeUnloadEvent): void {
-  if (!dirtyInline.value.size && !pending.value.size) return
+  if (!inlineDirtyCount() && !pending.value.size) return
   event.preventDefault()
   event.returnValue = ''
 }
@@ -552,7 +561,8 @@ watch(
     search.value = filters.value.q
     priorityEditors.value.clear()
     weightEditors.value.clear()
-    dirtyInline.value.clear()
+    dirtyPriority.value.clear()
+    dirtyWeight.value.clear()
     priorityErrors.value.clear()
     weightErrors.value.clear()
     frozenGroups.value = undefined
@@ -572,7 +582,7 @@ watch([page, () => data.value !== undefined, filterDataReady], () => {
     data.value &&
     filterDataReady.value &&
     page.value !== filters.value.page &&
-    !dirtyInline.value.size &&
+    !inlineDirtyCount() &&
     !pending.value.size
   )
     void router.replace({
@@ -953,11 +963,11 @@ useMessageSource(() =>
           @toggle="mutate(group, { enabled: $event }, 'toggle')"
           @priority="mutate(group, { priority_manual: $event }, 'priority')"
           @priority-editing="setPriorityEditing(group.id, $event)"
-          @priority-dirty="setInlineDirty(group.id, $event)"
+          @priority-dirty="setPriorityDirty(group.id, $event)"
           @clear-priority-error="priorityErrors.delete(group.id)"
           @weight="mutate(group, { weight_manual: $event }, 'weight')"
           @weight-editing="setWeightEditing(group.id, $event)"
-          @weight-dirty="setInlineDirty(group.id, $event)"
+          @weight-dirty="setWeightDirty(group.id, $event)"
           @clear-weight-error="weightErrors.delete(group.id)"
         />
       </template>
