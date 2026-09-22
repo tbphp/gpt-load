@@ -40,7 +40,7 @@ func decisionRouteOptions(snapshot *state.ConfigSnapshot) []DecisionRouteOption 
 // 用户首次保存公共配置后清除旧嵌套连接，恢复默认时不会重新启用旧连接。
 func (s *Service) clearNestedJevConfig(tx *gorm.DB) error {
 	var row models.SystemSetting
-	if err := tx.Where("key = ?", automodel.SettingKey).Take(&row).Error; err != nil {
+	if err := tx.Where(&models.SystemSetting{Key: automodel.SettingKey}).Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}
@@ -64,7 +64,7 @@ func (s *Service) clearNestedJevConfig(tx *gorm.DB) error {
 	if err != nil {
 		return err
 	}
-	return tx.Model(&models.SystemSetting{}).Where("key = ?", automodel.SettingKey).Update("value", ciphertext).Error
+	return tx.Model(&models.SystemSetting{}).Where(&models.SystemSetting{Key: automodel.SettingKey}).Update("value", ciphertext).Error
 }
 
 func auditAccessKeyOptions(snapshot *state.ConfigSnapshot) []AuditAccessKeyOption {
