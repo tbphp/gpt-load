@@ -17,6 +17,7 @@ import (
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
+	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
@@ -53,6 +54,9 @@ type frozenAttemptPricing struct {
 }
 
 type requestRecorder struct {
+	audit                *requestaudit.Result
+	auditCache           map[[32]byte]bool
+	auditCalled          bool
 	autoDecision         *automodel.Decision
 	sink                 telemetry.RequestLogSink
 	requestID            string
@@ -136,6 +140,7 @@ func (recorder *requestRecorder) emit() {
 	reportedModel, modelConsistency := requestOutcomeModelConsistency(recorder.outcome)
 	recorder.sink.Emit(telemetry.RequestEvent{
 		AutoDecision:          recorder.autoLogDecision(),
+		RequestAudit:          recorder.audit,
 		RequestID:             recorder.requestID,
 		CompletedAt:           completedAt.UTC(),
 		AccessKeyID:           recorder.accessKeyID,
@@ -183,7 +188,7 @@ func (recorder *requestRecorder) estimatedCostNanoUSD() int64 {
 	if recorder == nil {
 		return 0
 	}
-	return addDecisionCost(recorder.usage.Pricing.EstimatedCostNanoUSD, recorder.autoDecision)
+	return telemetry.TotalPricing(recorder.usage.Pricing, recorder.autoDecision, recorder.audit).EstimatedCostNanoUSD
 }
 
 func (recorder *requestRecorder) setAffinityHit(hit bool, kind string) {

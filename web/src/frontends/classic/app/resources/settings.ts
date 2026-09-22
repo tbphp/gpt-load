@@ -1,3 +1,13 @@
+import {
+  readJev,
+  readAudit,
+  readDecisionRoutes,
+  readAuditAccessKeys,
+  type JevConfig,
+  type AuditConfig,
+  type DecisionRoute,
+  type AuditAccessKey,
+} from './experimental'
 import { queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
@@ -47,6 +57,8 @@ export const runtimeSettingKeys = [
   'request_log_retention_days',
   'models_dev_auto_sync_enabled',
   'auto_model',
+  'jev',
+  'request_audit',
 ] as const
 
 export type RuntimeSettingKey = (typeof runtimeSettingKeys)[number]
@@ -64,6 +76,8 @@ export type TimeoutSettingKey = Exclude<
   | 'request_log_retention_days'
   | 'models_dev_auto_sync_enabled'
   | 'auto_model'
+  | 'jev'
+  | 'request_audit'
 >
 export type PolicyCountSettingKey = 'retry_count' | 'blacklist_threshold'
 
@@ -78,6 +92,8 @@ export interface CORSConfigDto {
 }
 
 export interface SettingsValues {
+  jev: JevConfig
+  request_audit: AuditConfig
   auto_model?: AutoModelConfigDto
   route_strategy: RouteStrategy
   first_byte_timeout: number
@@ -99,6 +115,9 @@ export interface SettingsValues {
 }
 
 export interface SettingsDto {
+  decision_routes: DecisionRoute[]
+  audit_access_keys: AuditAccessKey[]
+  request_audit_preset: AuditConfig
   auto_model_template?: AutoEntryDto
   decision_models: string[]
   values: SettingsValues
@@ -108,6 +127,8 @@ export interface SettingsDto {
 
 export type SettingsPatch = Partial<{
   auto_model: AutoModelConfigDto | null
+  jev: JevConfig | null
+  request_audit: AuditConfig | null
   route_strategy: RouteStrategy | null
   first_byte_timeout: number | null
   request_timeout: number | null
@@ -137,6 +158,9 @@ const settingsFields = [
   'read_only',
   'auto_model_template',
   'decision_models',
+  'decision_routes',
+  'audit_access_keys',
+  'request_audit_preset',
 ] as const
 const settingsValueFields = [...runtimeSettingKeys, 'proxy_config'] as const
 
@@ -218,8 +242,13 @@ export function projectSettings(value: unknown): SettingsDto {
         ? undefined
         : projectAutoEntry(record.auto_model_template),
     decision_models: projectArray(record.decision_models, projectString),
+    decision_routes: readDecisionRoutes(record.decision_routes),
+    audit_access_keys: readAuditAccessKeys(record.audit_access_keys),
+    request_audit_preset: readAudit(record.request_audit_preset),
     values: {
       auto_model: projectAutoModel(values.auto_model),
+      jev: readJev(values.jev),
+      request_audit: readAudit(values.request_audit),
       route_strategy: projectEnum(values.route_strategy, routeStrategies),
       first_byte_timeout: projectSafeInteger(values.first_byte_timeout, { minimum: 1 }),
       request_timeout: projectSafeInteger(values.request_timeout, { minimum: 1 }),

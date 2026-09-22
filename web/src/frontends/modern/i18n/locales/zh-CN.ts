@@ -1,3 +1,4 @@
+import { zhCN as experimental } from './experimental'
 import { protocolMessages as protocols } from '../protocols'
 import { zhCN as inspector } from './inspector'
 import { zhCN as home } from './home'
@@ -19,6 +20,7 @@ import { zhCN as autoModel } from './auto-model'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  ...experimental,
   home,
   inspector,
   protocols,

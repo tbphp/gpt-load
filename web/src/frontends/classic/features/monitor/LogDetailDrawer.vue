@@ -50,6 +50,9 @@ const { locale, t, te } = useI18n()
 const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
 const initialLoading = useStableLoading(() => props.open && query.isPending.value)
 const log = computed(() => query.data.value)
+const auditCalls = computed(
+  () => log.value?.request_audit?.calls.filter((call) => call.called) ?? [],
+)
 const errorMessageExpanded = ref(false)
 const expandedAttemptErrorMessages = ref<Set<number>>(new Set())
 const finalAttempt = computed(() => {
@@ -537,6 +540,26 @@ function toggleAttemptErrorMessage(sequence: number): void {
         </dl>
       </section>
 
+      <section
+        v-if="log.request_audit && log.request_audit.status !== 'passed'"
+        class="log-detail__section"
+      >
+        <h3>{{ t('requestAudit.title') }}</h3>
+        <dl class="log-detail__grid">
+          <div>
+            <dt>{{ t('requestAudit.result') }}</dt>
+            <dd>{{ t('requestAudit.statuses.' + log.request_audit.status) }}</dd>
+          </div>
+          <div v-if="log.request_audit.reason">
+            <dt>{{ t('autoModel.reason') }}</dt>
+            <dd>{{ t('requestAudit.reasons.' + log.request_audit.reason) }}</dd>
+          </div>
+          <div v-for="finding in log.request_audit.findings" :key="finding.rule_id">
+            <dt>{{ finding.name }}</dt>
+            <dd>{{ t('requestAudit.actions.' + finding.action) }}</dd>
+          </div>
+        </dl>
+      </section>
       <section v-if="log.auto_decision" class="log-detail__section">
         <h3>{{ t('autoModel.log') }}</h3>
         <dl class="log-detail__grid">
@@ -764,12 +787,19 @@ function toggleAttemptErrorMessage(sequence: number): void {
             v-if="
               !selfScoped &&
               (log.auto_decision ||
+                auditCalls.length ||
                 (costDisplayState !== 'unpriced' && receipt && usageDisplayState === 'reported'))
             "
             class="log-detail__wide"
           >
             <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
             <dd class="log-detail__formula">
+              <span v-for="(call, index) in auditCalls" :key="'audit-' + index"
+                >{{ t('requestAudit.cost') }} · {{ call.model }} =
+                {{
+                  call.cost_state === 'priced' ? decisionCost(call.estimated_cost_nano_usd) : '—'
+                }}</span
+              >
               <span v-if="log.auto_decision"
                 >{{ t('autoModel.decisionPriceItem') }} = {{ decisionFormula() }}</span
               >

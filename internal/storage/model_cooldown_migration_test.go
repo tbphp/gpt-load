@@ -76,7 +76,7 @@ func testModelCooldownMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 				Status: "error", StatusCode: 429, DurationMs: 1, UsageState: "not_applicable", CostState: "not_applicable", PricingCompleteness: "not_applicable"}
 			if scenario != "fresh" {
 				if err := db.Omit(
-					"AffinityKind", "AutoDecision", "DecisionModel", "DecisionCostNanoUSD",
+					"RequestAudit", "AuditCostNanoUSD", "AuditPricingCompleteness", "AffinityKind", "AutoDecision", "DecisionModel", "DecisionCostNanoUSD",
 					"DecisionPricingCompleteness", "DecisionGroupID", "DecisionChannelID", "DecisionCredentialID",
 				).Create(&legacyRequest).Error; err != nil {
 					t.Fatal(err)

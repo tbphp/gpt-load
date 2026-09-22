@@ -257,6 +257,20 @@ function fieldFilterValue(field: LogColumnId): string {
             tabindex="0"
             :aria-label="line.label ? line.label + ' ' + line.value : undefined"
           />
+          <AppTooltip
+            v-if="index === 0 && row.request_audit && row.request_audit.status !== 'passed'"
+            :label="
+              t('requestAudit.title') +
+              ' · ' +
+              row.request_audit.findings.map((finding) => finding.name).join(' / ')
+            "
+            ><small
+              class="modern-log-auto-decision"
+              :class="row.request_audit.status === 'warned' ? 'is-warning' : 'is-danger'"
+              tabindex="0"
+              >{{ t('requestAudit.statuses.' + row.request_audit.status) }}</small
+            ></AppTooltip
+          >
           <AppTooltip v-if="index === 0 && autoDecisionPreset" :label="autoDecisionTooltip">
             <small
               class="modern-log-auto-decision"
@@ -456,6 +470,12 @@ function fieldFilterValue(field: LogColumnId): string {
 }
 .modern-log-auto-decision.is-fallback {
   color: var(--modern-warning);
+}
+.modern-log-auto-decision.is-warning {
+  color: var(--modern-warning);
+}
+.modern-log-auto-decision.is-danger {
+  color: var(--modern-danger);
 }
 .modern-log-auto-decision:focus-visible {
   outline: var(--modern-focus-width) solid currentColor;

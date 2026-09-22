@@ -1,6 +1,8 @@
+import { enUS as experimental } from '../experimental'
 import { enUS as autoModel } from '../auto-model'
 
 export default {
+  ...experimental,
   autoModel,
   settings: {
     frontend: {

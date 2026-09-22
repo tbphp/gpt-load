@@ -33,7 +33,7 @@ func usageRequestLogScope(db *gorm.DB, input UsageQuery, groupIDs ...uint) *gorm
 		logs = logs.Where("upstream_model = ?", input.UpstreamModel)
 	}
 	projection := logs.Select(usageRequestLogProjection, UsageFiveMinuteBucketMS, UsageFiveMinuteBucketMS)
-	return db.Session(&gorm.Session{NewDB: true}).Table("(? UNION ALL ?) AS usage_rows", projection, decisionRequestScope(db, input, groupIDs...))
+	return db.Session(&gorm.Session{NewDB: true}).Table("(? UNION ALL ? UNION ALL ?) AS usage_rows", projection, decisionRequestScope(db, input, groupIDs...), auditRequestScope(db, input, groupIDs...))
 }
 
 // 与 usageStatDelta.addRow 保持一致：只统计已完成的最终归属，每个请求仅计一次；

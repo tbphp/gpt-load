@@ -1,3 +1,9 @@
+import {
+  defaultJev,
+  defaultAudit,
+  type JevConfig,
+  type AuditConfig,
+} from '@/app/resources/experimental'
 import type { RouteStrategy } from '@/api/control/types'
 import type { HeaderRulesDto } from '@/app/resources/groups'
 import type {
@@ -55,6 +61,8 @@ function cloneCORSConfig(value: CORSConfigDto): CORSConfigDto {
 function cloneValues(value: SettingsValues): SettingsValues {
   return {
     ...value,
+    jev: { ...value.jev },
+    request_audit: JSON.parse(JSON.stringify(value.request_audit)) as AuditConfig,
     auto_model: {
       ...(value.auto_model ?? defaultAutoModel()),
       models: JSON.parse(
@@ -101,6 +109,12 @@ export function setSettingsOverride(
       next.values.models_dev_auto_sync_enabled = base.values.models_dev_auto_sync_enabled
     } else if (key === 'cors') {
       next.values.cors = cloneCORSConfig(base.values.cors)
+    } else if (key === 'jev') {
+      next.values.jev = { ...base.values.jev }
+    } else if (key === 'request_audit') {
+      next.values.request_audit = JSON.parse(
+        JSON.stringify(base.values.request_audit),
+      ) as AuditConfig
     } else if (key === 'auto_model') {
       next.values.auto_model = JSON.parse(
         JSON.stringify(base.values.auto_model ?? defaultAutoModel()),
@@ -114,6 +128,14 @@ export function setSettingsOverride(
     }
   } else {
     next.overrides.delete(key)
+    const persisted = base.overrides.includes(key)
+    if (key === 'jev') next.values.jev = persisted ? defaultJev() : { ...base.values.jev }
+    if (key === 'request_audit')
+      next.values.request_audit = persisted
+        ? defaultAudit()
+        : cloneValues(base.values).request_audit
+    if (key === 'auto_model')
+      next.values.auto_model = persisted ? defaultAutoModel() : cloneValues(base.values).auto_model
     if (key === 'header_rules') next.values.header_rules = { set: {}, remove: [] }
     if (key === 'response_header_rules') next.values.response_header_rules = { set: {}, remove: [] }
   }
@@ -138,6 +160,8 @@ function normalizedWireValue(
   | HeaderRulesDto
   | CORSConfigDto
   | AutoModelConfigDto
+  | JevConfig
+  | AuditConfig
   | undefined {
   if (key === 'header_rules' || key === 'response_header_rules')
     return normalizeHeaderRules(settings[key])
@@ -177,6 +201,8 @@ function normalizedIdentityValue(
   | HeaderRulesDto
   | CORSConfigDto
   | AutoModelConfigDto
+  | JevConfig
+  | AuditConfig
   | undefined {
   if (key === 'header_rules' || key === 'response_header_rules')
     return canonicalHeaderRulesIdentity(settings[key])

@@ -1,6 +1,8 @@
+import { zhCN as experimental } from '../experimental'
 import { zhCN as autoModel } from '../auto-model'
 
 export default {
+  ...experimental,
   autoModel,
   monitor: {
     clearKeySearch: '清除密钥搜索',
@@ -623,6 +625,8 @@ export default {
         anyStatus: '全部状态',
         requestId: '请求 ID',
         finalStatusCode: '最终 HTTP 状态码',
+        auditStatus: '护栏结果',
+        auditRule: '命中规则',
         channel: '任一尝试渠道',
         anyChannel: '全部渠道',
         credential: '任一尝试凭据 ID',

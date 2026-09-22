@@ -132,7 +132,7 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 	if err := db.Table("schema_migrations").Order("id").Pluck("id", &migrationIDs).Error; err != nil {
 		t.Fatalf("read migration ledger: %v", err)
 	}
-	if len(migrationIDs) != 20 || migrationIDs[0] != "0001_initial" ||
+	if len(migrationIDs) != 21 || migrationIDs[0] != "0001_initial" ||
 		migrationIDs[1] != "0002_access_key_cost_limits" ||
 		migrationIDs[2] != "0003_remove_observation_fresh_until" ||
 		migrationIDs[3] != "0004_usage_stats_group_activity_index" ||
@@ -140,8 +140,8 @@ func TestExternalDatabaseLifecycle(t *testing.T) {
 		migrationIDs[5] != "0006_error_decision" ||
 		migrationIDs[6] != "0007_access_key_lifecycle" ||
 		migrationIDs[7] != "0008_remove_inject_usage_options" ||
-		migrationIDs[8] != "0009_price_multipliers" || migrationIDs[9] != "0010_model_cooldown" || migrationIDs[10] != "0011_custom_access_keys" || migrationIDs[11] != "0012_access_key_mask_prefix" || migrationIDs[12] != "0013_validation_protocol" || migrationIDs[13] != "0014_affinity_kind" || migrationIDs[14] != "0015_group_usage_index" || migrationIDs[15] != "0016_credential_quota_history" || migrationIDs[16] != "0017_request_log_operation_index" || migrationIDs[17] != "0018_auto_model" || migrationIDs[18] != "0019_auto_decision_attribution" || migrationIDs[19] != "0020_client_model_overrides" {
-		t.Fatalf("migration ledger = %v, want complete 0001-0020 chain", migrationIDs)
+		migrationIDs[8] != "0009_price_multipliers" || migrationIDs[9] != "0010_model_cooldown" || migrationIDs[10] != "0011_custom_access_keys" || migrationIDs[11] != "0012_access_key_mask_prefix" || migrationIDs[12] != "0013_validation_protocol" || migrationIDs[13] != "0014_affinity_kind" || migrationIDs[14] != "0015_group_usage_index" || migrationIDs[15] != "0016_credential_quota_history" || migrationIDs[16] != "0017_request_log_operation_index" || migrationIDs[17] != "0018_auto_model" || migrationIDs[18] != "0019_auto_decision_attribution" || migrationIDs[19] != "0020_client_model_overrides" || migrationIDs[20] != "0021_request_audit" {
+		t.Fatalf("migration ledger = %v, want complete 0001-0021 chain", migrationIDs)
 	}
 	if !db.Migrator().HasIndex("usage_stats", "idx_usage_stats_group_bucket") {
 		t.Fatal("usage_stats group activity index is missing")

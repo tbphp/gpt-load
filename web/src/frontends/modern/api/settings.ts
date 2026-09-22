@@ -1,3 +1,13 @@
+import {
+  readJev,
+  readAudit,
+  readDecisionRoutes,
+  readAuditAccessKeys,
+  type JevConfig,
+  type AuditConfig,
+  type DecisionRoute,
+  type AuditAccessKey,
+} from './experimental'
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
 import type { HeaderRules } from './group-detail'
@@ -49,6 +59,8 @@ export type SettingsValues = Record<SettingNumber, number> &
     cors: CORSConfig
     proxy_config: ProxyConfigView
     auto_model?: AutoModelConfig
+    jev: JevConfig
+    request_audit: AuditConfig
   }
 export type SettingKey = keyof SettingsValues
 export const settingKeys: readonly SettingKey[] = [
@@ -60,8 +72,13 @@ export const settingKeys: readonly SettingKey[] = [
   'cors',
   'proxy_config',
   'auto_model',
+  'jev',
+  'request_audit',
 ]
 export interface SettingsData {
+  decisionRoutes: DecisionRoute[]
+  auditAccessKeys: AuditAccessKey[]
+  requestAuditPreset: AuditConfig
   autoModelTemplate?: AutoEntry
   decisionModels: string[]
   values: SettingsValues
@@ -132,6 +149,9 @@ function readSettings(value: unknown): SettingsData {
     autoModelTemplate:
       row.auto_model_template === undefined ? undefined : readAutoEntry(row.auto_model_template),
     decisionModels: list(row.decision_models).map(text),
+    decisionRoutes: readDecisionRoutes(row.decision_routes),
+    auditAccessKeys: readAuditAccessKeys(row.audit_access_keys),
+    requestAuditPreset: readAudit(row.request_audit_preset),
     values: {
       ...numbers,
       ...switches,
@@ -141,6 +161,8 @@ function readSettings(value: unknown): SettingsData {
       cors: readCORS(values.cors),
       proxy_config: readProxy(values.proxy_config),
       auto_model: readAutoModel(values.auto_model),
+      jev: readJev(values.jev),
+      request_audit: readAudit(values.request_audit),
     },
     overrides: list(row.overrides).map((key) => oneOf(key, settingKeys)),
     readOnly:

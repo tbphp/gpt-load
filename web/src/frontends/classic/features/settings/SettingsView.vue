@@ -304,6 +304,8 @@ function confirmDiscard(): void {
 }
 
 function settingLabel(key: RuntimeSettingKey): string {
+  if (key === 'jev') return t('jev.title')
+  if (key === 'request_audit') return t('requestAudit.title')
   if (key === 'auto_model') return t('autoModel.title')
   if (key === 'affinity_enabled' || key === 'affinity_ttl' || key === 'affinity_capacity')
     return t(`settings.affinity.${key}`)
@@ -315,14 +317,14 @@ function settingLabel(key: RuntimeSettingKey): string {
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
-  if (key === 'auto_model') return 'settings-experimental'
+  if (['auto_model', 'jev', 'request_audit'].includes(key)) return 'settings-experimental'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'settings-browser-access'
   return `settings-value-${key}`
 }
 
 function sectionForKey(key: RuntimeSettingKey): SettingsSection {
-  if (key === 'auto_model') return 'experimental'
+  if (['auto_model', 'jev', 'request_audit'].includes(key)) return 'experimental'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
     return 'browser-access'
   if (

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { createUUID } from '@shared/uuid'
 import {
   defaultAutoModel,
   type AutoModelConfigDto,
@@ -8,11 +9,11 @@ import {
   validAutoModel,
 } from '@/app/resources/auto-model'
 import type { SettingsResource } from '@/app/resources/settings'
+import ExperimentalSettingsFields from './ExperimentalSettingsFields.vue'
 import SettingRow from '@/components/config/SettingRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppCombobox from '@/components/ui/AppCombobox.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
-import AppTextInput from '@/components/ui/AppTextInput.vue'
+import DisclosurePanel from '@/components/ui/DisclosurePanel.vue'
 import FormField from '@/components/ui/FormField.vue'
 import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
 import type { SettingsDraftChange } from './use-settings-controller'
@@ -26,10 +27,9 @@ const props = defineProps<{
 const emit = defineEmits<{ change: [value: SettingsDraftChange]; invalid: [value: boolean] }>()
 const { t } = useI18n()
 const config = computed(() => props.draft.values.auto_model ?? defaultAutoModel())
-const decisionModelOptions = computed(() =>
-  props.base.settings.decision_models.map((value) => ({ value, label: value })),
+const controlsDisabled = computed(
+  () => props.disabled || props.draft.readOnly.has('auto_model') || !hasOverride(),
 )
-const controlsDisabled = computed(() => props.disabled || !hasOverride())
 function editableEntries(models: AutoEntryDto[]) {
   return models.map((entry) => {
     const editable: Partial<AutoEntryDto> = { ...entry }
@@ -39,12 +39,15 @@ function editableEntries(models: AutoEntryDto[]) {
 }
 const entries = ref(JSON.stringify(editableEntries(config.value.models), null, 2))
 const entriesError = ref(false)
+const experimentalInvalid = ref(false)
+const jevInvalid = ref(false)
+watch([entriesError, experimentalInvalid, jevInvalid], ([a, b, c]) => emit('invalid', a || b || c))
 watch(
   () => [props.base, props.revision],
   () => {
     entries.value = JSON.stringify(editableEntries(config.value.models), null, 2)
     entriesError.value = false
-    emit('invalid', false)
+    emit('invalid', experimentalInvalid.value || jevInvalid.value)
   },
 )
 function update(change: (value: AutoModelConfigDto) => void) {
@@ -78,7 +81,7 @@ function toggleOverride() {
   const draft = setSettingsOverride(props.base.settings, props.draft, 'auto_model', !hasOverride())
   entries.value = JSON.stringify(editableEntries(draft.values.auto_model?.models ?? []), null, 2)
   entriesError.value = false
-  emit('invalid', false)
+  emit('invalid', experimentalInvalid.value || jevInvalid.value)
   emit('change', {
     key: 'auto_model',
     draft,
@@ -88,7 +91,7 @@ function setEnabled(enabled: boolean) {
   if (!enabled && entriesError.value) {
     entries.value = JSON.stringify(editableEntries(config.value.models), null, 2)
     entriesError.value = false
-    emit('invalid', false)
+    emit('invalid', experimentalInvalid.value || jevInvalid.value)
   }
   if (!enabled && !validAutoModel(config.value)) {
     const fallback = JSON.parse(
@@ -116,13 +119,13 @@ function editEntries(value: string) {
   } catch {
     entriesError.value = true
   }
-  emit('invalid', entriesError.value)
+  emit('invalid', entriesError.value || experimentalInvalid.value || jevInvalid.value)
 }
 function addTemplate() {
   const template = props.base.settings.auto_model_template
   if (!template) return
   const copy = JSON.parse(JSON.stringify(template)) as AutoEntryDto
-  copy.id = crypto.randomUUID()
+  copy.id = createUUID()
   copy.enabled = true
   if (config.value.models.some((entry) => entry.name === copy.name)) copy.name = ''
   copy.presets.forEach((preset) => (preset.name = t('autoModel.tiers.' + preset.id)))
@@ -133,7 +136,7 @@ function addTemplate() {
 <template>
   <section
     id="settings-experimental"
-    class="auto-model-section"
+    class="settings-section auto-model-section"
     aria-labelledby="settings-experimental-title"
     tabindex="-1"
   >
@@ -141,107 +144,122 @@ function addTemplate() {
       <h2 id="settings-experimental-title">{{ t('autoModel.experimentalSection') }}</h2>
       <p>{{ t('autoModel.experimentalSectionHelp') }}</p>
     </header>
-    <SettingRow
-      :label="t('autoModel.title')"
-      :value="
-        isPendingRestore()
-          ? t('settings.runtime.resetPending')
-          : t(config.enabled ? 'settings.runtime.enabled' : 'settings.runtime.disabled')
-      "
-      :help="t('autoModel.experimental')"
-      :source-label="sourceLabel()"
-      :action-label="actionLabel()"
-      :overridden="hasOverride()"
-      :pending-restore="isPendingRestore()"
+    <ExperimentalSettingsFields
+      class="auto-model-feature"
+      kind="jev"
+      :base="base"
+      :draft="draft"
       :disabled="disabled"
-      :divided="false"
-      @toggle="toggleOverride"
-    >
-      <template #control>
-        <AppSwitch
-          :model-value="config.enabled"
-          :label="t('autoModel.enabled')"
-          :disabled="disabled"
-          @update:model-value="setEnabled"
-        />
-      </template>
-    </SettingRow>
-    <div v-if="config.enabled" class="auto-model-fields">
-      <p v-if="!base.settings.decision_models.length" class="auto-model-empty">
-        {{ t('autoModel.decisionModelEmpty') }}
-      </p>
-      <div class="auto-model-grid">
-        <FormField
-          id="auto-model"
-          :label="t('autoModel.decisionModel')"
-          :description="t('autoModel.decisionModelHint')"
-          ><AppCombobox
-            id="auto-model"
-            :label="t('autoModel.decisionModel')"
-            :model-value="config.model"
-            :options="decisionModelOptions"
-            :empty-text="t('autoModel.decisionModelEmpty')"
-            :disabled="controlsDisabled"
-            @update:model-value="update((value) => (value.model = $event))"
-        /></FormField>
-        <FormField id="auto-timeout" :label="t('autoModel.timeout')"
-          ><AppTextInput
-            id="auto-timeout"
-            :label="t('autoModel.timeout')"
-            :model-value="String(config.timeout_seconds)"
-            inputmode="numeric"
-            :disabled="controlsDisabled"
-            @update:model-value="update((value) => (value.timeout_seconds = Number($event)))"
-        /></FormField>
-      </div>
-      <div class="auto-model-heading">
-        <h3>{{ t('autoModel.entries') }}</h3>
-        <AppButton
-          variant="secondary"
-          :disabled="controlsDisabled || entriesError || !base.settings.auto_model_template"
-          @click="addTemplate"
-          >{{ t('autoModel.addTemplate') }}</AppButton
-        >
-      </div>
-      <p>{{ t('autoModel.permissionsHint') }}</p>
-      <p>{{ t('autoModel.englishHint') }}</p>
-      <p>{{ t('autoModel.overrideHint') }}</p>
-      <FormField
-        id="auto-entries"
-        :label="t('autoModel.entries')"
-        :error="entriesError ? t('autoModel.invalidJSON') : undefined"
+      :revision="revision"
+      @change="emit('change', $event)"
+      @invalid="jevInvalid = $event"
+    />
+    <div class="auto-model-feature">
+      <SettingRow
+        :label="t('autoModel.title')"
+        :value="
+          isPendingRestore()
+            ? t('settings.runtime.resetPending')
+            : t(config.enabled ? 'settings.runtime.enabled' : 'settings.runtime.disabled')
+        "
+        :help="t('autoModel.experimental')"
+        :source-label="sourceLabel()"
+        :action-label="actionLabel()"
+        :overridden="hasOverride()"
+        :pending-restore="isPendingRestore()"
+        :locked="draft.readOnly.has('auto_model')"
+        :disabled="disabled"
+        :divided="false"
+        @toggle="toggleOverride"
       >
-        <textarea
-          id="auto-entries"
-          class="auto-model-json"
-          :value="entries"
-          rows="18"
-          :disabled="controlsDisabled"
-          @input="editEntries(($event.target as HTMLTextAreaElement).value)"
-        />
-      </FormField>
+        <template #control>
+          <AppSwitch
+            :model-value="config.enabled"
+            :label="t('autoModel.enabled')"
+            :disabled="controlsDisabled"
+            @update:model-value="setEnabled"
+          />
+        </template>
+      </SettingRow>
+      <div v-if="config.enabled" class="auto-model-fields">
+        <p v-if="!base.settings.decision_models.length" class="auto-model-empty">
+          {{ t('autoModel.decisionModelEmpty') }}
+        </p>
+        <div class="auto-model-heading">
+          <h3>{{ t('autoModel.entries') }} · {{ config.models.length }}</h3>
+          <AppButton
+            variant="secondary"
+            size="compact"
+            :disabled="controlsDisabled || entriesError || !base.settings.auto_model_template"
+            @click="addTemplate"
+            >{{ t('autoModel.addTemplate') }}</AppButton
+          >
+        </div>
+        <DisclosurePanel
+          class="auto-model-details"
+          :summary="t('autoModel.entries') + ' · JSON'"
+          :open="entriesError"
+        >
+          <div class="auto-model-editor">
+            <FormField
+              id="auto-entries"
+              :label="t('autoModel.entries')"
+              :error="entriesError ? t('autoModel.invalidJSON') : undefined"
+              size="compact"
+              label-hidden
+            >
+              <textarea
+                id="auto-entries"
+                class="auto-model-json"
+                :value="entries"
+                rows="8"
+                :disabled="controlsDisabled"
+                spellcheck="false"
+                @input="editEntries(($event.target as HTMLTextAreaElement).value)"
+              />
+            </FormField>
+            <div class="auto-model-help">
+              <p>{{ t('autoModel.permissionsHint') }}</p>
+              <p>{{ t('autoModel.englishHint') }}</p>
+              <p>{{ t('autoModel.overrideHint') }}</p>
+            </div>
+          </div>
+        </DisclosurePanel>
+      </div>
     </div>
+    <ExperimentalSettingsFields
+      class="auto-model-feature"
+      kind="request_audit"
+      :base="base"
+      :draft="draft"
+      :disabled="disabled"
+      :revision="revision"
+      @change="emit('change', $event)"
+      @invalid="experimentalInvalid = $event"
+    />
   </section>
 </template>
 
 <style scoped>
 .auto-model-section,
 .auto-model-section__heading,
-.auto-model-fields {
+.auto-model-fields,
+.auto-model-editor {
   display: grid;
-  gap: var(--space-4);
+  min-width: 0;
+  gap: var(--space-3);
 }
 .auto-model-section {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
   scroll-margin-top: 76px;
+}
+.auto-model-section__heading {
+  gap: var(--space-1);
 }
 .auto-model-section__heading h2,
 .auto-model-section__heading p {
   margin: 0;
-}
-.auto-model-empty {
-  margin: 0;
-  color: var(--color-warning);
-  font-size: var(--text-sm);
 }
 .auto-model-section__heading h2 {
   font-size: var(--title-section);
@@ -252,19 +270,17 @@ function addTemplate() {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
-.auto-model-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-  gap: var(--space-4);
-}
 .auto-model-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
-.auto-model-json {
+.auto-model-editor .auto-model-json {
+  box-sizing: border-box;
   width: 100%;
+  min-height: 160px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   padding: var(--space-3);
@@ -272,6 +288,41 @@ function addTemplate() {
   background: var(--color-surface);
   font: inherit;
   font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
   resize: vertical;
+}
+.auto-model-feature {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+}
+.auto-model-feature + .auto-model-feature {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-3);
+}
+.auto-model-fields {
+  padding-inline: var(--space-3);
+}
+.auto-model-details {
+  border-top: 0;
+  padding-top: 0;
+}
+.auto-model-help {
+  display: grid;
+  gap: var(--space-1);
+}
+.auto-model-fields p {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+.auto-model-fields .auto-model-empty {
+  color: var(--color-warning);
+}
+.auto-model-heading h3 {
+  margin: 0;
+  font-size: var(--text-sm);
 }
 </style>

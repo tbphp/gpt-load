@@ -39,7 +39,10 @@ import { useLoadingActivity } from '@modern/components/ui/loading'
 import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import { useApiClient } from '@shared/http/client-context'
 import FrontendPicker from './FrontendPicker.vue'
+import { validAudit } from '@modern/api/experimental'
 import AutoModelEditor from './AutoModelEditor.vue'
+import JevSettingsEditor from './JevSettingsEditor.vue'
+import RequestAuditEditor from './RequestAuditEditor.vue'
 import SettingItem from './SettingItem.vue'
 import SettingsHeadersEditor from './SettingsHeadersEditor.vue'
 import SettingsNumberField from './SettingsNumberField.vue'
@@ -93,7 +96,7 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
   browser: ['cors', 'header_rules', 'response_header_rules'],
   maintenance: ['request_log_retention_days', 'models_dev_auto_sync_enabled'],
   interface: [],
-  experimental: ['auto_model'],
+  experimental: ['jev', 'auto_model', 'request_audit'],
   system: [],
 }
 const sectionIcons = {
@@ -212,6 +215,14 @@ function setAutoModelEnabled(enabled: boolean): void {
   if (!enabled && !validAutoDraft(draft.value.auto_model))
     draft.value.auto_model = autoModelDraft(base.value.values.auto_model ?? defaultAutoModel())
   draft.value.auto_model.enabled = enabled
+}
+function setAuditEnabled(enabled: boolean): void {
+  if (!draft.value || !base.value) return
+  if (!enabled && !validAudit(draft.value.request_audit))
+    draft.value.request_audit = JSON.parse(
+      JSON.stringify(base.value.values.request_audit),
+    ) as typeof draft.value.request_audit
+  draft.value.request_audit.enabled = enabled
 }
 function clearSearch(): void {
   state.value = { ...state.value, q: '' }
@@ -684,6 +695,21 @@ onScopeDispose(() => {
             />
             <template v-else-if="id === 'experimental'">
               <SettingItem
+                v-bind="settingItem('jev')"
+                :hint="t('jev.help')"
+                class="modern-settings-block"
+                @reset="restore('jev')"
+                @undo="undoRestore('jev')"
+              >
+                <template #details
+                  ><JevSettingsEditor
+                    v-model="draft.jev"
+                    :routes="base?.decisionRoutes ?? []"
+                    :disabled="disabled('jev')"
+                    :error="fieldErrors.jev"
+                /></template>
+              </SettingItem>
+              <SettingItem
                 v-bind="settingItem('auto_model')"
                 :hint="t('autoModel.experimental')"
                 class="modern-settings-block"
@@ -706,6 +732,29 @@ onScopeDispose(() => {
                     :error="fieldErrors.auto_model"
                   />
                 </template>
+              </SettingItem>
+              <SettingItem
+                v-bind="settingItem('request_audit')"
+                :hint="t('requestAudit.help')"
+                class="modern-settings-block"
+                @reset="restore('request_audit')"
+                @undo="undoRestore('request_audit')"
+              >
+                <AppSwitch
+                  id="settings-request_audit"
+                  :model-value="draft.request_audit.enabled"
+                  :label="t('requestAudit.enabled')"
+                  :disabled="disabled('request_audit')"
+                  @update:model-value="setAuditEnabled"
+                />
+                <template v-if="draft.request_audit.enabled" #details
+                  ><RequestAuditEditor
+                    v-model="draft.request_audit"
+                    :access-keys="base?.auditAccessKeys ?? []"
+                    :preset="base?.requestAuditPreset"
+                    :disabled="disabled('request_audit')"
+                    :error="fieldErrors.request_audit"
+                /></template>
               </SettingItem>
             </template>
             <SettingsSystemInfo

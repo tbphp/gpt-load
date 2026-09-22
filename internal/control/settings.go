@@ -16,11 +16,13 @@ import (
 
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/jev"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -41,6 +43,8 @@ type CORSConfigResponse struct {
 }
 
 type SettingsValuesResponse struct {
+	Jev                       jev.Config            `json:"jev"`
+	RequestAudit              requestaudit.Config   `json:"request_audit"`
 	AutoModel                 AutoModelSettingsView `json:"auto_model"`
 	FirstByteTimeout          int64                 `json:"first_byte_timeout"`
 	RequestTimeout            int64                 `json:"request_timeout"`
@@ -61,13 +65,26 @@ type SettingsValuesResponse struct {
 	ProxyConfig               outboundproxy.View    `json:"proxy_config"`
 }
 
+type DecisionRouteOption struct {
+	GroupID   uint     `json:"group_id"`
+	GroupName string   `json:"group_name"`
+	Models    []string `json:"models"`
+}
+type AuditAccessKeyOption struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+}
+
 type SettingsResponse struct {
-	AutoModelTemplate automodel.Entry        `json:"auto_model_template"`
-	DecisionModels    []string               `json:"decision_models"`
-	Revision          uint64                 `json:"-"`
-	Values            SettingsValuesResponse `json:"values"`
-	Overrides         []string               `json:"overrides"`
-	ReadOnly          []string               `json:"read_only,omitempty"`
+	DecisionRoutes     []DecisionRouteOption  `json:"decision_routes"`
+	AuditAccessKeys    []AuditAccessKeyOption `json:"audit_access_keys"`
+	RequestAuditPreset requestaudit.Config    `json:"request_audit_preset"`
+	AutoModelTemplate  automodel.Entry        `json:"auto_model_template"`
+	DecisionModels     []string               `json:"decision_models"`
+	Revision           uint64                 `json:"-"`
+	Values             SettingsValuesResponse `json:"values"`
+	Overrides          []string               `json:"overrides"`
+	ReadOnly           []string               `json:"read_only,omitempty"`
 }
 
 type SettingsUpdateRequest struct {
@@ -163,7 +180,13 @@ func (s *Service) UpdateSettings(
 			}
 			updates = append(updates, update)
 		}
-		return s.applySettingUpdates(tx, updates)
+		if err := s.applySettingUpdates(tx, updates); err != nil {
+			return err
+		}
+		if _, sharedChanged := request.Settings[jev.SettingKey]; sharedChanged {
+			return s.clearNestedJevConfig(tx)
+		}
+		return nil
 	}, nil)
 	if err != nil {
 		return SettingsResponse{}, err
@@ -230,12 +253,41 @@ func normalizeSettingUpdates(
 		if key == automodel.SettingKey {
 			continue
 		}
-		if key != outboundproxy.SystemSettingKey && !state.IsRuntimeSettingKey(key) {
+		if key != outboundproxy.SystemSettingKey && key != jev.SettingKey && key != requestaudit.SettingKey && !state.IsRuntimeSettingKey(key) {
 			return nil, app_errors.ErrValidation
 		}
 		raw := bytes.TrimSpace(request.Settings[key])
 		if bytes.Equal(raw, []byte("null")) {
 			updates = append(updates, persistedSettingUpdate{key: key})
+			continue
+		}
+		if key == jev.SettingKey || key == requestaudit.SettingKey {
+			if encryptionService == nil || rejectDuplicateJSONFields(raw) != nil {
+				return nil, app_errors.ErrValidation
+			}
+			var value any
+			if key == jev.SettingKey {
+				decoded, err := jev.Decode(raw)
+				if err != nil {
+					return nil, app_errors.ErrValidation
+				}
+				value = decoded
+			} else {
+				decoded, err := requestaudit.Decode(raw)
+				if err != nil {
+					return nil, app_errors.ErrValidation
+				}
+				value = decoded
+			}
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				return nil, app_errors.ErrInternalServer
+			}
+			ciphertext, err := encryptionService.Encrypt(string(encoded))
+			if err != nil {
+				return nil, app_errors.ErrInternalServer
+			}
+			updates = append(updates, persistedSettingUpdate{key: key, value: &ciphertext})
 			continue
 		}
 		if key == outboundproxy.SystemSettingKey {
@@ -314,7 +366,7 @@ func mapSettingsResponse(
 	overrides := make([]string, 0, len(rows))
 	var configuredProxy *outboundproxy.Config
 	for _, row := range rows {
-		if state.IsRuntimeSettingKey(row.Key) || row.Key == automodel.SettingKey {
+		if state.IsRuntimeSettingKey(row.Key) || row.Key == automodel.SettingKey || row.Key == jev.SettingKey || row.Key == requestaudit.SettingKey {
 			overrides = append(overrides, row.Key)
 		}
 		if row.Key == outboundproxy.SystemSettingKey {
@@ -348,11 +400,14 @@ func mapSettingsResponse(
 		readOnly = append(readOnly, state.SettingModelsDevAutoSyncEnabled)
 	}
 	return SettingsResponse{
-		AutoModelTemplate: automodel.Template(),
-		DecisionModels:    decisionModelNames(snapshot),
-		Revision:          snapshot.Revision,
+		RequestAuditPreset: requestaudit.DefaultConfig(),
+		AutoModelTemplate:  automodel.Template(),
+		DecisionRoutes:     decisionRouteOptions(snapshot), AuditAccessKeys: auditAccessKeyOptions(snapshot),
+		DecisionModels: decisionModelNames(snapshot),
+		Revision:       snapshot.Revision,
 		Values: SettingsValuesResponse{
-			AutoModel:         newAutoModelSettingsView(snapshot.AutoModels),
+			AutoModel: newAutoModelSettingsView(snapshot.AutoModels),
+			Jev:       snapshot.Jev, RequestAudit: snapshot.RequestAudit,
 			FirstByteTimeout:  durationSeconds(settings.FirstByteTimeout),
 			RequestTimeout:    durationSeconds(settings.RequestTimeout),
 			StreamIdleTimeout: durationSeconds(settings.StreamIdleTimeout),

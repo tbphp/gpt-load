@@ -1,6 +1,8 @@
+import { jaJP as experimental } from '../experimental'
 import { jaJP as autoModel } from '../auto-model'
 
 export default {
+  ...experimental,
   autoModel,
   monitor: {
     clearKeySearch: 'キー検索をクリア',
@@ -644,6 +646,8 @@ export default {
         anyStatus: 'すべての状態',
         requestId: 'リクエスト ID',
         finalStatusCode: '最終 HTTP ステータス',
+        auditStatus: 'ガードレール結果',
+        auditRule: '該当ルール',
         channel: 'いずれかの試行のチャネル',
         anyChannel: 'すべてのチャネル',
         credential: 'いずれかの試行のクレデンシャル ID',

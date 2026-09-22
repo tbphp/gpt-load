@@ -1,6 +1,8 @@
+import { zhCN as experimental } from '../experimental'
 import { zhCN as autoModel } from '../auto-model'
 
 export default {
+  ...experimental,
   autoModel,
   settings: {
     frontend: {

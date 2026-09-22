@@ -1,6 +1,8 @@
+import { enUS as experimental } from '../experimental'
 import { enUS as autoModel } from '../auto-model'
 
 export default {
+  ...experimental,
   autoModel,
   monitor: {
     clearKeySearch: 'Clear key search',
@@ -645,6 +647,8 @@ export default {
         anyStatus: 'Any status',
         requestId: 'Request ID',
         finalStatusCode: 'Final HTTP status',
+        auditStatus: 'Guardrail result',
+        auditRule: 'Matched rule',
         channel: 'Any-attempt channel',
         anyChannel: 'Any channel',
         credential: 'Any-attempt credential ID',
