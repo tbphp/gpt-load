@@ -316,3 +316,38 @@ func TestRedactionBoundaryChatCustomInputAcrossEverySplit(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactionOrdinaryPrefixAllocations(t *testing.T) {
+	cipher := websocketRedactionTestCipher(t)
+	chunk := strings.Repeat("g", 64)
+	value := `{"x":"` + strings.Repeat(chunk, 1024) + `"}`
+	result := testing.Benchmark(func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			doc := redactionStreamDocument{}
+			var all strings.Builder
+			first, err := doc.push(`{"x":"`, cipher.RestoreText)
+			if err != nil {
+				b.Fatal(err)
+			}
+			all.WriteString(first)
+			for j := 0; j < 1024; j++ {
+				got, err := doc.push(chunk, cipher.RestoreText)
+				if err != nil {
+					b.Fatal(err)
+				}
+				all.WriteString(got)
+			}
+			last, err := doc.push(`"}`, cipher.RestoreText)
+			if err != nil {
+				b.Fatal(err)
+			}
+			all.WriteString(last)
+			if all.String() != value || doc.blocked() {
+				b.Fatal("ordinary text changed or buffered")
+			}
+		}
+	})
+	if result.AllocedBytesPerOp() > 2<<20 {
+		t.Fatalf("64 KiB ordinary text allocated %d bytes", result.AllocedBytesPerOp())
+	}
+}

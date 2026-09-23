@@ -42,14 +42,41 @@ func (token *redactionTokenStream) append(raw, decoded string) error {
 
 func (token *redactionTokenStream) pushString(value string, out *strings.Builder, restore func(string) (string, error), quoted bool) error {
 	for len(value) > 0 {
+		if token.pending() && !token.body {
+			ch := value[0]
+			matches := token.prefix < len(redactionStreamPrefix) && ch == redactionStreamPrefix[token.prefix]
+			if token.prefix == len(redactionStreamPrefix) {
+				matches = ch >= '0' && ch <= '9' || ch == '_' && token.digits > 0
+			}
+			if !matches {
+				out.Write(token.raw.Bytes())
+				token.reset()
+				continue
+			}
+		}
 		if !token.pending() {
-			index := strings.IndexByte(value, redactionStreamPrefix[0])
-			if index < 0 {
-				out.WriteString(value)
+			if index := strings.Index(value, redactionStreamPrefix); index >= 0 {
+				out.WriteString(value[:index])
+				if err := token.append(redactionStreamPrefix, redactionStreamPrefix); err != nil {
+					return err
+				}
+				token.prefix = len(redactionStreamPrefix)
+				value = value[index+len(redactionStreamPrefix):]
+				continue
+			}
+			// 普通内容整段放行，仅末尾至多四个前缀字符需要等下一片。
+			cut := len(value)
+			for length := min(len(redactionStreamPrefix)-1, len(value)); length > 0; length-- {
+				if strings.HasSuffix(value, redactionStreamPrefix[:length]) {
+					cut -= length
+					break
+				}
+			}
+			out.WriteString(value[:cut])
+			value = value[cut:]
+			if len(value) == 0 {
 				return nil
 			}
-			out.WriteString(value[:index])
-			value = value[index:]
 		}
 		if err := token.pushUnit(value[:1], value[:1], out, restore, quoted); err != nil {
 			return err
