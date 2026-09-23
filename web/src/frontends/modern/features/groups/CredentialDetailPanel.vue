@@ -161,10 +161,7 @@ useMessageSource(() =>
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
-      <RPMTrend
-        :scope="{ kind: 'credential', id: row.id, group: group.id }"
-        class="modern-credential-detail-section"
-      />
+      <RPMTrend :scope="{ kind: 'credential', id: row.id, group: group.id }" />
       <CredentialTrends
         :subscription="group.connectionType === 'subscription'"
         :group="group.id"

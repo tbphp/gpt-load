@@ -82,7 +82,12 @@ useLoadingActivity(() => Boolean(props.pending))
         />
       </AppTooltip>
       <div class="modern-subscription-card-identity">
-        <AppOverflowText class="modern-subscription-card-name" :text="row.account || row.mask" />
+        <div class="modern-subscription-card-name-line">
+          <AppOverflowText class="modern-subscription-card-name" :text="row.account || row.mask" />
+          <span v-if="row.rpmPeakHour !== undefined" class="modern-subscription-card-rpm"
+            >{{ t('rpm.hourPeakShort') }} {{ n(row.rpmPeakHour) }}</span
+          >
+        </div>
         <div class="modern-subscription-card-subtitle">
           <div class="modern-subscription-card-plan">
             <CredentialPlanBadge v-if="plan" :name="plan" :level="observation?.planLevel" />
@@ -114,16 +119,6 @@ useLoadingActivity(() => Boolean(props.pending))
       </div>
     </header>
     <div class="modern-subscription-card-body">
-      <div v-if="row.rpmPeakHour !== undefined" class="modern-subscription-rpm">
-        <span>{{ t('rpm.hourPeak') }}</span>
-        <AppButton
-          variant="text"
-          size="xs"
-          :disabled="disabled"
-          @click="$emit('action', 'details')"
-          >{{ n(row.rpmPeakHour) }}</AppButton
-        >
-      </div>
       <div
         v-if="channel?.quotaObservation || observation?.windows.length"
         class="modern-subscription-card-quota"
@@ -222,14 +217,6 @@ useLoadingActivity(() => Boolean(props.pending))
 </template>
 
 <style scoped>
-.modern-subscription-rpm {
-  display: flex;
-  align-items: center;
-  gap: var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-  font-variant-numeric: tabular-nums;
-}
 .modern-subscription-card-error {
   color: var(--modern-danger);
 }
@@ -266,13 +253,29 @@ useLoadingActivity(() => Boolean(props.pending))
   flex: 1;
   min-width: 0;
 }
+.modern-subscription-card-name-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--modern-space-2);
+  min-width: 0;
+}
 .modern-subscription-card-select {
   align-self: flex-start;
   margin-top: var(--modern-space-0-5);
 }
 .modern-subscription-card-name {
+  flex: 1;
+  min-width: 0;
   font-size: var(--modern-font-size-body);
   font-weight: var(--modern-weight-semibold);
+}
+.modern-subscription-card-rpm {
+  flex: none;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+  font-weight: var(--modern-weight-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .modern-subscription-card-subtitle {
   display: flex;

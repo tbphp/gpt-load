@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { useApiClient } from '@shared/http/client-context'
 import { getRPM, rpmQueryKey, type RPMRange, type RPMScope } from '@modern/api/rpm'
-import { AppSegmentedControl, AppSparkline } from '@modern/components/ui'
+import { AppButton, AppFormSection, AppSegmentedControl, AppSparkline } from '@modern/components/ui'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 
@@ -27,6 +27,9 @@ const query = useQuery(
 )
 useLoadingActivity(query.isFetching)
 const report = computed(() => query.data.value)
+const hasTrend = computed(
+  () => (report.value?.points.filter((point) => point.requests > 0).length ?? 0) > 1,
+)
 const hasHistory = ref(false)
 watch(
   () => rpmQueryKey(props.scope, '24h').join(':'),
@@ -88,92 +91,86 @@ const points = computed(() => {
 </script>
 
 <template>
-  <section v-if="hasHistory" class="modern-rpm" :aria-label="t('rpm.title')">
-    <header class="modern-rpm-heading">
-      <h3>{{ t('rpm.title') }}</h3>
+  <AppFormSection v-if="hasHistory || query.isError.value" :title="t('rpm.title')" compact>
+    <template #actions>
       <AppSegmentedControl v-model="range" size="xxs" :label="t('rpm.range')" :options="options" />
-    </header>
-    <dl v-if="report?.points.length" class="modern-rpm-metrics">
-      <div v-if="report.current">
+    </template>
+    <div v-if="query.isError.value" class="modern-rpm-state" role="alert">
+      <span>{{ t('rpm.loadFailed') }}</span>
+      <AppButton variant="text" size="xs" @click="query.refetch()">{{ t('ui.retry') }}</AppButton>
+    </div>
+    <dl v-else-if="report?.points.length" class="modern-rpm-summary">
+      <div v-if="report.current" class="modern-rpm-stat modern-rpm-stat-current">
         <dt>{{ t('rpm.current') }}</dt>
         <dd>{{ n(report.current.requests) }}</dd>
-        <small v-if="scope.kind === 'access_key'">{{
-          t('rpm.currentSplit', {
-            passed: n(report.current.requests - report.current.rejected),
-            rejected: n(report.current.rejected),
-          })
-        }}</small>
       </div>
       <div v-if="report.peak !== undefined">
         <dt>{{ t('rpm.peak') }}</dt>
         <dd>{{ n(report.peak) }}</dd>
       </div>
-      <div v-if="scope.kind === 'access_key'">
-        <dt>{{ t('rpm.totalRejected') }}</dt>
-        <dd :class="{ 'modern-rpm-rejected': report.rejected > 0 }">{{ n(report.rejected) }}</dd>
-      </div>
-      <div v-if="limit !== undefined">
+      <div v-if="scope.kind === 'access_key' && limit !== undefined">
         <dt>{{ t('rpm.limit') }}</dt>
         <dd>{{ limit > 0 ? n(limit) : t('rpm.unlimited') }}</dd>
       </div>
+      <div v-if="scope.kind === 'access_key' && report.rejected > 0" class="modern-rpm-rejected">
+        <dt>{{ t('rpm.totalRejected') }}</dt>
+        <dd>{{ n(report.rejected) }}</dd>
+      </div>
     </dl>
     <AppSparkline
-      v-if="report?.points.length"
+      v-if="hasTrend"
+      class="modern-rpm-chart"
       :label="t('rpm.title')"
       :values="points.map((point) => point.value)"
       :point-labels="points.map((point) => point.label)"
       :ranges="points.map((point) => point.range)"
       :reference-value="limit && limit > 0 ? limit : undefined"
+      :show-marker="false"
       show-isolated-points
       size="sm"
       tone="accent"
     />
-    <p v-if="report?.points.length" class="modern-rpm-note">
-      {{ t('rpm.windowHelp') }} · {{ t('rpm.updatedAt', { time: date.format(report.observedAt) }) }}
-    </p>
-  </section>
+  </AppFormSection>
 </template>
 
 <style scoped>
-.modern-rpm {
-  display: grid;
-  min-width: 0;
-  gap: var(--modern-space-3);
-}
-.modern-rpm-heading {
+.modern-rpm-summary {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--modern-space-2);
-}
-.modern-rpm-heading h3 {
-  margin: 0;
-  color: var(--modern-text);
-  font-size: var(--modern-font-size-section);
-  font-weight: var(--modern-weight-semibold);
-}
-.modern-rpm-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-3);
+  align-items: baseline;
+  gap: var(--modern-space-2) var(--modern-space-4);
   margin: 0;
 }
-.modern-rpm-metrics dt,
-.modern-rpm-metrics small,
-.modern-rpm-note {
+.modern-rpm-summary > div {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--modern-space-1);
+  white-space: nowrap;
+}
+.modern-rpm-summary dt,
+.modern-rpm-state {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
-.modern-rpm-metrics dd {
-  margin: var(--modern-space-1) 0;
+.modern-rpm-summary dd {
+  margin: 0;
   font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
-.modern-rpm-rejected {
+.modern-rpm-stat-current dd {
+  color: var(--modern-text);
+  font-size: var(--modern-font-size-section);
+}
+.modern-rpm-rejected dd {
   color: var(--modern-warning);
 }
-.modern-rpm-note {
-  margin: 0;
+.modern-rpm-chart {
+  margin-top: var(--modern-space-1);
+}
+.modern-rpm-state {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
 }
 </style>

@@ -497,13 +497,7 @@ onScopeDispose(() => {
         </div>
         <AccessKeyRestrictions :row="row" :groups="groupMap" />
         <div class="modern-access-rpm">
-          <AppButton
-            v-if="row.rpmPeakHour !== undefined"
-            variant="text"
-            :aria-label="t('rpm.hourPeak') + ' ' + n(row.rpmPeakHour)"
-            @click="setPanel('detail', row.id)"
-            >{{ n(row.rpmPeakHour) }}</AppButton
-          >
+          <span v-if="row.rpmPeakHour !== undefined">{{ n(row.rpmPeakHour) }}</span>
         </div>
         <div>
           <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
@@ -685,6 +679,9 @@ onScopeDispose(() => {
   color: var(--modern-muted);
 }
 .modern-access-rpm {
+  color: var(--modern-text);
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 .modern-access-last-request {
