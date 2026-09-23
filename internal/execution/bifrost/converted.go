@@ -362,7 +362,11 @@ func encodeConvertedResponsesResponse(
 	var wire any
 	switch clientProtocol {
 	case protocol.OpenAIResponses:
-		wire = response.WithDefaults()
+		responsesWire := response.WithDefaults()
+		for i := range responsesWire.Output {
+			fillReasoningSummary(&responsesWire.Output[i])
+		}
+		wire = responsesWire
 	case protocol.Anthropic:
 		wire = anthropic.ToAnthropicResponsesResponse(ctx, response)
 	case protocol.Gemini:
