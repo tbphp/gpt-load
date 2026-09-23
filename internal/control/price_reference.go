@@ -35,11 +35,8 @@ func resolveAutomaticPriceForIdentity(
 	}, true
 }
 
-// lookupCatalogModel attempts to find a model by exact ID first, then falls back
-// to progressive token-boundary prefix trimming (splitting on hyphens from right to left)
-// if exact match fails. This allows variant model names (e.g., "gemini-3.8-flash-high")
-// to match their base catalog entries (e.g., "gemini-3.8-flash") without hardcoding.
-func lookupCatalogModel(
+// lookupExactCatalogModel attempts to find a model by exact ID.
+func lookupExactCatalogModel(
 	provider catalog.Provider,
 	modelID string,
 	requirePrice bool,
@@ -47,13 +44,25 @@ func lookupCatalogModel(
 	if provider.Models == nil || modelID == "" {
 		return catalog.Model{}, false
 	}
-	// 1. Exact match
-	if model, exists := provider.Models[modelID]; exists {
-		if !requirePrice || model.Cost != nil {
-			return model, true
-		}
+	model, exists := provider.Models[modelID]
+	if !exists || (requirePrice && model.Cost == nil) {
+		return catalog.Model{}, false
 	}
-	// 2. Token-boundary prefix fallback
+	return model, true
+}
+
+// lookupFallbackCatalogModel attempts to find a model by progressive
+// token-boundary prefix trimming (splitting on hyphens from right to left).
+// This allows variant model names (e.g., "gemini-3.8-flash-high") to match
+// their base catalog entries (e.g., "gemini-3.8-flash") without hardcoding.
+func lookupFallbackCatalogModel(
+	provider catalog.Provider,
+	modelID string,
+	requirePrice bool,
+) (catalog.Model, bool) {
+	if provider.Models == nil || modelID == "" {
+		return catalog.Model{}, false
+	}
 	for candidateID := modelID; ; {
 		lastHyphen := strings.LastIndex(candidateID, "-")
 		if lastHyphen <= 0 {
@@ -69,6 +78,19 @@ func lookupCatalogModel(
 	return catalog.Model{}, false
 }
 
+// lookupCatalogModel attempts to find a model by exact ID first, then falls back
+// to progressive token-boundary prefix trimming.
+func lookupCatalogModel(
+	provider catalog.Provider,
+	modelID string,
+	requirePrice bool,
+) (catalog.Model, bool) {
+	if model, ok := lookupExactCatalogModel(provider, modelID, requirePrice); ok {
+		return model, true
+	}
+	return lookupFallbackCatalogModel(provider, modelID, requirePrice)
+}
+
 func resolveCatalogModelForIdentity(
 	snapshot *catalog.Snapshot,
 	identity pricing.Identity,
@@ -81,26 +103,45 @@ func resolveCatalogModelForIdentity(
 	if !known {
 		return catalog.Model{}, "", "", false
 	}
-	lookup := func(providerID string) (catalog.Model, bool) {
-		provider, exists := snapshot.Providers[providerID]
-		if !exists {
-			return catalog.Model{}, false
-		}
-		return lookupCatalogModel(provider, identity.ModelID, requirePrice)
-	}
+
+	// Phase 1: Global exact match.
+	// Check the channel's designated catalog provider first, then follow provider priority.
 	if exactProviderID != "" {
-		model, ok := lookup(exactProviderID)
-		if ok {
-			return model, exactProviderID, ModelPriceMatchSourceChannelCatalogProvider, true
+		if provider, exists := snapshot.Providers[exactProviderID]; exists {
+			if model, ok := lookupExactCatalogModel(provider, identity.ModelID, requirePrice); ok {
+				return model, exactProviderID, ModelPriceMatchSourceChannelCatalogProvider, true
+			}
 		}
 	}
 	for _, providerID := range catalogProviderLookupOrder(snapshot) {
-		model, ok := lookup(providerID)
-		if !ok {
+		provider, exists := snapshot.Providers[providerID]
+		if !exists {
 			continue
 		}
-		return model, providerID, ModelPriceMatchSourceProviderPriorityFallback, true
+		if model, ok := lookupExactCatalogModel(provider, identity.ModelID, requirePrice); ok {
+			return model, providerID, ModelPriceMatchSourceProviderPriorityFallback, true
+		}
 	}
+
+	// Phase 2: Global token-boundary fallback match.
+	// Only entered when no provider has an exact match for the full model ID.
+	if exactProviderID != "" {
+		if provider, exists := snapshot.Providers[exactProviderID]; exists {
+			if model, ok := lookupFallbackCatalogModel(provider, identity.ModelID, requirePrice); ok {
+				return model, exactProviderID, ModelPriceMatchSourceChannelCatalogProvider, true
+			}
+		}
+	}
+	for _, providerID := range catalogProviderLookupOrder(snapshot) {
+		provider, exists := snapshot.Providers[providerID]
+		if !exists {
+			continue
+		}
+		if model, ok := lookupFallbackCatalogModel(provider, identity.ModelID, requirePrice); ok {
+			return model, providerID, ModelPriceMatchSourceProviderPriorityFallback, true
+		}
+	}
+
 	return catalog.Model{}, "", "", false
 }
 

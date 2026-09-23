@@ -182,6 +182,32 @@ func TestResolveAutomaticPriceForIdentityMatchesTokenBoundaryPrefixFallback(t *t
 	}
 }
 
+func TestResolveAutomaticPriceForIdentityPrefersGlobalExactMatchOverPriorityFallback(t *testing.T) {
+	t.Parallel()
+	// openai appears earlier in AutomaticPriceProviderPriority than google.
+	// openai has base model "shared" only.
+	// google has exact model "shared-high".
+	// Querying "shared-high" must match google exactly, rather than falling back to openai's "shared".
+	openAICost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
+	googleCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai", Models: map[string]catalog.Model{
+			"shared": {ID: "shared", Cost: openAICost},
+		}},
+		"google": {ID: "google", Models: map[string]catalog.Model{
+			"shared-high": {ID: "shared-high", Cost: googleCost},
+		}},
+	}}
+
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.OpenAICompatible), ModelID: "shared-high",
+	})
+	if !ok || match.cost != googleCost || match.providerID != "google" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("global exact match over fallback = %#v, %t", match, ok)
+	}
+}
+
 func TestResolveAutomaticPriceForIdentityTreatsGrokXAIPriceAsReference(t *testing.T) {
 	t.Parallel()
 	xaiCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
