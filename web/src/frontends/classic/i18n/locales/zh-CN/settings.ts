@@ -1,6 +1,10 @@
+import { zhCN as requestRedaction } from '../request-redaction'
+import { zhCN as experimental } from '../experimental'
 import { zhCN as autoModel } from '../auto-model'
 
 export default {
+  requestRedaction,
+  ...experimental,
   autoModel,
   settings: {
     frontend: {

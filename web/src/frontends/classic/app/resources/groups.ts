@@ -470,7 +470,8 @@ export function projectGroupModels(value: unknown): GroupModelsDto {
   if (
     items.length !== total ||
     pending > total ||
-    new Set(items.map(({ client_model }) => client_model)).size !== items.length ||
+    new Set(items.map(({ id, client_model }) => JSON.stringify([id, client_model]))).size !==
+      items.length ||
     items.filter(({ pricing_status }) => pricing_status === 'pending').length !== pending
   ) {
     throw new InvalidResponseError()
@@ -1003,7 +1004,7 @@ export function cacheGroupModels(
   queryClient.setQueryData<GroupSummaryDto>(controlQueryKeys.groups.summary(groupID), (summary) =>
     summary === undefined ? summary : { ...summary, model_count: models.total },
   )
-  const clientModels = models.items.map(({ client_model: clientModel }) => clientModel)
+  const clientModels = [...new Set(models.items.map(({ client_model }) => client_model))]
   queryClient.setQueryData<GroupOptionDto[]>(controlQueryKeys.groups.options(), (options) =>
     options?.map((option) =>
       option.id === groupID ? { ...option, models: clientModels } : option,

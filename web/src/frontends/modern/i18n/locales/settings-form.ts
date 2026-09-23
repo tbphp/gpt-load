@@ -29,6 +29,7 @@ export const zhCN = {
   entries: '条',
   days: '天',
   sections: {
+    redaction: '请求脱敏',
     routing: '路由调度',
     connection: '连接与稳定性',
     browser: '浏览器访问',
@@ -38,6 +39,7 @@ export const zhCN = {
     system: '系统信息',
   },
   sectionHelp: {
+    redaction: '配置发送给上游与 JEV 的文本替换规则',
     routing: '路由选择与请求亲和',
     connection: '代理、超时和失败处理',
     browser: '跨域访问与请求头规则',
@@ -47,6 +49,9 @@ export const zhCN = {
     system: '版本与部署信息',
   },
   fields: {
+    request_redaction: '请求脱敏',
+    jev: 'JEV 公共配置',
+    request_audit: '智能护栏',
     route_strategy: '路由策略',
     auto_model: '自动模型',
     affinity_enabled: '请求亲和',
@@ -67,6 +72,9 @@ export const zhCN = {
     cors: '跨域访问（CORS）',
   },
   hints: {
+    request_redaction: '配置发送给上游与 JEV 的文本替换规则',
+    jev: '自动模型与语义审计共用。请求文本会发送到所选分组；语义审计需要明确指定分组。',
+    request_audit: '使用 JEV 按自定义规则拦截或告警。',
     auto_model: 'Jev 选择预设，现有调度选择分组和凭据。',
     route_strategy:
       '原生优先先选择原生协议；混合权重让原生与转换候选按有效权重竞争，请求亲和仍生效。',
@@ -130,6 +138,7 @@ export const zhCN = {
   frontend: '管理界面',
   localOnly: '只影响当前浏览器，即时生效',
   errors: {
+    experimental: '请检查决策分组、模型、审计规则和阈值。',
     number: '请输入 {min}–{max} 之间的整数。',
     autoModel: '请补全自动入口、兜底、预设与合法参数覆盖。',
     proxy: '请输入有效的 http:// 或 socks5:// 代理地址。',
@@ -187,6 +196,7 @@ export const enUS = {
   entries: 'entries',
   days: 'days',
   sections: {
+    redaction: 'Request redaction',
     routing: 'Routing',
     connection: 'Connections & reliability',
     browser: 'Browser access',
@@ -196,6 +206,7 @@ export const enUS = {
     system: 'System information',
   },
   sectionHelp: {
+    redaction: 'Configure text replacement for upstream providers and JEV',
     routing: 'Route selection and request affinity',
     connection: 'Proxy, timeouts and failure handling',
     browser: 'Cross-origin access and header rules',
@@ -205,6 +216,9 @@ export const enUS = {
     system: 'Version and deployment',
   },
   fields: {
+    request_redaction: 'Request redaction',
+    jev: 'Shared JEV configuration',
+    request_audit: 'AI Guardrails',
     route_strategy: 'Routing strategy',
     auto_model: 'Automatic models',
     affinity_enabled: 'Request affinity',
@@ -225,6 +239,9 @@ export const enUS = {
     cors: 'Cross-origin access (CORS)',
   },
   hints: {
+    request_redaction: 'Configure text replacement for upstream providers and JEV',
+    jev: 'Used by automatic models and semantic auditing. Request text is sent to this route; semantic auditing requires an explicit group.',
+    request_audit: 'Use JEV to block or warn on custom rules.',
     route_strategy:
       'Native first prefers native protocols. Weighted mix lets native and converted candidates compete by effective weight. Request affinity still applies.',
     affinity_enabled: 'Reuse the previously selected route. Individual groups may override this.',
@@ -292,6 +309,7 @@ export const enUS = {
   frontend: 'Management interface',
   localOnly: 'Applies immediately to this browser only',
   errors: {
+    experimental: 'Check the decision group, model, audit rules, and thresholds.',
     number: 'Enter an integer between {min} and {max}.',
     autoModel: 'Complete automatic entries, fallbacks, presets and valid override rules.',
     proxy: 'Enter a valid http:// or socks5:// proxy URL.',
@@ -350,6 +368,7 @@ export const jaJP = {
   entries: '件',
   days: '日',
   sections: {
+    redaction: 'リクエストのマスキング',
     routing: 'ルーティング',
     connection: '接続と安定性',
     browser: 'ブラウザアクセス',
@@ -359,6 +378,7 @@ export const jaJP = {
     system: 'システム情報',
   },
   sectionHelp: {
+    redaction: '上流と JEV に送信するテキストの置換ルールを設定',
     routing: 'ルート選択とリクエスト親和性',
     connection: 'プロキシ、タイムアウト、失敗時の処理',
     browser: 'クロスオリジンアクセスとヘッダールール',
@@ -368,6 +388,9 @@ export const jaJP = {
     system: 'バージョンと配置情報',
   },
   fields: {
+    request_redaction: 'リクエストのマスキング',
+    jev: 'JEV 共通設定',
+    request_audit: 'AI ガードレール',
     route_strategy: 'ルーティング方式',
     auto_model: '自動モデル',
     affinity_enabled: 'リクエスト親和性',
@@ -388,6 +411,9 @@ export const jaJP = {
     cors: 'クロスオリジンアクセス（CORS）',
   },
   hints: {
+    request_redaction: '上流と JEV に送信するテキストの置換ルールを設定',
+    jev: '自動モデルと意味監査で共用します。リクエスト本文を選択したグループに送信します。意味監査にはグループの指定が必要です。',
+    request_audit: 'JEV が独自ルールでブロックまたは警告します。',
     route_strategy:
       'ネイティブ優先は元のプロトコルを優先し、重み付き混合は変換候補も含めて選択します。親和性は引き続き適用されます。',
     affinity_enabled: '前回選択したルートを再利用します。グループごとに上書きできます。',
@@ -455,6 +481,7 @@ export const jaJP = {
   frontend: '管理画面',
   localOnly: 'このブラウザのみに即時適用',
   errors: {
+    experimental: '判定グループ、モデル、ルール、しきい値を確認してください。',
     number: '{min}～{max} の整数を入力してください。',
     autoModel: '自動入口、フォールバック、プリセット、有効な上書きルールを入力してください。',
     proxy: '有効な http:// または socks5:// プロキシ URL を入力してください。',

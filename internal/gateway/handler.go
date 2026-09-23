@@ -30,6 +30,8 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/ratelimit"
+	"gpt-load/internal/requestaudit"
+	"gpt-load/internal/requestredact"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	subscriptionproviders "gpt-load/internal/subscription/providers"
@@ -88,6 +90,7 @@ type runtimeCredentialRegistry interface {
 }
 
 type Handler struct {
+	guardrails          requestaudit.Cache
 	autoTasks           autoTaskCache
 	decisionClient      autoDecisionRunner
 	manager             *state.Manager
@@ -605,6 +608,8 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	recorder.setClientModel(model)
+	recorder.setOperation(metadata.Operation)
+	recorder.setStream(metadata.Stream)
 	var boundAuto *automodel.Selection
 	autoQuery := scheduler.Query{}
 	if metadata.PreviousResponseID != "" {
@@ -683,6 +688,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	iterator := scheduler.New(snapshot, handler.registry, query)
 	handler.executeAttempts(
 		ginContext,
+		snapshot,
 		iterator,
 		retryAttemptLimit(snapshot.Settings.RetryCount),
 		allowedCredentialRefs,
@@ -855,6 +861,7 @@ func headerFieldValues(headers http.Header, name string) []string {
 
 func (handler *Handler) executeAttempts(
 	ginContext *gin.Context,
+	snapshot *state.ConfigSnapshot,
 	iterator *scheduler.Iterator,
 	forwardAttemptLimit int,
 	allowedCredentialRefs map[uint]state.CredentialRef,
@@ -898,15 +905,21 @@ func (handler *Handler) executeAttempts(
 	var cachedPrepared *preparedRequest
 	loggedOverrideFailures := make(map[uint]struct{})
 	var parameterOverrideFailure *reason
-	prepareRequest := func(selection scheduler.Selection) preparedRequest {
+	prepareRequest := func(selection scheduler.Selection) (prepared preparedRequest) {
 		if cachedPrepared != nil && preparedGroupID == selection.GroupID {
 			return *cachedPrepared
 		}
 		cachedPrepared = nil
 		preparedGroupID = selection.GroupID
-		prepared := preparedRequest{
+		prepared = preparedRequest{
 			request: parsed, observations: originalMetadata, observationsAvailable: true,
 		}
+		defer func() {
+			if prepared.err == nil {
+				prepared.request, prepared.err = redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), prepared.request)
+			}
+			cachedPrepared = &prepared
+		}()
 		if operation == execution.OperationWebSearch {
 			return prepared
 		}
@@ -1086,6 +1099,10 @@ func (handler *Handler) executeAttempts(
 		}
 		prepared := prepareRequest(selection)
 		if prepared.err != nil {
+			if errors.Is(prepared.err, requestredact.ErrContent) {
+				handler.completeReason(ginContext, recorder, reasonRedactionFailed)
+				return
+			}
 			if errors.Is(prepared.err, errRequestTooLarge) {
 				if parameterOverrideFailure == nil {
 					parameterOverrideFailure = &reasonRequestTooLarge
@@ -1196,6 +1213,10 @@ func (handler *Handler) executeAttempts(
 			quotaAdmission.admitted = true
 		}
 
+		if failure := handler.checkRequestAudit(ginContext.Request.Context(), snapshot, snapshot.AccessKeysByID[recorder.accessKeyID], prepared.request.Body, recorder, func() *reason { return handler.admitAutoQuota(snapshot, quotaAdmission) }); failure != nil {
+			handler.completeReason(ginContext, recorder, *failure)
+			return
+		}
 		attemptSequence++
 		forwardAttempts++
 		if attemptSequence == 1 && (originalMetadata.PreviousResponseID != "" ||

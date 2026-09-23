@@ -42,5 +42,5 @@ case "${1:-all}" in
   *) echo "unknown database test shard: $1" >&2; exit 2 ;;
 esac
 
-exec go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog \
+exec go test -v -count=1 ./internal/storage ./internal/control ./internal/requestlog ./internal/state/loader \
   -run "${run}" -skip "${skip}"

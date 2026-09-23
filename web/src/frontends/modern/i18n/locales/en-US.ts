@@ -1,3 +1,5 @@
+import { enUS as requestRedaction } from './request-redaction'
+import { enUS as experimental } from './experimental'
 import { protocolMessages as protocols } from '../protocols'
 import { enUS as inspector } from './inspector'
 import { enUS as home } from './home'
@@ -19,6 +21,8 @@ import { enUS as autoModel } from './auto-model'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  requestRedaction,
+  ...experimental,
   home,
   inspector,
   protocols,

@@ -3,10 +3,19 @@ package telemetry
 import (
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/requestaudit"
 )
 
 // TotalPricing sums the separately rounded quotes without merging token usage.
-func TotalPricing(answer PricingObservation, decision *automodel.Decision) PricingObservation {
+func TotalPricing(answer PricingObservation, decision *automodel.Decision, audits ...*requestaudit.Result) PricingObservation {
+	for _, audit := range audits {
+		if audit != nil {
+			for _, call := range audit.Calls {
+				answer = TotalPricing(answer, &automodel.Decision{CostState: call.CostState, PricingCompleteness: call.PricingCompleteness, EstimatedCostNanoUSD: call.EstimatedCostNanoUSD})
+			}
+		}
+	}
+
 	if decision == nil {
 		return answer
 	}

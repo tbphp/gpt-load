@@ -1,3 +1,4 @@
+import { readAuditResult, type AuditResult } from './experimental'
 import type { ApiClient } from '@shared/http/client'
 import { ApiError, InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
@@ -35,6 +36,8 @@ export const logFilterNames = [
   'model_consistency',
   'access_key_id',
   'status',
+  'audit_status',
+  'audit_rule',
   'request_id',
   'protocol',
   'operation',
@@ -88,6 +91,7 @@ export interface LogReasoning {
   budget_tokens: string | null
 }
 export interface LogEntry {
+  request_audit?: AuditResult
   auto_decision?: LogAutoDecision
   request_id: string
   completed_at_ms: number
@@ -319,6 +323,7 @@ function entry(value: unknown): LogEntry {
       'not_applicable',
     ] as const),
     auto_decision: row.auto_decision === undefined ? undefined : autoDecision(row.auto_decision),
+    request_audit: row.request_audit === undefined ? undefined : readAuditResult(row.request_audit),
     cost_state: oneOf(row.total_cost_state ?? row.cost_state, [
       'priced',
       'unpriced',

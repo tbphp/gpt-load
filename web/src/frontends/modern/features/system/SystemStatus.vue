@@ -3,6 +3,7 @@ import { ArrowUpRight, Info, RefreshCw } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useMessages } from '@modern/app/messages'
 import {
   AppExternalLink,
   AppIcon,
@@ -15,6 +16,7 @@ import { useSystemStatus } from './useSystemStatus'
 defineProps<{ collapsed?: boolean }>()
 
 const { t } = useI18n()
+const messages = useMessages()
 const { version, versionLoading, checkState, update, checkForUpdate, canCheckUpdate } =
   useSystemStatus()
 const versionLabel = computed(() =>
@@ -24,16 +26,24 @@ const versionLabel = computed(() =>
       : `v${version.value}`
     : t(versionLoading.value ? 'system.loadingVersion' : 'system.versionUnavailable'),
 )
-const statusMessage = computed(() => {
-  if (update.value) return t('system.updateAvailable', { version: update.value.version })
-  if (checkState.value === 'latest') return t('system.latestVersion')
-  if (checkState.value === 'failed') return t('system.checkFailed')
-  if (checkState.value === 'authRequired') return t('system.authRequired')
-  return ''
-})
+const updateLabel = computed(() =>
+  update.value ? t('system.updateAvailable', { version: update.value.version }) : '',
+)
 const checkLabel = computed(() =>
   t(checkState.value === 'checking' ? 'system.checking' : 'system.checkUpdate'),
 )
+
+async function handleCheckForUpdate(): Promise<void> {
+  const result = await checkForUpdate()
+  if (result === 'latest') {
+    messages.show({ tone: 'success', text: t('system.latestVersion') })
+  } else if (result === 'failed' || result === 'authRequired') {
+    messages.show({
+      tone: 'danger',
+      text: t(result === 'failed' ? 'system.checkFailed' : 'system.authRequired'),
+    })
+  }
+}
 </script>
 
 <template>
@@ -53,31 +63,23 @@ const checkLabel = computed(() =>
         v-if="canCheckUpdate"
         class="modern-update-button"
         :icon="RefreshCw"
-        :label="collapsed && statusMessage ? statusMessage : checkLabel"
+        :label="checkLabel"
         size="xs"
         :loading="checkState === 'checking'"
-        @click="checkForUpdate"
+        @click="handleCheckForUpdate"
       />
     </div>
-    <AppTooltip v-if="update" :label="collapsed ? statusMessage : undefined">
+    <AppTooltip v-if="update" :label="collapsed ? updateLabel : undefined">
       <AppExternalLink
         class="modern-update-release"
         :href="update.releaseURL"
-        :aria-label="statusMessage"
+        :aria-label="updateLabel"
       >
         <span v-if="!collapsed" class="modern-update-dot" aria-hidden="true" />
-        <span v-if="!collapsed">{{ statusMessage }}</span>
+        <span v-if="!collapsed">{{ updateLabel }}</span>
         <AppIcon :icon="ArrowUpRight" size="xs" />
       </AppExternalLink>
     </AppTooltip>
-    <p
-      v-else-if="statusMessage"
-      class="modern-update-status"
-      :class="{ 'is-error': checkState === 'failed', 'modern-sr-only': collapsed }"
-      :role="checkState === 'failed' ? 'alert' : 'status'"
-    >
-      {{ statusMessage }}
-    </p>
   </div>
 </template>
 
@@ -137,15 +139,6 @@ const checkLabel = computed(() =>
 
 .modern-update-release:hover {
   border-color: var(--modern-muted);
-}
-
-.modern-update-status {
-  margin-top: var(--modern-space-1-5);
-  line-height: var(--modern-leading-body);
-}
-
-.modern-update-status.is-error {
-  color: var(--modern-danger);
 }
 
 .is-compact {

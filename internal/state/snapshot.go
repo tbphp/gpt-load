@@ -16,16 +16,22 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/jev"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/requestaudit"
+	"gpt-load/internal/requestredact"
 )
 
 const maxSafeAccessKeyEpochMS = int64(9_007_199_254_740_991)
 
 type CompileInput struct {
+	RequestRedaction     []requestredact.Rule
+	Jev                  *jev.Config
+	RequestAudit         *requestaudit.Config
 	AutoModel            *automodel.Config
 	SystemSettings       config.Settings
 	ChannelRegistry      *channel.Registry
@@ -189,6 +195,9 @@ type AccessKeyView struct {
 }
 
 type ConfigSnapshot struct {
+	RequestRedaction      *requestredact.Compiled
+	Jev                   jev.Config
+	RequestAudit          requestaudit.Config
 	AutoModels            *automodel.Compiled
 	Revision              uint64
 	Settings              RuntimeSettings
@@ -210,9 +219,34 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	redaction, err := requestredact.Compile(input.RequestRedaction)
+	if err != nil {
+		return nil, err
+	}
 	autoConfig := automodel.DefaultConfig()
 	if input.AutoModel != nil {
 		autoConfig = *input.AutoModel
+	}
+	shared := jev.DefaultConfig()
+	if input.Jev != nil {
+		shared = *input.Jev
+	} else {
+		shared.Model, shared.TimeoutSeconds = autoConfig.Model, autoConfig.TimeoutSeconds
+	}
+	sharedRaw, _ := json.Marshal(shared)
+	shared, err = jev.Decode(sharedRaw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", jev.ErrInvalidConfig, err)
+	}
+	autoConfig.Model, autoConfig.TimeoutSeconds = shared.Model, shared.TimeoutSeconds
+	audit := requestaudit.DefaultConfig()
+	if input.RequestAudit != nil {
+		audit = *input.RequestAudit
+	}
+	auditRaw, _ := json.Marshal(audit)
+	audit, err = requestaudit.Decode(auditRaw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", requestaudit.ErrInvalidConfig, err)
 	}
 	ordinaryModels := map[string]struct{}{}
 	decisionModels := map[string]struct{}{}
@@ -237,6 +271,29 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			}
 		}
 	}
+	if audit.Enabled && (shared.GroupID == 0 || shared.Model == "") {
+		return nil, fmt.Errorf("%w: guardrails require an explicit Jev group and model", requestaudit.ErrInvalidConfig)
+	}
+	if (autoConfig.Enabled || audit.Enabled) && shared.GroupID != 0 {
+		available := false
+		for _, group := range input.Groups {
+			if group.ID != shared.GroupID || !group.Enabled {
+				continue
+			}
+			target, resolveErr := input.ChannelRegistry.Resolve(group.ChannelID, group.Params)
+			if resolveErr != nil {
+				continue
+			}
+			for _, model := range group.Models {
+				if _, supported := target.ModeForModel(protocol.Decisions, execution.OperationDecisionsCreate, model.ID); supported && externalModelName(model) == shared.Model {
+					available = true
+				}
+			}
+		}
+		if !available {
+			return nil, fmt.Errorf("%w: configured Jev route unavailable", jev.ErrInvalidConfig)
+		}
+	}
 	autoModels, err := automodel.Compile(autoConfig, ordinaryModels, decisionModels)
 	if err != nil {
 		return nil, fmt.Errorf("compile automatic models: %w", err)
@@ -247,6 +304,8 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	}
 
 	snapshot := &ConfigSnapshot{
+		RequestRedaction: redaction,
+		Jev:              shared, RequestAudit: audit,
 		AutoModels:            autoModels,
 		Settings:              runtimeSettings,
 		ExecutionCandidates:   make(ExecutionCandidateIndex),

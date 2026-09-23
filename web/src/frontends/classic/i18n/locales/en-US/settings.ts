@@ -1,6 +1,10 @@
+import { enUS as requestRedaction } from '../request-redaction'
+import { enUS as experimental } from '../experimental'
 import { enUS as autoModel } from '../auto-model'
 
 export default {
+  requestRedaction,
+  ...experimental,
   autoModel,
   settings: {
     frontend: {

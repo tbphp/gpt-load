@@ -29,6 +29,7 @@ export interface LogFilterDefinition {
 }
 export const logFilterOptions: Partial<Record<LogFilterName, readonly string[]>> = {
   status: logStatuses,
+  audit_status: ['warned', 'blocked', 'incomplete'],
   protocol: accessProtocols,
   operation: logOperations,
   stream: ['true', 'false'],
@@ -67,6 +68,8 @@ export const advancedLogFilters: readonly LogFilterDefinition[] = [
   { key: 'retry_count_max', section: 'routing', kind: 'number', admin: true },
   { key: 'upstream_model', section: 'routing', kind: 'text', admin: true },
   { key: 'final_status_code', section: 'result', kind: 'number' },
+  { key: 'audit_status', section: 'result', kind: 'select', values: logFilterOptions.audit_status },
+  { key: 'audit_rule', section: 'result', kind: 'text' },
   {
     key: 'model_consistency',
     section: 'result',
@@ -141,6 +144,8 @@ export function logFilterErrors(filters: LogQuery): Partial<Record<LogFilterName
     }
     if (logFilterOptions[key] && !logFilterOptions[key]!.includes(value))
       errors[key] = 'invalidValue'
+    if (key === 'audit_rule' && new TextEncoder().encode(value).length > 255)
+      errors[key] = 'invalidText'
     if (key === 'request_id' && !logRequestPattern.test(value)) errors[key] = 'invalidRequest'
     if (key === 'channel_id' && !/^[a-z][a-z0-9_]{0,99}$/.test(value)) errors[key] = 'invalidValue'
     if (key === 'limit' && !['20', '50', '100'].includes(value)) errors[key] = 'invalidValue'

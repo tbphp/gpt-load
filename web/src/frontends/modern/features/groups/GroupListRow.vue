@@ -81,7 +81,7 @@ const models = useQuery(
 )
 const matchedModels = computed(() =>
   (models.data.value ?? []).filter((model) =>
-    model.name.toLocaleLowerCase().includes(modelSearch.value.trim().toLocaleLowerCase()),
+    model.toLocaleLowerCase().includes(modelSearch.value.trim().toLocaleLowerCase()),
   ),
 )
 const visibleModels = computed(() =>
@@ -309,7 +309,7 @@ const lastActive = computed(() =>
         }}<AppButton size="xs" @click="models.refetch()">{{ t('collection.retry') }}</AppButton>
       </div>
       <div v-else class="modern-group-model-directory">
-        <AppCopyValue v-for="model in visibleModels" :key="model.id" :value="model.name" />
+        <AppCopyValue v-for="model in visibleModels" :key="model" :value="model" />
         <span v-if="!visibleModels.length">{{ t('ui.select.empty') }}</span>
         <AppButton
           v-if="!allModels && !modelSearch && matchedModels.length > 30"

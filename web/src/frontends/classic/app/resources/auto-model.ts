@@ -70,7 +70,6 @@ export function validAutoModel(value: AutoModelConfigDto): boolean {
       Number.isInteger(value.timeout_seconds) &&
       value.timeout_seconds >= 1 &&
       value.timeout_seconds <= 60 &&
-      (!value.enabled || Boolean(value.model.trim())) &&
       value.models.every(
         (entry) =>
           entry.name.trim() &&

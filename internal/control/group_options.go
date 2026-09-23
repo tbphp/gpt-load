@@ -134,13 +134,17 @@ func mapGroupOptions(rows []groupOptionRow, registries ...*channel.Registry) ([]
 			Params:         append(json.RawMessage(nil), params...), Enabled: row.Enabled,
 			Models: make([]string, 0, len(models)),
 		}
+		seenModels := make(map[string]struct{}, len(models))
 		for _, model := range models {
-			alias := strings.TrimSpace(model.Alias)
-			if alias != "" {
-				option.Models = append(option.Models, alias)
+			name := strings.TrimSpace(model.Alias)
+			if name == "" {
+				name = strings.TrimSpace(model.ID)
+			}
+			if _, exists := seenModels[name]; exists {
 				continue
 			}
-			option.Models = append(option.Models, strings.TrimSpace(model.ID))
+			seenModels[name] = struct{}{}
+			option.Models = append(option.Models, name)
 		}
 		options = append(options, option)
 	}

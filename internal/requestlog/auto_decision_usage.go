@@ -28,16 +28,8 @@ func writeAutoDecisionUsage(tx *gorm.DB, rows []models.RequestLog) error {
 		if row.DecisionPricingCompleteness == "partial" && row.PricingCompleteness != "partial" {
 			stat.PricingPartialCount = 1
 		}
-		updates := map[string]any{}
-		for name, amount := range map[string]int64{"estimated_cost_nano_usd": stat.EstimatedCostNanoUSD, "unpriced_request_count": stat.UnpricedRequestCount, "pricing_partial_count": stat.PricingPartialCount} {
-			column := clause.Column{Name: name, Table: clause.CurrentTable}
-			updates[name] = gorm.Expr("CASE WHEN ? > ? THEN -1 ELSE ? + ? END", column, math.MaxInt64-amount, column, amount)
-		}
-		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{
-			{Name: "bucket_start_ms"}, {Name: "access_key_id"}, {Name: "group_id"},
-			{Name: "channel_id"}, {Name: "credential_id"}, {Name: "model"},
-		}, DoUpdates: clause.Assignments(updates)}).Create(&stat).Error; err != nil {
-			return fmt.Errorf("save automatic decision usage: %w", err)
+		if err := addDecisionUsageStat(tx, stat); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -105,4 +97,19 @@ func decisionRequestScope(db *gorm.DB, input UsageQuery, groupIDs ...uint) *gorm
 		scope = scope.Where("decision_model = ?", input.UpstreamModel)
 	}
 	return scope.Select(decisionRequestProjection, UsageFiveMinuteBucketMS, UsageFiveMinuteBucketMS)
+}
+
+func addDecisionUsageStat(tx *gorm.DB, stat models.AutoDecisionUsageStat) error {
+	updates := map[string]any{}
+	for name, amount := range map[string]int64{"estimated_cost_nano_usd": stat.EstimatedCostNanoUSD, "unpriced_request_count": stat.UnpricedRequestCount, "pricing_partial_count": stat.PricingPartialCount} {
+		column := clause.Column{Name: name, Table: clause.CurrentTable}
+		updates[name] = gorm.Expr("CASE WHEN ? > ? THEN -1 ELSE ? + ? END", column, math.MaxInt64-amount, column, amount)
+	}
+	if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{
+		{Name: "bucket_start_ms"}, {Name: "access_key_id"}, {Name: "group_id"},
+		{Name: "channel_id"}, {Name: "credential_id"}, {Name: "model"},
+	}, DoUpdates: clause.Assignments(updates)}).Create(&stat).Error; err != nil {
+		return fmt.Errorf("save automatic decision usage: %w", err)
+	}
+	return nil
 }

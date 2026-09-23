@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/jev"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/pricing"
@@ -130,6 +131,7 @@ type requestLogPricingReceiptResponse struct {
 }
 
 type requestLogItemResponse struct {
+	RequestAudit              *requestAuditResponse        `json:"request_audit,omitempty"`
 	AutoDecision              *autoDecisionResponse        `json:"auto_decision,omitempty"`
 	TotalEstimatedCostNanoUSD string                       `json:"total_estimated_cost_nano_usd"`
 	TotalCostState            string                       `json:"total_cost_state"`
@@ -397,6 +399,25 @@ func sanitizeAccessKeyRequestLog(record requestlog.Record) requestlog.Record {
 	record.RouteMode = ""
 	record.UpstreamProtocol = ""
 	record.Attempts = []requestlog.Attempt{}
+	if record.RequestAudit != nil {
+		auditCopy := *record.RequestAudit
+		auditCopy.Calls = append([]jev.Observation{}, record.RequestAudit.Calls...)
+		for i := range auditCopy.Calls {
+			c := &auditCopy.Calls[i]
+			c.Provider = ""
+			c.GroupID = 0
+			c.GroupName = ""
+			c.ChannelID = ""
+			c.ChannelName = ""
+			c.CredentialID = 0
+			c.RequestedModel = ""
+			c.UpstreamModel = ""
+			c.ReportedModel = ""
+			c.RequestID = ""
+			c.Receipt = nil
+		}
+		record.RequestAudit = &auditCopy
+	}
 	if record.AutoDecision != nil {
 		copy := *record.AutoDecision
 		copy.Provider = ""
@@ -424,6 +445,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		"from_ms": {}, "to_ms": {}, "group_id": {}, "channel_id": {}, "credential_id": {},
 		"client_model": {}, "upstream_model": {}, "model_consistency": {}, "access_key_id": {},
 		"status": {}, "request_id": {}, "protocol": {}, "operation": {}, "stream": {}, "final_status_code": {},
+		"audit_status": {}, "audit_rule": {},
 		"usage_state": {}, "cost_state": {}, "pricing_completeness": {}, "cache_present": {},
 		"attempt_status_code": {}, "failure_category": {}, "error_code": {},
 		"retry_state": {}, "retry_count_min": {}, "retry_count_max": {},
@@ -441,6 +463,20 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 	}
 
 	query := requestlog.ListQuery{Limit: defaultRequestLogLimit}
+	if value, ok := singleQueryValue(values, "audit_status"); ok {
+		switch value {
+		case "warned", "blocked", "incomplete":
+			query.AuditStatus = value
+		default:
+			return requestlog.ListQuery{}, app_errors.ErrValidation
+		}
+	}
+	if value, ok := singleQueryValue(values, "audit_rule"); ok {
+		if !validUsageModel(value) {
+			return requestlog.ListQuery{}, app_errors.ErrValidation
+		}
+		query.AuditRule = value
+	}
 	if value, ok := singleQueryValue(values, "from_ms"); ok {
 		parsed, err := parseCanonicalSafeMilliseconds(value)
 		if err != nil {
@@ -1096,9 +1132,10 @@ func mapRequestLogItemResponse(
 		value := strconv.FormatInt(*record.ContextThresholdTokens, 10)
 		contextThresholdTokens = &value
 	}
-	total := telemetry.TotalPricing(telemetry.PricingObservation{CostState: string(record.CostState), PricingCompleteness: string(record.PricingCompleteness), EstimatedCostNanoUSD: record.EstimatedCostNanoUSD}, record.AutoDecision)
+	total := telemetry.TotalPricing(telemetry.PricingObservation{CostState: string(record.CostState), PricingCompleteness: string(record.PricingCompleteness), EstimatedCostNanoUSD: record.EstimatedCostNanoUSD}, record.AutoDecision, record.RequestAudit)
 	return requestLogItemResponse{
 		AutoDecision:              mapAutoDecisionResponse(record.AutoDecision, credentialLabels),
+		RequestAudit:              mapRequestAudit(record.RequestAudit),
 		TotalEstimatedCostNanoUSD: strconv.FormatInt(total.EstimatedCostNanoUSD, 10),
 		TotalCostState:            total.CostState,
 		TotalPricingCompleteness:  total.PricingCompleteness,

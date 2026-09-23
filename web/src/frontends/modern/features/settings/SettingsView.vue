@@ -3,6 +3,7 @@ import {
   Cable,
   Database,
   FlaskConical,
+  ScanText,
   Globe,
   Monitor,
   RotateCcw,
@@ -39,7 +40,11 @@ import { useLoadingActivity } from '@modern/components/ui/loading'
 import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import { useApiClient } from '@shared/http/client-context'
 import FrontendPicker from './FrontendPicker.vue'
+import { validAudit } from '@modern/api/experimental'
 import AutoModelEditor from './AutoModelEditor.vue'
+import JevSettingsEditor from './JevSettingsEditor.vue'
+import RequestAuditEditor from './RequestAuditEditor.vue'
+import RequestRedactionEditor from './RequestRedactionEditor.vue'
 import SettingItem from './SettingItem.vue'
 import SettingsHeadersEditor from './SettingsHeadersEditor.vue'
 import SettingsNumberField from './SettingsNumberField.vue'
@@ -47,6 +52,7 @@ import SettingsSystemInfo from './SettingsSystemInfo.vue'
 import { useSettingsEditor } from './use-settings-editor'
 
 const { t, n } = useI18n()
+const redactionInvalid = ref(false)
 const client = useApiClient()
 const {
   query,
@@ -64,6 +70,12 @@ const {
   discard,
   save,
 } = useSettingsEditor()
+const redactionBlocksSave = computed(
+  () =>
+    redactionInvalid.value &&
+    changed.value.includes('request_redaction') &&
+    !resets.value.has('request_redaction'),
+)
 const info = useQuery({
   queryKey: systemInfoKey,
   queryFn: ({ signal }) => getSystemInfo(client, signal),
@@ -73,8 +85,9 @@ const sectionIDs = [
   'connection',
   'browser',
   'maintenance',
-  'interface',
+  'redaction',
   'experimental',
+  'interface',
   'system',
 ] as const
 type SectionID = (typeof sectionIDs)[number]
@@ -93,7 +106,8 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
   browser: ['cors', 'header_rules', 'response_header_rules'],
   maintenance: ['request_log_retention_days', 'models_dev_auto_sync_enabled'],
   interface: [],
-  experimental: ['auto_model'],
+  redaction: ['request_redaction'],
+  experimental: ['jev', 'auto_model', 'request_audit'],
   system: [],
 }
 const sectionIcons = {
@@ -102,6 +116,7 @@ const sectionIcons = {
   browser: Globe,
   maintenance: Database,
   interface: Monitor,
+  redaction: ScanText,
   experimental: FlaskConical,
   system: Server,
 }
@@ -213,6 +228,14 @@ function setAutoModelEnabled(enabled: boolean): void {
     draft.value.auto_model = autoModelDraft(base.value.values.auto_model ?? defaultAutoModel())
   draft.value.auto_model.enabled = enabled
 }
+function setAuditEnabled(enabled: boolean): void {
+  if (!draft.value || !base.value) return
+  if (!enabled && !validAudit(draft.value.request_audit))
+    draft.value.request_audit = JSON.parse(
+      JSON.stringify(base.value.values.request_audit),
+    ) as typeof draft.value.request_audit
+  draft.value.request_audit.enabled = enabled
+}
 function clearSearch(): void {
   state.value = { ...state.value, q: '' }
 }
@@ -287,6 +310,7 @@ watch(
   { immediate: true },
 )
 async function submit(): Promise<void> {
+  if (redactionBlocksSave.value) return
   const result = await save()
   if (result !== 'invalid') return
   clearSearch()
@@ -397,6 +421,23 @@ onScopeDispose(() => {
           class="modern-settings-section"
         >
           <div class="modern-settings-fields">
+            <template v-if="id === 'redaction'">
+              <SettingItem
+                v-bind="settingItem('request_redaction')"
+                :label="t('requestRedaction.quickAdd')"
+                :hint="undefined"
+                stacked
+                class="modern-settings-wide"
+                @reset="restore('request_redaction')"
+                @undo="undoRestore('request_redaction')"
+              >
+                <RequestRedactionEditor
+                  v-model="draft.request_redaction"
+                  :disabled="disabled('request_redaction')"
+                  @invalid="redactionInvalid = $event"
+                />
+              </SettingItem>
+            </template>
             <template v-if="id === 'routing'">
               <SettingItem
                 v-if="matches('route_strategy')"
@@ -684,6 +725,21 @@ onScopeDispose(() => {
             />
             <template v-else-if="id === 'experimental'">
               <SettingItem
+                v-bind="settingItem('jev')"
+                :hint="t('jev.help')"
+                class="modern-settings-block"
+                @reset="restore('jev')"
+                @undo="undoRestore('jev')"
+              >
+                <template #details
+                  ><JevSettingsEditor
+                    v-model="draft.jev"
+                    :routes="base?.decisionRoutes ?? []"
+                    :disabled="disabled('jev')"
+                    :error="fieldErrors.jev"
+                /></template>
+              </SettingItem>
+              <SettingItem
                 v-bind="settingItem('auto_model')"
                 :hint="t('autoModel.experimental')"
                 class="modern-settings-block"
@@ -706,6 +762,29 @@ onScopeDispose(() => {
                     :error="fieldErrors.auto_model"
                   />
                 </template>
+              </SettingItem>
+              <SettingItem
+                v-bind="settingItem('request_audit')"
+                :hint="t('requestAudit.help')"
+                class="modern-settings-block"
+                @reset="restore('request_audit')"
+                @undo="undoRestore('request_audit')"
+              >
+                <AppSwitch
+                  id="settings-request_audit"
+                  :model-value="draft.request_audit.enabled"
+                  :label="t('requestAudit.enabled')"
+                  :disabled="disabled('request_audit')"
+                  @update:model-value="setAuditEnabled"
+                />
+                <template v-if="draft.request_audit.enabled" #details
+                  ><RequestAuditEditor
+                    v-model="draft.request_audit"
+                    :access-keys="base?.auditAccessKeys ?? []"
+                    :preset="base?.requestAuditPreset"
+                    :disabled="disabled('request_audit')"
+                    :error="fieldErrors.request_audit"
+                /></template>
               </SettingItem>
             </template>
             <SettingsSystemInfo
@@ -735,6 +814,7 @@ onScopeDispose(() => {
           variant="primary"
           :icon="Save"
           :loading="saving"
+          :disabled="redactionBlocksSave"
           >{{ t('settingsForm.save') }}</AppButton
         >
       </div>

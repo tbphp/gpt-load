@@ -20,6 +20,7 @@ import (
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/connection"
+	"gpt-load/internal/jev"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/canonicaljson"
 	"gpt-load/internal/platform/config"
@@ -27,6 +28,8 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/requestaudit"
+	"gpt-load/internal/requestredact"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 
@@ -185,7 +188,7 @@ func (l *Loader) migrateLegacyAutoModel(ctx context.Context) error {
 	}
 	return l.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row models.SystemSetting
-		if err := tx.Where("key = ?", automodel.SettingKey).Take(&row).Error; err != nil {
+		if err := systemSettingKeyScope(tx, automodel.SettingKey).Take(&row).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil
 			}
@@ -212,10 +215,13 @@ func (l *Loader) migrateLegacyAutoModel(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("encrypt migrated configuration")
 		}
-		return tx.Model(&models.SystemSetting{}).
-			Where("key = ?", automodel.SettingKey).
+		return systemSettingKeyScope(tx.Model(&models.SystemSetting{}), automodel.SettingKey).
 			Update("value", ciphertext).Error
 	})
+}
+
+func systemSettingKeyScope(db *gorm.DB, key string) *gorm.DB {
+	return db.Where(&models.SystemSetting{Key: key})
 }
 
 func (l *Loader) validatePersistedCredentials(
@@ -576,7 +582,7 @@ func decodeSettingValue(raw string) (any, error) {
 
 func isIgnoredSystemSetting(key string) bool {
 	return strings.HasPrefix(key, models.InternalSystemSettingPrefix) ||
-		key == automodel.SettingKey ||
+		key == requestredact.SettingKey || key == automodel.SettingKey || key == jev.SettingKey || key == requestaudit.SettingKey ||
 		key == outboundproxy.SystemSettingKey ||
 		key == "contact_info" // 兼容本分支旧版本保存的已移除设置。
 }
@@ -671,6 +677,43 @@ func mapSystemAndGroups(
 		input.ClientModelOverrides[row.ClientModel] = overrides
 	}
 	for _, row := range rows.settings {
+		if row.Key == requestredact.SettingKey {
+			if encryptionService == nil {
+				return state.CompileInput{}, fmt.Errorf("missing redaction encryption service")
+			}
+			plaintext, err := encryptionService.Decrypt(row.Value)
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("decrypt redaction configuration")
+			}
+			input.RequestRedaction, err = requestredact.Decode([]byte(plaintext))
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("invalid redaction configuration")
+			}
+			continue
+		}
+		if row.Key == jev.SettingKey || row.Key == requestaudit.SettingKey {
+			if encryptionService == nil {
+				return state.CompileInput{}, fmt.Errorf("missing experimental configuration encryption service")
+			}
+			plaintext, err := encryptionService.Decrypt(row.Value)
+			if err != nil {
+				return state.CompileInput{}, fmt.Errorf("decrypt experimental configuration")
+			}
+			if row.Key == jev.SettingKey {
+				value, err := jev.Decode([]byte(plaintext))
+				if err != nil {
+					return state.CompileInput{}, err
+				}
+				input.Jev = &value
+			} else {
+				value, err := requestaudit.Decode([]byte(plaintext))
+				if err != nil {
+					return state.CompileInput{}, err
+				}
+				input.RequestAudit = &value
+			}
+			continue
+		}
 		if row.Key == automodel.SettingKey {
 			if encryptionService == nil {
 				return state.CompileInput{}, fmt.Errorf("missing automatic model encryption service")

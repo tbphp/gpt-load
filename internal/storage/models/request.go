@@ -2,6 +2,10 @@ package models
 
 // RequestLog is the durable request-level audit and usage record.
 type RequestLog struct {
+	RequestAudit                JSON                `gorm:"type:json"`
+	AuditCostNanoUSD            int64               `gorm:"column:audit_cost_nano_usd;not null;default:0"`
+	AuditPricingCompleteness    string              `gorm:"type:varchar(32);not null;default:'not_applicable'"`
+	AuditUsageRows              []RequestAuditUsage `gorm:"-"`
 	AutoDecision                JSON                `gorm:"type:json"`
 	DecisionModel               string              `gorm:"type:varchar(512);not null;default:''"`
 	DecisionGroupID             uint                `gorm:"not null;default:0"`

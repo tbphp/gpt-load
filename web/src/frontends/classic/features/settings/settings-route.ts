@@ -9,6 +9,7 @@ export type SettingsSection =
   | 'browser-access'
   | 'data-maintenance'
   | 'interface'
+  | 'redaction'
   | 'experimental'
   | 'system'
 
@@ -19,6 +20,7 @@ const sections = new Set<SettingsSection>([
   'browser-access',
   'data-maintenance',
   'interface',
+  'redaction',
   'experimental',
   'system',
 ])

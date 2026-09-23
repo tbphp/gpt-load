@@ -328,6 +328,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			reject(reasonParameterOverrideUnavailable)
 			return
 		}
+		payload, err = snapshot.RequestRedaction.Apply(payload)
+		if err != nil || len(payload) > 10<<20 {
+			reject(reasonRedactionFailed)
+			return
+		}
 		extraBytes := max(0, len(payload)-len(turn.body))
 		if !s.reserveInput(extraBytes) {
 			reject(reason{503, "websocket_input_limit", "WebSocket input limit reached."})
@@ -398,6 +403,10 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				return
 			}
 			admission.admitted = true
+		}
+		if failure := h.checkRequestAudit(requestCtx, snapshot, key, payload, recorder, func() *reason { return h.admitAutoQuota(snapshot, &admission) }); failure != nil {
+			reject(*failure)
+			return
 		}
 		recorder.setReasoning(effective.metadata.Reasoning)
 		recorder.setUsageApplicable(effective.metadata.ObserveUsage)

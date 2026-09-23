@@ -10,6 +10,7 @@ import (
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
+	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
@@ -81,6 +82,8 @@ type ListQuery struct {
 	ModelConsistency    telemetry.ModelConsistency
 	AccessKeyID         *uint
 	Status              telemetry.RequestStatus
+	AuditStatus         string
+	AuditRule           string
 	RequestID           string
 	Protocol            protocol.Protocol
 	Operation           execution.Operation
@@ -120,6 +123,7 @@ type AccessKeyRef struct {
 }
 
 type Record struct {
+	RequestAudit            *requestaudit.Result
 	AutoDecision            *automodel.Decision
 	TotalPricing            telemetry.PricingObservation
 	RequestID               string
