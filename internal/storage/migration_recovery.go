@@ -29,7 +29,7 @@ func applyMySQLMigration(db *gorm.DB, entry migration) error {
 		return fmt.Errorf("apply migration %s: %w", entry.ID, err)
 	}
 	if entry.Validate != nil {
-		if err := entry.Validate(db); err != nil {
+		if err := validateMigrationAfterDDL(db, entry.Validate); err != nil {
 			return fmt.Errorf("validate migration %s: %w", entry.ID, err)
 		}
 	}
