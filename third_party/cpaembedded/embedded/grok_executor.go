@@ -123,8 +123,7 @@ func (executor *grokHTTPExecutor) ExecuteCanonical(
 	if err != nil {
 		return ExecuteResponse{}, err
 	}
-	request = prepareGrokExecutionRequest(request)
-	request.ContinuityKey = targetContinuityScope(request.ContinuityKey, baseURL)
+	request = scopeGrokExecutionRequest(request, baseURL)
 	format := sdktranslator.FromString(request.Format)
 	auth := NewGrokAuth(credentialID, credential, baseURL)
 	auth.ProxyURL = request.ProxyURL
@@ -188,8 +187,7 @@ func (executor *grokHTTPExecutor) ExecuteStreamCanonical(
 	if err != nil {
 		return nil, err
 	}
-	request = prepareGrokExecutionRequest(request)
-	request.ContinuityKey = targetContinuityScope(request.ContinuityKey, baseURL)
+	request = scopeGrokExecutionRequest(request, baseURL)
 	format := sdktranslator.FromString(request.Format)
 	auth := NewGrokAuth(credentialID, credential, baseURL)
 	auth.ProxyURL = request.ProxyURL
@@ -228,7 +226,10 @@ func grokExecutorOptions(request ExecuteRequest, format sdktranslator.Format, st
 		OriginalRequest: append([]byte(nil), request.OriginalRequest...),
 		SourceFormat:    format, ResponseFormat: format,
 	}
-	if scope := strings.TrimSpace(request.ContinuityKey); scope != "" {
+	// Responses/Chat 把网关 UUID 写在请求体 prompt_cache_key 上，CPA 用它同时填 x-grok-conv-id。
+	// 不要放进 ExecutionSessionMetadataKey：那会被当成可信的 reasoning replay 会话，
+	// 下一轮把推理块插到用户输入前面，提示词缓存就只剩固定前缀。
+	if scope := strings.TrimSpace(request.ContinuityKey); scope != "" && !grokCarriesPromptCacheKey(string(format)) {
 		options.Metadata = map[string]any{
 			cliproxyexecutor.ExecutionSessionMetadataKey: grokConversationID(scope),
 		}
@@ -242,6 +243,44 @@ func grokConversationID(scope string) string {
 		return ""
 	}
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("gpt-load-grok\x00"+scope)).String()
+}
+
+// scopeGrokExecutionRequest 先丢掉调用方会话字段，再把网关自己的缓存键写回 Responses/Chat 请求体。
+// cli-chat-proxy 只按 prompt_cache_key 复用提示词缓存，不认 x-grok-conv-id。
+func scopeGrokExecutionRequest(request ExecuteRequest, baseURL string) ExecuteRequest {
+	request = prepareGrokExecutionRequest(request)
+	request.ContinuityKey = targetContinuityScope(request.ContinuityKey, baseURL)
+	return applyGrokPromptCacheKey(request)
+}
+
+func applyGrokPromptCacheKey(request ExecuteRequest) ExecuteRequest {
+	if !grokCarriesPromptCacheKey(request.Format) {
+		return request
+	}
+	cacheKey := grokConversationID(request.ContinuityKey)
+	if cacheKey == "" {
+		return request
+	}
+	request.Payload = writeGrokPromptCacheKey(request.Payload, cacheKey)
+	request.OriginalRequest = writeGrokPromptCacheKey(request.OriginalRequest, cacheKey)
+	return request
+}
+
+func grokCarriesPromptCacheKey(format string) bool {
+	switch sdktranslator.FromString(format) {
+	case sdktranslator.FormatOpenAI, sdktranslator.FormatOpenAIResponse:
+		return true
+	default:
+		return false
+	}
+}
+
+func writeGrokPromptCacheKey(raw []byte, cacheKey string) []byte {
+	updated, err := sjson.SetBytes(raw, "prompt_cache_key", cacheKey)
+	if err != nil {
+		return raw
+	}
+	return updated
 }
 
 func prepareGrokExecutionRequest(request ExecuteRequest) ExecuteRequest {

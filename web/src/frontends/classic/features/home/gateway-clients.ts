@@ -294,16 +294,23 @@ export function clientConfiguration(
         null,
         2,
       )
-    case 'codex':
+    case 'codex': {
+      const baseURL = openAIBaseURL(origin)
       return [
         'model_provider = "gpt-load"',
         '',
         '[model_providers.gpt-load]',
-        'name = "GPT-Load"',
-        `base_url = "${openAIBaseURL(origin)}"`,
+        'name = "OpenAI"',
+        `base_url = "${baseURL}"`,
+        `model_catalog_url = "${baseURL}/models"`,
         'env_key = "GPT_LOAD_API_KEY"',
         'wire_api = "responses"',
+        'supports_websockets = true # 可自行选择是否开启 WebSocket',
+        '',
+        '[features]',
+        'api_key_model_discovery = true',
       ].join('\n')
+    }
     case 'nextchat':
       return JSON.stringify({ url: origin, key }, null, 2)
     case 'cherry-studio':
