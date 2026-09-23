@@ -700,6 +700,45 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 	}
 }
 
+func TestAutoMigrateRewritesRetiredForkPriorityManualLedger(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	if err := db.Exec("DELETE FROM schema_migrations WHERE id IN (?, ?)", "0021_request_audit", "0022_priority_manual").Error; err != nil {
+		t.Fatalf("trim migration ledger: %v", err)
+	}
+	if err := db.Exec("INSERT INTO schema_migrations(id) VALUES (?)", "0021_priority_manual").Error; err != nil {
+		t.Fatalf("seed retired fork migration ledger: %v", err)
+	}
+
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatalf("AutoMigrate() error = %v", err)
+	}
+
+	var migrationIDs []string
+	if err := db.Table("schema_migrations").Order("id ASC").Pluck("id", &migrationIDs).Error; err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	wantTail := []string{"0020_client_model_overrides", "0021_request_audit", "0022_priority_manual"}
+	if len(migrationIDs) < len(wantTail) {
+		t.Fatalf("schema_migrations = %v, want trailing %v", migrationIDs, wantTail)
+	}
+	gotTail := migrationIDs[len(migrationIDs)-len(wantTail):]
+	if !reflect.DeepEqual(gotTail, wantTail) {
+		t.Fatalf("schema_migrations trailing IDs = %v, want %v", gotTail, wantTail)
+	}
+	if !db.Migrator().HasColumn("groups", "priority_manual") || !db.Migrator().HasColumn("credentials", "priority_manual") {
+		t.Fatal("priority_manual columns missing after rewrite")
+	}
+	var retiredCount int64
+	if err := db.Table("schema_migrations").Where("id = ?", "0021_priority_manual").Count(&retiredCount).Error; err != nil {
+		t.Fatalf("count retired ledger row: %v", err)
+	}
+	if retiredCount != 0 {
+		t.Fatalf("retired ledger row count = %d, want 0", retiredCount)
+	}
+}
+
 func TestAutoMigrateRejectsRetiredV2MigrationLedgers(t *testing.T) {
 	t.Parallel()
 	for _, retiredID := range []string{"0001_initial_v2", "0001_final_v2"} {

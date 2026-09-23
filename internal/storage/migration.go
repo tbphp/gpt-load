@@ -177,6 +177,34 @@ func validateMigrationRegistry(entries []migration) error {
 	return nil
 }
 
+// retiredForkMigrationIDs were recorded by a pre-rebase fork build that later
+// renumbered the same schema change (priority_manual columns) to keep the
+// registry contiguous with upstream. Dropping the old ledger rows lets
+// AutoMigrate apply the current chain; Up handlers remain idempotent when the
+// columns already exist.
+var retiredForkMigrationIDs = []string{
+	"0021_priority_manual",
+}
+
+func rewriteRetiredForkMigrationLedger(db *gorm.DB) error {
+	exists, err := migrationTableExists(db, migrationLedgerTable)
+	if err != nil {
+		return fmt.Errorf("inspect schema_migrations: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	for _, id := range retiredForkMigrationIDs {
+		for _, candidate := range []string{id, migrationResumeMarker(id)} {
+			result := db.Table(migrationLedgerTable).Where("id = ?", candidate).Delete(&schemaMigration{})
+			if result.Error != nil {
+				return fmt.Errorf("remove retired migration ledger entry %q: %w", candidate, result.Error)
+			}
+		}
+	}
+	return nil
+}
+
 func applyMigrationsLocked(db *gorm.DB, entries []migration, useMigrationTransactions bool) error {
 	hadMigrationLedger, err := migrationTableExists(db, migrationLedgerTable)
 	if err != nil {
@@ -196,6 +224,10 @@ func applyMigrationsLocked(db *gorm.DB, entries []migration, useMigrationTransac
 		if err := db.AutoMigrate(&schemaMigration{}); err != nil {
 			return fmt.Errorf("create schema_migrations: %w", err)
 		}
+	}
+
+	if err := rewriteRetiredForkMigrationLedger(db); err != nil {
+		return err
 	}
 
 	var applied []string
