@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// CodexClientVersion 必须与固定 CPA 依赖及 GPT-Load 的 Codex 模型目录版本一致，由测试校验。
-const CodexClientVersion = "0.154.0"
+// CodexClientVersion 与固定 CPA 的模型发现版本及 GPT-Load 的 Codex 模型目录版本一致，由测试校验。
+const CodexClientVersion = "0.155.0"
 
 // codexHeadersRoundTripper 保留 CPA 的 UA，并固定版本及 HTTP 会话头。
 type codexHeadersRoundTripper struct {
