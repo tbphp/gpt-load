@@ -28,6 +28,7 @@ import { validProxyURL } from '@modern/app/proxy'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import CredentialAccountInfo from './CredentialAccountInfo.vue'
 import CredentialTrends from './CredentialTrends.vue'
+import RPMTrend from '../rpm/RPMTrend.vue'
 import CredentialWindowUsage from './CredentialWindowUsage.vue'
 
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
@@ -160,6 +161,10 @@ useMessageSource(() =>
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
+      <RPMTrend
+        :scope="{ kind: 'credential', id: row.id, group: group.id }"
+        class="modern-credential-detail-section"
+      />
       <CredentialTrends
         :subscription="group.connectionType === 'subscription'"
         :group="group.id"

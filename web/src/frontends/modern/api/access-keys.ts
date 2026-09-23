@@ -3,7 +3,7 @@ import { InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
 import { protocolOrder, sortProtocols } from '@modern/i18n/protocols'
 
-export const accessKeySorts = ['updated_desc', 'cost_desc', 'expires_asc'] as const
+export const accessKeySorts = ['updated_desc', 'cost_desc', 'expires_asc', 'rpm_peak_desc'] as const
 export const accessProtocols = protocolOrder
 export interface AccessScope {
   groups: number[]
@@ -46,6 +46,7 @@ export interface AccessKey {
   updated_at_ms: number
 }
 export interface AccessKeyRow extends AccessKey {
+  rpmPeakHour?: number
   expired: boolean
   last_request_at_ms: number | null
   usage?: { request_count: number; total_tokens: number; estimated_cost_nano_usd: string }
@@ -144,6 +145,7 @@ export function readAccessKeyRow(value: unknown): AccessKeyRow {
   if (cost !== undefined && !/^\d+$/.test(cost)) throw new InvalidResponseError()
   return {
     ...readAccessKey(row),
+    rpmPeakHour: row.rpm_peak_hour == null ? undefined : integer(row.rpm_peak_hour),
     expired: boolean(row.expired),
     last_request_at_ms: timestamp(row.last_request_at_ms),
     ...(usage
@@ -171,7 +173,7 @@ export async function getAccessKeys(
   if (filters.status) params.set('status', filters.status)
   if (filters.group) params.set('group_id', filters.group)
   if (filters.expiry) params.set('expiry', filters.expiry)
-  const data = record(await client.request(`/api/access-keys?${params}`, { signal }))
+  const data = record(await client.request(`/api/modern/access-keys?${params}`, { signal }))
   const summary = record(data.summary)
   const pagination = record(data.pagination)
   const window = record(data.usage_window)

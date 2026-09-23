@@ -14,6 +14,7 @@ import (
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/rpm"
 	"gpt-load/internal/usage"
 )
 
@@ -23,7 +24,29 @@ type ExecutionForwarder struct {
 	executor       execution.Executor
 	representation *responseProcessor
 	usageCapture   *usageCaptureBoundary
+	rpmStore       *rpm.Store
 	writeTimeout   time.Duration
+}
+
+func (forwarder *ExecutionForwarder) SetRPMStore(store *rpm.Store) {
+	forwarder.rpmStore = store
+}
+
+func (forwarder *ExecutionForwarder) recordCredentialAttempt(id uint) {
+	if forwarder.rpmStore != nil {
+		forwarder.rpmStore.Record(rpm.Credential, id, false, time.Now())
+	}
+}
+
+type rpmObservedWebsocketSession struct {
+	execution.WebsocketSession
+	store        *rpm.Store
+	credentialID uint
+}
+
+func (session *rpmObservedWebsocketSession) ExecuteTurn(ctx context.Context, payload []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
+	session.store.Record(rpm.Credential, session.credentialID, false, time.Now())
+	return session.WebsocketSession.ExecuteTurn(ctx, payload, emit)
 }
 
 func NewExecutionForwarder(executor execution.Executor) *ExecutionForwarder {
@@ -38,7 +61,13 @@ func (forwarder *ExecutionForwarder) OpenWebsocket(ctx context.Context, input Fo
 	spec, err := newExecutionAttemptSpec(input)
 	if forwarder != nil && err == nil {
 		if opener, ok := forwarder.executor.(execution.WebsocketOpener); ok {
-			return opener.OpenWebsocket(ctx, spec)
+			session, result := opener.OpenWebsocket(ctx, spec)
+			if session != nil && forwarder.rpmStore != nil {
+				session = &rpmObservedWebsocketSession{
+					WebsocketSession: session, store: forwarder.rpmStore, credentialID: spec.Credential.ID,
+				}
+			}
+			return session, result
 		}
 	}
 	return nil, execution.WebsocketResult{DispatchState: execution.DispatchNotSent, Error: &execution.ErrorEvidence{
@@ -55,6 +84,7 @@ func (forwarder *ExecutionForwarder) Forward(
 	if err != nil || forwarder == nil || forwarder.executor == nil {
 		return executionInputFailure(err)
 	}
+	forwarder.recordCredentialAttempt(spec.Credential.ID)
 	executionResult := forwarder.executor.Execute(ctx, spec)
 	if err := executionResult.Validate(); err != nil {
 		return invalidExecutionAttemptResult(executionResult)
@@ -309,6 +339,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		}
 	}
 
+	forwarder.recordCredentialAttempt(spec.Credential.ID)
 	terminal := forwarder.executor.ExecuteStream(ctx, spec, sink)
 	if err := terminal.Validate(); err != nil {
 		terminal = invalidExecutionStreamResult(terminal, ready, committed)

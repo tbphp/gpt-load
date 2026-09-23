@@ -114,6 +114,16 @@ useLoadingActivity(() => Boolean(props.pending))
       </div>
     </header>
     <div class="modern-subscription-card-body">
+      <div v-if="row.rpmPeakHour !== undefined" class="modern-subscription-rpm">
+        <span>{{ t('rpm.hourPeak') }}</span>
+        <AppButton
+          variant="text"
+          size="xs"
+          :disabled="disabled"
+          @click="$emit('action', 'details')"
+          >{{ n(row.rpmPeakHour) }}</AppButton
+        >
+      </div>
       <div
         v-if="channel?.quotaObservation || observation?.windows.length"
         class="modern-subscription-card-quota"
@@ -212,6 +222,14 @@ useLoadingActivity(() => Boolean(props.pending))
 </template>
 
 <style scoped>
+.modern-subscription-rpm {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  font-variant-numeric: tabular-nums;
+}
 .modern-subscription-card-error {
   color: var(--modern-danger);
 }

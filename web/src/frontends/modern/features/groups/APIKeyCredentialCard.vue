@@ -78,6 +78,18 @@ const issues = computed(() =>
       </AppTooltip>
     </template>
     <dl class="modern-api-card-metadata">
+      <div v-if="row.rpmPeakHour !== undefined" class="modern-api-card-rpm">
+        <dt>{{ t('rpm.hourPeakShort') }}</dt>
+        <dd>
+          <AppButton
+            variant="text"
+            size="xs"
+            :disabled="disabled"
+            @click="$emit('action', 'details')"
+            >{{ n(row.rpmPeakHour) }}</AppButton
+          >
+        </dd>
+      </div>
       <div>
         <dt>{{ t('groupDetail.lastUsed') }}</dt>
         <dd><AppOverflowText :text="credentialTime(row.lastUsed, locale)" /></dd>
@@ -122,6 +134,9 @@ const issues = computed(() =>
   align-items: center;
   gap: var(--modern-space-1);
   min-width: 0;
+}
+.modern-api-card-rpm {
+  grid-column: 1 / -1;
 }
 .modern-api-card-metadata dt {
   flex: none;

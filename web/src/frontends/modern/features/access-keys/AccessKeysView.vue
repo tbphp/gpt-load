@@ -62,7 +62,7 @@ import AccessKeyPanel from './AccessKeyPanel.vue'
 import AccessKeyQuotaResetDialog from './AccessKeyQuotaResetDialog.vue'
 import { accessState, accessTime } from './access-key-display'
 
-const { t, locale } = useI18n()
+const { t, n, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const client = useApiClient()
@@ -273,6 +273,7 @@ async function refresh(): Promise<void> {
   await Promise.all([
     query.refetch(),
     cache.refetchQueries({ queryKey: ['modern', 'access-key-detail'], type: 'active' }),
+    cache.refetchQueries({ queryKey: ['modern', 'rpm', 'access_key'], type: 'active' }),
     cache.refetchQueries({ queryKey: ['modern', 'groups', 'workspace'], type: 'active' }),
   ])
 }
@@ -453,6 +454,7 @@ onScopeDispose(() => {
           <span>{{ t('accessKeys.name') }}</span
           ><span>{{ t('accessKeys.key') }}</span
           ><span>{{ t('accessKeys.restrictions') }}</span
+          ><span>{{ t('rpm.hourPeakShort') }}</span
           ><span>{{ t('accessKeys.state') }}</span
           ><span>{{ t('accessKeys.expires') }}</span
           ><span>{{ t('accessKeys.lastRequest') }}</span
@@ -494,6 +496,15 @@ onScopeDispose(() => {
           />
         </div>
         <AccessKeyRestrictions :row="row" :groups="groupMap" />
+        <div class="modern-access-rpm">
+          <AppButton
+            v-if="row.rpmPeakHour !== undefined"
+            variant="text"
+            :aria-label="t('rpm.hourPeak') + ' ' + n(row.rpmPeakHour)"
+            @click="setPanel('detail', row.id)"
+            >{{ n(row.rpmPeakHour) }}</AppButton
+          >
+        </div>
         <div>
           <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
             t('accessKeys.' + accessState(row).key)
@@ -640,10 +651,10 @@ onScopeDispose(() => {
   display: grid;
   grid-template-columns:
     minmax(150px, 1.5fr) minmax(150px, 1.1fr) minmax(480px, 3fr)
-    96px 110px minmax(148px, 1fr) 116px;
+    112px 96px 110px minmax(148px, 1fr) 116px;
   align-items: center;
   gap: var(--modern-space-3);
-  min-width: 1340px;
+  min-width: 1464px;
   padding-inline: var(--modern-space-2);
   text-align: left;
 }
@@ -673,6 +684,9 @@ onScopeDispose(() => {
   font-family: var(--modern-font-mono);
   color: var(--modern-muted);
 }
+.modern-access-rpm {
+  font-variant-numeric: tabular-nums;
+}
 .modern-access-last-request {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
@@ -692,8 +706,8 @@ onScopeDispose(() => {
   .modern-access-row {
     grid-template-columns:
       minmax(140px, 1.4fr) minmax(140px, 1.2fr) minmax(420px, 3fr)
-      96px 104px 148px 148px;
-    min-width: 1260px;
+      112px 96px 104px 148px 148px;
+    min-width: 1372px;
     gap: var(--modern-space-2);
   }
   .modern-access-row-actions {

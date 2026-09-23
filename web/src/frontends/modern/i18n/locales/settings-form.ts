@@ -89,7 +89,7 @@ export const zhCN = {
     retry_count: '首次尝试后额外重试的上限，跨分组共享；0 表示不重试。',
     blacklist_threshold: '连续失败达到此值后拉黑凭据；0 表示关闭自动拉黑。',
     validation_interval: '后台重新检测凭据的时间间隔。',
-    request_log_retention_days: '后台自动清理超出保留期的日志，可设置 1–365 天。',
+    request_log_retention_days: '后台自动清理超出保留期的日志和 RPM 统计，可设置 1–365 天。',
     models_dev_auto_sync_enabled: '按计划同步 Models.dev 目录与自动价格，关闭后仍可手动同步。',
     header_rules: '发往上游之前设置或移除的请求头。',
     response_header_rules: '返回客户端之前设置或移除的响应头。',
@@ -258,7 +258,8 @@ export const enUS = {
     blacklist_threshold:
       'Blacklist a credential after this many consecutive failures. 0 disables automatic blacklisting.',
     validation_interval: 'Interval between background credential checks.',
-    request_log_retention_days: 'Automatically delete older logs. Allowed range: 1–365 days.',
+    request_log_retention_days:
+      'Automatically delete older logs and RPM statistics. Allowed range: 1–365 days.',
     models_dev_auto_sync_enabled:
       'Sync the Models.dev catalog and automatic prices on schedule. Manual sync remains available.',
     header_rules: 'Set or remove request headers before sending upstream.',
@@ -430,7 +431,7 @@ export const jaJP = {
     blacklist_threshold:
       '連続失敗が閾値に達すると認証情報をブラックリスト化します。0 で無効になります。',
     validation_interval: 'バックグラウンドで認証情報を再確認する間隔。',
-    request_log_retention_days: '保持期間を超えたログを自動削除します。1～365 日。',
+    request_log_retention_days: '保持期間を超えたログと RPM 統計を自動削除します。1～365 日。',
     models_dev_auto_sync_enabled:
       'Models.dev のカタログと自動料金を定期同期します。無効でも手動同期できます。',
     header_rules: '上流に送信する前にヘッダーを設定または削除します。',
