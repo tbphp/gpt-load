@@ -66,6 +66,12 @@ func TestGeminiEmbeddingsConvertsThroughExistingPassthrough(t *testing.T) {
 		if request.Header.Get("X-Goog-Api-Key") != testAPIKey || request.Header.Get("Authorization") != "" {
 			t.Error("request did not use the selected Gemini API key")
 		}
+		if request.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("request Content-Type = %q, want application/json", request.Header.Get("Content-Type"))
+		}
+		if request.Header.Get("Accept-Encoding") != "identity" {
+			t.Errorf("request Accept-Encoding = %q, want identity", request.Header.Get("Accept-Encoding"))
+		}
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
 			t.Error(err)
@@ -94,9 +100,10 @@ func TestGeminiEmbeddingsConvertsThroughExistingPassthrough(t *testing.T) {
 	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: server.URL + "/v1beta"})
 
 	for _, tc := range []struct {
-		name       string
-		body       string
-		wantSubstr string
+		name            string
+		body            string
+		wantSubstr      string
+		omitContentType bool
 	}{
 		{
 			name:       "float literal fidelity",
@@ -104,15 +111,19 @@ func TestGeminiEmbeddingsConvertsThroughExistingPassthrough(t *testing.T) {
 			wantSubstr: `[0.1234567,-0.9876543,0.42]`,
 		},
 		{
-			name:       "base64 format",
-			body:       `{"model":"public-embedding","input":"hello world","dimensions":3,"encoding_format":"base64"}`,
-			wantSubstr: `"embedding":"`,
+			name:            "base64 format without client headers",
+			body:            `{"model":"public-embedding","input":"hello world","dimensions":3,"encoding_format":"base64"}`,
+			wantSubstr:      `"embedding":"`,
+			omitContentType: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := geminiEmbeddingsSpec()
 			spec.RawQuery = "vendor=one&api_key=client-secret&alt=sse"
 			spec.Body = []byte(tc.body)
+			if tc.omitContentType {
+				spec.Header = nil
+			}
 			result := runtime.Execute(t.Context(), spec)
 			if err := result.Validate(); err != nil || result.Error != nil || result.StatusCode != http.StatusOK {
 				t.Fatalf("Embeddings result = %+v, error = %+v, validation = %v", result, result.Error, err)
@@ -153,15 +164,16 @@ func TestGeminiEmbeddingsRejectsUnsupportedInputsWithoutDispatch(t *testing.T) {
 	body101, _ := json.Marshal(map[string]any{"model": "public-embedding", "input": texts101})
 
 	for _, test := range []struct {
-		name       string
-		body       string
-		invalidReq bool
+		name     string
+		body     string
+		wantKind execution.ErrorKind
+		wantCode string
 	}{
-		{name: "batch over 100", body: string(body101), invalidReq: false},
-		{name: "token array input", body: `{"model":"public-embedding","input":[1, 2, 3]}`, invalidReq: false},
-		{name: "invalid dimensions", body: `{"model":"public-embedding","input":"test","dimensions":-1}`, invalidReq: true},
-		{name: "invalid encoding_format", body: `{"model":"public-embedding","input":"test","encoding_format":"int"}`, invalidReq: true},
-		{name: "missing input", body: `{"model":"public-embedding"}`, invalidReq: true},
+		{name: "batch over 100", body: string(body101), wantKind: execution.ErrorKindConversionUnsupported, wantCode: execution.ErrorCodeTargetConversionNotSupported},
+		{name: "token array input", body: `{"model":"public-embedding","input":[1, 2, 3]}`, wantKind: execution.ErrorKindConversionUnsupported, wantCode: execution.ErrorCodeTargetConversionNotSupported},
+		{name: "invalid dimensions", body: `{"model":"public-embedding","input":"test","dimensions":-1}`, wantKind: execution.ErrorKindInvalidRequest},
+		{name: "invalid encoding_format", body: `{"model":"public-embedding","input":"test","encoding_format":"int"}`, wantKind: execution.ErrorKindInvalidRequest},
+		{name: "missing input", body: `{"model":"public-embedding"}`, wantKind: execution.ErrorKindInvalidRequest},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spec := geminiEmbeddingsSpec()
@@ -170,15 +182,11 @@ func TestGeminiEmbeddingsRejectsUnsupportedInputsWithoutDispatch(t *testing.T) {
 			if result.DispatchState != execution.DispatchNotSent || result.Error == nil || calls.Load() != 0 {
 				t.Fatalf("unsupported input = %+v, upstream calls = %d", result, calls.Load())
 			}
-			wantKind := execution.ErrorKindConversionUnsupported
-			if test.invalidReq {
-				wantKind = execution.ErrorKindInvalidRequest
+			if result.Error.Kind != test.wantKind {
+				t.Fatalf("error kind = %s, want %s", result.Error.Kind, test.wantKind)
 			}
-			if result.Error.Kind != wantKind {
-				t.Fatalf("error kind = %s, want %s", result.Error.Kind, wantKind)
-			}
-			if !test.invalidReq && result.Error.Code != execution.ErrorCodeTargetConversionNotSupported {
-				t.Fatalf("error code = %s, want %s", result.Error.Code, execution.ErrorCodeTargetConversionNotSupported)
+			if result.Error.Code != test.wantCode {
+				t.Fatalf("error code = %s, want %s", result.Error.Code, test.wantCode)
 			}
 		})
 	}
@@ -186,34 +194,29 @@ func TestGeminiEmbeddingsRejectsUnsupportedInputsWithoutDispatch(t *testing.T) {
 
 func TestGeminiEmbeddingsPreservesErrorsAndStrictContractValidation(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		body      string
-		status    int
-		wantError bool
+		name   string
+		body   string
+		status int
 	}{
 		{
-			name:      "rate limit 429",
-			body:      `{"error":{"code":429,"message":"rate limited","status":"RESOURCE_EXHAUSTED"}}`,
-			status:    429,
-			wantError: true,
+			name:   "rate limit 429",
+			body:   `{"error":{"code":429,"message":"rate limited","status":"RESOURCE_EXHAUSTED"}}`,
+			status: 429,
 		},
 		{
-			name:      "google 400 invalid api key",
-			body:      `{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}`,
-			status:    400,
-			wantError: true,
+			name:   "google 400 invalid api key",
+			body:   `{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}`,
+			status: 400,
 		},
 		{
-			name:      "dimension mismatch against contract",
-			body:      `{"embeddings":[{"values":[0.1, 0.2]}]}`, // contract requested 3
-			status:    200,
-			wantError: true,
+			name:   "dimension mismatch against contract",
+			body:   `{"embeddings":[{"values":[0.1, 0.2]}]}`, // contract requested 3
+			status: 200,
 		},
 		{
-			name:      "null inside float vector",
-			body:      `{"embeddings":[{"values":[0.1, null, 0.3]}]}`,
-			status:    200,
-			wantError: true,
+			name:   "null inside float vector",
+			body:   `{"embeddings":[{"values":[0.1, null, 0.3]}]}`,
+			status: 200,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -230,30 +233,28 @@ func TestGeminiEmbeddingsPreservesErrorsAndStrictContractValidation(t *testing.T
 
 			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: server.URL + "/v1beta"})
 			result := runtime.Execute(t.Context(), geminiEmbeddingsSpec())
-			if err := result.Validate(); err != nil || calls.Load() != 1 || (result.Error != nil) != test.wantError {
+			if err := result.Validate(); err != nil || calls.Load() != 1 || result.Error == nil {
 				t.Fatalf("result = %+v, validation = %v, calls = %d", result, err, calls.Load())
 			}
-			if test.wantError {
-				wantStatus := test.status
-				if wantStatus == 200 {
-					wantStatus = http.StatusBadGateway
-				}
-				if result.StatusCode != wantStatus || result.DispatchState != execution.DispatchMaybeSent || result.Error.ReplaySafety != execution.ReplaySafetyUnknown {
-					t.Fatalf("failure = %+v", result)
-				}
-				decision := health.JudgeExecution(health.ExecutionAttempt{
-					DispatchState: result.DispatchState,
-					StatusCode:    result.StatusCode,
-					Header:        result.Header,
-					Evidence:      result.Error,
-				}, health.DecisionContext{})
-				if test.status == 200 && decision.Category == health.FailureCategoryClientError {
-					t.Fatalf("invalid upstream vector must not be classified as client error: %+v", decision)
-				}
-				if test.status == 429 {
-					if decision.Category != health.FailureCategoryRateLimited || decision.Effect != health.EffectCooldownCredential {
-						t.Fatalf("expected 429 to trigger RateLimited with credential cooldown, got: %+v", decision)
-					}
+			wantStatus := test.status
+			if wantStatus == 200 {
+				wantStatus = http.StatusBadGateway
+			}
+			if result.StatusCode != wantStatus || result.DispatchState != execution.DispatchMaybeSent || result.Error.ReplaySafety != execution.ReplaySafetyUnknown {
+				t.Fatalf("failure = %+v", result)
+			}
+			decision := health.JudgeExecution(health.ExecutionAttempt{
+				DispatchState: result.DispatchState,
+				StatusCode:    result.StatusCode,
+				Header:        result.Header,
+				Evidence:      result.Error,
+			}, health.DecisionContext{})
+			if test.status == 200 && decision.Category == health.FailureCategoryClientError {
+				t.Fatalf("invalid upstream vector must not be classified as client error: %+v", decision)
+			}
+			if test.status == 429 {
+				if decision.Category != health.FailureCategoryRateLimited || decision.Effect != health.EffectCooldownCredential {
+					t.Fatalf("expected 429 to trigger RateLimited with credential cooldown, got: %+v", decision)
 				}
 			}
 		})
