@@ -73,6 +73,30 @@ func TestSuccessResponseRestoresBusinessFieldsOnlyAfterObservation(t *testing.T)
 	}
 }
 
+func TestResponsesInputItemsRestoresClientTextAfterObservation(t *testing.T) {
+	service := encryptiontest.Service(t, "redaction-input-items-integration-test")
+	cipher, err := service.NewRedactionCipher(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := cipher.EncryptToken("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"object":"list","data":[{"id":"item_1","type":"message","content":[{"type":"input_text","text":"` + token + `"}]}]}`)
+	input := ForwardInput{Dialect: dialect.NewOpenAIResponses(), ClientProtocol: protocol.OpenAIResponses,
+		Operation: execution.OperationResponsesInputItems, RedactionCipher: cipher}
+	prepared, err := (&responseProcessor{redactor: redact.New()}).prepareSuccessRepresentation(input, http.StatusOK, http.Header{}, body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(prepared.inspectable, []byte(token)) || bytes.Contains(prepared.inspectable, []byte("alice@example.com")) ||
+		bytes.Contains(prepared.downstream, []byte(token)) || !bytes.Contains(prepared.downstream, []byte("alice@example.com")) ||
+		!json.Valid(prepared.downstream) {
+		t.Fatal("input_items observation or downstream restoration changed incorrectly")
+	}
+}
+
 func TestUnaryCorruptCiphertextFailsAsLocalRestoreError(t *testing.T) {
 	service := encryptiontest.Service(t, "redaction-unary-corruption-test")
 	cipher, err := service.NewRedactionCipher(7)

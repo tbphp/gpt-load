@@ -424,6 +424,31 @@ func TestRedactionRestoreSSEFindsEscapedTokenAndRejectsCorruptToken(t *testing.T
 	}
 }
 
+func TestRedactionRestoreSSEMasksOnlyTokensInErrorEvents(t *testing.T) {
+	const token = "gld1_50_Td2RZbM74JpizRwe4m_ji9Fsg5B9vD97EUK_HoAC0ce7JdwNiA"
+	for _, eventPrefix := range []string{"event: error\n", ""} {
+		wantName := ""
+		if eventPrefix != "" {
+			wantName = "error"
+		}
+		for _, encoded := range []string{token, `\u0067` + token[1:]} {
+			stream := newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
+			event := []byte(eventPrefix + `data: {"error":{"message":"https://example.test/?q=go ` + encoded + `"}}` + "\n\n")
+			got, err := stream.Push(event)
+			if err != nil || !bytes.Contains(got, []byte("[REDACTED]")) ||
+				!bytes.Contains(got, []byte("https://example.test/?q=go")) ||
+				bytes.Contains(got, []byte(token)) {
+				t.Fatalf("error event masking = %q / %v", got, err)
+			}
+			payload, name, ok := redactionSSEData(got)
+			if !ok || name != wantName || !json.Valid(payload) ||
+				strings.Contains(gjson.GetBytes(payload, "error.message").Str, token) {
+				t.Fatalf("invalid or unmasked SSE error payload: %q", got)
+			}
+		}
+	}
+}
+
 func TestRedactionRestoreSSEToolJSONFindsUnicodeEscapedToken(t *testing.T) {
 	stream := newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
 	fragment := `{"email":"\u0067ld1_3_abc","count":2}`

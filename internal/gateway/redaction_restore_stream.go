@@ -13,6 +13,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
 )
 
@@ -366,9 +367,16 @@ func (stream *redactionRestoreSSE) process(event *redactionStreamEvent) error {
 	if !hasData {
 		return nil
 	}
-	if bytes.Equal(payload, []byte("[DONE]")) || name == "error" {
+	if bytes.Equal(payload, []byte("[DONE]")) {
 		event.terminal = true
 		return stream.closeMatching("")
+	}
+	if name == "error" {
+		event.terminal = true
+		if err := stream.closeMatching(""); err != nil {
+			return err
+		}
+		return stream.maskErrorPayload(event, payload)
 	}
 	if len(payload) == 0 || !json.Valid(payload) || !utf8.Valid(payload) {
 		if bytes.Contains(payload, []byte(redactionStreamPrefix)) {
@@ -380,7 +388,10 @@ func (stream *redactionRestoreSSE) process(event *redactionStreamEvent) error {
 	root := gjson.ParseBytes(payload)
 	if isSSEErrorPayload(payload) {
 		event.terminal = true
-		return stream.closeMatching("")
+		if err := stream.closeMatching(""); err != nil {
+			return err
+		}
+		return stream.maskErrorPayload(event, payload)
 	}
 	switch stream.protocol {
 	case protocol.OpenAICompletions:
@@ -394,6 +405,34 @@ func (stream *redactionRestoreSSE) process(event *redactionStreamEvent) error {
 	default:
 		return nil
 	}
+}
+
+func (stream *redactionRestoreSSE) maskErrorPayload(event *redactionStreamEvent, payload []byte) error {
+	if !bytes.Contains(payload, []byte(redactionStreamPrefix)) && !bytes.Contains(payload, []byte(`\u`)) {
+		return nil
+	}
+	safe := payload
+	if json.Valid(payload) && utf8.Valid(payload) {
+		ctx := unaryRestoreContext{
+			body: payload,
+			restore: func(value string) (string, error) {
+				return redact.MaskRedactionTokens(value), nil
+			},
+		}
+		if err := ctx.walkJSONValues(gjson.ParseBytes(payload), 0, ctx.addPatch); err != nil {
+			return errRedactionStream
+		}
+		var err error
+		safe, err = ctx.apply()
+		if err != nil {
+			return errRedactionStream
+		}
+	}
+	masked := redact.MaskRedactionTokens(string(safe))
+	if masked != string(payload) {
+		event.replacement = []byte(masked)
+	}
+	return nil
 }
 
 func (stream *redactionRestoreSSE) addText(

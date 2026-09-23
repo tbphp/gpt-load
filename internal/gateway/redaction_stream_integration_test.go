@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -53,6 +54,43 @@ func TestExecutionForwarderRestoresSplitChatSSEWithoutChangingEventOrder(t *test
 		!strings.Contains(body, `"content":"alice@example.com"`) ||
 		strings.Count(body, "data: ") != 3 || !strings.HasSuffix(body, "data: [DONE]\n\n") {
 		t.Fatalf("stream content or order not restored: %q", body)
+	}
+}
+
+func TestExecutionForwarderMasksCommittedSSEErrorToken(t *testing.T) {
+	service := encryptiontest.Service(t, "redaction-sse-error-echo-test")
+	cipher, err := service.NewRedactionCipher(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := cipher.EncryptToken("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := fakeExecutionExecutor{stream: func(_ context.Context, _ execution.AttemptSpec, sink execution.StreamSink) execution.StreamResult {
+		header := http.Header{"Content-Type": {"text/event-stream"}}
+		if err := sink(execution.StreamEvent{Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK, Header: header}); err != nil {
+			t.Fatal(err)
+		}
+		first := []byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n")
+		if err := sink(execution.StreamEvent{Sequence: 2, Kind: execution.StreamEventData, Data: first}); err != nil {
+			t.Fatal(err)
+		}
+		errorEvent := []byte(fmt.Sprintf("event: error\ndata: {\"error\":{\"message\":\"%s\"}}\n\n", token))
+		if err := sink(execution.StreamEvent{Sequence: 3, Kind: execution.StreamEventData, Data: errorEvent}); err != nil {
+			t.Fatal(err)
+		}
+		return execution.StreamResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: header}
+	}}
+	input := executionForwardInput()
+	input.RedactionCipher = cipher
+	recorder := httptest.NewRecorder()
+	result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
+	if !result.Committed || result.Stream.EndReason != StreamEndSSEError ||
+		bytes.Contains(recorder.Body.Bytes(), []byte(token)) ||
+		!bytes.Contains(recorder.Body.Bytes(), []byte("[REDACTED]")) {
+		t.Fatalf("committed error exposed redaction token: result=%#v body=%s", result, recorder.Body.Bytes())
 	}
 }
 

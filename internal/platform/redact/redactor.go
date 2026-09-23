@@ -14,6 +14,17 @@ var controlledAccessKeyLocator = regexp.MustCompile(
 	`^access-key:(?:[1-9][0-9]*|unknown)$`,
 )
 
+var redactionTokenPattern = regexp.MustCompile(`gld1_[1-9][0-9]{1,8}_[A-Za-z0-9_-]{22,}`)
+
+// MaskRedactionTokens hides complete reversible-redaction tokens without
+// applying the broader diagnostic rules to ordinary business text.
+func MaskRedactionTokens(text string) string {
+	if !strings.Contains(text, "gld1_") {
+		return text
+	}
+	return redactionTokenPattern.ReplaceAllString(text, Placeholder)
+}
+
 type replacement struct {
 	pattern *regexp.Regexp
 	value   string
@@ -26,7 +37,7 @@ type Redactor struct {
 func New() *Redactor {
 	return &Redactor{replacements: []replacement{
 		{
-			pattern: regexp.MustCompile(`gld1_[1-9][0-9]{1,8}_[A-Za-z0-9_-]{22,}`),
+			pattern: redactionTokenPattern,
 			value:   Placeholder,
 		},
 		{

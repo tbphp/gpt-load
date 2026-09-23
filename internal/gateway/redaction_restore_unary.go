@@ -138,6 +138,9 @@ func (ctx *unaryRestoreContext) responses(root gjson.Result, depth int) error {
 	if depth > maxUnaryRestoreDepth {
 		return errUnaryRestore
 	}
+	if root.Get("object").Str == "list" {
+		return ctx.responsesInputItems(root)
+	}
 	if err := unaryRestoreField(root, "response", func(envelope gjson.Result) error {
 		return ctx.responses(envelope, depth+1)
 	}); err != nil {
@@ -160,6 +163,45 @@ func (ctx *unaryRestoreContext) responses(root gjson.Result, depth int) error {
 				})
 			case "function_call":
 				return ctx.arguments(item)
+			default:
+				return nil
+			}
+		})
+	})
+}
+
+func (ctx *unaryRestoreContext) responsesInputItems(root gjson.Result) error {
+	return unaryRestoreField(root, "data", func(data gjson.Result) error {
+		return unaryRestoreArray(data, func(item gjson.Result) error {
+			switch item.Get("type").Str {
+			case "message":
+				return unaryRestoreField(item, "content", func(content gjson.Result) error {
+					if content.Type == gjson.String {
+						return ctx.text(content)
+					}
+					return unaryRestoreArray(content, func(part gjson.Result) error {
+						switch part.Get("type").Str {
+						case "input_text", "output_text":
+							return unaryRestoreField(part, "text", ctx.text)
+						default:
+							return nil
+						}
+					})
+				})
+			case "function_call":
+				return ctx.arguments(item)
+			case "function_call_output":
+				return unaryRestoreField(item, "output", func(output gjson.Result) error {
+					if output.Type == gjson.String {
+						return ctx.jsonValue(output)
+					}
+					return unaryRestoreArray(output, func(part gjson.Result) error {
+						if part.Get("type").Str == "input_text" || part.Get("type").Str == "output_text" {
+							return unaryRestoreField(part, "text", ctx.text)
+						}
+						return nil
+					})
+				})
 			default:
 				return nil
 			}

@@ -41,6 +41,18 @@ func TestRestoreUnaryBusinessFieldsResponsesEnvelopeAndTypes(t *testing.T) {
 	}
 }
 
+func TestRestoreUnaryBusinessFieldsResponsesInputItems(t *testing.T) {
+	input := []byte(`{"object":"list","data":[{"id":"gld1_A","type":"message","content":[{"type":"input_text","text":"gld1_A"},{"type":"input_image","image_url":"gld1_A"}]},{"type":"function_call_output","call_id":"gld1_A","output":"{\"password\":\"gld1_A\",\"n\":9007199254740993}"},{"type":"function_call","name":"gld1_A","arguments":"{\"account\":\"gld1_A\"}"}],"has_more":false}`)
+	want := []byte(`{"object":"list","data":[{"id":"gld1_A","type":"message","content":[{"type":"input_text","text":"alice@example.invalid"},{"type":"input_image","image_url":"gld1_A"}]},{"type":"function_call_output","call_id":"gld1_A","output":"{\"password\":\"alice@example.invalid\",\"n\":9007199254740993}"},{"type":"function_call","name":"gld1_A","arguments":"{\"account\":\"alice@example.invalid\"}"}],"has_more":false}`)
+	got, err := restoreUnaryBusinessFields(input, protocol.OpenAIResponses, restoreTestMarker, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("input_items restoration differs\ngot:  %s\nwant: %s", got, want)
+	}
+}
+
 func TestRestoreUnaryBusinessFieldsAnthropicAndGemini(t *testing.T) {
 	cases := []struct {
 		name     string
