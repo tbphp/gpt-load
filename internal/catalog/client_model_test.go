@@ -14,6 +14,31 @@ func TestCodexModelCatalogSnapshotDigest(t *testing.T) {
 	}
 }
 
+func TestCodexClientModelUsesGPT6Templates(t *testing.T) {
+	for _, test := range []struct {
+		id     string
+		name   string
+		levels []string
+	}{
+		{"gpt-6-sol", "GPT-6-Sol", []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+		{"gpt-6-luna", "GPT-6-Luna", []string{"low", "medium", "high", "xhigh", "max"}},
+	} {
+		t.Run(test.id, func(t *testing.T) {
+			model, automatic, _, err := BuildCodexClientModel(test.id, 0, ClientModelOverrides{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if automatic.DisplayName != test.name ||
+				!reflect.DeepEqual(automatic.SupportedReasoningLevels, test.levels) ||
+				model["minimal_client_version"] != "0.155.0" ||
+				model["tool_mode"] != "code_mode_only" || model["use_responses_lite"] != true {
+				t.Fatalf("model %q did not use its native template: profile=%#v, minimum=%v, tool_mode=%v, responses_lite=%v",
+					test.id, automatic, model["minimal_client_version"], model["tool_mode"], model["use_responses_lite"])
+			}
+		})
+	}
+}
+
 func TestCodexClientModelUsesExactTemplateAndFourOverrides(t *testing.T) {
 	contextWindow := int64(64000)
 	reasoning := []string{"low", "high"}
@@ -66,7 +91,7 @@ func TestCodexClientModelFallsBackToGPT55(t *testing.T) {
 }
 
 func TestCodexClientModelMakesConfiguredHiddenTemplateSelectable(t *testing.T) {
-	model, _, _, err := BuildCodexClientModel("gpt-5.4", 0, ClientModelOverrides{})
+	model, _, _, err := BuildCodexClientModel("gpt-reserve", 0, ClientModelOverrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
