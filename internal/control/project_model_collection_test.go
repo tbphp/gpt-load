@@ -221,37 +221,49 @@ func TestProjectModelCatalogReferenceUsesTheRecordedPriceProviderAndSource(t *te
 				Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}},
 			},
 		}},
+		"google": {ID: "google", Models: map[string]catalog.Model{
+			"gemini-base": {
+				ID: "gemini-base", Name: "Google base metadata",
+				Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(3)}},
+			},
+		}},
 	}}
 
 	tests := []struct {
 		name          string
 		channelID     channel.ID
+		modelID       string
 		providerID    string
 		matchSource   ModelPriceMatchSource
 		wantSource    string
 		wantModelName string
 	}{
 		{
-			name: "channel catalog provider", channelID: channel.OpenAI,
+			name: "channel catalog provider", channelID: channel.OpenAI, modelID: "shared",
 			providerID: "openai", matchSource: ModelPriceMatchSourceChannelCatalogProvider,
 			wantSource: "actual_provider", wantModelName: "OpenAI metadata",
 		},
 		{
-			name: "priority fallback", channelID: channel.OpenAICompatible,
+			name: "priority fallback", channelID: channel.OpenAICompatible, modelID: "shared",
 			providerID: "openai", matchSource: ModelPriceMatchSourceProviderPriorityFallback,
 			wantSource: "reference_provider", wantModelName: "OpenAI metadata",
 		},
 		{
-			name: "recorded provider wins over catalog priority", channelID: channel.OpenAICompatible,
+			name: "recorded provider wins over catalog priority", channelID: channel.OpenAICompatible, modelID: "shared",
 			providerID: "anthropic", matchSource: ModelPriceMatchSourceProviderPriorityFallback,
 			wantSource: "reference_provider", wantModelName: "Anthropic priced metadata",
+		},
+		{
+			name: "token fallback matches base model", channelID: channel.Antigravity, modelID: "gemini-base-high",
+			providerID: "google", matchSource: ModelPriceMatchSourceProviderPriorityFallback,
+			wantSource: "reference_provider", wantModelName: "Google base metadata",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			reference := projectModelCatalogReference(
 				ModelPriceDTO{MatchedProviderID: &test.providerID, MatchSource: &test.matchSource},
-				pricing.Identity{ChannelID: string(test.channelID), ModelID: "shared"},
+				pricing.Identity{ChannelID: string(test.channelID), ModelID: test.modelID},
 				snapshot,
 			)
 			if reference == nil || reference.ProviderID != test.providerID ||

@@ -117,9 +117,13 @@ func TestAntigravityDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *tes
 					ID: "gemini-antigravity", Name: "Google catalog name",
 					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
 				},
+				"gemini-3.8-flash": {
+					ID: "gemini-3.8-flash", Name: "Gemini 3.8 Flash",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}},
+				},
 				"google-catalog-only": {
 					ID: "google-catalog-only", Name: "Google catalog only",
-					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}},
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(3)}},
 				},
 			},
 		},
@@ -152,7 +156,7 @@ func TestAntigravityDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *tes
 		if channelID != channel.Antigravity {
 			t.Fatalf("channel = %q, want Antigravity", channelID)
 		}
-		return []string{"gemini-antigravity"}, nil
+		return []string{"gemini-antigravity", "gemini-3.8-flash-high"}, nil
 	}
 
 	got, err := fixture.service.DiscoverModels(t.Context(), ModelDiscoveryRequest{
@@ -162,10 +166,16 @@ func TestAntigravityDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *tes
 		t.Fatal(err)
 	}
 	google := "Google"
-	want := []ModelCandidate{{
-		ID: "gemini-antigravity", Name: "gemini-antigravity", Sources: []string{"live"},
-		PricingStatus: PricingStatusConfigured, PricingSource: &google,
-	}}
+	want := []ModelCandidate{
+		{
+			ID: "gemini-antigravity", Name: "gemini-antigravity", Sources: []string{"live"},
+			PricingStatus: PricingStatusConfigured, PricingSource: &google,
+		},
+		{
+			ID: "gemini-3.8-flash-high", Name: "gemini-3.8-flash-high", Sources: []string{"live"},
+			PricingStatus: PricingStatusConfigured, PricingSource: &google,
+		},
+	}
 	if !reflect.DeepEqual(got.Models, want) {
 		t.Fatalf("Antigravity candidates = %#v, want %#v", got.Models, want)
 	}

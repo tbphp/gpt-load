@@ -151,6 +151,37 @@ func TestResolveAutomaticPriceForIdentityTreatsAntigravityGooglePriceAsReference
 	}
 }
 
+func TestResolveAutomaticPriceForIdentityMatchesTokenBoundaryPrefixFallback(t *testing.T) {
+	t.Parallel()
+	googleCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"google": {ID: "google", Models: map[string]catalog.Model{
+			"gemini-3.8-flash": {ID: "gemini-3.8-flash", Cost: googleCost},
+		}},
+	}}
+
+	// Should match base model "gemini-3.8-flash" for suffixed variants like "-high"
+	match, ok := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Antigravity), ModelID: "gemini-3.8-flash-high",
+	})
+	if !ok || match.cost != googleCost || match.providerID != "google" ||
+		match.source != ModelPriceMatchSourceProviderPriorityFallback {
+		t.Fatalf("Antigravity token fallback match = %#v, %t", match, ok)
+	}
+
+	// Should prefer exact match if an exact match exists
+	exactCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(2)}}
+	snapshot.Providers["google"].Models["gemini-3.8-flash-high"] = catalog.Model{
+		ID: "gemini-3.8-flash-high", Cost: exactCost,
+	}
+	exactMatch, exactOk := resolveAutomaticPriceForIdentity(snapshot, pricing.Identity{
+		ChannelID: string(channel.Antigravity), ModelID: "gemini-3.8-flash-high",
+	})
+	if !exactOk || exactMatch.cost != exactCost || exactMatch.providerID != "google" {
+		t.Fatalf("exact match preference = %#v, %t", exactMatch, exactOk)
+	}
+}
+
 func TestResolveAutomaticPriceForIdentityTreatsGrokXAIPriceAsReference(t *testing.T) {
 	t.Parallel()
 	xaiCost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}

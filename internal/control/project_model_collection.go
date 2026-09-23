@@ -679,7 +679,7 @@ func projectModelCatalogReference(
 		providerID = *price.MatchedProviderID
 		provider, exists := snapshot.Providers[providerID]
 		if exists {
-			model, exists = provider.Models[identity.ModelID]
+			model, exists = lookupCatalogModel(provider, identity.ModelID, false)
 			if !exists {
 				providerID = ""
 			} else if price.MatchSource != nil {

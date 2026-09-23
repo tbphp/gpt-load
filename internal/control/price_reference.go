@@ -2,6 +2,7 @@ package control
 
 import (
 	"sort"
+	"strings"
 
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
@@ -34,6 +35,40 @@ func resolveAutomaticPriceForIdentity(
 	}, true
 }
 
+// lookupCatalogModel attempts to find a model by exact ID first, then falls back
+// to progressive token-boundary prefix trimming (splitting on hyphens from right to left)
+// if exact match fails. This allows variant model names (e.g., "gemini-3.8-flash-high")
+// to match their base catalog entries (e.g., "gemini-3.8-flash") without hardcoding.
+func lookupCatalogModel(
+	provider catalog.Provider,
+	modelID string,
+	requirePrice bool,
+) (catalog.Model, bool) {
+	if provider.Models == nil || modelID == "" {
+		return catalog.Model{}, false
+	}
+	// 1. Exact match
+	if model, exists := provider.Models[modelID]; exists {
+		if !requirePrice || model.Cost != nil {
+			return model, true
+		}
+	}
+	// 2. Token-boundary prefix fallback
+	for candidateID := modelID; ; {
+		lastHyphen := strings.LastIndex(candidateID, "-")
+		if lastHyphen <= 0 {
+			break
+		}
+		candidateID = candidateID[:lastHyphen]
+		if model, exists := provider.Models[candidateID]; exists {
+			if !requirePrice || model.Cost != nil {
+				return model, true
+			}
+		}
+	}
+	return catalog.Model{}, false
+}
+
 func resolveCatalogModelForIdentity(
 	snapshot *catalog.Snapshot,
 	identity pricing.Identity,
@@ -51,11 +86,7 @@ func resolveCatalogModelForIdentity(
 		if !exists {
 			return catalog.Model{}, false
 		}
-		model, exists := provider.Models[identity.ModelID]
-		if !exists || (requirePrice && model.Cost == nil) {
-			return catalog.Model{}, false
-		}
-		return model, true
+		return lookupCatalogModel(provider, identity.ModelID, requirePrice)
 	}
 	if exactProviderID != "" {
 		model, ok := lookup(exactProviderID)
