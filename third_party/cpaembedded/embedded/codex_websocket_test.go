@@ -1080,7 +1080,7 @@ func TestCodexWSSessionFixedIdentity(t *testing.T) {
 				var handshakes atomic.Int32
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handshakes.Add(1)
-					if r.Header.Get("Version") != "0.154.0" || r.Header.Get("User-Agent") != wantUA {
+					if r.Header.Get("Version") != "0.155.0" || r.Header.Get("User-Agent") != wantUA {
 						t.Errorf("handshake identity: version=%q UA=%q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
 					}
 					if r.Header.Get("Authorization") != "Bearer test-access" {

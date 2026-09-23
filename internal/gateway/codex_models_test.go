@@ -49,8 +49,8 @@ func TestCodexModelCatalogResponseContract(t *testing.T) {
 			}
 		}
 		var shellType string
-		if err := json.Unmarshal(model["shell_type"], &shellType); err != nil || shellType != "unified_exec" {
-			t.Fatalf("shell type must use Codex canonical value: %q, %v", shellType, err)
+		if err := json.Unmarshal(model["shell_type"], &shellType); err != nil || shellType != "shell_command" {
+			t.Fatalf("shell type must match the pinned Codex fallback template: %q, %v", shellType, err)
 		}
 		var truncationPolicy codexTruncationPolicy
 		if err := json.Unmarshal(model["truncation_policy"], &truncationPolicy); err != nil ||

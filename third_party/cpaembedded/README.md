@@ -41,17 +41,21 @@ the existing HTTP executor remains separate.
 ## Codex request identity
 
 Codex HTTP inference (including streaming and images) and WebSocket handshakes
-use the pinned CPA default User-Agent. `Version` is fixed to the matching
-`CodexClientVersion` constant, currently `0.154.0`. Downstream and GPT-Load group
+use the pinned CPA default User-Agent (still `codex-tui/0.154.0` in CPA v7.3.15).
+`Version` is fixed to `CodexClientVersion`, currently `0.155.0`, matching CPA's
+model discovery client version. Downstream and GPT-Load group
 header rules cannot override, clear, or remove these two identity headers.
 This restriction applies only to Codex; other providers retain their header rules.
 HTTP continues to honor explicit `Originator` rules, including empty values and
 removal. WebSocket retains the SDK's existing originator handling.
 
 Model and account observation requests use the same version for their User-Agent,
-Version header, and models `client_version` query parameter. CPA's default UA
-constant is private, so dependency updates must keep our one version constant in
-sync; HTTP, image, WebSocket, and observation tests check the outgoing values.
+Version header, and models `client_version` query parameter. The embedded model
+JSON is copied from the pinned CPA release's
+`internal/registry/models/codex_client_models.json`, with its SHA-256 checked by
+tests. CPA's execution UA constant is private and currently differs from its
+model discovery version; retain the SDK's UA rather than rewriting it locally.
+HTTP, image, WebSocket, and observation tests check these outgoing values.
 
 Both `Session-Id` and `Session_id` are accepted, with `Session-Id` taking precedence
 if both exist. HTTP sends one `Session-Id`, retaining the existing precedence over
@@ -117,7 +121,7 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   use updated timeout settings. `Done` closes when the Session is invalidated.
   Request and forwarded-event limits default to 10 MiB each. All three are configurable when creating the Session.
   The facade buffers no conversation history or output queue. Event checks occur
-  **after SDK reading**: CPA v7.3.6 has no exposed raw-frame size limit and has
+  **after SDK reading**: CPA v7.3.15 has no exposed raw-frame size limit and has
   its own internal buffers. These checks do not bound all SDK memory. CPA also
   retains its upstream read-idle timeout; idle connection loss invalidates the
   Session and is not transparently recovered.
@@ -148,10 +152,11 @@ sent only in the first. `CPA_LIVE_CODEX_WS_PROXY_URL` defaults to `direct`;
 ## Pinned upstream
 
 - Module: `github.com/router-for-me/CLIProxyAPI/v7`
-- Version: `v7.3.6`
+- Version: `v7.3.15`
 
-The bridge keeps Codex's fixed Version and observation identity aligned with
-CPA's default User-Agent. CPA now includes Antigravity reasoning tokens in unary
+The bridge keeps Codex's fixed Version, observation identity, and model snapshot
+aligned with CPA's model discovery version, while preserving CPA's execution
+User-Agent as described above. CPA includes Antigravity reasoning tokens in unary
 OpenAI Chat and OpenAI Responses output totals; the bridge only adds them for OpenAI
 Chat streaming, and retains Anthropic's unary cache-input normalization.
 Antigravity Responses web search is not enabled by this dependency update.
