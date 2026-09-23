@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tidwall/gjson"
 
@@ -160,10 +159,12 @@ func TestRedactionRestoreSSEChatToolDocumentAndDone(t *testing.T) {
 	first := makeEvent(`{"email":"gld1_3_`)
 	second := makeEvent(`abc","count":2}`)
 	end := "data: " + `{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n"
-	if out, err := stream.Push([]byte(first + second)); err != nil || len(out) != 0 {
-		t.Fatalf("tool document escaped early: %q / %v", out, err)
+	out, err := stream.Push([]byte(first + second))
+	if err != nil || len(out) == 0 {
+		t.Fatalf("completed tool values did not stream: %v", err)
 	}
-	out, err := stream.Push([]byte(end + "data: [DONE]\n\n"))
+	tail, err := stream.Push([]byte(end + "data: [DONE]\n\n"))
+	out = append(out, tail...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,10 +240,12 @@ func TestRedactionRestoreSSEStructuredOutputAndAnthropicToolJSON(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			stream := newRedactionRestoreSSE(tc.protocol, streamTestRestore, tc.structured)
-			if got, err := stream.Push([]byte(tc.first + tc.second)); err != nil || len(got) != 0 {
-				t.Fatalf("document escaped early: %q / %v", got, err)
+			got, err := stream.Push([]byte(tc.first + tc.second))
+			if err != nil || len(got) == 0 {
+				t.Fatalf("completed values did not stream: %v", err)
 			}
-			got, err := stream.Push([]byte(tc.end))
+			tail, err := stream.Push([]byte(tc.end))
+			got = append(got, tail...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -356,7 +359,7 @@ func TestRedactionRestoreSSEAnthropicAndGemini(t *testing.T) {
 	}
 }
 
-func TestRedactionRestoreSSERejectsTruncatedTokenAndExpiredWait(t *testing.T) {
+func TestRedactionRestoreSSERejectsTruncatedToken(t *testing.T) {
 	first := []byte("data: " + `{"choices":[{"index":0,"delta":{"content":"gld1_3_ab"}}]}` + "\n\n")
 	stream := newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
 	if got, err := stream.Push(first); err != nil || len(got) != 0 {
@@ -368,10 +371,6 @@ func TestRedactionRestoreSSERejectsTruncatedTokenAndExpiredWait(t *testing.T) {
 	stream = newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
 	if _, err := stream.Push(first); err != nil {
 		t.Fatal(err)
-	}
-	stream.blockedAt = time.Now().Add(-maxRedactionStreamWait - time.Second)
-	if _, err := stream.Push([]byte("data: " + `{"choices":[]}` + "\n\n")); err == nil {
-		t.Fatal("expired pending candidate was accepted")
 	}
 	stream = newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
 	if _, err := stream.Push(first); err != nil {
@@ -463,10 +462,12 @@ func TestRedactionRestoreSSEToolJSONFindsUnicodeEscapedToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := append(append([]byte("data: "), message...), []byte("\n\n")...)
-	if got, err := stream.Push(first); err != nil || len(got) != 0 {
-		t.Fatalf("tool document emitted before completion: %q / %v", got, err)
+	got, err := stream.Push(first)
+	if err != nil || len(got) == 0 {
+		t.Fatalf("completed escaped token did not stream: %v", err)
 	}
-	got, err := stream.Push([]byte("data: " + `{"choices":[{"index":0,"finish_reason":"tool_calls"}]}` + "\n\n"))
+	tail, err := stream.Push([]byte("data: " + `{"choices":[{"index":0,"finish_reason":"tool_calls"}]}` + "\n\n"))
+	got = append(got, tail...)
 	if err != nil {
 		t.Fatal(err)
 	}

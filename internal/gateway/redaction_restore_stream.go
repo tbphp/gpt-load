@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/tidwall/gjson"
@@ -21,7 +20,6 @@ const (
 	maxRedactionStreamPendingBytes = 32 << 20
 	maxRedactionStreamDocument     = 10 << 20
 	maxRedactionStreamChannels     = 64
-	maxRedactionStreamWait         = 30 * time.Second
 	redactionStreamPrefix          = "gld1_"
 )
 
@@ -41,7 +39,6 @@ type redactionRestoreSSE struct {
 	queueBytes              int
 	texts                   map[string]*redactionStreamText
 	documents               map[string]*redactionStreamDocument
-	blockedAt               time.Time
 	terminalBoundaryPending bool
 	terminalReleased        bool
 	finished                bool
@@ -69,11 +66,6 @@ type redactionStreamText struct {
 	last *redactionStreamField
 }
 
-type redactionStreamDocument struct {
-	text   bytes.Buffer
-	fields []*redactionStreamField
-}
-
 func newRedactionRestoreSSE(
 	clientProtocol protocol.Protocol,
 	restore func(string) (string, error),
@@ -99,9 +91,6 @@ func newRedactionRestoreSSEWithLimit(
 func (stream *redactionRestoreSSE) Push(chunk []byte) ([]byte, error) {
 	if stream == nil || stream.finished || stream.failed {
 		return nil, errRedactionStream
-	}
-	if stream.expired() {
-		return nil, stream.fail(errRedactionStream)
 	}
 	var output []byte
 	for len(chunk) > 0 {
@@ -159,11 +148,7 @@ func (stream *redactionRestoreSSE) drain() ([]byte, error) {
 		if event.terminal && stream.scanner.optionalLineFeed {
 			stream.terminalBoundaryPending = true
 		}
-		if stream.blocked() {
-			if stream.blockedAt.IsZero() {
-				stream.blockedAt = time.Now()
-			}
-		} else {
+		if !stream.blocked() {
 			part, err := stream.release()
 			if err != nil {
 				return nil, err
@@ -183,9 +168,6 @@ func (stream *redactionRestoreSSE) Finish() ([]byte, error) {
 	}
 	if stream.finished {
 		return nil, nil
-	}
-	if stream.expired() {
-		return nil, stream.fail(errRedactionStream)
 	}
 	optional, overflow := stream.scanner.ConsumeOptionalLineFeed(stream.input, true, stream.maxEventBytes)
 	if overflow {
@@ -212,27 +194,22 @@ func (stream *redactionRestoreSSE) Finish() ([]byte, error) {
 	return output, nil
 }
 
-// Deadline lets a caller enforce the same waiting limit while an upstream
-// read is stalled; Push and Finish also enforce it whenever they are called.
-func (stream *redactionRestoreSSE) Deadline() (time.Time, bool) {
-	if stream == nil || stream.blockedAt.IsZero() {
-		return time.Time{}, false
-	}
-	return stream.blockedAt.Add(maxRedactionStreamWait), true
-}
-
 // TerminalReleased reports whether a protocol terminal event has actually
 // left the pending queue. The caller must still confirm its own write succeeds.
 func (stream *redactionRestoreSSE) TerminalReleased() bool {
 	return stream != nil && stream.terminalReleased
 }
 
-func (stream *redactionRestoreSSE) expired() bool {
-	return !stream.blockedAt.IsZero() && time.Since(stream.blockedAt) > maxRedactionStreamWait
-}
-
 func (stream *redactionRestoreSSE) blocked() bool {
-	return len(stream.texts) != 0 || len(stream.documents) != 0 || stream.terminalBoundaryPending
+	if len(stream.texts) != 0 || stream.terminalBoundaryPending {
+		return true
+	}
+	for _, doc := range stream.documents {
+		if doc.pending != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (stream *redactionRestoreSSE) enqueue(event *redactionStreamEvent) error {
@@ -265,7 +242,6 @@ func (stream *redactionRestoreSSE) release() ([]byte, error) {
 	stream.terminalReleased = stream.terminalReleased || terminal
 	stream.queue = nil
 	stream.queueBytes = 0
-	stream.blockedAt = time.Time{}
 	return output, nil
 }
 
@@ -441,8 +417,29 @@ func (stream *redactionRestoreSSE) addText(
 	if value.Type != gjson.String {
 		return nil
 	}
+	if signed {
+		if err := stream.closeMatching(key); err != nil {
+			return err
+		}
+		return stream.direct(event, func(ctx *unaryRestoreContext) error {
+			if err := ctx.text(value); err != nil {
+				return err
+			}
+			if len(ctx.patches) != 0 {
+				return errRedactionStream
+			}
+			return nil
+		})
+	}
 	if stream.structured {
 		return stream.addDocument(event, key, value, signed)
+	}
+	return stream.addPlainText(event, key, value, signed)
+}
+
+func (stream *redactionRestoreSSE) addPlainText(event *redactionStreamEvent, key string, value gjson.Result, signed bool) error {
+	if value.Type != gjson.String {
+		return nil
 	}
 	field := event.field(value)
 	field.signed = signed
@@ -496,19 +493,24 @@ func (stream *redactionRestoreSSE) addDocument(
 		state = &redactionStreamDocument{}
 		stream.documents[key] = state
 	}
-	if state.text.Len() > maxRedactionStreamDocument-len(value.Str) {
-		return errRedactionStream
+	restored, err := state.push(value.Str, stream.restore)
+	if err != nil {
+		return err
 	}
-	state.text.WriteString(value.Str)
 	field := event.field(value)
 	field.signed = signed
-	state.fields = append(state.fields, field)
+	field.value = restored
+	if state.pending != "" {
+		state.last = field
+	} else {
+		state.last = nil
+	}
 	return nil
 }
 
 func (stream *redactionRestoreSSE) closeMatching(prefix string) error {
 	for key, state := range stream.texts {
-		if !strings.HasPrefix(key, prefix) {
+		if key != prefix && prefix != "" && !(strings.HasSuffix(prefix, "/") && strings.HasPrefix(key, prefix)) {
 			continue
 		}
 		if redactionStreamIncompleteCandidate(state.tail) {
@@ -518,41 +520,19 @@ func (stream *redactionRestoreSSE) closeMatching(prefix string) error {
 		delete(stream.texts, key)
 	}
 	for key, state := range stream.documents {
-		if !strings.HasPrefix(key, prefix) {
+		if key != prefix && prefix != "" && !(strings.HasSuffix(prefix, "/") && strings.HasPrefix(key, prefix)) {
 			continue
 		}
-		restored, err := redactionStreamJSONDocument(state.text.Bytes(), stream.restore)
+		tail, err := state.finish(stream.restore)
 		if err != nil {
 			return err
 		}
-		if restored != state.text.String() && len(state.fields) != 0 {
-			for _, field := range state.fields[:len(state.fields)-1] {
-				field.value = ""
-			}
-			state.fields[len(state.fields)-1].value = restored
+		if state.last != nil {
+			state.last.value += tail
 		}
 		delete(stream.documents, key)
 	}
 	return nil
-}
-
-func redactionStreamJSONDocument(document []byte, restore func(string) (string, error)) (string, error) {
-	if !bytes.Contains(document, []byte(redactionStreamPrefix)) &&
-		!bytes.Contains(document, []byte(`\u`)) {
-		return string(document), nil
-	}
-	if len(document) > maxRedactionStreamDocument || !json.Valid(document) || !utf8.Valid(document) {
-		return "", errRedactionStream
-	}
-	ctx := unaryRestoreContext{body: document, restore: restore}
-	if err := ctx.walkJSONValues(gjson.ParseBytes(document), 0, ctx.addPatch); err != nil {
-		return "", errRedactionStream
-	}
-	result, err := ctx.apply()
-	if err != nil || len(result) > maxRedactionStreamDocument {
-		return "", errRedactionStream
-	}
-	return string(result), nil
 }
 
 // redactionStreamSafeCut keeps only a possible token suffix. Complete tokens
@@ -706,6 +686,15 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
 			return stream.addText(event, textKey, value, false)
 		})
+	case "response.custom_tool_call_input.delta":
+		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
+			return stream.addPlainText(event, toolKey, value, false)
+		})
+	case "response.custom_tool_call_input.done":
+		if err := stream.closeMatching(toolKey); err != nil {
+			return err
+		}
+		return stream.direct(event, func(ctx *unaryRestoreContext) error { return ctx.customToolInput(root) })
 	case "response.function_call_arguments.delta":
 		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
 			return stream.addDocument(event, toolKey, value, false)
@@ -736,16 +725,23 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 				return nil
 			})
 		})
-	case "response.output_item.done":
-		if err := stream.closeMatching("response/text/" + outputIndex + "/"); err != nil {
-			return err
+	case "response.output_item.done", "response.output_item.added":
+		if kind == "response.output_item.added" && root.Get("item.type").Str != "custom_tool_call" {
+			return nil
 		}
-		if err := stream.closeMatching(toolKey); err != nil {
-			return err
+		if kind == "response.output_item.done" {
+			if err := stream.closeMatching("response/text/" + outputIndex + "/"); err != nil {
+				return err
+			}
+			if err := stream.closeMatching(toolKey); err != nil {
+				return err
+			}
 		}
 		return stream.direct(event, func(ctx *unaryRestoreContext) error {
 			return unaryRestoreField(root, "item", func(item gjson.Result) error {
 				switch item.Get("type").Str {
+				case "custom_tool_call":
+					return ctx.customToolInput(item)
 				case "function_call":
 					return ctx.arguments(item)
 				case "message":
@@ -761,7 +757,7 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 				return nil
 			})
 		})
-	case "response.completed":
+	case "response.completed", "response.incomplete":
 		event.terminal = true
 		if err := stream.closeMatching(""); err != nil {
 			return err
@@ -773,7 +769,7 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 		if !bytes.Equal(restored, event.payload) {
 			event.replacement = restored
 		}
-	case "response.incomplete", "response.failed":
+	case "response.failed":
 		event.terminal = true
 		return stream.closeMatching("")
 	}

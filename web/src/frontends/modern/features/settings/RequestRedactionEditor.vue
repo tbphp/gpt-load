@@ -20,7 +20,14 @@ const { issues, failed, invalid } = useRedactionValidation(() => props.modelValu
 watch(invalid, (value) => emit('invalid', value), { immediate: true })
 onScopeDispose(() => emit('invalid', false))
 function add(rule: RedactionRule = { pattern: '', replacement: '[REDACTED]' }) {
-  emit('update:modelValue', [...props.modelValue, { ...rule }])
+  emit('update:modelValue', [
+    ...props.modelValue,
+    {
+      pattern: rule.pattern,
+      replacement: rule.replacement,
+      ...(rule.mode ? { mode: rule.mode } : {}),
+    },
+  ])
 }
 function update(index: number, patch: Partial<RedactionRule>) {
   emit(

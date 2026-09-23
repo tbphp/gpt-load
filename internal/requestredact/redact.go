@@ -49,6 +49,7 @@ type Compiled struct {
 // dependency through compiled configuration.
 type TokenCipher interface {
 	EncryptToken(string) (string, error)
+	TokenCandidateEnd(string, int) (int, bool)
 	ValidTokenAt(string, int) (int, bool)
 }
 
@@ -155,12 +156,26 @@ func (c *Compiled) TextWithCipher(value string, cipher TokenCipher) (string, err
 	const tokenPrefix = "gld1_"
 	protected := make([]tokenSpan, 0)
 	scan := 0
+	attempts, remaining := 0, len(value)
 	for scan < len(value) {
 		relative := strings.Index(value[scan:], tokenPrefix)
 		if relative < 0 {
 			break
 		}
 		start := scan + relative
+		attempts++
+		if attempts > maxDocumentPatches {
+			return "", ErrContent
+		}
+		candidateEnd, complete := cipher.TokenCandidateEnd(value, start)
+		if !complete {
+			scan = start + len(tokenPrefix)
+			continue
+		}
+		if candidateEnd <= start || candidateEnd > len(value) || candidateEnd-start > remaining {
+			return "", ErrContent
+		}
+		remaining -= candidateEnd - start
 		end, valid := cipher.ValidTokenAt(value, start)
 		if !valid {
 			scan = start + len(tokenPrefix)

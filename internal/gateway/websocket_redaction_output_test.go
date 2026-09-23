@@ -95,13 +95,17 @@ func TestWebsocketRedactionRestoresToolArgumentsAndKeepsFrameOrder(t *testing.T)
 	output := newWebsocketRedactionOutput(cipher.RestoreText, false)
 	first := websocketRedactionEvent(t, "response.function_call_arguments.delta", "lane-b", "delta", `{"password":"`+token[:len(token)-4])
 	second := websocketRedactionEvent(t, "response.function_call_arguments.delta", "lane-b", "delta", token[len(token)-4:]+`","n":9007199254740993}`)
-	for _, frame := range [][]byte{first, second} {
-		if got, err := output.Push(frame); err != nil || len(got) != 0 {
-			t.Fatalf("partial tool arguments escaped: %#v / %v", got, err)
-		}
+	got, err := output.Push(first)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("incomplete token escaped: %v", err)
+	}
+	got, err = output.Push(second)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("completed token did not stream: %v", err)
 	}
 	done := websocketRedactionEvent(t, "response.function_call_arguments.done", "lane-b", "arguments", `{"password":"`+token+`","n":9007199254740993}`)
-	got, err := output.Push(done)
+	tail, err := output.Push(done)
+	got = append(got, tail...)
 	if err != nil || len(got) != 3 {
 		t.Fatalf("tool output frames = %#v / %v", got, err)
 	}
@@ -141,8 +145,12 @@ func TestWebsocketRedactionDoneStatusPreservesFailedSnapshots(t *testing.T) {
 			output := newWebsocketRedactionOutput(cipher.RestoreText, false)
 			body := []byte(fmt.Sprintf(`{"type":"response.done","response":{"id":"resp_1","object":"response","status":%q,"output":[{"type":"message","content":[{"type":"output_text","text":%q}]}]}}`, status, token))
 			got, err := output.Push(body)
-			if err != nil || len(got) != 1 || !bytes.Equal(got[0], body) {
-				t.Fatalf("%s response.done changed: %#v / %v", status, got, err)
+			want := body
+			if status == "incomplete" {
+				want = bytes.ReplaceAll(body, []byte(token), []byte("private"))
+			}
+			if err != nil || len(got) != 1 || !bytes.Equal(got[0], want) {
+				t.Fatalf("%s response.done differs: %#v / %v", status, got, err)
 			}
 		})
 	}

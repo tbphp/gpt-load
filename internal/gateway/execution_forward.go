@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"gpt-load/internal/dialect"
@@ -192,44 +191,6 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		structured := input.Request != nil && requestDeclaresJSONOutput(input.ClientProtocol, input.Request.Body)
 		redactionRestore = newRedactionRestoreSSE(input.ClientProtocol, input.RedactionCipher.RestoreText, structured)
 	}
-	executeContext := ctx
-	var cancelRestore context.CancelFunc
-	var restoreDeadline time.Time
-	var restoreTimer *time.Timer
-	var restoreGeneration atomic.Uint64
-	var restoreTimedOut atomic.Bool
-	if redactionRestore != nil {
-		executeContext, cancelRestore = context.WithCancel(ctx)
-		defer cancelRestore()
-		defer func() {
-			if restoreTimer != nil {
-				restoreTimer.Stop()
-			}
-		}()
-	}
-	updateRestoreDeadline := func() {
-		if redactionRestore == nil {
-			return
-		}
-		deadline, _ := redactionRestore.Deadline()
-		if deadline.Equal(restoreDeadline) {
-			return
-		}
-		generation := restoreGeneration.Add(1)
-		if restoreTimer != nil {
-			restoreTimer.Stop()
-			restoreTimer = nil
-		}
-		restoreDeadline = deadline
-		if !deadline.IsZero() {
-			restoreTimer = time.AfterFunc(max(0, time.Until(deadline)), func() {
-				if restoreGeneration.Load() == generation && ctx.Err() == nil {
-					restoreTimedOut.Store(true)
-					cancelRestore()
-				}
-			})
-		}
-	}
 
 	var (
 		ready         *execution.StreamEvent
@@ -304,7 +265,6 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 					downstreamErr = executionRedactionStreamFailure()
 					return downstreamErr
 				}
-				updateRestoreDeadline()
 				if len(forwardData) == 0 {
 					return nil
 				}
@@ -367,12 +327,9 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		}
 	}
 
-	terminal := forwarder.executor.ExecuteStream(executeContext, spec, sink)
+	terminal := forwarder.executor.ExecuteStream(ctx, spec, sink)
 	if err := terminal.Validate(); err != nil {
 		terminal = invalidExecutionStreamResult(terminal, ready, committed)
-	}
-	if restoreTimedOut.Load() && ctx.Err() == nil {
-		downstreamErr = executionRedactionStreamFailure()
 	}
 	if downstreamErr == nil && terminal.Error == nil {
 		if responsesStoreBuffer != nil {

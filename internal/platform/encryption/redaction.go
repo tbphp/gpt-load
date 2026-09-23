@@ -29,6 +29,7 @@ var errInvalidRedactionToken = errors.New("invalid redaction token")
 // Its key is derived at construction and remains unchanged for its lifetime.
 type RedactionCipher interface {
 	EncryptToken(plaintext string) (string, error)
+	TokenCandidateEnd(text string, start int) (end int, complete bool)
 	ValidTokenAt(text string, start int) (end int, valid bool)
 	RestoreText(text string) (string, error)
 }
@@ -131,6 +132,12 @@ func (c *redactionCipher) decryptCandidate(text string, start int, candidate tok
 		return "", errInvalidRedactionToken
 	}
 	return string(plaintext), nil
+}
+
+// TokenCandidateEnd 只解析有界候选，不分配解码缓冲，也不执行认证。
+func (c *redactionCipher) TokenCandidateEnd(text string, start int) (int, bool) {
+	candidate := parseRedactionCandidate(text, start)
+	return candidate.end, candidate.found && !candidate.malformed
 }
 
 func (c *redactionCipher) ValidTokenAt(text string, start int) (end int, valid bool) {

@@ -556,7 +556,9 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			finishRejectedAttempt()
 		} else {
 			value := reasonUpstreamConnect
-			if result.ExecutionError != nil {
+			if result.Stream.EndReason == StreamEndRedactionFailed {
+				value = reasonResponseRedactionFailed
+			} else if result.ExecutionError != nil {
 				if result.ExecutionError.Kind == execution.ErrorKindTimeout {
 					value = reasonUpstreamTimeout
 				} else if result.ExecutionError.StatusCode >= 400 {
@@ -736,13 +738,6 @@ func (output *websocketRedactionOutput) Finish() ([][]byte, error) {
 	return frames, nil
 }
 
-func (output *websocketRedactionOutput) Deadline() (time.Time, bool) {
-	if output == nil || output.stream == nil {
-		return time.Time{}, false
-	}
-	return output.stream.Deadline()
-}
-
 func (output *websocketRedactionOutput) unpack(released []byte) ([][]byte, error) {
 	frames := make([][]byte, 0)
 	for len(released) > 0 {
@@ -822,40 +817,6 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 		)
 	}
 	var restoreFailure error
-	var restoreWaitExpired atomic.Bool
-	var restoreWaitGeneration atomic.Uint64
-	var restoreWaitTimer *time.Timer
-	defer func() {
-		restoreWaitGeneration.Add(1)
-		if restoreWaitTimer != nil {
-			restoreWaitTimer.Stop()
-		}
-	}()
-	refreshRestoreDeadline := func() {
-		generation := restoreWaitGeneration.Add(1)
-		if restoreWaitTimer != nil {
-			restoreWaitTimer.Stop()
-			restoreWaitTimer = nil
-		}
-		if restored == nil {
-			return
-		}
-		deadline, waiting := restored.Deadline()
-		if !waiting {
-			return
-		}
-		if remaining := time.Until(deadline); remaining > 0 {
-			restoreWaitTimer = time.AfterFunc(remaining, func() {
-				if restoreWaitGeneration.Load() == generation {
-					restoreWaitExpired.Store(true)
-					cancel()
-				}
-			})
-		} else {
-			restoreWaitExpired.Store(true)
-			cancel()
-		}
-	}
 	emitRestored := func(ctx context.Context, frames [][]byte) error {
 		if len(frames) == 0 {
 			return nil
@@ -1015,33 +976,21 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 		}
 		frames := [][]byte{body}
 		if restored != nil {
-			restoreWaitGeneration.Add(1)
-			if restoreWaitTimer != nil {
-				restoreWaitTimer.Stop()
-				restoreWaitTimer = nil
-			}
 			frames, err = restored.Push(body)
 			if err != nil {
 				restoreFailure = err
 				return ErrUpstreamProtocol
 			}
-			refreshRestoreDeadline()
 		}
 		return emitRestored(ctx, frames)
 	})
-	if restored != nil && wsResult.Error == nil && restoreFailure == nil && !restoreWaitExpired.Load() {
-		restoreWaitGeneration.Add(1)
-		if restoreWaitTimer != nil {
-			restoreWaitTimer.Stop()
-			restoreWaitTimer = nil
-		}
+	if restored != nil && wsResult.Error == nil && restoreFailure == nil {
 		frames, err := restored.Finish()
 		if err != nil {
 			restoreFailure = err
 		} else if err := emitRestored(ctx, frames); err != nil {
 			restoreFailure = err
 		}
-		refreshRestoreDeadline()
 	}
 	first.stop()
 	if idle != nil {
@@ -1093,7 +1042,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 	if s.ctx.Err() != nil && !observer.terminalForwarded {
 		result.Stream = prioritizeStreamObservation(s.ctx, s.ctx.Err(), result.Stream)
 	}
-	if restoreFailure != nil || restoreWaitExpired.Load() {
+	if restoreFailure != nil {
 		result.Err = errRedactionStream
 		result.Stream = streamTerminalObservation(StreamEndRedactionFailed)
 		result.ExecutionError = &execution.ErrorEvidence{

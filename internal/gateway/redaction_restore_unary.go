@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strconv"
+	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -163,6 +164,8 @@ func (ctx *unaryRestoreContext) responses(root gjson.Result, depth int) error {
 				})
 			case "function_call":
 				return ctx.arguments(item)
+			case "custom_tool_call":
+				return ctx.customToolInput(item)
 			default:
 				return nil
 			}
@@ -190,6 +193,8 @@ func (ctx *unaryRestoreContext) responsesInputItems(root gjson.Result) error {
 				})
 			case "function_call":
 				return ctx.arguments(item)
+			case "custom_tool_call":
+				return ctx.customToolInput(item)
 			case "function_call_output":
 				return unaryRestoreField(item, "output", func(output gjson.Result) error {
 					if output.Type == gjson.String {
@@ -253,6 +258,12 @@ func (ctx *unaryRestoreContext) gemini(root gjson.Result) error {
 	})
 }
 
+func (ctx *unaryRestoreContext) customToolInput(item gjson.Result) error {
+	return unaryRestoreField(item, "input", func(value gjson.Result) error {
+		return ctx.restoreString(value, ctx.addPatch)
+	})
+}
+
 func (ctx *unaryRestoreContext) arguments(call gjson.Result) error {
 	return unaryRestoreField(call, "arguments", ctx.jsonValue)
 }
@@ -278,6 +289,20 @@ func (ctx *unaryRestoreContext) embeddedJSON(value gjson.Result, required bool) 
 	inner := []byte(value.Str)
 	if !json.Valid(inner) || !utf8.Valid(inner) {
 		if required {
+			restored, err := ctx.restore(value.Str)
+			if err == nil && restored == value.Str {
+				// 无需改写的截断 JSON 原样返回；转义后的候选仍须检查。
+				if strings.Contains(value.Str, `\u`) {
+					probe := redactionStreamDocument{}
+					if _, err := probe.push(value.Str, ctx.restore); err != nil || probe.changed {
+						return errUnaryRestore
+					}
+					if _, err := probe.finish(ctx.restore); err != nil {
+						return errUnaryRestore
+					}
+				}
+				return nil
+			}
 			return errUnaryRestore
 		}
 		return ctx.restoreString(value, ctx.addPatch)
