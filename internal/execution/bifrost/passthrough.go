@@ -15,6 +15,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/geminiembedding"
 	"gpt-load/internal/execution/geminiimage"
 	"gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
@@ -387,7 +388,7 @@ func (r *Runtime) executePassthrough(
 
 complete:
 	bodyBytes := body.Bytes()
-	if spec.ClientProtocol != protocol.OpenAIImages {
+	if spec.ClientProtocol != protocol.OpenAIImages && spec.ClientProtocol != protocol.OpenAIEmbeddings {
 		bodyBytes = bytes.Clone(bodyBytes)
 	}
 	if headers.Get("Content-Encoding") == "" && looksLikeEncodedResponse(bodyBytes) {
@@ -405,6 +406,20 @@ complete:
 				failure.Error.Code = "invalid_image_response"
 				failure.Error.StatusCode = http.StatusBadGateway
 				failure.Error.Hint = execution.FailureHintRequestRejected
+				failure.Error.OriginHint, failure.Error.ScopeHint = execution.ErrorOriginUpstream, execution.ErrorScopeRequest
+				return failure
+			}
+			model = openAIResponseModel(bodyBytes, "")
+		}
+		if prepared.mode == channel.RouteConverted && spec.ClientProtocol == protocol.OpenAIEmbeddings && prepared.geminiEmbeddingContract != nil {
+			var err error
+			bodyBytes, usageEvidence, err = geminiembedding.ConvertResponse(bodyBytes, *prepared.geminiEmbeddingContract)
+			httpheader.StripRepresentationMetadata(headers)
+			headers.Set("Content-Type", "application/json")
+			if err != nil {
+				failure := startedUnaryFailure(http.StatusBadGateway, headers, execution.ErrorKindProvider, geminiembedding.ErrInvalidResponse.Error())
+				failure.Error.Code = "invalid_embedding_response"
+				failure.Error.StatusCode = http.StatusBadGateway
 				failure.Error.OriginHint, failure.Error.ScopeHint = execution.ErrorOriginUpstream, execution.ErrorScopeRequest
 				return failure
 			}

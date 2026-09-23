@@ -31,6 +31,12 @@ func TestOpenAIEmbeddingsNativeRouteIsLimitedToSupportedAPIKeyChannels(t *testin
 				}
 				continue
 			}
+			if descriptor.ID == Gemini && operation == execution.OperationEmbeddingsCreate {
+				if !ok || mode != RouteConverted {
+					t.Errorf("gemini embeddings route = %q, %t; want converted", mode, ok)
+				}
+				continue
+			}
 			if ok {
 				t.Errorf("%q unexpectedly advertises embeddings %q route %q", descriptor.ID, operation, mode)
 			}

@@ -39,6 +39,8 @@ func convertedRouteImplemented(providerKind channel.ProviderKind, clientProtocol
 	switch operation {
 	case execution.OperationImagesGenerate:
 		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIImages
+	case execution.OperationEmbeddingsCreate:
+		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIEmbeddings
 	case execution.OperationListModels:
 		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.Rerank &&
 			clientProtocol != protocol.Decisions && clientProtocol.Valid()
