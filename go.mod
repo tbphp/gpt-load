@@ -16,6 +16,7 @@ require (
 	github.com/sirupsen/logrus v1.10.2
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
+	github.com/tink-crypto/tink-go/v2 v2.8.0
 	go.uber.org/dig v1.19.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/net v0.59.0

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { Trash2 } from '@lucide/vue'
-import { onScopeDispose, watch } from 'vue'
+import { computed, onScopeDispose, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { redactionPresets, type RedactionRule } from '@/app/resources/request-redaction'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useRedactionValidation } from './use-redaction-validation'
@@ -14,14 +15,15 @@ const emit = defineEmits<{
   invalid: [value: boolean]
 }>()
 const { t } = useI18n()
+const modeOptions = computed(() => [
+  { value: 'replace', label: t('requestRedaction.modes.replace') },
+  { value: 'encrypt', label: t('requestRedaction.modes.encrypt') },
+])
 const { issues, failed, invalid } = useRedactionValidation(() => props.modelValue)
 watch(invalid, (value) => emit('invalid', value), { immediate: true })
 onScopeDispose(() => emit('invalid', false))
 function add(rule: RedactionRule = { pattern: '', replacement: '[REDACTED]' }) {
-  emit('update:modelValue', [
-    ...props.modelValue,
-    { pattern: rule.pattern, replacement: rule.replacement },
-  ])
+  emit('update:modelValue', [...props.modelValue, { ...rule }])
 }
 function update(index: number, patch: Partial<RedactionRule>) {
   emit(
@@ -60,6 +62,7 @@ function error(index: number): string | undefined {
     <p v-if="!modelValue.length" class="redaction-note">{{ t('requestRedaction.empty') }}</p>
     <div v-if="modelValue.length" class="redaction-heading">
       <span>{{ t('requestRedaction.pattern') }}</span>
+      <span>{{ t('requestRedaction.mode') }}</span>
       <span>{{ t('requestRedaction.replacement') }}</span>
     </div>
     <div v-for="(rule, index) in modelValue" :key="index" class="redaction-row">
@@ -84,7 +87,23 @@ function error(index: number): string | undefined {
           {{ t('requestRedaction.broad') }}
         </p>
       </div>
-      <div class="redaction-field">
+      <div class="redaction-field redaction-mode">
+        <span class="redaction-mobile-label">{{ t('requestRedaction.mode') }}</span>
+        <AppSelect
+          :model-value="rule.mode ?? 'replace'"
+          :options="modeOptions"
+          :label="t('requestRedaction.mode')"
+          size="sm"
+          :disabled="disabled"
+          @update:model-value="
+            update(index, { mode: $event === 'encrypt' ? 'encrypt' : 'replace' })
+          "
+        />
+      </div>
+      <div
+        v-if="(rule.mode ?? 'replace') === 'replace'"
+        class="redaction-field redaction-replacement"
+      >
         <span class="redaction-mobile-label">{{ t('requestRedaction.replacement') }}</span>
         <AppTextInput
           :model-value="rule.replacement"
@@ -170,7 +189,7 @@ function error(index: number): string | undefined {
 .redaction-heading,
 .redaction-row {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) var(--control-compact);
+  grid-template-columns: minmax(0, 3fr) 126px minmax(0, 2fr) var(--control-compact);
   align-items: start;
   gap: var(--space-2);
 }
@@ -182,6 +201,7 @@ function error(index: number): string | undefined {
   display: none;
 }
 .redaction-remove {
+  grid-column: 4;
   align-self: start;
   margin-top: var(--space-0-5);
 }
@@ -207,12 +227,22 @@ function error(index: number): string | undefined {
   .redaction-field:first-child {
     grid-column: 1 / -1;
   }
+  .redaction-mode {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .redaction-replacement {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
   .redaction-mobile-label {
     display: block;
     color: var(--color-text);
     font-size: var(--text-sm);
   }
   .redaction-remove {
+    grid-column: 2;
+    grid-row: 2;
     margin-top: var(--space-6);
   }
 }

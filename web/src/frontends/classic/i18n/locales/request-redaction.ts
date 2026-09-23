@@ -1,14 +1,16 @@
 export const zhCN = {
   title: '请求脱敏',
-  help: '按规则替换发送给上游和 JEV 的消息文本。没有规则时不处理。',
+  help: '按规则替换或加密发送给上游和 JEV 的消息文本；删除规则后仍可还原历史密文。',
   quickAdd: '快捷添加',
   pattern: '规则内容',
+  mode: '处理方式',
+  modes: { replace: '固定替换', encrypt: '可逆加密' },
   replacement: '替换文本',
   add: '添加规则',
   remove: '删除规则',
   empty: '尚未配置脱敏规则',
   syntax:
-    '使用 Go / RE2 正则；替换文本按字面使用。图片、附件内部和未随请求传入的历史不在处理范围内。',
+    '使用 Go / RE2 正则；固定替换模式按字面使用替换文本。图片、附件内部和未随请求传入的历史不在处理范围内。',
   broad: '此规则可能匹配空文本或大部分消息，请确认范围；仍可保存。',
   invalid: '正则无效：{reason}',
   failed: '规则校验失败，请修改规则后重试。',
@@ -21,15 +23,17 @@ export const zhCN = {
 }
 export const enUS = {
   title: 'Request redaction',
-  help: 'Replace matching message text sent to upstream providers and JEV. No rules means no redaction.',
+  help: 'Replace or encrypt matching message text sent upstream and to JEV. Existing encrypted text remains restorable after rules are removed.',
   quickAdd: 'Quick add',
   pattern: 'Pattern',
+  mode: 'Mode',
+  modes: { replace: 'Replace', encrypt: 'Reversible encryption' },
   replacement: 'Replacement text',
   add: 'Add rule',
   remove: 'Remove rule',
   empty: 'No redaction rules configured',
   syntax:
-    'Use Go / RE2 regular expressions. Replacement text is literal. Image and file contents, and history not included in the request, are outside the scope.',
+    'Use Go / RE2 regular expressions. Replacement text is literal in replace mode. Image and file contents, and history not included in the request, are outside the scope.',
   broad:
     'This rule may match empty text or most of a message. Check its scope; saving is still allowed.',
   invalid: 'Invalid expression: {reason}',
@@ -48,15 +52,17 @@ export const enUS = {
 }
 export const jaJP = {
   title: 'リクエストのマスキング',
-  help: '上流と JEV に送信するメッセージの一致箇所を置換します。ルールがなければ処理しません。',
+  help: '上流と JEV に送信するメッセージの一致箇所を置換または暗号化します。ルール削除後も既存の暗号文は復元できます。',
   quickAdd: 'クイック追加',
   pattern: '正規表現',
+  mode: '処理方法',
+  modes: { replace: '固定置換', encrypt: '復元可能な暗号化' },
   replacement: '置換テキスト',
   add: 'ルールを追加',
   remove: 'ルールを削除',
   empty: 'ルールは未設定です',
   syntax:
-    'Go / RE2 正規表現を使用します。置換テキストはそのまま挿入されます。画像・添付内部とリクエストに含まれない履歴は対象外です。',
+    'Go / RE2 正規表現を使用します。固定置換では置換テキストをそのまま挿入します。画像・添付内部とリクエストに含まれない履歴は対象外です。',
   broad:
     '空文字列やメッセージの大部分に一致する可能性があります。範囲を確認してください。保存は可能です。',
   invalid: '無効な正規表現：{reason}',

@@ -21,6 +21,7 @@ func TestRedactorStringCoversCredentialShapes(t *testing.T) {
 		{name: "cookie", input: `Cookie: session=custom-secret-value`},
 		{name: "bare bearer", input: `provider returned Bearer custom-secret-value`},
 		{name: "client secret", input: `client_secret=custom-secret-value`},
+		{name: "reversible redaction token", input: `upstream echoed gld1_50_Td2RZbM74JpizRwe4m_ji9Fsg5B9vD97EUK_HoAC0ce7JdwNiA`},
 	}
 
 	for _, tt := range tests {

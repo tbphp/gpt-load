@@ -3,10 +3,12 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gpt-load/internal/dialect"
@@ -185,6 +187,49 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	if input.ResponsesStoreDowngraded {
 		responsesStoreBuffer = newStatelessResponsesSSEBuffer()
 	}
+	var redactionRestore *redactionRestoreSSE
+	if input.RedactionCipher != nil && redactionBusinessProtocol(input.ClientProtocol) {
+		structured := input.Request != nil && requestDeclaresJSONOutput(input.ClientProtocol, input.Request.Body)
+		redactionRestore = newRedactionRestoreSSE(input.ClientProtocol, input.RedactionCipher.RestoreText, structured)
+	}
+	executeContext := ctx
+	var cancelRestore context.CancelFunc
+	var restoreDeadline time.Time
+	var restoreTimer *time.Timer
+	var restoreGeneration atomic.Uint64
+	var restoreTimedOut atomic.Bool
+	if redactionRestore != nil {
+		executeContext, cancelRestore = context.WithCancel(ctx)
+		defer cancelRestore()
+		defer func() {
+			if restoreTimer != nil {
+				restoreTimer.Stop()
+			}
+		}()
+	}
+	updateRestoreDeadline := func() {
+		if redactionRestore == nil {
+			return
+		}
+		deadline, _ := redactionRestore.Deadline()
+		if deadline.Equal(restoreDeadline) {
+			return
+		}
+		generation := restoreGeneration.Add(1)
+		if restoreTimer != nil {
+			restoreTimer.Stop()
+			restoreTimer = nil
+		}
+		restoreDeadline = deadline
+		if !deadline.IsZero() {
+			restoreTimer = time.AfterFunc(max(0, time.Until(deadline)), func() {
+				if restoreGeneration.Load() == generation && ctx.Err() == nil {
+					restoreTimedOut.Store(true)
+					cancelRestore()
+				}
+			})
+		}
+	}
 
 	var (
 		ready         *execution.StreamEvent
@@ -253,6 +298,17 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 					return nil
 				}
 			}
+			if redactionRestore != nil {
+				forwardData, err = redactionRestore.Push(forwardData)
+				if err != nil {
+					downstreamErr = executionRedactionStreamFailure()
+					return downstreamErr
+				}
+				updateRestoreDeadline()
+				if len(forwardData) == 0 {
+					return nil
+				}
+			}
 			if !committed {
 				if !firstResponse {
 					firstResponse = true
@@ -272,7 +328,8 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				if input.OnStreamReady != nil {
 					input.OnStreamReady()
 				}
-				if terminalInChunk {
+				if (redactionRestore != nil && redactionRestore.TerminalReleased()) ||
+					(redactionRestore == nil && terminalInChunk) {
 					streamEvents.markTerminalForwarded()
 				}
 				return nil
@@ -299,7 +356,8 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				return downstreamErr
 			}
-			if terminalInChunk {
+			if (redactionRestore != nil && redactionRestore.TerminalReleased()) ||
+				(redactionRestore == nil && terminalInChunk) {
 				streamEvents.markTerminalForwarded()
 			}
 			return nil
@@ -309,9 +367,12 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		}
 	}
 
-	terminal := forwarder.executor.ExecuteStream(ctx, spec, sink)
+	terminal := forwarder.executor.ExecuteStream(executeContext, spec, sink)
 	if err := terminal.Validate(); err != nil {
 		terminal = invalidExecutionStreamResult(terminal, ready, committed)
+	}
+	if restoreTimedOut.Load() && ctx.Err() == nil {
+		downstreamErr = executionRedactionStreamFailure()
 	}
 	if downstreamErr == nil && terminal.Error == nil {
 		if responsesStoreBuffer != nil {
@@ -324,6 +385,30 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				downstreamErr = executionStreamProtocolFailure(err)
 			} else if err := streamEvents.validateEOF(); err != nil {
 				downstreamErr = err
+			}
+		}
+		if downstreamErr == nil && redactionRestore != nil {
+			tail, err := redactionRestore.Finish()
+			if err != nil {
+				downstreamErr = executionRedactionStreamFailure()
+			} else if len(tail) > 0 {
+				if !committed {
+					committed = true
+					downstreamErr = commitStream(controller, ready.StatusCode, ready.Header, tail)
+					if downstreamErr == nil && input.OnStreamReady != nil {
+						input.OnStreamReady()
+					}
+				} else {
+					written, writeErr := controller.write(tail)
+					if writeErr != nil || written != len(tail) {
+						downstreamErr = &streamFailure{kind: streamFailureDownstreamWrite, err: io.ErrShortWrite}
+					} else {
+						downstreamErr = controller.flush()
+					}
+				}
+			}
+			if downstreamErr == nil && redactionRestore.TerminalReleased() {
+				streamEvents.markTerminalForwarded()
 			}
 		}
 	}
@@ -345,6 +430,13 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	}
 	if downstreamErr != nil {
 		result.Err = downstreamErr
+		if errors.Is(downstreamErr, errRedactionStream) {
+			result.ExecutionError = &execution.ErrorEvidence{
+				Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
+				ScopeHint: execution.ErrorScopeRequest, Code: "response_redaction_failed",
+				Summary: "Response content could not be restored safely.", ReplaySafety: execution.ReplaySafetyUnknown,
+			}
+		}
 	}
 	if committed {
 		result.Stream = executionStreamObservation(ctx, terminal, downstreamErr, streamEvents)
@@ -717,10 +809,16 @@ func encodeClientErrorBody(
 }
 
 func executionRepresentationFailure(result UpstreamResult, err error) UpstreamResult {
+	code := "response_representation_invalid"
+	summary := "Upstream response representation could not be processed."
+	if errors.Is(err, errUnaryRestore) {
+		code = "response_redaction_failed"
+		summary = "Response content could not be restored safely."
+	}
 	evidence := execution.ErrorEvidence{
 		Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
-		ScopeHint: execution.ErrorScopeRequest, Code: "response_representation_invalid",
-		Summary:      "Upstream response representation could not be processed.",
+		ScopeHint: execution.ErrorScopeRequest, Code: code,
+		Summary:      summary,
 		ReplaySafety: execution.ReplaySafetyUnknown,
 	}
 	if result.ResponseStarted {
@@ -950,6 +1048,10 @@ func executionStreamProtocolFailure(cause error) error {
 		kind: streamFailureProtocol,
 		err:  fmt.Errorf("%w: %v", ErrUpstreamProtocol, cause),
 	}
+}
+
+func executionRedactionStreamFailure() error {
+	return &streamFailure{kind: streamFailureRedaction, err: errRedactionStream}
 }
 
 func preferCapturedStreamUsage(

@@ -89,14 +89,10 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		}
 		safePlain = originalPlain
 	} else {
-		patternSafePlain := forwarder.redactor.Bytes(originalPlain)
-		if int64(len(patternSafePlain)) > bodyLimit {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("redacted response body exceeds limit")
-		}
 		var residualCredential bool
 		var ok bool
 		safePlain, residualCredential, ok = redactCredentialLiterals(
-			patternSafePlain,
+			originalPlain,
 			secrets,
 			bodyLimit,
 		)
@@ -156,6 +152,15 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 			if credentialRemains {
 				return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains after model rewrite")
 			}
+		}
+	}
+	if input.RedactionCipher != nil && !nativeSearch && !opaqueRepresentation {
+		structuredOutput := input.Request != nil && requestDeclaresJSONOutput(input.ClientProtocol, input.Request.Body)
+		downstreamPlain, err = restoreUnaryBusinessFields(
+			downstreamPlain, input.ClientProtocol, input.RedactionCipher.RestoreText, structuredOutput,
+		)
+		if err != nil || int64(len(downstreamPlain)) > bodyLimit || credentialLiteralsRemain(downstreamPlain, secrets) {
+			return preparedSuccessRepresentation{}, errUnaryRestore
 		}
 	}
 

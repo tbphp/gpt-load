@@ -26,6 +26,10 @@ type Redactor struct {
 func New() *Redactor {
 	return &Redactor{replacements: []replacement{
 		{
+			pattern: regexp.MustCompile(`gld1_[1-9][0-9]{1,8}_[A-Za-z0-9_-]{22,}`),
+			value:   Placeholder,
+		},
+		{
 			pattern: regexp.MustCompile(`(?i)\b(?:sk|gl)-[a-z0-9][a-z0-9._-]{7,}\b`),
 			value:   Placeholder,
 		},
