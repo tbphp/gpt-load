@@ -130,7 +130,10 @@ func (ctx *unaryRestoreContext) chatMessage(message gjson.Result) error {
 	}
 	return unaryRestoreField(message, "tool_calls", func(calls gjson.Result) error {
 		return unaryRestoreArray(calls, func(call gjson.Result) error {
-			return unaryRestoreField(call, "function", ctx.arguments)
+			if err := unaryRestoreField(call, "function", ctx.arguments); err != nil {
+				return err
+			}
+			return unaryRestoreField(call, "custom", ctx.customToolInput)
 		})
 	})
 }
@@ -195,7 +198,7 @@ func (ctx *unaryRestoreContext) responsesInputItems(root gjson.Result) error {
 				return ctx.arguments(item)
 			case "custom_tool_call":
 				return ctx.customToolInput(item)
-			case "function_call_output":
+			case "function_call_output", "custom_tool_call_output":
 				return unaryRestoreField(item, "output", func(output gjson.Result) error {
 					if output.Type == gjson.String {
 						return ctx.jsonValue(output)

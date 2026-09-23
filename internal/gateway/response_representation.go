@@ -156,6 +156,9 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	}
 	if input.RedactionCipher != nil && !nativeSearch && !opaqueRepresentation {
 		structuredOutput := input.Request != nil && requestDeclaresJSONOutput(input.ClientProtocol, input.Request.Body)
+		if !structuredOutput && input.ClientProtocol == protocol.OpenAIResponses {
+			structuredOutput = requestDeclaresJSONOutput(input.ClientProtocol, downstreamPlain)
+		}
 		downstreamPlain, err = restoreUnaryBusinessFields(
 			downstreamPlain, input.ClientProtocol, input.RedactionCipher.RestoreText, structuredOutput,
 		)

@@ -14,12 +14,14 @@ type redactionStreamDocument struct {
 	inString  bool
 	keyString bool
 	pending   string
+	token     redactionTokenStream
 	changed   bool
 	invalid   bool
 	last      *redactionStreamField
 }
 
 func (doc *redactionStreamDocument) push(fragment string, restore func(string) (string, error)) (string, error) {
+	doc.token.limit = maxRedactionStreamDocument
 	input := doc.pending + fragment
 	doc.pending = ""
 	var out strings.Builder
@@ -45,7 +47,9 @@ func (doc *redactionStreamDocument) push(fragment string, restore func(string) (
 			if ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n' {
 				doc.syntax = ch
 			}
-			out.WriteByte(ch)
+			if err := doc.token.pushUnit(input[:1], input[:1], &out, rejectUnquotedRedactionToken, false); err != nil {
+				return "", err
+			}
 			input = input[1:]
 			continue
 		}
@@ -119,65 +123,78 @@ func (doc *redactionStreamDocument) restoreSegment(raw string, closed bool, rest
 	if doc.keyString {
 		return raw, nil
 	}
-	decoded := raw
-	escaped := strings.Contains(raw, `\`)
-	if escaped {
-		if err := json.Unmarshal([]byte(`"`+raw+`"`), &decoded); err != nil {
+	doc.token.limit = maxRedactionStreamDocument
+	var out strings.Builder
+	for len(raw) > 0 {
+		slash := strings.IndexByte(raw, '\\')
+		if slash < 0 {
+			slash = len(raw)
+		}
+		if err := doc.token.pushString(raw[:slash], &out, restore, true); err != nil {
+			return "", err
+		}
+		raw = raw[slash:]
+		if len(raw) == 0 {
+			break
+		}
+		size := 2
+		if len(raw) > 1 && raw[1] == 'u' {
+			size = 6
+			if len(raw) >= 12 && raw[6:8] == `\u` {
+				first, e1 := strconv.ParseUint(raw[2:6], 16, 16)
+				second, e2 := strconv.ParseUint(raw[8:12], 16, 16)
+				if e1 == nil && e2 == nil && first >= 0xD800 && first <= 0xDBFF && second >= 0xDC00 && second <= 0xDFFF {
+					size = 12
+				}
+			}
+		}
+		if size > len(raw) {
+			return "", errRedactionStream
+		}
+		unit := raw[:size]
+		var decoded string
+		if err := json.Unmarshal([]byte(`"`+unit+`"`), &decoded); err != nil {
 			doc.invalid = true
-			if strings.Contains(raw, redactionStreamPrefix) || doc.changed {
+			if doc.token.body || doc.token.changed {
 				return "", errRedactionStream
 			}
-			return raw, nil
+			tail, err := doc.token.finish()
+			if err != nil {
+				return "", err
+			}
+			out.WriteString(tail)
+			out.WriteString(unit)
+		} else if err := doc.token.pushUnit(unit, decoded, &out, restore, true); err != nil {
+			return "", err
 		}
+		raw = raw[size:]
 	}
-	cut, err := redactionStreamSafeCut(decoded)
-	if err != nil {
-		return "", err
-	}
+	doc.changed = doc.changed || doc.token.changed
 	if closed {
-		if redactionStreamIncompleteCandidate(decoded[cut:]) {
-			return "", errRedactionStream
+		tail, err := doc.token.finish()
+		if err != nil {
+			return "", err
 		}
-		cut = len(decoded)
+		out.WriteString(tail)
 	}
-	rawCut := cut
-	if escaped && cut < len(decoded) {
-		boundaries, err := unaryJSONDecodedBoundaries(`"`+raw+`"`, decoded)
-		if err != nil || boundaries[cut] < 1 {
-			return "", errRedactionStream
-		}
-		rawCut = boundaries[cut] - 1
-	} else if cut == len(decoded) {
-		rawCut = len(raw)
-	}
-	doc.pending = strings.Clone(raw[rawCut:])
-	visible := decoded[:cut]
-	if !strings.Contains(visible, redactionStreamPrefix) {
-		return raw[:rawCut], nil
-	}
-	restored, err := restore(visible)
-	if err != nil {
-		return "", errRedactionStream
-	}
-	if restored == visible {
-		return raw[:rawCut], nil
-	}
-	doc.changed = true
-	encoded, err := json.Marshal(restored)
-	if err != nil {
-		return "", errRedactionStream
-	}
-	return string(encoded[1 : len(encoded)-1]), nil
+	return out.String(), nil
 }
+
+func rejectUnquotedRedactionToken(string) (string, error) { return "", errRedactionStream }
+
+func (doc *redactionStreamDocument) blocked() bool { return doc.pending != "" || doc.token.pending() }
 
 func (doc *redactionStreamDocument) finish(restore func(string) (string, error)) (string, error) {
 	pending := doc.pending
 	doc.pending = ""
 	end, _ := redactionJSONStringSegment(pending)
-	tail, err := doc.restoreSegment(pending[:end], true, restore)
-	if err != nil || (doc.changed && (doc.inString || len(doc.stack) != 0 || doc.invalid)) {
+	prefix, err := doc.restoreSegment(pending[:end], false, restore)
+	if err != nil || (doc.changed && doc.invalid) {
 		return "", errRedactionStream
 	}
-	doc.pending = ""
-	return tail + pending[end:], nil
+	tail, err := doc.token.finish()
+	if err != nil {
+		return "", err
+	}
+	return prefix + tail + pending[end:], nil
 }

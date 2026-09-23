@@ -62,8 +62,8 @@ type redactionStreamField struct {
 }
 
 type redactionStreamText struct {
-	tail string
-	last *redactionStreamField
+	token redactionTokenStream
+	last  *redactionStreamField
 }
 
 func newRedactionRestoreSSE(
@@ -205,7 +205,7 @@ func (stream *redactionRestoreSSE) blocked() bool {
 		return true
 	}
 	for _, doc := range stream.documents {
-		if doc.pending != "" {
+		if doc.blocked() {
 			return true
 		}
 	}
@@ -444,34 +444,24 @@ func (stream *redactionRestoreSSE) addPlainText(event *redactionStreamEvent, key
 	field := event.field(value)
 	field.signed = signed
 	state := stream.texts[key]
-	combined := value.Str
-	if state != nil {
-		combined = state.tail + combined
+	if state == nil {
+		state = &redactionStreamText{}
 	}
-	cut, err := redactionStreamSafeCut(combined)
-	if err != nil {
+	var visible strings.Builder
+	if err := state.token.pushString(value.Str, &visible, stream.restore, false); err != nil {
 		return err
 	}
-	visible := combined[:cut]
-	if strings.Contains(visible, redactionStreamPrefix) {
-		visible, err = stream.restore(visible)
-		if err != nil {
-			return errRedactionStream
-		}
-	}
-	field.value = visible
-	if cut == len(combined) {
+	field.value = visible.String()
+	if !state.token.pending() {
 		delete(stream.texts, key)
 		return nil
 	}
-	if state == nil {
+	if stream.texts[key] == nil {
 		if len(stream.texts)+len(stream.documents) >= maxRedactionStreamChannels {
 			return errRedactionStream
 		}
-		state = &redactionStreamText{}
 		stream.texts[key] = state
 	}
-	state.tail = combined[cut:]
 	state.last = field
 	return nil
 }
@@ -500,7 +490,7 @@ func (stream *redactionRestoreSSE) addDocument(
 	field := event.field(value)
 	field.signed = signed
 	field.value = restored
-	if state.pending != "" {
+	if state.blocked() {
 		state.last = field
 	} else {
 		state.last = nil
@@ -513,10 +503,11 @@ func (stream *redactionRestoreSSE) closeMatching(prefix string) error {
 		if key != prefix && prefix != "" && !(strings.HasSuffix(prefix, "/") && strings.HasPrefix(key, prefix)) {
 			continue
 		}
-		if redactionStreamIncompleteCandidate(state.tail) {
-			return errRedactionStream
+		tail, err := state.token.finish()
+		if err != nil {
+			return err
 		}
-		state.last.value += state.tail
+		state.last.value += tail
 		delete(stream.texts, key)
 	}
 	for key, state := range stream.documents {
@@ -533,80 +524,6 @@ func (stream *redactionRestoreSSE) closeMatching(prefix string) error {
 		delete(stream.documents, key)
 	}
 	return nil
-}
-
-// redactionStreamSafeCut keeps only a possible token suffix. Complete tokens
-// remain in the safe prefix and are authenticated by the injected restorer.
-func redactionStreamSafeCut(value string) (int, error) {
-	search := 0
-	for search < len(value) {
-		relative := strings.Index(value[search:], redactionStreamPrefix)
-		if relative < 0 {
-			break
-		}
-		start := search + relative
-		position := start + len(redactionStreamPrefix)
-		if position == len(value) {
-			return start, nil
-		}
-		if value[position] < '0' || value[position] > '9' {
-			search = position
-			continue
-		}
-		lengthStart := position
-		length := 0
-		oversize := false
-		for position < len(value) && value[position] >= '0' && value[position] <= '9' {
-			if !oversize {
-				length = length*10 + int(value[position]-'0')
-				oversize = length > maxRedactionStreamPendingBytes
-			}
-			position++
-		}
-		if position == len(value) {
-			return start, nil
-		}
-		if value[position] != '_' {
-			search = position + 1
-			continue
-		}
-		if oversize || length == 0 || (position-lengthStart > 1 && value[lengthStart] == '0') {
-			return 0, errRedactionStream
-		}
-		position++
-		available := min(length, len(value)-position)
-		for _, character := range []byte(value[position : position+available]) {
-			if !(character >= 'A' && character <= 'Z') &&
-				!(character >= 'a' && character <= 'z') &&
-				!(character >= '0' && character <= '9') &&
-				character != '-' && character != '_' {
-				return 0, errRedactionStream
-			}
-		}
-		if available < length {
-			return start, nil
-		}
-		search = position + length
-	}
-	for length := len(redactionStreamPrefix) - 1; length > 0; length-- {
-		if len(value)-length >= search &&
-			strings.HasSuffix(value, redactionStreamPrefix[:length]) {
-			return len(value) - length, nil
-		}
-	}
-	return len(value), nil
-}
-
-func redactionStreamIncompleteCandidate(value string) bool {
-	if !strings.HasPrefix(value, redactionStreamPrefix) {
-		return false
-	}
-	position := len(redactionStreamPrefix)
-	start := position
-	for position < len(value) && value[position] >= '0' && value[position] <= '9' {
-		position++
-	}
-	return position > start && position < len(value) && value[position] == '_'
 }
 
 func redactionStreamIndex(value gjson.Result, fallback int) string {
@@ -641,6 +558,14 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 				}); err != nil {
 					return err
 				}
+				if delta.Get("function_call").IsObject() || len(delta.Get("tool_calls").Array()) > 0 {
+					key := prefix + "text"
+					if state := stream.texts[key]; state != nil && !state.token.body {
+						if err := stream.closeMatching(key); err != nil {
+							return err
+						}
+					}
+				}
 				if err := unaryRestoreField(delta, "function_call", func(call gjson.Result) error {
 					return unaryRestoreField(call, "arguments", func(value gjson.Result) error {
 						return stream.addDocument(event, prefix+"function", value, false)
@@ -653,9 +578,16 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 					return unaryRestoreArray(calls, func(call gjson.Result) error {
 						key := prefix + "tool/" + redactionStreamIndex(call.Get("index"), callIndex)
 						callIndex++
-						return unaryRestoreField(call, "function", func(function gjson.Result) error {
+						if err := unaryRestoreField(call, "function", func(function gjson.Result) error {
 							return unaryRestoreField(function, "arguments", func(value gjson.Result) error {
 								return stream.addDocument(event, key, value, false)
+							})
+						}); err != nil {
+							return err
+						}
+						return unaryRestoreField(call, "custom", func(custom gjson.Result) error {
+							return unaryRestoreField(custom, "input", func(value gjson.Result) error {
+								return stream.addPlainText(event, key, value, false)
 							})
 						})
 					})
@@ -771,7 +703,10 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 		}
 	case "response.failed":
 		event.terminal = true
-		return stream.closeMatching("")
+		if err := stream.closeMatching(""); err != nil {
+			return err
+		}
+		return stream.maskErrorPayload(event, event.payload)
 	}
 	return nil
 }

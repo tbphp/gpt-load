@@ -134,7 +134,7 @@ func TestWebsocketRedactionRestoresToolArgumentsAndKeepsFrameOrder(t *testing.T)
 	}
 }
 
-func TestWebsocketRedactionDoneStatusPreservesFailedSnapshots(t *testing.T) {
+func TestWebsocketRedactionDoneStatusRestoresIncompleteAndMasksFailedSnapshots(t *testing.T) {
 	cipher := websocketRedactionTestCipher(t)
 	token, err := cipher.EncryptToken("private")
 	if err != nil {
@@ -148,6 +148,8 @@ func TestWebsocketRedactionDoneStatusPreservesFailedSnapshots(t *testing.T) {
 			want := body
 			if status == "incomplete" {
 				want = bytes.ReplaceAll(body, []byte(token), []byte("private"))
+			} else {
+				want = bytes.ReplaceAll(body, []byte(token), []byte("[REDACTED]"))
 			}
 			if err != nil || len(got) != 1 || !bytes.Equal(got[0], want) {
 				t.Fatalf("%s response.done differs: %#v / %v", status, got, err)

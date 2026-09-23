@@ -521,17 +521,21 @@ func TestRedactionRestoreSSEKeepsDefaultEventLimit(t *testing.T) {
 	}
 }
 
-func TestRedactionStreamSafeCutDoesNotSplitCompleteCiphertext(t *testing.T) {
+func TestRedactionTokenStreamDoesNotSplitCompleteCiphertext(t *testing.T) {
 	for _, value := range []string{
 		"gld1_1_g", "gld1_2_gl", "gld1_3_gld", "gld1_4_gld1",
 	} {
-		cut, err := redactionStreamSafeCut(value)
-		if err != nil || cut != len(value) {
-			t.Fatalf("safe cut for complete token %q = %d / %v", value, cut, err)
+		token := redactionTokenStream{}
+		var out strings.Builder
+		err := token.pushString(value, &out, func(v string) (string, error) { return v, nil }, false)
+		if err != nil || out.String() != value || token.pending() {
+			t.Fatalf("complete token not released: %v", err)
 		}
 	}
-	if cut, err := redactionStreamSafeCut("gld1_12000000_"); err != nil || cut != 0 {
-		t.Fatalf("bounded long token prefix = %d / %v", cut, err)
+	token := redactionTokenStream{}
+	var out strings.Builder
+	if err := token.pushString("gld1_12000000_", &out, streamTestRestore, false); err != nil || out.Len() != 0 || !token.pending() {
+		t.Fatalf("bounded long token prefix failed: %v", err)
 	}
 }
 

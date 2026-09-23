@@ -9,7 +9,7 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-// requestDeclaresJSONOutput only trusts explicit format fields in the client's request.
+// requestDeclaresJSONOutput 仅识别显式格式声明；Responses 返回对象沿用 text.format。
 func requestDeclaresJSONOutput(clientProtocol protocol.Protocol, body []byte) bool {
 	declared := false
 	switch clientProtocol {
