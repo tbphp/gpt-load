@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
+import { formatBalanceEntries, type CredentialBalance } from '@modern/api/balances'
 import {
   AppBadge,
   AppButton,
@@ -24,6 +25,7 @@ const props = defineProps<{
   pending?: boolean
   error?: string
   resolveSecret: () => Promise<string>
+  balance?: CredentialBalance
 }>()
 defineEmits<{ select: [value: boolean]; toggle: [value: boolean]; action: [value: string] }>()
 const { t, n, locale } = useI18n()
@@ -42,6 +44,11 @@ const issues = computed(() =>
   ]
     .filter(Boolean)
     .join(' · '),
+)
+const balanceText = computed(() =>
+  props.balance?.available && props.balance.balances.length
+    ? formatBalanceEntries(props.balance.balances)
+    : '',
 )
 </script>
 <template>
@@ -86,6 +93,10 @@ const issues = computed(() =>
         <dt>{{ t('credentialCards.weight') }}</dt>
         <dd>{{ n(row.weight) }}<CredentialRoutingMeta :row="row" :weight="false" /></dd>
       </div>
+      <div v-if="balanceText">
+        <dt>{{ t('credentialCards.balanceTitle') }}</dt>
+        <dd class="modern-api-card-balance">{{ balanceText }}</dd>
+      </div>
     </dl>
     <template #footer
       ><CredentialOutcomeSummary :usage="row.daily" compact />
@@ -113,9 +124,13 @@ const issues = computed(() =>
 }
 .modern-api-card-metadata {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.7fr) minmax(0, 1.6fr);
   gap: var(--modern-space-2);
   margin: 0;
+}
+.modern-api-card-balance {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .modern-api-card-metadata > div {
   display: flex;

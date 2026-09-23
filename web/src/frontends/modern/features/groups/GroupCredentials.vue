@@ -39,11 +39,13 @@ import {
   runCredentialAction,
 } from '@modern/api/credential-actions'
 import { ApiError } from '@shared/http/errors'
+import { getGroupCredentialBalances, groupCredentialBalancesKey } from '@modern/api/balances'
 import { createOperationKey } from './group-create-operation'
 import APIKeyCredentialCard from './APIKeyCredentialCard.vue'
 import SubscriptionCredentialCard from './SubscriptionCredentialCard.vue'
 import CredentialDetailPanel from './CredentialDetailPanel.vue'
 import CredentialTestDialog from './CredentialTestDialog.vue'
+import CredentialBalanceDialog from './CredentialBalanceDialog.vue'
 import {
   AppButton,
   AppActionMenu,
@@ -157,6 +159,18 @@ const testing = computed({
     credentialView.value = { id: row?.id ?? 0, mode: 'test' }
   },
 })
+const balanceTarget = ref<CredentialRow>()
+// Balances are cached server-side; this stays cache-first until an explicit refresh.
+const balances = useQuery(
+  computed(() => ({
+    queryKey: groupCredentialBalancesKey(props.group.id, false),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      getGroupCredentialBalances(client, props.group.id, false, signal),
+    enabled: props.group.id > 0,
+    staleTime: 60_000,
+  })),
+)
+const balanceByKey = computed(() => balances.data.value ?? new Map())
 const resetTarget = ref<CredentialRow>()
 const resetKeys = new Map<number, string>()
 const cardErrors = ref(new Map<number, string>())
@@ -632,6 +646,10 @@ async function action(row: CredentialRow, value: string): Promise<void> {
     testing.value = row
     return
   }
+  if (value === 'balance') {
+    balanceTarget.value = row
+    return
+  }
   if (value === 'delete') {
     deleting.value = [row.id]
     return
@@ -968,6 +986,7 @@ defineExpose({ refresh })
             :disabled="busy"
             :error="cardErrors.get(row.id)"
             :resolve-secret="copySecret(row.id)"
+            :balance="balanceByKey.get(row.id)"
             @select="select(row.id, $event)"
             @toggle="toggle(row, $event)"
             @action="action(row, $event)"
@@ -1048,6 +1067,13 @@ defineExpose({ refresh })
     :row="testing"
     @close="testing = undefined"
     @changed="changed"
+  />
+  <CredentialBalanceDialog
+    v-if="balanceTarget"
+    :key="balanceTarget.id"
+    :group-id="group.id"
+    :row="balanceTarget"
+    @close="balanceTarget = undefined"
   />
   <AppDraftGuard
     :dirty="false"

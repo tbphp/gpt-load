@@ -206,3 +206,49 @@ export async function restoreTestedCredential(
     }),
   )
 }
+
+export interface CredentialBalanceEntry {
+  currency: string
+  total: string
+  granted: string | null
+  toppedUp: string | null
+}
+
+export interface CredentialBalanceResult {
+  channelId: string
+  supported: boolean
+  available: boolean
+  message: string | null
+  balances: CredentialBalanceEntry[]
+}
+
+function optionalText(value: unknown): string | null {
+  return value === undefined || value === null ? null : text(value)
+}
+
+export async function getCredentialBalance(
+  client: ApiClient,
+  group: number,
+  id: number,
+  signal: AbortSignal,
+): Promise<CredentialBalanceResult> {
+  const data = record(
+    await client.request(`/api/groups/${group}/credentials/${id}/balance`, { signal }),
+  )
+  if (integer(data.credential_id, 1) !== id) throw new InvalidResponseError()
+  return {
+    channelId: text(data.channel_id),
+    supported: boolean(data.supported),
+    available: boolean(data.available),
+    message: optionalText(data.message),
+    balances: list(data.balances).map((value) => {
+      const entry = record(value)
+      return {
+        currency: text(entry.currency),
+        total: text(entry.total_balance),
+        granted: optionalText(entry.granted_balance),
+        toppedUp: optionalText(entry.topped_up_balance),
+      }
+    }),
+  }
+}

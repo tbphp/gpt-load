@@ -56,6 +56,7 @@ import { useApiClient } from '@shared/http/client-context'
 import GroupListRow from './GroupListRow.vue'
 import GroupCreatePanel from './GroupCreatePanel.vue'
 import { getGroupChannels, type GroupCreateResult } from '@modern/api/group-create'
+import { getGroupBalanceTotals, groupBalanceTotalsKey } from '@modern/api/balances'
 import { channelSearchOption } from '@modern/components/channel-options'
 import { protocolLabel, protocolOrder } from '@modern/i18n/protocols'
 import { groupFilterQuery as serializeGroupFilters, parseGroupFilters } from './group-route'
@@ -318,6 +319,14 @@ const usage = useQuery(
 const usageByID = computed(
   () => new Map(usage.data.value?.items.map((item) => [item.id, item]) ?? []),
 )
+// Balances are cached server-side, so this stays cache-first until the operator
+// explicitly refreshes.
+const balances = useQuery({
+  queryKey: groupBalanceTotalsKey(false),
+  queryFn: ({ signal }: { signal: AbortSignal }) => getGroupBalanceTotals(client, false, signal),
+  staleTime: 60_000,
+})
+const balanceByID = computed(() => balances.data.value ?? new Map())
 const activeFilters = computed(() => [
   ...(filters.value.credential
     ? [
@@ -419,6 +428,7 @@ async function refresh(): Promise<void> {
         channelCatalog.refetch(),
         moreFilters.value || credentialFiltering.value ? credentialCatalog.refetch() : undefined,
         usageIDs.value.length ? usage.refetch() : undefined,
+        refreshBalances(),
         queryClient.invalidateQueries({
           queryKey: ['modern', 'group-model-names'],
           refetchType: 'active',
@@ -427,6 +437,17 @@ async function refresh(): Promise<void> {
     }
   } finally {
     refreshing.value = false
+  }
+}
+
+// Balances are cached for a few minutes server-side; an explicit refresh asks
+// the backend to bypass that cache so the operator sees live values.
+async function refreshBalances(): Promise<void> {
+  try {
+    const data = await getGroupBalanceTotals(client, true, controller.signal)
+    if (!controller.signal.aborted) queryClient.setQueryData(groupBalanceTotalsKey(false), data)
+  } catch {
+    // A failed balance refresh must not block the rest of the page refresh.
   }
 }
 async function updateFilters(patch: Partial<GroupFilters>, replace = false): Promise<void> {
@@ -924,6 +945,7 @@ useMessageSource(() =>
           :pending="pending.get(group.id)"
           :enabled-override="enabledOverrides.get(group.id)"
           :usage="usageByID.get(group.id)"
+          :balance="balanceByID.get(group.id)"
           :usage-loading="usage.isFetching.value"
           :usage-incomplete="usage.data.value?.incomplete ?? false"
           :weight-error="weightErrors.get(group.id)"
