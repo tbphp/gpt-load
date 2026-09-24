@@ -234,13 +234,52 @@ func TestGeminiNativeEmbeddingsProbeUsesEmbedContent(t *testing.T) {
 	}
 }
 
+var invalidGeminiEmbeddingsProbeBodies = []string{
+	`{}`, `null`, `[]`, `{"embedding":{}}`, `{"embedding":{"values":[]}}`,
+	`{"embedding":{"values":["x"]}}`, `{"embedding":{"values":["0.1"]}}`,
+	`{"embedding":{"values":[null]}}`, `{"embedding":{"values":[0.1,null]}}`,
+	`{"error":{"message":"rejected"}}`,
+}
+
+func TestGeminiNativeEmbeddingsDirectProbeRejectsInvalidSuccessResponses(t *testing.T) {
+	t.Parallel()
+
+	for _, body := range invalidGeminiEmbeddingsProbeBodies {
+		t.Run(body, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(writer, body)
+			}))
+			defer server.Close()
+			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, geminiBaseURL: server.URL + "/v1beta"})
+			spec := utilitySpec(channel.Gemini, protocol.GeminiEmbeddings, execution.OperationProbe, "", "", nil)
+			spec.ClientModel, spec.UpstreamModel = "probe-client", "probe-upstream"
+			result := runtime.Execute(t.Context(), freezeTestAttempt(spec))
+			if err := result.Validate(); err != nil || result.Error == nil {
+				t.Fatalf("invalid probe response %s succeeded: %+v; validation = %v", body, result, err)
+			}
+		})
+	}
+}
+
+func TestGeminiEmbeddingsProbeResponseValidation(t *testing.T) {
+	t.Parallel()
+
+	if !validGatewayProtocolProbeResponse(protocol.GeminiEmbeddings, []byte(`{"embedding":{"values":[0.1,-2,1e-7]}}`)) {
+		t.Fatal("valid embedding rejected")
+	}
+	for _, body := range invalidGeminiEmbeddingsProbeBodies {
+		if validGatewayProtocolProbeResponse(protocol.GeminiEmbeddings, []byte(body)) {
+			t.Errorf("invalid embedding %s accepted", body)
+		}
+	}
+}
+
 func TestGeminiNativeEmbeddingsGatewayProbeRejectsInvalidSuccessResponses(t *testing.T) {
 	t.Parallel()
 
-	for _, body := range []string{
-		`{}`, `null`, `[]`, `{"embedding":{}}`, `{"embedding":{"values":[]}}`,
-		`{"embedding":{"values":["x"]}}`, `{"error":{"message":"rejected"}}`,
-	} {
+	for _, body := range invalidGeminiEmbeddingsProbeBodies {
 		t.Run(body, func(t *testing.T) {
 			t.Parallel()
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

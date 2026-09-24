@@ -71,7 +71,7 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 		normalizeEmbeddingsAttemptResult(spec, &result)
 		normalizeRerankAttemptResult(spec, &result)
 		normalizeDecisionsAttemptResult(spec, &result)
-		if r.providerKind(spec) == channel.ProviderMultiProtocolGateway {
+		if r.providerKind(spec) == channel.ProviderMultiProtocolGateway || spec.ClientProtocol == protocol.GeminiEmbeddings {
 			normalizeGatewayProtocolProbeResult(spec, &result)
 		}
 	}()

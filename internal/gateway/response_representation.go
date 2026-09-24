@@ -769,8 +769,8 @@ func opaqueCredentialLiteralsRemain(
 		return embeddingsCredentialLiteralsRemain(body, secrets)
 	}
 	if clientProtocol == protocol.GeminiEmbeddings {
-		// Gemini 的向量只有数字，直接做通用的字面量扫描。
-		return credentialLiteralsRemain(body, secrets)
+		// Gemini 的向量只有数字：只流式扫描字符串值和键，不为向量构建整棵值树。
+		return rerankCredentialLiteralsRemain(body, secrets)
 	}
 	return imagesCredentialLiteralsRemain(body, secrets)
 }

@@ -73,6 +73,33 @@ func TestGeminiEmbeddingsSuccessRepresentationFailsClosedOnCredential(t *testing
 	}
 }
 
+func TestGeminiEmbeddingsSuccessRepresentationSkipsNumericVectorsInCredentialScan(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`{"embeddings":[{"values":[0.1234,12]}]}`)
+	prepared, err := (&responseProcessor{redactor: redact.New()}).prepareSuccessRepresentation(
+		geminiEmbeddingsForwardInput("model", "model"),
+		http.StatusOK,
+		http.Header{"Content-Type": {"application/json"}},
+		body,
+		[]string{"12"},
+	)
+	if err != nil || !bytes.Equal(prepared.downstream, body) {
+		t.Fatalf("prepareSuccessRepresentation() = %s, %v; want numeric vectors ignored", prepared.downstream, err)
+	}
+	for _, invalid := range [][]byte{[]byte(`{"embeddings":[`), []byte(`[]`)} {
+		if _, err := (&responseProcessor{redactor: redact.New()}).prepareSuccessRepresentation(
+			geminiEmbeddingsForwardInput("model", "model"),
+			http.StatusOK,
+			http.Header{"Content-Type": {"application/json"}},
+			invalid,
+			[]string{"sk-secret"},
+		); err == nil {
+			t.Fatalf("prepareSuccessRepresentation(%s) error = nil, want fail closed", invalid)
+		}
+	}
+}
+
 func TestGeminiEmbeddingsExecutionBoundaryMovesBodyOwnership(t *testing.T) {
 	t.Parallel()
 

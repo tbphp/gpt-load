@@ -128,14 +128,22 @@ func validGatewayProtocolProbeResponse(selected protocol.Protocol, body []byte) 
 	}
 }
 
-// validGatewayProbeEmbedding 要求 embedContent 返回非空的数字向量。
+// validGatewayProbeEmbedding 要求 embedContent 返回非空、且每个元素都是 JSON 数字的向量。
 func validGatewayProbeEmbedding(raw json.RawMessage) bool {
 	var embedding struct {
-		Values []json.Number `json:"values"`
+		Values []any `json:"values"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
-	return len(raw) > 0 && decoder.Decode(&embedding) == nil && len(embedding.Values) > 0
+	if len(raw) == 0 || decoder.Decode(&embedding) != nil || len(embedding.Values) == 0 {
+		return false
+	}
+	for _, value := range embedding.Values {
+		if _, ok := value.(json.Number); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // 仅校验协议结构，不要求生成文本非空，保留低输出预算下的合法响应。
