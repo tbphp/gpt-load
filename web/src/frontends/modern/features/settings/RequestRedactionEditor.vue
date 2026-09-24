@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Trash2 } from '@lucide/vue'
+import { CircleHelp, Plus, Trash2 } from '@lucide/vue'
 import { computed, onScopeDispose, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { redactionPresets, type RedactionRule } from '@modern/api/request-redaction'
@@ -13,8 +13,8 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const modeOptions = computed(() => [
-  { value: 'replace', label: t('requestRedaction.modes.replace') },
   { value: 'encrypt', label: t('requestRedaction.modes.encrypt') },
+  { value: 'replace', label: t('requestRedaction.modes.replace') },
 ])
 const { issues, failed, invalid } = useRedactionValidation(() => props.modelValue)
 watch(invalid, (value) => emit('invalid', value), { immediate: true })
@@ -25,7 +25,7 @@ function add(rule: RedactionRule = { pattern: '', replacement: '[REDACTED]' }) {
     {
       pattern: rule.pattern,
       replacement: rule.replacement,
-      ...(rule.mode ? { mode: rule.mode } : {}),
+      mode: rule.mode ?? 'encrypt',
     },
   ])
 }
@@ -62,7 +62,10 @@ function error(index: number): string | undefined {
     <p v-if="!modelValue.length" class="modern-redaction-note">{{ t('requestRedaction.empty') }}</p>
     <div v-if="modelValue.length" class="modern-redaction-heading">
       <span>{{ t('requestRedaction.pattern') }}</span>
-      <span>{{ t('requestRedaction.mode') }}</span>
+      <span class="modern-redaction-mode-label">
+        {{ t('requestRedaction.mode') }}
+        <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xs" />
+      </span>
       <span>{{ t('requestRedaction.replacement') }}</span>
     </div>
     <div v-for="(rule, index) in modelValue" :key="index" class="modern-redaction-row">
@@ -87,7 +90,12 @@ function error(index: number): string | undefined {
         </p>
       </div>
       <div class="modern-redaction-field modern-redaction-mode">
-        <span class="modern-redaction-mobile-label">{{ t('requestRedaction.mode') }}</span>
+        <span class="modern-redaction-mobile-label">
+          <span class="modern-redaction-mode-label">
+            {{ t('requestRedaction.mode') }}
+            <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xs" />
+          </span>
+        </span>
         <AppSelect
           :model-value="rule.mode ?? 'replace'"
           :options="modeOptions"
@@ -194,6 +202,11 @@ function error(index: number): string | undefined {
 }
 .modern-redaction-mobile-label {
   display: none;
+}
+.modern-redaction-mode-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--modern-space-1);
 }
 .modern-redaction-remove {
   grid-column: 4;

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { Trash2 } from '@lucide/vue'
+import { CircleHelp, Trash2 } from '@lucide/vue'
 import { computed, onScopeDispose, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { redactionPresets, type RedactionRule } from '@/app/resources/request-redaction'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useRedactionValidation } from './use-redaction-validation'
 
@@ -16,8 +17,8 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const modeOptions = computed(() => [
-  { value: 'replace', label: t('requestRedaction.modes.replace') },
   { value: 'encrypt', label: t('requestRedaction.modes.encrypt') },
+  { value: 'replace', label: t('requestRedaction.modes.replace') },
 ])
 const { issues, failed, invalid } = useRedactionValidation(() => props.modelValue)
 watch(invalid, (value) => emit('invalid', value), { immediate: true })
@@ -28,7 +29,7 @@ function add(rule: RedactionRule = { pattern: '', replacement: '[REDACTED]' }) {
     {
       pattern: rule.pattern,
       replacement: rule.replacement,
-      ...(rule.mode ? { mode: rule.mode } : {}),
+      mode: rule.mode ?? 'encrypt',
     },
   ])
 }
@@ -69,7 +70,18 @@ function error(index: number): string | undefined {
     <p v-if="!modelValue.length" class="redaction-note">{{ t('requestRedaction.empty') }}</p>
     <div v-if="modelValue.length" class="redaction-heading">
       <span>{{ t('requestRedaction.pattern') }}</span>
-      <span>{{ t('requestRedaction.mode') }}</span>
+      <span class="redaction-mode-label">
+        {{ t('requestRedaction.mode') }}
+        <AppTooltip :content="t('requestRedaction.modeHelp')">
+          <button
+            type="button"
+            class="redaction-mode-help"
+            :aria-label="t('requestRedaction.modeHelp')"
+          >
+            <CircleHelp :size="13" aria-hidden="true" />
+          </button>
+        </AppTooltip>
+      </span>
       <span>{{ t('requestRedaction.replacement') }}</span>
     </div>
     <div v-for="(rule, index) in modelValue" :key="index" class="redaction-row">
@@ -95,7 +107,20 @@ function error(index: number): string | undefined {
         </p>
       </div>
       <div class="redaction-field redaction-mode">
-        <span class="redaction-mobile-label">{{ t('requestRedaction.mode') }}</span>
+        <span class="redaction-mobile-label">
+          <span class="redaction-mode-label">
+            {{ t('requestRedaction.mode') }}
+            <AppTooltip :content="t('requestRedaction.modeHelp')">
+              <button
+                type="button"
+                class="redaction-mode-help"
+                :aria-label="t('requestRedaction.modeHelp')"
+              >
+                <CircleHelp :size="13" aria-hidden="true" />
+              </button>
+            </AppTooltip>
+          </span>
+        </span>
         <AppSelect
           :model-value="rule.mode ?? 'replace'"
           :options="modeOptions"
@@ -206,6 +231,32 @@ function error(index: number): string | undefined {
 }
 .redaction-mobile-label {
   display: none;
+}
+.redaction-mode-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.redaction-mode-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--radius-tag);
+  background: transparent;
+  color: var(--color-text-faint);
+  padding: 0;
+  cursor: help;
+}
+.redaction-mode-help:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.redaction-mode-help:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 .redaction-remove {
   grid-column: 4;

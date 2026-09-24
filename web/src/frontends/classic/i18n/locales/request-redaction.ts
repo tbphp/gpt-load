@@ -4,6 +4,8 @@ export const zhCN = {
   quickAdd: '快捷添加',
   pattern: '规则内容',
   mode: '处理方式',
+  modeHelp:
+    '可逆加密：将匹配内容加密，不同原值仍可区分。模型原样返回密文时，系统自动还原。适合需要区分不同账号，或向客户端工具传递原值的场景。可逆加密仅保证原样返回时可还原；模型无法识别或查询加密前的内容。\n固定替换：将匹配内容替换为指定文本，无法还原。适合只需隐藏敏感信息、后续不再使用原值的场景。\n上游内置工具拿到的仍是密文，无法使用原值。',
   modes: { replace: '固定替换', encrypt: '可逆加密' },
   replacement: '替换文本',
   add: '添加规则',
@@ -27,6 +29,8 @@ export const enUS = {
   quickAdd: 'Quick add',
   pattern: 'Pattern',
   mode: 'Mode',
+  modeHelp:
+    'Reversible encryption: Encrypt matching text while keeping distinct values distinguishable. If the model returns the ciphertext unchanged, it is restored automatically. Use it when accounts must stay distinct or client-side tools need the original value. The model cannot identify or search for the original content; restoration requires it to return the ciphertext unchanged.\nFixed replacement: Replace matching text with the specified text. It cannot be restored. Use it when the original value will not be needed later.\nUpstream built-in tools still receive ciphertext and cannot use the original value.',
   modes: { replace: 'Replace', encrypt: 'Reversible encryption' },
   replacement: 'Replacement text',
   add: 'Add rule',
@@ -56,6 +60,8 @@ export const jaJP = {
   quickAdd: 'クイック追加',
   pattern: '正規表現',
   mode: '処理方法',
+  modeHelp:
+    '復元可能な暗号化：一致した内容を暗号化し、異なる値を区別できます。モデルが暗号文をそのまま返した場合は自動的に復元します。アカウントの区別やクライアント側ツールへの元の値の受け渡しに適しています。モデルは暗号化前の内容を識別・検索できず、復元には暗号文をそのまま返す必要があります。\n固定置換：一致した内容を指定の文字列に置き換え、復元できません。元の値を後で使わず、隠すだけでよい場合に適しています。\n上流側の組み込みツールには暗号文が渡され、元の値は使えません。',
   modes: { replace: '固定置換', encrypt: '復元可能な暗号化' },
   replacement: '置換テキスト',
   add: 'ルールを追加',
