@@ -23,9 +23,11 @@ type ID = spec.ID
 const (
 	OpenAI           = spec.OpenAI
 	Codex            = spec.Codex
+	ChatGPT          = spec.ChatGPT
 	Claude           = spec.Claude
 	Antigravity      = spec.Antigravity
 	Grok             = spec.Grok
+	Mirasim          = spec.Mirasim
 	Anthropic        = spec.Anthropic
 	Gemini           = spec.Gemini
 	AzureOpenAI      = spec.AzureOpenAI
@@ -202,9 +204,11 @@ type ProviderKind = spec.ProviderKind
 const (
 	ProviderOpenAI               = spec.ProviderOpenAI
 	ProviderCodex                = spec.ProviderCodex
+	ProviderChatGPT              = spec.ProviderChatGPT
 	ProviderClaude               = spec.ProviderClaude
 	ProviderAntigravity          = spec.ProviderAntigravity
 	ProviderGrok                 = spec.ProviderGrok
+	ProviderMirasim              = spec.ProviderMirasim
 	ProviderAnthropic            = spec.ProviderAnthropic
 	ProviderGemini               = spec.ProviderGemini
 	ProviderMultiProtocolGateway = spec.ProviderMultiProtocolGateway

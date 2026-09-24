@@ -501,6 +501,8 @@ func cpaChannel(provider string) channel.ID {
 		return channel.Antigravity
 	case "grok", "xai":
 		return channel.Grok
+	case "mirasim":
+		return channel.Mirasim
 	default:
 		return ""
 	}

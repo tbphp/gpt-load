@@ -147,6 +147,11 @@ type AuthorizationCompletion struct {
 	ReturnedState string
 	Code          string
 	DriverState   []byte
+	// AccessToken and RefreshToken carry a provider callback that returns the
+	// credential directly instead of an OAuth code. They stay empty for every
+	// code-exchange channel.
+	AccessToken  string
+	RefreshToken string
 }
 
 // Driver owns one subscription credential schema and refresh lifecycle.

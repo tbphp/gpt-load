@@ -16,7 +16,7 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := runtime.ChannelIDs(), []channel.ID{channel.Antigravity, channel.Claude, channel.Codex, channel.Grok}; !reflect.DeepEqual(got, want) {
+	if got, want := runtime.ChannelIDs(), []channel.ID{channel.Antigravity, channel.ChatGPT, channel.Claude, channel.Codex, channel.Grok, channel.Mirasim}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ChannelIDs() = %v, want %v", got, want)
 	}
 	tests := []struct {
@@ -27,9 +27,11 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 		actionID      string
 	}{
 		{channel.Codex, string(modules.CodexSubscriptionDriver), string(modules.CodexModelDiscovery), string(modules.CodexQuotaObservation), string(modules.CodexResetCreditAction)},
+		{channel.ChatGPT, string(modules.ChatGPTSubscriptionDriver), "", "", ""},
 		{channel.Claude, string(modules.ClaudeSubscriptionDriver), string(modules.ClaudeModelDiscovery), string(modules.ClaudeQuotaObservation), ""},
 		{channel.Antigravity, string(modules.AntigravitySubscriptionDriver), string(modules.AntigravityModelDiscovery), string(modules.AntigravityQuotaObservation), ""},
 		{channel.Grok, string(modules.GrokSubscriptionDriver), string(modules.GrokModelDiscovery), string(modules.GrokQuotaObservation), ""},
+		{channel.Mirasim, string(modules.MirasimSubscriptionDriver), string(modules.MirasimModelDiscovery), string(modules.MirasimQuotaObservation), ""},
 	}
 	for _, test := range tests {
 		t.Run(string(test.channelID), func(t *testing.T) {
@@ -38,7 +40,7 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 				t.Fatalf("driver = %#v/%t", driver, ok)
 			}
 			discovery, ok := runtime.ModelDiscovery(test.channelID)
-			if !ok || string(discovery.ID()) != test.discoveryID {
+			if test.discoveryID == "" && ok || test.discoveryID != "" && (!ok || string(discovery.ID()) != test.discoveryID) {
 				t.Fatalf("discovery = %#v/%t", discovery, ok)
 			}
 			observation, ok := runtime.QuotaObservation(test.channelID)
@@ -59,6 +61,12 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 	}
 	if _, ok := runtime.BrowserAuthorization(channel.Grok); ok {
 		t.Fatal("Grok unexpectedly resolves browser OAuth")
+	}
+	if _, ok := runtime.DeviceAuthorization(channel.Mirasim); ok {
+		t.Fatal("Mirasim unexpectedly resolves device OAuth")
+	}
+	if browser, ok := runtime.BrowserAuthorization(channel.Mirasim); !ok || browser.ID() != modules.MirasimSubscriptionDriver {
+		t.Fatalf("Mirasim browser authorization = %#v/%t", browser, ok)
 	}
 }
 
@@ -92,12 +100,12 @@ func (driver *importingDriver) ImportCredential(context.Context, []byte) (subscr
 
 func TestRuntimeImportsCredentialThroughOptionalImporter(t *testing.T) {
 	implementations := subscriptionproviders.Implementations()
-	base, ok := implementations[2].Drivers[0].(subscriptionruntime.BrowserAuthorizationDriver)
+	base, ok := implementations[3].Drivers[0].(subscriptionruntime.BrowserAuthorizationDriver)
 	if !ok {
 		t.Fatal("Antigravity driver has no browser authorization support")
 	}
 	importer := &importingDriver{BrowserAuthorizationDriver: base}
-	implementations[2].Drivers[0] = importer
+	implementations[3].Drivers[0] = importer
 	runtime, err := subscriptionruntime.NewRuntime(channel.NewRegistry(), implementations...)
 	if err != nil {
 		t.Fatal(err)
