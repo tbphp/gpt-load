@@ -52,4 +52,4 @@ HTTP 客户端按请求捕获会话版本；身份已切换或请求已取消时
 
 ## 验证
 
-前端使用现有 lint、format、type-check 和 build；最终运行仓库 `make check`。不增加前端测试、浏览器验收或本地 race。
+日常前端开发继续使用现有 lint、format、type-check 和 build；最终运行仓库 `make check`，不增加本地 race。用户明确批准的发版工具使用独立的 `scripts/release-e2e/`，只在手动验收的隔离实例上以固定 Chromium 验证新旧界面主要页面和设置切换；常规前端依赖、CI 和 Release 不运行该套件。
