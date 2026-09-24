@@ -157,6 +157,14 @@ func (c *Compiled) textWithCipher(value string, cipher TokenCipher, jsonText boo
 	if cipher == nil {
 		return c.rewriteText(value, nil, nil, false)
 	}
+	protected, err := authenticatedTokenSpans(value, cipher)
+	if err != nil {
+		return "", err
+	}
+	return c.rewriteText(value, cipher, protected, jsonText)
+}
+
+func authenticatedTokenSpans(value string, cipher TokenCipher) ([]tokenSpan, error) {
 	const tokenPrefix = "gld1_"
 	protected := make([]tokenSpan, 0)
 	scan := 0
@@ -169,7 +177,7 @@ func (c *Compiled) textWithCipher(value string, cipher TokenCipher, jsonText boo
 		start := scan + relative
 		attempts++
 		if attempts > maxDocumentPatches {
-			return "", ErrContent
+			return nil, ErrContent
 		}
 		candidateEnd, complete := cipher.TokenCandidateEnd(value, start)
 		if !complete {
@@ -177,7 +185,7 @@ func (c *Compiled) textWithCipher(value string, cipher TokenCipher, jsonText boo
 			continue
 		}
 		if candidateEnd <= start || candidateEnd > len(value) || candidateEnd-start > remaining {
-			return "", ErrContent
+			return nil, ErrContent
 		}
 		remaining -= candidateEnd - start
 		end, valid := cipher.ValidTokenAt(value, start)
@@ -187,11 +195,11 @@ func (c *Compiled) textWithCipher(value string, cipher TokenCipher, jsonText boo
 		}
 		protected = append(protected, tokenSpan{start, end})
 		if len(protected) > maxDocumentPatches {
-			return "", ErrContent
+			return nil, ErrContent
 		}
 		scan = end
 	}
-	return c.rewriteText(value, cipher, protected, jsonText)
+	return protected, nil
 }
 
 // Text 在原文上匹配所有规则，重叠片段合并，替换文本按字面使用且不再次匹配。
@@ -237,13 +245,6 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 			if span[0] == span[1] {
 				continue
 			}
-			inside, crossing := protectedMatch(protected, span[0], span[1])
-			if crossing {
-				return "", ErrContent
-			}
-			if inside {
-				continue
-			}
 			if c.rules[i].Mode == ModeEncrypt && cipher == nil {
 				return "", ErrContent
 			}
@@ -253,6 +254,25 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 			}
 		}
 	}
+	var literals []toolJSONString
+	if jsonText {
+		var err error
+		spans, protected, literals, err = c.jsonTextMatches(value, spans, protected, cipher)
+		if err != nil {
+			return "", err
+		}
+	}
+	filtered := spans[:0]
+	for _, span := range spans {
+		inside, crossing := protectedMatch(protected, span.start, span.end)
+		if crossing {
+			return "", ErrContent
+		}
+		if !inside {
+			filtered = append(filtered, span)
+		}
+	}
+	spans = filtered
 	if len(spans) == 0 {
 		return value, nil
 	}
@@ -277,7 +297,7 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 		merged[i].plaintext = value[merged[i].start:merged[i].end]
 	}
 	if jsonText {
-		if err := c.decodeJSONMatches(value, merged); err != nil {
+		if err := c.decodeJSONMatches(literals, merged); err != nil {
 			return "", err
 		}
 	}
