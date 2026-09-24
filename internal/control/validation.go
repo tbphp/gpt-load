@@ -315,7 +315,7 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 		return groupValidationTarget{}, false
 	}
 	var fallbackProtocols []protocol.Protocol
-	for _, candidate := range []protocol.Protocol{protocol.OpenAIEmbeddings, protocol.Rerank} {
+	for _, candidate := range []protocol.Protocol{protocol.OpenAIEmbeddings, protocol.GeminiEmbeddings, protocol.Rerank} {
 		if group.ValidationProtocol != "" || candidate == selectedProtocol {
 			continue
 		}

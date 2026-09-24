@@ -12,11 +12,13 @@ const (
 	Decisions         Protocol = "decisions"
 	Anthropic         Protocol = "anthropic"
 	Gemini            Protocol = "gemini"
+	GeminiEmbeddings  Protocol = "gemini-embeddings"
 )
 
 func (p Protocol) Valid() bool {
 	switch p {
-	case OpenAICompletions, OpenAIResponses, OpenAIImages, OpenAIEmbeddings, Rerank, Decisions, Anthropic, Gemini:
+	case OpenAICompletions, OpenAIResponses, OpenAIImages, OpenAIEmbeddings, Rerank, Decisions, Anthropic, Gemini,
+		GeminiEmbeddings:
 		return true
 	default:
 		return false
@@ -25,7 +27,8 @@ func (p Protocol) Valid() bool {
 
 func (p Protocol) DataPlaneEnabled() bool {
 	switch p {
-	case OpenAICompletions, OpenAIResponses, OpenAIImages, OpenAIEmbeddings, Rerank, Decisions, Anthropic, Gemini:
+	case OpenAICompletions, OpenAIResponses, OpenAIImages, OpenAIEmbeddings, Rerank, Decisions, Anthropic, Gemini,
+		GeminiEmbeddings:
 		return true
 	default:
 		return false
@@ -46,5 +49,6 @@ func DataPlaneProtocols() []Protocol {
 		Decisions,
 		Anthropic,
 		Gemini,
+		GeminiEmbeddings,
 	}
 }

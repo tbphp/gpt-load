@@ -47,6 +47,8 @@ func NewAPI() spec.Module {
 				spec.NewRoute(protocol.Anthropic, execution.OperationProbe, execution.RouteNative),
 				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteNative),
 				spec.NewRoute(protocol.Gemini, execution.OperationProbe, execution.RouteNative),
+				spec.NewRoute(protocol.GeminiEmbeddings, execution.OperationEmbeddingsCreate, execution.RouteNative),
+				spec.NewRoute(protocol.GeminiEmbeddings, execution.OperationProbe, execution.RouteNative),
 			},
 		},
 	}

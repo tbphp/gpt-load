@@ -170,7 +170,7 @@ func multiProtocolGatewayProviderProfile(clientProtocol protocol.Protocol) (sche
 		return schemas.OpenAI, nil
 	case protocol.Anthropic:
 		return schemas.Anthropic, nil
-	case protocol.Gemini:
+	case protocol.Gemini, protocol.GeminiEmbeddings:
 		return schemas.Gemini, nil
 	default:
 		return "", fmt.Errorf("unsupported multi-protocol gateway client protocol %q", clientProtocol)

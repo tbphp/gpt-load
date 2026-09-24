@@ -180,6 +180,18 @@ func TestDataPlaneEndpointCatalogResolvesProtocolAndKind(t *testing.T) {
 			validPath: true,
 		},
 		{
+			name: "Gemini embed content", endpoint: "data.gemini.generate",
+			method: http.MethodPost, path: "/v1beta/models/gemini-embedding-001:embedContent",
+			want:      route{Protocol: protocol.GeminiEmbeddings, Kind: endpointForward},
+			validPath: true,
+		},
+		{
+			name: "Gemini batch embed contents", endpoint: "data.gemini.generate",
+			method: http.MethodPost, path: "/v1beta/models/gemini-embedding-001:batchEmbedContents",
+			want:      route{Protocol: protocol.GeminiEmbeddings, Kind: endpointForward},
+			validPath: true,
+		},
+		{
 			name: "Gemini models", endpoint: "data.gemini.models",
 			method: http.MethodGet, path: "/v1beta/models",
 			want:      route{Protocol: protocol.Gemini, Kind: endpointModels},
@@ -272,6 +284,14 @@ func TestDataPlaneEndpointCatalogRejectsMalformedPreAuthPaths(t *testing.T) {
 		{
 			name: "Gemini empty model", endpoint: "data.gemini.generate",
 			path: "/v1beta/models/:generateContent",
+		},
+		{
+			name: "Gemini embeddings empty model", endpoint: "data.gemini.generate",
+			path: "/v1beta/models/:embedContent",
+		},
+		{
+			name: "Gemini unknown embeddings action", endpoint: "data.gemini.generate",
+			path: "/v1beta/models/gemini-embedding-001:asyncBatchEmbedContent",
 		},
 	}
 	for _, test := range tests {

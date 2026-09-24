@@ -31,6 +31,10 @@ export const protocolCatalog = [
     value: 'gemini',
     supportsProtocolOnlyRouting: false,
   },
+  {
+    value: 'gemini-embeddings',
+    supportsProtocolOnlyRouting: false,
+  },
 ] as const
 
 export type ProtocolValue = (typeof protocolCatalog)[number]['value']

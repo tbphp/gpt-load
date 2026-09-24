@@ -318,7 +318,7 @@ func supports(clientProtocol protocol.Protocol, operation execution.Operation) b
 		return operation == execution.OperationRerank
 	case protocol.Decisions:
 		return operation == execution.OperationDecisionsCreate
-	case protocol.OpenAIEmbeddings:
+	case protocol.OpenAIEmbeddings, protocol.GeminiEmbeddings:
 		return operation == execution.OperationEmbeddingsCreate
 	default:
 		return false

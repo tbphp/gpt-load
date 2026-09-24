@@ -152,7 +152,7 @@ func TestGatewayValidationProtocolsAndExplicitSelection(t *testing.T) {
 			}
 			want := []protocol.Protocol{protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini}
 			if id == channel.NewAPI || id == channel.GPTLoad {
-				want = append(want, protocol.OpenAIEmbeddings, protocol.Rerank)
+				want = append(want, protocol.OpenAIEmbeddings, protocol.Rerank, protocol.GeminiEmbeddings)
 			}
 			if len(settings.ValidationProtocols) != len(want) {
 				t.Fatalf("test protocols = %v, want %v", settings.ValidationProtocols, want)

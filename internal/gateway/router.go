@@ -70,7 +70,7 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			methods:       []string{http.MethodPost},
 			path:          geminiGenerationPattern,
 			pathValidator: validateGeminiRequest,
-			resolve:       staticRoute(protocol.Gemini, endpointForward),
+			resolve:       resolveGeminiModelActionRoute,
 		},
 		{
 			name:    "data.gemini.models",
@@ -142,6 +142,14 @@ func staticRoute(selectedProtocol protocol.Protocol, kind endpointKind) func(*ht
 	}
 }
 
+// resolveGeminiModelActionRoute 按动作后缀区分 Gemini 生成类请求和原生 embedding 请求。
+func resolveGeminiModelActionRoute(request *http.Request) route {
+	if request != nil && request.URL != nil && geminiEmbeddingsRequestPath(request.URL.Path) {
+		return route{Protocol: protocol.GeminiEmbeddings, Kind: endpointForward}
+	}
+	return route{Protocol: protocol.Gemini, Kind: endpointForward}
+}
+
 func resolveModelListRoute(request *http.Request) route {
 	if request != nil &&
 		strings.TrimSpace(request.Header.Get("anthropic-version")) != "" {
@@ -191,6 +199,15 @@ func locallyRejectedForwardMethod(method string) bool {
 }
 
 func geminiRequestPath(path string) bool {
+	return geminiModelActionPath(path, ":generateContent", ":streamGenerateContent", ":countTokens") ||
+		geminiEmbeddingsRequestPath(path)
+}
+
+func geminiEmbeddingsRequestPath(path string) bool {
+	return geminiModelActionPath(path, ":embedContent", ":batchEmbedContents")
+}
+
+func geminiModelActionPath(path string, suffixes ...string) bool {
 	const prefix = geminiModelsPath + "/"
 	if !strings.HasPrefix(path, prefix) {
 		return false
@@ -199,7 +216,7 @@ func geminiRequestPath(path string) bool {
 	if strings.Contains(modelAndAction, "/") {
 		return false
 	}
-	for _, suffix := range []string{":generateContent", ":streamGenerateContent", ":countTokens"} {
+	for _, suffix := range suffixes {
 		if model := strings.TrimSuffix(modelAndAction, suffix); model != modelAndAction {
 			return model != ""
 		}
