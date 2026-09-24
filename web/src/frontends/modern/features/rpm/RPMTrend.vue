@@ -77,9 +77,9 @@ const points = computed(() => {
           <dt>{{ t('rpm.peak') }}</dt>
           <dd>{{ report?.peak !== undefined ? n(report.peak) : '—' }}</dd>
         </div>
-        <div v-if="scope.kind === 'access_key' && report?.rejected" class="modern-rpm-rejected">
-          <dt>{{ t('rpm.totalRejected') }}</dt>
-          <dd>{{ n(report.rejected) }}</dd>
+        <div>
+          <dt>{{ t(scope.kind === 'access_key' ? 'rpm.hourRequests' : 'rpm.hourAttempts') }}</dt>
+          <dd>{{ report?.points.length ? n(report.requests) : '—' }}</dd>
         </div>
       </dl>
       <AppSparkline
@@ -107,15 +107,16 @@ const points = computed(() => {
 }
 .modern-rpm-summary {
   display: grid;
-  gap: var(--modern-space-1);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--modern-space-2);
   margin: 0;
   min-width: 0;
 }
 .modern-rpm-summary > div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  display: grid;
+  align-content: start;
   gap: var(--modern-space-1);
+  min-width: 0;
 }
 .modern-rpm-summary dt,
 .modern-rpm-state {
@@ -123,7 +124,6 @@ const points = computed(() => {
   font-size: var(--modern-font-size-small);
 }
 .modern-rpm-summary dd {
-  flex: none;
   margin: 0;
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-semibold);
@@ -132,9 +132,6 @@ const points = computed(() => {
 .modern-rpm-stat-current dd {
   color: var(--modern-text);
   font-size: var(--modern-font-size-section);
-}
-.modern-rpm-rejected dd {
-  color: var(--modern-warning);
 }
 .modern-rpm-chart {
   border-bottom: var(--modern-line-width) solid var(--modern-border);
