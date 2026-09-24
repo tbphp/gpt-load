@@ -445,6 +445,12 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 			if err != nil {
 				downstreamErr = executionRedactionStreamFailure()
 			} else if len(tail) > 0 {
+				if !firstResponse {
+					firstResponse = true
+					if input.OnFirstResponse != nil {
+						input.OnFirstResponse()
+					}
+				}
 				if !committed && !streamEvents.producedContent() &&
 					preread.hold(tail, streamEvents.eventCount, redactionRestore.TerminalReleased(), streamEvents.sawTerminal) {
 					// EOF 才释放的恢复数据仍须参与空回判定。
@@ -458,10 +464,14 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 					}
 				} else {
 					written, writeErr := controller.write(tail)
-					if writeErr != nil || written != len(tail) {
-						downstreamErr = &streamFailure{kind: streamFailureDownstreamWrite, err: io.ErrShortWrite}
-					} else {
-						downstreamErr = controller.flush()
+					if writeErr == nil && written != len(tail) {
+						writeErr = io.ErrShortWrite
+					}
+					if writeErr == nil {
+						writeErr = controller.flush()
+					}
+					if writeErr != nil {
+						downstreamErr = &streamFailure{kind: streamFailureDownstreamWrite, err: writeErr}
 					}
 				}
 			}
@@ -909,6 +919,7 @@ func executionRepresentationFailure(result UpstreamResult, err error) UpstreamRe
 	}
 	return UpstreamResult{
 		Err:               err,
+		Usage:             result.Usage,
 		StatusCode:        result.StatusCode,
 		RequestWritten:    result.RequestWritten,
 		DispatchState:     result.DispatchState,

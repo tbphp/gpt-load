@@ -205,7 +205,7 @@ func (ctx *unaryRestoreContext) responsesInputItems(root gjson.Result) error {
 					}
 					return unaryRestoreArray(output, func(part gjson.Result) error {
 						if part.Get("type").Str == "input_text" || part.Get("type").Str == "output_text" {
-							return unaryRestoreField(part, "text", ctx.text)
+							return unaryRestoreField(part, "text", ctx.jsonValue)
 						}
 						return nil
 					})

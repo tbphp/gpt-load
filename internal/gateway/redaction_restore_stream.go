@@ -473,19 +473,24 @@ func (stream *redactionRestoreSSE) addDocument(
 		return nil
 	}
 	state := stream.documents[key]
-	if state == nil && value.Str == "" {
+	if state == nil && strings.Trim(value.Str, " \t\r\n") == "" {
 		return nil
 	}
 	if state == nil {
-		if len(stream.texts)+len(stream.documents) >= maxRedactionStreamChannels {
-			return errRedactionStream
-		}
 		state = &redactionStreamDocument{}
-		stream.documents[key] = state
 	}
 	restored, err := state.push(value.Str, stream.restore)
 	if err != nil {
 		return err
+	}
+	// 完整参数不再占用并行解析名额，后续空白也无需保留状态。
+	if state.complete() {
+		delete(stream.documents, key)
+	} else {
+		if stream.documents[key] == nil && len(stream.texts)+len(stream.documents) >= maxRedactionStreamChannels {
+			return errRedactionStream
+		}
+		stream.documents[key] = state
 	}
 	field := event.field(value)
 	field.signed = signed
@@ -601,6 +606,8 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 	if kind == "" {
 		kind = eventName
 	}
+	// GET 流没有原始请求体；响应对象携带的显式格式声明同样有效。
+	stream.structured = stream.structured || redactionFormatType(root.Get("response.text.format.type"), true)
 	outputIndex := redactionStreamIndex(root.Get("output_index"), 0)
 	contentIndex := redactionStreamIndex(root.Get("content_index"), 0)
 	textKey := "response/text/" + outputIndex + "/" + contentIndex
@@ -763,10 +770,9 @@ func (stream *redactionRestoreSSE) gemini(event *redactionStreamEvent, root gjso
 			prefix := "gemini/" + candidateIndex + "/"
 			if err := unaryRestoreField(candidate, "content", func(content gjson.Result) error {
 				return unaryRestoreField(content, "parts", func(parts gjson.Result) error {
-					partIndex := 0
 					return unaryRestoreArray(parts, func(part gjson.Result) error {
-						key := prefix + strconv.Itoa(partIndex)
-						partIndex++
+						// parts 是当前分片的列表，位置不能标识跨分片的文本。
+						key := prefix + "answer"
 						if part.Get("thought").Bool() {
 							return nil
 						}

@@ -347,7 +347,46 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 		patches = append(patches, p)
 		return nil
 	}
+	// 仅 encrypt 模式按工具结果中的 JSON 值保护，保持旧 replace 规则语义。
+	jsonToolResults := false
+	for _, rule := range c.rules {
+		jsonToolResults = jsonToolResults || (cipher != nil && rule.Mode == ModeEncrypt)
+	}
+	rewriteEmbedded := func(value gjson.Result, depth int) error {
+		rewritten, err := c.apply([]byte(value.Str), true, false, depth+1, patchCount, cipher)
+		if err != nil || string(rewritten) == value.Str {
+			return err
+		}
+		encoded, err := json.Marshal(string(rewritten))
+		if err != nil {
+			return err
+		}
+		return addPatch(patch{value.Index, value.Index + len(value.Raw), encoded})
+	}
 	var walk func(gjson.Result, bool, bool, int, bool) error
+	var toolResult func(gjson.Result, int) error
+	toolResult = func(value gjson.Result, depth int) error {
+		if depth > 64 {
+			return ErrContent
+		}
+		if value.Type == gjson.String && json.Valid([]byte(value.Str)) {
+			return rewriteEmbedded(value, depth)
+		}
+		if value.IsArray() {
+			var failure error
+			value.ForEach(func(_, part gjson.Result) bool {
+				switch part.Get("type").Str {
+				case "text", "input_text", "output_text":
+					failure = toolResult(part.Get("text"), depth+1)
+				default:
+					failure = walk(part, true, false, depth+1, false)
+				}
+				return failure == nil
+			})
+			return failure
+		}
+		return walk(value, true, false, depth, false)
+	}
 	walk = func(v gjson.Result, content, data bool, depth int, questions bool) error {
 		if depth > 64 {
 			return ErrContent
@@ -404,19 +443,15 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				return true
 			case "arguments":
 				if child.Type == gjson.String && json.Valid([]byte(child.Str)) {
-					var rewritten []byte
-					rewritten, failure = c.apply([]byte(child.Str), true, false, depth+1, patchCount, cipher)
-					if failure == nil && string(rewritten) != child.Str {
-						var encoded []byte
-						encoded, failure = json.Marshal(string(rewritten))
-						if failure == nil {
-							failure = addPatch(patch{child.Index, child.Index + len(child.Raw), encoded})
-						}
-					}
+					failure = rewriteEmbedded(child, depth)
 				} else {
 					failure = walk(child, true, true, depth+1, questions)
 				}
 			case "output":
+				if jsonToolResults && (v.Get("type").Str == "function_call_output" || v.Get("type").Str == "custom_tool_call_output") {
+					failure = toolResult(child, depth+1)
+					return failure == nil
+				}
 				isResponsesContent := v.Get("type").Str == "function_call_output" && child.IsArray()
 				failure = walk(child, true, !isResponsesContent, depth+1, questions)
 			case "args", "response":
@@ -424,7 +459,13 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			case "input":
 				kind := v.Get("type").Str
 				failure = walk(child, true, kind == "tool_use" || kind == "server_tool_use" || kind == "mcp_tool_use", depth+1, questions)
-			case "content", "text", "system", "system_instruction", "systemInstruction", "instructions", "prompt", "query", "thinking", "summary", "code", "refusal", "description", "title", "documents", "texts":
+			case "content":
+				if jsonToolResults && (v.Get("role").Str == "tool" || v.Get("type").Str == "tool_result") {
+					failure = toolResult(child, depth+1)
+				} else {
+					failure = walk(child, true, false, depth+1, questions)
+				}
+			case "text", "system", "system_instruction", "systemInstruction", "instructions", "prompt", "query", "thinking", "summary", "code", "refusal", "description", "title", "documents", "texts":
 				failure = walk(child, true, questions && depth == 2 && k.Str == "instructions", depth+1, questions)
 			default:
 				failure = walk(child, false, false, depth+1, questions)

@@ -424,8 +424,13 @@ func rewriteSSEEventWithMetadata(
 	for index, line := range lines {
 		switch {
 		case index == firstDataLine:
-			_, _ = output.WriteString("data: ")
-			_, _ = output.Write(rewritten.body)
+			for partIndex, part := range bytes.Split(rewritten.body, []byte{'\n'}) {
+				if partIndex > 0 {
+					_, _ = output.Write(line.terminator)
+				}
+				_, _ = output.WriteString("data: ")
+				_, _ = output.Write(part)
+			}
 			_, _ = output.Write(line.terminator)
 		case line.isData:
 			continue

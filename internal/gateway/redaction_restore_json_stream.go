@@ -182,6 +182,11 @@ func (doc *redactionStreamDocument) restoreSegment(raw string, closed bool, rest
 
 func rejectUnquotedRedactionToken(string) (string, error) { return "", errRedactionStream }
 
+func (doc *redactionStreamDocument) complete() bool {
+	return !doc.inString && !doc.blocked() && len(doc.stack) == 0 &&
+		(doc.syntax == '}' || doc.syntax == ']' || doc.syntax == '"')
+}
+
 func (doc *redactionStreamDocument) blocked() bool { return doc.pending != "" || doc.token.pending() }
 
 func (doc *redactionStreamDocument) finish(restore func(string) (string, error)) (string, error) {
