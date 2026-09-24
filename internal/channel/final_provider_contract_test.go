@@ -18,6 +18,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 		Claude,
 		Antigravity,
 		Grok,
+		Mirasim,
 		Anthropic,
 		Gemini,
 		AzureOpenAI,

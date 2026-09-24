@@ -47,6 +47,8 @@ if (document.body.dataset.autoclose === "1") {
 type oauthCallbackParameters struct {
 	State         string
 	Code          string
+	AccessToken   string
+	RefreshToken  string
 	ProviderError string
 }
 
@@ -220,8 +222,7 @@ func (manager *OAuthCallbackManager) serveHTTP(
 	result, err := manager.service.completeCredentialAuthorizationFromCallback(
 		request.Context(),
 		spec,
-		callback.State,
-		callback.Code,
+		callback,
 	)
 	if err != nil {
 		writeOAuthResult(writer, oauthCallbackOutcome{
@@ -263,7 +264,7 @@ func parseLocalCallbackEndpoint(spec subscriptionruntime.LocalCallbackSpec) (str
 
 func parseManualOAuthCallbackURL(raw string, spec subscriptionruntime.LocalCallbackSpec) (oauthCallbackParameters, error) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || len(raw) > 16*1024 {
+	if raw == "" || len(raw) > 128*1024 {
 		return oauthCallbackParameters{}, errors.New("invalid OAuth callback URL")
 	}
 	expected, err := url.Parse(spec.RedirectURI)
@@ -284,11 +285,19 @@ func parseOAuthCallbackQuery(query url.Values) (oauthCallbackParameters, error) 
 	if len(stateValues) != 1 || strings.TrimSpace(stateValues[0]) == "" {
 		return oauthCallbackParameters{}, errors.New("invalid OAuth callback state")
 	}
-	if len(errorValues) == 1 && strings.TrimSpace(errorValues[0]) != "" && len(codeValues) == 0 {
+	accessValues, refreshValues := query["access_token"], query["refresh_token"]
+	if len(errorValues) == 1 && strings.TrimSpace(errorValues[0]) != "" && len(codeValues) == 0 && len(accessValues) == 0 {
 		if descriptions := query["error_description"]; len(descriptions) > 1 {
 			return oauthCallbackParameters{}, errors.New("invalid OAuth callback error")
 		}
 		return oauthCallbackParameters{State: stateValues[0], ProviderError: errorValues[0]}, nil
+	}
+	if len(codeValues) == 0 && len(accessValues) == 1 && len(refreshValues) == 1 &&
+		strings.TrimSpace(accessValues[0]) != "" && strings.TrimSpace(refreshValues[0]) != "" &&
+		len(errorValues) == 0 && len(query["error_description"]) == 0 {
+		return oauthCallbackParameters{
+			State: stateValues[0], AccessToken: accessValues[0], RefreshToken: refreshValues[0],
+		}, nil
 	}
 	if len(codeValues) != 1 || strings.TrimSpace(codeValues[0]) == "" || len(errorValues) != 0 || len(query["error_description"]) != 0 {
 		return oauthCallbackParameters{}, errors.New("invalid OAuth callback code")
