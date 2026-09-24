@@ -60,6 +60,7 @@ export type RequestLogOperation =
   | 'embeddings_create'
   | 'rerank'
   | 'decisions_create'
+  | 'live_call'
   | 'list_models'
   | 'probe'
 export type RequestLogRouteMode = 'native' | 'converted'
@@ -291,6 +292,7 @@ const operations = [
   'embeddings_create',
   'rerank',
   'decisions_create',
+  'live_call',
   'list_models',
   'probe',
 ] as const

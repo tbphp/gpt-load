@@ -27,6 +27,9 @@ const (
 	endpointForward endpointKind = iota + 1
 	endpointModels
 	endpointUsage
+	endpointLiveCreate
+	endpointLiveSideband
+	endpointLiveHangup
 )
 
 type route struct {
@@ -119,6 +122,12 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 		{name: "data.rerank", methods: []string{http.MethodPost}, path: "/v1/rerank", resolve: staticRoute(protocol.Rerank, endpointForward)},
 		{name: "data.decisions", methods: []string{http.MethodPost}, path: decisionsPath, resolve: staticRoute(protocol.Decisions, endpointForward)},
 		{name: "data.codex.search", methods: []string{http.MethodPost}, path: "/v1/alpha/search", resolve: staticRoute(protocol.OpenAIResponses, endpointForward)},
+		{name: "data.codex.live", methods: []string{http.MethodPost}, path: "/v1/live", resolve: staticRoute(protocol.CodexLive, endpointLiveCreate)},
+		{name: "data.codex.live.sideband", methods: []string{http.MethodGet}, path: "/v1/live/:call_id", resolve: staticRoute(protocol.CodexLive, endpointLiveSideband)},
+		{name: "data.codex.live.calls", methods: []string{http.MethodPost}, path: "/v1/realtime/calls", resolve: staticRoute(protocol.CodexLive, endpointLiveCreate)},
+		{name: "data.codex.live.realtime", methods: []string{http.MethodGet}, path: "/v1/realtime", resolve: staticRoute(protocol.CodexLive, endpointLiveSideband)},
+		{name: "data.codex.live.call.sideband", methods: []string{http.MethodGet}, path: "/v1/realtime/calls/:call_id", resolve: staticRoute(protocol.CodexLive, endpointLiveSideband)},
+		{name: "data.codex.live.hangup", methods: []string{http.MethodPost}, path: "/v1/realtime/calls/:call_id/hangup", resolve: staticRoute(protocol.CodexLive, endpointLiveHangup)},
 	}
 }
 

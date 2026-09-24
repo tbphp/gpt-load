@@ -45,6 +45,7 @@ func Codex() spec.Module {
 				DefaultBaseURLs: []string{CodexDefaultBaseURL},
 			},
 			Routes: []spec.Route{
+				spec.NewRoute(protocol.CodexLive, execution.OperationLiveCall, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesGenerate, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesEdit, execution.RouteNative),

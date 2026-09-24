@@ -60,6 +60,7 @@ export type ChannelOperation =
   | 'embeddings_create'
   | 'rerank'
   | 'decisions_create'
+  | 'live_call'
   | 'list_models'
   | 'probe'
 
@@ -168,6 +169,7 @@ const operations = [
   'embeddings_create',
   'rerank',
   'decisions_create',
+  'live_call',
   'list_models',
   'probe',
 ] as const

@@ -470,6 +470,7 @@ func appendExecutionTargets(
 				})
 				fallthrough
 			case execution.OperationChatCompletion,
+				execution.OperationLiveCall,
 				execution.OperationResponsesCreate,
 				execution.OperationResponsesCompact,
 				execution.OperationResponsesInputTokens,
@@ -480,6 +481,10 @@ func appendExecutionTargets(
 				execution.OperationEmbeddingsCreate, execution.OperationRerank,
 				execution.OperationDecisionsCreate:
 				for _, model := range group.Models {
+					liveModel := group.ChannelID == channel.Codex && model.ID == channel.CodexLiveModelID
+					if (operation == execution.OperationLiveCall) != liveModel {
+						continue
+					}
 					modelMode, supported := target.ModeForModel(clientProtocol, operation, model.ID)
 					if !supported {
 						return fmt.Errorf("compile group %d channel has no route mode for %q/%q model %q", group.ID, clientProtocol, operation, model.ID)

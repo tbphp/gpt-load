@@ -50,9 +50,33 @@ func TestCodexDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T
 	want := []ModelCandidate{{
 		ID: "gpt-codex", Name: "gpt-codex", Sources: []string{"live"},
 		PricingStatus: PricingStatusConfigured, PricingSource: &openAI,
+	}, {
+		ID: channel.CodexLiveModelID, Name: channel.CodexLiveModelID,
+		Sources: []string{"catalog"}, PricingStatus: PricingStatusPending,
 	}}
 	if !reflect.DeepEqual(got.Models, want) {
 		t.Fatalf("Codex candidates = %#v, want %#v", got.Models, want)
+	}
+}
+
+func TestCodexLiveCandidateStaysUniqueAndUnpricedWhenCatalogContainsIt(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai", Models: map[string]catalog.Model{
+			channel.CodexLiveModelID: {ID: channel.CodexLiveModelID, Name: "Codex voice",
+				Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}},
+		}},
+	}})
+	result, err := fixture.service.mergeDiscoveredModels(t.Context(), nil, discoveryTarget{
+		channelID: channel.Codex, catalogProviderID: "openai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Models) != 1 || result.Models[0].ID != channel.CodexLiveModelID ||
+		result.Models[0].PricingStatus != PricingStatusPending || result.Models[0].PricingSource != nil {
+		t.Fatalf("voice catalog candidate = %+v", result.Models)
 	}
 }
 

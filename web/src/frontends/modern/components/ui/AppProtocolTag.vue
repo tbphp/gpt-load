@@ -57,6 +57,9 @@ const label = computed(() => protocolLabel(value.value, t))
 .modern-protocol-tag[data-protocol='openai-embeddings'] {
   --modern-protocol-color: var(--modern-protocol-embeddings);
 }
+.modern-protocol-tag[data-protocol='codex-live'] {
+  --modern-protocol-color: var(--modern-protocol-live);
+}
 .modern-protocol-tag[data-protocol='rerank'] {
   --modern-protocol-color: var(--modern-protocol-rerank);
 }

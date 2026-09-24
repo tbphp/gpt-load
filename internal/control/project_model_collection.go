@@ -270,7 +270,16 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 				}
 				records[clientModel] = root
 			}
-			root.protocols = mergeProjectModelProtocols(root.protocols, group.dto.ClientProtocols)
+			modelProtocols := group.dto.ClientProtocols
+			if group.row.ChannelID == string(channel.Codex) {
+				modelProtocols = make([]protocol.Protocol, 0, len(group.dto.ClientProtocols))
+				for _, candidate := range group.dto.ClientProtocols {
+					if (candidate == protocol.CodexLive) == (model.ID == channel.CodexLiveModelID) {
+						modelProtocols = append(modelProtocols, candidate)
+					}
+				}
+			}
+			root.protocols = mergeProjectModelProtocols(root.protocols, modelProtocols)
 			upstream := root.upstreams[identity]
 			if upstream == nil {
 				affectedGroups, err := projectModelAffectedGroups(identity, references, groupDTOs)

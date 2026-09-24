@@ -398,7 +398,21 @@ func (s *Service) mergeDiscoveredModels(
 		}
 		return leftName < rightName
 	})
+	for index, candidate := range catalogOnly {
+		seen[candidate.ID] = len(result) + index
+	}
 	result = append(result, catalogOnly...)
+	if target.channelID == channel.Codex {
+		if index, exists := seen[channel.CodexLiveModelID]; exists {
+			result[index].PricingStatus = PricingStatusPending
+			result[index].PricingSource = nil
+		} else {
+			result = append(result, ModelCandidate{
+				ID: channel.CodexLiveModelID, Name: channel.CodexLiveModelID,
+				Sources: []string{"catalog"}, PricingStatus: PricingStatusPending,
+			})
+		}
+	}
 	return ModelDiscoveryResult{Models: result}, nil
 }
 

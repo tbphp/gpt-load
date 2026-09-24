@@ -342,7 +342,7 @@ func TestDiscoverGroupModelsUsesSubscriptionCredential(t *testing.T) {
 		return []codex.Model{{ID: "gpt-5.2"}}, nil
 	})
 	result, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
-	if err != nil || len(result.Models) != 1 || result.Models[0].ID != "gpt-5.2" {
+	if err != nil || len(result.Models) != 2 || result.Models[0].ID != "gpt-5.2" || result.Models[1].ID != channel.CodexLiveModelID {
 		t.Fatalf("result = %#v, %v", result, err)
 	}
 }
@@ -481,7 +481,7 @@ func TestDiscoverGroupModelsRefreshesSameCredentialOnceAfterUnauthorized(t *test
 	}
 
 	result, err := fixture.service.DiscoverGroupModels(t.Context(), created.GroupID)
-	if err != nil || !reflect.DeepEqual(forces, []bool{false, true}) || discoveryCalls != 2 || len(result.Models) != 1 {
+	if err != nil || !reflect.DeepEqual(forces, []bool{false, true}) || discoveryCalls != 2 || len(result.Models) != 2 {
 		t.Fatalf("result/error/forces/discovery = %#v/%v/%v/%d", result, err, forces, discoveryCalls)
 	}
 }

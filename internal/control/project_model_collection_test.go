@@ -3,6 +3,7 @@ package control
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -91,6 +92,42 @@ func TestProjectModelsSeparateSameUpstreamModelByChannelAndDetail(t *testing.T) 
 	for _, field := range []string{"provider_id", "upstream_url", "protocols"} {
 		if _, ok := wire[field]; ok {
 			t.Fatalf("route Group wire exposes legacy %q: %s", field, encoded)
+		}
+	}
+}
+
+func TestProjectModelsShowCodexVoiceOnlyForLiveModel(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "codex-voice", ChannelID: string(channel.Codex), ConnectionType: models.ConnectionTypeSubscription,
+		Params: models.JSON(`{}`), Models: models.JSON(`[{"id":"gpt-5.5"},{"id":"gpt-live-1-codex"}]`),
+		Overrides: models.JSON(`{}`), Enabled: true,
+	})
+	mustEnsureInitialPrices(t, fixture)
+	result, err := fixture.service.ListProjectModels(t.Context(), ProjectModelListQuery{
+		GroupStatus: ProjectModelGroupStatusAll, PricingStatus: ProjectModelPricingStatusAll, Page: 1, PageSize: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("Codex model page items = %#v", result.Items)
+	}
+	for _, model := range result.Items {
+		switch model.ClientModel {
+		case channel.CodexLiveModelID:
+			if !reflect.DeepEqual(model.Protocols, []protocol.Protocol{protocol.CodexLive}) {
+				t.Fatalf("voice model protocols = %v", model.Protocols)
+			}
+		case "gpt-5.5":
+			for _, value := range model.Protocols {
+				if value == protocol.CodexLive {
+					t.Fatalf("coding model includes voice protocol: %v", model.Protocols)
+				}
+			}
+		default:
+			t.Fatalf("unexpected Codex model %q", model.ClientModel)
 		}
 	}
 }

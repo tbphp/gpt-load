@@ -469,6 +469,46 @@ func TestLoadRejectsInvalidRequiredAndNumericValues(t *testing.T) {
 	}
 }
 
+func TestLoadCodexLiveMediaSettings(t *testing.T) {
+	clearEnvironment(t)
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("CODEX_LIVE_PUBLIC_IP", "192.0.2.10")
+	t.Setenv("CODEX_LIVE_UDP_PORT_MIN", "50000")
+	t.Setenv("CODEX_LIVE_UDP_PORT_MAX", "50127")
+	t.Setenv("CODEX_LIVE_MAX_SESSIONS", "24")
+	t.Setenv("CODEX_LIVE_ICE_SERVERS", `[{"urls":["stun:stun.example.com:3478"]}]`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CodexLive.PublicIP != "192.0.2.10" || cfg.CodexLive.UDPPortMin != 50000 ||
+		cfg.CodexLive.UDPPortMax != 50127 || cfg.CodexLive.MaxSessions != 24 ||
+		len(cfg.CodexLive.ICEServers) != 1 || len(cfg.CodexLive.ICEServers[0].URLs) != 1 {
+		t.Fatalf("Codex live config = %+v", cfg.CodexLive)
+	}
+}
+
+func TestLoadRejectsInvalidCodexLiveMediaSettings(t *testing.T) {
+	for name, values := range map[string]map[string]string{
+		"invalid public address": {"CODEX_LIVE_PUBLIC_IP": "voice.example.com"},
+		"partial UDP range":      {"CODEX_LIVE_UDP_PORT_MIN": "50000"},
+		"reversed UDP range":     {"CODEX_LIVE_UDP_PORT_MIN": "50127", "CODEX_LIVE_UDP_PORT_MAX": "50000"},
+		"zero capacity":          {"CODEX_LIVE_MAX_SESSIONS": "0"},
+		"invalid ICE JSON":       {"CODEX_LIVE_ICE_SERVERS": `{"urls":["stun:example.com"]}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			clearEnvironment(t)
+			t.Setenv("AUTH_KEY", "test-auth-key")
+			for key, value := range values {
+				t.Setenv(key, value)
+			}
+			if _, err := Load(); err == nil {
+				t.Fatal("invalid Codex live settings accepted")
+			}
+		})
+	}
+}
+
 func clearEnvironment(t *testing.T) {
 	t.Helper()
 	t.Chdir(t.TempDir())
@@ -477,6 +517,8 @@ func clearEnvironment(t *testing.T) {
 		"LOG_LEVEL", "LOG_FORMAT", "GRACEFUL_SHUTDOWN_TIMEOUT",
 		"READ_TIMEOUT", "IDLE_TIMEOUT", "MODELS_DEV_AUTO_SYNC_ENABLED",
 		"DATABASE_MAX_OPEN_CONNECTIONS", "DATABASE_MAX_IDLE_CONNECTIONS",
+		"CODEX_LIVE_PUBLIC_IP", "CODEX_LIVE_UDP_PORT_MIN", "CODEX_LIVE_UDP_PORT_MAX",
+		"CODEX_LIVE_MAX_SESSIONS", "CODEX_LIVE_ICE_SERVERS",
 	} {
 		t.Setenv(key, "")
 	}
