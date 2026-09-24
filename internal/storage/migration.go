@@ -184,6 +184,7 @@ func validateMigrationRegistry(entries []migration) error {
 // columns already exist.
 var retiredForkMigrationIDs = []string{
 	"0021_priority_manual",
+	"0022_priority_manual",
 }
 
 func rewriteRetiredForkMigrationLedger(db *gorm.DB) error {
