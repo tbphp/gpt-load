@@ -125,11 +125,12 @@ func (token *redactionTokenStream) pushUnit(raw, decoded string, out *strings.Bu
 			return token.append(raw, decoded)
 		}
 		if ch == '_' && token.digits > 0 {
-			if token.oversize || token.length == 0 || (token.leadingZero && token.digits > 1) {
-				return errRedactionStream
-			}
 			if err := token.append(raw, decoded); err != nil {
 				return err
+			}
+			if token.oversize || token.length == 0 || (token.leadingZero && token.digits > 1) {
+				// 长度字段非法，不可能是网关生成的密文。
+				return token.keep(out, restore)
 			}
 			token.body = true
 			token.remaining = token.length
@@ -140,7 +141,11 @@ func (token *redactionTokenStream) pushUnit(raw, decoded string, out *strings.Bu
 		return token.pushUnit(raw, decoded, out, restore, quoted)
 	}
 	if len(decoded) != 1 || !((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
-		return errRedactionStream
+		// 密文被截断或抄错：已收集的片段原样放行，当前字符按普通内容处理。
+		if err := token.keep(out, restore); err != nil {
+			return err
+		}
+		return token.pushUnit(raw, decoded, out, restore, quoted)
 	}
 	if err := token.append(raw, decoded); err != nil {
 		return err
@@ -172,9 +177,25 @@ func (token *redactionTokenStream) pushUnit(raw, decoded string, out *strings.Bu
 	return nil
 }
 
-func (token *redactionTokenStream) finish() (string, error) {
+// keep 把无法认证的候选交给 restore 判定并计数，再原样写出；这类候选不可能还原出明文。
+func (token *redactionTokenStream) keep(out *strings.Builder, restore func(string) (string, error)) error {
+	original := token.decoded.String()
+	restored, err := restore(original)
+	if err != nil || restored != original {
+		return errRedactionStream
+	}
+	out.Write(token.raw.Bytes())
+	token.reset()
+	return nil
+}
+
+func (token *redactionTokenStream) finish(restore func(string) (string, error)) (string, error) {
 	if token.body {
-		return "", errRedactionStream
+		var out strings.Builder
+		if err := token.keep(&out, restore); err != nil {
+			return "", err
+		}
+		return out.String(), nil
 	}
 	tail := token.raw.String()
 	token.reset()

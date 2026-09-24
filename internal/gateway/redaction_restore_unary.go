@@ -125,6 +125,11 @@ func (ctx *unaryRestoreContext) chatMessage(message gjson.Result) error {
 	}); err != nil {
 		return err
 	}
+	for _, name := range []string{"refusal", "reasoning_content", "reasoning"} {
+		if err := unaryRestoreField(message, name, ctx.plainText); err != nil {
+			return err
+		}
+	}
 	if err := unaryRestoreField(message, "function_call", ctx.arguments); err != nil {
 		return err
 	}
@@ -159,12 +164,18 @@ func (ctx *unaryRestoreContext) responses(root gjson.Result, depth int) error {
 			case "message":
 				return unaryRestoreField(item, "content", func(content gjson.Result) error {
 					return unaryRestoreArray(content, func(part gjson.Result) error {
-						if part.Get("type").Str != "output_text" {
+						switch part.Get("type").Str {
+						case "output_text":
+							return unaryRestoreField(part, "text", ctx.text)
+						case "refusal":
+							return unaryRestoreField(part, "refusal", ctx.plainText)
+						default:
 							return nil
 						}
-						return unaryRestoreField(part, "text", ctx.text)
 					})
 				})
+			case "reasoning":
+				return ctx.responsesReasoning(item)
 			case "function_call":
 				return ctx.arguments(item)
 			case "custom_tool_call":
@@ -174,6 +185,25 @@ func (ctx *unaryRestoreContext) responses(root gjson.Result, depth int) error {
 			}
 		})
 	})
+}
+
+// responsesReasoning 还原推理摘要与推理文本；两者始终是自然语言。
+func (ctx *unaryRestoreContext) responsesReasoning(item gjson.Result) error {
+	for _, name := range []string{"summary", "content"} {
+		if err := unaryRestoreField(item, name, func(parts gjson.Result) error {
+			return unaryRestoreArray(parts, func(part gjson.Result) error {
+				switch part.Get("type").Str {
+				case "summary_text", "reasoning_text":
+					return unaryRestoreField(part, "text", ctx.plainText)
+				default:
+					return nil
+				}
+			})
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (ctx *unaryRestoreContext) responsesInputItems(root gjson.Result) error {
@@ -189,11 +219,15 @@ func (ctx *unaryRestoreContext) responsesInputItems(root gjson.Result) error {
 						switch part.Get("type").Str {
 						case "input_text", "output_text":
 							return unaryRestoreField(part, "text", ctx.text)
+						case "refusal":
+							return unaryRestoreField(part, "refusal", ctx.plainText)
 						default:
 							return nil
 						}
 					})
 				})
+			case "reasoning":
+				return ctx.responsesReasoning(item)
 			case "function_call":
 				return ctx.arguments(item)
 			case "custom_tool_call":
@@ -239,7 +273,11 @@ func (ctx *unaryRestoreContext) gemini(root gjson.Result) error {
 				return unaryRestoreField(content, "parts", func(parts gjson.Result) error {
 					return unaryRestoreArray(parts, func(part gjson.Result) error {
 						if part.Get("thought").Bool() {
-							return nil
+							// 思考摘要按纯文本还原；带签名的思考保持原样，避免改写签名内容。
+							if part.Get("thoughtSignature").Exists() {
+								return nil
+							}
+							return unaryRestoreField(part, "text", ctx.plainText)
 						}
 						before := len(ctx.patches)
 						if err := unaryRestoreField(part, "text", ctx.text); err != nil {
@@ -269,6 +307,11 @@ func (ctx *unaryRestoreContext) customToolInput(item gjson.Result) error {
 
 func (ctx *unaryRestoreContext) arguments(call gjson.Result) error {
 	return unaryRestoreField(call, "arguments", ctx.jsonDocument)
+}
+
+// plainText 用于推理、拒答等自然语言字段，不受 JSON 输出声明影响。
+func (ctx *unaryRestoreContext) plainText(value gjson.Result) error {
+	return ctx.restoreString(value, ctx.addPatch)
 }
 
 func (ctx *unaryRestoreContext) text(value gjson.Result) error {

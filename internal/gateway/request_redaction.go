@@ -7,9 +7,12 @@ import (
 	"mime/multipart"
 	"net/http"
 
+	"github.com/sirupsen/logrus"
+
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpheader"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestredact"
 )
@@ -122,4 +125,22 @@ func redactMultipart(c *requestredact.Compiled, body []byte, boundary string, ci
 		return body, nil
 	}
 	return out.Bytes(), nil
+}
+
+// logUnrestoredRedactionTokens 记录按原文放行的无法认证密文，便于评估模型抄写密文的可靠性。
+func (handler *Handler) logUnrestoredRedactionTokens(cipher encryption.RedactionCipher, requestID string) {
+	if cipher == nil {
+		return
+	}
+	occurrences := cipher.UnrestoredTokens()
+	if occurrences == 0 {
+		return
+	}
+	utils.LogPlaneBestEffort(
+		handler.logger,
+		logrus.WarnLevel,
+		utils.LogPlaneData,
+		logrus.Fields{"request_id": requestID, "occurrences": occurrences},
+		"Unrestorable redaction tokens were forwarded unchanged",
+	)
 }

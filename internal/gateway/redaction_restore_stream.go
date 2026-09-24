@@ -505,7 +505,7 @@ func (stream *redactionRestoreSSE) closeMatching(prefix string) error {
 		if key != prefix && prefix != "" && !(strings.HasSuffix(prefix, "/") && strings.HasPrefix(key, prefix)) {
 			continue
 		}
-		tail, err := state.token.finish()
+		tail, err := state.token.finish(stream.restore)
 		if err != nil {
 			return err
 		}
@@ -560,6 +560,22 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 				}); err != nil {
 					return err
 				}
+				for _, name := range []string{"refusal", "reasoning_content", "reasoning"} {
+					if err := unaryRestoreField(delta, name, func(value gjson.Result) error {
+						return stream.addPlainText(event, prefix+name, value)
+					}); err != nil {
+						return err
+					}
+				}
+				// 推理不会再续写：正文开始时收尾推理，避免推理末尾的疑似前缀扣住后续正文。
+				if delta.Get("content").Str != "" || delta.Get("refusal").Str != "" ||
+					delta.Get("tool_calls").IsArray() || delta.Get("function_call").IsObject() {
+					for _, name := range []string{"reasoning_content", "reasoning"} {
+						if err := stream.closeMatching(prefix + name); err != nil {
+							return err
+						}
+					}
+				}
 				if err := unaryRestoreField(delta, "function_call", func(call gjson.Result) error {
 					return unaryRestoreField(call, "arguments", func(value gjson.Result) error {
 						return stream.addDocument(event, prefix+"function", value)
@@ -609,10 +625,58 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 	contentIndex := redactionStreamIndex(root.Get("content_index"), 0)
 	textKey := "response/text/" + outputIndex + "/" + contentIndex
 	toolKey := "response/tool/" + outputIndex
+	refusalKey := "response/refusal/" + outputIndex + "/" + contentIndex
+	summaryKey := "response/reasoning/" + outputIndex + "/summary/" + redactionStreamIndex(root.Get("summary_index"), 0)
+	reasoningKey := "response/reasoning/" + outputIndex + "/content/" + contentIndex
 	switch kind {
 	case "response.output_text.delta":
 		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
 			return stream.addText(event, textKey, value, false)
+		})
+	case "response.refusal.delta":
+		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
+			return stream.addPlainText(event, refusalKey, value)
+		})
+	case "response.refusal.done":
+		if err := stream.closeMatching(refusalKey); err != nil {
+			return err
+		}
+		return stream.direct(event, func(ctx *unaryRestoreContext) error {
+			return unaryRestoreField(root, "refusal", ctx.plainText)
+		})
+	case "response.reasoning_summary_text.delta":
+		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
+			return stream.addPlainText(event, summaryKey, value)
+		})
+	case "response.reasoning_summary_text.done":
+		if err := stream.closeMatching(summaryKey); err != nil {
+			return err
+		}
+		return stream.direct(event, func(ctx *unaryRestoreContext) error {
+			return unaryRestoreField(root, "text", ctx.plainText)
+		})
+	case "response.reasoning_summary_part.done":
+		if err := stream.closeMatching(summaryKey); err != nil {
+			return err
+		}
+		return stream.direct(event, func(ctx *unaryRestoreContext) error {
+			return unaryRestoreField(root, "part", func(part gjson.Result) error {
+				if part.Get("type").Str == "summary_text" {
+					return unaryRestoreField(part, "text", ctx.plainText)
+				}
+				return nil
+			})
+		})
+	case "response.reasoning_text.delta":
+		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
+			return stream.addPlainText(event, reasoningKey, value)
+		})
+	case "response.reasoning_text.done":
+		if err := stream.closeMatching(reasoningKey); err != nil {
+			return err
+		}
+		return stream.direct(event, func(ctx *unaryRestoreContext) error {
+			return unaryRestoreField(root, "text", ctx.plainText)
 		})
 	case "response.custom_tool_call_input.delta":
 		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
@@ -645,12 +709,19 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 		if err := stream.closeMatching(textKey); err != nil {
 			return err
 		}
+		if err := stream.closeMatching(refusalKey); err != nil {
+			return err
+		}
 		return stream.direct(event, func(ctx *unaryRestoreContext) error {
 			return unaryRestoreField(root, "part", func(part gjson.Result) error {
-				if part.Get("type").Str == "output_text" {
+				switch part.Get("type").Str {
+				case "output_text":
 					return unaryRestoreField(part, "text", ctx.text)
+				case "refusal":
+					return unaryRestoreField(part, "refusal", ctx.plainText)
+				default:
+					return nil
 				}
-				return nil
 			})
 		})
 	case "response.output_item.done", "response.output_item.added":
@@ -664,6 +735,12 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 			if err := stream.closeMatching(toolKey); err != nil {
 				return err
 			}
+			if err := stream.closeMatching("response/refusal/" + outputIndex + "/"); err != nil {
+				return err
+			}
+			if err := stream.closeMatching("response/reasoning/" + outputIndex + "/"); err != nil {
+				return err
+			}
 		}
 		return stream.direct(event, func(ctx *unaryRestoreContext) error {
 			return unaryRestoreField(root, "item", func(item gjson.Result) error {
@@ -672,13 +749,19 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 					return ctx.customToolInput(item)
 				case "function_call":
 					return ctx.arguments(item)
+				case "reasoning":
+					return ctx.responsesReasoning(item)
 				case "message":
 					return unaryRestoreField(item, "content", func(content gjson.Result) error {
 						return unaryRestoreArray(content, func(part gjson.Result) error {
-							if part.Get("type").Str == "output_text" {
+							switch part.Get("type").Str {
+							case "output_text":
 								return unaryRestoreField(part, "text", ctx.text)
+							case "refusal":
+								return unaryRestoreField(part, "refusal", ctx.plainText)
+							default:
+								return nil
 							}
-							return nil
 						})
 					})
 				}
@@ -771,7 +854,17 @@ func (stream *redactionRestoreSSE) gemini(event *redactionStreamEvent, root gjso
 						// parts 是当前分片的列表，位置不能标识跨分片的文本。
 						key := prefix + "answer"
 						if part.Get("thought").Bool() {
-							return nil
+							// 思考摘要按纯文本还原；带签名的思考保持原样，避免改写签名内容。
+							if part.Get("thoughtSignature").Exists() {
+								return nil
+							}
+							return unaryRestoreField(part, "text", func(value gjson.Result) error {
+								return stream.addPlainText(event, prefix+"thought/text", value)
+							})
+						}
+						// 思考不会再续写：答案开始时收尾思考，避免思考末尾的疑似前缀扣住后续答案。
+						if err := stream.closeMatching(prefix + "thought/text"); err != nil {
+							return err
 						}
 						signed := part.Get("thoughtSignature").Exists()
 						if err := unaryRestoreField(part, "text", func(value gjson.Result) error {

@@ -97,7 +97,7 @@ func TestResponsesInputItemsRestoresClientTextAfterObservation(t *testing.T) {
 	}
 }
 
-func TestUnaryCorruptCiphertextFailsAsLocalRestoreError(t *testing.T) {
+func TestUnaryCorruptCiphertextPassesThrough(t *testing.T) {
 	service := encryptiontest.Service(t, "redaction-unary-corruption-test")
 	cipher, err := service.NewRedactionCipher(7)
 	if err != nil {
@@ -112,12 +112,36 @@ func TestUnaryCorruptCiphertextFailsAsLocalRestoreError(t *testing.T) {
 		last = "B"
 	}
 	broken := token[:len(token)-1] + last
-	body := []byte(`{"choices":[{"message":{"content":"` + broken + `"}}]}`)
+	body := []byte(`{"choices":[{"message":{"content":"` + broken + ` and ` + token + `"}}]}`)
 	executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
 		return execution.AttemptResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: body}
 	}}
 	input := executionForwardInput()
+	input.RedactionCipher = cipher
+	result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+	want := `{"choices":[{"message":{"content":"` + broken + ` and alice@example.com"}}]}`
+	if result.Err != nil || string(result.Body) != want || cipher.UnrestoredTokens() != 1 {
+		t.Fatalf("corrupt ciphertext was not kept unchanged: err=%v body=%s unrestored=%d", result.Err, result.Body, cipher.UnrestoredTokens())
+	}
+}
+
+func TestUnaryRestoredCredentialFailsAsLocalRestoreError(t *testing.T) {
+	service := encryptiontest.Service(t, "redaction-unary-corruption-test")
+	cipher, err := service.NewRedactionCipher(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := executionForwardInput()
+	token, err := cipher.EncryptToken(input.APIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"choices":[{"message":{"content":"` + token + `"}}]}`)
+	executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+		return execution.AttemptResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: body}
+	}}
 	input.RedactionCipher = cipher
 	result := NewExecutionForwarder(executor).Forward(context.Background(), input)
 	if !errors.Is(result.Err, errUnaryRestore) || result.ExecutionError == nil ||

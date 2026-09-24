@@ -145,7 +145,7 @@ func TestRedactionContractPlainToolResultsKeepTextSemantics(t *testing.T) {
 	}
 }
 
-func TestRedactionContractPartialSnapshotsRejectDamagedCiphertext(t *testing.T) {
+func TestRedactionContractPartialSnapshotsKeepDamagedCiphertext(t *testing.T) {
 	cipher := websocketRedactionTestCipher(t)
 	token, err := cipher.EncryptToken("synthetic-secret")
 	if err != nil {
@@ -154,12 +154,12 @@ func TestRedactionContractPartialSnapshotsRejectDamagedCiphertext(t *testing.T) 
 	for _, broken := range []string{token[:len(token)-1], token[:len(token)-1] + "!"} {
 		partial := `{"value":"` + broken
 		tool := redactionBoundaryJSON(t, map[string]any{"output": []any{map[string]any{"type": "function_call", "arguments": partial}}})
-		if _, err := restoreUnaryBusinessFields(tool, protocol.OpenAIResponses, cipher.RestoreText, false); err == nil {
-			t.Fatal("tool snapshot accepted damaged ciphertext")
+		if got, err := restoreUnaryBusinessFields(tool, protocol.OpenAIResponses, cipher.RestoreText, false); err != nil || !bytes.Equal(got, tool) {
+			t.Fatalf("tool snapshot changed damaged ciphertext: %s / %v", got, err)
 		}
 		text := redactionBoundaryJSON(t, map[string]any{"output": []any{map[string]any{"type": "message", "content": []any{map[string]any{"type": "output_text", "text": partial}}}}})
-		if _, err := restoreUnaryBusinessFields(text, protocol.OpenAIResponses, cipher.RestoreText, true); err == nil {
-			t.Fatal("structured snapshot accepted damaged ciphertext")
+		if got, err := restoreUnaryBusinessFields(text, protocol.OpenAIResponses, cipher.RestoreText, true); err != nil || !bytes.Equal(got, text) {
+			t.Fatalf("structured snapshot changed damaged ciphertext: %s / %v", got, err)
 		}
 	}
 }

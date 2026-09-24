@@ -94,22 +94,19 @@ func TestExecutionForwarderMasksCommittedSSEErrorToken(t *testing.T) {
 	}
 }
 
-func TestExecutionForwarderAttributesCorruptCiphertextToLocalRestore(t *testing.T) {
+func TestExecutionForwarderAttributesRestoreFailureToLocalRestore(t *testing.T) {
 	service := encryptiontest.Service(t, "redaction-sse-corruption-test")
 	cipher, err := service.NewRedactionCipher(7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := cipher.EncryptToken("alice@example.com")
+	input := executionForwardInput()
+	// 还原结果含上游凭据时必须拒绝，用它触发本地还原失败。
+	token, err := cipher.EncryptToken(input.APIKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	last := "A"
-	if strings.HasSuffix(token, last) {
-		last = "B"
-	}
-	broken := token[:len(token)-1] + last
-	chunk := fmt.Sprintf("data: {\"id\":\"chat_1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s\"},\"finish_reason\":\"stop\"}]}\n\n", broken)
+	chunk := fmt.Sprintf("data: {\"id\":\"chat_1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s\"},\"finish_reason\":\"stop\"}]}\n\n", token)
 	executor := fakeExecutionExecutor{stream: func(_ context.Context, _ execution.AttemptSpec, sink execution.StreamSink) execution.StreamResult {
 		if err := sink(execution.StreamEvent{Sequence: 1, Kind: execution.StreamEventReady,
 			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}}); err != nil {
@@ -121,7 +118,6 @@ func TestExecutionForwarderAttributesCorruptCiphertextToLocalRestore(t *testing.
 		return execution.StreamResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}}
 	}}
-	input := executionForwardInput()
 	input.RedactionCipher = cipher
 	recorder := httptest.NewRecorder()
 	result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)

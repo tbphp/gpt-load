@@ -47,7 +47,7 @@ func (doc *redactionStreamDocument) push(fragment string, restore func(string) (
 			if ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n' {
 				doc.syntax = ch
 			}
-			if err := doc.token.pushUnit(input[:1], input[:1], &out, rejectUnquotedRedactionToken, false); err != nil {
+			if err := doc.token.pushUnit(input[:1], input[:1], &out, keepUnquotedRedactionToken, false); err != nil {
 				return "", err
 			}
 			input = input[1:]
@@ -155,10 +155,10 @@ func (doc *redactionStreamDocument) restoreSegment(raw string, closed bool, rest
 		var decoded string
 		if err := json.Unmarshal([]byte(`"`+unit+`"`), &decoded); err != nil {
 			doc.invalid = true
-			if doc.token.body || doc.token.changed {
+			if doc.token.changed {
 				return "", errRedactionStream
 			}
-			tail, err := doc.token.finish()
+			tail, err := doc.token.finish(restore)
 			if err != nil {
 				return "", err
 			}
@@ -171,7 +171,7 @@ func (doc *redactionStreamDocument) restoreSegment(raw string, closed bool, rest
 	}
 	doc.changed = doc.changed || doc.token.changed
 	if closed {
-		tail, err := doc.token.finish()
+		tail, err := doc.token.finish(restore)
 		if err != nil {
 			return "", err
 		}
@@ -180,7 +180,8 @@ func (doc *redactionStreamDocument) restoreSegment(raw string, closed bool, rest
 	return out.String(), nil
 }
 
-func rejectUnquotedRedactionToken(string) (string, error) { return "", errRedactionStream }
+// JSON 字符串外的密文不插入明文，原样保留。
+func keepUnquotedRedactionToken(value string) (string, error) { return value, nil }
 
 func (doc *redactionStreamDocument) complete() bool {
 	return !doc.inString && !doc.blocked() && len(doc.stack) == 0 &&
@@ -197,7 +198,7 @@ func (doc *redactionStreamDocument) finish(restore func(string) (string, error))
 	if err != nil || (doc.changed && doc.invalid) {
 		return "", errRedactionStream
 	}
-	tail, err := doc.token.finish()
+	tail, err := doc.token.finish(restore)
 	if err != nil {
 		return "", err
 	}

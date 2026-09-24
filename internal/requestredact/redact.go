@@ -463,7 +463,7 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 		}
 		if !data {
 			switch v.Get("type").Str {
-			case "image", "image_url", "input_image", "input_audio", "audio", "video", "input_video", "file", "input_file", "document", "redacted_thinking":
+			case "image", "image_url", "input_image", "input_audio", "audio", "video", "input_video", "file", "input_file", "redacted_thinking":
 				return nil
 			}
 		}
@@ -483,8 +483,23 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			case "criteria":
 				isDecisionsContent := questions && depth == 2
 				failure = walk(child, isDecisionsContent, isDecisionsContent, depth+1, questions)
-			case "cache_control", "metadata", "signature", "thoughtSignature", "thought_signature", "encrypted_content", "image_url", "audio_url", "file_url", "inlineData", "inline_data", "fileData", "file_data", "source":
+			case "cache_control", "metadata", "signature", "thoughtSignature", "thought_signature", "encrypted_content", "image_url", "audio_url", "file_url", "inlineData", "inline_data", "fileData", "file_data":
 				return true
+			case "source":
+				// 文档只处理纯文本来源的正文；base64、URL、文件等来源保持不变。
+				if v.Get("type").Str != "document" {
+					return true
+				}
+				if kind := child.Get("type").Str; kind == "text" || kind == "content" {
+					child.ForEach(func(key, value gjson.Result) bool {
+						if key.Str == "data" || key.Str == "content" {
+							failure = walk(value, true, false, depth+2, questions)
+						}
+						return failure == nil
+					})
+				}
+			case "context":
+				failure = walk(child, v.Get("type").Str == "document", false, depth+1, questions)
 			case "arguments":
 				if child.Type == gjson.String && json.Valid([]byte(child.Str)) {
 					failure = rewriteEmbedded(child, depth)
@@ -509,7 +524,22 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				} else {
 					failure = walk(child, true, false, depth+1, questions)
 				}
-			case "text", "system", "system_instruction", "systemInstruction", "instructions", "prompt", "query", "thinking", "summary", "code", "refusal", "description", "title", "documents", "texts":
+			case "prompt":
+				if !child.IsObject() {
+					failure = walk(child, true, false, depth+1, questions)
+					break
+				}
+				// Responses 提示词模板：变量值按正文处理，id、version 等引用字段保持不变。
+				child.ForEach(func(key, variables gjson.Result) bool {
+					if key.Str == "variables" {
+						variables.ForEach(func(_, value gjson.Result) bool {
+							failure = walk(value, true, false, depth+3, questions)
+							return failure == nil
+						})
+					}
+					return failure == nil
+				})
+			case "text", "system", "system_instruction", "systemInstruction", "instructions", "query", "thinking", "reasoning", "reasoning_content", "summary", "code", "refusal", "description", "title", "documents", "texts":
 				failure = walk(child, true, questions && depth == 2 && k.Str == "instructions", depth+1, questions)
 			default:
 				failure = walk(child, false, false, depth+1, questions)

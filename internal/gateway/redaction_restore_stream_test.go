@@ -113,8 +113,9 @@ func TestRedactionRestoreSSETerminalReleasedOnlyAfterOutput(t *testing.T) {
 			if got, err := stream.Push([]byte(tc.first)); err != nil || len(got) != 0 || stream.TerminalReleased() {
 				t.Fatalf("unfinished event released terminal: %q / %v", got, err)
 			}
-			if got, err := stream.Push([]byte(tc.terminal)); err == nil || len(got) != 0 || stream.TerminalReleased() {
-				t.Fatalf("terminal overtook truncated token: %q / %v", got, err)
+			if got, err := stream.Push([]byte(tc.terminal)); err != nil ||
+				string(got) != tc.first+tc.terminal || !stream.TerminalReleased() {
+				t.Fatalf("terminal did not release the kept truncated token first: %q / %v", got, err)
 			}
 			stream = newRedactionRestoreSSE(tc.protocol, streamTestRestore, false)
 			if got, err := stream.Push([]byte(tc.terminal)); err != nil ||
@@ -359,25 +360,22 @@ func TestRedactionRestoreSSEAnthropicAndGemini(t *testing.T) {
 	}
 }
 
-func TestRedactionRestoreSSERejectsTruncatedToken(t *testing.T) {
+func TestRedactionRestoreSSEPassesTruncatedTokenThrough(t *testing.T) {
 	first := []byte("data: " + `{"choices":[{"index":0,"delta":{"content":"gld1_3_ab"}}]}` + "\n\n")
+	done := []byte("data: [DONE]\n\n")
 	stream := newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
 	if got, err := stream.Push(first); err != nil || len(got) != 0 {
 		t.Fatalf("truncated candidate output = %q / %v", got, err)
 	}
-	if got, err := stream.Push([]byte("data: [DONE]\n\n")); err == nil || len(got) != 0 {
-		t.Fatalf("terminal accepted truncated candidate: %q / %v", got, err)
+	if got, err := stream.Push(done); err != nil || string(got) != string(first)+string(done) {
+		t.Fatalf("terminal did not release truncated candidate unchanged: %q / %v", got, err)
 	}
 	stream = newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
 	if _, err := stream.Push(first); err != nil {
 		t.Fatal(err)
 	}
-	stream = newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
-	if _, err := stream.Push(first); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := stream.Finish(); err == nil {
-		t.Fatal("EOF accepted truncated token")
+	if got, err := stream.Finish(); err != nil || string(got) != string(first) {
+		t.Fatalf("EOF did not release truncated candidate unchanged: %q / %v", got, err)
 	}
 	stream = newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
 	if _, err := stream.Push([]byte("data: {\"choices\"")); err != nil {
@@ -567,4 +565,79 @@ func collectChatToolArguments(t *testing.T, body []byte) []string {
 		}
 	}
 	return fragments
+}
+
+func TestRedactionRestoreSSERestoresReasoningAndRefusal(t *testing.T) {
+	cases := []struct {
+		name     string
+		protocol protocol.Protocol
+		event    string
+		path     string
+	}{
+		{"chat refusal", protocol.OpenAICompletions, `{"choices":[{"index":0,"delta":{"refusal":"gld1_3_abc"},"finish_reason":"stop"}]}`, "choices.0.delta.refusal"},
+		{"chat reasoning_content", protocol.OpenAICompletions, `{"choices":[{"index":0,"delta":{"reasoning_content":"gld1_3_abc"},"finish_reason":"stop"}]}`, "choices.0.delta.reasoning_content"},
+		{"chat reasoning", protocol.OpenAICompletions, `{"choices":[{"index":0,"delta":{"reasoning":"gld1_3_abc"},"finish_reason":"stop"}]}`, "choices.0.delta.reasoning"},
+		{"responses refusal delta", protocol.OpenAIResponses, `{"type":"response.refusal.delta","output_index":0,"content_index":0,"delta":"gld1_3_abc"}`, "delta"},
+		{"responses refusal done", protocol.OpenAIResponses, `{"type":"response.refusal.done","output_index":0,"content_index":0,"refusal":"gld1_3_abc"}`, "refusal"},
+		{"responses summary delta", protocol.OpenAIResponses, `{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"gld1_3_abc"}`, "delta"},
+		{"responses summary done", protocol.OpenAIResponses, `{"type":"response.reasoning_summary_text.done","output_index":0,"summary_index":0,"text":"gld1_3_abc"}`, "text"},
+		{"responses summary part done", protocol.OpenAIResponses, `{"type":"response.reasoning_summary_part.done","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"gld1_3_abc"}}`, "part.text"},
+		{"responses reasoning text delta", protocol.OpenAIResponses, `{"type":"response.reasoning_text.delta","output_index":0,"content_index":0,"delta":"gld1_3_abc"}`, "delta"},
+		{"responses reasoning text done", protocol.OpenAIResponses, `{"type":"response.reasoning_text.done","output_index":0,"content_index":0,"text":"gld1_3_abc"}`, "text"},
+		{"responses content part refusal", protocol.OpenAIResponses, `{"type":"response.content_part.done","output_index":0,"content_index":0,"part":{"type":"refusal","refusal":"gld1_3_abc"}}`, "part.refusal"},
+		{"responses reasoning item", protocol.OpenAIResponses, `{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","summary":[{"type":"summary_text","text":"gld1_3_abc"}]}}`, "item.summary.0.text"},
+		{"responses refusal item", protocol.OpenAIResponses, `{"type":"response.output_item.done","output_index":0,"item":{"type":"message","content":[{"type":"refusal","refusal":"gld1_3_abc"}]}}`, "item.content.0.refusal"},
+		{"gemini thought", protocol.Gemini, `{"candidates":[{"index":0,"content":{"parts":[{"text":"gld1_3_abc","thought":true}]},"finishReason":"STOP"}]}`, "candidates.0.content.parts.0.text"},
+	}
+	for _, tc := range cases {
+		// 声明 JSON 输出时，推理与拒答仍按纯文本还原。
+		stream := newRedactionRestoreSSE(tc.protocol, streamTestRestore, true)
+		got, err := stream.Push([]byte("data: " + tc.event + "\n\n"))
+		if err == nil {
+			var tail []byte
+			tail, err = stream.Finish()
+			got = append(got, tail...)
+		}
+		payloads := redactionContractPayloads(got)
+		if err != nil || len(payloads) != 1 || gjson.GetBytes(payloads[0], tc.path).Str != "alice@example.invalid" {
+			t.Errorf("%s = %q / %v", tc.name, got, err)
+		}
+	}
+	// 带签名的 Gemini 思考保持原样，也不让整个响应失败。
+	signed := "data: " + `{"candidates":[{"index":0,"content":{"parts":[{"text":"gld1_3_abc","thought":true,"thoughtSignature":"signed"}]},"finishReason":"STOP"}]}` + "\n\n"
+	stream := newRedactionRestoreSSE(protocol.Gemini, streamTestRestore, false)
+	if got, err := stream.Push([]byte(signed)); err != nil || string(got) != signed {
+		t.Fatalf("signed Gemini thought = %q / %v", got, err)
+	}
+}
+
+func TestRedactionRestoreSSEReasoningSuffixDoesNotHoldAnswer(t *testing.T) {
+	cases := []struct {
+		name      string
+		protocol  protocol.Protocol
+		reasoning string
+		answer    string
+	}{
+		{
+			name:      "chat",
+			protocol:  protocol.OpenAICompletions,
+			reasoning: "data: " + `{"choices":[{"index":0,"delta":{"content":null,"reasoning_content":"thinking","tool_calls":null}}]}` + "\n\n",
+			answer:    "data: " + `{"choices":[{"index":0,"delta":{"content":"Hello"}}]}` + "\n\n",
+		},
+		{
+			name:      "gemini",
+			protocol:  protocol.Gemini,
+			reasoning: "data: " + `{"candidates":[{"index":0,"content":{"parts":[{"text":"thinking","thought":true}]}}]}` + "\n\n",
+			answer:    "data: " + `{"candidates":[{"index":0,"content":{"parts":[{"text":"Hello"}]}}]}` + "\n\n",
+		},
+	}
+	for _, tc := range cases {
+		stream := newRedactionRestoreSSE(tc.protocol, streamTestRestore, false)
+		if got, err := stream.Push([]byte(tc.reasoning)); err != nil || len(got) != 0 {
+			t.Fatalf("%s reasoning suffix = %q / %v", tc.name, got, err)
+		}
+		if got, err := stream.Push([]byte(tc.answer)); err != nil || string(got) != tc.reasoning+tc.answer {
+			t.Fatalf("%s answer was held behind reasoning suffix: %q / %v", tc.name, got, err)
+		}
+	}
 }

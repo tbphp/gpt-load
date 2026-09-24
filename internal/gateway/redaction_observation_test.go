@@ -16,10 +16,15 @@ func TestRedactionFailurePreservesUsageEvidence(t *testing.T) {
 	for _, state := range []usage.State{usage.StateComplete, usage.StatePartial} {
 		t.Run(string(state), func(t *testing.T) {
 			want := usage.Result{State: state, Tokens: usage.Tokens{UncachedInput: 123, Output: 45}}
-			executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
-				return execution.AttemptResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true, StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"choices":[{"message":{"content":"gld1_3_abc"}}]}`), Usage: &execution.UsageEvidence{Normalized: want}}
-			}}
 			in := executionForwardInput()
+			// 还原结果含上游凭据时必须拒绝，用它触发还原失败。
+			token, err := cipher.EncryptToken(in.APIKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+				return execution.AttemptResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true, StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"choices":[{"message":{"content":"` + token + `"}}]}`), Usage: &execution.UsageEvidence{Normalized: want}}
+			}}
 			in.RedactionCipher = cipher
 			in.ObserveUsage = true
 			got := NewExecutionForwarder(executor).Forward(context.Background(), in)

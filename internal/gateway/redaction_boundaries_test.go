@@ -219,14 +219,18 @@ func TestRedactionBoundaryUnquotedTokenInStructuredOutput(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	// 字符串外的密文不插入明文，原样保留，避免改写 JSON 结构。
 	doc := `{"value":` + token + `}`
 	unary := redactionBoundaryJSON(t, map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": doc}}}})
-	_, e = restoreUnaryBusinessFields(unary, protocol.OpenAICompletions, c.RestoreText, true)
-	t.Logf("unary rejected=%v", e != nil)
+	got, e := restoreUnaryBusinessFields(unary, protocol.OpenAICompletions, c.RestoreText, true)
+	if e != nil || !bytes.Equal(got, unary) {
+		t.Fatalf("unary changed unquoted ciphertext: %s / %v", got, e)
+	}
 	s := newRedactionRestoreSSE(protocol.OpenAICompletions, c.RestoreText, true)
-	got, e := s.Push(redactionBoundaryChat(t, map[string]any{"content": doc}, "stop"))
-	if e == nil && bytes.Contains(got, []byte(token)) {
-		t.Error("structured SSE passed unquoted ciphertext and a successful end")
+	event := redactionBoundaryChat(t, map[string]any{"content": doc}, "stop")
+	streamed, e := s.Push(event)
+	if e != nil || !bytes.Equal(streamed, event) {
+		t.Fatalf("structured SSE changed unquoted ciphertext: %q / %v", streamed, e)
 	}
 }
 
@@ -276,7 +280,7 @@ func TestRedactionBoundaryInterleavedRealCandidateStaysProtected(t *testing.T) {
 	}
 }
 
-func TestRedactionBoundaryTruncatedCipherStillFails(t *testing.T) {
+func TestRedactionBoundaryTruncatedCipherPassesThrough(t *testing.T) {
 	c := websocketRedactionTestCipher(t)
 	token, err := c.EncryptToken("synthetic-secret")
 	if err != nil {
@@ -284,12 +288,49 @@ func TestRedactionBoundaryTruncatedCipherStillFails(t *testing.T) {
 	}
 	for _, fragment := range []string{`{"value":"` + token[:len(token)-3], `{"value":` + token[:len(token)-3]} {
 		stream := newRedactionRestoreSSE(protocol.OpenAICompletions, c.RestoreText, false)
-		if got, err := stream.Push(redactionBoundaryChat(t, redactionBoundaryTool(fragment), nil)); err != nil || len(got) != 0 {
+		first := redactionBoundaryChat(t, redactionBoundaryTool(fragment), nil)
+		if got, err := stream.Push(first); err != nil || len(got) != 0 {
 			t.Fatalf("truncated candidate escaped: %v", err)
 		}
-		if _, err := stream.Push(redactionBoundaryChat(t, map[string]any{}, "length")); err == nil {
-			t.Fatal("length finish accepted truncated ciphertext")
+		last := redactionBoundaryChat(t, map[string]any{}, "length")
+		got, err := stream.Push(last)
+		if err != nil || string(got) != string(first)+string(last) {
+			t.Fatalf("length finish did not release truncated ciphertext unchanged: %q / %v", got, err)
 		}
+	}
+}
+
+func TestRedactionBoundaryDamagedTokenKeepsLaterTokens(t *testing.T) {
+	c := websocketRedactionTestCipher(t)
+	token, err := c.EncryptToken("synthetic-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	damaged := token[:len(token)-2]
+	// 纯文本：损坏片段遇到空格即原样放行，后续完整密文照常还原。
+	stream := newRedactionRestoreSSE(protocol.OpenAICompletions, c.RestoreText, false)
+	got, err := stream.Push(redactionBoundaryChat(t, map[string]any{"content": damaged + " " + token}, "stop"))
+	parts := redactionContractPayloads(got)
+	if err != nil || len(parts) != 1 || gjson.GetBytes(parts[0], "choices.0.delta.content").Str != damaged+" synthetic-secret" {
+		t.Fatalf("plain text restore = %q / %v", got, err)
+	}
+	// 工具参数：字符串外的密文不插入明文；字符串内损坏片段原样保留，完整密文照常还原。
+	args := `{"bad":` + token + `,"broken":"` + damaged + `!","ok":"` + token + `"}`
+	want := `{"bad":` + token + `,"broken":"` + damaged + `!","ok":"synthetic-secret"}`
+	stream = newRedactionRestoreSSE(protocol.OpenAICompletions, c.RestoreText, false)
+	got, err = stream.Push(redactionBoundaryChat(t, redactionBoundaryTool(args), "tool_calls"))
+	parts = redactionContractPayloads(got)
+	if err != nil || len(parts) != 1 || gjson.GetBytes(parts[0], "choices.0.delta.tool_calls.0.function.arguments").Str != want {
+		t.Fatalf("tool arguments restore = %q / %v", got, err)
+	}
+	body := redactionBoundaryJSON(t, map[string]any{"choices": []any{map[string]any{"message": map[string]any{
+		"content":    damaged + " " + token,
+		"tool_calls": []any{map[string]any{"type": "function", "function": map[string]any{"name": "write", "arguments": args}}},
+	}}}})
+	restored, err := restoreUnaryBusinessFields(body, protocol.OpenAICompletions, c.RestoreText, false)
+	if err != nil || gjson.GetBytes(restored, "choices.0.message.content").Str != damaged+" synthetic-secret" ||
+		gjson.GetBytes(restored, "choices.0.message.tool_calls.0.function.arguments").Str != want {
+		t.Fatalf("unary restore = %s / %v", restored, err)
 	}
 }
 

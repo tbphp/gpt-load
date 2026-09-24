@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tidwall/gjson"
+
 	"gpt-load/internal/platform/encryption"
 )
 
@@ -205,5 +207,70 @@ func TestApplyDecisionsWithCipherPreservesQuestionKeys(t *testing.T) {
 	want := []byte(`{"state":{"email":"` + token + `"},"questions":{"alice@example.invalid":{"criteria":{"note":"` + token + `"}}}}`)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("Decisions output = %s, want %s", got, want)
+	}
+}
+
+func TestApplyCoversDocumentTextPromptVariablesAndReasoning(t *testing.T) {
+	cipher := syntheticRedactionCipher(t)
+	const secret = "alice@example.invalid"
+	cases := []struct {
+		name      string
+		body      string
+		protected []string
+		kept      []string
+	}{
+		{
+			name:      "text document",
+			body:      `{"messages":[{"role":"user","content":[{"type":"document","title":"alice@example.invalid","context":"alice@example.invalid","source":{"type":"text","media_type":"text/plain","data":"contact alice@example.invalid"}}]}]}`,
+			protected: []string{"messages.0.content.0.title", "messages.0.content.0.context", "messages.0.content.0.source.data"},
+		},
+		{
+			name:      "content document",
+			body:      `{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"content","content":[{"type":"text","text":"alice@example.invalid"}]}}]}]}`,
+			protected: []string{"messages.0.content.0.source.content.0.text"},
+		},
+		{
+			name:      "binary document",
+			body:      `{"messages":[{"role":"user","content":[{"type":"document","title":"alice@example.invalid","source":{"type":"base64","media_type":"application/pdf","data":"alice@example.invalid"}}]}]}`,
+			protected: []string{"messages.0.content.0.title"},
+			kept:      []string{"messages.0.content.0.source.data"},
+		},
+		{
+			name:      "prompt variables",
+			body:      `{"prompt":{"id":"pmpt_1","variables":{"email":"alice@example.invalid","note":{"type":"input_text","text":"alice@example.invalid"},"image":{"type":"input_image","image_url":"https://alice@example.invalid/a.png"}}}}`,
+			protected: []string{"prompt.variables.email", "prompt.variables.note.text"},
+			kept:      []string{"prompt.variables.image.image_url"},
+		},
+		{
+			name:      "chat reasoning",
+			body:      `{"messages":[{"role":"assistant","content":"ok","reasoning_content":"alice@example.invalid","reasoning":"alice@example.invalid"}]}`,
+			protected: []string{"messages.0.reasoning_content", "messages.0.reasoning"},
+		},
+	}
+	for _, mode := range []string{ModeEncrypt, ModeReplace} {
+		compiled, err := Compile([]Rule{{Pattern: `[a-z]+@example\.invalid`, Replacement: "[EMAIL]", Mode: mode}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range cases {
+			got, err := compiled.ApplyWithCipher([]byte(tc.body), cipher)
+			if err != nil || !json.Valid(got) {
+				t.Fatalf("%s/%s: %v", mode, tc.name, err)
+			}
+			for _, path := range tc.protected {
+				value := gjson.GetBytes(got, path).Str
+				original := gjson.Get(tc.body, path).Str
+				restored, restoreErr := cipher.RestoreText(value)
+				if strings.Contains(value, secret) || (mode == ModeEncrypt && (restoreErr != nil || restored != original)) ||
+					(mode == ModeReplace && !strings.Contains(value, "[EMAIL]")) {
+					t.Errorf("%s/%s: %s = %q was not protected", mode, tc.name, path, value)
+				}
+			}
+			for _, path := range tc.kept {
+				if gjson.GetBytes(got, path).Str != gjson.Get(tc.body, path).Str {
+					t.Errorf("%s/%s: %s changed", mode, tc.name, path)
+				}
+			}
+		}
 	}
 }

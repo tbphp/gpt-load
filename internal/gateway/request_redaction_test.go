@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
@@ -265,5 +266,25 @@ func TestRequestRedactionRunsAfterGroupOverridesWithoutChangingRouting(t *testin
 	body := f.inputs[0].Request.Body
 	if !bytes.Contains(body, []byte(`"content":"secret-redacted"`)) || !bytes.Contains(body, []byte(`"model":"gpt-4o"`)) {
 		t.Fatalf("unexpected outbound request %s", body)
+	}
+}
+
+func TestLogUnrestoredRedactionTokens(t *testing.T) {
+	var output bytes.Buffer
+	logger := logrus.New()
+	logger.SetOutput(&output)
+	handler := &Handler{logger: logger}
+	handler.logUnrestoredRedactionTokens(nil, "request-1")
+	cipher := websocketRedactionTestCipher(t)
+	handler.logUnrestoredRedactionTokens(cipher, "request-1")
+	if output.Len() != 0 {
+		t.Fatalf("logged without unrestored tokens: %s", output.String())
+	}
+	if _, err := cipher.RestoreText("damaged gld1_3_abc"); err != nil {
+		t.Fatal(err)
+	}
+	handler.logUnrestoredRedactionTokens(cipher, "request-1")
+	if line := output.String(); !strings.Contains(line, "request_id=request-1") || !strings.Contains(line, "occurrences=1") {
+		t.Fatalf("unrestored token log = %q", line)
 	}
 }

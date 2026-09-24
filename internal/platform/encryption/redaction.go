@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/tink-crypto/tink-go/v2/daead/subtle"
 )
@@ -31,11 +32,15 @@ type RedactionCipher interface {
 	EncryptToken(plaintext string) (string, error)
 	TokenCandidateEnd(text string, start int) (end int, complete bool)
 	ValidTokenAt(text string, start int) (end int, valid bool)
+	// RestoreText 只还原通过认证的密文；无法认证的候选按原文保留。
 	RestoreText(text string) (string, error)
+	// UnrestoredTokens 返回按原文保留的候选次数，仅用于诊断日志。
+	UnrestoredTokens() int64
 }
 
 type redactionCipher struct {
-	siv *subtle.AESSIV
+	siv        *subtle.AESSIV
+	unrestored atomic.Int64
 }
 
 func (s *aesService) NewRedactionCipher(accessKeyID uint) (RedactionCipher, error) {
@@ -76,6 +81,8 @@ type tokenCandidate struct {
 	end       int
 	found     bool
 	malformed bool
+	// badHeader 表示长度字段本身非法，流式解析在下划线处即放弃该候选。
+	badHeader bool
 }
 
 func parseRedactionCandidate(text string, start int) tokenCandidate {
@@ -100,15 +107,35 @@ func parseRedactionCandidate(text string, start int) tokenCandidate {
 	if i >= len(text) || text[i] != '_' {
 		return tokenCandidate{}
 	}
-	if oversize || (i > start+len(redactionTokenPrefix)+1 && text[start+len(redactionTokenPrefix)] == '0') ||
-		length < base64.RawURLEncoding.EncodedLen(redactionCiphertextOverhead) {
-		return tokenCandidate{found: true, malformed: true}
-	}
 	headerEnd := i + 1
-	if length > len(text)-headerEnd {
-		return tokenCandidate{found: true, malformed: true}
+	if oversize || length == 0 || (i > start+len(redactionTokenPrefix)+1 && text[start+len(redactionTokenPrefix)] == '0') {
+		return tokenCandidate{headerEnd: headerEnd, found: true, malformed: true, badHeader: true}
 	}
-	return tokenCandidate{headerEnd: headerEnd, end: headerEnd + length, found: true}
+	candidate := tokenCandidate{headerEnd: headerEnd, end: headerEnd + length, found: true}
+	if length < base64.RawURLEncoding.EncodedLen(redactionCiphertextOverhead) || length > len(text)-headerEnd {
+		candidate.malformed = true
+	}
+	return candidate
+}
+
+// unrestoredCandidateEnd 与流式解析的放弃点一致：头部非法时止于下划线，
+// 否则止于声明长度、文本结尾或首个非 Base64url 字符。
+func unrestoredCandidateEnd(text string, candidate tokenCandidate) int {
+	if candidate.badHeader {
+		return candidate.headerEnd
+	}
+	end := min(candidate.end, len(text))
+	for i := candidate.headerEnd; i < end; i++ {
+		if !redactionBase64URLByte(text[i]) {
+			return i
+		}
+	}
+	return end
+}
+
+func redactionBase64URLByte(ch byte) bool {
+	return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+		(ch >= '0' && ch <= '9') || ch == '-' || ch == '_'
 }
 
 func (c *redactionCipher) decryptCandidate(text string, start int, candidate tokenCandidate) (string, error) {
@@ -117,9 +144,7 @@ func (c *redactionCipher) decryptCandidate(text string, start int, candidate tok
 	}
 	encoded := text[candidate.headerEnd:candidate.end]
 	for i := 0; i < len(encoded); i++ {
-		ch := encoded[i]
-		if !((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
-			(ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
+		if !redactionBase64URLByte(encoded[i]) {
 			return "", errInvalidRedactionToken
 		}
 	}
@@ -169,7 +194,10 @@ func (c *redactionCipher) RestoreText(text string) (string, error) {
 		}
 		plaintext, err := c.decryptCandidate(text, start, candidate)
 		if err != nil {
-			return "", err
+			// 模型抄错或截断的密文不含可泄露信息，按原文保留，不让整个响应失败。
+			c.unrestored.Add(1)
+			scan = unrestoredCandidateEnd(text, candidate)
+			continue
 		}
 		if last == 0 && out.Len() == 0 {
 			out.Grow(len(text))
@@ -185,3 +213,5 @@ func (c *redactionCipher) RestoreText(text string) (string, error) {
 	out.WriteString(text[last:])
 	return out.String(), nil
 }
+
+func (c *redactionCipher) UnrestoredTokens() int64 { return c.unrestored.Load() }

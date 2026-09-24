@@ -883,6 +883,7 @@ func (handler *Handler) executeAttempts(
 			handler.completeReason(ginContext, recorder, reasonRedactionFailed)
 			return
 		}
+		defer handler.logUnrestoredRedactionTokens(redactionCipher, recorder.requestID)
 	}
 	type deferredAttempt struct {
 		result        UpstreamResult

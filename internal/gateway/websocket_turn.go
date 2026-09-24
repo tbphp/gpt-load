@@ -288,6 +288,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		reject(reasonRedactionFailed)
 		return
 	}
+	defer h.logUnrestoredRedactionTokens(redactionCipher, requestID)
 	limit := retryAttemptLimit(snapshot.Settings.RetryCount)
 	var refreshSelection *scheduler.Selection
 	var refreshRef state.CredentialRef

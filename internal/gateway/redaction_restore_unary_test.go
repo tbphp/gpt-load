@@ -70,7 +70,7 @@ func TestRestoreUnaryBusinessFieldsAnthropicAndGemini(t *testing.T) {
 			name:     "Gemini",
 			protocol: protocol.Gemini,
 			input:    `{"candidates":[{"content":{"parts":[{"text":"gld1_A"},{"functionCall":{"name":"gld1_A","args":{"code":"gld1_A","count":2}}},{"inlineData":{"data":"gld1_A"}},{"text":"gld1_A","thought":true}]}}],"modelVersion":"gld1_A"}`,
-			want:     `{"candidates":[{"content":{"parts":[{"text":"alice@example.invalid"},{"functionCall":{"name":"gld1_A","args":{"code":"alice@example.invalid","count":2}}},{"inlineData":{"data":"gld1_A"}},{"text":"gld1_A","thought":true}]}}],"modelVersion":"gld1_A"}`,
+			want:     `{"candidates":[{"content":{"parts":[{"text":"alice@example.invalid"},{"functionCall":{"name":"gld1_A","args":{"code":"alice@example.invalid","count":2}}},{"inlineData":{"data":"gld1_A"}},{"text":"alice@example.invalid","thought":true}]}}],"modelVersion":"gld1_A"}`,
 		},
 	}
 	for _, tc := range cases {
@@ -198,5 +198,46 @@ func TestRestoreUnaryBusinessFieldsBoundsEmbeddedValues(t *testing.T) {
 		strings.Repeat(`"gld1_A",`, maxUnaryRestorePatches) + `"gld1_A"]}]}`
 	if _, err := restoreUnaryBusinessFields([]byte(many), protocol.Anthropic, restoreTestMarker, false); err == nil {
 		t.Fatal("excessive patch count was accepted")
+	}
+}
+
+func TestRestoreUnaryBusinessFieldsRestoresReasoningAndRefusal(t *testing.T) {
+	cases := []struct {
+		name     string
+		protocol protocol.Protocol
+		input    string
+		want     string
+	}{
+		{
+			name:     "chat",
+			protocol: protocol.OpenAICompletions,
+			input:    `{"choices":[{"message":{"content":null,"refusal":"gld1_A","reasoning_content":"gld1_A","reasoning":"gld1_A"}}]}`,
+			want:     `{"choices":[{"message":{"content":null,"refusal":"alice@example.invalid","reasoning_content":"alice@example.invalid","reasoning":"alice@example.invalid"}}]}`,
+		},
+		{
+			name:     "responses",
+			protocol: protocol.OpenAIResponses,
+			input:    `{"output":[{"type":"reasoning","summary":[{"type":"summary_text","text":"gld1_A"}],"content":[{"type":"reasoning_text","text":"gld1_A"}],"encrypted_content":"gld1_A"},{"type":"message","content":[{"type":"refusal","refusal":"gld1_A"}]}]}`,
+			want:     `{"output":[{"type":"reasoning","summary":[{"type":"summary_text","text":"alice@example.invalid"}],"content":[{"type":"reasoning_text","text":"alice@example.invalid"}],"encrypted_content":"gld1_A"},{"type":"message","content":[{"type":"refusal","refusal":"alice@example.invalid"}]}]}`,
+		},
+		{
+			name:     "responses input items",
+			protocol: protocol.OpenAIResponses,
+			input:    `{"object":"list","data":[{"type":"reasoning","summary":[{"type":"summary_text","text":"gld1_A"}]},{"type":"message","content":[{"type":"refusal","refusal":"gld1_A"}]}]}`,
+			want:     `{"object":"list","data":[{"type":"reasoning","summary":[{"type":"summary_text","text":"alice@example.invalid"}]},{"type":"message","content":[{"type":"refusal","refusal":"alice@example.invalid"}]}]}`,
+		},
+		{
+			name:     "gemini thought",
+			protocol: protocol.Gemini,
+			input:    `{"candidates":[{"content":{"parts":[{"text":"gld1_A","thought":true},{"text":"gld1_A","thought":true,"thoughtSignature":"signed"}]}}]}`,
+			want:     `{"candidates":[{"content":{"parts":[{"text":"alice@example.invalid","thought":true},{"text":"gld1_A","thought":true,"thoughtSignature":"signed"}]}}]}`,
+		},
+	}
+	for _, tc := range cases {
+		// 声明 JSON 输出时，推理与拒答仍按纯文本还原。
+		got, err := restoreUnaryBusinessFields([]byte(tc.input), tc.protocol, restoreTestMarker, true)
+		if err != nil || string(got) != tc.want {
+			t.Errorf("%s = %s / %v", tc.name, got, err)
+		}
 	}
 }
