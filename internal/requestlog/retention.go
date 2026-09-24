@@ -66,6 +66,7 @@ func (service *Service) Sweep(ctx context.Context, now time.Time) {
 	}
 	service.deleteExpiredUsageJournals(ctx, journalCutoffMS, now)
 	service.deleteExpiredQuotaHistory(ctx, quotaHistoryCutoffMS, now)
+	service.deleteExpiredRPM(ctx, requestLogCutoffMS, now)
 }
 
 // 额度历史独立保留 35 天，小时用量聚合仍长期保留。

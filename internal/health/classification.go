@@ -44,3 +44,7 @@ func (category FailureCategory) String() string {
 		return "ambiguous"
 	}
 }
+
+// EmptyResponseCode 标识「上游正常完成但没有产出任何内容」的证据。它由数据面
+// 在提交响应前判定，是业务层面的空回，而非传输或协议故障。
+const EmptyResponseCode = "upstream_empty_response"

@@ -351,6 +351,10 @@ async function refresh(): Promise<void> {
   await Promise.all([
     query.refetch(),
     cache.refetchQueries({
+      queryKey: ['modern', 'rpm', 'credential', props.group.id],
+      type: 'active',
+    }),
+    cache.refetchQueries({
       queryKey: ['modern', 'credential-detail', props.group.id],
       type: 'active',
     }),

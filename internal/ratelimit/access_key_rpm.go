@@ -3,6 +3,8 @@ package ratelimit
 import (
 	"sync"
 	"time"
+
+	"gpt-load/internal/rpm"
 )
 
 type LimitDecision struct {
@@ -45,17 +47,28 @@ type AccessKeyRPM struct {
 	windows     map[uint]timestampDeque
 	now         func() time.Time
 	lastCleanup time.Time
+	stats       *rpm.Store
 }
 
 func NewAccessKeyRPM() *AccessKeyRPM {
 	return &AccessKeyRPM{windows: make(map[uint]timestampDeque), now: time.Now}
 }
 
-func (limiter *AccessKeyRPM) Allow(accessKeyID uint, limit int64) LimitDecision {
+// SetRPMStore 在启动时接入观测，原限流窗口不作为统计数据源。
+func (limiter *AccessKeyRPM) SetRPMStore(store *rpm.Store) {
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
+	limiter.stats = store
+}
 
+func (limiter *AccessKeyRPM) Allow(accessKeyID uint, limit int64) (decision LimitDecision) {
+	limiter.mu.Lock()
 	now := limiter.now()
+	defer func() {
+		stats := limiter.stats
+		limiter.mu.Unlock()
+		stats.Record(rpm.AccessKey, accessKeyID, !decision.Allowed, now)
+	}()
 	limiter.cleanup(now)
 	if limit <= 0 {
 		delete(limiter.windows, accessKeyID)

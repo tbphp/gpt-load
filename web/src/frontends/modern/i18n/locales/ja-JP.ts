@@ -1,5 +1,6 @@
 import { jaJP as requestRedaction } from './request-redaction'
 import { jaJP as experimental } from './experimental'
+import { jaJP as rpm } from './rpm'
 import { protocolMessages as protocols } from '../protocols'
 import { jaJP as inspector } from './inspector'
 import { jaJP as home } from './home'
@@ -23,6 +24,7 @@ import { jaJP as subscriptions } from './subscriptions'
 export default {
   requestRedaction,
   ...experimental,
+  rpm,
   home,
   inspector,
   protocols,

@@ -9,6 +9,7 @@ export const zhCN = {
     allResets: '全部重置状态',
     resets: { available: '有可用重置券', none: '无可用重置券', unknown: '尚未同步' },
     sorts: {
+      rpm_peak_desc: '近 1 小时 RPM 峰值最高',
       priority: '异常优先',
       newest: '最近添加',
       oldest: '最早添加',
@@ -140,6 +141,7 @@ export const zhCN = {
     stream_idle_timeout: '流空闲超时',
     blacklist_threshold: '连续失败拉黑阈值',
     affinity_enabled: '会话亲和',
+    empty_response_retry: '空回检测',
     responses_websocket_enabled: 'Responses WebSocket',
   },
 }
@@ -159,6 +161,7 @@ export const enUS: typeof zhCN = {
       unknown: 'Not yet synced',
     },
     sorts: {
+      rpm_peak_desc: 'Highest peak RPM in the last hour',
       priority: 'Needs attention first',
       newest: 'Newest first',
       oldest: 'Oldest first',
@@ -294,6 +297,7 @@ export const enUS: typeof zhCN = {
     stream_idle_timeout: 'Stream idle timeout',
     blacklist_threshold: 'Consecutive failure threshold',
     affinity_enabled: 'Session affinity',
+    empty_response_retry: 'Empty response detection',
     responses_websocket_enabled: 'Responses WebSocket',
   },
 }
@@ -309,6 +313,7 @@ export const jaJP: typeof zhCN = {
     allResets: 'すべてのリセット状態',
     resets: { available: 'リセット券あり', none: 'リセット券なし', unknown: '未同期' },
     sorts: {
+      rpm_peak_desc: '直近 1 時間の最大 RPM 順',
       priority: '要確認を優先',
       newest: '追加が新しい順',
       oldest: '追加が古い順',
@@ -444,6 +449,7 @@ export const jaJP: typeof zhCN = {
     stream_idle_timeout: 'ストリーム待機タイムアウト',
     blacklist_threshold: '連続失敗のしきい値',
     affinity_enabled: 'セッションアフィニティ',
+    empty_response_retry: '空応答の検出',
     responses_websocket_enabled: 'Responses WebSocket',
   },
 }

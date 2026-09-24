@@ -4,11 +4,37 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"gpt-load/internal/rpm"
 )
 
 type fakeClock struct {
 	mu  sync.Mutex
 	now time.Time
+}
+
+func TestRPMObservationIncludesRejectedAndUnlimitedWithoutChangingAdmission(t *testing.T) {
+	limiter := NewAccessKeyRPM()
+	store := rpm.NewStore()
+	limiter.SetRPMStore(store)
+	now := time.Unix(120, 0)
+	limiter.now = func() time.Time { return now }
+	if !limiter.Allow(1, 1).Allowed || limiter.Allow(1, 1).Allowed {
+		t.Fatal("admission changed")
+	}
+	if !limiter.Allow(2, 0).Allowed {
+		t.Fatal("unlimited key was rejected")
+	}
+	if got := store.Current(rpm.AccessKey, 1, now); got != (rpm.Counter{Requests: 2, Rejected: 1}) {
+		t.Fatalf("limited observation = %+v", got)
+	}
+	if got := store.Current(rpm.AccessKey, 2, now); got.Requests != 1 {
+		t.Fatalf("unlimited observation = %+v", got)
+	}
+	now = now.Add(time.Minute)
+	if !limiter.Allow(1, 1).Allowed {
+		t.Fatal("observation changed expiration")
+	}
 }
 
 func (clock *fakeClock) current() time.Time {

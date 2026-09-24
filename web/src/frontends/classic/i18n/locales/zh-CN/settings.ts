@@ -78,6 +78,9 @@ export default {
       retry_count: '额外重试次数',
       retryCountHelp:
         '每个请求在首次上游尝试后最多追加的重试次数；跨分组共享，切换分组不会重置；0 表示关闭重试。',
+      empty_response_retry: '空回检测',
+      emptyResponseRetryHelp:
+        '仅对流式对话请求生效。上游正常结束但没有产出任何内容时，视为一次失败并换下一个候选重试；不冷却、不拉黑凭据。重试用尽后仍把上游返回的空响应交给客户端。预热请求、会话续接请求与 WebSocket 不参与判定。',
       blacklist_threshold: '连续失败拉黑阈值',
       blacklistThresholdHelp: '凭据达到该连续失败次数后自动拉黑；0 表示关闭自动拉黑。',
       validation_interval: '检测间隔',

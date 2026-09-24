@@ -15,6 +15,7 @@ import (
 	"gpt-load/internal/connection"
 	"gpt-load/internal/outboundproxy"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/rpm"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
@@ -74,6 +75,7 @@ type CredentialAccountResponse struct {
 }
 
 type CredentialItemResponse struct {
+	RPMPeakHour             *int64                         `json:"-"`
 	ModelCooldowns          []ModelCooldownResponse        `json:"model_cooldowns"`
 	CredentialID            uint                           `json:"credential_id"`
 	ConnectionType          string                         `json:"connection_type"`
@@ -449,6 +451,18 @@ func (s *Service) mapCredentialCollection(
 			}
 		}
 		records = append(records, credentialCollectionRecord{item: item, bucket: bucket, createdAtMS: row.CreatedAtMS, credentialKey: filterKey})
+	}
+	if query.modern != nil {
+		ids := make([]uint, len(records))
+		for i, record := range records {
+			ids[i] = record.item.CredentialID
+		}
+		peaks := s.rpmPeaks(ctx, rpm.Credential, ids, observation.observedAt)
+		for i := range records {
+			if peak, ok := peaks[records[i].item.CredentialID]; ok {
+				records[i].item.RPMPeakHour = &peak
+			}
+		}
 	}
 	summary := summarizeCredentialCollection(records)
 	filtered := make([]credentialCollectionRecord, 0, len(records))

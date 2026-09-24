@@ -57,6 +57,7 @@ export const zhCN = {
     affinity_enabled: '请求亲和',
     affinity_ttl: '亲和有效期',
     affinity_capacity: '亲和缓存容量',
+    empty_response_retry: '空回检测',
     responses_websocket_enabled: 'Responses WebSocket',
     proxy_config: '上游代理',
     first_byte_timeout: '响应 / 流式首事件超时',
@@ -82,6 +83,8 @@ export const zhCN = {
     affinity_ttl: '亲和记录的默认保留时长。',
     affinity_capacity: '最多保留的亲和记录数，范围为 1–1,000,000。',
     responses_websocket_enabled: '关闭会断开受影响的 WebSocket 连接并中断生成，HTTP/SSE 不受影响。',
+    empty_response_retry:
+      '仅流式对话生效。上游正常结束却没有任何产出时换下一个候选重试，不冷却也不拉黑凭据；预热与会话续接请求不参与判定。',
     proxy_config: '分组与账号可单独覆盖此代理。',
     first_byte_timeout: '等待原生响应或流式首个事件的最长时间。',
     request_timeout: '一次上游尝试允许的总时长。',
@@ -89,7 +92,7 @@ export const zhCN = {
     retry_count: '首次尝试后额外重试的上限，跨分组共享；0 表示不重试。',
     blacklist_threshold: '连续失败达到此值后拉黑凭据；0 表示关闭自动拉黑。',
     validation_interval: '后台重新检测凭据的时间间隔。',
-    request_log_retention_days: '后台自动清理超出保留期的日志，可设置 1–365 天。',
+    request_log_retention_days: '后台自动清理超出保留期的日志和 RPM 统计，可设置 1–365 天。',
     models_dev_auto_sync_enabled: '按计划同步 Models.dev 目录与自动价格，关闭后仍可手动同步。',
     header_rules: '发往上游之前设置或移除的请求头。',
     response_header_rules: '返回客户端之前设置或移除的响应头。',
@@ -224,6 +227,7 @@ export const enUS = {
     affinity_enabled: 'Request affinity',
     affinity_ttl: 'Affinity lifetime',
     affinity_capacity: 'Affinity cache capacity',
+    empty_response_retry: 'Empty response detection',
     responses_websocket_enabled: 'Responses WebSocket',
     proxy_config: 'Upstream proxy',
     first_byte_timeout: 'Response / first stream event timeout',
@@ -250,6 +254,8 @@ export const enUS = {
     affinity_capacity: 'Maximum affinity records, from 1 to 1,000,000.',
     responses_websocket_enabled:
       'Disabling disconnects affected WebSocket sessions and interrupts generation. HTTP/SSE is unaffected.',
+    empty_response_retry:
+      'Streaming chat only. When upstream finishes without producing anything, the next candidate is tried without cooling down or blacklisting the credential. Prewarm, continuation and conversation requests are exempt.',
     proxy_config: 'Groups and credentials may override this proxy.',
     first_byte_timeout: 'Maximum wait for the native response or first streaming event.',
     request_timeout: 'Total time allowed for one upstream attempt.',
@@ -258,7 +264,8 @@ export const enUS = {
     blacklist_threshold:
       'Blacklist a credential after this many consecutive failures. 0 disables automatic blacklisting.',
     validation_interval: 'Interval between background credential checks.',
-    request_log_retention_days: 'Automatically delete older logs. Allowed range: 1–365 days.',
+    request_log_retention_days:
+      'Automatically delete older logs and RPM statistics. Allowed range: 1–365 days.',
     models_dev_auto_sync_enabled:
       'Sync the Models.dev catalog and automatic prices on schedule. Manual sync remains available.',
     header_rules: 'Set or remove request headers before sending upstream.',
@@ -396,6 +403,7 @@ export const jaJP = {
     affinity_enabled: 'リクエスト親和性',
     affinity_ttl: '親和性の有効期間',
     affinity_capacity: '親和性キャッシュ容量',
+    empty_response_retry: '空応答の検出',
     responses_websocket_enabled: 'Responses WebSocket',
     proxy_config: '上流プロキシ',
     first_byte_timeout: '応答 / ストリーム初回イベントの待機時間',
@@ -422,6 +430,8 @@ export const jaJP = {
     affinity_capacity: '親和性レコードの上限。1～1,000,000 件。',
     responses_websocket_enabled:
       '無効にすると対象の WebSocket 接続を切断し生成を中断します。HTTP/SSE には影響しません。',
+    empty_response_retry:
+      'ストリーミングの対話のみ対象です。上流が何も生成せずに完了した場合は次の候補で再試行し、クールダウンやブラックリスト登録は行いません。プリウォームと継続リクエストは対象外です。',
     proxy_config: 'グループと認証情報で上書きできます。',
     first_byte_timeout: '元の応答または最初のストリームイベントを待つ上限時間。',
     request_timeout: '1 回の上流試行に許可する合計時間。',
@@ -430,7 +440,7 @@ export const jaJP = {
     blacklist_threshold:
       '連続失敗が閾値に達すると認証情報をブラックリスト化します。0 で無効になります。',
     validation_interval: 'バックグラウンドで認証情報を再確認する間隔。',
-    request_log_retention_days: '保持期間を超えたログを自動削除します。1～365 日。',
+    request_log_retention_days: '保持期間を超えたログと RPM 統計を自動削除します。1～365 日。',
     models_dev_auto_sync_enabled:
       'Models.dev のカタログと自動料金を定期同期します。無効でも手動同期できます。',
     header_rules: '上流に送信する前にヘッダーを設定または削除します。',
