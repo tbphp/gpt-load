@@ -1,0 +1,2 @@
+FROM ghcr.io/alphafoxai/gpt-load:2.0.0-rc.31-af.1
+COPY gpt-load /app/gpt-load

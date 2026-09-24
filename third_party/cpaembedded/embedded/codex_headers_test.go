@@ -99,3 +99,53 @@ func TestCodexHTTPFixedIdentityOnImagesAndWire(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexHTTPForwardsCookieAndCapturesSetCookie(t *testing.T) {
+	capturedHeaders := make(chan http.Header, 1)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedHeaders <- r.Header.Clone()
+		w.Header().Add("Set-Cookie", "__oailb=lab-cookie; Path=/; Secure")
+		w.Header().Set("Cf-Ray", "abc-LAX")
+		w.Header().Set("X-Codex-Safety-Buffering-Enabled", "false")
+		w.Header().Set("Content-Type", "text/event-stream")
+		if _, err := io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-6-astra\",\"output\":[]}}\n\n"); err != nil {
+			t.Errorf("write upstream response: %v", err)
+		}
+	}))
+	defer server.Close()
+	response, err := NewCodexHTTPExecutor().ExecuteCanonical(
+		context.WithValue(t.Context(), "cliproxy.roundtripper", server.Client().Transport),
+		"credential-1",
+		CodexCredential{Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account-1"},
+		ExecuteRequest{
+			Model: "gpt-6-astra", Format: "openai-response",
+			Payload: []byte(`{"model":"gpt-6-astra","input":"hello"}`),
+			Headers: func() http.Header {
+				header := make(http.Header)
+				header.Set("Cookie", "__oailb=pinned")
+				header.Set("X-Edge-IP", "1.2.3.4")
+				return header
+			}(),
+			BaseURL: server.URL,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ExecuteCanonical() error = %v", err)
+	}
+	wire := <-capturedHeaders
+	if wire.Get("Cookie") != "__oailb=pinned" {
+		t.Fatalf("wire Cookie = %q", wire.Get("Cookie"))
+	}
+	if wire.Get("X-Edge-IP") != "1.2.3.4" {
+		t.Fatalf("wire X-Edge-IP = %q", wire.Get("X-Edge-IP"))
+	}
+	if response.Headers.Get("Set-Cookie") != "__oailb=lab-cookie; Path=/; Secure" {
+		t.Fatalf("response Set-Cookie = %q", response.Headers.Get("Set-Cookie"))
+	}
+	if response.Headers.Get("Cf-Ray") != "abc-LAX" {
+		t.Fatalf("response Cf-Ray = %q", response.Headers.Get("Cf-Ray"))
+	}
+	if response.Headers.Get("X-Codex-Safety-Buffering-Enabled") != "false" {
+		t.Fatalf("response buffering = %q", response.Headers.Get("X-Codex-Safety-Buffering-Enabled"))
+	}
+}

@@ -73,6 +73,18 @@ type Runtime struct {
 	validationJitter   func() time.Duration
 	now                func() time.Time
 	newTicker          func(time.Duration) runtimeTicker
+	codexProbe         backgroundRunner
+}
+
+type backgroundRunner interface {
+	Run(context.Context)
+}
+
+func (runtime *Runtime) SetCodexProbe(runner backgroundRunner) {
+	if runtime == nil {
+		return
+	}
+	runtime.codexProbe = runner
 }
 
 func NewRuntime(
@@ -158,6 +170,13 @@ func (runtime *Runtime) Run(ctx context.Context) {
 		go func() {
 			defer wait.Done()
 			runtime.oauthCallback.Run(ctx)
+		}()
+	}
+	if runtime.codexProbe != nil {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			runtime.codexProbe.Run(ctx)
 		}()
 	}
 	wait.Wait()

@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codexrouting"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
@@ -44,6 +45,7 @@ type Adapter struct {
 	credentials credentialPreparer
 	channels    *channel.Registry
 	providers   map[channel.ProviderKind]providerBridge
+	routing     *codexrouting.Store
 }
 
 type credentialPreparer interface {
@@ -144,6 +146,12 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 			return execution.AttemptResult{DispatchState: execution.DispatchNotSent, Error: requestValidationEvidence(err)}
 		}
 	}
+	if !countTokensOperation(spec.Operation) {
+		if request.Headers == nil {
+			request.Headers = make(http.Header)
+		}
+		a.applyCodexRouting(ctx, spec, request.Headers)
+	}
 	if countTokensOperation(spec.Operation) {
 		if local, ok := provider.(providerLocalTokenCounter); ok {
 			if err := local.ValidateLocalTokenCount(request); err != nil {
@@ -209,6 +217,9 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 			request,
 		)
 		a.recordPassiveQuotaObservation(spec, response.QuotaObservedAt, response.QuotaWindows)
+	}
+	if !countTokensOperation(spec.Operation) {
+		a.observeCodexRouting(ctx, spec, response.Headers, response.StatusCode)
 	}
 	if err != nil {
 		result := unaryExecutionError(execCtx, provider, err, credential)
@@ -330,6 +341,10 @@ func (a *Adapter) ExecuteStream(
 			return execution.StreamResult{DispatchState: execution.DispatchNotSent, Error: requestValidationEvidence(err)}
 		}
 	}
+	if request.Headers == nil {
+		request.Headers = make(http.Header)
+	}
+	a.applyCodexRouting(ctx, spec, request.Headers)
 	preparedCredential, evidence := a.credentials.Prepare(ctx, channel.ID(spec.ChannelID), spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
 		return execution.StreamResult{
@@ -354,6 +369,11 @@ func (a *Adapter) ExecuteStream(
 	if response != nil {
 		upstreamProtocol = effectiveUpstreamProtocol(provider, response.UpstreamProtocol)
 		a.recordPassiveQuotaObservation(spec, response.QuotaObservedAt, response.QuotaWindows)
+		statusCode := 0
+		if err == nil {
+			statusCode = http.StatusOK
+		}
+		a.observeCodexRouting(ctx, spec, response.Headers, statusCode)
 	}
 	if err != nil {
 		result := unaryExecutionError(streamCtx, provider, err, credential)

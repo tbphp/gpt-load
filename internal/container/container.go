@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/app"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codexrouting"
 	"gpt-load/internal/control"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
@@ -188,6 +189,9 @@ func BuildContainer() (*dig.Container, error) {
 		newSubscriptionRuntime,
 		subscription.NewCredentialManager,
 		cpaexecutor.NewAdapter,
+		func(cfg *config.Config, enc encryption.Service) *codexrouting.Store {
+			return codexrouting.NewStore(cfg.DataDir, enc, codexrouting.LoadConfigFromEnv())
+		},
 		newProviderAdapterRegistry,
 		func(registry *provideradapter.Registry) execution.Executor { return registry },
 		func(runtime *bifrostexecutor.RuntimeManager) app.ExecutionRuntime { return runtime },
@@ -242,6 +246,19 @@ func BuildContainer() (*dig.Container, error) {
 		return registry.Bind(engine)
 	}); err != nil {
 		return nil, fmt.Errorf("register HTTP routes: %w", err)
+	}
+	if err := dependencyContainer.Invoke(func(
+		store *codexrouting.Store,
+		adapter *cpaexecutor.Adapter,
+		service *control.Service,
+		runtime *control.Runtime,
+	) {
+		keeper := codexrouting.NewKeeper(store, service, service)
+		adapter.SetCodexRouting(store)
+		service.SetCodexRouting(store, keeper)
+		runtime.SetCodexProbe(keeper)
+	}); err != nil {
+		return nil, fmt.Errorf("wire codex routing: %w", err)
 	}
 	return dependencyContainer, nil
 }

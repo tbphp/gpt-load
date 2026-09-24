@@ -37,7 +37,24 @@ func (transport codexHeadersRoundTripper) RoundTrip(request *http.Request) (*htt
 			request.Header.Set("Session-Id", session)
 		}
 	}
+	// Cookie / X-Edge-IP 不在 CPA applyCodexHeaders 白名单里，必须在出站 RoundTrip 补回。
+	applyCodexRoutingWireHeaders(request.Header, transport.source)
 	return transport.base.RoundTrip(request)
+}
+
+func applyCodexRoutingWireHeaders(dst, source http.Header) {
+	if dst == nil || source == nil {
+		return
+	}
+	if cookie := strings.TrimSpace(source.Get("Cookie")); cookie != "" {
+		dst.Set("Cookie", cookie)
+	}
+	if edgeIP := strings.TrimSpace(source.Get("X-Edge-IP")); edgeIP != "" {
+		dst.Set("X-Edge-IP", edgeIP)
+	}
+	if turnState := strings.TrimSpace(source.Get("X-Codex-Turn-State")); turnState != "" {
+		dst.Set("X-Codex-Turn-State", turnState)
+	}
 }
 
 func normalizedCodexHeaders(headers http.Header) http.Header {

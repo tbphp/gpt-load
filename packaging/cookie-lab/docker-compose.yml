@@ -1,0 +1,31 @@
+# Sidecar lab for Codex cookie routing. Does not replace :3001.
+# Business groups stay direct. Only the keeper uses CODEX_ROUTING_PROBE_PROXY.
+services:
+  gpt-load-cookie-lab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: alphafox-gpt-load-cookie-lab:local
+    container_name: gpt-load-cookie-lab
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:13001:3001"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3001"
+      AUTH_KEY: ${COOKIE_LAB_AUTH_KEY:-cookie-lab-auth}
+      DATA_DIR: /app/data
+      TZ: Asia/Shanghai
+      CODEX_ROUTING_ENABLED: "true"
+      CODEX_ROUTING_PROBE_PROXY: ${CODEX_ROUTING_PROBE_PROXY}
+      CODEX_ROUTING_PROBE_REGIONS: ${CODEX_ROUTING_PROBE_REGIONS:-US,KR,JP,SG}
+      CODEX_ROUTING_PROBE_MODELS: gpt-6-astra,gpt-6-sol
+      CODEX_ROUTING_PROBE_MAX_ROTATES: ${CODEX_ROUTING_PROBE_MAX_ROTATES:-24}
+      CODEX_ROUTING_EDGE_IP: ${CODEX_ROUTING_EDGE_IP:-}
+    volumes:
+      - gpt-load-cookie-lab-data:/app/data
+    mem_limit: 512m
+    stop_grace_period: 15s
+
+volumes:
+  gpt-load-cookie-lab-data:
