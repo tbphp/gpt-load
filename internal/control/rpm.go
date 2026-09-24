@@ -2,7 +2,6 @@ package control
 
 import (
 	"context"
-	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +14,7 @@ import (
 )
 
 type rpmStatisticsReader interface {
-	QueryRPM(context.Context, rpm.Kind, uint, time.Time, time.Time) (requestlog.RPMReport, error)
+	QueryRPM(context.Context, rpm.Kind, uint, time.Time) (requestlog.RPMReport, error)
 	RPMPeaks(context.Context, rpm.Kind, []uint, time.Time) (map[uint]int64, error)
 }
 
@@ -90,13 +89,7 @@ func (s *Server) handleCredentialRPM(c *gin.Context) {
 }
 
 func (s *Server) writeRPM(c *gin.Context, kind rpm.Kind, id uint) {
-	values, err := url.ParseQuery(c.Request.URL.RawQuery)
-	if err != nil || len(values) != 1 || len(values["range"]) != 1 {
-		writeServiceError(c, "query_rpm", app_errors.ErrBadRequest)
-		return
-	}
-	hours, ok := map[string]int{"1h": 1, "6h": 6, "24h": 24, "7d": 168}[values.Get("range")]
-	if !ok {
+	if c.Request.URL.RawQuery != "" || c.Request.URL.ForceQuery {
 		writeServiceError(c, "query_rpm", app_errors.ErrBadRequest)
 		return
 	}
@@ -106,7 +99,7 @@ func (s *Server) writeRPM(c *gin.Context, kind rpm.Kind, id uint) {
 		writeServiceError(c, "query_rpm", app_errors.ErrInternalServer)
 		return
 	}
-	result, err := reader.QueryRPM(c.Request.Context(), kind, id, now.Add(-time.Duration(hours)*time.Hour), now)
+	result, err := reader.QueryRPM(c.Request.Context(), kind, id, now)
 	if err != nil {
 		writeServiceError(c, "query_rpm", app_errors.ErrInternalServer)
 		return

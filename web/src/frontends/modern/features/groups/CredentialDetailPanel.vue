@@ -161,7 +161,6 @@ useMessageSource(() =>
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
-      <RPMTrend :scope="{ kind: 'credential', id: row.id, group: group.id }" />
       <CredentialTrends
         :subscription="group.connectionType === 'subscription'"
         :group="group.id"
@@ -172,6 +171,7 @@ useMessageSource(() =>
         v-if="item.observation?.windows.length"
         :windows="item.observation.windows"
       />
+      <RPMTrend :scope="{ kind: 'credential', id: row.id, group: group.id }" />
       <section class="modern-credential-detail-section">
         <div class="modern-credential-detail-title">
           <h3>{{ t('credentialCards.runtime') }}</h3>

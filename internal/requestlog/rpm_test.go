@@ -25,7 +25,7 @@ func TestRPMWorkerPersistsAbsoluteSnapshotsAndMergesLiveData(t *testing.T) {
 	s.flushRPMCheckpoints(t.Context())
 	s.flushRPMCheckpoints(t.Context())
 	store.Record(rpm.AccessKey, 1, true, now)
-	report, err := s.QueryRPM(t.Context(), rpm.AccessKey, 1, now.Add(-time.Hour), now)
+	report, err := s.QueryRPM(t.Context(), rpm.AccessKey, 1, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestRPMWorkerPersistsAbsoluteSnapshotsAndMergesLiveData(t *testing.T) {
 	s.SetRPMStore(store)
 	store.Record(rpm.AccessKey, 1, false, now)
 	s.flushRPMCheckpoints(t.Context())
-	report, err = s.QueryRPM(t.Context(), rpm.AccessKey, 1, now.Add(-time.Hour), now)
+	report, err = s.QueryRPM(t.Context(), rpm.AccessKey, 1, now)
 	if err != nil || report.Requests != 3 || report.Peak == nil || *report.Peak != 2 {
 		t.Fatalf("restart merge: %+v, %v", report, err)
 	}

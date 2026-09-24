@@ -28,22 +28,18 @@ type RPMReport struct {
 	Points        []RPMPoint   `json:"points"`
 }
 
-func (s *Service) QueryRPM(ctx context.Context, kind rpm.Kind, id uint, from, to time.Time) (RPMReport, error) {
-	result := RPMReport{FromMS: from.UnixMilli(), ToMS: to.UnixMilli(), ObservedAtMS: to.UnixMilli(), BucketWidthMS: 60_000, Points: []RPMPoint{}}
-	if !validRPMKind(kind) || id == 0 || from.UnixMilli() < 0 || !to.After(from) || to.Sub(from) > 7*24*time.Hour {
+func (s *Service) QueryRPM(ctx context.Context, kind rpm.Kind, id uint, now time.Time) (RPMReport, error) {
+	from := now.Add(-time.Hour)
+	result := RPMReport{FromMS: from.UnixMilli(), ToMS: now.UnixMilli(), ObservedAtMS: now.UnixMilli(), BucketWidthMS: 60_000, Points: []RPMPoint{}}
+	if !validRPMKind(kind) || id == 0 || from.UnixMilli() < 0 {
 		return result, fmt.Errorf("invalid RPM query")
 	}
 	if s == nil || s.db == nil {
 		return result, fmt.Errorf("RPM database unavailable")
 	}
-	if to.Sub(from) > 24*time.Hour {
-		result.BucketWidthMS = 3_600_000
-	} else if to.Sub(from) > 6*time.Hour {
-		result.BucketWidthMS = 300_000
-	}
-	queryFrom := s.rpmQueryFrom(from, to)
+	queryFrom := s.rpmQueryFrom(from, now)
 	var rows []models.RPMStat
-	if err := s.db.WithContext(ctx).Where("kind = ? AND key_id = ? AND minute_ms >= ? AND minute_ms <= ?", string(kind), id, queryFrom, to.UnixMilli()).Find(&rows).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("kind = ? AND key_id = ? AND minute_ms >= ? AND minute_ms <= ?", string(kind), id, queryFrom, now.UnixMilli()).Find(&rows).Error; err != nil {
 		return result, err
 	}
 	type identity struct {
@@ -55,8 +51,8 @@ func (s *Service) QueryRPM(ctx context.Context, kind rpm.Kind, id uint, from, to
 		merged[identity{row.MinuteMS, row.SessionID}] = row
 	}
 	// 同一进程的绝对快照覆盖持久化版本，查询和写入并发也不重复累加。
-	for _, snapshot := range s.rpmStore.Snapshots(to, false, 0) {
-		if snapshot.Kind != kind || snapshot.KeyID != id || snapshot.MinuteMS < queryFrom || snapshot.MinuteMS > to.UnixMilli() {
+	for _, snapshot := range s.rpmStore.Snapshots(now, false, 0) {
+		if snapshot.Kind != kind || snapshot.KeyID != id || snapshot.MinuteMS < queryFrom || snapshot.MinuteMS > now.UnixMilli() {
 			continue
 		}
 		key := identity{snapshot.MinuteMS, snapshot.SessionID}
@@ -89,7 +85,7 @@ func (s *Service) QueryRPM(ctx context.Context, kind rpm.Kind, id uint, from, to
 	}
 	sort.Slice(result.Points, func(i, j int) bool { return result.Points[i].BucketStartMS < result.Points[j].BucketStartMS })
 	if result.Peak != nil && s.rpmStore != nil {
-		current := s.rpmStore.Current(kind, id, to)
+		current := s.rpmStore.Current(kind, id, now)
 		result.Current = &current
 	}
 	return result, nil

@@ -84,9 +84,11 @@ useLoadingActivity(() => Boolean(props.pending))
       <div class="modern-subscription-card-identity">
         <div class="modern-subscription-card-name-line">
           <AppOverflowText class="modern-subscription-card-name" :text="row.account || row.mask" />
-          <span v-if="row.rpmPeakHour !== undefined" class="modern-subscription-card-rpm"
-            >{{ t('rpm.hourPeakShort') }} {{ n(row.rpmPeakHour) }}</span
-          >
+          <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
+            <span class="modern-subscription-card-rpm" tabindex="0"
+              >{{ t('rpm.cardLabel') }} {{ n(row.rpmPeakHour) }}</span
+            >
+          </AppTooltip>
         </div>
         <div class="modern-subscription-card-subtitle">
           <div class="modern-subscription-card-plan">

@@ -74,7 +74,7 @@ func TestRPMCredentialQueryUsesOwnershipAndAdminBoundary(t *testing.T) {
 	fixture.service.usageStats = requestlog.NewService(fixture.db, redact.New(), rpmTestRetention{})
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
-	path := fmt.Sprintf("/api/modern/groups/%d/credentials/%d/rpm?range=1h", group.ID, credential.ID)
+	path := fmt.Sprintf("/api/modern/groups/%d/credentials/%d/rpm", group.ID, credential.ID)
 	result := performGroupCollectionRequest(engine, path, "Bearer "+authTestKey)
 	if result.Code != http.StatusOK {
 		t.Fatalf("RPM query: %d %s", result.Code, result.Body.String())
@@ -96,19 +96,19 @@ func TestRPMCredentialQueryUsesOwnershipAndAdminBoundary(t *testing.T) {
 	if got := performGroupCollectionRequest(engine, path, "Bearer "+accessKey.Key); got.Code != http.StatusForbidden {
 		t.Fatalf("access key could read upstream statistics: %d", got.Code)
 	}
-	accessPath := fmt.Sprintf("/api/access-keys/%d/rpm?range=24h", accessKey.ID)
+	accessPath := fmt.Sprintf("/api/access-keys/%d/rpm", accessKey.ID)
 	if got := performGroupCollectionRequest(engine, accessPath, "Bearer "+accessKey.Key); got.Code != http.StatusForbidden {
 		t.Fatalf("new endpoint bypassed access-key whitelist: %d", got.Code)
 	}
 	if got := performGroupCollectionRequest(engine, accessPath, "Bearer "+authTestKey); got.Code != http.StatusOK {
 		t.Fatalf("admin could not read access-key statistics: %d %s", got.Code, got.Body.String())
 	}
-	wrong := fmt.Sprintf("/api/modern/groups/%d/credentials/%d/rpm?range=1h", group.ID+1, credential.ID)
+	wrong := fmt.Sprintf("/api/modern/groups/%d/credentials/%d/rpm", group.ID+1, credential.ID)
 	if got := performGroupCollectionRequest(engine, wrong, "Bearer "+authTestKey); got.Code != http.StatusNotFound {
 		t.Fatalf("cross-group request: %d %s", got.Code, got.Body.String())
 	}
-	if got := performGroupCollectionRequest(engine, path+"&range=7d", "Bearer "+authTestKey); got.Code != http.StatusBadRequest {
-		t.Fatalf("duplicate range: %d", got.Code)
+	if got := performGroupCollectionRequest(engine, path+"?range=7d", "Bearer "+authTestKey); got.Code != http.StatusBadRequest {
+		t.Fatalf("unsupported range: %d", got.Code)
 	}
 }
 

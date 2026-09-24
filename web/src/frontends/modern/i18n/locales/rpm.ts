@@ -1,8 +1,9 @@
 export const zhCN = {
   title: 'RPM',
-  range: '统计范围',
   hourPeak: '近 1 小时峰值 RPM',
   hourPeakShort: '1h 峰值',
+  cardLabel: 'RPM:',
+  trendHour: '近 1 小时 RPM 趋势',
   sort: '近 1 小时 RPM 峰值最高',
   current: '当前 · 60 秒',
   peak: '峰值',
@@ -15,14 +16,14 @@ export const zhCN = {
   limit: '限额',
   unlimited: '不限',
   loadFailed: 'RPM 加载失败',
-  ranges: { '1h': '1 小时', '6h': '6 小时', '24h': '24 小时', '7d': '7 天' },
 }
 
 export const enUS = {
   title: 'RPM',
-  range: 'Time range',
   hourPeak: 'Peak RPM · last hour',
   hourPeakShort: '1h peak',
+  cardLabel: 'RPM:',
+  trendHour: 'RPM trend · last hour',
   sort: 'Highest peak RPM in the last hour',
   current: 'Now · 60s',
   peak: 'Peak',
@@ -35,14 +36,14 @@ export const enUS = {
   limit: 'Limit',
   unlimited: 'Unlimited',
   loadFailed: 'Could not load RPM',
-  ranges: { '1h': '1h', '6h': '6h', '24h': '24h', '7d': '7d' },
 }
 
 export const jaJP = {
   title: 'RPM',
-  range: '集計期間',
   hourPeak: '直近 1 時間の最大 RPM',
   hourPeakShort: '1h 最大',
+  cardLabel: 'RPM:',
+  trendHour: '直近 1 時間の RPM 推移',
   sort: '直近 1 時間の最大 RPM 順',
   current: '現在 · 60 秒',
   peak: '最大',
@@ -55,5 +56,4 @@ export const jaJP = {
   limit: '上限',
   unlimited: '無制限',
   loadFailed: 'RPM を読み込めません',
-  ranges: { '1h': '1 時間', '6h': '6 時間', '24h': '24 時間', '7d': '7 日' },
 }

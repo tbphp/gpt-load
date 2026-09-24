@@ -1,7 +1,6 @@
 import type { ApiClient } from '@shared/http/client'
 import { integer, list, record } from './response'
 
-export type RPMRange = '1h' | '6h' | '24h' | '7d'
 export type RPMScope =
   { kind: 'access_key'; id: number } | { kind: 'credential'; id: number; group: number }
 
@@ -17,28 +16,20 @@ export interface RPMReport {
   points: { at: number; peak: number; requests: number; rejected: number }[]
 }
 
-export function rpmQueryKey(scope: RPMScope, range: RPMRange) {
-  return [
-    'modern',
-    'rpm',
-    scope.kind,
-    scope.kind === 'credential' ? scope.group : 0,
-    scope.id,
-    range,
-  ]
+export function rpmQueryKey(scope: RPMScope) {
+  return ['modern', 'rpm', scope.kind, scope.kind === 'credential' ? scope.group : 0, scope.id]
 }
 
 export async function getRPM(
   client: ApiClient,
   scope: RPMScope,
-  range: RPMRange,
   signal: AbortSignal,
 ): Promise<RPMReport> {
   const path: `/api/${string}` =
     scope.kind === 'access_key'
       ? `/api/access-keys/${scope.id}/rpm`
       : `/api/modern/groups/${scope.group}/credentials/${scope.id}/rpm`
-  const data = record(await client.request(`${path}?range=${range}`, { signal }))
+  const data = record(await client.request(path, { signal }))
   const current = data.current == null ? undefined : record(data.current)
   return {
     from: integer(data.from_ms),
