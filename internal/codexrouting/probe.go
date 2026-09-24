@@ -142,7 +142,7 @@ func (k *Keeper) ProbeOne(ctx context.Context, credentialID uint, model string) 
 			continue
 		}
 		region := regionFromHeaders(header)
-		if cfg.TargetGateway != "" && region != cfg.TargetGateway {
+		if cfg.TargetGateway != "" && !gatewayAllowed(cfg.TargetGateway, region) {
 			k.store.DiscardPin(credentialID)
 			lastErr = fmt.Errorf("codex routing gateway %s want %s", region, cfg.TargetGateway)
 			continue

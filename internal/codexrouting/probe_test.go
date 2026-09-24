@@ -213,3 +213,43 @@ func TestProbeHuntsTargetGatewayAndInjectsTicket(t *testing.T) {
 		t.Fatalf("ticket = %q", injected.Get("X-Codex-Turn-State"))
 	}
 }
+
+func TestProbeAcceptsWhitelistedGateway(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 24, 8, 0, 0, 0, time.UTC)
+	store := NewStore("", nil, Config{
+		Enabled: true, TargetGateway: "unified-80,unified-101,unified-191",
+		MaxRotates: 3, Models: []string{"gpt-6-astra"}, EventLimit: 8,
+		TicketTTL: 240 * time.Second, ProbeProxy: "http://user-region-{region}-session-{session}:pass@127.0.0.1:5000",
+	})
+	store.now = func() time.Time { return now }
+	var hosts []string
+	keeper := NewKeeper(store, staticAccounts{{CredentialID: 4}}, staticTokens{access: "tok", id: "acct"})
+	keeper.lookupIPs = func(string) ([]string, error) { return []string{"1.1.1.1"}, nil }
+	keeper.transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		header := make(http.Header)
+		host := "chat.gateway.unified-122.api.openai.com"
+		if len(hosts) > 0 {
+			host = "chat.gateway.unified-80.api.openai.com"
+		}
+		hosts = append(hosts, host)
+		header.Add("Set-Cookie", "__oailb="+testOaiLB(host, now.Add(time.Hour))+"; Path=/")
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: header,
+			Body: io.NopCloser(strings.NewReader(`data: {"type":"response.created","response":{"id":"resp","model":"gpt-6-astra"}}
+
+`)),
+			Request: request,
+		}, nil
+	})
+	if err := keeper.ProbeOne(t.Context(), 4, "gpt-6-astra"); err != nil {
+		t.Fatalf("ProbeOne() error = %v", err)
+	}
+	item := store.Status([]AccountRef{{CredentialID: 4}}).Credentials[0]
+	if item.Region != "unified-80" || item.Verdict != string(VerdictPinned) {
+		t.Fatalf("status = %#v hosts=%v", item, hosts)
+	}
+	if item.TTLSeconds == nil || *item.TTLSeconds > 240 {
+		t.Fatalf("ttl = %v", item.TTLSeconds)
+	}
+}

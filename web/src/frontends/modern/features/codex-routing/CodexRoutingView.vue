@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { Radar, RefreshCw, Search, Trash2 } from '@lucide/vue'
@@ -43,6 +43,17 @@ const probing = ref(false)
 const pendingClear = ref(0)
 const query = ref('')
 const verdictFilter = ref('all')
+const nowMs = ref(Date.now())
+let clock: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  nowMs.value = Date.now()
+  clock = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 1000)
+})
+onUnmounted(() => {
+  if (clock) clearInterval(clock)
+})
 const verdictOptions = computed(() => [
   { value: 'all', label: t('codexRouting.filterAll') },
   ...(['pinned', 'probing', 'empty', 'stale', 'rotated', 'degraded'] as const).map((key) => ({
@@ -102,6 +113,15 @@ function verdictTone(verdict: CodexRoutingVerdict) {
   return 'neutral'
 }
 
+function remainingSeconds(expiresAt: number | null, snapshot: number | null): number | null {
+  void nowMs.value
+  if (expiresAt !== null) return Math.max(0, Math.floor((expiresAt - nowMs.value) / 1000))
+  if (snapshot === null) return null
+  const observed = status.value?.observedAt
+  if (!observed) return snapshot
+  return Math.max(0, snapshot - Math.floor((nowMs.value - observed) / 1000))
+}
+
 function ttlLabel(seconds: number | null): string {
   if (seconds === null) return '—'
   if (seconds <= 0) return '0s'
@@ -111,9 +131,19 @@ function ttlLabel(seconds: number | null): string {
   return rest ? `${minutes}m ${rest}s` : `${minutes}m`
 }
 
+function liveTtl(item: CodexRoutingCredential): string {
+  return ttlLabel(remainingSeconds(item.expiresAt, item.ttlSeconds))
+}
+
 function ticketLabel(item: CodexRoutingCredential): string {
   if (!item.ticketLen) return '—'
-  return `#${item.ticketLen}`
+  const ttl = remainingSeconds(item.ticketExpiresAt, item.ticketTTLSeconds)
+  return ttl === null ? `#${item.ticketLen}` : `#${item.ticketLen} · ${ttlLabel(ttl)}`
+}
+
+function ttlDatetime(item: CodexRoutingCredential): string | undefined {
+  if (item.expiresAt) return new Date(item.expiresAt).toISOString()
+  return undefined
 }
 
 function eventTime(ms: number): string {
@@ -254,8 +284,8 @@ async function clearOne(id: number): Promise<void> {
                   {{ t('codexRouting.verdicts.' + item.verdict) }}
                 </AppBadge>
                 <span>{{ item.region || '—' }} / {{ status.targetGateway || '—' }}</span>
-                <span>{{ ticketLabel(item) }}</span>
-                <span>{{ ttlLabel(item.ttlSeconds) }}</span>
+                <span class="modern-codex-routing-ttl">{{ ticketLabel(item) }}</span>
+                <time class="modern-codex-routing-ttl" :datetime="ttlDatetime(item)">{{ liveTtl(item) }}</time>
                 <div class="modern-codex-routing-actions">
                   <AppIconButton
                     :icon="Radar"
@@ -453,7 +483,7 @@ async function clearOne(id: number): Promise<void> {
 }
 .modern-codex-routing-row {
   display: grid;
-  grid-template-columns: minmax(9rem, 1.4fr) 4.5rem 6rem minmax(7rem, 1fr) 4.5rem 6rem auto;
+  grid-template-columns: minmax(9rem, 1.4fr) 4.5rem 6rem minmax(7rem, 1fr) 8rem 7rem auto;
   gap: var(--modern-space-3);
   align-items: center;
   padding-block: var(--modern-space-3);
@@ -462,6 +492,11 @@ async function clearOne(id: number): Promise<void> {
 .modern-codex-routing-row.is-head {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
+}
+.modern-codex-routing-ttl {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  white-space: nowrap;
 }
 .modern-codex-routing-actions {
   display: flex;

@@ -40,6 +40,7 @@ export interface CodexRoutingCredential {
   candyOK: boolean
   ticketLen: number
   ticketTTLSeconds: number | null
+  ticketExpiresAt: number | null
   servedModel: string
   proxyRegion: string
 }
@@ -125,6 +126,7 @@ function credential(value: unknown): CodexRoutingCredential {
     candyOK: optionalBoolean(row.candy_ok) === true,
     ticketLen: row.ticket_len === undefined ? 0 : integer(row.ticket_len),
     ticketTTLSeconds: optionalInteger(row.ticket_ttl_seconds),
+    ticketExpiresAt: optionalInteger(row.ticket_expires_at_ms),
     servedModel: optionalText(row.served_model),
     proxyRegion: optionalText(row.proxy_region),
   }

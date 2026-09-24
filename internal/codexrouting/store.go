@@ -148,6 +148,7 @@ type CredentialStatus struct {
 	CandyOK           bool   `json:"candy_ok,omitempty"`
 	TicketLen         int    `json:"ticket_len,omitempty"`
 	TicketTTLSeconds  *int64 `json:"ticket_ttl_seconds,omitempty"`
+	TicketExpiresAtMS *int64 `json:"ticket_expires_at_ms,omitempty"`
 	ServedModel       string `json:"served_model,omitempty"`
 	ProxyRegion       string `json:"proxy_region,omitempty"`
 }
@@ -184,9 +185,6 @@ func NewStore(dataDir string, enc encryption.Service, cfg Config) *Store {
 	if cfg.MaxRotates <= 0 {
 		cfg.MaxRotates = defaultMaxRotates
 	}
-	if cfg.TicketTTL <= 0 {
-		cfg.TicketTTL = defaultTicketTTL
-	}
 	store := &Store{
 		cfg:        cfg,
 		dataDir:    dataDir,
@@ -221,7 +219,7 @@ func (s *Store) Inject(ctx context.Context, credentialID uint, model string, hea
 	if edgeIP != "" {
 		headers.Set("X-Edge-IP", edgeIP)
 	}
-	if entry == nil || cookieHeader(entry.Cookies) == "" || (s.requiresPinLocked() && !entry.CandyOK) {
+	if entry == nil || cookieHeader(entry.Cookies) == "" || (s.requiresPinLocked() && (!entry.CandyOK || !gatewayAllowed(s.cfg.TargetGateway, entry.Region))) {
 		s.appendEventLocked(Event{
 			TimeMS: now.UnixMilli(), Kind: string(KindBusiness), Action: string(ActionEmpty),
 			CredentialID: credentialID, Model: model, EdgeIP: edgeIP,
@@ -314,6 +312,12 @@ func (s *Store) Capture(ctx context.Context, credentialID uint, model string, he
 			}
 			if !expires.IsZero() {
 				entry.ExpiresAt = expires
+			}
+			if s.cfg.TicketTTL > 0 {
+				capAt := now.Add(s.cfg.TicketTTL)
+				if entry.ExpiresAt.IsZero() || entry.ExpiresAt.After(capAt) {
+					entry.ExpiresAt = capAt
+				}
 			}
 			if entry.IssuedAt.IsZero() {
 				entry.IssuedAt = now
@@ -509,7 +513,7 @@ func (s *Store) NeedsNewSession(credentialID uint) bool {
 	if s.cfg.Candy && !entry.CandyOK {
 		return true
 	}
-	if s.cfg.TargetGateway != "" && entry.Region != s.cfg.TargetGateway {
+	if s.cfg.TargetGateway != "" && !gatewayAllowed(s.cfg.TargetGateway, entry.Region) {
 		return true
 	}
 	if entry.LastAction == ActionRotated {
@@ -692,6 +696,7 @@ func (s *Store) credentialStatusLocked(account AccountRef, now time.Time) Creden
 	if ticket, ok := entry.Tickets[entry.LastModel]; ok {
 		item.TicketLen = ticket.Len
 		item.TicketTTLSeconds = ttlSeconds(ticket.ExpiresAt, now)
+		item.TicketExpiresAtMS = unixMilliPtr(ticket.ExpiresAt)
 		item.ServedModel = ticket.Served
 	}
 	item.Verdict = string(s.verdictLocked(entry, probing, now))
@@ -717,7 +722,7 @@ func (s *Store) verdictLocked(entry *Entry, probing bool, now time.Time) Verdict
 	if s.cfg.Candy && !entry.CandyOK {
 		return VerdictDegraded
 	}
-	if s.cfg.TargetGateway != "" && entry.Region != s.cfg.TargetGateway {
+	if s.cfg.TargetGateway != "" && !gatewayAllowed(s.cfg.TargetGateway, entry.Region) {
 		return VerdictDegraded
 	}
 	return VerdictPinned

@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	defaultRefreshBefore = 5 * time.Minute
+	defaultRefreshBefore = 30 * time.Second
 	defaultInterval      = 2 * time.Minute
 	defaultEventLimit    = 200
 	defaultMaxRotates    = 24
-	defaultTargetGateway = "unified-88"
+	defaultTargetGateway = "unified-80,unified-101,unified-191"
 	defaultTicketTTL     = 240 * time.Second
 	jarFileName          = "codex-cookies.enc"
 )
@@ -50,17 +50,13 @@ func LoadConfigFromEnv() Config {
 			models = []string{"gpt-6-astra"}
 		}
 	}
-	target := normalizeGateway(os.Getenv("CODEX_ROUTING_TARGET_GATEWAY"))
-	if strings.TrimSpace(os.Getenv("CODEX_ROUTING_TARGET_GATEWAY")) == "" {
-		target = defaultTargetGateway
-	}
 	return Config{
 		Enabled:       envTruthy("CODEX_ROUTING_ENABLED"),
 		ProbeProxy:    strings.TrimSpace(os.Getenv("CODEX_ROUTING_PROBE_PROXY")),
-		ProbeRegions:  parseList(os.Getenv("CODEX_ROUTING_PROBE_REGIONS"), []string{"US", "KR", "JP", "SG"}),
+		ProbeRegions:  parseList(os.Getenv("CODEX_ROUTING_PROBE_REGIONS"), []string{"Rand"}),
 		EdgeIP:        strings.TrimSpace(os.Getenv("CODEX_ROUTING_EDGE_IP")),
 		Models:        models,
-		TargetGateway: target,
+		TargetGateway: parseTargetGateways(os.Getenv("CODEX_ROUTING_TARGET_GATEWAY"), defaultTargetGateway),
 		Candy:         envTruthy("CODEX_ROUTING_PROBE_CANDY"),
 		Mint:          envTruthy("CODEX_ROUTING_MINT"),
 		Transparent:   envDefaultTrue("CODEX_ROUTING_TRANSPARENT"),
@@ -107,7 +103,10 @@ func parseList(raw string, fallback []string) []string {
 	var out []string
 	seen := make(map[string]struct{})
 	for _, part := range strings.Split(raw, ",") {
-		value := strings.ToUpper(strings.TrimSpace(part))
+		value := strings.TrimSpace(part)
+		if len(value) == 2 {
+			value = strings.ToUpper(value)
+		}
 		if value == "" {
 			continue
 		}
@@ -121,6 +120,43 @@ func parseList(raw string, fallback []string) []string {
 		return append([]string(nil), fallback...)
 	}
 	return out
+}
+
+func parseTargetGateways(raw, fallback string) string {
+	var out []string
+	seen := make(map[string]struct{})
+	source := raw
+	if strings.TrimSpace(source) == "" {
+		source = fallback
+	}
+	for _, part := range strings.Split(source, ",") {
+		value := normalizeGateway(part)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return strings.Join(out, ",")
+}
+
+func gatewayAllowed(targets, region string) bool {
+	region = normalizeGateway(region)
+	if region == "" {
+		return false
+	}
+	if strings.TrimSpace(targets) == "" {
+		return true
+	}
+	for _, part := range strings.Split(targets, ",") {
+		if normalizeGateway(part) == region {
+			return true
+		}
+	}
+	return false
 }
 
 func envDurationSeconds(name string, fallback time.Duration) time.Duration {
