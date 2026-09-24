@@ -13,8 +13,6 @@ export const zhCN = {
   passed: '通过 RPM 检查',
   rejected: 'RPM 拒绝',
   totalRejected: '本地拒绝',
-  limit: '限额',
-  unlimited: '不限',
   loadFailed: 'RPM 加载失败',
 }
 
@@ -33,8 +31,6 @@ export const enUS = {
   passed: 'Passed RPM check',
   rejected: 'RPM rejections',
   totalRejected: 'Local rejects',
-  limit: 'Limit',
-  unlimited: 'Unlimited',
   loadFailed: 'Could not load RPM',
 }
 
@@ -53,7 +49,5 @@ export const jaJP = {
   passed: 'RPM チェック通過',
   rejected: 'RPM 拒否',
   totalRejected: 'ローカル拒否',
-  limit: '上限',
-  unlimited: '無制限',
   loadFailed: 'RPM を読み込めません',
 }

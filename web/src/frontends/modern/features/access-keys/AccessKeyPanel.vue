@@ -452,11 +452,7 @@ onScopeDispose(() => {
               {{ t('accessKeys.lastUsed') }} · {{ accessTime(usageRow.last_request_at_ms, locale) }}
             </p>
           </AppFormSection>
-          <RPMTrend
-            v-if="mode === 'detail' && base"
-            :scope="{ kind: 'access_key', id: base.id }"
-            :limit="base.rpm_limit"
-          />
+          <RPMTrend v-if="mode === 'detail' && base" :scope="{ kind: 'access_key', id: base.id }" />
           <AppFormSection :title="t('accessKeys.basic')" compact>
             <template #actions
               ><AppSwitch

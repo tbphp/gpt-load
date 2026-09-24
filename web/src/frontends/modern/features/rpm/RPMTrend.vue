@@ -8,7 +8,7 @@ import { AppButton, AppFormSection, AppSparkline } from '@modern/components/ui'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 
-const props = defineProps<{ scope: RPMScope; limit?: number }>()
+const props = defineProps<{ scope: RPMScope }>()
 const { t, n, locale } = useI18n()
 const client = useApiClient()
 const query = useQuery(
@@ -48,9 +48,6 @@ const points = computed(() => {
         label.push(`${t('rpm.passed')} ${n(row.requests - row.rejected)}`)
         label.push(`${t('rpm.rejected')} ${n(row.rejected)}`)
       }
-      if (props.limit !== undefined) {
-        label.push(`${t('rpm.limit')} ${props.limit > 0 ? n(props.limit) : t('rpm.unlimited')}`)
-      }
     }
     return {
       value: row?.peak ?? null,
@@ -80,10 +77,6 @@ const points = computed(() => {
           <dt>{{ t('rpm.peak') }}</dt>
           <dd>{{ report?.peak !== undefined ? n(report.peak) : '—' }}</dd>
         </div>
-        <div v-if="scope.kind === 'access_key' && limit !== undefined">
-          <dt>{{ t('rpm.limit') }}</dt>
-          <dd>{{ limit > 0 ? n(limit) : t('rpm.unlimited') }}</dd>
-        </div>
         <div v-if="scope.kind === 'access_key' && report?.rejected" class="modern-rpm-rejected">
           <dt>{{ t('rpm.totalRejected') }}</dt>
           <dd>{{ n(report.rejected) }}</dd>
@@ -95,7 +88,6 @@ const points = computed(() => {
         :values="points.map((point) => point.value)"
         :point-labels="points.map((point) => point.label)"
         :ranges="points.map((point) => point.range)"
-        :reference-value="report?.points.length && limit && limit > 0 ? limit : undefined"
         :show-marker="false"
         show-isolated-points
         size="sm"
