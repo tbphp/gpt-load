@@ -22,6 +22,7 @@ type GroupEffectiveConfigResponse struct {
 	BlacklistThreshold        int                 `json:"blacklist_threshold"`
 	AffinityEnabled           bool                `json:"affinity_enabled"`
 	ResponsesWebsocketEnabled bool                `json:"responses_websocket_enabled"`
+	EmptyResponseRetry        bool                `json:"empty_response_retry"`
 }
 
 // GroupSummaryResponse contains the group fields required by the detail page header.
@@ -89,6 +90,7 @@ func effectiveGroupConfig(
 		BlacklistThreshold:        resolved.BlacklistThreshold,
 		AffinityEnabled:           resolved.AffinityEnabled,
 		ResponsesWebsocketEnabled: resolved.ResponsesWebsocketEnabled,
+		EmptyResponseRetry:        resolved.EmptyResponseRetry,
 	}, nil
 }
 

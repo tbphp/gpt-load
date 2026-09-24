@@ -79,28 +79,74 @@ func TestGrokExecutorConvertsFourProtocolsUnaryAndStream(t *testing.T) {
 }
 
 func TestGrokExecutorUsesHeaderSafeConversationIDForOpaqueContinuity(t *testing.T) {
-	var conversationID string
+	type captured struct {
+		conversationID string
+		cacheKey       string
+	}
+	var requests []captured
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conversationID = r.Header.Get("x-grok-conv-id")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		requests = append(requests, captured{
+			conversationID: r.Header.Get("x-grok-conv-id"),
+			cacheKey:       gjson.GetBytes(body, "prompt_cache_key").String(),
+		})
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("event: response.completed\n"))
 		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","model":"grok-4.6","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}` + "\n\n"))
 	}))
 	defer server.Close()
 
-	payload := []byte(`{"model":"grok-4.6","input":"hi"}`)
-	_, err := testGrokHTTPExecutor(server.URL).ExecuteCanonical(
-		t.Context(), "credential-1", testGrokExecutionCredential(), ExecuteRequest{
-			AttemptID: "attempt-1", Model: "grok-4.6", Format: "openai-response",
-			Payload: payload, OriginalRequest: payload,
-			ContinuityKey: "tenant\x00credential-1\x00grok-4.6",
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
+	executor := testGrokHTTPExecutor(server.URL)
+	send := func(continuity, attempt, input, format string) captured {
+		t.Helper()
+		before := len(requests)
+		var payload []byte
+		switch format {
+		case "openai":
+			payload = []byte(fmt.Sprintf(`{"model":"grok-4.6","messages":[{"role":"user","content":%q}]}`, input))
+		default:
+			payload = []byte(fmt.Sprintf(`{"model":"grok-4.6","input":%q}`, input))
+		}
+		_, err := executor.ExecuteCanonical(t.Context(), "credential-1", testGrokExecutionCredential(), ExecuteRequest{
+			AttemptID: attempt, Model: "grok-4.6", Format: format,
+			Payload: payload, OriginalRequest: append([]byte(nil), payload...),
+			ContinuityKey: continuity,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(requests) != before+1 {
+			t.Fatalf("upstream requests = %d, want %d", len(requests), before+1)
+		}
+		got := requests[len(requests)-1]
+		if len(got.conversationID) != 36 || strings.ContainsAny(got.conversationID, "\r\n\x00") || got.cacheKey != got.conversationID {
+			t.Fatalf("upstream cache = %#v", got)
+		}
+		return got
 	}
-	if len(conversationID) != 36 || strings.ContainsAny(conversationID, "\r\n\x00") {
-		t.Fatalf("conversation ID = %q", conversationID)
+
+	send("tenant\x00credential-1\x00grok-4.6", "attempt-1", "hi", "openai-response")
+	first := send("same-scope", "attempt-1", "hello", "openai-response")
+	second := send("same-scope", "attempt-2", "hello\nfollow up", "openai-response")
+	if first.cacheKey != second.cacheKey {
+		t.Fatalf("same continuity keys = %q %q", first.cacheKey, second.cacheKey)
+	}
+	other := send("other-scope", "attempt-3", "hello\nfollow up", "openai-response")
+	if other.cacheKey == first.cacheKey {
+		t.Fatalf("different continuity reused %q", other.cacheKey)
+	}
+	chat := send("same-scope", "attempt-4", "hello", "openai")
+	if chat.cacheKey != first.cacheKey {
+		t.Fatalf("chat prompt_cache_key = %q, responses = %q", chat.cacheKey, first.cacheKey)
+	}
+	emptyA := send("", "attempt-a", "hi", "openai-response")
+	emptyAgain := send("", "attempt-a", "hi again", "openai-response")
+	emptyB := send("", "attempt-b", "hi", "openai-response")
+	if emptyA.cacheKey != emptyAgain.cacheKey || emptyA.cacheKey == emptyB.cacheKey || emptyA.cacheKey == first.cacheKey {
+		t.Fatalf("attempt-scoped keys = %q %q %q", emptyA.cacheKey, emptyAgain.cacheKey, emptyB.cacheKey)
 	}
 }
 
@@ -238,12 +284,13 @@ func TestGrokExecutionOnlyBridgeMapsBadCredentialsToUnauthorized(t *testing.T) {
 }
 
 func TestGrokExecutionRequestRemovesCallerContinuity(t *testing.T) {
-	prepared := prepareGrokExecutionRequest(ExecuteRequest{
-		AttemptID: "attempt-1", ContinuityKey: "private-scope",
+	request := ExecuteRequest{
+		AttemptID: "attempt-1", ContinuityKey: "private-scope", Format: "openai-response",
 		Payload:         []byte(`{"input":"keep","session_id":"caller","prompt_cache_key":"caller-cache","metadata":{"sessionId":"nested"}}`),
 		OriginalRequest: []byte(`{"input":"keep","sessionId":"caller","prompt_cache_key":"caller-cache","metadata":{"session_id":"nested"}}`),
 		Headers:         http.Header{"Session-Id": {"caller"}, "X-Grok-Conv-Id": {"caller-conversation"}},
-	})
+	}
+	prepared := prepareGrokExecutionRequest(request)
 	for _, raw := range [][]byte{prepared.Payload, prepared.OriginalRequest} {
 		if !json.Valid(raw) || strings.Contains(string(raw), "caller") || !strings.Contains(string(raw), "keep") {
 			t.Fatalf("prepared payload = %s", raw)
@@ -252,6 +299,21 @@ func TestGrokExecutionRequestRemovesCallerContinuity(t *testing.T) {
 	if prepared.Headers.Get("Session-Id") != "" || prepared.Headers.Get("X-Grok-Conv-Id") != "" ||
 		prepared.ContinuityKey != "private-scope" {
 		t.Fatalf("prepared request = %#v", prepared)
+	}
+
+	upstream := scopeGrokExecutionRequest(request, "https://cli-chat-proxy.grok.com")
+	want := grokConversationID(upstream.ContinuityKey)
+	if len(want) != 36 || strings.Contains(want, "caller") {
+		t.Fatalf("gateway cache key = %q", want)
+	}
+	for _, raw := range [][]byte{upstream.Payload, upstream.OriginalRequest} {
+		if !json.Valid(raw) || strings.Contains(string(raw), "caller") || !strings.Contains(string(raw), "keep") ||
+			gjson.GetBytes(raw, "prompt_cache_key").String() != want {
+			t.Fatalf("upstream payload = %s", raw)
+		}
+	}
+	if upstream.Headers.Get("Session-Id") != "" || upstream.Headers.Get("X-Grok-Conv-Id") != "" {
+		t.Fatalf("upstream headers = %#v", upstream.Headers)
 	}
 }
 

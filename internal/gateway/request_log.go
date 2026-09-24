@@ -738,7 +738,8 @@ func upstreamErrorCode(result UpstreamResult, category health.FailureCategory) s
 			"credential_proxy_prepare_failed",
 			"group_proxy_prepare_failed",
 			"server_is_overloaded",
-			"rate_limit_exceeded":
+			"rate_limit_exceeded",
+			health.EmptyResponseCode:
 			return result.ExecutionError.Code
 		}
 	}
@@ -806,6 +807,8 @@ func fixedErrorSummary(code string) string {
 		return "Upstream stream terminated before completion."
 	case "upstream_stream_idle_timeout":
 		return "Upstream stream timed out while idle."
+	case health.EmptyResponseCode:
+		return "Upstream completed without producing any content."
 	case "downstream_write_failed":
 		return "The downstream response could not be completed."
 	case "internal_error":

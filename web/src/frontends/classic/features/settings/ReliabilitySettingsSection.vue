@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type {
@@ -6,6 +7,7 @@ import type {
   RuntimeSettingKey,
   SettingsResource,
 } from '@/app/resources/settings'
+import AppSwitch from '@/components/ui/AppSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import { formatInteger } from '@/lib/format'
@@ -87,6 +89,18 @@ function policyCountError(key: PolicyCountSettingKey): string | undefined {
     : undefined
 }
 
+const emptyResponseRetryValue = computed(() =>
+  props.base.settings.values.empty_response_retry
+    ? t('settings.runtime.enabled')
+    : t('settings.runtime.disabled'),
+)
+
+function setEmptyResponseRetry(value: boolean): void {
+  const draft = cloneDraft()
+  draft.values.empty_response_retry = value
+  publish('empty_response_retry', draft)
+}
+
 function validationIntervalValue(): string {
   if (isPendingRestore('validation_interval')) return t('settings.runtime.resetPending')
   return t('settings.runtime.effectiveValue', {
@@ -158,6 +172,32 @@ function validationIntervalError(): string | undefined {
             </CompactFieldError>
             <span aria-hidden="true">{{ t('settings.runtime.countUnit') }}</span>
           </div>
+        </template>
+      </SettingRow>
+
+      <SettingRow
+        :label="t('settings.runtime.empty_response_retry')"
+        :value="
+          isPendingRestore('empty_response_retry')
+            ? t('settings.runtime.resetPending')
+            : emptyResponseRetryValue
+        "
+        :help="t('settings.runtime.emptyResponseRetryHelp')"
+        :source-label="sourceLabel('empty_response_retry')"
+        :action-label="actionLabel('empty_response_retry')"
+        :overridden="hasOverride('empty_response_retry')"
+        :pending-restore="isPendingRestore('empty_response_retry')"
+        :disabled="disabled"
+        @toggle="toggleOverride('empty_response_retry')"
+      >
+        <template #control>
+          <AppSwitch
+            id="settings-value-empty_response_retry"
+            :model-value="draft.values.empty_response_retry"
+            :disabled="disabled"
+            :label="t('settings.runtime.empty_response_retry')"
+            @update:model-value="setEmptyResponseRetry"
+          />
         </template>
       </SettingRow>
 

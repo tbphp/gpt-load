@@ -11,6 +11,9 @@ trim_trailing_whitespace = true
 [*.{js,jsx,ts,tsx,vue}]
 indent_size = 2
 
+[*.py]
+indent_size = 4
+
 [*.{md,markdown}]
 trim_trailing_whitespace = false
 

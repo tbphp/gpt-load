@@ -1,5 +1,5 @@
-// Package encryption provides mandatory AES-256-GCM encryption and stable
-// HMAC fingerprints for stored credentials.
+// Package encryption provides credential encryption, stable fingerprints,
+// and per-AccessKey reversible redaction tokens.
 package encryption
 
 import (
@@ -25,11 +25,12 @@ const (
 	fingerprintKeyDomain = "gpt-load/encryption/fingerprint-hmac/v1"
 )
 
-// Service defines credential encryption and fingerprinting operations.
+// Service defines credential encryption, fingerprinting, and redaction operations.
 type Service interface {
 	Encrypt(plaintext string) (string, error)
 	Decrypt(ciphertext string) (string, error)
 	Hash(plaintext string) string
+	NewRedactionCipher(accessKeyID uint) (RedactionCipher, error)
 }
 
 // NewService creates a mandatory AES-GCM service from non-empty key material.
@@ -52,7 +53,7 @@ func NewService(keyMaterial string) (Service, error) {
 		return nil, fmt.Errorf("create GCM: %w", err)
 	}
 
-	return &aesService{hashKey: hashKey, gcm: gcm}, nil
+	return &aesService{rootKey: rootKey, hashKey: hashKey, gcm: gcm}, nil
 }
 
 // NewServiceWithKeyFile resolves explicit key material or a persistent keyfile
@@ -86,6 +87,7 @@ func LoadOrCreateKeyMaterial(explicitKey, dataDir string) (string, error) {
 }
 
 type aesService struct {
+	rootKey []byte
 	hashKey []byte
 	gcm     cipher.AEAD
 }

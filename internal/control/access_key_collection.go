@@ -10,11 +10,13 @@ import (
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/requestlog"
+	"gpt-load/internal/rpm"
 	"gpt-load/internal/storage/models"
 )
 
 type AccessKeyCollectionItem struct {
 	AccessKeyMetadata
+	RPMPeakHour     *int64                              `json:"-"`
 	Usage           *usageDistributionAggregateResponse `json:"usage,omitempty"`
 	LastRequestAtMS *int64                              `json:"last_request_at_ms"`
 	Expired         bool                                `json:"expired"`
@@ -92,6 +94,18 @@ func (s *Service) ListAccessKeyCollection(
 	records, err := s.captureAccessKeyCollectionRecords(ctx, usageQuery, observedAt)
 	if err != nil {
 		return AccessKeyCollectionResponse{}, err
+	}
+	if query.modern {
+		ids := make([]uint, len(records))
+		for i, record := range records {
+			ids[i] = record.ID
+		}
+		peaks := s.rpmPeaks(ctx, rpm.AccessKey, ids, observedAt)
+		for i := range records {
+			if peak, ok := peaks[records[i].ID]; ok {
+				records[i].RPMPeakHour = &peak
+			}
+		}
 	}
 	result := queryAccessKeyCollectionRecords(records, query)
 	result.UsageWindow = &AccessKeyUsageWindow{ObservedAtMS: observedAtMS, Range: "7d", FromMS: usageQuery.FromMS, ToMS: usageQuery.ToMS}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestredact"
@@ -15,8 +16,17 @@ import (
 
 var reasonRedactionFailed = reason{http.StatusBadRequest, "request_redaction_failed", "Request content could not be redacted safely."}
 
+func redactionBusinessProtocol(value protocol.Protocol) bool {
+	switch value {
+	case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini:
+		return true
+	default:
+		return false
+	}
+}
+
 // 每次从本次请求的原始内容构造外发副本，缓存副本可复用于同组重试。
-func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Protocol, request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Protocol, request *dialect.ParsedRequest, cipher ...encryption.RedactionCipher) (*dialect.ParsedRequest, error) {
 	if c.Empty() || request == nil || len(request.Body) == 0 {
 		return request, nil
 	}
@@ -24,11 +34,19 @@ func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Pr
 	var err error
 	mediaType, params, _ := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if mediaType == "multipart/form-data" {
-		body, err = redactMultipart(c, request.Body, params["boundary"])
+		body, err = redactMultipart(c, request.Body, params["boundary"], cipher...)
 	} else if clientProtocol == protocol.Decisions {
-		body, err = c.ApplyDecisions(request.Body)
+		if len(cipher) != 0 && cipher[0] != nil {
+			body, err = c.ApplyDecisionsWithCipher(request.Body, cipher[0])
+		} else {
+			body, err = c.ApplyDecisions(request.Body)
+		}
 	} else {
-		body, err = c.Apply(request.Body)
+		if len(cipher) != 0 && cipher[0] != nil {
+			body, err = c.ApplyWithCipher(request.Body, cipher[0])
+		} else {
+			body, err = c.Apply(request.Body)
+		}
 	}
 	if err != nil {
 		return nil, requestredact.ErrContent
@@ -47,7 +65,7 @@ func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Pr
 }
 
 // 图片附件保持字节内容不变，只处理 multipart 的文本 prompt。
-func redactMultipart(c *requestredact.Compiled, body []byte, boundary string) ([]byte, error) {
+func redactMultipart(c *requestredact.Compiled, body []byte, boundary string, cipher ...encryption.RedactionCipher) ([]byte, error) {
 	reader := multipart.NewReader(bytes.NewReader(body), boundary)
 	var out bytes.Buffer
 	writer := multipart.NewWriter(&out)
@@ -71,7 +89,12 @@ func redactMultipart(c *requestredact.Compiled, body []byte, boundary string) ([
 			if part.Header.Get("Content-Transfer-Encoding") != "" {
 				return nil, requestredact.ErrContent
 			}
-			text, err := c.Text(string(data))
+			var text string
+			if len(cipher) != 0 && cipher[0] != nil {
+				text, err = c.TextWithCipher(string(data), cipher[0])
+			} else {
+				text, err = c.Text(string(data))
+			}
 			if err != nil {
 				return nil, err
 			}

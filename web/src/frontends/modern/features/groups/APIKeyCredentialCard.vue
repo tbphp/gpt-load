@@ -11,6 +11,9 @@ import {
   AppSwitch,
   AppTooltip,
 } from '@modern/components/ui'
+import { useClock } from '@modern/components/ui/clock'
+import { formatRelativeInstant } from '@modern/components/ui/format'
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import { credentialStatus, credentialTime } from './credential-presentation'
 import CredentialCardActions from './CredentialCardActions.vue'
 import CredentialCardFrame from './CredentialCardFrame.vue'
@@ -27,7 +30,21 @@ const props = defineProps<{
 }>()
 defineEmits<{ select: [value: boolean]; toggle: [value: boolean]; action: [value: string] }>()
 const { t, n, locale } = useI18n()
+const now = useClock()
 const state = computed(() => credentialStatus(props.row))
+const lastUsedFull = computed(() =>
+  props.row.lastUsed
+    ? dateFormatter(locale.value, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      }).format(props.row.lastUsed)
+    : '',
+)
 const issues = computed(() =>
   [
     props.row.cooldownUntil
@@ -79,13 +96,26 @@ const issues = computed(() =>
     </template>
     <dl class="modern-api-card-metadata">
       <div>
-        <dt>{{ t('groupDetail.lastUsed') }}</dt>
-        <dd><AppOverflowText :text="credentialTime(row.lastUsed, locale)" /></dd>
+        <dt>{{ t('credentialCards.lastUsed') }}</dt>
+        <dd>
+          <AppTooltip v-if="row.lastUsed" :label="lastUsedFull">
+            <time :datetime="new Date(row.lastUsed).toISOString()" tabindex="0">{{
+              formatRelativeInstant(row.lastUsed, now, locale)
+            }}</time>
+          </AppTooltip>
+          <span v-else>—</span>
+        </dd>
       </div>
       <div>
         <dt>{{ t('credentialCards.weight') }}</dt>
         <dd>{{ n(row.weight) }}<CredentialRoutingMeta :row="row" :weight="false" /></dd>
       </div>
+      <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
+        <div tabindex="0">
+          <dt>{{ t('rpm.cardLabel') }}</dt>
+          <dd>{{ n(row.rpmPeakHour) }}</dd>
+        </div>
+      </AppTooltip>
     </dl>
     <template #footer
       ><CredentialOutcomeSummary :usage="row.daily" compact />
@@ -113,7 +143,7 @@ const issues = computed(() =>
 }
 .modern-api-card-metadata {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: var(--modern-space-2);
   margin: 0;
 }

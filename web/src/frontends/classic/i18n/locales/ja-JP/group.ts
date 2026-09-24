@@ -364,6 +364,9 @@ export default {
         headerStorageNoticeEnd: 'を使用してください。',
         headerReplacementWarning:
           'このグループ上書きはグローバル HeaderRules 全体を置き換えます。今後のグローバル変更はマージされません。',
+        empty_response_retry: '空応答の検出',
+        emptyResponseRetryHelp:
+          'ストリーミングの対話リクエストにのみ適用します。上流が正常に完了しても何も生成しなかった場合は失敗として次の候補で再試行し、認証情報のクールダウンやブラックリスト登録は行いません。再試行を使い切った場合も空の応答をクライアントへ渡します。プリウォームと継続リクエストは対象外です。',
         responses_websocket_enabled: 'Responses WebSocket',
         websocketHelp:
           '無効化すると、このグループの WS 接続と生成を直ちに終了します。HTTP/SSE は影響を受けません。',

@@ -72,6 +72,78 @@ func TestRequestRedactionMultipartOnlyReplacesPrompt(t *testing.T) {
 	}
 }
 
+func TestRequestRedactionEncryptsStableValuesForOneAccessKey(t *testing.T) {
+	f := &scriptedForwarder{results: []UpstreamResult{auditReply(`{"choices":[]}`), auditReply(`{"choices":[]}`)}}
+	h, manager, _ := newHandlerForTest(t, f, "answer-key")
+	compiled, err := requestredact.Compile([]requestredact.Rule{{Pattern: `gpt-4o|alice@example\.com|bob@example\.com`, Mode: requestredact.ModeEncrypt}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.Current().RequestRedaction = compiled
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, h)
+	requestBody := `{"model":"gpt-4o","messages":[{"role":"user","content":"alice@example.com and bob@example.com and alice@example.com"}]}`
+	for range 2 {
+		if response := sendAuditRequest(engine, requestBody); response.Code != http.StatusOK {
+			t.Fatalf("request status = %d", response.Code)
+		}
+	}
+	if len(f.inputs) != 2 {
+		t.Fatalf("forwarded attempts = %d", len(f.inputs))
+	}
+	for _, input := range f.inputs {
+		if input.ExternalModel != "gpt-4o" || !bytes.Contains(input.Request.Body, []byte(`"model":"gpt-4o"`)) {
+			t.Fatal("routing model was changed by content encryption")
+		}
+	}
+	var first, second struct {
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(f.inputs[0].Request.Body, &first); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(f.inputs[1].Request.Body, &second); err != nil {
+		t.Fatal(err)
+	}
+	value := first.Messages[0].Content
+	parts := strings.Split(value, " and ")
+	if len(parts) != 3 || !strings.HasPrefix(parts[0], "gld1_") || !strings.HasPrefix(parts[1], "gld1_") || parts[0] == parts[1] || parts[0] != parts[2] || second.Messages[0].Content != value {
+		t.Fatalf("unstable or indistinguishable encrypted values")
+	}
+	if strings.Contains(value, "alice@example.com") || strings.Contains(value, "bob@example.com") {
+		t.Fatal("plaintext reached upstream")
+	}
+}
+
+func TestRequestRedactionPreservesAuthenticatedHistoryAfterEncryptRuleRemoval(t *testing.T) {
+	f := &scriptedForwarder{results: []UpstreamResult{auditReply(`{"choices":[]}`)}}
+	h, manager, _ := newHandlerForTest(t, f, "answer-key")
+	cipher, err := h.encryption.NewRedactionCipher(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := cipher.EncryptToken("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.Current().RequestRedaction, err = requestredact.Compile([]requestredact.Rule{{
+		Pattern: `gld1_[0-9]+_[A-Za-z0-9_-]+`, Replacement: "[MUTATED]",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, h)
+	response := sendAuditRequest(engine, `{"model":"gpt-4o","messages":[{"role":"user","content":"`+token+`"}]}`)
+	if response.Code != http.StatusOK || len(f.inputs) != 1 ||
+		!bytes.Contains(f.inputs[0].Request.Body, []byte(token)) ||
+		bytes.Contains(f.inputs[0].Request.Body, []byte("[MUTATED]")) {
+		t.Fatalf("authenticated history changed: status=%d attempts=%d", response.Code, len(f.inputs))
+	}
+}
+
 func TestRequestRedactionProtectsAuditAndBusinessWithStableCache(t *testing.T) {
 	f := &scriptedForwarder{results: []UpstreamResult{auditReply(auditPass), auditReply(`{"choices":[]}`), auditReply(`{"choices":[]}`)}}
 	h, engine := auditEngine(t, f)

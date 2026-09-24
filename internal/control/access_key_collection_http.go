@@ -19,6 +19,34 @@ const (
 	accessKeyCollectionMaxQueryRunes       = 200
 )
 
+type ModernAccessKeyCollectionItem struct {
+	AccessKeyCollectionItem
+	RPMPeakHour *int64 `json:"rpm_peak_hour,omitempty"`
+}
+
+// 新版独立投影，经典客户端严格校验的字段集合保持不变。
+func (s *Server) handleListModernAccessKeys(c *gin.Context) {
+	query, apiErr := parseAccessKeyCollectionQuery(c.Request.URL.RawQuery, c.Request.URL.ForceQuery)
+	if apiErr != nil {
+		writeServiceError(c, "list_access_keys", apiErr)
+		return
+	}
+	query.modern = true
+	result, err := s.service.ListAccessKeyCollection(c.Request.Context(), query)
+	if err != nil {
+		writeServiceError(c, "list_access_keys", err)
+		return
+	}
+	items := make([]ModernAccessKeyCollectionItem, len(result.Items))
+	for i, item := range result.Items {
+		items[i] = ModernAccessKeyCollectionItem{AccessKeyCollectionItem: item, RPMPeakHour: item.RPMPeakHour}
+	}
+	response.SuccessI18n(c, "common.success", struct {
+		AccessKeyCollectionResponse
+		Items []ModernAccessKeyCollectionItem `json:"items"`
+	}{AccessKeyCollectionResponse: result, Items: items})
+}
+
 func (s *Server) handleListAccessKeyCollection(c *gin.Context) {
 	query, apiErr := parseAccessKeyCollectionQuery(
 		c.Request.URL.RawQuery,
@@ -26,6 +54,10 @@ func (s *Server) handleListAccessKeyCollection(c *gin.Context) {
 	)
 	if apiErr != nil {
 		writeServiceError(c, "list_access_keys", apiErr)
+		return
+	}
+	if query.Sort == "rpm_peak_desc" {
+		writeServiceError(c, "list_access_keys", app_errors.ErrBadRequest)
 		return
 	}
 	result, err := s.service.ListAccessKeyCollection(c.Request.Context(), query)
@@ -107,7 +139,7 @@ func parseAccessKeyCollectionQuery(
 	}
 	if entries, exists := values["sort"]; exists {
 		switch entries[0] {
-		case "updated_desc", "cost_desc", "expires_asc":
+		case "updated_desc", "cost_desc", "expires_asc", "rpm_peak_desc":
 			query.Sort = entries[0]
 		default:
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest

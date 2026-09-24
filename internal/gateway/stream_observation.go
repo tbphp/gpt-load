@@ -18,6 +18,7 @@ const (
 	streamFailureIdle
 	streamFailureDownstreamWrite
 	streamFailureClientCanceled
+	streamFailureRedaction
 )
 
 type streamFailure struct {
@@ -41,6 +42,7 @@ const (
 	StreamEndClientCanceled
 	StreamEndServerShutdown
 	StreamEndProviderIncomplete
+	StreamEndRedactionFailed
 )
 
 type StreamObservation struct {
@@ -55,11 +57,15 @@ type streamEventObserver struct {
 	terminalForwarded   bool
 	terminalDisposition dialect.StreamEventDisposition
 	eventCount          int
-	firstProviderError  bool
-	sawErrorEvent       bool
-	firstSummary        string
-	firstErrorPayload   []byte
-	usage               *streamUsageCapture
+	// content 仅在启用空回检测时挂上；未挂上时不做任何产出判定。
+	content            dialect.StreamContentClassifier
+	sawContent         bool
+	sawExplainedStop   bool
+	firstProviderError bool
+	sawErrorEvent      bool
+	firstSummary       string
+	firstErrorPayload  []byte
+	usage              *streamUsageCapture
 }
 
 // sseEventObservationBuffer frames arbitrary executor data chunks without
@@ -227,6 +233,36 @@ func safeClassifyStreamEvent(
 	return result, err, false
 }
 
+// safeClassifyStreamContent 隔离方言产出判定的异常：出错时按有产出处理，
+// 宁可漏判空回，也不影响正常转发。
+func safeClassifyStreamContent(
+	classifier dialect.StreamContentClassifier,
+	event dialect.StreamEvent,
+) (result dialect.StreamContent) {
+	defer func() {
+		if recover() != nil {
+			result = dialect.StreamContent{Produced: true}
+		}
+	}()
+	return classifier.ClassifyStreamContent(dialect.StreamEvent{
+		Name:    event.Name,
+		Payload: bytes.Clone(event.Payload),
+	})
+}
+
+// observeContent 为本次转发挂上产出判定，返回方言是否支持。只在启用空回检测
+// 时调用；不支持的方言不参与空回判定。
+func (observer *streamEventObserver) observeContent(selected dialect.Dialect) bool {
+	if observer == nil {
+		return false
+	}
+	classifier, ok := selected.(dialect.StreamContentClassifier)
+	if ok {
+		observer.content = classifier
+	}
+	return ok
+}
+
 func validStreamEventDisposition(value dialect.StreamEventDisposition) bool {
 	return value >= dialect.StreamEventContinue &&
 		value <= dialect.StreamEventFailed
@@ -267,6 +303,11 @@ func (observer *streamEventObserver) classify(
 		observer.sawTerminal = true
 		observer.terminalDisposition = classification.Disposition
 	}
+	if observer.content != nil {
+		content := safeClassifyStreamContent(observer.content, event)
+		observer.sawContent = observer.sawContent || content.Produced
+		observer.sawExplainedStop = observer.sawExplainedStop || content.ExplainedStop
+	}
 	providerError := genericProviderError ||
 		classification.IsProviderError()
 	observer.eventCount++
@@ -278,6 +319,19 @@ func (observer *streamEventObserver) classify(
 
 func (observer *streamEventObserver) firstEventWasProviderError() bool {
 	return observer != nil && observer.firstProviderError
+}
+
+// producedContent 表示上游已经为本次响应产出了可见内容。
+func (observer *streamEventObserver) producedContent() bool {
+	return observer != nil && observer.sawContent
+}
+
+// endedWithoutContent 表示流自然结束，但全程没有任何内容产出。预算耗尽、内容
+// 过滤、拒答等终止原因本身解释了空结果，不属于值得重试的空回。
+func (observer *streamEventObserver) endedWithoutContent() bool {
+	return observer != nil && observer.content != nil && observer.sawTerminal && !observer.sawContent &&
+		!observer.sawErrorEvent && !observer.sawExplainedStop &&
+		observer.terminalDisposition == dialect.StreamEventCompleted
 }
 
 func (observer *streamEventObserver) observeError(payload []byte, summary string) {
@@ -390,6 +444,8 @@ func prioritizeStreamObservation(
 			return streamTerminalObservation(StreamEndUpstreamProtocolError)
 		case streamFailureUpstreamRead:
 			return streamTerminalObservation(StreamEndUpstreamTerminated)
+		case streamFailureRedaction:
+			return streamTerminalObservation(StreamEndRedactionFailed)
 		}
 	}
 
@@ -435,6 +491,8 @@ func streamErrorCode(reason StreamEndReason) string {
 		return "server_shutdown"
 	case StreamEndProviderIncomplete:
 		return "upstream_response_incomplete"
+	case StreamEndRedactionFailed:
+		return "response_redaction_failed"
 	default:
 		return "upstream_stream_terminated"
 	}

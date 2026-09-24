@@ -14,6 +14,7 @@ const (
 )
 
 type AccessKeyCollectionQuery struct {
+	modern   bool
 	Sort     string
 	Query    string
 	Status   *state.AccessKeyStatus
@@ -116,6 +117,11 @@ func matchesAccessKeyCollectionQuery(
 func sortAccessKeyCollectionRecords(records []accessKeyCollectionRecord, ordering string) {
 	sort.Slice(records, func(leftIndex, rightIndex int) bool {
 		left, right := records[leftIndex], records[rightIndex]
+		if ordering == "rpm_peak_desc" {
+			if compared := compareRPMPeaks(left.RPMPeakHour, right.RPMPeakHour); compared != 0 {
+				return compared > 0
+			}
+		}
 		if ordering == "cost_desc" && left.usageCost != right.usageCost {
 			return left.usageCost > right.usageCost
 		}

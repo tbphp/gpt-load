@@ -183,6 +183,13 @@ func decisionEvidence(result UpstreamResult) (*execution.ErrorEvidence, error) {
 			ScopeHint:  execution.ErrorScopeRequest,
 			StatusCode: result.StatusCode, Code: "upstream_protocol_error", Summary: summary,
 		}, nil
+	case StreamEndRedactionFailed:
+		return &execution.ErrorEvidence{
+			Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
+			ScopeHint: execution.ErrorScopeRequest, StatusCode: result.StatusCode,
+			Code: "response_redaction_failed", Summary: "Response content could not be restored safely.",
+			ReplaySafety: execution.ReplaySafetyUnknown,
+		}, nil
 	case StreamEndIdleTimeout:
 		return &execution.ErrorEvidence{
 			Kind: execution.ErrorKindTimeout, OriginHint: execution.ErrorOriginUpstream,

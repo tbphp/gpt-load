@@ -869,6 +869,7 @@ func (service *Service) drain(ctx context.Context, batch []queuedEvent) {
 				}
 			}
 			service.drainPassiveQuotaObservations(ctx)
+			service.drainRPMCheckpoints(ctx)
 			return
 		}
 	}
@@ -897,6 +898,7 @@ func (service *Service) writeBatch(ctx context.Context, events []queuedEvent) er
 	}
 	err := service.flushAccessQuotaCheckpoints(ctx)
 	service.flushPassiveQuotaCheckpoint(ctx)
+	service.flushRPMCheckpoints(ctx)
 	return err
 }
 

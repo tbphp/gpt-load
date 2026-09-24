@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestlog"
@@ -880,6 +881,11 @@ func (spy *routeInspectEncryptionSpy) Decrypt(string) (string, error) {
 func (spy *routeInspectEncryptionSpy) Hash(string) string {
 	spy.calls.Add(1)
 	return ""
+}
+
+func (spy *routeInspectEncryptionSpy) NewRedactionCipher(uint) (encryption.RedactionCipher, error) {
+	spy.calls.Add(1)
+	return nil, nil
 }
 
 func TestRouteInspectNeverCallsUpstreamOrMutatesRuntime(t *testing.T) {

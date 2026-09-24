@@ -87,6 +87,9 @@ export default {
       retry_count: 'Extra retry count',
       retryCountHelp:
         'Maximum extra retries per request after the initial upstream attempt. The budget is shared across groups and does not reset when switching groups; 0 disables retries.',
+      empty_response_retry: 'Empty response detection',
+      emptyResponseRetryHelp:
+        'Applies to streaming chat requests only. When upstream finishes normally without producing any content, the attempt counts as a failure and the next candidate is tried; the credential is neither cooled down nor blacklisted. Once retries are exhausted the upstream empty response is still delivered. Prewarm requests, continuation or conversation requests and WebSocket are exempt.',
       blacklist_threshold: 'Consecutive-failure blacklist threshold',
       blacklistThresholdHelp:
         'A credential is blacklisted after this many consecutive failures; 0 disables automatic blacklisting.',
