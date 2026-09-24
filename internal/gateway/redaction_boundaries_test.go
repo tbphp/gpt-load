@@ -123,33 +123,44 @@ func TestRedactionBoundaryFailedErrorAfterCommit(t *testing.T) {
 	}
 }
 
-func TestRedactionBoundaryChatTrailingGBlocksTools(t *testing.T) {
-	c := websocketRedactionTestCipher(t)
+func TestRedactionBoundaryAmbiguousTextTailKeepsEventOrder(t *testing.T) {
+	cipher := websocketRedactionTestCipher(t)
 	for _, content := range []string{"Checking the file", "Checking the log"} {
-		s := newRedactionRestoreSSE(protocol.OpenAICompletions, c.RestoreText, false)
-		if _, e := s.Push(redactionBoundaryChat(t, map[string]any{"content": content}, nil)); e != nil {
-			t.Fatal(e)
+		stream := newRedactionRestoreSSE(protocol.OpenAICompletions, cipher.RestoreText, false)
+		var expected, actual []byte
+		send := func(event []byte) int {
+			expected = append(expected, event...)
+			out, err := stream.Push(event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual = append(actual, out...)
+			return len(out)
 		}
-		count := 0
+		send(redactionBoundaryChat(t, map[string]any{"content": content}, nil))
+		released := 0
 		for i := 0; i < 200; i++ {
-			part := "x"
+			fragment := "x"
 			if i == 0 {
-				part = `{"text":"`
+				fragment = `{"text":"`
 			}
 			if i == 199 {
-				part = `"}`
+				fragment = `"}`
 			}
-			out, e := s.Push(redactionBoundaryChat(t, redactionBoundaryTool(part), nil))
-			if e != nil {
-				t.Fatal(e)
-			}
-			if len(out) > 0 {
-				count++
+			if send(redactionBoundaryChat(t, redactionBoundaryTool(fragment), nil)) > 0 {
+				released++
 			}
 		}
-		t.Logf("content=%q released_tool_pushes=%d/200", content, count)
-		if count == 0 {
-			t.Error("ordinary text suffix blocked all following tool arguments")
+		want := 200
+		if strings.HasSuffix(content, "g") {
+			want = 0
+		}
+		if released != want {
+			t.Fatalf("ordinary tail policy: released=%d want=%d", released, want)
+		}
+		send(redactionBoundaryChat(t, map[string]any{}, "tool_calls"))
+		if !bytes.Equal(actual, expected) {
+			t.Fatal("field completion changed content or event order")
 		}
 	}
 }

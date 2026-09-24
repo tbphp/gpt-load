@@ -558,14 +558,6 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 				}); err != nil {
 					return err
 				}
-				if delta.Get("function_call").IsObject() || len(delta.Get("tool_calls").Array()) > 0 {
-					key := prefix + "text"
-					if state := stream.texts[key]; state != nil && !state.token.body {
-						if err := stream.closeMatching(key); err != nil {
-							return err
-						}
-					}
-				}
 				if err := unaryRestoreField(delta, "function_call", func(call gjson.Result) error {
 					return unaryRestoreField(call, "arguments", func(value gjson.Result) error {
 						return stream.addDocument(event, prefix+"function", value, false)
@@ -643,7 +635,7 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 			return err
 		}
 		return stream.direct(event, func(ctx *unaryRestoreContext) error {
-			return unaryRestoreField(root, "arguments", ctx.jsonValue)
+			return unaryRestoreField(root, "arguments", ctx.jsonDocument)
 		})
 	case "response.content_part.done":
 		if err := stream.closeMatching(textKey); err != nil {

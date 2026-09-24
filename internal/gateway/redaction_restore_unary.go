@@ -268,7 +268,7 @@ func (ctx *unaryRestoreContext) customToolInput(item gjson.Result) error {
 }
 
 func (ctx *unaryRestoreContext) arguments(call gjson.Result) error {
-	return unaryRestoreField(call, "arguments", ctx.jsonValue)
+	return unaryRestoreField(call, "arguments", ctx.jsonDocument)
 }
 
 func (ctx *unaryRestoreContext) text(value gjson.Result) error {
@@ -281,6 +281,14 @@ func (ctx *unaryRestoreContext) text(value gjson.Result) error {
 	return ctx.restoreString(value, ctx.addPatch)
 }
 
+// jsonDocument 用于明确为 JSON 的工具参数；普通工具返回文本仍走 jsonValue。
+func (ctx *unaryRestoreContext) jsonDocument(value gjson.Result) error {
+	if value.Type == gjson.String {
+		return ctx.embeddedJSON(value, true)
+	}
+	return ctx.walkJSONValues(value, 0, ctx.addPatch)
+}
+
 func (ctx *unaryRestoreContext) jsonValue(value gjson.Result) error {
 	if value.Type == gjson.String {
 		return ctx.embeddedJSON(value, false)
@@ -291,24 +299,31 @@ func (ctx *unaryRestoreContext) jsonValue(value gjson.Result) error {
 func (ctx *unaryRestoreContext) embeddedJSON(value gjson.Result, required bool) error {
 	inner := []byte(value.Str)
 	if !json.Valid(inner) || !utf8.Valid(inner) {
-		if required {
-			restored, err := ctx.restore(value.Str)
-			if err == nil && restored == value.Str {
-				// 无需改写的截断 JSON 原样返回；转义后的候选仍须检查。
-				if strings.Contains(value.Str, `\u`) {
-					probe := redactionStreamDocument{}
-					if _, err := probe.push(value.Str, ctx.restore); err != nil || probe.changed {
-						return errUnaryRestore
-					}
-					if _, err := probe.finish(ctx.restore); err != nil {
-						return errUnaryRestore
-					}
-				}
-				return nil
-			}
+		if !required {
+			return ctx.restoreString(value, ctx.addPatch)
+		}
+		if !strings.Contains(value.Str, redactionStreamPrefix) && !strings.Contains(value.Str, `\u`) {
+			return nil
+		}
+		// 与 delta 共用字符串/转义边界，普通 JSON 截断不等于密文截断。
+		doc := redactionStreamDocument{}
+		prefix, err := doc.push(value.Str, ctx.restore)
+		if err != nil {
 			return errUnaryRestore
 		}
-		return ctx.restoreString(value, ctx.addPatch)
+		tail, err := doc.finish(ctx.restore)
+		if err != nil || len(prefix) > maxUnaryRestoreBytes-len(tail) {
+			return errUnaryRestore
+		}
+		restored := prefix + tail
+		if restored == value.Str {
+			return nil
+		}
+		encoded, err := json.Marshal(restored)
+		if err != nil {
+			return errUnaryRestore
+		}
+		return ctx.addPatch(unaryRestorePatch{value.Index, value.Index + len(value.Raw), encoded})
 	}
 	var innerPatches []unaryRestorePatch
 	collect := func(p unaryRestorePatch) error {

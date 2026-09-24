@@ -361,7 +361,7 @@ func TestRedactionReviewCustomToolSnapshots(t *testing.T) {
 	}
 }
 
-func TestRedactionReviewEscapedTokenInTruncatedStructuredText(t *testing.T) {
+func TestRedactionReviewRestoresEscapedTokenInTruncatedStructuredText(t *testing.T) {
 	cipher := websocketRedactionTestCipher(t)
 	token, err := cipher.EncryptToken("private")
 	if err != nil {
@@ -372,7 +372,12 @@ func TestRedactionReviewEscapedTokenInTruncatedStructuredText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := restoreUnaryBusinessFields(body, protocol.OpenAICompletions, cipher.RestoreText, true); err == nil {
-		t.Fatal("malformed JSON containing an escaped token was passed through")
+	got, err := restoreUnaryBusinessFields(body, protocol.OpenAICompletions, cipher.RestoreText, true)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if gjson.GetBytes(got, "choices.0.message.content").Str != `{"value":"private"` {
+		t.Fatal("complete escaped token was not restored while preserving truncation")
+	}
+
 }
