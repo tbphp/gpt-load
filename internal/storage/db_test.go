@@ -681,6 +681,7 @@ func TestAutoMigrateCreatesUsageJournalAndMigrationLedger(t *testing.T) {
 		"0019_auto_decision_attribution",
 		"0020_client_model_overrides",
 		"0021_request_audit",
+		"0022_rpm_stats",
 	}
 	if !reflect.DeepEqual(migrationIDs, wantMigrationIDs) {
 		t.Fatalf("schema_migrations IDs = %v, want %v", migrationIDs, wantMigrationIDs)

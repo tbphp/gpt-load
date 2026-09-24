@@ -9,6 +9,8 @@ const props = defineProps<{
   tone?: 'accent' | 'info' | 'cost'
   size?: 'sm'
   showMarker?: boolean
+  showIsolatedPoints?: boolean
+  referenceValue?: number
   ranges?: readonly { from: number; to: number }[]
   cursor?: number
   cursorLabel?: string
@@ -19,8 +21,21 @@ const gradientId = useId()
 const hovered = ref<number>()
 const focused = ref<number>()
 const interactive = computed(() => Boolean(props.pointLabels?.length))
+const scalePeak = computed(
+  () =>
+    Math.max(
+      props.referenceValue ?? 0,
+      ...props.values.filter((value): value is number => value !== null),
+      0,
+    ) || 1,
+)
+const referenceY = computed(() =>
+  props.referenceValue === undefined
+    ? undefined
+    : 96 - (props.referenceValue / scalePeak.value) * 88,
+)
 function seriesCoordinates(values: readonly (number | null)[]) {
-  const peak = Math.max(0, ...values.filter((value): value is number => value !== null)) || 1
+  const peak = scalePeak.value
   const step = values.length > 1 ? 100 / (values.length - 1) : 100
   return values.map((value, index) => {
     const range = props.ranges?.[index]
@@ -56,6 +71,14 @@ function seriesSegments(coordinates: ReturnType<typeof seriesCoordinates>) {
   return result
 }
 const coordinates = computed(() => seriesCoordinates(props.values))
+const isolatedPoints = computed(() =>
+  props.showIsolatedPoints
+    ? coordinates.value.filter(
+        (point, index, points) =>
+          point.y !== null && points[index - 1]?.y == null && points[index + 1]?.y == null,
+      )
+    : [],
+)
 const segments = computed(() => seriesSegments(coordinates.value))
 const activePoint = computed(() => {
   const index = hovered.value ?? focused.value
@@ -140,6 +163,16 @@ watch(
           <stop offset="1" class="modern-sparkline-fill" stop-opacity="0.015" />
         </linearGradient>
       </defs>
+      <line
+        v-if="referenceY !== undefined"
+        x1="0"
+        x2="1000"
+        :y1="referenceY"
+        :y2="referenceY"
+        class="modern-sparkline-guide"
+        stroke-dasharray="4 4"
+        vector-effect="non-scaling-stroke"
+      />
       <g v-for="(segment, index) in segments" :key="index">
         <polygon
           :points="`${segment.start},100 ${segment.points} ${segment.end},100`"
@@ -162,6 +195,13 @@ watch(
         vector-effect="non-scaling-stroke"
       />
     </svg>
+    <span
+      v-for="point in isolatedPoints"
+      :key="point.x"
+      class="modern-sparkline-marker"
+      :style="{ left: `${point.x}%`, top: `${point.y}%` }"
+      aria-hidden="true"
+    />
     <AppTooltip v-if="interactive" :label="tooltip" :side="tooltipSide ?? 'top'">
       <span
         class="modern-sparkline-hit"
