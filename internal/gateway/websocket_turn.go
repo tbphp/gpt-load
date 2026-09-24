@@ -812,7 +812,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 	var restored *websocketRedactionOutput
 	if input.RedactionCipher != nil {
 		restored = newWebsocketRedactionOutput(
-			input.RedactionCipher.RestoreText,
+			credentialSafeRestore(input.RedactionCipher.RestoreText, append(append([]string(nil), input.CredentialSecrets...), input.APIKey)),
 			requestDeclaresJSONOutput(protocol.OpenAIResponses, input.Request.Body),
 		)
 	}

@@ -223,7 +223,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	var redactionRestore *redactionRestoreSSE
 	if input.RedactionCipher != nil && redactionBusinessProtocol(input.ClientProtocol) {
 		structured := input.Request != nil && requestDeclaresJSONOutput(input.ClientProtocol, input.Request.Body)
-		redactionRestore = newRedactionRestoreSSE(input.ClientProtocol, input.RedactionCipher.RestoreText, structured)
+		redactionRestore = newRedactionRestoreSSE(input.ClientProtocol, credentialSafeRestore(input.RedactionCipher.RestoreText, credentialSecrets), structured)
 	}
 
 	var (
@@ -451,7 +451,9 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 						input.OnFirstResponse()
 					}
 				}
-				if !committed && !streamEvents.producedContent() &&
+				if !committed && streamEvents.firstEventWasProviderError() {
+					errorBody = appendExecutionErrorBody(errorBody, tail)
+				} else if !committed && !streamEvents.producedContent() &&
 					preread.hold(tail, streamEvents.eventCount, redactionRestore.TerminalReleased(), streamEvents.sawTerminal) {
 					// EOF 才释放的恢复数据仍须参与空回判定。
 				} else if !committed {

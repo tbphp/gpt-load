@@ -12,7 +12,7 @@ import (
 
 func TestRedactionEmptyResponsePreread(t *testing.T) {
 	cipher := websocketRedactionTestCipher(t)
-	token, err := cipher.EncryptToken("synthetic-secret")
+	token, err := cipher.EncryptToken("synthetic-business-value")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestRedactionEmptyResponsePreread(t *testing.T) {
 					t.Fatal("empty response was committed")
 				}
 			}
-			want := strings.ReplaceAll(strings.Join(chunks, ""), token, "synthetic-secret")
+			want := strings.ReplaceAll(strings.Join(chunks, ""), token, "synthetic-business-value")
 			if got != want {
 				t.Fatalf("event order changed: got %q want %q", got, want)
 			}

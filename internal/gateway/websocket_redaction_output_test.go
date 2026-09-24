@@ -365,3 +365,48 @@ func TestWebsocketRedactionFailureDoesNotCooldownCredential(t *testing.T) {
 		t.Fatalf("restoration failure cooled model until %s", until)
 	}
 }
+
+func TestWebsocketRedactionRejectsCredentialConflict(t *testing.T) {
+	h, engine, _ := websocketTestHandler(t, "http://unused.invalid/v1", channel.OpenAI)
+	cipher, err := h.encryption.NewRedactionCipher(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.forwarder = websocketScriptForwarder{AttemptForwarder: h.forwarder, open: func(_ context.Context, input ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
+		token, err := cipher.EncryptToken(input.APIKey)
+		if err != nil || input.APIKey == "" {
+			t.Error("missing synthetic credential")
+			return nil, execution.WebsocketResult{}
+		}
+		session := &websocketScriptSession{done: make(chan struct{})}
+		session.turn = func(ctx context.Context, _ []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
+			if err := emit(ctx, websocketRedactionEvent(t, "response.output_text.delta", "", "delta", token)); err != nil {
+				return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent, Error: &execution.ErrorEvidence{Kind: execution.ErrorKindInternal}}
+			}
+			return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent}
+		}
+		return session, execution.WebsocketResult{}
+	}}
+	sink := &recordingRequestLogSink{}
+	h.requestLogSink = sink
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	conn := dialGatewayWebsocket(t, server.URL)
+	defer conn.Close()
+	if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "hello", "store": false}); err != nil {
+		t.Fatal(err)
+	}
+	logs := waitWebsocketLogs(t, sink, 1)
+	if len(logs[0].Attempts) != 1 || logs[0].Attempts[0].ErrorCode != "response_redaction_failed" ||
+		logs[0].Attempts[0].FailureOrigin != execution.ErrorOriginInternal ||
+		logs[0].Attempts[0].Effect != telemetry.EffectNone {
+		t.Fatalf("restoration failure attributed to upstream: %+v", logs[0].Attempts)
+	}
+	registry := h.registry.(*state.CredentialRegistry)
+	if until, _ := registry.CredentialCooldownUntil(1); !until.IsZero() {
+		t.Fatalf("restoration failure cooled credential until %s", until)
+	}
+	if until := registry.ModelCooldowns(1, time.Now())["upstream"]; !until.IsZero() {
+		t.Fatalf("restoration failure cooled model until %s", until)
+	}
+}

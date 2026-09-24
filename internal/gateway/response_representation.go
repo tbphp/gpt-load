@@ -641,6 +641,21 @@ func credentialLiteralRemains(source string, residual *strings.Replacer) bool {
 	return residual.Replace(source) != source
 }
 
+// credentialSafeRestore 不允许业务还原绕过已知上游凭据的精确保护。
+func credentialSafeRestore(restore func(string) (string, error), secrets []string) func(string) (string, error) {
+	replacers, _ := newCredentialLiteralReplacers(secrets)
+	return func(value string) (string, error) {
+		restored, err := restore(value)
+		if err != nil {
+			return "", err
+		}
+		if restored != value && credentialLiteralRemains(restored, replacers.residual) {
+			return "", errUnaryRestore
+		}
+		return restored, nil
+	}
+}
+
 func credentialLiteralsRemain(body []byte, secrets []string) bool {
 	replacers, exists := newCredentialLiteralReplacers(secrets)
 	if !exists {

@@ -58,7 +58,6 @@ type redactionStreamField struct {
 	start, end int
 	original   string
 	value      string
-	signed     bool
 }
 
 type redactionStreamText struct {
@@ -277,7 +276,7 @@ func (event *redactionStreamEvent) render(maxEventBytes int) ([]byte, error) {
 			if field.value == field.original {
 				continue
 			}
-			if field.signed || !utf8.ValidString(field.value) {
+			if !utf8.ValidString(field.value) {
 				return nil, errRedactionStream
 			}
 			encoded, err := json.Marshal(field.value)
@@ -432,17 +431,16 @@ func (stream *redactionRestoreSSE) addText(
 		})
 	}
 	if stream.structured {
-		return stream.addDocument(event, key, value, signed)
+		return stream.addDocument(event, key, value)
 	}
-	return stream.addPlainText(event, key, value, signed)
+	return stream.addPlainText(event, key, value)
 }
 
-func (stream *redactionRestoreSSE) addPlainText(event *redactionStreamEvent, key string, value gjson.Result, signed bool) error {
+func (stream *redactionRestoreSSE) addPlainText(event *redactionStreamEvent, key string, value gjson.Result) error {
 	if value.Type != gjson.String {
 		return nil
 	}
 	field := event.field(value)
-	field.signed = signed
 	state := stream.texts[key]
 	if state == nil {
 		state = &redactionStreamText{}
@@ -467,7 +465,7 @@ func (stream *redactionRestoreSSE) addPlainText(event *redactionStreamEvent, key
 }
 
 func (stream *redactionRestoreSSE) addDocument(
-	event *redactionStreamEvent, key string, value gjson.Result, signed bool,
+	event *redactionStreamEvent, key string, value gjson.Result,
 ) error {
 	if value.Type != gjson.String {
 		return nil
@@ -493,7 +491,6 @@ func (stream *redactionRestoreSSE) addDocument(
 		stream.documents[key] = state
 	}
 	field := event.field(value)
-	field.signed = signed
 	field.value = restored
 	if state.blocked() {
 		state.last = field
@@ -565,7 +562,7 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 				}
 				if err := unaryRestoreField(delta, "function_call", func(call gjson.Result) error {
 					return unaryRestoreField(call, "arguments", func(value gjson.Result) error {
-						return stream.addDocument(event, prefix+"function", value, false)
+						return stream.addDocument(event, prefix+"function", value)
 					})
 				}); err != nil {
 					return err
@@ -577,14 +574,14 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 						callIndex++
 						if err := unaryRestoreField(call, "function", func(function gjson.Result) error {
 							return unaryRestoreField(function, "arguments", func(value gjson.Result) error {
-								return stream.addDocument(event, key, value, false)
+								return stream.addDocument(event, key, value)
 							})
 						}); err != nil {
 							return err
 						}
 						return unaryRestoreField(call, "custom", func(custom gjson.Result) error {
 							return unaryRestoreField(custom, "input", func(value gjson.Result) error {
-								return stream.addPlainText(event, key, value, false)
+								return stream.addPlainText(event, key, value)
 							})
 						})
 					})
@@ -619,7 +616,7 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 		})
 	case "response.custom_tool_call_input.delta":
 		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
-			return stream.addPlainText(event, toolKey, value, false)
+			return stream.addPlainText(event, toolKey, value)
 		})
 	case "response.custom_tool_call_input.done":
 		if err := stream.closeMatching(toolKey); err != nil {
@@ -628,7 +625,7 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 		return stream.direct(event, func(ctx *unaryRestoreContext) error { return ctx.customToolInput(root) })
 	case "response.function_call_arguments.delta":
 		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
-			return stream.addDocument(event, toolKey, value, false)
+			return stream.addDocument(event, toolKey, value)
 		})
 	case "response.output_text.done":
 		if err := stream.closeMatching(textKey); err != nil {
@@ -741,7 +738,7 @@ func (stream *redactionRestoreSSE) anthropic(event *redactionStreamEvent, root g
 				})
 			case "input_json_delta":
 				return unaryRestoreField(delta, "partial_json", func(value gjson.Result) error {
-					return stream.addDocument(event, prefix+"tool", value, false)
+					return stream.addDocument(event, prefix+"tool", value)
 				})
 			}
 			return nil

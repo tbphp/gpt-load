@@ -1489,6 +1489,10 @@ func (handler *Handler) executeAttempts(
 		}
 		value := transportReason(result)
 		recorder.completeTransport(value, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
+		if value.Code == reasonResponseRedactionFailed.Code {
+			// 下游还原失败不代表上游未计费；沿用已冻结的该次尝试报价。
+			recorder.bindUsage(recordedAttempt, result.Usage, true)
+		}
 		if err := handler.writeReason(ginContext, value); err != nil {
 			handler.completeWriteTerminal(ginContext, recorder, value.Status)
 		}

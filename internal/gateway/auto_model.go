@@ -11,7 +11,6 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/parameteroverride"
-	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
@@ -102,13 +101,9 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	query.ResponsesStorePreference = metadata.ResponsesStorePreference
 	view, extractReason := automodel.Extract(selectedDialect.Protocol(), parsed.Body)
 	if !snapshot.RequestRedaction.Empty() {
-		var cipher encryption.RedactionCipher
-		if !snapshot.RequestRedaction.Empty() {
-			var err error
-			cipher, err = handler.encryption.NewRedactionCipher(key.ID)
-			if err != nil {
-				return parsed, metadata, nil, &reasonRedactionFailed
-			}
+		cipher, err := handler.encryption.NewRedactionCipher(key.ID)
+		if err != nil {
+			return parsed, metadata, nil, &reasonRedactionFailed
 		}
 		clean, err := redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), parsed, cipher)
 		if err != nil {

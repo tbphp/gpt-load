@@ -147,11 +147,15 @@ func (c *Compiled) Rules() []Rule {
 func (c *Compiled) Empty() bool { return c == nil || len(c.rules) == 0 }
 
 func (c *Compiled) TextWithCipher(value string, cipher TokenCipher) (string, error) {
+	return c.textWithCipher(value, cipher, false)
+}
+
+func (c *Compiled) textWithCipher(value string, cipher TokenCipher, jsonText bool) (string, error) {
 	if c.Empty() {
 		return value, nil
 	}
 	if cipher == nil {
-		return c.rewriteText(value, nil, nil)
+		return c.rewriteText(value, nil, nil, false)
 	}
 	const tokenPrefix = "gld1_"
 	protected := make([]tokenSpan, 0)
@@ -187,7 +191,7 @@ func (c *Compiled) TextWithCipher(value string, cipher TokenCipher) (string, err
 		}
 		scan = end
 	}
-	return c.rewriteText(value, cipher, protected)
+	return c.rewriteText(value, cipher, protected, jsonText)
 }
 
 // Text 在原文上匹配所有规则，重叠片段合并，替换文本按字面使用且不再次匹配。
@@ -195,7 +199,7 @@ func (c *Compiled) Text(value string) (string, error) {
 	if c.Empty() {
 		return value, nil
 	}
-	return c.rewriteText(value, nil, nil)
+	return c.rewriteText(value, nil, nil, false)
 }
 
 type tokenSpan struct{ start, end int }
@@ -217,9 +221,13 @@ func encryptedTokenLength(plaintextBytes int) int {
 	return len("gld1_") + len(strconv.Itoa(encoded)) + 1 + encoded
 }
 
-func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tokenSpan) (string, error) {
-	type match struct{ start, end, rule int }
-	spans := []match{}
+type textMatch struct {
+	start, end, rule int
+	plaintext        string
+}
+
+func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tokenSpan, jsonText bool) (string, error) {
+	spans := []textMatch{}
 	for i, p := range c.patterns {
 		matches := p.FindAllStringIndex(value, 65537)
 		if len(matches) > 65536 {
@@ -239,7 +247,7 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 			if c.rules[i].Mode == ModeEncrypt && cipher == nil {
 				return "", ErrContent
 			}
-			spans = append(spans, match{span[0], span[1], i})
+			spans = append(spans, textMatch{start: span[0], end: span[1], rule: i})
 			if len(spans) > 65536 {
 				return "", ErrContent
 			}
@@ -265,11 +273,19 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 		}
 		merged = append(merged, span)
 	}
+	for i := range merged {
+		merged[i].plaintext = value[merged[i].start:merged[i].end]
+	}
+	if jsonText {
+		if err := c.decodeJSONMatches(value, merged); err != nil {
+			return "", err
+		}
+	}
 	finalBytes := int64(len(value))
 	for _, span := range merged {
 		replacementBytes := len(c.rules[span.rule].Replacement)
 		if c.rules[span.rule].Mode == ModeEncrypt {
-			replacementBytes = encryptedTokenLength(span.end - span.start)
+			replacementBytes = encryptedTokenLength(len(span.plaintext))
 		}
 		finalBytes += int64(replacementBytes) - int64(span.end-span.start)
 	}
@@ -283,7 +299,7 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 		replacement := c.rules[span.rule].Replacement
 		if c.rules[span.rule].Mode == ModeEncrypt {
 			var err error
-			replacement, err = cipher.EncryptToken(value[span.start:span.end])
+			replacement, err = cipher.EncryptToken(span.plaintext)
 			if err != nil {
 				return "", ErrContent
 			}
@@ -347,7 +363,7 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 		patches = append(patches, p)
 		return nil
 	}
-	// 仅 encrypt 模式按工具结果中的 JSON 值保护，保持旧 replace 规则语义。
+	// 工具返回文本保持原始匹配语义；仅调整 JSON 字符串内加密片段的原值。
 	jsonToolResults := false
 	for _, rule := range c.rules {
 		jsonToolResults = jsonToolResults || (cipher != nil && rule.Mode == ModeEncrypt)
@@ -370,7 +386,15 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			return ErrContent
 		}
 		if value.Type == gjson.String && json.Valid([]byte(value.Str)) {
-			return rewriteEmbedded(value, depth)
+			text, err := c.textWithCipher(value.Str, cipher, true)
+			if err != nil || text == value.Str {
+				return err
+			}
+			encoded, err := json.Marshal(text)
+			if err != nil {
+				return err
+			}
+			return addPatch(patch{value.Index, value.Index + len(value.Raw), encoded})
 		}
 		if value.IsArray() {
 			var failure error
@@ -460,7 +484,7 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				kind := v.Get("type").Str
 				failure = walk(child, true, kind == "tool_use" || kind == "server_tool_use" || kind == "mcp_tool_use", depth+1, questions)
 			case "content":
-				if jsonToolResults && (v.Get("role").Str == "tool" || v.Get("type").Str == "tool_result") {
+				if jsonToolResults && (v.Get("role").Str == "tool" || v.Get("role").Str == "function" || v.Get("type").Str == "tool_result") {
 					failure = toolResult(child, depth+1)
 				} else {
 					failure = walk(child, true, false, depth+1, questions)
