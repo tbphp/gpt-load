@@ -37,8 +37,8 @@ temp/
 *.prof
 *.pprof
 __pycache__/
-web/playwright-report/
-web/test-results/
+scripts/release-e2e/playwright-report/
+scripts/release-e2e/test-results/
 
 # IDE files
 .idea/

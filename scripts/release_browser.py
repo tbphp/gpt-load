@@ -14,6 +14,7 @@ class ReleaseBrowserError(RuntimeError):
 def run_browser_smoke(
     source: Path, base_url: str, auth_key: str, seed: Seed, report_dir: Path
 ) -> None:
+    package = source / "scripts/release-e2e"
     report_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(report_dir, 0o700)
     environment = os.environ.copy()
@@ -30,8 +31,9 @@ def run_browser_smoke(
         }
     )
     for command in (
-        ["corepack", "pnpm", "--dir", "web", "exec", "playwright", "install", "chromium"],
-        ["corepack", "pnpm", "--dir", "web", "run", "test:release"],
+        ["corepack", "pnpm", "--dir", str(package), "install", "--frozen-lockfile"],
+        ["corepack", "pnpm", "--dir", str(package), "exec", "playwright", "install", "chromium"],
+        ["corepack", "pnpm", "--dir", str(package), "test"],
     ):
         result = subprocess.run(
             command, cwd=source, env=environment, capture_output=True, text=True, check=False

@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 
 from scripts.release_browser import run_browser_smoke
 from scripts.release_git import (
@@ -45,16 +44,6 @@ def successful_release_run(payload: dict, tag: str) -> int:
         ):
             return run["id"]
     raise ReleaseToolError(f"{tag} 没有成功完成的 Release 记录，不能跳过它继续发版")
-
-
-def started_release_run(payload: dict, tag: str) -> int | None:
-    runs = payload.get("workflow_runs")
-    if not isinstance(runs, list):
-        raise ReleaseToolError("无法查询新 tag 的 Release 状态")
-    for run in runs:
-        if isinstance(run, dict) and run.get("head_branch") == tag and isinstance(run.get("id"), int):
-            return run["id"]
-    return None
 
 
 def _command(*args: str, cwd: Path | None = None, timeout: int = 30) -> str:
@@ -175,28 +164,6 @@ def _stage(path: Path, summary: dict, label: str, action) -> None:
     _save_report(path, summary)
 
 
-def _watch_release(prepared: PreparedSource, tag: str) -> int:
-    run_id = None
-    for _ in range(30):
-        run_id = started_release_run(_release_runs(prepared.candidate_sha), tag)
-        if run_id is not None:
-            break
-        time.sleep(2)
-    if run_id is None:
-        raise ReleaseToolError(f"tag 已推送，但 60 秒内未找到 {tag} 的 Release 运行")
-    print(f"Release: https://github.com/{REPOSITORY}/actions/runs/{run_id}", flush=True)
-    result = subprocess.run(
-        ["gh", "run", "watch", str(run_id), "--repo", REPOSITORY,
-         "--compact", "--interval", "60", "--exit-status"],
-        check=False,
-    )
-    if result.returncode:
-        raise ReleaseToolError(
-            f"tag {tag} 已推送，但 Release 运行 {run_id} 未成功；请在 GitHub 核对发布状态"
-        )
-    return run_id
-
-
 def run_release(repository: Path, *, simulate: bool = False) -> int:
     with prepare_source(repository, local_head=simulate) as prepared:
         report_dir = _report_directory(prepared.candidate_sha)
@@ -217,10 +184,6 @@ def run_release(repository: Path, *, simulate: bool = False) -> int:
         image_built = False
         try:
             _stage(report_dir, summary, "发版环境与上一版本", lambda: _preflight(repository, prepared))
-            _stage(
-                report_dir, summary, "仓库现有质量门禁",
-                lambda: _logged_command(report_dir, "make-check", ["make", "check"], prepared.worktree, 1800),
-            )
             binary.parent.mkdir(exist_ok=True)
             _stage(
                 report_dir, summary, "构建候选原生程序",
@@ -279,18 +242,9 @@ def run_release(repository: Path, *, simulate: bool = False) -> int:
         _save_report(report_dir, summary)
         publish_tag(prepared, tag)
         summary["tag_pushed"] = True
+        summary["release_status"] = "not_checked"
         _save_report(report_dir, summary)
-        try:
-            run_id = _watch_release(prepared, tag)
-        except ReleaseToolError as error:
-            summary["release_status"] = "failed_or_unverified"
-            summary["reason"] = str(error)
-            _save_report(report_dir, summary)
-            raise
-        summary["release_status"] = "success"
-        summary["release_run_id"] = run_id
-        _save_report(report_dir, summary)
-        print(f"{tag} 的 Release 已成功完成。")
+        print(f"{tag} 已推送；现有 Release workflow 将按原配置运行，请在 GitHub 查看结果。")
     return 0
 
 

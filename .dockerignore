@@ -9,8 +9,9 @@ build/
 dist/
 node_modules/
 web/node_modules/
-web/playwright-report/
-web/test-results/
+scripts/release-e2e/node_modules/
+scripts/release-e2e/playwright-report/
+scripts/release-e2e/test-results/
 __pycache__/
 internal/webui/dist/
 bin/
