@@ -10,6 +10,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/state"
 )
 
@@ -344,5 +345,46 @@ func TestEmptyResponseAttemptIsVisibleInLogs(t *testing.T) {
 	}
 	if got := fixedErrorSummary(health.EmptyResponseCode); got == fixedErrorSummary("") {
 		t.Fatalf("fixedErrorSummary() = %q, want a dedicated summary", got)
+	}
+}
+
+// TestEmptyResponseExemptionsUseOutboundRequest 保证豁免依据实际发往上游的请求。分组
+// 参数覆盖可以写入 conversation 或 generate:false：请求一旦关联上游会话或变成预热，
+// 就不能再参与空回重试。
+func TestEmptyResponseExemptionsUseOutboundRequest(t *testing.T) {
+	cases := map[string]struct {
+		set  map[string]any
+		want bool
+	}{
+		"without override":            {want: true},
+		"override adds conversation":  {set: map[string]any{"conversation": "conv_1"}, want: false},
+		"override turns into prewarm": {set: map[string]any{"generate": false}, want: false},
+	}
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{streamResults: []UpstreamResult{{
+				StatusCode: http.StatusOK, Committed: true,
+				Stream: StreamObservation{EndReason: StreamEndCleanEOF},
+			}}}
+			handler, engine, _ := newContinuationFixture(t, forwarder)
+			group := handler.manager.Current().Groups[1]
+			group.EmptyResponseRetry = true
+			if test.set != nil {
+				rules, err := parameteroverride.Compile([]any{map[string]any{"set": test.set}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				group.ParameterOverrides = rules
+			}
+			handler.manager.Current().Groups[1] = group
+
+			serveContinuation(t, engine, "gl-client", `{"model":"gpt-4o","input":"hi","stream":true}`, http.StatusOK)
+			if len(forwarder.streamInputs) == 0 {
+				t.Fatal("request was not forwarded")
+			}
+			if got := forwarder.streamInputs[0].EmptyResponseRetry; got != test.want {
+				t.Fatalf("EmptyResponseRetry = %v, want %v", got, test.want)
+			}
+		})
 	}
 }

@@ -332,7 +332,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 					return nil
 				}
 				if !streamEvents.producedContent() &&
-					preread.hold(forwardData, streamEvents.eventCount, terminalInChunk) {
+					preread.hold(forwardData, streamEvents.eventCount, terminalInChunk, streamEvents.sawTerminal) {
 					// 还没有任何产出，继续压住以保留换候选重试的可能。上游静默时不会再有
 					// 事件触发窗口检查，因此由计时器在窗口到期时主动提交。
 					if windowTimer == nil {

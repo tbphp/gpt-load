@@ -1260,8 +1260,9 @@ func (handler *Handler) executeAttempts(
 			ProxyFingerprint:       proxyFingerprint,
 			ForceCredentialRefresh: forceCredentialRefresh,
 			ContinuityKey:          requestAffinity.continuityKey,
+			// 豁免依据实际发往上游的请求：分组参数覆盖可能写入 conversation 或 generate。
 			EmptyResponseRetry: stream && emptyResponseRetryEnabled(
-				selection.Group, originalMetadata, parsed.Body,
+				selection.Group, originalMetadata, prepared.request.Body,
 			),
 			OnResponse: handler.responseBindingObserver(recorder.accessKeyID, selection, ref, prepared.request, recorder.autoSelection()),
 			OnFirstResponse: func() {

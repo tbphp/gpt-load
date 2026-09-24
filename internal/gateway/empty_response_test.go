@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,24 +22,34 @@ func TestEmptyResponsePrereadLimits(t *testing.T) {
 	t.Run("disabled never holds", func(t *testing.T) {
 		t.Parallel()
 		preread := newEmptyResponsePreread(false, nil, 0)
-		if preread.hold(chunk, 1, false) {
+		if preread.hold(chunk, 1, false, false) {
 			t.Fatal("hold() = true, want disabled preread to commit immediately")
 		}
 	})
 	t.Run("event limit", func(t *testing.T) {
 		t.Parallel()
 		preread := newEmptyResponsePreread(true, nil, 0)
-		if !preread.hold(chunk, emptyResponsePrereadEvents-1, false) {
+		if !preread.hold(chunk, emptyResponsePrereadEvents-1, false, false) {
 			t.Fatal("hold() = false below the event limit")
 		}
-		if preread.hold(chunk, emptyResponsePrereadEvents, false) {
+		if preread.hold(chunk, emptyResponsePrereadEvents, false, false) {
 			t.Fatal("hold() = true at the event limit")
+		}
+	})
+	t.Run("event limit does not apply once the stream ended", func(t *testing.T) {
+		t.Parallel()
+		preread := newEmptyResponsePreread(true, nil, 0)
+		if !preread.hold(chunk, emptyResponsePrereadEvents, true, true) {
+			t.Fatal("hold() = false at the event limit after the terminal event arrived")
+		}
+		if preread.hold(bytes.Repeat([]byte("x"), emptyResponsePrereadBytes), emptyResponsePrereadEvents+1, false, true) {
+			t.Fatal("hold() = true at the byte limit after the terminal event arrived")
 		}
 	})
 	t.Run("byte limit", func(t *testing.T) {
 		t.Parallel()
 		preread := newEmptyResponsePreread(true, nil, 0)
-		if preread.hold(bytes.Repeat([]byte("x"), emptyResponsePrereadBytes), 1, false) {
+		if preread.hold(bytes.Repeat([]byte("x"), emptyResponsePrereadBytes), 1, false, false) {
 			t.Fatal("hold() = true at the byte limit")
 		}
 	})
@@ -46,19 +57,19 @@ func TestEmptyResponsePrereadLimits(t *testing.T) {
 		t.Parallel()
 		now := time.Date(2026, time.September, 23, 12, 0, 0, 0, time.UTC)
 		preread := newEmptyResponsePreread(true, func() time.Time { return now }, 0)
-		if !preread.hold(chunk, 1, false) {
+		if !preread.hold(chunk, 1, false, false) {
 			t.Fatal("hold() = false when the window just started")
 		}
 		now = now.Add(emptyResponsePrereadWindow)
-		if preread.hold(chunk, 2, false) {
+		if preread.hold(chunk, 2, false, false) {
 			t.Fatal("hold() = true after the window elapsed")
 		}
 	})
 	t.Run("flush reports held terminal", func(t *testing.T) {
 		t.Parallel()
 		preread := newEmptyResponsePreread(true, nil, 0)
-		preread.hold([]byte("a"), 1, false)
-		preread.hold([]byte("b"), 2, true)
+		preread.hold([]byte("a"), 1, false, false)
+		preread.hold([]byte("b"), 2, true, true)
 		held, terminal := preread.flush()
 		if string(held) != "ab" || !terminal {
 			t.Fatalf("flush() = %q, %v; want \"ab\", true", held, terminal)
@@ -134,6 +145,79 @@ func TestEmptyResponsePrereadCommitsOnSilentUpstream(t *testing.T) {
 			}
 			if got := recorder.Body.String(); got != preamble+ending {
 				t.Fatalf("body = %q, want %q", got, preamble+ending)
+			}
+		})
+	}
+}
+
+// responsesEmptyMessageEvents 是一条完整的 Responses 空回：带一条文本为空的 message，
+// 恰好 8 个事件，没有任何文本增量，第 8 个事件即自然终态。
+var responsesEmptyMessageEvents = []string{
+	"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n",
+	"event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n",
+	"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0," +
+		"\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+	"event: response.content_part.added\ndata: {\"type\":\"response.content_part.added\",\"item_id\":\"msg_1\"," +
+		"\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+	"event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\",\"item_id\":\"msg_1\"," +
+		"\"output_index\":0,\"content_index\":0,\"text\":\"\"}\n\n",
+	"event: response.content_part.done\ndata: {\"type\":\"response.content_part.done\",\"item_id\":\"msg_1\"," +
+		"\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}}\n\n",
+	"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0," +
+		"\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\"," +
+		"\"content\":[{\"type\":\"output_text\",\"text\":\"\",\"annotations\":[]}]}}\n\n",
+	"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\"}}\n\n",
+}
+
+// TestEmptyResponseDetectsCompleteResponsesEmptyMessage 固定事件数上限的边界：上限只
+// 用来区分「模型仍在工作」，终态到达时流已经结束，完整的空回必须留给空回判定，
+// 不能因为事件数恰好到达上限就提前提交。
+func TestEmptyResponseDetectsCompleteResponsesEmptyMessage(t *testing.T) {
+	t.Parallel()
+
+	stream := strings.Join(responsesEmptyMessageEvents, "")
+	deliveries := map[string][]string{
+		"one event per chunk": responsesEmptyMessageEvents,
+		"single chunk":        {stream},
+	}
+	for name, chunks := range deliveries {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			executor := fakeExecutionExecutor{stream: func(
+				_ context.Context,
+				_ execution.AttemptSpec,
+				sink execution.StreamSink,
+			) execution.StreamResult {
+				if err := sink(execution.StreamEvent{
+					Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}); err != nil {
+					t.Fatalf("ready sink: %v", err)
+				}
+				for index, chunk := range chunks {
+					if err := sink(execution.StreamEvent{
+						Sequence: uint64(index + 2), Kind: execution.StreamEventData, Data: []byte(chunk),
+					}); err != nil {
+						t.Fatalf("data sink %d: %v", index+1, err)
+					}
+				}
+				return execution.StreamResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
+				}
+			}}
+			input := responsesExecutionForwardInput()
+			input.EmptyResponseRetry = true
+			recorder := httptest.NewRecorder()
+
+			result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, recorder)
+			if result.Committed || !result.EmptyResponseBeforeCommit {
+				t.Fatalf("Committed = %v, EmptyResponseBeforeCommit = %v; want an uncommitted empty response",
+					result.Committed, result.EmptyResponseBeforeCommit)
+			}
+			if string(result.Body) != stream || recorder.Body.Len() != 0 {
+				t.Fatalf("held body = %q, downstream = %q; want the full stream held and nothing written",
+					result.Body, recorder.Body.String())
 			}
 		})
 	}

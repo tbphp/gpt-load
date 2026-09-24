@@ -51,8 +51,9 @@ func (preread *emptyResponsePreread) holding() bool {
 
 // hold 在窗口未耗尽时记录待提交数据并返回 true。返回 false 表示应当立即提交，
 // 此时调用方需要把 flush 的内容与当前数据一起写出。terminal 表示 data 中含有
-// 协议终态边界，提交时需要据此标记终态已下发。
-func (preread *emptyResponsePreread) hold(data []byte, events int, terminal bool) bool {
+// 协议终态边界，提交时需要据此标记终态已下发。ended 表示协议终态已经到达：事件
+// 数上限只用来区分「模型仍在工作」，流已结束时不再适用，完整的空回要留给空回判定。
+func (preread *emptyResponsePreread) hold(data []byte, events int, terminal, ended bool) bool {
 	if !preread.active() {
 		return false
 	}
@@ -60,7 +61,7 @@ func (preread *emptyResponsePreread) hold(data []byte, events int, terminal bool
 	if preread.started.IsZero() {
 		preread.started = now
 	}
-	if events >= emptyResponsePrereadEvents ||
+	if (!ended && events >= emptyResponsePrereadEvents) ||
 		len(preread.pending)+len(data) >= emptyResponsePrereadBytes ||
 		now.Sub(preread.started) >= preread.window {
 		return false
