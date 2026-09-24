@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -219,6 +220,11 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	if input.ResponsesStoreDowngraded {
 		responsesStoreBuffer = newStatelessResponsesSSEBuffer()
 	}
+	var redactionRestore *redactionRestoreSSE
+	if input.RedactionCipher != nil && redactionBusinessProtocol(input.ClientProtocol) {
+		structured := input.Request != nil && requestDeclaresJSONOutput(input.ClientProtocol, input.Request.Body)
+		redactionRestore = newRedactionRestoreSSE(input.ClientProtocol, credentialSafeRestore(input.RedactionCipher.RestoreText, restorationCredentialSecrets(input)), structured)
+	}
 
 	var (
 		ready         *execution.StreamEvent
@@ -320,6 +326,17 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 					return nil
 				}
 			}
+			if redactionRestore != nil {
+				forwardData, err = redactionRestore.Push(forwardData)
+				terminalInChunk = redactionRestore.TerminalReleased()
+				if err != nil {
+					downstreamErr = executionRedactionStreamFailure()
+					return downstreamErr
+				}
+				if len(forwardData) == 0 {
+					return nil
+				}
+			}
 			if !committed {
 				if !firstResponse {
 					firstResponse = true
@@ -387,7 +404,8 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				return downstreamErr
 			}
-			if terminalInChunk {
+			if (redactionRestore != nil && redactionRestore.TerminalReleased()) ||
+				(redactionRestore == nil && terminalInChunk) {
 				streamEvents.markTerminalForwarded()
 			}
 			return nil
@@ -422,6 +440,47 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				downstreamErr = err
 			}
 		}
+		if downstreamErr == nil && redactionRestore != nil {
+			tail, err := redactionRestore.Finish()
+			if err != nil {
+				downstreamErr = executionRedactionStreamFailure()
+			} else if len(tail) > 0 {
+				if !firstResponse {
+					firstResponse = true
+					if input.OnFirstResponse != nil {
+						input.OnFirstResponse()
+					}
+				}
+				if !committed && streamEvents.firstEventWasProviderError() {
+					errorBody = appendExecutionErrorBody(errorBody, tail)
+				} else if !committed && !streamEvents.producedContent() &&
+					preread.hold(tail, streamEvents.eventCount, redactionRestore.TerminalReleased(), streamEvents.sawTerminal) {
+					// EOF 才释放的恢复数据仍须参与空回判定。
+				} else if !committed {
+					held, _ := preread.flush()
+					tail = append(held, tail...)
+					committed = true
+					downstreamErr = commitStream(controller, ready.StatusCode, ready.Header, tail)
+					if downstreamErr == nil && input.OnStreamReady != nil {
+						input.OnStreamReady()
+					}
+				} else {
+					written, writeErr := controller.write(tail)
+					if writeErr == nil && written != len(tail) {
+						writeErr = io.ErrShortWrite
+					}
+					if writeErr == nil {
+						writeErr = controller.flush()
+					}
+					if writeErr != nil {
+						downstreamErr = &streamFailure{kind: streamFailureDownstreamWrite, err: writeErr}
+					}
+				}
+			}
+			if committed && downstreamErr == nil && redactionRestore.TerminalReleased() {
+				streamEvents.markTerminalForwarded()
+			}
+		}
 	}
 	emptyResponse := !committed && downstreamErr == nil && terminal.Error == nil &&
 		ready != nil && ready.StatusCode >= http.StatusOK && ready.StatusCode < http.StatusMultipleChoices &&
@@ -448,6 +507,13 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	}
 	if downstreamErr != nil {
 		result.Err = downstreamErr
+		if errors.Is(downstreamErr, errRedactionStream) {
+			result.ExecutionError = &execution.ErrorEvidence{
+				Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
+				ScopeHint: execution.ErrorScopeRequest, Code: "response_redaction_failed",
+				Summary: "Response content could not be restored safely.", ReplaySafety: execution.ReplaySafetyUnknown,
+			}
+		}
 	}
 	if committed {
 		result.Stream = executionStreamObservation(ctx, terminal, downstreamErr, streamEvents)
@@ -838,10 +904,16 @@ func encodeClientErrorBody(
 }
 
 func executionRepresentationFailure(result UpstreamResult, err error) UpstreamResult {
+	code := "response_representation_invalid"
+	summary := "Upstream response representation could not be processed."
+	if errors.Is(err, errUnaryRestore) {
+		code = "response_redaction_failed"
+		summary = "Response content could not be restored safely."
+	}
 	evidence := execution.ErrorEvidence{
 		Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
-		ScopeHint: execution.ErrorScopeRequest, Code: "response_representation_invalid",
-		Summary:      "Upstream response representation could not be processed.",
+		ScopeHint: execution.ErrorScopeRequest, Code: code,
+		Summary:      summary,
 		ReplaySafety: execution.ReplaySafetyUnknown,
 	}
 	if result.ResponseStarted {
@@ -849,6 +921,7 @@ func executionRepresentationFailure(result UpstreamResult, err error) UpstreamRe
 	}
 	return UpstreamResult{
 		Err:               err,
+		Usage:             result.Usage,
 		StatusCode:        result.StatusCode,
 		RequestWritten:    result.RequestWritten,
 		DispatchState:     result.DispatchState,
@@ -1071,6 +1144,10 @@ func executionStreamProtocolFailure(cause error) error {
 		kind: streamFailureProtocol,
 		err:  fmt.Errorf("%w: %v", ErrUpstreamProtocol, cause),
 	}
+}
+
+func executionRedactionStreamFailure() error {
+	return &streamFailure{kind: streamFailureRedaction, err: errRedactionStream}
 }
 
 func preferCapturedStreamUsage(

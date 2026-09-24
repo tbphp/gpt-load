@@ -89,14 +89,10 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		}
 		safePlain = originalPlain
 	} else {
-		patternSafePlain := forwarder.redactor.Bytes(originalPlain)
-		if int64(len(patternSafePlain)) > bodyLimit {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("redacted response body exceeds limit")
-		}
 		var residualCredential bool
 		var ok bool
 		safePlain, residualCredential, ok = redactCredentialLiterals(
-			patternSafePlain,
+			originalPlain,
 			secrets,
 			bodyLimit,
 		)
@@ -156,6 +152,18 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 			if credentialRemains {
 				return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential remains after model rewrite")
 			}
+		}
+	}
+	if input.RedactionCipher != nil && !nativeSearch && !opaqueRepresentation {
+		structuredOutput := input.Request != nil && requestDeclaresJSONOutput(input.ClientProtocol, input.Request.Body)
+		if !structuredOutput && input.ClientProtocol == protocol.OpenAIResponses {
+			structuredOutput = requestDeclaresJSONOutput(input.ClientProtocol, downstreamPlain)
+		}
+		downstreamPlain, err = restoreUnaryBusinessFields(
+			downstreamPlain, input.ClientProtocol, input.RedactionCipher.RestoreText, structuredOutput,
+		)
+		if err != nil || int64(len(downstreamPlain)) > bodyLimit || credentialLiteralsRemain(downstreamPlain, restorationCredentialSecrets(input)) {
+			return preparedSuccessRepresentation{}, errUnaryRestore
 		}
 	}
 
@@ -631,6 +639,61 @@ func replaceCredentialStringBounded(
 
 func credentialLiteralRemains(source string, residual *strings.Replacer) bool {
 	return residual.Replace(source) != source
+}
+
+// 业务还原只保护认证材料。账号邮箱等元信息仍保留在原有日志遮盖集合中。
+func restorationCredentialSecrets(input ForwardInput) []string {
+	fallback := append(append([]string(nil), input.CredentialSecrets...), input.APIKey)
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(input.Credential.Data(), &fields) != nil || len(fields) == 0 {
+		return fallback
+	}
+	var secrets []string
+	for _, name := range []string{"api_key", "access_token", "refresh_token", "id_token", "client_secret", "access_key", "secret_key", "session_token", "private_key", "service_account_json"} {
+		raw, exists := fields[name]
+		if !exists {
+			continue
+		}
+		var value string
+		if json.Unmarshal(raw, &value) != nil {
+			return fallback
+		}
+		if value == "" {
+			continue
+		}
+		secrets = append(secrets, value)
+		if name == "service_account_json" {
+			var account struct {
+				PrivateKey string `json:"private_key"`
+			}
+			if json.Unmarshal([]byte(value), &account) != nil {
+				return fallback
+			}
+			secrets = append(secrets, account.PrivateKey)
+		}
+	}
+	if len(secrets) == 0 {
+		return fallback
+	}
+	return append(secrets, input.APIKey)
+}
+
+// credentialSafeRestore 不允许业务还原绕过已知上游凭据的精确保护。
+func credentialSafeRestore(restore func(string) (string, error), secrets []string) func(string) (string, error) {
+	replacers, exists := newCredentialLiteralReplacers(secrets)
+	if !exists {
+		return restore
+	}
+	return func(value string) (string, error) {
+		restored, err := restore(value)
+		if err != nil {
+			return "", err
+		}
+		if restored != value && credentialLiteralRemains(restored, replacers.residual) {
+			return "", errUnaryRestore
+		}
+		return restored, nil
+	}
 }
 
 func credentialLiteralsRemain(body []byte, secrets []string) bool {

@@ -4,6 +4,7 @@ import { InvalidResponseError } from '@shared/http/errors'
 export interface RedactionRule {
   pattern: string
   replacement: string
+  mode?: 'replace' | 'encrypt'
 }
 export interface RedactionIssue {
   index: number
@@ -32,16 +33,20 @@ export const redactionPresets = [
 export function readRedactionRules(value: unknown): RedactionRule[] {
   if (!Array.isArray(value)) throw new InvalidResponseError()
   return value.map((row: unknown) => {
-    if (
-      !row ||
-      typeof row !== 'object' ||
-      !('pattern' in row) ||
-      !('replacement' in row) ||
-      typeof row.pattern !== 'string' ||
-      typeof row.replacement !== 'string'
-    )
+    if (!row || typeof row !== 'object' || !('pattern' in row) || typeof row.pattern !== 'string')
       throw new InvalidResponseError()
-    return { pattern: row.pattern, replacement: row.replacement }
+    const mode = 'mode' in row ? row.mode : undefined
+    const replacement = 'replacement' in row ? row.replacement : undefined
+    if (mode !== undefined && mode !== 'replace' && mode !== 'encrypt')
+      throw new InvalidResponseError()
+    if (replacement !== undefined && typeof replacement !== 'string')
+      throw new InvalidResponseError()
+    if (mode !== 'encrypt' && typeof replacement !== 'string') throw new InvalidResponseError()
+    return {
+      pattern: row.pattern,
+      replacement: typeof replacement === 'string' ? replacement : '',
+      ...(mode === 'replace' || mode === 'encrypt' ? { mode } : {}),
+    }
   })
 }
 export async function validateRedaction(

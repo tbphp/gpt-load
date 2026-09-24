@@ -35,7 +35,8 @@ export function useRedactionValidation(rules: () => RedactionRule[]) {
     const local = localIssues(current)
     const unchanged = (index: number) =>
       validatedRules.value[index]?.pattern === current[index]?.pattern &&
-      validatedRules.value[index]?.replacement === current[index]?.replacement
+      validatedRules.value[index]?.replacement === current[index]?.replacement &&
+      (validatedRules.value[index]?.mode ?? 'replace') === (current[index]?.mode ?? 'replace')
     const remote = serverIssues.value.filter((issue) =>
       issue.index < 0
         ? validatedRules.value.length === current.length &&

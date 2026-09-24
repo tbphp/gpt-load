@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/tidwall/gjson"
 
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/automodel"
@@ -282,6 +283,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		query.PreferredCredentialID = affinity.preferredCredentialID
 	}
 	iterator := scheduler.New(snapshot, h.registry, query)
+	redactionCipher, err := h.encryption.NewRedactionCipher(key.ID)
+	if err != nil {
+		reject(reasonRedactionFailed)
+		return
+	}
 	limit := retryAttemptLimit(snapshot.Settings.RetryCount)
 	var refreshSelection *scheduler.Selection
 	var refreshRef state.CredentialRef
@@ -328,7 +334,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			reject(reasonParameterOverrideUnavailable)
 			return
 		}
-		payload, err = snapshot.RequestRedaction.Apply(payload)
+		if redactionCipher != nil {
+			payload, err = snapshot.RequestRedaction.ApplyWithCipher(payload, redactionCipher)
+		} else {
+			payload, err = snapshot.RequestRedaction.Apply(payload)
+		}
 		if err != nil || len(payload) > 10<<20 {
 			reject(reasonRedactionFailed)
 			return
@@ -373,6 +383,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		// 来源校验属于客户端连接；显式上游 HeaderRules 随后照常应用。
 		parsed.Header.Del("Origin")
 		input := ForwardInput{Dialect: dialect.NewOpenAIResponses(), ObserveUsage: effective.metadata.ObserveUsage, Group: selection.Group, APIKey: credential.apiKey, CredentialSecrets: credential.secrets, Request: parsed, ExternalModel: model, UpstreamModelID: optionalModelValue(selection.UpstreamModelID), RequestID: id, AttemptID: id + ":" + strconv.Itoa(sequence), AttemptSequence: uint32(sequence), ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative, ResponsesStorePreference: original.metadata.ResponsesStorePreference, ChannelID: string(selection.ChannelID), RouteMode: execution.RouteNative, TargetConfig: selection.ResolvedTarget.TargetConfig, Credential: execution.NewCredentialSnapshot(ref.ID, ref.Version, ref.IdentityGeneration, credential.payload), Proxy: proxy, ProxyFingerprint: fingerprint}
+		input.RedactionCipher = redactionCipher
 		input.ForceCredentialRefresh = forceCredentialRefresh
 		spec, err := newExecutionAttemptSpec(input)
 		if err != nil {
@@ -545,7 +556,9 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			finishRejectedAttempt()
 		} else {
 			value := reasonUpstreamConnect
-			if result.ExecutionError != nil {
+			if result.Stream.EndReason == StreamEndRedactionFailed {
+				value = reasonResponseRedactionFailed
+			} else if result.ExecutionError != nil {
 				if result.ExecutionError.Kind == execution.ErrorKindTimeout {
 					value = reasonUpstreamTimeout
 				} else if result.ExecutionError.StatusCode >= 400 {
@@ -629,6 +642,153 @@ type websocketCancelCloser struct {
 
 func (c websocketCancelCloser) Close() error { c.timedOut.Store(true); c.cancel(); return nil }
 
+// Each WebSocket turn has its own Responses restoration state. Pending frames
+// are retained only for their original bytes; the SSE helper owns parsing and
+// in-order release of deltas, documents and terminal snapshots.
+type websocketRedactionOutput struct {
+	stream       *redactionRestoreSSE
+	pending      [][]byte
+	pendingBytes int
+	failed       bool
+}
+
+const websocketRedactionSSEFramingBytes = len("data: \n\n")
+const websocketRedactionDoneTypeGrowth = len("response.incomplete") - len("response.done")
+
+func newWebsocketRedactionOutput(restore func(string) (string, error), structured bool) *websocketRedactionOutput {
+	return &websocketRedactionOutput{stream: newRedactionRestoreSSEWithLimit(
+		protocol.OpenAIResponses, restore, structured,
+		maxRedactionStreamDocument+websocketRedactionSSEFramingBytes+websocketRedactionDoneTypeGrowth,
+	)}
+}
+
+func rewriteWebsocketEventType(body []byte, kind string) ([]byte, error) {
+	field := gjson.GetBytes(body, "type")
+	if field.Type != gjson.String || field.Index < 0 || field.Index+len(field.Raw) > len(body) {
+		return nil, errRedactionStream
+	}
+	encoded, _ := json.Marshal(kind)
+	result := make([]byte, 0, len(body)-len(field.Raw)+len(encoded))
+	result = append(result, body[:field.Index]...)
+	result = append(result, encoded...)
+	result = append(result, body[field.Index+len(field.Raw):]...)
+	return result, nil
+}
+
+func websocketRedactionDoneType(body []byte) string {
+	if gjson.GetBytes(body, "type").Str != "response.done" {
+		return ""
+	}
+	switch gjson.GetBytes(body, "response.status").Str {
+	case "completed":
+		return "response.completed"
+	case "incomplete":
+		return "response.incomplete"
+	default:
+		return "response.failed"
+	}
+}
+
+func (output *websocketRedactionOutput) Push(body []byte) ([][]byte, error) {
+	if output == nil || output.failed || output.stream == nil ||
+		len(body) > maxRedactionStreamDocument ||
+		output.pendingBytes > maxRedactionStreamPendingBytes/2-len(body) {
+		return nil, errRedactionStream
+	}
+	var compact bytes.Buffer
+	if json.Compact(&compact, body) != nil {
+		return nil, errRedactionStream
+	}
+	payload := compact.Bytes()
+	if normalizedType := websocketRedactionDoneType(payload); normalizedType != "" {
+		var err error
+		payload, err = rewriteWebsocketEventType(payload, normalizedType)
+		if err != nil {
+			return nil, err
+		}
+	}
+	frame := make([]byte, 0, len(payload)+websocketRedactionSSEFramingBytes)
+	frame = append(frame, "data: "...)
+	frame = append(frame, payload...)
+	frame = append(frame, '\n', '\n')
+	output.pending = append(output.pending, bytes.Clone(body))
+	output.pendingBytes += len(body)
+	released, err := output.stream.Push(frame)
+	if err != nil {
+		output.failed = true
+		return nil, err
+	}
+	return output.unpack(released)
+}
+
+func (output *websocketRedactionOutput) Finish() ([][]byte, error) {
+	if output == nil || output.failed || output.stream == nil {
+		return nil, errRedactionStream
+	}
+	released, err := output.stream.Finish()
+	if err != nil {
+		output.failed = true
+		return nil, err
+	}
+	frames, err := output.unpack(released)
+	if err != nil || len(output.pending) != 0 {
+		output.failed = true
+		return nil, errRedactionStream
+	}
+	return frames, nil
+}
+
+func (output *websocketRedactionOutput) unpack(released []byte) ([][]byte, error) {
+	frames := make([][]byte, 0)
+	for len(released) > 0 {
+		end := bytes.Index(released, []byte("\n\n"))
+		if end < 0 || len(output.pending) == 0 || !bytes.HasPrefix(released[:end], []byte("data: ")) {
+			output.failed = true
+			return nil, errRedactionStream
+		}
+		payload := released[len("data: "):end]
+		if !json.Valid(payload) {
+			output.failed = true
+			return nil, errRedactionStream
+		}
+		original := output.pending[0]
+		output.pending[0] = nil
+		output.pending = output.pending[1:]
+		output.pendingBytes -= len(original)
+		var compact bytes.Buffer
+		if json.Compact(&compact, original) != nil {
+			output.failed = true
+			return nil, errRedactionStream
+		}
+		canonical := compact.Bytes()
+		if normalizedType := websocketRedactionDoneType(canonical); normalizedType != "" {
+			var err error
+			canonical, err = rewriteWebsocketEventType(canonical, normalizedType)
+			if err != nil {
+				output.failed = true
+				return nil, err
+			}
+			if !bytes.Equal(payload, canonical) {
+				payload, err = rewriteWebsocketEventType(payload, "response.done")
+				if err != nil {
+					output.failed = true
+					return nil, err
+				}
+			}
+		}
+		if bytes.Equal(payload, canonical) {
+			payload = original
+		}
+		if len(payload) > maxRedactionStreamDocument {
+			output.failed = true
+			return nil, errRedactionStream
+		}
+		frames = append(frames, payload)
+		released = released[end+2:]
+	}
+	return frames, nil
+}
+
 func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel context.CancelFunc, binding *websocketBinding, lane string, selection scheduler.Selection, ref state.CredentialRef, input ForwardInput, recorder *requestRecorder, unlock func(), firstByteDeadline time.Time, bufferFirstError bool) UpstreamResult {
 	observer := newStreamEventObserver(input.Dialect, newUsageCaptureBoundary().newStreamForRequest(input.Dialect, input.ObserveUsage))
 	result := UpstreamResult{UpstreamProtocol: protocol.OpenAIResponses}
@@ -649,6 +809,39 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			idle.stop()
 		}
 	}()
+	var restored *websocketRedactionOutput
+	if input.RedactionCipher != nil {
+		restored = newWebsocketRedactionOutput(
+			credentialSafeRestore(input.RedactionCipher.RestoreText, restorationCredentialSecrets(input)),
+			requestDeclaresJSONOutput(protocol.OpenAIResponses, input.Request.Body),
+		)
+	}
+	var restoreFailure error
+	emitRestored := func(ctx context.Context, frames [][]byte) error {
+		if len(frames) == 0 {
+			return nil
+		}
+		if !result.Committed {
+			recorder.recordFirstResponse()
+		}
+		unlock()
+		for _, frame := range frames {
+			if len(frame) > s.handler.websocketLimits.message {
+				restoreFailure = errRedactionStream
+				return ErrUpstreamProtocol
+			}
+			if err := s.emit(ctx, frame); err != nil {
+				return err
+			}
+			result.Committed = true
+			result.ResponseStarted = true
+		}
+		if observer.sawTerminal &&
+			(restored == nil || (restored.stream.TerminalReleased() && len(restored.pending) == 0)) {
+			observer.markTerminalForwarded()
+		}
+		return nil
+	}
 	onResponse := s.handler.responseBindingObserver(s.keyID, selection, ref, input.Request, recorder.autoSelection())
 	wsResult := binding.session.ExecuteTurn(ctx, input.Request.Body, func(ctx context.Context, body []byte) error {
 		var event struct {
@@ -781,18 +974,24 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 				}
 			}
 		}
-		if !result.Committed {
-			recorder.recordFirstResponse()
+		frames := [][]byte{body}
+		if restored != nil {
+			frames, err = restored.Push(body)
+			if err != nil {
+				restoreFailure = err
+				return ErrUpstreamProtocol
+			}
 		}
-		unlock()
-		if err = s.emit(ctx, body); err != nil {
-			return err
-		}
-		result.Committed = true
-		result.ResponseStarted = true
-		observer.markTerminalForwarded()
-		return nil
+		return emitRestored(ctx, frames)
 	})
+	if restored != nil && wsResult.Error == nil && restoreFailure == nil {
+		frames, err := restored.Finish()
+		if err != nil {
+			restoreFailure = err
+		} else if err := emitRestored(ctx, frames); err != nil {
+			restoreFailure = err
+		}
+	}
 	first.stop()
 	if idle != nil {
 		idle.stop()
@@ -842,6 +1041,16 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 	}
 	if s.ctx.Err() != nil && !observer.terminalForwarded {
 		result.Stream = prioritizeStreamObservation(s.ctx, s.ctx.Err(), result.Stream)
+	}
+	if restoreFailure != nil {
+		result.Err = errRedactionStream
+		result.Stream = streamTerminalObservation(StreamEndRedactionFailed)
+		result.ExecutionError = &execution.ErrorEvidence{
+			Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
+			ScopeHint: execution.ErrorScopeRequest, Code: "response_redaction_failed",
+			Summary: "Response content could not be restored safely.",
+		}
+		result.ErrorSummary = result.ExecutionError.Summary
 	}
 	return result
 }

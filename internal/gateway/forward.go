@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/contentcoding"
+	"gpt-load/internal/platform/encryption"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
@@ -31,6 +32,7 @@ type ForwardInput struct {
 	Group             state.GroupView
 	APIKey            string
 	CredentialSecrets []string
+	RedactionCipher   encryption.RedactionCipher
 	Request           *dialect.ParsedRequest
 	ExternalModel     string
 	UpstreamModelID   string
@@ -438,6 +440,7 @@ func sanitizeForwardResponseHeaders(
 			strings.HasPrefix(strings.ToLower(actualName), "x-upstream-") ||
 			strings.EqualFold(actualName, "Set-Cookie") ||
 			strings.EqualFold(actualName, "Set-Cookie2") ||
+			headerValuesContainLiteral(values, "gld1_") ||
 			headerValuesContainLiteral(values, input.APIKey)
 		for _, secret := range append(append([]string(nil), input.CredentialSecrets...), additionalSecrets...) {
 			if deleteField || secret == "" || secret == input.APIKey {

@@ -18,6 +18,7 @@ const (
 	streamFailureIdle
 	streamFailureDownstreamWrite
 	streamFailureClientCanceled
+	streamFailureRedaction
 )
 
 type streamFailure struct {
@@ -41,6 +42,7 @@ const (
 	StreamEndClientCanceled
 	StreamEndServerShutdown
 	StreamEndProviderIncomplete
+	StreamEndRedactionFailed
 )
 
 type StreamObservation struct {
@@ -442,6 +444,8 @@ func prioritizeStreamObservation(
 			return streamTerminalObservation(StreamEndUpstreamProtocolError)
 		case streamFailureUpstreamRead:
 			return streamTerminalObservation(StreamEndUpstreamTerminated)
+		case streamFailureRedaction:
+			return streamTerminalObservation(StreamEndRedactionFailed)
 		}
 	}
 
@@ -487,6 +491,8 @@ func streamErrorCode(reason StreamEndReason) string {
 		return "server_shutdown"
 	case StreamEndProviderIncomplete:
 		return "upstream_response_incomplete"
+	case StreamEndRedactionFailed:
+		return "response_redaction_failed"
 	default:
 		return "upstream_stream_terminated"
 	}

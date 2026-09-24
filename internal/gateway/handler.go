@@ -875,6 +875,15 @@ func (handler *Handler) executeAttempts(
 ) {
 	stream := originalMetadata.Stream
 	operation := originalMetadata.Operation
+	var redactionCipher encryption.RedactionCipher
+	if !snapshot.RequestRedaction.Empty() || redactionBusinessProtocol(selectedDialect.Protocol()) {
+		var err error
+		redactionCipher, err = handler.encryption.NewRedactionCipher(recorder.accessKeyID)
+		if err != nil {
+			handler.completeReason(ginContext, recorder, reasonRedactionFailed)
+			return
+		}
+	}
 	type deferredAttempt struct {
 		result        UpstreamResult
 		decision      health.Decision
@@ -917,7 +926,7 @@ func (handler *Handler) executeAttempts(
 		}
 		defer func() {
 			if prepared.err == nil {
-				prepared.request, prepared.err = redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), prepared.request)
+				prepared.request, prepared.err = redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), prepared.request, redactionCipher)
 			}
 			cachedPrepared = &prepared
 		}()
@@ -1235,7 +1244,8 @@ func (handler *Handler) executeAttempts(
 		}
 		input := ForwardInput{
 			Dialect: selectedDialect, ObserveUsage: attemptObservations.ObserveUsage,
-			Group: selection.Group, APIKey: normalizedCredential.apiKey,
+			RedactionCipher: redactionCipher,
+			Group:           selection.Group, APIKey: normalizedCredential.apiKey,
 			CredentialSecrets: normalizedCredential.secrets, Request: prepared.request,
 			ExternalModel:            externalModel,
 			UpstreamModelID:          optionalModelValue(selection.UpstreamModelID),
@@ -1479,6 +1489,10 @@ func (handler *Handler) executeAttempts(
 		}
 		value := transportReason(result)
 		recorder.completeTransport(value, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
+		if value.Code == reasonResponseRedactionFailed.Code {
+			// 下游还原失败不代表上游未计费；沿用已冻结的该次尝试报价。
+			recorder.bindUsage(recordedAttempt, result.Usage, true)
+		}
 		if err := handler.writeReason(ginContext, value); err != nil {
 			handler.completeWriteTerminal(ginContext, recorder, value.Status)
 		}
@@ -1585,6 +1599,8 @@ func transportReason(result UpstreamResult) reason {
 		return reasonInvalidProtocolRequest
 	case errors.Is(result.Err, ErrUpstreamProtocol):
 		return reasonUpstreamProtocol
+	case errors.Is(result.Err, errRedactionStream), errors.Is(result.Err, errUnaryRestore):
+		return reasonResponseRedactionFailed
 	case isTimeoutError(result.Err):
 		return reasonUpstreamTimeout
 	default:
