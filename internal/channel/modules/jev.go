@@ -13,8 +13,8 @@ func Jev() spec.Module {
 			Name:        "Jev",
 			Mark:        "JV",
 			Icon:        "jev",
-			SearchTerms: []string{"typesafe", "system one", "decisions"},
-			Description: "TypeSafe Jev official API",
+			SearchTerms: []string{"typesafe", "system one", "decisions", "vercel", "ai gateway"},
+			Description: "TypeSafe Jev official API and Vercel AI Gateway",
 			Connection: spec.Connection{
 				Type:            spec.ConnectionAPIKey,
 				CredentialInput: "batch_text",
@@ -32,7 +32,7 @@ func Jev() spec.Module {
 				CatalogProviderID: "jev",
 				EndpointPolicy:    spec.EndpointFixedWithOverride,
 				FixedBaseURL:      "https://api.typesafe.ai/v1",
-				DefaultBaseURLs:   []string{"https://api.typesafe.ai/v1"},
+				DefaultBaseURLs:   []string{"https://api.typesafe.ai/v1", "https://ai-gateway.vercel.sh/typesafe/v1"},
 			},
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.Decisions, execution.OperationDecisionsCreate, execution.RouteNative),

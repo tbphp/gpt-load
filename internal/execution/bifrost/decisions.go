@@ -17,7 +17,11 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-const openRouterDecisionsDefaultBaseURL = "https://openrouter.ai/api/v1"
+const (
+	openRouterDecisionsDefaultBaseURL = "https://openrouter.ai/api/v1"
+	vercelTypeSafeAPIPrefix           = "/typesafe/v1"
+	vercelJevModel                    = "typesafe-ai/jev"
+)
 
 func prepareDecisions(
 	spec execution.AttemptSpec,
@@ -26,6 +30,15 @@ func prepareDecisions(
 	directKey schemas.Key,
 	secrets []string,
 ) (preparedAttempt, *execution.AttemptResult) {
+	baseURL, path, err := decisionsTarget(resolved)
+	if err != nil {
+		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid decisions target")
+		return preparedAttempt{}, &failure
+	}
+	upstreamModel := spec.UpstreamModel
+	if vercelAIGatewayHost(urlHostname(baseURL)) {
+		upstreamModel = vercelJevUpstreamModel(spec.UpstreamModel)
+	}
 	request := &dialect.ParsedRequest{
 		Method: http.MethodPost,
 		Path:   "/v1/systemone",
@@ -42,7 +55,7 @@ func prepareDecisions(
 		request.Body = nil
 	} else if spec.Operation == execution.OperationProbe {
 		body, err := json.Marshal(map[string]any{
-			"model": spec.UpstreamModel,
+			"model": upstreamModel,
 			"state": "ping",
 			"questions": map[string]any{
 				"ready": map[string]any{
@@ -58,8 +71,7 @@ func prepareDecisions(
 		request.Body = body
 	}
 	if spec.Operation != execution.OperationListModels {
-		var err error
-		request, err = dialect.NewDecisions().RewriteRequestModel(request, spec.UpstreamModel)
+		request, err = dialect.NewDecisions().RewriteRequestModel(request, upstreamModel)
 		if err != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid decisions request body")
 			failure.Error.OriginHint = execution.ErrorOriginClient
@@ -67,12 +79,7 @@ func prepareDecisions(
 			return preparedAttempt{}, &failure
 		}
 	}
-	baseURL, path, err := decisionsTarget(resolved)
-	if err != nil {
-		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid decisions target")
-		return preparedAttempt{}, &failure
-	}
-	model := spec.UpstreamModel
+	model := upstreamModel
 	if spec.Operation == execution.OperationListModels {
 		path = "/models"
 		model = ""
@@ -98,7 +105,7 @@ func decisionsTarget(resolved channel.ResolvedTarget) (string, string, error) {
 		if !configured {
 			return "", "", fmt.Errorf("Jev base URL is required")
 		}
-		return baseURL, "/systemone", nil
+		return jevDecisionsTarget(baseURL)
 	case channel.ProviderOpenRouter:
 		if !configured {
 			baseURL = openRouterDecisionsDefaultBaseURL
@@ -116,6 +123,43 @@ func decisionsTarget(resolved channel.ResolvedTarget) (string, string, error) {
 		return strings.TrimSuffix(parsed.String(), "/"), "/decisions", nil
 	default:
 		return "", "", fmt.Errorf("unsupported decisions provider")
+	}
+}
+
+func jevDecisionsTarget(baseURL string) (string, string, error) {
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed == nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", "", fmt.Errorf("invalid Jev base URL")
+	}
+	if vercelAIGatewayHost(parsed.Hostname()) {
+		parsed.Path = vercelTypeSafeAPIPrefix
+		parsed.RawPath = ""
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		return strings.TrimRight(parsed.String(), "/"), "/systemone", nil
+	}
+	return baseURL, "/systemone", nil
+}
+
+func vercelAIGatewayHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "ai-gateway.vercel.sh" || strings.HasSuffix(host, ".ai-gateway.vercel.sh")
+}
+
+func urlHostname(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed == nil {
+		return ""
+	}
+	return parsed.Hostname()
+}
+
+func vercelJevUpstreamModel(model string) string {
+	switch strings.TrimSpace(model) {
+	case "", "jev", "jev-latest", "jev-preview", "jev-1.13", "jev-1.13.0", "~typesafe/jev-latest":
+		return vercelJevModel
+	default:
+		return model
 	}
 }
 

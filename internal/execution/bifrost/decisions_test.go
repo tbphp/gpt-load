@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/maximhq/bifrost/core/schemas"
+
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
@@ -165,6 +167,76 @@ func TestOpenRouterDecisionsRequiresV1BaseURL(t *testing.T) {
 	result := runtime.Execute(context.Background(), decisionsSpec(channel.OpenRouter, "https://relay.example/custom"))
 	if result.Error == nil || result.DispatchState != execution.DispatchNotSent {
 		t.Fatalf("result = %+v error = %+v", result, result.Error)
+	}
+}
+
+func TestJevDecisionsTargetRewritesVercelAIGateway(t *testing.T) {
+	registry := channel.NewRegistry()
+	for _, test := range []struct {
+		name    string
+		raw     string
+		wantURL string
+	}{
+		{name: "host only", raw: `{"base_url":"https://ai-gateway.vercel.sh"}`, wantURL: "https://ai-gateway.vercel.sh/typesafe/v1"},
+		{name: "wrong v1 prefix", raw: `{"base_url":"https://ai-gateway.vercel.sh/v1"}`, wantURL: "https://ai-gateway.vercel.sh/typesafe/v1"},
+		{name: "already prefixed", raw: `{"base_url":"https://ai-gateway.vercel.sh/typesafe/v1"}`, wantURL: "https://ai-gateway.vercel.sh/typesafe/v1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resolved, err := registry.Resolve(channel.Jev, json.RawMessage(test.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			baseURL, path, err := decisionsTarget(resolved)
+			if err != nil || baseURL != test.wantURL || path != "/systemone" {
+				t.Fatalf("target = %q %q, %v", baseURL, path, err)
+			}
+		})
+	}
+}
+
+func TestPrepareDecisionsRewritesVercelGatewayModel(t *testing.T) {
+	registry := channel.NewRegistry()
+	resolved, err := registry.Resolve(channel.Jev, json.RawMessage(`{"base_url":"https://ai-gateway.vercel.sh"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := decisionsSpec(channel.Jev, "https://ai-gateway.vercel.sh")
+	spec.Operation = execution.OperationProbe
+	spec.Method, spec.Path, spec.RawQuery, spec.Body = "", "", "", nil
+	spec.UpstreamModel = "jev-latest"
+	spec.TargetConfig = resolved.TargetConfig
+	spec = freezeTestAttempt(spec)
+
+	prepared, failure := prepareDecisions(spec, resolved, "", schemas.Key{}, nil)
+	if failure != nil {
+		t.Fatalf("prepare failure = %+v", failure)
+	}
+	if prepared.passthrough == nil ||
+		prepared.passthrough.UpstreamURL != "https://ai-gateway.vercel.sh/typesafe/v1" ||
+		prepared.passthrough.Path != "/systemone" ||
+		prepared.passthrough.Model != "typesafe-ai/jev" {
+		t.Fatalf("passthrough = %#v", prepared.passthrough)
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(prepared.passthrough.Body, &object) != nil || string(object["model"]) != `"typesafe-ai/jev"` {
+		t.Fatalf("body = %s", prepared.passthrough.Body)
+	}
+}
+
+func TestVercelJevUpstreamModelAliases(t *testing.T) {
+	for _, test := range []struct {
+		in, want string
+	}{
+		{in: "jev-latest", want: "typesafe-ai/jev"},
+		{in: "jev-preview", want: "typesafe-ai/jev"},
+		{in: "jev-1.13.0", want: "typesafe-ai/jev"},
+		{in: "~typesafe/jev-latest", want: "typesafe-ai/jev"},
+		{in: "typesafe-ai/jev", want: "typesafe-ai/jev"},
+		{in: "custom-jev", want: "custom-jev"},
+	} {
+		if got := vercelJevUpstreamModel(test.in); got != test.want {
+			t.Fatalf("vercelJevUpstreamModel(%q) = %q, want %q", test.in, got, test.want)
+		}
 	}
 }
 
