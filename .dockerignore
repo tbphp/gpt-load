@@ -9,6 +9,9 @@ build/
 dist/
 node_modules/
 web/node_modules/
+web/playwright-report/
+web/test-results/
+__pycache__/
 internal/webui/dist/
 bin/
 coverage/

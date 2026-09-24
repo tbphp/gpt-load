@@ -15,7 +15,8 @@
     "check:styles": "node scripts/check-modern-styles.mjs",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json"
+    "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json",
+    "test:release": "tsc --noEmit -p tsconfig.e2e.json && playwright test"
   },
   "dependencies": {
     "@internationalized/date": "3.12.4",
@@ -27,6 +28,7 @@
     "vue-router": "5.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.13.5",
     "@vitejs/plugin-vue": "6.0.9",

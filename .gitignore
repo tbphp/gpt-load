@@ -36,6 +36,9 @@ temp/
 *.pid
 *.prof
 *.pprof
+__pycache__/
+web/playwright-report/
+web/test-results/
 
 # IDE files
 .idea/

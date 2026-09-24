@@ -39,7 +39,12 @@ check: _web-deps ## Run source checks and build
 	$(PNPM) --dir $(WEB_DIR) run build
 	$(GO) build -o $(APP) .
 	$(GO) test -count=1 . ./internal/...
+	python3 -m unittest discover -s scripts -p 'test_release_*.py'
 	git --no-pager diff --check
+
+.PHONY: release
+release: ## Validate latest main and ask before pushing one release tag
+	python3 -m scripts.release
 
 .PHONY: help
 help: ## Display available targets

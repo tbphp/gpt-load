@@ -202,6 +202,9 @@ jobs:
       - name: Build backend
         run: go build -trimpath -o gpt-load .
 
+      - name: Test release tool
+        run: python3 -m unittest discover -s scripts -p 'test_release_*.py'
+
       - name: Check repository invariants
         run: git diff --check
 
