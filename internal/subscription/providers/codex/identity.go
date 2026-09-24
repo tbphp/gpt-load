@@ -8,6 +8,11 @@ import (
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
+// Identity is the stable Codex account identity used by credential lifecycle.
+func Identity(value Credential) string {
+	return credentialIdentity(value)
+}
+
 func (*codexDriver) MatchesRefreshIdentity(current, refreshed subscriptionruntime.Credential) bool {
 	before, err := ParseCredentialJSON(current.Canonical())
 	if err != nil {

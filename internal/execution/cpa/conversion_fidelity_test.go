@@ -23,7 +23,7 @@ import (
 
 func TestAdapterRejectsOnlyLossyMidConversationInstructions(t *testing.T) {
 	t.Parallel()
-	for _, channelID := range []channel.ID{channel.Codex, channel.Grok, channel.Claude, channel.Antigravity} {
+	for _, channelID := range []channel.ID{channel.Codex, channel.ChatGPT, channel.Grok, channel.Claude, channel.Antigravity} {
 		for _, clientProtocol := range []protocol.Protocol{protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic} {
 			for _, role := range []string{"system", "developer", "user"} {
 				for _, stream := range []bool{false, true} {
@@ -95,7 +95,7 @@ func TestAdapterRejectsOnlyLossyMidConversationInstructions(t *testing.T) {
 }
 
 func TestAdapterPreservesAnthropicInstructionsOnResponsesTargets(t *testing.T) {
-	for _, channelID := range []channel.ID{channel.Codex, channel.Grok} {
+	for _, channelID := range []channel.ID{channel.Codex, channel.ChatGPT, channel.Grok} {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/stream=%t", channelID, stream), func(t *testing.T) {
 				model := "gpt-5.6-luna"
@@ -185,18 +185,36 @@ func TestAdapterPreservesAnthropicInstructionsOnResponsesTargets(t *testing.T) {
 					order = append(order, role)
 				}
 				wantOrder := []string{"developer", "developer", "user", "assistant", "developer", "developer", "user", "function_call", "developer", "function_call_output", "user"}
+				if channelID == channel.ChatGPT {
+					wantOrder = append([]string{"developer"}, wantOrder...)
+				}
 				if !reflect.DeepEqual(order, wantOrder) {
 					t.Fatalf("upstream message order = %v, want %v", order, wantOrder)
 				}
+				offset := 0
+				if channelID == channel.ChatGPT {
+					offset = 1
+					if got := gjson.GetBytes(wire, "input.0.content.0.text").String(); !strings.Contains(got, "run_officejs") {
+						t.Errorf("chatgpt tool catalog = %q", got)
+					}
+					if gjson.GetBytes(wire, "tools").Exists() {
+						t.Fatal("chatgpt leaked client tools to basispoints")
+					}
+				}
 				for path, want := range map[string]string{
-					"input.0.content.0.text": "GLOBAL", "input.1.content.0.text": "PREFIX",
-					"input.4.content.0.text": "MID_ONE", "input.4.content.1.text": "MID_TWO",
-					"input.5.content.0.text": "EXISTING_DEVELOPER",
-					"input.6.content.0.text": "<system-reminder>ordinary reminder</system-reminder>",
-					"input.7.call_id":        "call_lookup", "input.7.name": "lookup",
-					"input.8.content.0.text": "DURING_TOOL", "input.9.call_id": "call_lookup",
-					"input.9.output":          "tool result",
-					"input.10.content.0.text": "next", "reasoning.effort": "high",
+					fmt.Sprintf("input.%d.content.0.text", offset):    "GLOBAL",
+					fmt.Sprintf("input.%d.content.0.text", offset+1):  "PREFIX",
+					fmt.Sprintf("input.%d.content.0.text", offset+4):  "MID_ONE",
+					fmt.Sprintf("input.%d.content.1.text", offset+4):  "MID_TWO",
+					fmt.Sprintf("input.%d.content.0.text", offset+5):  "EXISTING_DEVELOPER",
+					fmt.Sprintf("input.%d.content.0.text", offset+6):  "<system-reminder>ordinary reminder</system-reminder>",
+					fmt.Sprintf("input.%d.call_id", offset+7):         "call_lookup",
+					fmt.Sprintf("input.%d.name", offset+7):            "lookup",
+					fmt.Sprintf("input.%d.content.0.text", offset+8):  "DURING_TOOL",
+					fmt.Sprintf("input.%d.call_id", offset+9):         "call_lookup",
+					fmt.Sprintf("input.%d.output", offset+9):          "tool result",
+					fmt.Sprintf("input.%d.content.0.text", offset+10): "next",
+					"reasoning.effort": "high",
 				} {
 					if got := gjson.GetBytes(wire, path).String(); got != want {
 						t.Errorf("upstream %s = %q, want %q", path, got, want)
@@ -213,6 +231,7 @@ func TestAdapterTokenCountPreservesAnthropicInstructions(t *testing.T) {
 		model   string
 	}{
 		{channel.Codex, "gpt-5.6-luna"},
+		{channel.ChatGPT, "gpt-5.6-luna"},
 		{channel.Grok, "grok-4.3"},
 	} {
 		for _, input := range []struct {

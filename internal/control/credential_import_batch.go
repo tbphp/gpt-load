@@ -42,7 +42,7 @@ func normalizedSingleCredentialImport(channelID channel.ID, raw []byte, driver s
 		return nil, app_errors.ErrOAuthFileInvalid
 	}
 	entry := document.Entries[0]
-	if entry.ErrorCode != "" || entry.ChannelID != channelID {
+	if entry.ErrorCode != "" || !credentialImportChannelCompatible(channelID, entry.ChannelID) {
 		return nil, app_errors.ErrOAuthFileInvalid
 	}
 	if err := validateExistingCPAImport(entry, driver); err != nil {
@@ -148,7 +148,7 @@ func (s *Service) ImportCredentialFiles(
 		var attempted bool
 		var inputHash [32]byte
 		switch {
-		case entry.ChannelID != "" && entry.ChannelID != channelID:
+		case entry.ChannelID != "" && !credentialImportChannelCompatible(channelID, entry.ChannelID):
 			item.Status, item.ErrorCode = "skipped", "channel_mismatch"
 		case entry.ErrorCode != "":
 			// 格式错误已由解析器归类，不能再次尝试另一种认证方式。
@@ -205,6 +205,11 @@ func (s *Service) ImportCredentialFiles(
 		result.Items = append(result.Items, item)
 	}
 	return result, nil
+}
+
+// ChatGPT reuses Codex OAuth files; the parser still tags them as Codex.
+func credentialImportChannelCompatible(target, parsed channel.ID) bool {
+	return parsed == target || (target == channel.ChatGPT && parsed == channel.Codex)
 }
 
 // 新格式允许补全字段；原 CPA 合同继续保留原先的完整性校验。

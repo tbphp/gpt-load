@@ -15,6 +15,7 @@ type ID string
 const (
 	OpenAI           ID = "openai"
 	Codex            ID = "codex"
+	ChatGPT          ID = "chatgpt"
 	Claude           ID = "claude"
 	Antigravity      ID = "antigravity"
 	Grok             ID = "grok"
@@ -46,6 +47,7 @@ type ProviderKind string
 const (
 	ProviderOpenAI               ProviderKind = "openai"
 	ProviderCodex                ProviderKind = "codex"
+	ProviderChatGPT              ProviderKind = "chatgpt"
 	ProviderClaude               ProviderKind = "claude"
 	ProviderAntigravity          ProviderKind = "antigravity"
 	ProviderGrok                 ProviderKind = "grok"
@@ -97,6 +99,7 @@ func (kind ProviderKind) Valid() bool {
 	switch kind {
 	case ProviderOpenAI,
 		ProviderCodex,
+		ProviderChatGPT,
 		ProviderClaude,
 		ProviderAntigravity,
 		ProviderGrok,
