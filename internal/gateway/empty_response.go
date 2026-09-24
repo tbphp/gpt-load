@@ -23,17 +23,22 @@ const (
 // 可重试状态。未启用时所有方法都表示「不要压住」，提交时机与既有行为一致。
 type emptyResponsePreread struct {
 	enabled         bool
+	window          time.Duration
 	started         time.Time
 	pending         []byte
 	pendingTerminal bool
 	now             func() time.Time
 }
 
-func newEmptyResponsePreread(enabled bool, now func() time.Time) *emptyResponsePreread {
+// newEmptyResponsePreread 创建预读缓冲；window 为 0 时使用默认窗口。
+func newEmptyResponsePreread(enabled bool, now func() time.Time, window time.Duration) *emptyResponsePreread {
 	if now == nil {
 		now = time.Now
 	}
-	return &emptyResponsePreread{enabled: enabled, now: now}
+	if window <= 0 {
+		window = emptyResponsePrereadWindow
+	}
+	return &emptyResponsePreread{enabled: enabled, window: window, now: now}
 }
 
 func (preread *emptyResponsePreread) active() bool {
@@ -57,7 +62,7 @@ func (preread *emptyResponsePreread) hold(data []byte, events int, terminal bool
 	}
 	if events >= emptyResponsePrereadEvents ||
 		len(preread.pending)+len(data) >= emptyResponsePrereadBytes ||
-		now.Sub(preread.started) >= emptyResponsePrereadWindow {
+		now.Sub(preread.started) >= preread.window {
 		return false
 	}
 	preread.pending = append(preread.pending, data...)

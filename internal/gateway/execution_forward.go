@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"gpt-load/internal/dialect"
@@ -27,6 +28,8 @@ type ExecutionForwarder struct {
 	usageCapture   *usageCaptureBoundary
 	rpmStore       *rpm.Store
 	writeTimeout   time.Duration
+	// emptyResponseWindow 覆盖空回预读窗口；为 0 时使用默认窗口。
+	emptyResponseWindow time.Duration
 }
 
 func (forwarder *ExecutionForwarder) SetRPMStore(store *rpm.Store) {
@@ -228,8 +231,37 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	preread := newEmptyResponsePreread(
 		input.EmptyResponseRetry && streamEvents.observeContent(input.Dialect),
 		nil,
+		forwarder.emptyResponseWindow,
 	)
+	// mu 串行化 sink、预读窗口计时器与收尾逻辑：上游静默时，计时器会从另一个
+	// 协程提交压住的数据。
+	var (
+		mu          sync.Mutex
+		windowTimer *time.Timer
+	)
+	// commitHeld 把压住的数据照常提交给客户端；调用方需持有 mu。
+	commitHeld := func() {
+		if committed || ready == nil || !preread.holding() {
+			return
+		}
+		held, heldTerminal := preread.flush()
+		committed = true
+		if err := commitStream(controller, ready.StatusCode, ready.Header, held); err != nil {
+			if downstreamErr == nil {
+				downstreamErr = err
+			}
+			return
+		}
+		if input.OnStreamReady != nil {
+			input.OnStreamReady()
+		}
+		if heldTerminal {
+			streamEvents.markTerminalForwarded()
+		}
+	}
 	sink := func(event execution.StreamEvent) error {
+		mu.Lock()
+		defer mu.Unlock()
 		if err := event.Validate(); err != nil {
 			downstreamErr = fmt.Errorf("%w: invalid execution stream event", ErrUpstreamProtocol)
 			return downstreamErr
@@ -301,8 +333,19 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 				if !streamEvents.producedContent() &&
 					preread.hold(forwardData, streamEvents.eventCount, terminalInChunk) {
-					// 还没有任何产出，继续压住以保留换候选重试的可能。
+					// 还没有任何产出，继续压住以保留换候选重试的可能。上游静默时不会再有
+					// 事件触发窗口检查，因此由计时器在窗口到期时主动提交。
+					if windowTimer == nil {
+						windowTimer = time.AfterFunc(preread.window, func() {
+							mu.Lock()
+							defer mu.Unlock()
+							commitHeld()
+						})
+					}
 					return nil
+				}
+				if windowTimer != nil {
+					windowTimer.Stop()
 				}
 				committed = true
 				payload := forwardData
@@ -356,6 +399,13 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 
 	forwarder.recordCredentialAttempt(spec.Credential.ID)
 	terminal := forwarder.executor.ExecuteStream(ctx, spec, sink)
+	// 收尾全程持锁：迟到的计时器回调只会在此之后运行，届时数据已提交或已取走，
+	// 回调不会再写入可能已交给下一次尝试的响应。
+	mu.Lock()
+	defer mu.Unlock()
+	if windowTimer != nil {
+		windowTimer.Stop()
+	}
 	if err := terminal.Validate(); err != nil {
 		terminal = invalidExecutionStreamResult(terminal, ready, committed)
 	}
@@ -376,22 +426,9 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	emptyResponse := !committed && downstreamErr == nil && terminal.Error == nil &&
 		ready != nil && ready.StatusCode >= http.StatusOK && ready.StatusCode < http.StatusMultipleChoices &&
 		preread.active() && streamEvents.endedWithoutContent()
-	if !committed && !emptyResponse && ready != nil && preread.holding() {
+	if !emptyResponse {
 		// 不是空回：按关闭开关时的结果把压住的数据照常提交，开关只改变空回的处理。
-		held, heldTerminal := preread.flush()
-		committed = true
-		if err := commitStream(controller, ready.StatusCode, ready.Header, held); err != nil {
-			if downstreamErr == nil {
-				downstreamErr = err
-			}
-		} else {
-			if input.OnStreamReady != nil {
-				input.OnStreamReady()
-			}
-			if heldTerminal {
-				streamEvents.markTerminalForwarded()
-			}
-		}
+		commitHeld()
 	}
 	capturedUsage := streamEvents.finalizeUsage()
 	result := upstreamFromExecutionStreamResult(ctx, input, terminal, streamUsage)
