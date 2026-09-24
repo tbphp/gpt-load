@@ -14,6 +14,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 	want := []ID{
 		OpenAI,
 		Codex,
+		ChatGPT,
 		Claude,
 		Antigravity,
 		Grok,

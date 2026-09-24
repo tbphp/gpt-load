@@ -5,6 +5,7 @@ package providers
 
 import (
 	"gpt-load/internal/subscription/providers/antigravity"
+	"gpt-load/internal/subscription/providers/chatgpt"
 	"gpt-load/internal/subscription/providers/claude"
 	"gpt-load/internal/subscription/providers/codex"
 	"gpt-load/internal/subscription/providers/grok"
@@ -14,6 +15,7 @@ import (
 func Implementations() []subscriptionruntime.Implementations {
 	return []subscriptionruntime.Implementations{
 		codex.Implementations(),
+		chatgpt.Implementations(),
 		claude.Implementations(),
 		antigravity.Implementations(),
 		grok.Implementations(),

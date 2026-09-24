@@ -78,6 +78,7 @@ func (testBrowserDriver) LocalCallback() (LocalCallbackSpec, bool)  { return Loc
 func completeTestRuntimeImplementations() ([]Driver, []ModelDiscovery, []QuotaObservation, []ResetCreditAction) {
 	return []Driver{
 		testBrowserDriver{duplicateDriver{id: modules.CodexSubscriptionDriver}},
+		duplicateDriver{id: modules.ChatGPTSubscriptionDriver},
 		testBrowserDriver{duplicateDriver{id: modules.ClaudeSubscriptionDriver}},
 		testBrowserDriver{duplicateDriver{id: modules.AntigravitySubscriptionDriver}},
 		duplicateDriver{id: modules.GrokSubscriptionDriver},
