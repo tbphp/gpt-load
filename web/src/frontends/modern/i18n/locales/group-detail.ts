@@ -141,6 +141,7 @@ export const zhCN = {
     stream_idle_timeout: '流空闲超时',
     blacklist_threshold: '连续失败拉黑阈值',
     affinity_enabled: '会话亲和',
+    empty_response_retry: '空回检测',
     responses_websocket_enabled: 'Responses WebSocket',
   },
 }
@@ -296,6 +297,7 @@ export const enUS: typeof zhCN = {
     stream_idle_timeout: 'Stream idle timeout',
     blacklist_threshold: 'Consecutive failure threshold',
     affinity_enabled: 'Session affinity',
+    empty_response_retry: 'Empty response detection',
     responses_websocket_enabled: 'Responses WebSocket',
   },
 }
@@ -447,6 +449,7 @@ export const jaJP: typeof zhCN = {
     stream_idle_timeout: 'ストリーム待機タイムアウト',
     blacklist_threshold: '連続失敗のしきい値',
     affinity_enabled: 'セッションアフィニティ',
+    empty_response_retry: '空応答の検出',
     responses_websocket_enabled: 'Responses WebSocket',
   },
 }

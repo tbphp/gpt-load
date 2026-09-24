@@ -101,6 +101,7 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
     'stream_idle_timeout',
     'retry_count',
     'blacklist_threshold',
+    'empty_response_retry',
     'validation_interval',
   ],
   browser: ['cors', 'header_rules', 'response_header_rules'],
@@ -505,6 +506,20 @@ onScopeDispose(() => {
                   v-model="draft.responses_websocket_enabled"
                   :label="t('settingsForm.fields.responses_websocket_enabled')"
                   :disabled="disabled('responses_websocket_enabled')"
+                />
+              </SettingItem>
+              <SettingItem
+                v-if="matches('empty_response_retry')"
+                v-bind="settingItem('empty_response_retry')"
+                class="modern-settings-block"
+                @reset="restore('empty_response_retry')"
+                @undo="undoRestore('empty_response_retry')"
+              >
+                <AppSwitch
+                  id="settings-empty_response_retry"
+                  v-model="draft.empty_response_retry"
+                  :label="t('settingsForm.fields.empty_response_retry')"
+                  :disabled="disabled('empty_response_retry')"
                 />
               </SettingItem>
               <SettingItem

@@ -38,7 +38,11 @@ export const runtimeNumbers = [
   'stream_idle_timeout',
   'blacklist_threshold',
 ] as const
-export const runtimeSwitches = ['affinity_enabled', 'responses_websocket_enabled'] as const
+export const runtimeSwitches = [
+  'affinity_enabled',
+  'responses_websocket_enabled',
+  'empty_response_retry',
+] as const
 export type RuntimeNumber = (typeof runtimeNumbers)[number]
 export type RuntimeSwitch = (typeof runtimeSwitches)[number]
 export interface HeaderRules {

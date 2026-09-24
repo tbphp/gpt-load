@@ -885,6 +885,7 @@ func (handler *Handler) executeAttempts(
 	var lastTransport *deferredAttempt
 	var lastConversion *deferredAttempt
 	var lastProviderError *deferredAttempt
+	var lastEmptyResponse *deferredAttempt
 	lastAttemptIndex := -1
 	attemptSequence := 0
 	forwardAttempts := 0
@@ -1259,7 +1260,11 @@ func (handler *Handler) executeAttempts(
 			ProxyFingerprint:       proxyFingerprint,
 			ForceCredentialRefresh: forceCredentialRefresh,
 			ContinuityKey:          requestAffinity.continuityKey,
-			OnResponse:             handler.responseBindingObserver(recorder.accessKeyID, selection, ref, prepared.request, recorder.autoSelection()),
+			// 豁免依据实际发往上游的请求：分组参数覆盖可能写入 conversation 或 generate。
+			EmptyResponseRetry: stream && emptyResponseRetryEnabled(
+				selection.Group, originalMetadata, prepared.request.Body,
+			),
+			OnResponse: handler.responseBindingObserver(recorder.accessKeyID, selection, ref, prepared.request, recorder.autoSelection()),
 			OnFirstResponse: func() {
 				recorder.recordFirstResponse()
 			},
@@ -1396,6 +1401,21 @@ func (handler *Handler) executeAttempts(
 			}
 			return
 		}
+		if result.EmptyResponseBeforeCommit {
+			if decision.Retry != health.RetryNone && forwardAttempts < forwardAttemptLimit {
+				lastEmptyResponse = &deferredAttempt{
+					result:        result,
+					decision:      decision,
+					upstreamModel: optionalModelValue(selection.UpstreamModelID),
+					attemptIndex:  recordedAttempt,
+				}
+				recorder.retryIfAnotherForward(recordedAttempt)
+				continue
+			}
+			handler.completeEmptyResponse(ginContext, recorder, result, decision,
+				optionalModelValue(selection.UpstreamModelID), recordedAttempt)
+			return
+		}
 		if result.ProviderErrorBeforeCommit {
 			if decision.Retry != health.RetryNone {
 				lastProviderError = &deferredAttempt{
@@ -1465,6 +1485,17 @@ func (handler *Handler) executeAttempts(
 		return
 	}
 
+	if lastEmptyResponse != nil {
+		handler.completeEmptyResponse(
+			ginContext,
+			recorder,
+			lastEmptyResponse.result,
+			lastEmptyResponse.decision,
+			lastEmptyResponse.upstreamModel,
+			lastEmptyResponse.attemptIndex,
+		)
+		return
+	}
 	if lastProviderError != nil {
 		recorder.completeProviderError(
 			lastProviderError.result,
@@ -1613,4 +1644,25 @@ func (handler *Handler) writeBufferedResponse(
 		return fmt.Errorf("flush downstream response: %w", err)
 	}
 	return nil
+}
+
+// completeEmptyResponse 把一次判定为空回的尝试原样交付给客户端。重试已经用尽
+// 或被判定为不可重试时，客户端仍应拿到上游真实返回的那条空流，而不是网关错误。
+func (handler *Handler) completeEmptyResponse(
+	ginContext *gin.Context,
+	recorder *requestRecorder,
+	result UpstreamResult,
+	decision health.Decision,
+	upstreamModel string,
+	attemptIndex int,
+) {
+	recorder.completeResponse(result, decision, upstreamModel, attemptIndex)
+	if err := handler.writeBufferedResponse(
+		ginContext,
+		result.StatusCode,
+		result.Header,
+		result.Body,
+	); err != nil {
+		handler.completeWriteTerminal(ginContext, recorder, result.StatusCode)
+	}
 }

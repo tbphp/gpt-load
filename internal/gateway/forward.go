@@ -59,6 +59,9 @@ type ForwardInput struct {
 	// ContinuityKey is an opaque per-tenant replay boundary for provider-private
 	// thinking and tool state. It never crosses the gateway DTO boundary.
 	ContinuityKey string
+	// EmptyResponseRetry 启用空回检测：提交前压住尚无产出的前导事件，
+	// 使「上游正常完成但没有内容」仍可换候选重试。
+	EmptyResponseRetry bool
 }
 
 // UpstreamResult is the gateway's stable view of one logical execution
@@ -76,6 +79,7 @@ type UpstreamResult struct {
 	RequestWritten            bool
 	Committed                 bool
 	ProviderErrorBeforeCommit bool
+	EmptyResponseBeforeCommit bool
 	Stream                    StreamObservation
 	Usage                     usage.Result
 	DispatchState             execution.DispatchState

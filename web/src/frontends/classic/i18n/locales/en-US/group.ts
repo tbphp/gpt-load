@@ -363,6 +363,9 @@ export default {
         headerStorageNoticeEnd: ' for credential values.',
         headerReplacementWarning:
           'This Group override replaces the complete global HeaderRules object; future global changes will not merge into it.',
+        empty_response_retry: 'Empty response detection',
+        emptyResponseRetryHelp:
+          'Applies to streaming chat requests only. When upstream finishes normally without producing anything, the attempt counts as a failure and the next candidate is tried, without cooling down or blacklisting the credential. The empty response is still delivered once retries are exhausted. Prewarm, continuation and conversation requests are exempt.',
         responses_websocket_enabled: 'Responses WebSocket',
         websocketHelp:
           'Disabling closes this group’s WS connections and interrupts generation immediately; HTTP/SSE remains available.',
