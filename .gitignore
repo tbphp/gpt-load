@@ -11,10 +11,13 @@ dist/
 bin/
 coverage/
 go.work
+/release/gpt-load*
+/release/*.gz
 
 # Local environment and secrets
 .env*
 !.env.example
+!packaging/cookie-lab/.env.example
 keys.txt
 *.key
 *.pem

@@ -1,0 +1,16 @@
+[Unit]
+Description=chatgpt.com transparent relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/chatgpt-relay
+EnvironmentFile=/opt/chatgpt-relay/relay.env
+ExecStart=/usr/bin/node /opt/chatgpt-relay/index.js
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

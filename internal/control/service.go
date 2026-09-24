@@ -15,6 +15,7 @@ import (
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codexrouting"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/jev"
@@ -92,6 +93,8 @@ type Service struct {
 	observationMu         sync.Mutex
 	observationFlights    map[observationFlightKey]*observationFlight
 	observationSemaphore  chan struct{}
+	codexRouting          *codexrouting.Store
+	codexProbe            *codexrouting.Keeper
 }
 
 type credentialRuntimeRetirer interface {

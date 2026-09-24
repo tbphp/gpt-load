@@ -5,6 +5,7 @@ import {
   House,
   KeyRound,
   Layers2,
+  Route,
   ScrollText,
   Settings2,
 } from '@lucide/vue'
@@ -75,6 +76,14 @@ export const navigationItems = [
     path: pagePath('monitor-health'),
     section: 'observe',
     icon: Activity,
+    adminOnly: true,
+  },
+  {
+    id: 'codexRouting',
+    name: 'modern-codex-routing',
+    path: pagePath('monitor-codex-routing'),
+    section: 'observe',
+    icon: Route,
     adminOnly: true,
   },
   {

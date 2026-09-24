@@ -2,6 +2,7 @@ package bifrost
 
 import (
 	"context"
+	"strings"
 
 	"github.com/maximhq/bifrost/core/providers/anthropic"
 	"github.com/maximhq/bifrost/core/schemas"
@@ -44,6 +45,7 @@ func finishConvertedPreparation(spec execution.AttemptSpec, providerKind channel
 		// 小输出上限模型会直接 400。兼容目标不转发这个字段。
 		if providerKind == channel.ProviderOpenAICompatible {
 			dropCompatibleResponsesReasoning(prepared.responsesRequest)
+			flattenCompatibleToolOutputs(prepared.responsesRequest)
 		}
 		if providerKind == channel.ProviderDeepSeek && deepSeekConversionDisablesThinking(prepared.responsesRequest) {
 			failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "DeepSeek conversion cannot preserve explicit thinking with this tool choice or history")
@@ -120,6 +122,93 @@ func dropCompatibleResponsesReasoning(request *schemas.BifrostResponsesRequest) 
 		return
 	}
 	request.Params.Reasoning = nil
+}
+
+// Markers for tool-output parts a string-only Chat Completions upstream cannot
+// carry. They match the wording CPA (CLIProxyAPI) uses for the same case so a
+// gateway migration keeps the same model-visible text.
+const (
+	compatibleToolOutputImageMarker = "[image omitted: unsupported by upstream]"
+	compatibleToolOutputFileMarker  = "[file omitted: unsupported by upstream]"
+	compatibleToolOutputAudioMarker = "[audio omitted: unsupported by upstream]"
+	compatibleToolOutputPartMarker  = "[content omitted: unsupported by upstream]"
+)
+
+// flattenCompatibleToolOutputs rewrites array-shaped function_call_output
+// content into a single string.
+//
+// The Responses surface allows a tool result to be a list of content blocks,
+// and Bifrost's Responses→Chat conversion carries that list into the chat tool
+// message's `content`. Chat Completions types tool content as a string, and
+// strict upstreams (OpenCode Go, for one) reject the array with
+// "Input should be a valid string". Text-only arrays happen to be coerced by
+// some upstreams, but any image/file/audio part in a tool result fails, so the
+// whole list is folded into a string here: text is kept, unsupported parts are
+// replaced by a marker.
+func flattenCompatibleToolOutputs(request *schemas.BifrostResponsesRequest) {
+	if request == nil {
+		return
+	}
+	for i := range request.Input {
+		item := &request.Input[i]
+		if item.Type == nil || *item.Type != schemas.ResponsesMessageTypeFunctionCallOutput {
+			continue
+		}
+		toolMessage := item.ResponsesToolMessage
+		if toolMessage == nil || toolMessage.Output == nil {
+			continue
+		}
+		blocks := toolMessage.Output.ResponsesFunctionToolCallOutputBlocks
+		if len(blocks) == 0 {
+			continue
+		}
+		flattened := flattenToolOutputBlocks(blocks)
+		toolMessage.Output.ResponsesToolCallOutputStr = &flattened
+		toolMessage.Output.ResponsesFunctionToolCallOutputBlocks = nil
+		// The SDK mirrors `output` into Content when it converts, so keep the
+		// already-populated mirror from resurrecting the block array.
+		if item.Content != nil && len(item.Content.ContentBlocks) > 0 {
+			item.Content.ContentBlocks = nil
+			if item.Content.ContentStr == nil {
+				item.Content.ContentStr = &flattened
+			}
+		}
+	}
+}
+
+func flattenToolOutputBlocks(blocks []schemas.ResponsesMessageContentBlock) string {
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if block.Text != nil && isTextContentBlockType(block.Type) {
+			parts = append(parts, *block.Text)
+			continue
+		}
+		parts = append(parts, toolOutputOmittedMarker(block.Type))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func isTextContentBlockType(blockType schemas.ResponsesMessageContentBlockType) bool {
+	switch blockType {
+	case schemas.ResponsesInputMessageContentBlockTypeText,
+		schemas.ResponsesOutputMessageContentTypeText,
+		schemas.ResponsesOutputMessageContentTypeSummaryText,
+		schemas.ResponsesOutputMessageContentTypeReasoning:
+		return true
+	}
+	return false
+}
+
+func toolOutputOmittedMarker(blockType schemas.ResponsesMessageContentBlockType) string {
+	switch blockType {
+	case schemas.ResponsesInputMessageContentBlockTypeImage:
+		return compatibleToolOutputImageMarker
+	case schemas.ResponsesInputMessageContentBlockTypeFile:
+		return compatibleToolOutputFileMarker
+	case schemas.ResponsesInputMessageContentBlockTypeAudio:
+		return compatibleToolOutputAudioMarker
+	}
+	return compatibleToolOutputPartMarker
 }
 
 func deepSeekConversionDisablesThinking(request *schemas.BifrostResponsesRequest) bool {
