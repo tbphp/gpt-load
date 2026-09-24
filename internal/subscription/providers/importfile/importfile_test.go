@@ -74,6 +74,14 @@ func TestParseMapsSupportedExports(t *testing.T) {
 	}
 }
 
+func TestParseKeepsMirasimCPAFile(t *testing.T) {
+	raw := `{"type":"mirasim","access_token":"access","refresh_token":"refresh","device_private_key":"-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n"}`
+	entry := parseOne(t, raw)
+	if entry.Format != "cpa" || entry.ChannelID != channel.Mirasim || entry.ErrorCode != "" {
+		t.Fatalf("entry = %#v", entry)
+	}
+}
+
 func TestParsePreservesCPAValidationBoundary(t *testing.T) {
 	raw := `{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account","base_url":"https://rejected.invalid","disabled":"invalid"}`
 	entry := parseOne(t, raw)

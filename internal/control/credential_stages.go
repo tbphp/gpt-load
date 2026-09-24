@@ -735,7 +735,7 @@ func (s *Service) CompleteCredentialAuthorization(
 	returnedState string,
 	code string,
 ) (CredentialStageResult, error) {
-	return s.completeCredentialAuthorization(ctx, "", "", returnedState, code)
+	return s.completeCredentialAuthorization(ctx, "", "", returnedState, code, "", "")
 }
 
 func (s *Service) completeCredentialAuthorizationForStage(
@@ -747,16 +747,15 @@ func (s *Service) completeCredentialAuthorizationForStage(
 	if strings.TrimSpace(stageID) == "" {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
 	}
-	return s.completeCredentialAuthorization(ctx, stageID, "", returnedState, code)
+	return s.completeCredentialAuthorization(ctx, stageID, "", returnedState, code, "", "")
 }
 
 func (s *Service) completeCredentialAuthorizationFromCallback(
 	ctx context.Context,
 	callback subscriptionruntime.LocalCallbackSpec,
-	returnedState string,
-	code string,
+	parameters oauthCallbackParameters,
 ) (CredentialStageResult, error) {
-	return s.completeCredentialAuthorization(ctx, "", callback.RedirectURI, returnedState, code)
+	return s.completeCredentialAuthorization(ctx, "", callback.RedirectURI, parameters.State, parameters.Code, parameters.AccessToken, parameters.RefreshToken)
 }
 
 func (s *Service) completeCredentialAuthorization(
@@ -765,9 +764,13 @@ func (s *Service) completeCredentialAuthorization(
 	expectedRedirectURI string,
 	returnedState string,
 	code string,
+	accessToken string,
+	refreshToken string,
 ) (CredentialStageResult, error) {
+	hasCode := strings.TrimSpace(code) != ""
+	hasTokens := strings.TrimSpace(accessToken) != "" && strings.TrimSpace(refreshToken) != ""
 	if s == nil || s.completeSubscriptionAuthorization == nil || strings.TrimSpace(returnedState) == "" ||
-		strings.TrimSpace(code) == "" {
+		(!hasCode && !hasTokens) {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationStateInvalid
 	}
 	stateHash := s.encryption.Hash("oauth-state/v1|" + returnedState)
@@ -840,6 +843,7 @@ func (s *Service) completeCredentialAuthorization(
 	credential, err := s.completeSubscriptionAuthorization(exchangeContext, channelID, subscriptionruntime.AuthorizationCompletion{
 		ExpectedState: payload.State, ReturnedState: returnedState,
 		Code: code, DriverState: payload.DriverState,
+		AccessToken: accessToken, RefreshToken: refreshToken,
 	})
 	if err != nil {
 		var finalizeErr error
@@ -990,6 +994,8 @@ func (s *Service) CompleteCredentialAuthorizationCallback(
 		callbackSpec.RedirectURI,
 		callback.State,
 		callback.Code,
+		callback.AccessToken,
+		callback.RefreshToken,
 	)
 }
 

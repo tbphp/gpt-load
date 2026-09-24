@@ -199,7 +199,7 @@ func TestSubscriptionConvertedResponsesKeepsNativeCodexAllowlist(t *testing.T) {
 		Operation:      execution.OperationResponsesCreate,
 		Body:           body,
 	}
-	for _, providerKind := range []channel.ProviderKind{channel.ProviderCodex, channel.ProviderGrok} {
+	for _, providerKind := range []channel.ProviderKind{channel.ProviderCodex, channel.ProviderGrok, channel.ProviderMirasim} {
 		prepared, evidence := prepareConvertedFidelity(spec, providerKind)
 		if evidence != nil || !bytes.Equal(prepared.Body, body) {
 			t.Fatalf("%s native Responses allowlist changed: evidence=%+v body=%s", providerKind, evidence, prepared.Body)
