@@ -13,6 +13,7 @@ import (
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/rpm"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 )
@@ -61,6 +62,9 @@ type Service struct {
 	quotaWriter     accessQuotaCheckpointWriter
 	quotaWake       chan struct{}
 	passiveQuota    passiveQuotaFlusher
+	rpmStore        *rpm.Store
+	rpmWriteMu      sync.Mutex
+	rpmWarningAt    time.Time
 
 	stateMu       sync.Mutex
 	state         lifecycleState

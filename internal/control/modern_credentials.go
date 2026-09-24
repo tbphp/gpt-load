@@ -14,7 +14,8 @@ import (
 // ModernCredentialItem 复用凭据读快照，仅补充配置来源，不改变经典 API 或调度逻辑。
 type ModernCredentialItem struct {
 	CredentialItemResponse
-	WeightManual *int `json:"weight_manual"`
+	WeightManual *int   `json:"weight_manual"`
+	RPMPeakHour  *int64 `json:"rpm_peak_hour,omitempty"`
 }
 
 // 仅新版集合接口接受这些展示条件；经典接口仍使用原查询合同。
@@ -47,7 +48,7 @@ func parseModernCredentialQuery(raw string) (CredentialCollectionQuery, *app_err
 		target  *string
 		allowed []string
 	}{
-		{"sort", &filters.sort, []string{"priority", "newest", "oldest", "name", "weight_desc", "weight_asc", "failures"}},
+		{"sort", &filters.sort, []string{"priority", "newest", "oldest", "name", "weight_desc", "weight_asc", "failures", "rpm_peak_desc"}},
 		{"proxy", &filters.proxy, []string{"inherit", "direct", "custom"}},
 		{"reset", &filters.reset, []string{"available", "none", "unknown"}},
 	} {
@@ -106,6 +107,10 @@ func matchesModernCredential(record credentialCollectionRecord, filters modernCr
 
 func modernCredentialLess(left, right credentialCollectionRecord, order string) bool {
 	switch order {
+	case "rpm_peak_desc":
+		if compared := compareRPMPeaks(left.item.RPMPeakHour, right.item.RPMPeakHour); compared != 0 {
+			return compared > 0
+		}
 	case "newest", "oldest":
 		if left.createdAtMS != right.createdAtMS {
 			if order == "newest" {
@@ -160,7 +165,7 @@ func (s *Server) handleListModernCredentials(c *gin.Context) {
 	}
 	s.service.enrichCredentialActivityIDs(c.Request.Context(), result.Items, ids)
 	for _, item := range result.Items {
-		items = append(items, ModernCredentialItem{CredentialItemResponse: item, WeightManual: item.WeightManual})
+		items = append(items, ModernCredentialItem{CredentialItemResponse: item, WeightManual: item.WeightManual, RPMPeakHour: item.RPMPeakHour})
 	}
 	response.SuccessI18n(c, "common.success", struct {
 		CredentialCollectionResponse
@@ -192,7 +197,7 @@ func (s *Server) handleGetModernCredential(c *gin.Context) {
 		Credential  ModernCredentialItem          `json:"credential"`
 		Observation CredentialObservationResponse `json:"observation"`
 	}{
-		Credential:  ModernCredentialItem{CredentialItemResponse: result.Credential, WeightManual: result.Credential.WeightManual},
+		Credential:  ModernCredentialItem{CredentialItemResponse: result.Credential, WeightManual: result.Credential.WeightManual, RPMPeakHour: result.Credential.RPMPeakHour},
 		Observation: result.Observation,
 	})
 }

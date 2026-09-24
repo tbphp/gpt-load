@@ -82,7 +82,14 @@ useLoadingActivity(() => Boolean(props.pending))
         />
       </AppTooltip>
       <div class="modern-subscription-card-identity">
-        <AppOverflowText class="modern-subscription-card-name" :text="row.account || row.mask" />
+        <div class="modern-subscription-card-name-line">
+          <AppOverflowText class="modern-subscription-card-name" :text="row.account || row.mask" />
+          <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
+            <span class="modern-subscription-card-rpm" tabindex="0"
+              >{{ t('rpm.cardLabel') }} {{ n(row.rpmPeakHour) }}</span
+            >
+          </AppTooltip>
+        </div>
         <div class="modern-subscription-card-subtitle">
           <div class="modern-subscription-card-plan">
             <CredentialPlanBadge v-if="plan" :name="plan" :level="observation?.planLevel" />
@@ -248,13 +255,29 @@ useLoadingActivity(() => Boolean(props.pending))
   flex: 1;
   min-width: 0;
 }
+.modern-subscription-card-name-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--modern-space-2);
+  min-width: 0;
+}
 .modern-subscription-card-select {
   align-self: flex-start;
   margin-top: var(--modern-space-0-5);
 }
 .modern-subscription-card-name {
+  flex: 1;
+  min-width: 0;
   font-size: var(--modern-font-size-body);
   font-weight: var(--modern-weight-semibold);
+}
+.modern-subscription-card-rpm {
+  flex: none;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+  font-weight: var(--modern-weight-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .modern-subscription-card-subtitle {
   display: flex;
