@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -196,10 +197,11 @@ def _watch_release(prepared: PreparedSource, tag: str) -> int:
     return run_id
 
 
-def run_release(repository: Path) -> int:
-    with prepare_source(repository) as prepared:
+def run_release(repository: Path, *, simulate: bool = False) -> int:
+    with prepare_source(repository, local_head=simulate) as prepared:
         report_dir = _report_directory(prepared.candidate_sha)
         summary: dict = {
+            "mode": "simulation" if simulate else "release",
             "candidate_sha": prepared.candidate_sha,
             "previous_tag": prepared.latest_tag,
             "checks": {},
@@ -260,6 +262,11 @@ def run_release(repository: Path) -> int:
                 subprocess.run(["docker", "image", "rm", image], capture_output=True, check=False)
 
         print(f"主要页面截图报告：{report_dir / 'browser/html/index.html'}")
+        if simulate:
+            summary["simulation_status"] = "passed"
+            _save_report(report_dir, summary)
+            print("本地模拟验收通过；没有创建或推送 tag。")
+            return 0
         print("请在确认 tag 前查看截图与变更说明。")
         commits = _command(
             "git", "log", "--format=%h %s", f"{prepared.latest_tag}..{prepared.candidate_sha}",
@@ -288,8 +295,11 @@ def run_release(repository: Path) -> int:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="GPT-Load 本地发版验收")
+    parser.add_argument("--simulate", action="store_true", help="验收当前已提交的 HEAD，不创建或推送 tag")
+    options = parser.parse_args()
     try:
-        return run_release(Path.cwd())
+        return run_release(Path.cwd(), simulate=options.simulate)
     except ReleaseCancelled as error:
         print(f"已取消：{error}", file=sys.stderr)
         return 2

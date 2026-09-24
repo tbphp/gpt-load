@@ -46,6 +46,10 @@ check: _web-deps ## Run source checks and build
 release: ## Validate latest main and ask before pushing one release tag
 	python3 -m scripts.release
 
+.PHONY: release-simulate
+release-simulate: ## Rehearse acceptance on committed HEAD without creating a tag
+	python3 -m scripts.release --simulate
+
 .PHONY: help
 help: ## Display available targets
 	@awk 'BEGIN {FS = ":.*?## "; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*?## / { printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)

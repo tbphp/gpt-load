@@ -36,9 +36,9 @@ make test    # 运行 Go 单元测试 / run Go unit tests
 make check   # 完整验收门禁 / the full acceptance gate
 ```
 
-`make check` 覆盖 gofmt、`go mod tidy -diff`、`go vet`、前端 lint / format / build（含发版 E2E 的类型检查）、Go 构建与全量单元测试，以及发版工具的 Python 测试；浏览器 E2E 仅在 `make release` 运行。
+`make check` 覆盖 gofmt、`go mod tidy -diff`、`go vet`、前端 lint / format / build（含发版 E2E 的类型检查）、Go 构建与全量单元测试，以及发版工具的 Python 测试；浏览器 E2E 仅在发版验收及其模拟模式运行。
 
-`make check` covers gofmt, `go mod tidy -diff`, `go vet`, web lint / format / build (including release E2E type checking), the Go build and unit tests, and the release tool's Python tests. Browser E2E runs only through `make release`.
+`make check` covers gofmt, `go mod tidy -diff`, `go vet`, web lint / format / build (including release E2E type checking), the Go build and unit tests, and the release tool's Python tests. Browser E2E runs only through release acceptance or its simulation mode.
 
 `third_party/cpaembedded` 是独立 Go module，**不在 `make check` 覆盖范围内**。改动该目录时请额外执行：
 
@@ -58,9 +58,13 @@ Race tests for that module run in CI; per repository convention they are not run
 
 本地 `make release` 是维护者在 PR 合并后使用的交互式发版入口。它从最新 `origin/main` 建立隔离工作区，执行三数据库新装与旧版升级、Compose、流式请求、新旧管理界面主要页面，以及 `gpt-load/mini` 隔离副本和一次真实上游请求。全部通过后才建议 tag；输入 `yes` 确认后推送，现有 Release workflow 继续验证并发布正式制品。调用者工作区和本地 `main` 不会被切换或改写；若本地发版工具代码已落后于远端，则先停止并提示更新工具。
 
+在 PR 合并前，可从已提交且干净的当前分支运行 `make release-simulate`。它以当前 `HEAD` 运行同一套验收（包含 mini 真实上游请求），保存报告和截图，结束时不进入 tag 输入或推送。未提交的改动不会进入隔离工作区，因此模拟模式会直接拒绝脏工作区。
+
 该命令需要 Docker、GitHub CLI、Go、Node/corepack，以及维护者本机已配置的 DBX `gpt-load/mini`、`gpt-load/pg` 和 `gpt-load-mini-test-db` 辅助脚本。真实数据仅复制到带归属标记的临时 PostgreSQL 库；本机报告位于 `~/.cache/gpt-load/release-acceptance/`，不得上传其中的日志或浏览器 trace。失败时先核对报告与远端 tag 状态，不要强制改写 tag。
 
 `make release` is an interactive maintainer command used after PRs have merged. It accepts the latest `origin/main` in an isolated worktree and checks three database drivers, upgrades from the previous release, Compose, streaming, both management interfaces, and an isolated copy of the maintainer's `gpt-load/mini` data with one live upstream request. It suggests a tag only after all checks pass; pushing requires an explicit `yes`. The existing Release workflow still verifies the final artifacts. The caller's checkout and local `main` are left untouched.
+
+Before merging the PR, run `make release-simulate` from a clean branch with a committed `HEAD`. It runs the same acceptance checks, including the live upstream request, and saves the report and screenshots without prompting for or pushing a tag. It rejects uncommitted changes because the isolated worktree cannot include them.
 
 The command requires Docker, GitHub CLI, Go, Node/corepack, and the maintainer's configured DBX connections and `gpt-load-mini-test-db` helper. Local reports under `~/.cache/gpt-load/release-acceptance/` can contain sensitive diagnostics and browser traces; do not upload them. If it fails, inspect the report and remote tag state before retrying.
 

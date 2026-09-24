@@ -63,6 +63,26 @@ class ReleaseSourceTest(unittest.TestCase):
             with self.assertRaises(ReleaseSourceError):
                 verify_source_unchanged(prepared)
 
+    def test_simulation_uses_committed_local_head_without_pushing_it(self):
+        (self.source / "tracked").write_text("local candidate\n")
+        git(self.source, "add", "tracked")
+        git(self.source, "commit", "-qm", "local candidate")
+        local_head = git(self.source, "rev-parse", "HEAD")
+        remote_main = git(self.source, "ls-remote", "origin", "refs/heads/main").split()[0]
+
+        with prepare_source(self.source, local_head=True) as prepared:
+            self.assertEqual(prepared.candidate_sha, local_head)
+            self.assertEqual((prepared.worktree / "tracked").read_text(), "local candidate\n")
+            self.assertNotEqual(prepared.candidate_sha, remote_main)
+
+        self.assertEqual(git(self.source, "ls-remote", "origin", "refs/heads/main").split()[0], remote_main)
+
+    def test_simulation_rejects_uncommitted_changes(self):
+        (self.source / "tracked").write_text("uncommitted\n")
+        with self.assertRaisesRegex(ReleaseSourceError, "未提交"):
+            with prepare_source(self.source, local_head=True):
+                pass
+
     def test_tag_is_pushed_only_after_explicit_confirmation(self):
         self._push_second_commit()
         with prepare_source(self.source) as prepared:

@@ -73,10 +73,12 @@ def _local_tags(repository: Path) -> dict[str, str]:
 
 
 @contextmanager
-def prepare_source(repository: Path) -> Iterator[PreparedSource]:
+def prepare_source(repository: Path, *, local_head: bool = False) -> Iterator[PreparedSource]:
     repository = repository.resolve()
     if Path(_git(repository, "rev-parse", "--show-toplevel")) != repository:
         raise ReleaseSourceError("发版入口必须位于仓库根目录")
+    if local_head and _git(repository, "status", "--porcelain"):
+        raise ReleaseSourceError("模拟验收不包含未提交改动，请先提交当前改动")
 
     # Fetch only changes Git refs. It leaves every checkout and local edit untouched.
     main_before = _remote_main(repository)
@@ -92,11 +94,12 @@ def prepare_source(repository: Path) -> Iterator[PreparedSource]:
         latest = select_latest_tag(remote)
     except ReleaseTagError as error:
         raise ReleaseSourceError(str(error)) from error
-    candidate = _git(repository, "rev-parse", "refs/remotes/origin/main")
-    if candidate != main_before or _remote_main(repository) != candidate:
+    remote_main = _git(repository, "rev-parse", "refs/remotes/origin/main")
+    if remote_main != main_before or _remote_main(repository) != remote_main:
         raise ReleaseSourceError("远端 main 在同步期间发生变化，请重新运行")
     if remote != remote_before:
         raise ReleaseSourceError("远端 tag 在同步期间发生变化，请重新运行")
+    candidate = _git(repository, "rev-parse", "HEAD") if local_head else remote_main
     _git(repository, "merge-base", "--is-ancestor", latest, candidate)
 
     with tempfile.TemporaryDirectory(prefix="gpt-load-release-") as temporary:
