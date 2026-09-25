@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -37,6 +38,10 @@ type ModelNameConflict struct {
 
 type ModelNameConflictData struct {
 	Conflicts []ModelNameConflict `json:"conflicts"`
+}
+
+func isBuiltInCodexLiveModel(channelID string, modelID string) bool {
+	return channelID == string(channel.Codex) && modelID == channel.CodexLiveModelID
 }
 
 func (s *Service) GetGroupModels(ctx context.Context, groupID uint) (GroupModelsResponse, error) {
@@ -70,6 +75,9 @@ func mapGroupModelsResponse(
 ) (GroupModelsResponse, error) {
 	result := GroupModelsResponse{Items: make([]GroupModelResponse, 0, len(groupModels))}
 	for _, model := range groupModels {
+		if isBuiltInCodexLiveModel(channelID, model.ID) {
+			continue
+		}
 		item := GroupModelResponse{
 			ID:            model.ID,
 			Alias:         model.Alias,

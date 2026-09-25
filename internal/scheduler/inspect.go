@@ -131,7 +131,8 @@ func evaluateTargets(
 		return []targetDecision{}, ReasonOperationUnsupported, nil
 	}
 	modelKey := state.NoModelRouteKey
-	if query.externalModel != nil {
+	clientSelectedLiveModel := query.clientProtocol == protocol.CodexLive && query.operation == execution.OperationLiveCall
+	if query.externalModel != nil && !clientSelectedLiveModel {
 		modelKey = *query.externalModel
 	}
 	routes := byModel[modelKey]
@@ -155,6 +156,9 @@ func evaluateTargets(
 			target: cloneRouteTarget(route), group: group,
 			requirementOK: requirementOK, responsesStoreDowngraded: storeDowngraded,
 			included: true,
+		}
+		if clientSelectedLiveModel && query.externalModel != nil {
+			decision.target.UpstreamModelID = *query.externalModel
 		}
 		groupFiltered := false
 		if len(query.accessKey.Filters.Groups) > 0 {

@@ -107,7 +107,7 @@ func TestDiscoverModelsUsesReadySubscriptionStage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverModels() error = %v", err)
 	}
-	if got := result.Models; len(got) != 3 || got[0].ID != "gpt-5.2" || got[1].ID != "gpt-5.1-codex" || got[2].ID != channel.CodexLiveModelID {
+	if got := result.Models; len(got) != 2 || got[0].ID != "gpt-5.2" || got[1].ID != "gpt-5.1-codex" {
 		t.Fatalf("models = %#v", got)
 	}
 	row, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
@@ -165,7 +165,7 @@ func TestDiscoverModelsAppliesRequestedProxyToReadySubscriptionStage(t *testing.
 		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
 		StagedCredentialID: stage.StageID, Proxy: &discoveryProxy,
 	})
-	if err != nil || len(result.Models) != 2 || refreshCalls != 1 || discoveryCalls != 2 {
+	if err != nil || len(result.Models) != 1 || refreshCalls != 1 || discoveryCalls != 2 {
 		t.Fatalf(
 			"DiscoverModels() result/error/refresh/discovery = %#v/%v/%d/%d",
 			result,
@@ -221,7 +221,7 @@ func TestDiscoverModelsRefreshesReadySubscriptionStageBeforeUse(t *testing.T) {
 		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
 		StagedCredentialID: stage.StageID,
 	})
-	if err != nil || refreshCalls != 1 || len(result.Models) != 2 {
+	if err != nil || refreshCalls != 1 || len(result.Models) != 1 {
 		t.Fatalf("DiscoverModels() result/error/calls = %#v/%v/%d", result, err, refreshCalls)
 	}
 	row, err := fixture.service.loadCredentialStage(t.Context(), stage.StageID)
@@ -339,7 +339,7 @@ func TestDiscoverModelsRefreshesReadyStageOnceAfterUnauthorized(t *testing.T) {
 		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
 		StagedCredentialID: stage.StageID,
 	})
-	if err != nil || refreshCalls != 1 || discoveryCalls != 2 || len(result.Models) != 2 {
+	if err != nil || refreshCalls != 1 || discoveryCalls != 2 || len(result.Models) != 1 {
 		t.Fatalf("result/error/refresh/discovery = %#v/%v/%d/%d", result, err, refreshCalls, discoveryCalls)
 	}
 }
@@ -423,7 +423,7 @@ func TestDiscoverModelsKeepsReadyStageAfterExplicitTemporaryRefreshFailure(t *te
 		ChannelID: channel.Codex, ConnectionType: models.ConnectionTypeSubscription,
 		StagedCredentialID: stage.StageID,
 	})
-	if err != nil || refreshCalls != 2 || len(result.Models) != 2 {
+	if err != nil || refreshCalls != 2 || len(result.Models) != 1 {
 		t.Fatalf("second DiscoverModels() result/error/calls = %#v/%v/%d", result, err, refreshCalls)
 	}
 }

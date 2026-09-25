@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
@@ -22,23 +23,25 @@ const (
 )
 
 type liveMediaSession struct {
-	client         *webrtc.PeerConnection
-	upstream       *webrtc.PeerConnection
-	toClient       *webrtc.TrackLocalStaticRTP
-	toUpstream     *webrtc.TrackLocalStaticRTP
-	upstreamData   *webrtc.DataChannel
-	clientData     *webrtc.DataChannel
-	toClientData   chan webrtc.DataChannelMessage
-	toUpstreamData chan webrtc.DataChannelMessage
-	clientReady    chan struct{}
-	upstreamReady  chan struct{}
-	done           chan struct{}
-	closeOnce      sync.Once
-	mu             sync.Mutex
-	onClose        func()
-	upstreamOffer  string
-	proxyDialer    xproxy.ContextDialer
-	tunnels        []*tcpCandidateTunnel
+	client          *webrtc.PeerConnection
+	upstream        *webrtc.PeerConnection
+	toClient        *webrtc.TrackLocalStaticRTP
+	toUpstream      *webrtc.TrackLocalStaticRTP
+	upstreamData    *webrtc.DataChannel
+	clientData      *webrtc.DataChannel
+	toClientData    chan webrtc.DataChannelMessage
+	toUpstreamData  chan webrtc.DataChannelMessage
+	clientReady     chan struct{}
+	upstreamReady   chan struct{}
+	done            chan struct{}
+	closeOnce       sync.Once
+	clientConnected atomic.Bool
+	mu              sync.Mutex
+	onClose         func(string)
+	closeReason     string
+	upstreamOffer   string
+	proxyDialer     xproxy.ContextDialer
+	tunnels         []*tcpCandidateTunnel
 }
 
 func newLiveMediaSession(ctx context.Context, clientOffer string, settings config.CodexLiveConfig, proxyURL string) (*liveMediaSession, error) {
@@ -118,13 +121,16 @@ func newLiveMediaSession(ctx context.Context, clientOffer string, settings confi
 	})
 	upstream.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) { go session.relayAudio(track, session.toClient) })
 	client.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		if state == webrtc.ICEConnectionStateConnected || state == webrtc.ICEConnectionStateCompleted {
+			session.clientConnected.Store(true)
+		}
 		if state == webrtc.ICEConnectionStateFailed || state == webrtc.ICEConnectionStateClosed {
 			select {
 			case <-session.done:
 				return
 			default:
 			}
-			_ = session.Close()
+			session.endClientMedia()
 		}
 	})
 	upstream.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
@@ -134,21 +140,27 @@ func newLiveMediaSession(ctx context.Context, clientOffer string, settings confi
 				return
 			default:
 			}
-			_ = session.Close()
+			_ = session.closeWithReason("upstream_media_closed")
 		}
 	})
-	for _, peer := range []*webrtc.PeerConnection{client, upstream} {
-		peer.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-			if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
-				select {
-				case <-session.done:
-					return
-				default:
-				}
-				_ = session.Close()
+	client.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if state == webrtc.PeerConnectionStateConnected {
+			session.clientConnected.Store(true)
+		}
+		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
+			session.endClientMedia()
+		}
+	})
+	upstream.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
+			select {
+			case <-session.done:
+				return
+			default:
 			}
-		})
-	}
+			_ = session.closeWithReason("upstream_media_closed")
+		}
+	})
 	session.upstreamData, err = upstream.CreateDataChannel("oai-events", nil)
 	if err != nil {
 		return nil, err
@@ -159,13 +171,13 @@ func newLiveMediaSession(ctx context.Context, clientOffer string, settings confi
 	})
 	client.OnDataChannel(func(data *webrtc.DataChannel) {
 		if data.Label() != "oai-events" {
-			_ = session.Close()
+			_ = session.closeWithReason("media_error")
 			return
 		}
 		session.mu.Lock()
 		if session.clientData != nil {
 			session.mu.Unlock()
-			_ = session.Close()
+			_ = session.closeWithReason("media_error")
 			return
 		}
 		session.clientData = data
@@ -285,7 +297,7 @@ func (session *liveMediaSession) AcceptAnswer(ctx context.Context, upstreamAnswe
 
 func (session *liveMediaSession) enqueue(queue chan<- webrtc.DataChannelMessage, message webrtc.DataChannelMessage) {
 	if len(message.Data) > liveDataMaxBytes {
-		_ = session.Close()
+		_ = session.closeWithReason("media_error")
 		return
 	}
 	copyMessage := webrtc.DataChannelMessage{Data: append([]byte(nil), message.Data...), IsString: message.IsString}
@@ -293,7 +305,7 @@ func (session *liveMediaSession) enqueue(queue chan<- webrtc.DataChannelMessage,
 	case queue <- copyMessage:
 	case <-session.done:
 	default:
-		_ = session.Close()
+		_ = session.closeWithReason("media_error")
 	}
 }
 
@@ -308,7 +320,7 @@ func (session *liveMediaSession) forwardData(queue <-chan webrtc.DataChannelMess
 		case message := <-queue:
 			data := destination()
 			if data == nil {
-				_ = session.Close()
+				_ = session.closeWithReason("media_error")
 				return
 			}
 			var err error
@@ -318,7 +330,7 @@ func (session *liveMediaSession) forwardData(queue <-chan webrtc.DataChannelMess
 				err = data.Send(message.Data)
 			}
 			if err != nil {
-				_ = session.Close()
+				_ = session.closeWithReason("media_error")
 				return
 			}
 		case <-session.done:
@@ -352,8 +364,22 @@ func (session *liveMediaSession) drainRTCP(sender *webrtc.RTPSender) {
 	}
 }
 
-func (session *liveMediaSession) OnClose(callback func()) {
+func (session *liveMediaSession) endClientMedia() {
+	select {
+	case <-session.done:
+		return
+	default:
+	}
+	if session.clientConnected.Load() {
+		_ = session.closeWithReason("client_media_ended")
+		return
+	}
+	_ = session.closeWithReason("media_closed")
+}
+
+func (session *liveMediaSession) OnClose(callback func(string)) {
 	session.mu.Lock()
+	reason := session.closeReason
 	select {
 	case <-session.done:
 	default:
@@ -362,17 +388,24 @@ func (session *liveMediaSession) OnClose(callback func()) {
 	}
 	session.mu.Unlock()
 	if callback != nil {
-		callback()
+		callback(reason)
 	}
 }
 
 func (session *liveMediaSession) Close() error {
+	return session.closeWithReason("media_closed")
+}
+
+func (session *liveMediaSession) closeWithReason(reason string) error {
 	if session == nil {
 		return nil
 	}
 	var result error
 	session.closeOnce.Do(func() {
+		session.mu.Lock()
+		session.closeReason = reason
 		close(session.done)
+		session.mu.Unlock()
 		if err := session.client.Close(); err != nil {
 			result = err
 		}
@@ -389,7 +422,7 @@ func (session *liveMediaSession) Close() error {
 			result = err
 		}
 		if callback != nil {
-			callback()
+			callback(reason)
 		}
 	})
 	return result

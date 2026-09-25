@@ -29,6 +29,7 @@ import (
 type liveFakeOpener struct {
 	mu       sync.Mutex
 	selected []uint
+	models   []string
 	sessions []*liveFakeUpstream
 	wsURL    string
 	failure  *execution.ErrorEvidence
@@ -43,7 +44,7 @@ type liveFakeUpstream struct {
 	conn   *websocket.Conn
 }
 
-func (fake *liveFakeOpener) OpenLive(ctx context.Context, spec execution.AttemptSpec, offer string, _ json.RawMessage) (execution.LiveCall, *execution.ErrorEvidence) {
+func (fake *liveFakeOpener) OpenLive(ctx context.Context, spec execution.AttemptSpec, offer string, sessionJSON json.RawMessage) (execution.LiveCall, *execution.ErrorEvidence) {
 	if fake.failure != nil {
 		return execution.LiveCall{}, fake.failure
 	}
@@ -85,6 +86,14 @@ func (fake *liveFakeOpener) OpenLive(ctx context.Context, spec execution.Attempt
 	session := &liveFakeUpstream{peer: peer, wsURL: fake.wsURL}
 	fake.sessions = append(fake.sessions, session)
 	fake.selected = append(fake.selected, spec.Credential.ID)
+	var sessionFields struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(sessionJSON, &sessionFields); err != nil {
+		fake.mu.Unlock()
+		return execution.LiveCall{}, &execution.ErrorEvidence{Summary: err.Error()}
+	}
+	fake.models = append(fake.models, sessionFields.Model)
 	fake.mu.Unlock()
 	return execution.LiveCall{CallID: fmt.Sprintf("rtc_%d", id), SDP: peer.LocalDescription().SDP, Session: session}, nil
 }
@@ -145,7 +154,7 @@ func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engi
 	for id := uint(1); id <= 2; id++ {
 		groups = append(groups, state.GroupConfig{ID: id, Name: fmt.Sprintf("codex-%d", id), ChannelID: channel.Codex,
 			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
-			Models: []state.ModelConfig{{ID: channel.CodexLiveModelID}}, Enabled: true})
+			Enabled: true})
 		configs = append(configs, testCredentialConfig(id, id))
 		credential := fmt.Sprintf(`{"type":"codex","access_token":"access-%d","refresh_token":"refresh-%d","account_id":"account-%d"}`, id, id, id)
 		encrypted, err := handler.encryption.Encrypt(credential)
@@ -251,9 +260,10 @@ func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 	_, engine, sink, _, _ := liveGatewayFixture(t, fake)
 	server := httptest.NewServer(engine)
 	defer server.Close()
+	models := []string{"client-live-model", channel.CodexLiveModelID, channel.CodexLiveModelID, channel.CodexLiveModelID}
 	for index := 1; index <= 4; index++ {
 		clientPeer, offer := liveClientOffer(t)
-		body, err := json.Marshal(map[string]any{"sdp": offer, "session": map[string]any{"model": channel.CodexLiveModelID}})
+		body, err := json.Marshal(map[string]any{"sdp": offer, "session": map[string]any{"model": models[index-1]}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -320,17 +330,22 @@ func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 	if len(events) != 4 {
 		t.Fatalf("session log count = %d", len(events))
 	}
-	for _, event := range events {
+	for index, event := range events {
 		if event.Protocol != protocol.CodexLive || event.Operation != execution.OperationLiveCall ||
 			event.Status != telemetry.RequestStatusSuccess || event.Usage.Result.State != usage.StateMissing ||
-			event.Usage.Pricing.CostState != "unpriced" || len(event.Attempts) != 1 {
+			event.Usage.Pricing.CostState != "unpriced" || len(event.Attempts) != 1 ||
+			event.ClientModel != models[index] || event.UpstreamModel != models[index] {
 			t.Fatalf("incorrect live session log: %+v", event)
 		}
 	}
 	fake.mu.Lock()
 	selected := append([]uint(nil), fake.selected...)
+	upstreamModels := append([]string(nil), fake.models...)
 	sessions := append([]*liveFakeUpstream(nil), fake.sessions...)
 	fake.mu.Unlock()
+	if fmt.Sprint(upstreamModels) != fmt.Sprint(models) {
+		t.Fatalf("upstream models = %v, want %v", upstreamModels, models)
+	}
 	if len(selected) != 4 || selected[0] == selected[1] && selected[1] == selected[2] && selected[2] == selected[3] {
 		t.Fatalf("existing scheduler did not distribute live calls: %v", selected)
 	}
@@ -340,6 +355,33 @@ func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 			t.Fatalf("upstream hangup count = %d", session.hangup)
 		}
 		session.mu.Unlock()
+	}
+}
+
+func TestCodexLiveClientMediaEndLogsSuccess(t *testing.T) {
+	fake := &liveFakeOpener{}
+	handler, engine, sink, _, _ := liveGatewayFixture(t, fake)
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	_, offer := liveClientOffer(t)
+	body, err := json.Marshal(map[string]any{"sdp": offer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := liveRequest(t, server.Client(), http.MethodPost, server.URL+"/v1/realtime/calls", "gl-client", "application/json", body)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d", created.StatusCode)
+	}
+	call, found := handler.liveSessions.lookup("rtc_1", 1)
+	if !found {
+		t.Fatal("created live call is missing")
+	}
+	call.media.clientConnected.Store(true)
+	call.media.endClientMedia()
+	events := waitWebsocketLogs(t, sink, 1)
+	if len(events) != 1 || events[0].Status != telemetry.RequestStatusSuccess || events[0].ErrorCode != "" ||
+		events[0].ClientModel != channel.CodexLiveModelID || events[0].UpstreamModel != channel.CodexLiveModelID {
+		t.Fatalf("normal voice end log = %+v", events)
 	}
 }
 

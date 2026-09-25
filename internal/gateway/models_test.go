@@ -66,7 +66,7 @@ func TestVisibleModelIDs(t *testing.T) {
 	}
 }
 
-func TestCodexLiveAppearsOnlyInVoiceAndOrdinaryModelLists(t *testing.T) {
+func TestCodexLiveIsHiddenFromModelLists(t *testing.T) {
 	t.Parallel()
 	snapshot, err := state.Compile(state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []state.GroupConfig{{
 		ID: 1, ChannelID: channel.Codex, ConnectionType: "subscription", Params: json.RawMessage(`{}`),
@@ -76,10 +76,10 @@ func TestCodexLiveAppearsOnlyInVoiceAndOrdinaryModelLists(t *testing.T) {
 		t.Fatal(err)
 	}
 	voice := protocol.Protocol("codex-live")
-	if got := visibleModelIDs(snapshot, state.AccessKeyView{}, voice); !reflect.DeepEqual(got, []string{"gpt-live-1-codex"}) {
+	if got := visibleModelIDs(snapshot, state.AccessKeyView{}, voice); len(got) != 0 {
 		t.Fatalf("voice model list = %v", got)
 	}
-	if got := visibleModelIDs(snapshot, state.AccessKeyView{}, protocol.OpenAICompletions); !reflect.DeepEqual(got, []string{"gpt-5.5", "gpt-live-1-codex"}) {
+	if got := visibleModelIDs(snapshot, state.AccessKeyView{}, protocol.OpenAICompletions); !reflect.DeepEqual(got, []string{"gpt-5.5"}) {
 		t.Fatalf("ordinary model list = %v", got)
 	}
 	if got := collectCodexVisibleModelIDs(snapshot, state.AccessKeyView{}); !reflect.DeepEqual(got, []string{"gpt-5.5"}) {

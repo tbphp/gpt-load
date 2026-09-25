@@ -51,6 +51,7 @@ export interface RouteInspectRequest {
 
 export type RouteInspectOperation =
   | 'chat_completion'
+  | 'live_call'
   | 'responses_create'
   | 'responses_retrieve'
   | 'responses_delete'
@@ -112,6 +113,7 @@ export interface RouteInspectResponseDto {
 const accessKeyStatuses = ['active', 'disabled'] as const
 export const routeInspectOperations = [
   'chat_completion',
+  'live_call',
   'responses_create',
   'responses_retrieve',
   'responses_delete',

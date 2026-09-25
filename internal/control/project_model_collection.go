@@ -249,6 +249,9 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 			if err := ctx.Err(); err != nil {
 				return ProjectModelListResponse{}, err
 			}
+			if isBuiltInCodexLiveModel(group.row.ChannelID, model.ID) {
+				continue
+			}
 			identity, err := PriceIdentityForChannelModel(group.row.ChannelID, model.ID)
 			if err != nil {
 				return ProjectModelListResponse{}, fmt.Errorf("validate group %d model %q: %w", group.row.ID, model.ID, app_errors.ErrInternalServer)
@@ -274,7 +277,7 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 			if group.row.ChannelID == string(channel.Codex) {
 				modelProtocols = make([]protocol.Protocol, 0, len(group.dto.ClientProtocols))
 				for _, candidate := range group.dto.ClientProtocols {
-					if (candidate == protocol.CodexLive) == (model.ID == channel.CodexLiveModelID) {
+					if candidate != protocol.CodexLive {
 						modelProtocols = append(modelProtocols, candidate)
 					}
 				}

@@ -96,7 +96,7 @@ func (store *liveSessions) put(call *liveCallSession) bool {
 	call.closed = make(chan struct{})
 	call.timer = time.AfterFunc(liveSessionLifetime, func() { store.finishCall(call, "expired") })
 	store.mu.Unlock()
-	call.media.OnClose(func() { go store.finishCall(call, "media_closed") })
+	call.media.OnClose(func(reason string) { go store.finishCall(call, reason) })
 	go store.watchAuthorization(call)
 	return true
 }
@@ -229,7 +229,7 @@ func (call *liveCallSession) close(reason string) {
 			call.recorder.outcome.upstreamModel = call.model
 			call.recorder.outcome.statusCode = 201
 			switch reason {
-			case "client_hangup":
+			case "client_hangup", "client_media_ended":
 				call.recorder.outcome.status = telemetry.RequestStatusSuccess
 			case "server_shutdown", "key_revoked":
 				call.recorder.outcome.status = telemetry.RequestStatusCanceled

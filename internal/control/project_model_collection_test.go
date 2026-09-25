@@ -3,7 +3,6 @@ package control
 import (
 	"encoding/json"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -96,7 +95,7 @@ func TestProjectModelsSeparateSameUpstreamModelByChannelAndDetail(t *testing.T) 
 	}
 }
 
-func TestProjectModelsShowCodexVoiceOnlyForLiveModel(t *testing.T) {
+func TestProjectModelsHideConfiguredCodexVoiceModel(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
 	createPriceTestGroup(t, fixture.db, models.Group{
@@ -111,23 +110,14 @@ func TestProjectModelsShowCodexVoiceOnlyForLiveModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Items) != 2 {
+	if len(result.Items) != 1 || result.Items[0].ClientModel != "gpt-5.5" {
 		t.Fatalf("Codex model page items = %#v", result.Items)
 	}
 	for _, model := range result.Items {
-		switch model.ClientModel {
-		case channel.CodexLiveModelID:
-			if !reflect.DeepEqual(model.Protocols, []protocol.Protocol{protocol.CodexLive}) {
-				t.Fatalf("voice model protocols = %v", model.Protocols)
+		for _, value := range model.Protocols {
+			if value == protocol.CodexLive {
+				t.Fatalf("coding model includes voice protocol: %v", model.Protocols)
 			}
-		case "gpt-5.5":
-			for _, value := range model.Protocols {
-				if value == protocol.CodexLive {
-					t.Fatalf("coding model includes voice protocol: %v", model.Protocols)
-				}
-			}
-		default:
-			t.Fatalf("unexpected Codex model %q", model.ClientModel)
 		}
 	}
 }

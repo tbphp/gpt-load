@@ -136,6 +136,9 @@ func mapGroupOptions(rows []groupOptionRow, registries ...*channel.Registry) ([]
 		}
 		seenModels := make(map[string]struct{}, len(models))
 		for _, model := range models {
+			if isBuiltInCodexLiveModel(row.ChannelID, model.ID) {
+				continue
+			}
 			name := strings.TrimSpace(model.Alias)
 			if name == "" {
 				name = strings.TrimSpace(model.ID)

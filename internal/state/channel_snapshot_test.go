@@ -126,6 +126,28 @@ func TestCompileDoesNotIndexResponsesResourceOperationsWithoutModels(t *testing.
 	}
 }
 
+func TestCompileIndexesCodexLiveWithoutGroupModels(t *testing.T) {
+	t.Parallel()
+	snapshot, err := Compile(CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []GroupConfig{{
+		ID: 7, ChannelID: channel.Codex, ConnectionType: "subscription", Params: json.RawMessage(`{}`), Enabled: true,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, index := range map[string]ExecutionCandidateIndex{
+		"execution": snapshot.ExecutionCandidates,
+		"catalog":   snapshot.ExecutionRouteCatalog,
+	} {
+		routes := index[protocol.CodexLive][execution.OperationLiveCall][NoModelRouteKey]
+		if len(routes) != 1 || routes[0].GroupID != 7 || routes[0].UpstreamModelID != "" {
+			t.Errorf("%s Codex live routes = %#v", name, routes)
+		}
+	}
+	if len(snapshot.ExecutionCandidates[protocol.OpenAIResponses][execution.OperationResponsesCreate]) != 0 {
+		t.Fatal("model-free Codex group must not serve coding requests")
+	}
+}
+
 func TestCompileIndexesAllNativeResponsesExtensions(t *testing.T) {
 	t.Parallel()
 

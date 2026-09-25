@@ -217,7 +217,7 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 		return
 	}
 	ref := query.AllowedCredentialRefs[selection.CredentialID]
-	if selection.ChannelID != channel.Codex || selection.UpstreamModelID == nil || *selection.UpstreamModelID != channel.CodexLiveModelID {
+	if selection.ChannelID != channel.Codex || selection.UpstreamModelID == nil || *selection.UpstreamModelID != model {
 		failed(reasonNoCandidate)
 		return
 	}

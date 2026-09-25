@@ -88,6 +88,9 @@ export async function getGroupChannels(
       }
     })
     const requestRoutes = routes.filter((route) => protocolOperations.includes(route.operation))
+    const nativeRoutes = routes.filter(
+      (route) => protocolOperations.includes(route.operation) || route.operation === 'live_call',
+    )
     return {
       id: text(item.channel_id),
       name: text(item.name),
@@ -103,7 +106,7 @@ export async function getGroupChannels(
       resetCredit: list(capabilities.credential_actions).includes('reset_credit'),
       parameterProtocols: sortProtocols(requestRoutes.map((route) => route.protocol)),
       nativeProtocols: sortProtocols(
-        requestRoutes
+        nativeRoutes
           .filter((route) => route.modes.includes('native'))
           .map((route) => route.protocol),
       ),
