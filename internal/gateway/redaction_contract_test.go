@@ -2,12 +2,15 @@ package gateway
 
 import (
 	"bytes"
+	"encoding/json"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/tidwall/gjson"
 
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestredact"
 )
@@ -168,53 +171,185 @@ func TestRedactionContractPartialSnapshotsKeepDamagedCiphertext(t *testing.T) {
 	}
 }
 
-func TestRedactionContractGeminiSignedPartRoundTrip(t *testing.T) {
-	c := websocketRedactionTestCipher(t)
-	rules, err := requestredact.Compile([]requestredact.Rule{{Pattern: `alice@example\.invalid`, Mode: requestredact.ModeEncrypt}})
+// signedRoundTripRules 覆盖两种规则模式：带签名的内容都应逐字节还给上游。
+func signedRoundTripRules(t *testing.T) map[string]*requestredact.Compiled {
+	t.Helper()
+	rules := map[string]*requestredact.Compiled{}
+	for name, rule := range map[string]requestredact.Rule{
+		"encrypt": {Pattern: `[a-z]+@example\.invalid`, Mode: requestredact.ModeEncrypt},
+		"replace": {Pattern: `[a-z]+@example\.invalid`, Replacement: "[EMAIL]"},
+	} {
+		compiled, err := requestredact.Compile([]requestredact.Rule{rule})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules[name] = compiled
+	}
+	return rules
+}
+
+func jsonString(t *testing.T, value string) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return string(encoded)
+}
+
+func TestRedactionContractSignedContentRoundTrip(t *testing.T) {
+	c := websocketRedactionTestCipher(t)
 	token, err := c.EncryptToken("alice@example.invalid")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 第 1 轮：上游返回带签名的工具调用，参数是密文，客户端拿到明文。
-	upstreamPart := `{"functionCall":{"name":"send","args":{"to":"` + token + `"}},"thoughtSignature":"synthetic-signature"}`
-	response := []byte(`{"candidates":[{"content":{"role":"model","parts":[` + upstreamPart + `]}}]}`)
-	restored, err := restoreUnaryBusinessFields(response, protocol.Gemini, c.RestoreText, false)
-	if err != nil || gjson.GetBytes(restored, "candidates.0.content.parts.0.functionCall.args.to").Str != "alice@example.invalid" {
-		t.Fatalf("signed part was not restored: %s / %v", restored, err)
+	// 上游签名内容里同时有模型抄回的密文和模型自己写的邮箱。
+	cases := []struct {
+		name     string
+		protocol protocol.Protocol
+		upstream string
+		response func(string) string
+		client   string
+		request  func(string) string
+		outbound string
+	}{
+		{
+			name: "claude thinking", protocol: protocol.Anthropic,
+			upstream: `{"type":"thinking","thinking":"user ` + token + `; test with bob@example.invalid","signature":"SIG"}`,
+			response: func(block string) string { return `{"content":[` + block + `]}` },
+			client:   "content.0",
+			request:  func(block string) string { return `{"messages":[{"role":"assistant","content":[` + block + `]}]}` },
+			outbound: "messages.0.content.0",
+		},
+		{
+			name: "gemini function call", protocol: protocol.Gemini,
+			upstream: `{"functionCall":{"name":"send","args":{"to":"` + token + `","cc":"bob@example.invalid"}},"thoughtSignature":"SIG"}`,
+			response: func(part string) string {
+				return `{"candidates":[{"content":{"role":"model","parts":[` + part + `]}}]}`
+			},
+			client:   "candidates.0.content.parts.0",
+			request:  func(part string) string { return `{"contents":[{"role":"model","parts":[` + part + `]}]}` },
+			outbound: "contents.0.parts.0",
+		},
+		{
+			name: "chat reasoning_details", protocol: protocol.OpenAICompletions,
+			upstream: `{"type":"reasoning.text","text":"user ` + token + `; test with bob@example.invalid","signature":"SIG"}`,
+			response: func(item string) string {
+				return `{"choices":[{"message":{"content":"ok","reasoning_details":[` + item + `]}}]}`
+			},
+			client: "choices.0.message.reasoning_details.0",
+			request: func(item string) string {
+				return `{"messages":[{"role":"assistant","content":"ok","reasoning_details":[` + item + `]}]}`
+			},
+			outbound: "messages.0.reasoning_details.0",
+		},
 	}
-	// 第 2 轮：客户端把这段放回历史，网关重新加密后应与上游签名时的原文逐字节一致。
-	clientPart := gjson.GetBytes(restored, "candidates.0.content.parts.0").Raw
-	request := []byte(`{"contents":[{"role":"model","parts":[` + clientPart + `]}]}`)
-	outbound, err := rules.ApplyWithCipher(request, c)
-	if err != nil || gjson.GetBytes(outbound, "contents.0.parts.0").Raw != upstreamPart {
-		t.Fatalf("re-encrypted signed part differs from upstream output: %s / %v", outbound, err)
+	for _, tc := range cases {
+		session := newRedactionRestoreSession(c, c.RestoreText)
+		restored, err := restoreUnaryBusinessFields([]byte(tc.response(tc.upstream)), tc.protocol, session.restore, false, session.sign)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		client := gjson.GetBytes(restored, tc.client).Raw
+		if strings.Contains(client, token) || !strings.Contains(client, "alice@example.invalid") {
+			t.Fatalf("%s: client did not receive restored content: %s", tc.name, client)
+		}
+		for mode, rules := range signedRoundTripRules(t) {
+			outbound, err := rules.ApplyWithCipher([]byte(tc.request(client)), c)
+			if err != nil || gjson.GetBytes(outbound, tc.outbound).Raw != tc.upstream {
+				t.Errorf("%s/%s: signed content differs from upstream:\n got: %s / %v\nwant: %s", tc.name, mode, gjson.GetBytes(outbound, tc.outbound).Raw, err, tc.upstream)
+			}
+		}
 	}
 }
 
-func TestRedactionContractClaudeThinkingRoundTrip(t *testing.T) {
+func TestRedactionContractStreamedSignedContentRoundTrip(t *testing.T) {
 	c := websocketRedactionTestCipher(t)
-	rules, err := requestredact.Compile([]requestredact.Rule{{Pattern: `alice@example\.invalid`, Mode: requestredact.ModeEncrypt}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	token, err := c.EncryptToken("alice@example.invalid")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 第 1 轮：上游思考里是密文，客户端看到明文。
-	upstreamBlock := `{"type":"thinking","thinking":"用户邮箱是 ` + token + `","signature":"synthetic-signature"}`
-	response := []byte(`{"content":[` + upstreamBlock + `]}`)
-	restored, err := restoreUnaryBusinessFields(response, protocol.Anthropic, c.RestoreText, false)
-	if err != nil || gjson.GetBytes(restored, "content.0.thinking").Str != "用户邮箱是 alice@example.invalid" {
-		t.Fatalf("thinking was not restored: %s / %v", restored, err)
+	push := func(t *testing.T, proto protocol.Protocol, events []string) [][]byte {
+		t.Helper()
+		session := newRedactionRestoreSession(c, c.RestoreText)
+		stream := newRedactionRestoreSSE(proto, session.restore, false)
+		stream.sign = session.sign
+		var out []byte
+		for _, event := range events {
+			got, err := stream.Push([]byte("data: " + event + "\n\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, got...)
+		}
+		return redactionContractPayloads(out)
 	}
-	// 第 2 轮：客户端原样回传，网关重新加密后与上游签名时的原文逐字节一致。
-	request := []byte(`{"messages":[{"role":"assistant","content":[` + gjson.GetBytes(restored, "content.0").Raw + `]}]}`)
-	outbound, err := rules.ApplyWithCipher(request, c)
-	if err != nil || gjson.GetBytes(outbound, "messages.0.content.0").Raw != upstreamBlock {
-		t.Fatalf("re-encrypted thinking differs from upstream output: %s / %v", outbound, err)
+	// Claude：思考分片里切开的密文，签名在最后单独下发。
+	var thinking, signature string
+	for _, payload := range push(t, protocol.Anthropic, []string{
+		`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"user ` + token[:10] + `"}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"` + token[10:] + `; test with bob@example.invalid"}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"SIG"}}`,
+		`{"type":"content_block_stop","index":0}`,
+	}) {
+		thinking += gjson.GetBytes(payload, "delta.thinking").Str
+		if value := gjson.GetBytes(payload, "delta.signature"); value.Exists() {
+			signature = value.Str
+		}
+	}
+	if !strings.Contains(thinking, "alice@example.invalid") || signature == "SIG" {
+		t.Fatalf("claude stream was not restored or signed: %q / %q", thinking, signature)
+	}
+	claude := `{"type":"thinking","thinking":` + jsonString(t, thinking) + `,"signature":` + jsonString(t, signature) + `}`
+	// Gemini：签名在最后一个分片；客户端把各分片文本合并进带签名的片段。
+	var text, thought string
+	for _, payload := range push(t, protocol.Gemini, []string{
+		`{"candidates":[{"index":0,"content":{"parts":[{"text":"user ` + token + `"}]}}]}`,
+		`{"candidates":[{"index":0,"content":{"parts":[{"text":"; test with bob@example.invalid","thoughtSignature":"SIG"}]},"finishReason":"STOP"}]}`,
+	}) {
+		text += gjson.GetBytes(payload, "candidates.0.content.parts.0.text").Str
+		if value := gjson.GetBytes(payload, "candidates.0.content.parts.0.thoughtSignature"); value.Exists() {
+			thought = value.Str
+		}
+	}
+	if !strings.Contains(text, "alice@example.invalid") || thought == "SIG" {
+		t.Fatalf("gemini stream was not restored or signed: %q / %q", text, thought)
+	}
+	gemini := `{"text":` + jsonString(t, text) + `,"thoughtSignature":` + jsonString(t, thought) + `}`
+	cases := []struct {
+		name, request, outbound, upstream string
+	}{
+		{"claude", `{"messages":[{"role":"assistant","content":[` + claude + `]}]}`, "messages.0.content.0",
+			`{"type":"thinking","thinking":"user ` + token + `; test with bob@example.invalid","signature":"SIG"}`},
+		{"gemini", `{"contents":[{"role":"model","parts":[` + gemini + `]}]}`, "contents.0.parts.0",
+			`{"text":"user ` + token + `; test with bob@example.invalid","thoughtSignature":"SIG"}`},
+	}
+	for _, tc := range cases {
+		for mode, rules := range signedRoundTripRules(t) {
+			outbound, err := rules.ApplyWithCipher([]byte(tc.request), c)
+			if err != nil || gjson.GetBytes(outbound, tc.outbound).Raw != tc.upstream {
+				t.Errorf("%s/%s: streamed signed content differs:\n got: %s / %v\nwant: %s", tc.name, mode, gjson.GetBytes(outbound, tc.outbound).Raw, err, tc.upstream)
+			}
+		}
+	}
+}
+
+func TestRedactOutboundRequestUnwrapsSignaturesWithoutRules(t *testing.T) {
+	c := websocketRedactionTestCipher(t)
+	token, err := c.EncryptToken("alice@example.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := requestredact.Compile(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := `{"type":"thinking","thinking":"user alice@example.invalid","signature":` + jsonString(t, requestredact.WrapSignature("SIG", []string{token})) + `}`
+	request := &dialect.ParsedRequest{Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"messages":[{"role":"assistant","content":[` + block + `]}]}`)}
+	got, err := redactOutboundRequest(empty, protocol.Anthropic, request, c)
+	want := `{"type":"thinking","thinking":"user ` + token + `","signature":"SIG"}`
+	if err != nil || gjson.GetBytes(got.Body, "messages.0.content.0").Raw != want {
+		t.Fatalf("signature record was not unwrapped: %s / %v", got.Body, err)
 	}
 }

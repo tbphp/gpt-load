@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/tidwall/gjson"
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
@@ -188,5 +191,57 @@ func TestResponseHeadersDoNotExposeRedactionToken(t *testing.T) {
 	}, ForwardInput{ClientProtocol: protocol.OpenAICompletions})
 	if headers.Get("X-Trace") != "" || headers.Get("Content-Type") != "application/json" {
 		t.Fatalf("redaction token survived in response headers: %#v", headers)
+	}
+}
+
+func TestForwardersSignRestoredSignedContent(t *testing.T) {
+	service := encryptiontest.Service(t, "redaction-signed-forward-test")
+	cipher, err := service.NewRedactionCipher(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := cipher.EncryptToken("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unaryBody := []byte(`{"choices":[{"message":{"content":"x","reasoning_details":[{"type":"reasoning.text","text":"` + token + `","signature":"SIG"}]}}]}`)
+	unary := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+		return execution.AttemptResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: unaryBody}
+	}}
+	input := executionForwardInput()
+	input.RedactionCipher = cipher
+	result := NewExecutionForwarder(unary).Forward(context.Background(), input)
+	detail := gjson.GetBytes(result.Body, "choices.0.message.reasoning_details.0")
+	if result.Err != nil || detail.Get("text").Str != "alice@example.com" || detail.Get("signature").Str == "SIG" {
+		t.Fatalf("unary signed content = %s / %v", result.Body, result.Err)
+	}
+	chunks := []string{
+		"data: " + `{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","index":0,"text":"` + token + `"}]}}]}` + "\n\n",
+		"data: " + `{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","index":0,"signature":"SIG"}]}}]}` + "\n\n",
+		"data: " + `{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}` + "\n\n",
+		"data: [DONE]\n\n",
+	}
+	stream := fakeExecutionExecutor{stream: func(_ context.Context, _ execution.AttemptSpec, sink execution.StreamSink) execution.StreamResult {
+		if err := sink(execution.StreamEvent{Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}}); err != nil {
+			t.Fatal(err)
+		}
+		for i, chunk := range chunks {
+			if err := sink(execution.StreamEvent{Sequence: uint64(i + 2), Kind: execution.StreamEventData, Data: []byte(chunk)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return execution.StreamResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true, StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}}
+	}}
+	recorder := httptest.NewRecorder()
+	streamResult := NewExecutionForwarder(stream).ForwardStream(context.Background(), input, recorder)
+	var signature string
+	for _, payload := range redactionContractPayloads(recorder.Body.Bytes()) {
+		if value := gjson.GetBytes(payload, "choices.0.delta.reasoning_details.0.signature"); value.Exists() {
+			signature = value.Str
+		}
+	}
+	if streamResult.Err != nil || !strings.Contains(recorder.Body.String(), "alice@example.com") || signature == "" || signature == "SIG" {
+		t.Fatalf("stream signed content = %s / %v", recorder.Body.String(), streamResult.Err)
 	}
 }

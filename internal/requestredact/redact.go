@@ -51,6 +51,7 @@ type TokenCipher interface {
 	EncryptToken(string) (string, error)
 	TokenCandidateEnd(string, int) (int, bool)
 	ValidTokenAt(string, int) (int, bool)
+	RestoreText(string) (string, error)
 }
 
 func Decode(raw []byte) ([]Rule, error) {
@@ -164,21 +165,15 @@ func (c *Compiled) TextWithCipher(value string, cipher TokenCipher) (string, err
 }
 
 func (c *Compiled) textWithCipher(value string, cipher TokenCipher, jsonText bool) (string, error) {
-	text, _, err := c.textReport(value, cipher, jsonText)
-	return text, err
-}
-
-// textReport 返回改写结果，并报告是否用到了不可逆的固定替换。
-func (c *Compiled) textReport(value string, cipher TokenCipher, jsonText bool) (string, bool, error) {
 	if c.Empty() {
-		return value, false, nil
+		return value, nil
 	}
 	if cipher == nil {
 		return c.rewriteText(value, nil, nil, false)
 	}
 	protected, err := authenticatedTokenSpans(value, cipher)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 	return c.rewriteText(value, cipher, protected, jsonText)
 }
@@ -223,8 +218,10 @@ func authenticatedTokenSpans(value string, cipher TokenCipher) ([]tokenSpan, err
 
 // Text 在原文上匹配所有规则，重叠片段合并，替换文本按字面使用且不再次匹配。
 func (c *Compiled) Text(value string) (string, error) {
-	text, _, err := c.textReport(value, nil, false)
-	return text, err
+	if c.Empty() {
+		return value, nil
+	}
+	return c.rewriteText(value, nil, nil, false)
 }
 
 type tokenSpan struct{ start, end int }
@@ -251,23 +248,23 @@ type textMatch struct {
 	plaintext        string
 }
 
-func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tokenSpan, jsonText bool) (string, bool, error) {
+func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tokenSpan, jsonText bool) (string, error) {
 	spans := []textMatch{}
 	for i, p := range c.patterns {
 		matches := p.FindAllStringIndex(value, 65537)
 		if len(matches) > 65536 {
-			return "", false, ErrContent
+			return "", ErrContent
 		}
 		for _, span := range matches {
 			if span[0] == span[1] {
 				continue
 			}
 			if c.rules[i].Mode == ModeEncrypt && cipher == nil {
-				return "", false, ErrContent
+				return "", ErrContent
 			}
 			spans = append(spans, textMatch{start: span[0], end: span[1], rule: i})
 			if len(spans) > 65536 {
-				return "", false, ErrContent
+				return "", ErrContent
 			}
 		}
 	}
@@ -276,14 +273,14 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 		var err error
 		spans, protected, literals, err = c.jsonTextMatches(value, spans, protected, cipher)
 		if err != nil {
-			return "", false, err
+			return "", err
 		}
 	}
 	filtered := spans[:0]
 	for _, span := range spans {
 		inside, crossing := protectedMatch(protected, span.start, span.end)
 		if crossing {
-			return "", false, ErrContent
+			return "", ErrContent
 		}
 		if !inside {
 			filtered = append(filtered, span)
@@ -291,7 +288,7 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 	}
 	spans = filtered
 	if len(spans) == 0 {
-		return value, false, nil
+		return value, nil
 	}
 	sort.Slice(spans, func(i, j int) bool {
 		if spans[i].start == spans[j].start {
@@ -315,7 +312,7 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 	}
 	if jsonText {
 		if err := c.decodeJSONMatches(literals, merged); err != nil {
-			return "", false, err
+			return "", err
 		}
 	}
 	finalBytes := int64(len(value))
@@ -327,34 +324,32 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 		finalBytes += int64(replacementBytes) - int64(span.end-span.start)
 	}
 	if finalBytes > maxTextBytes || finalBytes < 0 {
-		return "", false, ErrContent
+		return "", ErrContent
 	}
 	var out strings.Builder
 	out.Grow(int(finalBytes))
 	pos := 0
-	replaced := false
 	for _, span := range merged {
 		replacement := c.rules[span.rule].Replacement
-		replaced = replaced || c.rules[span.rule].Mode != ModeEncrypt
 		if c.rules[span.rule].Mode == ModeEncrypt {
 			var err error
 			replacement, err = cipher.EncryptToken(span.plaintext)
 			if err != nil {
-				return "", false, ErrContent
+				return "", ErrContent
 			}
 		}
 		if out.Len()+span.start-pos+len(replacement) > maxTextBytes {
-			return "", false, ErrContent
+			return "", ErrContent
 		}
 		out.WriteString(value[pos:span.start])
 		out.WriteString(replacement)
 		pos = span.end
 	}
 	if out.Len()+len(value)-pos > maxTextBytes {
-		return "", false, ErrContent
+		return "", ErrContent
 	}
 	out.WriteString(value[pos:])
-	return out.String(), replaced, nil
+	return out.String(), nil
 }
 
 // ProtocolField 报告字段是否是协议标识或不透明数据。请求加密上游生成的历史内容、
@@ -408,8 +403,12 @@ func (c *Compiled) ApplyDecisionsWithCipher(body []byte, cipher TokenCipher) ([]
 
 // apply 只拼接发生变化的 JSON 字符串；保留未命中字节、属性和消息顺序。
 func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCount *int, cipher TokenCipher) ([]byte, error) {
-	if c.Empty() || len(bytes.TrimSpace(body)) == 0 {
+	// 没有规则时仍要拆掉网关包装过的签名，否则上游收到的不是它自己的签名。
+	if len(bytes.TrimSpace(body)) == 0 || (c.Empty() && !HasSignatureRecord(body)) {
 		return body, nil
+	}
+	if c == nil {
+		c = &Compiled{}
 	}
 	if depth > 64 {
 		return nil, ErrContent
@@ -445,10 +444,57 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 	// 上游生成、随历史回传的内容（助手消息、推理与各类工具调用）按字段整体加密，
 	// 与响应侧整体还原对应，只跳过协议字段。
 	inModel := false
-	// 签名内容只允许可逆加密：确定性加密能还原成上游原文，固定替换会让签名失效。
-	replaced := 0
 	var walk func(gjson.Result, bool, bool, int, bool) error
 	var toolResult func(gjson.Result, int) error
+	// 带签名的内容由上游生成，必须逐字节还给上游：没有还原记录说明网关没往里还原过东西，
+	// 原样发回；有记录时只把记录里的值加密回去，并换回上游原签名。
+	signed := func(v, signature gjson.Result, depth int) error {
+		original, tokens, recorded := unwrapSignature(signature.Str)
+		if !recorded {
+			return nil
+		}
+		replacer, err := restoredReplacer(tokens, cipher)
+		if err != nil {
+			return err
+		}
+		var visit func(gjson.Result, int) error
+		visit = func(value gjson.Result, depth int) error {
+			if depth > 64 {
+				return ErrContent
+			}
+			if value.Index == signature.Index {
+				encoded, err := json.Marshal(original)
+				if err != nil {
+					return err
+				}
+				return addPatch(patch{value.Index, value.Index + len(value.Raw), encoded})
+			}
+			if value.Type == gjson.String {
+				if replacer == nil {
+					return nil
+				}
+				text := replacer.Replace(value.Str)
+				if text == value.Str {
+					return nil
+				}
+				encoded, err := json.Marshal(text)
+				if err != nil {
+					return err
+				}
+				return addPatch(patch{value.Index, value.Index + len(value.Raw), encoded})
+			}
+			var failure error
+			value.ForEach(func(key, child gjson.Result) bool {
+				if value.IsObject() && child.Index != signature.Index && ProtocolField(key.Str) {
+					return true
+				}
+				failure = visit(child, depth+1)
+				return failure == nil
+			})
+			return failure
+		}
+		return visit(v, depth)
+	}
 	toolResult = func(value gjson.Result, depth int) error {
 		if depth > 64 {
 			return ErrContent
@@ -487,14 +533,17 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			if !content && !data {
 				return nil
 			}
-			text, replacedText, err := c.textReport(v.Str, cipher, false)
+			var text string
+			var err error
+			if cipher == nil {
+				text, err = c.Text(v.Str)
+			} else {
+				text, err = c.TextWithCipher(v.Str, cipher)
+			}
 			if err != nil {
 				return err
 			}
 			if text != v.Str {
-				if replacedText {
-					replaced++
-				}
 				encoded, err := json.Marshal(text)
 				if err != nil {
 					return err
@@ -512,11 +561,15 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				return nil
 			}
 		}
+		if !data && v.IsObject() {
+			if signature, found := signatureValue(v); found {
+				return signed(v, signature, depth)
+			}
+		}
 		if !data && !inModel && v.IsObject() && modelAuthored(v) {
 			inModel = true
 			defer func() { inModel = false }()
 		}
-		startReplaced := replaced
 		var failure error
 		v.ForEach(func(k, child gjson.Result) bool {
 			if v.IsArray() || data {
@@ -598,14 +651,7 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			}
 			return failure == nil
 		})
-		if failure != nil {
-			return failure
-		}
-		if !data && replaced > startReplaced &&
-			(v.Get("signature").Str != "" || v.Get("thoughtSignature").Str != "" || v.Get("thought_signature").Str != "") {
-			return ErrContent
-		}
-		return nil
+		return failure
 	}
 	if err := walk(gjson.ParseBytes(body), false, data, depth, false); err != nil {
 		return nil, err

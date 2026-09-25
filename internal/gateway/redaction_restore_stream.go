@@ -30,6 +30,7 @@ var errRedactionStream = errors.New("cannot restore streaming response")
 type redactionRestoreSSE struct {
 	protocol      protocol.Protocol
 	restore       func(string) (string, error)
+	sign          func(string) string
 	structured    bool
 	maxEventBytes int
 
@@ -388,7 +389,23 @@ func (stream *redactionRestoreSSE) process(event *redactionStreamEvent) error {
 	if err != nil || event.whole {
 		return err
 	}
-	return stream.restoreRemaining(event, root)
+	if err := stream.restoreRemaining(event, root); err != nil {
+		return err
+	}
+	return stream.signSignatures(event, root)
+}
+
+// signSignatures 把截至本事件已还原的密文写进事件里的上游签名。
+func (stream *redactionRestoreSSE) signSignatures(event *redactionStreamEvent, root gjson.Result) error {
+	if stream.sign == nil {
+		return nil
+	}
+	ctx := unaryRestoreContext{body: event.payload}
+	if err := ctx.signSignatures(root, stream.sign); err != nil {
+		return errRedactionStream
+	}
+	event.direct = append(event.direct, ctx.patches...)
+	return nil
 }
 
 // restoreRemaining 还原事件里增量通道之外的字段，只处理事件内完整的密文，不扣留数据。
@@ -596,6 +613,9 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 							}); err != nil {
 								return err
 							}
+						}
+						if detail.Get("signature").Exists() {
+							return stream.closeMatching(key)
 						}
 						return nil
 					})
@@ -814,7 +834,7 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 		if err := stream.closeMatching(""); err != nil {
 			return err
 		}
-		restored, err := restoreUnaryBusinessFields(event.payload, protocol.OpenAIResponses, stream.restore, stream.structured)
+		restored, err := restoreUnaryBusinessFields(event.payload, protocol.OpenAIResponses, stream.restore, stream.structured, stream.sign)
 		if err != nil {
 			return errRedactionStream
 		}
@@ -868,6 +888,9 @@ func (stream *redactionRestoreSSE) anthropic(event *redactionStreamEvent, root g
 				return unaryRestoreField(delta, "thinking", func(value gjson.Result) error {
 					return stream.addPlainText(event, prefix+"thinking", value)
 				})
+			case "signature_delta":
+				// 签名在思考结束后下发：先收尾该块思考，保证记录里包含全部已还原的密文。
+				return stream.closeMatching(prefix)
 			}
 			return nil
 		})

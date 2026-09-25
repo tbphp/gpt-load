@@ -814,10 +814,9 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 	}()
 	var restored *websocketRedactionOutput
 	if input.RedactionCipher != nil {
-		restored = newWebsocketRedactionOutput(
-			credentialSafeRestore(input.RedactionCipher.RestoreText, restorationCredentialSecrets(input)),
-			requestDeclaresJSONOutput(protocol.OpenAIResponses, input.Request.Body),
-		)
+		session := newRedactionRestoreSession(input.RedactionCipher, credentialSafeRestore(input.RedactionCipher.RestoreText, restorationCredentialSecrets(input)))
+		restored = newWebsocketRedactionOutput(session.restore, requestDeclaresJSONOutput(protocol.OpenAIResponses, input.Request.Body))
+		restored.stream.sign = session.sign
 	}
 	var restoreFailure error
 	emitRestored := func(ctx context.Context, frames [][]byte) error {

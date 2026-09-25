@@ -6,6 +6,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -30,7 +31,8 @@ func redactionBusinessProtocol(value protocol.Protocol) bool {
 
 // 每次从本次请求的原始内容构造外发副本，缓存副本可复用于同组重试。
 func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Protocol, request *dialect.ParsedRequest, cipher ...encryption.RedactionCipher) (*dialect.ParsedRequest, error) {
-	if c.Empty() || request == nil || len(request.Body) == 0 {
+	// 没有规则时仍要拆掉网关包装过的签名，否则上游收到的不是它自己的签名。
+	if request == nil || len(request.Body) == 0 || (c.Empty() && !requestredact.HasSignatureRecord(request.Body)) {
 		return request, nil
 	}
 	var body []byte
@@ -175,4 +177,54 @@ func containsAny(body []byte, markers [][]byte) bool {
 		}
 	}
 	return false
+}
+
+// redactionRestoreSession 记录一次响应里还原过的密文，并把记录写进上游签名，
+// 下一轮请求据此只把这些值加密回去，带签名的内容才能逐字节还给上游。
+type redactionRestoreSession struct {
+	cipher  encryption.RedactionCipher
+	restore func(string) (string, error)
+	tokens  []string
+	seen    map[string]struct{}
+}
+
+func newRedactionRestoreSession(cipher encryption.RedactionCipher, restore func(string) (string, error)) *redactionRestoreSession {
+	session := &redactionRestoreSession{cipher: cipher, seen: make(map[string]struct{})}
+	session.restore = func(text string) (string, error) {
+		restored, err := restore(text)
+		if err == nil && restored != text {
+			session.record(text)
+		}
+		return restored, err
+	}
+	return session
+}
+
+func (s *redactionRestoreSession) record(text string) {
+	for scan := 0; scan < len(text); {
+		relative := strings.Index(text[scan:], redactionStreamPrefix)
+		if relative < 0 {
+			return
+		}
+		start := scan + relative
+		end, valid := s.cipher.ValidTokenAt(text, start)
+		if !valid {
+			scan = start + len(redactionStreamPrefix)
+			continue
+		}
+		if token := text[start:end]; !s.hasToken(token) {
+			s.seen[token] = struct{}{}
+			s.tokens = append(s.tokens, token)
+		}
+		scan = end
+	}
+}
+
+func (s *redactionRestoreSession) hasToken(token string) bool {
+	_, exists := s.seen[token]
+	return exists
+}
+
+func (s *redactionRestoreSession) sign(signature string) string {
+	return requestredact.WrapSignature(signature, s.tokens)
 }

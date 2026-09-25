@@ -165,7 +165,7 @@ func TestEncryptTextRejectsOversizedOutputBeforeEncryption(t *testing.T) {
 	}
 }
 
-func TestApplyWithCipherPreservesJSONStructureAndEncryptsSignedThinking(t *testing.T) {
+func TestApplyWithCipherPreservesJSONStructureAndSignedThinking(t *testing.T) {
 	cipher := syntheticRedactionCipher(t)
 	compiled, err := Compile([]Rule{{Pattern: `alice@example\.invalid`, Mode: ModeEncrypt}})
 	if err != nil {
@@ -184,9 +184,9 @@ func TestApplyWithCipherPreservesJSONStructureAndEncryptsSignedThinking(t *testi
 	if !bytes.Equal(got, want) || !bytes.Contains(body, []byte("alice@example.invalid")) {
 		t.Fatalf("JSON bytes or input changed:\n got: %s\nwant: %s", got, want)
 	}
-	// 可逆加密可以改写签名内容：还原后再加密会得到与上游原文相同的字节。固定替换仍被拒绝。
+	// 没有还原记录的签名思考由上游生成，原样发回。
 	signed := `{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"alice@example.invalid","signature":"signed"}]}]}`
-	if got, err := compiled.ApplyWithCipher([]byte(signed), cipher); err != nil || string(got) != strings.ReplaceAll(signed, "alice@example.invalid", token) {
+	if got, err := compiled.ApplyWithCipher([]byte(signed), cipher); err != nil || string(got) != signed {
 		t.Fatalf("signed thinking = %s / %v", got, err)
 	}
 }
@@ -300,20 +300,15 @@ func TestCompiledReversible(t *testing.T) {
 	}
 }
 
-func TestApplyWithCipherEncryptsSignedGeminiParts(t *testing.T) {
+func TestApplyWithCipherKeepsUnrecordedSignedGeminiParts(t *testing.T) {
 	cipher := syntheticRedactionCipher(t)
 	compiled, err := Compile([]Rule{{Pattern: `alice@example\.invalid`, Mode: ModeEncrypt}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := cipher.EncryptToken("alice@example.invalid")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, field := range []string{"thoughtSignature", "thought_signature"} {
 		body := `{"contents":[{"role":"model","parts":[{"text":"alice@example.invalid","` + field + `":"signed"},{"functionCall":{"name":"send","args":{"to":"alice@example.invalid"}},"` + field + `":"signed"}]}]}`
-		got, err := compiled.ApplyWithCipher([]byte(body), cipher)
-		if want := strings.ReplaceAll(body, "alice@example.invalid", token); err != nil || string(got) != want {
+		if got, err := compiled.ApplyWithCipher([]byte(body), cipher); err != nil || string(got) != body {
 			t.Fatalf("%s parts = %s / %v", field, got, err)
 		}
 	}
@@ -344,13 +339,13 @@ func TestApplyWithCipherEncryptsModelAuthoredHistory(t *testing.T) {
 			name: "chat assistant",
 			body: `{"messages":[{"role":"assistant","content":"ok","reasoning_details":[{"type":"reasoning.text","text":"alice@example.invalid","signature":"alice@example.invalid"}],` +
 				`"tool_calls":[{"id":"alice@example.invalid","type":"function","function":{"name":"alice@example.invalid","arguments":"{\"to\":\"alice@example.invalid\"}"}}]}]}`,
-			kept: []string{"messages.0.reasoning_details.0.signature", "messages.0.tool_calls.0.id", "messages.0.tool_calls.0.function.name"},
+			kept: []string{"messages.0.reasoning_details.0.text", "messages.0.reasoning_details.0.signature", "messages.0.tool_calls.0.id", "messages.0.tool_calls.0.function.name"},
 		},
 		{
 			name: "claude signed thinking",
 			body: `{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"alice@example.invalid","signature":"sig"},` +
 				`{"type":"tool_use","id":"alice@example.invalid","name":"send","input":{"name":"alice@example.invalid"}}]}]}`,
-			kept: []string{"messages.0.content.1.id"},
+			kept: []string{"messages.0.content.0.thinking", "messages.0.content.1.id"},
 		},
 		{
 			name: "gemini model parts",
@@ -374,5 +369,30 @@ func TestApplyWithCipherEncryptsModelAuthoredHistory(t *testing.T) {
 		if restored, err := cipher.RestoreText(string(got)); err != nil || restored != tc.body {
 			t.Errorf("%s: restored history differs:\n got: %s\nwant: %s", tc.name, restored, tc.body)
 		}
+	}
+}
+
+func TestApplyReplacesModelAuthoredHistory(t *testing.T) {
+	compiled, err := Compile([]Rule{{Pattern: `alice@example\.invalid`, Replacement: "[EMAIL]"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"input":[{"type":"shell_call","call_id":"alice@example.invalid","action":{"commands":["mail alice@example.invalid"]}},` +
+		`{"type":"apply_patch_call","call_id":"c3","operation":{"type":"update_file","path":"a.txt","diff":"+alice@example.invalid"}},` +
+		`{"type":"function_call","call_id":"c4","name":"send","arguments":"{\"to\":\"alice@example.invalid\"}"}]}`
+	got, err := compiled.Apply([]byte(body))
+	if err != nil || !json.Valid(got) {
+		t.Fatalf("Apply() = %s / %v", got, err)
+	}
+	if strings.Count(string(got), "alice@example.invalid") != 1 || gjson.GetBytes(got, "input.0.call_id").Str != "alice@example.invalid" {
+		t.Fatalf("protocol field changed or history was not replaced: %s", got)
+	}
+	for _, path := range []string{"input.0.action.commands.0", "input.1.operation.diff"} {
+		if !strings.Contains(gjson.GetBytes(got, path).Str, "[EMAIL]") {
+			t.Errorf("%s was not replaced: %s", path, got)
+		}
+	}
+	if gjson.Get(gjson.GetBytes(got, "input.2.arguments").Str, "to").Str != "[EMAIL]" {
+		t.Errorf("function arguments were not replaced: %s", got)
 	}
 }
