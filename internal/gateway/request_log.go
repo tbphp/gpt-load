@@ -168,7 +168,8 @@ func (recorder *requestRecorder) emit() {
 func (recorder *requestRecorder) freezeSensitiveInputErrorSummaries() {
 	if recorder == nil ||
 		(recorder.protocol != protocol.OpenAIImages &&
-			recorder.protocol != protocol.OpenAIEmbeddings && recorder.protocol != protocol.Rerank &&
+			recorder.protocol != protocol.OpenAIEmbeddings && recorder.protocol != protocol.GeminiEmbeddings &&
+			recorder.protocol != protocol.Rerank &&
 			recorder.protocol != protocol.Decisions) {
 		return
 	}

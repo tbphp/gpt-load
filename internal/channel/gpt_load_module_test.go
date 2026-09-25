@@ -85,6 +85,10 @@ func TestGPTLoadChannelContract(t *testing.T) {
 			execution.OperationEmbeddingsCreate: RouteNative,
 			execution.OperationProbe:            RouteNative,
 		},
+		protocol.GeminiEmbeddings: {
+			execution.OperationEmbeddingsCreate: RouteNative,
+			execution.OperationProbe:            RouteNative,
+		},
 		protocol.Anthropic: {
 			execution.OperationProbe:          RouteNative,
 			execution.OperationChatCompletion: RouteNative,

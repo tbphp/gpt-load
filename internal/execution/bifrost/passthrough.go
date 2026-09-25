@@ -202,6 +202,16 @@ func sanitizeNativePassthroughRequest(
 		}
 		return bytes.Clone(request.Body), request.Header.Clone(), nil
 	}
+	if spec.ClientProtocol == protocol.GeminiEmbeddings && spec.Operation == execution.OperationEmbeddingsCreate {
+		request, err := dialect.NewGeminiEmbeddings().SanitizeRequestForAttempt(&dialect.ParsedRequest{
+			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,
+			Header: spec.Header.Clone(), Body: spec.Body,
+		}, spec.UpstreamModel)
+		if err != nil {
+			return nil, nil, err
+		}
+		return request.Body, request.Header, nil
+	}
 	body, err := sanitizeNativeRequestBody(spec, stream)
 	if err != nil {
 		return nil, nil, err

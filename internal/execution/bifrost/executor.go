@@ -71,7 +71,7 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 		normalizeEmbeddingsAttemptResult(spec, &result)
 		normalizeRerankAttemptResult(spec, &result)
 		normalizeDecisionsAttemptResult(spec, &result)
-		if r.providerKind(spec) == channel.ProviderMultiProtocolGateway {
+		if r.providerKind(spec) == channel.ProviderMultiProtocolGateway || spec.ClientProtocol == protocol.GeminiEmbeddings {
 			normalizeGatewayProtocolProbeResult(spec, &result)
 		}
 	}()
@@ -488,7 +488,8 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}
 	}
 	convertedImages := mode == channel.RouteConverted && spec.ClientProtocol == protocol.OpenAIImages && providerKind == channel.ProviderGemini
-	if convertedImages || mode == channel.RouteNative && spec.ClientProtocol == protocol.Gemini &&
+	nativeGeminiFamily := spec.ClientProtocol == protocol.Gemini || spec.ClientProtocol == protocol.GeminiEmbeddings
+	if convertedImages || mode == channel.RouteNative && nativeGeminiFamily &&
 		(providerKind == channel.ProviderGemini || providerKind == channel.ProviderGoogleVertex ||
 			providerKind == channel.ProviderMultiProtocolGateway) {
 		safeQuery = removeRawQueryValue(safeQuery, "alt")
@@ -528,6 +529,23 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				embeddingRequest: newEmbeddingProbeRequest(provider, spec.UpstreamModel),
 				typedURL:         typedURL, clientProtocol: spec.ClientProtocol,
 				directKey: directKey, secrets: secrets,
+			}, nil
+		}
+		if spec.ClientProtocol == protocol.GeminiEmbeddings && providerKind == channel.ProviderGemini {
+			return preparedAttempt{
+				provider:         provider,
+				mode:             mode,
+				upstreamProtocol: protocol.GeminiEmbeddings,
+				passthrough: &schemas.BifrostPassthroughRequest{
+					Provider:    provider,
+					Model:       spec.UpstreamModel,
+					Method:      http.MethodPost,
+					Path:        "/models/" + url.PathEscape(spec.UpstreamModel) + ":embedContent",
+					Body:        []byte(geminiEmbeddingsProbeBody),
+					SafeHeaders: map[string]string{"Content-Type": "application/json"},
+				},
+				directKey: directKey,
+				secrets:   secrets,
 			}, nil
 		}
 		if mode == channel.RouteNative && providerKind == channel.ProviderGoogleVertex {
@@ -602,7 +620,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		}
 		return prepared, nil
 	}
-	if spec.Operation == execution.OperationEmbeddingsCreate {
+	if spec.Operation == execution.OperationEmbeddingsCreate && spec.ClientProtocol == protocol.OpenAIEmbeddings {
 		request, conversionErr := buildEmbeddingRequest(spec, provider)
 		if conversionErr != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid Embeddings request body")
@@ -924,11 +942,12 @@ func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtoc
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses ||
 			clientProtocol == protocol.OpenAIImages || clientProtocol == protocol.OpenAIEmbeddings ||
 			(providerKind == channel.ProviderMultiProtocolGateway &&
-				(clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini))
+				(clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini ||
+					clientProtocol == protocol.GeminiEmbeddings))
 	case channel.ProviderAnthropic:
 		return clientProtocol == protocol.Anthropic
 	case channel.ProviderGemini:
-		return clientProtocol == protocol.Gemini
+		return clientProtocol == protocol.Gemini || clientProtocol == protocol.GeminiEmbeddings
 	case channel.ProviderGoogleVertex:
 		return clientProtocol == protocol.Gemini
 	case channel.ProviderOpenRouter:
@@ -966,7 +985,7 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		}
 		switch spec.ClientProtocol {
 		case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.OpenAIEmbeddings, protocol.Rerank, protocol.Decisions,
-			protocol.Anthropic, protocol.Gemini:
+			protocol.Anthropic, protocol.Gemini, protocol.GeminiEmbeddings:
 			return true
 		default:
 			return false
@@ -1016,6 +1035,10 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		return !stream && spec.RouteMode == execution.RouteNative &&
 			spec.Operation == execution.OperationEmbeddingsCreate &&
 			spec.Method == http.MethodPost && spec.Path == "/v1/embeddings"
+	case protocol.GeminiEmbeddings:
+		return !stream && spec.RouteMode == execution.RouteNative &&
+			spec.Operation == execution.OperationEmbeddingsCreate && spec.Method == http.MethodPost &&
+			(validGeminiGeneratePath(spec.Path, "embedContent") || validGeminiGeneratePath(spec.Path, "batchEmbedContents"))
 	case protocol.Anthropic:
 		return spec.Method == http.MethodPost &&
 			((spec.Operation == execution.OperationChatCompletion && spec.Path == "/v1/messages") ||
@@ -1103,7 +1126,7 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible:
 		return spec.Path, nil
 	case channel.ProviderMultiProtocolGateway:
-		if spec.ClientProtocol != protocol.Gemini {
+		if spec.ClientProtocol != protocol.Gemini && spec.ClientProtocol != protocol.GeminiEmbeddings {
 			return spec.Path, nil
 		}
 		if spec.Operation == execution.OperationListModels {

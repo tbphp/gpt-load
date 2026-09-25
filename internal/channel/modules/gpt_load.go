@@ -60,6 +60,8 @@ func GPTLoad() spec.Module {
 				spec.NewRoute(protocol.Gemini, execution.OperationProbe, execution.RouteNative),
 				spec.NewRoute(protocol.Gemini, execution.OperationCountTokens, execution.RouteNative),
 				spec.NewRoute(protocol.Gemini, execution.OperationListModels, execution.RouteNative),
+				spec.NewRoute(protocol.GeminiEmbeddings, execution.OperationEmbeddingsCreate, execution.RouteNative),
+				spec.NewRoute(protocol.GeminiEmbeddings, execution.OperationProbe, execution.RouteNative),
 			},
 		},
 	}

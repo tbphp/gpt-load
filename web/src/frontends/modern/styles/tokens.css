@@ -94,6 +94,7 @@
   --modern-protocol-rerank: light-dark(#a34c70, #eda7c2);
   --modern-protocol-anthropic: light-dark(#aa6132, #eeb38b);
   --modern-protocol-gemini: light-dark(#6154ad, #b9aff2);
+  --modern-protocol-gemini-embeddings: light-dark(#6a7518, #c9d37c);
 
   /* 控件状态：按钮、字段与选择器共用边框、底色和焦点反馈。 */
   --modern-control-border: light-dark(#dcdcd6, #4a4a45);

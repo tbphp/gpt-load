@@ -97,7 +97,7 @@ func (forwarder *ExecutionForwarder) Forward(
 	result := upstreamFromExecutionResult(ctx, input, executionResult)
 	result = forwarder.prepareBufferedResult(input, result)
 	if (input.ClientProtocol == protocol.OpenAIImages ||
-		input.ClientProtocol == protocol.OpenAIEmbeddings || input.ClientProtocol == protocol.Rerank) && input.ObserveUsage &&
+		embeddingsProtocol(input.ClientProtocol) || input.ClientProtocol == protocol.Rerank) && input.ObserveUsage &&
 		result.HasResponse() && result.StatusCode >= http.StatusOK &&
 		result.StatusCode < http.StatusMultipleChoices &&
 		executionResult.Usage == nil && result.Usage.State == usage.StateMissing && forwarder.usageCapture != nil {
@@ -106,7 +106,7 @@ func (forwarder *ExecutionForwarder) Forward(
 			result.ClassificationBody,
 		)
 	}
-	if input.ClientProtocol == protocol.OpenAIEmbeddings && result.Err == nil &&
+	if embeddingsProtocol(input.ClientProtocol) && result.Err == nil &&
 		result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
 		result.ClassificationBody = nil
 	}
@@ -1007,7 +1007,7 @@ func upstreamFromExecutionResult(
 	}
 	upstream.UpstreamProtocol = result.UpstreamProtocol
 	if input.ClientProtocol == protocol.OpenAIImages ||
-		input.ClientProtocol == protocol.OpenAIEmbeddings {
+		embeddingsProtocol(input.ClientProtocol) {
 		// AttemptResult owns Body after the executor returns. Buffered opaque
 		// representations consume it synchronously, so move that ownership across
 		// the internal boundary instead of cloning a large payload twice.

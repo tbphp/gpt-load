@@ -56,7 +56,7 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("unsupported or malformed Content-Encoding")
 	}
 	opaqueRepresentation := input.ClientProtocol == protocol.OpenAIImages ||
-		input.ClientProtocol == protocol.OpenAIEmbeddings || input.ClientProtocol == protocol.Rerank
+		embeddingsProtocol(input.ClientProtocol) || input.ClientProtocol == protocol.Rerank
 	nativeSearch := input.Operation == execution.OperationWebSearch
 	var originalPlain []byte
 	if opaqueRepresentation && encoding == contentcoding.Identity {
@@ -119,7 +119,7 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	downstreamPlain := safePlain
 	if !nativeSearch && needsModelRewrite(input) {
 		rewriteModel := true
-		if input.ClientProtocol == protocol.OpenAIEmbeddings {
+		if embeddingsProtocol(input.ClientProtocol) {
 			if required, valid := embeddingsResponseModelRewriteRequired(
 				safePlain,
 				input.ExternalModel,
@@ -210,7 +210,7 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 	}
 
 	downstream := downstreamPlain
-	if input.ClientProtocol != protocol.OpenAIEmbeddings {
+	if !embeddingsProtocol(input.ClientProtocol) {
 		downstream = bytes.Clone(downstreamPlain)
 	}
 	return preparedSuccessRepresentation{
@@ -768,7 +768,16 @@ func opaqueCredentialLiteralsRemain(
 	if clientProtocol == protocol.OpenAIEmbeddings {
 		return embeddingsCredentialLiteralsRemain(body, secrets)
 	}
+	if clientProtocol == protocol.GeminiEmbeddings {
+		// Gemini 的向量只有数字：只流式扫描字符串值和键，不为向量构建整棵值树。
+		return rerankCredentialLiteralsRemain(body, secrets)
+	}
 	return imagesCredentialLiteralsRemain(body, secrets)
+}
+
+// embeddingsProtocol 标识响应体以大向量为主、需要零拷贝处理的 embedding 协议。
+func embeddingsProtocol(value protocol.Protocol) bool {
+	return value == protocol.OpenAIEmbeddings || value == protocol.GeminiEmbeddings
 }
 
 type embeddingsJSONLocation uint8

@@ -162,6 +162,9 @@ func modelListProtocols(value protocol.Protocol) []protocol.Protocol {
 			protocol.Decisions,
 		}
 	}
+	if value == protocol.Gemini {
+		return []protocol.Protocol{protocol.Gemini, protocol.GeminiEmbeddings}
+	}
 	return []protocol.Protocol{value}
 }
 

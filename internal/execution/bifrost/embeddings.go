@@ -452,7 +452,7 @@ func clearEmbeddingErrorRaw(bifrostError *schemas.BifrostError) {
 }
 
 func normalizeEmbeddingsAttemptResult(spec execution.AttemptSpec, result *execution.AttemptResult) {
-	if result == nil || spec.ClientProtocol != protocol.OpenAIEmbeddings {
+	if result == nil || (spec.ClientProtocol != protocol.OpenAIEmbeddings && spec.ClientProtocol != protocol.GeminiEmbeddings) {
 		return
 	}
 	if result.Error != nil && result.Error.ReplaySafety == "" {
