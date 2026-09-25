@@ -174,6 +174,11 @@ func TestRedactionReviewWebsocketClientError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 请求历史里带着密文时才启用还原。
+	history, err := cipher.EncryptToken("history")
+	if err != nil {
+		t.Fatal(err)
+	}
 	h.forwarder = websocketScriptForwarder{AttemptForwarder: h.forwarder, open: func(_ context.Context, input ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
 		// 还原结果含上游凭据时必须拒绝，用它触发还原失败。
 		token, err := cipher.EncryptToken(input.APIKey)
@@ -195,7 +200,7 @@ func TestRedactionReviewWebsocketClientError(t *testing.T) {
 	defer server.Close()
 	conn := dialGatewayWebsocket(t, server.URL)
 	defer conn.Close()
-	if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "hello", "store": false}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "hello " + history, "store": false}); err != nil {
 		t.Fatal(err)
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {

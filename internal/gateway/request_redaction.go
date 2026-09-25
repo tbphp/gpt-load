@@ -144,3 +144,25 @@ func (handler *Handler) logUnrestoredRedactionTokens(cipher encryption.Redaction
 		"Unrestorable redaction tokens were forwarded unchanged",
 	)
 }
+
+// redactionRestoreMarkers 出现在外发请求里时，上游响应可能带回密文：请求本身带着密文，
+// 或引用了上游保存、客户端看不到原文的上下文（推理密文、签名、previous_response_id 等）。
+var redactionRestoreMarkers = [][]byte{
+	[]byte("gld1_"), []byte(`\u0067ld1_`),
+	[]byte("encrypted_content"), []byte("signature"), []byte("Signature"),
+	[]byte("previous_response_id"), []byte(`"conversation"`),
+}
+
+// redactionMayRestore 判断是否需要还原上游响应。不需要时流式数据收到即转发，不做任何扣留。
+func redactionMayRestore(request *dialect.ParsedRequest) bool {
+	if request == nil || len(request.Body) == 0 {
+		// 检索等没有请求体的请求读取的是上游保存的内容。
+		return true
+	}
+	for _, marker := range redactionRestoreMarkers {
+		if bytes.Contains(request.Body, marker) {
+			return true
+		}
+	}
+	return false
+}

@@ -123,7 +123,7 @@ func TestRedactionBoundaryFailedErrorAfterCommit(t *testing.T) {
 	}
 }
 
-func TestRedactionBoundaryAmbiguousTextTailKeepsEventOrder(t *testing.T) {
+func TestRedactionBoundaryAmbiguousTextTailReleasesToolEventsInOrder(t *testing.T) {
 	cipher := websocketRedactionTestCipher(t)
 	for _, content := range []string{"Checking the file", "Checking the log"} {
 		stream := newRedactionRestoreSSE(protocol.OpenAICompletions, cipher.RestoreText, false)
@@ -151,12 +151,9 @@ func TestRedactionBoundaryAmbiguousTextTailKeepsEventOrder(t *testing.T) {
 				released++
 			}
 		}
-		want := 200
-		if strings.HasSuffix(content, "g") {
-			want = 0
-		}
-		if released != want {
-			t.Fatalf("ordinary tail policy: released=%d want=%d", released, want)
+		// 正文末尾只像密文开头（如 log 的 g）时不再扣住工具调用。
+		if released != 200 {
+			t.Fatalf("ordinary tail policy: released=%d want=200", released)
 		}
 		send(redactionBoundaryChat(t, map[string]any{}, "tool_calls"))
 		if !bytes.Equal(actual, expected) {

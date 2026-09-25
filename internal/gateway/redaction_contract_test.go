@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -51,9 +52,11 @@ func TestRedactionContractInterleavedHeaderEverySplit(t *testing.T) {
 			failed = append(failed, split)
 		}
 	}
+	// 切在 g、gl、gld、gld1 之后的片段在转入工具调用时放行，避免普通文本尾巴扣住工具调用；
+	// 已开始的密文（gld1_ 之后）仍跨工具事件完整还原。
 	t.Logf("unrestored split positions=%v", failed)
-	if len(failed) > 0 {
-		t.Error("tool event discarded a possible ciphertext header")
+	if want := []int{1, 2, 3, 4}; !slices.Equal(failed, want) {
+		t.Errorf("unrestored split positions=%v, want %v", failed, want)
 	}
 }
 

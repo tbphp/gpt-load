@@ -32,13 +32,17 @@ func TestRedactionDeliveryContract(t *testing.T) {
 			t.Fatal(err)
 		}
 		body = []byte(`{"choices":[{"message":{"content":"` + token + `"}}]}`)
+		history, err := keyCipher.EncryptToken("history")
+		if err != nil {
+			t.Fatal(err)
+		}
 		quota := accessquota.NewRuntime()
 		if err := quota.Reconcile(map[uint][]accessquota.Rule{1: {{ID: 103, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10000000000}}}); err != nil {
 			t.Fatal(err)
 		}
 		h.accessQuota = quota
 		h.priceTables = &mutableGatewayPriceTableProvider{table: mustGatewayPriceTable(t, 2000000000, false)}
-		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`))
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"`+history+`"}]}`))
 		req.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, req)

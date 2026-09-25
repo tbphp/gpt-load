@@ -535,6 +535,16 @@ func (stream *redactionRestoreSSE) closeMatching(prefix string) error {
 	return nil
 }
 
+// releaseAmbiguousTail 在转入工具调用时放行只像密文开头的文本尾巴（g、gl、gld、gld1），
+// 避免它扣住后续工具调用；已开始的密文仍保持扣留，正文与工具调用交错输出时也能完整还原。
+func (stream *redactionRestoreSSE) releaseAmbiguousTail(key string) error {
+	state := stream.texts[key]
+	if state == nil || state.token.prefix >= len(redactionStreamPrefix) {
+		return nil
+	}
+	return stream.closeMatching(key)
+}
+
 func redactionStreamIndex(value gjson.Result, fallback int) string {
 	if value.Exists() {
 		return value.Raw
@@ -599,6 +609,11 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 						if err := stream.closeMatching(prefix + name); err != nil {
 							return err
 						}
+					}
+				}
+				if delta.Get("tool_calls").IsArray() || delta.Get("function_call").IsObject() {
+					if err := stream.releaseAmbiguousTail(prefix + "text"); err != nil {
+						return err
 					}
 				}
 				if err := unaryRestoreField(delta, "function_call", func(call gjson.Result) error {
@@ -892,6 +907,11 @@ func (stream *redactionRestoreSSE) gemini(event *redactionStreamEvent, root gjso
 						// 思考不会再续写：答案开始时收尾思考，避免思考末尾的疑似前缀扣住后续答案。
 						if err := stream.closeMatching(prefix + "thought/text"); err != nil {
 							return err
+						}
+						if part.Get("functionCall").Exists() {
+							if err := stream.releaseAmbiguousTail(key + "/text"); err != nil {
+								return err
+							}
 						}
 						if err := unaryRestoreField(part, "text", func(value gjson.Result) error {
 							return stream.addText(event, key+"/text", value)

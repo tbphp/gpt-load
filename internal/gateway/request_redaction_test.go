@@ -288,3 +288,57 @@ func TestLogUnrestoredRedactionTokens(t *testing.T) {
 		t.Fatalf("unrestored token log = %q", line)
 	}
 }
+
+func TestRedactionMayRestore(t *testing.T) {
+	cases := map[string]bool{
+		``:                             true,
+		`{"input":"hello"}`:            false,
+		`{"input":"gld1_44_abc"}`:      true,
+		`{"input":"\u0067ld1_44_abc"}`: true,
+		`{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`:    true,
+		`{"contents":[{"parts":[{"text":"x","thoughtSignature":"s"}]}]}`:   true,
+		`{"messages":[{"content":[{"type":"thinking","signature":"s"}]}]}`: true,
+		`{"previous_response_id":"resp_1","input":"hi"}`:                   true,
+		`{"conversation":"conv_1","input":"hi"}`:                           true,
+	}
+	for body, want := range cases {
+		request := &dialect.ParsedRequest{Body: []byte(body)}
+		if got := redactionMayRestore(request); got != want {
+			t.Errorf("redactionMayRestore(%s) = %v, want %v", body, got, want)
+		}
+	}
+}
+
+func TestRequestRedactionRestoresOnlyWhenCiphertextMayReturn(t *testing.T) {
+	encrypt := []requestredact.Rule{{Pattern: `alice@example\.com`, Mode: requestredact.ModeEncrypt}}
+	cases := []struct {
+		name  string
+		rules []requestredact.Rule
+		body  string
+		want  bool
+	}{
+		{"no rules", nil, `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`, false},
+		{"rule without match", encrypt, `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`, false},
+		{"encrypted content", encrypt, `{"model":"gpt-4o","messages":[{"role":"user","content":"alice@example.com"}]}`, true},
+		{"signed history", nil, `{"model":"gpt-4o","messages":[{"role":"assistant","content":"ok","reasoning_details":[{"type":"reasoning.text","text":"x","signature":"s"}]},{"role":"user","content":"hi"}]}`, true},
+	}
+	for _, tc := range cases {
+		f := &scriptedForwarder{results: []UpstreamResult{auditReply(`{"choices":[]}`)}}
+		h, manager, _ := newHandlerForTest(t, f, "answer-key")
+		if tc.rules != nil {
+			compiled, err := requestredact.Compile(tc.rules)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager.Current().RequestRedaction = compiled
+		}
+		engine := gin.New()
+		bindGatewayRoutesForTest(t, engine, h)
+		if response := sendAuditRequest(engine, tc.body); response.Code != http.StatusOK || len(f.inputs) != 1 {
+			t.Fatalf("%s: status=%d attempts=%d", tc.name, response.Code, len(f.inputs))
+		}
+		if got := f.inputs[0].RedactionCipher != nil; got != tc.want {
+			t.Errorf("%s: restoration enabled = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

@@ -711,3 +711,34 @@ func TestRedactionRestoreSSERestoresAllModelOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactionRestoreSSETextSuffixDoesNotHoldToolCalls(t *testing.T) {
+	cases := []struct {
+		name     string
+		protocol protocol.Protocol
+		text     string
+		tool     string
+	}{
+		{
+			name:     "chat",
+			protocol: protocol.OpenAICompletions,
+			text:     "data: " + `{"choices":[{"index":0,"delta":{"content":"Checking"}}]}` + "\n\n",
+			tool:     "data: " + `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c","type":"function","function":{"name":"f","arguments":"{}"}}]}}]}` + "\n\n",
+		},
+		{
+			name:     "gemini",
+			protocol: protocol.Gemini,
+			text:     "data: " + `{"candidates":[{"index":0,"content":{"parts":[{"text":"Checking"}]}}]}` + "\n\n",
+			tool:     "data: " + `{"candidates":[{"index":0,"content":{"parts":[{"functionCall":{"name":"f","args":{}}}]}}]}` + "\n\n",
+		},
+	}
+	for _, tc := range cases {
+		stream := newRedactionRestoreSSE(tc.protocol, streamTestRestore, false)
+		if got, err := stream.Push([]byte(tc.text)); err != nil || len(got) != 0 {
+			t.Fatalf("%s text suffix = %q / %v", tc.name, got, err)
+		}
+		if got, err := stream.Push([]byte(tc.tool)); err != nil || string(got) != tc.text+tc.tool {
+			t.Fatalf("%s tool call was held behind text suffix: %q / %v", tc.name, got, err)
+		}
+	}
+}
