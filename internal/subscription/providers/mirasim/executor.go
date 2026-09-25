@@ -239,6 +239,9 @@ func normalizeBody(body []byte, model string, stream bool, wire sdktranslator.Fo
 	payload["model"] = model
 	if wire == sdktranslator.FormatClaude {
 		payload["stream"] = stream
+		if strings.HasPrefix(strings.ToLower(model), "claude-") {
+			ensureClaudeBillingHeader(payload)
+		}
 	} else {
 		payload["stream"] = true
 	}
@@ -247,6 +250,63 @@ func normalizeBody(body []byte, model string, stream bool, wire sdktranslator.Fo
 		return nil, fmt.Errorf("encode translated Mirasim request: %w", err)
 	}
 	return updated, nil
+}
+
+// claudeBillingHeaderText is the marker Mirasim's Claude Messages route requires
+// as the first system block. Claude Code sends it itself. Other clients do not,
+// and the relay then rejects the whole request as invalid before looking at the
+// prompt. The version is not checked; the entrypoint field is.
+const claudeBillingHeaderText = "x-anthropic-billing-header: cc_version=0.0.0; cc_entrypoint=sdk-cli;"
+
+func ensureClaudeBillingHeader(payload map[string]any) {
+	if claudeBillingHeaderPresent(payload["system"]) {
+		return
+	}
+	block := map[string]any{"type": "text", "text": claudeBillingHeaderText}
+	switch system := payload["system"].(type) {
+	case nil:
+		payload["system"] = []any{block}
+	case string:
+		blocks := []any{block}
+		if strings.TrimSpace(system) != "" {
+			blocks = append(blocks, map[string]any{"type": "text", "text": system})
+		}
+		payload["system"] = blocks
+	case []any:
+		payload["system"] = append([]any{block}, system...)
+	default:
+		payload["system"] = []any{block, system}
+	}
+}
+
+func claudeBillingHeaderPresent(system any) bool {
+	switch value := system.(type) {
+	case string:
+		return isClaudeBillingHeader(value)
+	case []any:
+		if len(value) == 0 {
+			return false
+		}
+		return blockHasClaudeBillingHeader(value[0])
+	default:
+		return false
+	}
+}
+
+func blockHasClaudeBillingHeader(block any) bool {
+	switch value := block.(type) {
+	case string:
+		return isClaudeBillingHeader(value)
+	case map[string]any:
+		text, _ := value["text"].(string)
+		return isClaudeBillingHeader(text)
+	default:
+		return false
+	}
+}
+
+func isClaudeBillingHeader(text string) bool {
+	return strings.Contains(text, "x-anthropic-billing-header:") && strings.Contains(text, "cc_entrypoint=")
 }
 
 func requestHeaders(source http.Header, wire sdktranslator.Format) http.Header {
