@@ -53,6 +53,19 @@ func TestInjectCapturePinsAndDetectsRotation(t *testing.T) {
 	}
 }
 
+func TestInjectSetsRelayKeyWithoutPin(t *testing.T) {
+	t.Parallel()
+	store := NewStore("", nil, Config{Enabled: true, RelayURL: "https://relay.example", RelayKey: "relay-secret"})
+	headers := make(http.Header)
+	store.Inject(t.Context(), 4, "gpt-6-astra", headers)
+	if headers.Get("X-Relay-Key") != "relay-secret" {
+		t.Fatalf("X-Relay-Key = %q", headers.Get("X-Relay-Key"))
+	}
+	if headers.Get("Cookie") != "" {
+		t.Fatalf("Cookie = %q", headers.Get("Cookie"))
+	}
+}
+
 func TestStatusOmitsCookieValues(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)

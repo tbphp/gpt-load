@@ -22,6 +22,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codexrouting"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/gateway"
@@ -432,6 +433,27 @@ func TestAdapterPassesCustomCodexBaseURLToUnaryAndStreamExecutors(t *testing.T) 
 				t.Fatalf("calls/request = %d/%#v", fake.calls, fake.request)
 			}
 		})
+	}
+}
+
+func TestAdapterUsesCodexRelayBaseURL(t *testing.T) {
+	t.Parallel()
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	fake := &fakeExecutor{result: codex.ExecuteResponse{Payload: []byte(`{"id":"resp_1","model":"gpt-6-astra","output":[]}`)}}
+	setCodexExecutor(t, adapter, fake)
+	adapter.SetCodexRouting(codexrouting.NewStore("", nil, codexrouting.Config{
+		Enabled: true, RelayURL: "https://chatgptrelay-kr.example", RelayKey: "relay-secret",
+	}))
+	spec := validSpec(t, row, keyService)
+	result := adapter.Execute(t.Context(), spec)
+	if result.Error != nil {
+		t.Fatalf("Execute() error = %#v", result.Error)
+	}
+	if fake.request.BaseURL != "https://chatgptrelay-kr.example" {
+		t.Fatalf("BaseURL = %q", fake.request.BaseURL)
+	}
+	if fake.request.Headers.Get("X-Relay-Key") != "relay-secret" {
+		t.Fatalf("X-Relay-Key = %q", fake.request.Headers.Get("X-Relay-Key"))
 	}
 }
 

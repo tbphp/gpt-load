@@ -55,6 +55,9 @@ func applyCodexRoutingWireHeaders(dst, source http.Header) {
 	if turnState := strings.TrimSpace(source.Get("X-Codex-Turn-State")); turnState != "" {
 		dst.Set("X-Codex-Turn-State", turnState)
 	}
+	if relayKey := strings.TrimSpace(source.Get("X-Relay-Key")); relayKey != "" {
+		dst.Set("X-Relay-Key", relayKey)
+	}
 }
 
 func normalizedCodexHeaders(headers http.Header) http.Header {
