@@ -23,7 +23,6 @@ type ID = spec.ID
 const (
 	OpenAI           = spec.OpenAI
 	Codex            = spec.Codex
-	ChatGPT          = spec.ChatGPT
 	Claude           = spec.Claude
 	Antigravity      = spec.Antigravity
 	Grok             = spec.Grok
@@ -204,7 +203,6 @@ type ProviderKind = spec.ProviderKind
 const (
 	ProviderOpenAI               = spec.ProviderOpenAI
 	ProviderCodex                = spec.ProviderCodex
-	ProviderChatGPT              = spec.ProviderChatGPT
 	ProviderClaude               = spec.ProviderClaude
 	ProviderAntigravity          = spec.ProviderAntigravity
 	ProviderGrok                 = spec.ProviderGrok

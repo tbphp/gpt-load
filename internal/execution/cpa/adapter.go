@@ -80,7 +80,6 @@ func NewAdapter(credentials *subscription.CredentialManager, channels *channel.R
 		channels:    channels,
 		providers: indexProviderBridges(
 			newCodexProviderBridge(),
-			newChatGPTProviderBridge(),
 			newClaudeProviderBridge(),
 			newAntigravityProviderBridge(),
 			newGrokProviderBridge(),

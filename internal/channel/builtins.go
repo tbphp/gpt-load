@@ -11,7 +11,6 @@ func builtInModules() []spec.Module {
 	return []spec.Module{
 		modules.OpenAI(),
 		modules.Codex(),
-		modules.ChatGPT(),
 		modules.Claude(),
 		modules.Antigravity(),
 		modules.Grok(),

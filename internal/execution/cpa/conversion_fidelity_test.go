@@ -23,7 +23,7 @@ import (
 
 func TestAdapterRejectsOnlyLossyMidConversationInstructions(t *testing.T) {
 	t.Parallel()
-	for _, channelID := range []channel.ID{channel.Codex, channel.ChatGPT, channel.Grok, channel.Claude, channel.Antigravity} {
+	for _, channelID := range []channel.ID{channel.Codex, channel.Grok, channel.Claude, channel.Antigravity} {
 		for _, clientProtocol := range []protocol.Protocol{protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic} {
 			for _, role := range []string{"system", "developer", "user"} {
 				for _, stream := range []bool{false, true} {
@@ -95,7 +95,7 @@ func TestAdapterRejectsOnlyLossyMidConversationInstructions(t *testing.T) {
 }
 
 func TestAdapterPreservesAnthropicInstructionsOnResponsesTargets(t *testing.T) {
-	for _, channelID := range []channel.ID{channel.Codex, channel.ChatGPT, channel.Grok} {
+	for _, channelID := range []channel.ID{channel.Codex, channel.Grok} {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/stream=%t", channelID, stream), func(t *testing.T) {
 				model := "gpt-5.6-luna"
@@ -185,22 +185,10 @@ func TestAdapterPreservesAnthropicInstructionsOnResponsesTargets(t *testing.T) {
 					order = append(order, role)
 				}
 				wantOrder := []string{"developer", "developer", "user", "assistant", "developer", "developer", "user", "function_call", "developer", "function_call_output", "user"}
-				if channelID == channel.ChatGPT {
-					wantOrder = append([]string{"developer"}, wantOrder...)
-				}
 				if !reflect.DeepEqual(order, wantOrder) {
 					t.Fatalf("upstream message order = %v, want %v", order, wantOrder)
 				}
 				offset := 0
-				if channelID == channel.ChatGPT {
-					offset = 1
-					if got := gjson.GetBytes(wire, "input.0.content.0.text").String(); !strings.Contains(got, "run_officejs") {
-						t.Errorf("chatgpt tool catalog = %q", got)
-					}
-					if gjson.GetBytes(wire, "tools").Exists() {
-						t.Fatal("chatgpt leaked client tools to basispoints")
-					}
-				}
 				for path, want := range map[string]string{
 					fmt.Sprintf("input.%d.content.0.text", offset):    "GLOBAL",
 					fmt.Sprintf("input.%d.content.0.text", offset+1):  "PREFIX",
@@ -231,7 +219,6 @@ func TestAdapterTokenCountPreservesAnthropicInstructions(t *testing.T) {
 		model   string
 	}{
 		{channel.Codex, "gpt-5.6-luna"},
-		{channel.ChatGPT, "gpt-5.6-luna"},
 		{channel.Grok, "grok-4.3"},
 	} {
 		for _, input := range []struct {

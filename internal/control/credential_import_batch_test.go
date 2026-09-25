@@ -118,25 +118,6 @@ func TestCredentialImportBatchRejectsInvalidContainerBeforeStaging(t *testing.T)
 	}
 }
 
-func TestOriginalCredentialImportAcceptsNativeCodexForChatGPT(t *testing.T) {
-	t.Parallel()
-	fixture := newServiceFixture(t)
-	server := NewServer(&config.Config{AuthKey: "batch-test-auth"}, fixture.service)
-	engine := gin.New()
-	server.RegisterRoutes(engine)
-	raw := `{"auth_mode":"chatgpt","tokens":{"access_token":"native-access","refresh_token":"native-refresh","account_id":"native-account"}}`
-	response := serveCredentialImportBatch(t, engine, "/api/credential-stages/import", "chatgpt", raw, "")
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s, want 200", response.Code, response.Body.String())
-	}
-	var result struct {
-		Data CredentialStageResult `json:"data"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.Data.StageID == "" {
-		t.Fatalf("singular stage response missing: %v body=%s", err, response.Body.String())
-	}
-}
-
 func TestOriginalCredentialImportAcceptsNativeCodexAndKeepsSingularResponse(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
