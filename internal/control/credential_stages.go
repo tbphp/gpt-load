@@ -26,7 +26,7 @@ import (
 const (
 	credentialStageReadyTTL     = 30 * time.Minute
 	credentialStageAuthTTL      = 5 * time.Minute
-	credentialStageDeviceMaxTTL = 30 * time.Minute
+	credentialStageAuthMaxTTL   = 30 * time.Minute
 	credentialStageTombstoneTTL = 24 * time.Hour
 	maxCredentialStageIDs       = 1000
 	maxOAuthFileBytes           = 64 * 1024
@@ -621,7 +621,7 @@ func (s *Service) beginBrowserCredentialAuthorization(
 		return CredentialStageResult{}, app_errors.ErrInternalServer
 	}
 	now := s.now().UTC()
-	expiresAt := now.Add(credentialStageAuthTTL)
+	expiresAt := browserStageExpiry(now, authorization.ExpiresAt)
 	row := models.CredentialStage{
 		ID: stageID, ChannelID: string(channelID),
 		ConnectionType:      models.ConnectionTypeSubscription,
@@ -639,6 +639,20 @@ func (s *Service) beginBrowserCredentialAuthorization(
 		RedirectURI:      authorization.RedirectURI,
 		Account:          CredentialStageAccount{}, ExpiresAtMS: row.ExpiresAtMS,
 	}, nil
+}
+
+// browserStageExpiry keeps a pending browser authorization alive for at least
+// the default window and honours a longer window declared by the driver, capped
+// so a faulty driver cannot pin a pending stage indefinitely.
+func browserStageExpiry(now time.Time, declared time.Time) time.Time {
+	expiresAt := now.Add(credentialStageAuthTTL)
+	if declared.After(expiresAt) {
+		expiresAt = declared
+	}
+	if limit := now.Add(credentialStageAuthMaxTTL); expiresAt.After(limit) {
+		expiresAt = limit
+	}
+	return expiresAt.UTC()
 }
 
 func (s *Service) beginDeviceCredentialAuthorization(
@@ -666,7 +680,7 @@ func (s *Service) beginDeviceCredentialAuthorization(
 		len(verificationURL) > maxDeviceAuthorizationURL || !validDeviceAuthorizationCode(userCode) ||
 		len(authorization.DriverState) == 0 || len(authorization.DriverState) > maxOAuthFileBytes ||
 		!intervalOK || !authorization.ExpiresAt.After(now) ||
-		authorization.ExpiresAt.After(now.Add(credentialStageDeviceMaxTTL)) {
+		authorization.ExpiresAt.After(now.Add(credentialStageAuthMaxTTL)) {
 		return CredentialStageResult{}, app_errors.ErrAuthorizationUnavailable
 	}
 	nextPollAtMS := now.Add(pollInterval).UnixMilli()
