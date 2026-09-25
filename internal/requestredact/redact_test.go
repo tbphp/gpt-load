@@ -8,16 +8,17 @@ import (
 	"testing"
 )
 
-func TestRedactionPreservesOpaqueBlocksAndRejectsSignedTextMutation(t *testing.T) {
+func TestRedactionPreservesOpaqueBlocksAndSignedText(t *testing.T) {
 	c, _ := Compile([]Rule{{Pattern: "private", Replacement: "[VALUE]"}})
 	image := []byte(`{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","data":"private"}}]}]}`)
 	got, err := c.Apply(image)
 	if err != nil || !bytes.Equal(image, got) {
 		t.Fatal("binary content changed")
 	}
-	_, err = c.Apply([]byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"private","signature":"signed"}]}]}`))
-	if !errors.Is(err, ErrContent) {
-		t.Fatal("signed text was silently corrupted")
+	// 带签名的思考由上游生成，没有还原记录时原样发回，避免签名失效。
+	signed := []byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"private","signature":"signed"}]}]}`)
+	if got, err := c.Apply(signed); err != nil || !bytes.Equal(got, signed) {
+		t.Fatalf("signed text changed: %s / %v", got, err)
 	}
 }
 

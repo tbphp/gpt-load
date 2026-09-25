@@ -174,15 +174,21 @@ func TestRedactionReviewWebsocketClientError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := cipher.EncryptToken("synthetic")
+	// 请求历史里带着密文时才启用还原。
+	history, err := cipher.EncryptToken("history")
 	if err != nil {
 		t.Fatal(err)
 	}
-	damaged := token[:len(token)-1] + "!"
-	h.forwarder = websocketScriptForwarder{AttemptForwarder: h.forwarder, open: func(_ context.Context, _ ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
+	h.forwarder = websocketScriptForwarder{AttemptForwarder: h.forwarder, open: func(_ context.Context, input ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
+		// 还原结果含上游凭据时必须拒绝，用它触发还原失败。
+		token, err := cipher.EncryptToken(input.APIKey)
+		if err != nil || input.APIKey == "" {
+			t.Error("missing synthetic credential")
+			return nil, execution.WebsocketResult{}
+		}
 		session := &websocketScriptSession{done: make(chan struct{})}
 		session.turn = func(ctx context.Context, _ []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
-			if err := emit(ctx, websocketRedactionEvent(t, "response.output_text.delta", "", "delta", damaged)); err != nil {
+			if err := emit(ctx, websocketRedactionEvent(t, "response.output_text.delta", "", "delta", token)); err != nil {
 				return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent, Error: &execution.ErrorEvidence{Kind: execution.ErrorKindInternal}}
 			}
 			return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent}
@@ -194,7 +200,7 @@ func TestRedactionReviewWebsocketClientError(t *testing.T) {
 	defer server.Close()
 	conn := dialGatewayWebsocket(t, server.URL)
 	defer conn.Close()
-	if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "hello", "store": false}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "hello " + history, "store": false}); err != nil {
 		t.Fatal(err)
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {

@@ -161,6 +161,7 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		}
 		downstreamPlain, err = restoreUnaryBusinessFields(
 			downstreamPlain, input.ClientProtocol, input.RedactionCipher.RestoreText, structuredOutput,
+			newRedactionSigner(input.RedactionCipher),
 		)
 		if err != nil || int64(len(downstreamPlain)) > bodyLimit || credentialLiteralsRemain(downstreamPlain, restorationCredentialSecrets(input)) {
 			return preparedSuccessRepresentation{}, errUnaryRestore

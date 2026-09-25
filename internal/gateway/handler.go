@@ -893,6 +893,7 @@ func (handler *Handler) executeAttempts(
 			handler.completeReason(ginContext, recorder, reasonRedactionFailed)
 			return
 		}
+		defer handler.logUnrestoredRedactionTokens(redactionCipher, recorder.requestID)
 	}
 	type deferredAttempt struct {
 		result        UpstreamResult
@@ -1252,9 +1253,13 @@ func (handler *Handler) executeAttempts(
 		if recorder != nil && recorder.requestID != "" {
 			executionRequestID = recorder.requestID
 		}
+		restoreCipher := redactionCipher
+		if !redactionMayRestore(prepared.request, snapshot.RequestRedaction.Reversible()) {
+			restoreCipher = nil
+		}
 		input := ForwardInput{
 			Dialect: selectedDialect, ObserveUsage: attemptObservations.ObserveUsage,
-			RedactionCipher: redactionCipher,
+			RedactionCipher: restoreCipher,
 			Group:           selection.Group, APIKey: normalizedCredential.apiKey,
 			CredentialSecrets: normalizedCredential.secrets, Request: prepared.request,
 			ExternalModel:            externalModel,

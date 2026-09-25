@@ -224,6 +224,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	if input.RedactionCipher != nil && redactionBusinessProtocol(input.ClientProtocol) {
 		structured := input.Request != nil && requestDeclaresJSONOutput(input.ClientProtocol, input.Request.Body)
 		redactionRestore = newRedactionRestoreSSE(input.ClientProtocol, credentialSafeRestore(input.RedactionCipher.RestoreText, restorationCredentialSecrets(input)), structured)
+		redactionRestore.signer = newRedactionSigner(input.RedactionCipher)
 	}
 
 	var (

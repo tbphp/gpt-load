@@ -16,18 +16,33 @@ import (
 func TestRedactionDeliveryContract(t *testing.T) {
 	c := websocketRedactionTestCipher(t)
 	t.Run("usage-handler-log", func(t *testing.T) {
+		var body []byte
 		executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
-			return execution.AttemptResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true, StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"choices":[{"message":{"content":"gld1_3_abc"}}]}`), Usage: &execution.UsageEvidence{Normalized: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 1000000, Output: 20}}}}
+			return execution.AttemptResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true, StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: body, Usage: &execution.UsageEvidence{Normalized: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 1000000, Output: 20}}}}
 		}}
 		sink := &recordingRequestLogSink{}
 		engine, h, _, _ := newRequestLogHandlerTestRuntime(t, NewExecutionForwarder(executor), &recordingAccessKeyRPMLimiter{}, sink, "sk-synthetic-usage")
+		// 还原结果含上游凭据时必须拒绝，用它触发还原失败。
+		keyCipher, err := h.encryption.NewRedactionCipher(1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		token, err := keyCipher.EncryptToken("sk-synthetic-usage")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = []byte(`{"choices":[{"message":{"content":"` + token + `"}}]}`)
+		history, err := keyCipher.EncryptToken("history")
+		if err != nil {
+			t.Fatal(err)
+		}
 		quota := accessquota.NewRuntime()
 		if err := quota.Reconcile(map[uint][]accessquota.Rule{1: {{ID: 103, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10000000000}}}); err != nil {
 			t.Fatal(err)
 		}
 		h.accessQuota = quota
 		h.priceTables = &mutableGatewayPriceTableProvider{table: mustGatewayPriceTable(t, 2000000000, false)}
-		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`))
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"`+history+`"}]}`))
 		req.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, req)

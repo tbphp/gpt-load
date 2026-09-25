@@ -146,6 +146,19 @@ func (c *Compiled) Rules() []Rule {
 
 func (c *Compiled) Empty() bool { return c == nil || len(c.rules) == 0 }
 
+// Reversible 报告是否配置了可逆加密规则；没有时上游不会拿到新的密文。
+func (c *Compiled) Reversible() bool {
+	if c == nil {
+		return false
+	}
+	for _, rule := range c.rules {
+		if rule.Mode == ModeEncrypt {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Compiled) TextWithCipher(value string, cipher TokenCipher) (string, error) {
 	return c.textWithCipher(value, cipher, false)
 }
@@ -338,6 +351,31 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 	return out.String(), nil
 }
 
+// ProtocolField 报告字段是否是协议标识或不透明数据。请求加密上游生成的历史内容、
+// 响应还原上游输出时都跳过这些字段，保证凡是还原过的内容回到请求里都能加密回去。
+func ProtocolField(key string) bool {
+	switch key {
+	case "id", "type", "role", "name", "status", "model", "modelVersion", "object", "metadata",
+		"signature", "thoughtSignature", "thought_signature", "encrypted_content",
+		"data", "b64_json", "result", "url", "image_url", "audio_url", "file_url",
+		"file_data", "fileData", "inline_data", "inlineData", "mime_type", "mimeType",
+		"encrypted_index", "format":
+		return true
+	}
+	return strings.HasSuffix(key, "_id") || strings.HasSuffix(key, "Id")
+}
+
+// modelAuthored 识别上游生成、随历史回传的内容：助手/模型角色的消息，
+// 以及 Responses 的推理项和各类工具调用项（*_call，不含 *_call_output）。
+func modelAuthored(v gjson.Result) bool {
+	switch v.Get("role").Str {
+	case "assistant", "model":
+		return true
+	}
+	kind := v.Get("type").Str
+	return kind == "reasoning" || strings.HasSuffix(kind, "_call")
+}
+
 type patch struct {
 	start, end int
 	value      []byte
@@ -365,8 +403,12 @@ func (c *Compiled) ApplyDecisionsWithCipher(body []byte, cipher TokenCipher) ([]
 
 // apply 只拼接发生变化的 JSON 字符串；保留未命中字节、属性和消息顺序。
 func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCount *int, cipher TokenCipher) ([]byte, error) {
-	if c.Empty() || len(bytes.TrimSpace(body)) == 0 {
+	// 没有规则时仍要拆掉网关包装过的签名，否则上游收到的不是它自己的签名。
+	if len(bytes.TrimSpace(body)) == 0 || (c.Empty() && !HasSignatureRecord(body)) {
 		return body, nil
+	}
+	if c == nil {
+		c = &Compiled{}
 	}
 	if depth > 64 {
 		return nil, ErrContent
@@ -399,8 +441,49 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 		}
 		return addPatch(patch{value.Index, value.Index + len(value.Raw), encoded})
 	}
+	// 上游生成、随历史回传的内容（助手消息、推理与各类工具调用）按字段整体加密，
+	// 与响应侧整体还原对应，只跳过协议字段。
+	inModel := false
+	// inSigned 表示正在按普通上游内容处理客户端改动过的签名内容，内部不再识别签名。
+	inSigned := false
 	var walk func(gjson.Result, bool, bool, int, bool) error
 	var toolResult func(gjson.Result, int) error
+	// 签名内容由上游生成，必须逐字节还给上游：签名块与记录完全一致时按位置换回上游原文和原签名；
+	// 普通签名说明网关没有往里还原过内容，原样发回；有任何改动、新增或签名之后才到的内容时，
+	// 按普通上游内容加密，保证明文不外泄，并换回原签名。
+	signed := func(v, signature gjson.Result, signaturePath []any, content bool, depth int, questions bool) error {
+		record, wrapped := unwrapSignature(signature.Str)
+		if !wrapped {
+			return nil
+		}
+		var restored []signedRestore
+		exact := false
+		if record != nil {
+			restored, exact = restoreSignedBlock(v, signaturePath, record)
+			encoded, err := json.Marshal(record.Signature)
+			if err != nil {
+				return err
+			}
+			if err := addPatch(patch{signature.Index, signature.Index + len(signature.Raw), encoded}); err != nil {
+				return err
+			}
+		}
+		if exact {
+			for _, item := range restored {
+				encoded, err := json.Marshal(item.text)
+				if err != nil {
+					return err
+				}
+				if err := addPatch(patch{item.value.Index, item.value.Index + len(item.value.Raw), encoded}); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		inSigned = true
+		defer func() { inSigned = false }()
+		return walk(v, content, false, depth, questions)
+	}
 	toolResult = func(value gjson.Result, depth int) error {
 		if depth > 64 {
 			return ErrContent
@@ -463,16 +546,27 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 		}
 		if !data {
 			switch v.Get("type").Str {
-			case "image", "image_url", "input_image", "input_audio", "audio", "video", "input_video", "file", "input_file", "document", "redacted_thinking":
+			case "image", "image_url", "input_image", "input_audio", "audio", "video", "input_video", "file", "input_file", "redacted_thinking":
 				return nil
 			}
 		}
-		start := len(patches)
+		if !data && inModel && !inSigned && v.IsObject() {
+			if signature, path, found := signaturePosition(v); found {
+				return signed(v, signature, path, content, depth, questions)
+			}
+		}
+		if !data && !inModel && v.IsObject() && modelAuthored(v) {
+			inModel = true
+			defer func() { inModel = false }()
+		}
 		var failure error
 		v.ForEach(func(k, child gjson.Result) bool {
 			if v.IsArray() || data {
 				failure = walk(child, content, data, depth+1, questions)
 				return failure == nil
+			}
+			if inModel && ProtocolField(k.Str) {
+				return true
 			}
 			switch k.Str {
 			case "questions":
@@ -483,8 +577,23 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			case "criteria":
 				isDecisionsContent := questions && depth == 2
 				failure = walk(child, isDecisionsContent, isDecisionsContent, depth+1, questions)
-			case "cache_control", "metadata", "signature", "thoughtSignature", "thought_signature", "encrypted_content", "image_url", "audio_url", "file_url", "inlineData", "inline_data", "fileData", "file_data", "source":
+			case "cache_control", "metadata", "signature", "thoughtSignature", "thought_signature", "encrypted_content", "image_url", "audio_url", "file_url", "inlineData", "inline_data", "fileData", "file_data":
 				return true
+			case "source":
+				// 文档只处理纯文本来源的正文；base64、URL、文件等来源保持不变。
+				if v.Get("type").Str != "document" {
+					return true
+				}
+				if kind := child.Get("type").Str; kind == "text" || kind == "content" {
+					child.ForEach(func(key, value gjson.Result) bool {
+						if key.Str == "data" || key.Str == "content" {
+							failure = walk(value, true, false, depth+2, questions)
+						}
+						return failure == nil
+					})
+				}
+			case "context":
+				failure = walk(child, inModel || v.Get("type").Str == "document", false, depth+1, questions)
 			case "arguments":
 				if child.Type == gjson.String && json.Valid([]byte(child.Str)) {
 					failure = rewriteEmbedded(child, depth)
@@ -509,20 +618,29 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				} else {
 					failure = walk(child, true, false, depth+1, questions)
 				}
-			case "text", "system", "system_instruction", "systemInstruction", "instructions", "prompt", "query", "thinking", "summary", "code", "refusal", "description", "title", "documents", "texts":
+			case "prompt":
+				if !child.IsObject() {
+					failure = walk(child, true, false, depth+1, questions)
+					break
+				}
+				// Responses 提示词模板：变量值按正文处理，id、version 等引用字段保持不变。
+				child.ForEach(func(key, variables gjson.Result) bool {
+					if key.Str == "variables" {
+						variables.ForEach(func(_, value gjson.Result) bool {
+							failure = walk(value, true, false, depth+3, questions)
+							return failure == nil
+						})
+					}
+					return failure == nil
+				})
+			case "text", "system", "system_instruction", "systemInstruction", "instructions", "query", "thinking", "reasoning", "reasoning_content", "summary", "code", "refusal", "description", "title", "documents", "texts":
 				failure = walk(child, true, questions && depth == 2 && k.Str == "instructions", depth+1, questions)
 			default:
-				failure = walk(child, false, false, depth+1, questions)
+				failure = walk(child, inModel, false, depth+1, questions)
 			}
 			return failure == nil
 		})
-		if failure != nil {
-			return failure
-		}
-		if !data && len(patches) > start && (v.Get("signature").Str != "" || v.Get("thoughtSignature").Str != "" || v.Get("thought_signature").Str != "") {
-			return ErrContent
-		}
-		return nil
+		return failure
 	}
 	if err := walk(gjson.ParseBytes(body), false, data, depth, false); err != nil {
 		return nil, err
@@ -530,6 +648,8 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 	if len(patches) == 0 {
 		return body, nil
 	}
+	// 签名内容的补丁不一定按正文顺序产生；排序后重叠仍会被拒绝。
+	sort.SliceStable(patches, func(i, j int) bool { return patches[i].start < patches[j].start })
 	var out bytes.Buffer
 	pos := 0
 	for _, p := range patches {

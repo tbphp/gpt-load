@@ -51,8 +51,8 @@ func TestRedactionCipherStableAndIsolated(t *testing.T) {
 		if _, valid := cipher.ValidTokenAt(token, 0); valid {
 			t.Fatal("token authenticated under another AccessKey or master key")
 		}
-		if _, err := cipher.RestoreText(token); err == nil {
-			t.Fatal("RestoreText() accepted a token from another AccessKey or master key")
+		if got, err := cipher.RestoreText(token); err != nil || got != token {
+			t.Fatalf("RestoreText() restored a token from another AccessKey or master key: %q, %v", got, err)
 		}
 	}
 }
@@ -82,7 +82,7 @@ func TestRedactionCipherRestoresOnceAndPreservesBytes(t *testing.T) {
 	}
 }
 
-func TestRedactionCipherRejectsDamagedCandidates(t *testing.T) {
+func TestRedactionCipherKeepsDamagedCandidates(t *testing.T) {
 	cipher := newTestRedactionCipher(t, "tamper-master-key", 8)
 	token, err := cipher.EncryptToken("alice@example.com")
 	if err != nil {
@@ -111,9 +111,29 @@ func TestRedactionCipherRejectsDamagedCandidates(t *testing.T) {
 		if _, valid := cipher.ValidTokenAt(damaged, 0); valid {
 			t.Fatalf("damaged token accepted: %q", damaged)
 		}
-		if _, err := cipher.RestoreText("prefix " + damaged + " suffix"); err == nil {
-			t.Fatalf("damaged token passed through: %q", damaged)
+		text := "prefix " + damaged + " suffix"
+		if got, err := cipher.RestoreText(text); err != nil || got != text {
+			t.Fatalf("damaged token was not kept unchanged: %q -> %q, %v", damaged, got, err)
 		}
+	}
+	if got := cipher.UnrestoredTokens(); got != int64(len(cases)) {
+		t.Fatalf("UnrestoredTokens() = %d, want %d", got, len(cases))
+	}
+}
+
+func TestRedactionCipherRestoresValidTokenAfterDamagedCandidate(t *testing.T) {
+	cipher := newTestRedactionCipher(t, "partial-master-key", 5)
+	token, err := cipher.EncryptToken("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	damaged := token[:len(token)-1]
+	got, err := cipher.RestoreText(damaged + " " + token + " gld1_0_" + token)
+	if want := damaged + " alice@example.com gld1_0_alice@example.com"; err != nil || got != want {
+		t.Fatalf("RestoreText() = %q, %v; want %q", got, err, want)
+	}
+	if got := cipher.UnrestoredTokens(); got != 2 {
+		t.Fatalf("UnrestoredTokens() = %d, want 2", got)
 	}
 }
 

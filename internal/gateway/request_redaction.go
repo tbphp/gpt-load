@@ -7,9 +7,12 @@ import (
 	"mime/multipart"
 	"net/http"
 
+	"github.com/sirupsen/logrus"
+
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpheader"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestredact"
 )
@@ -27,7 +30,8 @@ func redactionBusinessProtocol(value protocol.Protocol) bool {
 
 // 每次从本次请求的原始内容构造外发副本，缓存副本可复用于同组重试。
 func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Protocol, request *dialect.ParsedRequest, cipher ...encryption.RedactionCipher) (*dialect.ParsedRequest, error) {
-	if c.Empty() || request == nil || len(request.Body) == 0 {
+	// 没有规则时仍要拆掉网关包装过的签名，否则上游收到的不是它自己的签名。
+	if request == nil || len(request.Body) == 0 || (c.Empty() && !requestredact.HasSignatureRecord(request.Body)) {
 		return request, nil
 	}
 	var body []byte
@@ -122,4 +126,55 @@ func redactMultipart(c *requestredact.Compiled, body []byte, boundary string, ci
 		return body, nil
 	}
 	return out.Bytes(), nil
+}
+
+// logUnrestoredRedactionTokens 记录按原文放行的无法认证密文，便于评估模型抄写密文的可靠性。
+func (handler *Handler) logUnrestoredRedactionTokens(cipher encryption.RedactionCipher, requestID string) {
+	if cipher == nil {
+		return
+	}
+	occurrences := cipher.UnrestoredTokens()
+	if occurrences == 0 {
+		return
+	}
+	utils.LogPlaneBestEffort(
+		handler.logger,
+		logrus.WarnLevel,
+		utils.LogPlaneData,
+		logrus.Fields{"request_id": requestID, "occurrences": occurrences},
+		"Unrestorable redaction tokens were forwarded unchanged",
+	)
+}
+
+// redactionTokenMarkers 出现在外发请求里时，上游看到了密文，响应可能原样带回。
+var redactionTokenMarkers = [][]byte{[]byte("gld1_"), []byte(`\u0067ld1_`)}
+
+// redactionContextMarkers 表示请求引用了上游保存、客户端看不到原文的上下文
+// （推理密文、签名、previous_response_id、缓存内容、代码执行容器等），其中可能带着以前加密过的内容。
+var redactionContextMarkers = [][]byte{
+	[]byte("encrypted_content"), []byte("signature"), []byte("Signature"),
+	[]byte("previous_response_id"), []byte(`"conversation"`),
+	[]byte(`"cachedContent"`), []byte(`"cached_content"`), []byte(`"container"`), []byte(`"container_id"`),
+}
+
+// redactionMayRestore 判断是否需要还原上游响应。不需要时流式数据收到即转发，不做任何扣留。
+func redactionMayRestore(request *dialect.ParsedRequest, reversible bool) bool {
+	if request != nil && containsAny(request.Body, redactionTokenMarkers) {
+		return true
+	}
+	// 没有可逆加密规则时，上游保存的上下文里不会有新的密文。
+	if !reversible {
+		return false
+	}
+	// 检索等没有请求体的请求读取的是上游保存的内容。
+	return request == nil || len(request.Body) == 0 || containsAny(request.Body, redactionContextMarkers)
+}
+
+func containsAny(body []byte, markers [][]byte) bool {
+	for _, marker := range markers {
+		if bytes.Contains(body, marker) {
+			return true
+		}
+	}
+	return false
 }
