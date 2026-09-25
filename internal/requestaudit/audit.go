@@ -18,9 +18,10 @@ var ErrInvalidConfig = errors.New("invalid experimental configuration")
 
 const SettingKey = "request_audit"
 
-// 单次编码保护上限，包含正文和问题，不等同于模型 token 上限。
-// JEV 拒绝超长输入时直接失败，不分批、裁剪或再次调用。
-const MaxStateBytes = 96 << 10
+// 使用保守的编码预算，为 JEV 的 32k token 单问题上下文留出空间。
+// 字节数不是精确 token 数；规则、正文和包装都计入每批预算。
+const MaxRequestBytes = 24 << 10
+const MaxReviewBatches = 64
 
 const (
 	ActionBlock = "block"
