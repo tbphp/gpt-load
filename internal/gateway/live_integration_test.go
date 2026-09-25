@@ -345,7 +345,7 @@ func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 
 func TestCodexLiveRevokesActiveCallWhenSelectedCredentialIsDisabled(t *testing.T) {
 	fake := &liveFakeOpener{}
-	_, engine, sink, registry, _ := liveGatewayFixture(t, fake)
+	handler, engine, sink, registry, _ := liveGatewayFixture(t, fake)
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	clientPeer, offer := liveClientOffer(t)
@@ -364,13 +364,25 @@ func TestCodexLiveRevokesActiveCallWhenSelectedCredentialIsDisabled(t *testing.T
 	if err := clientPeer.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: answer.String()}); err != nil {
 		t.Fatal(err)
 	}
+	call, found := handler.liveSessions.lookup("rtc_1", 1)
+	if !found {
+		t.Fatal("created call is missing")
+	}
 	fake.mu.Lock()
 	selected := fake.selected[0]
 	fake.mu.Unlock()
 	if err := registry.SetCredentialStatus(selected, state.CredentialStatusDisabled); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.After(5 * time.Second)
+	if call.authorized() {
+		t.Fatal("disabled credential still authorizes the active voice call")
+	}
+	select {
+	case <-call.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("disabled credential did not terminate the active voice call")
+	}
+	deadline := time.After(10 * time.Second)
 	for {
 		events := sink.snapshot()
 		if len(events) == 1 {
@@ -381,7 +393,7 @@ func TestCodexLiveRevokesActiveCallWhenSelectedCredentialIsDisabled(t *testing.T
 		}
 		select {
 		case <-deadline:
-			t.Fatal("disabled credential did not terminate the active voice call")
+			t.Fatal("revoked call log was not emitted after teardown")
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
