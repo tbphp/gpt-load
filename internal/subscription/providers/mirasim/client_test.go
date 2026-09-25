@@ -2,9 +2,11 @@ package mirasim
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -63,5 +65,47 @@ func TestServableModelsDropDatedTwin(t *testing.T) {
 	got := servableModelIDs([]string{"claude-haiku-4-5", "claude-haiku-4-5-20251001", "gpt-5.6-20260101"})
 	if strings.Join(got, ",") != "claude-haiku-4-5,gpt-5.6-20260101" {
 		t.Fatalf("models = %#v", got)
+	}
+}
+
+func TestHTTP1TransportOffersOnlyHTTP11InALPN(t *testing.T) {
+	t.Parallel()
+	bases := map[string]*http.Transport{
+		"default transport": http.DefaultTransport.(*http.Transport).Clone(),
+		"configured": func() *http.Transport {
+			transport := http.DefaultTransport.(*http.Transport).Clone()
+			transport.TLSClientConfig = &tls.Config{NextProtos: []string{"h2", "http/1.1"}}
+			return transport
+		}(),
+	}
+	for name, base := range bases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var before []string
+			if base.TLSClientConfig != nil {
+				before = append([]string(nil), base.TLSClientConfig.NextProtos...)
+			}
+			transport := http1Transport(base)
+			if transport.ForceAttemptHTTP2 {
+				t.Fatal("ForceAttemptHTTP2 must stay disabled")
+			}
+			if transport.TLSNextProto == nil || len(transport.TLSNextProto) != 0 {
+				t.Fatalf("TLSNextProto = %#v, want an empty non-nil map", transport.TLSNextProto)
+			}
+			if transport.TLSClientConfig == nil {
+				t.Fatal("TLSClientConfig is nil")
+			}
+			// The relay negotiates h2 whenever ALPN offers it, and the HTTP/1.x
+			// parser cannot read h2 frames, so ALPN must advertise http/1.1 only.
+			if !reflect.DeepEqual(transport.TLSClientConfig.NextProtos, []string{"http/1.1"}) {
+				t.Fatalf("NextProtos = %#v, want [http/1.1]", transport.TLSClientConfig.NextProtos)
+			}
+			if base.TLSClientConfig == nil {
+				return
+			}
+			if !reflect.DeepEqual(base.TLSClientConfig.NextProtos, before) {
+				t.Fatalf("the base transport's ALPN changed from %#v to %#v", before, base.TLSClientConfig.NextProtos)
+			}
+		})
 	}
 }
