@@ -16,6 +16,10 @@ export const protocolCatalog = [
     supportsProtocolOnlyRouting: false,
   },
   {
+    value: 'codex-live',
+    supportsProtocolOnlyRouting: false,
+  },
+  {
     value: 'rerank',
     supportsProtocolOnlyRouting: false,
   },

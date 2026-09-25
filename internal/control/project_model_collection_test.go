@@ -95,6 +95,33 @@ func TestProjectModelsSeparateSameUpstreamModelByChannelAndDetail(t *testing.T) 
 	}
 }
 
+func TestProjectModelsHideConfiguredCodexVoiceModel(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "codex-voice", ChannelID: string(channel.Codex), ConnectionType: models.ConnectionTypeSubscription,
+		Params: models.JSON(`{}`), Models: models.JSON(`[{"id":"gpt-5.5"},{"id":"gpt-live-1-codex"}]`),
+		Overrides: models.JSON(`{}`), Enabled: true,
+	})
+	mustEnsureInitialPrices(t, fixture)
+	result, err := fixture.service.ListProjectModels(t.Context(), ProjectModelListQuery{
+		GroupStatus: ProjectModelGroupStatusAll, PricingStatus: ProjectModelPricingStatusAll, Page: 1, PageSize: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].ClientModel != "gpt-5.5" {
+		t.Fatalf("Codex model page items = %#v", result.Items)
+	}
+	for _, model := range result.Items {
+		for _, value := range model.Protocols {
+			if value == protocol.CodexLive {
+				t.Fatalf("coding model includes voice protocol: %v", model.Protocols)
+			}
+		}
+	}
+}
+
 func TestProjectModelsHTTPScopesAccessKeyFiltersAndRelationships(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)

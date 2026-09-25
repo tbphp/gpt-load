@@ -237,6 +237,33 @@ func TestCandidateGroupIDsForQueryRejectsResourceOperationWithoutConfiguredModel
 	}
 }
 
+func TestCodexLiveSchedulesClientModelWithoutGroupMappingAndHonorsKeyFilter(t *testing.T) {
+	t.Parallel()
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{ID: 7, ChannelID: channel.Codex, ConnectionType: "subscription",
+			Params: json.RawMessage(`{}`), Enabled: true}},
+		Credentials: []state.CredentialConfig{{ID: 71, GroupID: 7, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "voice"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := Query{ClientProtocol: protocol.CodexLive, Operation: execution.OperationLiveCall,
+		RouteRequirement: execution.RouteRequirementNative, ExternalModel: modelPointer("client-live-model"),
+		AccessKey: state.AccessKeyView{Status: state.AccessKeyStatusActive,
+			Filters: state.FilterSet{Models: map[string]struct{}{"client-live-model": {}}}},
+	}
+	selection, err := New(snapshot, fakeCredentialSource{keys: []state.CredentialMeta{{ID: 71, GroupID: 7}}}, query).Next()
+	if err != nil || selection.UpstreamModelID == nil || *selection.UpstreamModelID != "client-live-model" || selection.GroupID != 7 {
+		t.Fatalf("Codex live selection = %#v, error=%v", selection, err)
+	}
+	query.AccessKey.Filters.Models = map[string]struct{}{"other-model": {}}
+	if got := CandidateGroupIDsForQuery(snapshot, query); len(got) != 0 {
+		t.Fatalf("filtered live groups = %v", got)
+	}
+}
+
 func TestRouteRequirementKeepsStatefulResponsesOnNativeTargets(t *testing.T) {
 	t.Parallel()
 

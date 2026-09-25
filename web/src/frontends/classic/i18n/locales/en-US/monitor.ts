@@ -429,6 +429,7 @@ export default {
         routeRequirement: 'Route requirement',
         model: 'Client model',
         selectModel: 'Select a model',
+        liveModelPlaceholder: 'Leave blank for the default voice model',
         missingModelOption: 'No longer available · {model}',
         optional: 'Optional',
         modelPlaceholder: 'Enter a client model',

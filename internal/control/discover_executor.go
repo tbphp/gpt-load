@@ -358,6 +358,9 @@ func (s *Service) mergeDiscoveredModels(
 	result := make([]ModelCandidate, 0, len(live)+len(providerModels))
 	seen := make(map[string]int, len(live)+len(providerModels))
 	for _, id := range live {
+		if target.channelID == channel.Codex && id == channel.CodexLiveModelID {
+			continue
+		}
 		model, catalogMatch := providerModels[id]
 		identity := pricing.Identity{ChannelID: string(target.channelID), ModelID: id}
 		pricingStatus, pricingSource := resolveCandidatePricing(rows[identity], catalogSnapshot, identity)
@@ -376,6 +379,9 @@ func (s *Service) mergeDiscoveredModels(
 	}
 	catalogOnly := make([]ModelCandidate, 0)
 	for id, model := range providerModels {
+		if target.channelID == channel.Codex && id == channel.CodexLiveModelID {
+			continue
+		}
 		if _, duplicate := seen[id]; duplicate {
 			continue
 		}
@@ -398,6 +404,9 @@ func (s *Service) mergeDiscoveredModels(
 		}
 		return leftName < rightName
 	})
+	for index, candidate := range catalogOnly {
+		seen[candidate.ID] = len(result) + index
+	}
 	result = append(result, catalogOnly...)
 	return ModelDiscoveryResult{Models: result}, nil
 }
