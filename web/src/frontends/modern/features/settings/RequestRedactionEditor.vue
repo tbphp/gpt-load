@@ -64,7 +64,7 @@ function error(index: number): string | undefined {
       <span>{{ t('requestRedaction.pattern') }}</span>
       <span class="modern-redaction-mode-label">
         {{ t('requestRedaction.mode') }}
-        <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xs" />
+        <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xxs" />
       </span>
       <span>{{ t('requestRedaction.replacement') }}</span>
     </div>
@@ -93,7 +93,7 @@ function error(index: number): string | undefined {
         <span class="modern-redaction-mobile-label">
           <span class="modern-redaction-mode-label">
             {{ t('requestRedaction.mode') }}
-            <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xs" />
+            <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xxs" />
           </span>
         </span>
         <AppSelect
@@ -170,7 +170,7 @@ function error(index: number): string | undefined {
 <style scoped>
 .modern-redaction {
   display: grid;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-2);
   min-width: 0;
   width: 100%;
 }
@@ -190,6 +190,7 @@ function error(index: number): string | undefined {
   gap: var(--modern-space-2);
 }
 .modern-redaction-heading {
+  align-items: center;
   color: var(--modern-text);
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-medium);
