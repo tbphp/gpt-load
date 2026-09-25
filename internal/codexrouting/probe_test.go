@@ -290,8 +290,11 @@ func TestProbeRelayMintsCookiePair(t *testing.T) {
 	store.now = func() time.Time { return now }
 	keeper := NewKeeper(store, staticAccounts{{CredentialID: 3}}, staticTokens{access: "tok", id: "acct"})
 	keeper.transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if request.Header.Get("X-Relay-Key") != "secret" || request.Header.Get("X-Relay-Mint") != "unified-88" {
+		if request.Header.Get("X-Relay-Key") != "secret" || request.Header.Get("X-Relay-Mint") != "any" {
 			t.Fatalf("headers = %v", request.Header)
+		}
+		if request.Header.Get("X-Mint-Attempts") != "1" {
+			t.Fatalf("probe attempts = %q", request.Header.Get("X-Mint-Attempts"))
 		}
 		if request.Header.Get("Cookie") != "" {
 			t.Fatalf("mint Cookie = %q", request.Header.Get("Cookie"))
@@ -316,5 +319,45 @@ func TestProbeRelayMintsCookiePair(t *testing.T) {
 	}
 	if injected.Get("X-Codex-Turn-State") != "gAAAAA-ticket-88" {
 		t.Fatalf("ticket = %q", injected.Get("X-Codex-Turn-State"))
+	}
+}
+
+func TestProbeRelayFallsBackAcrossTargetGateways(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 25, 4, 0, 0, 0, time.UTC)
+	store := NewStore("", nil, Config{
+		Enabled: true, RelayURL: "https://relay.example/", RelayKey: "secret",
+		TargetGateway: "unified-96,unified-159", Mint: true,
+		Models: []string{"gpt-6-astra"}, EventLimit: 8,
+	})
+	store.now = func() time.Time { return now }
+	var seen []string
+	keeper := NewKeeper(store, staticAccounts{{CredentialID: 5}}, staticTokens{access: "tok", id: "acct"})
+	keeper.transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		gateway := request.Header.Get("X-Relay-Mint")
+		seen = append(seen, gateway)
+		if gateway != "unified-159" {
+			body := `{"error":{"code":"mint_exhausted","gateways_seen":["unified-96"]}}`
+			return &http.Response{
+				StatusCode: http.StatusBadGateway, Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(body)), Request: request,
+			}, nil
+		}
+		body := `{"transport":"sse","gateway":"unified-159","cookies":{"__cflb":"lb","__oailb":"` + testOaiLB("chat.gateway.unified-159.api.openai.com", now.Add(time.Hour)) + `"},"tickets":{"gpt-6-astra":{"turn_state":"gAAAAA-ticket-159","ticket_len":17,"served_model":"gpt-6-astra"}}}`
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
+	})
+	if err := keeper.ProbeOne(t.Context(), 5, "gpt-6-astra"); err != nil {
+		t.Fatalf("ProbeOne() error = %v", err)
+	}
+	want := []string{"any", "unified-96", "unified-159"}
+	if strings.Join(seen, ",") != strings.Join(want, ",") {
+		t.Fatalf("mint sequence = %v want %v", seen, want)
+	}
+	item := store.Status([]AccountRef{{CredentialID: 5}}).Credentials[0]
+	if item.Region != "unified-159" || item.Verdict != string(VerdictPinned) {
+		t.Fatalf("status = %#v", item)
 	}
 }

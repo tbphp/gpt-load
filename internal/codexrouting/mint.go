@@ -20,6 +20,7 @@ import (
 const (
 	mintResponseLimit  = 256 << 10
 	defaultMintGateway = "unified-88"
+	mintAnyGateway     = "any"
 )
 
 var gatewayNumber = regexp.MustCompile(`(?i)^(?:unified[-_.]?)?(\d+)$`)
@@ -135,13 +136,47 @@ func turnStateValue(header http.Header) string {
 
 func (k *Keeper) probeRelay(ctx context.Context, credentialID uint, model, accessToken, accountID string) error {
 	cfg := k.store.Config()
-	entry, err := k.requestMint(ctx, cfg, model, accessToken, accountID)
+	// 先做一发 any 探测(1 次预算)拿到账号的自然网关,再按目标列表逐个定向打;
+	// 定向打每次给 3 次预算,不为不可能命中的目标烧满 24 发。
+	candidates := gatewayCandidates(cfg.TargetGateway)
+	if cfg.TargetGateway != "" && (len(candidates) != 1 || candidates[0] != mintAnyGateway) {
+		candidates = append([]string{mintAnyGateway}, candidates...)
+	}
+	var entry mintResult
+	var err error
+	for index, gateway := range candidates {
+		if ctx.Err() != nil {
+			k.store.TouchProbe(credentialID)
+			k.store.DiscardPin(credentialID)
+			return ctx.Err()
+		}
+		attempts := 3
+		if gateway == mintAnyGateway {
+			attempts = 1
+		}
+		entry, err = k.requestMint(ctx, cfg, gateway, attempts, model, accessToken, accountID)
+		if err == nil && (cfg.TargetGateway == "" || gatewayAllowed(cfg.TargetGateway, entry.Gateway)) {
+			break
+		}
+		if err == nil {
+			err = fmt.Errorf("codex routing gateway %s want %s", entry.Gateway, cfg.TargetGateway)
+		}
+		if index == len(candidates)-1 {
+			break
+		}
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"event":         "codex_routing.relay_mint_retry",
+			"credential_id": credentialID,
+			"gateway":       gateway,
+		}).Debug("cloud mint candidate failed, trying next gateway")
+	}
 	k.store.TouchProbe(credentialID)
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"event":         "codex_routing.relay_mint_failed",
 			"credential_id": credentialID,
 			"model":         model,
+			"candidates":    candidates,
 		}).Warn("cloud mint failed")
 		k.store.DiscardPin(credentialID)
 		return err
@@ -172,20 +207,19 @@ func (k *Keeper) probeRelay(ctx context.Context, credentialID uint, model, acces
 	return nil
 }
 
-func (k *Keeper) requestMint(ctx context.Context, cfg Config, model, accessToken, accountID string) (mintResult, error) {
+func (k *Keeper) requestMint(ctx context.Context, cfg Config, gateway string, attempts int, model, accessToken, accountID string) (mintResult, error) {
 	endpoint := strings.TrimRight(strings.TrimSpace(cfg.RelayURL), "/") + "/"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
 		return mintResult{}, err
 	}
 	req.Header.Set("X-Relay-Key", cfg.RelayKey)
-	req.Header.Set("X-Relay-Mint", firstGateway(cfg.TargetGateway))
-	req.Header.Set("X-Mint-Gateway", firstGateway(cfg.TargetGateway))
+	req.Header.Set("X-Relay-Mint", gateway)
+	if attempts > 0 {
+		req.Header.Set("X-Mint-Attempts", strconv.Itoa(attempts))
+	}
 	req.Header.Set("X-Mint-Model", model)
 	req.Header.Set("X-Mint-Transport", "sse")
-	if cfg.MaxRotates > 0 {
-		req.Header.Set("X-Mint-Attempts", strconv.Itoa(cfg.MaxRotates))
-	}
 	if cfg.TicketLen > 0 {
 		req.Header.Set("X-Mint-Len", strconv.Itoa(cfg.TicketLen))
 	}
@@ -259,6 +293,28 @@ func mintCookieHeader(cookies map[string]string) http.Header {
 		}
 	}
 	return header
+}
+
+// gatewayCandidates 把目标列表展开成逐个可打票的网关;目标为空时给 any,
+// 让中继不查网关(仍会走完票长与模型声明验收)。
+func gatewayCandidates(targets string) []string {
+	var out []string
+	seen := make(map[string]struct{})
+	for _, part := range strings.Split(targets, ",") {
+		value := normalizeGateway(part)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return []string{mintAnyGateway}
+	}
+	return out
 }
 
 func firstGateway(targets string) string {
