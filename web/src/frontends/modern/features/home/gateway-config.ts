@@ -114,12 +114,46 @@ export interface ConfigBlock {
 }
 const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
 const tomlQuote = (value: string) => JSON.stringify(value)
+function codexConfig(endpoint: string, model: string): string {
+  return [
+    `model = ${tomlQuote(model)}`,
+    'model_provider = "gpt-load"',
+    '',
+    '# 将 Codex 实时语音的建连和控制连接转发到 GPT-Load',
+    `experimental_realtime_webrtc_call_base_url = ${tomlQuote(endpoint)}`,
+    `experimental_realtime_ws_base_url = ${tomlQuote(endpoint)}`,
+    '',
+    '[model_providers.gpt-load]',
+    'name = "OpenAI"',
+    `base_url = ${tomlQuote(endpoint)}`,
+    `model_catalog_url = ${tomlQuote(`${endpoint}/models`)}`,
+    'env_key = "GPT_LOAD_API_KEY"',
+    'wire_api = "responses"',
+    'supports_websockets = true # Responses WebSocket，与实时语音连接独立',
+    '',
+    '[features]',
+    'api_key_model_discovery = true',
+    '# 在支持实时语音的 Codex 客户端启用语音会话',
+    'realtime_conversation = true',
+  ].join('\n')
+}
 export function gatewayEndpoint(config: GatewayConfig): string {
   const root = config.origin.replace(/\/+$/, '')
   return ['claude-code', 'gemini-cli', 'nextchat', 'new-api'].includes(config.client) ||
     (config.client === 'cc-switch' && ['claude', 'gemini'].includes(config.target))
     ? root
     : root + '/v1'
+}
+function ccSwitchImportData(config: GatewayConfig, key: string) {
+  return {
+    resource: 'provider',
+    app: config.target,
+    name: config.name,
+    endpoint: gatewayEndpoint(config),
+    apiKey: key,
+    enabled: true,
+    ...(config.model.trim() ? { model: config.model.trim() } : {}),
+  }
 }
 export function gatewayConfiguration(config: GatewayConfig, key: string): ConfigBlock[] {
   const endpoint = gatewayEndpoint(config)
@@ -130,21 +164,7 @@ export function gatewayConfiguration(config: GatewayConfig, key: string): Config
       return [
         {
           label: '~/.codex/config.toml',
-          content: [
-            `model = ${tomlQuote(model)}`,
-            'model_provider = "gpt-load"',
-            '',
-            '[model_providers.gpt-load]',
-            'name = "OpenAI"',
-            `base_url = ${tomlQuote(endpoint)}`,
-            `model_catalog_url = ${tomlQuote(`${endpoint}/models`)}`,
-            'env_key = "GPT_LOAD_API_KEY"',
-            'wire_api = "responses"',
-            'supports_websockets = true # 可自行选择是否开启 WebSocket',
-            '',
-            '[features]',
-            'api_key_model_discovery = true',
-          ].join('\n'),
+          content: codexConfig(endpoint, model),
         },
         { label: 'shell', content: env('GPT_LOAD_API_KEY', key) },
       ]
@@ -172,18 +192,7 @@ export function gatewayConfiguration(config: GatewayConfig, key: string): Config
       return [
         {
           label: 'JSON',
-          content: JSON.stringify(
-            {
-              app: config.target,
-              name: config.name,
-              endpoint,
-              apiKey: key,
-              enabled: true,
-              ...(config.model.trim() ? { model: config.model.trim() } : {}),
-            },
-            null,
-            2,
-          ),
+          content: JSON.stringify(ccSwitchImportData(config, key), null, 2),
         },
       ]
     case 'new-api':
@@ -211,16 +220,10 @@ export function gatewayConfiguration(config: GatewayConfig, key: string): Config
 }
 export function gatewayImportURL(config: GatewayConfig, key: string): string {
   if (config.client === 'cc-switch') {
-    const params = new URLSearchParams({
-      resource: 'provider',
-      app: config.target,
-      name: config.name,
-      homepage: config.origin,
-      endpoint: gatewayEndpoint(config),
-      apiKey: key,
-      enabled: 'true',
-    })
-    if (config.model.trim()) params.set('model', config.model.trim())
+    const params = new URLSearchParams()
+    for (const [name, value] of Object.entries(ccSwitchImportData(config, key))) {
+      params.set(name, String(value))
+    }
     return `ccswitch://v1/import?${params}`
   }
   if (config.client === 'cherry-studio') {

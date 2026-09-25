@@ -69,6 +69,9 @@ func (*codexProviderBridge) ValidateRouteCapability(route channel.RouteDescripto
 			route.Operation == execution.OperationResponsesInputTokens ||
 			route.Operation == execution.OperationWebSearch) &&
 		route.RouteMode == execution.RouteNative
+	if route.ClientProtocol == protocol.CodexLive {
+		valid = route.Operation == execution.OperationLiveCall && route.RouteMode == execution.RouteNative
+	}
 	if route.ClientProtocol == protocol.OpenAICompletions ||
 		route.ClientProtocol == protocol.Anthropic ||
 		route.ClientProtocol == protocol.Gemini {

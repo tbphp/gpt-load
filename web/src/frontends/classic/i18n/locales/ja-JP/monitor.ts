@@ -429,6 +429,7 @@ export default {
         routeRequirement: 'ルート要件',
         model: 'クライアントモデル',
         selectModel: 'モデルを選択',
+        liveModelPlaceholder: '空欄の場合は既定の音声モデルを使用',
         missingModelOption: '現在は存在しません · {model}',
         optional: '任意',
         modelPlaceholder: 'クライアントモデルを入力',

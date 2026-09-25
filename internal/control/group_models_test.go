@@ -91,6 +91,16 @@ func TestMapGroupModelsResponseTreatsContextTierOnlyPriceAsConfigured(t *testing
 	}
 }
 
+func TestCodexGroupModelResponseHidesLegacyLiveMapping(t *testing.T) {
+	t.Parallel()
+	result, err := mapGroupModelsResponse(string(channel.Codex), []GroupModel{
+		{ID: channel.CodexLiveModelID}, {ID: "gpt-5.5"},
+	}, nil)
+	if err != nil || result.Total != 1 || len(result.Items) != 1 || result.Items[0].ID != "gpt-5.5" {
+		t.Fatalf("Codex group models = %#v, error=%v", result, err)
+	}
+}
+
 func TestNormalizeGroupModelsAllowsSharedNamesAndDeduplicatesMappings(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {

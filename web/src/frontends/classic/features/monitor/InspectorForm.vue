@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import AppButton from '@/components/ui/AppButton.vue'
 import AsyncRefreshIndicator from '@/components/ui/AsyncRefreshIndicator.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -117,10 +118,22 @@ function error(field: InspectorField): string | undefined {
           size="compact"
           :label="t('monitor.inspector.form.model')"
           :error="error('externalModel')"
-          required
+          :required="protocol !== 'codex-live'"
         >
           <template #default="{ describedBy }">
+            <AppTextInput
+              v-if="protocol === 'codex-live'"
+              id="inspector-model"
+              :model-value="model"
+              :label="t('monitor.inspector.form.model')"
+              :placeholder="t('monitor.inspector.form.liveModelPlaceholder')"
+              :invalid="Boolean(error('externalModel'))"
+              :described-by="describedBy"
+              size="compact"
+              @update:model-value="emit('update:model', $event)"
+            />
             <AppSelect
+              v-else
               id="inspector-model"
               class="inspector-form__model-select"
               :model-value="model"

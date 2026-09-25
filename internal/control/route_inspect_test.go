@@ -392,6 +392,42 @@ func TestRouteInspectStandardRequestIncludesNativeAndConvertedTargets(t *testing
 	}
 }
 
+func TestRouteInspectCodexLiveUsesClientModelWithoutConfiguredGroupModel(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
+		Groups: []state.GroupConfig{{ID: 1, Name: "voice", ChannelID: channel.Codex,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`), Enabled: true}},
+		AccessKeys: []state.AccessKeyConfig{{ID: 10, Name: "client", KeyHash: "hash", Status: state.AccessKeyStatusActive}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "voice",
+		Status: state.CredentialStatusActive, EncryptedValue: "voice",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []string{"", "client-live-model"} {
+		result, err := fixture.service.InspectRoute(routeInspectRequest{
+			Protocol: protocol.CodexLive, ExternalModel: model, AccessKeyID: 10,
+		})
+		if err != nil {
+			t.Fatalf("inspect model %q: %v", model, err)
+		}
+		want := model
+		if want == "" {
+			want = channel.CodexLiveModelID
+		}
+		if !result.Routable || result.Operation != execution.OperationLiveCall ||
+			result.RouteRequirement != execution.RouteRequirementNative || routeModelValue(result.ExternalModel) != want ||
+			len(result.Groups) != 1 || routeModelValue(result.Groups[0].UpstreamModel) != want {
+			t.Fatalf("inspect model %q = %#v", model, result)
+		}
+	}
+}
+
 func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	t.Parallel()
 	initControlI18n(t)

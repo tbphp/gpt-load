@@ -87,7 +87,7 @@ func modernGroupAvailability(record groupCollectionRecord) string {
 		return "paused"
 	case record.CredentialCounts.Total == 0:
 		return "no_credentials"
-	case record.ModelCount == 0:
+	case record.ModelCount == 0 && record.ChannelID != channel.Codex:
 		return "no_models"
 	case record.CredentialCounts.Available == 0:
 		return "unavailable"

@@ -89,6 +89,17 @@ func TestListGroupOptionsDeduplicatesSharedModelNames(t *testing.T) {
 	}
 }
 
+func TestListGroupOptionsHidesLegacyCodexLiveModel(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	createGroupOptionGroup(t, fixture, 10, "voice", true, channel.Codex, `{}`,
+		`[{"id":"gpt-live-1-codex"},{"id":"gpt-5.5"}]`)
+	options, err := fixture.service.ListGroupOptions(t.Context())
+	if err != nil || len(options) != 1 || !reflect.DeepEqual(options[0].Models, []string{"gpt-5.5"}) {
+		t.Fatalf("Codex group options = %#v, error=%v", options, err)
+	}
+}
+
 func TestListGroupOptionsFailsClosedForInvalidDataDatabaseAndCancellation(t *testing.T) {
 	t.Parallel()
 	t.Run("invalid models JSON", func(t *testing.T) {

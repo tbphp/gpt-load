@@ -79,6 +79,7 @@ func BuildContainer() (*dig.Container, error) {
 			limiter.SetRPMStore(store)
 			return limiter
 		},
+		func(handler *gateway.Handler) app.LiveSessionRuntime { return handler },
 		func(limiter *ratelimit.AccessKeyRPM) gateway.AccessKeyRPMLimiter {
 			return limiter
 		},
@@ -247,6 +248,16 @@ func BuildContainer() (*dig.Container, error) {
 		if err := dependencyContainer.Provide(provider); err != nil {
 			return nil, err
 		}
+	}
+	if err := dependencyContainer.Decorate(func(
+		handler *gateway.Handler,
+		adapter *cpaexecutor.Adapter,
+		cfg *config.Config,
+	) *gateway.Handler {
+		handler.ConfigureCodexLive(adapter, cfg.CodexLive)
+		return handler
+	}); err != nil {
+		return nil, err
 	}
 	if err := dependencyContainer.Invoke(func(
 		engine *gin.Engine,

@@ -20,6 +20,8 @@ import (
 // ID is a stable product channel identifier.
 type ID = spec.ID
 
+const CodexLiveModelID = "gpt-live-1-codex"
+
 const (
 	OpenAI           = spec.OpenAI
 	Codex            = spec.Codex

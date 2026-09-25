@@ -36,6 +36,7 @@ type App struct {
 	startupRecovery   StartupRecovery
 	requestLogs       RequestLogRuntime
 	executionRuntime  ExecutionRuntime
+	liveSessions      LiveSessionRuntime
 	listen            func(network, address string) (net.Listener, error)
 
 	mu            sync.Mutex
@@ -79,6 +80,11 @@ type ExecutionRuntime interface {
 	BeginShutdown() <-chan struct{}
 }
 
+// LiveSessionRuntime releases long-lived media and control connections before HTTP draining.
+type LiveSessionRuntime interface {
+	CloseCodexLive()
+}
+
 // AppParams defines dependencies injected into App.
 type AppParams struct {
 	dig.In
@@ -93,7 +99,8 @@ type AppParams struct {
 	Lifecycle         *httplifecycle.Coordinator `optional:"true"`
 	ControlRuntime    ControlRuntime
 	RequestLogs       RequestLogRuntime
-	ExecutionRuntime  ExecutionRuntime `optional:"true"`
+	ExecutionRuntime  ExecutionRuntime   `optional:"true"`
+	LiveSessions      LiveSessionRuntime `optional:"true"`
 }
 
 // NewEngine creates the process HTTP engine and global middleware.
@@ -135,6 +142,7 @@ func NewApp(params AppParams) *App {
 		startupRecovery:   params.StartupRecovery,
 		requestLogs:       params.RequestLogs,
 		executionRuntime:  params.ExecutionRuntime,
+		liveSessions:      params.LiveSessions,
 		listen:            net.Listen,
 		serveErrors:       make(chan error, 1),
 	}
@@ -273,6 +281,7 @@ func (a *App) Stop(ctx context.Context) error {
 	runtimeDone := a.runtimeDone
 	requestLogs := a.requestLogs
 	executionRuntime := a.executionRuntime
+	liveSessions := a.liveSessions
 	runtimeCheckpoint := a.runtimeCheckpoint
 	lifecycle := a.lifecycle
 	a.mu.Unlock()
@@ -284,6 +293,9 @@ func (a *App) Stop(ctx context.Context) error {
 	}
 	if cancelRuntime != nil {
 		cancelRuntime()
+	}
+	if liveSessions != nil {
+		liveSessions.CloseCodexLive()
 	}
 	var executionShutdownDone <-chan struct{}
 	if executionRuntime != nil {

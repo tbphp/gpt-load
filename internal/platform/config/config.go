@@ -2,7 +2,9 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/pion/stun/v3"
 
 	"gpt-load/internal/platform/authkey"
 	"gpt-load/internal/platform/securefile"
@@ -106,6 +109,21 @@ type DatabaseMetadata struct {
 	Driver DatabaseDriver
 }
 
+// CodexLiveConfig contains only process-wide WebRTC deployment settings.
+type CodexLiveConfig struct {
+	PublicIP    string
+	UDPPortMin  uint16
+	UDPPortMax  uint16
+	MaxSessions int
+	ICEServers  []CodexLiveICEServer
+}
+
+type CodexLiveICEServer struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
+}
+
 // Config contains static environment configuration for the application process.
 type Config struct {
 	Server                    ServerConfig
@@ -119,6 +137,7 @@ type Config struct {
 	EncryptionKeyMetadata     SecretMetadata
 	Log                       LogConfig
 	ModelsDevAutoSyncOverride *bool
+	CodexLive                 CodexLiveConfig
 }
 
 // Settings is the dynamic settings shape shared by system and group layers.
@@ -241,6 +260,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	liveConfig, err := loadCodexLiveConfig()
+	if err != nil {
+		return nil, err
+	}
 
 	return &Config{
 		Server: ServerConfig{
@@ -266,7 +289,61 @@ func Load() (*Config, error) {
 			Format: logFormat,
 		},
 		ModelsDevAutoSyncOverride: modelsDevAutoSyncOverride,
+		CodexLive:                 liveConfig,
 	}, nil
+}
+
+func loadCodexLiveConfig() (CodexLiveConfig, error) {
+	result := CodexLiveConfig{MaxSessions: 32, PublicIP: strings.TrimSpace(os.Getenv("CODEX_LIVE_PUBLIC_IP"))}
+	if result.PublicIP != "" && net.ParseIP(result.PublicIP) == nil {
+		return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_PUBLIC_IP must be an IP address")
+	}
+	for _, field := range []struct {
+		name string
+		out  *uint16
+	}{{"CODEX_LIVE_UDP_PORT_MIN", &result.UDPPortMin}, {"CODEX_LIVE_UDP_PORT_MAX", &result.UDPPortMax}} {
+		value := strings.TrimSpace(os.Getenv(field.name))
+		if value == "" {
+			continue
+		}
+		parsed, err := strconv.ParseUint(value, 10, 16)
+		if err != nil || parsed == 0 {
+			return CodexLiveConfig{}, fmt.Errorf("%s must be between 1 and 65535", field.name)
+		}
+		*field.out = uint16(parsed)
+	}
+	if (result.UDPPortMin == 0) != (result.UDPPortMax == 0) ||
+		(result.UDPPortMin != 0 && result.UDPPortMax < result.UDPPortMin) {
+		return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_UDP_PORT_MIN and CODEX_LIVE_UDP_PORT_MAX must form a range")
+	}
+	if value := strings.TrimSpace(os.Getenv("CODEX_LIVE_MAX_SESSIONS")); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 1024 {
+			return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_MAX_SESSIONS must be between 1 and 1024")
+		}
+		result.MaxSessions = parsed
+	}
+	if value := strings.TrimSpace(os.Getenv("CODEX_LIVE_ICE_SERVERS")); value != "" {
+		if err := json.Unmarshal([]byte(value), &result.ICEServers); err != nil || len(result.ICEServers) > 16 {
+			return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_ICE_SERVERS must be a JSON array of at most 16 servers")
+		}
+		for index, server := range result.ICEServers {
+			if len(server.URLs) == 0 {
+				return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_ICE_SERVERS entries require URLs")
+			}
+			for _, rawURL := range server.URLs {
+				uri, err := stun.ParseURI(rawURL)
+				if err != nil {
+					return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_ICE_SERVERS entry %d has an invalid URL", index)
+				}
+				if (uri.Scheme == stun.SchemeTypeTURN || uri.Scheme == stun.SchemeTypeTURNS) &&
+					(strings.TrimSpace(server.Username) == "" || strings.TrimSpace(server.Credential) == "") {
+					return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_ICE_SERVERS entry %d requires TURN credentials", index)
+				}
+			}
+		}
+	}
+	return result, nil
 }
 
 // ParseDatabaseDSN parses the single DATABASE_DSN configuration format. Bare

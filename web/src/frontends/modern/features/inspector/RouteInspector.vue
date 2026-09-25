@@ -120,8 +120,8 @@ const modelOptions = computed(() =>
     .sort()
     .map((model) => ({ value: model, label: model })),
 )
-const validModel = (model: string) =>
-  model.trim().length > 0 &&
+const validModel = (model: string, selectedProtocol: string) =>
+  (selectedProtocol === 'codex-live' || model.trim().length > 0) &&
   new TextEncoder().encode(model.trim()).length <= 255 &&
   !/[\u0000-\u001f\u007f-\u009f]/u.test(model)
 const keyError = computed(() =>
@@ -132,7 +132,7 @@ const keyError = computed(() =>
     : undefined,
 )
 const modelError = computed(() =>
-  (touched.value || state.value.run) && !validModel(draft.value.model)
+  (touched.value || state.value.run) && !validModel(draft.value.model, draft.value.protocol)
     ? t(draft.value.model.trim() ? 'inspector.invalidModel' : 'inspector.requiredModel')
     : undefined,
 )
@@ -144,7 +144,7 @@ const request = computed<InspectionRequest>(() => ({
 const canQuery = computed(
   () =>
     state.value.run &&
-    validModel(state.value.model) &&
+    validModel(state.value.model, state.value.protocol) &&
     Boolean(props.accessKeys?.some((key) => key.id === state.value.key)),
 )
 const query = useQuery(
@@ -265,7 +265,7 @@ function toggle(group: InspectionGroup): void {
 async function run(): Promise<void> {
   touched.value = true
   if (
-    !validModel(draft.value.model) ||
+    !validModel(draft.value.model, draft.value.protocol) ||
     !props.accessKeys?.some((key) => String(key.id) === draft.value.key) ||
     query.isFetching.value
   )
@@ -317,7 +317,17 @@ defineExpose({ refresh, pending, updatedAt })
         size="xs"
         label-hidden
       />
+      <AppTextField
+        v-if="draft.protocol === 'codex-live'"
+        v-model="draft.model"
+        :label="t('inspector.model')"
+        :placeholder="t('inspector.liveModelPlaceholder')"
+        :error="modelError"
+        size="xs"
+        label-hidden
+      />
       <AppSearchSelect
+        v-else
         v-model="draft.model"
         :label="t('inspector.model')"
         :placeholder="t('inspector.chooseModel')"
