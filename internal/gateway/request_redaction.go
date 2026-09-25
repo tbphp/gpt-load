@@ -145,22 +145,32 @@ func (handler *Handler) logUnrestoredRedactionTokens(cipher encryption.Redaction
 	)
 }
 
-// redactionRestoreMarkers 出现在外发请求里时，上游响应可能带回密文：请求本身带着密文，
-// 或引用了上游保存、客户端看不到原文的上下文（推理密文、签名、previous_response_id 等）。
-var redactionRestoreMarkers = [][]byte{
-	[]byte("gld1_"), []byte(`\u0067ld1_`),
+// redactionTokenMarkers 出现在外发请求里时，上游看到了密文，响应可能原样带回。
+var redactionTokenMarkers = [][]byte{[]byte("gld1_"), []byte(`\u0067ld1_`)}
+
+// redactionContextMarkers 表示请求引用了上游保存、客户端看不到原文的上下文
+// （推理密文、签名、previous_response_id 等），其中可能带着以前加密过的内容。
+var redactionContextMarkers = [][]byte{
 	[]byte("encrypted_content"), []byte("signature"), []byte("Signature"),
 	[]byte("previous_response_id"), []byte(`"conversation"`),
 }
 
 // redactionMayRestore 判断是否需要还原上游响应。不需要时流式数据收到即转发，不做任何扣留。
-func redactionMayRestore(request *dialect.ParsedRequest) bool {
-	if request == nil || len(request.Body) == 0 {
-		// 检索等没有请求体的请求读取的是上游保存的内容。
+func redactionMayRestore(request *dialect.ParsedRequest, reversible bool) bool {
+	if request != nil && containsAny(request.Body, redactionTokenMarkers) {
 		return true
 	}
-	for _, marker := range redactionRestoreMarkers {
-		if bytes.Contains(request.Body, marker) {
+	// 没有可逆加密规则时，上游保存的上下文里不会有新的密文。
+	if !reversible {
+		return false
+	}
+	// 检索等没有请求体的请求读取的是上游保存的内容。
+	return request == nil || len(request.Body) == 0 || containsAny(request.Body, redactionContextMarkers)
+}
+
+func containsAny(body []byte, markers [][]byte) bool {
+	for _, marker := range markers {
+		if bytes.Contains(body, marker) {
 			return true
 		}
 	}

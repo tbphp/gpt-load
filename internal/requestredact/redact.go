@@ -146,6 +146,19 @@ func (c *Compiled) Rules() []Rule {
 
 func (c *Compiled) Empty() bool { return c == nil || len(c.rules) == 0 }
 
+// Reversible 报告是否配置了可逆加密规则；没有时上游不会拿到新的密文。
+func (c *Compiled) Reversible() bool {
+	if c == nil {
+		return false
+	}
+	for _, rule := range c.rules {
+		if rule.Mode == ModeEncrypt {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Compiled) TextWithCipher(value string, cipher TokenCipher) (string, error) {
 	return c.textWithCipher(value, cipher, false)
 }

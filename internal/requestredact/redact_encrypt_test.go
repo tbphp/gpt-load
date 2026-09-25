@@ -277,6 +277,29 @@ func TestApplyCoversDocumentTextPromptVariablesAndReasoning(t *testing.T) {
 	}
 }
 
+func TestCompiledReversible(t *testing.T) {
+	for _, tc := range []struct {
+		rules []Rule
+		want  bool
+	}{
+		{nil, false},
+		{[]Rule{{Pattern: "a", Replacement: "b"}}, false},
+		{[]Rule{{Pattern: "a", Replacement: "b"}, {Pattern: "c", Mode: ModeEncrypt}}, true},
+	} {
+		compiled, err := Compile(tc.rules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := compiled.Reversible(); got != tc.want {
+			t.Errorf("Reversible(%v) = %v, want %v", tc.rules, got, tc.want)
+		}
+	}
+	var empty *Compiled
+	if empty.Reversible() {
+		t.Error("nil configuration reported reversible rules")
+	}
+}
+
 func TestApplyWithCipherEncryptsSignedGeminiParts(t *testing.T) {
 	cipher := syntheticRedactionCipher(t)
 	compiled, err := Compile([]Rule{{Pattern: `alice@example\.invalid`, Mode: ModeEncrypt}})

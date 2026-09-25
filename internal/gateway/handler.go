@@ -1244,7 +1244,7 @@ func (handler *Handler) executeAttempts(
 			executionRequestID = recorder.requestID
 		}
 		restoreCipher := redactionCipher
-		if !redactionMayRestore(prepared.request) {
+		if !redactionMayRestore(prepared.request, snapshot.RequestRedaction.Reversible()) {
 			restoreCipher = nil
 		}
 		input := ForwardInput{

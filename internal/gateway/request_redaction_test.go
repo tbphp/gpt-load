@@ -290,21 +290,28 @@ func TestLogUnrestoredRedactionTokens(t *testing.T) {
 }
 
 func TestRedactionMayRestore(t *testing.T) {
-	cases := map[string]bool{
-		``:                             true,
-		`{"input":"hello"}`:            false,
-		`{"input":"gld1_44_abc"}`:      true,
-		`{"input":"\u0067ld1_44_abc"}`: true,
-		`{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`:    true,
-		`{"contents":[{"parts":[{"text":"x","thoughtSignature":"s"}]}]}`:   true,
-		`{"messages":[{"content":[{"type":"thinking","signature":"s"}]}]}`: true,
-		`{"previous_response_id":"resp_1","input":"hi"}`:                   true,
-		`{"conversation":"conv_1","input":"hi"}`:                           true,
+	cases := []struct {
+		body       string
+		reversible bool
+		want       bool
+	}{
+		{``, true, true},
+		{``, false, false},
+		{`{"input":"hello"}`, true, false},
+		{`{"input":"gld1_44_abc"}`, false, true},
+		{`{"input":"\u0067ld1_44_abc"}`, false, true},
+		{`{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, true, true},
+		{`{"input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, false, false},
+		{`{"contents":[{"parts":[{"text":"x","thoughtSignature":"s"}]}]}`, true, true},
+		{`{"messages":[{"content":[{"type":"thinking","signature":"s"}]}]}`, true, true},
+		{`{"messages":[{"content":[{"type":"thinking","signature":"s"}]}]}`, false, false},
+		{`{"previous_response_id":"resp_1","input":"hi"}`, true, true},
+		{`{"conversation":"conv_1","input":"hi"}`, true, true},
 	}
-	for body, want := range cases {
-		request := &dialect.ParsedRequest{Body: []byte(body)}
-		if got := redactionMayRestore(request); got != want {
-			t.Errorf("redactionMayRestore(%s) = %v, want %v", body, got, want)
+	for _, tc := range cases {
+		request := &dialect.ParsedRequest{Body: []byte(tc.body)}
+		if got := redactionMayRestore(request, tc.reversible); got != tc.want {
+			t.Errorf("redactionMayRestore(%s, reversible=%v) = %v, want %v", tc.body, tc.reversible, got, tc.want)
 		}
 	}
 }
@@ -320,7 +327,8 @@ func TestRequestRedactionRestoresOnlyWhenCiphertextMayReturn(t *testing.T) {
 		{"no rules", nil, `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`, false},
 		{"rule without match", encrypt, `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`, false},
 		{"encrypted content", encrypt, `{"model":"gpt-4o","messages":[{"role":"user","content":"alice@example.com"}]}`, true},
-		{"signed history", nil, `{"model":"gpt-4o","messages":[{"role":"assistant","content":"ok","reasoning_details":[{"type":"reasoning.text","text":"x","signature":"s"}]},{"role":"user","content":"hi"}]}`, true},
+		{"signed history without encrypt rules", nil, `{"model":"gpt-4o","messages":[{"role":"assistant","content":"ok","reasoning_details":[{"type":"reasoning.text","text":"x","signature":"s"}]},{"role":"user","content":"hi"}]}`, false},
+		{"signed history with encrypt rules", encrypt, `{"model":"gpt-4o","messages":[{"role":"assistant","content":"ok","reasoning_details":[{"type":"reasoning.text","text":"x","signature":"s"}]},{"role":"user","content":"hi"}]}`, true},
 	}
 	for _, tc := range cases {
 		f := &scriptedForwarder{results: []UpstreamResult{auditReply(`{"choices":[]}`)}}
