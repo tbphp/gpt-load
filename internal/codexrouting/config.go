@@ -12,7 +12,7 @@ const (
 	defaultInterval      = 2 * time.Minute
 	defaultEventLimit    = 200
 	defaultMaxRotates    = 24
-	defaultTargetGateway = "unified-80,unified-101,unified-191"
+	defaultTargetGateway = "unified-88"
 	defaultTicketTTL     = 240 * time.Second
 	jarFileName          = "codex-cookies.enc"
 )
@@ -22,6 +22,8 @@ const (
 type Config struct {
 	Enabled       bool
 	ProbeProxy    string
+	RelayURL      string
+	RelayKey      string
 	ProbeRegions  []string
 	EdgeIP        string
 	Models        []string
@@ -53,6 +55,8 @@ func LoadConfigFromEnv() Config {
 	return Config{
 		Enabled:       envTruthy("CODEX_ROUTING_ENABLED"),
 		ProbeProxy:    strings.TrimSpace(os.Getenv("CODEX_ROUTING_PROBE_PROXY")),
+		RelayURL:      strings.TrimSpace(os.Getenv("CODEX_ROUTING_RELAY_URL")),
+		RelayKey:      strings.TrimSpace(os.Getenv("CODEX_ROUTING_RELAY_KEY")),
 		ProbeRegions:  parseList(os.Getenv("CODEX_ROUTING_PROBE_REGIONS"), []string{"Rand"}),
 		EdgeIP:        strings.TrimSpace(os.Getenv("CODEX_ROUTING_EDGE_IP")),
 		Models:        models,

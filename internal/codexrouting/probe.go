@@ -59,7 +59,7 @@ func (k *Keeper) Run(ctx context.Context) {
 		return
 	}
 	cfg := k.store.Config()
-	if !cfg.Enabled || strings.TrimSpace(cfg.ProbeProxy) == "" {
+	if !cfg.Enabled || (strings.TrimSpace(cfg.ProbeProxy) == "" && strings.TrimSpace(cfg.RelayURL) == "") {
 		<-ctx.Done()
 		return
 	}
@@ -84,7 +84,7 @@ func (k *Keeper) ProbeOne(ctx context.Context, credentialID uint, model string) 
 	if !cfg.Enabled {
 		return ErrDisabled
 	}
-	if strings.TrimSpace(cfg.ProbeProxy) == "" && k.transport == nil {
+	if strings.TrimSpace(cfg.RelayURL) == "" && strings.TrimSpace(cfg.ProbeProxy) == "" && k.transport == nil {
 		return ErrProbeProxyMissing
 	}
 	if credentialID == 0 {
@@ -106,6 +106,9 @@ func (k *Keeper) ProbeOne(ctx context.Context, credentialID uint, model string) 
 	}
 	if accessToken == "" {
 		return ErrNoToken
+	}
+	if strings.TrimSpace(cfg.RelayURL) != "" {
+		return k.probeRelay(ctx, credentialID, model, accessToken, accountID)
 	}
 	var lastErr error
 	attempts := 1

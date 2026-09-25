@@ -1,0 +1,3 @@
+chatgpt-relay FC function is adapted from https://github.com/spumon1/SUCK_MY_ASTRA
+(MIT). gpt-load keeps business traffic on the Codex group egress and uses this
+function only as the X-Relay-Mint control plane.

@@ -47,6 +47,7 @@ export interface CodexRoutingCredential {
 export interface CodexRoutingStatus {
   enabled: boolean
   probeProxyConfigured: boolean
+  probeRelayConfigured: boolean
   edgeIP: string
   targetGateway: string
   transparent: boolean
@@ -137,6 +138,7 @@ export function readCodexRoutingStatus(value: unknown): CodexRoutingStatus {
   return {
     enabled: boolean(row.enabled),
     probeProxyConfigured: boolean(row.probe_proxy_configured),
+    probeRelayConfigured: optionalBoolean(row.probe_relay_configured) === true,
     edgeIP: optionalText(row.edge_ip),
     targetGateway: optionalText(row.target_gateway),
     transparent: boolean(row.transparent),

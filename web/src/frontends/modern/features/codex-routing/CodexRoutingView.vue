@@ -220,8 +220,9 @@ async function clearOne(id: number): Promise<void> {
       <section class="modern-codex-routing-card" :aria-label="t('codexRouting.introTitle')">
         <h2>{{ t('codexRouting.introTitle') }}</h2>
         <p>{{ t('codexRouting.intro') }}</p>
-        <p v-if="!status.probeProxyConfigured" class="is-warn">{{ t('codexRouting.proxyMissing') }}</p>
-        <p v-else>{{ t('codexRouting.proxyReady') }}</p>
+        <p v-if="status.probeRelayConfigured">{{ t('codexRouting.relayReady') }}</p>
+        <p v-else-if="status.probeProxyConfigured">{{ t('codexRouting.proxyReady') }}</p>
+        <p v-else class="is-warn">{{ t('codexRouting.proxyMissing') }}</p>
       </section>
 
       <section class="modern-codex-routing-metrics" :aria-label="t('codexRouting.counts.pinned')">
@@ -361,6 +362,10 @@ async function clearOne(id: number): Promise<void> {
             <div>
               <dt>{{ t('codexRouting.mint') }}</dt>
               <dd>{{ status.mint ? 'on' : 'off' }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('codexRouting.relay') }}</dt>
+              <dd>{{ status.probeRelayConfigured ? 'on' : 'off' }}</dd>
             </div>
             <div>
               <dt>{{ t('codexRouting.target') }}</dt>

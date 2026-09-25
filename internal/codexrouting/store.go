@@ -105,6 +105,7 @@ type Event struct {
 type Status struct {
 	Enabled              bool               `json:"enabled"`
 	ProbeProxyConfigured bool               `json:"probe_proxy_configured"`
+	ProbeRelayConfigured bool               `json:"probe_relay_configured"`
 	EdgeIP               string             `json:"edge_ip,omitempty"`
 	TargetGateway        string             `json:"target_gateway,omitempty"`
 	Transparent          bool               `json:"transparent"`
@@ -384,6 +385,7 @@ func (s *Store) Status(accounts []AccountRef) Status {
 	defer s.mu.Unlock()
 	status.Enabled = s.cfg.Enabled
 	status.ProbeProxyConfigured = strings.TrimSpace(s.cfg.ProbeProxy) != ""
+	status.ProbeRelayConfigured = strings.TrimSpace(s.cfg.RelayURL) != ""
 	status.EdgeIP = s.cfg.EdgeIP
 	status.TargetGateway = s.cfg.TargetGateway
 	status.Transparent = s.cfg.Transparent

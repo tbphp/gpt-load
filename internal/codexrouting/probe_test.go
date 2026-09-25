@@ -253,3 +253,39 @@ func TestProbeAcceptsWhitelistedGateway(t *testing.T) {
 		t.Fatalf("ttl = %v", item.TTLSeconds)
 	}
 }
+
+func TestProbeRelayMintsCookiePair(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC)
+	store := NewStore("", nil, Config{
+		Enabled: true, RelayURL: "https://relay.example/", RelayKey: "secret",
+		TargetGateway: "unified-88", Mint: true, Models: []string{"gpt-6-astra"}, EventLimit: 8,
+	})
+	store.now = func() time.Time { return now }
+	keeper := NewKeeper(store, staticAccounts{{CredentialID: 3}}, staticTokens{access: "tok", id: "acct"})
+	keeper.transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("X-Relay-Key") != "secret" || request.Header.Get("X-Relay-Mint") != "unified-88" {
+			t.Fatalf("headers = %v", request.Header)
+		}
+		body := `{"transport":"sse","gateway":"unified-88","cookies":{"__cflb":"lb","__oailb":"` + testOaiLB("chat.gateway.unified-88.api.openai.com", now.Add(time.Hour)) + `"},"tickets":{"gpt-6-astra":{"turn_state":"gAAAAA-ticket-88","ticket_len":16,"served_model":"gpt-6-astra"}}}`
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
+	})
+	if err := keeper.ProbeOne(t.Context(), 3, "gpt-6-astra"); err != nil {
+		t.Fatalf("ProbeOne() error = %v", err)
+	}
+	item := store.Status([]AccountRef{{CredentialID: 3}}).Credentials[0]
+	if item.Region != "unified-88" || item.Verdict != string(VerdictPinned) {
+		t.Fatalf("status = %#v", item)
+	}
+	injected := make(http.Header)
+	store.Inject(t.Context(), 3, "gpt-6-astra", injected)
+	if !strings.Contains(injected.Get("Cookie"), "__oailb=") {
+		t.Fatalf("cookie = %q", injected.Get("Cookie"))
+	}
+	if injected.Get("X-Codex-Turn-State") != "gAAAAA-ticket-88" {
+		t.Fatalf("ticket = %q", injected.Get("X-Codex-Turn-State"))
+	}
+}

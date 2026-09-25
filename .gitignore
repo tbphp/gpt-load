@@ -67,3 +67,5 @@ internal/webui/dist/*
 !internal/webui/dist/assets/
 internal/webui/dist/assets/*
 !internal/webui/dist/assets/embed-placeholder.txt
+packaging/chatgpt-relay/fc/.s/
+packaging/chatgpt-relay/fc/s.yaml.bak

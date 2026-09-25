@@ -5,8 +5,9 @@ export const zhCN = {
   intro:
     '探针从住宅出口裸打，直到撞上目标网关才写入 Cookie；业务请求走分组 direct，复用仍有效的路由 Cookie。780 仅是票的格式长度，节点编号不证明实际能力。没降智时保持透明模式，不注入票。',
   disabled: '当前进程未开启 Codex 路由。设置 CODEX_ROUTING_ENABLED=true。',
-  proxyMissing: '尚未配置探针代理。业务请求仍走分组出口。',
+  proxyMissing: '尚未配置云端中继或探针代理。业务请求仍走分组出口。',
   proxyReady: '探针走住宅代理轮换出口采 Cookie，业务请求保持 direct。',
+  relayReady: '探针走阿里云函数打票猎 unified-88，业务请求保持分组出口。',
   edgeIP: '可选 X-Edge-IP：{value}',
   counts: {
     pinned: '已钉住',
@@ -56,6 +57,7 @@ export const zhCN = {
   enabled: '启用猎网关',
   transparent: '透明模式，不打票',
   mint: '打票并注入',
+  relay: '云端中继',
   candy: '糖果题筛片区',
   maxRotates: '每轮尝试',
   ticketTTL: '票有效期 / 秒',
@@ -94,8 +96,9 @@ export const enUS = {
   intro:
     'Probes hunt a target gateway from residential egress and pin the cookie pair. Business traffic stays on the group’s direct path and reuses a live pair. 780 is only ticket format length. Transparent mode skips minting when quality is already fine.',
   disabled: 'Codex routing is off. Set CODEX_ROUTING_ENABLED=true.',
-  proxyMissing: 'No probe proxy configured. Business traffic still uses the group egress.',
+  proxyMissing: 'No cloud relay or probe proxy configured. Business traffic still uses the group egress.',
   proxyReady: 'Probes rotate residential regions. Business requests stay direct.',
+  relayReady: 'Probes mint through the Aliyun function and hunt unified-88. Business stays on group egress.',
   edgeIP: 'Optional X-Edge-IP: {value}',
   counts: {
     pinned: 'Pinned',
@@ -145,6 +148,7 @@ export const enUS = {
   enabled: 'Enable gateway hunt',
   transparent: 'Transparent mode, no mint',
   mint: 'Mint and inject tickets',
+  relay: 'Cloud relay',
   candy: 'Candy-question filter',
   maxRotates: 'Attempts per round',
   ticketTTL: 'Ticket TTL / seconds',
@@ -183,8 +187,9 @@ export const jaJP = {
   intro:
     'プローブは住宅出口から目標ゲートウェイを探し、Cookie ペアを固定します。業務リクエストはグループの direct のまま、有効なペアを再利用します。780 は票の形式長だけです。品質が十分なときは透明モードで票を打ちません。',
   disabled: 'Codex ルーティングは無効です。CODEX_ROUTING_ENABLED=true を設定してください。',
-  proxyMissing: 'プローブ用プロキシが未設定です。業務リクエストはグループ出口のままです。',
+  proxyMissing: 'クラウド中継またはプローブ用プロキシが未設定です。業務リクエストはグループ出口のままです。',
   proxyReady: 'プローブは住宅リージョンをローテーションし、業務は direct のままです。',
+  relayReady: 'プローブは阿里雲関数で unified-88 を捕り、業務はグループ出口のままです。',
   edgeIP: '任意の X-Edge-IP：{value}',
   counts: {
     pinned: '固定済み',
@@ -234,6 +239,7 @@ export const jaJP = {
   enabled: 'ゲートウェイ探索を有効化',
   transparent: '透明モード（票を打たない）',
   mint: '票を発行して注入',
+  relay: 'クラウド中継',
   candy: 'キャンディ問題で篩う',
   maxRotates: '1 ラウンドの試行',
   ticketTTL: '票の TTL / 秒',

@@ -1,0 +1,67 @@
+# Serverless Devs(s 3.x)部署描述:chatgpt.com 透明中继 → 阿里云函数计算 3.0 Web 函数。
+#
+#   export RELAY_KEY="$(openssl rand -hex 32)"   # 客户端请求头 X-Relay-Key 用同一个值
+#   s deploy -y
+#
+# 部署输出里的 HTTP 触发器地址即中继入口:客户端把 https://chatgpt.com 换成它。
+# 细节见同目录 README.md。
+edition: 3.0.0
+name: chatgpt-relay
+access: gptload-fc
+
+vars:
+  # 函数地域 = 回源出口所在地。OpenAI 不向中国内地、香港等地区提供服务,须选它支持
+  # 的国家/地区,例如 ap-southeast-1(新加坡)、ap-northeast-1(东京)、us-west-1(硅谷)。
+  region: ap-southeast-1
+
+resources:
+  relay:
+    component: fc3
+    props:
+      region: ${vars.region}
+      functionName: chatgpt-relay
+      description: chatgpt.com transparent relay (SSE streaming)
+      # custom.debian10 内置 Node.js 20(/var/fc/lang/nodejs20);中继零依赖,不需要层。
+      runtime: custom.debian10
+      code: ./                      # .fcignore 排除测试/文档/本文件,代码包只有 index.js
+      customRuntimeConfig:
+        command:
+          - /var/fc/lang/nodejs20/bin/node
+        args:
+          - index.js
+        port: 9000                  # 与 index.js 的 FC_SERVER_PORT 默认值一致
+      cpu: 0.5
+      memorySize: 512
+      diskSize: 512
+      # 中继只等 I/O:一个实例承载多条流,并发的流不必各自冷启动。
+      instanceConcurrency: 100
+      # 单次调用上限 = 一条 SSE 的最长时长(平台上限 86400)。默认只有 3 秒,不设会截断流。
+      timeout: 3600
+      internetAccess: true
+      environmentVariables:
+        RELAY_KEY: ${env('RELAY_KEY')}
+        # transparent = 完全关闭 X-Relay-Mint 打票,所有请求只做透明中继。
+        # 不设置时兼容旧行为(mint):普通请求透明中继,带 X-Relay-Mint 才打票。
+        RELAY_MODE: ${env('RELAY_MODE')}
+        # 打票(X-Relay-Mint)可选配置,默认值见 index.js / README.md:
+        # MINT_GATEWAY: unified-88          # 目标网关,any 不查
+        # MINT_MODELS: gpt-6-sol,gpt-6-luna,gpt-6-astra  # 打票模型集,逗号分隔
+        # MINT_TICKET_LEN: '780'            # 票长验收,0 不查
+        # MINT_TICKET_TTL_S: '240'          # 票缓存秒数,0 不缓存
+        # MINT_MAX_ATTEMPTS: '24'           # 每模型循环上限 1-128
+      # logConfig: auto             # 需要留存请求日志时打开(会创建 SLS project/logstore)
+      triggers:
+        - triggerName: httpTrigger
+          triggerType: http
+          qualifier: LATEST
+          triggerConfig:
+            # 平台层匿名,鉴权由函数自己做(X-Relay-Key;RELAY_KEY 未配置时全拒)。
+            authType: anonymous
+            disableURLInternet: false
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - PATCH
+              - HEAD
