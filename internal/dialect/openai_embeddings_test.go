@@ -37,7 +37,7 @@ func TestOpenAIEmbeddingsInspectRequestAcceptsOfficialInputShapes(t *testing.T) 
 			}
 			if metadata.Model == nil || *metadata.Model != "Qwen/Qwen3-Embedding-8B" ||
 				metadata.Stream || metadata.Operation != execution.OperationEmbeddingsCreate ||
-				metadata.RouteRequirement != execution.RouteRequirementNative || !metadata.ObserveUsage {
+				metadata.RouteRequirement != execution.RouteRequirementAny || !metadata.ObserveUsage {
 				t.Fatalf("metadata = %#v", metadata)
 			}
 		})
@@ -170,7 +170,7 @@ func TestOpenAIEmbeddingsStandardRequestUsesCreate(t *testing.T) {
 	}
 	if metadata.Operation != execution.OperationEmbeddingsCreate || metadata.Model == nil ||
 		*metadata.Model != "text-embedding-3-small" || metadata.Stream ||
-		metadata.RouteRequirement != execution.RouteRequirementNative || !metadata.ObserveUsage {
+		metadata.RouteRequirement != execution.RouteRequirementAny || !metadata.ObserveUsage {
 		t.Fatalf("metadata = %#v", metadata)
 	}
 }

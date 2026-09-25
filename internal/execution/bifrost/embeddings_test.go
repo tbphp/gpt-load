@@ -140,7 +140,6 @@ func TestOpenAIEmbeddingsRequestShapeAndCapabilityAreExact(t *testing.T) {
 		func(spec *execution.AttemptSpec) { spec.Method = http.MethodGet },
 		func(spec *execution.AttemptSpec) { spec.Path = "/v1/embedding" },
 		func(spec *execution.AttemptSpec) { spec.Operation = execution.OperationChatCompletion },
-		func(spec *execution.AttemptSpec) { spec.RouteMode = execution.RouteConverted },
 	} {
 		invalid := valid.Clone()
 		mutate(&invalid)

@@ -306,3 +306,34 @@ func TestHandlerRoutesGeminiEmbeddingsWithAliasUsageAndPricing(t *testing.T) {
 		t.Fatalf("request log retained input text: %s", encoded)
 	}
 }
+
+func TestExecutionForwarderKeepsMissingConvertedEmbeddingsUsageUnpriced(t *testing.T) {
+	t.Parallel()
+
+	responseBody := []byte(`{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1]}],"model":"gemini-embedding-001","usage":{"prompt_tokens":0,"total_tokens":0}}`)
+	executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+		return execution.AttemptResult{
+			DispatchState:   execution.DispatchMaybeSent,
+			ResponseStarted: true,
+			StatusCode:      http.StatusOK,
+			Header:          http.Header{"Content-Type": {"application/json"}},
+			Body:            responseBody,
+			Model:           "gemini-embedding-001",
+			Usage:           &execution.UsageEvidence{Normalized: usage.Result{State: usage.StateMissing}},
+		}
+	}}
+	input := executionForwardInput()
+	input.Dialect = dialect.NewOpenAIEmbeddings()
+	input.ClientProtocol = protocol.OpenAIEmbeddings
+	input.ObserveUsage = true
+	input.Operation = execution.OperationEmbeddingsCreate
+	input.ExternalModel = "gemini-embedding-001"
+	input.UpstreamModelID = "gemini-embedding-001"
+	input.Request.Path = "/v1/embeddings"
+	input.Request.Body = []byte(`{"model":"gemini-embedding-001","input":"hello"}`)
+
+	result := NewExecutionForwarder(executor).Forward(context.Background(), input)
+	if result.Err != nil || result.Usage.State != usage.StateMissing {
+		t.Fatalf("Forward() usage = %#v, want missing; result=%#v", result.Usage, result)
+	}
+}

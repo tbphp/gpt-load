@@ -15,6 +15,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/geminiembedding"
 	"gpt-load/internal/execution/geminiimage"
 	"gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
@@ -420,6 +421,21 @@ complete:
 			}
 			model = openAIResponseModel(bodyBytes, "")
 		}
+		if prepared.mode == channel.RouteConverted && spec.ClientProtocol == protocol.OpenAIEmbeddings && prepared.embeddingConversion != nil {
+			var err error
+			bodyBytes, usageEvidence, err = geminiembedding.ConvertResponse(bodyBytes, *prepared.embeddingConversion)
+			httpheader.StripRepresentationMetadata(headers)
+			headers.Set("Content-Type", "application/json")
+			if err != nil {
+				failure := startedUnaryFailure(http.StatusBadGateway, headers, execution.ErrorKindProvider, geminiembedding.ErrInvalidResponse.Error())
+				failure.Error.Code = "invalid_embedding_response"
+				failure.Error.StatusCode = http.StatusBadGateway
+				failure.Error.Hint = execution.FailureHintRequestRejected
+				failure.Error.OriginHint, failure.Error.ScopeHint = execution.ErrorOriginUpstream, execution.ErrorScopeRequest
+				return failure
+			}
+			model = openAIResponseModel(bodyBytes, "")
+		}
 		if needsClientModelAlias(spec) && headers.Get("Content-Encoding") == "" {
 			var err error
 			bodyBytes, err = rewriteClientResponseModel(spec.ClientProtocol, bodyBytes, spec.ClientModel)
@@ -719,7 +735,9 @@ func usageEvidenceFromPassthroughForSpec(
 	spec execution.AttemptSpec,
 	source *schemas.BifrostPassthroughUsage,
 ) (*execution.UsageEvidence, error) {
-	if spec.ClientProtocol == protocol.OpenAIImages || spec.ClientProtocol == protocol.Rerank || spec.ClientProtocol == protocol.Decisions {
+	// 转换路由由转换器提供用量证据；原生 OpenAI Embeddings 不经过透传。
+	if spec.ClientProtocol == protocol.OpenAIImages || spec.ClientProtocol == protocol.OpenAIEmbeddings ||
+		spec.ClientProtocol == protocol.Rerank || spec.ClientProtocol == protocol.Decisions {
 		return nil, nil
 	}
 	return usageEvidenceFromPassthrough(source)
