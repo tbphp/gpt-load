@@ -236,7 +236,7 @@ func (session *CodexLiveSession) DialSideband(ctx context.Context, style string,
 	} else if parsed.Scheme == "http" {
 		parsed.Scheme = "ws"
 	}
-	dialer, err := liveCodexDialer(session.proxyURL, protocols)
+	dialer, err := liveCodexDialer(session.proxyURL, parsed, protocols, http.ProxyFromEnvironment)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -273,11 +273,29 @@ func (session *CodexLiveSession) ReleaseSideband(connection *websocket.Conn) {
 	session.mu.Unlock()
 }
 
-func liveCodexDialer(proxyURL string, protocols []string) (*websocket.Dialer, error) {
+func liveCodexDialer(proxyURL string, target *url.URL, protocols []string, proxyFromEnvironment func(*http.Request) (*url.URL, error)) (*websocket.Dialer, error) {
 	dialer := &websocket.Dialer{HandshakeTimeout: 10 * time.Second, Subprotocols: append([]string(nil), protocols...)}
 	if proxyURL == "" {
-		dialer.Proxy = http.ProxyFromEnvironment
-		return dialer, nil
+		if target == nil || proxyFromEnvironment == nil {
+			return nil, errors.New("codex live proxy target unavailable")
+		}
+		proxyTarget := *target
+		switch proxyTarget.Scheme {
+		case "ws":
+			proxyTarget.Scheme = "http"
+		case "wss":
+			proxyTarget.Scheme = "https"
+		default:
+			return nil, errors.New("invalid codex live sideband target")
+		}
+		selected, err := proxyFromEnvironment(&http.Request{Method: http.MethodGet, URL: &proxyTarget})
+		if err != nil {
+			return nil, err
+		}
+		if selected == nil {
+			return dialer, nil
+		}
+		proxyURL = selected.String()
 	}
 	setting, err := proxyutil.Parse(proxyURL)
 	if err != nil {
@@ -289,7 +307,7 @@ func liveCodexDialer(proxyURL string, protocols []string) (*websocket.Dialer, er
 	if setting.Mode != proxyutil.ModeProxy {
 		return nil, errors.New("invalid codex live proxy")
 	}
-	if setting.URL.Scheme == "http" || setting.URL.Scheme == "https" {
+	if setting.URL.Scheme == "http" {
 		dialer.Proxy = http.ProxyURL(setting.URL)
 		return dialer, nil
 	}

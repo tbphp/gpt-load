@@ -2,11 +2,52 @@ package embedded
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
+
+func TestCodexLiveHTTPSProxyUsesCancelableDialerForExplicitAndEnvironmentSettings(t *testing.T) {
+	proxyURL := &url.URL{Scheme: "https", Host: "proxy.example.test:443"}
+	target := &url.URL{Scheme: "wss", Host: "api.openai.com", Path: "/v1/live/rtc_contract"}
+	for _, test := range []struct {
+		name             string
+		configuredProxy  string
+		wantResolveCalls int
+	}{
+		{name: "explicit", configuredProxy: proxyURL.String()},
+		{name: "environment", wantResolveCalls: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resolveCalls := 0
+			dialer, err := liveCodexDialer(test.configuredProxy, target, nil, func(request *http.Request) (*url.URL, error) {
+				resolveCalls++
+				if request.URL.Scheme != "https" || request.URL.Host != target.Host {
+					t.Fatalf("environment proxy request URL = %s", request.URL)
+				}
+				return proxyURL, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if dialer.Proxy != nil || dialer.NetDialContext == nil {
+				t.Fatal("HTTPS proxy must use a cancellable connection dialer")
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			_, _, err = dialer.DialContext(ctx, target.String(), nil)
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("HTTPS proxy sideband dial = %v, want canceled dial", err)
+			}
+			if resolveCalls != test.wantResolveCalls {
+				t.Fatalf("environment proxy resolutions = %d, want %d", resolveCalls, test.wantResolveCalls)
+			}
+		})
+	}
+}
 
 func TestCodexLiveUsesSelectedCredentialAndPreservesCallID(t *testing.T) {
 	t.Parallel()

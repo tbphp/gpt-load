@@ -333,7 +333,18 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 		DurationMs: handler.requestNow().Sub(started).Milliseconds(), FailureCategory: telemetry.FailureCategoryOK,
 		RetryDirective: telemetry.RetryNone, Effect: telemetry.EffectNone, Action: telemetry.ActionTerminate, Committed: true,
 	})
-	call := &liveCallSession{id: upstream.CallID, keyID: request.accessKey.ID, groupID: selection.GroupID,
+	keyHash := ""
+	for hash, key := range request.snapshot.AccessKeysByHash {
+		if key.ID == request.accessKey.ID {
+			keyHash = hash
+			break
+		}
+	}
+	if keyHash == "" {
+		failed(reasonConfigurationChanged)
+		return
+	}
+	call := &liveCallSession{id: upstream.CallID, keyID: request.accessKey.ID, keyHash: keyHash, groupID: selection.GroupID,
 		clientModel: model, model: *selection.UpstreamModelID, peerAddr: c.Request.RemoteAddr,
 		ref: ref, upstream: upstream.Session, media: media, recorder: recorder}
 	call.authorized = func() bool { return handler.liveCallAuthorized(call.keyID, call) }
@@ -382,8 +393,8 @@ func liveMediaProxyURL(effective outboundproxy.Effective) (string, error) {
 
 func (handler *Handler) liveCallAuthorized(keyID uint, call *liveCallSession) bool {
 	snapshot := handler.manager.Current()
-	key, exists := snapshot.AccessKeysByID[keyID]
-	if !exists || key.Status != state.AccessKeyStatusActive ||
+	key, exists := snapshot.AccessKeysByHash[call.keyHash]
+	if !exists || key.ID != keyID || key.Status != state.AccessKeyStatusActive ||
 		(key.ExpiresAtMS != nil && handler.requestNow().UnixMilli() >= *key.ExpiresAtMS) {
 		return false
 	}

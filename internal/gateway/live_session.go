@@ -22,22 +22,24 @@ const (
 )
 
 type liveCallSession struct {
-	id          string
-	keyID       uint
-	groupID     uint
-	clientModel string
-	model       string
-	peerAddr    string
-	ref         state.CredentialRef
-	upstream    execution.LiveSession
-	media       *liveMediaSession
-	recorder    *requestRecorder
-	closedOnce  sync.Once
-	attached    bool
-	timer       *time.Timer
-	reconnect   *time.Timer
-	authorized  func() bool
-	closed      chan struct{}
+	id                  string
+	keyID               uint
+	keyHash             string
+	groupID             uint
+	clientModel         string
+	model               string
+	peerAddr            string
+	ref                 state.CredentialRef
+	upstream            execution.LiveSession
+	media               *liveMediaSession
+	recorder            *requestRecorder
+	closedOnce          sync.Once
+	attached            bool
+	timer               *time.Timer
+	reconnect           *time.Timer
+	reconnectGeneration uint64
+	authorized          func() bool
+	closed              chan struct{}
 }
 
 type liveSessions struct {
@@ -126,6 +128,7 @@ func (store *liveSessions) claim(id string, keyID uint) (*liveCallSession, bool)
 		call.reconnect.Stop()
 		call.reconnect = nil
 	}
+	call.reconnectGeneration++
 	call.attached = true
 	return call, true
 }
@@ -142,9 +145,23 @@ func (store *liveSessions) unclaim(call *liveCallSession, connection *websocket.
 	store.mu.Lock()
 	if store.calls[call.id] == call {
 		call.attached = false
-		call.reconnect = time.AfterFunc(liveReconnectWindow, func() { store.finishCall(call, "control_timeout") })
+		call.reconnectGeneration++
+		generation := call.reconnectGeneration
+		call.reconnect = time.AfterFunc(liveReconnectWindow, func() { store.expireReconnect(call, generation) })
 	}
 	store.mu.Unlock()
+}
+
+func (store *liveSessions) expireReconnect(call *liveCallSession, generation uint64) {
+	store.mu.Lock()
+	if store.calls[call.id] != call || call.attached || call.reconnectGeneration != generation {
+		store.mu.Unlock()
+		return
+	}
+	delete(store.calls, call.id)
+	call.reconnect = nil
+	store.mu.Unlock()
+	call.close("control_timeout")
 }
 
 func (store *liveSessions) finishCall(call *liveCallSession, reason string) {

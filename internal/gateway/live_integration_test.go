@@ -136,7 +136,7 @@ func (session *liveFakeUpstream) Close() error {
 	return session.peer.Close()
 }
 
-func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engine, *recordingRequestLogSink, *state.CredentialRegistry) {
+func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engine, *recordingRequestLogSink, *state.CredentialRegistry, func(string)) {
 	t.Helper()
 	handler, manager, registry := newHandlerForTest(t, newTestExecutionForwarder(t))
 	groups := make([]state.GroupConfig, 0, 2)
@@ -155,13 +155,17 @@ func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engi
 		entries = append(entries, state.CredentialEntry{ID: id, GroupID: id, Status: state.CredentialStatusActive,
 			Version: 1, IdentityGeneration: uint64(id), Fingerprint: fmt.Sprintf("test-credential-%d", id), EncryptedValue: encrypted})
 	}
-	if _, err := manager.Publish(state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: groups, Credentials: configs,
-		AccessKeys: []state.AccessKeyConfig{
-			{ID: 1, Name: "owner", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive},
-			{ID: 2, Name: "other", KeyHash: handler.encryption.Hash("gl-other"), Status: state.AccessKeyStatusActive},
-		}}); err != nil {
-		t.Fatal(err)
+	publishOwnerKey := func(key string) {
+		t.Helper()
+		if _, err := manager.Publish(state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: groups, Credentials: configs,
+			AccessKeys: []state.AccessKeyConfig{
+				{ID: 1, Name: "owner", KeyHash: handler.encryption.Hash(key), Status: state.AccessKeyStatusActive},
+				{ID: 2, Name: "other", KeyHash: handler.encryption.Hash("gl-other"), Status: state.AccessKeyStatusActive},
+			}}); err != nil {
+			t.Fatal(err)
+		}
 	}
+	publishOwnerKey("gl-client")
 	if err := registry.ReplaceCredentials(entries); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +175,7 @@ func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engi
 	t.Cleanup(handler.CloseCodexLive)
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
-	return handler, engine, sink, registry
+	return handler, engine, sink, registry, publishOwnerKey
 }
 
 func liveClientOffer(t *testing.T) (*webrtc.PeerConnection, string) {
@@ -244,7 +248,7 @@ func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 	}))
 	defer echo.Close()
 	fake := &liveFakeOpener{wsURL: "ws" + strings.TrimPrefix(echo.URL, "http")}
-	_, engine, sink, _ := liveGatewayFixture(t, fake)
+	_, engine, sink, _, _ := liveGatewayFixture(t, fake)
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	for index := 1; index <= 4; index++ {
@@ -341,7 +345,7 @@ func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 
 func TestCodexLiveRevokesActiveCallWhenSelectedCredentialIsDisabled(t *testing.T) {
 	fake := &liveFakeOpener{}
-	_, engine, sink, registry := liveGatewayFixture(t, fake)
+	_, engine, sink, registry, _ := liveGatewayFixture(t, fake)
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	clientPeer, offer := liveClientOffer(t)
@@ -387,13 +391,108 @@ func TestCodexLiveRevokesActiveCallWhenSelectedCredentialIsDisabled(t *testing.T
 	}
 }
 
+func TestCodexLiveRevokesActiveCallWhenAccessKeyRotates(t *testing.T) {
+	fake := &liveFakeOpener{}
+	handler, engine, sink, _, publishOwnerKey := liveGatewayFixture(t, fake)
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	clientPeer, offer := liveClientOffer(t)
+	body, err := json.Marshal(map[string]any{"sdp": offer, "session": map[string]any{"model": channel.CodexLiveModelID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := liveRequest(t, server.Client(), http.MethodPost, server.URL+"/v1/realtime/calls", "gl-client", "application/json", body)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d", created.StatusCode)
+	}
+	var answer bytes.Buffer
+	if _, err := answer.ReadFrom(created.Body); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientPeer.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: answer.String()}); err != nil {
+		t.Fatal(err)
+	}
+	call, found := handler.liveSessions.lookup("rtc_1", 1)
+	if !found {
+		t.Fatal("created call is missing")
+	}
+	publishOwnerKey("gl-rotated")
+	if call.authorized() {
+		t.Fatal("rotated AccessKey still authorizes the old live call")
+	}
+	deadline := time.After(5 * time.Second)
+	for {
+		events := sink.snapshot()
+		if len(events) == 1 {
+			if events[0].Status != telemetry.RequestStatusCanceled || events[0].ErrorCode != "key_revoked" {
+				t.Fatalf("rotated call log = %+v", events[0])
+			}
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("rotated AccessKey did not terminate the old live call")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+func TestCodexLiveReconnectTimeoutDoesNotCloseReattachedCall(t *testing.T) {
+	fake := &liveFakeOpener{}
+	handler, engine, _, _, _ := liveGatewayFixture(t, fake)
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	clientPeer, offer := liveClientOffer(t)
+	body, err := json.Marshal(map[string]any{"sdp": offer, "session": map[string]any{"model": channel.CodexLiveModelID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := liveRequest(t, server.Client(), http.MethodPost, server.URL+"/v1/realtime/calls", "gl-client", "application/json", body)
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d", created.StatusCode)
+	}
+	var answer bytes.Buffer
+	if _, err := answer.ReadFrom(created.Body); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientPeer.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: answer.String()}); err != nil {
+		t.Fatal(err)
+	}
+	store := handler.liveSessions
+	call, claimed := store.claim("rtc_1", 1)
+	if !claimed {
+		t.Fatal("created call cannot attach")
+	}
+	store.unclaim(call, nil)
+
+	// 模拟旧超时回调已启动，但重连先取得锁并重新附着。
+	store.mu.Lock()
+	call.reconnect.Reset(0)
+	time.Sleep(250 * time.Millisecond)
+	if call.reconnect.Stop() {
+		store.mu.Unlock()
+		t.Fatal("reconnect timeout did not fire")
+	}
+	call.reconnect = nil
+	call.attached = true
+	store.mu.Unlock()
+	select {
+	case <-call.closed:
+		t.Fatal("stale reconnect timeout closed a reattached call")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, found := store.lookup("rtc_1", 1); !found {
+		t.Fatal("reattached call was removed")
+	}
+}
+
 func TestCodexLiveForbiddenAccountDoesNotRetryOrCreateSession(t *testing.T) {
 	fake := &liveFakeOpener{failure: &execution.ErrorEvidence{
 		Kind: execution.ErrorKindHTTP, StatusCode: http.StatusForbidden,
 		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeRequest,
 		Summary: "Codex live request forbidden",
 	}}
-	handler, engine, sink, _ := liveGatewayFixture(t, fake)
+	handler, engine, sink, _, _ := liveGatewayFixture(t, fake)
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	_, offer := liveClientOffer(t)
