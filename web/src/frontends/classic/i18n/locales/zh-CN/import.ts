@@ -143,7 +143,7 @@ export default {
       copyUserCode: '复制用户码',
       callbackLabel: '授权后浏览器停在的网址',
       callbackEndpointFallback: '本地 OAuth 回调地址',
-      callbackPlaceholder: 'http://localhost:<端口>/callback?code=...&state=...',
+      callbackPlaceholder: 'http://localhost:<端口>/callback?state=...',
       callbackHelp: '从地址栏复制完整网址粘到这里，不要只复制其中一段。页面打不开也没关系。',
       submitCallback: '提交',
       callbackFailed: '这段网址无效、已使用，或不属于当前这次授权',

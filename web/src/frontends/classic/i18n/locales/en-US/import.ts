@@ -154,7 +154,7 @@ export default {
       copyUserCode: 'Copy user code',
       callbackLabel: 'URL your browser ended on',
       callbackEndpointFallback: 'the local OAuth callback',
-      callbackPlaceholder: 'http://localhost:<port>/callback?code=...&state=...',
+      callbackPlaceholder: 'http://localhost:<port>/callback?state=...',
       callbackHelp:
         'Copy the whole URL from the address bar, not just part of it. It is fine if that page does not load.',
       submitCallback: 'Submit',

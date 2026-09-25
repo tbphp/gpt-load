@@ -358,14 +358,15 @@ async function callback(stage: CredentialStage): Promise<void> {
   const states = url.searchParams.getAll('state')
   const codes = url.searchParams.getAll('code')
   const errors = url.searchParams.getAll('error')
-  if (
-    states.length !== 1 ||
-    !states[0]?.trim() ||
-    !(
-      (codes.length === 1 && codes[0]?.trim() && errors.length === 0) ||
-      (errors.length === 1 && errors[0]?.trim() && codes.length === 0)
-    )
-  ) {
+  const accessTokens = url.searchParams.getAll('access_token')
+  const refreshTokens = url.searchParams.getAll('refresh_token')
+  const single = (values: string[]): boolean => values.length === 1 && Boolean(values[0]?.trim())
+  const carriesCode = single(codes) && errors.length === 0
+  const carriesError = single(errors) && codes.length === 0
+  // Mirasim 直接把令牌放在回调地址里返回，不经过授权码交换。
+  const carriesTokens =
+    single(accessTokens) && single(refreshTokens) && codes.length === 0 && errors.length === 0
+  if (!single(states) || !(carriesCode || carriesError || carriesTokens)) {
     callbackErrors.value[stage.id] = t('subscriptions.callbackIncomplete')
     return
   }
