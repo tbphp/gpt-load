@@ -4,11 +4,11 @@ export const zhCN = {
   copyLink: '复制连接',
   authenticating: '认证中',
   callbackStep: '粘贴完整回调地址',
-  callbackPlaceholder: 'http://localhost:端口/回调路径?code=…&state=…',
+  callbackPlaceholder: 'http://localhost:端口/回调路径?state=…',
   callbackHelp:
-    '登录后，复制地址栏中包含 code 和 state 的完整地址并粘贴到这里。即使 localhost 页面无法打开也可以，不要将 localhost 改成服务器地址。',
+    '登录后，复制地址栏里的完整地址粘贴到这里，保留其中的 state 和上游返回的参数：授权码渠道是 code，Mirasim 这类直接返回令牌的渠道是 access_token 与 refresh_token。即使 localhost 页面无法打开也可以，不要将 localhost 改成服务器地址。',
   callbackIncomplete:
-    '请粘贴带有 code 和 state 的完整回调地址，而不是授权链接、单独的授权码或 localhost 首页。',
+    '请粘贴带有 state 的完整回调地址：授权码渠道需要 code，直接返回令牌的渠道需要 access_token 与 refresh_token。不要粘贴授权链接、单独的授权码或 localhost 首页。',
   callbackTarget: '请使用 {address} 对应的完整回调地址，保留原始域名、端口和路径。',
   callbackSessionMismatch:
     '回调地址与当前授权会话不匹配或已使用。已完成的授权会自动同步；未完成时请使用当前链接登录。',
@@ -118,11 +118,11 @@ export const enUS: typeof zhCN = {
   copyLink: 'Copy link',
   authenticating: 'Authenticating',
   callbackStep: 'Paste the full callback URL',
-  callbackPlaceholder: 'http://localhost:port/callback-path?code=…&state=…',
+  callbackPlaceholder: 'http://localhost:port/callback-path?state=…',
   callbackHelp:
-    'After signing in, paste the complete address containing code and state from the address bar. This works even if the localhost page cannot open. Do not replace localhost with the server address.',
+    'After signing in, paste the complete address from the address bar, keeping state and whatever the upstream returned: code for authorization-code channels, access_token and refresh_token for channels such as Mirasim that return tokens directly. This works even if the localhost page cannot open. Do not replace localhost with the server address.',
   callbackIncomplete:
-    'Paste the complete callback URL containing code and state, not the authorization link, a code alone, or the localhost homepage.',
+    'Paste the complete callback URL containing state: code for authorization-code channels, or access_token and refresh_token for channels that return tokens directly. Do not paste the authorization link, a code alone, or the localhost homepage.',
   callbackTarget:
     'Use the full callback URL for {address}, keeping its original host, port and path.',
   callbackSessionMismatch:
@@ -236,11 +236,11 @@ export const jaJP: typeof zhCN = {
   copyLink: 'リンクをコピー',
   authenticating: '認証中',
   callbackStep: '完全なコールバック URL を貼り付け',
-  callbackPlaceholder: 'http://localhost:ポート/コールバックパス?code=…&state=…',
+  callbackPlaceholder: 'http://localhost:ポート/コールバックパス?state=…',
   callbackHelp:
-    'ログイン後、アドレスバーの code と state を含む完全な URL を貼り付けてください。localhost のページを開けなくても利用できます。localhost をサーバーのアドレスに置き換えないでください。',
+    'ログイン後、アドレスバーの完全な URL を貼り付けてください。state と、上流が返したパラメータ（認可コード方式は code、Mirasim のようにトークンを直接返す方式は access_token と refresh_token）をそのまま残します。localhost のページを開けなくても利用できます。localhost をサーバーのアドレスに置き換えないでください。',
   callbackIncomplete:
-    '認証リンクやコード単体、localhost のトップページではなく、code と state を含む完全なコールバック URL を貼り付けてください。',
+    'state を含む完全なコールバック URL を貼り付けてください。認可コード方式は code、トークンを直接返す方式は access_token と refresh_token が必要です。認証リンクやコード単体、localhost のトップページは貼り付けないでください。',
   callbackTarget:
     '{address} に対応する完全なコールバック URL を使用し、ホスト・ポート・パスを変更しないでください。',
   callbackSessionMismatch:

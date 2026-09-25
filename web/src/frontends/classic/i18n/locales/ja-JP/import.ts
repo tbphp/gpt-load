@@ -151,7 +151,7 @@ export default {
       copyUserCode: 'ユーザーコードをコピー',
       callbackLabel: 'ブラウザーが最後に表示した URL',
       callbackEndpointFallback: 'ローカル OAuth コールバック',
-      callbackPlaceholder: 'http://localhost:<port>/callback?code=...&state=...',
+      callbackPlaceholder: 'http://localhost:<port>/callback?state=...',
       callbackHelp:
         'アドレスバーの URL を一部ではなく全体をコピーして貼り付けてください。そのページが開けなくても問題ありません。',
       submitCallback: '送信',

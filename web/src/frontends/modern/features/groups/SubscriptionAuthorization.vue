@@ -71,13 +71,11 @@ onScopeDispose(() => {
   resetCopy()
 })
 const device = computed(() => props.stage.method === 'device_oauth')
-const placeholder = computed(() =>
-  props.stage.redirectURI
-    ? props.stage.redirectURI +
-      (props.stage.redirectURI.includes('?') ? '&' : '?') +
-      'code=…&state=…'
-    : t('subscriptions.callbackPlaceholder'),
-)
+const placeholder = computed(() => {
+  const endpoint = props.stage.redirectURI
+  if (!endpoint) return t('subscriptions.callbackPlaceholder')
+  return `${endpoint}${endpoint.includes('?') ? '&' : '?'}state=…`
+})
 async function submitPastedCallback(): Promise<void> {
   await nextTick()
   if (!props.disabled && props.modelValue.trim()) emit('submit')
