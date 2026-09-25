@@ -912,7 +912,7 @@ func (stream *redactionRestoreSSE) signReasoningDelta(event *redactionStreamEven
 
 func (stream *redactionRestoreSSE) signReasoningPart(event *redactionStreamEvent, root gjson.Result) {
 	if root.Get("part.type").Str == "reasoning_text" {
-		stream.signAt(event, redactionSignedBlock{block: "part", signature: []any{"signature"}, content: [][]any{{"text"}}})
+		stream.signAt(event, redactionSignedBlock{block: "part", signature: []any{"signature"}})
 	}
 }
 
@@ -937,9 +937,7 @@ func (stream *redactionRestoreSSE) anthropic(event *redactionStreamEvent, root g
 				}); err != nil {
 					return err
 				}
-				stream.signAt(event, redactionSignedBlock{
-					block: "content_block", signature: []any{"signature"}, content: [][]any{{"thinking"}},
-				})
+				stream.signAt(event, redactionSignedBlock{block: "content_block", signature: []any{"signature"}})
 				return nil
 			case "tool_use":
 				return stream.direct(event, func(ctx *unaryRestoreContext) error {

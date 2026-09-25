@@ -307,6 +307,12 @@ func TestRedactionMayRestore(t *testing.T) {
 		{`{"messages":[{"content":[{"type":"thinking","signature":"s"}]}]}`, false, false},
 		{`{"previous_response_id":"resp_1","input":"hi"}`, true, true},
 		{`{"conversation":"conv_1","input":"hi"}`, true, true},
+		{`{"cachedContent":"cachedContents/c1","contents":[]}`, true, true},
+		{`{"cached_content":"cachedContents/c1","contents":[]}`, true, true},
+		{`{"container":"container_1","messages":[]}`, true, true},
+		{`{"tools":[{"type":"code_interpreter","container_id":"cntr_1"}],"input":"hi"}`, true, true},
+		{`{"container":"container_1","messages":[]}`, false, false},
+		{`{"messages":[{"role":"user","content":"restart the container"}]}`, true, false},
 	}
 	for _, tc := range cases {
 		request := &dialect.ParsedRequest{Body: []byte(tc.body)}

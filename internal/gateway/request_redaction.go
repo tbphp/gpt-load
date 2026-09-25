@@ -150,10 +150,11 @@ func (handler *Handler) logUnrestoredRedactionTokens(cipher encryption.Redaction
 var redactionTokenMarkers = [][]byte{[]byte("gld1_"), []byte(`\u0067ld1_`)}
 
 // redactionContextMarkers 表示请求引用了上游保存、客户端看不到原文的上下文
-// （推理密文、签名、previous_response_id 等），其中可能带着以前加密过的内容。
+// （推理密文、签名、previous_response_id、缓存内容、代码执行容器等），其中可能带着以前加密过的内容。
 var redactionContextMarkers = [][]byte{
 	[]byte("encrypted_content"), []byte("signature"), []byte("Signature"),
 	[]byte("previous_response_id"), []byte(`"conversation"`),
+	[]byte(`"cachedContent"`), []byte(`"cached_content"`), []byte(`"container"`), []byte(`"container_id"`),
 }
 
 // redactionMayRestore 判断是否需要还原上游响应。不需要时流式数据收到即转发，不做任何扣留。

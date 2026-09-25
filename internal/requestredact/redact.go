@@ -448,54 +448,36 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 	inSigned := false
 	var walk func(gjson.Result, bool, bool, int, bool) error
 	var toolResult func(gjson.Result, int) error
-	// 签名内容由上游生成，必须逐字节还给上游：记录核对一致时按位置换回上游原文和原签名；
-	// 普通签名说明网关没有往里还原过内容，原样发回；客户端改动过内容时按普通上游内容加密，
-	// 保证明文不外泄，并换回原签名。
-	signed := func(v, signature gjson.Result, content bool, depth int, questions bool) error {
+	// 签名内容由上游生成，必须逐字节还给上游：签名块与记录完全一致时按位置换回上游原文和原签名；
+	// 普通签名说明网关没有往里还原过内容，原样发回；有任何改动、新增或签名之后才到的内容时，
+	// 按普通上游内容加密，保证明文不外泄，并换回原签名。
+	signed := func(v, signature gjson.Result, signaturePath []any, content bool, depth int, questions bool) error {
 		record, wrapped := unwrapSignature(signature.Str)
 		if !wrapped {
 			return nil
 		}
-		exact := record != nil
-		var restored []patch
-		if exact {
-			for _, entry := range record.Strings {
-				value := PathValue(v, entry.Path)
-				if value.Type != gjson.String || value.Index == signature.Index {
-					exact = false
-					break
-				}
-				text, ok := restoreSignedString(value.Str, entry)
-				if !ok {
-					exact = false
-					break
-				}
-				if text == value.Str {
-					continue
-				}
-				encoded, err := json.Marshal(text)
-				if err != nil {
-					return err
-				}
-				restored = append(restored, patch{value.Index, value.Index + len(value.Raw), encoded})
-			}
-		}
+		var restored []signedRestore
+		exact := false
 		if record != nil {
+			restored, exact = restoreSignedBlock(v, signaturePath, record)
 			encoded, err := json.Marshal(record.Signature)
 			if err != nil {
 				return err
 			}
-			if !exact {
-				restored = nil
-			}
-			restored = append(restored, patch{signature.Index, signature.Index + len(signature.Raw), encoded})
-		}
-		for _, p := range restored {
-			if err := addPatch(p); err != nil {
+			if err := addPatch(patch{signature.Index, signature.Index + len(signature.Raw), encoded}); err != nil {
 				return err
 			}
 		}
 		if exact {
+			for _, item := range restored {
+				encoded, err := json.Marshal(item.text)
+				if err != nil {
+					return err
+				}
+				if err := addPatch(patch{item.value.Index, item.value.Index + len(item.value.Raw), encoded}); err != nil {
+					return err
+				}
+			}
 			return nil
 		}
 		inSigned = true
@@ -569,8 +551,8 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			}
 		}
 		if !data && inModel && !inSigned && v.IsObject() {
-			if signature, found := signaturePosition(v); found {
-				return signed(v, signature, content, depth, questions)
+			if signature, path, found := signaturePosition(v); found {
+				return signed(v, signature, path, content, depth, questions)
 			}
 		}
 		if !data && !inModel && v.IsObject() && modelAuthored(v) {

@@ -76,8 +76,10 @@ func TestSignatureRecordRoundTrip(t *testing.T) {
 			t.Fatalf("record entries = %#v", record.Strings)
 		}
 	}
-	if WrapSignature("SIG123", nil) != "SIG123" {
-		t.Fatal("signature without records changed")
+	// 没有字符串的签名块也要包装：签名之后才到的内容会让核对失败，从而按普通内容加密。
+	if record, ok := unwrapSignature(WrapSignature("SIG123", nil)); !ok || record == nil ||
+		record.Signature != "SIG123" || len(record.Strings) != 0 {
+		t.Fatalf("empty record = %#v, %v", record, ok)
 	}
 	for _, value := range []string{"SIG123", "EqQBCkgIARABGAIiQL"} {
 		if _, ok := unwrapSignature(value); ok {
@@ -147,6 +149,7 @@ func TestApplyRestoresRecordedToolArgumentsWithProtocolNames(t *testing.T) {
 	wrapped := WrapSignature("SIG", []SignedString{
 		{Path: []any{"functionCall", "args", "name"}, Value: "alice@example.com", Spans: span},
 		{Path: []any{"functionCall", "args", "id"}, Value: "alice@example.com", Spans: span},
+		{Path: []any{"functionCall", "args", "data"}, Value: "bob@example.com"},
 	})
 	client := `{"functionCall":{"name":"send","args":{"name":"alice@example.com","id":"alice@example.com","data":"bob@example.com"}},"thoughtSignature":` + signedTestString(t, wrapped) + `}`
 	for mode, compiled := range signedTestRules(t) {
@@ -206,6 +209,39 @@ func TestApplyEncryptsChangedSignedContent(t *testing.T) {
 			signature := gjson.GetBytes(got, "contents.0.parts.0.thoughtSignature").Str
 			if part == merged && signature != "SIG" {
 				t.Errorf("%s: original signature was not restored: %s", mode, got)
+			}
+		}
+	}
+}
+
+// 记录必须覆盖签名块里的全部字符串：客户端改动或新增记录以外的字段、签名之后才到的内容，
+// 都按普通上游内容加密，不能随记录核对通过而原样外发。
+func TestApplyEncryptsSignedContentOutsideRecord(t *testing.T) {
+	cipher := signedTestCipher(t, 3)
+	token, err := cipher.EncryptToken("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	span := []RestoreSpan{{Offset: 0, Length: len("alice@example.com"), Original: token}}
+	onlyTo := WrapSignature("SIG", []SignedString{{Path: []any{"functionCall", "args", "to"}, Value: "alice@example.com", Spans: span}})
+	full := WrapSignature("SIG", []SignedString{
+		{Path: []any{"functionCall", "args", "to"}, Value: "alice@example.com", Spans: span},
+		{Path: []any{"functionCall", "args", "cc"}, Value: "public"},
+	})
+	parts := map[string]string{
+		"changed unrecorded field": `{"functionCall":{"name":"send","args":{"to":"alice@example.com","cc":"bob@example.com"}},"thoughtSignature":` + signedTestString(t, onlyTo) + `}`,
+		"added field":              `{"functionCall":{"name":"send","args":{"to":"alice@example.com","cc":"public","bcc":"bob@example.com"}},"thoughtSignature":` + signedTestString(t, full) + `}`,
+		"content after signature":  `{"functionCall":{"name":"send","args":{"to":"alice@example.com"}},"thoughtSignature":` + signedTestString(t, WrapSignature("SIG", nil)) + `}`,
+	}
+	for mode, compiled := range signedTestRules(t) {
+		if mode == "none" {
+			continue
+		}
+		for name, part := range parts {
+			got, err := compiled.ApplyWithCipher([]byte(`{"contents":[{"role":"model","parts":[`+part+`]}]}`), cipher)
+			if err != nil || strings.Contains(string(got), "@example.com") ||
+				gjson.GetBytes(got, "contents.0.parts.0.thoughtSignature").Str != "SIG" {
+				t.Errorf("%s/%s: signed content outside the record was not encrypted: %s / %v", mode, name, got, err)
 			}
 		}
 	}

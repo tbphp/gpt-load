@@ -527,3 +527,70 @@ func TestRedactionSignedChannelOverflowForcesEncryption(t *testing.T) {
 		t.Fatalf("overflowed record did not fall back to encryption: %s / %v", block.Raw, err)
 	}
 }
+
+// 签名块里记录以外的内容（客户端改动的字段、签名之后才到的参数）按普通上游内容加密。
+func TestRedactionSignedContentOutsideRecordIsEncrypted(t *testing.T) {
+	c := websocketRedactionTestCipher(t)
+	token, err := c.EncryptToken("alice@example.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypt := signedRoundTripRules(t)["encrypt"]
+	assertEncrypted := func(t *testing.T, name, request string) {
+		t.Helper()
+		got, err := encrypt.ApplyWithCipher([]byte(request), c)
+		if err != nil || strings.Contains(string(got), "@example.invalid") || strings.Contains(string(got), requestredactWrapperPrefix) {
+			t.Errorf("%s: outbound = %s / %v", name, got, err)
+		}
+	}
+
+	// 非流：客户端把未还原过的参数改成敏感文字。
+	restored, err := restoreUnaryBusinessFields([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"send","args":{"to":"`+token+`","cc":"public"}},"thoughtSignature":"SIG"}]}}]}`),
+		protocol.Gemini, c.RestoreText, false, newRedactionSigner(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	part := strings.Replace(gjson.GetBytes(restored, "candidates.0.content.parts.0").Raw, `"cc":"public"`, `"cc":"bob@example.invalid"`, 1)
+	assertEncrypted(t, "changed argument", `{"contents":[{"role":"model","parts":[`+part+`]}]}`)
+
+	push := func(t *testing.T, proto protocol.Protocol, events []string) [][]byte {
+		t.Helper()
+		stream := newRedactionRestoreSSE(proto, c.RestoreText, false)
+		stream.signer = newRedactionSigner(c)
+		var out []byte
+		for _, event := range events {
+			got, err := stream.Push([]byte("data: " + event + "\n\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, got...)
+		}
+		return redactionContractPayloads(out)
+	}
+	// Gemini 流式：首包只有调用名和签名，参数在后续 partialArgs 里还原。
+	gemini := push(t, protocol.Gemini, []string{
+		`{"candidates":[{"index":0,"content":{"role":"model","parts":[{"functionCall":{"name":"send","willContinue":true},"thoughtSignature":"SIG"}]}}]}`,
+		`{"candidates":[{"index":0,"content":{"role":"model","parts":[{"functionCall":{"partialArgs":[{"jsonPath":"$.to","stringValue":"` + token + `"}]}}]},"finishReason":"STOP"}]}`,
+	})
+	signature := gjson.GetBytes(gemini[0], "candidates.0.content.parts.0.thoughtSignature").Str
+	value := gjson.GetBytes(gemini[1], "candidates.0.content.parts.0.functionCall.partialArgs.0.stringValue").Str
+	if value != "alice@example.invalid" || signature == "SIG" {
+		t.Fatalf("gemini stream = %q / %q", value, signature)
+	}
+	assertEncrypted(t, "gemini partial arguments", `{"contents":[{"role":"model","parts":[{"functionCall":{"name":"send","args":{"to":`+jsonString(t, value)+`}},"thoughtSignature":`+jsonString(t, signature)+`}]}]}`)
+
+	// Gemini 兼容接口：extra_content 签名先到，参数在后续 delta。
+	chat := push(t, protocol.OpenAICompletions, []string{
+		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"send","arguments":""},"extra_content":{"google":{"thought_signature":"SIG"}}}]}}]}`,
+		`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":` + jsonString(t, `{"to":"`+token+`"}`) + `}}]}}]}`,
+		`{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+	})
+	toolSignature := gjson.GetBytes(chat[0], "choices.0.delta.tool_calls.0.extra_content.google.thought_signature").Str
+	arguments := gjson.GetBytes(chat[1], "choices.0.delta.tool_calls.0.function.arguments").Str
+	if !strings.Contains(arguments, "alice@example.invalid") || toolSignature == "SIG" {
+		t.Fatalf("chat tool stream = %q / %q", arguments, toolSignature)
+	}
+	assertEncrypted(t, "chat tool arguments", `{"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"send","arguments":`+jsonString(t, arguments)+`},"extra_content":{"google":{"thought_signature":`+jsonString(t, toolSignature)+`}}}]}]}`)
+}
+
+const requestredactWrapperPrefix = "R0xEU0lH"

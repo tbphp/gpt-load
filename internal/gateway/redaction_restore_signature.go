@@ -63,13 +63,11 @@ func (signer *redactionSigner) spans(original, restored string) []requestredact.
 }
 
 // redactionSignedBlock 是一个协议签名位置。block 是签名所属对象在本条响应里的路径（空串表示根对象），
-// signature 是签名在对象里的路径。正文在本条响应里时逐个比对上游原文与还原结果，content 里的
-// 正文字段未改写也记录，用于识别客户端是否改动过签名内容；正文跨事件下发时（streamed），
-// 记录由各通道累计的正文生成。
+// signature 是签名在对象里的路径。正文在本条响应里时，记录覆盖签名块里需要核对的全部字符串
+// （requestredact.SignedContent）；正文跨事件下发时（streamed），记录由各通道累计的正文生成。
 type redactionSignedBlock struct {
 	block     string
 	signature []any
-	content   [][]any
 	streamed  bool
 	values    []requestredact.SignedString
 }
@@ -92,8 +90,16 @@ func (signer *redactionSigner) signPayload(original, restored []byte, blocks []r
 		}
 		values := block.values
 		if !block.streamed {
-			if err := signer.collect(originalBlock, restoredBlock, nil, block, &values, 0); err != nil {
-				return nil, err
+			var ok bool
+			if values, ok = requestredact.SignedContent(restoredBlock, block.signature); !ok {
+				return nil, errUnaryRestore
+			}
+			for i := range values {
+				upstream := requestredact.PathValue(originalBlock, values[i].Path)
+				if upstream.Type != gjson.String {
+					return nil, errUnaryRestore
+				}
+				values[i].Spans = signer.spans(upstream.Str, values[i].Value)
 			}
 		}
 		wrapped := requestredact.WrapSignature(signature.Str, values)
@@ -113,78 +119,6 @@ func (signer *redactionSigner) signPayload(original, restored []byte, blocks []r
 	return ctx.apply()
 }
 
-// collect 同步遍历上游原文与还原结果（还原只改字符串内容，结构一致），记录改写过的字符串和正文字段。
-func (signer *redactionSigner) collect(
-	original, restored gjson.Result, path []any, block redactionSignedBlock,
-	values *[]requestredact.SignedString, depth int,
-) error {
-	if depth > maxUnaryRestoreDepth {
-		return errUnaryRestore
-	}
-	if redactionPathEqual(path, block.signature) {
-		return nil
-	}
-	if restored.Type == gjson.String {
-		if original.Type != gjson.String {
-			return errUnaryRestore
-		}
-		if original.Str != restored.Str || redactionPathListed(block.content, path) {
-			*values = append(*values, requestredact.SignedString{
-				Path: append([]any(nil), path...), Value: restored.Str, Spans: signer.spans(original.Str, restored.Str),
-			})
-		}
-		return nil
-	}
-	if !restored.IsObject() && !restored.IsArray() {
-		return nil
-	}
-	var originalChildren, restoredChildren []gjson.Result
-	var keys []string
-	original.ForEach(func(_, child gjson.Result) bool {
-		originalChildren = append(originalChildren, child)
-		return true
-	})
-	restored.ForEach(func(key, child gjson.Result) bool {
-		keys = append(keys, key.Str)
-		restoredChildren = append(restoredChildren, child)
-		return true
-	})
-	if len(originalChildren) != len(restoredChildren) || original.IsObject() != restored.IsObject() {
-		return errUnaryRestore
-	}
-	for i, child := range restoredChildren {
-		var element any = keys[i]
-		if restored.IsArray() {
-			element = i
-		}
-		if err := signer.collect(originalChildren[i], child, append(path, element), block, values, depth+1); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func redactionPathEqual(left, right []any) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func redactionPathListed(paths [][]any, path []any) bool {
-	for _, listed := range paths {
-		if redactionPathEqual(listed, path) {
-			return true
-		}
-	}
-	return false
-}
-
 // unarySignedBlocks 列出响应里的协议签名位置：Claude 思考块、Gemini 片段、Chat 的
 // reasoning_details 与 Gemini 兼容接口的工具调用、Responses 推理项的推理文本。
 // 工具参数等业务数据里的同名字段不是签名。
@@ -194,9 +128,7 @@ func unarySignedBlocks(clientProtocol protocol.Protocol, root gjson.Result) []re
 	case protocol.Anthropic:
 		redactionEach(root.Get("content"), func(i int, block gjson.Result) {
 			if block.Get("type").Str == "thinking" {
-				blocks = append(blocks, redactionSignedBlock{
-					block: "content." + strconv.Itoa(i), signature: []any{"signature"}, content: [][]any{{"thinking"}},
-				})
+				blocks = append(blocks, redactionSignedBlock{block: "content." + strconv.Itoa(i), signature: []any{"signature"}})
 			}
 		})
 	case protocol.Gemini:
@@ -209,10 +141,7 @@ func unarySignedBlocks(clientProtocol protocol.Protocol, root gjson.Result) []re
 		redactionEach(root.Get("choices"), func(c int, choice gjson.Result) {
 			message := "choices." + strconv.Itoa(c) + ".message"
 			redactionEach(choice.Get("message.reasoning_details"), func(i int, detail gjson.Result) {
-				blocks = append(blocks, redactionSignedBlock{
-					block: message + ".reasoning_details." + strconv.Itoa(i), signature: []any{"signature"},
-					content: [][]any{{"text"}, {"summary"}},
-				})
+				blocks = append(blocks, redactionSignedBlock{block: message + ".reasoning_details." + strconv.Itoa(i), signature: []any{"signature"}})
 			})
 			redactionEach(choice.Get("message.tool_calls"), func(i int, _ gjson.Result) {
 				blocks = append(blocks, chatToolCallSignedBlock(message+".tool_calls."+strconv.Itoa(i)))
@@ -232,17 +161,14 @@ func geminiSignedBlocks(path string, part gjson.Result) []redactionSignedBlock {
 	var blocks []redactionSignedBlock
 	for _, name := range []string{"thoughtSignature", "thought_signature"} {
 		if part.Get(name).Exists() {
-			blocks = append(blocks, redactionSignedBlock{block: path, signature: []any{name}, content: [][]any{{"text"}}})
+			blocks = append(blocks, redactionSignedBlock{block: path, signature: []any{name}})
 		}
 	}
 	return blocks
 }
 
 func chatToolCallSignedBlock(path string) redactionSignedBlock {
-	return redactionSignedBlock{
-		block: path, signature: []any{"extra_content", "google", "thought_signature"},
-		content: [][]any{{"function", "arguments"}},
-	}
+	return redactionSignedBlock{block: path, signature: []any{"extra_content", "google", "thought_signature"}}
 }
 
 func responsesReasoningSignedBlocks(path string, item gjson.Result) []redactionSignedBlock {
@@ -252,9 +178,7 @@ func responsesReasoningSignedBlocks(path string, item gjson.Result) []redactionS
 	var blocks []redactionSignedBlock
 	redactionEach(item.Get("content"), func(i int, part gjson.Result) {
 		if part.Get("type").Str == "reasoning_text" {
-			blocks = append(blocks, redactionSignedBlock{
-				block: path + ".content." + strconv.Itoa(i), signature: []any{"signature"}, content: [][]any{{"text"}},
-			})
+			blocks = append(blocks, redactionSignedBlock{block: path + ".content." + strconv.Itoa(i), signature: []any{"signature"}})
 		}
 	})
 	return blocks
