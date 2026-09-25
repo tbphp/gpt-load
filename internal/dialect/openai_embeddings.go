@@ -62,7 +62,7 @@ func (d *OpenAIEmbeddings) InspectRequest(request *ParsedRequest) (RequestMetada
 		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}
 	metadata.Operation = execution.OperationEmbeddingsCreate
-	metadata.RouteRequirement = execution.RouteRequirementNative
+	metadata.RouteRequirement = execution.RouteRequirementAny
 	metadata.ObserveUsage = true
 	return metadata, nil
 }

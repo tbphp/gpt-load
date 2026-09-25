@@ -52,6 +52,50 @@ func TestValidationWorkerUsesExplicitModelAndCanonicalRepresentativeProtocol(t *
 	}
 }
 
+func TestValidationWorkerFallsBackToGeminiEmbeddingsForEmbeddingOnlyModel(t *testing.T) {
+	t.Parallel()
+
+	worker := newValidationWorkerForTest(
+		validationSnapshot(map[uint]state.GroupView{
+			1: validationGroup(
+				[]protocol.Protocol{protocol.Gemini},
+				"gemini-embedding-001",
+				nil,
+			),
+		}),
+		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		&validationProbeRecorder{},
+	)
+	var attempts []execution.AttemptSpec
+	worker.executor = scriptedDiscoveryExecutor{execute: func(
+		_ context.Context,
+		spec execution.AttemptSpec,
+	) execution.AttemptResult {
+		attempts = append(attempts, spec.Clone())
+		if spec.ClientProtocol != protocol.GeminiEmbeddings {
+			return validationStartedProbeFailure(
+				http.StatusNotFound,
+				execution.FailureHintModelUnavailable,
+				execution.ErrorScopeModel,
+				"model_not_found",
+				"not supported for generateContent",
+			)
+		}
+		return execution.AttemptResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{},
+		}
+	}}
+
+	worker.Validate(context.Background())
+
+	if len(attempts) != 2 || attempts[1].ClientProtocol != protocol.GeminiEmbeddings ||
+		attempts[1].Operation != execution.OperationProbe ||
+		attempts[1].UpstreamModel != "gemini-embedding-001" {
+		t.Fatalf("probe attempts = %#v", attempts)
+	}
+}
+
 func TestValidationWorkerFallsBackToEmbeddingsAfterExplicitModelRejection(t *testing.T) {
 	t.Parallel()
 

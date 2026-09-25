@@ -51,9 +51,11 @@ func TestProtocolKnownAndDataPlaneEnabled(t *testing.T) {
 		{value: OpenAIResponses, known: true, enabled: true},
 		{value: OpenAIImages, known: true, enabled: true},
 		{value: OpenAIEmbeddings, known: true, enabled: true},
+		{value: CodexLive, known: true, enabled: true},
 		{value: Decisions, known: true, enabled: true},
 		{value: Anthropic, known: true, enabled: true},
 		{value: Gemini, known: true, enabled: true},
+		{value: GeminiEmbeddings, known: true, enabled: true},
 		{value: Protocol("openai"), known: false, enabled: false},
 		{value: Protocol("openai-response"), known: false, enabled: false},
 		{value: Protocol("unknown"), known: false, enabled: false},
@@ -86,6 +88,7 @@ func TestProtocolModelOptionalRequestsAreLimitedToOpenAIResponses(t *testing.T) 
 		{protocol: Protocol("openai-embeddings"), want: false},
 		{protocol: Protocol("anthropic"), want: false},
 		{protocol: Protocol("gemini"), want: false},
+		{protocol: Protocol("gemini-embeddings"), want: false},
 	}
 	for _, test := range tests {
 		t.Run(string(test.protocol), func(t *testing.T) {
@@ -112,10 +115,12 @@ func TestDataPlaneProtocolsReturnsCanonicalOrderAndIndependentCopies(t *testing.
 		OpenAIResponses,
 		OpenAIImages,
 		OpenAIEmbeddings,
+		CodexLive,
 		Rerank,
 		Decisions,
 		Anthropic,
 		Gemini,
+		GeminiEmbeddings,
 	}
 	if len(first) != len(want) {
 		t.Fatalf("DataPlaneProtocols() = %#v, want %#v", first, want)

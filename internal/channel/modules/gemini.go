@@ -34,6 +34,7 @@ func Gemini() spec.Module {
 			},
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesGenerate, execution.RouteConverted),
+				spec.NewRoute(protocol.OpenAIEmbeddings, execution.OperationEmbeddingsCreate, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationListModels, execution.RouteConverted),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationProbe, execution.RouteConverted),
@@ -48,6 +49,8 @@ func Gemini() spec.Module {
 				spec.NewRoute(protocol.Gemini, execution.OperationCountTokens, execution.RouteNative),
 				spec.NewRoute(protocol.Gemini, execution.OperationListModels, execution.RouteNative),
 				spec.NewRoute(protocol.Gemini, execution.OperationProbe, execution.RouteNative),
+				spec.NewRoute(protocol.GeminiEmbeddings, execution.OperationEmbeddingsCreate, execution.RouteNative),
+				spec.NewRoute(protocol.GeminiEmbeddings, execution.OperationProbe, execution.RouteNative),
 			},
 		},
 	}

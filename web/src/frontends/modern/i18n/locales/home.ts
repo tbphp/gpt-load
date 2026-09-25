@@ -94,7 +94,9 @@ export const zhCN = {
     codex: '将配置合并到 ~/.codex/config.toml，在启动 Codex 的终端中设置环境变量。',
     'claude-code': '在启动 Claude Code 的终端中设置以下环境变量。',
     'gemini-cli': '在启动 Gemini CLI 的终端中设置以下环境变量，选择 Gemini API Key 登录方式。',
-    'cc-switch': '选择目标应用后点击导入；也可以在 CC Switch 的添加供应商页面使用 JSON 配置。',
+    'cc-switch': '选择目标应用后可一键导入。下方 JSON 展示实际发送给 CC Switch 的字段。',
+    ccSwitchCodex:
+      '一键导入仅包含基础连接字段，不包含语音设置。需要语音时，请切换左侧 Codex 查看配置项，再在 CC Switch 的 Codex 供应商中手动补充。',
     'cherry-studio': '在设置的模型服务中添加 OpenAI 兼容服务，填写以下地址与密钥。',
     nextchat: '在设置中启用自定义接口，填写服务地址与 API 密钥。',
     'open-webui': '在管理面板的连接设置中添加 OpenAI API，填写以下地址与密钥。',
@@ -113,7 +115,11 @@ export const zhCN = {
   slots: { endpoint: '接口地址', apiKey: 'API 密钥', model: '模型名称' },
   importAction: '一键导入',
   fullConfig: '也可以直接复制完整配置',
+  importData: '一键导入数据',
+  copyImportData: '复制导入数据',
   stateHealthy: '服务正常',
+  stateKeyAvailable: '有可用上游',
+  stateKeyExhausted: '密钥额度已用尽',
   statePending: '待接入凭据',
   stateStalled: '无可用凭据',
   trend: '请求趋势',
@@ -234,7 +240,9 @@ export const enUS: typeof zhCN = {
     'gemini-cli':
       'Set these environment variables before starting Gemini CLI, then choose Gemini API Key authentication.',
     'cc-switch':
-      'Choose the target app and import, or use the JSON configuration when adding a provider in CC Switch.',
+      'Choose a target app to import. The JSON below shows the fields sent to CC Switch.',
+    ccSwitchCodex:
+      'One-click import includes basic connection fields, not voice settings. For voice, select Codex on the left and add its voice settings manually to the CC Switch Codex provider.',
     'cherry-studio':
       'Add an OpenAI-compatible provider in Model Service settings with the following URL and key.',
     nextchat: 'Enable a custom endpoint in Settings, then enter the URL and API key.',
@@ -259,7 +267,11 @@ export const enUS: typeof zhCN = {
   slots: { endpoint: 'Endpoint', apiKey: 'API key', model: 'Model name' },
   importAction: 'Quick import',
   fullConfig: 'Or copy the whole configuration',
+  importData: 'One-click import data',
+  copyImportData: 'Copy import data',
   stateHealthy: 'Serving',
+  stateKeyAvailable: 'Upstream available',
+  stateKeyExhausted: 'Access key limit reached',
   statePending: 'No credentials configured',
   stateStalled: 'No credentials available',
   trend: 'Request trend',
@@ -377,8 +389,9 @@ export const jaJP: typeof zhCN = {
     codex: '~/.codex/config.toml に設定を統合し、Codexを起動するターミナルで環境変数を設定します。',
     'claude-code': 'Claude Codeを起動するターミナルで以下の環境変数を設定します。',
     'gemini-cli': 'Gemini CLIを起動する前に環境変数を設定し、Gemini API Key認証を選択します。',
-    'cc-switch':
-      '対象アプリを選択してインポートするか、CC Switchのプロバイダー追加画面でJSON設定を使用します。',
+    'cc-switch': '対象アプリを選んでインポートできます。下のJSONはCC Switchに送る項目です。',
+    ccSwitchCodex:
+      'ワンクリックのインポートには基本接続項目のみ含まれ、音声設定は含まれません。音声を使う場合は左側でCodexを選び、音声設定をCC SwitchのCodexプロバイダーへ手動で追加してください。',
     'cherry-studio':
       'モデルサービス設定でOpenAI互換サービスを追加し、以下のURLとキーを入力します。',
     nextchat: '設定でカスタムAPIを有効にして、URLとAPIキーを入力します。',
@@ -402,7 +415,11 @@ export const jaJP: typeof zhCN = {
   slots: { endpoint: 'エンドポイント', apiKey: 'API キー', model: 'モデル名' },
   importAction: 'クイックインポート',
   fullConfig: '設定をまるごとコピーすることもできます',
+  importData: 'ワンクリックのインポート項目',
+  copyImportData: 'インポート項目をコピー',
   stateHealthy: '正常',
+  stateKeyAvailable: '利用可能な上流あり',
+  stateKeyExhausted: 'アクセスキーの利用上限に達しました',
   statePending: '認証情報の設定待ち',
   stateStalled: '利用可能な資格情報なし',
   trend: 'リクエスト推移',

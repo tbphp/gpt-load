@@ -66,6 +66,31 @@ func TestVisibleModelIDs(t *testing.T) {
 	}
 }
 
+func TestCodexLiveIsHiddenFromModelLists(t *testing.T) {
+	t.Parallel()
+	snapshot, err := state.Compile(state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []state.GroupConfig{{
+		ID: 1, ChannelID: channel.Codex, ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+		Models: []state.ModelConfig{{ID: "gpt-5.5"}, {ID: "gpt-live-1-codex"}}, Enabled: true,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	voice := protocol.Protocol("codex-live")
+	if got := visibleModelIDs(snapshot, state.AccessKeyView{}, voice); len(got) != 0 {
+		t.Fatalf("voice model list = %v", got)
+	}
+	if got := visibleModelIDs(snapshot, state.AccessKeyView{}, protocol.OpenAICompletions); !reflect.DeepEqual(got, []string{"gpt-5.5"}) {
+		t.Fatalf("ordinary model list = %v", got)
+	}
+	if got := collectCodexVisibleModelIDs(snapshot, state.AccessKeyView{}); !reflect.DeepEqual(got, []string{"gpt-5.5"}) {
+		t.Fatalf("Codex coding model list = %v", got)
+	}
+	key := state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.OpenAIResponses: {}}}}
+	if got := visibleModelIDs(snapshot, key, protocol.OpenAICompletions); !reflect.DeepEqual(got, []string{"gpt-5.5"}) {
+		t.Fatalf("Responses-only key model list = %v", got)
+	}
+}
+
 func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
 	t.Parallel()
 

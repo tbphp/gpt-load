@@ -17,6 +17,9 @@ import (
 	"gpt-load/internal/protocol"
 )
 
+// geminiEmbeddingsProbeBody 是 Gemini 原生 embedding 探测使用的最小 embedContent 请求。
+const geminiEmbeddingsProbeBody = `{"content":{"parts":[{"text":"ping"}]}}`
+
 // 原生网关 Probe 复用透传，避开 SDK typed request 在取消时的 Model 读写竞争。
 func prepareGatewayProtocolProbe(
 	spec execution.AttemptSpec,
@@ -26,7 +29,7 @@ func prepareGatewayProtocolProbe(
 	secrets []string,
 ) (preparedAttempt, *execution.AttemptResult) {
 	var path string
-	var payload map[string]any
+	var payload any
 	switch spec.ClientProtocol {
 	case protocol.OpenAIResponses:
 		path = "/v1/responses"
@@ -43,6 +46,9 @@ func prepareGatewayProtocolProbe(
 			"contents":         []any{map[string]any{"role": "user", "parts": []map[string]string{{"text": "ping"}}}},
 			"generationConfig": map[string]int{"maxOutputTokens": 1},
 		}
+	case protocol.GeminiEmbeddings:
+		path = "/v1beta/models/" + url.PathEscape(spec.UpstreamModel) + ":embedContent"
+		payload = json.RawMessage(geminiEmbeddingsProbeBody)
 	default:
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "unsupported multi-protocol gateway probe protocol")
 		return preparedAttempt{}, &failure
@@ -75,7 +81,7 @@ func normalizeGatewayProtocolProbeResult(spec execution.AttemptSpec, result *exe
 		return
 	}
 	switch spec.ClientProtocol {
-	case protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini:
+	case protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini, protocol.GeminiEmbeddings:
 	default:
 		return
 	}
@@ -99,6 +105,7 @@ func validGatewayProtocolProbeResponse(selected protocol.Protocol, body []byte) 
 		Output     []json.RawMessage `json:"output"`
 		Content    []json.RawMessage `json:"content"`
 		Candidates []json.RawMessage `json:"candidates"`
+		Embedding  json.RawMessage   `json:"embedding"`
 		Error      json.RawMessage   `json:"error"`
 	}
 	if json.Unmarshal(body, &response) != nil ||
@@ -114,9 +121,29 @@ func validGatewayProtocolProbeResponse(selected protocol.Protocol, body []byte) 
 		return response.Type == "message" && response.Content != nil && validGatewayProbeTypedItems(protocol.Anthropic, response.Content)
 	case protocol.Gemini:
 		return len(response.Candidates) > 0 && validGatewayProbeCandidates(response.Candidates)
+	case protocol.GeminiEmbeddings:
+		return validGatewayProbeEmbedding(response.Embedding)
 	default:
 		return false
 	}
+}
+
+// validGatewayProbeEmbedding 要求 embedContent 返回非空、且每个元素都是 JSON 数字的向量。
+func validGatewayProbeEmbedding(raw json.RawMessage) bool {
+	var embedding struct {
+		Values []any `json:"values"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if len(raw) == 0 || decoder.Decode(&embedding) != nil || len(embedding.Values) == 0 {
+		return false
+	}
+	for _, value := range embedding.Values {
+		if _, ok := value.(json.Number); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // 仅校验协议结构，不要求生成文本非空，保留低输出预算下的合法响应。

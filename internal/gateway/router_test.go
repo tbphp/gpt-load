@@ -86,6 +86,12 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 		{name: "data.rerank", methods: []string{http.MethodPost}, path: "/v1/rerank"},
 		{name: "data.decisions", methods: []string{http.MethodPost}, path: "/v1/systemone"},
 		{name: "data.codex.search", methods: []string{http.MethodPost}, path: "/v1/alpha/search"},
+		{name: "data.codex.live", methods: []string{http.MethodPost}, path: "/v1/live"},
+		{name: "data.codex.live.sideband", methods: []string{http.MethodGet}, path: "/v1/live/:call_id"},
+		{name: "data.codex.live.calls", methods: []string{http.MethodPost}, path: "/v1/realtime/calls"},
+		{name: "data.codex.live.realtime", methods: []string{http.MethodGet}, path: "/v1/realtime"},
+		{name: "data.codex.live.call.sideband", methods: []string{http.MethodGet}, path: "/v1/realtime/calls/:call_id"},
+		{name: "data.codex.live.hangup", methods: []string{http.MethodPost}, path: "/v1/realtime/calls/:call_id/hangup"},
 	}
 
 	catalog := dataPlaneEndpointCatalog()
@@ -177,6 +183,18 @@ func TestDataPlaneEndpointCatalogResolvesProtocolAndKind(t *testing.T) {
 			name: "Gemini count tokens", endpoint: "data.gemini.generate",
 			method: http.MethodPost, path: "/v1beta/models/gemini-2.5-pro:countTokens",
 			want:      route{Protocol: protocol.Gemini, Kind: endpointForward},
+			validPath: true,
+		},
+		{
+			name: "Gemini embed content", endpoint: "data.gemini.generate",
+			method: http.MethodPost, path: "/v1beta/models/gemini-embedding-001:embedContent",
+			want:      route{Protocol: protocol.GeminiEmbeddings, Kind: endpointForward},
+			validPath: true,
+		},
+		{
+			name: "Gemini batch embed contents", endpoint: "data.gemini.generate",
+			method: http.MethodPost, path: "/v1beta/models/gemini-embedding-001:batchEmbedContents",
+			want:      route{Protocol: protocol.GeminiEmbeddings, Kind: endpointForward},
 			validPath: true,
 		},
 		{
@@ -272,6 +290,14 @@ func TestDataPlaneEndpointCatalogRejectsMalformedPreAuthPaths(t *testing.T) {
 		{
 			name: "Gemini empty model", endpoint: "data.gemini.generate",
 			path: "/v1beta/models/:generateContent",
+		},
+		{
+			name: "Gemini embeddings empty model", endpoint: "data.gemini.generate",
+			path: "/v1beta/models/:embedContent",
+		},
+		{
+			name: "Gemini unknown embeddings action", endpoint: "data.gemini.generate",
+			path: "/v1beta/models/gemini-embedding-001:asyncBatchEmbedContent",
 		},
 	}
 	for _, test := range tests {

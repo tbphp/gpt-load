@@ -158,9 +158,13 @@ func modelListProtocols(value protocol.Protocol) []protocol.Protocol {
 			protocol.OpenAIResponses,
 			protocol.OpenAIImages,
 			protocol.OpenAIEmbeddings,
+			protocol.CodexLive,
 			protocol.Rerank,
 			protocol.Decisions,
 		}
+	}
+	if value == protocol.Gemini {
+		return []protocol.Protocol{protocol.Gemini, protocol.GeminiEmbeddings}
 	}
 	return []protocol.Protocol{value}
 }

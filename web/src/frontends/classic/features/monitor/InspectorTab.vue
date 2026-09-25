@@ -283,9 +283,11 @@ function validatedRequest(): RouteInspectRequest | undefined {
     errors.protocol = 'monitor.inspector.errors.protocol'
   }
   if (
-    draftModel.value === '' ||
-    !isValidMonitorText(draftModel.value) ||
-    !configuredModels.value.includes(draftModel.value)
+    draftProtocol.value === 'codex-live'
+      ? draftModel.value !== '' && !isValidMonitorText(draftModel.value)
+      : draftModel.value === '' ||
+        !isValidMonitorText(draftModel.value) ||
+        !configuredModels.value.includes(draftModel.value)
   ) {
     errors.externalModel = 'monitor.inspector.errors.model'
   }

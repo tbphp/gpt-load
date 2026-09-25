@@ -302,7 +302,7 @@ func TestRouteInspectDerivesStandardRequestMetadataFromProtocol(t *testing.T) {
 		{protocol: protocol.OpenAICompletions, operation: execution.OperationChatCompletion, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.OpenAIImages, operation: execution.OperationImagesGenerate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
-		{protocol: protocol.OpenAIEmbeddings, operation: execution.OperationEmbeddingsCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementNative},
+		{protocol: protocol.OpenAIEmbeddings, operation: execution.OperationEmbeddingsCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.Decisions, operation: execution.OperationDecisionsCreate, routeMode: execution.RouteNative, routeRequirement: execution.RouteRequirementNative},
 		{protocol: protocol.Anthropic, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted, routeRequirement: execution.RouteRequirementAny},
 		{protocol: protocol.Gemini, operation: execution.OperationChatCompletion, routeMode: execution.RouteConverted, routeRequirement: execution.RouteRequirementAny},
@@ -389,6 +389,42 @@ func TestRouteInspectStandardRequestIncludesNativeAndConvertedTargets(t *testing
 		len(result.Groups) != 2 || !result.Groups[0].RouteRequirementSatisfied ||
 		!result.Groups[1].RouteRequirementSatisfied || !result.Groups[1].Included {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestRouteInspectCodexLiveUsesClientModelWithoutConfiguredGroupModel(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
+		Groups: []state.GroupConfig{{ID: 1, Name: "voice", ChannelID: channel.Codex,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`), Enabled: true}},
+		AccessKeys: []state.AccessKeyConfig{{ID: 10, Name: "client", KeyHash: "hash", Status: state.AccessKeyStatusActive}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 11, GroupID: 1, Version: 1, IdentityGeneration: 11, Fingerprint: "voice",
+		Status: state.CredentialStatusActive, EncryptedValue: "voice",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []string{"", "client-live-model"} {
+		result, err := fixture.service.InspectRoute(routeInspectRequest{
+			Protocol: protocol.CodexLive, ExternalModel: model, AccessKeyID: 10,
+		})
+		if err != nil {
+			t.Fatalf("inspect model %q: %v", model, err)
+		}
+		want := model
+		if want == "" {
+			want = channel.CodexLiveModelID
+		}
+		if !result.Routable || result.Operation != execution.OperationLiveCall ||
+			result.RouteRequirement != execution.RouteRequirementNative || routeModelValue(result.ExternalModel) != want ||
+			len(result.Groups) != 1 || routeModelValue(result.Groups[0].UpstreamModel) != want {
+			t.Fatalf("inspect model %q = %#v", model, result)
+		}
 	}
 }
 

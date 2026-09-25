@@ -39,6 +39,8 @@ func convertedRouteImplemented(providerKind channel.ProviderKind, clientProtocol
 	switch operation {
 	case execution.OperationImagesGenerate:
 		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIImages
+	case execution.OperationEmbeddingsCreate:
+		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIEmbeddings
 	case execution.OperationListModels:
 		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.Rerank &&
 			clientProtocol != protocol.Decisions && clientProtocol.Valid()
@@ -86,6 +88,9 @@ func nativeRouteImplemented(
 	case channel.ProviderAnthropic:
 		return clientProtocol == protocol.Anthropic && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderGemini:
+		if clientProtocol == protocol.GeminiEmbeddings {
+			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
+		}
 		return clientProtocol == protocol.Gemini && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderMultiProtocolGateway:
 		switch clientProtocol {
@@ -100,7 +105,7 @@ func nativeRouteImplemented(
 		case protocol.OpenAIImages:
 			return operation == execution.OperationImagesGenerate ||
 				operation == execution.OperationImagesEdit
-		case protocol.OpenAIEmbeddings:
+		case protocol.OpenAIEmbeddings, protocol.GeminiEmbeddings:
 			return operation == execution.OperationEmbeddingsCreate ||
 				operation == execution.OperationProbe
 		case protocol.Anthropic, protocol.Gemini:

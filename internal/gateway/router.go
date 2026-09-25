@@ -27,6 +27,9 @@ const (
 	endpointForward endpointKind = iota + 1
 	endpointModels
 	endpointUsage
+	endpointLiveCreate
+	endpointLiveSideband
+	endpointLiveHangup
 )
 
 type route struct {
@@ -70,7 +73,7 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			methods:       []string{http.MethodPost},
 			path:          geminiGenerationPattern,
 			pathValidator: validateGeminiRequest,
-			resolve:       staticRoute(protocol.Gemini, endpointForward),
+			resolve:       resolveGeminiModelActionRoute,
 		},
 		{
 			name:    "data.gemini.models",
@@ -119,6 +122,12 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 		{name: "data.rerank", methods: []string{http.MethodPost}, path: "/v1/rerank", resolve: staticRoute(protocol.Rerank, endpointForward)},
 		{name: "data.decisions", methods: []string{http.MethodPost}, path: decisionsPath, resolve: staticRoute(protocol.Decisions, endpointForward)},
 		{name: "data.codex.search", methods: []string{http.MethodPost}, path: "/v1/alpha/search", resolve: staticRoute(protocol.OpenAIResponses, endpointForward)},
+		{name: "data.codex.live", methods: []string{http.MethodPost}, path: "/v1/live", resolve: staticRoute(protocol.CodexLive, endpointLiveCreate)},
+		{name: "data.codex.live.sideband", methods: []string{http.MethodGet}, path: "/v1/live/:call_id", resolve: staticRoute(protocol.CodexLive, endpointLiveSideband)},
+		{name: "data.codex.live.calls", methods: []string{http.MethodPost}, path: "/v1/realtime/calls", resolve: staticRoute(protocol.CodexLive, endpointLiveCreate)},
+		{name: "data.codex.live.realtime", methods: []string{http.MethodGet}, path: "/v1/realtime", resolve: staticRoute(protocol.CodexLive, endpointLiveSideband)},
+		{name: "data.codex.live.call.sideband", methods: []string{http.MethodGet}, path: "/v1/realtime/calls/:call_id", resolve: staticRoute(protocol.CodexLive, endpointLiveSideband)},
+		{name: "data.codex.live.hangup", methods: []string{http.MethodPost}, path: "/v1/realtime/calls/:call_id/hangup", resolve: staticRoute(protocol.CodexLive, endpointLiveHangup)},
 	}
 }
 
@@ -140,6 +149,14 @@ func staticRoute(selectedProtocol protocol.Protocol, kind endpointKind) func(*ht
 	return func(*http.Request) route {
 		return route{Protocol: selectedProtocol, Kind: kind}
 	}
+}
+
+// resolveGeminiModelActionRoute 按动作后缀区分 Gemini 生成类请求和原生 embedding 请求。
+func resolveGeminiModelActionRoute(request *http.Request) route {
+	if request != nil && request.URL != nil && geminiEmbeddingsRequestPath(request.URL.Path) {
+		return route{Protocol: protocol.GeminiEmbeddings, Kind: endpointForward}
+	}
+	return route{Protocol: protocol.Gemini, Kind: endpointForward}
 }
 
 func resolveModelListRoute(request *http.Request) route {
@@ -191,6 +208,15 @@ func locallyRejectedForwardMethod(method string) bool {
 }
 
 func geminiRequestPath(path string) bool {
+	return geminiModelActionPath(path, ":generateContent", ":streamGenerateContent", ":countTokens") ||
+		geminiEmbeddingsRequestPath(path)
+}
+
+func geminiEmbeddingsRequestPath(path string) bool {
+	return geminiModelActionPath(path, ":embedContent", ":batchEmbedContents")
+}
+
+func geminiModelActionPath(path string, suffixes ...string) bool {
 	const prefix = geminiModelsPath + "/"
 	if !strings.HasPrefix(path, prefix) {
 		return false
@@ -199,7 +225,7 @@ func geminiRequestPath(path string) bool {
 	if strings.Contains(modelAndAction, "/") {
 		return false
 	}
-	for _, suffix := range []string{":generateContent", ":streamGenerateContent", ":countTokens"} {
+	for _, suffix := range suffixes {
 		if model := strings.TrimSuffix(modelAndAction, suffix); model != modelAndAction {
 			return model != ""
 		}

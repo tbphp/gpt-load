@@ -56,6 +56,26 @@ func TestCodexDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T
 	}
 }
 
+func TestCodexLiveCandidateIsHiddenEvenWhenCatalogContainsIt(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai", Models: map[string]catalog.Model{
+			channel.CodexLiveModelID: {ID: channel.CodexLiveModelID, Name: "Codex voice",
+				Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}}},
+		}},
+	}})
+	result, err := fixture.service.mergeDiscoveredModels(t.Context(), []string{channel.CodexLiveModelID}, discoveryTarget{
+		channelID: channel.Codex, catalogProviderID: "openai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Models) != 0 {
+		t.Fatalf("voice catalog candidate = %+v", result.Models)
+	}
+}
+
 func TestClaudeDiscoveryUsesOnlySubscriptionModelsAndReferencePrices(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)

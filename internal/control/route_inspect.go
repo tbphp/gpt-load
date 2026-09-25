@@ -74,12 +74,15 @@ func optionalReason(value scheduler.ReasonCode) *scheduler.ReasonCode {
 }
 
 func validateRouteInspectRequest(request routeInspectRequest) error {
+	if request.Protocol == protocol.CodexLive && request.ExternalModel == "" {
+		request.ExternalModel = channel.CodexLiveModelID
+	}
 	if !request.Protocol.DataPlaneEnabled() ||
 		request.AccessKeyID == 0 ||
 		!validUsageModel(request.ExternalModel) {
 		return app_errors.ErrValidation
 	}
-	_, err := dialect.InspectStandardRequest(request.Protocol, request.ExternalModel)
+	_, err := inspectRouteMetadata(request.Protocol, request.ExternalModel)
 	if err != nil {
 		return app_errors.ErrValidation
 	}
@@ -89,10 +92,13 @@ func validateRouteInspectRequest(request routeInspectRequest) error {
 func (service *Service) InspectRoute(
 	request routeInspectRequest,
 ) (routeInspectResponse, error) {
+	if request.Protocol == protocol.CodexLive && request.ExternalModel == "" {
+		request.ExternalModel = channel.CodexLiveModelID
+	}
 	if err := validateRouteInspectRequest(request); err != nil {
 		return routeInspectResponse{}, err
 	}
-	metadata, err := dialect.InspectStandardRequest(request.Protocol, request.ExternalModel)
+	metadata, err := inspectRouteMetadata(request.Protocol, request.ExternalModel)
 	if err != nil || metadata.Model == nil {
 		return routeInspectResponse{}, app_errors.ErrValidation
 	}
@@ -147,6 +153,14 @@ func (service *Service) InspectRoute(
 		accessKey,
 		explanation,
 	)
+}
+
+func inspectRouteMetadata(clientProtocol protocol.Protocol, model string) (dialect.RequestMetadata, error) {
+	if clientProtocol == protocol.CodexLive {
+		return dialect.RequestMetadata{Model: &model, Operation: execution.OperationLiveCall,
+			RouteRequirement: execution.RouteRequirementNative}, nil
+	}
+	return dialect.InspectStandardRequest(clientProtocol, model)
 }
 
 func mapRouteInspectResponse(

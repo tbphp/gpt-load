@@ -413,6 +413,7 @@ export default {
         routeRequirement: '路由要求',
         model: '客户端模型',
         selectModel: '请选择模型',
+        liveModelPlaceholder: '留空使用默认语音模型',
         missingModelOption: '已不存在 · {model}',
         optional: '可选',
         modelPlaceholder: '输入客户端模型',

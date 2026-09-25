@@ -438,10 +438,16 @@ func containsRouteMode(modes []execution.RouteMode, want execution.RouteMode) bo
 }
 
 func validProtocolOperation(clientProtocol protocol.Protocol, operation execution.Operation) bool {
+	if clientProtocol == protocol.CodexLive {
+		return operation == execution.OperationLiveCall
+	}
 	switch operation {
+	case execution.OperationLiveCall:
+		return false
 	case execution.OperationChatCompletion:
 		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.OpenAIImages &&
-			clientProtocol != protocol.OpenAIEmbeddings && clientProtocol != protocol.Rerank && clientProtocol != protocol.Decisions
+			clientProtocol != protocol.OpenAIEmbeddings && clientProtocol != protocol.Rerank && clientProtocol != protocol.Decisions &&
+			clientProtocol != protocol.GeminiEmbeddings
 	case execution.OperationCountTokens:
 		return clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini
 	case execution.OperationResponsesCreate,
@@ -462,10 +468,11 @@ func validProtocolOperation(clientProtocol protocol.Protocol, operation executio
 	case execution.OperationDecisionsCreate:
 		return clientProtocol == protocol.Decisions
 	case execution.OperationEmbeddingsCreate:
-		return clientProtocol == protocol.OpenAIEmbeddings
+		return clientProtocol == protocol.OpenAIEmbeddings || clientProtocol == protocol.GeminiEmbeddings
 	case execution.OperationListModels:
 		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.OpenAIImages &&
-			clientProtocol != protocol.OpenAIEmbeddings && clientProtocol != protocol.Rerank
+			clientProtocol != protocol.OpenAIEmbeddings && clientProtocol != protocol.Rerank &&
+			clientProtocol != protocol.GeminiEmbeddings
 	case execution.OperationProbe:
 		return clientProtocol != protocol.OpenAIImages
 	default:
