@@ -272,26 +272,16 @@ func (ctx *unaryRestoreContext) gemini(root gjson.Result) error {
 			return unaryRestoreField(candidate, "content", func(content gjson.Result) error {
 				return unaryRestoreField(content, "parts", func(parts gjson.Result) error {
 					return unaryRestoreArray(parts, func(part gjson.Result) error {
+						// 带签名的 part 同样还原：下一轮请求重新加密后与上游原文一致。
 						if part.Get("thought").Bool() {
-							// 思考摘要按纯文本还原；带签名的思考保持原样，避免改写签名内容。
-							if part.Get("thoughtSignature").Exists() {
-								return nil
-							}
 							return unaryRestoreField(part, "text", ctx.plainText)
 						}
-						before := len(ctx.patches)
 						if err := unaryRestoreField(part, "text", ctx.text); err != nil {
 							return err
 						}
-						if err := unaryRestoreField(part, "functionCall", func(call gjson.Result) error {
+						return unaryRestoreField(part, "functionCall", func(call gjson.Result) error {
 							return unaryRestoreField(call, "args", ctx.jsonValue)
-						}); err != nil {
-							return err
-						}
-						if len(ctx.patches) > before && part.Get("thoughtSignature").Exists() {
-							return errUnaryRestore
-						}
-						return nil
+						})
 					})
 				})
 			})

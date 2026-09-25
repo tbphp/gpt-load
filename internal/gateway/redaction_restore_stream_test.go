@@ -286,8 +286,9 @@ func TestRedactionRestoreSSEGeminiFunctionCallAndSignature(t *testing.T) {
 	}
 	stream = newRedactionRestoreSSE(protocol.Gemini, streamTestRestore, false)
 	signed := strings.Replace(event, `"functionCall"`, `"thoughtSignature":"signed","functionCall"`, 1)
-	if _, err := stream.Push([]byte(signed)); err == nil {
-		t.Fatal("signed Gemini part was rewritten")
+	if got, err := stream.Push([]byte(signed)); err != nil || !bytes.Contains(got, []byte(`"address":"alice@example.invalid"`)) ||
+		!bytes.Contains(got, []byte(`"thoughtSignature":"signed"`)) {
+		t.Fatalf("signed Gemini function call = %q / %v", got, err)
 	}
 }
 
@@ -603,10 +604,10 @@ func TestRedactionRestoreSSERestoresReasoningAndRefusal(t *testing.T) {
 			t.Errorf("%s = %q / %v", tc.name, got, err)
 		}
 	}
-	// 带签名的 Gemini 思考保持原样，也不让整个响应失败。
+	// 带签名的 Gemini 思考同样照常还原。
 	signed := "data: " + `{"candidates":[{"index":0,"content":{"parts":[{"text":"gld1_3_abc","thought":true,"thoughtSignature":"signed"}]},"finishReason":"STOP"}]}` + "\n\n"
 	stream := newRedactionRestoreSSE(protocol.Gemini, streamTestRestore, false)
-	if got, err := stream.Push([]byte(signed)); err != nil || string(got) != signed {
+	if got, err := stream.Push([]byte(signed)); err != nil || string(got) != strings.Replace(signed, streamTestToken, "alice@example.invalid", 1) {
 		t.Fatalf("signed Gemini thought = %q / %v", got, err)
 	}
 }

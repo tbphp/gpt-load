@@ -549,7 +549,8 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 		if failure != nil {
 			return failure
 		}
-		if !data && len(patches) > start && (v.Get("signature").Str != "" || v.Get("thoughtSignature").Str != "" || v.Get("thought_signature").Str != "") {
+		// Gemini 签名内容里的明文来自上一轮还原，确定性加密会得到与上游原文相同的字节，照常处理。
+		if !data && len(patches) > start && v.Get("signature").Str != "" {
 			return ErrContent
 		}
 		return nil

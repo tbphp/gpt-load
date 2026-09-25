@@ -410,25 +410,9 @@ func (stream *redactionRestoreSSE) maskErrorPayload(event *redactionStreamEvent,
 	return nil
 }
 
-func (stream *redactionRestoreSSE) addText(
-	event *redactionStreamEvent, key string, value gjson.Result, signed bool,
-) error {
+func (stream *redactionRestoreSSE) addText(event *redactionStreamEvent, key string, value gjson.Result) error {
 	if value.Type != gjson.String {
 		return nil
-	}
-	if signed {
-		if err := stream.closeMatching(key); err != nil {
-			return err
-		}
-		return stream.direct(event, func(ctx *unaryRestoreContext) error {
-			if err := ctx.text(value); err != nil {
-				return err
-			}
-			if len(ctx.patches) != 0 {
-				return errRedactionStream
-			}
-			return nil
-		})
 	}
 	if stream.structured {
 		return stream.addDocument(event, key, value)
@@ -556,7 +540,7 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 			prefix := "chat/" + choiceIndex + "/"
 			if err := unaryRestoreField(choice, "delta", func(delta gjson.Result) error {
 				if err := unaryRestoreField(delta, "content", func(value gjson.Result) error {
-					return stream.addText(event, prefix+"text", value, false)
+					return stream.addText(event, prefix+"text", value)
 				}); err != nil {
 					return err
 				}
@@ -631,7 +615,7 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 	switch kind {
 	case "response.output_text.delta":
 		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
-			return stream.addText(event, textKey, value, false)
+			return stream.addText(event, textKey, value)
 		})
 	case "response.refusal.delta":
 		return unaryRestoreField(root, "delta", func(value gjson.Result) error {
@@ -803,7 +787,7 @@ func (stream *redactionRestoreSSE) anthropic(event *redactionStreamEvent, root g
 			switch block.Get("type").Str {
 			case "text":
 				return unaryRestoreField(block, "text", func(value gjson.Result) error {
-					return stream.addText(event, prefix+"text", value, false)
+					return stream.addText(event, prefix+"text", value)
 				})
 			case "tool_use":
 				return stream.direct(event, func(ctx *unaryRestoreContext) error {
@@ -817,7 +801,7 @@ func (stream *redactionRestoreSSE) anthropic(event *redactionStreamEvent, root g
 			switch delta.Get("type").Str {
 			case "text_delta":
 				return unaryRestoreField(delta, "text", func(value gjson.Result) error {
-					return stream.addText(event, prefix+"text", value, false)
+					return stream.addText(event, prefix+"text", value)
 				})
 			case "input_json_delta":
 				return unaryRestoreField(delta, "partial_json", func(value gjson.Result) error {
@@ -853,11 +837,8 @@ func (stream *redactionRestoreSSE) gemini(event *redactionStreamEvent, root gjso
 					return unaryRestoreArray(parts, func(part gjson.Result) error {
 						// parts 是当前分片的列表，位置不能标识跨分片的文本。
 						key := prefix + "answer"
+						// 带签名的 part 同样还原：下一轮请求重新加密后与上游原文一致。
 						if part.Get("thought").Bool() {
-							// 思考摘要按纯文本还原；带签名的思考保持原样，避免改写签名内容。
-							if part.Get("thoughtSignature").Exists() {
-								return nil
-							}
 							return unaryRestoreField(part, "text", func(value gjson.Result) error {
 								return stream.addPlainText(event, prefix+"thought/text", value)
 							})
@@ -866,26 +847,18 @@ func (stream *redactionRestoreSSE) gemini(event *redactionStreamEvent, root gjso
 						if err := stream.closeMatching(prefix + "thought/text"); err != nil {
 							return err
 						}
-						signed := part.Get("thoughtSignature").Exists()
 						if err := unaryRestoreField(part, "text", func(value gjson.Result) error {
-							return stream.addText(event, key+"/text", value, signed)
+							return stream.addText(event, key+"/text", value)
 						}); err != nil {
 							return err
 						}
-						before := len(event.direct)
-						if err := stream.direct(event, func(ctx *unaryRestoreContext) error {
+						return stream.direct(event, func(ctx *unaryRestoreContext) error {
 							return unaryRestoreField(part, "functionCall", func(call gjson.Result) error {
 								return unaryRestoreField(call, "args", func(args gjson.Result) error {
 									return ctx.walkJSONValues(args, 0, ctx.addPatch)
 								})
 							})
-						}); err != nil {
-							return err
-						}
-						if signed && len(event.direct) > before {
-							return errRedactionStream
-						}
-						return nil
+						})
 					})
 				})
 			}); err != nil {

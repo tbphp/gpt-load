@@ -274,3 +274,22 @@ func TestApplyCoversDocumentTextPromptVariablesAndReasoning(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyWithCipherEncryptsSignedGeminiParts(t *testing.T) {
+	cipher := syntheticRedactionCipher(t)
+	compiled, err := Compile([]Rule{{Pattern: `alice@example\.invalid`, Mode: ModeEncrypt}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := cipher.EncryptToken("alice@example.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"thoughtSignature", "thought_signature"} {
+		body := `{"contents":[{"role":"model","parts":[{"text":"alice@example.invalid","` + field + `":"signed"},{"functionCall":{"name":"send","args":{"to":"alice@example.invalid"}},"` + field + `":"signed"}]}]}`
+		got, err := compiled.ApplyWithCipher([]byte(body), cipher)
+		if want := strings.ReplaceAll(body, "alice@example.invalid", token); err != nil || string(got) != want {
+			t.Fatalf("%s parts = %s / %v", field, got, err)
+		}
+	}
+}

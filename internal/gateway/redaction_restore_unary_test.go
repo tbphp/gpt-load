@@ -180,10 +180,11 @@ func TestRestoreUnaryBusinessFieldsFindsEscapedMarkerInArguments(t *testing.T) {
 	}
 }
 
-func TestRestoreUnaryBusinessFieldsRejectsSignedGeminiPartRewrite(t *testing.T) {
-	input := []byte(`{"candidates":[{"content":{"parts":[{"text":"gld1_A","thoughtSignature":"signed"}]}}]}`)
-	if _, err := restoreUnaryBusinessFields(input, protocol.Gemini, restoreTestMarker, false); err == nil {
-		t.Fatal("signed part was rewritten")
+func TestRestoreUnaryBusinessFieldsRestoresSignedGeminiParts(t *testing.T) {
+	input := []byte(`{"candidates":[{"content":{"parts":[{"text":"gld1_A","thought":true,"thoughtSignature":"signed"},{"text":"gld1_A","thoughtSignature":"signed"},{"functionCall":{"name":"send","args":{"to":"gld1_A"}},"thoughtSignature":"signed"}]}}]}`)
+	want := `{"candidates":[{"content":{"parts":[{"text":"alice@example.invalid","thought":true,"thoughtSignature":"signed"},{"text":"alice@example.invalid","thoughtSignature":"signed"},{"functionCall":{"name":"send","args":{"to":"alice@example.invalid"}},"thoughtSignature":"signed"}]}}]}`
+	if got, err := restoreUnaryBusinessFields(input, protocol.Gemini, restoreTestMarker, false); err != nil || string(got) != want {
+		t.Fatalf("signed Gemini parts = %s / %v", got, err)
 	}
 }
 
@@ -229,8 +230,8 @@ func TestRestoreUnaryBusinessFieldsRestoresReasoningAndRefusal(t *testing.T) {
 		{
 			name:     "gemini thought",
 			protocol: protocol.Gemini,
-			input:    `{"candidates":[{"content":{"parts":[{"text":"gld1_A","thought":true},{"text":"gld1_A","thought":true,"thoughtSignature":"signed"}]}}]}`,
-			want:     `{"candidates":[{"content":{"parts":[{"text":"alice@example.invalid","thought":true},{"text":"gld1_A","thought":true,"thoughtSignature":"signed"}]}}]}`,
+			input:    `{"candidates":[{"content":{"parts":[{"text":"gld1_A","thought":true}]}}]}`,
+			want:     `{"candidates":[{"content":{"parts":[{"text":"alice@example.invalid","thought":true}]}}]}`,
 		},
 	}
 	for _, tc := range cases {

@@ -8,6 +8,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/requestredact"
 )
 
 func redactionContractPayloads(events []byte) [][]byte {
@@ -161,5 +162,31 @@ func TestRedactionContractPartialSnapshotsKeepDamagedCiphertext(t *testing.T) {
 		if got, err := restoreUnaryBusinessFields(text, protocol.OpenAIResponses, cipher.RestoreText, true); err != nil || !bytes.Equal(got, text) {
 			t.Fatalf("structured snapshot changed damaged ciphertext: %s / %v", got, err)
 		}
+	}
+}
+
+func TestRedactionContractGeminiSignedPartRoundTrip(t *testing.T) {
+	c := websocketRedactionTestCipher(t)
+	rules, err := requestredact.Compile([]requestredact.Rule{{Pattern: `alice@example\.invalid`, Mode: requestredact.ModeEncrypt}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := c.EncryptToken("alice@example.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 第 1 轮：上游返回带签名的工具调用，参数是密文，客户端拿到明文。
+	upstreamPart := `{"functionCall":{"name":"send","args":{"to":"` + token + `"}},"thoughtSignature":"synthetic-signature"}`
+	response := []byte(`{"candidates":[{"content":{"role":"model","parts":[` + upstreamPart + `]}}]}`)
+	restored, err := restoreUnaryBusinessFields(response, protocol.Gemini, c.RestoreText, false)
+	if err != nil || gjson.GetBytes(restored, "candidates.0.content.parts.0.functionCall.args.to").Str != "alice@example.invalid" {
+		t.Fatalf("signed part was not restored: %s / %v", restored, err)
+	}
+	// 第 2 轮：客户端把这段放回历史，网关重新加密后应与上游签名时的原文逐字节一致。
+	clientPart := gjson.GetBytes(restored, "candidates.0.content.parts.0").Raw
+	request := []byte(`{"contents":[{"role":"model","parts":[` + clientPart + `]}]}`)
+	outbound, err := rules.ApplyWithCipher(request, c)
+	if err != nil || gjson.GetBytes(outbound, "contents.0.parts.0").Raw != upstreamPart {
+		t.Fatalf("re-encrypted signed part differs from upstream output: %s / %v", outbound, err)
 	}
 }
