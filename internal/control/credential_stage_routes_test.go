@@ -370,6 +370,19 @@ func TestParseManualOAuthCallbackURLUsesDriverCallback(t *testing.T) {
 	}
 }
 
+func TestParseManualOAuthCallbackURLAcceptsMirasimTokens(t *testing.T) {
+	t.Parallel()
+	spec := subscriptionruntime.LocalCallbackSpec{RedirectURI: "http://localhost:19827/mirasim/oauth/callback"}
+	parsed, err := parseManualOAuthCallbackURL(
+		"http://localhost:19827/mirasim/oauth/callback?state=state-one&access_token=access-secret&refresh_token=refresh-secret",
+		spec,
+	)
+	if err != nil || parsed.Code != "" || parsed.State != "state-one" ||
+		parsed.AccessToken != "access-secret" || parsed.RefreshToken != "refresh-secret" {
+		t.Fatalf("Mirasim token callback = %#v, %v", parsed, err)
+	}
+}
+
 func TestOAuthCallbackServerStartsIndependentDriverEndpoints(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
@@ -519,6 +532,56 @@ func TestOAuthCallbackServerIsPublicStateBoundAndNoStore(t *testing.T) {
 		response.Header.Get("Location") != "" || !strings.Contains(body, "授权已完成") ||
 		!strings.Contains(body, "返回 GPT-Load 添加账号") || !strings.Contains(body, "关闭") {
 		t.Fatalf("callback response = %d %#v", response.StatusCode, response.Header)
+	}
+	completed, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
+	if err != nil || completed.Status != string(models.CredentialStageReady) {
+		t.Fatalf("completed = %#v, %v", completed, err)
+	}
+}
+
+func TestOAuthCallbackServerCompletesTokenCallbackWithoutCode(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	started, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row models.CredentialStage
+	if err := fixture.db.Take(&row, "id = ?", started.StageID).Error; err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := fixture.encryption.Decrypt(row.EncryptedPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload stagedSubscriptionPayload
+	if err := json.Unmarshal([]byte(plaintext), &payload); err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.completeSubscriptionAuthorization = func(_ context.Context, channelID channel.ID, completion subscriptionruntime.AuthorizationCompletion) (subscriptionruntime.Credential, error) {
+		if channelID != channel.Codex || completion.Code != "" ||
+			completion.ExpectedState != payload.State || completion.ReturnedState != payload.State ||
+			completion.AccessToken != "access-secret" || completion.RefreshToken != "refresh-secret" {
+			t.Fatalf("completion = %#v", completion)
+		}
+		return testRuntimeCredential(fixture.service, codex.Credential{
+			Type: "codex", AccessToken: "access", RefreshToken: "refresh", AccountID: "account-one", Email: "[EMAIL]",
+		})
+	}
+	useEphemeralOAuthCallbackListeners(fixture.service.oauthCallback)
+	callbackSpec := subscriptionruntime.LocalCallbackSpec{RedirectURI: "http://localhost:1455/auth/callback"}
+	if err := fixture.service.oauthCallback.EnsureStarted(callbackSpec); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fixture.service.oauthCallback.Stop(t.Context()) })
+
+	callbackURL := "http://" + fixture.service.oauthCallback.Addr(callbackSpec) +
+		"/auth/callback?state=" + url.QueryEscape(payload.State) +
+		"&access_token=access-secret&refresh_token=refresh-secret"
+	response, body := getOAuthCallbackResponse(t, callbackURL)
+	if response.StatusCode != http.StatusOK || strings.Contains(body, "access-secret") || strings.Contains(body, "refresh-secret") ||
+		!strings.Contains(body, "授权已完成") {
+		t.Fatalf("token callback = %d body contains secret=%t", response.StatusCode, strings.Contains(body, "access-secret"))
 	}
 	completed, err := fixture.service.GetCredentialStage(t.Context(), started.StageID)
 	if err != nil || completed.Status != string(models.CredentialStageReady) {

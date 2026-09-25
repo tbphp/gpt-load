@@ -220,6 +220,56 @@ func TestBeginBrowserAuthorizationCreatesPendingStage(t *testing.T) {
 	}
 }
 
+func TestBeginBrowserAuthorizationHonoursDriverWindow(t *testing.T) {
+	t.Parallel()
+	for name, testCase := range map[string]struct {
+		declared time.Duration
+		want     time.Duration
+	}{
+		"driver window":     {declared: 30 * time.Minute, want: 30 * time.Minute},
+		"default fallback":  {declared: 0, want: credentialStageAuthTTL},
+		"capped at maximum": {declared: 6 * time.Hour, want: credentialStageAuthMaxTTL},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newServiceFixture(t)
+			now := time.UnixMilli(1_800_000_000_000).UTC()
+			fixture.service.now = func() time.Time { return now }
+			originalBegin := fixture.service.beginSubscriptionAuthorization
+			t.Cleanup(func() { fixture.service.beginSubscriptionAuthorization = originalBegin })
+			fixture.service.beginSubscriptionAuthorization = func(channelID channel.ID) (subscriptionruntime.Authorization, error) {
+				if channelID != channel.Codex {
+					t.Fatalf("begin channel = %q", channelID)
+				}
+				authorization := subscriptionruntime.Authorization{
+					URL: "https://auth.example/authorize", State: "state-one",
+					DriverState: []byte(`{"verifier":"verifier-one"}`),
+				}
+				if testCase.declared > 0 {
+					authorization.ExpiresAt = now.Add(testCase.declared)
+				}
+				return authorization, nil
+			}
+
+			result, err := fixture.service.BeginCredentialAuthorization(t.Context(), channel.Codex)
+			if err != nil {
+				t.Fatalf("BeginCredentialAuthorization() error = %v", err)
+			}
+			wantExpiresAtMS := now.Add(testCase.want).UnixMilli()
+			if result.ExpiresAtMS != wantExpiresAtMS {
+				t.Fatalf("result expires_at_ms = %d, want %d", result.ExpiresAtMS, wantExpiresAtMS)
+			}
+			var row models.CredentialStage
+			if err := fixture.db.Take(&row, "id = ?", result.StageID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if row.ExpiresAtMS != wantExpiresAtMS {
+				t.Fatalf("row expires_at_ms = %d, want %d", row.ExpiresAtMS, wantExpiresAtMS)
+			}
+		})
+	}
+}
+
 func TestBeginDeviceAuthorizationCreatesEncryptedPendingStage(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
