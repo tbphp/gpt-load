@@ -180,8 +180,12 @@ func (k *Keeper) requestMint(ctx context.Context, cfg Config, model, accessToken
 	}
 	req.Header.Set("X-Relay-Key", cfg.RelayKey)
 	req.Header.Set("X-Relay-Mint", firstGateway(cfg.TargetGateway))
+	req.Header.Set("X-Mint-Gateway", firstGateway(cfg.TargetGateway))
 	req.Header.Set("X-Mint-Model", model)
 	req.Header.Set("X-Mint-Transport", "sse")
+	if cfg.MaxRotates > 0 {
+		req.Header.Set("X-Mint-Attempts", strconv.Itoa(cfg.MaxRotates))
+	}
 	if cfg.TicketLen > 0 {
 		req.Header.Set("X-Mint-Len", strconv.Itoa(cfg.TicketLen))
 	}

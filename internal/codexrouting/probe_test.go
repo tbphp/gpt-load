@@ -254,6 +254,32 @@ func TestProbeAcceptsWhitelistedGateway(t *testing.T) {
 	}
 }
 
+func TestProbeRelayDiscardsOffTargetPair(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC)
+	store := NewStore("", nil, Config{
+		Enabled: true, RelayURL: "https://relay.example/", RelayKey: "secret",
+		TargetGateway: "unified-88", Models: []string{"gpt-6-astra"}, EventLimit: 8,
+	})
+	store.now = func() time.Time { return now }
+	keeper := NewKeeper(store, staticAccounts{{CredentialID: 5}}, staticTokens{access: "tok", id: "acct"})
+	keeper.transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body := `{"transport":"sse","gateway":"unified-159","cookies":{"__cflb":"lb","__oailb":"` + testOaiLB("chat.gateway.unified-159.api.openai.com", now.Add(time.Hour)) + `"}}`
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(body)), Request: request,
+		}, nil
+	})
+	if err := keeper.ProbeOne(t.Context(), 5, "gpt-6-astra"); err == nil {
+		t.Fatal("ProbeOne() error = nil, want off-target")
+	}
+	injected := make(http.Header)
+	store.Inject(t.Context(), 5, "gpt-6-astra", injected)
+	if injected.Get("Cookie") != "" {
+		t.Fatalf("injected off-target cookie = %q", injected.Get("Cookie"))
+	}
+}
+
 func TestProbeRelayMintsCookiePair(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 25, 3, 0, 0, 0, time.UTC)
@@ -266,6 +292,9 @@ func TestProbeRelayMintsCookiePair(t *testing.T) {
 	keeper.transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Header.Get("X-Relay-Key") != "secret" || request.Header.Get("X-Relay-Mint") != "unified-88" {
 			t.Fatalf("headers = %v", request.Header)
+		}
+		if request.Header.Get("Cookie") != "" {
+			t.Fatalf("mint Cookie = %q", request.Header.Get("Cookie"))
 		}
 		body := `{"transport":"sse","gateway":"unified-88","cookies":{"__cflb":"lb","__oailb":"` + testOaiLB("chat.gateway.unified-88.api.openai.com", now.Add(time.Hour)) + `"},"tickets":{"gpt-6-astra":{"turn_state":"gAAAAA-ticket-88","ticket_len":16,"served_model":"gpt-6-astra"}}}`
 		return &http.Response{

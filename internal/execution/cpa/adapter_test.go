@@ -436,24 +436,27 @@ func TestAdapterPassesCustomCodexBaseURLToUnaryAndStreamExecutors(t *testing.T) 
 	}
 }
 
-func TestAdapterUsesCodexRelayBaseURL(t *testing.T) {
+func TestAdapterDoesNotSendCodexBusinessThroughRelay(t *testing.T) {
 	t.Parallel()
 	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 	fake := &fakeExecutor{result: codex.ExecuteResponse{Payload: []byte(`{"id":"resp_1","model":"gpt-6-astra","output":[]}`)}}
 	setCodexExecutor(t, adapter, fake)
 	adapter.SetCodexRouting(codexrouting.NewStore("", nil, codexrouting.Config{
 		Enabled: true, RelayURL: "https://chatgptrelay-kr.example", RelayKey: "relay-secret",
+		TargetGateway: "unified-88",
 	}))
-	spec := validSpec(t, row, keyService)
-	result := adapter.Execute(t.Context(), spec)
+	result := adapter.Execute(t.Context(), validSpec(t, row, keyService))
 	if result.Error != nil {
 		t.Fatalf("Execute() error = %#v", result.Error)
 	}
-	if fake.request.BaseURL != "https://chatgptrelay-kr.example" {
-		t.Fatalf("BaseURL = %q", fake.request.BaseURL)
+	if fake.request.BaseURL != "" {
+		t.Fatalf("business BaseURL = %q", fake.request.BaseURL)
 	}
-	if fake.request.Headers.Get("X-Relay-Key") != "relay-secret" {
-		t.Fatalf("X-Relay-Key = %q", fake.request.Headers.Get("X-Relay-Key"))
+	if fake.request.Headers.Get("X-Relay-Key") != "" {
+		t.Fatalf("business X-Relay-Key = %q", fake.request.Headers.Get("X-Relay-Key"))
+	}
+	if fake.request.Headers.Get("Cookie") != "" {
+		t.Fatalf("business Cookie = %q", fake.request.Headers.Get("Cookie"))
 	}
 }
 

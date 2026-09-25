@@ -53,16 +53,31 @@ func TestInjectCapturePinsAndDetectsRotation(t *testing.T) {
 	}
 }
 
-func TestInjectSetsRelayKeyWithoutPin(t *testing.T) {
+func TestInjectSkipsCookiesUntilTargetGatewayPinned(t *testing.T) {
 	t.Parallel()
-	store := NewStore("", nil, Config{Enabled: true, RelayURL: "https://relay.example", RelayKey: "relay-secret"})
-	headers := make(http.Header)
-	store.Inject(t.Context(), 4, "gpt-6-astra", headers)
-	if headers.Get("X-Relay-Key") != "relay-secret" {
-		t.Fatalf("X-Relay-Key = %q", headers.Get("X-Relay-Key"))
+	now := time.Date(2026, 9, 25, 5, 0, 0, 0, time.UTC)
+	store := NewStore("", nil, Config{
+		Enabled: true, TargetGateway: "unified-88", EventLimit: 8, Models: []string{"gpt-6-astra"},
+	})
+	store.now = func() time.Time { return now }
+	offTarget := make(http.Header)
+	offTarget.Add("Set-Cookie", "__cflb=lb; Path=/")
+	offTarget.Add("Set-Cookie", "__oailb="+testOaiLB("chat.gateway.unified-159.api.openai.com", now.Add(time.Hour))+"; Path=/")
+	store.Capture(WithDiscovery(t.Context()), 4, "gpt-6-astra", offTarget, 200)
+	miss := make(http.Header)
+	store.Inject(t.Context(), 4, "gpt-6-astra", miss)
+	if miss.Get("Cookie") != "" {
+		t.Fatalf("injected off-target cookie = %q", miss.Get("Cookie"))
 	}
-	if headers.Get("Cookie") != "" {
-		t.Fatalf("Cookie = %q", headers.Get("Cookie"))
+	onTarget := make(http.Header)
+	onTarget.Add("Set-Cookie", "__cflb=lb; Path=/")
+	onTarget.Add("Set-Cookie", "__oailb="+testOaiLB("chat.gateway.unified-88.api.openai.com", now.Add(time.Hour))+"; Path=/")
+	store.Capture(WithDiscovery(t.Context()), 4, "gpt-6-astra", onTarget, 200)
+	store.ConfirmCandy(4)
+	hit := make(http.Header)
+	store.Inject(t.Context(), 4, "gpt-6-astra", hit)
+	if !strings.Contains(hit.Get("Cookie"), "__oailb=") {
+		t.Fatalf("Cookie = %q", hit.Get("Cookie"))
 	}
 }
 

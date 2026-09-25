@@ -212,9 +212,6 @@ func (s *Store) Inject(ctx context.Context, credentialID uint, model string, hea
 	if IsDiscovery(ctx) {
 		return
 	}
-	if strings.TrimSpace(s.cfg.RelayKey) != "" {
-		headers.Set("X-Relay-Key", s.cfg.RelayKey)
-	}
 	now := s.now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
