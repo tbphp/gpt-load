@@ -44,13 +44,14 @@ type unaryRestoreRange struct{ start, end int }
 // restoreUnaryBusinessFields restores protocol fields with their own semantics
 // (structured answers, JSON arguments) and then every other string except
 // protocol identifiers. It keeps unchanged JSON bytes, including field order
-// and unrelated escape sequences.
+// and unrelated escape sequences. With a signer, upstream signatures carry the
+// records needed to return restored signed content byte for byte.
 func restoreUnaryBusinessFields(
 	body []byte,
 	clientProtocol protocol.Protocol,
 	restore func(string) (string, error),
 	structuredOutput bool,
-	sign ...func(string) string,
+	signers ...*redactionSigner,
 ) ([]byte, error) {
 	if restore == nil {
 		return body, nil
@@ -82,44 +83,15 @@ func restoreUnaryBusinessFields(
 	if err == nil {
 		err = ctx.restoreRemaining(root)
 	}
-	if err == nil && len(sign) > 0 && sign[0] != nil {
-		err = ctx.signSignatures(root, sign[0])
-	}
 	if err != nil {
 		return nil, errUnaryRestore
 	}
-	return ctx.apply()
-}
-
-// signSignatures 把本次还原记录写进上游签名；必须在全部还原完成后调用。
-func (ctx *unaryRestoreContext) signSignatures(value gjson.Result, sign func(string) string) error {
-	return ctx.walkSignatures(value, sign, 0)
-}
-
-func (ctx *unaryRestoreContext) walkSignatures(value gjson.Result, sign func(string) string, depth int) error {
-	if depth > maxUnaryRestoreDepth || (!value.IsObject() && !value.IsArray()) {
-		return nil
+	restored, err := ctx.apply()
+	// 整条响应没有还原任何内容时，客户端手里不会有需要换回的明文，签名保持原样。
+	if err != nil || len(signers) == 0 || signers[0] == nil || bytes.Equal(restored, body) {
+		return restored, err
 	}
-	var err error
-	value.ForEach(func(key, child gjson.Result) bool {
-		switch key.Str {
-		case "signature", "thoughtSignature", "thought_signature":
-			if value.IsObject() && child.Type == gjson.String && child.Str != "" {
-				if signed := sign(child.Str); signed != child.Str {
-					encoded, marshalErr := json.Marshal(signed)
-					if marshalErr != nil {
-						err = marshalErr
-						return false
-					}
-					err = ctx.addPatch(unaryRestorePatch{child.Index, child.Index + len(child.Raw), encoded})
-				}
-				return err == nil
-			}
-		}
-		err = ctx.walkSignatures(child, sign, depth+1)
-		return err == nil
-	})
-	return err
+	return signers[0].signPayload(body, restored, unarySignedBlocks(clientProtocol, gjson.ParseBytes(restored)))
 }
 
 // restoreRemaining 还原协议语义处理之外的所有字符串，覆盖思考、各类工具调用与回显字段；

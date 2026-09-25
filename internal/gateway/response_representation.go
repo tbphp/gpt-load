@@ -159,9 +159,9 @@ func (forwarder *responseProcessor) prepareSuccessRepresentation(
 		if !structuredOutput && input.ClientProtocol == protocol.OpenAIResponses {
 			structuredOutput = requestDeclaresJSONOutput(input.ClientProtocol, downstreamPlain)
 		}
-		session := newRedactionRestoreSession(input.RedactionCipher, input.RedactionCipher.RestoreText)
 		downstreamPlain, err = restoreUnaryBusinessFields(
-			downstreamPlain, input.ClientProtocol, session.restore, structuredOutput, session.sign,
+			downstreamPlain, input.ClientProtocol, input.RedactionCipher.RestoreText, structuredOutput,
+			newRedactionSigner(input.RedactionCipher),
 		)
 		if err != nil || int64(len(downstreamPlain)) > bodyLimit || credentialLiteralsRemain(downstreamPlain, restorationCredentialSecrets(input)) {
 			return preparedSuccessRepresentation{}, errUnaryRestore

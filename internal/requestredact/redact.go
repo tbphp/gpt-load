@@ -51,7 +51,6 @@ type TokenCipher interface {
 	EncryptToken(string) (string, error)
 	TokenCandidateEnd(string, int) (int, bool)
 	ValidTokenAt(string, int) (int, bool)
-	RestoreText(string) (string, error)
 }
 
 func Decode(raw []byte) ([]Rule, error) {
@@ -359,7 +358,8 @@ func ProtocolField(key string) bool {
 	case "id", "type", "role", "name", "status", "model", "modelVersion", "object", "metadata",
 		"signature", "thoughtSignature", "thought_signature", "encrypted_content",
 		"data", "b64_json", "result", "url", "image_url", "audio_url", "file_url",
-		"file_data", "fileData", "inline_data", "inlineData", "mime_type", "mimeType":
+		"file_data", "fileData", "inline_data", "inlineData", "mime_type", "mimeType",
+		"encrypted_index", "format":
 		return true
 	}
 	return strings.HasSuffix(key, "_id") || strings.HasSuffix(key, "Id")
@@ -444,56 +444,63 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 	// 上游生成、随历史回传的内容（助手消息、推理与各类工具调用）按字段整体加密，
 	// 与响应侧整体还原对应，只跳过协议字段。
 	inModel := false
+	// inSigned 表示正在按普通上游内容处理客户端改动过的签名内容，内部不再识别签名。
+	inSigned := false
 	var walk func(gjson.Result, bool, bool, int, bool) error
 	var toolResult func(gjson.Result, int) error
-	// 带签名的内容由上游生成，必须逐字节还给上游：没有还原记录说明网关没往里还原过东西，
-	// 原样发回；有记录时只把记录里的值加密回去，并换回上游原签名。
-	signed := func(v, signature gjson.Result, depth int) error {
-		original, tokens, recorded := unwrapSignature(signature.Str)
-		if !recorded {
+	// 签名内容由上游生成，必须逐字节还给上游：记录核对一致时按位置换回上游原文和原签名；
+	// 普通签名说明网关没有往里还原过内容，原样发回；客户端改动过内容时按普通上游内容加密，
+	// 保证明文不外泄，并换回原签名。
+	signed := func(v, signature gjson.Result, content bool, depth int, questions bool) error {
+		record, wrapped := unwrapSignature(signature.Str)
+		if !wrapped {
 			return nil
 		}
-		replacer, err := restoredReplacer(tokens, cipher)
-		if err != nil {
-			return err
-		}
-		var visit func(gjson.Result, int) error
-		visit = func(value gjson.Result, depth int) error {
-			if depth > 64 {
-				return ErrContent
-			}
-			if value.Index == signature.Index {
-				encoded, err := json.Marshal(original)
-				if err != nil {
-					return err
+		exact := record != nil
+		var restored []patch
+		if exact {
+			for _, entry := range record.Strings {
+				value := PathValue(v, entry.Path)
+				if value.Type != gjson.String || value.Index == signature.Index {
+					exact = false
+					break
 				}
-				return addPatch(patch{value.Index, value.Index + len(value.Raw), encoded})
-			}
-			if value.Type == gjson.String {
-				if replacer == nil {
-					return nil
+				text, ok := restoreSignedString(value.Str, entry)
+				if !ok {
+					exact = false
+					break
 				}
-				text := replacer.Replace(value.Str)
 				if text == value.Str {
-					return nil
+					continue
 				}
 				encoded, err := json.Marshal(text)
 				if err != nil {
 					return err
 				}
-				return addPatch(patch{value.Index, value.Index + len(value.Raw), encoded})
+				restored = append(restored, patch{value.Index, value.Index + len(value.Raw), encoded})
 			}
-			var failure error
-			value.ForEach(func(key, child gjson.Result) bool {
-				if value.IsObject() && child.Index != signature.Index && ProtocolField(key.Str) {
-					return true
-				}
-				failure = visit(child, depth+1)
-				return failure == nil
-			})
-			return failure
 		}
-		return visit(v, depth)
+		if record != nil {
+			encoded, err := json.Marshal(record.Signature)
+			if err != nil {
+				return err
+			}
+			if !exact {
+				restored = nil
+			}
+			restored = append(restored, patch{signature.Index, signature.Index + len(signature.Raw), encoded})
+		}
+		for _, p := range restored {
+			if err := addPatch(p); err != nil {
+				return err
+			}
+		}
+		if exact {
+			return nil
+		}
+		inSigned = true
+		defer func() { inSigned = false }()
+		return walk(v, content, false, depth, questions)
 	}
 	toolResult = func(value gjson.Result, depth int) error {
 		if depth > 64 {
@@ -561,9 +568,9 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				return nil
 			}
 		}
-		if !data && v.IsObject() {
-			if signature, found := signatureValue(v); found {
-				return signed(v, signature, depth)
+		if !data && inModel && !inSigned && v.IsObject() {
+			if signature, found := signaturePosition(v); found {
+				return signed(v, signature, content, depth, questions)
 			}
 		}
 		if !data && !inModel && v.IsObject() && modelAuthored(v) {
@@ -659,6 +666,8 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 	if len(patches) == 0 {
 		return body, nil
 	}
+	// 签名内容的补丁不一定按正文顺序产生；排序后重叠仍会被拒绝。
+	sort.SliceStable(patches, func(i, j int) bool { return patches[i].start < patches[j].start })
 	var out bytes.Buffer
 	pos := 0
 	for _, p := range patches {

@@ -742,3 +742,27 @@ func TestRedactionRestoreSSETextSuffixDoesNotHoldToolCalls(t *testing.T) {
 		}
 	}
 }
+
+// 推理分片里的 "signature": null 不是签名，不能提前收尾通道，否则切开的密文无法还原。
+func TestRedactionRestoreSSENullSignatureKeepsReasoningOpen(t *testing.T) {
+	stream := newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
+	var out []byte
+	for _, event := range []string{
+		`{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","index":0,"text":"user gld1_3_","signature":null}]}}]}`,
+		`{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","index":0,"text":"abc asked","signature":null}]}}]}`,
+		`{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+	} {
+		got, err := stream.Push([]byte("data: " + event + "\n\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, got...)
+	}
+	var reasoning string
+	for _, payload := range redactionContractPayloads(out) {
+		reasoning += gjson.GetBytes(payload, "choices.0.delta.reasoning_details.0.text").Str
+	}
+	if reasoning != "user alice@example.invalid asked" {
+		t.Fatalf("reasoning = %q", reasoning)
+	}
+}
