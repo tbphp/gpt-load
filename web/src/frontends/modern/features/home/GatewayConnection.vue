@@ -84,6 +84,11 @@ const mask = computed(() => key.value?.mask ?? 'YOUR_API_KEY')
 const isTerminal = computed(() => selectedClient.value.surface === 'cli')
 const fields = computed(() => (isTerminal.value ? [] : gatewayFields(config.value, mask.value)))
 const configBlocks = computed(() => gatewayConfiguration(config.value, mask.value))
+const instruction = computed(() =>
+  selectedClient.value.id === 'cc-switch' && target.value === 'codex'
+    ? t('home.steps.ccSwitchCodex')
+    : t('home.steps.' + selectedClient.value.id),
+)
 const keyOptions = computed(() =>
   props.keys.map((key) => ({ value: String(key.id), label: key.name, description: key.mask })),
 )
@@ -245,7 +250,7 @@ async function importClient(): Promise<void> {
                 }}</RouterLink>
               </AppButton>
             </AppNotice>
-            <p class="modern-connect-instruction">{{ t('home.steps.' + selectedClient.id) }}</p>
+            <p class="modern-connect-instruction">{{ instruction }}</p>
             <ConnectTerminal
               v-if="isTerminal"
               :key="signature"
@@ -265,7 +270,9 @@ async function importClient(): Promise<void> {
                 class="modern-connect-code"
               >
                 <header>
-                  <span>{{ t('home.fullConfig') }}</span>
+                  <span>{{
+                    t(selectedClient.id === 'cc-switch' ? 'home.importData' : 'home.fullConfig')
+                  }}</span>
                   <AppCopyValue :value="block.content" :resolve-value="block.resolve">
                     <template #trigger="{ copy, pending }">
                       <AppButton
@@ -276,7 +283,13 @@ async function importClient(): Promise<void> {
                         :disabled="!key || missingModel"
                         @click="copy()"
                       >
-                        {{ t('home.copyConfig') }}
+                        {{
+                          t(
+                            selectedClient.id === 'cc-switch'
+                              ? 'home.copyImportData'
+                              : 'home.copyConfig',
+                          )
+                        }}
                       </AppButton>
                     </template>
                   </AppCopyValue>
