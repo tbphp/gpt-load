@@ -25,6 +25,13 @@ func TestOpenAIEmbeddingsNativeRouteIsLimitedToSupportedAPIKeyChannels(t *testin
 			execution.OperationProbe,
 		} {
 			mode, ok := definition.modes[protocol.OpenAIEmbeddings][operation]
+			if descriptor.ID == Gemini && operation == execution.OperationEmbeddingsCreate {
+				// Gemini 通过转换走原生 gemini-embeddings，不提供 OpenAI Embeddings 探测。
+				if !ok || mode != RouteConverted {
+					t.Errorf("gemini embeddings %q route = %q, %t; want converted", operation, mode, ok)
+				}
+				continue
+			}
 			if want {
 				if !ok || mode != RouteNative {
 					t.Errorf("%q embeddings %q route = %q, %t; want native", descriptor.ID, operation, mode, ok)

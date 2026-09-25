@@ -51,3 +51,42 @@ func TestRouteInspectGeminiEmbeddingsSelectsNativeGeminiGroup(t *testing.T) {
 		t.Fatalf("route inspection = %#v", got)
 	}
 }
+
+func TestRouteInspectOpenAIEmbeddingsSelectsConvertedGeminiGroup(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	if _, err := fixture.manager.Publish(state.CompileInput{
+		ChannelRegistry: fixture.channelRegistry,
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "gemini", ChannelID: channel.Gemini, ConnectionType: "api_key",
+			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gemini-embedding-001", Alias: "public"}},
+			Enabled: true,
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 10, Name: "client", KeyHash: "hash", Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if err := fixture.registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 100, GroupID: 1, Status: state.CredentialStatusActive,
+		Version: 1, IdentityGeneration: 1, Fingerprint: "credential", EncryptedValue: "encrypted",
+	}}); err != nil {
+		t.Fatalf("ReplaceCredentials() error = %v", err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	recorder := performRouteInspectRequest(
+		engine,
+		"test-auth-key",
+		`{"protocol":"openai-embeddings","external_model":"public","access_key_id":10}`,
+	)
+	got := decodeRouteInspectSuccess(t, recorder)
+	if got.Protocol != protocol.OpenAIEmbeddings || got.Operation != execution.OperationEmbeddingsCreate ||
+		got.RouteRequirement != execution.RouteRequirementAny ||
+		len(got.Groups) != 1 || got.Groups[0].RouteMode != execution.RouteConverted {
+		t.Fatalf("route inspection = %#v", got)
+	}
+}
