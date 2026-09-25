@@ -124,6 +124,7 @@ func TestCodexHTTPForwardsCookieAndCapturesSetCookie(t *testing.T) {
 				header := make(http.Header)
 				header.Set("Cookie", "__oailb=pinned")
 				header.Set("X-Edge-IP", "1.2.3.4")
+				header.Set("X-Relay-Key", "relay-secret")
 				return header
 			}(),
 			BaseURL: server.URL,
@@ -138,6 +139,9 @@ func TestCodexHTTPForwardsCookieAndCapturesSetCookie(t *testing.T) {
 	}
 	if wire.Get("X-Edge-IP") != "1.2.3.4" {
 		t.Fatalf("wire X-Edge-IP = %q", wire.Get("X-Edge-IP"))
+	}
+	if wire.Get("X-Relay-Key") != "relay-secret" {
+		t.Fatalf("wire X-Relay-Key = %q", wire.Get("X-Relay-Key"))
 	}
 	if response.Headers.Get("Set-Cookie") != "__oailb=lab-cookie; Path=/; Secure" {
 		t.Fatalf("response Set-Cookie = %q", response.Headers.Get("Set-Cookie"))
