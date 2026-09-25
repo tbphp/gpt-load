@@ -78,6 +78,10 @@ export default {
       },
       routeStrategyHelp:
         'Native first favors native capabilities. Weighted mix lets native and converted candidates compete by effective weight; conversion may differ in capabilities. Request affinity still applies, so traffic shares are not guaranteed.',
+      codex_live_mode: 'Live voice',
+      liveModes: { off: 'Off', direct: 'Direct to upstream', relay: 'Gateway relay' },
+      liveModeHelp:
+        'Groups can override this default. Direct mode requires client access to upstream media. Relay mode requires a reachable media IP and UDP ports. Off disables voice only.',
       responses_websocket_enabled: 'Responses WebSocket',
       websocketHelp:
         'Groups can override this setting. Disabling closes affected WS connections and interrupts generation immediately; HTTP/SSE remains available.',

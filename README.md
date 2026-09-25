@@ -155,6 +155,28 @@ Rerank uses the independent `rerank` protocol through `POST /v1/rerank` on the O
 - **Subscription** — Codex, Claude, Antigravity, Grok
 - **Custom** — OpenAI Compatible (any compatible relay)
 
+### Codex live voice
+
+Choose the default under **System settings → Connection and timeouts → Live voice**. Each Codex group's **Advanced configuration / Runtime settings** can inherit it or select **Off, Direct to upstream, Gateway relay**. Groups with different modes can coexist; each call stays bound to its selected group and account. Off disables voice only and ends affected active voice sessions; text requests remain available.
+
+- **Direct to upstream (default)**: GPT-Load authenticates, selects the account, creates the call and proxies the control WebSocket. Audio and the WebRTC data channel connect directly from the client to upstream. Account tokens stay on the server. No server media UDP mapping is needed, but the client must reach upstream media endpoints; a server-side outbound proxy does not proxy this client traffic.
+- **Gateway relay**: audio and the WebRTC data channel pass through GPT-Load and use its configured upstream proxy. All relay groups share the process media IP and UDP range.
+- **Accounts and retries**: call creation uses existing global weighted scheduling and the system additional-retry budget (default 2). Explicit 403/429 rejections can try another candidate; 401 may refresh the credential, within the same budget. Timeouts, ambiguous 5xx results and failures after a call was created do not replay the call on another account. Voice admission failures do not blacklist otherwise working text credentials. Set known voice-ineligible groups to Off; plan names are not used to infer entitlement.
+
+**Upgrade: previous versions always relayed media. The new unset default is Direct; deployments relying on server media transport must explicitly select Gateway relay.** No group voice-model setup is required; the client's model is forwarded unchanged. Clients must attach a control WebSocket within 30 seconds and reconnect within 30 seconds after disconnection. Unconfirmed endings or failed upstream hangups are logged as incomplete; usage/cost may remain unavailable.
+
+For Docker relay, download [`docker-compose.voice.yml`](docker-compose.voice.yml) from the same version as the base Compose file, set a client-reachable public media IP in `.env`, then select Gateway relay in system or group settings:
+
+```dotenv
+CODEX_LIVE_PUBLIC_IP=YOUR_SERVER_PUBLIC_IP
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
+```
+
+The overlay aligns listening and published ports, defaulting to **UDP 50000–50127**. Allow that range in the cloud security group and host firewall. To customize it, set both `CODEX_LIVE_UDP_PORT_MIN` and `CODEX_LIVE_UDP_PORT_MAX` in `.env` and recreate the container. Nginx must support WebSocket Upgrade and suitable long-lived connection timeouts; its HTTP proxy does not forward media UDP. Separate hosts, NAT and CDNs still require a directly reachable media address/port or appropriate STUN/TURN in `CODEX_LIVE_ICE_SERVERS`. GPT-Load cannot configure the public IP or external firewall for you.
+
 ## Deployment and data
 
 Docker Compose uses application-managed SQLite by default. Data lives in the `gpt-load-data` named volume and includes the database, `auth.key`, and `encryption.key`.

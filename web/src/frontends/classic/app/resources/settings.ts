@@ -1,3 +1,4 @@
+import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import { readRedactionRules, type RedactionRule } from './request-redaction'
 import {
   readJev,
@@ -41,6 +42,7 @@ import {
 } from './auto-model'
 
 export const runtimeSettingKeys = [
+  'codex_live_mode',
   'route_strategy',
   'first_byte_timeout',
   'request_timeout',
@@ -67,6 +69,7 @@ export const runtimeSettingKeys = [
 export type RuntimeSettingKey = (typeof runtimeSettingKeys)[number]
 export type TimeoutSettingKey = Exclude<
   RuntimeSettingKey,
+  | 'codex_live_mode'
   | 'route_strategy'
   | 'retry_count'
   | 'blacklist_threshold'
@@ -101,6 +104,7 @@ export interface SettingsValues {
   jev: JevConfig
   request_audit: AuditConfig
   auto_model?: AutoModelConfigDto
+  codex_live_mode: CodexLiveMode
   route_strategy: RouteStrategy
   first_byte_timeout: number
   request_timeout: number
@@ -137,6 +141,7 @@ export type SettingsPatch = Partial<{
   jev: JevConfig | null
   request_redaction: RedactionRule[] | null
   request_audit: AuditConfig | null
+  codex_live_mode: CodexLiveMode | null
   route_strategy: RouteStrategy | null
   first_byte_timeout: number | null
   request_timeout: number | null
@@ -259,6 +264,7 @@ export function projectSettings(value: unknown): SettingsDto {
       jev: readJev(values.jev),
       request_audit: readAudit(values.request_audit),
       request_redaction: readRedactionRules(values.request_redaction),
+      codex_live_mode: projectEnum(values.codex_live_mode, codexLiveModes),
       route_strategy: projectEnum(values.route_strategy, routeStrategies),
       first_byte_timeout: projectSafeInteger(values.first_byte_timeout, { minimum: 1 }),
       request_timeout: projectSafeInteger(values.request_timeout, { minimum: 1 }),

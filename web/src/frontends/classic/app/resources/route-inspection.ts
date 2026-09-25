@@ -29,6 +29,7 @@ export type RouteInspectReasonCode =
   | 'operation_unsupported'
   | 'native_route_required'
   | 'no_route_target'
+  | 'codex_live_disabled'
   | 'group_disabled'
   | 'group_filtered'
   | 'no_available_group'
@@ -140,6 +141,7 @@ const reasonCodes = [
   'operation_unsupported',
   'native_route_required',
   'no_route_target',
+  'codex_live_disabled',
   'group_disabled',
   'group_filtered',
   'no_available_group',

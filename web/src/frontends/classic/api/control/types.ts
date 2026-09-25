@@ -1,3 +1,4 @@
+import type { CodexLiveMode } from '@shared/codex-live'
 import type { ProtocolValue } from './protocols'
 
 export type GroupProtocol = ProtocolValue
@@ -117,6 +118,7 @@ export interface GroupRuntimeConfigDto {
   blacklist_threshold?: number
   header_rules?: HeaderRulesDto
   affinity_enabled?: boolean
+  codex_live_mode?: CodexLiveMode
   responses_websocket_enabled?: boolean
   empty_response_retry?: boolean
   parameter_overrides?: ParameterOverrideRuleDto[]
@@ -129,6 +131,7 @@ export interface GroupEffectiveConfigDto {
   blacklist_threshold: number
   header_rules: HeaderRulesDto
   affinity_enabled: boolean
+  codex_live_mode: CodexLiveMode
   responses_websocket_enabled: boolean
   empty_response_retry: boolean
 }

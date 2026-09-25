@@ -55,20 +55,29 @@ func (a *Adapter) OpenLive(ctx context.Context, spec execution.AttemptSpec, offe
 		ProxyFromEnvironment: settings.FromEnvironment, Headers: spec.Header.Clone(), Body: body,
 	})
 	if err != nil {
-		failure := &execution.ErrorEvidence{
-			Kind: execution.ErrorKindTransport, Code: "codex_live_failed",
-			Summary: "Codex live upstream request failed.", OriginHint: execution.ErrorOriginUpstream,
-			ScopeHint: execution.ErrorScopeRequest,
-		}
-		var upstream *codex.LiveHTTPError
-		if errors.As(err, &upstream) {
-			failure.Kind = execution.ErrorKindHTTP
-			failure.StatusCode = upstream.Status
-			if upstream.Status == http.StatusUnauthorized {
-				failure.Hint = execution.FailureHintRefreshRequired
-			}
-		}
-		return execution.LiveCall{}, failure
+		return execution.LiveCall{}, codexLiveFailure(err)
 	}
 	return execution.LiveCall{CallID: call.CallID, SDP: call.SDP, Header: call.Header, Session: call.Session}, nil
+}
+
+func codexLiveFailure(err error) *execution.ErrorEvidence {
+	failure := &execution.ErrorEvidence{
+		Kind: execution.ErrorKindTransport, Code: "codex_live_failed",
+		Summary: "Codex live upstream request failed.", OriginHint: execution.ErrorOriginUpstream,
+		ScopeHint: execution.ErrorScopeRequest,
+	}
+	var upstream *codex.LiveHTTPError
+	if errors.As(err, &upstream) {
+		failure.Kind = execution.ErrorKindHTTP
+		failure.StatusCode = upstream.Status
+		// 只有明确的鉴权、准入或限流拒绝能证明未创建通话。
+		switch upstream.Status {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
+			failure.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+		}
+		if upstream.Status == http.StatusUnauthorized {
+			failure.Hint = execution.FailureHintRefreshRequired
+		}
+	}
+	return failure
 }

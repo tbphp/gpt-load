@@ -527,3 +527,14 @@ func clearEnvironment(t *testing.T) {
 		t.Setenv(key, "")
 	}
 }
+
+func TestLoadCodexLiveDefaultUDPRange(t *testing.T) {
+	clearEnvironment(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CodexLive.UDPPortMin != 50000 || cfg.CodexLive.UDPPortMax != 50127 {
+		t.Fatalf("default media ports = %d-%d", cfg.CodexLive.UDPPortMin, cfg.CodexLive.UDPPortMax)
+	}
+}

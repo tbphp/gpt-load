@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
@@ -32,6 +34,7 @@ type liveCallSession struct {
 	ref                 state.CredentialRef
 	upstream            execution.LiveSession
 	media               *liveMediaSession
+	logger              *logrus.Logger
 	recorder            *requestRecorder
 	closedOnce          sync.Once
 	attached            bool
@@ -95,8 +98,16 @@ func (store *liveSessions) put(call *liveCallSession) bool {
 	store.calls[call.id] = call
 	call.closed = make(chan struct{})
 	call.timer = time.AfterFunc(liveSessionLifetime, func() { store.finishCall(call, "expired") })
+	// 直连没有媒体关闭回调，客户端须在重连窗口内接入控制连接。
+	if call.media == nil {
+		call.reconnectGeneration++
+		generation := call.reconnectGeneration
+		call.reconnect = time.AfterFunc(liveReconnectWindow, func() { store.expireReconnect(call, generation) })
+	}
 	store.mu.Unlock()
-	call.media.OnClose(func(reason string) { go store.finishCall(call, reason) })
+	if call.media != nil {
+		call.media.OnClose(func(reason string) { go store.finishCall(call, reason) })
+	}
 	go store.watchAuthorization(call)
 	return true
 }
@@ -217,19 +228,26 @@ func (call *liveCallSession) close(reason string) {
 		_ = call.media.Close()
 		_ = call.upstream.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = call.upstream.Hangup(ctx)
+		var hangupErr error
+		if reason != "upstream_session_ended" && reason != "upstream_session_error" {
+			hangupErr = call.upstream.Hangup(ctx)
+		}
 		cancel()
+		if hangupErr != nil {
+			utils.LogPlaneBestEffort(call.logger, logrus.WarnLevel, utils.LogPlaneData, logrus.Fields{"event": "codex_live_hangup_failed"}, "Codex live upstream hangup was not confirmed")
+			reason = "hangup_failed"
+		}
 		if call.recorder != nil {
 			call.recorder.usage = telemetry.UsageObservation{
 				Result:  usage.Result{State: usage.StateMissing},
-				GroupID: call.groupID, ChannelID: channel.Codex, CredentialID: call.ref.ID, AttemptSequence: 1,
+				GroupID: call.groupID, ChannelID: channel.Codex, CredentialID: call.ref.ID, AttemptSequence: len(call.recorder.attempts),
 				Pricing: telemetry.PricingObservation{UpstreamModel: call.model,
 					CostState: string(pricing.CostStateUnpriced), PricingCompleteness: string(pricing.CompletenessUnavailable)},
 			}
 			call.recorder.outcome.upstreamModel = call.model
 			call.recorder.outcome.statusCode = 201
 			switch reason {
-			case "client_hangup", "client_media_ended":
+			case "client_hangup", "client_media_ended", "upstream_session_ended":
 				call.recorder.outcome.status = telemetry.RequestStatusSuccess
 			case "server_shutdown", "key_revoked":
 				call.recorder.outcome.status = telemetry.RequestStatusCanceled

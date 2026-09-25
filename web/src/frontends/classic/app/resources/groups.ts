@@ -1,3 +1,4 @@
+import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import { keepPreviousData, queryOptions, type QueryClient } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
@@ -123,6 +124,7 @@ const runtimeSettingFields = [
   'blacklist_threshold',
   'header_rules',
   'affinity_enabled',
+  'codex_live_mode',
   'responses_websocket_enabled',
   'empty_response_retry',
 ] as const
@@ -140,6 +142,7 @@ export interface GroupRuntimeConfigDto {
   blacklist_threshold?: number
   header_rules?: HeaderRulesDto
   affinity_enabled?: boolean
+  codex_live_mode?: CodexLiveMode
   responses_websocket_enabled?: boolean
   empty_response_retry?: boolean
   parameter_overrides?: ParameterOverrideRuleDto[]
@@ -152,6 +155,7 @@ export interface GroupEffectiveConfigDto {
   blacklist_threshold: number
   header_rules: HeaderRulesDto
   affinity_enabled: boolean
+  codex_live_mode: CodexLiveMode
   responses_websocket_enabled: boolean
   empty_response_retry: boolean
 }
@@ -378,6 +382,9 @@ function projectRuntimeConfig(
   }
   if (complete || Object.prototype.hasOwnProperty.call(record, 'affinity_enabled')) {
     result.affinity_enabled = projectBoolean(record.affinity_enabled)
+  }
+  if (complete || Object.prototype.hasOwnProperty.call(record, 'codex_live_mode')) {
+    result.codex_live_mode = projectEnum(record.codex_live_mode, codexLiveModes)
   }
   if (complete || Object.prototype.hasOwnProperty.call(record, 'responses_websocket_enabled')) {
     result.responses_websocket_enabled = projectBoolean(record.responses_websocket_enabled)
