@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -136,9 +138,21 @@ func (k *Keeper) probeRelay(ctx context.Context, credentialID uint, model, acces
 	entry, err := k.requestMint(ctx, cfg, model, accessToken, accountID)
 	k.store.TouchProbe(credentialID)
 	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"event":         "codex_routing.relay_mint_failed",
+			"credential_id": credentialID,
+			"model":         model,
+		}).Warn("cloud mint failed")
 		k.store.DiscardPin(credentialID)
 		return err
 	}
+	logrus.WithFields(logrus.Fields{
+		"event":         "codex_routing.relay_mint_ok",
+		"credential_id": credentialID,
+		"model":         model,
+		"gateway":       entry.Gateway,
+		"edge_ip":       entry.EdgeIP,
+	}).Info("cloud mint ok")
 	header := mintCookieHeader(entry.Cookies)
 	if ticket := entry.Tickets[model].TurnState; ticket != "" {
 		header.Set("X-Codex-Turn-State", ticket)
@@ -198,7 +212,20 @@ func (k *Keeper) requestMint(ctx context.Context, cfg Config, model, accessToken
 		return mintResult{}, errors.New("cloud mint response invalid or too large")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return mintResult{}, fmt.Errorf("cloud mint status %d", resp.StatusCode)
+		var envelope struct {
+			Error struct {
+				Code         string   `json:"code"`
+				GatewaysSeen []string `json:"gateways_seen"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &envelope)
+		logrus.WithFields(logrus.Fields{
+			"event":         "codex_routing.relay_mint_http",
+			"status":        resp.StatusCode,
+			"code":          envelope.Error.Code,
+			"gateways_seen": envelope.Error.GatewaysSeen,
+		}).Warn("cloud mint http error")
+		return mintResult{}, fmt.Errorf("cloud mint status %d code %s", resp.StatusCode, envelope.Error.Code)
 	}
 	var result mintResult
 	if err := json.Unmarshal(raw, &result); err != nil {
