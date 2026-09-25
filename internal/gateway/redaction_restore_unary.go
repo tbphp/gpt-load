@@ -13,6 +13,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/requestredact"
 )
 
 const (
@@ -34,10 +35,16 @@ type unaryRestoreContext struct {
 	restore    func(string) (string, error)
 	structured bool
 	patches    []unaryRestorePatch
+	// handled 记录已按协议语义处理过的值，通用还原跳过这些位置。
+	handled []unaryRestoreRange
 }
 
-// restoreUnaryBusinessFields restores only protocol business fields. It keeps
-// unchanged JSON bytes, including field order and unrelated escape sequences.
+type unaryRestoreRange struct{ start, end int }
+
+// restoreUnaryBusinessFields restores protocol fields with their own semantics
+// (structured answers, JSON arguments) and then every other string except
+// protocol identifiers. It keeps unchanged JSON bytes, including field order
+// and unrelated escape sequences.
 func restoreUnaryBusinessFields(
 	body []byte,
 	clientProtocol protocol.Protocol,
@@ -71,10 +78,68 @@ func restoreUnaryBusinessFields(
 	case protocol.Gemini:
 		err = ctx.gemini(root)
 	}
+	if err == nil {
+		err = ctx.restoreRemaining(root)
+	}
 	if err != nil {
 		return nil, errUnaryRestore
 	}
 	return ctx.apply()
+}
+
+// restoreRemaining 还原协议语义处理之外的所有字符串，覆盖思考、各类工具调用与回显字段；
+// 跳过的协议字段与请求侧一致，保证凡是还原过的内容回到请求里都能加密回去。
+func (ctx *unaryRestoreContext) restoreRemaining(root gjson.Result) error {
+	sort.Slice(ctx.handled, func(i, j int) bool { return ctx.handled[i].start < ctx.handled[j].start })
+	merged := ctx.handled[:0]
+	for _, current := range ctx.handled {
+		if last := len(merged) - 1; last >= 0 && current.start < merged[last].end {
+			merged[last].end = max(merged[last].end, current.end)
+			continue
+		}
+		merged = append(merged, current)
+	}
+	ctx.handled = merged
+	return ctx.walkRemaining(root, "", 0)
+}
+
+func (ctx *unaryRestoreContext) walkRemaining(value gjson.Result, key string, depth int) error {
+	if depth > maxUnaryRestoreDepth || ctx.handledAt(value.Index) {
+		return nil
+	}
+	if value.Type == gjson.String {
+		if key == "arguments" || key == "partial_json" {
+			return ctx.embeddedJSON(value, true)
+		}
+		return ctx.restoreString(value, ctx.addPatch)
+	}
+	if !value.IsObject() && !value.IsArray() {
+		return nil
+	}
+	var err error
+	value.ForEach(func(name, child gjson.Result) bool {
+		childKey := key
+		if value.IsObject() {
+			if requestredact.ProtocolField(name.Str) {
+				return true
+			}
+			childKey = name.Str
+		}
+		err = ctx.walkRemaining(child, childKey, depth+1)
+		return err == nil
+	})
+	return err
+}
+
+func (ctx *unaryRestoreContext) handledAt(index int) bool {
+	i := sort.Search(len(ctx.handled), func(i int) bool { return ctx.handled[i].start > index }) - 1
+	return i >= 0 && index < ctx.handled[i].end
+}
+
+func (ctx *unaryRestoreContext) mark(value gjson.Result) {
+	if value.Index > 0 {
+		ctx.handled = append(ctx.handled, unaryRestoreRange{value.Index, value.Index + len(value.Raw)})
+	}
 }
 
 func unaryRestoreField(object gjson.Result, name string, visit func(gjson.Result) error) error {
@@ -290,9 +355,7 @@ func (ctx *unaryRestoreContext) gemini(root gjson.Result) error {
 }
 
 func (ctx *unaryRestoreContext) customToolInput(item gjson.Result) error {
-	return unaryRestoreField(item, "input", func(value gjson.Result) error {
-		return ctx.restoreString(value, ctx.addPatch)
-	})
+	return unaryRestoreField(item, "input", ctx.plainText)
 }
 
 func (ctx *unaryRestoreContext) arguments(call gjson.Result) error {
@@ -301,10 +364,12 @@ func (ctx *unaryRestoreContext) arguments(call gjson.Result) error {
 
 // plainText 用于推理、拒答等自然语言字段，不受 JSON 输出声明影响。
 func (ctx *unaryRestoreContext) plainText(value gjson.Result) error {
+	ctx.mark(value)
 	return ctx.restoreString(value, ctx.addPatch)
 }
 
 func (ctx *unaryRestoreContext) text(value gjson.Result) error {
+	ctx.mark(value)
 	if value.Type != gjson.String {
 		return nil
 	}
@@ -316,6 +381,7 @@ func (ctx *unaryRestoreContext) text(value gjson.Result) error {
 
 // jsonDocument 用于明确为 JSON 的工具参数；普通工具返回文本仍走 jsonValue。
 func (ctx *unaryRestoreContext) jsonDocument(value gjson.Result) error {
+	ctx.mark(value)
 	if value.Type == gjson.String {
 		return ctx.embeddedJSON(value, true)
 	}
@@ -323,6 +389,7 @@ func (ctx *unaryRestoreContext) jsonDocument(value gjson.Result) error {
 }
 
 func (ctx *unaryRestoreContext) jsonValue(value gjson.Result) error {
+	ctx.mark(value)
 	if value.Type == gjson.String {
 		return ctx.embeddedJSON(value, false)
 	}

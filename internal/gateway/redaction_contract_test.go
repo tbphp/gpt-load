@@ -190,3 +190,28 @@ func TestRedactionContractGeminiSignedPartRoundTrip(t *testing.T) {
 		t.Fatalf("re-encrypted signed part differs from upstream output: %s / %v", outbound, err)
 	}
 }
+
+func TestRedactionContractClaudeThinkingRoundTrip(t *testing.T) {
+	c := websocketRedactionTestCipher(t)
+	rules, err := requestredact.Compile([]requestredact.Rule{{Pattern: `alice@example\.invalid`, Mode: requestredact.ModeEncrypt}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := c.EncryptToken("alice@example.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 第 1 轮：上游思考里是密文，客户端看到明文。
+	upstreamBlock := `{"type":"thinking","thinking":"用户邮箱是 ` + token + `","signature":"synthetic-signature"}`
+	response := []byte(`{"content":[` + upstreamBlock + `]}`)
+	restored, err := restoreUnaryBusinessFields(response, protocol.Anthropic, c.RestoreText, false)
+	if err != nil || gjson.GetBytes(restored, "content.0.thinking").Str != "用户邮箱是 alice@example.invalid" {
+		t.Fatalf("thinking was not restored: %s / %v", restored, err)
+	}
+	// 第 2 轮：客户端原样回传，网关重新加密后与上游签名时的原文逐字节一致。
+	request := []byte(`{"messages":[{"role":"assistant","content":[` + gjson.GetBytes(restored, "content.0").Raw + `]}]}`)
+	outbound, err := rules.ApplyWithCipher(request, c)
+	if err != nil || gjson.GetBytes(outbound, "messages.0.content.0").Raw != upstreamBlock {
+		t.Fatalf("re-encrypted thinking differs from upstream output: %s / %v", outbound, err)
+	}
+}

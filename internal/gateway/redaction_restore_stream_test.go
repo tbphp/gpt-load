@@ -642,3 +642,72 @@ func TestRedactionRestoreSSEReasoningSuffixDoesNotHoldAnswer(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactionRestoreSSERestoresAllModelOutput(t *testing.T) {
+	joined := func(t *testing.T, got []byte, path string) string {
+		t.Helper()
+		var text strings.Builder
+		for _, payload := range redactionContractPayloads(got) {
+			text.WriteString(gjson.GetBytes(payload, path).Str)
+		}
+		return text.String()
+	}
+	// 跨包切开的密文：Claude 思考与 Chat reasoning_details 按通道缓冲还原。
+	split := []struct {
+		name     string
+		protocol protocol.Protocol
+		events   []string
+		path     string
+	}{
+		{"claude thinking", protocol.Anthropic, []string{
+			`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hi gld1_3_"}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"abc!"}}`,
+			`{"type":"content_block_stop","index":0}`,
+		}, "delta.thinking"},
+		{"chat reasoning_details", protocol.OpenAICompletions, []string{
+			`{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","index":0,"text":"hi gld1_3_"}]}}]}`,
+			`{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","index":0,"text":"abc!"}]},"finish_reason":"stop"}]}`,
+		}, "choices.0.delta.reasoning_details.0.text"},
+	}
+	for _, tc := range split {
+		stream := newRedactionRestoreSSE(tc.protocol, streamTestRestore, false)
+		var got []byte
+		for _, event := range tc.events {
+			out, err := stream.Push([]byte("data: " + event + "\n\n"))
+			if err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			got = append(got, out...)
+		}
+		if text := joined(t, got, tc.path); text != "hi alice@example.invalid!" {
+			t.Errorf("%s = %q", tc.name, text)
+		}
+	}
+	// 其余字段按事件整体还原，协议字段保持不变。
+	whole := []struct {
+		name     string
+		protocol protocol.Protocol
+		event    string
+		restored string
+		kept     string
+	}{
+		{"responses shell call", protocol.OpenAIResponses, `{"type":"response.output_item.done","output_index":0,"item":{"type":"shell_call","call_id":"gld1_3_abc","action":{"commands":["echo gld1_3_abc"]}}}`, "item.action.commands.0", "item.call_id"},
+		{"responses instructions echo", protocol.OpenAIResponses, `{"type":"response.created","response":{"id":"gld1_3_abc","instructions":"gld1_3_abc","output":[]}}`, "response.instructions", "response.id"},
+		{"gemini code execution", protocol.Gemini, `{"candidates":[{"index":0,"content":{"parts":[{"executableCode":{"language":"PYTHON","code":"gld1_3_abc"}}]}}],"responseId":"gld1_3_abc"}`, "candidates.0.content.parts.0.executableCode.code", "responseId"},
+		{"claude signature", protocol.Anthropic, `{"type":"content_block_start","index":1,"content_block":{"type":"server_tool_use","id":"gld1_3_abc","name":"web_search","input":{"query":"gld1_3_abc"}}}`, "content_block.input.query", "content_block.id"},
+	}
+	for _, tc := range whole {
+		stream := newRedactionRestoreSSE(tc.protocol, streamTestRestore, false)
+		got, err := stream.Push([]byte("data: " + tc.event + "\n\n"))
+		payloads := redactionContractPayloads(got)
+		if err != nil || len(payloads) != 1 {
+			t.Fatalf("%s = %q / %v", tc.name, got, err)
+		}
+		if value := gjson.GetBytes(payloads[0], tc.restored).String(); !strings.Contains(value, "alice@example.invalid") {
+			t.Errorf("%s: %s = %q was not restored", tc.name, tc.restored, value)
+		}
+		if value := gjson.GetBytes(payloads[0], tc.kept).Str; value != streamTestToken {
+			t.Errorf("%s: protocol field %s = %q changed", tc.name, tc.kept, value)
+		}
+	}
+}

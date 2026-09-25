@@ -165,7 +165,7 @@ func TestEncryptTextRejectsOversizedOutputBeforeEncryption(t *testing.T) {
 	}
 }
 
-func TestApplyWithCipherPreservesJSONStructureAndRejectsSignedMutation(t *testing.T) {
+func TestApplyWithCipherPreservesJSONStructureAndEncryptsSignedThinking(t *testing.T) {
 	cipher := syntheticRedactionCipher(t)
 	compiled, err := Compile([]Rule{{Pattern: `alice@example\.invalid`, Mode: ModeEncrypt}})
 	if err != nil {
@@ -184,8 +184,10 @@ func TestApplyWithCipherPreservesJSONStructureAndRejectsSignedMutation(t *testin
 	if !bytes.Equal(got, want) || !bytes.Contains(body, []byte("alice@example.invalid")) {
 		t.Fatalf("JSON bytes or input changed:\n got: %s\nwant: %s", got, want)
 	}
-	if _, err := compiled.ApplyWithCipher([]byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"alice@example.invalid","signature":"signed"}]}]}`), cipher); !errors.Is(err, ErrContent) {
-		t.Fatalf("signed content error = %v, want ErrContent", err)
+	// 可逆加密可以改写签名内容：还原后再加密会得到与上游原文相同的字节。固定替换仍被拒绝。
+	signed := `{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"alice@example.invalid","signature":"signed"}]}]}`
+	if got, err := compiled.ApplyWithCipher([]byte(signed), cipher); err != nil || string(got) != strings.ReplaceAll(signed, "alice@example.invalid", token) {
+		t.Fatalf("signed thinking = %s / %v", got, err)
 	}
 }
 
@@ -290,6 +292,64 @@ func TestApplyWithCipherEncryptsSignedGeminiParts(t *testing.T) {
 		got, err := compiled.ApplyWithCipher([]byte(body), cipher)
 		if want := strings.ReplaceAll(body, "alice@example.invalid", token); err != nil || string(got) != want {
 			t.Fatalf("%s parts = %s / %v", field, got, err)
+		}
+	}
+}
+
+func TestApplyWithCipherEncryptsModelAuthoredHistory(t *testing.T) {
+	cipher := syntheticRedactionCipher(t)
+	compiled, err := Compile([]Rule{{Pattern: `alice@example\.invalid`, Mode: ModeEncrypt}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const secret = "alice@example.invalid"
+	cases := []struct {
+		name string
+		body string
+		kept []string
+	}{
+		{
+			name: "responses native tools",
+			body: `{"input":[{"type":"shell_call","call_id":"alice@example.invalid","status":"completed","action":{"commands":["mail alice@example.invalid"]}},` +
+				`{"type":"local_shell_call","call_id":"c2","action":{"type":"exec","command":["mail","alice@example.invalid"],"env":{"TO":"alice@example.invalid"}}},` +
+				`{"type":"apply_patch_call","call_id":"c3","operation":{"type":"update_file","path":"alice@example.invalid.txt","diff":"+alice@example.invalid"}},` +
+				`{"type":"computer_call","call_id":"c4","action":{"type":"type","text":"alice@example.invalid"}},` +
+				`{"type":"mcp_call","id":"m1","name":"alice@example.invalid","arguments":"{\"to\":\"alice@example.invalid\"}","output":"sent to alice@example.invalid"}]}`,
+			kept: []string{"input.0.call_id", "input.4.name"},
+		},
+		{
+			name: "chat assistant",
+			body: `{"messages":[{"role":"assistant","content":"ok","reasoning_details":[{"type":"reasoning.text","text":"alice@example.invalid","signature":"alice@example.invalid"}],` +
+				`"tool_calls":[{"id":"alice@example.invalid","type":"function","function":{"name":"alice@example.invalid","arguments":"{\"to\":\"alice@example.invalid\"}"}}]}]}`,
+			kept: []string{"messages.0.reasoning_details.0.signature", "messages.0.tool_calls.0.id", "messages.0.tool_calls.0.function.name"},
+		},
+		{
+			name: "claude signed thinking",
+			body: `{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"alice@example.invalid","signature":"sig"},` +
+				`{"type":"tool_use","id":"alice@example.invalid","name":"send","input":{"name":"alice@example.invalid"}}]}]}`,
+			kept: []string{"messages.0.content.1.id"},
+		},
+		{
+			name: "gemini model parts",
+			body: `{"contents":[{"role":"model","parts":[{"executableCode":{"language":"PYTHON","code":"print('alice@example.invalid')"}},{"codeExecutionResult":{"outcome":"OUTCOME_OK","output":"alice@example.invalid"}}]}]}`,
+		},
+	}
+	for _, tc := range cases {
+		got, err := compiled.ApplyWithCipher([]byte(tc.body), cipher)
+		if err != nil || !json.Valid(got) {
+			t.Fatalf("%s: %s / %v", tc.name, got, err)
+		}
+		if remaining := strings.Count(string(got), secret); remaining != len(tc.kept) {
+			t.Errorf("%s: %d plaintext values remain, want %d: %s", tc.name, remaining, len(tc.kept), got)
+		}
+		for _, path := range tc.kept {
+			if gjson.GetBytes(got, path).Str != gjson.Get(tc.body, path).Str {
+				t.Errorf("%s: protocol field %s changed", tc.name, path)
+			}
+		}
+		// 加密只替换敏感值本身，还原后逐字节回到原文。
+		if restored, err := cipher.RestoreText(string(got)); err != nil || restored != tc.body {
+			t.Errorf("%s: restored history differs:\n got: %s\nwant: %s", tc.name, restored, tc.body)
 		}
 	}
 }

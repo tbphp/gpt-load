@@ -151,15 +151,21 @@ func (c *Compiled) TextWithCipher(value string, cipher TokenCipher) (string, err
 }
 
 func (c *Compiled) textWithCipher(value string, cipher TokenCipher, jsonText bool) (string, error) {
+	text, _, err := c.textReport(value, cipher, jsonText)
+	return text, err
+}
+
+// textReport 返回改写结果，并报告是否用到了不可逆的固定替换。
+func (c *Compiled) textReport(value string, cipher TokenCipher, jsonText bool) (string, bool, error) {
 	if c.Empty() {
-		return value, nil
+		return value, false, nil
 	}
 	if cipher == nil {
 		return c.rewriteText(value, nil, nil, false)
 	}
 	protected, err := authenticatedTokenSpans(value, cipher)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	return c.rewriteText(value, cipher, protected, jsonText)
 }
@@ -204,10 +210,8 @@ func authenticatedTokenSpans(value string, cipher TokenCipher) ([]tokenSpan, err
 
 // Text 在原文上匹配所有规则，重叠片段合并，替换文本按字面使用且不再次匹配。
 func (c *Compiled) Text(value string) (string, error) {
-	if c.Empty() {
-		return value, nil
-	}
-	return c.rewriteText(value, nil, nil, false)
+	text, _, err := c.textReport(value, nil, false)
+	return text, err
 }
 
 type tokenSpan struct{ start, end int }
@@ -234,23 +238,23 @@ type textMatch struct {
 	plaintext        string
 }
 
-func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tokenSpan, jsonText bool) (string, error) {
+func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tokenSpan, jsonText bool) (string, bool, error) {
 	spans := []textMatch{}
 	for i, p := range c.patterns {
 		matches := p.FindAllStringIndex(value, 65537)
 		if len(matches) > 65536 {
-			return "", ErrContent
+			return "", false, ErrContent
 		}
 		for _, span := range matches {
 			if span[0] == span[1] {
 				continue
 			}
 			if c.rules[i].Mode == ModeEncrypt && cipher == nil {
-				return "", ErrContent
+				return "", false, ErrContent
 			}
 			spans = append(spans, textMatch{start: span[0], end: span[1], rule: i})
 			if len(spans) > 65536 {
-				return "", ErrContent
+				return "", false, ErrContent
 			}
 		}
 	}
@@ -259,14 +263,14 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 		var err error
 		spans, protected, literals, err = c.jsonTextMatches(value, spans, protected, cipher)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 	}
 	filtered := spans[:0]
 	for _, span := range spans {
 		inside, crossing := protectedMatch(protected, span.start, span.end)
 		if crossing {
-			return "", ErrContent
+			return "", false, ErrContent
 		}
 		if !inside {
 			filtered = append(filtered, span)
@@ -274,7 +278,7 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 	}
 	spans = filtered
 	if len(spans) == 0 {
-		return value, nil
+		return value, false, nil
 	}
 	sort.Slice(spans, func(i, j int) bool {
 		if spans[i].start == spans[j].start {
@@ -298,7 +302,7 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 	}
 	if jsonText {
 		if err := c.decodeJSONMatches(literals, merged); err != nil {
-			return "", err
+			return "", false, err
 		}
 	}
 	finalBytes := int64(len(value))
@@ -310,32 +314,58 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 		finalBytes += int64(replacementBytes) - int64(span.end-span.start)
 	}
 	if finalBytes > maxTextBytes || finalBytes < 0 {
-		return "", ErrContent
+		return "", false, ErrContent
 	}
 	var out strings.Builder
 	out.Grow(int(finalBytes))
 	pos := 0
+	replaced := false
 	for _, span := range merged {
 		replacement := c.rules[span.rule].Replacement
+		replaced = replaced || c.rules[span.rule].Mode != ModeEncrypt
 		if c.rules[span.rule].Mode == ModeEncrypt {
 			var err error
 			replacement, err = cipher.EncryptToken(span.plaintext)
 			if err != nil {
-				return "", ErrContent
+				return "", false, ErrContent
 			}
 		}
 		if out.Len()+span.start-pos+len(replacement) > maxTextBytes {
-			return "", ErrContent
+			return "", false, ErrContent
 		}
 		out.WriteString(value[pos:span.start])
 		out.WriteString(replacement)
 		pos = span.end
 	}
 	if out.Len()+len(value)-pos > maxTextBytes {
-		return "", ErrContent
+		return "", false, ErrContent
 	}
 	out.WriteString(value[pos:])
-	return out.String(), nil
+	return out.String(), replaced, nil
+}
+
+// ProtocolField 报告字段是否是协议标识或不透明数据。请求加密上游生成的历史内容、
+// 响应还原上游输出时都跳过这些字段，保证凡是还原过的内容回到请求里都能加密回去。
+func ProtocolField(key string) bool {
+	switch key {
+	case "id", "type", "role", "name", "status", "model", "modelVersion", "object", "metadata",
+		"signature", "thoughtSignature", "thought_signature", "encrypted_content",
+		"data", "b64_json", "result", "url", "image_url", "audio_url", "file_url",
+		"file_data", "fileData", "inline_data", "inlineData", "mime_type", "mimeType":
+		return true
+	}
+	return strings.HasSuffix(key, "_id") || strings.HasSuffix(key, "Id")
+}
+
+// modelAuthored 识别上游生成、随历史回传的内容：助手/模型角色的消息，
+// 以及 Responses 的推理项和各类工具调用项（*_call，不含 *_call_output）。
+func modelAuthored(v gjson.Result) bool {
+	switch v.Get("role").Str {
+	case "assistant", "model":
+		return true
+	}
+	kind := v.Get("type").Str
+	return kind == "reasoning" || strings.HasSuffix(kind, "_call")
 }
 
 type patch struct {
@@ -399,6 +429,11 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 		}
 		return addPatch(patch{value.Index, value.Index + len(value.Raw), encoded})
 	}
+	// 上游生成、随历史回传的内容（助手消息、推理与各类工具调用）按字段整体加密，
+	// 与响应侧整体还原对应，只跳过协议字段。
+	inModel := false
+	// 签名内容只允许可逆加密：确定性加密能还原成上游原文，固定替换会让签名失效。
+	replaced := 0
 	var walk func(gjson.Result, bool, bool, int, bool) error
 	var toolResult func(gjson.Result, int) error
 	toolResult = func(value gjson.Result, depth int) error {
@@ -439,17 +474,14 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			if !content && !data {
 				return nil
 			}
-			var text string
-			var err error
-			if cipher == nil {
-				text, err = c.Text(v.Str)
-			} else {
-				text, err = c.TextWithCipher(v.Str, cipher)
-			}
+			text, replacedText, err := c.textReport(v.Str, cipher, false)
 			if err != nil {
 				return err
 			}
 			if text != v.Str {
+				if replacedText {
+					replaced++
+				}
 				encoded, err := json.Marshal(text)
 				if err != nil {
 					return err
@@ -467,12 +499,19 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				return nil
 			}
 		}
-		start := len(patches)
+		if !data && !inModel && v.IsObject() && modelAuthored(v) {
+			inModel = true
+			defer func() { inModel = false }()
+		}
+		startReplaced := replaced
 		var failure error
 		v.ForEach(func(k, child gjson.Result) bool {
 			if v.IsArray() || data {
 				failure = walk(child, content, data, depth+1, questions)
 				return failure == nil
+			}
+			if inModel && ProtocolField(k.Str) {
+				return true
 			}
 			switch k.Str {
 			case "questions":
@@ -499,7 +538,7 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 					})
 				}
 			case "context":
-				failure = walk(child, v.Get("type").Str == "document", false, depth+1, questions)
+				failure = walk(child, inModel || v.Get("type").Str == "document", false, depth+1, questions)
 			case "arguments":
 				if child.Type == gjson.String && json.Valid([]byte(child.Str)) {
 					failure = rewriteEmbedded(child, depth)
@@ -542,15 +581,15 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			case "text", "system", "system_instruction", "systemInstruction", "instructions", "query", "thinking", "reasoning", "reasoning_content", "summary", "code", "refusal", "description", "title", "documents", "texts":
 				failure = walk(child, true, questions && depth == 2 && k.Str == "instructions", depth+1, questions)
 			default:
-				failure = walk(child, false, false, depth+1, questions)
+				failure = walk(child, inModel, false, depth+1, questions)
 			}
 			return failure == nil
 		})
 		if failure != nil {
 			return failure
 		}
-		// Gemini 签名内容里的明文来自上一轮还原，确定性加密会得到与上游原文相同的字节，照常处理。
-		if !data && len(patches) > start && v.Get("signature").Str != "" {
+		if !data && replaced > startReplaced &&
+			(v.Get("signature").Str != "" || v.Get("thoughtSignature").Str != "" || v.Get("thought_signature").Str != "") {
 			return ErrContent
 		}
 		return nil

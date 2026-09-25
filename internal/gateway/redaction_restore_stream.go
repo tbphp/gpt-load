@@ -50,8 +50,11 @@ type redactionStreamEvent struct {
 	payload     []byte
 	fields      []*redactionStreamField
 	direct      []unaryRestorePatch
+	handled     []unaryRestoreRange
 	replacement []byte
 	terminal    bool
+	// whole 表示整条事件已完整处理（终态快照或错误遮蔽），不再做通用还原。
+	whole bool
 }
 
 type redactionStreamField struct {
@@ -260,6 +263,7 @@ func (event *redactionStreamEvent) field(value gjson.Result) *redactionStreamFie
 		original: value.Str, value: value.Str,
 	}
 	event.fields = append(event.fields, field)
+	event.handled = append(event.handled, unaryRestoreRange{field.start, field.end})
 	return field
 }
 
@@ -368,21 +372,40 @@ func (stream *redactionRestoreSSE) process(event *redactionStreamEvent) error {
 		}
 		return stream.maskErrorPayload(event, payload)
 	}
+	var err error
 	switch stream.protocol {
 	case protocol.OpenAICompletions:
-		return stream.chat(event, root)
+		err = stream.chat(event, root)
 	case protocol.OpenAIResponses:
-		return stream.responses(event, root, name)
+		err = stream.responses(event, root, name)
 	case protocol.Anthropic:
-		return stream.anthropic(event, root, name)
+		err = stream.anthropic(event, root, name)
 	case protocol.Gemini:
-		return stream.gemini(event, root)
+		err = stream.gemini(event, root)
 	default:
 		return nil
 	}
+	if err != nil || event.whole {
+		return err
+	}
+	return stream.restoreRemaining(event, root)
+}
+
+// restoreRemaining 还原事件里增量通道之外的字段，只处理事件内完整的密文，不扣留数据。
+func (stream *redactionRestoreSSE) restoreRemaining(event *redactionStreamEvent, root gjson.Result) error {
+	if !bytes.Contains(event.payload, []byte(redactionStreamPrefix)) && !bytes.Contains(event.payload, []byte(`\u`)) {
+		return nil
+	}
+	ctx := unaryRestoreContext{body: event.payload, restore: stream.restore, handled: event.handled}
+	if err := ctx.restoreRemaining(root); err != nil {
+		return errRedactionStream
+	}
+	event.direct = append(event.direct, ctx.patches...)
+	return nil
 }
 
 func (stream *redactionRestoreSSE) maskErrorPayload(event *redactionStreamEvent, payload []byte) error {
+	event.whole = true
 	if !bytes.Contains(payload, []byte(redactionStreamPrefix)) && !bytes.Contains(payload, []byte(`\u`)) {
 		return nil
 	}
@@ -528,6 +551,7 @@ func (stream *redactionRestoreSSE) direct(
 		return errRedactionStream
 	}
 	event.direct = append(event.direct, ctx.patches...)
+	event.handled = append(event.handled, ctx.handled...)
 	return nil
 }
 
@@ -551,10 +575,27 @@ func (stream *redactionRestoreSSE) chat(event *redactionStreamEvent, root gjson.
 						return err
 					}
 				}
+				if err := unaryRestoreField(delta, "reasoning_details", func(details gjson.Result) error {
+					position := 0
+					return unaryRestoreArray(details, func(detail gjson.Result) error {
+						key := prefix + "reasoning_details/" + redactionStreamIndex(detail.Get("index"), position) + "/"
+						position++
+						for _, name := range []string{"text", "summary"} {
+							if err := unaryRestoreField(detail, name, func(value gjson.Result) error {
+								return stream.addPlainText(event, key+name, value)
+							}); err != nil {
+								return err
+							}
+						}
+						return nil
+					})
+				}); err != nil {
+					return err
+				}
 				// 推理不会再续写：正文开始时收尾推理，避免推理末尾的疑似前缀扣住后续正文。
 				if delta.Get("content").Str != "" || delta.Get("refusal").Str != "" ||
 					delta.Get("tool_calls").IsArray() || delta.Get("function_call").IsObject() {
-					for _, name := range []string{"reasoning_content", "reasoning"} {
+					for _, name := range []string{"reasoning_content", "reasoning", "reasoning_details/"} {
 						if err := stream.closeMatching(prefix + name); err != nil {
 							return err
 						}
@@ -754,6 +795,7 @@ func (stream *redactionRestoreSSE) responses(event *redactionStreamEvent, root g
 		})
 	case "response.completed", "response.incomplete":
 		event.terminal = true
+		event.whole = true
 		if err := stream.closeMatching(""); err != nil {
 			return err
 		}
@@ -807,6 +849,10 @@ func (stream *redactionRestoreSSE) anthropic(event *redactionStreamEvent, root g
 				return unaryRestoreField(delta, "partial_json", func(value gjson.Result) error {
 					return stream.addDocument(event, prefix+"tool", value)
 				})
+			case "thinking_delta":
+				return unaryRestoreField(delta, "thinking", func(value gjson.Result) error {
+					return stream.addPlainText(event, prefix+"thinking", value)
+				})
 			}
 			return nil
 		})
@@ -854,9 +900,7 @@ func (stream *redactionRestoreSSE) gemini(event *redactionStreamEvent, root gjso
 						}
 						return stream.direct(event, func(ctx *unaryRestoreContext) error {
 							return unaryRestoreField(part, "functionCall", func(call gjson.Result) error {
-								return unaryRestoreField(call, "args", func(args gjson.Result) error {
-									return ctx.walkJSONValues(args, 0, ctx.addPatch)
-								})
+								return unaryRestoreField(call, "args", ctx.jsonValue)
 							})
 						})
 					})
