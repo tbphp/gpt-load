@@ -562,11 +562,6 @@ func (a *Adapter) validateSpec(spec execution.AttemptSpec) (providerBridge, stri
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve subscription base URL: %w", err)
 	}
-	if channelID == channel.Codex && a.routing != nil {
-		if relay := strings.TrimRight(strings.TrimSpace(a.routing.Config().RelayURL), "/"); relay != "" {
-			baseURL = relay
-		}
-	}
 	return provider, baseURL, nil
 }
 
