@@ -474,7 +474,13 @@ func TestCodexLiveRevokesActiveCallWhenAccessKeyRotates(t *testing.T) {
 	if call.authorized() {
 		t.Fatal("rotated AccessKey still authorizes the old live call")
 	}
-	deadline := time.After(5 * time.Second)
+	// 终止由授权轮询及时触发；请求日志要等 WebRTC 清理完成后才写出，race 模式下清理明显变慢，两段分开等待。
+	select {
+	case <-call.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("rotated AccessKey did not terminate the old live call")
+	}
+	deadline := time.After(10 * time.Second)
 	for {
 		events := sink.snapshot()
 		if len(events) == 1 {
@@ -485,7 +491,7 @@ func TestCodexLiveRevokesActiveCallWhenAccessKeyRotates(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatal("rotated AccessKey did not terminate the old live call")
+			t.Fatal("rotated call log was not emitted after teardown")
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
