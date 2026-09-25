@@ -536,6 +536,16 @@ func http1Transport(base *http.Transport) *http.Transport {
 	}
 	transport.ForceAttemptHTTP2 = false
 	transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	// Disabling h2 in the transport is not enough: the cloned transport still
+	// advertises h2 in ALPN, so the relay negotiates h2 and its frames reach the
+	// HTTP/1.x parser as a malformed response. The official client offers only
+	// http/1.1, so pin the ALPN list to match.
+	config := &tls.Config{}
+	if transport.TLSClientConfig != nil {
+		config = transport.TLSClientConfig.Clone()
+	}
+	config.NextProtos = []string{"http/1.1"}
+	transport.TLSClientConfig = config
 	return transport
 }
 
