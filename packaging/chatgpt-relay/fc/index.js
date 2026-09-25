@@ -533,10 +533,12 @@ function fireSseMintAttempt(cfg, edgeIp, creds, model, cookieHeader) {
 
     upReq.on('response', (upRes) => {
       readMintHeaders(out, upRes);
-      // 上游已把 SSE 响应声明为 application/octet-stream(正文仍是 SSE 文本);
-      // 模型声明由 mintSseDecision 严格解析,content-type 只做早退优化,放宽白名单。
-      const mintCt = upRes.headers['content-type'] || '';
-      if (upRes.statusCode === 200
+      // 上游对 Codex SSE 的 Content-Type 并不稳定:有时声明 text/event-stream 或
+      // application/octet-stream,实测也会**完全不发**这个头。缺头是正常形态,不能
+      // 当成失败(否则每次铸票都在拿到票/ pair 之后被丢掉)。只有上游明确声明了
+      // 别的类型时才早退;其余一律交给 mintSseDecision 严格判定。
+      const mintCt = String(upRes.headers['content-type'] || '');
+      if (upRes.statusCode === 200 && mintCt
           && !/^text\/event-stream(?:;|$)/i.test(mintCt)
           && !/^application\/octet-stream(?:;|$)/i.test(mintCt)) {
         finish({ reason: 'bad_sse_content_type' });
