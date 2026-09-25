@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -89,6 +90,12 @@ func (fake *liveFakeOpener) OpenLive(ctx context.Context, spec execution.Attempt
 }
 
 func (session *liveFakeUpstream) DialSideband(ctx context.Context, _ string, protocols []string) (*websocket.Conn, int, error) {
+	session.mu.Lock()
+	if session.conn != nil {
+		session.mu.Unlock()
+		return nil, 0, errors.New("live sideband is already attached")
+	}
+	session.mu.Unlock()
 	dialer := websocket.Dialer{Subprotocols: protocols}
 	connection, response, err := dialer.DialContext(ctx, session.wsURL, nil)
 	status := 0
@@ -286,6 +293,16 @@ func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 				_, echoed, err := connection.ReadMessage()
 				if err != nil || string(echoed) != "voice-control" {
 					t.Fatalf("sideband echo=%q error=%v", echoed, err)
+				}
+				if repeat == 1 {
+					if err := connection.WriteMessage(websocket.TextMessage, bytes.Repeat([]byte("x"), 256<<10+1)); err != nil {
+						t.Fatal(err)
+					}
+					_, _, err := connection.ReadMessage()
+					var closeError *websocket.CloseError
+					if !errors.As(err, &closeError) || closeError.Code != websocket.CloseMessageTooBig {
+						t.Fatalf("oversized sideband close = %v, want message-too-big", err)
+					}
 				}
 				_ = connection.Close()
 			}

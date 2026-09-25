@@ -430,7 +430,7 @@ func (handler *Handler) connectCodexLive(c *gin.Context, request *dataPlaneReque
 		return
 	}
 	var upstreamConnection *websocket.Conn
-	defer handler.liveSessions.unclaim(call, upstreamConnection)
+	defer func() { handler.liveSessions.unclaim(call, upstreamConnection) }()
 	connection, status, err := call.upstream.DialSideband(c.Request.Context(), style, websocket.Subprotocols(c.Request))
 	if err != nil {
 		if status < 400 || status >= 600 {
@@ -449,6 +449,8 @@ func (handler *Handler) connectCodexLive(c *gin.Context, request *dataPlaneReque
 		return
 	}
 	defer downstream.Close()
+	connection.SetReadLimit(256 << 10)
+	downstream.SetReadLimit(256 << 10)
 	transfer := func(destination, source *websocket.Conn, done chan<- struct{}) {
 		defer func() { done <- struct{}{} }()
 		for {

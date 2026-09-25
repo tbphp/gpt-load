@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/pion/stun/v3"
 
 	"gpt-load/internal/platform/authkey"
 	"gpt-load/internal/platform/securefile"
@@ -326,9 +327,19 @@ func loadCodexLiveConfig() (CodexLiveConfig, error) {
 		if err := json.Unmarshal([]byte(value), &result.ICEServers); err != nil || len(result.ICEServers) > 16 {
 			return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_ICE_SERVERS must be a JSON array of at most 16 servers")
 		}
-		for _, server := range result.ICEServers {
+		for index, server := range result.ICEServers {
 			if len(server.URLs) == 0 {
 				return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_ICE_SERVERS entries require URLs")
+			}
+			for _, rawURL := range server.URLs {
+				uri, err := stun.ParseURI(rawURL)
+				if err != nil {
+					return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_ICE_SERVERS entry %d has an invalid URL", index)
+				}
+				if (uri.Scheme == stun.SchemeTypeTURN || uri.Scheme == stun.SchemeTypeTURNS) &&
+					(strings.TrimSpace(server.Username) == "" || strings.TrimSpace(server.Credential) == "") {
+					return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_ICE_SERVERS entry %d requires TURN credentials", index)
+				}
 			}
 		}
 	}

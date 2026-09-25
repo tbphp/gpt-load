@@ -476,14 +476,15 @@ func TestLoadCodexLiveMediaSettings(t *testing.T) {
 	t.Setenv("CODEX_LIVE_UDP_PORT_MIN", "50000")
 	t.Setenv("CODEX_LIVE_UDP_PORT_MAX", "50127")
 	t.Setenv("CODEX_LIVE_MAX_SESSIONS", "24")
-	t.Setenv("CODEX_LIVE_ICE_SERVERS", `[{"urls":["stun:stun.example.com:3478"]}]`)
+	t.Setenv("CODEX_LIVE_ICE_SERVERS", `[{"urls":["stun:stun.example.com:3478"]},{"urls":["turn:turn.example.com:3478"],"username":"user","credential":"password"}]`)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.CodexLive.PublicIP != "192.0.2.10" || cfg.CodexLive.UDPPortMin != 50000 ||
 		cfg.CodexLive.UDPPortMax != 50127 || cfg.CodexLive.MaxSessions != 24 ||
-		len(cfg.CodexLive.ICEServers) != 1 || len(cfg.CodexLive.ICEServers[0].URLs) != 1 {
+		len(cfg.CodexLive.ICEServers) != 2 || len(cfg.CodexLive.ICEServers[0].URLs) != 1 ||
+		cfg.CodexLive.ICEServers[1].Username != "user" {
 		t.Fatalf("Codex live config = %+v", cfg.CodexLive)
 	}
 }
@@ -495,6 +496,9 @@ func TestLoadRejectsInvalidCodexLiveMediaSettings(t *testing.T) {
 		"reversed UDP range":     {"CODEX_LIVE_UDP_PORT_MIN": "50127", "CODEX_LIVE_UDP_PORT_MAX": "50000"},
 		"zero capacity":          {"CODEX_LIVE_MAX_SESSIONS": "0"},
 		"invalid ICE JSON":       {"CODEX_LIVE_ICE_SERVERS": `{"urls":["stun:example.com"]}`},
+		"invalid ICE URL":        {"CODEX_LIVE_ICE_SERVERS": `[{"urls":["not-an-ice-url"]}]`},
+		"TURN without username":  {"CODEX_LIVE_ICE_SERVERS": `[{"urls":["turn:turn.example.com:3478"],"credential":"password"}]`},
+		"TURN without password":  {"CODEX_LIVE_ICE_SERVERS": `[{"urls":["turn:turn.example.com:3478"],"username":"user"}]`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			clearEnvironment(t)
