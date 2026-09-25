@@ -191,7 +191,9 @@ async function reset(): Promise<void> {
     <AppDialogContent
       placement="editor"
       :title="model"
-      :description="t('modelManager.detailDescription')"
+      :description="
+        t(admin ? 'modelManager.detailDescription' : 'modelManager.readOnlyDetailDescription')
+      "
       @escape-key-down="
         (event: Event) => {
           if (busy) event.preventDefault()
@@ -309,8 +311,12 @@ async function reset(): Promise<void> {
               <AppButton @click="detail.refetch()">{{ t('ui.retry') }}</AppButton>
             </AppCollectionState>
             <template v-else>
-              <AppFormSection :title="t('modelManager.pricing')" compact>
-                <template #actions>
+              <AppFormSection
+                :title="t(admin ? 'modelManager.pricing' : 'modelManager.basePrices')"
+                :description="admin ? undefined : t('modelManager.readOnlyPriceHelp')"
+                compact
+              >
+                <template v-if="admin" #actions>
                   <AppBadge
                     :tone="price.status === 'pending' ? 'warning' : 'neutral'"
                     size="xs"
@@ -320,7 +326,7 @@ async function reset(): Promise<void> {
                 </template>
                 <ModelPricingDetails :price="price" />
               </AppFormSection>
-              <AppFormSection v-if="catalog" :title="t('modelManager.catalog')" compact>
+              <AppFormSection v-if="admin && catalog" :title="t('modelManager.catalog')" compact>
                 <div class="modern-model-catalog-origin">
                   <span>{{
                     t(
