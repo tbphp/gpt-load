@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 	"golang.org/x/net/proxy"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
@@ -72,8 +73,11 @@ func (handler *Handler) handleMistralRealtime(c *gin.Context, request *dataPlane
 		return
 	}
 	recorder.setClientModel(model)
+	var ticket accessquota.Ticket
 	if handler.accessQuota != nil {
-		decision, current := handler.checkAccessQuotaForSnapshot(request.snapshot, request.accessKey.ID, handler.quotaNow())
+		var decision accessquota.Decision
+		var current bool
+		ticket, decision, current = handler.admitAccessQuotaForSnapshot(request.snapshot, request.accessKey.ID, handler.quotaNow())
 		if !current {
 			failed(reasonConfigurationChanged)
 			return
@@ -116,8 +120,7 @@ func (handler *Handler) handleMistralRealtime(c *gin.Context, request *dataPlane
 		statusCode:    http.StatusSwitchingProtocols,
 		upstreamModel: upstreamModel,
 	}
-	ticket, decision, current := handler.admitAccessQuotaForSnapshot(request.snapshot, request.accessKey.ID, handler.quotaNow())
-	if current && decision.Allowed && handler.accessQuota != nil {
+	if handler.accessQuota != nil {
 		defer func() {
 			completion := handler.accessQuota.Complete(ticket, 0)
 			handler.logAccessQuotaCompletionFault(request.accessKey.ID, completion)
