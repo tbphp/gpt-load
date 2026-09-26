@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import { protocolLabel } from '@modern/i18n/protocols'
 import { Plus, Trash2 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -59,6 +60,11 @@ const validationModel = ref('')
 const validationProtocol = ref('')
 const numbers = ref<Partial<Record<RuntimeNumber, string>>>({})
 const switches = ref<Record<string, string>>({})
+const liveMode = ref<CodexLiveMode | ''>('')
+const liveOptions = computed(() => [
+  { value: '', label: t('groupDetail.inherit') },
+  ...codexLiveModes.map((value) => ({ value, label: t('settingsForm.liveModes.' + value) })),
+])
 const proxyMode = ref('inherit')
 const proxyURL = ref('')
 const headersMode = ref('inherit')
@@ -80,6 +86,7 @@ function snapshot(): string {
     validationProtocol.value,
     numbers.value,
     switches.value,
+    liveMode.value,
     proxyMode.value,
     proxyURL.value,
     headersMode.value,
@@ -111,6 +118,7 @@ watch(
         data.overrides[key] === undefined ? '' : String(data.overrides[key]),
       ]),
     )
+    liveMode.value = data.overrides.codex_live_mode ?? ''
     proxyMode.value = data.proxy.mode
     // display_url 可能脱敏；未编辑时不能把它作为代理凭据重新写回。
     proxyURL.value = ''
@@ -217,6 +225,8 @@ async function save(): Promise<void> {
     if (switches.value[key]) overrides[key] = switches.value[key] === 'true'
     else delete overrides[key]
   }
+  if (liveMode.value) overrides.codex_live_mode = liveMode.value
+  else delete overrides.codex_live_mode
   if (headersMode.value === 'inherit') delete overrides.header_rules
   else
     overrides.header_rules = {
@@ -447,6 +457,21 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             size="sm"
             :disabled="busy"
             @update:model-value="numbers[key] = $event"
+          />
+          <AppSelect
+            v-if="saved.channelID === 'codex'"
+            v-model="liveMode"
+            :label="t('settingsForm.fields.codex_live_mode')"
+            :options="liveOptions"
+            :description="
+              t('groupDetail.effective', {
+                value: t('settingsForm.liveModes.' + saved.effective.codex_live_mode),
+              }) +
+              ' · ' +
+              t('settingsForm.hints.codex_live_mode')
+            "
+            size="sm"
+            :disabled="busy"
           />
           <AppSegmentedField
             v-for="key in runtimeSwitches"

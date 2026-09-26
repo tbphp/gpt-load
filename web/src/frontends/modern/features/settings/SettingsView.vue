@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { codexLiveModes } from '@shared/codex-live'
 import {
   Cable,
   Database,
@@ -32,6 +33,7 @@ import {
   AppIconButton,
   AppPanel,
   AppSegmentedControl,
+  AppSelect,
   AppSwitch,
   AppTextArea,
   AppTextField,
@@ -52,6 +54,9 @@ import SettingsSystemInfo from './SettingsSystemInfo.vue'
 import { useSettingsEditor } from './use-settings-editor'
 
 const { t, n } = useI18n()
+const liveOptions = computed(() =>
+  codexLiveModes.map((value) => ({ value, label: t('settingsForm.liveModes.' + value) })),
+)
 const redactionInvalid = ref(false)
 const client = useApiClient()
 const {
@@ -95,6 +100,7 @@ const sectionFields: Record<SectionID, readonly SettingKey[]> = {
   routing: ['route_strategy', 'affinity_enabled', 'affinity_ttl', 'affinity_capacity'],
   connection: [
     'proxy_config',
+    'codex_live_mode',
     'responses_websocket_enabled',
     'first_byte_timeout',
     'request_timeout',
@@ -494,6 +500,21 @@ onScopeDispose(() => {
               </div>
             </template>
             <template v-else-if="id === 'connection'">
+              <SettingItem
+                v-if="matches('codex_live_mode')"
+                v-bind="settingItem('codex_live_mode')"
+                class="modern-settings-block"
+                @reset="restore('codex_live_mode')"
+                @undo="undoRestore('codex_live_mode')"
+              >
+                <AppSelect
+                  v-model="draft.codex_live_mode"
+                  :label="t('settingsForm.fields.codex_live_mode')"
+                  :options="liveOptions"
+                  :disabled="disabled('codex_live_mode')"
+                  size="sm"
+                />
+              </SettingItem>
               <SettingItem
                 v-if="matches('responses_websocket_enabled')"
                 v-bind="settingItem('responses_websocket_enabled')"

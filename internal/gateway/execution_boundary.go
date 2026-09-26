@@ -125,8 +125,8 @@ func judgeUpstreamResult(
 		DownstreamErr:       downstreamErr,
 		Now:                 now,
 	}, decisionContext)
-	// 搜索错误不写入模型冷却或自动权重；明确的账号认证故障仍沿用生命周期处理。
-	if decisionContext.Operation == execution.OperationWebSearch &&
+	// 搜索/语音准入错误不影响文本模型健康；明确的账号认证故障仍沿用生命周期处理。
+	if (decisionContext.Operation == execution.OperationWebSearch || decisionContext.Operation == execution.OperationLiveCall) &&
 		decision.Effect != health.EffectSkipGroup &&
 		decision.Category != health.FailureCategoryAuthenticationRequired &&
 		decision.Category != health.FailureCategoryInvalidKey {

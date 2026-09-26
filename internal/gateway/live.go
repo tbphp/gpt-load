@@ -211,156 +211,216 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 	for _, ref := range handler.registry.CaptureActiveCredentialRefs(groups) {
 		query.AllowedCredentialRefs[ref.ID] = ref
 	}
-	selection, err := scheduler.New(request.snapshot, handler.registry, query).Next()
-	if err != nil {
-		failed(reasonNoCandidate)
-		return
-	}
-	ref := query.AllowedCredentialRefs[selection.CredentialID]
-	if selection.ChannelID != channel.Codex || selection.UpstreamModelID == nil || *selection.UpstreamModelID != model {
-		failed(reasonNoCandidate)
-		return
-	}
-	if handler.manager.Current() != request.snapshot {
-		failed(reasonConfigurationChanged)
-		return
-	}
-	encrypted, exists := handler.registry.ActiveEncryptedCredentialDataIfMatch(ref)
-	if !exists {
-		failed(reasonConfigurationChanged)
-		return
-	}
-	plain, err := handler.encryption.Decrypt(encrypted)
-	if err != nil {
-		failed(reasonConfigurationChanged)
-		return
-	}
-	credential, err := normalizeChannelCredential(handler.channels, handler.subscriptions, selection.ChannelID, selection.Group.ConnectionType, plain)
-	if err != nil {
-		failed(reasonConfigurationChanged)
-		return
-	}
-	proxy, fingerprint, err := resolveAttemptProxy(handler.encryption, selection.Group.Proxy, ref)
-	if err != nil {
-		failed(reasonConfigurationChanged)
-		return
-	}
-	parsed := &dialect.ParsedRequest{Method: http.MethodPost, Path: c.Request.URL.Path,
-		Header: c.Request.Header.Clone(), Body: sessionJSON}
-	input := ForwardInput{Group: selection.Group, CredentialSecrets: credential.secrets, Request: parsed,
-		ExternalModel: model, UpstreamModelID: *selection.UpstreamModelID,
-		RequestID: id, AttemptID: id + ":1", AttemptSequence: 1,
-		ClientProtocol: protocol.CodexLive, Operation: execution.OperationLiveCall,
-		RouteRequirement: execution.RouteRequirementNative, ChannelID: string(selection.ChannelID),
-		RouteMode: execution.RouteNative, TargetConfig: selection.ResolvedTarget.TargetConfig,
-		Credential: execution.NewCredentialSnapshot(ref.ID, ref.Version, ref.IdentityGeneration, credential.payload),
-		Proxy:      proxy, ProxyFingerprint: fingerprint}
-	spec, err := newExecutionAttemptSpec(input)
-	if err != nil {
-		failed(reasonInvalidProtocolRequest)
-		return
-	}
-	sessionJSON, err = liveSessionWithModel(sessionJSON, *selection.UpstreamModelID)
-	if err != nil {
-		failed(reasonInvalidProtocolRequest)
-		return
-	}
-	mediaProxy, err := liveMediaProxyURL(proxy)
-	if err != nil {
-		failed(reasonConfigurationChanged)
-		return
-	}
+	iterator := scheduler.New(request.snapshot, handler.registry, query)
 	setupContext, cancelSetup := context.WithTimeout(c.Request.Context(), liveSetupTimeout)
 	defer cancelSetup()
-	media, err := newLiveMediaSession(setupContext, offer, handler.liveConfig, mediaProxy)
-	if err != nil {
-		failed(reasonLiveUnavailable)
-		return
-	}
-	mediaStored := false
-	defer func() {
-		if !mediaStored {
+	failure := reasonNoCandidate
+	var refreshSelection *scheduler.Selection
+	refreshUsed := false
+	for sequence := 1; sequence <= retryAttemptLimit(request.snapshot.Settings.RetryCount); sequence++ {
+		if setupContext.Err() != nil {
+			failed(reasonLiveUnavailable)
+			return
+		}
+		var selection scheduler.Selection
+		var ref state.CredentialRef
+		forceRefresh := false
+		if refreshSelection != nil {
+			selection = *refreshSelection
+			previous := query.AllowedCredentialRefs[selection.CredentialID]
+			current, exists := handler.registry.CredentialRef(selection.CredentialID)
+			refreshSelection = nil
+			if !exists || current.GroupID != previous.GroupID || current.IdentityGeneration != previous.IdentityGeneration || current.ProxyFingerprint != previous.ProxyFingerprint || current.EncryptedProxy != previous.EncryptedProxy || !iterator.ChargeReplay(selection, current) {
+				failed(reasonConfigurationChanged)
+				return
+			}
+			ref = current
+			forceRefresh = current.Version <= previous.Version
+		} else {
+			selection, err = iterator.Next()
+			if err != nil {
+				break
+			}
+			ref = query.AllowedCredentialRefs[selection.CredentialID]
+		}
+		if selection.ChannelID != channel.Codex || selection.UpstreamModelID == nil || *selection.UpstreamModelID != model {
+			failed(reasonNoCandidate)
+			return
+		}
+		if handler.manager.Current() != request.snapshot {
+			failed(reasonConfigurationChanged)
+			return
+		}
+		encrypted, exists := handler.registry.ActiveEncryptedCredentialDataIfMatch(ref)
+		if !exists {
+			failed(reasonConfigurationChanged)
+			return
+		}
+		plain, err := handler.encryption.Decrypt(encrypted)
+		if err != nil {
+			failed(reasonConfigurationChanged)
+			return
+		}
+		credential, err := normalizeChannelCredential(handler.channels, handler.subscriptions, selection.ChannelID, selection.Group.ConnectionType, plain)
+		if err != nil {
+			failed(reasonConfigurationChanged)
+			return
+		}
+		proxy, fingerprint, err := resolveAttemptProxy(handler.encryption, selection.Group.Proxy, ref)
+		if err != nil {
+			failed(reasonConfigurationChanged)
+			return
+		}
+		parsed := &dialect.ParsedRequest{Method: http.MethodPost, Path: c.Request.URL.Path,
+			Header: c.Request.Header.Clone(), Body: sessionJSON}
+		input := ForwardInput{Group: selection.Group, CredentialSecrets: credential.secrets, Request: parsed,
+			ExternalModel: model, UpstreamModelID: *selection.UpstreamModelID,
+			RequestID: id, AttemptID: id + ":" + strconv.Itoa(sequence), AttemptSequence: uint32(sequence), ForceCredentialRefresh: forceRefresh,
+			ClientProtocol: protocol.CodexLive, Operation: execution.OperationLiveCall,
+			RouteRequirement: execution.RouteRequirementNative, ChannelID: string(selection.ChannelID),
+			RouteMode: execution.RouteNative, TargetConfig: selection.ResolvedTarget.TargetConfig,
+			Credential: execution.NewCredentialSnapshot(ref.ID, ref.Version, ref.IdentityGeneration, credential.payload),
+			Proxy:      proxy, ProxyFingerprint: fingerprint}
+		spec, err := newExecutionAttemptSpec(input)
+		if err != nil {
+			failed(reasonInvalidProtocolRequest)
+			return
+		}
+		sessionJSON, err = liveSessionWithModel(sessionJSON, *selection.UpstreamModelID)
+		if err != nil {
+			failed(reasonInvalidProtocolRequest)
+			return
+		}
+		var media *liveMediaSession
+		upstreamOffer := offer
+		if selection.Group.CodexLiveMode == state.CodexLiveRelay {
+			mediaProxy, proxyErr := liveMediaProxyURL(proxy)
+			if proxyErr != nil {
+				failed(reasonConfigurationChanged)
+				return
+			}
+			media, err = newLiveMediaSession(setupContext, offer, handler.liveConfig, mediaProxy)
+			if err != nil {
+				failed(reasonLiveUnavailable)
+				return
+			}
+			upstreamOffer = media.upstreamOffer
+		}
+		mediaStored := false
+		defer func() {
+			if !mediaStored {
+				_ = media.Close()
+			}
+		}()
+		started := recorder.beforeForward()
+		updateDebugHeaders(c.Writer.Header(), selection.Group.Name, sequence)
+		upstream, evidence := handler.liveOpener.OpenLive(setupContext, spec, upstreamOffer, sessionJSON)
+		if evidence != nil {
+			status := http.StatusBadGateway
+			if evidence.StatusCode >= 400 && evidence.StatusCode < 600 {
+				status = evidence.StatusCode
+			}
+			dispatch := upstream.DispatchState
+			if !dispatch.Valid() {
+				dispatch = execution.DispatchMaybeSent
+			}
+			result := UpstreamResult{StatusCode: evidence.StatusCode, DispatchState: dispatch,
+				ExecutionError: evidence, ErrorSummary: evidence.Summary,
+				ResponseStarted: dispatch == execution.DispatchMaybeSent && evidence.StatusCode != 0, UpstreamProtocol: protocol.CodexLive}
+			decisionAt := handler.now()
+			decision := judgeUpstreamResult(result, decisionAt, health.DecisionContext{
+				DefaultRateLimitCooldown: subscriptionruntime.DefaultRefreshFailureCooldown,
+				CredentialRefreshable:    true, Method: http.MethodPost, Operation: execution.OperationLiveCall,
+			})
+			if decision.Retry == health.RetryRefreshCredential && refreshUsed {
+				decision.Retry = health.RetryNextCandidate
+			}
+			attemptIndex := recorder.recordAttempt(selection, credential.secrets, result, decision, started, handler.requestNow())
+			handler.applyGroupDecisionEffect(selection.Group, ref, refreshCooldownCredentialVersion(result, ref.Version), decision, status, decisionAt, *selection.UpstreamModelID)
+			failure = reason{Status: status, Code: "codex_live_upstream_failed", Message: "Codex live upstream request failed."}
+			if status == http.StatusForbidden {
+				failure.Code = "codex_live_upstream_forbidden"
+				failure.Message = "Codex live access was denied by the upstream account."
+			}
 			_ = media.Close()
+			if !decision.ShouldRetry() {
+				failed(failure)
+				return
+			}
+			if decision.Effect == health.EffectSkipGroup {
+				iterator.SkipGroup(selection.GroupID)
+			}
+			if decision.Retry == health.RetryRefreshCredential && !refreshUsed {
+				refreshUsed = true
+				refreshSelection = &selection
+			}
+			recorder.retryIfAnotherForward(attemptIndex)
+			continue
 		}
-	}()
-	started := handler.requestNow()
-	upstream, evidence := handler.liveOpener.OpenLive(setupContext, spec, media.upstreamOffer, sessionJSON)
-	if evidence != nil {
-		status := http.StatusBadGateway
-		if evidence.StatusCode >= 400 && evidence.StatusCode < 600 {
-			status = evidence.StatusCode
+		if upstream.Session == nil || upstream.CallID == "" {
+			failed(reasonLiveUnavailable)
+			return
 		}
-		result := UpstreamResult{StatusCode: status, DispatchState: execution.DispatchMaybeSent,
-			ExecutionError: evidence, ErrorSummary: evidence.Summary}
-		decisionAt := handler.now()
-		decision := judgeUpstreamResult(result, decisionAt, health.DecisionContext{
-			DefaultRateLimitCooldown: subscriptionruntime.DefaultRefreshFailureCooldown,
-			CredentialRefreshable:    true, Method: http.MethodPost, Operation: execution.OperationLiveCall,
+		upstreamStored := false
+		defer func() {
+			if !upstreamStored {
+				_ = upstream.Session.Close()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_ = upstream.Session.Hangup(ctx)
+				cancel()
+			}
+		}()
+		answer := upstream.SDP
+		if media != nil {
+			answer, err = media.AcceptAnswer(setupContext, upstream.SDP)
+			if err != nil {
+				failed(reasonLiveUnavailable)
+				return
+			}
+		}
+		if strings.TrimSpace(answer) == "" {
+			failed(reasonLiveUnavailable)
+			return
+		}
+		recorder.attempts = append(recorder.attempts, telemetry.Attempt{
+			Sequence: sequence, CompletedAt: handler.requestNow(), GroupID: selection.GroupID, GroupName: selection.Group.Name,
+			ChannelID: channel.Codex, CredentialID: selection.CredentialID, Operation: execution.OperationLiveCall,
+			RouteMode: execution.RouteNative, UpstreamModel: *selection.UpstreamModelID, DispatchState: execution.DispatchMaybeSent,
+			ResponseStarted: true, UpstreamProtocol: protocol.CodexLive, StatusCode: http.StatusCreated,
+			DurationMs: handler.requestNow().Sub(started).Milliseconds(), FailureCategory: telemetry.FailureCategoryOK,
+			RetryDirective: telemetry.RetryNone, Effect: telemetry.EffectNone, Action: telemetry.ActionTerminate, Committed: true,
 		})
-		recorder.recordAttempt(selection, credential.secrets, result, decision, started, handler.requestNow())
-		handler.applyGroupDecisionEffect(selection.Group, ref, 0, decision, status, decisionAt, *selection.UpstreamModelID)
-		failure := reason{Status: status, Code: "codex_live_upstream_failed", Message: "Codex live upstream request failed."}
-		if status == http.StatusForbidden {
-			failure.Code = "codex_live_upstream_forbidden"
-			failure.Message = "Codex live access was denied by the upstream account."
+		keyHash := ""
+		for hash, key := range request.snapshot.AccessKeysByHash {
+			if key.ID == request.accessKey.ID {
+				keyHash = hash
+				break
+			}
 		}
-		failed(failure)
-		return
-	}
-	if upstream.Session == nil || upstream.CallID == "" {
-		failed(reasonLiveUnavailable)
-		return
-	}
-	upstreamStored := false
-	defer func() {
-		if !upstreamStored {
-			_ = upstream.Session.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = upstream.Session.Hangup(ctx)
-			cancel()
+		if keyHash == "" {
+			failed(reasonConfigurationChanged)
+			return
 		}
-	}()
-	answer, err := media.AcceptAnswer(setupContext, upstream.SDP)
-	if err != nil {
-		failed(reasonLiveUnavailable)
-		return
-	}
-	recorder.attempts = append(recorder.attempts, telemetry.Attempt{
-		Sequence: 1, CompletedAt: handler.requestNow(), GroupID: selection.GroupID, GroupName: selection.Group.Name,
-		ChannelID: channel.Codex, CredentialID: selection.CredentialID, Operation: execution.OperationLiveCall,
-		RouteMode: execution.RouteNative, UpstreamModel: *selection.UpstreamModelID, DispatchState: execution.DispatchMaybeSent,
-		ResponseStarted: true, UpstreamProtocol: protocol.CodexLive, StatusCode: http.StatusCreated,
-		DurationMs: handler.requestNow().Sub(started).Milliseconds(), FailureCategory: telemetry.FailureCategoryOK,
-		RetryDirective: telemetry.RetryNone, Effect: telemetry.EffectNone, Action: telemetry.ActionTerminate, Committed: true,
-	})
-	keyHash := ""
-	for hash, key := range request.snapshot.AccessKeysByHash {
-		if key.ID == request.accessKey.ID {
-			keyHash = hash
-			break
+		call := &liveCallSession{id: upstream.CallID, keyID: request.accessKey.ID, keyHash: keyHash, groupID: selection.GroupID,
+			clientModel: model, model: *selection.UpstreamModelID, peerAddr: c.Request.RemoteAddr,
+			ref: ref, upstream: upstream.Session, media: media, recorder: recorder, logger: handler.logger}
+		call.authorized = func() bool { return handler.liveCallAuthorized(call.keyID, call) }
+		if !handler.liveSessions.put(call) {
+			failed(reasonLiveUnavailable)
+			return
 		}
-	}
-	if keyHash == "" {
-		failed(reasonConfigurationChanged)
+		handler.recordCredentialSuccess(ref, handler.now())
+		mediaStored, upstreamStored, stored = true, true, true
+		location := "/v1/live/" + upstream.CallID
+		if c.Request.URL.Path == "/v1/realtime/calls" {
+			location = "/v1/realtime/calls/" + upstream.CallID
+		}
+		c.Header("Location", location)
+		c.Header("Content-Type", "application/sdp")
+		c.String(http.StatusCreated, "%s", answer)
 		return
 	}
-	call := &liveCallSession{id: upstream.CallID, keyID: request.accessKey.ID, keyHash: keyHash, groupID: selection.GroupID,
-		clientModel: model, model: *selection.UpstreamModelID, peerAddr: c.Request.RemoteAddr,
-		ref: ref, upstream: upstream.Session, media: media, recorder: recorder}
-	call.authorized = func() bool { return handler.liveCallAuthorized(call.keyID, call) }
-	if !handler.liveSessions.put(call) {
-		failed(reasonLiveUnavailable)
-		return
-	}
-	handler.recordCredentialSuccess(ref, handler.now())
-	mediaStored, upstreamStored, stored = true, true, true
-	location := "/v1/live/" + upstream.CallID
-	if c.Request.URL.Path == "/v1/realtime/calls" {
-		location = "/v1/realtime/calls/" + upstream.CallID
-	}
-	c.Header("Location", location)
-	c.Header("Content-Type", "application/sdp")
-	c.String(http.StatusCreated, "%s", answer)
+	failed(failure)
 }
 
 func liveMediaProxyURL(effective outboundproxy.Effective) (string, error) {
@@ -472,6 +532,21 @@ func (handler *Handler) connectCodexLive(c *gin.Context, request *dataPlaneReque
 			if len(content) > 256<<10 || destination.WriteMessage(kind, content) != nil {
 				return
 			}
+			// 只接受上游控制连接的整通会话结束事件；单轮 response.done 不结束通话。
+			if source == connection && kind == websocket.TextMessage {
+				var event struct {
+					Type  string          `json:"type"`
+					Error json.RawMessage `json:"error"`
+				}
+				if json.Unmarshal(content, &event) == nil && event.Type == "session.closed" {
+					reason := "upstream_session_ended"
+					if len(event.Error) > 0 && string(event.Error) != "null" {
+						reason = "upstream_session_error"
+					}
+					handler.liveSessions.finishCall(call, reason)
+					return
+				}
+			}
 		}
 	}
 	done := make(chan struct{}, 2)
@@ -495,7 +570,10 @@ func (handler *Handler) hangupCodexLive(c *gin.Context, request *dataPlaneReques
 		_ = handler.writeReason(c, reasonLiveSession)
 		return
 	}
-	handler.liveSessions.finishCall(call, "client_hangup")
+	if err := handler.liveSessions.finishCall(call, "client_hangup"); err != nil {
+		_ = handler.writeReason(c, reason{Status: http.StatusBadGateway, Code: "codex_live_hangup_failed", Message: "Codex live hangup was not confirmed; retry the hangup request."})
+		return
+	}
 	c.Status(http.StatusNoContent)
 }
 

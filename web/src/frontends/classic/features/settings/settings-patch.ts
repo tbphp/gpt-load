@@ -1,3 +1,4 @@
+import type { CodexLiveMode } from '@shared/codex-live'
 import type { RedactionRule } from '@/app/resources/request-redaction'
 import {
   defaultJev,
@@ -30,6 +31,7 @@ export interface SettingsDraft {
 }
 
 const requestForwardingKeys: RuntimeSettingKey[] = [
+  'codex_live_mode',
   'responses_websocket_enabled',
   'route_strategy',
   'first_byte_timeout',
@@ -102,7 +104,9 @@ export function setSettingsOverride(
   if (next.readOnly.has(key)) return next
   if (enabled) {
     next.overrides.add(key)
-    if (key === 'route_strategy') {
+    if (key === 'codex_live_mode') {
+      next.values.codex_live_mode = base.values.codex_live_mode
+    } else if (key === 'route_strategy') {
       next.values.route_strategy = base.values.route_strategy
     } else if (key === 'affinity_enabled') {
       next.values.affinity_enabled = base.values.affinity_enabled
@@ -166,6 +170,7 @@ function normalizedWireValue(
   | number
   | boolean
   | RouteStrategy
+  | CodexLiveMode
   | HeaderRulesDto
   | CORSConfigDto
   | AutoModelConfigDto
@@ -208,6 +213,7 @@ function normalizedIdentityValue(
   | number
   | boolean
   | RouteStrategy
+  | CodexLiveMode
   | HeaderRulesDto
   | CORSConfigDto
   | AutoModelConfigDto

@@ -567,6 +567,7 @@ export default {
         operation_unsupported: 'The channel does not support this protocol operation',
         native_route_required: 'This request requires a native route',
         no_route_target: 'No route target matches this model and protocol',
+        codex_live_disabled: 'Live voice is disabled for this group',
         group_disabled: 'Group is disabled',
         group_filtered: 'Access key filters exclude this Group',
         no_available_group: 'No candidate Group is currently routable',

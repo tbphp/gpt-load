@@ -165,6 +165,7 @@ type GroupView struct {
 	HeaderRules               HeaderRules
 	BlacklistThreshold        int
 	AffinityEnabled           bool
+	CodexLiveMode             CodexLiveMode
 	ResponsesWebsocketEnabled bool
 	EmptyResponseRetry        bool
 	WeightManual              *int
@@ -353,6 +354,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			HeaderRules:               resolved.HeaderRules,
 			BlacklistThreshold:        resolved.BlacklistThreshold,
 			AffinityEnabled:           resolved.AffinityEnabled,
+			CodexLiveMode:             resolved.CodexLiveMode,
 			ResponsesWebsocketEnabled: resolved.ResponsesWebsocketEnabled,
 			EmptyResponseRetry:        resolved.EmptyResponseRetry,
 			WeightManual:              cloneWeight(group.WeightManual),

@@ -1,3 +1,4 @@
+import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import { readRedactionRules, type RedactionRule } from './request-redaction'
 import {
   readJev,
@@ -55,6 +56,7 @@ export interface ProxyConfigView {
 }
 export type SettingsValues = Record<SettingNumber, number> &
   Record<SettingSwitch, boolean> & {
+    codex_live_mode: CodexLiveMode
     route_strategy: RouteStrategy
     header_rules: HeaderRules
     response_header_rules: HeaderRules
@@ -67,6 +69,7 @@ export type SettingsValues = Record<SettingNumber, number> &
   }
 export type SettingKey = keyof SettingsValues
 export const settingKeys: readonly SettingKey[] = [
+  'codex_live_mode',
   'route_strategy',
   ...settingSwitches,
   ...(Object.keys(settingNumbers) as SettingNumber[]),
@@ -159,6 +162,7 @@ function readSettings(value: unknown): SettingsData {
     values: {
       ...numbers,
       ...switches,
+      codex_live_mode: oneOf(values.codex_live_mode, codexLiveModes),
       route_strategy: oneOf(values.route_strategy, routeStrategies),
       header_rules: readHeaders(values.header_rules),
       response_header_rules: readHeaders(values.response_header_rules),

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -266,6 +268,17 @@ const affinityEnabledLabel = computed(() =>
     ? t('group.settings.runtime.enabledValue')
     : t('group.settings.runtime.disabledValue'),
 )
+const liveOptions = computed(() => [
+  { value: '', label: t('group.settings.runtime.inherited') },
+  ...codexLiveModes.map((value) => ({ value, label: t('settings.runtime.liveModes.' + value) })),
+])
+function setLiveMode(value: string): void {
+  if (!draft.value) return
+  const overrides = { ...draft.value.overrides }
+  if (value) overrides.codex_live_mode = value as CodexLiveMode
+  else delete overrides.codex_live_mode
+  draft.value = { ...draft.value, overrides }
+}
 const websocketOverridden = computed(
   () => draft.value?.overrides.responses_websocket_enabled !== undefined,
 )
@@ -741,6 +754,20 @@ onBeforeUnmount(() => {
               <p>{{ t('group.settings.runtime.description') }}</p>
             </header>
             <div class="group-settings__runtime">
+              <div v-if="draft.channel_id === 'codex'">
+                <AppSelect
+                  :model-value="draft.overrides.codex_live_mode ?? ''"
+                  :options="liveOptions"
+                  :label="t('settings.runtime.codex_live_mode')"
+                  :disabled="mutationPending"
+                  @update:model-value="setLiveMode"
+                />
+                <p>
+                  {{ t('settings.runtime.liveModeHelp') }} ·
+                  {{ t('settings.runtime.currentEffective') }}:
+                  {{ t('settings.runtime.liveModes.' + saved.effective.codex_live_mode) }}
+                </p>
+              </div>
               <SettingRow
                 :label="t('group.settings.runtime.responses_websocket_enabled')"
                 :value="

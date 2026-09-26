@@ -96,7 +96,7 @@ const (
 // ReplayPolicy returns the operation-level replay contract.
 func (o Operation) ReplayPolicy() ReplayPolicy {
 	switch o {
-	case OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate, OperationRerank, OperationDecisionsCreate:
+	case OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate, OperationRerank, OperationDecisionsCreate, OperationLiveCall:
 		return ReplayPolicyRequireRejectedBeforeProcessing
 	default:
 		return ReplayPolicyLegacy

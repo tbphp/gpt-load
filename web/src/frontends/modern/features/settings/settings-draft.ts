@@ -1,3 +1,4 @@
+import type { CodexLiveMode } from '@shared/codex-live'
 import type { RedactionRule } from '@modern/api/request-redaction'
 import {
   settingKeys,
@@ -46,6 +47,7 @@ export interface CORSDraft {
 }
 export type SettingsDraft = Record<SettingNumber, string> &
   Record<SettingSwitch, boolean> & {
+    codex_live_mode: CodexLiveMode
     route_strategy: RouteStrategy
     header_rules: HeaderRow[]
     response_header_rules: HeaderRow[]

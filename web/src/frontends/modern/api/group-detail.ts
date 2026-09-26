@@ -1,3 +1,4 @@
+import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import type { ApiClient } from '@shared/http/client'
 import { ApiError, InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
@@ -57,6 +58,7 @@ export interface ParameterRule {
 export type RuntimeSettings = Partial<
   Record<RuntimeNumber, number> & Record<RuntimeSwitch, boolean>
 > & {
+  codex_live_mode?: CodexLiveMode
   header_rules?: HeaderRules
   parameter_overrides?: ParameterRule[]
 }
@@ -85,6 +87,8 @@ function readRuntime(value: unknown): RuntimeSettings {
   const result: RuntimeSettings = {}
   for (const key of runtimeNumbers) if (raw[key] !== undefined) result[key] = integer(raw[key])
   for (const key of runtimeSwitches) if (raw[key] !== undefined) result[key] = boolean(raw[key])
+  if (raw.codex_live_mode !== undefined)
+    result.codex_live_mode = oneOf(raw.codex_live_mode, codexLiveModes)
   if (raw.header_rules !== undefined) {
     const headers = record(raw.header_rules)
     result.header_rules = { set: stringMap(headers.set), remove: list(headers.remove).map(text) }
@@ -110,7 +114,7 @@ function readSettings(value: unknown): GroupSettings {
   const proxy = record(data.proxy)
   const effective = readRuntime(data.effective)
   if (
-    [...runtimeNumbers, ...runtimeSwitches, 'header_rules'].some(
+    [...runtimeNumbers, ...runtimeSwitches, 'codex_live_mode', 'header_rules'].some(
       (key) => effective[key as keyof RuntimeSettings] === undefined,
     )
   )

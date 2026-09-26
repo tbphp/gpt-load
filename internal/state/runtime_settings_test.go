@@ -58,6 +58,7 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 		RouteStrategy:             RouteStrategyNativeFirst,
 		BlacklistThreshold:        3,
 		AffinityEnabled:           true,
+		CodexLiveMode:             CodexLiveDirect,
 		ResponsesWebsocketEnabled: true,
 		AffinityTTL:               time.Hour,
 		AffinityCapacity:          10_000,

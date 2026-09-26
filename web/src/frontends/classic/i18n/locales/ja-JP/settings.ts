@@ -71,6 +71,10 @@ export default {
       },
       routeStrategyHelp:
         'ネイティブ優先は本来の機能をできるだけ維持します。混合ウェイトではネイティブと変換候補が有効ウェイトで競合し、変換による機能差が生じる場合があります。リクエスト親和性は引き続き有効で、厳密なトラフィック比率は保証されません。',
+      codex_live_mode: 'リアルタイム音声',
+      liveModes: { off: '無効', direct: '上流に直接接続', relay: 'ゲートウェイ中継' },
+      liveModeHelp:
+        'グループで既定値を上書きできます。直接接続はクライアントから上流への通信が必要です。中継には到達可能なメディア IP と UDP ポートが必要です。無効にしてもテキストは利用できます。',
       responses_websocket_enabled: 'Responses WebSocket',
       websocketHelp:
         'グループで上書きできます。無効化すると対象の WS 接続と生成を直ちに終了します。HTTP/SSE は影響を受けません。',

@@ -316,6 +316,9 @@ func loadCodexLiveConfig() (CodexLiveConfig, error) {
 		(result.UDPPortMin != 0 && result.UDPPortMax < result.UDPPortMin) {
 		return CodexLiveConfig{}, fmt.Errorf("CODEX_LIVE_UDP_PORT_MIN and CODEX_LIVE_UDP_PORT_MAX must form a range")
 	}
+	if result.UDPPortMin == 0 {
+		result.UDPPortMin, result.UDPPortMax = 50000, 50127
+	}
 	if value := strings.TrimSpace(os.Getenv("CODEX_LIVE_MAX_SESSIONS")); value != "" {
 		parsed, err := strconv.Atoi(value)
 		if err != nil || parsed < 1 || parsed > 1024 {
