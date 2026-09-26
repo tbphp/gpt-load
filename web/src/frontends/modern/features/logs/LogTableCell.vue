@@ -132,12 +132,13 @@ const autoDecisionPreset = computed(() => props.row.auto_decision?.selection.pre
 const auditTooltip = computed(() => {
   const audit = props.row.request_audit
   if (!audit) return ''
-  return [
+  const details = [
     audit.findings.map((finding) => finding.name).join(' / '),
     audit.reason ? t('requestAudit.reasons.' + audit.reason) : '',
   ]
     .filter(Boolean)
     .join('\n')
+  return details ? `${t('requestAudit.title')} · ${details}` : ''
 })
 const autoDecisionTooltip = computed(() => {
   const decision = props.row.auto_decision

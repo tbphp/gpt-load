@@ -84,12 +84,13 @@ const { locale, t, te } = useI18n()
 function auditTooltip(log: RequestLogItemDto): string {
   const audit = log.request_audit
   if (!audit) return ''
-  return [
+  const details = [
     audit.findings.map((finding) => finding.name).join(' / '),
     audit.reason ? t('requestAudit.reasons.' + audit.reason) : '',
   ]
     .filter(Boolean)
     .join('\n')
+  return details ? `${t('requestAudit.title')} · ${details}` : ''
 }
 
 function autoDecisionTooltip(log: RequestLogItemDto): string {
