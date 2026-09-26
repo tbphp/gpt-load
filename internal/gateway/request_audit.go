@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"gpt-load/internal/jev"
 	"gpt-load/internal/requestaudit"
@@ -13,6 +14,7 @@ import (
 
 var reasonAuditBlocked = reason{http.StatusForbidden, "request_audit_blocked", "Request blocked by a guardrail rule."}
 var reasonAuditIncomplete = reason{http.StatusServiceUnavailable, "request_audit_incomplete", "Guardrail review could not be completed."}
+var reasonAuditTooLarge = reason{http.StatusRequestEntityTooLarge, "request_audit_too_large", "Request exceeds the total guardrail review budget."}
 
 // 在业务外发前审查最终内容。自动模型的沿用/预热不构成护栏通过证明。
 func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigSnapshot, key state.AccessKeyView, body []byte, recorder *requestRecorder, admit func() *reason) *reason {
@@ -30,6 +32,9 @@ func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigS
 	result := recorder.audit
 	fail := func(cause string) *reason {
 		result.Status, result.Reason = "incomplete", cause
+		if cause == "content_too_large" {
+			return &reasonAuditTooLarge
+		}
 		return &reasonAuditIncomplete
 	}
 	if incomplete != "" {
@@ -72,16 +77,28 @@ func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigS
 			return failure
 		}
 		recorder.auditCalled = true
-		call, upstream := h.executeJevDecision(ctx, snapshot, key, review.Payload, true)
-		result.Calls = append(result.Calls, call)
-		if call.Reason != "" {
-			return fail(call.Reason)
-		}
-		if ctx.Err() != nil {
-			return fail("canceled")
-		}
-		if reason := review.Resolve(upstream.Body, h.now()); reason != "" {
-			return fail(reason)
+		// 每批沿用 JEV 超时，同时限制整个审查的耗时；不缩短已配置的单次超时。
+		reviewCtx, cancel := context.WithTimeout(ctx, time.Duration(max(30, snapshot.Jev.TimeoutSeconds))*time.Second)
+		defer cancel()
+		for len(review.Payload) != 0 {
+			call, upstream := h.executeJevDecision(reviewCtx, snapshot, key, review.Payload, true)
+			result.Calls = append(result.Calls, call)
+			if ctx.Err() != nil {
+				return fail("canceled")
+			}
+			if reviewCtx.Err() != nil {
+				return fail("timeout")
+			}
+			if call.Reason != "" {
+				return fail(call.Reason)
+			}
+			if reason := review.Resolve(upstream.Body, h.now()); reason != "" {
+				return fail(reason)
+			}
+			recordFindings()
+			if review.Status == "blocked" {
+				return &reasonAuditBlocked
+			}
 		}
 	}
 	recordFindings()

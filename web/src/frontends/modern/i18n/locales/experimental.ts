@@ -16,7 +16,7 @@ export const zhCN = {
     scopeHelp: '留空表示全部访问密钥。',
     rulesTitle: '审查规则',
     rulesHelp:
-      '常用预设包含凭据泄露、个人隐私与提示注入，默认告警，可自行改为拦截。添加时仅补齐缺少的规则。所有待检规则合并调用一次 JEV。',
+      '常用预设包含凭据泄露、个人隐私与提示注入，默认告警，可自行改为拦截。添加时仅补齐缺少的规则。待检内容与规则按预算合并，较长请求会分批调用 JEV。',
     addPreset: '添加常用预设',
     addRule: '添加规则',
     removeRule: '删除规则',
@@ -29,7 +29,7 @@ export const zhCN = {
     threshold: '命中阈值',
     thresholdHelp: '取值大于 0 且不超过 1，判定概率达到阈值时执行动作。',
     coverageHelp:
-      '已审内容复用一小时；携带系统提示、初始提示及必要前文。续接只检查本次内容，不保存历史。超限、非文本或服务异常会拒绝本次请求。',
+      '已审结果复用一小时；待检文本完整分批审查，辅助前文按预算截取。续接只检查本次内容，不保存历史。超过总审查预算、包含无法审查的非文本内容或服务异常时拒绝请求。',
     invalid: '请检查 JEV 分组、模型、启用规则及阈值。',
     clearSelection: '清除选择',
     removeKey: '移除访问密钥',
@@ -51,7 +51,7 @@ export const zhCN = {
     },
     reasons: {
       unsupported_content: '当前内容无法进行文本审查',
-      content_too_large: '过滤后的内容与规则超过单次审查预算',
+      content_too_large: '内容与规则超过总审查预算，请缩短请求后重试',
       invalid_response: 'JEV 未返回完整有效的规则结果',
       timeout: 'JEV 审查超时',
       transport_error: 'JEV 服务暂不可用',
@@ -90,7 +90,7 @@ export const enUS = {
     scopeHelp: 'Leave empty to apply to all access keys.',
     rulesTitle: 'Review rules',
     rulesHelp:
-      'The common preset covers credential leakage, personal data and prompt injection. It defaults to warnings; change actions to block as needed. Adding it fills only missing rules. All pending rules share one JEV call.',
+      'The common preset covers credential leakage, personal data and prompt injection. It defaults to warnings; change actions to block as needed. Adding it fills only missing rules. Pending content and rules share calls within the budget; larger requests use multiple JEV batches.',
     addPreset: 'Add common preset',
     addRule: 'Add rule',
     removeRule: 'Remove rule',
@@ -104,7 +104,7 @@ export const enUS = {
     thresholdHelp:
       'Greater than 0 and at most 1. Execute the action when the probability reaches this threshold.',
     coverageHelp:
-      'Reuse reviewed content for one hour with system instructions, the initial prompt and necessary preceding context. Continuations review only their current payload; no history is stored. Oversized, non-text or failed reviews reject the request.',
+      'Reuse review results for one hour. All target text is reviewed in batches; supporting context may be excerpted. Continuations review only their current payload; no history is stored. Requests exceeding the total review budget, containing unsupported non-text content or failing review are rejected.',
     invalid: 'Check the JEV group, model, enabled rules and thresholds.',
     clearSelection: 'Clear selection',
     removeKey: 'Remove access key',
@@ -126,7 +126,8 @@ export const enUS = {
     },
     reasons: {
       unsupported_content: 'Current content cannot be reviewed as text',
-      content_too_large: 'Filtered content and rules exceed the single-review budget',
+      content_too_large:
+        'Content and rules exceed the total review budget; shorten the request before retrying',
       invalid_response: 'JEV did not return complete valid rule results',
       timeout: 'JEV review timed out',
       transport_error: 'JEV service unavailable',
@@ -165,7 +166,7 @@ export const jaJP = {
     scopeHelp: '未選択の場合はすべてのアクセスキーが対象です。',
     rulesTitle: '確認ルール',
     rulesHelp:
-      '標準プリセットは認証情報の漏洩・個人情報・プロンプトインジェクションを警告します。必要に応じてブロックに変更できます。追加時は不足しているルールだけを補います。未確認の全ルールを一回の JEV 呼び出しで判定します。',
+      '標準プリセットは認証情報の漏洩・個人情報・プロンプトインジェクションを警告します。必要に応じてブロックに変更できます。追加時は不足しているルールだけを補います。対象内容とルールを上限内でまとめ、長いリクエストは複数回に分けて JEV で確認します。',
     addPreset: '標準プリセットを追加',
     addRule: 'ルールを追加',
     removeRule: 'ルールを削除',
@@ -178,7 +179,7 @@ export const jaJP = {
     threshold: 'しきい値',
     thresholdHelp: '0 より大きく 1 以下。確率がしきい値以上のときに動作します。',
     coverageHelp:
-      '確認結果を一時間再利用し、システム指示・最初の入力・必要な前文を添えます。継続時は今回の内容だけを確認し、履歴は保存しません。上限超過・非テキスト・確認失敗の場合はリクエストを拒否します。',
+      '確認結果を一時間再利用します。対象テキストは分割してすべて確認し、補助的な前文は上限に合わせて抜粋します。継続時は今回の内容だけを確認し、履歴は保存しません。総確認上限の超過・未対応の非テキスト・確認失敗の場合はリクエストを拒否します。',
     invalid: 'JEV のグループ・モデル・有効ルール・しきい値を確認してください。',
     clearSelection: '選択をクリア',
     removeKey: 'アクセスキーを除外',
@@ -200,7 +201,8 @@ export const jaJP = {
     },
     reasons: {
       unsupported_content: '現在の内容をテキストとして確認できません',
-      content_too_large: '対象内容とルールが一回の確認上限を超えています',
+      content_too_large:
+        '対象内容とルールが総確認上限を超えています。リクエストを短くして再試行してください',
       invalid_response: 'JEV のルール判定が無効または不完全です',
       timeout: 'JEV 確認がタイムアウトしました',
       transport_error: 'JEV サービスを利用できません',

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,6 +25,106 @@ import (
 
 const auditPass = `{"answers":{"personal_data":{"type":"noul","noul":0.01},"prompt_injection":{"type":"noul","noul":0.01},"credential_leakage":{"type":"noul","noul":0.01}}}`
 const auditHit = `{"answers":{"personal_data":{"type":"noul","noul":0.99},"prompt_injection":{"type":"noul","noul":0.01},"credential_leakage":{"type":"noul","noul":0.01}}}`
+
+func TestRequestAuditFinishesEveryBatchBeforeBusinessDispatch(t *testing.T) {
+	for _, scenario := range []struct {
+		name, answer, action string
+		status               int
+	}{
+		{"pass", auditPass, "block", 200},
+		{"late block", auditHit, "block", 403},
+		{"late warning", auditHit, "warn", 200},
+		{"late failure", `{"answers":{}}`, "warn", 503},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{}
+			h, engine := auditEngine(t, forwarder)
+			h.manager.Current().RequestAudit.Rules[0].Action = scenario.action
+			messages := []any{}
+			for i := range 80 {
+				messages = append(messages, map[string]string{"role": "user", "content": fmt.Sprintf("message-%03d ", i) + strings.Repeat("text ", 350)})
+			}
+			body, _ := json.Marshal(map[string]any{"model": "gpt-4o", "messages": messages})
+			seen := map[string]bool{}
+			auditCalls, businessCalls := 0, 0
+			forwarder.onCall = func(index int) {
+				input := forwarder.inputs[index]
+				if input.Operation != execution.OperationDecisionsCreate {
+					businessCalls++
+					if len(seen) != 80 {
+						t.Errorf("business dispatched after reviewing only %d messages", len(seen))
+					}
+					forwarder.results = append(forwarder.results, auditReply(`{"choices":[]}`))
+					return
+				}
+				auditCalls++
+				if len(input.Request.Body) > requestaudit.MaxRequestBytes {
+					t.Fatal("oversized Jev request")
+				}
+				for i := range 80 {
+					marker := fmt.Sprintf("message-%03d", i)
+					if bytes.Contains(input.Request.Body, []byte(marker)) {
+						seen[marker] = true
+					}
+				}
+				answer := auditPass
+				if bytes.Contains(input.Request.Body, []byte("message-079")) {
+					answer = scenario.answer
+				}
+				forwarder.results = append(forwarder.results, auditReply(answer))
+			}
+			response := sendAuditRequest(engine, string(body))
+			if response.Code != scenario.status || auditCalls < 2 {
+				t.Fatalf("status=%d audit calls=%d, want %d and multiple calls", response.Code, auditCalls, scenario.status)
+			}
+			if (businessCalls == 1) != (scenario.status == 200) {
+				t.Fatalf("unexpected business calls: %d", businessCalls)
+			}
+		})
+	}
+}
+
+func TestRequestAuditOverallBudgetIsNonRetryableAndNeverDispatched(t *testing.T) {
+	forwarder := &scriptedForwarder{}
+	_, engine := auditEngine(t, forwarder)
+	body, _ := json.Marshal(map[string]any{"model": "gpt-4o", "messages": []any{map[string]string{"role": "user", "content": strings.Repeat("x", 2<<20)}}})
+	response := sendAuditRequest(engine, string(body))
+	if response.Code != http.StatusRequestEntityTooLarge || len(forwarder.inputs) != 0 || !strings.Contains(response.Body.String(), "request_audit_too_large") {
+		t.Fatalf("budget failure: status=%d calls=%d", response.Code, len(forwarder.inputs))
+	}
+}
+
+func TestRequestAuditBatchFailureKeepsFindingsAndCallObservations(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditHit), auditReply(`{"answers":{}}`)}}
+	h, _ := auditEngine(t, forwarder)
+	snapshot := h.manager.Current()
+	snapshot.RequestAudit.Rules[0].Action = requestaudit.ActionWarn
+	body, _ := json.Marshal(map[string]any{"input": strings.Repeat("review this text ", 10000)})
+	recorder := &requestRecorder{}
+	failure := h.checkRequestAudit(t.Context(), snapshot, snapshot.AccessKeysByID[1], body, recorder, func() *reason { return nil })
+	if failure != &reasonAuditIncomplete || recorder.audit.Reason != "invalid_response" || len(recorder.audit.Findings) != 1 || len(recorder.audit.Calls) != 2 || len(recorder.auditCache) != 0 {
+		t.Fatalf("partial review was lost or treated as complete: failure=%v audit=%+v", failure, recorder.audit)
+	}
+	for _, call := range recorder.audit.Calls {
+		if !call.Called {
+			t.Fatal("dispatched batch missing from call accounting")
+		}
+	}
+}
+
+func TestRequestAuditCancellationStopsRemainingBatches(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditPass)}, onCall: func(int) { cancel() }}
+	h, _ := auditEngine(t, forwarder)
+	snapshot := h.manager.Current()
+	body, _ := json.Marshal(map[string]any{"input": strings.Repeat("review this text ", 10000)})
+	recorder := &requestRecorder{}
+	failure := h.checkRequestAudit(ctx, snapshot, snapshot.AccessKeysByID[1], body, recorder, func() *reason { return nil })
+	if failure != &reasonAuditIncomplete || recorder.audit.Reason != "canceled" || len(forwarder.inputs) != 1 || len(recorder.auditCache) != 0 {
+		t.Fatalf("canceled review continued or was cached: failure=%v calls=%d", failure, len(forwarder.inputs))
+	}
+}
 
 func TestProtectedJevContentPreservesNumericIdentity(t *testing.T) {
 	if sameDecisionContent([]byte(`{"state":{"value":9007199254740992},"questions":{}}`), []byte(`{"state":{"value":9007199254740993},"questions":{}}`)) {
