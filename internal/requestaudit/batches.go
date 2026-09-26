@@ -47,13 +47,34 @@ func (r *Review) buildBatches(model string, doc reviewDocument, now time.Time) {
 		for first := 0; first < len(ordered); {
 			var batch reviewBatch
 			last := first
-			for last < len(ordered) {
-				candidate := makeBatch(model, doc, checks, ordered[first:last+1])
+			try := func(count int) bool {
+				candidate := makeBatch(model, doc, checks, ordered[first:first+count])
 				if len(candidate.payload) > MaxRequestBytes {
+					return false
+				}
+				batch, last = candidate, first+count
+				return true
+			}
+			// 倍增确定搜索范围，再二分缩小；只保留实际编码长度合格的批次。
+			remaining := len(ordered) - first
+			good, bad := 0, remaining+1
+			for count := 1; ; count = min(count*2, remaining) {
+				if !try(count) {
+					bad = count
 					break
 				}
-				batch = candidate
-				last++
+				good = count
+				if count == remaining {
+					break
+				}
+			}
+			for bad-good > 1 {
+				middle := good + (bad-good)/2
+				if try(middle) {
+					good = middle
+				} else {
+					bad = middle
+				}
 			}
 			if last == first {
 				r.Reason = "content_too_large"

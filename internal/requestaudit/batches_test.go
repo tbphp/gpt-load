@@ -241,3 +241,91 @@ func TestPartialReviewNeverCachesUnreviewedTargets(t *testing.T) {
 		t.Fatal("unfinished content reused a pass proof")
 	}
 }
+
+func shortMessageHistory(tb testing.TB, count int) Document {
+	tb.Helper()
+	messages := make([]any, count)
+	for index := range messages {
+		messages[index] = map[string]string{"role": "user", "content": fmt.Sprintf("short message %d", index)}
+	}
+	body, err := json.Marshal(map[string]any{"messages": messages})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	doc, reason := Extract(body)
+	if reason != "" {
+		tb.Fatal(reason)
+	}
+	return doc
+}
+
+func TestShortMessageReviewHasBoundedAllocationsAndCompleteCoverage(t *testing.T) {
+	const count = 1000
+	doc := shortMessageHistory(t, count)
+	rules := DefaultConfig().Rules
+	now := time.Now()
+	var review *Review
+	allocations := testing.AllocsPerRun(1, func() {
+		var cache Cache
+		review = cache.Prepare(nil, "jev", doc, rules, now)
+	})
+	// 使用宽松的分配次数上限防止逐条重建回归，不依赖机器速度或运行时间。
+	if allocations > 50000 {
+		t.Fatalf("short-message review allocated %.0f objects, want at most 50000", allocations)
+	}
+	if review.Reason != "" {
+		t.Fatal(review.Reason)
+	}
+	seen := map[string]map[int]bool{}
+	for len(review.Payload) > 0 {
+		if len(review.Payload) > MaxRequestBytes {
+			t.Fatal("batch exceeds the encoded request budget")
+		}
+		var payload struct {
+			Questions map[string]struct {
+				Instructions struct {
+					Targets []int `json:"target_ids"`
+				} `json:"instructions"`
+			} `json:"questions"`
+		}
+		if err := json.Unmarshal(review.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		for rule, question := range payload.Questions {
+			if seen[rule] == nil {
+				seen[rule] = map[int]bool{}
+			}
+			for _, target := range question.Instructions.Targets {
+				if target < 0 || target >= count || seen[rule][target] {
+					t.Fatalf("rule %s has an invalid or repeated target %d", rule, target)
+				}
+				seen[rule][target] = true
+			}
+		}
+		answer(t, review, now)
+	}
+	for _, rule := range rules {
+		if len(seen[rule.ID]) != count {
+			t.Fatalf("rule %s reviewed %d of %d messages", rule.ID, len(seen[rule.ID]), count)
+		}
+	}
+}
+
+func BenchmarkPrepareShortMessageHistory(b *testing.B) {
+	for _, count := range []int{1000, 12000} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			doc := shortMessageHistory(b, count)
+			rules := DefaultConfig().Rules
+			now := time.Now()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				var cache Cache
+				review := cache.Prepare(nil, "jev", doc, rules, now)
+				if count == 1000 && review.Reason != "" {
+					b.Fatal(review.Reason)
+				}
+			}
+		})
+	}
+}
