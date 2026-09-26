@@ -63,6 +63,9 @@ func TestCompatiblePresetsReuseExistingRoutesAndCredentials(t *testing.T) {
 				if test.embeddings {
 					allowed[protocol.OpenAIEmbeddings] = true
 				}
+				if test.id == Mistral {
+					allowed[protocol.Mistral] = true
+				}
 			}
 			if len(descriptor.ClientProtocols) != len(allowed) {
 				t.Fatalf("protocols = %v", descriptor.ClientProtocols)
