@@ -106,6 +106,7 @@ func TestClineRejectsInvalidCompletionsAndNormalizesErrors(t *testing.T) {
 		message    string
 	}{
 		{"empty", 200, "", 502, ""},
+		{"non-JSON success", 200, "<html>unexpected response</html>", 502, ""},
 		{"missing completion", 200, `{"success":true,"data":{"usage":{}}}`, 502, ""},
 		{"empty choices", 200, `{"id":"bad","choices":[]}`, 502, ""},
 		{"string error", 401, `{"error":"invalid credential"}`, 401, "invalid credential"},
@@ -133,6 +134,51 @@ func TestClineRejectsInvalidCompletionsAndNormalizesErrors(t *testing.T) {
 				if err := json.Unmarshal(result.Body, &body); err != nil || body.Error.Message != test.message {
 					t.Fatalf("normalized error = %s, err=%v", result.Body, err)
 				}
+			}
+		})
+	}
+}
+
+func TestClinePreservesNonJSONHTTPErrors(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"unauthorized", http.StatusUnauthorized, "invalid credential"},
+		{"forbidden", http.StatusForbidden, "<html>access denied</html>"},
+		{"rate limited", http.StatusTooManyRequests, "too many requests"},
+		{"unavailable", http.StatusServiceUnavailable, "<html>service unavailable</html>"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				w.Header().Set("Retry-After", "37")
+				w.WriteHeader(test.status)
+				_, _ = io.WriteString(w, test.body)
+			}))
+			defer server.Close()
+			runtime := newRuntimeForTest(t, testRuntimeOptions{allowPrivateNetwork: true})
+			result := runtime.Execute(t.Context(), clineTestSpec(t, server.URL, protocol.OpenAICompletions))
+			if result.StatusCode != test.status || result.Error == nil || result.Error.Kind != execution.ErrorKindHTTP || result.Error.StatusCode != test.status {
+				t.Fatalf("Cline HTTP error changed: %+v", result)
+			}
+			if result.Header.Get("Retry-After") != "37" || result.Error.RetryAfter != 37*time.Second {
+				t.Fatalf("retry timing lost: headers=%v evidence=%+v", result.Header, result.Error)
+			}
+			if test.status == http.StatusUnauthorized && (result.Error.Hint != execution.FailureHintInvalidCredential || result.Error.ScopeHint != execution.ErrorScopeCredential) {
+				t.Fatalf("credential failure classification lost: %+v", result.Error)
+			}
+			if test.status == http.StatusTooManyRequests && result.Error.Hint != execution.FailureHintRateLimited {
+				t.Fatalf("rate-limit classification lost: %+v", result.Error)
+			}
+			var body struct {
+				Error struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(result.Body, &body); err != nil || body.Error.Message == "" || result.Header.Get("Content-Type") != "application/json" {
+				t.Fatalf("missing standard error response: %s, err=%v", result.Body, err)
 			}
 		})
 	}

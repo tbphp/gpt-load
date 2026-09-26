@@ -67,3 +67,46 @@ func TestClineGatewayNormalizesWrappedCompletions(t *testing.T) {
 		})
 	}
 }
+
+func TestClineGatewayRejectsInvalidConvertedInput(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		protocol protocol.Protocol
+		path     string
+		body     string
+	}{
+		{"Responses invalid input", protocol.OpenAIResponses, "/v1/responses", `{"model":"public-model","input":42}`},
+		{"Anthropic empty messages", protocol.Anthropic, "/v1/messages", `{"model":"public-model","max_tokens":64,"messages":[]}`},
+		{"Anthropic invalid messages", protocol.Anthropic, "/v1/messages", `{"model":"public-model","max_tokens":64,"messages":"invalid"}`},
+		{"Gemini empty contents", protocol.Gemini, "/v1beta/models/public-model:generateContent", `{"contents":[]}`},
+		{"Gemini invalid contents", protocol.Gemini, "/v1beta/models/public-model:generateContent", `{"contents":"invalid"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				t.Error("invalid client input reached Cline")
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			defer upstream.Close()
+			params, err := json.Marshal(map[string]string{"base_url": upstream.URL + "/api/v1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			groups := []dialectGatewayGroup{
+				{id: 1, name: "Cline A", channelID: channel.Cline, params: params, apiKeys: []string{"synthetic-key-a"}},
+				{id: 2, name: "Cline B", channelID: channel.Cline, params: params, apiKeys: []string{"synthetic-key-b"}},
+			}
+			engine, _ := newDialectGatewayEngine(t, test.protocol, "public-model",
+				dialect.NewSet(dialect.NewOpenAIResponses(), dialect.NewAnthropic(), dialect.NewGemini()), groups...)
+			request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"code":"invalid_protocol_request"`) {
+				t.Fatalf("invalid input response = %d %s", recorder.Code, recorder.Body.String())
+			}
+			if attempts := recorder.Header().Get(debugHeaderAttempts); attempts != "1" {
+				t.Fatalf("invalid input retried: attempts=%s", attempts)
+			}
+		})
+	}
+}

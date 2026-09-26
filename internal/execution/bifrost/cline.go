@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -49,7 +50,12 @@ func (r *Runtime) prepareCline(
 	if spec.ClientProtocol != protocol.OpenAICompletions {
 		request, err := buildConvertedResponsesRequest(spec, provider)
 		if err != nil {
-			failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "invalid Cline conversion request")
+			var classified interface{ ConversionCode() string }
+			if errors.As(err, &classified) {
+				failure := notSentConversionFailure(classified.ConversionCode(), err.Error())
+				return preparedAttempt{}, &failure
+			}
+			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, err.Error())
 			return preparedAttempt{}, &failure
 		}
 		prepared.responsesRequest = request
@@ -263,6 +269,10 @@ func preserveClineToolTurnReasoning(messages []schemas.ChatMessage) {
 func normalizeClineResponse(status int, body []byte) (int, []byte, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(body, &object); err != nil || object == nil {
+		if status < http.StatusOK || status >= http.StatusMultipleChoices {
+			normalized, err := normalizeClineError(nil)
+			return status, normalized, err
+		}
 		return status, nil, fmt.Errorf("invalid Cline response object")
 	}
 	if status < http.StatusOK || status >= http.StatusMultipleChoices ||
