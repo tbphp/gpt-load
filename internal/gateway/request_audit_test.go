@@ -196,36 +196,67 @@ func TestRequestAuditOutcomesAndExplicitRoute(t *testing.T) {
 	}
 }
 
-func TestRequestAuditUnsupportedResponsesContentIsForwarded(t *testing.T) {
+func TestRequestAuditMixedResponsesContentStillChecksText(t *testing.T) {
 	for _, input := range []string{
-		`[{"type":"reasoning","summary":[],"encrypted_content":"dummy-for-reproduction"},{"role":"user","content":"hello"}]`,
-		`[{"role":"user","content":[{"type":"input_image","image_url":"https://example.com/image.png"}]}]`,
-		`[{"role":"user","content":[{"type":"input_file","file_id":"file_example"}]}]`,
-		`[{"type":"item_reference","id":"item_example"}]`,
+		`{"type":"reasoning","summary":[],"encrypted_content":"opaque-reasoning"}`,
+		`{"role":"user","content":[{"type":"input_image","image_url":"opaque-image"}]}`,
+		`{"role":"user","content":[{"type":"input_file","file_id":"opaque-file"}]}`,
+		`{"type":"item_reference","id":"opaque-reference"}`,
 	} {
-		t.Run(input, func(t *testing.T) {
-			forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(`{"id":"resp_example","output":[]}`)}}
-			h, engine := auditEngine(t, forwarder)
-			h.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
-			sink := &recordingRequestLogSink{}
-			h.requestLogSink = sink
-			body := `{"model":"gpt-4o","input":` + input + `}`
-			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
-			request.Header.Set("Authorization", "Bearer gl-client")
-			response := httptest.NewRecorder()
-			engine.ServeHTTP(response, request)
-			if response.Code != http.StatusOK || len(forwarder.inputs) != 1 || forwarder.inputs[0].Operation != execution.OperationResponsesCreate || string(forwarder.inputs[0].Request.Body) != body {
-				t.Fatalf("unsupported content was blocked or changed: status=%d calls=%d", response.Code, len(forwarder.inputs))
-			}
-			events := sink.snapshot()
-			if len(events) != 1 || events[0].RequestAudit == nil {
-				t.Fatalf("missing request audit log: %+v", events)
-			}
-			audit := events[0].RequestAudit
-			if audit.Status != "incomplete" || audit.Reason != "unsupported_content" || len(audit.Calls) != 0 || events[0].ErrorCode != "" || len(events[0].Attempts) != 1 {
-				t.Fatalf("incomplete review was lost or treated as a business error: %+v", events[0])
-			}
-		})
+		for _, scenario := range []struct {
+			answer, status string
+			code, calls    int
+		}{
+			{auditPass, "passed", http.StatusOK, 2},
+			{auditHit, "blocked", http.StatusForbidden, 1},
+		} {
+			t.Run(scenario.status+input, func(t *testing.T) {
+				forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(scenario.answer), auditReply(`{"id":"resp_example","output":[]}`)}}
+				h, engine := auditEngine(t, forwarder)
+				h.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
+				sink := &recordingRequestLogSink{}
+				h.requestLogSink = sink
+				body := `{"model":"gpt-4o","input":[` + input + `,{"role":"user","content":"review-this-text"}]}`
+				request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+				request.Header.Set("Authorization", "Bearer gl-client")
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+				if response.Code != scenario.code || len(forwarder.inputs) != scenario.calls {
+					t.Fatalf("text review was skipped: status=%d calls=%d", response.Code, len(forwarder.inputs))
+				}
+				if forwarder.inputs[0].Operation != execution.OperationDecisionsCreate || !bytes.Contains(forwarder.inputs[0].Request.Body, []byte("review-this-text")) || bytes.Contains(forwarder.inputs[0].Request.Body, []byte("opaque-")) {
+					t.Fatal("JEV received opaque content or missed readable text")
+				}
+				if scenario.code == http.StatusOK && (forwarder.inputs[1].Operation != execution.OperationResponsesCreate || string(forwarder.inputs[1].Request.Body) != body) {
+					t.Fatal("filtering changed the business request")
+				}
+				events := sink.snapshot()
+				if len(events) != 1 || events[0].RequestAudit == nil {
+					t.Fatalf("missing request audit log: %+v", events)
+				}
+				audit := events[0].RequestAudit
+				if audit.Status != scenario.status || audit.Reason != "" || len(audit.Calls) != 1 || len(events[0].Attempts) != scenario.calls-1 {
+					t.Fatalf("text review outcome was lost: %+v", events[0])
+				}
+			})
+		}
+	}
+}
+
+func TestRequestAuditOpaqueOnlyContentDoesNotCallJev(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(`{"id":"resp_example","output":[]}`)}}
+	h, engine := auditEngine(t, forwarder)
+	h.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
+	sink := &recordingRequestLogSink{}
+	h.requestLogSink = sink
+	body := `{"model":"gpt-4o","input":[{"type":"reasoning","summary":[],"encrypted_content":"opaque-reasoning"}]}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	events := sink.snapshot()
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 1 || forwarder.inputs[0].Operation != execution.OperationResponsesCreate || string(forwarder.inputs[0].Request.Body) != body || len(events) != 1 || events[0].RequestAudit != nil {
+		t.Fatalf("opaque-only content was reviewed or changed: status=%d calls=%d events=%+v", response.Code, len(forwarder.inputs), events)
 	}
 }
 

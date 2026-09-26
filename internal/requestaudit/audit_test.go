@@ -100,15 +100,18 @@ func TestTextSchemasAndStructuredToolDataAreNotAttachments(t *testing.T) {
 		`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_a","content":[{"type":"image","source":{"type":"base64","data":"opaque"}}]}]}]}`,
 		`{"contents":[{"parts":[{"functionResponse":{"name":"tool","response":{"ok":true},"parts":[{"inlineData":{"mimeType":"image/png","data":"opaque"}}]}}]}]}`,
 	} {
-		if _, reason := Extract([]byte(body)); reason != "unsupported_content" {
-			t.Fatal("real tool attachment was accepted as text")
+		doc := document(t, body)
+		for _, unit := range doc.Units {
+			if bytes.Contains(unit, []byte("opaque")) {
+				t.Fatal("real tool attachment was included in the text review")
+			}
 		}
 	}
 }
 
 func TestTokenizedInputsAreNotDeclaredReviewedAsText(t *testing.T) {
 	for _, body := range []string{`{"input":[123,456]}`, `{"input":[[123,456],[789]]}`} {
-		if _, reason := Extract([]byte(body)); reason != "unsupported_content" {
+		if doc := document(t, body); len(doc.Units) != 0 {
 			t.Fatal("token IDs cannot be reviewed without decoding their text")
 		}
 	}
@@ -236,7 +239,7 @@ func TestCanonicalIdentityAndIsolation(t *testing.T) {
 	if len(cache.Prepare([]byte("key2/model1"), "jev", first, rules, now).Payload) == 0 || len(cache.Prepare([]byte("key1/model2"), "jev", first, rules, now).Payload) == 0 {
 		t.Fatal("cache crossed identity/model boundary")
 	}
-	for _, body := range []string{`{"input":"a","input":"b"}`, `{"input":"a"}{}`, `{"input":[{"type":"input_image","image_url":"https://example.com/x"}]}`} {
+	for _, body := range []string{`{"input":"a","input":"b"}`, `{"input":"a"}{}`} {
 		if _, reason := Extract([]byte(body)); reason == "" {
 			t.Fatal("ambiguous or unsupported content accepted")
 		}
