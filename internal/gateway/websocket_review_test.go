@@ -130,11 +130,8 @@ func TestWebsocketInvalidTurnsConsumeRPM(t *testing.T) {
 }
 
 func TestWebsocketHandshakeUsesFirstByteBudget(t *testing.T) {
-	started := make(chan struct{})
-	release := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		close(started)
-		<-release
+		time.Sleep(150 * time.Millisecond)
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -149,16 +146,13 @@ func TestWebsocketHandshakeUsesFirstByteBudget(t *testing.T) {
 	defer upstream.Close()
 	h, engine, _ := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
 	group := h.manager.Current().Groups[1]
-	group.Timeouts.FirstByte, group.Timeouts.Request = 250*time.Millisecond, 30*time.Second
+	group.Timeouts.FirstByte, group.Timeouts.Request = 20*time.Millisecond, time.Second
 	h.manager.Current().Groups[1] = group
 	h.manager.Current().Settings.RetryCount = 0
 	server := httptest.NewServer(engine)
 	defer server.Close()
-	defer close(release)
 	conn := dialGatewayWebsocket(t, server.URL)
-	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	started := time.Now()
 	if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "hello"}); err != nil {
 		t.Fatal(err)
 	}
@@ -171,13 +165,8 @@ func TestWebsocketHandshakeUsesFirstByteBudget(t *testing.T) {
 	if err := conn.ReadJSON(&event); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case <-started:
-	default:
-		t.Fatal("request timed out before reaching the upstream handshake")
-	}
-	if event.Type != "error" || event.Error.Code != reasonUpstreamTimeout.Code {
-		t.Fatalf("first byte excludes handshake: event=%+v", event)
+	if elapsed := time.Since(started); elapsed > 120*time.Millisecond || event.Type != "error" || event.Error.Code != reasonUpstreamTimeout.Code {
+		t.Fatalf("first byte excludes handshake: elapsed=%s event=%+v", elapsed, event)
 	}
 }
 

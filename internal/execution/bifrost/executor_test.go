@@ -1141,29 +1141,19 @@ func TestRuntimeFirstByteAndStreamIdleTimeouts(t *testing.T) {
 	t.Parallel()
 
 	t.Run("first byte", func(t *testing.T) {
-		started := make(chan struct{})
-		release := make(chan struct{})
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-			close(started)
-			<-release
+			time.Sleep(150 * time.Millisecond)
 			writeSuccess(writer, "late")
 		}))
 		defer server.Close()
-		defer close(release)
 		runtime := newTestRuntime(t)
 		spec := compatibleSpec(server.URL)
-		spec.Timeouts.FirstByte = 250 * time.Millisecond
-		spec.Timeouts.Request = 30 * time.Second
-		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-		defer cancel()
-		result := runtime.Execute(ctx, spec)
-		if ctx.Err() != nil {
-			t.Fatal("first-byte timeout did not finish before the test deadline")
-		}
-		select {
-		case <-started:
-		default:
-			t.Fatal("request timed out before reaching the upstream")
+		spec.Timeouts.FirstByte = 20 * time.Millisecond
+		spec.Timeouts.Request = time.Second
+		started := time.Now()
+		result := runtime.Execute(context.Background(), spec)
+		if elapsed := time.Since(started); elapsed > 120*time.Millisecond {
+			t.Fatalf("first-byte gate returned after %s", elapsed)
 		}
 		if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout || result.ResponseStarted {
 			t.Fatalf("unexpected first-byte result: %+v", result)

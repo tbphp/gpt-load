@@ -128,7 +128,7 @@ func TestMakeCheckDoesNotDuplicateWebTypeCheck(t *testing.T) {
 func TestBranchAndReleaseWorkflowsFollowDefaultBranch(t *testing.T) {
 	ci := readRepositoryFile(t, ".github/workflows/ci.yml")
 	triggers := workflowTopLevelBlock(t, ci, "on")
-	wantTriggers := "on:\n  pull_request:\n    branches:\n      - main\n  push:\n    branches:\n      - main"
+	wantTriggers := "on:\n  pull_request:\n    branches:\n      - main"
 	if got := strings.Join(workflowSignificantYAMLLines(triggers), "\n"); got != wantTriggers {
 		t.Fatalf("branch CI triggers = %q, want %q", got, wantTriggers)
 	}
@@ -305,8 +305,8 @@ func TestBranchWorkflowCancelsSupersededRuns(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/ci.yml")
 	concurrency := workflowTopLevelBlock(t, content, "concurrency")
 	for _, required := range []string{
-		`group: ci-${{ github.event.pull_request.number || github.sha }}`,
-		`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`,
+		`group: ci-pr-${{ github.event.pull_request.number }}`,
+		"cancel-in-progress: true",
 	} {
 		if !strings.Contains(concurrency, required) {
 			t.Fatalf("branch CI concurrency does not contain %q:\n%s", required, concurrency)
