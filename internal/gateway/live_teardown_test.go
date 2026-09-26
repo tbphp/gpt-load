@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +11,10 @@ import (
 	"time"
 
 	"github.com/pion/webrtc/v4"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 
 	"gpt-load/internal/state"
+	"gpt-load/internal/subscription/providers/codex"
 	"gpt-load/internal/telemetry"
 )
 
@@ -62,8 +66,8 @@ func TestCodexLiveFailedDirectHangupCanBeRetried(t *testing.T) {
 		handler.liveSessions.release()
 		t.Fatal("pending hangup released its session slot")
 	}
-	if len(sink.snapshot()) != 0 {
-		t.Fatal("session logged before hangup confirmation")
+	if events := sink.snapshot(); len(events) != 1 || events[0].Status != telemetry.RequestStatusIncomplete || events[0].ErrorCode != "hangup_failed" {
+		t.Fatalf("unconfirmed hangup must be visible: %+v", events)
 	}
 	session.mu.Lock()
 	session.hangupErr = nil
@@ -76,7 +80,7 @@ func TestCodexLiveFailedDirectHangupCanBeRetried(t *testing.T) {
 		t.Fatal("confirmed hangup still tracked")
 	}
 	events := waitWebsocketLogs(t, sink, 1)
-	if len(events) != 1 || events[0].Status != telemetry.RequestStatusSuccess {
+	if len(events) != 1 || events[0].Status != telemetry.RequestStatusIncomplete {
 		t.Fatalf("events = %+v", events)
 	}
 	session.mu.Lock()
@@ -84,6 +88,35 @@ func TestCodexLiveFailedDirectHangupCanBeRetried(t *testing.T) {
 	session.mu.Unlock()
 	if attempts != 2 {
 		t.Fatalf("hangup attempts = %d", attempts)
+	}
+}
+
+func TestCodexLiveHangupDiagnosticsDoNotExposeTransportSecrets(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		kind   string
+		status int
+	}{
+		{"HTTP failure", &codex.LiveHTTPError{Status: http.StatusNotFound}, "http", http.StatusNotFound},
+		{"timeout", fmt.Errorf("secret-proxy-password: %w", context.DeadlineExceeded), "timeout", 0},
+		{"transport", errors.New("secret-proxy-password"), "transport", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logtest.NewNullLogger()
+			call := &liveCallSession{logger: logger, requestID: "request-diagnostic", hangupAttempts: 1}
+			call.logHangupFailure(tc.err, true)
+			entry := hook.LastEntry()
+			if entry == nil || entry.Data["failure_kind"] != tc.kind || entry.Data["request_id"] != call.requestID {
+				t.Fatalf("missing diagnostic fields: %+v", entry)
+			}
+			if tc.status != 0 && entry.Data["upstream_status"] != tc.status {
+				t.Fatalf("missing HTTP status: %+v", entry.Data)
+			}
+			if _, ok := entry.Data["error"]; ok {
+				t.Fatal("raw transport error leaked")
+			}
+		})
 	}
 }
 
@@ -127,8 +160,15 @@ func TestCodexLiveRevokedDirectSessionRetriesHangup(t *testing.T) {
 	handler.liveSessions.mu.Lock()
 	call.timer.Reset(0)
 	handler.liveSessions.mu.Unlock()
-	events := waitWebsocketLogs(t, sink, 1)
-	if len(events) != 1 || events[0].Status != telemetry.RequestStatusCanceled || events[0].ErrorCode != "key_revoked" {
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, found := handler.liveSessions.lookup("rtc_1", 1); !found {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].Status != telemetry.RequestStatusIncomplete || events[0].ErrorCode != "hangup_failed" {
 		t.Fatalf("events = %+v", events)
 	}
 	if _, found := handler.liveSessions.lookup("rtc_1", 1); found {

@@ -315,6 +315,12 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 		started := recorder.beforeForward()
 		updateDebugHeaders(c.Writer.Header(), selection.Group.Name, sequence)
 		upstream, evidence := handler.liveOpener.OpenLive(setupContext, spec, upstreamOffer, sessionJSON)
+		upstreamStored := false
+		defer func() {
+			if !upstreamStored && upstream.Session != nil {
+				handler.cleanupCodexLiveSetup(upstream, id)
+			}
+		}()
 		if evidence != nil {
 			status := http.StatusBadGateway
 			if evidence.StatusCode >= 400 && evidence.StatusCode < 600 {
@@ -361,15 +367,6 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 			failed(reasonLiveUnavailable)
 			return
 		}
-		upstreamStored := false
-		defer func() {
-			if !upstreamStored {
-				_ = upstream.Session.Close()
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				_ = upstream.Session.Hangup(ctx)
-				cancel()
-			}
-		}()
 		answer := upstream.SDP
 		if media != nil {
 			answer, err = media.AcceptAnswer(setupContext, upstream.SDP)
@@ -401,7 +398,7 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 			failed(reasonConfigurationChanged)
 			return
 		}
-		call := &liveCallSession{id: upstream.CallID, keyID: request.accessKey.ID, keyHash: keyHash, groupID: selection.GroupID,
+		call := &liveCallSession{id: upstream.CallID, requestID: id, keyID: request.accessKey.ID, keyHash: keyHash, groupID: selection.GroupID,
 			clientModel: model, model: *selection.UpstreamModelID, peerAddr: c.Request.RemoteAddr,
 			ref: ref, upstream: upstream.Session, media: media, recorder: recorder, logger: handler.logger}
 		call.authorized = func() bool { return handler.liveCallAuthorized(call.keyID, call) }
@@ -417,10 +414,30 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 		}
 		c.Header("Location", location)
 		c.Header("Content-Type", "application/sdp")
-		c.String(http.StatusCreated, "%s", answer)
+		c.Status(http.StatusCreated)
+		if _, err := c.Writer.Write([]byte(answer)); err != nil {
+			_ = handler.liveSessions.finishCall(call, "client_disconnected")
+		}
 		return
 	}
 	failed(failure)
+}
+
+func (handler *Handler) cleanupCodexLiveSetup(upstream execution.LiveCall, requestID string) {
+	// 建连失败的日志由请求路径记录，清理会话不再拥有 recorder。
+	call := &liveCallSession{id: upstream.CallID, requestID: requestID, upstream: upstream.Session, logger: handler.logger}
+	if call.id != "" && handler.liveSessions.put(call) {
+		_ = handler.liveSessions.finishCall(call, "setup_failed")
+		return
+	}
+	// 停机期间不再注册新会话，但仍尝试结束已经创建的上游通话。
+	call.stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	call.hangupAttempts++
+	if err := call.upstream.Hangup(ctx); err != nil {
+		call.logHangupFailure(err, false)
+	}
 }
 
 func liveMediaProxyURL(effective outboundproxy.Effective) (string, error) {
@@ -529,23 +546,37 @@ func (handler *Handler) connectCodexLive(c *gin.Context, request *dataPlaneReque
 			if err != nil {
 				return
 			}
-			if len(content) > 256<<10 || destination.WriteMessage(kind, content) != nil {
+			if len(content) > 256<<10 {
 				return
 			}
 			// 只接受上游控制连接的整通会话结束事件；单轮 response.done 不结束通话。
+			terminalReason := ""
 			if source == connection && kind == websocket.TextMessage {
 				var event struct {
 					Type  string          `json:"type"`
 					Error json.RawMessage `json:"error"`
 				}
 				if json.Unmarshal(content, &event) == nil && event.Type == "session.closed" {
-					reason := "upstream_session_ended"
+					terminalReason = "upstream_session_ended"
 					if len(event.Error) > 0 && string(event.Error) != "null" {
-						reason = "upstream_session_error"
+						terminalReason = "upstream_session_error"
 					}
-					handler.liveSessions.finishCall(call, reason)
-					return
 				}
+			}
+			if terminalReason != "" {
+				// 客户端可能已经离线，转发失败也不能丢失上游的结束确认。
+				handler.liveSessions.mu.Lock()
+				if handler.liveSessions.calls[call.id] == call {
+					handler.liveSessions.beginFinishLocked(call, terminalReason)
+				}
+				handler.liveSessions.mu.Unlock()
+				defer func() { _ = handler.liveSessions.finishCall(call, terminalReason) }()
+			}
+			if err := destination.SetWriteDeadline(time.Now().Add(handler.writeTimeout)); err != nil {
+				return
+			}
+			if destination.WriteMessage(kind, content) != nil || terminalReason != "" {
+				return
 			}
 		}
 	}

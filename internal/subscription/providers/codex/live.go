@@ -37,10 +37,11 @@ func StartLive(ctx context.Context, request LiveRequest) (LiveCall, error) {
 		ProxyFromEnvironment: request.ProxyFromEnvironment,
 		Headers:              request.Headers, Body: request.Body,
 	})
-	if err != nil {
-		return LiveCall{}, err
+	call := LiveCall{CallID: result.CallID, SDP: result.SDP, Header: result.Header}
+	if result.Session != nil {
+		call.Session = &LiveSession{inner: result.Session}
 	}
-	return LiveCall{CallID: result.CallID, SDP: result.SDP, Header: result.Header, Session: &LiveSession{inner: result.Session}}, nil
+	return call, err
 }
 
 func (session *LiveSession) DialSideband(ctx context.Context, style string, protocols []string) (*websocket.Conn, int, error) {

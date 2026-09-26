@@ -88,6 +88,7 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 		{name: "data.codex.search", methods: []string{http.MethodPost}, path: "/v1/alpha/search"},
 		{name: "data.codex.live", methods: []string{http.MethodPost}, path: "/v1/live"},
 		{name: "data.codex.live.sideband", methods: []string{http.MethodGet}, path: "/v1/live/:call_id"},
+		{name: "data.codex.live.legacy.hangup", methods: []string{http.MethodPost}, path: "/v1/live/:call_id/hangup"},
 		{name: "data.codex.live.calls", methods: []string{http.MethodPost}, path: "/v1/realtime/calls"},
 		{name: "data.codex.live.realtime", methods: []string{http.MethodGet}, path: "/v1/realtime"},
 		{name: "data.codex.live.call.sideband", methods: []string{http.MethodGet}, path: "/v1/realtime/calls/:call_id"},

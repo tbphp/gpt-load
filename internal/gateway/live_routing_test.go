@@ -112,7 +112,7 @@ func TestCodexLiveDirectControlDeadlineAndHangupFailure(t *testing.T) {
 				if _, found := handler.liveSessions.lookup(call.id, 1); !found {
 					t.Fatal("unconfirmed session was discarded")
 				}
-				// 停机无法继续重试时才记录最终未完成结果。
+				// 停机清理不得重复记录首次挂断失败时的结果。
 				handler.CloseCodexLive()
 			} else {
 				handler.liveSessions.mu.Lock()

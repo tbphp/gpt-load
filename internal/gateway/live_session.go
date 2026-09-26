@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"errors"
+	"net"
 	"sync"
 	"time"
 
@@ -22,10 +24,12 @@ const (
 	liveReconnectWindow     = 30 * time.Second
 	liveAuthorizationPeriod = 2 * time.Second
 	liveHangupRetryDelay    = 5 * time.Second
+	liveHangupMaxAttempts   = 3
 )
 
 type liveCallSession struct {
 	id          string
+	requestID   string
 	keyID       uint
 	keyHash     string
 	groupID     uint
@@ -39,6 +43,9 @@ type liveCallSession struct {
 	recorder    *requestRecorder
 	closedOnce  sync.Once
 	finishMu    sync.Mutex
+	// 挂断重试只负责清理；本地会话结果只记录一次，由 finishMu 保护。
+	hangupAttempts int
+	logged         bool
 	// 以下终止状态与定时器由 liveSessions.mu 保护。
 	terminating         bool
 	finishReason        string
@@ -103,12 +110,10 @@ func (store *liveSessions) put(call *liveCallSession) bool {
 	store.calls[call.id] = call
 	call.closed = make(chan struct{})
 	call.timer = time.AfterFunc(liveSessionLifetime, func() { store.finishCall(call, "expired") })
-	// 直连没有媒体关闭回调，客户端须在重连窗口内接入控制连接。
-	if call.media == nil {
-		call.reconnectGeneration++
-		generation := call.reconnectGeneration
-		call.reconnect = time.AfterFunc(liveReconnectWindow, func() { store.expireReconnect(call, generation) })
-	}
+	// 两种模式都要求控制连接，防止创建后无人接入的会话占用资源。
+	call.reconnectGeneration++
+	generation := call.reconnectGeneration
+	call.reconnect = time.AfterFunc(liveReconnectWindow, func() { store.expireReconnect(call, generation) })
 	store.mu.Unlock()
 	if call.media != nil {
 		call.media.OnClose(func(reason string) { go store.finishCall(call, reason) })
@@ -236,6 +241,7 @@ func (store *liveSessions) attemptFinish(call *liveCallSession) error {
 	call.stop()
 	var hangupErr error
 	if !liveUpstreamEnded(reason) {
+		call.hangupAttempts++
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		hangupErr = call.upstream.Hangup(ctx)
 		cancel()
@@ -246,7 +252,7 @@ func (store *liveSessions) attemptFinish(call *liveCallSession) error {
 	if liveUpstreamEnded(reason) {
 		hangupErr = nil
 	}
-	retry := hangupErr != nil && !store.closing
+	retry := hangupErr != nil && !store.closing && call.hangupAttempts < liveHangupMaxAttempts
 	if retry {
 		call.timer = time.AfterFunc(liveHangupRetryDelay, func() { _ = store.attemptFinish(call) })
 	} else {
@@ -254,16 +260,41 @@ func (store *liveSessions) attemptFinish(call *liveCallSession) error {
 	}
 	store.mu.Unlock()
 	if hangupErr != nil {
-		utils.LogPlaneBestEffort(call.logger, logrus.WarnLevel, utils.LogPlaneData,
-			logrus.Fields{"event": "codex_live_hangup_failed", "retry_scheduled": retry}, "Codex live upstream hangup was not confirmed")
-		if !retry {
-			reason = "hangup_failed"
-		}
+		call.logHangupFailure(hangupErr, retry)
+		reason = "hangup_failed"
 	}
-	if !retry {
+	if !call.logged {
+		call.logged = true
 		call.recordClose(reason)
 	}
 	return hangupErr
+}
+
+func (call *liveCallSession) logHangupFailure(err error, retry bool) {
+	fields := liveHangupFailureFields(err)
+	fields["event"] = "codex_live_hangup_failed"
+	fields["retry_scheduled"] = retry
+	fields["hangup_attempt"] = call.hangupAttempts
+	fields["request_id"] = call.requestID
+	utils.LogPlaneBestEffort(call.logger, logrus.WarnLevel, utils.LogPlaneData,
+		fields, "Codex live upstream hangup was not confirmed")
+}
+
+// 仅记录固定错误类别和 HTTP 状态，不输出可能包含令牌、代理口令的原始错误。
+func liveHangupFailureFields(err error) logrus.Fields {
+	fields := logrus.Fields{"failure_kind": "transport"}
+	var status interface{ StatusCode() int }
+	var network net.Error
+	switch {
+	case errors.As(err, &status):
+		fields["failure_kind"] = "http"
+		fields["upstream_status"] = status.StatusCode()
+	case errors.Is(err, context.DeadlineExceeded) || errors.As(err, &network) && network.Timeout():
+		fields["failure_kind"] = "timeout"
+	case errors.Is(err, context.Canceled):
+		fields["failure_kind"] = "canceled"
+	}
+	return fields
 }
 
 func (store *liveSessions) closeAll() {
@@ -310,10 +341,14 @@ func (call *liveCallSession) recordClose(reason string) {
 		switch reason {
 		case "client_hangup", "client_media_ended", "upstream_session_ended":
 			call.recorder.outcome.status = telemetry.RequestStatusSuccess
-		case "server_shutdown", "key_revoked":
+		case "server_shutdown", "key_revoked", "client_disconnected":
 			call.recorder.outcome.status = telemetry.RequestStatusCanceled
 			call.recorder.outcome.errorCode = reason
 			call.recorder.outcome.errorSummary = "Codex live session was canceled."
+		case "hangup_failed":
+			call.recorder.outcome.status = telemetry.RequestStatusIncomplete
+			call.recorder.outcome.errorCode = reason
+			call.recorder.outcome.errorSummary = "Codex live local session ended, but upstream hangup was not confirmed."
 		default:
 			call.recorder.outcome.status = telemetry.RequestStatusIncomplete
 			call.recorder.outcome.errorCode = reason

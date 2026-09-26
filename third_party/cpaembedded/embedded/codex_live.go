@@ -47,6 +47,8 @@ type CodexLiveCall struct {
 
 type CodexLiveHTTPError struct{ Status int }
 
+func (err *CodexLiveHTTPError) StatusCode() int { return err.Status }
+
 func (err *CodexLiveHTTPError) Error() string {
 	return fmt.Sprintf("codex live upstream returned %d", err.Status)
 }
@@ -114,28 +116,27 @@ func StartCodexLive(ctx context.Context, input CodexLiveRequest) (CodexLiveCall,
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return CodexLiveCall{}, &CodexLiveHTTPError{Status: response.StatusCode}
 	}
-	answer, err := io.ReadAll(io.LimitReader(response.Body, codexLiveMaxBody+1))
-	if err != nil || len(answer) > codexLiveMaxBody {
-		return CodexLiveCall{}, errors.New("invalid codex live SDP response")
-	}
 	callID, err := codexLiveCallID(response.Header.Get("Location"))
 	if err != nil {
 		return CodexLiveCall{}, errors.New("codex live call response is incomplete")
-	}
-	responseSDP, err := codexLiveResponseSDP(answer, response.Header.Get("Content-Type"))
-	if err != nil {
-		return CodexLiveCall{}, err
 	}
 	session := &CodexLiveSession{
 		credential: CodexCredential{AccessToken: input.Credential.AccessToken, AccountID: input.Credential.AccountID},
 		authID:     input.CredentialID, baseURL: input.BaseURL, proxyURL: proxyURL,
 		sideband: sidebandBase, callID: callID, headers: input.Headers.Clone(), doHTTP: doHTTP,
 	}
-	return CodexLiveCall{CallID: callID, SDP: responseSDP, Header: http.Header{
+	call := CodexLiveCall{CallID: callID, Header: http.Header{
 		"Location":          {response.Header.Get("Location")},
 		"X-Request-Id":      response.Header.Values("X-Request-Id"),
 		"Openai-Request-Id": response.Header.Values("Openai-Request-Id"),
-	}, Session: session}, nil
+	}, Session: session}
+	// 上游已经创建通话；即使 SDP 读取或解析失败也保留清理句柄。
+	answer, err := io.ReadAll(io.LimitReader(response.Body, codexLiveMaxBody+1))
+	if err != nil || len(answer) > codexLiveMaxBody {
+		return call, errors.New("invalid codex live SDP response")
+	}
+	call.SDP, err = codexLiveResponseSDP(answer, response.Header.Get("Content-Type"))
+	return call, err
 }
 
 func codexLiveResponseSDP(body []byte, contentType string) (string, error) {

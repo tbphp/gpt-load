@@ -123,3 +123,23 @@ func TestCodexLiveAcceptsJSONAnswerAndCallIDShapes(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexLiveInvalidAnswerPreservesSessionForCleanup(t *testing.T) {
+	for _, body := range []string{"", `{"sdp":""}`, `{"sdp":42}`} {
+		t.Run(body, func(t *testing.T) {
+			request := CodexLiveRequest{
+				CredentialID: "credential-1",
+				Credential:   CodexCredential{Type: ProviderCodex, AccessToken: "access", RefreshToken: "refresh", AccountID: "account"},
+				Body:         []byte(`{"sdp":"offer"}`),
+				doHTTP: func(context.Context, *http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: http.StatusCreated, Body: io.NopCloser(strings.NewReader(body)),
+						Header: http.Header{"Location": {"rtc_cleanup"}, "Content-Type": {"application/json"}}}, nil
+				},
+			}
+			call, err := StartCodexLive(t.Context(), request)
+			if err == nil || call.Session == nil || call.CallID != "rtc_cleanup" {
+				t.Fatalf("invalid answer lost cleanup handle: call=%+v, error=%v", call, err)
+			}
+		})
+	}
+}
