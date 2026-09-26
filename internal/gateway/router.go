@@ -162,9 +162,6 @@ func responsesRegisteredMethods() []string {
 func mistralVoiceMethods() []string {
 	return []string{
 		http.MethodGet,
-		http.MethodPost,
-		http.MethodPatch,
-		http.MethodDelete,
 		http.MethodHead,
 	}
 }

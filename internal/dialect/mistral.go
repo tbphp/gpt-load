@@ -166,7 +166,7 @@ func mistralAllowsStream(operation execution.Operation) bool {
 // mistralVoiceMethod reports whether the method is valid for a voice path.
 func mistralVoiceMethod(method string) bool {
 	switch method {
-	case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete, http.MethodHead:
+	case http.MethodGet, http.MethodHead:
 		return true
 	default:
 		return false
