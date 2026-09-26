@@ -27,6 +27,7 @@ func TestCodexServiceTierHTTP(t *testing.T) {
 						return nil, err
 					}
 					assertCodexServiceTierRequest(t, body, tier)
+					assertCodexRoutingHint(t, request.Header, body)
 					response := append([]byte("data: "), wsCompleted("resp_fast")...)
 					response = append(response, '\n', '\n')
 					return &http.Response{
@@ -92,6 +93,7 @@ func TestCodexServiceTierWebsocket(t *testing.T) {
 					return
 				}
 				assertCodexServiceTierRequest(t, body, tier)
+				assertCodexRoutingHint(t, request.Header, body)
 				if err := connection.WriteMessage(websocket.TextMessage, wsCompleted("resp_fast_ws")); err != nil {
 					t.Error(err)
 				}
@@ -131,6 +133,14 @@ func assertCodexServiceTierRequest(t *testing.T, body []byte, requested string) 
 	}
 	if !gjson.GetBytes(body, "input").IsArray() || gjson.GetBytes(body, "store").Type != gjson.False {
 		t.Error("request lost the original Codex input and store conversions")
+	}
+}
+
+func assertCodexRoutingHint(t *testing.T, headers http.Header, body []byte) {
+	t.Helper()
+	want := "model=gpt-5;tier=" + gjson.GetBytes(body, "service_tier").String()
+	if got := headers.Get("X-Codex-Routing-Hint"); got != want {
+		t.Errorf("outbound routing hint = %q, want %q", got, want)
 	}
 }
 

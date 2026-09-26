@@ -14,14 +14,14 @@ const (
 	// CodexModelCatalogVersion identifies the Codex client contract represented by the embedded snapshot.
 	CodexModelCatalogVersion = "0.155.0"
 	// CodexModelCatalogCPASDKVersion identifies the CPA SDK release tested with this snapshot.
-	CodexModelCatalogCPASDKVersion = "v7.3.15"
+	CodexModelCatalogCPASDKVersion = "v7.3.17"
 	codexModelCatalogSHA256        = "7b15fec55ed279c2a0f4b6dfd1f7d2617d7c9f22e94d385242a8cd9534411d38"
 	codexFallbackModel             = "gpt-5.5"
 )
 
 const personalityPlaceholder = "{{ personality }}"
 
-// Snapshot source: router-for-me/CLIProxyAPI v7.3.15, internal/registry/models/codex_client_models.json.
+// Snapshot source: router-for-me/CLIProxyAPI v7.3.17, internal/registry/models/codex_client_models.json.
 // CPA fetches this upstream model catalog using Codex client version 0.155.0.
 //
 //go:embed codex_client_models_0.155.0.json
