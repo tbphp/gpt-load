@@ -21,6 +21,7 @@ export interface FieldProps {
   labelHidden?: boolean
   id?: string
   description?: string
+  descriptionWarning?: string
   error?: string
   invalid?: boolean
   describedBy?: string

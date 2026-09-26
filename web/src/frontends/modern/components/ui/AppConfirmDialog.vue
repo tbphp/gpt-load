@@ -98,17 +98,19 @@ function focusInitialAction(event: Event): void {
           <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
         </div>
         <footer ref="actions" class="modern-confirm-actions">
-          <AppButton data-cancel-action :disabled="pending" @click="cancel">{{
-            cancelLabel || t('ui.cancel')
-          }}</AppButton>
-          <AppButton
-            data-confirm-action
-            :variant="tone === 'danger' ? 'danger' : 'primary'"
-            :loading="pending"
-            :disabled="disabled || pending"
-            @click="emit('confirm')"
-            >{{ confirmLabel }}</AppButton
-          >
+          <slot name="actions">
+            <AppButton data-cancel-action :disabled="pending" @click="cancel">{{
+              cancelLabel || t('ui.cancel')
+            }}</AppButton>
+            <AppButton
+              data-confirm-action
+              :variant="tone === 'danger' ? 'danger' : 'primary'"
+              :loading="pending"
+              :disabled="disabled || pending"
+              @click="emit('confirm')"
+              >{{ confirmLabel }}</AppButton
+            >
+          </slot>
         </footer>
       </div>
     </AppDialogContent>

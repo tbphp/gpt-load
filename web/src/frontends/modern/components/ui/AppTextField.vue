@@ -21,27 +21,30 @@ defineExpose({
 </script>
 
 <template>
-  <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
-    <AppFieldControl
-      class="modern-text-field-control"
-      :invalid="invalid"
-      :disabled="disabled"
-      :size="size"
-    >
-      <AppIcon v-if="icon" :icon="icon" size="sm" :label="label" />
-      <input
-        v-bind="controlAttrs($attrs)"
-        :id="id"
-        ref="input"
-        v-model="model"
-        :type="($attrs.type as string) ?? 'text'"
+  <AppField v-bind="{ ...props, ...layoutAttrs($attrs) }">
+    <template v-if="$slots['label-extra']" #label-extra><slot name="label-extra" /></template>
+    <template #default="{ id, describedBy, invalid }">
+      <AppFieldControl
+        class="modern-text-field-control"
+        :invalid="invalid"
         :disabled="disabled"
-        :aria-invalid="invalid || undefined"
-        :aria-describedby="describedBy"
-        :aria-busy="loading || undefined"
-      />
-      <slot name="suffix" />
-    </AppFieldControl>
+        :size="size"
+      >
+        <AppIcon v-if="icon" :icon="icon" size="sm" :label="label" />
+        <input
+          v-bind="controlAttrs($attrs)"
+          :id="id"
+          ref="input"
+          v-model="model"
+          :type="($attrs.type as string) ?? 'text'"
+          :disabled="disabled"
+          :aria-invalid="invalid || undefined"
+          :aria-describedby="describedBy"
+          :aria-busy="loading || undefined"
+        />
+        <slot name="suffix" />
+      </AppFieldControl>
+    </template>
   </AppField>
 </template>
 

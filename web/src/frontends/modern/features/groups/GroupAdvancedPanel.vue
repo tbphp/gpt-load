@@ -38,9 +38,10 @@ import {
   AppTextField,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
-import { validBaseURL } from './group-create-rules'
+import { groupConnectionParams, validBaseURL } from './group-create-rules'
 import { validProxyURL } from '@modern/app/proxy'
 import GroupChannelSelect from './GroupChannelSelect.vue'
+import GroupBaseURLField from './GroupBaseURLField.vue'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import ParameterRulesEditor from '../config/ParameterRulesEditor.vue'
 import { groupValidationModelOptions } from './group-model-options'
@@ -239,9 +240,7 @@ async function save(): Promise<void> {
   if (rules.value.length) overrides.parameter_overrides = rules.value
   else delete overrides.parameter_overrides
   const patch: AdvancedSettingsPatch = {}
-  const nextParams = Object.fromEntries(
-    Object.entries(params.value).map(([key, value]) => [key, value.trim()]),
-  )
+  const nextParams = groupConnectionParams(params.value, props.channel)
   if (JSON.stringify(nextParams) !== JSON.stringify(base.params)) patch.params = nextParams
   if ((validationModel.value || null) !== base.validationModel)
     patch.validation_model = validationModel.value || null
@@ -374,19 +373,29 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           @update:model-value="requestChannelSwitch($event)"
         />
         <AppNotice v-if="switchError" tone="danger">{{ switchError }}</AppNotice>
-        <AppTextField
-          v-for="field in channel?.fields ?? []"
-          :key="field.key"
-          :model-value="params[field.key] ?? ''"
-          :label="field.label"
-          :placeholder="field.defaultValue"
-          :type="field.sensitive ? 'password' : 'text'"
-          size="sm"
-          :disabled="busy"
-          :error="attempted ? paramErrors[field.key] : undefined"
-          autocomplete="off"
-          @update:model-value="params[field.key] = $event"
-        />
+        <template v-for="field in channel?.fields ?? []" :key="field.key">
+          <GroupBaseURLField
+            v-if="field.key === 'base_url' && channel"
+            :model-value="params[field.key] ?? ''"
+            :channel="channel"
+            size="sm"
+            :disabled="busy"
+            :error="attempted ? paramErrors[field.key] : undefined"
+            @update:model-value="params[field.key] = $event"
+          />
+          <AppTextField
+            v-else
+            :model-value="params[field.key] ?? ''"
+            :label="field.label"
+            :placeholder="field.defaultValue"
+            :type="field.sensitive ? 'password' : 'text'"
+            size="sm"
+            :disabled="busy"
+            :error="attempted ? paramErrors[field.key] : undefined"
+            autocomplete="off"
+            @update:model-value="params[field.key] = $event"
+          />
+        </template>
         <div v-if="group.connectionType === 'api_key'" class="modern-advanced-columns">
           <AppSearchSelect
             v-model="validationModel"

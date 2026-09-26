@@ -33,6 +33,7 @@ import { useLoadingFeedback } from '@modern/components/ui/loading'
 import { useApiClient } from '@shared/http/client-context'
 import { ApiError } from '@shared/http/errors'
 import GroupChannelSelect from './GroupChannelSelect.vue'
+import GroupBaseURLField from './GroupBaseURLField.vue'
 import GroupModelPicker from './GroupModelPicker.vue'
 import GroupEditorSurface from './GroupEditorSurface.vue'
 import SubscriptionCredentialStager from './SubscriptionCredentialStager.vue'
@@ -40,6 +41,7 @@ import { useGroupCreateOperation } from './group-create-operation'
 import { validProxyURL } from '@modern/app/proxy'
 import {
   credentialCount,
+  groupConnectionParams,
   modelErrors,
   validBaseURL,
   type GroupDraftModel,
@@ -87,6 +89,10 @@ const connectionRevision = ref(0)
 const attempted = ref(false)
 const errorText = ref('')
 const conflicts = ref<{ id: number; name: string }[]>([])
+const conflictID = ref('')
+const selectedConflict = computed(() =>
+  conflicts.value.find((group) => String(group.id) === conflictID.value),
+)
 const operation = useGroupCreateOperation(client)
 const locked = computed(() => Boolean(operation.operation.value) || operation.pending.value)
 const inputLocked = computed(() => locked.value || stagingBusy.value)
@@ -218,10 +224,7 @@ function selectChannel(value: string): void {
   cancelDiscovery()
   channelID.value = value
   params.value = Object.fromEntries(
-    (channel.value?.fields ?? []).map((field) => [
-      field.key,
-      field.defaultValue || (field.key === 'base_url' ? (channel.value?.defaultBaseURL ?? '') : ''),
-    ]),
+    (channel.value?.fields ?? []).map((field) => [field.key, field.defaultValue]),
   )
   credentials.value = ''
   stages.value = []
@@ -270,9 +273,7 @@ function connection(): GroupConnectionDraft {
   const proxy = proxyOverride.value
   return {
     channel_id: channelID.value,
-    params: Object.fromEntries(
-      Object.entries(params.value).map(([key, value]) => [key, value.trim()]),
-    ),
+    params: groupConnectionParams(params.value, channel.value),
     ...(proxy ? { proxy } : {}),
   }
 }
@@ -382,8 +383,7 @@ async function execute(): Promise<void> {
         })
         if (groups.length) {
           conflicts.value = groups
-          await nextTick()
-          errorBox.value?.focus()
+          conflictID.value = groups.length === 1 ? String(groups[0]!.id) : ''
           return
         }
       } catch {
@@ -580,41 +580,51 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
           :error="attempted ? nameError : undefined"
         />
         <template v-if="channel">
-          <AppTextField
-            v-for="field in channel.fields"
-            :key="field.key"
-            :ref="(element) => paramRef(field.key, element)"
-            :model-value="params[field.key] ?? ''"
-            :label="field.key === 'base_url' ? t('groupCreate.baseURL') : field.label"
-            :type="
-              (field.sensitive || field.inputKind === 'secret') && !secretsVisible.has(field.key)
-                ? 'password'
-                : 'text'
-            "
-            :placeholder="
-              field.defaultValue || (field.inputKind === 'url' ? 'https://' : undefined)
-            "
-            :disabled="inputLocked"
-            :error="attempted ? paramErrors[field.key] : undefined"
-            autocomplete="off"
-            spellcheck="false"
-            @update:model-value="params[field.key] = $event"
-          >
-            <template v-if="field.sensitive || field.inputKind === 'secret'" #suffix>
-              <AppIconButton
-                :icon="secretsVisible.has(field.key) ? EyeOff : Eye"
-                :label="
-                  t(
-                    secretsVisible.has(field.key)
-                      ? 'groupCreate.hideSecret'
-                      : 'groupCreate.showSecret',
-                  )
-                "
-                size="xs"
-                @click="toggleSecret(field.key)"
-              />
-            </template>
-          </AppTextField>
+          <template v-for="field in channel.fields" :key="field.key">
+            <GroupBaseURLField
+              v-if="field.key === 'base_url'"
+              :ref="(element) => paramRef(field.key, element)"
+              :model-value="params[field.key] ?? ''"
+              :channel="channel"
+              :disabled="inputLocked"
+              :error="attempted ? paramErrors[field.key] : undefined"
+              @update:model-value="params[field.key] = $event"
+            />
+            <AppTextField
+              v-else
+              :ref="(element) => paramRef(field.key, element)"
+              :model-value="params[field.key] ?? ''"
+              :label="field.label"
+              :type="
+                (field.sensitive || field.inputKind === 'secret') && !secretsVisible.has(field.key)
+                  ? 'password'
+                  : 'text'
+              "
+              :placeholder="
+                field.defaultValue || (field.inputKind === 'url' ? 'https://' : undefined)
+              "
+              :disabled="inputLocked"
+              :error="attempted ? paramErrors[field.key] : undefined"
+              autocomplete="off"
+              spellcheck="false"
+              @update:model-value="params[field.key] = $event"
+            >
+              <template v-if="field.sensitive || field.inputKind === 'secret'" #suffix>
+                <AppIconButton
+                  :icon="secretsVisible.has(field.key) ? EyeOff : Eye"
+                  :label="
+                    t(
+                      secretsVisible.has(field.key)
+                        ? 'groupCreate.hideSecret'
+                        : 'groupCreate.showSecret',
+                    )
+                  "
+                  size="xs"
+                  @click="toggleSecret(field.key)"
+                />
+              </template>
+            </AppTextField>
+          </template>
           <AppTextArea
             v-if="!subscription"
             ref="credentialInput"
@@ -700,28 +710,7 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
             </div>
           </details>
         </template>
-        <section
-          v-if="conflicts.length"
-          ref="errorBox"
-          class="modern-group-create-conflict"
-          tabindex="-1"
-        >
-          <AppNotice tone="warning">{{ t('groupCreate.targetConflict') }}</AppNotice>
-          <p>{{ t('groupCreate.appendHelp') }}</p>
-          <div v-for="group in conflicts" :key="group.id" class="modern-group-create-conflict-row">
-            <span>{{ group.name }}</span>
-            <AppButton size="sm" :disabled="operation.pending.value" @click="appendTo(group)">{{
-              t('groupCreate.append')
-            }}</AppButton>
-          </div>
-          <div class="modern-group-create-actions">
-            <AppButton size="sm" @click="editDraft">{{ t('groupCreate.editDraft') }}</AppButton>
-            <AppButton size="sm" variant="primary" @click="confirmSeparate">{{
-              t('groupCreate.createSeparate')
-            }}</AppButton>
-          </div>
-        </section>
-        <div v-else-if="unresolved" ref="errorBox" tabindex="-1">
+        <div v-if="unresolved" ref="errorBox" tabindex="-1">
           <AppNotice tone="warning">
             {{ t('groupCreate.outcome.' + outcome!.kind) }}
             <template #actions>
@@ -764,6 +753,36 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
       </footer>
     </form>
   </GroupEditorSurface>
+  <AppConfirmDialog
+    :open="conflicts.length > 0"
+    :title="t('groupCreate.targetConflict')"
+    :description="t('groupCreate.appendHelp')"
+    :subject="conflicts.length === 1 ? conflicts[0]?.name : undefined"
+    :confirm-label="t('groupCreate.append')"
+    :disabled="!selectedConflict"
+    :pending="operation.pending.value"
+    @cancel="editDraft"
+  >
+    <AppSearchSelect
+      v-if="conflicts.length > 1"
+      v-model="conflictID"
+      :label="t('groupWorkflows.chooseGroup')"
+      :options="conflicts.map((group) => ({ value: String(group.id), label: group.name }))"
+      :disabled="operation.pending.value"
+    />
+    <template #actions>
+      <AppButton data-cancel-action :disabled="operation.pending.value" @click="confirmSeparate">{{
+        t('groupCreate.createSeparate')
+      }}</AppButton>
+      <AppButton
+        data-confirm-action
+        variant="primary"
+        :disabled="!selectedConflict || operation.pending.value"
+        @click="selectedConflict && appendTo(selectedConflict)"
+        >{{ t('groupCreate.append') }}</AppButton
+      >
+    </template>
+  </AppConfirmDialog>
   <AppConfirmDialog
     :open="Boolean(confirmAction)"
     :title="t(confirmAction === 'channel' ? 'groupCreate.changeChannel' : 'groups.edit.unsaved')"
@@ -867,23 +886,5 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
   align-items: center;
   gap: var(--modern-space-2);
   margin-left: auto;
-}
-.modern-group-create-conflict {
-  display: grid;
-  gap: var(--modern-space-3);
-}
-.modern-group-create-conflict > p {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-secondary);
-}
-.modern-group-create-conflict-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--modern-space-3);
-}
-.modern-group-create-conflict-row > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 </style>

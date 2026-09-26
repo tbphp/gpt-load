@@ -36,19 +36,15 @@ import { loginLocation } from '@modern/app/redirect'
 import AppearanceMenu from './AppearanceMenu.vue'
 import { provideLoadingActivity, useLoadingFeedback } from '@modern/components/ui/loading'
 import SidebarContent from './SidebarContent.vue'
-import ImportGuide from '@modern/features/import/ImportGuide.vue'
 
 const { t, locale } = useI18n()
 const session = useAuthSession()
 const route = useRoute()
 const router = useRouter()
-function closeImport(): void {
-  const query = { ...route.query }
-  delete query.import
-  delete query.import_mode
-  delete query.import_group
-  void router.replace({ query })
-}
+const createGroupLocation = computed(() => ({
+  name: 'modern-groups',
+  query: { ...(route.name === 'modern-groups' ? route.query : {}), panel: 'create' },
+}))
 const { sidebarCollapsed, toggleSidebar, persistenceFailed } = usePreferences()
 provideSystemStatus()
 const mobileOpen = ref(false)
@@ -171,10 +167,6 @@ useMessageSource(() =>
 </script>
 
 <template>
-  <ImportGuide
-    v-if="route.query.import === '1' && session.state.principalType === 'admin'"
-    @close="closeImport"
-  />
   <a class="modern-skip-link" href="#modern-content">{{ t('skipToContent') }}</a>
   <div class="modern-app" :class="{ 'is-sidebar-collapsed': sidebarCollapsed }">
     <aside id="modern-desktop-sidebar" class="modern-sidebar">
@@ -237,17 +229,9 @@ useMessageSource(() =>
               {{ t('auth.readOnly') }}
             </AppBadge>
           </AppTooltip>
-          <AppTooltip
-            v-if="session.state.principalType === 'admin'"
-            :label="t('shell.importCredentials')"
-          >
-            <AppButton
-              variant="brand"
-              icon-only
-              :aria-label="t('shell.importCredentials')"
-              as-child
-            >
-              <RouterLink :to="{ path: route.path, query: { ...route.query, import: '1' } }"
+          <AppTooltip v-if="session.state.principalType === 'admin'" :label="t('groups.create')">
+            <AppButton variant="brand" icon-only :aria-label="t('groups.create')" as-child>
+              <RouterLink :to="createGroupLocation"
                 ><AppIcon :icon="CirclePlus" size="lg"
               /></RouterLink>
             </AppButton>
