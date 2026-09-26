@@ -320,8 +320,13 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 			if evidence.StatusCode >= 400 && evidence.StatusCode < 600 {
 				status = evidence.StatusCode
 			}
-			result := UpstreamResult{StatusCode: status, DispatchState: execution.DispatchMaybeSent,
-				ExecutionError: evidence, ErrorSummary: evidence.Summary, ResponseStarted: evidence.StatusCode != 0, UpstreamProtocol: protocol.CodexLive}
+			dispatch := upstream.DispatchState
+			if !dispatch.Valid() {
+				dispatch = execution.DispatchMaybeSent
+			}
+			result := UpstreamResult{StatusCode: evidence.StatusCode, DispatchState: dispatch,
+				ExecutionError: evidence, ErrorSummary: evidence.Summary,
+				ResponseStarted: dispatch == execution.DispatchMaybeSent && evidence.StatusCode != 0, UpstreamProtocol: protocol.CodexLive}
 			decisionAt := handler.now()
 			decision := judgeUpstreamResult(result, decisionAt, health.DecisionContext{
 				DefaultRateLimitCooldown: subscriptionruntime.DefaultRefreshFailureCooldown,
@@ -331,7 +336,7 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 				decision.Retry = health.RetryNextCandidate
 			}
 			attemptIndex := recorder.recordAttempt(selection, credential.secrets, result, decision, started, handler.requestNow())
-			handler.applyGroupDecisionEffect(selection.Group, ref, 0, decision, status, decisionAt, *selection.UpstreamModelID)
+			handler.applyGroupDecisionEffect(selection.Group, ref, refreshCooldownCredentialVersion(result, ref.Version), decision, status, decisionAt, *selection.UpstreamModelID)
 			failure = reason{Status: status, Code: "codex_live_upstream_failed", Message: "Codex live upstream request failed."}
 			if status == http.StatusForbidden {
 				failure.Code = "codex_live_upstream_forbidden"
@@ -565,7 +570,10 @@ func (handler *Handler) hangupCodexLive(c *gin.Context, request *dataPlaneReques
 		_ = handler.writeReason(c, reasonLiveSession)
 		return
 	}
-	handler.liveSessions.finishCall(call, "client_hangup")
+	if err := handler.liveSessions.finishCall(call, "client_hangup"); err != nil {
+		_ = handler.writeReason(c, reason{Status: http.StatusBadGateway, Code: "codex_live_hangup_failed", Message: "Codex live hangup was not confirmed; retry the hangup request."})
+		return
+	}
 	c.Status(http.StatusNoContent)
 }
 

@@ -11,10 +11,12 @@ import (
 // LiveCall is the result of one Codex Live session bootstrap. The selected
 // credential remains owned by Session for the complete call.
 type LiveCall struct {
-	CallID  string
-	SDP     string
-	Header  http.Header
-	Session LiveSession
+	// DispatchState 在失败时也必须区分是否已发送建连请求。
+	DispatchState DispatchState
+	CallID        string
+	SDP           string
+	Header        http.Header
+	Session       LiveSession
 }
 
 // LiveSession is bound to one upstream call and never selects another account.

@@ -106,7 +106,14 @@ func TestCodexLiveDirectControlDeadlineAndHangupFailure(t *testing.T) {
 			call, _ := handler.liveSessions.lookup("rtc_1", 1)
 			if failedHangup {
 				fake.sessions[0].hangupErr = errors.New("upstream unavailable")
-				handler.liveSessions.finishCall(call, "client_hangup")
+				if err := handler.liveSessions.finishCall(call, "client_hangup"); err == nil {
+					t.Fatal("unconfirmed hangup returned success")
+				}
+				if _, found := handler.liveSessions.lookup(call.id, 1); !found {
+					t.Fatal("unconfirmed session was discarded")
+				}
+				// 停机无法继续重试时才记录最终未完成结果。
+				handler.CloseCodexLive()
 			} else {
 				handler.liveSessions.mu.Lock()
 				if call.reconnect == nil {
@@ -189,5 +196,31 @@ func TestCodexLiveRefreshesRejectedCredentialWithinRetryBudget(t *testing.T) {
 	handler.CloseCodexLive()
 	if attempts := waitWebsocketLogs(t, sink, 1)[0].Attempts; len(attempts) != 2 || !attempts[0].WillRetry {
 		t.Fatalf("attempts=%+v", attempts)
+	}
+}
+
+func TestCodexLivePreparationFailureFallsBackToAnotherAccount(t *testing.T) {
+	fake := &liveFakeOpener{dispatchState: execution.DispatchNotSent, failures: map[uint]*execution.ErrorEvidence{1: {
+		Kind: execution.ErrorKindProvider, Hint: execution.FailureHintReauthorizationRequired,
+		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeCredential,
+		Code: "refresh_outcome_unknown", Summary: "subscription credential refresh outcome is unknown",
+	}}}
+	handler, engine, sink, _, _ := liveGatewayFixture(t, fake)
+	setLiveGroupMode(handler, 1, state.CodexLiveDirect)
+	setLiveGroupMode(handler, 2, state.CodexLiveDirect)
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	_, offer := liveClientOffer(t)
+	response := liveRequest(t, server.Client(), http.MethodPost, server.URL+"/v1/realtime/calls", "gl-client", "application/sdp", []byte(offer))
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("preparation failure stopped failover: HTTP %d, attempts %v", response.StatusCode, fake.attempted)
+	}
+	if len(fake.attempted) != 2 || fake.attempted[0] != 1 || fake.attempted[1] != 2 {
+		t.Fatalf("attempts = %v", fake.attempted)
+	}
+	handler.CloseCodexLive()
+	event := waitWebsocketLogs(t, sink, 1)[0]
+	if event.Attempts[0].DispatchState != execution.DispatchNotSent || event.Attempts[0].ResponseStarted || !event.Attempts[0].WillRetry {
+		t.Fatalf("preparation log = %+v", event.Attempts[0])
 	}
 }

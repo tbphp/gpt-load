@@ -27,16 +27,17 @@ import (
 )
 
 type liveFakeOpener struct {
-	mu         sync.Mutex
-	selected   []uint
-	models     []string
-	sessions   []*liveFakeUpstream
-	wsURL      string
-	failure    *execution.ErrorEvidence
-	failures   map[uint]*execution.ErrorEvidence
-	attempted  []uint
-	offers     []string
-	failureFor func(execution.AttemptSpec) *execution.ErrorEvidence
+	mu            sync.Mutex
+	selected      []uint
+	models        []string
+	sessions      []*liveFakeUpstream
+	wsURL         string
+	failure       *execution.ErrorEvidence
+	failures      map[uint]*execution.ErrorEvidence
+	attempted     []uint
+	offers        []string
+	failureFor    func(execution.AttemptSpec) *execution.ErrorEvidence
+	dispatchState execution.DispatchState
 }
 
 type liveFakeUpstream struct {
@@ -59,7 +60,7 @@ func (fake *liveFakeOpener) OpenLive(ctx context.Context, spec execution.Attempt
 		failure = fake.failureFor(spec)
 	}
 	if failure != nil {
-		return execution.LiveCall{}, failure
+		return execution.LiveCall{DispatchState: fake.dispatchState}, failure
 	}
 	if fake.failure != nil {
 		return execution.LiveCall{}, fake.failure
@@ -149,7 +150,10 @@ func (session *liveFakeUpstream) Hangup(context.Context) error {
 	session.hangup++
 	err := session.hangupErr
 	session.mu.Unlock()
-	return err
+	if err != nil {
+		return err
+	}
+	return session.peer.Close()
 }
 
 func (session *liveFakeUpstream) Close() error {
@@ -157,9 +161,10 @@ func (session *liveFakeUpstream) Close() error {
 	connection := session.conn
 	session.mu.Unlock()
 	if connection != nil {
-		_ = connection.Close()
+		return connection.Close()
 	}
-	return session.peer.Close()
+	// 与真实实现一致：关闭控制连接不会结束客户端直连的媒体。
+	return nil
 }
 
 func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engine, *recordingRequestLogSink, *state.CredentialRegistry, func(string)) {
@@ -198,7 +203,15 @@ func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engi
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
 	handler.ConfigureCodexLive(fake, config.CodexLiveConfig{MaxSessions: 8})
-	t.Cleanup(handler.CloseCodexLive)
+	t.Cleanup(func() {
+		handler.CloseCodexLive()
+		fake.mu.Lock()
+		sessions := append([]*liveFakeUpstream(nil), fake.sessions...)
+		fake.mu.Unlock()
+		for _, session := range sessions {
+			_ = session.peer.Close()
+		}
+	})
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return handler, engine, sink, registry, publishOwnerKey

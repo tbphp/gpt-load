@@ -18,11 +18,11 @@ func (a *Adapter) OpenLive(ctx context.Context, spec execution.AttemptSpec, offe
 	provider, baseURL, err := a.validateSpec(spec)
 	if err != nil || spec.ChannelID != string(channel.Codex) || spec.ClientProtocol != protocol.CodexLive ||
 		spec.Operation != execution.OperationLiveCall || spec.RouteMode != execution.RouteNative || provider.ProviderKind() != channel.ProviderCodex {
-		return execution.LiveCall{}, requestValidationEvidence(errors.New("unsupported codex live request"))
+		return execution.LiveCall{DispatchState: execution.DispatchNotSent}, requestValidationEvidence(errors.New("unsupported codex live request"))
 	}
 	settings, err := proxySettingsForAttempt(spec.Proxy)
 	if err != nil {
-		return execution.LiveCall{}, requestValidationEvidence(err)
+		return execution.LiveCall{DispatchState: execution.DispatchNotSent}, requestValidationEvidence(err)
 	}
 	if settings.URL == "" && !settings.FromEnvironment {
 		settings.URL = "direct"
@@ -30,24 +30,24 @@ func (a *Adapter) OpenLive(ctx context.Context, spec execution.AttemptSpec, offe
 	ctx = subscriptionruntime.WithNetworkContext(ctx, subscriptionruntime.NetworkContext{Proxy: spec.Proxy, Fingerprint: spec.ProxyFingerprint})
 	prepared, evidence := a.credentials.Prepare(ctx, channel.Codex, spec.Credential, spec.ForceCredentialRefresh)
 	if evidence != nil {
-		return execution.LiveCall{}, evidence
+		return execution.LiveCall{DispatchState: execution.DispatchNotSent}, modelAttemptPreparationEvidence(evidence)
 	}
 	canonical := prepared.Canonical()
 	parsed, err := provider.ParseCredential(canonical)
 	clear(canonical)
 	if err != nil {
-		return execution.LiveCall{}, requestValidationEvidence(err)
+		return execution.LiveCall{DispatchState: execution.DispatchNotSent}, requestValidationEvidence(err)
 	}
 	credential, ok := parsed.(codexProviderCredential)
 	if !ok {
-		return execution.LiveCall{}, requestValidationEvidence(errors.New("invalid codex live credential"))
+		return execution.LiveCall{DispatchState: execution.DispatchNotSent}, requestValidationEvidence(errors.New("invalid codex live credential"))
 	}
 	body, err := json.Marshal(struct {
 		SDP     string          `json:"sdp"`
 		Session json.RawMessage `json:"session"`
 	}{SDP: offer, Session: session})
 	if err != nil {
-		return execution.LiveCall{}, requestValidationEvidence(err)
+		return execution.LiveCall{DispatchState: execution.DispatchNotSent}, requestValidationEvidence(err)
 	}
 	call, err := codex.StartLive(ctx, codex.LiveRequest{
 		CredentialID: strconv.FormatUint(uint64(spec.Credential.ID), 10),
@@ -55,9 +55,9 @@ func (a *Adapter) OpenLive(ctx context.Context, spec execution.AttemptSpec, offe
 		ProxyFromEnvironment: settings.FromEnvironment, Headers: spec.Header.Clone(), Body: body,
 	})
 	if err != nil {
-		return execution.LiveCall{}, codexLiveFailure(err)
+		return execution.LiveCall{DispatchState: execution.DispatchMaybeSent}, codexLiveFailure(err)
 	}
-	return execution.LiveCall{CallID: call.CallID, SDP: call.SDP, Header: call.Header, Session: call.Session}, nil
+	return execution.LiveCall{DispatchState: execution.DispatchMaybeSent, CallID: call.CallID, SDP: call.SDP, Header: call.Header, Session: call.Session}, nil
 }
 
 func codexLiveFailure(err error) *execution.ErrorEvidence {

@@ -41,3 +41,25 @@ func TestCodexLiveRejectionEvidenceDoesNotReplayUnknownCreation(t *testing.T) {
 		t.Fatal("transport failure marked safe for replay")
 	}
 }
+
+func TestCodexLivePreparationFailureHasNoBootstrapDispatch(t *testing.T) {
+	adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
+	evidence := &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, Hint: execution.FailureHintRefreshUnavailable, StatusCode: 429, Code: "refresh_temporarily_unavailable", ScopeHint: execution.ErrorScopeCredential, RetryAfter: time.Minute, ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing}
+	preparer := &fakeCredentialPreparer{evidence: evidence}
+	adapter.credentials = preparer
+	spec := validSpec(t, row, keyService)
+	spec.ClientProtocol = protocol.CodexLive
+	spec.Operation = execution.OperationLiveCall
+	spec.ClientModel = channel.CodexLiveModelID
+	spec.UpstreamModel = channel.CodexLiveModelID
+	spec.Method = http.MethodPost
+	spec.Path = "/v1/realtime/calls"
+	spec.Body = json.RawMessage(`{"model":"gpt-live-1-codex"}`)
+	call, failure := adapter.OpenLive(t.Context(), spec, "unused-offer", json.RawMessage(`{}`))
+	if call.DispatchState != execution.DispatchNotSent || failure == nil || failure.StatusCode != 0 || failure.RetryAfter != time.Minute || preparer.calls != 1 {
+		t.Fatalf("call=%+v failure=%+v preparation count=%d", call, failure, preparer.calls)
+	}
+	if evidence.StatusCode != 429 {
+		t.Fatal("source refresh evidence was mutated")
+	}
+}
