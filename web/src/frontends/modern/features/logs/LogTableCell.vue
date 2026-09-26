@@ -283,7 +283,7 @@ function fieldFilterValue(field: LogColumnId): string {
             :aria-label="line.label ? line.label + ' ' + line.value : undefined"
           />
           <AppTooltip
-            v-if="index === 0 && row.request_audit && row.request_audit.status !== 'passed'"
+            v-if="index === 0 && row.request_audit"
             :label="
               t('requestAudit.title') +
               ' · ' +
@@ -298,17 +298,12 @@ function fieldFilterValue(field: LogColumnId): string {
             "
             ><small
               class="modern-log-auto-decision"
-              :class="row.request_audit.status === 'warned' ? 'is-warning' : 'is-danger'"
+              :class="{
+                'is-danger': row.request_audit.outcome === 'blocked',
+                'is-warning': row.request_audit.outcome === 'failed',
+              }"
               tabindex="0"
-              >{{
-                t(
-                  'requestAudit.statuses.' +
-                    (row.request_audit.status === 'incomplete' &&
-                    row.request_audit.reason === 'content_truncated'
-                      ? 'partial'
-                      : row.request_audit.status),
-                )
-              }}</small
+              >{{ t('requestAudit.statuses.' + row.request_audit.outcome) }}</small
             ></AppTooltip
           >
           <AppTooltip v-if="index === 0 && autoDecisionPreset" :label="autoDecisionTooltip">

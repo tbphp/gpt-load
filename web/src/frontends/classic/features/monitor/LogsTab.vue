@@ -856,10 +856,13 @@ function costLabel(log: RequestLogItemDto): string {
               </OverflowTooltip>
               <code v-else class="logs-list__model">—</code>
               <OverflowTooltip
-                v-if="log.request_audit && log.request_audit.status !== 'passed'"
+                v-if="log.request_audit"
                 as="small"
                 class="logs-list__auto-decision"
-                :class="log.request_audit.status === 'warned' ? 'is-warning' : 'is-danger'"
+                :class="{
+                  'is-danger': log.request_audit.outcome === 'blocked',
+                  'is-warning': log.request_audit.outcome === 'failed',
+                }"
                 :content="
                   t('requestAudit.title') +
                   ' · ' +
@@ -872,15 +875,7 @@ function costLabel(log: RequestLogItemDto): string {
                     .filter(Boolean)
                     .join(' · ')
                 "
-                >{{
-                  t(
-                    'requestAudit.statuses.' +
-                      (log.request_audit.status === 'incomplete' &&
-                      log.request_audit.reason === 'content_truncated'
-                        ? 'partial'
-                        : log.request_audit.status),
-                  )
-                }}</OverflowTooltip
+                >{{ t('requestAudit.statuses.' + log.request_audit.outcome) }}</OverflowTooltip
               >
               <OverflowTooltip
                 v-if="log.auto_decision"
