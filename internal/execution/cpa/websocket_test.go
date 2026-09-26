@@ -2,7 +2,10 @@ package cpa
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +14,57 @@ import (
 	"gpt-load/internal/health"
 	"gpt-load/internal/subscription/providers/codex"
 )
+
+func TestWebsocketUnsentNetworkFailureCanSelectAnotherCandidate(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	endpoint := strings.Replace(upstream.URL, "http:", "https:", 1)
+	upstream.Close()
+	session, err := codex.NewWSSession(codex.WSSessionOptions{CredentialID: "fixture",
+		Credential: codex.Credential{Type: "codex", AccessToken: "fixture-access", RefreshToken: "fixture-refresh", AccountID: "fixture-account"},
+		BaseURL:    endpoint, ProxyURL: "direct", TurnTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	result, err := session.ExecuteTurn(t.Context(), json.RawMessage(`{"model":"test","input":"hello","store":false}`), nil)
+	evidence := codexWebsocketEvidence(t.Context(), err)
+	if result.DispatchState != codex.WSNotSent || evidence == nil || evidence.Kind != execution.ErrorKindTransport || evidence.OriginHint != execution.ErrorOriginUpstream {
+		t.Fatalf("dispatch=%s evidence=%+v", result.DispatchState, evidence)
+	}
+	decision := health.JudgeExecution(health.ExecutionAttempt{DispatchState: execution.DispatchNotSent, Evidence: evidence}, health.DecisionContext{Operation: execution.OperationResponsesCreate})
+	if decision.Retry != health.RetryNextCandidate || decision.Effect != health.EffectSkipGroup {
+		t.Fatalf("decision=%+v", decision)
+	}
+}
+
+func TestWebsocketUnsentValidationAndTimeoutEvidence(t *testing.T) {
+	for _, test := range []struct {
+		code   string
+		kind   execution.ErrorKind
+		origin execution.ErrorOrigin
+	}{
+		{"unsupported_request", execution.ErrorKindInvalidRequest, execution.ErrorOriginInternal},
+		{"invalid_proxy", execution.ErrorKindInvalidRequest, execution.ErrorOriginInternal},
+		{"timeout", execution.ErrorKindTimeout, execution.ErrorOriginUpstream},
+		{"canceled", execution.ErrorKindCanceled, execution.ErrorOriginDownstream},
+	} {
+		evidence := codexWebsocketEvidence(t.Context(), &codex.WSError{Code: test.code, DispatchState: codex.WSNotSent})
+		if evidence.Kind != test.kind || evidence.OriginHint != test.origin {
+			t.Errorf("%s: %+v", test.code, evidence)
+		}
+	}
+}
+
+func TestWebsocketMalformedEventRetainsProtocolEvidence(t *testing.T) {
+	for _, code := range []string{"invalid_event", "event_too_large"} {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		evidence := codexWebsocketEvidence(ctx, &codex.WSError{Code: code, DispatchState: codex.WSMaybeSent})
+		if evidence.Kind != execution.ErrorKindProvider || evidence.OriginHint != execution.ErrorOriginUpstream || evidence.Code != "upstream_protocol_error" {
+			t.Errorf("%s: %+v", code, evidence)
+		}
+	}
+}
 
 func TestWebsocketModelCapacityDoesNotApplyQuotaCooldown(t *testing.T) {
 	for _, code := range []string{"model_at_capacity", "model_is_at_capacity"} {

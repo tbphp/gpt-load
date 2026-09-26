@@ -405,6 +405,7 @@ func testWebsocketBoundRetryableErrorRequestsClientReconnect(t *testing.T, paylo
 					return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent,
 						Error: &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled}}
 				}
+				return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent}
 			}
 			if err := emit(ctx, payload); err != nil {
 				return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent, Error: &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled}}
