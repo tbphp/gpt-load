@@ -32,6 +32,19 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 		OperationEmbeddingsCreate,
 		OperationRerank,
 		OperationDecisionsCreate,
+		OperationMistralOCR,
+		OperationMistralFIM,
+		OperationMistralAudioTranscription,
+		OperationMistralAudioSpeech,
+		OperationMistralModeration,
+		OperationMistralChatModeration,
+		OperationMistralClassification,
+		OperationMistralFiles,
+		OperationMistralBatch,
+		OperationMistralAgents,
+		OperationMistralConversations,
+		OperationMistralVoices,
+		OperationMistralRealtimeTranscription,
 		OperationListModels,
 		OperationProbe,
 	}
@@ -49,6 +62,14 @@ func TestOperationAndDispatchEnums(t *testing.T) {
 		OperationEmbeddingsCreate,
 		OperationRerank,
 		OperationDecisionsCreate,
+		OperationMistralOCR,
+		OperationMistralFIM,
+		OperationMistralAudioTranscription,
+		OperationMistralAudioSpeech,
+		OperationMistralModeration,
+		OperationMistralChatModeration,
+		OperationMistralClassification,
+		OperationMistralRealtimeTranscription,
 	} {
 		if !operationRequiresModel(operation) {
 			t.Fatalf("operation %q must require a model", operation)
@@ -477,6 +498,11 @@ func TestValidationAcceptsValidContractsAndRejectsInvalidFields(t *testing.T) {
 		OperationResponsesCancel,
 		OperationResponsesInputItems,
 		OperationResponsesPassthrough,
+		OperationMistralFiles,
+		OperationMistralBatch,
+		OperationMistralAgents,
+		OperationMistralConversations,
+		OperationMistralVoices,
 		OperationListModels,
 	} {
 		modelOptional := spec.Clone()

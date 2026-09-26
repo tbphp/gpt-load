@@ -138,6 +138,7 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 | OpenAI Images           | `POST /v1/images/...`                                              |
 | OpenAI Embeddings       | `POST /v1/embeddings`                                              |
 | Rerank                  | `POST /v1/rerank`                                                  |
+| Mistral native          | `/v1/ocr`, `/v1/audio/...`, `/v1/files`, `/v1/batch`, `/v1/agents`, `/v1/conversations` |
 | Anthropic Messages      | `POST /v1/messages`                                                |
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |

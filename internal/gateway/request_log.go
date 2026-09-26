@@ -170,7 +170,8 @@ func (recorder *requestRecorder) freezeSensitiveInputErrorSummaries() {
 		(recorder.protocol != protocol.OpenAIImages &&
 			recorder.protocol != protocol.OpenAIEmbeddings && recorder.protocol != protocol.GeminiEmbeddings &&
 			recorder.protocol != protocol.Rerank &&
-			recorder.protocol != protocol.Decisions) {
+			recorder.protocol != protocol.Decisions &&
+			recorder.protocol != protocol.Mistral) {
 		return
 	}
 	if recorder.outcome.errorCode != "" {

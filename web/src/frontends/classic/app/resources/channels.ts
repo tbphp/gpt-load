@@ -60,6 +60,19 @@ export type ChannelOperation =
   | 'embeddings_create'
   | 'rerank'
   | 'decisions_create'
+  | 'mistral_ocr'
+  | 'mistral_fim'
+  | 'mistral_audio_transcription'
+  | 'mistral_audio_speech'
+  | 'mistral_moderation'
+  | 'mistral_chat_moderation'
+  | 'mistral_classification'
+  | 'mistral_files'
+  | 'mistral_batch'
+  | 'mistral_agents'
+  | 'mistral_conversations'
+  | 'mistral_voices'
+  | 'mistral_realtime_transcription'
   | 'live_call'
   | 'list_models'
   | 'probe'
@@ -169,6 +182,19 @@ const operations = [
   'embeddings_create',
   'rerank',
   'decisions_create',
+  'mistral_ocr',
+  'mistral_fim',
+  'mistral_audio_transcription',
+  'mistral_audio_speech',
+  'mistral_moderation',
+  'mistral_chat_moderation',
+  'mistral_classification',
+  'mistral_files',
+  'mistral_batch',
+  'mistral_agents',
+  'mistral_conversations',
+  'mistral_voices',
+  'mistral_realtime_transcription',
   'live_call',
   'list_models',
   'probe',

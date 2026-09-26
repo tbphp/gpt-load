@@ -436,6 +436,10 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		handler.handleCodexLive(ginContext, requestContext)
 		return
 	}
+	if requestContext.selectedRoute.Kind == endpointMistralRealtime {
+		handler.handleMistralRealtime(ginContext, requestContext)
+		return
+	}
 	if websocketIntent(ginContext.Request) {
 		handler.handleWebsocket(ginContext, requestContext)
 		return

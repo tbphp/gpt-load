@@ -67,6 +67,19 @@ export type RouteInspectOperation =
   | 'embeddings_create'
   | 'rerank'
   | 'decisions_create'
+  | 'mistral_ocr'
+  | 'mistral_fim'
+  | 'mistral_audio_transcription'
+  | 'mistral_audio_speech'
+  | 'mistral_moderation'
+  | 'mistral_chat_moderation'
+  | 'mistral_classification'
+  | 'mistral_files'
+  | 'mistral_batch'
+  | 'mistral_agents'
+  | 'mistral_conversations'
+  | 'mistral_voices'
+  | 'mistral_realtime_transcription'
 export type RouteInspectRequirement = 'any' | 'native'
 export type RouteInspectMode = 'native' | 'converted'
 
@@ -129,6 +142,19 @@ export const routeInspectOperations = [
   'embeddings_create',
   'rerank',
   'decisions_create',
+  'mistral_ocr',
+  'mistral_fim',
+  'mistral_audio_transcription',
+  'mistral_audio_speech',
+  'mistral_moderation',
+  'mistral_chat_moderation',
+  'mistral_classification',
+  'mistral_files',
+  'mistral_batch',
+  'mistral_agents',
+  'mistral_conversations',
+  'mistral_voices',
+  'mistral_realtime_transcription',
 ] as const
 export const routeInspectRequirements = ['any', 'native'] as const
 const routeModes = ['native', 'converted'] as const

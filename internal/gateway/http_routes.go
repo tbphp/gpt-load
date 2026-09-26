@@ -43,7 +43,7 @@ func (handler *Handler) HTTPModule() httproute.Module {
 		Name:              "data",
 		Owner:             httproute.OwnerData,
 		Auth:              httproute.AuthAccessKey,
-		NamespacePrefixes: []string{"/v1", "/v1beta"},
+		NamespacePrefixes: []string{"/v1", "/v1beta", "/v2/audio"},
 		Authenticate:      handler.authenticateDataPlaneRequest,
 		Routes:            routes,
 		NotFound:          handler.dataPlaneRouteNotFound,
