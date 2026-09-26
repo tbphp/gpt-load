@@ -12,6 +12,8 @@ import (
 	"gpt-load/internal/protocol"
 )
 
+// prepareMistral rewrites a native Mistral HTTP request and builds the
+// passthrough attempt. Realtime transcription is not prepared here.
 func prepareMistral(
 	spec execution.AttemptSpec,
 	resolved channel.ResolvedTarget,
@@ -59,6 +61,9 @@ func prepareMistral(
 	}, nil
 }
 
+// mistralRequestShape reports whether the attempt matches the native HTTP
+// shape of its Mistral operation. Realtime transcription is rejected because
+// the gateway copies its WebSocket frames outside Bifrost.
 func mistralRequestShape(spec execution.AttemptSpec, stream bool) bool {
 	if spec.RouteMode != execution.RouteNative {
 		return false
@@ -96,6 +101,7 @@ func mistralRequestShape(spec execution.AttemptSpec, stream bool) bool {
 	}
 }
 
+// mistralVoiceMethod reports whether the method is valid for a voice path.
 func mistralVoiceMethod(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete, http.MethodHead:
@@ -105,6 +111,8 @@ func mistralVoiceMethod(method string) bool {
 	}
 }
 
+// mistralResourceMethod reports whether the method is valid for files,
+// batch, agents, and conversations.
 func mistralResourceMethod(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead:
@@ -114,6 +122,7 @@ func mistralResourceMethod(method string) bool {
 	}
 }
 
+// mistralSubtree reports whether path is root or a safe child of root.
 func mistralSubtree(path, root string) bool {
 	if path == root {
 		return true
@@ -133,6 +142,8 @@ func mistralSubtree(path, root string) bool {
 	return true
 }
 
+// splitPath returns the slash-separated segments of path, including empty
+// segments.
 func splitPath(path string) []string {
 	parts := make([]string, 0, 4)
 	start := 0

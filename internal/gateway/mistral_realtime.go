@@ -37,6 +37,12 @@ var reasonMistralRealtimeUpgrade = reason{
 	Message: "WebSocket upgrade is required.",
 }
 
+var reasonMistralRealtimeOrigin = reason{
+	Status:  http.StatusForbidden,
+	Code:    "websocket_origin_rejected",
+	Message: "WebSocket origin is not allowed.",
+}
+
 // handleMistralRealtime 只服务 Python SDK 的一次 WebSocket 握手。
 // Bifrost 会解析 Responses 事件，不能拿来原样抄音频帧，所以拨号和转发留在网关。
 // 同一次连接选定一把上游凭证，握手失败才按健康决策换下一把。
@@ -83,7 +89,13 @@ func (handler *Handler) handleMistralRealtime(c *gin.Context, request *dataPlane
 		failed(reasonAccessKeyRateLimited)
 		return
 	}
-	upstream, upstreamModel, errReason := handler.dialMistralRealtime(c.Request.Context(), request, recorder, model, c.Request.URL.RawQuery)
+	// Reject a browser origin before spending an upstream handshake. SDK
+	// clients send no Origin and are unaffected.
+	if !websocketOriginAllowed(c.Request, request.snapshot) {
+		failed(reasonMistralRealtimeOrigin)
+		return
+	}
+	upstream, upstreamModel, errReason := handler.dialMistralRealtime(c.Request.Context(), c, request, recorder, model, c.Request.URL.RawQuery)
 	if errReason != nil {
 		failed(*errReason)
 		return
@@ -104,10 +116,20 @@ func (handler *Handler) handleMistralRealtime(c *gin.Context, request *dataPlane
 		statusCode:    http.StatusSwitchingProtocols,
 		upstreamModel: upstreamModel,
 	}
+	ticket, decision, current := handler.admitAccessQuotaForSnapshot(request.snapshot, request.accessKey.ID, handler.quotaNow())
+	if current && decision.Allowed && handler.accessQuota != nil {
+		defer func() {
+			completion := handler.accessQuota.Complete(ticket, 0)
+			handler.logAccessQuotaCompletionFault(request.accessKey.ID, completion)
+		}()
+	}
 	proxyMistralRealtime(c.Request.Context(), client, upstream)
 }
 
-func (handler *Handler) dialMistralRealtime(ctx context.Context, request *dataPlaneRequestContext, recorder *requestRecorder, model, rawQuery string) (*websocket.Conn, string, *reason) {
+// dialMistralRealtime selects one upstream credential and completes its
+// WebSocket handshake. A failed handshake is judged before the client is
+// upgraded, and only the final 429 receives Retry-After.
+func (handler *Handler) dialMistralRealtime(ctx context.Context, c *gin.Context, request *dataPlaneRequestContext, recorder *requestRecorder, model, rawQuery string) (*websocket.Conn, string, *reason) {
 	query := scheduler.Query{
 		ClientProtocol:        request.selectedRoute.Protocol,
 		Operation:             execution.OperationMistralRealtimeTranscription,
@@ -122,6 +144,7 @@ func (handler *Handler) dialMistralRealtime(ctx context.Context, request *dataPl
 	}
 	iterator := scheduler.New(request.snapshot, handler.registry, query)
 	failure := reasonNoCandidate
+	var cooldownUntil time.Time
 	for sequence := 1; sequence <= retryAttemptLimit(request.snapshot.Settings.RetryCount); sequence++ {
 		if ctx.Err() != nil {
 			value := reason{Status: http.StatusGatewayTimeout, Code: "mistral_realtime_timeout", Message: "Realtime transcription timed out."}
@@ -145,16 +168,33 @@ func (handler *Handler) dialMistralRealtime(ctx context.Context, request *dataPl
 			return conn, *selection.UpstreamModelID, nil
 		}
 		failure = *dialFailure
+		if !decision.CooldownUntil.IsZero() {
+			cooldownUntil = decision.CooldownUntil
+		}
 		if decision.Effect == health.EffectSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}
 		if !decision.ShouldRetry() {
+			handler.setMistralRealtimeRetryAfter(c, failure, cooldownUntil)
 			return nil, "", &failure
 		}
 	}
+	handler.setMistralRealtimeRetryAfter(c, failure, cooldownUntil)
 	return nil, "", &failure
 }
 
+// setMistralRealtimeRetryAfter adds Retry-After only for the final upstream
+// 429. Earlier 429s stay internal so the next credential can be tried. The
+// original status is unchanged for health and logs.
+func (handler *Handler) setMistralRealtimeRetryAfter(c *gin.Context, failure reason, until time.Time) {
+	if failure.Status != http.StatusTooManyRequests || until.IsZero() {
+		return
+	}
+	setCooldownRetryAfter(c, until, handler.now())
+}
+
+// dialMistralRealtimeSelection dials one selected credential. The upstream
+// status is kept for the client, health decision, and request log.
 func (handler *Handler) dialMistralRealtimeSelection(ctx context.Context, recorder *requestRecorder, selection scheduler.Selection, ref state.CredentialRef, rawQuery string, sequence int) (*websocket.Conn, *reason, health.Decision) {
 	encrypted, exists := handler.registry.ActiveEncryptedCredentialDataIfMatch(ref)
 	if !exists {
@@ -204,10 +244,14 @@ func (handler *Handler) dialMistralRealtimeSelection(ctx context.Context, record
 	}
 	status := http.StatusBadGateway
 	dispatch := execution.DispatchNotSent
+	responseHeader := http.Header{}
 	if response != nil {
 		dispatch = execution.DispatchMaybeSent
 		if response.StatusCode != 0 {
 			status = response.StatusCode
+		}
+		if response.Header != nil {
+			responseHeader = response.Header.Clone()
 		}
 		if response.Body != nil {
 			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
@@ -215,14 +259,18 @@ func (handler *Handler) dialMistralRealtimeSelection(ctx context.Context, record
 		}
 	}
 	value := reason{Status: status, Code: "mistral_realtime_upstream_failed", Message: "Realtime transcription upstream handshake failed."}
+	evidence := &execution.ErrorEvidence{
+		Kind: execution.ErrorKindHTTP, Code: value.Code, StatusCode: status,
+		OriginHint: execution.ErrorOriginUpstream, Summary: value.Message,
+	}
+	if status == http.StatusTooManyRequests {
+		evidence.Hint = execution.FailureHintRateLimited
+		evidence.ScopeHint = execution.ErrorScopeModel
+		evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
+	}
 	result := UpstreamResult{
-		StatusCode: status, DispatchState: dispatch, ResponseStarted: response != nil,
-		ErrorSummary: value.Message, UpstreamProtocol: protocol.Mistral,
-		ExecutionError: &execution.ErrorEvidence{
-			Kind: execution.ErrorKindHTTP, Code: value.Code, StatusCode: status,
-			OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeRequest,
-			Summary: value.Message,
-		},
+		StatusCode: status, Header: responseHeader, DispatchState: dispatch, ResponseStarted: response != nil,
+		ErrorSummary: value.Message, UpstreamProtocol: protocol.Mistral, ExecutionError: evidence,
 	}
 	decision := judgeUpstreamResult(result, handler.now(), health.DecisionContext{
 		DefaultRateLimitCooldown: subscriptionruntime.DefaultRefreshFailureCooldown,
@@ -233,6 +281,7 @@ func (handler *Handler) dialMistralRealtimeSelection(ctx context.Context, record
 	return nil, &value, decision
 }
 
+// mistralRealtimeDialer returns the WebSocket dialer for the resolved proxy.
 func mistralRealtimeDialer(effective outboundproxy.Effective) (*websocket.Dialer, error) {
 	effective, err := outboundproxy.NormalizeEffective(effective)
 	if err != nil {
@@ -269,6 +318,8 @@ func mistralRealtimeDialer(effective outboundproxy.Effective) (*websocket.Dialer
 	}
 }
 
+// mistralRealtimeUpstreamURL builds the upstream WebSocket URL and replaces
+// the client model query with the upstream model id.
 func mistralRealtimeUpstreamURL(targetConfig json.RawMessage, upstreamModel, rawQuery string) (string, error) {
 	var target struct {
 		BaseURL string `json:"base_url"`
@@ -305,6 +356,8 @@ func mistralRealtimeUpstreamURL(targetConfig json.RawMessage, upstreamModel, raw
 	return parsed.String(), nil
 }
 
+// proxyMistralRealtime copies frames both ways until either side closes.
+// It does not parse audio or transcription events.
 func proxyMistralRealtime(ctx context.Context, client, upstream *websocket.Conn) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

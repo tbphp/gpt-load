@@ -155,6 +155,119 @@ func TestMistralRealtimeCopiesFramesWithUpstreamKey(t *testing.T) {
 	}
 }
 
+func TestMistralRealtimeRejectsForeignOriginBeforeUpstreamDial(t *testing.T) {
+	t.Parallel()
+	upstreamHits := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		upstreamHits++
+	}))
+	defer upstream.Close()
+	service := encryptiontest.Service(t, "mistral-realtime-origin-key")
+	params, err := json.Marshal(map[string]string{"base_url": upstream.URL + "/v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "mistral", ConnectionType: "api_key", ChannelID: channel.Mistral,
+			Params: params, Models: []state.ModelConfig{{ID: "voxtral-mini-transcribe-realtime-2602"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
+		AccessKeys:  []state.AccessKeyConfig{{ID: 1, Name: "client", KeyHash: service.Hash("gl-client"), Status: state.AccessKeyStatusActive}},
+	}
+	manager := state.NewManager()
+	if _, err := manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{testCredentialEntry(t, service, 1, 1, "upstream-key")}); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(manager, registry, service, newTestExecutionForwarder(t), dialect.NewSet(dialect.NewMistral()), health.NewStatsStore(), health.NewMutationCoordinator(), nil, nil, nil)
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	gateway := httptest.NewServer(engine)
+	defer gateway.Close()
+
+	request, err := http.NewRequest(http.MethodGet, gateway.URL+"/v1/audio/transcriptions/realtime?model=voxtral-mini-transcribe-realtime-2602", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer gl-client")
+	request.Header.Set("Origin", "https://evil.example")
+	request.Header.Set("Connection", "Upgrade")
+	request.Header.Set("Upgrade", "websocket")
+	request.Header.Set("Sec-WebSocket-Version", "13")
+	request.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusForbidden || !strings.Contains(string(body), "websocket_origin_rejected") || upstreamHits != 0 {
+		t.Fatalf("status=%d body=%s upstreamHits=%d", response.StatusCode, body, upstreamHits)
+	}
+}
+
+func TestMistralRealtimeFinalRateLimitSetsRetryAfter(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer upstream.Close()
+	service := encryptiontest.Service(t, "mistral-realtime-rate-key")
+	params, err := json.Marshal(map[string]string{"base_url": upstream.URL + "/v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "mistral", ConnectionType: "api_key", ChannelID: channel.Mistral,
+			Params: params, Models: []state.ModelConfig{{ID: "voxtral-mini-transcribe-realtime-2602"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1)},
+		AccessKeys:  []state.AccessKeyConfig{{ID: 1, Name: "client", KeyHash: service.Hash("gl-client"), Status: state.AccessKeyStatusActive}},
+	}
+	manager := state.NewManager()
+	if _, err := manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{testCredentialEntry(t, service, 1, 1, "upstream-key")}); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(manager, registry, service, newTestExecutionForwarder(t), dialect.NewSet(dialect.NewMistral()), health.NewStatsStore(), health.NewMutationCoordinator(), nil, &recordingRequestLogSink{}, nil)
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	gateway := httptest.NewServer(engine)
+	defer gateway.Close()
+
+	request, err := http.NewRequest(http.MethodGet, gateway.URL+"/v1/audio/transcriptions/realtime?model=voxtral-mini-transcribe-realtime-2602", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer gl-client")
+	request.Header.Set("Connection", "Upgrade")
+	request.Header.Set("Upgrade", "websocket")
+	request.Header.Set("Sec-WebSocket-Version", "13")
+	request.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusTooManyRequests || response.Header.Get("Retry-After") == "" || !strings.Contains(string(body), "mistral_realtime_upstream_failed") {
+		t.Fatalf("status=%d retry=%q body=%s", response.StatusCode, response.Header.Get("Retry-After"), body)
+	}
+}
+
 func TestMistralRealtimeUpstreamURLRewritesModel(t *testing.T) {
 	t.Parallel()
 	got, err := mistralRealtimeUpstreamURL(

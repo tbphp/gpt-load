@@ -24,10 +24,15 @@ var (
 	_ ModelRewriter = (*Mistral)(nil)
 )
 
+// NewMistral returns the dialect for Mistral-native HTTP routes.
 func NewMistral() *Mistral { return &Mistral{} }
 
+// Protocol returns the mistral protocol identifier.
 func (*Mistral) Protocol() protocol.Protocol { return protocol.Mistral }
 
+// InspectRequest classifies a Mistral-native path and reads its model when the
+// operation requires one. Files, batch, agents, conversations, and voices do
+// not require a model.
 func (d *Mistral) InspectRequest(request *ParsedRequest) (RequestMetadata, error) {
 	if request == nil {
 		return RequestMetadata{}, fmt.Errorf("parsed request is required")
@@ -57,6 +62,8 @@ func (d *Mistral) InspectRequest(request *ParsedRequest) (RequestMetadata, error
 	return metadata, nil
 }
 
+// RewriteRequestModel replaces the client model with the upstream model id.
+// Requests without a model are cloned unchanged.
 func (d *Mistral) RewriteRequestModel(request *ParsedRequest, model string) (*ParsedRequest, error) {
 	if err := validateModelRewriteTarget(model, false); err != nil {
 		return nil, err
@@ -88,6 +95,8 @@ func (d *Mistral) RewriteRequestModel(request *ParsedRequest, model string) (*Pa
 	return rewriteJSONRequestModel(request, model, string(d.Protocol()))
 }
 
+// RewriteResponseModel writes the client-facing model back into a JSON object
+// that already has a model field. Non-object bodies are copied unchanged.
 func (*Mistral) RewriteResponseModel(body []byte, model string) ([]byte, error) {
 	if err := validateModelRewriteTarget(model, false); err != nil {
 		return nil, err
@@ -103,6 +112,9 @@ func (*Mistral) RewriteResponseModel(body []byte, model string) ([]byte, error) 
 	return rewritten, nil
 }
 
+// classifyMistralRequest maps one method and path to a Mistral-native
+// operation. Realtime transcription is the GET that upgrades
+// /v1/audio/transcriptions/realtime.
 func classifyMistralRequest(method, path string) (execution.Operation, error) {
 	switch {
 	case method == http.MethodPost && path == "/v1/ocr":
@@ -136,6 +148,7 @@ func classifyMistralRequest(method, path string) (execution.Operation, error) {
 	}
 }
 
+// mistralModelRequired reports whether the operation must name a model.
 func mistralModelRequired(operation execution.Operation) bool {
 	switch operation {
 	case execution.OperationMistralOCR,
@@ -152,11 +165,13 @@ func mistralModelRequired(operation execution.Operation) bool {
 	}
 }
 
+// mistralAllowsStream reports whether the operation may set stream=true.
 func mistralAllowsStream(operation execution.Operation) bool {
 	return operation == execution.OperationMistralAgents ||
 		operation == execution.OperationMistralConversations
 }
 
+// mistralVoiceMethod reports whether the method is valid for a voice path.
 func mistralVoiceMethod(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete, http.MethodHead:
@@ -166,6 +181,8 @@ func mistralVoiceMethod(method string) bool {
 	}
 }
 
+// mistralResourceMethod reports whether the method is valid for files,
+// batch, agents, and conversations.
 func mistralResourceMethod(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead:
@@ -175,6 +192,7 @@ func mistralResourceMethod(method string) bool {
 	}
 }
 
+// mistralSubtree reports whether path is root or a safe child of root.
 func mistralSubtree(path, root string) bool {
 	if path == root {
 		return true
@@ -195,6 +213,8 @@ func mistralSubtree(path, root string) bool {
 	return true
 }
 
+// inspectMistralBody reads the model and stream flag for one operation.
+// Realtime transcription takes the model from the query, not the body.
 func inspectMistralBody(request *ParsedRequest, operation execution.Operation) (string, bool, error) {
 	if operation == execution.OperationMistralRealtimeTranscription {
 		return inspectMistralRealtimeModel(request)
@@ -241,6 +261,7 @@ func inspectMistralBody(request *ParsedRequest, operation execution.Operation) (
 	return model, metadata.Stream, nil
 }
 
+// inspectMistralRealtimeModel reads the required model query parameter.
 func inspectMistralRealtimeModel(request *ParsedRequest) (string, bool, error) {
 	if request == nil {
 		return "", false, fmt.Errorf("parsed request is required")
@@ -256,6 +277,7 @@ func inspectMistralRealtimeModel(request *ParsedRequest) (string, bool, error) {
 	return model, false, nil
 }
 
+// readMultipartModel finds the model field in a multipart body.
 func readMultipartModel(body []byte, contentType string) (string, bool, error) {
 	_, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
@@ -307,6 +329,8 @@ func readMultipartModel(body []byte, contentType string) (string, bool, error) {
 	return model, found, nil
 }
 
+// rewriteMultipartModel replaces the model field and returns the new body
+// and Content-Type.
 func rewriteMultipartModel(body []byte, contentType, model string) ([]byte, string, error) {
 	_, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
@@ -404,6 +428,8 @@ func MistralUpstreamPath(clientPath string) (string, error) {
 	return path, nil
 }
 
+// mistralSafeAbsolutePath reports whether path is an absolute path without
+// dot segments or repeated slashes.
 func mistralSafeAbsolutePath(path string) bool {
 	return path != "" && !strings.Contains(path, "//") && !strings.Contains(path, "/./") && !strings.Contains(path, "/../") && !strings.HasSuffix(path, "/.") && !strings.HasSuffix(path, "/..")
 }
