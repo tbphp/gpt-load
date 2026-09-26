@@ -142,46 +142,12 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
 
-每个渠道会明确声明自己可执行的协议与能力。GPT-Load 在受支持的能力之间做转换，但不是任意协议、任意 JSON 的通用转换器。
-
-Embeddings 有两个独立的原生协议：`openai-embeddings`（`POST /v1/embeddings`）用于 OpenAI、OpenRouter、OpenAI Compatible、New API 和 GPT-Load API Key 渠道；`gemini-embeddings`（`POST /v1beta/models/{model}:embedContent` 和 `:batchEmbedContents`）用于 Gemini、New API 和 GPT-Load API Key 渠道。请求和响应保持各服务商的原生格式。Gemini 渠道还可以通过转换接收 `openai-embeddings`：把文本输入转为 `:batchEmbedContents`，支持 `dimensions` 以及 `float` / `base64` 输出，不支持 Token ID 输入，单次条数上限由 Gemini 校验。同一个客户端模型名下的分组请使用同一个 Embedding 模型，否则不同模型的向量会混在一起。不支持订阅渠道。未设置协议过滤器的 AccessKey 会按既有语义允许全部已启用协议，升级后也会获得这两个 Embeddings 协议；最小权限部署请显式配置协议过滤器。
-
-Rerank 使用独立的 `rerank` 协议，在 OpenAI Compatible、New API、GPT-Load API Key 渠道支持 `POST /v1/rerank`。请求使用 `model`、`query` 和纯文本 `documents` 数组，可传 `top_n`、`return_documents` 等上游参数；不支持流式、订阅渠道或协议互转。OpenAI Compatible 的 Base URL 是完整 API 前缀（如 `https://host/v1`），New API / GPT-Load 使用网关根地址；上游必须提供兼容 Rerank 接口。未设置协议过滤器的 AccessKey 也会获得 Rerank 访问能力。仅有 `search_units` 等非 Token 计量时保持未计价，不将其视为 Token 或免费请求。
-
 ### 内置渠道
 
 - **官方与云平台**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
 - **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Cline、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（聊天）、Cohere（文本重排序）、OpenCode Go、OpenCode Zen
 - **订阅渠道**：Codex、Claude、Antigravity、Grok
 - **自定义**：OpenAI Compatible（任意兼容中转）
-
-OpenCode Go / Zen 使用 API Key，通过现有多协议网关适配器接入原生 Chat Completions、无状态 Responses 创建和 Anthropic Messages，支持流式请求及模型发现。客户端需要选择上游模型支持的协议，这两个预设不自动转换协议。自定义 Base URL 填写不含 `/v1` 的网关根地址；暂不开放 Gemini 原生请求和 Responses 资源操作。Go 客户端应保留编程工具身份及对话会话头。
-
-Cline 使用 API Key，默认 API 前缀为 `https://api.cline.bot/api/v1`。支持原生 Chat Completions 和模型发现，并将 Responses、Anthropic Messages、Gemini 请求转换为 Chat，支持流式请求。上游模型填写完整标识，例如 `deepseek/deepseek-v4.1-flash`；ClinePass 使用 `cline-pass/deepseek-v4.1-flash`，上游模型列表未包含的订阅模型可以手动添加。适配器同时接受标准 Chat 响应和历史包装格式。暂不提供 OAuth 登录、生图、搜索接口和有状态 Responses。
-
-### Codex 实时语音
-
-在 **系统设置 → 连接与超时 → 实时语音** 选择默认模式；Codex 分组的 **高级配置/运行参数** 可以继承或覆盖为 **关闭、直连上游、网关中继**。不同分组可以同时使用不同模式，每通会话绑定最终选中的分组与账号。关闭只停用该分组的语音，文本能力不受影响；关闭也会结束受影响的现有语音会话。
-
-- **直连上游（默认）**：GPT-Load 负责鉴权、选择账号、创建会话及代理控制连接；音频和 WebRTC 数据通道由客户端直接连接上游。账号令牌不会交给客户端。服务器只需已有的 HTTP(S)/WebSocket 接入，无需媒体 UDP 映射；客户端网络必须能访问上游媒体端点，服务器配置的出站代理不会代理这段客户端流量。
-- **网关中继**：音频与 WebRTC 数据通道经过 GPT-Load，复用配置的上游代理。所有中继分组共享服务端媒体地址与 UDP 范围，不需要为每个分组单独开端口。
-- **账号与重试**：语音复用全局加权轮询和系统“额外重试次数”（默认 2），并非每次严格轮到下一个分组。建连遇到明确的 403/429 拒绝会尝试下一个候选；401 可刷新凭据后重试，全部尝试共享预算。超时、结果不明的 5xx、成功建连后的断线不会自动换账号重新创建通话。语音准入失败不会将正常的文本能力拉黑。已知不支持语音的免费账号分组建议设置为“关闭”；不通过套餐名称猜测授权。
-
-**升级提示：此前版本始终中继。升级到支持此设置的版本后，未设置模式时使用直连；依赖服务器传输音频的部署请显式选择“网关中继”。** 语音模型仍无需加入分组，客户端指定的模型原样传给上游。两种模式都必须在会话创建后 30 秒内建立控制 WebSocket，控制断线后也须在 30 秒内重连，否则会清理并挂断会话。通过创建响应的 Location 加 `/hangup` 可主动挂断。本地结束并尝试上游挂断后即记录一条会话日志；首次挂断失败时接口返回 502，日志标记为“未完成”，不等待后台清理成功。服务器每 5 秒重试挂断，包含首次及手动重试在内最多 3 次；重试期间保留并发名额，拒绝控制重连，成功或达到上限后释放本地名额。后续重试不改写或重复生成会话日志；达到上限仍失败不代表上游已结束，服务端告警会记录错误类别和 HTTP 状态码（如有）。usage/cost 仍可能不可用。
-
-Docker 中继部署：下载与主 Compose 文件同版本的 [`docker-compose.voice.yml`](docker-compose.voice.yml)，在 `.env` 设置客户端可达的服务器公网媒体 IP：
-
-```dotenv
-CODEX_LIVE_PUBLIC_IP=你的服务器公网IP
-```
-
-然后启动并在系统或分组设置中选择“网关中继”：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
-```
-
-该配置自动对齐程序监听和 Docker 映射，默认 **UDP 50000–50127**；云安全组与系统防火墙需放行同一范围。自定义时在 `.env` 同时设置 `CODEX_LIVE_UDP_PORT_MIN` 和 `CODEX_LIVE_UDP_PORT_MAX` 后重新创建容器。普通 Nginx HTTP 反向代理只处理建连与控制，请开启 WebSocket Upgrade 并使用适当的长连接超时；它不会自动代理媒体 UDP。不同主机、NAT 或 CDN 场景仍需确保媒体 IP 和端口直接可达，必要时配置 `CODEX_LIVE_ICE_SERVERS` 的 STUN/TURN。公网 IP 和外部防火墙无法由 GPT-Load 自动配置。
 
 ## 部署与数据
 
@@ -264,21 +230,6 @@ Windows 普通用户可改为下载 `gpt-load-windows-setup.exe`。双击并确�
 环境代理仅在凭据、Group 和全局设置都未指定代理时生效。
 
 </details>
-
-## 生产使用注意事项
-
-- 默认只监听 `127.0.0.1`。需要远程访问时，应通过受控网络或带 TLS 的反向代理暴露，并配置 ACL 与防火墙。
-- 妥善管理 `AUTH_KEY` 与 `ENCRYPTION_KEY`，不要把真实密钥提交到仓库、日志、截图或公开 Issue。
-- 2.0 按**单应用实例**设计，多个实例之间不共享状态，不支持直接横向扩容。
-- 用量与成本是基于上游返回数据的**估算**，用于运行分析和资源评估，不等同于服务商账单或财务对账结果。
-- 订阅渠道依赖上游 OAuth 与兼容协议，可能随上游变化调整。请只接入自己有权使用的账号，并遵守对应服务商条款。
-- HTTP Responses 的 `previous_response_id` 续接按协议及现有存储能力自动接入：原生 Responses 且声明由上游管理状态的渠道目前包括 `openai`、`gpt_load`、`xai`、`newapi`、`cliproxyapi`、`sub2api`。按 AccessKey 隔离归属，在当前路由允许时固定原凭据，不受软亲和开关影响；实际状态可用性由上游决定。无状态及转换响应不登记为持久状态。未知 ID（包括升级前或网关外创建的 ID）直接拒绝；Group 参数覆盖不能改写该字段。
-- 原生 Responses WebSocket 使用同端口 `GET /v1/responses`，按渠道声明的实际能力准入，支持 OpenAI、xAI、Codex 及符合原生合同的 CPA/sub2api、GPT-Load 端点。兼容客户端携带布尔参数 `stream:true/false`，两者均按 WS 事件流返回。每轮独立检查权限、限流、额度与当前路由，并记录用量及成本。同一连接固定上游身份；不回退 HTTP、不缓存或重放聊天历史。
-- `responses_websocket_enabled` 默认开启，分组显式设置优先于全局，未覆盖时继承全局。关闭会立即断开受影响的 WS 连接并中断生成；HTTP/SSE 不受影响。重新开启不会恢复旧连接的临时状态。
-- `empty_response_retry` 默认关闭，分组显式设置优先于全局。开启后，流式对话请求在提交给客户端前会先确认上游是否产出内容；上游自然结束却没有任何产出时算作一次失败并换下一个候选重试，但不冷却也不拉黑凭据。重试用尽后仍把上游返回的空响应原样交给客户端。输出预算耗尽、内容过滤、拒答等由终止原因解释的空结果不重试，照常交付。预热（`generate:false`）、带 `previous_response_id` 或 `conversation` 的请求、非对话端点与 WebSocket 均不参与判定；上游持续发出无产出事件时按内置上限照常提交，不会一直压着响应。被重试掉的空回尝试已在上游产生计费，但用量与成本估算只记录最终交付的那次尝试。
-- 完整 `stream_id` 多流与分叉用于 OpenAI 和满足端到端条件的 GPT-Load 级联；其余上述渠道串行执行并明确拒绝命名流。预热实际发送 `generate:false`。Codex 只支持原连接内续接，不能使用 `store:true` 或凭旧 ID 跨连接恢复；其他渠道的持久续接仍取决于存储能力与有效归属。[Codex SDK 的代理、读取和关闭边界](third_party/cpaembedded/README.md#codex-websocket-session)继续适用。
-- 响应归属保存在内存中，默认保留 30 天，最多 100,000 条，ID 文本合计最多 16 MiB，达到容量时淘汰旧记录。正常停机成功保存 checkpoint 后可在同一数据目录恢复；不保证崩溃恢复或上游历史仍有效。
-- `conversation` 与其他既有资源 ID 不在上述归属路由范围内，仍依赖单凭据或上游跨凭据共享资源。
 
 ## 从 1.x 切换
 
