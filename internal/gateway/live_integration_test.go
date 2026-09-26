@@ -27,24 +27,41 @@ import (
 )
 
 type liveFakeOpener struct {
-	mu       sync.Mutex
-	selected []uint
-	models   []string
-	sessions []*liveFakeUpstream
-	wsURL    string
-	failure  *execution.ErrorEvidence
+	mu            sync.Mutex
+	selected      []uint
+	models        []string
+	sessions      []*liveFakeUpstream
+	wsURL         string
+	failure       *execution.ErrorEvidence
+	failures      map[uint]*execution.ErrorEvidence
+	attempted     []uint
+	offers        []string
+	failureFor    func(execution.AttemptSpec) *execution.ErrorEvidence
+	dispatchState execution.DispatchState
 }
 
 type liveFakeUpstream struct {
-	peer   *webrtc.PeerConnection
-	wsURL  string
-	mu     sync.Mutex
-	hangup int
-	dials  int
-	conn   *websocket.Conn
+	peer      *webrtc.PeerConnection
+	wsURL     string
+	mu        sync.Mutex
+	hangup    int
+	hangupErr error
+	dials     int
+	conn      *websocket.Conn
 }
 
 func (fake *liveFakeOpener) OpenLive(ctx context.Context, spec execution.AttemptSpec, offer string, sessionJSON json.RawMessage) (execution.LiveCall, *execution.ErrorEvidence) {
+	fake.mu.Lock()
+	fake.attempted = append(fake.attempted, spec.Credential.ID)
+	fake.offers = append(fake.offers, offer)
+	failure := fake.failures[spec.Credential.ID]
+	fake.mu.Unlock()
+	if fake.failureFor != nil {
+		failure = fake.failureFor(spec)
+	}
+	if failure != nil {
+		return execution.LiveCall{DispatchState: fake.dispatchState}, failure
+	}
 	if fake.failure != nil {
 		return execution.LiveCall{}, fake.failure
 	}
@@ -131,8 +148,12 @@ func (session *liveFakeUpstream) ReleaseSideband(connection *websocket.Conn) {
 func (session *liveFakeUpstream) Hangup(context.Context) error {
 	session.mu.Lock()
 	session.hangup++
+	err := session.hangupErr
 	session.mu.Unlock()
-	return nil
+	if err != nil {
+		return err
+	}
+	return session.peer.Close()
 }
 
 func (session *liveFakeUpstream) Close() error {
@@ -140,9 +161,10 @@ func (session *liveFakeUpstream) Close() error {
 	connection := session.conn
 	session.mu.Unlock()
 	if connection != nil {
-		_ = connection.Close()
+		return connection.Close()
 	}
-	return session.peer.Close()
+	// 与真实实现一致：关闭控制连接不会结束客户端直连的媒体。
+	return nil
 }
 
 func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engine, *recordingRequestLogSink, *state.CredentialRegistry, func(string)) {
@@ -154,7 +176,7 @@ func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engi
 	for id := uint(1); id <= 2; id++ {
 		groups = append(groups, state.GroupConfig{ID: id, Name: fmt.Sprintf("codex-%d", id), ChannelID: channel.Codex,
 			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
-			Enabled: true})
+			Enabled: true, Settings: config.Settings{state.SettingCodexLiveMode: "relay"}})
 		configs = append(configs, testCredentialConfig(id, id))
 		credential := fmt.Sprintf(`{"type":"codex","access_token":"access-%d","refresh_token":"refresh-%d","account_id":"account-%d"}`, id, id, id)
 		encrypted, err := handler.encryption.Encrypt(credential)
@@ -181,7 +203,15 @@ func liveGatewayFixture(t *testing.T, fake *liveFakeOpener) (*Handler, *gin.Engi
 	sink := &recordingRequestLogSink{}
 	handler.requestLogSink = sink
 	handler.ConfigureCodexLive(fake, config.CodexLiveConfig{MaxSessions: 8})
-	t.Cleanup(handler.CloseCodexLive)
+	t.Cleanup(func() {
+		handler.CloseCodexLive()
+		fake.mu.Lock()
+		sessions := append([]*liveFakeUpstream(nil), fake.sessions...)
+		fake.mu.Unlock()
+		for _, session := range sessions {
+			_ = session.peer.Close()
+		}
+	})
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return handler, engine, sink, registry, publishOwnerKey
@@ -388,6 +418,7 @@ func TestCodexLiveClientMediaEndLogsSuccess(t *testing.T) {
 func TestCodexLiveRevokesActiveCallWhenSelectedCredentialIsDisabled(t *testing.T) {
 	fake := &liveFakeOpener{}
 	handler, engine, sink, registry, _ := liveGatewayFixture(t, fake)
+	setLiveGroupMode(handler, 2, state.CodexLiveDirect)
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	clientPeer, offer := liveClientOffer(t)
@@ -546,11 +577,11 @@ func TestCodexLiveReconnectTimeoutDoesNotCloseReattachedCall(t *testing.T) {
 	}
 }
 
-func TestCodexLiveForbiddenAccountDoesNotRetryOrCreateSession(t *testing.T) {
+func TestCodexLiveForbiddenAccountsExhaustCandidatesWithoutCreatingSession(t *testing.T) {
 	fake := &liveFakeOpener{failure: &execution.ErrorEvidence{
 		Kind: execution.ErrorKindHTTP, StatusCode: http.StatusForbidden,
 		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeRequest,
-		Summary: "Codex live request forbidden",
+		Summary: "Codex live request forbidden", ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
 	}}
 	handler, engine, sink, _, _ := liveGatewayFixture(t, fake)
 	server := httptest.NewServer(engine)
@@ -571,10 +602,59 @@ func TestCodexLiveForbiddenAccountDoesNotRetryOrCreateSession(t *testing.T) {
 		t.Fatalf("forbidden response = %+v, error = %v", payload, err)
 	}
 	events := waitWebsocketLogs(t, sink, 1)
-	if len(events) != 1 || len(events[0].Attempts) != 1 || events[0].Status != telemetry.RequestStatusError {
+	if len(events) != 1 || len(events[0].Attempts) != 2 || events[0].Status != telemetry.RequestStatusError {
 		t.Fatalf("forbidden logs = %+v", events)
 	}
 	if len(handler.liveSessions.calls) != 0 || handler.liveSessions.pending != 0 {
 		t.Fatal("forbidden call left a live session")
+	}
+}
+
+func TestCodexLiveRetriesRejectedAccountAndKeepsVoiceFailureLocal(t *testing.T) {
+	fake := &liveFakeOpener{failures: map[uint]*execution.ErrorEvidence{1: {
+		Kind: execution.ErrorKindHTTP, StatusCode: 403, OriginHint: execution.ErrorOriginUpstream,
+		ScopeHint: execution.ErrorScopeRequest, ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+	}}}
+	handler, engine, sink, registry, _ := liveGatewayFixture(t, fake)
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	_, offer := liveClientOffer(t)
+	response := liveRequest(t, server.Client(), http.MethodPost, server.URL+"/v1/live", "gl-client", "application/sdp", []byte(offer))
+	if response.StatusCode != 201 {
+		t.Fatalf("status = %d, want second account success", response.StatusCode)
+	}
+	if len(fake.attempted) != 2 || fake.attempted[0] != 1 || fake.attempted[1] != 2 {
+		t.Fatalf("attempts = %v", fake.attempted)
+	}
+	if len(registry.CollectCredentialCandidates([]uint{1}, nil, time.Now())) != 1 {
+		t.Fatal("voice denial disabled text credential")
+	}
+	handler.CloseCodexLive()
+	event := waitWebsocketLogs(t, sink, 1)[0]
+	if len(event.Attempts) != 2 || !event.Attempts[0].WillRetry || event.Attempts[1].Sequence != 2 {
+		t.Fatalf("attempt log = %+v", event.Attempts)
+	}
+}
+
+func TestCodexLiveDirectPreservesClientSDP(t *testing.T) {
+	fake := &liveFakeOpener{}
+	handler, engine, _, _, _ := liveGatewayFixture(t, fake)
+	for id, group := range handler.manager.Current().Groups {
+		group.CodexLiveMode = state.CodexLiveDirect
+		handler.manager.Current().Groups[id] = group
+	}
+	server := httptest.NewServer(engine)
+	defer server.Close()
+	_, offer := liveClientOffer(t)
+	response := liveRequest(t, server.Client(), http.MethodPost, server.URL+"/v1/live", "gl-client", "application/sdp", []byte(offer))
+	if response.StatusCode != 201 {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+	if len(fake.offers) != 1 || fake.offers[0] != offer {
+		t.Fatal("direct mode replaced client SDP")
+	}
+	call, ok := handler.liveSessions.lookup("rtc_1", 1)
+	if !ok || call.media != nil {
+		t.Fatal("direct mode created a media relay")
 	}
 }

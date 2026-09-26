@@ -565,6 +565,7 @@ export default {
         operation_unsupported: 'チャネルはこのプロトコル操作をサポートしていません',
         native_route_required: 'このリクエストにはネイティブルートが必要です',
         no_route_target: 'このモデルとプロトコルに一致するルート先がありません',
+        codex_live_disabled: 'このグループのリアルタイム音声は無効です',
         group_disabled: 'グループは無効です',
         group_filtered: 'アクセスキーフィルターがこのグループを除外しました',
         no_available_group: '現在ルート可能な候補グループがありません',

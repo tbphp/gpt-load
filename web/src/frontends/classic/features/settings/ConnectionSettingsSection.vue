@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -38,6 +40,14 @@ const emit = defineEmits<{
   'update:proxyEndpoint': [value: string]
 }>()
 const { locale, t } = useI18n()
+const liveOptions = computed(() =>
+  codexLiveModes.map((value) => ({ value, label: t('settings.runtime.liveModes.' + value) })),
+)
+function setLiveMode(value: string): void {
+  const draft = cloneDraft()
+  draft.values.codex_live_mode = value as CodexLiveMode
+  publish('codex_live_mode', draft)
+}
 const timeoutKeys: TimeoutSettingKey[] = [
   'first_byte_timeout',
   'request_timeout',
@@ -148,6 +158,31 @@ function timeoutError(key: TimeoutSettingKey): string | undefined {
     </header>
 
     <div class="settings-connection__rows">
+      <SettingRow
+        :label="t('settings.runtime.codex_live_mode')"
+        :value="
+          isPendingRestore('codex_live_mode')
+            ? t('settings.runtime.resetPending')
+            : t('settings.runtime.liveModes.' + base.settings.values.codex_live_mode)
+        "
+        :help="t('settings.runtime.liveModeHelp')"
+        :source-label="sourceLabel('codex_live_mode')"
+        :action-label="actionLabel('codex_live_mode')"
+        :overridden="hasOverride('codex_live_mode')"
+        :pending-restore="isPendingRestore('codex_live_mode')"
+        :disabled="disabled"
+        @toggle="toggleOverride('codex_live_mode')"
+      >
+        <template #control>
+          <AppSelect
+            :model-value="draft.values.codex_live_mode"
+            :options="liveOptions"
+            :disabled="disabled"
+            :label="t('settings.runtime.codex_live_mode')"
+            @update:model-value="setLiveMode"
+          />
+        </template>
+      </SettingRow>
       <SettingRow
         :label="t('settings.runtime.responses_websocket_enabled')"
         :value="

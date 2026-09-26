@@ -545,6 +545,7 @@ export default {
         operation_unsupported: '渠道不支持该协议操作',
         native_route_required: '该请求必须使用原生路由',
         no_route_target: '没有匹配该模型与协议的路由目标',
+        codex_live_disabled: '此分组已关闭实时语音',
         group_disabled: '分组已停用',
         group_filtered: '访问密钥筛选排除了该分组',
         no_available_group: '当前没有可路由的候选分组',

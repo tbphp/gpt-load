@@ -1,0 +1,10 @@
+# Optional media ports for groups configured to use Gateway relay.
+# docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
+services:
+  gpt-load:
+    ports:
+      - "${CODEX_LIVE_UDP_PORT_MIN:-50000}-${CODEX_LIVE_UDP_PORT_MAX:-50127}:${CODEX_LIVE_UDP_PORT_MIN:-50000}-${CODEX_LIVE_UDP_PORT_MAX:-50127}/udp"
+    environment:
+      CODEX_LIVE_PUBLIC_IP: ${CODEX_LIVE_PUBLIC_IP:?Set a client-reachable media IP in .env before enabling voice relay}
+      CODEX_LIVE_UDP_PORT_MIN: ${CODEX_LIVE_UDP_PORT_MIN:-50000}
+      CODEX_LIVE_UDP_PORT_MAX: ${CODEX_LIVE_UDP_PORT_MAX:-50127}

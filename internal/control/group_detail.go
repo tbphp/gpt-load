@@ -21,6 +21,7 @@ type GroupEffectiveConfigResponse struct {
 	HeaderRules               HeaderRulesResponse `json:"header_rules"`
 	BlacklistThreshold        int                 `json:"blacklist_threshold"`
 	AffinityEnabled           bool                `json:"affinity_enabled"`
+	CodexLiveMode             state.CodexLiveMode `json:"codex_live_mode"`
 	ResponsesWebsocketEnabled bool                `json:"responses_websocket_enabled"`
 	EmptyResponseRetry        bool                `json:"empty_response_retry"`
 }
@@ -89,6 +90,7 @@ func effectiveGroupConfig(
 		},
 		BlacklistThreshold:        resolved.BlacklistThreshold,
 		AffinityEnabled:           resolved.AffinityEnabled,
+		CodexLiveMode:             resolved.CodexLiveMode,
 		ResponsesWebsocketEnabled: resolved.ResponsesWebsocketEnabled,
 		EmptyResponseRetry:        resolved.EmptyResponseRetry,
 	}, nil

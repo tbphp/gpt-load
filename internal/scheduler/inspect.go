@@ -26,6 +26,7 @@ const (
 	ReasonNativeRouteRequired       ReasonCode = "native_route_required"
 	ReasonNoRouteTarget             ReasonCode = "no_route_target"
 	ReasonGroupDisabled             ReasonCode = "group_disabled"
+	ReasonCodexLiveDisabled         ReasonCode = "codex_live_disabled"
 	ReasonWebsocketDisabled         ReasonCode = "websocket_disabled"
 	ReasonGroupFiltered             ReasonCode = "group_filtered"
 	ReasonNoAvailableGroup          ReasonCode = "no_available_group"
@@ -172,6 +173,9 @@ func evaluateTargets(
 		case !group.Enabled:
 			decision.included = false
 			decision.reason = ReasonGroupDisabled
+		case clientSelectedLiveModel && snapshot.Groups[route.GroupID].CodexLiveMode == state.CodexLiveOff:
+			decision.included = false
+			decision.reason = ReasonCodexLiveDisabled
 		case groupFiltered:
 			decision.included = false
 			decision.reason = ReasonGroupFiltered
