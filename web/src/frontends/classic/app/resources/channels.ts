@@ -67,10 +67,6 @@ export type ChannelOperation =
   | 'mistral_moderation'
   | 'mistral_chat_moderation'
   | 'mistral_classification'
-  | 'mistral_files'
-  | 'mistral_batch'
-  | 'mistral_agents'
-  | 'mistral_conversations'
   | 'mistral_voices'
   | 'mistral_realtime_transcription'
   | 'live_call'
@@ -189,10 +185,6 @@ const operations = [
   'mistral_moderation',
   'mistral_chat_moderation',
   'mistral_classification',
-  'mistral_files',
-  'mistral_batch',
-  'mistral_agents',
-  'mistral_conversations',
   'mistral_voices',
   'mistral_realtime_transcription',
   'live_call',

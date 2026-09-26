@@ -133,14 +133,6 @@ func classifyMistralRequest(method, path string) (execution.Operation, error) {
 		return execution.OperationMistralChatModeration, nil
 	case method == http.MethodPost && path == "/v1/classifications":
 		return execution.OperationMistralClassification, nil
-	case mistralResourceMethod(method) && mistralSubtree(path, "/mistral/v1/files"):
-		return execution.OperationMistralFiles, nil
-	case mistralResourceMethod(method) && mistralSubtree(path, "/mistral/v1/batch"):
-		return execution.OperationMistralBatch, nil
-	case mistralResourceMethod(method) && mistralSubtree(path, "/mistral/v1/agents"):
-		return execution.OperationMistralAgents, nil
-	case mistralResourceMethod(method) && mistralSubtree(path, "/mistral/v1/conversations"):
-		return execution.OperationMistralConversations, nil
 	case mistralVoiceMethod(method) && (mistralSubtree(path, "/mistral/v1/audio/voices") || mistralSubtree(path, "/mistral/v2/audio/voices")):
 		return execution.OperationMistralVoices, nil
 	default:
@@ -166,26 +158,15 @@ func mistralModelRequired(operation execution.Operation) bool {
 }
 
 // mistralAllowsStream reports whether the operation may set stream=true.
+// The remaining Mistral operations are unary.
 func mistralAllowsStream(operation execution.Operation) bool {
-	return operation == execution.OperationMistralAgents ||
-		operation == execution.OperationMistralConversations
+	return false
 }
 
 // mistralVoiceMethod reports whether the method is valid for a voice path.
 func mistralVoiceMethod(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete, http.MethodHead:
-		return true
-	default:
-		return false
-	}
-}
-
-// mistralResourceMethod reports whether the method is valid for files,
-// batch, agents, and conversations.
-func mistralResourceMethod(method string) bool {
-	switch method {
-	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead:
 		return true
 	default:
 		return false

@@ -81,10 +81,6 @@ export async function getGroupChannels(
       'mistral_moderation',
       'mistral_chat_moderation',
       'mistral_classification',
-      'mistral_files',
-      'mistral_batch',
-      'mistral_agents',
-      'mistral_conversations',
       'mistral_voices',
       'mistral_realtime_transcription',
     ]

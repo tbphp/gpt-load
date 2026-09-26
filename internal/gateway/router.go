@@ -134,14 +134,6 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 		{name: "data.mistral.moderations", methods: []string{http.MethodPost}, path: "/v1/moderations", resolve: staticRoute(protocol.Mistral, endpointForward)},
 		{name: "data.mistral.chat.moderations", methods: []string{http.MethodPost}, path: "/v1/chat/moderations", resolve: staticRoute(protocol.Mistral, endpointForward)},
 		{name: "data.mistral.classifications", methods: []string{http.MethodPost}, path: "/v1/classifications", resolve: staticRoute(protocol.Mistral, endpointForward)},
-		{name: "data.mistral.files", methods: mistralResourceMethods(), path: "/mistral/v1/files", resolve: staticRoute(protocol.Mistral, endpointForward)},
-		{name: "data.mistral.files.resource", methods: mistralResourceMethods(), path: "/mistral/v1/files/*resource_path", pathValidator: mistralResourcePath, resolve: staticRoute(protocol.Mistral, endpointForward)},
-		{name: "data.mistral.batch", methods: mistralResourceMethods(), path: "/mistral/v1/batch", resolve: staticRoute(protocol.Mistral, endpointForward)},
-		{name: "data.mistral.batch.resource", methods: mistralResourceMethods(), path: "/mistral/v1/batch/*resource_path", pathValidator: mistralResourcePath, resolve: staticRoute(protocol.Mistral, endpointForward)},
-		{name: "data.mistral.agents", methods: mistralResourceMethods(), path: "/mistral/v1/agents", resolve: staticRoute(protocol.Mistral, endpointForward)},
-		{name: "data.mistral.agents.resource", methods: mistralResourceMethods(), path: "/mistral/v1/agents/*resource_path", pathValidator: mistralResourcePath, resolve: staticRoute(protocol.Mistral, endpointForward)},
-		{name: "data.mistral.conversations", methods: mistralResourceMethods(), path: "/mistral/v1/conversations", resolve: staticRoute(protocol.Mistral, endpointForward)},
-		{name: "data.mistral.conversations.resource", methods: mistralResourceMethods(), path: "/mistral/v1/conversations/*resource_path", pathValidator: mistralResourcePath, resolve: staticRoute(protocol.Mistral, endpointForward)},
 		{name: "data.codex.search", methods: []string{http.MethodPost}, path: "/v1/alpha/search", resolve: staticRoute(protocol.OpenAIResponses, endpointForward)},
 		{name: "data.codex.live", methods: []string{http.MethodPost}, path: "/v1/live", resolve: staticRoute(protocol.CodexLive, endpointLiveCreate)},
 		{name: "data.codex.live.sideband", methods: []string{http.MethodGet}, path: "/v1/live/:call_id", resolve: staticRoute(protocol.CodexLive, endpointLiveSideband)},
@@ -177,23 +169,12 @@ func mistralVoiceMethods() []string {
 	}
 }
 
-func mistralResourceMethods() []string {
-	return []string{
-		http.MethodGet,
-		http.MethodPost,
-		http.MethodPut,
-		http.MethodPatch,
-		http.MethodDelete,
-		http.MethodHead,
-	}
-}
-
 func mistralResourcePath(request *http.Request) bool {
 	if request == nil || request.URL == nil {
 		return false
 	}
 	path := request.URL.Path
-	for _, root := range []string{"/mistral/v1/files", "/mistral/v1/batch", "/mistral/v1/agents", "/mistral/v1/conversations", "/mistral/v1/audio/voices", "/mistral/v2/audio/voices"} {
+	for _, root := range []string{"/mistral/v1/audio/voices", "/mistral/v2/audio/voices"} {
 		if path == root {
 			return true
 		}

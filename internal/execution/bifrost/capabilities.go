@@ -164,10 +164,6 @@ func mistralNativeOperation(operation execution.Operation) bool {
 		execution.OperationMistralModeration,
 		execution.OperationMistralChatModeration,
 		execution.OperationMistralClassification,
-		execution.OperationMistralFiles,
-		execution.OperationMistralBatch,
-		execution.OperationMistralAgents,
-		execution.OperationMistralConversations,
 		execution.OperationMistralVoices,
 		execution.OperationMistralRealtimeTranscription:
 		return true

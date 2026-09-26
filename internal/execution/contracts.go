@@ -54,10 +54,6 @@ const (
 	OperationMistralModeration            Operation = "mistral_moderation"
 	OperationMistralChatModeration        Operation = "mistral_chat_moderation"
 	OperationMistralClassification        Operation = "mistral_classification"
-	OperationMistralFiles                 Operation = "mistral_files"
-	OperationMistralBatch                 Operation = "mistral_batch"
-	OperationMistralAgents                Operation = "mistral_agents"
-	OperationMistralConversations         Operation = "mistral_conversations"
 	OperationMistralVoices                Operation = "mistral_voices"
 	OperationMistralRealtimeTranscription Operation = "mistral_realtime_transcription"
 	OperationListModels                   Operation = "list_models"
@@ -91,10 +87,6 @@ func (o Operation) Valid() bool {
 		OperationMistralModeration,
 		OperationMistralChatModeration,
 		OperationMistralClassification,
-		OperationMistralFiles,
-		OperationMistralBatch,
-		OperationMistralAgents,
-		OperationMistralConversations,
 		OperationMistralVoices,
 		OperationMistralRealtimeTranscription,
 		OperationListModels,

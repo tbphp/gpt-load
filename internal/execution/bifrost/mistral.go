@@ -83,16 +83,6 @@ func mistralRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		return !stream && spec.Method == http.MethodPost && spec.Path == "/v1/chat/moderations"
 	case execution.OperationMistralClassification:
 		return !stream && spec.Method == http.MethodPost && spec.Path == "/v1/classifications"
-	case execution.OperationMistralFiles:
-		return !stream && mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/mistral/v1/files")
-	case execution.OperationMistralBatch:
-		return !stream && mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/mistral/v1/batch")
-	case execution.OperationMistralAgents:
-		return mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/mistral/v1/agents") &&
-			(!stream || spec.Method == http.MethodPost)
-	case execution.OperationMistralConversations:
-		return mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/mistral/v1/conversations") &&
-			(!stream || spec.Method == http.MethodPost)
 	case execution.OperationMistralVoices:
 		return !stream && mistralVoiceMethod(spec.Method) &&
 			(mistralSubtree(spec.Path, "/mistral/v1/audio/voices") || mistralSubtree(spec.Path, "/mistral/v2/audio/voices"))
@@ -105,17 +95,6 @@ func mistralRequestShape(spec execution.AttemptSpec, stream bool) bool {
 func mistralVoiceMethod(method string) bool {
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete, http.MethodHead:
-		return true
-	default:
-		return false
-	}
-}
-
-// mistralResourceMethod reports whether the method is valid for files,
-// batch, agents, and conversations.
-func mistralResourceMethod(method string) bool {
-	switch method {
-	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead:
 		return true
 	default:
 		return false

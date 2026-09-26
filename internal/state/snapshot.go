@@ -478,10 +478,6 @@ func appendExecutionTargets(
 					GroupID: group.ID, Mode: mode, ResolvedTarget: cloneResolvedTarget(target),
 				})
 			case execution.OperationResponsesPassthrough,
-				execution.OperationMistralFiles,
-				execution.OperationMistralBatch,
-				execution.OperationMistralAgents,
-				execution.OperationMistralConversations,
 				execution.OperationMistralVoices:
 				appendExecutionTarget(index, clientProtocol, operation, NoModelRouteKey, RouteTarget{
 					GroupID: group.ID, Mode: mode, ResolvedTarget: cloneResolvedTarget(target),
