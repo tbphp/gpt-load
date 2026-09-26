@@ -132,6 +132,10 @@ func TestSharedAPIResponseFieldsMatchClassicContracts(t *testing.T) {
 				if name == "" {
 					name = field.Name
 				}
+				if test.resource == "home" && test.fields == "homeBaseFields" && name == "request_rules" {
+					// 经典版仅支持管理员；HTTP 回归测试验证此访问用户专属字段不出现在管理员响应中。
+					continue
+				}
 				if !allowed[name] {
 					t.Errorf("shared API %T field %q is rejected by classic %s", test.response, name, test.fields)
 				}

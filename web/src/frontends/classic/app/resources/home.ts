@@ -48,19 +48,6 @@ export interface HomeBaseDto {
     models: string[]
   }>
   current_access_key: AccessKeyCollectionItemDto | null
-  request_rules: HomeRequestRules | null
-}
-
-export interface HomeRequestRules {
-  redaction: {
-    rules: Array<{ pattern: string; mode: 'replace' | 'encrypt'; replacement: string }>
-  }
-  audit: {
-    enabled: boolean
-    channel_name: string
-    model: string
-    rules: Array<{ name: string; instructions: string; action: 'warn' | 'block' }>
-  }
 }
 
 export interface HomeStatisticsSummary {
@@ -152,7 +139,6 @@ const homeBaseFields = [
   'inventory',
   'access_keys',
   'current_access_key',
-  'request_rules',
 ] as const
 const inventoryFields = [
   'group_count',
@@ -287,39 +273,6 @@ export function projectHomeBase(value: unknown): HomeBaseDto {
       record.current_access_key === null
         ? null
         : projectAccessKeyCollectionItem(record.current_access_key),
-    request_rules:
-      record.request_rules == null ? null : projectHomeRequestRules(record.request_rules),
-  }
-}
-
-function projectHomeRequestRules(value: unknown): HomeRequestRules {
-  const record = projectRecord(value)
-  const redaction = projectRecord(record.redaction)
-  const audit = projectRecord(record.audit)
-  return {
-    redaction: {
-      rules: projectArray(redaction.rules, (value) => {
-        const rule = projectRecord(value)
-        return {
-          pattern: projectString(rule.pattern, { allowEmpty: true }),
-          mode: projectEnum(rule.mode, ['replace', 'encrypt'] as const),
-          replacement: projectString(rule.replacement ?? '', { allowEmpty: true }),
-        }
-      }),
-    },
-    audit: {
-      enabled: projectBoolean(audit.enabled),
-      channel_name: projectString(audit.channel_name ?? '', { allowEmpty: true }),
-      model: projectString(audit.model ?? '', { allowEmpty: true }),
-      rules: projectArray(audit.rules, (value) => {
-        const rule = projectRecord(value)
-        return {
-          name: projectString(rule.name, { allowEmpty: true }),
-          instructions: projectString(rule.instructions, { allowEmpty: true }),
-          action: projectEnum(rule.action, ['warn', 'block'] as const),
-        }
-      }),
-    },
   }
 }
 

@@ -92,9 +92,7 @@ func TestHomeRequestRulesExposeOnlyApplicablePolicies(t *testing.T) {
 			t.Fatalf("home status = %d", response.Code)
 		}
 		var result struct {
-			Data struct {
-				Rules *policyView `json:"request_rules"`
-			} `json:"data"`
+			Data map[string]json.RawMessage `json:"data"`
 		}
 		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)
@@ -104,7 +102,18 @@ func TestHomeRequestRulesExposeOnlyApplicablePolicies(t *testing.T) {
 				t.Fatalf("home disclosed protected policy data: %q", hidden)
 			}
 		}
-		return result.Data.Rules
+		raw, exists := result.Data["request_rules"]
+		if !exists {
+			return nil
+		}
+		var rules *policyView
+		if err := json.Unmarshal(raw, &rules); err != nil {
+			t.Fatal(err)
+		}
+		if rules == nil {
+			t.Fatal("request_rules must be omitted rather than null when unavailable")
+		}
+		return rules
 	}
 	got := read(current.Key)
 	if got == nil {
