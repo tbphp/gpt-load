@@ -310,6 +310,7 @@ func newProviderAdapterRegistry(
 		{ProviderKind: channel.ProviderGemini, Adapter: bifrost},
 		{ProviderKind: channel.ProviderMultiProtocolGateway, Adapter: bifrost},
 		{ProviderKind: channel.ProviderOpenAICompatible, Adapter: bifrost},
+		{ProviderKind: channel.ProviderCline, Adapter: bifrost},
 		{ProviderKind: channel.ProviderAzureOpenAI, Adapter: bifrost},
 		{ProviderKind: channel.ProviderAWSBedrock, Adapter: bifrost},
 		{ProviderKind: channel.ProviderGoogleVertex, Adapter: bifrost},

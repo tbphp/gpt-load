@@ -151,11 +151,13 @@ Rerank uses the independent `rerank` protocol through `POST /v1/rerank` on the O
 ### Built-in channels
 
 - **Official and cloud** — OpenAI, Anthropic, Gemini, xAI, Azure OpenAI, AWS Bedrock, Google Vertex AI
-- **Model services** — DeepSeek, Moonshot AI, SiliconFlow, Zhipu AI, Alibaba, Volcengine, OpenRouter, Groq, Cerebras, Mistral, Nebius, Parasail, Wafer, Hugging Face (Chat), Cohere (text reranking), OpenCode Go, OpenCode Zen
+- **Model services** — DeepSeek, Moonshot AI, SiliconFlow, Zhipu AI, Alibaba, Volcengine, OpenRouter, Cline, Groq, Cerebras, Mistral, Nebius, Parasail, Wafer, Hugging Face (Chat), Cohere (text reranking), OpenCode Go, OpenCode Zen
 - **Subscription** — Codex, Claude, Antigravity, Grok
 - **Custom** — OpenAI Compatible (any compatible relay)
 
 OpenCode Go / Zen use API keys and the existing multi-protocol gateway adapter for native Chat Completions, stateless Responses creation, and Anthropic Messages, including streaming and model discovery. Choose the protocol supported by the upstream model; these presets do not convert protocols automatically. Custom Base URLs use the gateway root without `/v1`. Gemini-native requests and Responses resource operations are not enabled. Go clients should preserve their coding-client identity and conversation session headers.
+
+Cline uses an API key with the default API prefix `https://api.cline.bot/api/v1`. It supports native Chat Completions and model discovery, and converts Responses, Anthropic Messages, and Gemini requests to Chat, including streaming. Use full upstream model IDs, such as `deepseek/deepseek-v4.1-flash` or `cline-pass/deepseek-v4.1-flash` for ClinePass; subscription model IDs can be added manually when absent from the upstream model list. The adapter accepts both standard and legacy wrapped Chat responses. OAuth login, image/search APIs, and stored Responses are not included.
 
 ### Codex live voice
 

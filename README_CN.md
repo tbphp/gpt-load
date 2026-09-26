@@ -151,11 +151,13 @@ Rerank 使用独立的 `rerank` 协议，在 OpenAI Compatible、New API、GPT-L
 ### 内置渠道
 
 - **官方与云平台**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
-- **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（聊天）、Cohere（文本重排序）、OpenCode Go、OpenCode Zen
+- **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Cline、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（聊天）、Cohere（文本重排序）、OpenCode Go、OpenCode Zen
 - **订阅渠道**：Codex、Claude、Antigravity、Grok
 - **自定义**：OpenAI Compatible（任意兼容中转）
 
 OpenCode Go / Zen 使用 API Key，通过现有多协议网关适配器接入原生 Chat Completions、无状态 Responses 创建和 Anthropic Messages，支持流式请求及模型发现。客户端需要选择上游模型支持的协议，这两个预设不自动转换协议。自定义 Base URL 填写不含 `/v1` 的网关根地址；暂不开放 Gemini 原生请求和 Responses 资源操作。Go 客户端应保留编程工具身份及对话会话头。
+
+Cline 使用 API Key，默认 API 前缀为 `https://api.cline.bot/api/v1`。支持原生 Chat Completions 和模型发现，并将 Responses、Anthropic Messages、Gemini 请求转换为 Chat，支持流式请求。上游模型填写完整标识，例如 `deepseek/deepseek-v4.1-flash`；ClinePass 使用 `cline-pass/deepseek-v4.1-flash`，上游模型列表未包含的订阅模型可以手动添加。适配器同时接受标准 Chat 响应和历史包装格式。暂不提供 OAuth 登录、生图、搜索接口和有状态 Responses。
 
 ### Codex 实时语音
 

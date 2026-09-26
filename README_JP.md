@@ -151,11 +151,13 @@ Rerank は独立した `rerank` プロトコルを使用し、OpenAI Compatible�
 ### 組み込みチャネル
 
 - **公式・クラウド**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
-- **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（チャット）、Cohere（テキストリランキング）、OpenCode Go、OpenCode Zen
+- **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Cline、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（チャット）、Cohere（テキストリランキング）、OpenCode Go、OpenCode Zen
 - **サブスクリプション**：Codex、Claude、Antigravity、Grok
 - **カスタム**：OpenAI Compatible（任意の互換中継）
 
 OpenCode Go / Zen は API キーと既存のマルチプロトコルゲートウェイアダプターを使用し、ネイティブ Chat Completions、ステートレスな Responses 作成、Anthropic Messages に対応します。ストリーミングとモデル検出も利用できます。上流モデルが対応するプロトコルを選択してください。自動プロトコル変換は行いません。カスタム Base URL には `/v1` を含めないゲートウェイのルートを指定します。Gemini ネイティブリクエストと Responses リソース操作は対象外です。Go クライアントはコーディングツールの識別情報と会話セッションヘッダーを保持してください。
+
+Cline は API キーを使用し、デフォルトの API プレフィックスは `https://api.cline.bot/api/v1` です。ネイティブ Chat Completions とモデル検出に対応し、Responses、Anthropic Messages、Gemini リクエストを Chat に変換します。ストリーミングにも対応しています。上流モデルには `deepseek/deepseek-v4.1-flash` のような完全な ID を指定し、ClinePass には `cline-pass/deepseek-v4.1-flash` を使用してください。上流の一覧にないサブスクリプションモデルは手動で追加できます。標準 Chat レスポンスと従来のラップ形式の両方を受け付けます。OAuth ログイン、画像生成・検索 API、ステートフル Responses は対象外です。
 
 ### Codex リアルタイム音声
 
