@@ -867,7 +867,7 @@ function costLabel(log: RequestLogItemDto): string {
               </OverflowTooltip>
               <code v-else class="logs-list__model">—</code>
               <AppTooltip
-                v-if="log.request_audit"
+                v-if="log.request_audit && log.request_audit.outcome !== 'allowed'"
                 :content="auditTooltip(log)"
                 :disabled="!auditTooltip(log)"
               >

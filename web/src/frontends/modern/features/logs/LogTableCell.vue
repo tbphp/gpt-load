@@ -292,7 +292,9 @@ function fieldFilterValue(field: LogColumnId): string {
             tabindex="0"
             :aria-label="line.label ? line.label + ' ' + line.value : undefined"
           />
-          <AppTooltip v-if="index === 0 && row.request_audit" :label="auditTooltip"
+          <AppTooltip
+            v-if="index === 0 && row.request_audit && row.request_audit.outcome !== 'allowed'"
+            :label="auditTooltip"
             ><small
               class="modern-log-auto-decision"
               :class="{
