@@ -10,7 +10,7 @@ export const zhCN = {
   },
   requestAudit: {
     title: '智能护栏',
-    help: '由 JEV 按自定义规则检查当前请求，执行拦截或告警。',
+    help: '由 JEV 按自定义规则检查当前请求中的可读文本，执行拦截或告警。',
     enabled: '启用智能护栏',
     scope: '生效访问密钥',
     scopeHelp: '留空表示全部访问密钥。',
@@ -29,7 +29,7 @@ export const zhCN = {
     threshold: '命中阈值',
     thresholdHelp: '取值大于 0 且不超过 1，判定概率达到阈值时执行动作。',
     coverageHelp:
-      '已审结果复用一小时；待检文本完整分批审查，辅助前文按预算截取。续接只检查本次内容，不保存历史。超过总审查预算、包含无法审查的非文本内容或服务异常时拒绝请求。',
+      '仅审查可读文本，忽略加密历史和图片、音视频等非文本内容，原始请求保持不变。已审结果复用一小时；待检文本完整分批审查，辅助前文按预算截取。续接只检查本次内容，不保存历史。超过总审查预算或服务异常时，记录未完成原因并放行；仅命中拦截规则时拒绝请求。',
     invalid: '请检查 JEV 分组、模型、启用规则及阈值。',
     clearSelection: '清除选择',
     removeKey: '移除访问密钥',
@@ -51,7 +51,7 @@ export const zhCN = {
     },
     reasons: {
       unsupported_content: '当前内容无法进行文本审查',
-      content_too_large: '内容与规则超过总审查预算，请缩短请求后重试',
+      content_too_large: '内容与规则超过总审查预算',
       invalid_response: 'JEV 未返回完整有效的规则结果',
       timeout: 'JEV 审查超时',
       transport_error: 'JEV 服务暂不可用',
@@ -84,7 +84,7 @@ export const enUS = {
   },
   requestAudit: {
     title: 'AI Guardrails',
-    help: 'Use JEV to review current content against custom rules and block or warn.',
+    help: 'Use JEV to review readable text in the current request against custom rules and block or warn.',
     enabled: 'Enable AI Guardrails',
     scope: 'Access key scope',
     scopeHelp: 'Leave empty to apply to all access keys.',
@@ -104,7 +104,7 @@ export const enUS = {
     thresholdHelp:
       'Greater than 0 and at most 1. Execute the action when the probability reaches this threshold.',
     coverageHelp:
-      'Reuse review results for one hour. All target text is reviewed in batches; supporting context may be excerpted. Continuations review only their current payload; no history is stored. Requests exceeding the total review budget, containing unsupported non-text content or failing review are rejected.',
+      'Review readable text only, ignoring encrypted history and non-text content such as images, audio and video. The original request is unchanged. Reuse review results for one hour. All target text is reviewed in batches; supporting context may be excerpted. Continuations review only their current payload; no history is stored. Budget limits and review failures are logged as incomplete and allow the request to continue. Only a matched blocking rule rejects the request.',
     invalid: 'Check the JEV group, model, enabled rules and thresholds.',
     clearSelection: 'Clear selection',
     removeKey: 'Remove access key',
@@ -126,8 +126,7 @@ export const enUS = {
     },
     reasons: {
       unsupported_content: 'Current content cannot be reviewed as text',
-      content_too_large:
-        'Content and rules exceed the total review budget; shorten the request before retrying',
+      content_too_large: 'Content and rules exceed the total review budget',
       invalid_response: 'JEV did not return complete valid rule results',
       timeout: 'JEV review timed out',
       transport_error: 'JEV service unavailable',
@@ -160,7 +159,7 @@ export const jaJP = {
   },
   requestAudit: {
     title: 'AI ガードレール',
-    help: 'JEV が現在の内容を独自ルールで確認し、ブロックまたは警告します。',
+    help: 'JEV が現在のリクエスト内の読み取れるテキストを独自ルールで確認し、ブロックまたは警告します。',
     enabled: 'AI ガードレールを有効化',
     scope: '対象アクセスキー',
     scopeHelp: '未選択の場合はすべてのアクセスキーが対象です。',
@@ -179,7 +178,7 @@ export const jaJP = {
     threshold: 'しきい値',
     thresholdHelp: '0 より大きく 1 以下。確率がしきい値以上のときに動作します。',
     coverageHelp:
-      '確認結果を一時間再利用します。対象テキストは分割してすべて確認し、補助的な前文は上限に合わせて抜粋します。継続時は今回の内容だけを確認し、履歴は保存しません。総確認上限の超過・未対応の非テキスト・確認失敗の場合はリクエストを拒否します。',
+      '読み取れるテキストだけを確認し、暗号化された履歴や画像・音声・動画などは除外します。元のリクエストは変更しません。確認結果を一時間再利用し、対象テキストは分割してすべて確認します。補助的な前文は上限に合わせて抜粋します。継続時は今回の内容だけを確認し、履歴は保存しません。総確認上限の超過や確認失敗の場合は未完了の理由を記録して送信を続けます。ブロック設定のルールに一致した場合のみ拒否します。',
     invalid: 'JEV のグループ・モデル・有効ルール・しきい値を確認してください。',
     clearSelection: '選択をクリア',
     removeKey: 'アクセスキーを除外',
@@ -201,8 +200,7 @@ export const jaJP = {
     },
     reasons: {
       unsupported_content: '現在の内容をテキストとして確認できません',
-      content_too_large:
-        '対象内容とルールが総確認上限を超えています。リクエストを短くして再試行してください',
+      content_too_large: '対象内容とルールが総確認上限を超えています',
       invalid_response: 'JEV のルール判定が無効または不完全です',
       timeout: 'JEV 確認がタイムアウトしました',
       transport_error: 'JEV サービスを利用できません',

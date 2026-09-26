@@ -508,6 +508,10 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			reject(*failure)
 			return
 		}
+		if requestCtx.Err() != nil {
+			recorder.completeCanceled(requestCtx, 0, -1)
+			return
+		}
 		recorder.setReasoning(effective.metadata.Reasoning)
 		recorder.setUsageApplicable(effective.metadata.ObserveUsage)
 		recorder.setPricingMode(effective.metadata.PricingMode)

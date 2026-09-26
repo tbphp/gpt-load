@@ -48,11 +48,12 @@ func Extract(body []byte) (Document, string) {
 				switch item.(type) {
 				case json.Number, []any:
 					// Embeddings 的 token ID 输入不是可直接审查的文本。
-					return doc, "unsupported_content"
+					continue
 				}
 			}
-			if unsupported(item) {
-				return doc, "unsupported_content"
+			item = filterReviewContent(item)
+			if item == nil {
+				continue
 			}
 			encoded, err := json.Marshal(map[string]any{"field": key, "content": item})
 			if err != nil {
@@ -76,8 +77,10 @@ func Extract(body []byte) (Document, string) {
 			initial = initial || role == "user"
 		}
 	}
-	if unsupported(root) {
-		return doc, "unsupported_content"
+	if filtered := filterReviewContent(root); filtered != nil {
+		root = filtered.(map[string]any)
+	} else {
+		root = map[string]any{}
 	}
 	doc.Context, err = json.Marshal(root)
 	if err != nil {
@@ -122,54 +125,98 @@ func Extract(body []byte) (Document, string) {
 	return doc, ""
 }
 
-func unsupported(value any) bool {
+// 只修改解码后的送审副本：剔除不透明内容，保留可读文本及其角色、工具上下文。
+func filterReviewContent(value any) any {
 	switch v := value.(type) {
 	case []any:
+		filtered := v[:0]
 		for _, item := range v {
-			if unsupported(item) {
-				return true
+			if text := filterReviewContent(item); text != nil {
+				filtered = append(filtered, text)
 			}
+		}
+		if len(filtered) > 0 {
+			return filtered
 		}
 	case map[string]any:
 		kind, _ := v["type"].(string)
 		switch kind {
-		case "image", "image_url", "audio_url", "file_url", "input_image", "input_audio", "audio", "video", "input_video", "input_file", "file", "document", "item_reference":
-			return true
+		case "image", "image_url", "audio_url", "file_url", "input_image", "input_audio", "video", "input_video", "input_file", "file", "item_reference", "redacted_thinking":
+			return nil
+		case "audio":
+			return filterReviewContent(map[string]any{"transcript": v["transcript"]})
 		}
+		hasContent := false
 		for key, item := range v {
 			switch key {
-			case "parameters", "input_schema", "schema", "responseSchema", "response_schema":
-				// Schema 中的 file_id 等只是字段定义；正文仍完整送给 JEV。
+			case "type", "role", "id", "call_id", "tool_call_id", "tool_use_id", "status":
+				// 空消息和纯加密历史不能仅凭外壳变成送审目标。
+				continue
+			case "parameters", "input_schema", "schema", "responseSchema", "response_schema", "metadata", "functionCall", "function_call":
+				// Schema、元数据及工具参数是文本数据，同名业务字段不能当作附件删除。
+				hasContent = true
 				continue
 			case "input":
 				if kind == "tool_use" {
+					hasContent = true
+					continue
+				}
+			case "arguments":
+				if kind == "function_call" {
+					hasContent = true
 					continue
 				}
 			case "functionResponse", "function_response":
 				if response, ok := item.(map[string]any); ok {
-					// 结构化工具返回是文本数据，parts 中的实际附件继续检查。
-					envelope := make(map[string]any, len(response))
-					for field, value := range response {
-						if field != "response" {
-							envelope[field] = value
+					// 工具返回正文完整保留，只过滤协议外壳中的实际附件。
+					data, exists := response["response"]
+					delete(response, "response")
+					item = filterReviewContent(response)
+					if exists {
+						if item == nil {
+							item = map[string]any{}
 						}
+						item.(map[string]any)["response"] = data
 					}
-					if unsupported(envelope) {
-						return true
-					}
-					continue
 				}
-			case "encrypted_content", "inlineData", "inline_data", "fileData", "file_data", "file_id":
-				if item != nil && item != "" {
-					return true
+				if item == nil {
+					delete(v, key)
+				} else {
+					v[key], hasContent = item, true
+				}
+				continue
+			case "encrypted_content", "signature", "thoughtSignature", "thought_signature", "inlineData", "inline_data", "fileData", "file_data", "image_url", "audio_url", "file_url":
+				delete(v, key)
+				continue
+			case "audio":
+				audio, _ := item.(map[string]any)
+				item = map[string]any{"transcript": audio["transcript"]}
+			case "source":
+				if kind == "document" {
+					source, _ := item.(map[string]any)
+					if source["type"] != "text" && source["type"] != "content" {
+						delete(v, key)
+						continue
+					}
 				}
 			}
-			if unsupported(item) {
-				return true
+			if text := filterReviewContent(item); text != nil {
+				v[key], hasContent = text, true
+			} else {
+				delete(v, key)
 			}
 		}
+		if hasContent {
+			return v
+		}
+	case string:
+		if v != "" {
+			return v
+		}
+	default:
+		return value
 	}
-	return false
+	return nil
 }
 
 // 不使用整数专用 canonicaljson；保留 JSON 数值原文并拒绝重复键。
