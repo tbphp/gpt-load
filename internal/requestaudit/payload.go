@@ -63,7 +63,7 @@ func (r *Review) buildPayload(model string, doc Document) {
 	// 目标过多时优先近期内容；为每条选中消息保留取样空间，避免巨大工具结果独占预算。
 	count := min(len(ordered), MaxRequestBytes/minTargetBytes)
 	for count >= len(required) {
-		selected := make(map[int]bool, count)
+		selected := make(map[int]bool)
 		for target := range required {
 			selected[target] = true
 		}
