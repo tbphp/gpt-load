@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
-import { Globe, KeyRound, UserRound } from '@lucide/vue'
+import { Globe, KeyRound, UserRound, Zap } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LogEntry, LogQuery } from '@modern/api/logs'
@@ -15,7 +15,7 @@ import {
   AppTooltip,
 } from '@modern/components/ui'
 import type { LogColumnId } from './log-columns'
-import { logOutputRate, logTime } from './log-display'
+import { logNumber, logOutputRate, logTime } from './log-display'
 import LogValue from './LogValue.vue'
 import LogModelWarning from './LogModelWarning.vue'
 import LogFilterLink from './LogFilterLink.vue'
@@ -102,6 +102,31 @@ const date = computed(() =>
     month: '2-digit',
     day: '2-digit',
   }).format(props.row.completed_at_ms),
+)
+const pricingMode = computed(() =>
+  props.row.pricing_mode === 'standard' ? '' : (props.row.pricing_mode ?? ''),
+)
+const pricingLabel = computed(() =>
+  [
+    pricingMode.value,
+    props.row.context_threshold_tokens === null
+      ? ''
+      : `≥${logNumber(props.row.context_threshold_tokens, locale.value, true)}`,
+  ]
+    .filter(Boolean)
+    .join(' · '),
+)
+const pricingHint = computed(() =>
+  [
+    pricingMode.value ? t('logs.pricingModeHint', { mode: pricingMode.value }) : '',
+    props.row.context_threshold_tokens === null
+      ? ''
+      : t('logs.contextTierHint', {
+          threshold: logNumber(props.row.context_threshold_tokens, locale.value),
+        }),
+  ]
+    .filter(Boolean)
+    .join(' · '),
 )
 const autoDecisionPreset = computed(() => props.row.auto_decision?.selection.preset_name ?? '')
 const autoDecisionTooltip = computed(() => {
@@ -362,6 +387,26 @@ function fieldFilterValue(field: LogColumnId): string {
       </div>
     </AppTooltip>
   </div>
+  <div v-else-if="fields[0] === 'estimated_cost_nano_usd'" class="modern-log-cell-stack">
+    <div class="modern-log-cell-value">
+      <LogValue :row="row" column="estimated_cost_nano_usd" table />
+    </div>
+    <AppTooltip v-if="pricingLabel" :label="pricingHint">
+      <span
+        class="modern-log-pricing"
+        :class="{ 'is-mode': pricingMode }"
+        tabindex="0"
+        :aria-label="pricingHint"
+      >
+        <AppIcon
+          v-if="pricingMode === 'fast' || pricingMode === 'ultrafast'"
+          :icon="Zap"
+          size="inherit"
+        />
+        <span>{{ pricingLabel }}</span>
+      </span>
+    </AppTooltip>
+  </div>
   <div v-else class="modern-log-cell-stack" :class="{ 'is-paired': paired }">
     <template v-for="(field, index) in fields" :key="field">
       <div
@@ -425,6 +470,32 @@ function fieldFilterValue(field: LogColumnId): string {
   min-width: 0;
   gap: var(--modern-space-0-5);
   align-content: center;
+}
+.modern-log-pricing {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-1);
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+  color: var(--modern-info);
+  font-size: var(--modern-font-size-caption);
+  font-weight: var(--modern-weight-medium);
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+.modern-log-pricing.is-mode {
+  color: var(--modern-accent);
+}
+.modern-log-pricing > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modern-log-pricing:focus-visible {
+  outline: var(--modern-focus-width) solid currentColor;
+  outline-offset: var(--modern-focus-offset);
 }
 .modern-log-routing-lines {
   width: 100%;
