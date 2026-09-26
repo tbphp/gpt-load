@@ -10,6 +10,7 @@ import (
 
 // LiveCall is the result of one Codex Live session bootstrap. The selected
 // credential remains owned by Session for the complete call.
+// 创建后解析失败时也返回已知 CallID 和 Session，由调用方负责清理。
 type LiveCall struct {
 	// DispatchState 在失败时也必须区分是否已发送建连请求。
 	DispatchState DispatchState

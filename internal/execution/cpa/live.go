@@ -54,10 +54,14 @@ func (a *Adapter) OpenLive(ctx context.Context, spec execution.AttemptSpec, offe
 		Credential:   credential.value, BaseURL: baseURL, ProxyURL: settings.URL,
 		ProxyFromEnvironment: settings.FromEnvironment, Headers: spec.Header.Clone(), Body: body,
 	})
-	if err != nil {
-		return execution.LiveCall{DispatchState: execution.DispatchMaybeSent}, codexLiveFailure(err)
+	result := execution.LiveCall{DispatchState: execution.DispatchMaybeSent, CallID: call.CallID, SDP: call.SDP, Header: call.Header}
+	if call.Session != nil {
+		result.Session = call.Session
 	}
-	return execution.LiveCall{DispatchState: execution.DispatchMaybeSent, CallID: call.CallID, SDP: call.SDP, Header: call.Header, Session: call.Session}, nil
+	if err != nil {
+		return result, codexLiveFailure(err)
+	}
+	return result, nil
 }
 
 func codexLiveFailure(err error) *execution.ErrorEvidence {
