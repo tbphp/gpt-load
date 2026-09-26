@@ -92,7 +92,7 @@ func testRequestAuditLogFilters(t *testing.T, db *gorm.DB) {
 		{"warnings regardless of request outcome", ListQuery{AuditStatus: "warned"}, []string{"warned", "legacy_warned", "other_key", "upstream_error"}},
 		{"blocked", ListQuery{AuditStatus: "blocked"}, []string{"blocked", "legacy_blocked"}},
 		{"incomplete", ListQuery{AuditStatus: "incomplete"}, []string{"incomplete", "sampled"}},
-		{"allowed includes sampled and warned reviews", ListQuery{AuditStatus: "allowed"}, []string{"empty_findings", "passed", "warned", "legacy_warned", "other_key", "upstream_error", "sampled"}},
+		{"allowed includes sampled but excludes warning hits", ListQuery{AuditStatus: "allowed"}, []string{"empty_findings", "passed", "sampled"}},
 		{"failed excludes valid sampled reviews", ListQuery{AuditStatus: "failed"}, []string{"incomplete"}},
 		{"rule keyword ignores legacy non-matches", ListQuery{AuditRule: "CREDENTIAL"}, []string{"blocked", "legacy_blocked"}},
 		{"literal percent", ListQuery{AuditRule: "100%"}, []string{"warned"}},

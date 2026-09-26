@@ -81,6 +81,17 @@ const route = useRoute()
 const router = useRouter()
 const { locale, t, te } = useI18n()
 
+function auditTooltip(log: RequestLogItemDto): string {
+  const audit = log.request_audit
+  if (!audit) return ''
+  return [
+    audit.findings.map((finding) => finding.name).join(' / '),
+    audit.reason ? t('requestAudit.reasons.' + audit.reason) : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
 function autoDecisionTooltip(log: RequestLogItemDto): string {
   if (!log.auto_decision) return ''
   const key = 'autoModel.sources.' + log.auto_decision.source
@@ -855,28 +866,21 @@ function costLabel(log: RequestLogItemDto): string {
                 {{ log.client_model }}
               </OverflowTooltip>
               <code v-else class="logs-list__model">—</code>
-              <OverflowTooltip
+              <AppTooltip
                 v-if="log.request_audit"
-                as="small"
-                class="logs-list__auto-decision"
-                :class="{
-                  'is-danger': log.request_audit.outcome === 'blocked',
-                  'is-warning': log.request_audit.outcome === 'failed',
-                }"
-                :content="
-                  t('requestAudit.title') +
-                  ' · ' +
-                  [
-                    log.request_audit.findings.map((finding) => finding.name).join(' / '),
-                    log.request_audit.reason
-                      ? t('requestAudit.reasons.' + log.request_audit.reason)
-                      : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')
-                "
-                >{{ t('requestAudit.statuses.' + log.request_audit.outcome) }}</OverflowTooltip
+                :content="auditTooltip(log)"
+                :disabled="!auditTooltip(log)"
               >
+                <small
+                  class="logs-list__auto-decision"
+                  :class="{
+                    'is-danger': log.request_audit.outcome === 'blocked',
+                    'is-warning': ['warned', 'failed'].includes(log.request_audit.outcome),
+                  }"
+                  :tabindex="auditTooltip(log) ? 0 : undefined"
+                  >{{ t('requestAudit.statuses.' + log.request_audit.outcome) }}</small
+                >
+              </AppTooltip>
               <OverflowTooltip
                 v-if="log.auto_decision"
                 as="small"

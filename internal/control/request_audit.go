@@ -37,8 +37,10 @@ func mapRequestAudit(value *requestaudit.Result) *requestAuditResponse {
 	// 展示最终处置；内部覆盖状态和原因继续保留，不能把取样结果当作完整通过证明。
 	response.Outcome = "failed"
 	switch response.Status {
-	case "passed", "warned":
+	case "passed":
 		response.Outcome = "allowed"
+	case "warned":
+		response.Outcome = "warned"
 	case "blocked":
 		response.Outcome = "blocked"
 	case "incomplete":

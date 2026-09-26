@@ -32,14 +32,14 @@ func TestRequestAuditLogQueryValidation(t *testing.T) {
 func TestRequestAuditFinalOutcomeProjection(t *testing.T) {
 	for _, test := range []struct{ status, reason, mode, want string }{
 		{"passed", "", "", "allowed"},
-		{"warned", "", "", "allowed"},
+		{"warned", "", "", "warned"},
 		{"incomplete", "content_truncated", "", "allowed"},
-		{"warned", "content_truncated", "", "allowed"},
+		{"warned", "content_truncated", "", "warned"},
 		{"blocked", "content_truncated", "", "blocked"},
 		{"incomplete", "timeout", "", "failed"},
 		{"incomplete", "invalid_response", "", "failed"},
 		{"incomplete", "canceled", "", "failed"},
-		{"matched", "", "observe", "allowed"},
+		{"matched", "", "observe", "warned"},
 		{"matched", "", "enforce", "blocked"},
 	} {
 		t.Run(test.status+"/"+test.reason+"/"+test.mode, func(t *testing.T) {

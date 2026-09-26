@@ -44,8 +44,8 @@ func applyRequestAuditFilters(query *gorm.DB, input ListQuery) (*gorm.DB, error)
 		// 与旧实验日志的读取语义一致：matched 按旧模式映射为告警或拦截。
 		outcome := fmt.Sprintf("CASE WHEN COALESCE(%s, '') <> '' AND %s = 'matched' THEN CASE WHEN %s = 'enforce' THEN 'blocked' ELSE 'warned' END ELSE %s END", mode, status, mode, status)
 		if input.AuditStatus == "allowed" || input.AuditStatus == "failed" {
-			// 与管理 API 的最终处置一致；保留旧 warned/incomplete 查询的原有语义。
-			outcome = fmt.Sprintf("CASE WHEN (%s) = 'blocked' THEN 'blocked' WHEN (%s) IN ('passed', 'warned') OR ((%s) = 'incomplete' AND %s = 'content_truncated') THEN 'allowed' WHEN (%s) IS NOT NULL THEN 'failed' END", outcome, outcome, outcome, reason, outcome)
+			// 与管理 API 的最终处置一致；保留 incomplete 查询的原有语义。
+			outcome = fmt.Sprintf("CASE WHEN (%s) IN ('blocked', 'warned') THEN (%s) WHEN (%s) = 'passed' OR ((%s) = 'incomplete' AND %s = 'content_truncated') THEN 'allowed' WHEN (%s) IS NOT NULL THEN 'failed' END", outcome, outcome, outcome, outcome, reason, outcome)
 		}
 		query = query.Where("("+outcome+") = ?", input.AuditStatus)
 	}

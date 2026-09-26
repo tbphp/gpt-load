@@ -81,7 +81,7 @@ export interface RequestLogFilters {
   upstream_model?: string
   access_key_id?: number
   status?: RequestLogStatus
-  audit_status?: 'allowed' | 'blocked' | 'failed'
+  audit_status?: 'allowed' | 'warned' | 'blocked' | 'failed'
   audit_rule?: string
   request_id?: string
   protocol?: AccessProtocol

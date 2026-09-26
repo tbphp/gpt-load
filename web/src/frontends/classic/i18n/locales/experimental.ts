@@ -45,6 +45,7 @@ export const zhCN = {
     },
     statuses: {
       allowed: '放行',
+      warned: '告警',
       blocked: '已拦截',
       failed: '审核失败',
     },
@@ -120,6 +121,7 @@ export const enUS = {
     },
     statuses: {
       allowed: 'Allowed',
+      warned: 'Warning',
       blocked: 'Blocked',
       failed: 'Review failed',
     },
@@ -195,6 +197,7 @@ export const jaJP = {
     },
     statuses: {
       allowed: '送信許可',
+      warned: '警告',
       blocked: 'ブロック済み',
       failed: '確認失敗',
     },
