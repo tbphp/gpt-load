@@ -138,7 +138,7 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 | OpenAI Images           | `POST /v1/images/...`                                              |
 | OpenAI Embeddings       | `POST /v1/embeddings`                                              |
 | Rerank                  | `POST /v1/rerank`                                                  |
-| Mistral 原生            | `/v1/ocr`、`/v1/audio/...`、`/v1/files`、`/v1/batch`、`/v1/agents`、`/v1/conversations` |
+| Mistral 原生            | `/v1/ocr`、`/v1/audio/...`、`/mistral/v1/files`、`/mistral/v1/batch`、`/mistral/v1/agents`、`/mistral/v1/conversations` |
 | Anthropic Messages      | `POST /v1/messages`                                                |
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |

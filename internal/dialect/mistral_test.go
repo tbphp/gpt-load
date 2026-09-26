@@ -32,17 +32,17 @@ func TestMistralInspectsDocumentedModelPaths(t *testing.T) {
 		{name: "transcription", method: http.MethodPost, path: "/v1/audio/transcriptions", body: `{"model":"voxtral"}`, operation: execution.OperationMistralAudioTranscription, model: "voxtral"},
 		{name: "speech", method: http.MethodPost, path: "/v1/audio/speech", body: `{"model":"voxtral-tts","input":"hello"}`, operation: execution.OperationMistralAudioSpeech, model: "voxtral-tts"},
 		{name: "realtime", method: http.MethodGet, path: "/v1/audio/transcriptions/realtime", rawQuery: "model=voxtral-mini-transcribe-realtime-2602", operation: execution.OperationMistralRealtimeTranscription, model: "voxtral-mini-transcribe-realtime-2602"},
-		{name: "voices", method: http.MethodGet, path: "/v1/audio/voices", operation: execution.OperationMistralVoices},
-		{name: "voice", method: http.MethodGet, path: "/v1/audio/voices/530e2e20-58e2-45d8-b0a5-4594f4915944", operation: execution.OperationMistralVoices},
-		{name: "voices v2", method: http.MethodGet, path: "/v2/audio/voices", operation: execution.OperationMistralVoices},
+		{name: "voices", method: http.MethodGet, path: "/mistral/v1/audio/voices", operation: execution.OperationMistralVoices},
+		{name: "voice", method: http.MethodGet, path: "/mistral/v1/audio/voices/530e2e20-58e2-45d8-b0a5-4594f4915944", operation: execution.OperationMistralVoices},
+		{name: "voices v2", method: http.MethodGet, path: "/mistral/v2/audio/voices", operation: execution.OperationMistralVoices},
 		{name: "moderation", method: http.MethodPost, path: "/v1/moderations", body: `{"model":"mistral-moderation-latest","input":"hello"}`, operation: execution.OperationMistralModeration, model: "mistral-moderation-latest"},
 		{name: "chat moderation", method: http.MethodPost, path: "/v1/chat/moderations", body: `{"model":"mistral-moderation-latest","input":[]}`, operation: execution.OperationMistralChatModeration, model: "mistral-moderation-latest"},
 		{name: "classification", method: http.MethodPost, path: "/v1/classifications", body: `{"model":"shieldstral","input":"hello"}`, operation: execution.OperationMistralClassification, model: "shieldstral"},
-		{name: "batch job", method: http.MethodPost, path: "/v1/batch/jobs", body: `{"model":"mistral-small-latest","endpoint":"/v1/chat/completions"}`, operation: execution.OperationMistralBatch, model: "mistral-small-latest"},
-		{name: "batch list", method: http.MethodGet, path: "/v1/batch/jobs", operation: execution.OperationMistralBatch},
-		{name: "file", method: http.MethodGet, path: "/v1/files/file-1/url", operation: execution.OperationMistralFiles},
-		{name: "agent", method: http.MethodPost, path: "/v1/agents", body: `{"model":"mistral-small-latest","name":"helper"}`, operation: execution.OperationMistralAgents, model: "mistral-small-latest"},
-		{name: "conversation stream", method: http.MethodPost, path: "/v1/conversations", body: `{"model":"mistral-small-latest","stream":true,"inputs":[]}`, operation: execution.OperationMistralConversations, model: "mistral-small-latest", stream: true},
+		{name: "batch job", method: http.MethodPost, path: "/mistral/v1/batch/jobs", body: `{"model":"mistral-small-latest","endpoint":"/v1/chat/completions"}`, operation: execution.OperationMistralBatch, model: "mistral-small-latest"},
+		{name: "batch list", method: http.MethodGet, path: "/mistral/v1/batch/jobs", operation: execution.OperationMistralBatch},
+		{name: "file", method: http.MethodGet, path: "/mistral/v1/files/file-1/url", operation: execution.OperationMistralFiles},
+		{name: "agent", method: http.MethodPost, path: "/mistral/v1/agents", body: `{"model":"mistral-small-latest","name":"helper"}`, operation: execution.OperationMistralAgents, model: "mistral-small-latest"},
+		{name: "conversation stream", method: http.MethodPost, path: "/mistral/v1/conversations", body: `{"model":"mistral-small-latest","stream":true,"inputs":[]}`, operation: execution.OperationMistralConversations, model: "mistral-small-latest", stream: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -79,7 +79,7 @@ func TestMistralRejectsIncompleteOrUnsafePaths(t *testing.T) {
 	requests := []*ParsedRequest{
 		{Method: http.MethodPost, Path: "/v1/ocr", Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{}`)},
 		{Method: http.MethodPost, Path: "/v1/ocr", Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"model":"ocr","stream":true}`)},
-		{Method: http.MethodGet, Path: "/v1/files/../secret"},
+		{Method: http.MethodGet, Path: "/mistral/v1/files/../secret"},
 		{Method: http.MethodPost, Path: "/v1/chat/completions", Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"model":"m"}`)},
 		{Method: http.MethodPost, Path: "/v1/audio/speech", Header: http.Header{"Content-Type": {"text/plain"}}, Body: []byte("hello")},
 	}

@@ -32,19 +32,19 @@ func TestMistralNativeRoutesPreserveMethodPathAndCredential(t *testing.T) {
 			model: "upstream-ocr", wantPath: "/v1/ocr", wantBody: `"model":"upstream-ocr"`,
 		},
 		{
-			name: "batch job", operation: execution.OperationMistralBatch, method: http.MethodGet, path: "/v1/batch/jobs",
+			name: "batch job", operation: execution.OperationMistralBatch, method: http.MethodGet, path: "/mistral/v1/batch/jobs",
 			wantPath: "/v1/batch/jobs",
 		},
 		{
-			name: "file content", operation: execution.OperationMistralFiles, method: http.MethodGet, path: "/v1/files/file-1/content",
+			name: "file content", operation: execution.OperationMistralFiles, method: http.MethodGet, path: "/mistral/v1/files/file-1/content",
 			wantPath: "/v1/files/file-1/content",
 		},
 		{
-			name: "voices", operation: execution.OperationMistralVoices, method: http.MethodGet, path: "/v1/audio/voices",
+			name: "voices", operation: execution.OperationMistralVoices, method: http.MethodGet, path: "/mistral/v1/audio/voices",
 			wantPath: "/v1/audio/voices",
 		},
 		{
-			name: "voices v2", operation: execution.OperationMistralVoices, method: http.MethodGet, path: "/v2/audio/voices",
+			name: "voices v2", operation: execution.OperationMistralVoices, method: http.MethodGet, path: "/mistral/v2/audio/voices",
 			wantPath: "/v2/audio/voices",
 		},
 	}

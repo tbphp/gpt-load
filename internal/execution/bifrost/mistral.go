@@ -84,18 +84,18 @@ func mistralRequestShape(spec execution.AttemptSpec, stream bool) bool {
 	case execution.OperationMistralClassification:
 		return !stream && spec.Method == http.MethodPost && spec.Path == "/v1/classifications"
 	case execution.OperationMistralFiles:
-		return !stream && mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/v1/files")
+		return !stream && mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/mistral/v1/files")
 	case execution.OperationMistralBatch:
-		return !stream && mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/v1/batch")
+		return !stream && mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/mistral/v1/batch")
 	case execution.OperationMistralAgents:
-		return mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/v1/agents") &&
+		return mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/mistral/v1/agents") &&
 			(!stream || spec.Method == http.MethodPost)
 	case execution.OperationMistralConversations:
-		return mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/v1/conversations") &&
+		return mistralResourceMethod(spec.Method) && mistralSubtree(spec.Path, "/mistral/v1/conversations") &&
 			(!stream || spec.Method == http.MethodPost)
 	case execution.OperationMistralVoices:
 		return !stream && mistralVoiceMethod(spec.Method) &&
-			(mistralSubtree(spec.Path, "/v1/audio/voices") || mistralSubtree(spec.Path, "/v2/audio/voices"))
+			(mistralSubtree(spec.Path, "/mistral/v1/audio/voices") || mistralSubtree(spec.Path, "/mistral/v2/audio/voices"))
 	default:
 		return false
 	}

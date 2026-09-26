@@ -133,15 +133,15 @@ func classifyMistralRequest(method, path string) (execution.Operation, error) {
 		return execution.OperationMistralChatModeration, nil
 	case method == http.MethodPost && path == "/v1/classifications":
 		return execution.OperationMistralClassification, nil
-	case mistralResourceMethod(method) && mistralSubtree(path, "/v1/files"):
+	case mistralResourceMethod(method) && mistralSubtree(path, "/mistral/v1/files"):
 		return execution.OperationMistralFiles, nil
-	case mistralResourceMethod(method) && mistralSubtree(path, "/v1/batch"):
+	case mistralResourceMethod(method) && mistralSubtree(path, "/mistral/v1/batch"):
 		return execution.OperationMistralBatch, nil
-	case mistralResourceMethod(method) && mistralSubtree(path, "/v1/agents"):
+	case mistralResourceMethod(method) && mistralSubtree(path, "/mistral/v1/agents"):
 		return execution.OperationMistralAgents, nil
-	case mistralResourceMethod(method) && mistralSubtree(path, "/v1/conversations"):
+	case mistralResourceMethod(method) && mistralSubtree(path, "/mistral/v1/conversations"):
 		return execution.OperationMistralConversations, nil
-	case mistralVoiceMethod(method) && (mistralSubtree(path, "/v1/audio/voices") || mistralSubtree(path, "/v2/audio/voices")):
+	case mistralVoiceMethod(method) && (mistralSubtree(path, "/mistral/v1/audio/voices") || mistralSubtree(path, "/mistral/v2/audio/voices")):
 		return execution.OperationMistralVoices, nil
 	default:
 		return "", fmt.Errorf("unsupported mistral request %s %s", method, path)
@@ -392,6 +392,8 @@ func rewriteMultipartModel(body []byte, contentType, model string) ([]byte, stri
 }
 
 // MistralUpstreamTarget maps a client path onto the channel base URL.
+// Model operations use the public /v1 path. Model-less operations use a
+// /mistral prefix, which is removed before the path is appended.
 // Paths under /v1 are appended to a base that already ends in /v1.
 // /v2/audio/voices is a sibling of that prefix, not a child of it.
 func MistralUpstreamTarget(baseURL, clientPath string) (string, string, error) {
@@ -399,6 +401,7 @@ func MistralUpstreamTarget(baseURL, clientPath string) (string, string, error) {
 	if baseURL == "" {
 		return "", "", fmt.Errorf("mistral base URL is required")
 	}
+	clientPath = strings.TrimPrefix(clientPath, "/mistral")
 	if strings.HasPrefix(clientPath, "/v2/") {
 		if !mistralSafeAbsolutePath(clientPath) {
 			return "", "", fmt.Errorf("mistral path %q is invalid", clientPath)
