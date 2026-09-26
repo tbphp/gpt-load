@@ -35,6 +35,7 @@ func TestRerankRuntimePreservesNativeWireAcrossSupportedChannels(t *testing.T) {
 	}{
 		{channel.OpenAICompatible, "/tenant/api/v4", "/tenant/api/v4/rerank"},
 		{channel.OpenAICompatible, "/v2", "/v2/rerank"},
+		{channel.ID("cohere"), "/v2", "/v2/rerank"},
 		{channel.NewAPI, "/team", "/team/v1/rerank"},
 		{channel.GPTLoad, "/team", "/team/v1/rerank"},
 	} {

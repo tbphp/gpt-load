@@ -151,7 +151,7 @@ Rerank 使用独立的 `rerank` 协议，在 OpenAI Compatible、New API、GPT-L
 ### 内置渠道
 
 - **官方与云平台**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
-- **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq
+- **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（聊天）、Cohere（文本重排序）
 - **订阅渠道**：Codex、Claude、Antigravity、Grok
 - **自定义**：OpenAI Compatible（任意兼容中转）
 
