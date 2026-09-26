@@ -855,6 +855,9 @@ func TestConvertedResponsesStreamHonorsCancellationAndUpstreamError(t *testing.T
 			writer.Header().Set("Content-Type", "text/event-stream")
 			_, _ = io.WriteString(writer, "event: response.created\n"+
 				"data: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":123,\"status\":\"in_progress\",\"model\":\"gpt-upstream\",\"output\":[]}}\n\n")
+			// SDK 暂存启动帧，实际输出后才能验证流中途取消。
+			_, _ = io.WriteString(writer, "event: response.output_text.delta\n"+
+				"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"output_index\":0,\"content_index\":0,\"item_id\":\"msg_1\",\"delta\":\"hello\"}\n\n")
 			if flusher, ok := writer.(http.Flusher); ok {
 				flusher.Flush()
 			}
@@ -870,7 +873,7 @@ func TestConvertedResponsesStreamHonorsCancellationAndUpstreamError(t *testing.T
 			"/v1/messages",
 			[]byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`),
 		)
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 		var data bytes.Buffer
 		result := runtime.ExecuteStream(ctx, spec, func(event execution.StreamEvent) error {
@@ -953,8 +956,9 @@ func TestConvertedResponsesStreamHonorsCancellationAndUpstreamError(t *testing.T
 			return nil
 		})
 
-		if result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted ||
-			result.StatusCode != http.StatusOK || result.Error == nil ||
+		// 启动帧尚未交给下游时，上游错误应直接返回而不启动响应。
+		if result.DispatchState != execution.DispatchMaybeSent || result.ResponseStarted ||
+			result.StatusCode != 0 || result.Error == nil ||
 			result.Error.Type != "invalid_request_error" ||
 			result.Error.Code != "context_length_exceeded" ||
 			result.Error.Summary != "input is too large" ||
@@ -964,8 +968,8 @@ func TestConvertedResponsesStreamHonorsCancellationAndUpstreamError(t *testing.T
 			result.Error.ReplaySafety != "" {
 			t.Fatalf("response.failed result = %+v evidence=%+v events=%+v", result, result.Error, events)
 		}
-		if len(events) != 1 || events[0].Kind != execution.StreamEventReady {
-			t.Fatalf("response.failed events = %+v, want ready metadata only", events)
+		if len(events) != 0 {
+			t.Fatalf("response.failed events = %+v, want no downstream events", events)
 		}
 	})
 

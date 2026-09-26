@@ -41,7 +41,7 @@ the existing HTTP executor remains separate.
 ## Codex request identity
 
 Codex HTTP inference (including streaming and images) and WebSocket handshakes
-use the pinned CPA default User-Agent (still `codex-tui/0.154.0` in CPA v7.3.15).
+use the pinned CPA default User-Agent (still `codex-tui/0.154.0` in CPA v7.3.17).
 `Version` is fixed to `CodexClientVersion`, currently `0.155.0`, matching CPA's
 model discovery client version. Downstream and GPT-Load group
 header rules cannot override, clear, or remove these two identity headers.
@@ -121,7 +121,7 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   use updated timeout settings. `Done` closes when the Session is invalidated.
   Request and forwarded-event limits default to 10 MiB each. All three are configurable when creating the Session.
   The facade buffers no conversation history or output queue. Event checks occur
-  **after SDK reading**: CPA v7.3.15 has no exposed raw-frame size limit and has
+  **after SDK reading**: CPA v7.3.17 has no exposed raw-frame size limit and has
   its own internal buffers. These checks do not bound all SDK memory. CPA also
   retains its upstream read-idle timeout; idle connection loss invalidates the
   Session and is not transparently recovered.
@@ -152,7 +152,7 @@ sent only in the first. `CPA_LIVE_CODEX_WS_PROXY_URL` defaults to `direct`;
 ## Pinned upstream
 
 - Module: `github.com/router-for-me/CLIProxyAPI/v7`
-- Version: `v7.3.15`
+- Version: `v7.3.17`
 
 The bridge keeps Codex's fixed Version, observation identity, and model snapshot
 aligned with CPA's model discovery version, while preserving CPA's execution
@@ -160,6 +160,11 @@ User-Agent as described above. CPA includes Antigravity reasoning tokens in unar
 OpenAI Chat and OpenAI Responses output totals; the bridge only adds them for OpenAI
 Chat streaming, and retains Anthropic's unary cache-input normalization.
 Antigravity Responses web search is not enabled by this dependency update.
+
+CPA v7.3.17 adds the native Codex `X-Codex-Routing-Hint` to HTTP Responses
+requests and WebSocket handshakes, derived from the resolved model and final
+`service_tier`. Bridge tests verify that the hint matches the normalized request.
+The Codex client version and embedded model snapshot are unchanged from v7.3.15.
 
 The root module consumes this bridge through a local `replace`; releases still
 resolve CPA itself at the exact version recorded in both `go.mod` files and
