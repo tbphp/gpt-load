@@ -317,39 +317,68 @@ func TestWebsocketHandshakeRejectionSelectsBackup(t *testing.T) {
 }
 
 func TestWebsocketExhaustionKeepsLastUpstreamError(t *testing.T) {
-	h, engine, input := websocketTestHandler(t, "http://127.0.0.1:1", channel.CLIProxyAPI)
-	addWebsocketErrorBackup(t, h, input)
-	var opens atomic.Int32
-	h.forwarder = websocketScriptForwarder{AttemptForwarder: h.forwarder, open: func(_ context.Context, _ ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
-		if opens.Add(1) == 2 {
-			return nil, execution.WebsocketResult{DispatchState: execution.DispatchNotSent,
-				Error: &execution.ErrorEvidence{Kind: execution.ErrorKindTransport, OriginHint: execution.ErrorOriginUpstream, Code: "websocket_connect_failed"}}
+	for _, retries := range []int{1, 2} {
+		for _, rejection := range []string{"event", "handshake"} {
+			t.Run(fmt.Sprintf("%s/retries=%d", rejection, retries), func(t *testing.T) {
+				h, engine, input := websocketTestHandler(t, "http://127.0.0.1:1", channel.CLIProxyAPI)
+				addWebsocketErrorBackup(t, h, input)
+				h.manager.Current().Settings.RetryCount = retries
+				var opens atomic.Int32
+				h.forwarder = websocketScriptForwarder{AttemptForwarder: h.forwarder, open: func(_ context.Context, _ ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
+					if opens.Add(1) == 2 {
+						return nil, execution.WebsocketResult{DispatchState: execution.DispatchNotSent,
+							Error: &execution.ErrorEvidence{Kind: execution.ErrorKindTransport, OriginHint: execution.ErrorOriginUpstream, Code: "websocket_connect_failed"}}
+					}
+					if rejection == "handshake" {
+						return nil, execution.WebsocketResult{DispatchState: execution.DispatchNotSent, Header: http.Header{"Retry-After": {"120"}},
+							Error: &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, OriginHint: execution.ErrorOriginUpstream, StatusCode: 429, Code: "usage_limit_reached"}}
+					}
+					session := &websocketScriptSession{done: make(chan struct{})}
+					session.turn = func(ctx context.Context, _ []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
+						if err := emit(ctx, []byte(`{"type":"error","status":429,"error":{"code":"usage_limit_reached","message":"quota exhausted"}}`)); err != nil {
+							t.Error(err)
+						}
+						return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent,
+							Error: &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, OriginHint: execution.ErrorOriginUpstream, StatusCode: 429, Code: "usage_limit_reached"}}
+					}
+					return session, execution.WebsocketResult{DispatchState: execution.DispatchNotSent}
+				}}
+				sink := &recordingRequestLogSink{}
+				h.requestLogSink = sink
+				server := httptest.NewServer(engine)
+				defer server.Close()
+				conn := dialGatewayWebsocket(t, server.URL)
+				defer conn.Close()
+				if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "test", "store": false}); err != nil {
+					t.Fatal(err)
+				}
+				var event struct {
+					Type   string                        `json:"type"`
+					Status int                           `json:"status"`
+					Error  accessKeyCostLimitClientError `json:"error"`
+				}
+				if err := conn.ReadJSON(&event); err != nil {
+					t.Fatal(err)
+				}
+				logs := waitWebsocketLogs(t, sink, 1)
+				attempts := logs[0].Attempts
+				if event.Type != "error" || event.Status != http.StatusTooManyRequests || event.Error.Code != "usage_limit_reached" ||
+					logs[0].StatusCode != http.StatusTooManyRequests || opens.Load() != 2 || len(attempts) != 2 {
+					t.Fatalf("later connection failure replaced upstream rejection: response=%+v log=%+v", event, logs[0])
+				}
+				if !attempts[0].WillRetry || attempts[1].WillRetry || attempts[1].ErrorCode != "upstream_connect_failed" {
+					t.Fatalf("attempt accounting=%+v", attempts)
+				}
+				if rejection == "event" && event.Error.Message != "quota exhausted" {
+					t.Fatalf("upstream rejection message lost: %+v", event)
+				}
+				if rejection == "handshake" {
+					until := attempts[0].CooldownUntil
+					if !until.After(time.Now().Add(100*time.Second)) || event.Error.ResetsAt == nil || *event.Error.ResetsAt != (until.UnixMilli()+999)/1000 {
+						t.Fatalf("handshake recovery information lost: response=%+v cooldown=%v", event, until)
+					}
+				}
+			})
 		}
-		session := &websocketScriptSession{done: make(chan struct{})}
-		session.turn = func(ctx context.Context, _ []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
-			if err := emit(ctx, []byte(`{"type":"error","status":429,"error":{"code":"usage_limit_reached","message":"quota exhausted"}}`)); err != nil {
-				t.Error(err)
-			}
-			return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent,
-				Error: &execution.ErrorEvidence{Kind: execution.ErrorKindHTTP, OriginHint: execution.ErrorOriginUpstream, StatusCode: 429, Code: "usage_limit_reached"}}
-		}
-		return session, execution.WebsocketResult{DispatchState: execution.DispatchNotSent}
-	}}
-	sink := &recordingRequestLogSink{}
-	h.requestLogSink = sink
-	server := httptest.NewServer(engine)
-	defer server.Close()
-	conn := dialGatewayWebsocket(t, server.URL)
-	defer conn.Close()
-	if err := conn.WriteJSON(map[string]any{"type": "response.create", "model": "public", "input": "test", "store": false}); err != nil {
-		t.Fatal(err)
-	}
-	_, body, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatal(err)
-	}
-	logs := waitWebsocketLogs(t, sink, 1)
-	if !strings.Contains(string(body), "quota exhausted") || len(logs[0].Attempts) != 2 {
-		t.Fatalf("later connection failure replaced upstream rejection: response=%s attempts=%+v", body, logs[0].Attempts)
 	}
 }

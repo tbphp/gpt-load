@@ -663,6 +663,9 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			recorder.completeStream(result, input.UpstreamModelID, index)
 		} else if s.ctx.Err() != nil {
 			recorder.completeCanceled(s.ctx, result.StatusCode, index)
+		} else if result.DispatchState == execution.DispatchNotSent && decision.Retry != health.RetryNone && finishRejectedAttempt != nil {
+			// 预算耗尽与候选耗尽保持相同优先级，未发送的可重试失败不覆盖上游拒绝。
+			finishRejectedAttempt()
 		} else {
 			finishFailedAttempt()
 		}
