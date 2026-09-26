@@ -174,12 +174,12 @@ func (s *session) readLoop() {
 		}
 		var event envelope
 		if kind != websocket.TextMessage || !utf8.Valid(body) || json.Unmarshal(body, &event) != nil || event.Type == "" {
-			s.fail(failure(execution.ErrorKindProvider, "invalid_websocket_event", 0))
+			s.fail(protocolFailure("invalid_websocket_event"))
 			return
 		}
 		var lane string
 		if len(event.StreamID) > 0 && (json.Unmarshal(event.StreamID, &lane) != nil || lane == "" || safeCode(lane) == "") {
-			s.fail(failure(execution.ErrorKindProvider, "invalid_websocket_stream", 0))
+			s.fail(protocolFailure("invalid_websocket_stream"))
 			return
 		}
 		s.mu.Lock()
@@ -188,7 +188,7 @@ func (s *session) readLoop() {
 		if slot == nil || event.Error.Code == "websocket_connection_limit_reached" {
 			code := safeCode(event.Error.Code)
 			if code == "" {
-				code = "unmatched_websocket_event"
+				code = "upstream_protocol_error"
 			}
 			s.fail(failure(execution.ErrorKindProvider, code, event.Status))
 			return
@@ -197,7 +197,7 @@ func (s *session) readLoop() {
 		select {
 		case slot.events <- item:
 		case <-slot.done:
-			s.fail(failure(execution.ErrorKindProvider, "unmatched_websocket_event", 0))
+			s.fail(protocolFailure("unmatched_websocket_event"))
 			return
 		case <-s.done:
 			return
@@ -306,7 +306,7 @@ func (s *session) ExecuteTurn(ctx context.Context, payload []byte, emit func(con
 			if (id != "" && responseID != "" && id != responseID) ||
 				(event.Response.ID != "" && event.ResponseID != "" && event.Response.ID != event.ResponseID) {
 				close(item.done)
-				s.fail(failure(execution.ErrorKindProvider, "websocket_response_mismatch", 0))
+				s.fail(protocolFailure("websocket_response_mismatch"))
 				continue
 			}
 			if id != "" {
@@ -315,7 +315,7 @@ func (s *session) ExecuteTurn(ctx context.Context, payload []byte, emit func(con
 			if event.Type == "response.completed" || (event.Type == "response.done" && event.Response.Status == "completed") {
 				if event.Response.ID == "" || event.Response.Object != "response" || (event.Response.Status != "" && event.Response.Status != "completed") {
 					close(item.done)
-					s.fail(failure(execution.ErrorKindProvider, "invalid_websocket_terminal", 0))
+					s.fail(protocolFailure("invalid_websocket_terminal"))
 					continue
 				}
 			}
@@ -346,7 +346,7 @@ func (s *session) ExecuteTurn(ctx context.Context, payload []byte, emit func(con
 					result.Error.ScopeHint = ""
 				}
 				if responseID == "" && result.Error == nil {
-					result.Error = failure(execution.ErrorKindProvider, "missing_response_id", 0)
+					result.Error = protocolFailure("missing_response_id")
 				}
 			}
 			if terminal {
@@ -370,6 +370,12 @@ func failure(kind execution.ErrorKind, code string, status int) *execution.Error
 	return &execution.ErrorEvidence{Kind: kind, Code: code, StatusCode: status,
 		OriginHint: execution.ErrorOriginUpstream, ScopeHint: execution.ErrorScopeRequest,
 		Summary: "WebSocket upstream request failed.", ReplaySafety: execution.ReplaySafetyUnknown}
+}
+
+func protocolFailure(code string) *execution.ErrorEvidence {
+	evidence := failure(execution.ErrorKindProvider, "upstream_protocol_error", 0)
+	evidence.Summary = "Invalid upstream WebSocket event: " + code + "."
+	return evidence
 }
 
 func contextFailure(err error) *execution.ErrorEvidence {

@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/utils"
@@ -628,6 +629,15 @@ func (s *websocketConnection) emit(ctx context.Context, body []byte) error {
 	return nil
 }
 func (s *websocketConnection) emitReason(lane string, value reason) {
+	s.emitReasonUntil(lane, value, time.Time{})
+}
+
+func (s *websocketConnection) emitAccessQuotaReason(lane string, decision accessquota.Decision) {
+	body := accessKeyCostLimitResponse(decision)
+	s.emitError(lane, reasonAccessKeyCostLimitExceeded.Status, body.Error, &body.Data)
+}
+
+func (s *websocketConnection) emitReasonUntil(lane string, value reason, until time.Time) {
 	errorType := "invalid_request_error"
 	switch {
 	case value.Code == reasonAccessKeyCostLimitExceeded.Code:
@@ -641,20 +651,22 @@ func (s *websocketConnection) emitReason(lane string, value reason) {
 	case value.Status >= http.StatusInternalServerError:
 		errorType = "server_error"
 	}
+	detail := accessKeyCostLimitClientError{Type: errorType, Code: value.Code, Message: value.Message}
+	if !until.IsZero() {
+		seconds := (until.UnixMilli() + 999) / 1000
+		detail.ResetsAt = &seconds
+	}
+	s.emitError(lane, value.Status, detail, nil)
+}
+
+func (s *websocketConnection) emitError(lane string, status int, detail accessKeyCostLimitClientError, data *accessKeyCostLimitErrorData) {
 	body, err := json.Marshal(struct {
-		Type     string `json:"type"`
-		StreamID string `json:"stream_id,omitempty"`
-		Status   int    `json:"status"`
-		Error    struct {
-			Type    string `json:"type"`
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}{Type: "error", StreamID: lane, Status: value.Status, Error: struct {
-		Type    string `json:"type"`
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}{errorType, value.Code, value.Message}})
+		Type     string                        `json:"type"`
+		StreamID string                        `json:"stream_id,omitempty"`
+		Status   int                           `json:"status"`
+		Error    accessKeyCostLimitClientError `json:"error"`
+		Data     *accessKeyCostLimitErrorData  `json:"data,omitempty"`
+	}{Type: "error", StreamID: lane, Status: status, Error: detail, Data: data})
 	if err == nil {
 		_ = s.emit(s.ctx, body)
 	} else {
