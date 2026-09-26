@@ -7,93 +7,75 @@ import { AppBadge, AppIcon, AppPanel } from '@modern/components/ui'
 
 const props = defineProps<{ rules: HomeRequestRules }>()
 const { t } = useI18n()
-const sections = computed(() => [
-  {
-    id: 'redaction',
-    title: t('home.requestRules.redaction'),
-    active: props.rules.redaction.rules.length > 0,
-    count: props.rules.redaction.rules.length,
-    status: props.rules.redaction.rules.length ? 'configured' : 'unconfigured',
-  },
-  {
-    id: 'audit',
-    title: t('home.requestRules.audit'),
-    active: props.rules.audit.enabled,
-    count: props.rules.audit.rules.length,
-    status: props.rules.audit.enabled ? 'enabled' : 'notApplied',
-  },
-])
+const sections = computed(() =>
+  [
+    {
+      id: 'redaction',
+      title: t('home.requestRules.redaction'),
+      count: props.rules.redaction.rules.length,
+      status: 'configured',
+    },
+    {
+      id: 'audit',
+      title: t('home.requestRules.audit'),
+      count: props.rules.audit.enabled ? props.rules.audit.rules.length : 0,
+      status: 'enabled',
+    },
+  ].filter((section) => section.count > 0),
+)
 </script>
 
 <template>
-  <AppPanel :title="t('home.requestRules.title')" compact flush>
-    <component
-      :is="section.active ? 'details' : 'div'"
-      v-for="section in sections"
-      :key="section.id"
-      class="modern-request-rules-section"
-    >
-      <component :is="section.active ? 'summary' : 'div'" class="modern-request-rules-summary">
+  <AppPanel v-if="sections.length" :title="t('home.requestRules.title')" compact flush>
+    <details v-for="section in sections" :key="section.id" class="modern-request-rules-section">
+      <summary class="modern-request-rules-summary">
         <span class="modern-request-rules-name">{{ section.title }}</span>
-        <AppBadge :tone="section.active ? 'success' : 'neutral'" size="xs" dot>
+        <AppBadge tone="success" size="xs" dot>
           {{ t('home.requestRules.' + section.status) }}
         </AppBadge>
-        <span v-if="section.active" class="modern-request-rules-count">
+        <span class="modern-request-rules-count">
           {{ t('home.requestRules.count', { count: section.count }) }}
         </span>
-        <AppIcon
-          v-if="section.active"
-          :icon="ChevronDown"
-          size="sm"
-          class="modern-request-rules-chevron"
-        />
-      </component>
-      <div v-if="section.active" class="modern-request-rules-body">
+        <AppIcon :icon="ChevronDown" size="sm" class="modern-request-rules-chevron" />
+      </summary>
+      <div class="modern-request-rules-body">
         <ol v-if="section.id === 'redaction'" class="modern-request-rules-list">
           <li v-for="(rule, index) in rules.redaction.rules" :key="index">
             <div class="modern-request-rules-rule-heading">
               <span>{{ t('home.requestRules.rule', { count: index + 1 }) }}</span>
-              <AppBadge tone="neutral" size="xs">
+              <AppBadge tone="brand" size="xs">
                 {{ t('home.requestRules.' + rule.mode) }}
               </AppBadge>
             </div>
             <dl class="modern-request-rules-fields">
               <dt>{{ t('home.requestRules.pattern') }}</dt>
               <dd>
-                <code>{{ rule.pattern }}</code>
+                <pre class="modern-request-rules-code"><code>{{ rule.pattern }}</code></pre>
               </dd>
               <template v-if="rule.mode === 'replace'">
                 <dt>{{ t('home.requestRules.replacement') }}</dt>
                 <dd>
-                  <code>{{ rule.replacement || t('home.requestRules.emptyReplacement') }}</code>
+                  <pre class="modern-request-rules-code"><code>{{
+                    rule.replacement || t('home.requestRules.emptyReplacement')
+                  }}</code></pre>
                 </dd>
               </template>
             </dl>
           </li>
         </ol>
-        <template v-else>
-          <dl class="modern-request-rules-fields modern-request-rules-route">
-            <dt>{{ t('home.requestRules.channel') }}</dt>
-            <dd>{{ rules.audit.channel_name }}</dd>
-            <dt>{{ t('home.requestRules.model') }}</dt>
-            <dd>
-              <code>{{ rules.audit.model }}</code>
-            </dd>
-          </dl>
-          <ol class="modern-request-rules-list">
-            <li v-for="(rule, index) in rules.audit.rules" :key="index">
-              <div class="modern-request-rules-rule-heading">
-                <span>{{ rule.name }}</span>
-                <AppBadge :tone="rule.action === 'block' ? 'danger' : 'warning'" size="xs">
-                  {{ t('home.requestRules.' + rule.action) }}
-                </AppBadge>
-              </div>
-              <p class="modern-request-rules-instructions">{{ rule.instructions }}</p>
-            </li>
-          </ol>
-        </template>
+        <ol v-else class="modern-request-rules-list">
+          <li v-for="(rule, index) in rules.audit.rules" :key="index">
+            <div class="modern-request-rules-rule-heading">
+              <span>{{ rule.name }}</span>
+              <AppBadge :tone="rule.action === 'block' ? 'danger' : 'warning'" size="xs">
+                {{ t('home.requestRules.' + rule.action) }}
+              </AppBadge>
+            </div>
+            <p class="modern-request-rules-instructions">{{ rule.instructions }}</p>
+          </li>
+        </ol>
       </div>
-    </component>
+    </details>
   </AppPanel>
 </template>
 
@@ -148,8 +130,12 @@ summary.modern-request-rules-summary:focus-visible {
 .modern-request-rules-list {
   display: grid;
   gap: var(--modern-space-4);
+  margin: 0;
   padding: 0;
   list-style: none;
+}
+.modern-request-rules-list > li {
+  min-width: 0;
 }
 .modern-request-rules-rule-heading {
   display: flex;
@@ -157,13 +143,16 @@ summary.modern-request-rules-summary:focus-visible {
   align-items: center;
   gap: var(--modern-space-2);
   margin-bottom: var(--modern-space-2);
+  font-weight: var(--modern-weight-medium);
   overflow-wrap: anywhere;
 }
 .modern-request-rules-fields {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--modern-space-2) var(--modern-space-4);
+  gap: var(--modern-space-2) var(--modern-space-3);
   align-items: baseline;
+  margin: 0;
+  font-size: var(--modern-font-size-small);
 }
 .modern-request-rules-fields dd {
   min-width: 0;
@@ -174,11 +163,16 @@ summary.modern-request-rules-summary:focus-visible {
   font-family: var(--modern-font-mono);
   white-space: pre-wrap;
 }
-.modern-request-rules-route {
-  margin-bottom: var(--modern-space-4);
-}
+.modern-request-rules-code,
 .modern-request-rules-instructions {
-  color: var(--modern-muted);
+  margin: 0;
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-small);
+  background: var(--modern-subtle);
+  padding: var(--modern-space-2) var(--modern-space-3);
+  color: var(--modern-text);
+  font-size: var(--modern-font-size-small);
+  line-height: var(--modern-leading-body);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
