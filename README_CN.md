@@ -151,9 +151,11 @@ Rerank 使用独立的 `rerank` 协议，在 OpenAI Compatible、New API、GPT-L
 ### 内置渠道
 
 - **官方与云平台**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
-- **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（聊天）、Cohere（文本重排序）
+- **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（聊天）、Cohere（文本重排序）、OpenCode Go、OpenCode Zen
 - **订阅渠道**：Codex、Claude、Antigravity、Grok
 - **自定义**：OpenAI Compatible（任意兼容中转）
+
+OpenCode Go / Zen 使用 API Key，通过现有多协议网关适配器接入原生 Chat Completions、无状态 Responses 创建和 Anthropic Messages，支持流式请求及模型发现。客户端需要选择上游模型支持的协议，这两个预设不自动转换协议。自定义 Base URL 填写不含 `/v1` 的网关根地址；暂不开放 Gemini 原生请求和 Responses 资源操作。Go 客户端应保留编程工具身份及对话会话头。
 
 ### Codex 实时语音
 

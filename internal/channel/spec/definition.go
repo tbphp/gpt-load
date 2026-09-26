@@ -45,6 +45,8 @@ const (
 	Wafer            ID = "wafer"
 	HuggingFace      ID = "huggingface"
 	Cohere           ID = "cohere"
+	OpenCodeGo       ID = "opencode_go"
+	OpenCodeZen      ID = "opencode_zen"
 )
 
 // ProviderKind is the single dispatch key used to resolve a ProviderAdapter.

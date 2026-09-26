@@ -36,6 +36,8 @@ func builtInModules() []spec.Module {
 		modules.Wafer(),
 		modules.HuggingFace(),
 		modules.Cohere(),
+		modules.OpenCodeGo(),
+		modules.OpenCodeZen(),
 		modules.GPTLoad(),
 		modules.NewAPI(),
 		modules.CLIProxyAPI(),
