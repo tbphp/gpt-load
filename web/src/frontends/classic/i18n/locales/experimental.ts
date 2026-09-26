@@ -29,7 +29,7 @@ export const zhCN = {
     threshold: '命中阈值',
     thresholdHelp: '取值大于 0 且不超过 1，判定概率达到阈值时执行动作。',
     coverageHelp:
-      '已审结果复用一小时；待检文本完整分批审查，辅助前文按预算截取。续接只检查本次内容，不保存历史。超过总审查预算、包含无法审查的非文本内容或服务异常时拒绝请求。',
+      '已审结果复用一小时；待检文本完整分批审查，辅助前文按预算截取。续接只检查本次内容，不保存历史。超过总审查预算、包含无法审查的非文本内容或服务异常时，记录未完成原因并放行；仅命中拦截规则时拒绝请求。',
     invalid: '请检查 JEV 分组、模型、启用规则及阈值。',
     clearSelection: '清除选择',
     removeKey: '移除访问密钥',
@@ -51,7 +51,7 @@ export const zhCN = {
     },
     reasons: {
       unsupported_content: '当前内容无法进行文本审查',
-      content_too_large: '内容与规则超过总审查预算，请缩短请求后重试',
+      content_too_large: '内容与规则超过总审查预算',
       invalid_response: 'JEV 未返回完整有效的规则结果',
       timeout: 'JEV 审查超时',
       transport_error: 'JEV 服务暂不可用',
@@ -104,7 +104,7 @@ export const enUS = {
     thresholdHelp:
       'Greater than 0 and at most 1. Execute the action when the probability reaches this threshold.',
     coverageHelp:
-      'Reuse review results for one hour. All target text is reviewed in batches; supporting context may be excerpted. Continuations review only their current payload; no history is stored. Requests exceeding the total review budget, containing unsupported non-text content or failing review are rejected.',
+      'Reuse review results for one hour. All target text is reviewed in batches; supporting context may be excerpted. Continuations review only their current payload; no history is stored. Budget limits, unsupported non-text content and review failures are logged as incomplete and allow the request to continue. Only a matched blocking rule rejects the request.',
     invalid: 'Check the JEV group, model, enabled rules and thresholds.',
     clearSelection: 'Clear selection',
     removeKey: 'Remove access key',
@@ -126,8 +126,7 @@ export const enUS = {
     },
     reasons: {
       unsupported_content: 'Current content cannot be reviewed as text',
-      content_too_large:
-        'Content and rules exceed the total review budget; shorten the request before retrying',
+      content_too_large: 'Content and rules exceed the total review budget',
       invalid_response: 'JEV did not return complete valid rule results',
       timeout: 'JEV review timed out',
       transport_error: 'JEV service unavailable',
@@ -179,7 +178,7 @@ export const jaJP = {
     threshold: 'しきい値',
     thresholdHelp: '0 より大きく 1 以下。確率がしきい値以上のときに動作します。',
     coverageHelp:
-      '確認結果を一時間再利用します。対象テキストは分割してすべて確認し、補助的な前文は上限に合わせて抜粋します。継続時は今回の内容だけを確認し、履歴は保存しません。総確認上限の超過・未対応の非テキスト・確認失敗の場合はリクエストを拒否します。',
+      '確認結果を一時間再利用します。対象テキストは分割してすべて確認し、補助的な前文は上限に合わせて抜粋します。継続時は今回の内容だけを確認し、履歴は保存しません。総確認上限の超過・未対応の非テキスト・確認失敗の場合は未完了の理由を記録して送信を続けます。ブロック設定のルールに一致した場合のみ拒否します。',
     invalid: 'JEV のグループ・モデル・有効ルール・しきい値を確認してください。',
     clearSelection: '選択をクリア',
     removeKey: 'アクセスキーを除外',
@@ -201,8 +200,7 @@ export const jaJP = {
     },
     reasons: {
       unsupported_content: '現在の内容をテキストとして確認できません',
-      content_too_large:
-        '対象内容とルールが総確認上限を超えています。リクエストを短くして再試行してください',
+      content_too_large: '対象内容とルールが総確認上限を超えています',
       invalid_response: 'JEV のルール判定が無効または不完全です',
       timeout: 'JEV 確認がタイムアウトしました',
       transport_error: 'JEV サービスを利用できません',

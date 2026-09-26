@@ -1238,6 +1238,10 @@ func (handler *Handler) executeAttempts(
 			handler.completeReason(ginContext, recorder, *failure)
 			return
 		}
+		if ginContext.Request.Context().Err() != nil {
+			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
+			return
+		}
 		attemptSequence++
 		forwardAttempts++
 		if attemptSequence == 1 && (originalMetadata.PreviousResponseID != "" ||
