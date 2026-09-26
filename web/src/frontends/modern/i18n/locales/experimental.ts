@@ -16,7 +16,7 @@ export const zhCN = {
     scopeHelp: '留空表示全部访问密钥。',
     rulesTitle: '审查规则',
     rulesHelp:
-      '常用预设包含凭据泄露、个人隐私与提示注入，默认告警，可自行改为拦截。添加时仅补齐缺少的规则。待检内容与规则按预算合并，较长请求会分批调用 JEV。',
+      '常用预设包含凭据泄露、个人隐私与提示注入，默认告警，可自行改为拦截。添加时仅补齐缺少的规则。所有待检规则合并处理，每个业务请求最多调用一次 JEV。',
     addPreset: '添加常用预设',
     addRule: '添加规则',
     removeRule: '删除规则',
@@ -29,7 +29,7 @@ export const zhCN = {
     threshold: '命中阈值',
     thresholdHelp: '取值大于 0 且不超过 1，判定概率达到阈值时执行动作。',
     coverageHelp:
-      '仅审查可读文本，忽略加密历史和图片、音视频等非文本内容，原始请求保持不变。已审结果复用一小时；待检文本完整分批审查，辅助前文按预算截取。续接只检查本次内容，不保存历史。超过总审查预算或服务异常时，记录未完成原因并放行；仅命中拦截规则时拒绝请求。',
+      '仅审查可读文本，忽略加密历史和图片、音视频等非文本内容，原始请求保持不变。完整审查结果复用一小时；优先新增或变更内容，超长内容取头、中、尾片段，截取信息在详情中说明，省略部分可能漏检且不缓存为通过。辅助前文按预算截取。续接只检查本次内容，不保存历史。规则超出单次审查预算或服务异常时，记录未完成原因并放行；仅命中拦截规则时拒绝请求。',
     invalid: '请检查 JEV 分组、模型、启用规则及阈值。',
     clearSelection: '清除选择',
     removeKey: '移除访问密钥',
@@ -44,14 +44,14 @@ export const zhCN = {
       warn: '告警',
     },
     statuses: {
-      passed: '通过',
+      warned: '告警',
       blocked: '已拦截',
-      warned: '告警放行',
-      incomplete: '审查未完成',
+      failed: '审核失败',
     },
     reasons: {
       unsupported_content: '当前内容无法进行文本审查',
-      content_too_large: '内容与规则超过总审查预算',
+      content_too_large: '内容与规则无法装入单次审查预算',
+      content_truncated: '内容已按长度预算截取，省略部分未审查',
       invalid_response: 'JEV 未返回完整有效的规则结果',
       timeout: 'JEV 审查超时',
       transport_error: 'JEV 服务暂不可用',
@@ -90,7 +90,7 @@ export const enUS = {
     scopeHelp: 'Leave empty to apply to all access keys.',
     rulesTitle: 'Review rules',
     rulesHelp:
-      'The common preset covers credential leakage, personal data and prompt injection. It defaults to warnings; change actions to block as needed. Adding it fills only missing rules. Pending content and rules share calls within the budget; larger requests use multiple JEV batches.',
+      'The common preset covers credential leakage, personal data and prompt injection. It defaults to warnings; change actions to block as needed. Adding it fills only missing rules. All pending rules share at most one JEV call per business request.',
     addPreset: 'Add common preset',
     addRule: 'Add rule',
     removeRule: 'Remove rule',
@@ -104,7 +104,7 @@ export const enUS = {
     thresholdHelp:
       'Greater than 0 and at most 1. Execute the action when the probability reaches this threshold.',
     coverageHelp:
-      'Review readable text only, ignoring encrypted history and non-text content such as images, audio and video. The original request is unchanged. Reuse review results for one hour. All target text is reviewed in batches; supporting context may be excerpted. Continuations review only their current payload; no history is stored. Budget limits and review failures are logged as incomplete and allow the request to continue. Only a matched blocking rule rejects the request.',
+      'Review readable text only, ignoring encrypted history and non-text content such as images, audio and video. The original request is unchanged. Reuse complete reviews for one hour. Prioritize new or changed content. Oversized content is sampled at the beginning, center and end, with coverage noted in the details. Omitted content may contain undetected issues and is never cached as passed. Supporting context may be excerpted. Continuations review only their current payload; no history is stored. Rules exceeding the single-call budget and review failures are logged as incomplete and allow the request to continue. Only a matched blocking rule rejects the request.',
     invalid: 'Check the JEV group, model, enabled rules and thresholds.',
     clearSelection: 'Clear selection',
     removeKey: 'Remove access key',
@@ -119,14 +119,15 @@ export const enUS = {
       warn: 'Warn',
     },
     statuses: {
-      passed: 'Passed',
+      warned: 'Warning',
       blocked: 'Blocked',
-      warned: 'Allowed with warning',
-      incomplete: 'Review incomplete',
+      failed: 'Review failed',
     },
     reasons: {
       unsupported_content: 'Current content cannot be reviewed as text',
-      content_too_large: 'Content and rules exceed the total review budget',
+      content_too_large: 'Content and rules cannot fit the single-review budget',
+      content_truncated:
+        'Content was excerpted to fit the review budget; omitted content was not reviewed',
       invalid_response: 'JEV did not return complete valid rule results',
       timeout: 'JEV review timed out',
       transport_error: 'JEV service unavailable',
@@ -165,7 +166,7 @@ export const jaJP = {
     scopeHelp: '未選択の場合はすべてのアクセスキーが対象です。',
     rulesTitle: '確認ルール',
     rulesHelp:
-      '標準プリセットは認証情報の漏洩・個人情報・プロンプトインジェクションを警告します。必要に応じてブロックに変更できます。追加時は不足しているルールだけを補います。対象内容とルールを上限内でまとめ、長いリクエストは複数回に分けて JEV で確認します。',
+      '標準プリセットは認証情報の漏洩・個人情報・プロンプトインジェクションを警告します。必要に応じてブロックに変更できます。追加時は不足しているルールだけを補います。未確認のルールをまとめ、業務リクエストごとに JEV を最大一回呼び出します。',
     addPreset: '標準プリセットを追加',
     addRule: 'ルールを追加',
     removeRule: 'ルールを削除',
@@ -178,7 +179,7 @@ export const jaJP = {
     threshold: 'しきい値',
     thresholdHelp: '0 より大きく 1 以下。確率がしきい値以上のときに動作します。',
     coverageHelp:
-      '読み取れるテキストだけを確認し、暗号化された履歴や画像・音声・動画などは除外します。元のリクエストは変更しません。確認結果を一時間再利用し、対象テキストは分割してすべて確認します。補助的な前文は上限に合わせて抜粋します。継続時は今回の内容だけを確認し、履歴は保存しません。総確認上限の超過や確認失敗の場合は未完了の理由を記録して送信を続けます。ブロック設定のルールに一致した場合のみ拒否します。',
+      '読み取れるテキストだけを確認し、暗号化された履歴や画像・音声・動画などは除外します。元のリクエストは変更しません。完全に確認した結果を一時間再利用し、新規・変更内容を優先します。長い内容は先頭・中央・末尾を抜粋し、確認範囲を詳細に記載します。省略部分の問題は検出できない場合があり、通過としてキャッシュしません。補助的な前文は上限に合わせて抜粋します。継続時は今回の内容だけを確認し、履歴は保存しません。ルールが一回の確認上限を超える場合や確認失敗の場合は未完了の理由を記録して送信を続けます。ブロック設定のルールに一致した場合のみ拒否します。',
     invalid: 'JEV のグループ・モデル・有効ルール・しきい値を確認してください。',
     clearSelection: '選択をクリア',
     removeKey: 'アクセスキーを除外',
@@ -193,14 +194,14 @@ export const jaJP = {
       warn: '警告',
     },
     statuses: {
-      passed: '通過',
+      warned: '警告',
       blocked: 'ブロック済み',
-      warned: '警告して送信',
-      incomplete: '確認未完了',
+      failed: '確認失敗',
     },
     reasons: {
       unsupported_content: '現在の内容をテキストとして確認できません',
-      content_too_large: '対象内容とルールが総確認上限を超えています',
+      content_too_large: '対象内容とルールが一回の確認上限に収まりません',
+      content_truncated: '上限に合わせて内容を抜粋しています。省略部分は未確認です',
       invalid_response: 'JEV のルール判定が無効または不完全です',
       timeout: 'JEV 確認がタイムアウトしました',
       transport_error: 'JEV サービスを利用できません',

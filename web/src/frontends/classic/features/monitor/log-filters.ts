@@ -65,7 +65,7 @@ export interface LogFilterDraft {
 export type LogFilterErrors = Partial<Record<keyof LogFilterDraft, string>>
 
 export const requestLogStatuses = ['success', 'error', 'incomplete', 'canceled'] as const
-export const requestLogAuditStatuses = ['warned', 'blocked', 'incomplete'] as const
+export const requestLogAuditStatuses = ['warned', 'blocked', 'failed'] as const
 export const requestLogUsageStates = ['complete', 'partial', 'missing', 'not_applicable'] as const
 export const requestLogCostStates = ['priced', 'unpriced', 'not_applicable'] as const
 export const requestLogPricingCompleteness = [

@@ -129,6 +129,17 @@ const pricingHint = computed(() =>
     .join(' · '),
 )
 const autoDecisionPreset = computed(() => props.row.auto_decision?.selection.preset_name ?? '')
+const auditTooltip = computed(() => {
+  const audit = props.row.request_audit
+  if (!audit) return ''
+  const details = [
+    audit.findings.map((finding) => finding.name).join(' / '),
+    audit.reason ? t('requestAudit.reasons.' + audit.reason) : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+  return details ? `${t('requestAudit.title')} · ${details}` : ''
+})
 const autoDecisionTooltip = computed(() => {
   const decision = props.row.auto_decision
   if (!decision) return ''
@@ -283,17 +294,16 @@ function fieldFilterValue(field: LogColumnId): string {
             :aria-label="line.label ? line.label + ' ' + line.value : undefined"
           />
           <AppTooltip
-            v-if="index === 0 && row.request_audit && row.request_audit.status !== 'passed'"
-            :label="
-              t('requestAudit.title') +
-              ' · ' +
-              row.request_audit.findings.map((finding) => finding.name).join(' / ')
-            "
+            v-if="index === 0 && row.request_audit && row.request_audit.outcome !== 'allowed'"
+            :label="auditTooltip"
             ><small
               class="modern-log-auto-decision"
-              :class="row.request_audit.status === 'warned' ? 'is-warning' : 'is-danger'"
-              tabindex="0"
-              >{{ t('requestAudit.statuses.' + row.request_audit.status) }}</small
+              :class="{
+                'is-danger': row.request_audit.outcome === 'blocked',
+                'is-warning': ['warned', 'failed'].includes(row.request_audit.outcome),
+              }"
+              :tabindex="auditTooltip ? 0 : undefined"
+              >{{ t('requestAudit.statuses.' + row.request_audit.outcome) }}</small
             ></AppTooltip
           >
           <AppTooltip v-if="index === 0 && autoDecisionPreset" :label="autoDecisionTooltip">

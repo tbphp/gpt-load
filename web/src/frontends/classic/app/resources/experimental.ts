@@ -118,6 +118,7 @@ export function validAudit(value: AuditConfig): boolean {
 }
 
 export interface AuditResult {
+  outcome: 'allowed' | 'warned' | 'blocked' | 'failed'
   status: string
   reason: string
   findings: { rule_id: string; name: string; action: string }[]
@@ -133,6 +134,7 @@ export interface AuditResult {
 export function readAuditResult(value: unknown): AuditResult {
   const row = record(value)
   return {
+    outcome: oneOf(row.outcome, ['allowed', 'warned', 'blocked', 'failed']),
     status: text(row.status),
     reason: row.reason === undefined ? '' : text(row.reason),
     findings: list(row.findings).map((value) => {
