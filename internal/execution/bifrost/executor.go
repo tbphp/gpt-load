@@ -34,6 +34,7 @@ const (
 )
 
 type preparedAttempt struct {
+	cline              bool
 	provider           schemas.ModelProvider
 	mode               channel.RouteMode
 	upstreamProtocol   protocol.Protocol
@@ -97,6 +98,9 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 			result.Error.Hint = execution.FailureHintRequestRejected
 		}
 	}()
+	if prepared.cline {
+		return r.executeCline(parent, spec, prepared)
+	}
 	if prepared.embeddingRequest != nil {
 		return r.executeEmbedding(parent, spec, prepared)
 	}
@@ -206,6 +210,9 @@ func (r *Runtime) ExecuteStream(
 		}
 		result.UpstreamProtocol = prepared.upstreamProtocol
 	}()
+	if prepared.cline {
+		return r.executeClineStream(parent, spec, prepared, sink)
+	}
 	if prepared.passthrough != nil {
 		return r.executeNativeStream(parent, spec, prepared, sink)
 	}
@@ -514,6 +521,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	}
 	if providerKind == channel.ProviderDeepSeek && spec.ClientProtocol == protocol.Anthropic {
 		directKey.UseAnthropicEndpoints = schemas.Ptr(true)
+	}
+	if providerKind == channel.ProviderCline {
+		return r.prepareCline(spec, provider, directKey, secrets, stream, safeQuery)
 	}
 	if spec.ClientProtocol == protocol.Rerank {
 		return prepareRerank(spec, resolved, provider, directKey, secrets)
@@ -964,6 +974,8 @@ func providerSupportsPassthrough(providerKind channel.ProviderKind) bool {
 
 func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtocol protocol.Protocol) bool {
 	switch providerKind {
+	case channel.ProviderCline:
+		return clientProtocol == protocol.OpenAICompletions
 	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible, channel.ProviderMultiProtocolGateway:
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses ||
 			clientProtocol == protocol.OpenAIImages || clientProtocol == protocol.OpenAIEmbeddings ||
@@ -1262,7 +1274,7 @@ func directKeyForAttempt(
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini, channel.ProviderMultiProtocolGateway,
 		channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI,
-		channel.ProviderOpenAICompatible, channel.ProviderJev:
+		channel.ProviderOpenAICompatible, channel.ProviderJev, channel.ProviderCline:
 		if apiKey == "" {
 			return schemas.Key{}, nil, fmt.Errorf("api_key is required")
 		}

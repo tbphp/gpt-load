@@ -27,6 +27,7 @@ func builtInModules() []spec.Module {
 		modules.Volcengine(),
 		modules.Jev(),
 		modules.OpenRouter(),
+		modules.Cline(),
 		modules.Groq(),
 		modules.XAI(),
 		modules.Cerebras(),

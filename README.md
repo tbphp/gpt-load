@@ -142,42 +142,12 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
 
-Each channel declares exactly which protocols and capabilities it can execute. GPT-Load converts between supported capabilities, but it is not a general-purpose any-protocol, any-JSON translator.
-
-Embeddings has two independent native protocols: `openai-embeddings` (`POST /v1/embeddings`) on the OpenAI, OpenRouter, OpenAI Compatible, New API, and GPT-Load API-key channels, and `gemini-embeddings` (`POST /v1beta/models/{model}:embedContent` and `:batchEmbedContents`) on the Gemini, New API, and GPT-Load API-key channels. Requests and responses keep each provider's native format. The Gemini channel also accepts `openai-embeddings` by converting text input to `:batchEmbedContents`; `dimensions` and `float` / `base64` output are supported, token-ID input is not, and Gemini enforces its per-request item limit. Keep the groups behind one client model name on the same embedding model, otherwise vectors from different models get mixed. Subscription channels are not supported. An AccessKey without a protocol filter keeps its existing “all enabled protocols” behavior and therefore gains both Embeddings protocols after upgrade. Least-privilege deployments should configure an explicit protocol filter.
-
-Rerank uses the independent `rerank` protocol through `POST /v1/rerank` on the OpenAI Compatible, New API, and GPT-Load API-key channels. Requests contain `model`, `query`, and a text-only `documents` array, with optional upstream parameters such as `top_n` and `return_documents`. Streaming, subscription channels, and protocol conversion are not supported. OpenAI Compatible takes a complete API prefix (for example, `https://host/v1`); New API / GPT-Load take the gateway root. The upstream must implement a compatible Rerank endpoint. AccessKeys without a protocol filter also gain Rerank access. Responses containing only non-token units such as `search_units` remain unpriced; these units are not treated as tokens or free requests.
-
 ### Built-in channels
 
 - **Official and cloud** — OpenAI, Anthropic, Gemini, xAI, Azure OpenAI, AWS Bedrock, Google Vertex AI
-- **Model services** — DeepSeek, Moonshot AI, SiliconFlow, Zhipu AI, Alibaba, Volcengine, OpenRouter, Groq, Cerebras, Mistral, Nebius, Parasail, Wafer, Hugging Face (Chat), Cohere (text reranking), OpenCode Go, OpenCode Zen
+- **Model services** — DeepSeek, Moonshot AI, SiliconFlow, Zhipu AI, Alibaba, Volcengine, OpenRouter, Cline, Groq, Cerebras, Mistral, Nebius, Parasail, Wafer, Hugging Face (Chat), Cohere (text reranking), OpenCode Go, OpenCode Zen
 - **Subscription** — Codex, Claude, Antigravity, Grok
 - **Custom** — OpenAI Compatible (any compatible relay)
-
-OpenCode Go / Zen use API keys and the existing multi-protocol gateway adapter for native Chat Completions, stateless Responses creation, and Anthropic Messages, including streaming and model discovery. Choose the protocol supported by the upstream model; these presets do not convert protocols automatically. Custom Base URLs use the gateway root without `/v1`. Gemini-native requests and Responses resource operations are not enabled. Go clients should preserve their coding-client identity and conversation session headers.
-
-### Codex live voice
-
-Choose the default under **System settings → Connection and timeouts → Live voice**. Each Codex group's **Advanced configuration / Runtime settings** can inherit it or select **Off, Direct to upstream, Gateway relay**. Groups with different modes can coexist; each call stays bound to its selected group and account. Off disables voice only and ends affected active voice sessions; text requests remain available.
-
-- **Direct to upstream (default)**: GPT-Load authenticates, selects the account, creates the call and proxies the control WebSocket. Audio and the WebRTC data channel connect directly from the client to upstream. Account tokens stay on the server. No server media UDP mapping is needed, but the client must reach upstream media endpoints; a server-side outbound proxy does not proxy this client traffic.
-- **Gateway relay**: audio and the WebRTC data channel pass through GPT-Load and use its configured upstream proxy. All relay groups share the process media IP and UDP range.
-- **Accounts and retries**: call creation uses existing global weighted scheduling and the system additional-retry budget (default 2). Explicit 403/429 rejections can try another candidate; 401 may refresh the credential, within the same budget. Timeouts, ambiguous 5xx results and failures after a call was created do not replay the call on another account. Voice admission failures do not blacklist otherwise working text credentials. Set known voice-ineligible groups to Off; plan names are not used to infer entitlement.
-
-**Upgrade: previous versions always relayed media. The new unset default is Direct; deployments relying on server media transport must explicitly select Gateway relay.** No group voice-model setup is required; the client's model is forwarded unchanged. Both modes require a control WebSocket within 30 seconds of creation and reconnection within 30 seconds of disconnection. Append `/hangup` to the creation response Location to end a call explicitly. One session log is emitted after local closure and the first upstream hangup attempt. A failed first hangup returns HTTP 502 and immediately records an incomplete result, without waiting for background cleanup. Hangup retries run every 5 seconds, with at most 3 attempts including the initial and manual attempts. The capacity slot is retained and control reattachment is rejected during retries; success or exhaustion releases the local slot. Later retries neither rewrite nor duplicate the session log. Exhaustion does not confirm upstream termination; server warnings include the failure category and HTTP status when available. Usage/cost may remain unavailable.
-
-For Docker relay, download [`docker-compose.voice.yml`](docker-compose.voice.yml) from the same version as the base Compose file, set a client-reachable public media IP in `.env`, then select Gateway relay in system or group settings:
-
-```dotenv
-CODEX_LIVE_PUBLIC_IP=YOUR_SERVER_PUBLIC_IP
-```
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
-```
-
-The overlay aligns listening and published ports, defaulting to **UDP 50000–50127**. Allow that range in the cloud security group and host firewall. To customize it, set both `CODEX_LIVE_UDP_PORT_MIN` and `CODEX_LIVE_UDP_PORT_MAX` in `.env` and recreate the container. Nginx must support WebSocket Upgrade and suitable long-lived connection timeouts; its HTTP proxy does not forward media UDP. Separate hosts, NAT and CDNs still require a directly reachable media address/port or appropriate STUN/TURN in `CODEX_LIVE_ICE_SERVERS`. GPT-Load cannot configure the public IP or external firewall for you.
 
 ## Deployment and data
 
@@ -260,21 +230,6 @@ At startup, the application reads `.env` in the current directory; existing proc
 Environment proxies apply only when no proxy is specified on the credential, group, or global settings.
 
 </details>
-
-## Production considerations
-
-- The service listens on `127.0.0.1` only by default. For remote access, expose it through a controlled network or a TLS reverse proxy, and configure ACLs and firewall rules.
-- Manage `AUTH_KEY` and `ENCRYPTION_KEY` carefully. Never commit real keys to a repository, log, screenshot, or public issue.
-- 2.0 is designed for a **single application instance**. Instances do not share state, so horizontal scaling is not supported.
-- Usage and cost are **estimates** derived from upstream responses. They support operational analysis and capacity planning, and do not equal a provider invoice or a financial reconciliation.
-- Subscription channels depend on upstream OAuth and compatibility protocols and may change as upstreams change. Only connect accounts you are entitled to use, and follow each provider's terms.
-- HTTP Responses continuation with `previous_response_id` automatically uses native Responses routes that declare upstream-managed storage: currently `openai`, `gpt_load`, `xai`, `newapi`, `cliproxyapi`, and `sub2api`. Ownership is isolated by AccessKey and pins the original credential when current routing permits, independently of soft affinity; actual state availability depends on the upstream. Stateless and converted responses are not registered as persistent state. Unknown IDs, including IDs created before upgrading or outside this gateway, are rejected. Group parameter overrides cannot change this field.
-- Native Responses WebSocket uses `GET /v1/responses` on the same port. Admission follows declared upstream capabilities for OpenAI, xAI, Codex, and compatible native CPA/sub2api and GPT-Load endpoints. Clients may include the boolean `stream:true/false`; both values still use the WS event stream. Each turn checks current permissions, rate and cost limits, and routing, with separate usage and cost records. One connection keeps one upstream identity; there is no HTTP fallback or conversation-history replay.
-- `responses_websocket_enabled` defaults to enabled. An explicit group setting overrides the global value; otherwise the group inherits it. Disabling immediately closes affected WS connections and interrupts generation without affecting HTTP/SSE. Re-enabling does not restore the old connection's temporary state.
-- `empty_response_retry` defaults to disabled. An explicit group setting overrides the global value. When enabled, a streaming chat request is checked for produced content before it is committed downstream: if upstream finishes naturally without producing anything, the attempt counts as a failure and the next candidate is tried, without cooling down or blacklisting the credential. Once retries are exhausted the upstream empty response is still delivered as-is. Empty results explained by their stop reason, such as an exhausted output budget, a content filter or a refusal, are delivered without retrying. Prewarm requests (`generate:false`), requests carrying `previous_response_id` or `conversation`, non-chat endpoints and WebSocket are all exempt; when upstream keeps emitting events without content, the response is committed at a built-in limit rather than held indefinitely. Retried empty attempts are still billed upstream, but usage and cost estimates only record the attempt that was finally delivered.
-- Full `stream_id` multiplexing and forks are enabled for OpenAI and GPT-Load cascades that support them end to end. The other channels above run serially and reject named streams. Prewarming sends `generate:false` upstream. Codex continuation requires the original live connection: `store:true` and restoration by an old ID on a new connection are unsupported. Persistent continuation on other channels depends on storage capabilities and valid ownership. Existing [Codex SDK proxy, reading, and shutdown limits](third_party/cpaembedded/README.md#codex-websocket-session) still apply.
-- Response bindings stay in memory for up to 30 days, with limits of 100,000 entries and 16 MiB of ID text; older entries are evicted when capacity is reached. A successful checkpoint during normal shutdown allows restoration from the same data directory. Crash recovery and continued upstream state availability are not guaranteed.
-- `conversation` and other existing resource IDs are outside this ownership routing scope and still depend on a single credential or upstream resource sharing across credentials.
 
 ## Moving from 1.x
 
