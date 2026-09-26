@@ -151,9 +151,11 @@ Rerank は独立した `rerank` プロトコルを使用し、OpenAI Compatible�
 ### 組み込みチャネル
 
 - **公式・クラウド**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
-- **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（チャット）、Cohere（テキストリランキング）
+- **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（チャット）、Cohere（テキストリランキング）、OpenCode Go、OpenCode Zen
 - **サブスクリプション**：Codex、Claude、Antigravity、Grok
 - **カスタム**：OpenAI Compatible（任意の互換中継）
+
+OpenCode Go / Zen は API キーと既存のマルチプロトコルゲートウェイアダプターを使用し、ネイティブ Chat Completions、ステートレスな Responses 作成、Anthropic Messages に対応します。ストリーミングとモデル検出も利用できます。上流モデルが対応するプロトコルを選択してください。自動プロトコル変換は行いません。カスタム Base URL には `/v1` を含めないゲートウェイのルートを指定します。Gemini ネイティブリクエストと Responses リソース操作は対象外です。Go クライアントはコーディングツールの識別情報と会話セッションヘッダーを保持してください。
 
 ### Codex リアルタイム音声
 
