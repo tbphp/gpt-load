@@ -1156,18 +1156,19 @@ func TestAdapterUsesFirstByteTimeoutBeforeFirstData(t *testing.T) {
 	chunks := make(chan codex.ExecuteStreamChunk, 1)
 	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}})
 	spec := validSpec(t, row, keyService)
-	spec.Timeouts.FirstByte = 20 * time.Millisecond
-	spec.Timeouts.StreamIdle = 250 * time.Millisecond
-	spec.Timeouts.Request = time.Second
+	spec.Timeouts.FirstByte = 250 * time.Millisecond
+	spec.Timeouts.StreamIdle = 30 * time.Second
+	spec.Timeouts.Request = 30 * time.Second
 
-	started := time.Now()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	var events []execution.StreamEvent
-	result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+	result := adapter.ExecuteStream(ctx, spec, func(event execution.StreamEvent) error {
 		events = append(events, event.Clone())
 		return nil
 	})
-	if elapsed := time.Since(started); elapsed >= 150*time.Millisecond {
-		t.Fatalf("first-byte timeout took %s", elapsed)
+	if ctx.Err() != nil {
+		t.Fatal("first-byte timeout did not finish before the test deadline")
 	}
 	if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout || result.ResponseStarted || result.StatusCode != 0 || len(events) != 0 {
 		t.Fatalf("result = %#v, events = %#v", result, events)
@@ -1203,18 +1204,19 @@ func TestAdapterUsesStreamIdleTimeoutBetweenNativeResponsesLines(t *testing.T) {
 	chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: response.created")}
 	setCodexExecutor(t, adapter, &fakeExecutor{stream: &codex.ExecuteStreamResponse{Chunks: chunks}})
 	spec := validSpec(t, row, keyService)
-	spec.Timeouts.FirstByte = 200 * time.Millisecond
-	spec.Timeouts.StreamIdle = 20 * time.Millisecond
-	spec.Timeouts.Request = time.Second
+	spec.Timeouts.FirstByte = 30 * time.Second
+	spec.Timeouts.StreamIdle = 250 * time.Millisecond
+	spec.Timeouts.Request = 30 * time.Second
 
-	started := time.Now()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
 	var events []execution.StreamEvent
-	result := adapter.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+	result := adapter.ExecuteStream(ctx, spec, func(event execution.StreamEvent) error {
 		events = append(events, event.Clone())
 		return nil
 	})
-	if elapsed := time.Since(started); elapsed >= 150*time.Millisecond {
-		t.Fatalf("stream idle timeout between SSE lines took %s", elapsed)
+	if ctx.Err() != nil {
+		t.Fatal("stream idle timeout did not finish before the test deadline")
 	}
 	if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout || result.ResponseStarted || len(events) != 0 {
 		t.Fatalf("result = %#v, events = %#v", result, events)

@@ -117,9 +117,11 @@ func TestRerankProbeUsesMinimalBodyAndRejectsInvalidSuccess(t *testing.T) {
 }
 
 func TestRerankRuntimeEnforcesBodyLimitAndCancellation(t *testing.T) {
+	started := make(chan struct{})
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("wait") == "true" {
+			close(started)
 			select {
 			case <-r.Context().Done():
 			case <-release:
@@ -138,11 +140,22 @@ func TestRerankRuntimeEnforcesBodyLimitAndCancellation(t *testing.T) {
 		t.Fatal("oversized response accepted")
 	}
 	spec.RawQuery = "wait=true"
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	started := time.Now()
-	result = runtime.Execute(ctx, freezeTestAttempt(spec))
-	if result.Error == nil || time.Since(started) > time.Second {
+	completed := make(chan execution.AttemptResult, 1)
+	go func() { completed <- runtime.Execute(ctx, freezeTestAttempt(spec)) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation request did not reach the upstream")
+	}
+	cancel()
+	select {
+	case result = <-completed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled request did not finish")
+	}
+	if result.Error == nil {
 		t.Fatalf("cancellation=%+v", result)
 	}
 }
