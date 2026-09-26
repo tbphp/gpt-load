@@ -295,7 +295,17 @@ function resolveRedactedLog(): Promise<string> {
             <dl class="modern-log-detail-grid">
               <div>
                 <dt>{{ t('requestAudit.result') }}</dt>
-                <dd>{{ t('requestAudit.statuses.' + log.request_audit.status) }}</dd>
+                <dd>
+                  {{
+                    t(
+                      'requestAudit.statuses.' +
+                        (log.request_audit.status === 'incomplete' &&
+                        log.request_audit.reason === 'content_truncated'
+                          ? 'partial'
+                          : log.request_audit.status),
+                    )
+                  }}
+                </dd>
               </div>
               <div v-if="log.request_audit.reason">
                 <dt>{{ t('autoModel.reason') }}</dt>

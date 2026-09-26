@@ -863,9 +863,24 @@ function costLabel(log: RequestLogItemDto): string {
                 :content="
                   t('requestAudit.title') +
                   ' · ' +
-                  log.request_audit.findings.map((finding) => finding.name).join(' / ')
+                  [
+                    log.request_audit.findings.map((finding) => finding.name).join(' / '),
+                    log.request_audit.reason
+                      ? t('requestAudit.reasons.' + log.request_audit.reason)
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
                 "
-                >{{ t('requestAudit.statuses.' + log.request_audit.status) }}</OverflowTooltip
+                >{{
+                  t(
+                    'requestAudit.statuses.' +
+                      (log.request_audit.status === 'incomplete' &&
+                      log.request_audit.reason === 'content_truncated'
+                        ? 'partial'
+                        : log.request_audit.status),
+                  )
+                }}</OverflowTooltip
               >
               <OverflowTooltip
                 v-if="log.auto_decision"

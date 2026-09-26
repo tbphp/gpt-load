@@ -287,13 +287,28 @@ function fieldFilterValue(field: LogColumnId): string {
             :label="
               t('requestAudit.title') +
               ' · ' +
-              row.request_audit.findings.map((finding) => finding.name).join(' / ')
+              [
+                row.request_audit.findings.map((finding) => finding.name).join(' / '),
+                row.request_audit.reason
+                  ? t('requestAudit.reasons.' + row.request_audit.reason)
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')
             "
             ><small
               class="modern-log-auto-decision"
               :class="row.request_audit.status === 'warned' ? 'is-warning' : 'is-danger'"
               tabindex="0"
-              >{{ t('requestAudit.statuses.' + row.request_audit.status) }}</small
+              >{{
+                t(
+                  'requestAudit.statuses.' +
+                    (row.request_audit.status === 'incomplete' &&
+                    row.request_audit.reason === 'content_truncated'
+                      ? 'partial'
+                      : row.request_audit.status),
+                )
+              }}</small
             ></AppTooltip
           >
           <AppTooltip v-if="index === 0 && autoDecisionPreset" :label="autoDecisionTooltip">
