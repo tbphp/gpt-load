@@ -11,7 +11,11 @@ const descriptionId = computed(() => `${fieldId.value}-description`)
 const errorId = computed(() => `${fieldId.value}-error`)
 const describedBy = computed(
   () =>
-    [props.describedBy, props.description && descriptionId.value, props.error && errorId.value]
+    [
+      props.describedBy,
+      (props.description || props.descriptionWarning) && descriptionId.value,
+      props.error && errorId.value,
+    ]
       .filter(Boolean)
       .join(' ') || undefined,
 )
@@ -23,7 +27,16 @@ const describedBy = computed(
       label
     }}</label>
     <slot v-bind="{ id: fieldId, describedBy, invalid: Boolean(error || invalid) }" />
-    <p v-if="description" :id="descriptionId" class="modern-field-description">{{ description }}</p>
+    <p
+      v-if="description || descriptionWarning"
+      :id="descriptionId"
+      class="modern-field-description"
+    >
+      {{ description }}
+      <span v-if="descriptionWarning" class="modern-field-warning" aria-live="polite">
+        {{ description ? ' · ' : '' }}{{ descriptionWarning }}
+      </span>
+    </p>
     <p v-if="error" :id="errorId" class="modern-field-error" role="alert">{{ error }}</p>
   </div>
 </template>
@@ -53,5 +66,8 @@ const describedBy = computed(
 }
 .modern-field-error {
   color: var(--modern-danger);
+}
+.modern-field-warning {
+  color: var(--modern-warning);
 }
 </style>

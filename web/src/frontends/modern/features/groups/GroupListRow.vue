@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { numberFormatter, dateFormatter } from '@modern/components/ui/intl-formatters'
-import { ChevronDown, ChevronUp, KeyRound, UserRound } from '@lucide/vue'
+import { ChevronDown, ChevronUp, KeyRound, Plus, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, useId } from 'vue'
 import { useURLState } from '@modern/app/url-state'
@@ -45,6 +45,13 @@ const emit = defineEmits<{
 const { t, n, locale } = useI18n()
 const client = useApiClient()
 const route = useRoute()
+const addCredentialsLabel = computed(() =>
+  t(
+    props.group.connectionType === 'subscription'
+      ? 'groupDetail.connectAccount'
+      : 'groupDetail.addCredentials',
+  ),
+)
 const id = useId()
 const searchKey = 'models_' + props.group.id
 const allKey = 'all_models_' + props.group.id
@@ -200,7 +207,28 @@ const lastActive = computed(() =>
       </div>
       <div class="modern-group-metric" role="group" :aria-label="t('groups.board.credentials')">
         <span class="modern-group-mobile-label">{{ t('groups.board.credentials') }}</span>
-        <strong>{{ n(group.credentials.total) }}</strong>
+        <div class="modern-group-credential-heading">
+          <strong>{{ n(group.credentials.total) }}</strong>
+          <AppTooltip :label="addCredentialsLabel">
+            <AppButton
+              :aria-label="addCredentialsLabel"
+              size="xs"
+              variant="ghost"
+              icon-only
+              :disabled="Boolean(pending)"
+              as-child
+            >
+              <RouterLink
+                :to="{
+                  name: 'modern-group-detail',
+                  params: { id: group.id },
+                  query: { panel: 'add', from: route.fullPath },
+                }"
+                ><AppIcon :icon="Plus" size="sm"
+              /></RouterLink>
+            </AppButton>
+          </AppTooltip>
+        </div>
         <div class="modern-group-bar-line">
           <AppSegmentedBar :segments="credentialSegments" :label="credentialSummary" />
         </div>
@@ -337,6 +365,11 @@ const lastActive = computed(() =>
 }
 .modern-group-row:hover {
   background: var(--modern-subtle);
+}
+.modern-group-credential-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
 }
 .modern-group-identity {
   display: flex;
