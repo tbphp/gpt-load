@@ -19,6 +19,7 @@ import { useAuthSession } from '@/features/auth/auth-session'
 
 import CurrentAccessKeyCard from './CurrentAccessKeyCard.vue'
 import GatewayConnection from './GatewayConnection.vue'
+import HomeRequestRules from './HomeRequestRules.vue'
 import HomeAttention from './HomeAttention.vue'
 import HomeSpend from './HomeSpend.vue'
 import HomeSubscriptionAccounts from './HomeSubscriptionAccounts.vue'
@@ -198,6 +199,11 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
         <CurrentAccessKeyCard
           v-if="baseQuery.data.value.current_access_key"
           :access-key="baseQuery.data.value.current_access_key"
+        />
+
+        <HomeRequestRules
+          v-if="isAccessKey && baseQuery.data.value.request_rules"
+          :rules="baseQuery.data.value.request_rules"
         />
 
         <GatewayConnection

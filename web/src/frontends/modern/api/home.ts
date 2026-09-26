@@ -2,7 +2,7 @@ import type { ApiClient } from '@shared/http/client'
 import { readAccessKeyRow, type AccessKeyRow } from './access-keys'
 import { readCredential, type CredentialRow } from './group-detail'
 import { readCredentialFilterKey } from './groups'
-import { integer, list, record, text } from './response'
+import { boolean, integer, list, oneOf, record, text } from './response'
 
 export interface HomeKey {
   id: number
@@ -19,6 +19,18 @@ export interface HomeBase {
   models: number
   keys: HomeKey[]
   currentKey: AccessKeyRow | null
+  requestRules: HomeRequestRules | null
+}
+export interface HomeRequestRules {
+  redaction: {
+    rules: Array<{ pattern: string; mode: 'replace' | 'encrypt'; replacement: string }>
+  }
+  audit: {
+    enabled: boolean
+    channel_name: string
+    model: string
+    rules: Array<{ name: string; instructions: string; action: 'warn' | 'block' }>
+  }
 }
 export interface HomeAccount {
   key: string
@@ -51,6 +63,37 @@ export async function getHome(client: ApiClient, signal: AbortSignal): Promise<H
       }
     }),
     currentKey: data.current_access_key == null ? null : readAccessKeyRow(data.current_access_key),
+    requestRules: data.request_rules == null ? null : readHomeRequestRules(data.request_rules),
+  }
+}
+function readHomeRequestRules(value: unknown): HomeRequestRules {
+  const data = record(value)
+  const redaction = record(data.redaction)
+  const audit = record(data.audit)
+  return {
+    redaction: {
+      rules: list(redaction.rules).map((value) => {
+        const rule = record(value)
+        return {
+          pattern: text(rule.pattern),
+          mode: oneOf(rule.mode, ['replace', 'encrypt'] as const),
+          replacement: text(rule.replacement ?? ''),
+        }
+      }),
+    },
+    audit: {
+      enabled: boolean(audit.enabled),
+      channel_name: text(audit.channel_name ?? ''),
+      model: text(audit.model ?? ''),
+      rules: list(audit.rules).map((value) => {
+        const rule = record(value)
+        return {
+          name: text(rule.name),
+          instructions: text(rule.instructions),
+          action: oneOf(rule.action, ['warn', 'block'] as const),
+        }
+      }),
+    },
   }
 }
 export async function getHomeAccounts(client: ApiClient, signal: AbortSignal) {

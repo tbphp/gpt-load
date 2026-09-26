@@ -1,4 +1,24 @@
 export const zhCN = {
+  requestRules: {
+    title: '请求处理规则',
+    redaction: '请求脱敏',
+    audit: '请求审计 · JEV',
+    configured: '已配置',
+    unconfigured: '未配置',
+    enabled: '已启用',
+    notApplied: '未对当前密钥启用',
+    count: '{count} 条规则',
+    rule: '规则 {count}',
+    replace: '固定替换',
+    encrypt: '可逆加密',
+    pattern: '匹配规则',
+    replacement: '替换内容',
+    emptyReplacement: '空字符串（删除匹配内容）',
+    channel: '审计渠道',
+    model: '审计模型',
+    warn: '告警',
+    block: '拦截',
+  },
   setup: {
     title: '完成初始配置',
     progress: '{count} / {total} 项已完成',
@@ -142,6 +162,26 @@ export const zhCN = {
 }
 
 export const enUS: typeof zhCN = {
+  requestRules: {
+    title: 'Request processing rules',
+    redaction: 'Request redaction',
+    audit: 'Request audit · JEV',
+    configured: 'Configured',
+    unconfigured: 'Not configured',
+    enabled: 'Enabled',
+    notApplied: 'Not enabled for this key',
+    count: '{count} rules',
+    rule: 'Rule {count}',
+    replace: 'Fixed replacement',
+    encrypt: 'Reversible encryption',
+    pattern: 'Pattern',
+    replacement: 'Replacement',
+    emptyReplacement: 'Empty string (remove matched text)',
+    channel: 'Audit channel',
+    model: 'Audit model',
+    warn: 'Warn',
+    block: 'Block',
+  },
   setup: {
     title: 'Finish initial setup',
     progress: '{count} / {total} completed',
@@ -294,6 +334,26 @@ export const enUS: typeof zhCN = {
 }
 
 export const jaJP: typeof zhCN = {
+  requestRules: {
+    title: 'リクエスト処理ルール',
+    redaction: 'リクエストのマスキング',
+    audit: 'リクエスト監査 · JEV',
+    configured: '設定済み',
+    unconfigured: '未設定',
+    enabled: '有効',
+    notApplied: 'このキーには無効',
+    count: '{count} 件のルール',
+    rule: 'ルール {count}',
+    replace: '固定置換',
+    encrypt: '可逆暗号化',
+    pattern: '一致パターン',
+    replacement: '置換内容',
+    emptyReplacement: '空文字列（一致した内容を削除）',
+    channel: '監査チャネル',
+    model: '監査モデル',
+    warn: '警告',
+    block: 'ブロック',
+  },
   setup: {
     title: '初期設定を完了する',
     progress: '{count} / {total} 完了',

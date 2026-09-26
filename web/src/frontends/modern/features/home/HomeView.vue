@@ -14,6 +14,7 @@ import { AppButton, AppCollectionState, AppNotice } from '@modern/components/ui'
 import RouteInspector from '@modern/features/inspector/RouteInspector.vue'
 import { compareHealthIssues, healthIssues } from '@modern/features/health/health-display'
 import HomeAccessKey from './HomeAccessKey.vue'
+import HomeRequestRules from './HomeRequestRules.vue'
 import HomeAccounts from './HomeAccounts.vue'
 import HomeAttention from './HomeAttention.vue'
 import HomeRouteTool from './HomeRouteTool.vue'
@@ -169,6 +170,7 @@ watch(
       />
       <div class="modern-home-columns">
         <div class="modern-home-main">
+          <HomeRequestRules v-if="!admin && base.requestRules" :rules="base.requestRules" />
           <GatewayConnection :keys="base.keys" :admin="admin" />
           <div
             v-if="admin"

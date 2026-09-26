@@ -38,6 +38,7 @@ type HomeBase struct {
 	Inventory        HomeInventory            `json:"inventory"`
 	AccessKeys       []HomeAccessKey          `json:"access_keys"`
 	CurrentAccessKey *AccessKeyCollectionItem `json:"current_access_key"`
+	RequestRules     *HomeRequestRules        `json:"request_rules,omitempty"`
 }
 
 type homeResponse struct {
@@ -202,6 +203,11 @@ func (s *Service) readHomeBase(
 			}
 		}
 		result.CurrentAccessKey = &current
+		rules, err := s.homeRequestRules(snapshot, *accessKeyID)
+		if err != nil {
+			return HomeBase{}, err
+		}
+		result.RequestRules = &rules
 	}
 	return result, nil
 }
