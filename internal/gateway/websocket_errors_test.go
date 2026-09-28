@@ -43,7 +43,7 @@ func TestWebsocketCapabilityFailureRequiresMatchingRoute(t *testing.T) {
 
 func TestWebsocketOverrideFailureSkipsGroupWithoutSpendingForwardBudget(t *testing.T) {
 	upstream := websocketSettingsUpstream(t, false)
-	h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+	h, engine, input := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 	addWebsocketErrorBackup(t, h, input)
 	h.manager.Current().Settings.RetryCount = 0
 	rules, err := parameteroverride.Compile([]any{map[string]any{"set": map[string]any{"stream_id": "changed"}}})
@@ -268,7 +268,7 @@ func TestWebsocketHandshakeRejectionSelectsBackup(t *testing.T) {
 			}))
 			defer upstream.Close()
 			backup := websocketSettingsUpstream(t, false)
-			h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+			h, engine, input := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 			second := input.Groups[0]
 			second.ID, second.Name = 2, "backup"
 			second.Params = json.RawMessage(fmt.Sprintf(`{"base_url":%q}`, backup.URL+"/v1"))
