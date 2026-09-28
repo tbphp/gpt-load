@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
 
 	"github.com/maximhq/bifrost/core/schemas"
 
@@ -16,8 +14,6 @@ import (
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/protocol"
 )
-
-const openRouterDecisionsDefaultBaseURL = "https://openrouter.ai/api/v1"
 
 func prepareDecisions(
 	spec execution.AttemptSpec,
@@ -101,19 +97,12 @@ func decisionsTarget(resolved channel.ResolvedTarget) (string, string, error) {
 		return baseURL, "/systemone", nil
 	case channel.ProviderOpenRouter:
 		if !configured {
-			baseURL = openRouterDecisionsDefaultBaseURL
+			baseURL, _, err = sdkDefaultBaseURL(resolved.ProviderKind)
+			if err != nil {
+				return "", "", err
+			}
 		}
-		parsed, err := url.Parse(baseURL)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			return "", "", fmt.Errorf("invalid OpenRouter base URL")
-		}
-		path := strings.TrimSuffix(parsed.Path, "/")
-		if !strings.HasSuffix(path, "/v1") {
-			return "", "", fmt.Errorf("OpenRouter Decisions base URL must end in /v1")
-		}
-		parsed.Path = strings.TrimSuffix(path, "/v1") + "/alpha"
-		parsed.RawPath = ""
-		return strings.TrimSuffix(parsed.String(), "/"), "/decisions", nil
+		return baseURL, "/alpha/decisions", nil
 	default:
 		return "", "", fmt.Errorf("unsupported decisions provider")
 	}
