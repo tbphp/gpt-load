@@ -1282,6 +1282,8 @@ func TestConvertedStreamRequiresFirstClientFrame(t *testing.T) {
 	})
 
 	t.Run("first-byte timeout waits for a complete converted frame", func(t *testing.T) {
+		started := make(chan struct{})
+		release := make(chan struct{})
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			if request.URL.Path != "/tenant/chat/completions" {
 				t.Errorf("path = %q", request.URL.Path)
@@ -1289,27 +1291,36 @@ func TestConvertedStreamRequiresFirstClientFrame(t *testing.T) {
 			writer.Header().Set("Content-Type", "text/event-stream")
 			writer.WriteHeader(http.StatusOK)
 			writer.(http.Flusher).Flush()
-			time.Sleep(100 * time.Millisecond)
+			close(started)
+			<-release
 			_, _ = io.WriteString(writer, "data: {\"id\":\"chatcmpl-late\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"served\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"late\"},\"finish_reason\":null}]}\n\n")
 			writer.(http.Flusher).Flush()
 		}))
 		defer server.Close()
+		defer close(release)
 
 		runtime := newTestRuntime(t)
 		spec := compatibleSpec(server.URL)
 		spec.TargetConfig = json.RawMessage(`{"base_url":"` + server.URL + `/tenant"}`)
-		spec.Timeouts.FirstByte = 20 * time.Millisecond
-		spec.Timeouts.Request = time.Second
+		spec.Timeouts.FirstByte = 250 * time.Millisecond
+		spec.Timeouts.Request = 30 * time.Second
+		spec.Timeouts.StreamIdle = 30 * time.Second
 		spec = freezeTestAttempt(spec)
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
 		var events []execution.StreamEvent
-		started := time.Now()
-		result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
+		result := runtime.ExecuteStream(ctx, spec, func(event execution.StreamEvent) error {
 			events = append(events, event.Clone())
 			return nil
 		})
 
-		if elapsed := time.Since(started); elapsed > 90*time.Millisecond {
-			t.Fatalf("first-frame timeout returned after %s", elapsed)
+		if ctx.Err() != nil {
+			t.Fatal("first-frame timeout did not finish before the test deadline")
+		}
+		select {
+		case <-started:
+		default:
+			t.Fatal("request timed out before the upstream response headers")
 		}
 		if result.Error == nil || result.Error.Kind != execution.ErrorKindTimeout ||
 			result.ResponseStarted || len(events) != 0 {
