@@ -89,6 +89,7 @@ func TestProtocolModelOptionalRequestsAreLimitedToOpenAIResponses(t *testing.T) 
 		{protocol: Protocol("anthropic"), want: false},
 		{protocol: Protocol("gemini"), want: false},
 		{protocol: Protocol("gemini-embeddings"), want: false},
+		{protocol: Protocol("mistral"), want: false},
 	}
 	for _, test := range tests {
 		t.Run(string(test.protocol), func(t *testing.T) {
@@ -121,6 +122,7 @@ func TestDataPlaneProtocolsReturnsCanonicalOrderAndIndependentCopies(t *testing.
 		Anthropic,
 		Gemini,
 		GeminiEmbeddings,
+		Mistral,
 	}
 	if len(first) != len(want) {
 		t.Fatalf("DataPlaneProtocols() = %#v, want %#v", first, want)

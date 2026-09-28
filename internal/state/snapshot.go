@@ -477,7 +477,8 @@ func appendExecutionTargets(
 				appendExecutionTarget(index, clientProtocol, operation, NoModelRouteKey, RouteTarget{
 					GroupID: group.ID, Mode: mode, ResolvedTarget: cloneResolvedTarget(target),
 				})
-			case execution.OperationResponsesPassthrough:
+			case execution.OperationResponsesPassthrough,
+				execution.OperationMistralVoices:
 				appendExecutionTarget(index, clientProtocol, operation, NoModelRouteKey, RouteTarget{
 					GroupID: group.ID, Mode: mode, ResolvedTarget: cloneResolvedTarget(target),
 				})
@@ -491,7 +492,15 @@ func appendExecutionTargets(
 				execution.OperationImagesGenerate,
 				execution.OperationImagesEdit,
 				execution.OperationEmbeddingsCreate, execution.OperationRerank,
-				execution.OperationDecisionsCreate:
+				execution.OperationDecisionsCreate,
+				execution.OperationMistralOCR,
+				execution.OperationMistralFIM,
+				execution.OperationMistralAudioTranscription,
+				execution.OperationMistralAudioSpeech,
+				execution.OperationMistralModeration,
+				execution.OperationMistralChatModeration,
+				execution.OperationMistralClassification,
+				execution.OperationMistralRealtimeTranscription:
 				for _, model := range group.Models {
 					liveModel := group.ChannelID == channel.Codex && model.ID == channel.CodexLiveModelID
 					if liveModel {
