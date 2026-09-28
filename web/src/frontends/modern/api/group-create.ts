@@ -74,6 +74,15 @@ export async function getGroupChannels(
       'embeddings_create',
       'rerank',
       'decisions_create',
+      'mistral_ocr',
+      'mistral_fim',
+      'mistral_audio_transcription',
+      'mistral_audio_speech',
+      'mistral_moderation',
+      'mistral_chat_moderation',
+      'mistral_classification',
+      'mistral_voices',
+      'mistral_realtime_transcription',
     ]
     const routes = list(item.routes).map((raw) => {
       const route = record(raw)

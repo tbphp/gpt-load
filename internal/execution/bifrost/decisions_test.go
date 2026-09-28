@@ -34,7 +34,7 @@ func TestDecisionsRuntimeUsesNativeWireAndProviderSpecificPath(t *testing.T) {
 		wantPath string
 	}{
 		{name: "Jev", id: channel.Jev, prefix: "/v1", wantPath: "/v1/systemone"},
-		{name: "OpenRouter", id: channel.OpenRouter, prefix: "/api/v1", wantPath: "/api/alpha/decisions"},
+		{name: "OpenRouter", id: channel.OpenRouter, prefix: "/api", wantPath: "/api/alpha/decisions"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -160,11 +160,41 @@ func TestDecisionsProbeUsesMinimalBodyAndValidatesAnswer(t *testing.T) {
 	}
 }
 
-func TestOpenRouterDecisionsRequiresV1BaseURL(t *testing.T) {
-	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
-	result := runtime.Execute(context.Background(), decisionsSpec(channel.OpenRouter, "https://relay.example/custom"))
-	if result.Error == nil || result.DispatchState != execution.DispatchNotSent {
-		t.Fatalf("result = %+v error = %+v", result, result.Error)
+func TestOpenRouterDecisionsUsesSameBaseURLAsChat(t *testing.T) {
+	for _, prefix := range []string{"", "/proxy/api"} {
+		t.Run(prefix, func(t *testing.T) {
+			paths := make(chan string, 2)
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				paths <- request.URL.Path
+				writer.Header().Set("Content-Type", "application/json")
+				if request.URL.Path == prefix+"/v1/chat/completions" {
+					writeSuccess(writer, "ok")
+					return
+				}
+				if request.URL.Path != prefix+"/alpha/decisions" {
+					t.Errorf("Decisions path = %q", request.URL.Path)
+				}
+				_, _ = io.WriteString(writer, `{"id":"decision-1","model":"provider-model","answers":{"tier":{"choice":"low","confidence":0.9}}}`)
+			}))
+			defer server.Close()
+
+			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
+			decision := decisionsSpec(channel.OpenRouter, server.URL+prefix)
+			chat := decision.Clone()
+			chat.ClientProtocol = protocol.OpenAICompletions
+			chat.Operation = execution.OperationChatCompletion
+			chat.Path = "/v1/chat/completions"
+			chat.Body = []byte(`{"model":"public","messages":[{"role":"user","content":"hi"}]}`)
+			for _, spec := range []execution.AttemptSpec{freezeTestAttempt(chat), decision} {
+				result := runtime.Execute(context.Background(), spec)
+				if result.Error != nil || result.StatusCode != http.StatusOK {
+					t.Fatalf("%s result = %+v error = %+v", spec.ClientProtocol, result, result.Error)
+				}
+			}
+			if chatPath, decisionPath := <-paths, <-paths; chatPath != prefix+"/v1/chat/completions" || decisionPath != prefix+"/alpha/decisions" {
+				t.Fatalf("upstream paths = %q, %q", chatPath, decisionPath)
+			}
+		})
 	}
 }
 
@@ -176,7 +206,7 @@ func TestDecisionsTargetsUseChannelDefaults(t *testing.T) {
 		path      string
 	}{
 		{channelID: channel.Jev, baseURL: "https://api.typesafe.ai/v1", path: "/systemone"},
-		{channelID: channel.OpenRouter, baseURL: "https://openrouter.ai/api/alpha", path: "/decisions"},
+		{channelID: channel.OpenRouter, baseURL: "https://openrouter.ai/api", path: "/alpha/decisions"},
 	} {
 		resolved, err := registry.Resolve(test.channelID, nil)
 		if err != nil {

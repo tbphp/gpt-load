@@ -64,7 +64,7 @@ func TestWebsocketSwitchInheritanceLeavesHTTPAvailable(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			upstream := websocketSettingsUpstream(t, false)
-			h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+			h, engine, input := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 			if test.global != nil {
 				input.SystemSettings = config.Settings{state.SettingResponsesWebsocketEnabled: *test.global}
 			}
@@ -121,7 +121,7 @@ func TestWebsocketSwitchImmediatelyClosesAffectedConnections(t *testing.T) {
 	for _, phase := range []string{"unbound", "idle", "active"} {
 		t.Run(phase, func(t *testing.T) {
 			upstream := websocketSettingsUpstream(t, phase == "active")
-			h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+			h, engine, input := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 			server := httptest.NewServer(engine)
 			defer server.Close()
 			conn := dialGatewayWebsocket(t, server.URL)
@@ -150,7 +150,7 @@ func TestWebsocketMissingBoundGroupClosesConnections(t *testing.T) {
 		for _, phase := range []string{"idle", "active"} {
 			t.Run(change+"/"+phase, func(t *testing.T) {
 				upstream := websocketSettingsUpstream(t, phase == "active")
-				h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+				h, engine, input := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 				server := httptest.NewServer(engine)
 				t.Cleanup(server.Close)
 				conn := dialGatewayWebsocket(t, server.URL)
@@ -186,7 +186,7 @@ func TestWebsocketMissingBoundGroupClosesConnections(t *testing.T) {
 
 func TestWebsocketGroupOverrideSurvivesGlobalDisable(t *testing.T) {
 	upstream := websocketSettingsUpstream(t, false)
-	h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+	h, engine, input := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 	input.Groups[0].Settings = config.Settings{state.SettingResponsesWebsocketEnabled: true}
 	if _, err := h.manager.Publish(input); err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestWebsocketGroupOverrideSurvivesGlobalDisable(t *testing.T) {
 
 func TestWebsocketSchedulerSkipsDisabledGroup(t *testing.T) {
 	upstream := websocketSettingsUpstream(t, false)
-	h, engine, input := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+	h, engine, input := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 	input.Groups[0].Settings = config.Settings{state.SettingResponsesWebsocketEnabled: false}
 	other := input.Groups[0]
 	other.ID, other.Name, other.Settings = 2, "enabled", config.Settings{}

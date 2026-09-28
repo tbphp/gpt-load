@@ -113,13 +113,7 @@ func buildEffectiveProviderConfigForAttempt(
 		return base, err
 	}
 	if spec.ClientProtocol == protocol.Decisions && resolved.ProviderKind == channel.ProviderOpenRouter {
-		baseURL, configured, targetErr := targetBaseURL(resolved.TargetConfig)
-		if targetErr != nil {
-			return effectiveProviderConfig{}, targetErr
-		}
-		if !configured {
-			baseURL = openRouterDecisionsDefaultBaseURL
-		}
+		baseURL := base.targetBaseURL
 		provider := customProviderKey(schemas.OpenAI, baseURL)
 		config := buildProviderConfig(provider, baseURL, true, schemas.OpenAI, allowPrivateNetwork)
 		base, err = newEffectiveProviderConfig(provider, baseURL, true, config)
