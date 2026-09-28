@@ -150,6 +150,18 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 - **Subscription** — Codex, Claude, Antigravity, Grok
 - **Custom** — OpenAI Compatible (any compatible relay)
 
+### Parameter overrides and protocol conversion
+
+Group parameter overrides run before protocol conversion. Use client-protocol names for ordinary parameters: the SDK converts Responses `max_output_tokens` to Anthropic `max_tokens`, for example. For Bifrost conversation conversions, top-level fields explicitly set by an override but absent from the SDK's client request schema are supplied as SDK extra parameters. The SDK still determines whether the target protocol supports them; arbitrary parameter passthrough is not enabled. Unknown client-supplied fields are not automatically forwarded, and existing content-block cache markers retain their behavior.
+
+For example, configure an Anthropic group to supply top-level caching for Responses requests:
+
+```json
+[{"match":{"protocol":"openai-responses"},"set":{"cache_control":{"type":"ephemeral"}}}]
+```
+
+This forwards the cache configuration without guaranteeing an upstream cache hit.
+
 ## Deployment and data
 
 Docker Compose uses application-managed SQLite by default. Data lives in the `gpt-load-data` named volume and includes the database, `auth.key`, and `encryption.key`.

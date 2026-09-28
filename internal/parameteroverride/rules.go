@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -196,6 +197,27 @@ func compileMatch(raw json.RawMessage) (compiledMatch, error) {
 
 // Empty reports whether no rule can be applied.
 func (rules Rules) Empty() bool { return len(rules.entries) == 0 }
+
+// ConfiguredFields 返回匹配规则设置的顶层字段名；最终值始终从处理后的请求读取。
+func (rules Rules) ConfiguredFields(clientProtocol protocol.Protocol, operation execution.Operation, model string) []string {
+	if !supports(clientProtocol, operation) {
+		return nil
+	}
+	fields := make(map[string]struct{})
+	for _, entry := range rules.entries {
+		if entry.matches(clientProtocol, model) {
+			for name := range entry.set {
+				fields[name] = struct{}{}
+			}
+		}
+	}
+	var names []string
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
 
 // ValidateResponsesContinuation 用于管理面保存；不改变历史配置的 Compile 行为。
 func (rules Rules) ValidateResponsesContinuation() error {

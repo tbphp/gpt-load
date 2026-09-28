@@ -246,7 +246,7 @@ type AttemptTimeouts struct {
 
 // AttemptSpec is a fully selected, provider-neutral upstream attempt.
 // NewAttemptSpec or Clone must be used at ownership boundaries because Query,
-// Header, ConfiguredHeaders, Body, TargetConfig, and Credential contain reference-backed values.
+// Header, ConfiguredHeaders, ConfiguredParameters, Body, TargetConfig, and Credential contain reference-backed values.
 type AttemptSpec struct {
 	RequestID                string                   `json:"request_id"`
 	AttemptID                string                   `json:"attempt_id"`
@@ -270,6 +270,8 @@ type AttemptSpec struct {
 	Body     []byte      `json:"body,omitempty"`
 	// ConfiguredHeaders 记录显式请求头规则的字段；最终值由 Header 提供，缺失表示移除。
 	ConfiguredHeaders []string `json:"-"`
+	// ConfiguredParameters 仅记录本次分组覆盖设置的字段，值从最终 Body 读取。
+	ConfiguredParameters []string `json:"-"`
 	// IncludeUsage asks the executor to request provider usage details when the
 	// selected operation supports an explicit wire option.
 	IncludeUsage bool `json:"include_usage,omitempty"`
@@ -299,6 +301,7 @@ func (s AttemptSpec) Clone() AttemptSpec {
 	clone.Query = cloneValues(s.Query)
 	clone.Header = cloneHeader(s.Header)
 	clone.ConfiguredHeaders = append([]string(nil), s.ConfiguredHeaders...)
+	clone.ConfiguredParameters = append([]string(nil), s.ConfiguredParameters...)
 	clone.Body = cloneBytes(s.Body)
 	clone.TargetConfig = cloneRawMessage(s.TargetConfig)
 	clone.Credential = s.Credential.Clone()

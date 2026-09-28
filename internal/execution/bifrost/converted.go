@@ -123,6 +123,12 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 	request.Model = spec.UpstreamModel
 	request.Fallbacks = nil
 	request.RawRequestBody = nil
+	if request.Params == nil {
+		request.Params = &schemas.ResponsesParameters{}
+	}
+	if err := mergeConvertedParameterOverrides(spec, &request.Params.ExtraParams); err != nil {
+		return nil, err
+	}
 	stripResponsesControlParams(request.Params)
 	return request, nil
 }
