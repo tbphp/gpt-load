@@ -30,25 +30,34 @@ func (e *ValidationError) Error() string {
 type Operation string
 
 const (
-	OperationChatCompletion       Operation = "chat_completion"
-	OperationResponsesCreate      Operation = "responses_create"
-	OperationResponsesRetrieve    Operation = "responses_retrieve"
-	OperationResponsesDelete      Operation = "responses_delete"
-	OperationResponsesCancel      Operation = "responses_cancel"
-	OperationResponsesInputItems  Operation = "responses_input_items"
-	OperationResponsesCompact     Operation = "responses_compact"
-	OperationResponsesInputTokens Operation = "responses_input_tokens"
-	OperationCountTokens          Operation = "count_tokens"
-	OperationResponsesPassthrough Operation = "responses_passthrough"
-	OperationWebSearch            Operation = "web_search"
-	OperationImagesGenerate       Operation = "images_generate"
-	OperationImagesEdit           Operation = "images_edit"
-	OperationEmbeddingsCreate     Operation = "embeddings_create"
-	OperationLiveCall             Operation = "live_call"
-	OperationRerank               Operation = "rerank"
-	OperationDecisionsCreate      Operation = "decisions_create"
-	OperationListModels           Operation = "list_models"
-	OperationProbe                Operation = "probe"
+	OperationChatCompletion               Operation = "chat_completion"
+	OperationResponsesCreate              Operation = "responses_create"
+	OperationResponsesRetrieve            Operation = "responses_retrieve"
+	OperationResponsesDelete              Operation = "responses_delete"
+	OperationResponsesCancel              Operation = "responses_cancel"
+	OperationResponsesInputItems          Operation = "responses_input_items"
+	OperationResponsesCompact             Operation = "responses_compact"
+	OperationResponsesInputTokens         Operation = "responses_input_tokens"
+	OperationCountTokens                  Operation = "count_tokens"
+	OperationResponsesPassthrough         Operation = "responses_passthrough"
+	OperationWebSearch                    Operation = "web_search"
+	OperationImagesGenerate               Operation = "images_generate"
+	OperationImagesEdit                   Operation = "images_edit"
+	OperationEmbeddingsCreate             Operation = "embeddings_create"
+	OperationLiveCall                     Operation = "live_call"
+	OperationRerank                       Operation = "rerank"
+	OperationDecisionsCreate              Operation = "decisions_create"
+	OperationMistralOCR                   Operation = "mistral_ocr"
+	OperationMistralFIM                   Operation = "mistral_fim"
+	OperationMistralAudioTranscription    Operation = "mistral_audio_transcription"
+	OperationMistralAudioSpeech           Operation = "mistral_audio_speech"
+	OperationMistralModeration            Operation = "mistral_moderation"
+	OperationMistralChatModeration        Operation = "mistral_chat_moderation"
+	OperationMistralClassification        Operation = "mistral_classification"
+	OperationMistralVoices                Operation = "mistral_voices"
+	OperationMistralRealtimeTranscription Operation = "mistral_realtime_transcription"
+	OperationListModels                   Operation = "list_models"
+	OperationProbe                        Operation = "probe"
 )
 
 // Valid reports whether the operation is supported by the execution contract.
@@ -71,6 +80,15 @@ func (o Operation) Valid() bool {
 		OperationLiveCall,
 		OperationRerank,
 		OperationDecisionsCreate,
+		OperationMistralOCR,
+		OperationMistralFIM,
+		OperationMistralAudioTranscription,
+		OperationMistralAudioSpeech,
+		OperationMistralModeration,
+		OperationMistralChatModeration,
+		OperationMistralClassification,
+		OperationMistralVoices,
+		OperationMistralRealtimeTranscription,
 		OperationListModels,
 		OperationProbe:
 		return true
@@ -96,7 +114,10 @@ const (
 // ReplayPolicy returns the operation-level replay contract.
 func (o Operation) ReplayPolicy() ReplayPolicy {
 	switch o {
-	case OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate, OperationRerank, OperationDecisionsCreate, OperationLiveCall:
+	case OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate, OperationRerank, OperationDecisionsCreate, OperationLiveCall,
+		OperationMistralOCR, OperationMistralFIM, OperationMistralAudioTranscription, OperationMistralAudioSpeech,
+		OperationMistralModeration, OperationMistralChatModeration, OperationMistralClassification,
+		OperationMistralRealtimeTranscription:
 		return ReplayPolicyRequireRejectedBeforeProcessing
 	default:
 		return ReplayPolicyLegacy

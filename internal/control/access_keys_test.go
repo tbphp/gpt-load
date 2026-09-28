@@ -163,6 +163,7 @@ func TestAccessKeyCreateAcceptsAllEnabledProtocolsInCanonicalOrder(t *testing.T)
 				protocol.Anthropic,
 				protocol.OpenAICompletions,
 				protocol.OpenAIResponses,
+				protocol.Mistral,
 			},
 		},
 	})

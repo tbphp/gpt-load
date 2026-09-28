@@ -10,6 +10,7 @@ export const protocolOrder = [
   'codex-live',
   'rerank',
   'decisions',
+  'mistral',
 ] as const
 export const protocolMessages = Object.fromEntries(
   protocolOrder.map((protocol) => [protocol, protocol]),

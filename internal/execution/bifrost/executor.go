@@ -531,6 +531,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	if spec.ClientProtocol == protocol.Decisions {
 		return prepareDecisions(spec, resolved, provider, directKey, secrets)
 	}
+	if spec.ClientProtocol == protocol.Mistral {
+		return prepareMistral(spec, resolved, provider, directKey, secrets)
+	}
 	if spec.Operation == execution.OperationProbe {
 		if spec.ClientProtocol == protocol.OpenAIEmbeddings {
 			typedURL, targetErr := embeddingTypedTarget(providerKind, resolved.TargetConfig, "")
@@ -1069,6 +1072,8 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		return !stream && spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationRerank && spec.Method == http.MethodPost && spec.Path == "/v1/rerank"
 	case protocol.Decisions:
 		return !stream && spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationDecisionsCreate && spec.Method == http.MethodPost && spec.Path == "/v1/systemone"
+	case protocol.Mistral:
+		return mistralRequestShape(spec, stream)
 	case protocol.OpenAIEmbeddings:
 		return !stream && (spec.RouteMode == execution.RouteNative || spec.RouteMode == execution.RouteConverted) &&
 			spec.Operation == execution.OperationEmbeddingsCreate &&
