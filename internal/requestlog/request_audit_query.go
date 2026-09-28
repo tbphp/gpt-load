@@ -11,10 +11,11 @@ func applyRequestAuditFilters(query *gorm.DB, input ListQuery) (*gorm.DB, error)
 	if input.AuditStatus == "" && input.AuditRule == "" {
 		return query, nil
 	}
-	var status, mode, findings, name, findingStatus, contains string
+	var status, reason, mode, findings, name, findingStatus, contains string
 	switch query.Dialector.Name() {
 	case "sqlite":
 		status = "json_extract(request_logs.request_audit, '$.status')"
+		reason = "json_extract(request_logs.request_audit, '$.reason')"
 		mode = "json_extract(request_logs.request_audit, '$.mode')"
 		findings = "json_each(request_logs.request_audit, '$.findings') AS audit_finding"
 		name = "json_extract(audit_finding.value, '$.name')"
@@ -22,6 +23,7 @@ func applyRequestAuditFilters(query *gorm.DB, input ListQuery) (*gorm.DB, error)
 		contains = "instr"
 	case "mysql":
 		status = "JSON_UNQUOTE(JSON_EXTRACT(request_logs.request_audit, '$.status'))"
+		reason = "JSON_UNQUOTE(JSON_EXTRACT(request_logs.request_audit, '$.reason'))"
 		mode = "JSON_UNQUOTE(JSON_EXTRACT(request_logs.request_audit, '$.mode'))"
 		findings = "JSON_TABLE(request_logs.request_audit, '$.findings[*]' COLUMNS (rule_name TEXT PATH '$.name', rule_status VARCHAR(32) PATH '$.status')) AS audit_finding"
 		name = "audit_finding.rule_name"
@@ -29,6 +31,7 @@ func applyRequestAuditFilters(query *gorm.DB, input ListQuery) (*gorm.DB, error)
 		contains = "instr"
 	case "postgres":
 		status = "request_logs.request_audit::jsonb->>'status'"
+		reason = "request_logs.request_audit::jsonb->>'reason'"
 		mode = "request_logs.request_audit::jsonb->>'mode'"
 		findings = "jsonb_array_elements(COALESCE(NULLIF(request_logs.request_audit::jsonb->'findings', 'null'::jsonb), '[]'::jsonb)) AS audit_finding(value)"
 		name = "audit_finding.value->>'name'"
@@ -40,6 +43,10 @@ func applyRequestAuditFilters(query *gorm.DB, input ListQuery) (*gorm.DB, error)
 	if input.AuditStatus != "" {
 		// 与旧实验日志的读取语义一致：matched 按旧模式映射为告警或拦截。
 		outcome := fmt.Sprintf("CASE WHEN COALESCE(%s, '') <> '' AND %s = 'matched' THEN CASE WHEN %s = 'enforce' THEN 'blocked' ELSE 'warned' END ELSE %s END", mode, status, mode, status)
+		if input.AuditStatus == "allowed" || input.AuditStatus == "failed" {
+			// 与管理 API 的最终处置一致；保留 incomplete 查询的原有语义。
+			outcome = fmt.Sprintf("CASE WHEN (%s) IN ('blocked', 'warned') THEN (%s) WHEN (%s) = 'passed' OR ((%s) = 'incomplete' AND %s = 'content_truncated') THEN 'allowed' WHEN (%s) IS NOT NULL THEN 'failed' END", outcome, outcome, outcome, outcome, reason, outcome)
+		}
 		query = query.Where("("+outcome+") = ?", input.AuditStatus)
 	}
 	if input.AuditRule != "" {

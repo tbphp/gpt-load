@@ -35,7 +35,7 @@ func TestWebsocketErrorPreservesLaneAndRedactsSecrets(t *testing.T) {
 		_, _, _ = conn.ReadMessage()
 	}))
 	defer upstream.Close()
-	_, engine, _ := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+	_, engine, _ := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	conn := dialGatewayWebsocket(t, server.URL)
@@ -77,7 +77,7 @@ func TestWebsocketRateLimitAppliesExistingModelCooldown(t *testing.T) {
 				_, _, _ = conn.ReadMessage()
 			}))
 			defer upstream.Close()
-			h, engine, _ := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+			h, engine, _ := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 			sink := &recordingRequestLogSink{}
 			h.requestLogSink = sink
 			server := httptest.NewServer(engine)
@@ -144,7 +144,7 @@ func TestWebsocketHandshakeUsesFirstByteBudget(t *testing.T) {
 		_, _, _ = conn.ReadMessage()
 	}))
 	defer upstream.Close()
-	h, engine, _ := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+	h, engine, _ := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 	group := h.manager.Current().Groups[1]
 	group.Timeouts.FirstByte, group.Timeouts.Request = 20*time.Millisecond, time.Second
 	h.manager.Current().Groups[1] = group
@@ -208,7 +208,7 @@ func TestWebsocketNamedStreamLimitPreservesExistingLanes(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	_, engine, _ := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+	_, engine, _ := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	conn := dialGatewayWebsocket(t, server.URL)

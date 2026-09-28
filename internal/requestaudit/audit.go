@@ -19,9 +19,8 @@ var ErrInvalidConfig = errors.New("invalid experimental configuration")
 const SettingKey = "request_audit"
 
 // 使用保守的编码预算，为 JEV 的 32k token 单问题上下文留出空间。
-// 字节数不是精确 token 数；规则、正文和包装都计入每批预算。
+// 字节数不是精确 token 数；规则、正文和包装都计入唯一一次调用的预算。
 const MaxRequestBytes = 24 << 10
-const MaxReviewBatches = 64
 
 const (
 	ActionBlock = "block"

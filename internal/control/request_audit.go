@@ -8,6 +8,7 @@ import (
 
 type requestAuditResponse struct {
 	Status   string                 `json:"status"`
+	Outcome  string                 `json:"outcome"`
 	Reason   string                 `json:"reason,omitempty"`
 	Findings []requestaudit.Finding `json:"findings"`
 	Calls    []auditCallResponse    `json:"calls"`
@@ -31,6 +32,20 @@ func mapRequestAudit(value *requestaudit.Result) *requestAuditResponse {
 		response.Status = "warned"
 		if value.Mode == "enforce" {
 			response.Status = "blocked"
+		}
+	}
+	// 展示最终处置；内部覆盖状态和原因继续保留，不能把取样结果当作完整通过证明。
+	response.Outcome = "failed"
+	switch response.Status {
+	case "passed":
+		response.Outcome = "allowed"
+	case "warned":
+		response.Outcome = "warned"
+	case "blocked":
+		response.Outcome = "blocked"
+	case "incomplete":
+		if response.Reason == "content_truncated" {
+			response.Outcome = "allowed"
 		}
 	}
 	for _, call := range value.Calls {

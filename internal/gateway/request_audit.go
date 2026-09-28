@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"gpt-load/internal/jev"
 	"gpt-load/internal/requestaudit"
@@ -21,7 +20,7 @@ func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigS
 		return nil
 	}
 	// 业务重试不重复未完成的审查，也不覆盖首次失败原因；新请求仍可重新审查。
-	if recorder.audit != nil && recorder.audit.Status == "incomplete" {
+	if recorder.audit != nil && (recorder.audit.Status == "incomplete" || recorder.audit.Reason == "content_truncated") {
 		return nil
 	}
 	doc, incomplete := requestaudit.Extract(body)
@@ -60,6 +59,9 @@ func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigS
 		if review.Status != "passed" {
 			result.Status = review.Status
 		}
+		if review.Reason != "" {
+			result.Reason = review.Reason
+		}
 	}
 	// 已知命中先记录。有效拦截无需再调用 JEV，告警也不能被后续失败抹掉。
 	recordFindings()
@@ -77,33 +79,24 @@ func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigS
 			return failure
 		}
 		recorder.auditCalled = true
-		// 每批沿用 JEV 超时，同时限制整个审查的耗时；不缩短已配置的单次超时。
-		reviewCtx, cancel := context.WithTimeout(ctx, time.Duration(max(30, snapshot.Jev.TimeoutSeconds))*time.Second)
-		defer cancel()
-		for len(review.Payload) != 0 {
-			call, upstream := h.executeJevDecision(reviewCtx, snapshot, key, review.Payload, true)
-			result.Calls = append(result.Calls, call)
-			if ctx.Err() != nil {
-				return allowIncomplete("canceled")
-			}
-			if reviewCtx.Err() != nil {
-				return allowIncomplete("timeout")
-			}
-			if call.Reason != "" {
-				return allowIncomplete(call.Reason)
-			}
-			if reason := review.Resolve(upstream.Body, h.now()); reason != "" {
-				return allowIncomplete(reason)
-			}
-			recordFindings()
-			if review.Status == "blocked" {
-				return &reasonAuditBlocked
-			}
+		call, upstream := h.executeJevDecision(ctx, snapshot, key, review.Payload, true)
+		result.Calls = append(result.Calls, call)
+		if ctx.Err() != nil {
+			return allowIncomplete("canceled")
+		}
+		if call.Reason != "" {
+			return allowIncomplete(call.Reason)
+		}
+		if reason := review.Resolve(upstream.Body, h.now()); reason != "" {
+			return allowIncomplete(reason)
 		}
 	}
 	recordFindings()
 	if review.Status == "blocked" {
 		return &reasonAuditBlocked
+	}
+	if review.Reason != "" {
+		return nil
 	}
 	if recorder.auditCache == nil {
 		recorder.auditCache = map[[32]byte]bool{}

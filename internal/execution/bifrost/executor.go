@@ -744,7 +744,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 			passthroughUpstreamURL = explicitPrefix
 		}
 		if spec.ClientProtocol == protocol.OpenAIImages {
-			explicitPrefix, configured, prefixErr := targetBaseURL(resolved.TargetConfig)
+			explicitPrefix, _, prefixErr := targetBaseURL(resolved.TargetConfig)
 			if prefixErr != nil {
 				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request prefix")
 				failure.Error.OriginHint = execution.ErrorOriginClient
@@ -752,7 +752,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				failure.Error.ReplaySafety = execution.ReplaySafetyUnknown
 				return preparedAttempt{}, &failure
 			}
-			if providerKind == channel.ProviderOpenAICompatible || (providerKind == channel.ProviderOpenAI && configured) {
+			if providerKind == channel.ProviderOpenAICompatible {
 				passthroughUpstreamURL = explicitPrefix
 				passthroughPath, err = openAIImagesPrefixPath(spec.Path)
 				if err != nil {

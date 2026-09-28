@@ -288,14 +288,19 @@ function resolveRedactedLog(): Promise<string> {
             </dl>
           </section>
           <AppFormSection
-            v-if="log.request_audit && log.request_audit.status !== 'passed'"
+            v-if="
+              log.request_audit &&
+              (log.request_audit.outcome !== 'allowed' || log.request_audit.reason)
+            "
             :title="t('requestAudit.title')"
             compact
           >
             <dl class="modern-log-detail-grid">
-              <div>
+              <div v-if="log.request_audit.outcome !== 'allowed'">
                 <dt>{{ t('requestAudit.result') }}</dt>
-                <dd>{{ t('requestAudit.statuses.' + log.request_audit.status) }}</dd>
+                <dd>
+                  {{ t('requestAudit.statuses.' + log.request_audit.outcome) }}
+                </dd>
               </div>
               <div v-if="log.request_audit.reason">
                 <dt>{{ t('autoModel.reason') }}</dt>

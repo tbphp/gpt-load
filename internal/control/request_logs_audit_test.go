@@ -1,6 +1,7 @@
 package control
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -8,10 +9,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/requestaudit"
 )
 
 func TestRequestAuditLogQueryValidation(t *testing.T) {
-	for _, status := range []string{"warned", "blocked", "incomplete"} {
+	for _, status := range []string{"allowed", "blocked", "failed", "warned", "incomplete"} {
 		query, err := parseRequestLogQuery("audit_status=" + status + "&audit_rule=Private%20data")
 		if err != nil || query.AuditStatus != status || query.AuditRule != "Private data" {
 			t.Fatalf("guardrail query was rejected: %+v, %v", query, err)
@@ -24,6 +26,36 @@ func TestRequestAuditLogQueryValidation(t *testing.T) {
 		if _, err := parseRequestLogQuery(raw); err == nil {
 			t.Fatalf("invalid guardrail query accepted: %s", raw)
 		}
+	}
+}
+
+func TestRequestAuditFinalOutcomeProjection(t *testing.T) {
+	for _, test := range []struct{ status, reason, mode, want string }{
+		{"passed", "", "", "allowed"},
+		{"warned", "", "", "warned"},
+		{"incomplete", "content_truncated", "", "allowed"},
+		{"warned", "content_truncated", "", "warned"},
+		{"blocked", "content_truncated", "", "blocked"},
+		{"incomplete", "timeout", "", "failed"},
+		{"incomplete", "invalid_response", "", "failed"},
+		{"incomplete", "canceled", "", "failed"},
+		{"matched", "", "observe", "warned"},
+		{"matched", "", "enforce", "blocked"},
+	} {
+		t.Run(test.status+"/"+test.reason+"/"+test.mode, func(t *testing.T) {
+			response := mapRequestAudit(&requestaudit.Result{Status: test.status, Reason: test.reason, Mode: test.mode})
+			encoded, err := json.Marshal(response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var value map[string]any
+			if err := json.Unmarshal(encoded, &value); err != nil {
+				t.Fatal(err)
+			}
+			if value["outcome"] != test.want || response.Reason != test.reason {
+				t.Fatalf("outcome or detail changed: %s", encoded)
+			}
+		})
 	}
 }
 

@@ -465,7 +465,7 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 	query := requestlog.ListQuery{Limit: defaultRequestLogLimit}
 	if value, ok := singleQueryValue(values, "audit_status"); ok {
 		switch value {
-		case "warned", "blocked", "incomplete":
+		case "allowed", "blocked", "failed", "warned", "incomplete":
 			query.AuditStatus = value
 		default:
 			return requestlog.ListQuery{}, app_errors.ErrValidation

@@ -541,14 +541,18 @@ function toggleAttemptErrorMessage(sequence: number): void {
       </section>
 
       <section
-        v-if="log.request_audit && log.request_audit.status !== 'passed'"
+        v-if="
+          log.request_audit && (log.request_audit.outcome !== 'allowed' || log.request_audit.reason)
+        "
         class="log-detail__section"
       >
         <h3>{{ t('requestAudit.title') }}</h3>
         <dl class="log-detail__grid">
-          <div>
+          <div v-if="log.request_audit.outcome !== 'allowed'">
             <dt>{{ t('requestAudit.result') }}</dt>
-            <dd>{{ t('requestAudit.statuses.' + log.request_audit.status) }}</dd>
+            <dd>
+              {{ t('requestAudit.statuses.' + log.request_audit.outcome) }}
+            </dd>
           </div>
           <div v-if="log.request_audit.reason">
             <dt>{{ t('autoModel.reason') }}</dt>

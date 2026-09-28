@@ -29,7 +29,7 @@ export interface LogFilterDefinition {
 }
 export const logFilterOptions: Partial<Record<LogFilterName, readonly string[]>> = {
   status: logStatuses,
-  audit_status: ['warned', 'blocked', 'incomplete'],
+  audit_status: ['warned', 'blocked', 'failed'],
   protocol: accessProtocols,
   operation: logOperations,
   stream: ['true', 'false'],
