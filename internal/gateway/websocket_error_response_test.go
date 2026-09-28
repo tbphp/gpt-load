@@ -97,7 +97,7 @@ func TestWebsocketMalformedUpstreamIsProtocolFailure(t *testing.T) {
 				_, _, _ = conn.ReadMessage() // 等待网关在协议失败后关闭连接。
 			}))
 			defer upstream.Close()
-			h, engine, _ := websocketTestHandler(t, upstream.URL+"/v1", channel.OpenAI)
+			h, engine, _ := websocketTestHandler(t, upstream.URL, channel.OpenAI)
 			sink := &recordingRequestLogSink{}
 			h.requestLogSink = sink
 			server := httptest.NewServer(engine)

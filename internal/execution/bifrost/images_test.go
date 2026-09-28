@@ -19,6 +19,63 @@ import (
 	"gpt-load/internal/protocol"
 )
 
+func TestOpenAIImagesUsesChannelBaseURLSemantics(t *testing.T) {
+	t.Parallel()
+
+	for _, target := range []struct {
+		name       string
+		channelID  channel.ID
+		baseSuffix string
+		wantPrefix string
+	}{
+		{name: "official root", channelID: channel.OpenAI, wantPrefix: "/v1"},
+		{name: "official proxy path", channelID: channel.OpenAI, baseSuffix: "/proxy", wantPrefix: "/proxy/v1"},
+		{name: "compatible v1 prefix", channelID: channel.OpenAICompatible, baseSuffix: "/v1", wantPrefix: "/v1"},
+		{name: "compatible custom prefix", channelID: channel.OpenAICompatible, baseSuffix: "/tenant/api/v4", wantPrefix: "/tenant/api/v4"},
+	} {
+		for _, operation := range []struct {
+			name      string
+			operation execution.Operation
+			path      string
+		}{
+			{name: "generate", operation: execution.OperationImagesGenerate, path: "/images/generations"},
+			{name: "edit", operation: execution.OperationImagesEdit, path: "/images/edits"},
+		} {
+			t.Run(target.name+"/"+operation.name, func(t *testing.T) {
+				t.Parallel()
+
+				const responseBody = `{"created":1,"data":[{"b64_json":"b2s="}]}`
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					if want := target.wantPrefix + operation.path; request.URL.Path != want {
+						t.Errorf("path = %q, want %q", request.URL.Path, want)
+					}
+					writer.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(writer, responseBody)
+				}))
+				defer server.Close()
+
+				body := []byte(`{"model":"public-image","prompt":"draw"}`)
+				contentType := "application/json"
+				if operation.operation == execution.OperationImagesEdit {
+					body, contentType = imagesMultipartBody(t, []byte("test image"))
+				}
+				runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
+				spec := openAIImagesSpec(
+					target.channelID, server.URL+target.baseSuffix,
+					operation.operation, "/v1"+operation.path, contentType, body,
+				)
+				result := runtime.Execute(context.Background(), spec)
+				if err := result.Validate(); err != nil {
+					t.Fatalf("result validation: %v; result=%+v", err, result)
+				}
+				if result.Error != nil || result.StatusCode != http.StatusOK || string(result.Body) != responseBody {
+					t.Fatalf("result = %+v body=%s", result, result.Body)
+				}
+			})
+		}
+	}
+}
+
 func TestOpenAIImagesCompatibleUsesCompletePrefixAndSanitizesGeneration(t *testing.T) {
 	t.Parallel()
 

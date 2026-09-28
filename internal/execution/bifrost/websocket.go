@@ -44,11 +44,7 @@ func (manager *RuntimeManager) OpenWebsocket(ctx context.Context, spec execution
 	if err != nil {
 		return reject()
 	}
-	resource := "/responses"
-	if target.ProviderKind == channel.ProviderMultiProtocolGateway {
-		resource = "/v1/responses"
-	}
-	endpoint, err := resolveTypedTargetURL(base, resource, safeAttemptQuery(spec))
+	endpoint, err := resolveTypedTargetURL(base, "/v1/responses", safeAttemptQuery(spec))
 	if err != nil {
 		return reject()
 	}
