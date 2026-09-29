@@ -50,6 +50,16 @@ const updatedTitle = computed(() =>
       </h1>
     </div>
     <dl class="home-summary__stamp">
+      <div v-if="base.concurrency ?? base.current_access_key?.concurrency">
+        <dt>{{ t('concurrency.label') }}</dt>
+        <dd>
+          {{ (base.concurrency ?? base.current_access_key!.concurrency).current }} /
+          {{
+            (base.concurrency ?? base.current_access_key!.concurrency).limit ||
+            t('concurrency.unlimited')
+          }}
+        </dd>
+      </div>
       <div>
         <dt>{{ t('home.ledger.updated') }}</dt>
         <dd :title="updatedTitle">{{ updated }}</dd>

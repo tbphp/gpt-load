@@ -144,6 +144,7 @@ func (s *Service) RotateAccessKeyIdempotent(
 	if plaintext, ok := operationResult.Ephemeral.(string); ok && !operationResult.Replayed {
 		result.Key = plaintext
 	}
+	s.fillAccessKeyConcurrency(&result.AccessKeyMetadata)
 	return result, nil
 }
 
@@ -151,7 +152,7 @@ func loadAccessKeyMetadataRow(tx *gorm.DB, id uint) (accessKeyMetadataRow, error
 	var row accessKeyMetadataRow
 	if err := tx.Model(&models.AccessKey{}).
 		Select(
-			"id", "name", "key_prefix", "key_suffix", "status", "filters", "rpm_limit",
+			"id", "name", "key_prefix", "key_suffix", "status", "filters", "rpm_limit", "concurrency_limit",
 			"expires_at_ms", "created_at_ms", "updated_at_ms", "price_multiplier_micros",
 		).
 		Where("id = ?", id).

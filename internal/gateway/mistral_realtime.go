@@ -48,6 +48,12 @@ var reasonMistralRealtimeOrigin = reason{
 // Bifrost 会解析 Responses 事件，不能拿来原样抄音频帧，所以拨号和转发留在网关。
 // 同一次连接选定一把上游凭证，握手失败才按健康决策换下一把。
 func (handler *Handler) handleMistralRealtime(c *gin.Context, request *dataPlaneRequestContext) {
+	var releaseRequest func()
+	defer func() {
+		if releaseRequest != nil {
+			releaseRequest()
+		}
+	}()
 	id, idErr := handler.newRequestID()
 	if idErr == nil {
 		c.Header(requestIDHeader, id)
@@ -73,6 +79,11 @@ func (handler *Handler) handleMistralRealtime(c *gin.Context, request *dataPlane
 		return
 	}
 	recorder.setClientModel(model)
+	releaseRequest, failure := handler.acquireRequestConcurrency(request.accessKey.ID)
+	if failure != nil {
+		failed(*failure)
+		return
+	}
 	var ticket accessquota.Ticket
 	if handler.accessQuota != nil {
 		var decision accessquota.Decision
@@ -99,11 +110,12 @@ func (handler *Handler) handleMistralRealtime(c *gin.Context, request *dataPlane
 		failed(reasonMistralRealtimeOrigin)
 		return
 	}
-	upstream, upstreamModel, errReason := handler.dialMistralRealtime(c.Request.Context(), c, request, recorder, model, c.Request.URL.RawQuery)
+	upstream, upstreamModel, releaseGroup, errReason := handler.dialMistralRealtime(c.Request.Context(), c, request, recorder, model, c.Request.URL.RawQuery)
 	if errReason != nil {
 		failed(*errReason)
 		return
 	}
+	defer releaseGroup()
 	defer upstream.Close()
 	upgrader := websocket.Upgrader{
 		HandshakeTimeout: handler.writeTimeout,
@@ -132,7 +144,7 @@ func (handler *Handler) handleMistralRealtime(c *gin.Context, request *dataPlane
 // dialMistralRealtime selects one upstream credential and completes its
 // WebSocket handshake. A failed handshake is judged before the client is
 // upgraded, and only the final 429 receives Retry-After.
-func (handler *Handler) dialMistralRealtime(ctx context.Context, c *gin.Context, request *dataPlaneRequestContext, recorder *requestRecorder, model, rawQuery string) (*websocket.Conn, string, *reason) {
+func (handler *Handler) dialMistralRealtime(ctx context.Context, c *gin.Context, request *dataPlaneRequestContext, recorder *requestRecorder, model, rawQuery string) (*websocket.Conn, string, func(), *reason) {
 	query := scheduler.Query{
 		ClientProtocol:        request.selectedRoute.Protocol,
 		Operation:             execution.OperationMistralRealtimeTranscription,
@@ -151,7 +163,7 @@ func (handler *Handler) dialMistralRealtime(ctx context.Context, c *gin.Context,
 	for sequence := 1; sequence <= retryAttemptLimit(request.snapshot.Settings.RetryCount); sequence++ {
 		if ctx.Err() != nil {
 			value := reason{Status: http.StatusGatewayTimeout, Code: "mistral_realtime_timeout", Message: "Realtime transcription timed out."}
-			return nil, "", &value
+			return nil, "", nil, &value
 		}
 		selection, err := iterator.Next()
 		if err != nil {
@@ -159,17 +171,29 @@ func (handler *Handler) dialMistralRealtime(ctx context.Context, c *gin.Context,
 		}
 		if selection.ChannelID != channel.Mistral || selection.UpstreamModelID == nil || *selection.UpstreamModelID == "" {
 			value := reasonNoCandidate
-			return nil, "", &value
+			return nil, "", nil, &value
 		}
 		if handler.manager.Current() != request.snapshot {
 			value := reasonConfigurationChanged
-			return nil, "", &value
+			return nil, "", nil, &value
 		}
 		ref := query.AllowedCredentialRefs[selection.CredentialID]
+		releaseGroup, rejection := handler.acquireGroupConcurrency(selection.GroupID)
+		if rejection != nil {
+			return nil, "", nil, rejection
+		}
+		transferred := false
+		defer func() {
+			if !transferred {
+				releaseGroup()
+			}
+		}()
 		conn, dialFailure, decision := handler.dialMistralRealtimeSelection(ctx, recorder, selection, ref, rawQuery, sequence)
 		if dialFailure == nil {
-			return conn, *selection.UpstreamModelID, nil
+			transferred = true
+			return conn, *selection.UpstreamModelID, releaseGroup, nil
 		}
+		releaseGroup()
 		failure = *dialFailure
 		if !decision.CooldownUntil.IsZero() {
 			cooldownUntil = decision.CooldownUntil
@@ -179,11 +203,11 @@ func (handler *Handler) dialMistralRealtime(ctx context.Context, c *gin.Context,
 		}
 		if !decision.ShouldRetry() {
 			handler.setMistralRealtimeRetryAfter(c, failure, cooldownUntil)
-			return nil, "", &failure
+			return nil, "", nil, &failure
 		}
 	}
 	handler.setMistralRealtimeRetryAfter(c, failure, cooldownUntil)
-	return nil, "", &failure
+	return nil, "", nil, &failure
 }
 
 // setMistralRealtimeRetryAfter adds Retry-After only for the final upstream

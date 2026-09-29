@@ -109,6 +109,7 @@ const {
 const timeoutKeys = groupTimeoutKeys
 const policyCountKeys = groupPolicyCountKeys
 const policyRows = [
+  { key: 'concurrency_limit', helpKey: 'concurrencyHelp' },
   {
     key: 'blacklist_threshold',
     helpKey: 'blacklistThresholdHelp',

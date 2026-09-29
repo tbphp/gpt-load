@@ -21,6 +21,7 @@ import SettingRow from '@/components/config/SettingRow.vue'
 import {
   createSettingsDraft,
   isValidTimeout,
+  isValidNonNegativeInteger,
   setSettingsOverride,
   type SettingsDraft,
 } from './settings-patch'
@@ -47,6 +48,16 @@ function setLiveMode(value: string): void {
   const draft = cloneDraft()
   draft.values.codex_live_mode = value as CodexLiveMode
   publish('codex_live_mode', draft)
+}
+const concurrencyKeys = [
+  'global_concurrency_limit',
+  'default_access_key_concurrency_limit',
+  'default_group_concurrency_limit',
+] as const
+function setConcurrency(key: (typeof concurrencyKeys)[number], value: string): void {
+  const draft = cloneDraft()
+  draft.values[key] = value === '' ? Number.NaN : Number(value)
+  publish(key, draft)
 }
 const timeoutKeys: TimeoutSettingKey[] = [
   'first_byte_timeout',
@@ -158,6 +169,53 @@ function timeoutError(key: TimeoutSettingKey): string | undefined {
     </header>
 
     <div class="settings-connection__rows">
+      <SettingRow
+        v-for="key in concurrencyKeys"
+        :key="key"
+        :label="t('concurrency.' + key)"
+        :value="
+          isPendingRestore(key)
+            ? t('settings.runtime.resetPending')
+            : base.settings.values[key] === 0
+              ? t('concurrency.unlimited')
+              : formatInteger(base.settings.values[key], locale)
+        "
+        :help="t('concurrency.limitHelp')"
+        :source-label="sourceLabel(key)"
+        :action-label="actionLabel(key)"
+        :overridden="hasOverride(key)"
+        :pending-restore="isPendingRestore(key)"
+        :disabled="disabled"
+        @toggle="toggleOverride(key)"
+      >
+        <template #control>
+          <CompactFieldError
+            :id="`settings-value-${key}`"
+            :error="
+              hasOverride(key) && !isValidNonNegativeInteger(draft.values[key])
+                ? t('settings.runtime.nonNegativeIntegerError')
+                : undefined
+            "
+          >
+            <template #default="{ invalid, describedBy }">
+              <AppTextInput
+                :id="`settings-value-${key}`"
+                :model-value="String(draft.values[key])"
+                :label="t('concurrency.' + key)"
+                type="number"
+                min="0"
+                step="1"
+                appearance="surface"
+                size="compact"
+                :disabled="disabled"
+                :invalid="invalid"
+                :described-by="describedBy"
+                @update:model-value="setConcurrency(key, $event)"
+              />
+            </template>
+          </CompactFieldError>
+        </template>
+      </SettingRow>
       <SettingRow
         :label="t('settings.runtime.codex_live_mode')"
         :value="

@@ -1,3 +1,4 @@
+import { zhCN as concurrency } from './concurrency'
 import { zhCN as requestRedaction } from './request-redaction'
 import { zhCN as experimental } from './experimental'
 import { zhCN as rpm } from './rpm'
@@ -22,6 +23,7 @@ import { zhCN as autoModel } from './auto-model'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  concurrency,
   requestRedaction,
   ...experimental,
   rpm,

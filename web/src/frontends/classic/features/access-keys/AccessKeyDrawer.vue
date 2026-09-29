@@ -815,11 +815,13 @@ onBeforeUnmount(clearLocalState)
           ref="formFields"
           :name="draft.name"
           :status="draft.status"
+          :concurrency-limit="draft.concurrency_limit"
           :rpm-limit="draft.rpm_limit"
           :price-multiplier="draft.price_multiplier"
           :disabled="formLocked"
           @update:name="draft.name = $event"
           @update:status="draft.status = $event"
+          @update:concurrency-limit="draft.concurrency_limit = $event"
           @update:rpm-limit="draft.rpm_limit = $event"
           @update:price-multiplier="draft.price_multiplier = $event"
         >

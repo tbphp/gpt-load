@@ -182,7 +182,7 @@ function numberInvalid(key: RuntimeNumber): boolean {
     Boolean(value) &&
     (!/^\d+$/u.test(value) ||
       !Number.isSafeInteger(Number(value)) ||
-      Number(value) < (key === 'blacklist_threshold' ? 0 : 1))
+      Number(value) < (key === 'blacklist_threshold' || key === 'concurrency_limit' ? 0 : 1))
   )
 }
 const proxyChanged = computed(
@@ -460,7 +460,11 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             :model-value="numbers[key] ?? ''"
             :label="t('groupDetail.runtimeFields.' + key)"
             :placeholder="String(saved.effective[key])"
-            :description="t('groupDetail.effective', { value: saved.effective[key] })"
+            :description="
+              key === 'concurrency_limit'
+                ? t('concurrency.overrideHelp')
+                : t('groupDetail.effective', { value: saved.effective[key] })
+            "
             :error="attempted && numberInvalid(key) ? t('groupDetail.invalidNumber') : undefined"
             inputmode="numeric"
             size="sm"

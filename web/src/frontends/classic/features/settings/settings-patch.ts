@@ -31,6 +31,9 @@ export interface SettingsDraft {
 }
 
 const requestForwardingKeys: RuntimeSettingKey[] = [
+  'global_concurrency_limit',
+  'default_access_key_concurrency_limit',
+  'default_group_concurrency_limit',
   'codex_live_mode',
   'responses_websocket_enabled',
   'route_strategy',
@@ -401,7 +404,13 @@ export function validateSettingsSection(draft: SettingsDraft, section: SettingsS
     'stream_idle_timeout',
     'validation_interval',
   ]
-  const policyCounts: PolicyCountSettingKey[] = ['retry_count', 'blacklist_threshold']
+  const policyCounts: PolicyCountSettingKey[] = [
+    'retry_count',
+    'blacklist_threshold',
+    'global_concurrency_limit',
+    'default_access_key_concurrency_limit',
+    'default_group_concurrency_limit',
+  ]
   return (
     timeouts.every((key) => !draft.overrides.has(key) || isValidTimeout(draft.values[key])) &&
     policyCounts.every(

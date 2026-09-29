@@ -1,4 +1,16 @@
 export default {
+  concurrency: {
+    label: 'Concurrency limit',
+    value: 'Concurrency {current} / {limit}',
+    inherit: 'Inherit default',
+    unlimited: 'Unlimited',
+    overrideHelp: 'Leave blank to inherit; 0 means unlimited. Reject immediately when full.',
+    limitHelp:
+      '0 means unlimited. Applies to data-plane concurrency; reject immediately when full.',
+    global_concurrency_limit: 'Global concurrency limit',
+    default_access_key_concurrency_limit: 'Default access key concurrency limit',
+    default_group_concurrency_limit: 'Default group concurrency limit',
+  },
   common: {
     upstreamUrl: {
       label: 'Custom upstream URL',

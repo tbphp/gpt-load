@@ -1,3 +1,4 @@
+import { enUS as concurrency } from './concurrency'
 import { enUS as requestRedaction } from './request-redaction'
 import { enUS as experimental } from './experimental'
 import { enUS as rpm } from './rpm'
@@ -22,6 +23,7 @@ import { enUS as autoModel } from './auto-model'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  concurrency,
   requestRedaction,
   ...experimental,
   rpm,

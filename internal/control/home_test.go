@@ -147,6 +147,7 @@ func TestReadHomeBaseUsesPersistedAndRuntimeSnapshots(t *testing.T) {
 		t.Fatalf("ReadHomeBase() error = %v", err)
 	}
 	want := HomeBase{
+		Concurrency: &ConcurrencyView{},
 		Inventory: HomeInventory{
 			GroupCount:               3,
 			CredentialCount:          4,

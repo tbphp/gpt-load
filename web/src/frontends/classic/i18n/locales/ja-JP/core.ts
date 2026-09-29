@@ -1,4 +1,15 @@
 export default {
+  concurrency: {
+    label: '同時実行数の上限',
+    value: '同時実行 {current} / {limit}',
+    inherit: 'デフォルトを継承',
+    unlimited: '無制限',
+    overrideHelp: '空欄でデフォルトを継承、0 で無制限。上限到達時は即座に拒否します。',
+    limitHelp: '0 は無制限。データプレーンの同時実行を制限し、上限到達時は即座に拒否します。',
+    global_concurrency_limit: '全体の同時実行数上限',
+    default_access_key_concurrency_limit: 'アクセスキーのデフォルト同時実行数上限',
+    default_group_concurrency_limit: 'グループのデフォルト同時実行数上限',
+  },
   common: {
     upstreamUrl: {
       label: 'カスタム上流 URL',

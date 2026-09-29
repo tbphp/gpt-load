@@ -139,6 +139,12 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 		decision.Reason = "internal_error"
 		return decision, result
 	}
+	release, failure := handler.acquireGroupConcurrency(selection.GroupID)
+	if failure != nil {
+		decision.Reason = failure.Code
+		return decision, result
+	}
+	defer release()
 	frozenPricing := handler.freezeAttemptPricing(selection, metadata, true, key.PriceMultiplier)
 	result = handler.forwarder.Forward(decisionCtx, ForwardInput{
 		Dialect: decisionDialect, ObserveUsage: true,
@@ -158,6 +164,7 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 		),
 		Proxy: effectiveProxy, ProxyFingerprint: proxyFingerprint,
 	})
+	release()
 	result = normalizeUpstreamResultContract(result)
 	decision.Called = result.DispatchState == execution.DispatchMaybeSent
 	if decision.Called {

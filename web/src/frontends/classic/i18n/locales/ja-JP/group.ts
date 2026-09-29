@@ -337,6 +337,9 @@ export default {
         first_byte_timeout: 'ネイティブ応答 / ストリーム初回イベントのタイムアウト',
         request_timeout: '上流リクエスト1回あたりのタイムアウト',
         stream_idle_timeout: 'ストリームアイドルタイムアウト',
+        concurrency_limit: '同時実行数の上限',
+        concurrencyHelp:
+          '0 は無制限。データプレーンの同時実行を制限し、上限到達時は即座に拒否します。',
         blacklist_threshold: '連続失敗のブラックリストしきい値',
         blacklistThresholdHelp:
           'この連続失敗回数に達すると認証情報をブラックリストへ登録します。0 で自動登録を無効化します。',

@@ -494,6 +494,15 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
                   <span class="group-id">#{{ group.id }}</span>
                   <span class="group-name__label">{{ group.name }}</span>
                 </OverflowTooltip>
+                <small>{{
+                  t('concurrency.value', {
+                    current: group.concurrency.current,
+                    limit:
+                      group.concurrency.limit === 0
+                        ? t('concurrency.unlimited')
+                        : group.concurrency.limit,
+                  })
+                }}</small>
               </div>
 
               <div class="ledger-record-list__cell group-status" role="cell">
@@ -628,6 +637,14 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
 </template>
 
 <style scoped>
+.identity > small {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .stale-banner {
   margin-top: 14px;
 }

@@ -1,4 +1,15 @@
 export default {
+  concurrency: {
+    label: '并发上限',
+    value: '并发 {current} / {limit}',
+    inherit: '继承默认值',
+    unlimited: '不限',
+    overrideHelp: '留空继承默认值；0 表示不限。满额立即拒绝。',
+    limitHelp: '0 表示不限。仅限制数据面并发，满额立即拒绝。',
+    global_concurrency_limit: '全局并发上限',
+    default_access_key_concurrency_limit: '访问密钥默认并发上限',
+    default_group_concurrency_limit: '分组默认并发上限',
+  },
   common: {
     upstreamUrl: {
       label: '自定义上游地址',
