@@ -61,6 +61,13 @@ func TestHandlerParameterOverrideCacheKeepsOnlyLastGroup(t *testing.T) {
 		if input.Group.ID != groupID {
 			t.Fatalf("attempt %d group = %d, want %d", index, input.Group.ID, groupID)
 		}
+		wantField := "first"
+		if groupID == 2 {
+			wantField = "second"
+		}
+		if len(input.ConfiguredParameters) != 1 || input.ConfiguredParameters[0] != wantField {
+			t.Fatalf("attempt %d configured parameters = %v", index, input.ConfiguredParameters)
+		}
 		if groupID == 1 && bytes.Contains(input.Request.Body, []byte(`"second"`)) {
 			t.Fatalf("attempt %d inherited another group's override", index)
 		}

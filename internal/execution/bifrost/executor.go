@@ -922,6 +922,13 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	request.Model = spec.UpstreamModel
 	request.Fallbacks = nil
 	request.RawRequestBody = nil
+	if request.Params == nil {
+		request.Params = &schemas.ChatParameters{}
+	}
+	if err := mergeConvertedParameterOverrides(spec, &request.Params.ExtraParams); err != nil {
+		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, err.Error())
+		return preparedAttempt{}, &failure
+	}
 	if request.Params != nil && request.Params.ExtraParams != nil {
 		delete(request.Params.ExtraParams, "provider")
 		delete(request.Params.ExtraParams, "fallback")
