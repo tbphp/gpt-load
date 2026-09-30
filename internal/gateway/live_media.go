@@ -11,7 +11,7 @@ import (
 
 	"github.com/pion/interceptor"
 	"github.com/pion/webrtc/v4"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
 	xproxy "golang.org/x/net/proxy"
 
 	"gpt-load/internal/platform/config"

@@ -7,7 +7,7 @@ import (
 )
 
 func TestSubscriptionProviderDependenciesStayBehindProviderBoundaries(t *testing.T) {
-	const bridge = "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+	const bridge = "github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/embedded"
 	output, err := exec.Command(
 		"go", "list", "-f", `{{.ImportPath}}|{{join .Imports ","}},{{join .TestImports ","}},{{join .XTestImports ","}}`, "gpt-load/internal/...",
 	).CombinedOutput()
