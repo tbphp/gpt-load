@@ -92,13 +92,13 @@ func TestCodexCredentialPreservesPlan(t *testing.T) {
 
 func TestCodexPlanClaimsAndMissingClaims(t *testing.T) {
 	token := "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}`)) + ".signature"
-	if got := codexCredentialPlan(CodexCredential{AccessToken: token}); got != "plus" {
+	if got := CodexCredentialPlan(CodexCredential{AccessToken: token}); got != "plus" {
 		t.Fatalf("claim = %q", got)
 	}
-	if got := codexCredentialPlan(CodexCredential{AccessToken: "opaque"}); got != "" {
+	if got := CodexCredentialPlan(CodexCredential{AccessToken: "opaque"}); got != "" {
 		t.Fatal("missing claim became free")
 	}
-	if got := codexCredentialPlan(CodexCredential{PlanType: "pro", IDToken: token}); got != "pro" {
+	if got := CodexCredentialPlan(CodexCredential{PlanType: "pro", IDToken: token}); got != "pro" {
 		t.Fatal("older ID token replaced refreshed plan")
 	}
 }

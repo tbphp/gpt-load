@@ -311,7 +311,8 @@ func ParseCodexCredentialJSON(raw []byte) (CodexCredential, error) {
 	credential.IDToken = strings.TrimSpace(credential.IDToken)
 	credential.AccountID = strings.TrimSpace(credential.AccountID)
 	credential.Email = strings.TrimSpace(credential.Email)
-	credential.PlanType = codexCredentialPlan(credential)
+	// 读取旧凭据时不能补入令牌派生字段，否则持久化内容指纹会改变。
+	credential.PlanType = safeCodexPlan(credential.PlanType)
 	credential.Expire = strings.TrimSpace(credential.Expire)
 	credential.LastRefresh = strings.TrimSpace(credential.LastRefresh)
 	if err := validateCredential(credential); err != nil {
@@ -1024,7 +1025,7 @@ func exchangeToken(ctx context.Context, values url.Values, options Options) (Cod
 			credential.Email = email
 		}
 	}
-	credential.PlanType = codexCredentialPlan(credential)
+	credential.PlanType = CodexCredentialPlan(credential)
 	if strings.TrimSpace(credential.AccessToken) == "" {
 		return CodexCredential{}, fmt.Errorf("token response has no access token")
 	}

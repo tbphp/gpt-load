@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// 套餐声明仅补充展示信息，不参与认证、授权或配额判断。
-func codexCredentialPlan(c CodexCredential) string {
+// CodexCredentialPlan 仅派生套餐展示信息，不改写持久化凭据或参与认证、授权、配额判断。
+func CodexCredentialPlan(c CodexCredential) string {
 	if plan := safeCodexPlan(c.PlanType); plan != "" {
 		return plan
 	}
