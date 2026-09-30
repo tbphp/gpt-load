@@ -202,15 +202,6 @@ const lastActive = computed(() =>
               :label="t('groups.copyURL')"
             />
             <span v-else>{{ t('groups.defaultEndpoint') }}</span>
-            <span>{{
-              t('concurrency.value', {
-                current: group.concurrency.current,
-                limit:
-                  group.concurrency.limit === 0
-                    ? t('concurrency.unlimited')
-                    : group.concurrency.limit,
-              })
-            }}</span>
           </div>
         </div>
       </div>
