@@ -568,11 +568,20 @@ func (s *Service) recordCredentialObservationFailure(
 }
 
 func (s *Service) GetCredentialObservation(ctx context.Context, groupID, credentialID uint) (CredentialObservationResponse, error) {
-	_, credential, row, err := s.loadObservationTarget(ctx, groupID, credentialID)
+	group, credential, row, err := s.loadObservationTarget(ctx, groupID, credentialID)
 	if err != nil {
 		return CredentialObservationResponse{}, err
 	}
-	response := observationResponseValue(presentCredentialObservation(row, credential.IdentityFingerprint))
+	canonical, identity, err := s.decodeCredential(group, credential)
+	if err != nil {
+		return CredentialObservationResponse{}, err
+	}
+	defer clear(canonical)
+	_, account, err := s.credentialPresentation(group, credential, canonical, identity)
+	if err != nil {
+		return CredentialObservationResponse{}, err
+	}
+	response := observationResponseValue(withCredentialPlan(presentCredentialObservation(row, credential.IdentityFingerprint), account.PlanType))
 	s.enrichCredentialObservationUsage(ctx, credentialID, &response)
 	return response, nil
 }

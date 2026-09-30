@@ -56,8 +56,8 @@ func TestImportCodexCredentialBootstrapsRefreshOnlyOnce(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	value, err := ImportCodexCredential(t.Context(), []byte(`{"type":"codex","refresh_token":"refresh"}`), Options{TokenURL: server.URL, HTTPClient: server.Client()})
-	if err != nil || calls != 1 || value.AccountID != "account-one" || value.RefreshToken != "rotated" {
+	value, err := ImportCodexCredential(t.Context(), []byte(`{"type":"codex","refresh_token":"refresh","plan_type":"pro"}`), Options{TokenURL: server.URL, HTTPClient: server.Client()})
+	if err != nil || calls != 1 || value.PlanType != "pro" || value.AccountID != "account-one" || value.RefreshToken != "rotated" {
 		t.Fatalf("bootstrap calls=%d error=%v", calls, err)
 	}
 }

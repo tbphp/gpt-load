@@ -2,29 +2,28 @@ package catalog
 
 import (
 	"bytes"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/modelcatalog"
 )
 
 const (
 	// CodexModelCatalogVersion identifies the Codex client contract represented by the embedded snapshot.
-	CodexModelCatalogVersion = "0.159.2"
+	CodexModelCatalogVersion = modelcatalog.ClientVersion
 	// CodexModelCatalogCPASDKVersion identifies the CPA SDK release tested with this snapshot.
 	CodexModelCatalogCPASDKVersion = "v8.0.4"
-	codexModelCatalogSHA256        = "fd219bd9f061278275f528939f82f54d2eb97df4b25c23b022adbe48813d920b"
+	codexModelCatalogSHA256        = modelcatalog.ClientSHA256
 	codexFallbackModel             = "gpt-5.5"
 )
 
 const personalityPlaceholder = "{{ personality }}"
 
-// Snapshot source: openai/codex rust-v0.159.2, codex-rs/models-manager/models.json.
-//
-//go:embed codex_client_models_0.159.2.json
-var codexClientModelsJSON []byte
+// Client templates and CPA reasoning levels share the same pinned source.
+var codexClientModelsJSON = modelcatalog.ClientJSON()
 
 type codexModelCatalog struct {
 	models   map[string]map[string]any
@@ -69,6 +68,7 @@ func buildCodexClientModel(
 	}
 	resolved := cloneCodexModelMap(template)
 	resolved["slug"] = model
+	resolved["supports_reasoning_effort_updates"] = !forceFallback && modelcatalog.SupportsReasoningUpdates(model)
 	resolved["priority"] = priority
 	resolved["visibility"] = "list"
 	if !matched {

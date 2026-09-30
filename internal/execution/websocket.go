@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"gpt-load/internal/reasoning"
 )
 
 // WebsocketCapabilities 是执行路径承诺的原生 Responses WS 能力，不由 HTTP 存储声明推导。
@@ -23,6 +25,7 @@ func (c WebsocketCapabilities) Supports(required WebsocketCapabilities) bool {
 
 // WebsocketResult 只报告本轮发送证据和错误；usage/响应 ID 由原生事件提供。
 type WebsocketResult struct {
+	AppliedReasoning *reasoning.Config
 	DispatchState    DispatchState
 	Header           http.Header
 	HeaderObservedAt time.Time

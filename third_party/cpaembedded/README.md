@@ -241,3 +241,37 @@ CPA_LIVE_GROK_CREDENTIAL_FILE=/absolute/path/to/grok.json \
 CPA_LIVE_GROK_MODEL=optional-grok-model-id \
   go test -count=1 -run '^TestLiveGrokContract$' ./embedded
 ```
+
+## Shared Codex capabilities
+
+`modelcatalog/codex.json` contains the union of Codex records from
+`router-for-me/models` commit `690c37fdbe62dc05f609f3a3e609d07ea4d16bf1`.
+Records are selected in pro, plus, team, free order, keeping the first record
+for each ID, as execution previously used the pro catalog. This describes
+capabilities, not account model availability. Actual model discovery still
+controls availability. The snapshot digest is checked in `modelcatalog` tests.
+
+The client model list and CPA registry consume the same update capability.
+The unchanged official client template snapshot also lives in `modelcatalog`.
+For matching models, CPA's reasoning-level validation uses the exact levels from
+that template, including `ultra`, instead of the narrower CPA snapshot list.
+Models absent from the official template keep their CPA level metadata. The raw
+CPA snapshot stays unchanged and retains its original provenance and digest.
+Unknown models and virtual fallback models do not advertise effort updates.
+Client templates remain pinned to Codex 0.159.2, with CPA v8.0.4; verify all
+version pins and both model snapshots together when updating this set.
+
+HTTP and WebSocket preserve supported `configuration_update` items. WebSocket
+logs inherit effort only from the immediately known completed parent response
+on the same model/session, and only when that history contains an effort update.
+Ordinary request-level changes remain per-request. A fresh history uses its own baseline; failed turns
+do not update the remembered effort. Upstream `response.reasoning.effort`
+reports the baseline and must not overwrite the selected update in logs.
+Clients must enable their effort-update feature (Codex CLI:
+`--enable reasoning_effort_override`); GPT-Load has no server experiment switch.
+
+Service-tier normalization uses CPA's native converters; bridge contract tests
+cover Responses HTTP, WebSocket and Chat. Credential import/OAuth/refresh retain
+explicit plan metadata or extract missing metadata from JWT claims. These are
+presentation hints only. Live account observations take precedence; missing
+claims never imply a free plan or successful quota observation.

@@ -1,14 +1,16 @@
 package embedded
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/modelcatalog"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 )
 
 // CodexClientVersion 与 GPT-Load 的 Codex 模型目录版本一致，由测试校验。
-const CodexClientVersion = "0.159.2"
+const CodexClientVersion = modelcatalog.ClientVersion
 
 // 沿用 CPA 的客户端标识格式，版本统一由 GPT-Load 的已验证版本集固定。
 const codexUserAgent = "codex-tui/" + CodexClientVersion + " (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; " + CodexClientVersion + ")"
@@ -16,23 +18,27 @@ const codexUserAgent = "codex-tui/" + CodexClientVersion + " (Mac OS 26.5.2; arm
 func init() {
 	// CPA 在 WebSocket 握手的最后应用模型专属头；同步其中的旧版本标识。
 	var overrides []*registry.ModelInfo
-	for _, model := range registry.GetCodexProModels() {
-		if model == nil || model.Config == nil {
+	if err := json.Unmarshal(modelcatalog.JSON(), &overrides); err != nil {
+		panic(err)
+	}
+	for _, model := range overrides {
+		if model == nil {
 			continue
 		}
-		changed := false
+		// 官方客户端契约决定可发送档位，避免 CPA 快照遗漏档位而在本地拒绝请求。
+		if levels := modelcatalog.ReasoningLevels(model.ID); len(levels) > 0 && model.Thinking != nil {
+			model.Thinking.Levels = levels
+		}
+		if model.Config == nil {
+			continue
+		}
 		for name := range model.Config.OverrideHeader {
 			switch {
 			case strings.EqualFold(name, "User-Agent"):
 				model.Config.OverrideHeader[name] = codexUserAgent
-				changed = true
 			case strings.EqualFold(name, "Version"):
 				model.Config.OverrideHeader[name] = CodexClientVersion
-				changed = true
 			}
-		}
-		if changed {
-			overrides = append(overrides, model)
 		}
 	}
 	if len(overrides) > 0 {
