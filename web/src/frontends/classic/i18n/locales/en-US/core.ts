@@ -1,4 +1,10 @@
 export default {
+  frontend: {
+    title: 'Interface',
+    modern: 'Modern',
+    classic: 'Classic',
+    saveFailed: 'Unable to save your interface preference. Allow browser storage and try again.',
+  },
   concurrency: {
     label: 'Concurrency limit',
     value: 'Concurrency {current} / {limit}',

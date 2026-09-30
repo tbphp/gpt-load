@@ -1,4 +1,10 @@
 export default {
+  frontend: {
+    title: '画面',
+    modern: '新しい画面',
+    classic: 'クラシック',
+    saveFailed: '画面設定を保存できません。ブラウザのストレージを許可して再試行してください。',
+  },
   concurrency: {
     label: '同時実行数の上限',
     value: '同時実行 {current} / {limit}',

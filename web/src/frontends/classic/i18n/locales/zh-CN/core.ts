@@ -1,4 +1,10 @@
 export default {
+  frontend: {
+    title: '界面',
+    modern: '新版',
+    classic: '经典版',
+    saveFailed: '无法保存界面偏好，请允许浏览器存储后重试。',
+  },
   concurrency: {
     label: '并发上限',
     value: '并发 {current} / {limit}',

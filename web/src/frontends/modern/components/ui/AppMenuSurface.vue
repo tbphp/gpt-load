@@ -30,6 +30,11 @@ import { Primitive } from 'reka-ui'
   font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-medium);
 }
+.modern-menu-surface .modern-menu-separator {
+  height: var(--modern-line-width);
+  margin: var(--modern-space-1) var(--modern-space-2);
+  background: var(--modern-border);
+}
 .modern-menu-surface .modern-menu-option {
   display: flex;
   min-height: var(--modern-control-sm);

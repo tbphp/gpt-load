@@ -91,7 +91,7 @@ export async function bootstrap(): Promise<void> {
     queryClient,
     onClear: () => {
       clearEphemeralState()
-      // 经典版会话结束后重新执行入口选择，认证页始终回到新版。
+      // 会话结束后重新加载入口，界面偏好独立保留。
       window.location.replace(window.location.href)
     },
     validate: (key, globalUnauthorized, signal) =>
