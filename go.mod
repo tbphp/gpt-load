@@ -18,8 +18,8 @@ require (
 	github.com/pion/sdp/v3 v3.0.20
 	github.com/pion/stun/v3 v3.1.7
 	github.com/pion/webrtc/v4 v4.2.22
-	github.com/router-for-me/CLIProxyAPI/v7 v7.3.17
-	github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded v0.0.0
+	github.com/router-for-me/CLIProxyAPI/v8 v8.0.4
+	github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded v0.0.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
@@ -150,4 +150,4 @@ require (
 	modernc.org/sqlite v1.54.0 // indirect
 )
 
-replace github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded => ./third_party/cpaembedded
+replace github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded => ./third_party/cpaembedded

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	xaiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/xai"
+	xaiauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/xai"
 )
 
 const (

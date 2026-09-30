@@ -4,7 +4,7 @@ import (
 	"runtime/debug"
 	"testing"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/embedded"
 
 	"gpt-load/internal/catalog"
 )
@@ -22,7 +22,7 @@ func TestCodexVersionSetStaysAligned(t *testing.T) {
 		t.Fatal("build info unavailable")
 	}
 	for _, dependency := range info.Deps {
-		if dependency.Path != "github.com/router-for-me/CLIProxyAPI/v7" {
+		if dependency.Path != "github.com/router-for-me/CLIProxyAPI/v8" {
 			continue
 		}
 		if dependency.Version != catalog.CodexModelCatalogCPASDKVersion {

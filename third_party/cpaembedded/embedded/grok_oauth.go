@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	xaiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/xai"
+	xaiauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/xai"
 )
 
 const grokDefaultPollInterval = 5 * time.Second

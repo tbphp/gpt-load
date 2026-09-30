@@ -3,7 +3,7 @@ package antigravity
 import (
 	"context"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/embedded"
 )
 
 // antigravityAPIOptions 只为凭据准备完成后的业务调用设置代理目标。

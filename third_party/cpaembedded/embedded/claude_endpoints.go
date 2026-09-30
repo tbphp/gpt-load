@@ -1,6 +1,6 @@
 package embedded
 
-import claudeauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/claude"
+import claudeauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
 
 // ClaudeAPIEndpoints 集中声明凭据准备完成后的业务端点，不包含 OAuth 与身份核验。
 type ClaudeAPIEndpoints struct {

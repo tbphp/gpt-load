@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/andybalholm/brotli"
-	claudeauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/claude"
+	claudeauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
 )
 
 type claudeTokenResponse struct {
