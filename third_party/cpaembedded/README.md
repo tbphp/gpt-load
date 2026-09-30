@@ -252,6 +252,11 @@ capabilities, not account model availability. Actual model discovery still
 controls availability. The snapshot digest is checked in `modelcatalog` tests.
 
 The client model list and CPA registry consume the same update capability.
+The unchanged official client template snapshot also lives in `modelcatalog`.
+For matching models, CPA's reasoning-level validation uses the exact levels from
+that template, including `ultra`, instead of the narrower CPA snapshot list.
+Models absent from the official template keep their CPA level metadata. The raw
+CPA snapshot stays unchanged and retains its original provenance and digest.
 Unknown models and virtual fallback models do not advertise effort updates.
 Client templates remain pinned to Codex 0.159.2, with CPA v8.0.4; verify all
 version pins and both model snapshots together when updating this set.
