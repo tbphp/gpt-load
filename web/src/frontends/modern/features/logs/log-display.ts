@@ -3,6 +3,7 @@ import type { LogEntry } from '@modern/api/logs'
 import type { SemanticTone } from '@modern/components/ui'
 
 export const logStatusTone: Record<LogEntry['status'], SemanticTone> = {
+  processing: 'info',
   success: 'success',
   error: 'danger',
   incomplete: 'warning',

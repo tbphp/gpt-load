@@ -31,6 +31,39 @@ func mapEvent(
 	if err != nil {
 		return models.RequestLog{}, fmt.Errorf("map request event completion time: %w", err)
 	}
+	startedAt := event.StartedAt
+	if startedAt.IsZero() {
+		startedAt = event.CompletedAt
+	}
+	startedAtMS, err := epochms.FromTime(startedAt)
+	if err != nil {
+		return models.RequestLog{}, fmt.Errorf("map request event start time: %w", err)
+	}
+	if event.Status == telemetry.RequestStatusProcessing {
+		return models.RequestLog{
+			ID:                    event.RequestID,
+			StartedAtMS:           startedAtMS,
+			CompletedAtMS:         completedAtMS,
+			AccessKeyID:           event.AccessKeyID,
+			GroupID:               event.Usage.GroupID,
+			ChannelID:             string(event.Usage.ChannelID),
+			CredentialID:          event.Usage.CredentialID,
+			Protocol:              string(event.Protocol),
+			Operation:             string(event.Operation),
+			ClientModel:           redactIdentityValue(redactor, projectModel(event.ClientModel)),
+			Status:                string(event.Status),
+			StatusCode:            event.StatusCode,
+			Stream:                event.Stream,
+			ReasoningMode:         event.Reasoning.Mode,
+			ReasoningEffort:       event.Reasoning.Effort,
+			ReasoningBudgetTokens: event.Reasoning.BudgetTokens,
+			ModelConsistency:      string(telemetry.ModelConsistencyNotApplicable),
+			ErrorSummary:          "",
+			UsageState:            string(usage.StateNotApplicable),
+			CostState:             string(pricing.CostStateNotApplicable),
+			PricingCompleteness:   string(pricing.CompletenessNotApplicable),
+		}, nil
+	}
 	event = normalizeModelObservation(event)
 	if err := validateModelObservation(event); err != nil {
 		return models.RequestLog{}, fmt.Errorf("map request event model consistency: %w", err)
@@ -174,6 +207,7 @@ func mapEvent(
 		DecisionCostNanoUSD:         decisionCost,
 		DecisionPricingCompleteness: decisionCompleteness,
 		ID:                          event.RequestID,
+		StartedAtMS:                 startedAtMS,
 		CompletedAtMS:               completedAtMS,
 		AccessKeyID:                 event.AccessKeyID,
 		GroupID:                     event.Usage.GroupID,

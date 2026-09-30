@@ -75,7 +75,7 @@ const display = computed(() => {
     return logHasUsage(row) ? logNumber(tokenValue.value, locale.value) : '—'
   switch (column) {
     case 'completed_at_ms':
-      return logTime(row.completed_at_ms, locale.value)
+      return logTime(row.started_at_ms, locale.value)
     case 'group':
       return row.group_id ? (group.value?.name ?? (props.groups ? t('logs.deleted') : '—')) : '—'
     case 'channel':

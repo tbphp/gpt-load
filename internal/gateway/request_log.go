@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"gpt-load/internal/automodel"
+	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/redact"
@@ -142,6 +143,7 @@ func (recorder *requestRecorder) emit() {
 		AutoDecision:          recorder.autoLogDecision(),
 		RequestAudit:          recorder.audit,
 		RequestID:             recorder.requestID,
+		StartedAt:             recorder.startedAt.UTC(),
 		CompletedAt:           completedAt.UTC(),
 		AccessKeyID:           recorder.accessKeyID,
 		Protocol:              recorder.protocol,
@@ -162,6 +164,57 @@ func (recorder *requestRecorder) emit() {
 		Operation:             recorder.operation,
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:                 recorder.usage,
+	})
+}
+
+func (recorder *requestRecorder) emitProcessing() {
+	if recorder == nil || recorder.requestID == "" || recorder.sink == nil {
+		return
+	}
+	sink, ok := recorder.sink.(interface{ EmitProcessing(telemetry.RequestEvent) })
+	if !ok {
+		return
+	}
+	sink.EmitProcessing(telemetry.RequestEvent{
+		RequestID:   recorder.requestID,
+		StartedAt:   recorder.startedAt.UTC(),
+		CompletedAt: recorder.startedAt.UTC(),
+		AccessKeyID: recorder.accessKeyID,
+		Protocol:    recorder.protocol,
+		Operation:   recorder.operation,
+		ClientModel: recorder.clientModel,
+		Status:      telemetry.RequestStatusProcessing,
+		Stream:      recorder.stream,
+		Reasoning:   recorder.reasoning,
+	})
+}
+
+// emitProcessingRoute refreshes the durable processing row after a concrete
+// upstream route is selected while the request is still running.
+func (recorder *requestRecorder) emitProcessingRoute(groupID uint, channelID channel.ID, credentialID uint) {
+	if recorder == nil || recorder.requestID == "" || recorder.sink == nil {
+		return
+	}
+	sink, ok := recorder.sink.(interface{ EmitProcessing(telemetry.RequestEvent) })
+	if !ok {
+		return
+	}
+	usageObservation := notApplicableUsageObservation()
+	usageObservation.GroupID = groupID
+	usageObservation.ChannelID = channelID
+	usageObservation.CredentialID = credentialID
+	sink.EmitProcessing(telemetry.RequestEvent{
+		RequestID:   recorder.requestID,
+		StartedAt:   recorder.startedAt.UTC(),
+		CompletedAt: recorder.startedAt.UTC(),
+		AccessKeyID: recorder.accessKeyID,
+		Protocol:    recorder.protocol,
+		Operation:   recorder.operation,
+		ClientModel: recorder.clientModel,
+		Status:      telemetry.RequestStatusProcessing,
+		Stream:      recorder.stream,
+		Reasoning:   recorder.reasoning,
+		Usage:       usageObservation,
 	})
 }
 

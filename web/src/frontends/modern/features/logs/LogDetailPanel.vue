@@ -228,7 +228,7 @@ function resolveRedactedLog(): Promise<string> {
             </header>
             <div class="modern-log-result-context">
               <AppProtocolTag :protocol="log.protocol" />
-              <time>{{ logTime(log.completed_at_ms, locale, true) }}</time>
+              <time>{{ logTime(log.started_at_ms, locale, true) }}</time>
             </div>
             <div class="modern-log-request-identity">
               <span>{{ t('logs.columns.request_id') }}</span

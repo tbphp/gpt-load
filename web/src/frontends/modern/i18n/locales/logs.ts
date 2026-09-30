@@ -118,7 +118,7 @@ export const zhCN = {
   },
   filterSections: { request: '请求', routing: '路由', result: '结果', metrics: '数值范围' },
   columns: {
-    completed_at_ms: '时间',
+    completed_at_ms: '请求时间',
     request_id: '请求 ID',
     client_model: '模型',
     protocol: '协议',
@@ -206,6 +206,7 @@ export const zhCN = {
     invalidStatusCode: '请输入 100～599，未响应使用 0。',
   },
   values: {
+    processing: '处理中',
     success: '成功',
     error: '失败',
     incomplete: '未完成',
@@ -430,7 +431,7 @@ export const enUS: typeof zhCN = {
   },
   filterSections: { request: 'Request', routing: 'Routing', result: 'Outcome', metrics: 'Ranges' },
   columns: {
-    completed_at_ms: 'Time',
+    completed_at_ms: 'Request time',
     request_id: 'Request ID',
     client_model: 'Model',
     protocol: 'Protocol',
@@ -518,6 +519,7 @@ export const enUS: typeof zhCN = {
     invalidStatusCode: 'Enter 100–599, or 0 for no response.',
   },
   values: {
+    processing: 'Processing',
     success: 'Success',
     error: 'Failed',
     incomplete: 'Incomplete',
@@ -740,7 +742,7 @@ export const jaJP: typeof zhCN = {
   },
   filterSections: { request: 'リクエスト', routing: 'ルート', result: '結果', metrics: '数値範囲' },
   columns: {
-    completed_at_ms: '日時',
+    completed_at_ms: 'リクエスト時刻',
     request_id: 'リクエスト ID',
     client_model: 'モデル',
     protocol: 'プロトコル',
@@ -828,6 +830,7 @@ export const jaJP: typeof zhCN = {
     invalidStatusCode: '100～599、応答なしは 0 を入力してください。',
   },
   values: {
+    processing: '処理中',
     success: '成功',
     error: '失敗',
     incomplete: '未完了',

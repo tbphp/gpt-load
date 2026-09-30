@@ -15,6 +15,7 @@ import (
 type RequestStatus string
 
 const (
+	RequestStatusProcessing RequestStatus = "processing"
 	RequestStatusSuccess    RequestStatus = "success"
 	RequestStatusError      RequestStatus = "error"
 	RequestStatusIncomplete RequestStatus = "incomplete"
@@ -137,6 +138,7 @@ type RequestEvent struct {
 	RequestAudit          *requestaudit.Result
 	AutoDecision          *automodel.Decision
 	RequestID             string
+	StartedAt             time.Time
 	CompletedAt           time.Time
 	AccessKeyID           uint
 	Protocol              protocol.Protocol

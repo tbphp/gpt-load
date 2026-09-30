@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { X } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { enabledDataProtocols } from '@/api/control/protocols'
@@ -76,17 +76,49 @@ const firstError = computed(() => {
   const key = Object.values(props.errors)[0]
   return key ? t(key) : ''
 })
+const composing = ref(false)
+let applyTimer: ReturnType<typeof setTimeout> | undefined
+let applyPending = false
 
-function update(field: keyof LogFilterDraft, value: string): void {
-  emit('updateField', field, value)
+function applyNow(): void {
+  clearTimeout(applyTimer)
+  applyPending = false
+  if (!composing.value) emit('apply')
 }
+
+function scheduleApply(): void {
+  clearTimeout(applyTimer)
+  applyPending = true
+  if (!composing.value) applyTimer = setTimeout(applyNow, 200)
+}
+
+function update(field: keyof LogFilterDraft, value: string, immediate = true): void {
+  emit('updateField', field, value)
+  if (immediate) applyNow()
+  else scheduleApply()
+}
+
+function endComposition(): void {
+  composing.value = false
+  if (applyPending) scheduleApply()
+}
+
+function reset(): void {
+  clearTimeout(applyTimer)
+  applyPending = false
+  emit('reset')
+}
+
+onScopeDispose(() => clearTimeout(applyTimer))
 </script>
 
 <template>
   <form
     class="logs-filter"
     :aria-label="t('monitor.logs.filters.label')"
-    @submit.prevent="emit('apply')"
+    @submit.prevent="applyNow"
+    @compositionstart="composing = true"
+    @compositionend="endComposition"
   >
     <div v-if="appliedChips.length" class="logs-filter__chips">
       <span class="logs-filter__chips-label">{{ t('monitor.logs.filters.applied') }}</span>
@@ -123,7 +155,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
           :invalid="Boolean(errors.channel_id)"
           :described-by="errors.channel_id ? 'logs-filter-error' : undefined"
           size="compact"
-          @update:model-value="update('channel_id', $event)"
+          @update:model-value="update('channel_id', $event, false)"
         />
         <AppSelect
           v-else
@@ -154,7 +186,7 @@ function update(field: keyof LogFilterDraft, value: string): void {
           :described-by="errors.access_key_id ? 'logs-filter-error' : undefined"
           inputmode="numeric"
           size="compact"
-          @update:model-value="update('access_key_id', $event)"
+          @update:model-value="update('access_key_id', $event, false)"
         />
         <AccessKeySelect
           v-else
@@ -183,11 +215,10 @@ function update(field: keyof LogFilterDraft, value: string): void {
           size="compact"
           data-1p-ignore="true"
           data-lpignore="true"
-          @update:model-value="update('client_model', $event)"
+          @update:model-value="update('client_model', $event, false)"
         />
       </span>
-      <AppButton type="submit" size="compact">{{ t('monitor.logs.filters.apply') }}</AppButton>
-      <AppButton variant="secondary" size="compact" @click="emit('reset')">
+      <AppButton variant="secondary" size="compact" @click="reset">
         {{ t('monitor.logs.filters.reset') }}
       </AppButton>
     </div>

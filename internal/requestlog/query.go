@@ -24,6 +24,7 @@ const defaultListLimit = 50
 
 const requestTotalCostStateSQL = `CASE WHEN cost_state = 'priced' OR decision_pricing_completeness IN ('complete','partial') OR audit_pricing_completeness IN ('complete','partial') THEN 'priced' WHEN cost_state = 'unpriced' OR decision_pricing_completeness = 'unavailable' OR audit_pricing_completeness = 'unavailable' THEN 'unpriced' ELSE 'not_applicable' END`
 const requestTotalCompletenessSQL = `CASE WHEN (` + requestTotalCostStateSQL + `) = 'priced' THEN CASE WHEN pricing_completeness IN ('partial','unavailable') OR decision_pricing_completeness IN ('partial','unavailable') OR audit_pricing_completeness IN ('partial','unavailable') THEN 'partial' ELSE 'complete' END WHEN (` + requestTotalCostStateSQL + `) = 'unpriced' THEN 'unavailable' ELSE 'not_applicable' END`
+const requestLogStartTimeExpression = "COALESCE(NULLIF(started_at_ms, 0), completed_at_ms)"
 
 func (service *Service) List(ctx context.Context, input ListQuery) (Page, error) {
 	limit := input.Limit
@@ -34,10 +35,10 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	query := service.db.WithContext(ctx).
 		Model(&models.RequestLog{})
 	if input.FromMS != nil {
-		query = query.Where("completed_at_ms >= ?", *input.FromMS)
+		query = query.Where(requestLogStartTimeExpression+" >= ?", *input.FromMS)
 	}
 	if input.ToMS != nil {
-		query = query.Where("completed_at_ms < ?", *input.ToMS)
+		query = query.Where(requestLogStartTimeExpression+" < ?", *input.ToMS)
 	}
 	if input.ClientModel != "" {
 		query = query.Where("client_model = ?", input.ClientModel)
@@ -111,9 +112,9 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	query = applyAttemptFilters(query, input)
 	if input.Cursor != nil {
 		query = query.Where(
-			"completed_at_ms < ? OR (completed_at_ms = ? AND id < ?)",
-			input.Cursor.CompletedAtMS,
-			input.Cursor.CompletedAtMS,
+			requestLogStartTimeExpression+" < ? OR ("+requestLogStartTimeExpression+" = ? AND id < ?)",
+			input.Cursor.StartedAtMSValue(),
+			input.Cursor.StartedAtMSValue(),
 			input.Cursor.RequestID,
 		)
 	}
@@ -138,7 +139,7 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	} else {
 		query = query.Limit(limit + 1)
 	}
-	query = query.Order("completed_at_ms DESC").Order("id DESC")
+	query = query.Order(requestLogStartTimeExpression + " DESC").Order("id DESC")
 
 	var rows []models.RequestLog
 	if err := query.Find(&rows).Error; err != nil {
@@ -164,6 +165,7 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if hasNext {
 		last := records[len(records)-1]
 		page.NextCursor = &Cursor{
+			StartedAtMS:   last.StartedAtMS,
 			CompletedAtMS: last.CompletedAtMS,
 			RequestID:     last.RequestID,
 		}
@@ -378,6 +380,7 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 			RequestAudit:          audit,
 			TotalPricing:          total,
 			RequestID:             row.ID,
+			StartedAtMS:           row.StartedAtMS,
 			CompletedAtMS:         row.CompletedAtMS,
 			AccessKey:             AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
 			Protocol:              protocol.Protocol(row.Protocol),
@@ -421,6 +424,9 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 }
 
 func validateStoredModelObservation(row models.RequestLog) error {
+	if row.Status == string(telemetry.RequestStatusProcessing) {
+		return nil
+	}
 	successfulModeledRequest := row.Status == string(telemetry.RequestStatusSuccess) &&
 		row.UpstreamModel != ""
 	reported := row.UpstreamReportedModel != ""

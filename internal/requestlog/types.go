@@ -68,8 +68,16 @@ const (
 )
 
 type Cursor struct {
+	StartedAtMS   int64
 	CompletedAtMS int64
 	RequestID     string
+}
+
+func (cursor Cursor) StartedAtMSValue() int64 {
+	if cursor.StartedAtMS != 0 {
+		return cursor.StartedAtMS
+	}
+	return cursor.CompletedAtMS
 }
 
 type ListQuery struct {
@@ -127,6 +135,7 @@ type Record struct {
 	AutoDecision            *automodel.Decision
 	TotalPricing            telemetry.PricingObservation
 	RequestID               string
+	StartedAtMS             int64
 	CompletedAtMS           int64
 	AccessKey               AccessKeyRef
 	Protocol                protocol.Protocol

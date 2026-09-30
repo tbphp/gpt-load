@@ -3,7 +3,7 @@ import type { ApiClient } from '@shared/http/client'
 import { ApiError, InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
 
-export const logStatuses = ['success', 'error', 'incomplete', 'canceled'] as const
+export const logStatuses = ['processing', 'success', 'error', 'incomplete', 'canceled'] as const
 export const logOperations = [
   'chat_completion',
   'responses_create',
@@ -104,6 +104,7 @@ export interface LogEntry {
   request_audit?: AuditResult
   auto_decision?: LogAutoDecision
   request_id: string
+  started_at_ms: number
   completed_at_ms: number
   access_key: { id: number; name: string | null; deleted: boolean }
   protocol: string
@@ -296,6 +297,7 @@ function entry(value: unknown): LogEntry {
   if (!logRequestPattern.test(id)) throw new InvalidResponseError()
   return {
     request_id: id,
+    started_at_ms: integer(row.started_at_ms ?? row.completed_at_ms),
     completed_at_ms: integer(row.completed_at_ms),
     access_key: {
       id: integer(key.id),

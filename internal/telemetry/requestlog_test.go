@@ -20,6 +20,7 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"RequestAudit",
 			"AutoDecision",
 			"RequestID",
+			"StartedAt",
 			"CompletedAt",
 			"AccessKeyID",
 			"Protocol",
