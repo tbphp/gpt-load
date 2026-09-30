@@ -12,19 +12,18 @@ import (
 
 const (
 	// CodexModelCatalogVersion identifies the Codex client contract represented by the embedded snapshot.
-	CodexModelCatalogVersion = "0.155.0"
+	CodexModelCatalogVersion = "0.159.2"
 	// CodexModelCatalogCPASDKVersion identifies the CPA SDK release tested with this snapshot.
-	CodexModelCatalogCPASDKVersion = "v7.3.17"
-	codexModelCatalogSHA256        = "7b15fec55ed279c2a0f4b6dfd1f7d2617d7c9f22e94d385242a8cd9534411d38"
+	CodexModelCatalogCPASDKVersion = "v8.0.4"
+	codexModelCatalogSHA256        = "fd219bd9f061278275f528939f82f54d2eb97df4b25c23b022adbe48813d920b"
 	codexFallbackModel             = "gpt-5.5"
 )
 
 const personalityPlaceholder = "{{ personality }}"
 
-// Snapshot source: router-for-me/CLIProxyAPI v7.3.17, internal/registry/models/codex_client_models.json.
-// CPA fetches this upstream model catalog using Codex client version 0.155.0.
+// Snapshot source: openai/codex rust-v0.159.2, codex-rs/models-manager/models.json.
 //
-//go:embed codex_client_models_0.155.0.json
+//go:embed codex_client_models_0.159.2.json
 var codexClientModelsJSON []byte
 
 type codexModelCatalog struct {

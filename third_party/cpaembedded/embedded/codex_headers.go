@@ -3,12 +3,44 @@ package embedded
 import (
 	"net/http"
 	"strings"
+
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 )
 
-// CodexClientVersion 与固定 CPA 的模型发现版本及 GPT-Load 的 Codex 模型目录版本一致，由测试校验。
-const CodexClientVersion = "0.155.0"
+// CodexClientVersion 与 GPT-Load 的 Codex 模型目录版本一致，由测试校验。
+const CodexClientVersion = "0.159.2"
 
-// codexHeadersRoundTripper 保留 CPA 的 UA，并固定版本及 HTTP 会话头。
+// 沿用 CPA 的客户端标识格式，版本统一由 GPT-Load 的已验证版本集固定。
+const codexUserAgent = "codex-tui/" + CodexClientVersion + " (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; " + CodexClientVersion + ")"
+
+func init() {
+	// CPA 在 WebSocket 握手的最后应用模型专属头；同步其中的旧版本标识。
+	var overrides []*registry.ModelInfo
+	for _, model := range registry.GetCodexProModels() {
+		if model == nil || model.Config == nil {
+			continue
+		}
+		changed := false
+		for name := range model.Config.OverrideHeader {
+			switch {
+			case strings.EqualFold(name, "User-Agent"):
+				model.Config.OverrideHeader[name] = codexUserAgent
+				changed = true
+			case strings.EqualFold(name, "Version"):
+				model.Config.OverrideHeader[name] = CodexClientVersion
+				changed = true
+			}
+		}
+		if changed {
+			overrides = append(overrides, model)
+		}
+	}
+	if len(overrides) > 0 {
+		registry.GetGlobalRegistry().RegisterClient("gptload-codex-identity", ProviderCodex, overrides)
+	}
+}
+
+// codexHeadersRoundTripper 固定客户端版本标识及 HTTP 会话头。
 type codexHeadersRoundTripper struct {
 	base       http.RoundTripper
 	source     http.Header
@@ -30,6 +62,7 @@ func (transport codexHeadersRoundTripper) RoundTrip(request *http.Request) (*htt
 		}
 	}
 	request.Header.Set("Version", CodexClientVersion)
+	request.Header.Set("User-Agent", codexUserAgent)
 	normalizeCodexSessionHeader(request.Header)
 	// CPA 的直接图片路径不读取 opts.Headers，补回调用者显式提供的会话。
 	if request.Header.Get("Session-Id") == "" {
@@ -45,13 +78,14 @@ func normalizedCodexHeaders(headers http.Header) http.Header {
 	if cloned == nil {
 		cloned = make(http.Header)
 	}
-	// 仅 Codex 忽略客户端及分组规则提供的版本身份，UA 由 CPA 生成。
+	// 仅 Codex 忽略客户端及分组规则提供的版本身份。
 	for name := range cloned {
 		if strings.EqualFold(name, "User-Agent") || strings.EqualFold(name, "Version") {
 			delete(cloned, name)
 		}
 	}
 	cloned.Set("Version", CodexClientVersion)
+	cloned.Set("User-Agent", codexUserAgent)
 	normalizeCodexSessionHeader(cloned)
 	return cloned
 }

@@ -1,6 +1,6 @@
 package embedded
 
-import xaiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/xai"
+import xaiauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/xai"
 
 // GrokAPIEndpoints 集中声明凭据准备完成后的业务端点，不包含 OAuth 与身份核验。
 type GrokAPIEndpoints struct {

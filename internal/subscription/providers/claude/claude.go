@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	cpaembedded "github.com/router-for-me/CLIProxyAPI/v7/gptload-embedded/embedded"
+	cpaembedded "github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/embedded"
 
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )

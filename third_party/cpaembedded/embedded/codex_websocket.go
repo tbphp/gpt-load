@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	internalconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	internalexecutor "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
+	internalconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	internalexecutor "github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
+	"github.com/tidwall/gjson"
 )
 
 const (
@@ -128,7 +130,8 @@ func NewCodexWSSession(options CodexWSSessionOptions) (*CodexWSSession, error) {
 		auth: auth, id: codexWSSessionIDPrefix + uuid.NewString(), options: options, closeDone: make(chan struct{}),
 		inner: internalexecutor.NewCodexWebsocketsExecutor(&internalconfig.Config{
 			// 不启用 SDK 的启动缓冲，确保 ExecuteStream 先返回握手，再交付原生事件。
-			Codex: internalconfig.CodexConfig{ModelLevelCooling: true, StreamBootstrapBuffering: false},
+			// 客户端标识由桥接层固定，避免 CPA 覆写为其内置旧版本。
+			Codex: internalconfig.CodexConfig{ModelLevelCooling: true, StreamBootstrapBuffering: false, DisableCodexCloaking: true},
 		}),
 	}
 	session.resource = &codexWSResource{session: session}
@@ -209,10 +212,25 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		failSession: func() { s.invalidate(false) },
 	}
 	headersReady := make(chan struct{})
+	headers := normalizedCodexHeaders(s.options.Headers)
+	headers.Set("Originator", "codex-tui")
+	if helps.IsNativeCodexRequest(payload, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse, Headers: headers}) {
+		// 关闭 CPA 的旧 UA 覆写后，原生请求只保留显式会话头；补回原有缓存会话语义。
+		sessionID := headers.Get("Session-Id")
+		if cacheKey := strings.TrimSpace(gjson.GetBytes(payload, "prompt_cache_key").String()); cacheKey != "" {
+			sessionID = cacheKey
+			headers.Set("Conversation_id", cacheKey)
+		}
+		if sessionID == "" {
+			sessionID = uuid.NewString()
+		}
+		headers.Del("Session-Id")
+		headers.Set("Session_id", sessionID)
+	}
 	stream, executionErr := s.inner.ExecuteStream(turnCtx, s.auth, cliproxyexecutor.Request{
 		Model: model, Payload: append([]byte(nil), payload...), Format: sdktranslator.FormatOpenAIResponse,
 	}, cliproxyexecutor.Options{
-		Stream: true, Headers: normalizedCodexHeaders(s.options.Headers), SourceFormat: sdktranslator.FormatOpenAIResponse, ResponseFormat: sdktranslator.FormatOpenAIResponse,
+		Stream: true, Headers: headers, SourceFormat: sdktranslator.FormatOpenAIResponse, ResponseFormat: sdktranslator.FormatOpenAIResponse,
 		Metadata:           map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: s.id},
 		ExecutionLifecycle: s.resource,
 		WebSocketResponseObserver: func(ctx context.Context, event cliproxyexecutor.WebSocketResponseEvent) {

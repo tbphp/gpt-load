@@ -41,20 +41,19 @@ the existing HTTP executor remains separate.
 ## Codex request identity
 
 Codex HTTP inference (including streaming and images) and WebSocket handshakes
-use the pinned CPA default User-Agent (still `codex-tui/0.154.0` in CPA v7.3.17).
-`Version` is fixed to `CodexClientVersion`, currently `0.155.0`, matching CPA's
-model discovery client version. Downstream and GPT-Load group
+use a pinned `codex-tui/0.159.2` User-Agent with CPA's existing platform signature.
+`Version` is fixed to `CodexClientVersion`, currently `0.159.2`. Downstream and GPT-Load group
 header rules cannot override, clear, or remove these two identity headers.
 This restriction applies only to Codex; other providers retain their header rules.
 HTTP continues to honor explicit `Originator` rules, including empty values and
-removal. WebSocket retains the SDK's existing originator handling.
+removal. WebSocket retains the fixed `codex-tui` originator.
 
 Model and account observation requests use the same version for their User-Agent,
 Version header, and models `client_version` query parameter. The embedded model
-JSON is copied from the pinned CPA release's
-`internal/registry/models/codex_client_models.json`, with its SHA-256 checked by
-tests. CPA's execution UA constant is private and currently differs from its
-model discovery version; retain the SDK's UA rather than rewriting it locally.
+JSON is copied from OpenAI Codex `rust-v0.159.2`,
+`codex-rs/models-manager/models.json`, with its SHA-256 checked by tests.
+CPA `v8.0.4`, the Codex identity, and this model snapshot form one tested version set.
+The bridge pins execution identity because CPA's built-in UA still uses an older version.
 HTTP, image, WebSocket, and observation tests check these outgoing values.
 
 Both `Session-Id` and `Session_id` are accepted, with `Session-Id` taking precedence
@@ -121,7 +120,7 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   use updated timeout settings. `Done` closes when the Session is invalidated.
   Request and forwarded-event limits default to 10 MiB each. All three are configurable when creating the Session.
   The facade buffers no conversation history or output queue. Event checks occur
-  **after SDK reading**: CPA v7.3.17 has no exposed raw-frame size limit and has
+  **after SDK reading**: CPA v8.0.4 has no exposed raw-frame size limit and has
   its own internal buffers. These checks do not bound all SDK memory. CPA also
   retains its upstream read-idle timeout; idle connection loss invalidates the
   Session and is not transparently recovered.
@@ -151,20 +150,19 @@ sent only in the first. `CPA_LIVE_CODEX_WS_PROXY_URL` defaults to `direct`;
 
 ## Pinned upstream
 
-- Module: `github.com/router-for-me/CLIProxyAPI/v7`
-- Version: `v7.3.17`
+- Module: `github.com/router-for-me/CLIProxyAPI/v8`
+- Version: `v8.0.4`
 
-The bridge keeps Codex's fixed Version, observation identity, and model snapshot
-aligned with CPA's model discovery version, while preserving CPA's execution
-User-Agent as described above. CPA includes Antigravity reasoning tokens in unary
+The bridge keeps Codex's fixed Version, execution and observation identity, and
+model snapshot aligned at `0.159.2`. CPA includes Antigravity reasoning tokens in unary
 OpenAI Chat and OpenAI Responses output totals; the bridge only adds them for OpenAI
 Chat streaming, and retains Anthropic's unary cache-input normalization.
 Antigravity Responses web search is not enabled by this dependency update.
 
-CPA v7.3.17 adds the native Codex `X-Codex-Routing-Hint` to HTTP Responses
+CPA supplies the native Codex `X-Codex-Routing-Hint` to HTTP Responses
 requests and WebSocket handshakes, derived from the resolved model and final
 `service_tier`. Bridge tests verify that the hint matches the normalized request.
-The Codex client version and embedded model snapshot are unchanged from v7.3.15.
+The official Codex snapshot includes GPT-6.1 Sol's native client capabilities.
 
 The root module consumes this bridge through a local `replace`; releases still
 resolve CPA itself at the exact version recorded in both `go.mod` files and
@@ -177,7 +175,9 @@ bumps:
 
 1. Review upstream changes to Codex, Claude, Antigravity, and xAI OAuth, token, HTTP
    executor, translation, headers, identity, model discovery, and usage observation code.
-2. Update the CPA version in this module and run `go mod tidy` here.
+2. Update both modules' CPA pins and any changed major-version import paths, then
+   run `go mod tidy` in both modules. Update the Codex identity, matching official
+   model snapshot, snapshot digest, and version-alignment tests together.
 3. Fix only bridge compatibility issues; keep the execution-only boundary and
    do not adopt CPA Manager, business-request retry, Auto, fallback, or file persistence.
    Revalidate the explicit WS facade's lifecycle, continuation, proxy and cancellation
