@@ -206,6 +206,15 @@ watch(
     >
       <div class="ledger-record-list__cell access-key-name" role="cell">
         <span>{{ record.name }}</span>
+        <small>{{
+          t('concurrency.value', {
+            current: source(record.id).concurrency.current,
+            limit:
+              source(record.id).concurrency.limit === 0
+                ? t('concurrency.unlimited')
+                : source(record.id).concurrency.limit,
+          })
+        }}</small>
       </div>
 
       <div class="ledger-record-list__cell access-key-secret-cell" role="cell">
@@ -372,6 +381,14 @@ watch(
 </template>
 
 <style scoped>
+.access-key-name > small {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .access-key-expiry {
   display: block;
   margin-top: 4px;

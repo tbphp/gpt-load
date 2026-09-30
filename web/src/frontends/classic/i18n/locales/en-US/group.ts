@@ -337,6 +337,9 @@ export default {
         first_byte_timeout: 'Native response / stream first-event timeout',
         request_timeout: 'Upstream request timeout per attempt',
         stream_idle_timeout: 'Stream-idle timeout',
+        concurrency_limit: 'Concurrency limit',
+        concurrencyHelp:
+          '0 means unlimited. Applies to data-plane concurrency; reject immediately when full.',
         blacklist_threshold: 'Consecutive-failure blacklist threshold',
         blacklistThresholdHelp:
           'A credential is blacklisted after this many consecutive failures; 0 disables automatic blacklisting.',

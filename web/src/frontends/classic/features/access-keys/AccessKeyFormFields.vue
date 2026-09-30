@@ -9,6 +9,7 @@ import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 const props = defineProps<{
   name: string
   status: AccessKeyDto['status']
+  concurrencyLimit: number | null
   rpmLimit: number
   priceMultiplier: string
   disabled: boolean
@@ -16,6 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:name': [value: string]
   'update:status': [value: AccessKeyDto['status']]
+  'update:concurrencyLimit': [value: number | null]
   'update:rpmLimit': [value: number]
   'update:priceMultiplier': [value: string]
 }>()
@@ -58,6 +60,30 @@ defineExpose({ focusName })
     </div>
 
     <slot name="credential" />
+    <div class="access-key-drawer__field">
+      <span class="access-key-drawer__field-label" aria-hidden="true">{{
+        t('concurrency.label')
+      }}</span>
+      <AppTextInput
+        id="access-key-concurrency"
+        :model-value="concurrencyLimit === null ? '' : String(concurrencyLimit)"
+        :label="t('concurrency.label')"
+        :placeholder="t('concurrency.inherit')"
+        type="number"
+        min="0"
+        step="1"
+        appearance="surface"
+        size="compact"
+        :disabled="disabled"
+        :invalid="
+          concurrencyLimit !== null &&
+          (!Number.isSafeInteger(concurrencyLimit) || concurrencyLimit < 0)
+        "
+        described-by="access-key-concurrency-description"
+        @update:model-value="emit('update:concurrencyLimit', $event === '' ? null : Number($event))"
+      />
+      <small id="access-key-concurrency-description">{{ t('concurrency.overrideHelp') }}</small>
+    </div>
 
     <div class="access-key-drawer__field">
       <span class="access-key-drawer__field-label" aria-hidden="true">

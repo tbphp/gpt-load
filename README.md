@@ -162,6 +162,12 @@ For example, configure an Anthropic group to supply top-level caching for Respon
 
 This forwards the cache configuration without guaranteeing an upstream cache hit.
 
+### Data-plane concurrency limits
+
+Global, access key, and group limits can be enabled together; all default to unlimited. System settings provide the global limit and default access key and group limits. Individual access keys and groups may override their defaults: leave an access key value blank or restore group inheritance to use the default; explicitly set `0` for unlimited. Reaching any applicable limit immediately returns `concurrency_limit_exceeded`, without queueing or switching groups or credentials to bypass the limit.
+
+Global and access key counters track unfinished logical requests; group counters track active upstream calls. Streaming holds its slots until forwarding finishes. Responses WebSocket counts executing turns, while realtime audio/video counts continuous sessions. Cancelling or hanging up an existing session remains available. Counters are local to one instance and held in memory; settings updates preserve counters and running work. Management requests and background jobs are excluded. Both management interfaces show current counts and effective limits on the home, access key, and group pages.
+
 ## Deployment and data
 
 Docker Compose uses application-managed SQLite by default. Data lives in the `gpt-load-data` named volume and includes the database, `auth.key`, and `encryption.key`.

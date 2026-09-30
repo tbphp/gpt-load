@@ -2,6 +2,7 @@ package models
 
 // AccessKey is an encrypted client credential and its persisted access policy.
 type AccessKey struct {
+	ConcurrencyLimit        *int64  `gorm:"type:bigint;check:chk_access_key_concurrency,concurrency_limit >= 0 AND concurrency_limit <= 9007199254740991"`
 	PriceMultiplierMicros   *int64  `gorm:"column:price_multiplier_micros;type:bigint;not null;default:1000000;check:chk_access_key_price_multiplier,price_multiplier_micros >= 0 AND price_multiplier_micros <= 1000000000"`
 	ID                      uint    `gorm:"primaryKey;autoIncrement"`
 	Name                    string  `gorm:"type:varchar(255);not null"`

@@ -84,6 +84,7 @@ func externalModelName(model ModelConfig) string {
 }
 
 type AccessKeyConfig struct {
+	ConcurrencyLimit *int64
 	KeyPrefix        string
 	PriceMultiplier  *pricing.PriceMultiplier
 	ID               uint
@@ -150,6 +151,7 @@ func (rules HeaderRules) ConfiguredNames() []string {
 }
 
 type GroupView struct {
+	ConcurrencyLimit          int64
 	PriceMultiplier           pricing.PriceMultiplier
 	ID                        uint
 	Name                      string
@@ -183,6 +185,7 @@ type GroupCatalogView struct {
 }
 
 type AccessKeyView struct {
+	ConcurrencyLimit *int64
 	KeyPrefix        string
 	PriceMultiplier  pricing.PriceMultiplier
 	ID               uint
@@ -357,6 +360,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			CodexLiveMode:             resolved.CodexLiveMode,
 			ResponsesWebsocketEnabled: resolved.ResponsesWebsocketEnabled,
 			EmptyResponseRetry:        resolved.EmptyResponseRetry,
+			ConcurrencyLimit:          resolved.ConcurrencyLimit,
 			WeightManual:              cloneWeight(group.WeightManual),
 			ConnectionType:            connection.Normalize(group.ConnectionType),
 			Proxy:                     groupProxy,
@@ -413,6 +417,7 @@ func newAccessKeyView(input AccessKeyConfig) AccessKeyView {
 		ExpiresAtMS:      cloneAccessKeyExpiry(input.ExpiresAtMS),
 		AllowedPeerCIDRs: cloneAllowedPeerCIDRs(input.AllowedPeerCIDRs),
 		RPMLimit:         input.RPMLimit,
+		ConcurrencyLimit: cloneAccessKeyExpiry(input.ConcurrencyLimit),
 		CostLimitRules:   rules,
 	}
 }
@@ -676,6 +681,9 @@ func validateCompileInput(input CompileInput) error {
 		accessKeyIDs[accessKey.ID] = struct{}{}
 		if accessKey.PriceMultiplier != nil && !accessKey.PriceMultiplier.Valid() {
 			return fmt.Errorf("access key %d price multiplier is invalid", accessKey.ID)
+		}
+		if accessKey.ConcurrencyLimit != nil && (*accessKey.ConcurrencyLimit < 0 || *accessKey.ConcurrencyLimit > maxJSONSafeInteger) {
+			return fmt.Errorf("access key %d has invalid concurrency limit", accessKey.ID)
 		}
 		if accessKey.RPMLimit < 0 {
 			return fmt.Errorf("access key %d rpm limit must not be negative", accessKey.ID)

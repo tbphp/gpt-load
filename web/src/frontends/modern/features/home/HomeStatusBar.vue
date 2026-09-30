@@ -20,6 +20,21 @@ interface Fact {
   to?: RouteLocationRaw
 }
 const facts = computed<Fact[]>(() => [
+  ...((props.base.concurrency ?? props.base.currentKey?.concurrency)
+    ? [
+        {
+          key: 'concurrency',
+          value: (() => {
+            const value = (props.base.concurrency ?? props.base.currentKey!.concurrency)!
+            return (
+              n(value.current) +
+              ' / ' +
+              (value.limit === 0 ? t('concurrency.unlimited') : n(value.limit))
+            )
+          })(),
+        },
+      ]
+    : []),
   {
     key: 'groups',
     value: compact(props.base.groups),
@@ -65,7 +80,7 @@ const uptime = computed(() => {
       <AppBadge :tone="state.tone" dot>{{ t(state.key) }}</AppBadge>
       <dl class="modern-home-status-facts">
         <div v-for="fact in facts" :key="fact.key">
-          <dt>{{ t('home.' + fact.key) }}</dt>
+          <dt>{{ t(fact.key === 'concurrency' ? 'concurrency.label' : 'home.' + fact.key) }}</dt>
           <dd>
             <RouterLink v-if="fact.to" :to="fact.to">{{ fact.value }}</RouterLink>
             <span v-else>{{ fact.value }}</span>

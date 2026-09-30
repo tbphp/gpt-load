@@ -4,14 +4,17 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
+
+	"gpt-load/internal/ratelimit"
 )
 
 type Manager struct {
-	scheduling *SchedulingState
-	publishMu  sync.RWMutex
-	current    atomic.Pointer[ConfigSnapshot]
-	reconciler SnapshotReconciler
-	updates    chan struct{}
+	concurrency *ratelimit.Concurrency
+	scheduling  *SchedulingState
+	publishMu   sync.RWMutex
+	current     atomic.Pointer[ConfigSnapshot]
+	reconciler  SnapshotReconciler
+	updates     chan struct{}
 }
 
 // SnapshotReconciler synchronizes infrastructure resources derived from a
@@ -21,7 +24,7 @@ type SnapshotReconciler interface {
 }
 
 func NewManager() *Manager {
-	return &Manager{updates: make(chan struct{})}
+	return &Manager{updates: make(chan struct{}), concurrency: ratelimit.NewConcurrency()}
 }
 
 // SetSnapshotReconciler installs the process-owned runtime reconciler during
@@ -70,8 +73,8 @@ func (m *Manager) WithCurrentSnapshot(fn func(*ConfigSnapshot) bool) bool {
 
 // WithCurrentSnapshotRead runs a short read-only callback while publication
 // is blocked. Multiple data-plane readers may run concurrently. Callbacks may
-// only read the snapshot and perform quota Check/Admit operations following
-// the lock order publishMu.RLock -> quota runtime locks.
+// only read the snapshot and perform quota or concurrency admission following
+// the lock order publishMu.RLock -> quota/concurrency runtime locks.
 func (m *Manager) WithCurrentSnapshotRead(fn func(*ConfigSnapshot) bool) bool {
 	if m == nil || fn == nil {
 		return false
@@ -148,3 +151,6 @@ func (m *Manager) SetSchedulingState(scheduling *SchedulingState) {
 		scheduling.SyncGroups(m.current.Load())
 	}
 }
+
+// Concurrency 返回独立于配置快照的进程级业务计数。
+func (m *Manager) Concurrency() *ratelimit.Concurrency { return m.concurrency }

@@ -81,6 +81,10 @@ func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigS
 		recorder.auditCalled = true
 		call, upstream := h.executeJevDecision(ctx, snapshot, key, review.Payload, true)
 		result.Calls = append(result.Calls, call)
+		if call.Reason == reasonConcurrencyLimit.Code {
+			result.Status, result.Reason = "incomplete", call.Reason
+			return &reasonConcurrencyLimit
+		}
 		if ctx.Err() != nil {
 			return allowIncomplete("canceled")
 		}

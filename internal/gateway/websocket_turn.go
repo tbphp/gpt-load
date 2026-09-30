@@ -117,6 +117,12 @@ func (s *websocketConnection) newTurnRecorder(turn websocketTurn) *requestRecord
 }
 
 func (s *websocketConnection) executeTurn(turn websocketTurn) {
+	var releaseRequest func()
+	defer func() {
+		if releaseRequest != nil {
+			releaseRequest()
+		}
+	}()
 	h := s.handler
 	recorder := s.newTurnRecorder(turn)
 	requestID := recorder.requestID
@@ -155,6 +161,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	if !authorized {
 		reject(reasonInvalidAccessKey)
 		s.cancel()
+		return
+	}
+	releaseRequest, failure := h.acquireRequestConcurrency(key.ID)
+	if failure != nil {
+		reject(*failure)
 		return
 	}
 	recorder.accessKeyMultiplier = key.PriceMultiplier
@@ -524,6 +535,12 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			}
 			recorder.setAffinityHit(requiredRef != nil || selection.CredentialID == affinity.preferredCredentialID, kind)
 		}
+		releaseGroup, failure := h.acquireGroupConcurrency(selection.GroupID)
+		if failure != nil {
+			reject(*failure)
+			return
+		}
+		defer releaseGroup()
 		started := recorder.beforeForward()
 		forwardAttempts++
 		ctx, cancel := context.WithTimeout(requestCtx, selection.Group.Timeouts.Request)
@@ -591,6 +608,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		}
 		cancel()
 		releaseInput()
+		releaseGroup()
 		for _, name := range []string{"X-Request-Id", "Request-Id", "Openai-Request-Id", "X-Oai-Request-Id"} {
 			if value := result.Header.Get(name); value != "" && len(value) <= 1024 {
 				result.UpstreamRequestID = recorder.redactor.String(value, credential.secrets...)

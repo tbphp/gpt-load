@@ -20,6 +20,7 @@ export function cloneAccessKeyCreatePayload(
       allowed_cidrs: [...payload.filters.allowed_cidrs],
     },
     expires_at_ms: payload.expires_at_ms,
+    concurrency_limit: payload.concurrency_limit,
     rpm_limit: payload.rpm_limit,
     price_multiplier: payload.price_multiplier,
     cost_limit_rules: payload.cost_limit_rules.map((rule) => ({ ...rule })),

@@ -783,6 +783,8 @@ func upstreamErrorCode(result UpstreamResult, category health.FailureCategory) s
 
 func fixedErrorSummary(code string) string {
 	switch code {
+	case "concurrency_limit_exceeded":
+		return reasonConcurrencyLimit.Message
 	case "upstream_rate_limited":
 		return "Upstream rate limited the request."
 	case "upstream_model_unavailable":

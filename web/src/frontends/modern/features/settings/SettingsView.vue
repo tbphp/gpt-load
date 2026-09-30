@@ -99,6 +99,9 @@ type SectionID = (typeof sectionIDs)[number]
 const sectionFields: Record<SectionID, readonly SettingKey[]> = {
   routing: ['route_strategy', 'affinity_enabled', 'affinity_ttl', 'affinity_capacity'],
   connection: [
+    'global_concurrency_limit',
+    'default_access_key_concurrency_limit',
+    'default_group_concurrency_limit',
     'proxy_config',
     'codex_live_mode',
     'responses_websocket_enabled',
@@ -127,6 +130,11 @@ const sectionIcons = {
   experimental: FlaskConical,
   system: Server,
 }
+const concurrencyNumbers: readonly SettingNumber[] = [
+  'global_concurrency_limit',
+  'default_access_key_concurrency_limit',
+  'default_group_concurrency_limit',
+]
 const timeouts: readonly SettingNumber[] = [
   'first_byte_timeout',
   'request_timeout',
@@ -597,6 +605,24 @@ onScopeDispose(() => {
                   </div>
                 </template>
               </SettingItem>
+              <div
+                v-if="concurrencyNumbers.some(matches)"
+                class="modern-settings-block modern-settings-group"
+              >
+                <h3 class="modern-settings-group-title">{{ t('concurrency.label') }}</h3>
+                <div class="modern-settings-number-grid">
+                  <SettingsNumberField
+                    v-for="key in concurrencyNumbers.filter(matches)"
+                    :key="key"
+                    v-model="draft[key]"
+                    :setting="key"
+                    v-bind="settingState(key)"
+                    :error="fieldErrors[key]"
+                    @reset="restore(key)"
+                    @undo="undoRestore(key)"
+                  />
+                </div>
+              </div>
               <div
                 v-if="timeouts.some(matches)"
                 class="modern-settings-block modern-settings-group"

@@ -14,6 +14,7 @@ export interface AccessDraft {
   enabled: boolean
   never: boolean
   expires: string
+  concurrency: string
   rpm: string
   price: string
   scope: AccessScope
@@ -51,6 +52,7 @@ export function draftFor(row?: AccessKey, duplicate = false): AccessDraft {
     enabled: row?.status !== 'disabled',
     never: row?.expires_at_ms == null,
     expires: localDate(row?.expires_at_ms ?? null),
+    concurrency: row?.concurrency_limit == null ? '' : String(row.concurrency_limit),
     rpm: String(row?.rpm_limit ?? 0),
     price: row?.price_multiplier ?? '1',
     scope,
@@ -87,6 +89,7 @@ export function inputFor(draft: AccessDraft): AccessInput {
     ...(draft.key ? { key: draft.key } : {}),
     status: draft.enabled ? 'active' : 'disabled',
     expires_at_ms: draft.never ? null : (parseLocalDateTime(draft.expires)?.getTime() ?? NaN),
+    concurrency_limit: draft.concurrency === '' ? null : Number(draft.concurrency),
     rpm_limit: Number(draft.rpm || 0),
     price_multiplier: normalizeDecimal(draft.price),
     filters: {
@@ -125,6 +128,8 @@ export function patchFor(base: AccessKey, input: AccessInput): Partial<AccessInp
   if (base.name !== input.name) patch.name = input.name
   if (base.status !== input.status) patch.status = input.status
   if (base.expires_at_ms !== input.expires_at_ms) patch.expires_at_ms = input.expires_at_ms
+  if (base.concurrency_limit !== input.concurrency_limit)
+    patch.concurrency_limit = input.concurrency_limit
   if (base.rpm_limit !== input.rpm_limit) patch.rpm_limit = input.rpm_limit
   if (normalizeDecimal(base.price_multiplier) !== input.price_multiplier)
     patch.price_multiplier = input.price_multiplier
@@ -142,6 +147,11 @@ export function draftErrors(draft: AccessDraft, base?: AccessKey): Record<string
     /\p{Cc}/u.test(input.name)
   )
     errors.name = 'required'
+  if (
+    !/^\d*$/.test(draft.concurrency) ||
+    (input.concurrency_limit !== null && !Number.isSafeInteger(input.concurrency_limit))
+  )
+    errors.concurrency = 'invalidNumber'
   if (draft.key && !/^[\x21-\x7e]{1,256}$/.test(draft.key)) errors.key = 'invalidKey'
   if (!/^\d*$/.test(draft.rpm) || !Number.isSafeInteger(input.rpm_limit))
     errors.rpm = 'invalidNumber'

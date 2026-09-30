@@ -1,3 +1,4 @@
+import { readConcurrency } from '@shared/concurrency'
 import { queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
@@ -31,6 +32,7 @@ export type HomeRange = '24h' | '30d'
 export type HomeStatisticsGranularity = 'hour' | 'day'
 
 export interface HomeBaseDto {
+  concurrency: import('@shared/concurrency').ConcurrencyView | null
   server_now_ms: number
   started_at_ms: number
   version: string
@@ -133,6 +135,7 @@ export interface HomeSubscriptionAccountsDto {
 }
 
 const homeBaseFields = [
+  'concurrency',
   'server_now_ms',
   'started_at_ms',
   'version',
@@ -264,6 +267,7 @@ export function projectHomeBase(value: unknown): HomeBaseDto {
     previousID = accessKey.id
   }
   return {
+    concurrency: record.concurrency == null ? null : readConcurrency(record.concurrency),
     server_now_ms: serverNowMS,
     started_at_ms: startedAtMS,
     version: projectNonBlankTrimmedString(record.version),

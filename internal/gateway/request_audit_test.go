@@ -421,12 +421,15 @@ func TestRequestAuditOneCallAcrossRetriesAndChangedContentAllows(t *testing.T) {
 	}
 }
 
-func TestRequestAuditResourceRoutesCannotBypassContentReview(t *testing.T) {
-	for _, endpoint := range []struct{ method, path string }{
-		{http.MethodGet, "/v1/responses/resp_test"},
-		{http.MethodDelete, "/v1/responses/resp_test"},
-		{http.MethodPost, "/v1/responses/resp_test/cancel"},
-		{http.MethodGet, "/v1/responses/resp_test/input_items"},
+func TestRequestAuditResourceRoutesRespectCancellationExemption(t *testing.T) {
+	for _, endpoint := range []struct {
+		method, path string
+		reviewBody   bool
+	}{
+		{http.MethodGet, "/v1/responses/resp_test", true},
+		{http.MethodDelete, "/v1/responses/resp_test", true},
+		{http.MethodPost, "/v1/responses/resp_test/cancel", false},
+		{http.MethodGet, "/v1/responses/resp_test/input_items", true},
 	} {
 		for _, body := range []string{"", `{"input":"content that needs review"}`} {
 			t.Run(endpoint.method+endpoint.path+body, func(t *testing.T) {
@@ -438,11 +441,12 @@ func TestRequestAuditResourceRoutesCannotBypassContentReview(t *testing.T) {
 				response := httptest.NewRecorder()
 				engine.ServeHTTP(response, request)
 				status := http.StatusOK
-				if body != "" {
+				reviewed := body != "" && endpoint.reviewBody
+				if reviewed {
 					status = http.StatusForbidden
 				}
-				if response.Code != status || len(forwarder.inputs) != 1 || (body != "" && forwarder.inputs[0].Operation != execution.OperationDecisionsCreate) {
-					t.Fatalf("resource body bypassed review or empty resource was reviewed: status=%d calls=%d", response.Code, len(forwarder.inputs))
+				if response.Code != status || len(forwarder.inputs) != 1 || (forwarder.inputs[0].Operation == execution.OperationDecisionsCreate) != reviewed {
+					t.Fatalf("resource audit or cancellation exemption failed: status=%d calls=%d", response.Code, len(forwarder.inputs))
 				}
 			})
 		}

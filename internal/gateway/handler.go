@@ -429,6 +429,12 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	if requestContext.selectedRoute.Kind == endpointUsage {
+		release, failure := handler.acquireRequestConcurrency(requestContext.accessKey.ID)
+		if failure != nil {
+			_ = handler.writeReason(ginContext, *failure)
+			return
+		}
+		defer release()
 		handler.handleUsage(ginContext, requestContext)
 		return
 	}
@@ -444,6 +450,12 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		handler.handleWebsocket(ginContext, requestContext)
 		return
 	}
+	var releaseRequest func()
+	defer func() {
+		if releaseRequest != nil {
+			releaseRequest()
+		}
+	}()
 	requestStarted := requestContext.requestStarted
 	snapshot := requestContext.snapshot
 	accessKey := requestContext.accessKey
@@ -495,6 +507,15 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 			}
 			recorder.emit()
 		}()
+	}
+
+	if !concurrencyControlRequest(ginContext.Request, selectedRoute) {
+		var failure *reason
+		releaseRequest, failure = handler.acquireRequestConcurrency(accessKey.ID)
+		if failure != nil {
+			handler.completeReason(ginContext, recorder, *failure)
+			return
+		}
 	}
 
 	if quotaAdmission != nil && handler.accessQuota != nil {
@@ -1240,14 +1261,28 @@ func (handler *Handler) executeAttempts(
 			quotaAdmission.admitted = true
 		}
 
-		if failure := handler.checkRequestAudit(ginContext.Request.Context(), snapshot, snapshot.AccessKeysByID[recorder.accessKeyID], prepared.request.Body, recorder, func() *reason { return handler.admitAutoQuota(snapshot, quotaAdmission) }); failure != nil {
-			handler.completeReason(ginContext, recorder, *failure)
-			return
+		// 取消已有响应不创建内容，不能启动新的审查调用或被审查组满额阻止。
+		if operation != execution.OperationResponsesCancel {
+			if failure := handler.checkRequestAudit(ginContext.Request.Context(), snapshot, snapshot.AccessKeysByID[recorder.accessKeyID], prepared.request.Body, recorder, func() *reason { return handler.admitAutoQuota(snapshot, quotaAdmission) }); failure != nil {
+				handler.completeReason(ginContext, recorder, *failure)
+				return
+			}
 		}
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
 			return
 		}
+		releaseGroup := func() {}
+		if operation != execution.OperationResponsesCancel {
+			var failure *reason
+			releaseGroup, failure = handler.acquireGroupConcurrency(selection.GroupID)
+			if failure != nil {
+				handler.completeReason(ginContext, recorder, *failure)
+				return
+			}
+		}
+		// 异常退出也收尾；普通路径在本次执行结束后立即归还，幂等保护防止重复释放。
+		defer releaseGroup()
 		attemptSequence++
 		forwardAttempts++
 		if attemptSequence == 1 && (originalMetadata.PreviousResponseID != "" ||
@@ -1322,6 +1357,7 @@ func (handler *Handler) executeAttempts(
 		} else {
 			result = handler.forwarder.Forward(ginContext.Request.Context(), input)
 		}
+		releaseGroup()
 		result = normalizeUpstreamResultContract(result)
 		if !stream && result.HasResponse() && !result.ProviderErrorBeforeCommit &&
 			result.DispatchState != execution.DispatchLocal &&

@@ -41,6 +41,7 @@ type GroupCollectionCredentialCounts struct {
 }
 
 type GroupCollectionItem struct {
+	Concurrency      ConcurrencyView                 `json:"concurrency"`
 	PriceMultiplier  string                          `json:"price_multiplier"`
 	ID               uint                            `json:"id"`
 	Name             string                          `json:"name"`
@@ -137,6 +138,10 @@ func (s *Service) captureGroupCollectionRecords(
 	}
 	if err != nil {
 		return 0, nil, err
+	}
+	counts := s.manager.Concurrency().Snapshot()
+	for i := range records {
+		records[i].Concurrency = ConcurrencyView{Current: counts.Groups[records[i].ID], Limit: snapshot.Groups[records[i].ID].ConcurrencyLimit}
 	}
 	return observedAt.UnixMilli(), records, nil
 }

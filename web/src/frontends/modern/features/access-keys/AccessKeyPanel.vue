@@ -652,6 +652,16 @@ onScopeDispose(() => {
             @reset="openReset"
           />
           <AppFormSection :title="t('accessKeys.policy')" compact>
+            <AppTextField
+              v-model="draft.concurrency"
+              :label="t('concurrency.label')"
+              :description="t('concurrency.overrideHelp')"
+              :placeholder="t('concurrency.inherit')"
+              inputmode="numeric"
+              size="sm"
+              :disabled="pending"
+              :error="fieldError('concurrency')"
+            />
             <div class="modern-access-field-pair">
               <AppTextField
                 v-model="draft.rpm"

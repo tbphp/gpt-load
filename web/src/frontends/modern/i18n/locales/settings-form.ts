@@ -50,6 +50,9 @@ export const zhCN = {
   },
   liveModes: { off: '关闭', direct: '直连上游', relay: '网关中继' },
   fields: {
+    global_concurrency_limit: '全局并发上限',
+    default_access_key_concurrency_limit: '访问密钥默认并发上限',
+    default_group_concurrency_limit: '分组默认并发上限',
     codex_live_mode: '实时语音',
     request_redaction: '请求脱敏',
     jev: 'JEV 公共配置',
@@ -75,6 +78,9 @@ export const zhCN = {
     cors: '跨域访问（CORS）',
   },
   hints: {
+    global_concurrency_limit: '0 表示不限。仅限制数据面并发，满额立即拒绝。',
+    default_access_key_concurrency_limit: '0 表示不限。仅限制数据面并发，满额立即拒绝。',
+    default_group_concurrency_limit: '0 表示不限。仅限制数据面并发，满额立即拒绝。',
     codex_live_mode:
       '分组可覆盖此默认值。直连要求客户端能访问上游；中继需要配置公网媒体地址及 UDP 端口。关闭仅停用语音。',
     request_redaction: '配置发送给上游与 JEV 的文本脱敏规则',
@@ -224,6 +230,9 @@ export const enUS = {
   },
   liveModes: { off: 'Off', direct: 'Direct to upstream', relay: 'Gateway relay' },
   fields: {
+    global_concurrency_limit: 'Global concurrency limit',
+    default_access_key_concurrency_limit: 'Default access key concurrency limit',
+    default_group_concurrency_limit: 'Default group concurrency limit',
     codex_live_mode: 'Live voice',
     request_redaction: 'Request redaction',
     jev: 'Shared JEV configuration',
@@ -249,6 +258,13 @@ export const enUS = {
     cors: 'Cross-origin access (CORS)',
   },
   hints: {
+    global_concurrency_limit:
+      '0 means unlimited. Applies to data-plane concurrency; reject immediately when full.',
+    default_access_key_concurrency_limit:
+      '0 means unlimited. Applies to data-plane concurrency; reject immediately when full.',
+    default_group_concurrency_limit:
+      '0 means unlimited. Applies to data-plane concurrency; reject immediately when full.',
+
     codex_live_mode:
       'Groups can override this default. Direct mode requires client access to upstream media. Relay mode requires a reachable media IP and UDP ports. Off disables voice only.',
     request_redaction: 'Configure text redaction for upstream providers and JEV',
@@ -404,6 +420,9 @@ export const jaJP = {
   },
   liveModes: { off: '無効', direct: '上流に直接接続', relay: 'ゲートウェイ中継' },
   fields: {
+    global_concurrency_limit: '全体の同時実行数上限',
+    default_access_key_concurrency_limit: 'アクセスキーのデフォルト同時実行数上限',
+    default_group_concurrency_limit: 'グループのデフォルト同時実行数上限',
     codex_live_mode: 'リアルタイム音声',
     request_redaction: 'リクエストのマスキング',
     jev: 'JEV 共通設定',
@@ -429,6 +448,13 @@ export const jaJP = {
     cors: 'クロスオリジンアクセス（CORS）',
   },
   hints: {
+    global_concurrency_limit:
+      '0 は無制限。データプレーンの同時実行を制限し、上限到達時は即座に拒否します。',
+    default_access_key_concurrency_limit:
+      '0 は無制限。データプレーンの同時実行を制限し、上限到達時は即座に拒否します。',
+    default_group_concurrency_limit:
+      '0 は無制限。データプレーンの同時実行を制限し、上限到達時は即座に拒否します。',
+
     codex_live_mode:
       'グループで既定値を上書きできます。直接接続はクライアントから上流への通信が必要です。中継には到達可能なメディア IP と UDP ポートが必要です。無効にしてもテキストは利用できます。',
     request_redaction: '上流と JEV に送信するテキストのマスキングルールを設定',

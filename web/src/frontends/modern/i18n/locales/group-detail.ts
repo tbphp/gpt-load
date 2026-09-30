@@ -136,6 +136,7 @@ export const zhCN = {
   channelSwitchConflict: '{groups} 已经使用相同的上游目标。',
   channelSwitchFailed: '切换渠道失败，请重试。',
   runtimeFields: {
+    concurrency_limit: '并发上限',
     first_byte_timeout: '首响应超时',
     request_timeout: '单次请求超时',
     stream_idle_timeout: '流空闲超时',
@@ -292,6 +293,7 @@ export const enUS: typeof zhCN = {
   channelSwitchConflict: '{groups} already use the same upstream target.',
   channelSwitchFailed: 'Could not switch the channel. Try again.',
   runtimeFields: {
+    concurrency_limit: 'Concurrency limit',
     first_byte_timeout: 'First response timeout',
     request_timeout: 'Request timeout',
     stream_idle_timeout: 'Stream idle timeout',
@@ -444,6 +446,7 @@ export const jaJP: typeof zhCN = {
   channelSwitchConflict: '{groups} が同じ上流ターゲットを使用しています。',
   channelSwitchFailed: 'チャネルを切り替えられませんでした。再試行してください。',
   runtimeFields: {
+    concurrency_limit: '同時実行数の上限',
     first_byte_timeout: '初回応答タイムアウト',
     request_timeout: 'リクエストタイムアウト',
     stream_idle_timeout: 'ストリーム待機タイムアウト',

@@ -158,6 +158,13 @@ func liveSessionWithModel(raw json.RawMessage, model string) (json.RawMessage, e
 }
 
 func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneRequestContext) {
+	var releaseRequest func()
+	entryTransferred := false
+	defer func() {
+		if releaseRequest != nil && !entryTransferred {
+			releaseRequest()
+		}
+	}()
 	if handler.liveOpener == nil || handler.liveSessions == nil {
 		_ = handler.writeReason(c, reasonLiveUnavailable)
 		return
@@ -176,6 +183,12 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 		}
 	}()
 	failed := func(value reason) { handler.completeReason(c, recorder, value) }
+	releaseRequest, entryFailure := handler.acquireRequestConcurrency(request.accessKey.ID)
+	if entryFailure != nil {
+		failed(*entryFailure)
+		return
+	}
+
 	offer, sessionJSON, model, err := parseCodexLiveCall(c.Request)
 	if err != nil {
 		failed(reasonInvalidProtocolRequest)
@@ -291,6 +304,18 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 			failed(reasonInvalidProtocolRequest)
 			return
 		}
+		releaseGroup, groupFailure := handler.acquireGroupConcurrency(selection.GroupID)
+		if groupFailure != nil {
+			failed(*groupFailure)
+			return
+		}
+		groupTransferred := false
+		defer func() {
+			if !groupTransferred {
+				releaseGroup()
+			}
+		}()
+		releaseConcurrency := func() { releaseGroup(); releaseRequest() }
 		var media *liveMediaSession
 		upstreamOffer := offer
 		if selection.Group.CodexLiveMode == state.CodexLiveRelay {
@@ -318,7 +343,10 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 		upstreamStored := false
 		defer func() {
 			if !upstreamStored && upstream.Session != nil {
-				handler.cleanupCodexLiveSetup(upstream, id)
+				_ = media.Close()
+				mediaStored = true
+				entryTransferred, groupTransferred = true, true
+				handler.cleanupCodexLiveSetup(upstream, id, releaseConcurrency)
 			}
 		}()
 		if evidence != nil {
@@ -349,7 +377,8 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 				failure.Message = "Codex live access was denied by the upstream account."
 			}
 			_ = media.Close()
-			if !decision.ShouldRetry() {
+			// 已知创建了会话时，交给现有清理流程，不能把占位带入新的建连尝试。
+			if !decision.ShouldRetry() || upstream.Session != nil {
 				failed(failure)
 				return
 			}
@@ -360,6 +389,7 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 				refreshUsed = true
 				refreshSelection = &selection
 			}
+			releaseGroup()
 			recorder.retryIfAnotherForward(attemptIndex)
 			continue
 		}
@@ -400,14 +430,15 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 		}
 		call := &liveCallSession{id: upstream.CallID, requestID: id, keyID: request.accessKey.ID, keyHash: keyHash, groupID: selection.GroupID,
 			clientModel: model, model: *selection.UpstreamModelID, peerAddr: c.Request.RemoteAddr,
-			ref: ref, upstream: upstream.Session, media: media, recorder: recorder, logger: handler.logger}
+			ref: ref, upstream: upstream.Session, media: media, recorder: recorder, logger: handler.logger, releaseConcurrency: releaseConcurrency}
 		call.authorized = func() bool { return handler.liveCallAuthorized(call.keyID, call) }
 		if !handler.liveSessions.put(call) {
 			failed(reasonLiveUnavailable)
 			return
 		}
-		handler.recordCredentialSuccess(ref, handler.now())
+		entryTransferred, groupTransferred = true, true
 		mediaStored, upstreamStored, stored = true, true, true
+		handler.recordCredentialSuccess(ref, handler.now())
 		location := "/v1/live/" + upstream.CallID
 		if c.Request.URL.Path == "/v1/realtime/calls" {
 			location = "/v1/realtime/calls/" + upstream.CallID
@@ -423,14 +454,15 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 	failed(failure)
 }
 
-func (handler *Handler) cleanupCodexLiveSetup(upstream execution.LiveCall, requestID string) {
+func (handler *Handler) cleanupCodexLiveSetup(upstream execution.LiveCall, requestID string, releaseConcurrency func()) {
 	// 建连失败的日志由请求路径记录，清理会话不再拥有 recorder。
-	call := &liveCallSession{id: upstream.CallID, requestID: requestID, upstream: upstream.Session, logger: handler.logger}
+	call := &liveCallSession{id: upstream.CallID, requestID: requestID, upstream: upstream.Session, logger: handler.logger, releaseConcurrency: releaseConcurrency}
 	if call.id != "" && handler.liveSessions.put(call) {
 		_ = handler.liveSessions.finishCall(call, "setup_failed")
 		return
 	}
 	// 停机期间不再注册新会话，但仍尝试结束已经创建的上游通话。
+	defer releaseConcurrency()
 	call.stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

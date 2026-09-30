@@ -326,6 +326,8 @@ export default {
         first_byte_timeout: '原生响应 / 流式首事件超时',
         request_timeout: '单次上游请求超时',
         stream_idle_timeout: '流空闲超时',
+        concurrency_limit: '并发上限',
+        concurrencyHelp: '0 表示不限。仅限制数据面并发，满额立即拒绝。',
         blacklist_threshold: '连续失败拉黑阈值',
         blacklistThresholdHelp: '凭据达到该连续失败次数后自动拉黑；0 表示关闭自动拉黑。',
         effective: '{value} 秒',

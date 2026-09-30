@@ -1,3 +1,4 @@
+import { readConcurrency, type ConcurrencyView } from '@shared/concurrency'
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
@@ -34,6 +35,7 @@ export interface CredentialCounts {
   modelCooldown: number
 }
 export interface GroupRow {
+  concurrency: ConcurrencyView
   id: number
   name: string
   channelID: string
@@ -125,6 +127,7 @@ export async function getGroupWorkspace(
     const item = record(value)
     const counts = record(item.credentials)
     return {
+      concurrency: readConcurrency(item.concurrency),
       id: integer(item.id, 1),
       name: text(item.name),
       channelID: text(item.channel_id),

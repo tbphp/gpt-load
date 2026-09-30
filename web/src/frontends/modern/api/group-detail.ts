@@ -34,6 +34,7 @@ export interface CredentialFilters {
   reset: '' | 'available' | 'none' | 'unknown'
 }
 export const runtimeNumbers = [
+  'concurrency_limit',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',

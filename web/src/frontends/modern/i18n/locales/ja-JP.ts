@@ -1,3 +1,4 @@
+import { jaJP as concurrency } from './concurrency'
 import { jaJP as requestRedaction } from './request-redaction'
 import { jaJP as experimental } from './experimental'
 import { jaJP as rpm } from './rpm'
@@ -22,6 +23,7 @@ import { jaJP as autoModel } from './auto-model'
 import { jaJP as subscriptions } from './subscriptions'
 
 export default {
+  concurrency,
   requestRedaction,
   ...experimental,
   rpm,
