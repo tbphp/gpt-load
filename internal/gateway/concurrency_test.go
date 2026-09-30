@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/telemetry"
 )
@@ -228,6 +229,70 @@ func TestConcurrencyControlAndLocalQuery(t *testing.T) {
 		if response.Code != tc.status {
 			t.Errorf("%s => %d, want %d", tc.path, response.Code, tc.status)
 		}
+	}
+}
+
+func TestConcurrencyCancelSkipsAuditUnderSaturation(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		auditLimit int64
+		key        string
+		status     int
+	}{
+		{"unlimited audit group", 0, "gl-client", http.StatusOK},
+		{"full audit group", 1, "gl-client", http.StatusOK},
+		{"invalid access key", 1, "invalid-client", http.StatusUnauthorized},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := &scriptedForwarder{results: []UpstreamResult{auditReply(`{}`), auditReply(`{}`)}}
+			h, engine := auditEngine(t, f)
+			h.dialects = dialect.NewSet(dialect.NewOpenAI(), dialect.NewOpenAIResponses())
+			snapshot := h.manager.Current()
+			snapshot.Settings.GlobalConcurrencyLimit = 1
+			snapshot.Settings.DefaultAccessKeyConcurrencyLimit = 1
+			for id, limit := range map[uint]int64{1: 1, 2: test.auditLimit} {
+				group := snapshot.Groups[id]
+				group.ConcurrencyLimit = limit
+				snapshot.Groups[id] = group
+			}
+			releaseRequest, ok := h.manager.Concurrency().TryAcquireRequest(1, 1, 1)
+			if !ok {
+				t.Fatal("cannot occupy request capacity")
+			}
+			defer releaseRequest()
+			releaseGroup, ok := h.manager.Concurrency().TryAcquireGroup(1, 1)
+			if !ok {
+				t.Fatal("cannot occupy business group capacity")
+			}
+			defer releaseGroup()
+			if test.auditLimit > 0 {
+				releaseAudit, ok := h.manager.Concurrency().TryAcquireGroup(2, test.auditLimit)
+				if !ok {
+					t.Fatal("cannot occupy audit group capacity")
+				}
+				defer releaseAudit()
+			}
+			before := h.manager.Concurrency().Snapshot()
+			body := `{"input":"reviewable cancellation payload"}`
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses/resp_test/cancel", strings.NewReader(body))
+			request.Header.Set("Authorization", "Bearer "+test.key)
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("cancel returned %d, want %d", response.Code, test.status)
+			}
+			if test.status == http.StatusOK {
+				if len(f.inputs) != 1 || f.inputs[0].Operation != execution.OperationResponsesCancel || !bytes.Equal(f.inputs[0].Request.Body, []byte(body)) {
+					t.Fatal("cancel started auxiliary work or changed its payload")
+				}
+			} else if len(f.inputs) != 0 {
+				t.Fatal("unauthorized cancellation reached upstream")
+			}
+			after := h.manager.Concurrency().Snapshot()
+			if after.Global != before.Global || after.AccessKeys[1] != before.AccessKeys[1] || after.Groups[1] != before.Groups[1] || after.Groups[2] != before.Groups[2] {
+				t.Fatal("cancel changed occupied capacity")
+			}
+		})
 	}
 }
 
