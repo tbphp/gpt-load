@@ -155,7 +155,7 @@ func (s *codexWebsocketSession) ExecuteTurn(ctx context.Context, payload []byte,
 	if result.DispatchState == codex.WSMaybeSent {
 		state = execution.DispatchMaybeSent
 	}
-	return execution.WebsocketResult{DispatchState: state, Header: result.Headers, HeaderObservedAt: result.HeaderObservedAt, Error: codexWebsocketEvidence(ctx, err)}
+	return execution.WebsocketResult{AppliedReasoning: appliedReasoning(result.AppliedReasoningEffort), DispatchState: state, Header: result.Headers, HeaderObservedAt: result.HeaderObservedAt, Error: codexWebsocketEvidence(ctx, err)}
 }
 
 func codexWebsocketEvidence(ctx context.Context, err error) *execution.ErrorEvidence {

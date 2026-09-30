@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/modelcatalog"
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	internalexecutor "github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
@@ -47,12 +49,13 @@ type CodexWSSessionOptions struct {
 
 // CodexWSTurnResult 只描述本轮执行，不执行健康、额度或日志记账。
 type CodexWSTurnResult struct {
-	ResponseID       string
-	Status           string
-	Usage            json.RawMessage
-	Headers          http.Header
-	HeaderObservedAt time.Time
-	DispatchState    string
+	AppliedReasoningEffort string
+	ResponseID             string
+	Status                 string
+	Usage                  json.RawMessage
+	Headers                http.Header
+	HeaderObservedAt       time.Time
+	DispatchState          string
 }
 
 // CodexWSError 的文本不包含上游响应、凭据、地址或代理密码。
@@ -76,6 +79,10 @@ func codexWSError(code string) *CodexWSError {
 
 // CodexWSSession 是由调用者独占的 Codex 上游会话。
 type CodexWSSession struct {
+	lastResponseID    string
+	lastModel         string
+	lastEffort        string
+	lastOverride      bool
 	auth              *cliproxyauth.Auth
 	inner             *internalexecutor.CodexWebsocketsExecutor
 	id                string
@@ -176,6 +183,21 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		turnCtx, cancel = context.WithCancel(ctx)
 	} else {
 		turnCtx, cancel = context.WithTimeout(ctx, s.options.TurnTimeout)
+	}
+	hasReasoningOverride := false
+	// 支持更新的原生 Responses 路径由 CPA 原样保留配置。
+	if modelcatalog.SupportsReasoningUpdates(model) {
+		result.AppliedReasoningEffort = thinking.ExtractTranslatedReasoningEffort(payload, ProviderCodex)
+		gjson.GetBytes(payload, "input").ForEach(func(_, item gjson.Result) bool {
+			if item.Get("type").String() == "configuration_update" {
+				hasReasoningOverride = true
+			}
+			return true
+		})
+		if !hasReasoningOverride && s.lastOverride && previous != "" && previous == s.lastResponseID && model == s.lastModel {
+			result.AppliedReasoningEffort = s.lastEffort
+			hasReasoningOverride = true
+		}
 	}
 	s.cancel, s.running = cancel, true
 	reuse := s.started
@@ -310,6 +332,8 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	}
 	s.mu.Lock()
 	s.started = true
+	s.lastOverride = hasReasoningOverride
+	s.lastResponseID, s.lastModel, s.lastEffort = result.ResponseID, model, result.AppliedReasoningEffort
 	s.mu.Unlock()
 	return result, nil
 }

@@ -1,9 +1,11 @@
 package embedded
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/modelcatalog"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 )
 
@@ -16,23 +18,20 @@ const codexUserAgent = "codex-tui/" + CodexClientVersion + " (Mac OS 26.5.2; arm
 func init() {
 	// CPA 在 WebSocket 握手的最后应用模型专属头；同步其中的旧版本标识。
 	var overrides []*registry.ModelInfo
-	for _, model := range registry.GetCodexProModels() {
+	if err := json.Unmarshal(modelcatalog.JSON(), &overrides); err != nil {
+		panic(err)
+	}
+	for _, model := range overrides {
 		if model == nil || model.Config == nil {
 			continue
 		}
-		changed := false
 		for name := range model.Config.OverrideHeader {
 			switch {
 			case strings.EqualFold(name, "User-Agent"):
 				model.Config.OverrideHeader[name] = codexUserAgent
-				changed = true
 			case strings.EqualFold(name, "Version"):
 				model.Config.OverrideHeader[name] = CodexClientVersion
-				changed = true
 			}
-		}
-		if changed {
-			overrides = append(overrides, model)
 		}
 	}
 	if len(overrides) > 0 {

@@ -72,6 +72,9 @@ func ImportCodexCredential(ctx context.Context, raw []byte, options Options) (Co
 	if refreshed.Email == "" {
 		refreshed.Email = current.Email
 	}
+	if refreshed.PlanType == "" {
+		refreshed.PlanType = current.PlanType
+	}
 	if refreshed.IDToken == "" {
 		refreshed.IDToken = current.IDToken
 	}

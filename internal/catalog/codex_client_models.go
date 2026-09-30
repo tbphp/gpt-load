@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/modelcatalog"
 )
 
 const (
@@ -69,6 +71,7 @@ func buildCodexClientModel(
 	}
 	resolved := cloneCodexModelMap(template)
 	resolved["slug"] = model
+	resolved["supports_reasoning_effort_updates"] = !forceFallback && modelcatalog.SupportsReasoningUpdates(model)
 	resolved["priority"] = priority
 	resolved["visibility"] = "list"
 	if !matched {
