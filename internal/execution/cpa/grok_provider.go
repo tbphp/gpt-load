@@ -70,7 +70,9 @@ func (bridge *grokProviderBridge) Execute(
 	response, err := bridge.executor.Execute(ctx, credentialID, value.value, grokRequest(request, credentialID))
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
 	}, err
 }
 
@@ -91,6 +93,8 @@ func (bridge *grokProviderBridge) ExecuteStream(
 	if err != nil {
 		return &providerStreamResponse{
 			Headers: response.Headers.Clone(), AppliedReasoningEffort: response.AppliedReasoningEffort,
+			AppliedReasoningMode:         response.AppliedReasoningMode,
+			AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
 		}, err
 	}
 	chunks := make(chan providerStreamChunk)
@@ -107,7 +111,9 @@ func (bridge *grokProviderBridge) ExecuteStream(
 	}()
 	return &providerStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks,
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
 	}, nil
 }
 
@@ -155,7 +161,9 @@ func (bridge *grokProviderBridge) CountTokensLocal(
 	headers.Set(localTokenCountHeader, "local-estimate")
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: headers,
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
 	}, err
 }
 

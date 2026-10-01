@@ -27,20 +27,24 @@ type ExecuteRequest struct {
 
 // ExecuteResponse is one converted non-streaming bridge response.
 type ExecuteResponse struct {
-	Payload                []byte
-	Headers                http.Header
-	AppliedReasoningEffort string
-	QuotaObservedAt        time.Time
-	QuotaSignals           map[string]string
+	Payload                      []byte
+	Headers                      http.Header
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
+	QuotaObservedAt              time.Time
+	QuotaSignals                 map[string]string
 }
 
 // ExecuteStreamResponse contains converted streaming chunks and metadata.
 type ExecuteStreamResponse struct {
-	Headers                http.Header
-	Chunks                 <-chan ExecuteStreamChunk
-	AppliedReasoningEffort string
-	QuotaObservedAt        time.Time
-	QuotaSignals           map[string]string
+	Headers                      http.Header
+	Chunks                       <-chan ExecuteStreamChunk
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
+	QuotaObservedAt              time.Time
+	QuotaSignals                 map[string]string
 }
 
 // ExecuteStreamChunk contains one converted payload or terminal bridge error.
@@ -146,9 +150,11 @@ func (e *executor) Execute(
 	)
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		QuotaObservedAt:        response.QuotaSignals.ObservedAt,
-		QuotaSignals:           response.QuotaSignals.Signals,
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+		QuotaObservedAt:              response.QuotaSignals.ObservedAt,
+		QuotaSignals:                 response.QuotaSignals.Signals,
 	}, normalizeExecutionError(err)
 }
 
@@ -190,7 +196,9 @@ func (e *executor) ExecuteStream(
 	if err != nil {
 		return &ExecuteStreamResponse{
 			Headers: response.Headers.Clone(), AppliedReasoningEffort: response.AppliedReasoningEffort,
-			QuotaObservedAt: response.QuotaSignals.ObservedAt, QuotaSignals: response.QuotaSignals.Signals,
+			AppliedReasoningMode:         response.AppliedReasoningMode,
+			AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+			QuotaObservedAt:              response.QuotaSignals.ObservedAt, QuotaSignals: response.QuotaSignals.Signals,
 		}, normalizeExecutionError(err)
 	}
 	chunks := make(chan ExecuteStreamChunk)
@@ -209,9 +217,11 @@ func (e *executor) ExecuteStream(
 	}()
 	return &ExecuteStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks,
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		QuotaObservedAt:        response.QuotaSignals.ObservedAt,
-		QuotaSignals:           response.QuotaSignals.Signals,
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+		QuotaObservedAt:              response.QuotaSignals.ObservedAt,
+		QuotaSignals:                 response.QuotaSignals.Signals,
 	}, nil
 }
 

@@ -1350,6 +1350,9 @@ func TestAdapterReportsFinalCPAResponsesReasoning(t *testing.T) {
 				upstreamProtocol = result.UpstreamProtocol
 				if result.AppliedReasoning != nil {
 					resultReasoning = result.AppliedReasoning.Effort
+					if result.AppliedReasoning.Mode != "" || result.AppliedReasoning.BudgetTokens != nil {
+						t.Fatal("Responses reasoning includes fields from the source Anthropic protocol")
+					}
 				}
 			} else {
 				result := adapter.Execute(ctx, spec)
@@ -1359,6 +1362,9 @@ func TestAdapterReportsFinalCPAResponsesReasoning(t *testing.T) {
 				upstreamProtocol = result.UpstreamProtocol
 				if result.AppliedReasoning != nil {
 					resultReasoning = result.AppliedReasoning.Effort
+					if result.AppliedReasoning.Mode != "" || result.AppliedReasoning.BudgetTokens != nil {
+						t.Fatal("Responses reasoning includes fields from the source Anthropic protocol")
+					}
 				}
 			}
 			if got := <-wireEffort; got != test.wantEffort {

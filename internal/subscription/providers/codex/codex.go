@@ -287,23 +287,27 @@ type ExecuteRequest struct {
 
 // ExecuteResponse is one converted non-streaming bridge response.
 type ExecuteResponse struct {
-	StatusCode             int
-	Payload                []byte
-	Headers                http.Header
-	AppliedReasoningEffort string
-	UpstreamRequestPath    string
-	QuotaObservedAt        time.Time
-	QuotaSignals           map[string]string
+	StatusCode                   int
+	Payload                      []byte
+	Headers                      http.Header
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
+	UpstreamRequestPath          string
+	QuotaObservedAt              time.Time
+	QuotaSignals                 map[string]string
 }
 
 // ExecuteStreamResponse contains converted streaming chunks and response metadata.
 type ExecuteStreamResponse struct {
-	Headers                http.Header
-	Chunks                 <-chan ExecuteStreamChunk
-	AppliedReasoningEffort string
-	UpstreamRequestPath    string
-	QuotaObservedAt        time.Time
-	QuotaSignals           map[string]string
+	Headers                      http.Header
+	Chunks                       <-chan ExecuteStreamChunk
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
+	UpstreamRequestPath          string
+	QuotaObservedAt              time.Time
+	QuotaSignals                 map[string]string
 }
 
 // ExecuteStreamChunk contains one converted payload or terminal bridge error.
@@ -341,13 +345,15 @@ func (e *executor) Execute(
 		executeRequestToBridge(request),
 	)
 	return ExecuteResponse{
-		StatusCode:             response.StatusCode,
-		Payload:                append([]byte(nil), response.Payload...),
-		Headers:                response.Headers.Clone(),
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		UpstreamRequestPath:    response.UpstreamRequestPath,
-		QuotaObservedAt:        response.QuotaSignals.ObservedAt,
-		QuotaSignals:           response.QuotaSignals.Signals,
+		StatusCode:                   response.StatusCode,
+		Payload:                      append([]byte(nil), response.Payload...),
+		Headers:                      response.Headers.Clone(),
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+		UpstreamRequestPath:          response.UpstreamRequestPath,
+		QuotaObservedAt:              response.QuotaSignals.ObservedAt,
+		QuotaSignals:                 response.QuotaSignals.Signals,
 	}, err
 }
 
@@ -364,10 +370,12 @@ func (e *executor) CountTokens(
 		executeRequestToBridge(request),
 	)
 	return ExecuteResponse{
-		Payload:                append([]byte(nil), response.Payload...),
-		Headers:                response.Headers.Clone(),
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		UpstreamRequestPath:    response.UpstreamRequestPath,
+		Payload:                      append([]byte(nil), response.Payload...),
+		Headers:                      response.Headers.Clone(),
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+		UpstreamRequestPath:          response.UpstreamRequestPath,
 	}, err
 }
 
@@ -387,11 +395,13 @@ func (e *executor) ExecuteStream(
 		return nil, err
 	}
 	convertedResponse := &ExecuteStreamResponse{
-		Headers:                response.Headers.Clone(),
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		UpstreamRequestPath:    response.UpstreamRequestPath,
-		QuotaObservedAt:        response.QuotaSignals.ObservedAt,
-		QuotaSignals:           response.QuotaSignals.Signals,
+		Headers:                      response.Headers.Clone(),
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+		UpstreamRequestPath:          response.UpstreamRequestPath,
+		QuotaObservedAt:              response.QuotaSignals.ObservedAt,
+		QuotaSignals:                 response.QuotaSignals.Signals,
 	}
 	if err != nil {
 		return convertedResponse, err

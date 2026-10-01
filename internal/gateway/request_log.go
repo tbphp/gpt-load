@@ -564,6 +564,10 @@ func (recorder *requestRecorder) bindUsage(
 		pricingMode = frozen.pricingMode
 		recorder.setReasoning(frozen.reasoning)
 	}
+	// 执行层已识别最终配置时，两处日志统一采用该值，避免基准档位覆盖配置更新。
+	if attempt.Reasoning.Present() {
+		recorder.setReasoning(attempt.Reasoning)
+	}
 	if !applicable || !usageApplicable {
 		result = usage.Result{State: usage.StateNotApplicable}
 	} else if !validCapturedUsage(result) {

@@ -24,15 +24,19 @@ type ExecuteRequest struct {
 }
 
 type ExecuteResponse struct {
-	Payload                []byte
-	Headers                http.Header
-	AppliedReasoningEffort string
+	Payload                      []byte
+	Headers                      http.Header
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
 }
 
 type ExecuteStreamResponse struct {
-	Headers                http.Header
-	Chunks                 <-chan ExecuteStreamChunk
-	AppliedReasoningEffort string
+	Headers                      http.Header
+	Chunks                       <-chan ExecuteStreamChunk
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
 }
 
 type ExecuteStreamChunk struct {
@@ -106,7 +110,9 @@ func (executor *executor) Execute(ctx context.Context, credentialID string, cred
 	response, err := executor.bridge.ExecuteCanonical(ctx, credentialID, credentialToBridge(credential), executeRequestToBridge(request))
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
 	}, normalizeExecutionError(err)
 }
 
@@ -121,7 +127,11 @@ func (executor *executor) ExecuteStream(ctx context.Context, credentialID string
 		return nil, normalizeExecutionError(err)
 	}
 	if err != nil {
-		return &ExecuteStreamResponse{Headers: response.Headers.Clone(), AppliedReasoningEffort: response.AppliedReasoningEffort}, normalizeExecutionError(err)
+		return &ExecuteStreamResponse{
+			Headers: response.Headers.Clone(), AppliedReasoningEffort: response.AppliedReasoningEffort,
+			AppliedReasoningMode:         response.AppliedReasoningMode,
+			AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+		}, normalizeExecutionError(err)
 	}
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {
@@ -135,7 +145,11 @@ func (executor *executor) ExecuteStream(ctx context.Context, credentialID string
 			}
 		}
 	}()
-	return &ExecuteStreamResponse{Headers: response.Headers.Clone(), Chunks: chunks, AppliedReasoningEffort: response.AppliedReasoningEffort}, nil
+	return &ExecuteStreamResponse{
+		Headers: response.Headers.Clone(), Chunks: chunks, AppliedReasoningEffort: response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+	}, nil
 }
 
 func executeRequestToBridge(value ExecuteRequest) cpaembedded.ExecuteRequest {

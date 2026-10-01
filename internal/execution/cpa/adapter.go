@@ -235,7 +235,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 			result.Error.Hint = execution.FailureHintRequestRejected
 		}
 		result.UpstreamProtocol = effectiveUpstreamProtocol(provider, response.UpstreamProtocol)
-		result.AppliedReasoning = appliedReasoning(response.AppliedReasoningEffort)
+		result.AppliedReasoning = appliedReasoning(response.AppliedReasoningEffort, response.AppliedReasoningMode, response.AppliedReasoningBudgetTokens)
 		return result
 	}
 	return unaryProviderSuccess(provider, spec, response)
@@ -266,7 +266,7 @@ func unaryProviderSuccess(
 	}
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-		UpstreamProtocol: effectiveUpstreamProtocol(provider, response.UpstreamProtocol), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort), StatusCode: statusCode,
+		UpstreamProtocol: effectiveUpstreamProtocol(provider, response.UpstreamProtocol), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort, response.AppliedReasoningMode, response.AppliedReasoningBudgetTokens), StatusCode: statusCode,
 		Header: headers, Body: body, Model: responseModel(body, spec.UpstreamModel),
 		UpstreamRequestID: upstreamRequestID(headers), Usage: observedUsage,
 	}
@@ -362,7 +362,7 @@ func (a *Adapter) ExecuteStream(
 		}
 		var applied *reasoning.Config
 		if response != nil {
-			applied = appliedReasoning(response.AppliedReasoningEffort)
+			applied = appliedReasoning(response.AppliedReasoningEffort, response.AppliedReasoningMode, response.AppliedReasoningBudgetTokens)
 		}
 		return execution.StreamResult{
 			DispatchState: result.DispatchState, ResponseStarted: result.ResponseStarted,
@@ -371,7 +371,7 @@ func (a *Adapter) ExecuteStream(
 			UpstreamRequestID: result.UpstreamRequestID, Error: result.Error,
 		}
 	}
-	applied := appliedReasoning(response.AppliedReasoningEffort)
+	applied := appliedReasoning(response.AppliedReasoningEffort, response.AppliedReasoningMode, response.AppliedReasoningBudgetTokens)
 	headers := subscriptionResponseHeaders(response.Headers, "text/event-stream")
 	sequence := uint64(1)
 	ready := false
@@ -887,17 +887,27 @@ func successfulStreamTerminal(
 	}
 }
 
-func appliedReasoning(effort string) *reasoning.Config {
-	effort = strings.ToLower(strings.TrimSpace(effort))
-	if effort == "" || len(effort) > 64 {
+func appliedReasoning(effort, mode string, budget *int64) *reasoning.Config {
+	config := reasoning.Config{
+		Effort: appliedReasoningValue(effort), Mode: appliedReasoningValue(mode), BudgetTokens: budget,
+	}.Clone()
+	if !config.Present() {
 		return nil
 	}
-	for _, character := range effort {
+	return &config
+}
+
+func appliedReasoningValue(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if len(value) > 64 {
+		return ""
+	}
+	for _, character := range value {
 		if (character < 'a' || character > 'z') && character != '-' && character != '_' {
-			return nil
+			return ""
 		}
 	}
-	return &reasoning.Config{Effort: effort}
+	return value
 }
 
 func nextChunk(ctx context.Context, chunks <-chan providerStreamChunk, timeout time.Duration) (providerStreamChunk, bool, error) {

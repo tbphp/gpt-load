@@ -20,9 +20,11 @@ type ExecuteRequest struct {
 }
 
 type ExecuteResponse struct {
-	Payload                []byte
-	Headers                http.Header
-	AppliedReasoningEffort string
+	Payload                      []byte
+	Headers                      http.Header
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
 }
 
 type ExecuteStreamChunk struct {
@@ -31,9 +33,11 @@ type ExecuteStreamChunk struct {
 }
 
 type ExecuteStreamResponse struct {
-	Headers                http.Header
-	Chunks                 <-chan ExecuteStreamChunk
-	AppliedReasoningEffort string
+	Headers                      http.Header
+	Chunks                       <-chan ExecuteStreamChunk
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
 }
 
 type Executor interface {
@@ -75,7 +79,9 @@ func (value *executor) ExecuteStream(ctx context.Context, credentialID string, c
 	}()
 	return &ExecuteStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks,
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
 	}, normalizeError(err)
 }
 
@@ -91,6 +97,8 @@ func requestToBridge(request ExecuteRequest) cpaembedded.ExecuteRequest {
 func responseFromBridge(response cpaembedded.ExecuteResponse) ExecuteResponse {
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
 	}
 }
