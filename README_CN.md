@@ -150,24 +150,6 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 - **订阅渠道**：Codex、Claude、Antigravity、Grok
 - **自定义**：OpenAI Compatible（任意兼容中转）
 
-### 参数覆盖与协议转换
-
-分组参数覆盖在协议转换前应用。普通参数按客户端协议填写，例如 Responses 的 `max_output_tokens` 会由 SDK 转换成 Anthropic 的 `max_tokens`。对于 Bifrost 对话转换，覆盖规则明确设置、但 SDK 客户端请求结构未定义的顶层字段，会作为扩展参数交给 SDK；是否保留仍取决于 SDK 对目标协议的支持，不会开启任意字段透传。客户端自行附加的未知字段不因此获得透传能力，内容块内已有的缓存标记保持原有行为。
-
-例如，在 Anthropic 分组中为 Responses 请求设置顶层缓存参数：
-
-```json
-[{"match":{"protocol":"openai-responses"},"set":{"cache_control":{"type":"ephemeral"}}}]
-```
-
-这会传递缓存配置，不保证上游实际缓存命中。
-
-### 数据面并发限制
-
-可同时设置全局、访问密钥和分组并发上限，默认均不限。系统设置提供全局上限及访问密钥、分组的默认上限；访问密钥和分组可单独覆盖。访问密钥留空、分组恢复继承时使用默认值；显式设为 `0` 表示不限。任一层级满额立即返回 `concurrency_limit_exceeded`，不排队，也不为绕过限制切换分组或凭据。
-
-全局和访问密钥按未结束的逻辑请求计数，分组按实际执行的上游调用计数。流式响应持有到转发结束；Responses WebSocket 按执行中的轮次计数，实时音视频按持续会话计数。已有会话的取消、挂断不受新增并发限制。计数仅保存在当前实例内存中；热更新不清零、不打断已有执行，管理请求与后台任务不受限制。两套管理界面的首页、访问密钥和分组列表显示当前值与生效上限。
-
 ## 部署与数据
 
 Docker Compose 默认使用应用管理的 SQLite，数据存放在 `gpt-load-data` 具名卷中，包含数据库、`auth.key` 和 `encryption.key`。

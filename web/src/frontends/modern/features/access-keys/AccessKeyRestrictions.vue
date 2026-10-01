@@ -36,6 +36,15 @@ const tags = computed(() => {
         text: `${item.label} ${n(item.values.length)}`,
         tooltip: [item.label, ...item.values].join('\n'),
       })),
+    ...(props.row.concurrency.limit > 0
+      ? [
+          {
+            key: 'concurrency',
+            text: t('concurrency.limitTag', { limit: n(props.row.concurrency.limit) }),
+            tooltip: t('concurrency.accessKeyLimitHelp', { limit: n(props.row.concurrency.limit) }),
+          },
+        ]
+      : []),
     ...(props.row.rpm_limit > 0
       ? [
           {
