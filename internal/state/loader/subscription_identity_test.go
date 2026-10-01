@@ -16,7 +16,7 @@ import (
 
 func TestLoadPreservesLegacySubscriptionDataAndIdentity(t *testing.T) {
 	t.Parallel()
-	token := "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"account","chatgpt_user_id":"scope"}}`)) + ".signature"
+	token := "e30." + base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"account","chatgpt_user_id":"scope","chatgpt_plan_type":"plus"}}`)) + ".signature"
 	for _, test := range []struct {
 		channel   channel.ID
 		canonical string

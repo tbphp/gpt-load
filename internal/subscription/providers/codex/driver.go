@@ -262,7 +262,7 @@ func (codexResetCreditAction) ID() spec.ActionID { return modules.CodexResetCred
 
 func codexRuntimeCredential(value Credential, canonical []byte) subscriptionruntime.Credential {
 	expiresAt, expires := CredentialExpiresAt(value)
-	account := subscriptionruntime.Account{PlanType: value.PlanType, Email: strings.TrimSpace(value.Email), ExpiresAt: expiresAt, ExpiresAtKnown: expires}
+	account := subscriptionruntime.Account{PlanType: cpaembedded.CodexCredentialPlan(credentialToBridge(value)), Email: strings.TrimSpace(value.Email), ExpiresAt: expiresAt, ExpiresAtKnown: expires}
 	if refreshed, err := time.Parse(time.RFC3339, strings.TrimSpace(value.LastRefresh)); err == nil {
 		account.LastRefresh, account.LastRefreshKnown = refreshed, true
 	}
