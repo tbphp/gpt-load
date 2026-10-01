@@ -446,7 +446,6 @@ onScopeDispose(() => {
     <AppListFrame
       ref="frame"
       :label="t('accessKeys.title')"
-      :scroll-key="route.fullPath"
       :loading="query.isFetching.value && Boolean(query.data.value)"
     >
       <template #header

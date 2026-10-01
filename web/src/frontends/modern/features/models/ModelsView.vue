@@ -247,7 +247,6 @@ useMessageSource(() =>
       ref="frame"
       :label="t('pages.models.title')"
       :loading="Boolean(data) && query.isFetching.value"
-      :scroll-key="JSON.stringify(filters)"
     >
       <AppCollectionState
         v-if="!data && query.isPending.value"

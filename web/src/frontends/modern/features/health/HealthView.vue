@@ -273,17 +273,6 @@ useMessageSource(() =>
       class="modern-health-list"
       :label="t('health.issues')"
       :loading="pending && Boolean(report)"
-      :scroll-key="
-        JSON.stringify([
-          state.q,
-          state.group,
-          state.kind,
-          state.severity,
-          state.sort,
-          page,
-          state.pageSize,
-        ])
-      "
     >
       <template #header>
         <div class="modern-health-row modern-health-heading" aria-hidden="true">

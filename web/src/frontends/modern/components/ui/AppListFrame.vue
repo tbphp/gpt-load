@@ -1,36 +1,19 @@
 <script setup lang="ts">
 import { LoaderCircle } from '@lucide/vue'
-import { onMounted, onUpdated, ref } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from './AppIcon.vue'
-import { readListScroll, saveListScroll } from './list-scroll'
 
-const props = defineProps<{
+defineProps<{
   label: string
   loading?: boolean
-  scrollKey?: string
   flow?: boolean
 }>()
 const { t } = useI18n()
 const scroller = ref<HTMLElement>()
-// 遮罩和可交互状态跟随真实任务；防闪烁的延时只用于非阻塞的视觉提示。
-let restoreTo = readListScroll(props.scrollKey)
-function restoreScroll(): void {
-  if (restoreTo === undefined || props.loading || !scroller.value) return
-  scroller.value.scrollTop = restoreTo
-  restoreTo = undefined
-}
-function onScroll(): void {
-  if (restoreTo === undefined && scroller.value)
-    saveListScroll(props.scrollKey, scroller.value.scrollTop)
-}
-onMounted(restoreScroll)
-onUpdated(restoreScroll)
 defineExpose({
   scrollToTop: () => {
-    restoreTo = undefined
     scroller.value?.scrollTo({ top: 0 })
-    saveListScroll(props.scrollKey, 0)
   },
 })
 </script>
@@ -49,7 +32,6 @@ defineExpose({
         :aria-label="label"
         :aria-busy="loading || undefined"
         tabindex="0"
-        @scroll="onScroll"
       >
         <div v-if="$slots.header" class="modern-list-header"><slot name="header" /></div>
         <slot />
@@ -91,6 +73,8 @@ defineExpose({
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  /* 数据行更新时不锚定旧行，避免新行被推到可视区域上方。 */
+  overflow-anchor: none;
   scrollbar-gutter: var(--modern-scrollbar-gutter);
   overscroll-behavior: contain;
 }
