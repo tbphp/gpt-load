@@ -1,4 +1,6 @@
+import { zhCN as proxies } from '@shared/proxies/messages'
 export default {
+  proxies,
   concurrency: {
     label: '并发上限',
     value: '并发 {current} / {limit}',

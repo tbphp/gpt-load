@@ -1,5 +1,6 @@
 import {
   Activity,
+  Network,
   Boxes,
   ChartNoAxesCombined,
   House,
@@ -21,6 +22,14 @@ export function pagePath(name: string): string {
 }
 
 export const navigationItems = [
+  {
+    id: 'proxies',
+    name: 'modern-proxies',
+    path: pagePath('proxies'),
+    section: 'system',
+    icon: Network,
+    adminOnly: true,
+  },
   {
     id: 'home',
     name: 'modern-home',

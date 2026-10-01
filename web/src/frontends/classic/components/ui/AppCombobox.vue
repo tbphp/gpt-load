@@ -34,6 +34,8 @@ const props = withDefaults(
     size?: 'sm' | 'md' | 'touch'
     spellcheck?: boolean
     monospace?: boolean
+    selectionOnly?: boolean
+    selectedLabel?: string
   }>(),
   {
     id: undefined,
@@ -44,6 +46,8 @@ const props = withDefaults(
     size: 'md',
     spellcheck: true,
     monospace: false,
+    selectionOnly: false,
+    selectedLabel: undefined,
   },
 )
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -54,6 +58,11 @@ const normalizedOptions = computed(() => props.options.filter((option) => option
 
 function selectOption(value: unknown): void {
   if (typeof value === 'string') emit('update:modelValue', value)
+}
+
+function displaySelection(value: unknown): string {
+  if (!value) return ''
+  return props.options.find((option) => option.value === value)?.label ?? props.selectedLabel ?? ''
 }
 </script>
 
@@ -83,14 +92,15 @@ function selectOption(value: unknown): void {
         v-bind="attrs"
         class="app-combobox__input"
         :class="{ 'app-combobox__input--mono': monospace }"
-        :model-value="modelValue"
+        :model-value="selectionOnly ? undefined : modelValue"
+        :display-value="selectionOnly ? displaySelection : undefined"
         :placeholder="placeholder"
         :disabled="disabled"
         :aria-invalid="invalid || undefined"
         :aria-describedby="describedBy"
         :spellcheck="spellcheck"
         data-input-inner
-        @update:model-value="emit('update:modelValue', $event)"
+        @update:model-value="!selectionOnly && emit('update:modelValue', $event)"
       />
       <ComboboxTrigger class="app-combobox__trigger" :disabled="disabled">
         <ChevronDown :size="16" aria-hidden="true" />

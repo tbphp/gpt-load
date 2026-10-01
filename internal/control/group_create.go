@@ -123,6 +123,10 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 			return err
 		}
 
+		group.ProxyConfig, err = s.managedProxyOverride(ctx, tx, group.ProxyConfig)
+		if err != nil {
+			return err
+		}
 		if err := tx.Create(&group).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
@@ -237,13 +241,17 @@ func (s *Service) normalizeGroupCreate(
 	if err != nil {
 		return normalizedGroupCreate{}, err
 	}
-	var proxy *outboundproxy.Config
+	var proxy, resolvedProxy *outboundproxy.Config
 	if request.Proxy.Set && !request.Proxy.Null {
 		normalizedProxy, normalizeErr := outboundproxy.Normalize(request.Proxy.Value)
 		if normalizeErr != nil || normalizedProxy.Mode == outboundproxy.ModeInherit {
 			return normalizedGroupCreate{}, app_errors.ErrValidation
 		}
 		proxy = &normalizedProxy
+		resolvedProxy, err = s.resolveManagedProxy(ctx, s.db, proxy)
+		if err != nil {
+			return normalizedGroupCreate{}, err
+		}
 	}
 	_, err = state.Compile(state.CompileInput{
 		SystemSettings:   systemSettings,
@@ -253,7 +261,7 @@ func (s *Service) normalizeGroupCreate(
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "candidate", ChannelID: request.ChannelID, PriceMultiplier: &priceMultiplier,
 			ConnectionType: string(connectionType), Params: canonicalParams,
-			Models: runtimeModels, Settings: config.Settings{}, Proxy: proxy, Enabled: true,
+			Models: runtimeModels, Settings: config.Settings{}, Proxy: resolvedProxy, Enabled: true,
 		}},
 	})
 	if err != nil {

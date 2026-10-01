@@ -27,6 +27,9 @@ export type ProxyEffectiveMode = 'direct' | 'environment' | 'custom'
 export type ProxyEffectiveSource = 'credential' | 'group' | 'global' | 'environment' | 'default'
 
 export interface ProxyViewDto {
+  proxy_id?: number
+  proxy_name?: string
+  reference_state?: string
   configured_mode: ProxyConfiguredMode
   effective_mode: ProxyEffectiveMode
   effective_source: ProxyEffectiveSource
@@ -34,7 +37,7 @@ export interface ProxyViewDto {
   has_auth: boolean
 }
 
-export type ProxyConfigInput = { mode: 'direct' } | { mode: 'custom'; url: string }
+export type ProxyConfigInput = { mode: 'direct' } | { mode: 'custom'; proxy_id: number }
 export type ProxyMutation = ProxyConfigInput | null
 
 export interface GroupCollectionFilters {

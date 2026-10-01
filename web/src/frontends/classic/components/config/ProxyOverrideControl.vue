@@ -3,8 +3,8 @@ import { computed, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { ProxyConfiguredMode, ProxyViewDto } from '@/api/control/types'
-import { proxyDraftState, proxyPlaceholderURL } from '@/app/resources/proxy'
-import AppTextInput from '@/components/ui/AppTextInput.vue'
+import { proxyDraftState } from '@/app/resources/proxy'
+import ProxySelect from '@/features/proxies/ProxySelect.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 
@@ -29,14 +29,13 @@ const inputId = `${useId()}-proxy-url`
 // inherit 由外层「覆盖 / 恢复默认」开关表达，这里只给出显式覆盖的两种取值。
 const modeOptions = computed<SegmentedControlOption[]>(() => [
   { value: 'direct', label: t('common.proxy.mode.direct'), disabled: props.disabled },
-  { value: 'custom', label: t('common.proxy.mode.custom'), disabled: props.disabled },
+  { value: 'custom', label: t('proxies.select'), disabled: props.disabled },
 ])
 const error = computed(() =>
   proxyDraftState(props.base, props.mode, props.endpoint).invalid
-    ? t('common.proxy.invalid')
+    ? t('proxies.selectHelp')
     : undefined,
 )
-const placeholder = computed(() => proxyPlaceholderURL(props.base) ?? t('common.proxy.placeholder'))
 
 function setMode(value: string): void {
   if (props.disabled || (value !== 'direct' && value !== 'custom')) return
@@ -56,16 +55,12 @@ function setMode(value: string): void {
 
     <CompactFieldError v-if="mode === 'custom'" :id="inputId" :error="error">
       <template #default="{ invalid, describedBy }">
-        <AppTextInput
+        <ProxySelect
           :id="inputId"
           :model-value="endpoint"
-          :label="t('common.proxy.urlLabel')"
-          :placeholder="placeholder"
-          appearance="surface"
-          size="compact"
-          autocomplete="off"
-          :spellcheck="false"
-          monospace
+          :saved-id="base.proxy_id"
+          :saved-name="base.proxy_name"
+          :reference-state="base.reference_state"
           :disabled="disabled"
           :invalid="invalid"
           :described-by="describedBy"

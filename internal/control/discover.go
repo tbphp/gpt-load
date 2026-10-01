@@ -119,7 +119,10 @@ func (s *Service) DiscoverModels(
 		if normalizeErr != nil || normalized.Mode == outboundproxy.ModeInherit {
 			return ModelDiscoveryResult{}, app_errors.ErrValidation
 		}
-		draftProxy = &normalized
+		draftProxy, err = s.resolveManagedProxy(ctx, s.db, &normalized)
+		if err != nil {
+			return ModelDiscoveryResult{}, err
+		}
 	}
 	snapshot, err := state.Compile(state.CompileInput{
 		SystemSettings: systemSettings, ChannelRegistry: s.channelRegistry,

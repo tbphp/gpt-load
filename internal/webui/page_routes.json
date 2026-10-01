@@ -9,6 +9,7 @@
     { "name": "access-keys", "path": "/access-keys" },
     { "name": "monitor", "path": "/monitor" },
     { "name": "models", "path": "/models" },
+    { "name": "proxies", "path": "/proxies" },
     { "name": "settings", "path": "/settings" }
   ]
 }

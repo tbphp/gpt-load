@@ -1,4 +1,6 @@
+import { enUS as proxies } from '@shared/proxies/messages'
 export default {
+  proxies,
   concurrency: {
     label: 'Concurrency limit',
     value: 'Concurrency {current} / {limit}',

@@ -137,6 +137,10 @@ func (s *Service) CreateGroupIdempotent(
 			if err := s.initializeValidationProtocol(&group); err != nil {
 				return idempotentMutationResult{}, err
 			}
+			group.ProxyConfig, err = s.managedProxyOverride(ctx, tx, group.ProxyConfig)
+			if err != nil {
+				return idempotentMutationResult{}, err
+			}
 			if err := tx.Create(&group).Error; err != nil {
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)
 			}
