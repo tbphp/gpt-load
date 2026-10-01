@@ -718,7 +718,6 @@ export default {
         empty: '所选文件中没有凭据。',
         too_large: '导入内容超过 32 MiB，请拆分后导入。',
         too_many: '单次最多导入 5000 条凭据，请拆分后导入。',
-        invalid_json: 'JSON 文件须包含一个凭据对象；批量凭据请使用每行一条的 TXT 或 JSONL 文件。',
         read_failed: '无法读取文件，请选择 UTF-8 编码的 TXT、JSON 或 JSONL 文件。',
       },
       batch: {

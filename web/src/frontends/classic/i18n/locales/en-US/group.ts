@@ -752,8 +752,6 @@ export default {
         empty: 'The selected files contain no credentials.',
         too_large: 'The import exceeds 32 MiB. Split it into smaller files.',
         too_many: 'Import up to 5000 credentials at a time. Split the files and retry.',
-        invalid_json:
-          'Each JSON file must contain one credential object. Use TXT or JSONL with one credential per line for bulk imports.',
         read_failed: 'Unable to read the files. Choose UTF-8 encoded TXT, JSON or JSONL files.',
       },
       batch: {

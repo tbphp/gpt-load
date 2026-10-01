@@ -7,7 +7,7 @@ export interface APIKeyFileImport {
 }
 
 export class APIKeyFileImportError extends Error {
-  constructor(readonly code: 'empty' | 'too_large' | 'too_many' | 'invalid_json' | 'read_failed') {
+  constructor(readonly code: 'empty' | 'too_large' | 'too_many' | 'read_failed') {
     super(code)
   }
 }
@@ -29,13 +29,11 @@ export async function readAPIKeyCredentialFiles(files: readonly File[]): Promise
     try {
       parsed = JSON.parse(content)
     } catch {
-      if (/\.json$/iu.test(file.name)) throw new APIKeyFileImportError('invalid_json')
+      // 非完整 JSON 对象沿用多行输入规则，由服务端逐行校验。
     }
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       // 每份格式化 JSON 压成一行，合并后仍沿用现有文本导入合同。
       content = JSON.stringify(parsed)
-    } else if (/\.json$/iu.test(file.name)) {
-      throw new APIKeyFileImportError('invalid_json')
     }
     contents.push(content)
   }
