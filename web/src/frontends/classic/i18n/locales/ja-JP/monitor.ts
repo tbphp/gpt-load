@@ -891,6 +891,10 @@ export default {
         duration: '所要時間',
         firstResponse: '初回応答',
         outputRate: '出力速度',
+        firstOutputHint:
+          'リクエスト受信から最初のテキスト・思考内容・ツール引数の送信まで。待機と再試行を含みます。',
+        outputRateHint:
+          '推定速度 =（出力 tokens − 1）÷ 最初と最後の有効出力の間隔。出力量には思考 tokens が含まれ、非公開の思考が推定値に影響する場合があります。',
         attemptCount: '試行回数',
         request: 'クライアントリクエスト',
         finalExecution: 'アップストリーム実行',

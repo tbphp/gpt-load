@@ -872,6 +872,9 @@ export default {
         duration: '耗时',
         firstResponse: '首响',
         outputRate: '输出速率',
+        firstOutputHint: '从收到请求到首次交付文本、思考内容或工具参数，包含排队和重试等待。',
+        outputRateHint:
+          '估算速度 =（输出 tokens − 1）÷ 首末有效输出间隔。输出量包含思考 tokens，隐藏思考可能影响结果。',
         attemptCount: '尝试次数',
         request: '客户端请求',
         finalExecution: '上游执行',

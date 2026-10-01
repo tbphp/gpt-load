@@ -140,6 +140,8 @@ type Record struct {
 	StatusCode              int
 	Stream                  bool
 	FirstResponseMs         *int64
+	FirstOutputMs           *int64
+	LastOutputMs            *int64
 	DurationMs              int64
 	AttemptCount            int
 	ErrorCode               string

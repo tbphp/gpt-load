@@ -98,7 +98,8 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if input.RetryCountMax != nil {
 		query = query.Where(retryCountExpression+" <= ?", *input.RetryCountMax)
 	}
-	query = applyNullableRange(query, "first_response_ms", input.FirstResponseMinMS, input.FirstResponseMaxMS)
+	// 保留查询参数名称，首响筛选与页面的有效输出口径一致；旧日志空值不匹配。
+	query = applyNullableRange(query, "first_output_ms", input.FirstResponseMinMS, input.FirstResponseMaxMS)
 	query = applyNullableRange(query, "duration_ms", input.DurationMinMS, input.DurationMaxMS)
 	query = applyNullableRange(
 		query,
@@ -390,6 +391,8 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 			StatusCode:            row.StatusCode,
 			Stream:                row.Stream,
 			FirstResponseMs:       row.FirstResponseMs,
+			FirstOutputMs:         row.FirstOutputMs,
+			LastOutputMs:          row.LastOutputMs,
 			DurationMs:            row.DurationMs,
 			AttemptCount:          row.AttemptCount,
 			ErrorCode:             row.ErrorCode,

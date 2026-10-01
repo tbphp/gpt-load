@@ -892,6 +892,10 @@ export default {
         duration: 'Duration',
         firstResponse: 'First response',
         outputRate: 'Output rate',
+        firstOutputHint:
+          'Time from receiving the request to delivering the first text, reasoning content, or tool arguments, including queueing and retries.',
+        outputRateHint:
+          'Estimated speed = (output tokens − 1) / time between first and last effective output. Output includes reasoning tokens; hidden reasoning may affect the estimate.',
         attemptCount: 'Attempts',
         request: 'Client request',
         finalExecution: 'Upstream execution',

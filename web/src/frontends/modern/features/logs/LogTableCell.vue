@@ -387,7 +387,7 @@ function fieldFilterValue(field: LogColumnId): string {
         <LogValue :row="row" column="first_response_ms" table />
       </template>
     </div>
-    <AppTooltip :label="t('logs.outputRate')">
+    <AppTooltip :label="t('logs.outputRateHint')">
       <div
         class="modern-log-cell-value modern-log-speed"
         tabindex="0"

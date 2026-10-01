@@ -151,6 +151,8 @@ type requestLogItemResponse struct {
 	StatusCode                int                          `json:"status_code"`
 	Stream                    bool                         `json:"stream"`
 	FirstResponseMs           *int64                       `json:"first_response_ms"`
+	FirstOutputMs             *int64                       `json:"first_output_ms"`
+	LastOutputMs              *int64                       `json:"last_output_ms"`
 	DurationMs                int64                        `json:"duration_ms"`
 	AttemptCount              int                          `json:"attempt_count"`
 	ErrorCode                 string                       `json:"error_code"`
@@ -1158,6 +1160,8 @@ func mapRequestLogItemResponse(
 		StatusCode:              record.StatusCode,
 		Stream:                  record.Stream,
 		FirstResponseMs:         record.FirstResponseMs,
+		FirstOutputMs:           record.FirstOutputMs,
+		LastOutputMs:            record.LastOutputMs,
 		DurationMs:              record.DurationMs,
 		AttemptCount:            record.AttemptCount,
 		ErrorCode:               record.ErrorCode,
