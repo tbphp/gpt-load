@@ -1,11 +1,13 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,6 +21,55 @@ import (
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/storage/models"
 )
+
+func TestProxyRouteIDUsesCanonicalSafePlatformRange(t *testing.T) {
+	t.Parallel()
+	valid := []string{"1"}
+	if strconv.IntSize == 64 {
+		valid = append(valid, "4294967296", "9007199254740991")
+	}
+	for _, value := range valid {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Params = gin.Params{{Key: "id", Value: value}}
+		id, err := proxyID(c)
+		if err != nil || strconv.FormatUint(uint64(id), 10) != value {
+			t.Errorf("valid proxy ID %q: id=%d err=%v", value, id, err)
+		}
+	}
+	for _, value := range []string{"", "0", "-1", "+1", "01", "9007199254740992", "raw-secret"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Params = gin.Params{{Key: "id", Value: value}}
+		if _, err := proxyID(c); err == nil {
+			t.Errorf("accepted invalid proxy ID %q", value)
+		}
+	}
+}
+
+func TestProxyUpdateAuditIdentifiesCatalogEntry(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	item, err := fixture.service.SaveProxy(t.Context(), 0, ProxySaveRequest{Name: "before", URL: "http://audit-proxy.example:8080"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	server := NewServer(&config.Config{AuthKey: authTestKey}, fixture.service)
+	server.logger = newControlJSONLogger(&logs)
+	engine := gin.New()
+	server.RegisterRoutes(engine)
+	request := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/proxies/%d", item.ID), strings.NewReader(`{"name":"after"}`))
+	request.Header.Set("Authorization", "Bearer "+authTestKey)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("update status=%d body=%s", response.Code, response.Body.String())
+	}
+	events := controlEventsNamed(decodeControlJSONLogs(t, logs.Bytes()), "mutation")
+	if len(events) != 1 || events[0]["resource_locator"] != fmt.Sprintf("proxy:%d", item.ID) {
+		t.Fatalf("proxy update audit did not identify the entry: %#v", events)
+	}
+}
 
 func TestManagedProxyRoutesDeduplicateAndPublishFallback(t *testing.T) {
 	if err := i18n.Init(); err != nil {

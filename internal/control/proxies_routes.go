@@ -10,11 +10,11 @@ import (
 )
 
 func proxyID(c *gin.Context) (uint, error) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	id, err := parseCanonicalSafePlatformUint(c.Param("id"))
 	if err != nil || id == 0 {
 		return 0, app_errors.ErrBadRequest
 	}
-	return uint(id), nil
+	return id, nil
 }
 
 func (s *Server) handleListProxies(c *gin.Context) {

@@ -84,17 +84,24 @@ watch(
 )
 const target = ref('')
 const savedTarget = ref('')
-const targetState = ref<'saved' | 'saving' | 'saveFailed'>('saved')
+const targetSaveFailed = ref(false)
+const savingTarget = ref(false)
+const targetState = computed(() => {
+  const value = target.value.trim()
+  if (!savedTarget.value || !validTestURL(value)) return ''
+  if (savingTarget.value) return 'saving'
+  if (value === savedTarget.value) return 'saved'
+  return targetSaveFailed.value ? 'saveFailed' : 'saving'
+})
 let initialized = false
 let targetTimer: ReturnType<typeof setTimeout> | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
-let savingTarget = false
 let alive = true
 watch(
   query.data,
   (value) => {
     if (!value) return
-    if (!initialized || (!savingTarget && target.value.trim() === savedTarget.value)) {
+    if (!initialized || (!savingTarget.value && target.value.trim() === savedTarget.value)) {
       target.value = value.test_url
       savedTarget.value = value.test_url
       initialized = true
@@ -111,33 +118,32 @@ watch(search, (q) => {
 })
 watch(target, () => {
   clearTimeout(targetTimer)
+  targetSaveFailed.value = false
   if (
     initialized &&
     target.value.trim() !== savedTarget.value &&
     validTestURL(target.value.trim())
   ) {
-    targetState.value = 'saving'
     targetTimer = setTimeout(() => void saveTarget(), 500)
   }
 })
 async function saveTarget() {
-  if (savingTarget || !initialized) return
-  savingTarget = true
+  if (savingTarget.value || !initialized || !validTestURL(target.value.trim())) return
+  savingTarget.value = true
+  targetSaveFailed.value = false
   try {
     while (validTestURL(target.value.trim()) && target.value.trim() !== savedTarget.value) {
       const value = target.value.trim()
-      targetState.value = 'saving'
       await saveProxyTestURL(client, value)
       savedTarget.value = value
       cache.setQueriesData<ProxyList>({ queryKey: proxyListKey }, (previous) =>
         previous ? { ...previous, test_url: value } : previous,
       )
     }
-    targetState.value = 'saved'
   } catch {
-    targetState.value = 'saveFailed'
+    targetSaveFailed.value = true
   } finally {
-    savingTarget = false
+    savingTarget.value = false
   }
 }
 function change(value: Partial<ProxyFilters>) {
@@ -326,6 +332,7 @@ const confirmationDescription = computed(() => {
     }),
     impact.value.global ? t('proxies.globalImpact') : '',
     t('proxies.inheritWarning'),
+    confirmation.value.action === 'disable' ? t('proxies.resumeWarning') : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -396,7 +403,7 @@ onScopeDispose(() => {
         :error="target && !validTestURL(target.trim()) ? t('proxies.invalidURL') : undefined"
         @blur="saveTarget"
       />
-      <span role="status">{{ t('proxies.' + targetState) }}</span>
+      <span v-if="targetState" role="status">{{ t('proxies.' + targetState) }}</span>
       <AppButton v-if="targetState === 'saveFailed'" variant="ghost" @click="saveTarget">{{
         t('proxies.save')
       }}</AppButton>

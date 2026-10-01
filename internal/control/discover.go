@@ -123,6 +123,9 @@ func (s *Service) DiscoverModels(
 		if err != nil {
 			return ModelDiscoveryResult{}, err
 		}
+		if draftProxy == nil {
+			return ModelDiscoveryResult{}, app_errors.ErrValidation
+		}
 	}
 	snapshot, err := state.Compile(state.CompileInput{
 		SystemSettings: systemSettings, ChannelRegistry: s.channelRegistry,

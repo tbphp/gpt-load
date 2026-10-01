@@ -142,7 +142,7 @@ func (s *Service) draftNetworkContext(
 		return subscriptionruntime.NetworkContext{}, err
 	}
 	if resolved == nil {
-		return s.globalNetworkContext(ctx, s.db)
+		return subscriptionruntime.NetworkContext{}, app_errors.ErrValidation
 	}
 	effective, err := outboundproxy.Resolve(nil, resolved, nil, nil)
 	if err != nil {
