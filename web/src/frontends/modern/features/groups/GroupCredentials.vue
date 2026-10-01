@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Upload,
 } from '@lucide/vue'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -39,7 +40,12 @@ import {
   runCredentialAction,
 } from '@modern/api/credential-actions'
 import { ApiError } from '@shared/http/errors'
-import { createOperationKey } from './group-create-operation'
+import {
+  APIKeyFileImportError,
+  readAPIKeyCredentialFiles,
+  type APIKeyFileImport,
+} from '@shared/api-key-file-import'
+import { createOperationKey, useGroupCreateOperation } from './group-create-operation'
 import APIKeyCredentialCard from './APIKeyCredentialCard.vue'
 import SubscriptionCredentialCard from './SubscriptionCredentialCard.vue'
 import CredentialDetailPanel from './CredentialDetailPanel.vue'
@@ -51,6 +57,7 @@ import {
   AppCheckbox,
   AppCollectionState,
   AppConfirmDialog,
+  AppFileButton,
   AppFilterSummary,
   AppIconButton,
   AppListFrame,
@@ -169,8 +176,10 @@ const syncSucceeded = ref(new Set<number>())
 const accountBatchPending = ref(false)
 const pendingAction = ref('')
 const deleting = ref<number[]>([])
-type FullAction = 'download' | 'enable' | 'disable' | 'restore'
+type FullAction = 'download' | 'enable' | 'disable' | 'restore' | 'import'
 const fullTarget = ref<FullAction>()
+const importFile = ref<APIKeyFileImport>()
+const importOperation = useGroupCreateOperation(client)
 const error = ref('')
 const notice = ref('')
 type AccountBatchAction = 'sync' | 'download'
@@ -199,12 +208,23 @@ const syncPending = (id: number) => syncing.value.has(id) || queuedSync.value.ha
 const bulkBusy = computed(() => busy.value || accountBatchPending.value || syncing.value.size > 0)
 const stale = computed(() => query.isError.value && Boolean(query.data.value))
 const summary = computed(() => query.data.value?.counts)
-const fullActions = computed(() => [
-  { id: 'enable', label: t('groupDetail.full.enable'), icon: Play },
-  { id: 'disable', label: t('groupDetail.full.disable'), icon: Pause },
-  { id: 'restore', label: t('groupDetail.full.restore'), icon: RotateCcw },
-  { id: 'download', label: t('groupDetail.full.download'), icon: Download },
-])
+const fullActions = computed(() =>
+  [
+    ...(props.group.connectionType === 'api_key'
+      ? [{ id: 'import', label: t('groupDetail.full.import'), icon: Upload }]
+      : []),
+    { id: 'enable', label: t('groupDetail.full.enable'), icon: Play },
+    { id: 'disable', label: t('groupDetail.full.disable'), icon: Pause },
+    { id: 'restore', label: t('groupDetail.full.restore'), icon: RotateCcw },
+    { id: 'download', label: t('groupDetail.full.download'), icon: Download },
+  ].map((item) => ({ ...item, disabled: item.id !== 'import' && !summary.value?.total })),
+)
+const fullActionsDisabled = computed(
+  () => bulkBusy.value || (props.group.connectionType !== 'api_key' && !summary.value?.total),
+)
+const importRetryDisabled = computed(
+  () => Boolean(importOperation.operation.value) && !importOperation.canRetry.value,
+)
 const fullIcon = computed(
   () => fullActions.value.find((item) => item.id === fullTarget.value)?.icon,
 )
@@ -565,19 +585,85 @@ function downloadFile(file: { filename: string; content: string; type?: string }
     downloads.delete(url)
   }, 1000)
 }
-function openFullAction(value: string): void {
-  if (
-    bulkBusy.value ||
-    !summary.value?.total ||
-    !fullActions.value.some((item) => item.id === value)
-  )
+function openFullAction(value: string, openFile: () => void): void {
+  if (bulkBusy.value || !fullActions.value.some((item) => item.id === value && !item.disabled))
     return
   error.value = ''
+  if (value === 'import') {
+    if (importFile.value) fullTarget.value = 'import'
+    else openFile()
+    return
+  }
   fullTarget.value = value as FullAction
+}
+async function selectImportFiles(files: File[]): Promise<void> {
+  if (!files.length || bulkBusy.value || props.group.connectionType !== 'api_key') return
+  mutating.value = 'batch'
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await readAPIKeyCredentialFiles(files)
+    if (controller.signal.aborted) return
+    importFile.value = result
+    fullTarget.value = 'import'
+  } catch (cause) {
+    if (!controller.signal.aborted)
+      error.value = t(
+        'groupDetail.fileImport.' +
+          (cause instanceof APIKeyFileImportError ? cause.code : 'read_failed'),
+      )
+  } finally {
+    mutating.value = undefined
+  }
+}
+function closeFullAction(): void {
+  fullTarget.value = undefined
+  if (!importOperation.operation.value) importFile.value = undefined
+}
+async function submitFileImport(): Promise<void> {
+  if (!importFile.value || importRetryDisabled.value) return
+  importOperation.begin({
+    kind: 'append',
+    group: { id: props.group.id, name: props.group.name },
+    credentials: importFile.value.credentials,
+  })
+  mutating.value = 'batch'
+  error.value = ''
+  notice.value = ''
+  try {
+    const result = await importOperation.execute()
+    if (!result || controller.signal.aborted) return
+    if (result.kind === 'success') {
+      importOperation.reset()
+      importFile.value = undefined
+      fullTarget.value = undefined
+      notice.value = t('groupDetail.importResult', {
+        added: n(result.result.added),
+        duplicated: n(result.result.duplicated),
+      })
+      await changed()
+    } else if (result.kind === 'rejected') {
+      error.value = result.error.message || t('groupDetail.importFailed')
+      importOperation.reset()
+    } else {
+      error.value = t('groupCreate.outcome.' + result.kind)
+      if (result.kind === 'expired') {
+        importOperation.reset()
+        importFile.value = undefined
+        fullTarget.value = undefined
+      }
+    }
+  } finally {
+    mutating.value = undefined
+  }
 }
 async function applyFullAction(): Promise<void> {
   const value = fullTarget.value
   if (!value || bulkBusy.value) return
+  if (value === 'import') {
+    await submitFileImport()
+    return
+  }
   mutating.value = 'batch'
   error.value = ''
   notice.value = ''
@@ -721,6 +807,7 @@ async function resetQuota(): Promise<void> {
 }
 onScopeDispose(() => {
   controller.abort()
+  importFile.value = undefined
   clearTimeout(searchTimer)
   syncSuccessTimers.forEach((timer) => clearTimeout(timer))
   downloads.forEach((url) => URL.revokeObjectURL(url))
@@ -911,23 +998,33 @@ defineExpose({ refresh })
               />
             </template>
           </div>
-          <AppActionMenu
-            :label="t('groupDetail.full.actions')"
-            :items="fullActions"
-            :disabled="bulkBusy || !summary?.total"
-            @select="openFullAction"
+          <AppFileButton
+            :label="t('groupDetail.full.import')"
+            accept=".txt,.json,.jsonl,text/plain,application/json"
+            multiple
+            :disabled="bulkBusy || group.connectionType !== 'api_key'"
+            @select="selectImportFiles"
           >
-            <template #trigger>
-              <AppButton
-                :icon="Layers"
-                variant="ghost"
-                size="sm"
-                :disabled="bulkBusy || !summary?.total"
+            <template #default="{ open }">
+              <AppActionMenu
+                :label="t('groupDetail.full.actions')"
+                :items="fullActions"
+                :disabled="fullActionsDisabled"
+                @select="openFullAction($event, open)"
               >
-                {{ t('groupDetail.full.actions') }}<AppIcon :icon="ChevronDown" size="xs" />
-              </AppButton>
+                <template #trigger>
+                  <AppButton
+                    :icon="Layers"
+                    variant="ghost"
+                    size="sm"
+                    :disabled="fullActionsDisabled"
+                  >
+                    {{ t('groupDetail.full.actions') }}<AppIcon :icon="ChevronDown" size="xs" />
+                  </AppButton>
+                </template>
+              </AppActionMenu>
             </template>
-          </AppActionMenu>
+          </AppFileButton>
         </div>
       </template>
       <AppCollectionState
@@ -997,17 +1094,25 @@ defineExpose({ refresh })
     :title="fullTarget ? t('groupDetail.full.' + fullTarget) : ''"
     :subject="group.name"
     :description="
-      t(
-        fullTarget === 'restore'
-          ? 'groupDetail.full.restoreDescription'
-          : 'groupDetail.full.description',
-      )
+      fullTarget === 'import'
+        ? t('groupDetail.fileImport.description', { count: n(importFile?.count ?? 0) })
+        : t(
+            fullTarget === 'restore'
+              ? 'groupDetail.full.restoreDescription'
+              : 'groupDetail.full.description',
+          )
     "
-    :confirm-label="fullTarget ? t('groupDetail.full.' + fullTarget) : ''"
+    :confirm-label="
+      fullTarget === 'import' && importOperation.operation.value
+        ? t('groupCreate.checkResult')
+        : fullTarget
+          ? t('groupDetail.full.' + fullTarget)
+          : ''
+    "
     :pending="mutating !== undefined"
-    :disabled="bulkBusy"
+    :disabled="bulkBusy || (fullTarget === 'import' && importRetryDisabled)"
     :error="error"
-    @cancel="fullTarget = undefined"
+    @cancel="closeFullAction"
     @confirm="applyFullAction"
   />
   <AppConfirmDialog
