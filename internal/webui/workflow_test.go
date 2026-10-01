@@ -2649,7 +2649,7 @@ func TestDockerfileRuntimePinsPatchedOpenSSLPackages(t *testing.T) {
 	}
 	runtimeStage := content[runtimeStart : runtimeStart+1+runtimeEnd]
 
-	upgrade := "apk add --no-cache libcrypto3=3.5.8-r0 libssl3=3.5.8-r0"
+	upgrade := "apk add --no-cache libcrypto3=3.5.9-r0 libssl3=3.5.9-r0"
 	upgradeIndex := strings.Index(runtimeStage, upgrade)
 	if upgradeIndex < 0 {
 		t.Fatalf("Dockerfile runtime stage does not pin patched OpenSSL packages via %q", upgrade)
