@@ -72,7 +72,11 @@ func TestSubscriptionExecutionUsesAPIProxyRoot(t *testing.T) {
 					if !strings.HasPrefix(request.Header.Get("Authorization"), "Bearer ") {
 						t.Errorf("missing subscription Bearer header")
 					}
-					if strings.HasPrefix(test.name, "grok") && (request.Header.Get("X-XAI-Token-Auth") != "xai-grok-cli" || request.Header.Get("x-grok-client-version") != grokClientVersion || request.Header.Get("x-grok-client-identifier") != "grok-shell" || request.Header.Get("x-authenticateresponse") != "authenticate-response") {
+					if strings.HasPrefix(test.name, "grok") && (request.Header.Get("X-XAI-Token-Auth") != "xai-grok-cli" ||
+						request.Header.Get("x-grok-client-version") != grokClientVersion ||
+						request.Header.Get("User-Agent") != "xai-grok-workspace/"+grokClientVersion ||
+						request.Header.Get("x-grok-client-identifier") != "grok-shell" ||
+						request.Header.Get("x-authenticateresponse") != "authenticate-response") {
 						t.Errorf("missing Grok CLI identity headers: %#v", request.Header)
 					}
 					return &http.Response{StatusCode: http.StatusUnauthorized, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"denied"}}`)), Request: request}, nil
