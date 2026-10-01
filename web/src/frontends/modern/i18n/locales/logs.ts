@@ -14,6 +14,7 @@ export const zhCN = {
   modelNotObserved: '未观测到',
   outputRate: '输出速度',
   firstOutputHint: '从收到请求到首次交付文本、思考内容或工具参数，包含排队和重试等待。',
+  nonStreamOutputRateHint: '非流式平均速度 = 输出 tokens ÷ 总耗时，包含等待、重试及思考耗时。',
   outputRateHint:
     '估算速度 =（输出 tokens − 1）÷ 首末有效输出间隔。输出量包含思考 tokens，隐藏思考可能影响结果。',
   pricingModeHint: '按 {mode} 价格计价',
@@ -327,6 +328,8 @@ export const enUS: typeof zhCN = {
   outputRate: 'Output speed',
   firstOutputHint:
     'Time from receiving the request to delivering the first text, reasoning content, or tool arguments, including queueing and retries.',
+  nonStreamOutputRateHint:
+    'Non-streaming average speed = output tokens / total request duration, including waiting, retries, and reasoning time.',
   outputRateHint:
     'Estimated speed = (output tokens − 1) / time between first and last effective output. Output includes reasoning tokens; hidden reasoning may affect the estimate.',
   pricingModeHint: 'Priced using {mode} rates',
@@ -643,6 +646,8 @@ export const jaJP: typeof zhCN = {
   outputRate: '出力速度',
   firstOutputHint:
     'リクエスト受信から最初のテキスト・思考内容・ツール引数の送信まで。待機と再試行を含みます。',
+  nonStreamOutputRateHint:
+    '非ストリーミングの平均速度 = 出力 tokens ÷ リクエスト総時間。待機、再試行、思考の時間を含みます。',
   outputRateHint:
     '推定速度 =（出力 tokens − 1）÷ 最初と最後の有効出力の間隔。出力量には思考 tokens が含まれ、非公開の思考が推定値に影響する場合があります。',
   pricingModeHint: '{mode} 料金を適用',

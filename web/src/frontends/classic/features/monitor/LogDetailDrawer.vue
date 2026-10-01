@@ -479,7 +479,14 @@ function toggleAttemptErrorMessage(sequence: number): void {
           <div>
             <dt>{{ t('monitor.logs.drawer.outputRate') }}</dt>
             <dd>
-              <AppTooltip :content="t('monitor.logs.drawer.outputRateHint')"
+              <AppTooltip
+                :content="
+                  t(
+                    log.stream
+                      ? 'monitor.logs.drawer.outputRateHint'
+                      : 'monitor.logs.drawer.nonStreamOutputRateHint',
+                  )
+                "
                 ><span tabindex="0">{{ formatLogOutputRate(log, locale) }}</span></AppTooltip
               >
             </dd>
