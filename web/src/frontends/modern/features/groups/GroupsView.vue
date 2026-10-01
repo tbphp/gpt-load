@@ -852,7 +852,6 @@ useMessageSource(() =>
     <AppListFrame
       ref="listFrame"
       :label="t('groups.list')"
-      :scroll-key="route.fullPath"
       :loading="
         Boolean(data) &&
         (listLoading ||

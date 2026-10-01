@@ -246,7 +246,7 @@ useMessageSource(() =>
         </div>
         <AppLoadingIndicator :loading="pageLoading" />
       </header>
-      <main id="modern-content" class="modern-content" tabindex="-1">
+      <main id="modern-content" :key="route.path" class="modern-content" tabindex="-1">
         <slot />
       </main>
     </div>
