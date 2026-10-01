@@ -353,6 +353,8 @@ func TestDiscoverGrokModelsUsesOAuthExecutionIdentity(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer access-secret" ||
 			r.Header.Get("X-XAI-Token-Auth") != "xai-grok-cli" ||
+			r.Header.Get("x-grok-client-version") != grokClientVersion ||
+			r.Header.Get("User-Agent") != "xai-grok-workspace/"+grokClientVersion ||
 			r.Header.Get("x-grok-client-identifier") != "grok-shell" {
 			t.Fatalf("model headers = %#v", r.Header)
 		}

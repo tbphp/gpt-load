@@ -78,9 +78,10 @@ export const zhCN = {
     cors: '跨域访问（CORS）',
   },
   hints: {
-    global_concurrency_limit: '0 表示不限。仅限制数据面并发，满额立即拒绝。',
-    default_access_key_concurrency_limit: '0 表示不限。仅限制数据面并发，满额立即拒绝。',
-    default_group_concurrency_limit: '0 表示不限。仅限制数据面并发，满额立即拒绝。',
+    global_concurrency_limit: '限制所有访问密钥的请求总量，与密钥、分组上限同时生效。0 表示不限。',
+    default_access_key_concurrency_limit:
+      '每个访问密钥独立继承此值，跨分组合计；密钥可单独覆盖。0 表示不限。',
+    default_group_concurrency_limit: '每个分组独立继承此值；分组可单独覆盖。0 表示不限。',
     codex_live_mode:
       '分组可覆盖此默认值。直连要求客户端能访问上游；中继需要配置公网媒体地址及 UDP 端口。关闭仅停用语音。',
     request_redaction: '配置发送给上游与 JEV 的文本脱敏规则',
@@ -259,11 +260,11 @@ export const enUS = {
   },
   hints: {
     global_concurrency_limit:
-      '0 means unlimited. Applies to data-plane concurrency; reject immediately when full.',
+      'Caps total active requests across all access keys, alongside key and group limits. 0 means unlimited.',
     default_access_key_concurrency_limit:
-      '0 means unlimited. Applies to data-plane concurrency; reject immediately when full.',
+      'Each access key inherits this limit independently across its groups and may override it. 0 means unlimited.',
     default_group_concurrency_limit:
-      '0 means unlimited. Applies to data-plane concurrency; reject immediately when full.',
+      'Each group inherits this limit independently and may override it. 0 means unlimited.',
 
     codex_live_mode:
       'Groups can override this default. Direct mode requires client access to upstream media. Relay mode requires a reachable media IP and UDP ports. Off disables voice only.',
@@ -449,11 +450,11 @@ export const jaJP = {
   },
   hints: {
     global_concurrency_limit:
-      '0 は無制限。データプレーンの同時実行を制限し、上限到達時は即座に拒否します。',
+      '全アクセスキーの実行中リクエストの合計を制限します。キー・グループ上限も同時に適用されます。0 は無制限です。',
     default_access_key_concurrency_limit:
-      '0 は無制限。データプレーンの同時実行を制限し、上限到達時は即座に拒否します。',
+      '各アクセスキーが個別に継承する上限です。グループをまたいで合計し、キーごとに上書きできます。0 は無制限です。',
     default_group_concurrency_limit:
-      '0 は無制限。データプレーンの同時実行を制限し、上限到達時は即座に拒否します。',
+      '各グループが個別に継承する上限です。グループごとに上書きできます。0 は無制限です。',
 
     codex_live_mode:
       'グループで既定値を上書きできます。直接接続はクライアントから上流への通信が必要です。中継には到達可能なメディア IP と UDP ポートが必要です。無効にしてもテキストは利用できます。',

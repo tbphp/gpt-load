@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	grokClientVersion = "0.2.120"
+	// Grok 客户端身份由推理、模型发现和额度查询共用；升级 CPA 时一并核对。
+	grokClientVersion = "1.0.44"
 	grokModelsURL     = xaiauth.CLIChatProxyBaseURL + "/models"
 )
 
