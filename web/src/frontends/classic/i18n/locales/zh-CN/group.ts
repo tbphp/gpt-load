@@ -684,6 +684,7 @@ export default {
       },
       full: {
         actions: '全量操作',
+        import: '从文件导入',
         download: '下载全部',
         enable: '启用全部',
         disable: '停用全部',
@@ -711,6 +712,13 @@ export default {
           restore: '已恢复 {count} 个{kind}',
         },
         failed: '无法完成全量操作',
+      },
+      fileImport: {
+        description: '将文件中的 {count} 条凭据添加到当前分组，已有重复凭据会自动跳过。',
+        empty: '所选文件中没有凭据。',
+        too_large: '导入内容超过 32 MiB，请拆分后导入。',
+        too_many: '单次最多导入 5000 条凭据，请拆分后导入。',
+        read_failed: '无法读取文件，请选择 UTF-8 编码的 TXT、JSON 或 JSONL 文件。',
       },
       batch: {
         selected: '已选择 {count} 项',

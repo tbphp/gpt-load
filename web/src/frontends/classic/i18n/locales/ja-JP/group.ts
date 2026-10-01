@@ -723,6 +723,7 @@ export default {
       },
       full: {
         actions: '全件操作',
+        import: 'ファイルからインポート',
         download: 'すべてダウンロード',
         enable: 'すべて有効化',
         disable: 'すべて無効化',
@@ -751,6 +752,15 @@ export default {
           restore: '{count} 件の{kind}を回復しました',
         },
         failed: '全件操作を完了できません',
+      },
+      fileImport: {
+        description:
+          'ファイル内の {count} 件の認証情報をこのグループに追加します。既存の重複はスキップします。',
+        empty: '選択したファイルに認証情報がありません。',
+        too_large: 'インポート内容が 32 MiB を超えています。ファイルを分割してください。',
+        too_many: '一度にインポートできる認証情報は 5000 件までです。ファイルを分割してください。',
+        read_failed:
+          'ファイルを読み込めません。UTF-8 の TXT、JSON または JSONL ファイルを選択してください。',
       },
       batch: {
         selected: '{count} 件を選択',

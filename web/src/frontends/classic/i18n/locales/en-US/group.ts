@@ -716,6 +716,7 @@ export default {
       },
       full: {
         actions: 'All credentials',
+        import: 'Import from files',
         download: 'Download all',
         enable: 'Enable all',
         disable: 'Disable all',
@@ -744,6 +745,14 @@ export default {
           restore: 'Restored {count} {kind}',
         },
         failed: 'Unable to complete the full-Group operation',
+      },
+      fileImport: {
+        description:
+          'Add {count} credentials from the files to this group. Existing duplicates will be skipped.',
+        empty: 'The selected files contain no credentials.',
+        too_large: 'The import exceeds 32 MiB. Split it into smaller files.',
+        too_many: 'Import up to 5000 credentials at a time. Split the files and retry.',
+        read_failed: 'Unable to read the files. Choose UTF-8 encoded TXT, JSON or JSONL files.',
       },
       batch: {
         selected: '{count} selected',

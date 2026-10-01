@@ -9,6 +9,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Upload,
 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -17,6 +18,11 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@shared/http/client-context'
 import { ApiError } from '@shared/http/errors'
+import {
+  APIKeyFileImportError,
+  readAPIKeyCredentialFiles,
+  type APIKeyFileImport,
+} from '@shared/api-key-file-import'
 import type {
   AccessProtocol,
   CredentialCollectionDto,
@@ -51,7 +57,13 @@ import {
   inspectGroupCredentialConnection,
   type CredentialStage,
 } from '@/app/resources/credential-stages'
-import { getGroupModels, getGroupSettings } from '@/app/resources/groups'
+import {
+  getGroupModels,
+  getGroupSettings,
+  importGroupCredentials,
+  type CredentialImportResult,
+} from '@/app/resources/groups'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useToast } from '@/app/toast'
@@ -72,6 +84,7 @@ import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import SubscriptionCredentialStager from '@/features/import/SubscriptionCredentialStager.vue'
+import { useStableImportOperation } from '@/features/import/import-operation'
 import { presentSubscriptionErrorKey } from '@/features/subscription-error-presenter'
 import { createUUID } from '@/lib/uuid'
 
@@ -89,7 +102,7 @@ import {
 } from '../group-route'
 
 const batchCredentialConcurrency = 4
-type FullCredentialAction = 'download' | 'enable' | 'disable' | 'restore'
+type FullCredentialAction = 'download' | 'enable' | 'disable' | 'restore' | 'import'
 type CredentialTestRestoreError = 'failed' | 'conflict' | 'conflict_refresh_failed'
 
 const props = defineProps<{
@@ -150,6 +163,14 @@ const resetOperationKeys = new Map<number, string>()
 const connectionWorkspaceOpen = ref(false)
 const fullActionsOpen = ref(false)
 const fullActionTarget = ref<FullCredentialAction>()
+const importInput = ref<HTMLInputElement>()
+const importFile = ref<APIKeyFileImport>()
+const importFeedback = ref('')
+const importOperation = useStableImportOperation<
+  { groupID: number; credentials: string },
+  CredentialImportResult
+>()
+let importOwner = 0
 const connectionStages = ref<CredentialStage[]>([])
 const connectionImportState = ref({ busy: false, hasResults: false })
 const connectOperationKey = ref<string>()
@@ -223,6 +244,18 @@ const fullCredentialKind = computed(() =>
 const fullActionCopy = computed(() => {
   const action = fullActionTarget.value
   if (action === undefined) return { title: '', description: '', confirm: '' }
+  if (action === 'import')
+    return {
+      title: t('group.credentials.full.import'),
+      description: t('group.credentials.fileImport.description', {
+        count: n(importFile.value?.count ?? 0),
+      }),
+      confirm: t(
+        importOperation.operation.value
+          ? 'import.operation.checkResult'
+          : 'group.credentials.full.import',
+      ),
+    }
   return {
     title: t(`group.credentials.full.confirmTitle.${action}`, {
       kind: fullCredentialKind.value,
@@ -336,6 +369,7 @@ watch(
 watch(
   () => props.groupId,
   () => {
+    resetFileImport()
     resetCredentialTestState()
     connectionWorkspaceOpen.value = false
     fullActionsOpen.value = false
@@ -774,14 +808,119 @@ async function downloadCredentialFile(item: CredentialItemDto): Promise<void> {
 }
 
 function openFullAction(action: FullCredentialAction): void {
-  if (bulkActionsBusy.value || (collection.value?.summary.total ?? 0) === 0) return
+  if (bulkActionsBusy.value) return
+  if (action === 'import') {
+    if (props.connectionType !== 'api_key') return
+    fullActionsOpen.value = false
+    if (importFile.value) fullActionTarget.value = 'import'
+    else importInput.value?.click()
+    return
+  }
+  if ((collection.value?.summary.total ?? 0) === 0) return
   fullActionsOpen.value = false
   fullActionTarget.value = action
 }
 
+function resetFileImport(): void {
+  importOwner++
+  importFile.value = undefined
+  importFeedback.value = ''
+  importOperation.reset()
+  setPending('batch', 'all-import', false)
+}
+function closeFullAction(): void {
+  if (fullActionBusy.value) return
+  fullActionTarget.value = undefined
+  if (!importOperation.operation.value) resetFileImport()
+}
+async function selectImportFiles(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  if (!files.length || bulkActionsBusy.value || props.connectionType !== 'api_key') return
+  const owner = ++importOwner
+  setPending('batch', 'all-import', true)
+  feedback.value = ''
+  importFeedback.value = ''
+  try {
+    const result = await readAPIKeyCredentialFiles(files)
+    if (owner !== importOwner) return
+    importFile.value = result
+    fullActionTarget.value = 'import'
+  } catch (cause) {
+    if (owner === importOwner)
+      feedback.value = t(
+        'group.credentials.fileImport.' +
+          (cause instanceof APIKeyFileImportError ? cause.code : 'read_failed'),
+      )
+  } finally {
+    if (owner === importOwner) setPending('batch', 'all-import', false)
+  }
+}
+async function confirmFileImport(): Promise<void> {
+  if (!importFile.value) return
+  const owner = importOwner
+  importOperation.begin({ groupID: props.groupId, credentials: importFile.value.credentials })
+  setPending('batch', 'all-import', true)
+  importFeedback.value = ''
+  try {
+    const outcome = await importOperation.execute((operation, signal) =>
+      importGroupCredentials(
+        client,
+        operation.payload.groupID,
+        { credentials: operation.payload.credentials },
+        operation.idempotencyKey,
+        signal,
+      ),
+    )
+    if (!outcome || owner !== importOwner) return
+    if (outcome.kind === 'confirmed') {
+      const result = outcome.value
+      fullActionTarget.value = undefined
+      resetFileImport()
+      await applyInvalidationPlan(
+        queryClient,
+        mutationInvalidationPlans.group.importCredentials(result.group_id),
+      )
+      toast.show({
+        message: t('import.credentials.result', {
+          added: n(result.credentials_added),
+          duplicated: n(result.credentials_duplicated),
+        }),
+        tone: 'success',
+      })
+    } else if (outcome.kind === 'failed' && outcome.reason === 'rejected') {
+      const cause = importOperation.lastError.value
+      importFeedback.value =
+        cause instanceof ApiError ? cause.message : t('import.existing.importFailed')
+      importOperation.reset()
+    } else if (outcome.kind === 'failed' && outcome.reason === 'expired-known') {
+      fullActionTarget.value = undefined
+      resetFileImport()
+      feedback.value = t('import.operation.expired')
+    } else {
+      importFeedback.value = t(
+        'import.operation.' +
+          (outcome.kind === 'reconciling'
+            ? 'reconciling'
+            : outcome.kind === 'failed' && outcome.reason === 'retryable-precondition'
+              ? 'waiting'
+              : 'indeterminate'),
+      )
+    }
+  } finally {
+    if (owner === importOwner) setPending('batch', 'all-import', false)
+  }
+}
+onBeforeUnmount(resetFileImport)
+
 async function confirmFullAction(): Promise<void> {
   const action = fullActionTarget.value
   if (action === undefined || batchBusy.value || singleBusy.value) return
+  if (action === 'import') {
+    await confirmFileImport()
+    return
+  }
   feedback.value = ''
   setPending('batch', `all-${action}`, true)
   try {
@@ -1566,7 +1705,10 @@ async function runBatch(
             <AppButton
               variant="secondary"
               :busy="batchBusy"
-              :disabled="bulkActionsBusy || (collection?.summary.total ?? 0) === 0"
+              :disabled="
+                bulkActionsBusy ||
+                (connectionType !== 'api_key' && (collection?.summary.total ?? 0) === 0)
+              "
             >
               <ListChecks :size="16" aria-hidden="true" />
               {{ t('group.credentials.full.actions') }}
@@ -1574,24 +1716,59 @@ async function runBatch(
             </AppButton>
           </template>
           <div class="group-credentials__full-menu">
-            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('download')">
+            <button
+              v-if="connectionType === 'api_key'"
+              type="button"
+              :disabled="bulkActionsBusy"
+              @click="openFullAction('import')"
+            >
+              <Upload :size="15" aria-hidden="true" />
+              {{ t('group.credentials.full.import') }}
+            </button>
+            <button
+              type="button"
+              :disabled="bulkActionsBusy || !collection?.summary.total"
+              @click="openFullAction('download')"
+            >
               <Download :size="15" aria-hidden="true" />
               {{ t('group.credentials.full.download') }}
             </button>
-            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('enable')">
+            <button
+              type="button"
+              :disabled="bulkActionsBusy || !collection?.summary.total"
+              @click="openFullAction('enable')"
+            >
               <CircleCheck :size="15" aria-hidden="true" />
               {{ t('group.credentials.full.enable') }}
             </button>
-            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('disable')">
+            <button
+              type="button"
+              :disabled="bulkActionsBusy || !collection?.summary.total"
+              @click="openFullAction('disable')"
+            >
               <CircleOff :size="15" aria-hidden="true" />
               {{ t('group.credentials.full.disable') }}
             </button>
-            <button type="button" :disabled="bulkActionsBusy" @click="openFullAction('restore')">
+            <button
+              type="button"
+              :disabled="bulkActionsBusy || !collection?.summary.total"
+              @click="openFullAction('restore')"
+            >
               <RotateCcw :size="15" aria-hidden="true" />
               {{ t('group.credentials.full.restore') }}
             </button>
           </div>
         </AppPopover>
+        <input
+          v-if="connectionType === 'api_key'"
+          ref="importInput"
+          type="file"
+          hidden
+          multiple
+          accept=".txt,.json,.jsonl,text/plain,application/json"
+          :disabled="bulkActionsBusy"
+          @change="selectImportFiles"
+        />
         <AppButton
           v-if="connectionType === 'subscription' && authorizationMethods.length > 0"
           :disabled="bulkActionsBusy"
@@ -1937,9 +2114,22 @@ async function runBatch(
       :tone="fullActionTarget === 'disable' ? 'danger' : 'default'"
       description-tone="warning"
       :pending="fullActionBusy"
-      @update:open="!$event && !fullActionBusy && (fullActionTarget = undefined)"
+      :confirm-disabled="
+        fullActionTarget === 'import' &&
+        Boolean(importOperation.operation.value) &&
+        !importOperation.canRetry.value
+      "
+      @update:open="!$event && closeFullAction()"
       @confirm="confirmFullAction"
-    />
+    >
+      <InlineFeedback
+        v-if="fullActionTarget === 'import' && importFeedback"
+        tone="danger"
+        appearance="ledger"
+      >
+        {{ importFeedback }}
+      </InlineFeedback>
+    </AppConfirmDialog>
     <AppConfirmDialog
       appearance="ledger"
       :open="resetTarget !== undefined"

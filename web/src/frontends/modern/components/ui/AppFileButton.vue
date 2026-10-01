@@ -4,7 +4,7 @@ import { ref } from 'vue'
 import AppButton from './AppButton.vue'
 import type { ControlSize } from './types'
 
-defineProps<{
+const props = defineProps<{
   label: string
   accept?: string
   multiple?: boolean
@@ -14,6 +14,9 @@ defineProps<{
 }>()
 const emit = defineEmits<{ select: [files: File[]] }>()
 const input = ref<HTMLInputElement>()
+function open(): void {
+  if (!props.disabled && !props.loading) input.value?.click()
+}
 function selected(event: Event): void {
   const element = event.target as HTMLInputElement
   const files = Array.from(element.files ?? [])
@@ -23,14 +26,11 @@ function selected(event: Event): void {
 </script>
 
 <template>
-  <AppButton
-    :icon="Upload"
-    :disabled="disabled"
-    :loading="loading"
-    :size="size"
-    @click="input?.click()"
-    >{{ label }}</AppButton
-  >
+  <slot :open="open">
+    <AppButton :icon="Upload" :disabled="disabled" :loading="loading" :size="size" @click="open">{{
+      label
+    }}</AppButton>
+  </slot>
   <input
     ref="input"
     type="file"
