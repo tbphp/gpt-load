@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	grokClientVersion = "0.2.120"
+	grokClientVersion = "1.0.44"
 	grokModelsURL     = xaiauth.CLIChatProxyBaseURL + "/models"
 )
 
