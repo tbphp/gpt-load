@@ -39,6 +39,8 @@ type ForwardInput struct {
 	UpstreamModelID      string
 	OnStreamReady        func()
 	OnFirstResponse      func()
+	// OnOutput 的 valid=false 撤销不完整的测速采样，不影响转发结果。
+	OnOutput func(valid bool)
 	// OnResponse 在原生 Response 对象下发前登记归属，不承担上游执行。
 	OnResponse func([]byte) error
 

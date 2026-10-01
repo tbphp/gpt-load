@@ -691,8 +691,9 @@ function cacheTooltip(log: RequestLogItemDto): string {
 }
 
 function timingPrimary(log: RequestLogItemDto): string {
-  if (!log.stream || log.first_response_ms === null) return formatLogDuration(log.duration_ms)
-  return `${formatLogDuration(log.first_response_ms)} / ${formatLogDuration(log.duration_ms)}`
+  if (!log.stream) return formatLogDuration(log.duration_ms)
+  const first = log.first_output_ms === null ? '—' : formatLogDuration(log.first_output_ms)
+  return `${first} / ${formatLogDuration(log.duration_ms)}`
 }
 
 function costLabel(log: RequestLogItemDto): string {
@@ -1053,13 +1054,18 @@ function costLabel(log: RequestLogItemDto): string {
             <OverflowTooltip as="span" :content="timingPrimary(log)">
               {{ timingPrimary(log) }}
             </OverflowTooltip>
-            <OverflowTooltip
+            <AppTooltip
               v-if="formatLogOutputRate(log, locale) !== '—'"
-              as="small"
-              :content="formatLogOutputRate(log, locale)"
+              :content="
+                t(
+                  log.stream
+                    ? 'monitor.logs.drawer.outputRateHint'
+                    : 'monitor.logs.drawer.nonStreamOutputRateHint',
+                )
+              "
             >
-              {{ formatLogOutputRate(log, locale) }}
-            </OverflowTooltip>
+              <small tabindex="0">{{ formatLogOutputRate(log, locale) }}</small>
+            </AppTooltip>
           </div>
           <div
             class="ledger-record-list__cell logs-list__action"

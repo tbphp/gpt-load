@@ -13,6 +13,10 @@ export const zhCN = {
   returnedModelUnknownHint: '请求上游模型：{requested}\n上游未返回模型标识，无法确认模型是否一致。',
   modelNotObserved: '未观测到',
   outputRate: '输出速度',
+  firstOutputHint: '从收到请求到首次交付文本、思考内容或工具参数，包含排队和重试等待。',
+  nonStreamOutputRateHint: '非流式平均速度 = 输出 tokens ÷ 总耗时，包含等待、重试及思考耗时。',
+  outputRateHint:
+    '估算速度 =（输出 tokens − 1）÷ 首末有效输出间隔。输出量包含思考 tokens，隐藏思考可能影响结果。',
   pricingModeHint: '按 {mode} 价格计价',
   contextTierHint: '输入 Token ≥ {threshold}',
   affinityKinds: {
@@ -322,6 +326,12 @@ export const enUS: typeof zhCN = {
     'Requested upstream model: {requested}\nThe upstream did not report a model identifier, so consistency cannot be verified.',
   modelNotObserved: 'Not observed',
   outputRate: 'Output speed',
+  firstOutputHint:
+    'Time from receiving the request to delivering the first text, reasoning content, or tool arguments, including queueing and retries.',
+  nonStreamOutputRateHint:
+    'Non-streaming average speed = output tokens / total request duration, including waiting, retries, and reasoning time.',
+  outputRateHint:
+    'Estimated speed = (output tokens − 1) / time between first and last effective output. Output includes reasoning tokens; hidden reasoning may affect the estimate.',
   pricingModeHint: 'Priced using {mode} rates',
   contextTierHint: 'Input tokens ≥ {threshold}',
   affinityKinds: {
@@ -337,7 +347,7 @@ export const enUS: typeof zhCN = {
     group: 'Group / Channel',
     access_key: 'Access key / Upstream account',
     status: 'Outcome / HTTP',
-    duration_ms: 'Duration / First byte',
+    duration_ms: 'Duration / First output',
     input_tokens: 'Input / Output',
     cache_read_tokens: 'Cache / Hit',
     cache_write_tokens: 'Write / Total',
@@ -443,7 +453,7 @@ export const enUS: typeof zhCN = {
     status_code: 'HTTP',
     stream: 'Stream',
     attempt_count: 'Retries',
-    first_response_ms: 'First byte',
+    first_response_ms: 'First output',
     duration_ms: 'Duration',
     input_tokens: 'Input',
     output_tokens: 'Output',
@@ -497,8 +507,8 @@ export const enUS: typeof zhCN = {
     retry_count: 'Retries',
     retry_count_min: 'Minimum retries',
     retry_count_max: 'Maximum retries',
-    first_response_min_ms: 'Min. first byte (ms)',
-    first_response_max_ms: 'Max. first byte (ms)',
+    first_response_min_ms: 'Min. first output (ms)',
+    first_response_max_ms: 'Max. first output (ms)',
     duration_min_ms: 'Min. duration (ms)',
     duration_max_ms: 'Max. duration (ms)',
     input_tokens_min: 'Min. input tokens',
@@ -634,6 +644,12 @@ export const jaJP: typeof zhCN = {
     '要求した上流モデル：{requested}\n上流からモデル識別子が返されなかったため、一致を確認できません。',
   modelNotObserved: '未観測',
   outputRate: '出力速度',
+  firstOutputHint:
+    'リクエスト受信から最初のテキスト・思考内容・ツール引数の送信まで。待機と再試行を含みます。',
+  nonStreamOutputRateHint:
+    '非ストリーミングの平均速度 = 出力 tokens ÷ リクエスト総時間。待機、再試行、思考の時間を含みます。',
+  outputRateHint:
+    '推定速度 =（出力 tokens − 1）÷ 最初と最後の有効出力の間隔。出力量には思考 tokens が含まれ、非公開の思考が推定値に影響する場合があります。',
   pricingModeHint: '{mode} 料金を適用',
   contextTierHint: '入力トークン ≥ {threshold}',
   affinityKinds: {

@@ -68,6 +68,8 @@ type requestRecorder struct {
 	clientModel          string
 	stream               bool
 	firstResponseMs      *int64
+	firstOutputMs        *int64
+	lastOutputMs         *int64
 	forwardStartedAt     time.Time
 	reasoning            reasoning.Config
 	usageApplicable      bool
@@ -155,6 +157,8 @@ func (recorder *requestRecorder) emit() {
 		ErrorSummary:          recorder.outcome.errorSummary,
 		Stream:                recorder.stream,
 		FirstResponseMs:       recorder.firstResponseMs,
+		FirstOutputMs:         recorder.firstOutputMs,
+		LastOutputMs:          recorder.lastOutputMs,
 		DurationMs:            duration.Milliseconds(),
 		AffinityHit:           recorder.affinityHit,
 		AffinityKind:          recorder.affinityKind,
@@ -254,8 +258,29 @@ func (recorder *requestRecorder) recordFirstResponse() {
 	}
 	value := duration.Milliseconds()
 	recorder.firstResponseMs = &value
+}
+
+func (recorder *requestRecorder) recordOutput(valid bool) {
+	if recorder == nil || !recorder.stream {
+		return
+	}
+	if !valid {
+		recorder.firstOutputMs, recorder.lastOutputMs = nil, nil
+		return
+	}
+	if recorder.now == nil {
+		return
+	}
+	now := recorder.now()
+	value := max(int64(0), now.Sub(recorder.startedAt).Milliseconds())
+	if recorder.firstOutputMs != nil {
+		value = max(value, *recorder.lastOutputMs)
+		recorder.lastOutputMs = &value
+		return
+	}
+	recorder.firstOutputMs, recorder.lastOutputMs = &value, &value
 	if recorder.autoDecision != nil && !recorder.forwardStartedAt.IsZero() {
-		elapsed := recorder.now().Sub(recorder.forwardStartedAt).Milliseconds()
+		elapsed := now.Sub(recorder.forwardStartedAt).Milliseconds()
 		if elapsed >= 0 {
 			recorder.autoDecision.AnswerFirstResponseMs = &elapsed
 		}

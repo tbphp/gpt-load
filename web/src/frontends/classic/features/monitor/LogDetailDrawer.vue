@@ -17,6 +17,7 @@ import {
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
+import AppTooltip from '@/components/ui/AppTooltip.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
@@ -462,9 +463,13 @@ function toggleAttemptErrorMessage(sequence: number): void {
             <dd>{{ log.attempt_count }}</dd>
           </div>
           <div v-if="log.stream">
-            <dt>{{ t('monitor.logs.drawer.firstResponse') }}</dt>
+            <dt>
+              <AppTooltip :content="t('monitor.logs.drawer.firstOutputHint')"
+                ><span tabindex="0">{{ t('monitor.logs.drawer.firstResponse') }}</span></AppTooltip
+              >
+            </dt>
             <dd>
-              {{ log.first_response_ms === null ? '—' : formatLogDuration(log.first_response_ms) }}
+              {{ log.first_output_ms === null ? '—' : formatLogDuration(log.first_output_ms) }}
             </dd>
           </div>
           <div>
@@ -473,7 +478,18 @@ function toggleAttemptErrorMessage(sequence: number): void {
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.outputRate') }}</dt>
-            <dd>{{ formatLogOutputRate(log, locale) }}</dd>
+            <dd>
+              <AppTooltip
+                :content="
+                  t(
+                    log.stream
+                      ? 'monitor.logs.drawer.outputRateHint'
+                      : 'monitor.logs.drawer.nonStreamOutputRateHint',
+                  )
+                "
+                ><span tabindex="0">{{ formatLogOutputRate(log, locale) }}</span></AppTooltip
+              >
+            </dd>
           </div>
         </dl>
         <div v-if="mainErrorCode || mainErrorMessage" class="log-error-message">

@@ -263,7 +263,12 @@ function resolveRedactedLog(): Promise<string> {
                 <dd>
                   <template v-if="field === 'stream'">
                     {{ t(log.stream ? 'logs.yes' : 'logs.no') }}
-                    <AppTooltip v-if="outputRate !== '—'" :label="t('logs.outputRate')">
+                    <AppTooltip
+                      v-if="outputRate !== '—'"
+                      :label="
+                        t(log.stream ? 'logs.outputRateHint' : 'logs.nonStreamOutputRateHint')
+                      "
+                    >
                       <span
                         class="modern-log-stream-rate"
                         tabindex="0"
