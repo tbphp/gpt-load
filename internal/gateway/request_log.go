@@ -260,8 +260,15 @@ func (recorder *requestRecorder) recordFirstResponse() {
 	recorder.firstResponseMs = &value
 }
 
-func (recorder *requestRecorder) recordOutput() {
-	if recorder == nil || !recorder.stream || recorder.now == nil {
+func (recorder *requestRecorder) recordOutput(valid bool) {
+	if recorder == nil || !recorder.stream {
+		return
+	}
+	if !valid {
+		recorder.firstOutputMs, recorder.lastOutputMs = nil, nil
+		return
+	}
+	if recorder.now == nil {
 		return
 	}
 	now := recorder.now()

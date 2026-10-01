@@ -696,11 +696,11 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     status_code: projectStatusCode(record.status_code),
     stream: projectBoolean(record.stream),
     first_output_ms:
-      record.first_output_ms == null
+      record.first_output_ms === null
         ? null
         : projectSafeInteger(record.first_output_ms, { minimum: 0 }),
     last_output_ms:
-      record.last_output_ms == null
+      record.last_output_ms === null
         ? null
         : projectSafeInteger(record.last_output_ms, { minimum: 0 }),
     first_response_ms:

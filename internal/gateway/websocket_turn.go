@@ -956,8 +956,11 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			if err := s.emit(ctx, frame); err != nil {
 				return err
 			}
-			if outputTiming.Observe(dialect.StreamEvent{Payload: frame}) {
-				recorder.recordOutput()
+			produced := outputTiming.Observe(dialect.StreamEvent{Payload: frame})
+			if outputTiming.Overflowed() {
+				recorder.recordOutput(false)
+			} else if produced {
+				recorder.recordOutput(true)
 			}
 			result.Committed = true
 			result.ResponseStarted = true

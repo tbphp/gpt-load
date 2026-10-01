@@ -10,7 +10,7 @@ import (
 
 // outputTimingSink 在成功写入并 flush 后观察实际交付字节，包含脱敏缓冲释放的内容。
 // 独立于上游空回判定，观测失败只停止采样，不改变转发结果。
-func outputTimingSink(value protocol.Protocol, notify func()) func([]byte) {
+func outputTimingSink(value protocol.Protocol, notify func(valid bool)) func([]byte) {
 	if notify == nil {
 		return func([]byte) {}
 	}
@@ -31,14 +31,18 @@ func outputTimingSink(value protocol.Protocol, notify func()) func([]byte) {
 			return
 		}
 		produced = false
-		if _, _, err := buffer.push(chunk); err != nil {
+		_, _, err := buffer.push(chunk)
+		if err != nil || observer.Overflowed() {
 			failed = true
-			logrus.WithError(err).Debug("Output timing observation stopped")
+			notify(false)
+			if err != nil {
+				logrus.WithError(err).Debug("Output timing observation stopped")
+			}
 			return
 		}
 		// 同一次交付中的多个事件共享时点，不能人为制造 token 间隔。
 		if produced {
-			notify()
+			notify(true)
 		}
 	}
 }
