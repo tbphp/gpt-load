@@ -188,7 +188,9 @@ func (bridge *antigravityProviderBridge) Execute(
 	}
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
-		AppliedReasoningEffort: response.AppliedReasoningEffort, Usage: imageUsage,
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens, Usage: imageUsage,
 	}, err
 }
 
@@ -233,6 +235,8 @@ func (bridge *antigravityProviderBridge) ExecuteStream(
 	if err != nil {
 		return &providerStreamResponse{
 			Headers: response.Headers.Clone(), AppliedReasoningEffort: response.AppliedReasoningEffort,
+			AppliedReasoningMode:         response.AppliedReasoningMode,
+			AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
 		}, err
 	}
 	chunks := make(chan providerStreamChunk)
@@ -252,6 +256,8 @@ func (bridge *antigravityProviderBridge) ExecuteStream(
 	}()
 	return &providerStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks, AppliedReasoningEffort: response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
 	}, nil
 }
 

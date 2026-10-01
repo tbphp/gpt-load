@@ -181,11 +181,15 @@ func (executor *antigravityHTTPExecutor) ExecuteCanonical(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, false))
 	if err != nil {
-		return ExecuteResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort()}, normalizeAntigravityExecutionError(err)
+		return ExecuteResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort(),
+			AppliedReasoningMode:         observation.reasoningMode(),
+			AppliedReasoningBudgetTokens: observation.reasoningBudgetTokens()}, normalizeAntigravityExecutionError(err)
 	}
 	return ExecuteResponse{
 		Payload: normalizeAntigravityConvertedUsage(request.Format, false, response.Payload), Headers: response.Headers.Clone(),
-		AppliedReasoningEffort: observation.reasoningEffort(),
+		AppliedReasoningEffort:       observation.reasoningEffort(),
+		AppliedReasoningMode:         observation.reasoningMode(),
+		AppliedReasoningBudgetTokens: observation.reasoningBudgetTokens(),
 	}, nil
 }
 
@@ -255,7 +259,9 @@ func (executor *antigravityHTTPExecutor) ExecuteStreamCanonical(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, antigravityExecutorOptions(request, format, true))
 	if err != nil {
-		return &ExecuteStreamResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort()}, normalizeAntigravityExecutionError(err)
+		return &ExecuteStreamResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort(),
+			AppliedReasoningMode:         observation.reasoningMode(),
+			AppliedReasoningBudgetTokens: observation.reasoningBudgetTokens()}, normalizeAntigravityExecutionError(err)
 	}
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {
@@ -274,6 +280,8 @@ func (executor *antigravityHTTPExecutor) ExecuteStreamCanonical(
 	}()
 	return &ExecuteStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks, AppliedReasoningEffort: observation.reasoningEffort(),
+		AppliedReasoningMode:         observation.reasoningMode(),
+		AppliedReasoningBudgetTokens: observation.reasoningBudgetTokens(),
 	}, nil
 }
 

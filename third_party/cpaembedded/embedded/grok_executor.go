@@ -133,11 +133,15 @@ func (executor *grokHTTPExecutor) ExecuteCanonical(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, grokExecutorOptions(request, format, false))
 	if err != nil {
-		return ExecuteResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort()}, normalizeGrokExecutionError(err)
+		return ExecuteResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort(),
+			AppliedReasoningMode:         observation.reasoningMode(),
+			AppliedReasoningBudgetTokens: observation.reasoningBudgetTokens()}, normalizeGrokExecutionError(err)
 	}
 	return ExecuteResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
-		AppliedReasoningEffort: observation.reasoningEffort(),
+		AppliedReasoningEffort:       observation.reasoningEffort(),
+		AppliedReasoningMode:         observation.reasoningMode(),
+		AppliedReasoningBudgetTokens: observation.reasoningBudgetTokens(),
 	}, nil
 }
 
@@ -197,7 +201,9 @@ func (executor *grokHTTPExecutor) ExecuteStreamCanonical(
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, grokExecutorOptions(request, format, true))
 	if err != nil {
-		return &ExecuteStreamResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort()}, normalizeGrokExecutionError(err)
+		return &ExecuteStreamResponse{Headers: observation.responseHeaders(), AppliedReasoningEffort: observation.reasoningEffort(),
+			AppliedReasoningMode:         observation.reasoningMode(),
+			AppliedReasoningBudgetTokens: observation.reasoningBudgetTokens()}, normalizeGrokExecutionError(err)
 	}
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {
@@ -216,7 +222,9 @@ func (executor *grokHTTPExecutor) ExecuteStreamCanonical(
 	}()
 	return &ExecuteStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks,
-		AppliedReasoningEffort: observation.reasoningEffort(),
+		AppliedReasoningEffort:       observation.reasoningEffort(),
+		AppliedReasoningMode:         observation.reasoningMode(),
+		AppliedReasoningBudgetTokens: observation.reasoningBudgetTokens(),
 	}, nil
 }
 

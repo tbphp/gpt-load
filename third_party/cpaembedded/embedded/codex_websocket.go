@@ -49,13 +49,15 @@ type CodexWSSessionOptions struct {
 
 // CodexWSTurnResult 只描述本轮执行，不执行健康、额度或日志记账。
 type CodexWSTurnResult struct {
-	AppliedReasoningEffort string
-	ResponseID             string
-	Status                 string
-	Usage                  json.RawMessage
-	Headers                http.Header
-	HeaderObservedAt       time.Time
-	DispatchState          string
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
+	ResponseID                   string
+	Status                       string
+	Usage                        json.RawMessage
+	Headers                      http.Header
+	HeaderObservedAt             time.Time
+	DispatchState                string
 }
 
 // CodexWSError 的文本不包含上游响应、凭据、地址或代理密码。
@@ -188,6 +190,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	// 支持更新的原生 Responses 路径由 CPA 原样保留配置。
 	if modelcatalog.SupportsReasoningUpdates(model) {
 		result.AppliedReasoningEffort = thinking.ExtractTranslatedReasoningEffort(payload, ProviderCodex)
+		result.AppliedReasoningMode, result.AppliedReasoningBudgetTokens = extractReasoningDetails(payload, ProviderCodex)
 		gjson.GetBytes(payload, "input").ForEach(func(_, item gjson.Result) bool {
 			if item.Get("type").String() == "configuration_update" {
 				hasReasoningOverride = true

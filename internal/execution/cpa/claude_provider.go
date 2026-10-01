@@ -108,9 +108,11 @@ func (bridge *claudeProviderBridge) Execute(
 	})
 	return providerResponse{
 		Payload: append([]byte(nil), response.Payload...), Headers: response.Headers.Clone(),
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		QuotaObservedAt:        response.QuotaObservedAt,
-		QuotaWindows:           claude.NormalizePassiveQuotaWindows(response.QuotaSignals, response.QuotaObservedAt),
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+		QuotaObservedAt:              response.QuotaObservedAt,
+		QuotaWindows:                 claude.NormalizePassiveQuotaWindows(response.QuotaSignals, response.QuotaObservedAt),
 	}, err
 }
 
@@ -135,8 +137,10 @@ func (bridge *claudeProviderBridge) ExecuteStream(
 	if err != nil {
 		return &providerStreamResponse{
 			Headers: response.Headers.Clone(), AppliedReasoningEffort: response.AppliedReasoningEffort,
-			QuotaObservedAt: response.QuotaObservedAt,
-			QuotaWindows:    claude.NormalizePassiveQuotaWindows(response.QuotaSignals, response.QuotaObservedAt),
+			AppliedReasoningMode:         response.AppliedReasoningMode,
+			AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+			QuotaObservedAt:              response.QuotaObservedAt,
+			QuotaWindows:                 claude.NormalizePassiveQuotaWindows(response.QuotaSignals, response.QuotaObservedAt),
 		}, err
 	}
 	chunks := make(chan providerStreamChunk)
@@ -153,9 +157,11 @@ func (bridge *claudeProviderBridge) ExecuteStream(
 	}()
 	return &providerStreamResponse{
 		Headers: response.Headers.Clone(), Chunks: chunks,
-		AppliedReasoningEffort: response.AppliedReasoningEffort,
-		QuotaObservedAt:        response.QuotaObservedAt,
-		QuotaWindows:           claude.NormalizePassiveQuotaWindows(response.QuotaSignals, response.QuotaObservedAt),
+		AppliedReasoningEffort:       response.AppliedReasoningEffort,
+		AppliedReasoningMode:         response.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: response.AppliedReasoningBudgetTokens,
+		QuotaObservedAt:              response.QuotaObservedAt,
+		QuotaWindows:                 claude.NormalizePassiveQuotaWindows(response.QuotaSignals, response.QuotaObservedAt),
 	}, nil
 }
 

@@ -31,13 +31,15 @@ type WSSessionOptions struct {
 
 // WSTurnResult 的 Usage 保留上游 JSON，缺失时为 nil，不伪造零用量。
 type WSTurnResult struct {
-	AppliedReasoningEffort string
-	ResponseID             string
-	Status                 string
-	Usage                  json.RawMessage
-	Headers                http.Header
-	HeaderObservedAt       time.Time
-	DispatchState          string
+	AppliedReasoningEffort       string
+	AppliedReasoningMode         string
+	AppliedReasoningBudgetTokens *int64
+	ResponseID                   string
+	Status                       string
+	Usage                        json.RawMessage
+	Headers                      http.Header
+	HeaderObservedAt             time.Time
+	DispatchState                string
 }
 
 // WSError 暴露稳定分类和发送证据，错误文本不包含上游正文与凭据。
@@ -82,8 +84,10 @@ func (s *WSSession) ExecuteTurn(ctx context.Context, payload json.RawMessage, em
 	}
 	result, err := bridge.ExecuteTurn(ctx, payload, emit)
 	return WSTurnResult{
-		AppliedReasoningEffort: result.AppliedReasoningEffort,
-		ResponseID:             result.ResponseID, Status: result.Status, Usage: result.Usage,
+		AppliedReasoningEffort:       result.AppliedReasoningEffort,
+		AppliedReasoningMode:         result.AppliedReasoningMode,
+		AppliedReasoningBudgetTokens: result.AppliedReasoningBudgetTokens,
+		ResponseID:                   result.ResponseID, Status: result.Status, Usage: result.Usage,
 		Headers: result.Headers, DispatchState: result.DispatchState,
 		HeaderObservedAt: result.HeaderObservedAt,
 	}, wsErrorFromBridge(err)
