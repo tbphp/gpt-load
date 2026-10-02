@@ -3,7 +3,7 @@ import { ExternalLink, Plus } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useApiClient } from '@shared/http/client-context'
-import { listProxies, type ProxyItem } from '@shared/proxies/api'
+import { listProxies, proxyOptionLabel, type ProxyItem } from '@shared/proxies/api'
 import { AppButton, AppIcon, AppIconButton, AppSearchSelect } from '@modern/components/ui'
 import ProxyEditor from './ProxyEditor.vue'
 
@@ -11,6 +11,7 @@ const props = defineProps<{
   disabled?: boolean
   savedId?: number
   savedName?: string
+  savedAddress?: string
   referenceState?: string
   error?: string
 }>()
@@ -26,7 +27,7 @@ const stateLabel = computed(() =>
     ? t('proxies.referenceDisabled')
     : props.referenceState === 'deleted'
       ? t('proxies.referenceDeleted')
-      : props.savedName,
+      : props.savedName || props.savedAddress || undefined,
 )
 const selectedOption = computed(() => {
   const value = model.value || (props.savedId ? String(props.savedId) : '')
@@ -49,13 +50,13 @@ const selected = computed({
 async function loadOptions(q: string, signal: AbortSignal) {
   const result = await listProxies(client, { q, state: 'enabled', page_size: 100 }, signal)
   return result.items.map((proxy) => {
-    const label = `${proxy.name} · ${proxy.display_url}`
+    const label = proxyOptionLabel(proxy)
     names.value.set(String(proxy.id), label)
     return { value: String(proxy.id), label }
   })
 }
 function saved(proxy: ProxyItem) {
-  names.value.set(String(proxy.id), `${proxy.name} · ${proxy.display_url}`)
+  names.value.set(String(proxy.id), proxyOptionLabel(proxy))
   model.value = String(proxy.id)
   adding.value = false
 }
@@ -83,7 +84,7 @@ function saved(proxy: ProxyItem) {
       ><a href="/proxies" target="_blank" rel="noopener"
         >{{ t('proxies.manage') }}<AppIcon :icon="ExternalLink" size="sm" /></a
     ></AppButton>
-    <ProxyEditor v-if="adding" compact @close="adding = false" @saved="saved" />
+    <ProxyEditor v-if="adding" @close="adding = false" @saved="saved" />
   </div>
 </template>
 

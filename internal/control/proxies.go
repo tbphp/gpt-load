@@ -71,6 +71,11 @@ type ProxySaveRequest struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
 }
+type ProxyRevealResult struct {
+	ID   uint   `json:"id"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
 type ProxyBatchRequest struct {
 	IDs    []uint `json:"ids"`
 	Action string `json:"action"`
@@ -211,8 +216,15 @@ func (s *Service) ListProxies(ctx context.Context, query ProxyListQuery) (ProxyL
 				return *left.LastTestDurationMS < *right.LastTestDurationMS
 			}
 		}
-		if left.Name != right.Name {
-			return left.Name < right.Name
+		leftName, rightName := left.Name, right.Name
+		if leftName == "" {
+			leftName = left.DisplayURL
+		}
+		if rightName == "" {
+			rightName = right.DisplayURL
+		}
+		if leftName != rightName {
+			return leftName < rightName
 		}
 		return left.ID < right.ID
 	})
@@ -304,9 +316,24 @@ func (s *Service) writeProxies(ctx context.Context, mutate func(*gorm.DB) error)
 	return err
 }
 
+func (s *Service) RevealProxy(ctx context.Context, id uint) (ProxyRevealResult, error) {
+	if id == 0 {
+		return ProxyRevealResult{}, app_errors.ErrBadRequest
+	}
+	var row models.Proxy
+	if err := s.db.WithContext(ctx).Take(&row, id).Error; err != nil {
+		return ProxyRevealResult{}, proxyDatabaseError(err)
+	}
+	config, err := decryptProxyOverride(s.encryption, &row.Config)
+	if err != nil || config == nil || config.Mode != outboundproxy.ModeCustom || config.ProxyID != 0 {
+		return ProxyRevealResult{}, app_errors.ErrInternalServer
+	}
+	return ProxyRevealResult{ID: row.ID, Name: row.Name, URL: config.URL}, nil
+}
+
 func (s *Service) SaveProxy(ctx context.Context, id uint, request ProxySaveRequest) (ProxyItem, error) {
 	name := strings.TrimSpace(request.Name)
-	if name == "" || utf8.RuneCountInString(name) > 255 {
+	if utf8.RuneCountInString(name) > 255 {
 		return ProxyItem{}, app_errors.ErrValidation
 	}
 	var saved models.Proxy

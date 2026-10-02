@@ -66,7 +66,19 @@ export function listProxies(
   return client.request<ProxyList>(`/api/proxies?${query}`, { signal })
 }
 
-export function saveProxy(client: ApiClient, value: { name: string; url: string }, id?: number) {
+export function proxyOptionLabel(proxy: Pick<ProxyItem, 'name' | 'display_url'>) {
+  return proxy.name ? `${proxy.name} · ${proxy.display_url}` : proxy.display_url
+}
+
+export function revealProxy(client: ApiClient, id: number, signal?: AbortSignal) {
+  return client.request<{ id: number; name: string; url: string }>(`/api/proxies/${id}/reveal`, {
+    method: 'POST',
+    cache: 'no-store',
+    signal,
+  })
+}
+
+export function saveProxy(client: ApiClient, value: { name?: string; url: string }, id?: number) {
   return client.request<ProxyItem>(id ? `/api/proxies/${id}` : '/api/proxies', {
     method: id ? 'PUT' : 'POST',
     json: value,

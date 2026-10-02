@@ -3,9 +3,11 @@ package storage
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
@@ -44,7 +46,7 @@ func testProxyCatalogMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 			t.Fatal("migration accepted a non-unique proxy identity index")
 		}
 	})
-	for _, scenario := range []string{"fresh", "upgrade", "interrupted"} {
+	for _, scenario := range []string{"fresh", "upgrade", "interrupted", "missing_indexes"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
 			if len(migrations) < 25 {
@@ -55,12 +57,19 @@ func testProxyCatalogMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 					t.Fatal(err)
 				}
 			}
-			if scenario == "interrupted" {
+			if scenario == "interrupted" || scenario == "missing_indexes" {
 				entry := migrations[24]
 				up := entry.Up
 				entry.Up = func(tx *gorm.DB) error {
 					if err := up(tx); err != nil {
 						return err
+					}
+					if scenario == "missing_indexes" {
+						for _, name := range []string{"ux_proxies_fingerprint", "idx_proxies_enabled"} {
+							if err := tx.Migrator().DropIndex(&models.Proxy{}, name); err != nil {
+								return err
+							}
+						}
 					}
 					return fmt.Errorf("interrupt proxy migration")
 				}
@@ -116,8 +125,12 @@ func testProxyDataConversion(t *testing.T, db *gorm.DB) {
 	if err := db.Create(&models.SystemSetting{Key: outboundproxy.SystemSettingKey, Value: first}).Error; err != nil {
 		t.Fatal(err)
 	}
+	beforeFailure := readProxyMigrationSnapshot(t, db)
 	if err := stateloader.MigrateLegacyProxyOverrides(t.Context(), db, crypto); err == nil {
 		t.Fatal("corrupt proxy was silently inherited")
+	}
+	if !reflect.DeepEqual(beforeFailure, readProxyMigrationSnapshot(t, db)) {
+		t.Fatal("failed conversion changed source data")
 	}
 	var count int64
 	if err := db.Model(&models.Proxy{}).Count(&count).Error; err != nil || count != 0 {
@@ -126,9 +139,19 @@ func testProxyDataConversion(t *testing.T, db *gorm.DB) {
 	if err := db.Model(&credential).Update("proxy_config", second).Error; err != nil {
 		t.Fatal(err)
 	}
-	for range 2 {
+	if err := stateloader.MigrateLegacyProxyOverrides(t.Context(), db, crypto); err != nil {
+		t.Fatal(err)
+	}
+	converted := readProxyMigrationSnapshot(t, db)
+	for range 3 {
+		if err := AutoMigrate(db); err != nil {
+			t.Fatal(err)
+		}
 		if err := stateloader.MigrateLegacyProxyOverrides(t.Context(), db, crypto); err != nil {
 			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(converted, readProxyMigrationSnapshot(t, db)) {
+			t.Fatal("repeated migration changed proxy rows, references, ciphertext, or timestamps")
 		}
 	}
 	var proxies []models.Proxy
@@ -152,6 +175,16 @@ func testProxyDataConversion(t *testing.T, db *gorm.DB) {
 	if stored[2].ProxyConfig == nil || *stored[2].ProxyConfig != direct || stored[3].ProxyConfig != nil {
 		t.Fatal("conversion changed direct/inherited policy")
 	}
+	for _, ciphertext := range []string{converted.Settings[0].Value, *converted.Credentials[0].ProxyConfig} {
+		plaintext, err := crypto.Decrypt(ciphertext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config, err := outboundproxy.Decode(plaintext)
+		if err != nil || config.ProxyID != proxies[0].ID || config.URL != "" {
+			t.Fatal("global or credential override did not reuse the same proxy reference")
+		}
+	}
 	oldID := proxies[0].ID
 	if err := db.Delete(&proxies[0]).Error; err != nil {
 		t.Fatal(err)
@@ -173,4 +206,29 @@ func testProxyDataConversion(t *testing.T, db *gorm.DB) {
 	if catalog.Resolve(&outboundproxy.Config{Mode: outboundproxy.ModeCustom, ProxyID: oldID}) != nil {
 		t.Fatal("recreated proxy took over deleted reference")
 	}
+}
+
+type proxyMigrationSnapshot struct {
+	Proxies     []models.Proxy
+	Groups      []models.Group
+	Credentials []models.Credential
+	Settings    []models.SystemSetting
+}
+
+func readProxyMigrationSnapshot(t *testing.T, db *gorm.DB) proxyMigrationSnapshot {
+	t.Helper()
+	var result proxyMigrationSnapshot
+	if err := db.Order("id ASC").Find(&result.Proxies).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Order("id ASC").Find(&result.Groups).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Order("id ASC").Find(&result.Credentials).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Order(clause.OrderByColumn{Column: clause.Column{Name: "key"}}).Find(&result.Settings).Error; err != nil {
+		t.Fatal(err)
+	}
+	return result
 }

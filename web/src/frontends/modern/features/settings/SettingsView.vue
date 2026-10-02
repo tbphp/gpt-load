@@ -580,6 +580,7 @@ onScopeDispose(() => {
                       v-model="draft.proxy_config.id"
                       :saved-id="base.values.proxy_config.proxy_id"
                       :saved-name="base.values.proxy_config.proxy_name"
+                      :saved-address="base.values.proxy_config.display_url"
                       :reference-state="base.values.proxy_config.reference_state"
                       :disabled="disabled('proxy_config')"
                       :error="fieldErrors.proxy_config"

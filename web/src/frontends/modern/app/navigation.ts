@@ -23,14 +23,6 @@ export function pagePath(name: string): string {
 
 export const navigationItems = [
   {
-    id: 'proxies',
-    name: 'modern-proxies',
-    path: pagePath('proxies'),
-    section: 'system',
-    icon: Network,
-    adminOnly: true,
-  },
-  {
     id: 'home',
     name: 'modern-home',
     path: pagePath('home'),
@@ -92,6 +84,14 @@ export const navigationItems = [
     path: pagePath('settings'),
     section: 'system',
     icon: Settings2,
+    adminOnly: true,
+  },
+  {
+    id: 'proxies',
+    name: 'modern-proxies',
+    path: pagePath('proxies'),
+    section: 'system',
+    icon: Network,
     adminOnly: true,
   },
 ] as const

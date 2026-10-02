@@ -465,6 +465,7 @@ useMessageSource(() =>
   justify-content: flex-end;
 }
 .modern-log-table {
+  margin-bottom: var(--modern-space-3);
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-panel);
   overflow: hidden;

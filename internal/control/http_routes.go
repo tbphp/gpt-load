@@ -45,6 +45,7 @@ func (s *Server) HTTPModule() httproute.Module {
 			controlRoute("control.proxies.list", http.MethodGet, "/proxies", s.handleListProxies),
 			controlRoute("control.proxies.create", http.MethodPost, "/proxies", s.auditMutation(newMutationDescriptor("proxy_create", "proxy", staticMutationLocator("new"))), s.handleSaveProxy),
 			controlRoute("control.proxies.update", http.MethodPut, "/proxies/:id", s.auditMutation(newMutationDescriptor("proxy_update", "proxy", proxyMutationLocator)), s.handleSaveProxy),
+			controlRoute("control.proxies.reveal", http.MethodPost, "/proxies/:id/reveal", s.auditMutation(newMutationDescriptor("proxy_reveal", "proxy", proxyMutationLocator)), s.handleRevealProxy),
 			controlRoute("control.proxies.impact", http.MethodPost, "/proxies/impact", s.handleProxyImpact),
 			controlRoute("control.proxies.batch", http.MethodPost, "/proxies/batch", s.auditMutation(newMutationDescriptor("proxy_batch", "proxy", staticMutationLocator("batch"))), s.handleBatchProxies),
 			controlRoute("control.proxies.import", http.MethodPost, "/proxies/import", s.auditMutation(newMutationDescriptor("proxy_import", "proxy", staticMutationLocator("batch"))), s.handleImportProxies),

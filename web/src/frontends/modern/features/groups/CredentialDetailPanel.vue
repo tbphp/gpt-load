@@ -288,6 +288,7 @@ useMessageSource(() =>
           v-model="proxyID"
           :saved-id="saved?.proxy.id"
           :saved-name="saved?.proxy.name"
+          :saved-address="saved?.proxy.display"
           :reference-state="saved?.proxy.referenceState"
           :disabled="saving"
           :error="attempted && proxyInvalid ? t('proxies.selectHelp') : undefined"

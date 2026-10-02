@@ -9,6 +9,7 @@ import {
   Search,
   FlaskConical,
   Network,
+  RefreshCw,
   X,
 } from '@lucide/vue'
 import { DialogRoot } from 'reka-ui'
@@ -42,6 +43,7 @@ import {
   AppDialogContent,
   AppDialogHeader,
   AppFilterSummary,
+  AppIcon,
   AppIconButton,
   AppListFrame,
   AppNotice,
@@ -262,8 +264,10 @@ const notice = ref('')
 const error = ref('')
 const pending = ref(false)
 const impact = ref<ProxyImpact>()
+const hasReferences = computed(() =>
+  Boolean(impact.value?.global || impact.value?.groups.length || impact.value?.credentials.length),
+)
 const confirmation = ref<{ ids: number[]; action: 'disable' | 'delete' }>()
-const detail = ref<ProxyImpact>()
 const running = ref(false)
 const preparing = ref(false)
 const total = ref(0)
@@ -322,13 +326,16 @@ async function act(action: 'enable' | 'disable' | 'delete', ids: number[]) {
   pending.value = true
   error.value = ''
   try {
-    if (action === 'enable') {
-      await batchProxies(client, ids, action)
-      await refresh()
-    } else {
+    if (action !== 'enable') {
       impact.value = await proxyImpact(client, ids)
-      confirmation.value = { ids, action }
+      if (action === 'delete' || hasReferences.value) {
+        confirmation.value = { ids, action }
+        return
+      }
     }
+    await batchProxies(client, ids, action)
+    selected.value = new Set()
+    await refresh()
   } catch {
     error.value = t('proxies.operationFailed')
   } finally {
@@ -348,13 +355,6 @@ async function confirm() {
     error.value = t('proxies.operationFailed')
   } finally {
     pending.value = false
-  }
-}
-async function showReferences(id: number) {
-  try {
-    detail.value = await proxyImpact(client, [id])
-  } catch {
-    error.value = t('proxies.operationFailed')
   }
 }
 async function importRows() {
@@ -378,20 +378,11 @@ async function importRows() {
   }
 }
 const confirmationDescription = computed(() => {
-  if (!confirmation.value || !impact.value) return ''
-  return [
-    t('proxies.confirmImpact', {
-      action: t('proxies.' + confirmation.value.action),
-      count: n(confirmation.value.ids.length),
-      groups: n(impact.value.groups.length),
-      credentials: n(impact.value.credentials.length),
-    }),
-    impact.value.global ? t('proxies.globalImpact') : '',
-    t('proxies.inheritWarning'),
-    confirmation.value.action === 'disable' ? t('proxies.resumeWarning') : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
+  if (!confirmation.value) return ''
+  if (!hasReferences.value) {
+    return t('proxies.deleteWarning', { count: n(confirmation.value.ids.length) })
+  }
+  return t('proxies.confirmWarning', { action: t('proxies.' + confirmation.value.action) })
 })
 function time(value: number | null) {
   return value === null ? '' : new Date(value).toLocaleString(locale.value)
@@ -488,6 +479,25 @@ onScopeDispose(() => {
           <span v-if="query.data.value">({{ n(query.data.value.total) }})</span></AppButton
         ></AppTooltip
       >
+      <div class="modern-proxy-progress" role="status" aria-live="polite">
+        <template v-if="total">
+          <AppOverflowText class="modern-proxy-progress-text" :text="progress" />
+          <AppIconButton
+            v-if="running"
+            :icon="X"
+            :label="t('proxies.stop')"
+            size="sm"
+            @click="testController?.abort()"
+          />
+          <AppIconButton
+            v-else-if="failed.length"
+            :icon="RefreshCw"
+            :label="t('proxies.retryFailed')"
+            size="sm"
+            @click="run([...failed])"
+          />
+        </template>
+      </div>
     </div>
     <div class="modern-proxy-filterbar">
       <AppSegmentedControl
@@ -511,62 +521,53 @@ onScopeDispose(() => {
         }}</AppButton>
       </AppNotice>
     </div>
-    <div v-if="total" class="modern-proxy-progress" role="status" aria-live="polite">
-      <span>{{ progress }}</span>
-      <AppButton v-if="running" :icon="X" variant="ghost" @click="testController?.abort()">{{
-        t('proxies.stop')
-      }}</AppButton>
-      <AppButton v-else-if="failed.length" variant="ghost" @click="run([...failed])">{{
-        t('proxies.retryFailed')
-      }}</AppButton>
-    </div>
-    <div v-if="selected.size" class="modern-proxy-batch">
-      <span>{{ t('proxies.selected', { count: n(selected.size) }) }}</span>
-      <AppButton
-        :icon="FlaskConical"
-        size="sm"
-        variant="ghost"
-        :disabled="running || !validTestURL(target.trim())"
-        @click="run([...selected])"
-        >{{ t('proxies.testSelected') }}</AppButton
-      >
-      <AppIconButton
-        :icon="Play"
-        :label="t('proxies.enable')"
-        :disabled="pending"
-        @click="act('enable', [...selected])"
-      />
-      <AppIconButton
-        :icon="Pause"
-        :label="t('proxies.disable')"
-        :disabled="pending"
-        @click="act('disable', [...selected])"
-      />
-      <AppIconButton
-        :icon="Trash2"
-        :label="t('proxies.delete')"
-        :disabled="pending"
-        @click="act('delete', [...selected])"
-      />
-    </div>
     <AppListFrame
       :label="t('proxies.title')"
       :loading="Boolean(query.data.value) && query.isFetching.value"
     >
       <template #header>
-        <div class="modern-proxy-row modern-proxy-heading">
-          <AppTooltip :label="t('proxies.selectPage')">
-            <AppCheckbox
-              :model-value="allSelected"
-              :indeterminate="selected.size > 0 && !allSelected"
-              :label="t('proxies.selectPage')"
-              label-hidden
-              :disabled="!rows.length"
-              @update:model-value="
-                selected = $event ? new Set(rows.map((row) => row.id)) : new Set()
-              "
+        <div class="modern-proxy-batch">
+          <AppCheckbox
+            :model-value="allSelected"
+            :indeterminate="selected.size > 0 && !allSelected"
+            :label="t('proxies.selectPage')"
+            :disabled="pending || !rows.length"
+            @update:model-value="selected = $event ? new Set(rows.map((row) => row.id)) : new Set()"
+          />
+          <template v-if="selected.size">
+            <span>{{ t('proxies.selected', { count: n(selected.size) }) }}</span>
+            <AppIconButton
+              :icon="FlaskConical"
+              :label="t('proxies.testSelected')"
+              size="sm"
+              :disabled="running || !validTestURL(target.trim())"
+              @click="run([...selected])"
             />
-          </AppTooltip>
+            <AppIconButton
+              :icon="Play"
+              :label="t('proxies.enable')"
+              size="sm"
+              :disabled="pending"
+              @click="act('enable', [...selected])"
+            />
+            <AppIconButton
+              :icon="Pause"
+              :label="t('proxies.disable')"
+              size="sm"
+              :disabled="pending"
+              @click="act('disable', [...selected])"
+            />
+            <AppIconButton
+              :icon="Trash2"
+              :label="t('proxies.delete')"
+              size="sm"
+              :disabled="pending"
+              @click="act('delete', [...selected])"
+            />
+          </template>
+        </div>
+        <div class="modern-proxy-row modern-proxy-heading">
+          <span />
           <span>{{ t('proxies.name') }}</span>
           <span>{{ t('proxies.protocol') }}</span>
           <span>{{ t('proxies.status') }}</span>
@@ -590,45 +591,65 @@ onScopeDispose(() => {
       >
         <AppButton v-if="hasFilters" @click="resetFilter()">{{ t('collection.reset') }}</AppButton>
       </AppCollectionState>
-      <div v-for="row in rows" :key="row.id" class="modern-proxy-row">
+      <div
+        v-for="row in rows"
+        :key="row.id"
+        class="modern-proxy-row modern-proxy-item"
+        :class="{ 'is-selected': selected.has(row.id) }"
+      >
         <AppCheckbox
           :model-value="selected.has(row.id)"
-          :label="row.name"
+          :label="row.name || row.display_url"
           label-hidden
           @update:model-value="toggle(row.id, $event)"
         />
         <div class="modern-proxy-identity">
-          <AppOverflowText class="modern-proxy-name" :text="row.name" />
-          <AppOverflowText :text="row.display_url" />
+          <span class="modern-proxy-avatar"><AppIcon :icon="Network" /></span>
+          <div class="modern-proxy-description">
+            <AppOverflowText class="modern-proxy-name" :text="row.name || row.display_url" />
+            <AppOverflowText v-if="row.name" class="modern-proxy-address" :text="row.display_url" />
+          </div>
         </div>
-        <span>{{ row.scheme.toUpperCase() }}</span>
-        <AppBadge :tone="row.enabled ? 'success' : 'neutral'">{{
+        <AppBadge variant="outline" mono>{{ row.scheme.toUpperCase() }}</AppBadge>
+        <AppBadge :tone="row.enabled ? 'success' : 'neutral'" variant="plain" dot>{{
           t(row.enabled ? 'proxies.enabled' : 'proxies.disabled')
         }}</AppBadge>
-        <AppButton
-          class="modern-proxy-references"
-          variant="text"
-          size="sm"
-          @click="showReferences(row.id)"
-          ><span
-            >{{ t('proxies.groups', { count: n(row.group_count) }) }} ·
-            {{ t('proxies.credentials', { count: n(row.credential_count) }) }}</span
-          ><AppBadge v-if="row.global">{{ t('proxies.global') }}</AppBadge></AppButton
-        >
+        <div class="modern-proxy-references">
+          <span v-if="row.group_count">
+            {{ t('proxies.groups', { count: n(row.group_count) }) }}
+          </span>
+          <span v-if="row.credential_count">
+            {{ t('proxies.credentials', { count: n(row.credential_count) }) }}
+          </span>
+          <AppBadge v-if="row.global" tone="brand" size="xs">{{ t('proxies.global') }}</AppBadge>
+          <span v-if="!row.group_count && !row.credential_count && !row.global">—</span>
+        </div>
         <div class="modern-proxy-result">
-          <span v-if="row.last_test_at_ms === null">{{ t('proxies.untested') }}</span>
-          <template v-else
-            ><AppTooltip :label="[row.last_test_url, time(row.last_test_at_ms)].join(' · ')"
-              ><span
-                >{{
-                  row.last_test_error
-                    ? t('proxies.' + row.last_test_error)
-                    : `HTTP ${row.last_test_status_code}`
-                }}
-                · {{ n(row.last_test_duration_ms ?? 0) }} ms</span
-              ></AppTooltip
-            ><small>{{ time(row.last_test_at_ms) }}</small></template
-          >
+          <AppBadge v-if="row.last_test_at_ms === null" dot>{{ t('proxies.untested') }}</AppBadge>
+          <template v-else>
+            <div class="modern-proxy-result-summary">
+              <AppTooltip
+                :label="
+                  [
+                    row.last_test_error
+                      ? t('proxies.' + row.last_test_error)
+                      : `HTTP ${row.last_test_status_code}`,
+                    row.last_test_url,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                "
+              >
+                <AppBadge :tone="proxyTestSucceeded(row) ? 'success' : 'danger'" dot>
+                  {{ t(proxyTestSucceeded(row) ? 'proxies.success' : 'proxies.failed') }}
+                </AppBadge>
+              </AppTooltip>
+              <span v-if="row.last_test_duration_ms !== null" class="modern-proxy-latency">
+                {{ n(row.last_test_duration_ms) }} ms
+              </span>
+            </div>
+            <AppOverflowText class="modern-proxy-result-time" :text="time(row.last_test_at_ms)" />
+          </template>
         </div>
         <div class="modern-proxy-actions">
           <AppIconButton
@@ -682,7 +703,21 @@ onScopeDispose(() => {
       :error="error"
       @cancel="confirmation = undefined"
       @confirm="confirm"
-    />
+    >
+      <div
+        v-if="impact && hasReferences"
+        class="modern-proxy-impact"
+        :aria-label="t('proxies.references')"
+      >
+        <AppBadge v-if="impact.groups.length">
+          {{ t('proxies.groups', { count: n(impact.groups.length) }) }}
+        </AppBadge>
+        <AppBadge v-if="impact.credentials.length">
+          {{ t('proxies.credentials', { count: n(impact.credentials.length) }) }}
+        </AppBadge>
+        <AppBadge v-if="impact.global" tone="brand">{{ t('proxies.global') }}</AppBadge>
+      </div>
+    </AppConfirmDialog>
     <DialogRoot :open="importing" @update:open="!pending && (importing = $event)"
       ><AppDialogContent
         :title="t('proxies.import')"
@@ -708,44 +743,6 @@ onScopeDispose(() => {
             t('proxies.import')
           }}</AppButton>
         </form></AppDialogContent
-      ></DialogRoot
-    >
-    <DialogRoot :open="Boolean(detail)" @update:open="!$event && (detail = undefined)"
-      ><AppDialogContent
-        :title="t('proxies.references')"
-        :description="t('proxies.inheritWarning')"
-        placement="sidebar"
-        size="sheet"
-        ><AppDialogHeader
-          :close-label="t('proxies.cancel')"
-          :title="t('proxies.references')"
-          @close="detail = undefined"
-        />
-        <div class="modern-proxy-panel">
-          <RouterLink
-            v-if="detail?.global"
-            :to="{ name: 'modern-settings', query: { section: 'connection' } }"
-            >{{ t('proxies.global') }}</RouterLink
-          ><RouterLink
-            v-for="reference in detail?.groups"
-            :key="reference.group_id"
-            :to="{ name: 'modern-group-detail', params: { id: reference.group_id } }"
-            >{{ reference.group_name }} · {{ t('proxies.openGroup') }}</RouterLink
-          ><RouterLink
-            v-for="reference in detail?.credentials"
-            :key="reference.credential_id"
-            :to="{
-              name: 'modern-group-detail',
-              params: { id: reference.group_id },
-              query: { credential: reference.credential_id },
-            }"
-            >{{ reference.group_name }} ·
-            {{ reference.label || t('proxies.openCredential') }}</RouterLink
-          >
-          <p v-if="detail && !detail.global && !detail.groups.length && !detail.credentials.length">
-            {{ t('proxies.noReferences') }}
-          </p>
-        </div></AppDialogContent
       ></DialogRoot
     >
   </div>
@@ -839,11 +836,15 @@ onScopeDispose(() => {
 }
 .modern-proxy-batch {
   flex: none;
-  flex-wrap: wrap;
-  min-height: var(--modern-control-md);
+  min-height: var(--modern-control-nav);
   padding: 0 var(--modern-space-3) var(--modern-space-2);
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-secondary);
+  font-size: var(--modern-font-size-small);
+  white-space: nowrap;
+}
+.modern-proxy-batch > :first-child {
+  flex: none;
+  margin-right: var(--modern-space-1);
 }
 .modern-proxy-row {
   display: grid;
@@ -861,44 +862,93 @@ onScopeDispose(() => {
   background: var(--modern-surface);
   font-size: var(--modern-font-size-small);
 }
-.modern-proxy-identity,
+.modern-proxy-item {
+  transition: background-color var(--modern-motion-fast) var(--modern-motion-ease);
+}
+.modern-proxy-item:hover,
+.modern-proxy-item:focus-within {
+  background: var(--modern-control-hover);
+}
+.modern-proxy-item.is-selected {
+  background: var(--modern-accent-soft);
+}
+.modern-proxy-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--modern-space-3);
+}
+.modern-proxy-avatar {
+  display: flex;
+  width: var(--modern-control-sm);
+  height: var(--modern-control-sm);
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--modern-radius-control);
+  background: var(--modern-subtle);
+  color: var(--modern-muted);
+}
+.modern-proxy-description,
 .modern-proxy-result {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: var(--modern-space-1);
 }
-.modern-proxy-identity > :last-child,
-.modern-proxy-result small {
+.modern-proxy-address,
+.modern-proxy-result-time {
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-secondary);
+  font-size: var(--modern-font-size-small);
+}
+.modern-proxy-address {
+  font-family: var(--modern-font-mono);
 }
 .modern-proxy-name {
-  font-weight: var(--modern-weight-medium);
+  font-weight: var(--modern-weight-semibold);
 }
-.modern-proxy-references {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-  max-width: 100%;
-  text-align: left;
+.modern-proxy-result-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
 }
-.modern-proxy-progress {
-  flex: none;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  padding-bottom: var(--modern-space-3);
+.modern-proxy-latency {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.modern-proxy-references {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-secondary);
+}
+.modern-proxy-impact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--modern-space-2);
+}
+.modern-proxy-progress {
+  flex: 1 1 0;
+  min-width: var(--modern-control-md);
+  min-height: var(--modern-control-md);
+  justify-content: flex-end;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-proxy-progress-text {
+  min-width: 0;
+  flex: 0 1 auto;
 }
 .modern-proxy-panel {
   display: grid;
   gap: var(--modern-space-4);
   padding: var(--modern-space-5);
   overflow-y: auto;
-}
-.modern-proxy-panel a {
-  color: var(--modern-accent);
-  text-decoration: none;
 }
 @media (max-width: 1150px) {
   .modern-proxy-search {
@@ -920,7 +970,8 @@ onScopeDispose(() => {
     width: auto;
   }
   .modern-proxy-test-label,
-  .modern-proxy-save-state {
+  .modern-proxy-save-state,
+  .modern-proxy-progress {
     min-height: var(--modern-touch-target);
   }
 }

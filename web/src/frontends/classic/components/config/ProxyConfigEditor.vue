@@ -159,6 +159,7 @@ async function save(): Promise<void> {
               :model-value="endpoint"
               :saved-id="view.proxy_id"
               :saved-name="view.proxy_name"
+              :saved-address="view.display_url"
               :reference-state="view.reference_state"
               :disabled="disabled || pending"
               :invalid="invalid"
@@ -226,13 +227,8 @@ async function save(): Promise<void> {
   --compact-field-error-indicator-size: 22px;
   --compact-field-error-indicator-right: 2px;
   --compact-field-error-input-gap: 4px;
-  /* basis 归零，地址栏独吞剩余宽度，控件行不折行。 */
-  flex: 1 1 0;
+  /* 搜索与快捷操作作为整体换行，避免挤压输入框。 */
+  flex: 1 1 260px;
   min-width: 0;
-}
-
-.proxy-config-editor__endpoint :deep(.app-text-input) {
-  min-height: 26px;
-  font-size: var(--text-label-xs);
 }
 </style>

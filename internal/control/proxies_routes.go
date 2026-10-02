@@ -32,6 +32,21 @@ func (s *Server) handleListProxies(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleRevealProxy(c *gin.Context) {
+	id, err := proxyID(c)
+	if err != nil {
+		writeServiceError(c, "reveal_proxy", err)
+		return
+	}
+	result, err := s.service.RevealProxy(c.Request.Context(), id)
+	if err != nil {
+		writeServiceError(c, "reveal_proxy", err)
+		return
+	}
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleSaveProxy(c *gin.Context) {
 	var request ProxySaveRequest
 	if err := bindStrictJSON(c, &request); err != nil {

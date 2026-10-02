@@ -448,6 +448,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
               v-model="proxyID"
               :saved-id="saved?.proxy.id"
               :saved-name="saved?.proxy.name"
+              :saved-address="saved?.proxy.display"
               :reference-state="saved?.proxy.referenceState"
               :disabled="busy"
               :error="attempted && proxyInvalid ? t('proxies.selectHelp') : undefined"

@@ -46,10 +46,11 @@ function setMode(value: string): void {
 <template>
   <div class="proxy-override-control">
     <SegmentedControl
+      class="proxy-override-control__mode"
       :model-value="mode === 'custom' ? 'custom' : 'direct'"
       :label="t('common.proxy.modeLabel')"
       :options="modeOptions"
-      size="compact"
+      size="xs"
       @update:model-value="setMode"
     />
 
@@ -60,6 +61,7 @@ function setMode(value: string): void {
           :model-value="endpoint"
           :saved-id="base.proxy_id"
           :saved-name="base.proxy_name"
+          :saved-address="base.display_url"
           :reference-state="base.reference_state"
           :disabled="disabled"
           :invalid="invalid"
@@ -74,14 +76,29 @@ function setMode(value: string): void {
 <style scoped>
 .proxy-override-control {
   display: flex;
+  width: 520px;
+  max-width: 100%;
   min-width: 0;
-  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
 }
 
+.proxy-override-control__mode {
+  flex: none;
+}
+
 .proxy-override-control > :deep(.compact-field-error) {
-  flex: 1 1 190px;
+  flex: 1;
   min-width: 0;
+}
+
+@media (max-width: 560px) {
+  .proxy-override-control {
+    flex-wrap: wrap;
+  }
+
+  .proxy-override-control > :deep(.compact-field-error) {
+    flex-basis: 100%;
+  }
 }
 </style>
