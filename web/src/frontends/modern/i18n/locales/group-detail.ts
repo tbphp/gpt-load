@@ -153,6 +153,20 @@ export const zhCN = {
     empty_response_retry: '空回检测',
     responses_websocket_enabled: 'Responses WebSocket',
   },
+  policy: {
+    entry: '策略配置',
+    title: '分组策略配置',
+    description: '配置分组作用域的调度与计价规则，支持严格 JSON 格式。',
+    loadFailed: '策略配置加载失败',
+    saveFailed: '策略保存失败',
+    invalidJson: 'JSON 格式非法，请检查语法后重试',
+    conflict: '策略已被其他操作修改，请刷新后重试',
+    placeholder: '{\n  "schema_version": 1,\n  "rules": []\n}',
+    emptyState: '暂无策略规则，当前按默认策略运行',
+    saveLabel: '保存策略',
+    rawJson: '策略 JSON 正文',
+    rawJsonHint: '需符合 schema_version 1 规范，保存前将执行严格编译校验。',
+  },
 }
 
 export const enUS: typeof zhCN = {
@@ -319,6 +333,20 @@ export const enUS: typeof zhCN = {
     empty_response_retry: 'Empty response detection',
     responses_websocket_enabled: 'Responses WebSocket',
   },
+  policy: {
+    entry: 'Policy',
+    title: 'Group Policy',
+    description: 'Configure group-scoped scheduling and pricing rules in strict JSON format.',
+    loadFailed: 'Failed to load policy configuration',
+    saveFailed: 'Failed to save policy configuration',
+    invalidJson: 'Invalid JSON format. Please check the syntax and try again.',
+    conflict: 'Policy has been modified by another operation. Please reload and try again.',
+    placeholder: '{\n  "schema_version": 1,\n  "rules": []\n}',
+    emptyState: 'No policy rules configured. Running with default policy.',
+    saveLabel: 'Save Policy',
+    rawJson: 'Policy JSON',
+    rawJsonHint: 'Must conform to schema_version 1. Strict validation is performed before saving.',
+  },
 }
 
 export const jaJP: typeof zhCN = {
@@ -481,5 +509,20 @@ export const jaJP: typeof zhCN = {
     affinity_enabled: 'セッションアフィニティ',
     empty_response_retry: '空応答の検出',
     responses_websocket_enabled: 'Responses WebSocket',
+  },
+  policy: {
+    entry: 'ポリシー設定',
+    title: 'グループポリシー設定',
+    description: 'グループスコープのスケジューリングと価格設定ルールを厳密なJSON形式で設定します。',
+    loadFailed: 'ポリシー設定の読み込みに失敗しました',
+    saveFailed: 'ポリシーの保存に失敗しました',
+    invalidJson: 'JSONの形式が無効です。構文を確認してもう一度お試しください',
+    conflict: 'ポリシーは別の操作によって変更されました。再読み込みしてやり直してください',
+    placeholder: '{\n  "schema_version": 1,\n  "rules": []\n}',
+    emptyState: 'ポリシールールが設定されていません。デフォルトポリシーで実行中です',
+    saveLabel: 'ポリシーを保存',
+    rawJson: 'ポリシーJSON',
+    rawJsonHint:
+      'schema_version 1 に準拠している必要があります。保存前に厳密な検証が実行されます。',
   },
 }

@@ -161,12 +161,13 @@ func TestCredentialRegistryApplyQuotaWindowsPublishesTightestAccountBottleneck(t
 		Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "cipher-one",
 	}})
 	resetAt := int64(1800000000000)
+	observedAt := int64(1799999000000)
 	utilizationTight := 0.9
 	utilizationLoose := 0.1
-	if !registry.ApplyQuotaWindows(1, []providerobservation.QuotaWindow{
-		{ID: "primary", Scope: "account", State: "available", Utilization: &utilizationTight, ResetAtMS: &resetAt},
-		{ID: "secondary", Scope: "account", State: "available", Utilization: &utilizationLoose, ResetAtMS: &resetAt},
-		{ID: "extra", Scope: "extra_usage", State: "available", Utilization: &utilizationLoose, ResetAtMS: &resetAt},
+	if !registry.ApplyQuotaWindows(1, 1, []providerobservation.QuotaWindow{
+		{ID: "primary", Scope: "account", State: "available", Utilization: &utilizationTight, ResetAtMS: &resetAt, ObservedAtMS: &observedAt},
+		{ID: "secondary", Scope: "account", State: "available", Utilization: &utilizationLoose, ResetAtMS: &resetAt, ObservedAtMS: &observedAt},
+		{ID: "extra", Scope: "extra_usage", State: "available", Utilization: &utilizationLoose, ResetAtMS: &resetAt, ObservedAtMS: &observedAt},
 	}) {
 		t.Fatal("ApplyQuotaWindows() = false")
 	}
@@ -186,7 +187,7 @@ func TestCredentialRegistryApplyQuotaWindowsClearsWhenNoUsableWindow(t *testing.
 	remaining := 0.5
 	registry.SetCredentialQuotaObservation(1, &remaining, time.Date(2026, 8, 28, 9, 0, 0, 0, time.UTC))
 
-	if !registry.ApplyQuotaWindows(1, []providerobservation.QuotaWindow{
+	if !registry.ApplyQuotaWindows(1, 1, []providerobservation.QuotaWindow{
 		{ID: "model-scope", Scope: "model", State: "available"},
 	}) {
 		t.Fatal("ApplyQuotaWindows() = false")

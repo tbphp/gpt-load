@@ -134,7 +134,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 		if result.RowsAffected == 1 {
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			if row.State == models.CredentialObservationFresh {
-				manager.registry.ApplyQuotaWindows(observation.CredentialID, merge.Windows)
+				manager.registry.ApplyQuotaWindows(observation.CredentialID, observation.IdentityGeneration, merge.Windows)
 			}
 			return nil
 		}
@@ -157,7 +157,13 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 		if sample == nil || (storedAtMS != nil && sample.ObservedAtMS <= *storedAtMS) {
 			continue
 		}
-		merged, err := mergePassiveQuotaSnapshot(result.Encoded, sample.Windows)
+		stampedWindows := make([]providerobservation.QuotaWindow, len(sample.Windows))
+		for i, w := range sample.Windows {
+			clonedAt := sample.ObservedAtMS
+			w.ObservedAtMS = &clonedAt
+			stampedWindows[i] = w
+		}
+		merged, err := mergePassiveQuotaSnapshot(result.Encoded, stampedWindows)
 		if err != nil {
 			return passiveQuotaMerge{}, 0, err
 		}

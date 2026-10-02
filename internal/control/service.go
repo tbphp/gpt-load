@@ -136,6 +136,19 @@ func (s *Service) doCredentialMutations(credentialIDs []uint, fn func()) error {
 	return nil
 }
 
+func (s *Service) withCredentialMutation(credentialID uint, fn func() error) error {
+	if fn == nil {
+		return nil
+	}
+	var fnErr error
+	if err := s.doCredentialMutations([]uint{credentialID}, func() {
+		fnErr = fn()
+	}); err != nil {
+		return err
+	}
+	return fnErr
+}
+
 func (s *Service) retireCredentialRuntime(credentialID uint) {
 	if s == nil || credentialID == 0 {
 		return

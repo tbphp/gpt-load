@@ -9,6 +9,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -30,6 +31,7 @@ type Query struct {
 	AllowedCredentialIDs     map[uint]struct{}
 	PreferredCredentialID    uint
 	AllowedCredentialRefs    map[uint]state.CredentialRef
+	Policies                 *policy.RuntimeView
 
 	// ResponsesWebsocket 非 nil 时按原生 WS 合同准入，不要求 HTTP 资源接口。
 	ResponsesWebsocket *execution.WebsocketCapabilities
@@ -64,6 +66,7 @@ type candidatePool struct {
 
 type Iterator struct {
 	snapshot              *state.ConfigSnapshot
+	policies              *policy.RuntimeView
 	query                 Query
 	operation             execution.Operation
 	credentials           CredentialSource
@@ -129,8 +132,12 @@ func newWithClock(
 	query Query,
 	now func() time.Time,
 ) *Iterator {
+	policies := query.Policies
+	if policies == nil && snapshot != nil {
+		policies = snapshot.Policies
+	}
 	iterator := &Iterator{
-		snapshot: snapshot, query: query, operation: normalizeQuery(query).operation,
+		snapshot: snapshot, policies: policies, query: query, operation: normalizeQuery(query).operation,
 		credentials:           credentials,
 		allowedCredentialRefs: cloneCredentialIdentities(query.AllowedCredentialRefs),
 		regular:               newCandidatePool(),
@@ -307,9 +314,44 @@ func (iterator *Iterator) Next() (Selection, error) {
 	return Selection{}, ErrExhausted
 }
 
+func (iterator *Iterator) isPolicyExcluded(target candidateTarget, credential state.CredentialMeta, now time.Time) bool {
+	if iterator == nil || iterator.policies == nil {
+		return false
+	}
+	return iterator.isPolicyExcludedTarget(target.target.UpstreamModelID, target.target.GroupID, credential.ID, credential.QuotaWindows, now)
+}
+
+func (iterator *Iterator) isPolicyExcludedTarget(upstreamModelID string, groupID, credentialID uint, quotaWindows []policy.QuotaWindowFact, now time.Time) bool {
+	if iterator == nil || iterator.policies == nil {
+		return false
+	}
+	ctx := &policy.EvalContext{
+		Now:           now,
+		RequestModel:  policy.StringFact{State: policy.FactStateUnknown},
+		UpstreamModel: policy.StringFact{State: policy.FactStateUnknown},
+		QuotaWindows:  quotaWindows,
+	}
+	if iterator.query.ExternalModel != nil && *iterator.query.ExternalModel != "" {
+		ctx.RequestModel = policy.StringFact{
+			Value: *iterator.query.ExternalModel,
+			State: policy.FactStateMeasured,
+		}
+	}
+	if upstreamModelID != "" {
+		ctx.UpstreamModel = policy.StringFact{
+			Value: upstreamModelID,
+			State: policy.FactStateMeasured,
+		}
+	}
+
+	excluded, _ := iterator.policies.EvalCandidate(groupID, credentialID, ctx)
+	return excluded
+}
+
 func (iterator *Iterator) targetAvailable(target candidateTarget, credential state.CredentialMeta, modes []channel.RouteMode, now time.Time) bool {
 	return slices.Contains(modes, target.target.Mode) &&
-		!modelCooldownUntil(credential.ModelCooldowns, target.target.UpstreamModelID, iterator.operation, now).After(now)
+		!modelCooldownUntil(credential.ModelCooldowns, target.target.UpstreamModelID, iterator.operation, now).After(now) &&
+		!iterator.isPolicyExcluded(target, credential, now)
 }
 
 // 只为已选凭据收集模型，避免每个凭据都复制完整候选列表。

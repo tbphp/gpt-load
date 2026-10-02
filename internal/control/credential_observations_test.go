@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"net/http"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,9 +17,11 @@ import (
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/requestlog"
+	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription/providers/claude"
 	"gpt-load/internal/subscription/providers/codex"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -291,6 +296,15 @@ func TestInvalidateCredentialObservationAfterResetDoesNotClobberConcurrentSnapsh
 	}
 	if stored.ObservedAtMS == nil || *stored.ObservedAtMS != 2000 {
 		t.Fatalf("observed_at_ms = %#v, want the concurrent write's 2000 preserved", stored.ObservedAtMS)
+	}
+
+	views := fixture.registry.Snapshot()
+	for _, v := range views {
+		if v.ID == credentialID {
+			if v.ObservedQuotaRemaining() != nil || len(v.QuotaWindows) != 0 {
+				t.Fatalf("expected cleared quota in registry after invalidate reset, got %#v", v)
+			}
+		}
 	}
 }
 
@@ -990,7 +1004,8 @@ func TestApplyCredentialQuotaObservationUsesBottleneckReset(t *testing.T) {
 		}},
 	}
 
-	fixture.service.applyCredentialQuotaObservation(credentialID, &response)
+	ref, _ := fixture.registry.CredentialRef(credentialID)
+	fixture.service.applyCredentialQuotaObservation(credentialID, ref.IdentityGeneration, &response)
 	views := fixture.registry.Snapshot()
 	if len(views) != 1 || !views[0].QuotaResetAt.Equal(time.UnixMilli(bottleneckReset)) {
 		t.Fatalf("quota runtime views = %#v, want bottleneck reset %v", views, time.UnixMilli(bottleneckReset))
@@ -1012,7 +1027,8 @@ func TestApplyCredentialQuotaObservationDoesNotBlockAccountForModelGroupExhausti
 		}}},
 	}
 
-	fixture.service.applyCredentialQuotaObservation(credentialID, &response)
+	ref, _ := fixture.registry.CredentialRef(credentialID)
+	fixture.service.applyCredentialQuotaObservation(credentialID, ref.IdentityGeneration, &response)
 	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
 		t.Fatalf("model-group quota blocked whole credential: %#v", candidates)
 	}
@@ -1427,4 +1443,297 @@ func observationJSON(t *testing.T, value any) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+func TestRefreshCredentialObservationFailurePreservesConcurrentPassiveQuotaInDBAndRegistry(t *testing.T) {
+	t.Parallel()
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.Date(2026, time.August, 17, 10, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+
+	ref, ok := fixture.registry.CredentialRef(credentialID)
+	if !ok {
+		t.Fatal("credential ref not found")
+	}
+	var cred models.Credential
+	if err := fixture.db.Take(&cred, credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 模拟在主动刷新网络请求在途期间，并发发生被动配额合并（写入新快照并发布到 registry）
+	passiveObservedAt := now.Add(10 * time.Second).UnixMilli()
+	passiveResetAt := now.Add(2 * time.Hour).UnixMilli()
+	passiveUtil := 0.30
+	windowSec := int64(18000)
+
+	fixture.service.observeSubscriptionAccount = func(
+		ctx context.Context,
+		cid channel.ID,
+		sc subscriptionruntime.Credential,
+		target subscriptionruntime.Target,
+	) (subscriptionruntime.Observation, error) {
+		// 在请求在途期间，并发写入被动配额到数据库与 registry
+		passiveWindows := []providerobservation.QuotaWindow{
+			{
+				ID: "primary", Scope: "account", WindowSeconds: &windowSec,
+				State: "available", Utilization: &passiveUtil,
+				ResetAtMS: &passiveResetAt, ObservedAtMS: &passiveObservedAt,
+			},
+		}
+		rawSnapshot, _ := json.Marshal(providerobservation.Snapshot{
+			QuotaWindows: passiveWindows,
+		})
+		obsRow := models.CredentialObservation{
+			CredentialID:        credentialID,
+			IdentityFingerprint: cred.IdentityFingerprint,
+			SchemaVersion:       1,
+			ObservationVersion:  1,
+			SnapshotJSON:        models.JSON(rawSnapshot),
+			State:               models.CredentialObservationFresh,
+			ObservedAtMS:        &passiveObservedAt,
+			UpdatedAtMS:         passiveObservedAt,
+		}
+		if err := fixture.db.Save(&obsRow).Error; err != nil {
+			t.Fatalf("failed to seed concurrent passive observation: %v", err)
+		}
+		fixture.registry.ApplyQuotaWindows(credentialID, ref.IdentityGeneration, passiveWindows)
+
+		// 网络请求最终失败（如 503 错误）
+		return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: http.StatusServiceUnavailable}
+	}
+
+	_, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err == nil {
+		t.Fatal("expected active refresh to return error on 503 upstream failure")
+	}
+
+	// 1. 断言数据库中保留了被动刷新的快照与 Fresh 状态
+	var dbObs models.CredentialObservation
+	if err := fixture.db.Take(&dbObs, "credential_id = ?", credentialID).Error; err != nil {
+		t.Fatalf("failed to query observation: %v", err)
+	}
+	if dbObs.State != models.CredentialObservationFresh {
+		t.Fatalf("db state = %s, want fresh preserved", dbObs.State)
+	}
+	if !strings.Contains(string(dbObs.SnapshotJSON), `"utilization":0.3`) {
+		t.Fatalf("db snapshot = %s, want passive utilization 0.3 preserved", dbObs.SnapshotJSON)
+	}
+
+	// 2. 关键断言：断言 registry 中保留了并发写入的新配额事实，未被失败路径清空或覆盖
+	views := fixture.registry.Snapshot()
+	var credView *state.CredentialRuntimeView
+	for i := range views {
+		if views[i].ID == credentialID {
+			credView = &views[i]
+			break
+		}
+	}
+	if credView == nil {
+		t.Fatal("credential view not found in registry")
+	}
+	if credView.ObservedQuotaRemaining() == nil || math.Abs(*credView.ObservedQuotaRemaining()-0.70) > 1e-6 {
+		t.Fatalf("registry quota remaining = %v, want 0.70 preserved", credView.ObservedQuotaRemaining())
+	}
+	if len(credView.QuotaWindows) != 1 || math.Abs(credView.QuotaWindows[0].Ratio-0.70) > 1e-6 {
+		t.Fatalf("registry quota windows = %#v, want 1 window with ratio 0.70", credView.QuotaWindows)
+	}
+}
+
+func TestRefreshCredentialObservationPartialPreservesPreviousWindowObservedAtMS(t *testing.T) {
+	t.Parallel()
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.Date(2026, time.August, 17, 10, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+
+	initialObservedAt := now.UnixMilli()
+	resetAt := now.Add(2 * time.Hour).UnixMilli()
+	util1 := 0.20
+	util2 := 0.50
+	winSec1 := int64(18000)
+	winSec2 := int64(86400)
+
+	// 先建立包含两个不同 Scope 窗口的初始快照
+	initialWindows := []ObservationQuotaWindow{
+		{
+			ID: "account-win", Scope: "account", WindowSeconds: &winSec1,
+			State: "available", Utilization: &util1, ResetAtMS: &resetAt,
+			ObservedAtMS: &initialObservedAt,
+		},
+		{
+			ID: "model-win", Scope: "model", WindowSeconds: &winSec2,
+			State: "available", Utilization: &util2, ResetAtMS: &resetAt,
+			ObservedAtMS: &initialObservedAt,
+		},
+	}
+	rawSnapshot, _ := json.Marshal(CredentialObservationSnapshot{QuotaWindows: initialWindows})
+	ref, _ := fixture.registry.CredentialRef(credentialID)
+	var cred models.Credential
+	if err := fixture.db.Take(&cred, credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+	obsRow := models.CredentialObservation{
+		CredentialID:        credentialID,
+		IdentityFingerprint: cred.IdentityFingerprint,
+		SchemaVersion:       1,
+		ObservationVersion:  1,
+		SnapshotJSON:        models.JSON(rawSnapshot),
+		State:               models.CredentialObservationFresh,
+		ObservedAtMS:        &initialObservedAt,
+		UpdatedAtMS:         initialObservedAt,
+	}
+	if err := fixture.db.Save(&obsRow).Error; err != nil {
+		t.Fatal(err)
+	}
+	fixture.registry.ApplyQuotaWindows(credentialID, ref.IdentityGeneration, providerQuotaWindows(initialWindows))
+
+	// 主动刷新在 1 分钟后完成，但只观测了 scope="account"，未观测 scope="model"
+	laterNow := now.Add(time.Minute)
+	fixture.service.now = func() time.Time { return laterNow }
+	laterObservedAt := laterNow.UnixMilli()
+	newUtil := 0.15
+
+	fixture.service.observeSubscriptionAccount = func(
+		ctx context.Context,
+		cid channel.ID,
+		sc subscriptionruntime.Credential,
+		target subscriptionruntime.Target,
+	) (subscriptionruntime.Observation, error) {
+		newObsWindows := []ObservationQuotaWindow{
+			{
+				ID: "account-win", Scope: "account", WindowSeconds: &winSec1,
+				State: "available", Utilization: &newUtil, ResetAtMS: &resetAt,
+			},
+		}
+		encoded, _ := json.Marshal(CredentialObservationSnapshot{QuotaWindows: newObsWindows})
+		return subscriptionruntime.Observation{
+			Payload:             encoded,
+			ObservedQuotaScopes: []string{"account"},
+			QuotaObserved:       true,
+		}, nil
+	}
+
+	resp, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err != nil {
+		t.Fatalf("RefreshCredentialObservation failed: %v", err)
+	}
+
+	// 验证：新观测的 account 窗口的时间被覆盖为服务端 completedMS (laterObservedAt)，
+	// 而保留的 model 窗口的时间依然是 initialObservedAt！
+	if len(resp.Snapshot.QuotaWindows) != 2 {
+		t.Fatalf("expected 2 windows, got %d", len(resp.Snapshot.QuotaWindows))
+	}
+	var accountWin, modelWin *ObservationQuotaWindow
+	for i := range resp.Snapshot.QuotaWindows {
+		w := &resp.Snapshot.QuotaWindows[i]
+		if w.Scope == "account" {
+			accountWin = w
+		} else if w.Scope == "model" {
+			modelWin = w
+		}
+	}
+	if accountWin == nil || accountWin.ObservedAtMS == nil || *accountWin.ObservedAtMS != laterObservedAt {
+		t.Fatalf("accountWin.ObservedAtMS = %v, want %d", accountWin.ObservedAtMS, laterObservedAt)
+	}
+	if modelWin == nil || modelWin.ObservedAtMS == nil || *modelWin.ObservedAtMS != initialObservedAt {
+		t.Fatalf("modelWin.ObservedAtMS = %v, want preserved %d", modelWin.ObservedAtMS, initialObservedAt)
+	}
+
+	// 同样断言 registry 中的事实
+	views := fixture.registry.Snapshot()
+	var credView *state.CredentialRuntimeView
+	for i := range views {
+		if views[i].ID == credentialID {
+			credView = &views[i]
+			break
+		}
+	}
+	for _, fact := range credView.QuotaWindows {
+		if fact.Scope == "account" && fact.ObservedAt.UnixMilli() != laterObservedAt {
+			t.Fatalf("registry account fact ObservedAt = %v, want %d", fact.ObservedAt.UnixMilli(), laterObservedAt)
+		}
+		if fact.Scope == "model" && fact.ObservedAt.UnixMilli() != initialObservedAt {
+			t.Fatalf("registry model fact ObservedAt = %v, want preserved %d", fact.ObservedAt.UnixMilli(), initialObservedAt)
+		}
+	}
+}
+
+func TestRefreshCredentialObservationFailureDoesNotResurrectPreviousWhenCurrentIsStaleOrError(t *testing.T) {
+	t.Parallel()
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.Date(2026, time.August, 17, 10, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+
+	var cred models.Credential
+	if err := fixture.db.Take(&cred, credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 初始状态为 Stale
+	staleAt := now.UnixMilli()
+	obsRow := models.CredentialObservation{
+		CredentialID:        credentialID,
+		IdentityFingerprint: cred.IdentityFingerprint,
+		SchemaVersion:       1,
+		ObservationVersion:  1,
+		SnapshotJSON:        models.JSON(`{"quota_windows":[]}`),
+		State:               models.CredentialObservationStale,
+		ObservedAtMS:        &staleAt,
+		UpdatedAtMS:         staleAt,
+	}
+	if err := fixture.db.Save(&obsRow).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	fixture.service.observeSubscriptionAccount = func(
+		ctx context.Context,
+		cid channel.ID,
+		sc subscriptionruntime.Credential,
+		target subscriptionruntime.Target,
+	) (subscriptionruntime.Observation, error) {
+		return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: http.StatusBadGateway}
+	}
+
+	// 主动刷新失败
+	_, _ = fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+
+	var after models.CredentialObservation
+	if err := fixture.db.Take(&after, "credential_id = ?", credentialID).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 当前行不是 fresh，在失败后必须变为 error，绝不能变为 fresh
+	if after.State != models.CredentialObservationError {
+		t.Fatalf("expected state error, got %s", after.State)
+	}
+}
+
+func TestRefreshCredentialObservationDatabaseErrorPropagated(t *testing.T) {
+	t.Parallel()
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+
+	// 关闭底层数据库连接，迫使 withCredentialMutation 内的 DB 操作报错
+	sqlDB, err := fixture.db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fixture.service.observeSubscriptionAccount = func(
+		ctx context.Context,
+		cid channel.ID,
+		sc subscriptionruntime.Credential,
+		target subscriptionruntime.Target,
+	) (subscriptionruntime.Observation, error) {
+		return subscriptionruntime.Observation{
+			Payload: []byte(`{"quota_windows":[]}`),
+		}, nil
+	}
+
+	resp, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+	if err == nil {
+		t.Fatal("expected DB error to be propagated, got nil err")
+	}
+	if resp.ObservationVersion != 0 || resp.State != "" {
+		t.Fatalf("expected zero-value response on error, got %#v", resp)
+	}
 }

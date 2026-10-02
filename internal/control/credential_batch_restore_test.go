@@ -109,9 +109,11 @@ func TestBatchRestoreAllSubscriptionCredentialsPreservesQuotaAndAuth(t *testing.
 			markStoredCredentialAuthState(t, fixture, credentialID, authState, "test_auth_state")
 			remaining, utilization := 30.0, 0.7
 			resetAt := time.Now().Add(time.Hour).UnixMilli()
-			if !fixture.registry.ApplyQuotaWindows(credentialID, []providerobservation.QuotaWindow{{
+			observedAt := time.Now().UnixMilli()
+			ref, _ := fixture.registry.CredentialRef(credentialID)
+			if !fixture.registry.ApplyQuotaWindows(credentialID, ref.IdentityGeneration, []providerobservation.QuotaWindow{{
 				ID: "primary", Scope: "account", State: "available", Remaining: &remaining,
-				Utilization: &utilization, ResetAtMS: &resetAt,
+				Utilization: &utilization, ResetAtMS: &resetAt, ObservedAtMS: &observedAt,
 			}}) {
 				t.Fatal("publish quota failed")
 			}

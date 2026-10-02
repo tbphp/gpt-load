@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ChevronRight, Layers, SlidersHorizontal } from '@lucide/vue'
+import { ArrowLeft, ChevronRight, Layers, Scale, SlidersHorizontal } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { useMessages, useMessageSource } from '@modern/app/messages'
@@ -10,6 +10,7 @@ import {
   getGroupModels,
   groupModelsKey,
   groupSettingsKey,
+  groupPolicyKey,
   groupCredentialsKey,
 } from '@modern/api/group-detail'
 import { getGroupUsage, getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
@@ -32,6 +33,7 @@ import GroupBasicsForm from './GroupBasicsForm.vue'
 import GroupCredentialAddPanel from './GroupCredentialAddPanel.vue'
 import GroupCredentials from './GroupCredentials.vue'
 import GroupModelsPanel from './GroupModelsPanel.vue'
+import GroupPolicyPanel from './GroupPolicyPanel.vue'
 import GroupOverview from './GroupOverview.vue'
 
 const route = useRoute()
@@ -88,14 +90,14 @@ let panelUpdate: ReturnType<typeof router.replace> | undefined
 let panelTarget: string | undefined
 const panel = computed({
   get: () =>
-    ['models', 'advanced', 'add'].includes(String(route.query.panel))
-      ? (route.query.panel as 'models' | 'advanced' | 'add')
+    ['models', 'advanced', 'policy', 'add'].includes(String(route.query.panel))
+      ? (route.query.panel as 'models' | 'advanced' | 'policy' | 'add')
       : undefined,
   set: (value) => {
     void setPanel(value)
   },
 })
-function setPanel(value?: 'models' | 'advanced' | 'add') {
+function setPanel(value?: 'models' | 'advanced' | 'policy' | 'add') {
   if (panelUpdate && panelTarget === value) return panelUpdate
   const query = { ...route.query }
   if (value) query.panel = value
@@ -139,6 +141,7 @@ async function refresh(): Promise<void> {
     trend.refetch(),
     credentials.value?.refresh(),
     basics.value?.refresh(),
+    cache.invalidateQueries({ queryKey: groupPolicyKey(id.value) }),
   ])
 }
 usePageRefresh({
@@ -169,11 +172,16 @@ function modelsSaved(): void {
   void cache.invalidateQueries({ queryKey: groupQueryKey })
   void cache.invalidateQueries({ queryKey: groupCredentialsKey(id.value) })
 }
+function policySaved(): void {
+  void cache.invalidateQueries({ queryKey: groupQueryKey })
+  void cache.invalidateQueries({ queryKey: groupPolicyKey(id.value) })
+}
 async function groupDeleted(): Promise<void> {
   const deletedID = id.value
   await router.replace(returnTo.value)
   for (const key of [
     'group-settings',
+    'group-policy',
     'group-models',
     'group-model-names',
     'group-credentials',
@@ -339,6 +347,14 @@ useMessageSource(() =>
               ><span>{{ t('groupDetail.advanced') }}</span
               ><AppIcon :icon="ChevronRight" size="sm"
             /></AppButton>
+            <AppButton
+              :icon="Scale"
+              variant="ghost"
+              class="modern-group-settings-link"
+              @click="panel = 'policy'"
+              ><span>{{ t('groupDetail.policy.entry') }}</span
+              ><AppIcon :icon="ChevronRight" size="sm"
+            /></AppButton>
           </nav>
         </GroupBasicsForm>
       </aside>
@@ -358,6 +374,13 @@ useMessageSource(() =>
         :models="models.data.value ?? []"
         @close="panel = undefined"
         @saved="settingsSaved"
+      />
+      <GroupPolicyPanel
+        v-if="panel === 'policy'"
+        :key="group.id"
+        :group="group"
+        @close="panel = undefined"
+        @saved="policySaved"
       />
       <GroupCredentialAddPanel
         v-if="panel === 'add' && channel"

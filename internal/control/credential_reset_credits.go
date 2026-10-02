@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -184,27 +183,40 @@ func (s *Service) invalidateCredentialObservationAfterReset(
 	credential models.Credential,
 	previous *models.CredentialObservation,
 ) (*CredentialObservationResponse, error) {
-	if s.registry != nil {
-		s.registry.SetCredentialQuotaObservation(credential.ID, nil, time.Time{})
-	}
-	if previous == nil || previous.CredentialID == 0 || previous.IdentityFingerprint != credential.IdentityFingerprint {
-		return nil, nil
-	}
-	previous.State = models.CredentialObservationStale
-	previous.NextAllowedAtMS = nil
-	previous.LastErrorCode = ""
-	previous.UpdatedAtMS = s.now().UTC().UnixMilli()
-	updates := map[string]any{
-		"state":              previous.State,
-		"next_allowed_at_ms": previous.NextAllowedAtMS,
-		"last_error_code":    previous.LastErrorCode,
-		"updated_at_ms":      previous.UpdatedAtMS,
-	}
-	if err := s.upsertCredentialObservationMetadataOnly(ctx, credential.ID, *previous, updates); err != nil {
+	var response *CredentialObservationResponse
+	err := s.withCredentialMutation(credential.ID, func() error {
+		if s.registry != nil {
+			ref, ok := s.registry.CredentialRef(credential.ID)
+			var identityGen uint64
+			if ok {
+				identityGen = ref.IdentityGeneration
+			}
+			s.registry.ApplyQuotaWindows(credential.ID, identityGen, nil)
+		}
+		if previous == nil || previous.CredentialID == 0 || previous.IdentityFingerprint != credential.IdentityFingerprint {
+			return nil
+		}
+		previous.State = models.CredentialObservationStale
+		previous.NextAllowedAtMS = nil
+		previous.LastErrorCode = ""
+		previous.UpdatedAtMS = s.now().UTC().UnixMilli()
+		updates := map[string]any{
+			"state":              previous.State,
+			"next_allowed_at_ms": previous.NextAllowedAtMS,
+			"last_error_code":    previous.LastErrorCode,
+			"updated_at_ms":      previous.UpdatedAtMS,
+		}
+		if err := s.upsertCredentialObservationMetadataOnly(ctx, credential.ID, *previous, updates); err != nil {
+			return err
+		}
+		mapped := mapCredentialObservation(*previous)
+		response = &mapped
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	response := mapCredentialObservation(*previous)
-	return &response, nil
+	return response, nil
 }
 
 func (s *Service) restoreCredentialRuntimeAfterReset(credentialID uint) bool {

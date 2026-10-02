@@ -126,14 +126,14 @@ func TestFlushPassiveQuotaObservationsDiscardsConflictingPeriodWithoutAdvancingF
 	if err := json.Unmarshal(existing.SnapshotJSON, &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if !registry.ApplyQuotaWindows(row.ID, snapshot.QuotaWindows) {
-		t.Fatal("failed to initialize quota health projection")
-	}
-	before := registry.Snapshot()
 	ref, ok := registry.CredentialRef(row.ID)
 	if !ok {
 		t.Fatal("credential ref is unavailable")
 	}
+	if !registry.ApplyQuotaWindows(row.ID, ref.IdentityGeneration, snapshot.QuotaWindows) {
+		t.Fatal("failed to initialize quota health projection")
+	}
+	before := registry.Snapshot()
 	// 普通 7d 与 Spark 5h 都可能占用 primary；冲突样本不能刷新任何账号级状态。
 	observedAt := time.UnixMilli(2000)
 	windows := codex.NormalizePassiveQuotaWindows(map[string]string{

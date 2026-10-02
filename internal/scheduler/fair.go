@@ -11,13 +11,17 @@ func (iterator *Iterator) ChargeReplay(selection Selection, ref state.Credential
 	if ref.ID != selection.CredentialID || ref.GroupID != selection.GroupID {
 		return false
 	}
+	now := iterator.now()
 	var charged bool
 	consume := func(metas []state.CredentialMeta) {
 		for _, meta := range metas {
 			if meta.ID != ref.ID || meta.IdentityGeneration != ref.IdentityGeneration {
 				continue
 			}
-			if selection.UpstreamModelID != nil && modelCooldownUntil(meta.ModelCooldowns, *selection.UpstreamModelID, iterator.operation, iterator.now()).After(iterator.now()) {
+			if selection.UpstreamModelID != nil && modelCooldownUntil(meta.ModelCooldowns, *selection.UpstreamModelID, iterator.operation, now).After(now) {
+				continue
+			}
+			if selection.UpstreamModelID != nil && iterator.isPolicyExcludedTarget(*selection.UpstreamModelID, selection.GroupID, meta.ID, meta.QuotaWindows, now) {
 				continue
 			}
 			weight := effectiveWeight(selection.Group.WeightManual, meta.WeightManual)
@@ -30,9 +34,9 @@ func (iterator *Iterator) ChargeReplay(selection Selection, ref state.Credential
 	if source, ok := iterator.credentials.(interface {
 		WithCredentialCandidates([]uint, func(uint) bool, time.Time, func([]state.CredentialMeta))
 	}); ok {
-		source.WithCredentialCandidates(groups, nil, iterator.now(), consume)
+		source.WithCredentialCandidates(groups, nil, now, consume)
 	} else {
-		consume(iterator.credentials.CollectCredentialCandidates(groups, nil, iterator.now()))
+		consume(iterator.credentials.CollectCredentialCandidates(groups, nil, now))
 	}
 	return charged
 }

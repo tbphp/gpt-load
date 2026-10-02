@@ -231,6 +231,7 @@ const quotaWindowFields = [
   'state',
   'is_primary',
   'observed_usage',
+  'observed_at_ms',
 ] as const
 const quotaLabelKeys = [
   'session',

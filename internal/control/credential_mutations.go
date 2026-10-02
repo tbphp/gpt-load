@@ -271,6 +271,10 @@ func (s *Service) DeleteGroupCredential(ctx context.Context, groupID, credential
 		if err := tx.Delete(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
+		if err := tx.Where("scope = ? AND group_id = ? AND credential_id = ?", models.PolicyScopeCredential, groupID, credentialID).
+			Delete(&models.PolicyBinding{}).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
 		return nil
 	}, func() error {
 		if !s.registry.RemoveCredential(credentialID) {
@@ -647,6 +651,13 @@ func (s *Service) BatchGroupCredentials(
 					})
 				case CredentialBatchDelete:
 					result = query.Delete(&models.Credential{})
+					if result.Error == nil {
+						policyResult := tx.Where("scope = ? AND group_id = ? AND credential_id IN ?", models.PolicyScopeCredential, groupID, ids).
+							Delete(&models.PolicyBinding{})
+						if policyResult.Error != nil {
+							return app_errors.ParseDBError(policyResult.Error)
+						}
+					}
 				}
 				if result.Error != nil {
 					return app_errors.ParseDBError(result.Error)

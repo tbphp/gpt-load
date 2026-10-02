@@ -20,6 +20,7 @@ import (
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestaudit"
@@ -41,6 +42,8 @@ type CompileInput struct {
 	ClientModelOverrides map[string]catalog.ClientModelOverrides
 	GlobalProxy          *outboundproxy.Config
 	EnvironmentProxy     *outboundproxy.Config
+	Policies             *policy.RuntimeView
+	PolicyBindings       []policy.BindingConfig
 }
 
 type GroupConfig struct {
@@ -214,15 +217,31 @@ type ConfigSnapshot struct {
 	AccessKeysByID        map[uint]AccessKeyView
 	ClientModelOverrides  map[string]catalog.ClientModelOverrides
 	GlobalProxy           outboundproxy.Effective
+	Policies              *policy.RuntimeView
 }
 
 func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	if err := validateCompileInput(input); err != nil {
 		return nil, err
 	}
+	if err := validatePolicyBindings(input); err != nil {
+		return nil, err
+	}
 	runtimeSettings, err := ResolveRuntimeSettings(input.SystemSettings)
 	if err != nil {
 		return nil, err
+	}
+	var policyView *policy.RuntimeView
+	if input.Policies != nil {
+		policyView = input.Policies.Clone()
+	} else if len(input.PolicyBindings) > 0 {
+		pv, err := policy.CompileRuntimeView(input.PolicyBindings)
+		if err != nil {
+			return nil, fmt.Errorf("compile policy bindings: %w", err)
+		}
+		policyView = pv
+	} else {
+		policyView = policy.NewEmptyRuntimeView()
 	}
 	redaction, err := requestredact.Compile(input.RequestRedaction)
 	if err != nil {
@@ -321,6 +340,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		AccessKeysByID:        make(map[uint]AccessKeyView),
 		ClientModelOverrides:  cloneClientModelOverrides(input.ClientModelOverrides),
 		GlobalProxy:           globalProxy,
+		Policies:              policyView,
 	}
 
 	for _, group := range input.Groups {
@@ -395,6 +415,52 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	sortExecutionRouteIndex(snapshot.ExecutionCandidates)
 	sortExecutionRouteIndex(snapshot.ExecutionRouteCatalog)
 	return snapshot, nil
+}
+
+func validatePolicyBindings(input CompileInput) error {
+	if len(input.PolicyBindings) == 0 {
+		return nil
+	}
+	groupIDs := make(map[uint]struct{}, len(input.Groups))
+	for _, group := range input.Groups {
+		groupIDs[group.ID] = struct{}{}
+	}
+	credentialGroups := make(map[uint]uint, len(input.Credentials))
+	for _, credential := range input.Credentials {
+		credentialGroups[credential.ID] = credential.GroupID
+	}
+	seenGroups := make(map[uint]struct{})
+	seenCredentials := make(map[uint]struct{})
+	for _, binding := range input.PolicyBindings {
+		switch binding.Scope {
+		case "group":
+			if binding.GroupID == 0 || binding.CredentialID != 0 {
+				return fmt.Errorf("invalid group policy binding target")
+			}
+			if _, exists := groupIDs[binding.GroupID]; !exists {
+				return fmt.Errorf("policy binding references missing group %d", binding.GroupID)
+			}
+			if _, duplicate := seenGroups[binding.GroupID]; duplicate {
+				return fmt.Errorf("duplicate group policy binding for group %d", binding.GroupID)
+			}
+			seenGroups[binding.GroupID] = struct{}{}
+		case "credential":
+			if binding.GroupID == 0 || binding.CredentialID == 0 {
+				return fmt.Errorf("invalid credential policy binding target")
+			}
+			credentialGroup, exists := credentialGroups[binding.CredentialID]
+			if !exists || credentialGroup != binding.GroupID {
+				return fmt.Errorf("policy binding references credential %d outside group %d", binding.CredentialID, binding.GroupID)
+			}
+			if _, duplicate := seenCredentials[binding.CredentialID]; duplicate {
+				return fmt.Errorf("duplicate credential policy binding for credential %d", binding.CredentialID)
+			}
+			seenCredentials[binding.CredentialID] = struct{}{}
+		default:
+			return fmt.Errorf("unsupported policy scope %q", binding.Scope)
+		}
+	}
+	return nil
 }
 
 func newAccessKeyView(input AccessKeyConfig) AccessKeyView {

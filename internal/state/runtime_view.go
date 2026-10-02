@@ -3,6 +3,8 @@ package state
 import (
 	"sort"
 	"time"
+
+	"gpt-load/internal/policy"
 )
 
 type CredentialRuntimeView struct {
@@ -19,6 +21,7 @@ type CredentialRuntimeView struct {
 	FailureCount       int
 	QuotaRemaining     *float64
 	QuotaResetAt       time.Time
+	QuotaWindows       []policy.QuotaWindowFact
 }
 
 func (view CredentialRuntimeView) AuthReady() bool {
@@ -51,6 +54,14 @@ func (view CredentialRuntimeView) RuntimeState(now time.Time) CredentialRuntimeS
 	return CredentialRuntimeAvailable
 }
 
+func (view CredentialRuntimeView) Clone() CredentialRuntimeView {
+	view.WeightManual = cloneWeight(view.WeightManual)
+	view.ModelCooldowns = cloneModelCooldowns(view.ModelCooldowns)
+	view.QuotaRemaining = cloneFloat(view.QuotaRemaining)
+	view.QuotaWindows = policy.CloneQuotaWindows(view.QuotaWindows)
+	return view
+}
+
 func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
 	return CredentialRuntimeView{
 		ID:                 entry.ID,
@@ -66,6 +77,7 @@ func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
 		FailureCount:       entry.FailureCount,
 		QuotaRemaining:     cloneFloat(entry.quotaRemaining),
 		QuotaResetAt:       entry.quotaResetAt,
+		QuotaWindows:       policy.CloneQuotaWindows(entry.quotaFacts),
 	}
 }
 

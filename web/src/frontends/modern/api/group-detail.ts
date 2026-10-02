@@ -10,6 +10,7 @@ import { readObservation, type CredentialObservation } from './credential-observ
 import { readGroupBasics, type GroupBasics } from './groups'
 
 export const groupSettingsKey = (id: number) => ['modern', 'group-settings', id] as const
+export const groupPolicyKey = (id: number) => ['modern', 'group-policy', id] as const
 export const groupModelsKey = (id: number) => ['modern', 'group-models', id] as const
 export const groupCredentialsKey = (id: number) => ['modern', 'group-credentials', id] as const
 export const credentialStates = ['available', 'cooldown', 'blacklisted', 'disabled'] as const
@@ -451,4 +452,83 @@ export async function batchAllGroupCredentials(
     }),
   )
   return list(data.affected_credential_ids).map((id) => integer(id, 1))
+}
+
+export interface GroupPolicyConfigDTO {
+  schema_version: number
+  rules: unknown[]
+  [key: string]: unknown
+}
+
+export interface GroupPolicy {
+  scope: 'group'
+  id: number
+  groupId: number
+  revision: number
+  schemaVersion: number
+  rules: unknown[]
+  config: GroupPolicyConfigDTO
+}
+
+export function readGroupPolicy(raw: unknown): GroupPolicy {
+  const data = record(raw)
+  const scope = oneOf(data.scope, ['group'] as const)
+  const id = integer(data.id, 1)
+  const groupId = integer(data.group_id, 1)
+  if (id !== groupId) {
+    throw new InvalidResponseError()
+  }
+  const revision = integer(data.revision, 0)
+  const schemaVersion = integer(data.schema_version, 1)
+  if (schemaVersion !== 1) {
+    throw new InvalidResponseError()
+  }
+  const rules = list(data.rules)
+  const config = record(data.config)
+  const configSchemaVersion = integer(config.schema_version, 1)
+  if (configSchemaVersion !== 1) {
+    throw new InvalidResponseError()
+  }
+  const configRules = list(config.rules)
+
+  return {
+    scope,
+    id,
+    groupId,
+    revision,
+    schemaVersion,
+    rules,
+    config: {
+      ...config,
+      schema_version: configSchemaVersion,
+      rules: configRules,
+    },
+  }
+}
+
+export async function getGroupPolicy(
+  client: ApiClient,
+  id: number,
+  signal: AbortSignal,
+): Promise<GroupPolicy> {
+  return readGroupPolicy(await client.request(`/api/groups/${id}/policy`, { signal }))
+}
+
+export async function saveGroupPolicy(
+  client: ApiClient,
+  id: number,
+  expectedRevision: number,
+  config: unknown,
+  signal: AbortSignal,
+): Promise<GroupPolicy> {
+  return readGroupPolicy(
+    await client.request(`/api/groups/${id}/policy`, {
+      method: 'PUT',
+      json: {
+        expected_revision: expectedRevision,
+        config,
+      },
+      signal,
+    }),
+  )
 }
