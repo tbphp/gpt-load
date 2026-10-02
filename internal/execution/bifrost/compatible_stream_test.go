@@ -62,6 +62,14 @@ func TestCompatibleStreamParallelToolsAndTerminal(t *testing.T) {
 			})
 			var final gjson.Result
 			count := 0
+			reasoningDone := 0
+			checkSummary := func(item gjson.Result) {
+				t.Helper()
+				if len(item.Get("summary").Array()) != 1 || item.Get("summary.0.type").String() != "summary_text" ||
+					item.Get("summary.0.text").String() != "Need weather." {
+					t.Fatalf("reasoning summary lost: %s", item.Raw)
+				}
+			}
 			lastSequence := int64(-1)
 			for _, line := range strings.Split(data.String(), "\n") {
 				if strings.HasPrefix(line, "data: ") {
@@ -70,6 +78,10 @@ func TestCompatibleStreamParallelToolsAndTerminal(t *testing.T) {
 						t.Fatalf("noncontiguous event sequence after %d: %s", lastSequence, event.Raw)
 					} else {
 						lastSequence = sequence
+					}
+					if event.Get("type").String() == "response.output_item.done" && event.Get("item.type").String() == "reasoning" {
+						checkSummary(event.Get("item"))
+						reasoningDone++
 					}
 					if event.Get("type").String() == "response.completed" {
 						count++
@@ -86,6 +98,11 @@ func TestCompatibleStreamParallelToolsAndTerminal(t *testing.T) {
 			if result.Error != nil || count != 1 || len(final.Get(`output.#(type=="function_call")#`).Array()) != 2 {
 				t.Fatalf("incomplete tools: result=%+v data=%s", result, data.String())
 			}
+			reasoningItems := final.Get(`output.#(type=="reasoning")#`).Array()
+			if reasoningDone != 1 || len(reasoningItems) != 1 {
+				t.Fatalf("reasoning item missing: done=%d final=%s", reasoningDone, final.Raw)
+			}
+			checkSummary(reasoningItems[0])
 			if tc.usage {
 				want := int64(9)
 				if tc.zero {
@@ -118,6 +135,112 @@ func TestCompatibleStreamRejectsUnknownToolIndex(t *testing.T) {
 	})
 	if result.Error == nil || strings.Contains(data.String(), "response.completed") {
 		t.Fatalf("unknown index silently dropped: %+v data=%s", result, data.String())
+	}
+}
+
+func TestCompatibleStreamInterleavedToolArguments(t *testing.T) {
+	// 首帧建立 ID/index，后续只带 index；同一事件中逆序续传，并在最后一个参数片段结束。
+	chunks := []string{
+		`{"id":"chat_1","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_0","type":"function","function":{"name":"weather_beijing","arguments":"{\"ci"}},{"index":1,"id":"call_1","type":"function","function":{"name":"weather_shanghai","arguments":"{\"ci"}}]}}]}`,
+		`{"id":"chat_1","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"ty\":\"Sh"}}]}}]}`,
+		`{"id":"chat_1","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"anghai\""}},{"index":0,"function":{"arguments":"ty\":\"Bei"}}]}}]}`,
+		`{"id":"chat_1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"jing\"}"}}]}}]}`,
+		`{"id":"chat_1","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
+	}
+	for _, tc := range []struct{ name, body string }{
+		{"responses", `{"model":"client-model","input":"hi","stream":true}`},
+		{"anthropic", `{"model":"client-model","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"stream":true}`},
+		{"gemini", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				for _, chunk := range chunks {
+					_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
+					w.(http.Flusher).Flush()
+				}
+				_, _ = io.WriteString(w, "data: [DONE]\n\n")
+			}))
+			defer server.Close()
+			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
+			type toolCall struct{ name, arguments string }
+			calls := make(map[string]*toolCall)
+			indices := make(map[int64]string)
+			started, completed := 0, 0
+			appendArguments := func(index int64, fragment string) {
+				t.Helper()
+				call := calls[indices[index]]
+				if call == nil {
+					t.Fatalf("arguments arrived without a tool: index=%d fragment=%q", index, fragment)
+				}
+				call.arguments += fragment
+			}
+			result := runtime.ExecuteStream(t.Context(), compatibleTestSpec(t, server.URL, tc.body, true), func(frame execution.StreamEvent) error {
+				for _, line := range strings.Split(string(frame.Data), "\n") {
+					if !strings.HasPrefix(line, "data: ") {
+						continue
+					}
+					event := gjson.Parse(strings.TrimPrefix(line, "data: "))
+					switch tc.name {
+					case "responses":
+						switch event.Get("type").String() {
+						case "response.output_item.added":
+							if event.Get("item.type").String() == "function_call" {
+								id := event.Get("item.call_id").String()
+								indices[event.Get("output_index").Int()] = id
+								calls[id] = &toolCall{name: event.Get("item.name").String()}
+								started++
+							}
+						case "response.function_call_arguments.delta":
+							appendArguments(event.Get("output_index").Int(), event.Get("delta").String())
+						case "response.completed":
+							completed++
+						}
+					case "anthropic":
+						switch event.Get("type").String() {
+						case "content_block_start":
+							if event.Get("content_block.type").String() == "tool_use" {
+								id := event.Get("content_block.id").String()
+								indices[event.Get("index").Int()] = id
+								calls[id] = &toolCall{name: event.Get("content_block.name").String()}
+								started++
+							}
+						case "content_block_delta":
+							if event.Get("delta.type").String() == "input_json_delta" {
+								appendArguments(event.Get("index").Int(), event.Get("delta.partial_json").String())
+							}
+						case "message_stop":
+							completed++
+						}
+					case "gemini":
+						for _, part := range event.Get("candidates.0.content.parts").Array() {
+							if call := part.Get("functionCall"); call.Exists() {
+								calls[call.Get("id").String()] = &toolCall{name: call.Get("name").String(), arguments: call.Get("args").Raw}
+								started++
+							}
+						}
+						if event.Get("candidates.0.finishReason").String() == "STOP" {
+							completed++
+						}
+					}
+				}
+				return nil
+			})
+			if err := result.Validate(); err != nil || result.Error != nil || completed != 1 || started != 2 || len(calls) != 2 {
+				t.Fatalf("incomplete tool stream: result=%+v validation=%v started=%d completed=%d calls=%+v", result, err, started, completed, calls)
+			}
+			for index, city := range []string{"Beijing", "Shanghai"} {
+				id := fmt.Sprintf("call_%d", index)
+				call := calls[id]
+				if call == nil || call.name != "weather_"+strings.ToLower(city) {
+					t.Fatalf("tool identity changed: id=%s call=%+v", id, call)
+				}
+				var arguments map[string]string
+				if err := json.Unmarshal([]byte(call.arguments), &arguments); err != nil || len(arguments) != 1 || arguments["city"] != city {
+					t.Fatalf("tool arguments lost or crossed: id=%s arguments=%q err=%v", id, call.arguments, err)
+				}
+			}
+		})
 	}
 }
 
