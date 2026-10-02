@@ -542,9 +542,15 @@ useMessageSource(() =>
   color: var(--modern-muted);
 }
 @media (max-width: 760px) {
+  .modern-health-workspace {
+    flex: none;
+  }
+  .modern-health-workspace :deep(.modern-list-scroll) {
+    overscroll-behavior-y: auto;
+  }
   .modern-health-filters {
-    padding-top: var(--modern-space-3);
-    gap: var(--modern-space-2);
+    padding-block: var(--modern-space-1-5);
+    gap: var(--modern-space-1-5);
   }
   .modern-health-search {
     flex-basis: 100%;
@@ -552,11 +558,38 @@ useMessageSource(() =>
   .modern-health-choice {
     flex-basis: 120px;
   }
+  .modern-health-statusbar {
+    padding-bottom: var(--modern-space-1-5);
+  }
   .modern-health-row {
     grid-template-columns:
-      minmax(210px, 1.5fr) minmax(130px, 0.85fr) minmax(190px, 1.2fr) minmax(180px, 1.1fr)
+      140px minmax(130px, 0.85fr) minmax(190px, 1.2fr) minmax(180px, 1.1fr)
       minmax(170px, 1fr) 148px;
-    min-width: 1118px;
+    min-width: 1048px;
+    padding-block: 0;
+    padding-left: 0;
+  }
+  .modern-health-row > * {
+    padding-block: var(--modern-space-1-5);
+  }
+  .modern-health-row > :first-child {
+    position: sticky;
+    left: 0;
+    z-index: var(--modern-layer-raised);
+    background: var(--modern-canvas);
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    padding-left: var(--modern-space-3);
+  }
+  .modern-health-record {
+    min-height: 0;
+  }
+  .modern-health-record:hover > :first-child {
+    background: var(--modern-control-hover);
+  }
+  .modern-health-record.is-selected > :first-child {
+    background: var(--modern-accent-soft);
   }
 }
 </style>

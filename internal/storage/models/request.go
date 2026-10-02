@@ -30,8 +30,6 @@ type RequestLog struct {
 	StatusCode                  int                 `gorm:"not null"`
 	Stream                      bool                `gorm:"not null;default:false"`
 	FirstResponseMs             *int64              `gorm:"column:first_response_ms;check:chk_request_log_first_response,first_response_ms IS NULL OR first_response_ms >= 0"`
-	FirstOutputMs               *int64              `gorm:"column:first_output_ms;check:chk_request_log_first_output,first_output_ms >= 0"`
-	LastOutputMs                *int64              `gorm:"column:last_output_ms;check:chk_request_log_last_output,last_output_ms >= 0"`
 	DurationMs                  int64               `gorm:"not null;check:chk_request_log_duration,duration_ms >= 0"`
 	AttemptCount                int                 `gorm:"not null;default:0;check:chk_request_log_attempt_count,attempt_count >= 0"`
 	ErrorCode                   string              `gorm:"type:varchar(64);not null;default:''"`

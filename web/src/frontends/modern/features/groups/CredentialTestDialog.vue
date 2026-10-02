@@ -141,10 +141,10 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
       }
     "
   >
-    <AppDialogContent :title="t('credentialCards.test')" :description="row.mask">
+    <AppDialogContent :title="t('credentialCards.test')" :description="row.label">
       <AppDialogHeader
         :title="t('credentialCards.test')"
-        :description="row.mask"
+        :description="row.label"
         :close-label="t('shell.close')"
         :close-disabled="pending"
         @close="close"

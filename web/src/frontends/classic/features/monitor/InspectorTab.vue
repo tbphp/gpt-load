@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CredentialDisplay from '@/components/CredentialDisplay.vue'
 import { useQuery } from '@tanstack/vue-query'
 import { ArrowRight, ChevronRight, Route as RouteIcon } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
@@ -915,7 +916,10 @@ onBeforeUnmount(() => {
                       <span class="route-credential-label">{{
                         t('monitor.inspector.credentials.columns.credential')
                       }}</span>
-                      <code>#{{ credential.credential_id }}</code>
+                      <CredentialDisplay
+                        :name="credential.name"
+                        :value="`#${credential.credential_id}`"
+                      />
                     </div>
                     <div
                       class="ledger-record-list__cell route-credential-record__status"

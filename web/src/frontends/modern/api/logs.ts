@@ -1,3 +1,4 @@
+import { credentialDisplayText } from '@shared/credential-display'
 import { readAuditResult, type AuditResult } from './experimental'
 import type { ApiClient } from '@shared/http/client'
 import { ApiError, InvalidResponseError } from '@shared/http/errors'
@@ -120,8 +121,6 @@ export interface LogEntry {
   status_code: number
   stream: boolean
   first_response_ms: number | null
-  first_output_ms: number | null
-  last_output_ms: number | null
   duration_ms: number
   attempt_count: number
   error_code: string
@@ -319,8 +318,6 @@ function entry(value: unknown): LogEntry {
     status_code: integer(row.status_code),
     stream: boolean(row.stream),
     first_response_ms: optionalNumber(row.first_response_ms),
-    first_output_ms: optionalNumber(row.first_output_ms),
-    last_output_ms: optionalNumber(row.last_output_ms),
     duration_ms: integer(row.duration_ms),
     attempt_count: integer(row.attempt_count),
     error_code: text(row.error_code),
@@ -330,7 +327,11 @@ function entry(value: unknown): LogEntry {
     group_id: optionalNumber(row.group_id),
     channel_id: optionalText(row.channel_id),
     credential_id: optionalNumber(row.credential_id),
-    credential_name: text(row.credential_name),
+    credential_name: credentialDisplayText(
+      text(row.credential_alias ?? ''),
+      text(row.credential_name),
+      text(row.credential_connection_type ?? ''),
+    ),
     credential_deleted: row.credential_id != null && row.credential_name === '',
     route_mode: optionalText(row.route_mode),
     usage_state: oneOf(row.usage_state, [
@@ -390,7 +391,11 @@ function autoDecision(value: unknown): LogAutoDecision {
     provider: text(row.provider ?? ''),
     group_name: text(row.group_name ?? ''),
     channel_name: text(row.channel_name ?? ''),
-    credential_name: text(row.credential_name ?? ''),
+    credential_name: credentialDisplayText(
+      text(row.credential_alias ?? ''),
+      text(row.credential_name ?? ''),
+      text(row.credential_connection_type ?? ''),
+    ),
     credential_deleted: boolean(row.credential_deleted ?? false),
     requested_model: text(row.requested_model ?? ''),
     upstream_model: text(row.upstream_model ?? ''),
@@ -457,7 +462,11 @@ export async function getLogDetail(
         group_name: text(item.group_name),
         channel_id: optionalText(item.channel_id),
         credential_id: optionalNumber(item.credential_id),
-        credential_name: text(item.credential_name),
+        credential_name: credentialDisplayText(
+          text(item.credential_alias ?? ''),
+          text(item.credential_name),
+          text(item.credential_connection_type ?? ''),
+        ),
         credential_deleted: item.credential_id != null && item.credential_name === '',
         operation: optionalText(item.operation),
         route_mode: optionalText(item.route_mode),

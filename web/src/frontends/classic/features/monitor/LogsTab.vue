@@ -699,7 +699,10 @@ function cacheTooltip(log: RequestLogItemDto): string {
 
 function timingPrimary(log: RequestLogItemDto): string {
   if (!log.stream) return formatLogDuration(log.duration_ms)
-  const first = log.first_output_ms === null ? '—' : formatLogDuration(log.first_output_ms)
+  const first =
+    log.first_response_ms === null || log.first_response_ms <= 0
+      ? '—'
+      : formatLogDuration(log.first_response_ms)
   return `${first} / ${formatLogDuration(log.duration_ms)}`
 }
 
@@ -1068,21 +1071,10 @@ function costLabel(log: RequestLogItemDto): string {
             role="cell"
             :data-label="t('monitor.logs.columns.timing')"
           >
-            <OverflowTooltip as="span" :content="timingPrimary(log)">
-              {{ timingPrimary(log) }}
-            </OverflowTooltip>
-            <AppTooltip
-              v-if="formatLogOutputRate(log, locale) !== '—'"
-              :content="
-                t(
-                  log.stream
-                    ? 'monitor.logs.drawer.outputRateHint'
-                    : 'monitor.logs.drawer.nonStreamOutputRateHint',
-                )
-              "
-            >
-              <small tabindex="0">{{ formatLogOutputRate(log, locale) }}</small>
-            </AppTooltip>
+            <span>{{ timingPrimary(log) }}</span>
+            <small v-if="formatLogOutputRate(log, locale) !== '—'">
+              {{ formatLogOutputRate(log, locale) }}
+            </small>
           </div>
           <div
             v-if="showClientIP"

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -24,6 +25,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/subscription"
+	subscriptionproviders "gpt-load/internal/subscription/providers"
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/usage"
@@ -349,6 +351,9 @@ func (a *Adapter) ExecuteStream(
 	defer cancelStream(context.Canceled)
 	firstByte := startFirstByteGate(spec.Timeouts.FirstByte, cancelStream)
 	defer firstByte.stop()
+	streamCtx = subscriptionproviders.WithStreamBodyObserver(streamCtx, func(body io.ReadCloser, header http.Header) io.ReadCloser {
+		return observeStreamBody(streamCtx, body, header.Get("Content-Encoding"))
+	})
 	response, err := provider.ExecuteStream(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, request)
 	upstreamProtocol := provider.UpstreamProtocol()
 	if response != nil {

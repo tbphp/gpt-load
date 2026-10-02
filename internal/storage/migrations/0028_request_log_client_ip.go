@@ -7,62 +7,62 @@ import (
 	"gorm.io/gorm"
 )
 
-const ID0026 = "0026_request_log_client_ip"
-const requestLogIPIndex0026 = "idx_request_logs_ip_completed_id"
+const ID0028 = "0028_request_log_client_ip"
+const requestLogIPIndex0028 = "idx_request_logs_ip_completed_id"
 
-type requestLog0026 struct {
+type requestLog0028 struct {
 	ClientIP      *string `gorm:"column:client_ip;type:varchar(45);index:idx_request_logs_ip_completed_id,priority:1"`
 	CompletedAtMS int64   `gorm:"column:completed_at_ms;index:idx_request_logs_ip_completed_id,priority:2,sort:desc"`
 	ID            string  `gorm:"column:id;index:idx_request_logs_ip_completed_id,priority:3,sort:desc"`
 }
 
-func (requestLog0026) TableName() string { return "request_logs" }
+func (requestLog0028) TableName() string { return "request_logs" }
 
-type requestLogIPIndexColumn0026 struct {
+type requestLogIPIndexColumn0028 struct {
 	Name       string
 	Descending bool
 	IsUnique   bool
 	IsValid    bool
 }
 
-// Up0026 增加可空来源 IP 与精确搜索索引，历史日志不回填。
-func Up0026(db *gorm.DB) error {
-	if err := ValidateRecoverable0026(db); err != nil {
+// Up0028 增加可空来源 IP 与精确搜索索引，历史日志不回填。
+func Up0028(db *gorm.DB) error {
+	if err := ValidateRecoverable0028(db); err != nil {
 		return err
 	}
-	if !db.Migrator().HasColumn(&requestLog0026{}, "client_ip") {
-		if err := db.Migrator().AddColumn(&requestLog0026{}, "ClientIP"); err != nil {
+	if !db.Migrator().HasColumn(&requestLog0028{}, "client_ip") {
+		if err := db.Migrator().AddColumn(&requestLog0028{}, "ClientIP"); err != nil {
 			return fmt.Errorf("add request log client IP: %w", err)
 		}
 	}
-	if !db.Migrator().HasIndex(&requestLog0026{}, requestLogIPIndex0026) {
-		if err := db.Migrator().CreateIndex(&requestLog0026{}, requestLogIPIndex0026); err != nil {
+	if !db.Migrator().HasIndex(&requestLog0028{}, requestLogIPIndex0028) {
+		if err := db.Migrator().CreateIndex(&requestLog0028{}, requestLogIPIndex0028); err != nil {
 			return fmt.Errorf("create request log client IP index: %w", err)
 		}
 	}
-	return Validate0026(db)
+	return Validate0028(db)
 }
 
-func ValidateRecoverable0026(db *gorm.DB) error {
-	if !db.Migrator().HasTable(&requestLog0026{}) {
+func ValidateRecoverable0028(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&requestLog0028{}) {
 		return fmt.Errorf("request log client IP index: request_logs table is missing")
 	}
-	if db.Migrator().HasColumn(&requestLog0026{}, "client_ip") {
-		if err := validateClientIPColumn0026(db); err != nil {
+	if db.Migrator().HasColumn(&requestLog0028{}, "client_ip") {
+		if err := validateClientIPColumn0028(db); err != nil {
 			return err
 		}
 	}
-	if db.Migrator().HasIndex(&requestLog0026{}, requestLogIPIndex0026) {
-		return Validate0026(db)
+	if db.Migrator().HasIndex(&requestLog0028{}, requestLogIPIndex0028) {
+		return Validate0028(db)
 	}
 	return nil
 }
 
-func Validate0026(db *gorm.DB) error {
-	if err := validateClientIPColumn0026(db); err != nil {
+func Validate0028(db *gorm.DB) error {
+	if err := validateClientIPColumn0028(db); err != nil {
 		return err
 	}
-	columns, err := requestLogIPIndexColumns0026(db)
+	columns, err := requestLogIPIndexColumns0028(db)
 	if err != nil {
 		return err
 	}
@@ -85,8 +85,8 @@ func Validate0026(db *gorm.DB) error {
 	return nil
 }
 
-func requestLogIPIndexColumns0026(db *gorm.DB) ([]requestLogIPIndexColumn0026, error) {
-	var columns []requestLogIPIndexColumn0026
+func requestLogIPIndexColumns0028(db *gorm.DB) ([]requestLogIPIndexColumn0028, error) {
+	var columns []requestLogIPIndexColumn0028
 	var query string
 	var arguments []any
 	switch db.Dialector.Name() {
@@ -106,7 +106,7 @@ func requestLogIPIndexColumns0026(db *gorm.DB) ([]requestLogIPIndexColumn0026, e
 			WHERE namespace.nspname = current_schema() AND table_relation.relname = 'request_logs'
 				AND index_relation.relname = ?
 			ORDER BY key.position`
-		arguments = []any{requestLogIPIndex0026}
+		arguments = []any{requestLogIPIndex0028}
 	case "mysql":
 		query = `
 			SELECT column_name AS name, collation = 'D' AS descending,
@@ -114,7 +114,7 @@ func requestLogIPIndexColumns0026(db *gorm.DB) ([]requestLogIPIndexColumn0026, e
 			FROM information_schema.statistics
 			WHERE table_schema = DATABASE() AND table_name = 'request_logs' AND index_name = ?
 			ORDER BY seq_in_index`
-		arguments = []any{requestLogIPIndex0026}
+		arguments = []any{requestLogIPIndex0028}
 	case "sqlite":
 		query = `
 			SELECT column_info.name AS name, column_info.desc <> 0 AS descending,
@@ -123,7 +123,7 @@ func requestLogIPIndexColumns0026(db *gorm.DB) ([]requestLogIPIndexColumn0026, e
 			JOIN pragma_index_list('request_logs') AS index_list ON index_list.name = ?
 			WHERE column_info.key = 1
 			ORDER BY column_info.seqno`
-		arguments = []any{requestLogIPIndex0026, requestLogIPIndex0026}
+		arguments = []any{requestLogIPIndex0028, requestLogIPIndex0028}
 	default:
 		return nil, fmt.Errorf("request log client IP index: unsupported database driver %q", db.Dialector.Name())
 	}
@@ -133,7 +133,7 @@ func requestLogIPIndexColumns0026(db *gorm.DB) ([]requestLogIPIndexColumn0026, e
 	return columns, nil
 }
 
-func validateClientIPColumn0026(db *gorm.DB) error {
+func validateClientIPColumn0028(db *gorm.DB) error {
 	columns, err := db.Migrator().ColumnTypes("request_logs")
 	if err != nil {
 		return err

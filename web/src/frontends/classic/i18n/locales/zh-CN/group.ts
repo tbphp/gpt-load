@@ -383,6 +383,12 @@ export default {
       settings: '设置',
     },
     credentials: {
+      name: '名称',
+      namePlaceholder: '可选，用于识别此凭据',
+      nameSaveFailed: '名称保存失败，请重试',
+      showAccount: '查看完整账号',
+      hideAccount: '隐藏完整账号',
+
       modelCooldown: {
         label: '模型冷却',
         count: '模型冷却 · {count}',

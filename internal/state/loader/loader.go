@@ -935,7 +935,8 @@ func mapCredentials(rows []models.Credential, groups []models.Group) []state.Cre
 	for _, row := range rows {
 		target := targets[row.GroupID]
 		result = append(result, state.CredentialEntry{
-			ID: row.ID, GroupID: row.GroupID,
+			Name: row.Name,
+			ID:   row.ID, GroupID: row.GroupID,
 			Version: credentialVersion(row.SecretVersion),
 			IdentityGeneration: CredentialIdentityGeneration(
 				row.IdentityFingerprint,

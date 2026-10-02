@@ -152,8 +152,6 @@ type RequestEvent struct {
 	ErrorSummary          string
 	Stream                bool
 	FirstResponseMs       *int64
-	FirstOutputMs         *int64
-	LastOutputMs          *int64
 	DurationMs            int64
 	AffinityHit           bool
 	AffinityKind          string

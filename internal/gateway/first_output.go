@@ -8,9 +8,9 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-// outputTimingSink 在成功写入并 flush 后观察实际交付字节，包含脱敏缓冲释放的内容。
+// firstOutputSink 在成功写入并 flush 后观察实际交付字节，包含脱敏缓冲释放的内容。
 // 独立于上游空回判定，观测失败只停止采样，不改变转发结果。
-func outputTimingSink(value protocol.Protocol, notify func(valid bool)) func([]byte) {
+func firstOutputSink(value protocol.Protocol, notify func()) func([]byte) {
 	if notify == nil {
 		return func([]byte) {}
 	}
@@ -19,30 +19,28 @@ func outputTimingSink(value protocol.Protocol, notify func(valid bool)) func([]b
 	default:
 		return func([]byte) {}
 	}
-	observer := dialect.OutputTimingObserver{Protocol: value}
-	produced, failed := false, false
+	observer := dialect.FirstOutputObserver{Protocol: value}
+	produced, finished := false, false
 	buffer := newSSEEventObservationBuffer(execution.SSEEventLimit(value), func(event dialect.StreamEvent, _ bool) (bool, error) {
 		output := observer.Observe(event)
 		produced = produced || output
 		return false, nil
 	})
 	return func(chunk []byte) {
-		if failed {
+		if finished {
 			return
 		}
 		produced = false
 		_, _, err := buffer.push(chunk)
-		if err != nil || observer.Overflowed() {
-			failed = true
-			notify(false)
-			if err != nil {
-				logrus.WithError(err).Debug("Output timing observation stopped")
-			}
+		if err != nil {
+			finished = true
+			logrus.WithError(err).Debug("First output observation stopped")
 			return
 		}
-		// 同一次交付中的多个事件共享时点，不能人为制造 token 间隔。
+		// 同一次交付只通知一次；后续输出不再需要采样。
 		if produced {
-			notify(true)
+			finished = true
+			notify()
 		}
 	}
 }

@@ -199,8 +199,6 @@ func mapEvent(
 		StatusCode:                  event.StatusCode,
 		Stream:                      event.Stream,
 		FirstResponseMs:             event.FirstResponseMs,
-		FirstOutputMs:               event.FirstOutputMs,
-		LastOutputMs:                event.LastOutputMs,
 		DurationMs:                  event.DurationMs,
 		AttemptCount:                len(attempts),
 		ErrorCode:                   event.ErrorCode,
@@ -294,12 +292,7 @@ func canonicalPricingReceipt(
 }
 
 func validateFrozenObservation(event telemetry.RequestEvent) error {
-	if event.FirstOutputMs != nil || event.LastOutputMs != nil {
-		if !event.Stream || event.FirstOutputMs == nil || event.LastOutputMs == nil ||
-			*event.FirstOutputMs < 0 || *event.LastOutputMs < *event.FirstOutputMs || *event.LastOutputMs > event.DurationMs {
-			return fmt.Errorf("invalid output timing interval")
-		}
-	}
+
 	if event.DurationMs < 0 {
 		return fmt.Errorf("negative request duration")
 	}

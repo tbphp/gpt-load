@@ -149,13 +149,16 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 		return executionInputFailure(err)
 	}
 
+	ctx, stopFirstResponse := execution.WithFirstResponseObserver(ctx, input.OnFirstResponse)
+	defer stopFirstResponse()
+	firstData := execution.NewFirstResponseSSEFallback(ctx)
 	writeTimeout := forwarder.writeTimeout
 	if writeTimeout <= 0 {
 		writeTimeout = downstreamWriteTimeout
 	}
 	controller := newStreamWriteController(downstream, writeTimeout)
 	defer func() { _ = controller.clear() }()
-	outputDelivered := outputTimingSink(input.ClientProtocol, input.OnOutput)
+	outputDelivered := firstOutputSink(input.ClientProtocol, input.OnFirstOutput)
 	usageCapture := forwarder.usageCapture
 	if usageCapture == nil {
 		usageCapture = newUsageCaptureBoundary()
@@ -231,7 +234,6 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 	var (
 		ready         *execution.StreamEvent
 		committed     bool
-		firstResponse bool
 		downstreamErr error
 		errorBody     []byte
 		streamUsage   *execution.UsageEvidence
@@ -306,6 +308,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				errorBody = appendExecutionErrorBody(errorBody, event.Data)
 				return nil
 			}
+			firstData(event.Data)
 			observedData := event.Data
 			if responsesStoreBuffer != nil {
 				observedData, err = responsesStoreBuffer.push(event.Data)
@@ -341,12 +344,6 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 				}
 			}
 			if !committed {
-				if !firstResponse {
-					firstResponse = true
-					if input.OnFirstResponse != nil {
-						input.OnFirstResponse()
-					}
-				}
 				if streamEvents.firstEventWasProviderError() {
 					errorBody = appendExecutionErrorBody(errorBody, forwardData)
 					return nil
@@ -422,6 +419,9 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 
 	forwarder.recordCredentialAttempt(spec.Credential.ID)
 	terminal := forwarder.executor.ExecuteStream(ctx, spec, sink)
+	if terminal.Error == nil {
+		firstData([]byte{'\n'})
+	}
 	// 收尾全程持锁：迟到的计时器回调只会在此之后运行，届时数据已提交或已取走，
 	// 回调不会再写入可能已交给下一次尝试的响应。
 	mu.Lock()
@@ -450,12 +450,6 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 			if err != nil {
 				downstreamErr = executionRedactionStreamFailure()
 			} else if len(tail) > 0 {
-				if !firstResponse {
-					firstResponse = true
-					if input.OnFirstResponse != nil {
-						input.OnFirstResponse()
-					}
-				}
 				if !committed && streamEvents.firstEventWasProviderError() {
 					errorBody = appendExecutionErrorBody(errorBody, tail)
 				} else if !committed && !streamEvents.producedContent() &&

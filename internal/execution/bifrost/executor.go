@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/maximhq/bifrost/core/providers/openai"
+	providerUtils "github.com/maximhq/bifrost/core/providers/utils"
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"gpt-load/internal/channel"
@@ -1495,6 +1496,15 @@ func (r *Runtime) providerKind(spec execution.AttemptSpec) channel.ProviderKind 
 
 func (r *Runtime) newStreamingSDKContext(parent context.Context, spec execution.AttemptSpec, directKey schemas.Key) *schemas.BifrostContext {
 	bifrostContext := r.newSDKContext(parent, spec, directKey)
+	// 保留 SDK 原始读取器及其终止标记，只旁路观察转换前的字节。
+	bifrostContext.SetValue(schemas.BifrostContextKeySSEReaderFactory, &providerUtils.SSEReaderFactory{
+		NewDataReader: func(reader io.Reader) providerUtils.SSEDataReader {
+			return providerUtils.GetSSEDataReader(nil, execution.ObserveFirstResponseReader(parent, reader))
+		},
+		NewEventReader: func(reader io.Reader) providerUtils.SSEEventReader {
+			return providerUtils.GetSSEEventReader(nil, execution.ObserveFirstResponseReader(parent, reader))
+		},
+	})
 	if spec.Timeouts.StreamIdle > 0 {
 		// GPT-Load owns the user-facing chunk deadline; Bifrost remains a later raw-read backstop.
 		bifrostContext.SetValue(

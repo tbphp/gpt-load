@@ -1606,6 +1606,19 @@ async function confirmTestedCredentialRestore(): Promise<void> {
   resetCredentialTestState()
 }
 
+async function saveCredentialName(item: CredentialItemDto, name: string): Promise<string> {
+  if (batchBusy.value || pending(item.credential_id)) throw new Error('CREDENTIAL_NAME_UNAVAILABLE')
+  feedback.value = ''
+  setPending(item.credential_id, 'name', true)
+  try {
+    const result = await updateCredential(client, props.groupId, item.credential_id, { name })
+    await reconcileItem(result, false)
+    return result.name
+  } finally {
+    setPending(item.credential_id, 'name', false)
+  }
+}
+
 async function saveCredentialProxy(item: CredentialItemDto, value: ProxyMutation): Promise<void> {
   if (batchBusy.value || pending(item.credential_id)) {
     throw new Error('CREDENTIAL_PROXY_UNAVAILABLE')
@@ -2011,6 +2024,7 @@ async function runBatch(
               :channel-mark="channelDescriptor?.mark"
               :capabilities="channelCapabilities"
               :save-proxy="(value) => saveCredentialProxy(item, value)"
+              :save-name="(value) => saveCredentialName(item, value)"
               @update:selected="setSelected(item.credential_id, $event)"
               @toggle="mutateItem($event, 'toggle')"
               @restore="mutateItem($event, 'restore')"
@@ -2023,7 +2037,7 @@ async function runBatch(
               @remove="
                 deleteTarget = {
                   ids: [$event.credential_id],
-                  mask: $event.account.email ?? $event.mask,
+                  mask: $event.label,
                 }
               "
             />
@@ -2057,6 +2071,7 @@ async function runBatch(
             :weight-editor-open="routeState.weightCredentialID === item.credential_id"
             :resolve-copy-value="resolveCopyValue"
             :save-proxy="(value) => saveCredentialProxy(item, value)"
+            :save-name="(value) => saveCredentialName(item, value)"
             :proxy-supported="channelCapabilities.outbound_proxy"
             @update:selected="setSelected(item.credential_id, $event)"
             @update:expanded="setExpanded(item.credential_id, $event)"
@@ -2066,7 +2081,7 @@ async function runBatch(
             @test="openCredentialTest"
             @toggle="mutateItem($event, 'toggle')"
             @restore="mutateItem($event, 'restore')"
-            @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.mask }"
+            @remove="deleteTarget = { ids: [$event.credential_id], mask: $event.label }"
           />
         </LedgerRecordList>
         <PaginationBar
@@ -2085,7 +2100,7 @@ async function runBatch(
     </template>
     <CredentialTestDialog
       :open="credentialTestTarget !== undefined"
-      :mask="credentialTestTarget?.mask ?? ''"
+      :mask="credentialTestTarget?.label ?? ''"
       :model="credentialTestModel"
       :models="credentialTestModels"
       :protocol="credentialTestProtocol"

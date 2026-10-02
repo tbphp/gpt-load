@@ -470,7 +470,7 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 		{
 			ID: 21, GroupID: 1, Version: 1, IdentityGeneration: 21, Fingerprint: "test-21", Status: state.CredentialStatusActive,
 			WeightManual:   &keyWeight,
-			EncryptedValue: "cipher-one",
+			EncryptedValue: "cipher-one", Name: "生产账号",
 		},
 	}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -537,6 +537,9 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 		t.Fatalf("backup group = %#v", backup)
 	}
 	body := recorder.Body.String()
+	if !strings.Contains(body, `"name":"生产账号"`) {
+		t.Fatal("route inspection omitted credential alias")
+	}
 	if strings.Count(body, `"reason_code":null`) != 5 ||
 		strings.Count(body, `"cooldown_until_ms":null`) != 2 {
 		t.Fatalf("success response must preserve explicit nulls: %s", body)

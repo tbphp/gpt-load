@@ -849,6 +849,11 @@ func (t noRedirectRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 		_ = resp.Body.Close()
 		return nil, ErrRedirectNotAllowed
 	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 && resp.Body != nil {
+		if wrap, ok := req.Context().Value(streamBodyObserverKey{}).(func(io.ReadCloser, http.Header) io.ReadCloser); ok && wrap != nil {
+			resp.Body = wrap(resp.Body, resp.Header)
+		}
+	}
 	return resp, nil
 }
 

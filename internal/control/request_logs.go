@@ -66,6 +66,7 @@ type requestLogReasoningResponse struct {
 }
 
 type requestLogAttemptResponse struct {
+	credentialDisplayResponse
 	Sequence          int                               `json:"sequence"`
 	GroupID           uint                              `json:"group_id"`
 	GroupName         string                            `json:"group_name"`
@@ -132,6 +133,7 @@ type requestLogPricingReceiptResponse struct {
 }
 
 type requestLogItemResponse struct {
+	credentialDisplayResponse
 	RequestAudit              *requestAuditResponse        `json:"request_audit,omitempty"`
 	AutoDecision              *autoDecisionResponse        `json:"auto_decision,omitempty"`
 	TotalEstimatedCostNanoUSD string                       `json:"total_estimated_cost_nano_usd"`
@@ -153,8 +155,6 @@ type requestLogItemResponse struct {
 	StatusCode                int                          `json:"status_code"`
 	Stream                    bool                         `json:"stream"`
 	FirstResponseMs           *int64                       `json:"first_response_ms"`
-	FirstOutputMs             *int64                       `json:"first_output_ms"`
-	LastOutputMs              *int64                       `json:"last_output_ms"`
 	DurationMs                int64                        `json:"duration_ms"`
 	AttemptCount              int                          `json:"attempt_count"`
 	ErrorCode                 string                       `json:"error_code"`
@@ -181,6 +181,7 @@ type requestLogItemResponse struct {
 }
 
 type autoDecisionResponse struct {
+	credentialDisplayResponse
 	automodel.Decision
 	PresetReasoning      *requestLogReasoningResponse      `json:"preset_reasoning"`
 	EstimatedCostNanoUSD string                            `json:"estimated_cost_nano_usd"`
@@ -329,6 +330,13 @@ func (s *Server) handleListRequestLogs(c *gin.Context) {
 		writeServiceError(c, "list_request_logs", err)
 		return
 	}
+	for index := range result.Items {
+		var autoID uint
+		if decision := page.Items[index].AutoDecision; decision != nil {
+			autoID = decision.CredentialID
+		}
+		s.service.decorateRequestLogCredential(&result.Items[index], autoID)
+	}
 	response.SuccessI18n(c, "common.success", result)
 }
 
@@ -360,6 +368,14 @@ func (s *Server) handleGetRequestLog(c *gin.Context) {
 	if err != nil {
 		writeServiceError(c, "get_request_log", err)
 		return
+	}
+	var autoID uint
+	if record.AutoDecision != nil {
+		autoID = record.AutoDecision.CredentialID
+	}
+	s.service.decorateRequestLogCredential(&result.requestLogItemResponse, autoID)
+	for index := range result.Attempts {
+		result.Attempts[index].credentialDisplayResponse = s.service.credentialDisplay(result.Attempts[index].CredentialID)
 	}
 	response.SuccessI18n(c, "common.success", result)
 }
@@ -1170,8 +1186,6 @@ func mapRequestLogItemResponse(
 		StatusCode:              record.StatusCode,
 		Stream:                  record.Stream,
 		FirstResponseMs:         record.FirstResponseMs,
-		FirstOutputMs:           record.FirstOutputMs,
-		LastOutputMs:            record.LastOutputMs,
 		DurationMs:              record.DurationMs,
 		AttemptCount:            record.AttemptCount,
 		ErrorCode:               record.ErrorCode,

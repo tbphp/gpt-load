@@ -1146,6 +1146,7 @@ func (handler *Handler) executeAttempts(
 		if !active {
 			continue
 		}
+		recorder.startTiming()
 		prepared := prepareRequest(selection)
 		if prepared.err != nil {
 			if errors.Is(prepared.err, requestredact.ErrContent) {
@@ -1340,9 +1341,11 @@ func (handler *Handler) executeAttempts(
 			OnFirstResponse: func() {
 				recorder.recordFirstResponse()
 			},
-			OnOutput: recorder.recordOutput,
 		}
 		if recorder != nil {
+			if recorder.autoDecision != nil {
+				input.OnFirstOutput = recorder.recordFirstOutput
+			}
 			recorder.freezeNextAttemptPricing(
 				handler.freezeAttemptPricing(
 					selection,
@@ -1399,6 +1402,7 @@ func (handler *Handler) executeAttempts(
 		)
 		if result.Committed {
 			if recorder != nil {
+				recorder.finishedAt = attemptCompleted
 				recordedAttempt := recorder.recordStreamAttempt(
 					selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
 				)
@@ -1523,8 +1527,9 @@ func (handler *Handler) executeAttempts(
 				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
 			}
+			writeErr := handler.writeUpstreamResponse(ginContext, result)
 			recorder.completeResponse(result, decision, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
-			if err := handler.writeUpstreamResponse(ginContext, result); err != nil {
+			if writeErr != nil {
 				handler.completeWriteTerminal(ginContext, recorder, result.StatusCode)
 				return
 			}
@@ -1590,13 +1595,14 @@ func (handler *Handler) executeAttempts(
 		return
 	}
 	if lastResponse != nil {
+		writeErr := handler.writeUpstreamResponse(ginContext, lastResponse.result)
 		recorder.completeResponse(
 			lastResponse.result,
 			lastResponse.decision,
 			lastResponse.upstreamModel,
 			lastResponse.attemptIndex,
 		)
-		if err := handler.writeUpstreamResponse(ginContext, lastResponse.result); err != nil {
+		if writeErr != nil {
 			handler.completeWriteTerminal(
 				ginContext,
 				recorder,
@@ -1736,13 +1742,14 @@ func (handler *Handler) completeEmptyResponse(
 	upstreamModel string,
 	attemptIndex int,
 ) {
-	recorder.completeResponse(result, decision, upstreamModel, attemptIndex)
-	if err := handler.writeBufferedResponse(
+	writeErr := handler.writeBufferedResponse(
 		ginContext,
 		result.StatusCode,
 		result.Header,
 		result.Body,
-	); err != nil {
+	)
+	recorder.completeResponse(result, decision, upstreamModel, attemptIndex)
+	if writeErr != nil {
 		handler.completeWriteTerminal(ginContext, recorder, result.StatusCode)
 	}
 }

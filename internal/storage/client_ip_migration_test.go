@@ -24,11 +24,11 @@ func testClientIPMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted_column", "interrupted_complete"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
-			if len(migrations) < 26 {
+			if len(migrations) < 28 {
 				t.Fatal("client IP migration is missing")
 			}
 			if scenario != "fresh" {
-				if err := applyMigrationRegistry(db, migrations[:25]); err != nil {
+				if err := applyMigrationRegistry(db, migrations[:27]); err != nil {
 					t.Fatal(err)
 				}
 				if err := db.Table("request_logs").Create(map[string]any{
@@ -38,7 +38,7 @@ func testClientIPMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 				}
 			}
 			if scenario == "interrupted_column" || scenario == "interrupted_complete" {
-				entry := migrations[25]
+				entry := migrations[27]
 				up := entry.Up
 				entry.Up = func(tx *gorm.DB) error {
 					if scenario == "interrupted_column" {
@@ -50,7 +50,7 @@ func testClientIPMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 					}
 					return fmt.Errorf("interrupt client IP DDL")
 				}
-				registry := append(append([]migration(nil), migrations[:25]...), entry)
+				registry := append(append([]migration(nil), migrations[:27]...), entry)
 				if err := applyMigrationRegistry(db, registry); err == nil {
 					t.Fatal("expected migration interruption")
 				}

@@ -61,6 +61,8 @@ type requestRecorder struct {
 	sink                 telemetry.RequestLogSink
 	requestID            string
 	startedAt            time.Time
+	timingStarted        bool
+	finishedAt           time.Time
 	accessKeyID          uint
 	accessKeyMultiplier  pricing.PriceMultiplier
 	protocol             protocol.Protocol
@@ -69,8 +71,6 @@ type requestRecorder struct {
 	clientModel          string
 	stream               bool
 	firstResponseMs      *int64
-	firstOutputMs        *int64
-	lastOutputMs         *int64
 	forwardStartedAt     time.Time
 	reasoning            reasoning.Config
 	usageApplicable      bool
@@ -136,7 +136,11 @@ func (recorder *requestRecorder) emit() {
 	recorder.emitted = true
 	recorder.freezeSensitiveInputErrorSummaries()
 	completedAt := recorder.now()
-	duration := completedAt.Sub(recorder.startedAt)
+	finishedAt := recorder.finishedAt
+	if finishedAt.IsZero() {
+		finishedAt = completedAt
+	}
+	duration := finishedAt.Sub(recorder.startedAt)
 	if duration < 0 {
 		duration = 0
 	}
@@ -159,8 +163,6 @@ func (recorder *requestRecorder) emit() {
 		ErrorSummary:          recorder.outcome.errorSummary,
 		Stream:                recorder.stream,
 		FirstResponseMs:       recorder.firstResponseMs,
-		FirstOutputMs:         recorder.firstOutputMs,
-		LastOutputMs:          recorder.lastOutputMs,
 		DurationMs:            duration.Milliseconds(),
 		AffinityHit:           recorder.affinityHit,
 		AffinityKind:          recorder.affinityKind,
@@ -250,6 +252,21 @@ func (recorder *requestRecorder) setReasoning(config reasoning.Config) {
 	recorder.reasoning = config
 }
 
+// 首次选定上游后开始，后续重试和轮换不重置日志时钟。
+func (recorder *requestRecorder) startTiming() {
+	if recorder != nil && !recorder.timingStarted && recorder.now != nil {
+		recorder.startedAt = recorder.now()
+		recorder.timingStarted = true
+	}
+}
+
+// 响应处理结束即固定时间，避免把计费、额度与日志队列收尾计入耗时。
+func (recorder *requestRecorder) finishTiming() {
+	if recorder != nil && recorder.finishedAt.IsZero() && recorder.now != nil {
+		recorder.finishedAt = recorder.now()
+	}
+}
+
 func (recorder *requestRecorder) recordFirstResponse() {
 	if recorder == nil || !recorder.stream || recorder.firstResponseMs != nil || recorder.now == nil {
 		return
@@ -262,30 +279,14 @@ func (recorder *requestRecorder) recordFirstResponse() {
 	recorder.firstResponseMs = &value
 }
 
-func (recorder *requestRecorder) recordOutput(valid bool) {
-	if recorder == nil || !recorder.stream {
+// 自动选模保留独立的有效内容首响，不再保存旧测速区间。
+func (recorder *requestRecorder) recordFirstOutput() {
+	if recorder == nil || recorder.autoDecision == nil || recorder.autoDecision.AnswerFirstResponseMs != nil || recorder.forwardStartedAt.IsZero() || recorder.now == nil {
 		return
 	}
-	if !valid {
-		recorder.firstOutputMs, recorder.lastOutputMs = nil, nil
-		return
-	}
-	if recorder.now == nil {
-		return
-	}
-	now := recorder.now()
-	value := max(int64(0), now.Sub(recorder.startedAt).Milliseconds())
-	if recorder.firstOutputMs != nil {
-		value = max(value, *recorder.lastOutputMs)
-		recorder.lastOutputMs = &value
-		return
-	}
-	recorder.firstOutputMs, recorder.lastOutputMs = &value, &value
-	if recorder.autoDecision != nil && !recorder.forwardStartedAt.IsZero() {
-		elapsed := now.Sub(recorder.forwardStartedAt).Milliseconds()
-		if elapsed >= 0 {
-			recorder.autoDecision.AnswerFirstResponseMs = &elapsed
-		}
+	elapsed := recorder.now().Sub(recorder.forwardStartedAt).Milliseconds()
+	if elapsed >= 0 {
+		recorder.autoDecision.AnswerFirstResponseMs = &elapsed
 	}
 }
 
@@ -454,6 +455,8 @@ func (recorder *requestRecorder) completeReason(value reason) {
 	if recorder == nil {
 		return
 	}
+	recorder.finishTiming()
+	recorder.firstResponseMs = nil
 	recorder.outcome = requestOutcome{
 		status: telemetry.RequestStatusError, statusCode: value.Status,
 		errorCode: value.Code, errorSummary: value.Message,
@@ -467,6 +470,10 @@ func (recorder *requestRecorder) completeStream(
 ) {
 	if recorder == nil {
 		return
+	}
+	recorder.finishTiming()
+	if !result.Committed {
+		recorder.firstResponseMs = nil
 	}
 	code := streamErrorCode(result.Stream.EndReason)
 	summary := result.Stream.ErrorSummary
@@ -508,6 +515,7 @@ func (recorder *requestRecorder) completeResponse(
 	if recorder == nil {
 		return
 	}
+	recorder.finishTiming()
 	if result.StatusCode >= 200 && result.StatusCode < 300 {
 		recorder.outcome = requestOutcome{
 			status:                telemetry.RequestStatusSuccess,
@@ -543,6 +551,8 @@ func (recorder *requestRecorder) completeProviderError(
 	if recorder == nil {
 		return
 	}
+	recorder.finishTiming()
+	recorder.firstResponseMs = nil
 	value := providerErrorReason(result)
 	summary := value.Message
 	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) && recorder.attempts[attemptIndex].ErrorSummary != "" {
@@ -663,6 +673,8 @@ func (recorder *requestRecorder) completeTransport(
 	if recorder == nil {
 		return
 	}
+	recorder.finishTiming()
+	recorder.firstResponseMs = nil
 	summary := value.Message
 	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) && recorder.attempts[attemptIndex].ErrorSummary != "" {
 		summary = recorder.attempts[attemptIndex].ErrorSummary
@@ -682,6 +694,8 @@ func (recorder *requestRecorder) completeCanceled(
 	if recorder == nil {
 		return
 	}
+	recorder.finishTiming()
+	recorder.firstResponseMs = nil
 	code := cancellationErrorCode(ctx)
 	upstreamModel := recorder.outcome.upstreamModel
 	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) {
@@ -701,6 +715,7 @@ func (recorder *requestRecorder) completeDownstreamWrite(status int) {
 	if recorder == nil {
 		return
 	}
+	recorder.finishTiming()
 	recorder.outcome.status = telemetry.RequestStatusIncomplete
 	recorder.outcome.statusCode = status
 	recorder.outcome.errorCode = "downstream_write_failed"
