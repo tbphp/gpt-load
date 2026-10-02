@@ -72,7 +72,7 @@ const identities = useQuery(
         rows.push(...next.items)
         next.items.forEach((row) => missing.delete(row.id))
       }
-      return new Map(rows.map((row) => [row.id, row.account || row.mask]))
+      return new Map(rows.map((row) => [row.id, row.label]))
     },
     enabled: props.group.credentials.length > 0,
   })),

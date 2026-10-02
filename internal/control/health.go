@@ -46,6 +46,7 @@ type healthRecoveryResponse struct {
 }
 
 type healthProblemCredentialResponse struct {
+	credentialDisplayResponse
 	CredentialID            uint                   `json:"credential_id"`
 	GroupID                 uint                   `json:"group_id"`
 	GroupName               string                 `json:"group_name"`
@@ -63,6 +64,7 @@ type healthProblemCredentialResponse struct {
 
 // healthQuotaCredentialResponse 描述额度即将耗尽的订阅凭据。
 type healthQuotaCredentialResponse struct {
+	credentialDisplayResponse
 	CredentialID uint    `json:"credential_id"`
 	GroupID      uint    `json:"group_id"`
 	GroupName    string  `json:"group_name"`
@@ -72,6 +74,7 @@ type healthQuotaCredentialResponse struct {
 }
 
 type healthExpiringResetCreditResponse struct {
+	credentialDisplayResponse
 	CredentialID       uint   `json:"credential_id"`
 	GroupID            uint   `json:"group_id"`
 	GroupName          string `json:"group_name"`
@@ -456,6 +459,22 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 	requestLog, err := mapRequestLogHealth(service.requestLogStats.Stats())
 	if err != nil {
 		return runtimeHealthResponse{}, fmt.Errorf("map request log health: %w", err)
+	}
+	for index := range result.CooldownCredentials {
+		item := &result.CooldownCredentials[index]
+		item.credentialDisplayResponse = service.credentialDisplay(&item.CredentialID)
+	}
+	for index := range result.BlacklistedCredentials {
+		item := &result.BlacklistedCredentials[index]
+		item.credentialDisplayResponse = service.credentialDisplay(&item.CredentialID)
+	}
+	for index := range result.LowQuotaCredentials {
+		item := &result.LowQuotaCredentials[index]
+		item.credentialDisplayResponse = service.credentialDisplay(&item.CredentialID)
+	}
+	for index := range result.ExpiringResetCredits {
+		item := &result.ExpiringResetCredits[index]
+		item.credentialDisplayResponse = service.credentialDisplay(&item.CredentialID)
 	}
 	result.RequestLog = requestLog
 	return result, nil

@@ -80,6 +80,7 @@ export type RouteInspectRequirement = 'any' | 'native'
 export type RouteInspectMode = 'native' | 'converted'
 
 export interface RouteInspectCredentialDto {
+  name: string
   credential_id: number
   available: boolean
   reason_code: RouteInspectReasonCode | null
@@ -200,6 +201,7 @@ function projectNullableWeight(value: unknown): number | null {
 function projectRouteCredential(value: unknown): RouteInspectCredentialDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, [
+    'name',
     'credential_id',
     'available',
     'reason_code',
@@ -208,6 +210,7 @@ function projectRouteCredential(value: unknown): RouteInspectCredentialDto {
     'cooldown_until_ms',
   ])
   return {
+    name: projectString(record.name ?? '', { allowEmpty: true }),
     credential_id: projectSafeInteger(record.credential_id, { minimum: 1 }),
     available: projectBoolean(record.available),
     reason_code: projectReason(record.reason_code),

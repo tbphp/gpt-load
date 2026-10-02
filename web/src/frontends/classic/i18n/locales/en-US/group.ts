@@ -399,6 +399,12 @@ export default {
       settings: 'Settings',
     },
     credentials: {
+      name: 'Name',
+      namePlaceholder: 'Optional credential alias',
+      nameSaveFailed: 'Could not save the name. Try again.',
+      showAccount: 'Show full account',
+      hideAccount: 'Hide full account',
+
       modelCooldown: {
         label: 'Model cooldown',
         count: 'Model cooldown · {count}',

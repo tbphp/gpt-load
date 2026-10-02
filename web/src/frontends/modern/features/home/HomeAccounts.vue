@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -75,7 +76,9 @@ const rows = computed(() =>
         ...(account.groups === 1 && account.groupID ? { params: { id: account.groupID } } : {}),
         query: { credential_key: account.key },
       },
-      name: account.credential.account || account.channelName,
+      name: account.credential.label || account.channelName,
+      alias: account.credential.name,
+      accountValue: account.credential.account || account.credential.mask,
       channelIcon: account.channelIcon,
       channelMark: account.channelMark,
       channelName: account.channelName,
@@ -111,7 +114,9 @@ const rows = computed(() =>
             class="modern-home-account-channel"
           />
           <AppButton as-child variant="text" size="xs" class="modern-home-account-name">
-            <RouterLink :to="row.to"><AppOverflowText :text="row.name" /></RouterLink>
+            <RouterLink :to="row.to"
+              ><CredentialDisplay :name="row.alias" :value="row.accountValue" subscription detail
+            /></RouterLink>
           </AppButton>
           <AppOverflowText class="modern-home-account-plan" :text="row.plan" />
           <span

@@ -1,3 +1,4 @@
+import { credentialDisplayText } from '@shared/credential-display'
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
 import { boolean, integer, list, oneOf, record, text } from './response'
@@ -95,7 +96,11 @@ function credential(value: unknown): HealthCredential {
     id: integer(row.credential_id, 1),
     groupID: integer(row.group_id, 1),
     groupName: text(row.group_name),
-    identity: identity(row.identity),
+    identity: credentialDisplayText(
+      text(row.credential_alias ?? ''),
+      identity(row.identity),
+      text(row.credential_connection_type ?? ''),
+    ),
     failureCategory: text(row.last_failure_category),
     statusCode: timestamp(row.last_status_code),
     failures: integer(row.failure_count),
@@ -149,7 +154,11 @@ export async function getHealth(client: ApiClient, signal: AbortSignal): Promise
         id: integer(item.credential_id, 1),
         groupID: integer(item.group_id, 1),
         groupName: text(item.group_name),
-        identity: identity(item.identity),
+        identity: credentialDisplayText(
+          text(item.credential_alias ?? ''),
+          identity(item.identity),
+          text(item.credential_connection_type ?? ''),
+        ),
         remaining: item.remaining,
         resetAt: timestamp(item.reset_at_ms),
       }
@@ -160,7 +169,11 @@ export async function getHealth(client: ApiClient, signal: AbortSignal): Promise
         id: integer(item.credential_id, 1),
         groupID: integer(item.group_id, 1),
         groupName: text(item.group_name),
-        identity: identity(item.identity),
+        identity: credentialDisplayText(
+          text(item.credential_alias ?? ''),
+          identity(item.identity),
+          text(item.credential_connection_type ?? ''),
+        ),
         count: integer(item.count, 1),
         expiresAt: integer(item.nearest_expires_at_ms),
       }

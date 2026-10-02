@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import CredentialDisplay from '@/components/CredentialDisplay.vue'
+import CredentialNameEditor from './CredentialNameEditor.vue'
 import {
   Activity,
   ChevronDown,
@@ -35,6 +37,7 @@ const props = defineProps<{
   weightEditorOpen: boolean
   resolveCopyValue: (id: number) => Promise<string>
   saveProxy: (value: ProxyMutation) => Promise<void>
+  saveName: (value: string) => Promise<string>
   proxySupported: boolean
 }>()
 const emit = defineEmits<{
@@ -131,7 +134,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
       <div class="ledger-record-list__cell group-credential-record__select" role="cell">
         <label>
           <span class="sr-only">{{
-            t('group.credentials.selectCredential', { mask: item.mask })
+            t('group.credentials.selectCredential', { mask: item.label })
           }}</span>
           <input
             type="checkbox"
@@ -146,6 +149,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
         <span class="group-credential-record__mobile-label">{{
           t('group.credentials.columns.credential')
         }}</span>
+        <CredentialDisplay v-if="item.name" :name="item.name" :value="item.mask" />
         <span class="group-credential-record__credential">
           <CopyChip
             :key="item.secret_version"
@@ -272,6 +276,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
           :inert="!expanded || undefined"
         >
           <div class="group-credential-record__settings">
+            <CredentialNameEditor :value="item.name" :disabled="busy" :save="saveName" />
             <div class="setting-panel">
               <span class="setting-panel__title">
                 {{ t('group.credentials.columns.weight') }}

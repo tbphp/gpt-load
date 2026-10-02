@@ -675,7 +675,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 appearance="plain"
               />
               <CopyChip
-                v-if="open && log.credential_name"
+                v-if="open && log.credential_name && revealsCredential"
                 :key="`${requestId}:${log.group_id}:${log.credential_id}`"
                 layout="icon"
                 :value="log.credential_name"

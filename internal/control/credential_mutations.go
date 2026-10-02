@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 
@@ -23,8 +26,11 @@ func normalizeCredentialUpdate(
 	request CredentialUpdateRequest,
 	encryptionService encryption.Service,
 ) (status *state.CredentialStatus, weight *int, weightSet bool, proxy *string, proxySet bool, err error) {
-	if !request.Status.Set && !request.WeightManual.Set && !request.Proxy.Set {
+	if !request.Name.Set && !request.Status.Set && !request.WeightManual.Set && !request.Proxy.Set {
 		return nil, nil, false, nil, false, app_errors.ErrBadRequest
+	}
+	if request.Name.Set && (request.Name.Null || utf8.RuneCountInString(strings.TrimSpace(request.Name.Value)) > 255 || strings.ContainsFunc(strings.TrimSpace(request.Name.Value), unicode.IsControl)) {
+		return nil, nil, false, nil, false, app_errors.ErrValidation
 	}
 	if request.Status.Set {
 		if request.Status.Null ||
@@ -173,6 +179,10 @@ func (s *Service) UpdateGroupCredential(
 			return app_errors.ErrInternalServer
 		}
 		updates := map[string]any{"updated_at_ms": updatedAtMS}
+		if request.Name.Set {
+			committed.Name = strings.TrimSpace(request.Name.Value)
+			updates["name"] = committed.Name
+		}
 		if status != nil {
 			committed.Status = models.CredentialStatus(*status)
 			updates["status"] = committed.Status
@@ -201,11 +211,18 @@ func (s *Service) UpdateGroupCredential(
 		return nil
 	}, func() error {
 		committedProxyUpdate = proxySet
+		if request.Name.Set && !request.Status.Set && !weightSet && !proxySet {
+			if !s.registry.UpdateCredentialName(groupID, credentialID, committed.Name) {
+				return dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
+			}
+			return nil
+		}
 		entries, snapshotErr := s.registry.SnapshotGroupCredentialEntriesExact(groupID, []uint{credentialID})
 		if snapshotErr != nil {
 			return dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
 		}
 		entry := entries[0]
+		entry.Name = committed.Name
 		entry.Status = state.CredentialStatus(committed.Status)
 		entry.WeightManual = cloneInt(committed.WeightManual)
 		entry.Version = groupCollectionCredentialVersion(committed.SecretVersion)
@@ -476,6 +493,7 @@ func (s *Service) mapCredentialItem(
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}
+	item.Name = row.Name
 	item.ConnectionType = string(normalizeGroupConnectionType(group.ConnectionType))
 	item.SecretVersion = row.SecretVersion
 	item.AuthState = string(row.AuthState)

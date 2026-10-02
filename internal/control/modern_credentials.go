@@ -120,6 +120,9 @@ func modernCredentialLess(left, right credentialCollectionRecord, order string) 
 		}
 	case "name":
 		name := func(item CredentialItemResponse) string {
+			if item.Name != "" {
+				return strings.ToLower(item.Name)
+			}
 			if item.Account.Email != "" {
 				return strings.ToLower(item.Account.Email)
 			}

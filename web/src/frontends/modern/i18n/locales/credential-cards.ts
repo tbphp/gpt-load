@@ -1,4 +1,10 @@
 export const zhCN = {
+  name: '名称',
+  namePlaceholder: '可选，用于识别此凭据',
+  nameSaveFailed: '名称保存失败，请重试',
+  showAccount: '查看完整账号',
+  hideAccount: '隐藏完整账号',
+
   trends: '趋势',
   trendRange: '趋势时间范围',
   localUsage: '用量趋势',
@@ -49,7 +55,7 @@ export const zhCN = {
 
   unsaved: '未保存',
   more: '更多操作',
-  settings: '权重与代理',
+  settings: '凭据设置',
   runtime: '运行诊断',
   test: '模型测试',
   testShort: '测试',
@@ -131,6 +137,12 @@ export const zhCN = {
   },
 }
 export const enUS: typeof zhCN = {
+  name: 'Name',
+  namePlaceholder: 'Optional credential alias',
+  nameSaveFailed: 'Could not save the name. Try again.',
+  showAccount: 'Show full account',
+  hideAccount: 'Hide full account',
+
   trends: 'Trends',
   trendRange: 'Trend time range',
   localUsage: 'Usage trend',
@@ -181,7 +193,7 @@ export const enUS: typeof zhCN = {
 
   unsaved: 'Unsaved',
   more: 'More actions',
-  settings: 'Weight and proxy',
+  settings: 'Credential settings',
   runtime: 'Runtime diagnostics',
   test: 'Model test',
   testShort: 'Test',
@@ -268,6 +280,12 @@ export const enUS: typeof zhCN = {
   },
 }
 export const jaJP: typeof zhCN = {
+  name: '名前',
+  namePlaceholder: '認証情報の表示名（任意）',
+  nameSaveFailed: '名前を保存できませんでした。再試行してください。',
+  showAccount: 'アカウント全体を表示',
+  hideAccount: 'アカウント全体を隠す',
+
   trends: '推移',
   trendRange: '推移の期間',
   localUsage: '使用量の推移',
@@ -318,7 +336,7 @@ export const jaJP: typeof zhCN = {
 
   unsaved: '未保存',
   more: 'その他の操作',
-  settings: '重みとプロキシ',
+  settings: '認証情報の設定',
   runtime: '実行診断',
   test: 'モデルテスト',
   testShort: 'テスト',

@@ -17,10 +17,12 @@ import (
 
 // 按当前解析的真实身份去重，不使用记录 ID 或历史持久化身份指纹。
 type ModernCredentialOption struct {
-	Key       string `json:"key"`
-	ChannelID string `json:"channel_id"`
-	Label     string `json:"label"`
-	GroupIDs  []uint `json:"group_ids"`
+	Names          []string `json:"names,omitempty"`
+	ConnectionType string   `json:"connection_type"`
+	Key            string   `json:"key"`
+	ChannelID      string   `json:"channel_id"`
+	Label          string   `json:"label"`
+	GroupIDs       []uint   `json:"group_ids"`
 }
 
 func (s *Service) credentialFilterKey(group models.Group, row models.Credential, canonical json.RawMessage) (string, error) {
@@ -88,9 +90,12 @@ func (s *Service) ListModernCredentialOptions(ctx context.Context) ([]ModernCred
 			index = len(items)
 			byIdentity[key] = index
 			items = append(items, ModernCredentialOption{
-				Key: key, ChannelID: row.Group.ChannelID, Label: label,
+				Key: key, ChannelID: row.Group.ChannelID, Label: label, ConnectionType: string(normalizeGroupConnectionType(row.Group.ConnectionType)),
 				GroupIDs: make([]uint, 0),
 			})
+		}
+		if row.Name != "" && !slices.Contains(items[index].Names, row.Name) {
+			items[index].Names = append(items[index].Names, row.Name)
 		}
 		if !slices.Contains(items[index].GroupIDs, row.GroupID) {
 			items[index].GroupIDs = append(items[index].GroupIDs, row.GroupID)

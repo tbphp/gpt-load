@@ -15,6 +15,7 @@ import {
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import {
   batchGroupCredentials,
   batchAllGroupCredentials,
@@ -38,6 +39,7 @@ import {
   resetCredentialQuota,
   revealCredential,
   runCredentialAction,
+  updateCredential,
 } from '@modern/api/credential-actions'
 import { ApiError } from '@shared/http/errors'
 import {
@@ -82,9 +84,13 @@ const emit = defineEmits<{
 const { t, n } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
-const filters = useURLState<CredentialFilters>(
-  ['q', 'status', 'page', 'page_size', 'sort', 'proxy', 'reset', 'credential_key'],
-  (query) => ({
+const route = useRoute()
+const router = useRouter()
+const filterKeys = ['q', 'status', 'page', 'page_size', 'sort', 'proxy', 'reset', 'credential_key']
+// 路由保护确认后才更新列表，避免切换条件时提前销毁名称草稿。
+const filters = computed<CredentialFilters>(() => {
+  const query = route.query
+  return {
     credential:
       typeof query.credential_key === 'string' && /^[a-f0-9]{64}$/u.test(query.credential_key)
         ? query.credential_key
@@ -103,27 +109,13 @@ const filters = useURLState<CredentialFilters>(
       (query.reset === 'available' || query.reset === 'none' || query.reset === 'unknown')
         ? query.reset
         : '',
-  }),
-  (value) => ({
-    ...(value.credential ? { credential_key: value.credential } : {}),
-    ...(value.q ? { q: value.q } : {}),
-    ...(value.status ? { status: value.status } : {}),
-    ...(value.page > 1 ? { page: String(value.page) } : {}),
-    ...(value.pageSize !== 20 ? { page_size: String(value.pageSize) } : {}),
-    ...(value.sort !== 'priority' ? { sort: value.sort } : {}),
-    ...(value.proxy ? { proxy: value.proxy } : {}),
-    ...(value.reset ? { reset: value.reset } : {}),
-  }),
-)
+  }
+})
 const search = ref(filters.value.q)
-watch(
-  () => filters.value.q,
-  (value) => {
-    search.value = value
-  },
-)
 const composing = ref(false)
 const selected = ref(new Set<number>())
+const nameDrafts = ref(new Set<number>())
+const cardRevision = ref(0)
 const credentialView = useURLState(
   ['credential', 'credential_view'],
   (query) => ({
@@ -263,10 +255,7 @@ const filterSummary = computed(() => [
           key: 'credential',
           label: t('groups.board.credentialFilter'),
           value: filteredCredential.value
-            ? filteredCredential.value.account ||
-              (props.group.connectionType === 'api_key'
-                ? filteredCredential.value.mask
-                : props.group.channelName)
+            ? filteredCredential.value.label
             : t('groups.board.selectedCredential'),
         },
       ]
@@ -324,20 +313,52 @@ const canSyncSelected = computed(
 )
 watch(bulkBusy, (value) => emit('pending', value), { immediate: true })
 watch(query.dataUpdatedAt, (value) => emit('updatedAt', value), { immediate: true })
-watch(query.data, (data) => {
+watch([query.data, bulkBusy], ([data, pending]) => {
   if (!data || query.isPlaceholderData.value) return
   const max = Math.max(1, Math.ceil(data.total / filters.value.pageSize))
-  if (filters.value.page > max) filters.value = { ...filters.value, page: max }
+  if (!pending && filters.value.page > max) void setFilters({ ...filters.value, page: max })
   selected.value = new Set(
     [...selected.value].filter((id) => data.items.some((row) => row.id === id)),
   )
 })
+watch(
+  () => JSON.stringify(filters.value),
+  () => {
+    clearTimeout(searchTimer)
+    search.value = filters.value.q
+    if (nameDrafts.value.size) {
+      nameDrafts.value.clear()
+      cardRevision.value++
+    }
+    selected.value = new Set()
+    accountBatch.value = undefined
+    list.value?.scrollToTop()
+  },
+)
+async function setFilters(value: CredentialFilters): Promise<void> {
+  const query = { ...route.query }
+  filterKeys.forEach((key) => delete query[key])
+  Object.assign(query, {
+    ...(value.credential ? { credential_key: value.credential } : {}),
+    ...(value.q ? { q: value.q } : {}),
+    ...(value.status ? { status: value.status } : {}),
+    ...(value.page > 1 ? { page: String(value.page) } : {}),
+    ...(value.pageSize !== 20 ? { page_size: String(value.pageSize) } : {}),
+    ...(value.sort !== 'priority' ? { sort: value.sort } : {}),
+    ...(value.proxy ? { proxy: value.proxy } : {}),
+    ...(value.reset ? { reset: value.reset } : {}),
+  })
+  try {
+    await router.replace({ query, hash: route.hash })
+  } catch {
+    search.value = filters.value.q
+    return
+  }
+  search.value = filters.value.q
+}
 function change(value: Partial<typeof filters.value>): void {
   if (mutating.value !== undefined || accountBatchPending.value) return
-  filters.value = { ...filters.value, ...value }
-  selected.value = new Set()
-  accountBatch.value = undefined
-  list.value?.scrollToTop()
+  void setFilters({ ...filters.value, ...value })
 }
 function scheduleSearch(): void {
   clearTimeout(searchTimer)
@@ -700,6 +721,30 @@ function saved(row: CredentialRow): void {
   void changed()
   void cache.invalidateQueries({ queryKey: credentialDetailKey(props.group.id, row.id) })
 }
+function nameDirty(id: number, dirty: boolean): void {
+  if (dirty) nameDrafts.value.add(id)
+  else nameDrafts.value.delete(id)
+}
+async function saveName(row: CredentialRow, name: string): Promise<void> {
+  if (busy.value || syncPending(row.id)) throw new Error('CREDENTIAL_BUSY')
+  mutating.value = row.id
+  pendingAction.value = 'name'
+  try {
+    const result = await updateCredential(
+      client,
+      props.group.id,
+      row.id,
+      { name },
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+    cacheRow(result)
+    await changed()
+    void cache.invalidateQueries({ queryKey: credentialDetailKey(props.group.id, row.id) })
+  } finally {
+    mutating.value = undefined
+  }
+}
 async function action(row: CredentialRow, value: string): Promise<void> {
   if (busy.value || syncPending(row.id)) return
   if (value === 'quota') {
@@ -1044,7 +1089,7 @@ defineExpose({ refresh })
           'modern-credential-cards--subscriptions': group.connectionType === 'subscription',
         }"
       >
-        <template v-for="row in rows" :key="row.id">
+        <template v-for="row in rows" :key="row.id + ':' + cardRevision">
           <SubscriptionCredentialCard
             v-if="group.connectionType === 'subscription'"
             :row="row"
@@ -1057,6 +1102,8 @@ defineExpose({ refresh })
             :sync-succeeded="syncSucceeded.has(row.id)"
             :disabled="busy || syncPending(row.id)"
             :error="cardErrors.get(row.id)"
+            :save-name="(name) => saveName(row, name)"
+            @name-dirty="nameDirty(row.id, $event)"
             @select="select(row.id, $event)"
             @toggle="toggle(row, $event)"
             @action="action(row, $event)"
@@ -1069,6 +1116,8 @@ defineExpose({ refresh })
             :disabled="busy"
             :error="cardErrors.get(row.id)"
             :resolve-secret="copySecret(row.id)"
+            :save-name="(name) => saveName(row, name)"
+            @name-dirty="nameDirty(row.id, $event)"
             @select="select(row.id, $event)"
             @toggle="toggle(row, $event)"
             @action="action(row, $event)"
@@ -1132,7 +1181,7 @@ defineExpose({ refresh })
     :open="Boolean(resetTarget)"
     :icon="RotateCcw"
     :title="t('credentialCards.useReset')"
-    :subject="resetTarget?.account || resetTarget?.mask"
+    :subject="resetTarget?.label"
     :description="t('credentialCards.confirmReset')"
     :confirm-label="t('credentialCards.useReset')"
     :pending="mutating !== undefined"
@@ -1159,8 +1208,9 @@ defineExpose({ refresh })
     @changed="changed"
   />
   <AppDraftGuard
-    :dirty="false"
+    :dirty="nameDrafts.size > 0"
     :pending="mutating !== undefined || accountBatchPending || syncing.size > 0"
+    :query-scope="filterKeys"
   />
 </template>
 
