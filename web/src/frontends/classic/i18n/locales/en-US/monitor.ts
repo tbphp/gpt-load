@@ -892,10 +892,10 @@ export default {
         duration: 'Duration',
         firstResponse: 'First response',
         outputRate: 'Average output speed',
-        firstOutputHint:
-          'Time from receiving the request to delivering the first text, reasoning content, or tool arguments, including queueing and retries.',
+        firstResponseHint:
+          'Time to the first upstream stream data, including retries and credential switches. The data may contain metadata only.',
         outputRateHint:
-          'Average output speed = output tokens / total request duration, including waiting, retries, credential switches, and reasoning time.',
+          'Average output speed = upstream output tokens / duration, including retries, credential switches, reasoning, and stream completion.',
         attemptCount: 'Attempts',
         request: 'Client request',
         finalExecution: 'Upstream execution',

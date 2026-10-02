@@ -464,12 +464,16 @@ function toggleAttemptErrorMessage(sequence: number): void {
           </div>
           <div v-if="log.stream">
             <dt>
-              <AppTooltip :content="t('monitor.logs.drawer.firstOutputHint')"
+              <AppTooltip :content="t('monitor.logs.drawer.firstResponseHint')"
                 ><span tabindex="0">{{ t('monitor.logs.drawer.firstResponse') }}</span></AppTooltip
               >
             </dt>
             <dd>
-              {{ log.first_output_ms === null ? '—' : formatLogDuration(log.first_output_ms) }}
+              {{
+                log.first_response_ms === null || log.first_response_ms <= 0
+                  ? '—'
+                  : formatLogDuration(log.first_response_ms)
+              }}
             </dd>
           </div>
           <div>

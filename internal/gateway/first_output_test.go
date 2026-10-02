@@ -18,12 +18,9 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-func TestOutputTimingSinkFramesSplitAndCoalescedSSE(t *testing.T) {
+func TestFirstOutputSinkFramesSplitAndCoalescedSSE(t *testing.T) {
 	calls := 0
-	delivered := outputTimingSink(protocol.OpenAIResponses, func(valid bool) {
-		if !valid {
-			t.Fatal("valid stream discarded")
-		}
+	delivered := firstOutputSink(protocol.OpenAIResponses, func() {
 		calls++
 	})
 	delivered([]byte(": keepalive\n\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hel"))
@@ -40,7 +37,7 @@ func TestOutputTimingSinkFramesSplitAndCoalescedSSE(t *testing.T) {
 	}
 }
 
-func TestHandlerRecordsDeliveredOutputInterval(t *testing.T) {
+func TestHandlerRecordsUpstreamFirstResponseAcrossRetries(t *testing.T) {
 	for _, retry := range []bool{false, true} {
 		t.Run(fmt.Sprintf("retry=%t", retry), func(t *testing.T) {
 			attempts := 0
@@ -88,8 +85,12 @@ func TestHandlerRecordsDeliveredOutputInterval(t *testing.T) {
 				t.Fatalf("logs=%d", len(events))
 			}
 			event := events[0]
-			if event.FirstOutputMs == nil || event.LastOutputMs == nil || *event.FirstOutputMs != 200 || *event.LastOutputMs != 700 || event.DurationMs != 2500 {
-				t.Fatalf("output interval=%v/%v duration=%d", event.FirstOutputMs, event.LastOutputMs, event.DurationMs)
+			wantFirst := int64(100)
+			if retry {
+				wantFirst = 50
+			}
+			if event.FirstResponseMs == nil || *event.FirstResponseMs != wantFirst || event.DurationMs != 2500 {
+				t.Fatalf("first=%v duration=%d", event.FirstResponseMs, event.DurationMs)
 			}
 
 			if retry && attempts != 2 {
@@ -99,7 +100,7 @@ func TestHandlerRecordsDeliveredOutputInterval(t *testing.T) {
 	}
 }
 
-func TestOutputTimingRequiresSuccessfulFlushOfRestoredContent(t *testing.T) {
+func TestFirstOutputRequiresSuccessfulFlushOfRestoredContent(t *testing.T) {
 	cipher := websocketRedactionTestCipher(t)
 	token, err := cipher.EncryptToken("restored text")
 	if err != nil {
@@ -129,10 +130,7 @@ func TestOutputTimingRequiresSuccessfulFlushOfRestoredContent(t *testing.T) {
 			}}
 			input := responsesExecutionForwardInput()
 			input.RedactionCipher = cipher
-			input.OnOutput = func(valid bool) {
-				if !valid {
-					t.Fatal("valid stream discarded")
-				}
+			input.OnFirstOutput = func() {
 				observed = append(observed, phase)
 			}
 			result := NewExecutionForwarder(executor).ForwardStream(context.Background(), input, writer)
@@ -147,7 +145,7 @@ func TestOutputTimingRequiresSuccessfulFlushOfRestoredContent(t *testing.T) {
 	}
 }
 
-func TestWebsocketRecordsOutputIntervalBeforeUsageTail(t *testing.T) {
+func TestWebsocketRecordsFirstResponseBeforeUsageTail(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
@@ -186,13 +184,12 @@ func TestWebsocketRecordsOutputIntervalBeforeUsageTail(t *testing.T) {
 		}
 	}
 	event := waitWebsocketLogs(t, sink, 1)[0]
-	if event.FirstOutputMs == nil || event.LastOutputMs == nil || event.FirstResponseMs == nil ||
-		*event.FirstOutputMs <= *event.FirstResponseMs || *event.LastOutputMs <= *event.FirstOutputMs || event.DurationMs <= *event.LastOutputMs {
+	if event.FirstResponseMs == nil || event.DurationMs <= *event.FirstResponseMs {
 		t.Fatalf("unexpected output timing: %+v", event)
 	}
 }
 
-func TestHandlerDiscardsOverflowedOutputTimingWithoutChangingDelivery(t *testing.T) {
+func TestHandlerFirstResponseIgnoresOutputIdentifiers(t *testing.T) {
 	for _, coalesced := range []bool{false, true} {
 		t.Run(fmt.Sprintf("coalesced=%t", coalesced), func(t *testing.T) {
 			frames := []string{
@@ -234,14 +231,14 @@ func TestHandlerDiscardsOverflowedOutputTimingWithoutChangingDelivery(t *testing
 			if len(events) != 1 || events[0].Status != "success" || len(events[0].Attempts) != 1 {
 				t.Fatalf("request outcome changed: %+v", events)
 			}
-			if events[0].FirstOutputMs != nil || events[0].LastOutputMs != nil {
-				t.Fatal("overflowed observation kept partial output timing")
+			if events[0].FirstResponseMs == nil {
+				t.Fatal("large output identifier removed first response timing")
 			}
 		})
 	}
 }
 
-func TestWebsocketDiscardsOverflowedOutputTimingWithoutChangingDelivery(t *testing.T) {
+func TestWebsocketFirstResponseIgnoresOutputIdentifiers(t *testing.T) {
 	frames := [][]byte{
 		[]byte(`{"type":"response.created","response":{"id":"resp_1","object":"response"}}`),
 		[]byte(`{"type":"response.output_text.delta","response_id":"resp_1","output_index":0,"delta":"first"}`),
@@ -288,7 +285,7 @@ func TestWebsocketDiscardsOverflowedOutputTimingWithoutChangingDelivery(t *testi
 	if event.Status != "success" || len(event.Attempts) != 1 {
 		t.Fatalf("request outcome changed: %+v", event)
 	}
-	if event.FirstOutputMs != nil || event.LastOutputMs != nil {
-		t.Fatal("overflowed observation kept partial output timing")
+	if event.FirstResponseMs == nil {
+		t.Fatal("large output identifier removed first response timing")
 	}
 }

@@ -692,7 +692,10 @@ function cacheTooltip(log: RequestLogItemDto): string {
 
 function timingPrimary(log: RequestLogItemDto): string {
   if (!log.stream) return formatLogDuration(log.duration_ms)
-  const first = log.first_output_ms === null ? '—' : formatLogDuration(log.first_output_ms)
+  const first =
+    log.first_response_ms === null || log.first_response_ms <= 0
+      ? '—'
+      : formatLogDuration(log.first_response_ms)
   return `${first} / ${formatLogDuration(log.duration_ms)}`
 }
 

@@ -1,5 +1,6 @@
 type OutputTiming = {
   protocol: string
+  status_code: number
   duration_ms: number
   output_tokens: string
   usage_state: string
@@ -9,6 +10,8 @@ type OutputTiming = {
 export function outputTokensPerSecond(row: OutputTiming): number | null {
   const tokens = Number(row.output_tokens)
   if (
+    row.status_code < 200 ||
+    row.status_code >= 300 ||
     !['openai-completions', 'openai-responses', 'anthropic', 'gemini'].includes(row.protocol) ||
     (row.usage_state !== 'complete' && row.usage_state !== 'partial') ||
     !Number.isSafeInteger(tokens) ||
