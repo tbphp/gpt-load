@@ -162,8 +162,14 @@ const metrics = computed(() => [
   }
 }
 @media (max-width: 760px) {
+  .modern-health-overview {
+    margin-top: var(--modern-space-2);
+    padding-block: var(--modern-space-2);
+    gap: var(--modern-space-1-5) 0;
+  }
   .modern-health-metric {
     padding-inline: var(--modern-space-2);
+    gap: var(--modern-space-1);
   }
   .modern-health-metric-label {
     font-size: var(--modern-font-size-small);
