@@ -10,6 +10,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/storage/models"
@@ -30,6 +31,14 @@ func mapEvent(
 	completedAtMS, err := epochms.FromTime(event.CompletedAt)
 	if err != nil {
 		return models.RequestLog{}, fmt.Errorf("map request event completion time: %w", err)
+	}
+	var clientIP *string
+	if event.ClientIP != "" {
+		address, err := utils.NormalizeIP(event.ClientIP)
+		if err != nil {
+			return models.RequestLog{}, fmt.Errorf("map request event client IP: %w", err)
+		}
+		clientIP = &address
 	}
 	event = normalizeModelObservation(event)
 	if err := validateModelObservation(event); err != nil {
@@ -181,6 +190,7 @@ func mapEvent(
 		CredentialID:                event.Usage.CredentialID,
 		Protocol:                    string(event.Protocol),
 		Operation:                   string(event.Operation),
+		ClientIP:                    clientIP,
 		ClientModel:                 redactIdentityValue(redactor, projectModel(event.ClientModel)),
 		UpstreamModel:               redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
 		UpstreamReportedModel:       redactIdentityValue(redactor, projectModel(event.UpstreamReportedModel)),

@@ -116,7 +116,7 @@ export const zhCN = {
   sourceAll: '不限',
   sourceSpecified: '指定',
   cidrs: '允许的 IP / CIDR',
-  cidrHelp: '每行一项，最多 64 项。按实际连接来源判断，经过反向代理时请留意来源地址。',
+  cidrHelp: '每行一项，最多 64 项。支持 IPv4、IPv6 和 CIDR；按请求日志中的 IP 判断。',
   required: '请输入名称。',
   invalidNumber: '请输入有效的数字。',
   invalidExpiry: '请选择未来的到期时间。',
@@ -257,7 +257,7 @@ export const enUS: typeof zhCN = {
   sourceSpecified: 'Selected',
   cidrs: 'Allowed IPs / CIDRs',
   cidrHelp:
-    'One per line, up to 64. Matching uses the connecting address; account for reverse proxies.',
+    'Enter one per line, up to 64. Supports IPv4, IPv6, and CIDR; uses the same IP as request logs.',
   required: 'Enter a name.',
   invalidNumber: 'Enter a valid number.',
   invalidExpiry: 'Choose a future expiration date.',
@@ -398,7 +398,7 @@ export const jaJP: typeof zhCN = {
   sourceSpecified: '指定',
   cidrs: '許可する IP / CIDR',
   cidrHelp:
-    '1 行に 1 件、最大 64 件。実際の接続元を判定するため、リバースプロキシ経由の場合は注意してください。',
+    '1 行に 1 件、最大 64 件。IPv4、IPv6、CIDR に対応し、リクエストログと同じ IP で判定します。',
   required: '名前を入力してください。',
   invalidNumber: '有効な数値を入力してください。',
   invalidExpiry: '将来の日時を指定してください。',

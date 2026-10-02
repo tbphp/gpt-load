@@ -30,10 +30,12 @@ const props = defineProps<{
   accessKeysFailed: boolean
   appliedChips: AppliedChip[]
   advancedOpen: boolean
+  showClientIp: boolean
   selfScoped?: boolean
 }>()
 const emit = defineEmits<{
   'update:advancedOpen': [open: boolean]
+  'update:showClientIp': [show: boolean]
   updateField: [field: keyof LogFilterDraft, value: string]
   removeFilter: [key: string]
   apply: []
@@ -190,6 +192,13 @@ function update(field: keyof LogFilterDraft, value: string): void {
       <AppButton variant="secondary" size="compact" @click="emit('reset')">
         {{ t('monitor.logs.filters.reset') }}
       </AppButton>
+      <AppButton
+        :variant="showClientIp ? 'primary' : 'secondary'"
+        size="compact"
+        :aria-pressed="showClientIp"
+        @click="emit('update:showClientIp', !showClientIp)"
+        >{{ t('monitor.logs.ipColumn') }}</AppButton
+      >
     </div>
 
     <p v-if="firstError" id="logs-filter-error" class="logs-filter__error" role="alert">

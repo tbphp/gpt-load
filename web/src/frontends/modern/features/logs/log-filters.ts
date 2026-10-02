@@ -54,6 +54,7 @@ export const logFilterOptions: Partial<Record<LogFilterName, readonly string[]>>
 }
 export const advancedLogFilters: readonly LogFilterDefinition[] = [
   { key: 'request_id', section: 'request', kind: 'text' },
+  { key: 'client_ip', section: 'request', kind: 'text' },
   { key: 'protocol', section: 'request', kind: 'select', values: accessProtocols },
   { key: 'operation', section: 'request', kind: 'select', values: logOperations },
   { key: 'stream', section: 'request', kind: 'select', values: logFilterOptions.stream },

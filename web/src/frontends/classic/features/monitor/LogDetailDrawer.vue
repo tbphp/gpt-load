@@ -44,7 +44,7 @@ const props = defineProps<{
   groupNames?: Record<number, string>
   channels?: Record<string, ChannelDto>
 }>()
-defineEmits<{ 'update:open': [open: boolean] }>()
+defineEmits<{ 'update:open': [open: boolean]; 'filter-ip': [ip: string] }>()
 const client = useApiClient()
 const { locale, t, te } = useI18n()
 const query = useQuery(requestLogDetailQueryOptions(client, () => props.requestId))
@@ -450,6 +450,28 @@ function toggleAttemptErrorMessage(sequence: number): void {
       <section class="log-detail__section">
         <h3>{{ t('monitor.logs.drawer.summary') }}</h3>
         <dl class="log-detail__grid">
+          <div>
+            <dt>{{ t('monitor.logs.columns.clientIP') }}</dt>
+            <dd>
+              <template v-if="log.client_ip">
+                <AppButton
+                  variant="link"
+                  size="inline"
+                  :aria-label="t('monitor.logs.filterIP', { value: log.client_ip })"
+                  @click="$emit('filter-ip', log.client_ip)"
+                >
+                  {{ log.client_ip }}
+                </AppButton>
+                <CopyButton
+                  :value="log.client_ip"
+                  :label="t('monitor.logs.copyIP')"
+                  :success-label="t('common.copied')"
+                  :failure-label="t('common.copyFailed')"
+                />
+              </template>
+              <span v-else>—</span>
+            </dd>
+          </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.status') }}</dt>
             <dd>

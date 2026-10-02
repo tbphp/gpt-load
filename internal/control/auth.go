@@ -67,7 +67,7 @@ func retryAfterSeconds(remaining time.Duration) int64 {
 
 func (s *Server) authenticate() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		peer, err := utils.NormalizePeerIP(c.Request.RemoteAddr)
+		peer, err := utils.ClientIP(c.Request)
 		if err != nil {
 			logServiceError("authenticate_peer", err, app_errors.ErrInternalServer.Code)
 			response.ErrorI18nFromAPIError(

@@ -13,7 +13,7 @@ func requestPeerIP(request *http.Request) string {
 	if request == nil {
 		return ""
 	}
-	peer, err := utils.NormalizePeerIP(request.RemoteAddr)
+	peer, err := utils.ClientIP(request)
 	if err != nil {
 		return ""
 	}

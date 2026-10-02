@@ -110,6 +110,7 @@ func (s *websocketConnection) newTurnRecorder(turn websocketTurn) *requestRecord
 		requestID = ""
 	}
 	recorder := newRequestRecorder(h.requestLogSink, requestID, turn.started, s.keyID, protocol.OpenAIResponses, h.requestNow)
+	recorder.clientIP = requestPeerIP(s.request)
 	recorder.setOperation(execution.OperationResponsesCreate)
 	recorder.setStream(true)
 	recorder.setClientModel(turn.model)

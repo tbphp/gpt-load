@@ -42,6 +42,7 @@ export const logFilterNames = [
   'group_id',
   'channel_id',
   'credential_id',
+  'client_ip',
   'client_model',
   'upstream_model',
   'model_consistency',
@@ -110,6 +111,7 @@ export interface LogEntry {
   protocol: string
   operation: string | null
   upstream_protocol: string | null
+  client_ip: string | null
   client_model: string | null
   upstream_model: string | null
   upstream_reported_model: string | null
@@ -306,6 +308,7 @@ function entry(value: unknown): LogEntry {
     protocol: text(row.protocol),
     operation: optionalText(row.operation),
     upstream_protocol: optionalText(row.upstream_protocol),
+    client_ip: optionalText(row.client_ip),
     client_model: optionalText(row.client_model),
     upstream_model: optionalText(row.upstream_model),
     upstream_reported_model: optionalText(row.upstream_reported_model),

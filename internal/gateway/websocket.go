@@ -298,7 +298,7 @@ func (s *websocketConnection) authorized(snapshot *state.ConfigSnapshot) (state.
 		return key, false
 	}
 	if len(key.AllowedPeerCIDRs) > 0 {
-		peer, err := utils.NormalizePeerIP(s.request.RemoteAddr)
+		peer, err := utils.ClientIP(s.request)
 		if err != nil || !utils.AllowedCIDRsContain(key.AllowedPeerCIDRs, peer) {
 			return key, false
 		}

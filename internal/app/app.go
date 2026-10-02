@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/httplifecycle"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/i18n"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/platform/version"
 	"gpt-load/internal/storage"
 
@@ -105,16 +106,23 @@ type AppParams struct {
 
 // NewEngine creates the process HTTP engine and global middleware.
 func NewEngine() (*gin.Engine, error) {
-	return newEngine(nil)
+	return newEngine(nil, nil)
 }
 
 // NewEngineWithLifecycle adds process-wide handler tracking used by the
 // production shutdown coordinator.
-func NewEngineWithLifecycle(lifecycle *httplifecycle.Coordinator) (*gin.Engine, error) {
-	return newEngine(lifecycle)
+func NewEngineWithLifecycle(lifecycle *httplifecycle.Coordinator, cfg *config.Config) (*gin.Engine, error) {
+	return newEngine(lifecycle, cfg)
 }
 
-func newEngine(lifecycle *httplifecycle.Coordinator) (*gin.Engine, error) {
+func newEngine(lifecycle *httplifecycle.Coordinator, cfg *config.Config) (*gin.Engine, error) {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	resolver, err := utils.NewClientIPResolver(cfg.ClientIPHeader, cfg.TrustedProxies)
+	if err != nil {
+		return nil, err
+	}
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	engine.RedirectTrailingSlash = false
@@ -122,6 +130,7 @@ func newEngine(lifecycle *httplifecycle.Coordinator) (*gin.Engine, error) {
 		return nil, fmt.Errorf("disable trusted proxies: %w", err)
 	}
 	engine.Use(recoveryMiddleware())
+	engine.Use(func(c *gin.Context) { c.Request = resolver.Apply(c.Request) })
 	if lifecycle != nil {
 		engine.Use(lifecycle.TrackAll())
 	}

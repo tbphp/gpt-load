@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, ArrowDownToLine, Clock3, Coins, ShieldCheck } from '@lucide/vue'
+import { Activity, ArrowDownToLine, Clock3, Coins, Copy, ShieldCheck } from '@lucide/vue'
 import { timeRangeQuery } from '@modern/app/time-range'
 import type { DateRangePreset } from '@modern/components/ui/date-time'
 import { useQuery } from '@tanstack/vue-query'
@@ -7,7 +7,7 @@ import { DialogRoot } from 'reka-ui'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
-import { getLogDetail, logDetailKey, type LogReasoning } from '@modern/api/logs'
+import { getLogDetail, logDetailKey, type LogQuery, type LogReasoning } from '@modern/api/logs'
 import type { GroupRow } from '@modern/api/groups'
 import type { GroupChannel } from '@modern/api/group-create'
 import { useMessages, useMessageSource } from '@modern/app/messages'
@@ -22,6 +22,7 @@ import {
   AppFormSection,
   AppOverflowText,
   AppIcon,
+  AppIconButton,
   AppChannelIcon,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
@@ -40,6 +41,7 @@ import LogPricingReceipt from './LogPricingReceipt.vue'
 import LogValue from './LogValue.vue'
 import LogModelWarning from './LogModelWarning.vue'
 import LogCredentialValue from './LogCredentialValue.vue'
+import LogFilterLink from './LogFilterLink.vue'
 
 const props = defineProps<{
   id: string
@@ -50,7 +52,7 @@ const props = defineProps<{
   to: string
   preset?: DateRangePreset
 }>()
-defineEmits<{ close: [] }>()
+defineEmits<{ close: []; filter: [query: LogQuery] }>()
 const { t, te, n, locale } = useI18n()
 const client = useApiClient()
 const messages = useMessages()
@@ -232,6 +234,28 @@ function resolveRedactedLog(): Promise<string> {
             <div class="modern-log-request-identity">
               <span>{{ t('logs.columns.request_id') }}</span
               ><AppCopyValue :value="log.request_id" :label="t('logs.copyRequest')" />
+            </div>
+            <div class="modern-log-request-identity">
+              <span>{{ t('logs.columns.client_ip') }}</span>
+              <template v-if="log.client_ip">
+                <LogFilterLink
+                  :label="t('logs.filterByValue', { value: log.client_ip })"
+                  @click="$emit('filter', { client_ip: log.client_ip })"
+                  ><AppOverflowText :text="log.client_ip"
+                /></LogFilterLink>
+                <AppCopyValue :value="log.client_ip">
+                  <template #trigger="{ copy, pending }">
+                    <AppIconButton
+                      :icon="Copy"
+                      :label="t('logs.copyIP')"
+                      size="xs"
+                      :disabled="pending"
+                      @click="copy()"
+                    />
+                  </template>
+                </AppCopyValue>
+              </template>
+              <span v-else>—</span>
             </div>
             <LogModelWarning v-if="admin" :row="log" detail />
             <div
