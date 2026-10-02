@@ -252,7 +252,7 @@ function fieldFilterValue(field: LogColumnId): string {
 
 <template>
   <div v-if="fields[0] === 'completed_at_ms'" class="modern-log-cell-stack">
-    <AppButton variant="text" class="modern-log-time" @click="$emit('open')">
+    <AppButton variant="text" selectable class="modern-log-time" @click="$emit('open')">
       <AppOverflowText :text="clock" :full-text="logTime(row.completed_at_ms, locale, true)" />
     </AppButton>
     <div class="modern-log-cell-value is-secondary">

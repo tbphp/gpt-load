@@ -8,6 +8,7 @@ defineEmits<{ click: [] }>()
 <template>
   <AppButton
     variant="text"
+    selectable
     class="modern-log-filter-link"
     :aria-label="label"
     @click="$emit('click')"
