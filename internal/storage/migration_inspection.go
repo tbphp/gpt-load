@@ -11,16 +11,17 @@ import (
 // migrationInspection 在单次只读校验阶段复用元数据。迁移 Up 使用原始 DB，
 // 每步 DDL 后再创建新的校验视图，避免读取过期结构。
 type migrationInspection struct {
-	db          *gorm.DB
-	driver      string
-	database    string
-	schema      string
-	tables      map[string]struct{}
-	columns     map[string]map[string]struct{}
-	indexes     map[string]map[string]struct{}
-	constraints map[string]map[string]struct{}
-	columnTypes map[string][]gorm.ColumnType
-	err         error
+	db                     *gorm.DB
+	driver                 string
+	database               string
+	schema                 string
+	tables                 map[string]struct{}
+	columns                map[string]map[string]struct{}
+	indexes                map[string]map[string]struct{}
+	constraints            map[string]map[string]struct{}
+	columnTypes            map[string][]gorm.ColumnType
+	sqliteConstraintChecks map[string]map[string]bool
+	err                    error
 }
 
 func migrationTableExists(db *gorm.DB, table string) (bool, error) {
@@ -48,12 +49,13 @@ func migrationTableExists(db *gorm.DB, table string) (bool, error) {
 
 func newMigrationInspection(db *gorm.DB) (*migrationInspection, error) {
 	inspection := &migrationInspection{
-		db:          db,
-		driver:      strings.ToLower(db.Dialector.Name()),
-		columns:     make(map[string]map[string]struct{}),
-		indexes:     make(map[string]map[string]struct{}),
-		constraints: make(map[string]map[string]struct{}),
-		columnTypes: make(map[string][]gorm.ColumnType),
+		db:                     db,
+		driver:                 strings.ToLower(db.Dialector.Name()),
+		columns:                make(map[string]map[string]struct{}),
+		indexes:                make(map[string]map[string]struct{}),
+		constraints:            make(map[string]map[string]struct{}),
+		columnTypes:            make(map[string][]gorm.ColumnType),
+		sqliteConstraintChecks: make(map[string]map[string]bool),
 	}
 	switch inspection.driver {
 	case "mysql":
@@ -80,9 +82,6 @@ func newMigrationInspection(db *gorm.DB) (*migrationInspection, error) {
 }
 
 func (inspection *migrationInspection) validationDB() *gorm.DB {
-	if inspection.driver == "sqlite" {
-		return inspection.db
-	}
 	db := inspection.db.Session(&gorm.Session{NewDB: true})
 	db.Dialector = &migrationInspectionDialector{
 		Dialector:  inspection.db.Dialector,
@@ -121,6 +120,8 @@ func (inspection *migrationInspection) tableNames() (map[string]struct{}, error)
 	var names []string
 	var err error
 	switch inspection.driver {
+	case "sqlite":
+		err = inspection.db.Raw("SELECT name FROM sqlite_master WHERE type = ?", "table").Scan(&names).Error
 	case "mysql", "postgres", "postgresql":
 		err = inspection.db.Raw(
 			"SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = ?",
@@ -139,15 +140,24 @@ func (inspection *migrationInspection) tableNames() (map[string]struct{}, error)
 func (inspection *migrationInspection) objectNames(kind, table string) (map[string]struct{}, error) {
 	var cache map[string]map[string]struct{}
 	var query string
+	args := []any{inspection.schema, table}
 	switch kind {
 	case "column":
 		cache = inspection.columns
 		query = "SELECT column_name FROM information_schema.columns WHERE table_schema = ? AND table_name = ?"
+		if inspection.driver == "sqlite" {
+			query = "SELECT name FROM pragma_table_xinfo(?) WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)"
+			args = []any{table, table}
+		}
 	case "index":
 		cache = inspection.indexes
-		if inspection.driver == "mysql" {
+		switch inspection.driver {
+		case "sqlite":
+			query = "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ?"
+			args = []any{table}
+		case "mysql":
 			query = "SELECT DISTINCT index_name FROM information_schema.statistics WHERE table_schema = ? AND table_name = ?"
-		} else {
+		default:
 			query = "SELECT indexname FROM pg_indexes WHERE schemaname = ? AND tablename = ?"
 		}
 	case "constraint":
@@ -160,11 +170,37 @@ func (inspection *migrationInspection) objectNames(kind, table string) (map[stri
 		return names, nil
 	}
 	var names []string
-	if err := inspection.db.Raw(query, inspection.schema, table).Scan(&names).Error; err != nil {
+	if err := inspection.db.Raw(query, args...).Scan(&names).Error; err != nil {
 		return nil, fmt.Errorf("inspect migration %s names on %q: %w", kind, table, err)
+	}
+	if inspection.driver == "sqlite" && kind == "column" {
+		for index := range names {
+			names[index] = strings.ToLower(names[index])
+		}
 	}
 	cache[table] = nameSet(names)
 	return cache[table], nil
+}
+
+func (inspection *migrationInspection) hasSQLiteConstraint(table, name string) (bool, error) {
+	checks := inspection.sqliteConstraintChecks[table]
+	if exists, ok := checks[name]; ok {
+		return exists, nil
+	}
+	var count int64
+	// 沿用 SQLite Migrator 的约束匹配规则，并保留读取错误。
+	if err := inspection.db.Raw(
+		"SELECT count(*) FROM sqlite_master WHERE type = ? AND tbl_name = ? AND (sql LIKE ? OR sql LIKE ? OR sql LIKE ? OR sql LIKE ? OR sql LIKE ?)",
+		"table", table, `%CONSTRAINT "`+name+`" %`, `%CONSTRAINT `+name+` %`, "%CONSTRAINT `"+name+"`%", "%CONSTRAINT ["+name+"]%", "%CONSTRAINT \t"+name+"\t%",
+	).Scan(&count).Error; err != nil {
+		return false, fmt.Errorf("inspect migration constraint %q on %q: %w", name, table, err)
+	}
+	if checks == nil {
+		checks = make(map[string]bool)
+		inspection.sqliteConstraintChecks[table] = checks
+	}
+	checks[name] = count > 0
+	return checks[name], nil
 }
 
 func nameSet(names []string) map[string]struct{} {
@@ -200,6 +236,9 @@ type migrationInspectionMigrator struct {
 }
 
 func (migrator *migrationInspectionMigrator) CurrentDatabase() string {
+	if migrator.inspection.driver == "sqlite" {
+		return migrator.Migrator.CurrentDatabase()
+	}
 	return migrator.inspection.database
 }
 
@@ -225,6 +264,9 @@ func (migrator *migrationInspectionMigrator) HasColumn(value interface{}, field 
 		if parsed := stmt.Schema.LookUpField(field); parsed != nil {
 			field = parsed.DBName
 		}
+	}
+	if migrator.inspection.driver == "sqlite" {
+		field = strings.ToLower(field)
 	}
 	names, err := migrator.inspection.objectNames("column", stmt.Table)
 	if err != nil {
@@ -270,6 +312,13 @@ func (migrator *migrationInspectionMigrator) HasConstraint(value interface{}, na
 		}
 	} else {
 		return migrator.Migrator.HasConstraint(value, name)
+	}
+	if migrator.inspection.driver == "sqlite" {
+		exists, err := migrator.inspection.hasSQLiteConstraint(table, name)
+		if err != nil {
+			return migrator.inspection.record(err)
+		}
+		return exists
 	}
 	names, err := migrator.inspection.objectNames("constraint", table)
 	if err != nil {

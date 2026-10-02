@@ -41,6 +41,15 @@ func TestExternalMigrationValidationLimitsMetadataQueries(t *testing.T) {
 		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
 	}
 	db := openExternalIncrementalMigrationDatabase(t, dsn)
+	verifyMigrationValidationQueryLimits(t, db)
+}
+
+func TestMigrationValidationLimitsMetadataQueries(t *testing.T) {
+	verifyMigrationValidationQueryLimits(t, openInternalMigrationTestDatabase(t))
+}
+
+func verifyMigrationValidationQueryLimits(t *testing.T, db *gorm.DB) {
+	t.Helper()
 	initialize := &migrationQueryCounter{Interface: logger.Discard}
 	if err := AutoMigrate(db.Session(&gorm.Session{Logger: initialize})); err != nil {
 		t.Fatalf("initialize schema: %v", err)
@@ -73,20 +82,42 @@ func TestExternalMigrationValidationPropagatesMetadataReadFailure(t *testing.T) 
 		t.Skip("GPT_LOAD_DATABASE_TEST_DSN is not set")
 	}
 	db := openExternalIncrementalMigrationDatabase(t, dsn)
-	inspection, err := newMigrationInspection(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	inspection.db = db.WithContext(ctx)
-	err = inspection.validate(func(validationDB *gorm.DB) error {
-		// 对“不存在”的判断可以通过，但元数据读取失败不能被当作不存在。
-		_ = validationDB.Migrator().HasTable("groups")
-		return nil
-	})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("metadata read error = %v, want context cancellation", err)
+	verifyMigrationValidationReadFailure(t, db)
+}
+
+func TestMigrationValidationPropagatesMetadataReadFailure(t *testing.T) {
+	verifyMigrationValidationReadFailure(t, openInternalMigrationTestDatabase(t))
+}
+
+func verifyMigrationValidationReadFailure(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	for _, probe := range []struct {
+		name string
+		read func(gorm.Migrator)
+	}{
+		{"table", func(m gorm.Migrator) { _ = m.HasTable("groups") }},
+		{"column", func(m gorm.Migrator) { _ = m.HasColumn("groups", "name") }},
+		{"index", func(m gorm.Migrator) { _ = m.HasIndex("groups", "idx_groups_name") }},
+		{"constraint", func(m gorm.Migrator) { _ = m.HasConstraint("groups", "chk_group_status") }},
+		{"column_types", func(m gorm.Migrator) { _, _ = m.ColumnTypes("groups") }},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			inspection, err := newMigrationInspection(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			inspection.db = db.WithContext(ctx)
+			err = inspection.validate(func(validationDB *gorm.DB) error {
+				// 对“不存在”的判断可以通过，但元数据读取失败不能被当作不存在。
+				probe.read(validationDB.Migrator())
+				return nil
+			})
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("metadata read error = %v, want context cancellation", err)
+			}
+		})
 	}
 }
 
@@ -101,6 +132,39 @@ func TestMigrationLedgerInspectionPropagatesReadFailure(t *testing.T) {
 	}
 	if _, err := migrationTableExists(db, migrationLedgerTable); err == nil {
 		t.Fatal("missing migration ledger was inferred from a failed database read")
+	}
+}
+
+func TestMigrationInspectionRetainsSQLiteColumnSemantics(t *testing.T) {
+	db := openInternalMigrationTestDatabase(t)
+	for _, statement := range []string{
+		`CREATE TABLE metadata_probe (id INTEGER PRIMARY KEY, Name TEXT, normalized TEXT GENERATED ALWAYS AS (lower(Name)) VIRTUAL)`,
+		`CREATE VIEW metadata_view AS SELECT Name FROM metadata_probe`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	inspection, err := newMigrationInspection(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct {
+		table, column string
+		want          bool
+	}{
+		{"metadata_probe", "name", true},
+		{"metadata_probe", "normalized", true},
+		{"metadata_probe", "missing", false},
+		{"metadata_view", "name", false},
+		{"missing_table", "name", false},
+	} {
+		if got := inspection.validationDB().Migrator().HasColumn(check.table, check.column); got != check.want {
+			t.Errorf("HasColumn(%q, %q) = %v, want %v", check.table, check.column, got, check.want)
+		}
+	}
+	if inspection.err != nil {
+		t.Fatal(inspection.err)
 	}
 }
 
