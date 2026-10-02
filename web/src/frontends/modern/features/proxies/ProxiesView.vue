@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { Plus, Upload, Play, Pause, Trash2, Pencil, Search, FlaskConical, X } from '@lucide/vue'
+import {
+  Plus,
+  Upload,
+  Play,
+  Pause,
+  Trash2,
+  Pencil,
+  Search,
+  FlaskConical,
+  Network,
+  X,
+} from '@lucide/vue'
 import { DialogRoot } from 'reka-ui'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -26,9 +37,11 @@ import {
   AppBadge,
   AppButton,
   AppCheckbox,
+  AppCollectionState,
   AppConfirmDialog,
   AppDialogContent,
   AppDialogHeader,
+  AppFilterSummary,
   AppIconButton,
   AppListFrame,
   AppNotice,
@@ -36,6 +49,7 @@ import {
   AppPagination,
   AppSegmentedControl,
   AppSelect,
+  AppSortMenu,
   AppTextArea,
   AppTextField,
   AppTooltip,
@@ -199,6 +213,48 @@ const sorts = computed(() => [
   { value: 'name', label: t('proxies.sortName') },
   { value: 'latency', label: t('proxies.sortLatency') },
 ])
+const filterDefaults = { q: '', state: '', scheme: '', used: '', test: '', sort: 'name' }
+const activeFilters = computed(() =>
+  [
+    { key: 'q', label: t('proxies.search'), value: filters.value.q },
+    {
+      key: 'state',
+      label: t('proxies.status'),
+      value: states.value.find((option) => option.value === filters.value.state)?.label ?? '',
+    },
+    {
+      key: 'scheme',
+      label: t('proxies.protocol'),
+      value: schemes.value.find((option) => option.value === filters.value.scheme)?.label ?? '',
+    },
+    {
+      key: 'used',
+      label: t('proxies.references'),
+      value: usages.value.find((option) => option.value === filters.value.used)?.label ?? '',
+    },
+    {
+      key: 'test',
+      label: t('proxies.latestTest'),
+      value: tests.value.find((option) => option.value === filters.value.test)?.label ?? '',
+    },
+    {
+      key: 'sort',
+      label: t('proxies.sort'),
+      value: sorts.value.find((option) => option.value === filters.value.sort)?.label ?? '',
+    },
+  ].filter(({ key }) => {
+    const field = key as keyof typeof filterDefaults
+    return filters.value[field] !== filterDefaults[field]
+  }),
+)
+const hasFilters = computed(() => activeFilters.value.some(({ key }) => key !== 'sort'))
+function resetFilter(key?: string) {
+  if (!key || key === 'q') {
+    clearTimeout(searchTimer)
+    search.value = ''
+  }
+  change(key ? { [key]: filterDefaults[key as keyof typeof filterDefaults] } : filterDefaults)
+}
 const editor = ref<ProxyItem | null | undefined>()
 const importing = ref(false)
 const importText = ref('')
@@ -354,6 +410,7 @@ onScopeDispose(() => {
     <div class="modern-proxy-toolbar">
       <AppTextField
         v-model="search"
+        class="modern-proxy-search"
         :icon="Search"
         type="search"
         :label="t('proxies.search')"
@@ -361,6 +418,7 @@ onScopeDispose(() => {
         :placeholder="t('proxies.search')"
       />
       <AppSelect
+        class="modern-proxy-filter"
         :model-value="filters.scheme"
         :options="schemes"
         :label="t('proxies.protocol')"
@@ -368,6 +426,7 @@ onScopeDispose(() => {
         @update:model-value="change({ scheme: $event })"
       />
       <AppSelect
+        class="modern-proxy-filter"
         :model-value="filters.used"
         :options="usages"
         :label="t('proxies.references')"
@@ -375,42 +434,51 @@ onScopeDispose(() => {
         @update:model-value="change({ used: $event })"
       />
       <AppSelect
+        class="modern-proxy-filter"
         :model-value="filters.test"
         :options="tests"
         :label="t('proxies.latestTest')"
         label-hidden
         @update:model-value="change({ test: $event })"
       />
-      <AppSelect
-        :model-value="filters.sort"
-        :options="sorts"
-        :label="t('proxies.sortName')"
-        label-hidden
-        @update:model-value="change({ sort: $event })"
-      />
       <div class="modern-proxy-primary">
-        <AppButton :icon="Upload" variant="outline" @click="importing = true">{{
-          t('proxies.import')
-        }}</AppButton
-        ><AppButton :icon="Plus" @click="editor = null">{{ t('proxies.new') }}</AppButton>
+        <AppSortMenu
+          :model-value="filters.sort"
+          :options="sorts"
+          :label="t('proxies.sort')"
+          @update:model-value="change({ sort: $event })"
+        />
+        <AppButton :icon="Upload" @click="importing = true">{{ t('proxies.import') }}</AppButton>
+        <AppButton :icon="Plus" variant="primary" @click="editor = null">{{
+          t('proxies.new')
+        }}</AppButton>
       </div>
     </div>
-    <div class="modern-proxy-test-target">
-      <AppTextField
-        v-model="target"
-        :label="t('proxies.testURL')"
-        :disabled="!initialized"
-        :error="target && !validTestURL(target.trim()) ? t('proxies.invalidURL') : undefined"
-        @blur="saveTarget"
-      />
-      <span v-if="targetState" role="status">{{ t('proxies.' + targetState) }}</span>
-      <AppButton v-if="targetState === 'saveFailed'" variant="ghost" @click="saveTarget">{{
-        t('proxies.save')
-      }}</AppButton>
+    <div class="modern-proxy-testbar">
+      <div class="modern-proxy-test-target">
+        <span class="modern-proxy-test-label" aria-hidden="true">{{ t('proxies.testURL') }}</span>
+        <AppTextField
+          v-model="target"
+          class="modern-proxy-test-input"
+          :label="t('proxies.testURL')"
+          label-hidden
+          type="url"
+          :disabled="!initialized"
+          :error="target && !validTestURL(target.trim()) ? t('proxies.invalidURL') : undefined"
+          @blur="saveTarget"
+        />
+      </div>
+      <div v-if="targetState" class="modern-proxy-save-state" role="status">
+        <span :class="{ 'modern-proxy-save-error': targetSaveFailed }">{{
+          t('proxies.' + targetState)
+        }}</span>
+        <AppButton v-if="targetState === 'saveFailed'" variant="text" size="sm" @click="saveTarget">
+          {{ t('proxies.save') }}
+        </AppButton>
+      </div>
       <AppTooltip :label="t('proxies.testHelp')"
         ><AppButton
           :icon="FlaskConical"
-          variant="outline"
           :disabled="
             running || preparing || !query.data.value?.total || !validTestURL(target.trim())
           "
@@ -421,14 +489,28 @@ onScopeDispose(() => {
         ></AppTooltip
       >
     </div>
-    <AppSegmentedControl
-      :model-value="filters.state"
-      :options="states"
-      :label="t('proxies.status')"
-      @update:model-value="change({ state: $event })"
-    />
-    <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
-    <AppNotice v-if="notice">{{ notice }}</AppNotice>
+    <div class="modern-proxy-filterbar">
+      <AppSegmentedControl
+        :model-value="filters.state"
+        :options="states"
+        :label="t('proxies.status')"
+        @update:model-value="change({ state: $event })"
+      />
+      <AppFilterSummary :items="activeFilters" @remove="resetFilter" @reset="resetFilter()" />
+    </div>
+    <div
+      v-if="error || notice || (query.isError.value && query.data.value)"
+      class="modern-proxy-notices"
+    >
+      <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
+      <AppNotice v-if="notice">{{ notice }}</AppNotice>
+      <AppNotice v-if="query.isError.value && query.data.value" tone="warning">
+        {{ t('collection.stale') }}
+        <AppButton variant="text" size="sm" @click="query.refetch()">{{
+          t('collection.retry')
+        }}</AppButton>
+      </AppNotice>
+    </div>
     <div v-if="total" class="modern-proxy-progress" role="status" aria-live="polite">
       <span>{{ progress }}</span>
       <AppButton v-if="running" :icon="X" variant="ghost" @click="testController?.abort()">{{
@@ -438,65 +520,86 @@ onScopeDispose(() => {
         t('proxies.retryFailed')
       }}</AppButton>
     </div>
-    <AppListFrame :label="t('proxies.title')" :loading="query.isFetching.value">
+    <div v-if="selected.size" class="modern-proxy-batch">
+      <span>{{ t('proxies.selected', { count: n(selected.size) }) }}</span>
+      <AppButton
+        :icon="FlaskConical"
+        size="sm"
+        variant="ghost"
+        :disabled="running || !validTestURL(target.trim())"
+        @click="run([...selected])"
+        >{{ t('proxies.testSelected') }}</AppButton
+      >
+      <AppIconButton
+        :icon="Play"
+        :label="t('proxies.enable')"
+        :disabled="pending"
+        @click="act('enable', [...selected])"
+      />
+      <AppIconButton
+        :icon="Pause"
+        :label="t('proxies.disable')"
+        :disabled="pending"
+        @click="act('disable', [...selected])"
+      />
+      <AppIconButton
+        :icon="Trash2"
+        :label="t('proxies.delete')"
+        :disabled="pending"
+        @click="act('delete', [...selected])"
+      />
+    </div>
+    <AppListFrame
+      :label="t('proxies.title')"
+      :loading="Boolean(query.data.value) && query.isFetching.value"
+    >
       <template #header>
-        <div class="modern-proxy-batch">
-          <AppCheckbox
-            :model-value="allSelected"
-            :indeterminate="selected.size > 0 && !allSelected"
-            :label="t('proxies.selectPage')"
-            @update:model-value="selected = $event ? new Set(rows.map((row) => row.id)) : new Set()"
-          />
-          <template v-if="selected.size">
-            <span>{{ t('proxies.selected', { count: n(selected.size) }) }}</span>
-            <AppButton
-              size="sm"
-              variant="ghost"
-              :disabled="running || !validTestURL(target.trim())"
-              @click="run([...selected])"
-              >{{ t('proxies.testSelected') }}</AppButton
-            >
-            <AppIconButton
-              :icon="Play"
-              :label="t('proxies.enable')"
-              :disabled="pending"
-              @click="act('enable', [...selected])"
-            />
-            <AppIconButton
-              :icon="Pause"
-              :label="t('proxies.disable')"
-              :disabled="pending"
-              @click="act('disable', [...selected])"
-            />
-            <AppIconButton
-              :icon="Trash2"
-              :label="t('proxies.delete')"
-              :disabled="pending"
-              @click="act('delete', [...selected])"
-            />
-          </template>
-        </div>
         <div class="modern-proxy-row modern-proxy-heading">
-          <span /><span>{{ t('proxies.name') }}</span
-          ><span>{{ t('proxies.protocol') }}</span
-          ><span>{{ t('proxies.status') }}</span
-          ><span>{{ t('proxies.references') }}</span
-          ><span>{{ t('proxies.latestTest') }}</span
-          ><span>{{ t('proxies.actions') }}</span>
+          <AppTooltip :label="t('proxies.selectPage')">
+            <AppCheckbox
+              :model-value="allSelected"
+              :indeterminate="selected.size > 0 && !allSelected"
+              :label="t('proxies.selectPage')"
+              label-hidden
+              :disabled="!rows.length"
+              @update:model-value="
+                selected = $event ? new Set(rows.map((row) => row.id)) : new Set()
+              "
+            />
+          </AppTooltip>
+          <span>{{ t('proxies.name') }}</span>
+          <span>{{ t('proxies.protocol') }}</span>
+          <span>{{ t('proxies.status') }}</span>
+          <span>{{ t('proxies.references') }}</span>
+          <span>{{ t('proxies.latestTest') }}</span>
+          <span>{{ t('proxies.actions') }}</span>
         </div>
       </template>
-      <p v-if="query.isError.value" class="modern-proxy-empty">{{ t('proxies.loadFailed') }}</p>
-      <p v-else-if="!rows.length" class="modern-proxy-empty">
-        {{ t(query.data.value?.total ? 'proxies.noResults' : 'proxies.empty') }}
-      </p>
+      <AppCollectionState
+        v-if="!query.data.value && query.isPending.value"
+        :title="t('collection.loading')"
+        loading
+      />
+      <AppCollectionState v-else-if="!query.data.value" :title="t('proxies.loadFailed')" error>
+        <AppButton @click="query.refetch()">{{ t('collection.retry') }}</AppButton>
+      </AppCollectionState>
+      <AppCollectionState
+        v-else-if="!rows.length"
+        :icon="hasFilters ? Search : Network"
+        :title="t(hasFilters ? 'proxies.noResults' : 'proxies.empty')"
+      >
+        <AppButton v-if="hasFilters" @click="resetFilter()">{{ t('collection.reset') }}</AppButton>
+      </AppCollectionState>
       <div v-for="row in rows" :key="row.id" class="modern-proxy-row">
         <AppCheckbox
           :model-value="selected.has(row.id)"
           :label="row.name"
+          label-hidden
           @update:model-value="toggle(row.id, $event)"
         />
         <div class="modern-proxy-identity">
-          <AppOverflowText :text="row.name" /><AppOverflowText :text="row.display_url" />
+          <AppOverflowText class="modern-proxy-name" :text="row.name" />
+          <AppOverflowText :text="row.display_url" />
         </div>
         <span>{{ row.scheme.toUpperCase() }}</span>
         <AppBadge :tone="row.enabled ? 'success' : 'neutral'">{{
@@ -504,7 +607,7 @@ onScopeDispose(() => {
         }}</AppBadge>
         <AppButton
           class="modern-proxy-references"
-          variant="ghost"
+          variant="text"
           size="sm"
           @click="showReferences(row.id)"
           ><span
@@ -651,14 +754,17 @@ onScopeDispose(() => {
 <style scoped>
 .modern-proxies {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
-  height: 100%;
-  gap: var(--modern-space-3);
 }
 .modern-proxy-toolbar,
+.modern-proxy-testbar,
 .modern-proxy-test-target,
+.modern-proxy-save-state,
 .modern-proxy-primary,
+.modern-proxy-filterbar,
 .modern-proxy-batch,
 .modern-proxy-progress,
 .modern-proxy-actions {
@@ -667,43 +773,93 @@ onScopeDispose(() => {
   gap: var(--modern-space-2);
 }
 .modern-proxy-toolbar {
+  flex: none;
   flex-wrap: wrap;
+  gap: var(--modern-space-3);
+  padding: var(--modern-space-5) 0 var(--modern-space-3);
 }
-.modern-proxy-toolbar > :first-child {
-  flex: 1 1 200px;
+.modern-proxy-search {
+  flex: 2 1 260px;
+  min-width: 0;
+}
+.modern-proxy-filter {
+  flex: 1 1 130px;
+  min-width: 0;
 }
 .modern-proxy-primary {
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
   margin-left: auto;
 }
-.modern-proxy-test-target {
+.modern-proxy-testbar {
+  flex: none;
+  align-items: flex-start;
   flex-wrap: wrap;
-  align-items: end;
+  gap: var(--modern-space-3);
+  padding-bottom: var(--modern-space-4);
 }
-.modern-proxy-test-target > :first-child {
-  flex: 1 1 320px;
+.modern-proxy-test-target {
+  min-width: 0;
+  max-width: 100%;
+  align-items: flex-start;
 }
-.modern-proxy-test-target > span {
+.modern-proxy-test-label {
+  display: flex;
+  flex: none;
+  min-height: var(--modern-control-md);
+  align-items: center;
   color: var(--modern-muted);
-  padding-bottom: var(--modern-space-2);
+  font-size: var(--modern-font-size-secondary);
+}
+.modern-proxy-test-input {
+  width: 360px;
+  min-width: 0;
+}
+.modern-proxy-save-state {
+  min-height: var(--modern-control-md);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-proxy-save-error {
+  color: var(--modern-danger);
+}
+.modern-proxy-filterbar {
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  padding-bottom: var(--modern-space-4);
+}
+.modern-proxy-notices {
+  display: grid;
+  flex: none;
+  gap: var(--modern-space-2);
+  padding-bottom: var(--modern-space-3);
 }
 .modern-proxy-batch {
-  padding: var(--modern-space-2) var(--modern-space-3);
+  flex: none;
+  flex-wrap: wrap;
   min-height: var(--modern-control-md);
+  padding: 0 var(--modern-space-3) var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-secondary);
 }
 .modern-proxy-row {
   display: grid;
   grid-template-columns:
-    28px minmax(200px, 2fr) 80px 90px minmax(150px, 1fr) minmax(180px, 1fr)
-    150px;
+    var(--modern-checkbox-size) minmax(240px, 2fr) 80px 90px minmax(170px, 1fr)
+    minmax(200px, 1fr) 168px;
   align-items: center;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-4);
   padding: var(--modern-space-3);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
-  min-width: 1050px;
+  min-width: 1120px;
 }
 .modern-proxy-heading {
   color: var(--modern-muted);
   background: var(--modern-surface);
+  font-size: var(--modern-font-size-small);
 }
 .modern-proxy-identity,
 .modern-proxy-result {
@@ -715,19 +871,24 @@ onScopeDispose(() => {
 .modern-proxy-identity > :last-child,
 .modern-proxy-result small {
   color: var(--modern-muted);
+  font-size: var(--modern-font-size-secondary);
+}
+.modern-proxy-name {
+  font-weight: var(--modern-weight-medium);
 }
 .modern-proxy-references {
   justify-content: flex-start;
   flex-wrap: wrap;
+  max-width: 100%;
+  text-align: left;
 }
 .modern-proxy-progress {
+  flex: none;
+  flex-wrap: wrap;
   justify-content: space-between;
+  padding-bottom: var(--modern-space-3);
   color: var(--modern-muted);
-}
-.modern-proxy-empty {
-  padding: var(--modern-space-6);
-  text-align: center;
-  color: var(--modern-muted);
+  font-size: var(--modern-font-size-secondary);
 }
 .modern-proxy-panel {
   display: grid;
@@ -738,5 +899,29 @@ onScopeDispose(() => {
 .modern-proxy-panel a {
   color: var(--modern-accent);
   text-decoration: none;
+}
+@media (max-width: 1150px) {
+  .modern-proxy-search {
+    flex-basis: 100%;
+  }
+}
+@media (max-width: 760px) {
+  .modern-proxy-toolbar {
+    gap: var(--modern-space-2);
+  }
+  .modern-proxy-filter {
+    flex-basis: 120px;
+  }
+  .modern-proxy-test-target {
+    width: 100%;
+  }
+  .modern-proxy-test-input {
+    flex: 1;
+    width: auto;
+  }
+  .modern-proxy-test-label,
+  .modern-proxy-save-state {
+    min-height: var(--modern-touch-target);
+  }
 }
 </style>
