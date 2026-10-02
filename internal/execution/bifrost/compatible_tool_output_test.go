@@ -3,6 +3,7 @@ package bifrost
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +16,7 @@ import (
 
 // toolOutputRequestBody builds a Responses request whose only interesting part
 // is the tool result at input[2].
-func toolOutputRequestBody(t *testing.T, output any) []byte {
+func toolOutputRequestBody(t *testing.T, output any, stream bool) []byte {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
 		"model": "client-model",
@@ -25,7 +26,7 @@ func toolOutputRequestBody(t *testing.T, output any) []byte {
 			map[string]any{"type": "function_call_output", "call_id": "call_1", "output": output},
 		},
 		"max_output_tokens": 32,
-		"stream":            false,
+		"stream":            stream,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -33,14 +34,31 @@ func toolOutputRequestBody(t *testing.T, output any) []byte {
 	return body
 }
 
-func runCompatibleResponses(t *testing.T, body []byte) []byte {
+func runCompatibleResponses(t *testing.T, body []byte, stream bool) []byte {
 	t.Helper()
-	var captured []byte
+	captured := make(chan []byte, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost || request.URL.Path != "/v1/chat/completions" {
 			t.Errorf("request = %s %s", request.Method, request.URL.Path)
 		}
-		captured, _ = io.ReadAll(request.Body)
+		wire, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Error(err)
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		captured <- wire
+		var payload struct {
+			Stream bool `json:"stream"`
+		}
+		if err := json.Unmarshal(wire, &payload); err != nil || payload.Stream != stream {
+			t.Errorf("unexpected stream flag: body=%s err=%v", wire, err)
+		}
+		if stream {
+			writer.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(writer, openAIChatFinalStream)
+			return
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, `{"id":"chat_1","object":"chat.completion","created":1,"model":"served","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 	}))
@@ -53,11 +71,22 @@ func runCompatibleResponses(t *testing.T, body []byte) []byte {
 	spec.TargetConfig = target
 	spec = freezeTestAttempt(spec)
 	spec.Body = body
-	result := runtime.Execute(context.Background(), spec)
-	if err := result.Validate(); err != nil || result.Error != nil {
-		t.Fatalf("result = %+v err=%v body=%s", result, err, result.Body)
+	if stream {
+		var data strings.Builder
+		result := runtime.ExecuteStream(t.Context(), spec, func(event execution.StreamEvent) error {
+			data.Write(event.Data)
+			return nil
+		})
+		if err := result.Validate(); err != nil || result.Error != nil || !strings.Contains(data.String(), "response.completed") {
+			t.Fatalf("result = %+v err=%v data=%s", result, err, data.String())
+		}
+	} else {
+		result := runtime.Execute(context.Background(), spec)
+		if err := result.Validate(); err != nil || result.Error != nil {
+			t.Fatalf("result = %+v err=%v body=%s", result, err, result.Body)
+		}
 	}
-	return captured
+	return <-captured
 }
 
 func toolMessageContent(t *testing.T, upstream []byte) any {
@@ -90,22 +119,27 @@ func toolMessageContent(t *testing.T, upstream []byte) any {
 func TestOpenAICompatibleToolOutputImageIsFlattenedToString(t *testing.T) {
 	t.Parallel()
 
-	upstream := runCompatibleResponses(t, toolOutputRequestBody(t, []any{
-		map[string]any{"type": "input_text", "text": "looked at the screenshot"},
-		map[string]any{"type": "input_image", "detail": "auto", "image_url": "data:image/png;base64,AA=="},
-	}))
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			t.Parallel()
+			upstream := runCompatibleResponses(t, toolOutputRequestBody(t, []any{
+				map[string]any{"type": "input_text", "text": "looked at the screenshot"},
+				map[string]any{"type": "input_image", "detail": "auto", "image_url": "data:image/png;base64,AA=="},
+			}, stream), stream)
 
-	content := toolMessageContent(t, upstream)
-	text, ok := content.(string)
-	if !ok {
-		t.Fatalf("tool content = %T (%v), want string; body=%s", content, content, upstream)
-	}
-	want := "looked at the screenshot\n\n[image omitted: unsupported by upstream]"
-	if text != want {
-		t.Fatalf("tool content = %q, want %q", text, want)
-	}
-	if strings.Contains(string(upstream), "image_url") {
-		t.Fatalf("text-only upstream still received an image part: %s", upstream)
+			content := toolMessageContent(t, upstream)
+			text, ok := content.(string)
+			if !ok {
+				t.Fatalf("tool content = %T (%v), want string; body=%s", content, content, upstream)
+			}
+			want := "looked at the screenshot\n\n[image omitted: unsupported by upstream]"
+			if text != want {
+				t.Fatalf("tool content = %q, want %q", text, want)
+			}
+			if strings.Contains(string(upstream), "image_url") {
+				t.Fatalf("text-only upstream still received an image part: %s", upstream)
+			}
+		})
 	}
 }
 
@@ -125,6 +159,11 @@ func TestOpenAICompatibleToolOutputFlatteningCoversEveryPartType(t *testing.T) {
 			want: "first\n\nsecond",
 		},
 		{
+			name:   "image only",
+			blocks: []any{map[string]any{"type": "input_image", "image_url": "data:image/png;base64,AA=="}},
+			want:   "[image omitted: unsupported by upstream]",
+		},
+		{
 			name:   "file",
 			blocks: []any{map[string]any{"type": "input_file", "file_id": "file_1"}},
 			want:   "[file omitted: unsupported by upstream]",
@@ -141,18 +180,20 @@ func TestOpenAICompatibleToolOutputFlatteningCoversEveryPartType(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			upstream := runCompatibleResponses(t, toolOutputRequestBody(t, test.blocks))
-			content := toolMessageContent(t, upstream)
-			text, ok := content.(string)
-			if !ok {
-				t.Fatalf("tool content = %T (%v), want string; body=%s", content, content, upstream)
-			}
-			if text != test.want {
-				t.Fatalf("tool content = %q, want %q", text, test.want)
-			}
-		})
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", test.name, stream), func(t *testing.T) {
+				t.Parallel()
+				upstream := runCompatibleResponses(t, toolOutputRequestBody(t, test.blocks, stream), stream)
+				content := toolMessageContent(t, upstream)
+				text, ok := content.(string)
+				if !ok {
+					t.Fatalf("tool content = %T (%v), want string; body=%s", content, content, upstream)
+				}
+				if text != test.want {
+					t.Fatalf("tool content = %q, want %q", text, test.want)
+				}
+			})
+		}
 	}
 }
 
@@ -160,10 +201,15 @@ func TestOpenAICompatibleToolOutputFlatteningCoversEveryPartType(t *testing.T) {
 func TestOpenAICompatibleStringToolOutputIsUntouched(t *testing.T) {
 	t.Parallel()
 
-	upstream := runCompatibleResponses(t, toolOutputRequestBody(t, "plain result"))
-	content := toolMessageContent(t, upstream)
-	if text, ok := content.(string); !ok || text != "plain result" {
-		t.Fatalf("tool content = %#v, want %q; body=%s", content, "plain result", upstream)
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			t.Parallel()
+			upstream := runCompatibleResponses(t, toolOutputRequestBody(t, "plain result", stream), stream)
+			content := toolMessageContent(t, upstream)
+			if text, ok := content.(string); !ok || text != "plain result" {
+				t.Fatalf("tool content = %#v, want %q; body=%s", content, "plain result", upstream)
+			}
+		})
 	}
 }
 
@@ -172,23 +218,35 @@ func TestOpenAICompatibleStringToolOutputIsUntouched(t *testing.T) {
 func TestOpenAICompatibleUserImageContentIsNotFlattened(t *testing.T) {
 	t.Parallel()
 
-	body, err := json.Marshal(map[string]any{
-		"model": "client-model",
-		"input": []any{
-			map[string]any{"role": "user", "content": []any{
-				map[string]any{"type": "input_text", "text": "what is this"},
-				map[string]any{"type": "input_image", "detail": "auto", "image_url": "data:image/png;base64,AA=="},
-			}},
-		},
-		"max_output_tokens": 32,
-		"stream":            false,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			t.Parallel()
+			body, err := json.Marshal(map[string]any{
+				"model": "client-model",
+				"input": []any{
+					map[string]any{"role": "user", "content": []any{
+						map[string]any{"type": "input_text", "text": "what is this"},
+						map[string]any{"type": "input_image", "detail": "auto", "image_url": "data:image/png;base64,AA=="},
+					}},
+					map[string]any{"type": "function_call", "call_id": "call_1", "name": "inspect", "arguments": "{}"},
+					map[string]any{"type": "function_call_output", "call_id": "call_1", "output": []any{
+						map[string]any{"type": "input_image", "image_url": "data:image/png;base64,AQ=="},
+					}},
+				},
+				"max_output_tokens": 32,
+				"stream":            stream,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	upstream := runCompatibleResponses(t, body)
-	if !strings.Contains(string(upstream), "image_url") {
-		t.Fatalf("user image part was dropped: %s", upstream)
+			upstream := runCompatibleResponses(t, body, stream)
+			if !strings.Contains(string(upstream), "image_url") {
+				t.Fatalf("user image part was dropped: %s", upstream)
+			}
+			if content := toolMessageContent(t, upstream); content != "[image omitted: unsupported by upstream]" {
+				t.Fatalf("tool image was not flattened: %s", upstream)
+			}
+		})
 	}
 }

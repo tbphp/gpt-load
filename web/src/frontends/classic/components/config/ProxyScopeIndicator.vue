@@ -13,7 +13,12 @@ const emit = defineEmits<{ activate: [] }>()
 const { t } = useI18n()
 
 // 只在凭据自己配置了代理（未沿用上一级）时提示，继承态不加视觉噪音。
-const own = computed(() => props.view.configured_mode !== 'inherit')
+const own = computed(
+  () =>
+    props.view.configured_mode !== 'inherit' &&
+    props.view.reference_state !== 'disabled' &&
+    props.view.reference_state !== 'deleted',
+)
 // 只报类型，具体地址留给展开后的代理面板，避免在列表层面泄露/堆叠细节。
 const tooltip = computed(() => {
   const type = t(`common.proxy.mode.${props.view.configured_mode}`)

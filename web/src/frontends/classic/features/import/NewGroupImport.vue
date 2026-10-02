@@ -93,7 +93,7 @@ function freshDraft(): ImportDraft {
     channel_id: '',
     connection_type: 'api_key',
     params: {},
-    proxy: { mode: 'inherit', url: '' },
+    proxy: { mode: 'inherit', id: '' },
     name: '',
     price_multiplier: '1',
     credentials: '',
@@ -275,7 +275,7 @@ const credentialCount = computed(() =>
 const connectionChannel = computed<ChannelDto | null>(() => selectedChannel.value)
 const isSubscription = computed(() => draft.connection_type === 'subscription')
 const proxyLocked = computed(() => isSubscription.value && draft.staged_credentials.length > 0)
-const draftProxyMutation = computed(() => proxyMutation(draft.proxy.mode, draft.proxy.url))
+const draftProxyMutation = computed(() => proxyMutation(draft.proxy.mode, draft.proxy.id))
 const draftProxyOverride = computed(() => {
   if (selectedChannel.value?.capabilities.outbound_proxy !== true) return undefined
   const mutation = draftProxyMutation.value
@@ -711,7 +711,7 @@ watch(
   (channel) => {
     if (!channel || payloadLocked.value) return
     if (!channel.capabilities.outbound_proxy && draft.proxy.mode !== 'inherit') {
-      draft.proxy = { mode: 'inherit', url: '' }
+      draft.proxy = { mode: 'inherit', id: '' }
     }
     const connectionType = channel.connection.type
     if (draft.connection_type === connectionType) return

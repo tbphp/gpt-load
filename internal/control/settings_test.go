@@ -56,8 +56,23 @@ func TestSettingsProxyConfigIsEncryptedMaskedAndResettable(t *testing.T) {
 		t.Fatalf("decrypt proxy setting: %v", err)
 	}
 	config, err := outboundproxy.Decode(plaintext)
+	if err != nil || config.ProxyID == 0 || config.URL != "" {
+		t.Fatalf("stored proxy reference = %#v, %v", config, err)
+	}
+	var managed models.Proxy
+	if err := fixture.db.Take(&managed, config.ProxyID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(managed.Config, endpoint) || strings.Contains(managed.Config, "proxy-password") {
+		t.Fatal("managed proxy stored plaintext")
+	}
+	plaintext, err = fixture.encryption.Decrypt(managed.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err = outboundproxy.Decode(plaintext)
 	if err != nil || config.URL != endpoint {
-		t.Fatalf("stored proxy config = %#v, %v", config, err)
+		t.Fatal("managed proxy changed the connection")
 	}
 
 	reset, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{

@@ -25,6 +25,7 @@ import (
 	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/requestredact"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -156,12 +157,17 @@ func (s *Service) getSettingsWithSnapshot(
 		Find(&rows).Error; err != nil {
 		return SettingsResponse{}, app_errors.ParseDBError(err)
 	}
+	catalog, err := stateloader.LoadProxyCatalog(ctx, db, s.encryption)
+	if err != nil {
+		return SettingsResponse{}, app_errors.ErrInternalServer
+	}
 	return mapSettingsResponse(
 		snapshot,
 		rows,
 		s.modelsDevAutoSyncOverride,
 		s.encryption,
 		s.environmentProxy,
+		catalog,
 	)
 }
 
@@ -180,6 +186,15 @@ func (s *Service) UpdateSettings(
 	previousAutoSyncEnabled := false
 	snapshot, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
 		previousAutoSyncEnabled = s.modelsDevAutoSyncEnabled()
+		for index := range updates {
+			if updates[index].key == outboundproxy.SystemSettingKey {
+				value, err := s.managedProxyOverride(ctx, tx, updates[index].value)
+				if err != nil {
+					return err
+				}
+				updates[index].value = value
+			}
+		}
 		if raw, exists := request.Settings[automodel.SettingKey]; exists {
 			update, err := s.normalizeAutoModelUpdate(tx, raw)
 			if err != nil {
@@ -370,6 +385,7 @@ func mapSettingsResponse(
 	modelsDevAutoSyncOverride *bool,
 	encryptionService encryption.Service,
 	environmentProxy *outboundproxy.Config,
+	catalogs ...stateloader.ProxyCatalog,
 ) (SettingsResponse, error) {
 	settings := snapshot.Settings
 	set := make(map[string]string, len(settings.HeaderRules.Set))
@@ -404,7 +420,11 @@ func mapSettingsResponse(
 			configuredProxy = &config
 		}
 	}
-	effectiveProxy, err := outboundproxy.Resolve(nil, nil, configuredProxy, environmentProxy)
+	catalog := stateloader.ProxyCatalog{}
+	if len(catalogs) > 0 {
+		catalog = catalogs[0]
+	}
+	effectiveProxy, err := outboundproxy.Resolve(nil, nil, catalog.Resolve(configuredProxy), environmentProxy)
 	if err != nil {
 		return SettingsResponse{}, app_errors.ErrInternalServer
 	}
@@ -412,6 +432,7 @@ func mapSettingsResponse(
 	if err != nil {
 		return SettingsResponse{}, app_errors.ErrInternalServer
 	}
+	proxyView = catalog.Annotate(proxyView, configuredProxy)
 	readOnly := make([]string, 0)
 	modelsDevAutoSyncEnabled := settings.ModelsDevAutoSyncEnabled
 	if modelsDevAutoSyncOverride != nil {

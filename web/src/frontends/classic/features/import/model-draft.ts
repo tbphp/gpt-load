@@ -10,7 +10,7 @@ export interface ModelDraftItem extends ModelDraftValue {
 
 export interface ImportProxyDraft {
   mode: ProxyConfiguredMode
-  url: string
+  id: string
 }
 
 export interface ImportDraft {

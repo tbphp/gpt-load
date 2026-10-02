@@ -643,11 +643,11 @@ onScopeDispose(() => {
 .modern-access-row {
   display: grid;
   grid-template-columns:
-    minmax(150px, 1.5fr) minmax(150px, 1.1fr) minmax(480px, 3fr)
+    minmax(150px, 1.5fr) minmax(150px, 1.1fr) minmax(380px, 2.4fr)
     112px 96px 110px minmax(148px, 1fr) 116px;
   align-items: center;
   gap: var(--modern-space-3);
-  min-width: 1464px;
+  min-width: 1364px;
   padding-inline: var(--modern-space-2);
   text-align: left;
 }
@@ -701,9 +701,9 @@ onScopeDispose(() => {
 @media (max-width: 760px) {
   .modern-access-row {
     grid-template-columns:
-      minmax(140px, 1.4fr) minmax(140px, 1.2fr) minmax(420px, 3fr)
+      minmax(140px, 1.4fr) minmax(140px, 1.2fr) minmax(320px, 2.4fr)
       112px 96px 104px 148px 148px;
-    min-width: 1372px;
+    min-width: 1272px;
     gap: var(--modern-space-2);
   }
   .modern-access-row-actions {

@@ -18,21 +18,23 @@ export function createModernRouter(
         path: item.path,
         name: item.name,
         component:
-          item.id === 'home'
-            ? () => import('./features/home/HomeView.vue')
-            : item.id === 'settings'
-              ? () => import('./features/settings/SettingsView.vue')
-              : item.id === 'groups'
-                ? () => import('./features/groups/GroupsView.vue')
-                : item.id === 'accessKeys'
-                  ? () => import('./features/access-keys/AccessKeysView.vue')
-                  : item.id === 'logs'
-                    ? () => import('./features/logs/LogsView.vue')
-                    : item.id === 'usage'
-                      ? () => import('./features/usage/UsageView.vue')
-                      : item.id === 'health'
-                        ? () => import('./features/health/HealthView.vue')
-                        : () => import('./features/models/ModelsView.vue'),
+          item.id === 'proxies'
+            ? () => import('./features/proxies/ProxiesView.vue')
+            : item.id === 'home'
+              ? () => import('./features/home/HomeView.vue')
+              : item.id === 'settings'
+                ? () => import('./features/settings/SettingsView.vue')
+                : item.id === 'groups'
+                  ? () => import('./features/groups/GroupsView.vue')
+                  : item.id === 'accessKeys'
+                    ? () => import('./features/access-keys/AccessKeysView.vue')
+                    : item.id === 'logs'
+                      ? () => import('./features/logs/LogsView.vue')
+                      : item.id === 'usage'
+                        ? () => import('./features/usage/UsageView.vue')
+                        : item.id === 'health'
+                          ? () => import('./features/health/HealthView.vue')
+                          : () => import('./features/models/ModelsView.vue'),
         meta: { requiresAuth: true, adminOnly: item.adminOnly },
       })),
       {

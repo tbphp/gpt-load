@@ -52,6 +52,7 @@ const navigation = computed(() => {
     },
     shared[2]!,
     { key: 'settings', to: settingsLocation(), label: t('shell.settings') },
+    { key: 'proxies', to: { name: pageRouteNames.proxies }, label: t('proxies.title') },
   ]
 })
 const currentLocale = computed(() => locale.value as AppLocale)

@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"net/url"
 
 	"gorm.io/gorm"
 
@@ -10,6 +11,7 @@ import (
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
@@ -42,6 +44,73 @@ func normalizeProxyOverride(
 	return &ciphertext, true, nil
 }
 
+// 新选择必须指向已启用代理；既有失效引用只有显式改选时才校验。
+func validateProxySelection(db *gorm.DB, config outboundproxy.Config) error {
+	if config.ProxyID == 0 {
+		return nil
+	}
+	var row models.Proxy
+	if err := db.Select("id", "enabled").Take(&row, config.ProxyID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return app_errors.ErrValidation
+		}
+		return app_errors.ParseDBError(err)
+	}
+	if !row.Enabled {
+		return app_errors.ErrValidation
+	}
+	return nil
+}
+
+// managedProxyOverride 兼容旧 URL 写入，并在同一配置事务内去重为集中引用。
+func (s *Service) managedProxyOverride(ctx context.Context, db *gorm.DB, stored *string) (*string, error) {
+	config, err := decryptProxyOverride(s.encryption, stored)
+	if err != nil {
+		return nil, err
+	}
+	if config == nil || config.Mode != outboundproxy.ModeCustom {
+		return stored, nil
+	}
+	if config.ProxyID != 0 {
+		return stored, validateProxySelection(db, *config)
+	}
+	identity, err := outboundproxy.CanonicalConnection(*config)
+	if err != nil {
+		return nil, app_errors.ErrValidation
+	}
+	encoded, err := outboundproxy.Encode(identity)
+	if err != nil {
+		return nil, app_errors.ErrValidation
+	}
+	catalog, err := stateloader.LoadProxyCatalog(ctx, db, s.encryption)
+	if err != nil {
+		return nil, app_errors.ErrInternalServer
+	}
+	fingerprint := s.encryption.Hash(encoded)
+	var row models.Proxy
+	for _, entry := range catalog {
+		if entry.Row.Fingerprint == fingerprint {
+			row = entry.Row
+			break
+		}
+	}
+	if row.ID == 0 {
+		endpoint, err := url.Parse(config.URL)
+		if err != nil {
+			return nil, app_errors.ErrValidation
+		}
+		row = models.Proxy{Name: catalog.SuggestedName(endpoint.Host), Config: *stored, Fingerprint: fingerprint, Enabled: true}
+		if err := db.Create(&row).Error; err != nil {
+			return nil, app_errors.ParseDBError(err)
+		}
+	}
+	if !row.Enabled {
+		return nil, app_errors.ErrValidation
+	}
+	ciphertext, _, err := normalizeProxyOverride(optionalField[outboundproxy.Config]{Set: true, Value: outboundproxy.Config{Mode: outboundproxy.ModeCustom, ProxyID: row.ID}}, s.encryption)
+	return ciphertext, err
+}
+
 func (s *Service) globalNetworkContext(
 	ctx context.Context,
 	db *gorm.DB,
@@ -68,7 +137,14 @@ func (s *Service) draftNetworkContext(
 	if err != nil || normalized.Mode == outboundproxy.ModeInherit {
 		return subscriptionruntime.NetworkContext{}, app_errors.ErrValidation
 	}
-	effective, err := outboundproxy.Resolve(nil, &normalized, nil, nil)
+	resolved, err := s.resolveManagedProxy(ctx, s.db, &normalized)
+	if err != nil {
+		return subscriptionruntime.NetworkContext{}, err
+	}
+	if resolved == nil {
+		return subscriptionruntime.NetworkContext{}, app_errors.ErrValidation
+	}
+	effective, err := outboundproxy.Resolve(nil, resolved, nil, nil)
 	if err != nil {
 		return subscriptionruntime.NetworkContext{}, app_errors.ErrValidation
 	}
@@ -112,7 +188,7 @@ func (s *Service) credentialNetworkContext(
 	group models.Group,
 	credential models.Credential,
 ) (subscriptionruntime.NetworkContext, error) {
-	configured, err := decryptProxyOverride(s.encryption, credential.ProxyConfig)
+	configured, err := s.resolvedProxyOverride(ctx, db, credential.ProxyConfig)
 	if err != nil {
 		return subscriptionruntime.NetworkContext{}, err
 	}
@@ -206,7 +282,7 @@ func (s *Service) loadGlobalProxyConfig(
 	if err != nil {
 		return nil, app_errors.ParseDBError(err)
 	}
-	return decryptProxyOverride(s.encryption, &row.Value)
+	return s.resolvedProxyOverride(ctx, db, &row.Value)
 }
 
 func globalProxyConfigScope(db *gorm.DB) *gorm.DB {
@@ -228,7 +304,11 @@ func (s *Service) resolveGroupProxy(
 	if err != nil {
 		return nil, outboundproxy.Effective{}, err
 	}
-	effective, err := outboundproxy.Resolve(nil, configured, global, s.environmentProxy)
+	resolved, err := s.resolveManagedProxy(ctx, db, configured)
+	if err != nil {
+		return nil, outboundproxy.Effective{}, err
+	}
+	effective, err := outboundproxy.Resolve(nil, resolved, global, s.environmentProxy)
 	if err != nil {
 		return nil, outboundproxy.Effective{}, app_errors.ErrInternalServer
 	}
@@ -248,7 +328,11 @@ func (s *Service) groupProxyView(
 	if err != nil {
 		return outboundproxy.View{}, app_errors.ErrInternalServer
 	}
-	return view, nil
+	catalog, err := stateloader.LoadProxyCatalog(ctx, db, s.encryption)
+	if err != nil {
+		return outboundproxy.View{}, app_errors.ErrInternalServer
+	}
+	return catalog.Annotate(view, configured), nil
 }
 
 func (s *Service) credentialProxyViews(
@@ -261,6 +345,10 @@ func (s *Service) credentialProxyViews(
 	if err != nil {
 		return nil, err
 	}
+	catalog, err := stateloader.LoadProxyCatalog(ctx, db, s.encryption)
+	if err != nil {
+		return nil, app_errors.ErrInternalServer
+	}
 	views := make(map[uint]outboundproxy.View, len(rows))
 	for _, row := range rows {
 		configured, err := decryptProxyOverride(s.encryption, row.ProxyConfig)
@@ -268,8 +356,8 @@ func (s *Service) credentialProxyViews(
 			return nil, err
 		}
 		effective := parent
-		if configured != nil {
-			effective, err = outboundproxy.Resolve(configured, nil, nil, nil)
+		if resolved := catalog.Resolve(configured); resolved != nil {
+			effective, err = outboundproxy.Resolve(resolved, nil, nil, nil)
 			if err != nil {
 				return nil, app_errors.ErrInternalServer
 			}
@@ -278,7 +366,45 @@ func (s *Service) credentialProxyViews(
 		if err != nil {
 			return nil, app_errors.ErrInternalServer
 		}
-		views[row.ID] = view
+		views[row.ID] = catalog.Annotate(view, configured)
 	}
 	return views, nil
+}
+
+func (s *Service) resolveManagedProxy(ctx context.Context, db *gorm.DB, config *outboundproxy.Config) (*outboundproxy.Config, error) {
+	if config == nil || config.ProxyID == 0 {
+		return config, nil
+	}
+	catalog, err := stateloader.LoadProxyCatalog(ctx, db, s.encryption)
+	if err != nil {
+		return nil, app_errors.ErrInternalServer
+	}
+	return catalog.Resolve(config), nil
+}
+
+func (s *Service) resolvedProxyOverride(ctx context.Context, db *gorm.DB, ciphertext *string) (*outboundproxy.Config, error) {
+	config, err := decryptProxyOverride(s.encryption, ciphertext)
+	if err != nil {
+		return nil, err
+	}
+	return s.resolveManagedProxy(ctx, db, config)
+}
+
+func (s *Service) storedProxyIdentity(ctx context.Context, db *gorm.DB, ciphertext *string) (string, string, error) {
+	configured, err := decryptProxyOverride(s.encryption, ciphertext)
+	if err != nil {
+		return "", "", err
+	}
+	if configured == nil || configured.ProxyID == 0 {
+		return storedProxyIdentity(s.encryption, ciphertext)
+	}
+	catalog, err := stateloader.LoadProxyCatalog(ctx, db, s.encryption)
+	if err != nil {
+		return "", "", app_errors.ErrInternalServer
+	}
+	proxy, exists := catalog[configured.ProxyID]
+	if !exists || !proxy.Row.Enabled {
+		return "", "", nil
+	}
+	return proxy.Row.Config, proxy.RuntimeFingerprint, nil
 }

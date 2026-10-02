@@ -14,6 +14,30 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
+func TestDraftNetworkContextRejectsUnavailableManagedProxy(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	item, err := fixture.service.SaveProxy(t.Context(), 0, ProxySaveRequest{Name: "draft", URL: "http://draft-proxy.example:8080"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := &outboundproxy.Config{Mode: outboundproxy.ModeCustom, ProxyID: item.ID}
+	network, err := fixture.service.draftNetworkContext(t.Context(), selected)
+	if err != nil || network.Proxy.Config.URL != "http://draft-proxy.example:8080" {
+		t.Fatalf("enabled selection: proxy=%#v err=%v", network.Proxy, err)
+	}
+	for _, action := range []string{"disable", "delete"} {
+		t.Run(action, func(t *testing.T) {
+			if err := fixture.service.BatchProxies(t.Context(), ProxyBatchRequest{IDs: []uint{item.ID}, Action: action}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fixture.service.draftNetworkContext(t.Context(), selected); !errors.Is(err, app_errors.ErrValidation) {
+				t.Fatalf("unavailable draft selection: err=%v, want validation failure", err)
+			}
+		})
+	}
+}
+
 func TestGroupAndCredentialProxyUseFinalPrecedenceAndEncryptedStorage(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)

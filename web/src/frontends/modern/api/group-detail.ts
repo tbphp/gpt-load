@@ -71,7 +71,14 @@ export interface GroupSettings extends GroupBasics {
   validationProtocols: string[]
   overrides: RuntimeSettings
   effective: Required<Omit<RuntimeSettings, 'parameter_overrides'>>
-  proxy: { mode: 'inherit' | 'direct' | 'custom'; display: string; hasAuth: boolean }
+  proxy: {
+    id?: number
+    name?: string
+    referenceState?: string
+    mode: 'inherit' | 'direct' | 'custom'
+    display: string
+    hasAuth: boolean
+  }
 }
 export interface AdvancedSettingsPatch {
   params?: Record<string, string>
@@ -130,6 +137,9 @@ function readSettings(value: unknown): GroupSettings {
     overrides: readRuntime(data.overrides),
     effective: effective as GroupSettings['effective'],
     proxy: {
+      id: proxy.proxy_id === undefined ? undefined : integer(proxy.proxy_id, 1),
+      name: proxy.proxy_name === undefined ? undefined : text(proxy.proxy_name),
+      referenceState: proxy.reference_state === undefined ? undefined : text(proxy.reference_state),
       mode: oneOf(proxy.configured_mode, ['inherit', 'direct', 'custom']),
       display: proxy.display_url === undefined ? '' : text(proxy.display_url),
       hasAuth: boolean(proxy.has_auth),
@@ -269,7 +279,14 @@ export interface CredentialRow {
     automatic: boolean
     at: number | null
   }
-  proxy: { mode: 'inherit' | 'direct' | 'custom'; source: string; display: string }
+  proxy: {
+    id?: number
+    name?: string
+    referenceState?: string
+    mode: 'inherit' | 'direct' | 'custom'
+    source: string
+    display: string
+  }
   observation?: CredentialObservation
 }
 export interface CredentialCollection {
@@ -334,6 +351,9 @@ export function readCredential(value: unknown): CredentialRow {
       at: recovery.at_ms === null ? null : integer(recovery.at_ms),
     },
     proxy: {
+      id: proxy.proxy_id === undefined ? undefined : integer(proxy.proxy_id, 1),
+      name: proxy.proxy_name === undefined ? undefined : text(proxy.proxy_name),
+      referenceState: proxy.reference_state === undefined ? undefined : text(proxy.reference_state),
       mode: oneOf(proxy.configured_mode, ['inherit', 'direct', 'custom']),
       source: text(proxy.effective_source),
       display: proxy.display_url === undefined ? '' : text(proxy.display_url),

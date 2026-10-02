@@ -119,6 +119,7 @@ func TestEmbeddedPageRouteManifestContainsCurrentPages(t *testing.T) {
 		"monitor-health":    "/monitor/health",
 		"monitor-inspector": "/monitor/inspector",
 		"models":            "/models",
+		"proxies":           "/proxies",
 		"settings":          "/settings",
 	}
 	if len(got) != len(want) {
@@ -145,6 +146,7 @@ func TestClassicPageRouteManifestKeepsOriginalPages(t *testing.T) {
 		"access-keys":  "/access-keys",
 		"monitor":      "/monitor",
 		"models":       "/models",
+		"proxies":      "/proxies",
 		"settings":     "/settings",
 	}
 	if len(routes) != len(want) {

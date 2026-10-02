@@ -12,6 +12,7 @@ const sharedPageRouteNames = {
   monitor: 'monitor',
   models: 'models',
   settings: 'settings',
+  proxies: 'proxies',
 } as const
 
 function validateSharedPageRouteNames(): void {

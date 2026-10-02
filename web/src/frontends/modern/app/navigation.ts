@@ -1,5 +1,6 @@
 import {
   Activity,
+  Network,
   Boxes,
   ChartNoAxesCombined,
   House,
@@ -83,6 +84,14 @@ export const navigationItems = [
     path: pagePath('settings'),
     section: 'system',
     icon: Settings2,
+    adminOnly: true,
+  },
+  {
+    id: 'proxies',
+    name: 'modern-proxies',
+    path: pagePath('proxies'),
+    section: 'system',
+    icon: Network,
     adminOnly: true,
   },
 ] as const

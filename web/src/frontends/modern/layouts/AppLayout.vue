@@ -396,7 +396,7 @@ useMessageSource(() =>
   overflow-y: auto;
   width: 100%;
   min-width: 0;
-  padding: 0 var(--modern-content-inset) var(--modern-space-3);
+  padding: 0 var(--modern-content-inset);
 }
 .modern-content:focus {
   outline: none;
