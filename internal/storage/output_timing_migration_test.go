@@ -55,7 +55,7 @@ func testOutputTimingMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 					t.Fatal("expected migration interruption")
 				}
 			}
-			if err := AutoMigrate(db); err != nil {
+			if err := applyMigrationRegistry(db, migrations[:24]); err != nil {
 				t.Fatal(err)
 			}
 			for _, name := range []string{"first_output_ms", "last_output_ms"} {
@@ -83,9 +83,15 @@ func testOutputTimingMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 					}
 				}
 			}
+			if err := applyMigrationRegistry(db, migrations[:24]); err != nil {
+				t.Fatal(err)
+			}
+			// 同时覆盖在旧迁移中断后直接升级到当前版本。
 			if err := AutoMigrate(db); err != nil {
 				t.Fatal(err)
 			}
+			assertOutputTimingRemoved(t, db)
+
 		})
 	}
 }

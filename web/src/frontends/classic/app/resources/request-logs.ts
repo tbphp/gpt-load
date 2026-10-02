@@ -201,8 +201,6 @@ export interface RequestLogItemDto {
   status_code: number
   stream: boolean
   first_response_ms: number | null
-  first_output_ms: number | null
-  last_output_ms: number | null
   duration_ms: number
   attempt_count: number
   error_code: string
@@ -352,8 +350,6 @@ const itemFields = [
   'status_code',
   'stream',
   'first_response_ms',
-  'first_output_ms',
-  'last_output_ms',
   'duration_ms',
   'attempt_count',
   'error_code',
@@ -704,14 +700,6 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     status,
     status_code: projectStatusCode(record.status_code),
     stream: projectBoolean(record.stream),
-    first_output_ms:
-      record.first_output_ms === null
-        ? null
-        : projectSafeInteger(record.first_output_ms, { minimum: 0 }),
-    last_output_ms:
-      record.last_output_ms === null
-        ? null
-        : projectSafeInteger(record.last_output_ms, { minimum: 0 }),
     first_response_ms:
       record.first_response_ms === null
         ? null

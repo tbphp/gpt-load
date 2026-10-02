@@ -578,6 +578,7 @@ func (r *Runtime) executeNativeStream(
 	model := spec.UpstreamModel
 	var usageEvidence *execution.UsageEvidence
 	var errorBody bytes.Buffer
+	firstData := execution.NewFirstResponseSSEObserver(parent)
 	firstEventGate := newNativeFirstSSEEventGate(spec)
 	aliasRewriter := newNativeAliasSSERewriter(spec)
 	idleTimer := newIdleTimer(spec.Timeouts.StreamIdle)
@@ -672,6 +673,7 @@ func (r *Runtime) executeNativeStream(
 					data = redactSecrets(data, prepared.secrets)
 				} else {
 					var err error
+					firstData(data)
 					data, err = firstEventGate.push(data)
 					if err != nil {
 						cancelCall()

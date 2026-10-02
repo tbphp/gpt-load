@@ -192,6 +192,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	}
 	model := *original.metadata.Model
 	recorder.setClientModel(model)
+	recorder.startTiming()
 	s.mu.Lock()
 	binding := s.binding
 	parent, parentFound := s.parents[original.previous]
@@ -939,13 +940,10 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 	}
 	var restoreFailure error
 	var eventProtocolFailure bool
-	outputTiming := dialect.OutputTimingObserver{Protocol: protocol.OpenAIResponses}
+	firstOutput := dialect.FirstOutputObserver{Protocol: protocol.OpenAIResponses}
 	emitRestored := func(ctx context.Context, frames [][]byte) error {
 		if len(frames) == 0 {
 			return nil
-		}
-		if !result.Committed {
-			recorder.recordFirstResponse()
 		}
 		unlock()
 		for _, frame := range frames {
@@ -956,11 +954,8 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			if err := s.emit(ctx, frame); err != nil {
 				return err
 			}
-			produced := outputTiming.Observe(dialect.StreamEvent{Payload: frame})
-			if outputTiming.Overflowed() {
-				recorder.recordOutput(false)
-			} else if produced {
-				recorder.recordOutput(true)
+			if recorder.autoDecision != nil && firstOutput.Observe(dialect.StreamEvent{Payload: frame}) {
+				recorder.recordFirstOutput()
 			}
 			result.Committed = true
 			result.ResponseStarted = true
@@ -973,6 +968,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 	}
 	onResponse := s.handler.responseBindingObserver(s.keyID, selection, ref, input.Request, recorder.autoSelection())
 	wsResult := binding.session.ExecuteTurn(ctx, input.Request.Body, func(ctx context.Context, body []byte) (eventErr error) {
+		recorder.recordFirstResponse()
 		defer func() {
 			if errors.Is(eventErr, ErrUpstreamProtocol) {
 				eventProtocolFailure = true
@@ -1048,6 +1044,9 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			return err
 		}
 		observer.observeUsageEvent(observation)
+		if observer.sawTerminal && !providerError {
+			recorder.finishTiming()
+		}
 		if providerError {
 			observer.observeError(body, "Upstream WebSocket request failed.")
 			body = recorder.redactor.Bytes(body, input.CredentialSecrets...)
