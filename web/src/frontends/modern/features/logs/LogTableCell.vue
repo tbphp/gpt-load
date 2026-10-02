@@ -516,7 +516,6 @@ function fieldFilterValue(field: LogColumnId): string {
   min-width: 0;
   max-width: 100%;
 }
-.modern-log-routing-lines :deep(.modern-log-filter-link),
 .modern-log-routing-lines :deep(.modern-log-channel) {
   width: 100%;
   max-width: 100%;
