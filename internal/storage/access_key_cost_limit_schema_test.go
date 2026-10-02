@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/testutil/sqlitetest"
 )
 
 func TestAccessKeyCostLimitSchemaEnforcesRuleIdentityAndCascade(t *testing.T) {
 	t.Parallel()
 
-	db := openMigratedDatabase(t)
+	db := sqlitetest.OpenMigrated(t)
 	accessKey := models.AccessKey{
 		Name: "quota-schema", KeyValue: "ciphertext", KeyHash: "quota-schema-hash",
 		KeySuffix: "cafe", Filters: models.JSON(`{}`),
@@ -71,7 +72,7 @@ func TestAccessKeyCostLimitSchemaEnforcesRuleIdentityAndCascade(t *testing.T) {
 func TestAccessKeyCostLimitSchemaRejectsInvalidRuleAndWindowState(t *testing.T) {
 	t.Parallel()
 
-	db := openMigratedDatabase(t)
+	db := sqlitetest.OpenMigrated(t)
 	accessKey := models.AccessKey{
 		Name: "quota-validation", KeyValue: "ciphertext", KeyHash: "quota-validation-hash",
 		KeySuffix: "beef", Filters: models.JSON(`{}`),

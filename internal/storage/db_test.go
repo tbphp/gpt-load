@@ -16,12 +16,13 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/testutil/sqlitetest"
 )
 
 func TestCredentialStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
 	t.Parallel()
 
-	db := openMigratedDatabase(t)
+	db := sqlitetest.OpenMigrated(t)
 	group := models.Group{
 		Name: "credential-status-parent", ChannelID: "openai_compatible",
 		Params: models.JSON(`{"base_url":"https://credential-status.example.com"}`), Models: models.JSON(`[]`),
@@ -54,7 +55,7 @@ func TestCredentialStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
 func TestGroupNormalizesMissingChannelParamsToEmptyObject(t *testing.T) {
 	t.Parallel()
 
-	db := openMigratedDatabase(t)
+	db := sqlitetest.OpenMigrated(t)
 	group := models.Group{
 		Name: "normalized-channel-params", ChannelID: "staged-channel",
 		Models: models.JSON(`[]`),
@@ -74,7 +75,7 @@ func TestGroupNormalizesMissingChannelParamsToEmptyObject(t *testing.T) {
 func TestAccessKeyStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
 	t.Parallel()
 
-	db := openMigratedDatabase(t)
+	db := sqlitetest.OpenMigrated(t)
 	for index, status := range []string{"active", "disabled"} {
 		key := models.AccessKey{
 			Name:      "allowed-" + string(rune('a'+index)),
@@ -1180,6 +1181,7 @@ func TestAutoMigrateCreatesCredentialForeignKeyWithCascade(t *testing.T) {
 	}
 }
 
+// openMigratedDatabase 用于验证真实迁移；普通数据行为测试使用 sqlitetest.OpenMigrated。
 func openMigratedDatabase(t *testing.T) *gorm.DB {
 	t.Helper()
 
