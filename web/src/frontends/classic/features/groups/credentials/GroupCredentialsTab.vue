@@ -1606,12 +1606,14 @@ async function confirmTestedCredentialRestore(): Promise<void> {
   resetCredentialTestState()
 }
 
-async function saveCredentialName(item: CredentialItemDto, name: string): Promise<void> {
+async function saveCredentialName(item: CredentialItemDto, name: string): Promise<string> {
   if (batchBusy.value || pending(item.credential_id)) throw new Error('CREDENTIAL_NAME_UNAVAILABLE')
+  feedback.value = ''
   setPending(item.credential_id, 'name', true)
   try {
     const result = await updateCredential(client, props.groupId, item.credential_id, { name })
     await reconcileItem(result, false)
+    return result.name
   } finally {
     setPending(item.credential_id, 'name', false)
   }

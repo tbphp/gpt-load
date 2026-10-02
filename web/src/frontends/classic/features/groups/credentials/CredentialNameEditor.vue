@@ -6,7 +6,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 const props = defineProps<{
   value: string
   disabled: boolean
-  save: (name: string) => Promise<void>
+  save: (name: string) => Promise<string>
 }>()
 const { t } = useI18n()
 const draft = ref(props.value)
@@ -23,8 +23,7 @@ async function submit(): Promise<void> {
   pending.value = true
   error.value = false
   try {
-    await props.save(draft.value.trim())
-    draft.value = props.value
+    draft.value = await props.save(draft.value.trim())
   } catch {
     error.value = true
   } finally {

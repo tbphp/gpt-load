@@ -350,12 +350,6 @@ func (s *Service) mapHomeSubscriptionAccount(
 		return HomeSubscriptionAccountResponse{}, err
 	}
 	item.Name = credential.Name
-	for _, membership := range memberships {
-		name := membership.credential.Name
-		if name != "" && item.Name == "" {
-			item.Name = name
-		}
-	}
 	item.ConnectionType = string(models.ConnectionTypeSubscription)
 	item.SecretVersion = credential.SecretVersion
 	item.AuthState = string(credential.AuthState)

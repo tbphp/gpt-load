@@ -37,7 +37,7 @@ const props = defineProps<{
   weightEditorOpen: boolean
   resolveCopyValue: (id: number) => Promise<string>
   saveProxy: (value: ProxyMutation) => Promise<void>
-  saveName: (value: string) => Promise<void>
+  saveName: (value: string) => Promise<string>
   proxySupported: boolean
 }>()
 const emit = defineEmits<{

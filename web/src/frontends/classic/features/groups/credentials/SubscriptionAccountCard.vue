@@ -56,7 +56,7 @@ const props = withDefaults(
     channelMark?: string
     capabilities: ChannelCapabilitiesDto
     saveProxy: (value: ProxyMutation) => Promise<void>
-    saveName: (value: string) => Promise<void>
+    saveName: (value: string) => Promise<string>
   }>(),
   {
     channelIcon: undefined,

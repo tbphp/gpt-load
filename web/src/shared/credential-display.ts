@@ -1,6 +1,6 @@
 // 展示别名独立于原有凭据身份；这里仅负责呈现，不用于筛选标识或请求参数。
 export function maskSubscriptionAccount(value: string): string {
-  if (!value || value.includes('*')) return value
+  if (!value) return value
   const at = value.lastIndexOf('@')
   if (at > 0) {
     const local = Array.from(value.slice(0, at))
