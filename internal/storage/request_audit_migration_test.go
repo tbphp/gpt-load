@@ -10,6 +10,8 @@ import (
 )
 
 func TestRequestAuditMigrationContract(t *testing.T) {
+	t.Parallel()
+
 	testRequestAuditMigration(t, openInternalMigrationTestDatabase)
 }
 func TestExternalRequestAuditMigrationContract(t *testing.T) {
@@ -23,6 +25,9 @@ func testRequestAuditMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted_column", "interrupted_table"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if scenario != "fresh" {
 				if err := applyMigrationRegistry(db, migrations[:20]); err != nil {
 					t.Fatal(err)

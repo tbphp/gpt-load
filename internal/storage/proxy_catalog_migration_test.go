@@ -10,12 +10,14 @@ import (
 	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/outboundproxy"
-	"gpt-load/internal/platform/encryption"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/testutil/encryptiontest"
 )
 
 func TestProxyCatalogMigrationContract(t *testing.T) {
+	t.Parallel()
+
 	testProxyCatalogMigration(t, openInternalMigrationTestDatabase)
 }
 
@@ -30,6 +32,9 @@ func TestExternalProxyCatalogMigrationContract(t *testing.T) {
 func testProxyCatalogMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	t.Run("reject_incompatible", func(t *testing.T) {
 		db := open(t)
+		if db.Dialector.Name() == "sqlite" {
+			t.Parallel()
+		}
 		if err := applyMigrationRegistry(db, migrations[:24]); err != nil {
 			t.Fatal(err)
 		}
@@ -49,6 +54,9 @@ func testProxyCatalogMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted", "missing_indexes"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if len(migrations) < 25 {
 				t.Fatal("proxy catalog migration is missing")
 			}
@@ -93,10 +101,7 @@ func testProxyCatalogMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 
 func testProxyDataConversion(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	crypto, err := encryption.NewService("proxy-catalog-three-driver-contract-key")
-	if err != nil {
-		t.Fatal(err)
-	}
+	crypto := encryptiontest.Service(t, "proxy-catalog-three-driver-contract-key")
 	encrypt := func(raw string) string {
 		t.Helper()
 		result, err := crypto.Encrypt(raw)

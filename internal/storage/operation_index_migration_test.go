@@ -9,6 +9,8 @@ import (
 )
 
 func TestOperationIndexMigrationContract(t *testing.T) {
+	t.Parallel()
+
 	testOperationIndexMigration(t, openInternalMigrationTestDatabase)
 }
 
@@ -28,6 +30,9 @@ func testOperationIndexMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	for _, scenario := range []string{"fresh", "existing", "interrupted"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if scenario != "fresh" {
 				if err := applyMigrationRegistry(db, migrations[:operationIndexMigrationPosition]); err != nil {
 					t.Fatal(err)
@@ -72,6 +77,9 @@ func testOperationIndexMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	}
 	t.Run("unexpected index definition", func(t *testing.T) {
 		db := open(t)
+		if db.Dialector.Name() == "sqlite" {
+			t.Parallel()
+		}
 		if err := applyMigrationRegistry(db, migrations[:operationIndexMigrationPosition]); err != nil {
 			t.Fatal(err)
 		}
@@ -84,6 +92,9 @@ func testOperationIndexMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	})
 	t.Run("unexpected index direction", func(t *testing.T) {
 		db := open(t)
+		if db.Dialector.Name() == "sqlite" {
+			t.Parallel()
+		}
 		if err := applyMigrationRegistry(db, migrations[:operationIndexMigrationPosition]); err != nil {
 			t.Fatal(err)
 		}
