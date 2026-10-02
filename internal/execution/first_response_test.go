@@ -32,6 +32,48 @@ func TestFirstResponseIgnoresControlLinesAndSamplesMetadata(t *testing.T) {
 	}
 }
 
+func TestFirstResponseSamplesCRAndSplitCRLFLinesBeforeEOF(t *testing.T) {
+	const data = `data: {"type":"response.created"}`
+	for _, tc := range []struct {
+		name        string
+		chunks      []string
+		sampleAfter int
+	}{
+		{
+			name:        "cr_with_event",
+			chunks:      []string{"event: response.created\r", data, "\r", "\rdata: later\r\r"},
+			sampleAfter: 2,
+		},
+		{
+			name:        "cr_data_only",
+			chunks:      []string{data, "\r", "\rdata: later\r\r"},
+			sampleAfter: 1,
+		},
+		{
+			name:        "split_crlf",
+			chunks:      []string{": ping\r", "\nevent: response.created\r", "\n" + data, "\r", "\n\r\ndata: later\r\n\r\n"},
+			sampleAfter: 3,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			ctx, stop := WithFirstResponseObserver(t.Context(), func() { calls++ })
+			defer stop()
+			observe := NewFirstResponseSSEObserver(ctx)
+			for index, chunk := range tc.chunks {
+				observe([]byte(chunk))
+				want := 0
+				if index >= tc.sampleAfter {
+					want = 1
+				}
+				if calls != want {
+					t.Fatalf("after chunk %d: calls = %d, want %d", index, calls, want)
+				}
+			}
+		})
+	}
+}
+
 func TestFirstResponseStopsAtDoneMarker(t *testing.T) {
 	for _, done := range []string{"[DONE]", "[DONE]ignored"} {
 		calls := 0

@@ -61,7 +61,7 @@ func newFirstResponseSSEObserver(ctx context.Context, upstream bool) func([]byte
 	done := callback == nil
 	return func(chunk []byte) {
 		for !done && len(chunk) > 0 {
-			end := bytes.IndexByte(chunk, '\n')
+			end := bytes.IndexAny(chunk, "\r\n")
 			part := chunk
 			if end >= 0 {
 				part = chunk[:end]
