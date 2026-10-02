@@ -1,3 +1,4 @@
+import { credentialDisplayText } from '@shared/credential-display'
 import { readAuditResult, type AuditResult } from './experimental'
 import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
@@ -363,6 +364,8 @@ const itemFields = [
   'channel_id',
   'credential_id',
   'credential_name',
+  'credential_alias',
+  'credential_connection_type',
   'route_mode',
   'usage_state',
   'cost_state',
@@ -526,6 +529,8 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     'channel_id',
     'credential_id',
     'credential_name',
+    'credential_alias',
+    'credential_connection_type',
     'operation',
     'route_mode',
     'upstream_model',
@@ -559,7 +564,11 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
       record.credential_id === null
         ? null
         : projectSafeInteger(record.credential_id, { minimum: 1 }),
-    credential_name: projectString(record.credential_name, { allowEmpty: true }),
+    credential_name: credentialDisplayText(
+      projectString(record.credential_alias ?? '', { allowEmpty: true }),
+      projectString(record.credential_name, { allowEmpty: true }),
+      projectString(record.credential_connection_type ?? '', { allowEmpty: true }),
+    ),
     credential_deleted: record.credential_id !== null && record.credential_name === '',
     operation: record.operation === null ? null : projectEnum(record.operation, operations),
     route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
@@ -719,7 +728,11 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
       record.credential_id === null
         ? null
         : projectSafeInteger(record.credential_id, { minimum: 1 }),
-    credential_name: projectString(record.credential_name, { allowEmpty: true }),
+    credential_name: credentialDisplayText(
+      projectString(record.credential_alias ?? '', { allowEmpty: true }),
+      projectString(record.credential_name, { allowEmpty: true }),
+      projectString(record.credential_connection_type ?? '', { allowEmpty: true }),
+    ),
     credential_deleted: record.credential_id !== null && record.credential_name === '',
     route_mode: record.route_mode === null ? null : projectEnum(record.route_mode, routeModes),
     pricing_mode: record.pricing_mode === null ? null : projectPricingMode(record.pricing_mode),
@@ -759,7 +772,11 @@ function projectAutoDecision(value: unknown): AutoDecisionDto {
     provider: optional(row.provider),
     group_name: optional(row.group_name),
     channel_name: optional(row.channel_name),
-    credential_name: optional(row.credential_name),
+    credential_name: credentialDisplayText(
+      optional(row.credential_alias),
+      optional(row.credential_name),
+      optional(row.credential_connection_type),
+    ),
     credential_deleted: projectBoolean(row.credential_deleted ?? false),
     requested_model: optional(row.requested_model),
     upstream_model: optional(row.upstream_model),

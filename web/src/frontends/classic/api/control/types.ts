@@ -284,6 +284,8 @@ export interface ModelCooldownDto {
 }
 
 export interface CredentialItemDto {
+  name: string
+  label: string
   model_cooldowns: ModelCooldownDto[]
   credential_id: number
   connection_type: ConnectionType

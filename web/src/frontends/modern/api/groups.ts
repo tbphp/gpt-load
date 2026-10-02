@@ -1,3 +1,4 @@
+import { credentialDisplayText } from '@shared/credential-display'
 import { readConcurrency, type ConcurrencyView } from '@shared/concurrency'
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
@@ -94,7 +95,11 @@ export async function getCredentialOptions(client: ApiClient, signal: AbortSigna
     return {
       key: readCredentialFilterKey(option.key),
       channelID: text(option.channel_id),
-      label: text(option.label),
+      label: credentialDisplayText(
+        option.names === undefined ? '' : list(option.names).map(text).join(' / '),
+        text(option.label),
+        text(option.connection_type ?? ''),
+      ),
       groupIDs: list(option.group_ids).map((value) => integer(value, 1)),
     }
   })

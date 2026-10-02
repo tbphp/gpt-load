@@ -1,3 +1,4 @@
+import { credentialDisplayText } from '@shared/credential-display'
 import { queryOptions } from '@tanstack/vue-query'
 import type { MaybeRefOrGetter } from 'vue'
 
@@ -69,6 +70,8 @@ const quotaCredentialFields = [
   'group_id',
   'group_name',
   'identity',
+  'credential_alias',
+  'credential_connection_type',
   'remaining',
   'reset_at_ms',
 ] as const
@@ -77,6 +80,8 @@ const expiringResetCreditFields = [
   'group_id',
   'group_name',
   'identity',
+  'credential_alias',
+  'credential_connection_type',
   'count',
   'nearest_expires_at_ms',
 ] as const
@@ -92,6 +97,8 @@ const problemCredentialFields = [
   'weight',
   'recovery',
   'identity',
+  'credential_alias',
+  'credential_connection_type',
   'last_failure_category',
   'last_status_code',
 ] as const
@@ -219,7 +226,11 @@ function projectProblemCredential(value: unknown): HealthProblemCredentialDto {
     }),
     weight: projectSafeInteger(record.weight, { minimum: 0, maximum: 100 }),
     recovery,
-    identity: projectString(record.identity),
+    identity: credentialDisplayText(
+      projectString(record.credential_alias ?? '', { allowEmpty: true }),
+      projectString(record.identity),
+      projectString(record.credential_connection_type ?? '', { allowEmpty: true }),
+    ),
     last_failure_category: projectEnum(record.last_failure_category, problemFailureCategories),
     last_status_code:
       record.last_status_code === null

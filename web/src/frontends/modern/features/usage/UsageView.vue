@@ -174,7 +174,7 @@ const loadCredentials = computed(() => {
     )
     const values = page.items.map((row) => ({
       value: String(row.id),
-      label: row.account || row.mask,
+      label: row.label,
     }))
     credentialLabels.value = new Map([
       ...credentialLabels.value,

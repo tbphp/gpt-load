@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CredentialDisplay from '@/components/CredentialDisplay.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -11,7 +12,6 @@ import type { HomeSubscriptionAccountDto } from '@/app/resources/home'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
-import OverflowTooltip from '@/components/ui/OverflowTooltip.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatLocalInstant } from '@/lib/format'
 import { quotaProgressTone, type QuotaProgressTone } from '@/lib/quota-progress'
@@ -48,7 +48,7 @@ onBeforeUnmount(() => {
 
 const credential = computed<CredentialItemDto>(() => props.account.credential)
 const snapshot = computed(() => credential.value.observation?.snapshot)
-const accountName = computed(() => credential.value.account.email ?? credential.value.mask)
+const accountName = computed(() => credential.value.label)
 const planLabel = computed(() => snapshot.value?.plan_summary.name?.trim() ?? '')
 const planLevel = computed(() => snapshot.value?.plan_summary.level ?? 'unknown')
 const channelTooltip = computed(() =>
@@ -397,9 +397,13 @@ const resetCreditsTooltip = computed(() => {
       <span class="home-subscription-mini__channel" role="img" :aria-label="channelTooltip">
         <ChannelIcon :icon="account.channel_icon" :mark="account.channel_mark" />
       </span>
-      <OverflowTooltip class="home-subscription-mini__account" :content="accountName">
-        {{ accountName }}
-      </OverflowTooltip>
+      <CredentialDisplay
+        class="home-subscription-mini__account"
+        :name="credential.name"
+        :value="credential.account.email || credential.mask"
+        subscription
+        detail
+      />
       <span
         v-if="planLabel"
         class="home-subscription-mini__plan"

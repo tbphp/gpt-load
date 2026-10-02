@@ -114,6 +114,54 @@ func TestReadHomeSubscriptionAccountsUsesBoundedHourlyActivityAndDeduplicates(t 
 	}
 }
 
+func TestReadHomeSubscriptionAccountsKeepsRepresentativeName(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 31, 12, 30, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	otherGroupID, other := createHomeSubscriptionCredential(
+		t, fixture, "named-member", "shared-account", "shared@example.test",
+	)
+	groupID, representative := createHomeSubscriptionCredential(
+		t, fixture, "representative", "shared-account", "shared@example.test",
+	)
+	if _, err := fixture.service.UpdateGroupCredential(
+		t.Context(), otherGroupID, other.ID,
+		CredentialUpdateRequest{Name: optionalField[string]{Set: true, Value: "Other alias"}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	createHomeCredentialObservation(t, fixture, representative, now.Add(-time.Minute), "Pro 20x")
+	if err := fixture.db.Create(&models.CredentialAttemptStat{
+		CredentialID: other.ID, BucketStartMS: now.Truncate(time.Hour).UnixMilli(), SuccessCount: 1,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"Representative alias", ""} {
+		t.Run(fmt.Sprintf("name=%q", name), func(t *testing.T) {
+			if _, err := fixture.service.UpdateGroupCredential(
+				t.Context(), groupID, representative.ID,
+				CredentialUpdateRequest{Name: optionalField[string]{Set: true, Value: name}},
+			); err != nil {
+				t.Fatal(err)
+			}
+			result, err := fixture.service.ReadHomeSubscriptionAccounts(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Items) != 1 || result.Items[0].GroupCount != 2 {
+				t.Fatalf("expected one account shared by two groups, got %#v", result.Items)
+			}
+			credential := result.Items[0].Credential
+			if credential.CredentialID != representative.ID || credential.Name != name {
+				t.Fatalf("credential identity = (%d, %q), want (%d, %q)",
+					credential.CredentialID, credential.Name, representative.ID, name)
+			}
+		})
+	}
+}
+
 func TestReadHomeSubscriptionAccountsReflectsLatestRankingOnEveryRead(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
