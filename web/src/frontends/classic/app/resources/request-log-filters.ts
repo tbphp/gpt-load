@@ -5,6 +5,7 @@ export const requestLogFilterFields = [
   'group_id',
   'channel_id',
   'credential_id',
+  'client_ip',
   'client_model',
   'upstream_model',
   'access_key_id',

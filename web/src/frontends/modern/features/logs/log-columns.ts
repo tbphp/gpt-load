@@ -5,6 +5,7 @@ import { logCanMergeError } from './log-display'
 export const logColumnIds = [
   'completed_at_ms',
   'request_id',
+  'client_ip',
   'client_model',
   'protocol',
   'operation',
@@ -80,6 +81,7 @@ const definitions: readonly [LogColumnId, number, LogColumnSection, boolean, boo
     ['estimated_cost_nano_usd', 132, 'billing', true],
     // 用户额外选择的字段统一追加，不打断默认列和错误摘要区域。
     ['request_id', 180, 'request', false],
+    ['client_ip', 160, 'request', false],
     ['operation', 88, 'request', false],
     ['upstream_reported_model', 152, 'models', false, true],
     ['error_code', 132, 'result', false],

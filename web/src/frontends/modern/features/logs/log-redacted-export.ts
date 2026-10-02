@@ -188,6 +188,7 @@ export async function createRedactedLogExport(log: LogDetail): Promise<string> {
           ? 'Scoped to this browser profile; page session only if storage is unavailable'
           : 'Scoped to this page session (HTTP without SubtleCrypto)',
         redacted_fields: [
+          'client IP',
           'access key',
           'group',
           'credential',
@@ -198,6 +199,7 @@ export async function createRedactedLogExport(log: LogDetail): Promise<string> {
       },
       log: {
         ...log,
+        client_ip: log.client_ip ? await anonymousReference('ip', log.client_ip) : null,
         access_key: {
           reference: accessKeyReference,
           deleted: log.access_key.deleted,

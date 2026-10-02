@@ -16,6 +16,7 @@ import (
 
 	"gpt-load/internal/platform/authkey"
 	"gpt-load/internal/platform/securefile"
+	"gpt-load/internal/platform/utils"
 )
 
 const (
@@ -126,6 +127,8 @@ type CodexLiveICEServer struct {
 
 // Config contains static environment configuration for the application process.
 type Config struct {
+	ClientIPHeader            string
+	TrustedProxies            []string
 	Server                    ServerConfig
 	DataDir                   string
 	DatabaseDSN               string
@@ -150,6 +153,14 @@ type Settings = map[string]any
 // .env file is loaded when present, but existing environment variables always win.
 func Load() (*Config, error) {
 	_ = godotenv.Load()
+	clientIPHeader := strings.TrimSpace(os.Getenv("CLIENT_IP_HEADER"))
+	var trustedProxies []string
+	if value := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES")); value != "" {
+		trustedProxies = strings.Split(value, ",")
+	}
+	if _, err := utils.NewClientIPResolver(clientIPHeader, trustedProxies); err != nil {
+		return nil, err
+	}
 
 	port, err := parsePositiveInt("PORT", defaultPort)
 	if err != nil {
@@ -266,6 +277,8 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
+		ClientIPHeader: clientIPHeader,
+		TrustedProxies: trustedProxies,
 		Server: ServerConfig{
 			Host:                    valueOrDefault("HOST", defaultHost),
 			Port:                    port,

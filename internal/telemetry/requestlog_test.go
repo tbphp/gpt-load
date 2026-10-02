@@ -24,6 +24,7 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"AccessKeyID",
 			"Protocol",
 			"Operation",
+			"ClientIP",
 			"ClientModel",
 			"UpstreamModel",
 			"UpstreamReportedModel",

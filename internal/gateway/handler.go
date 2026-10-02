@@ -492,6 +492,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 			selectedRoute.Protocol,
 			handler.requestNow,
 		)
+		recorder.clientIP = requestPeerIP(ginContext.Request)
 		recorder.accessKeyMultiplier = accessKey.PriceMultiplier
 		defer func() {
 			recorder.completeMissingOutcome(

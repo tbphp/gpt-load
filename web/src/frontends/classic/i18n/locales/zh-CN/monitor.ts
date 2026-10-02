@@ -572,6 +572,9 @@ export default {
       },
     },
     logs: {
+      ipColumn: 'IP 列',
+      copyIP: '复制 IP',
+      filterIP: '只看 IP {value} 的日志',
       loading: '正在加载请求日志…',
       loadFailed: '无法加载请求日志。',
       loadMore: '加载更多',
@@ -592,6 +595,7 @@ export default {
         partialFailed: '部分筛选选项暂时无法加载，日志查询仍可正常使用。',
       },
       filters: {
+        clientIP: 'IP',
         label: '请求日志筛选',
         timeRange: '时间范围',
         from: '开始时间',
@@ -671,6 +675,7 @@ export default {
         appliedCostState: '成本 {value}',
         appliedCompleteness: '计价 {value}',
         appliedRequestId: '请求 ID {value}',
+        appliedClientIP: 'IP {value}',
         timezone: '本地时区',
         lastRefreshed: '最近一次成功刷新',
         remove: '移除筛选条件 {value}',
@@ -958,6 +963,7 @@ export default {
         },
       },
       columns: {
+        clientIP: 'IP',
         time: '时间',
         modelProtocol: '模型/协议',
         response: '响应',

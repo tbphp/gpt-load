@@ -148,6 +148,10 @@ function filterFromRow(input: LogQuery): void {
     delete filters.credential_id
   applyFilters(filters, state.value.preset)
 }
+function filterFromDetail(input: LogQuery): void {
+  filterFromRow(input)
+  showDetail()
+}
 function setMore(value: boolean): void {
   state.value = { ...state.value, more: value }
 }
@@ -423,6 +427,7 @@ useMessageSource(() =>
     :to="range.to_ms"
     :preset="state.preset"
     @close="showDetail()"
+    @filter="filterFromDetail"
   />
 </template>
 

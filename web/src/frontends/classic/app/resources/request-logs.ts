@@ -86,6 +86,7 @@ export interface RequestLogFilters {
   group_id?: number
   channel_id?: string
   credential_id?: number
+  client_ip?: string
   client_model?: string
   upstream_model?: string
   access_key_id?: number
@@ -191,6 +192,7 @@ export interface RequestLogItemDto {
   protocol: AccessProtocol
   operation: RequestLogOperation | null
   upstream_protocol: RequestLogUpstreamProtocol | null
+  client_ip: string | null
   client_model: string | null
   upstream_model: string | null
   upstream_reported_model: string | null
@@ -342,6 +344,7 @@ const itemFields = [
   'protocol',
   'operation',
   'upstream_protocol',
+  'client_ip',
   'client_model',
   'upstream_model',
   'upstream_reported_model',
@@ -687,6 +690,7 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
       record.upstream_protocol === null
         ? null
         : projectEnum(record.upstream_protocol, enabledDataProtocols),
+    client_ip: projectNullableModel(record.client_ip),
     client_model: projectNullableModel(record.client_model),
     upstream_model: upstreamModel,
     upstream_reported_model: upstreamReportedModel,

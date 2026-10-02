@@ -59,6 +59,7 @@ func (handler *Handler) handleMistralRealtime(c *gin.Context, request *dataPlane
 		c.Header(requestIDHeader, id)
 	}
 	recorder := newRequestRecorder(handler.requestLogSink, id, request.requestStarted, request.accessKey.ID, request.selectedRoute.Protocol, handler.requestNow)
+	recorder.clientIP = requestPeerIP(c.Request)
 	recorder.setOperation(execution.OperationMistralRealtimeTranscription)
 	recorder.setUsageApplicable(false)
 	connected := false

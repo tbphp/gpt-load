@@ -18,10 +18,38 @@ import (
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/i18n"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
 )
 
 const authTestKey = "test-auth-key"
+
+func TestAuthenticateLimitsResolvedClientsIndependently(t *testing.T) {
+	initControlI18n(t)
+	_, engine := newAuthProbeServer(t)
+	resolver, err := utils.NewClientIPResolver("CF-Connecting-IP", []string{"192.0.2.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestFor := func(address string) int {
+		request := httptest.NewRequest(http.MethodGet, "/api/probe", nil)
+		request.RemoteAddr = "192.0.2.10:1234"
+		request.Header.Set("Authorization", "Bearer wrong-key")
+		request.Header.Set("CF-Connecting-IP", address)
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, resolver.Apply(request))
+		return response.Code
+	}
+	for range authFailureLimit {
+		requestFor("2001:db8::1")
+	}
+	if got := requestFor("2001:db8::1"); got != http.StatusTooManyRequests {
+		t.Fatalf("locked client status = %d", got)
+	}
+	if got := requestFor("2001:db8::2"); got != http.StatusUnauthorized {
+		t.Fatalf("another client status = %d", got)
+	}
+}
 
 func TestAuthenticateFailsClosedForInvalidPeerWithoutComparison(t *testing.T) {
 	t.Parallel()

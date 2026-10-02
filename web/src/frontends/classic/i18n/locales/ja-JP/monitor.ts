@@ -592,6 +592,9 @@ export default {
       },
     },
     logs: {
+      ipColumn: 'IP 列',
+      copyIP: 'IP をコピー',
+      filterIP: 'IP {value} のログのみ表示',
       loading: 'リクエストログを読み込み中…',
       loadFailed: 'リクエストログを読み込めません。',
       loadMore: 'さらに読み込む',
@@ -613,6 +616,7 @@ export default {
         partialFailed: '一部のフィルター選択肢を読み込めませんが、ログ検索は使用できます。',
       },
       filters: {
+        clientIP: 'IP',
         label: 'リクエストログのフィルター',
         timeRange: '時間範囲',
         from: '開始時刻',
@@ -692,6 +696,7 @@ export default {
         appliedCostState: 'コスト {value}',
         appliedCompleteness: '料金 {value}',
         appliedRequestId: 'リクエスト ID {value}',
+        appliedClientIP: 'IP {value}',
         timezone: 'ローカルタイムゾーン',
         lastRefreshed: '最終成功更新',
         remove: 'フィルター {value} を削除',
@@ -977,6 +982,7 @@ export default {
         },
       },
       columns: {
+        clientIP: 'IP',
         time: '時刻',
         modelProtocol: 'モデル / プロトコル',
         response: '応答',

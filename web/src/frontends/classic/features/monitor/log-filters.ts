@@ -33,6 +33,7 @@ export interface LogFilterDraft {
   status: string
   audit_status: string
   audit_rule: string
+  client_ip: string
   client_model: string
   upstream_model: string
   access_key_id: string
@@ -135,6 +136,7 @@ export function createLogFilterDraft(filters: RequestLogFilters): LogFilterDraft
     status: filters.status ?? '',
     audit_status: filters.audit_status ?? '',
     audit_rule: filters.audit_rule ?? '',
+    client_ip: filters.client_ip ?? '',
     client_model: filters.client_model ?? '',
     upstream_model: filters.upstream_model ?? '',
     access_key_id: filters.access_key_id === undefined ? '' : String(filters.access_key_id),
@@ -190,6 +192,7 @@ export function applyLogFilterDraft(
   if (draft.audit_status)
     filters.audit_status = draft.audit_status as RequestLogFilters['audit_status']
   if (draft.audit_rule) filters.audit_rule = draft.audit_rule
+  if (draft.client_ip.trim()) filters.client_ip = draft.client_ip.trim()
   if (draft.client_model) filters.client_model = draft.client_model
   if (draft.upstream_model) filters.upstream_model = draft.upstream_model
   if (draft.access_key_id) filters.access_key_id = Number(draft.access_key_id)
@@ -276,7 +279,13 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): AppliedL
     const value = parseSafeInteger(query[field], 0, 999)
     if (value !== undefined) Object.assign(filters, { [field]: value })
   }
-  for (const field of ['client_model', 'upstream_model', 'error_code', 'audit_rule'] as const) {
+  for (const field of [
+    'client_ip',
+    'client_model',
+    'upstream_model',
+    'error_code',
+    'audit_rule',
+  ] as const) {
     const value = parseText(query[field])
     if (value !== undefined) Object.assign(filters, { [field]: value })
   }
@@ -355,7 +364,13 @@ export function validateLogFilterDraft(draft: LogFilterDraft): LogFilterErrors {
   for (const field of ['final_status_code', 'attempt_status_code'] as const) {
     validateIntegerField(errors, draft, field, 999)
   }
-  for (const field of ['client_model', 'upstream_model', 'error_code', 'audit_rule'] as const) {
+  for (const field of [
+    'client_ip',
+    'client_model',
+    'upstream_model',
+    'error_code',
+    'audit_rule',
+  ] as const) {
     if (draft[field] && !isValidMonitorText(draft[field])) {
       errors[field] = 'monitor.logs.errors.text'
     }

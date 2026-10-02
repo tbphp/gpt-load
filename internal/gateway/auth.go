@@ -43,7 +43,7 @@ func authenticate(
 		return accessKey, false, accessKeyAuthFailureExpired
 	}
 	if len(accessKey.AllowedPeerCIDRs) > 0 {
-		peer, err := utils.NormalizePeerIP(request.RemoteAddr)
+		peer, err := utils.ClientIP(request)
 		if err != nil || !utils.AllowedCIDRsContain(accessKey.AllowedPeerCIDRs, peer) {
 			return accessKey, false, accessKeyAuthFailurePeerNotAllowed
 		}

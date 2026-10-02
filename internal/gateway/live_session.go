@@ -37,7 +37,7 @@ type liveCallSession struct {
 	groupID            uint
 	clientModel        string
 	model              string
-	peerAddr           string
+	clientIP           string
 	ref                state.CredentialRef
 	upstream           execution.LiveSession
 	media              *liveMediaSession

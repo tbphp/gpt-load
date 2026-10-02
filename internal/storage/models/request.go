@@ -21,6 +21,7 @@ type RequestLog struct {
 	CredentialID                uint                `gorm:"not null;default:0"`
 	Protocol                    string              `gorm:"type:varchar(32);not null"`
 	Operation                   string              `gorm:"type:varchar(64);not null;default:''"`
+	ClientIP                    *string             `gorm:"type:varchar(45)"`
 	ClientModel                 string              `gorm:"type:varchar(255);not null;index:idx_request_logs_model_completed_id,priority:1"`
 	UpstreamModel               string              `gorm:"type:varchar(255);not null;index:idx_request_logs_upstream_model_completed_id,priority:1"`
 	UpstreamReportedModel       string              `gorm:"type:varchar(255);not null;default:''"`

@@ -130,6 +130,25 @@ function update(field: keyof LogFilterDraft, value: string): void {
               />
             </template>
           </FormField>
+          <FormField
+            id="logs-client-ip"
+            :label="t('monitor.logs.filters.clientIP')"
+            size="compact"
+            :error="error('client_ip')"
+          >
+            <template #default="{ describedBy, invalid }">
+              <input
+                id="logs-client-ip"
+                :value="draft.client_ip"
+                class="logs-advanced__mono"
+                autocomplete="off"
+                :spellcheck="false"
+                :aria-describedby="describedBy"
+                :aria-invalid="invalid || undefined"
+                @input="update('client_ip', ($event.target as HTMLInputElement).value)"
+              />
+            </template>
+          </FormField>
           <FormField id="logs-stream" :label="t('monitor.logs.filters.stream')" size="compact">
             <AppSelect
               id="logs-stream"

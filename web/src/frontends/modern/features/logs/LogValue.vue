@@ -130,6 +130,7 @@ const display = computed(() => {
       return row.context_threshold_tokens === null
         ? '—'
         : logNumber(row.context_threshold_tokens, locale.value)
+    case 'client_ip':
     case 'client_model':
     case 'upstream_model':
     case 'upstream_reported_model':

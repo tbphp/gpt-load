@@ -221,6 +221,8 @@ Windows 普通用户可改为下载 `gpt-load-windows-setup.exe`。双击并确�
 | `DATABASE_MAX_IDLE_CONNECTIONS` | `5`                                         | MySQL 和 PostgreSQL 的最大空闲连接数，必须为正整数且不大于 `DATABASE_MAX_OPEN_CONNECTIONS`；SQLite 始终使用单连接。                                      |
 | `AUTH_KEY`                      | 空，读取或生成 `${DATA_DIR}/auth.key`       | 管理界面和 `/api` 管理接口的 Bearer 密钥，不是数据面 AccessKey。                                                                                         |
 | `ENCRYPTION_KEY`                | 空，读取或生成 `${DATA_DIR}/encryption.key` | 用于加密渠道凭据；更换或丢失后无法解密已有凭据，必须与数据库一起备份。                                                                                   |
+| `CLIENT_IP_HEADER` | 空，使用连接 IP | 客户端 IP 请求头，如 `X-Forwarded-For` 或 `CF-Connecting-IP`；缺失或无效时回退到连接 IP。统一用于日志、访问密钥 IP 限制等，支持 IPv4/IPv6。修改后重启。 |
+| `TRUSTED_PROXIES` | 空 | 可选，逗号分隔的代理 IP 或 CIDR；仅在设置 `CLIENT_IP_HEADER` 时生效。留空直接信任所选请求头，需由部署环境保证其可信；配置后仅信任匹配的连接来源，否则使用连接 IP。`X-Forwarded-For` 有名单时从右向左取首个不可信 IP（全可信时取最左侧），无名单时取最左侧；其他头只接受单个 IP。修改后重启。 |
 | `HTTP_PROXY`                    | 空                                          | HTTP 上游请求的环境代理。                                                                                                                                |
 | `HTTPS_PROXY`                   | 空                                          | HTTPS 上游请求的环境代理。                                                                                                                               |
 | `NO_PROXY`                      | 空                                          | 逗号分隔的不经过环境代理的主机、域名或 IP。                                                                                                              |

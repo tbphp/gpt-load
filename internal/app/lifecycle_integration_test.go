@@ -20,7 +20,7 @@ func TestAppStopWaitsForTrackedControlHandler(t *testing.T) {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
 	lifecycle := httplifecycle.NewCoordinator()
-	engine, err := NewEngineWithLifecycle(lifecycle)
+	engine, err := NewEngineWithLifecycle(lifecycle, nil)
 	if err != nil {
 		t.Fatalf("NewEngineWithLifecycle() error = %v", err)
 	}
@@ -86,7 +86,7 @@ func TestAppStopCancelsTrackedControlHandlerAndStartsExecutionShutdown(t *testin
 		t.Fatalf("storage.Open() error = %v", err)
 	}
 	lifecycle := httplifecycle.NewCoordinator()
-	engine, err := NewEngineWithLifecycle(lifecycle)
+	engine, err := NewEngineWithLifecycle(lifecycle, nil)
 	if err != nil {
 		t.Fatalf("NewEngineWithLifecycle() error = %v", err)
 	}
