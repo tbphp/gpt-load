@@ -1056,13 +1056,7 @@ function costLabel(log: RequestLogItemDto): string {
             </OverflowTooltip>
             <AppTooltip
               v-if="formatLogOutputRate(log, locale) !== '—'"
-              :content="
-                t(
-                  log.stream
-                    ? 'monitor.logs.drawer.outputRateHint'
-                    : 'monitor.logs.drawer.nonStreamOutputRateHint',
-                )
-              "
+              :content="t('monitor.logs.drawer.outputRateHint')"
             >
               <small tabindex="0">{{ formatLogOutputRate(log, locale) }}</small>
             </AppTooltip>
