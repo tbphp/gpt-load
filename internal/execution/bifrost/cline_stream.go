@@ -198,7 +198,7 @@ func (s *clineStream) event(frame []byte) error {
 		s.usage = chunk.Usage
 	}
 	chunk.Model = s.spec.ClientModel
-	for _, response := range clineChatStreamEvents(&chunk, s.chatState) {
+	for _, response := range chatToResponsesStreamEvents(&chunk, s.chatState) {
 		if response.Type == schemas.ResponsesStreamResponseTypeCompleted || response.Type == schemas.ResponsesStreamResponseTypeIncomplete {
 			// finish_reason 后可能还有独立 usage 块，等 [DONE] 再发终态。
 			s.final = response
@@ -209,32 +209,6 @@ func (s *clineStream) event(frame []byte) error {
 		}
 	}
 	return nil
-}
-
-// 锁定版本的 SDK 每次只读取一个工具增量；逐个交给同一状态机，避免并行调用丢失。
-func clineChatStreamEvents(chunk *schemas.BifrostChatResponse, state *schemas.ChatToResponsesStreamState) []*schemas.BifrostResponsesStreamResponse {
-	if len(chunk.Choices) != 1 || chunk.Choices[0].ChatStreamResponseChoice == nil || chunk.Choices[0].Delta == nil || len(chunk.Choices[0].Delta.ToolCalls) < 2 {
-		return chunk.ToBifrostResponsesStreamResponse(state)
-	}
-	choice := chunk.Choices[0]
-	var events []*schemas.BifrostResponsesStreamResponse
-	for index, call := range choice.Delta.ToolCalls {
-		part := *chunk
-		partChoice := choice
-		delta := *choice.Delta
-		if index > 0 {
-			delta = schemas.ChatStreamResponseChoiceDelta{}
-		}
-		delta.ToolCalls = []schemas.ChatAssistantMessageToolCall{call}
-		partChoice.ChatStreamResponseChoice = &schemas.ChatStreamResponseChoice{Delta: &delta}
-		if index != len(choice.Delta.ToolCalls)-1 {
-			partChoice.FinishReason = nil
-			part.Usage = nil
-		}
-		part.Choices = []schemas.BifrostResponseChoice{partChoice}
-		events = append(events, part.ToBifrostResponsesStreamResponse(state)...)
-	}
-	return events
 }
 
 func (s *clineStream) encode(response *schemas.BifrostResponsesStreamResponse) error {
