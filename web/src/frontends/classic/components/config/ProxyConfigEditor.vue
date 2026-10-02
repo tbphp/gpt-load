@@ -4,10 +4,10 @@ import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { ProxyConfiguredMode, ProxyMutation, ProxyViewDto } from '@/api/control/types'
-import { proxyDraftState, proxyPlaceholderURL } from '@/app/resources/proxy'
+import { proxyDraftState } from '@/app/resources/proxy'
 import AppButton from '@/components/ui/AppButton.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
-import AppTextInput from '@/components/ui/AppTextInput.vue'
+import ProxySelect from '@/features/proxies/ProxySelect.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 
@@ -33,7 +33,7 @@ const saveFailed = ref(false)
 const modeOptions = computed(() => [
   { value: 'inherit', label: t('common.proxy.mode.inherit') },
   { value: 'direct', label: t('common.proxy.mode.direct') },
-  { value: 'custom', label: t('common.proxy.mode.custom') },
+  { value: 'custom', label: t('proxies.select') },
 ])
 // 分段控件没有整体 disabled，逐项禁用。
 const segmentedModeOptions = computed(() =>
@@ -42,10 +42,16 @@ const segmentedModeOptions = computed(() =>
 const draft = computed(() => proxyDraftState(props.view, mode.value, endpoint.value))
 const endpointError = computed(() =>
   mode.value === 'custom' && touched.value && draft.value.invalid
-    ? t('common.proxy.invalid')
+    ? t('proxies.selectHelp')
     : undefined,
 )
-const configuredModeLabel = computed(() => t(`common.proxy.mode.${props.view.configured_mode}`))
+const configuredModeLabel = computed(() =>
+  props.view.reference_state === 'disabled'
+    ? t('proxies.referenceDisabled')
+    : props.view.reference_state === 'deleted'
+      ? t('proxies.referenceDeleted')
+      : t(`common.proxy.mode.${props.view.configured_mode}`),
+)
 const effectiveValue = computed(
   () => props.view.display_url ?? t(`common.proxy.mode.${props.view.effective_mode}`),
 )
@@ -148,16 +154,13 @@ async function save(): Promise<void> {
           :error="endpointError"
         >
           <template #default="{ invalid, describedBy }">
-            <AppTextInput
+            <ProxySelect
               :id="inputId"
               :model-value="endpoint"
-              :label="t('common.proxy.urlLabel')"
-              :placeholder="proxyPlaceholderURL(view) ?? t('common.proxy.placeholder')"
-              appearance="surface"
-              size="compact"
-              autocomplete="off"
-              :spellcheck="false"
-              monospace
+              :saved-id="view.proxy_id"
+              :saved-name="view.proxy_name"
+              :saved-address="view.display_url"
+              :reference-state="view.reference_state"
               :disabled="disabled || pending"
               :invalid="invalid"
               :described-by="describedBy"
@@ -224,13 +227,8 @@ async function save(): Promise<void> {
   --compact-field-error-indicator-size: 22px;
   --compact-field-error-indicator-right: 2px;
   --compact-field-error-input-gap: 4px;
-  /* basis 归零，地址栏独吞剩余宽度，控件行不折行。 */
-  flex: 1 1 0;
+  /* 搜索与快捷操作作为整体换行，避免挤压输入框。 */
+  flex: 1 1 260px;
   min-width: 0;
-}
-
-.proxy-config-editor__endpoint :deep(.app-text-input) {
-  min-height: 26px;
-  font-size: var(--text-label-xs);
 }
 </style>

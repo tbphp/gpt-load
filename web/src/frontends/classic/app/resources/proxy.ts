@@ -1,3 +1,4 @@
+import { validProxySelection } from '@shared/proxies/api'
 import type {
   ProxyConfiguredMode,
   ProxyEffectiveMode,
@@ -24,6 +25,9 @@ const proxyViewFields = [
   'effective_source',
   'display_url',
   'has_auth',
+  'proxy_id',
+  'proxy_name',
+  'reference_state',
 ] as const
 
 export function projectProxyView(value: unknown): ProxyViewDto {
@@ -35,6 +39,13 @@ export function projectProxyView(value: unknown): ProxyViewDto {
   const displayURL =
     record.display_url === undefined ? undefined : projectString(record.display_url)
   const hasAuth = projectBoolean(record.has_auth)
+  if (
+    record.proxy_id !== undefined &&
+    (typeof record.proxy_id !== 'number' ||
+      !Number.isSafeInteger(record.proxy_id) ||
+      record.proxy_id < 1)
+  )
+    throw new InvalidResponseError()
 
   if ((effectiveMode === 'custom') !== (displayURL !== undefined) || (hasAuth && !displayURL)) {
     throw new InvalidResponseError()
@@ -46,6 +57,10 @@ export function projectProxyView(value: unknown): ProxyViewDto {
     effective_source: effectiveSource as ProxyEffectiveSource,
     ...(displayURL === undefined ? {} : { display_url: displayURL }),
     has_auth: hasAuth,
+    proxy_id: record.proxy_id === undefined ? undefined : Number(record.proxy_id),
+    proxy_name: record.proxy_name === undefined ? undefined : projectString(record.proxy_name),
+    reference_state:
+      record.reference_state === undefined ? undefined : projectString(record.reference_state),
   }
 }
 
@@ -57,8 +72,8 @@ export function proxyMutation(
   if (mode === 'direct') return { mode: 'direct' }
 
   const normalized = endpoint.trim()
-  if (!isValidProxyURL(normalized)) return undefined
-  return { mode: 'custom', url: normalized }
+  if (!validProxySelection(normalized)) return undefined
+  return { mode: 'custom', proxy_id: Number(normalized) }
 }
 
 export interface ProxyDraftState {
@@ -68,8 +83,7 @@ export interface ProxyDraftState {
 }
 
 /**
- * 已存自定义地址的 placeholder；没有可展示的地址时返回 undefined，由调用方回退到通用提示。
- * 输入框不做回填：后端 Display() 会把密码脱敏成 ******，回填等于把掩码当真密码存回去。
+ * 历史展示辅助函数；展示地址始终脱敏，不能作为写入值。
  */
 export function proxyPlaceholderURL(view: ProxyViewDto): string | undefined {
   return view.configured_mode === 'custom' ? view.display_url : undefined
@@ -88,8 +102,7 @@ export function proxyOverrideToggleMode(
 }
 
 /**
- * 同模式下有两种“未改动”：输入留空表示保持原地址；输入与已存地址逐字相同同样不是改动
- * ——后者顺带挡住了照着 placeholder 手敲掩码提交的情况。
+ * 留空或仍选择原代理均不写入；显式继承才清除保存的关联。
  */
 export function proxyDraftState(
   base: ProxyViewDto,
@@ -99,7 +112,7 @@ export function proxyDraftState(
   const trimmed = endpoint.trim()
   const unchanged =
     mode === base.configured_mode &&
-    (mode !== 'custom' || trimmed === '' || trimmed === (base.display_url ?? ''))
+    (mode !== 'custom' || trimmed === '' || trimmed === String(base.proxy_id ?? ''))
   if (unchanged) return { dirty: false, invalid: false, value: undefined }
   const value = proxyMutation(mode, endpoint)
   return { dirty: true, invalid: value === undefined, value }

@@ -51,6 +51,9 @@ export interface CORSConfig {
   max_age: number
 }
 export interface ProxyConfigView {
+  proxy_id?: number
+  proxy_name?: string
+  reference_state?: string
   configured_mode: 'inherit' | 'direct' | 'custom'
   effective_mode: 'direct' | 'environment' | 'custom'
   effective_source: 'credential' | 'group' | 'global' | 'environment' | 'default'
@@ -97,7 +100,7 @@ export interface SettingsData {
 }
 export type SettingsPatch = Partial<{
   [K in Exclude<SettingKey, 'proxy_config'>]: SettingsValues[K] | null
-}> & { proxy_config?: { mode: 'direct' } | { mode: 'custom'; url: string } | null }
+}> & { proxy_config?: { mode: 'direct' } | { mode: 'custom'; proxy_id: number } | null }
 
 function readHeaders(value: unknown): HeaderRules {
   const row = record(value)
@@ -123,6 +126,9 @@ function readCORS(value: unknown): CORSConfig {
 function readProxy(value: unknown): ProxyConfigView {
   const row = record(value)
   const result: ProxyConfigView = {
+    proxy_id: row.proxy_id === undefined ? undefined : integer(row.proxy_id, 1),
+    proxy_name: row.proxy_name === undefined ? undefined : text(row.proxy_name),
+    reference_state: row.reference_state === undefined ? undefined : text(row.reference_state),
     configured_mode: oneOf(row.configured_mode, ['inherit', 'direct', 'custom']),
     effective_mode: oneOf(row.effective_mode, ['direct', 'environment', 'custom']),
     effective_source: oneOf(row.effective_source, [

@@ -336,7 +336,6 @@ async function importClient(): Promise<void> {
   min-height: 0;
   border-inline-end: var(--modern-line-width) solid var(--modern-border);
   scrollbar-gutter: var(--modern-scrollbar-gutter);
-  overscroll-behavior: contain;
 }
 .modern-connect-main {
   display: flex;
@@ -367,7 +366,6 @@ async function importClient(): Promise<void> {
   gap: var(--modern-space-3);
   padding: var(--modern-space-1);
   scrollbar-gutter: var(--modern-scrollbar-gutter);
-  overscroll-behavior: contain;
 }
 .modern-connect-content > * {
   flex: none;

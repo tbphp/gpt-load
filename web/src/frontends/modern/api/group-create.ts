@@ -135,7 +135,7 @@ export interface ModelDraft {
   id: string
   alias: string
 }
-export type ProxyOverride = { mode: 'direct' } | { mode: 'custom'; url: string }
+export type ProxyOverride = { mode: 'direct' } | { mode: 'custom'; proxy_id: number }
 export interface GroupConnectionDraft {
   channel_id: string
   params: Record<string, string>

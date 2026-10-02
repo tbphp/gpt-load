@@ -182,11 +182,15 @@ func (s *Service) UpdateGroupCredential(
 			updates["weight_manual"] = committed.WeightManual
 		}
 		if proxySet {
+			proxy, err = s.managedProxyOverride(ctx, tx, proxy)
+			if err != nil {
+				return err
+			}
 			committed.ProxyConfig = proxy
 			updates["proxy_config"] = proxy
 		}
 		committed.UpdatedAtMS = updatedAtMS
-		committedProxy, committedProxyFingerprint, err = storedProxyIdentity(s.encryption, committed.ProxyConfig)
+		committedProxy, committedProxyFingerprint, err = s.storedProxyIdentity(ctx, tx, committed.ProxyConfig)
 		if err != nil {
 			return err
 		}

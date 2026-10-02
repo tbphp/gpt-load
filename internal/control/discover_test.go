@@ -566,6 +566,13 @@ func TestReadyStageRefreshCancellationBoundary(t *testing.T) {
 func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
+	proxy, err := fixture.service.SaveProxy(t.Context(), 0, ProxySaveRequest{Name: "disabled", URL: "http://disabled-proxy.example:8080"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.BatchProxies(t.Context(), ProxyBatchRequest{IDs: []uint{proxy.ID}, Action: "disable"}); err != nil {
+		t.Fatal(err)
+	}
 	var calls atomic.Int64
 	fixture.service.executor = newRecordingDiscoveryExecutor(&recordingDiscoveryExecutorTarget{
 		value: protocol.OpenAICompletions,
@@ -592,6 +599,12 @@ func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 			value.ChannelID = channel.ID("unknown")
 		}},
 		{name: "empty credentials", mutate: func(value *ModelDiscoveryRequest) { value.Credentials = " \n\t" }},
+		{name: "disabled proxy selection", mutate: func(value *ModelDiscoveryRequest) {
+			value.Proxy = &outboundproxy.Config{Mode: outboundproxy.ModeCustom, ProxyID: proxy.ID}
+		}},
+		{name: "missing proxy selection", mutate: func(value *ModelDiscoveryRequest) {
+			value.Proxy = &outboundproxy.Config{Mode: outboundproxy.ModeCustom, ProxyID: proxy.ID + 1}
+		}},
 		{name: "unsupported channel proxy", mutate: func(value *ModelDiscoveryRequest) {
 			value.ChannelID = channel.AzureOpenAI
 			value.Params = json.RawMessage(`{"endpoint":"https://resource.openai.azure.com"}`)

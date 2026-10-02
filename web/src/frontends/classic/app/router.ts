@@ -23,6 +23,10 @@ function pageRoute(
 }
 
 const routes: RouteRecordRaw[] = [
+  pageRoute(pageRouteNames.proxies, {
+    component: lazyView(() => import('@/features/proxies/ProxiesView.vue')),
+    meta: { titleKey: 'proxies.title', requiresAuth: true, adminOnly: true, primaryNav: 'proxies' },
+  }),
   pageRoute(pageRouteNames.home, {
     component: lazyView(() => import('@/features/home/HomeView.vue')),
     meta: {

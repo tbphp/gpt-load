@@ -9,6 +9,12 @@ const props = withDefaults(defineProps<{ row: CredentialRow; weight?: boolean }>
   weight: true,
 })
 const { t, n } = useI18n()
+const ownProxy = computed(
+  () =>
+    props.row.proxy.mode !== 'inherit' &&
+    props.row.proxy.referenceState !== 'disabled' &&
+    props.row.proxy.referenceState !== 'deleted',
+)
 const proxyLabel = computed(() =>
   [
     t('credentialCards.proxyOverride', {
@@ -23,7 +29,7 @@ const proxyLabel = computed(() =>
 
 <template>
   <span
-    v-if="(weight && row.weightManual != null) || row.proxy.mode !== 'inherit'"
+    v-if="(weight && row.weightManual != null) || ownProxy"
     class="modern-credential-routing-meta"
   >
     <AppTooltip
@@ -34,7 +40,7 @@ const proxyLabel = computed(() =>
         <AppIcon :icon="Scale" size="xs" />{{ n(row.weightManual) }}
       </span>
     </AppTooltip>
-    <AppTooltip v-if="row.proxy.mode !== 'inherit'" :label="proxyLabel">
+    <AppTooltip v-if="ownProxy" :label="proxyLabel">
       <span class="modern-credential-routing-item" tabindex="0">
         <AppIcon :icon="row.proxy.mode === 'direct' ? Unplug : Network" size="sm" />
       </span>

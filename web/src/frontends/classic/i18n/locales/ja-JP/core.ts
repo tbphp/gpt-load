@@ -1,4 +1,6 @@
+import { jaJP as proxies } from '@shared/proxies/messages'
 export default {
+  proxies,
   concurrency: {
     label: '同時実行数の上限',
     value: '同時実行 {current} / {limit}',

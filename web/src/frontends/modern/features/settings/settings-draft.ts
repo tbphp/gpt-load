@@ -20,7 +20,7 @@ import {
   type AuditConfig,
 } from '@modern/api/experimental'
 import type { HeaderRules } from '@modern/api/group-detail'
-import { validProxyURL } from '@modern/app/proxy'
+import { validProxySelection } from '@shared/proxies/api'
 import {
   autoModelDraft,
   autoModelValue,
@@ -52,7 +52,7 @@ export type SettingsDraft = Record<SettingNumber, string> &
     header_rules: HeaderRow[]
     response_header_rules: HeaderRow[]
     cors: CORSDraft
-    proxy_config: { mode: 'inherit' | 'direct' | 'custom'; url: string }
+    proxy_config: { mode: 'inherit' | 'direct' | 'custom'; id: string }
     auto_model: AutoModelDraft
     jev: JevConfig
     request_redaction: RedactionRule[]
@@ -87,7 +87,7 @@ export function createSettingsDraft(data: SettingsData): SettingsDraft {
     ) as Record<SettingNumber, string>),
     header_rules: headerRows(values.header_rules),
     response_header_rules: headerRows(values.response_header_rules),
-    proxy_config: { mode: values.proxy_config.configured_mode, url: '' },
+    proxy_config: { mode: values.proxy_config.configured_mode, id: '' },
     auto_model: autoModelDraft(values.auto_model ?? defaultAutoModel()),
     jev: cloneDraft(values.jev),
     request_audit: cloneDraft(values.request_audit),
@@ -281,10 +281,10 @@ export function settingsErrors(
       Object.assign(errors, headerErrors(draft[key], key))
     } else if (key === 'proxy_config') {
       const proxy = draft.proxy_config
-      const unchangedURL =
+      const unchangedProxy =
         proxy.mode === base.values.proxy_config.configured_mode &&
-        (!proxy.url.trim() || proxy.url.trim() === base.values.proxy_config.display_url)
-      if (proxy.mode === 'custom' && !unchangedURL && !validProxyURL(proxy.url.trim()))
+        (!proxy.id.trim() || proxy.id.trim() === String(base.values.proxy_config.proxy_id ?? ''))
+      if (proxy.mode === 'custom' && !unchangedProxy && !validProxySelection(proxy.id.trim()))
         errors.proxy_config = 'proxy'
     } else if (key === 'cors') {
       const cors = corsValue(draft.cors)
@@ -342,8 +342,8 @@ export function buildSettingsPatch(
       if (
         proxy.mode === base.values.proxy_config.configured_mode &&
         (proxy.mode !== 'custom' ||
-          !proxy.url.trim() ||
-          proxy.url.trim() === base.values.proxy_config.display_url)
+          !proxy.id.trim() ||
+          proxy.id.trim() === String(base.values.proxy_config.proxy_id ?? ''))
       )
         continue
       patch[key] =
@@ -351,7 +351,7 @@ export function buildSettingsPatch(
           ? null
           : proxy.mode === 'direct'
             ? { mode: 'direct' }
-            : { mode: 'custom', url: proxy.url.trim() }
+            : { mode: 'custom', proxy_id: Number(proxy.id) }
     } else patch[key] = draft[key]
   }
   return patch as SettingsPatch

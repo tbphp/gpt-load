@@ -39,7 +39,8 @@ import {
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import { groupConnectionParams, validBaseURL } from './group-create-rules'
-import { validProxyURL } from '@modern/app/proxy'
+import { validProxySelection } from '@shared/proxies/api'
+import ProxySelect from '../proxies/ProxySelect.vue'
 import GroupChannelSelect from './GroupChannelSelect.vue'
 import GroupBaseURLField from './GroupBaseURLField.vue'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
@@ -67,7 +68,7 @@ const liveOptions = computed(() => [
   ...codexLiveModes.map((value) => ({ value, label: t('settingsForm.liveModes.' + value) })),
 ])
 const proxyMode = ref('inherit')
-const proxyURL = ref('')
+const proxyID = ref('')
 const headersMode = ref('inherit')
 const headers = ref<{ key: number; name: string; value: string }[]>([])
 const removeHeaders = ref('')
@@ -89,7 +90,7 @@ function snapshot(): string {
     switches.value,
     liveMode.value,
     proxyMode.value,
-    proxyURL.value,
+    proxyID.value,
     headersMode.value,
     headers.value,
     removeHeaders.value,
@@ -121,8 +122,8 @@ watch(
     )
     liveMode.value = data.overrides.codex_live_mode ?? ''
     proxyMode.value = data.proxy.mode
-    // display_url 可能脱敏；未编辑时不能把它作为代理凭据重新写回。
-    proxyURL.value = ''
+    // 未改选时保留原关联，包括暂时停用或已删除的代理引用。
+    proxyID.value = ''
     headersMode.value = data.overrides.header_rules === undefined ? 'inherit' : 'custom'
     const value = data.overrides.header_rules ?? data.effective.header_rules
     headers.value = Object.entries(value.set).map(([name, value]) => ({
@@ -149,7 +150,10 @@ const switchOptions = computed(() => [
 const proxyOptions = computed(() =>
   ['inherit', 'direct', 'custom'].map((value) => ({
     value,
-    label: t('groupCreate.proxy' + value[0]!.toUpperCase() + value.slice(1)),
+    label:
+      value === 'custom'
+        ? t('proxies.select')
+        : t('groupCreate.proxy' + value[0]!.toUpperCase() + value.slice(1)),
   })),
 )
 const modelOptions = computed(() => [
@@ -186,10 +190,15 @@ function numberInvalid(key: RuntimeNumber): boolean {
   )
 }
 const proxyChanged = computed(
-  () => proxyMode.value !== saved.value?.proxy.mode || Boolean(proxyURL.value),
+  () =>
+    proxyMode.value !== saved.value?.proxy.mode ||
+    (Boolean(proxyID.value) && Number(proxyID.value) !== saved.value?.proxy.id),
 )
 const proxyInvalid = computed(
-  () => proxyChanged.value && proxyMode.value === 'custom' && !validProxyURL(proxyURL.value.trim()),
+  () =>
+    proxyChanged.value &&
+    proxyMode.value === 'custom' &&
+    !validProxySelection(proxyID.value.trim()),
 )
 const headerInvalid = computed(() => {
   if (headersMode.value !== 'custom') return false
@@ -253,7 +262,7 @@ async function save(): Promise<void> {
         ? null
         : proxyMode.value === 'direct'
           ? { mode: 'direct' }
-          : { mode: 'custom', url: proxyURL.value.trim() }
+          : { mode: 'custom', proxy_id: Number(proxyID.value) }
   if (!Object.keys(patch).length) {
     emit('close')
     return
@@ -434,20 +443,15 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
               size="sm"
               :disabled="busy"
             />
-            <AppTextField
+            <ProxySelect
               v-if="proxyMode === 'custom'"
-              v-model="proxyURL"
-              :label="t('groupCreate.proxyURL')"
-              :placeholder="
-                saved.proxy.mode === 'custom' ? saved.proxy.display : 'http://127.0.0.1:7890'
-              "
-              :description="
-                saved.proxy.mode === 'custom' ? t('groupDetail.proxyUnchanged') : undefined
-              "
-              :error="attempted && proxyInvalid ? t('groupCreate.proxyError') : undefined"
-              size="sm"
+              v-model="proxyID"
+              :saved-id="saved?.proxy.id"
+              :saved-name="saved?.proxy.name"
+              :saved-address="saved?.proxy.display"
+              :reference-state="saved?.proxy.referenceState"
               :disabled="busy"
-              autocomplete="off"
+              :error="attempted && proxyInvalid ? t('proxies.selectHelp') : undefined"
             />
           </div>
         </template>

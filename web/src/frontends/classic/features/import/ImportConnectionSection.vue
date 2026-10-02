@@ -7,10 +7,11 @@ import type { ChannelDto } from '@/app/resources/channels'
 import { proxyMutation } from '@/app/resources/proxy'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
-import AppTextInput from '@/components/ui/AppTextInput.vue'
 import FormField from '@/components/ui/FormField.vue'
 import { isValidPriceMultiplier } from '@/lib/price-multiplier'
 import { hasUpstreamBaseURLVersionMismatch, isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
+
+import ProxySelect from '@/features/proxies/ProxySelect.vue'
 
 import type { ImportProxyDraft } from './model-draft'
 
@@ -44,13 +45,13 @@ const defaultBaseUrls = computed(() => {
 const proxyModeOptions = computed(() => [
   { value: 'inherit', label: t('common.proxy.inherit.group') },
   { value: 'direct', label: t('common.proxy.mode.direct') },
-  { value: 'custom', label: t('common.proxy.mode.custom') },
+  { value: 'custom', label: t('proxies.select') },
 ])
 const proxyError = computed(() =>
   proxySupported.value &&
   props.proxy.mode === 'custom' &&
-  proxyMutation(props.proxy.mode, props.proxy.url) === undefined
-    ? t('common.proxy.invalid')
+  proxyMutation(props.proxy.mode, props.proxy.id) === undefined
+    ? t('proxies.selectHelp')
     : undefined,
 )
 const proxyDescription = computed(() => {
@@ -60,12 +61,12 @@ const proxyDescription = computed(() => {
 
 function updateProxyMode(value: string): void {
   if (!['inherit', 'direct', 'custom'].includes(value)) return
-  emit('update:proxy', { mode: value as ProxyConfiguredMode, url: '' })
+  emit('update:proxy', { mode: value as ProxyConfiguredMode, id: '' })
 }
 
-function updateProxyURL(value: string): void {
+function updateProxyID(value: string): void {
   if (props.proxy.mode !== 'custom') return
-  emit('update:proxy', { mode: 'custom', url: value })
+  emit('update:proxy', { mode: 'custom', id: value })
 }
 
 function fieldError(key: string): string {
@@ -283,21 +284,14 @@ function baseURLVersionWarning(key: string): string | undefined {
               :disabled="disabled || proxyDisabled || !proxySupported"
               @update:model-value="updateProxyMode"
             />
-            <AppTextInput
+            <ProxySelect
               v-if="proxySupported && proxy.mode === 'custom'"
-              id="import-group-proxy-url"
-              :model-value="proxy.url"
-              :label="t('common.proxy.urlLabel')"
-              :placeholder="t('common.proxy.placeholder')"
-              appearance="surface"
-              size="sm"
-              autocomplete="off"
-              :spellcheck="false"
-              monospace
+              id="import-group-proxy-id"
+              :model-value="proxy.id"
               :disabled="disabled || proxyDisabled"
               :invalid="field.invalid"
               :described-by="field.describedBy"
-              @update:model-value="updateProxyURL"
+              @update:model-value="updateProxyID"
             />
           </div>
         </template>

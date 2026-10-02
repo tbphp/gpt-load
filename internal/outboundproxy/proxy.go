@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -38,8 +39,9 @@ const (
 // Config is the persisted proxy override. Inherit is represented by an absent
 // persisted value; ModeInherit is retained for control-plane input and views.
 type Config struct {
-	Mode Mode   `json:"mode"`
-	URL  string `json:"url,omitempty"`
+	Mode    Mode   `json:"mode"`
+	URL     string `json:"url,omitempty"`
+	ProxyID uint   `json:"proxy_id,omitempty"`
 }
 
 type Effective struct {
@@ -53,6 +55,9 @@ type View struct {
 	EffectiveSource Source `json:"effective_source"`
 	DisplayURL      string `json:"display_url,omitempty"`
 	HasAuth         bool   `json:"has_auth"`
+	ProxyID         uint   `json:"proxy_id,omitempty"`
+	ProxyName       string `json:"proxy_name,omitempty"`
+	ReferenceState  string `json:"reference_state,omitempty"`
 }
 
 // Environment snapshots whether the process has a standard proxy configured.
@@ -69,11 +74,17 @@ func Environment() *Config {
 func Normalize(input Config) (Config, error) {
 	switch input.Mode {
 	case ModeInherit, ModeDirect:
-		if input.URL != "" {
+		if input.URL != "" || input.ProxyID != 0 {
 			return Config{}, ErrInvalidConfig
 		}
 		return Config{Mode: input.Mode}, nil
 	case ModeCustom:
+		if input.ProxyID != 0 {
+			if input.URL != "" {
+				return Config{}, ErrInvalidConfig
+			}
+			return Config{Mode: ModeCustom, ProxyID: input.ProxyID}, nil
+		}
 		return normalizeCustom(input.URL)
 	default:
 		return Config{}, ErrInvalidConfig
@@ -122,6 +133,42 @@ func normalizeCustom(endpoint string) (Config, error) {
 	return Config{Mode: ModeCustom, URL: parsed.String()}, nil
 }
 
+// CanonicalConnection 仅用于管理去重，保留已有出站配置与授权流程的字节身份。
+func CanonicalConnection(input Config) (Config, error) {
+	config, err := Normalize(input)
+	if err != nil || config.Mode != ModeCustom || config.ProxyID != 0 {
+		return Config{}, ErrInvalidConfig
+	}
+	endpoint, err := url.Parse(config.URL)
+	if err != nil {
+		return Config{}, ErrInvalidConfig
+	}
+	host := strings.ToLower(endpoint.Hostname())
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	}
+	port := endpoint.Port()
+	if port != "" {
+		number, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			return Config{}, ErrInvalidConfig
+		}
+		port = strconv.FormatUint(number, 10)
+	}
+	if endpoint.Scheme == "http" && port == "80" {
+		port = ""
+	}
+	if port != "" {
+		endpoint.Host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		endpoint.Host = "[" + host + "]"
+	} else {
+		endpoint.Host = host
+	}
+	config.URL = endpoint.String()
+	return config, nil
+}
+
 // Display returns the safe UI representation of one proxy override.
 func Display(config Config) (string, bool, error) {
 	normalized, err := Normalize(config)
@@ -165,8 +212,8 @@ func Resolve(credential, group, global, environment *Config) (Effective, error) 
 			return Effective{Config: *candidate.config, Source: candidate.source}, nil
 		}
 		normalized, err := Normalize(*candidate.config)
-		if err != nil {
-			return Effective{}, err
+		if err != nil || normalized.ProxyID != 0 {
+			return Effective{}, ErrInvalidConfig
 		}
 		if normalized.Mode == ModeInherit {
 			continue
@@ -187,7 +234,7 @@ func NormalizeEffective(input Effective) (Effective, error) {
 		return Effective{Config: Config{Mode: ModeEnvironment}, Source: SourceEnvironment}, nil
 	}
 	config, err := Normalize(input.Config)
-	if err != nil || config.Mode == ModeInherit {
+	if err != nil || config.Mode == ModeInherit || config.ProxyID != 0 {
 		return Effective{}, ErrInvalidConfig
 	}
 	source := input.Source
@@ -199,12 +246,14 @@ func NormalizeEffective(input Effective) (Effective, error) {
 
 func NewView(configured *Config, effective Effective) (View, error) {
 	configuredMode := ModeInherit
+	var proxyID uint
 	if configured != nil {
 		normalized, err := Normalize(*configured)
 		if err != nil {
 			return View{}, err
 		}
 		configuredMode = normalized.Mode
+		proxyID = normalized.ProxyID
 	}
 	display, hasAuth, err := Display(effective.Config)
 	if effective.Config.Mode == ModeEnvironment {
@@ -219,6 +268,7 @@ func NewView(configured *Config, effective Effective) (View, error) {
 		EffectiveSource: effective.Source,
 		DisplayURL:      display,
 		HasAuth:         hasAuth,
+		ProxyID:         proxyID,
 	}, nil
 }
 

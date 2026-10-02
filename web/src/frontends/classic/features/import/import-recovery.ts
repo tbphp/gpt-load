@@ -22,7 +22,7 @@ export interface ImportRecoveryService {
 }
 
 interface ImportRecoveryRecord {
-  version: 8
+  version: 9
   expires_at: number
   draft: ImportRecoveryDraft
 }
@@ -79,9 +79,9 @@ function isChannelParams(value: unknown): value is Record<string, string> {
 }
 
 function isImportProxyDraft(value: unknown): value is ImportProxyDraft {
-  if (!isRecord(value) || !hasOnlyFields(value, ['mode', 'url'])) return false
-  if (value.mode === 'custom') return typeof value.url === 'string'
-  return (value.mode === 'inherit' || value.mode === 'direct') && value.url === ''
+  if (!isRecord(value) || !hasOnlyFields(value, ['mode', 'id'])) return false
+  if (value.mode === 'custom') return typeof value.id === 'string'
+  return (value.mode === 'inherit' || value.mode === 'direct') && value.id === ''
 }
 
 function isNewImportDraft(value: Record<string, unknown>): boolean {
@@ -198,10 +198,23 @@ function parseRecoveryRecord(raw: string): ImportRecoveryRecord | null {
         draft: value.draft.mode === 'new' ? { ...value.draft, price_multiplier: '1' } : value.draft,
       }
     }
+    if (isRecord(value) && value.version === 8 && isRecord(value.draft)) {
+      const draft = value.draft
+      if (draft.mode === 'new' && isRecord(draft.proxy)) {
+        // 旧草稿没有代理 ID，保留其他内容并要求重新选择，不能静默改为直连。
+        value = {
+          ...value,
+          version: 9,
+          draft: { ...draft, proxy: { mode: draft.proxy.mode, id: '' } },
+        }
+      } else {
+        value = { ...value, version: 9 }
+      }
+    }
     if (
       !isRecord(value) ||
       !hasOnlyFields(value, ['version', 'expires_at', 'draft']) ||
-      value.version !== 8 ||
+      value.version !== 9 ||
       typeof value.expires_at !== 'number' ||
       !Number.isFinite(value.expires_at) ||
       !isImportDraft(value.draft)
@@ -279,7 +292,7 @@ export function createImportRecoveryService(
     if (!deps.storage) return 'storage-unavailable'
 
     const record: ImportRecoveryRecord = {
-      version: 8,
+      version: 9,
       expires_at: deps.now() + importRecoveryTtlMs,
       draft,
     }

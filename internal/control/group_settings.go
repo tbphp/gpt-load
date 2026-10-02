@@ -327,6 +327,10 @@ func (s *Service) UpdateGroupSettings(
 			updates["overrides"] = group.Overrides
 		}
 		if normalized.proxySet {
+			normalized.proxyConfig, err = s.managedProxyOverride(ctx, tx, normalized.proxyConfig)
+			if err != nil {
+				return err
+			}
 			group.ProxyConfig = normalized.proxyConfig
 			updates["proxy_config"] = normalized.proxyConfig
 		}
