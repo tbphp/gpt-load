@@ -16,6 +16,7 @@ const props = withDefaults(
     loading?: boolean
     disabled?: boolean
     asChild?: boolean
+    selectable?: boolean
   }>(),
   { variant: 'default', size: 'md', type: 'button', icon: undefined },
 )
@@ -24,8 +25,20 @@ const displayIcon = computed(() => (props.loading ? LoaderCircle : props.icon))
 const iconSize = computed(() => (props.size === 'xxs' ? 'xs' : props.size === 'xs' ? 'sm' : 'md'))
 const { forwardRef } = useForwardExpose()
 
-function preventInactiveClick(event: MouseEvent): void {
-  if (!inactive.value) return
+function hasSelectedText(event: MouseEvent): boolean {
+  // 键盘触发不受文字选择影响；仅检查当前按钮内的鼠标选择。
+  if (!props.selectable || event.detail === 0) return false
+  const element = event.currentTarget as HTMLElement
+  const selection = element.ownerDocument.getSelection()
+  if (!selection || selection.isCollapsed) return false
+  for (let index = 0; index < selection.rangeCount; index++) {
+    if (selection.getRangeAt(index).intersectsNode(element)) return true
+  }
+  return false
+}
+
+function preventInactiveOrSelectionClick(event: MouseEvent): void {
+  if (!inactive.value && !hasSelectedText(event)) return
   event.preventDefault()
   event.stopImmediatePropagation()
 }
@@ -42,12 +55,13 @@ function preventInactiveClick(event: MouseEvent): void {
       `modern-button--${variant}`,
       `modern-button--${size}`,
       { 'modern-button--icon': iconOnly },
+      { 'modern-button--selectable': selectable },
     ]"
     :disabled="!asChild && inactive ? true : undefined"
     :aria-disabled="inactive || undefined"
     :aria-busy="loading || undefined"
     :tabindex="asChild && inactive ? -1 : undefined"
-    @click.capture="preventInactiveClick"
+    @click.capture="preventInactiveOrSelectionClick"
   >
     <slot v-if="asChild" />
     <template v-else>
@@ -84,6 +98,10 @@ function preventInactiveClick(event: MouseEvent): void {
   text-decoration: none;
   box-shadow: var(--modern-shadow-control);
   user-select: none;
+}
+.modern-button--selectable {
+  -webkit-user-select: text;
+  user-select: text;
 }
 .modern-button:hover:not(:disabled, [aria-disabled='true']) {
   border-color: var(--modern-control-border-hover);
