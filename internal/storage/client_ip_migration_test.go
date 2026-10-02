@@ -9,6 +9,8 @@ import (
 )
 
 func TestClientIPMigrationContract(t *testing.T) {
+	t.Parallel()
+
 	testClientIPMigration(t, openInternalMigrationTestDatabase)
 }
 
@@ -24,6 +26,9 @@ func testClientIPMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted_column", "interrupted_complete"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if len(migrations) < 28 {
 				t.Fatal("client IP migration is missing")
 			}

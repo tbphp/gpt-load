@@ -9,6 +9,8 @@ import (
 )
 
 func TestOutputTimingMigrationContract(t *testing.T) {
+	t.Parallel()
+
 	testOutputTimingMigration(t, openInternalMigrationTestDatabase)
 }
 
@@ -24,6 +26,9 @@ func testOutputTimingMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted_first_column", "interrupted_complete"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if len(migrations) < 24 {
 				t.Fatal("output timing migration is missing")
 			}

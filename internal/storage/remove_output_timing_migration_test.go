@@ -9,6 +9,8 @@ import (
 )
 
 func TestRemoveOutputTimingMigrationContract(t *testing.T) {
+	t.Parallel()
+
 	testRemoveOutputTimingMigration(t, openInternalMigrationTestDatabase)
 }
 
@@ -24,6 +26,9 @@ func testRemoveOutputTimingMigration(t *testing.T, open func(*testing.T) *gorm.D
 	for _, version := range []int{0, 23, 24, 25, 26} {
 		t.Run(fmt.Sprintf("upgrade_%d", version), func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if version > 0 {
 				if err := applyMigrationRegistry(db, migrations[:version]); err != nil {
 					t.Fatal(err)
@@ -47,6 +52,9 @@ func testRemoveOutputTimingMigration(t *testing.T, open func(*testing.T) *gorm.D
 	for _, columns := range []int{1, 2} {
 		t.Run(fmt.Sprintf("interrupted_%d_columns", columns), func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if err := applyMigrationRegistry(db, migrations[:26]); err != nil {
 				t.Fatal(err)
 			}
@@ -79,6 +87,9 @@ func testRemoveOutputTimingMigration(t *testing.T, open func(*testing.T) *gorm.D
 	}
 	t.Run("unexplained_missing_column", func(t *testing.T) {
 		db := open(t)
+		if db.Dialector.Name() == "sqlite" {
+			t.Parallel()
+		}
 		if err := applyMigrationRegistry(db, migrations[:26]); err != nil {
 			t.Fatal(err)
 		}

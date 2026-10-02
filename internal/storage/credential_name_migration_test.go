@@ -9,6 +9,8 @@ import (
 )
 
 func TestCredentialNameMigrationContract(t *testing.T) {
+	t.Parallel()
+
 	testCredentialNameMigration(t, openInternalMigrationTestDatabase)
 }
 
@@ -24,6 +26,9 @@ func testCredentialNameMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
 	for _, scenario := range []string{"fresh", "upgrade", "interrupted"} {
 		t.Run(scenario, func(t *testing.T) {
 			db := open(t)
+			if db.Dialector.Name() == "sqlite" {
+				t.Parallel()
+			}
 			if len(migrations) < 26 {
 				t.Fatal("credential name migration is missing")
 			}
