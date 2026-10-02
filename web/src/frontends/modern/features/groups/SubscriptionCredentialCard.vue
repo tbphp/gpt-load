@@ -32,8 +32,14 @@ const props = defineProps<{
   pendingAction?: string
   syncSucceeded?: boolean
   error?: string
+  saveName: (name: string) => Promise<void>
 }>()
-defineEmits<{ select: [value: boolean]; toggle: [value: boolean]; action: [value: string] }>()
+defineEmits<{
+  select: [value: boolean]
+  toggle: [value: boolean]
+  action: [value: string]
+  nameDirty: [value: boolean]
+}>()
 const { t, n, locale } = useI18n()
 const state = computed(() => credentialStatus(props.row))
 const observation = computed(() => props.row.observation)
@@ -88,9 +94,12 @@ useLoadingActivity(() => Boolean(props.pending))
             class="modern-subscription-card-name"
             :name="row.name"
             :value="row.account || row.mask"
+            :save-name="saveName"
+            :disabled="disabled"
             subscription
             detail
             reveal
+            @dirty="$emit('nameDirty', $event)"
           />
           <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
             <span class="modern-subscription-card-rpm" tabindex="0"

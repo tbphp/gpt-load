@@ -27,8 +27,14 @@ const props = defineProps<{
   pending?: boolean
   error?: string
   resolveSecret: () => Promise<string>
+  saveName: (name: string) => Promise<void>
 }>()
-defineEmits<{ select: [value: boolean]; toggle: [value: boolean]; action: [value: string] }>()
+defineEmits<{
+  select: [value: boolean]
+  toggle: [value: boolean]
+  action: [value: string]
+  nameDirty: [value: boolean]
+}>()
 const { t, n, locale } = useI18n()
 const now = useClock()
 const state = computed(() => credentialStatus(props.row))
@@ -81,6 +87,9 @@ const issues = computed(() =>
           :copy-label="t('credentialCards.copyKey')"
           :value="row.mask"
           :resolve-value="resolveSecret"
+          :save-name="saveName"
+          :disabled="disabled"
+          @dirty="$emit('nameDirty', $event)"
         />
       </div>
       <AppTooltip :label="issues || undefined">

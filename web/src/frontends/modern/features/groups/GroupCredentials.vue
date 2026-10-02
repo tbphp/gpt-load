@@ -38,6 +38,7 @@ import {
   resetCredentialQuota,
   revealCredential,
   runCredentialAction,
+  updateCredential,
 } from '@modern/api/credential-actions'
 import { ApiError } from '@shared/http/errors'
 import {
@@ -124,6 +125,7 @@ watch(
 )
 const composing = ref(false)
 const selected = ref(new Set<number>())
+const nameDrafts = ref(new Set<number>())
 const credentialView = useURLState(
   ['credential', 'credential_view'],
   (query) => ({
@@ -697,6 +699,30 @@ function saved(row: CredentialRow): void {
   void changed()
   void cache.invalidateQueries({ queryKey: credentialDetailKey(props.group.id, row.id) })
 }
+function nameDirty(id: number, dirty: boolean): void {
+  if (dirty) nameDrafts.value.add(id)
+  else nameDrafts.value.delete(id)
+}
+async function saveName(row: CredentialRow, name: string): Promise<void> {
+  if (busy.value || syncPending(row.id)) throw new Error('CREDENTIAL_BUSY')
+  mutating.value = row.id
+  pendingAction.value = 'name'
+  try {
+    const result = await updateCredential(
+      client,
+      props.group.id,
+      row.id,
+      { name },
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+    cacheRow(result)
+    await changed()
+    void cache.invalidateQueries({ queryKey: credentialDetailKey(props.group.id, row.id) })
+  } finally {
+    mutating.value = undefined
+  }
+}
 async function action(row: CredentialRow, value: string): Promise<void> {
   if (busy.value || syncPending(row.id)) return
   if (value === 'quota') {
@@ -1054,6 +1080,8 @@ defineExpose({ refresh })
             :sync-succeeded="syncSucceeded.has(row.id)"
             :disabled="busy || syncPending(row.id)"
             :error="cardErrors.get(row.id)"
+            :save-name="(name) => saveName(row, name)"
+            @name-dirty="nameDirty(row.id, $event)"
             @select="select(row.id, $event)"
             @toggle="toggle(row, $event)"
             @action="action(row, $event)"
@@ -1066,6 +1094,8 @@ defineExpose({ refresh })
             :disabled="busy"
             :error="cardErrors.get(row.id)"
             :resolve-secret="copySecret(row.id)"
+            :save-name="(name) => saveName(row, name)"
+            @name-dirty="nameDirty(row.id, $event)"
             @select="select(row.id, $event)"
             @toggle="toggle(row, $event)"
             @action="action(row, $event)"
@@ -1156,7 +1186,7 @@ defineExpose({ refresh })
     @changed="changed"
   />
   <AppDraftGuard
-    :dirty="false"
+    :dirty="nameDrafts.size > 0"
     :pending="mutating !== undefined || accountBatchPending || syncing.size > 0"
   />
 </template>

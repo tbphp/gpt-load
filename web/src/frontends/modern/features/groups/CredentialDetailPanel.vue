@@ -45,7 +45,8 @@ const query = useQuery({
 const item = computed(() => query.data.value ?? props.row)
 const state = computed(() => credentialStatus(item.value))
 const saved = ref<CredentialRow>()
-const name = ref('')
+const nameDirty = ref(false)
+const namePending = ref(false)
 const weight = ref('')
 const proxyMode = ref('inherit')
 const proxyID = ref('')
@@ -58,7 +59,7 @@ const dirty = computed(
   () =>
     !completed.value &&
     Boolean(saved.value) &&
-    (name.value !== saved.value!.name ||
+    (nameDirty.value ||
       weight.value !== String(saved.value!.weightManual ?? '') ||
       proxyMode.value !== saved.value!.proxy.mode ||
       (Boolean(proxyID.value) && Number(proxyID.value) !== saved.value?.proxy.id)),
@@ -68,7 +69,6 @@ watch(
   (value) => {
     if (!value || dirty.value || saving.value) return
     saved.value = value
-    name.value = value.name
     weight.value = String(value.weightManual ?? '')
     proxyMode.value = value.proxy.mode
     proxyID.value = ''
@@ -110,7 +110,6 @@ async function save(): Promise<void> {
   attempted.value = true
   if (weightInvalid.value || proxyInvalid.value) return
   const patch: Parameters<typeof updateCredential>[3] = {}
-  if (name.value !== saved.value.name) patch.name = name.value.trim()
   if (weight.value !== String(saved.value.weightManual ?? ''))
     patch.weight_manual = weight.value ? Number(weight.value) : null
   if (proxyChanged.value)
@@ -141,6 +140,24 @@ async function save(): Promise<void> {
     saving.value = false
   }
 }
+async function saveName(name: string): Promise<void> {
+  await cache.cancelQueries({ queryKey: credentialDetailKey(props.group.id, props.row.id) })
+  const result = await updateCredential(
+    client,
+    props.group.id,
+    props.row.id,
+    { name },
+    controller.signal,
+  )
+  if (controller.signal.aborted) return
+  if (saved.value) saved.value = { ...saved.value, name: result.name, label: result.label }
+  cache.setQueryData(credentialDetailKey(props.group.id, props.row.id), {
+    ...item.value,
+    name: result.name,
+    label: result.label,
+  })
+  emit('saved', result)
+}
 onScopeDispose(() => controller.abort())
 useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : undefined))
 useMessageSource(() =>
@@ -157,10 +174,11 @@ useMessageSource(() =>
   <GroupWorkspacePanel
     :title="t('groupDetail.credentialDetails')"
     :description="item.label"
+    hide-description
     :dirty="dirty"
-    :pending="saving"
+    :pending="saving || namePending"
     :loading="query.isFetching.value"
-    :save-disabled="!saved"
+    :save-disabled="!saved || nameDirty"
     @close="emit('close')"
     @save="save"
   >
@@ -178,6 +196,11 @@ useMessageSource(() =>
         :subscription="group.connectionType === 'subscription'"
         detail
         :reveal="group.connectionType === 'subscription'"
+        :save-name="saveName"
+        edit-button
+        :disabled="saving"
+        @dirty="nameDirty = $event"
+        @pending="namePending = $event"
       />
       <CredentialTrends
         :subscription="group.connectionType === 'subscription'"
@@ -276,14 +299,6 @@ useMessageSource(() =>
             </span>
           </AppTooltip>
         </div>
-        <AppTextField
-          v-model="name"
-          :label="t('credentialCards.name')"
-          :placeholder="t('credentialCards.namePlaceholder')"
-          maxlength="255"
-          size="sm"
-          :disabled="saving"
-        />
         <div class="modern-credential-detail-routing">
           <AppTextField
             v-model="weight"
