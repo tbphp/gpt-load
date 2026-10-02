@@ -891,10 +891,6 @@ export default {
         duration: '所要時間',
         firstResponse: '初回応答',
         outputRate: '平均出力速度',
-        firstResponseHint:
-          '上流の最初のストリームデータを受信するまでの時間。再試行と認証情報の切り替えを含み、本文を含まない場合もあります。',
-        outputRateHint:
-          '平均出力速度 = 上流の出力 tokens ÷ 所要時間。再試行、認証情報の切り替え、思考、ストリーム終了待ちを含みます。',
         attemptCount: '試行回数',
         request: 'クライアントリクエスト',
         finalExecution: 'アップストリーム実行',

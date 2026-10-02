@@ -239,18 +239,20 @@ const hint = computed(() => {
   <AppTooltip v-else-if="table && column === 'attempt_count' && row.attempt_count > 1" :label="hint"
     ><span class="modern-log-retry">{{ display }}</span></AppTooltip
   >
+  <span
+    v-else-if="column === 'duration_ms' || column === 'first_response_ms'"
+    :class="{ 'modern-log-number': table, 'modern-log-empty': table && display === '—' }"
+    >{{ display }}</span
+  >
   <AppOverflowText
     v-else
     :text="display"
     :full-text="hint"
-    :hint="column === 'first_response_ms' ? t('logs.firstResponseHint') : undefined"
     :class="{
       'modern-log-empty': table && display === '—',
       'modern-log-amount':
         table && column === 'estimated_cost_nano_usd' && row.cost_state === 'priced',
-      'modern-log-number':
-        table &&
-        (tokenValue !== undefined || column === 'duration_ms' || column === 'first_response_ms'),
+      'modern-log-number': table && tokenValue !== undefined,
     }"
   />
 </template>

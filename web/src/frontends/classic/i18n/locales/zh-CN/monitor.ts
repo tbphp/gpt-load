@@ -872,9 +872,6 @@ export default {
         duration: '耗时',
         firstResponse: '首响',
         outputRate: '平均输出速度',
-        firstResponseHint: '收到首条上游流数据的耗时，包含重试和轮换等待；该数据可能尚未包含正文。',
-        outputRateHint:
-          '平均输出速度 = 上游输出 tokens ÷ 耗时，包含重试、凭据轮换、思考及流结束等待。',
         attemptCount: '尝试次数',
         request: '客户端请求',
         finalExecution: '上游执行',

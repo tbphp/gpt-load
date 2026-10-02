@@ -387,15 +387,12 @@ function fieldFilterValue(field: LogColumnId): string {
         <LogValue :row="row" column="first_response_ms" table />
       </template>
     </div>
-    <AppTooltip :label="t('logs.outputRateHint')">
-      <div
-        class="modern-log-cell-value modern-log-speed"
-        tabindex="0"
-        :aria-label="t('logs.outputRate') + ': ' + logOutputRate(row, locale)"
-      >
-        <AppOverflowText :text="logOutputRate(row, locale)" />
-      </div>
-    </AppTooltip>
+    <div
+      class="modern-log-cell-value modern-log-speed"
+      :aria-label="t('logs.outputRate') + ': ' + logOutputRate(row, locale)"
+    >
+      {{ logOutputRate(row, locale) }}
+    </div>
   </div>
   <div v-else-if="fields[0] === 'estimated_cost_nano_usd'" class="modern-log-cell-stack">
     <div class="modern-log-cell-value">

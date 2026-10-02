@@ -23,7 +23,6 @@ import {
   AppOverflowText,
   AppIcon,
   AppChannelIcon,
-  AppTooltip,
 } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import type { LogColumnId } from './log-columns'
@@ -263,14 +262,12 @@ function resolveRedactedLog(): Promise<string> {
                 <dd>
                   <template v-if="field === 'stream'">
                     {{ t(log.stream ? 'logs.yes' : 'logs.no') }}
-                    <AppTooltip v-if="outputRate !== '—'" :label="t('logs.outputRateHint')">
-                      <span
-                        class="modern-log-stream-rate"
-                        tabindex="0"
-                        :aria-label="t('logs.outputRate') + ': ' + outputRate"
-                        >&nbsp;·&nbsp;{{ outputRate }}</span
-                      >
-                    </AppTooltip>
+                    <span
+                      v-if="outputRate !== '—'"
+                      class="modern-log-stream-rate"
+                      :aria-label="t('logs.outputRate') + ': ' + outputRate"
+                      >&nbsp;·&nbsp;{{ outputRate }}</span
+                    >
                   </template>
                   <LogValue
                     v-else

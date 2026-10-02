@@ -1054,15 +1054,10 @@ function costLabel(log: RequestLogItemDto): string {
             role="cell"
             :data-label="t('monitor.logs.columns.timing')"
           >
-            <OverflowTooltip as="span" :content="timingPrimary(log)">
-              {{ timingPrimary(log) }}
-            </OverflowTooltip>
-            <AppTooltip
-              v-if="formatLogOutputRate(log, locale) !== '—'"
-              :content="t('monitor.logs.drawer.outputRateHint')"
-            >
-              <small tabindex="0">{{ formatLogOutputRate(log, locale) }}</small>
-            </AppTooltip>
+            <span>{{ timingPrimary(log) }}</span>
+            <small v-if="formatLogOutputRate(log, locale) !== '—'">
+              {{ formatLogOutputRate(log, locale) }}
+            </small>
           </div>
           <div
             class="ledger-record-list__cell logs-list__action"
