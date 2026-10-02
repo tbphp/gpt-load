@@ -263,10 +263,7 @@ const filterSummary = computed(() => [
           key: 'credential',
           label: t('groups.board.credentialFilter'),
           value: filteredCredential.value
-            ? filteredCredential.value.account ||
-              (props.group.connectionType === 'api_key'
-                ? filteredCredential.value.mask
-                : props.group.channelName)
+            ? filteredCredential.value.label
             : t('groups.board.selectedCredential'),
         },
       ]
@@ -1132,7 +1129,7 @@ defineExpose({ refresh })
     :open="Boolean(resetTarget)"
     :icon="RotateCcw"
     :title="t('credentialCards.useReset')"
-    :subject="resetTarget?.account || resetTarget?.mask"
+    :subject="resetTarget?.label"
     :description="t('credentialCards.confirmReset')"
     :confirm-label="t('credentialCards.useReset')"
     :pending="mutating !== undefined"

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import CredentialDisplay from '@/components/CredentialDisplay.vue'
+import CredentialNameEditor from './CredentialNameEditor.vue'
 import {
   Check,
   CircleCheck,
@@ -54,6 +56,7 @@ const props = withDefaults(
     channelMark?: string
     capabilities: ChannelCapabilitiesDto
     saveProxy: (value: ProxyMutation) => Promise<void>
+    saveName: (value: string) => Promise<void>
   }>(),
   {
     channelIcon: undefined,
@@ -247,7 +250,7 @@ const quotaSubjectKeys: Readonly<Record<string, CredentialQuotaLabelKey>> = {
   'pay as you go': 'pay_as_you_go',
   'oauth apps': 'oauth_apps',
 }
-const accountName = computed(() => props.item.account.email ?? props.item.mask)
+const accountName = computed(() => props.item.label)
 const planLabel = computed(() => {
   const plan = snapshot.value?.plan_summary.name?.trim()
   return plan ?? ''
@@ -884,9 +887,14 @@ function runMenuAction(
           </div>
         </div>
         <div class="subscription-account__top-row">
-          <OverflowTooltip class="subscription-account__mail" :content="accountName">
-            {{ accountName }}
-          </OverflowTooltip>
+          <CredentialDisplay
+            class="subscription-account__mail"
+            :name="item.name"
+            :value="item.account.email || item.mask"
+            subscription
+            detail
+            reveal
+          />
         </div>
       </header>
 
@@ -1305,6 +1313,7 @@ function runMenuAction(
         </section>
       </div>
       <div class="subscription-account__panels">
+        <CredentialNameEditor :value="item.name" :disabled="busy" :save="saveName" />
         <div class="setting-panel">
           <span class="setting-panel__title">{{ t('group.credentials.columns.weight') }}</span>
           <div class="setting-panel__body">

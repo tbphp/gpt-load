@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
@@ -6,7 +7,6 @@ import {
   AppBadge,
   AppButton,
   AppCheckbox,
-  AppCopyValue,
   AppOverflowText,
   AppSwitch,
   AppTooltip,
@@ -64,20 +64,23 @@ const issues = computed(() =>
 <template>
   <CredentialCardFrame :selected="selected" :pending="pending" compact>
     <template #heading>
-      <AppTooltip :label="t('groupDetail.selectCredential', { name: row.mask })"
+      <AppTooltip :label="t('groupDetail.selectCredential', { name: row.label })"
         ><AppCheckbox
           :model-value="selected"
-          :label="t('groupDetail.selectCredential', { name: row.mask })"
+          :label="t('groupDetail.selectCredential', { name: row.label })"
           label-hidden
           :disabled="disabled"
           @update:model-value="$emit('select', $event)"
       /></AppTooltip>
       <div class="modern-api-card-secret">
-        <AppCopyValue
+        <CredentialDisplay
           :key="row.secretVersion"
+          :name="row.name"
+          detail
+          copy
+          :copy-label="t('credentialCards.copyKey')"
           :value="row.mask"
           :resolve-value="resolveSecret"
-          :label="t('credentialCards.copyKey')"
         />
       </div>
       <AppTooltip :label="issues || undefined">

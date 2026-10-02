@@ -400,6 +400,12 @@ export default {
       settings: '設定',
     },
     credentials: {
+      name: '名前',
+      namePlaceholder: '認証情報の表示名（任意）',
+      nameSaveFailed: '名前を保存できませんでした。再試行してください。',
+      showAccount: 'アカウント全体を表示',
+      hideAccount: 'アカウント全体を隠す',
+
       modelCooldown: {
         label: 'モデルクールダウン',
         count: 'モデルクールダウン · {count}',

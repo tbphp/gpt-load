@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onScopeDispose } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppCopyValue, AppOverflowText } from '@modern/components/ui'
+import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { revealCredential } from '@modern/api/credential-actions'
 import { useApiClient } from '@shared/http/client-context'
 
@@ -25,8 +25,9 @@ const canCopy = computed(() =>
   Boolean(
     !props.deleted &&
     props.name &&
-    (props.connectionType === 'subscription' ||
-      (props.connectionType === 'api_key' && props.groupId && props.credentialId)),
+    props.connectionType === 'api_key' &&
+    props.groupId &&
+    props.credentialId,
   ),
 )
 function resolveSecret(): Promise<string> {
@@ -36,13 +37,14 @@ function resolveSecret(): Promise<string> {
 </script>
 
 <template>
-  <AppCopyValue
-    v-if="canCopy"
+  <CredentialDisplay
+    :name="display"
     :value="name"
-    :label="t('logs.copyCredential')"
-    :resolve-value="connectionType === 'api_key' ? resolveSecret : undefined"
+    :copy="canCopy"
+    :copy-label="t('logs.copyCredential')"
+    :resolve-value="resolveSecret"
+    :class="{ 'modern-log-credential-deleted': deleted }"
   />
-  <AppOverflowText v-else :text="display" :class="{ 'modern-log-credential-deleted': deleted }" />
 </template>
 
 <style scoped>

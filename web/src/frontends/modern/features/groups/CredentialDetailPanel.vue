@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { Info } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -44,6 +45,7 @@ const query = useQuery({
 const item = computed(() => query.data.value ?? props.row)
 const state = computed(() => credentialStatus(item.value))
 const saved = ref<CredentialRow>()
+const name = ref('')
 const weight = ref('')
 const proxyMode = ref('inherit')
 const proxyID = ref('')
@@ -56,7 +58,8 @@ const dirty = computed(
   () =>
     !completed.value &&
     Boolean(saved.value) &&
-    (weight.value !== String(saved.value!.weightManual ?? '') ||
+    (name.value !== saved.value!.name ||
+      weight.value !== String(saved.value!.weightManual ?? '') ||
       proxyMode.value !== saved.value!.proxy.mode ||
       (Boolean(proxyID.value) && Number(proxyID.value) !== saved.value?.proxy.id)),
 )
@@ -65,6 +68,7 @@ watch(
   (value) => {
     if (!value || dirty.value || saving.value) return
     saved.value = value
+    name.value = value.name
     weight.value = String(value.weightManual ?? '')
     proxyMode.value = value.proxy.mode
     proxyID.value = ''
@@ -106,6 +110,7 @@ async function save(): Promise<void> {
   attempted.value = true
   if (weightInvalid.value || proxyInvalid.value) return
   const patch: Parameters<typeof updateCredential>[3] = {}
+  if (name.value !== saved.value.name) patch.name = name.value.trim()
   if (weight.value !== String(saved.value.weightManual ?? ''))
     patch.weight_manual = weight.value ? Number(weight.value) : null
   if (proxyChanged.value)
@@ -151,7 +156,7 @@ useMessageSource(() =>
 <template>
   <GroupWorkspacePanel
     :title="t('groupDetail.credentialDetails')"
-    :description="row.account || row.mask"
+    :description="item.label"
     :dirty="dirty"
     :pending="saving"
     :loading="query.isFetching.value"
@@ -167,6 +172,13 @@ useMessageSource(() =>
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
+      <CredentialDisplay
+        :name="item.name"
+        :value="item.account || item.mask"
+        :subscription="group.connectionType === 'subscription'"
+        detail
+        :reveal="group.connectionType === 'subscription'"
+      />
       <CredentialTrends
         :subscription="group.connectionType === 'subscription'"
         :group="group.id"
@@ -264,6 +276,14 @@ useMessageSource(() =>
             </span>
           </AppTooltip>
         </div>
+        <AppTextField
+          v-model="name"
+          :label="t('credentialCards.name')"
+          :placeholder="t('credentialCards.namePlaceholder')"
+          maxlength="255"
+          size="sm"
+          :disabled="saving"
+        />
         <div class="modern-credential-detail-routing">
           <AppTextField
             v-model="weight"

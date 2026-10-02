@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { Check, RefreshCw, Ticket } from '@lucide/vue'
 import { computed } from 'vue'
@@ -71,11 +72,11 @@ useLoadingActivity(() => Boolean(props.pending))
     :aria-busy="pending || undefined"
   >
     <header class="modern-subscription-card-heading">
-      <AppTooltip :label="t('groupDetail.selectCredential', { name: row.account || row.mask })">
+      <AppTooltip :label="t('groupDetail.selectCredential', { name: row.label })">
         <AppCheckbox
           class="modern-subscription-card-select"
           :model-value="selected"
-          :label="t('groupDetail.selectCredential', { name: row.account || row.mask })"
+          :label="t('groupDetail.selectCredential', { name: row.label })"
           label-hidden
           :disabled="disabled"
           @update:model-value="$emit('select', $event)"
@@ -83,7 +84,14 @@ useLoadingActivity(() => Boolean(props.pending))
       </AppTooltip>
       <div class="modern-subscription-card-identity">
         <div class="modern-subscription-card-name-line">
-          <AppOverflowText class="modern-subscription-card-name" :text="row.account || row.mask" />
+          <CredentialDisplay
+            class="modern-subscription-card-name"
+            :name="row.name"
+            :value="row.account || row.mask"
+            subscription
+            detail
+            reveal
+          />
           <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
             <span class="modern-subscription-card-rpm" tabindex="0"
               >{{ t('rpm.cardLabel') }} {{ n(row.rpmPeakHour) }}</span
