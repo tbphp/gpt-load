@@ -135,6 +135,8 @@ export const zhCN = {
     network: '网络错误',
     model: '模型不可用',
   },
+  policy: '账号策略',
+  managePolicy: '管理账号策略',
 }
 export const enUS: typeof zhCN = {
   name: 'Name',
@@ -278,6 +280,8 @@ export const enUS: typeof zhCN = {
     network: 'Network error',
     model: 'Model unavailable',
   },
+  policy: 'Credential policy',
+  managePolicy: 'Manage policy',
 }
 export const jaJP: typeof zhCN = {
   name: '名前',
@@ -417,4 +421,6 @@ export const jaJP: typeof zhCN = {
     network: 'ネットワークエラー',
     model: 'モデル利用不可',
   },
+  policy: 'アカウントポリシー',
+  managePolicy: 'ポリシーを管理',
 }

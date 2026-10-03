@@ -1,0 +1,247 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { Plus } from '@lucide/vue'
+import { AppButton, AppNotice } from '@modern/components/ui'
+import {
+  arrayItems,
+  duplicateRule,
+  getField,
+  hasFatalIssue,
+  insertRule,
+  insertRuleAfter,
+  literalString,
+  moveRule,
+  newRule,
+  newRuleId,
+  policyLimits,
+  readVisualDocument,
+  removeRuleAt,
+  replaceRuleAt,
+  serializeJson,
+  unsupportedPaths,
+  type JsonNode,
+  type JsonObjectNode,
+  type PolicyDomain,
+  type PolicyIssue,
+  type PolicyIssueCode,
+  type VisualDocumentResult,
+} from './policy-model'
+import { usePolicyMessages } from './use-policy-messages'
+import PolicyRuleCard from './PolicyRuleCard.vue'
+
+const props = withDefaults(
+  defineProps<{
+    // 顶层配置正文；空白/非法时只报错，绝不当作清空。
+    modelValue: string
+    defaultDomain?: PolicyDomain
+    disabled?: boolean
+  }>(),
+  { defaultDomain: 'scheduling', disabled: false },
+)
+const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const { t } = usePolicyMessages()
+
+const root = ref<JsonObjectNode>()
+const rules = ref<VisualDocumentResult['rules']>([])
+const issues = ref<PolicyIssue[]>([])
+let lastEmitted: string | undefined
+
+function applyResult(result: VisualDocumentResult): void {
+  root.value = result.root
+  rules.value = result.rules
+  issues.value = result.issues
+}
+
+watch(
+  () => props.modelValue,
+  (text) => {
+    // 自主提交产生的回传不再重新解析，避免覆盖正在编辑的草稿；初始空白不会被误判为已提交。
+    if (text === lastEmitted) return
+    applyResult(readVisualDocument(text))
+  },
+  { immediate: true },
+)
+
+const fatalIssue = computed(() => issues.value.find((issue) => issue.fatal))
+const unsupported = computed(() => unsupportedPaths(issues.value))
+// 以原始数组长度与索引为准，避免读取失败的规则导致可视化索引错位。
+const rootRules = computed(() => {
+  const current = root.value
+  return current ? (arrayItems(getField(current, 'rules')) ?? []) : []
+})
+const totalRules = computed(() => rootRules.value.length)
+const ruleIds = computed(() =>
+  rootRules.value.map((item) => literalString(getField(item, 'id')) ?? '').filter(Boolean),
+)
+// 以规则 ID 作为稳定键，让重排/移除时的本地草稿跟随规则；重复与缺失 ID 用序号消歧。
+const ruleKeys = computed(() => {
+  const seen = new Map<string, number>()
+  return rules.value.map((rule) => {
+    const base = rule.id || `invalid-${rule.index}`
+    const occurrence = (seen.get(base) ?? 0) + 1
+    seen.set(base, occurrence)
+    return occurrence > 1 ? `${base}#${occurrence}` : base
+  })
+})
+
+const maxByCode: Partial<Record<PolicyIssueCode, number>> = {
+  ruleCount: policyLimits.maxRulesPerConfig,
+  conditionDepth: policyLimits.maxConditionDepth,
+  nodePerRule: policyLimits.maxNodesPerRule,
+  nodePerConfig: policyLimits.maxNodesPerConfig,
+}
+
+function issueText(issue: PolicyIssue): string {
+  return t(`policyEditor.errors.${issue.code}`, { max: maxByCode[issue.code] ?? 0 })
+}
+
+function commit(next: JsonObjectNode): void {
+  if (props.disabled) return
+  const text = serializeJson(next)
+  lastEmitted = text
+  applyResult(readVisualDocument(text))
+  emit('update:modelValue', text)
+}
+
+function updateRule(index: number, node: JsonNode): void {
+  if (props.disabled) return
+  if (root.value) commit(replaceRuleAt(root.value, index, node))
+}
+
+function addRule(): void {
+  if (props.disabled || !root.value) return
+  commit(insertRule(root.value, newRule(newRuleId(ruleIds.value), props.defaultDomain)))
+}
+
+function moveRuleTo(index: number, delta: number): void {
+  if (props.disabled) return
+  if (root.value) commit(moveRule(root.value, index, index + delta))
+}
+
+function duplicateRuleAt(index: number): void {
+  if (props.disabled) return
+  // 可视化列表已过滤掉非对象项，必须按原始 JSON 索引定位，不能按下标取。
+  const rule = rules.value.find((item) => item.index === index)
+  if (!root.value || !rule) return
+  const copy = duplicateRule(rule, ruleIds.value)
+  if (copy) commit(insertRuleAfter(root.value, index, copy))
+}
+
+function removeRule(index: number): void {
+  if (props.disabled) return
+  if (root.value) commit(removeRuleAt(root.value, index))
+}
+
+const limitActive = computed(() => hasFatalIssue(issues.value))
+</script>
+
+<template>
+  <div class="policy-editor">
+    <div class="policy-editor-heading">
+      <div>
+        <h4>{{ t('policyEditor.title') }}</h4>
+        <p>{{ t('policyEditor.description') }}</p>
+      </div>
+      <AppButton
+        variant="outline"
+        size="sm"
+        :icon="Plus"
+        :disabled="disabled || limitActive"
+        @click="addRule"
+      >
+        {{ t('policyEditor.addRule') }}
+      </AppButton>
+    </div>
+
+    <AppNotice v-if="fatalIssue" tone="danger" class="policy-editor-notice">
+      <strong>{{ t('policyEditor.limitsTitle') }}</strong>
+      <span>{{ issueText(fatalIssue) }}</span>
+    </AppNotice>
+
+    <template v-else>
+      <AppNotice v-if="unsupported.length" tone="warning" class="policy-editor-notice">
+        <strong>{{ t('policyEditor.unsupportedTitle') }}</strong>
+        <span>{{ t('policyEditor.unsupportedHint') }}</span>
+        <span class="policy-editor-paths">
+          <span v-for="path in unsupported" :key="path" class="policy-editor-path font-mono">{{
+            path
+          }}</span>
+        </span>
+      </AppNotice>
+
+      <p v-if="totalRules" class="policy-editor-count">
+        {{ t('policyEditor.ruleCount', { count: totalRules }) }}
+      </p>
+
+      <div v-if="rules.length" class="policy-editor-rules">
+        <PolicyRuleCard
+          v-for="(rule, position) in rules"
+          :key="ruleKeys[position]"
+          :rule="rule"
+          :index="rule.index"
+          :total="totalRules"
+          :disabled="disabled"
+          @update="(node) => updateRule(rule.index, node)"
+          @move="(delta) => moveRuleTo(rule.index, delta)"
+          @duplicate="duplicateRuleAt(rule.index)"
+          @remove="removeRule(rule.index)"
+        />
+      </div>
+      <p v-else class="policy-editor-empty">{{ t('policyEditor.emptyRules') }}</p>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.policy-editor {
+  display: grid;
+  gap: var(--modern-space-3);
+  min-width: 0;
+}
+.policy-editor-heading {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--modern-space-3);
+}
+.policy-editor-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.policy-editor-heading h4 {
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-semibold);
+}
+.policy-editor-heading p {
+  margin-top: var(--modern-space-1);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.policy-editor-notice {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.policy-editor-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--modern-space-2);
+}
+.policy-editor-path {
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-small);
+  padding: 0 var(--modern-space-1);
+  font-size: var(--modern-font-size-caption);
+}
+.policy-editor-count {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.policy-editor-rules {
+  display: grid;
+  gap: var(--modern-space-3);
+}
+.policy-editor-empty {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+</style>

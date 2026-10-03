@@ -51,6 +51,7 @@ import { createOperationKey, useGroupCreateOperation } from './group-create-oper
 import APIKeyCredentialCard from './APIKeyCredentialCard.vue'
 import SubscriptionCredentialCard from './SubscriptionCredentialCard.vue'
 import CredentialDetailPanel from './CredentialDetailPanel.vue'
+import GroupPolicyPanel from './GroupPolicyPanel.vue'
 import CredentialTestDialog from './CredentialTestDialog.vue'
 import {
   AppButton,
@@ -120,13 +121,17 @@ const credentialView = useURLState(
   ['credential', 'credential_view'],
   (query) => ({
     id: positivePage(query.credential, 0),
-    mode: query.credential_view === 'test' ? 'test' : 'details',
+    mode: (query.credential_view === 'test'
+      ? 'test'
+      : query.credential_view === 'policy'
+        ? 'policy'
+        : 'details') as 'details' | 'test' | 'policy',
   }),
   (value) =>
     value.id
       ? {
           credential: String(value.id),
-          ...(value.mode === 'test' ? { credential_view: 'test' } : {}),
+          ...(value.mode !== 'details' ? { credential_view: value.mode } : {}),
         }
       : {},
 )
@@ -154,6 +159,15 @@ const testing = computed({
       : undefined,
   set: (row: CredentialRow | undefined) => {
     credentialView.value = { id: row?.id ?? 0, mode: 'test' }
+  },
+})
+const policyTarget = computed({
+  get: () =>
+    credentialView.value.id && credentialView.value.mode === 'policy'
+      ? credentialQuery.data.value
+      : undefined,
+  set: (row: { id?: number } | undefined) => {
+    credentialView.value = { id: row?.id ?? 0, mode: 'policy' }
   },
 })
 const resetTarget = ref<CredentialRow>()
@@ -763,6 +777,10 @@ async function action(row: CredentialRow, value: string): Promise<void> {
     detail.value = row
     return
   }
+  if (value === 'policy') {
+    policyTarget.value = row
+    return
+  }
   if (value === 'test') {
     testing.value = row
     return
@@ -1198,6 +1216,15 @@ defineExpose({ refresh })
     :channel="channel"
     @close="detail = undefined"
     @saved="saved"
+    @policy="credentialView = { id: credentialView.id, mode: 'policy' }"
+  />
+  <GroupPolicyPanel
+    v-if="policyTarget"
+    :key="policyTarget.id"
+    :group="group"
+    :credential="policyTarget"
+    @close="policyTarget = undefined"
+    @saved="emit('changed')"
   />
   <CredentialTestDialog
     v-if="testing"

@@ -266,102 +266,35 @@ function reasoning(value: unknown): LogReasoning | null {
 }
 function receipt(value: unknown): LogReceipt | null {
   if (value == null) return null
-  if (typeof value !== 'object' || Array.isArray(value)) throw new InvalidResponseError()
-  if (!Object.prototype.hasOwnProperty.call(value, 'schema_version')) {
-    throw new InvalidResponseError()
-  }
-
-  const allowedReceiptKeys = new Set([
-    'schema_version',
-    'currency',
-    'method',
-    'method_version',
-    'pricing_mode',
-    'price_multipliers',
-    'policy_factors',
-    'rule',
-    'context_threshold_tokens',
-    'line_items',
-    'base_total_nano_usd',
-    'total_nano_usd',
-  ])
-  for (const k of Object.keys(value)) {
-    if (!allowedReceiptKeys.has(k)) throw new InvalidResponseError()
-  }
-  for (const k of [
-    'pricing_mode',
-    'currency',
-    'method',
-    'method_version',
-    'rule',
-    'line_items',
-    'total_nano_usd',
-  ]) {
-    if (!Object.prototype.hasOwnProperty.call(value, k)) throw new InvalidResponseError()
-  }
-
   const row = record(value)
   const schemaVersion = integer(row.schema_version, 1)
   if (schemaVersion < 1 || schemaVersion > 7) throw new InvalidResponseError()
   if (row.pricing_mode == null) throw new InvalidResponseError()
 
   if (schemaVersion < 5) {
-    if (
-      Object.prototype.hasOwnProperty.call(value, 'price_multipliers') &&
-      row.price_multipliers !== null &&
-      row.price_multipliers !== undefined
-    ) {
-      throw new InvalidResponseError()
-    }
-  } else {
-    if (
-      !Object.prototype.hasOwnProperty.call(value, 'price_multipliers') ||
-      row.price_multipliers == null
-    ) {
-      throw new InvalidResponseError()
-    }
+    if (row.price_multipliers != null) throw new InvalidResponseError()
+  } else if (row.price_multipliers == null) {
+    throw new InvalidResponseError()
   }
   const multipliers = row.price_multipliers == null ? null : record(row.price_multipliers)
 
   if (schemaVersion < 6) {
-    if (
-      Object.prototype.hasOwnProperty.call(value, 'base_total_nano_usd') &&
-      row.base_total_nano_usd !== null &&
-      row.base_total_nano_usd !== undefined
-    ) {
-      throw new InvalidResponseError()
-    }
-  } else {
-    if (
-      !Object.prototype.hasOwnProperty.call(value, 'base_total_nano_usd') ||
-      row.base_total_nano_usd == null
-    ) {
-      throw new InvalidResponseError()
-    }
+    if (row.base_total_nano_usd != null) throw new InvalidResponseError()
+  } else if (row.base_total_nano_usd == null) {
+    throw new InvalidResponseError()
   }
 
   if (schemaVersion < 7) {
-    if (
-      Object.prototype.hasOwnProperty.call(value, 'policy_factors') &&
-      row.policy_factors !== null &&
-      row.policy_factors !== undefined
-    ) {
-      throw new InvalidResponseError()
-    }
-  } else {
-    if (
-      !Object.prototype.hasOwnProperty.call(value, 'policy_factors') ||
-      row.policy_factors == null
-    ) {
-      throw new InvalidResponseError()
-    }
+    if (row.policy_factors != null) throw new InvalidResponseError()
+  } else if (row.policy_factors == null) {
+    throw new InvalidResponseError()
   }
 
   let policyFactors: LogPolicyFactor[] | null = null
   if (schemaVersion >= 7) {
     if (!Array.isArray(row.policy_factors)) throw new InvalidResponseError()
     const rawFactors = row.policy_factors
-    if (rawFactors.length === 0 || rawFactors.length > 200) throw new InvalidResponseError()
+    if (rawFactors.length === 0) throw new InvalidResponseError()
 
     const requiredKeys = [
       'rule_id',
@@ -398,14 +331,6 @@ function receipt(value: unknown): LogReceipt | null {
       }
     }
 
-    let seenCredential = false
-    const seenGroup = new Set<string>()
-    const seenCred = new Set<string>()
-    let groupRev: string | null = null
-    let credRev: string | null = null
-    let groupCount = 0
-    let credCount = 0
-
     policyFactors = rawFactors.map((v) => {
       if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new InvalidResponseError()
       for (const k of requiredKeys) {
@@ -437,24 +362,6 @@ function receipt(value: unknown): LogReceipt | null {
         throw new InvalidResponseError()
       }
       if (normalizeMultiplier(factor) !== multiplier) throw new InvalidResponseError()
-
-      if (scope === 'group') {
-        if (seenCredential) throw new InvalidResponseError()
-        groupCount++
-        if (groupCount > 100) throw new InvalidResponseError()
-        if (seenGroup.has(ruleId)) throw new InvalidResponseError()
-        seenGroup.add(ruleId)
-        if (groupRev === null) groupRev = rev
-        else if (groupRev !== rev) throw new InvalidResponseError()
-      } else {
-        seenCredential = true
-        credCount++
-        if (credCount > 100) throw new InvalidResponseError()
-        if (seenCred.has(ruleId)) throw new InvalidResponseError()
-        seenCred.add(ruleId)
-        if (credRev === null) credRev = rev
-        else if (credRev !== rev) throw new InvalidResponseError()
-      }
 
       return {
         rule_id: ruleId,

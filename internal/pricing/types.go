@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -149,8 +148,7 @@ func (factor *PolicyFactor) UnmarshalJSON(data []byte) error {
 		"factor":        {},
 		"multiplier":    {},
 	}
-	seenExact := make(map[string]struct{})
-	seenLower := make(map[string]struct{})
+	seen := make(map[string]struct{})
 	rawValues := make(map[string]json.RawMessage)
 
 	for dec.More() {
@@ -162,12 +160,10 @@ func (factor *PolicyFactor) UnmarshalJSON(data []byte) error {
 		if !ok {
 			return fmt.Errorf("pricing: object key must be a string")
 		}
-		lowerKey := strings.ToLower(key)
-		if _, exists := seenLower[lowerKey]; exists {
-			return fmt.Errorf("pricing: duplicate or alias policy factor field %q", key)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("pricing: duplicate policy factor field %q", key)
 		}
-		seenLower[lowerKey] = struct{}{}
-		seenExact[key] = struct{}{}
+		seen[key] = struct{}{}
 
 		if _, ok := canonicalKeys[key]; !ok {
 			return fmt.Errorf("pricing: unknown policy factor field %q", key)
@@ -222,18 +218,7 @@ func (factor *PolicyFactor) UnmarshalJSON(data []byte) error {
 
 	var revUint uint64
 	if err := json.Unmarshal(rawValues["revision"], &revUint); err != nil {
-		var revStr string
-		if err2 := json.Unmarshal(rawValues["revision"], &revStr); err2 != nil {
-			return fmt.Errorf("pricing: policy factor revision must be uint64 or string: %w", err)
-		}
-		if strings.TrimSpace(revStr) != revStr || revStr == "" {
-			return fmt.Errorf("pricing: policy factor revision string invalid")
-		}
-		parsedRev, err3 := strconv.ParseUint(revStr, 10, 64)
-		if err3 != nil {
-			return fmt.Errorf("pricing: policy factor revision invalid: %w", err3)
-		}
-		revUint = parsedRev
+		return fmt.Errorf("pricing: policy factor revision must be uint64: %w", err)
 	}
 	if revUint == 0 {
 		return fmt.Errorf("pricing: policy factor revision must be positive")

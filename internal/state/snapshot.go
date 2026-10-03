@@ -42,7 +42,6 @@ type CompileInput struct {
 	ClientModelOverrides map[string]catalog.ClientModelOverrides
 	GlobalProxy          *outboundproxy.Config
 	EnvironmentProxy     *outboundproxy.Config
-	Policies             *policy.RuntimeView
 	PolicyBindings       []policy.BindingConfig
 }
 
@@ -233,9 +232,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		return nil, err
 	}
 	var policyView *policy.RuntimeView
-	if input.Policies != nil {
-		policyView = input.Policies.Clone()
-	} else if len(input.PolicyBindings) > 0 {
+	if len(input.PolicyBindings) > 0 {
 		pv, err := policy.CompileRuntimeView(input.PolicyBindings)
 		if err != nil {
 			return nil, fmt.Errorf("compile policy bindings: %w", err)

@@ -107,7 +107,7 @@ func evalConditionFast(node *ConditionNode, ctx *EvalContext) TruthValue {
 
 	case ConditionKindParam:
 		if node.IsQuota {
-			ratio, ok, _ := scanQuotaMin(ctx.QuotaWindows, node.Selector, ctx.Now)
+			ratio, ok, _ := scanQuotaMin(ctx.QuotaWindows, node.Selector, ctx.EffectiveQuotaNow())
 			if !ok {
 				return TruthUnknown
 			}
@@ -185,84 +185,31 @@ func evalConditionInspect(node *ConditionNode, ctx *EvalContext) (TruthValue, st
 	}
 
 	switch node.Kind {
-	case ConditionKindAll:
-		hasUnknown := false
+	case ConditionKindAll, ConditionKindAny:
+		combine := TruthValue.And
+		truth := TruthTrue
+		if node.Kind == ConditionKindAny {
+			combine = TruthValue.Or
+			truth = TruthFalse
+		}
 		unknownReason := ""
 		childrenDiag := make([]NodeInspectResult, 0, len(node.Children))
-		hasFalse := false
-
 		for _, child := range node.Children {
 			t, r, diag := evalConditionInspect(child, ctx)
 			childrenDiag = append(childrenDiag, diag)
-			if t == TruthFalse {
-				hasFalse = true
-			} else if t == TruthUnknown {
-				hasUnknown = true
-				if unknownReason == "" {
-					unknownReason = r
-				}
+			if t == TruthUnknown && unknownReason == "" {
+				unknownReason = r
 			}
+			truth = combine(truth, t)
 		}
-
-		if hasFalse {
-			return TruthFalse, "", NodeInspectResult{
-				Kind:     ConditionKindAll,
-				Truth:    TruthFalse,
-				Children: childrenDiag,
-			}
+		if truth != TruthUnknown {
+			unknownReason = ""
 		}
-		if hasUnknown {
-			return TruthUnknown, unknownReason, NodeInspectResult{
-				Kind:          ConditionKindAll,
-				Truth:         TruthUnknown,
-				UnknownReason: unknownReason,
-				Children:      childrenDiag,
-			}
-		}
-		return TruthTrue, "", NodeInspectResult{
-			Kind:     ConditionKindAll,
-			Truth:    TruthTrue,
-			Children: childrenDiag,
-		}
-
-	case ConditionKindAny:
-		hasTrue := false
-		hasUnknown := false
-		unknownReason := ""
-		childrenDiag := make([]NodeInspectResult, 0, len(node.Children))
-
-		for _, child := range node.Children {
-			t, r, diag := evalConditionInspect(child, ctx)
-			childrenDiag = append(childrenDiag, diag)
-			if t == TruthTrue {
-				hasTrue = true
-			} else if t == TruthUnknown {
-				hasUnknown = true
-				if unknownReason == "" {
-					unknownReason = r
-				}
-			}
-		}
-
-		if hasTrue {
-			return TruthTrue, "", NodeInspectResult{
-				Kind:     ConditionKindAny,
-				Truth:    TruthTrue,
-				Children: childrenDiag,
-			}
-		}
-		if hasUnknown {
-			return TruthUnknown, unknownReason, NodeInspectResult{
-				Kind:          ConditionKindAny,
-				Truth:         TruthUnknown,
-				UnknownReason: unknownReason,
-				Children:      childrenDiag,
-			}
-		}
-		return TruthFalse, "", NodeInspectResult{
-			Kind:     ConditionKindAny,
-			Truth:    TruthFalse,
-			Children: childrenDiag,
+		return truth, unknownReason, NodeInspectResult{
+			Kind:          node.Kind,
+			Truth:         truth,
+			UnknownReason: unknownReason,
+			Children:      childrenDiag,
 		}
 
 	case ConditionKindNot:
@@ -284,7 +231,7 @@ func evalConditionInspect(node *ConditionNode, ctx *EvalContext) (TruthValue, st
 
 	case ConditionKindParam:
 		if node.IsQuota {
-			matchingRatio, ok, reason := scanQuotaMin(ctx.QuotaWindows, node.Selector, ctx.Now)
+			matchingRatio, ok, reason := scanQuotaMin(ctx.QuotaWindows, node.Selector, ctx.EffectiveQuotaNow())
 			if !ok {
 				return TruthUnknown, reason, NodeInspectResult{
 					Kind:          ConditionKindParam,
@@ -468,73 +415,25 @@ func compareNumber(actual float64, op string, expected float64) TruthValue {
 }
 
 func compareNumberWithShift(actual float64, op string, expected float64, shift int8) TruthValue {
-	if shift == 0 {
-		switch op {
-		case "eq":
-			if actual == expected {
-				return TruthTrue
-			}
-			return TruthFalse
-		case "lt":
-			if actual < expected {
-				return TruthTrue
-			}
-			return TruthFalse
-		case "lte":
-			if actual <= expected {
-				return TruthTrue
-			}
-			return TruthFalse
-		case "gt":
-			if actual > expected {
-				return TruthTrue
-			}
-			return TruthFalse
-		case "gte":
-			if actual >= expected {
-				return TruthTrue
-			}
-			return TruthFalse
-		default:
-			return TruthUnknown
-		}
-	}
-
-	if shift < 0 {
-		// 原始十进制严格小于 expected (例如 0.99999999999999999 < 1.0)
-		switch op {
-		case "eq":
-			return TruthFalse
-		case "lt", "lte":
-			if actual < expected {
-				return TruthTrue
-			}
-			return TruthFalse
-		case "gt", "gte":
-			if actual >= expected {
-				return TruthTrue
-			}
-			return TruthFalse
-		default:
-			return TruthUnknown
-		}
-	}
-
-	// shift > 0: 原始十进制严格大于 expected
 	switch op {
 	case "eq":
-		return TruthFalse
-	case "lt", "lte":
-		if actual <= expected {
-			return TruthTrue
-		}
-		return TruthFalse
-	case "gt", "gte":
-		if actual > expected {
-			return TruthTrue
-		}
-		return TruthFalse
+		return truthOf(shift == 0 && actual == expected)
+	case "lt":
+		return truthOf(actual < expected || (actual == expected && shift > 0))
+	case "lte":
+		return truthOf(actual < expected || (actual == expected && shift >= 0))
+	case "gt":
+		return truthOf(actual > expected || (actual == expected && shift < 0))
+	case "gte":
+		return truthOf(actual > expected || (actual == expected && shift <= 0))
 	default:
 		return TruthUnknown
 	}
+}
+
+func truthOf(condition bool) TruthValue {
+	if condition {
+		return TruthTrue
+	}
+	return TruthFalse
 }

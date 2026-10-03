@@ -129,11 +129,15 @@ func TestMapRequestLogReceiptFullUint64RevisionAndNonCanonicalFactor(t *testing.
 		"base_total_nano_usd":100,"total_nano_usd":200,
 		"line_items":[{"code":"input","quantity":1000000,"rate_nano_usd_per_million":100,
 		"multiplier":{"numerator":1,"denominator":1},"state":"priced","amount_nano_usd":100}],
-		"policy_factors":[{"rule_id":"p","name_snapshot":"Admin billing rule","binding_scope":"group","revision":"18446744073709551615","factor":"02.000000","multiplier":"2"}]
+		"policy_factors":[{"rule_id":"p","name_snapshot":"Admin billing rule","binding_scope":"group","revision":18446744073709551615,"factor":"02.000000","multiplier":"2"}]
 	}`
 	var receipt pricing.Receipt
 	if err := json.Unmarshal([]byte(rawJSON), &receipt); err != nil {
 		t.Fatal(err)
+	}
+	var rejected pricing.Receipt
+	if err := json.Unmarshal([]byte(`{"schema_version":7,"method":"unit_rate_sum","method_version":1,"currency":"USD","pricing_mode":"standard","rule":{"channel_id":"openai","model_id":"gpt-4o"},"price_multipliers":{"group":"1","access_key":"1"},"base_total_nano_usd":100,"total_nano_usd":200,"line_items":[],"policy_factors":[{"rule_id":"p","name_snapshot":"p","binding_scope":"group","revision":"1","factor":"2","multiplier":"2"}]}`), &rejected); err == nil {
+		t.Fatal("string policy factor revision must be rejected")
 	}
 	if err := pricing.ValidateReceipt(receipt); err != nil {
 		t.Fatal(err)

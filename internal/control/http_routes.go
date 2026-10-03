@@ -95,6 +95,7 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.auditMutation(newMutationDescriptor("credential_stage_cancel", "credential_stage", credentialStageMutationLocator)),
 				s.handleCancelCredentialStage,
 			),
+			controlRoute("control.policy.discovery", http.MethodGet, "/policy/discovery", s.handleGetPolicyDiscovery),
 			controlRoute("control.channels.list", http.MethodGet, "/channels", s.handleListChannels),
 			controlRoute("control.models.list", http.MethodGet, "/models", s.handleListProjectModels),
 			controlRoute("control.models.profile.get", http.MethodGet, "/models/profile", s.handleGetClientModelProfile),
@@ -237,6 +238,12 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleUpdateGroupPolicy,
 			),
 			controlRoute(
+				"control.groups.policy.preview",
+				http.MethodPost,
+				"/groups/:group_id/policy/preview",
+				s.handlePreviewGroupPolicy,
+			),
+			controlRoute(
 				"control.groups.settings.get",
 				http.MethodGet,
 				"/groups/:group_id/settings",
@@ -349,6 +356,12 @@ func (s *Server) HTTPModule() httproute.Module {
 					groupCredentialMutationLocator,
 				)),
 				s.handleUpdateCredentialPolicy,
+			),
+			controlRoute(
+				"control.group-credentials.policy.preview",
+				http.MethodPost,
+				"/groups/:group_id/credentials/:credential_id/policy/preview",
+				s.handlePreviewCredentialPolicy,
 			),
 			controlRoute(
 				"control.group-credentials.observation-refresh",

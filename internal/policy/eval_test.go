@@ -472,3 +472,93 @@ func TestEvalConditionEdgeCases(t *testing.T) {
 		t.Fatal("expected r-all-true to exclude")
 	}
 }
+
+func TestQuotaNowSeparation(t *testing.T) {
+	// 验证 QuotaNow 与 Now 隔离：
+	// 1. 模拟时间 Now 前进到 ResetAt 之后，但 QuotaNow 仍在 ResetAt 之前：额度判断按真实 QuotaNow 保持有效
+	// 2. 模拟时间 Now 倒退到 ResetAt 之前，但 QuotaNow 已超过 ResetAt：额度判断按真实 QuotaNow 判定过期(unknown)
+	ruleJSON := `{
+		"schema_version": 1,
+		"rules": [
+			{
+				"id": "quota-rule",
+				"name": "Quota Rule",
+				"domain": "scheduling",
+				"enabled": true,
+				"when": {
+					"all": [
+						{
+							"fact": "credential.quota.remaining_ratio",
+							"select": {"scope": "account", "window_seconds": 3600},
+							"reduce": "min",
+							"op": "lt",
+							"value": 0.2
+						},
+						{
+							"predicate": "time_window",
+							"weekdays": [1],
+							"ranges": [["10:00", "12:00"]]
+						}
+					]
+				},
+				"then": {"type": "exclude_candidate"}
+			}
+		]
+	}`
+
+	cfg, err := Compile([]byte(ruleJSON))
+	if err != nil {
+		t.Fatalf("Compile error: %v", err)
+	}
+
+	// 真实当前时间为周一 09:00:00 (尚未进入 10:00-12:00 时间段)
+	// 重置时间为周一 11:00:00
+	loc := time.UTC
+	realNow := time.Date(2026, 10, 5, 9, 0, 0, 0, loc) // 2026-10-05 是周一
+	resetAt := time.Date(2026, 10, 5, 11, 0, 0, 0, loc)
+	observedAt := time.Date(2026, 10, 5, 8, 55, 0, 0, loc)
+
+	quotaWindows := []QuotaWindowFact{
+		{
+			Scope:         "account",
+			WindowSeconds: 3600,
+			Ratio:         0.05,
+			State:         FactStateMeasured,
+			ObservedAt:    observedAt,
+			ResetAt:       resetAt,
+		},
+	}
+
+	// Case 1: 模拟时间前进至 11:30:00 (在时间段内，但已过 ResetAt 11:00)
+	// 若 QuotaNow = realNow (09:00:00)，额度尚未过期且有效；时间段命中 11:30，整条命中排除！
+	simFuture := time.Date(2026, 10, 5, 11, 30, 0, 0, loc)
+	ctxFuture := &EvalContext{
+		Now:          simFuture,
+		QuotaNow:     realNow,
+		QuotaWindows: quotaWindows,
+	}
+	resFuture := cfg.EvalScheduling(ctxFuture)
+	if !resFuture.Excluded {
+		t.Fatalf("expected excluded when QuotaNow=09:00 (valid quota) and Now=11:30 (in window)")
+	}
+
+	// Case 2: 真实时间已过重置时间 (12:00:00)，但用户试图模拟回 10:30:00
+	// QuotaNow = 12:00:00 (已过 ResetAt 11:00:00 -> 额度为 unknown)
+	// 无论模拟时间如何，额度条件均为 unknown，整条规则跳过，不能利用模拟时间复活过期窗口！
+	expiredRealNow := time.Date(2026, 10, 5, 12, 0, 0, 0, loc)
+	simPast := time.Date(2026, 10, 5, 10, 30, 0, 0, loc)
+	ctxPast := &EvalContext{
+		Now:          simPast,
+		QuotaNow:     expiredRealNow,
+		QuotaWindows: quotaWindows,
+	}
+	resPast := cfg.EvalScheduling(ctxPast)
+	if resPast.Excluded {
+		t.Fatalf("expected NOT excluded when real quota is expired, simulated past time must not resurrect expired window")
+	}
+
+	inspectPast := cfg.Inspect(ctxPast)
+	if len(inspectPast.Rules) != 1 || inspectPast.Rules[0].Status != RuleStatusSkippedUnknown {
+		t.Fatalf("expected rule to be skipped_unknown, got %+v", inspectPast.Rules)
+	}
+}

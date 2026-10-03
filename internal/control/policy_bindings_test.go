@@ -69,6 +69,17 @@ func parsePolicyResponse(t *testing.T, body []byte) PolicyBindingResponse {
 	return env.Data
 }
 
+func parseConfigRulesCount(t *testing.T, configText string) int {
+	t.Helper()
+	var m struct {
+		Rules []json.RawMessage `json:"rules"`
+	}
+	if err := json.Unmarshal([]byte(configText), &m); err != nil {
+		t.Fatalf("unmarshal config text: %v", err)
+	}
+	return len(m.Rules)
+}
+
 // 1. 未配置时读取 group 与 credential 策略返回默认：schema_version=1, rules=[], revision=0
 func TestPolicyDefaultWhenUnconfigured(t *testing.T) {
 	t.Parallel()
@@ -90,11 +101,11 @@ func TestPolicyDefaultWhenUnconfigured(t *testing.T) {
 		t.Fatalf("GET group policy status = %d: %s", w.Code, w.Body.String())
 	}
 	groupData := parsePolicyResponse(t, w.Body.Bytes())
-	if groupData.Scope != "group" || groupData.ID != groupID || groupData.Revision != 0 || groupData.SchemaVersion != 1 {
+	if groupData.Scope != "group" || groupData.ID != groupID || groupData.RevisionText != "0" {
 		t.Fatalf("unexpected group default policy data: %+v", groupData)
 	}
-	if len(groupData.Rules) != 0 || len(groupData.Config.Rules) != 0 {
-		t.Fatalf("expected empty rules for unconfigured group, got %v", groupData.Rules)
+	if parseConfigRulesCount(t, groupData.ConfigText) != 0 {
+		t.Fatalf("expected empty rules for unconfigured group, got %s", groupData.ConfigText)
 	}
 
 	// 1.2 读取 Credential 默认策略
@@ -106,11 +117,11 @@ func TestPolicyDefaultWhenUnconfigured(t *testing.T) {
 		t.Fatalf("GET credential policy status = %d: %s", wCred.Code, wCred.Body.String())
 	}
 	credData := parsePolicyResponse(t, wCred.Body.Bytes())
-	if credData.Scope != "credential" || credData.ID != cred.ID || credData.Revision != 0 || credData.SchemaVersion != 1 {
+	if credData.Scope != "credential" || credData.ID != cred.ID || credData.RevisionText != "0" {
 		t.Fatalf("unexpected credential default policy data: %+v", credData)
 	}
-	if len(credData.Rules) != 0 || len(credData.Config.Rules) != 0 {
-		t.Fatalf("expected empty rules for unconfigured credential, got %v", credData.Rules)
+	if parseConfigRulesCount(t, credData.ConfigText) != 0 {
+		t.Fatalf("expected empty rules for unconfigured credential, got %s", credData.ConfigText)
 	}
 }
 
@@ -128,7 +139,7 @@ func TestPolicyScopeIsolation(t *testing.T) {
 
 	// 更新 Group 策略 (revision 0 -> 1)
 	groupConfigJSON := `{"schema_version":1,"rules":[{"id":"r-grp","name":"grp rule","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}`
-	groupBody := fmt.Sprintf(`{"expected_revision":0,"config":%s}`, groupConfigJSON)
+	groupBody := fmt.Sprintf(`{"expected_revision":"0","config":%s}`, groupConfigJSON)
 	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(groupBody))
 	req.Header.Set("Authorization", "Bearer admin-secret-key")
 	req.Header.Set("Content-Type", "application/json")
@@ -138,7 +149,7 @@ func TestPolicyScopeIsolation(t *testing.T) {
 		t.Fatalf("PUT group policy status = %d: %s", w.Code, w.Body.String())
 	}
 	grpRes := parsePolicyResponse(t, w.Body.Bytes())
-	if grpRes.Revision != 1 || len(grpRes.Rules) != 1 {
+	if grpRes.RevisionText != "1" || parseConfigRulesCount(t, grpRes.ConfigText) != 1 {
 		t.Fatalf("expected group revision 1 and 1 rule, got %+v", grpRes)
 	}
 	if fixture.manager.Current().Policies == nil || fixture.manager.Current().Policies.GroupPolicy(groupID) == nil {
@@ -154,13 +165,13 @@ func TestPolicyScopeIsolation(t *testing.T) {
 		t.Fatalf("GET credential policy status = %d: %s", wCred.Code, wCred.Body.String())
 	}
 	credRes := parsePolicyResponse(t, wCred.Body.Bytes())
-	if credRes.Revision != 0 || len(credRes.Rules) != 0 {
+	if credRes.RevisionText != "0" || parseConfigRulesCount(t, credRes.ConfigText) != 0 {
 		t.Fatalf("credential policy was polluted by group policy: %+v", credRes)
 	}
 
 	// 更新 Credential 策略 (revision 0 -> 1)
 	credConfigJSON := `{"schema_version":1,"rules":[{"id":"r-crd","name":"crd rule","domain":"pricing","enabled":true,"when":{"fact":"credential.quota.remaining_ratio","select":{"scope":"account","window_seconds":18000},"reduce":"min","op":"lt","value":0.1},"then":{"type":"multiply_price","factor":"1.5"}}]}`
-	credBody := fmt.Sprintf(`{"expected_revision":0,"config":%s}`, credConfigJSON)
+	credBody := fmt.Sprintf(`{"expected_revision":"0","config":%s}`, credConfigJSON)
 	reqCredPut := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/credentials/%d/policy", groupID, cred.ID), bytes.NewBufferString(credBody))
 	reqCredPut.Header.Set("Authorization", "Bearer admin-secret-key")
 	reqCredPut.Header.Set("Content-Type", "application/json")
@@ -170,7 +181,7 @@ func TestPolicyScopeIsolation(t *testing.T) {
 		t.Fatalf("PUT credential policy status = %d: %s", wCredPut.Code, wCredPut.Body.String())
 	}
 	credRes2 := parsePolicyResponse(t, wCredPut.Body.Bytes())
-	if credRes2.Revision != 1 || len(credRes2.Rules) != 1 {
+	if credRes2.RevisionText != "1" || parseConfigRulesCount(t, credRes2.ConfigText) != 1 {
 		t.Fatalf("expected credential revision 1 and 1 rule, got %+v", credRes2)
 	}
 	if fixture.manager.Current().Policies == nil || fixture.manager.Current().Policies.CredentialPolicy(cred.ID) == nil {
@@ -183,7 +194,7 @@ func TestPolicyScopeIsolation(t *testing.T) {
 	wGrpGet := httptest.NewRecorder()
 	engine.ServeHTTP(wGrpGet, reqGrpGet)
 	grpRes2 := parsePolicyResponse(t, wGrpGet.Body.Bytes())
-	if grpRes2.Revision != 1 || len(grpRes2.Rules) != 1 {
+	if grpRes2.RevisionText != "1" || parseConfigRulesCount(t, grpRes2.ConfigText) != 1 {
 		t.Fatalf("group policy was corrupted: %+v", grpRes2)
 	}
 }
@@ -211,7 +222,7 @@ func TestPolicyCredentialCrossGroupUnauthorized(t *testing.T) {
 	}
 
 	// 尝试通过 groupA 的路径更新 groupB 的 credential 策略 -> 404
-	reqPut := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/credentials/%d/policy", groupA, credB.ID), bytes.NewBufferString(`{"expected_revision":0,"config":{"schema_version":1,"rules":[]}}`))
+	reqPut := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/credentials/%d/policy", groupA, credB.ID), bytes.NewBufferString(`{"expected_revision":"0","config":{"schema_version":1,"rules":[]}}`))
 	reqPut.Header.Set("Authorization", "Bearer admin-secret-key")
 	reqPut.Header.Set("Content-Type", "application/json")
 	wPut := httptest.NewRecorder()
@@ -229,7 +240,7 @@ func TestPolicyExplicitEmptyRulesClears(t *testing.T) {
 	groupID := createUniqueGroupWithCredentials(t, fixture, "sk-test-empty-rules")
 
 	// 4.1 先保存有 1 条规则的策略 (revision 1)
-	cfg := `{"expected_revision":0,"config":{"schema_version":1,"rules":[{"id":"r-1","name":"r1","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`
+	cfg := `{"expected_revision":"0","config":{"schema_version":1,"rules":[{"id":"r-1","name":"r1","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`
 	req1 := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(cfg))
 	req1.Header.Set("Authorization", "Bearer admin-secret-key")
 	req1.Header.Set("Content-Type", "application/json")
@@ -239,12 +250,12 @@ func TestPolicyExplicitEmptyRulesClears(t *testing.T) {
 		t.Fatalf("step 1 PUT error: %s", w1.Body.String())
 	}
 	res1 := parsePolicyResponse(t, w1.Body.Bytes())
-	if res1.Revision != 1 || len(res1.Rules) != 1 {
+	if res1.RevisionText != "1" || parseConfigRulesCount(t, res1.ConfigText) != 1 {
 		t.Fatalf("unexpected res1: %+v", res1)
 	}
 
 	// 4.2 显式传 empty rules 清空规则 (revision 1 -> 2)
-	clearCfg := `{"expected_revision":1,"config":{"schema_version":1,"rules":[]}}`
+	clearCfg := `{"expected_revision":"1","config":{"schema_version":1,"rules":[]}}`
 	req2 := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(clearCfg))
 	req2.Header.Set("Authorization", "Bearer admin-secret-key")
 	req2.Header.Set("Content-Type", "application/json")
@@ -254,7 +265,7 @@ func TestPolicyExplicitEmptyRulesClears(t *testing.T) {
 		t.Fatalf("step 2 PUT error: %s", w2.Body.String())
 	}
 	res2 := parsePolicyResponse(t, w2.Body.Bytes())
-	if res2.Revision != 2 || len(res2.Rules) != 0 || len(res2.Config.Rules) != 0 {
+	if res2.RevisionText != "2" || parseConfigRulesCount(t, res2.ConfigText) != 0 {
 		t.Fatalf("expected cleared rules with revision 2, got %+v", res2)
 	}
 
@@ -264,7 +275,7 @@ func TestPolicyExplicitEmptyRulesClears(t *testing.T) {
 	w3 := httptest.NewRecorder()
 	engine.ServeHTTP(w3, req3)
 	res3 := parsePolicyResponse(t, w3.Body.Bytes())
-	if res3.Revision != 2 || len(res3.Rules) != 0 {
+	if res3.RevisionText != "2" || parseConfigRulesCount(t, res3.ConfigText) != 0 {
 		t.Fatalf("GET after clear got %+v", res3)
 	}
 }
@@ -277,7 +288,7 @@ func TestPolicyOmittedConfigPreservesExisting(t *testing.T) {
 	groupID := createUniqueGroupWithCredentials(t, fixture, "sk-test-omitted-config")
 
 	// 先存一条规则 (revision 1)
-	cfg := `{"expected_revision":0,"config":{"schema_version":1,"rules":[{"id":"r-keep","name":"keep me","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`
+	cfg := `{"expected_revision":"0","config":{"schema_version":1,"rules":[{"id":"r-keep","name":"keep me","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`
 	req1 := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(cfg))
 	req1.Header.Set("Authorization", "Bearer admin-secret-key")
 	req1.Header.Set("Content-Type", "application/json")
@@ -287,8 +298,8 @@ func TestPolicyOmittedConfigPreservesExisting(t *testing.T) {
 		t.Fatalf("save policy error: %s", w1.Body.String())
 	}
 
-	// 遗漏 config 字段的更新 (只有 expected_revision: 1)
-	req2 := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(`{"expected_revision":1}`))
+	// 遗漏 config 字段的更新 (只有 expected_revision: "1")
+	req2 := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(`{"expected_revision":"1"}`))
 	req2.Header.Set("Authorization", "Bearer admin-secret-key")
 	req2.Header.Set("Content-Type", "application/json")
 	w2 := httptest.NewRecorder()
@@ -297,8 +308,8 @@ func TestPolicyOmittedConfigPreservesExisting(t *testing.T) {
 		t.Fatalf("omitted config update error: %s", w2.Body.String())
 	}
 	res2 := parsePolicyResponse(t, w2.Body.Bytes())
-	if len(res2.Rules) != 1 {
-		t.Fatalf("expected preserved 1 rule, got %v", res2.Rules)
+	if parseConfigRulesCount(t, res2.ConfigText) != 1 {
+		t.Fatalf("expected preserved 1 rule, got %s", res2.ConfigText)
 	}
 
 	// 验证数据库中的记录仍完整保留原有规则
@@ -307,8 +318,8 @@ func TestPolicyOmittedConfigPreservesExisting(t *testing.T) {
 	w3 := httptest.NewRecorder()
 	engine.ServeHTTP(w3, req3)
 	res3 := parsePolicyResponse(t, w3.Body.Bytes())
-	if len(res3.Rules) != 1 {
-		t.Fatalf("GET expected preserved 1 rule, got %v", res3.Rules)
+	if parseConfigRulesCount(t, res3.ConfigText) != 1 {
+		t.Fatalf("GET expected preserved 1 rule, got %s", res3.ConfigText)
 	}
 }
 
@@ -320,7 +331,7 @@ func TestPolicyInvalidConfigurationsRejected(t *testing.T) {
 	groupID := createUniqueGroupWithCredentials(t, fixture, "sk-test-invalids")
 
 	// 先写入一个合法的基准策略 (revision 1)
-	validCfg := `{"expected_revision":0,"config":{"schema_version":1,"rules":[{"id":"r-base","name":"base","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`
+	validCfg := `{"expected_revision":"0","config":{"schema_version":1,"rules":[{"id":"r-base","name":"base","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`
 	reqBase := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(validCfg))
 	reqBase.Header.Set("Authorization", "Bearer admin-secret-key")
 	reqBase.Header.Set("Content-Type", "application/json")
@@ -334,12 +345,12 @@ func TestPolicyInvalidConfigurationsRejected(t *testing.T) {
 		name    string
 		payload string
 	}{
-		{"null config", `{"expected_revision":1,"config":null}`},
-		{"empty string config", `{"expected_revision":1,"config":""}`},
-		{"malformed JSON", `{"expected_revision":1,"config":{bad_json}}`},
-		{"unknown field in config", `{"expected_revision":1,"config":{"schema_version":1,"rules":[],"unexpected_field":true}}`},
-		{"illegal disabled rule", `{"expected_revision":1,"config":{"schema_version":1,"rules":[{"id":"r-dis","name":"bad","domain":"scheduling","enabled":false,"when":{"fact":"unknown.fact","op":"eq","value":"val"},"then":{"type":"exclude_candidate"}}]}}`},
-		{"out of range quota threshold", `{"expected_revision":1,"config":{"schema_version":1,"rules":[{"id":"r-dis","name":"bad","domain":"scheduling","enabled":true,"when":{"fact":"credential.quota.remaining_ratio","select":{"scope":"account","window_seconds":18000},"reduce":"min","op":"lt","value":1.0000000000000001},"then":{"type":"exclude_candidate"}}]}}`},
+		{"null config", `{"expected_revision":"1","config":null}`},
+		{"empty string config", `{"expected_revision":"1","config":""}`},
+		{"malformed JSON", `{"expected_revision":"1","config":{bad_json}}`},
+		{"unknown field in config", `{"expected_revision":"1","config":{"schema_version":1,"rules":[],"unexpected_field":true}}`},
+		{"illegal disabled rule", `{"expected_revision":"1","config":{"schema_version":1,"rules":[{"id":"r-dis","name":"bad","domain":"scheduling","enabled":false,"when":{"fact":"unknown.fact","op":"eq","value":"val"},"then":{"type":"exclude_candidate"}}]}}`},
+		{"out of range quota threshold", `{"expected_revision":"1","config":{"schema_version":1,"rules":[{"id":"r-dis","name":"bad","domain":"scheduling","enabled":true,"when":{"fact":"credential.quota.remaining_ratio","select":{"scope":"account","window_seconds":18000},"reduce":"min","op":"lt","value":1.0000000000000001},"then":{"type":"exclude_candidate"}}]}}`},
 	}
 
 	for _, tc := range invalidCases {
@@ -359,7 +370,7 @@ func TestPolicyInvalidConfigurationsRejected(t *testing.T) {
 			wCheck := httptest.NewRecorder()
 			engine.ServeHTTP(wCheck, reqCheck)
 			resCheck := parsePolicyResponse(t, wCheck.Body.Bytes())
-			if resCheck.Revision != 1 || len(resCheck.Rules) != 1 {
+			if resCheck.RevisionText != "1" || parseConfigRulesCount(t, resCheck.ConfigText) != 1 {
 				t.Fatalf("database content was corrupted after %s: %+v", tc.name, resCheck)
 			}
 		})
@@ -374,7 +385,7 @@ func TestPolicyExpectedRevisionConflict409(t *testing.T) {
 	groupID := createUniqueGroupWithCredentials(t, fixture, "sk-test-conflict-409")
 
 	// 7.1 未配置时传入 expected_revision = 1 (应该传 0) -> 409
-	badReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(`{"expected_revision":1,"config":{"schema_version":1,"rules":[]}}`))
+	badReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(`{"expected_revision":"1","config":{"schema_version":1,"rules":[]}}`))
 	badReq.Header.Set("Authorization", "Bearer admin-secret-key")
 	badReq.Header.Set("Content-Type", "application/json")
 	wBad := httptest.NewRecorder()
@@ -384,7 +395,7 @@ func TestPolicyExpectedRevisionConflict409(t *testing.T) {
 	}
 
 	// 7.2 写入正确初始配置 (expected_revision: 0 -> 得到 revision 1)
-	okReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(`{"expected_revision":0,"config":{"schema_version":1,"rules":[{"id":"r-1","name":"r1","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`))
+	okReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(`{"expected_revision":"0","config":{"schema_version":1,"rules":[{"id":"r-1","name":"r1","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`))
 	okReq.Header.Set("Authorization", "Bearer admin-secret-key")
 	okReq.Header.Set("Content-Type", "application/json")
 	wOk := httptest.NewRecorder()
@@ -393,12 +404,12 @@ func TestPolicyExpectedRevisionConflict409(t *testing.T) {
 		t.Fatalf("initial write error: %s", wOk.Body.String())
 	}
 	resOk := parsePolicyResponse(t, wOk.Body.Bytes())
-	if resOk.Revision != 1 {
-		t.Fatalf("expected revision 1, got %d", resOk.Revision)
+	if resOk.RevisionText != "1" {
+		t.Fatalf("expected revision 1, got %s", resOk.RevisionText)
 	}
 
 	// 7.3 使用旧的 expected_revision: 0 再次更新 -> 409 Conflict
-	staleReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(`{"expected_revision":0,"config":{"schema_version":1,"rules":[]}}`))
+	staleReq := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(`{"expected_revision":"0","config":{"schema_version":1,"rules":[]}}`))
 	staleReq.Header.Set("Authorization", "Bearer admin-secret-key")
 	staleReq.Header.Set("Content-Type", "application/json")
 	wStale := httptest.NewRecorder()
@@ -413,7 +424,7 @@ func TestPolicyExpectedRevisionConflict409(t *testing.T) {
 	reqVerify.Header.Set("Authorization", "Bearer admin-secret-key")
 	engine.ServeHTTP(wVerify, reqVerify)
 	resVerify := parsePolicyResponse(t, wVerify.Body.Bytes())
-	if resVerify.Revision != 1 || len(resVerify.Rules) != 1 {
+	if resVerify.RevisionText != "1" || parseConfigRulesCount(t, resVerify.ConfigText) != 1 {
 		t.Fatalf("database content changed after conflict: %+v", resVerify)
 	}
 }
@@ -434,7 +445,7 @@ func TestPolicyConcurrentCAS(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			payload := fmt.Sprintf(`{"expected_revision":0,"config":{"schema_version":1,"rules":[{"id":"r-%d","name":"concurrent","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`, idx)
+			payload := fmt.Sprintf(`{"expected_revision":"0","config":{"schema_version":1,"rules":[{"id":"r-%d","name":"concurrent","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`, idx)
 			req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(payload))
 			req.Header.Set("Authorization", "Bearer admin-secret-key")
 			req.Header.Set("Content-Type", "application/json")
@@ -462,8 +473,8 @@ func TestPolicyConcurrentCAS(t *testing.T) {
 	reqFinal.Header.Set("Authorization", "Bearer admin-secret-key")
 	engine.ServeHTTP(wFinal, reqFinal)
 	resFinal := parsePolicyResponse(t, wFinal.Body.Bytes())
-	if resFinal.Revision != 1 {
-		t.Fatalf("expected final revision 1, got %d", resFinal.Revision)
+	if resFinal.RevisionText != "1" {
+		t.Fatalf("expected final revision 1, got %s", resFinal.RevisionText)
 	}
 }
 
@@ -475,7 +486,7 @@ func TestPolicyOldGroupOverridesDoesNotAffectPolicy(t *testing.T) {
 	groupID := createUniqueGroupWithCredentials(t, fixture, "sk-test-isolation-from-overrides")
 
 	// 9.1 保存 Policy (revision 1)
-	policyJSON := `{"expected_revision":0,"config":{"schema_version":1,"rules":[{"id":"r-safe","name":"safe rule","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`
+	policyJSON := `{"expected_revision":"0","config":{"schema_version":1,"rules":[{"id":"r-safe","name":"safe rule","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}}`
 	reqPolicy := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", groupID), bytes.NewBufferString(policyJSON))
 	reqPolicy.Header.Set("Authorization", "Bearer admin-secret-key")
 	reqPolicy.Header.Set("Content-Type", "application/json")
@@ -502,7 +513,7 @@ func TestPolicyOldGroupOverridesDoesNotAffectPolicy(t *testing.T) {
 	reqCheck.Header.Set("Authorization", "Bearer admin-secret-key")
 	engine.ServeHTTP(wCheck, reqCheck)
 	resCheck := parsePolicyResponse(t, wCheck.Body.Bytes())
-	if resCheck.Revision != 1 || len(resCheck.Rules) != 1 {
+	if resCheck.RevisionText != "1" || parseConfigRulesCount(t, resCheck.ConfigText) != 1 {
 		t.Fatalf("policy was affected by group overrides update! got %+v", resCheck)
 	}
 }
@@ -537,7 +548,7 @@ func TestPolicyUpdateNonExistentGroupReturns404AndNoOrphan(t *testing.T) {
 	fixture := newServiceFixture(t)
 	engine := setupPolicyTestServer(t, fixture)
 
-	reqBody := `{"expected_revision":0,"config":{"schema_version":1,"rules":[]}}`
+	reqBody := `{"expected_revision":"0","config":{"schema_version":1,"rules":[]}}`
 	req := httptest.NewRequest(http.MethodPut, "/api/groups/999999/policy", bytes.NewReader([]byte(reqBody)))
 	req.Header.Set("Authorization", "Bearer admin-secret-key")
 	req.Header.Set("Content-Type", "application/json")
@@ -564,7 +575,7 @@ func TestPolicyUpdateNonExistentCredentialReturns404AndNoOrphan(t *testing.T) {
 	engine := setupPolicyTestServer(t, fixture)
 	grpID := createUniqueGroupWithCredentials(t, fixture, "sk-cred-valid")
 
-	reqBody := `{"expected_revision":0,"config":{"schema_version":1,"rules":[]}}`
+	reqBody := `{"expected_revision":"0","config":{"schema_version":1,"rules":[]}}`
 	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/credentials/999999/policy", grpID), bytes.NewReader([]byte(reqBody)))
 	req.Header.Set("Authorization", "Bearer admin-secret-key")
 	req.Header.Set("Content-Type", "application/json")
@@ -607,7 +618,7 @@ func TestPolicyRevisionOverflowRejected(t *testing.T) {
 	}
 
 	// 尝试在 maxRev 基础上继续 CAS 更新
-	reqBody := fmt.Sprintf(`{"expected_revision":%d,"config":{"schema_version":1,"rules":[]}}`, maxRev)
+	reqBody := fmt.Sprintf(`{"expected_revision":"%d","config":{"schema_version":1,"rules":[]}}`, maxRev)
 	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", grpID), bytes.NewReader([]byte(reqBody)))
 	req.Header.Set("Authorization", "Bearer admin-secret-key")
 	req.Header.Set("Content-Type", "application/json")

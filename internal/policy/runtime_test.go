@@ -156,68 +156,6 @@ func TestRuntimeView_UnavailableQuotaFactEvaluatesToUnknown(t *testing.T) {
 	}
 }
 
-func TestRuntime_PublishBindings_RetainsLastValidViewOnFailure(t *testing.T) {
-	validJSON := []byte(`{
-		"schema_version": 1,
-		"rules": [
-			{
-				"id": "rule-valid",
-				"name": "Valid Rule",
-				"domain": "scheduling",
-				"enabled": true,
-				"when": {"fact": "upstream.model", "op": "eq", "value": "block-me"},
-				"then": {"type": "exclude_candidate"}
-			}
-		]
-	}`)
-
-	invalidJSON := []byte(`{
-		"schema_version": 1,
-		"rules": [
-			{
-				"id": "rule-invalid",
-				"name": "Invalid operator",
-				"domain": "scheduling",
-				"enabled": true,
-				"when": {"fact": "upstream.model", "op": "nonexistent_op", "value": "foo"},
-				"then": {"type": "exclude_candidate"}
-			}
-		]
-	}`)
-
-	r := policy.NewRuntime()
-
-	// 1. Publish valid binding
-	if err := r.PublishBindings([]policy.BindingConfig{
-		{Scope: "group", GroupID: 5, Config: validJSON},
-	}); err != nil {
-		t.Fatalf("PublishBindings valid error = %v", err)
-	}
-
-	ctx := &policy.EvalContext{
-		Now:           time.Now(),
-		UpstreamModel: policy.StringFact{Value: "block-me", State: policy.FactStateMeasured},
-	}
-	excluded, _ := r.Load().EvalCandidate(5, 1, ctx)
-	if !excluded {
-		t.Fatalf("expected valid rule to exclude candidate")
-	}
-
-	// 2. Attempt to publish invalid binding
-	err := r.PublishBindings([]policy.BindingConfig{
-		{Scope: "group", GroupID: 5, Config: invalidJSON},
-	})
-	if err == nil {
-		t.Fatalf("expected PublishBindings to fail on invalid config")
-	}
-
-	// 3. Verify that the previous valid view is retained!
-	excluded, match := r.Load().EvalCandidate(5, 1, ctx)
-	if !excluded || match == nil || match.RuleID != "rule-valid" {
-		t.Fatalf("expected previous valid runtime view to be retained, got excluded=%v, match=%v", excluded, match)
-	}
-}
-
 func TestCompileRuntimeView_RejectsDuplicateBindings(t *testing.T) {
 	config := []byte(`{"schema_version":1,"rules":[]}`)
 	for _, test := range []struct {

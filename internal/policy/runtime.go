@@ -1,9 +1,6 @@
 package policy
 
-import (
-	"fmt"
-	"sync/atomic"
-)
+import "fmt"
 
 // BindingConfig 封装用于构建 RuntimeView 的持久化策略绑定输入
 type BindingConfig struct {
@@ -34,36 +31,6 @@ func NewEmptyRuntimeView() *RuntimeView {
 	return &RuntimeView{
 		groups:      make(map[uint]BoundPolicy),
 		credentials: make(map[uint]BoundPolicy),
-	}
-}
-
-// NewRuntimeView 从已编译的配置创建深拷贝不可变视图
-func NewRuntimeView(groups map[uint]*CompiledConfig, credentials map[uint]*CompiledConfig) *RuntimeView {
-	g := make(map[uint]BoundPolicy, len(groups))
-	for k, v := range groups {
-		if v != nil {
-			g[k] = BoundPolicy{
-				Scope:    "group",
-				GroupID:  k,
-				Revision: 1,
-				Config:   v.Clone(),
-			}
-		}
-	}
-	c := make(map[uint]BoundPolicy, len(credentials))
-	for k, v := range credentials {
-		if v != nil {
-			c[k] = BoundPolicy{
-				Scope:        "credential",
-				CredentialID: k,
-				Revision:     1,
-				Config:       v.Clone(),
-			}
-		}
-	}
-	return &RuntimeView{
-		groups:      g,
-		credentials: c,
 	}
 }
 
@@ -128,33 +95,6 @@ func CompileRuntimeView(bindings []BindingConfig) (*RuntimeView, error) {
 	}, nil
 }
 
-// Clone 返回 RuntimeView 的完整深拷贝
-func (v *RuntimeView) Clone() *RuntimeView {
-	if v == nil {
-		return NewEmptyRuntimeView()
-	}
-	g := make(map[uint]BoundPolicy, len(v.groups))
-	for k, bp := range v.groups {
-		bpClone := bp
-		if bp.Config != nil {
-			bpClone.Config = bp.Config.Clone()
-		}
-		g[k] = bpClone
-	}
-	c := make(map[uint]BoundPolicy, len(v.credentials))
-	for k, bp := range v.credentials {
-		bpClone := bp
-		if bp.Config != nil {
-			bpClone.Config = bp.Config.Clone()
-		}
-		c[k] = bpClone
-	}
-	return &RuntimeView{
-		groups:      g,
-		credentials: c,
-	}
-}
-
 // GroupPolicy 获取指定分组 ID 的已编译策略；未配置或未生效返回 nil
 func (v *RuntimeView) GroupPolicy(groupID uint) *CompiledConfig {
 	if v == nil || v.groups == nil {
@@ -167,6 +107,18 @@ func (v *RuntimeView) GroupPolicy(groupID uint) *CompiledConfig {
 	return bp.Config
 }
 
+// GroupRevision 获取指定分组 ID 的策略绑定版本；未配置返回 0
+func (v *RuntimeView) GroupRevision(groupID uint) uint64 {
+	if v == nil || v.groups == nil {
+		return 0
+	}
+	bp, ok := v.groups[groupID]
+	if !ok {
+		return 0
+	}
+	return bp.Revision
+}
+
 // CredentialPolicy 获取指定凭据 ID 的已编译策略；未配置或未生效返回 nil
 func (v *RuntimeView) CredentialPolicy(credentialID uint) *CompiledConfig {
 	if v == nil || v.credentials == nil {
@@ -177,6 +129,18 @@ func (v *RuntimeView) CredentialPolicy(credentialID uint) *CompiledConfig {
 		return nil
 	}
 	return bp.Config
+}
+
+// CredentialRevision 获取指定凭据 ID 的策略绑定版本；未配置返回 0
+func (v *RuntimeView) CredentialRevision(credentialID uint) uint64 {
+	if v == nil || v.credentials == nil {
+		return 0
+	}
+	bp, ok := v.credentials[credentialID]
+	if !ok {
+		return 0
+	}
+	return bp.Revision
 }
 
 // EvalCandidate 针对候选凭据及目标执行调度域准入评估。
@@ -227,50 +191,4 @@ func (v *RuntimeView) EvalPricing(groupID, credentialID uint, ctx *EvalContext) 
 		}
 	}
 	return matches
-}
-
-// Runtime 管理不可变 RuntimeView 的发布与原子指针切换。
-// 编译失败或无效发布保留上一版有效视图 (stale/failed publication retaining the last valid runtime view)。
-type Runtime struct {
-	current atomic.Pointer[RuntimeView]
-}
-
-// NewRuntime 创建初始化为空视图的策略发布运行时
-func NewRuntime() *Runtime {
-	r := &Runtime{}
-	r.current.Store(NewEmptyRuntimeView())
-	return r
-}
-
-// Load 读取当前原子存储的不可变视图
-func (r *Runtime) Load() *RuntimeView {
-	if r == nil {
-		return nil
-	}
-	view := r.current.Load()
-	if view == nil {
-		return NewEmptyRuntimeView()
-	}
-	return view
-}
-
-// Publish 原子发布新的已编译视图
-func (r *Runtime) Publish(view *RuntimeView) {
-	if r == nil || view == nil {
-		return
-	}
-	r.current.Store(view)
-}
-
-// PublishBindings 编译并原子发布绑定；若编译失败则返回错误并保持当前视图不变
-func (r *Runtime) PublishBindings(bindings []BindingConfig) error {
-	if r == nil {
-		return nil
-	}
-	view, err := CompileRuntimeView(bindings)
-	if err != nil {
-		return err
-	}
-	r.Publish(view)
-	return nil
 }

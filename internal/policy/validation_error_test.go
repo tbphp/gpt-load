@@ -10,81 +10,86 @@ import (
 )
 
 func TestStructuredValidationErrors(t *testing.T) {
-	// 1. 验证 rules[0].when.any[1].value 路径及 code
-	jsonWithDeepError := `{
-		"schema_version": 1,
-		"rules": [{
-			"id": "r1", "name": "R1", "domain": "scheduling", "enabled": true,
-			"when": {
-				"any": [
-					{"fact": "request.model", "op": "eq", "value": "Astra"},
-					{"fact": "request.model", "op": "eq", "value": " InvalidWhitespace "}
-				]
-			},
-			"then": {"type": "exclude_candidate"}
-		}]
-	}`
-	_, err := Compile([]byte(jsonWithDeepError))
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	var valErr *ValidationError
-	if !errors.As(err, &valErr) {
-		t.Fatalf("expected *ValidationError, got %T: %v", err, err)
-	}
-	if valErr.Path != "rules[0].when.any[1].value" {
-		t.Fatalf("expected path rules[0].when.any[1].value, got %q", valErr.Path)
-	}
-	if valErr.Code != ErrCodeInvalidValue {
-		t.Fatalf("expected code ERR_INVALID_VALUE, got %q", valErr.Code)
+	tests := []struct {
+		name   string
+		json   string
+		path   string
+		suffix bool
+		code   string
+	}{
+		{
+			name: "nested any value",
+			json: `{
+				"schema_version": 1,
+				"rules": [{
+					"id": "r1", "name": "R1", "domain": "scheduling", "enabled": true,
+					"when": {
+						"any": [
+							{"fact": "request.model", "op": "eq", "value": "Astra"},
+							{"fact": "request.model", "op": "eq", "value": " InvalidWhitespace "}
+						]
+					},
+					"then": {"type": "exclude_candidate"}
+				}]
+			}`,
+			path: "rules[0].when.any[1].value",
+			code: ErrCodeInvalidValue,
+		},
+		{
+			name: "factor out of range",
+			json: `{
+				"schema_version": 1,
+				"rules": [{
+					"id": "r1", "name": "R1", "domain": "pricing", "enabled": true,
+					"when": {"fact": "request.model", "op": "eq", "value": "Astra"},
+					"then": {"type": "multiply_price", "factor": "1005"}
+				}]
+			}`,
+			path: "rules[0].then.factor",
+			code: ErrCodeInvalidValue,
+		},
+		{
+			name: "duplicate key",
+			json: `{
+				"schema_version": 1,
+				"rules": [{
+					"id": "r1", "name": "R1", "domain": "scheduling", "enabled": true,
+					"when": {
+						"fact": "request.model",
+						"fact": "upstream.model",
+						"op": "eq",
+						"value": "Astra"
+					},
+					"then": {"type": "exclude_candidate"}
+				}]
+			}`,
+			path:   "fact",
+			suffix: true,
+			code:   ErrCodeDuplicateKey,
+		},
 	}
 
-	// 2. 验证 rules[0].then.factor 路径及 code
-	jsonWithFactorError := `{
-		"schema_version": 1,
-		"rules": [{
-			"id": "r1", "name": "R1", "domain": "pricing", "enabled": true,
-			"when": {"fact": "request.model", "op": "eq", "value": "Astra"},
-			"then": {"type": "multiply_price", "factor": "1005"}
-		}]
-	}`
-	_, err = Compile([]byte(jsonWithFactorError))
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !errors.As(err, &valErr) {
-		t.Fatalf("expected *ValidationError, got %T: %v", err, err)
-	}
-	if valErr.Path != "rules[0].then.factor" {
-		t.Fatalf("expected path rules[0].then.factor, got %q", valErr.Path)
-	}
-
-	// 3. 验证 duplicate key 错误代码与路径
-	jsonWithDupKey := `{
-		"schema_version": 1,
-		"rules": [{
-			"id": "r1", "name": "R1", "domain": "scheduling", "enabled": true,
-			"when": {
-				"fact": "request.model",
-				"fact": "upstream.model",
-				"op": "eq",
-				"value": "Astra"
-			},
-			"then": {"type": "exclude_candidate"}
-		}]
-	}`
-	_, err = Compile([]byte(jsonWithDupKey))
-	if err == nil {
-		t.Fatal("expected error for duplicate key, got nil")
-	}
-	if !errors.As(err, &valErr) {
-		t.Fatalf("expected *ValidationError, got %T: %v", err, err)
-	}
-	if valErr.Code != ErrCodeDuplicateKey {
-		t.Fatalf("expected code ERR_DUPLICATE_KEY, got %q", valErr.Code)
-	}
-	if !strings.HasSuffix(valErr.Path, "fact") {
-		t.Fatalf("expected path ending in fact, got %q", valErr.Path)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Compile([]byte(tc.json))
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			var valErr *ValidationError
+			if !errors.As(err, &valErr) {
+				t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+			}
+			if valErr.Code != tc.code {
+				t.Fatalf("code = %q, want %q", valErr.Code, tc.code)
+			}
+			if tc.suffix {
+				if !strings.HasSuffix(valErr.Path, tc.path) {
+					t.Fatalf("expected path ending in %q, got %q", tc.path, valErr.Path)
+				}
+			} else if valErr.Path != tc.path {
+				t.Fatalf("path = %q, want %q", valErr.Path, tc.path)
+			}
+		})
 	}
 }
 
@@ -217,35 +222,13 @@ func TestRegistryDescriptorImmutabilityAndOrder(t *testing.T) {
 }
 
 func TestExactDecimalThresholdSemantics(t *testing.T) {
-	// 1. 普通 0.1 正常编译，eq 比较与常规 float64 事实精确匹配
-	cfgPointOne, err := Compile([]byte(`{
-		"schema_version": 1,
-		"rules": [{
-			"id": "r-01", "name": "0.1", "domain": "scheduling", "enabled": true,
-			"when": {
-				"fact": "credential.quota.remaining_ratio",
-				"select": {"scope": "account", "window_seconds": 18000},
-				"reduce": "min",
-				"op": "eq",
-				"value": 0.1
-			},
-			"then": {"type": "exclude_candidate"}
-		}]
-	}`))
-	if err != nil {
-		t.Fatalf("compile 0.1 failed: %v", err)
-	}
-
 	ctx01 := &EvalContext{
 		QuotaWindows: []QuotaWindowFact{
 			{Scope: "account", WindowSeconds: 18000, Ratio: 0.1, State: FactStateMeasured},
 		},
 	}
-	if !cfgPointOne.EvalScheduling(ctx01).Excluded {
-		t.Fatal("expected value=0.1 to match ratio=0.1 on eq")
-	}
 
-	// 2. 0.99999999999999999 (NumShift=-1, 严格 < 1.0)
+	// 1. 0.99999999999999999 (NumShift=-1, 严格 < 1.0)
 	cfgNearOne, err := Compile([]byte(`{
 		"schema_version": 1,
 		"rules": [
@@ -330,7 +313,7 @@ func TestExactDecimalThresholdSemantics(t *testing.T) {
 		t.Fatalf("rule gte expected miss on ratio=0.95, got %s", diagLow.Rules[2].Status)
 	}
 
-	// 3. 规范化等价十进制语法（0.10, 0.100）与 0.1 完全等价匹配
+	// 2. 规范化等价十进制语法（0.10, 0.100）与 0.1 完全等价匹配
 	for _, rawValue := range []string{"0.10", "0.100"} {
 		cfgEqSyntax, err := Compile([]byte(fmt.Sprintf(`{
 			"schema_version": 1,

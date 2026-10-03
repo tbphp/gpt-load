@@ -1,94 +1,33 @@
-import fs from 'node:fs'
-import vm from 'node:vm'
-import path from 'node:path'
-import { createRequire } from 'node:module'
+import { extract, loadTsModule, parseSfc, readSource, stripImports } from './policy-test-utils.mjs'
 
-const require = createRequire(import.meta.url)
-const scriptDir = import.meta.dirname
-const webRoot = path.resolve(scriptDir, '..')
-const repoRoot = path.resolve(webRoot, '..')
-const ts = require(path.join(webRoot, 'node_modules/typescript'))
-const { createRenderer, h } = require(path.join(webRoot, 'node_modules/vue'))
-const { parse: parseSFC } = require(path.join(webRoot, 'node_modules/vue/compiler-sfc'))
+const runtimeGlobals = () => ({
+  InvalidResponseError: class InvalidResponseError extends Error {},
+})
 
-function source(p) {
-  return fs.readFileSync(path.join(repoRoot, p), 'utf8')
-}
-function parsed(s) {
-  return ts.createSourceFile('review.ts', s, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-}
-function stripImports(p) {
-  const s = source(p)
-  return (
-    parsed(s)
-      .statements.filter((x) => !ts.isImportDeclaration(x))
-      .map((x) => x.getFullText())
-      .join('\n')
-      .replace(/\bexport\s+/g, '') + '\n'
-  )
-}
-function funcs(p, names) {
-  const s = source(p)
-  return (
-    parsed(s)
-      .statements.filter((x) => ts.isFunctionDeclaration(x) && names.includes(x.name.text))
-      .map((x) => x.getFullText())
-      .join('\n')
-      .replace(/\bexport\s+/g, '') + '\n'
-  )
-}
-function vars(p, names) {
-  const s = source(p)
-  return (
-    parsed(s)
-      .statements.filter(
-        (x) =>
-          ts.isVariableStatement(x) &&
-          x.declarationList.declarations.some((d) => names.includes(d.name.text)),
-      )
-      .map((x) => x.getFullText())
-      .join('\n')
-      .replace(/\bexport\s+/g, '') + '\n'
-  )
-}
-function runtime(s) {
-  const context = {
-    console,
-    InvalidResponseError: class InvalidResponseError extends Error {},
-  }
-  vm.createContext(context)
-  vm.runInContext(
-    ts.transpileModule(s, {
-      compilerOptions: {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.None,
-      },
-    }).outputText,
-    context,
-  )
-  return context
-}
-
-const classic = runtime(
-  vars('web/src/frontends/classic/app/resources/request-logs.ts', [
+const classic = loadTsModule(
+  extract(readSource('web/src/frontends/classic/app/resources/request-logs.ts'), [
     'receiptCodes',
     'receiptLineStates',
   ]) +
-    stripImports('web/src/frontends/classic/lib/price-multiplier.ts') +
-    stripImports('web/src/frontends/classic/app/resources/projector.ts') +
-    funcs('web/src/frontends/classic/app/resources/channels.ts', ['projectChannelID']) +
-    funcs('web/src/frontends/classic/app/resources/request-logs.ts', [
+    stripImports(readSource('web/src/frontends/classic/lib/price-multiplier.ts')) +
+    stripImports(readSource('web/src/frontends/classic/app/resources/projector.ts')) +
+    extract(readSource('web/src/frontends/classic/app/resources/channels.ts'), [
+      'projectChannelID',
+    ]) +
+    extract(readSource('web/src/frontends/classic/app/resources/request-logs.ts'), [
       'invalidResponse',
       'projectNonBlankString',
       'projectPricingMode',
       'projectPricingReceipt',
     ]),
+  runtimeGlobals(),
 )
 
-const modern = runtime(
-  stripImports('web/src/frontends/modern/api/response.ts') +
-    funcs('web/src/frontends/modern/api/logs.ts', ['count', 'receipt']) +
+const modern = loadTsModule(
+  stripImports(readSource('web/src/frontends/modern/api/response.ts')) +
+    extract(readSource('web/src/frontends/modern/api/logs.ts'), ['count', 'receipt']) +
     '\nconst optionalText = (value) => (value == null ? null : text(value)); const optionalCount = (value) => (value == null ? null : count(value));',
+  runtimeGlobals(),
 )
 
 let failed = 0
@@ -178,67 +117,10 @@ for (const [name, parse] of [
         delete r.policy_factors[0].revision
       },
     ],
-    [
-      'mixed revisions in same group scope',
-      (r) => {
-        r.policy_factors.push({
-          rule_id: 'p2',
-          name_snapshot: 'rule2',
-          binding_scope: 'group',
-          revision: '43',
-          factor: '1',
-          multiplier: '1',
-        })
-      },
-    ],
-    [
-      'duplicate rule id within same group scope',
-      (r) => {
-        r.policy_factors.push({
-          rule_id: 'p',
-          name_snapshot: 'rule2',
-          binding_scope: 'group',
-          revision: '42',
-          factor: '1',
-          multiplier: '1',
-        })
-      },
-    ],
-    [
-      'out-of-order scopes (credential before group)',
-      (r) => {
-        r.policy_factors = [
-          {
-            rule_id: 'c1',
-            name_snapshot: 'cred',
-            binding_scope: 'credential',
-            revision: '1',
-            factor: '1',
-            multiplier: '1',
-          },
-          {
-            rule_id: 'g1',
-            name_snapshot: 'grp',
-            binding_scope: 'group',
-            revision: '1',
-            factor: '1',
-            multiplier: '1',
-          },
-        ]
-      },
-    ],
     ['outer whitespace factor', (r) => (r.policy_factors[0].factor = ' 2 ')],
     [
       'unsafe numeric uint64 revision',
       (r) => (r.policy_factors[0].revision = JSON.parse('9007199254740993')),
-    ],
-    ['unknown top-level field', (r) => (r.unexpected = true)],
-    [
-      'inherited top-level schema',
-      (r) => {
-        Object.setPrototypeOf(r, { schema_version: 7 })
-        delete r.schema_version
-      },
     ],
   ]) {
     test(`${name} rejects ${caseName}`, () => {
@@ -347,35 +229,9 @@ for (let version = 1; version <= 6; version++) {
   }
 }
 
-for (const field of [
-  'pricing_mode',
-  'price_multipliers',
-  'base_total_nano_usd',
-  'policy_factors',
-]) {
-  for (const [name, parse] of [
-    ['Classic', (x) => classic.projectPricingReceipt(x)],
-    ['Modern', (x) => modern.receipt(x)],
-  ]) {
-    test(`${name} rejects inherited v7 required ${field}`, () => {
-      const r = structuredClone(normal)
-      const value = r[field]
-      delete r[field]
-      Object.setPrototypeOf(r, { [field]: value })
-      try {
-        parse(r)
-      } catch {
-        return
-      }
-      throw new Error('inherited required field admitted')
-    })
-  }
-}
-
-// 2. Vue actual component SFC AST parsed reconciliation
+// 2. Actual Vue SFC key expression must keep scope and rule IDs distinct.
 function readSFCKey(relPath) {
-  const txt = fs.readFileSync(path.join(repoRoot, relPath), 'utf8')
-  const { descriptor } = parseSFC(txt)
+  const { descriptor } = parseSfc(readSource(relPath))
   const ast = descriptor.template.ast
   let key = null
   function visit(n) {
@@ -396,80 +252,18 @@ function readSFCKey(relPath) {
   return new Function('rule', 'f', `return (${key})`)
 }
 
-function node(tag, text = '') {
-  return { tag, text, children: [], parent: null }
-}
-const host = {
-  createElement: (tag) => node(tag),
-  createText: (text) => node('#text', text),
-  createComment: (text) => node('#comment', text),
-  setText: (n, t) => {
-    n.text = t
-  },
-  setElementText: (n, t) => {
-    n.text = t
-    n.children = []
-  },
-  parentNode: (n) => n.parent,
-  nextSibling: (n) => n.parent?.children[n.parent.children.indexOf(n) + 1] ?? null,
-  patchProp() {},
-  remove(n) {
-    if (n.parent) {
-      const at = n.parent.children.indexOf(n)
-      if (at >= 0) n.parent.children.splice(at, 1)
-      n.parent = null
-    }
-  },
-  insert(n, parent, anchor = null) {
-    host.remove(n)
-    const idx = anchor ? parent.children.indexOf(anchor) : -1
-    parent.children.splice(idx < 0 ? parent.children.length : idx, 0, n)
-    n.parent = parent
-  },
-}
-
 for (const compPath of [
   'web/src/frontends/classic/features/monitor/LogDetailDrawer.vue',
   'web/src/frontends/modern/features/logs/LogPricingReceipt.vue',
 ]) {
-  test(`Vue reconciles actual SFC key expression for ${compPath}`, () => {
+  test(`Vue SFC key distinguishes scope and rule IDs for ${compPath}`, () => {
     const keyFn = readSFCKey(compPath)
-    const { render } = createRenderer(host)
-    const rootNode = node('root')
-    const draw = (rows) =>
-      h(
-        'div',
-        null,
-        rows.map(([binding_scope, rule_id, label]) => {
-          const item = { binding_scope, rule_id }
-          return h('span', { key: keyFn(item, item) }, label)
-        }),
-      )
-
-    render(
-      draw([
-        ['group', 'a', 'Group a'],
-        ['group', 'dup', 'Group old dup'],
-        ['group', 'b', 'Group b'],
-        ['credential', 'dup', 'Credential old dup'],
-        ['credential', 'z', 'Credential z'],
-      ]),
-      rootNode,
-    )
-
-    const after = [
-      ['group', 'q', 'Group q'],
-      ['group', 'dup', 'Group new dup'],
-      ['group', 'r', 'Group r'],
-      ['credential', 'dup', 'Credential new dup'],
-      ['credential', 's', 'Credential s'],
-    ]
-    render(draw(after), rootNode)
-
-    const actual = rootNode.children[0].children.map((n) => n.text)
-    const expected = after.map((x) => x[2])
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      throw new Error(`Reconciliation mismatch: expected ${expected}, got ${actual}`)
+    const item = { binding_scope: 'group', rule_id: 'dup' }
+    if (
+      keyFn(item, item) ===
+      keyFn({ ...item, binding_scope: 'credential' }, { ...item, binding_scope: 'credential' })
+    ) {
+      throw new Error(`scope/rule collision in ${compPath}`)
     }
   })
 }

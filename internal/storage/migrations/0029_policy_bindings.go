@@ -74,32 +74,13 @@ func ValidateRecoverable0029(db *gorm.DB) error {
 }
 
 func Validate0029(db *gorm.DB) error {
-	model := &policyBinding0029{}
-	if !db.Migrator().HasTable(model) {
+	if !db.Migrator().HasTable(&policyBinding0029{}) {
 		return fmt.Errorf("policy bindings table is missing")
 	}
-	columns, err := db.Migrator().ColumnTypes(model)
-	if err != nil {
+	if err := ValidateRecoverable0029(db); err != nil {
 		return err
 	}
-	expected := map[string]struct{}{
-		"id":             {},
-		"scope":          {},
-		"group_id":       {},
-		"credential_id":  {},
-		"revision":       {},
-		"schema_version": {},
-		"config":         {},
-		"created_at_ms":  {},
-		"updated_at_ms":  {},
-	}
-	for _, column := range columns {
-		delete(expected, strings.ToLower(column.Name()))
-	}
-	if len(expected) > 0 {
-		return fmt.Errorf("policy bindings table is missing expected columns")
-	}
-	if !db.Migrator().HasIndex(model, "idx_policy_bindings_target") {
+	if !db.Migrator().HasIndex(&policyBinding0029{}, "idx_policy_bindings_target") {
 		return fmt.Errorf("policy bindings index is missing")
 	}
 	return nil

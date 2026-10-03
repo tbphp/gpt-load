@@ -3,6 +3,7 @@ package policy
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 )
@@ -56,22 +57,10 @@ func NewRegistry() *Registry {
 
 func cloneParamDescriptor(d ParamDescriptor) ParamDescriptor {
 	res := d
-	if d.Operators != nil {
-		res.Operators = make([]string, len(d.Operators))
-		copy(res.Operators, d.Operators)
-	}
-	if d.Domains != nil {
-		res.Domains = make([]Domain, len(d.Domains))
-		copy(res.Domains, d.Domains)
-	}
-	if d.BindingScopes != nil {
-		res.BindingScopes = make([]string, len(d.BindingScopes))
-		copy(res.BindingScopes, d.BindingScopes)
-	}
-	if d.Reducers != nil {
-		res.Reducers = make([]string, len(d.Reducers))
-		copy(res.Reducers, d.Reducers)
-	}
+	res.Operators = slices.Clone(d.Operators)
+	res.Domains = slices.Clone(d.Domains)
+	res.BindingScopes = slices.Clone(d.BindingScopes)
+	res.Reducers = slices.Clone(d.Reducers)
 	if d.SelectorConstraint != nil {
 		res.SelectorConstraint = &SelectorConstraint{
 			Scope:                 d.SelectorConstraint.Scope,
@@ -83,19 +72,13 @@ func cloneParamDescriptor(d ParamDescriptor) ParamDescriptor {
 
 func clonePredicateDescriptor(d PredicateDescriptor) PredicateDescriptor {
 	res := d
-	if d.Domains != nil {
-		res.Domains = make([]Domain, len(d.Domains))
-		copy(res.Domains, d.Domains)
-	}
+	res.Domains = slices.Clone(d.Domains)
 	return res
 }
 
 func cloneActionDescriptor(d ActionDescriptor) ActionDescriptor {
 	res := d
-	if d.Fields != nil {
-		res.Fields = make([]string, len(d.Fields))
-		copy(res.Fields, d.Fields)
-	}
+	res.Fields = slices.Clone(d.Fields)
 	return res
 }
 

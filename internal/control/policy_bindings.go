@@ -5,7 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -38,36 +42,36 @@ func (o *optionalPolicyConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type PolicyConfigDTO struct {
-	SchemaVersion int               `json:"schema_version"`
-	Rules         []json.RawMessage `json:"rules"`
+type PolicyBindingResponse struct {
+	Scope        string `json:"scope"`
+	ID           uint   `json:"id"`
+	GroupID      uint   `json:"group_id"`
+	CredentialID *uint  `json:"credential_id,omitempty"`
+	RevisionText string `json:"revision_text"`
+	ConfigText   string `json:"config_text"`
 }
 
-type PolicyBindingResponse struct {
-	Scope         string            `json:"scope"`
-	ID            uint              `json:"id"`
-	GroupID       uint              `json:"group_id"`
-	CredentialID  *uint             `json:"credential_id,omitempty"`
-	Revision      uint64            `json:"revision"`
-	SchemaVersion int               `json:"schema_version"`
-	Rules         []json.RawMessage `json:"rules"`
-	Config        PolicyConfigDTO   `json:"config"`
+func validateExactUint64DecimalString(s string) error {
+	if s == "" {
+		return errors.New("empty string")
+	}
+	if s == "0" {
+		return nil
+	}
+	if s[0] == '0' {
+		return errors.New("leading zero not permitted")
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return fmt.Errorf("invalid character %q", s[i])
+		}
+	}
+	return nil
 }
 
 type PolicyUpdateRequest struct {
-	ExpectedRevision *uint64              `json:"expected_revision"`
+	ExpectedRevision *string              `json:"expected_revision"`
 	Config           optionalPolicyConfig `json:"config"`
-}
-
-func parsePolicyConfigDTO(raw []byte) (PolicyConfigDTO, error) {
-	var dto PolicyConfigDTO
-	if err := json.Unmarshal(raw, &dto); err != nil {
-		return PolicyConfigDTO{}, err
-	}
-	if dto.Rules == nil {
-		dto.Rules = []json.RawMessage{}
-	}
-	return dto, nil
 }
 
 // GetGroupPolicy 返回指定分组的策略绑定配置。
@@ -93,16 +97,11 @@ func (s *Service) GetGroupPolicy(ctx context.Context, groupID uint) (PolicyBindi
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return PolicyBindingResponse{
-			Scope:         string(models.PolicyScopeGroup),
-			ID:            groupID,
-			GroupID:       groupID,
-			Revision:      0,
-			SchemaVersion: 1,
-			Rules:         []json.RawMessage{},
-			Config: PolicyConfigDTO{
-				SchemaVersion: 1,
-				Rules:         []json.RawMessage{},
-			},
+			Scope:        string(models.PolicyScopeGroup),
+			ID:           groupID,
+			GroupID:      groupID,
+			RevisionText: "0",
+			ConfigText:   `{"schema_version":1,"rules":[]}`,
 		}, nil
 	}
 	if err != nil {
@@ -113,19 +112,12 @@ func (s *Service) GetGroupPolicy(ctx context.Context, groupID uint) (PolicyBindi
 		return PolicyBindingResponse{}, app_errors.ErrMalformedPolicyStorage
 	}
 
-	cfgDTO, err := parsePolicyConfigDTO(binding.Config)
-	if err != nil {
-		return PolicyBindingResponse{}, app_errors.ErrMalformedPolicyStorage
-	}
-
 	return PolicyBindingResponse{
-		Scope:         string(binding.Scope),
-		ID:            groupID,
-		GroupID:       groupID,
-		Revision:      uint64(binding.Revision),
-		SchemaVersion: cfgDTO.SchemaVersion,
-		Rules:         cfgDTO.Rules,
-		Config:        cfgDTO,
+		Scope:        string(binding.Scope),
+		ID:           groupID,
+		GroupID:      groupID,
+		RevisionText: strconv.FormatUint(uint64(binding.Revision), 10),
+		ConfigText:   string(binding.Config),
 	}, nil
 }
 
@@ -156,17 +148,12 @@ func (s *Service) GetCredentialPolicy(ctx context.Context, groupID uint, credent
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return PolicyBindingResponse{
-			Scope:         string(models.PolicyScopeCredential),
-			ID:            credentialID,
-			GroupID:       groupID,
-			CredentialID:  &credentialID,
-			Revision:      0,
-			SchemaVersion: 1,
-			Rules:         []json.RawMessage{},
-			Config: PolicyConfigDTO{
-				SchemaVersion: 1,
-				Rules:         []json.RawMessage{},
-			},
+			Scope:        string(models.PolicyScopeCredential),
+			ID:           credentialID,
+			GroupID:      groupID,
+			CredentialID: &credentialID,
+			RevisionText: "0",
+			ConfigText:   `{"schema_version":1,"rules":[]}`,
 		}, nil
 	}
 	if err != nil {
@@ -177,20 +164,13 @@ func (s *Service) GetCredentialPolicy(ctx context.Context, groupID uint, credent
 		return PolicyBindingResponse{}, app_errors.ErrMalformedPolicyStorage
 	}
 
-	cfgDTO, err := parsePolicyConfigDTO(binding.Config)
-	if err != nil {
-		return PolicyBindingResponse{}, app_errors.ErrMalformedPolicyStorage
-	}
-
 	return PolicyBindingResponse{
-		Scope:         string(binding.Scope),
-		ID:            credentialID,
-		GroupID:       groupID,
-		CredentialID:  &credentialID,
-		Revision:      uint64(binding.Revision),
-		SchemaVersion: cfgDTO.SchemaVersion,
-		Rules:         cfgDTO.Rules,
-		Config:        cfgDTO,
+		Scope:        string(binding.Scope),
+		ID:           credentialID,
+		GroupID:      groupID,
+		CredentialID: &credentialID,
+		RevisionText: strconv.FormatUint(uint64(binding.Revision), 10),
+		ConfigText:   string(binding.Config),
 	}, nil
 }
 
@@ -212,12 +192,18 @@ func (s *Service) savePolicyBinding(
 	if req.ExpectedRevision == nil {
 		return PolicyBindingResponse{}, app_errors.ErrBadRequest
 	}
-	expectedRev := *req.ExpectedRevision
+	expectedStr := *req.ExpectedRevision
+	if err := validateExactUint64DecimalString(expectedStr); err != nil {
+		return PolicyBindingResponse{}, app_errors.ErrBadRequest
+	}
+	expectedRev, err := strconv.ParseUint(expectedStr, 10, 64)
+	if err != nil {
+		return PolicyBindingResponse{}, app_errors.ErrBadRequest
+	}
 
 	// 1. 处理 config payload 验证
 	var hasNewConfig bool
 	var toSaveRaw []byte
-	var toSaveDTO PolicyConfigDTO
 
 	if req.Config.Specified {
 		if req.Config.IsNull {
@@ -232,22 +218,16 @@ func (s *Service) savePolicyBinding(
 		if _, compileErr := policy.Compile(trimmed); compileErr != nil {
 			return PolicyBindingResponse{}, app_errors.NewAPIErrorWithData(app_errors.ErrValidation, compileErr.Error())
 		}
-
-		dto, err := parsePolicyConfigDTO(trimmed)
-		if err != nil {
-			return PolicyBindingResponse{}, app_errors.ErrBadRequest
-		}
 		hasNewConfig = true
 		toSaveRaw = trimmed
-		toSaveDTO = dto
 	}
 
 	// 2. 事务执行原子检查与 CAS 保存
 	var finalRevision uint64
-	var finalConfigDTO PolicyConfigDTO
+	var finalConfigRaw string
 
 	var response PolicyBindingResponse
-	_, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
+	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
 		// 2.1 在写事务内原子复核父实体存在性与归属关系，避免孤儿记录与并发删除/移动竞态
 		if scope == models.PolicyScopeGroup {
 			var grp models.Group
@@ -282,7 +262,6 @@ func (s *Service) savePolicyBinding(
 			// 如果遗漏了 config，使用默认空规则
 			if !hasNewConfig {
 				toSaveRaw = []byte(`{"schema_version":1,"rules":[]}`)
-				toSaveDTO = PolicyConfigDTO{SchemaVersion: 1, Rules: []json.RawMessage{}}
 			}
 
 			now := s.now().UnixMilli()
@@ -291,7 +270,7 @@ func (s *Service) savePolicyBinding(
 				GroupID:       groupID,
 				CredentialID:  credentialID,
 				Revision:      1,
-				SchemaVersion: toSaveDTO.SchemaVersion,
+				SchemaVersion: 1,
 				Config:        models.JSON(toSaveRaw),
 				CreatedAtMS:   now,
 				UpdatedAtMS:   now,
@@ -303,7 +282,7 @@ func (s *Service) savePolicyBinding(
 				return app_errors.ParseDBError(cErr)
 			}
 			finalRevision = 1
-			finalConfigDTO = toSaveDTO
+			finalConfigRaw = string(toSaveRaw)
 			return nil
 		}
 
@@ -323,28 +302,21 @@ func (s *Service) savePolicyBinding(
 		nextRevision := current.Revision + 1
 
 		targetRaw := toSaveRaw
-		targetDTO := toSaveDTO
 		if !hasNewConfig {
 			// 遗漏 config 保持原有不变，但必须确保原存储配置通过编译校验
 			if _, cErr := policy.Compile(current.Config); cErr != nil {
 				return app_errors.ErrMalformedPolicyStorage
 			}
 			targetRaw = current.Config
-			existingDTO, pErr := parsePolicyConfigDTO(current.Config)
-			if pErr != nil {
-				return app_errors.ErrMalformedPolicyStorage
-			}
-			targetDTO = existingDTO
 		}
 
 		now := s.now().UnixMilli()
 		result := tx.Model(&models.PolicyBinding{}).
 			Where("id = ? AND revision = ?", current.ID, current.Revision).
 			Updates(map[string]any{
-				"config":         models.JSON(targetRaw),
-				"revision":       nextRevision,
-				"schema_version": targetDTO.SchemaVersion,
-				"updated_at_ms":  now,
+				"config":        models.JSON(targetRaw),
+				"revision":      nextRevision,
+				"updated_at_ms": now,
 			})
 
 		if result.Error != nil {
@@ -355,7 +327,7 @@ func (s *Service) savePolicyBinding(
 		}
 
 		finalRevision = uint64(nextRevision)
-		finalConfigDTO = targetDTO
+		finalConfigRaw = string(targetRaw)
 		return nil
 	}, nil)
 
@@ -363,12 +335,10 @@ func (s *Service) savePolicyBinding(
 		return PolicyBindingResponse{}, err
 	}
 	response = PolicyBindingResponse{
-		Scope:         string(scope),
-		GroupID:       groupID,
-		Revision:      finalRevision,
-		SchemaVersion: finalConfigDTO.SchemaVersion,
-		Rules:         finalConfigDTO.Rules,
-		Config:        finalConfigDTO,
+		Scope:        string(scope),
+		GroupID:      groupID,
+		RevisionText: strconv.FormatUint(finalRevision, 10),
+		ConfigText:   finalConfigRaw,
 	}
 	if scope == models.PolicyScopeGroup {
 		response.ID = groupID
@@ -406,7 +376,7 @@ func (s *Server) handleUpdateGroupPolicy(c *gin.Context) {
 		return
 	}
 	var request PolicyUpdateRequest
-	if err := bindStrictJSON(c, &request); err != nil {
+	if err := bindStrictPolicyJSON(c, &request); err != nil {
 		writeServiceError(c, "update_group_policy", mapControlJSONError(err))
 		return
 	}
@@ -451,7 +421,7 @@ func (s *Server) handleUpdateCredentialPolicy(c *gin.Context) {
 		return
 	}
 	var request PolicyUpdateRequest
-	if err := bindStrictJSON(c, &request); err != nil {
+	if err := bindStrictPolicyJSON(c, &request); err != nil {
 		writeServiceError(c, "update_credential_policy", mapControlJSONError(err))
 		return
 	}
@@ -461,6 +431,22 @@ func (s *Server) handleUpdateCredentialPolicy(c *gin.Context) {
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
+}
+
+func bindStrictPolicyJSON(c *gin.Context, target any) error {
+	w := c.Writer
+	r := c.Request
+	limited := io.LimitReader(r.Body, int64(maxStrictPolicyRequestBytes)+1)
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		return err
+	}
+	if len(raw) > maxStrictPolicyRequestBytes {
+		return &http.MaxBytesError{Limit: int64(maxStrictPolicyRequestBytes)}
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	_ = w
+	return decodeStrictControlJSONObject(raw, target)
 }
 
 func (s *Server) requireAdminPrincipal(c *gin.Context, op string) bool {

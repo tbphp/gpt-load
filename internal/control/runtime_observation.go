@@ -10,9 +10,10 @@ import (
 )
 
 type runtimeObservation struct {
-	observedAt time.Time
-	snapshot   *state.ConfigSnapshot
-	keys       []state.CredentialRuntimeView
+	observedAt      time.Time
+	snapshot        *state.ConfigSnapshot
+	keys            []state.CredentialRuntimeView
+	credentialNames map[uint]string
 }
 
 type runtimeHealthObservation struct {
@@ -39,7 +40,13 @@ func (service *Service) captureRuntimeObservation() (runtimeObservation, error) 
 		)
 	}
 	keys := service.registry.Snapshot()
-	observedAt := service.now().UTC()
+	credentialNames := make(map[uint]string, len(keys))
+	for _, key := range keys {
+		if ref, ok := service.registry.CredentialRef(key.ID); ok && ref.Name != "" {
+			credentialNames[key.ID] = ref.Name
+		}
+	}
+	observedAt := service.now()
 	service.writeMu.RUnlock()
 
 	for _, key := range keys {
@@ -53,9 +60,10 @@ func (service *Service) captureRuntimeObservation() (runtimeObservation, error) 
 		}
 	}
 	return runtimeObservation{
-		observedAt: observedAt,
-		snapshot:   snapshot,
-		keys:       keys,
+		observedAt:      observedAt,
+		snapshot:        snapshot,
+		keys:            keys,
+		credentialNames: credentialNames,
 	}, nil
 }
 

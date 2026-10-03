@@ -11,9 +11,9 @@
   "scripts": {
     "dev": "vite",
     "build": "pnpm run type-check && vite build",
-    "lint": "eslint . --max-warnings=0 && pnpm run check:styles && pnpm run check:factors",
+    "lint": "eslint . --max-warnings=0 && pnpm run check:styles && pnpm run check:policy",
     "check:styles": "node scripts/check-modern-styles.mjs",
-    "check:factors": "node scripts/check-policy-factors.mjs",
+    "check:policy": "node scripts/check-policy-factors.mjs && node scripts/check-policy-preview.mjs && node scripts/check-policy-portability.mjs && node --test src/frontends/modern/features/groups/policy-editor/*.test.mjs",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json"

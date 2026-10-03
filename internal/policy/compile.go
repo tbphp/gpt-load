@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"math/big"
 	"strconv"
 	"strings"
@@ -187,17 +186,6 @@ func CompileWithRegistry(data []byte, reg *Registry) (*CompiledConfig, error) {
 				Message: "schema_version must be integer 1",
 			}
 		}
-	case float64:
-		if v != math.Trunc(v) {
-			return nil, &ValidationError{
-				Path:    "schema_version",
-				Code:    ErrCodeInvalidValue,
-				Message: "schema_version must be integer 1",
-			}
-		}
-		verInt = int64(v)
-	case int:
-		verInt = int64(v)
 	default:
 		return nil, &ValidationError{
 			Path:    "schema_version",
@@ -638,94 +626,55 @@ func compileCondition(raw any, depth int, path string, reg *Registry, totalNodes
 		}
 	}
 
-	if hasAll {
+	if hasAll || hasAny {
+		key := "all"
+		kind := ConditionKindAll
+		if hasAny {
+			key = "any"
+			kind = ConditionKindAny
+		}
 		for k := range obj {
-			if k != "all" {
+			if k != key {
 				return nil, &ValidationError{
 					Path:    joinPath(path, k),
 					Code:    ErrCodeUnknownField,
-					Message: fmt.Sprintf("unknown field %q in 'all' condition node", k),
+					Message: fmt.Sprintf("unknown field %q in '%s' condition node", k, key),
 				}
 			}
 		}
-		rawList, ok := obj["all"].([]any)
+		rawList, ok := obj[key].([]any)
 		if !ok {
 			return nil, &ValidationError{
-				Path:    path + ".all",
+				Path:    path + "." + key,
 				Code:    ErrCodeInvalidType,
-				Message: "'all' field must be an array",
+				Message: fmt.Sprintf("'%s' field must be an array", key),
 			}
 		}
 		if len(rawList) == 0 {
 			return nil, &ValidationError{
-				Path:    path + ".all",
+				Path:    path + "." + key,
 				Code:    ErrCodeInvalidValue,
-				Message: "'all' array cannot be empty",
+				Message: fmt.Sprintf("'%s' array cannot be empty", key),
 			}
 		}
 		if len(rawList) > MaxListItems {
 			return nil, &ValidationError{
-				Path:    path + ".all",
+				Path:    path + "." + key,
 				Code:    ErrCodeBudgetExceeded,
-				Message: fmt.Sprintf("'all' items count %d exceeds maximum %d", len(rawList), MaxListItems),
+				Message: fmt.Sprintf("'%s' items count %d exceeds maximum %d", key, len(rawList), MaxListItems),
 			}
 		}
 
 		children := make([]*ConditionNode, 0, len(rawList))
 		for i, item := range rawList {
-			childPath := fmt.Sprintf("%s.all[%d]", path, i)
+			childPath := fmt.Sprintf("%s.%s[%d]", path, key, i)
 			childNode, err := compileCondition(item, depth+1, childPath, reg, totalNodes)
 			if err != nil {
 				return nil, err
 			}
 			children = append(children, childNode)
 		}
-		return &ConditionNode{Kind: ConditionKindAll, Children: children}, nil
-	}
-
-	if hasAny {
-		for k := range obj {
-			if k != "any" {
-				return nil, &ValidationError{
-					Path:    joinPath(path, k),
-					Code:    ErrCodeUnknownField,
-					Message: fmt.Sprintf("unknown field %q in 'any' condition node", k),
-				}
-			}
-		}
-		rawList, ok := obj["any"].([]any)
-		if !ok {
-			return nil, &ValidationError{
-				Path:    path + ".any",
-				Code:    ErrCodeInvalidType,
-				Message: "'any' field must be an array",
-			}
-		}
-		if len(rawList) == 0 {
-			return nil, &ValidationError{
-				Path:    path + ".any",
-				Code:    ErrCodeInvalidValue,
-				Message: "'any' array cannot be empty",
-			}
-		}
-		if len(rawList) > MaxListItems {
-			return nil, &ValidationError{
-				Path:    path + ".any",
-				Code:    ErrCodeBudgetExceeded,
-				Message: fmt.Sprintf("'any' items count %d exceeds maximum %d", len(rawList), MaxListItems),
-			}
-		}
-
-		children := make([]*ConditionNode, 0, len(rawList))
-		for i, item := range rawList {
-			childPath := fmt.Sprintf("%s.any[%d]", path, i)
-			childNode, err := compileCondition(item, depth+1, childPath, reg, totalNodes)
-			if err != nil {
-				return nil, err
-			}
-			children = append(children, childNode)
-		}
-		return &ConditionNode{Kind: ConditionKindAny, Children: children}, nil
+		return &ConditionNode{Kind: kind, Children: children}, nil
 	}
 
 	if hasNot {
@@ -812,17 +761,6 @@ func compileCondition(raw any, depth int, path string, reg *Registry, totalNodes
 						}
 					}
 					wkInt = parsed
-				case float64:
-					if wv != math.Trunc(wv) {
-						return nil, &ValidationError{
-							Path:    path + ".weekdays",
-							Code:    ErrCodeInvalidValue,
-							Message: "weekday must be integer 0-6",
-						}
-					}
-					wkInt = int(wv)
-				case int:
-					wkInt = wv
 				default:
 					return nil, &ValidationError{
 						Path:    path + ".weekdays",
@@ -1101,12 +1039,6 @@ func compileCondition(raw any, depth int, path string, reg *Registry, totalNodes
 				}
 			}
 			numVal = parsed
-		case float64:
-			numVal = nv
-			rawNumStr = strconv.FormatFloat(nv, 'g', -1, 64)
-		case int:
-			numVal = float64(nv)
-			rawNumStr = strconv.Itoa(nv)
 		default:
 			return nil, &ValidationError{
 				Path:    path + ".value",
@@ -1189,17 +1121,6 @@ func compileCondition(raw any, depth int, path string, reg *Registry, totalNodes
 					}
 				}
 				winSec = parsed
-			case float64:
-				if wv != math.Trunc(wv) {
-					return nil, &ValidationError{
-						Path:    path + ".select.window_seconds",
-						Code:    ErrCodeInvalidValue,
-						Message: "window_seconds must be integer",
-					}
-				}
-				winSec = int(wv)
-			case int:
-				winSec = wv
 			default:
 				return nil, &ValidationError{
 					Path:    path + ".select.window_seconds",

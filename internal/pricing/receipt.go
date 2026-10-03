@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // UnmarshalJSON 区分缺省字段与显式 null，并保持历史版本的字段边界。
@@ -34,8 +33,7 @@ func (receipt *Receipt) UnmarshalJSON(data []byte) error {
 		"total_nano_usd":           {},
 	}
 
-	seenExact := make(map[string]struct{})
-	seenLower := make(map[string]struct{})
+	seen := make(map[string]struct{})
 	rawValues := make(map[string]json.RawMessage)
 
 	for dec.More() {
@@ -47,12 +45,10 @@ func (receipt *Receipt) UnmarshalJSON(data []byte) error {
 		if !ok {
 			return fmt.Errorf("pricing: object key must be a string")
 		}
-		lowerKey := strings.ToLower(key)
-		if _, exists := seenLower[lowerKey]; exists {
-			return fmt.Errorf("pricing: duplicate or alias receipt field %q", key)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("pricing: duplicate receipt field %q", key)
 		}
-		seenLower[lowerKey] = struct{}{}
-		seenExact[key] = struct{}{}
+		seen[key] = struct{}{}
 
 		if _, ok := canonicalKeys[key]; !ok {
 			return fmt.Errorf("pricing: unknown receipt field %q", key)

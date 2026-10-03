@@ -269,9 +269,36 @@ type CompiledConfig struct {
 	rules []Rule
 }
 
+// NodeCount 返回已编译配置中包含的条件节点总数。
+func (c *CompiledConfig) NodeCount() int {
+	if c == nil || len(c.rules) == 0 {
+		return 0
+	}
+	count := 0
+	for _, r := range c.rules {
+		count += countConditionNodes(r.When)
+	}
+	return count
+}
+
+func countConditionNodes(node *ConditionNode) int {
+	if node == nil {
+		return 0
+	}
+	count := 1
+	for _, child := range node.Children {
+		count += countConditionNodes(child)
+	}
+	if node.Child != nil {
+		count += countConditionNodes(node.Child)
+	}
+	return count
+}
+
 // EvalContext 求值上下文
 type EvalContext struct {
 	Now           time.Time
+	QuotaNow      time.Time
 	RequestModel  StringFact
 	UpstreamModel StringFact
 	QuotaWindows  []QuotaWindowFact
@@ -279,6 +306,19 @@ type EvalContext struct {
 	// 通用事实扩展表，无需修改 switch 或核心树
 	CustomStringFacts map[string]StringFact
 	CustomNumberFacts map[string]NumberFact
+}
+
+// EffectiveQuotaNow 返回额度窗口判断时生效的时间戳。
+// 若未显式设置 QuotaNow（如生产热路径），回退为 Now；
+// 若显式设置（如预览时模拟时间仅作用于时间段谓词），则优先返回真实的 QuotaNow，确保未来模拟不推演额度重置。
+func (ctx *EvalContext) EffectiveQuotaNow() time.Time {
+	if ctx != nil && !ctx.QuotaNow.IsZero() {
+		return ctx.QuotaNow
+	}
+	if ctx != nil {
+		return ctx.Now
+	}
+	return time.Time{}
 }
 
 // SchedulingMatch 调度规则命中快照

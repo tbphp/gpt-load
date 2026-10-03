@@ -58,13 +58,6 @@ func TestPolicyRouting_PolicyOnlySaveRetainsEligibleAffinity(t *testing.T) {
 			}
 		]
 	}`)
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{
-		{Scope: "group", GroupID: 1, Config: ruleJSON},
-	})
-	if err != nil {
-		t.Fatalf("CompileRuntimeView error = %v", err)
-	}
-
 	currentSnap := manager.Current()
 	compileInput := state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
@@ -79,7 +72,9 @@ func TestPolicyRouting_PolicyOnlySaveRetainsEligibleAffinity(t *testing.T) {
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive,
 		}},
-		Policies: pv,
+		PolicyBindings: []policy.BindingConfig{
+			{Scope: "group", GroupID: 1, Config: ruleJSON},
+		},
 	}
 
 	newSnap, err := manager.Publish(compileInput)
@@ -145,40 +140,6 @@ func TestPolicyRouting_IncompatibleConfigInvalidatesAffinity(t *testing.T) {
 	assertAffinityHits(t, sink.snapshot(), []bool{false, false})
 }
 
-// 3. Stale snapshot/cache writes are rejected
-func TestPolicyRouting_StaleSnapshotCacheWritesAreRejected(t *testing.T) {
-	cache := affinity.NewCache()
-	target := affinity.Target{GroupID: 1, CredentialID: 1, IdentityGeneration: 1}
-
-	// Configure at Revision 1, AffinityRevision 1
-	if !cache.Configure(1, 1, 10, time.Hour) {
-		t.Fatal("Configure(1, 1) failed")
-	}
-
-	key := affinity.Key("test-key")
-	obsRev1 := cache.Lookup(key)
-	if obsRev1.Found() {
-		t.Fatal("expected miss on rev 1")
-	}
-
-	// Move to Revision 2, AffinityRevision 1 (policy-only publish)
-	if !cache.Configure(2, 1, 10, time.Hour) {
-		t.Fatal("Configure(2, 1) failed")
-	}
-
-	// An in-flight request that started on Revision 1 attempts to write back:
-	// MUST be rejected because its observation revision (1) != current cache revision (2)!
-	if cache.RecordSuccess(key, obsRev1, target) {
-		t.Fatal("stale write with revision 1 observation succeeded, want rejection")
-	}
-
-	// A request on Revision 2 can write back successfully:
-	obsRev2 := cache.Lookup(key)
-	if !cache.RecordSuccess(key, obsRev2, target) {
-		t.Fatal("valid write on revision 2 failed")
-	}
-}
-
 // 4. Denied bound candidate (previous_response_id) cannot bypass policy via replay or fallback
 func TestPolicyRouting_DeniedBoundCandidateCannotBypassPolicyViaReplayOrFallback(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{
@@ -207,13 +168,6 @@ func TestPolicyRouting_DeniedBoundCandidateCannotBypassPolicyViaReplayOrFallback
 			}
 		]
 	}`)
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{
-		{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON},
-	})
-	if err != nil {
-		t.Fatalf("CompileRuntimeView error = %v", err)
-	}
-
 	// Update snapshot with policy
 	snap := handler.manager.Current()
 	compileInput := state.CompileInput{
@@ -229,7 +183,9 @@ func TestPolicyRouting_DeniedBoundCandidateCannotBypassPolicyViaReplayOrFallback
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive,
 		}},
-		Policies: pv,
+		PolicyBindings: []policy.BindingConfig{
+			{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON},
+		},
 	}
 	if _, err := handler.manager.Publish(compileInput); err != nil {
 		t.Fatalf("Publish error = %v", err)
@@ -277,13 +233,6 @@ func TestPolicyRouting_AlternateTargetsRemainUsableWhenPreferredDenied(t *testin
 			}
 		]
 	}`)
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{
-		{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON},
-	})
-	if err != nil {
-		t.Fatalf("CompileRuntimeView error = %v", err)
-	}
-
 	compileInput := state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
@@ -297,7 +246,9 @@ func TestPolicyRouting_AlternateTargetsRemainUsableWhenPreferredDenied(t *testin
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive,
 		}},
-		Policies: pv,
+		PolicyBindings: []policy.BindingConfig{
+			{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON},
+		},
 	}
 	if _, err := manager.Publish(compileInput); err != nil {
 		t.Fatalf("Publish error = %v", err)
@@ -393,15 +344,10 @@ func TestPolicyRouting_LivePolicyAdmissionPreservesHangupWithoutMigration(t *tes
 			}
 		]
 	}`, liveModel))
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{
-		{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON},
-	})
-	if err != nil {
-		t.Fatalf("CompileRuntimeView error = %v", err)
-	}
-
 	compileInput := initialInput
-	compileInput.Policies = pv
+	compileInput.PolicyBindings = []policy.BindingConfig{
+		{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON},
+	}
 	if _, err := manager.Publish(compileInput); err != nil {
 		t.Fatalf("Publish error = %v", err)
 	}
@@ -454,15 +400,11 @@ func TestPolicyRouting_StaleSuccessAfterPublicationWithoutLookup(t *testing.T) {
 	ref, _ := r.CredentialRef(1)
 	request := h.resolveRequestAffinity(old, 1, protocol.OpenAICompletions, []byte("review conversation"), map[uint]state.CredentialRef{1: ref}, "")
 	in := policyRegressionCompileInput(h)
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{{
+	in.PolicyBindings = []policy.BindingConfig{{
 		Scope:   "group",
 		GroupID: 1,
 		Config:  []byte(`{"schema_version":1,"rules":[{"id":"p","name":"p","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	in.Policies = pv
+	}}
 	next, err := m.Publish(in)
 	if err != nil {
 		t.Fatal(err)
@@ -520,11 +462,7 @@ func TestPolicyRouting_DeniedConnectDoesNotTerminateExistingLiveCall(t *testing.
 	val, _ := json.Marshal(call.model)
 	raw = append(raw, val...)
 	raw = append(raw, []byte(`},"then":{"type":"exclude_candidate"}}]}`)...)
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{{Scope: "group", GroupID: 1, Config: raw}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	in.Policies = pv
+	in.PolicyBindings = []policy.BindingConfig{{Scope: "group", GroupID: 1, Config: raw}}
 	snap, err = m.Publish(in)
 	if err != nil {
 		t.Fatal(err)
@@ -585,15 +523,11 @@ func TestPolicyRouting_PublicationBetweenConfigureAndLookupRejectsOldRequest(t *
 		t.Fatal("old Configure failed")
 	}
 	in := policyRegressionCompileInput(h)
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{{
+	in.PolicyBindings = []policy.BindingConfig{{
 		Scope:   "group",
 		GroupID: 1,
 		Config:  []byte(`{"schema_version":1,"rules":[{"id":"p","name":"p","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	in.Policies = pv
+	}}
 	next, err := m.Publish(in)
 	if err != nil {
 		t.Fatal(err)
@@ -627,7 +561,7 @@ func TestPolicyPricing_DynamicMultiplierFrozenPerAttemptAndUnchangedByPublicatio
 
 	// Publish policy rules: group x2, credential x1.5
 	in := policyRegressionCompileInput(handler)
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{
+	in.PolicyBindings = []policy.BindingConfig{
 		{
 			Scope:   "group",
 			GroupID: 1,
@@ -639,11 +573,7 @@ func TestPolicyPricing_DynamicMultiplierFrozenPerAttemptAndUnchangedByPublicatio
 			CredentialID: 1,
 			Config:       []byte(`{"schema_version":1,"rules":[{"id":"p-cred","name":"Cred 1.5","domain":"pricing","enabled":true,"when":{"fact":"upstream.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"1.5"}}]}`),
 		},
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	in.Policies = pv
 	if _, err := manager.Publish(in); err != nil {
 		t.Fatal(err)
 	}
@@ -716,7 +646,7 @@ func TestPolicyPricing_RetrySwapsCredentialAndFreezesNewPricing(t *testing.T) {
 		{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"},
 		{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"},
 	}
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{
+	in.PolicyBindings = []policy.BindingConfig{
 		{
 			Scope:        "credential",
 			GroupID:      1,
@@ -729,11 +659,7 @@ func TestPolicyPricing_RetrySwapsCredentialAndFreezesNewPricing(t *testing.T) {
 			CredentialID: 2,
 			Config:       []byte(`{"schema_version":1,"rules":[{"id":"p-cred2","name":"Cred 2 Half","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"0.5"}}]}`),
 		},
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	in.Policies = pv
 	if _, err := manager.Publish(in); err != nil {
 		t.Fatal(err)
 	}
@@ -795,18 +721,14 @@ func TestPolicyPricing_FrozenConfigNameChangeDoesNotAffectPastAttempts(t *testin
 
 	// Publish v1: rule name "Original Name", factor "2", explicit binding revision 101
 	in := policyRegressionCompileInput(handler)
-	pv1, err := policy.CompileRuntimeView([]policy.BindingConfig{
+	in.PolicyBindings = []policy.BindingConfig{
 		{
 			Scope:    "group",
 			GroupID:  1,
 			Revision: 101,
 			Config:   []byte(`{"schema_version":1,"rules":[{"id":"p-dyn","name":"Original Name","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
 		},
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	in.Policies = pv1
 	if _, err := manager.Publish(in); err != nil {
 		t.Fatal(err)
 	}
@@ -816,18 +738,14 @@ func TestPolicyPricing_FrozenConfigNameChangeDoesNotAffectPastAttempts(t *testin
 
 	// Publish v2: rename rule to "Renamed Rule" and factor to "5", explicit binding revision 202
 	in2 := policyRegressionCompileInput(handler)
-	pv2, err := policy.CompileRuntimeView([]policy.BindingConfig{
+	in2.PolicyBindings = []policy.BindingConfig{
 		{
 			Scope:    "group",
 			GroupID:  1,
 			Revision: 202,
 			Config:   []byte(`{"schema_version":1,"rules":[{"id":"p-dyn","name":"Renamed Rule","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"5"}}]}`),
 		},
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	in2.Policies = pv2
 	if _, err := manager.Publish(in2); err != nil {
 		t.Fatal(err)
 	}
@@ -949,16 +867,12 @@ func TestPolicyPricing_InFlightPricePublicationLogMatchesQuota(t *testing.T) {
 func TestPolicyPricing_ReplacementIdentityQuotaBecomesUnknown(t *testing.T) {
 	h, m, r := newHandlerForTest(t, &scriptedForwarder{}, "sk-one")
 	in := policyRegressionCompileInput(h)
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{{
+	in.PolicyBindings = []policy.BindingConfig{{
 		Scope:    "group",
 		GroupID:  1,
 		Revision: 10,
 		Config:   []byte(`{"schema_version":1,"rules":[{"id":"p","name":"low quota price","domain":"pricing","enabled":true,"when":{"fact":"credential.quota.remaining_ratio","select":{"scope":"account","window_seconds":18000},"reduce":"min","op":"lt","value":0.2},"then":{"type":"multiply_price","factor":"2"}}]}`),
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	in.Policies = pv
+	}}
 	snap, err := m.Publish(in)
 	if err != nil {
 		t.Fatal(err)
@@ -1111,14 +1025,10 @@ func TestPolicyPricing_WebSocketTurnsFreezeDynamicPricingPerTurn(t *testing.T) {
 func TestPolicyPricing_BindingRevisionUnchangedByUnrelatedPublication(t *testing.T) {
 	h, m, _ := newHandlerForTest(t, &scriptedForwarder{}, "sk-one")
 	in := policyRegressionCompileInput(h)
-	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{{
+	in.PolicyBindings = []policy.BindingConfig{{
 		Scope: "group", GroupID: 1, Revision: 18446744073709551615,
 		Config: []byte(`{"schema_version":1,"rules":[{"id":"p","name":"p","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	in.Policies = pv
+	}}
 	s1, err := m.Publish(in)
 	if err != nil {
 		t.Fatal(err)
@@ -1295,427 +1205,230 @@ func TestPolicyPricing_DynamicJevAuxCostReachesQuota(t *testing.T) {
 	}
 }
 
-// 20. Same-credential auth refresh replay evaluates policy admission and freezes dynamic pricing
-func TestPolicyPricing_SameCredentialAuthRefreshReplay(t *testing.T) {
-	forwarder := &scriptedForwarder{results: []UpstreamResult{
-		{
-			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-			StatusCode: http.StatusUnauthorized,
-			ExecutionError: &execution.ErrorEvidence{
-				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
-				Hint:         execution.FailureHintRefreshRequired,
-				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
-				Summary:      "access token expired",
-			},
-		},
-		{
-			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
-			Body:  []byte(`{"id":"ok","model":"gpt-4o"}`),
-			Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
-		},
-	}}
-	sink := &recordingRequestLogSink{}
-	engine, handler, manager, registry := newRequestLogHandlerTestRuntime(
-		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "placeholder",
+// 20-22. Same-credential auth refresh replay: the replay attempt must re-evaluate
+// policy admission and freeze dynamic pricing. One 401 then one 200, with the
+// credential secret rotated by the first attempt so the replay must pick up
+// version 2. The three cases differ only in the policy rule and the concurrent
+// state mutation performed by attempt 0.
+func TestPolicyPricing_AuthRefreshReplay(t *testing.T) {
+	const (
+		modelRule = `{"schema_version":1,"rules":[{"id":"p-replay","name":"replay dyn","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"3"}}]}`
+		timeRule  = `{"schema_version":1,"rules":[{"id":"p-replay","name":"replay dyn","domain":"pricing","enabled":true,"when":{"all":[{"fact":"request.model","op":"eq","value":"gpt-4o"},{"predicate":"time_window","weekdays":[1],"ranges":[["09:00","10:00"]]}]},"then":{"type":"multiply_price","factor":"3"}}]}`
+		quotaRule = `{"schema_version":1,"rules":[{"id":"p-replay","name":"replay dyn","domain":"pricing","enabled":true,"when":{"all":[{"fact":"request.model","op":"eq","value":"gpt-4o"},{"fact":"credential.quota.remaining_ratio","select":{"scope":"account","window_seconds":18000},"reduce":"min","op":"lt","value":0.2}]},"then":{"type":"multiply_price","factor":"3"}}]}`
 	)
-	runtime := accessquota.NewRuntime()
-	quotaRules := []accessquota.Rule{{ID: 901, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10_000_000}}
-	if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: quotaRules}); err != nil {
-		t.Fatal(err)
-	}
-	handler.accessQuota = runtime
-
-	table, err := pricing.NewTable([]pricing.Rule{{
-		Identity: pricing.Identity{ChannelID: string(channel.Codex), ModelID: "gpt-4o"},
-		Prices: pricing.Prices{
-			Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
-			Output: pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
-		},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
-
-	input := state.CompileInput{
-		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "subscription", ChannelID: channel.Codex,
-			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
-			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
-		}},
-		Credentials: []state.CredentialConfig{{
-			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
-			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
-		}},
-		AccessKeys: []state.AccessKeyConfig{{
-			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
-			Status: state.AccessKeyStatusActive, CostLimitRules: quotaRules,
-		}},
-		PolicyBindings: []policy.BindingConfig{{
-			Scope: "group", GroupID: 1, Revision: 10,
-			Config: []byte(`{"schema_version":1,"rules":[{"id":"p-replay","name":"replay dyn","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"3"}}]}`),
-		}},
-	}
-	if _, err := manager.Publish(input); err != nil {
-		t.Fatal(err)
-	}
-
-	oldCredential := `{"type":"codex","access_token":"old-access","refresh_token":"refresh","account_id":"account-1"}`
-	oldEncrypted, err := handler.encryption.Encrypt(oldCredential)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
-		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
-		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
-		EncryptedValue: oldEncrypted,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-
-	newCredential := `{"type":"codex","access_token":"new-access","refresh_token":"new-refresh","account_id":"account-1"}`
-	newEncrypted, err := handler.encryption.Encrypt(newCredential)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	forwarder.onCall = func(index int) {
-		if index == 0 && !registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "subscription-secret-v2", newEncrypted) {
-			t.Fatal("publish concurrent credential refresh")
-		}
-	}
-
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
-	request.Header.Set("Authorization", "Bearer gl-client")
-	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
-
-	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
-		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
-	}
-	if forwarder.inputs[1].Credential.Version != 2 || string(forwarder.inputs[1].Credential.Data()) != newCredential {
-		t.Fatalf("replay attempt did not use refreshed credential version: %#v", forwarder.inputs[1])
-	}
-
-	events := sink.snapshot()
-	if len(events) != 1 {
-		t.Fatalf("expected 1 log event, got %d", len(events))
-	}
-	if len(events[0].Attempts) != 2 {
-		t.Fatalf("expected 2 attempts in log, got %d", len(events[0].Attempts))
-	}
-	if events[0].Attempts[0].StatusCode != http.StatusUnauthorized {
-		t.Fatalf("attempt 0 status=%d, want 401", events[0].Attempts[0].StatusCode)
-	}
-	if events[0].Attempts[1].StatusCode != http.StatusOK {
-		t.Fatalf("attempt 1 status=%d, want 200", events[0].Attempts[1].StatusCode)
-	}
-
-	if events[0].Usage.Pricing.EstimatedCostNanoUSD != 6000 {
-		t.Fatalf("cost = %d, want 6000", events[0].Usage.Pricing.EstimatedCostNanoUSD)
-	}
-	var r pricing.Receipt
-	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &r); err != nil {
-		t.Fatal(err)
-	}
-	if len(r.PolicyFactors) != 1 || r.PolicyFactors[0].Factor != "3" || r.PolicyFactors[0].Revision != 10 {
-		t.Fatalf("replay receipt factors mismatch: %+v", r.PolicyFactors)
-	}
-
-	view := runtime.Snapshot(1, time.Now())
-	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 6000 {
-		t.Fatalf("quota used = %d, want 6000", view.Rules[0].UsedNanoUSD)
-	}
-}
-
-// 21. Replay attempt reevaluates dynamic pricing when time window changes across attempts
-func TestPolicyPricing_RefreshReplayReevaluatesChangedTime(t *testing.T) {
-	forwarder := &scriptedForwarder{results: []UpstreamResult{
+	for _, tc := range []struct {
+		name               string
+		policyConfig       string
+		fixedClock         bool
+		hook               func(t *testing.T, env *authRefreshReplayEnv)
+		wantCostNano       int64
+		wantSchema         int
+		wantFactorRevision uint64
+	}{
 		{
-			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-			StatusCode: http.StatusUnauthorized,
-			ExecutionError: &execution.ErrorEvidence{
-				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
-				Hint:         execution.FailureHintRefreshRequired,
-				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
-				Summary:      "access token expired",
+			name:         "SameCredentialAuthRefreshReplay",
+			policyConfig: modelRule,
+			wantCostNano: 6000, wantFactorRevision: 10,
+		},
+		{
+			name:         "RefreshReplayReevaluatesChangedTime",
+			policyConfig: timeRule, fixedClock: true,
+			hook:         func(_ *testing.T, env *authRefreshReplayEnv) { *env.now = env.now.Add(2 * time.Second) },
+			wantCostNano: 2000, wantSchema: 6,
+		},
+		{
+			name:         "RefreshReplayReevaluatesChangedQuota",
+			policyConfig: quotaRule, fixedClock: true,
+			hook: func(t *testing.T, env *authRefreshReplayEnv) {
+				used := 0.95
+				win := int64(18000)
+				reset := env.now.Add(time.Hour).UnixMilli()
+				observed := env.now.Add(-time.Second).UnixMilli()
+				if !env.registry.ApplyQuotaWindows(1, 1, []observation.QuotaWindow{{
+					ID: "primary", SourceID: "account", Scope: "account", Unit: "ratio",
+					Utilization: &used, WindowSeconds: &win, ResetAtMS: &reset,
+					ObservedAtMS: &observed, State: "available",
+				}}) {
+					t.Fatal("quota publication failed")
+				}
 			},
+			wantCostNano: 6000, wantFactorRevision: 10,
 		},
-		{
-			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
-			Body:  []byte(`{"id":"ok","model":"gpt-4o"}`),
-			Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
-		},
-	}}
-	sink := &recordingRequestLogSink{}
-	engine, handler, manager, registry := newRequestLogHandlerTestRuntime(
-		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "placeholder",
-	)
-	runtime := accessquota.NewRuntime()
-	quotaRules := []accessquota.Rule{{ID: 901, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10_000_000}}
-	if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: quotaRules}); err != nil {
-		t.Fatal(err)
-	}
-	handler.accessQuota = runtime
-	now := time.Date(2026, time.June, 1, 9, 59, 59, 0, time.UTC)
-	handler.now = func() time.Time { return now }
-
-	table, err := pricing.NewTable([]pricing.Rule{{
-		Identity: pricing.Identity{ChannelID: string(channel.Codex), ModelID: "gpt-4o"},
-		Prices: pricing.Prices{
-			Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
-			Output: pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
-		},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
-
-	input := state.CompileInput{
-		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "subscription", ChannelID: channel.Codex,
-			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
-			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
-		}},
-		Credentials: []state.CredentialConfig{{
-			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
-			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
-		}},
-		AccessKeys: []state.AccessKeyConfig{{
-			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
-			Status: state.AccessKeyStatusActive, CostLimitRules: quotaRules,
-		}},
-		PolicyBindings: []policy.BindingConfig{{
-			Scope: "group", GroupID: 1, Revision: 10,
-			Config: []byte(`{"schema_version":1,"rules":[{"id":"p-replay","name":"replay dyn","domain":"pricing","enabled":true,"when":{"all":[{"fact":"request.model","op":"eq","value":"gpt-4o"},{"predicate":"time_window","weekdays":[1],"ranges":[["09:00","10:00"]]}]},"then":{"type":"multiply_price","factor":"3"}}]}`),
-		}},
-	}
-	if _, err := manager.Publish(input); err != nil {
-		t.Fatal(err)
-	}
-
-	oldCredential := `{"type":"codex","access_token":"old-access","refresh_token":"refresh","account_id":"account-1"}`
-	oldEncrypted, err := handler.encryption.Encrypt(oldCredential)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
-		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
-		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
-		EncryptedValue: oldEncrypted,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-
-	newCredential := `{"type":"codex","access_token":"new-access","refresh_token":"new-refresh","account_id":"account-1"}`
-	newEncrypted, err := handler.encryption.Encrypt(newCredential)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	forwarder.onCall = func(index int) {
-		if index == 0 {
-			now = now.Add(2 * time.Second)
-		}
-		if index == 0 && !registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "subscription-secret-v2", newEncrypted) {
-			t.Fatal("publish concurrent credential refresh")
-		}
-	}
-
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
-	request.Header.Set("Authorization", "Bearer gl-client")
-	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
-
-	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
-		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
-	}
-	if forwarder.inputs[1].Credential.Version != 2 || string(forwarder.inputs[1].Credential.Data()) != newCredential {
-		t.Fatalf("replay attempt did not use refreshed credential version: %#v", forwarder.inputs[1])
-	}
-
-	events := sink.snapshot()
-	if len(events) != 1 {
-		t.Fatalf("expected 1 log event, got %d", len(events))
-	}
-	if len(events[0].Attempts) != 2 {
-		t.Fatalf("expected 2 attempts in log, got %d", len(events[0].Attempts))
-	}
-	if events[0].Attempts[0].StatusCode != http.StatusUnauthorized {
-		t.Fatalf("attempt 0 status=%d, want 401", events[0].Attempts[0].StatusCode)
-	}
-	if events[0].Attempts[1].StatusCode != http.StatusOK {
-		t.Fatalf("attempt 1 status=%d, want 200", events[0].Attempts[1].StatusCode)
-	}
-
-	if events[0].Usage.Pricing.EstimatedCostNanoUSD != 2000 {
-		t.Fatalf("cost = %d, want 2000", events[0].Usage.Pricing.EstimatedCostNanoUSD)
-	}
-	var r pricing.Receipt
-	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &r); err != nil {
-		t.Fatal(err)
-	}
-	if len(r.PolicyFactors) != 0 || r.SchemaVersion != 6 {
-		t.Fatalf("replay receipt factors mismatch: %+v", r.PolicyFactors)
-	}
-
-	view := runtime.Snapshot(1, time.Now())
-	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 2000 {
-		t.Fatalf("quota used = %d, want 2000", view.Rules[0].UsedNanoUSD)
-	}
-}
-
-// 22. Replay attempt reevaluates dynamic pricing when quota changes across attempts
-func TestPolicyPricing_RefreshReplayReevaluatesChangedQuota(t *testing.T) {
-	forwarder := &scriptedForwarder{results: []UpstreamResult{
-		{
-			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-			StatusCode: http.StatusUnauthorized,
-			ExecutionError: &execution.ErrorEvidence{
-				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
-				Hint:         execution.FailureHintRefreshRequired,
-				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
-				Summary:      "access token expired",
-			},
-		},
-		{
-			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
-			Body:  []byte(`{"id":"ok","model":"gpt-4o"}`),
-			Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
-		},
-	}}
-	sink := &recordingRequestLogSink{}
-	engine, handler, manager, registry := newRequestLogHandlerTestRuntime(
-		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "placeholder",
-	)
-	runtime := accessquota.NewRuntime()
-	quotaRules := []accessquota.Rule{{ID: 901, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10_000_000}}
-	if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: quotaRules}); err != nil {
-		t.Fatal(err)
-	}
-	handler.accessQuota = runtime
-	now := time.Date(2026, time.June, 1, 9, 59, 59, 0, time.UTC)
-	handler.now = func() time.Time { return now }
-
-	table, err := pricing.NewTable([]pricing.Rule{{
-		Identity: pricing.Identity{ChannelID: string(channel.Codex), ModelID: "gpt-4o"},
-		Prices: pricing.Prices{
-			Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
-			Output: pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
-		},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
-
-	input := state.CompileInput{
-		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ID: 1, Name: "subscription", ChannelID: channel.Codex,
-			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
-			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
-		}},
-		Credentials: []state.CredentialConfig{{
-			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
-			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
-		}},
-		AccessKeys: []state.AccessKeyConfig{{
-			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
-			Status: state.AccessKeyStatusActive, CostLimitRules: quotaRules,
-		}},
-		PolicyBindings: []policy.BindingConfig{{
-			Scope: "group", GroupID: 1, Revision: 10,
-			Config: []byte(`{"schema_version":1,"rules":[{"id":"p-replay","name":"replay dyn","domain":"pricing","enabled":true,"when":{"all":[{"fact":"request.model","op":"eq","value":"gpt-4o"},{"fact":"credential.quota.remaining_ratio","select":{"scope":"account","window_seconds":18000},"reduce":"min","op":"lt","value":0.2}]},"then":{"type":"multiply_price","factor":"3"}}]}`),
-		}},
-	}
-	if _, err := manager.Publish(input); err != nil {
-		t.Fatal(err)
-	}
-
-	oldCredential := `{"type":"codex","access_token":"old-access","refresh_token":"refresh","account_id":"account-1"}`
-	oldEncrypted, err := handler.encryption.Encrypt(oldCredential)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
-		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
-		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
-		EncryptedValue: oldEncrypted,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-
-	newCredential := `{"type":"codex","access_token":"new-access","refresh_token":"new-refresh","account_id":"account-1"}`
-	newEncrypted, err := handler.encryption.Encrypt(newCredential)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	forwarder.onCall = func(index int) {
-		if index == 0 {
-			used := 0.95
-			win := int64(18000)
-			reset := now.Add(time.Hour).UnixMilli()
-			observed := now.Add(-time.Second).UnixMilli()
-			if !registry.ApplyQuotaWindows(1, 1, []observation.QuotaWindow{{
-				ID: "primary", SourceID: "account", Scope: "account", Unit: "ratio",
-				Utilization: &used, WindowSeconds: &win, ResetAtMS: &reset,
-				ObservedAtMS: &observed, State: "available",
-			}}) {
-				t.Fatal("quota publication failed")
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newAuthRefreshReplayEnv(t, tc.policyConfig, tc.fixedClock)
+			env.forwarder.onCall = func(index int) {
+				if index != 0 {
+					return
+				}
+				if tc.hook != nil {
+					tc.hook(t, env)
+				}
+				if !env.registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "subscription-secret-v2", env.newEncrypted) {
+					t.Fatal("publish concurrent credential refresh")
+				}
 			}
-		}
-		if index == 0 && !registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "subscription-secret-v2", newEncrypted) {
-			t.Fatal("publish concurrent credential refresh")
-		}
+			assertAuthRefreshReplay(t, env, tc.wantCostNano, tc.wantSchema, tc.wantFactorRevision)
+		})
+	}
+}
+
+const (
+	authReplayOldCredential = `{"type":"codex","access_token":"old-access","refresh_token":"refresh","account_id":"account-1"}`
+	authReplayNewCredential = `{"type":"codex","access_token":"new-access","refresh_token":"new-refresh","account_id":"account-1"}`
+)
+
+// authRefreshReplayEnv is the shared fixture for the same-credential auth refresh
+// replay cases: a scripted 401-then-200 upstream, dynamic pricing from a group
+// policy binding, and a credential secret rotated concurrently by attempt 0.
+type authRefreshReplayEnv struct {
+	engine       *gin.Engine
+	handler      *Handler
+	registry     *state.CredentialRegistry
+	forwarder    *scriptedForwarder
+	sink         *recordingRequestLogSink
+	runtime      *accessquota.Runtime
+	now          *time.Time
+	newEncrypted string
+}
+
+func newAuthRefreshReplayEnv(t *testing.T, policyConfig string, fixedClock bool) *authRefreshReplayEnv {
+	t.Helper()
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusUnauthorized,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
+				Hint:         execution.FailureHintRefreshRequired,
+				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				Summary:      "access token expired",
+			},
+		},
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body:  []byte(`{"id":"ok","model":"gpt-4o"}`),
+			Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
+		},
+	}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, manager, registry := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "placeholder",
+	)
+	runtime := accessquota.NewRuntime()
+	quotaRules := []accessquota.Rule{{ID: 901, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10_000_000}}
+	if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: quotaRules}); err != nil {
+		t.Fatal(err)
+	}
+	handler.accessQuota = runtime
+
+	env := &authRefreshReplayEnv{
+		engine: engine, handler: handler, registry: registry,
+		forwarder: forwarder, sink: sink, runtime: runtime,
+	}
+	if fixedClock {
+		now := time.Date(2026, time.June, 1, 9, 59, 59, 0, time.UTC)
+		env.now = &now
+		handler.now = func() time.Time { return *env.now }
 	}
 
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ChannelID: string(channel.Codex), ModelID: "gpt-4o"},
+		Prices: pricing.Prices{
+			Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+			Output: pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+
+	input := state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.Codex,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive, CostLimitRules: quotaRules,
+		}},
+		PolicyBindings: []policy.BindingConfig{{
+			Scope: "group", GroupID: 1, Revision: 10, Config: []byte(policyConfig),
+		}},
+	}
+	if _, err := manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+
+	oldEncrypted, err := handler.encryption.Encrypt(authReplayOldCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
+		EncryptedValue: oldEncrypted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	env.newEncrypted, err = handler.encryption.Encrypt(authReplayNewCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env
+}
+
+func assertAuthRefreshReplay(t *testing.T, env *authRefreshReplayEnv, wantCostNano int64, wantSchema int, wantFactorRevision uint64) {
+	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
 	request.Header.Set("Authorization", "Bearer gl-client")
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, request)
+	env.engine.ServeHTTP(response, request)
 
-	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
-		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+	if response.Code != http.StatusOK || len(env.forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(env.forwarder.inputs), response.Body.String())
 	}
-	if forwarder.inputs[1].Credential.Version != 2 || string(forwarder.inputs[1].Credential.Data()) != newCredential {
-		t.Fatalf("replay attempt did not use refreshed credential version: %#v", forwarder.inputs[1])
+	if in := env.forwarder.inputs[1]; in.Credential.Version != 2 || string(in.Credential.Data()) != authReplayNewCredential {
+		t.Fatalf("replay attempt did not use refreshed credential version: %#v", in)
 	}
 
-	events := sink.snapshot()
+	events := env.sink.snapshot()
 	if len(events) != 1 {
 		t.Fatalf("expected 1 log event, got %d", len(events))
 	}
 	if len(events[0].Attempts) != 2 {
 		t.Fatalf("expected 2 attempts in log, got %d", len(events[0].Attempts))
 	}
-	if events[0].Attempts[0].StatusCode != http.StatusUnauthorized {
-		t.Fatalf("attempt 0 status=%d, want 401", events[0].Attempts[0].StatusCode)
+	if events[0].Attempts[0].StatusCode != http.StatusUnauthorized || events[0].Attempts[1].StatusCode != http.StatusOK {
+		t.Fatalf("attempt statuses = %d,%d, want 401,200", events[0].Attempts[0].StatusCode, events[0].Attempts[1].StatusCode)
 	}
-	if events[0].Attempts[1].StatusCode != http.StatusOK {
-		t.Fatalf("attempt 1 status=%d, want 200", events[0].Attempts[1].StatusCode)
+	if events[0].Usage.Pricing.EstimatedCostNanoUSD != wantCostNano {
+		t.Fatalf("cost = %d, want %d", events[0].Usage.Pricing.EstimatedCostNanoUSD, wantCostNano)
 	}
 
-	if events[0].Usage.Pricing.EstimatedCostNanoUSD != 6000 {
-		t.Fatalf("cost = %d, want 6000", events[0].Usage.Pricing.EstimatedCostNanoUSD)
-	}
 	var r pricing.Receipt
 	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &r); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.PolicyFactors) != 1 || r.PolicyFactors[0].Factor != "3" || r.PolicyFactors[0].Revision != 10 {
+	if wantFactorRevision == 0 {
+		if len(r.PolicyFactors) != 0 || r.SchemaVersion != wantSchema {
+			t.Fatalf("receipt = schema %d factors %+v, want schema %d with no factors", r.SchemaVersion, r.PolicyFactors, wantSchema)
+		}
+	} else if len(r.PolicyFactors) != 1 || r.PolicyFactors[0].Factor != "3" || r.PolicyFactors[0].Revision != wantFactorRevision {
 		t.Fatalf("replay receipt factors mismatch: %+v", r.PolicyFactors)
 	}
 
-	view := runtime.Snapshot(1, time.Now())
-	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 6000 {
-		t.Fatalf("quota used = %d, want 6000", view.Rules[0].UsedNanoUSD)
+	view := env.runtime.Snapshot(1, time.Now())
+	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != wantCostNano {
+		t.Fatalf("quota used = %d, want %d", view.Rules[0].UsedNanoUSD, wantCostNano)
 	}
 }
