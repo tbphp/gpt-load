@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { RotateCcw } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import {
   modelReasoningLevels,
   type ModelInputModality,
   type ModelProfile,
   type ModelProfileField as Field,
+  type ModelReasoningLevel,
 } from '@modern/api/models'
-import { AppCheckbox, AppMultiSelect, AppTextField } from '@modern/components/ui'
+import { AppButton, AppIconButton, AppTextField } from '@modern/components/ui'
 import ModelProfileField from './ModelProfileField.vue'
 import { setModelProfileFieldMode, type ModelProfileDraft } from './model-profile-draft'
 
@@ -18,34 +19,39 @@ const props = defineProps<{
 }>()
 const draft = defineModel<ModelProfileDraft>({ required: true })
 const { t, n } = useI18n()
-const reasoningOptions = computed(() =>
-  modelReasoningLevels.map((value) => ({ value, label: value })),
-)
 function automaticValue(field: Field): string {
-  const automatic = props.profile.automatic
-  switch (field) {
-    case 'display_name':
-      return automatic.display_name
-    case 'context_window':
-      return automatic.context_window === null
-        ? t('modelManager.profile.unknownContext')
-        : n(automatic.context_window)
-    case 'supported_reasoning_levels':
-      return automatic.supported_reasoning_levels.join(' / ')
-    case 'input_modalities':
-      return automatic.input_modalities
-        .map((value) => t(`modelManager.modality.${value}`))
-        .join(' / ')
-  }
+  const value = props.profile.automatic[field]
+  if (field === 'context_window')
+    return value === null ? t('modelManager.profile.unknownContext') : n(value as number)
+  if (field === 'input_modalities')
+    return (value as string[]).map((item) => t(`modelManager.modality.${item}`)).join(' / ')
+  return Array.isArray(value) ? value.join(' / ') : String(value)
 }
-function setCustom(field: Field, custom: boolean): void {
-  if (!props.disabled) setModelProfileFieldMode(props.profile, draft.value, field, custom)
+function reset(field: Field): void {
+  if (!props.disabled) setModelProfileFieldMode(props.profile, draft.value, field, false)
 }
-function toggleModality(value: Exclude<ModelInputModality, 'text'>, enabled: boolean): void {
+function text(field: 'display_name' | 'context_window', value: string | number): void {
+  if (props.disabled) return
+  draft.value.custom[field] = true
+  draft.value.values[field] = String(value)
+}
+function reasoning(level: ModelReasoningLevel): void {
+  if (props.disabled) return
+  const levels = new Set(draft.value.values.supported_reasoning_levels)
+  if (levels.has(level)) levels.delete(level)
+  else levels.add(level)
+  draft.value.custom.supported_reasoning_levels = true
+  draft.value.values.supported_reasoning_levels = modelReasoningLevels.filter((value) =>
+    levels.has(value),
+  )
+}
+function modality(value: ModelInputModality): void {
+  if (props.disabled || value === 'text') return
   const values = new Set(draft.value.values.input_modalities)
-  if (enabled) values.add(value)
-  else values.delete(value)
+  if (values.has(value)) values.delete(value)
+  else values.add(value)
   values.add('text')
+  draft.value.custom.input_modalities = true
   draft.value.values.input_modalities = (['text', 'image', 'audio'] as const).filter((value) =>
     values.has(value),
   )
@@ -54,116 +60,138 @@ function toggleModality(value: Exclude<ModelInputModality, 'text'>, enabled: boo
 
 <template>
   <div class="modern-model-profile-fields">
-    <ModelProfileField
+    <AppTextField
+      :model-value="draft.values.display_name"
       :label="t('modelManager.profile.fields.displayName')"
-      :automatic="automaticValue('display_name')"
-      :custom="draft.custom.display_name"
+      size="sm"
       :disabled="disabled"
       :error="errors?.display_name"
-      @update:custom="setCustom('display_name', $event)"
+      @update:model-value="text('display_name', $event)"
     >
-      <template #default="{ disabled: fieldDisabled }">
-        <AppTextField
-          v-model="draft.values.display_name"
-          :label="t('modelManager.profile.fields.displayName')"
-          label-hidden
-          size="sm"
-          :disabled="fieldDisabled"
-          :invalid="Boolean(errors?.display_name)"
-        />
-      </template>
-    </ModelProfileField>
-    <ModelProfileField
+      <template #label-extra
+        ><AppIconButton
+          v-if="draft.custom.display_name"
+          :icon="RotateCcw"
+          :label="t('modelManager.profile.restoreField', { value: automaticValue('display_name') })"
+          size="xxs"
+          :disabled="disabled"
+          @click="reset('display_name')"
+        /><span v-else class="modern-model-profile-auto">{{
+          t('modelManager.profile.automatic')
+        }}</span></template
+      >
+    </AppTextField>
+    <AppTextField
+      :model-value="draft.values.context_window"
       :label="t('modelManager.profile.fields.contextWindow')"
-      :description="t('modelManager.profile.fieldHelp.contextWindow')"
-      :automatic="automaticValue('context_window')"
-      :custom="draft.custom.context_window"
+      size="sm"
+      type="text"
+      inputmode="numeric"
+      :placeholder="automaticValue('context_window')"
       :disabled="disabled"
       :error="errors?.context_window"
-      @update:custom="setCustom('context_window', $event)"
+      @update:model-value="text('context_window', $event)"
     >
-      <template #default="{ disabled: fieldDisabled }">
-        <AppTextField
-          v-model="draft.values.context_window"
-          :label="t('modelManager.profile.fields.contextWindow')"
-          label-hidden
-          size="sm"
-          type="text"
-          inputmode="numeric"
-          :placeholder="
-            draft.custom.context_window
-              ? t('modelManager.profile.contextPlaceholder')
-              : automaticValue('context_window')
+      <template #label-extra
+        ><AppIconButton
+          v-if="draft.custom.context_window"
+          :icon="RotateCcw"
+          :label="
+            t('modelManager.profile.restoreField', { value: automaticValue('context_window') })
           "
-          :disabled="fieldDisabled"
-          :invalid="Boolean(errors?.context_window)"
-        />
-      </template>
-    </ModelProfileField>
+          size="xxs"
+          :disabled="disabled"
+          @click="reset('context_window')"
+        /><span v-else class="modern-model-profile-auto">{{
+          t('modelManager.profile.automatic')
+        }}</span></template
+      >
+    </AppTextField>
     <ModelProfileField
+      class="modern-model-profile-wide"
       :label="t('modelManager.profile.fields.supportedReasoningLevels')"
       :automatic="automaticValue('supported_reasoning_levels')"
       :custom="draft.custom.supported_reasoning_levels"
       :disabled="disabled"
       :error="errors?.supported_reasoning_levels"
-      @update:custom="setCustom('supported_reasoning_levels', $event)"
+      @reset="reset('supported_reasoning_levels')"
     >
-      <template #default="{ disabled: fieldDisabled }">
-        <AppMultiSelect
-          v-model="draft.values.supported_reasoning_levels"
-          :label="t('modelManager.profile.fields.supportedReasoningLevels')"
-          label-hidden
-          :options="reasoningOptions"
-          :disabled="fieldDisabled"
-          :invalid="Boolean(errors?.supported_reasoning_levels)"
-        />
-      </template>
+      <template #default="{ id, describedBy, invalid }"
+        ><div
+          :id="id"
+          class="modern-model-profile-choices"
+          role="group"
+          :aria-labelledby="`${id}-label`"
+          :aria-describedby="describedBy"
+          :aria-invalid="invalid || undefined"
+          tabindex="-1"
+        >
+          <AppButton
+            v-for="level in modelReasoningLevels"
+            :key="level"
+            size="xxs"
+            :variant="draft.values.supported_reasoning_levels.includes(level) ? 'brand' : 'default'"
+            :aria-pressed="draft.values.supported_reasoning_levels.includes(level)"
+            :disabled="disabled"
+            @click="reasoning(level)"
+            >{{ level }}</AppButton
+          >
+        </div></template
+      >
     </ModelProfileField>
     <ModelProfileField
+      class="modern-model-profile-wide"
       :label="t('modelManager.profile.fields.inputModalities')"
-      :description="t('modelManager.profile.fieldHelp.inputModalities')"
       :automatic="automaticValue('input_modalities')"
       :custom="draft.custom.input_modalities"
       :disabled="disabled"
       :error="errors?.input_modalities"
-      @update:custom="setCustom('input_modalities', $event)"
+      @reset="reset('input_modalities')"
     >
-      <template #default="{ disabled: fieldDisabled }">
-        <div class="modern-model-profile-modalities">
-          <AppCheckbox :model-value="true" :label="t('modelManager.modality.text')" disabled />
-          <AppCheckbox
-            :model-value="draft.values.input_modalities.includes('image')"
-            :label="t('modelManager.modality.image')"
-            :disabled="fieldDisabled"
-            @update:model-value="toggleModality('image', $event)"
-          />
-          <AppCheckbox
-            :model-value="draft.values.input_modalities.includes('audio')"
-            :label="t('modelManager.modality.audio')"
-            :disabled="fieldDisabled"
-            @update:model-value="toggleModality('audio', $event)"
-          />
-        </div>
-      </template>
+      <template #default="{ id, describedBy }"
+        ><div
+          :id="id"
+          class="modern-model-profile-choices"
+          role="group"
+          :aria-labelledby="`${id}-label`"
+          :aria-describedby="describedBy"
+        >
+          <AppButton
+            v-for="value in ['text', 'image', 'audio'] as const"
+            :key="value"
+            size="xxs"
+            :variant="draft.values.input_modalities.includes(value) ? 'brand' : 'default'"
+            :aria-pressed="draft.values.input_modalities.includes(value)"
+            :disabled="disabled || value === 'text'"
+            @click="modality(value)"
+            >{{ t(`modelManager.modality.${value}`) }}</AppButton
+          >
+        </div></template
+      >
     </ModelProfileField>
   </div>
 </template>
-
 <style scoped>
 .modern-model-profile-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--modern-space-5);
+  gap: var(--modern-space-3) var(--modern-space-5);
 }
-.modern-model-profile-fields :deep(.modern-model-profile-field) {
-  border: 0;
-  padding: 0;
+.modern-model-profile-auto {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--modern-control-xxs);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
 }
-.modern-model-profile-modalities {
+.modern-model-profile-wide {
+  grid-column: 1 / -1;
+}
+.modern-model-profile-choices {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--modern-space-3);
-  padding-block: var(--modern-space-2);
+  align-items: center;
+  gap: var(--modern-space-1-5);
 }
 @media (max-width: 760px) {
   .modern-model-profile-fields {

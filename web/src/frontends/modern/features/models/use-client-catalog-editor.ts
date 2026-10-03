@@ -198,7 +198,6 @@ export function useClientCatalogEditor() {
       await Promise.all([
         cache.invalidateQueries({ queryKey: [...modelsKey, 'collection'] }),
         cache.invalidateQueries({ queryKey: [...modelsKey, 'context'] }),
-        cache.invalidateQueries({ queryKey: [...modelsKey, 'profile'] }),
       ])
       messages.show({ tone: 'success', text: t('modelManager.clientCatalog.saveSuccess') })
     } catch {
@@ -223,9 +222,7 @@ export function useClientCatalogEditor() {
     saving,
     saveError,
     budget,
-    previewing,
     previewError,
-    invalidModel,
     editedOutside,
     fieldErrors,
     restoreDirectory,

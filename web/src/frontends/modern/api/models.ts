@@ -7,7 +7,6 @@ export const modelsKey = ['modern', 'models'] as const
 export const modelContextKey = (model: string, groups: string) =>
   [...modelsKey, 'context', model, groups] as const
 export const modelSourceKey = (id: number) => [...modelsKey, 'source', id] as const
-export const modelProfileKey = (model: string) => [...modelsKey, 'profile', model] as const
 export const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 export const modelProfileFields = [
   'display_name',
@@ -81,7 +80,6 @@ export interface RequestModel {
   name: string
   protocols: string[]
   sources: ModelSource[]
-  hasOverrides?: boolean
 }
 export interface ModelProfileValues {
   display_name: string
@@ -296,39 +294,11 @@ export async function getModels(client: ApiClient, filters: ModelFilters, signal
         name: text(model.client_model),
         protocols: sortProtocols(list(model.protocols).map(text)),
         sources: list(model.upstream_models).map(source),
-        hasOverrides: model.has_overrides === undefined ? undefined : boolean(model.has_overrides),
       }
     }),
     total: integer(pagination.total_items),
     pages: integer(pagination.total_pages),
   }
-}
-export async function getModelProfile(
-  client: ApiClient,
-  model: string,
-  signal: AbortSignal,
-): Promise<ModelProfile> {
-  const params = new URLSearchParams({ model })
-  const path = `/api/models/profile?${params}` as const
-  const profile = readModelProfile(await client.request(path, { signal }))
-  if (profile.clientModel !== model) throw new InvalidResponseError()
-  return profile
-}
-export async function saveModelProfile(
-  client: ApiClient,
-  model: string,
-  overrides: ModelProfileOverrides,
-  signal: AbortSignal,
-): Promise<ModelProfile> {
-  const profile = readModelProfile(
-    await client.request('/api/models/profile', {
-      method: 'PUT',
-      json: { client_model: model, overrides },
-      signal,
-    }),
-  )
-  if (profile.clientModel !== model) throw new InvalidResponseError()
-  return profile
 }
 // 详情不依赖列表当前页或计价筛选，硬刷新与跨页进入同样能取到完整来源。
 export async function getModelContext(

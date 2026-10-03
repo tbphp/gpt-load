@@ -30,7 +30,6 @@ import {
 import { modelStateKeys, parseModelsState, serializeModelsState } from './models-state'
 import ModelCard from './ModelCard.vue'
 import ClientModelCatalogDialog from './ClientModelCatalogDialog.vue'
-import ModelProfileDialog from './ModelProfileDialog.vue'
 import ModelDetailPanel from './ModelDetailPanel.vue'
 
 const { t } = useI18n()
@@ -56,7 +55,6 @@ const query = useQuery(
 )
 const data = computed(() => query.data.value)
 const search = ref(state.value.q)
-const profileModel = ref('')
 const catalogOpen = ref(false)
 const composing = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -286,7 +284,6 @@ useMessageSource(() =>
           :selected="model.name === state.model"
           :disabled="query.isPlaceholderData.value"
           @open="open(model, $event)"
-          @settings="profileModel = model.name"
         />
       </div>
       <template #footer>
@@ -313,12 +310,6 @@ useMessageSource(() =>
       @changed="changed"
     />
     <ClientModelCatalogDialog v-if="admin && catalogOpen" @close="catalogOpen = false" />
-    <ModelProfileDialog
-      v-if="admin && profileModel"
-      :key="profileModel"
-      :model="profileModel"
-      @close="profileModel = ''"
-    />
   </div>
 </template>
 
