@@ -148,30 +148,30 @@ func TestPolicyBindingIndexValidationRejectsNonUniqueOrWrongColumns(t *testing.T
 	if err := applyMigrationRegistry(db, migrations[:26]); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrationfiles.Up0027(db); err != nil {
+	if err := migrationfiles.Up0029(db); err != nil {
 		t.Fatal(err)
 	}
 
-	// 1. Drop genuine index, create a non-unique index with the same name -> Validate0027 must fail
+	// 1. Drop genuine index, create a non-unique index with the same name -> Validate0029 must fail
 	if err := db.Migrator().DropIndex("policy_bindings", "idx_policy_bindings_target"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec("CREATE INDEX idx_policy_bindings_target ON policy_bindings (scope, group_id, credential_id)").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := migrationfiles.Validate0027(db); err == nil {
-		t.Fatal("Validate0027 should reject non-unique target index")
+	if err := migrationfiles.Validate0029(db); err == nil {
+		t.Fatal("Validate0029 should reject non-unique target index")
 	}
 
-	// 2. Drop and create index covering wrong columns (e.g. revision only) -> Validate0027 must fail
+	// 2. Drop and create index covering wrong columns (e.g. revision only) -> Validate0029 must fail
 	if err := db.Migrator().DropIndex("policy_bindings", "idx_policy_bindings_target"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec("CREATE UNIQUE INDEX idx_policy_bindings_target ON policy_bindings (revision)").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := migrationfiles.Validate0027(db); err == nil {
-		t.Fatal("Validate0027 should reject index with wrong columns")
+	if err := migrationfiles.Validate0029(db); err == nil {
+		t.Fatal("Validate0029 should reject index with wrong columns")
 	}
 
 	// 部分唯一索引不能保证账号绑定唯一，校验与部分迁移恢复均须拒绝。
@@ -181,22 +181,22 @@ func TestPolicyBindingIndexValidationRejectsNonUniqueOrWrongColumns(t *testing.T
 	if err := db.Exec("CREATE UNIQUE INDEX idx_policy_bindings_target ON policy_bindings (scope, group_id, credential_id) WHERE credential_id = 0").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := migrationfiles.Validate0027(db); err == nil {
-		t.Fatal("Validate0027 accepted partial target index")
+	if err := migrationfiles.Validate0029(db); err == nil {
+		t.Fatal("Validate0029 accepted partial target index")
 	}
-	if err := migrationfiles.Up0027(db); err == nil {
-		t.Fatal("Up0027 accepted partial target index during recovery")
+	if err := migrationfiles.Up0029(db); err == nil {
+		t.Fatal("Up0029 accepted partial target index during recovery")
 	}
 
-	// 3. Drop and recreate valid unique index -> Validate0027 must succeed
+	// 3. Drop and recreate valid unique index -> Validate0029 must succeed
 	if err := db.Migrator().DropIndex("policy_bindings", "idx_policy_bindings_target"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec("CREATE UNIQUE INDEX idx_policy_bindings_target ON policy_bindings (scope, group_id, credential_id)").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := migrationfiles.Validate0027(db); err != nil {
-		t.Fatalf("Validate0027 should accept valid unique index: %v", err)
+	if err := migrationfiles.Validate0029(db); err != nil {
+		t.Fatalf("Validate0029 should accept valid unique index: %v", err)
 	}
 }
 

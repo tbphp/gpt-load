@@ -21,7 +21,7 @@ func TestPolicyRevisionStorageRequiresSigned64BitInteger(t *testing.T) {
 		{"sqlite", "BIGINT", "BIGINT", true},
 		{"sqlite", "REAL", "REAL", false},
 	} {
-		if err := validateRevisionStorage0027(tc.dialect, tc.typeName, tc.rawType); (err == nil) != tc.valid {
+		if err := validateRevisionStorage0029(tc.dialect, tc.typeName, tc.rawType); (err == nil) != tc.valid {
 			t.Errorf("%s %s: error=%v valid=%v", tc.dialect, tc.rawType, err, tc.valid)
 		}
 	}
