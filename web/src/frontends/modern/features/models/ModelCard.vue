@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, EyeOff, PencilLine, Settings2 } from '@lucide/vue'
+import { ChevronRight, PencilLine, Settings2 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -93,17 +93,9 @@ function hiddenGroupsLabel(source: ModelSource): string {
       }}</span>
       <AppIconButton
         v-if="admin"
-        :icon="model.catalogEnabled ? Settings2 : EyeOff"
-        :variant="model.catalogEnabled ? 'brand' : 'ghost'"
-        :label="
-          t('modelManager.profile.actionState', {
-            state: t(
-              model.catalogEnabled
-                ? 'modelManager.profile.enabled'
-                : 'modelManager.profile.disabled',
-            ),
-          })
-        "
+        :icon="Settings2"
+        :variant="model.hasOverrides ? 'brand' : 'ghost'"
+        :label="t('modelManager.profile.action')"
         size="xxs"
         class="modern-model-card-profile-action"
         :disabled="disabled"

@@ -8,11 +8,7 @@ import {
   type ModelProfileValues,
 } from '@modern/api/models'
 
-export type ModelProfileDraftValues = Omit<
-  ModelProfileValues,
-  'context_window' | 'catalog_order'
-> & {
-  catalog_order: string
+export type ModelProfileDraftValues = Omit<ModelProfileValues, 'context_window'> & {
   context_window: string
 }
 
@@ -22,7 +18,7 @@ export interface ModelProfileDraft {
 }
 
 export type ModelProfileDraftError =
-  'invalidCatalogOrder' | 'invalidContextWindow' | 'invalidReasoningLevels' | 'invalidModalities'
+  'invalidDisplayName' | 'invalidContextWindow' | 'invalidReasoningLevels' | 'invalidModalities'
 
 const owns = (value: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(value, key)
 
@@ -32,9 +28,6 @@ export function createModelProfileDraft(profile: ModelProfile): ModelProfileDraf
       modelProfileFields.map((field) => [field, owns(profile.overrides, field)]),
     ) as Record<ModelProfileField, boolean>,
     values: {
-      catalog_enabled: profile.effective.catalog_enabled,
-      catalog_order:
-        profile.effective.catalog_order === null ? '' : String(profile.effective.catalog_order),
       display_name: profile.effective.display_name,
       context_window:
         profile.effective.context_window === null ? '' : String(profile.effective.context_window),
@@ -46,9 +39,6 @@ export function createModelProfileDraft(profile: ModelProfile): ModelProfileDraf
 
 export function modelProfileDraftOverrides(draft: ModelProfileDraft): ModelProfileOverrides {
   const overrides: ModelProfileOverrides = {}
-  if (draft.custom.catalog_enabled) overrides.catalog_enabled = draft.values.catalog_enabled
-  if (draft.custom.catalog_order)
-    overrides.catalog_order = Number(String(draft.values.catalog_order).trim())
   if (draft.custom.display_name) overrides.display_name = draft.values.display_name
   if (draft.custom.context_window)
     overrides.context_window = Number(String(draft.values.context_window).trim())
@@ -62,11 +52,12 @@ export function modelProfileDraftErrors(
   draft: ModelProfileDraft,
 ): Partial<Record<ModelProfileField, ModelProfileDraftError>> {
   const errors: Partial<Record<ModelProfileField, ModelProfileDraftError>> = {}
-  if (draft.custom.catalog_order) {
-    const value = String(draft.values.catalog_order).trim()
-    if (!/^(0|[1-9]\d*)$/.test(value) || !Number.isSafeInteger(Number(value)))
-      errors.catalog_order = 'invalidCatalogOrder'
-  }
+  if (
+    draft.custom.display_name &&
+    (!draft.values.display_name.trim() ||
+      new TextEncoder().encode(draft.values.display_name).length > 512)
+  )
+    errors.display_name = 'invalidDisplayName'
   if (draft.custom.context_window) {
     const value = String(draft.values.context_window).trim()
     const contextWindow = Number(value)
@@ -93,13 +84,6 @@ function restoreAutomaticValue(
   field: ModelProfileField,
 ): void {
   switch (field) {
-    case 'catalog_enabled':
-      draft.values.catalog_enabled = automatic.catalog_enabled
-      break
-    case 'catalog_order':
-      draft.values.catalog_order =
-        automatic.catalog_order === null ? '' : String(automatic.catalog_order)
-      break
     case 'display_name':
       draft.values.display_name = automatic.display_name
       break

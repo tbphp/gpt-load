@@ -193,8 +193,8 @@ func TestCodexCatalogUsesExistingVisibilityAndScopedMetadata(t *testing.T) {
 	if bounded, err := buildCodexModelList(snapshot, key, int64(len(body)), "0.154.0"); err != nil || string(bounded) != string(body) {
 		t.Fatalf("exact byte boundary failed: %v", err)
 	}
-	if partial, err := buildCodexModelList(snapshot, key, int64(len(body)-1), "0.154.0"); !errors.Is(err, errModelListTooLarge) || partial != nil {
-		t.Fatalf("overflow leaked partial JSON: %s, %v", partial, err)
+	if partial, err := buildCodexModelList(snapshot, key, int64(len(body)-1), "0.154.0"); err != nil || string(partial) != `{"models":[]}` {
+		t.Fatalf("overflow did not return the complete empty prefix: %s, %v", partial, err)
 	}
 }
 
@@ -294,8 +294,9 @@ func TestCodexCatalogRequiresAccessKeyAndBoundsResponse(t *testing.T) {
 		}
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
-		if recorder.Code == http.StatusOK || strings.Contains(recorder.Body.String(), `"slug"`) {
-			t.Fatalf("expected bounded local failure: %d %s", recorder.Code, recorder.Body.String())
+		if (authorized && (recorder.Code != http.StatusOK || recorder.Body.String() != `{"models":[]}`)) ||
+			(!authorized && recorder.Code == http.StatusOK) || strings.Contains(recorder.Body.String(), `"slug"`) {
+			t.Fatalf("unexpected bounded catalog/authentication: %d %s", recorder.Code, recorder.Body.String())
 		}
 	}
 }

@@ -79,7 +79,6 @@ type ProjectUpstreamModelDTO struct {
 
 type ProjectModelDTO struct {
 	ClientModel    string                    `json:"client_model"`
-	CatalogEnabled bool                      `json:"catalog_enabled"`
 	HasOverrides   bool                      `json:"has_overrides"`
 	Protocols      []protocol.Protocol       `json:"protocols"`
 	UpstreamModels []ProjectUpstreamModelDTO `json:"upstream_models"`
@@ -314,8 +313,7 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 		}
 		dto := ProjectModelDTO{
 			ClientModel:    record.clientModel,
-			CatalogEnabled: catalog.ClientModelCatalogEnabled(record.clientModel, overrides),
-			HasOverrides:   !overrides.IsEmpty(),
+			HasOverrides:   !overrides.Metadata().IsEmpty(),
 			Protocols:      append([]protocol.Protocol(nil), record.protocols...),
 			UpstreamModels: []ProjectUpstreamModelDTO{},
 		}

@@ -8,8 +8,6 @@ import (
 )
 
 type ClientModelProfile struct {
-	CatalogEnabled           bool     `json:"catalog_enabled"`
-	CatalogOrder             *int64   `json:"catalog_order"`
 	DisplayName              string   `json:"display_name"`
 	ContextWindow            *int64   `json:"context_window"`
 	SupportedReasoningLevels []string `json:"supported_reasoning_levels"`
@@ -101,7 +99,6 @@ func cloneProfileValue[Value any](value *Value) *Value {
 }
 
 func (profile ClientModelProfile) Clone() ClientModelProfile {
-	profile.CatalogOrder = cloneProfileValue(profile.CatalogOrder)
 	profile.ContextWindow = cloneProfileValue(profile.ContextWindow)
 	profile.SupportedReasoningLevels = append([]string{}, profile.SupportedReasoningLevels...)
 	profile.InputModalities = append([]string{}, profile.InputModalities...)
@@ -110,12 +107,6 @@ func (profile ClientModelProfile) Clone() ClientModelProfile {
 
 func (profile ClientModelProfile) Apply(overrides ClientModelOverrides) ClientModelProfile {
 	result := profile.Clone()
-	if overrides.CatalogEnabled != nil {
-		result.CatalogEnabled = *overrides.CatalogEnabled
-	}
-	if overrides.CatalogOrder != nil {
-		result.CatalogOrder = cloneProfileValue(overrides.CatalogOrder)
-	}
 	if overrides.DisplayName != nil {
 		result.DisplayName = *overrides.DisplayName
 	}
@@ -129,4 +120,11 @@ func (profile ClientModelProfile) Apply(overrides ClientModelOverrides) ClientMo
 		result.InputModalities = append([]string{}, (*overrides.InputModalities)...)
 	}
 	return result
+}
+
+// Metadata 只保留模型属性，移除目录选择和排序覆盖。
+func (overrides ClientModelOverrides) Metadata() ClientModelOverrides {
+	overrides = overrides.Clone()
+	overrides.CatalogEnabled, overrides.CatalogOrder = nil, nil
+	return overrides
 }

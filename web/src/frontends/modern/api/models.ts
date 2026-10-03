@@ -10,8 +10,6 @@ export const modelSourceKey = (id: number) => [...modelsKey, 'source', id] as co
 export const modelProfileKey = (model: string) => [...modelsKey, 'profile', model] as const
 export const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 export const modelProfileFields = [
-  'catalog_enabled',
-  'catalog_order',
   'display_name',
   'context_window',
   'supported_reasoning_levels',
@@ -81,14 +79,11 @@ export interface ModelSource {
 }
 export interface RequestModel {
   name: string
-  catalogEnabled: boolean
   protocols: string[]
   sources: ModelSource[]
   hasOverrides?: boolean
 }
 export interface ModelProfileValues {
-  catalog_enabled: boolean
-  catalog_order: number | null
   display_name: string
   context_window: number | null
   supported_reasoning_levels: ModelReasoningLevel[]
@@ -236,8 +231,6 @@ function profileValues(value: unknown): ModelProfileValues {
   )
   if (!supportedReasoningLevels.length) throw new InvalidResponseError()
   return {
-    catalog_enabled: boolean(row.catalog_enabled),
-    catalog_order: row.catalog_order === null ? null : integer(row.catalog_order),
     display_name: text(row.display_name),
     context_window: row.context_window === null ? null : integer(row.context_window, 1),
     supported_reasoning_levels: supportedReasoningLevels,
@@ -247,10 +240,6 @@ function profileValues(value: unknown): ModelProfileValues {
 function profileOverrides(value: unknown): ModelProfileOverrides {
   const row = record(value)
   const overrides: ModelProfileOverrides = {}
-  if (row.catalog_enabled !== undefined && row.catalog_enabled !== null)
-    overrides.catalog_enabled = boolean(row.catalog_enabled)
-  if (row.catalog_order !== undefined && row.catalog_order !== null)
-    overrides.catalog_order = integer(row.catalog_order)
   if (row.display_name !== undefined && row.display_name !== null)
     overrides.display_name = text(row.display_name)
   if (row.context_window !== undefined && row.context_window !== null)
@@ -305,7 +294,6 @@ export async function getModels(client: ApiClient, filters: ModelFilters, signal
       const model = record(value)
       return {
         name: text(model.client_model),
-        catalogEnabled: boolean(model.catalog_enabled),
         protocols: sortProtocols(list(model.protocols).map(text)),
         sources: list(model.upstream_models).map(source),
         hasOverrides: model.has_overrides === undefined ? undefined : boolean(model.has_overrides),
@@ -411,4 +399,98 @@ export async function resetModelPrice(client: ApiClient, id: number, signal: Abo
 export async function syncModelPrices(client: ApiClient, signal: AbortSignal): Promise<void> {
   const result = record(await client.request('/api/model-prices/sync', { method: 'POST', signal }))
   if (result.error_code) throw new InvalidResponseError()
+}
+
+export const clientCatalogKey = [...modelsKey, 'client-catalog'] as const
+export interface ClientCatalogBudget {
+  limitBytes: number
+  responseBytes: number
+  selectedBytes: number
+  includedCount: number
+  entries: { model: string; bytes: number; included: boolean }[]
+}
+export interface ClientCatalog {
+  models: ModelProfile[]
+  selected: string[]
+  defaults: string[]
+  budget: ClientCatalogBudget
+  clientVersion: string
+}
+export interface ClientCatalogDraft {
+  known_models: string[]
+  models?: string[]
+  reset_directory?: boolean
+  profiles: { client_model: string; overrides: ModelProfileOverrides }[]
+}
+function readClientCatalog(value: unknown): ClientCatalog {
+  const row = record(value)
+  const budget = record(row.budget)
+  const models = list(row.models).map(readModelProfile)
+  const selected = list(row.selected).map(text)
+  const defaults = list(row.defaults).map(text)
+  const names = new Set(models.map((model) => model.clientModel))
+  if (
+    names.size !== models.length ||
+    new Set(selected).size !== selected.length ||
+    selected.some((model) => !names.has(model)) ||
+    defaults.some((model) => !names.has(model))
+  )
+    throw new InvalidResponseError()
+  const entries = list(budget.entries).map((value) => {
+    const entry = record(value)
+    return {
+      model: text(entry.client_model),
+      bytes: integer(entry.bytes),
+      included: boolean(entry.included),
+    }
+  })
+  const includedCount = integer(budget.included_count)
+  if (
+    entries.length !== selected.length ||
+    entries.some(
+      (entry, index) => entry.model !== selected[index] || entry.included !== index < includedCount,
+    )
+  )
+    throw new InvalidResponseError()
+  return {
+    models,
+    selected,
+    defaults,
+    clientVersion: text(row.client_version),
+    budget: {
+      limitBytes: integer(budget.limit_bytes, 1),
+      responseBytes: integer(budget.response_bytes),
+      selectedBytes: integer(budget.selected_bytes),
+      includedCount,
+      entries,
+    },
+  }
+}
+export async function getClientCatalog(
+  client: ApiClient,
+  signal: AbortSignal,
+): Promise<ClientCatalog> {
+  return readClientCatalog(await client.request('/api/models/client-catalog', { signal }))
+}
+export async function previewClientCatalog(
+  client: ApiClient,
+  draft: ClientCatalogDraft,
+  signal: AbortSignal,
+): Promise<ClientCatalog> {
+  return readClientCatalog(
+    await client.request('/api/models/client-catalog/preview', {
+      method: 'POST',
+      json: draft,
+      signal,
+    }),
+  )
+}
+export async function saveClientCatalog(
+  client: ApiClient,
+  draft: ClientCatalogDraft,
+  signal: AbortSignal,
+): Promise<ClientCatalog> {
+  return readClientCatalog(
+    await client.request('/api/models/client-catalog', { method: 'PUT', json: draft, signal }),
+  )
 }

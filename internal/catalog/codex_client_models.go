@@ -42,16 +42,11 @@ func BuildCodexClientModel(
 	priority int,
 	overrides ClientModelOverrides,
 ) (map[string]any, ClientModelProfile, ClientModelProfile, error) {
-	return buildCodexClientModel(model, priority, overrides, false)
+	return BuildCodexCatalogModel(model, priority, overrides, false)
 }
 
-// BuildCodexFallbackClientModel resolves a virtual client model from the pinned fallback template.
-func BuildCodexFallbackClientModel(model string, priority int) (map[string]any, error) {
-	resolved, _, _, err := buildCodexClientModel(model, priority, ClientModelOverrides{}, true)
-	return resolved, err
-}
-
-func buildCodexClientModel(
+// BuildCodexCatalogModel 用同一资料契约生成普通模型或虚拟模型的目录条目。
+func BuildCodexCatalogModel(
 	model string,
 	priority int,
 	overrides ClientModelOverrides,
@@ -82,22 +77,12 @@ func buildCodexClientModel(
 	if err != nil {
 		return nil, ClientModelProfile{}, ClientModelProfile{}, fmt.Errorf("resolve Codex model %q: %w", model, err)
 	}
-	automatic.CatalogEnabled = ClientModelCatalogEnabled(model, ClientModelOverrides{})
 	effective := automatic.Apply(overrides)
 	applyClientModelProfile(resolved, effective, overrides)
 	if err := applyLegacyBaseInstructions(resolved); err != nil {
 		return nil, ClientModelProfile{}, ClientModelProfile{}, fmt.Errorf("resolve Codex model %q: %w", model, err)
 	}
 	return resolved, automatic, effective, nil
-}
-
-// ResolveClientModelProfile returns the automatic and manually overridden values exposed by the control plane.
-func ResolveClientModelProfile(
-	model string,
-	overrides ClientModelOverrides,
-) (ClientModelProfile, ClientModelProfile, error) {
-	_, automatic, effective, err := BuildCodexClientModel(model, 0, overrides)
-	return automatic, effective, err
 }
 
 func loadCodexModelCatalog() (codexModelCatalog, error) {

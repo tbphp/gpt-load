@@ -3,6 +3,7 @@ import { computed, onScopeDispose, ref, toValue, watch, type MaybeRefOrGetter } 
 import { useI18n } from 'vue-i18n'
 import {
   getModelProfile,
+  clientCatalogKey,
   modelProfileFields,
   modelProfileKey,
   modelsKey,
@@ -18,7 +19,6 @@ import {
   modelProfileDraftErrors,
   modelProfileDraftOverrides,
   resetModelProfileDraft,
-  setModelProfileFieldMode,
   type ModelProfileDraft,
 } from './model-profile-draft'
 
@@ -85,11 +85,6 @@ export function useModelProfileEditor(model: MaybeRefOrGetter<string>) {
     { deep: true },
   )
 
-  function setCustom(field: ModelProfileField, custom: boolean): void {
-    if (!base.value || !draft.value || saving.value) return
-    setModelProfileFieldMode(base.value, draft.value, field, custom)
-  }
-
   function resetAll(): void {
     if (!base.value || !draft.value || saving.value) return
     resetModelProfileDraft(base.value, draft.value)
@@ -114,6 +109,7 @@ export function useModelProfileEditor(model: MaybeRefOrGetter<string>) {
       await Promise.all([
         cache.invalidateQueries({ queryKey: [...modelsKey, 'collection'] }),
         cache.invalidateQueries({ queryKey: [...modelsKey, 'context'] }),
+        cache.invalidateQueries({ queryKey: clientCatalogKey }),
       ])
       if (!controller.signal.aborted)
         messages.show({ tone: 'success', text: t('modelManager.profile.saveSuccess') })
@@ -137,7 +133,6 @@ export function useModelProfileEditor(model: MaybeRefOrGetter<string>) {
     saving,
     saveError,
     fieldErrors,
-    setCustom,
     resetAll,
     save,
   }
