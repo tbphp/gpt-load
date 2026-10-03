@@ -377,14 +377,14 @@ export const factDefinitions: FactDefinition[] = [
   {
     key: 'request.model',
     valueType: 'string',
-    operators: ['eq', 'in'],
+    operators: ['eq'],
     quota: false,
     labelKey: 'policyEditor.fact.facts.requestModel',
   },
   {
     key: 'upstream.model',
     valueType: 'string',
-    operators: ['eq', 'in'],
+    operators: ['eq'],
     quota: false,
     labelKey: 'policyEditor.fact.facts.upstreamModel',
   },
@@ -803,10 +803,7 @@ function defaultLeaf(): JsonObjectNode {
   return newTimeWindowCondition()
 }
 
-export function newConditionGroup(
-  kind: 'all' | 'any',
-  children: JsonNode[] = [defaultLeaf()],
-): JsonObjectNode {
+export function newConditionGroup(kind: 'all' | 'any', children: JsonNode[] = []): JsonObjectNode {
   return objectNode([{ key: kind, value: arrayNode(children) }])
 }
 
@@ -859,7 +856,7 @@ export function newRule(id: string, domain: PolicyDomain): JsonObjectNode {
     { key: 'name', value: stringLiteral(id) },
     { key: 'domain', value: stringLiteral(domain) },
     { key: 'enabled', value: booleanLiteral(false) },
-    { key: 'when', value: newConditionGroup('all') },
+    { key: 'when', value: newConditionGroup('all', []) },
     {
       key: 'then',
       value:

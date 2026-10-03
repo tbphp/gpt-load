@@ -4,6 +4,7 @@ import { Plus } from '@lucide/vue'
 import { AppButton, AppNotice } from '@modern/components/ui'
 import {
   arrayItems,
+  arrayNode,
   duplicateRule,
   getField,
   hasFatalIssue,
@@ -13,6 +14,8 @@ import {
   moveRule,
   newRule,
   newRuleId,
+  numberLiteral,
+  objectNode,
   policyLimits,
   readVisualDocument,
   removeRuleAt,
@@ -63,6 +66,15 @@ watch(
 )
 
 const fatalIssue = computed(() => issues.value.find((issue) => issue.fatal))
+// 空白正文视为待创建的初始配置：仍展示“新增规则”入口，首次新增时补全根对象。
+const isBlank = computed(() => !root.value && issues.value.some((issue) => issue.code === 'empty'))
+
+function emptyDocument(): JsonObjectNode {
+  return objectNode([
+    { key: 'schema_version', value: numberLiteral('1')! },
+    { key: 'rules', value: arrayNode([]) },
+  ])
+}
 const unsupported = computed(() => unsupportedPaths(issues.value))
 // 以原始数组长度与索引为准，避免读取失败的规则导致可视化索引错位。
 const rootRules = computed(() => {
@@ -109,8 +121,9 @@ function updateRule(index: number, node: JsonNode): void {
 }
 
 function addRule(): void {
-  if (props.disabled || !root.value) return
-  commit(insertRule(root.value, newRule(newRuleId(ruleIds.value), props.defaultDomain)))
+  if (props.disabled) return
+  const base = root.value ?? emptyDocument()
+  commit(insertRule(base, newRule(newRuleId(ruleIds.value), props.defaultDomain)))
 }
 
 function moveRuleTo(index: number, delta: number): void {
@@ -146,14 +159,14 @@ const limitActive = computed(() => hasFatalIssue(issues.value))
         variant="outline"
         size="sm"
         :icon="Plus"
-        :disabled="disabled || limitActive"
+        :disabled="disabled || (limitActive && !isBlank)"
         @click="addRule"
       >
         {{ t('policyEditor.addRule') }}
       </AppButton>
     </div>
 
-    <AppNotice v-if="fatalIssue" tone="danger" class="policy-editor-notice">
+    <AppNotice v-if="fatalIssue && !isBlank" tone="danger" class="policy-editor-notice">
       <strong>{{ t('policyEditor.limitsTitle') }}</strong>
       <span>{{ issueText(fatalIssue) }}</span>
     </AppNotice>

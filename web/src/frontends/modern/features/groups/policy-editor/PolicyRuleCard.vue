@@ -13,11 +13,11 @@ import {
   booleanLiteral,
   conditionKind,
   policyLimits,
-  policyIDPattern,
   setField,
   stringLiteral,
   type JsonNode,
   type JsonObjectNode,
+  type PolicyDomain,
   type VisualRule,
 } from './policy-model'
 import { usePolicyMessages } from './use-policy-messages'
@@ -55,10 +55,6 @@ const name = computed({
   get: () => props.rule.name,
   set: (value: string) => patch('name', stringLiteral(value)),
 })
-const ruleID = computed({
-  get: () => props.rule.id,
-  set: (value: string) => patch('id', stringLiteral(value)),
-})
 const enabled = computed(() => props.rule.enabled)
 
 const nameInvalid = computed(
@@ -66,12 +62,6 @@ const nameInvalid = computed(
     props.rule.name.trim() === '' ||
     props.rule.name !== props.rule.name.trim() ||
     [...props.rule.name].length > policyLimits.maxNameLength,
-)
-const idInvalid = computed(
-  () =>
-    props.rule.id === '' ||
-    !policyIDPattern.test(props.rule.id) ||
-    props.rule.id.length > policyLimits.maxIDLength,
 )
 const domainKey = computed(() =>
   props.rule.domain === 'pricing' ? 'domainPricing' : 'domainScheduling',
@@ -85,6 +75,13 @@ function patch(field: string, value: JsonNode): void {
 function patchEnabled(value: boolean): void {
   if (props.disabled) return
   patch('enabled', booleanLiteral(value))
+}
+
+// 动作选择同时改动 domain 与 then，必须一次性提交，避免出现不可编译的中间态。
+function patchAction(payload: { domain: PolicyDomain; then: JsonNode }): void {
+  if (props.disabled) return
+  const withThen = setField(props.rule.node, 'then', payload.then)
+  emit('update', setField(withThen, 'domain', stringLiteral(payload.domain)))
 }
 </script>
 
@@ -170,10 +167,13 @@ function patchEnabled(value: boolean): void {
     </AppNotice>
 
     <div v-if="expanded" class="policy-rule-body">
-      <div class="policy-rule-fields">
+      <div class="policy-rule-row">
+        <span class="policy-rule-row-label">{{ t('policyEditor.rule.name') }}</span>
         <AppTextField
           v-model="name"
+          class="policy-rule-row-control"
           :label="t('policyEditor.rule.name')"
+          label-hidden
           :placeholder="t('policyEditor.rule.namePlaceholder')"
           :error="
             nameInvalid
@@ -182,39 +182,21 @@ function patchEnabled(value: boolean): void {
           "
           :disabled="disabled"
         />
-        <AppTextField
-          v-model="ruleID"
-          :label="t('policyEditor.rule.id')"
-          :error="
-            idInvalid
-              ? t('policyEditor.rule.idInvalid', { max: policyLimits.maxIDLength })
-              : undefined
-          "
-          :disabled="disabled"
-          class="font-mono"
-        />
       </div>
       <p class="policy-rule-disabled-hint">{{ t('policyEditor.rule.disabledHint') }}</p>
 
-      <section class="policy-rule-section">
-        <h5>{{ t('policyEditor.rule.condition') }}</h5>
-        <PolicyConditionEditor
-          :model-value="rule.when"
-          :depth="1"
-          :disabled="disabled"
-          @update:model-value="(node) => patch('when', node)"
-        />
-      </section>
+      <PolicyConditionEditor
+        :model-value="rule.when"
+        :disabled="disabled"
+        @update:model-value="(node) => patch('when', node)"
+      />
 
-      <section class="policy-rule-section">
-        <h5>{{ t('policyEditor.rule.action') }}</h5>
-        <PolicyActionEditor
-          :model-value="rule.then"
-          :domain="rule.domain"
-          :disabled="disabled"
-          @update:model-value="(node) => patch('then', node)"
-        />
-      </section>
+      <PolicyActionEditor
+        :model-value="rule.then"
+        :domain="rule.domain"
+        :disabled="disabled"
+        @update:action="patchAction"
+      />
 
       <AppNotice v-if="conditionKind(rule.when) === 'unsupported'" tone="info" compact>
         {{ t('policyEditor.rule.unsupportedRule') }}
@@ -273,24 +255,25 @@ function patchEnabled(value: boolean): void {
   gap: var(--modern-space-3);
   min-width: 0;
 }
-.policy-rule-fields {
-  display: grid;
-  gap: var(--modern-space-3);
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+.policy-rule-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--modern-space-2);
+  min-width: 0;
+}
+.policy-rule-row-label {
+  flex-shrink: 0;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-medium);
+}
+.policy-rule-row-control {
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 .policy-rule-disabled-hint {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
-}
-.policy-rule-section {
-  display: grid;
-  gap: var(--modern-space-2);
-  min-width: 0;
-}
-.policy-rule-section h5 {
-  font-size: var(--modern-font-size-caption);
-  font-weight: var(--modern-weight-semibold);
-  text-transform: uppercase;
-  color: var(--modern-muted);
 }
 </style>

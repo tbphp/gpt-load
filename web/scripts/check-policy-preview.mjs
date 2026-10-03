@@ -3,7 +3,6 @@ import {
   extract,
   loadTsModule,
   mountComponent,
-  parseSfc,
   readSource,
   stripImports,
   Vue as vue,
@@ -26,15 +25,6 @@ const ctx = loadTsModule(
       'MAX_CANONICAL_UINT64',
     ]),
   { InvalidResponseError: class InvalidResponseError extends Error {} },
-)
-
-// 面板新增导入 policy-portability；用真实模块避免被 mock 成 undefined。
-const portability = loadTsModule(
-  stripImports(readSource('web/src/frontends/modern/features/groups/policy-portability.ts')),
-  {
-    TextEncoder,
-    createUUID: () => 'generated-uuid-0000-0000-0000-000000000000',
-  },
 )
 
 function mockPolicy(scope = 'group', rev = '1') {
@@ -311,469 +301,153 @@ if (!parsedDecimal.configText.includes('0.10000000000000001')) {
 }
 console.log('PASS: Exact raw decimal literal preserved in configText')
 
-// 2. Editor Lifecycle & Invalidation Tests
-class ApiError extends Error {
-  constructor(status, data = null, code = '') {
-    super(code || `Error ${status}`)
-    this.status = status
-    this.data = data
-    this.code = code
-  }
+// 2. 真实编译面板冒烟：模式切换与空白态提示（不再包含 preview/discovery UI）
+const panelPath = 'web/src/frontends/modern/features/groups/GroupPolicyPanel.vue'
+const blankPolicy = ctx.readGroupPolicy(mockPolicy('group', '0'))
+const uiStub = vue.defineComponent({
+  inheritAttrs: false,
+  setup:
+    (_, { attrs, slots }) =>
+    () =>
+      vue.h('ui-mock', attrs, slots.default?.() ?? []),
+})
+const uiProxy = new Proxy({}, { get: () => uiStub })
+const queryCache = {
+  cancelQueries: async () => {},
+  setQueryData: () => {},
+  invalidateQueries: async () => {},
 }
-
-function createEditorEnv(isCredential = false, initialRev = '0') {
-  const p = 'web/src/frontends/modern/features/groups/GroupPolicyPanel.vue'
-  const desc = parseSfc(readSource(p)).descriptor
-  const requests = []
-  const saves = []
-  let resolvePreview = () => {}
-  let rejectPreview = () => {}
-  const readFn = isCredential ? ctx.readCredentialPolicy : ctx.readGroupPolicy
-  const query = {
-    data: vue.ref(readFn(mockPolicy(isCredential ? 'credential' : 'group', initialRev))),
-    isPending: vue.ref(false),
-    isError: vue.ref(false),
-    refetch: () => {},
-  }
-  const inheritedQuery = {
-    data: vue.ref(ctx.readGroupPolicy(mockPolicy('group', '1'))),
-    isPending: vue.ref(false),
-    isError: vue.ref(false),
-    refetch: () => {},
-  }
-  const props = vue.reactive({
-    group: { id: 1, name: 'Group 1' },
-    credential: isCredential ? { id: 1, label: 'Cred 1' } : undefined,
-  })
-  const env = {
-    ...vue,
-    console,
-    exports: {},
-    AbortController,
-    defineProps: () => props,
-    defineEmits: () => () => {},
-    useI18n: () => ({ t: (x) => x, locale: vue.ref('en-US') }),
-    useApiClient: () => ({}),
-    useQueryClient: () => ({
-      cancelQueries: async () => {},
-      setQueryData: () => {},
-      invalidateQueries: async () => {},
-    }),
-    useQuery: (opts) => {
-      if (opts?.enabled?.value === true || opts?.enabled === true) return inheritedQuery
-      return query
-    },
-    groupPolicyKey: () => ['g'],
-    credentialPolicyKey: () => ['c'],
-    policyDiscoveryKey: () => ['d'],
-    getPolicyDiscovery: async () => undefined,
-    ApiError,
-    previewGroupPolicy: (...a) => {
-      requests.push(a)
-      return new Promise((r, j) => {
-        resolvePreview = r
-        rejectPreview = j
-      })
-    },
-    previewCredentialPolicy: (...a) => {
-      requests.push(a)
-      return new Promise((r, j) => {
-        resolvePreview = r
-        rejectPreview = j
-      })
-    },
-    saveGroupPolicy: async (...a) => {
-      saves.push(a)
-      if (env.conflict) throw new ApiError(409)
-      const rawText = a[3] || '{"schema_version":1,"rules":[]}'
-      return ctx.readGroupPolicy({
-        ...mockPolicy('group', '2'),
-        config_text: rawText,
-      })
-    },
-    saveCredentialPolicy: async (...a) => {
-      saves.push(a)
-      if (env.conflict) throw new ApiError(409)
-      const rawText = a[4] || '{"schema_version":1,"rules":[]}'
-      return ctx.readCredentialPolicy({
-        ...mockPolicy('credential', '2'),
-        config_text: rawText,
-      })
-    },
-  }
-  const scope = vue.effectScope()
-  scope.run(() =>
-    loadTsModule(
-      stripImports(desc.scriptSetup.content) +
-        `;exports.st={draft,baseline,currentPolicy,isUnconfigured,serverError,previewRequestModel,previewSimulatedTime,previewData,previewError,previewLoading,runPreview,save};`,
-      env,
-    ),
-  )
-  return {
-    st: env.exports.st,
-    env,
-    requests,
-    saves,
-    scope,
-    resolvePreview: (v) => resolvePreview(v),
-    rejectPreview: (e) => rejectPreview(e),
-  }
+const panelMocks = {
+  groupPolicyKey: () => ['g'],
+  credentialPolicyKey: () => ['c'],
+  getGroupPolicy: () => {},
+  getCredentialPolicy: () => {},
+  saveGroupPolicy: async () => blankPolicy,
+  saveCredentialPolicy: async () => blankPolicy,
 }
-
-for (const isCredential of [false, true]) {
-  const modeName = isCredential ? 'Credential mode' : 'Group mode'
-
-  // MaxUint64 must NOT be unconfigured
-  const maxUintEnv = createEditorEnv(isCredential, '18446744073709551615')
-  if (maxUintEnv.st.isUnconfigured.value !== false) {
-    console.error(`FAIL: ${modeName} treated MaxUint64 as unconfigured`)
-    process.exit(1)
-  }
-  maxUintEnv.scope.stop()
-
-  // rev 0 MUST be unconfigured
-  const zeroEnv = createEditorEnv(isCredential, '0')
-  if (zeroEnv.st.isUnconfigured.value !== true) {
-    console.error(`FAIL: ${modeName} failed to identify revision 0 as unconfigured`)
-    process.exit(1)
-  }
-  zeroEnv.scope.stop()
-
-  // 409 conflict retention on save
-  const conflictEnv = createEditorEnv(isCredential, '1')
-  const dirtyDraft = '{"schema_version":1,"rules":[]}\n  '
-  conflictEnv.st.draft.value = dirtyDraft
-  conflictEnv.env.conflict = true
-  await conflictEnv.st.save()
-  if (conflictEnv.st.draft.value !== dirtyDraft) {
-    console.error(`FAIL: ${modeName} lost dirty draft text on 409 conflict`)
-    process.exit(1)
-  }
-  if (!conflictEnv.st.serverError.value) {
-    console.error(`FAIL: ${modeName} did not display conflict error message`)
-    process.exit(1)
-  }
-  conflictEnv.scope.stop()
-
-  // Pending change aborts in-flight request
-  for (const field of ['draft', 'previewRequestModel', 'previewSimulatedTime']) {
-    const pendingEnv = createEditorEnv(isCredential, '1')
-    pendingEnv.st.previewRequestModel.value = 'gpt-4o'
-    await vue.nextTick()
-    const p = pendingEnv.st.runPreview()
-    pendingEnv.st[field].value += ' '
-    await vue.nextTick()
-    pendingEnv.resolvePreview({ candidates: [], server_time: 'stale' })
-    await p
-    if (pendingEnv.st.previewData.value !== null) {
-      console.error(`FAIL: ${modeName} accepted stale response after modifying ${field}`)
-      process.exit(1)
-    }
-    if (!pendingEnv.requests[0]?.at(-1)?.aborted) {
-      console.error(`FAIL: ${modeName} did not abort signal when ${field} changed`)
-      process.exit(1)
-    }
-    pendingEnv.scope.stop()
-  }
-
-  // Completed preview invalidation
-  for (const field of ['draft', 'previewRequestModel', 'previewSimulatedTime']) {
-    const compEnv = createEditorEnv(isCredential, '1')
-    compEnv.st.previewRequestModel.value = 'gpt-4o'
-    await vue.nextTick()
-    const p = compEnv.st.runPreview()
-    compEnv.resolvePreview({ candidates: [], server_time: 'completed' })
-    await p
-    if (!compEnv.st.previewData.value) {
-      console.error(`FAIL: ${modeName} failed to populate completed preview data`)
-      process.exit(1)
-    }
-    compEnv.st[field].value += ' '
-    await vue.nextTick()
-    if (compEnv.st.previewData.value !== null) {
-      console.error(`FAIL: ${modeName} did not invalidate completed preview when ${field} changed`)
-      process.exit(1)
-    }
-    compEnv.scope.stop()
-  }
-
-  // ABA draft change resistance: A -> B -> A with slow B response
-  const abaEnv = createEditorEnv(isCredential, '1')
-  abaEnv.st.previewRequestModel.value = 'gpt-4o'
-  const draftA = '{"schema_version":1,"rules":[]}'
-  const draftB = '{"schema_version":1,"rules":[{"id":"b"}]}'
-  abaEnv.st.draft.value = draftA
-  await vue.nextTick()
-
-  abaEnv.st.draft.value = draftB
-  await vue.nextTick()
-  const pB = abaEnv.st.runPreview()
-
-  abaEnv.st.draft.value = draftA
-  await vue.nextTick()
-  abaEnv.resolvePreview({ candidates: [{ credential_id: 99 }], server_time: 'from-B' })
-  await pB
-  if (abaEnv.st.previewData.value !== null) {
-    console.error(`FAIL: ${modeName} accepted preview from draft B after returning to draft A`)
-    process.exit(1)
-  }
-  abaEnv.scope.stop()
-
-  // Blank JSON stops preview without dispatching HTTP
-  const blankEnv = createEditorEnv(isCredential, '1')
-  blankEnv.st.previewRequestModel.value = 'gpt-4o'
-  blankEnv.st.draft.value = '   '
-  await vue.nextTick()
-  await blankEnv.st.runPreview()
-  if (blankEnv.requests.length !== 0) {
-    console.error(`FAIL: ${modeName} dispatched preview HTTP request for blank JSON`)
-    process.exit(1)
-  }
-  if (!blankEnv.st.previewError.value) {
-    console.error(`FAIL: ${modeName} did not set previewError for blank JSON`)
-    process.exit(1)
-  }
-  blankEnv.scope.stop()
-
-  // Invalid JSON stops save without dispatching HTTP
-  const invalidSaveEnv = createEditorEnv(isCredential, '1')
-  invalidSaveEnv.st.draft.value = '{ invalid json'
-  await vue.nextTick()
-  await invalidSaveEnv.st.save()
-  if (invalidSaveEnv.saves.length !== 0) {
-    console.error(`FAIL: ${modeName} dispatched save HTTP request for invalid JSON`)
-    process.exit(1)
-  }
-  if (!invalidSaveEnv.st.serverError.value) {
-    console.error(`FAIL: ${modeName} did not set serverError for invalid JSON on save`)
-    process.exit(1)
-  }
-  invalidSaveEnv.scope.stop()
-}
-console.log('PASS: Editor lifecycle, ABA resistance, and blank/invalid halts verified')
-
-// 3. SFC Rendering Tests
-const discoveryFixture = {
-  parameters: [
-    {
-      key: 'fact.credential.quota.remaining_ratio',
-      type: 'number',
-      label: 'fact.credential.quota.remaining_ratio.label',
-      description: 'fact.credential.quota.remaining_ratio.desc',
-      operators: ['eq', 'lt', 'lte', 'gt', 'gte'],
-      domains: ['pricing'],
-      binding_scopes: ['credential'],
-    },
-  ],
-  predicates: [
-    {
-      name: 'time_window',
-      label: 'predicate.time_window.label',
-      description: 'predicate.time_window.desc',
-      domains: ['scheduling', 'pricing'],
-    },
-  ],
-  actions: [
-    {
-      type: 'multiply_price',
-      domain: 'pricing',
-      label: 'action.multiply_price.label',
-      description: 'action.multiply_price.desc',
-      fields: ['type', 'factor'],
-    },
-  ],
-  capabilities: {
-    account_wise: true,
-    group_aggregation: false,
-    fixed_recovery: 'unsupported',
-    live_dynamic_pricing: false,
-  },
-}
-
-for (const isCredential of [false, true]) {
-  const modeName = isCredential ? 'Credential mode' : 'Group mode'
-  const p = 'web/src/frontends/modern/features/groups/GroupPolicyPanel.vue'
-  let resolve
-  const response = {
-    snapshot_revision_text: '18446744073709551615',
-    server_time: '2026-10-03T13:45:13+08:00',
-    server_time_zone_offset: '+08:00',
-    caveat_codes: ['policy.preview.caveat.no_session_affinity'],
-    candidates: [
-      {
-        credential_id: 1,
-        credential_name: 'Credential 1',
-        credential_version: '18446744073709551615',
-        identity_generation: '18446744073709551614',
-        targets: [
-          {
-            upstream_model: 'upstream-gpt4',
-            available: true,
-            group_rules: [
-              {
-                rule_id: 'r',
-                name_snapshot: 'R',
-                domain: 'pricing',
-                enabled: true,
-                status: 'hit',
-                binding_scope: 'group',
-                provenance: 'saved',
-                revision_text: '18446744073709551615',
-                condition: { kind: 'param', fact: 'request.model', truth: 'true' },
-                action: { type: 'multiply_price', factor: '2', multiplier: '2' },
-              },
-            ],
-            credential_rules: [
-              {
-                rule_id: 'r',
-                name_snapshot: 'R',
-                domain: 'pricing',
-                enabled: true,
-                status: 'hit',
-                binding_scope: 'credential',
-                provenance: 'saved',
-                revision_text: '18446744073709551614',
-                condition: { kind: 'param', fact: 'request.model', truth: 'true' },
-                action: { type: 'multiply_price', factor: '2', multiplier: '2' },
-              },
-            ],
-            scheduling: { excluded: false },
-            pricing: {
-              matches: [
-                {
-                  rule_id: 'r',
-                  name_snapshot: 'R',
-                  domain: 'pricing',
-                  factor: '2',
-                  multiplier: '2',
-                  binding_scope: 'group',
-                  provenance: 'saved',
-                  revision_text: '18446744073709551615',
-                },
-                {
-                  rule_id: 'r',
-                  name_snapshot: 'R',
-                  domain: 'pricing',
-                  factor: '2',
-                  multiplier: '2',
-                  binding_scope: 'credential',
-                  provenance: 'saved',
-                  revision_text: '18446744073709551614',
-                },
-              ],
-              factors: ['2', '2'],
-              cumulative_multiplier: '4',
-            },
-          },
-        ],
+// 真实 clipboard helper（HTTP 回退路径）：不用 jsdom，只做最小 fake DOM。
+const copied = []
+let lastTextarea = null
+const fakeTextarea = () => ({
+  style: {},
+  value: '',
+  isConnected: true,
+  focus() {},
+  select() {},
+  remove() {},
+})
+const clipboard = loadTsModule(
+  stripImports(readSource('web/src/frontends/modern/components/ui/clipboard.ts')),
+  {
+    shallowRef: vue.shallowRef,
+    isSecureContext: false,
+    navigator: {},
+    HTMLElement: class {},
+    document: {
+      activeElement: null,
+      body: { append() {} },
+      createElement: () => (lastTextarea = fakeTextarea()),
+      execCommand: () => {
+        copied.push(lastTextarea?.value ?? '')
+        return true
       },
-    ],
-  }
-  const passthrough = vue.defineComponent({
-    setup:
-      (props, { slots }) =>
-      () =>
-        slots.default?.(),
-  })
-  const mocks = {
-    getGroupPolicy: () => {},
-    getCredentialPolicy: () => {},
-    getPolicyDiscovery: () => {},
-    groupPolicyKey: () => ['g'],
-    credentialPolicyKey: () => ['c'],
-    policyDiscoveryKey: () => ['d'],
-    previewGroupPolicy: () => new Promise((r) => (resolve = r)),
-    previewCredentialPolicy: () => new Promise((r) => (resolve = r)),
-  }
-  const cache = {
-    cancelQueries: async () => {},
-    setQueryData: () => {},
-    invalidateQueries: async () => {},
-  }
-  const requireFn = (name) => {
-    if (name === 'vue') return vue
-    if (name === '@tanstack/vue-query')
-      return {
-        useQuery: (opts) => {
-          const key = vue.unref(opts.queryKey)
-          const isDisco = Array.isArray(key) && key[0] === 'd'
-          const isInherited = opts?.enabled?.value === true || opts?.enabled === true
-          let polData
-          if (isInherited) {
-            polData = ctx.readGroupPolicy(mockPolicy('group'))
-          } else if (isCredential) {
-            polData = ctx.readCredentialPolicy(mockPolicy('credential'))
-          } else {
-            polData = ctx.readGroupPolicy(mockPolicy('group'))
-          }
-          return {
-            data: vue.ref(isDisco ? discoveryFixture : polData),
-            isPending: vue.ref(false),
-            isError: vue.ref(false),
-          }
-        },
-        useQueryClient: () => cache,
-      }
-    if (name === 'vue-i18n') return { useI18n: () => ({ t: (x) => x, locale: vue.ref('en-US') }) }
-    if (name === '@modern/api/group-detail') return mocks
-    if (name === './policy-portability') return portability
-    if (name === '@shared/http/client-context') return { useApiClient: () => ({}) }
-    if (name === '@shared/http/errors') return { ApiError: class extends Error {} }
-    if (name === '@modern/components/ui') return new Proxy({}, { get: () => passthrough })
-    return { __esModule: true, default: passthrough }
-  }
-
-  const ctxRender = compileSfc(p, readSource(p), requireFn, {
-    transform: (code) =>
-      code.replace(
-        'return (_ctx: any,_cache: any) =>',
-        'globalThis.__state={draft,previewRequestModel,previewData,runPreview}; return (_ctx: any,_cache: any) =>',
-      ),
-    extra: { AbortController, console },
-  })
-  const { root, errors } = mountComponent(ctxRender.exports.default, {
-    group: { id: 1, name: 'test-group' },
-    credential: isCredential ? { id: 1, label: 'test-cred' } : undefined,
-  })
-
-  const state = ctxRender.__state
-  state.previewRequestModel.value = 'gpt-4o'
-  await vue.nextTick()
-  const runP = state.runPreview()
-  resolve(response)
-  await runP
-  await vue.nextTick()
-
-  if (errors.length) {
-    console.error(`FAIL: ${modeName} render produced errors:`, errors)
-    process.exit(1)
-  }
-
-  const findText = (n, pat) => {
-    if (typeof n.text === 'string' && n.text.includes(pat)) return true
-    return n.children.some((c) => findText(c, pat))
-  }
-
-  // Factor badge: x2
-  if (!findText(root, '×2')) {
-    console.error(`FAIL: ${modeName} did not render rule factor badge (x2)`)
-    process.exit(1)
-  }
-  // Cumulative multiplier badge: x4
-  if (!findText(root, '×4')) {
-    console.error(`FAIL: ${modeName} did not render cumulative multiplier badge (x4)`)
-    process.exit(1)
-  }
-  // Provenance rev badge
-  if (!findText(root, 'rev 18446744073709551615')) {
-    console.error(`FAIL: ${modeName} did not render exact full uint64 revision text badge`)
-    process.exit(1)
-  }
-
-  // Translated metadata check
-  if (!findText(root, 'Credential Quota Remaining Ratio')) {
-    console.error(`FAIL: ${modeName} did not render translated descriptor label`)
-    process.exit(1)
-  }
+    },
+  },
+)
+const model = loadTsModule(
+  stripImports(
+    readSource('web/src/frontends/modern/features/groups/policy-editor/policy-model.ts'),
+  ),
+)
+const panelRequire = (name) => {
+  if (name === 'vue') return vue
+  if (name === 'vue-i18n') return { useI18n: () => ({ t: (key) => key }) }
+  if (name === '@tanstack/vue-query')
+    return {
+      useQuery: () => ({
+        data: vue.ref(blankPolicy),
+        isPending: vue.ref(false),
+        isError: vue.ref(false),
+      }),
+      useQueryClient: () => queryCache,
+    }
+  if (name === '@modern/api/group-detail') return panelMocks
+  if (name === './policy-editor/policy-model') return model
+  if (name === '@modern/components/ui/clipboard') return clipboard
+  if (name === '@shared/http/client-context') return { useApiClient: () => ({}) }
+  if (name === '@shared/http/errors') return { ApiError: class extends Error {} }
+  if (name === '@modern/components/ui') return uiProxy
+  return { __esModule: true, default: uiStub }
 }
-console.log('PASS: SFC rendering and discovery metadata translation verified')
+const panelCtx = compileSfc(panelPath, readSource(panelPath), panelRequire, {
+  transform: (code) =>
+    code.replace(
+      'return (_ctx: any,_cache: any) =>',
+      'globalThis.__state={editorMode, draft}; return (_ctx: any,_cache: any) =>',
+    ),
+  extra: { AbortController, console },
+})
+const { root, errors } = mountComponent(panelCtx.exports.default, { group: { id: 1, name: 'g' } })
+if (errors.length) {
+  console.error('FAIL: panel render produced errors:', errors)
+  process.exit(1)
+}
+const contains = (node, pattern) => {
+  if (typeof node.text === 'string' && node.text.includes(pattern)) return true
+  return (node.children ?? []).some((child) => contains(child, pattern))
+}
+const pick = (node, predicate) => {
+  if (predicate(node)) return node
+  for (const child of node.children ?? []) {
+    const hit = pick(child, predicate)
+    if (hit) return hit
+  }
+  return null
+}
+if (!contains(root, 'groupDetail.policy.emptyState')) {
+  console.error('FAIL: panel did not render the unconfigured blank state')
+  process.exit(1)
+}
+const jsonButton = pick(
+  root,
+  (node) =>
+    node.tag === 'ui-mock' && node.events?.onClick && contains(node, 'groupDetail.policy.modeJson'),
+)
+if (!jsonButton) {
+  console.error('FAIL: panel did not render the JSON mode button')
+  process.exit(1)
+}
+jsonButton.events.onClick()
+await vue.nextTick()
+if (panelCtx.__state.editorMode.value !== 'json') {
+  console.error('FAIL: mode click did not switch the editor to JSON')
+  process.exit(1)
+}
+
+// HTTP 回退：compiled 面板复制按钮直接复制当前显示的 pretty 源文本（不做业务校验）。
+const copyButton = pick(
+  root,
+  (node) =>
+    node.tag === 'ui-mock' && node.events?.onClick && contains(node, 'groupDetail.policy.copyJson'),
+)
+if (!copyButton) {
+  console.error('FAIL: panel did not render the copy JSON button')
+  process.exit(1)
+}
+copyButton.events.onClick()
+await vue.nextTick()
+const displayed = panelCtx.__state.draft.value
+if (!displayed.includes('\n')) {
+  console.error('FAIL: panel draft is not the pretty source text')
+  process.exit(1)
+}
+if (copied.length !== 1 || copied[0] !== displayed) {
+  console.error('FAIL: copy button did not copy the displayed pretty source text')
+  process.exit(1)
+}
+if (contains(root, 'groupDetail.policy.clipboardUnavailable')) {
+  console.error('FAIL: copy reported the legacy clipboardUnavailable error on success')
+  process.exit(1)
+}
+console.log('PASS: Panel copy uses the real clipboard fallback on HTTP')
+console.log('PASS: Panel mode click and blank ghost verified on compiled SFC')

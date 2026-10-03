@@ -8,6 +8,34 @@ import (
 	"gpt-load/internal/pricing"
 )
 
+func TestStringEqualityPatterns(t *testing.T) {
+	for _, test := range []struct {
+		actual, pattern string
+		match           bool
+	}{
+		{"gpt-5", "gpt-5", true},
+		{"gpt-5-mini", "gpt-5", false},
+		{"gpt-5-mini", "gpt-*", true},
+		{"provider/gpt-5", "*gpt-5", true},
+		{"gpt-5-mini", "gpt-*-mini", true},
+		{"gpt-5-mini", "gpt-*-pro", false},
+		{"gpt-5", "gpt-**", true},
+		{"", "*", true},
+		{"模型/旗舰", "模型/*", true},
+		{"gpt-5", "gpt-?", false},
+		{"gpt-[5]", "gpt-[5]", true},
+	} {
+		t.Run(test.actual+"="+test.pattern, func(t *testing.T) {
+			if got := compareString(test.actual, "eq", test.pattern, nil); got != truthOf(test.match) {
+				t.Fatalf("match = %v, want %v", got, test.match)
+			}
+		})
+	}
+	if compareString("gpt-5", "in", "", []string{"gpt-*"}) != TruthFalse {
+		t.Fatal("JSON in retains exact set membership")
+	}
+}
+
 func TestTruthValueLogic(t *testing.T) {
 	// Not
 	if TruthTrue.Not() != TruthFalse {

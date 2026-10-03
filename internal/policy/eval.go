@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -394,10 +395,7 @@ func scanQuotaMin(windows []QuotaWindowFact, sel *QuotaSelector, now time.Time) 
 func compareString(actual string, op string, expected string, inValues []string) TruthValue {
 	switch op {
 	case "eq":
-		if actual == expected {
-			return TruthTrue
-		}
-		return TruthFalse
+		return truthOf(matchStringPattern(actual, expected))
 	case "in":
 		for _, item := range inValues {
 			if actual == item {
@@ -407,6 +405,30 @@ func compareString(actual string, op string, expected string, inValues []string)
 		return TruthFalse
 	default:
 		return TruthUnknown
+	}
+}
+
+// 只有 * 是通配符；其它字符保持字面含义，模型路径中的 / 也可被匹配。
+func matchStringPattern(actual, pattern string) bool {
+	prefix, rest, wildcard := strings.Cut(pattern, "*")
+	if !wildcard {
+		return actual == pattern
+	}
+	if !strings.HasPrefix(actual, prefix) {
+		return false
+	}
+	actual = actual[len(prefix):]
+	for {
+		part, next, more := strings.Cut(rest, "*")
+		if !more {
+			return strings.HasSuffix(actual, part)
+		}
+		at := strings.Index(actual, part)
+		if at < 0 {
+			return false
+		}
+		actual = actual[at+len(part):]
+		rest = next
 	}
 }
 

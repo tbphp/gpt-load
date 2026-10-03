@@ -5,6 +5,7 @@ import test from 'node:test'
 
 import {
   actionRepresentable,
+  arrayItems,
   conditionKind,
   duplicateRule,
   getField,
@@ -108,6 +109,17 @@ test('malformed leaf structures are represented as JSON-only, never coerced', ()
     ],
   }
   assert.equal(conditionKind(mixedIn.all[0]), 'unsupported')
+  // 字符串参数只支持 eq，导入集合操作必须落回 JSON-only。
+  assert.equal(
+    conditionKind(
+      objectNode([
+        { key: 'fact', value: stringLiteral('request.model') },
+        { key: 'op', value: stringLiteral('in') },
+        { key: 'value', value: stringLiteral('x') },
+      ]),
+    ),
+    'unsupported',
+  )
 
   const badDays = objectNode([
     { key: 'predicate', value: stringLiteral('time_window') },
@@ -290,12 +302,9 @@ test('new rules default disabled, unique id, domain-correct action', () => {
   const scheduling = newRule('rule-1', 'scheduling')
   assert.equal(getField(scheduling, 'enabled')?.raw, 'false')
   assert.equal(literalString(getField(scheduling, 'name')), 'rule-1')
-  // 新规则默认条件必须可编译，而不是空模型值的非法叶。
+  // 新规则不含预设条件，等待用户显式添加。
   assert.equal(conditionKind(getField(scheduling, 'when')), 'all')
-  assert.equal(
-    conditionKind(getField(getField(scheduling, 'when'), 'all')?.items?.[0]),
-    'time_window',
-  )
+  assert.equal(arrayItems(getField(getField(scheduling, 'when'), 'all'))?.length, 0)
   assert.equal(getField(getField(scheduling, 'then'), 'type')?.raw, '"exclude_candidate"')
   const pricing = newRule('rule-1', 'pricing')
   assert.equal(getField(getField(pricing, 'then'), 'type')?.raw, '"multiply_price"')
